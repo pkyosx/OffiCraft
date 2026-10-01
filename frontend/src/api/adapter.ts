@@ -1005,6 +1005,10 @@ export interface TaskManualSummaryView {
    * budget rather than as a hint. */
   sopMdChars: number;
   sopMdCapChars: number;
+  /** Ships with OffiCraft: not deletable, resettable to its shipped version. */
+  isSeed: boolean;
+  /** A built-in served as shipped, with no edit over it. */
+  isDefault: boolean;
 }
 
 /** One FULL task manual — a list row plus the long document it sizes
@@ -2582,8 +2586,8 @@ export interface Api {
   listTaskTypes(): Promise<TaskTypeView[]>;
   // ── Task manuals (設定 › 任務手冊, SPEC §5) ────────────────────────────────
   /** List the manuals as a DIRECTORY (`GET /api/task-manuals`) — the 任務手冊
-   * list page (type cards: 類型名 + 用途摘要). 出廠不含任何類型 (honest empty
-   * list). T-1170: `sop_md` is NOT in this answer, only its size; the body
+   * list page (type cards: 類型名 + 用途摘要). Built-in manuals are always
+   * listed. T-1170: `sop_md` is NOT in this answer, only its size; the body
    * comes from `getTaskManual`. */
   listTaskManuals(): Promise<TaskManualSummaryView[]>;
   /** Read ONE manual in full (`GET /api/task-manuals/{type_key}`) — the detail
@@ -2608,6 +2612,10 @@ export interface Api {
    * (non-terminal) tasks of the type → 409 (throws — the UI surfaces the
    * human-readable 先讓任務結束 message); unknown → 404. */
   deleteTaskManual(typeKey: string): Promise<void>;
+  /** Put a built-in manual back to its shipped version — content AND
+   * assignee (`POST /api/task-manuals/{type_key}/reset`). A custom manual →
+   * 409 (nothing to go back to); unknown → 404. */
+  resetTaskManual(typeKey: string): Promise<void>;
   // ── 傳承 (the 傳承 nav tab, T-33) ─────────────────────────────────────────
   /** One page of 傳承 entries (`GET /api/lore`).
    *
@@ -2835,7 +2843,8 @@ export interface Api {
   /** Partial edit of a role definition. The write answers with a bounded
    * receipt (T-91), not the folded doc; read it back with `getRole`. */
   saveRole(key: string, patch: RolePatch): Promise<void>;
-  /** Reset a role definition to seed (idempotent tombstone → `isDefault` true). */
+  /** Reset a role definition to seed (idempotent tombstone → `isDefault` true).
+   * A custom role → 409 (not applicable); unknown → 404. */
   resetRole(key: string): Promise<void>;
   /**
    * Create ONE custom role + its ONE founding member (`POST /api/roles`, M2-2).
@@ -2890,7 +2899,8 @@ export interface Api {
    * idempotent tombstone → the folded read is `seeds/insight_<role_key>.md`
    * again and `isDefault` flips true. The counterpart of `resetRole` on Duty.
    *
-   * A role with NO seed file 404s (throws): there must be a factory version to
+   * A role with NO seed file is refused as not applicable (409, throws), and
+   * a role that does not exist 404s: there must be a factory version to
    * reset TO. The cockpit only offers this where a seed exists, so the guard is
    * about keeping every implementation of this port honest, not about a path
    * the UI walks.
@@ -2934,8 +2944,8 @@ export interface Api {
    * READ-ONLY: this is what makes 初始版本 comparable BEFORE its restore, which
    * is the one restore in the list that throws away everything the owner ever
    * wrote. Rejects with a 404 `ApiError` for a document that has no default
-   * (a custom role, a task manual) — the same documents whose
-   * reset the server 404s, and the same ones whose 初始版本 row is not drawn.
+   * (a custom role, a custom task manual) — the same documents whose reset
+   * the server refuses as not applicable, and whose 初始版本 row is not drawn.
    */
   getDocumentSeed(kind: DocumentKind, key: string): Promise<DocumentSeedView>;
   /**

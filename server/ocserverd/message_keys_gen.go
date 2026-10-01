@@ -932,6 +932,7 @@ var messageKeys = map[string]bool{
 	"settings.historyGlobalTitle":                      true,
 	"settings.historyInsightTitle":                     true,
 	"settings.historyLoading":                          true,
+	"settings.historyManualSeedConfirm":                true,
 	"settings.historyModalDefaultContent":              true,
 	"settings.historyModalEmpty":                       true,
 	"settings.historyNoContent":                        true,

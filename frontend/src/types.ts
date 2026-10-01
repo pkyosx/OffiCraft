@@ -259,7 +259,7 @@ export interface InsightView {
    * (`seeds/insight_<role_key>.md` ships). Gate the 初始版本 reset row on THIS,
    * never on `isDefault`: that one says whether the role has written yet, and a
    * seeded role that HAS written reads hasSeed=true / isDefault=false — exactly
-   * when the reset is worth offering. `resetInsight` 404s when it is false.
+   * when the reset is worth offering. `resetInsight` is refused (409) when it is false.
    */
   hasSeed: boolean;
 }
@@ -877,9 +877,10 @@ export interface DiffPairView {
  * one unchanged, so 初始版本 can be COMPARED before anyone decides to go back
  * to it. Reading it writes nothing.
  *
- * Only the two documents that own a reset have one (the global block's default
- * is the empty document, a seed role's is its file seed); everywhere else the
- * route 404s, exactly where the 初始版本 row is not rendered either.
+ * Only a document that ships a default has one (the global block's default is
+ * the empty document, a seed role's is its file seed, a built-in manual's is
+ * its shipped SOP); everywhere else the route 404s, exactly where the 初始版本
+ * row is not rendered either.
  */
 export interface DocumentSeedView {
   kind: DocumentKind;

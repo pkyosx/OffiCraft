@@ -1,6 +1,7 @@
 // 設定 › 任務手冊 (M3 SPEC §5). Locked here — the acceptance behaviors:
 //   1. The settings landing carries the 任務手冊 entry (與角色誌並列); the
-//      list starts HONESTLY EMPTY (出廠不含任何類型).
+//      built-in manuals are listed under 內建 (not deletable), custom ones
+//      under 自訂, which appears only once one exists.
 //   2. 新增類型 (T-fa76): the inline row takes a DISPLAY NAME; the system
 //      mints the tm- type_key (never the user's text) and the list row shows
 //      the display name — the key stays out of the UI.
@@ -15,13 +16,14 @@
 //      each holding its own draft (owner 2026-07-31, superseding the
 //      one-block-at-a-time rule). The 版本紀錄 entry belongs to block ③'s edit
 //      row only (only the SOP is versioned).
-//      (No 重置 — manuals have no seed.)
+//      Only a built-in manual has 初始版本, and resetting it restores the
+//      whole manual, 負責成員 included.
 //   5. 負責成員 card: member pick or 外包 (model + effort + copies ×N).
 //   6. Delete: confirm modal; a type with OPEN tasks survives its 409 with the
 //      honest 先讓它們結束 message; a closed-task type deletes.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, fireEvent, waitFor } from "@testing-library/react";
+import { render, fireEvent, waitFor, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { SettingsPage } from "./SettingsPage";
 import {
@@ -79,6 +81,8 @@ function mkManual(over: Partial<TaskManualView>): TaskManualView {
     sopMd: "",
     assignee: null,
     updatedTs: 0,
+    isSeed: false,
+    isDefault: false,
     // T-100 — the size/cap pairs. Defaulted to a REAL, non-equal pair rather
     // than 0/0: a 0 cap is the "not known" state that suppresses the readout
     // entirely, so a fixture built on it would let every usage assertion pass
@@ -124,14 +128,36 @@ afterEach(() => {
 const realUpdateTaskManual = api.updateTaskManual.bind(api);
 
 describe("設定 › 任務手冊 — list", () => {
-  it("starts honestly empty (出廠不含任何類型)", async () => {
-    const { findByTestId } = await renderManualsList();
+  it("lists the built-in manuals under 內建 with delete disabled, and no 自訂 group until one exists", async () => {
+    const { findByTestId, queryByTestId } = await renderManualsList();
+    const builtin = (await findByTestId("manual-group-builtin"))
+      .parentElement as HTMLElement;
+    expect(builtin.getAttribute("role")).toBe("group");
+    expect(
+      [...builtin.querySelectorAll(".set-entry__name")].map((n) => n.textContent)
+    ).toEqual(["建立／修改角色", "建立／修改任務手冊"]);
+    expect(builtin.querySelector(".manual-group__head")?.textContent).toBe("內建");
+    for (const key of ["builtin-role-design", "builtin-task-manual-design"]) {
+      const del = within(builtin).getByTestId(`manual-delete-${key}`);
+      expect((del as HTMLButtonElement).disabled).toBe(true);
+      fireEvent.click(del);
+      expect(queryByTestId("manual-delete-confirm")).toBeNull();
+    }
+    expect(queryByTestId("manual-group-custom")).toBeNull();
+    expect(queryByTestId("manuals-empty")).toBeNull();
+  });
+
+  it("says the list is empty, with no group headings, when the server lists nothing", async () => {
+    vi.spyOn(api, "listTaskManuals").mockResolvedValue([]);
+    const { findByTestId, queryByTestId } = await renderManualsList();
     const empty = await findByTestId("manuals-empty");
     expect(empty.textContent).toContain("還沒有任務類型");
+    expect(queryByTestId("manual-group-builtin")).toBeNull();
+    expect(queryByTestId("manual-group-custom")).toBeNull();
   });
 
   it("creates a blank manual from a display name — the system mints the tm- key", async () => {
-    const { findByTestId, getByTestId, getByText, queryByTestId } =
+    const { findByTestId, getByTestId, getByText } =
       await renderManualsList();
     fireEvent.click(await findByTestId("manual-add-entry"));
     fireEvent.change(getByTestId("manual-create-key"), {
@@ -141,10 +167,13 @@ describe("設定 › 任務手冊 — list", () => {
 
     // The row shows the DISPLAY NAME the user typed…
     await waitFor(() => expect(getByText("審查 PR")).toBeTruthy());
-    expect(queryByTestId("manuals-empty")).toBeNull();
+    // …in the 自訂 group, which appears with it…
+    const custom = getByTestId("manual-group-custom").parentElement as HTMLElement;
+    expect(custom.querySelector(".manual-group__head")?.textContent).toBe("自訂");
+    expect(within(custom).getByText("審查 PR")).toBeTruthy();
     // …while the store carries a BLANK manual under a SYSTEM-minted tm- key
     // (never the user's text), which stays out of the row's UI.
-    const manuals = await api.listTaskManuals();
+    const manuals = (await api.listTaskManuals()).filter((m) => !m.isSeed);
     expect(manuals).toHaveLength(1);
     const manual = manuals[0];
     expect(manual.typeKey).toMatch(/^tm-[0-9a-f]{12}$/);
@@ -177,7 +206,7 @@ describe("設定 › 任務手冊 — list", () => {
     fireEvent.click(getByTestId("manual-create-submit"));
     const err = await findByTestId("manual-create-error");
     expect(err.textContent).toContain("建立失敗");
-    expect(queryByTestId("manuals-empty")).not.toBeNull();
+    expect(queryByTestId("manual-group-custom")).toBeNull();
   });
 
   it("delete: open tasks of the type → 409, human message; free type deletes", async () => {
@@ -213,11 +242,64 @@ describe("設定 › 任務手冊 — list", () => {
     await waitFor(() =>
       expect(queryByTestId("manual-open-review-pr")).toBeNull()
     );
-    expect(await api.listTaskManuals()).toEqual([]);
+    expect(queryByTestId("manual-group-custom")).toBeNull();
+    expect((await api.listTaskManuals()).map((m) => m.typeKey)).toEqual([
+      "builtin-role-design",
+      "builtin-task-manual-design",
+    ]);
   });
 });
 
 describe("設定 › 任務手冊 — detail", () => {
+  it("a built-in manual's 初始版本 resets the whole manual after the manual-wide confirmation", async () => {
+    await api.updateTaskManual("builtin-task-manual-design", {
+      purpose: "改過的用途",
+      sopMd: "改過的 SOP",
+      assignee: null,
+    });
+    const { findByTestId, getByTestId, queryByTestId } =
+      await renderManualsList();
+    fireEvent.click(await findByTestId("manual-open-builtin-task-manual-design"));
+    fireEvent.click(await findByTestId("manual-entry-definition"));
+    fireEvent.click(await findByTestId("manual-def-edit-3"));
+    fireEvent.click(getByTestId("doc-history-entry-task_manual_sop"));
+    fireEvent.click(await findByTestId("doc-history-seed-open"));
+    fireEvent.click(await findByTestId("doc-history-modal-restore"));
+    expect(getByTestId("doc-history-restore-confirm").textContent).toContain(
+      "整本手冊（名稱、用途、識別鍵、SOP 與負責成員）都會回到出廠時的內容"
+    );
+    fireEvent.click(getByTestId("doc-history-restore-confirm-btn"));
+
+    await waitFor(() => expect(queryByTestId("doc-history-modal")).toBeNull());
+    const reset = await api.getTaskManual("builtin-task-manual-design");
+    expect(reset).toMatchObject({
+      isDefault: true,
+      assignee: { kind: "staff", memberId: "mira" },
+    });
+    expect(reset.purpose).not.toBe("改過的用途");
+    await waitFor(() =>
+      expect(getByTestId("manual-definition-card").textContent).toContain(
+        reset.purpose
+      )
+    );
+    expect(queryByTestId("manual-def-edit-3")).not.toBeNull();
+  });
+
+  it("a custom manual's SOP history offers no 初始版本", async () => {
+    __injectMockTaskManual(mkManual({ typeKey: "review-pr", sopMd: "v0" }));
+    await api.updateTaskManual("review-pr", { sopMd: "v1" });
+    const { findByTestId, getByTestId } = await renderManualsList();
+    fireEvent.click(await findByTestId("manual-open-review-pr"));
+    fireEvent.click(await findByTestId("manual-entry-definition"));
+    fireEvent.click(await findByTestId("manual-def-edit-3"));
+    fireEvent.click(getByTestId("doc-history-entry-task_manual_sop"));
+    const list = await findByTestId("doc-history-list");
+    await waitFor(() =>
+      expect(list.querySelectorAll(".doc-hist__item").length).toBeGreaterThan(0)
+    );
+    expect(within(list).queryByTestId("doc-history-seed")).toBeNull();
+  });
+
   it("hub → 任務定義 entry pushes the definition sub-page (not inline), READ-ONLY by default; <type> crumb returns to the hub (owner 2026-07-20)", async () => {
     __injectMockTaskManual(
       mkManual({
@@ -850,14 +932,13 @@ describe("設定 › 任務手冊 — deep link (T-e987 任務類型 label 跳�
   });
 
   it("a stale/unknown key self-heals to the manuals list", async () => {
-    // No manual injected → the {kind:"manual"} render falls back to the list,
-    // which is honestly empty.
+    // No such manual → the {kind:"manual"} render falls back to the list.
     const { findByTestId } = render(
       <I18nProvider>
         <SettingsPage initialManualKey="gone" />
       </I18nProvider>
     );
-    expect(await findByTestId("manuals-empty")).toBeTruthy();
+    expect(await findByTestId("manual-group-builtin")).toBeTruthy();
   });
 });
 describe("設定 › 任務手冊 — 完成編輯 的兩個 await (T-91)", () => {

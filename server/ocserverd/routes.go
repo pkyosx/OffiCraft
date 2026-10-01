@@ -1136,6 +1136,12 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler: w.HandleDeleteTaskManualApiTaskManualsTypeKeyDelete,
 			MCPTool: "delete_task_manual",
 		}),
+		Gated(principalAdminAgent, routeDef{
+			Method:  "POST",
+			Path:    "/api/task-manuals/{type_key}/reset",
+			Handler: w.HandleResetTaskManualApiTaskManualsTypeKeyResetPost,
+			MCPTool: "reset_task_manual",
+		}),
 		Gated(principalAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/task-manuals/{type_key}/sop/patch",

@@ -50,6 +50,8 @@ const MANUAL: TaskManualSummaryView = {
   updatedTs: 0,
   sopMdChars: 0,
   sopMdCapChars: 18000,
+  isSeed: false,
+  isDefault: false,
 };
 
 /** 轉派 dialog. The spec picks 轉外包 + Codex itself — going through the real

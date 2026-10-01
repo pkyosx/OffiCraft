@@ -222,7 +222,7 @@ describe("SettingsPage · InsightCard (T-3809)", () => {
   // 🔴 BOTH DIRECTIONS ARE ASSERTED, and the negative one is what makes this
   // worth having: an implementation that wires `onReset` UNCONDITIONALLY passes
   // the positive test perfectly, and the only symptom is that every custom role
-  // is offered a reset the server 404s. One assertion here would ship that.
+  // is offered a reset the server refuses (409). One assertion here would ship that.
   it("offers 初始版本 on a role that HAS a factory insight", async () => {
     // Written first, so this also pins that the row survives the role having
     // its own doc — hasSeed answers what exists to fall back TO, not what is

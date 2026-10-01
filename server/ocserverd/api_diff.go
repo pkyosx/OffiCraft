@@ -211,7 +211,7 @@ func (s *apiServer) currentDocumentContent(kind, key string) (map[string]string,
 		// bootDocHistorySnapshot retains.
 		return one("text", folded.Text, nil)
 	case docKindTaskManualSop:
-		manual, err := s.dal.GetTaskManual(key)
+		manual, err := s.foldTaskManual(key)
 		if err != nil || manual == nil {
 			return nil, false, err
 		}

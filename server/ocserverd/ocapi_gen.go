@@ -1182,7 +1182,7 @@ type DocumentHistoryVersionDTO struct {
 	Kind    string            `json:"kind"`
 }
 
-// DocumentSeedDTO The SHIPPED DEFAULT of an editable long-form document — what a reset puts back, expressed in the SAME field names a retained revision uses so one reader can compare either against the live document. READ-ONLY: this route writes nothing, so looking at 初始版本 can never overwrite anything. 404 when the document has no shipped default (a custom role, a task manual) — exactly the documents whose reset the server also 404s.
+// DocumentSeedDTO The SHIPPED DEFAULT of an editable long-form document — what a reset puts back, expressed in the SAME field names a retained revision uses so one reader can compare either against the live document. READ-ONLY: this route writes nothing, so looking at 初始版本 can never overwrite anything. 404 when the document has no shipped default (a custom role, a task manual created on this station) — exactly the documents whose reset the server refuses as not applicable (409).
 type DocumentSeedDTO struct {
 	Content map[string]string `json:"content"`
 	Key     string            `json:"key"`
@@ -1265,7 +1265,7 @@ type InsightDTO struct {
 	// CapChars The document size cap now in force, in CHARACTERS (the doc.cap_chars.insight setting). Served on the READ face so an agent can size an edit BEFORE writing it — the alternative is discovering the limit by being refused, and the settings surface is admin-only.
 	CapChars *int `json:"cap_chars,omitempty"`
 
-	// HasSeed True when a FACTORY VERSION of this role's insight exists to fall back to — i.e. `seeds/insight_<role_key>.md` ships. It answers ONLY that: it says nothing about whether the doc you are holding IS that factory version (`is_default` answers that), and the two are independent — a role with a seed that has since written its own reads has_seed=true, is_default=false. Added by T-6501 as the precondition for `reset_insight`: a role with has_seed=false gets a 404 from that route, so a surface offering the reset must gate on THIS field. Deliberately NOT named after `RoleDefDTO.is_seed`, which is a fact about the role's DUTY and was misread twice on 2026-08-04 as "you are reading the factory version".
+	// HasSeed True when a FACTORY VERSION of this role's insight exists to fall back to — i.e. `seeds/insight_<role_key>.md` ships. It answers ONLY that: it says nothing about whether the doc you are holding IS that factory version (`is_default` answers that), and the two are independent — a role with a seed that has since written its own reads has_seed=true, is_default=false. Added by T-6501 as the precondition for `reset_insight`: a role with has_seed=false gets a 409 (not applicable) from that route, so a surface offering the reset must gate on THIS field. Deliberately NOT named after `RoleDefDTO.is_seed`, which is a fact about the role's DUTY and was misread twice on 2026-08-04 as "you are reading the factory version".
 	HasSeed *bool `json:"has_seed,omitempty"`
 
 	// IsDefault True while this role has never written its own insight doc (or reset it). It does NOT imply an empty `text`: a role that ships with a factory seed (`seeds/insight_<role_key>.md`) reads that seed with is_default=true, while a role without one reads "". Read this field — not the emptiness of `text` — to tell factory wording apart from something a person wrote. It is NOT the same question as `has_seed`: this one is about what has been WRITTEN, that one about what exists to fall back TO.
@@ -3540,6 +3540,12 @@ type TaskManualDTO struct {
 	DisplayName string                 `json:"display_name"`
 	Fields      []TaskManualFieldDTO   `json:"fields"`
 
+	// IsDefault True when the station is serving the shipped factory version of a built-in manual: no owner or agent edit overlays it. Any edit clears it (content or assignee); reset_task_manual sets it again. Always false for a manual created on this station.
+	IsDefault *bool `json:"is_default,omitempty"`
+
+	// IsSeed Whether this task type ships built-in with OffiCraft rather than being created on this station. Only a built-in manual can be reset (reset_task_manual), and a built-in manual cannot be deleted.
+	IsSeed *bool `json:"is_seed,omitempty"`
+
 	// Lore The rendered 傳承 block for this manual's task type: the entries selected for it, newest first, under a ``# 傳承`` heading. EMPTY STRING when the type has no live entries — a real answer, not an omission. 🔴 IT IS NOT STORED ANYWHERE. It is assembled per read from the lore entries, so it is read-only: read it, do not send it back. The type's accumulated experience lives here.
 	Lore *string `json:"lore,omitempty"`
 
@@ -3598,26 +3604,38 @@ type TaskManualFieldDTO struct {
 //
 // “sop_md“ is deliberately ABSENT rather than served empty: it is the bulk that
 // made a listing unreadable, and an empty string in a field that normally holds
-// the SOP reads as "this type has no SOP". Its size is measured on the STORED
-// row, so the row still answers "which manual is nearly full" — read the one you
+// the SOP reads as "this type has no SOP". Its size is measured on the SERVED
+// document (an unedited built-in manual's is its shipped SOP), so the row still answers "which manual is nearly full" — read the one you
 // picked with get_task_manual.
 type TaskManualListItemDTO struct {
 	Assignee    map[string]interface{} `json:"assignee"`
 	DisplayName string                 `json:"display_name"`
 	Fields      []TaskManualFieldDTO   `json:"fields"`
-	Purpose     *string                `json:"purpose,omitempty"`
+
+	// IsDefault True when the station is serving the shipped factory version of a built-in manual: no owner or agent edit overlays it. Any edit clears it (content or assignee); reset_task_manual sets it again. Always false for a manual created on this station.
+	IsDefault *bool `json:"is_default,omitempty"`
+
+	// IsSeed Whether this task type ships built-in with OffiCraft rather than being created on this station. Only a built-in manual can be reset (reset_task_manual), and a built-in manual cannot be deleted.
+	IsSeed  *bool   `json:"is_seed,omitempty"`
+	Purpose *string `json:"purpose,omitempty"`
 
 	// SopMdCapChars The cap on the type's sop_md now in force, in CHARACTERS (the doc.cap_chars.manual_sop setting).
 	SopMdCapChars *int `json:"sop_md_cap_chars,omitempty"`
 
-	// SopMdChars Size of the type's sop_md in CHARACTERS, measured on the STORED document.
+	// SopMdChars Size of the type's sop_md in CHARACTERS, measured on the document get_task_manual serves (for an unedited built-in manual, its shipped SOP).
 	SopMdChars *int     `json:"sop_md_chars,omitempty"`
 	TypeKey    string   `json:"type_key"`
 	UpdatedTs  *float64 `json:"updated_ts,omitempty"`
 }
 
-// TaskManualReceiptDTO Bounded receipt returned after create_task_manual and update_task_manual (T-91). update_task_manual is a PARTIAL write - every field of its body is nullable and the handler acts only on the ones present - so this receipt reports ONLY the document THIS call actually wrote. Send “sop_md“ and the three “sop_md_*“ fields come back; send neither (a create, or an update of display_name alone) and none of them appears. That absence is the answer, not a gap: reporting numbers for a document this call did not touch is the shape owner rejected verbatim on 2026-09-05 ("為什麼還是要回這麼多訊息"). The manual's configuration - display_name, purpose, assignee, fields - is NOT here either: the caller just sent it, and get_task_manual serves it. “type_key“ always rides back because create MINTS it server-side, so it is the one thing the caller cannot know.
+// TaskManualReceiptDTO Bounded receipt returned after create_task_manual, update_task_manual and reset_task_manual (T-91). update_task_manual is a PARTIAL write - every field of its body is nullable and the handler acts only on the ones present - so this receipt reports ONLY the document THIS call actually wrote. Send “sop_md“ and the three “sop_md_*“ fields come back; send neither (a create, or an update of display_name alone) and none of them appears. That absence is the answer, not a gap: reporting numbers for a document this call did not touch is the shape owner rejected verbatim on 2026-09-05 ("為什麼還是要回這麼多訊息"). The manual's configuration - display_name, purpose, assignee, fields - is NOT here either: the caller just sent it, and get_task_manual serves it. “type_key“ always rides back because create MINTS it server-side, so it is the one thing the caller cannot know.
 type TaskManualReceiptDTO struct {
+	// IsDefault True when no edit overlays the shipped version after this write. reset_task_manual makes it true by dropping the edit; create and update leave it false. The flag tracks whether an edit EXISTS, not whether the text differs: writing text identical to the shipped version still clears it.
+	IsDefault *bool `json:"is_default,omitempty"`
+
+	// IsSeed Whether this task type ships built-in. A registry fact the write does not decide; only a built-in manual has anything to reset to.
+	IsSeed *bool `json:"is_seed,omitempty"`
+
 	// SopMdCapChars The SOP ceiling in force (settings key doc_cap_chars_manual_sop). Present ONLY when this call wrote the SOP document. No ``default``, not required.
 	SopMdCapChars *int `json:"sop_md_cap_chars,omitempty"`
 
@@ -3627,7 +3645,7 @@ type TaskManualReceiptDTO struct {
 	// SopMdSha256 Hex sha256 over the SOP document as stored. Present ONLY when this call wrote it. No ``default``, not required.
 	SopMdSha256 *string `json:"sop_md_sha256,omitempty"`
 
-	// TypeKey The manual this write landed on, always present. It is only NEWS on one of the three faces: the display_name create path mints it server-side. On the legacy create path the caller's own type_key is taken verbatim, and on update_task_manual it is the caller's own URL path parameter - on those two it is an echo, kept because a receipt that cannot say which manual it wrote is useless.
+	// TypeKey The manual this write landed on, always present. It is only NEWS on one of the four faces: the display_name create path mints it server-side. On the legacy create path the caller's own type_key is taken verbatim, and on update_task_manual and reset_task_manual it is the caller's own URL path parameter - on those three it is an echo, kept because a receipt that cannot say which manual it wrote is useless.
 	TypeKey string `json:"type_key"`
 
 	// UpdatedTs When the manual was stamped by this write. Server-derived.
@@ -4640,7 +4658,7 @@ type ServerInterface interface {
 	//
 	// ADDRESSING: “kind“ and “key“ name a document exactly as they do for list_document_history — the same server-side gate answers both routes, so whatever that tool addresses is addressable here, and a “kind“ this server does not know is refused with 400 while a “key“ that names no document of that kind is refused with 404 that names it. Neither is something to guess at: ask and read the answer.
 	//
-	// COVERAGE: whether THAT document ships a default is answered by asking for it. 200 means it does, and “content“ is that text. 404 means it has none at all — a role the owner created, a task manual — which is the same set whose reset the server also 404s, so it is the honest 'there is nothing to go back to', not a gap to work around. 400 on a retired kind names the series that replaced it.
+	// COVERAGE: whether THAT document ships a default is answered by asking for it. 200 means it does, and “content“ is that text. 404 means it has none at all — a role the owner created, a task manual created on this station — which is the same set whose reset the server refuses as not applicable (409), so it is the honest 'there is nothing to go back to', not a gap to work around. 400 on a retired kind names the series that replaced it.
 	// (GET /api/document-history/{kind}/{key}/seed)
 	HandleGetDocumentSeedApiDocumentHistoryKindKeySeedGet(w http.ResponseWriter, r *http.Request, kind string, key string)
 	// READ the BODY of one named retained version of an editable document — the “content“ map that version was stored with, exactly as it was stored. Read-only: this fetches text, it never puts it back; restoring stays out of the agent tool surface, as it does for list_document_history.
@@ -4677,7 +4695,7 @@ type ServerInterface interface {
 	// Patch a per-role insight doc by unique anchors ({edits:[{old,new}]}). Only the role's own agents (and admin) may WRITE it.
 	// (POST /api/insight/{role_key}/patch)
 	HandlePatchInsightApiInsightRoleKeyPatchPost(w http.ResponseWriter, r *http.Request, roleKey string)
-	// Reset a per-role insight doc back to its factory seed (idempotent tombstone of the overlay) - the counterpart of reset_role on the Duty block. A role with NO seed file (seeds/insight_<role_key>.md) returns 404: there must be a factory version to reset TO. No length cap is applied on this path, matching reset_role - the factory text is part of the product. The overlay you are discarding is retained as a document-history revision, so the reset is recoverable. Only the role's own agents (and admin) may do it. Answers with a bounded receipt (“role_key“, “is_default“, “has_seed“, “size_chars“, “cap_chars“, “sha256“), not the folded doc — call “get_insight“ when you need the rest.
+	// Reset a per-role insight doc back to its factory seed (idempotent tombstone of the overlay) - the counterpart of reset_role on the Duty block. A role with NO seed file (seeds/insight_<role_key>.md) is refused with 409 (not applicable): there must be a factory version to reset TO; a role that does not exist is 404. No length cap is applied on this path, matching reset_role - the factory text is part of the product. The overlay you are discarding is retained as a document-history revision, so the reset is recoverable. Only the role's own agents (and admin) may do it. Answers with a bounded receipt (“role_key“, “is_default“, “has_seed“, “size_chars“, “cap_chars“, “sha256“), not the folded doc — call “get_insight“ when you need the rest.
 	// (POST /api/insight/{role_key}/reset)
 	HandleResetInsightApiInsightRoleKeyResetPost(w http.ResponseWriter, r *http.Request, roleKey string)
 	// Owner login: exchange the password for an owner-scoped JWT.
@@ -4925,7 +4943,7 @@ type ServerInterface interface {
 	// Edit a role definition ({name?, definition_md?}; locked names skip). Answers with a bounded receipt (“key“, “name“, “is_default“, “is_seed“, “size_chars“, “cap_chars“, “sha256“), not the duty document — call “get_role“ when you need the rest.
 	// (POST /api/roles/{role})
 	HandleUpdateRoleApiRolesRolePost(w http.ResponseWriter, r *http.Request, role string)
-	// Reset a role definition to seed (idempotent tombstone overlay). Answers with a bounded receipt (“key“, “name“, “is_default“, “is_seed“, “size_chars“, “cap_chars“, “sha256“), not the duty document — call “get_role“ when you need the rest.
+	// Reset a role definition to seed (idempotent tombstone overlay). Only a shipped (seed) role can be reset: a role created on this station is refused with 409 (not applicable), an unknown role is 404. Answers with a bounded receipt (“key“, “name“, “is_default“, “is_seed“, “size_chars“, “cap_chars“, “sha256“), not the duty document — call “get_role“ when you need the rest.
 	// (POST /api/roles/{role}/reset)
 	HandleResetRoleApiRolesRoleResetPost(w http.ResponseWriter, r *http.Request, role string)
 	// restart_self(): ask for your own session to be stopped and started again. This call only records the request; it stops nothing itself. Your session is woken with the 〈停止〉 document, and the server stops and respawns the session only after you work that procedure and call “report_stopped“. If the owner or an admin agent escalates to 加速停止 while you are working it, a deadline starts, you are sent the 〈加速停止〉 document naming it, and the server collects the session at that deadline even if “report_stopped“ has not been called. The owner or an admin agent can also end the session at once with 強制停止 (“force_stop_member“); that stop cancels the restart and leaves you down, with your desired state set to offline. Refused with 409 when you have no live event-stream connection or your desired state is not online, with 429 while the current session is younger than the minimum-liveness floor the refusal states, and with 409 when you are already further along the wind-down ladder (下線 → 加速 → 強制). Answers with a bounded receipt (“id“, “desired_state“, “refocus_op“, “refocus_deadline“), not the member row — call “get_member“ when you need the rest.
@@ -4997,18 +5015,21 @@ type ServerInterface interface {
 	// List task types WITHOUT their long documents: each row is the type identity (type_key / display_name / purpose), its input fields and its assignee setting, plus the SIZE of sop_md and the cap it is judged against. The SOP text is not on this answer at all — read the one type you picked with get_task_manual.
 	// (GET /api/task-manuals)
 	HandleListTaskManualsApiTaskManualsGet(w http.ResponseWriter, r *http.Request)
-	// Create a task type: pass display_name; the server mints and returns the tm- type_key id (legacy explicit type_key still accepted; duplicate → 409; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Answers with a bounded receipt (“type_key“, “updated_ts“, “sop_md_chars“, “sop_md_cap_chars“, “sop_md_sha256“), not the manual — call “get_task_manual“ when you need the rest.
+	// Create a task type: pass display_name; the server mints and returns the tm- type_key id (legacy explicit type_key still accepted; duplicate → 409; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Answers with a bounded receipt (“type_key“, “updated_ts“, “is_default“, “is_seed“, “sop_md_chars“, “sop_md_cap_chars“, “sop_md_sha256“), not the manual — call “get_task_manual“ when you need the rest.
 	// (POST /api/task-manuals)
 	HandleCreateTaskManualApiTaskManualsPost(w http.ResponseWriter, r *http.Request)
-	// Delete a task type (open tasks of the type → 409).
+	// Delete a task type (open tasks of the type → 409). A built-in manual cannot be deleted (403) — reset it with reset_task_manual instead.
 	// (DELETE /api/task-manuals/{type_key})
 	HandleDeleteTaskManualApiTaskManualsTypeKeyDelete(w http.ResponseWriter, r *http.Request, typeKey string)
 	// Read one task manual (purpose/fields/SOP/assignee). The SOP is judged against sop_md_cap_chars.
 	// (GET /api/task-manuals/{type_key})
 	HandleGetTaskManualApiTaskManualsTypeKeyGet(w http.ResponseWriter, r *http.Request, typeKey string)
-	// Edit a task manual (partial; content fields agent-editable; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Only the fields you name change, so omitting a field is safe — but unknown keys are rejected rather than dropped. The SOP is judged against sop_md_cap_chars. Answers with a bounded receipt (“type_key“, “updated_ts“, “sop_md_chars“, “sop_md_cap_chars“, “sop_md_sha256“), not the manual — call “get_task_manual“ when you need the rest.
+	// Edit a task manual (partial; content fields agent-editable; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Only the fields you name change, so omitting a field is safe — but unknown keys are rejected rather than dropped. The SOP is judged against sop_md_cap_chars. Answers with a bounded receipt (“type_key“, “updated_ts“, “is_default“, “is_seed“, “sop_md_chars“, “sop_md_cap_chars“, “sop_md_sha256“), not the manual — call “get_task_manual“ when you need the rest.
 	// (POST /api/task-manuals/{type_key})
 	HandleUpdateTaskManualApiTaskManualsTypeKeyPost(w http.ResponseWriter, r *http.Request, typeKey string)
+	// Reset a built-in task manual to its shipped version (idempotent): drops any edit, content AND assignee alike. Only a built-in (seed) manual can be reset: a manual created on this station is refused with 409 (not applicable), an unknown type_key is 404. Owner or admin agent only. Answers with a bounded receipt (“type_key“, “updated_ts“, “is_default“, “is_seed“, “sop_md_chars“, “sop_md_cap_chars“, “sop_md_sha256“), not the manual — call “get_task_manual“ when you need the rest.
+	// (POST /api/task-manuals/{type_key}/reset)
+	HandleResetTaskManualApiTaskManualsTypeKeyResetPost(w http.ResponseWriter, r *http.Request, typeKey string)
 	// Patch a type's SOP (sop_md) by unique anchors ({edits:[{old,new}]}) — send only the section that changed, instead of re-typing the whole SOP. USE THIS WHENEVER YOU ARE AMENDING AN SOP THAT ALREADY HAS CONTENT. update_task_manual{sop_md} is a wholesale replace, so if anyone else edited the SOP between your read and your write, your copy is stale and the replace silently deletes their section — and because your stale copy is usually the LONGER one, no guard fires and nothing tells you. A patch cannot do that: a non-empty old must match the current sop_md EXACTLY ONCE (0 or >1 hits reject the WHOLE batch with a 400 that names which edit failed and which tool to re-read with, zero writes), so a concurrent write turns into a refusal you can see. Edits apply in order; an empty old appends. Wiping the doc, or shrinking it below a tenth, needs allow_shrink=true — for an honest rewrite from scratch use update_task_manual. The sop_md cap is judged on the RESULT and allow_shrink is not a bypass. Re-read with get_task_manual after a refusal.
 	// (POST /api/task-manuals/{type_key}/sop/patch)
 	HandlePatchTaskSopApiTaskManualsTypeKeySopPatchPost(w http.ResponseWriter, r *http.Request, typeKey string)
@@ -8536,6 +8557,32 @@ func (siw *ServerInterfaceWrapper) HandleUpdateTaskManualApiTaskManualsTypeKeyPo
 	handler.ServeHTTP(w, r)
 }
 
+// HandleResetTaskManualApiTaskManualsTypeKeyResetPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleResetTaskManualApiTaskManualsTypeKeyResetPost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "type_key" -------------
+	var typeKey string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "type_key", r.PathValue("type_key"), &typeKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "type_key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleResetTaskManualApiTaskManualsTypeKeyResetPost(w, r, typeKey)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // HandlePatchTaskSopApiTaskManualsTypeKeySopPatchPost operation middleware
 func (siw *ServerInterfaceWrapper) HandlePatchTaskSopApiTaskManualsTypeKeySopPatchPost(w http.ResponseWriter, r *http.Request) {
 
@@ -10103,6 +10150,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/task-manuals/{type_key}", wrapper.HandleDeleteTaskManualApiTaskManualsTypeKeyDelete)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/task-manuals/{type_key}", wrapper.HandleGetTaskManualApiTaskManualsTypeKeyGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/task-manuals/{type_key}", wrapper.HandleUpdateTaskManualApiTaskManualsTypeKeyPost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/task-manuals/{type_key}/reset", wrapper.HandleResetTaskManualApiTaskManualsTypeKeyResetPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/task-manuals/{type_key}/sop/patch", wrapper.HandlePatchTaskSopApiTaskManualsTypeKeySopPatchPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tasks", wrapper.HandleListTasksApiTasksGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks", wrapper.HandleCreateTaskApiTasksPost)

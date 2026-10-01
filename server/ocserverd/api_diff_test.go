@@ -743,6 +743,17 @@ func TestCurrentDocumentContent(t *testing.T) {
 		})
 	}
 
+	t.Run("an unedited built-in task manual returns its shipped SOP", func(t *testing.T) {
+		got, ok, err := api.currentDocumentContent(docKindTaskManualSop, "builtin-role-design")
+		if err != nil || !ok {
+			t.Fatalf("currentDocumentContent: present = %v, err = %v", ok, err)
+		}
+		if len(got) != 1 || receiptSha256(got["sop_md"]) != apiTestRoleDesignSopSha256 {
+			t.Fatalf("content = %d fields, sop_md sha256 %s, want only the shipped SOP %s",
+				len(got), receiptSha256(got["sop_md"]), apiTestRoleDesignSopSha256)
+		}
+	})
+
 	// EVERY event procedure, not a representative one: the arm that serves them
 	// is a case list of literal kinds, and a kind left out of it answers absent
 	// — the compare view then renders 「沒有差異」 against every retained version

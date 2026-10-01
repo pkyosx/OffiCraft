@@ -532,6 +532,27 @@ func FoldRoleDef(key string, overlay *RoleDef, seedName, seedMD string, hasSeed 
 	}
 }
 
+// FoldTaskManual: seed is nil for a manual created on the station. A tombstone
+// keeps its own updated_ts so a reset reads as a change.
+func FoldTaskManual(overlay *TaskManual, seed *TaskManual) *TaskManual {
+	if overlay != nil && !overlay.Tombstoned {
+		folded := *overlay
+		folded.IsSeed = seed != nil
+		folded.IsDefault = false
+		return &folded
+	}
+	if seed == nil {
+		return nil
+	}
+	folded := *seed
+	folded.IsSeed = true
+	folded.IsDefault = true
+	if overlay != nil {
+		folded.UpdatedTS = overlay.UpdatedTS
+	}
+	return &folded
+}
+
 // FoldInsight: the seed is per role (assets.go seedInsightMD reads
 // insight_<roleKey>.md), so isDefault no longer implies text == "". Anything
 // asking "has this role written its own insight" must read isDefault.

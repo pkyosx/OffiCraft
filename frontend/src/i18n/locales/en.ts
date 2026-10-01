@@ -2091,6 +2091,8 @@ export const en: Dict = {
     historySopTitle: "SOP version history",
     historySopSub:
       "Only the SOP is versioned; edits to the purpose and the identifier fields keep no history. The last 3 revisions are kept, and restoring overwrites the SOP only.",
+    historyManualSeedConfirm:
+      "Restore the initial version? The whole manual (name, purpose, identifier fields, SOP and assignee) goes back to how it shipped, overwriting the current edits.",
     historyField: {
       text: "Content",
       name: "Name",

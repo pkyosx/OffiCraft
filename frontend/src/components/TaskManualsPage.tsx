@@ -3,8 +3,9 @@
 // NEXT TO 角色誌 on the settings landing.
 //
 //   List (§5.1)   — one row per type: the DISPLAY NAME (fallback type_key —
-//                   T-fa76), delete button,
-//                   chevron. 出廠不含任何類型 (honest empty state); 新增類型
+//                   T-fa76), delete button, chevron, grouped 內建 / 自訂 by
+//                   heading alone (the ThemeSettings pattern). Built-in
+//                   manuals ship with OffiCraft and cannot be deleted; 新增類型
 //                   grows the INLINE create row (the 角色誌 add pattern) — a
 //                   display name alone creates a BLANK manual (the server
 //                   mints the tm- type_key); delete is confirm-modal'd and a
@@ -147,6 +148,49 @@ export function TaskManualsList({
     }
   }
 
+  const builtinManuals = manuals.filter((m) => m.isSeed);
+  const customManuals = manuals.filter((m) => !m.isSeed);
+
+  function renderRow(m: TaskManualSummaryView) {
+    return (
+      <div className="set-entry-row" key={m.typeKey}>
+        <div className="set-entry-row__main">
+          {/* Display name only — no purpose subtitle, no leading icon (owner 2026-07-13). */}
+          <button
+            type="button"
+            className="set-entry manual-row"
+            data-testid={`manual-open-${m.typeKey}`}
+            onClick={() => onOpen(m.typeKey)}
+          >
+            <span className="set-entry__body">
+              <span className="set-entry__name manual-key">
+                {m.displayName || m.typeKey}
+              </span>
+            </span>
+            <ChevronRightIcon size={18} className="set-entry__chev" />
+          </button>
+          {/* A built-in keeps an inert delete so both groups line up their
+           * right edge; the server refuses deleting it anyway. */}
+          <button
+            type="button"
+            className="set-entry-row__delete"
+            data-testid={`manual-delete-${m.typeKey}`}
+            aria-label={t.settings.deleteManual}
+            title={t.settings.deleteManual}
+            disabled={m.isSeed}
+            aria-disabled={m.isSeed || undefined}
+            onClick={() => {
+              setConfirmKey(m.typeKey);
+              setDeleteError(null);
+            }}
+          >
+            <TrashIcon size={16} />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="settings">
       {/* Breadcrumb 設定 › 任務手冊 (T-8f6e unified pattern) + page title. */}
@@ -165,42 +209,39 @@ export function TaskManualsList({
           </div>
         )}
 
-        {manuals.map((m) => (
-          <div className="set-entry-row" key={m.typeKey}>
-            <div className="set-entry-row__main">
-              {/* Mockup list row: the type_key ONLY (mono) — no purpose
-               * subtitle, no leading icon (owner 2026-07-13). */}
-              <button
-                type="button"
-                className="set-entry manual-row"
-                data-testid={`manual-open-${m.typeKey}`}
-                onClick={() => onOpen(m.typeKey)}
-              >
-                <span className="set-entry__body">
-                  {/* Display name first (T-fa76), falling back to the raw
-                   * type_key. */}
-                  <span className="set-entry__name manual-key">
-                    {m.displayName || m.typeKey}
-                  </span>
-                </span>
-                <ChevronRightIcon size={18} className="set-entry__chev" />
-              </button>
-              <button
-                type="button"
-                className="set-entry-row__delete"
-                data-testid={`manual-delete-${m.typeKey}`}
-                aria-label={t.settings.deleteManual}
-                title={t.settings.deleteManual}
-                onClick={() => {
-                  setConfirmKey(m.typeKey);
-                  setDeleteError(null);
-                }}
-              >
-                <TrashIcon size={16} />
-              </button>
+        {builtinManuals.length > 0 && (
+          <div
+            className="manual-group"
+            role="group"
+            aria-labelledby="manual-group-builtin"
+          >
+            <div
+              className="manual-group__head"
+              id="manual-group-builtin"
+              data-testid="manual-group-builtin"
+            >
+              {t.themeMarkers.builtinGroup}
             </div>
+            {builtinManuals.map(renderRow)}
           </div>
-        ))}
+        )}
+
+        {customManuals.length > 0 && (
+          <div
+            className="manual-group"
+            role="group"
+            aria-labelledby="manual-group-custom"
+          >
+            <div
+              className="manual-group__head"
+              id="manual-group-custom"
+              data-testid="manual-group-custom"
+            >
+              {t.themeMarkers.customGroup}
+            </div>
+            {customManuals.map(renderRow)}
+          </div>
+        )}
 
         {/* 新增類型 — the list's bottom entry (spec §5.1). */}
         {!adding ? (
@@ -384,6 +425,7 @@ export function TaskManualDefinitionPage({
   crumbs,
   onSave,
   onRestored,
+  onReset,
 }: {
   /** The manual IN FULL — `null` until its own read lands (T-1170: the SOP is
    * not on the list answer). The page keeps its breadcrumb and title either
@@ -398,6 +440,9 @@ export function TaskManualDefinitionPage({
   /** Re-read the manual after a 版本紀錄 restore (T-7d33). A restore writes ONE
    * field of the manual back (T-1f39), but the manual is fetched whole. */
   onRestored?: () => Promise<unknown> | void;
+  /** Put a built-in manual back to its shipped version; absent for a custom
+   * manual, which has none. */
+  onReset?: () => Promise<unknown>;
 }) {
   const { t } = useI18n();
   return (
@@ -420,6 +465,7 @@ export function TaskManualDefinitionPage({
           manual={manual}
           onSave={onSave}
           onRestored={onRestored}
+          onReset={onReset}
         />
       )}
     </div>
@@ -550,11 +596,13 @@ function DefinitionCard({
   manual,
   onSave,
   onRestored,
+  onReset,
 }: {
   manual: TaskManualView;
   onSave: (patch: TaskManualPatch) => Promise<unknown>;
   /** Re-read the manual after a 版本紀錄 restore. */
   onRestored?: () => Promise<unknown> | void;
+  onReset?: () => Promise<unknown>;
 }) {
   const { t } = useI18n();
   /** Which blocks are open. Any number of them, independently — see the card's
@@ -865,8 +913,9 @@ function DefinitionCard({
             testId="manual-sop-usage"
           />
           {/* 版本紀錄 — the ONLY place it appears on this page: only the SOP is
-            * versioned, and this is the SOP's own edit row. A task manual has no
-            * file seed, so its list carries no 初始版本 row. */}
+            * versioned, and this is the SOP's own edit row. Only a built-in
+            * manual has a 初始版本 row, and going back to it rewrites the whole
+            * manual, not just the SOP — hence its own confirmation. */}
           {switchFor(
             3,
             t.settings.manualQ3,
@@ -876,7 +925,17 @@ function DefinitionCard({
               title={t.settings.historySopTitle}
               note={t.settings.historySopSub}
               currentContent={{ sop_md: manual.sopMd }}
-              docDeletable
+              docDeletable={!manual.isSeed}
+              onReset={
+                onReset
+                  ? async () => {
+                      await onReset();
+                      // Every block's draft predates the reset.
+                      setOpenBlocks(new Set());
+                    }
+                  : undefined
+              }
+              seedConfirm={t.settings.historyManualSeedConfirm}
               // A restore rewrote the SOP under the editor — leaving the draft
               // up would turn 完成編輯 into an undo of the restore.
               onRestored={async () => {

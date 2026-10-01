@@ -106,6 +106,7 @@ export function DocumentHistoryModal({
   seed,
   seedUnavailable,
   seedContent,
+  seedConfirm,
 }: {
   kind: DocumentKind;
   /** When the revision was retained (`0` for the seed — nobody wrote it). */
@@ -181,6 +182,9 @@ export function DocumentHistoryModal({
    * the same honesty `seedUnavailable` buys the 初始版本 row.
    */
   seedContent?: Record<string, string>;
+  /** `seed` only: replaces the default confirmation where going back to the
+   * shipped version rewrites more than this one document. */
+  seedConfirm?: string;
 }) {
   const { t, msg } = useI18n();
   const [pane, setPane] = useState<Pane>("content");
@@ -207,7 +211,7 @@ export function DocumentHistoryModal({
   // names the timestamp it is going back to; the seed's says the current content
   // is overwritten by the shipped default.
   const confirmBody = seed
-    ? t.settings.historySeedConfirm
+    ? (seedConfirm ?? t.settings.historySeedConfirm)
     : msg.docHistoryRestoreConfirm(when);
   const fieldLabel = (name: string) =>
     (t.settings.historyField as Record<string, string>)[name] ?? name;

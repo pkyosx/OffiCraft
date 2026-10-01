@@ -973,6 +973,9 @@ export function toTaskManualSummary(
     // refuses a write against.
     sopMdChars: w.sop_md_chars ?? 0,
     sopMdCapChars: w.sop_md_cap_chars ?? 0,
+    // Not `?? true` like roles: a manual absent the flag is one somebody made.
+    isSeed: w.is_seed ?? false,
+    isDefault: w.is_default ?? false,
   };
 }
 

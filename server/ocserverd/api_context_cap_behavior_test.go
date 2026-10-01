@@ -395,8 +395,8 @@ func TestListViewOmitsTheTextButNotItsSize(t *testing.T) {
 	}
 
 	list := listManuals(t, s)
-	if len(list) != 1 {
-		t.Fatalf("want 1 manual, got %d", len(list))
+	if len(list) != 3 || list[0].TypeKey != "tm-sized" {
+		t.Fatalf("want tm-sized listed ahead of the two built-in manuals, got %+v", list)
 	}
 	got := list[0]
 	// The narrowing still happened — otherwise this test would pass on the

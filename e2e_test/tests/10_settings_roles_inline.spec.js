@@ -47,7 +47,7 @@
 //     ids; Esc collapses without creating.
 //   • CUSTOM role detail: the 角色名 gets the pencil InlineEdit (rename rides
 //     the role PATCH choke and the roster follows); the 版本紀錄 list carries NO
-//     初始版本 row (the server 404s a custom reset — the affordance is honestly
+//     初始版本 row (the server refuses a custom reset as not applicable — the affordance is honestly
 //     omitted); NO internal `role-….md` filename chip.
 //   • SEED role detail: name LOCKED (no pencil), the 版本紀錄 list DOES carry
 //     初始版本 (a file seed exists to restore).

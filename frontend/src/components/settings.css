@@ -932,6 +932,11 @@
 .set-entry-row__delete:hover {
   background: color-mix(in srgb, var(--color-danger-soft) 12%, transparent);
 }
+.set-entry-row__delete:disabled {
+  opacity: 0.4;
+  cursor: default;
+  background: transparent;
+}
 /* The add ENTRY itself is the shared `.add-entry` row (styles/global.css). */
 /* Inline create ROW (owner-aligned pattern): the add entry grows one editable
  * list row with a single name input — Enter creates, Esc collapses. */
@@ -1157,6 +1162,20 @@
  * manual-specific interior gets new classes. ---- */
 .manual-key {
   font-family: var(--font-mono, ui-monospace, monospace);
+}
+/* 內建 / 自訂 is said by this heading alone — the ThemeSettings list's own
+ * `.ts-group-head`, restated here because that one lives in its sheet. */
+.manual-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.manual-group__head {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  padding: 0 2px;
 }
 .manuals-empty {
   padding: 18px 6px;

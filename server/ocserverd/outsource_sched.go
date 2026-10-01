@@ -230,7 +230,7 @@ func (s *apiServer) runOutsourceTick(now float64) {
 		}
 		workers = append(workers, w)
 	}
-	manuals, err := s.dal.ListTaskManuals()
+	manuals, err := s.foldTaskManuals()
 	if err != nil {
 		outsourceLog("tick: manual read failed: %v", err)
 		return

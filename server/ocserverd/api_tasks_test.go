@@ -4306,6 +4306,33 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 		})
 	})
 
+	t.Run("handing a task of an unedited built-in type to the outsource lane inherits the manual's launch spec", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		apiTestShipBuiltinAssignee(t, "builtin-role-design", map[string]any{
+			"kind": "outsource", "runtime": "codex", "model": "gpt-5", "effort": "high",
+		})
+		if err := d.PutTask(Task{
+			ID: "T-1", Title: "新增設計角色", TypeKey: "builtin-role-design",
+			Inputs: map[string]any{"role_name": "設計"}, Status: TaskStatusNotStarted,
+			Priority: TaskPriorityMid, ExecutorKind: KindStaff, ExecutorID: "kip", CreatorID: "owner",
+		}); err != nil {
+			t.Fatalf("PutTask: %v", err)
+		}
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner, `{"target":{"kind":"outsource"}}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		got, err := d.GetTask("T-1")
+		if err != nil || got == nil {
+			t.Fatalf("GetTask: %v %v", got, err)
+		}
+		if got.OutsourceRuntime != RuntimeCodex || got.OutsourceModel != "gpt-5" || got.OutsourceEffort != "high" {
+			t.Fatalf("dispatch spec = (%q, %q, %q), want (%q, %q, %q)",
+				got.OutsourceRuntime, got.OutsourceModel, got.OutsourceEffort, RuntimeCodex, "gpt-5", "high")
+		}
+	})
+
 	t.Run("an outsource target naming a machine nothing carries answers 404", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
@@ -5022,6 +5049,40 @@ func TestHandleCreateTaskApiTasksPost(t *testing.T) {
 			"executor_id":   "kip",
 			"deduped":       true,
 			"title":         "Monday report",
+			"status":        "not_started",
+		})
+	})
+
+	t.Run("a task of an unedited built-in type takes the shipped manual's executor and identity field", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		if err := seedOutOfBox(api.dal); err != nil {
+			t.Fatal(err)
+		}
+		mira := apiTestAgentToken(t, api, "mira", "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks", mira,
+			`{"title":"新增設計角色","type_key":"builtin-role-design","inputs":{"role_name":"設計"}}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"task_id":       "T-1",
+			"executor_kind": "staff",
+			"executor_id":   "mira",
+			"deduped":       false,
+		})
+
+		status, again := apiJSON(t, h, "POST", "/api/tasks", mira,
+			`{"title":"再新增設計角色","type_key":"builtin-role-design","inputs":{"role_name":"設計"}}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, again)
+		}
+		apiWantBody(t, again, map[string]any{
+			"task_id":       "T-1",
+			"executor_kind": "staff",
+			"executor_id":   "mira",
+			"deduped":       true,
+			"title":         "新增設計角色",
 			"status":        "not_started",
 		})
 	})

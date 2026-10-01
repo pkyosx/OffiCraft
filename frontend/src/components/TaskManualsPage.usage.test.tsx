@@ -48,6 +48,8 @@ function mkManual(over: Partial<TaskManualView> = {}): TaskManualView {
     sopMd: SOP_TEXT,
     assignee: null,
     updatedTs: 0,
+    isSeed: false,
+    isDefault: false,
     // The size is the true rune count of the text above, the way the server
     // measures it; the cap is deliberately unlike it.
     sopMdChars: [...SOP_TEXT].length,

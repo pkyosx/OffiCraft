@@ -49,7 +49,7 @@ func (s *apiServer) projectWorker(
 // fallback still applies.
 func (s *apiServer) taskTypeDisplayNames() map[string]string {
 	out := map[string]string{}
-	manuals, err := s.dal.ListTaskManuals()
+	manuals, err := s.foldTaskManuals()
 	if err != nil {
 		return out
 	}
@@ -97,7 +97,7 @@ func (s *apiServer) HandleGetWorkerBootContextApiOutsourceWorkersIdBootContextGe
 	// takes exactly the same inputs the spawn path takes.
 	var manual *TaskManual
 	if task.TypeKey != "" {
-		if m, err := s.dal.GetTaskManual(task.TypeKey); err == nil {
+		if m, err := s.foldTaskManual(task.TypeKey); err == nil {
 			manual = m
 		}
 	}

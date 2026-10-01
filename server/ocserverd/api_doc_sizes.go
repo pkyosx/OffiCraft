@@ -47,7 +47,7 @@ func (s *apiServer) HandlePeekDocSizesApiDocSizesGet(w http.ResponseWriter, r *h
 		})
 	}
 
-	manuals, err := s.dal.ListTaskManuals()
+	manuals, err := s.foldTaskManuals()
 	if err != nil {
 		internalError(w, err)
 		return

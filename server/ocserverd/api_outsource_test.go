@@ -311,6 +311,9 @@ func TestTaskTypeDisplayNames(t *testing.T) {
 	if got["crate"] != "裝箱" {
 		t.Fatalf("display name for crate: want 裝箱, got %q", got["crate"])
 	}
+	if got["builtin-role-design"] != "建立／修改角色" {
+		t.Fatalf("display name for an unedited built-in: want 建立／修改角色, got %q", got["builtin-role-design"])
+	}
 	if _, ok := got["raw-key"]; ok {
 		t.Fatalf("blank display name should be omitted: %v", got)
 	}

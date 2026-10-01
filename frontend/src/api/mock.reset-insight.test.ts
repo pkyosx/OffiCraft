@@ -62,7 +62,7 @@ describe("mockApi · resetInsight", () => {
     expect(newest.content.text).toBe(WRITTEN);
   });
 
-  it("404s for a role with no factory insight of its own", async () => {
+  it("404s for a role that does not exist", async () => {
     // POSITIVE CONTROL: the seeded role must succeed here, or a mock where
     // seeds simply do not resolve would satisfy the rejection below. T-91: the
     // reset answers a receipt, so "succeeded" is now "did not reject" —

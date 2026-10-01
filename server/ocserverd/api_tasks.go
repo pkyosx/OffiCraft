@@ -1171,7 +1171,7 @@ func (s *apiServer) HandleReassignTaskApiTasksTaskIdReassignPost(w http.Response
 		}
 		var manualSpec *outsourceTypeSpec
 		if t.TypeKey != "" {
-			if manual, err := s.dal.GetTaskManual(t.TypeKey); err == nil && manual != nil {
+			if manual, err := s.foldTaskManual(t.TypeKey); err == nil && manual != nil {
 				manualSpec = outsourceSpecOf(*manual)
 			}
 		}
@@ -1550,7 +1550,7 @@ func (s *apiServer) HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.
 	var manualSpec *outsourceTypeSpec
 	var warnings []string
 	if typeKey != "" {
-		manual, err := s.dal.GetTaskManual(typeKey)
+		manual, err := s.foldTaskManual(typeKey)
 		if err != nil {
 			internalError(w, err)
 			return

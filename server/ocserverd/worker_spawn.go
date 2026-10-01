@@ -387,7 +387,7 @@ func (s *apiServer) notifyWorkerSpawn(w OutsourceWorker, now float64) bool {
 	}
 	var manual *TaskManual
 	if t.TypeKey != "" {
-		if m, err := s.dal.GetTaskManual(t.TypeKey); err == nil {
+		if m, err := s.foldTaskManual(t.TypeKey); err == nil {
 			manual = m
 		}
 	}

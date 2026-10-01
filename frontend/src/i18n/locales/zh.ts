@@ -2060,7 +2060,7 @@ export const zh = {
     // ── 版本紀錄（T-7d33）——每份可編輯長文件保留最近 3 次修改，可還原 ──
     historyTitle: "版本紀錄",
     historySub: "系統保留最近 3 次修改；還原會覆蓋目前內容。",
-    // 只在真的刪得掉的文件（任務手冊、自訂角色）下面出現——說明範圍，不是警告。
+    // 只在真的刪得掉的文件（自訂任務手冊、自訂角色）下面出現——說明範圍，不是警告。
     historyDeleteNote:
       "版本紀錄只涵蓋這份文件的編輯；整份刪除不會留下紀錄，也無法從這裡還原。",
     historyLoading: "載入版本紀錄中…",
@@ -2131,6 +2131,8 @@ export const zh = {
     historySopTitle: "SOP 版本紀錄",
     historySopSub:
       "只有 SOP 會保留版本；用途與識別鍵的修改不留版本紀錄。系統保留最近 3 次修改；還原只會覆蓋 SOP。",
+    historyManualSeedConfirm:
+      "確定還原成初始版本？整本手冊（名稱、用途、識別鍵、SOP 與負責成員）都會回到出廠時的內容，目前的修改會被覆蓋。",
     historyField: {
       text: "內容",
       name: "名稱",

@@ -305,7 +305,7 @@ describe("mockApi · document history", () => {
     );
   });
 
-  it("404s for every document that ships no default — the same set a reset refuses", async () => {
+  it("404s for every document that ships no default — the same set whose reset is refused as not applicable", async () => {
     const { roleKey: customKey } = await mockApi.createRole({
       name: "臨時角色",
     });
@@ -319,17 +319,79 @@ describe("mockApi · document history", () => {
       await expect(
         mockApi.getDocumentSeed(probe[0], probe[1])
       ).rejects.toSatisfy((e) => isHttpStatus(e, 404));
-      // The equivalence itself: the reset of that same document also refuses.
     }
+    // The equivalence itself: the reset of each of those documents is refused
+    // as not applicable, while a key naming nothing at all stays 404.
     await expect(mockApi.resetRole(customKey)).rejects.toSatisfy((e) =>
+      isHttpStatus(e, 409)
+    );
+    await expect(mockApi.resetTaskManual(manual.typeKey)).rejects.toSatisfy(
+      (e) => isHttpStatus(e, 409)
+    );
+    await expect(mockApi.resetInsight(customKey)).rejects.toSatisfy((e) =>
+      isHttpStatus(e, 409)
+    );
+    await expect(mockApi.resetRole("r-nobody")).rejects.toSatisfy((e) =>
+      isHttpStatus(e, 404)
+    );
+    await expect(mockApi.resetTaskManual("tm-nobody")).rejects.toSatisfy((e) =>
+      isHttpStatus(e, 404)
+    );
+    await expect(mockApi.resetInsight("r-nobody")).rejects.toSatisfy((e) =>
       isHttpStatus(e, 404)
     );
 
-    // Positive control: the seed role's default is served, so this is an
-    // equivalence and not a blanket 404.
+    // Positive controls: the seed role's and a built-in manual's defaults are
+    // served, so this is an equivalence and not a blanket 404.
     expect(
       (await mockApi.getDocumentSeed("role_definition", "assistant")).content
         .definition_md.length
     ).toBeGreaterThan(0);
+    expect(
+      (await mockApi.getDocumentSeed("task_manual_sop", "builtin-role-design"))
+        .content
+    ).toEqual({
+      sop_md: (await mockApi.getTaskManual("builtin-role-design")).sopMd,
+      tombstoned: "true",
+    });
+  });
+
+  it("resets a built-in manual to its shipped content and assignee, idempotently, keeping the edited SOP as a revision", async () => {
+    const shipped = await mockApi.getTaskManual("builtin-task-manual-design");
+    expect(shipped.isSeed).toBe(true);
+    expect(shipped.isDefault).toBe(true);
+
+    await mockApi.updateTaskManual("builtin-task-manual-design", {
+      sopMd: "改過的 SOP",
+      purpose: "改過的用途",
+      assignee: null,
+    });
+    const edited = await mockApi.getTaskManual("builtin-task-manual-design");
+    expect(edited.isSeed).toBe(true);
+    expect(edited.isDefault).toBe(false);
+    expect(edited.assignee).toBeNull();
+
+    await mockApi.resetTaskManual("builtin-task-manual-design");
+    await mockApi.resetTaskManual("builtin-task-manual-design");
+    expect(await mockApi.getTaskManual("builtin-task-manual-design")).toEqual(
+      shipped
+    );
+    const revisions = await documentRevisions(
+      mockApi,
+      "task_manual_sop",
+      "builtin-task-manual-design"
+    );
+    expect(revisions.map((r) => r.content)).toEqual([{ sop_md: "改過的 SOP" }]);
+  });
+
+  it("refuses to delete a built-in manual with 403, leaving it listed", async () => {
+    await expect(
+      mockApi.deleteTaskManual("builtin-role-design")
+    ).rejects.toSatisfy((e) => isHttpStatus(e, 403));
+    expect(
+      (await mockApi.listTaskManuals()).some(
+        (m) => m.typeKey === "builtin-role-design"
+      )
+    ).toBe(true);
   });
 });

@@ -479,7 +479,7 @@ export function DocCard({
               {/* 版本紀錄 stands where 重置 stood (owner 2026-07-31). The reset
                * did not disappear — it is the 初始版本 row inside, and only
                * where a seed exists (onReset omitted ⇒ no such row, e.g. a
-               * custom role whose reset the server 404s). */}
+               * custom role whose reset the server refuses as not applicable). */}
               {history && (
                 <DocumentHistoryEntry
                   {...history}

@@ -930,7 +930,7 @@ func TestHandleResetRoleApiRolesRoleResetPost(t *testing.T) {
 		})
 	})
 
-	t.Run("a custom role has no seed to go back to and answers 404 naming it", func(t *testing.T) {
+	t.Run("a custom role has no seed to go back to and answers 409 not applicable, leaving it unchanged", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		if err := d.PutRoleDef(RoleDef{RoleKey: "r-design", Name: "Design", DefinitionMD: "# Duty"}); err != nil {
 			t.Fatalf("PutRoleDef: %v", err)
@@ -938,10 +938,30 @@ func TestHandleResetRoleApiRolesRoleResetPost(t *testing.T) {
 		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/roles/r-design/reset", owner, "")
+		if status != 409 {
+			t.Fatalf("want 409, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "conflict", "reset is not applicable to role 'r-design': "+
+			"it was created on this station and has no shipped version — only shipped roles can be reset")
+		dashboard.wantFrames()
+		overlay, err := d.GetRoleDef("r-design")
+		if err != nil {
+			t.Fatalf("GetRoleDef: %v", err)
+		}
+		if overlay == nil || *overlay != (RoleDef{RoleKey: "r-design", Name: "Design", DefinitionMD: "# Duty"}) {
+			t.Fatalf("custom role after refused reset = %#v", overlay)
+		}
+	})
+
+	t.Run("a role that does not exist answers 404 naming it", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/roles/r-ghost/reset", owner, "")
 		if status != 404 {
 			t.Fatalf("want 404, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "not_found", "role 'r-design' not found")
+		apiWantError(t, data, "not_found", "role 'r-ghost' not found")
 		dashboard.wantFrames()
 	})
 

@@ -113,6 +113,8 @@ func TestWriteTaskManual(t *testing.T) {
 			"sop_md_chars":     9,
 			"sop_md_cap_chars": 15000,
 			"updated_ts":       42.5,
+			"is_seed":          false,
+			"is_default":       false,
 		})
 	})
 
@@ -148,6 +150,8 @@ func TestWriteTaskManualReceipt(t *testing.T) {
 			want: map[string]any{
 				"type_key":   "tm-quote",
 				"updated_ts": 42.5,
+				"is_default": false,
+				"is_seed":    false,
 			},
 		},
 		{
@@ -156,6 +160,8 @@ func TestWriteTaskManualReceipt(t *testing.T) {
 			want: map[string]any{
 				"type_key":         "tm-quote",
 				"updated_ts":       42.5,
+				"is_default":       false,
+				"is_seed":          false,
 				"sop_md_chars":     9,
 				"sop_md_cap_chars": 15000,
 				"sop_md_sha256":    "4463e39266c9a31c7dea3dc806c1567c97c34ed1d69af09aaedf4a302bc78aad",
@@ -291,6 +297,12 @@ func apiTestWantTaskManual(t *testing.T, h http.Handler, token, typeKey string, 
 	if _, ok := want["lore_chars"]; !ok {
 		want["lore_chars"] = 0
 	}
+	if _, ok := want["is_seed"]; !ok {
+		want["is_seed"] = false
+	}
+	if _, ok := want["is_default"]; !ok {
+		want["is_default"] = false
+	}
 	status, data := apiJSON(t, h, "GET", "/api/task-manuals/"+typeKey, token, "")
 	if status != 200 {
 		t.Fatalf("read back %s: %d %v", typeKey, status, data)
@@ -311,6 +323,107 @@ func apiTestTaskManualList(t *testing.T, h http.Handler, token string) []any {
 	return got
 }
 
+// Every station lists its built-in manuals; the SOP sizes are the rune counts
+// of seeds/task_manual_<type_key>.md.
+func apiTestBuiltinTaskManualRows(capChars int) []any {
+	return []any{
+		map[string]any{
+			"type_key":         "builtin-task-manual-design",
+			"display_name":     "建立／修改任務手冊",
+			"purpose":          "建立新的任務手冊，或調整既有任務手冊的內容與負責成員。",
+			"fields":           []any{map[string]any{"name": "manual_name", "required": true, "is_key": true}},
+			"assignee":         map[string]any{"kind": "staff", "member_id": "mira"},
+			"sop_md_chars":     3872,
+			"sop_md_cap_chars": capChars,
+			"updated_ts":       0,
+			"is_seed":          true,
+			"is_default":       true,
+		},
+		map[string]any{
+			"type_key":         "builtin-role-design",
+			"display_name":     "建立／修改角色",
+			"purpose":          "建立新的角色，或調整既有角色的角色定義與判準（Insight）。",
+			"fields":           []any{map[string]any{"name": "role_name", "required": true, "is_key": true}},
+			"assignee":         map[string]any{"kind": "staff", "member_id": "mira"},
+			"sop_md_chars":     2761,
+			"sop_md_cap_chars": capChars,
+			"updated_ts":       0,
+			"is_seed":          true,
+			"is_default":       true,
+		},
+	}
+}
+
+const (
+	apiTestRoleDesignSopChars  = 2761
+	apiTestRoleDesignSopSha256 = "f1784a9bdda165a3f28348180b7c888afa94fc35cb250855d5ad94eb175dbbb7"
+)
+
+// apiTestWantRoleDesignManual reads builtin-role-design back. The shipped SOP is
+// asserted by size and hash rather than spelled out.
+func apiTestWantRoleDesignManual(t *testing.T, h http.Handler, token string, want map[string]any) {
+	t.Helper()
+	status, data := apiJSON(t, h, "GET", "/api/task-manuals/builtin-role-design", token, "")
+	if status != 200 {
+		t.Fatalf("read back builtin-role-design: %d %v", status, data)
+	}
+	if want["sop_md"] == nil {
+		sop, _ := data["sop_md"].(string)
+		if sum := receiptSha256(sop); sum != apiTestRoleDesignSopSha256 {
+			t.Fatalf("builtin-role-design sop_md sha256 = %s, want the shipped %s", sum, apiTestRoleDesignSopSha256)
+		}
+		want["sop_md"] = apiAnyString
+	}
+	apiWantBody(t, data, want)
+}
+
+func apiTestRoleDesignSopVersions(t *testing.T, h http.Handler, token string) []any {
+	t.Helper()
+	rec := apiRequest(t, h, "GET", "/api/document-history/task_manual_sop/builtin-role-design", token, "")
+	if rec.Code != 200 {
+		t.Fatalf("list SOP history: %d %s", rec.Code, rec.Body.String())
+	}
+	var versions []any
+	if err := json.Unmarshal(rec.Body.Bytes(), &versions); err != nil {
+		t.Fatalf("non-JSON body: %s", rec.Body.String())
+	}
+	return versions
+}
+
+// apiTestShipBuiltinAssignee makes a built-in ship another assignee for one
+// test: the outsource paths act only on an outsource assignee, and the shipped
+// built-ins name a staff member.
+func apiTestShipBuiltinAssignee(t *testing.T, typeKey string, assignee map[string]any) {
+	t.Helper()
+	for i := range builtinTaskManuals {
+		if builtinTaskManuals[i].TypeKey != typeKey {
+			continue
+		}
+		shipped := builtinTaskManuals[i].Assignee
+		builtinTaskManuals[i].Assignee = assignee
+		t.Cleanup(func() { builtinTaskManuals[i].Assignee = shipped })
+		return
+	}
+	t.Fatalf("no built-in task manual %q", typeKey)
+}
+
+func apiTestShippedRoleDesignManual() map[string]any {
+	return map[string]any{
+		"type_key":         "builtin-role-design",
+		"display_name":     "建立／修改角色",
+		"purpose":          "建立新的角色，或調整既有角色的角色定義與判準（Insight）。",
+		"fields":           []any{map[string]any{"name": "role_name", "required": true, "is_key": true}},
+		"assignee":         map[string]any{"kind": "staff", "member_id": "mira"},
+		"lore":             "",
+		"lore_chars":       0,
+		"sop_md_chars":     apiTestRoleDesignSopChars,
+		"sop_md_cap_chars": 15000,
+		"updated_ts":       apiAnyNumber,
+		"is_seed":          true,
+		"is_default":       true,
+	}
+}
+
 func apiTestTaskManualFrame(seq int, typeKey, trigger string) map[string]any {
 	return map[string]any{
 		"seq":   seq,
@@ -329,13 +442,38 @@ func apiTestTaskManualFrame(seq int, typeKey, trigger string) map[string]any {
 }
 
 func TestHandleListTaskManualsApiTaskManualsGet(t *testing.T) {
-	t.Run("a station that has minted no type answers an empty list", func(t *testing.T) {
+	t.Run("a station that has minted no type lists only its unedited built-in manuals", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		dashboard := apiTestListen(t, api, "")
 
 		got := apiTestTaskManualList(t, h, owner)
-		apiWantValue(t, "body", any(got), any([]any{}))
+		apiWantValue(t, "body", any(got), any(apiTestBuiltinTaskManualRows(15000)))
 		dashboard.wantFrames()
+	})
+
+	t.Run("an edited built-in is listed with its edit and is_default false until it is reset", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/task-manuals/builtin-role-design", owner, `{"display_name":"角色設計","sop_md":"改寫"}`)
+
+		edited := apiTestBuiltinTaskManualRows(15000)
+		edited[1] = map[string]any{
+			"type_key":         "builtin-role-design",
+			"display_name":     "角色設計",
+			"purpose":          "建立新的角色，或調整既有角色的角色定義與判準（Insight）。",
+			"fields":           []any{map[string]any{"name": "role_name", "required": true, "is_key": true}},
+			"assignee":         map[string]any{"kind": "staff", "member_id": "mira"},
+			"sop_md_chars":     2,
+			"sop_md_cap_chars": 15000,
+			"updated_ts":       apiAnyNumber,
+			"is_seed":          true,
+			"is_default":       false,
+		}
+		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any(edited))
+
+		apiJSON(t, h, "POST", "/api/task-manuals/builtin-role-design/reset", owner, "")
+		reset := apiTestBuiltinTaskManualRows(15000)
+		reset[1].(map[string]any)["updated_ts"] = apiAnyNumber
+		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any(reset))
 	})
 
 	t.Run("every type is listed by display name carrying its document's size and cap but not the document", func(t *testing.T) {
@@ -348,7 +486,7 @@ func TestHandleListTaskManualsApiTaskManualsGet(t *testing.T) {
 		dashboard := apiTestListen(t, api, "")
 
 		got := apiTestTaskManualList(t, h, owner)
-		apiWantValue(t, "body", any(got), any([]any{
+		apiWantValue(t, "body", any(got), any(append([]any{
 			map[string]any{
 				"type_key":         "tm-ship",
 				"display_name":     "tm-ship",
@@ -358,6 +496,8 @@ func TestHandleListTaskManualsApiTaskManualsGet(t *testing.T) {
 				"sop_md_chars":     0,
 				"sop_md_cap_chars": 15000,
 				"updated_ts":       apiAnyNumber,
+				"is_seed":          false,
+				"is_default":       false,
 			},
 			map[string]any{
 				"type_key":         "tm-quote",
@@ -368,8 +508,10 @@ func TestHandleListTaskManualsApiTaskManualsGet(t *testing.T) {
 				"sop_md_chars":     9,
 				"sop_md_cap_chars": 15000,
 				"updated_ts":       apiAnyNumber,
+				"is_seed":          false,
+				"is_default":       false,
 			},
-		}))
+		}, apiTestBuiltinTaskManualRows(15000)...)))
 		dashboard.wantFrames()
 	})
 
@@ -385,6 +527,22 @@ func TestHandleListTaskManualsApiTaskManualsGet(t *testing.T) {
 }
 
 func TestHandleCreateTaskManualApiTaskManualsPost(t *testing.T) {
+	t.Run("a legacy create naming a built-in type key answers 409 and leaves the built-in untouched", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/task-manuals", agent, `{"type_key":"builtin-role-design","display_name":"搶名"}`)
+		if status != 409 {
+			t.Fatalf("want 409, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "conflict", "task manual 'builtin-role-design' already exists")
+		dashboard.wantFrames()
+		want := apiTestShippedRoleDesignManual()
+		want["updated_ts"] = 0
+		apiTestWantRoleDesignManual(t, h, owner, want)
+	})
+
 	t.Run("a create carrying only a display name mints the type key and fans the owner's manual delta", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
@@ -398,6 +556,8 @@ func TestHandleCreateTaskManualApiTaskManualsPost(t *testing.T) {
 		apiWantBody(t, data, map[string]any{
 			"type_key":   apiAnyString,
 			"updated_ts": apiAnyNumber,
+			"is_default": false,
+			"is_seed":    false,
 		})
 		typeKey, _ := data["type_key"].(string)
 		dashboard.wantFrames(apiTestTaskManualFrame(1, typeKey, apiTestPlainAgentID))
@@ -427,6 +587,8 @@ func TestHandleCreateTaskManualApiTaskManualsPost(t *testing.T) {
 		apiWantBody(t, data, map[string]any{
 			"type_key":   "tm-quote",
 			"updated_ts": apiAnyNumber,
+			"is_default": false,
+			"is_seed":    false,
 		})
 		apiTestWantTaskManual(t, h, owner, "tm-quote", map[string]any{
 			"type_key":         "tm-quote",
@@ -478,7 +640,7 @@ func TestHandleCreateTaskManualApiTaskManualsPost(t *testing.T) {
 		}
 		apiWantError(t, data, "validation_error", "display_name must not be blank")
 		dashboard.wantFrames()
-		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any([]any{}))
+		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any(apiTestBuiltinTaskManualRows(15000)))
 	})
 
 	t.Run("an admin agent's assignee is stored on the new type", func(t *testing.T) {
@@ -513,7 +675,7 @@ func TestHandleCreateTaskManualApiTaskManualsPost(t *testing.T) {
 		apiWantError(t, data, "forbidden",
 			"assignee is owner/admin-agent governance — a plain agent may not set who executes a task type")
 		dashboard.wantFrames()
-		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any([]any{}))
+		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any(apiTestBuiltinTaskManualRows(15000)))
 	})
 
 	t.Run("an assignee spelled with the retired member kind answers 400 naming the rename", func(t *testing.T) {
@@ -529,7 +691,7 @@ func TestHandleCreateTaskManualApiTaskManualsPost(t *testing.T) {
 		apiWantError(t, data, "validation_error",
 			"assignee kind: task executor kind \"member\" was renamed to \"staff\" (T-101); the closed set is {\"staff\", \"outsource\"}")
 		dashboard.wantFrames()
-		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any([]any{}))
+		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any(apiTestBuiltinTaskManualRows(15000)))
 	})
 
 	t.Run("an outsource assignee pinned to a machine nobody onboarded answers 404 and mints nothing", func(t *testing.T) {
@@ -544,7 +706,7 @@ func TestHandleCreateTaskManualApiTaskManualsPost(t *testing.T) {
 		}
 		apiWantError(t, data, "not_found", "machine 'm-ghost' not found")
 		dashboard.wantFrames()
-		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any([]any{}))
+		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any(apiTestBuiltinTaskManualRows(15000)))
 	})
 
 	t.Run("an authenticated machine identity answers 403 because this row requires agent", func(t *testing.T) {
@@ -558,7 +720,7 @@ func TestHandleCreateTaskManualApiTaskManualsPost(t *testing.T) {
 		}
 		apiWantError(t, data, "forbidden", "principal not permitted")
 		dashboard.wantFrames()
-		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any([]any{}))
+		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any(apiTestBuiltinTaskManualRows(15000)))
 	})
 
 	t.Run("a request without a token answers 401", func(t *testing.T) {
@@ -571,7 +733,7 @@ func TestHandleCreateTaskManualApiTaskManualsPost(t *testing.T) {
 		}
 		apiWantError(t, data, "unauthorized", "missing credentials")
 		dashboard.wantFrames()
-		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any([]any{}))
+		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any(apiTestBuiltinTaskManualRows(15000)))
 	})
 
 	for _, shape := range windowDALShapes {
@@ -630,6 +792,14 @@ func TestHandleCreateTaskManualApiTaskManualsPost(t *testing.T) {
 }
 
 func TestHandleGetTaskManualApiTaskManualsTypeKeyGet(t *testing.T) {
+	t.Run("a built-in type nobody has written is served in full as its shipped version", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		want := apiTestShippedRoleDesignManual()
+		want["updated_ts"] = 0
+		apiTestWantRoleDesignManual(t, h, agent, want)
+	})
+
 	t.Run("a type is served in full with its document and its cap", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
@@ -656,6 +826,8 @@ func TestHandleGetTaskManualApiTaskManualsTypeKeyGet(t *testing.T) {
 			"sop_md_chars":     9,
 			"sop_md_cap_chars": 15000,
 			"updated_ts":       apiAnyNumber,
+			"is_seed":          false,
+			"is_default":       false,
 		})
 		dashboard.wantFrames()
 	})
@@ -682,6 +854,28 @@ func TestHandleGetTaskManualApiTaskManualsTypeKeyGet(t *testing.T) {
 }
 
 func TestHandleUpdateTaskManualApiTaskManualsTypeKeyPost(t *testing.T) {
+	t.Run("editing a built-in type overlays its shipped version and marks it no longer default", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/task-manuals/builtin-role-design", agent, `{"purpose":"調整角色"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"type_key":   "builtin-role-design",
+			"updated_ts": apiAnyNumber,
+			"is_default": false,
+			"is_seed":    true,
+		})
+		dashboard.wantFrames(apiTestTaskManualFrame(1, "builtin-role-design", apiTestPlainAgentID))
+		want := apiTestShippedRoleDesignManual()
+		want["purpose"] = "調整角色"
+		want["is_default"] = false
+		apiTestWantRoleDesignManual(t, h, owner, want)
+	})
+
 	t.Run("a partial edit changes only the fields it names and reports the document only when it wrote it", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
@@ -697,6 +891,8 @@ func TestHandleUpdateTaskManualApiTaskManualsTypeKeyPost(t *testing.T) {
 		apiWantBody(t, data, map[string]any{
 			"type_key":         "tm-quote",
 			"updated_ts":       apiAnyNumber,
+			"is_default":       false,
+			"is_seed":          false,
 			"sop_md_chars":     9,
 			"sop_md_cap_chars": 15000,
 			"sop_md_sha256":    "4463e39266c9a31c7dea3dc806c1567c97c34ed1d69af09aaedf4a302bc78aad",
@@ -888,6 +1084,20 @@ func TestHandleUpdateTaskManualApiTaskManualsTypeKeyPost(t *testing.T) {
 }
 
 func TestHandleDeleteTaskManualApiTaskManualsTypeKeyDelete(t *testing.T) {
+	t.Run("a built-in type answers 403 pointing at reset and stays listed", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "DELETE", "/api/task-manuals/builtin-role-design", owner, "")
+		if status != 403 {
+			t.Fatalf("want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden",
+			"task manual 'builtin-role-design' is built-in and cannot be deleted — reset it instead")
+		dashboard.wantFrames()
+		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any(apiTestBuiltinTaskManualRows(15000)))
+	})
+
 	t.Run("a type nobody is running answers the delete receipt and fans the owner's manual delta", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
@@ -903,7 +1113,7 @@ func TestHandleDeleteTaskManualApiTaskManualsTypeKeyDelete(t *testing.T) {
 		apiWantBody(t, data, map[string]any{"type_key": "tm-quote", "deleted": true})
 		dashboard.wantFrames(apiTestTaskManualFrame(2, "tm-quote", "mira"))
 		asker.wantFrames()
-		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any([]any{}))
+		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any(apiTestBuiltinTaskManualRows(15000)))
 	})
 
 	t.Run("a type that still has an open task answers 409 and keeps the manual", func(t *testing.T) {
@@ -986,7 +1196,7 @@ func TestHandleDeleteTaskManualApiTaskManualsTypeKeyDelete(t *testing.T) {
 		}
 		apiWantError(t, data, "unauthorized", "missing credentials")
 		dashboard.wantFrames()
-		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any([]any{
+		apiWantValue(t, "body", any(apiTestTaskManualList(t, h, owner)), any(append([]any{
 			map[string]any{
 				"type_key":         "tm-quote",
 				"display_name":     "報價",
@@ -996,8 +1206,125 @@ func TestHandleDeleteTaskManualApiTaskManualsTypeKeyDelete(t *testing.T) {
 				"sop_md_chars":     0,
 				"sop_md_cap_chars": 15000,
 				"updated_ts":       apiAnyNumber,
+				"is_seed":          false,
+				"is_default":       false,
 			},
-		}))
+		}, apiTestBuiltinTaskManualRows(15000)...)))
+	})
+}
+
+func TestHandleResetTaskManualApiTaskManualsTypeKeyResetPost(t *testing.T) {
+	shippedReceipt := map[string]any{
+		"type_key":         "builtin-role-design",
+		"updated_ts":       apiAnyNumber,
+		"is_default":       true,
+		"is_seed":          true,
+		"sop_md_chars":     apiTestRoleDesignSopChars,
+		"sop_md_cap_chars": 15000,
+		"sop_md_sha256":    apiTestRoleDesignSopSha256,
+	}
+
+	t.Run("an edited built-in gets its shipped content and assignee back, keeps the edited SOP as a version, and fans the manual delta", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "POST", "/api/task-manuals/builtin-role-design", owner,
+			`{"display_name":"角色","purpose":"改過","sop_md":"改寫","fields":[],"assignee":{"kind":"staff","member_id":"kip"}}`); status != 200 {
+			t.Fatalf("edit: %d %v", status, data)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/task-manuals/builtin-role-design/reset", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, shippedReceipt)
+		dashboard.wantFrames(apiTestTaskManualFrame(2, "builtin-role-design", "owner"))
+		apiTestWantRoleDesignManual(t, h, owner, apiTestShippedRoleDesignManual())
+
+		versions := apiTestRoleDesignSopVersions(t, h, owner)
+		apiWantValue(t, "versions", any(versions), any([]any{map[string]any{
+			"id": 1, "created_ts": apiAnyNumber, "actor_id": "owner",
+			"tombstoned": false, "field_chars": map[string]any{"sop_md": 2},
+		}}))
+	})
+
+	t.Run("resetting a built-in nobody edited answers the same shipped receipt and retains no version", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		for i := 0; i < 2; i++ {
+			status, data := apiJSON(t, h, "POST", "/api/task-manuals/builtin-role-design/reset", owner, "")
+			if status != 200 {
+				t.Fatalf("reset %d: want 200, got %d (%v)", i+1, status, data)
+			}
+			apiWantBody(t, data, shippedReceipt)
+		}
+		apiTestWantRoleDesignManual(t, h, owner, apiTestShippedRoleDesignManual())
+		versions := apiTestRoleDesignSopVersions(t, h, owner)
+		apiWantValue(t, "versions", any(versions), any([]any{}))
+	})
+
+	t.Run("an admin agent may reset a built-in", func(t *testing.T) {
+		api, h, d, _ := newAPITestServer(t)
+		admin := apiTestPrincipalToken(t, api, d, principalAdminAgent, "m-admin")
+
+		status, data := apiJSON(t, h, "POST", "/api/task-manuals/builtin-role-design/reset", admin, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, shippedReceipt)
+	})
+
+	t.Run("a manual created on the station answers 409 not applicable and stays as it was", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiTestCreateTaskManual(t, h, owner, `{"type_key":"tm-quote","display_name":"報價"}`)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/task-manuals/tm-quote/reset", owner, "")
+		if status != 409 {
+			t.Fatalf("want 409, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "conflict", "reset is not applicable to task manual 'tm-quote': "+
+			"it was created on this station and has no shipped version — only built-in task manuals can be reset")
+		dashboard.wantFrames()
+		apiTestWantTaskManual(t, h, owner, "tm-quote", map[string]any{
+			"type_key":         "tm-quote",
+			"display_name":     "報價",
+			"purpose":          "",
+			"fields":           []any{},
+			"sop_md":           "",
+			"assignee":         map[string]any{},
+			"sop_md_chars":     0,
+			"sop_md_cap_chars": 15000,
+			"updated_ts":       apiAnyNumber,
+		})
+	})
+
+	t.Run("a type key no manual carries answers 404 naming it", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/task-manuals/tm-ghost/reset", owner, "")
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "task manual 'tm-ghost' not found")
+		dashboard.wantFrames()
+	})
+
+	t.Run("an authenticated agent identity answers 403 because this row requires admin_agent", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/task-manuals/builtin-role-design", owner, `{"purpose":"改過"}`)
+		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/task-manuals/builtin-role-design/reset", agent, "")
+		if status != 403 {
+			t.Fatalf("want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden", "principal not permitted")
+		dashboard.wantFrames()
+		want := apiTestShippedRoleDesignManual()
+		want["purpose"] = "改過"
+		want["is_default"] = false
+		apiTestWantRoleDesignManual(t, h, owner, want)
 	})
 }
 

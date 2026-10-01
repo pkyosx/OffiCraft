@@ -930,8 +930,8 @@ let replyCards: ReplyCard[] = [];
 // In-memory tasks (M3 任務卡) + live outsource workers + task manuals. SAME
 // honest hard line as chatLog / replyCards: a real task is created by an agent
 // through MCP, so tasks/workers start empty (the tasks page shows its honest
-// 目前沒有任務 state); manuals start empty because 出廠不含任何類型 (spec
-// §5.1) — the owner creates every type. Tests inject via __injectMockTask /
+// 目前沒有任務 state); manuals start with only the built-in ones OffiCraft
+// ships, and every other type is one somebody created. Tests inject via __injectMockTask /
 // __injectMockOutsourceWorker / __injectMockTaskType to exercise the
 // list / filter / terminate / priority / message / manual seams.
 // 🔴 THE STORE HOLDS EACH ARTIFACT WHOLE, which is why the row type EXTENDS
@@ -970,7 +970,36 @@ type StoredTaskManual = Omit<
   "sopMdChars" | "sopMdCapChars"
 >;
 
-let taskManuals: StoredTaskManual[] = [];
+const MOCK_TASK_MANUAL_SEEDS: readonly StoredTaskManual[] = [
+  {
+    typeKey: "builtin-role-design",
+    displayName: "建立／修改角色",
+    purpose: "建立新的角色，或調整既有角色的角色定義與判準（Insight）。",
+    fields: [{ name: "role_name", required: true, isKey: true }],
+    sopMd: "# 角色基本定義\n\n（mock 內建手冊）\n",
+    assignee: { kind: "staff", memberId: "mira" },
+    updatedTs: 0,
+    isSeed: true,
+    isDefault: true,
+  },
+  {
+    typeKey: "builtin-task-manual-design",
+    displayName: "建立／修改任務手冊",
+    purpose: "建立新的任務手冊，或調整既有任務手冊的內容與負責成員。",
+    fields: [{ name: "manual_name", required: true, isKey: true }],
+    sopMd: "# 任務手冊基本定義\n\n（mock 內建手冊）\n",
+    assignee: { kind: "staff", memberId: "mira" },
+    updatedTs: 0,
+    isSeed: true,
+    isDefault: true,
+  },
+];
+
+function taskManualSeed(typeKey: string): StoredTaskManual | undefined {
+  return MOCK_TASK_MANUAL_SEEDS.find((m) => m.typeKey === typeKey);
+}
+
+let taskManuals: StoredTaskManual[] = structuredClone([...MOCK_TASK_MANUAL_SEEDS]);
 
 /** Stored manual → the shape the wire answers with, size and cap measured NOW.
  * The SOP is measured against its OWN cap, so mock mode cannot disagree with
@@ -1773,7 +1802,7 @@ function snapshotDocument(
     // a blank manual is ever given would burn a version slot on emptiness.
     case "task_manual_sop": {
       const manual = taskManuals.find((m) => m.typeKey === key);
-      if (!manual || manual.sopMd === "") return null;
+      if (!manual || manual.isDefault || manual.sopMd === "") return null;
       return { sop_md: manual.sopMd };
     }
     // T-e271. Same "empty is nothing worth retaining" rule as the split
@@ -1931,6 +1960,7 @@ function applyDocumentHistory(
       const manual = taskManuals.find((m) => m.typeKey === key);
       if (!manual) return;
       manual.sopMd = content.sop_md ?? "";
+      manual.isDefault = false;
       manual.updatedTs = Date.now() / 1000;
       emitTopic("task_manual");
       return;
@@ -4898,7 +4928,6 @@ const mockApiImpl = {
   },
 
   async listTaskTypes(): Promise<TaskTypeView[]> {
-    // 出廠不含任何類型 (spec §5.1) — honest empty until injected/created.
     // The LIGHT narrowing of the manuals store (same source of truth as the
     // manual editor — mirrors the http adapter reading the same endpoint).
     return taskManuals.map((m) => ({
@@ -4946,6 +4975,8 @@ const mockApiImpl = {
       sopMd: "",
       assignee: null,
       updatedTs: Date.now() / 1000,
+      isSeed: false,
+      isDefault: false,
     };
     taskManuals.push(manual);
     emitTopic("task_manual");
@@ -4980,6 +5011,7 @@ const mockApiImpl = {
     if (patch.assignee !== undefined) {
       manual.assignee = structuredClone(patch.assignee);
     }
+    manual.isDefault = false;
     manual.updatedTs = Date.now() / 1000;
     emitTopic("task_manual");
     // T-91: the write answers a RECEIPT, not the object. The mock's own store
@@ -4990,7 +5022,13 @@ const mockApiImpl = {
   async deleteTaskManual(typeKey: string): Promise<void> {
     // Mirrors handle_delete_task_manual: OPEN (non-terminal) tasks of the
     // type block the delete with a 409 (spec §5.1 需先讓那些任務結束).
-    findTaskManual(typeKey);
+    if (findTaskManual(typeKey).isSeed) {
+      throw mockApiError(
+        `http 403 for DELETE /api/task-manuals/${typeKey}`,
+        403,
+        `task manual '${typeKey}' is built-in and cannot be deleted — reset it instead`
+      );
+    }
     const open = tasks.some(
       (t) => t.typeKey === typeKey && !TERMINAL_TASK_STATUSES.has(t.status)
     );
@@ -5005,6 +5043,23 @@ const mockApiImpl = {
     // All THREE series go with the manual, the legacy bundle included: a
     // readable revision of a deleted document makes 「永久移除」 false.
     for (const kind of MANUAL_KINDS) dropDocumentHistory(kind, typeKey);
+    emitTopic("task_manual");
+  },
+
+  async resetTaskManual(typeKey: string): Promise<void> {
+    const current = findTaskManual(typeKey);
+    const seed = taskManualSeed(typeKey);
+    if (!seed) {
+      throw mockApiError(
+        `http 409 for POST /api/task-manuals/${typeKey}/reset`,
+        409,
+        `reset is not applicable to task manual '${current.typeKey}': it was created on this station and has no shipped version — only built-in task manuals can be reset`
+      );
+    }
+    recordDocumentHistory("task_manual_sop", typeKey);
+    taskManuals = taskManuals.map((m) =>
+      m.typeKey === typeKey ? structuredClone(seed) : m
+    );
     emitTopic("task_manual");
   },
 
@@ -6446,11 +6501,17 @@ const mockApiImpl = {
   },
 
   async resetRole(key: string): Promise<void> {
-    // Reset restores the FILE SEED — only a seed role has one. A custom (or
-    // unknown) key 404s, matching handle_reset_role (verified live: the server
-    // refuses and the custom doc stays untouched). The UI offers no reset on
-    // custom roles; this guard keeps the mock honest for parity tests.
+    // Reset restores the FILE SEED — only a seed role has one. A custom role
+    // is refused as not applicable (409) and an unknown key 404s, matching
+    // HandleResetRoleApiRolesRoleResetPost.
     if (!MOCK_WIRE_ROLES_SEED.some((r) => r.key === key)) {
+      if (customRoles.has(key)) {
+        throw mockApiError(
+          `http 409 for POST /api/roles/${key}/reset`,
+          409,
+          `reset is not applicable to role '${key}': it was created on this station and has no shipped version — only shipped roles can be reset`
+        );
+      }
       throw mockApiError(
         `http 404 for POST /api/roles/${key}/reset`,
         404,
@@ -6699,16 +6760,27 @@ const mockApiImpl = {
 
   async resetInsight(roleKey: string): Promise<void> {
     // Reset restores the PER-ROLE FILE SEED — only a role that ships one has
-    // anything to reset TO, so a role with no seed 404s, mirroring
+    // anything to reset TO, mirroring
     // HandleResetInsightApiInsightRoleKeyResetPost. 🔴 The membership test is
     // INSIGHT_SEEDS, not the seed-role roster: on the server the presence of
     // `seeds/insight_<role_key>.md` IS the roster, and a role can have a Duty
-    // seed without an Insight one.
+    // seed without an Insight one. A role that exists but ships no insight is
+    // refused as not applicable (409); a role that does not exist 404s.
     if (!(roleKey in INSIGHT_SEEDS)) {
+      if (
+        customRoles.has(roleKey) ||
+        MOCK_WIRE_ROLES_SEED.some((r) => r.key === roleKey)
+      ) {
+        throw mockApiError(
+          `http 409 for POST /api/insight/${roleKey}/reset`,
+          409,
+          `reset is not applicable to the insight of role '${roleKey}': it has no shipped version — only roles that ship an insight can be reset`
+        );
+      }
       throw mockApiError(
         `http 404 for POST /api/insight/${roleKey}/reset`,
         404,
-        `role '${roleKey}' has no factory insight to reset to`
+        `role '${roleKey}' not found`
       );
     }
     // The discarded overlay is retained as a revision BEFORE it is dropped —
@@ -6811,8 +6883,9 @@ const mockApiImpl = {
     // Mirrors api_document_history.go's documentSeedContent, INCLUDING which
     // documents have no default at all: the global block's default is the empty
     // document, a seed role's is its file seed, a role with an INSIGHT seed
-    // file gets that, and everything else 404s — exactly where
-    // resetGlobalContext / resetRole / resetInsight would also refuse. Reading
+    // file gets that, a built-in manual's SOP gets its shipped SOP, and
+    // everything else 404s — exactly where resetGlobalContext / resetRole /
+    // resetInsight / resetTaskManual would also refuse. Reading
     // writes nothing here either: no recordDocumentHistory, no overlay touched.
     //
     // 🔴 THE `insight` BRANCH WAS MISSING and it mattered (T-40f0 node 11). The
@@ -6834,6 +6907,8 @@ const mockApiImpl = {
           ? { definition_md: roleSeed(key).definition_md, tombstoned: "true" }
           : kind === "insight" && key in INSIGHT_SEEDS
             ? { text: INSIGHT_SEEDS[key], tombstoned: "true" }
+            : kind === "task_manual_sop" && taskManualSeed(key)
+            ? { sop_md: taskManualSeed(key)!.sopMd, tombstoned: "true" }
             : // T-791e: all three boot-context blocks ship a factory version,
               // and it is the SEED TEXT (unlike global_context, whose default
               // is the empty document) — so 初始版本 can be read and diffed
@@ -6925,7 +7000,7 @@ export function __resetMock(): void {
   tasks = [];
   artifactVersions = new Map();
   outsourceWorkers = [];
-  taskManuals = [];
+  taskManuals = structuredClone([...MOCK_TASK_MANUAL_SEEDS]);
   mockPasswordSet = true;
   mockPassword = "mock-password";
   mockMfaOffered = false;
@@ -7061,14 +7136,18 @@ export function __injectMockTaskType(t: TaskTypeView): void {
     sopMd: "",
     assignee: null,
     updatedTs: Date.now() / 1000,
+    isSeed: false,
+    isDefault: false,
   });
   emitTopic("task_manual");
 }
 
 // Test-only hook: land a FULL manual (fields/SOP/assignee) so tests
 // can exercise the 設定 › 任務手冊 editor against a populated store entry.
-export function __injectMockTaskManual(m: StoredTaskManual): void {
-  taskManuals.push(structuredClone(m));
+export function __injectMockTaskManual(
+  m: Omit<StoredTaskManual, "isSeed" | "isDefault">
+): void {
+  taskManuals.push({ ...structuredClone(m), isSeed: false, isDefault: false });
   emitTopic("task_manual");
 }
 

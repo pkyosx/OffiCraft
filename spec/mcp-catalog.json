@@ -2495,7 +2495,7 @@
       "name": "update_role"
     },
     {
-      "description": "Reset a role definition to seed (idempotent tombstone overlay). Answers with a bounded receipt (``key``, ``name``, ``is_default``, ``is_seed``, ``size_chars``, ``cap_chars``, ``sha256``), not the duty document — call ``get_role`` when you need the rest.",
+      "description": "Reset a role definition to seed (idempotent tombstone overlay). Only a shipped (seed) role can be reset: a role created on this station is refused with 409 (not applicable), an unknown role is 404. Answers with a bounded receipt (``key``, ``name``, ``is_default``, ``is_seed``, ``size_chars``, ``cap_chars``, ``sha256``), not the duty document — call ``get_role`` when you need the rest.",
       "inputSchema": {
         "properties": {
           "role": {
@@ -2601,7 +2601,7 @@
       "name": "patch_insight"
     },
     {
-      "description": "Reset a per-role insight doc back to its factory seed (idempotent tombstone of the overlay) - the counterpart of reset_role on the Duty block. A role with NO seed file (seeds/insight_<role_key>.md) returns 404: there must be a factory version to reset TO. No length cap is applied on this path, matching reset_role - the factory text is part of the product. The overlay you are discarding is retained as a document-history revision, so the reset is recoverable. Only the role's own agents (and admin) may do it. Answers with a bounded receipt (``role_key``, ``is_default``, ``has_seed``, ``size_chars``, ``cap_chars``, ``sha256``), not the folded doc — call ``get_insight`` when you need the rest.",
+      "description": "Reset a per-role insight doc back to its factory seed (idempotent tombstone of the overlay) - the counterpart of reset_role on the Duty block. A role with NO seed file (seeds/insight_<role_key>.md) is refused with 409 (not applicable): there must be a factory version to reset TO; a role that does not exist is 404. No length cap is applied on this path, matching reset_role - the factory text is part of the product. The overlay you are discarding is retained as a document-history revision, so the reset is recoverable. Only the role's own agents (and admin) may do it. Answers with a bounded receipt (``role_key``, ``is_default``, ``has_seed``, ``size_chars``, ``cap_chars``, ``sha256``), not the folded doc — call ``get_insight`` when you need the rest.",
       "inputSchema": {
         "properties": {
           "role_key": {
@@ -3554,7 +3554,7 @@
       "name": "list_task_manuals"
     },
     {
-      "description": "Create a task type: pass display_name; the server mints and returns the tm- type_key id (legacy explicit type_key still accepted; duplicate \u2192 409; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual \u2014 call ``get_task_manual`` when you need the rest.",
+      "description": "Create a task type: pass display_name; the server mints and returns the tm- type_key id (legacy explicit type_key still accepted; duplicate \u2192 409; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``is_default``, ``is_seed``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual \u2014 call ``get_task_manual`` when you need the rest.",
       "inputSchema": {
         "properties": {
           "assignee": {
@@ -3619,7 +3619,7 @@
       "name": "get_task_manual"
     },
     {
-      "description": "Edit a task manual (partial; content fields agent-editable; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Only the fields you name change, so omitting a field is safe — but unknown keys are rejected rather than dropped. The SOP is judged against sop_md_cap_chars. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual — call ``get_task_manual`` when you need the rest.",
+      "description": "Edit a task manual (partial; content fields agent-editable; assignee = owner/admin agent). An outsource assignee may select runtime claude/codex; absent = claude. Only the fields you name change, so omitting a field is safe — but unknown keys are rejected rather than dropped. The SOP is judged against sop_md_cap_chars. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``is_default``, ``is_seed``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual — call ``get_task_manual`` when you need the rest.",
       "inputSchema": {
         "properties": {
           "assignee": {
@@ -3723,7 +3723,7 @@
       "name": "update_task_manual"
     },
     {
-      "description": "Delete a task type (open tasks of the type \u2192 409).",
+      "description": "Delete a task type (open tasks of the type \u2192 409). A built-in manual cannot be deleted (403) \u2014 reset it with reset_task_manual instead.",
       "inputSchema": {
         "properties": {
           "type_key": {
@@ -3793,7 +3793,7 @@
       "name": "list_document_history"
     },
     {
-      "description": "READ the SHIPPED DEFAULT of one editable document — the text a reset would put back, i.e. the 初始版本 entry of that document's version list. Read-only: this tool writes nothing, so reading the default can never replace the live document. Putting the default BACK is deliberately not an agent tool — the owner does that from the cockpit — exactly as with list_document_history. ``content`` carries the SAME field names a retained version carries, so the same reader can compare a default against the live document.\n\nWHICH DOCUMENTS THIS COVERS IS DELIBERATELY NOT LISTED HERE. A list of kinds written into a description goes stale the moment a new editable document ships and NOTHING turns red when it does — this one had gone wrong about three kinds before the list was taken out. Two rules you can actually execute replace it.\n\nADDRESSING: ``kind`` and ``key`` name a document exactly as they do for list_document_history — the same server-side gate answers both routes, so whatever that tool addresses is addressable here, and a ``kind`` this server does not know is refused with 400 while a ``key`` that names no document of that kind is refused with 404 that names it. Neither is something to guess at: ask and read the answer.\n\nCOVERAGE: whether THAT document ships a default is answered by asking for it. 200 means it does, and ``content`` is that text. 404 means it has none at all — a role the owner created, a task manual — which is the same set whose reset the server also 404s, so it is the honest 'there is nothing to go back to', not a gap to work around. 400 on a retired kind names the series that replaced it.",
+      "description": "READ the SHIPPED DEFAULT of one editable document — the text a reset would put back, i.e. the 初始版本 entry of that document's version list. Read-only: this tool writes nothing, so reading the default can never replace the live document. Putting the default BACK is deliberately not an agent tool — the owner does that from the cockpit — exactly as with list_document_history. ``content`` carries the SAME field names a retained version carries, so the same reader can compare a default against the live document.\n\nWHICH DOCUMENTS THIS COVERS IS DELIBERATELY NOT LISTED HERE. A list of kinds written into a description goes stale the moment a new editable document ships and NOTHING turns red when it does — this one had gone wrong about three kinds before the list was taken out. Two rules you can actually execute replace it.\n\nADDRESSING: ``kind`` and ``key`` name a document exactly as they do for list_document_history — the same server-side gate answers both routes, so whatever that tool addresses is addressable here, and a ``kind`` this server does not know is refused with 400 while a ``key`` that names no document of that kind is refused with 404 that names it. Neither is something to guess at: ask and read the answer.\n\nCOVERAGE: whether THAT document ships a default is answered by asking for it. 200 means it does, and ``content`` is that text. 404 means it has none at all — a role the owner created, a task manual created on this station — which is the same set whose reset the server refuses as not applicable (409), so it is the honest 'there is nothing to go back to', not a gap to work around. 400 on a retired kind names the series that replaced it.",
       "inputSchema": {
         "properties": {
           "key": {"description": "Which document of that kind to fetch the shipped default for. For most kinds a key nothing carries answers 404 and names it, so the mistake surfaces - but kind=global_context is the exception: there the key is NEVER READ. Any non-empty key answers 200 with the one global-context seed, so a caller who asked for a specific document gets a document that has nothing to do with the name it asked for, and the response echoes the key back as though it had been honoured. When the kind is global_context, do not read the key you sent as evidence of what you received.", "type": "string"},
@@ -4550,6 +4550,22 @@
         "type": "object"
       },
       "name": "set_lore_entry_scope"
+    },
+    {
+      "description": "Reset a built-in task manual to its shipped version (idempotent): drops any edit, content AND assignee alike. Only a built-in (seed) manual can be reset: a manual created on this station is refused with 409 (not applicable), an unknown type_key is 404. Owner or admin agent only. Answers with a bounded receipt (``type_key``, ``updated_ts``, ``is_default``, ``is_seed``, ``sop_md_chars``, ``sop_md_cap_chars``, ``sop_md_sha256``), not the manual — call ``get_task_manual`` when you need the rest.",
+      "inputSchema": {
+        "properties": {
+          "type_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type_key"
+        ],
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "name": "reset_task_manual"
     }
   ]
 }
