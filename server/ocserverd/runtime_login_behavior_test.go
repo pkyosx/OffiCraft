@@ -89,8 +89,31 @@ func (f *loginFixture) get(t *testing.T, id string) (int, map[string]any) {
 func loginBody(id, state string, authURL, account, reason any, ts float64) map[string]any {
 	return map[string]any{
 		"login_id": id, "machine_id": loginMachine, "runtime": "claude", "state": state,
-		"auth_url": authURL, "account": account, "reason": reason, "updated_ts": ts,
+		"auth_url": authURL, "user_code": nil, "expires_ts": nil,
+		"account": account, "reason": reason, "updated_ts": ts,
 	}
+}
+
+func codexLoginBody(id, state string, authURL, userCode, expiresTS, account, reason any, ts float64) map[string]any {
+	return map[string]any{
+		"login_id": id, "machine_id": loginMachine, "runtime": "codex", "state": state,
+		"auth_url": authURL, "user_code": userCode, "expires_ts": expiresTS,
+		"account": account, "reason": reason, "updated_ts": ts,
+	}
+}
+
+const (
+	codexTestURL  = "https://auth.openai.com/codex/device"
+	codexTestCode = "NEED-LECODE"
+)
+
+func (f *loginFixture) startCodex(t *testing.T) string {
+	t.Helper()
+	status, data := apiJSON(t, f.h, "POST", loginStartPath, f.owner, `{"runtime":"codex"}`)
+	if status != http.StatusOK {
+		t.Fatalf("codex start: %d %v", status, data)
+	}
+	return data["login_id"].(string)
 }
 
 func loginSignal(id, trigger string) map[string]any {
@@ -212,11 +235,30 @@ func TestRuntimeLoginStart(t *testing.T) {
 		}
 	})
 
-	t.Run("under a runtime other than claude, the start is 422", func(t *testing.T) {
+	t.Run("under runtime codex, the start answers a starting codex login and sends login_start with runtime codex", func(t *testing.T) {
 		f := newLoginFixture(t)
+		claude := f.start(t)
+		drainFrames(t, f.api, loginMachine)
 		status, data := apiJSON(t, f.h, "POST", loginStartPath, f.owner, `{"runtime":"codex"}`)
+		if status != http.StatusOK {
+			t.Fatalf("codex start: %d %v", status, data)
+		}
+		apiWantBody(t, data, codexLoginBody(apiAnyString, "starting", nil, nil, nil, nil, nil, loginEpoch))
+		id := data["login_id"].(string)
+		if id == claude {
+			t.Fatal("a codex start answered the claude login in flight on the same machine")
+		}
+		apiWantValue(t, "frames", any(drainFrames(t, f.api, loginMachine)), any([]drainedFrame{{
+			Topic: "warden-command", RPC: "login_start",
+			Args: map[string]any{"member_id": loginMachine, "login_id": id, "runtime": "codex"},
+		}}))
+	})
+
+	t.Run("under a runtime the server does not know, the start is 422", func(t *testing.T) {
+		f := newLoginFixture(t)
+		status, data := apiJSON(t, f.h, "POST", loginStartPath, f.owner, `{"runtime":"gemini"}`)
 		if status != http.StatusUnprocessableEntity {
-			t.Fatalf("codex start: want 422, got %d %v", status, data)
+			t.Fatalf("unknown runtime start: want 422, got %d %v", status, data)
 		}
 		wantNoWardenFrames(t, f, loginMachine)
 	})
@@ -295,6 +337,52 @@ func TestRuntimeLoginReport(t *testing.T) {
 		}
 		apiWantBody(t, data, loginBody(id, "failed", loginTestURL, nil,
 			"Login failed: Request failed with status code 400", loginEpoch))
+	})
+
+	t.Run("under a codex login, awaiting_authorization stores the URL, the one-time code and its expiry, and the owner reads them back", func(t *testing.T) {
+		f := newLoginFixture(t)
+		id := f.startCodex(t)
+		f.dashboard.wantFrames(loginSignal(id, "owner"))
+		f.advance(2 * time.Second)
+		status, data := f.report(t, f.warden, `{"login_id":"`+id+`","state":"awaiting_authorization",`+
+			`"auth_url":"`+codexTestURL+`","user_code":"`+codexTestCode+`","expires_ts":1800000902}`)
+		if status != http.StatusOK {
+			t.Fatalf("report: %d %v", status, data)
+		}
+		want := codexLoginBody(id, "awaiting_authorization", codexTestURL, codexTestCode, 1800000902, nil, nil, loginEpoch+2)
+		apiWantBody(t, data, want)
+		f.dashboard.wantFrames(loginSignal(id, loginMachine))
+		_, got := f.get(t, id)
+		apiWantBody(t, got, want)
+
+		f.advance(time.Second)
+		status, data = f.report(t, f.warden, `{"login_id":"`+id+`","state":"succeeded","account":{"email":"owner@example.test"}}`)
+		if status != http.StatusOK {
+			t.Fatalf("succeeded: %d %v", status, data)
+		}
+		apiWantBody(t, data, codexLoginBody(id, "succeeded", codexTestURL, codexTestCode, 1800000902,
+			map[string]any{"email": "owner@example.test", "org_name": nil}, nil, loginEpoch+3))
+	})
+
+	t.Run("under a report whose state belongs to the other runtime, the report is 409 and the login is unchanged", func(t *testing.T) {
+		f := newLoginFixture(t)
+		codex := f.startCodex(t)
+		claude := f.start(t)
+		for _, c := range []struct{ id, state, want string }{
+			{codex, "awaiting_code", "state 'awaiting_code' does not belong to a codex login"},
+			{codex, "verifying", "state 'verifying' does not belong to a codex login"},
+			{claude, "awaiting_authorization", "state 'awaiting_authorization' does not belong to a claude login"},
+		} {
+			status, data := f.report(t, f.warden, `{"login_id":"`+c.id+`","state":"`+c.state+`"}`)
+			if status != http.StatusConflict {
+				t.Fatalf("%s on %s: want 409, got %d %v", c.state, c.id, status, data)
+			}
+			apiWantError(t, data, "conflict", c.want)
+		}
+		_, got := f.get(t, codex)
+		apiWantBody(t, got, codexLoginBody(codex, "starting", nil, nil, nil, nil, nil, loginEpoch))
+		_, got = f.get(t, claude)
+		apiWantBody(t, got, loginBody(claude, "starting", nil, nil, nil, loginEpoch))
 	})
 
 	t.Run("under another machine's warden, the report is 404, the login is unchanged and nobody is signalled", func(t *testing.T) {
@@ -396,6 +484,19 @@ func TestRuntimeLoginCode(t *testing.T) {
 		wantNoWardenFrames(t, f, loginMachine)
 		_, got := f.get(t, id)
 		apiWantBody(t, got, loginBody(id, "awaiting_code", loginTestURL, nil, nil, loginEpoch))
+	})
+
+	t.Run("under a codex login awaiting authorization, the code is 409 and nothing is sent", func(t *testing.T) {
+		f := newLoginFixture(t)
+		id := f.startCodex(t)
+		f.report(t, f.warden, `{"login_id":"`+id+`","state":"awaiting_authorization","auth_url":"`+codexTestURL+`","user_code":"`+codexTestCode+`"}`)
+		drainFrames(t, f.api, loginMachine)
+		status, data := apiJSON(t, f.h, "POST", loginStartPath+"/"+id+"/code", f.owner, `{"code":"abc#def"}`)
+		if status != http.StatusConflict {
+			t.Fatalf("want 409, got %d %v", status, data)
+		}
+		apiWantError(t, data, "conflict", "runtime login '"+id+"' is awaiting_authorization, not awaiting_code")
+		wantNoWardenFrames(t, f, loginMachine)
 	})
 
 	t.Run("under a login that is not awaiting_code, the code is 409 and nothing is sent", func(t *testing.T) {
@@ -531,12 +632,12 @@ func TestRuntimeLoginCancel(t *testing.T) {
 }
 
 func TestRuntimeLoginLifetime(t *testing.T) {
-	t.Run("under 15 minutes without a warden report, the login becomes expired and the sweep signals the owner", func(t *testing.T) {
+	t.Run("under 20 minutes without a warden report, the login becomes expired and the sweep signals the owner", func(t *testing.T) {
 		f := newLoginFixture(t)
 		id := f.start(t)
 		f.dashboard.wantFrames(loginSignal(id, "owner"))
 
-		f.advance(15*time.Minute - time.Second)
+		f.advance(20*time.Minute - time.Second)
 		f.api.sweepRuntimeLogins()
 		f.dashboard.wantFrames()
 		_, got := f.get(t, id)
@@ -547,17 +648,17 @@ func TestRuntimeLoginLifetime(t *testing.T) {
 		f.dashboard.wantFrames(loginSignal(id, "server"))
 		_, got = f.get(t, id)
 		apiWantBody(t, got, loginBody(id, "expired", nil, nil,
-			"no report from the machine for 15 minutes", loginEpoch+15*60))
+			"no report from the machine for 20 minutes", loginEpoch+20*60))
 	})
 
-	t.Run("under a warden report, the 15 minutes count from that report", func(t *testing.T) {
+	t.Run("under a warden report, the 20 minutes count from that report", func(t *testing.T) {
 		f := newLoginFixture(t)
 		id := f.start(t)
-		f.advance(10 * time.Minute)
+		f.advance(15 * time.Minute)
 		f.report(t, f.warden, `{"login_id":"`+id+`","state":"awaiting_code","auth_url":"`+loginTestURL+`"}`)
-		f.advance(10 * time.Minute)
+		f.advance(15 * time.Minute)
 		_, got := f.get(t, id)
-		apiWantBody(t, got, loginBody(id, "awaiting_code", loginTestURL, nil, nil, loginEpoch+10*60))
+		apiWantBody(t, got, loginBody(id, "awaiting_code", loginTestURL, nil, nil, loginEpoch+15*60))
 	})
 
 	t.Run("under 10 minutes after a terminal state, the login is dropped and reads 404", func(t *testing.T) {
@@ -670,7 +771,15 @@ func TestRuntimeLoginLeavesNoCopyAtRest(t *testing.T) {
 		if hits := scanDatabaseFor(t, f.dal, `"rpc":"update"`); len(hits) == 0 {
 			t.Fatal("control: the persisted upgrade frame was not found — the scan does not reach the command store")
 		}
-		for _, secret := range []string{loginTestCode, loginTestURL, "needle-url-4f1c", "needle-code-9b7e"} {
+		codexID := f.startCodex(t)
+		if status, data := f.report(t, f.warden, `{"login_id":"`+codexID+`","state":"awaiting_authorization",`+
+			`"auth_url":"`+codexTestURL+`?needle=c0d3","user_code":"`+codexTestCode+`","expires_ts":1800000900}`); status != http.StatusOK {
+			t.Fatalf("codex awaiting: %d %v", status, data)
+		}
+		if status, data := f.report(t, f.warden, `{"login_id":"`+codexID+`","state":"succeeded","account":{"email":"codex@example.test"}}`); status != http.StatusOK {
+			t.Fatalf("codex succeeded: %d %v", status, data)
+		}
+		for _, secret := range []string{loginTestCode, loginTestURL, "needle-url-4f1c", "needle-code-9b7e", codexTestCode, "needle=c0d3"} {
 			if hits := scanDatabaseFor(t, f.dal, secret); len(hits) != 0 {
 				t.Errorf("%q is at rest in %v", secret, hits)
 			}

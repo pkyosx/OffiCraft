@@ -327,6 +327,8 @@ type runtimeLoginDTO struct {
 	Runtime   string                  `json:"runtime"`
 	State     string                  `json:"state"`
 	AuthURL   *string                 `json:"auth_url"`
+	UserCode  *string                 `json:"user_code"`
+	ExpiresTS *float64                `json:"expires_ts"`
 	Account   *runtimeLoginAccountDTO `json:"account"`
 	Reason    *string                 `json:"reason"`
 	UpdatedTS float64                 `json:"updated_ts"`
