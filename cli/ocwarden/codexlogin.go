@@ -139,7 +139,7 @@ func (f *codexLoginFlow) noCode(s *loginSession) {
 func (f *codexLoginFlow) failedState() string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if strings.Contains(f.preferred, "timed out") {
+	if strings.Contains(f.preferred, "device auth timed out") {
 		return "expired"
 	}
 	return "failed"

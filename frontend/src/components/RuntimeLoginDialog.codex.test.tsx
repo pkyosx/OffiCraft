@@ -150,6 +150,23 @@ describe("RuntimeLoginDialog (codex)", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it("under a browser clock 20 minutes ahead of the server, the code is still shown with its full 15 minutes", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
+    vi.setSystemTime(new Date(1_800_001_200_000));
+    mount();
+    await flush();
+    await emit(login({ state: "awaiting_authorization", authUrl: URL, userCode: "ABCD-EFGHI",
+      expiresTs: 1_800_000_900, updatedTs: 1_800_000_000 }));
+    expect(text("runtime-login-user-code")).toBe("ABCD-EFGHI");
+    expect(text("runtime-login-remaining")).toBe("剩餘有效時間 15:00");
+    await act(async () => {
+      vi.advanceTimersByTime(5_000);
+    });
+    await emit(login({ state: "awaiting_authorization", authUrl: URL, userCode: "ABCD-EFGHI",
+      expiresTs: 1_800_000_900, updatedTs: 1_800_000_000 }));
+    expect(text("runtime-login-remaining")).toBe("剩餘有效時間 14:55");
+  });
+
   it("under an expiry already past when the code arrives, it goes straight to the expired view", async () => {
     vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
     vi.setSystemTime(new Date(1_800_000_000_000));

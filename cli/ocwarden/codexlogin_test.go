@@ -230,6 +230,17 @@ func TestCodexLoginRelay(t *testing.T) {
 		}
 	})
 
+	t.Run("under an unrelated timeout from codex, the login stays failed rather than expired", func(t *testing.T) {
+		h, _ := newCodexHarness(t)
+		h.relay.Start("rl-cx", "codex")
+		h.next(t)
+		h.codex.write(t, h.codex.deny, "Error logging in with device code: error sending request: operation timed out\n")
+		if got, want := h.next(t), (loginReport{LoginID: "rl-cx", State: "failed",
+			Reason: "Error logging in with device code: error sending request: operation timed out"}); got != want {
+			t.Fatalf("final report = %+v, want %+v", got, want)
+		}
+	})
+
 	t.Run("under a cancel, the codex login process is killed and nothing more is reported", func(t *testing.T) {
 		h, _ := newCodexHarness(t)
 		h.relay.Start("rl-c7", "codex")

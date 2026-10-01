@@ -64,7 +64,9 @@ func refuseRealLoginInTest(bin string) {
 	if strings.HasPrefix(resolved, tmp+string(filepath.Separator)) {
 		return
 	}
-	refuseInTestBinary("startLoginProcess(" + bin + ")")
+	fmt.Fprintf(os.Stderr, "\nFATAL: refusing to run a real %s login inside a test binary.\n"+
+		"Login tests must stage a fake CLI in a temp dir and inject it.\n", bin)
+	os.Exit(1)
 }
 
 var loginIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)

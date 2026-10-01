@@ -17,12 +17,11 @@ const CODE_REJECTED = /^Login failed: Request failed with status code 40[01]\b/;
 
 // What a warden that can only log in claude answers a codex login_start with.
 const RUNTIME_UNSUPPORTED = /cannot log in runtime "codex"/;
-// The warden could not find the one-time code in codex's output.
 const CODE_UNREADABLE = /^could not read the one-time code/;
 
-// Only called before the expiry: at or past it the dialog shows the expired view.
-function remaining(expiresTs: number, nowMs: number): string {
-  const secs = Math.floor(expiresTs - nowMs / 1000);
+// Only called before the deadline: at or past it the dialog shows the expired view.
+function remaining(deadlineMs: number, nowMs: number): string {
+  const secs = Math.floor((deadlineMs - nowMs) / 1000);
   return `${String(Math.floor(secs / 60)).padStart(2, "0")}:${String(secs % 60).padStart(2, "0")}`;
 }
 
@@ -167,12 +166,28 @@ export function RuntimeLoginDialog({
     }
   }
 
-  const codeRanOut =
-    login?.state === "awaiting_authorization" &&
-    login.expiresTs != null &&
-    login.expiresTs * 1000 <= nowMs;
-  const counting =
-    login?.state === "awaiting_authorization" && login.expiresTs != null && !codeRanOut;
+  // expires_ts and updated_ts are both server clock, so their difference is
+  // what is left; counted down on the browser clock from when it arrived, it is
+  // immune to skew between the two clocks.
+  const [deadline, setDeadline] = useState<{ key: string; ms: number } | null>(null);
+  const deadlineKey =
+    login?.state === "awaiting_authorization" && login.expiresTs != null
+      ? `${login.loginId}:${login.expiresTs}:${login.updatedTs}`
+      : null;
+  useEffect(() => {
+    if (deadlineKey === null || !login || login.expiresTs == null) {
+      setDeadline(null);
+      return;
+    }
+    const left = login.expiresTs - login.updatedTs;
+    setDeadline({ key: deadlineKey, ms: Date.now() + left * 1000 });
+    // Keyed on the values, not the object: a refetch of the same login must not
+    // restart the countdown.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deadlineKey]);
+  const deadlineMs = deadline && deadline.key === deadlineKey ? deadline.ms : null;
+  const codeRanOut = deadlineMs != null && deadlineMs <= nowMs;
+  const counting = deadlineMs != null && !codeRanOut;
   useEffect(() => {
     if (!counting) return;
     setNowMs(Date.now());
@@ -339,10 +354,10 @@ export function RuntimeLoginDialog({
             <span>{copied === "code" ? m.copied : m.copyCode}</span>
           </button>
         </div>
-        {login.expiresTs != null && (
+        {deadlineMs != null && (
           <p className="runtime-login__hint" data-testid="runtime-login-remaining">
             {m.remainingLead}
-            {remaining(login.expiresTs, nowMs)}
+            {remaining(deadlineMs, nowMs)}
           </p>
         )}
         <p className="runtime-login__phishing" data-testid="runtime-login-phishing">

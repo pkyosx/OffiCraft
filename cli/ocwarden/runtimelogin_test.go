@@ -713,8 +713,10 @@ func TestStartLoginProcessRefusesARealBinaryInATestBinary(t *testing.T) {
 	if code != 1 {
 		t.Errorf("exit code = %d, want 1", code)
 	}
-	if !strings.Contains(out, refusalText("startLoginProcess(/usr/bin/true)")) {
-		t.Errorf("child output =\n%s\nwant the refusal for startLoginProcess(/usr/bin/true)", out)
+	want := "\nFATAL: refusing to run a real /usr/bin/true login inside a test binary.\n" +
+		"Login tests must stage a fake CLI in a temp dir and inject it.\n"
+	if !strings.Contains(out, want) {
+		t.Errorf("child output =\n%s\nwant it to contain\n%s", out, want)
 	}
 	if strings.Contains(out, "startLoginProcess ran a binary outside the temp dir") {
 		t.Error("a test binary was allowed to start a login process from a real binary")
