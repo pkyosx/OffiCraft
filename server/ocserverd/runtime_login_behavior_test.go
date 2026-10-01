@@ -291,7 +291,7 @@ func TestRuntimeLoginReport(t *testing.T) {
 		if status != http.StatusOK {
 			t.Fatalf("succeeded report: %d %v", status, data)
 		}
-		want := loginBody(id, "succeeded", loginTestURL,
+		want := loginBody(id, "succeeded", nil,
 			map[string]any{"email": "owner@example.test", "org_name": "Example Org", "plan": nil}, nil, loginEpoch+1)
 		apiWantBody(t, data, want)
 
@@ -335,21 +335,21 @@ func TestRuntimeLoginReport(t *testing.T) {
 		if status != http.StatusOK {
 			t.Fatalf("failed report: %d %v", status, data)
 		}
-		apiWantBody(t, data, loginBody(id, "failed", loginTestURL, nil,
+		apiWantBody(t, data, loginBody(id, "failed", nil, nil,
 			"Login failed: Request failed with status code 400", loginEpoch))
 	})
 
-	t.Run("under a codex login, awaiting_authorization stores the URL, the one-time code and its expiry, and the owner reads them back", func(t *testing.T) {
+	t.Run("under a codex login, awaiting_authorization stores the URL, the one-time code and an expiry on the server's clock, the owner reads them back, and the end clears them", func(t *testing.T) {
 		f := newLoginFixture(t)
 		id := f.startCodex(t)
 		f.dashboard.wantFrames(loginSignal(id, "owner"))
 		f.advance(2 * time.Second)
 		status, data := f.report(t, f.warden, `{"login_id":"`+id+`","state":"awaiting_authorization",`+
-			`"auth_url":"`+codexTestURL+`","user_code":"`+codexTestCode+`","expires_ts":1800000902}`)
+			`"auth_url":"`+codexTestURL+`","user_code":"`+codexTestCode+`","expires_in_s":900,"expires_ts":1}`)
 		if status != http.StatusOK {
 			t.Fatalf("report: %d %v", status, data)
 		}
-		want := codexLoginBody(id, "awaiting_authorization", codexTestURL, codexTestCode, 1800000902, nil, nil, loginEpoch+2)
+		want := codexLoginBody(id, "awaiting_authorization", codexTestURL, codexTestCode, loginEpoch+2+900, nil, nil, loginEpoch+2)
 		apiWantBody(t, data, want)
 		f.dashboard.wantFrames(loginSignal(id, loginMachine))
 		_, got := f.get(t, id)
@@ -360,7 +360,7 @@ func TestRuntimeLoginReport(t *testing.T) {
 		if status != http.StatusOK {
 			t.Fatalf("succeeded: %d %v", status, data)
 		}
-		apiWantBody(t, data, codexLoginBody(id, "succeeded", codexTestURL, codexTestCode, 1800000902,
+		apiWantBody(t, data, codexLoginBody(id, "succeeded", nil, nil, nil,
 			map[string]any{"email": "owner@example.test", "org_name": nil, "plan": "team"}, nil, loginEpoch+3))
 	})
 
@@ -593,7 +593,7 @@ func TestRuntimeLoginCancel(t *testing.T) {
 		if status != http.StatusOK {
 			t.Fatalf("cancel: %d %v", status, data)
 		}
-		want := loginBody(id, "cancelled", loginTestURL, nil, "cancelled by the owner", loginEpoch+4)
+		want := loginBody(id, "cancelled", nil, nil, "cancelled by the owner", loginEpoch+4)
 		apiWantBody(t, data, want)
 		apiWantValue(t, "frames", any(drainFrames(t, f.api, loginMachine)), any([]drainedFrame{{
 			Topic: "warden-command", RPC: "login_cancel",
@@ -618,7 +618,7 @@ func TestRuntimeLoginCancel(t *testing.T) {
 		if status != http.StatusOK {
 			t.Fatalf("cancel: %d %v", status, data)
 		}
-		apiWantBody(t, data, loginBody(id, "failed", loginTestURL, nil, "boom", loginEpoch))
+		apiWantBody(t, data, loginBody(id, "failed", nil, nil, "boom", loginEpoch))
 		wantNoWardenFrames(t, f, loginMachine)
 	})
 

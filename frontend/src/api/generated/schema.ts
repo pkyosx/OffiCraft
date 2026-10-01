@@ -7743,12 +7743,12 @@ export interface components {
             account?: components["schemas"]["RuntimeLoginAccountDTO"] | null;
             /**
              * Auth Url
-             * @description The provider sign-in URL the owner opens; set from `awaiting_code` (`claude`) or `awaiting_authorization` (`codex`) on.
+             * @description The provider sign-in URL the owner opens; set from `awaiting_code` (`claude`) or `awaiting_authorization` (`codex`) on, and cleared when the login reaches a terminal state.
              */
             auth_url?: string | null;
             /**
              * Expires Ts
-             * @description `codex` only: epoch seconds at which `user_code` stops working, as the machine computed it from the expiry the CLI printed (about 15 minutes after `awaiting_authorization`). Advisory for a countdown; the login process's own end decides the state.
+             * @description `codex` only: epoch seconds at which `user_code` stops working, computed by the server from its own clock and the remaining time the machine reported (`expires_in_s`), so a skewed machine clock does not shift it (about 15 minutes after `awaiting_authorization`). Advisory for a countdown; the login process's own end decides the state.
              */
             expires_ts?: number | null;
             /** Login Id */
@@ -7773,7 +7773,7 @@ export interface components {
             state: "starting" | "awaiting_code" | "awaiting_authorization" | "verifying" | "succeeded" | "failed" | "expired" | "cancelled";
             /**
              * User Code
-             * @description `codex` only, set from `awaiting_authorization` on: the one-time code the owner enters on the `auth_url` page. Not a credential by itself (it only lets whoever holds it approve this machine's pending login from a signed-in OpenAI account), but held in server memory only like `auth_url`: never persisted, logged or mirrored, and gone when the login is dropped.
+             * @description `codex` only, set from `awaiting_authorization` on: the one-time code the owner enters on the `auth_url` page. Not a credential by itself (it only lets whoever holds it approve this machine's pending login from a signed-in OpenAI account), but held in server memory only like `auth_url`: never persisted, logged or mirrored, and cleared when the login reaches a terminal state.
              */
             user_code?: string | null;
             /**
@@ -7799,9 +7799,14 @@ export interface components {
             auth_url?: string | null;
             /**
              * Expires Ts
-             * @description Send with `awaiting_authorization`: epoch seconds at which `user_code` expires.
+             * @description Epoch seconds at which `user_code` expires. Superseded by `expires_in_s`, which the server prefers when both are sent.
              */
             expires_ts?: number | null;
+            /**
+             * Expires In S
+             * @description Send with `awaiting_authorization`: seconds until `user_code` expires, as the CLI printed it. The server turns it into `RuntimeLoginDTO.expires_ts` on its own clock.
+             */
+            expires_in_s?: number | null;
             /** Login Id */
             login_id: string;
             /**

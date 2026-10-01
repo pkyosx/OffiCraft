@@ -1652,6 +1652,7 @@ export const en: Dict = {
       codexSaidLead: "Codex said: ",
       codexExpired: "The one-time code has expired; press “Start again”",
       codexUnsupported: "This machine's OffiCraft version cannot sign in to Codex",
+      codexCodeUnreadable: "Could not read the one-time code from Codex's output",
       expired: "The sign-in timed out; start again",
       cancelled: "The sign-in was cancelled",
       restart: "Start again",

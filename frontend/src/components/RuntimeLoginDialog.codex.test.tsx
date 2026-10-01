@@ -130,6 +130,55 @@ describe("RuntimeLoginDialog (codex)", () => {
     expect(text("runtime-login-succeeded")).toBe("已登入：owner@example.test");
   });
 
+  it("under the countdown reaching zero while still awaiting authorization, it shows the expired view with 重新開始 and stops ticking", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
+    vi.setSystemTime(new Date(1_800_000_000_000));
+    mount();
+    await flush();
+    await emit(login({ state: "awaiting_authorization", authUrl: URL, userCode: "ABCD-EFGHI", expiresTs: 1_800_000_002 }));
+    expect(text("runtime-login-remaining")).toBe("剩餘有效時間 00:02");
+    await act(async () => {
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(text("runtime-login-remaining")).toBe("剩餘有效時間 00:01");
+    await act(async () => {
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(text("runtime-login-failed")).toBe("一次性碼已過期，請按「重新開始」");
+    expect(screen.queryByTestId("runtime-login-user-code")).toBeNull();
+    expect(screen.getByTestId("runtime-login-restart")).toBeTruthy();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("under an expiry already past when the code arrives, it goes straight to the expired view", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
+    vi.setSystemTime(new Date(1_800_000_000_000));
+    mount();
+    await flush();
+    await emit(login({ state: "awaiting_authorization", authUrl: URL, userCode: "ABCD-EFGHI", expiresTs: 1_799_999_990 }));
+    expect(text("runtime-login-failed")).toBe("一次性碼已過期，請按「重新開始」");
+    expect(screen.queryByTestId("runtime-login-remaining")).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("under an unmount while counting down, the countdown timer is cleared", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
+    vi.setSystemTime(new Date(1_800_000_000_000));
+    const view = mount();
+    await flush();
+    await emit(login({ state: "awaiting_authorization", authUrl: URL, userCode: "ABCD-EFGHI", expiresTs: 1_800_000_900 }));
+    expect(vi.getTimerCount()).toBe(1);
+    view.unmount();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("under a warden that could not read the one-time code, it says so", async () => {
+    mount();
+    await flush();
+    await emit(login({ state: "failed", reason: "could not read the one-time code from codex's output" }));
+    expect(text("runtime-login-failed-summary")).toBe("無法從 Codex 輸出讀到一次性碼");
+  });
+
   it("under awaiting authorization for longer than 30s, the no-response give-up never fires", async () => {
     vi.useFakeTimers();
     mount();

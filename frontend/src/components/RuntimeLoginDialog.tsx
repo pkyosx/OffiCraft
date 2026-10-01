@@ -17,9 +17,12 @@ const CODE_REJECTED = /^Login failed: Request failed with status code 40[01]\b/;
 
 // What a warden that can only log in claude answers a codex login_start with.
 const RUNTIME_UNSUPPORTED = /cannot log in runtime "codex"/;
+// The warden could not find the one-time code in codex's output.
+const CODE_UNREADABLE = /^could not read the one-time code/;
 
+// Only called before the expiry: at or past it the dialog shows the expired view.
 function remaining(expiresTs: number, nowMs: number): string {
-  const secs = Math.max(0, Math.floor(expiresTs - nowMs / 1000));
+  const secs = Math.floor(expiresTs - nowMs / 1000);
   return `${String(Math.floor(secs / 60)).padStart(2, "0")}:${String(secs % 60).padStart(2, "0")}`;
 }
 
@@ -164,7 +167,12 @@ export function RuntimeLoginDialog({
     }
   }
 
-  const counting = login?.state === "awaiting_authorization" && login.expiresTs != null;
+  const codeRanOut =
+    login?.state === "awaiting_authorization" &&
+    login.expiresTs != null &&
+    login.expiresTs * 1000 <= nowMs;
+  const counting =
+    login?.state === "awaiting_authorization" && login.expiresTs != null && !codeRanOut;
   useEffect(() => {
     if (!counting) return;
     setNowMs(Date.now());
@@ -282,6 +290,13 @@ export function RuntimeLoginDialog({
         )}
       </div>
     );
+  } else if (codeRanOut) {
+    ended = true;
+    body = (
+      <p className="runtime-login__line runtime-login__line--bad" data-testid="runtime-login-failed">
+        {m.codexExpired}
+      </p>
+    );
   } else if (login.state === "awaiting_authorization") {
     const url = login.authUrl ?? "";
     const userCode = login.userCode ?? "";
@@ -367,6 +382,8 @@ export function RuntimeLoginDialog({
         <p className="runtime-login__line runtime-login__line--bad" data-testid="runtime-login-failed-summary">
           {RUNTIME_UNSUPPORTED.test(reason)
             ? m.codexUnsupported
+            : runtime === "codex" && CODE_UNREADABLE.test(reason)
+              ? m.codexCodeUnreadable
             : runtime === "claude" && CODE_REJECTED.test(reason)
               ? m.codeRejected
               : m.failedHeading}

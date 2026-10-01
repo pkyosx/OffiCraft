@@ -345,6 +345,7 @@ var messageKeys = map[string]bool{
 	"monitor.runtimeLogin.codeIncomplete":              true,
 	"monitor.runtimeLogin.codeLabel":                   true,
 	"monitor.runtimeLogin.codeRejected":                true,
+	"monitor.runtimeLogin.codexCodeUnreadable":         true,
 	"monitor.runtimeLogin.codexExpired":                true,
 	"monitor.runtimeLogin.codexInstructions":           true,
 	"monitor.runtimeLogin.codexPhishing":               true,

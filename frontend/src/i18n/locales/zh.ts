@@ -1684,6 +1684,7 @@ export const zh = {
       codexSaidLead: "Codex 回應：",
       codexExpired: "一次性碼已過期，請按「重新開始」",
       codexUnsupported: "這台機器的 OffiCraft 版本不支援 Codex 登入",
+      codexCodeUnreadable: "無法從 Codex 輸出讀到一次性碼",
       expired: "登入逾時，請重新開始",
       cancelled: "登入已取消",
       restart: "重新開始",

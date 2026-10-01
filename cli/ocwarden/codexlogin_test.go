@@ -18,36 +18,44 @@ const (
 
 // fakeCodex is a stand-in for codex 0.159's `login --device-auth`: it records
 // its pid and the FROM_FILE it started with, prints the colored device-code
-// prompt (on stderr when the to-stderr file exists), then waits until the
-// approve or deny file appears. deny's content goes to stderr and the exit is
+// prompt behind an unrelated bare https line (on stderr when the to-stderr file
+// exists; without the code line when the no-code file exists); with the
+// self-timeout file it then ends the way codex does after 15 minutes. Otherwise
+// it waits until the approve or deny file appears. deny's content goes to stderr and the exit is
 // 1; approve exits 0 after "Successfully logged in". `login status` exits with
 // the status-rc file's code (0 when absent).
 type fakeCodex struct {
-	root, bin, pid, sawEnv, toStderr, approve, deny, statusRC string
+	root, bin, pid, sawEnv, toStderr, approve, deny, statusRC, selfTimeout, noCode string
 }
 
 func newFakeCodex(t *testing.T) *fakeCodex {
 	t.Helper()
 	root := t.TempDir()
 	f := &fakeCodex{
-		root:     root,
-		pid:      filepath.Join(root, "pid"),
-		sawEnv:   filepath.Join(root, "saw-env"),
-		toStderr: filepath.Join(root, "to-stderr"),
-		approve:  filepath.Join(root, "approve"),
-		deny:     filepath.Join(root, "deny"),
-		statusRC: filepath.Join(root, "status-rc"),
+		root:        root,
+		pid:         filepath.Join(root, "pid"),
+		sawEnv:      filepath.Join(root, "saw-env"),
+		toStderr:    filepath.Join(root, "to-stderr"),
+		approve:     filepath.Join(root, "approve"),
+		deny:        filepath.Join(root, "deny"),
+		statusRC:    filepath.Join(root, "status-rc"),
+		selfTimeout: filepath.Join(root, "self-timeout"),
+		noCode:      filepath.Join(root, "no-code"),
 	}
-	prompt := `printf '\033[1mWelcome to Codex\033[0m [v0.159.2]\n\n` +
+	codeLine := `printf '   \033[94m` + fakeCodexCode + `\033[0m\n'`
+	prompt := `printf '\033[1mWelcome to Codex\033[0m [v0.159.2]\n` +
+		`Docs:\n   https://developers.openai.com/codex\n\n` +
 		`Follow these steps to sign in with ChatGPT using device code authorization:\n\n` +
 		`1. Open this link in your browser and sign in to your account\n   \033[94m` + fakeCodexURL + `\033[0m\n\n` +
-		`2. Enter this one-time code \033[90m(expires in 15 minutes)\033[0m\n   \033[94m` + fakeCodexCode + `\033[0m\n\n` +
-		`\033[90mContinue only if you started this login in Codex. If a website or another person gave you this code, cancel.\033[0m\n'`
+		`2. Enter this one-time code \033[90m(expires in 15 minutes)\033[0m\n'; ` +
+		`[ -f '` + f.noCode + `' ] || ` + codeLine + `; ` +
+		`printf '\n\033[90mContinue only if you started this login in Codex. If a website or another person gave you this code, cancel.\033[0m\n'`
 	f.bin = stageBinary(t, filepath.Join(root, "bin", "codex"), "#!/bin/sh\n"+
 		`if [ "$1 $2" = "login status" ]; then [ -f '`+f.statusRC+`' ] && exit "$(/bin/cat '`+f.statusRC+`')"; echo 'Logged in using ChatGPT' >&2; exit 0; fi`+"\n"+
 		`echo $$ > '`+f.pid+`'`+"\n"+
 		`printf '%s' "${FROM_FILE-unset}" > '`+f.sawEnv+`'`+"\n"+
-		`if [ -f '`+f.toStderr+`' ]; then `+prompt+` >&2; else `+prompt+`; fi`+"\n"+
+		`if [ -f '`+f.toStderr+`' ]; then { `+prompt+`; } >&2; else `+prompt+`; fi`+"\n"+
+		`if [ -f '`+f.selfTimeout+`' ]; then echo 'Error logging in with device code: device auth timed out after 15 minutes' >&2; exit 1; fi`+"\n"+
 		`while [ ! -f '`+f.approve+`' ] && [ ! -f '`+f.deny+`' ]; do /bin/sleep 0.05; done`+"\n"+
 		`if [ -f '`+f.deny+`' ]; then /bin/cat '`+f.deny+`' >&2; exit 1; fi`+"\n"+
 		`echo 'Successfully logged in'; exit 0`+"\n")
@@ -80,7 +88,6 @@ func codexAuthFile(t *testing.T, f *fakeCodex, dir, email string) {
 func newCodexHarness(t *testing.T) (*relayHarness, string) {
 	t.Helper()
 	h := newRelayHarness(t)
-	h.relay.now = func() time.Time { return time.Unix(1_800_000_000, 0) }
 	codexHome := filepath.Join(h.codex.root, "codex-home")
 	h.codex.write(t, h.prober.envFile, "CODEX_HOME="+codexHome+"\nFROM_FILE=file-value\n")
 	return h, codexHome
@@ -89,7 +96,7 @@ func newCodexHarness(t *testing.T) (*relayHarness, string) {
 func TestCodexLoginRelay(t *testing.T) {
 	awaiting := func(id string) loginReport {
 		return loginReport{LoginID: id, State: "awaiting_authorization", AuthURL: fakeCodexURL,
-			UserCode: fakeCodexCode, ExpiresTS: 1_800_000_900}
+			UserCode: fakeCodexCode, ExpiresInS: 900}
 	}
 
 	t.Run("under an approved device code, the relay reports awaiting_authorization with URL, code and expiry, then succeeded with the email and kicks a heartbeat", func(t *testing.T) {
@@ -181,6 +188,48 @@ func TestCodexLoginRelay(t *testing.T) {
 		}
 	})
 
+	t.Run("under codex timing its own one-time code out, the relay reports expired with codex's line", func(t *testing.T) {
+		h, _ := newCodexHarness(t)
+		h.codex.write(t, h.codex.selfTimeout, "")
+		h.relay.Start("rl-ct", "codex")
+		if got := h.next(t); got != awaiting("rl-ct") {
+			t.Fatalf("first report = %+v, want %+v", got, awaiting("rl-ct"))
+		}
+		if got, want := h.next(t), (loginReport{LoginID: "rl-ct", State: "expired",
+			Reason: "Error logging in with device code: device auth timed out after 15 minutes"}); got != want {
+			t.Fatalf("final report = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("under a URL but no readable one-time code, the relay reports failed at once and kills the process", func(t *testing.T) {
+		h, _ := newCodexHarness(t)
+		h.relay.codeWait = 300 * time.Millisecond
+		h.codex.write(t, h.codex.noCode, "")
+		h.relay.Start("rl-cn", "codex")
+		if got, want := h.next(t), (loginReport{LoginID: "rl-cn", State: "failed",
+			Reason: "could not read the one-time code from codex's output"}); got != want {
+			t.Fatalf("report = %+v, want %+v", got, want)
+		}
+		h.waitEnded(t, "rl-cn")
+		if pidAlive(t, h.codex.pid) {
+			t.Error("the codex login process survived the failed report")
+		}
+		h.wantNoReport(t)
+	})
+
+	t.Run("under an auth.json over 1 MiB, the login succeeds without reading an account", func(t *testing.T) {
+		h, codexHome := newCodexHarness(t)
+		h.codex.write(t, filepath.Join(codexHome, "auth.json"),
+			`{"tokens":{"id_token":"h.`+base64.RawURLEncoding.EncodeToString([]byte(`{"email":"big@example.test"}`))+
+				`.s"},"pad":"`+strings.Repeat("x", 1<<20)+`"}`)
+		h.relay.Start("rl-cb", "codex")
+		h.next(t)
+		h.codex.write(t, h.codex.approve, "")
+		if got, want := h.next(t), (loginReport{LoginID: "rl-cb", State: "succeeded"}); !reflect.DeepEqual(got, want) {
+			t.Fatalf("final report = %+v, want %+v", got, want)
+		}
+	})
+
 	t.Run("under a cancel, the codex login process is killed and nothing more is reported", func(t *testing.T) {
 		h, _ := newCodexHarness(t)
 		h.relay.Start("rl-c7", "codex")
@@ -210,7 +259,7 @@ func TestCodexLoginRelay(t *testing.T) {
 
 	t.Run("under codex not installed, the relay reports failed and runs nothing", func(t *testing.T) {
 		h, _ := newCodexHarness(t)
-		h.prober.env = envMap(map[string]string{"HOME": h.prober.claudeHome.Home})
+		h.relay.resolveBin = func(string) string { return "" }
 		h.relay.Start("rl-c9", "codex")
 		if got, want := h.next(t), (loginReport{LoginID: "rl-c9", State: "failed",
 			Reason: "Codex is not installed on this machine"}); got != want {
@@ -237,6 +286,9 @@ func TestCodexAuthAccount(t *testing.T) {
 			payload(`{"email":"a@b.test","https://api.openai.com/auth":{"chatgpt_plan_type":"team"}}`),
 			loginAccount{Email: "a@b.test", Plan: "team"}},
 		{"under an id_token with an email but no plan, the email only", payload(`{"email":"a@b.test"}`), loginAccount{Email: "a@b.test"}},
+		{"under an id_token segment with base64 = padding, the claims still decode",
+			`{"tokens":{"id_token":"h.` + base64.URLEncoding.EncodeToString([]byte(`{"email":"a@c.test"}`)) + `.s"}}`,
+			loginAccount{Email: "a@c.test"}},
 		{"under an id_token without either claim, nothing", payload(`{"sub":"x"}`), loginAccount{}},
 		{"under an API-key auth.json without tokens, nothing", `{"OPENAI_API_KEY":"sk-x"}`, loginAccount{}},
 		{"under a malformed token, nothing", `{"tokens":{"id_token":"not-a-jwt"}}`, loginAccount{}},

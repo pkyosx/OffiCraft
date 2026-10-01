@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"testing"
 	"time"
 )
 
@@ -43,6 +44,28 @@ const (
 
 	loginRenderPrefix = ".oc-login-env-"
 )
+
+// refuseRealLoginInTest is the test-binary tripwire for the one process this
+// file starts: a real `codex login --device-auth` asks OpenAI for a device
+// code, and a real `claude auth login` opens a sign-in. Under `go test` only a
+// fake staged in a temp dir may run.
+func refuseRealLoginInTest(bin string) {
+	if !testing.Testing() {
+		return
+	}
+	resolved, err := filepath.EvalSymlinks(bin)
+	if err != nil {
+		resolved = bin
+	}
+	tmp, err := filepath.EvalSymlinks(os.TempDir())
+	if err != nil {
+		tmp = os.TempDir()
+	}
+	if strings.HasPrefix(resolved, tmp+string(filepath.Separator)) {
+		return
+	}
+	refuseInTestBinary("startLoginProcess(" + bin + ")")
+}
 
 var loginIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
@@ -91,13 +114,13 @@ type LoginSeam interface {
 }
 
 type loginReport struct {
-	LoginID   string
-	State     string
-	AuthURL   string
-	UserCode  string
-	ExpiresTS float64
-	Account   *loginAccount
-	Reason    string
+	LoginID    string
+	State      string
+	AuthURL    string
+	UserCode   string
+	ExpiresInS float64
+	Account    *loginAccount
+	Reason     string
 }
 
 // loginReporter answers the state the server now holds ("" when the POST did
@@ -112,11 +135,12 @@ type loginProc struct {
 	kill   func()
 }
 
-type loginStarter func(shell, script string) (*loginProc, error)
+type loginStarter func(shell, script, bin string) (*loginProc, error)
 
 // startLoginProcess puts the login in its own process group so a kill reaches
 // whatever claude itself started.
-func startLoginProcess(shell, script string) (*loginProc, error) {
+func startLoginProcess(shell, script, bin string) (*loginProc, error) {
+	refuseRealLoginInTest(bin)
 	cmd := exec.Command(shell, "-c", script)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	stdin, err := cmd.StdinPipe()
@@ -148,14 +172,15 @@ func startLoginProcess(shell, script string) (*loginProc, error) {
 }
 
 type loginRelay struct {
-	prober   *loginProber
-	progress loginReporter
-	start    loginStarter
-	remove   func(string) error
-	cap      time.Duration
-	codexCap time.Duration
-	now      func() time.Time
-	logf     func(string, ...any)
+	prober     *loginProber
+	progress   loginReporter
+	start      loginStarter
+	resolveBin func(runtime string) string
+	remove     func(string) error
+	cap        time.Duration
+	codexCap   time.Duration
+	codeWait   time.Duration
+	logf       func(string, ...any)
 
 	mu       sync.Mutex
 	sessions map[string]*loginSession
@@ -166,6 +191,9 @@ type loginRelay struct {
 type loginFlow interface {
 	line(s *loginSession, stderr bool, raw string)
 	failureReason() string
+	// failedState is the state a non-zero exit reports: codex's own expiry of
+	// the one-time code is an exit 1 that means `expired`, not `failed`.
+	failedState() string
 	expiredReason(limit time.Duration) string
 	conclude(s *loginSession)
 }
@@ -204,17 +232,24 @@ func (s *loginSession) mask(line string) string {
 }
 
 func newLoginRelay(prober *loginProber, progress loginReporter, logf func(string, ...any)) *loginRelay {
-	return &loginRelay{
+	r := &loginRelay{
 		prober:   prober,
 		progress: progress,
 		start:    startLoginProcess,
 		remove:   os.Remove,
 		cap:      loginProcessCap,
 		codexCap: codexLoginProcessCap,
-		now:      time.Now,
+		codeWait: codexCodeWait,
 		logf:     logf,
 		sessions: map[string]*loginSession{},
 	}
+	r.resolveBin = func(runtime string) string {
+		if runtime == "codex" {
+			return resolveCodexBin(prober.env)
+		}
+		return resolveClaudeBin(prober.env)
+	}
+	return r
 }
 
 func (r *loginRelay) log(format string, args ...any) {
@@ -249,7 +284,7 @@ func (r *loginRelay) Start(loginID, runtime string) {
 }
 
 func (r *loginRelay) startClaude(loginID string) {
-	bin := resolveClaudeBin(r.prober.env)
+	bin := r.resolveBin("claude")
 	if bin == "" {
 		r.fail(loginID, "Claude Code is not installed on this machine")
 		return
@@ -261,11 +296,11 @@ func (r *loginRelay) startClaude(loginID string) {
 	r.prober.prepareLaunchEnv()
 	script, rendered := r.prober.claudeCommand(bin, loginRenderPrefix+loginID, "auth login --claudeai",
 		claudeCommandOpts{selfDeleteRender: true, extra: [][2]string{loginBrowserOverride}})
-	r.launch(loginID, "claude", script, rendered, &claudeLoginFlow{relay: r}, r.cap)
+	r.launch(loginID, "claude", bin, script, rendered, &claudeLoginFlow{relay: r}, r.cap)
 }
 
-func (r *loginRelay) launch(loginID, runtime, script, rendered string, flow loginFlow, limit time.Duration) {
-	proc, err := r.start(r.prober.shell(), script)
+func (r *loginRelay) launch(loginID, runtime, bin, script, rendered string, flow loginFlow, limit time.Duration) {
+	proc, err := r.start(r.prober.shell(), script, bin)
 	if err != nil {
 		if rendered != "" {
 			_ = r.remove(rendered)
@@ -329,7 +364,7 @@ func (r *loginRelay) watch(s *loginSession, rendered string) {
 		if reason == "" {
 			reason = "the login process exited: " + waitErr.Error()
 		}
-		r.progress(loginReport{LoginID: s.id, State: "failed", Reason: s.mask(reason)})
+		r.progress(loginReport{LoginID: s.id, State: s.flow.failedState(), Reason: s.mask(reason)})
 	}
 }
 
@@ -396,6 +431,8 @@ func (f *claudeLoginFlow) failureReason() string {
 	}
 	return ""
 }
+
+func (f *claudeLoginFlow) failedState() string { return "failed" }
 
 func (f *claudeLoginFlow) expiredReason(limit time.Duration) string {
 	return fmt.Sprintf("no code arrived within %s", limit)
@@ -525,8 +562,8 @@ func loginReportPayload(rep loginReport) map[string]any {
 	if rep.UserCode != "" {
 		payload["user_code"] = rep.UserCode
 	}
-	if rep.ExpiresTS > 0 {
-		payload["expires_ts"] = rep.ExpiresTS
+	if rep.ExpiresInS > 0 {
+		payload["expires_in_s"] = rep.ExpiresInS
 	}
 	if rep.Reason != "" {
 		payload["reason"] = rep.Reason

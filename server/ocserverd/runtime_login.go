@@ -106,6 +106,9 @@ func (l *runtimeLogin) moveTo(state string, now time.Time) {
 	l.state = state
 	if runtimeLoginTerminal(state) {
 		l.endedAt = now
+		// An ended login keeps only what the owner still reads: the URL and the
+		// one-time code are useless now and would only linger in memory.
+		l.authURL, l.userCode, l.expiresTS = nil, nil, nil
 	}
 }
 
@@ -430,7 +433,11 @@ func (s *apiServer) HandleReportRuntimeLoginApiMonitoringRuntimeLoginPost(w http
 		code := *body.UserCode
 		l.userCode = &code
 	}
-	if body.ExpiresTs != nil {
+	switch {
+	case body.ExpiresInS != nil:
+		at := float64(now.Unix()) + *body.ExpiresInS
+		l.expiresTS = &at
+	case body.ExpiresTs != nil:
 		at := *body.ExpiresTs
 		l.expiresTS = &at
 	}

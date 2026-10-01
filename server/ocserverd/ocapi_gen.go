@@ -2833,10 +2833,10 @@ type RuntimeLoginDTO struct {
 	// Account Set on `succeeded` only.
 	Account *RuntimeLoginAccountDTO `json:"account,omitempty"`
 
-	// AuthUrl The provider sign-in URL the owner opens; set from `awaiting_code` (`claude`) or `awaiting_authorization` (`codex`) on.
+	// AuthUrl The provider sign-in URL the owner opens; set from `awaiting_code` (`claude`) or `awaiting_authorization` (`codex`) on, and cleared when the login reaches a terminal state.
 	AuthUrl *string `json:"auth_url,omitempty"`
 
-	// ExpiresTs `codex` only: epoch seconds at which `user_code` stops working, as the machine computed it from the expiry the CLI printed (about 15 minutes after `awaiting_authorization`). Advisory for a countdown; the login process's own end decides the state.
+	// ExpiresTs `codex` only: epoch seconds at which `user_code` stops working, computed by the server from its own clock and the remaining time the machine reported (`expires_in_s`), so a skewed machine clock does not shift it (about 15 minutes after `awaiting_authorization`). Advisory for a countdown; the login process's own end decides the state.
 	ExpiresTs *float64 `json:"expires_ts,omitempty"`
 	LoginId   string   `json:"login_id"`
 	MachineId string   `json:"machine_id"`
@@ -2851,7 +2851,7 @@ type RuntimeLoginDTO struct {
 	// UpdatedTs Epoch seconds of the last state change, server-stamped.
 	UpdatedTs float64 `json:"updated_ts"`
 
-	// UserCode `codex` only, set from `awaiting_authorization` on: the one-time code the owner enters on the `auth_url` page. Not a credential by itself (it only lets whoever holds it approve this machine's pending login from a signed-in OpenAI account), but held in server memory only like `auth_url`: never persisted, logged or mirrored, and gone when the login is dropped.
+	// UserCode `codex` only, set from `awaiting_authorization` on: the one-time code the owner enters on the `auth_url` page. Not a credential by itself (it only lets whoever holds it approve this machine's pending login from a signed-in OpenAI account), but held in server memory only like `auth_url`: never persisted, logged or mirrored, and cleared when the login reaches a terminal state.
 	UserCode *string `json:"user_code,omitempty"`
 }
 
@@ -2869,7 +2869,10 @@ type RuntimeLoginReportDTO struct {
 	// AuthUrl Send with `awaiting_code` (`claude`) or `awaiting_authorization` (`codex`).
 	AuthUrl *string `json:"auth_url,omitempty"`
 
-	// ExpiresTs Send with `awaiting_authorization`: epoch seconds at which `user_code` expires.
+	// ExpiresInS Send with `awaiting_authorization`: seconds until `user_code` expires, as the CLI printed it. The server turns it into `RuntimeLoginDTO.expires_ts` on its own clock.
+	ExpiresInS *float64 `json:"expires_in_s,omitempty"`
+
+	// ExpiresTs Epoch seconds at which `user_code` expires. Superseded by `expires_in_s`, which the server prefers when both are sent.
 	ExpiresTs *float64 `json:"expires_ts,omitempty"`
 	LoginId   string   `json:"login_id"`
 

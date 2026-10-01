@@ -344,6 +344,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "monitor.runtimeLogin.codeIncomplete",
   "monitor.runtimeLogin.codeLabel",
   "monitor.runtimeLogin.codeRejected",
+  "monitor.runtimeLogin.codexCodeUnreadable",
   "monitor.runtimeLogin.codexExpired",
   "monitor.runtimeLogin.codexInstructions",
   "monitor.runtimeLogin.codexPhishing",

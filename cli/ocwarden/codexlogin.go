@@ -17,8 +17,9 @@ import (
 //  2. Enter this one-time code (expires in 15 minutes)
 //     ABCD-EFGHI
 //
-// and then waits until the code is approved on that page (exit 0) or expires
-// (non-zero). It reads nothing from stdin.
+// and then waits until the code is approved on that page (exit 0) or expires:
+// exit 1 with "Error logging in with device code: device auth timed out after
+// 15 minutes". It reads nothing from stdin.
 var (
 	codexDeviceCodeLine = regexp.MustCompile(`^[A-Z0-9]{4,}-[A-Z0-9]{4,}$`)
 	codexExpiresIn      = regexp.MustCompile(`expires in (\d+) minutes?`)
@@ -28,6 +29,14 @@ var (
 const (
 	codexDeviceLoginCommand = "login --device-auth"
 	codexLoggedOutReason    = "codex login status still reports logged out after the login finished"
+	codexNoCodeReason       = "could not read the one-time code from codex's output"
+	codexDeviceURLPrefix    = "https://auth.openai.com/"
+	// Only display claims are read from auth.json; a larger file is cut here,
+	// and a cut file no longer parses, so it yields no account.
+	codexAuthFileMax = 1 << 20
+	// The code is printed a line or two after the URL; past this the output is
+	// not one this warden can read, and the owner should hear so at once.
+	codexCodeWait = 5 * time.Second
 )
 
 type codexLoginFlow struct {
@@ -38,13 +47,14 @@ type codexLoginFlow struct {
 	userCode  string
 	minutes   int
 	reported  bool
+	waiting   bool
 	lastOut   string
 	lastErr   string
 	preferred string
 }
 
 func (r *loginRelay) startCodex(loginID string) {
-	bin := resolveCodexBin(r.prober.env)
+	bin := r.resolveBin("codex")
 	if bin == "" {
 		r.fail(loginID, "Codex is not installed on this machine")
 		return
@@ -53,7 +63,7 @@ func (r *loginRelay) startCodex(loginID string) {
 	script, rendered := r.prober.codexCommand(loginRenderPrefix+loginID,
 		"exec "+shellQuote(bin)+" "+codexDeviceLoginCommand,
 		claudeCommandOpts{selfDeleteRender: true, extra: [][2]string{loginBrowserOverride}})
-	r.launch(loginID, "codex", script, rendered, &codexLoginFlow{relay: r}, r.codexCap)
+	r.launch(loginID, "codex", bin, script, rendered, &codexLoginFlow{relay: r}, r.codexCap)
 }
 
 func (f *codexLoginFlow) line(s *loginSession, stderr bool, raw string) {
@@ -77,7 +87,7 @@ func (f *codexLoginFlow) line(s *loginSession, stderr bool, raw string) {
 		f.preferred = line
 	}
 	switch {
-	case f.url == "" && strings.HasPrefix(line, "https://"):
+	case f.url == "" && strings.HasPrefix(line, codexDeviceURLPrefix):
 		f.url = line
 	case f.userCode == "" && codexDeviceCodeLine.MatchString(line):
 		f.userCode = line
@@ -89,17 +99,50 @@ func (f *codexLoginFlow) line(s *loginSession, stderr bool, raw string) {
 	if ready {
 		f.reported = true
 	}
+	startWait := f.url != "" && f.userCode == "" && !f.waiting
+	if startWait {
+		f.waiting = true
+	}
 	url, code, minutes := f.url, f.userCode, f.minutes
 	f.mu.Unlock()
+	if startWait {
+		time.AfterFunc(f.relay.codeWait, func() { f.noCode(s) })
+	}
 	if !ready {
 		return
 	}
 	rep := loginReport{LoginID: s.id, State: "awaiting_authorization", AuthURL: url, UserCode: code}
 	if minutes > 0 {
-		rep.ExpiresTS = float64(f.relay.now().Add(time.Duration(minutes) * time.Minute).Unix())
+		rep.ExpiresInS = float64(minutes * 60)
 	}
 	f.relay.log("%s: awaiting authorization", s.id)
 	f.relay.relay(s, rep)
+}
+
+func (f *codexLoginFlow) noCode(s *loginSession) {
+	if f.relay.session(s.id) != s {
+		return
+	}
+	f.mu.Lock()
+	missing := !f.reported
+	if missing {
+		f.reported = true
+	}
+	f.mu.Unlock()
+	if !missing {
+		return
+	}
+	f.relay.log("%s: codex printed a sign-in URL but no one-time code this warden can read", s.id)
+	f.relay.relay(s, loginReport{LoginID: s.id, State: "failed", Reason: codexNoCodeReason})
+}
+
+func (f *codexLoginFlow) failedState() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if strings.Contains(f.preferred, "timed out") {
+		return "expired"
+	}
+	return "failed"
 }
 
 func (f *codexLoginFlow) failureReason() string {
@@ -122,10 +165,11 @@ func (f *codexLoginFlow) expiredReason(limit time.Duration) string {
 // dropped: only the email and plan claims leave the machine.
 func (f *codexLoginFlow) conclude(s *loginSession) {
 	r := f.relay
-	bin := resolveCodexBin(r.prober.env)
+	bin := r.resolveBin("codex")
 	script, rendered := r.prober.codexCommand(loginRenderPrefix+s.id+"-status",
 		shellQuote(bin)+` login status >/dev/null 2>&1 || exit 3; `+
-			`__oc_f="${CODEX_HOME:-$HOME/.codex}/auth.json"; [ -f "$__oc_f" ] && /bin/cat "$__oc_f"; exit 0`,
+			`__oc_f="${CODEX_HOME:-$HOME/.codex}/auth.json"; [ -f "$__oc_f" ] && /usr/bin/head -c `+
+			strconv.Itoa(codexAuthFileMax)+` "$__oc_f"; exit 0`,
 		claudeCommandOpts{selfDeleteRender: true})
 	var out string
 	var err error

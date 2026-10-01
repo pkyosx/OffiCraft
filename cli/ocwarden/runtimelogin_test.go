@@ -137,6 +137,12 @@ func newRelayHarness(t *testing.T) *relayHarness {
 		}
 		return rep.State
 	}, logf)
+	h.relay.resolveBin = func(runtime string) string {
+		if runtime == "codex" {
+			return h.codex.bin
+		}
+		return h.claude.bin
+	}
 	t.Cleanup(func() {
 		for _, s := range h.sessions() {
 			s.proc.kill()
@@ -695,4 +701,30 @@ func TestUpdaterExecAbandonsRunningLogins(t *testing.T) {
 		}
 		h.wantNoReport(t)
 	})
+}
+
+func TestStartLoginProcessRefusesARealBinaryInATestBinary(t *testing.T) {
+	if os.Getenv("OCWARDEN_REFUSAL_CHILD") == "1" {
+		_, _ = startLoginProcess("/bin/sh", "exit 0", "/usr/bin/true")
+		fmt.Println("startLoginProcess ran a binary outside the temp dir")
+		return
+	}
+	code, out := runRefusalChild(t, "TestStartLoginProcessRefusesARealBinaryInATestBinary")
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(out, refusalText("startLoginProcess(/usr/bin/true)")) {
+		t.Errorf("child output =\n%s\nwant the refusal for startLoginProcess(/usr/bin/true)", out)
+	}
+	if strings.Contains(out, "startLoginProcess ran a binary outside the temp dir") {
+		t.Error("a test binary was allowed to start a login process from a real binary")
+	}
+	fake := stageBinary(t, filepath.Join(t.TempDir(), "claude"), "#!/bin/sh\nexit 0\n")
+	proc, err := startLoginProcess("/bin/sh", "exec "+fake, fake)
+	if err != nil {
+		t.Fatalf("control: a temp-dir fake could not start: %v", err)
+	}
+	if err := proc.wait(); err != nil {
+		t.Fatalf("control: the fake did not exit 0: %v", err)
+	}
 }
