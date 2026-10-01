@@ -367,46 +367,6 @@ func TestHandleMintApiMintPost(t *testing.T) {
 	})
 }
 
-const (
-	previewRoleKey      = "preview-writer"
-	previewCodexBoot    = "# CODEX BOOT PREVIEW MARKER"
-	previewClaudeBoot   = "# CLAUDE BOOT PREVIEW MARKER"
-	previewEveryoneLore = "EVERYONE LORE FOR EVERY MEMBER"
-)
-
-func seedRolePreview(t *testing.T, d *DAL, members []Member, ownLore map[string]string) {
-	t.Helper()
-	if err := d.PutRoleDef(RoleDef{
-		RoleKey: previewRoleKey, Name: "Preview Writer", DefinitionMD: "# Preview role instructions",
-	}); err != nil {
-		t.Fatalf("PutRoleDef: %v", err)
-	}
-	for _, doc := range []BootDocument{
-		{Kind: docKindBootSequence, Key: bootSequenceKeyCodex, Text: previewCodexBoot},
-		{Kind: docKindBootSequence, Key: bootSequenceKeyClaude, Text: previewClaudeBoot},
-	} {
-		if err := d.PutBootDocument(doc); err != nil {
-			t.Fatalf("PutBootDocument(%s): %v", doc.Key, err)
-		}
-	}
-	for _, member := range members {
-		if err := d.PutMember(member); err != nil {
-			t.Fatalf("PutMember(%s): %v", member.ID, err)
-		}
-	}
-	entries := []LoreEntry{{ScopeKind: LoreScopeEveryone, Body: previewEveryoneLore}}
-	for memberID, body := range ownLore {
-		entries = append(entries, LoreEntry{ScopeKind: LoreScopeAgent, ScopeKey: memberID, Body: body})
-	}
-	for _, e := range entries {
-		e.Title, e.AuthorID, e.State = "preview lore", "owner", LoreStateActive
-		e.EffectiveTS, e.CreatedTS, e.UpdatedTS = 1, 1, 1
-		if _, err := d.CreateLoreEntryMintingID(e); err != nil {
-			t.Fatalf("CreateLoreEntryMintingID(%s): %v", e.Body, err)
-		}
-	}
-}
-
 func TestHandleBootstrapApiBootstrapPost(t *testing.T) {
 	t.Run("a spawn naming a member answers 200 with that member's boot package and a token", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
@@ -434,7 +394,7 @@ func TestHandleBootstrapApiBootstrapPost(t *testing.T) {
 		}
 	})
 
-	t.Run("a role-only preview uses its one active staff but answers a null token", func(t *testing.T) {
+	t.Run("a preview with no member answers 200 and a null token", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 
 		status, data := apiJSON(t, h, "POST", "/api/bootstrap", owner, `{"role":"assistant"}`)
@@ -443,105 +403,11 @@ func TestHandleBootstrapApiBootstrapPost(t *testing.T) {
 		}
 		apiWantBody(t, data, map[string]any{
 			"role":    "assistant",
-			"name":    "Mira",
+			"name":    "Assistant",
 			"context": apiAnyString,
 			"token":   nil,
 		})
 	})
-
-	t.Run("a role-only preview of a role with one active member answers that member's boot context and a null token", func(t *testing.T) {
-		_, h, d, owner := newAPITestServer(t)
-		seedRolePreview(t, d, []Member{
-			{ID: "m-preview-codex", Name: "Codex Previewer", Kind: KindStaff, RoleKey: previewRoleKey,
-				Runtime: RuntimeCodex, RosterStatus: RosterStatusActive},
-			{ID: "m-preview-removed", Name: "Former Previewer", Kind: KindStaff, RoleKey: previewRoleKey,
-				Runtime: RuntimeClaude, RosterStatus: RosterStatusRemoved},
-		}, map[string]string{
-			"m-preview-codex":   "ONLY ACTIVE MEMBER LORE",
-			"m-preview-removed": "REMOVED MEMBER LORE",
-		})
-
-		status, preview := apiJSON(t, h, "POST", "/api/bootstrap", owner, `{"role":"`+previewRoleKey+`"}`)
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, preview)
-		}
-		apiWantBody(t, preview, map[string]any{
-			"role":    previewRoleKey,
-			"name":    "Codex Previewer",
-			"context": apiAnyString,
-			"token":   nil,
-		})
-		context := preview["context"].(string)
-		everyoneAt := strings.Index(context, previewEveryoneLore)
-		ownAt := strings.Index(context, "ONLY ACTIVE MEMBER LORE")
-		if !strings.Contains(context, "\n# 傳承\n") || everyoneAt < 0 || ownAt < everyoneAt {
-			t.Fatalf("want a 傳承 block with everyone entries before the member's own: %s", context)
-		}
-		if strings.Contains(context, "REMOVED MEMBER LORE") {
-			t.Fatalf("preview carries a removed member's lore: %s", context)
-		}
-		if !strings.HasSuffix(context, previewCodexBoot+"\n") {
-			t.Fatalf("want the Codex boot sequence last: %s", context)
-		}
-
-		status, boot := apiJSON(t, h, "POST", "/api/bootstrap", owner, `{"member_id":"m-preview-codex"}`)
-		if status != 200 {
-			t.Fatalf("member boot: want 200, got %d (%v)", status, boot)
-		}
-		if boot["context"] != context {
-			t.Fatalf("preview differs from the member's boot context\npreview: %s\nboot: %s", context, boot["context"])
-		}
-	})
-
-	for _, tc := range []struct {
-		name    string
-		members []Member
-	}{
-		{
-			name: "a role-only preview of a role with no active member omits 傳承 and uses the Claude boot sequence",
-			members: []Member{
-				{ID: "m-preview-former", Name: "Former Previewer", Kind: KindStaff, RoleKey: previewRoleKey,
-					Runtime: RuntimeCodex, RosterStatus: RosterStatusRemoved},
-			},
-		},
-		{
-			name: "a role-only preview of a role with two active members omits 傳承 and uses the Claude boot sequence",
-			members: []Member{
-				{ID: "m-preview-one", Name: "First Previewer", Kind: KindStaff, RoleKey: previewRoleKey,
-					Runtime: RuntimeCodex, RosterStatus: RosterStatusActive},
-				{ID: "m-preview-two", Name: "Second Previewer", Kind: KindStaff, RoleKey: previewRoleKey,
-					Runtime: RuntimeCodex, RosterStatus: RosterStatusActive},
-			},
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			_, h, d, owner := newAPITestServer(t)
-			ownLore := map[string]string{}
-			for _, m := range tc.members {
-				ownLore[m.ID] = "LORE OF " + m.ID
-			}
-			seedRolePreview(t, d, tc.members, ownLore)
-
-			status, data := apiJSON(t, h, "POST", "/api/bootstrap", owner, `{"role":"`+previewRoleKey+`"}`)
-			if status != 200 {
-				t.Fatalf("want 200, got %d (%v)", status, data)
-			}
-			apiWantBody(t, data, map[string]any{
-				"role":    previewRoleKey,
-				"name":    "Preview Writer",
-				"context": apiAnyString,
-				"token":   nil,
-			})
-			context := data["context"].(string)
-			if strings.Contains(context, "# 傳承") || strings.Contains(context, previewEveryoneLore) ||
-				strings.Contains(context, "LORE OF ") {
-				t.Fatalf("want no 傳承 block: %s", context)
-			}
-			if !strings.HasSuffix(context, previewClaudeBoot+"\n") {
-				t.Fatalf("want the Claude boot sequence last: %s", context)
-			}
-		})
-	}
 
 	t.Run("an empty body answers 200 on the default role", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
@@ -552,7 +418,7 @@ func TestHandleBootstrapApiBootstrapPost(t *testing.T) {
 		}
 		apiWantBody(t, data, map[string]any{
 			"role":    "assistant",
-			"name":    "Mira",
+			"name":    "Assistant",
 			"context": apiAnyString,
 			"token":   nil,
 		})

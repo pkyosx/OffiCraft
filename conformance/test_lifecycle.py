@@ -343,17 +343,16 @@ def _expected_lore_block(client, owner_token, member_id: str) -> str:
     🔴 KEYED BY THE MEMBER, NOT BY THE ROLE, AND THE EMPTY-STRING CASE IS THE
     ONE TO READ CAREFULLY. The owner collapsed the 傳承 scopes to two on
     2026-09-07 (card rc-a43100fd0486 [0]): a staff member's 傳承 hangs off its
-    own member id, and `scope_kind='role'` is retired. For a role-only preview,
-    the handler supplies that id only when exactly one active staff member has
-    the resolved role. With zero or multiple matches it supplies no member and
-    emits no 傳承 block, including entries in `everyone`; this helper receives
-    the resolved id (or `""`) and returns the independently assembled block.
+    own member id, and `scope_kind='role'` is retired. buildBootContext is also
+    the cockpit's ROLE PREVIEW — called with NO member — and on that path there
+    is no id to key by, so the server emits no 傳承 block at all rather than an
+    arbitrary one. `member_id == ""` is exactly that path, and this function
+    returns "" for it.
 
     ⚠️ SO A CALLER PASSING "" GETS A VACUOUSLY-TRUE COMPARISON FOR THIS BLOCK.
-    That is honest when the preview has no unique active staff member (the
-    server emits nothing either), but it is not a test of the 傳承 fold, and no
-    caller should read it as one. The fold is exercised where a real member id
-    is available; see the call sites.
+    That is honest (the server emits nothing either) but it is not a test of the
+    傳承 fold, and no caller should read it as one. The fold is exercised where a
+    real member id is available; see the call sites.
 
     🔴 THE RENDERING AND THE SELECTION ARE HAND-WRITTEN HERE, on purpose. Only
     the DATA comes from the wire (`GET /api/lore`) — exactly the way this file
@@ -437,26 +436,6 @@ def _expected_context(
     insight = client.get(
         f"/api/insight/{role_key}", headers=_auth(owner_token)
     ).json()
-    preview_member = None
-    if member_id:
-        r = client.get(f"/api/members/{member_id}", headers=_auth(owner_token))
-        assert r.status_code == 200, r.text
-        preview_member = r.json()
-    else:
-        r = client.get("/api/members", headers=_auth(owner_token))
-        assert r.status_code == 200, r.text
-        matching_staff = [
-            member
-            for member in r.json()
-            if member["kind"] == "staff"
-            and member["roster_status"] == "active"
-            and member["role_key"] == role_key
-        ]
-        if len(matching_staff) == 1:
-            preview_member = matching_staff[0]
-    member_id = preview_member["id"] if preview_member else ""
-    runtime = preview_member.get("runtime", "") if preview_member else ""
-    boot_seed = "boot_sequence_codex.md" if runtime == "codex" else "boot_sequence.md"
     # 🔴 THIS FUNCTION IS THE VERBATIM AUTHORITY. spec/lifecycle.md §2.2 gives
     # the SHAPE — which blocks, in what order — and explicitly delegates the
     # exact titles, string formats, separator and trailing newline here and to
@@ -472,9 +451,13 @@ def _expected_context(
     # ENTIRELY — no header, no blank line — when it is empty.
     #
     # 🔴 IT IS KEYED BY `member_id`, AND A BLANK ONE MEANS THE BLOCK IS ABSENT.
-    # A role-only bootstrap can resolve one active staff member; this independent
-    # expected fold performs that uniqueness check above and uses the selected
-    # member id. Zero or multiple matches leave it blank.
+    # Since the 2026-09-07 scope collapse the staff fold reads the MEMBER's 傳承,
+    # so the preview path (POST /api/bootstrap with no member_id) has nothing to
+    # key by and emits no block. Callers that assemble a preview pass "" and get
+    # the same nothing; callers holding a real member pass its id and get the
+    # real fold. Defaulting this parameter to "" is deliberate — the preview is
+    # what most of this file exercises — but it does mean a caller that HAS a
+    # member and forgets to pass it gets a silently weaker comparison.
     #
     # 使用者自訂 and 判準 are each dropped entirely when they fold blank. The
     # gate is the FOLDED TEXT — deliberately not is_default and not has_seed,
@@ -490,7 +473,7 @@ def _expected_context(
         parts.append(f"# Insight ({role_key})\n\n{insight['text'].strip()}")
     if lore := _expected_lore_block(client, owner_token, member_id):
         parts.append(lore)
-    parts.append(_rendered(_seed(boot_seed)).strip())
+    parts.append(_rendered(_seed("boot_sequence.md")).strip())
     return "\n\n".join(parts) + "\n"
 
 
