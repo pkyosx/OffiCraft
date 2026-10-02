@@ -258,17 +258,42 @@ func TestArmMemberOwnerOpHandover(t *testing.T) {
 	}
 }
 
-func TestStampRestartIntent(t *testing.T) {
-	input := Member{
-		ID: "m-stamp", DesiredState: DesiredStateOffline, RestartAfterStop: false,
-		StoppingSince: 10, StoppedSince: 20, RefocusSince: 30, RefocusOp: memberOpRelocate,
+func TestQueueRestartBehindStop(t *testing.T) {
+	ok := false
+	wantReceipt := func(row ownerOpRow) {
+		t.Helper()
+		apiWantValue(t, "last_op", any(*row.LastOp), any("start"))
+		apiWantValue(t, "last_op_ok", any(*row.LastOpOK), any(&ok))
+		apiWantValue(t, "last_op_log", any(*row.LastOpLog), any(""))
+		apiWantValue(t, "last_op_reason", any(*row.LastOpReason), any("held_down: the relocate was saved "+
+			"and this member is still being stopped — the stop in flight is honoured as-is, and it "+
+			"will be started again once it is down"))
+		apiWantValue(t, "last_op_at", any(*row.LastOpAt), any(1234.5))
 	}
-	stampRestartIntent(&input)
-	want := Member{
-		ID: "m-stamp", DesiredState: DesiredStateOffline, RestartAfterStop: true,
-		StoppingSince: 10, StoppedSince: 20, RefocusSince: 30, RefocusOp: memberOpRelocate,
-	}
-	apiTestWantEqual(t, "member after stampRestartIntent", input, want)
+
+	t.Run("a staff row gets the 起來 and the queued receipt, and its stop anchors stay as they were", func(t *testing.T) {
+		m := Member{ID: "m-stamp", DesiredState: DesiredStateOffline,
+			StoppingSince: 10, StoppedSince: 20, RefocusSince: 30, RefocusOp: memberOpRelocate}
+		row := ownerOpRowOfMember(&m)
+		queueRestartBehindStop(row, memberOpRelocate, 1234.5)
+		wantReceipt(row)
+		m.LastOp, m.LastOpOK, m.LastOpLog, m.LastOpReason, m.LastOpAt = "", nil, "", "", 0
+		apiTestWantEqual(t, "member after the queue", m, Member{ID: "m-stamp",
+			DesiredState: DesiredStateOffline, RestartAfterStop: true,
+			StoppingSince: 10, StoppedSince: 20, RefocusSince: 30, RefocusOp: memberOpRelocate})
+	})
+
+	t.Run("a worker row gets the same 起來 and the same receipt, and its stop anchors stay as they were", func(t *testing.T) {
+		w := OutsourceWorker{ID: "ow-stamp", DesiredState: DesiredStateOffline,
+			StoppingSince: 10, StoppedSince: 20, RefocusSince: 30, RefocusOp: ownerOpRelocate}
+		row := ownerOpRowOfWorker(&w)
+		queueRestartBehindStop(row, ownerOpRelocate, 1234.5)
+		wantReceipt(row)
+		w.LastOp, w.LastOpOK, w.LastOpLog, w.LastOpReason, w.LastOpAt = "", nil, "", "", 0
+		apiTestWantEqual(t, "worker after the queue", w, OutsourceWorker{ID: "ow-stamp",
+			DesiredState: DesiredStateOffline, RestartAfterStop: true,
+			StoppingSince: 10, StoppedSince: 20, RefocusSince: 30, RefocusOp: ownerOpRelocate})
+	})
 }
 
 func TestClearRestartIntent(t *testing.T) {
@@ -707,6 +732,36 @@ func TestOpenWindDownRow(t *testing.T) {
 	existingAnchors := windDownAnchorRowOfMember(&existing)
 	openWindDownRow(existingAnchors, 1234.5)
 	apiTestWantEqual(t, "existing row", existing, Member{ID: "m-existing", StoppingSince: 20})
+}
+
+func TestClearWindDownRowOnWake(t *testing.T) {
+	for _, c := range []struct {
+		name         string
+		desiredState string
+		sessionIat   float64
+		want         Member
+	}{
+		{"a session issued before the hand-off keeps the hand-off and drops the stop pair", DesiredStateOnline, 1000,
+			Member{RefocusSince: 1030.7, RefocusOp: memberOpRelocate}},
+		{"a session issued one second before the hand-off keeps the hand-off", DesiredStateOnline, 1029,
+			Member{RefocusSince: 1030.7, RefocusOp: memberOpRelocate}},
+		{"a session issued in the hand-off's second clears everything", DesiredStateOnline, 1030, Member{}},
+		{"a session issued after the hand-off clears everything", DesiredStateOnline, 1031, Member{}},
+		{"a session whose credential carries no issue time clears everything", DesiredStateOnline, 0, Member{}},
+		{"a member wanted offline keeps the stop trace beside an earlier session's hand-off", DesiredStateOffline, 1000,
+			Member{StoppingSince: 10, RefocusSince: 1030.7, RefocusOp: memberOpRelocate}},
+		{"a member wanted offline with no issue time keeps only the stop trace", DesiredStateOffline, 0,
+			Member{StoppingSince: 10}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			row := Member{ID: "m-wake", StoppingSince: 10, StoppedSince: 20,
+				RefocusSince: 1030.7, RefocusOp: memberOpRelocate, WakingSince: 40, ForcedStopAt: 50}
+			clearWindDownRowOnWake(windDownAnchorRowOfMember(&row), c.desiredState, c.sessionIat)
+			want := c.want
+			want.ID, want.WakingSince, want.ForcedStopAt = "m-wake", 40, 50
+			apiTestWantEqual(t, "row after the wake", row, want)
+		})
+	}
 }
 
 func TestClearWindDownRow(t *testing.T) {

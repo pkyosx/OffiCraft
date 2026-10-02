@@ -1631,6 +1631,29 @@ func TestHandleGetMemberApiMembersMemberIdGet(t *testing.T) {
 }
 
 func TestHandleUpdateMemberApiMembersMemberIdPatch(t *testing.T) {
+	t.Run("a changed model on a member whose stop is still in flight queues the 起來 behind it, and the receipt names the model change", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
+			t.Fatalf("activate: %d %v", status, data)
+		}
+		apiTestListen(t, api, "kip")
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/deactivate", owner, `{}`); status != 200 {
+			t.Fatalf("deactivate: %d %v", status, data)
+		}
+
+		before := apiTestMemberRow(t, d, "kip")
+		if before.StoppingSince <= 0 || before.DesiredState != DesiredStateOffline {
+			t.Fatalf("fixture: want a stop in flight, got stopping_since=%v desired=%q",
+				before.StoppingSince, before.DesiredState)
+		}
+
+		status, data := apiJSON(t, h, "PATCH", "/api/members/kip", owner, `{"model":"opus"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		wantQueuedRestartRow(t, d, "kip", before, "runtime/model", func(m *Member) { m.Model = "opus" })
+	})
+
 	t.Run("a rename answers the member id and fans the delta to the dashboard and to that member's own connection", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		dashboard := apiTestListen(t, api, "")
@@ -1782,6 +1805,78 @@ func TestHandleUpdateMemberApiMembersMemberIdPatch(t *testing.T) {
 			dashboard.wantFrames()
 		})
 	}
+
+	for _, lateBoot := range []bool{false, true} {
+		name := "a changed model on a live member is collected as a STOP and the replacement START carries the new model"
+		if lateBoot {
+			name = "a changed model on a live member survives the old session's late boot report, and the replacement START still carries the new model"
+		}
+		t.Run(name, func(t *testing.T) {
+			api, h, d, owner := newAPITestServer(t)
+			reconcileTestPut(t, d, Member{ID: "m-box", Name: "Box", Kind: KindWarden})
+			api.telemetry.Set("m-box", map[string]any{"runtimes": map[string]any{
+				"claude": map[string]any{"installed": true, "logged_in": true},
+			}})
+			reconcileTestOnline(t, api, "m-box", "")
+			reconcileTestPut(t, d, Member{ID: "runner", Name: "Runner", Kind: KindStaff, RoleKey: "assistant",
+				Runtime: "claude", Model: "sonnet", Effort: "medium",
+				DesiredState: DesiredStateOnline, DesiredMachineID: "m-box"})
+			session, err := api.hub.Connect("runner", "m-box")
+			if err != nil {
+				t.Fatalf("hub.Connect: %v", err)
+			}
+			oldSession, err := mintJWT("runner", "agent", 3600, api.keys.signingSecret(),
+				time.Now().Unix()-60, "m-box")
+			if err != nil {
+				t.Fatalf("mintJWT: %v", err)
+			}
+
+			if status, data := apiJSON(t, h, "PATCH", "/api/members/runner", owner, `{"model":"opus"}`); status != 200 {
+				t.Fatalf("model: %d (%v)", status, data)
+			}
+			wsWantWardenFrames(t, api, "m-box")
+			armed := apiTestMemberRow(t, d, "runner")
+			if lateBoot {
+				status, data := apiJSON(t, h, "POST", "/api/self/waking", oldSession, `{"model":"sonnet"}`)
+				if status != 200 {
+					t.Fatalf("report_waking: %d (%v)", status, data)
+				}
+				apiWantBody(t, data, map[string]any{
+					"id": "runner", "desired_state": "online", "refocus_op": "runtime/model", "refocus_deadline": 0,
+				})
+			}
+			row := apiTestMemberRow(t, d, "runner")
+			if armed.RefocusSince <= 0 || row.RefocusSince != armed.RefocusSince ||
+				row.RefocusOp != "runtime/model" || row.StoppedSince != 0 {
+				t.Fatalf("the hand-off stamped at %v must still be open, got refocus=%v op=%q stopped=%v",
+					armed.RefocusSince, row.RefocusSince, row.RefocusOp, row.StoppedSince)
+			}
+			if status, data := apiJSON(t, h, "POST", "/api/self/stopped", oldSession, `{}`); status != 200 {
+				t.Fatalf("report_stopped: %d (%v)", status, data)
+			}
+			wsWantWardenFrames(t, api, "m-box", wsStopFrame("runner"))
+
+			api.hub.Disconnect(session)
+			api.runReconcileTick(nowSecs() + 31)
+			wsWantWardenFrames(t, api, "m-box", map[string]any{
+				"subject": "runner",
+				"topic":   "warden-command",
+				"data": map[string]any{
+					"rpc": "start",
+					"args": map[string]any{
+						"member_id":       "runner",
+						"persona_context": apiAnyString,
+						"member_token":    apiAnyString,
+						"role":            "assistant",
+						"runtime":         "claude",
+						"model":           "opus",
+						"effort":          "medium",
+						"session_name":    "",
+					},
+				},
+			})
+		})
+	}
 }
 
 func TestHandleActivateMemberApiMembersMemberIdActivatePost(t *testing.T) {
@@ -1900,7 +1995,52 @@ func TestHandleActivateMemberApiMembersMemberIdActivatePost(t *testing.T) {
 	})
 }
 
+// wantQueuedRestartRow compares the whole row against the one read before the verb:
+// the stop in flight keeps its stage and anchors, and only the saved change, the
+// queued 起來 and its receipt are new.
+func wantQueuedRestartRow(t *testing.T, d *DAL, id string, before Member, op string, saved func(*Member)) {
+	t.Helper()
+	got := apiTestMemberRow(t, d, id)
+	if got.LastOpAt <= 0 {
+		t.Fatalf("last_op_at = %v, want the receipt's timestamp", got.LastOpAt)
+	}
+	ok := false
+	want := before
+	saved(&want)
+	want.RestartAfterStop = true
+	want.LastOp = "start"
+	want.LastOpOK = &ok
+	want.LastOpReason = "held_down: the " + op + " was saved and this member is still being " +
+		"stopped — the stop in flight is honoured as-is, and it will be started again once it is down"
+	want.LastOpAt = got.LastOpAt
+	apiTestWantEqual(t, "row after the queued 起來", got, want)
+}
+
 func TestHandleRelocateMemberApiMembersMemberIdRelocatePost(t *testing.T) {
+	t.Run("relocating a member whose stop is still in flight queues the 起來 behind it, and the receipt names the relocate", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
+			t.Fatalf("activate: %d %v", status, data)
+		}
+		apiTestListen(t, api, "kip")
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/deactivate", owner, `{}`); status != 200 {
+			t.Fatalf("deactivate: %d %v", status, data)
+		}
+
+		reconcileTestPut(t, d, Member{ID: "m-box", Name: "Box", Kind: KindWarden})
+		before := apiTestMemberRow(t, d, "kip")
+		if before.StoppingSince <= 0 || before.DesiredState != DesiredStateOffline || before.DesiredMachineID == "m-box" {
+			t.Fatalf("fixture: want a stop in flight off m-box, got stopping_since=%v desired=%q machine=%q",
+				before.StoppingSince, before.DesiredState, before.DesiredMachineID)
+		}
+
+		status, data := apiJSON(t, h, "POST", "/api/members/kip/relocate", owner, `{"machine_id":"m-box"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		wantQueuedRestartRow(t, d, "kip", before, "relocate", func(m *Member) { m.DesiredMachineID = "m-box" })
+	})
+
 	t.Run("relocating a stopped member stores the pin and leaves the held-down receipt on the row", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		dashboard := apiTestListen(t, api, "")
@@ -2888,6 +3028,47 @@ func TestHandleRefocusMemberApiMembersMemberIdRefocusPost(t *testing.T) {
 		}
 	})
 
+	t.Run("a stopped_since left outside any epoch is cleared when the refocus epoch opens, so the new epoch does not read as already collected", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
+			t.Fatalf("activate: %d %v", status, data)
+		}
+		self := apiTestListen(t, api, "kip")
+		if err := d.SetMemberWindDownAnchors("kip", 0, 20, 0, ""); err != nil {
+			t.Fatalf("SetMemberWindDownAnchors: %v", err)
+		}
+		before := apiTestMemberRow(t, d, "kip")
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/members/kip/refocus", owner, `{}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "kip"})
+		frame := map[string]any{
+			"seq": apiAnyNumber, "topic": "member", "op": "patch",
+			"data": map[string]any{
+				"entity": "member", "key": "owner::kip", "epoch": apiAnyNumber, "deleted": false,
+				"payload": map[string]any{
+					"id": "kip", "name": "Kip", "status": "active", "desired_state": "online",
+					"owner_id": "owner", "offboard_notice": apiTestOffboardNotice,
+				},
+			},
+			"ts": apiAnyNumber, "trigger": "owner",
+		}
+		dashboard.wantFrames(frame)
+		self.wantFrames(frame)
+		got := apiTestMemberRow(t, d, "kip")
+		if got.RefocusSince <= before.RefocusSince {
+			t.Fatalf("refocus_since: want a fresh stamp after %v, got %v", before.RefocusSince, got.RefocusSince)
+		}
+		want := before
+		want.RefocusSince, want.RefocusOp = got.RefocusSince, "refocus"
+		want.StoppedSince, want.StoppingSince = 0, 0
+		apiTestWantEqual(t, "row after the refocus", got, want)
+		apiWantValue(t, "stopped_since", any(got.StoppedSince), any(0.0))
+	})
+
 	t.Run("a live member that is wanted online gets the refocus epoch and the wind-down notice", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
@@ -2938,6 +3119,28 @@ func TestHandleRefocusMemberApiMembersMemberIdRefocusPost(t *testing.T) {
 		if m.DesiredState != "online" {
 			t.Fatalf("a refocus must leave the member wanted online, got %q", m.DesiredState)
 		}
+	})
+
+	t.Run("a member wanted online with no live session answers 409 and the row is left as it was", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
+			t.Fatalf("activate: %d %v", status, data)
+		}
+		before := apiTestMemberRow(t, d, "kip")
+		if before.DesiredState != DesiredStateOnline {
+			t.Fatalf("fixture: want desired_state online, got %q", before.DesiredState)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/members/kip/refocus", owner, `{}`)
+		if status != 409 {
+			t.Fatalf("want 409, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "conflict",
+			"refocus requires the member to have a live session and to be wanted "+
+				"online (§3.4 #14)")
+		dashboard.wantFrames()
+		apiTestWantEqual(t, "row after the refused refocus", apiTestMemberRow(t, d, "kip"), before)
 	})
 
 	t.Run("a member with no live session answers 409 and no epoch is opened", func(t *testing.T) {
@@ -3475,6 +3678,52 @@ func TestHandleReportWakingApiSelfWakingPost(t *testing.T) {
 					m.StoppingSince, m.StoppedSince, m.RefocusSince, m.RefocusOp)
 			}
 		})
+
+		for _, c := range []struct {
+			name            string
+			stampAfterIat   float64
+			wantRefocusKept bool
+		}{
+			{"a late boot report from a session issued before an open hand-off keeps the hand-off and clears the rest", 60.5, true},
+			{"a boot report from a session issued in the same second as the hand-off clears it", 0.5, false},
+		} {
+			t.Run(kind.name+": "+c.name, func(t *testing.T) {
+				api, h, d, owner := newAPITestServer(t)
+				kind.setup(t, h, d, owner)
+				issued := time.Now().Unix() - 100
+				stampedAt := float64(issued) + c.stampAfterIat
+				if err := d.SetMemberWindDownAnchors(kind.id, 1000, 1100, stampedAt, refocusOpRefocus); err != nil {
+					t.Fatalf("SetMemberWindDownAnchors: %v", err)
+				}
+				agent, err := mintJWT(kind.id, "agent", 3600, api.keys.signingSecret(), issued, "")
+				if err != nil {
+					t.Fatalf("mintJWT: %v", err)
+				}
+
+				status, data := apiJSON(t, h, "POST", "/api/self/waking", agent, `{}`)
+				if status != 200 {
+					t.Fatalf("want 200, got %d (%v)", status, data)
+				}
+				wantOp, wantRefocus := "", 0.0
+				if c.wantRefocusKept {
+					wantOp, wantRefocus = "refocus", stampedAt
+				}
+				apiWantBody(t, data, map[string]any{
+					"id":               kind.id,
+					"desired_state":    "online",
+					"refocus_op":       wantOp,
+					"refocus_deadline": 0,
+				})
+				m, err := d.GetMember(kind.id)
+				if err != nil || m == nil {
+					t.Fatalf("GetMember: %v (%v)", m, err)
+				}
+				if m.StoppingSince != 0 || m.StoppedSince != 0 || m.RefocusSince != wantRefocus || m.RefocusOp != wantOp {
+					t.Fatalf("want stopping=0 stopped=0 refocus=%v op=%q, got stopping=%v stopped=%v refocus=%v op=%q",
+						wantRefocus, wantOp, m.StoppingSince, m.StoppedSince, m.RefocusSince, m.RefocusOp)
+				}
+			})
+		}
 	}
 
 	t.Run("a caller with no roster row answers 404 naming it", func(t *testing.T) {

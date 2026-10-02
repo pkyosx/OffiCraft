@@ -616,9 +616,8 @@ DB 三個 key（`suggested_replies.reply_card` / `suggested_replies.task_message
 沒有 conformance 測試讀它。上面每一句都可能在下一次改動後靜默變假。
 
 已知在**別處**釘住相關行為（釘的是行為，不是這份文件）：
-- 換 model 的收尾窗：`worker_lifecycle_test.go` 的
-  `TestSetWorkerModel_ActiveWindsDownThenRespawns` / `TestSetWorkerModel_AssignedPersistsOnly`、
-  `worker_model_novalue_change_ted79_test.go`、`worker_ownerop_winddown_t98f4_test.go`
+- 換 model 的收尾窗：`api_outsource_test.go` 的 `TestHandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost`、
+  `verb_population_behavior_test.go` 的 `TestVerbPopulationParityMatrix`
 - 全域情境的份數：`spec/openapi.json` 的 `BootDocKind` enum（前端 `Record<BootDocKind, …>` 少一列編譯不過）
 - 出貨文件的 read_only / has_head：`bin/tests/fixtures/boot-doc-registry.tsv`
 - 使用說明的出貨範圍：`api_docs_test.go` 的 embed guard

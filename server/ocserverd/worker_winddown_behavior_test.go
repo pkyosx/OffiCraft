@@ -287,26 +287,31 @@ func TestTokenExpiry_AnOutsourceSessionIsDerivableToo(t *testing.T) {
 // tokenExpiryOf with no projection in runOutsourceTick is indistinguishable
 // from the bug.
 func TestTokenExpiry_TheOutsourceCadenceActuallyRunsIt(t *testing.T) {
-	api := newTasksTestServer(t)
-	api.noOutsource = true
-	workerID := newActiveOnlineWorker(t, api)
-	now := nowSecs()
+	for _, status := range []string{"active", "assigned"} {
+		t.Run("an online "+status+" worker inside the lead is asked to close out", func(t *testing.T) {
+			api := newTasksTestServer(t)
+			api.noOutsource = true
+			workerID := newActiveOnlineWorker(t, api)
+			now := nowSecs()
 
-	w, _ := api.dal.GetOutsourceWorker(workerID)
-	// Anchored so the derived expiry is one second inside the lead.
-	w.SessionBootTS = now + tokenExpiryLeadSecs - 1 - float64(api.agentTokenTTLValue())
-	if err := api.dal.PutOutsourceWorker(*w); err != nil {
-		t.Fatalf("put worker: %v", err)
-	}
+			w, _ := api.dal.GetOutsourceWorker(workerID)
+			w.Status = status
+			// Anchored so the derived expiry is one second inside the lead.
+			w.SessionBootTS = now + tokenExpiryLeadSecs - 1 - float64(api.agentTokenTTLValue())
+			if err := api.dal.PutOutsourceWorker(*w); err != nil {
+				t.Fatalf("put worker: %v", err)
+			}
 
-	api.runOutsourceTick(now)
+			api.runOutsourceTick(now)
 
-	got, _ := api.dal.GetOutsourceWorker(workerID)
-	if got.RefocusOp != refocusOpTokenExpiry || got.RefocusSince != now {
-		t.Fatalf("after the outsource cadence: refocus_op=%q refocus_since=%v, want "+
-			"%q at %v — a worker whose token is about to die must be asked to close "+
-			"out while the calls that close it out still work",
-			got.RefocusOp, got.RefocusSince, refocusOpTokenExpiry, now)
+			got, _ := api.dal.GetOutsourceWorker(workerID)
+			if got.RefocusOp != refocusOpTokenExpiry || got.RefocusSince != now || got.Status != status {
+				t.Fatalf("after the outsource cadence: refocus_op=%q refocus_since=%v status=%q, want "+
+					"%q at %v, status %q — a worker whose token is about to die must be asked to "+
+					"close out while the calls that close it out still work",
+					got.RefocusOp, got.RefocusSince, got.Status, refocusOpTokenExpiry, now, status)
+			}
+		})
 	}
 }
 

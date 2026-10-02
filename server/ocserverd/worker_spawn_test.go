@@ -1981,41 +1981,40 @@ func wsOutcome(o ownerOpOutcome) map[string]any {
 	}
 }
 
-func TestWorkerHasStateToFlush(t *testing.T) {
-	t.Run("a worker with no live session has nothing to flush, so the owner's verb takes effect immediately", func(t *testing.T) {
-		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
-
-		apiWantValue(t, "has state to flush", any(api.workerHasStateToFlush(w)), any(false))
-	})
-
-	t.Run("an online worker has state to flush, including one whose epoch is open but not yet collected", func(t *testing.T) {
-		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
-		wsOnline(t, api, "ow-abc123", ServerSelfHost)
-
-		apiWantValue(t, "fresh session", any(api.workerHasStateToFlush(w)), any(true))
-		open := w
-		open.RefocusSince = 10
-		apiWantValue(t, "epoch open, nothing reported", any(api.workerHasStateToFlush(open)), any(true))
-	})
-
-	t.Run("THIS epoch's wind-down already collected has nothing left to flush, even while the old session lingers online", func(t *testing.T) {
-		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
-		wsOnline(t, api, "ow-abc123", ServerSelfHost)
-		collected := w
-		collected.RefocusSince = 10
-		collected.StoppedSince = 20
-
-		apiWantValue(t, "has state to flush", any(api.workerHasStateToFlush(collected)), any(false))
-	})
-
-	t.Run("a stopped_since latched outside any epoch does NOT count as collected, so the next owner verb is not swallowed for life", func(t *testing.T) {
-		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusActive)
-		wsOnline(t, api, "ow-abc123", ServerSelfHost)
-		stale := w
-		stale.StoppedSince = 20
-
-		apiWantValue(t, "has state to flush", any(api.workerHasStateToFlush(stale)), any(true))
-	})
+func TestOwnerOpHandoverPlanFor(t *testing.T) {
+	cases := []struct {
+		name                       string
+		desired                    string
+		stopping, refocus, stopped float64
+		online                     bool
+		want                       ownerOpHandoverPlan
+	}{
+		{"a member with no live session has nothing to flush, so the owner's verb takes effect immediately",
+			DesiredStateOnline, 0, 0, 0, false, ownerOpPlanNothingToFlush},
+		{"an online member has state to flush", DesiredStateOnline, 0, 0, 0, true, ownerOpPlanWindDown},
+		{"an epoch open but not yet collected still has state to flush", DesiredStateOnline, 0, 10, 0, true, ownerOpPlanWindDown},
+		{"THIS epoch's wind-down already collected has nothing left to flush, even while the old session lingers online",
+			DesiredStateOnline, 0, 10, 20, true, ownerOpPlanNothingToFlush},
+		{"a stopped_since latched outside any epoch does NOT count as collected, so the next owner verb is not swallowed for life",
+			DesiredStateOnline, 0, 0, 20, true, ownerOpPlanWindDown},
+		{"a member wanted offline whose stop was asked for queues a 起來 behind it, even while its session is still up",
+			DesiredStateOffline, 5, 0, 0, true, ownerOpPlanQueueBehindStop},
+		{"a member wanted offline whose stop was asked for queues a 起來 behind it once the session is gone",
+			DesiredStateOffline, 5, 0, 0, false, ownerOpPlanQueueBehindStop},
+		{"a member wanted offline and never asked to stop is held down", DesiredStateOffline, 0, 0, 0, true, ownerOpPlanHeldDown},
+	}
+	for _, c := range cases {
+		staff := Member{ID: "m-plan", Kind: KindStaff, DesiredState: c.desired,
+			StoppingSince: c.stopping, RefocusSince: c.refocus, StoppedSince: c.stopped}
+		worker := OutsourceWorker{ID: "ow-plan", DesiredState: c.desired,
+			StoppingSince: c.stopping, RefocusSince: c.refocus, StoppedSince: c.stopped}
+		t.Run("staff: "+c.name, func(t *testing.T) {
+			apiWantValue(t, "plan", any(ownerOpHandoverPlanFor(staff, c.online)), any(c.want))
+		})
+		t.Run("outsource: "+c.name, func(t *testing.T) {
+			apiWantValue(t, "plan", any(ownerOpHandoverPlanFor(memberFromWorker(worker), c.online)), any(c.want))
+		})
+	}
 }
 
 func TestHasUncollectedOnlineOwnerOpState(t *testing.T) {
@@ -3172,7 +3171,7 @@ func TestWorkerReportWaking(t *testing.T) {
 		dashboard := apiTestListen(t, api, "")
 		model := "claude-opus-5"
 
-		m, err := api.workerReportWaking("ow-abc123", &model, triggerServer, nil)
+		m, err := api.workerReportWaking("ow-abc123", &model, 1000, triggerServer, nil)
 		if err != nil {
 			t.Fatalf("workerReportWaking: %v", err)
 		}
@@ -3194,12 +3193,12 @@ func TestWorkerReportWaking(t *testing.T) {
 	t.Run("a repeat report on an already-active worker fans no worker delta and leaves the stored model alone", func(t *testing.T) {
 		api, h, _, owner, _ := wsWindDown(t, WorkerStatusAssigned, DesiredStateOnline, "", 0, 0, 0, true)
 		model := "claude-opus-5"
-		if _, err := api.workerReportWaking("ow-abc123", &model, triggerServer, nil); err != nil {
+		if _, err := api.workerReportWaking("ow-abc123", &model, 1000, triggerServer, nil); err != nil {
 			t.Fatalf("workerReportWaking: %v", err)
 		}
 		dashboard := apiTestListen(t, api, "")
 
-		m, err := api.workerReportWaking("ow-abc123", nil, triggerServer, nil)
+		m, err := api.workerReportWaking("ow-abc123", nil, 1000, triggerServer, nil)
 		if err != nil {
 			t.Fatalf("workerReportWaking: %v", err)
 		}
@@ -3216,7 +3215,7 @@ func TestWorkerReportWaking(t *testing.T) {
 		api, h, _, owner, _ := wsWindDown(t, WorkerStatusAssigned, DesiredStateOnline, "", 0, 0, 0, false)
 		dashboard := apiTestListen(t, api, "")
 
-		m, err := api.workerReportWaking("ow-nope", nil, triggerServer, nil)
+		m, err := api.workerReportWaking("ow-nope", nil, 1000, triggerServer, nil)
 		if m != nil || err != errNotFound {
 			t.Fatalf("want (nil, not found), got (%v, %v)", m, err)
 		}

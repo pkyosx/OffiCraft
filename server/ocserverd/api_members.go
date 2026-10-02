@@ -635,16 +635,7 @@ func (s *apiServer) HandleUpdateMemberApiMembersMemberIdPatch(w http.ResponseWri
 		}
 		heldDown = false
 		if launchIntentChanged {
-			heldDown = !s.armMemberOwnerOpHandover(cur, memberOpRuntimeModel, cfg, online) &&
-				cur.DesiredState == DesiredStateOffline
-			if heldDown {
-				if aStopWasEverAskedFor(*cur) {
-					stampRestartIntent(cur)
-					stampMemberOpReceipt(cur, memberRestartQueuedReceipt(memberOpRuntimeModel), nowSecs())
-				} else {
-					stampMemberOpReceipt(cur, memberHeldDownReceipt(memberOpRuntimeModel), nowSecs())
-				}
-			}
+			_, heldDown = s.applyMemberOwnerOpPlan(cur, memberOpRuntimeModel, cfg, online)
 		}
 		if err := persistMemberRowOn(tx, *cur); err != nil {
 			return err
@@ -883,18 +874,9 @@ func (s *apiServer) HandleRelocateMemberApiMembersMemberIdRelocatePost(w http.Re
 		}
 		// relocate arms unconditionally, so a retry re-dispatches regardless, and the
 		// delta the agent wakes on already names the destination.
-		windDown = s.armMemberOwnerOpHandover(cur, memberOpRelocate, cfg, online)
-		heldDown = !windDown && cur.DesiredState == DesiredStateOffline
-		if heldDown {
-			// Owner (2026-08-30): 改機器 is a 重啟 intent, so a stopped member comes back
-			// up on the new pin.
-			if aStopWasEverAskedFor(*cur) {
-				stampRestartIntent(cur)
-				stampMemberOpReceipt(cur, memberRestartQueuedReceipt(memberOpRelocate), nowSecs())
-			} else {
-				stampMemberOpReceipt(cur, memberHeldDownReceipt(memberOpRelocate), nowSecs())
-			}
-		}
+		// Owner (2026-08-30): 改機器 is a 重啟 intent, so a stopped member comes back up
+		// on the new pin.
+		windDown, heldDown = s.applyMemberOwnerOpPlan(cur, memberOpRelocate, cfg, online)
 		if err := persistMemberRowOn(tx, *cur); err != nil {
 			return err
 		}
@@ -1214,12 +1196,10 @@ func (s *apiServer) HandleRefocusMemberApiMembersMemberIdRefocusPost(w http.Resp
 		if err != nil {
 			return err
 		}
-		// Owner (2026-08-30): refocus on a stopped member only records 「起來」; the stop
-		// in flight keeps its stage and anchors.
-		if !aRefocusStampWouldReachTheAgent(*cur) && aStopWasEverAskedFor(*cur) {
+		queued = false
+		switch applyRefocusVerb(ownerOpRowOfMember(cur), *cur, online, nowSecs()) {
+		case refocusQueuedBehindStop:
 			queued = true
-			stampRestartIntent(cur)
-			stampMemberOpReceipt(cur, memberRestartQueuedReceipt(refocusOpRefocus), nowSecs())
 			saved = *cur
 			if err := writeMemberOn(tx, *cur); err != nil {
 				return err
@@ -1227,20 +1207,12 @@ func (s *apiServer) HandleRefocusMemberApiMembersMemberIdRefocusPost(w http.Resp
 			// The receipt lands before the tick below: the tick can spend the intent and
 			// stamp its own receipt, which a later write would overwrite.
 			return persistMemberOpReceiptOn(tx, *cur)
-		}
-		queued = false
-		if !online || !aRefocusStampWouldReachTheAgent(*cur) {
+		case refocusRefusedNeverStopped, refocusRefusedNoSession:
 			return refuseInTx(http.StatusConflict,
 				"refocus requires the member to have a live session and to be wanted "+
 					"online (§3.4 #14)")
-		}
-		// The ladder only goes forward (owner, 2026-08-24): a backward press would clear
-		// a deadline an agent was told about. Refused, not silently downgraded.
-		if !armRefocusEpoch(cur, refocusOpRefocus, nowSecs()) {
-			return refuseInTx(http.StatusConflict,
-				"refocus is 停止 and this member is already further along the "+
-					"wind-down ladder (下線 → 加速 → 強制); a later stage is never "+
-					"replaced by an earlier one")
+		case refocusRefusedLadder:
+			return refuseInTx(http.StatusConflict, refocusLadderRefusalMsg("member"))
 		}
 		saved = *cur
 		return persistMemberRowOn(tx, *cur)
@@ -1328,11 +1300,16 @@ func (s *apiServer) stampAgentIatFloor(r *http.Request) error {
 }
 
 func stampAgentIatFloorOn(ex sqlExecer, r *http.Request) error {
-	iat, ok := claimsFromContext(r.Context())["iat"].(float64)
-	if !ok || iat <= 0 {
+	iat := callerIat(r)
+	if iat <= 0 {
 		return nil
 	}
 	return setMemberAgentIatFloorOn(ex, currentActor(r), iat)
+}
+
+func callerIat(r *http.Request) float64 {
+	iat, _ := claimsFromContext(r.Context())["iat"].(float64)
+	return iat
 }
 
 func (s *apiServer) HandleReportWakingApiSelfWakingPost(w http.ResponseWriter, r *http.Request) {
@@ -1351,7 +1328,7 @@ func (s *apiServer) HandleReportWakingApiSelfWakingPost(w http.ResponseWriter, r
 	if m.Kind == KindOutsource {
 		// Through the worker funnel under outsourceMu: a member-path write would race
 		// the tick's read-modify-write.
-		fresh, werr := s.workerReportWaking(m.ID, body.Model, requestTrigger(r),
+		fresh, werr := s.workerReportWaking(m.ID, body.Model, callerIat(r), requestTrigger(r),
 			func(ex sqlExecer) error { return stampAgentIatFloorOn(ex, r) })
 		if werr != nil {
 			writeResolveTxError(w, werr, "member", currentActor(r))
@@ -1373,7 +1350,7 @@ func (s *apiServer) HandleReportWakingApiSelfWakingPost(w http.ResponseWriter, r
 			return err
 		}
 		cur.WakingSince = nowSecs()
-		clearWindDownRowOnWake(windDownAnchorRowOfMember(cur), cur.DesiredState)
+		clearWindDownRowOnWake(windDownAnchorRowOfMember(cur), cur.DesiredState, callerIat(r))
 		if body.Model != nil {
 			cur.ActualModel = *body.Model
 		}

@@ -1240,15 +1240,15 @@ func parityCases() []verbCase {
 					api.HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost)
 				return workerTerminal(t, api, id, code.Code, notices)
 			},
-			// 正職: !aRefocusStampWouldReachTheAgent && aStopWasEverAskedFor →
-			// stampRestartIntent(m) and a 200. The stop keeps its stage and anchors.
+			// 正職: ownerOpHandoverPlanFor → QueueBehindStop →
+			// queueRestartBehindStop and a 200. The stop keeps its stage and anchors.
 			wantStaff: terminalState{
 				Status: http.StatusOK, DesiredState: DesiredStateOffline,
 				Stopping: anchorPast, Stopped: anchorZero,
 				Refocus: anchorZero, RefocusOp: "",
 				Waking: anchorZero, RestartAfterStop: true,
 				DesiredMachineID: parityMachineA,
-				// takes the queue-the-起來 branch (api_members.go:1608); the member is still
+				// takes the queue-the-起來 branch (applyRefocusVerb); the member is still
 				// online so the tick reaches decideDown's soft arm and spends nothing.
 				Dispatched: dispatchedNothing,
 				Cost:       costUntouched,
@@ -1259,9 +1259,8 @@ func parityCases() []verbCase {
 				// here (that is the 包② convergence) — it re-announced the old one.
 				Noticed: noticedNotice,
 			},
-			// 外包 (T-65 包②): the same branch, transcribed from the worker handler's
-			// own assignment — `queueWorkerRestartAfterStop(worker, refocusOpRefocus,
-			// …)` sets RestartAfterStop and touches nothing else, then answers 200.
+			// 外包 (T-65 包②): the same branch — applyRefocusVerb → queueRestartBehindStop
+			// sets RestartAfterStop and touches nothing else, then answers 200.
 			// The eager outsourceTickNow that follows is a no-op here twice over:
 			// newParityServer sets noOutsource, and the seeded session is ONLINE so
 			// the consume's `!hub.IsOnline` gate would refuse it anyway.
@@ -1400,6 +1399,97 @@ func parityCases() []verbCase {
 				// same road as 改機器 above: respawnWorkerForOwnerOp comes out on the
 				// wind-down arm and openWorkerHandoverGrace publishes the 預告.
 				Noticed: noticedNotice,
+			},
+		},
+		{
+			verb: "重新聚焦（剛派出）",
+			note: "seed: desired online, live session; the worker has not reported waking " +
+				"yet (status assigned). Staff has no such state, so its seed is the plain " +
+				"live member. Both → refocus.",
+			runStaff: func(t *testing.T) terminalState {
+				api := newParityServer(t)
+				seedParityMember(t, api, "m-parity-refocus-booting", nil)
+				notices := watchMemberDeltas(t, api)
+				code := postMember(t, api, "m-parity-refocus-booting", "refocus", nil,
+					api.HandleRefocusMemberApiMembersMemberIdRefocusPost)
+				return memberTerminal(t, api, "m-parity-refocus-booting", code, notices)
+			},
+			runOutsource: func(t *testing.T) terminalState {
+				api := newParityServer(t)
+				id := seedParityWorker(t, api, func(w *OutsourceWorker) {
+					w.Status = WorkerStatusAssigned
+				})
+				notices := watchMemberDeltas(t, api)
+				code := postWorker(t, api, id, "refocus", nil,
+					api.HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost)
+				return workerTerminal(t, api, id, code.Code, notices)
+			},
+			wantStaff: terminalState{
+				Status: http.StatusOK, DesiredState: DesiredStateOnline,
+				Stopping: anchorZero, Stopped: anchorZero,
+				Refocus: anchorPast, RefocusOp: refocusOpRefocus,
+				Waking: anchorZero, RestartAfterStop: false,
+				DesiredMachineID: parityMachineA,
+				Dispatched:       dispatchedNothing,
+				Cost:             costUntouched,
+				Noticed:          noticedNotice,
+			},
+			wantOutsource: terminalState{
+				Status: http.StatusOK, DesiredState: DesiredStateOnline,
+				Stopping: anchorZero, Stopped: anchorZero,
+				Refocus: anchorPast, RefocusOp: refocusOpRefocus,
+				Waking: anchorZero, RestartAfterStop: false,
+				DesiredMachineID: parityMachineA,
+				Dispatched:       dispatchedNothing,
+				Cost:             costUntouched,
+				Noticed:          noticedNotice,
+			},
+		},
+		{
+			verb: "換 model（剛派出）",
+			note: "seed: as 換 model, except the worker has not reported waking yet (status " +
+				"assigned). Staff has no such state, so its seed is the plain live member.",
+			runStaff: func(t *testing.T) terminalState {
+				api := newParityServer(t)
+				seedParityMember(t, api, "m-parity-model-booting", nil)
+				notices := watchMemberDeltas(t, api)
+				rec := httptest.NewRecorder()
+				api.HandleUpdateMemberApiMembersMemberIdPatch(rec,
+					taskReq(t, "PATCH", "/api/members/m-parity-model-booting",
+						map[string]any{"model": "claude-opus-4-8"}, wireOwnerID, "owner"),
+					"m-parity-model-booting")
+				return memberTerminal(t, api, "m-parity-model-booting", rec.Code, notices)
+			},
+			runOutsource: func(t *testing.T) terminalState {
+				api := newParityServer(t)
+				id := seedParityWorker(t, api, func(w *OutsourceWorker) {
+					w.Status = WorkerStatusAssigned
+				})
+				notices := watchMemberDeltas(t, api)
+				code := postWorker(t, api, id, "model",
+					map[string]any{"model": "claude-opus-4-8"},
+					api.HandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost)
+				return workerTerminal(t, api, id, code.Code, notices)
+			},
+			wantStaff: terminalState{
+				Status: http.StatusOK, DesiredState: DesiredStateOnline,
+				Stopping: anchorZero, Stopped: anchorZero,
+				Refocus: anchorPast, RefocusOp: memberOpRuntimeModel,
+				Waking: anchorZero, RestartAfterStop: false,
+				DesiredMachineID: parityMachineA,
+				Dispatched:       dispatchedNothing,
+				Cost:             costUntouched,
+				Noticed:          noticedNotice,
+			},
+			wantOutsource: terminalState{
+				Status: http.StatusOK, DesiredState: DesiredStateOnline,
+				Stopping: anchorZero, Stopped: anchorZero,
+				Refocus: anchorPast, RefocusOp: ownerOpRuntimeModel,
+				Waking: anchorZero, RestartAfterStop: false,
+				DesiredMachineID: parityMachineA,
+				Dispatched:       dispatchedNothing,
+				Cost:             costUntouched,
+				Noticed:          noticedNotice,
 			},
 		},
 	}

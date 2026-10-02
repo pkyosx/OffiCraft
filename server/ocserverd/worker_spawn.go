@@ -852,7 +852,8 @@ func (s *apiServer) relocateWorkerNow(w OutsourceWorker) ownerOpOutcome {
 // its handler sets DesiredState online on the row it passes by value.
 // Callers hold s.outsourceMu.
 func (s *apiServer) respawnWorkerForOwnerOp(w OutsourceWorker, op string) ownerOpOutcome {
-	if w.DesiredState == DesiredStateOffline {
+	switch ownerOpHandoverPlanFor(memberFromWorker(w), s.hub.IsOnline(w.ID)) {
+	case ownerOpPlanQueueBehindStop, ownerOpPlanHeldDown:
 		// Queue the verb behind the stop (owner rc-bc1b029a3aa2); nothing dispatches.
 		// 換 model reaches here only while the session is up — a converged stop
 		// queues through its own branch in api_outsource.go; both are needed.
@@ -866,18 +867,17 @@ func (s *apiServer) respawnWorkerForOwnerOp(w OutsourceWorker, op string) ownerO
 			s.publishOutsourceWorker(*fresh, triggerServer)
 			return ownerOpOutcome{HeldDown: true}
 		}
-		if fresh == nil || fresh.DesiredState != DesiredStateOffline {
+		if fresh == nil || ownerOpHandoverPlanFor(memberFromWorker(*fresh), false) != ownerOpPlanHeldDown {
 			return ownerOpOutcome{HeldDown: true}
 		}
 		s.stampWorkerPlacementBlocked(&w, spawnReasonHeldDown+": the "+op+" was saved, "+
 			"but nothing was started — this worker is stopped; 喚醒 it when you want it "+
 			"to run", now)
 		return ownerOpOutcome{HeldDown: true}
-	}
-	// Every owner verb gets a wind-down chance (owner: 「我建議所有換手都可以給他機會收尾」).
-	// 「正在跑就不動它」 for 喚醒 is enforced by api_outsource.go (!sessionAliveReceipt)
-	// before this call; nothing in this function catches a weakened gate.
-	if s.workerHasStateToFlush(w) {
+	case ownerOpPlanWindDown:
+		// Every owner verb gets a wind-down chance (owner: 「我建議所有換手都可以給他機會收尾」).
+		// 「正在跑就不動它」 for 喚醒 is enforced by api_outsource.go (!sessionAliveReceipt)
+		// before this call; nothing in this function catches a weakened gate.
 		// A ladder refusal (openOwnerOpHandover false) still answers WoundDown: a
 		// higher wind-down is open, and falling through would kill a session mid 加速停止.
 		s.openOwnerOpHandover(w, op)
@@ -909,16 +909,6 @@ const (
 	ownerOpRuntimeModel = "runtime/model" // 換 model / runtime / effort
 )
 
-// workerHasStateToFlush: the answer is shared with staff
-// (hasUncollectedOnlineOwnerOpState) but deliberately carries no desired-offline
-// arm — respawnWorkerForOwnerOp's held_down gate returns first. Adding one to
-// "match" staff makes that gate dead code; merging the shells was measured to
-// close the whole worker wind-down window. Callers hold s.outsourceMu.
-func (s *apiServer) workerHasStateToFlush(w OutsourceWorker) bool {
-	return hasUncollectedOnlineOwnerOpState(
-		w.RefocusSince, w.StoppedSince, s.hub.IsOnline(w.ID))
-}
-
 // openOwnerOpHandover opens a graceful wind-down for an owner verb: stamp a fresh
 // refocus epoch via armRefocusEpoch (never by hand — its ladder 下線 → 加速 → 強制
 // must not move backwards, or a worker in 加速停止 loses its deadline) and fan
@@ -944,10 +934,15 @@ func (s *apiServer) openOwnerOpHandover(w OutsourceWorker, op string) bool {
 			return err
 		}
 		fresh = *cur
-		if cur.Status == WorkerStatusReleased || cur.DesiredState == DesiredStateOffline {
+		if cur.Status == WorkerStatusReleased {
 			return nil
 		}
 		proj = memberFromWorker(*cur)
+		// Presence was the caller's question; a session that dropped since is
+		// collected by openWorkerHandoverGrace, so only the row is asked again here.
+		if ownerOpHandoverPlanFor(proj, true) != ownerOpPlanWindDown {
+			return nil
+		}
 		if !armRefocusEpoch(&proj, op, nowSecs()) {
 			return nil
 		}
@@ -963,7 +958,7 @@ func (s *apiServer) openOwnerOpHandover(w OutsourceWorker, op string) bool {
 	}
 	if !armed {
 		outsourceLog("%s %s (%s): wind-down NOT re-opened — this worker is stopped, "+
-			"released, or already further along the ladder (下線 → 加速 → 強制) at %q; "+
+			"released, its wind-down is already collected, or it is further along the ladder (下線 → 加速 → 強制) at %q; "+
 			"the change is saved and what is open keeps its own deadline",
 			op, w.ID, w.Codename, fresh.RefocusOp)
 		return false
@@ -1244,7 +1239,7 @@ func resolveLiveWorkerOn(q sqlRowQuerier, id string) (*OutsourceWorker, error) {
 // stampFloor, when set, raises the caller's credential floor in the same
 // transaction: the floor lands with the wake or not at all
 // (HandleReportWakingApiSelfWakingPost).
-func (s *apiServer) workerReportWaking(id string, model *string, trigger string, stampFloor func(sqlExecer) error) (*Member, error) {
+func (s *apiServer) workerReportWaking(id string, model *string, sessionIat float64, trigger string, stampFloor func(sqlExecer) error) (*Member, error) {
 	s.outsourceMu.Lock()
 	defer s.outsourceMu.Unlock()
 	var m Member
@@ -1261,7 +1256,7 @@ func (s *apiServer) workerReportWaking(id string, model *string, trigger string,
 		if w.Status == WorkerStatusAssigned {
 			w.Status = WorkerStatusActive
 		}
-		clearWindDownRowOnWake(windDownAnchorRowOfWorker(w), w.DesiredState)
+		clearWindDownRowOnWake(windDownAnchorRowOfWorker(w), w.DesiredState, sessionIat)
 		m = memberFromWorker(*w)
 		if model != nil {
 			m.ActualModel = *model

@@ -194,39 +194,22 @@ func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost
 		if worker, err = resolveLiveWorkerOn(tx, id); err != nil {
 			return err
 		}
-		// Offline: queue a 起來 behind the existing stop instead of refusing (owner
-		// rc-bc1b029a3aa2) — the stop keeps its stage and anchors. The 409 remains
-		// only for a worker nobody ever asked to stop (aStopWasEverAskedFor).
-		if worker.DesiredState == DesiredStateOffline {
-			if !s.queueWorkerRestartAfterStop(worker, refocusOpRefocus, nowSecs()) {
-				return refuseInTx(http.StatusConflict,
-					"refocus requires a live worker — this one is stopped and has never "+
-						"been asked to stop, so there is no wind-down for a 起來 to be "+
-						"queued behind (喚醒 it when you want it to run)")
-			}
+		queued = false
+		switch applyRefocusVerb(ownerOpRowOfWorker(worker), memberFromWorker(*worker), online, nowSecs()) {
+		case refocusQueuedBehindStop:
 			queued = true
 			return persistWorkerRestartIntentOn(tx, *worker)
-		}
-		queued = false
-		if worker.Status != WorkerStatusActive || !online {
+		case refocusRefusedNeverStopped:
+			return refuseInTx(http.StatusConflict,
+				"refocus requires a live worker — this one is stopped and has never "+
+					"been asked to stop, so there is no wind-down for a 起來 to be "+
+					"queued behind (喚醒 it when you want it to run)")
+		case refocusRefusedNoSession:
 			return refuseInTx(http.StatusConflict,
 				"refocus requires the worker to be online (no live session to hand over)")
+		case refocusRefusedLadder:
+			return refuseInTx(http.StatusConflict, refocusLadderRefusalMsg("worker"))
 		}
-		// The wind-down ladder only goes forward (owner 2026-08-24). 換手 does not go
-		// through respawnWorkerForOwnerOp, so this site needs its own guard: the
-		// shared armRefocusEpoch on the member projection, folding back only the four
-		// fields it mutates — a hand-written copy drifts from the shared decision.
-		proj := memberFromWorker(*worker)
-		if !armRefocusEpoch(&proj, refocusOpRefocus, nowSecs()) {
-			return refuseInTx(http.StatusConflict,
-				"refocus is 停止 and this worker is already further along the "+
-					"wind-down ladder (下線 → 加速 → 強制); a later stage is never "+
-					"replaced by an earlier one")
-		}
-		worker.RefocusSince = proj.RefocusSince
-		worker.RefocusOp = proj.RefocusOp
-		worker.StoppingSince = proj.StoppingSince
-		worker.StoppedSince = proj.StoppedSince
 		return persistWorkerRowOn(tx, *worker)
 	})
 	if err != nil {
@@ -438,7 +421,7 @@ func (s *apiServer) handleRestartOutsourceWorker(w http.ResponseWriter, r *http.
 		worker.WakingSince = 0.0
 		// The other three anchors are cleared ONLY when a new session starts:
 		//   * NOT RUNNING — they date the session being replaced. A stale pair
-		//     (refocus > 0 ∧ stopped > 0) is read by workerHasStateToFlush as an
+		//     (refocus > 0 ∧ stopped > 0) is read by ownerOpHandoverPlanFor as an
 		//     already-collected wind-down, which shoots the next 改機器 / 換 model
 		//     with no close-out; the epoch scoping cannot heal a stale PAIR.
 		//   * ALREADY RUNNING — they describe a 加速停止 or 換手 mid-flight on the
@@ -500,7 +483,7 @@ func (s *apiServer) handleRestartOutsourceWorker(w http.ResponseWriter, r *http.
 
 // Outsource arm of PATCH /api/members/{member_id}. Its floor is update_member's
 // machine floor, not admin_agent (owner rc-376a41719e62 「正職跟外包一樣」; see
-// routes.go). A live, active worker whose launch intent changed is handed over;
+// routes.go). A live worker whose launch intent changed is handed over;
 // otherwise the next spawn bakes the new values in.
 func (s *apiServer) HandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(w http.ResponseWriter, r *http.Request, id string) {
 	var body MemberUpdateDTO
@@ -553,11 +536,11 @@ func (s *apiServer) handleSetOutsourceWorkerModel(w http.ResponseWriter, r *http
 		}
 		// Whether the owner wants it running is NOT re-asked here —
 		// respawnWorkerForOwnerOp owns that branch for all three owner verbs.
-		respawn = launchIntentChanged && worker.Status == WorkerStatusActive && online
-		if !respawn && launchIntentChanged && worker.DesiredState == DesiredStateOffline {
-			// A converged stop never enters the funnel (no active worker, no live
-			// session), so the queued restart is stamped here; 改機器 has no such
-			// gate. Owner 2026-08-30: 「change model / machine 只是帶起來的方式不一樣而已」.
+		respawn = launchIntentChanged && online
+		if !respawn && launchIntentChanged {
+			// A converged stop never enters the funnel (no live session), so the
+			// queued restart is stamped here; 改機器 has no such gate. Owner
+			// 2026-08-30: 「change model / machine 只是帶起來的方式不一樣而已」.
 			if s.queueWorkerRestartAfterStop(worker, ownerOpRuntimeModel, nowSecs()) {
 				if err := persistWorkerRestartIntentOn(tx, *worker); err != nil {
 					return err

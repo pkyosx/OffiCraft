@@ -1205,9 +1205,11 @@ ONE-SHOT, never a standing order):
       fluent false one. The second is not hypothetical — a shipped ledger reason
       was already found describing the wrong mechanism, twice.
 - 🔴 **The ENTRY filter is one function too: `lifecyclePolicyFor(m).ShouldExist()`.**
-  It is the only place the 正職/外包 difference may be spelled at the door — the
-  owner's ruling that 「正職會不會有 instance 存活取決於 人物設定有沒有這個角色，外包則是取決於
-  task 還是不是未完成狀態。其餘的部分應該要統一才對」. It replaced four hand-copies
+  It carries the owner's ruling 「正職會不會有 instance 存活取決於 人物設定有沒有這個角色，外包則是取決於
+  task 還是不是未完成狀態。其餘的部分應該要統一才對」 with no 正職/外包 branch: it reads
+  `roster_status` for both, and a worker's row goes `removed` when it is released. A worker
+  that has not reported waking yet passes the door like any other, so the context and
+  token-expiry hand-offs reach it under the staff conditions. It replaced four hand-copies
   (`runReconcileTick`, `reconcileMemberNow`, `runOutsourceTick`'s projection filter,
   and the copy inside the test helper `workerTickPass`).
 - 🔴 **The 停止 → 加速停止 → 強制停止 ladder binds the WORKER side too, and it binds
@@ -1222,7 +1224,7 @@ ONE-SHOT, never a standing order):
   | site | verb | on a ladder refusal |
   | --- | --- | --- |
   | `openOwnerOpHandover` (`worker_spawn.go`) | 改機器 / 換 model | the change is SAVED, the stage does not move; the existing wind-down keeps its own deadline and owns the move |
-  | `HandleRefocusOutsourceWorker…` (`api_outsource.go`) | 重新聚焦 | **409** — the owner pressed a button, so he gets an answer (the staff twin `HandleRefocusMember` refuses on the same rule; the sentence differs in exactly one noun, `this worker` vs `this member`) |
+  | `applyRefocusVerb` (`member_ownerop_winddown.go`), called by both `HandleRefocusOutsourceWorker…` and `HandleRefocusMember` | 重新聚焦 | **409** — the owner pressed a button, so he gets an answer; one rule for staff and workers, and the sentence (`refocusLadderRefusalMsg`) differs in exactly one noun, `this worker` vs `this member` |
   | `workerRestartSelf` (`worker_spawn.go`) | `restart_self` | **409** — the refusal is written by `HandleRestartSelfApiSelfRefocusPost` itself, VERBATIM the sentence its own staff arm writes further down in the same function (`m.Kind == KindOutsource` arm vs the fall-through `armRefocusEpoch` arm); the two arms are one rule |
   | `HandleAcceleratedStopOutsourceWorker…` | 加速停止 | n/a — it ADVANCES the ladder, and it deliberately does not zero the anchors (the twin of the staff 加速停止 arm) |
   | `stampContextHighRecycle` promotion arm (`reconcile.go`, the `if promoting` branch) | none — the reconcile tick's own context pass, projected onto workers by `runWorkerLifecyclePasses` (`lifecycle_roster.go`), which `runOutsourceTick` calls | n/a — it also ADVANCES, and only forwards: `canPromoteToAcceleratedStop` lets it move `context_notice` → `context_high` and nothing else. It hand-writes `refocus_since` / `refocus_op` INSTEAD of calling `armRefocusEpoch` on purpose — that helper zeroes the wind-down anchors, and here they belong to a close-out already in flight (see the `armRefocusEpoch is deliberately NOT used` note directly above that assignment) |
@@ -1233,7 +1235,7 @@ ONE-SHOT, never a standing order):
   | arm | what it does | reaches the ladder? |
   | --- | --- | --- |
   | **session STILL RUNNING** | records the intent (`desired_state=online`), clears `stopping_since` + `waking_since`, stamps a `session_alive` receipt, dispatches **nothing** and kills **nothing**. `refocus_since` / `refocus_op` / `stopped_since` are left **bit-for-bit alone** — they date the epoch of the session that is still up, and clearing them would silently cancel a 加速停止 or 換手 in flight, on a 200, from the one verb the owner pressed in order to leave the worker alone. `respawnWorkerForOwnerOp` is not called at all. | **no** — nothing is displaced, so there is nothing for the ladder to rule on |
-  | **session NOT running** | unchanged clean sheet: clears all four anchors, then hands over through `respawnWorkerForOwnerOp` (stop any remembered session, then one pass of the shared FSM — the worker is not online, so its START can go out in this same call). The anchors all date the session being replaced; carrying them into the successor is what makes the next 改機器 / 換 model read them as 「this epoch's wind-down is already collected」. (`forced_stop_at` is deliberately KEPT, per the staff activate's rule.) | **no** — `s.workerHasStateToFlush(w)` is `online && …`, and on this arm the worker is by definition not online, so the ladder arm in `respawnWorkerForOwnerOp` is unreachable from here |
+  | **session NOT running** | unchanged clean sheet: clears all four anchors, then hands over through `respawnWorkerForOwnerOp` (stop any remembered session, then one pass of the shared FSM — the worker is not online, so its START can go out in this same call). The anchors all date the session being replaced; carrying them into the successor is what makes the next 改機器 / 換 model read them as 「this epoch's wind-down is already collected」. (`forced_stop_at` is deliberately KEPT, per the staff activate's rule.) | **no** — `ownerOpHandoverPlanFor` answers wind-down only for an online session, and on this arm the worker is by definition not online, so the ladder arm in `respawnWorkerForOwnerOp` is unreachable from here |
 
   🔴 **THIS PARAGRAPH USED TO SAY THE OPPOSITE, and the sentence it leaned on was
   `ownerOpDisplacesTheSession(restart) == true`.** That predicate has been

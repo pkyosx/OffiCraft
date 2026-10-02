@@ -1,5 +1,7 @@
 package main
 
+import "math"
+
 // 「所有換手都可以給他機會收尾」 for STAFF members — the twin of the outsource
 // rule (server/AGENTS.md 「所有 owner 動詞都給收尾機會」).
 //
@@ -48,10 +50,9 @@ const (
 	refocusOpAcceleratedStop = "accelerated_stop"
 )
 
-// The staff SHELL around the shared hasUncollectedOnlineOwnerOpState. Do not
-// flatten these guards into the shared call: the kind guard has no worker
-// analogue, and the worker's desired-offline equivalent is its caller's first gate,
-// which returns before this question is asked.
+// The staff SHELL around the shared ownerOpHandoverPlanFor. 🔴 The kind guard has no
+// worker analogue: a worker routed through this shell answers false, which closes
+// its every wind-down — workers ask ownerOpHandoverPlanFor directly.
 func (s *apiServer) memberHasStateToFlush(m Member) bool {
 	return memberHasStateToFlushGiven(m, s.hub.IsOnline(m.ID))
 }
@@ -63,10 +64,7 @@ func memberHasStateToFlushGiven(m Member, online bool) bool {
 	if m.Kind != KindStaff {
 		return false
 	}
-	if !aRefocusStampWouldReachTheAgent(m) {
-		return false
-	}
-	return hasUncollectedOnlineOwnerOpState(m.RefocusSince, m.StoppedSince, online)
+	return ownerOpHandoverPlanFor(m, online) == ownerOpPlanWindDown
 }
 
 // Server half of a CROSS-LAYER contract (root AGENTS.md §9c): maybeRecycle in
@@ -81,6 +79,132 @@ func aRefocusStampWouldReachTheAgent(m Member) bool {
 
 func hasUncollectedOnlineOwnerOpState(refocusSince, stoppedSince float64, online bool) bool {
 	return online && !(refocusSince > 0.0 && stoppedSince > 0.0)
+}
+
+// ownerOpHandoverPlan is what an owner verb that leaves the member running (重新聚焦,
+// 換模型, 改機器, 喚醒) does with its session — one answer for staff and workers;
+// only the row, the lock and the write differ per population.
+type ownerOpHandoverPlan int
+
+const (
+	// Wanted online, live session, epoch not yet collected: open a graceful wind-down.
+	ownerOpPlanWindDown ownerOpHandoverPlan = iota
+	// Wanted offline and a stop was asked for: queue a 起來 behind it (rc-bc1b029a3aa2).
+	ownerOpPlanQueueBehindStop
+	// Wanted offline and never asked to stop: the change is saved, nothing starts.
+	ownerOpPlanHeldDown
+	// Wanted online with nothing to flush: no session, or this epoch is collected.
+	ownerOpPlanNothingToFlush
+)
+
+// 🔴 Wanted-offline is decided BEFORE state-to-flush. A session can still be up
+// while its stop is in flight; asking flush first would stamp a refocus epoch that
+// reaches no agent and skip the queue behind the stop.
+func ownerOpHandoverPlanFor(m Member, online bool) ownerOpHandoverPlan {
+	if !aRefocusStampWouldReachTheAgent(m) {
+		if aStopWasEverAskedFor(m) {
+			return ownerOpPlanQueueBehindStop
+		}
+		return ownerOpPlanHeldDown
+	}
+	if hasUncollectedOnlineOwnerOpState(m.RefocusSince, m.StoppedSince, online) {
+		return ownerOpPlanWindDown
+	}
+	return ownerOpPlanNothingToFlush
+}
+
+// ownerOpRow is the columns an owner verb writes, by pointer, for both populations
+// (the stopVerbRow pattern). The same aliasing rule as windDownAnchorRow applies.
+type ownerOpRow struct {
+	Anchors          windDownAnchorRow
+	RestartAfterStop *bool
+	LastOp           *string
+	LastOpOK         **bool
+	LastOpLog        *string
+	LastOpReason     *string
+	LastOpAt         *float64
+}
+
+func ownerOpRowOfMember(m *Member) ownerOpRow {
+	return ownerOpRow{
+		Anchors:          windDownAnchorRowOfMember(m),
+		RestartAfterStop: &m.RestartAfterStop,
+		LastOp:           &m.LastOp,
+		LastOpOK:         &m.LastOpOK,
+		LastOpLog:        &m.LastOpLog,
+		LastOpReason:     &m.LastOpReason,
+		LastOpAt:         &m.LastOpAt,
+	}
+}
+
+func ownerOpRowOfWorker(w *OutsourceWorker) ownerOpRow {
+	return ownerOpRow{
+		Anchors:          windDownAnchorRowOfWorker(w),
+		RestartAfterStop: &w.RestartAfterStop,
+		LastOp:           &w.LastOp,
+		LastOpOK:         &w.LastOpOK,
+		LastOpLog:        &w.LastOpLog,
+		LastOpReason:     &w.LastOpReason,
+		LastOpAt:         &w.LastOpAt,
+	}
+}
+
+// queueRestartBehindStop stamps the queued 起來 and its receipt in memory; the
+// caller persists both (the receipt columns land through SetMemberLastOp only).
+func queueRestartBehindStop(row ownerOpRow, op string, now float64) {
+	*row.RestartAfterStop = true
+	stampOpReceipt(row.LastOp, row.LastOpOK, row.LastOpLog, row.LastOpReason, row.LastOpAt,
+		reconcileCmdStart, memberRestartQueuedReceipt(op), now)
+}
+
+// armRefocusEpochOnRow decides the epoch on snapshot and writes only the four anchor
+// columns through row.
+func armRefocusEpochOnRow(row windDownAnchorRow, snapshot Member, op string, now float64) bool {
+	if !armRefocusEpoch(&snapshot, op, now) {
+		return false
+	}
+	*row.RefocusSince = snapshot.RefocusSince
+	*row.RefocusOp = snapshot.RefocusOp
+	*row.StoppingSince = snapshot.StoppingSince
+	*row.StoppedSince = snapshot.StoppedSince
+	return true
+}
+
+type refocusVerdict int
+
+const (
+	refocusArmed refocusVerdict = iota
+	refocusQueuedBehindStop
+	refocusRefusedNeverStopped
+	refocusRefusedNoSession
+	refocusRefusedLadder
+)
+
+// applyRefocusVerb is 重新聚焦 for both populations. A stopped member only gets a
+// 起來 recorded; the stop in flight keeps its stage and anchors (owner 2026-08-30).
+func applyRefocusVerb(row ownerOpRow, snapshot Member, online bool, now float64) refocusVerdict {
+	switch ownerOpHandoverPlanFor(snapshot, online) {
+	case ownerOpPlanQueueBehindStop:
+		queueRestartBehindStop(row, refocusOpRefocus, now)
+		return refocusQueuedBehindStop
+	case ownerOpPlanHeldDown:
+		return refocusRefusedNeverStopped
+	}
+	if !online {
+		return refocusRefusedNoSession
+	}
+	// The ladder only goes forward (owner, 2026-08-24): a backward press would clear
+	// a deadline an agent was told about. Refused, not silently downgraded.
+	if !armRefocusEpochOnRow(row.Anchors, snapshot, refocusOpRefocus, now) {
+		return refocusRefusedLadder
+	}
+	return refocusArmed
+}
+
+func refocusLadderRefusalMsg(noun string) string {
+	return "refocus is 停止 and this " + noun + " is already further along the " +
+		"wind-down ladder (下線 → 加速 → 強制); a later stage is never " +
+		"replaced by an earlier one"
 }
 
 // winddownKindFor is THE judgement about a wind-down cause: both the clock
@@ -180,6 +304,23 @@ func (s *apiServer) armMemberOwnerOpHandover(m *Member, op string, cfg reconcile
 	return true
 }
 
+// applyMemberOwnerOpPlan is the staff shell of an owner verb that leaves the member
+// running. It writes cur in memory only; heldDown says a receipt was stamped and
+// must be persisted.
+func (s *apiServer) applyMemberOwnerOpPlan(cur *Member, op string, cfg reconcileConfig, online bool) (windDown, heldDown bool) {
+	switch ownerOpHandoverPlanFor(*cur, online) {
+	case ownerOpPlanWindDown:
+		return s.armMemberOwnerOpHandover(cur, op, cfg, online), false
+	case ownerOpPlanQueueBehindStop:
+		queueRestartBehindStop(ownerOpRowOfMember(cur), op, nowSecs())
+		return false, true
+	case ownerOpPlanHeldDown:
+		stampMemberOpReceipt(cur, memberHeldDownReceipt(op), nowSecs())
+		return false, true
+	}
+	return false, false
+}
+
 // 「要不要起來」 is split out of desired_state (owner ruling rc-bc1b029a3aa2:
 // 「一個重啟的 intention 遇上一個更強硬的下線規則 他的方式是沿用強硬下線規則 但是附加上線規則」).
 // Two questions, two rules:
@@ -203,10 +344,6 @@ func (s *apiServer) armMemberOwnerOpHandover(m *Member, op string, cfg reconcile
 // consulted — not "the spec flipped".
 func aStopWasEverAskedFor(m Member) bool {
 	return m.StoppingSince > 0.0
-}
-
-func stampRestartIntent(m *Member) {
-	m.RestartAfterStop = true
 }
 
 func clearRestartIntent(m *Member) {
@@ -288,12 +425,10 @@ func (s *apiServer) consumeRestartAfterStop(m *Member, now float64) bool {
 // outsourceMu serialization are not shared.
 
 func (s *apiServer) queueWorkerRestartAfterStop(w *OutsourceWorker, op string, now float64) bool {
-	if w.DesiredState != DesiredStateOffline || !aStopWasEverAskedFor(memberFromWorker(*w)) {
+	if ownerOpHandoverPlanFor(memberFromWorker(*w), false) != ownerOpPlanQueueBehindStop {
 		return false
 	}
-	w.RestartAfterStop = true
-	stampOpReceipt(&w.LastOp, &w.LastOpOK, &w.LastOpLog, &w.LastOpReason, &w.LastOpAt,
-		reconcileCmdStart, memberRestartQueuedReceipt(op), now)
+	queueRestartBehindStop(ownerOpRowOfWorker(w), op, now)
 	return true
 }
 
@@ -477,10 +612,21 @@ func clearWindDownRow(row windDownAnchorRow) {
 // clearWindDownRowOnWake is report_waking's clear, for staff and workers alike.
 // 🔴 stopping_since survives unless the subject is wanted online: it is the only
 // trace of a stop that landed while the session was still booting.
-func clearWindDownRowOnWake(row windDownAnchorRow, desiredState string) {
+// 🔴 A hand-off stamped after the waking session's credential was issued survives
+// too: a late report_waking from the old session would otherwise erase the marker
+// the agent's wake is gated on, and nobody would close the session out. iat is whole
+// seconds, so the same second counts as before — a replacement session minted in
+// the stamp's second must not be handed over again. This assumes the session runs on
+// the credential minted at its dispatch; a long-lived /api/mint token would keep
+// every later hand-off.
+func clearWindDownRowOnWake(row windDownAnchorRow, desiredState string, sessionIat float64) {
 	stoppingSince := *row.StoppingSince
+	refocusSince, refocusOp := *row.RefocusSince, *row.RefocusOp
 	clearWindDownRow(row)
 	if desiredState != DesiredStateOnline {
 		*row.StoppingSince = stoppingSince
+	}
+	if sessionIat > 0 && math.Floor(refocusSince) > sessionIat {
+		*row.RefocusSince, *row.RefocusOp = refocusSince, refocusOp
 	}
 }
