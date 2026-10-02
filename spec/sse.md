@@ -210,7 +210,7 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
 
 ## 3. Topic and op vocabulary
 
-### 3.1 Topics — the closed set (12 topics)
+### 3.1 Topics — the closed set (13 topics)
 
 The server MUST emit deltas on exactly these topics and no others (`reply_card`
 joined the set in the M2 reply-card batch; `task` / `task_manual` joined in the
@@ -219,7 +219,8 @@ M3 任務系統] covers the task surface wholesale, these are its necessary
 delta topics; `insight` joined in T-3809, which split the role journal's judgement
 block into its own document and therefore needed its own delta rather than
 riding a topic that names a different document; `runtime_login` joined in T-309, the
-machine runtime-login relay; everything else is the M1 freeze):
+machine runtime-login relay; `runtime_upgrade` joined with the machine runtime-upgrade
+relay; everything else is the M1 freeze):
 
 | topic | trigger | op |
 |---|---|---|
@@ -235,6 +236,7 @@ machine runtime-login relay; everything else is the M1 freeze):
 | `context` | agent context-gauge ingest (`POST /api/agent/context`) | signal |
 | `monitoring` | warden telemetry ingest (`POST /api/monitoring/telemetry`); a reported usage limit reaching its reset time | signal |
 | `runtime_login` | runtime-login start / code / cancel, warden report (`POST /api/monitoring/runtime-login`), drop after terminal | signal |
+| `runtime_upgrade` | runtime-upgrade start, warden report (`POST /api/monitoring/runtime-upgrade`), expiry, drop after terminal | signal |
 
 ⚠️ **Known code-internal inconsistency at freeze, resolved in favour of the wire**: the
 frozen implementation's internal topic lists were incomplete (its declared topic constant
@@ -259,7 +261,8 @@ see `seeds/system_interaction.md` §2.2.1「何時開卡」.
 - `patch` — the topic's data changed; refetch. Note: an overlay **reset** (tombstone back to
   seed) rides as `patch`, not `remove` — the doc still exists, it fell back to the seed.
 - `remove` — the entity was deleted (`deleted: true`, `payload: null`).
-- `signal` — a volatile in-memory store changed (`context`, `monitoring`, `runtime_login`); no
+- `signal` — a volatile in-memory store changed (`context`, `monitoring`, `runtime_login`,
+  `runtime_upgrade`); no
   durable entity behind it, `payload` always `null`.
 
 ## 4. Per-recipient fan-out
@@ -294,6 +297,7 @@ server's own deps-fulfill, not by eavesdropping on another member's stream):
 | `global_context` / `role_def` / `insight` | — (owner cockpit only) |
 | `context` / `monitoring` | — (owner cockpit only; `context` also drives the server-side §6 band) |
 | `runtime_login` | — (owner cockpit only; refetch `GET /api/machines/{machine_id}/runtime-login/{login_id}`) |
+| `runtime_upgrade` | — (owner cockpit only; the frame's id is the upgrade id; refetch `GET /api/machines/{machine_id}/runtime-upgrade/{upgrade_id}`) |
 
 A blank id in an audience (an unassigned executor) is dropped — it narrows the
 set, never widens it. An implementation MAY carry a
@@ -555,6 +559,16 @@ data: {"topic":"warden-command","data":{"rpc":"start","args":{"member_id":"m-1a2
     until the UI gives up (30s), and the owner starts over. A warden build that predates these
     verbs MUST treat them as any unknown rpc: log + skip, reader loop unharmed — which is
     exactly the `starting`-forever case the UI timeout covers.
+  - `runtime_upgrade` (the Claude Code upgrade relay behind
+    `POST /api/machines/{machine_id}/runtime-upgrade`; not the warden's own `update` /
+    `upgrade`): `{member_id, upgrade_id, runtime}` makes the warden run `claude update` with
+    the claude binary and environment it launches members with, read `claude --version`
+    before and after, and report through `POST /api/monitoring/runtime-upgrade` (`running`,
+    then `succeeded` or `failed`). `runtime` is `claude` only. Members already running keep
+    their process. `member_id` is informational addressing only, as with `update`. At-most-once
+    and never durably mirrored: a lost frame leaves the upgrade `starting` until the UI gives
+    up (30s) and the server later expires it; the owner starts over. A warden build that
+    predates this verb MUST treat it as any unknown rpc: log + skip, reader loop unharmed.
   - **Outsource workers ride the SAME `start`/`stop` verbs** (A案 P5b naming
     convergence — the former `worker_start`/`worker_stop` verbs are RETIRED):
     a worker spawn is a plain `start` with `member_id == <ow-id>`,
@@ -693,7 +707,7 @@ news that every write it makes from now on will 409.
 - The internal buffer/queue/poll mechanics and the 0.25 s poll cadence
   — implementation-free (any concurrency model is fine) provided §1–§8 hold.
 - Topic-list validation as a mechanism — an implementation MAY enforce the closed set at
-  the publish seam (recommended), so long as all 12 topics of §3.1 pass.
+  the publish seam (recommended), so long as all 13 topics of §3.1 pass.
 - Frame ordering **across** connections, and timing between a durable commit and its frame's
   arrival (only per-connection publish order is contract, §4).
 
