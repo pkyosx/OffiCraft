@@ -70,11 +70,11 @@ server 的標準埠是 **7755**。被別的程式占用時，安裝會**當場�
 走通知模組的成員，到那位成員被指派到的機器上看：
 
 ```bash
-ls ~/.officraft/agents/<成員 id>/.officraft-mod-loaded   # 在＝模組有載入
-pgrep -fl 'ocagent listen --deliver-mod'                 # 模組起的 listener 還活著嗎
+ls ~/.officraft/agents/<成員 id>/.officraft-mod-loaded   # 在＝模組有載入，而且它起的 listener 開始連線過
+pgrep -fl 'ocagent listen --deliver-mod'                 # 那個 listener 現在還活著嗎
 ```
 
-模組有載入、listener 卻不在，表示它起來就退了；它印的話只進成員 Claude Code 的 debug log（以 `claude --debug` 啟動時才看得到）。
+標記在、listener 卻不在，表示它後來退了；它印的話只進成員 Claude Code 的 debug log（以 `claude --debug` 啟動時才看得到）。
 
 走貼上的成員：
 

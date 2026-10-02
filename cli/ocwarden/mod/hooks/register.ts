@@ -5,9 +5,11 @@ import type { EngineInterface, Register } from 'claude-code'
 const CONFIG_FILE = 'officraft.json'
 
 type Config = {
+  boot_prompt: string
   loaded_marker: string
   disabled_marker: string
   ack_file: string
+  ready_prefixes: string[]
   listener: { argv: string[]; cwd: string; env: Record<string, string> }
 }
 
@@ -23,10 +25,22 @@ export const register: Register = on => {
     // 🔴 The warden fell back to its tmux paste listener for this session; a
     // second listener on the same identity makes the station evict one of them.
     if (await $.fs.exists(config.disabled_marker)) return started
-    await $.fs.write(config.loaded_marker, 'loaded\n')
-    void listen($, config)
+    void boot($, config)
     return started
   })
+}
+
+// Detached from session.start, which the engine awaits before the first prompt:
+// the boot prompt is waited on here instead.
+async function boot($: EngineInterface, config: Config): Promise<void> {
+  // 🔴 The boot prompt goes in BEFORE the listener exists: a backlog the listener
+  // prints on connect queues behind it instead of becoming the member's first
+  // turn (and being marked read before the member ever booted).
+  if (!(await submitted($, config.boot_prompt, true))) {
+    $.ui.log('the boot prompt was refused; not listening', { to: 'debug' })
+    return
+  }
+  await listen($, config)
 }
 
 async function readConfig($: EngineInterface): Promise<Config | undefined> {
@@ -46,9 +60,12 @@ function isConfig(value: unknown): value is Config {
   const c = value as Record<string, unknown>
   const listener = c.listener as Record<string, unknown> | undefined
   return (
+    typeof c.boot_prompt === 'string' &&
     typeof c.loaded_marker === 'string' &&
     typeof c.disabled_marker === 'string' &&
     typeof c.ack_file === 'string' &&
+    Array.isArray(c.ready_prefixes) &&
+    c.ready_prefixes.every(p => typeof p === 'string') &&
     typeof listener === 'object' &&
     listener !== null &&
     Array.isArray(listener.argv) &&
@@ -63,6 +80,10 @@ function isConfig(value: unknown): value is Config {
 // The child lives as long as this loop: leaving it, or the module unloading,
 // kills it. A listener that exits is not restarted: the connection it held
 // disappearing is what makes the station recycle this member.
+//
+// The load marker waits for the listener's first frame or transport line: one
+// that refused to start prints neither, and the missing marker is what sends
+// the warden to its paste fallback.
 async function listen($: EngineInterface, config: Config): Promise<void> {
   const child = $.process.spawn({
     argv: config.listener.argv,
@@ -70,11 +91,32 @@ async function listen($: EngineInterface, config: Config): Promise<void> {
     env: config.listener.env,
   })
   let pending = ''
+  let pendingErr = ''
+  let ready = false
   let batchDelivered = true
+  // false: the warden fell back meanwhile, so this listener must go.
+  const markReady = async (): Promise<boolean> => {
+    if (ready) return true
+    if (await $.fs.exists(config.disabled_marker)) {
+      $.ui.log('the warden fell back to pasting; stopping this listener', { to: 'debug' })
+      return false
+    }
+    await $.fs.write(config.loaded_marker, 'loaded\n')
+    ready = true
+    return true
+  }
   try {
     for await (const { stream, text } of child) {
       if (stream === 'stderr') {
         $.ui.log(text, { to: 'debug' })
+        pendingErr += text
+        let isTransport = false
+        for (let nl = pendingErr.indexOf('\n'); nl >= 0; nl = pendingErr.indexOf('\n')) {
+          const line = pendingErr.slice(0, nl)
+          pendingErr = pendingErr.slice(nl + 1)
+          if (config.ready_prefixes.some(prefix => line.startsWith(prefix))) isTransport = true
+        }
+        if (isTransport && !(await markReady())) return
         continue
       }
       pending += text
@@ -82,6 +124,7 @@ async function listen($: EngineInterface, config: Config): Promise<void> {
         const line = pending.slice(0, nl)
         pending = pending.slice(nl + 1)
         const frame = parseFrame(line)
+        if (frame !== undefined && !(await markReady())) return
         if (frame === undefined) {
           if (line.trim() !== '') $.ui.log(line, { to: 'debug' })
         } else if ('submit' in frame) {
@@ -114,9 +157,9 @@ function parseFrame(line: string): Frame | undefined {
   return undefined
 }
 
-async function submitted($: EngineInterface, text: string): Promise<boolean> {
+async function submitted($: EngineInterface, text: string, asUser = false): Promise<boolean> {
   try {
-    const result = await $.prompt.submit({ text })
+    const result = await $.prompt.submit(asUser ? { text, asUser: true } : { text })
     return result.drop === undefined
   } catch {
     return false

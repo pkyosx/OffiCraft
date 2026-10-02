@@ -662,10 +662,12 @@ type SpawnDeps struct {
 	Symlink           func(oldname, newname string) error
 	Remove            func(name string) error
 	// nil reads every path as absent, which sends a claude member to the paste route.
-	Exists     func(path string) bool
-	Nudge      string
-	Pretrust   func() error
-	PurgeTrash func()
+	Exists func(path string) bool
+	// nil skips the reap.
+	ReapWorkdirListeners func(workdir string) (found int, cleared bool)
+	Nudge                string
+	Pretrust             func() error
+	PurgeTrash           func()
 	// nil means REAL time.Sleep (see nudgeClock): tests wanting speed pass a no-op
 	// explicitly.
 	Sleep func(time.Duration)
@@ -871,7 +873,7 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 
 	pluginDir := ""
 	if runtimeName == "claude" && !notifyByPaste {
-		if refusal := d.installNotifyMod(workdir); refusal != "" {
+		if refusal := d.installNotifyMod(workdir, nudge); refusal != "" {
 			return SpawnOutcome{OK: false, Reason: refusal}
 		}
 		pluginDir = filepath.Join(workdir, notifyModDirName)
@@ -897,6 +899,7 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 
 	if runtimeName == "claude" {
 		killStaleListenerSession(d, socket, p.MemberID)
+		d.reapWorkdirListeners(p.MemberID, workdir)
 	}
 	if err := tmuxNewSession(d.Runner, socket, session, command); err != nil {
 		return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
@@ -905,10 +908,14 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 	if runtimeName == "claude" {
 		// Claude only: codex's sidecar starts the boot turn through App Server; keystrokes
 		// would target a non-interactive pane.
-		tmuxDeliverNudge(d.Runner, d.Sleep, socket, session, nudge)
+		if notifyByPaste {
+			tmuxDeliverNudge(d.Runner, d.Sleep, socket, session, nudge)
+		} else {
+			// The mod submits the boot prompt itself; nothing is pasted. The wait is
+			// the nudge loop's own 30 s, so the spawn budget does not move.
+			waitForNotifyMod(d.Sleep)
+		}
 
-		// Read only after the nudge loop: the mod writes the marker at session start,
-		// and that loop is the only wait this path has.
 		// 🔴 Not atomic: a mod that loads between this read and the disabled-marker
 		// write still starts its listener, and of the two connections the station
 		// evicts one, whose `ocagent suicide` kills the member.
@@ -916,6 +923,7 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 			notifyByPaste, notifyNote = true, notifyModNotLoadedNote
 			d.disableNotifyMod(workdir)
 			d.logf("%s: the notification mod did not load; notifications go by tmux paste", p.MemberID)
+			tmuxDeliverNudge(d.Runner, d.Sleep, socket, session, nudge)
 		}
 		// The paste listener runs BESIDE the member, not inside its harness, which drops
 		// background jobs every 30 minutes (presence IS that connection). Started AFTER
