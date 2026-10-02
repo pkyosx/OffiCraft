@@ -203,6 +203,31 @@ describe("MemberDetailPanel — the 停止 ladder", () => {
     await waitFor(() => expect(queryByTestId("mp-stop-error")).toBeNull());
   });
 
+  it("after 強制停止, while the session is still connected, the one ladder button stays 強制停止", () => {
+    const { container } = render(
+      <I18nProvider>
+        <MemberDetailPanel
+          member={mkMember({
+            lifecycle: "stopping",
+            desiredState: "offline",
+            refocusOp: "",
+            forcedStopLive: true,
+          })}
+          onBack={vi.fn()}
+          onActivate={vi.fn()}
+          onRelocate={vi.fn()}
+          onDeactivate={vi.fn()}
+          onAcceleratedStop={vi.fn()}
+          onForceStop={vi.fn()}
+        />
+      </I18nProvider>,
+    );
+    expect(
+      Array.from(container.querySelectorAll("[data-testid^='member-action-']"))
+        .map((b) => [b.getAttribute("data-testid"), b.textContent]),
+    ).toEqual([["member-action-force-stop", "強制停止"]]);
+  });
+
   it("a rejected 強制停止 closes its confirm and says 操作失敗，請稍後重試", async () => {
     const onForceStop = vi.fn(async () => {
       throw new Error("http 500");

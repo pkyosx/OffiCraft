@@ -190,11 +190,14 @@ type memberDTO struct {
 	LastOpAt         float64 `json:"last_op_at"`
 	// ForcedStopAt is deliberately NOT cleared by the next boot: it records that the
 	// PREVIOUS session was cut off mid-work.
-	ForcedStopAt  float64 `json:"forced_stop_at"`
-	UnreadCount   int     `json:"unread_count"`
-	RosterStatus  string  `json:"roster_status"`
-	OwnerID       string  `json:"owner_id"`
-	SchemaVersion int     `json:"schema_version"`
+	ForcedStopAt float64 `json:"forced_stop_at"`
+	// ForcedStopLive, not ForcedStopAt > 0, is what the stop ladder reads:
+	// ForcedStopAt outlives the session, so it is also > 0 on the next ordinary stop.
+	ForcedStopLive bool   `json:"forced_stop_live"`
+	UnreadCount    int    `json:"unread_count"`
+	RosterStatus   string `json:"roster_status"`
+	OwnerID        string `json:"owner_id"`
+	SchemaVersion  int    `json:"schema_version"`
 	// TerminalAttachCommand is the whole command composed server-side
 	// (terminal_attach.go): the socket half is namespace-dependent, and a client
 	// assembling its own attaches to another station's tmux server.

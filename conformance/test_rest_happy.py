@@ -255,8 +255,8 @@ _RELOCATE_KEYS = {"id", "relocation_pending", "relocation_deferred"}
 _MEMBER_READ_KEYS = {
     "actual_effort", "actual_machine", "actual_model", "actual_runtime",
     "avatar_url", "desired_machine_id", "desired_state", "effort",
-    "forced_stop_at", "id", "kind", "last_op", "last_op_at", "last_op_log",
-    "last_op_ok", "last_op_reason", "machine", "model",
+    "forced_stop_at", "forced_stop_live", "id", "kind", "last_op",
+    "last_op_at", "last_op_log", "last_op_ok", "last_op_reason", "machine", "model",
     "model_call_last_success_ts", "model_call_warnings", "name", "owner_id",
     "presence", "refocus_deadline", "refocus_op", "refocus_since", "role_key",
     "role_name", "roster_status", "runtime", "runtime_login_warnings",

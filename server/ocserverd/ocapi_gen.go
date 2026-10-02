@@ -1992,12 +1992,15 @@ type MemberDTO struct {
 
 	// ForcedStopAt Unix seconds of the last time this member was FORCE-stopped (the owner's 強制下線, or POST /members/{id}/force-stop), 0 when it never was. Unlike every other lifecycle anchor it is deliberately NOT cleared by the next boot: it records that the PREVIOUS session was cut off mid-work instead of being allowed to work the offboard sequence, and the reader who needs that most is the session that comes after. Without it, a hand-off that was never written and a hand-off that was never needed look identical on the roster (T-a9d6). Additive-optional.
 	ForcedStopAt *float64 `json:"forced_stop_at,omitempty"`
-	Id           string   `json:"id"`
-	Kind         *string  `json:"kind,omitempty"`
-	LastOp       *string  `json:"last_op,omitempty"`
-	LastOpAt     *float64 `json:"last_op_at,omitempty"`
-	LastOpLog    *string  `json:"last_op_log,omitempty"`
-	LastOpOk     *bool    `json:"last_op_ok,omitempty"`
+
+	// ForcedStopLive True while the CURRENT stop has already been forced: the owner (or an admin agent) pressed 強制停止 on this stop and no new stop has been opened since. It stays true from the force-stop press until the next activate, so it covers the window where the session has not disconnected yet and ``presence`` still reads ``stopping`` while ``refocus_op`` has already been cleared. A client drawing the stop ladder (停止 → 加速停止 → 強制停止) reads it to stay on the 強制停止 rung through that window instead of falling back to 加速停止, which the server would refuse with 409. Do NOT substitute ``forced_stop_at > 0``: ``forced_stop_at`` survives the next boot by design, so it would also be true on the NEXT ordinary stop. Derived at read time, never stored. Additive-optional.
+	ForcedStopLive *bool    `json:"forced_stop_live,omitempty"`
+	Id             string   `json:"id"`
+	Kind           *string  `json:"kind,omitempty"`
+	LastOp         *string  `json:"last_op,omitempty"`
+	LastOpAt       *float64 `json:"last_op_at,omitempty"`
+	LastOpLog      *string  `json:"last_op_log,omitempty"`
+	LastOpOk       *bool    `json:"last_op_ok,omitempty"`
 
 	// LastOpReason Structured one-line cause of the most recent warden op (the warden's refusal/failure/warning summary) — distinct from the free-form last_op_log dump. Empty when the receipt carried no reason; consumers then fall back to status-only display. A non-empty reason does not mean the operation failed: read last_op_ok. Successful operations may carry advisory context, including receipts from older wardens. Ordinary successful stop/uninstall operations carry no template reason.
 	LastOpReason *string `json:"last_op_reason,omitempty"`

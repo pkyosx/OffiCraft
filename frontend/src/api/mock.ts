@@ -284,6 +284,7 @@ const MOCK_WIRE_MEMBERS: WireMember[] = [
     last_op_reason: "",
     last_op_at: 0,
     forced_stop_at: 0,
+    forced_stop_live: false,
     roster_status: "active",
     owner_id: "",
     unread_count: 0,
@@ -323,6 +324,7 @@ const MOCK_WIRE_MEMBERS: WireMember[] = [
     last_op_reason: "",
     last_op_at: 0,
     forced_stop_at: 0,
+    forced_stop_live: false,
     roster_status: "active",
     owner_id: "",
     unread_count: 0,
@@ -364,6 +366,7 @@ const MOCK_WIRE_MEMBERS: WireMember[] = [
     last_op_reason: "",
     last_op_at: 0,
     forced_stop_at: 0,
+    forced_stop_live: false,
     roster_status: "active",
     owner_id: "",
     unread_count: 0,
@@ -417,6 +420,7 @@ const MOCK_WIRE_MEMBERS: WireMember[] = [
     last_op_reason: "",
     last_op_at: 0,
     forced_stop_at: 0,
+    forced_stop_live: false,
     roster_status: "active",
     owner_id: "",
     unread_count: 0,
@@ -2821,6 +2825,7 @@ const mockApiImpl = {
     const w = findWire(id);
     if (w.presence === "online") {
       w.desired_state = "online";
+      w.forced_stop_live = false;
       w.last_op = "start";
       w.last_op_ok = true;
       w.last_op_log = "";
@@ -2835,6 +2840,7 @@ const mockApiImpl = {
       return { activationPending: true };
     }
     w.desired_state = "online";
+    w.forced_stop_live = false;
     w.presence = "waking"; // never optimistic-green — honest waking, not online
     if (machineId !== undefined) w.desired_machine_id = machineId; // permanent rebind
     return { activationPending: false };
@@ -2933,13 +2939,22 @@ const mockApiImpl = {
       await mockApiImpl.forceStopOutsourceMember(id);
       return;
     }
-    // Immediate kill escalation (mirror handle_force_stop_member): write
-    // desired_state=offline and fall to offline. The mock has no live agent/warden to
-    // SIGKILL, so — like deactivate — it simply lands offline; the real backend
-    // dispatches the robust STOP to the warden immediately, bypassing the grace.
+    // Immediate kill escalation (mirror handle_force_stop_member): a row with a
+    // live session stays `stopping` until the session drops, as on the server;
+    // one without lands offline at once, like deactivate.
     const w = findWire(id);
     w.desired_state = "offline";
-    w.presence = "offline";
+    w.refocus_since = 0;
+    w.refocus_op = "";
+    w.forced_stop_live = true;
+    if (w.presence !== "online" && w.presence !== "stopping") {
+      w.presence = "offline";
+      return;
+    }
+    w.presence = "stopping";
+    afterMockForcedDisconnect(() => {
+      w.presence = "offline";
+    });
   },
 
   async acceleratedStopMember(id: string): Promise<void> {
@@ -4867,8 +4882,8 @@ const mockApiImpl = {
   },
 
   async forceStopOutsourceMember(id: string): Promise<void> {
-    // 強制停止 (T-ed79) — the THIRD rung, and the body /stop used to have: the
-    // session is killed on the spot, so the worker lands in "stopped" directly.
+    // 強制停止 — the THIRD rung. A live session is killed, but it stays
+    // `stopping` until it actually drops, as on the server.
     const w = outsourceWorkers.find((x) => x.id === id);
     if (!w || w.status === "released") {
       throw mockApiError(
@@ -4879,7 +4894,16 @@ const mockApiImpl = {
     w.desiredState = "offline";
     w.refocusSince = null;
     w.refocusOp = undefined;
-    w.presence = "stopped";
+    w.forcedStopLive = true;
+    if (w.presence !== "online" && w.presence !== "stopping") {
+      w.presence = "stopped";
+      emitTopic("member");
+      return;
+    }
+    w.presence = "stopping";
+    afterMockForcedDisconnect(() => {
+      w.presence = "stopped";
+    });
       emitTopic("member");
     // T-91: the write answers a RECEIPT, not the worker; the store above is what
     // changed and the panel refetches.
@@ -4910,10 +4934,12 @@ const mockApiImpl = {
       w.lastOpReason = MOCK_SESSION_ALIVE_RECEIPT;
       w.lastOpAt = Date.now() / 1000;
       w.desiredState = "online";
+      w.forcedStopLive = false;
       emitTopic("member");
       return;
     }
     w.desiredState = "online";
+    w.forcedStopLive = false;
     w.presence = "waking";
       emitTopic("member");
     // Mock ↔ http parity (T-ed79 #12): the mock always "dispatches", so it never
@@ -5459,6 +5485,7 @@ const mockApiImpl = {
       last_op_reason: "",
       last_op_at: 0,
       forced_stop_at: 0,
+      forced_stop_live: false,
       roster_status: "active",
       owner_id: MOCK_OWNER_ID,
       unread_count: 0,
@@ -6775,6 +6802,7 @@ const mockApiImpl = {
       last_op_reason: "",
       last_op_at: 0,
       forced_stop_at: 0,
+      forced_stop_live: false,
       roster_status: "active",
       owner_id: MOCK_OWNER_ID,
       unread_count: 0,
@@ -7171,6 +7199,19 @@ const mockApiImpl = {
 export const mockApi: Api = mockApiImpl;
 
 // Reset hook for tests / hot-reload determinism (not used by the UI).
+/** How long a force-stopped session in the mock stays connected before it drops.
+ * The real server publishes the force-stop BEFORE the session is gone; a mock
+ * that skipped straight to stopped would hide the window the stop ladder must
+ * survive. */
+export const MOCK_FORCED_STOP_DISCONNECT_MS = 3000;
+
+function afterMockForcedDisconnect(land: () => void): void {
+  setTimeout(() => {
+    land();
+    emitTopic("member");
+  }, MOCK_FORCED_STOP_DISCONNECT_MS);
+}
+
 export function __resetMock(): void {
   // The ring is MUTATED by rotate/remove, so it belongs here: without this a
   // test that rotates leaves a two-key ring for whatever runs next, and the

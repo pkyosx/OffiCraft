@@ -149,6 +149,8 @@ export interface Member {
    * `accelerated_stop`. `refocusOp` is what tells the two apart; never read null
    * as "nothing is happening". */
   refocusDeadline?: number | null;
+  /** The current stop has already been forced (wire `forced_stop_live`). */
+  forcedStopLive?: boolean;
   /** The DURABLE last-observed machine (wire `actual_machine`). `machine`
    * above blanks the moment the member stops running; this survives, so a
    * pending relocation stays legible while it is offline. */

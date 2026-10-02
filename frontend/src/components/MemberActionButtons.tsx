@@ -39,7 +39,7 @@ type ActionKey = "spawn" | "stop" | "accelerated-stop" | "force-stop";
 export type StopLadderStage = "none" | "soft" | "accelerated";
 
 /** The observable wind-down facts both actor kinds carry on the wire. Members
- * and outsource workers publish the SAME four (mappers' `toMember` /
+ * and outsource workers publish the SAME fields (mappers' `toMember` /
  * `toOutsourceWorker`), which is what lets one function answer for both. */
 export interface StopLadderFacts {
   /** Wire `presence`, the five-state word — under the name the MEMBER view
@@ -56,6 +56,9 @@ export interface StopLadderFacts {
   refocusSince?: number | null;
   /** Wire `refocus_op` — the CAUSE of the open wind-down, "" when none. */
   refocusOp?: string;
+  /** Wire `forced_stop_live`. 🔴 Not `forcedStopAt > 0`: that outlives the
+   * session, so it would put the NEXT ordinary stop straight on 強制停止. */
+  forcedStopLive?: boolean;
 }
 
 /** The two `refocus_op` causes the server puts on a clock — winddownKindFor's
@@ -102,6 +105,9 @@ export function stopLadderStageOf(f: StopLadderFacts): StopLadderStage {
     (f.desiredState === "offline" && presence === "stopping") ||
     (f.refocusSince ?? 0) > 0;
   if (!open) return "none";
+  // Force-stop clears refocus_op while the session is still connected, so
+  // without this the button falls back to 加速停止 — which the server refuses.
+  if (f.forcedStopLive) return "accelerated";
   return CLOCKED_OPS.has(f.refocusOp ?? "") ? "accelerated" : "soft";
 }
 

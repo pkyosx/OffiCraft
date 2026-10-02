@@ -916,6 +916,8 @@ export interface OutsourceWorkerView {
    * down so your change can take effect" instead of "last handover". */
   refocusOp?: string;
   refocusDeadline?: number | null;
+  /** The current stop has already been forced (wire `forced_stop_live`). */
+  forcedStopLive?: boolean;
   /** Run-intent, a direct mirror of member.desiredState (wire `desired_state`,
    * T-f190): "online" (system wants it running) or "offline" (owner-explicit
    * stop — presence is then "stopping"/"stopped"). Drives the 停止/喚醒 arm of the

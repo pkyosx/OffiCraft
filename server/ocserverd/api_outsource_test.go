@@ -57,7 +57,7 @@ func apiTestWorkerRow(t *testing.T, over map[string]any) map[string]any {
 		"last_op": "", "last_op_ok": nil, "last_op_log": "", "last_op_reason": "",
 		"last_op_at": 0, "creator_id": "owner",
 		"refocus_since": 0, "refocus_op": "", "refocus_deadline": 0,
-		"desired_state": "", "forced_stop_at": 0, "roster_status": "active",
+		"desired_state": "", "forced_stop_at": 0, "forced_stop_live": false, "roster_status": "active",
 		"owner_id": "owner", "schema_version": 3,
 		"terminal_attach_command":    "tmux -L officraft attach -t member-ow-abc123",
 		"runtime_login_warnings":     []any{},
@@ -1669,7 +1669,7 @@ func TestHandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost(t *tes
 		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "presence": "stopping", "desired_state": "offline",
-			"forced_stop_at": apiAnyNumber,
+			"forced_stop_at": apiAnyNumber, "forced_stop_live": true,
 		}))
 		dashboard.wantFrames(apiTestWorkerStateDelta(2, "active", "offline", "owner"))
 		contractor.wantFrames(apiTestWorkerStateDelta(2, "active", "offline", "owner"))
@@ -1689,7 +1689,7 @@ func TestHandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost(t *tes
 		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "presence": "stopped", "desired_state": "offline",
-			"forced_stop_at": apiAnyNumber,
+			"forced_stop_at": apiAnyNumber, "forced_stop_live": true,
 		}))
 		dashboard.wantFrames(apiTestWorkerStateDelta(2, "active", "offline", "owner"))
 	})
@@ -1711,7 +1711,7 @@ func TestHandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost(t *tes
 		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "presence": "stopping", "desired_state": "offline",
-			"forced_stop_at": apiAnyNumber,
+			"forced_stop_at": apiAnyNumber, "forced_stop_live": true,
 		}))
 		dashboard.wantFrames(apiTestWorkerStateDelta(4, "active", "offline", "owner"))
 	})
@@ -1781,7 +1781,7 @@ func TestHandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost(t *tes
 		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "presence": "stopping", "desired_state": "offline",
-			"forced_stop_at": apiAnyNumber,
+			"forced_stop_at": apiAnyNumber, "forced_stop_live": true,
 		}))
 		dashboard.wantFrames(apiTestWorkerStateDelta(2, "active", "offline", "owner"))
 		contractor.wantFrames(apiTestWorkerStateDelta(2, "active", "offline", "owner"))
@@ -1813,8 +1813,8 @@ func TestHandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(t *testing
 		})
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "desired_state": "online",
-			"forced_stop_at": apiAnyNumber,
-			"last_op":        "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
+			"forced_stop_at": apiAnyNumber, "forced_stop_live": false,
+			"last_op": "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
 			"last_op_reason": "no_machine_selected: no machine is selected for this " +
 				"worker — pick one on the worker (改機器) or on the task type's 手冊 " +
 				"assignee; there is no automatic placement",
@@ -2012,7 +2012,7 @@ func TestHandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(t *testing
 			"invalid request body: invalid character '{' looking for beginning of object key string")
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "presence": "stopped", "desired_state": "offline",
-			"forced_stop_at": apiAnyNumber,
+			"forced_stop_at": apiAnyNumber, "forced_stop_live": true,
 		}))
 		dashboard.wantFrames()
 		bystander.wantFrames()
