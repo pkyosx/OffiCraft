@@ -865,7 +865,7 @@ type rateLimitCandidate struct {
 // because the account tag is read from a machine-wide login file, so after a
 // re-login a member still on the old account reports that account's window
 // under the new name, and its later resets_at would otherwise win until it
-// expires. Only when nothing is fresh do stale reports compete.
+// expires.
 func pickRateLimitWindow(candidates []rateLimitCandidate, now float64) rateLimitCandidate {
 	fresh := make([]rateLimitCandidate, 0, len(candidates))
 	for _, c := range candidates {
