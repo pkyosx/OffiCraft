@@ -906,6 +906,8 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 
 	if runtimeName == "claude" {
 		killStaleListenerSession(d, socket, p.MemberID)
+		// ⚠️ Trusts the session_already_exists guard above: a broken session probe
+		// (nil) lets this reap hit a live member's listener.
 		d.reapWorkdirListeners(p.MemberID, workdir)
 	}
 	if err := tmuxNewSession(d.Runner, socket, session, command); err != nil {
@@ -926,6 +928,10 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 		// 🔴 Not atomic: a mod that loads between this read and the disabled-marker
 		// write still starts its listener, and of the two connections the station
 		// evicts one, whose `ocagent suicide` kills the member.
+		// ⚠️ A Claude Code not idle within the wait (a startup dialog, a slow MCP
+		// load) enters the mod's pending boot submit AFTER the boot prompt pasted
+		// below, so the member boots twice (the mod's listener still stops on the
+		// disabled marker): a pending submit cannot be cancelled.
 		if !notifyByPaste && !d.notifyModLoaded(workdir) {
 			notifyByPaste, notifyNote = true, notifyModNotLoadedNote
 			d.disableNotifyMod(workdir)
