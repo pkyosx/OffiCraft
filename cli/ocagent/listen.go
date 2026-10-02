@@ -614,6 +614,10 @@ type ackGate struct {
 	answers   <-chan string
 	lastToken int
 	wait      time.Duration
+	// Where the timeout notice goes; nil ⇒ out. 🔴 Under the mod it must not be
+	// out: every line there becomes a prompt, so the notice would itself be
+	// submitted, once per unanswered batch, into a member that is merely busy.
+	timeoutNotice io.Writer
 }
 
 // ackWaitTimeout exists because confirm blocks the listener's only thread: an
@@ -621,12 +625,12 @@ type ackGate struct {
 // Timing out counts as a nack (the batch reprints next drain).
 const ackWaitTimeout = 30 * time.Second
 
-func newAckGate(env func(string) string, answers io.Reader) *ackGate {
+func newAckGate(env func(string) string, answers io.Reader, diag io.Writer) *ackGate {
 	if env == nil || env(listenAckEnv) != "1" {
 		return nil
 	}
 	if path := strings.TrimSpace(env(listenAckFileEnv)); path != "" {
-		return &ackGate{answers: watchAckFile(path, ackFilePoll), wait: ackWaitTimeout}
+		return &ackGate{answers: watchAckFile(path, ackFilePoll), wait: ackWaitTimeout, timeoutNotice: diag}
 	}
 	if answers == nil {
 		return nil
@@ -681,7 +685,11 @@ func (g *ackGate) confirm(out io.Writer) bool {
 			}
 			return verb == "ack"
 		case <-deadline:
-			fmt.Fprintf(out, "%s等不到「已送達」的回覆（batch %s，等了 %s）—— "+
+			notice := out
+			if g.timeoutNotice != nil {
+				notice = g.timeoutNotice
+			}
+			fmt.Fprintf(notice, "%s等不到「已送達」的回覆（batch %s，等了 %s）—— "+
 				"這一批訊息**沒有**被算成你看過了，下一次補印會再送一次。"+
 				"如果這行一直出現，收訊這條路的另一端有問題。\n",
 				agentLinePrefix, token, g.wait)

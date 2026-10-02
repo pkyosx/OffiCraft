@@ -10,6 +10,8 @@ const CONFIG_M1 =
   '"listener":{"argv":["/w/m1/ocagent","listen","--deliver-mod"],"cwd":"/w/m1",' +
   '"env":{"OC_LISTEN_ACK":"1","OC_LISTEN_ACK_FILE":"/w/m1/.officraft-listen-ack"}}}\n'
 
+const GRACE_STAND_IN_MS = 30
+
 const CONNECTED = '[ocagent] listen: connected — streaming http://127.0.0.1:7755/api/events [ts=1.000 local]\n'
 
 type World = {
@@ -18,6 +20,10 @@ type World = {
   stderr?: string[]
   refuse?: string[]
   throwOn?: string[]
+  // Prompts the engine holds before answering, in ms: a busy member's queue.
+  busy?: Record<string, number>
+  // Prompts the engine refuses only after that many ms.
+  dropLate?: Record<string, number>
   disabled?: boolean
   // The warden writes the disabled marker once the listener has started.
   disabledAfterSpawn?: boolean
@@ -50,11 +56,22 @@ function world(on: On, w: World) {
     trail.push(`write ${e.path}`)
     return { value: undefined }
   })
-  on('prompt.submit', ($, e) => {
+  on('prompt.submit', async ($, e) => {
     submits.push({ text: e.text, asUser: e.origin.kind === 'plugin' && e.origin.asUser === true })
     trail.push(`submit ${e.text}`)
     if ((w.throwOn ?? []).includes(e.text)) throw new Error('the session is gone')
+    const held = w.busy?.[e.text] ?? w.dropLate?.[e.text]
+    if (held !== undefined) {
+      await new Promise(resolve => setTimeout(resolve, held))
+      trail.push(`answered ${e.text}`)
+      if (w.dropLate?.[e.text] !== undefined) return { drop: 'refused late' }
+    }
     return (w.refuse ?? []).includes(e.text) ? { drop: 'refused' } : { text: e.text }
+  })
+  // The acceptance grace, shortened: what matters is which side of it an answer lands.
+  on('clock.sleep', async () => {
+    await new Promise(resolve => setTimeout(resolve, GRACE_STAND_IN_MS))
+    return { value: undefined }
   })
   on('process.spawn', async function* ($, e) {
     spawned.push({ argv: e.argv, cwd: e.cwd, env: e.env, input: e.input })
@@ -263,3 +280,46 @@ for (const [name, config] of [
     expect(w.logs[0]?.to).toBe('debug')
   })
 }
+
+test('under a busy member, a batch is acked once its prompts are queued, not when their turns start', async ($, on) => {
+  // The engine holds 甲 and 乙 for far longer than the grace, as it does while
+  // the member is mid-turn; the listener's ack wait would run out long before.
+  const w = world(on, {
+    busy: { 甲: 400, 乙: 400 },
+    stderr: [CONNECTED],
+    stdout: ['{"submit":"甲"}\n{"submit":"乙"}\n{"batch":"1"}\n'],
+  })
+
+  await $.session.start(START)
+  await settled(w.done)
+  await new Promise(resolve => setTimeout(resolve, 600))
+
+  expect(w.trail).toEqual([
+    'submit 開始。',
+    'write /w/m1/.officraft-mod-booted',
+    'spawn',
+    'write /w/m1/.officraft-mod-loaded',
+    'submit 甲',
+    'submit 乙',
+    'write /w/m1/.officraft-listen-ack',
+    'answered 甲',
+    'answered 乙',
+  ])
+  expect(w.writes.at(-1)).toEqual({ path: '/w/m1/.officraft-listen-ack', text: 'ack 1\n' })
+  expect(w.submits.map(s => s.text)).toEqual(['開始。', '甲', '乙'])
+})
+
+test('under a prompt refused after the grace, the batch stays acked and the refusal is logged', async ($, on) => {
+  const w = world(on, {
+    dropLate: { 甲: 200 },
+    stderr: [CONNECTED],
+    stdout: ['{"submit":"甲"}\n{"batch":"1"}\n'],
+  })
+
+  await $.session.start(START)
+  await settled(w.done)
+  await new Promise(resolve => setTimeout(resolve, 400))
+
+  expect(w.writes.at(-1)).toEqual({ path: '/w/m1/.officraft-listen-ack', text: 'ack 1\n' })
+  expect(w.logs.at(-1)).toEqual({ text: 'a queued prompt was dropped (refused late) after it was acked: 甲', to: 'debug' })
+})
