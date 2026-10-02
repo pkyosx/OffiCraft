@@ -98,6 +98,7 @@ import {
   useWorkerCodenames,
 } from "../hooks/useWorkerCodenames";
 import { avatarKindForMember } from "../lib/avatarKind";
+import { isSyntheticSender } from "../lib/syntheticSender";
 import type { AvatarKind } from "../lib/themeBundle";
 import { copyText } from "../lib/clipboard";
 import { formatAbsolute } from "../lib/dateFormat";
@@ -206,7 +207,10 @@ export function LorePage({
   canSetScope?: boolean;
 } = {}) {
   const { t, msg } = useI18n();
-  const { members } = useMembers();
+  const {
+    members,
+    loading: membersLoading,
+  } = useMembers();
   const canSetScope = canSetScopeProp ?? viewerMaySetLoreScope(members);
   const { workers } = useOutsourceWorkers();
   const { manuals } = useTaskManuals();
@@ -489,7 +493,26 @@ export function LorePage({
     () => entries.map((e) => e.authorId).filter((id) => id.startsWith("ow-")),
     [entries]
   );
-  const releasedCodenames = useWorkerCodenames(workerIds);
+  // A writer who has left — released worker or departed staff — is in neither
+  // list; the per-id read still serves the name. A staff id is only judged once
+  // the roster has loaded: before that every live colleague looks absent and
+  // would cost a read each.
+  const rosterLoaded = !membersLoading;
+  const unlistedAuthorIds = useMemo(
+    () =>
+      entries
+        .map((e) => e.authorId)
+        .filter(
+          (id) =>
+            id !== "" &&
+            !isSyntheticSender(id) &&
+            !workers.some((w) => w.id === id) &&
+            (id.startsWith("ow-") ||
+              (rosterLoaded && !members.some((m) => m.id === id)))
+        ),
+    [entries, members, workers, rosterLoaded]
+  );
+  const unlistedNames = useWorkerCodenames(unlistedAuthorIds);
   const releasedAvatarUrls = useWorkerAvatarUrls(workerIds);
 
   const resolveAuthor = useCallback(
@@ -499,7 +522,7 @@ export function LorePage({
       if (m) return { text: m.name, peerId: id };
       if (id.startsWith("ow-")) {
         // 🔴 THE CODENAME AND THE AFFORDANCE COME FROM DIFFERENT LISTS, AND
-        // THAT IS THE WHOLE POINT. `useWorkerCodenames` resolves a RELEASED
+        // THAT IS THE WHOLE POINT. `unlistedNames` resolves a RELEASED
         // worker's codename through the per-id route (the list routes drop
         // released rows), so a 外包 who has left still gets his NAME on the row
         // — he wrote this entry and that does not stop being true. What he no
@@ -517,7 +540,7 @@ export function LorePage({
         // An id that resolves to no codename at all falls through the same
         // arm with `text: id` — the raw key, never a blank.
         const live = workers.find((x) => x.id === id);
-        const cn = live?.codename ?? releasedCodenames.get(id);
+        const cn = live?.codename ?? unlistedNames.get(id);
         return {
           text: cn ? msg.outsourceLabel(cn) : id,
           peerId: live ? id : "",
@@ -529,9 +552,9 @@ export function LorePage({
       // what makes the chip a plain span with no 傳訊息 icon (see
       // LoreAuthorChip); hiding just the icon inside a button would leave a
       // clickable pill that opens a chat with nobody.
-      return { text: id, peerId: "" };
+      return { text: unlistedNames.get(id) ?? id, peerId: "" };
     },
-    [members, workers, releasedCodenames, msg, t.lore.authorUnknown]
+    [members, workers, unlistedNames, msg, t.lore.authorUnknown]
   );
 
   /** 屬於 — which scope this ONE entry rides, resolved for display.

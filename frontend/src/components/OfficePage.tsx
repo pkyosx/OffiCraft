@@ -12,7 +12,10 @@ import { useIsMobile } from "../hooks/useIsMobile";
 import { joinSessionRuntime, findSessionFor } from "../lib/runtime";
 import { useHashRoute } from "../lib/hashRoute";
 import { openChatAttachErrorScope } from "../lib/chatDraftStore";
-import { updateCachedWorkerAvatar } from "../hooks/useWorkerCodenames";
+import {
+  updateCachedWorkerAvatar,
+  useWorkerCodenames,
+} from "../hooks/useWorkerCodenames";
 import { MemberCard } from "./MemberCard";
 import { ChatArea } from "./ChatArea";
 import { MemberDetailPanel } from "./MemberDetailPanel";
@@ -315,26 +318,44 @@ export function OfficePage({
   // roster member NOR a live worker still has a reachable conversation. Rather
   // than a dead end (blank pane, no back button on mobile) or the old
   // roster[0]=Mira wrong room, project a READ-ONLY synthetic peer and render
-  // the ORIGINAL conversation under an identity that is HONEST about the peer
-  // being gone. `ow-`-prefixed ids are released outsource workers (server mints
+  // the ORIGINAL conversation under the peer's own name, with the subtitle and
+  // the locked composer saying it is gone. `ow-`-prefixed ids are released outsource workers (server mints
   // `ow-`+hex, outsource_sched.go); anything else is a removed member. Gated on
   // BOTH lists having settled so a not-yet-loaded live worker is never
   // mislabeled "released" (a transient flash). (T-661b review finding #1/#2.)
   const isReleasedWorkerId = selectedId.startsWith("ow-");
-  const releasedPeer: Member | undefined =
-    selectedId !== "" &&
-    !workerPeer &&
-    !selected &&
-    !loading &&
-    !outsource.loading
-      ? blankChatPeer(
-          selectedId,
-          isReleasedWorkerId
+  const listsSettled = !loading && !outsource.loading;
+  const peerHasLeft =
+    selectedId !== "" && !workerPeer && !selected && listsSettled;
+  // The released detail entry below asks for the same name, so the chat entry
+  // and the detail entry of one worker never disagree about who it was.
+  const releasedDetailId =
+    workerDetailId !== null &&
+    workerDetailId.startsWith("ow-") &&
+    listsSettled &&
+    !outsource.workers.some((w) => w.id === workerDetailId)
+      ? workerDetailId
+      : "";
+  // The per-id read serves a member that has left; until it lands (or if it
+  // 404s) the generic gone-peer titles stand in.
+  const departedNames = useWorkerCodenames([
+    peerHasLeft ? selectedId : "",
+    releasedDetailId,
+  ]);
+  const departedPeerName = departedNames.get(selectedId);
+  const releasedPeer: Member | undefined = peerHasLeft
+    ? blankChatPeer(
+        selectedId,
+        departedPeerName === undefined
+          ? isReleasedWorkerId
             ? t.office.outsource.releasedTitle
-            : t.office.chatUnavailableTitle,
-          isReleasedWorkerId ? "outsource" : "staff",
-        )
-      : undefined;
+            : t.office.chatUnavailableTitle
+          : isReleasedWorkerId
+            ? msg.outsourceLabel(departedPeerName)
+            : departedPeerName,
+        isReleasedWorkerId ? "outsource" : "staff",
+      )
+    : undefined;
   // A chat App reopened FROM MEMORY whose peer has since gone (fired member /
   // released worker) should not strand a cold load on the read-only history
   // panel nobody asked for — hand it back to App, which returns to the roster.
@@ -373,22 +394,18 @@ export function OfficePage({
   // said 「已結案釋出」 for the very same worker while this entry said nothing at
   // all and dumped you somewhere else.
   //
-  // The test is the SAME one the released CHAT peer below uses, for the same
-  // reason — an `ow-` id (the server mints `ow-`+hex, outsource_sched.go) that
+  // The test (`releasedDetailId`, above) is the SAME one the released CHAT peer
+  // uses, for the same reason — an `ow-` id (the server mints `ow-`+hex, outsource_sched.go) that
   // is not in the LIVE list once BOTH lists have settled. The `loading` gate is
   // load-bearing: without it a not-yet-loaded LIVE worker flashes as released.
-  // We synthesise only what we honestly know — the id — and let the panel render
-  // its released view; the codename is left blank rather than invented, and the
-  // panel falls back to the honest released label.
+  // We synthesise only what we honestly know — the id, and the codename once the
+  // per-id read has served it; until then the codename stays blank rather than
+  // invented, and the panel falls back to the honest released label.
   const releasedWorkerDetail: OutsourceWorkerView | undefined =
-    workerDetailId &&
-    !workerDetail &&
-    workerDetailId.startsWith("ow-") &&
-    !loading &&
-    !outsource.loading
+    releasedDetailId !== ""
       ? {
-          id: workerDetailId,
-          codename: "",
+          id: releasedDetailId,
+          codename: departedNames.get(releasedDetailId) ?? "",
           model: "",
           effort: "",
           status: "released",

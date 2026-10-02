@@ -2606,6 +2606,7 @@ func TestPeekResumeSummarySizeEmptyCallerCountsAreZeroButHeaderIsNot(t *testing.
 // exact byte sequence for every locale.
 func TestTaskMessageBodyCarriesTaskNo(t *testing.T) {
 	api := newTasksTestServer(t)
+	putActiveMember(t, api, "m-exec", "Exec", KindStaff)
 	task := createAdHocTask(t, api, "m-exec")
 
 	rec := httptest.NewRecorder()

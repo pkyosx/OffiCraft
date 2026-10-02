@@ -994,7 +994,8 @@ func (s *apiServer) HandlePostTaskMessageApiTasksTaskIdMessagePost(w http.Respon
 		}
 		return t, err
 	}
-	if _, err := addressed(); err != nil {
+	t, err := addressed()
+	if err != nil {
 		writeResolveTxError(w, err, "task", taskId)
 		return
 	}
@@ -1012,6 +1013,10 @@ func (s *apiServer) HandlePostTaskMessageApiTasksTaskIdMessagePost(w http.Respon
 		writeError(w, status, problem)
 		return
 	}
+	if _, err := s.resolveChatRecipient(t.ExecutorID); err != nil {
+		writeResolveError(w, err, "chat recipient", t.ExecutorID)
+		return
+	}
 	text := trimmedOrEmpty(body.Body)
 	var refs []any
 	var fresh []ChatAttachment
@@ -1023,10 +1028,13 @@ func (s *apiServer) HandlePostTaskMessageApiTasksTaskIdMessagePost(w http.Respon
 		return
 	}
 	var msg ChatMessage
-	err := s.dal.inTx(func(*writeTx) error {
+	err = s.dal.inTx(func(tx *writeTx) error {
 		t, err := addressed()
 		if err != nil {
 			return err
+		}
+		if _, err := resolveChatRecipientOn(tx, t.ExecutorID); err != nil {
+			return notFoundRefusal(err, "chat recipient", t.ExecutorID)
 		}
 		if err := s.referencedAttachmentsGone(resolved); err != nil {
 			return err

@@ -24,7 +24,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "backupHealth.statusUnknown",
   "backupHealth.title",
   "chat.attachLabel",
-  "chat.composerOfflineSuffix",
+  "chat.composerPeerLeft",
   "chat.copyShareLink",
   "chat.dateToday",
   "chat.dateYesterday",

@@ -80,7 +80,6 @@ const EXPECTED: [Lang, string, (string | number | string[] | number[])[], string
     ["zh", "chatOfflineQueueHint", ["Mira"], "你仍可在下方留言，Mira 上線後就會讀到。"],
     ["zh", "chatWakeQueueHint", ["Mira"], "Mira 目前離線中 — 訊息會排隊，或立即喚醒上線"],
     ["zh", "chatStoppingQueueHint", ["Mira"], "Mira 正在停止 — 訊息會排隊"],
-    ["zh", "chatComposerOffline", ["Mira"], "Mira 目前離線中"],
     ["zh", "chatInterAgentExpand", [0], "0 則成員間對話 · 展開"],
     ["zh", "chatInterAgentExpand", [1], "1 則成員間對話 · 展開"],
     ["zh", "chatInterAgentExpand", [2], "2 則成員間對話 · 展開"],
@@ -205,7 +204,6 @@ const EXPECTED: [Lang, string, (string | number | string[] | number[])[], string
     ["en", "chatOfflineQueueHint", ["Mira"], "You can still leave a message — Mira will read it once back online."],
     ["en", "chatWakeQueueHint", ["Mira"], "Mira is offline — your message will queue, or wake them now"],
     ["en", "chatStoppingQueueHint", ["Mira"], "Mira is stopping — your message will queue"],
-    ["en", "chatComposerOffline", ["Mira"], "Mira is currently offline"],
     // T-3b90 — the usage snapshot's age, printed beside the number on the
     // account card. zh runs the characters together around the duration and
     // puts 前 after it; en needs a space on both sides.
@@ -376,7 +374,6 @@ describe("makeMessages", () => {
       "chat.offlineQueueHintLead",
       "chat.offlineQueueHintTail",
       "chat.wakeQueueHintSuffix",
-      "chat.composerOfflineSuffix",
       "chat.interAgentExpandOne",
       "chat.interAgentExpandMany",
       "mp.forceStopConfirmBodyLead",

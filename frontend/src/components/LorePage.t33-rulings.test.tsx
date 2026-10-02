@@ -143,6 +143,7 @@ describe("LorePage — 傳承訊息的前綴與 meta (rc-01a07b1b2a12 / rc-37963
 describe("LorePage — 已離開的外包只留名牌，不留輸入框", () => {
   const RELEASED = "ow-gone";
   const LIVE = "ow-live";
+  const DEPARTED_STAFF = "m-gone";
 
   function worker(id: string, codename: string): OutsourceWorkerView {
     return {
@@ -166,6 +167,7 @@ describe("LorePage — 已離開的外包只留名牌，不留輸入框", () => 
     vi.spyOn(api, "getOutsourceWorker").mockImplementation(async (id) => {
       if (id === RELEASED) return worker(RELEASED, "O-9");
       if (id === LIVE) return worker(LIVE, "O-1");
+      if (id === DEPARTED_STAFF) return worker(DEPARTED_STAFF, "阿哲");
       throw new Error(`unknown worker ${id}`);
     });
   }
@@ -203,6 +205,61 @@ describe("LorePage — 已離開的外包只留名牌，不留輸入框", () => 
     expect(row.querySelector('[data-testid="lore-msg-input"]')).toBeNull();
     expect(row.querySelector('[data-testid="lore-author-link"]')).toBeNull();
     expect(pill.tagName).toBe("SPAN");
+  });
+
+  it("under a departed staff writer the row keeps the plain name the per-id read serves and drops the composer", async () => {
+    stubRoster([]);
+    stubList([mkEntry({ id: "L-11", authorId: DEPARTED_STAFF })]);
+    const { container } = renderPage();
+
+    const row = await waitFor(() => rowById(container, "L-11"));
+    await waitFor(() =>
+      expect(
+        row.querySelector('[data-testid="lore-author-row"]')?.textContent,
+      ).toBe("阿哲"),
+    );
+    expect(row.querySelector('[data-testid="lore-author-link"]')).toBeNull();
+    expect(row.querySelector('[data-testid="lore-author-composer"]')).toBeNull();
+    expect(row.querySelector('[data-testid="lore-msg-input"]')).toBeNull();
+  });
+
+  it("while the roster is still loading no per-id read is issued for a live staff writer, and once it lands a departed one is still named", async () => {
+    const roster = await api.listMembers();
+    stubRoster([]);
+    let land: (rows: typeof roster) => void = () => {};
+    vi.spyOn(api, "listMembers").mockReturnValue(
+      new Promise((resolve) => (land = resolve)),
+    );
+    const perId = vi.mocked(api.getOutsourceWorker);
+    stubList([
+      mkEntry({ id: "L-12", authorId: "mira" }),
+      mkEntry({ id: "L-13", authorId: DEPARTED_STAFF }),
+    ]);
+    const { container } = renderPage();
+    await waitFor(() => rowById(container, "L-13"));
+    expect(perId.mock.calls.map(([id]) => id)).toEqual([]);
+
+    land(roster);
+    await waitFor(() =>
+      expect(
+        rowById(container, "L-13").querySelector('[data-testid="lore-author-row"]')
+          ?.textContent,
+      ).toBe("阿哲"),
+    );
+    expect(perId.mock.calls.map(([id]) => id)).toEqual([DEPARTED_STAFF]);
+  });
+
+  it("when the roster read fails a departed staff writer is still named through the per-id read", async () => {
+    stubRoster([]);
+    vi.spyOn(api, "listMembers").mockRejectedValue(new Error("roster unavailable"));
+    stubList([mkEntry({ id: "L-13", authorId: DEPARTED_STAFF })]);
+    const { container } = renderPage();
+    await waitFor(() =>
+      expect(
+        rowById(container, "L-13").querySelector('[data-testid="lore-author-row"]')
+          ?.textContent,
+      ).toBe("阿哲"),
+    );
   });
 
   it("still renders the composer for a 外包 who is STILL on the live roster", async () => {

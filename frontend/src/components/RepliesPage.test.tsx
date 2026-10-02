@@ -45,11 +45,17 @@ import { api } from "../api";
 import type { ReplyCard } from "../api/adapter";
 import { ApiError } from "../api/errors";
 
-// Released-worker codename cache (T-3ed8): fixed map (the hook has its own
-// tests) — only "ow-rel" resolves; other ids keep the raw-id fallback.
+// Unlisted-identity cache: fixed map (the hook has its own tests) — only
+// "ow-rel" (released worker) and "m-left" (dismissed staff) resolve; other ids
+// keep the raw-id fallback.
+const UNLISTED_NAMES: Record<string, string> = { "ow-rel": "R-2", "m-left": "阿哲" };
+// Every id the page hands to the per-id name read.
+const lookedUp = new Set<string>();
 vi.mock("../hooks/useWorkerCodenames", () => ({
-  useWorkerCodenames: (ids: readonly string[]) =>
-    new Map(ids.filter((id) => id === "ow-rel").map((id) => [id, "R-2"])),
+  useWorkerCodenames: (ids: readonly string[]) => {
+    ids.forEach((id) => lookedUp.add(id));
+    return new Map(ids.filter((id) => id in UNLISTED_NAMES).map((id) => [id, UNLISTED_NAMES[id]]));
+  },
   useWorkerAvatarUrls: (ids: readonly string[]) =>
     new Map(
       ids
@@ -208,6 +214,111 @@ describe("RepliesPage", () => {
     expect(names).toContain("外包 · R-2");
     expect(names).toContain("ow-9");
     expect(names).not.toContain("ow-rel");
+  });
+
+  it("under a dismissed staff asker the card and the 開卡人 option both read its plain name, the raw id only when unresolvable", async () => {
+    __injectMockReplyCard(
+      mkCard({ id: "rc-left", from: "m-left", summary: "離職正職的請示" })
+    );
+    __injectMockReplyCard(
+      mkCard({ id: "rc-unknown", from: "m-unknown", summary: "查無正職的請示" })
+    );
+    const { findAllByTestId, findByTestId } = renderPage();
+    const cards = await findAllByTestId("waiting-card");
+    const nameOf = (summary: string) =>
+      cards
+        .find((c) => c.textContent?.includes(summary))
+        ?.querySelector(".reply-card__name")?.textContent;
+    expect(nameOf("離職正職的請示")).toBe("阿哲");
+    expect(nameOf("查無正職的請示")).toBe("m-unknown");
+
+    fireEvent.click(await findByTestId("filter-opener"));
+    expect(
+      document.querySelector('[data-testid="filter-opener-opt-m-left"]')
+        ?.textContent,
+    ).toBe("阿哲1");
+    expect(
+      document.querySelector('[data-testid="filter-opener-count-m-left"]')
+        ?.textContent,
+    ).toBe("1");
+  });
+
+  it("while the roster is still loading no per-id read is issued for a live staff asker, and once it lands a departed one is still named", async () => {
+    const roster = await api.listMembers({ light: true });
+    let land: (rows: typeof roster) => void = () => {};
+    const listMembers = vi
+      .spyOn(api, "listMembers")
+      .mockReturnValue(new Promise((resolve) => (land = resolve)));
+    try {
+      __injectMockReplyCard(mkCard({ id: "rc-live", from: "mira", summary: "在職的請示" }));
+      __injectMockReplyCard(mkCard({ id: "rc-left", from: "m-left", summary: "離職正職的請示" }));
+      lookedUp.clear();
+      const { findAllByTestId } = renderPage();
+      const cards = await findAllByTestId("waiting-card");
+      expect(listMembers).toHaveBeenCalled();
+      expect([...lookedUp]).toEqual([]);
+
+      land(roster);
+      const left = cards.find((c) => c.textContent?.includes("離職正職的請示"))!;
+      await waitFor(() =>
+        expect(left.querySelector(".reply-card__name")?.textContent).toBe("阿哲"),
+      );
+      expect([...lookedUp]).toEqual(["m-left"]);
+    } finally {
+      listMembers.mockRestore();
+    }
+  });
+
+  it("when the roster read fails a departed staff asker is still named through the per-id read", async () => {
+    const listMembers = vi
+      .spyOn(api, "listMembers")
+      .mockRejectedValue(new Error("roster unavailable"));
+    try {
+      __injectMockReplyCard(mkCard({ id: "rc-left", from: "m-left", summary: "離職正職的請示" }));
+      const { findAllByTestId } = renderPage();
+      const [card] = await findAllByTestId("waiting-card");
+      await waitFor(() =>
+        expect(card.querySelector(".reply-card__name")?.textContent).toBe("阿哲"),
+      );
+    } finally {
+      listMembers.mockRestore();
+    }
+  });
+
+  it("under a link to a handled card whose pane was never opened, the asker that has left still reads its name", async () => {
+    // jsdom has no scrollIntoView; a deep link scrolls to its card.
+    const scrollIntoView = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = vi.fn();
+    try {
+      const twoDaysAgo = Date.now() / 1000 - 2 * 24 * 3600;
+      for (const [id, from, expected] of [
+        ["rc-left-old", "m-left", "阿哲"],
+        ["rc-rel-old", "ow-rel", "外包 · R-2"],
+      ] as const) {
+        __resetMock();
+        __injectMockReplyCard(
+          mkCard({
+            id,
+            from,
+            status: "expired",
+            createdTs: twoDaysAgo,
+            answeredTs: twoDaysAgo,
+          })
+        );
+        const { findByTestId, unmount } = render(
+          <I18nProvider>
+            <ReplyCardsProvider>
+              <RepliesPage replyCardId={id} />
+            </ReplyCardsProvider>
+          </I18nProvider>
+        );
+        const card = await findByTestId("expired-card");
+        expect(card.querySelector(".reply-card__name")?.textContent).toBe(expected);
+        unmount();
+      }
+    } finally {
+      Element.prototype.scrollIntoView = scrollIntoView;
+    }
   });
 
   it("tags the option that carries ai_pick and leaves every other chip untagged", async () => {

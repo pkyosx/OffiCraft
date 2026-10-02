@@ -25,7 +25,7 @@ var messageKeys = map[string]bool{
 	"backupHealth.statusUnknown":                       true,
 	"backupHealth.title":                               true,
 	"chat.attachLabel":                                 true,
-	"chat.composerOfflineSuffix":                       true,
+	"chat.composerPeerLeft":                            true,
 	"chat.copyShareLink":                               true,
 	"chat.dateToday":                                   true,
 	"chat.dateYesterday":                               true,

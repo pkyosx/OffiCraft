@@ -59,6 +59,7 @@ import {
   useWorkerCurrentTasks,
 } from "../hooks/useWorkerCodenames";
 import { useHashRoute } from "../lib/hashRoute";
+import { isSyntheticSender } from "../lib/syntheticSender";
 import { avatarKindForMember } from "../lib/avatarKind";
 import { ReplyCardAvatarButton } from "./ReplyCardAvatarButton";
 import { CurrentTaskTitle } from "./CurrentTaskTitle";
@@ -99,7 +100,10 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // Light roster (T-cf91): the page attributes each card to its asker by
   // name + role only, so it takes the identity-only projection AND does not
   // refetch the roster when anyone in the company sends a chat message.
-  const { members } = useMembers({ light: true });
+  const {
+    members,
+    loading: membersLoading,
+  } = useMembers({ light: true });
   const {
     waiting,
     handled,
@@ -518,7 +522,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   for (const c of openerBasis) {
     openerCounts.set(c.from, (openerCounts.get(c.from) ?? 0) + 1);
   }
-  // 開卡人 下拉的選項在 `whoOf` 之後才建得起來（它要用 `codenames`），見下方。
+  // 開卡人 下拉的選項在 `whoOf` 之後才建得起來（它要用 `askerNames`），見下方。
 
   // The header count + zero-hide: the server counts until the lists are
   // loaded, then the client-pruned visible length (so an aging-out card drops
@@ -566,11 +570,27 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // released keeps the identity row on the same 代號 the office rail shows
   // instead of the raw id. `whoOf` below routes to it on `kind === "outsource"`,
   // so a live worker that IS in `members` takes this path as well.
-  // ow- only: `whoOfId` prints every name this read resolves as 外包.
-  const workerIds = [...waiting, ...handled]
-    .map((c) => c.from)
-    .filter((id) => id.startsWith("ow-"));
-  const codenames = useWorkerCodenames(workerIds);
+  // A card reached by its id may sit in neither pane (a deep link to a handled
+  // card whose pane was never fetched), so its asker is named here too.
+  const askerIds = [...waiting, ...handled, ...(foundCard ? [foundCard] : [])].map(
+    (c) => c.from,
+  );
+  const workerIds = askerIds.filter((id) => id.startsWith("ow-"));
+  // A staff asker who has since left is soft-removed from `members` the same
+  // way, and the same read still serves the name. Judged only once the roster
+  // has loaded: before that every live colleague looks absent and would cost a
+  // read each.
+  const rosterLoaded = !membersLoading;
+  const departedStaffIds = rosterLoaded
+    ? askerIds.filter(
+        (id) =>
+          !id.startsWith("ow-") &&
+          id !== "" &&
+          !isSyntheticSender(id) &&
+          !members.some((m) => m.id === id),
+      )
+    : [];
+  const askerNames = useWorkerCodenames([...workerIds, ...departedStaffIds]);
   const workerAvatarUrls = useWorkerAvatarUrls(workerIds);
   // T-196 (owner rc-dce285c5274c:「只在 UI 上補上顯示就好 就像在 chat 那邊 使用者
   // 列表上 outsource worker 會顯示他在進行的工作是哪一個」): the asker's CURRENT
@@ -580,13 +600,17 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   const workerTasks = useWorkerCurrentTasks(workerIds);
 
   // Resolve the initiating member for a card's identity row. A card can
-  // outlive its member (removed roster row) — fall back to the outsource
-  // codename, then the raw id / no role, never fabricate.
+  // outlive its member (removed roster row) — fall back to the name the per-id
+  // read serves, then the raw id / no role, never fabricate.
   function whoOfId(fromId: string): { name: string; role: string } {
     const m = members.find((x) => x.id === fromId);
     if (!m || m.kind === "outsource") {
-      const cn = codenames.get(fromId);
-      return { name: cn ? msg.outsourceLabel(cn) : fromId, role: "" };
+      const name = askerNames.get(fromId);
+      if (name === undefined) return { name: fromId, role: "" };
+      return {
+        name: fromId.startsWith("ow-") ? msg.outsourceLabel(name) : name,
+        role: "",
+      };
     }
     const role =
       (t.office.role as Record<string, string>)[m.role] ??
@@ -610,7 +634,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // removed from `members`, so the dropdown fell through to the raw `ow-…` id
   // while the card beside it said 「外包 · 代號」. The owner would have been asked
   // to tick a name that appears nowhere else on the page. That is also why this
-  // block sits below `codenames` rather than beside `openerCounts` — it needs
+  // block sits below `askerNames` rather than beside `openerCounts` — it needs
   // the lazy codename read, and hoisting it back up is a TDZ error, not a
   // tidy-up. Found by independent review of 8204de4f.
   const openerOptions: MultiSelectOption[] = [...openerCounts.keys()]

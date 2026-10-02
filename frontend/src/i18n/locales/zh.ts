@@ -1047,9 +1047,7 @@ export const zh = {
     emptyRange: "這個範圍還沒有訊息",
     threadLoading: "正在載入對話…",
     inputPlaceholder: (name: string) => `回覆 ${name}…`,
-    // M2-4 composer lock: shown IN PLACE OF the reply input while the member
-    // is not online (offline / stopped / waking / stopping).
-    composerOfflineSuffix: "目前離線中",
+    composerPeerLeft: "該成員已離開，無法再傳訊息",
     me: "我",
     // 系統自動訊息的發話者標籤(T-ba04 轉派交接通知等,sender="system")
     systemSender: "系統",

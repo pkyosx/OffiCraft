@@ -2873,7 +2873,8 @@ const mockApiImpl = {
     // and answer with what was destroyed. Cost lives on the monitoring session
     // row here — MemberDTO carries none — which is also where the real backend's
     // two halves surface, so the mutation lands where the cockpit reads it.
-    // An id with no session row clears nothing and honestly reports nulls.
+    // An id with no session row — a member that has left, as the server accepts
+    // too — clears nothing and honestly reports nulls.
     const row = wireMonitoring.sessions.find((s) => s.id === id);
     const clearedCost = row?.cost ?? null;
     const clearedBankedCost = row?.banked_cost ?? null;

@@ -49,6 +49,7 @@ import { MarkdownPreviewOverlay } from "./MarkdownPreviewOverlay";
 import { useQuotedMessageOverlay } from "../hooks/useQuotedMessageOverlay";
 import { PresenceBadge } from "./PresenceBadge";
 import { CurrentTaskTitle } from "./CurrentTaskTitle";
+import { isSyntheticSender } from "../lib/syntheticSender";
 import {
   BoltIcon,
   ChevronRightIcon,
@@ -300,9 +301,9 @@ export function ChatArea({
   //      prop is optional) or whose roster has not loaded yet — without it
   //      such a sender's label degrades to its raw ow- id while the left rail
   //      shows the codename.
-  //   2. it is the EXCLUSION SET behind `unknownOwIds`: every ow- participant
-  //      NOT in this list is handed to the lazy per-id codename read. Passing
-  //      the live list is what keeps that per-id read off the live workers.
+  //   2. with `members`, it is the EXCLUSION SET behind `unlistedIds`: every
+  //      participant in neither list is handed to the lazy per-id read.
+  //      Passing the live lists is what keeps that read off live identities.
   // Optional (defaults empty) for the same reason `members` is.
   workers?: OutsourceWorkerView[];
   // Open the member detail page. Optional: when absent the header is NOT
@@ -466,10 +467,10 @@ export function ChatArea({
   } = useChat(member.id, jumpToMsgId);
 
 
-  // Released-worker codenames: an ow- participant that is NOT in the live
-  // `workers` list (task closed → dropped off) still has a codename on the
-  // per-id read — resolve it lazily so the label never degrades to the raw id.
-  const unknownOwIds = useMemo(() => {
+  // A participant in neither `members` nor the live `workers` — a released
+  // worker or a departed staff member — still has a name on the per-id read;
+  // resolve it lazily so the label never degrades to the raw id.
+  const unlistedIds = useMemo(() => {
     const out = new Set<string>();
     for (const m of messages) {
       // 🔴 THE QUOTED SENDER IS A PARTICIPANT TOO. `m.replyToChat.from` is an
@@ -480,8 +481,10 @@ export function ChatArea({
       // 「引用 ow-8808ccf51794」. One display path, two identities.
       for (const id of [m.from, m.to, m.replyToChat?.from ?? ""]) {
         if (
-          id.startsWith("ow-") &&
+          id !== "" &&
           id !== member.id &&
+          !isSyntheticSender(id) &&
+          !members.some((x) => x.id === id) &&
           !workers.some((w) => w.id === id)
         ) {
           out.add(id);
@@ -489,8 +492,8 @@ export function ChatArea({
       }
     }
     return Array.from(out);
-  }, [messages, workers, member.id]);
-  const codenames = useWorkerCodenames(unknownOwIds);
+  }, [messages, members, workers, member.id]);
+  const unlistedNames = useWorkerCodenames(unlistedIds);
 
   // The owner's own display name, taken from the ONE place the cockpit already
   // resolved it (App's useOwnerName, handed down by OwnerNameProvider). Read
@@ -527,14 +530,11 @@ export function ChatArea({
     if (id === "system") return t.chat.systemSender;
     const rosterName = members.find((m) => m.id === id)?.name;
     if (rosterName !== undefined) return rosterName;
-    // Outsource workers live outside the 正職 roster — resolve their codename
-    // (the same identity the left rail shows) before giving up on the raw id:
-    // live workers from the passed list, released ones from the lazy per-id
-    // cache.
-    const codename =
-      workers.find((w) => w.id === id)?.codename ?? codenames.get(id);
-    if (codename !== undefined) return msg.outsourceLabel(codename);
-    return id;
+    const liveCodename = workers.find((w) => w.id === id)?.codename;
+    if (liveCodename !== undefined) return msg.outsourceLabel(liveCodename);
+    const unlistedName = unlistedNames.get(id);
+    if (unlistedName === undefined) return id;
+    return id.startsWith("ow-") ? msg.outsourceLabel(unlistedName) : unlistedName;
   };
   // 「寄件者 → 收件者」 — the ONE spelling of a message's direction in this
   // component. The message rows have written it this way for inter-agent
@@ -2510,11 +2510,12 @@ export function ChatArea({
            * synthetic released/removed peer (read-only, T-661b), for which
            * OfficePage wires neither onWake nor a queue promise. A live member
            * and (since T-128) a live outsource worker both always have a queue
-           * path (onWake), so neither reaches here. A plain, non-clickable
-           * notice: there is nothing to wake and no live detail panel to open
-           * for a peer that is gone. */
+           * path (onWake), so neither reaches here — which is why this notice
+           * says the peer has LEFT, not that it is offline. A plain,
+           * non-clickable notice: there is nothing to wake and no live detail
+           * panel to open for a peer that is gone. */
           <div className="chat__composer-locked" role="status">
-            {msg.chatComposerOffline(member.name)}
+            {t.chat.composerPeerLeft}
           </div>
         ) : (
           <>

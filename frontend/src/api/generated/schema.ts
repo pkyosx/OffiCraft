@@ -1801,7 +1801,7 @@ export interface paths {
         /**
          * Reset one actor's estimated spend to zero (owner-only, irreversible): clears the durable banked figure AND the live telemetry figure.
          * @description - Irreversible: no snapshot, no undo; the figure survives nowhere else.
-         *     - Clears both the banked and the live spend of one actor, member or worker.
+         *     - Clears both the banked and the live spend of one actor, member or worker, including one that has left (a departed staff member or a released worker).
          *     - Returns the two figures as they stood before the write; then spend reads as unmeasured, not $0.
          *     - Account-wide spend is untouched. Owner token only.
          *     - Emits a `monitoring` event; a client holding the stream learns of this without polling.
@@ -3354,6 +3354,7 @@ export interface paths {
          * @description - Posts one ordinary chat message to the task's executor, with {task_id, task_title, task_type} attached in `meta`.
          *     - Owner or admin agent only.
          *     - 409 if the task has no executor.
+         *     - 404 if the executor has left (a departed staff member or a released worker), the same refusal `POST /api/chat` gives for that recipient.
          */
         post: operations["handle_post_task_message_api_tasks__task_id__message_post"];
         delete?: never;

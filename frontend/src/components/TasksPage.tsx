@@ -83,7 +83,11 @@ const DEFAULT_STATUS = STATUS_OPTIONS.filter((s) => !TERMINAL.has(s));
 
 export function TasksPage() {
   const { t } = useI18n();
-  const { members } = useMembers();
+  const {
+    members,
+    loading: membersLoading,
+    error: membersError,
+  } = useMembers();
   // ── 請示 → 任務: a reply card 查看任務詳情 routes to #tasks/<id>. That id
   // is just another filter dimension — the list narrows to that one task in the
   // normal layout, cleared the same way any other axis is: empty its field.
@@ -623,6 +627,7 @@ export function TasksPage() {
         allTasks={tasks}
         members={members}
         workers={workers}
+        rosterSettled={!membersLoading && !membersError && !loading && !error}
         typeNames={typeNames}
         nowTs={nowTs}
         located={idApplied && task.id === appliedId}
