@@ -1078,6 +1078,20 @@ func TestConfirm(t *testing.T) {
 			t.Errorf("stderr = %q, want %q", diag.String(), want)
 		}
 	})
+
+	t.Run("under an ack file and no stderr given, the notice still never reaches out", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), ".officraft-listen-ack")
+		g := newAckGate(testEnv(map[string]string{listenAckEnv: "1", listenAckFileEnv: path}), nil, nil)
+		g.wait = 20 * time.Millisecond
+		var out bytes.Buffer
+
+		if g.confirm(&out) {
+			t.Error("confirm = true after the deadline, want false")
+		}
+		if want := "[ocagent] listen: batch 1\n"; out.String() != want {
+			t.Errorf("printed %q, want %q", out.String(), want)
+		}
+	})
 }
 
 func TestNoteChatFetchFault(t *testing.T) {
