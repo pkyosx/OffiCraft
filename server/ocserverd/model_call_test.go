@@ -42,7 +42,10 @@ func newModelCallFixture(t *testing.T) *modelCallFixture {
 // model-call reports under test arrive.
 func (f *modelCallFixture) staff(t *testing.T, m Member, machineClaim, account string) string {
 	t.Helper()
-	m.Name, m.Kind, m.RosterStatus, m.Runtime = m.ID, KindStaff, RosterStatusActive, RuntimeClaude
+	m.Name, m.Kind, m.RosterStatus = m.ID, KindStaff, RosterStatusActive
+	if m.Runtime == "" {
+		m.Runtime = RuntimeClaude
+	}
 	if m.DesiredState == "" {
 		m.DesiredState = DesiredStateOffline
 	}
@@ -284,6 +287,60 @@ func TestModelCallWarnings(t *testing.T) {
 		f.wantModelCall(t, "m-bob", 0, modelCallWarning("auth", "authentication_failed", t0+10, nil, false))
 	})
 
+	t.Run("an auth failure is listed when the logged-out runtime is another one, or the only logged-out entry is pending", func(t *testing.T) {
+		f := newModelCallFixture(t)
+		putWarden(t, f.api, "m-mix")
+		putWarden(t, f.api, "m-out")
+		for machine, runtimes := range map[string]string{
+			"m-mix": `{"runtimes":{"claude":{"installed":true,"logged_in":true},"codex":{"installed":true,"logged_in":false}}}`,
+			"m-out": `{"runtimes":{"claude":{"installed":true,"logged_in":false}}}`,
+		} {
+			f.report(t, apiTestAgentToken(t, f.api, machine, machine), runtimes)
+		}
+		// Configured for codex, still running claude: the codex logged-out mark
+		// is the pending pair.
+		ann := f.staff(t, Member{ID: "m-ann", Runtime: RuntimeCodex, DesiredState: DesiredStateOnline, DesiredMachineID: "m-mix"}, "m-mix", "acct-1")
+		// Running on m-mix, moving to m-out: the claude logged-out mark is pending.
+		bob := f.staff(t, Member{ID: "m-bob", DesiredState: DesiredStateOnline, DesiredMachineID: "m-out"}, "m-mix", "acct-2")
+		// Running on m-out: the claude logged-out mark is current, so it dedups.
+		cat := f.staff(t, Member{ID: "m-cat", DesiredState: DesiredStateOnline, DesiredMachineID: "m-out"}, "m-out", "acct-3")
+		connectOnlineMachine(t, f.api, "m-ann", "m-mix")
+		connectOnlineMachine(t, f.api, "m-bob", "m-mix")
+		connectOnlineMachine(t, f.api, "m-cat", "m-out")
+		for _, token := range []string{ann, bob, cat} {
+			f.fail(t, token, t0+10, "auth", "authentication_failed", nil)
+		}
+
+		apiWantValue(t, "m-ann.runtime_login_warnings", f.member(t, "m-ann")["runtime_login_warnings"], any([]any{
+			map[string]any{"machine_id": "m-mix", "machine_name": "m-mix", "pending": true, "runtime": "codex"},
+		}))
+		f.wantModelCall(t, "m-ann", 0, modelCallWarning("auth", "authentication_failed", t0+10, nil, false))
+		apiWantValue(t, "m-bob.runtime_login_warnings", f.member(t, "m-bob")["runtime_login_warnings"], any([]any{
+			map[string]any{"machine_id": "m-out", "machine_name": "m-out", "pending": true, "runtime": "claude"},
+		}))
+		f.wantModelCall(t, "m-bob", 0, modelCallWarning("auth", "authentication_failed", t0+10, nil, false))
+		apiWantValue(t, "m-cat.runtime_login_warnings", f.member(t, "m-cat")["runtime_login_warnings"], any([]any{
+			map[string]any{"machine_id": "m-out", "machine_name": "m-out", "pending": false, "runtime": "claude"},
+		}))
+		f.wantModelCall(t, "m-cat", 0)
+	})
+
+	t.Run("a member's own usage limit without a reset time also lists the account's limit that has one, and one with a reset time does not", func(t *testing.T) {
+		f := newModelCallFixture(t)
+		ann := f.staff(t, Member{ID: "m-ann"}, "", "acct-1")
+		bob := f.staff(t, Member{ID: "m-bob"}, "", "acct-1")
+		cat := f.staff(t, Member{ID: "m-cat"}, "", "acct-1")
+
+		f.fail(t, bob, t0+10, "rate_limit", "rate_limit", t0+3600)
+		f.fail(t, ann, t0+20, "rate_limit", "usageLimitExceeded", nil)
+		f.fail(t, cat, t0+5, "rate_limit", "rate_limit", t0+1800)
+		f.wantModelCall(t, "m-ann", 0,
+			modelCallWarning("rate_limit", "usageLimitExceeded", t0+20, nil, false),
+			modelCallWarning("rate_limit", "rate_limit", t0+10, t0+3600, true))
+		f.wantModelCall(t, "m-bob", 0, modelCallWarning("rate_limit", "rate_limit", t0+10, t0+3600, false))
+		f.wantModelCall(t, "m-cat", 0, modelCallWarning("rate_limit", "rate_limit", t0+5, t0+1800, false))
+	})
+
 	t.Run("an outsource worker's failure shows on its row", func(t *testing.T) {
 		f := newModelCallFixture(t)
 		putTestMember(t, f.api, Member{
@@ -450,6 +507,67 @@ func TestModelCallWarningPushes(t *testing.T) {
 		f.fail(t, ann, t0+20, "rate_limit", "usageLimitExceeded", nil)
 		if len(f.timers) != 1 {
 			t.Fatalf("want exactly one timer, got %d", len(f.timers))
+		}
+	})
+
+	t.Run("many failures sharing a reset time arm one timer, and each new reset time arms its own, also after one has fired", func(t *testing.T) {
+		f := newModelCallFixture(t)
+		ann := f.staff(t, Member{ID: "m-ann"}, "", "acct-1")
+		bob := f.staff(t, Member{ID: "m-bob"}, "", "acct-1")
+
+		f.fail(t, ann, t0+10, "rate_limit", "rate_limit", t0+100)
+		f.fail(t, ann, t0+11, "rate_limit", "rate_limit", t0+100)
+		f.fail(t, bob, t0+12, "rate_limit", "rate_limit", t0+100)
+		f.fail(t, ann, t0+13, "rate_limit", "rate_limit", t0+200)
+		waits := []time.Duration{}
+		for _, timer := range f.timers {
+			waits = append(waits, timer.wait)
+		}
+		apiWantValue(t, "timer waits", any(waits), any([]time.Duration{101 * time.Second, 201 * time.Second}))
+
+		f.clock = t0 + 101
+		f.timers[0].fire()
+		f.clock = t0 + 150
+		f.fail(t, bob, t0+150, "rate_limit", "rate_limit", t0+300)
+		f.fail(t, ann, t0+151, "rate_limit", "rate_limit", t0+300)
+		if len(f.timers) != 3 || f.timers[2].wait != 151*time.Second {
+			t.Fatalf("want a third timer 151s out, got %v", f.timers)
+		}
+	})
+
+	t.Run("a member moving between accounts is patched when it leaves a limit and when it joins one, with or without a model_call", func(t *testing.T) {
+		for _, c := range []struct {
+			name   string
+			from   string
+			report string
+			want   []map[string]any
+		}{
+			{"leaving the limited account with a success clears it", "acct-1",
+				`{"runtime":"claude","account":"acct-2","model_call":{"last_success_ts":1800000020}}`, nil},
+			{"joining the limited account with an unchanged success time shows it", "acct-2",
+				`{"runtime":"claude","account":"acct-1","model_call":{"last_success_ts":1800000005}}`,
+				[]map[string]any{modelCallWarning("rate_limit", "rate_limit", t0+10, t0+3600, true)}},
+			{"joining the limited account with no model_call shows it", "acct-2",
+				`{"runtime":"claude","account":"acct-1"}`,
+				[]map[string]any{modelCallWarning("rate_limit", "rate_limit", t0+10, t0+3600, true)}},
+		} {
+			t.Run(c.name, func(t *testing.T) {
+				f := newModelCallFixture(t)
+				ann := f.staff(t, Member{ID: "m-ann"}, "", c.from)
+				bob := f.staff(t, Member{ID: "m-bob"}, "", "acct-1")
+				f.succeed(t, ann, t0+5)
+				f.fail(t, bob, t0+10, "rate_limit", "rate_limit", t0+3600)
+				dashboard := apiTestListen(t, f.api, "")
+
+				f.report(t, ann, c.report)
+				dashboard.wantFrames(modelCallMonitoringSignal("m-ann", "m-ann"), modelCallPatch("m-ann", "m-ann"))
+				lastSuccess := t0 + 5
+				if c.want == nil {
+					lastSuccess = t0 + 20
+				}
+				f.wantModelCall(t, "m-ann", lastSuccess, c.want...)
+				f.wantModelCall(t, "m-bob", 0, modelCallWarning("rate_limit", "rate_limit", t0+10, t0+3600, false))
+			})
 		}
 	})
 }

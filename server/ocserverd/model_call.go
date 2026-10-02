@@ -134,7 +134,7 @@ func (b modelCallBoard) warnings(m Member, login []RuntimeLoginWarningDTO) []mod
 	runtime := b.runtimeOf(m)
 	ownLimit := false
 	if f, ok := modelCallFailureOf(entry); ok && f.Ts > modelCallSuccessOf(entry) && b.ownFailureShows(f, account, runtime, login) {
-		ownLimit = f.Kind == string(ModelCallFailureDTOKindRateLimit)
+		ownLimit = f.carriesReset()
 		out = append(out, modelCallWarningOf(f, runtime, false))
 	}
 	if limit := b.limit(account); limit != nil && !ownLimit {
@@ -190,8 +190,10 @@ func (s *apiServer) modelCallAfter(d time.Duration, fire func()) {
 	time.AfterFunc(d, fire)
 }
 
-// modelCallMayChangeWarnings runs BEFORE the report is merged into entry. A
-// report that only moves the success time forward can change a warning only
+// modelCallMayChangeWarnings runs after the report's account pairing is
+// applied to entry and BEFORE its model_call is merged; a pairing change is
+// judged by the caller (modelCallPairingOf). A report that only moves the
+// success time forward can change a warning only
 // through a failure newer than the old success: the reporter's own, or an
 // account limit in force. Every context report is such a report, so this is
 // what keeps the roster diff off the common path. The account match is on the
@@ -218,6 +220,19 @@ func (s *apiServer) modelCallMayChangeWarnings(entry map[string]any, report *Mod
 	})
 }
 
+type modelCallPairing struct {
+	account, runtime string
+}
+
+// modelCallPairingOf is read before and after applyAccountReport: a member
+// moving between accounts gains or loses that account's limit, and its
+// success stops or starts lifting it, with or without a model_call.
+func modelCallPairingOf(entry map[string]any) modelCallPairing {
+	account, _ := entry["account"].(string)
+	runtime, _ := entry[accountRuntimeKey].(string)
+	return modelCallPairing{account: account, runtime: runtime}
+}
+
 func (s *apiServer) loadModelCallBoard() (modelCallBoard, error) {
 	members, err := s.dal.ListMembers()
 	if err != nil {
@@ -237,9 +252,24 @@ func (s *apiServer) scheduleModelCallReset(f modelCallFailureDTO) {
 	if wait <= 0 {
 		return
 	}
+	// One timer per reset time: the fire re-judges every member, so a second
+	// one for the same instant would only repeat it.
+	s.modelCallResetsMu.Lock()
+	if s.modelCallResetsArmed == nil {
+		s.modelCallResetsArmed = map[float64]bool{}
+	}
+	armed := s.modelCallResetsArmed[resetsAt]
+	s.modelCallResetsArmed[resetsAt] = true
+	s.modelCallResetsMu.Unlock()
+	if armed {
+		return
+	}
 	// One second past the reset: the timer runs on the monotonic clock and the
 	// judgement on the wall clock, and firing a hair early would push nothing.
 	s.modelCallAfter(time.Duration((wait+1)*float64(time.Second)), func() {
+		s.modelCallResetsMu.Lock()
+		delete(s.modelCallResetsArmed, resetsAt)
+		s.modelCallResetsMu.Unlock()
 		before := s.telemetry.Snapshot()
 		if s.publishModelCallChanges(before, resetsAt-0.001, triggerServer) {
 			s.hub.Publish("monitoring", "signal", "monitoring", "", nil, audienceOwnerOnly(), triggerServer)

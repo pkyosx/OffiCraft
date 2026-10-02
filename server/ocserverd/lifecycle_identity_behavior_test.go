@@ -1216,9 +1216,6 @@ var identityGateLedger = map[string]string{
 	"model_call.go :: ownFailureShows :: f.Kind == string(ModelCallFailureDTOKindAuth)": "" +
 		"NOT an identity gate — the same model-call failure kind: an auth failure yields " +
 		"to the runtime_login_warnings entry for the same cause.",
-	"model_call.go :: warnings :: f.Kind == string(ModelCallFailureDTOKindRateLimit)": "" +
-		"NOT an identity gate — the same model-call failure kind: a member's own usage-limit " +
-		"warning stands in for the account-wide one.",
 	"api_bootdocs.go :: bootDocRegFor :: reg.Kind == kind": "" +
 		"NOT an identity gate — `Kind` here is a DOCUMENT kind (boot sequence, " +
 		"offboard, task closeout…), an unrelated vocabulary that happens to reuse the " +

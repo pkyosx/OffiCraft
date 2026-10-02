@@ -658,17 +658,19 @@ func (s *apiServer) HandleIngestTelemetryApiMonitoringTelemetryPost(w http.Respo
 	} else if machine, isStr := body.Machine.(string); isStr && machine != "" {
 		entry["machine"] = machine
 	}
+	pairingBefore := modelCallPairingOf(entry)
 	applyAccountReport(entry, body.Account, body.AccountLabel, runtime)
 	// The account accumulator is fed HERE and nowhere else (T-53, owner ruling
 	// rc-5c5d7c7c6dcd), and AFTER applyAccountReport so the increase is credited
 	// to the account this report proved.
 	s.accrueAccountSpend(entry)
-	var modelCallChanged bool
+	modelCallChanged := modelCallPairingOf(entry) != pairingBefore
 	var storedFailure *modelCallFailureDTO
 	if body.ModelCall != nil {
 		mayChange := s.modelCallMayChangeWarnings(entry, body.ModelCall)
-		modelCallChanged, storedFailure = mergeModelCall(entry, body.ModelCall)
-		modelCallChanged = modelCallChanged && mayChange
+		var merged bool
+		merged, storedFailure = mergeModelCall(entry, body.ModelCall)
+		modelCallChanged = modelCallChanged || (merged && mayChange)
 	}
 	var modelCallBefore map[string]map[string]any
 	if modelCallChanged {
