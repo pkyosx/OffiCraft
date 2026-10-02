@@ -188,7 +188,7 @@ func TestInsightWriteAuthz(t *testing.T) {
 
 	t.Run("a roleless outsource caller cannot write any role's insight", func(t *testing.T) {
 		api, _, d, _ := newAPITestServer(t)
-		if err := d.PutMember(Member{
+		if err := d.putMemberWholeRowForTest(Member{
 			ID: "ow-roleless", Name: "Roleless worker", Kind: KindOutsource,
 			RosterStatus: RosterStatusActive,
 		}); err != nil {

@@ -54,10 +54,10 @@ func TestSeedOutOfBox(t *testing.T) {
 
 	mira.Name = "Owner's Mira"
 	self.Name = "Renamed machine"
-	if err := d.PutMember(*mira); err != nil {
+	if err := d.putMemberWholeRowForTest(*mira); err != nil {
 		t.Fatalf("change Mira: %v", err)
 	}
-	if err := d.PutMember(*self); err != nil {
+	if err := d.putMemberWholeRowForTest(*self); err != nil {
 		t.Fatalf("change server-self: %v", err)
 	}
 	if err := seedOutOfBox(d); err != nil {

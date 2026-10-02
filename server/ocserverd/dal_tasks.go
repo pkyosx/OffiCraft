@@ -820,10 +820,6 @@ func getOutsourceWorkerOn(q sqlRowQuerier, id string) (*OutsourceWorker, error) 
 	return &w, nil
 }
 
-func (d *DAL) PutOutsourceWorker(w OutsourceWorker) error {
-	return d.PutMember(memberFromWorker(w))
-}
-
 // The releases read the rows they flip inside the transaction that flips them,
 // so a worker released by someone else in between is neither released again
 // nor reported as released here.

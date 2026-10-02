@@ -360,9 +360,10 @@ func (s *apiServer) onFirstConnect(memberID string) {
 		if err != nil || m == nil || m.WakingSince <= 0 {
 			return err
 		}
+		before := *m
 		m.WakingSince = 0.0
 		cleared = m
-		return writeMemberOn(tx, *m)
+		return writeMemberOn(tx, before, *m)
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "[sse] first-connect waking clear failed for %q: %v\n", memberID, err)
 	} else if cleared != nil {
@@ -465,9 +466,10 @@ func (s *apiServer) stampLandedMachine(memberID, machineID string) {
 			cur.DesiredMachineID != m.DesiredMachineID {
 			return err
 		}
+		before := *cur
 		cur.LastMachineID = machineID
 		stamped = cur
-		return writeMemberOn(tx, *cur)
+		return writeMemberOn(tx, before, *cur)
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "[sse] landed-machine stamp failed for %q: %v\n", memberID, err)
 	} else if stamped != nil {
@@ -763,8 +765,8 @@ func (s *apiServer) HandleResetCostApiMembersMemberIdCostResetPost(w http.Respon
 		if staff, worker, err = target(); err != nil {
 			return err
 		}
-		// 🔴 A single-column write: banked_cost is insert-only for putMember, so a
-		// whole-row write would land nothing.
+		// 🔴 A single-column write: banked_cost is insert-only, so a row write would
+		// land nothing.
 		clearedBankedFig, err = s.dal.ZeroMemberBankedCost(memberId)
 		return err
 	})

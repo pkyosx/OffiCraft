@@ -36,7 +36,7 @@ import (
 func t140SeedStaff(t *testing.T, api *apiServer, id string) string {
 	t.Helper()
 	m := fullMember(id)
-	if err := api.dal.PutMember(m); err != nil {
+	if err := api.dal.putMemberWholeRowForTest(m); err != nil {
 		t.Fatalf("seed staff %s: %v", id, err)
 	}
 	return id
@@ -263,7 +263,7 @@ func TestMemberExitRevoke_LeavesALiveMembersEndpointAlone(t *testing.T) {
 		t.Fatalf("read live staff: %v", err)
 	}
 	staff.DesiredState = DesiredStateOffline
-	if err := api.dal.PutMember(*staff); err != nil {
+	if err := api.dal.putMemberWholeRowForTest(*staff); err != nil {
 		t.Fatalf("put live staff: %v", err)
 	}
 	worker, err := api.dal.GetMember(liveWorker)
@@ -271,7 +271,7 @@ func TestMemberExitRevoke_LeavesALiveMembersEndpointAlone(t *testing.T) {
 		t.Fatalf("read live worker: %v", err)
 	}
 	worker.StoppingSince = nowSecs()
-	if err := api.dal.PutMember(*worker); err != nil {
+	if err := api.dal.putMemberWholeRowForTest(*worker); err != nil {
 		t.Fatalf("put live worker: %v", err)
 	}
 
@@ -470,7 +470,7 @@ func TestReceiveWebhookIn_RefusesAWardenEndpoint(t *testing.T) {
 	api := newTasksTestServer(t)
 	warden := fullMember("m-warden")
 	warden.Kind = KindWarden
-	if err := api.dal.PutMember(warden); err != nil {
+	if err := api.dal.putMemberWholeRowForTest(warden); err != nil {
 		t.Fatalf("seed warden: %v", err)
 	}
 	token := newWebhookToken()

@@ -12,20 +12,38 @@ import (
 // boot-storm guard's MinBootSecs.
 const minSelfRestartSecs = 600.0
 
-// writeMemberOn is putMember's write on the caller's transaction; the caller
-// publishes (publishMemberPatch) after commit.
-func writeMemberOn(tx *writeTx, m Member) error {
-	if err := ValidateMember(m); err != nil {
+// writeMemberOn lands what the caller changed between before (the row as it read
+// it) and after; the caller publishes (publishMemberPatch) after commit.
+func writeMemberOn(tx *writeTx, before, after Member) error {
+	if err := ValidateMember(after); err != nil {
 		return err
 	}
-	return putMemberOn(tx, m)
+	return writeMemberChangesOn(tx, before, after)
 }
 
-func (s *apiServer) putMember(m Member, trigger string) error {
+// createMemberRowOn lands a new row; the caller publishes after commit.
+func createMemberRowOn(tx *writeTx, m Member) error {
 	if err := ValidateMember(m); err != nil {
 		return err
 	}
-	if err := s.dal.PutMember(m); err != nil {
+	return createMemberOn(tx, m)
+}
+
+// writeMemberChanges is writeMemberOn in a transaction of its own, then the
+// publish.
+func (s *apiServer) writeMemberChanges(before, after Member, trigger string) error {
+	if err := s.dal.inTx(func(tx *writeTx) error { return writeMemberOn(tx, before, after) }); err != nil {
+		return err
+	}
+	s.publishMemberPatch(after, trigger)
+	return nil
+}
+
+func (s *apiServer) createMember(m Member, trigger string) error {
+	if err := ValidateMember(m); err != nil {
+		return err
+	}
+	if err := s.dal.CreateMember(m); err != nil {
 		return err
 	}
 	s.publishMemberPatch(m, trigger)
@@ -41,16 +59,24 @@ func (s *apiServer) publishMemberOwnerOnly(m Member, trigger string) {
 		memberDeltaPayload(m), audienceOwnerOnly(), trigger)
 }
 
-// persistMemberRowOn lands a lifecycle door's row inside its transaction: the
-// wind-down anchors, then the whole row (on a new row the anchor UPDATE is a
-// no-op and the INSERT carries them). The door publishes after commit, so the
-// agent's wind-down hook never refetches a row whose anchors are not there yet.
-func persistMemberRowOn(tx *writeTx, m Member) error {
-	if err := setMemberWindDownAnchorsOn(tx, m.ID, m.StoppingSince, m.StoppedSince,
-		m.RefocusSince, m.RefocusOp); err != nil {
+// persistMemberRowOn lands a lifecycle door's changes inside its transaction: the
+// wind-down anchors (as one set, only when one of them moved), then the other
+// changed columns. The door publishes after commit, so the agent's wind-down hook
+// never refetches a row whose anchors are not there yet.
+func persistMemberRowOn(tx *writeTx, before, after Member) error {
+	if err := writeWindDownAnchorChangesOn(tx, before, after); err != nil {
 		return err
 	}
-	return writeMemberOn(tx, m)
+	return writeMemberOn(tx, before, after)
+}
+
+func writeWindDownAnchorChangesOn(tx *writeTx, before, after Member) error {
+	if before.StoppingSince == after.StoppingSince && before.StoppedSince == after.StoppedSince &&
+		before.RefocusSince == after.RefocusSince && before.RefocusOp == after.RefocusOp {
+		return nil
+	}
+	return setMemberWindDownAnchorsOn(tx, after.ID, after.StoppingSince, after.StoppedSince,
+		after.RefocusSince, after.RefocusOp)
 }
 
 func persistMemberOpReceiptOn(tx *writeTx, m Member) error {
@@ -94,7 +120,7 @@ func windDownAnchorRowOfWorker(w *OutsourceWorker) windDownAnchorRow {
 	}
 }
 
-// Split from putMember for single-column writers: marking a column insertOnly and
+// Split from the row writes for single-column writers: marking a column insertOnly and
 // forgetting this call silently stops the cockpit converging.
 func (s *apiServer) publishMemberPatch(m Member, trigger string) {
 	op := "patch"
@@ -512,7 +538,7 @@ func (s *apiServer) HandleHireMemberApiMembersPost(w http.ResponseWriter, r *htt
 		DesiredMachineID: ServerSelfHost,
 		RosterStatus:     RosterStatusActive,
 	}
-	if err := s.putMember(m, requestTrigger(r)); err != nil {
+	if err := s.createMember(m, requestTrigger(r)); err != nil {
 		internalError(w, err)
 		return
 	}
@@ -629,6 +655,7 @@ func (s *apiServer) HandleUpdateMemberApiMembersMemberIdPatch(w http.ResponseWri
 		if err != nil {
 			return err
 		}
+		before := *cur
 		launchIntentChanged, err := applyMemberUpdate(cur, body)
 		if err != nil {
 			return err
@@ -637,7 +664,7 @@ func (s *apiServer) HandleUpdateMemberApiMembersMemberIdPatch(w http.ResponseWri
 		if launchIntentChanged {
 			_, heldDown = s.applyMemberOwnerOpPlan(cur, memberOpRuntimeModel, cfg, online)
 		}
-		if err := persistMemberRowOn(tx, *cur); err != nil {
+		if err := persistMemberRowOn(tx, before, *cur); err != nil {
 			return err
 		}
 		// Gated on heldDown so this snapshot never overwrites a receipt a reconcile
@@ -746,6 +773,7 @@ func (s *apiServer) HandleActivateMemberApiMembersMemberIdActivatePost(w http.Re
 		if err != nil {
 			return err
 		}
+		before := *cur
 		if body.MachineId != nil && *body.MachineId != "" {
 			if _, err := resolveMachineOn(tx, *body.MachineId); err != nil {
 				return machineResolveRefusal(err, *body.MachineId)
@@ -770,7 +798,7 @@ func (s *apiServer) HandleActivateMemberApiMembersMemberIdActivatePost(w http.Re
 			stampSessionAliveWakeReceipt(cur, nowSecs())
 		}
 		saved = *cur
-		if err := persistMemberRowOn(tx, *cur); err != nil {
+		if err := persistMemberRowOn(tx, before, *cur); err != nil {
 			return err
 		}
 		if sessionAlive {
@@ -868,6 +896,7 @@ func (s *apiServer) HandleRelocateMemberApiMembersMemberIdRelocatePost(w http.Re
 		if err != nil {
 			return err
 		}
+		before := *cur
 		cur.DesiredMachineID = machineID
 		if err := setMemberDesiredMachineIDOn(tx, cur.ID, machineID); err != nil {
 			return err
@@ -877,7 +906,7 @@ func (s *apiServer) HandleRelocateMemberApiMembersMemberIdRelocatePost(w http.Re
 		// Owner (2026-08-30): 改機器 is a 重啟 intent, so a stopped member comes back up
 		// on the new pin.
 		windDown, heldDown = s.applyMemberOwnerOpPlan(cur, memberOpRelocate, cfg, online)
-		if err := persistMemberRowOn(tx, *cur); err != nil {
+		if err := persistMemberRowOn(tx, before, *cur); err != nil {
 			return err
 		}
 		if heldDown {
@@ -995,6 +1024,7 @@ func (s *apiServer) HandleDeactivateMemberApiMembersMemberIdDeactivatePost(w htt
 		if err != nil {
 			return err
 		}
+		before := *cur
 		// 🔴 Cancelling a wake is not a graceful stop (T-7526). Read BEFORE the
 		// mutation: stamping stopping_since ends the waking projection. A waking
 		// member is not online, and decideDown's offline arm sends nothing until the
@@ -1010,7 +1040,7 @@ func (s *apiServer) HandleDeactivateMemberApiMembersMemberIdDeactivatePost(w htt
 			collectWindDownRow(windDownAnchorRowOfMember(cur), nowSecs())
 		}
 		saved = *cur
-		return persistMemberRowOn(tx, *cur)
+		return persistMemberRowOn(tx, before, *cur)
 	})
 	if err != nil {
 		writeResolveTxError(w, err, "member", memberId)
@@ -1049,6 +1079,7 @@ func (s *apiServer) HandleForceStopMemberApiMembersMemberIdForceStopPost(w http.
 		if err != nil {
 			return err
 		}
+		before := *cur
 		cur.DesiredState = DesiredStateOffline
 		clearMemberHandoverMarker(cur)
 		clearRestartIntent(cur)
@@ -1059,7 +1090,7 @@ func (s *apiServer) HandleForceStopMemberApiMembersMemberIdForceStopPost(w http.
 		// Force-stop sends no notice, so this record is the only trace a session was
 		// cut off; forward-only, so a stale snapshot cannot erase it.
 		cur.ForcedStopAt = forcedAt
-		if err := persistMemberRowOn(tx, *cur); err != nil {
+		if err := persistMemberRowOn(tx, before, *cur); err != nil {
 			return err
 		}
 		// Not fatal, and a failed statement does not end the transaction: the kill
@@ -1125,11 +1156,12 @@ func (s *apiServer) HandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStop
 		if err != nil {
 			return err
 		}
+		before := *cur
 		if err := accelerateMemberStop(cur, nowSecs()); err != nil {
 			return err
 		}
 		saved = *cur
-		return persistMemberRowOn(tx, *cur)
+		return persistMemberRowOn(tx, before, *cur)
 	})
 	if err != nil {
 		writeResolveTxError(w, err, "member", memberId)
@@ -1196,12 +1228,13 @@ func (s *apiServer) HandleRefocusMemberApiMembersMemberIdRefocusPost(w http.Resp
 		if err != nil {
 			return err
 		}
+		before := *cur
 		queued = false
 		switch applyRefocusVerb(ownerOpRowOfMember(cur), *cur, online, nowSecs()) {
 		case refocusQueuedBehindStop:
 			queued = true
 			saved = *cur
-			if err := writeMemberOn(tx, *cur); err != nil {
+			if err := writeMemberOn(tx, before, *cur); err != nil {
 				return err
 			}
 			// The receipt lands before the tick below: the tick can spend the intent and
@@ -1215,7 +1248,7 @@ func (s *apiServer) HandleRefocusMemberApiMembersMemberIdRefocusPost(w http.Resp
 			return refuseInTx(http.StatusConflict, refocusLadderRefusalMsg("member"))
 		}
 		saved = *cur
-		return persistMemberRowOn(tx, *cur)
+		return persistMemberRowOn(tx, before, *cur)
 	})
 	if err != nil {
 		writeResolveTxError(w, err, "member", memberId)
@@ -1257,9 +1290,10 @@ func (s *apiServer) HandleDismissMemberApiMembersMemberIdDelete(w http.ResponseW
 // dismissStaffOn is the roster half of a staff exit; finishStaffDismissal, run
 // after the commit, is the other half.
 func dismissStaffOn(tx *writeTx, m *Member, now float64) error {
+	before := *m
 	applyStopVerbRow(stopVerbRowOfMember(m), *m, now)
 	m.RosterStatus = RosterStatusRemoved
-	return persistMemberRowOn(tx, *m)
+	return persistMemberRowOn(tx, before, *m)
 }
 
 // A removed row's credentials are refused from the next request on, but that stops
@@ -1349,13 +1383,14 @@ func (s *apiServer) HandleReportWakingApiSelfWakingPost(w http.ResponseWriter, r
 		if err != nil {
 			return err
 		}
+		before := *cur
 		cur.WakingSince = nowSecs()
 		clearWindDownRowOnWake(windDownAnchorRowOfMember(cur), cur.DesiredState, callerIat(r))
 		if body.Model != nil {
 			cur.ActualModel = *body.Model
 		}
 		saved = *cur
-		return persistMemberRowOn(tx, *cur)
+		return persistMemberRowOn(tx, before, *cur)
 	})
 	if err != nil {
 		writeResolveTxError(w, err, "member", currentActor(r))
@@ -1386,9 +1421,10 @@ func (s *apiServer) HandleReportStoppingApiSelfStoppingPost(w http.ResponseWrite
 		if err != nil {
 			return err
 		}
+		before := *cur
 		openWindDownRow(windDownAnchorRowOfMember(cur), nowSecs())
 		saved = *cur
-		return persistMemberRowOn(tx, *cur)
+		return persistMemberRowOn(tx, before, *cur)
 	})
 	if err != nil {
 		writeResolveTxError(w, err, "member", currentActor(r))
@@ -1420,12 +1456,13 @@ func (s *apiServer) HandleReportStoppedApiSelfStoppedPost(w http.ResponseWriter,
 		if err != nil {
 			return err
 		}
+		before := *cur
 		// 🔴 A stopped-report is ALWAYS collected (owner, rc-b08d49dc3b03 option ①). The
 		// latch lands with the row or not at all: a latch left behind a failed write
 		// would make every retry read "already reported" and dispatch nothing, forever.
 		collect, stopEffect, _ = decideStoppedReport(windDownAnchorRowOfMember(cur), nowSecs())
 		saved = *cur
-		return persistMemberRowOn(tx, *cur)
+		return persistMemberRowOn(tx, before, *cur)
 	})
 	if err != nil {
 		writeResolveTxError(w, err, "member", currentActor(r))
@@ -1500,6 +1537,7 @@ func (s *apiServer) HandleRestartSelfApiSelfRefocusPost(w http.ResponseWriter, r
 		if err != nil {
 			return err
 		}
+		before := *cur
 		if !aRefocusStampWouldReachTheAgent(*cur) {
 			return refuseInTx(http.StatusConflict, restartSelfNeedsALiveSessionMsg)
 		}
@@ -1507,7 +1545,7 @@ func (s *apiServer) HandleRestartSelfApiSelfRefocusPost(w http.ResponseWriter, r
 			return refuseInTx(http.StatusConflict, restartSelfLadderBackwardsMsg)
 		}
 		saved = *cur
-		return persistMemberRowOn(tx, *cur)
+		return persistMemberRowOn(tx, before, *cur)
 	})
 	if err != nil {
 		writeResolveTxError(w, err, "member", currentActor(r))

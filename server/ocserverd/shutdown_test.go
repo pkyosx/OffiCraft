@@ -10,7 +10,7 @@ import (
 // on it, so the reachability gate will accept a frame aimed there.
 func shutdownWarden(t *testing.T, api *apiServer, d *DAL, id string) {
 	t.Helper()
-	if err := d.PutMember(Member{
+	if err := d.putMemberWholeRowForTest(Member{
 		ID: id, Name: id, Kind: KindWarden, RosterStatus: RosterStatusActive,
 		DesiredState: DesiredStateOnline,
 	}); err != nil {
@@ -29,7 +29,7 @@ func shutdownLastLanding(t *testing.T, d *DAL, id, machineID string) {
 		t.Fatalf("GetMember(%q): %v (%v)", id, m, err)
 	}
 	m.LastMachineID = machineID
-	if err := d.PutMember(*m); err != nil {
+	if err := d.putMemberWholeRowForTest(*m); err != nil {
 		t.Fatalf("PutMember(%q): %v", id, err)
 	}
 }
@@ -44,7 +44,7 @@ func shutdownBootable(t *testing.T, d *DAL, id, machineID string) {
 		t.Fatalf("GetMember(%q): %v (%v)", id, m, err)
 	}
 	m.RoleKey = "assistant"
-	if err := d.PutMember(*m); err != nil {
+	if err := d.putMemberWholeRowForTest(*m); err != nil {
 		t.Fatalf("PutMember(%q): %v", id, err)
 	}
 	// desired_machine_id is insertOnly, so the whole-row write above cannot move
@@ -157,7 +157,7 @@ func TestDispatchShutdown(t *testing.T) {
 
 	t.Run("with no warden online at all the broadcast has nowhere to go and nothing is sent", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
-		if err := d.PutMember(Member{
+		if err := d.putMemberWholeRowForTest(Member{
 			ID: "m-dark", Name: "m-dark", Kind: KindWarden, RosterStatus: RosterStatusActive,
 		}); err != nil {
 			t.Fatalf("seed dark warden: %v", err)

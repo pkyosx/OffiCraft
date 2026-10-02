@@ -300,11 +300,12 @@ func (s *apiServer) wakeAssistantStep(
 			dismissed = true
 			return nil
 		}
+		before := *cur
 		cur.StoppingSince = 0.0
 		cur.WakingSince = 0.0
 		cur.DesiredState = DesiredStateOnline
 		mira = cur
-		return persistMemberRowOn(tx, *cur)
+		return persistMemberRowOn(tx, before, *cur)
 	})
 	if err == nil && dismissed {
 		steps = append(steps, onboardingStepDTO{

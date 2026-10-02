@@ -4257,7 +4257,7 @@ func dalTestMember(id, name string) Member {
 
 func dalPutMember(t *testing.T, d *DAL, m Member) Member {
 	t.Helper()
-	if err := d.PutMember(m); err != nil {
+	if err := d.putMemberWholeRowForTest(m); err != nil {
 		t.Fatalf("PutMember(%q): %v", m.ID, err)
 	}
 	return m

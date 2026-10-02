@@ -1187,7 +1187,7 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 				t.Fatalf("GetMember(%q): %v", id, err)
 			}
 			m.RosterStatus = RosterStatusRemoved
-			if err := d.PutMember(*m); err != nil {
+			if err := d.putMemberWholeRowForTest(*m); err != nil {
 				t.Fatalf("PutMember(%q): %v", id, err)
 			}
 		}
@@ -1598,7 +1598,7 @@ func TestHandleGetMemberApiMembersMemberIdGet(t *testing.T) {
 
 	t.Run("a removed warden answers 404 naming it, as does an id nothing carries", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
-		if err := d.PutMember(Member{
+		if err := d.putMemberWholeRowForTest(Member{
 			ID: "m-gone", Name: "gone-host", Kind: KindWarden, RosterStatus: RosterStatusRemoved,
 		}); err != nil {
 			t.Fatalf("PutMember: %v", err)
@@ -1937,7 +1937,7 @@ func TestHandleActivateMemberApiMembersMemberIdActivatePost(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
 		for _, id := range []string{"mach-a", "mach-b"} {
-			if err := d.PutMember(Member{
+			if err := d.putMemberWholeRowForTest(Member{
 				ID: id, Name: id + " box", Kind: KindWarden, Effort: "medium",
 				DesiredState: DesiredStateOffline, RosterStatus: RosterStatusActive,
 			}); err != nil {
@@ -2481,14 +2481,14 @@ func TestHandleDeactivateMemberApiMembersMemberIdDeactivatePost(t *testing.T) {
 		}
 		apiTestListen(t, api, ServerSelfHost)
 		wsWantWardenFrames(t, api, ServerSelfHost)
-		apiTestFailWholeRowWrite(t, d, "kip")
+		apiTestFailMemberRowWrite(t, d, "kip")
 
 		status, data := apiJSON(t, h, "POST", "/api/members/kip/deactivate", owner, `{}`)
 		if status != 500 {
 			t.Fatalf("want 500, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "internal_error",
-			"internal error: constraint failed: whole row unwritable (1811)")
+			"internal error: constraint failed: member row unwritable (1811)")
 		wsWantWardenFrames(t, api, ServerSelfHost)
 		rolled, err := d.GetMember("kip")
 		if err != nil || rolled == nil {
@@ -2497,7 +2497,7 @@ func TestHandleDeactivateMemberApiMembersMemberIdDeactivatePost(t *testing.T) {
 		apiWantValue(t, "the close-out anchor after the rollback",
 			any(rolled.StoppedSince), any(float64(0)))
 
-		apiTestRestoreWholeRowWrite(t, d)
+		apiTestRestoreMemberRowWrite(t, d)
 		status, data = apiJSON(t, h, "POST", "/api/members/kip/deactivate", owner, `{}`)
 		if status != 200 {
 			t.Fatalf("want 200 once the row is writable, got %d (%v)", status, data)
@@ -4346,14 +4346,14 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 		t.Run("a "+tc.who+" report whose row write fails rolls the close-out back, so the retry really sends the stop", func(t *testing.T) {
 			api, h, d, id, token := tc.live(t)
 			wsWantWardenFrames(t, api, ServerSelfHost)
-			apiTestFailWholeRowWrite(t, d, id)
+			apiTestFailMemberRowWrite(t, d, id)
 
 			status, data := apiJSON(t, h, "POST", "/api/self/stopped", token, `{}`)
 			if status != 500 {
 				t.Fatalf("want 500, got %d (%v)", status, data)
 			}
 			apiWantError(t, data, "internal_error",
-				"internal error: constraint failed: whole row unwritable (1811)")
+				"internal error: constraint failed: member row unwritable (1811)")
 			wsWantWardenFrames(t, api, ServerSelfHost)
 			m, err := d.GetMember(id)
 			if err != nil || m == nil {
@@ -4362,7 +4362,7 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 			apiWantValue(t, "close-out anchor after the rollback",
 				any(m.StoppedSince), any(float64(0)))
 
-			apiTestRestoreWholeRowWrite(t, d)
+			apiTestRestoreMemberRowWrite(t, d)
 			status, data = apiJSON(t, h, "POST", "/api/self/stopped", token, `{}`)
 			if status != 200 {
 				t.Fatalf("want 200 once the row is writable, got %d (%v)", status, data)
@@ -4844,16 +4844,27 @@ func apiTestFailStoppedAnchorWrite(t *testing.T, d *DAL, id string) {
 	}
 }
 
-// apiTestFailWholeRowWrite makes the WHOLE-ROW member write fail for id while
-// the single-column wind-down anchor write still succeeds — the exact shape of
-// a stopped-report whose SECOND durable step is the one that dies. `name` is an
-// ordinary updatable column every whole-row write carries and nothing else in
-// this flow touches.
-func apiTestFailWholeRowWrite(t *testing.T, d *DAL, id string) {
+// apiTestFailMemberRowWrite makes every UPDATE of id's member row fail while
+// leaving reads and other rows alone, so a door's row write dies mid-request.
+func apiTestFailMemberRowWrite(t *testing.T, d *DAL, id string) {
 	t.Helper()
-	if _, err := d.wdb.Exec(`CREATE TRIGGER fail_whole_row BEFORE UPDATE OF name ON member
+	if _, err := d.wdb.Exec(`CREATE TRIGGER fail_member_row BEFORE UPDATE ON member
 		WHEN NEW.id = '` + id + `'
-		BEGIN SELECT RAISE(ABORT, 'whole row unwritable'); END`); err != nil {
+		BEGIN SELECT RAISE(ABORT, 'member row unwritable'); END`); err != nil {
+		t.Fatalf("install failing trigger: %v", err)
+	}
+}
+
+// apiTestFailMemberRowWriteAfterAnchors lets the wind-down anchor write land and
+// fails every other UPDATE of id's row, so a door's changed-columns write dies
+// after its anchor write has already run in the same transaction.
+func apiTestFailMemberRowWriteAfterAnchors(t *testing.T, d *DAL, id string) {
+	t.Helper()
+	if _, err := d.wdb.Exec(`CREATE TRIGGER fail_member_row BEFORE UPDATE ON member
+		WHEN NEW.id = '` + id + `'
+		 AND NEW.stopping_since IS OLD.stopping_since AND NEW.stopped_since IS OLD.stopped_since
+		 AND NEW.refocus_since IS OLD.refocus_since AND NEW.refocus_op IS OLD.refocus_op
+		BEGIN SELECT RAISE(ABORT, 'member row unwritable'); END`); err != nil {
 		t.Fatalf("install failing trigger: %v", err)
 	}
 }
@@ -4869,32 +4880,9 @@ func apiTestReceiptOf(t *testing.T, d *DAL, id string) map[string]any {
 	return map[string]any{"last_op": m.LastOp, "reason": m.LastOpReason, "at": m.LastOpAt}
 }
 
-// apiTestFailWholeRowWriteAfter is apiTestFailWholeRowWrite for a request that
-// writes the row MORE THAN ONCE: the first `skip` whole-row writes land and
-// every one after them fails. Stopping an offline worker writes the row itself
-// and then again when the close-out latches.
-func apiTestFailWholeRowWriteAfter(t *testing.T, d *DAL, id string, skip int) {
+func apiTestRestoreMemberRowWrite(t *testing.T, d *DAL) {
 	t.Helper()
-	for _, stmt := range []string{
-		`CREATE TABLE ocs_row_write_count (n INTEGER)`,
-		`INSERT INTO ocs_row_write_count VALUES (0)`,
-		`CREATE TRIGGER fail_whole_row BEFORE UPDATE OF name ON member
-			WHEN NEW.id = '` + id + `' AND (SELECT n FROM ocs_row_write_count) >= ` +
-			strconv.Itoa(skip) + `
-			BEGIN SELECT RAISE(ABORT, 'whole row unwritable'); END`,
-		`CREATE TRIGGER count_whole_row AFTER UPDATE OF name ON member
-			WHEN NEW.id = '` + id + `'
-			BEGIN UPDATE ocs_row_write_count SET n = n + 1; END`,
-	} {
-		if _, err := d.wdb.Exec(stmt); err != nil {
-			t.Fatalf("install counting trigger (%s): %v", stmt, err)
-		}
-	}
-}
-
-func apiTestRestoreWholeRowWrite(t *testing.T, d *DAL) {
-	t.Helper()
-	if _, err := d.wdb.Exec(`DROP TRIGGER fail_whole_row`); err != nil {
+	if _, err := d.wdb.Exec(`DROP TRIGGER fail_member_row`); err != nil {
 		t.Fatalf("drop failing trigger: %v", err)
 	}
 }

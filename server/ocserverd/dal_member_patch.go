@@ -3,15 +3,22 @@ package main
 // The member table's ONE write door (owner ruling rc-0b940a0e12ca). A whole-row
 // write lands the snapshot its caller read earlier over every column it did not
 // mean to change, so two faces editing different columns silently undo each
-// other (e.g. banked spend refunded by a stale figure). PatchMember writes only
-// the named columns; PutMember is a shell over it that names every column.
+// other (e.g. banked spend refunded by a stale figure, or a dismissed member put
+// back on the roster). An existing row is only ever PATCHED: PatchMember names
+// its columns, writeMemberChangesOn derives them from what the caller changed.
+// CreateMember only creates rows.
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // Two orthogonal properties:
-//   - insertOnly: a WHOLE-ROW writer must not carry this column onto an existing
-//     row. It does NOT make the column unwritable — a patch that NAMES it writes
-//     it (that is how the single-column setters work).
+//   - insertOnly: only row creation and a patch that NAMES the column write it
+//     (that is how the single-column setters work). writeMemberChangesOn never
+//     derives it from a diff, even when the caller's copy differs: each of these
+//     columns is moved by its own setter, which carries the column's rule
+//     (accumulate in SQL, move as a group, only forward, or one owner face).
 //   - forwardOnly: the update becomes max(col, ?), so a stale or zero value
 //     cannot walk it back (owner ruling rc-78cb22a6de94). Declaring it is not
 //     enough on its own: every single-column setter of that column must also go
@@ -158,10 +165,9 @@ func mfTokenKeyID(v string) memberField {
 }
 
 // migrations/00070. Deliberately NOT insert-only: it must land in the same write
-// as desired_state, or a stop comes back up (or a restart stays down). When
-// desired_state leaves the whole-row writer, this column must move WITH it, in
-// one statement setting both — each half alone looks correct and nothing goes
-// red.
+// as desired_state, or a stop comes back up (or a restart stays down). If
+// desired_state ever becomes insert-only, this column must move WITH it, in one
+// statement setting both — each half alone looks correct and nothing goes red.
 func mfRestartAfterStop(v bool) memberField {
 	return memberField{col: "restart_after_stop", val: v}
 }
@@ -192,20 +198,36 @@ func memberWholeRow(m Member) []memberField {
 	}
 }
 
-func updatableMemberFields(fields []memberField) []memberField {
-	out := make([]memberField, 0, len(fields))
-	for _, f := range fields {
-		if !f.insertOnly {
-			out = append(out, f)
+// changedMemberFields compares PROJECTED values, not struct fields: the
+// constructors map "" and nil to NULL, so a raw comparison would see edits that
+// store nothing new.
+func changedMemberFields(before, after Member) []memberField {
+	b, a := memberWholeRow(before), memberWholeRow(after)
+	out := make([]memberField, 0, len(a))
+	for i := range a {
+		if a[i].insertOnly || a[i].val == b[i].val {
+			continue
 		}
+		out = append(out, a[i])
 	}
 	return out
 }
 
-// An UPDATE, deliberately not an upsert: row creation stays with PutMember,
-// which carries the whole row. It fans NO SSE delta — the service layer decides
-// when to publish. That is structural (the DAL holds no hub), so there is
-// deliberately no test; if the DAL ever gets a hub, it needs one.
+// writeMemberChangesOn lands on an existing row exactly the columns that differ
+// between before (the row as the caller read it) and after (the row it wants).
+// A column the caller did not touch is not written, so a snapshot read earlier
+// cannot restore it over another writer's newer value.
+func writeMemberChangesOn(ex sqlExecer, before, after Member) error {
+	if before.ID != after.ID {
+		return fmt.Errorf("member write: before %q and after %q are different rows", before.ID, after.ID)
+	}
+	return patchMemberOn(ex, after.ID, changedMemberFields(before, after)...)
+}
+
+// An UPDATE, deliberately not an upsert: row creation stays with CreateMember. It
+// fans NO SSE delta — the service layer decides when to publish. That is
+// structural (the DAL holds no hub), so there is deliberately no test; if the DAL
+// ever gets a hub, it needs one.
 func (d *DAL) PatchMember(id string, fields ...memberField) error {
 	return patchMemberOn(d.wdb, id, fields...)
 }
@@ -230,7 +252,7 @@ func patchMemberOn(ex sqlExecer, id string, fields ...memberField) error {
 	return err
 }
 
-func insertMemberRowIfAbsent(ex sqlExecer, fields []memberField) error {
+func insertMemberRow(ex sqlExecer, fields []memberField) error {
 	cols := make([]string, 0, len(fields))
 	holes := make([]string, 0, len(fields))
 	args := make([]any, 0, len(fields))
@@ -241,7 +263,6 @@ func insertMemberRowIfAbsent(ex sqlExecer, fields []memberField) error {
 	}
 	_, err := ex.Exec(
 		`INSERT INTO member (`+strings.Join(cols, ", ")+`)
-		 VALUES (`+strings.Join(holes, ", ")+`)
-		 ON CONFLICT (id) DO NOTHING`, args...)
+		 VALUES (`+strings.Join(holes, ", ")+`)`, args...)
 	return err
 }

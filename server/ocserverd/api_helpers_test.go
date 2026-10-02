@@ -571,7 +571,7 @@ func TestResolveMachine(t *testing.T) {
 		api, _, d, _ := newAPITestServer(t)
 		retired := apiHelpersMember(t, d, ServerSelfHost)
 		retired.RosterStatus = RosterStatusRemoved
-		if err := d.PutMember(retired); err != nil {
+		if err := d.putMemberWholeRowForTest(retired); err != nil {
 			t.Fatalf("PutMember: %v", err)
 		}
 
@@ -903,7 +903,7 @@ func TestNewMemberDTO(t *testing.T) {
 			{ID: "m-c", Name: "mac-c", Kind: KindWarden, RosterStatus: RosterStatusActive},
 			{ID: "m-d", Name: "mac-d", Kind: KindWarden, RosterStatus: RosterStatusActive},
 		} {
-			if err := d.PutMember(machine); err != nil {
+			if err := d.putMemberWholeRowForTest(machine); err != nil {
 				t.Fatalf("PutMember(%q): %v", machine.ID, err)
 			}
 		}

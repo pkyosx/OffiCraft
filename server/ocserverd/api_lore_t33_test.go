@@ -33,7 +33,7 @@ func loreTestServer(t *testing.T) *apiServer {
 // could not tell "keyed by the member" from "there was no role to key by".
 func hireLoreStaff(t *testing.T, s *apiServer, id, roleKey string) string {
 	t.Helper()
-	if err := s.dal.PutMember(Member{
+	if err := s.dal.putMemberWholeRowForTest(Member{
 		ID: id, Name: "Lore Writer", Kind: KindStaff, RoleKey: roleKey,
 		Runtime: RuntimeClaude, RosterStatus: RosterStatusActive,
 	}); err != nil {
@@ -138,7 +138,7 @@ func TestWriteLoreWithNoTaskFilesUnderTheCallersOwnMemberId(t *testing.T) {
 // depend on there being one.
 func TestWriteLoreWithNoRoleFilesUnderTheWritersOwnId(t *testing.T) {
 	s := loreTestServer(t)
-	if err := s.dal.PutMember(Member{
+	if err := s.dal.putMemberWholeRowForTest(Member{
 		ID: "ow-lore-1", Name: "Contractor", Kind: KindOutsource, RoleKey: "",
 		Runtime: RuntimeClaude, RosterStatus: RosterStatusActive,
 	}); err != nil {
@@ -271,7 +271,7 @@ func TestWriteLoreAgainstAnUntypedTaskFilesUnderTheWritersOwnBootDocument(t *tes
 // same door, entered by the member kind the ruling was actually about.
 func TestWriteLoreAgainstAnUntypedTaskByAnOutsourceMemberFilesUnderItsOwnId(t *testing.T) {
 	s := loreTestServer(t)
-	if err := s.dal.PutMember(Member{
+	if err := s.dal.putMemberWholeRowForTest(Member{
 		ID: "ow-lore-2", Name: "Contractor", Kind: KindOutsource, RoleKey: "",
 		Runtime: RuntimeClaude, RosterStatus: RosterStatusActive,
 	}); err != nil {
@@ -1042,7 +1042,7 @@ func TestSetLoreEntryScope(t *testing.T) {
 	if w, err := st.api.dal.ReleaseWorkerByID("ow-scope-gone", 200); err != nil || w == nil {
 		t.Fatalf("ReleaseWorkerByID: %v / %v", w, err)
 	}
-	if err := st.api.dal.PutMember(Member{
+	if err := st.api.dal.putMemberWholeRowForTest(Member{
 		ID: "m-scope-linked", Name: "Linked Staff", Kind: KindStaff, RoleKey: "researcher",
 		Runtime: RuntimeClaude, RosterStatus: RosterStatusActive, LinkedTaskID: &bound,
 	}); err != nil {

@@ -520,7 +520,7 @@ func (s *apiServer) HandleOnboardMachineApiMachinesPost(w http.ResponseWriter, r
 		RosterStatus:     RosterStatusActive,
 	}
 	if err := s.dal.inTx(func(tx *writeTx) error {
-		if err := writeMemberOn(tx, member); err != nil {
+		if err := createMemberRowOn(tx, member); err != nil {
 			return err
 		}
 		return putMachineAliasOn(tx, MachineAlias{
@@ -925,9 +925,10 @@ func (s *apiServer) HandleTeardownHereApiMachinesMachineIdTeardownHerePost(w htt
 	}
 	removed := exitCode == 0
 	if removed {
+		before := *machine
 		machine.RosterStatus = RosterStatusRemoved
 		machine.DesiredState = DesiredStateOffline
-		if err := s.putMember(*machine, requestTrigger(r)); err != nil {
+		if err := s.writeMemberChanges(before, *machine, requestTrigger(r)); err != nil {
 			internalError(w, err)
 			return
 		}
@@ -960,13 +961,14 @@ func (s *apiServer) HandleUninstallMachineApiMachinesMemberIdUninstallPost(w htt
 		if err != nil {
 			return err
 		}
+		before := *cur
 		if online {
 			cur.DesiredState = DesiredStateUninstall
 		} else {
 			cur.DesiredState = DesiredStateOffline
 		}
 		m = *cur
-		return writeMemberOn(tx, m)
+		return writeMemberOn(tx, before, m)
 	})
 	if err != nil {
 		writeResolveTxError(w, err, "machine", memberId)
@@ -1038,10 +1040,11 @@ func (s *apiServer) HandleDeleteMachineApiMachinesMemberIdDelete(w http.Response
 		if cur == nil {
 			return errNotFound
 		}
+		before := *cur
 		cur.RosterStatus = RosterStatusRemoved
 		cur.DesiredState = DesiredStateOffline
 		removed = *cur
-		return writeMemberOn(tx, *cur)
+		return writeMemberOn(tx, before, *cur)
 	})
 	if err != nil {
 		writeResolveTxError(w, err, "member", memberId)

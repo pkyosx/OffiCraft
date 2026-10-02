@@ -110,7 +110,7 @@ func TestRunLifecycleRosterPasses(t *testing.T) {
 		DesiredState: DesiredStateUninstall,
 		RosterStatus: RosterStatusActive,
 	}
-	if err := d.PutMember(warden); err != nil {
+	if err := d.putMemberWholeRowForTest(warden); err != nil {
 		t.Fatalf("PutMember: %v", err)
 	}
 

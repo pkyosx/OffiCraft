@@ -249,22 +249,16 @@ func (d *DAL) ZeroAccountSpend(account string) (float64, error) {
 	return had, nil
 }
 
-// PutMember is a whole-row write: INSERT … DO NOTHING lands every column on a
-// new row; on an existing row only the columns NOT flagged insertOnly in
-// dal_member_patch.go are written. So it silently cannot move an insertOnly
-// column (model, runtime, effort, desired_machine_id, banked_cost, last_op*,
-// the wind-down anchors, …) — each has its own single-column setter.
-// It fans no SSE delta; s.putMember pairs the write with publishMemberPatch.
-func (d *DAL) PutMember(m Member) error {
-	return d.inTx(func(tx *writeTx) error { return putMemberOn(tx, m) })
+// CreateMember refuses an id that already exists rather than writing over it: an
+// existing row changes only through a patch (PatchMember, the single-column
+// setters, writeMemberChangesOn). It fans no SSE delta; s.createMember pairs the
+// write with publishMemberPatch.
+func (d *DAL) CreateMember(m Member) error {
+	return d.inTx(func(tx *writeTx) error { return createMemberOn(tx, m) })
 }
 
-func putMemberOn(ex sqlExecer, m Member) error {
-	fields := memberWholeRow(m)
-	if err := insertMemberRowIfAbsent(ex, fields); err != nil {
-		return err
-	}
-	return patchMemberOn(ex, m.ID, updatableMemberFields(fields)...)
+func createMemberOn(ex sqlExecer, m Member) error {
+	return insertMemberRow(ex, memberWholeRow(m))
 }
 
 func (d *DAL) AddMemberBankedCost(id string, delta float64) error {

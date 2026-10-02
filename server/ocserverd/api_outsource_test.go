@@ -324,7 +324,7 @@ func TestTaskTypeDisplayNames(t *testing.T) {
 
 func TestWorkerDelegatedName(t *testing.T) {
 	api, _, d, _ := newAPITestServer(t)
-	if err := d.PutMember(Member{ID: "kip", Name: "Kip", Kind: KindStaff}); err != nil {
+	if err := d.putMemberWholeRowForTest(Member{ID: "kip", Name: "Kip", Kind: KindStaff}); err != nil {
 		t.Fatalf("PutMember: %v", err)
 	}
 

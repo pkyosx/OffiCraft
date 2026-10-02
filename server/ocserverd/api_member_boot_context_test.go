@@ -37,7 +37,7 @@ func memberPreviewSeed(t *testing.T, d *DAL, members ...Member) {
 		if m.RosterStatus == "" {
 			m.RosterStatus = RosterStatusActive
 		}
-		if err := d.PutMember(m); err != nil {
+		if err := d.putMemberWholeRowForTest(m); err != nil {
 			t.Fatalf("PutMember(%s): %v", m.ID, err)
 		}
 		entries = append(entries, LoreEntry{
@@ -58,7 +58,7 @@ func memberPreviewSeed(t *testing.T, d *DAL, members ...Member) {
 // START it dispatched.
 func memberPreviewStartPersona(t *testing.T, api *apiServer, d *DAL, memberID string) string {
 	t.Helper()
-	if err := d.PutMember(Member{ID: "m-preview-box", Name: "Preview Box", Kind: KindWarden, RosterStatus: RosterStatusActive}); err != nil {
+	if err := d.putMemberWholeRowForTest(Member{ID: "m-preview-box", Name: "Preview Box", Kind: KindWarden, RosterStatus: RosterStatusActive}); err != nil {
 		t.Fatalf("PutMember(warden): %v", err)
 	}
 	api.telemetry.Set("m-preview-box", map[string]any{"runtimes": map[string]any{

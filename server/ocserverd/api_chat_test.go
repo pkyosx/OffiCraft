@@ -3468,7 +3468,7 @@ func TestHandleChatUnreadCountApiChatUnreadCountGet(t *testing.T) {
 			Codename: "O-released", RosterStatus: RosterStatusRemoved,
 		}
 		for _, member := range []Member{live, released} {
-			if err := d.PutMember(member); err != nil {
+			if err := d.putMemberWholeRowForTest(member); err != nil {
 				t.Fatalf("PutMember(%q): %v", member.ID, err)
 			}
 		}

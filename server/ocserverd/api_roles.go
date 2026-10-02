@@ -203,7 +203,7 @@ func (s *apiServer) HandleCreateRoleApiRolesPost(w http.ResponseWriter, r *http.
 		}); err != nil {
 			return err
 		}
-		return writeMemberOn(tx, member)
+		return createMemberRowOn(tx, member)
 	}); err != nil {
 		internalError(w, err)
 		return

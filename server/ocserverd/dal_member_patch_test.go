@@ -89,7 +89,7 @@ func TestMfCodename(t *testing.T) {
 
 		clash := dalTestMember("ow-2", "Rook")
 		clash.Codename = "O-7"
-		err := d.PutMember(clash)
+		err := d.putMemberWholeRowForTest(clash)
 		if err == nil {
 			t.Fatalf("a second row under the same codename: want a refusal, got nil")
 		}
@@ -243,59 +243,6 @@ func TestMemberWholeRow(t *testing.T) {
 	})
 }
 
-func TestUpdatableMemberFields(t *testing.T) {
-	t.Run("the insert-only columns are dropped and the rest keep their order and values", func(t *testing.T) {
-		m := dalTestMember("ow-1", "Wren")
-		m.Kind = KindOutsource
-		m.Codename = "O-7"
-		linked := "T-1"
-		m.LinkedTaskID = &linked
-
-		got := updatableMemberFields(memberWholeRow(m))
-		want := []memberField{
-			{col: "name", val: "Wren"},
-			{col: "kind", val: "outsource"},
-			{col: "role_key", val: "engineer"},
-			{col: "actual_model", val: "sonnet-4"},
-			{col: "actual_runtime", val: "codex"},
-			{col: "actual_effort", val: "high"},
-			{col: "desired_state", val: "online"},
-			{col: "last_machine_id", val: "mac-0"},
-			{col: "session_boot_ts", val: 1700000001.0},
-			{col: "waking_since", val: 1700000002.0},
-			{col: "roster_status", val: "active"},
-			{col: "linked_task_id", val: "T-1"},
-			{col: "codename", val: "O-7"},
-			{col: "created_ts", val: 1700000000.0},
-			{col: "released_ts", val: 1700000010.0},
-			{col: "activated_ts", val: 1700000011.0},
-			{col: "forced_stop_at", val: 1700000006.0, forwardOnly: true},
-			{col: "restart_after_stop", val: true},
-		}
-		if !reflect.DeepEqual(got, want) {
-			t.Fatalf("updatableMemberFields:\n got %+v\nwant %+v", got, want)
-		}
-	})
-
-	t.Run("an all-insert-only input keeps nothing, an all-updatable one keeps everything", func(t *testing.T) {
-		got := updatableMemberFields([]memberField{mfID("ann"), mfBankedCost(1), mfLastOp("stop")})
-		if !reflect.DeepEqual(got, []memberField{}) {
-			t.Fatalf("updatableMemberFields over insert-only columns: want an empty slice, got %+v", got)
-		}
-		in := []memberField{mfName("Ann"), mfKind(KindStaff)}
-		if got := updatableMemberFields(in); !reflect.DeepEqual(got, in) {
-			t.Fatalf("updatableMemberFields over updatable columns:\n got %+v\nwant %+v", got, in)
-		}
-	})
-
-	t.Run("nothing at all in is an empty slice out, not nil", func(t *testing.T) {
-		got := updatableMemberFields(nil)
-		if got == nil || len(got) != 0 {
-			t.Fatalf("updatableMemberFields(nil): want an empty slice, got %#v", got)
-		}
-	})
-}
-
 func TestPatchMemberOn(t *testing.T) {
 	t.Run("only the named columns move, and the neighbouring row is untouched", func(t *testing.T) {
 		d := newAPITestDAL(t)
@@ -393,20 +340,20 @@ func TestPatchMemberOn(t *testing.T) {
 	})
 }
 
-func TestInsertMemberRowIfAbsent(t *testing.T) {
+func TestInsertMemberRow(t *testing.T) {
 	t.Run("an absent id lands the whole row, insert-only columns included", func(t *testing.T) {
 		d := newAPITestDAL(t)
 		m := dalTestMember("ann", "Ann")
 		m.Codename = "O-7"
 		linked := "T-1"
 		m.LinkedTaskID = &linked
-		if err := insertMemberRowIfAbsent(d.wdb, memberWholeRow(m)); err != nil {
-			t.Fatalf("insertMemberRowIfAbsent: %v", err)
+		if err := insertMemberRow(d.wdb, memberWholeRow(m)); err != nil {
+			t.Fatalf("insertMemberRow: %v", err)
 		}
 		dalWantMember(t, d, m)
 	})
 
-	t.Run("an id that already exists is left exactly as it stands", func(t *testing.T) {
+	t.Run("an id that already exists is refused and left exactly as it stands", func(t *testing.T) {
 		d := newAPITestDAL(t)
 		stored := dalPutMember(t, d, dalTestMember("ann", "Ann"))
 		bob := dalPutMember(t, d, dalTestMember("bob", "Bob"))
@@ -415,13 +362,14 @@ func TestInsertMemberRowIfAbsent(t *testing.T) {
 		incoming.RoleKey = "auditor"
 		incoming.BankedCost = 0
 		incoming.RosterStatus = RosterStatusRemoved
-		if err := insertMemberRowIfAbsent(d.wdb, memberWholeRow(incoming)); err != nil {
-			t.Fatalf("insertMemberRowIfAbsent onto an existing id: %v", err)
+		err := insertMemberRow(d.wdb, memberWholeRow(incoming))
+		if err == nil || !strings.Contains(err.Error(), "UNIQUE constraint failed: member.id") {
+			t.Fatalf("insertMemberRow onto an existing id: want the UNIQUE refusal, got %v", err)
 		}
 		dalWantMember(t, d, stored)
 		dalWantMember(t, d, bob)
 		if got := dalMemberIDs(t, d); !reflect.DeepEqual(got, []string{"ann", "bob"}) {
-			t.Fatalf("the roster after the no-op insert: want [ann bob], got %v", got)
+			t.Fatalf("the roster after the refused insert: want [ann bob], got %v", got)
 		}
 	})
 }
@@ -535,4 +483,83 @@ func dalSplitColumns(list string) []string {
 		}
 	}
 	return out
+}
+
+func changedCols(before, after Member) []string {
+	var cols []string
+	for _, f := range changedMemberFields(before, after) {
+		cols = append(cols, f.col)
+	}
+	sort.Strings(cols)
+	return cols
+}
+
+func TestChangedMemberFields(t *testing.T) {
+	base := Member{ID: "ann", Name: "Ann", Kind: KindStaff, DesiredState: DesiredStateOnline,
+		RosterStatus: RosterStatusActive}
+
+	t.Run("an untouched copy changes nothing", func(t *testing.T) {
+		if got := changedCols(base, base); len(got) != 0 {
+			t.Fatalf("want no columns, got %v", got)
+		}
+	})
+
+	t.Run("only the moved column is written", func(t *testing.T) {
+		after := base
+		after.LastMachineID = "m-1"
+		apiWantValue(t, "columns", any(changedCols(base, after)), any([]string{"last_machine_id"}))
+	})
+
+	t.Run("a stop that also clears the queued restart writes both in one statement", func(t *testing.T) {
+		before := base
+		before.RestartAfterStop = true
+		after := before
+		after.DesiredState = DesiredStateOffline
+		after.RestartAfterStop = false
+		apiWantValue(t, "columns", any(changedCols(before, after)),
+			any([]string{"desired_state", "restart_after_stop"}))
+	})
+
+	t.Run("two pointers to the same task id are no change: values are compared, not pointers", func(t *testing.T) {
+		x, y := "T-1", "T-1"
+		before, after := base, base
+		before.LinkedTaskID, after.LinkedTaskID = &x, &y
+		if got := changedCols(before, after); len(got) != 0 {
+			t.Fatalf("want no columns, got %v", got)
+		}
+	})
+
+	t.Run("an insert-only column is never derived from the diff", func(t *testing.T) {
+		after := base
+		after.Model = "other"
+		after.BankedCost = 9
+		after.StoppedSince = 5
+		if got := changedCols(base, after); len(got) != 0 {
+			t.Fatalf("want no columns, got %v", got)
+		}
+	})
+}
+
+func TestStaleCopyThroughTheChangesDoorLeavesOtherColumnsAlone(t *testing.T) {
+	d := newTestDAL(t)
+	row := Member{ID: "ann", Name: "Ann", Kind: KindStaff, RoleKey: "dev", DesiredState: DesiredStateOnline,
+		RosterStatus: RosterStatusActive}
+	if err := d.CreateMember(row); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	stale := row
+	if err := d.PatchMember("ann", mfRosterStatus(RosterStatusRemoved)); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	after := stale
+	after.LastMachineID = "m-1"
+	if err := d.inTx(func(tx *writeTx) error { return writeMemberChangesOn(tx, stale, after) }); err != nil {
+		t.Fatalf("write changes: %v", err)
+	}
+	got, err := d.GetMember("ann")
+	if err != nil || got == nil {
+		t.Fatalf("read back: %+v %v", got, err)
+	}
+	apiWantValue(t, "roster_status", any(got.RosterStatus), any(RosterStatusRemoved))
+	apiWantValue(t, "last_machine_id", any(got.LastMachineID), any("m-1"))
 }
