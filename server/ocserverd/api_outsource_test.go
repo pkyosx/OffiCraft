@@ -56,6 +56,15 @@ func apiTestRunningWorker(t *testing.T, api *apiServer, h http.Handler, d *DAL, 
 	return session
 }
 
+func apiTestWorkerRecord(t *testing.T, d *DAL, id string) OutsourceWorker {
+	t.Helper()
+	w, err := d.GetOutsourceWorker(id)
+	if err != nil || w == nil {
+		t.Fatalf("GetOutsourceWorker(%q): %v (%v)", id, w, err)
+	}
+	return *w
+}
+
 // apiTestStoppedWorker is the fixture worker held offline on the server-self
 // machine and never asked to stop, with that warden and m-box both up.
 func apiTestStoppedWorker(t *testing.T, api *apiServer, h http.Handler, d *DAL, owner string) {
@@ -864,7 +873,7 @@ func TestRelocateWorkerByID(t *testing.T) {
 }
 
 func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing.T) {
-	t.Run("換手 on a worker whose 強制停止 already took its session down starts it in the same request, as a success noting it had already stopped", func(t *testing.T) {
+	t.Run("換手 on a worker whose 強制停止 already took its session down answers 409 naming 喚醒, starts nothing and leaves the row as it was", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		session := apiTestRunningWorker(t, api, h, d, owner)
 		if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/force-stop", owner, ""); code != 200 {
@@ -872,21 +881,19 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 		}
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
 		api.hub.Disconnect(session)
+		before := apiTestWorkerRecord(t, d, "ow-abc123")
+		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", owner, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
+		if status != 409 {
+			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
-		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
-		wsWantWardenFrames(t, api, ServerSelfHost,
-			wsStartFrame("ow-abc123", apiTestWorkerBootContext(t, h, owner), "claude", "sonnet", "medium"))
-		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-			"status": "active", "presence": "waking", "desired_state": "online",
-			"desired_machine_id": "m-server-self", "machine": "m-server-self", "forced_stop_at": apiAnyNumber,
-			"last_op": "start", "last_op_ok": true, "last_op_log": "", "last_op_at": apiAnyNumber,
-			"last_op_reason": "restarting: the refocus was saved; this member had already " +
-				"stopped, so it is being started again to apply it",
-		}))
+		apiWantError(t, data, "conflict",
+			"refocus requires the worker to be online; this worker is stopping or "+
+				"stopped — press 喚醒 to bring it back")
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		dashboard.wantFrames()
+		apiTestWantEqual(t, "row after the refused refocus", apiTestWorkerRecord(t, d, "ow-abc123"), before)
 	})
 
 	for _, workerStatus := range []string{"active", "assigned"} {
@@ -1025,32 +1032,28 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 		})
 	}
 
-	t.Run("換手 on a worker whose 停止 is in flight answers 200 and queues the 起來 behind it", func(t *testing.T) {
+	t.Run("換手 on a worker whose 停止 is in flight answers 409 naming 喚醒, fans nothing and leaves the stop as it was", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
 		apiTestListen(t, api, "ow-abc123")
 		if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/deactivate", owner, ""); code != 200 {
 			t.Fatalf("stop: %d %v", code, data)
 		}
+		before := apiTestWorkerRecord(t, d, "ow-abc123")
 		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", owner, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
+		if status != 409 {
+			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
-		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
-		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-			"status": "active", "presence": "stopping", "desired_state": "offline",
-			"last_op": "start", "last_op_ok": true, "last_op_at": apiAnyNumber,
-			"last_op_reason": "restart_queued: the refocus was saved; this member is still " +
-				"being stopped, and it will be started again to apply it once that stop completes",
-		}))
-		// The 停止 in flight is itself an open wind-down, so this write carries
-		// the 〈停止〉 notice too (offboardDeltaPayload).
-		dashboard.wantFrames(apiTestHandoverDelta(4, DesiredStateOffline, apiTestOffboardNotice, "owner"))
+		apiWantError(t, data, "conflict",
+			"refocus requires the worker to be online; this worker is stopping or "+
+				"stopped — press 喚醒 to bring it back")
+		dashboard.wantFrames()
+		apiTestWantEqual(t, "row after the refused refocus", apiTestWorkerRecord(t, d, "ow-abc123"), before)
 	})
 
-	t.Run("換手 on a worker nobody ever asked to stop answers 409 naming 喚醒 instead", func(t *testing.T) {
+	t.Run("換手 on a worker nobody ever asked to stop answers 409 naming 喚醒 and the row is left as it was", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
 		worker, err := d.GetOutsourceWorker("ow-abc123")
@@ -1072,9 +1075,8 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 			t.Fatalf("want 409, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "conflict",
-			"refocus requires a live worker — this one is stopped and has never been "+
-				"asked to stop, so there is no wind-down for a 起來 to be queued behind "+
-				"(喚醒 it when you want it to run)")
+			"refocus requires the worker to be online; this worker is stopping or "+
+				"stopped — press 喚醒 to bring it back")
 		apiTestWantWorker(t, h, owner, "ow-abc123", held)
 		dashboard.wantFrames()
 	})
@@ -1420,16 +1422,15 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 
 	t.Run("escalating a stop drops the 起來 queued behind it", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
-		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
-		apiTestListen(t, api, "ow-abc123")
+		apiTestRunningWorker(t, api, h, d, owner)
 		if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/deactivate", owner, ""); code != 200 {
 			t.Fatalf("stop: %d %v", code, data)
 		}
-		if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", owner, ""); code != 200 {
-			t.Fatalf("refocus: %d %v", code, data)
+		if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/relocate", owner, `{"machine_id":"m-box"}`); code != 200 {
+			t.Fatalf("relocate: %d %v", code, data)
 		}
 		if !apiTestMemberRow(t, d, "ow-abc123").RestartAfterStop {
-			t.Fatalf("setup: the refocus must have queued a 起來")
+			t.Fatalf("setup: the relocate must have queued a 起來")
 		}
 		contractor := apiTestListen(t, api, "ow-abc123")
 
@@ -1444,8 +1445,8 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 				pressed.RestartAfterStop, pressed.RefocusOp)
 		}
 		contractor.wantFrames(
-			apiTestHandoverDelta(5, "offline", apiAnyString, "owner"),
 			apiTestHandoverDelta(6, "offline", apiAnyString, "owner"),
+			apiTestHandoverDelta(7, "offline", apiAnyString, "owner"),
 		)
 	})
 

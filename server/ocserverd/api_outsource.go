@@ -182,23 +182,15 @@ func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost
 	defer unlockMu()
 	online := s.hub.IsOnline(id)
 	var worker *OutsourceWorker
-	queued := false
 	err := s.dal.inTx(func(tx *writeTx) error {
 		var err error
 		if worker, err = resolveLiveWorkerOn(tx, id); err != nil {
 			return err
 		}
 		before := *worker
-		queued = false
 		switch applyRefocusVerb(ownerOpRowOfWorker(worker), memberFromWorker(*worker), online, nowSecs()) {
-		case refocusQueuedBehindStop:
-			queued = true
-			return persistWorkerRestartIntentOn(tx, before, *worker)
-		case refocusRefusedNeverStopped:
-			return refuseInTx(http.StatusConflict,
-				"refocus requires a live worker — this one is stopped and has never "+
-					"been asked to stop, so there is no wind-down for a 起來 to be "+
-					"queued behind (喚醒 it when you want it to run)")
+		case refocusRefusedWantedOffline:
+			return refuseInTx(http.StatusConflict, refocusWantedOfflineRefusalMsg("worker"))
 		case refocusRefusedNoSession:
 			return refuseInTx(http.StatusConflict,
 				"refocus requires the worker to be online (no live session to hand over)")
@@ -210,16 +202,6 @@ func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost
 	if err != nil {
 		unlockMu()
 		writeResolveTxError(w, err, "member", id)
-		return
-	}
-	if queued {
-		s.publishOutsourceWorker(*worker, requestTrigger(r))
-		unlockMu()
-		s.outsourceTickAfterOwnerOp(refocusOpRefocus)
-		if fresh, ferr := s.dal.GetOutsourceWorker(id); ferr == nil && fresh != nil {
-			worker = fresh
-		}
-		writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: worker.ID})
 		return
 	}
 	s.openWorkerHandoverGrace(*worker, requestTrigger(r))
