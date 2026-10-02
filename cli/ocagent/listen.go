@@ -630,6 +630,10 @@ func newAckGate(env func(string) string, answers io.Reader, diag io.Writer) *ack
 		return nil
 	}
 	if path := strings.TrimSpace(env(listenAckFileEnv)); path != "" {
+		if diag == nil {
+			// The mod logs the child's stderr, so the notice stays readable there.
+			diag = os.Stderr
+		}
 		return &ackGate{answers: watchAckFile(path, ackFilePoll), wait: ackWaitTimeout, timeoutNotice: diag}
 	}
 	if answers == nil {

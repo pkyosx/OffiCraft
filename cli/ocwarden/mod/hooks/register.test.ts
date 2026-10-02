@@ -20,6 +20,8 @@ type World = {
   stderr?: string[]
   refuse?: string[]
   throwOn?: string[]
+  // Prompts whose submit hook throws before returning anything.
+  throwSyncOn?: string[]
   // Prompts the engine holds before answering, in ms: a busy member's queue.
   busy?: Record<string, number>
   // Prompts the engine refuses only after that many ms.
@@ -56,9 +58,14 @@ function world(on: On, w: World) {
     trail.push(`write ${e.path}`)
     return { value: undefined }
   })
-  on('prompt.submit', async ($, e) => {
+  on('prompt.submit', ($, e) => {
     submits.push({ text: e.text, asUser: e.origin.kind === 'plugin' && e.origin.asUser === true })
     trail.push(`submit ${e.text}`)
+    if ((w.throwSyncOn ?? []).includes(e.text)) throw new Error('the session is gone, synchronously')
+    return answer(e.text)
+  })
+  const answer = async (text: string) => {
+    const e = { text }
     if ((w.throwOn ?? []).includes(e.text)) throw new Error('the session is gone')
     const held = w.busy?.[e.text] ?? w.dropLate?.[e.text]
     if (held !== undefined) {
@@ -67,7 +74,7 @@ function world(on: On, w: World) {
       if (w.dropLate?.[e.text] !== undefined) return { drop: 'refused late' }
     }
     return (w.refuse ?? []).includes(e.text) ? { drop: 'refused' } : { text: e.text }
-  })
+  }
   // The acceptance grace, shortened: what matters is which side of it an answer lands.
   on('clock.sleep', async () => {
     await new Promise(resolve => setTimeout(resolve, GRACE_STAND_IN_MS))
@@ -184,6 +191,7 @@ test('under a listener whose stdout is no frame and that prints no transport lin
 for (const [name, refusal] of [
   ['refuses', { refuse: ['開始。'] }],
   ['throws on', { throwOn: ['開始。'] }],
+  ['throws synchronously on', { throwSyncOn: ['開始。'] }],
 ] as const) {
   test(`under a boot prompt the session ${name}, nothing is marked and no listener starts`, async ($, on) => {
     const w = world(on, { ...refusal, stderr: [CONNECTED] })
@@ -212,6 +220,7 @@ test('under the warden falling back before the listener connected, the mod write
 for (const [name, failure] of [
   ['refused', { refuse: ['乙'] }],
   ['that throws', { throwOn: ['乙'] }],
+  ['that throws synchronously', { throwSyncOn: ['乙'] }],
 ] as const) {
   test(`under a submit ${name}, its batch is nacked and the next batch starts clean`, async ($, on) => {
     const w = world(on, {

@@ -7,6 +7,9 @@ const CONFIG_FILE = 'officraft.json'
 // A plugin submit resolves only when its turn STARTS, minutes later while the
 // member is busy, far past the listener's 30 s ack wait; a refusal comes at once.
 const ACCEPT_GRACE_MS = 1500
+// ⚠️ While the member is busy each submit spends the whole grace, one after the
+// other: a batch of more than ~20 payloads (30 s ack wait / 1.5 s) outlasts the
+// listener's ack wait and brings the reprint loop back.
 
 type Config = {
   boot_prompt: string
@@ -171,7 +174,8 @@ type SubmitOutcome = 'entered' | 'pending' | string
 // is a failure, anything still pending then counts as accepted. Each call returns
 // before the next submit is issued, so prompts are queued in order.
 async function accepted($: EngineInterface, text: string, asUser = false): Promise<boolean> {
-  const outcome: Promise<SubmitOutcome> = $.prompt.submit(asUser ? { text, asUser: true } : { text }).then(
+  // The async wrapper turns a synchronous throw into a rejection, a failed submit.
+  const outcome: Promise<SubmitOutcome> = (async () => $.prompt.submit(asUser ? { text, asUser: true } : { text }))().then(
     result => (result.drop === undefined ? 'entered' : `dropped (${result.drop})`),
     err => `threw (${String(err)})`,
   )
