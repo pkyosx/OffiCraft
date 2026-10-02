@@ -194,39 +194,22 @@ func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost
 		if worker, err = resolveLiveWorkerOn(tx, id); err != nil {
 			return err
 		}
-		// Offline: queue a 起來 behind the existing stop instead of refusing (owner
-		// rc-bc1b029a3aa2) — the stop keeps its stage and anchors. The 409 remains
-		// only for a worker nobody ever asked to stop (aStopWasEverAskedFor).
-		if worker.DesiredState == DesiredStateOffline {
-			if !s.queueWorkerRestartAfterStop(worker, refocusOpRefocus, nowSecs()) {
-				return refuseInTx(http.StatusConflict,
-					"refocus requires a live worker — this one is stopped and has never "+
-						"been asked to stop, so there is no wind-down for a 起來 to be "+
-						"queued behind (喚醒 it when you want it to run)")
-			}
+		queued = false
+		switch applyRefocusVerb(ownerOpRowOfWorker(worker), memberFromWorker(*worker), online, nowSecs()) {
+		case refocusQueuedBehindStop:
 			queued = true
 			return persistWorkerRestartIntentOn(tx, *worker)
-		}
-		queued = false
-		if !online {
+		case refocusRefusedNeverStopped:
+			return refuseInTx(http.StatusConflict,
+				"refocus requires a live worker — this one is stopped and has never "+
+					"been asked to stop, so there is no wind-down for a 起來 to be "+
+					"queued behind (喚醒 it when you want it to run)")
+		case refocusRefusedNoSession:
 			return refuseInTx(http.StatusConflict,
 				"refocus requires the worker to be online (no live session to hand over)")
+		case refocusRefusedLadder:
+			return refuseInTx(http.StatusConflict, refocusLadderRefusalMsg("worker"))
 		}
-		// The wind-down ladder only goes forward (owner 2026-08-24). 換手 does not go
-		// through respawnWorkerForOwnerOp, so this site needs its own guard: the
-		// shared armRefocusEpoch on the member projection, folding back only the four
-		// fields it mutates — a hand-written copy drifts from the shared decision.
-		proj := memberFromWorker(*worker)
-		if !armRefocusEpoch(&proj, refocusOpRefocus, nowSecs()) {
-			return refuseInTx(http.StatusConflict,
-				"refocus is 停止 and this worker is already further along the "+
-					"wind-down ladder (下線 → 加速 → 強制); a later stage is never "+
-					"replaced by an earlier one")
-		}
-		worker.RefocusSince = proj.RefocusSince
-		worker.RefocusOp = proj.RefocusOp
-		worker.StoppingSince = proj.StoppingSince
-		worker.StoppedSince = proj.StoppedSince
 		return persistWorkerRowOn(tx, *worker)
 	})
 	if err != nil {

@@ -912,6 +912,27 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 		dashboard.wantFrames()
 	})
 
+	t.Run("a stopped_since left outside any epoch is cleared when the 換手 epoch opens, so the new epoch does not read as already collected", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+		apiTestListen(t, api, "ow-abc123")
+		if err := d.SetMemberWindDownAnchors("ow-abc123", 0, 20, 0, ""); err != nil {
+			t.Fatalf("SetMemberWindDownAnchors: %v", err)
+		}
+
+		if status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", owner, ""); status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		w, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || w == nil {
+			t.Fatalf("GetOutsourceWorker: %v (%v)", w, err)
+		}
+		if w.StoppingSince != 0 || w.StoppedSince != 0 || w.RefocusSince <= 0 || w.RefocusOp != "refocus" {
+			t.Fatalf("want stopping=0 stopped=0 refocus>0 op=%q, got stopping=%v stopped=%v refocus=%v op=%q",
+				"refocus", w.StoppingSince, w.StoppedSince, w.RefocusSince, w.RefocusOp)
+		}
+	})
+
 	t.Run("換手 with no live session answers 409 and stamps nothing", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)

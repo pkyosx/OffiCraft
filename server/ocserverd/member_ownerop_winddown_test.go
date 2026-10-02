@@ -258,17 +258,42 @@ func TestArmMemberOwnerOpHandover(t *testing.T) {
 	}
 }
 
-func TestStampRestartIntent(t *testing.T) {
-	input := Member{
-		ID: "m-stamp", DesiredState: DesiredStateOffline, RestartAfterStop: false,
-		StoppingSince: 10, StoppedSince: 20, RefocusSince: 30, RefocusOp: memberOpRelocate,
+func TestQueueRestartBehindStop(t *testing.T) {
+	ok := false
+	wantReceipt := func(row ownerOpRow) {
+		t.Helper()
+		apiWantValue(t, "last_op", any(*row.LastOp), any("start"))
+		apiWantValue(t, "last_op_ok", any(*row.LastOpOK), any(&ok))
+		apiWantValue(t, "last_op_log", any(*row.LastOpLog), any(""))
+		apiWantValue(t, "last_op_reason", any(*row.LastOpReason), any("held_down: the relocate was saved "+
+			"and this member is still being stopped — the stop in flight is honoured as-is, and it "+
+			"will be started again once it is down"))
+		apiWantValue(t, "last_op_at", any(*row.LastOpAt), any(1234.5))
 	}
-	stampRestartIntent(&input)
-	want := Member{
-		ID: "m-stamp", DesiredState: DesiredStateOffline, RestartAfterStop: true,
-		StoppingSince: 10, StoppedSince: 20, RefocusSince: 30, RefocusOp: memberOpRelocate,
-	}
-	apiTestWantEqual(t, "member after stampRestartIntent", input, want)
+
+	t.Run("a staff row gets the 起來 and the queued receipt, and its stop anchors stay as they were", func(t *testing.T) {
+		m := Member{ID: "m-stamp", DesiredState: DesiredStateOffline,
+			StoppingSince: 10, StoppedSince: 20, RefocusSince: 30, RefocusOp: memberOpRelocate}
+		row := ownerOpRowOfMember(&m)
+		queueRestartBehindStop(row, memberOpRelocate, 1234.5)
+		wantReceipt(row)
+		m.LastOp, m.LastOpOK, m.LastOpLog, m.LastOpReason, m.LastOpAt = "", nil, "", "", 0
+		apiTestWantEqual(t, "member after the queue", m, Member{ID: "m-stamp",
+			DesiredState: DesiredStateOffline, RestartAfterStop: true,
+			StoppingSince: 10, StoppedSince: 20, RefocusSince: 30, RefocusOp: memberOpRelocate})
+	})
+
+	t.Run("a worker row gets the same 起來 and the same receipt, and its stop anchors stay as they were", func(t *testing.T) {
+		w := OutsourceWorker{ID: "ow-stamp", DesiredState: DesiredStateOffline,
+			StoppingSince: 10, StoppedSince: 20, RefocusSince: 30, RefocusOp: ownerOpRelocate}
+		row := ownerOpRowOfWorker(&w)
+		queueRestartBehindStop(row, ownerOpRelocate, 1234.5)
+		wantReceipt(row)
+		w.LastOp, w.LastOpOK, w.LastOpLog, w.LastOpReason, w.LastOpAt = "", nil, "", "", 0
+		apiTestWantEqual(t, "worker after the queue", w, OutsourceWorker{ID: "ow-stamp",
+			DesiredState: DesiredStateOffline, RestartAfterStop: true,
+			StoppingSince: 10, StoppedSince: 20, RefocusSince: 30, RefocusOp: ownerOpRelocate})
+	})
 }
 
 func TestClearRestartIntent(t *testing.T) {

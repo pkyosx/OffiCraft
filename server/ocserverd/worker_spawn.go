@@ -852,7 +852,8 @@ func (s *apiServer) relocateWorkerNow(w OutsourceWorker) ownerOpOutcome {
 // its handler sets DesiredState online on the row it passes by value.
 // Callers hold s.outsourceMu.
 func (s *apiServer) respawnWorkerForOwnerOp(w OutsourceWorker, op string) ownerOpOutcome {
-	if w.DesiredState == DesiredStateOffline {
+	switch ownerOpHandoverPlanFor(memberFromWorker(w), s.hub.IsOnline(w.ID)) {
+	case ownerOpPlanQueueBehindStop, ownerOpPlanHeldDown:
 		// Queue the verb behind the stop (owner rc-bc1b029a3aa2); nothing dispatches.
 		// 換 model reaches here only while the session is up — a converged stop
 		// queues through its own branch in api_outsource.go; both are needed.
@@ -873,11 +874,10 @@ func (s *apiServer) respawnWorkerForOwnerOp(w OutsourceWorker, op string) ownerO
 			"but nothing was started — this worker is stopped; 喚醒 it when you want it "+
 			"to run", now)
 		return ownerOpOutcome{HeldDown: true}
-	}
-	// Every owner verb gets a wind-down chance (owner: 「我建議所有換手都可以給他機會收尾」).
-	// 「正在跑就不動它」 for 喚醒 is enforced by api_outsource.go (!sessionAliveReceipt)
-	// before this call; nothing in this function catches a weakened gate.
-	if s.workerHasStateToFlush(w) {
+	case ownerOpPlanWindDown:
+		// Every owner verb gets a wind-down chance (owner: 「我建議所有換手都可以給他機會收尾」).
+		// 「正在跑就不動它」 for 喚醒 is enforced by api_outsource.go (!sessionAliveReceipt)
+		// before this call; nothing in this function catches a weakened gate.
 		// A ladder refusal (openOwnerOpHandover false) still answers WoundDown: a
 		// higher wind-down is open, and falling through would kill a session mid 加速停止.
 		s.openOwnerOpHandover(w, op)
@@ -908,16 +908,6 @@ const (
 	ownerOpRestart      = "restart"
 	ownerOpRuntimeModel = "runtime/model" // 換 model / runtime / effort
 )
-
-// workerHasStateToFlush: the answer is shared with staff
-// (hasUncollectedOnlineOwnerOpState) but deliberately carries no desired-offline
-// arm — respawnWorkerForOwnerOp's held_down gate returns first. Adding one to
-// "match" staff makes that gate dead code; merging the shells was measured to
-// close the whole worker wind-down window. Callers hold s.outsourceMu.
-func (s *apiServer) workerHasStateToFlush(w OutsourceWorker) bool {
-	return hasUncollectedOnlineOwnerOpState(
-		w.RefocusSince, w.StoppedSince, s.hub.IsOnline(w.ID))
-}
 
 // openOwnerOpHandover opens a graceful wind-down for an owner verb: stamp a fresh
 // refocus epoch via armRefocusEpoch (never by hand — its ladder 下線 → 加速 → 強制

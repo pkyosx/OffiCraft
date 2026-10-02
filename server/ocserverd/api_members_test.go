@@ -2960,6 +2960,26 @@ func TestHandleRefocusMemberApiMembersMemberIdRefocusPost(t *testing.T) {
 		}
 	})
 
+	t.Run("a stopped_since left outside any epoch is cleared when the refocus epoch opens, so the new epoch does not read as already collected", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
+			t.Fatalf("activate: %d %v", status, data)
+		}
+		apiTestListen(t, api, "kip")
+		if err := d.SetMemberWindDownAnchors("kip", 0, 20, 0, ""); err != nil {
+			t.Fatalf("SetMemberWindDownAnchors: %v", err)
+		}
+
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/refocus", owner, `{}`); status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		m := apiTestMemberRow(t, d, "kip")
+		if m.StoppingSince != 0 || m.StoppedSince != 0 || m.RefocusSince <= 0 || m.RefocusOp != "refocus" {
+			t.Fatalf("want stopping=0 stopped=0 refocus>0 op=%q, got stopping=%v stopped=%v refocus=%v op=%q",
+				"refocus", m.StoppingSince, m.StoppedSince, m.RefocusSince, m.RefocusOp)
+		}
+	})
+
 	t.Run("a live member that is wanted online gets the refocus epoch and the wind-down notice", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
