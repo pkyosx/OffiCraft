@@ -1,24 +1,7 @@
-// The install button's WORD, not its action — Monitor §2 machine panel.
-//
-// One button used to say 「安裝」 for two situations that are not the same thing:
-// a machine that already has a warden (the click overwrites it) and one that has
-// none (the click sets it up). Owner 2026-08-20, looking at the cockpit: 「已經
-// 安裝過的應該是要叫做（重新安裝）才對？」
-//
-// 🔴 What this file pins is the PROXY, and the proxy is deliberately imperfect.
-// The server keeps NO "was this machine ever installed" field (T-ce3d), so
-// offline is not the negation of installed: an installed-but-powered-off machine
-// is byte-identical to one that was never touched. Owner ruled to use `online`
-// as the proxy anyway, because the ACTION is `install --force` either way and
-// only the word differs. So these assertions are:
-//   • online  ⇒ 「重新安裝」 — always correct (a live warden IS talking to us)
-//   • offline ⇒ 「安裝」    — correct for never-installed, KNOWINGLY wrong for
-//                            an installed machine that is powered off
-// A future change that adds the durable field should flip the offline arm and
-// delete this comment — not delete the test.
-
+// The 操作 column is one ⚙ button per machine row; its menu carries the row's
+// install / uninstall / delete with their enable rules unchanged.
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { MonitorPage } from "./MonitorPage";
 import type { Member, MachineView, MonMachineView } from "../types";
@@ -86,37 +69,55 @@ function renderMonitor() {
   );
 }
 
-describe("install button label follows the machine's online state", () => {
+describe("the machine row's ⚙ operations menu", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     listMembers.mockResolvedValue([]);
     getMonitoring.mockResolvedValue({ accounts: [], sessions: [], machines: [] });
   });
 
-  it("says 重新安裝 on an ONLINE machine (a warden is live there)", async () => {
+  it("under an online remote machine gives 重新安裝, 解除安裝 and 刪除, all enabled, behind a gear named for the machine", async () => {
     listMachines.mockResolvedValue([machine({ online: true })]);
     renderMonitor();
-    const btn = await machineAction("mon-install-btn");
-    expect(btn.textContent).toContain("重新安裝");
+    const gear = await screen.findByRole("button", { name: "機器操作（Alpha）" });
+    expect(gear.getAttribute("aria-haspopup")).toBe("menu");
+    expect(screen.queryByRole("menu")).toBeNull();
+    fireEvent.click(gear);
+    const items = screen.getAllByRole("menuitem") as HTMLButtonElement[];
+    expect(items.map((i) => [i.textContent, i.disabled, i.title])).toEqual([
+      ["重新安裝", false, ""],
+      ["解除安裝", false, ""],
+      ["刪除", false, ""],
+    ]);
   });
 
-  it("says 安裝 on an OFFLINE machine (nothing is talking to us)", async () => {
+  it("under an offline machine gives 安裝 and a disabled 解除安裝 that says why", async () => {
     listMachines.mockResolvedValue([machine({ online: false })]);
     renderMonitor();
-    const btn = await machineAction("mon-install-btn");
-    expect(btn.textContent).toContain("安裝");
-    // Not merely "contains 安裝" — 重新安裝 contains that substring too, so the
-    // offline arm has to be pinned by the ABSENCE of the prefix or this test
-    // passes against the exact regression it exists to catch.
-    expect(btn.textContent).not.toContain("重新");
+    fireEvent.click(await screen.findByRole("button", { name: "機器操作（Alpha）" }));
+    const items = screen.getAllByRole("menuitem") as HTMLButtonElement[];
+    expect(items.map((i) => [i.textContent, i.disabled, i.title])).toEqual([
+      ["安裝", false, ""],
+      ["解除安裝", true, "機器離線，無法解除安裝"],
+      ["刪除", false, ""],
+    ]);
   });
 
-  it("holds on the server-self row too — that is the destructive one", async () => {
+  it("under the server-self row gives a disabled 刪除", async () => {
     listMachines.mockResolvedValue([
       machine({ machineId: "m-server-self", displayName: "本機", online: true, isSelf: true }),
     ]);
     renderMonitor();
-    const btn = await machineAction("mon-install-btn");
-    expect(btn.textContent).toContain("重新安裝");
+    expect((await machineAction("mon-delete-btn")).disabled).toBe(true);
+  });
+
+  it("under Esc closes the menu", async () => {
+    listMachines.mockResolvedValue([machine({ online: true })]);
+    renderMonitor();
+    const gear = await screen.findByRole("button", { name: "機器操作（Alpha）" });
+    fireEvent.click(gear);
+    expect(screen.getByRole("menu")).toBeTruthy();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 });

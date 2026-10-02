@@ -37,6 +37,7 @@ import { en } from "../i18n/locales/en";
 import type { Dict } from "../i18n/locales/zh";
 import { makeMessages } from "../i18n/compose";
 import type { Member, MachineView } from "../types";
+import { machineAction } from "./machineActions.testHelper";
 
 const listMembers = vi.fn(async (): Promise<Member[]> => []);
 const listMachines = vi.fn(async (): Promise<MachineView[]> => []);
@@ -171,7 +172,7 @@ describe("delete-machine confirm dialog · the consequence reaches the screen", 
         <MonitorPage />
       </I18nProvider>
     );
-    fireEvent.click((await screen.findAllByTestId("mon-delete-btn"))[0]);
+    fireEvent.click(await machineAction("mon-delete-btn", 0));
 
     // Read the RENDERED dialog, not the dictionary: this is the half that
     // proves the copy is wired to the button the owner actually presses.

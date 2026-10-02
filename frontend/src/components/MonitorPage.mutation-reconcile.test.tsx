@@ -99,6 +99,7 @@ import { render, screen, fireEvent, act } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { MonitorPage } from "./MonitorPage";
 import type { Member, MachineView } from "../types";
+import { machineAction } from "./machineActions.testHelper";
 
 const h = vi.hoisted(() => ({
   listMachines: vi.fn<() => Promise<unknown>>(),
@@ -187,7 +188,7 @@ describe("MonitorPage · a mutation's own member frame must not cancel its recon
     expect(h.listMachines, "mount load only, so far").toHaveBeenCalledTimes(1);
 
     // Open the confirm dialog and press delete.
-    fireEvent.click((await screen.findAllByTestId("mon-delete-btn"))[0]);
+    fireEvent.click(await machineAction("mon-delete-btn", 0));
     await screen.findByTestId("mon-delete-confirm");
 
     // The reconciling GET that confirmDelete awaits stays open…

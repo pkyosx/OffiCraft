@@ -267,6 +267,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "monitor.fiveHour",
   "monitor.limitReached",
   "monitor.machine.actionsCol",
+  "monitor.machine.actionsMenu",
   "monitor.machine.bootstrapBusy",
   "monitor.machine.bootstrapConfirm",
   "monitor.machine.bootstrapConfirmBodyLead",

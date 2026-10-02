@@ -16,6 +16,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { MonitorPage } from "./MonitorPage";
 import type { Member, MachineView, MonMachineView } from "../types";
+import { machineAction } from "./machineActions.testHelper";
 
 const listMembers = vi.fn(async (): Promise<Member[]> => []);
 const listMachines = vi.fn(async (): Promise<MachineView[]> => []);
@@ -104,9 +105,7 @@ describe("MonitorPage install on an online machine", () => {
 
     it("is clickable and opens a confirm naming the real consequence", async () => {
       renderMonitor();
-      const btn = (await screen.findByTestId(
-        "mon-install-btn"
-      )) as HTMLButtonElement;
+      const btn = await machineAction("mon-install-btn");
       expect(btn.disabled).toBe(false);
 
       fireEvent.click(btn);
@@ -134,7 +133,7 @@ describe("MonitorPage install on an online machine", () => {
     // 🔴 THE assertion of this file.
     it("sends NO request when the confirm is cancelled", async () => {
       renderMonitor();
-      fireEvent.click(await screen.findByTestId("mon-install-btn"));
+      fireEvent.click(await machineAction("mon-install-btn"));
       await screen.findByTestId("mon-bootstrap-confirm");
 
       fireEvent.click(screen.getByTestId("mon-bootstrap-cancel-btn"));
@@ -145,7 +144,7 @@ describe("MonitorPage install on an online machine", () => {
 
     it("runs the in-place install exactly once when confirmed", async () => {
       renderMonitor();
-      fireEvent.click(await screen.findByTestId("mon-install-btn"));
+      fireEvent.click(await machineAction("mon-install-btn"));
       await screen.findByTestId("mon-bootstrap-confirm");
 
       fireEvent.click(screen.getByTestId("mon-bootstrap-confirm-btn"));
@@ -163,9 +162,7 @@ describe("MonitorPage install on an online machine", () => {
 
     it("can be clicked and shows the install command dialog", async () => {
       renderMonitor();
-      const btn = (await screen.findByTestId(
-        "mon-install-btn"
-      )) as HTMLButtonElement;
+      const btn = await machineAction("mon-install-btn");
       expect(btn.disabled).toBe(false);
 
       fireEvent.click(btn);
