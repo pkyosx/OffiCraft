@@ -2537,6 +2537,70 @@ func TestReconcileOne(t *testing.T) {
 		}))
 	})
 
+	t.Run("a wind-down STOP for a claim-less session goes to the machine it last landed on, not the pin it was moved to", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "m-away", Name: "Away", Kind: KindWarden})
+		reconcileTestOnline(t, api, "m-away", "")
+		reconcileTestOnline(t, api, "m-box", "")
+		reconcileTestPut(t, d, Member{
+			ID: "leaving", Name: "Leaving", Kind: KindStaff, RoleKey: "assistant",
+			DesiredState: DesiredStateOffline, DesiredMachineID: "m-box", LastMachineID: "m-away",
+		})
+		reconcileTestOnline(t, api, "leaving", "")
+		prior := reconcileState{Phase: reconcilePhaseStopping, LastCommand: reconcileCmdNone, StopDeadline: reconcileTestNow - 1}
+		timed := api.reconcileCfg
+		timed.SoftOffboardGrace = 0
+		api.reconcileCfg = timed
+
+		got := api.reconcileOne(reconcileTestRow(t, d, "leaving"), prior, reconcileTestNow)
+
+		reconcileTestWantDecision(t, got, reconcileDecision{
+			Command: reconcileCmdStop, MemberID: "leaving",
+			Reason: "robust stop: grace elapsed, still online",
+			State: reconcileState{
+				Phase: reconcilePhaseStopping, LastCommand: reconcileCmdStop,
+				LastCommandAt: reconcileTestNow, StopDeadline: reconcileTestNow - 1,
+			},
+			StopKind: stopKindWinddown,
+		})
+		frame, _ := buildTargetFrame(reconcileCmdStop, "leaving")
+		if queued := api.hub.DrainWardenCommands("m-away"); !reflect.DeepEqual(queued, []wardenCmd{{Subject: "leaving", Frame: frame}}) {
+			t.Fatalf("m-away queued = %+v, want the one STOP", queued)
+		}
+		if queued := api.hub.DrainWardenCommands("m-box"); len(queued) != 0 {
+			t.Fatalf("the pin holds no session and must get no STOP: %+v", queued)
+		}
+	})
+
+	t.Run("a zombie-takeover STOP goes to the pin the START bounced off, not the machine the member last landed on", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "m-away", Name: "Away", Kind: KindWarden})
+		reconcileTestOnline(t, api, "m-away", "")
+		reconcileTestOnline(t, api, "m-box", "")
+		reconcileTestPut(t, d, Member{
+			ID: "squatted", Name: "Squatted", Kind: KindStaff, RoleKey: "assistant",
+			DesiredState: DesiredStateOnline, DesiredMachineID: "m-box", LastMachineID: "m-away",
+			LastOp: reconcileCmdStart, LastOpReason: spawnClobberReasonPrefix + ": pid 4242 already running",
+		})
+		prior := reconcileState{
+			Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart,
+			LastCommandAt: reconcileTestNow - 10, OfflineSince: reconcileTestNow - 240,
+		}
+
+		got := api.reconcileOne(reconcileTestRow(t, d, "squatted"), prior, reconcileTestNow)
+
+		if got.Command != reconcileCmdStop || got.StopKind != stopKindZombieTakeover || got.DispatchUnlanded {
+			t.Fatalf("premise: a landed zombie-takeover STOP, got %+v", got)
+		}
+		frame, _ := buildTargetFrame(reconcileCmdStop, "squatted")
+		if queued := api.hub.DrainWardenCommands("m-box"); !reflect.DeepEqual(queued, []wardenCmd{{Subject: "squatted", Frame: frame}}) {
+			t.Fatalf("m-box queued = %+v, want the one STOP", queued)
+		}
+		if queued := api.hub.DrainWardenCommands("m-away"); len(queued) != 0 {
+			t.Fatalf("the last landing is not where the START bounced and must get no STOP: %+v", queued)
+		}
+	})
+
 	t.Run("a STOP the warden refused arms nothing, so the lapse sweep has no silence to report", func(t *testing.T) {
 		api, d := reconcileTestServer(t)
 		reconcileTestPut(t, d, Member{ID: "m-away", Name: "Away", Kind: KindWarden})

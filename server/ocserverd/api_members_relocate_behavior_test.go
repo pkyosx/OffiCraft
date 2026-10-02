@@ -259,8 +259,8 @@ func TestRelocateMember_StoppingMemberIsCollectedWhereItRuns(t *testing.T) {
 			row.DesiredMachineID, row.RefocusOp)
 	}
 
-	grace, _ := recycleGraceFor(row.RefocusOp, s.reconcileConfigLive())
-	dec := s.reconcileOne(*row, newReconcileState(), row.StoppingSince+grace+1)
+	// 3601: past the longest 加速停止 grace the setting accepts (3600).
+	dec := s.reconcileOne(*row, newReconcileState(), row.StoppingSince+3601)
 	if dec.Command != reconcileCmdStop || dec.DispatchUnlanded {
 		t.Fatalf("past the 加速停止 grace the tick must dispatch a STOP: %+v", dec)
 	}
