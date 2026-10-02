@@ -9,6 +9,7 @@ import {
   mockApi,
   __resetMock,
   __injectMockMember,
+  __injectMockOutsourceWorker,
   MOCK_FORCED_STOP_DISCONNECT_MS,
 } from "./mock";
 
@@ -78,6 +79,72 @@ describe("mock forceStopMember (staff)", () => {
     await mockApi.activateMember("kip");
     expect(ladderFacts(await mockApi.getMember("kip"))).toEqual({
       lifecycle: "waking",
+      desiredState: "online",
+      refocusOp: "",
+      forcedStopLive: false,
+    });
+  });
+});
+
+describe("mock forceStopOutsourceMember", () => {
+  it("holds a connected worker in stopping with forced_stop_live, then drops it, and a wake clears it", async () => {
+    __injectMockOutsourceWorker({
+      id: "ow-1",
+      codename: "O-1",
+      model: "opus",
+      effort: "medium",
+      status: "active",
+      taskId: "t-1",
+      taskTitle: "",
+      taskStatus: "in_progress",
+      createdTs: 1_790_000_000,
+      presence: "online",
+      desiredState: "online",
+      refocusOp: "accelerated_stop",
+      forcedStopLive: false,
+      machine: "",
+      desiredMachineId: "",
+      account: null,
+      contextPct: null,
+      cost: null,
+      bankedCost: null,
+      lastOp: "",
+      lastOpOk: null,
+      lastOpLog: "",
+      lastOpReason: "",
+      lastOpAt: null,
+      creatorId: "",
+      delegatedBy: "",
+    });
+    const facts = async () => {
+      const w = await mockApi.getOutsourceWorker("ow-1");
+      return {
+        presence: w.presence,
+        desiredState: w.desiredState,
+        refocusOp: w.refocusOp ?? "",
+        forcedStopLive: w.forcedStopLive,
+      };
+    };
+
+    await mockApi.forceStopMember("ow-1");
+    expect(await facts()).toEqual({
+      presence: "stopping",
+      desiredState: "offline",
+      refocusOp: "",
+      forcedStopLive: true,
+    });
+
+    vi.advanceTimersByTime(MOCK_FORCED_STOP_DISCONNECT_MS);
+    expect(await facts()).toEqual({
+      presence: "stopped",
+      desiredState: "offline",
+      refocusOp: "",
+      forcedStopLive: true,
+    });
+
+    await mockApi.activateMember("ow-1");
+    expect(await facts()).toEqual({
+      presence: "waking",
       desiredState: "online",
       refocusOp: "",
       forcedStopLive: false,
