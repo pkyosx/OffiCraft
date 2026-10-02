@@ -38,7 +38,7 @@ func apiBuiltinManualSizeRows(capChars int) []any {
 		},
 		map[string]any{
 			"type_key": "builtin-role-design",
-			"sop":      map[string]any{"size_chars": 2761, "cap_chars": capChars},
+			"sop":      map[string]any{"size_chars": 2803, "cap_chars": capChars},
 		},
 	}
 }

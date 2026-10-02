@@ -4410,7 +4410,7 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 		})
 		if err := d.PutTask(Task{
 			ID: "T-1", Title: "新增設計角色", TypeKey: "builtin-role-design",
-			Inputs: map[string]any{"role_name": "設計"}, Status: TaskStatusNotStarted,
+			Status:   TaskStatusNotStarted,
 			Priority: TaskPriorityMid, ExecutorKind: KindStaff, ExecutorID: "kip", CreatorID: "owner",
 		}); err != nil {
 			t.Fatalf("PutTask: %v", err)
@@ -5158,7 +5158,7 @@ func TestHandleCreateTaskApiTasksPost(t *testing.T) {
 		mira := apiTestAgentToken(t, api, "mira", "")
 
 		status, data := apiJSON(t, h, "POST", "/api/tasks", mira,
-			`{"title":"新增設計角色","type_key":"builtin-role-design","inputs":{"role_name":"設計"}}`)
+			`{"title":"新增報價手冊","type_key":"builtin-task-manual-design","inputs":{"manual_name":"報價"}}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -5170,7 +5170,7 @@ func TestHandleCreateTaskApiTasksPost(t *testing.T) {
 		})
 
 		status, again := apiJSON(t, h, "POST", "/api/tasks", mira,
-			`{"title":"再新增設計角色","type_key":"builtin-role-design","inputs":{"role_name":"設計"}}`)
+			`{"title":"再新增報價手冊","type_key":"builtin-task-manual-design","inputs":{"manual_name":"報價"}}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, again)
 		}
@@ -5179,7 +5179,7 @@ func TestHandleCreateTaskApiTasksPost(t *testing.T) {
 			"executor_kind": "staff",
 			"executor_id":   "mira",
 			"deduped":       true,
-			"title":         "新增設計角色",
+			"title":         "新增報價手冊",
 			"status":        "not_started",
 		})
 	})

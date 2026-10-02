@@ -680,7 +680,7 @@ func TestDocumentSeedContent(t *testing.T) {
 			runes   int
 			sha256  string
 		}{
-			{"builtin-role-design", 2761, "f1784a9bdda165a3f28348180b7c888afa94fc35cb250855d5ad94eb175dbbb7"},
+			{"builtin-role-design", 2803, "0142aa3cd2d0ea730455350b006a10b35b542eed70b1fd0bd8705e90eb9177de"},
 			{"builtin-task-manual-design", 3872, "bb27fb16377af2f6dc457a06315faff8d12332142dff16a9545d73b1331fc004"},
 		} {
 			got, hasSeed, err := api.documentSeedContent(docKindTaskManualSop, tc.typeKey)
@@ -1283,7 +1283,7 @@ func TestRestoreTaskManualField(t *testing.T) {
 		apiWantBody(t, data, map[string]any{
 			"type_key": "builtin-role-design", "display_name": "建立／修改角色",
 			"purpose": "建立新的角色，或調整既有角色的角色定義與判準（Insight）。",
-			"fields":  []any{map[string]any{"name": "role_name", "required": true, "is_key": true}},
+			"fields":  []any{},
 			"sop_md":  "第一次改寫", "assignee": map[string]any{"kind": "staff", "member_id": "mira"},
 			"lore": "", "lore_chars": 0,
 			"sop_md_chars": 5, "sop_md_cap_chars": 15000,
