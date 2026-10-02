@@ -128,6 +128,34 @@ describe("the machine row's ⚙ operations menu", () => {
     await waitFor(() => expect(document.activeElement).toBe(gear));
   });
 
+  it("under focus moved to another control while the dialog is open, closing the dialog leaves it there", async () => {
+    listMachines.mockResolvedValue([machine({ online: true })]);
+    renderMonitor();
+    const gear = await screen.findByRole("button", { name: "機器操作（Alpha）" });
+    fireEvent.click(gear);
+    fireEvent.click(screen.getByTestId("mon-install-btn"));
+    const dialog = await screen.findByTestId("mon-install-dialog");
+    const elsewhere = document.getElementById("mon-onboard-entry") as HTMLButtonElement;
+    elsewhere.focus();
+    fireEvent.click(dialog.querySelector("button.mon-cmd__close") as HTMLButtonElement);
+    await waitFor(() => expect(screen.queryByTestId("mon-install-dialog")).toBeNull());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(document.activeElement).toBe(elsewhere);
+  });
+
+  it("under arrow keys, a disabled item is reached like any other", async () => {
+    listMachines.mockResolvedValue([machine({ online: false })]);
+    renderMonitor();
+    fireEvent.click(await screen.findByRole("button", { name: "機器操作（Alpha）" }));
+    const menu = screen.getByRole("menu");
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId("mon-install-btn")));
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(screen.getByTestId("mon-uninstall-btn"));
+    expect(screen.getByTestId("mon-uninstall-btn").getAttribute("aria-disabled")).toBe("true");
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(screen.getByTestId("mon-delete-btn"));
+  });
+
   it("under a disabled item, choosing it does nothing and the menu stays open", async () => {
     listMachines.mockResolvedValue([machine({ online: false })]);
     renderMonitor();

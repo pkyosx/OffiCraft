@@ -11,6 +11,8 @@
 //   marks inline again                      → mark-below test
 //   drop `table-layout: fixed` or the column widths → 800px test
 //   操作 column not sticky                  → gear off-screen at 760/900px
+//   操作 cells transparent                  → a scrolled cell shows through
+//   操作 header not sticky                  → header leaves the right edge
 //   phone card mode disabled                → phone test (the frame scrolls)
 //   `.mon-stale` border back to --color-border → frame contrast below 1.5
 //   (in the built-in palette --color-border IS --color-card)
@@ -178,6 +180,48 @@ for (const width of [760, 900]) {
     expect(g.x + g.width).toBeLessThanOrEqual(frame.x + frame.width);
     await gear.click();
     await expect(page.getByRole("menuitem")).toHaveText(["安裝", "解除安裝", "刪除"]);
+  });
+
+  test(`at ${width}px the 操作 column covers what scrolls under it and stays on the frame's right edge`, async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: width + 20, height: 900 });
+    await mount(<MonitorMachinesLayoutStory width={width} states={["stale"]} />);
+    const wrap = page.locator(".mon-table-wrap");
+    const lastCell = page.locator("tbody td").last();
+    const lastHead = page.locator("thead th").last();
+
+    // At scrollLeft 0 the cells to the left of 操作 run under it. Painted
+    // opaque, hiding them changes no pixel inside the 操作 cell.
+    const box = (await lastCell.boundingBox())!;
+    const clip = { x: box.x, y: box.y, width: box.width, height: box.height };
+    const covered = await page.screenshot({ clip });
+    await page.evaluate(() => {
+      const cells = document.querySelectorAll("tbody td:not(:last-child)");
+      cells.forEach((el) => ((el as HTMLElement).style.visibility = "hidden"));
+    });
+    const bare = await page.screenshot({ clip });
+    await page.evaluate(() => {
+      const cells = document.querySelectorAll("tbody td:not(:last-child)");
+      cells.forEach((el) => ((el as HTMLElement).style.visibility = ""));
+    });
+    expect(covered.equals(bare), "a scrolled cell shows through the 操作 cell").toBe(true);
+
+    for (const scroll of [0, 40, 10_000]) {
+      await wrap.evaluate((el, x) => (el.scrollLeft = x), scroll);
+      const frame = (await wrap.boundingBox())!;
+      const head = (await lastHead.boundingBox())!;
+      const cell = (await lastCell.boundingBox())!;
+      // The frame has a 1px border.
+      expect(Math.round(head.x + head.width), `header at scrollLeft ${scroll}`).toBe(Math.round(frame.x + frame.width - 1));
+      expect(Math.round(cell.x + cell.width), `cell at scrollLeft ${scroll}`).toBe(Math.round(frame.x + frame.width - 1));
+      const hit = await page.evaluate(
+        ([x, y]) => !!document.elementFromPoint(x, y)?.closest("tbody td:last-child"),
+        [cell.x + cell.width / 2, cell.y + cell.height / 2]
+      );
+      expect(hit, `the ⚙ cell is on top at scrollLeft ${scroll}`).toBe(true);
+    }
   });
 }
 
