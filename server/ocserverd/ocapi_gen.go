@@ -2188,7 +2188,7 @@ type ModelCallWarningDTORuntime string
 // independently from that account's valid “rate_limits“ reports (later
 // “resets_at“ wins; ties use the report's rate-limit sample time), then shaped
 // into pacing data. A missing, invalid, expired, or implausibly future reset time
-// leaves that window honest-None. “cost“ is the SUM of its sessions' cost. The
+// leaves that window honest-None. “cost“ is the account's own accumulated spend, kept independently of its members' individual totals. It is not the sum of its sessions. Removing a member or clearing an individual member's cost does not reduce the account total; new spend continues to accumulate for the account. The
 // accounts list is empty ONLY when no telemetry carries an account tag.
 //
 // “machine“ is the machine(s) the account is ACTUALLY USED ON — the OBSERVED

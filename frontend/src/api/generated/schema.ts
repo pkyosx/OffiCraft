@@ -2167,7 +2167,7 @@ export interface paths {
          * Monitoring telemetry (roster + context + warden push; honest — else).
          * @description - Live sessions and machines from the real roster, folded with the warden's telemetry push.
          *     - Never fabricates a number: where nothing reported, the field is null and the account list empty, never 0.
-         *     - Machine hardware is the freshest report per host, never summed; an account row sums its sessions' cost.
+         *     - Machine hardware is the freshest report per host, never summed; each account row carries that account's own accumulated spend, independent of its members' individual totals; removing a member or clearing an individual member's cost does not reduce the account total.
          *     - Each account's rate-limit window is picked independently.
          */
         get: operations["handle_get_monitoring_api_monitoring_get"];
@@ -6542,7 +6542,7 @@ export interface components {
          *     independently from that account's valid ``rate_limits`` reports (later
          *     ``resets_at`` wins; ties use the report's rate-limit sample time), then shaped
          *     into pacing data. A missing, invalid, expired, or implausibly future reset time
-         *     leaves that window honest-None. ``cost`` is the SUM of its sessions' cost. The
+         *     leaves that window honest-None. ``cost`` is the account's own accumulated spend, kept independently of its members' individual totals. It is not the sum of its sessions. Removing a member or clearing an individual member's cost does not reduce the account total; new spend continues to accumulate for the account. The
          *     accounts list is empty ONLY when no telemetry carries an account tag.
          *
          *     ``machine`` is the machine(s) the account is ACTUALLY USED ON — the OBSERVED
