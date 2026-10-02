@@ -24,6 +24,7 @@
 //   menu focus counting disabled items       → keyboard test
 //   menu aligned to the gear's left edge     → menu right edge test
 //   ⚙ border back at rest, on hover or open  → frameless ⚙ test
+//   ⚙ focus ring removed (`outline: none`)   → keyboard focus ring test
 import { test, expect } from "@playwright/experimental-ct-react";
 import type { Page } from "@playwright/test";
 import { MonitorMachinesLayoutStory } from "./stories/MonitorMachinesLayoutStory";
@@ -182,6 +183,24 @@ test("the ⚙ draws no frame at rest, on hover or with its menu open", async ({ 
   // Off the gear, so the open state is measured without :hover.
   await page.mouse.move(0, 0);
   expect(await frame(), "open").toEqual({ border: false, outline: false });
+});
+
+test("the ⚙ shows a focus ring when reached by keyboard", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1500, height: 900 });
+  await mount(<MonitorMachinesLayoutStory states={["normal"]} />);
+  const gear = page.getByRole("button", { name: "機器操作（伺服器這一台）" });
+  // Tab, not gear.focus(): :focus-visible only applies on keyboard-driven focus.
+  for (let i = 0; i < 30 && !(await gear.evaluate((el) => el === document.activeElement)); i++) {
+    await page.keyboard.press("Tab");
+  }
+  await expect(gear).toBeFocused();
+  const ring = await gear.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return { focusVisible: el.matches(":focus-visible"), style: cs.outlineStyle, width: parseFloat(cs.outlineWidth) };
+  });
+  expect(ring.focusVisible, "control: keyboard focus is :focus-visible").toBe(true);
+  expect(ring.style).not.toBe("none");
+  expect(ring.width).toBeGreaterThan(0);
 });
 
 test("the 操作 column is one ⚙ button whose menu lists the row's operations", async ({ mount, page }) => {
