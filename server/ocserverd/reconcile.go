@@ -203,8 +203,9 @@ type reconcileDecision struct {
 	MemberID string
 	Reason   string
 	State    reconcileState
-	// DispatchWarden routes a STOP to the warden where the session actually runs; "" routes via
-	// wardenTargetOf (the desired machine). Sending a relocation STOP to the new machine's warden
+	// DispatchWarden routes a STOP to the warden where the session actually runs; "" routes a
+	// wind-down STOP via the kill chain (memberKillTargetWarden) and any other via wardenTargetOf
+	// (the desired machine). Sending a relocation STOP to the new machine's warden
 	// would no-op forever — only the warden holding the session can kill it.
 	DispatchWarden string
 	// DispatchUnlanded: a command was decided but the warden was unreachable, so it was downgraded
@@ -971,6 +972,10 @@ func (s *apiServer) reconcileOne(m Member, st reconcileState, now float64) recon
 		}
 		// sendStopFrames (shutdown.go) takes no scheduler lock, so it is safe with reconcileMu held.
 		warden := decision.DispatchWarden
+		if warden == "" && decision.StopKind == stopKindWinddown {
+			// A 換機器 during the wind-down moves the pin but not the session.
+			warden = s.memberKillTargetWarden(m.ID)
+		}
 		if warden == "" {
 			warden = s.wardenTargetOf(m.ID)
 		}
