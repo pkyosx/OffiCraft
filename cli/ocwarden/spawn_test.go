@@ -1500,7 +1500,10 @@ func TestStart(t *testing.T) {
 				h.present = map[string]bool{"/w/m1/.officraft-mod-booted": true}
 				h.modTimes = tc.modTimes
 				h.runner.script[capture] = tc.run
-				got := h.deps().start(startParamsM1())
+				d := h.deps()
+				rec := &timeoutRecordingRunner{wardenRunner: h.runner}
+				d.Runner = rec
+				got := d.start(startParamsM1())
 
 				// The pane stays out of the owner-facing Note.
 				want := SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500", Note: goldenNotifyModNotLoadedNote}
@@ -1527,6 +1530,12 @@ func TestStart(t *testing.T) {
 				}
 				if !reflect.DeepEqual(h.runner.calls, wantCalls) {
 					t.Errorf("calls =\n%v\nwant\n%v", h.runner.calls, wantCalls)
+				}
+				// The version probe's 2s, then the capture's: a hung tmux must not
+				// stall the spawn past its line in receiptDeadlineSecs
+				// (server/ocserverd/receipt_watch.go).
+				if want := []time.Duration{2 * time.Second, 2 * time.Second}; !reflect.DeepEqual(rec.timeouts, want) {
+					t.Errorf("timeouts = %v, want %v", rec.timeouts, want)
 				}
 			})
 		}
