@@ -603,7 +603,8 @@ const listenAckEnv = "OC_LISTEN_ACK"
 
 // listenAckFileEnv moves the answers from stdin to a file: a mod's child gets
 // its stdin once, at spawn. The mod overwrites the whole file with `ack N` or
-// `nack N`. Spelled again in cli/ocwarden/mod/hooks/register.ts.
+// `nack N`. ocwarden's copy (notifymod.go) is what the mod is handed;
+// bin/listen-notice-mirror-guard.py holds the two equal.
 const listenAckFileEnv = "OC_LISTEN_ACK_FILE"
 
 const ackFilePoll = 200 * time.Millisecond
