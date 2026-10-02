@@ -61,7 +61,7 @@ func (s *apiServer) memberHasStateToFlush(m Member) bool {
 // before any transaction it holds (the hub's lock is refused inside one).
 func memberHasStateToFlushGiven(m Member, online bool) bool {
 	// Not redundant with the handlers' staffOnly: that is a per-call-site choice.
-	if m.Kind != KindStaff || !aRefocusStampWouldReachTheAgent(m) {
+	if m.Kind != KindStaff {
 		return false
 	}
 	return ownerOpHandoverPlanFor(m, online) == ownerOpPlanWindDown
@@ -101,7 +101,7 @@ const (
 // while its stop is in flight; asking flush first would stamp a refocus epoch that
 // reaches no agent and skip the queue behind the stop.
 func ownerOpHandoverPlanFor(m Member, online bool) ownerOpHandoverPlan {
-	if m.DesiredState == DesiredStateOffline {
+	if !aRefocusStampWouldReachTheAgent(m) {
 		if aStopWasEverAskedFor(m) {
 			return ownerOpPlanQueueBehindStop
 		}

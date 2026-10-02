@@ -3032,6 +3032,30 @@ func TestHandleRefocusMemberApiMembersMemberIdRefocusPost(t *testing.T) {
 		}
 	})
 
+	t.Run("a live member whose desired_state is neither online nor offline answers 409 and no epoch is opened, because the agent would never see it", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
+			t.Fatalf("activate: %d %v", status, data)
+		}
+		apiTestListen(t, api, "kip")
+		if err := d.PatchMember("kip", mfDesiredState(DesiredStateUninstall)); err != nil {
+			t.Fatalf("PatchMember: %v", err)
+		}
+
+		status, data := apiJSON(t, h, "POST", "/api/members/kip/refocus", owner, `{}`)
+		if status != 409 {
+			t.Fatalf("want 409, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "conflict",
+			"refocus requires the member to have a live session and to be wanted "+
+				"online (§3.4 #14)")
+		m := apiTestMemberRow(t, d, "kip")
+		if m.RefocusSince != 0 || m.RefocusOp != "" || m.RestartAfterStop {
+			t.Fatalf("want refocus=0 op=%q restart=false, got refocus=%v op=%q restart=%v",
+				"", m.RefocusSince, m.RefocusOp, m.RestartAfterStop)
+		}
+	})
+
 	t.Run("a member with no live session answers 409 and no epoch is opened", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		dashboard := apiTestListen(t, api, "")

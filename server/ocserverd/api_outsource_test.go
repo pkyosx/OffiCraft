@@ -440,6 +440,7 @@ func TestHandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost(t *testi
 	t.Run("moving a live worker pins the machine, opens a wind-down and answers the deferred receipt", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+		apiTestWorkerWantedOnline(t, d, "ow-abc123")
 		contractor := apiTestListen(t, api, "ow-abc123")
 		dashboard := apiTestListen(t, api, "")
 		bystander := apiTestListen(t, api, "kip")
@@ -454,13 +455,14 @@ func TestHandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost(t *testi
 			"id": "ow-abc123", "relocation_pending": true, "relocation_deferred": true,
 		})
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-			"status": "active", "presence": "online",
+			"desired_state": "online",
+			"status":        "active", "presence": "online",
 			"desired_machine_id": "m-server-self",
 			"refocus_since":      apiAnyNumber, "refocus_op": "relocate",
 		}))
 		dashboard.wantFrames(
-			apiTestHandoverDelta(2, "", apiTestOffboardNotice, "server"),
-			apiTestHandoverDelta(3, "", apiTestOffboardNotice, "owner"),
+			apiTestHandoverDelta(2, "online", apiTestOffboardNotice, "server"),
+			apiTestHandoverDelta(3, "online", apiTestOffboardNotice, "owner"),
 		)
 		// T-197: the worker's own stream carries BOTH frames, not one. Before the
 		// convergence the dashboard read an owner-scoped worker topic and the
@@ -473,8 +475,8 @@ func TestHandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost(t *testi
 		// of the same row, carrying the same notice; a subscriber seeing its own
 		// row change twice is the ordinary shape here, not a duplicate delivery.
 		contractor.wantFrames(
-			apiTestHandoverDelta(2, "", apiTestOffboardNotice, "server"),
-			apiTestHandoverDelta(3, "", apiTestOffboardNotice, "owner"),
+			apiTestHandoverDelta(2, "online", apiTestOffboardNotice, "server"),
+			apiTestHandoverDelta(3, "online", apiTestOffboardNotice, "owner"),
 		)
 		bystander.wantFrames()
 		push()
@@ -727,6 +729,7 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 		t.Run("換手 on a live "+workerStatus+" worker stamps the epoch, fans the 預告 at its own session and starts no clock", func(t *testing.T) {
 			api, h, d, owner := newAPITestServer(t)
 			apiTestWorkerFixture(t, h, d, owner, "ow-abc123", workerStatus)
+			apiTestWorkerWantedOnline(t, d, "ow-abc123")
 			contractor := apiTestListen(t, api, "ow-abc123")
 			dashboard := apiTestListen(t, api, "")
 			bystander := apiTestListen(t, api, "kip")
@@ -738,19 +741,20 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 			}
 			apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
 			apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-				"status": workerStatus, "presence": "online",
+				"desired_state": "online",
+				"status":        workerStatus, "presence": "online",
 				"refocus_since": apiAnyNumber, "refocus_op": "refocus",
 			}))
 			// BOTH frames carry the notice: it rides EVERY write to a row whose
 			// wind-down is open, not just the one that opened it (offboardDeltaPayload,
 			// owner 2026-08-16) — the client de-duplicates.
 			dashboard.wantFrames(
-				apiTestHandoverDelta(2, "", apiTestOffboardNotice, "owner"),
-				apiTestHandoverDelta(3, "", apiTestOffboardNotice, "owner"),
+				apiTestHandoverDelta(2, "online", apiTestOffboardNotice, "owner"),
+				apiTestHandoverDelta(3, "online", apiTestOffboardNotice, "owner"),
 			)
 			contractor.wantFrames(
-				apiTestHandoverDelta(2, "", apiTestOffboardNotice, "owner"),
-				apiTestHandoverDelta(3, "", apiTestOffboardNotice, "owner"),
+				apiTestHandoverDelta(2, "online", apiTestOffboardNotice, "owner"),
+				apiTestHandoverDelta(3, "online", apiTestOffboardNotice, "owner"),
 			)
 			bystander.wantFrames()
 			push()
@@ -915,6 +919,7 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 	t.Run("a stopped_since left outside any epoch is cleared when the 換手 epoch opens, so the new epoch does not read as already collected", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+		apiTestWorkerWantedOnline(t, d, "ow-abc123")
 		apiTestListen(t, api, "ow-abc123")
 		if err := d.SetMemberWindDownAnchors("ow-abc123", 0, 20, 0, ""); err != nil {
 			t.Fatalf("SetMemberWindDownAnchors: %v", err)
@@ -933,9 +938,36 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 		}
 	})
 
+	t.Run("換手 on a live worker whose desired_state is neither online nor offline answers 409 and stamps nothing, because the agent would never see it", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+		apiTestListen(t, api, "ow-abc123")
+		if err := d.PatchMember("ow-abc123", mfDesiredState(DesiredStateUninstall)); err != nil {
+			t.Fatalf("PatchMember: %v", err)
+		}
+
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", owner, "")
+		if status != 409 {
+			t.Fatalf("want 409, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "conflict",
+			"refocus requires a live worker — this one is stopped and has never been "+
+				"asked to stop, so there is no wind-down for a 起來 to be queued behind "+
+				"(喚醒 it when you want it to run)")
+		w, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || w == nil {
+			t.Fatalf("GetOutsourceWorker: %v (%v)", w, err)
+		}
+		if w.RefocusSince != 0 || w.RefocusOp != "" || w.RestartAfterStop {
+			t.Fatalf("want refocus=0 op=%q restart=false, got refocus=%v op=%q restart=%v",
+				"", w.RefocusSince, w.RefocusOp, w.RestartAfterStop)
+		}
+	})
+
 	t.Run("換手 with no live session answers 409 and stamps nothing", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
+		apiTestWorkerWantedOnline(t, d, "ow-abc123")
 		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", owner, "")
@@ -944,13 +976,14 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 		}
 		apiWantError(t, data, "conflict",
 			"refocus requires the worker to be online (no live session to hand over)")
-		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, nil))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{"desired_state": "online"}))
 		dashboard.wantFrames()
 	})
 
 	t.Run("換手 on a worker already in 加速停止 answers 409 rather than walking the ladder back", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+		apiTestWorkerWantedOnline(t, d, "ow-abc123")
 		apiTestListen(t, api, "ow-abc123")
 		if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", owner, ""); code != 200 {
 			t.Fatalf("refocus: %d %v", code, data)
@@ -959,7 +992,8 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 			t.Fatalf("accelerated-stop: %d %v", code, data)
 		}
 		accelerated := apiTestWorkerRow(t, map[string]any{
-			"status": "active", "presence": "online",
+			"desired_state": "online",
+			"status":        "active", "presence": "online",
 			"refocus_since": apiAnyNumber, "refocus_op": "accelerated_stop",
 			"refocus_deadline": apiAnyNumber,
 		})
@@ -1030,6 +1064,7 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 	t.Run("a malformed body is ignored and refocus still returns its receipt and handover effects", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+		apiTestWorkerWantedOnline(t, d, "ow-abc123")
 		contractor := apiTestListen(t, api, "ow-abc123")
 		dashboard := apiTestListen(t, api, "")
 		bystander := apiTestListen(t, api, "kip")
@@ -1041,19 +1076,20 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 		}
 		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-			"status": "active", "presence": "online",
+			"desired_state": "online",
+			"status":        "active", "presence": "online",
 			"refocus_since": apiAnyNumber, "refocus_op": "refocus",
 		}))
 		// BOTH frames carry the notice: it rides EVERY write to a row whose
 		// wind-down is open, not just the one that opened it (offboardDeltaPayload,
 		// owner 2026-08-16) — the client de-duplicates.
 		dashboard.wantFrames(
-			apiTestHandoverDelta(2, "", apiTestOffboardNotice, "owner"),
-			apiTestHandoverDelta(3, "", apiTestOffboardNotice, "owner"),
+			apiTestHandoverDelta(2, "online", apiTestOffboardNotice, "owner"),
+			apiTestHandoverDelta(3, "online", apiTestOffboardNotice, "owner"),
 		)
 		contractor.wantFrames(
-			apiTestHandoverDelta(2, "", apiTestOffboardNotice, "owner"),
-			apiTestHandoverDelta(3, "", apiTestOffboardNotice, "owner"),
+			apiTestHandoverDelta(2, "online", apiTestOffboardNotice, "owner"),
+			apiTestHandoverDelta(3, "online", apiTestOffboardNotice, "owner"),
 		)
 		bystander.wantFrames()
 		push()
@@ -1064,6 +1100,7 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 	t.Run("escalating an open 換手 re-stamps the epoch under a deadline and fans the final sentence", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+		apiTestWorkerWantedOnline(t, d, "ow-abc123")
 		apiTestListen(t, api, "ow-abc123")
 		if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", owner, ""); code != 200 {
 			t.Fatalf("refocus: %d %v", code, data)
@@ -1085,19 +1122,20 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 				pressed.RefocusSince, refocused.RefocusSince)
 		}
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-			"status": "active", "presence": "online",
+			"desired_state": "online",
+			"status":        "active", "presence": "online",
 			"refocus_since": pressed.RefocusSince, "refocus_op": "accelerated_stop",
 			"refocus_deadline": pressed.RefocusSince + 120,
 		}))
 		// Both writes ride the open (now accelerated) wind-down, so both carry a
 		// notice — the second one is not a bare roster patch.
 		dashboard.wantFrames(
-			apiTestHandoverDelta(4, "", apiAnyString, "owner"),
-			apiTestHandoverDelta(5, "", apiAnyString, "owner"),
+			apiTestHandoverDelta(4, "online", apiAnyString, "owner"),
+			apiTestHandoverDelta(5, "online", apiAnyString, "owner"),
 		)
 		contractor.wantFrames(
-			apiTestHandoverDelta(4, "", apiAnyString, "owner"),
-			apiTestHandoverDelta(5, "", apiAnyString, "owner"),
+			apiTestHandoverDelta(4, "online", apiAnyString, "owner"),
+			apiTestHandoverDelta(5, "online", apiAnyString, "owner"),
 		)
 		bystander.wantFrames()
 		push()
@@ -1395,6 +1433,7 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 	t.Run("a malformed body is ignored and accelerated-stop still returns its receipt and escalation effects", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+		apiTestWorkerWantedOnline(t, d, "ow-abc123")
 		apiTestListen(t, api, "ow-abc123")
 		if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", owner, ""); code != 200 {
 			t.Fatalf("refocus: %d %v", code, data)
@@ -1410,19 +1449,20 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 		}
 		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-			"status": "active", "presence": "online",
+			"desired_state": "online",
+			"status":        "active", "presence": "online",
 			"refocus_since": apiAnyNumber, "refocus_op": "accelerated_stop",
 			"refocus_deadline": apiAnyNumber,
 		}))
 		// Both writes ride the open (now accelerated) wind-down, so both carry a
 		// notice — the second one is not a bare roster patch.
 		dashboard.wantFrames(
-			apiTestHandoverDelta(4, "", apiAnyString, "owner"),
-			apiTestHandoverDelta(5, "", apiAnyString, "owner"),
+			apiTestHandoverDelta(4, "online", apiAnyString, "owner"),
+			apiTestHandoverDelta(5, "online", apiAnyString, "owner"),
 		)
 		contractor.wantFrames(
-			apiTestHandoverDelta(4, "", apiAnyString, "owner"),
-			apiTestHandoverDelta(5, "", apiAnyString, "owner"),
+			apiTestHandoverDelta(4, "online", apiAnyString, "owner"),
+			apiTestHandoverDelta(5, "online", apiAnyString, "owner"),
 		)
 		bystander.wantFrames()
 		push()
@@ -1669,6 +1709,7 @@ func TestHandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost(t *tes
 	t.Run("強制停止 pressed on an in-flight 換手 ends it down, clearing the epoch", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+		apiTestWorkerWantedOnline(t, d, "ow-abc123")
 		apiTestListen(t, api, "ow-abc123")
 		if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", owner, ""); code != 200 {
 			t.Fatalf("refocus: %d %v", code, data)
@@ -1891,6 +1932,7 @@ func TestHandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(t *testing
 	t.Run("喚醒 on a live worker leaves an 加速停止 already under way running", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+		apiTestWorkerWantedOnline(t, d, "ow-abc123")
 		apiTestListen(t, api, "ow-abc123")
 		if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", owner, ""); code != 200 {
 			t.Fatalf("refocus: %d %v", code, data)
@@ -2022,6 +2064,7 @@ func TestHandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(t *testing.
 		t.Run("a changed model on a live "+workerStatus+" worker opens the wind-down that carries it into the next session", func(t *testing.T) {
 			api, h, d, owner := newAPITestServer(t)
 			apiTestWorkerFixture(t, h, d, owner, "ow-abc123", workerStatus)
+			apiTestWorkerWantedOnline(t, d, "ow-abc123")
 			contractor := apiTestListen(t, api, "ow-abc123")
 			dashboard := apiTestListen(t, api, "")
 
@@ -2032,16 +2075,17 @@ func TestHandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(t *testing.
 			}
 			apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
 			apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-				"status": workerStatus, "presence": "online", "model": "opus",
+				"desired_state": "online",
+				"status":        workerStatus, "presence": "online", "model": "opus",
 				"refocus_since": apiAnyNumber, "refocus_op": "runtime/model",
 			}))
 			dashboard.wantFrames(
-				apiTestHandoverDelta(2, "", apiTestOffboardNotice, "server"),
-				apiTestHandoverDelta(3, "", apiTestOffboardNotice, "owner"),
+				apiTestHandoverDelta(2, "online", apiTestOffboardNotice, "server"),
+				apiTestHandoverDelta(3, "online", apiTestOffboardNotice, "owner"),
 			)
 			contractor.wantFrames(
-				apiTestHandoverDelta(2, "", apiTestOffboardNotice, "server"),
-				apiTestHandoverDelta(3, "", apiTestOffboardNotice, "owner"),
+				apiTestHandoverDelta(2, "online", apiTestOffboardNotice, "server"),
+				apiTestHandoverDelta(3, "online", apiTestOffboardNotice, "owner"),
 			)
 		})
 
