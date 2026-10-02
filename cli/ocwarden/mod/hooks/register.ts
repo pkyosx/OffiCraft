@@ -4,6 +4,10 @@ import type { EngineInterface, Register } from 'claude-code'
 // notifyModConfigFile); every path and name below comes from it.
 const CONFIG_FILE = 'officraft.json'
 
+// A plugin submit resolves only when its turn STARTS, minutes later while the
+// member is busy, far past the listener's 30 s ack wait; a refusal comes at once.
+const ACCEPT_GRACE_MS = 1500
+
 type Config = {
   boot_prompt: string
   loaded_marker: string
@@ -37,7 +41,7 @@ async function boot($: EngineInterface, config: Config): Promise<void> {
   // 🔴 The boot prompt goes in BEFORE the listener exists: a backlog the listener
   // prints on connect queues behind it instead of becoming the member's first
   // turn (and being marked read before the member ever booted).
-  if (!(await submitted($, config.boot_prompt, true))) {
+  if (!(await accepted($, config.boot_prompt, true))) {
     $.ui.log('the boot prompt was refused; not listening', { to: 'debug' })
     return
   }
@@ -132,7 +136,7 @@ async function listen($: EngineInterface, config: Config): Promise<void> {
         if (frame === undefined) {
           if (line.trim() !== '') $.ui.log(line, { to: 'debug' })
         } else if ('submit' in frame) {
-          batchDelivered = (await submitted($, frame.submit)) && batchDelivered
+          batchDelivered = (await accepted($, frame.submit)) && batchDelivered
         } else {
           // Answered only after every submit before the marker settled: the
           // listener marks the batch read on the station on `ack`.
@@ -161,11 +165,22 @@ function parseFrame(line: string): Frame | undefined {
   return undefined
 }
 
-async function submitted($: EngineInterface, text: string, asUser = false): Promise<boolean> {
-  try {
-    const result = await $.prompt.submit(asUser ? { text, asUser: true } : { text })
-    return result.drop === undefined
-  } catch {
-    return false
-  }
+type SubmitOutcome = 'entered' | 'pending' | string
+
+// True once the engine has the prompt queued: refused or thrown within the grace
+// is a failure, anything still pending then counts as accepted. Each call returns
+// before the next submit is issued, so prompts are queued in order.
+async function accepted($: EngineInterface, text: string, asUser = false): Promise<boolean> {
+  const outcome: Promise<SubmitOutcome> = $.prompt.submit(asUser ? { text, asUser: true } : { text }).then(
+    result => (result.drop === undefined ? 'entered' : `dropped (${result.drop})`),
+    err => `threw (${String(err)})`,
+  )
+  const early = await Promise.race([outcome, $.clock.sleep(ACCEPT_GRACE_MS).then((): SubmitOutcome => 'pending')])
+  if (early !== 'pending') return early === 'entered'
+  // ⚠️ Acked as queued, so the listener has already marked it read: a refusal
+  // arriving now loses the message, and this log line is the only trace.
+  void outcome.then(late => {
+    if (late !== 'entered') $.ui.log(`a queued prompt was ${late} after it was acked: ${text.slice(0, 120)}`, { to: 'debug' })
+  })
+  return true
 }

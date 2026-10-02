@@ -870,7 +870,7 @@ func TestNewAckGate(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := newAckGate(testEnv(tc.env), tc.answers)
+			got := newAckGate(testEnv(tc.env), tc.answers, nil)
 			if (got == nil) != tc.wantNil {
 				t.Errorf("newAckGate = %v, want nil == %v", got, tc.wantNil)
 			}
@@ -878,14 +878,14 @@ func TestNewAckGate(t *testing.T) {
 	}
 
 	t.Run("a nil env is the claude path", func(t *testing.T) {
-		if got := newAckGate(nil, strings.NewReader("")); got != nil {
+		if got := newAckGate(nil, strings.NewReader(""), nil); got != nil {
 			t.Errorf("newAckGate = %v, want nil", got)
 		}
 	})
 
 	t.Run("an ack file needs no stdin", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), ".officraft-listen-ack")
-		got := newAckGate(testEnv(map[string]string{listenAckEnv: "1", listenAckFileEnv: path}), nil)
+		got := newAckGate(testEnv(map[string]string{listenAckEnv: "1", listenAckFileEnv: path}), nil, nil)
 		if got == nil {
 			t.Error("newAckGate = nil with OC_LISTEN_ACK=1 and an ack file")
 		}
@@ -896,7 +896,7 @@ func TestNewAckGate(t *testing.T) {
 		if err := os.WriteFile(path, []byte("ack 1\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		newAckGate(testEnv(map[string]string{listenAckEnv: "1", listenAckFileEnv: path}), nil)
+		newAckGate(testEnv(map[string]string{listenAckEnv: "1", listenAckFileEnv: path}), nil, nil)
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Errorf("stat after start = %v, want the file gone", err)
 		}
@@ -906,7 +906,7 @@ func TestNewAckGate(t *testing.T) {
 func TestConfirm(t *testing.T) {
 	newGate := func(t *testing.T, answers string) *ackGate {
 		t.Helper()
-		g := newAckGate(testEnv(map[string]string{listenAckEnv: "1"}), strings.NewReader(answers))
+		g := newAckGate(testEnv(map[string]string{listenAckEnv: "1"}), strings.NewReader(answers), nil)
 		if g == nil {
 			t.Fatal("newAckGate = nil with OC_LISTEN_ACK=1")
 		}
@@ -981,7 +981,7 @@ func TestConfirm(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				path := filepath.Join(t.TempDir(), ".officraft-listen-ack")
 				g := newAckGate(testEnv(map[string]string{listenAckEnv: "1", listenAckFileEnv: path}),
-					strings.NewReader("nack 1\nack 1\n"))
+					strings.NewReader("nack 1\nack 1\n"), nil)
 				var out bytes.Buffer
 				go func() {
 					time.Sleep(50 * time.Millisecond)
@@ -1000,7 +1000,7 @@ func TestConfirm(t *testing.T) {
 
 	t.Run("each overwrite of the ack file answers the next batch", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), ".officraft-listen-ack")
-		g := newAckGate(testEnv(map[string]string{listenAckEnv: "1", listenAckFileEnv: path}), nil)
+		g := newAckGate(testEnv(map[string]string{listenAckEnv: "1", listenAckFileEnv: path}), nil, nil)
 		var out bytes.Buffer
 		answer := func(text string) {
 			go func() {
@@ -1026,7 +1026,7 @@ func TestConfirm(t *testing.T) {
 		if err := os.WriteFile(path, []byte("ack 1\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		g := newAckGate(testEnv(map[string]string{listenAckEnv: "1", listenAckFileEnv: path}), nil)
+		g := newAckGate(testEnv(map[string]string{listenAckEnv: "1", listenAckFileEnv: path}), nil, nil)
 		g.wait = 500 * time.Millisecond
 		var out bytes.Buffer
 
@@ -1038,7 +1038,7 @@ func TestConfirm(t *testing.T) {
 	t.Run("a batch nobody answers times out loudly and counts as undelivered", func(t *testing.T) {
 		pr, pw := io.Pipe()
 		t.Cleanup(func() { _ = pw.Close() })
-		g := newAckGate(testEnv(map[string]string{listenAckEnv: "1"}), pr)
+		g := newAckGate(testEnv(map[string]string{listenAckEnv: "1"}), pr, nil)
 		g.wait = 20 * time.Millisecond
 		var out bytes.Buffer
 
@@ -1051,6 +1051,31 @@ func TestConfirm(t *testing.T) {
 			"如果這行一直出現，收訊這條路的另一端有問題。\n"
 		if out.String() != want {
 			t.Errorf("printed %q, want %q", out.String(), want)
+		}
+	})
+
+	t.Run("under an ack file, an unanswered batch's notice goes to stderr and never becomes a frame", func(t *testing.T) {
+		// Positive control: the case above, where the codex gate prints it on out.
+		path := filepath.Join(t.TempDir(), ".officraft-listen-ack")
+		var diag bytes.Buffer
+		g := newAckGate(testEnv(map[string]string{listenAckEnv: "1", listenAckFileEnv: path}), nil, &diag)
+		g.wait = 20 * time.Millisecond
+		var stdout, modDiag bytes.Buffer
+		w := newModWriter(&stdout, &modDiag)
+
+		if g.confirm(w) {
+			t.Error("confirm = true after the deadline, want false")
+		}
+		w.drain()
+
+		if want := `{"batch":"1"}` + "\n"; stdout.String() != want {
+			t.Errorf("stdout = %q, want %q", stdout.String(), want)
+		}
+		want := "[ocagent] 等不到「已送達」的回覆（batch 1，等了 20ms）—— " +
+			"這一批訊息**沒有**被算成你看過了，下一次補印會再送一次。" +
+			"如果這行一直出現，收訊這條路的另一端有問題。\n"
+		if diag.String() != want {
+			t.Errorf("stderr = %q, want %q", diag.String(), want)
 		}
 	})
 }
