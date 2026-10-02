@@ -642,7 +642,8 @@ type SpawnDeps struct {
 	CaptureEnv func() (string, error)
 	// LaunchEnv keeps the last spawn's interactive layer for the login check.
 	LaunchEnv *launchEnvCache
-	// Logf receives KEY NAMES and reasons ONLY, never a value.
+	// Logf receives KEY NAMES and reasons ONLY, never a value. The one exception
+	// is logNotifyModFallback's capped capture of a member pane.
 	Logf      func(string, ...any)
 	ClaudeBin string
 	// nil, or false, launches with the inline boot pointer that has the member
@@ -670,6 +671,10 @@ type SpawnDeps struct {
 	Remove            func(name string) error
 	// nil reads every path as absent, which sends a claude member to the paste route.
 	Exists func(path string) bool
+	// Diagnostics only (logNotifyModFallback): nil ModTime logs the started
+	// marker as unreadable, nil Now reads time.Now.
+	ModTime func(path string) (time.Time, error)
+	Now     func() time.Time
 	// nil skips the reap.
 	ReapWorkdirListeners func(workdir string) (found int, cleared bool)
 	Nudge                string
@@ -914,6 +919,7 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 		return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
 			"spawn_exec_failed: tmux new-session: %v", err)}
 	}
+	launchedAt := d.now()
 	if runtimeName == "claude" {
 		// Claude only: codex's sidecar starts the boot turn through App Server; keystrokes
 		// would target a non-interactive pane.
@@ -936,6 +942,8 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 			notifyByPaste, notifyNote = true, notifyModNotLoadedNote
 			d.disableNotifyMod(workdir)
 			d.logf("%s: the notification mod did not load; notifications go by tmux paste", p.MemberID)
+			// Before the paste below, so the capture shows what the wait left on screen.
+			d.logNotifyModFallback(p.MemberID, workdir, socket, session, launchedAt)
 			if !d.notifyModBooted(workdir) {
 				// The member's Claude Code has been up for the whole 30 s wait, so its
 				// prompt is drawn: the Enters only cover a redraw racing the first one.

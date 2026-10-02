@@ -3,7 +3,7 @@ import { expect, test } from 'claude-code/testing'
 
 // What the warden writes beside the mod for member m1 (notifymod.go).
 const CONFIG_M1 =
-  '{"boot_prompt":"開始。","loaded_marker":"/w/m1/.officraft-mod-loaded",' +
+  '{"boot_prompt":"開始。","started_marker":"/w/m1/.officraft-mod-started","loaded_marker":"/w/m1/.officraft-mod-loaded",' +
   '"disabled_marker":"/w/m1/.officraft-mod-disabled","booted_marker":"/w/m1/.officraft-mod-booted",' +
   '"ack_file":"/w/m1/.officraft-listen-ack",' +
   '"ready_prefixes":["[ocagent] listen: connected","[ocagent] listen: disconnected"],' +
@@ -11,6 +11,10 @@ const CONFIG_M1 =
   '"env":{"OC_LISTEN_ACK":"1","OC_LISTEN_ACK_FILE":"/w/m1/.officraft-listen-ack"}}}\n'
 
 const GRACE_STAND_IN_MS = 30
+
+// What clock.now answers, and the started marker the mod writes from it.
+const NOW_MS = Date.UTC(2026, 9, 2, 3, 4, 5, 678)
+const STARTED = { path: '/w/m1/.officraft-mod-started', text: '2026-10-02T03:04:05.678Z\n' }
 
 const CONNECTED = '[ocagent] listen: connected — streaming http://127.0.0.1:7755/api/events [ts=1.000 local]\n'
 
@@ -29,6 +33,8 @@ type World = {
   disabled?: boolean
   // The warden writes the disabled marker once the listener has started.
   disabledAfterSpawn?: boolean
+  // Writes to these paths fail.
+  writeFails?: string[]
 }
 
 // Everything beneath the mod: the files it touches, the prompts it submits,
@@ -45,7 +51,11 @@ function world(on: On, w: World) {
   let finished = () => {}
   const done = new Promise<void>(resolve => (finished = resolve))
 
-  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  // The plugins and the engine beneath the mod's own hook.
+  on('session.start', ($, e) => {
+    trail.push('session.start beneath')
+    return { cwd: e.cwd }
+  })
   on('fs.read', ($, e) => {
     reads.push(e.path)
     const config = w.config === undefined ? CONFIG_M1 : w.config
@@ -54,10 +64,12 @@ function world(on: On, w: World) {
   })
   on('fs.exists', ($, e) => ({ value: disabled && e.path === '/w/m1/.officraft-mod-disabled' }))
   on('fs.write', ($, e) => {
+    if ((w.writeFails ?? []).includes(e.path)) return { deny: `EACCES: ${e.path}` }
     writes.push({ path: e.path, text: e.text })
     trail.push(`write ${e.path}`)
     return { value: undefined }
   })
+  on('clock.now', () => ({ value: NOW_MS }))
   on('prompt.submit', ($, e) => {
     submits.push({ text: e.text, asUser: e.origin.kind === 'plugin' && e.origin.asUser === true })
     trail.push(`submit ${e.text}`)
@@ -128,6 +140,8 @@ test('under a session start, the boot prompt goes in first, then the listener, t
   expect(w.reads[0]?.endsWith('/mod/officraft.json')).toBe(true)
   expect(w.spawned).toEqual([LISTENER])
   expect(w.trail).toEqual([
+    'write /w/m1/.officraft-mod-started',
+    'session.start beneath',
     'submit 開始。',
     'write /w/m1/.officraft-mod-booted',
     'spawn',
@@ -140,6 +154,7 @@ test('under a session start, the boot prompt goes in first, then the listener, t
     { text: '[ocagent] chat from owner (#c-1): 甲\n    第二行', asUser: false },
   ])
   expect(w.writes).toEqual([
+    STARTED,
     { path: '/w/m1/.officraft-mod-booted', text: 'booted\n' },
     { path: '/w/m1/.officraft-mod-loaded', text: 'loaded\n' },
     { path: '/w/m1/.officraft-listen-ack', text: 'ack 1\n' },
@@ -157,6 +172,8 @@ test('under a listener whose first output is a frame, that frame marks the mod l
   await settled(w.done)
 
   expect(w.trail).toEqual([
+    'write /w/m1/.officraft-mod-started',
+    'session.start beneath',
     'submit 開始。',
     'write /w/m1/.officraft-mod-booted',
     'spawn',
@@ -175,7 +192,7 @@ test('under a listener that refuses to start, no load marker is written', async 
   await settled(w.done)
 
   expect(w.spawned).toEqual([LISTENER])
-  expect(w.writes).toEqual([{ path: '/w/m1/.officraft-mod-booted', text: 'booted\n' }])
+  expect(w.writes).toEqual([STARTED, { path: '/w/m1/.officraft-mod-booted', text: 'booted\n' }])
 })
 
 test('under a listener whose stdout is no frame and that prints no transport line, no load marker is written', async ($, on) => {
@@ -185,7 +202,7 @@ test('under a listener whose stdout is no frame and that prints no transport lin
   await $.session.start(START)
   await settled(w.done)
 
-  expect(w.writes).toEqual([{ path: '/w/m1/.officraft-mod-booted', text: 'booted\n' }])
+  expect(w.writes).toEqual([STARTED, { path: '/w/m1/.officraft-mod-booted', text: 'booted\n' }])
 })
 
 for (const [name, refusal] of [
@@ -202,7 +219,7 @@ for (const [name, refusal] of [
     await new Promise(resolve => setTimeout(resolve, 50))
 
     expect(w.spawned).toEqual([])
-    expect(w.writes).toEqual([])
+    expect(w.writes).toEqual([STARTED])
     expect(w.logs).toEqual([{ text: 'the boot prompt was refused; not listening', to: 'debug' }])
   })
 }
@@ -213,7 +230,7 @@ test('under the warden falling back before the listener connected, the mod write
   await $.session.start(START)
   await settled(w.done)
 
-  expect(w.writes).toEqual([{ path: '/w/m1/.officraft-mod-booted', text: 'booted\n' }])
+  expect(w.writes).toEqual([STARTED, { path: '/w/m1/.officraft-mod-booted', text: 'booted\n' }])
   expect(w.submits).toEqual([{ text: '開始。', asUser: true }])
 })
 
@@ -237,6 +254,7 @@ for (const [name, failure] of [
 
     expect(w.submits.map(s => s.text)).toEqual(['開始。', '甲', '乙', '丙', '丁'])
     expect(w.writes).toEqual([
+      STARTED,
       { path: '/w/m1/.officraft-mod-booted', text: 'booted\n' },
     { path: '/w/m1/.officraft-mod-loaded', text: 'loaded\n' },
       { path: '/w/m1/.officraft-listen-ack', text: 'nack 1\n' },
@@ -263,20 +281,48 @@ test('under stdout that is no frame, the line goes to the debug log and nothing 
   ])
 })
 
-test('under the warden having fallen back to pasting, the mod submits nothing and starts no listener', async ($, on) => {
+test('under the warden having fallen back to pasting, the mod marks its start, submits nothing and starts no listener', async ($, on) => {
   // Positive control: the first test, where the same start boots and listens.
   const w = world(on, { disabled: true, stderr: [CONNECTED] })
 
   expect(await $.session.start(START)).toEqual({ cwd: '/w/m1' })
 
-  expect(w.trail).toEqual([])
+  // The started marker still goes first: it is what dates a late session.start.
+  expect(w.trail).toEqual(['write /w/m1/.officraft-mod-started', 'session.start beneath'])
+  expect(w.writes).toEqual([STARTED])
+  expect(w.logs).toEqual([
+    { text: 'session.start found the warden already fell back to pasting; not booting', to: 'debug' },
+  ])
 })
 
-// Positive control for these three: the first test, where a readable config
+test('under a started marker that cannot be written, the failure is logged and the session boots as usual', async ($, on) => {
+  // Positive control: the first test, where the marker is written.
+  const w = world(on, { writeFails: ['/w/m1/.officraft-mod-started'], stderr: [CONNECTED] })
+
+  await $.session.start(START)
+  await settled(w.done)
+
+  expect(w.trail).toEqual([
+    'session.start beneath',
+    'submit 開始。',
+    'write /w/m1/.officraft-mod-booted',
+    'spawn',
+    'write /w/m1/.officraft-mod-loaded',
+  ])
+  expect(w.logs).toEqual([
+    { text: 'cannot write /w/m1/.officraft-mod-started (HooksError: officraft: $.fs.write: EACCES: /w/m1/.officraft-mod-started)', to: 'debug' },
+    { text: CONNECTED, to: 'debug' },
+    { text: 'ocagent listen exited (code 0, signal null)', to: 'debug' },
+  ])
+})
+
+// Positive control for these four: the first test, where a readable config
 // starts the listener.
 for (const [name, config] of [
   ['a missing config', null],
   ['a config without the listener', '{"boot_prompt":"開始。","loaded_marker":"/w/m1/.officraft-mod-loaded"}\n'],
+  // Every field is required, the diagnostic started marker too: the mod writes nowhere it was not told.
+  ['a config without the started marker', CONFIG_M1.replace('"started_marker":"/w/m1/.officraft-mod-started",', '')],
   ['a config that is not JSON', 'not json'],
 ] as const) {
   test(`under ${name}, the mod submits nothing, marks nothing and starts no listener`, async ($, on) => {
@@ -284,7 +330,7 @@ for (const [name, config] of [
 
     expect(await $.session.start(START)).toEqual({ cwd: '/w/m1' })
 
-    expect(w.trail).toEqual([])
+    expect(w.trail).toEqual(['session.start beneath'])
     expect(w.logs.length).toBe(1)
     expect(w.logs[0]?.to).toBe('debug')
   })
@@ -304,6 +350,8 @@ test('under a busy member, a batch is acked once its prompts are queued, not whe
   await new Promise(resolve => setTimeout(resolve, 600))
 
   expect(w.trail).toEqual([
+    'write /w/m1/.officraft-mod-started',
+    'session.start beneath',
     'submit 開始。',
     'write /w/m1/.officraft-mod-booted',
     'spawn',

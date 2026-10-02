@@ -76,6 +76,19 @@ pgrep -fl 'ocagent listen --deliver-mod'                 # 那個 listener 現�
 
 標記在、listener 卻不在，表示它後來退了；它印的話只進成員 Claude Code 的 debug log（以 `claude --debug` 啟動時才看得到）。
 
+**最近操作出現 `notify_mod_not_loaded`、想知道模組為什麼沒載入**：到那台機器看 warden 的紀錄，退回貼上那一刻它寫了幾行以 `notify-mod-fallback` 開頭的診斷：
+
+```bash
+grep 'notify-mod-fallback' ~/.officraft/warden/log/ocwarden.err.log   # 每次退回貼上都有一組，最後一組是最近這次
+ls -l ~/.officraft/agents/<成員 id>/.officraft-mod-started          # 模組開始跑的時間（內容是 UTC 時間戳）
+```
+
+- `.officraft-mod-started written 12.3s after launch`：模組有跑，只是 Claude Code 的啟動慢到快 30 秒才輪到它（常見是開機時的對話框或 MCP 載入卡住）——看下面 pane 那幾行就知道卡在哪。
+- `.officraft-mod-started absent`：模組根本沒跑到（工作目錄沒被信任、`disableAllHooks`、`--safe-mode`、受管設定擋掉 `--plugin-dir`，或讀不到 `officraft.json`）。
+- `pane| ` 開頭的那幾行：等滿 30 秒時成員視窗最後 40 行的原樣（最多 4 KiB），看得出當時畫面停在什麼對話框或錯誤。
+
+這份診斷只在 warden 的紀錄裡，不會出現在最近操作。
+
 走貼上的成員：
 
 ```bash

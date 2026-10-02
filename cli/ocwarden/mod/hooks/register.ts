@@ -13,6 +13,7 @@ const ACCEPT_GRACE_MS = 1500
 
 type Config = {
   boot_prompt: string
+  started_marker: string
   loaded_marker: string
   disabled_marker: string
   booted_marker: string
@@ -25,14 +26,21 @@ type Frame = { submit: string } | { batch: string }
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    const started = await next(e)
     // Without a config the mod stays silent: the warden then finds no load marker
     // and falls back to its tmux paste listener.
     const config = await readConfig($)
+    // Diagnostics only, first thing and before every check: after a fallback the
+    // warden logs its presence and mtime, which tell a late session.start from a
+    // mod that never ran.
+    if (config !== undefined) await markStarted($, config)
+    const started = await next(e)
     if (config === undefined) return started
     // 🔴 The warden fell back to its tmux paste listener for this session; a
     // second listener on the same identity makes the station evict one of them.
-    if (await $.fs.exists(config.disabled_marker)) return started
+    if (await $.fs.exists(config.disabled_marker)) {
+      $.ui.log('session.start found the warden already fell back to pasting; not booting', { to: 'debug' })
+      return started
+    }
     void boot($, config)
     return started
   })
@@ -53,6 +61,15 @@ async function boot($: EngineInterface, config: Config): Promise<void> {
   await listen($, config)
 }
 
+// A failed write only loses the diagnosis; the session goes on.
+async function markStarted($: EngineInterface, config: Config): Promise<void> {
+  try {
+    await $.fs.write(config.started_marker, `${new Date(await $.clock.now()).toISOString()}\n`)
+  } catch (err) {
+    $.ui.log(`cannot write ${config.started_marker} (${String(err)})`, { to: 'debug' })
+  }
+}
+
 async function readConfig($: EngineInterface): Promise<Config | undefined> {
   const path = `${$.plugin.root}/${CONFIG_FILE}`
   try {
@@ -71,6 +88,7 @@ function isConfig(value: unknown): value is Config {
   const listener = c.listener as Record<string, unknown> | undefined
   return (
     typeof c.boot_prompt === 'string' &&
+    typeof c.started_marker === 'string' &&
     typeof c.loaded_marker === 'string' &&
     typeof c.disabled_marker === 'string' &&
     typeof c.booted_marker === 'string' &&

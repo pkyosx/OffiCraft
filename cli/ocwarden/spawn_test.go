@@ -43,6 +43,8 @@ type spawnHarness struct {
 	// present answers the Exists seam; every path asked is recorded.
 	present map[string]bool
 	asked   []string
+	// modTimes answers the ModTime seam; a path not in it is absent.
+	modTimes map[string]time.Time
 	// reaped answers the leftover-listener reap, which is recorded in the runner's
 	// call list so its order against the launch shows.
 	reaped    int
@@ -94,6 +96,13 @@ func (h *spawnHarness) deps() SpawnDeps {
 			h.asked = append(h.asked, path)
 			return h.present[path]
 		},
+		ModTime: func(path string) (time.Time, error) {
+			if mt, ok := h.modTimes[path]; ok {
+				return mt, nil
+			}
+			return time.Time{}, os.ErrNotExist
+		},
+		Now: func() time.Time { return spawnLaunchedAt },
 		ReapWorkdirListeners: func(workdir string) (int, bool) {
 			h.runner.calls = append(h.runner.calls, "reap "+workdir)
 			return h.reaped, !h.reapStuck
@@ -104,6 +113,9 @@ func (h *spawnHarness) deps() SpawnDeps {
 		Sleep:      func(d time.Duration) { h.slept = append(h.slept, d) },
 	}
 }
+
+// The harness's clock: every spawn launches at this instant.
+var spawnLaunchedAt = time.Date(2026, 10, 2, 3, 4, 0, 0, time.UTC)
 
 func newSpawnHarness() *spawnHarness {
 	return &spawnHarness{
@@ -160,7 +172,7 @@ func notifyModWrites(t *testing.T) []writtenFile {
 		{"/w/m1/.officraft-mod/hooks/register.ts", notifyModFile(t, "hooks/register.ts"), 0o600},
 		// Every name the mod uses comes from here; it spells none of them itself.
 		{"/w/m1/.officraft-mod/officraft.json",
-			`{"boot_prompt":"開始。","loaded_marker":"/w/m1/.officraft-mod-loaded",` +
+			`{"boot_prompt":"開始。","started_marker":"/w/m1/.officraft-mod-started","loaded_marker":"/w/m1/.officraft-mod-loaded",` +
 				`"disabled_marker":"/w/m1/.officraft-mod-disabled","booted_marker":"/w/m1/.officraft-mod-booted",` +
 				`"ack_file":"/w/m1/.officraft-listen-ack",` +
 				`"ready_prefixes":["[ocagent] listen: connected","[ocagent] listen: disconnected"],` +
@@ -1261,10 +1273,11 @@ func TestStart(t *testing.T) {
 		if !reflect.DeepEqual(h.writes, wantWrites) {
 			t.Errorf("writes =\n%+v\nwant\n%+v", h.writes, wantWrites)
 		}
-		// Both markers go before the launch: a stale loaded marker would pass the
-		// check for a mod that never loaded, a stale disabled one would mute it.
-		wantRemoves := []string{"/w/m1/ocagent", "/w/m1/.oc-env", "/w/m1/.officraft-mod-loaded", "/w/m1/.officraft-mod-disabled",
-			"/w/m1/.officraft-mod-booted"}
+		// Every marker goes before the launch: a stale loaded marker would pass the
+		// check for a mod that never loaded, a stale disabled one would mute it, a
+		// stale started one would date a fallback to the previous session.
+		wantRemoves := []string{"/w/m1/ocagent", "/w/m1/.oc-env", "/w/m1/.officraft-mod-started", "/w/m1/.officraft-mod-loaded",
+			"/w/m1/.officraft-mod-disabled", "/w/m1/.officraft-mod-booted"}
 		if !reflect.DeepEqual(h.removes, wantRemoves) {
 			t.Errorf("removes = %v, want %v", h.removes, wantRemoves)
 		}
@@ -1399,6 +1412,8 @@ func TestStart(t *testing.T) {
 					"tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 " + goldenLaunchM1,
 					"tmux -L officraft set-option -t member-m1 window-size manual",
 					"tmux -L officraft resize-window -t member-m1 -x 160 -y 50",
+					// Before the paste, so it shows what the wait left on screen.
+					"tmux -L officraft capture-pane -p -t member-m1",
 				}, tc.nudge...)
 				wantCalls = append(wantCalls,
 					"tmux -L officraft new-session -d -s listen-m1 -x 160 -y 50 "+goldenListenerM1,
@@ -1414,8 +1429,104 @@ func TestStart(t *testing.T) {
 				if want := slices.Repeat([]time.Duration{time.Second}, tc.slept); !reflect.DeepEqual(h.slept, want) {
 					t.Errorf("slept %v, want %v", h.slept, want)
 				}
-				if want := []string{"m1: the notification mod did not load; notifications go by tmux paste"}; !reflect.DeepEqual(h.logs, want) {
-					t.Errorf("logs = %v, want %v", h.logs, want)
+				// The runner's unscripted capture is empty: one empty pane line.
+				wantLogs := []string{
+					"m1: the notification mod did not load; notifications go by tmux paste",
+					"m1: notify-mod-fallback: .officraft-mod-started absent: the mod's session.start never ran with its config",
+					"m1: notify-mod-fallback: pane member-m1, last 40 lines:",
+					"m1: notify-mod-fallback pane| ",
+				}
+				if !reflect.DeepEqual(h.logs, wantLogs) {
+					t.Errorf("logs =\n%q\nwant\n%q", h.logs, wantLogs)
+				}
+			})
+		}
+	})
+
+	t.Run("under a mod that did not load, the warden log carries the started marker and the member's pane", func(t *testing.T) {
+		const capture = "tmux -L officraft capture-pane -p -t member-m1"
+		// 45 lines: the first five fall outside the last 40.
+		var pane45 strings.Builder
+		for i := 1; i <= 45; i++ {
+			fmt.Fprintf(&pane45, "line %02d\n", i)
+		}
+		wantLast40 := []string{}
+		for i := 6; i <= 45; i++ {
+			wantLast40 = append(wantLast40, fmt.Sprintf("m1: notify-mod-fallback pane| line %02d", i))
+		}
+		// A 5001-byte line, 2500 "é" (2 bytes each) then "z": its last 4096 bytes
+		// would start mid-rune, so the cut keeps 4095, 2047 "é" and the "z".
+		wide := strings.Repeat("é", 2500) + "z"
+		for _, tc := range []struct {
+			name     string
+			modTimes map[string]time.Time
+			run      wardenRun
+			want     []string
+		}{
+			{"a session.start 12.3 s late and a pane of what the member saw",
+				map[string]time.Time{"/w/m1/.officraft-mod-started": spawnLaunchedAt.Add(12340 * time.Millisecond)},
+				wardenRun{out: "╭ Claude Code ╮\n> 開始。\n\n\n"},
+				[]string{
+					"m1: notify-mod-fallback: .officraft-mod-started written 12.3s after launch",
+					"m1: notify-mod-fallback: pane member-m1, last 40 lines:",
+					"m1: notify-mod-fallback pane| ╭ Claude Code ╮",
+					"m1: notify-mod-fallback pane| > 開始。",
+				}},
+			{"a pane taller than 40 lines keeps its last 40",
+				nil,
+				wardenRun{out: pane45.String()},
+				append([]string{
+					"m1: notify-mod-fallback: .officraft-mod-started absent: the mod's session.start never ran with its config",
+					"m1: notify-mod-fallback: pane member-m1, last 40 lines:",
+				}, wantLast40...)},
+			{"a pane over 4 KiB keeps its last 4096 bytes, cut on a rune",
+				nil,
+				wardenRun{out: wide},
+				[]string{
+					"m1: notify-mod-fallback: .officraft-mod-started absent: the mod's session.start never ran with its config",
+					"m1: notify-mod-fallback: pane member-m1, last 40 lines, cut to its last 4096 bytes:",
+					"m1: notify-mod-fallback pane| " + strings.Repeat("é", 2047) + "z",
+				}},
+			{"a capture that fails is logged and the fallback goes on",
+				nil,
+				wardenRun{err: errors.New("can't find pane: member-m1")},
+				[]string{
+					"m1: notify-mod-fallback: .officraft-mod-started absent: the mod's session.start never ran with its config",
+					"m1: notify-mod-fallback: capture-pane of member-m1 failed: can't find pane: member-m1",
+				}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				h := newSpawnHarness()
+				h.present = map[string]bool{"/w/m1/.officraft-mod-booted": true}
+				h.modTimes = tc.modTimes
+				h.runner.script[capture] = tc.run
+				got := h.deps().start(startParamsM1())
+
+				// The pane stays out of the owner-facing Note.
+				want := SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500", Note: goldenNotifyModNotLoadedNote}
+				if got != want {
+					t.Errorf("outcome = %+v, want %+v", got, want)
+				}
+				wantLogs := append([]string{"m1: the notification mod did not load; notifications go by tmux paste"}, tc.want...)
+				if !reflect.DeepEqual(h.logs, wantLogs) {
+					t.Errorf("logs =\n%q\nwant\n%q", h.logs, wantLogs)
+				}
+				wantCalls := []string{
+					"tmux -L officraft has-session -t member-m1",
+					"/usr/local/bin/claude --version",
+					"tmux -L officraft kill-session -t listen-m1",
+					"reap /w/m1",
+					"tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 " + goldenLaunchM1,
+					"tmux -L officraft set-option -t member-m1 window-size manual",
+					"tmux -L officraft resize-window -t member-m1 -x 160 -y 50",
+					capture,
+					"tmux -L officraft new-session -d -s listen-m1 -x 160 -y 50 " + goldenListenerM1,
+					"tmux -L officraft set-option -t listen-m1 window-size manual",
+					"tmux -L officraft resize-window -t listen-m1 -x 160 -y 50",
+					"tmux -L officraft display-message -p -t member-m1 #{pane_pid}",
+				}
+				if !reflect.DeepEqual(h.runner.calls, wantCalls) {
+					t.Errorf("calls =\n%v\nwant\n%v", h.runner.calls, wantCalls)
 				}
 			})
 		}
@@ -1428,7 +1539,7 @@ func TestStart(t *testing.T) {
 		if got := d.start(startParamsM1()); !got.OK {
 			t.Fatalf("outcome = %+v, want OK", got)
 		}
-		want := `{"boot_prompt":"請開機。","loaded_marker":"/w/m1/.officraft-mod-loaded",` +
+		want := `{"boot_prompt":"請開機。","started_marker":"/w/m1/.officraft-mod-started","loaded_marker":"/w/m1/.officraft-mod-loaded",` +
 			`"disabled_marker":"/w/m1/.officraft-mod-disabled","booted_marker":"/w/m1/.officraft-mod-booted",` +
 			`"ack_file":"/w/m1/.officraft-listen-ack",` +
 			`"ready_prefixes":["[ocagent] listen: connected","[ocagent] listen: disconnected"],` +
