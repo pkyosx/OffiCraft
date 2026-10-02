@@ -2952,9 +2952,12 @@ const mockApiImpl = {
       return;
     }
     w.presence = "stopping";
-    afterMockForcedDisconnect(() => {
-      w.presence = "offline";
-    });
+    afterMockForcedDisconnect(
+      () => w.desired_state === "offline",
+      () => {
+        w.presence = "offline";
+      },
+    );
   },
 
   async acceleratedStopMember(id: string): Promise<void> {
@@ -2972,6 +2975,13 @@ const mockApiImpl = {
     // projection the server derives from it — which is also the only thing the
     // cockpit itself can see, and therefore the right basis for a mock whose job
     // is to catch a cockpit offering a button the server would refuse.
+    if (w.forced_stop_live) {
+      throw mockApiError(
+        "http 409 for POST /api/members/{id}/accelerated-stop",
+        409,
+        MOCK_ACCELERATED_STOP_ALREADY_FORCED,
+      );
+    }
     const windingDown = w.presence === "stopping" || (w.refocus_since ?? 0) > 0;
     if (!windingDown) {
       throw mockApiError(
@@ -4851,6 +4861,13 @@ const mockApiImpl = {
         404, `outsource worker ${id} not found`
       );
     }
+    if (w.forcedStopLive) {
+      throw mockApiError(
+        `http 409 for POST /api/members/${id}/accelerated-stop`,
+        409,
+        MOCK_ACCELERATED_STOP_ALREADY_FORCED
+      );
+    }
     const windingDown =
       (w.desiredState === "offline" && w.presence === "stopping") ||
       (w.refocusSince ?? 0) > 0;
@@ -4901,9 +4918,12 @@ const mockApiImpl = {
       return;
     }
     w.presence = "stopping";
-    afterMockForcedDisconnect(() => {
-      w.presence = "stopped";
-    });
+    afterMockForcedDisconnect(
+      () => w.desiredState === "offline",
+      () => {
+        w.presence = "stopped";
+      },
+    );
       emitTopic("member");
     // T-91: the write answers a RECEIPT, not the worker; the store above is what
     // changed and the panel refetches.
@@ -7205,12 +7225,19 @@ export const mockApi: Api = mockApiImpl;
  * survive. */
 export const MOCK_FORCED_STOP_DISCONNECT_MS = 3000;
 
-function afterMockForcedDisconnect(land: () => void): void {
+/** `stillDown` guards a wake pressed inside the window: the timer must not
+ * overwrite the new waking session with the old one's disconnect. */
+function afterMockForcedDisconnect(stillDown: () => boolean, land: () => void): void {
   setTimeout(() => {
+    if (!stillDown()) return;
     land();
     emitTopic("member");
   }, MOCK_FORCED_STOP_DISCONNECT_MS);
 }
+
+/** Verbatim the server's acceleratedStopAlreadyForcedMsg. */
+const MOCK_ACCELERATED_STOP_ALREADY_FORCED =
+  "加速停止 has nothing to escalate — this member was already force-stopped (強制停止): its session was cut off and no wind-down is open";
 
 export function __resetMock(): void {
   // The ring is MUTATED by rotate/remove, so it belongs here: without this a

@@ -181,6 +181,9 @@ describe("stopLadderStageOf", () => {
     expect(
       stopLadderStageOf({ lifecycle: "online", desiredState: "online", refocusOp: "accelerated_stop" }),
     ).toBe("none");
+    expect(
+      stopLadderStageOf({ lifecycle: "online", desiredState: "online", refocusOp: "", forcedStopLive: true }),
+    ).toBe("none");
   });
 });
 
