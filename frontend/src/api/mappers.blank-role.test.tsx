@@ -51,6 +51,7 @@ function mkWireMember(over: Partial<WireMember>): WireMember {
     last_op: "",
     last_op_at: 0,
     forced_stop_at: 0,
+    forced_stop_live: false,
     last_op_log: "",
     last_op_reason: "",
     refocus_since: 0,

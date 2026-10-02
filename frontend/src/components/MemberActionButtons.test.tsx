@@ -21,7 +21,8 @@
 // And the stage is NOT "the owner pressed 停止". Owner: 「應該說已經觸發軟下線的
 // 人可以被觸發加速下線」 — a wind-down the SYSTEM opened at a context threshold
 // counts, and that world is `refocusSince` + `refocusOp` with presence still
-// plain `online`. The four fixtures below are exactly those four worlds.
+// plain `online`. The first four fixtures below are exactly those four worlds;
+// the fifth is the window between a force-stop and the session dropping.
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, fireEvent, act } from "@testing-library/react";
@@ -47,8 +48,8 @@ const LADDER_IDS = [
   "member-action-force-stop",
 ];
 
-/** The four worlds the ruling distinguishes, as the wire actually shapes them.
- * They are deliberately NOT four spellings of the same row — presence, the
+/** The worlds the ladder distinguishes, as the wire actually shapes them.
+ * They are deliberately NOT spellings of the same row — presence, the
  * owner's intent and the CAUSE all differ, so a predicate that collapses any
  * two of them cannot pass this table. */
 const WORLDS: {
@@ -97,6 +98,20 @@ const WORLDS: {
       desiredState: "offline",
       refocusSince: null,
       refocusOp: "accelerated_stop",
+    },
+    stage: "accelerated",
+    status: "stopping",
+  },
+  {
+    // Force-stop clears refocus_op and publishes before the session drops, so
+    // presence is still `stopping`. 加速停止 here would be refused with 409.
+    name: "force-stopped, session not yet disconnected",
+    facts: {
+      lifecycle: "stopping",
+      desiredState: "offline",
+      refocusSince: null,
+      refocusOp: "",
+      forcedStopLive: true,
     },
     stage: "accelerated",
     status: "stopping",
@@ -165,6 +180,9 @@ describe("stopLadderStageOf", () => {
     // A stale cause with nothing open must not conjure 強制停止 out of nothing.
     expect(
       stopLadderStageOf({ lifecycle: "online", desiredState: "online", refocusOp: "accelerated_stop" }),
+    ).toBe("none");
+    expect(
+      stopLadderStageOf({ lifecycle: "online", desiredState: "online", refocusOp: "", forcedStopLive: true }),
     ).toBe("none");
   });
 });

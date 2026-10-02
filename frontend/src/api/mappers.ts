@@ -323,6 +323,7 @@ export function toMember(w: WireMember): Member {
     // which reads as history (T-7f28).
     refocusOp: w.refocus_op || "",
     refocusDeadline: w.refocus_deadline > 0 ? w.refocus_deadline : null,
+    forcedStopLive: w.forced_stop_live ?? false,
     // The DURABLE last-observed machine. `machine` above goes blank the moment
     // the member stops running; this one survives, so a pending relocation is
     // still legible while it is offline.
@@ -906,6 +907,7 @@ export function toOutsourceWorker(w: WireOutsourceWorker): OutsourceWorkerView {
     refocusOp: w.refocus_op ?? "",
     refocusDeadline:
       w.refocus_deadline && w.refocus_deadline > 0 ? w.refocus_deadline : null,
+    forcedStopLive: w.forced_stop_live ?? false,
     desiredState: w.desired_state ?? "online",
     // The SAME whole-command passthrough the member mapper does (T-139) — the
     // worker panel used to derive `member-<id>` itself, a THIRD independent copy

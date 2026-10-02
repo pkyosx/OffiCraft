@@ -13,7 +13,7 @@
 // mock-adapter relocate round-trip. Pure visual styling (the stuck warn tint,
 // the picker's dark theme) is NOT asserted here — jsdom does not compute it.
 
-import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi, onTestFinished } from "vitest";
 import { render, fireEvent, screen, waitFor, configure, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { api } from "../api";
@@ -28,6 +28,7 @@ import {
   __injectMockTaskType,
   __injectMockMonitoringSession,
   __setMockMemberOnline,
+  MOCK_FORCED_STOP_DISCONNECT_MS,
 } from "../api/mock";
 import type { TaskView, OutsourceWorkerView } from "../api/adapter";
 
@@ -999,6 +1000,10 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
   // 狀態才可以按」. Since 2026-08-22 the walk happens in ONE slot, so each step
   // below also asserts that the rung below it is gone.
   it("強制停止 is reached only by upgrading through 加速停止, ASKS FIRST, then kills and collapses the row to 喚醒", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     __injectMockTask(mkTask({ id: "t-1" }));
     __injectMockOutsourceWorker(
       mkWorker({ id: "ow-1", taskId: "t-1", presence: "online" }),
@@ -1036,6 +1041,24 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
 
     fireEvent.click(await findByTestId("worker-detail-force-stop-confirm-btn"));
     await waitFor(() => expect(force).toHaveBeenCalledWith("ow-1"));
+    // Killed but not yet disconnected: the row reads 停止中 and the one ladder
+    // button stays 強制停止 instead of falling back to 加速停止.
+    await waitFor(async () =>
+      expect(
+        (await findByTestId("worker-detail-header-dot")).getAttribute("aria-label"),
+      ).toBe(zh.office.presence.stopping),
+    );
+    expect(
+      Array.from(document.querySelectorAll(".mp-identity__buttons button")).map((b) => [
+        b.getAttribute("data-testid"),
+        b.textContent,
+      ]),
+    ).toEqual([
+      ["worker-detail-change", "更改"],
+      ["member-action-force-stop", "強制停止"],
+    ]);
+
+    vi.advanceTimersByTime(MOCK_FORCED_STOP_DISCONNECT_MS);
     await waitFor(async () =>
       expect(
         (await findByTestId("worker-detail-header-dot")).getAttribute("aria-label"),

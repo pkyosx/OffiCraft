@@ -1483,7 +1483,7 @@ func TestNewOutsourceMemberDTO_GoldenWireShape(t *testing.T) {
 		{
 			name: "every field populated",
 			w:    fullWorker, task: fullTask, p: fullProjection,
-			want: `{"id":"ow-1","avatar_url":"","name":"O-7","kind":"outsource","role_key":"","role_name":"","runtime":"claude","model":"claude-sonnet-4-5","actual_model":"claude-opus-5","actual_runtime":"codex","actual_effort":"medium","actual_machine":"mac-1","effort":"high","desired_state":"online","desired_machine_id":"mac-2","machine":"Mac Studio (mac-1)","presence":"online","refocus_since":1600,"refocus_op":"context_high","refocus_deadline":1720,"last_op":"worker_start","last_op_ok":true,"last_op_log":"spawned ok","last_op_reason":"","last_op_at":1501,"forced_stop_at":0,"unread_count":4,"roster_status":"active","owner_id":"owner","schema_version":3,"terminal_attach_command":"tmux -L officraft-seth attach -t member-ow-1","created_ts":1000,"status":"active","task_id":"t-1","task_title":"review 1","task_status":"in_progress","task_no":"t-1","task_created_ts":900,"task_type_key":"tm-review","task_type_name":"程式碼審查 (tm-review)","account":"alice@example.com","context_pct":42,"cost":1.5,"banked_cost":3.25,"creator_id":"m-9","delegated_by":"Bob","runtime_login_warnings":[],"model_call_last_success_ts":0,"model_call_warnings":[]}`,
+			want: `{"id":"ow-1","avatar_url":"","name":"O-7","kind":"outsource","role_key":"","role_name":"","runtime":"claude","model":"claude-sonnet-4-5","actual_model":"claude-opus-5","actual_runtime":"codex","actual_effort":"medium","actual_machine":"mac-1","effort":"high","desired_state":"online","desired_machine_id":"mac-2","machine":"Mac Studio (mac-1)","presence":"online","refocus_since":1600,"refocus_op":"context_high","refocus_deadline":1720,"last_op":"worker_start","last_op_ok":true,"last_op_log":"spawned ok","last_op_reason":"","last_op_at":1501,"forced_stop_at":0,"forced_stop_live":false,"unread_count":4,"roster_status":"active","owner_id":"owner","schema_version":3,"terminal_attach_command":"tmux -L officraft-seth attach -t member-ow-1","created_ts":1000,"status":"active","task_id":"t-1","task_title":"review 1","task_status":"in_progress","task_no":"t-1","task_created_ts":900,"task_type_key":"tm-review","task_type_name":"程式碼審查 (tm-review)","account":"alice@example.com","context_pct":42,"cost":1.5,"banked_cost":3.25,"creator_id":"m-9","delegated_by":"Bob","runtime_login_warnings":[],"model_call_last_success_ts":0,"model_call_warnings":[]}`,
 		},
 		{
 			name: "bare row honest empties",
@@ -1496,7 +1496,23 @@ func TestNewOutsourceMemberDTO_GoldenWireShape(t *testing.T) {
 			// none — the builder must NOT invent one from the id (T-139); the
 			// composition happens in projectWorker, where the namespace is.
 			task: nil, p: outsourceWorkerProjection{now: 2000.0},
-			want: `{"id":"ow-2","avatar_url":"","name":"O-8","kind":"outsource","role_key":"","role_name":"","runtime":"claude","model":"claude-haiku-4-5","actual_model":"","actual_runtime":"","actual_effort":"","actual_machine":"","effort":"","desired_state":"","desired_machine_id":"","machine":"","presence":"offline","refocus_since":0,"refocus_op":"","refocus_deadline":0,"last_op":"","last_op_ok":null,"last_op_log":"","last_op_reason":"","last_op_at":0,"forced_stop_at":0,"unread_count":0,"roster_status":"active","owner_id":"owner","schema_version":3,"terminal_attach_command":"","created_ts":1999,"status":"assigned","task_id":"t-2","runtime_login_warnings":[],"model_call_last_success_ts":0,"model_call_warnings":[]}`,
+			want: `{"id":"ow-2","avatar_url":"","name":"O-8","kind":"outsource","role_key":"","role_name":"","runtime":"claude","model":"claude-haiku-4-5","actual_model":"","actual_runtime":"","actual_effort":"","actual_machine":"","effort":"","desired_state":"","desired_machine_id":"","machine":"","presence":"offline","refocus_since":0,"refocus_op":"","refocus_deadline":0,"last_op":"","last_op_ok":null,"last_op_log":"","last_op_reason":"","last_op_at":0,"forced_stop_at":0,"forced_stop_live":false,"unread_count":0,"roster_status":"active","owner_id":"owner","schema_version":3,"terminal_attach_command":"","created_ts":1999,"status":"assigned","task_id":"t-2","runtime_login_warnings":[],"model_call_last_success_ts":0,"model_call_warnings":[]}`,
+		},
+		{
+			name: "force-stopped with the session still connected",
+			w: OutsourceWorker{ID: "ow-3", Codename: "O-9", Model: "claude-opus-5",
+				TaskID: "t-3", Status: WorkerStatusActive, CreatedTS: 1000.0,
+				DesiredState: "offline", StoppingSince: 1500.0, ForcedStopAt: 1500.0},
+			task: nil, p: outsourceWorkerProjection{now: 2000.0, online: true, cfg: defaultReconcileConfig()},
+			want: `{"id":"ow-3","avatar_url":"","name":"O-9","kind":"outsource","role_key":"","role_name":"","runtime":"claude","model":"claude-opus-5","actual_model":"","actual_runtime":"","actual_effort":"","actual_machine":"","effort":"","desired_state":"offline","desired_machine_id":"","machine":"","presence":"stopping","refocus_since":0,"refocus_op":"","refocus_deadline":0,"last_op":"","last_op_ok":null,"last_op_log":"","last_op_reason":"","last_op_at":0,"forced_stop_at":1500,"forced_stop_live":true,"unread_count":0,"roster_status":"active","owner_id":"owner","schema_version":3,"terminal_attach_command":"","created_ts":1000,"status":"active","task_id":"t-3","runtime_login_warnings":[],"model_call_last_success_ts":0,"model_call_warnings":[]}`,
+		},
+		{
+			name: "an ordinary stop opened after an earlier force-stop",
+			w: OutsourceWorker{ID: "ow-3", Codename: "O-9", Model: "claude-opus-5",
+				TaskID: "t-3", Status: WorkerStatusActive, CreatedTS: 1000.0,
+				DesiredState: "offline", StoppingSince: 1800.0, ForcedStopAt: 1500.0},
+			task: nil, p: outsourceWorkerProjection{now: 2000.0, online: true, cfg: defaultReconcileConfig()},
+			want: `{"id":"ow-3","avatar_url":"","name":"O-9","kind":"outsource","role_key":"","role_name":"","runtime":"claude","model":"claude-opus-5","actual_model":"","actual_runtime":"","actual_effort":"","actual_machine":"","effort":"","desired_state":"offline","desired_machine_id":"","machine":"","presence":"stopping","refocus_since":0,"refocus_op":"","refocus_deadline":0,"last_op":"","last_op_ok":null,"last_op_log":"","last_op_reason":"","last_op_at":0,"forced_stop_at":1500,"forced_stop_live":false,"unread_count":0,"roster_status":"active","owner_id":"owner","schema_version":3,"terminal_attach_command":"","created_ts":1000,"status":"active","task_id":"t-3","runtime_login_warnings":[],"model_call_last_success_ts":0,"model_call_warnings":[]}`,
 		},
 	}
 	for _, c := range cases {

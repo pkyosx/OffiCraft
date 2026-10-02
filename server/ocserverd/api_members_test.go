@@ -1019,7 +1019,7 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 				"presence": "online", "refocus_since": 0, "refocus_op": "",
 				"refocus_deadline": 0, "last_op": "", "last_op_ok": nil,
 				"last_op_log": "", "last_op_reason": "", "last_op_at": 0,
-				"forced_stop_at": 0, "unread_count": 1, "roster_status": "active",
+				"forced_stop_at": 0, "forced_stop_live": false, "unread_count": 1, "roster_status": "active",
 				"owner_id": "owner", "schema_version": 3,
 				"terminal_attach_command":    "tmux -L officraft attach -t member-kip",
 				"runtime_login_warnings":     []any{},
@@ -1035,7 +1035,7 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 				"machine": "", "presence": "offline", "refocus_since": 0,
 				"refocus_op": "", "refocus_deadline": 0, "last_op": "",
 				"last_op_ok": nil, "last_op_log": "", "last_op_reason": "",
-				"last_op_at": 0, "forced_stop_at": 0, "unread_count": 0,
+				"last_op_at": 0, "forced_stop_at": 0, "forced_stop_live": false, "unread_count": 0,
 				"roster_status": "active", "owner_id": "owner", "schema_version": 3,
 				"terminal_attach_command":    "tmux -L officraft attach -t member-mira",
 				"runtime_login_warnings":     []any{},
@@ -1051,7 +1051,7 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 				"machine": "m-server-self", "presence": "offline", "refocus_since": 0,
 				"refocus_op": "", "refocus_deadline": 0, "last_op": "",
 				"last_op_ok": nil, "last_op_log": "", "last_op_reason": "",
-				"last_op_at": 0, "forced_stop_at": 0, "unread_count": 0,
+				"last_op_at": 0, "forced_stop_at": 0, "forced_stop_live": false, "unread_count": 0,
 				"roster_status": "active", "owner_id": "owner", "schema_version": 3,
 				"terminal_attach_command":    "tmux -L officraft attach -t member-m-server-self",
 				"runtime_login_warnings":     []any{},
@@ -1089,7 +1089,7 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 				"presence": "", "refocus_since": 0, "refocus_op": "",
 				"refocus_deadline": 0, "last_op": "", "last_op_ok": nil,
 				"last_op_log": "", "last_op_reason": "", "last_op_at": 0,
-				"forced_stop_at": 0, "unread_count": 0, "roster_status": "active",
+				"forced_stop_at": 0, "forced_stop_live": false, "unread_count": 0, "roster_status": "active",
 				"owner_id": "owner", "schema_version": 3,
 				"terminal_attach_command":    "tmux -L officraft attach -t member-kip",
 				"runtime_login_warnings":     []any{},
@@ -1105,7 +1105,7 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 				"presence": "", "refocus_since": 0, "refocus_op": "",
 				"refocus_deadline": 0, "last_op": "", "last_op_ok": nil,
 				"last_op_log": "", "last_op_reason": "", "last_op_at": 0,
-				"forced_stop_at": 0, "unread_count": 0, "roster_status": "active",
+				"forced_stop_at": 0, "forced_stop_live": false, "unread_count": 0, "roster_status": "active",
 				"owner_id": "owner", "schema_version": 3,
 				"terminal_attach_command":    "tmux -L officraft attach -t member-mira",
 				"runtime_login_warnings":     []any{},
@@ -1121,7 +1121,7 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 				"presence": "", "refocus_since": 0, "refocus_op": "",
 				"refocus_deadline": 0, "last_op": "", "last_op_ok": nil,
 				"last_op_log": "", "last_op_reason": "", "last_op_at": 0,
-				"forced_stop_at": 0, "unread_count": 0, "roster_status": "active",
+				"forced_stop_at": 0, "forced_stop_live": false, "unread_count": 0, "roster_status": "active",
 				"owner_id": "owner", "schema_version": 3,
 				"terminal_attach_command":    "tmux -L officraft attach -t member-m-server-self",
 				"runtime_login_warnings":     []any{},
@@ -1156,7 +1156,7 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 				"machine": "", "presence": "offline", "refocus_since": 0,
 				"refocus_op": "", "refocus_deadline": 0, "last_op": "",
 				"last_op_ok": nil, "last_op_log": "", "last_op_reason": "",
-				"last_op_at": 0, "forced_stop_at": 0, "unread_count": 0,
+				"last_op_at": 0, "forced_stop_at": 0, "forced_stop_live": false, "unread_count": 0,
 				"roster_status": "active", "owner_id": "owner", "schema_version": 3,
 				"terminal_attach_command":    "tmux -L officraft attach -t member-mira",
 				"runtime_login_warnings":     []any{},
@@ -1172,7 +1172,7 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 				"machine": "m-server-self", "presence": "offline", "refocus_since": 0,
 				"refocus_op": "", "refocus_deadline": 0, "last_op": "",
 				"last_op_ok": nil, "last_op_log": "", "last_op_reason": "",
-				"last_op_at": 0, "forced_stop_at": 0, "unread_count": 0,
+				"last_op_at": 0, "forced_stop_at": 0, "forced_stop_live": false, "unread_count": 0,
 				"roster_status": "active", "owner_id": "owner", "schema_version": 3,
 				"terminal_attach_command":    "tmux -L officraft attach -t member-m-server-self",
 				"runtime_login_warnings":     []any{},
@@ -1490,7 +1490,7 @@ func TestHandleGetMemberApiMembersMemberIdGet(t *testing.T) {
 			"presence": "online", "refocus_since": 0, "refocus_op": "",
 			"refocus_deadline": 0, "last_op": "", "last_op_ok": nil,
 			"last_op_log": "", "last_op_reason": "", "last_op_at": 0,
-			"forced_stop_at": 0, "unread_count": 1, "roster_status": "active",
+			"forced_stop_at": 0, "forced_stop_live": false, "unread_count": 1, "roster_status": "active",
 			"owner_id": "owner", "schema_version": 3,
 			"terminal_attach_command":    "tmux -L officraft attach -t member-kip",
 			"runtime_login_warnings":     []any{},
@@ -1522,7 +1522,7 @@ func TestHandleGetMemberApiMembersMemberIdGet(t *testing.T) {
 			"presence": "offline", "refocus_since": 0, "refocus_op": "",
 			"refocus_deadline": 0, "last_op": "", "last_op_ok": nil,
 			"last_op_log": "", "last_op_reason": "", "last_op_at": 0,
-			"forced_stop_at": 0, "unread_count": 0, "roster_status": "active",
+			"forced_stop_at": 0, "forced_stop_live": false, "unread_count": 0, "roster_status": "active",
 			"owner_id": "owner", "schema_version": 3,
 			"terminal_attach_command":    "tmux -L officraft attach -t member-ow-abc123",
 			"runtime_login_warnings":     []any{},
@@ -1555,7 +1555,7 @@ func TestHandleGetMemberApiMembersMemberIdGet(t *testing.T) {
 			"presence": "", "refocus_since": 0, "refocus_op": "",
 			"refocus_deadline": 0, "last_op": "", "last_op_ok": nil,
 			"last_op_log": "", "last_op_reason": "", "last_op_at": 0,
-			"forced_stop_at": 0, "unread_count": 0, "roster_status": "removed",
+			"forced_stop_at": 0, "forced_stop_live": false, "unread_count": 0, "roster_status": "removed",
 			"owner_id": "owner", "schema_version": 3,
 			"terminal_attach_command":    "tmux -L officraft attach -t member-ow-abc123",
 			"runtime_login_warnings":     []any{},
@@ -1586,7 +1586,7 @@ func TestHandleGetMemberApiMembersMemberIdGet(t *testing.T) {
 			"presence": "stopped", "refocus_since": 0, "refocus_op": "",
 			"refocus_deadline": 0, "last_op": "", "last_op_ok": nil,
 			"last_op_log": "", "last_op_reason": "", "last_op_at": 0,
-			"forced_stop_at": 0, "unread_count": 0, "roster_status": "removed",
+			"forced_stop_at": 0, "forced_stop_live": false, "unread_count": 0, "roster_status": "removed",
 			"owner_id": "owner", "schema_version": 3,
 			"terminal_attach_command":    "tmux -L officraft attach -t member-kip",
 			"runtime_login_warnings":     []any{},
@@ -2628,6 +2628,41 @@ func TestHandleForceStopMemberApiMembersMemberIdForceStopPost(t *testing.T) {
 			t.Fatalf("the cut-off record moved backwards: first=%v second=%v",
 				first.ForcedStopAt, second.ForcedStopAt)
 		}
+	})
+
+	t.Run("the member reads forced_stop_live while its session is still connected, and the next ordinary stop after a wake reads it false", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiTestListen(t, api, "kip")
+		readStop := func(when string) map[string]any {
+			t.Helper()
+			status, data := apiJSON(t, h, "GET", "/api/members/kip", owner, "")
+			if status != 200 {
+				t.Fatalf("%s: GET want 200, got %d (%v)", when, status, data)
+			}
+			return map[string]any{
+				"desired_state":    data["desired_state"],
+				"presence":         data["presence"],
+				"refocus_op":       data["refocus_op"],
+				"forced_stop_live": data["forced_stop_live"],
+			}
+		}
+
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/force-stop", owner, `{}`); status != 200 {
+			t.Fatalf("force-stop: %d %v", status, data)
+		}
+		apiWantValue(t, "after force-stop, session still connected", any(readStop("forced")), any(map[string]any{
+			"desired_state": "offline", "presence": "stopping", "refocus_op": "", "forced_stop_live": true,
+		}))
+
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
+			t.Fatalf("activate: %d %v", status, data)
+		}
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/deactivate", owner, `{}`); status != 200 {
+			t.Fatalf("deactivate: %d %v", status, data)
+		}
+		apiWantValue(t, "the next ordinary stop", any(readStop("next stop")), any(map[string]any{
+			"desired_state": "offline", "presence": "stopping", "refocus_op": "", "forced_stop_live": false,
+		}))
 	})
 
 	t.Run("a member id nothing carries answers 404 naming it and fans nothing", func(t *testing.T) {
@@ -4088,12 +4123,13 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 	})
 
 	for _, stop := range []struct {
-		path         string
-		frame        map[string]any
-		forcedStopAt any
+		path           string
+		frame          map[string]any
+		forcedStopAt   any
+		forcedStopLive bool
 	}{
-		{"deactivate", apiTestHandoverDelta(4, "offline", apiTestOffboardNotice, "ow-abc123"), 0},
-		{"force-stop", apiTestWorkerStateDelta(3, "active", "offline", "ow-abc123"), apiAnyNumber},
+		{"deactivate", apiTestHandoverDelta(4, "offline", apiTestOffboardNotice, "ow-abc123"), 0, false},
+		{"force-stop", apiTestWorkerStateDelta(3, "active", "offline", "ow-abc123"), apiAnyNumber, true},
 	} {
 		t.Run("a worker's first report after "+stop.path+" is collected and the worker is held down", func(t *testing.T) {
 			api, h, d, owner, session, contractor := apiTestLiveWorker(t)
@@ -4126,7 +4162,7 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 			apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 				"status": "active", "presence": "stopping", "desired_state": "offline",
 				"machine": "m-server-self", "desired_machine_id": "m-server-self",
-				"forced_stop_at": stop.forcedStopAt,
+				"forced_stop_at": stop.forcedStopAt, "forced_stop_live": stop.forcedStopLive,
 			}))
 
 			api.hub.Disconnect(session)
