@@ -1,6 +1,9 @@
 package main
 
-import "math"
+import (
+	"math"
+	"strings"
+)
 
 // 「所有換手都可以給他機會收尾」 for STAFF members — the twin of the outsource
 // rule (server/AGENTS.md 「所有 owner 動詞都給收尾機會」).
@@ -149,12 +152,122 @@ func ownerOpRowOfWorker(w *OutsourceWorker) ownerOpRow {
 	}
 }
 
-// queueRestartBehindStop stamps the queued 起來 and its receipt in memory; the
+// queueRestartBehindStop stamps the queued 起來 and its note in memory; the
 // caller persists both (the receipt columns land through SetMemberLastOp only).
-func queueRestartBehindStop(row ownerOpRow, op string, now float64) {
+// online is the caller's hub.IsOnline read: stopping_since outlives a finished
+// stop, and a force-stop never writes stopped_since, so only the session says
+// whether the stop is still running.
+func queueRestartBehindStop(row ownerOpRow, op string, online bool, now float64) {
 	*row.RestartAfterStop = true
-	stampOpReceipt(row.LastOp, row.LastOpOK, row.LastOpLog, row.LastOpReason, row.LastOpAt,
-		reconcileCmdStart, memberRestartQueuedReceipt(op), now)
+	if online {
+		stampOwnerOpNote(row, restartQueuedNote(op), now)
+		return
+	}
+	stampOwnerOpNote(row, restartingNote(op), now)
+}
+
+// applyStoppedOwnerOp is what an owner verb that leaves the member running does to
+// one wanted offline, staff and workers alike: queue a 起來 behind a stop that was
+// asked for, or only note that the change waits for 喚醒. Answers false, writing
+// nothing, when the member is wanted online.
+func applyStoppedOwnerOp(row ownerOpRow, snapshot Member, op string, online bool, now float64) bool {
+	switch ownerOpHandoverPlanFor(snapshot, online) {
+	case ownerOpPlanQueueBehindStop:
+		queueRestartBehindStop(row, op, online, now)
+	case ownerOpPlanHeldDown:
+		stampOwnerOpNote(row, heldDownNote(op), now)
+	default:
+		return false
+	}
+	return true
+}
+
+// ownerOpStartsAtOnce is whether an owner verb on a member whose stop has already
+// finished starts it within the same request, staff and workers alike; otherwise
+// the next tick spends the queued 起來.
+// ⚠️ A model/runtime change must wait: the 喚醒 dialog saves the model and wakes
+// right after, so a start here puts a second start and a kill on the warden; and
+// the worker hand-off runs before the new values are stored, so a start from it
+// boots the old model.
+func ownerOpStartsAtOnce(op string) bool {
+	return op != memberOpRuntimeModel
+}
+
+// reconcileAfterOwnerOp is the instant tick a staff owner verb runs after its
+// write. On a member the verb only noted (wanted offline) that tick's one effect
+// is spending the queued 起來, so ownerOpStartsAtOnce decides whether it runs.
+func (s *apiServer) reconcileAfterOwnerOp(memberID, op string, noted bool) reconcileDecision {
+	if noted && !ownerOpStartsAtOnce(op) {
+		return reconcileDecision{}
+	}
+	return s.reconcileMemberNow(memberID)
+}
+
+// outsourceTickAfterOwnerOp is the worker face: the tick spends a queued 起來
+// whose stop has finished. Callers must not hold outsourceMu (the tick takes it).
+func (s *apiServer) outsourceTickAfterOwnerOp(op string) {
+	if ownerOpStartsAtOnce(op) {
+		s.outsourceTickNow()
+	}
+}
+
+// Owner ruling: the three notes an owner verb leaves on a stopped member are ✓ with
+// a note, never ✗ — the change was saved in every case. Do not stamp them through
+// stampOpReceipt.
+func stampOwnerOpNote(row ownerOpRow, reason string, now float64) {
+	stampOpNoteReceipt(row.LastOp, row.LastOpOK, row.LastOpLog, row.LastOpReason, row.LastOpAt,
+		reconcileCmdStart, reason, now)
+}
+
+func restartQueuedNote(op string) string {
+	return ownerOpReasonRestartQueued + ": the " + op + " was saved; this member is still " +
+		"being stopped, and it will be started again to apply it once that stop completes"
+}
+
+func restartingNote(op string) string {
+	return ownerOpReasonRestarting + ": the " + op + " was saved; this member had already " +
+		"stopped, so it is being started again to apply it"
+}
+
+func heldDownNote(op string) string {
+	return spawnReasonHeldDown + ": the " + op + " was saved; this member stays stopped — " +
+		"press 喚醒 when you want it to run"
+}
+
+const restartAfterStopSpentNote = ownerOpReasonRestarting + ": the stop has completed, so " +
+	"this member is being started again to apply what was saved while it was stopping"
+
+// noteRestartAfterStopSpent is the queued 起來's note at the moment it is spent. A
+// restarting note already on the row was written for a stop that had finished
+// before the verb, and says more than this one.
+func noteRestartAfterStopSpent(row ownerOpRow, now float64) {
+	if strings.HasPrefix(*row.LastOpReason, ownerOpReasonRestarting+":") {
+		return
+	}
+	stampOwnerOpNote(row, restartAfterStopSpentNote, now)
+}
+
+// clearStoppedOwnerOpNote is 喚醒's half of the ruling: the note goes, and the next
+// line on 最近操作 is the machine's own start result. Answers whether it cleared one.
+func clearStoppedOwnerOpNote(row ownerOpRow) bool {
+	if *row.LastOp != reconcileCmdStart || !isStoppedOwnerOpNote(*row.LastOpReason) {
+		return false
+	}
+	*row.LastOp = ""
+	*row.LastOpOK = nil
+	*row.LastOpLog = ""
+	*row.LastOpReason = ""
+	*row.LastOpAt = 0.0
+	return true
+}
+
+func isStoppedOwnerOpNote(reason string) bool {
+	for _, code := range []string{ownerOpReasonRestartQueued, ownerOpReasonRestarting, spawnReasonHeldDown} {
+		if strings.HasPrefix(reason, code+":") {
+			return true
+		}
+	}
+	return false
 }
 
 // armRefocusEpochOnRow decides the epoch on snapshot and writes only the four anchor
@@ -185,7 +298,7 @@ const (
 func applyRefocusVerb(row ownerOpRow, snapshot Member, online bool, now float64) refocusVerdict {
 	switch ownerOpHandoverPlanFor(snapshot, online) {
 	case ownerOpPlanQueueBehindStop:
-		queueRestartBehindStop(row, refocusOpRefocus, now)
+		queueRestartBehindStop(row, refocusOpRefocus, online, now)
 		return refocusQueuedBehindStop
 	case ownerOpPlanHeldDown:
 		return refocusRefusedNeverStopped
@@ -304,20 +417,13 @@ func (s *apiServer) armMemberOwnerOpHandover(m *Member, op string, cfg reconcile
 }
 
 // applyMemberOwnerOpPlan is the staff shell of an owner verb that leaves the member
-// running. It writes cur in memory only; heldDown says a receipt was stamped and
+// running. It writes cur in memory only; noted says a receipt was stamped and
 // must be persisted.
-func (s *apiServer) applyMemberOwnerOpPlan(cur *Member, op string, cfg reconcileConfig, online bool) (windDown, heldDown bool) {
-	switch ownerOpHandoverPlanFor(*cur, online) {
-	case ownerOpPlanWindDown:
+func (s *apiServer) applyMemberOwnerOpPlan(cur *Member, op string, cfg reconcileConfig, online bool) (windDown, noted bool) {
+	if ownerOpHandoverPlanFor(*cur, online) == ownerOpPlanWindDown {
 		return s.armMemberOwnerOpHandover(cur, op, cfg, online), false
-	case ownerOpPlanQueueBehindStop:
-		queueRestartBehindStop(ownerOpRowOfMember(cur), op, nowSecs())
-		return false, true
-	case ownerOpPlanHeldDown:
-		stampMemberOpReceipt(cur, memberHeldDownReceipt(op), nowSecs())
-		return false, true
 	}
-	return false, false
+	return false, applyStoppedOwnerOp(ownerOpRowOfMember(cur), *cur, op, online, nowSecs())
 }
 
 // 「要不要起來」 is split out of desired_state (owner ruling rc-bc1b029a3aa2:
@@ -347,12 +453,6 @@ func aStopWasEverAskedFor(m Member) bool {
 
 func clearRestartIntent(m *Member) {
 	m.RestartAfterStop = false
-}
-
-func memberRestartQueuedReceipt(op string) string {
-	return spawnReasonHeldDown + ": the " + op + " was saved and this member is " +
-		"still being stopped — the stop in flight is honoured as-is, and it will " +
-		"be started again once it is down"
 }
 
 // 🔴 Waits for the SESSION TO BE GONE (the same hub.IsOnline authority as
@@ -393,9 +493,7 @@ func (s *apiServer) consumeRestartAfterStop(m *Member, now float64) bool {
 		cur.DesiredState = DesiredStateOnline
 		clearWindDownRow(windDownAnchorRowOfMember(cur))
 		cur.WakingSince = 0.0
-		stampMemberOpReceipt(cur, spawnReasonHeldDown+": the stop the owner asked for has "+
-			"landed — starting this member again, which is what the 重新聚焦 or 更改 "+
-			"pressed during the wind-down asked for", now)
+		noteRestartAfterStopSpent(ownerOpRowOfMember(cur), now)
 		if err := persistMemberRowOn(tx, before, *cur); err != nil {
 			return err
 		}
@@ -423,19 +521,15 @@ func (s *apiServer) consumeRestartAfterStop(m *Member, now float64) bool {
 // calls into the staff ones: a worker's one-task restart/release semantics and
 // outsourceMu serialization are not shared.
 
-func (s *apiServer) queueWorkerRestartAfterStop(w *OutsourceWorker, op string, now float64) bool {
-	if ownerOpHandoverPlanFor(memberFromWorker(*w), false) != ownerOpPlanQueueBehindStop {
-		return false
-	}
-	queueRestartBehindStop(ownerOpRowOfWorker(w), op, now)
-	return true
+func applyWorkerStoppedOwnerOp(w *OutsourceWorker, op string, online bool, now float64) bool {
+	return applyStoppedOwnerOp(ownerOpRowOfWorker(w), memberFromWorker(*w), op, online, now)
 }
 
-// queueWorkerRestartAfterStopOnRow queues op behind the stop on the worker's row
-// as it is inside the transaction, not on a caller's copy: a release, a 喚醒 or
-// any other column written since the caller read the worker stands. fresh is
-// that row afterwards (nil when the worker is gone or released).
-func (s *apiServer) queueWorkerRestartAfterStopOnRow(id, op string, now float64) (fresh *OutsourceWorker, queued bool, err error) {
+// applyWorkerStoppedOwnerOpOnRow applies op on the worker's row as it is inside
+// the transaction, not on a caller's copy: a release, a 喚醒 or any other column
+// written since the caller read the worker stands. fresh is that row afterwards
+// (nil when the worker is gone or released).
+func (s *apiServer) applyWorkerStoppedOwnerOpOnRow(id, op string, online bool, now float64) (fresh *OutsourceWorker, applied bool, err error) {
 	err = s.dal.inTx(func(tx *writeTx) error {
 		cur, err := getOutsourceWorkerOn(tx, id)
 		if err != nil || cur == nil || cur.Status == WorkerStatusReleased {
@@ -443,16 +537,16 @@ func (s *apiServer) queueWorkerRestartAfterStopOnRow(id, op string, now float64)
 		}
 		fresh = cur
 		before := *cur
-		if !s.queueWorkerRestartAfterStop(cur, op, now) {
+		if !applyWorkerStoppedOwnerOp(cur, op, online, now) {
 			return nil
 		}
-		queued = true
+		applied = true
 		return persistWorkerRestartIntentOn(tx, before, *cur)
 	})
 	if err != nil {
 		return nil, false, err
 	}
-	return fresh, queued, nil
+	return fresh, applied, nil
 }
 
 // Two writers in one transaction: the flag rides the changed-columns write; the
@@ -503,10 +597,7 @@ func (s *apiServer) consumeWorkerRestartAfterStop(w *OutsourceWorker, now float6
 		cur.DesiredState = DesiredStateOnline
 		clearWindDownRow(windDownAnchorRowOfWorker(cur))
 		cur.WakingSince = 0.0
-		stampOpReceipt(&cur.LastOp, &cur.LastOpOK, &cur.LastOpLog, &cur.LastOpReason, &cur.LastOpAt,
-			reconcileCmdStart, spawnReasonHeldDown+": the stop the owner asked for has "+
-				"landed — starting this worker again, which is what the 重新聚焦 or 更改 "+
-				"pressed during the wind-down asked for", now)
+		noteRestartAfterStopSpent(ownerOpRowOfWorker(cur), now)
 		if err := persistWorkerRowOn(tx, before, *cur); err != nil {
 			return err
 		}

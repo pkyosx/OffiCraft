@@ -647,7 +647,7 @@ func (s *apiServer) HandleUpdateMemberApiMembersMemberIdPatch(w http.ResponseWri
 	// the epoch, the receipt and the launch-intent setters land with the row or
 	// not at all.
 	var saved Member
-	heldDown := false
+	noted := false
 	cfg := s.reconcileConfigLive()
 	online := s.hub.IsOnline(memberId)
 	err = s.dal.inTx(func(tx *writeTx) error {
@@ -660,16 +660,16 @@ func (s *apiServer) HandleUpdateMemberApiMembersMemberIdPatch(w http.ResponseWri
 		if err != nil {
 			return err
 		}
-		heldDown = false
+		noted = false
 		if launchIntentChanged {
-			_, heldDown = s.applyMemberOwnerOpPlan(cur, memberOpRuntimeModel, cfg, online)
+			_, noted = s.applyMemberOwnerOpPlan(cur, memberOpRuntimeModel, cfg, online)
 		}
 		if err := persistMemberRowOn(tx, before, *cur); err != nil {
 			return err
 		}
-		// Gated on heldDown so this snapshot never overwrites a receipt a reconcile
+		// Gated on noted so this snapshot never overwrites a receipt a reconcile
 		// tick stamped meanwhile.
-		if heldDown {
+		if noted {
 			if err := persistMemberOpReceiptOn(tx, *cur); err != nil {
 				return err
 			}
@@ -699,8 +699,9 @@ func (s *apiServer) HandleUpdateMemberApiMembersMemberIdPatch(w http.ResponseWri
 		return
 	}
 	s.publishMemberPatch(saved, requestTrigger(r))
-	if heldDown {
+	if noted {
 		s.publishMemberPatch(saved, requestTrigger(r))
+		s.reconcileAfterOwnerOp(saved.ID, memberOpRuntimeModel, noted)
 	}
 	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: saved.ID})
 }
@@ -792,8 +793,10 @@ func (s *apiServer) HandleActivateMemberApiMembersMemberIdActivatePost(w http.Re
 				return err
 			}
 		}
+		receiptChanged := sessionAlive
 		if !sessionAlive {
 			clearWindDownRow(windDownAnchorRowOfMember(cur))
+			receiptChanged = clearStoppedOwnerOpNote(ownerOpRowOfMember(cur))
 		} else {
 			stampSessionAliveWakeReceipt(cur, nowSecs())
 		}
@@ -801,7 +804,7 @@ func (s *apiServer) HandleActivateMemberApiMembersMemberIdActivatePost(w http.Re
 		if err := persistMemberRowOn(tx, before, *cur); err != nil {
 			return err
 		}
-		if sessionAlive {
+		if receiptChanged {
 			return persistMemberOpReceiptOn(tx, *cur)
 		}
 		return nil
@@ -901,7 +904,7 @@ func (s *apiServer) HandleRelocateMemberApiMembersMemberIdRelocatePost(w http.Re
 		return
 	}
 	var saved Member
-	windDown, heldDown := false, false
+	windDown, noted := false, false
 	cfg := s.reconcileConfigLive()
 	online := s.hub.IsOnline(memberId)
 	err := s.dal.inTx(func(tx *writeTx) error {
@@ -921,11 +924,11 @@ func (s *apiServer) HandleRelocateMemberApiMembersMemberIdRelocatePost(w http.Re
 		// delta the agent wakes on already names the destination.
 		// Owner (2026-08-30): 改機器 is a 重啟 intent, so a stopped member comes back up
 		// on the new pin.
-		windDown, heldDown = s.applyMemberOwnerOpPlan(cur, memberOpRelocate, cfg, online)
+		windDown, noted = s.applyMemberOwnerOpPlan(cur, memberOpRelocate, cfg, online)
 		if err := persistMemberRowOn(tx, before, *cur); err != nil {
 			return err
 		}
-		if heldDown {
+		if noted {
 			if err := persistMemberOpReceiptOn(tx, *cur); err != nil {
 				return err
 			}
@@ -938,10 +941,10 @@ func (s *apiServer) HandleRelocateMemberApiMembersMemberIdRelocatePost(w http.Re
 		return
 	}
 	s.publishMemberPatch(saved, requestTrigger(r))
-	if heldDown {
+	if noted {
 		s.publishMemberPatch(saved, requestTrigger(r))
 	}
-	dec := s.reconcileMemberNow(saved.ID)
+	dec := s.reconcileAfterOwnerOp(saved.ID, memberOpRelocate, noted)
 	receipt := agentRelocateReceiptDTO{ID: saved.ID}
 	// relocation_pending also covers an opened wind-down (nothing dispatched yet).
 	if dec.DispatchUnlanded || windDown {
@@ -953,14 +956,6 @@ func (s *apiServer) HandleRelocateMemberApiMembersMemberIdRelocatePost(w http.Re
 		receipt.RelocationDeferred = true
 	}
 	writeJSON(w, http.StatusOK, receipt)
-}
-
-// Twin of the worker receipt respawnWorkerForOwnerOp writes. Only the held-down
-// case gets a receipt: an offline member picks the value up at its next wake, and
-// stamping it would be noise.
-func memberHeldDownReceipt(op string) string {
-	return spawnReasonHeldDown + ": the " + op + " was saved, but nothing was " +
-		"started — this member is stopped; 喚醒 it when you want it to run"
 }
 
 // 🔴 The harm is on the NEXT generation: activate clears neither refocus_since nor
@@ -1273,7 +1268,7 @@ func (s *apiServer) HandleRefocusMemberApiMembersMemberIdRefocusPost(w http.Resp
 	s.publishMemberPatch(saved, requestTrigger(r))
 	if queued {
 		s.publishMemberPatch(saved, requestTrigger(r))
-		s.reconcileMemberNow(saved.ID)
+		s.reconcileAfterOwnerOp(saved.ID, refocusOpRefocus, queued)
 	}
 	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: saved.ID})
 }

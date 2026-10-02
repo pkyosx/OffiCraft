@@ -79,6 +79,57 @@ func apiTestMemberRow(t *testing.T, d *DAL, id string) Member {
 	return *m
 }
 
+// apiTestWantLastOp reads a member back through GET /api/members/{id} and
+// asserts its 最近操作 fields, all five of them.
+func apiTestWantLastOp(t *testing.T, h http.Handler, owner, id string, want map[string]any) {
+	t.Helper()
+	status, data := apiJSON(t, h, "GET", "/api/members/"+id, owner, "")
+	if status != 200 {
+		t.Fatalf("read back %s: %d %v", id, status, data)
+	}
+	got := map[string]any{}
+	for _, field := range []string{"last_op", "last_op_ok", "last_op_log", "last_op_reason", "last_op_at"} {
+		got[field] = data[field]
+	}
+	apiWantValue(t, id+" 最近操作", any(got), any(want))
+}
+
+// apiTestRunner seeds staff member "runner", pinned to m-box and wanted in
+// desired, plus two wardens, m-box and m-new, both up with Claude logged in.
+func apiTestRunner(t *testing.T, api *apiServer, d *DAL, desired string) {
+	t.Helper()
+	for _, box := range []string{"m-box", "m-new"} {
+		reconcileTestPut(t, d, Member{ID: box, Name: box, Kind: KindWarden})
+		api.telemetry.Set(box, map[string]any{"runtimes": map[string]any{
+			"claude": map[string]any{"installed": true, "logged_in": true},
+		}})
+		reconcileTestOnline(t, api, box, "")
+	}
+	reconcileTestPut(t, d, Member{ID: "runner", Name: "Runner", Kind: KindStaff, RoleKey: "assistant",
+		Runtime: "claude", Model: "sonnet", Effort: "medium",
+		DesiredState: desired, DesiredMachineID: "m-box"})
+}
+
+func apiTestRunnerStartFrame(model string) map[string]any {
+	return map[string]any{
+		"subject": "runner",
+		"topic":   "warden-command",
+		"data": map[string]any{
+			"rpc": "start",
+			"args": map[string]any{
+				"member_id":       "runner",
+				"persona_context": apiAnyString,
+				"member_token":    apiAnyString,
+				"role":            "assistant",
+				"runtime":         "claude",
+				"model":           model,
+				"effort":          "medium",
+				"session_name":    "",
+			},
+		},
+	}
+}
+
 func apiTestWantEqual(t *testing.T, label string, got, want any) {
 	t.Helper()
 	if reflect.DeepEqual(got, want) {
@@ -1651,7 +1702,67 @@ func TestHandleUpdateMemberApiMembersMemberIdPatch(t *testing.T) {
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		wantQueuedRestartRow(t, d, "kip", before, "runtime/model", func(m *Member) { m.Model = "opus" })
+		wantQueuedRestartRow(t, d, "kip", before, "restart_queued: the runtime/model was saved; this "+
+			"member is still being stopped, and it will be started again to apply it once that stop completes",
+			func(m *Member) { m.Model = "opus" })
+	})
+
+	t.Run("a changed model on a member nobody ever asked to stop starts nothing, as a success noting it stays stopped; 喚醒 then clears that record and starts it on the new model", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestRunner(t, api, d, DesiredStateOffline)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/members/runner", owner, `{"model":"opus"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "runner"})
+		wsWantWardenFrames(t, api, "m-box")
+		apiTestWantLastOp(t, h, owner, "runner", map[string]any{
+			"last_op": "start", "last_op_ok": true, "last_op_log": "", "last_op_at": apiAnyNumber,
+			"last_op_reason": "held_down: the runtime/model was saved; this member stays stopped — " +
+				"press 喚醒 when you want it to run",
+		})
+
+		status, data = apiJSON(t, h, "POST", "/api/members/runner/activate", owner, `{}`)
+		if status != 200 {
+			t.Fatalf("activate: %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "runner"})
+		wsWantWardenFrames(t, api, "m-box", wsStopFrame("runner"), apiTestRunnerStartFrame("opus"))
+		apiTestWantLastOp(t, h, owner, "runner", map[string]any{
+			"last_op": "", "last_op_ok": nil, "last_op_log": "", "last_op_reason": "", "last_op_at": 0,
+		})
+	})
+
+	t.Run("a changed model on a member whose 強制停止 already took its session down is saved as a success noting it had already stopped, and the next tick starts it on the new model", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestRunner(t, api, d, DesiredStateOnline)
+		session, err := api.hub.Connect("runner", "m-box")
+		if err != nil {
+			t.Fatalf("hub.Connect: %v", err)
+		}
+		if status, data := apiJSON(t, h, "POST", "/api/members/runner/force-stop", owner, `{}`); status != 200 {
+			t.Fatalf("force-stop: %d %v", status, data)
+		}
+		wsWantWardenFrames(t, api, "m-box", wsStopFrame("runner"))
+		api.hub.Disconnect(session)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/members/runner", owner, `{"model":"opus"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "runner"})
+		restarting := map[string]any{
+			"last_op": "start", "last_op_ok": true, "last_op_log": "", "last_op_at": apiAnyNumber,
+			"last_op_reason": "restarting: the runtime/model was saved; this member had already " +
+				"stopped, so it is being started again to apply it",
+		}
+		apiTestWantLastOp(t, h, owner, "runner", restarting)
+		wsWantWardenFrames(t, api, "m-box")
+
+		api.runReconcileTick(nowSecs())
+		wsWantWardenFrames(t, api, "m-box", apiTestRunnerStartFrame("opus"))
+		apiTestWantLastOp(t, h, owner, "runner", restarting)
 	})
 
 	t.Run("a rename answers the member id and fans the delta to the dashboard and to that member's own connection", func(t *testing.T) {
@@ -1921,6 +2032,26 @@ func TestHandleActivateMemberApiMembersMemberIdActivatePost(t *testing.T) {
 		bystander.wantFrames()
 	})
 
+	t.Run("喚醒 keeps a failure record that is not an owner verb's note, and starts the member", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestRunner(t, api, d, DesiredStateOffline)
+		failed := false
+		if err := d.SetMemberLastOp("runner", "start", &failed, "", "wake_timeout: it never came up", 1700000000); err != nil {
+			t.Fatalf("SetMemberLastOp: %v", err)
+		}
+
+		status, data := apiJSON(t, h, "POST", "/api/members/runner/activate", owner, `{}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "runner"})
+		wsWantWardenFrames(t, api, "m-box", wsStopFrame("runner"), apiTestRunnerStartFrame("sonnet"))
+		apiTestWantLastOp(t, h, owner, "runner", map[string]any{
+			"last_op": "start", "last_op_ok": false, "last_op_log": "",
+			"last_op_reason": "wake_timeout: it never came up", "last_op_at": 1700000000,
+		})
+	})
+
 	t.Run("a machine id nothing carries answers 404 naming the machine and fans nothing", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		dashboard := apiTestListen(t, api, "")
@@ -1998,20 +2129,20 @@ func TestHandleActivateMemberApiMembersMemberIdActivatePost(t *testing.T) {
 // wantQueuedRestartRow compares the whole row against the one read before the verb:
 // the stop in flight keeps its stage and anchors, and only the saved change, the
 // queued 起來 and its receipt are new.
-func wantQueuedRestartRow(t *testing.T, d *DAL, id string, before Member, op string, saved func(*Member)) {
+func wantQueuedRestartRow(t *testing.T, d *DAL, id string, before Member, reason string, saved func(*Member)) {
 	t.Helper()
 	got := apiTestMemberRow(t, d, id)
 	if got.LastOpAt <= 0 {
 		t.Fatalf("last_op_at = %v, want the receipt's timestamp", got.LastOpAt)
 	}
-	ok := false
+	ok := true
 	want := before
 	saved(&want)
 	want.RestartAfterStop = true
 	want.LastOp = "start"
 	want.LastOpOK = &ok
-	want.LastOpReason = "held_down: the " + op + " was saved and this member is still being " +
-		"stopped — the stop in flight is honoured as-is, and it will be started again once it is down"
+	want.LastOpLog = ""
+	want.LastOpReason = reason
 	want.LastOpAt = got.LastOpAt
 	apiTestWantEqual(t, "row after the queued 起來", got, want)
 }
@@ -2038,10 +2169,107 @@ func TestHandleRelocateMemberApiMembersMemberIdRelocatePost(t *testing.T) {
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		wantQueuedRestartRow(t, d, "kip", before, "relocate", func(m *Member) { m.DesiredMachineID = "m-box" })
+		wantQueuedRestartRow(t, d, "kip", before, "restart_queued: the relocate was saved; this member "+
+			"is still being stopped, and it will be started again to apply it once that stop completes",
+			func(m *Member) { m.DesiredMachineID = "m-box" })
 	})
 
-	t.Run("relocating a stopped member stores the pin and leaves the held-down receipt on the row", func(t *testing.T) {
+	t.Run("a relocate queued behind a stop in flight starts the member on the new machine once its session is gone, as a success noting the stop has completed", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestRunner(t, api, d, DesiredStateOnline)
+		session, err := api.hub.Connect("runner", "m-box")
+		if err != nil {
+			t.Fatalf("hub.Connect: %v", err)
+		}
+		if status, data := apiJSON(t, h, "POST", "/api/members/runner/deactivate", owner, `{}`); status != 200 {
+			t.Fatalf("deactivate: %d %v", status, data)
+		}
+
+		status, data := apiJSON(t, h, "POST", "/api/members/runner/relocate", owner, `{"machine_id":"m-new"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "runner"})
+		wsWantWardenFrames(t, api, "m-box")
+		wsWantWardenFrames(t, api, "m-new")
+		apiTestWantLastOp(t, h, owner, "runner", map[string]any{
+			"last_op": "start", "last_op_ok": true, "last_op_log": "", "last_op_at": apiAnyNumber,
+			"last_op_reason": "restart_queued: the relocate was saved; this member is still being " +
+				"stopped, and it will be started again to apply it once that stop completes",
+		})
+
+		api.hub.Disconnect(session)
+		api.runReconcileTick(nowSecs())
+		wsWantWardenFrames(t, api, "m-new", apiTestRunnerStartFrame("sonnet"))
+		wsWantWardenFrames(t, api, "m-box")
+		apiTestWantLastOp(t, h, owner, "runner", map[string]any{
+			"last_op": "start", "last_op_ok": true, "last_op_log": "", "last_op_at": apiAnyNumber,
+			"last_op_reason": "restarting: the stop has completed, so this member is being " +
+				"started again to apply what was saved while it was stopping",
+		})
+	})
+
+	t.Run("relocating a member whose 強制停止 already took its session down starts it on the new machine in the same request, as a success noting it had already stopped", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestRunner(t, api, d, DesiredStateOnline)
+		session, err := api.hub.Connect("runner", "m-box")
+		if err != nil {
+			t.Fatalf("hub.Connect: %v", err)
+		}
+		if status, data := apiJSON(t, h, "POST", "/api/members/runner/force-stop", owner, `{}`); status != 200 {
+			t.Fatalf("force-stop: %d %v", status, data)
+		}
+		wsWantWardenFrames(t, api, "m-box", wsStopFrame("runner"))
+		api.hub.Disconnect(session)
+
+		status, data := apiJSON(t, h, "POST", "/api/members/runner/relocate", owner, `{"machine_id":"m-new"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "runner"})
+		wsWantWardenFrames(t, api, "m-new", apiTestRunnerStartFrame("sonnet"))
+		wsWantWardenFrames(t, api, "m-box")
+		settled := map[string]any{
+			"last_op": "start", "last_op_ok": true, "last_op_log": "", "last_op_at": apiAnyNumber,
+			"last_op_reason": "restarting: the relocate was saved; this member had already " +
+				"stopped, so it is being started again to apply it",
+		}
+		apiTestWantLastOp(t, h, owner, "runner", settled)
+
+		api.runReconcileTick(nowSecs())
+		wsWantWardenFrames(t, api, "m-new")
+		apiTestWantLastOp(t, h, owner, "runner", settled)
+	})
+
+	t.Run("relocating a member nobody ever asked to stop starts nothing, as a success noting it stays stopped; 喚醒 then clears that record and starts it", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestRunner(t, api, d, DesiredStateOffline)
+
+		status, data := apiJSON(t, h, "POST", "/api/members/runner/relocate", owner, `{"machine_id":"m-new"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "runner"})
+		wsWantWardenFrames(t, api, "m-box")
+		wsWantWardenFrames(t, api, "m-new")
+		apiTestWantLastOp(t, h, owner, "runner", map[string]any{
+			"last_op": "start", "last_op_ok": true, "last_op_log": "", "last_op_at": apiAnyNumber,
+			"last_op_reason": "held_down: the relocate was saved; this member stays stopped — " +
+				"press 喚醒 when you want it to run",
+		})
+
+		status, data = apiJSON(t, h, "POST", "/api/members/runner/activate", owner, `{}`)
+		if status != 200 {
+			t.Fatalf("activate: %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "runner"})
+		wsWantWardenFrames(t, api, "m-new", wsStopFrame("runner"), apiTestRunnerStartFrame("sonnet"))
+		apiTestWantLastOp(t, h, owner, "runner", map[string]any{
+			"last_op": "", "last_op_ok": nil, "last_op_log": "", "last_op_reason": "", "last_op_at": 0,
+		})
+	})
+
+	t.Run("relocating a member nobody ever asked to stop stores the pin and leaves a success noting it stays stopped", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		dashboard := apiTestListen(t, api, "")
 		self := apiTestListen(t, api, "mira")
@@ -2087,9 +2315,11 @@ func TestHandleRelocateMemberApiMembersMemberIdRelocatePost(t *testing.T) {
 		if m.DesiredState != "offline" {
 			t.Fatalf("a relocate must not touch desired_state, got %q", m.DesiredState)
 		}
-		if m.LastOpReason != "held_down: the relocate was saved, but nothing was started — this member is stopped; 喚醒 it when you want it to run" {
-			t.Fatalf("held-down receipt: got %q", m.LastOpReason)
-		}
+		apiTestWantLastOp(t, h, owner, "mira", map[string]any{
+			"last_op": "start", "last_op_ok": true, "last_op_log": "", "last_op_at": apiAnyNumber,
+			"last_op_reason": "held_down: the relocate was saved; this member stays stopped — " +
+				"press 喚醒 when you want it to run",
+		})
 	})
 
 	t.Run("relocating a member that is wanted online defers the move behind a wind-down and says so", func(t *testing.T) {
@@ -2244,32 +2474,6 @@ func TestHandleRelocateMemberApiMembersMemberIdRelocatePost(t *testing.T) {
 			t.Fatalf("want 401, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "unauthorized", "missing credentials")
-	})
-}
-
-func TestMemberHeldDownReceipt(t *testing.T) {
-	t.Run("the sentence names the verb that was saved and the 喚醒 that would start it", func(t *testing.T) {
-		want := "held_down: the 重新聚焦 was saved, but nothing was started — " +
-			"this member is stopped; 喚醒 it when you want it to run"
-		if got := memberHeldDownReceipt("重新聚焦"); got != want {
-			t.Fatalf("want %q, got %q", want, got)
-		}
-	})
-
-	t.Run("a different verb changes only the verb", func(t *testing.T) {
-		want := "held_down: the 改機器 was saved, but nothing was started — " +
-			"this member is stopped; 喚醒 it when you want it to run"
-		if got := memberHeldDownReceipt("改機器"); got != want {
-			t.Fatalf("want %q, got %q", want, got)
-		}
-	})
-
-	t.Run("an empty verb still leaves the held-down reason readable", func(t *testing.T) {
-		want := "held_down: the  was saved, but nothing was started — " +
-			"this member is stopped; 喚醒 it when you want it to run"
-		if got := memberHeldDownReceipt(""); got != want {
-			t.Fatalf("want %q, got %q", want, got)
-		}
 	})
 }
 
@@ -3036,6 +3240,32 @@ func TestHandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost(t *tes
 }
 
 func TestHandleRefocusMemberApiMembersMemberIdRefocusPost(t *testing.T) {
+	t.Run("重新聚焦 on a member whose 強制停止 already took its session down starts it in the same request, as a success noting it had already stopped", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestRunner(t, api, d, DesiredStateOnline)
+		session, err := api.hub.Connect("runner", "m-box")
+		if err != nil {
+			t.Fatalf("hub.Connect: %v", err)
+		}
+		if status, data := apiJSON(t, h, "POST", "/api/members/runner/force-stop", owner, `{}`); status != 200 {
+			t.Fatalf("force-stop: %d %v", status, data)
+		}
+		wsWantWardenFrames(t, api, "m-box", wsStopFrame("runner"))
+		api.hub.Disconnect(session)
+
+		status, data := apiJSON(t, h, "POST", "/api/members/runner/refocus", owner, `{}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "runner"})
+		wsWantWardenFrames(t, api, "m-box", apiTestRunnerStartFrame("sonnet"))
+		apiTestWantLastOp(t, h, owner, "runner", map[string]any{
+			"last_op": "start", "last_op_ok": true, "last_op_log": "", "last_op_at": apiAnyNumber,
+			"last_op_reason": "restarting: the refocus was saved; this member had already " +
+				"stopped, so it is being started again to apply it",
+		})
+	})
+
 	t.Run("an outsource worker is refocused through the shared member verb", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
@@ -3246,7 +3476,7 @@ func TestHandleRefocusMemberApiMembersMemberIdRefocusPost(t *testing.T) {
 		if m.RefocusSince != 0 {
 			t.Fatalf("the stop in flight keeps its anchors, got refocus_since=%v", m.RefocusSince)
 		}
-		if m.LastOpReason != "held_down: the refocus was saved and this member is still being stopped — the stop in flight is honoured as-is, and it will be started again once it is down" {
+		if m.LastOpReason != "restart_queued: the refocus was saved; this member is still being stopped, and it will be started again to apply it once that stop completes" {
 			t.Fatalf("queued-restart receipt: got %q", m.LastOpReason)
 		}
 	})

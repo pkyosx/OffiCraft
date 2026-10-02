@@ -259,36 +259,44 @@ func TestArmMemberOwnerOpHandover(t *testing.T) {
 }
 
 func TestQueueRestartBehindStop(t *testing.T) {
-	ok := false
-	wantReceipt := func(row ownerOpRow) {
+	ok := true
+	const stillStopping = "restart_queued: the relocate was saved; this member is still being " +
+		"stopped, and it will be started again to apply it once that stop completes"
+	wantReceipt := func(row ownerOpRow, reason string) {
 		t.Helper()
 		apiWantValue(t, "last_op", any(*row.LastOp), any("start"))
 		apiWantValue(t, "last_op_ok", any(*row.LastOpOK), any(&ok))
 		apiWantValue(t, "last_op_log", any(*row.LastOpLog), any(""))
-		apiWantValue(t, "last_op_reason", any(*row.LastOpReason), any("held_down: the relocate was saved "+
-			"and this member is still being stopped — the stop in flight is honoured as-is, and it "+
-			"will be started again once it is down"))
+		apiWantValue(t, "last_op_reason", any(*row.LastOpReason), any(reason))
 		apiWantValue(t, "last_op_at", any(*row.LastOpAt), any(1234.5))
 	}
 
-	t.Run("a staff row gets the 起來 and the queued receipt, and its stop anchors stay as they were", func(t *testing.T) {
+	t.Run("a staff row whose session is still up gets the 起來 and a success noting the stop is still running, and its stop anchors stay as they were", func(t *testing.T) {
 		m := Member{ID: "m-stamp", DesiredState: DesiredStateOffline,
 			StoppingSince: 10, StoppedSince: 20, RefocusSince: 30, RefocusOp: memberOpRelocate}
 		row := ownerOpRowOfMember(&m)
-		queueRestartBehindStop(row, memberOpRelocate, 1234.5)
-		wantReceipt(row)
+		queueRestartBehindStop(row, memberOpRelocate, true, 1234.5)
+		wantReceipt(row, stillStopping)
 		m.LastOp, m.LastOpOK, m.LastOpLog, m.LastOpReason, m.LastOpAt = "", nil, "", "", 0
 		apiTestWantEqual(t, "member after the queue", m, Member{ID: "m-stamp",
 			DesiredState: DesiredStateOffline, RestartAfterStop: true,
 			StoppingSince: 10, StoppedSince: 20, RefocusSince: 30, RefocusOp: memberOpRelocate})
 	})
 
+	t.Run("a staff row whose session is gone gets the 起來 and a success noting it had already stopped", func(t *testing.T) {
+		m := Member{ID: "m-stamp", DesiredState: DesiredStateOffline, StoppingSince: 10}
+		row := ownerOpRowOfMember(&m)
+		queueRestartBehindStop(row, memberOpRelocate, false, 1234.5)
+		wantReceipt(row, "restarting: the relocate was saved; this member had already stopped, "+
+			"so it is being started again to apply it")
+	})
+
 	t.Run("a worker row gets the same 起來 and the same receipt, and its stop anchors stay as they were", func(t *testing.T) {
 		w := OutsourceWorker{ID: "ow-stamp", DesiredState: DesiredStateOffline,
 			StoppingSince: 10, StoppedSince: 20, RefocusSince: 30, RefocusOp: ownerOpRelocate}
 		row := ownerOpRowOfWorker(&w)
-		queueRestartBehindStop(row, ownerOpRelocate, 1234.5)
-		wantReceipt(row)
+		queueRestartBehindStop(row, ownerOpRelocate, true, 1234.5)
+		wantReceipt(row, stillStopping)
 		w.LastOp, w.LastOpOK, w.LastOpLog, w.LastOpReason, w.LastOpAt = "", nil, "", "", 0
 		apiTestWantEqual(t, "worker after the queue", w, OutsourceWorker{ID: "ow-stamp",
 			DesiredState: DesiredStateOffline, RestartAfterStop: true,
@@ -326,26 +334,6 @@ func TestClearRestartIntent(t *testing.T) {
 	}
 }
 
-func TestMemberRestartQueuedReceipt(t *testing.T) {
-	cases := []struct {
-		name string
-		op   string
-		want string
-	}{
-		{"a refocus receipt names the saved operation", refocusOpRefocus, "held_down: the refocus was saved and this member is still being stopped — the stop in flight is honoured as-is, and it will be started again once it is down"},
-		{"a relocate receipt names the saved operation", memberOpRelocate, "held_down: the relocate was saved and this member is still being stopped — the stop in flight is honoured as-is, and it will be started again once it is down"},
-		{"a model receipt names the saved operation", memberOpRuntimeModel, "held_down: the runtime/model was saved and this member is still being stopped — the stop in flight is honoured as-is, and it will be started again once it is down"},
-		{"an empty operation is still represented literally", "", "held_down: the  was saved and this member is still being stopped — the stop in flight is honoured as-is, and it will be started again once it is down"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := memberRestartQueuedReceipt(tc.op); got != tc.want {
-				t.Fatalf("memberRestartQueuedReceipt(%q) = %q, want %q", tc.op, got, tc.want)
-			}
-		})
-	}
-}
-
 func TestConsumeRestartAfterStop(t *testing.T) {
 	t.Run("a converged offline member is restarted and every changed field is stored", func(t *testing.T) {
 		api, _, d, _ := newAPITestServer(t)
@@ -367,7 +355,7 @@ func TestConsumeRestartAfterStop(t *testing.T) {
 		if got := api.consumeRestartAfterStop(&m, 1234.5); !got {
 			t.Fatal("consumeRestartAfterStop() = false, want true")
 		}
-		wantOK := false
+		wantOK := true
 		want := before
 		want.DesiredState = DesiredStateOnline
 		want.RestartAfterStop = false
@@ -377,7 +365,7 @@ func TestConsumeRestartAfterStop(t *testing.T) {
 		want.LastOp = "start"
 		want.LastOpOK = &wantOK
 		want.LastOpLog = ""
-		want.LastOpReason = "held_down: the stop the owner asked for has landed — starting this member again, which is what the 重新聚焦 or 更改 pressed during the wind-down asked for"
+		want.LastOpReason = "restarting: the stop has completed, so this member is being started again to apply what was saved while it was stopping"
 		want.LastOpAt = 1234.5
 		apiTestWantEqual(t, "member in memory", m, want)
 		apiTestWantEqual(t, "member in database", apiTestMemberRow(t, d, m.ID), want)
@@ -428,8 +416,8 @@ func TestConsumeRestartAfterStop(t *testing.T) {
 	})
 }
 
-func TestQueueWorkerRestartAfterStop(t *testing.T) {
-	queuedOK := false
+func TestApplyWorkerStoppedOwnerOp(t *testing.T) {
+	queuedOK := true
 	cases := []struct {
 		name string
 		w    OutsourceWorker
@@ -438,7 +426,7 @@ func TestQueueWorkerRestartAfterStop(t *testing.T) {
 		row  OutsourceWorker
 	}{
 		{
-			"an offline worker with a stop anchor queues restart",
+			"an offline worker whose stop is still running queues the restart behind it",
 			OutsourceWorker{ID: "ow-queue", Codename: "Contractor", Status: WorkerStatusActive,
 				DesiredState: DesiredStateOffline, StoppingSince: 20},
 			memberOpRelocate,
@@ -446,17 +434,20 @@ func TestQueueWorkerRestartAfterStop(t *testing.T) {
 			OutsourceWorker{ID: "ow-queue", Codename: "Contractor", Status: WorkerStatusActive,
 				DesiredState: DesiredStateOffline, RestartAfterStop: true, StoppingSince: 20,
 				LastOp: "start", LastOpOK: &queuedOK,
-				LastOpReason: "held_down: the relocate was saved and this member is still being stopped — the stop in flight is honoured as-is, and it will be started again once it is down",
+				LastOpReason: "restart_queued: the relocate was saved; this member is still being stopped, and it will be started again to apply it once that stop completes",
 				LastOpAt:     1234.5},
 		},
 		{
-			"an offline worker without a stop anchor is not queued",
+			"an offline worker nobody asked to stop is not queued, and the note says it stays stopped",
 			OutsourceWorker{ID: "ow-queue", Codename: "Contractor", Status: WorkerStatusActive,
 				DesiredState: DesiredStateOffline},
 			memberOpRelocate,
-			false,
+			true,
 			OutsourceWorker{ID: "ow-queue", Codename: "Contractor", Status: WorkerStatusActive,
-				DesiredState: DesiredStateOffline},
+				DesiredState: DesiredStateOffline,
+				LastOp:       "start", LastOpOK: &queuedOK,
+				LastOpReason: "held_down: the relocate was saved; this member stays stopped — press 喚醒 when you want it to run",
+				LastOpAt:     1234.5},
 		},
 		{
 			"a worker with online desired state is not queued",
@@ -473,17 +464,17 @@ func TestQueueWorkerRestartAfterStop(t *testing.T) {
 			api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
 			dashboard := apiTestListen(t, api, "")
 			w := tc.w
-			if got := api.queueWorkerRestartAfterStop(&w, tc.op, 1234.5); got != tc.want {
-				t.Fatalf("queueWorkerRestartAfterStop() = %t, want %t", got, tc.want)
+			if got := applyWorkerStoppedOwnerOp(&w, tc.op, true, 1234.5); got != tc.want {
+				t.Fatalf("applyWorkerStoppedOwnerOp() = %t, want %t", got, tc.want)
 			}
-			apiTestWantEqual(t, "worker after queueWorkerRestartAfterStop", w, tc.row)
+			apiTestWantEqual(t, "worker after applyWorkerStoppedOwnerOp", w, tc.row)
 			dashboard.wantFrames()
 		})
 	}
 }
 
 func TestAnOwnerVerbOnAStoppedWorkerQueuesItsRestartOnTheRow(t *testing.T) {
-	const receipt = "held_down: the relocate was saved and this member is still being stopped — the stop in flight is honoured as-is, and it will be started again once it is down"
+	const receipt = "restart_queued: the relocate was saved; this member is still being stopped, and it will be started again to apply it once that stop completes"
 	stopped := func(t *testing.T) (*apiServer, http.Handler, *DAL, string) {
 		t.Helper()
 		api, h, d, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
@@ -498,14 +489,14 @@ func TestAnOwnerVerbOnAStoppedWorkerQueuesItsRestartOnTheRow(t *testing.T) {
 		api, h, _, owner := stopped(t)
 		dashboard := apiTestListen(t, api, "")
 
-		fresh, queued, err := api.queueWorkerRestartAfterStopOnRow("ow-abc123", ownerOpRelocate, 1234.5)
+		fresh, queued, err := api.applyWorkerStoppedOwnerOpOnRow("ow-abc123", ownerOpRelocate, true, 1234.5)
 
 		if err != nil || !queued || fresh == nil || !fresh.RestartAfterStop {
 			t.Fatalf("queue: fresh %+v queued %v err %v; want the row queued", fresh, queued, err)
 		}
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "desired_state": "offline", "presence": "stopped",
-			"last_op": "start", "last_op_ok": false, "last_op_log": "",
+			"last_op": "start", "last_op_ok": true, "last_op_log": "",
 			"last_op_reason": receipt, "last_op_at": 1234.5,
 		}))
 		dashboard.wantFrames()
@@ -533,8 +524,10 @@ func TestAnOwnerVerbOnAStoppedWorkerQueuesItsRestartOnTheRow(t *testing.T) {
 		api.respawnWorkerForOwnerOp(read, ownerOpRelocate)
 		api.outsourceMu.Unlock()
 
-		if got := apiTestMemberRow(t, d, "ow-abc123"); got.LastMachineID != "m-elsewhere" || !got.RestartAfterStop {
-			t.Fatalf("last_machine_id %q restart_after_stop %v; want m-elsewhere, queued", got.LastMachineID, got.RestartAfterStop)
+		got := apiTestMemberRow(t, d, "ow-abc123")
+		if got.LastMachineID != "m-elsewhere" || got.RestartAfterStop || got.DesiredState != DesiredStateOnline {
+			t.Fatalf("last_machine_id %q restart_after_stop %v desired_state %q; want m-elsewhere, started",
+				got.LastMachineID, got.RestartAfterStop, got.DesiredState)
 		}
 	})
 
@@ -609,7 +602,7 @@ func TestConsumeWorkerRestartAfterStop(t *testing.T) {
 		if got := api.consumeWorkerRestartAfterStop(&w, 1234.5); !got {
 			t.Fatal("consumeWorkerRestartAfterStop() = false, want true")
 		}
-		wantOK := false
+		wantOK := true
 		want := before
 		want.DesiredState = DesiredStateOnline
 		want.RestartAfterStop = false
@@ -619,7 +612,7 @@ func TestConsumeWorkerRestartAfterStop(t *testing.T) {
 		want.LastOp = "start"
 		want.LastOpOK = &wantOK
 		want.LastOpLog = ""
-		want.LastOpReason = "held_down: the stop the owner asked for has landed — starting this worker again, which is what the 重新聚焦 or 更改 pressed during the wind-down asked for"
+		want.LastOpReason = "restarting: the stop has completed, so this member is being started again to apply what was saved while it was stopping"
 		want.LastOpAt = 1234.5
 		apiTestWantEqual(t, "worker in memory", w, want)
 		stored, err := d.GetOutsourceWorker(w.ID)
@@ -630,9 +623,9 @@ func TestConsumeWorkerRestartAfterStop(t *testing.T) {
 		apiTestWantWorker(t, h, owner, w.ID, apiTestWorkerRow(t, map[string]any{
 			"status":         "active",
 			"last_op":        "start",
-			"last_op_ok":     false,
+			"last_op_ok":     true,
 			"last_op_log":    "",
-			"last_op_reason": "held_down: the stop the owner asked for has landed — starting this worker again, which is what the 重新聚焦 or 更改 pressed during the wind-down asked for",
+			"last_op_reason": "restarting: the stop has completed, so this member is being started again to apply what was saved while it was stopping",
 			"last_op_at":     1234.5,
 			"desired_state":  "online",
 		}))

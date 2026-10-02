@@ -59,6 +59,6 @@ styleOwnership test 防止最後一個間接 importer 消失後 dialog 變成原
 
 正職與外包詳情面板共用 `.mp-identity__actions` 的 column 外殼與 row buttons；更改在前、停止在後，沒在跑時只顯示喚醒。改 row/column 時手機 media query 要按新形狀重新驗跨距與均分，不能只驗「元素仍存在」；REST 仍是 `/restart`，退場的是 UI 用語，不是凍結 wire。
 
-喚醒先開與更改相同的設定 dialog，預設保留原執行環境、模型、思考強度與已釘機器；落地順序是 model，再一支 activate，機器由那支 activate 的 machine_id 帶著（外包只在選到不同機器時帶）。喚醒不要先 relocate：已停下的外包會把 relocate 記成「排在停止後的重啟」，留下 activate 不會覆寫的 held_down 回執，畫面就是一行假的「✗ 喚醒 失敗」。睡著的已釘機器照原樣帶，不能 fallback 到第一台線上機器；只有沒有固定機器時才預設第一台線上機器。
+喚醒先開與更改相同的設定 dialog，預設保留原執行環境、模型、思考強度與已釘機器；落地順序是 model，再一支 activate，機器由那支 activate 的 machine_id 帶著（外包只在選到不同機器時帶）。喚醒不要先 relocate：已停好的外包會把 relocate 當成「停止後的重啟」當場派出 START，接著的 activate 再殺一次、再派一次。睡著的已釘機器照原樣帶，不能 fallback 到第一台線上機器；只有沒有固定機器時才預設第一台線上機器。
 
 兩邊都沒有「只儲存，不喚醒」（owner `rc-baa00a00dbc9`）。released worker 的身分文字與入口共用，依 worker.status 判定；released 不畫生命週期卡或 dead action，offline 對照仍要保留。

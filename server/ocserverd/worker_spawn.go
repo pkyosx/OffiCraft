@@ -178,6 +178,11 @@ const (
 	spawnReasonRespawnDeferred = "respawn_deferred"
 	spawnReasonWakeTimeout     = "wake_timeout"
 	spawnReasonNeverCollected  = "never_collected"
+	// The three notes an owner verb leaves on a member wanted offline
+	// (applyStoppedOwnerOp): a 起來 queued behind a running stop, one started now
+	// because the stop had finished, and none at all.
+	ownerOpReasonRestartQueued = "restart_queued"
+	ownerOpReasonRestarting    = "restarting"
 	spawnReasonHeldDown        = "held_down"
 	// Staff-side diagnoses (decideUp); a landed START invalidates all three.
 	spawnReasonCircuitOpen   = "circuit_open"
@@ -194,9 +199,11 @@ const (
 // a landed START clears any of them; a new "did not dispatch" code must be added
 // here or its stamp outlives its cause. Deliberately absent: wake_timeout and
 // never_collected (the retry that follows must not erase why the previous
-// dispatch failed — dispatching is not delivery) and held_down (only a restart
-// ends it, and that writes its own receipt). session_alive is in: a wake on a
-// running worker dispatches nothing, so the next landed START refutes it.
+// dispatch failed — dispatching is not delivery) and the owner-op notes
+// (restart_queued, restarting, held_down): they are successes, so a dispatch must
+// not blank them into a reasonless ✓; 喚醒 and the spent 起來 replace them.
+// session_alive is in: a wake on a running worker dispatches nothing, so the
+// next landed START refutes it.
 var spawnBlockedReasonCodes = []string{
 	placementReasonNoMachine, placementReasonUnavailable,
 	spawnReasonNoLiveTask, spawnReasonBootContext, spawnReasonNoSecret,
@@ -861,27 +868,24 @@ func (s *apiServer) relocateWorkerNow(w OutsourceWorker) ownerOpOutcome {
 // its handler sets DesiredState online on the row it passes by value.
 // Callers hold s.outsourceMu.
 func (s *apiServer) respawnWorkerForOwnerOp(w OutsourceWorker, op string) ownerOpOutcome {
-	switch ownerOpHandoverPlanFor(memberFromWorker(w), s.hub.IsOnline(w.ID)) {
+	online := s.hub.IsOnline(w.ID)
+	switch ownerOpHandoverPlanFor(memberFromWorker(w), online) {
 	case ownerOpPlanQueueBehindStop, ownerOpPlanHeldDown:
-		// Queue the verb behind the stop (owner rc-bc1b029a3aa2); nothing dispatches.
-		// 換 model reaches here only while the session is up — a converged stop
-		// queues through its own branch in api_outsource.go; both are needed.
+		// 換 model reaches here only while the session is up; with none it applies
+		// the same judgement in api_outsource.go.
 		now := nowSecs()
-		fresh, queued, err := s.queueWorkerRestartAfterStopOnRow(w.ID, op, now)
+		fresh, applied, err := s.applyWorkerStoppedOwnerOpOnRow(w.ID, op, online, now)
 		if err != nil {
-			outsourceLog("spawn %s: queued restart-after-stop persist failed: %v", w.ID, err)
+			outsourceLog("spawn %s: %s on a stopped worker, persist failed: %v", w.ID, op, err)
 			return ownerOpOutcome{HeldDown: true}
 		}
-		if queued {
-			s.publishOutsourceWorker(*fresh, triggerServer)
+		if !applied {
 			return ownerOpOutcome{HeldDown: true}
 		}
-		if fresh == nil || ownerOpHandoverPlanFor(memberFromWorker(*fresh), false) != ownerOpPlanHeldDown {
-			return ownerOpOutcome{HeldDown: true}
+		s.publishOutsourceWorker(*fresh, triggerServer)
+		if !online && ownerOpStartsAtOnce(op) && s.consumeWorkerRestartAfterStop(fresh, now) {
+			return s.reconcileWorkerNow(*fresh, now)
 		}
-		s.stampWorkerPlacementBlocked(&w, spawnReasonHeldDown+": the "+op+" was saved, "+
-			"but nothing was started — this worker is stopped; 喚醒 it when you want it "+
-			"to run", now)
 		return ownerOpOutcome{HeldDown: true}
 	case ownerOpPlanWindDown:
 		// Every owner verb gets a wind-down chance (owner: 「我建議所有換手都可以給他機會收尾」).
@@ -913,9 +917,9 @@ type ownerOpOutcome struct {
 func (o ownerOpOutcome) Pending() bool { return !o.Dispatched && !o.AlreadyRunning }
 
 const (
-	ownerOpRelocate     = "relocate"
+	ownerOpRelocate     = memberOpRelocate
 	ownerOpRestart      = "restart"
-	ownerOpRuntimeModel = "runtime/model" // 換 model / runtime / effort
+	ownerOpRuntimeModel = memberOpRuntimeModel
 )
 
 // openOwnerOpHandover opens a graceful wind-down for an owner verb: stamp a fresh

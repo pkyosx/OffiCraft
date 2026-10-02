@@ -215,9 +215,7 @@ func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost
 	if queued {
 		s.publishOutsourceWorker(*worker, requestTrigger(r))
 		unlockMu()
-		// AFTER the unlock: the tick takes outsourceMu itself. Spends a queued
-		// start at once when the stop has already converged.
-		s.outsourceTickNow()
+		s.outsourceTickAfterOwnerOp(refocusOpRefocus)
 		if fresh, ferr := s.dal.GetOutsourceWorker(id); ferr == nil && fresh != nil {
 			worker = fresh
 		}
@@ -429,10 +427,12 @@ func (s *apiServer) handleRestartOutsourceWorker(w http.ResponseWriter, r *http.
 		//   * forced_stop_at is KEPT on both arms, as staff activate does: it
 		//     describes the session BEFORE (dal.go, migrations/00057), and its max()
 		//     upsert would fight a clear anyway.
+		receiptChanged := sessionAliveReceipt
 		if !sessionAliveReceipt {
 			worker.RefocusSince = 0.0
 			worker.RefocusOp = ""
 			worker.StoppedSince = 0.0
+			receiptChanged = clearStoppedOwnerOpNote(ownerOpRowOfWorker(worker))
 		}
 		// 後蓋前: this handler spends the queued 起來 right now; leaving it armed
 		// would fire a SECOND start after the next 下線.
@@ -445,7 +445,7 @@ func (s *apiServer) handleRestartOutsourceWorker(w http.ResponseWriter, r *http.
 		// request-start snapshot written after it would bury the newer sentence on a
 		// 200. ⚠️ No test holds this order — an independent review moved it and the
 		// suite stayed green.
-		if sessionAliveReceipt {
+		if receiptChanged {
 			return setMemberLastOpOn(tx, worker.ID, worker.LastOp, worker.LastOpOK,
 				worker.LastOpLog, worker.LastOpReason, worker.LastOpAt)
 		}
@@ -495,7 +495,7 @@ func (s *apiServer) handleSetOutsourceWorkerModel(w http.ResponseWriter, r *http
 	defer unlockMu()
 	online := s.hub.IsOnline(id)
 	var worker *OutsourceWorker
-	launchIntentChanged, respawn := false, false
+	launchIntentChanged, respawn, noted := false, false, false
 	var wantModel, wantRuntime, wantEffort string
 	// Each intent lands through its sole writer (they are insert-only).
 	setIntents := func(tx *writeTx) error {
@@ -532,10 +532,11 @@ func (s *apiServer) handleSetOutsourceWorkerModel(w http.ResponseWriter, r *http
 		// respawnWorkerForOwnerOp owns that branch for all three owner verbs.
 		respawn = launchIntentChanged && online
 		if !respawn && launchIntentChanged {
-			// A converged stop never enters the funnel (no live session), so the
-			// queued restart is stamped here; 改機器 has no such gate. Owner
-			// 2026-08-30: 「change model / machine 只是帶起來的方式不一樣而已」.
-			if s.queueWorkerRestartAfterStop(worker, ownerOpRuntimeModel, nowSecs()) {
+			// With no live session the funnel is never entered, so a stopped worker's
+			// note is stamped here; 改機器 has no such gate. Owner 2026-08-30:
+			// 「change model / machine 只是帶起來的方式不一樣而已」.
+			noted = applyWorkerStoppedOwnerOp(worker, ownerOpRuntimeModel, online, nowSecs())
+			if noted {
 				if err := persistWorkerRestartIntentOn(tx, before, *worker); err != nil {
 					return err
 				}
@@ -555,8 +556,9 @@ func (s *apiServer) handleSetOutsourceWorkerModel(w http.ResponseWriter, r *http
 		// The funnel runs BEFORE the intents land, in a transaction of their own:
 		// the tick starts the replacement only once the worker reads offline, by
 		// which time they have landed; if the session drops between gate and
-		// funnel, the funnel starts it from *worker, which already carries the new
-		// values. Store first and a failure leaves the new value with no wind-down,
+		// funnel, a worker wanted online is started from *worker, which already
+		// carries the new values, and a stopped one is only noted (ownerOpStartsAtOnce).
+		// Store first and a failure leaves the new value with no wind-down,
 		// and the retry compares against the already-stored value and opens none
 		// either. This order fails convergently. outsourceMu keeps the collect
 		// from landing between the two writes.
@@ -572,6 +574,9 @@ func (s *apiServer) handleSetOutsourceWorkerModel(w http.ResponseWriter, r *http
 	}
 	s.publishOutsourceWorker(*worker, requestTrigger(r))
 	unlockMu()
+	if noted {
+		s.outsourceTickAfterOwnerOp(ownerOpRuntimeModel)
+	}
 
 	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: worker.ID})
 }

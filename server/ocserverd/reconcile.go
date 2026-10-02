@@ -1105,8 +1105,8 @@ func (s *apiServer) armDecidedHandover(memberID string, decision reconcileDecisi
 	}
 }
 
-// stampOpReceipt is the single source of the SERVER-AUTHORED refusal receipt ("the change was
-// saved and nothing was started"): last_op_ok a non-nil FALSE, last_op_log cleared. The agent-verdict
+// stampOpReceipt is the single source of the SERVER-AUTHORED refusal receipt ("nothing was
+// dispatched, and here is why"): last_op_ok a non-nil FALSE, last_op_log cleared. The agent-verdict
 // folds (foldCommandResult / foldWorkerCommandResult, api_monitoring.go) are a different class and
 // must not be routed through here; a clear back to nil is not a receipt either. RECEIPT-CORE-AUDIT
 // marks the exceptions within the refusal class.

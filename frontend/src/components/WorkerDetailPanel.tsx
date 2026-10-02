@@ -398,10 +398,9 @@ export function WorkerDetailPanel({
    *   that is the whole point of the button — so the no-op early-return is
    *   gated on `!wakeMode`.
    *
-   * 🔴 The wake must NOT relocate first. On a stopped worker the server takes a
-   * relocate as a restart queued behind the stop and leaves a held_down start
-   * receipt that the activate after it does not overwrite, so the panel shows a
-   * false 「✗ 喚醒 失敗」 for a wake that succeeded.
+   * 🔴 The wake must NOT relocate first. On a worker whose stop has finished the
+   * server takes a relocate as a restart and dispatches the START on the spot, so
+   * the activate after it kills that session and starts a second one.
    */
   async function saveSettings() {
     const launchChanged =

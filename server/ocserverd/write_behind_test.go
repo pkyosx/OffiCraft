@@ -703,7 +703,7 @@ func TestAConnectionJudgedAgainstAPinTheOwnerMovedIsNotRecordedAsTheLanding(t *t
 
 // The queued-restart spend belongs to the converged-offline edge. A worker that
 // is no longer desired offline when the spend is judged is not spent: no
-// "the stop has landed — starting again" receipt, anchors and flag as the row
+// "the stop has completed" note, anchors and flag as the row
 // has them.
 func TestAQueuedRestartIsNotSpentOnAWorkerNoLongerDesiredOffline(t *testing.T) {
 	d, hook, path := windowDAL(t, "split pools")
@@ -720,10 +720,10 @@ func TestAQueuedRestartIsNotSpentOnAWorkerNoLongerDesiredOffline(t *testing.T) {
 		t.Fatalf("premise: the write did not land inside the tick's gap")
 	}
 	got := apiTestMemberRow(t, d, "ow-abc123")
-	if !got.RestartAfterStop || strings.HasPrefix(got.LastOpReason, spawnReasonHeldDown+":") ||
+	if !got.RestartAfterStop || strings.HasPrefix(got.LastOpReason, "restarting:") ||
 		got.StoppingSince != 1700000000 || got.StoppedSince != 1700000100 {
 		t.Fatalf("restart_after_stop %v last_op_reason %q stopping_since %v stopped_since %v; "+
-			"want still queued, no held_down spend receipt, 1700000000, 1700000100",
+			"want still queued, no restarting note, 1700000000, 1700000100",
 			got.RestartAfterStop, got.LastOpReason, got.StoppingSince, got.StoppedSince)
 	}
 }
