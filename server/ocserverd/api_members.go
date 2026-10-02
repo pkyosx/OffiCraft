@@ -816,9 +816,17 @@ func (s *apiServer) HandleActivateMemberApiMembersMemberIdActivatePost(w http.Re
 		s.publishMemberPatch(saved, requestTrigger(r))
 	}
 	dec := reconcileDecision{}
+	booting := inFlightStart{}
 	if !sessionAlive {
 		s.bankLiveCost(saved.ID)
-		s.dispatchRobustStopNow(saved.ID)
+		// A START from an earlier press may still be booting, and the kill chain can name a
+		// different machine (a last landing outranks the pin), so the stop goes there too. Only a
+		// stop that reached it may supersede it; otherwise the reconcile below waits on it.
+		booting = s.inFlightStartOfMember(saved.ID)
+		stop := s.dispatchRobustStopAlsoTo(saved.ID, booting.Target)
+		if s.noteStartSupersededByStop(saved.ID, booting, stop, nowSecs()) {
+			booting = inFlightStart{}
+		}
 		dec = s.reconcileMemberNow(saved.ID)
 	}
 	receipt := memberActivateReceiptDTO{ID: saved.ID}
@@ -830,6 +838,14 @@ func (s *apiServer) HandleActivateMemberApiMembersMemberIdActivatePost(w http.Re
 		// A stall arm that names no code gets the generic reason; a new arm should name
 		// itself at the decision site, not be guessed here.
 		reason := dec.ReasonCode
+		if reason == "" && booting.Target != "" {
+			// Without this the generic text below sends the owner to the machine just picked,
+			// which is fine; the one to check is where the earlier START is still booting.
+			reason = spawnReasonWardenLost + ": an earlier start is still booting on machine '" +
+				booting.Target + "' and this 喚醒's stop could not reach it, so no second start " +
+				"was sent. It will be retried once that start times out; if it stays here, " +
+				"check machine '" + booting.Target + "'"
+		}
 		if reason == "" {
 			reason = spawnReasonWardenLost + ": 喚醒 was recorded, but nothing has been " +
 				"dispatched yet — the machine's warden did not take the start. It will " +

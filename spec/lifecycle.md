@@ -856,7 +856,14 @@ runtime capability report.
 
 - online ∧ no refocus marker → converged: no command; failure bookkeeping MUST reset.
 - ¬online ∧ a START in flight (`last_command==START` within `start_timeout`) → wait
-  ("starting: awaiting presence").
+  ("starting: awaiting presence"). An owner 喚醒 (staff or worker) or worker handover sends its
+  stop to the machine that START was sent to as well as wherever the kill chain points; a stop
+  that reaches that machine ends the START: `last_command` becomes STOP, so the same tick
+  dispatches a fresh START instead of waiting (backoff and the circuit breaker below still
+  apply), and 喚醒 answers no `activation_pending`. For a worker, a stop parked on that machine
+  (re-fired by the tick) counts as reaching it. A stop that does not reach it ends nothing, and
+  the START is waited on as above; 喚醒 then answers `activation_pending` with a
+  `warden_unreachable` reason naming the machine the START is still booting on.
 - ¬online ∧ START timed out → register a failure that arms exponential backoff
   (`min(base·2^(attempts−1), cap)`) but MUST NOT count toward the sticky circuit breaker
   (a silent timeout is indistinguishable from an at-most-once delivery miss). Circuit-open → no respawn until cooldown; cooldown lapse

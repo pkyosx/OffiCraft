@@ -1,8 +1,11 @@
 package main
 
+import "slices"
+
 // Every kill of either population resolves through killTargetChain and sends
-// through sendStopFrames. dispatchShutdown has exactly TWO callers: the staff
-// out-of-band robust STOP and the worker's stopped-report conclusion. The
+// through sendStopFrames. dispatchShutdown (directly or through
+// dispatchShutdownAlsoTo) has exactly TWO callers: the staff out-of-band robust
+// STOP and the worker's stopped-report conclusion. The
 // worker's other kills (handover, held-down stop, reclaim) enter at
 // stopWorkerSessionOrPark, which uses the same chain and sender but keeps its
 // OWN ledger.
@@ -181,7 +184,17 @@ func (s *apiServer) sendStopFrames(id string, targets []string, now float64) []s
 }
 
 func (s *apiServer) dispatchShutdown(id, reason string) shutdownDispatch {
+	return s.dispatchShutdownAlsoTo(id, reason, "")
+}
+
+// dispatchShutdownAlsoTo also aims the stop at alsoTo when the kill chain does not already: a
+// machine the caller knows holds a session the chain cannot name, such as a still-booting START.
+// It goes last, so when it lands the receipt watch's single slot waits on it.
+func (s *apiServer) dispatchShutdownAlsoTo(id, reason, alsoTo string) shutdownDispatch {
 	targets, broadcast, outsource := s.resolveShutdownTargets(id)
+	if alsoTo != "" && !slices.Contains(targets, alsoTo) {
+		targets = append(targets, alsoTo)
+	}
 	out := shutdownDispatch{
 		Broadcast: broadcast, Outsource: outsource, Addressed: len(targets) > 0,
 	}
