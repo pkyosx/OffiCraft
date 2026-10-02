@@ -80,7 +80,7 @@ func TestForceStopMemberClearsTheHandoverMarker(t *testing.T) {
 	}
 }
 
-// The consequence, end to end: 停止 → 活化 must not hand the fresh session the
+// The consequence, end to end: 停止 → 喚醒 must not hand the fresh session the
 // previous one's collect. Without the clear this is exactly the shape the code
 // warned about — activate zeroes stopping/waking but NEITHER refocus_since nor
 // stopped_since, so decideUp's recycle arm sees "marker present, dump done" and
@@ -108,7 +108,7 @@ func TestStopThenActivateDoesNotCollectTheNextGeneration(t *testing.T) {
 	// being collected. The reason text is what the arm decided.
 	dec := s.reconcileOne(*fresh, newReconcileState(), 2000.0)
 	if strings.HasPrefix(dec.Reason, "recycle:") {
-		t.Fatalf("the tick after 停止 → 活化 decided %q — that is the PREVIOUS epoch's "+
+		t.Fatalf("the tick after 停止 → 喚醒 decided %q — that is the PREVIOUS epoch's "+
 			"collect landing on a session that has nothing to do with it", dec.Reason)
 	}
 }

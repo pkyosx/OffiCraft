@@ -22,7 +22,7 @@ import type { LifecycleVisualStatus } from "./LifecycleDot";
 /** UI-only lifecycle status (shares the five-state visual union). */
 export type LifecycleStatus = LifecycleVisualStatus;
 
-type ActionKey = "spawn" | "cancel" | "stop" | "accelerated-stop" | "force-stop";
+type ActionKey = "spawn" | "stop" | "accelerated-stop" | "force-stop";
 
 /** How far up the escalation 停止 → 加速停止 → 強制停止 this actor already is.
  *
@@ -155,26 +155,28 @@ const DANGER_ACTIONS = new Set<ActionKey>([
   "force-stop",
 ]);
 
-/** The non-ladder part of each status's button set, in display order. `waking`
- * can WEDGE mid-start if the old stop command never lands (crashed warden, lost
- * signal), so it ALSO offers Spawn (=wake) as a rescue, and Spawn leads there.
- * `stopping` offers no Spawn at all: owner `rc-2e1c96250169` — wait for the stop
- * to finish, then wake — on both kinds.
+/** The non-ladder part of each status's button set, in display order.
+ * `waking` offers no Spawn: owner `rc-8b3d3a366c54` — while waking, both kinds
+ * show 更改 ＋ 停止, and 停止 is the ladder cell. `stopping` offers no Spawn
+ * either: owner `rc-2e1c96250169` — wait for the stop to finish, then wake.
  * (Refocus is deliberately NOT a header action — it lives with the context cell
  * in MemberDetailPanel. Dismiss is not offered either: owner acceptance removed
  * the UI entry and DELETE /api/members stays a pure backend seam.) */
 const PREFIX_SETS: Record<LifecycleStatus, ActionKey[]> = {
   offline: ["spawn"],
-  waking: ["cancel", "spawn"],
+  waking: [],
   "online-awake": [],
   stopping: [],
   stopped: ["spawn"],
 };
 
-/** Which statuses carry the ladder at all. `offline` / `stopped` / `waking`
- * have no live session to wind down, so the ladder button does not belong there
- * at all — `waking` keeps Cancel, which IS its stop. */
-const LADDER_STATUSES = new Set<LifecycleStatus>(["online-awake", "stopping"]);
+/** Which statuses carry the ladder at all. `offline` / `stopped` have no
+ * session to wind down, so the ladder button does not belong there. */
+const LADDER_STATUSES = new Set<LifecycleStatus>([
+  "waking",
+  "online-awake",
+  "stopping",
+]);
 
 /** The two ways the single ladder button renders and is deliberately NOT
  * pressable, each of which says why rather than going silent:
@@ -194,7 +196,6 @@ interface MemberActionButtonsProps {
    */
   stage?: StopLadderStage;
   onSpawn?: () => void;
-  onCancel?: () => void;
   onStop?: () => void;
   /** 加速停止 — what the one ladder button BECOMES at stage `soft`: put the
    * wind-down that is already open on the server's clock and TELL the member. Not a kill, so it needs no confirm; the
@@ -218,7 +219,6 @@ export function MemberActionButtons({
   status,
   stage = "none",
   onSpawn,
-  onCancel,
   onStop,
   onAcceleratedStop,
   onForceStop,
@@ -254,7 +254,6 @@ export function MemberActionButtons({
   const ladderReason: Partial<Record<ActionKey, LadderReasonKey>> = {};
   const handlers: Record<ActionKey, (() => void) | undefined> = {
     spawn: onSpawn,
-    cancel: onCancel,
     stop: onStop,
     "accelerated-stop": onAcceleratedStop,
     "force-stop": onForceStop,
@@ -299,10 +298,6 @@ export function MemberActionButtons({
         // -accelerated-stop → -force-stop): the id names the action the button
         // will perform, which is the only thing a test or a screen reader can
         // safely act on.
-            // PREFIX_SETS puts spawn FIRST only for offline/stopped — in
-            // `waking` the first button is Cancel. A test that reaches for
-            // ".member-actions button" therefore silently clicks the wrong
-            // action the moment its fixture is not offline.
             data-testid={`member-action-${key}`}
             className={`btn ${variant}`}
             disabled={!handler}

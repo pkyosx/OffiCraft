@@ -24,9 +24,7 @@ import "./dispatch-alert.css";
  * decide a START and the member is not already online — the handler's own
  * comment lists "backoff, circuit-open, and failure modes not yet invented".
  * Review r1 (BLOCKER-1) proved with two server probes that it also fires when
- *   (a) a START from a PREVIOUS click is still in flight inside the waking window
- *       — and the wake button is deliberately still offered there
- *       (MemberActionButtons' `waking: ["cancel", "spawn"]` rescue path), and
+ *   (a) a START from a PREVIOUS click is still in flight inside the waking window, and
  *   (b) the member is inside retry backoff or circuit-open AFTER a START that
  *       WAS dispatched and timed out — where `last_op_reason` already carries
  *       the correct and OPPOSITE diagnosis ("the START was dispatched but the
@@ -34,7 +32,7 @@ import "./dispatch-alert.css";
  * (T-66a2 amends case (b): `wake_timeout` is no longer ONE sentence. When the
  * server can prove the START frame was popped for delivery and never reached
  * the socket, the receipt now says so — "the START never reached machine X …
- * do not go looking at claude there" — instead of the machine-side advice
+ * the machine's connection is the suspect, not the runtime on it" — instead of the machine-side advice
  * quoted above. That makes it AGREE with this panel rather than contradict it
  * in the undelivered case, and it does not change the reasoning here: this copy
  * still knows less than `last_op_reason` and must still point at it.

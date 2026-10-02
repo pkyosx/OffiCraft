@@ -1,6 +1,6 @@
 package main
 
-// worker_restart_clears_markers_ted79_test.go — T-ed79 parity #11: 重啟 starts a
+// worker_restart_clears_markers_ted79_test.go — T-ed79 parity #11: 喚醒 starts a
 // new session, so it must start from a clean sheet.
 //
 // The offline staff activate arm clears the anchors that describe the session
@@ -55,19 +55,19 @@ func TestRestartWorkerClearsThePreviousSessionsAnchors(t *testing.T) {
 		{"stopped_since", after.StoppedSince},
 	} {
 		if anchor.got != 0 {
-			t.Errorf("重啟 left %s=%v behind. It describes the session the restart is "+
+			t.Errorf("喚醒 left %s=%v behind. It describes the session the restart is "+
 				"REPLACING; carried into the next one it is read as a fact about that "+
 				"one.", anchor.name, anchor.got)
 		}
 	}
 	if after.RefocusOp != "" {
-		t.Errorf("重啟 left refocus_op=%q — the cause goes with the window", after.RefocusOp)
+		t.Errorf("喚醒 left refocus_op=%q — the cause goes with the window", after.RefocusOp)
 	}
 	// …and the one that must SURVIVE, for the reason migrations/00057 states: it
 	// does not describe this session, it describes the one BEFORE it, and the
 	// reader who needs it most is the one that comes after.
 	if after.ForcedStopAt != 1003.0 {
-		t.Errorf("重啟 cleared forced_stop_at (%v, want 1003) — that is the durable "+
+		t.Errorf("喚醒 cleared forced_stop_at (%v, want 1003) — that is the durable "+
 			"record that a past session was CUT OFF, not an anchor of the session "+
 			"being replaced. Offline staff activate keeps it on purpose and says so in three "+
 			"places (api_members.go, dal.go, migrations/00057).", after.ForcedStopAt)
@@ -80,7 +80,7 @@ func TestRestartWorkerClearsThePreviousSessionsAnchors(t *testing.T) {
 // before this session existed — so the next owner verb is shot on the spot with
 // no close-out at all.
 // 🔴 THE FIXTURE MOVED TO THE OFFLINE ARM IN T-65 包④, and that is the arm this
-// test was always describing. "重啟 starts a new session, so it must start from a
+// test was always describing. "喚醒 starts a new session, so it must start from a
 // clean sheet" is a sentence about a restart that ACTUALLY STARTS A SESSION, and
 // as of 包④ that is the arm where hub.IsOnline is false. On the live arm the
 // three anchors are deliberately NOT cleared — there is no session being

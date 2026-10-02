@@ -188,11 +188,11 @@ func (s *apiServer) armMemberOwnerOpHandover(m *Member, op string, cfg reconcile
 //	            verb sets it.
 //	下線用多強  RATCHET (winddownStageMayAdvanceTo), untouched.
 //
-// 活化 remains the ONE thing that cancels a stop outright rather than queueing a
+// 喚醒 remains the ONE thing that cancels a stop outright rather than queueing a
 // start behind it — deliberately.
 
 // 🔴 NOT "a stop is in flight": stopping_since stays > 0 forever after a converged
-// stop (decideDown resets only the in-memory reconcileState; only 活化 and
+// stop (decideDown resets only the in-memory reconcileState; only 喚醒 and
 // consumeRestartAfterStop clear the anchor). What it separates is a member ever
 // ASKED to stop from one never activated: editing a new hire's machine or model
 // must not boot it, while a long-stopped member IS brought back up
@@ -258,8 +258,8 @@ func (s *apiServer) consumeRestartAfterStop(m *Member, now float64) bool {
 		clearWindDownRow(windDownAnchorRowOfMember(cur))
 		cur.WakingSince = 0.0
 		stampMemberOpReceipt(cur, spawnReasonHeldDown+": the stop the owner asked for has "+
-			"landed — starting this member again, which is what the 重啟 he pressed "+
-			"during the wind-down asked for", now)
+			"landed — starting this member again, which is what the 重新聚焦 or 更改 "+
+			"pressed during the wind-down asked for", now)
 		if err := persistMemberRowOn(tx, *cur); err != nil {
 			return err
 		}
@@ -278,7 +278,7 @@ func (s *apiServer) consumeRestartAfterStop(m *Member, now float64) bool {
 	}
 	*m = *spent
 	s.publishMemberPatch(*m, triggerServer)
-	reconcileLog("%s: stop converged and a 重啟 was queued behind it — desired_state "+
+	reconcileLog("%s: stop converged and a restart was queued behind it — desired_state "+
 		"back to online", m.ID)
 	return true
 }
@@ -369,8 +369,8 @@ func (s *apiServer) consumeWorkerRestartAfterStop(w *OutsourceWorker, now float6
 		cur.WakingSince = 0.0
 		stampOpReceipt(&cur.LastOp, &cur.LastOpOK, &cur.LastOpLog, &cur.LastOpReason, &cur.LastOpAt,
 			reconcileCmdStart, spawnReasonHeldDown+": the stop the owner asked for has "+
-				"landed — starting this worker again, which is what the 重啟 he pressed "+
-				"during the wind-down asked for", now)
+				"landed — starting this worker again, which is what the 重新聚焦 or 更改 "+
+				"pressed during the wind-down asked for", now)
 		if err := setMemberWindDownAnchorsOn(tx, cur.ID, cur.StoppingSince, cur.StoppedSince,
 			cur.RefocusSince, cur.RefocusOp); err != nil {
 			return err

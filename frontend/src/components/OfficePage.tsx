@@ -438,7 +438,7 @@ export function OfficePage({
         onForceStop={async () => {
           await api.forceStopMember(workerDetail.id);
         }}
-        onWake={() => api.activateMember(workerDetail.id)}
+        onWake={(machineId) => api.activateMember(workerDetail.id, machineId)}
         onSetModel={async (runtime, model, effort) => {
           await api.patchMember(workerDetail.id, {
             runtime,

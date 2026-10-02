@@ -40,7 +40,7 @@ const accelLabel = zh.lifecycle.action["accelerated-stop"];
 const stopLabel = zh.lifecycle.action.stop;
 
 /** Every id the ladder cell can ever carry. Anything outside this set is a
- * non-ladder button (喚醒 / 取消) and is not this file's subject. */
+ * non-ladder button (喚醒) and is not this file's subject. */
 const LADDER_IDS = [
   "member-action-stop",
   "member-action-accelerated-stop",
@@ -378,17 +378,28 @@ describe("MemberActionButtons", () => {
     expect(onForceStop).toHaveBeenCalledTimes(1);
   });
 
-  it("offers no rung at all where there is no live session to wind down", () => {
-    for (const status of ["offline", "stopped", "waking"] as const) {
-      const { queryByTestId, unmount } = render(
+  it("offers only 喚醒 to an actor with no session, and only 停止 to a waking one", () => {
+    const rows: [
+      "offline" | "stopped" | "waking",
+      StopLadderStage,
+      { testid: string | null; label: string | null }[],
+    ][] = [
+      ["offline", "accelerated", [{ testid: "member-action-spawn", label: "喚醒" }]],
+      ["stopped", "accelerated", [{ testid: "member-action-spawn", label: "喚醒" }]],
+      ["waking", "none", [{ testid: "member-action-stop", label: "停止" }]],
+    ];
+    for (const [status, stage, expected] of rows) {
+      const { container, unmount } = render(
         <I18nProvider>
-          <MemberActionButtons status={status} stage="accelerated" onSpawn={vi.fn()}
-            onCancel={vi.fn()} onStop={vi.fn()} onAcceleratedStop={vi.fn()} onForceStop={vi.fn()} />
+          <MemberActionButtons status={status} stage={stage} onSpawn={vi.fn()}
+            onStop={vi.fn()} onAcceleratedStop={vi.fn()} onForceStop={vi.fn()} />
         </I18nProvider>,
       );
-      for (const key of ["stop", "accelerated-stop", "force-stop"]) {
-        expect(queryByTestId(`member-action-${key}`), `${status}/${key}`).toBeNull();
-      }
+      const row = Array.from(container.querySelectorAll("button")).map((el) => ({
+        testid: el.getAttribute("data-testid"),
+        label: el.textContent,
+      }));
+      expect(row, status).toEqual(expected);
       unmount();
     }
   });

@@ -1,4 +1,4 @@
-// MemberDetailPanel · webhook 平台驗證區塊 (M4 §2).
+// WebhooksCard · webhook 平台驗證區塊.
 //
 // Locked here:
 //   1. The create form carries a platform dropdown (generic/slack/github,
@@ -16,8 +16,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, fireEvent, waitFor, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
-import { MemberDetailPanel } from "./MemberDetailPanel";
-import type { Member } from "../types";
+import { WebhooksCard } from "./WebhooksCard";
 import type {
   WebhookEndpoint,
   WebhookCreateInput,
@@ -68,52 +67,19 @@ const updateWebhook = vi.fn(
 
 vi.mock("../api", () => ({
   api: {
-    listMachines: () => Promise.resolve([]),
-    // T-91: PATCH answers a receipt, and the adapter resolves void. The double
-    // says void too.
-    patchMember: (_id: string, _patch: object) => Promise.resolve(),
     listWebhooks: () => Promise.resolve(store.map((e) => ({ ...e }))),
-    listScheduledMessages: () => Promise.resolve([]),
     createWebhook: (memberId: string, input: WebhookCreateInput) =>
       createWebhook(memberId, input),
     updateWebhook: (memberId: string, endpointId: string, patch: WebhookUpdate) =>
       updateWebhook(memberId, endpointId, patch),
     deleteWebhook: () => Promise.resolve(),
-    subscribeEvents: () => () => {},
   },
 }));
 
-function mkMember(over: Partial<Member> = {}): Member {
-  return {
-    id: "mira",
-    name: "Mira",
-    role: "assistant",
-    status: "offline",
-    lifecycle: "offline",
-    model: "opus",
-    effort: "medium",
-    kind: "staff",
-    desiredMachineId: "",
-    machine: null,
-    account: null,
-    contextPct: null,
-    estimatedCost: null,
-    bankedCost: null,
-    terminalAttachCommand: "tmux -L officraft attach -t member-mira",
-    refocusSince: null,
-    lastOp: "",
-    lastOpOk: null,
-    lastOpLog: "",
-    lastOpAt: null,
-    unreadCount: 0,
-    ...over,
-  };
-}
-
-function renderPanel() {
+function renderCard() {
   return render(
     <I18nProvider>
-      <MemberDetailPanel member={mkMember()} onBack={() => {}} onRename={() => {}} />
+      <WebhooksCard memberId="mira" />
     </I18nProvider>
   );
 }
@@ -127,9 +93,9 @@ beforeEach(() => {
 
 const w = zh.mp.webhook;
 
-describe("MemberDetailPanel · webhook platform + signing secret", () => {
+describe("WebhooksCard · webhook platform + signing secret", () => {
   it("shows the required secret field for slack; hides it for generic", async () => {
-    const utils = renderPanel();
+    const utils = renderCard();
     fireEvent.click(utils.getByTestId("mp-webhook-toggle"));
     fireEvent.click(await utils.findByTestId("mp-webhook-add"));
 
@@ -163,7 +129,7 @@ describe("MemberDetailPanel · webhook platform + signing secret", () => {
   });
 
   it("keeps create disabled for slack until endpoint id AND secret are set", async () => {
-    const utils = renderPanel();
+    const utils = renderCard();
     fireEvent.click(utils.getByTestId("mp-webhook-toggle"));
     fireEvent.click(await utils.findByTestId("mp-webhook-add"));
     fireEvent.change(utils.getByTestId("mp-webhook-platform-select"), {
@@ -186,7 +152,7 @@ describe("MemberDetailPanel · webhook platform + signing secret", () => {
   });
 
   it("creates a slack endpoint with platform + secret, then renders the row without leaking the secret", async () => {
-    const utils = renderPanel();
+    const utils = renderCard();
     fireEvent.click(utils.getByTestId("mp-webhook-toggle"));
     fireEvent.click(await utils.findByTestId("mp-webhook-add"));
     fireEvent.change(utils.getByTestId("mp-webhook-platform-select"), {
@@ -216,7 +182,7 @@ describe("MemberDetailPanel · webhook platform + signing secret", () => {
   });
 
   it("creates a generic endpoint with no secret and no rotate-secret entry", async () => {
-    const utils = renderPanel();
+    const utils = renderCard();
     fireEvent.click(utils.getByTestId("mp-webhook-toggle"));
     fireEvent.click(await utils.findByTestId("mp-webhook-add"));
     fireEvent.change(utils.getByPlaceholderText(w.endpointIdPlaceholder), {
@@ -252,7 +218,7 @@ describe("MemberDetailPanel · webhook platform + signing secret", () => {
         lastDropReason: "",
       },
     ];
-    const utils = renderPanel();
+    const utils = renderCard();
     fireEvent.click(utils.getByTestId("mp-webhook-toggle"));
 
     fireEvent.click(await utils.findByTestId("mp-webhook-rotate-gh-in"));

@@ -126,7 +126,7 @@ type reconcileState struct {
 	// RobustStopPendingAt: when dispatchRobustStopNow last sent an out-of-band robust STOP
 	// (force-stop, cancel-wake kill, report_stopped collect); 0 = none outstanding. That send is
 	// dropped on an unreachable warden and no decide arm re-derives it, so this is its only retry.
-	// 🔴 Do not re-derive it from stopped_since: 下線 → 活化 leaves a predecessor's stopped_since on
+	// 🔴 Do not re-derive it from stopped_since: 下線 → 喚醒 leaves a predecessor's stopped_since on
 	// a fresh session, which would then be robust-stopped on its first tick.
 	RobustStopPendingAt float64
 	// OfflineSince feeds the zombie-takeover second-confirmation window ONLY. Restart amnesia
@@ -434,7 +434,7 @@ func decideUp(
 		dec := decisionNone(obs, st, "circuit open: respawn disabled")
 		dec.ReasonCode = spawnReasonCircuitOpen + ": too many failed starts in a row, so " +
 			"the server has stopped retrying this member for now — it will try again " +
-			"by itself; fix what is failing on its machine, or 停止 and 活化 to start over"
+			"by itself; fix what is failing on its machine, or 停止 and 喚醒 to start over"
 		dec.StartTimedOut = startTimedOut
 		return dec
 	}
@@ -716,21 +716,52 @@ func (s *apiServer) machineLacksClaudeButHasCodex(machineID string) bool {
 	return runtimeCapabilityReady(capabilities[RuntimeCodex])
 }
 
-// wakeTimeoutReason overwrites the spawn-time refusal receipt, so on a codex-only machine it must
-// itself name the Codex exit.
-func (s *apiServer) wakeTimeoutReason(m Member) string {
-	runtime := NormalizeRuntime(m.Runtime)
-	if runtime == RuntimeClaude && s.machineLacksClaudeButHasCodex(m.DesiredMachineID) {
-		return wakeTimeoutReasonCode + ": the START was dispatched but the agent never " +
-			"came online within the start window — machine '" + m.DesiredMachineID +
-			"' reports no Claude Code installed, so this member cannot boot there. " +
-			"Fix any one: set this member's 執行環境 to Codex (that machine has it " +
-			"ready); or install Claude Code on that machine " +
+type wakeTimeoutCause int
+
+const (
+	wakeTimeoutNeverCameUp wakeTimeoutCause = iota
+	wakeTimeoutUndelivered
+	wakeTimeoutStillQueued
+	wakeTimeoutTargetForgotten
+)
+
+// wakeTimeoutReason is the one wording, staff and outsource alike, for a START
+// that did not come up. The code is the caller's: wake_timeout and
+// never_collected are matched by prefix elsewhere, so each caller keeps the code
+// it has always written. It overwrites the spawn-time refusal receipt, so on a
+// codex-only machine it must itself name the Codex exit.
+func (s *apiServer) wakeTimeoutReason(code string, cause wakeTimeoutCause, machine, runtime string) string {
+	where := "the target machine"
+	if machine != "" {
+		where = "machine '" + machine + "'"
+	}
+	switch cause {
+	case wakeTimeoutUndelivered:
+		return code + ": the START never reached " + where + " — its SSE stream failed " +
+			"mid-delivery and the frame was dropped server-side, so nothing on that " +
+			"machine was ever asked to start; the machine's connection is the suspect, " +
+			"not the runtime on it"
+	case wakeTimeoutStillQueued:
+		return code + ": the START is still queued for " + where + " — that machine's " +
+			"warden has not picked it up, so nothing has tried to boot yet; check that " +
+			"ocwarden is running and holding its connection there"
+	case wakeTimeoutTargetForgotten:
+		return code + ": the start window elapsed with no session, and this server no " +
+			"longer has a record of which machine the START was sent to (the spawn " +
+			"ledger is in-memory and a server restart clears it) — use 更改 to place " +
+			"it again"
+	}
+	runtime = NormalizeRuntime(runtime)
+	if runtime == RuntimeClaude && s.machineLacksClaudeButHasCodex(machine) {
+		return code + ": the START was dispatched to " + where + " but the agent never " +
+			"came online within the start window — that machine reports no Claude Code " +
+			"installed, so the agent cannot boot there. Fix any one: set its 執行環境 to " +
+			"Codex (that machine has it ready); or install Claude Code on that machine " +
 			"(warden log: ocwarden.out.log)"
 	}
-	return wakeTimeoutReasonCode + ": the START was dispatched but the agent never " +
+	return code + ": the START was dispatched to " + where + " but the agent never " +
 		"came online within the start window — check that " + runtime + " runs and is " +
-		"logged in on the target machine (warden log: ocwarden.out.log)"
+		"logged in on that machine (warden log: ocwarden.out.log)"
 }
 
 // runtimeCapabilityReady: deliberately NOT runtimePlacementRefusal, whose claude arm ignores
@@ -938,7 +969,7 @@ func (s *apiServer) reconcileOne(m Member, st reconcileState, now float64) recon
 // whatever the dropped connection left behind. The tick holds reconcileMu, which
 // dispatchShutdown takes, so this resolves the same kill chain and sends through the same
 // sender itself. The judgement is re-made on the row inside the transaction because the HTTP
-// faces write member rows without reconcileMu: an 活化 that landed mid-tick must not be
+// faces write member rows without reconcileMu: a 喚醒 that landed mid-tick must not be
 // collected.
 func (s *apiServer) collectMemberStop(memberID string, decision reconcileDecision, prior reconcileState, now float64) reconcileDecision {
 	var collected *Member
@@ -1045,7 +1076,20 @@ func (s *apiServer) armDecidedHandover(memberID string, decision reconcileDecisi
 // struct, because scanMember/PutMember list these columns positionally.
 func stampOpReceipt(lastOp *string, lastOpOK **bool, lastOpLog, lastOpReason *string,
 	lastOpAt *float64, op, reason string, now float64) {
-	ok := false
+	writeOpReceipt(lastOp, lastOpOK, lastOpLog, lastOpReason, lastOpAt, false, op, reason, now)
+}
+
+// stampOpNoteReceipt is stampOpReceipt's success twin: the op did what it should, and reason is a
+// note for the owner (painted ✓ with the amber note), not a refusal. last_op_ok TRUE is also what
+// keeps the converged-online clear (receiptRendersAsFailure) off it, so the note stands until the
+// next op overwrites it. Same persistence rule as stampOpReceipt.
+func stampOpNoteReceipt(lastOp *string, lastOpOK **bool, lastOpLog, lastOpReason *string,
+	lastOpAt *float64, op, reason string, now float64) {
+	writeOpReceipt(lastOp, lastOpOK, lastOpLog, lastOpReason, lastOpAt, true, op, reason, now)
+}
+
+func writeOpReceipt(lastOp *string, lastOpOK **bool, lastOpLog, lastOpReason *string,
+	lastOpAt *float64, ok bool, op, reason string, now float64) {
 	*lastOp = op
 	*lastOpOK = &ok
 	*lastOpLog = ""
@@ -1161,15 +1205,12 @@ func (s *apiServer) stampWakeObservability(m *Member, decision reconcileDecision
 		m.LastOp = reconcileCmdStart
 		m.LastOpOK = &ok
 		m.LastOpAt = now
-		m.LastOpReason = s.wakeTimeoutReason(*m)
+		m.LastOpReason = s.wakeTimeoutReason(wakeTimeoutReasonCode, wakeTimeoutNeverCameUp,
+			m.DesiredMachineID, m.Runtime)
 		if note, lost := s.hub.UndeliveredCommandSince(m.ID, m.WakingSince); lost &&
 			note.Verb == reconcileCmdStart {
-			m.LastOpReason = fmt.Sprintf(
-				wakeTimeoutReasonCode+": the START never reached machine %q — its SSE stream "+
-					"failed mid-delivery and the frame was dropped server-side, so "+
-					"nothing on that machine was ever asked to start; do not go "+
-					"looking at claude there, the machine's connection is the suspect",
-				note.Warden)
+			m.LastOpReason = s.wakeTimeoutReason(wakeTimeoutReasonCode, wakeTimeoutUndelivered,
+				note.Warden, "")
 		}
 		m.WakingSince = 0.0
 		changed = true
@@ -1181,10 +1222,7 @@ func (s *apiServer) stampWakeObservability(m *Member, decision reconcileDecision
 		changed = true
 		// Only a PLACEMENT stamp is cleared on dispatch: wake_timeout and refused-start receipts say why
 		// a boot failed and survive the retry; convergence (below) is what clears them.
-		if isSpawnBlockedReason(m.LastOpReason) {
-			m.LastOpReason = ""
-			m.LastOpLog = ""
-		}
+		dropSpawnBlockedNote(&m.LastOpLog, &m.LastOpReason)
 	}
 	if decision.ConvergedOnline {
 		s.clearMemberConvergedFailureReceipt(m.ID, *m)
@@ -1209,9 +1247,8 @@ func (s *apiServer) stampWakeObservability(m *Member, decision reconcileDecision
 			fresh.LastOpReason = m.LastOpReason
 			fresh.LastOpAt = m.LastOpAt
 		}
-		if decision.Command == reconcileCmdStart && isSpawnBlockedReason(fresh.LastOpReason) {
-			fresh.LastOpReason = ""
-			fresh.LastOpLog = ""
+		if decision.Command == reconcileCmdStart {
+			dropSpawnBlockedNote(&fresh.LastOpLog, &fresh.LastOpReason)
 		}
 		fresh.WakingSince = m.WakingSince
 		stamped = fresh
@@ -1258,6 +1295,19 @@ func (s *apiServer) clearMemberConvergedFailureReceipt(memberID string, snapshot
 		fresh.LastOpAt = 0.0
 		return true
 	})
+}
+
+// dropSpawnBlockedNote retires a "did not dispatch" note once a START has been dispatched, for
+// staff and outsource alike, and reports whether there was one. The verdict is left to the caller:
+// a success with a note (喚醒 on a running session) must stay a success, because the later dispatch
+// does not make that earlier wake a failure.
+func dropSpawnBlockedNote(lastOpLog, lastOpReason *string) bool {
+	if !isSpawnBlockedReason(*lastOpReason) {
+		return false
+	}
+	*lastOpReason = ""
+	*lastOpLog = ""
+	return true
 }
 
 func isSpawnBlockedReason(reason string) bool {
@@ -1383,7 +1433,7 @@ func (s *apiServer) stampContextHighRecycle(members []Member, now float64) {
 		}
 		// 🔴 An agent that already reported stopped is not asked again: armRefocusEpoch zeroes the
 		// anchors and would destroy its finished close-out. The boot_ts test is load-bearing — 下線 →
-		// 活化 leaves a predecessor's stopped_since, and skipping on that would exclude the member from
+		// 喚醒 leaves a predecessor's stopped_since, and skipping on that would exclude the member from
 		// both thresholds for life. No boot_ts → stamp.
 		if bootTS, ok := gaugeBootTS(record); ok && m.StoppedSince >= bootTS {
 			continue

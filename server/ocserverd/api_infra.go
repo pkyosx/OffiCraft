@@ -347,14 +347,14 @@ func (s *apiServer) sseStopGateRefusal(memberID string) string {
 		}
 		return "member '" + m.ID + "' has a stop in effect (desired_state=offline) — " +
 			"SSE refused (a stopped member must not re-project online; " +
-			"activate it to reconnect)"
+			"喚醒 it to reconnect)"
 	}
 	return ""
 }
 
 func (s *apiServer) onFirstConnect(memberID string) {
 	// Whatever the desired state: the ticks only sample desired-offline subjects, so
-	// an anchor surviving a 活化 + reconnect would make the next stop's first offline
+	// an anchor surviving a 喚醒 + reconnect would make the next stop's first offline
 	// sample read as already past the confirm window, and collect it on the spot.
 	s.offlineConfirmSince.Delete(memberID)
 	s.publishOutsourcePresenceEdge(memberID)

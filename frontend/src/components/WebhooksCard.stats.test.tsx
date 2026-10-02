@@ -1,12 +1,11 @@
-// MemberDetailPanel · webhook 可觀測性 事件統計 window (M4).
+// WebhooksCard · webhook 可觀測性 事件統計 window.
 //
 // Locked here:
 //   1. Every webhook row-HEAD renders the 事件統計 entry as a constant label
-//      next to the endpoint id chip (T-069d rework: owner wants the numbers
-//      kept out of the row); clicking it opens a window with two stat
-//      blocks: last-received recency and dropped count with the coarse drop
-//      reason (T-2c1c: the delivered tile is gone, and the window title no
-//      longer repeats the endpoint id chip — the window opens from that row).
+//      next to the endpoint id chip (the numbers stay out of the row);
+//      clicking it opens a window with two stat blocks: last-received recency
+//      and dropped count with the coarse drop reason. The window title does
+//      not repeat the endpoint id chip — the window opens from that row.
 //   2. A never-called endpoint's window reads ONLY the "never received" face
 //      (title + hint, no stat blocks, no requests section).
 //   3. An unknown drop reason falls back to the raw string (no crash).
@@ -20,8 +19,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, fireEvent, act } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
-import { MemberDetailPanel } from "./MemberDetailPanel";
-import type { Member } from "../types";
+import { WebhooksCard } from "./WebhooksCard";
 import type { WebhookEndpoint, WebhookRequestLog } from "../api/adapter";
 
 let store: WebhookEndpoint[] = [];
@@ -30,10 +28,7 @@ let requestsFail = false;
 
 vi.mock("../api", () => ({
   api: {
-    listMachines: () => Promise.resolve([]),
-    patchMember: () => Promise.resolve({}),
     listWebhooks: () => Promise.resolve(store.map((e) => ({ ...e }))),
-    listScheduledMessages: () => Promise.resolve([]),
     createWebhook: () => Promise.reject(new Error("unused")),
     updateWebhook: () => Promise.reject(new Error("unused")),
     deleteWebhook: () => Promise.resolve(),
@@ -41,35 +36,8 @@ vi.mock("../api", () => ({
       requestsFail
         ? Promise.reject(new Error("boom"))
         : Promise.resolve(requests.map((r) => ({ ...r }))),
-    subscribeEvents: () => () => {},
   },
 }));
-
-function mkMember(): Member {
-  return {
-    id: "mira",
-    name: "Mira",
-    role: "assistant",
-    status: "offline",
-    lifecycle: "offline",
-    model: "opus",
-    effort: "medium",
-    kind: "staff",
-    desiredMachineId: "",
-    machine: null,
-    account: null,
-    contextPct: null,
-    estimatedCost: null,
-    bankedCost: null,
-    terminalAttachCommand: "tmux -L officraft attach -t member-mira",
-    refocusSince: null,
-    lastOp: "",
-    lastOpOk: null,
-    lastOpLog: "",
-    lastOpAt: null,
-    unreadCount: 0,
-  };
-}
 
 function mkEndpoint(over: Partial<WebhookEndpoint> = {}): WebhookEndpoint {
   return {
@@ -109,15 +77,15 @@ async function renderStatsWindow(
   requestsFail = fail;
   const utils = render(
     <I18nProvider>
-      <MemberDetailPanel member={mkMember()} onBack={() => {}} onRename={() => {}} />
+      <WebhooksCard memberId="mira" />
     </I18nProvider>
   );
   fireEvent.click(utils.getByTestId("mp-webhook-toggle"));
   const entry = await utils.findByTestId(
     `mp-webhook-stats-${endpoint.endpointId}`
   );
-  // T-069d rework: the row-head entry reads the constant 事件統計 label —
-  // no counters in the row regardless of traffic.
+  // The row-head entry reads the constant 事件統計 label — no counters in the
+  // row regardless of traffic.
   expect(entry.textContent).toBe(zh.mp.webhook.statsTitle);
   expect(utils.queryByTestId("mp-webhook-stats-modal")).toBeNull();
   fireEvent.click(entry);
@@ -129,7 +97,7 @@ async function renderStatsWindow(
 
 const w = zh.mp.webhook;
 
-describe("MemberDetailPanel · webhook 事件統計 window", () => {
+describe("WebhooksCard · webhook 事件統計 window", () => {
   it("opens from the row entry with recency + dropped stat blocks and the drop-reason label", async () => {
     const { utils, body } = await renderStatsWindow(
       mkEndpoint({
@@ -146,8 +114,8 @@ describe("MemberDetailPanel · webhook 事件統計 window", () => {
       `${w.statsLastReceivedLabel}${w.statsAgo("5m")}`,
       `${w.statsDroppedLabel}2${w.dropReasonSigFailed}`,
     ]);
-    // T-2c1c: the window head is just the title + ✕ — no endpoint id chip
-    // (the window opens from that endpoint's row, repeating it says nothing).
+    // The window head is just the title + ✕ — no endpoint id chip (the window
+    // opens from that endpoint's row, repeating it says nothing).
     const head = utils
       .getByTestId("mp-webhook-stats-modal")
       .querySelector(".mp-webhook__statshead");

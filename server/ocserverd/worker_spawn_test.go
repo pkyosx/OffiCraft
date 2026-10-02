@@ -390,50 +390,13 @@ func TestResolveStickyWorkerPlacement(t *testing.T) {
 	})
 }
 
-func TestStampWorkerOpReceipt(t *testing.T) {
-	t.Run("stamping writes the whole five-column receipt onto the caller's own struct as a FAILED start", func(t *testing.T) {
-		w := OutsourceWorker{ID: "ow-abc123", Codename: "Contractor", Status: WorkerStatusAssigned}
-
-		stampWorkerOpReceipt(&w, "no_machine_selected: nothing was picked", 1234.5)
-
-		if w.LastOpOK == nil {
-			t.Fatalf("last_op_ok must be a written false, not an absent verdict: %#v", w)
-		}
-		apiWantValue(t, "receipt", any(map[string]any{
-			"last_op": w.LastOp, "last_op_ok": *w.LastOpOK, "last_op_log": w.LastOpLog,
-			"last_op_reason": w.LastOpReason, "last_op_at": w.LastOpAt,
-			"id": w.ID, "codename": w.Codename, "status": w.Status,
-		}), any(map[string]any{
-			"last_op": "start", "last_op_ok": false, "last_op_log": "",
-			"last_op_reason": "no_machine_selected: nothing was picked", "last_op_at": 1234.5,
-			"id": "ow-abc123", "codename": "Contractor", "status": "assigned",
-		}))
-	})
-
-	t.Run("a second stamp replaces the whole receipt, so a stale log line from the previous one cannot survive", func(t *testing.T) {
-		w := OutsourceWorker{ID: "ow-abc123"}
-		stampWorkerOpReceipt(&w, "machine_unavailable: offline", 100)
-		w.LastOpLog = "warden said: boom"
-
-		stampWorkerOpReceipt(&w, "wake_timeout: never came up", 200)
-
-		apiWantValue(t, "receipt", any(map[string]any{
-			"last_op": w.LastOp, "last_op_ok": *w.LastOpOK, "last_op_log": w.LastOpLog,
-			"last_op_reason": w.LastOpReason, "last_op_at": w.LastOpAt,
-		}), any(map[string]any{
-			"last_op": "start", "last_op_ok": false, "last_op_log": "",
-			"last_op_reason": "wake_timeout: never came up", "last_op_at": 200.0,
-		}))
-	})
-}
-
 func TestWakeTimeoutOverWardenReceipt(t *testing.T) {
 	const wardenRefusal = "session_already_exists: a live session is holding the slot"
 	const composed = wardenRefusal + " — the start window then lapsed, but that is NOT a " +
 		"runtime failure: the previous session is still running and the warden refused " +
 		"to stomp it, so nothing new was ever started. Do not go looking for a broken " +
-		"runtime on that machine; deal with the live session — 重啟 this worker to " +
-		"displace it, or stop it first."
+		"runtime on that machine; deal with the live session — press 強制停止 to " +
+		"end it, then 喚醒."
 
 	t.Run("a wake_timeout landing on a start row that carries the warden's refusal is composed onto it, keeping the warden's line in front", func(t *testing.T) {
 		row := OutsourceWorker{LastOp: "start", LastOpReason: wardenRefusal}
@@ -571,7 +534,7 @@ func TestStampWorkerPlacementBlocked(t *testing.T) {
 			"window then lapsed, but that is NOT a runtime failure: the previous session is " +
 			"still running and the warden refused to stomp it, so nothing new was ever " +
 			"started. Do not go looking for a broken runtime on that machine; deal with the " +
-			"live session — 重啟 this worker to displace it, or stop it first."
+			"live session — press 強制停止 to end it, then 喚醒."
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"last_op": "start", "last_op_ok": false, "last_op_at": 500,
 			"last_op_reason": composed,
@@ -2094,7 +2057,7 @@ func TestRespawnWorkerForOwnerOp(t *testing.T) {
 			"machine": "m-server-self",
 			"last_op": "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
 			"last_op_reason": "held_down: the relocate was saved, but nothing was started — " +
-				"this worker is stopped; 重啟 it when you want it to run",
+				"this worker is stopped; 喚醒 it when you want it to run",
 		}))
 	})
 
@@ -2442,7 +2405,7 @@ func TestHandOverWorkerNow(t *testing.T) {
 			"last_op": "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
 			"last_op_reason": "circuit_open: too many failed starts in a row, so the server " +
 				"has stopped retrying this member for now — it will try again by itself; fix " +
-				"what is failing on its machine, or 停止 and 活化 to start over",
+				"what is failing on its machine, or 停止 and 喚醒 to start over",
 		}))
 	})
 
@@ -3778,8 +3741,8 @@ func TestReconcileWorkerLiveness(t *testing.T) {
 			"status": "active", "desired_state": "online",
 			"last_op": "start", "last_op_ok": false, "last_op_at": 1000,
 			"last_op_reason": "wake_timeout: the start window elapsed with no session, and " +
-				"this server no longer has a record of which machine the start was sent to " +
-				"(the spawn ledger is in-memory and a server restart clears it) — retry 改機器 " +
+				"this server no longer has a record of which machine the START was sent to " +
+				"(the spawn ledger is in-memory and a server restart clears it) — use 更改 " +
 				"to place it again",
 		}))
 	})
@@ -3800,10 +3763,67 @@ func TestReconcileWorkerLiveness(t *testing.T) {
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "desired_state": "online", "machine": "m-server-self",
 			"last_op": "start", "last_op_ok": false, "last_op_at": 1000,
-			"last_op_reason": "wake_timeout: the start was collected by machine " +
-				"'m-server-self' but this worker never came online within the start window — " +
-				"check that the 'claude' runtime actually runs and is logged in on that " +
-				"machine (warden log: ocwarden.out.log)",
+			"last_op_reason": "wake_timeout: the START was dispatched to machine " +
+				"'m-server-self' but the agent never came online within the start window — " +
+				"check that claude runs and is logged in on that machine " +
+				"(warden log: ocwarden.out.log)",
+		}))
+	})
+
+	// The same codex-only machine answers both runtimes: the receipt must follow the worker's own
+	// 執行環境, or a codex worker is told to switch to the Codex it already runs.
+	codexOnlyTimedOut := func(t *testing.T, runtime, model string) (http.Handler, string) {
+		t.Helper()
+		api, h, d, owner, w := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 0, false)
+		// PutOutsourceWorker leaves an existing row's runtime alone; these columns have their own writers.
+		w.Runtime, w.Model = runtime, model
+		if err := d.SetMemberRuntime(w.ID, runtime); err != nil {
+			t.Fatalf("SetMemberRuntime: %v", err)
+		}
+		if err := d.SetMemberModel(w.ID, model); err != nil {
+			t.Fatalf("SetMemberModel: %v", err)
+		}
+		apiTestListen(t, api, ServerSelfHost)
+		api.telemetry.Set(ServerSelfHost, map[string]any{"runtimes": map[string]any{
+			"claude": map[string]any{"installed": false},
+			"codex":  map[string]any{"installed": true, "logged_in": true},
+		}})
+
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.setReconcileState("ow-abc123", reconcileState{
+			Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart, LastCommandAt: 500,
+		})
+		api.reconcileWorkerLiveness(w, 1000)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+		return h, owner
+	}
+
+	t.Run("a claude worker whose START lapsed on a codex-only machine is told that machine has no Claude Code and offered Codex", func(t *testing.T) {
+		h, owner := codexOnlyTimedOut(t, RuntimeClaude, "sonnet")
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "desired_state": "online", "machine": "m-server-self",
+			"last_op": "start", "last_op_ok": false, "last_op_at": 1000,
+			"last_op_reason": "wake_timeout: the START was dispatched to machine " +
+				"'m-server-self' but the agent never came online within the start window — " +
+				"that machine reports no Claude Code installed, so the agent cannot boot " +
+				"there. Fix any one: set its 執行環境 to Codex (that machine has it ready); " +
+				"or install Claude Code on that machine (warden log: ocwarden.out.log)",
+		}))
+	})
+
+	t.Run("a codex worker whose START lapsed on that same codex-only machine is pointed at codex, not offered the switch it already made", func(t *testing.T) {
+		h, owner := codexOnlyTimedOut(t, RuntimeCodex, "gpt-5")
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"runtime": "codex", "model": "gpt-5",
+			"status": "active", "desired_state": "online", "machine": "m-server-self",
+			"last_op": "start", "last_op_ok": false, "last_op_at": 1000,
+			"last_op_reason": "wake_timeout: the START was dispatched to machine " +
+				"'m-server-self' but the agent never came online within the start window — " +
+				"check that codex runs and is logged in on that machine " +
+				"(warden log: ocwarden.out.log)",
 		}))
 	})
 
@@ -3827,10 +3847,10 @@ func TestReconcileWorkerLiveness(t *testing.T) {
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "desired_state": "online", "machine": "m-server-self",
 			"last_op": "start", "last_op_ok": false, "last_op_at": 1000,
-			"last_op_reason": "never_collected: the start frame for this worker is still " +
-				"queued for machine 'm-server-self' — that machine's warden has not picked it " +
-				"up, so nothing has tried to boot yet; check that ocwarden is running and " +
-				"holding its connection there",
+			"last_op_reason": "never_collected: the START is still queued for machine " +
+				"'m-server-self' — that machine's warden has not picked it up, so nothing has " +
+				"tried to boot yet; check that ocwarden is running and holding its " +
+				"connection there",
 		}))
 	})
 
@@ -3857,9 +3877,9 @@ func TestReconcileWorkerLiveness(t *testing.T) {
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "desired_state": "online", "machine": "m-server-self",
 			"last_op": "start", "last_op_ok": false, "last_op_at": 1000,
-			"last_op_reason": "never_collected: the start frame for this worker never reached " +
-				"machine 'm-server-self' — that machine's SSE stream failed mid-delivery and " +
-				"the frame was dropped server-side, so nothing there was ever asked to boot; " +
+			"last_op_reason": "never_collected: the START never reached machine " +
+				"'m-server-self' — its SSE stream failed mid-delivery and the frame was " +
+				"dropped server-side, so nothing on that machine was ever asked to start; " +
 				"the machine's connection is the suspect, not the runtime on it",
 		}))
 	})

@@ -9,7 +9,12 @@ import {
   runtimeLabel,
   slot,
 } from "./AgentDetailPanel";
-import { pendingChangeHint, pendingModelHint } from "../lib/pendingChange";
+import {
+  pendingChangeHint,
+  pendingMachineHint,
+  pendingModelHint,
+  reportedMachine,
+} from "../lib/pendingChange";
 import { localizeLastOpReason } from "../lib/lastOpReason";
 import {
   buildAgentDetailVm,
@@ -27,6 +32,7 @@ import { RuntimeLoginWarningMark } from "./RuntimeLoginWarningMark";
 import { LifecycleDot, presenceVisual } from "./LifecycleDot";
 import { MemberActionButtons, stopLadderStageOf } from "./MemberActionButtons";
 import { ScheduledMessagesCard } from "./ScheduledMessagesCard";
+import { WebhooksCard } from "./WebhooksCard";
 // 🔴 This panel renders its settings dialog with the .machine-picker* classes,
 // so it must import their stylesheet ITSELF (T-7526). Both panels used to reach
 // that sheet only through a chain of OTHER modules' imports; one link in the
@@ -79,9 +85,12 @@ interface WorkerDetailPanelProps {
    * This panel gates it behind its own confirm. */
   onForceStop?: () => Promise<void>;
   /** Wake (喚醒 — T-7526): clear the stop and re-dispatch through the shared
-   * member activation endpoint. The resolved receipt is read:
-   * `activationPending` raises the same alert the member panel does. */
-  onWake?: () => Promise<MemberActivateResult | void>;
+   * member activation endpoint → activateMember(id, machineId). `machineId` is
+   * given only when the owner picked a different machine in the dialog; the
+   * activate writes that pin itself, so a wake is ONE request. The resolved
+   * receipt is read: `activationPending` raises the same alert the member panel
+   * does. */
+  onWake?: (machineId?: string) => Promise<MemberActivateResult | void>;
   /** Change runtime/model/effort (換 model). When it lands depends on
    * presence — the dialog's note (`settingsNoteKey`) says which. */
   onSetModel?: (
@@ -194,21 +203,15 @@ export function WorkerDetailPanel({
   // `rc-25c5679371c3`, both kinds).
   const machineText = awake || stoppingNow ? shownMachine : "";
   const desiredMachineId = worker.desiredMachineId ?? "";
-  const reportedMachineRaw = worker.machine || worker.actualMachine || "";
-  const reportedMachineId = registryEntry(reportedMachineRaw)?.machineId ?? "";
-  const pendingMachine =
-    desiredMachineId && reportedMachineId
-      ? pendingChangeHint(
-          desiredMachineId,
-          reportedMachineId,
-          msg.workerMachineMovingTo,
-          machineDisplay(desiredMachineId),
-        )
-      : pendingChangeHint(
-          machineDisplay(desiredMachineId),
-          machineDisplay(reportedMachineRaw),
-          msg.workerMachineMovingTo,
-        );
+  const pendingMachine = pendingMachineHint(
+    machines,
+    desiredMachineId,
+    reportedMachine(worker.machine ?? "", worker.actualMachine ?? ""),
+    msg.workerMachineMovingTo,
+    // The destination's name and its 離線 suffix: the shared rule, same as the
+    // staff panel (lib/pendingChange).
+    msg.machineOfflineOption,
+  );
   const pendingRuntime = pendingChangeHint(
     worker.runtime || "claude",
     worker.actualRuntime ?? "",
@@ -368,7 +371,8 @@ export function WorkerDetailPanel({
     setSettingsRuntime(worker.runtime || "claude");
     setSettingsModel(worker.model);
     setSettingsEffort(worker.effort);
-    // 🔴 Seed the pin VERBATIM, carried over from the member panel's openSettings
+    // 🔴 Seed the pin VERBATIM when there is one (with no pin the first online machine
+    // is offered, and counts as a change, so the wake carries it). Carried over from the member panel's openSettings
     // together with the defect it fixes. Falling back to the first ONLINE machine
     // makes `machineChanged` unconditionally true for a worker pinned to a machine
     // that is merely ASLEEP — so opening the dialog just to edit a MODEL silently
@@ -389,14 +393,15 @@ export function WorkerDetailPanel({
    * Confirm. Two outcomes behind ONE dialog, exactly like the member panel:
    * - live worker (更改): persist the launch settings, relocate if the machine
    *   changed. Nothing is started; a no-edit confirm is a true no-op.
-   * - no live session (喚醒): persist, re-pin if needed, then WAKE. Accepting
-   *   the prefilled values unchanged must still wake — that is the whole point
-   *   of the button — so the no-op early-return is gated on `!wakeMode`.
+   * - no live session (喚醒): persist, then WAKE — the activate carries the new
+   *   pin itself. Accepting the prefilled values unchanged must still wake —
+   *   that is the whole point of the button — so the no-op early-return is
+   *   gated on `!wakeMode`.
    *
-   * 🔴 All three legs are EXISTING endpoints (`/model`, `/relocate`,
-   * `/restart`); nothing new was added to the frozen wire. `/restart` is the one
-   * that starts the worker, and it takes no machine — which is why the pin has
-   * to be written by `/relocate` BEFORE it, not alongside it.
+   * 🔴 The wake must NOT relocate first. On a stopped worker the server takes a
+   * relocate as a restart queued behind the stop and leaves a held_down start
+   * receipt that the activate after it does not overwrite, so the panel shows a
+   * false 「✗ 喚醒 失敗」 for a wake that succeeded.
    */
   async function saveSettings() {
     const launchChanged =
@@ -424,12 +429,15 @@ export function WorkerDetailPanel({
       if (launchChanged) {
         await onSetModel?.(settingsRuntime, settingsModel.trim(), settingsEffort);
       }
-      const relocated = machineChanged
-        ? await onRelocate?.(settingsMachineId)
+      const relocated =
+        !wakeMode && machineChanged
+          ? await onRelocate?.(settingsMachineId)
+          : undefined;
+      // …and the wake goes LAST, after the launch intents are stored, so the
+      // session that comes up is the one the owner just described.
+      const woken = wakeMode
+        ? await onWake?.(machineChanged ? settingsMachineId : undefined)
         : undefined;
-      // …and the wake goes LAST, after both intents are stored, so the session
-      // that comes up is the one the owner just described.
-      const woken = wakeMode ? await onWake?.() : undefined;
       if (shownWorkerIdRef.current !== firedFor) return;
       // ⚠️ A worker's relocation_pending is ALSO true when the move was only
       // queued behind a stop (desired_state offline — stopped, or stopping), and
@@ -437,7 +445,6 @@ export function WorkerDetailPanel({
       // In wakeMode the wake's own receipt is the verdict on whether anything
       // went out.
       if (
-        !wakeMode &&
         worker.desiredState !== "offline" &&
         relocated?.relocationPending &&
         !relocated.relocationDeferred
@@ -788,13 +795,15 @@ export function WorkerDetailPanel({
     </div>
   );
 
-  // ── extraExpandCards slot: 定期訊息 (T-f059) ───────────────────────────────
-  // 🔴 NOT member-only. A schedule may bind to an `ow-` worker — chat's own
-  // recipient rule allows outsource, and the server follows it — so the worker
-  // panel drives the SAME card the member panel does, from the SAME component.
-  // This slot had no caller here before, which is precisely how the webhook
-  // section ended up living on only one of the two panels.
-  const scheduleCard = <ScheduledMessagesCard memberId={worker.id} />;
+  // ── extraExpandCards slot: 回呼端點 + 定期訊息, the member panel's two cards ──
+  // Both bind to an `ow-` worker on the server as they do to a member, and an
+  // endpoint is revoked with the worker when it is released.
+  const extraExpandCards = (
+    <>
+      <WebhooksCard memberId={worker.id} />
+      <ScheduledMessagesCard memberId={worker.id} />
+    </>
+  );
 
   // ── released: the worker finished its task and left ──────────────────────
   // 🔴 ONE renderer, ONE sentence (owner 2026-07-31:「為什麼從不同進入頁面會有
@@ -854,7 +863,7 @@ export function WorkerDetailPanel({
         overlays: slot(settingsDialog),
         afterIdentityCards: slot(taskCard),
         afterInfoCards: slot(delegatorCard),
-        extraExpandCards: slot(scheduleCard),
+        extraExpandCards: slot(extraExpandCards),
         afterPromptCards: slot(<ResumeSummaryCard agentId={worker.id} />),
       }}
       // The vm is BUILT by the shared assembly (lib/agentDetailVm), the SAME
@@ -896,7 +905,7 @@ export function WorkerDetailPanel({
         refocusOp: worker.refocusOp,
         refocusDeadline: worker.refocusDeadline,
         refocusSubmittedNote: t.workerDetail.refocusSubmittedNote,
-        refocusSinceLabel: msg.workerRefocusSince,
+        refocusSinceLabel: msg.memberRefocusSince,
         lastOp: worker.lastOp,
         lastOpStartText: t.workerDetail.lastOpStart,
         lastOpStopText: t.workerDetail.lastOpStop,

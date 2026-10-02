@@ -1745,7 +1745,7 @@ func TestMemberLifecycleDoorsDecideFromTheRowTheyWrite(t *testing.T) {
 			status: http.StatusConflict,
 			refusal: "refocus requires a live worker — this one is stopped and has never " +
 				"been asked to stop, so there is no wind-down for a 起來 to be " +
-				"queued behind (重啟 it when you want it to run)",
+				"queued behind (喚醒 it when you want it to run)",
 			row: func(t *testing.T, m Member) {
 				if m.RefocusSince != 0 || m.RestartAfterStop {
 					t.Fatalf("refocus_since=%v restart_after_stop=%v, want neither", m.RefocusSince, m.RestartAfterStop)

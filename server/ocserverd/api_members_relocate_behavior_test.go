@@ -18,7 +18,7 @@ import (
 // "an offline member relocated stays offline" is now true only of a member that
 // has NEVER been asked to stop, which is what this fixture happens to build
 // (testAgent leaves stopping_since at 0 — the shape of a new hire before its
-// first 活化). A member that was stopped and has since converged carries
+// first 喚醒). A member that was stopped and has since converged carries
 // stopping_since > 0 forever, and relocating it now queues a start. That is the
 // owner's 2026-08-30 ruling, and it is pinned NEXT DOOR — in
 // TestRelocateAfterAConvergedStopWakesTheMember — precisely so this test cannot
@@ -56,7 +56,7 @@ func TestRelocateMember_PlacementOnly(t *testing.T) {
 	}
 	if got.RestartAfterStop {
 		t.Error("a member nobody has ever asked to stop was queued for a start — " +
-			"editing a new hire's placement before its first 活化 must not boot it")
+			"editing a new hire's placement before its first 喚醒 must not boot it")
 	}
 	// The fixture assumption this test now rests on, asserted rather than assumed:
 	// if testAgent ever starts carrying a stop anchor, this test silently becomes
@@ -71,7 +71,7 @@ func TestRelocateMember_PlacementOnly(t *testing.T) {
 // CHANGED, on the row shape real data actually has.
 //
 // 🔴 THE FIXTURE IS THE POINT. decideDown's converged branch resets only the
-// in-memory reconcileState; member.stopping_since is cleared by 活化 and by the
+// in-memory reconcileState; member.stopping_since is cleared by 喚醒 and by the
 // queued-restart consumer and by nothing else. So a member stopped last week is
 // NOT a member with stopping_since == 0 — it is this row, and every test that
 // reached for testAgent() to mean "a stopped member" was testing the new-hire

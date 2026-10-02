@@ -1,10 +1,10 @@
 // MemberDetailPanel · wake-click instant feedback.
 //
-// Locked here: clicking 喚醒 flips the panel into the "waking" visual state
-// IMMEDIATELY (before server presence catches up) — the wake button itself
-// swaps to a disabled "喚醒中…" (the Monitor machine table's install-busy
-// presentation; double-click guard included) — and a server lifecycle flip
-// (waking) clears the local bridge; a rejected activate reverts to offline.
+// Locked here: confirming 喚醒 flips the panel into the "waking" row
+// IMMEDIATELY (before server presence catches up) — 更改 ＋ 停止, the row both
+// kinds show while waking, with no second 喚醒 to double-fire — a rejected
+// activate reverts to the offline row, and once the server lifecycle has
+// caught up the local bridge is gone, so a later offline reads as offline.
 
 import { describe, it, expect, vi } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/react";
@@ -64,7 +64,12 @@ function mkMember(over: Partial<Member> = {}): Member {
 }
 
 const wakeLabel = zh.lifecycle.action.spawn;
-const pendingLabel = zh.mp.wakePendingNote;
+
+function actionRow(container: HTMLElement) {
+  return Array.from(
+    container.querySelectorAll(".mp-identity__buttons button"),
+  ).map((b) => [b.getAttribute("data-testid"), b.textContent]);
+}
 
 async function confirmWakeSettings() {
   const confirm = document.querySelector<HTMLButtonElement>(".machine-picker__actions .btn--accent")!;
@@ -85,14 +90,13 @@ function renderPanel(onActivate: (machineId?: string) => void | Promise<void>) {
 }
 
 describe("MemberDetailPanel · wake-pending instant feedback", () => {
-  it("clicking wake immediately swaps the button to a disabled 喚醒中…", async () => {
+  it("confirming wake immediately shows the waking row 更改 ＋ 停止, with no second 喚醒", async () => {
     let resolveActivate!: () => void;
     const onActivate = vi.fn(
       () => new Promise<void>((res) => (resolveActivate = res))
     );
     const utils = renderPanel(onActivate);
 
-    // Wait for the machine registry (single online machine → auto-use, no picker).
     const wakeBtn = await waitFor(() => {
       const btn = utils.getByText(wakeLabel).closest("button")!;
       expect(btn.disabled).toBe(false);
@@ -102,16 +106,17 @@ describe("MemberDetailPanel · wake-pending instant feedback", () => {
     fireEvent.click(wakeBtn);
     await confirmWakeSettings();
     await waitFor(() => expect(onActivate).toHaveBeenCalledWith("mac-1"));
-    // Instant waking state: the wake button ITSELF carries the in-progress
-    // label (machine-install style) and disables (no double fire).
-    const pendingBtn = await waitFor(() => utils.getByText(pendingLabel).closest("button")!);
-    expect(pendingBtn.disabled).toBe(true);
-    fireEvent.click(pendingBtn);
+    await waitFor(() =>
+      expect(actionRow(utils.container)).toEqual([
+        ["mp-change", "更改"],
+        ["member-action-stop", "停止"],
+      ]),
+    );
     expect(onActivate).toHaveBeenCalledTimes(1);
     resolveActivate();
   });
 
-  it("a rejected activate reverts to the offline visual (retry possible)", async () => {
+  it("a rejected activate reverts to the offline row (retry possible)", async () => {
     const onActivate = vi.fn(() => Promise.reject(new Error("boom")));
     const utils = renderPanel(onActivate);
     const wakeBtn = await waitFor(() => {
@@ -121,22 +126,25 @@ describe("MemberDetailPanel · wake-pending instant feedback", () => {
     });
     fireEvent.click(wakeBtn);
     await confirmWakeSettings();
-    await waitFor(() => utils.getByText(pendingLabel));
-    await waitFor(() => expect(utils.queryByText(pendingLabel)).toBeNull());
+    await waitFor(() => expect(onActivate).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(actionRow(utils.container)).toEqual([["member-action-spawn", "喚醒"]]),
+    );
     expect(utils.getByText(wakeLabel).closest("button")!.disabled).toBe(false);
   });
 
-  it("the server lifecycle flip to waking clears the local pending bridge", async () => {
+  it("once the server lifecycle has flipped to waking, a later offline shows 喚醒 again", async () => {
     const onActivate = vi.fn(async () => {});
-    const utils = render(
+    const panel = (over: Partial<Member>) => (
       <I18nProvider>
         <MemberDetailPanel
-          member={mkMember()}
+          member={mkMember(over)}
           onBack={() => {}}
           onActivate={onActivate}
         />
       </I18nProvider>
     );
+    const utils = render(panel({}));
     const wakeBtn = await waitFor(() => {
       const btn = utils.getByText(wakeLabel).closest("button")!;
       expect(btn.disabled).toBe(false);
@@ -144,21 +152,19 @@ describe("MemberDetailPanel · wake-pending instant feedback", () => {
     });
     fireEvent.click(wakeBtn);
     await confirmWakeSettings();
-    await waitFor(() => utils.getByText(pendingLabel));
+    await waitFor(() => expect(onActivate).toHaveBeenCalledTimes(1));
 
-    // Server presence caught up: the refetched member arrives as waking.
-    utils.rerender(
-      <I18nProvider>
-        <MemberDetailPanel
-          member={mkMember({ lifecycle: "waking" })}
-          onBack={() => {}}
-          onActivate={onActivate}
-        />
-      </I18nProvider>
+    utils.rerender(panel({ status: "waking", lifecycle: "waking" }));
+    await waitFor(() =>
+      expect(actionRow(utils.container)).toEqual([
+        ["mp-change", "更改"],
+        ["member-action-stop", "停止"],
+      ]),
     );
-    // The local bridge clears: the spawn button is back to its plain rescue
-    // label (server-driven waking keeps it enabled as the rescue path).
-    await waitFor(() => expect(utils.queryByText(pendingLabel)).toBeNull());
-    expect(utils.getByText(wakeLabel).closest("button")).not.toBeNull();
+
+    utils.rerender(panel({}));
+    await waitFor(() =>
+      expect(actionRow(utils.container)).toEqual([["member-action-spawn", "喚醒"]]),
+    );
   });
 });

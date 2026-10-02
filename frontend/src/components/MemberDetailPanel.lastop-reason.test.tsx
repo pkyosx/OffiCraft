@@ -15,6 +15,10 @@
 //      when the worker reads offline, which is the never-dispatched-start
 //      case this receipt block cannot cover).
 //   4. A SUCCEEDED op with no reason still renders status-only.
+//   5. 喚醒 on a member that is already running is a SUCCESS that carries the
+//      session_alive note: ✓ and the amber note, never the red ✗ 失敗. Built
+//      from the mock adapter's own 喚醒 answer, so it covers what the mock
+//      stores for that press as well as how the panel paints it.
 
 import { describe, it, expect } from "vitest";
 import { readFile } from "node:fs/promises";
@@ -23,6 +27,7 @@ import { vi } from "vitest";
 import { I18nProvider } from "../i18n";
 import { MemberDetailPanel } from "./MemberDetailPanel";
 import { clearLocale, useEnglishLocale } from "../test/effortOptions";
+import { mockApi, __resetMock, __setMockMemberOnline } from "../api/mock";
 import type { Member } from "../types";
 
 vi.mock("../api", () => ({
@@ -146,6 +151,27 @@ describe("MemberDetailPanel 最近操作 failure reason", () => {
     const { getByTestId } = renderPanel(mkMember());
     expect(getByTestId("mp-lastop-reason").className).not.toContain(
       "mp-lastop__reason--note",
+    );
+  });
+
+  it("paints the note 喚醒 leaves on a member that is already running as ✓ 成功 with the amber note", async () => {
+    __resetMock();
+    __setMockMemberOnline("mira", true);
+    await mockApi.activateMember("mira");
+    const { getByTestId, container } = renderPanel(await mockApi.getMember("mira"));
+
+    expect(container.querySelector(".mp-lastop__head--ok")).not.toBeNull();
+    expect(container.querySelector(".mp-lastop__head--fail")).toBeNull();
+    expect(container.querySelector(".mp-lastop__icon")?.textContent).toBe("✓");
+    expect(container.querySelector(".mp-lastop__verb")?.textContent).toBe("喚醒");
+    expect(container.querySelector(".mp-lastop__result")?.textContent).toBe("成功");
+    const line = getByTestId("mp-lastop-reason");
+    expect(line.className).toBe("mp-lastop__reason mp-lastop__reason--note");
+    expect(line.textContent).toBe(
+      "session_alive: it was already running — 喚醒 left that session alone and " +
+        "dispatched nothing. Its work, and any 加速停止 or 重新聚焦 already under way on " +
+        "it, are untouched. To end the current session and start a fresh one, press " +
+        "強制停止 first, then 喚醒",
     );
   });
 

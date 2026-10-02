@@ -86,9 +86,9 @@
 | A4 | 身分 id chip | `member.id` badge（T-5dab 起顯示真 id；在那之前是由 id 推導的 `MB-XXX###` 標籤） | 無 | 差（結構性） | **保留現狀**，理由同 A3（代號本身就是識別） |
 | A5 | presence 指示 | `PresenceBadge`（點＋角色名） | `LifecycleDot` + `presenceVisual`（同一份映射） | 視覺元件不同、映射同源 | **保留現狀**：`frontend/CLAUDE.md` 明文「presence→視覺的推導只有一份」，兩者都走 `presenceVisual`，未漂移；外包沒有角色名可顯示，套 `PresenceBadge` 會多出一個空欄 |
 | A6 | 任務 chip（任務編號，T-5291 起即 task id 本身）+ 任務類型 | 無 | 有，可點 → `#tasks/<id>` | 外包獨有 | **保留**。外包的「角色」就是它綁的任務類型，這是 rail 列形的同一條裁定（`frontend/CLAUDE.md` 外包面板節），移除等於拔掉外包唯一的身分線索 |
-| A7 | 動作鍵列（喚醒／取消／停止／強制停止） | `MemberActionButtons`，依 `visual` 五態切換按鈕集合 | 同一個 `MemberActionButtons`，前面接 `worker-detail-change`；沒有活 session 時換成 `worker-detail-wake` | 同 | ✅ 停止中兩邊都是「更改＋階梯」、**沒有喚醒**（owner `rc-2e1c96250169`：「停止中不提供喚醒，等它停完再喚醒」，聊天室 ⚡喚醒同）。停止／加速停止／取消喚醒／強制停止任一失敗，兩邊都顯示 `mp.stopError`「操作失敗，請稍後重試」，強制停止確認框同時關掉（owner `rc-b2c4fbb5f2b1`） |
-| A8 | 「更改」鍵 | `mp-change`，`online` 時出現，開啟動設定 dialog | **無** | 差 🔴 | **外包要有等價入口**：開一份同形狀的設定 dialog（執行環境／模型／投入度／機器）。這是步驟 2 的主改動 |
-| A9 | 未派送警示 | `DispatchAlert`（`mp-wake-undispatched` / `mp-relocate-undispatched`） | `DispatchAlert`（`worker-detail-wake-undispatched` / `worker-detail-relocate-undispatched`；外包聊天室 ⚡喚醒同正職，`chat-wake-undispatched`） | 同（一處刻意不同） | ✅ owner `rc-e0207591ae4d`：同一則警示。喚醒讀 `activation_pending`；換機器讀 `relocation_pending && !relocation_deferred`。⚠️ 外包的 `relocation_pending` 在 desired_state=offline（已停止、或排在停止後）時也是 true——那是刻意排到下次開機，不是失敗，所以外包只在 desired_state 不是 offline、而且不是喚醒模式時才看換機器回執；喚醒模式以接著的喚醒回執為準 |
+| A7 | 動作鍵列（喚醒／停止／加速停止／強制停止） | `MemberActionButtons`，依 `visual` 五態切換按鈕集合 | 同一個 `MemberActionButtons`，前面接 `worker-detail-change`；沒有活 session 時換成 `worker-detail-wake` | 同 | ✅ 喚醒中兩邊都是「更改＋停止」（owner `rc-8b3d3a366c54`）；停止中兩邊都是「更改＋階梯」、**沒有喚醒**（owner `rc-2e1c96250169`：「停止中不提供喚醒，等它停完再喚醒」，聊天室 ⚡喚醒同）。停止／加速停止／強制停止任一失敗，兩邊都顯示 `mp.stopError`「操作失敗，請稍後重試」，強制停止確認框同時關掉（owner `rc-b2c4fbb5f2b1`） |
+| A8 | 「更改」鍵 | `mp-change`，線上、停止中與喚醒中出現，開啟動設定 dialog | `worker-detail-change`，有 session（喚醒中、線上、停止中）時出現，開同形狀的設定 dialog | 同 | ✅ 喚醒中的更改只存設定：換了機器會移到新機器、用新設定重新開起來，只換型號／執行環境／思考強度則下次開起來才生效。⚠️ 換機器的生效時機兩邊不同：外包當場殺掉重派；正職等它開起來後收尾、再到新機器開（或這次開機逾時後下一次直接派到新機器）。註記只寫兩邊都成立的那一句 |
+| A9 | 未派送警示 | `DispatchAlert`（`mp-wake-undispatched` / `mp-relocate-undispatched`） | `DispatchAlert`（`worker-detail-wake-undispatched` / `worker-detail-relocate-undispatched`；外包聊天室 ⚡喚醒同正職，`chat-wake-undispatched`） | 同（一處刻意不同） | ✅ owner `rc-e0207591ae4d`：同一則警示。喚醒讀 `activation_pending`；換機器讀 `relocation_pending && !relocation_deferred`。⚠️ 外包的 `relocation_pending` 在 desired_state=offline（已停止、或排在停止後）時也是 true——那是刻意排到下次開機，不是失敗，所以外包只在 desired_state 不是 offline 時才看換機器回執；喚醒模式不送換機器（機器由喚醒自己帶著），只看喚醒回執 |
 
 ## B. 模型／機器 資訊卡（共用面板 `mp-info2`）
 
@@ -97,7 +97,7 @@
 | B1 | AI 執行環境 / 模型 / 投入度 顯示 | 唯讀。`model` 餵 `awake ? member.actualModel : ""`，並掛 `modelIsReported: true` ⇒ 值旁標「最近一次開機回報」 | 唯讀顯示 + **一顆鉛筆「編輯」鍵**（`worker-detail-model-effort-edit`），就地展開 `ModelEffortEditor` | 差 🔴 | **拿掉就地編輯**：wrapper 不再傳 `onSaveModelEffort`；改設定一律走 A8 的 dialog |
 | B2 | 模型值的語意 | REPORTED（agent 開機回報的實際值） | ~~CONFIGURED（`worker.model`，owner 意圖值）~~ **REPORTED，同正職** | ~~差~~ **已對齊** | ✅ **已裁定（`rc-b8d219446b13` [0]）：兩邊都標「最近一次開機回報」**。原本寫的「外包 DTO 沒有 `actual_model`、硬掛 `modelIsReported` 會是假話」**今天不成立**：`OutsourceWorkerDTO` 自 T-7f28 起就有 `actual_model`（wire 見 `spec/openapi.json`；client 見 `frontend/src/api/adapter.ts` 的 `actualModel` 與 `mappers.ts` 的 `w.actual_model`），外包讀得到回報值。`frontend/src/lib/agentDetailVm.ts` 對兩側一律 `modelIsReported: true`，是有依據的敘述。owner 意圖值不會因此消失——它仍是 A8 設定 dialog round-trip 的 `worker.model` |
 | B3 | 機器格 | 唯讀。`machineText = awake || stopping ? machineName : ""`（online／waking／stopping 以外一律 dash） | 唯讀。在線／喚醒中／停止中寫 `worker.machine`（alias‖id）經名冊解析後的顯示名稱，離線／已停止（以及從沒派出去的）寫 dash | 同 | ✅ owner `rc-25c5679371c3`：「正職外包都顯示「—」：機器欄只講「現在在哪台跑」，沒在跑就是「—」」。機器改在更改／喚醒 dialog 內選 |
-| B4 | 遷移中提示 | `pendingChangeHint`（`lib/pendingChange`），回報側先看即時 `machine`、沒有才看 `actual_machine`，兩側都解析成名冊顯示名稱再比 | 同一個 helper、同一個回報側規則；回報那一側對得到名冊的機器就比 id，否則比名冊顯示名稱 | 差一格 | 兩台機器名冊名稱相同、釘在其中一台而跑在另一台時：正職比名稱、不提示；外包比 id、提示「要換到」——結果不同。正職這格是既有行為，未改 |
+| B4 | 遷移中提示 | `pendingMachineHint`（`lib/pendingChange`）：回報側先看即時 `machine`、沒有才看 `actual_machine`；兩側都對得到名冊的機器就比 id，否則比名冊顯示名稱 | 同一個 helper | 同 | 兩台機器名冊名稱相同、釘在其中一台而跑在另一台時，兩邊都提示「→ 要換到」 |
 | B5 | 「更換中…」／逾時／失敗回執 | **無**（正職 T-927a 已改走 dialog，`useRelocateMachine` 不再驅動正職面板） | 有（`useRelocateMachine` 的 `phase`：relocating / timeout / failed + 伺服器回執原文） | 外包多 | 🔴 **待裁定**。拿掉 B3 的就地鍵＝連帶拿掉這整組進度／逾時／回執的顯示，這是**外包目前獨有、正職沒有**的可觀測性。步驟 2 會用 dialog 內的錯誤行（同正職 `settingsError`，顯示 `ApiError.serverMessage`）承接**失敗**那一半，但**非同步落地的「更換中…」與 30s 逾時判定會消失**。這是「與正職同一套形狀」的直接後果，仍請 owner 明示認可 |
 | B6 | Claude / Codex Account | 唯讀，`awake && member.account` 才顯示 | 唯讀，`worker.account \|\| ""` | 同（gate 條件不同但都誠實） | 維持 |
 
@@ -114,12 +114,12 @@
 
 | # | 項目 | 正職有什麼 | 外包有什麼 | 差在哪 | 期望行為 |
 |---|------|-----------|-----------|--------|---------|
-| D1 | 喚醒（`spawn`／`t.lifecycle.action.spawn`） | 離線／已停止／waking 提供，開設定 dialog 後 `activateMember`；**停止中不提供** | 離線／已停止提供（同一支 `activateMember`，伺服器依 `kind` 分流）；停止中不提供 | 同 | ✅ 停止中見 A7。session 自己死掉的外包（`desired_state` 仍是 online）也叫得起來：座艙 `noLiveSession = stopped \|\| offline` |
-| D2 | 取消喚醒（`cancel`） | `waking` 時提供 → `deactivateMember` | 無 | 差 | **待裁定**，同 D1：外包的 `stop` 端點是否吃 `waking` 態，wire 沒明說 |
+| D1 | 喚醒（`spawn`／`t.lifecycle.action.spawn`） | 離線／已停止提供，開設定 dialog 後 `activateMember`；喚醒中、停止中不提供 | 同（同一支 `activateMember`，伺服器依 `kind` 分流） | 同 | ✅ 喚醒中、停止中見 A7。session 自己死掉的外包（`desired_state` 仍是 online）也叫得起來：座艙 `noLiveSession = stopped \|\| offline` |
+| D2 | 喚醒中的停止 | 「停止」→ `deactivateMember` | 同一顆「停止」→ 同一支 `deactivateMember` | 同 | ✅ owner `rc-8b3d3a366c54`：喚醒中兩邊都是「更改＋停止」。伺服器兩種成員都收喚醒中的停止（外包 `resolveLiveWorkerOn` 只擋已釋出） |
 | D3 | 強制停止 + 二次確認 | `stopping` 時 Stop 升級為 force-stop，`mp-force-stop-confirm` modal | ~~無此端點~~ **已補（T-ed79，owner 2026-08-21「強制殺移到第三顆按鈕」）**：`POST /api/outsource-workers/{id}/force-stop` ＋ `worker-detail-force-stop-confirm` modal | ~~差~~ **已對齊，而且比 D3 原本問的更多** | ✅ **已完成，不再是開放問題**。正職那邊的形狀本身也變了兩次：`stopping` 先是不再「Stop 升級成 force-stop」而是三顆固定位置的階梯，接著 owner 2026-08-21 又把「三顆固定、變灰」推翻成**按了才出現**——沒輪到的那一顆不 render。外包這一列直接 render **同一個 `MemberActionButtons`**，連「這個成員爬到第幾階」都是同一個 `stopLadderStageOf` 讀同一組 wire 欄位（presence／desired_state／refocus_since／refocus_op），所以字、順序、哪一顆存在都是同一份實作，不會再各自漂。外包的 `/stop` 也同時從「當場砍」改成優雅收工（見 `offboard-flow.md`）。護欄：`worker_graceful_stop_ted79_test.go`、`WorkerDetailPanel.test.tsx` 的「停止 → the worker goes 停止中…」與「強制停止 ASKS FIRST…」 |
 | D4 | 「只儲存，不喚醒」 | 無 | 無 | 同 | ✅ owner `rc-baa00a00dbc9`：「拿掉「只儲存，不喚醒」，不改介面」，兩邊都沒有 |
-| D5 | 設定意圖註記 | `mp-settings-intent-note` | `worker-detail-settings-note` | 同 | ✅ owner `rc-71d6a9d0ce54`：依框的種類與狀態只顯示一句（`lib/agentDetailVm` 的 `settingsNoteKey`）——更改框在線 `mp.settingsNoteOnline`、停止中 `mp.settingsNoteAfterStop`、外包喚醒中 `mp.settingsNoteWaking`；喚醒框 `mp.settingsNoteWake`。有回報模型時兩邊都接 `mp.settingsIntentNoteReported` |
-| D6 | 回呼端點 · WEBHOOK 卡 | `extraExpandCards` 整張卡（列表／啟停／建立／刪除／簽章輪替／事件統計） | 無 | 差 | **卡片保留現狀（面板未動）**，但原本的理由已不成立：那句「外包是任務結束即 release 的短命身分，掛外部長期入口沒有可對應的生命週期」被 T-140 推翻——`create`／`update`／`revoke` 三個動詞改吃 `anyMember`（`api_webhooks.go`），而 `00101_webhook_revoke_on_member_exit.sql` 的 trigger 讓成員一退場（正職 soft remove，含刪角色／外包 release）端點就跟著消失。所以生命週期現在對得上；面板要不要長出這張卡，T-140 沒有處理（該包只動 server 端，前端零改動） |
+| D5 | 設定意圖註記 | `mp-settings-intent-note` | `worker-detail-settings-note` | 同 | ✅ owner `rc-71d6a9d0ce54`：依框的種類與狀態只顯示一句（`lib/agentDetailVm` 的 `settingsNoteKey`）——更改框在線 `mp.settingsNoteOnline`、停止中 `mp.settingsNoteAfterStop`、喚醒中 `mp.settingsNoteWaking`；喚醒框 `mp.settingsNoteWake`。有回報模型時兩邊都接 `mp.settingsIntentNoteReported` |
+| D6 | 回呼端點 · WEBHOOK 卡 | `WebhooksCard`，掛在 `extraExpandCards`（列表／啟停／建立／刪除／簽章輪替／事件統計） | 同一個 `WebhooksCard` | 同 | 伺服器 `create`／`update`／`revoke` 吃 `anyMember`（`api_webhooks.go`），`00101_webhook_revoke_on_member_exit.sql` 的 trigger 讓成員一退場（正職 soft remove，含刪角色／外包 release）端點就跟著消失 |
 | D7 | 改名 | 有 | 無 | 見 A3 | 同 A3 |
 
 ## E. 共用卡片（已一致，列出以示涵蓋完整）
@@ -138,7 +138,7 @@
 
 ## 「待裁定」清單（交回 owner）
 
-> **狀態**：下表**只剩 D2 開放**。B4 已關（兩邊同一個遷移提示 helper，見上表 B4）。
+> **狀態**：下表沒有開放項目。
 > 已關掉的：**D1**（owner 核可並已實作完成，見上表 D1 列）、**B5**（owner 明示核可，見下方裁定段）、
 > **C1**（owner 2026-07-31 裁定，見下方「owner 2026-07-31 四項裁定」）、**A9**（T-ed79 #5／#12 補了三個
 > optional 欄位）、**B2**（owner `rc-b8d219446b13` [0]；前提早在 T-7f28 加欄時就過期）。
@@ -149,8 +149,8 @@
 |------|--------|
 | A9 | ~~外包 relocate 的 wire 回傳沒有 `relocation_pending`，無法對齊正職的「已釘選但沒派出去」警示。要對齊＝改凍結 wire~~ → T-ed79 #5／#12 已補上三個 optional 欄位（T-91 起改由 relocate／restart 的專屬回執攜帶，不再是讀取 DTO 的欄位），見上表 A9 |
 | B2 | ~~外包 DTO 無 `actual_model`，模型格無法像正職那樣標「最近一次開機回報」。要不要加欄？~~ → 欄早在 T-7f28 就加了，owner `rc-b8d219446b13` [0] 裁定兩邊都標，見上表 B2 列 |
-| B4 | ~~要不要補「→ 要換到 ○○」遷移提示？~~ → 已有，兩邊同一個 `pendingChangeHint`，見上表 B4 |
-| D2 | `waking` 的外包無「取消喚醒」。`stop` 端點是否吃 waking 態，wire 未明說 |
+| B4 | ~~要不要補「→ 要換到 ○○」遷移提示？~~ → 已有，兩邊同一個 `pendingMachineHint`，見上表 B4 |
+| D2 | ~~`waking` 的外包無「取消喚醒」~~ → owner `rc-8b3d3a366c54`：喚醒中兩邊都是「更改＋停止」，見上表 D2 |
 
 ### B5 的裁定結果與連帶後果
 
@@ -275,29 +275,23 @@ respawn，什麼都不問）。現在它開的是**與更改同一份 dialog**�
 
 | 步驟 | 端點 | 為什麼是這個順序 |
 |------|------|------------------|
-| 1 | `POST …/model`（`runtime` / `model` / `effort`） | relocate 與 restart 都會重生 session，設定必須先落地，否則新 session 用舊模型起來 |
-| 2 | `POST …/relocate`（只在機器有改時） | **`/restart` 不吃 machine_id**，所以釘選只能由 relocate 寫。這正是外包與正職的形狀差異：正職的 `activate(machineId)` 自己帶機器 |
-| 3 | `POST …/restart` | 唯一會把它叫起來的那條 |
+| 1 | `POST …/model`（`runtime` / `model` / `effort`） | 喚醒會重生 session，設定必須先落地，否則新 session 用舊模型起來 |
+| 2 | `POST /api/members/{member_id}/activate`（機器有改時帶 `machine_id`） | 唯一會把它叫起來的那條，釘選也由它寫入——與正職同形，一次喚醒只送這一個請求 |
 
-對一個 **stopped**（`desired_state=offline`）的 worker，步驟 1、2 在這次請求裡不派工——
-server 的 `respawnWorkerForOwnerOp` 在 `desired_state=offline` 時只記下（曾被停過的會排一次
-「停下後重新起來」），所以步驟 3 是這次唯一會派工的一步。
+🔴 **喚醒不先打 relocate**：對一個 stopped 的 worker，伺服器把 relocate 當成「排在停止後的重啟」，
+寫下 op=start、ok=false 的 held_down 回執，而接著的 activate 不會覆寫它——「最近操作」就會對一次
+成功的喚醒顯示「✗ 喚醒 失敗」。
+
+對一個 **stopped**（`desired_state=offline`）的 worker，步驟 1 在這次請求裡不派工——
+server 在 `desired_state=offline` 時只記下，所以步驟 2 是這次唯一會派工的一步。
 
 🔴 **釘住的機器只是「睡著」時不可被偷改**這條規則跟著一起搬過來了
-（`openSettings` 逐字 seed `worker.desiredMachineId`，不 fallback 第一台線上機器）。
+（`openSettings` 先 seed `worker.desiredMachineId`，即使那台目前離線也照帶；只有沒有固定機器時才預設選第一台線上機器）。
+因此喚醒只在「使用者選了另一台」或「原本沒有固定機器、帶了預設的第一台線上機器」時才帶 `machine_id`；有固定機器且沒改，就不帶。
 它防的缺陷是：**開設定只想改模型，結果人被默默重新釘到別台**。
 「預設保留原本那台」與「使用者可以改」不衝突：預設是起點，不是鎖。
 
 **沒有「只儲存，不喚醒」那顆鍵**——正職也沒有了（owner `rc-baa00a00dbc9`：「拿掉「只儲存，不喚醒」，不改介面」），兩邊一致。
-
-### ④ 的已知代價（誠實記錄，不是待裁定）
-
-對一個 **offline**（session 自己死掉、`desired_state` 仍是 online）的 worker，**且**owner 在
-dialog 裡改了機器：步驟 2 的 relocate 本身就會 kill + re-dispatch，步驟 3 的 restart 再做一次
-——**多一次 kill＋spawn 的 churn**。終態是對的（跑在選的那台、用新設定），
-FE 也沒有可靠訊號能分辨「relocate 已經派出去了」，因為 relocate 的回應與 held-down 的回應
-形狀相同。要消掉它得讓 relocate 回報「有沒有真的派」＝改凍結 wire。
-**不改機器時（最常見）沒有這個 churn**，因為 relocate 根本不會被呼叫。
 
 ---
 

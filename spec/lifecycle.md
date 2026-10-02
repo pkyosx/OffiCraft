@@ -865,7 +865,7 @@ decides that time is up.
   while a stop is in flight (`stopping_since > 0`) is what sets the flag: the stop keeps its
   rung and its anchors, and only 「起來」 is added — 「沿用強硬下線規則 但是附加上線規則」.
   A 重啟 verb on a member merely AT REST (no stop in flight) still only saves and answers
-  `held_down` (T-ed79 #4/#14): 「活化 it when you want it to run」.
+  `held_down` (T-ed79 #4/#14): 「喚醒 it when you want it to run」.
 - online → the member is `stopping` and the producer dispatches **NOTHING**, indefinitely.
   The agent has been handed the offboard sequence and is working it; a clock here would
   cut off a session that was told there is no countdown.
@@ -888,7 +888,7 @@ decides that time is up.
   ⚠️ **T-197 folded the worker-namespaced routes away — the VERBS are unchanged, only the
   paths are.** A worker is reached through the member route for the same verb
   (`/deactivate` for 停止, `/force-stop`, `/accelerated-stop`, `/refocus`, `/relocate`,
-  `/activate` for 重啟, `PATCH /api/members/{member_id}` for 換 model); the member handler
+  `/activate` for 喚醒, `PATCH /api/members/{member_id}` for 換 model); the member handler
   dispatches on `kind == outsource` into the worker body. The paragraphs below describe
   those bodies, so read every old `/api/outsource-workers/{id}/…` path in them as the
   member route named next to it.

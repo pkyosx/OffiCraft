@@ -100,7 +100,7 @@ sequenceDiagram
 
 ⚠️ **停舊、踢決策也不是無條件的**：如果那個 op 不是「把已停的 worker 叫回來」、而該 worker 手上還有東西要寫回，它會先走一段**交接**（那一段的註解逐字寫「**NO kill goes out here**」）。停舊、踢決策是**另一支**。
 
-🔴 **而「喚醒」只要 session 還活著，就根本不走上面那一支**（T-65 包④；owner 2026-09-06 `rc-1f591528a6d0` 圈 [0]：「收斂成『正在跑就不動它』；真的要強制重來再另外給一個動作」）。handler 用 `hub.IsOnline` 分兩臂：**session 還在跑 ⇒ 一個 frame 都不派、也不殺**，只把 `desired_state` 記成 online、清掉 `stopping_since` / `waking_since`，並在列上蓋一句 `session_alive` 回執；**session 不在 ⇒ 才走上面那一支（停舊、踢一輪決策）**。⇒ **「喚醒會派 START」只對後面那一臂成立**，寫成通則會錯一半。
+🔴 **而「喚醒」只要 session 還活著，就根本不走上面那一支**（T-65 包④；owner 2026-09-06 `rc-1f591528a6d0` 圈 [0]：「收斂成『正在跑就不動它』；真的要強制重來再另外給一個動作」）。handler 用 `hub.IsOnline` 分兩臂：**session 還在跑 ⇒ 一個 frame 都不派、也不殺**，只把 `desired_state` 記成 online、清掉 `stopping_since` / `waking_since`，並在列上蓋一句 `session_alive` 回執（正職的喚醒在 session 還在跑時也蓋同一句，owner `rc-a8f7044ba92f`）；**session 不在 ⇒ 才走上面那一支（停舊、踢一輪決策）**。⇒ **「喚醒會派 START」只對後面那一臂成立**，寫成通則會錯一半。
 
 ⇒ **START 在兩邊都由決策器發出；worker 的差別是 owner op 會先送停止，而且可能先走一段交接。**
 

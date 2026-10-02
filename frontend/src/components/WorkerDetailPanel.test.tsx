@@ -298,6 +298,33 @@ describe("WorkerDetailPanel — honest presence states (A案 P6 member vocabular
     });
   });
 
+  // 喚醒 on a worker that is already running leaves it alone; that is the
+  // press doing its job, so the receipt is ✓ with the amber note, the same as
+  // the member panel. Read through the mock adapter's 喚醒 answer, so it covers
+  // what the mock stores for that press as well as how the panel paints it.
+  it("paints the note 喚醒 leaves on a running worker as ✓ 成功 with the amber note", async () => {
+    __injectMockTask(mkTask({ id: "t-1" }));
+    __injectMockOutsourceWorker(
+      mkWorker({ id: "ow-1", taskId: "t-1", presence: "online", machine: "Warden · mbp5" }),
+    );
+    await api.activateMember("ow-1");
+    const { container, findByTestId } = renderOfficeAt("#office/worker/ow-1");
+
+    const line = await findByTestId("worker-detail-lastop-reason");
+    expect(line.className).toBe("mp-lastop__reason mp-lastop__reason--note");
+    expect(line.textContent).toBe(
+      "session_alive: it was already running — 喚醒 left that session alone and " +
+        "dispatched nothing. Its work, and any 加速停止 or 重新聚焦 already under way on " +
+        "it, are untouched. To end the current session and start a fresh one, press " +
+        "強制停止 first, then 喚醒",
+    );
+    expect(container.querySelector(".mp-lastop__head--ok")).not.toBeNull();
+    expect(container.querySelector(".mp-lastop__head--fail")).toBeNull();
+    expect(container.querySelector(".mp-lastop__icon")?.textContent).toBe("✓");
+    expect(container.querySelector(".mp-lastop__verb")?.textContent).toBe("喚醒");
+    expect(container.querySelector(".mp-lastop__result")?.textContent).toBe("成功");
+  });
+
   it("離線: the dot reads 離線 and the structured reason survives the 狀態 cell's removal", async () => {
     __injectMockTask(mkTask({ id: "t-1" }));
     __injectMockOutsourceWorker(
@@ -843,7 +870,7 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
     },
   );
 
-  it("refocus round-trips: clicking online surfaces the sent acknowledgement", async () => {
+  it("refocus round-trips: clicking online surfaces the sent acknowledgement and 上次重新聚焦, the member panel's label", async () => {
     __injectMockTask(mkTask({ id: "t-1" }));
     __injectMockOutsourceWorker(
       mkWorker({ id: "ow-1", taskId: "t-1", presence: "online" }),
@@ -851,7 +878,12 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
     const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
     fireEvent.click(await findByTestId("worker-detail-refocus"));
     // The mock stamps refocus_since; the panel keeps the persistent "sent" note.
-    await findByTestId("worker-detail-refocus-note");
+    expect((await findByTestId("worker-detail-refocus-note")).textContent).toBe(
+      "已送出重新聚焦 · 外包重生中…",
+    );
+    expect((await findByTestId("worker-detail-refocus-since")).textContent).toMatch(
+      /^上次重新聚焦 \S/,
+    );
   });
 
   // 🔴 REWRITTEN THREE TIMES FOR T-ed79. First for 「往正職靠：外包那顆改成優雅
@@ -992,7 +1024,7 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
     ).toBe(zh.lifecycle.action.spawn);
 
     fireEvent.click(await findByTestId("worker-detail-settings-confirm"));
-    await waitFor(() => expect(restart).toHaveBeenCalledWith("ow-1"));
+    await waitFor(() => expect(restart).toHaveBeenCalledWith("ow-1", undefined));
     // Accepting the prefilled values UNCHANGED must still wake — the no-edit
     // early-return belongs to 更改, never to 喚醒.
     await waitFor(async () =>
@@ -1051,7 +1083,7 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
     expect(input.value).toBe("claude-opus-4-8");
   });
 
-  it("喚醒 stores the launch settings and the pin BEFORE it wakes, so the new session boots as described", async () => {
+  it("喚醒 onto another machine stores the launch settings first, then sends ONE activate carrying the pin", async () => {
     __setMockMemberOnline("warden-mbp5", true);
     __injectMockTask(mkTask({ id: "t-1" }));
     __injectMockOutsourceWorker(
@@ -1070,17 +1102,16 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
       .mockImplementation(async () => {
         order.push("model");
       });
-    const relocate = vi
-      .spyOn(api, "relocateMember")
-      .mockImplementation(async () => {
-        order.push("relocate");
-        return { relocationPending: false, relocationDeferred: false };
-      });
+    // A relocate on a stopped worker leaves a held_down start receipt the
+    // activate does not overwrite: the panel would paint 「✗ 喚醒 失敗」 over a
+    // wake that succeeded.
+    const relocate = vi.spyOn(api, "relocateMember");
+    const realActivate = api.activateMember.bind(api);
     const restart = vi
       .spyOn(api, "activateMember")
-      .mockImplementation(async () => {
+      .mockImplementation(async (id, machineId) => {
         order.push("wake");
-        return { activationPending: false };
+        return realActivate(id, machineId);
       });
 
     const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
@@ -1099,15 +1130,20 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
     fireEvent.change(select, { target: { value: target } });
     fireEvent.click(await findByTestId("worker-detail-settings-confirm"));
 
-    await waitFor(() => expect(restart).toHaveBeenCalledWith("ow-1"));
+    await waitFor(() => expect(order).toHaveLength(2));
     expect(setModel).toHaveBeenCalledWith(
       "ow-1",
       expect.objectContaining({ model: "claude-opus-4-8" }),
     );
-    expect(relocate).toHaveBeenCalledWith("ow-1", target);
-    // 🔴 The wake is LAST. Waking first boots the OLD model on the OLD machine
-    // and the owner's edit only lands one respawn later.
-    expect(order).toEqual(["model", "relocate", "wake"]);
+    expect(relocate.mock.calls).toStrictEqual([]);
+    expect(restart.mock.calls).toStrictEqual([["ow-1", "warden-mbp5"]]);
+    // 🔴 The wake is LAST. Waking first boots the OLD model and the owner's
+    // edit only lands one respawn later.
+    expect(order).toEqual(["model", "wake"]);
+    // The activate alone stored the pin.
+    expect((await api.getOutsourceWorker("ow-1")).desiredMachineId).toBe(
+      "warden-mbp5",
+    );
   });
 
   it("opening 喚醒 on a worker pinned to a SLEEPING machine never silently re-pins it", async () => {
@@ -1161,10 +1197,11 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
       target: { value: "claude-opus-4-8" },
     });
     fireEvent.click(await findByTestId("worker-detail-settings-confirm"));
-    await waitFor(() => expect(restart).toHaveBeenCalledWith("ow-1"));
-    // 🔴 Positive control on the TARGET, not on "something happened": the wake
-    // went out, and relocate — the one call that would have moved him — did not.
-    expect(relocate).not.toHaveBeenCalled();
+    await waitFor(() => expect(restart).toHaveBeenCalledTimes(1));
+    // 🔴 Positive control on the TARGET, not on "something happened": ONE wake
+    // went out with no machine in it, and nothing else that could move him.
+    expect(restart.mock.calls).toStrictEqual([["ow-1", undefined]]);
+    expect(relocate.mock.calls).toStrictEqual([]);
   });
 
   it("換 model: 更改 → save persists the new model via the adapter", async () => {
@@ -1217,7 +1254,7 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
     [
       "waking",
       "worker-detail-change",
-      "按下後：換了機器會當場用新設定重新開起來；只換型號、執行環境或思考強度，下次開起來才生效。" +
+      "按下後會存下新設定：換了機器會移到新機器、用新設定重新開起來；只換型號、執行環境或思考強度，下次開起來才生效。" +
         " 上方顯示的是目前實際使用的模型，可能和這裡的設定不同。",
     ],
   ] as const)(
@@ -1251,7 +1288,7 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
     [
       "waking",
       "worker-detail-change",
-      "Once confirmed: a new machine restarts it there right away with the new settings; a new model, runtime or effort alone takes effect the next time it starts.",
+      "Once confirmed, the new settings are saved: a new machine moves it there and restarts it with the new settings; a new model, runtime or effort alone takes effect the next time it starts.",
     ],
   ] as const)(
     "in English, a %s worker's dialog opened by %s → the settings note reads %s",
@@ -1290,7 +1327,7 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
     fireEvent.click(await findByTestId("worker-detail-wake"));
     fireEvent.click(await findByTestId("worker-detail-settings-confirm"));
     const alert = await findByTestId("worker-detail-wake-undispatched");
-    expect(wake).toHaveBeenCalledWith("ow-1");
+    expect(wake).toHaveBeenCalledWith("ow-1", undefined);
     expect(
       Array.from(alert.querySelectorAll("strong, p, li")).map((e) => e.textContent),
     ).toEqual([
@@ -1315,7 +1352,7 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
     await waitFor(() =>
       expect(queryTestId(document.body, "worker-detail-settings-dialog")).toBeNull(),
     );
-    expect(wake).toHaveBeenCalledWith("ow-1");
+    expect(wake).toHaveBeenCalledWith("ow-1", undefined);
     expect(queryTestId(document.body, "worker-detail-wake-undispatched")).toBeNull();
   });
 
@@ -1485,18 +1522,6 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
       "worker-detail-change",
       { relocationPending: true, relocationDeferred: false },
     ],
-    [
-      "a stopped worker's move saved for its next start",
-      { presence: "stopped", desiredState: "offline" },
-      "worker-detail-wake",
-      { relocationPending: true, relocationDeferred: false },
-    ],
-    [
-      "a dead-session worker's move whose wake went out",
-      { presence: "offline", desiredState: "online" },
-      "worker-detail-wake",
-      { relocationPending: true, relocationDeferred: false },
-    ],
   ] as const)("%s raises no alert", async (_name, state, opener, receipt) => {
     __setMockMemberOnline("warden-mbp5", true);
     __injectMockTask(mkTask({ id: "t-1" }));
@@ -1509,6 +1534,28 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
     expect(queryTestId(document.body, "worker-detail-relocate-undispatched")).toBeNull();
     expect(queryTestId(document.body, "worker-detail-wake-undispatched")).toBeNull();
   });
+
+  it.each([
+    ["a stopped worker", { presence: "stopped", desiredState: "offline" }],
+    ["a dead-session worker", { presence: "offline", desiredState: "online" }],
+  ] as const)(
+    "%s woken onto another machine gets ONE activate carrying it, and no alert",
+    async (_name, state) => {
+      __setMockMemberOnline("warden-mbp5", true);
+      __injectMockTask(mkTask({ id: "t-1" }));
+      __injectMockOutsourceWorker(mkWorker({ id: "ow-1", taskId: "t-1", ...state }));
+      const relocate = vi.spyOn(api, "relocateMember");
+      const wake = vi
+        .spyOn(api, "activateMember")
+        .mockResolvedValue({ activationPending: false });
+      const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
+      await moveToSeedWarden(findByTestId, "worker-detail-wake");
+      expect(wake.mock.calls).toStrictEqual([["ow-1", "warden-mbp5"]]);
+      expect(relocate.mock.calls).toStrictEqual([]);
+      expect(queryTestId(document.body, "worker-detail-relocate-undispatched")).toBeNull();
+      expect(queryTestId(document.body, "worker-detail-wake-undispatched")).toBeNull();
+    },
+  );
 
   it.each([
     ["deactivateMember", "member-action-stop", { presence: "online" }],
@@ -2086,6 +2133,36 @@ describe("WorkerDetailPanel — pending launch changes (T-7f28)", () => {
     );
   });
 
+  it.each([
+    [false, "→ 要換到 Warden · mbp5（離線）"],
+    [true, "→ 要換到 Warden · mbp5"],
+  ] as const)(
+    "a worker pinned to warden-mbp5 (machine online: %s) and running elsewhere reads %s — the staff panel's wording",
+    async (destinationOnline, movingTo) => {
+      // Ticket item 6: the staff panel says the destination is 離線 here, so the
+      // outsource panel must say it the same way (and say nothing when it is up).
+      __setMockMemberOnline("warden-mbp5", destinationOnline);
+      __setMockMemberOnline("m-server-self", true);
+      __injectMockTask(mkTask({ id: "t-6" }));
+      __injectMockOutsourceWorker(
+        mkWorker({
+          id: "ow-1",
+          taskId: "t-6",
+          presence: "online",
+          desiredMachineId: "warden-mbp5",
+          machine: "m-server-self",
+          actualMachine: "m-server-self",
+        }),
+      );
+      const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
+      await waitFor(async () =>
+        expect((await findByTestId("worker-detail-machine-pending")).textContent).toBe(
+          movingTo,
+        ),
+      );
+    },
+  );
+
   it("stays silent when the worker has reported nothing, rather than echoing the settings", async () => {
     // 🔴 The reason this ticket exists. `mkWorker` leaves every actual_* blank —
     // an unreported worker. Marking a pending change here would be a guess, and
@@ -2187,5 +2264,30 @@ describe("WorkerDetailPanel · 履歷摘要", () => {
     expect((await findByTestId("mp-resume-body")).textContent).toContain("T-4595");
 
     spy.mockRestore();
+  });
+});
+
+describe("WorkerDetailPanel · 回呼端點", () => {
+  it("creates an endpoint bound to THIS worker and lists it in the worker's own 回呼端點 card", async () => {
+    __injectMockTask(mkTask({ id: "t-w1" }));
+    __injectMockOutsourceWorker(mkWorker({ id: "ow-w1", taskId: "t-w1", presence: "online" }));
+    const spy = vi.spyOn(api, "createWebhook");
+
+    const { findByTestId, getByPlaceholderText } = renderOfficeAt("#office/worker/ow-w1");
+    fireEvent.click(await findByTestId("mp-webhook-toggle"));
+    fireEvent.click(await findByTestId("mp-webhook-add"));
+    fireEvent.change(getByPlaceholderText(zh.mp.webhook.endpointIdPlaceholder), {
+      target: { value: "ci-in" },
+    });
+    fireEvent.click(await findByTestId("mp-webhook-create"));
+
+    await waitFor(() =>
+      expect(spy).toHaveBeenCalledWith("ow-w1", {
+        endpointId: "ci-in",
+        purpose: "",
+        platform: "generic",
+      }),
+    );
+    await findByTestId("mp-webhook-stats-ci-in");
   });
 });

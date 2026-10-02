@@ -871,7 +871,7 @@ func TestRelocateNeverStoppedWorker_SavesPinWithoutReviving(t *testing.T) {
 }
 
 // TestRestartWorker_NoKillTarget_StillAttemptsStart (owner ruling: fix the whole
-// class, one shared path): 重啟 is the verb whose entire intent is "be running",
+// class, one shared path): 喚醒 is the verb whose entire intent is "be running",
 // and in the no-kill-target shape (offline, spawn memory lost) it must still
 // attempt the start rather than leave only a receipt.
 func TestRestartWorker_NoKillTarget_StillAttemptsStart(t *testing.T) {

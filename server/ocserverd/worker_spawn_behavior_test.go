@@ -1526,9 +1526,9 @@ func wardenStamp(secs float64) string {
 
 func TestReconcileWorkerLiveness_UnderAWardenRefusalOfTheStart(t *testing.T) {
 	const loggedOut = "claude_not_logged_in: machine 'm-server-self' is not logged in to claude"
-	const lapsed = "wake_timeout: the start was collected by machine 'm-server-self' but this worker never " +
-		"came online within the start window — check that the 'claude' runtime actually runs " +
-		"and is logged in on that machine (warden log: ocwarden.out.log)"
+	const lapsed = "wake_timeout: the START was dispatched to machine 'm-server-self' but the agent never " +
+		"came online within the start window — check that claude runs and is logged in on that " +
+		"machine (warden log: ocwarden.out.log)"
 	const noCredential = "claude_not_logged_in: `claude auth status` reports logged out on this host."
 	for _, c := range []struct {
 		name, refusal, want string
@@ -1548,8 +1548,8 @@ func TestReconcileWorkerLiveness_UnderAWardenRefusalOfTheStart(t *testing.T) {
 		{name: "not logged in, but the server has since lost the start's time: the lapse is a wake timeout",
 			refusal: noCredential, restarted: true,
 			want: "wake_timeout: the start window elapsed with no session, and this server no longer has a " +
-				"record of which machine the start was sent to (the spawn ledger is in-memory and a server " +
-				"restart clears it) — retry 改機器 to place it again"},
+				"record of which machine the START was sent to (the spawn ledger is in-memory and a server " +
+				"restart clears it) — use 更改 to place it again"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			s := newWorkerTestServer(t)
@@ -1719,7 +1719,7 @@ func TestReconcileWorkerLiveness_OtherMembersBacklogIsNotOurs(t *testing.T) {
 
 // TestReconcileWorkerLiveness_UnknownTargetNamesNoMachine (T-e0e3 review C.2):
 // both timeout arms name a machine and then assert something about it. With no
-// recorded target that becomes "collected by machine ”" — a confident claim made
+// recorded target that becomes "dispatched to machine ”" — a confident claim made
 // from zero evidence, sending the owner to a log on a host with no name. The
 // guard says only what is known.
 //

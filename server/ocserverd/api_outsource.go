@@ -199,7 +199,7 @@ func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost
 				return refuseInTx(http.StatusConflict,
 					"refocus requires a live worker — this one is stopped and has never "+
 						"been asked to stop, so there is no wind-down for a 起來 to be "+
-						"queued behind (重啟 it when you want it to run)")
+						"queued behind (喚醒 it when you want it to run)")
 			}
 			queued = true
 			return persistWorkerRestartIntentOn(tx, *worker)
@@ -386,7 +386,7 @@ func (s *apiServer) HandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStop
 // Outsource arm of POST /api/members/{member_id}/activate — the cockpit's 喚醒
 // (owner rc-1f591528a6d0 圈 [0]: 正在跑就不動它):
 //   - session ALREADY RUNNING → record the intent, dispatch NOTHING, kill
-//     NOTHING, answer a session_alive receipt (as 活化 does for staff).
+//     NOTHING, answer a session_alive receipt (as 喚醒 does for staff).
 //   - session NOT running → clean sheet, re-dispatch.
 //
 // Never 409s and has no desired-offline gate.
@@ -425,14 +425,10 @@ func (s *apiServer) handleRestartOutsourceWorker(w http.ResponseWriter, r *http.
 			// Stamped onto the in-memory row, not via stampWorkerPlacementBlocked:
 			// that helper re-reads and writes on its own and would race this
 			// handler's write. The receipt columns land through setMemberLastOpOn below.
-			stampWorkerOpReceipt(worker, spawnReasonSessionAlive+
-				": this worker was already running — 喚醒 left that session alone and "+
-				"dispatched nothing. Its work, and any 加速停止 or 換手 already under "+
-				"way on it, are untouched. To end the current session and start a "+
-				"fresh one, press 強制停止 first, then 喚醒", nowSecs())
+			stampSessionAliveWakeReceipt((*Member)(worker), nowSecs())
 		}
 		worker.DesiredState = DesiredStateOnline
-		// Cleared on BOTH arms, as the staff 活化 does (api_members.go):
+		// Cleared on BOTH arms, as the staff 喚醒 does (api_members.go):
 		// stopping_since is the 下線 this verb answers; waking_since is the stale
 		// 喚醒中 badge — the live arm dispatches nothing that would restamp it.
 		worker.StoppingSince = 0.0
@@ -443,7 +439,7 @@ func (s *apiServer) handleRestartOutsourceWorker(w http.ResponseWriter, r *http.
 		//     already-collected wind-down, which shoots the next 改機器 / 換 model
 		//     with no close-out; the epoch scoping cannot heal a stale PAIR.
 		//   * ALREADY RUNNING — they describe a 加速停止 or 換手 mid-flight on the
-		//     live session; clearing them would cancel it silently. Staff 活化 does
+		//     live session; clearing them would cancel it silently. Staff 喚醒 does
 		//     not touch them either.
 		//   * forced_stop_at is KEPT on both arms, as staff activate does: it
 		//     describes the session BEFORE (dal.go, migrations/00057), and its max()

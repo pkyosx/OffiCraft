@@ -662,12 +662,7 @@ export const en: Dict = {
     estimatedCost: "est. $",
     // T-7526: the four presence words retired with the 狀態 cell — see zh.ts.
     // ── T-32e1/T-f190 lifecycle ops (aligned with the member detail panel) ──
-    refocus: "Refocus",
-    refocusing: "Refocusing…",
-    refocusDone: "Sent",
-    refocusError: "Refocus failed",
     refocusSubmittedNote: "Refocus sent · worker respawning…",
-    refocusSinceLabel: "Last handover",
     // ⚠️ No `restart` leaf: the wake word is the member panel's
     // `lifecycle.action.spawn` on both panels — see zh.ts.
     stop: "Stop",
@@ -708,7 +703,6 @@ export const en: Dict = {
       // "Spawn" → "Wake" (owner acceptance): the action wakes an existing
       // member, it does not create a new one.
       spawn: "Wake",
-      cancel: "Cancel",
       stop: "Stop",
       // The middle rung of the owner's escalation (2026-08-21, 停止 → 加速停止
       // → 強制停止): put the close-out already under way on a clock and tell
@@ -1225,11 +1219,10 @@ export const en: Dict = {
       "Once confirmed, the new settings are saved, and it starts again with them after it has stopped.",
     settingsNoteWake: "Once confirmed, it starts with these settings.",
     settingsNoteWaking:
-      "Once confirmed: a new machine restarts it there right away with the new settings; a new model, runtime or effort alone takes effect the next time it starts.",
+      "Once confirmed, the new settings are saved: a new machine moves it there and restarts it with the new settings; a new model, runtime or effort alone takes effect the next time it starts.",
     settingsIntentNoteReported: "The model shown above is the one actually in use now, which can differ from what is set here.",
     wakeManual: "Wake manually",
     // Instant feedback after clicking Wake, before server presence catches up.
-    wakePendingNote: "Waking…",
     forceStopConfirmTitle: "Force stop?",
     forceStopConfirmBodyLead: "Force-stop",
     forceStopConfirmBodyTail:
