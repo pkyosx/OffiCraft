@@ -450,9 +450,12 @@ export interface UninstallResultView {
 
 /** `RuntimeLoginDTO.state`. `starting` never advances on a warden that
  * predates the login verbs, so the UI gives up on it after 30s. */
+export type RuntimeLoginRuntime = "claude" | "codex";
+
 export type RuntimeLoginState =
   | "starting"
   | "awaiting_code"
+  | "awaiting_authorization"
   | "verifying"
   | "succeeded"
   | "failed"
@@ -464,10 +467,14 @@ export type RuntimeLoginState =
 export interface RuntimeLoginView {
   loginId: string;
   machineId: string;
-  runtime: "claude";
+  runtime: RuntimeLoginRuntime;
   state: RuntimeLoginState;
   authUrl: string | null;
-  account: { email: string | null; orgName: string | null } | null;
+  /** codex only: the one-time code entered on `authUrl`, and when it expires
+   * (epoch seconds). */
+  userCode: string | null;
+  expiresTs: number | null;
+  account: { email: string | null; orgName: string | null; plan: string | null } | null;
   reason: string | null;
   updatedTs: number;
 }

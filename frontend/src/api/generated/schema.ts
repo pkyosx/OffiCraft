@@ -1412,7 +1412,8 @@ export interface paths {
          * Start a runtime login on a machine: its warden runs the CLI login and relays the sign-in URL back.
          * @description - Pushes the `login_start` warden command; the warden runs the runtime's login and reports through `POST /api/monitoring/runtime-login`.
          *     - Held in server memory only, never persisted; a server restart forgets the login.
-         *     - A login with no warden report for 15 minutes becomes `expired`, then is dropped about 10 minutes later.
+         *     - A login with no warden report for 20 minutes becomes `expired`, then is dropped about 10 minutes later.
+         *     - `runtime: "codex"` runs a device-code login: the login reaches `awaiting_authorization` with `auth_url` and `user_code`, and ends `succeeded` once the owner approves it on that page — nothing is posted back to `/code`.
          *     - A warden build that predates the verb ignores it and the login stays `starting`; the UI gives up after 30s.
          *     - While a login for this machine and runtime is not yet terminal, a repeat returns that login instead of starting another.
          *     - Admin agent only (403); an unknown, removed or non-machine id is a 404; an offline warden is a 409.
@@ -1480,7 +1481,7 @@ export interface paths {
          * Submit the sign-in code for a runtime login.
          * @description - Relays the code to the waiting login process via the `login_code` warden command and moves the login to `verifying`.
          *     - The code is never stored, logged or echoed back; it exists only in the command frame.
-         *     - Checked in this order: 404 when the login is unknown or dropped; 409 unless it is `awaiting_code`, and 409 when the machine's warden is offline (nothing relayed); then 422 for a code that contains whitespace or a control character inside it (the code is written to the login process as one line), or that is not two non-empty parts joined by exactly one `#` (a partial copy). On every refusal the login stays as it was, so the owner can paste again.
+         *     - Checked in this order: 404 when the login is unknown or dropped; 409 unless it is `awaiting_code` (so always for a `codex` login, which never asks for a code), and 409 when the machine's warden is offline (nothing relayed); then 422 for a code that contains whitespace or a control character inside it (the code is written to the login process as one line), or that is not two non-empty parts joined by exactly one `#` (a partial copy). On every refusal the login stays as it was, so the owner can paste again.
          *     - Admin agent only (403).
          */
         post: operations["handle_submit_runtime_login_code_api_machines__machine_id__runtime_login__login_id__code_post"];
@@ -7709,13 +7710,18 @@ export interface components {
         };
         /**
          * RuntimeLoginAccountDTO
-         * @description Who the runtime CLI says it is now logged in as. Display values only; no token or credential.
+         * @description Who the runtime CLI says it is now logged in as. Display values only; no token or credential. For `claude`, all three come from `claude auth status`. For `codex`, `email` and `plan` are claims of the ID token codex keeps after login, decoded on the machine (the token itself never leaves it), and `org_name` is unset.
          */
         RuntimeLoginAccountDTO: {
             /** Email */
             email?: string | null;
             /** Org Name */
             org_name?: string | null;
+            /**
+             * Plan
+             * @description Subscription plan as reported by the runtime (Codex: the ID token's `chatgpt_plan_type`, e.g. `team`; Claude: `claude auth status` `subscriptionType`); absent when unknown.
+             */
+            plan?: string | null;
         };
         /**
          * RuntimeLoginCodeDTO
@@ -7727,7 +7733,7 @@ export interface components {
         };
         /**
          * RuntimeLoginDTO
-         * @description One runtime login the server relays between the owner's browser and a login process the machine's warden runs. Held in server memory only and never persisted: a server restart forgets every login, and a login is dropped about 10 minutes after it reaches a terminal state (`succeeded`, `failed`, `expired`, `cancelled`), after which it reads as 404. A non-terminal login with no warden report for 15 minutes becomes `expired`; that is longer than the warden's own 10-minute login cap, so a live login always gets to report its own end first.
+         * @description One runtime login the server relays between the owner's browser and a login process the machine's warden runs. Held in server memory only and never persisted: a server restart forgets every login, and a login is dropped about 10 minutes after it reaches a terminal state (`succeeded`, `failed`, `expired`, `cancelled`), after which it reads as 404. A non-terminal login with no warden report for 20 minutes becomes `expired`; that is longer than the warden's own login caps (10 minutes for `claude`; for `codex`, the 15 minutes the one-time code lasts plus a minute), so a live login always gets to report its own end first. `claude` logs in by sign-in URL plus a code the owner pastes back (`awaiting_code` → `verifying`); `codex` logs in by device code: the owner opens `auth_url`, enters `user_code` and authorizes, and the machine notices completion on its own (`awaiting_authorization`, no code is pasted back).
          */
         RuntimeLoginDTO: {
             /**
@@ -7737,9 +7743,14 @@ export interface components {
             account?: components["schemas"]["RuntimeLoginAccountDTO"] | null;
             /**
              * Auth Url
-             * @description The provider sign-in URL the owner opens; set from `awaiting_code` on.
+             * @description The provider sign-in URL the owner opens; set from `awaiting_code` (`claude`) or `awaiting_authorization` (`codex`) on, and cleared when the login reaches a terminal state.
              */
             auth_url?: string | null;
+            /**
+             * Expires Ts
+             * @description `codex` only: epoch seconds at which `user_code` stops working, computed by the server from its own clock and the remaining time the machine reported (`expires_in_s`), so a skewed machine clock does not shift it (about 15 minutes after `awaiting_authorization`). Advisory for a countdown; the login process's own end decides the state.
+             */
+            expires_ts?: number | null;
             /** Login Id */
             login_id: string;
             /** Machine Id */
@@ -7753,13 +7764,18 @@ export interface components {
              * Runtime
              * @enum {string}
              */
-            runtime: "claude";
+            runtime: "claude" | "codex";
             /**
              * State
-             * @description `starting` until the warden's first report. A warden build that predates the `login_start` verb ignores it, so `starting` never advances; the UI gives up on it after 30s.
+             * @description `starting` until the warden's first report. A warden build that predates the `login_start` verb ignores it, so `starting` never advances; the UI gives up on it after 30s. `awaiting_code` / `verifying` occur for `claude` only, `awaiting_authorization` for `codex` only (added in T-309 package 2; a reader that predates it must treat an unknown value as non-terminal).
              * @enum {string}
              */
-            state: "starting" | "awaiting_code" | "verifying" | "succeeded" | "failed" | "expired" | "cancelled";
+            state: "starting" | "awaiting_code" | "awaiting_authorization" | "verifying" | "succeeded" | "failed" | "expired" | "cancelled";
+            /**
+             * User Code
+             * @description `codex` only, set from `awaiting_authorization` on: the one-time code the owner enters on the `auth_url` page. Not a credential by itself (it only lets whoever holds it approve this machine's pending login from a signed-in OpenAI account), but held in server memory only like `auth_url`: never persisted, logged or mirrored, and cleared when the login reaches a terminal state.
+             */
+            user_code?: string | null;
             /**
              * Updated Ts
              * @description Epoch seconds of the last state change, server-stamped.
@@ -7778,9 +7794,19 @@ export interface components {
             account?: components["schemas"]["RuntimeLoginAccountDTO"] | null;
             /**
              * Auth Url
-             * @description Send with `awaiting_code`.
+             * @description Send with `awaiting_code` (`claude`) or `awaiting_authorization` (`codex`).
              */
             auth_url?: string | null;
+            /**
+             * Expires Ts
+             * @description Epoch seconds at which `user_code` expires. Superseded by `expires_in_s`, which the server prefers when both are sent.
+             */
+            expires_ts?: number | null;
+            /**
+             * Expires In S
+             * @description Send with `awaiting_authorization`: seconds until `user_code` expires, as the CLI printed it. The server turns it into `RuntimeLoginDTO.expires_ts` on its own clock.
+             */
+            expires_in_s?: number | null;
             /** Login Id */
             login_id: string;
             /**
@@ -7790,20 +7816,26 @@ export interface components {
             reason?: string | null;
             /**
              * State
+             * @description `awaiting_code` / `verifying` for a `claude` login, `awaiting_authorization` for a `codex` login; the server refuses (409) a state that does not belong to the login's runtime and keeps the login as it was.
              * @enum {string}
              */
-            state: "awaiting_code" | "verifying" | "succeeded" | "failed" | "expired" | "cancelled";
+            state: "awaiting_code" | "awaiting_authorization" | "verifying" | "succeeded" | "failed" | "expired" | "cancelled";
+            /**
+             * User Code
+             * @description Send with `awaiting_authorization`: the one-time code codex printed, escape sequences stripped.
+             */
+            user_code?: string | null;
         };
         /**
          * RuntimeLoginStartDTO
-         * @description Which runtime to log in on the machine.
+         * @description Which runtime to log in on the machine. `codex` runs a device-code login, which works whether or not the machine is already logged in; an existing login stays in effect until the new one completes.
          */
         RuntimeLoginStartDTO: {
             /**
              * Runtime
              * @enum {string}
              */
-            runtime: "claude";
+            runtime: "claude" | "codex";
         };
         /**
          * RuntimeLoginWarningDTO

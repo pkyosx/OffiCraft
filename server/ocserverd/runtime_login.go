@@ -22,6 +22,7 @@ const (
 const (
 	runtimeLoginStarting     = "starting"
 	runtimeLoginAwaitingCode = "awaiting_code"
+	runtimeLoginAwaitingAuth = "awaiting_authorization"
 	runtimeLoginVerifying    = "verifying"
 	runtimeLoginSucceeded    = "succeeded"
 	runtimeLoginFailed       = "failed"
@@ -29,21 +30,36 @@ const (
 	runtimeLoginCancelled    = "cancelled"
 )
 
-// The idle cap must stay above the warden's own 10-minute login cap
-// (cli/ocwarden/runtimelogin.go), so a live login reports its own end first.
+// The idle cap must stay above the warden's own login caps (10 minutes for
+// claude, 16 for codex: cli/ocwarden/runtimelogin.go), so a live login reports
+// its own end first.
 const (
-	runtimeLoginIdleExpiry  = 15 * time.Minute
+	runtimeLoginIdleExpiry  = 20 * time.Minute
 	runtimeLoginTerminalTTL = 10 * time.Minute
 	runtimeLoginSweepPeriod = time.Minute
 )
 
 const (
-	runtimeLoginExpiredReason   = "no report from the machine for 15 minutes"
+	runtimeLoginExpiredReason   = "no report from the machine for 20 minutes"
 	runtimeLoginCancelledReason = "cancelled by the owner"
 	runtimeLoginOfflineMsg      = "machine is offline; its warden cannot run a login"
 	runtimeLoginPartialCodeMsg  = "code is incomplete: copy the whole code the sign-in page shows (two parts joined by '#')"
 	runtimeLoginSpacedCodeMsg   = "code must not contain spaces, tabs or line breaks"
 )
+
+// runtimeLoginStateFits: the in-flight states each runtime's login can be in.
+func runtimeLoginStateFits(runtime, state string) bool {
+	if runtimeLoginTerminal(state) {
+		return true
+	}
+	switch runtime {
+	case RuntimeClaude:
+		return state == runtimeLoginAwaitingCode || state == runtimeLoginVerifying
+	case RuntimeCodex:
+		return state == runtimeLoginAwaitingAuth
+	}
+	return false
+}
 
 func runtimeLoginTerminal(state string) bool {
 	switch state {
@@ -59,6 +75,8 @@ type runtimeLogin struct {
 	runtime    string
 	state      string
 	authURL    *string
+	userCode   *string
+	expiresTS  *float64
 	account    *runtimeLoginAccountDTO
 	reason     *string
 	changedAt  time.Time
@@ -73,6 +91,8 @@ func (l *runtimeLogin) dto() runtimeLoginDTO {
 		Runtime:   l.runtime,
 		State:     l.state,
 		AuthURL:   l.authURL,
+		UserCode:  l.userCode,
+		ExpiresTS: l.expiresTS,
 		Account:   l.account,
 		Reason:    l.reason,
 		UpdatedTS: float64(l.changedAt.UnixNano()) / 1e9,
@@ -86,6 +106,9 @@ func (l *runtimeLogin) moveTo(state string, now time.Time) {
 	l.state = state
 	if runtimeLoginTerminal(state) {
 		l.endedAt = now
+		// An ended login keeps only what the owner still reads: the URL and the
+		// one-time code are useless now and would only linger in memory.
+		l.authURL, l.userCode, l.expiresTS = nil, nil, nil
 	}
 }
 
@@ -197,7 +220,7 @@ func (s *apiServer) HandleStartRuntimeLoginApiMachinesMachineIdRuntimeLoginPost(
 		return
 	}
 	if !body.Runtime.Valid() {
-		writeError(w, http.StatusUnprocessableEntity, "runtime must be 'claude'")
+		writeError(w, http.StatusUnprocessableEntity, "runtime must be 'claude' or 'codex'")
 		return
 	}
 	if _, err := s.resolveMachine(machineId); err != nil {
@@ -366,7 +389,7 @@ func (s *apiServer) HandleReportRuntimeLoginApiMonitoringRuntimeLoginPost(w http
 	}
 	if !body.State.Valid() {
 		writeError(w, http.StatusUnprocessableEntity,
-			"state must be one of awaiting_code, verifying, succeeded, failed, expired, cancelled")
+			"state must be one of awaiting_code, awaiting_authorization, verifying, succeeded, failed, expired, cancelled")
 		return
 	}
 	caller := currentActor(r)
@@ -393,13 +416,33 @@ func (s *apiServer) HandleReportRuntimeLoginApiMonitoringRuntimeLoginPost(w http
 		return
 	}
 	state := string(body.State)
+	if !runtimeLoginStateFits(l.runtime, state) {
+		refused := l.runtime
+		st.mu.Unlock()
+		s.publishRuntimeLogin(triggerServer, swept...)
+		writeError(w, http.StatusConflict,
+			"state '"+state+"' does not belong to a "+refused+" login")
+		return
+	}
 	l.reportedAt = now
 	if body.AuthUrl != nil {
 		url := *body.AuthUrl
 		l.authURL = &url
 	}
+	if body.UserCode != nil {
+		code := *body.UserCode
+		l.userCode = &code
+	}
+	switch {
+	case body.ExpiresInS != nil:
+		at := float64(now.Unix()) + *body.ExpiresInS
+		l.expiresTS = &at
+	case body.ExpiresTs != nil:
+		at := *body.ExpiresTs
+		l.expiresTS = &at
+	}
 	if state == runtimeLoginSucceeded && body.Account != nil {
-		l.account = &runtimeLoginAccountDTO{Email: body.Account.Email, OrgName: body.Account.OrgName}
+		l.account = &runtimeLoginAccountDTO{Email: body.Account.Email, OrgName: body.Account.OrgName, Plan: body.Account.Plan}
 	}
 	switch {
 	case state == runtimeLoginAwaitingCode:

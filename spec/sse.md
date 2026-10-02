@@ -545,10 +545,12 @@ data: {"topic":"warden-command","data":{"rpc":"start","args":{"member_id":"m-1a2
   - `login_start` / `login_code` / `login_cancel` (T-309 — the runtime-login relay behind
     `POST /api/machines/{machine_id}/runtime-login[/{login_id}/code|/cancel]`):
     `login_start` `{member_id, login_id, runtime}` makes the warden run the runtime's CLI
-    login (`runtime` is `claude` only) and report its progress through
+    login (`runtime` is `claude` or `codex`) and report its progress through
     `POST /api/monitoring/runtime-login`; `login_code` `{member_id, login_id, code}` hands the
-    owner-pasted code to that waiting login process; `login_cancel` `{member_id, login_id}`
-    kills it. `member_id` is informational addressing only, as with `update`. All three are
+    owner-pasted code to that waiting login process (`claude` only — a `codex` device-code
+    login completes on the machine by itself, so the server never sends `login_code` for it);
+    `login_cancel` `{member_id, login_id}` kills it. A package-1 warden (`claude` only) answers a
+    `codex` `login_start` with a `failed` report naming the runtime it cannot log in. `member_id` is informational addressing only, as with `update`. All three are
     at-most-once and never durably mirrored: a lost `login_start` leaves the login `starting`
     until the UI gives up (30s), and the owner starts over. A warden build that predates these
     verbs MUST treat them as any unknown rpc: log + skip, reader loop unharmed — which is

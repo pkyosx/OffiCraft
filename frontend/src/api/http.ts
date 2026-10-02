@@ -50,6 +50,7 @@ import type {
   DeleteResultView,
   UninstallResultView,
   RuntimeLoginView,
+  RuntimeLoginRuntime,
   BootstrapResultView,
   TeardownHereResultView,
   MachineView,
@@ -2287,7 +2288,7 @@ export const httpApi: Api = {
     return toUninstallResult(wire);
   },
 
-  async startRuntimeLogin(machineId: string, runtime: "claude"): Promise<RuntimeLoginView> {
+  async startRuntimeLogin(machineId: string, runtime: RuntimeLoginRuntime): Promise<RuntimeLoginView> {
     const wire = unwrap(
       await client.POST("/api/machines/{machine_id}/runtime-login", {
         params: { path: { machine_id: machineId } },

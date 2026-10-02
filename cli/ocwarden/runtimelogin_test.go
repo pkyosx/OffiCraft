@@ -77,7 +77,7 @@ func newFakeClaude(t *testing.T) *fakeClaude {
 		`  exit "$(/bin/cat '`+f.rc+`')"`+"\n"+
 		`done`+"\n")
 	f.write(t, f.rc, "0")
-	f.write(t, f.status, `{"loggedIn":true,"authMethod":"claude.ai","email":"owner@example.test","orgName":"Example Org"}`)
+	f.write(t, f.status, `{"loggedIn":true,"authMethod":"claude.ai","email":"owner@example.test","orgName":"Example Org","subscriptionType":"max"}`)
 	return f
 }
 
@@ -105,6 +105,7 @@ type relayHarness struct {
 	relay   *loginRelay
 	prober  *loginProber
 	claude  *fakeClaude
+	codex   *fakeCodex
 	reports chan loginReport
 	answer  func(loginReport) string
 	mu      sync.Mutex
@@ -113,9 +114,12 @@ type relayHarness struct {
 
 func newRelayHarness(t *testing.T) *relayHarness {
 	t.Helper()
-	h := &relayHarness{claude: newFakeClaude(t), reports: make(chan loginReport, 16)}
+	h := &relayHarness{claude: newFakeClaude(t), codex: newFakeCodex(t), reports: make(chan loginReport, 16)}
+	// No real claude or codex may ever be found: a real `codex login
+	// --device-auth` asks OpenAI for a device code over the network.
+	t.Setenv("PATH", filepath.Join(h.claude.root, "no-binaries-here"))
 	home := filepath.Join(h.claude.root, "home")
-	env := envMap(map[string]string{"HOME": home, "OC_CLAUDE_BIN": h.claude.bin})
+	env := envMap(map[string]string{"HOME": home, "OC_CLAUDE_BIN": h.claude.bin, "OC_CODEX_BIN": h.codex.bin})
 	logf := func(format string, a ...any) {
 		h.mu.Lock()
 		h.logs = append(h.logs, fmt.Sprintf(format, a...))
@@ -133,6 +137,12 @@ func newRelayHarness(t *testing.T) *relayHarness {
 		}
 		return rep.State
 	}, logf)
+	h.relay.resolveBin = func(runtime string) string {
+		if runtime == "codex" {
+			return h.codex.bin
+		}
+		return h.claude.bin
+	}
 	t.Cleanup(func() {
 		for _, s := range h.sessions() {
 			s.proc.kill()
@@ -213,7 +223,7 @@ func TestLoginRelay(t *testing.T) {
 		}
 		got := h.next(t)
 		want := loginReport{LoginID: "rl-1", State: "succeeded",
-			Account: &loginAccount{Email: "owner@example.test", OrgName: "Example Org"}}
+			Account: &loginAccount{Email: "owner@example.test", OrgName: "Example Org", Plan: "max"}}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("third report = %+v, want %+v", got, want)
 		}
@@ -396,11 +406,11 @@ func TestLoginRelay(t *testing.T) {
 		h.wantNoReport(t)
 	})
 
-	t.Run("under a runtime other than claude, the relay reports failed and runs nothing", func(t *testing.T) {
+	t.Run("under a runtime this warden cannot log in, the relay reports failed and runs nothing", func(t *testing.T) {
 		h := newRelayHarness(t)
-		h.relay.Start("rl-6", "codex")
+		h.relay.Start("rl-6", "gemini")
 		if got, want := h.next(t), (loginReport{LoginID: "rl-6", State: "failed",
-			Reason: `this warden cannot log in runtime "codex"`}); got != want {
+			Reason: `this warden cannot log in runtime "gemini"`}); got != want {
 			t.Fatalf("report = %+v, want %+v", got, want)
 		}
 		if _, err := os.Stat(h.claude.pid); !os.IsNotExist(err) {
@@ -639,8 +649,8 @@ func TestLoginRunsUnderTheMemberSpawnEnvironment(t *testing.T) {
 	}
 }
 
-func TestLoginRelaySweepStaleRenders(t *testing.T) {
-	t.Run("under renders a previous warden process left, the sweep removes them and leaves other files", func(t *testing.T) {
+func TestLoginRelaySweepStaleLoginFiles(t *testing.T) {
+	t.Run("under renders and codex staging homes a previous warden process left, the sweep removes them and leaves other files", func(t *testing.T) {
 		h := newRelayHarness(t)
 		dir := h.prober.agentHome
 		if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -649,7 +659,19 @@ func TestLoginRelaySweepStaleRenders(t *testing.T) {
 		for _, name := range []string{loginRenderPrefix + "rl-old", loginRenderPrefix + "rl-older", loginCheckEnvName, "m1"} {
 			h.claude.write(t, filepath.Join(dir, name), "SECRET=x\n")
 		}
-		h.relay.sweepStaleRenders()
+		staged := filepath.Join(dir, codexStagingPrefix+"rl-old-123")
+		h.codex.write(t, filepath.Join(staged, "auth.json"), `{"tokens":{}}`)
+		realHome := filepath.Join(h.codex.root, "real-codex-home")
+		h.codex.write(t, filepath.Join(realHome, "auth.json"), "kept-login")
+		h.codex.write(t, filepath.Join(realHome, codexInstallTempPrefix+"4711"), "half-written")
+		h.codex.write(t, filepath.Join(staged, codexRealHomeMarker), realHome)
+		h.relay.sweepStaleLoginFiles()
+		if got, err := os.ReadFile(filepath.Join(realHome, "auth.json")); err != nil || string(got) != "kept-login" {
+			t.Errorf("the real auth.json after the sweep = %q (err %v), want it kept", got, err)
+		}
+		if left, _ := filepath.Glob(filepath.Join(realHome, codexInstallTempPrefix+"*")); len(left) > 0 {
+			t.Errorf("an install temp file survived the sweep: %v", left)
+		}
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			t.Fatal(err)
@@ -691,4 +713,32 @@ func TestUpdaterExecAbandonsRunningLogins(t *testing.T) {
 		}
 		h.wantNoReport(t)
 	})
+}
+
+func TestStartLoginProcessRefusesARealBinaryInATestBinary(t *testing.T) {
+	if os.Getenv("OCWARDEN_REFUSAL_CHILD") == "1" {
+		_, _ = startLoginProcess("/bin/sh", "exit 0", "/usr/bin/true")
+		fmt.Println("startLoginProcess ran a binary outside the temp dir")
+		return
+	}
+	code, out := runRefusalChild(t, "TestStartLoginProcessRefusesARealBinaryInATestBinary")
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	want := "\nFATAL: refusing to run a real /usr/bin/true login inside a test binary.\n" +
+		"Login tests must stage a fake CLI in a temp dir and inject it.\n"
+	if !strings.Contains(out, want) {
+		t.Errorf("child output =\n%s\nwant it to contain\n%s", out, want)
+	}
+	if strings.Contains(out, "startLoginProcess ran a binary outside the temp dir") {
+		t.Error("a test binary was allowed to start a login process from a real binary")
+	}
+	fake := stageBinary(t, filepath.Join(t.TempDir(), "claude"), "#!/bin/sh\nexit 0\n")
+	proc, err := startLoginProcess("/bin/sh", "exec "+fake, fake)
+	if err != nil {
+		t.Fatalf("control: a temp-dir fake could not start: %v", err)
+	}
+	if err := proc.wait(); err != nil {
+		t.Fatalf("control: the fake did not exit 0: %v", err)
+	}
 }

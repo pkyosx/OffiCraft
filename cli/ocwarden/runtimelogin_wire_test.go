@@ -14,8 +14,10 @@ func realLoginReports(t *testing.T) map[string]map[string]any {
 	reports := map[string]loginReport{
 		"awaiting_code": {LoginID: "rl-1", State: "awaiting_code", AuthURL: "https://claude.ai/oauth/authorize?x=1"},
 		"verifying":     {LoginID: "rl-1", State: "verifying"},
+		"awaiting_authorization": {LoginID: "rl-2", State: "awaiting_authorization",
+			AuthURL: "https://auth.openai.com/codex/device", UserCode: "ABCD-EFGHI", ExpiresInS: 900},
 		"succeeded": {LoginID: "rl-1", State: "succeeded",
-			Account: &loginAccount{Email: "owner@example.test", OrgName: "Example Org"}},
+			Account: &loginAccount{Email: "owner@example.test", OrgName: "Example Org", Plan: "max"}},
 		"failed":  {LoginID: "rl-1", State: "failed", Reason: "Login failed: Request failed with status code 400"},
 		"expired": {LoginID: "rl-1", State: "expired", Reason: "no code arrived within 10m0s"},
 	}
@@ -65,8 +67,10 @@ func TestWardenRuntimeLoginUplinkBodies(t *testing.T) {
 	want := map[string]map[string]any{
 		"awaiting_code": {"login_id": "rl-1", "state": "awaiting_code", "auth_url": "https://claude.ai/oauth/authorize?x=1"},
 		"verifying":     {"login_id": "rl-1", "state": "verifying"},
+		"awaiting_authorization": {"login_id": "rl-2", "state": "awaiting_authorization",
+			"auth_url": "https://auth.openai.com/codex/device", "user_code": "ABCD-EFGHI", "expires_in_s": float64(900)},
 		"succeeded": {"login_id": "rl-1", "state": "succeeded",
-			"account": map[string]any{"email": "owner@example.test", "org_name": "Example Org"}},
+			"account": map[string]any{"email": "owner@example.test", "org_name": "Example Org", "plan": "max"}},
 		"failed":  {"login_id": "rl-1", "state": "failed", "reason": "Login failed: Request failed with status code 400"},
 		"expired": {"login_id": "rl-1", "state": "expired", "reason": "no code arrived within 10m0s"},
 	}

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { ApiError } from "../api/errors";
 import { codeForStatus } from "../api/errorCodes";
@@ -33,6 +33,8 @@ const login = (patch: Partial<RuntimeLoginView>): RuntimeLoginView => ({
   runtime: "claude",
   state: "starting",
   authUrl: null,
+  userCode: null,
+  expiresTs: null,
   account: null,
   reason: null,
   updatedTs: 1_800_000_000,
@@ -62,6 +64,7 @@ function mount(opts: { loggedIn?: boolean; onClose?: () => void } = {}) {
       <RuntimeLoginDialog
         machineId="m-box"
         machineName="工作站"
+        runtime="claude"
         loggedIn={opts.loggedIn ?? false}
         onClose={opts.onClose ?? (() => {})}
       />
@@ -92,7 +95,16 @@ describe("RuntimeLoginDialog", () => {
 
     await emit(login({ state: "awaiting_code", authUrl: URL }));
     expect(getRuntimeLogin).toHaveBeenCalledWith("m-box", "rl-1");
-    expect(text("runtime-login-awaiting")).toContain("在新分頁登入 Claude 並授權，把頁面上顯示的授權碼貼回這裡");
+    const [open, paste, finish] = within(screen.getByTestId("runtime-login-awaiting")).getAllByRole("listitem");
+    within(open).getByText("開啟 Claude 授權頁面");
+    within(open).getByText("在新分頁登入 Claude 並按下授權");
+    expect(open.contains(screen.getByTestId("runtime-login-url"))).toBe(true);
+    expect(open.contains(screen.getByTestId("runtime-login-copy"))).toBe(true);
+    within(paste).getByText("貼上授權碼");
+    within(paste).getByText("把頁面上顯示的授權碼貼回這裡");
+    expect(paste.contains(screen.getByTestId("runtime-login-code"))).toBe(true);
+    within(finish).getByText("完成登入");
+    within(finish).getByText("送出後這裡會自動更新");
     const link = screen.getByTestId("runtime-login-url") as HTMLAnchorElement;
     expect(link.getAttribute("href")).toBe(URL);
     expect(link.getAttribute("target")).toBe("_blank");
@@ -107,7 +119,7 @@ describe("RuntimeLoginDialog", () => {
     expect(submitRuntimeLoginCode).toHaveBeenCalledWith("m-box", "rl-1", "abc#s1");
     expect(text("runtime-login-verifying")).toBe("登入中…");
 
-    await emit(login({ state: "succeeded", authUrl: URL, account: { email: "owner@example.test", orgName: "Example Org" } }));
+    await emit(login({ state: "succeeded", authUrl: URL, account: { email: "owner@example.test", orgName: "Example Org", plan: "max" } }));
     expect(text("runtime-login-succeeded")).toBe("已登入：owner@example.test（Example Org）");
     expect(screen.queryByTestId("runtime-login-restart")).toBeNull();
   });
@@ -167,9 +179,25 @@ describe("RuntimeLoginDialog", () => {
     mount({ loggedIn: true });
     await flush();
     expect(text("runtime-login-replace-hint")).toBe("完成後會換成新登入的帳號");
-    await emit(login({ state: "succeeded", account: { email: "a@b.test", orgName: null } }));
+    await emit(login({ state: "succeeded", account: { email: "a@b.test", orgName: null, plan: null } }));
     expect(text("runtime-login-succeeded")).toBe("已登入：a@b.test");
     expect(screen.queryByTestId("runtime-login-replace-hint")).toBeNull();
+  });
+
+  it("under a machine that is already logged in, the code steps carry the replacement hint in the last step", async () => {
+    mount({ loggedIn: true });
+    await flush();
+    await emit(login({ state: "awaiting_code", authUrl: URL }));
+    const steps = within(screen.getByTestId("runtime-login-awaiting")).getAllByRole("listitem");
+    expect(steps).toHaveLength(3);
+    expect(steps[2].contains(screen.getByTestId("runtime-login-replace-hint"))).toBe(true);
+    expect(text("runtime-login-replace-hint")).toBe("完成後會換成新登入的帳號");
+  });
+
+  it("under a sign-in, the header names the machine being authorized", async () => {
+    mount();
+    await flush();
+    expect(text("runtime-login-subtitle")).toBe("用你的 Claude 帳號授權 工作站 上的 Claude Code");
   });
 
   it("under a machine that is not logged in, there is no replacement hint", async () => {
@@ -327,7 +355,7 @@ describe("RuntimeLoginDialog", () => {
     const onClose = vi.fn();
     mount({ onClose });
     await flush();
-    await emit(login({ state: "succeeded", account: { email: "a@b.test", orgName: null } }));
+    await emit(login({ state: "succeeded", account: { email: "a@b.test", orgName: null, plan: null } }));
     fireEvent.click(screen.getByTestId("runtime-login-close"));
     expect(cancelRuntimeLogin).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalledTimes(1);

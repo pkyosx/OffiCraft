@@ -129,6 +129,7 @@ type loginProber struct {
 type loginAccount struct {
 	Email   string
 	OrgName string
+	Plan    string
 }
 
 type runtimeLogin struct {
@@ -312,12 +313,13 @@ func (p *loginProber) claudeLoggedIn() (*bool, bool) {
 		_ = p.remove(rendered)
 	}
 	var status struct {
-		LoggedIn *bool  `json:"loggedIn"`
-		Email    string `json:"email"`
-		OrgName  string `json:"orgName"`
+		LoggedIn         *bool  `json:"loggedIn"`
+		Email            string `json:"email"`
+		OrgName          string `json:"orgName"`
+		SubscriptionType string `json:"subscriptionType"`
 	}
 	parseErr := json.Unmarshal([]byte(strings.TrimSpace(out)), &status)
-	p.claudeAccount = loginAccount{Email: status.Email, OrgName: status.OrgName}
+	p.claudeAccount = loginAccount{Email: status.Email, OrgName: status.OrgName, Plan: status.SubscriptionType}
 	if parseErr != nil || status.LoggedIn == nil {
 		if err != nil {
 			p.log("[ocwarden runtimeprobe] claude auth status gave no login verdict (bin=%s): %v", bin, err)
@@ -383,6 +385,23 @@ type claudeCommandOpts struct {
 	extra [][2]string
 }
 
+// renderLaunchEnv writes the member's env layers (interactive shell + env
+// file) to agentHome/renderName; "" when there is nothing to render.
+func (p *loginProber) renderLaunchEnv(renderName string) string {
+	pairs := mergeAgentEnv(p.launchEnv.interactive(), loadAgentEnv(p.envFile, nil))
+	if len(pairs) == 0 || p.agentHome == "" {
+		return ""
+	}
+	path := filepath.Join(p.agentHome, renderName)
+	if err := p.mkdirAll(p.agentHome, 0o700); err != nil {
+		return ""
+	}
+	if err := p.writeFile(path, renderAgentEnvFile(pairs), 0o600); err != nil {
+		return ""
+	}
+	return path
+}
+
 // claudeCommand is the one launch prologue every claude the warden runs outside
 // a member shares with the member spawn (claudeChildEnvPrologue + the HOME /
 // CLAUDE_CONFIG_DIR exports). 🔴 The keychain entry claude reads and writes is
@@ -390,16 +409,7 @@ type claudeCommandOpts struct {
 // credential members never see. The render holds the env file's credentials, so
 // the caller removes it as soon as the command has run.
 func (p *loginProber) claudeCommand(bin, renderName, subcommand string, opts claudeCommandOpts) (string, string) {
-	rendered := ""
-	pairs := mergeAgentEnv(p.launchEnv.interactive(), loadAgentEnv(p.envFile, nil))
-	if len(pairs) > 0 && p.agentHome != "" {
-		path := filepath.Join(p.agentHome, renderName)
-		if err := p.mkdirAll(p.agentHome, 0o700); err == nil {
-			if err := p.writeFile(path, renderAgentEnvFile(pairs), 0o600); err == nil {
-				rendered = path
-			}
-		}
-	}
+	rendered := p.renderLaunchEnv(renderName)
 	dir := p.agentHome
 	if dir == "" {
 		dir = p.claudeHome.Home
@@ -416,6 +426,28 @@ func (p *loginProber) claudeCommand(bin, renderName, subcommand string, opts cla
 		cmd += "export " + strings.Join(kvs, " ") + "; "
 	}
 	return cmd + "exec " + shellQuote(bin) + " " + subcommand, rendered
+}
+
+// codexCommand is claudeCommand for codex: the member sidecar's prologue
+// (codexChildEnvPrologue) over the same env render, then tail.
+func (p *loginProber) codexCommand(renderName, tail string, opts claudeCommandOpts) (string, string) {
+	rendered := p.renderLaunchEnv(renderName)
+	dir := p.agentHome
+	if dir == "" {
+		dir = p.claudeHome.Home
+	}
+	cmd := codexChildEnvPrologue(dir, rendered)
+	if opts.selfDeleteRender && rendered != "" {
+		cmd += "/bin/rm -f " + shellQuote(rendered) + "; "
+	}
+	if len(opts.extra) > 0 {
+		kvs := make([]string, 0, len(opts.extra))
+		for _, kv := range opts.extra {
+			kvs = append(kvs, kv[0]+"="+shellQuote(kv[1]))
+		}
+		cmd += "export " + strings.Join(kvs, " ") + "; "
+	}
+	return cmd + tail, rendered
 }
 
 // prepareLaunchEnv gives a command built outside the check the same captured
