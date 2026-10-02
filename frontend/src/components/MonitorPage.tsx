@@ -1542,7 +1542,7 @@ function RuntimeVersionTrigger({
         {
           key: "login",
           label: t.monitor.runtimeLogin.login,
-          icon: <KeyIcon size={15} />,
+          icon: <KeyIcon size={14} />,
           onSelect: onLogin,
         },
       ]}

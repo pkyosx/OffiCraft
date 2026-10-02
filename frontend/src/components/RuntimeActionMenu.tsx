@@ -11,7 +11,9 @@ import { useEscapeLayer } from "../lib/useEscapeLayer";
 import { ChevronDownIcon } from "./icons";
 import "./runtime-login.css";
 
-const GAP = 4;
+/* The menu overlaps the trigger's border by one pixel so the two read as one
+ * attached control with a single hairline between them. */
+const OVERLAP = 1;
 const EDGE = 8;
 
 export interface RuntimeActionItem {
@@ -42,6 +44,7 @@ export function RuntimeActionMenu({
 }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<CSSProperties | null>(null);
+  const [placement, setPlacement] = useState<"below" | "above">("below");
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
   const close = (refocus: boolean) => {
@@ -58,13 +61,15 @@ export function RuntimeActionMenu({
     const trigger = triggerRef.current?.getBoundingClientRect();
     const box = popRef.current?.getBoundingClientRect();
     if (!trigger || !box) return;
-    const below = trigger.bottom + GAP;
-    const above = trigger.top - GAP - box.height;
+    const width = Math.max(box.width, trigger.width);
+    const below = trigger.bottom - OVERLAP;
+    const above = trigger.top + OVERLAP - box.height;
     const fitsBelow = below + box.height <= window.innerHeight - EDGE;
-    const top = fitsBelow || above < EDGE ? below : above;
-    const maxLeft = Math.max(EDGE, window.innerWidth - EDGE - box.width);
+    const goBelow = fitsBelow || above < EDGE;
+    const maxLeft = Math.max(EDGE, window.innerWidth - EDGE - width);
     const left = Math.min(Math.max(EDGE, trigger.left), maxLeft);
-    setPos({ top, left });
+    setPlacement(goBelow ? "below" : "above");
+    setPos({ top: goBelow ? below : above, left, minWidth: trigger.width });
   }, [open]);
 
   useEffect(() => {
@@ -100,6 +105,7 @@ export function RuntimeActionMenu({
         aria-label={label}
         aria-haspopup="menu"
         aria-expanded={open}
+        data-placement={open && pos ? placement : undefined}
         data-testid={`${testIdPrefix}-menu`}
         onClick={() => setOpen((o) => !o)}
         onKeyDown={(e) => {
@@ -120,6 +126,7 @@ export function RuntimeActionMenu({
             className="runtime-menu__pop"
             role="menu"
             aria-label={label}
+            data-placement={placement}
             data-testid={`${testIdPrefix}-menu-pop`}
             style={pos ?? { top: 0, left: 0, visibility: "hidden" }}
             onKeyDown={(e) => {

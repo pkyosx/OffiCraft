@@ -49,29 +49,54 @@
     transition: none;
   }
 }
-/* Portalled to <body> and placed by RuntimeActionMenu from the trigger's rect. */
+/* Portalled to <body> and placed by RuntimeActionMenu flush against the
+ * trigger, at least as wide as it. The trigger and the menu square off the
+ * corners where they meet, and the menu repeats the trigger's open tint over an
+ * opaque card so the pair reads as one control. */
+.runtime-menu__trigger[data-placement="below"] {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.runtime-menu__trigger[data-placement="above"] {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
 .runtime-menu__pop {
   position: fixed;
   z-index: 50;
-  min-width: 150px;
-  padding: 6px;
-  border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
-  background: var(--color-card);
-  box-shadow: 0 10px 30px color-mix(in srgb, var(--color-shadow) 45%, transparent);
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 14%, transparent);
+  border-radius: 0 0 7px 7px;
+  background:
+    linear-gradient(
+      color-mix(in srgb, var(--color-overlay) 5%, transparent),
+      color-mix(in srgb, var(--color-overlay) 5%, transparent)
+    ),
+    var(--color-card);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--color-shadow) 40%, transparent);
+}
+.runtime-menu__pop[data-placement="below"] {
+  border-top-color: color-mix(in srgb, var(--color-overlay) 7%, transparent);
+}
+.runtime-menu__pop[data-placement="above"] {
+  border-radius: 7px 7px 0 0;
+  border-bottom-color: color-mix(in srgb, var(--color-overlay) 7%, transparent);
 }
 .runtime-menu__item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
+  gap: 8px;
+  width: 100%;
+  height: 32px;
+  padding: 0 8px;
   border: none;
-  border-radius: 8px;
+  border-radius: 0;
   background: transparent;
   color: var(--color-text);
+  font: inherit;
   font-size: 13px;
   text-align: left;
   white-space: nowrap;
@@ -82,12 +107,10 @@
   flex: none;
   color: var(--color-text-muted);
 }
+.runtime-menu__item:hover,
 .runtime-menu__item:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: -2px;
-}
-.runtime-menu__item:hover {
-  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
+  background: color-mix(in srgb, var(--color-overlay) 7%, transparent);
+  outline: none;
 }
 
 /* The sign-in dialog rides on .confirm-modal; it only widens the box for the

@@ -2,7 +2,23 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { RuntimeActionMenu, type RuntimeActionItem } from "./RuntimeActionMenu";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
+
+/** jsdom lays nothing out, so the trigger and menu boxes are stubbed. */
+function stubRects(trigger: { top: number; left: number; width: number; height: number }) {
+  const box = { width: 80, height: 34 };
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    const r = this.getAttribute("role") === "menu"
+      ? { top: 0, left: 0, ...box }
+      : this.getAttribute("aria-haspopup") === "menu"
+        ? trigger
+        : { top: 0, left: 0, width: 0, height: 0 };
+    return { ...r, right: r.left + r.width, bottom: r.top + r.height, x: r.left, y: r.top, toJSON: () => r } as DOMRect;
+  });
+}
 
 const LABEL = "Codex 0.159.2 操作";
 
@@ -146,5 +162,29 @@ describe("RuntimeActionMenu", () => {
     rerender(menu([]));
     expect(screen.queryByRole("button")).toBeNull();
     expect(container.textContent).toBe("0.159.2未登入");
+  });
+
+  it("under room below, the menu sits flush under the trigger, left-aligned and at least as wide, and the pair square off where they meet", () => {
+    stubRects({ top: 100, left: 200, width: 120, height: 24 });
+    render(menu([login()]));
+    fireEvent.click(trigger());
+    const pop = screen.getByRole("menu");
+    expect(pop.style.top).toBe("123px");
+    expect(pop.style.left).toBe("200px");
+    expect(pop.style.minWidth).toBe("120px");
+    expect(pop.getAttribute("data-placement")).toBe("below");
+    expect(trigger().getAttribute("data-placement")).toBe("below");
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(trigger().getAttribute("data-placement")).toBeNull();
+  });
+
+  it("under no room below, the menu sits flush above the trigger instead", () => {
+    stubRects({ top: window.innerHeight - 30, left: 200, width: 120, height: 24 });
+    render(menu([login()]));
+    fireEvent.click(trigger());
+    const pop = screen.getByRole("menu");
+    expect(pop.style.top).toBe(`${window.innerHeight - 30 + 1 - 34}px`);
+    expect(pop.getAttribute("data-placement")).toBe("above");
+    expect(trigger().getAttribute("data-placement")).toBe("above");
   });
 });
