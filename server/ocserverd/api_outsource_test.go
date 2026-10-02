@@ -2286,7 +2286,8 @@ func TestHandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(t *testing.
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "presence": "stopped", "desired_state": "offline",
 			"desired_machine_id": "m-server-self", "model": "opus", "forced_stop_at": apiAnyNumber,
-			"last_op": "start", "last_op_ok": true, "last_op_log": "", "last_op_at": apiAnyNumber,
+			"forced_stop_live": true,
+			"last_op":          "start", "last_op_ok": true, "last_op_log": "", "last_op_at": apiAnyNumber,
 			"last_op_reason": restarting,
 		}))
 
