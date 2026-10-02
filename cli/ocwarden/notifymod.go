@@ -208,8 +208,10 @@ const notifyModPollTicks = 2
 
 // Paced like the nudge loop it replaces on the mod route and bounded by the same
 // 30 s (receiptDeadlineSecs): at most nudgeMaxAttempts sleeps and no poll starts
-// past the deadline, so one capture (notifyModCaptureBudget + the runner's
-// subprocessWaitDelay) is the most it can run over. It returns as soon as the mod
+// past the deadline. Every tmux call here runs under notifyModCaptureBudget, so
+// each costs at most 2 s + the runner's subprocessWaitDelay 2 s; the most the
+// last poll can run over is its nudgeSettle sleep, one capture and the one-time
+// /reload-plugins send (3 calls): 1 + 4 + 12 = 17 s. It returns as soon as the mod
 // is loaded. While the mod has not even started, each poll looks at the pane for
 // claudePluginsChangedBanner and answers it with /reload-plugins, once.
 func (d SpawnDeps) waitForNotifyMod(memberID, workdir, socket, session string) {
@@ -234,9 +236,13 @@ func (d SpawnDeps) waitForNotifyMod(memberID, workdir, socket, session string) {
 		}
 		// ASCII, so send-keys -l is safe here (the nudge's multibyte caveat does not
 		// apply); copy-mode -q first, as the nudge does, or the keys are swallowed.
-		_, _ = d.Runner.Run("tmux", "-L", socket, "copy-mode", "-q", "-t", session)
-		_, _ = d.Runner.Run("tmux", "-L", socket, "send-keys", "-t", session, "-l", "/reload-plugins")
-		_, _ = d.Runner.Run("tmux", "-L", socket, "send-keys", "-t", session, "Enter")
+		// ⚠️ Same exposure as the boot nudge: text an attached person has typed into
+		// the prompt box is submitted together with /reload-plugins, and a startup
+		// dialog drawn over the prompt takes the Enter instead.
+		r := withRunTimeout(d.Runner, notifyModCaptureBudget)
+		_, _ = r.Run("tmux", "-L", socket, "copy-mode", "-q", "-t", session)
+		_, _ = r.Run("tmux", "-L", socket, "send-keys", "-t", session, "-l", "/reload-plugins")
+		_, _ = r.Run("tmux", "-L", socket, "send-keys", "-t", session, "Enter")
 		reloadSent = true
 		d.logf("%s: notify-mod: plugins changed during startup; sent /reload-plugins", memberID)
 	}
