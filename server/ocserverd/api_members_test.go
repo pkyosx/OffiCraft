@@ -1995,8 +1995,6 @@ func TestHandleActivateMemberApiMembersMemberIdActivatePost(t *testing.T) {
 	})
 }
 
-// wantQueuedRestartReceipt reads the row a 重啟 verb pressed during a stop in flight
-// leaves behind: the stop stands, the 起來 is queued, and the receipt names the verb.
 // wantQueuedRestartRow compares the whole row against the one read before the verb:
 // the stop in flight keeps its stage and anchors, and only the saved change, the
 // queued 起來 and its receipt are new.
