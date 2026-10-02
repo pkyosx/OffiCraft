@@ -177,12 +177,12 @@ describe("MonitorPage uninstall members guard", () => {
 
     await waitFor(async () => {
       const first = await machineAction("mon-uninstall-btn", 0);
-      expect(first.disabled).toBe(true);
+      expect(first.getAttribute("aria-disabled")).toBe("true");
       expect(first.textContent).toContain("解除安裝中");
     });
     // The sibling machine's verb stays the plain enabled label.
     const second = await machineAction("mon-uninstall-btn", 1);
-    expect(second.disabled).toBe(false);
+    expect(second.getAttribute("aria-disabled")).toBeNull();
     expect(second.textContent).toContain("解除安裝");
     expect(second.textContent).not.toContain("解除安裝中");
   });

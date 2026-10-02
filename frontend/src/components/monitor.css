@@ -513,6 +513,15 @@
   .mon-col--actions {
     width: 84px;
   }
+  /* The ⚙ is the row's only way to its operations, so when the frame scrolls
+   * it stays pinned to the frame's right edge; the opaque card colour keeps
+   * the scrolled cells from showing through. */
+  .mon-table--machines th:last-child,
+  .mon-table--machines td:last-child {
+    position: sticky;
+    right: 0;
+    background: var(--color-card);
+  }
 }
 /* A value with its marks on a second line under it (CellStack). */
 .mon-cell-stack {

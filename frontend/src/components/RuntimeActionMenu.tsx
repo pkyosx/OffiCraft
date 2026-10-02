@@ -15,15 +15,17 @@ import "./runtime-login.css";
  * attached control with a single hairline between them. */
 const OVERLAP = 1;
 const EDGE = 8;
-const ENABLED_ITEM = "[role='menuitem']:not(:disabled)";
+const ITEM = "[role='menuitem']";
+const MODAL = "[aria-modal='true']";
 
 export interface RuntimeActionItem {
   key: string;
   label: string;
   icon?: ReactNode;
   onSelect: () => void;
+  /** Still focusable (aria-disabled), so a keyboard user hears `title`. */
   disabled?: boolean;
-  /** Shown on hover; the reason a disabled item is disabled. */
+  /** The reason a disabled item is disabled. */
   title?: string;
   danger?: boolean;
   /** Overrides the default `${testIdPrefix}-menu-${key}`. */
@@ -66,6 +68,31 @@ export function RuntimeActionMenu({
   };
   useEscapeLayer(() => close(true), popRef, open);
 
+  // Focus goes back to the trigger as soon as an item is chosen. When the
+  // action opened a dialog, focus goes back there again once that dialog is
+  // gone, unless something else on the page holds it by then: closing a dialog
+  // with a click leaves focus nowhere, and a keyboard user would start over
+  // from the top of the page.
+  const stopWatching = useRef<(() => void) | null>(null);
+  useEffect(() => () => stopWatching.current?.(), []);
+  const returnFocusAfterDialog = (before: Set<Element>) => {
+    stopWatching.current?.();
+    const timer = window.setTimeout(() => {
+      const opened = Array.from(document.querySelectorAll(MODAL)).find((el) => !before.has(el));
+      if (!opened) return;
+      const observer = new MutationObserver(() => {
+        if (opened.isConnected) return;
+        observer.disconnect();
+        stopWatching.current = null;
+        const at = document.activeElement;
+        if (!at || at === document.body) triggerRef.current?.focus();
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+      stopWatching.current = () => observer.disconnect();
+    });
+    stopWatching.current = () => window.clearTimeout(timer);
+  };
+
   useLayoutEffect(() => {
     if (!open) {
       setPos(null);
@@ -106,7 +133,7 @@ export function RuntimeActionMenu({
   }, [open]);
 
   useEffect(() => {
-    if (open && pos) popRef.current?.querySelector<HTMLElement>(ENABLED_ITEM)?.focus();
+    if (open && pos) popRef.current?.querySelector<HTMLElement>(ITEM)?.focus();
   }, [open, pos]);
 
   if (items.length === 0) return <>{children}</>;
@@ -150,7 +177,7 @@ export function RuntimeActionMenu({
               if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
               e.preventDefault();
               const all = Array.from(
-                popRef.current?.querySelectorAll<HTMLElement>(ENABLED_ITEM) ?? []
+                popRef.current?.querySelectorAll<HTMLElement>(ITEM) ?? []
               );
               const at = all.indexOf(document.activeElement as HTMLElement);
               const step = e.key === "ArrowDown" ? 1 : -1;
@@ -164,11 +191,14 @@ export function RuntimeActionMenu({
                 role="menuitem"
                 className={`runtime-menu__item${item.danger ? " runtime-menu__item--danger" : ""}`}
                 data-testid={item.testId ?? `${testIdPrefix}-menu-${item.key}`}
-                disabled={item.disabled}
+                aria-disabled={item.disabled || undefined}
                 title={item.title}
                 onClick={() => {
-                  close(false);
+                  if (item.disabled) return;
+                  const before = new Set(document.querySelectorAll(MODAL));
+                  close(true);
                   item.onSelect();
+                  returnFocusAfterDialog(before);
                 }}
               >
                 {item.icon && (

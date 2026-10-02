@@ -1,7 +1,7 @@
 // The 操作 column is one ⚙ button per machine row; its menu carries the row's
 // install / uninstall / delete with their enable rules unchanged.
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { MonitorPage } from "./MonitorPage";
 import type { Member, MachineView, MonMachineView } from "../types";
@@ -84,7 +84,7 @@ describe("the machine row's ⚙ operations menu", () => {
     expect(screen.queryByRole("menu")).toBeNull();
     fireEvent.click(gear);
     const items = screen.getAllByRole("menuitem") as HTMLButtonElement[];
-    expect(items.map((i) => [i.textContent, i.disabled, i.title])).toEqual([
+    expect(items.map((i) => [i.textContent, i.getAttribute("aria-disabled") === "true", i.title])).toEqual([
       ["重新安裝", false, ""],
       ["解除安裝", false, ""],
       ["刪除", false, ""],
@@ -96,7 +96,7 @@ describe("the machine row's ⚙ operations menu", () => {
     renderMonitor();
     fireEvent.click(await screen.findByRole("button", { name: "機器操作（Alpha）" }));
     const items = screen.getAllByRole("menuitem") as HTMLButtonElement[];
-    expect(items.map((i) => [i.textContent, i.disabled, i.title])).toEqual([
+    expect(items.map((i) => [i.textContent, i.getAttribute("aria-disabled") === "true", i.title])).toEqual([
       ["安裝", false, ""],
       ["解除安裝", true, "機器離線，無法解除安裝"],
       ["刪除", false, ""],
@@ -108,7 +108,34 @@ describe("the machine row's ⚙ operations menu", () => {
       machine({ machineId: "m-server-self", displayName: "本機", online: true, isSelf: true }),
     ]);
     renderMonitor();
-    expect((await machineAction("mon-delete-btn")).disabled).toBe(true);
+    expect((await machineAction("mon-delete-btn")).getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("under a chosen item that opens a dialog, focus is back on the gear, and returns there once the dialog is closed with a click", async () => {
+    listMachines.mockResolvedValue([machine({ online: true })]);
+    renderMonitor();
+    const gear = await screen.findByRole("button", { name: "機器操作（Alpha）" });
+    fireEvent.click(gear);
+    fireEvent.click(screen.getByTestId("mon-install-btn"));
+    const dialog = await screen.findByTestId("mon-install-dialog");
+    expect(document.activeElement).toBe(gear);
+    // A click on the dialog's close button moves focus there before the dialog
+    // goes away, as a real browser does.
+    const closeBtn = dialog.querySelector("button.mon-cmd__close") as HTMLButtonElement;
+    closeBtn.focus();
+    fireEvent.click(closeBtn);
+    await waitFor(() => expect(screen.queryByTestId("mon-install-dialog")).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(gear));
+  });
+
+  it("under a disabled item, choosing it does nothing and the menu stays open", async () => {
+    listMachines.mockResolvedValue([machine({ online: false })]);
+    renderMonitor();
+    fireEvent.click(await screen.findByRole("button", { name: "機器操作（Alpha）" }));
+    fireEvent.click(screen.getByTestId("mon-uninstall-btn"));
+    expect(screen.getByRole("menu")).toBeTruthy();
+    expect(screen.queryByTestId("mon-uninstall-confirm")).toBeNull();
+    expect(screen.queryByTestId("mon-uninstall-warn")).toBeNull();
   });
 
   it("under Esc closes the menu", async () => {

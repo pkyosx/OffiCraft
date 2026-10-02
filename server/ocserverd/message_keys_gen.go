@@ -268,7 +268,6 @@ var messageKeys = map[string]bool{
 	"monitor.fiveHour":                                 true,
 	"monitor.limitReached":                             true,
 	"monitor.machine.actionsCol":                       true,
-	"monitor.machine.actionsMenu":                      true,
 	"monitor.machine.bootstrapBusy":                    true,
 	"monitor.machine.bootstrapConfirm":                 true,
 	"monitor.machine.bootstrapConfirmBodyLead":         true,
