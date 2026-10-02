@@ -45,15 +45,51 @@ type spawnHarness struct {
 	asked   []string
 	// modTimes answers the ModTime seam; a path not in it is absent.
 	modTimes map[string]time.Time
+	// presentAt makes a path present from that much time after the launch on.
+	presentAt map[string]time.Duration
+	// The harness clock runs on what the spawn slept plus captureCost per pane
+	// capture; paneAt, when set, answers every capture by that clock.
+	captureCost time.Duration
+	paneAt      func(elapsed time.Duration) string
 	// reaped answers the leftover-listener reap, which is recorded in the runner's
 	// call list so its order against the launch shows.
 	reaped    int
 	reapStuck bool
 }
 
+func (h *spawnHarness) elapsed() time.Duration {
+	var total time.Duration
+	for _, d := range h.slept {
+		total += d
+	}
+	for _, c := range h.runner.calls {
+		if strings.Contains(c, " capture-pane ") {
+			total += h.captureCost
+		}
+	}
+	return total
+}
+
+// paneRunner answers pane captures from the harness clock; every call still
+// lands in the wardenRunner's call list.
+type paneRunner struct{ h *spawnHarness }
+
+func (r paneRunner) Run(name string, args ...string) (string, error) {
+	out, err := r.h.runner.Run(name, args...)
+	if slices.Contains(args, "capture-pane") {
+		// Read after the call is recorded: a capture sees the time it took.
+		return r.h.paneAt(r.h.elapsed()), nil
+	}
+	return out, err
+}
+
 func (h *spawnHarness) deps() SpawnDeps {
+	var runner CmdRunner = h.runner
+	if h.paneAt != nil {
+		runner = paneRunner{h}
+	}
 	return SpawnDeps{
-		Runner: h.runner,
+		Runner: runner,
 		Base:   "http://127.0.0.1:7755/",
 		Socket: "officraft",
 		Home:   "/w",
@@ -94,6 +130,9 @@ func (h *spawnHarness) deps() SpawnDeps {
 		},
 		Exists: func(path string) bool {
 			h.asked = append(h.asked, path)
+			if at, ok := h.presentAt[path]; ok && h.elapsed() >= at {
+				return true
+			}
 			return h.present[path]
 		},
 		ModTime: func(path string) (time.Time, error) {
@@ -102,7 +141,7 @@ func (h *spawnHarness) deps() SpawnDeps {
 			}
 			return time.Time{}, os.ErrNotExist
 		},
-		Now: func() time.Time { return spawnLaunchedAt },
+		Now: func() time.Time { return spawnLaunchedAt.Add(h.elapsed()) },
 		ReapWorkdirListeners: func(workdir string) (int, bool) {
 			h.runner.calls = append(h.runner.calls, "reap "+workdir)
 			return h.reaped, !h.reapStuck
@@ -113,6 +152,11 @@ func (h *spawnHarness) deps() SpawnDeps {
 		Sleep:      func(d time.Duration) { h.slept = append(h.slept, d) },
 	}
 }
+
+// A wait in which the mod never even starts: each of its 15 polls (every 2 s of
+// the 30 s) asks for both markers and captures the pane.
+var notifyModPollCaptures = slices.Repeat([]string{"tmux -L officraft capture-pane -p -t member-m1"}, 15)
+var notifyModPollAsks = slices.Repeat([]string{"/w/m1/.officraft-mod-loaded", "/w/m1/.officraft-mod-started"}, 15)
 
 // The harness's clock: every spawn launches at this instant.
 var spawnLaunchedAt = time.Date(2026, 10, 2, 3, 4, 0, 0, time.UTC)
@@ -1303,7 +1347,8 @@ func TestStart(t *testing.T) {
 		if !reflect.DeepEqual(h.runner.calls, wantCalls) {
 			t.Errorf("calls =\n%v\nwant\n%v", h.runner.calls, wantCalls)
 		}
-		if want := []string{"/w/m1/.officraft-mod-loaded"}; !reflect.DeepEqual(h.asked, want) {
+		// The wait's first poll finds the mod loaded, and the route check reads it again.
+		if want := []string{"/w/m1/.officraft-mod-loaded", "/w/m1/.officraft-mod-loaded"}; !reflect.DeepEqual(h.asked, want) {
 			t.Errorf("exists asked = %v, want %v", h.asked, want)
 		}
 		if strings.Contains(h.runner.calls[4], "--settings /w/m1/settings.json") {
@@ -1312,8 +1357,8 @@ func TestStart(t *testing.T) {
 		if !strings.Contains(h.runner.calls[4], "--settings "+shellQuote(goldenInlineSettings)) {
 			t.Fatal("the generated settings must ride the launch argv as inline JSON")
 		}
-		// The nudge loop's own 30 × 1 s, now spent waiting for the mod.
-		if want := slices.Repeat([]time.Duration{time.Second}, 30); !reflect.DeepEqual(h.slept, want) {
+		// The wait polls every 2 s and ends at the first poll that finds the mod loaded.
+		if want := []time.Duration{time.Second, time.Second}; !reflect.DeepEqual(h.slept, want) {
 			t.Errorf("slept %v, want %v", h.slept, want)
 		}
 		if len(h.logs) != 0 {
@@ -1412,9 +1457,11 @@ func TestStart(t *testing.T) {
 					"tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 " + goldenLaunchM1,
 					"tmux -L officraft set-option -t member-m1 window-size manual",
 					"tmux -L officraft resize-window -t member-m1 -x 160 -y 50",
+				}, notifyModPollCaptures...)
+				wantCalls = append(wantCalls,
 					// Before the paste, so it shows what the wait left on screen.
-					"tmux -L officraft capture-pane -p -t member-m1",
-				}, tc.nudge...)
+					"tmux -L officraft capture-pane -p -t member-m1")
+				wantCalls = append(wantCalls, tc.nudge...)
 				wantCalls = append(wantCalls,
 					"tmux -L officraft new-session -d -s listen-m1 -x 160 -y 50 "+goldenListenerM1,
 					"tmux -L officraft set-option -t listen-m1 window-size manual",
@@ -1423,8 +1470,9 @@ func TestStart(t *testing.T) {
 				if !reflect.DeepEqual(h.runner.calls, wantCalls) {
 					t.Errorf("calls =\n%v\nwant\n%v", h.runner.calls, wantCalls)
 				}
-				if want := []string{"/w/m1/.officraft-mod-loaded", "/w/m1/.officraft-mod-booted"}; !reflect.DeepEqual(h.asked, want) {
-					t.Errorf("exists asked = %v, want %v", h.asked, want)
+				wantAsked := append(slices.Clone(notifyModPollAsks), "/w/m1/.officraft-mod-loaded", "/w/m1/.officraft-mod-booted")
+				if !reflect.DeepEqual(h.asked, wantAsked) {
+					t.Errorf("exists asked = %v, want %v", h.asked, wantAsked)
 				}
 				if want := slices.Repeat([]time.Duration{time.Second}, tc.slept); !reflect.DeepEqual(h.slept, want) {
 					t.Errorf("slept %v, want %v", h.slept, want)
@@ -1514,7 +1562,7 @@ func TestStart(t *testing.T) {
 				if !reflect.DeepEqual(h.logs, wantLogs) {
 					t.Errorf("logs =\n%q\nwant\n%q", h.logs, wantLogs)
 				}
-				wantCalls := []string{
+				wantCalls := append([]string{
 					"tmux -L officraft has-session -t member-m1",
 					"/usr/local/bin/claude --version",
 					"tmux -L officraft kill-session -t listen-m1",
@@ -1522,23 +1570,217 @@ func TestStart(t *testing.T) {
 					"tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 " + goldenLaunchM1,
 					"tmux -L officraft set-option -t member-m1 window-size manual",
 					"tmux -L officraft resize-window -t member-m1 -x 160 -y 50",
+				}, notifyModPollCaptures...)
+				wantCalls = append(wantCalls,
 					capture,
-					"tmux -L officraft new-session -d -s listen-m1 -x 160 -y 50 " + goldenListenerM1,
+					"tmux -L officraft new-session -d -s listen-m1 -x 160 -y 50 "+goldenListenerM1,
 					"tmux -L officraft set-option -t listen-m1 window-size manual",
 					"tmux -L officraft resize-window -t listen-m1 -x 160 -y 50",
-					"tmux -L officraft display-message -p -t member-m1 #{pane_pid}",
-				}
+					"tmux -L officraft display-message -p -t member-m1 #{pane_pid}")
 				if !reflect.DeepEqual(h.runner.calls, wantCalls) {
 					t.Errorf("calls =\n%v\nwant\n%v", h.runner.calls, wantCalls)
 				}
-				// The version probe's 2s, then the capture's: a hung tmux must not
-				// stall the spawn past its line in receiptDeadlineSecs
-				// (server/ocserverd/receipt_watch.go).
-				if want := []time.Duration{2 * time.Second, 2 * time.Second}; !reflect.DeepEqual(rec.timeouts, want) {
+				// The version probe's 2s, then each capture's (15 polls, the fallback's):
+				// a hung tmux must not stall the spawn past its line in
+				// receiptDeadlineSecs (server/ocserverd/receipt_watch.go).
+				if want := slices.Repeat([]time.Duration{2 * time.Second}, 17); !reflect.DeepEqual(rec.timeouts, want) {
 					t.Errorf("timeouts = %v, want %v", rec.timeouts, want)
 				}
 			})
 		}
+	})
+
+	t.Run("under Claude Code holding its plugins after a startup sync, the wait answers its banner with /reload-plugins once", func(t *testing.T) {
+		// Claude Code's own words, typed out: the warden matches this banner.
+		const banner = "  ⎿  Plugins changed. Run /reload-plugins to activate.\n"
+		launch := []string{
+			"tmux -L officraft has-session -t member-m1",
+			"/usr/local/bin/claude --version",
+			"tmux -L officraft kill-session -t listen-m1",
+			"reap /w/m1",
+			"tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 " + goldenLaunchM1,
+			"tmux -L officraft set-option -t member-m1 window-size manual",
+			"tmux -L officraft resize-window -t member-m1 -x 160 -y 50",
+		}
+		const capture = "tmux -L officraft capture-pane -p -t member-m1"
+		reload := []string{
+			"tmux -L officraft copy-mode -q -t member-m1",
+			"tmux -L officraft send-keys -t member-m1 -l /reload-plugins",
+			"tmux -L officraft send-keys -t member-m1 Enter",
+		}
+		const reloadLog = "m1: notify-mod: plugins changed during startup; sent /reload-plugins"
+
+		t.Run("a banner at 4 s gets one /reload-plugins, the mod then loads and the member stays on the mod route", func(t *testing.T) {
+			h := newSpawnHarness()
+			h.present = map[string]bool{}
+			h.presentAt = map[string]time.Duration{
+				"/w/m1/.officraft-mod-started": 5 * time.Second,
+				"/w/m1/.officraft-mod-loaded":  7 * time.Second,
+			}
+			h.paneAt = func(elapsed time.Duration) string {
+				if elapsed >= 4*time.Second {
+					return banner
+				}
+				return "╭ Claude Code ╮\n"
+			}
+			got := h.deps().start(startParamsM1())
+
+			if want := (SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500"}); got != want {
+				t.Errorf("outcome = %+v, want %+v", got, want)
+			}
+			// 2 s: no banner yet; 4 s: the banner, answered; 6 s: started, no
+			// capture; 8 s: loaded, the wait ends. No paste, no listener session.
+			wantCalls := append(slices.Clone(launch), capture, capture)
+			wantCalls = append(wantCalls, reload...)
+			wantCalls = append(wantCalls, "tmux -L officraft display-message -p -t member-m1 #{pane_pid}")
+			if !reflect.DeepEqual(h.runner.calls, wantCalls) {
+				t.Errorf("calls =\n%v\nwant\n%v", h.runner.calls, wantCalls)
+			}
+			// Once the reload is sent, polls only look for the load marker.
+			wantAsked := []string{
+				"/w/m1/.officraft-mod-loaded", "/w/m1/.officraft-mod-started",
+				"/w/m1/.officraft-mod-loaded", "/w/m1/.officraft-mod-started",
+				"/w/m1/.officraft-mod-loaded",
+				"/w/m1/.officraft-mod-loaded",
+				"/w/m1/.officraft-mod-loaded",
+			}
+			if !reflect.DeepEqual(h.asked, wantAsked) {
+				t.Errorf("exists asked = %v, want %v", h.asked, wantAsked)
+			}
+			if want := slices.Repeat([]time.Duration{time.Second}, 8); !reflect.DeepEqual(h.slept, want) {
+				t.Errorf("slept %v, want %v", h.slept, want)
+			}
+			if want := []string{reloadLog}; !reflect.DeepEqual(h.logs, want) {
+				t.Errorf("logs = %q, want %q", h.logs, want)
+			}
+			for _, w := range h.writes {
+				if w.path == "/w/m1/.officraft-mod-disabled" {
+					t.Errorf("the mod was told to stand down: %+v", w)
+				}
+			}
+		})
+
+		t.Run("a banner still on screen after the reload gets no second one, and a mod that never starts falls back as before", func(t *testing.T) {
+			h := newSpawnHarness()
+			h.present = map[string]bool{}
+			h.paneAt = func(time.Duration) string { return banner }
+			got := h.deps().start(startParamsM1())
+
+			want := SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500", Note: goldenNotifyModNotLoadedNote}
+			if got != want {
+				t.Errorf("outcome = %+v, want %+v", got, want)
+			}
+			// One capture at 2 s, answered; the next 14 polls capture nothing.
+			wantCalls := append(slices.Clone(launch), capture)
+			wantCalls = append(wantCalls, reload...)
+			wantCalls = append(wantCalls, capture)
+			wantCalls = append(wantCalls, nudgeCallsWithEnters(3)...)
+			wantCalls = append(wantCalls,
+				"tmux -L officraft new-session -d -s listen-m1 -x 160 -y 50 "+goldenListenerM1,
+				"tmux -L officraft set-option -t listen-m1 window-size manual",
+				"tmux -L officraft resize-window -t listen-m1 -x 160 -y 50",
+				"tmux -L officraft display-message -p -t member-m1 #{pane_pid}")
+			if !reflect.DeepEqual(h.runner.calls, wantCalls) {
+				t.Errorf("calls =\n%v\nwant\n%v", h.runner.calls, wantCalls)
+			}
+			wantAsked := append([]string{"/w/m1/.officraft-mod-loaded", "/w/m1/.officraft-mod-started"},
+				slices.Repeat([]string{"/w/m1/.officraft-mod-loaded"}, 14)...)
+			wantAsked = append(wantAsked, "/w/m1/.officraft-mod-loaded", "/w/m1/.officraft-mod-booted")
+			if !reflect.DeepEqual(h.asked, wantAsked) {
+				t.Errorf("exists asked = %v, want %v", h.asked, wantAsked)
+			}
+			if want := slices.Repeat([]time.Duration{time.Second}, 33); !reflect.DeepEqual(h.slept, want) {
+				t.Errorf("slept %v, want %v", h.slept, want)
+			}
+			wantLogs := []string{
+				reloadLog,
+				"m1: the notification mod did not load; notifications go by tmux paste",
+				"m1: notify-mod-fallback: .officraft-mod-started absent: the mod's session.start never ran with its config",
+				"m1: notify-mod-fallback: pane member-m1, last 40 lines:",
+				"m1: notify-mod-fallback pane|   ⎿  Plugins changed. Run /reload-plugins to activate.",
+			}
+			if !reflect.DeepEqual(h.logs, wantLogs) {
+				t.Errorf("logs =\n%q\nwant\n%q", h.logs, wantLogs)
+			}
+		})
+
+		t.Run("a mod that started captures nothing, and the wait ends at the first poll that finds it loaded", func(t *testing.T) {
+			h := newSpawnHarness()
+			h.present = map[string]bool{}
+			h.presentAt = map[string]time.Duration{
+				"/w/m1/.officraft-mod-started": time.Second,
+				"/w/m1/.officraft-mod-loaded":  4 * time.Second,
+			}
+			h.paneAt = func(time.Duration) string { return banner }
+			got := h.deps().start(startParamsM1())
+
+			if want := (SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500"}); got != want {
+				t.Errorf("outcome = %+v, want %+v", got, want)
+			}
+			wantCalls := append(slices.Clone(launch), "tmux -L officraft display-message -p -t member-m1 #{pane_pid}")
+			if !reflect.DeepEqual(h.runner.calls, wantCalls) {
+				t.Errorf("calls =\n%v\nwant\n%v", h.runner.calls, wantCalls)
+			}
+			if want := slices.Repeat([]time.Duration{time.Second}, 4); !reflect.DeepEqual(h.slept, want) {
+				t.Errorf("slept %v, want %v", h.slept, want)
+			}
+			if len(h.logs) != 0 {
+				t.Errorf("logs = %q, want none", h.logs)
+			}
+		})
+
+		t.Run("under a clock that does not move, the wait still ends after 30 sleeps", func(t *testing.T) {
+			h := newSpawnHarness()
+			h.present = map[string]bool{"/w/m1/.officraft-mod-booted": true}
+			h.paneAt = func(time.Duration) string { return "╭ Claude Code ╮\n" }
+			d := h.deps()
+			d.Now = func() time.Time { return spawnLaunchedAt }
+			d.start(startParamsM1())
+
+			if want := slices.Repeat([]time.Duration{time.Second}, 30); !reflect.DeepEqual(h.slept, want) {
+				t.Errorf("slept %d times, want 30", len(h.slept))
+			}
+		})
+
+		t.Run("under a nil Sleep, the wait paces on real time (nudgeClock), not a no-op", func(t *testing.T) {
+			h := newSpawnHarness() // the mod is loaded: the first poll, 2 real seconds in, ends the wait
+			d := h.deps()
+			d.Sleep = nil
+			began := time.Now()
+			if got := d.start(startParamsM1()); got.Note != "" {
+				t.Errorf("outcome = %+v, want the mod route", got)
+			}
+			if took := time.Since(began); took < 2*time.Second {
+				t.Errorf("the wait took %v, want at least 2 s of real time", took)
+			}
+		})
+
+		t.Run("captures that take 3 s each end the wait at its 30 s deadline, not after 30 sleeps", func(t *testing.T) {
+			h := newSpawnHarness()
+			h.present = map[string]bool{"/w/m1/.officraft-mod-booted": true}
+			h.captureCost = 3 * time.Second
+			h.paneAt = func(time.Duration) string { return "╭ Claude Code ╮\n" }
+			got := h.deps().start(startParamsM1())
+
+			want := SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500", Note: goldenNotifyModNotLoadedNote}
+			if got != want {
+				t.Errorf("outcome = %+v, want %+v", got, want)
+			}
+			// Polls at 2, 7, 12, 17, 22 and 27 s of the harness clock, each capture
+			// adding 3 s: the poll ending at 30 s is the last.
+			if want := slices.Repeat([]time.Duration{time.Second}, 12); !reflect.DeepEqual(h.slept, want) {
+				t.Errorf("slept %v, want %v", h.slept, want)
+			}
+			wantCalls := append(slices.Clone(launch), slices.Repeat([]string{capture}, 7)...)
+			wantCalls = append(wantCalls,
+				"tmux -L officraft new-session -d -s listen-m1 -x 160 -y 50 "+goldenListenerM1,
+				"tmux -L officraft set-option -t listen-m1 window-size manual",
+				"tmux -L officraft resize-window -t listen-m1 -x 160 -y 50",
+				"tmux -L officraft display-message -p -t member-m1 #{pane_pid}")
+			if !reflect.DeepEqual(h.runner.calls, wantCalls) {
+				t.Errorf("calls =\n%v\nwant\n%v", h.runner.calls, wantCalls)
+			}
+		})
 	})
 
 	t.Run("under a configured nudge, that text is the boot prompt the mod submits", func(t *testing.T) {

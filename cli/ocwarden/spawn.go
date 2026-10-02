@@ -16,7 +16,7 @@ import (
 const (
 	defaultNudge = "開始。"
 	// The Enter loop is UNCONDITIONAL: every claude spawn spends 30×1s here (the
-	// mod route in a plain wait of the same pacing), out of the
+	// mod route polls within the same 30 s, see waitForNotifyMod), out of the
 	// 90s receiptDeadlineSecs in server/ocserverd/receipt_watch.go (the START receipt
 	// is POSTed only after Spawn returns); that comment lists the rest of the spawn
 	// path's budgets, and their worst case already runs past 90s. NEITHER NUMBER
@@ -927,8 +927,8 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 			tmuxDeliverNudge(d.Runner, d.Sleep, socket, session, nudge)
 		} else {
 			// The mod submits the boot prompt itself; nothing is pasted. The wait is
-			// the nudge loop's own 30 s, so the spawn budget does not move.
-			waitForNotifyMod(d.Sleep)
+			// bounded by the nudge loop's own 30 s, so the spawn budget barely moves.
+			d.waitForNotifyMod(p.MemberID, workdir, socket, session)
 		}
 
 		// 🔴 Not atomic: a mod that loads between this read and the disabled-marker
