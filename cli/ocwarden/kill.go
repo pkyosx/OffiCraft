@@ -251,8 +251,8 @@ func stop(r CmdRunner, socket, session string, kill killFunc, getpgid pgidFunc, 
 	}
 	preHas := tmuxHasSession(r, socket, session)
 	positivelyAbsent := preHas != nil && !*preHas
-	// The workdir leg of the snapshot catches the listener (its own tmux session,
-	// out of kill-session's reach) and zombies orphaned by an earlier failed stop,
+	// The workdir leg of the snapshot catches a paste-route listener (its own tmux
+	// session, out of kill-session's reach) and zombies orphaned by an earlier failed stop,
 	// which is why the sweep runs even when kill-session took.
 	snap := snapshotMemberPIDs(r, socket, session, sw)
 	killed := killSession(r, socket, session)

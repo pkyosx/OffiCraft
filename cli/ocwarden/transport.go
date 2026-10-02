@@ -412,6 +412,7 @@ func buildSpawnDeps(cfg Config, env func(string) string, runner CmdRunner, socke
 		MkdirAll:          os.MkdirAll,
 		Symlink:           os.Symlink,
 		Remove:            os.Remove,
+		Exists:            pathStatable,
 		Sleep:             time.Sleep,
 		Pretrust:          nil,
 	}
@@ -436,8 +437,9 @@ func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner, lau
 			).start(p)
 		},
 		Stop: func(session string) (bool, bool) {
-			// The detached `ocagent listen` never receives the session's SIGHUP, so the
-			// sweep finds it by workdir (lsof) and reaps it by pid. A legacy
+			// A paste-route `ocagent listen` is detached and never receives the
+			// session's SIGHUP, so the sweep finds it by workdir (lsof) and reaps it
+			// by pid. A legacy
 			// worker-<ow-id> session resolves the retired workers/ root; an unresolvable
 			// session keeps root "", which makes purgeTrash refuse.
 			root := defaultAgentHome(env)

@@ -7,9 +7,9 @@ import (
 	"testing"
 )
 
-// The listener a claude member does NOT own: it is started beside the member so
-// the member's harness cannot drop it, and it carries the member's session name
-// so it dies with the member.
+// The paste listener of a claude member on the paste route: it is started beside
+// the member so the member's harness cannot drop it, and it carries the member's
+// session name so it dies with the member.
 
 func TestListenerSessionName(t *testing.T) {
 	got := listenerSessionName("M1")
@@ -25,17 +25,13 @@ func TestListenerSessionName(t *testing.T) {
 }
 
 func TestStartListenerSession(t *testing.T) {
-	t.Run("the stale listener is cleared before the new one is started", func(t *testing.T) {
+	t.Run("a listener starts in a session of its own and says nothing", func(t *testing.T) {
 		h := newSpawnHarness()
 		startListenerSession(h.deps(), "officraft", "member-m1", "m1", "exec ocagent listen --deliver-tmux")
 
-		// ORDER, not mere presence. Member session names are reused across
-		// respawns, so a listener left from the previous session is watching a
-		// name that exists again and will not self-exit; two listeners on one
-		// identity make the station evict one, and the loser's escape hatch kills
-		// OC_SESSION — the member that was just spawned.
+		// The stale listen-m1 is killed by the spawn itself, before the member is
+		// launched (TestStart), on both notification routes.
 		want := []string{
-			"tmux -L officraft kill-session -t listen-m1",
 			"tmux -L officraft new-session -d -s listen-m1 -x 160 -y 50 exec ocagent listen --deliver-tmux",
 			"tmux -L officraft set-option -t listen-m1 window-size manual",
 			"tmux -L officraft resize-window -t listen-m1 -x 160 -y 50",

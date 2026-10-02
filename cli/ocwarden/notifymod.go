@@ -1,0 +1,123 @@
+package main
+
+import (
+	"embed"
+	"fmt"
+	"os"
+	"path"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// A claude member hears OffiCraft events through one of two routes, picked per
+// spawn:
+//   - the notification mod (mod/, a Claude Code plugin of function hooks) runs
+//     `ocagent listen --deliver-mod` as its child and submits each event as a
+//     prompt of the member's MAIN conversation, whatever view the pane shows;
+//   - the paste route: a `listen-<id>` tmux session runs `ocagent listen
+//     --deliver-tmux`, which pastes into the member's pane. Text pasted while the
+//     pane shows a sub-agent goes to that sub-agent, so this is only the fallback
+//     for a Claude Code too old for mods, or one that did not load it.
+
+//go:embed mod/.claude-plugin/plugin.json mod/hooks/hooks.json mod/hooks/register.ts
+var notifyModFS embed.FS
+
+// 🔴 The three file names are spelled again in mod/hooks/register.ts; renaming
+// one side only sends every member to the paste route (loaded marker) or starts
+// two listeners on one identity (disabled marker).
+const (
+	notifyModDirName        = ".officraft-mod"
+	notifyModLoadedMarker   = ".officraft-mod-loaded"
+	notifyModDisabledMarker = ".officraft-mod-disabled"
+
+	notifyModMinClaudeVersion = "2.1.287"
+)
+
+var notifyModFiles = []string{".claude-plugin/plugin.json", "hooks/hooks.json", "hooks/register.ts"}
+
+// Its run time is part of the spawn budget listed at receiptDeadlineSecs
+// (server/ocserverd/receipt_watch.go).
+const claudeVersionProbeBudget = 2 * time.Second
+
+// Owner-facing advisories on an OK spawn, folded into 最近操作 (command.go).
+func notifyLegacyPasteNote(found string) string {
+	return "notify_legacy_paste: 這台機器的 Claude Code 是 " + found + "，比通知模組需要的 " +
+		notifyModMinClaudeVersion + " 舊，這位成員的通知改用貼進 tmux 視窗的舊方式送達；" +
+		"有人把視窗切到子代理（sub-agent）畫面時，貼進去的通知會送錯地方而漏掉。" +
+		"請到調度台升級這台機器的 Claude Code。"
+}
+
+const notifyModNotLoadedNote = "notify_mod_not_loaded: OffiCraft 的通知模組（Claude Code mod）這次沒有載入，" +
+	"常見原因：工作目錄沒有被信任、設定了 disableAllHooks、以 --safe-mode 啟動，" +
+	"或受管設定（managed settings）擋掉了 --plugin-dir。這位成員的通知改用貼進 tmux 視窗的舊方式送達；" +
+	"有人把視窗切到子代理（sub-agent）畫面時，通知可能漏掉。"
+
+// An unreadable version is not "too old": the load marker catches a Claude Code
+// that cannot run the mod after all.
+func (d SpawnDeps) claudeTooOldForNotifyMod() (found string, tooOld bool) {
+	out, err := withRunTimeout(d.Runner, claudeVersionProbeBudget).Run(d.ClaudeBin, "--version")
+	fields := strings.Fields(out)
+	if err != nil || len(fields) == 0 {
+		return "", false
+	}
+	have, ok := parseDottedVersion(fields[0])
+	if !ok {
+		return "", false
+	}
+	want, _ := parseDottedVersion(notifyModMinClaudeVersion)
+	return fields[0], compareCodexModelVersions(have, want) < 0
+}
+
+func parseDottedVersion(v string) ([]int, bool) {
+	parts := strings.Split(v, ".")
+	out := make([]int, 0, len(parts))
+	for _, p := range parts {
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 0 {
+			return nil, false
+		}
+		out = append(out, n)
+	}
+	return out, true
+}
+
+// Rewritten on every spawn. Both markers are cleared first: a loaded marker left
+// by the previous session would pass the check below for a mod that never loaded,
+// and a disabled one would keep a mod that does load from starting its listener.
+func (d SpawnDeps) installNotifyMod(workdir string) string {
+	for _, marker := range []string{notifyModLoadedMarker, notifyModDisabledMarker} {
+		if err := d.Remove(filepath.Join(workdir, marker)); err != nil && !os.IsNotExist(err) {
+			return fmt.Sprintf("write_file_failed: clearing stale %s: %v", marker, err)
+		}
+	}
+	dir := filepath.Join(workdir, notifyModDirName)
+	for _, name := range notifyModFiles {
+		body, err := notifyModFS.ReadFile(path.Join("mod", name))
+		if err != nil {
+			return fmt.Sprintf("write_file_failed: notification mod %s is not in this warden: %v", name, err)
+		}
+		dest := filepath.Join(dir, filepath.FromSlash(name))
+		if err := d.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
+			return fmt.Sprintf("mkdir_failed: %s: %v", filepath.Dir(dest), err)
+		}
+		if err := d.WriteFile(dest, string(body), 0o600); err != nil {
+			return fmt.Sprintf("write_file_failed: %s/%s: %v", notifyModDirName, name, err)
+		}
+	}
+	return ""
+}
+
+func (d SpawnDeps) notifyModLoaded(workdir string) bool {
+	return d.Exists != nil && d.Exists(filepath.Join(workdir, notifyModLoadedMarker))
+}
+
+// ⚠️ A mod that loads AFTER this fallback would otherwise start a second
+// listener beside the paste one; the mod checks this file first.
+func (d SpawnDeps) disableNotifyMod(workdir string) {
+	marker := filepath.Join(workdir, notifyModDisabledMarker)
+	if err := d.WriteFile(marker, "the warden fell back to the tmux paste listener\n", 0o600); err != nil {
+		d.logf("could not write %s (%v); a late-loading mod would start a second listener", marker, err)
+	}
+}

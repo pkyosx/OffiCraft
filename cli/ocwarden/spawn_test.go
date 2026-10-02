@@ -40,6 +40,9 @@ type spawnHarness struct {
 	purges    int
 	// promptProbes records every "does this claude take a prompt file" question.
 	promptProbes []string
+	// present answers the Exists seam; every path asked is recorded.
+	present map[string]bool
+	asked   []string
 }
 
 func (h *spawnHarness) deps() SpawnDeps {
@@ -83,6 +86,10 @@ func (h *spawnHarness) deps() SpawnDeps {
 			}
 			return os.ErrNotExist
 		},
+		Exists: func(path string) bool {
+			h.asked = append(h.asked, path)
+			return h.present[path]
+		},
 		Logf:       func(format string, a ...any) { h.logs = append(h.logs, fmt.Sprintf(format, a...)) },
 		Pretrust:   func() error { h.pretrusts++; return h.pretrustE },
 		PurgeTrash: func() { h.purges++ },
@@ -98,6 +105,8 @@ func newSpawnHarness() *spawnHarness {
 		}},
 		writeErr:  map[string]error{},
 		removeErr: map[string]error{},
+		// The mod loaded: the route every claude spawn takes unless a case says otherwise.
+		present: map[string]bool{"/w/m1/.officraft-mod-loaded": true},
 	}
 }
 
@@ -113,13 +122,59 @@ const goldenClaudePurge = `for __oc_e in $(/usr/bin/env); do case $__oc_e in CLA
 
 const goldenInlineSettings = `{"skipDangerousModePermissionPrompt":true,"tui":"fullscreen","statusLine":{"type":"command","command":"ocagent context-report"},"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"ocagent guard-bash"}]}],"PermissionRequest":[{"hooks":[{"type":"command","command":"ocagent guard-permission"}]}],"Stop":[{"hooks":[{"type":"command","command":"ocagent model-call-report"}]}],"StopFailure":[{"hooks":[{"type":"command","command":"ocagent model-call-report"}]}]}}`
 
-var goldenLaunchM1 = `cd /w/m1; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
+// goldenLaunchM1Paste is the launch line of a member that hears through the
+// paste listener: no notification mod is loaded.
+var goldenLaunchM1Paste = `cd /w/m1; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
 	`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft ` +
 	`HOME=/Users/wardenowner; ` +
 	`export PATH=/w/m1:"$PATH"; ` +
 	`exec /usr/local/bin/claude --dangerously-skip-permissions ` +
 	`--disallowedTools AskUserQuestion --mcp-config /w/m1/.mcp.json --effort medium ` +
 	`--append-system-prompt-file /w/m1/system-prompt.md --settings ` + shellQuote(goldenInlineSettings)
+
+var goldenLaunchM1 = goldenLaunchM1Paste + ` --plugin-dir /w/m1/.officraft-mod`
+
+// notifyModFile is one file of the notification mod as it ships (mod/ beside
+// this package): the warden must lay it down byte for byte.
+func notifyModFile(t *testing.T, name string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("mod", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func notifyModWrites(t *testing.T) []writtenFile {
+	return []writtenFile{
+		{"/w/m1/.officraft-mod/.claude-plugin/plugin.json", notifyModFile(t, ".claude-plugin/plugin.json"), 0o600},
+		{"/w/m1/.officraft-mod/hooks/hooks.json", notifyModFile(t, "hooks/hooks.json"), 0o600},
+		{"/w/m1/.officraft-mod/hooks/register.ts", notifyModFile(t, "hooks/register.ts"), 0o600},
+	}
+}
+
+const goldenNotifyLegacyPasteNote = "notify_legacy_paste: 這台機器的 Claude Code 是 2.1.286，比通知模組需要的 2.1.287 舊，" +
+	"這位成員的通知改用貼進 tmux 視窗的舊方式送達；有人把視窗切到子代理（sub-agent）畫面時，" +
+	"貼進去的通知會送錯地方而漏掉。請到調度台升級這台機器的 Claude Code。"
+
+const goldenNotifyModNotLoadedNote = "notify_mod_not_loaded: OffiCraft 的通知模組（Claude Code mod）這次沒有載入，" +
+	"常見原因：工作目錄沒有被信任、設定了 disableAllHooks、以 --safe-mode 啟動，" +
+	"或受管設定（managed settings）擋掉了 --plugin-dir。這位成員的通知改用貼進 tmux 視窗的舊方式送達；" +
+	"有人把視窗切到子代理（sub-agent）畫面時，通知可能漏掉。"
+
+// nudgeCalls is the boot nudge into member-m1: one paste, then 30 paced Enters.
+func nudgeCalls() []string {
+	calls := []string{
+		"tmux -L officraft set-buffer -b oc-spawn-nudge 開始。",
+		"tmux -L officraft paste-buffer -t member-m1 -b oc-spawn-nudge -d -p",
+	}
+	for i := 0; i < 30; i++ {
+		calls = append(calls,
+			"tmux -L officraft copy-mode -q -t member-m1",
+			"tmux -L officraft send-keys -t member-m1 Enter")
+	}
+	return calls
+}
 
 // goldenSystemPromptM1 is what the member reads as its appended system prompt:
 // the header, then the persona verbatim.
@@ -436,13 +491,13 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 		`--settings '{"hooks":{}}'`
 	got := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
 		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft-lab", "", "medium",
-		`{"hooks":{}}`, [][2]string{{"OC_AGENT_HOME", "/w"}}, "/w/m1/.oc-env", home)
+		`{"hooks":{}}`, [][2]string{{"OC_AGENT_HOME", "/w"}}, "/w/m1/.oc-env", home, "")
 	if got != want {
 		t.Errorf("launch line =\n%s\nwant\n%s", got, want)
 	}
 
 	plain := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
-		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "", home)
+		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "", home, "")
 	if plain != buildLaunchCommand("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
 		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", home) {
 		t.Errorf("no extra env must be byte-identical to the plain line, got\n%s", plain)
@@ -450,7 +505,7 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 
 	spaced := buildLaunchCommandWithEnv("/opt/my claude/claude", "/w/a b", "/w/a b/.mcp.json", claudeSystemPromptInline("it's me"),
 		"/w/a b/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/a b/.oc-env",
-		claudeHome{Home: "/Users/warden owner"})
+		claudeHome{Home: "/Users/warden owner"}, "")
 	wantSpaced := `cd '/w/a b'; [ -f '/w/a b/.oc-env' ] && . '/w/a b/.oc-env'; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR; ` +
 		`export OC_TOKEN="$(/bin/cat '/w/a b/.oc-token')" ` +
 		`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft ` +
@@ -465,7 +520,7 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 	t.Run("a redirected config home is exported instead of unset", func(t *testing.T) {
 		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
 			"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/m1/.oc-env",
-			claudeHome{Home: "/Users/wardenowner", ConfigDir: "/tmp/box"})
+			claudeHome{Home: "/Users/wardenowner", ConfigDir: "/tmp/box"}, "")
 		if !strings.Contains(line, "CLAUDE_CONFIG_DIR=/tmp/box") {
 			t.Errorf("a stated config dir must be exported:\n%s", line)
 		}
@@ -480,7 +535,7 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 		// silently erased by it, and every other assertion here still passes.
 		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
 			"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/m1/.oc-env",
-			claudeHome{Home: "/Users/wardenowner", ConfigDir: "/tmp/box"})
+			claudeHome{Home: "/Users/wardenowner", ConfigDir: "/tmp/box"}, "")
 		source := strings.Index(line, ". /w/m1/.oc-env")
 		pinHome := strings.Index(line, "HOME=/Users/wardenowner")
 		pinDir := strings.Index(line, "CLAUDE_CONFIG_DIR=/tmp/box")
@@ -492,7 +547,7 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 		}
 		unsetLine := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
 			"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/m1/.oc-env",
-			claudeHome{Home: "/Users/wardenowner"})
+			claudeHome{Home: "/Users/wardenowner"}, "")
 		if src, un := strings.Index(unsetLine, ". /w/m1/.oc-env"), strings.Index(unsetLine, "unset CLAUDE_CONFIG_DIR"); src < 0 || un < 0 || src > un {
 			t.Errorf("the unset must follow the source (source=%d unset=%d):\n%s", src, un, unsetLine)
 		}
@@ -523,7 +578,7 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 		}
 		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", workdir, "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
 			"/dev/null", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, render,
-			claudeHome{Home: "/Users/wardenowner"})
+			claudeHome{Home: "/Users/wardenowner"}, "")
 		execAt := strings.Index(line, "; exec ")
 		if execAt < 0 {
 			t.Fatalf("launch line has no exec clause:\n%s", line)
@@ -541,7 +596,7 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 	t.Run("a pin cannot be overridden by an extra env pair of the same name", func(t *testing.T) {
 		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
 			"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "",
-			[][2]string{{"HOME", "/Volumes/scratch/home"}}, "", claudeHome{Home: "/Users/wardenowner"})
+			[][2]string{{"HOME", "/Volumes/scratch/home"}}, "", claudeHome{Home: "/Users/wardenowner"}, "")
 		early := strings.Index(line, "HOME=/Volumes/scratch/home")
 		late := strings.Index(line, "HOME=/Users/wardenowner")
 		if late < 0 || (early >= 0 && early > late) {
@@ -1165,11 +1220,78 @@ func TestWithPerSpawn(t *testing.T) {
 }
 
 func TestStart(t *testing.T) {
-	t.Run("a claude spawn writes the workdir, publishes ocagent, launches and nudges", func(t *testing.T) {
+	t.Run("a claude spawn writes the workdir and the notification mod, launches with the mod and nudges", func(t *testing.T) {
 		h := newSpawnHarness()
 		got := h.deps().start(startParamsM1())
 
 		if want := (SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500"}); got != want {
+			t.Errorf("outcome = %+v, want %+v", got, want)
+		}
+		wantMkdirs := []string{"/w/m1", "/w/m1/.officraft-mod/.claude-plugin", "/w/m1/.officraft-mod/hooks",
+			"/w/m1/.officraft-mod/hooks"}
+		if !reflect.DeepEqual(h.mkdirs, wantMkdirs) {
+			t.Errorf("mkdirs = %v, want %v", h.mkdirs, wantMkdirs)
+		}
+		wantWrites := append([]writtenFile{
+			{"/w/m1/persona.md", "you are m1", 0o600},
+			{"/w/m1/.mcp.json", buildMCPConfig("http://127.0.0.1:7755", "jwt-m1"), 0o600},
+			{"/w/m1/settings.json", buildStatuslineSettings(), 0o600},
+			{"/w/m1/.oc-token", "jwt-m1", 0o600},
+			{"/w/m1/system-prompt.md", goldenSystemPromptM1, 0o600},
+		}, notifyModWrites(t)...)
+		if !reflect.DeepEqual(h.writes, wantWrites) {
+			t.Errorf("writes =\n%+v\nwant\n%+v", h.writes, wantWrites)
+		}
+		// Both markers go before the launch: a stale loaded marker would pass the
+		// check for a mod that never loaded, a stale disabled one would mute it.
+		wantRemoves := []string{"/w/m1/ocagent", "/w/m1/.oc-env", "/w/m1/.officraft-mod-loaded", "/w/m1/.officraft-mod-disabled"}
+		if !reflect.DeepEqual(h.removes, wantRemoves) {
+			t.Errorf("removes = %v, want %v", h.removes, wantRemoves)
+		}
+		wantLink := [][2]string{{"/Users/eva/.officraft/warden/ocagent", "/w/m1/ocagent"}}
+		if !reflect.DeepEqual(h.symlinks, wantLink) {
+			t.Errorf("symlinks = %v, want %v", h.symlinks, wantLink)
+		}
+		if h.pretrusts != 1 || h.purges != 1 {
+			t.Errorf("pretrusts=%d purges=%d, want 1/1", h.pretrusts, h.purges)
+		}
+		// The paste listener a previous warden may have left is killed; none is started.
+		wantCalls := append([]string{
+			"tmux -L officraft has-session -t member-m1",
+			"/usr/local/bin/claude --version",
+			"tmux -L officraft kill-session -t listen-m1",
+			"tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 " + goldenLaunchM1,
+			"tmux -L officraft set-option -t member-m1 window-size manual",
+			"tmux -L officraft resize-window -t member-m1 -x 160 -y 50",
+		}, nudgeCalls()...)
+		wantCalls = append(wantCalls, "tmux -L officraft display-message -p -t member-m1 #{pane_pid}")
+		if !reflect.DeepEqual(h.runner.calls, wantCalls) {
+			t.Errorf("calls =\n%v\nwant\n%v", h.runner.calls, wantCalls)
+		}
+		if want := []string{"/w/m1/.officraft-mod-loaded"}; !reflect.DeepEqual(h.asked, want) {
+			t.Errorf("exists asked = %v, want %v", h.asked, want)
+		}
+		if strings.Contains(h.runner.calls[3], "--settings /w/m1/settings.json") {
+			t.Fatal("the launch still reads a workdir settings file that can be changed after the pre-trust gate")
+		}
+		if !strings.Contains(h.runner.calls[3], "--settings "+shellQuote(goldenInlineSettings)) {
+			t.Fatal("the generated settings must ride the launch argv as inline JSON")
+		}
+		if len(h.slept) != 30 {
+			t.Errorf("slept %d times, want 30", len(h.slept))
+		}
+		if len(h.logs) != 0 {
+			t.Errorf("logs = %v, want none", h.logs)
+		}
+	})
+
+	t.Run("under a Claude Code older than mods, the member hears through the paste listener and the owner is told", func(t *testing.T) {
+		h := newSpawnHarness()
+		h.runner.script["/usr/local/bin/claude --version"] = wardenRun{out: "2.1.286 (Claude Code)\n"}
+		got := h.deps().start(startParamsM1())
+
+		want := SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500", Note: goldenNotifyLegacyPasteNote}
+		if got != want {
 			t.Errorf("outcome = %+v, want %+v", got, want)
 		}
 		if want := []string{"/w/m1"}; !reflect.DeepEqual(h.mkdirs, want) {
@@ -1188,28 +1310,15 @@ func TestStart(t *testing.T) {
 		if want := []string{"/w/m1/ocagent", "/w/m1/.oc-env"}; !reflect.DeepEqual(h.removes, want) {
 			t.Errorf("removes = %v, want %v", h.removes, want)
 		}
-		wantLink := [][2]string{{"/Users/eva/.officraft/warden/ocagent", "/w/m1/ocagent"}}
-		if !reflect.DeepEqual(h.symlinks, wantLink) {
-			t.Errorf("symlinks = %v, want %v", h.symlinks, wantLink)
-		}
-		if h.pretrusts != 1 || h.purges != 1 {
-			t.Errorf("pretrusts=%d purges=%d, want 1/1", h.pretrusts, h.purges)
-		}
-		wantCalls := []string{
+		wantCalls := append([]string{
 			"tmux -L officraft has-session -t member-m1",
-			"tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 " + goldenLaunchM1,
+			"/usr/local/bin/claude --version",
+			"tmux -L officraft kill-session -t listen-m1",
+			"tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 " + goldenLaunchM1Paste,
 			"tmux -L officraft set-option -t member-m1 window-size manual",
 			"tmux -L officraft resize-window -t member-m1 -x 160 -y 50",
-			"tmux -L officraft set-buffer -b oc-spawn-nudge 開始。",
-			"tmux -L officraft paste-buffer -t member-m1 -b oc-spawn-nudge -d -p",
-		}
-		for i := 0; i < 30; i++ {
-			wantCalls = append(wantCalls,
-				"tmux -L officraft copy-mode -q -t member-m1",
-				"tmux -L officraft send-keys -t member-m1 Enter")
-		}
+		}, nudgeCalls()...)
 		wantCalls = append(wantCalls,
-			"tmux -L officraft kill-session -t listen-m1",
 			"tmux -L officraft new-session -d -s listen-m1 -x 160 -y 50 "+goldenListenerM1,
 			"tmux -L officraft set-option -t listen-m1 window-size manual",
 			"tmux -L officraft resize-window -t listen-m1 -x 160 -y 50",
@@ -1217,14 +1326,87 @@ func TestStart(t *testing.T) {
 		if !reflect.DeepEqual(h.runner.calls, wantCalls) {
 			t.Errorf("calls =\n%v\nwant\n%v", h.runner.calls, wantCalls)
 		}
-		if strings.Contains(h.runner.calls[1], "--settings /w/m1/settings.json") {
-			t.Fatal("the launch still reads a workdir settings file that can be changed after the pre-trust gate")
+		if len(h.asked) != 0 {
+			t.Errorf("exists asked = %v, want nothing: no mod was launched", h.asked)
 		}
-		if !strings.Contains(h.runner.calls[1], "--settings "+shellQuote(goldenInlineSettings)) {
-			t.Fatal("the generated settings must ride the launch argv as inline JSON")
+		if want := []string{"m1: Claude Code 2.1.286 is older than 2.1.287; notifications go by tmux paste"}; !reflect.DeepEqual(h.logs, want) {
+			t.Errorf("logs = %v, want %v", h.logs, want)
+		}
+	})
+
+	t.Run("under a mod that did not load, the member falls back to the paste listener and the mod is told to stand down", func(t *testing.T) {
+		h := newSpawnHarness()
+		h.present = map[string]bool{}
+		got := h.deps().start(startParamsM1())
+
+		want := SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500", Note: goldenNotifyModNotLoadedNote}
+		if got != want {
+			t.Errorf("outcome = %+v, want %+v", got, want)
+		}
+		wantWrites := append([]writtenFile{
+			{"/w/m1/persona.md", "you are m1", 0o600},
+			{"/w/m1/.mcp.json", buildMCPConfig("http://127.0.0.1:7755", "jwt-m1"), 0o600},
+			{"/w/m1/settings.json", buildStatuslineSettings(), 0o600},
+			{"/w/m1/.oc-token", "jwt-m1", 0o600},
+			{"/w/m1/system-prompt.md", goldenSystemPromptM1, 0o600},
+		}, notifyModWrites(t)...)
+		wantWrites = append(wantWrites,
+			writtenFile{"/w/m1/.officraft-mod-disabled", "the warden fell back to the tmux paste listener\n", 0o600})
+		if !reflect.DeepEqual(h.writes, wantWrites) {
+			t.Errorf("writes =\n%+v\nwant\n%+v", h.writes, wantWrites)
+		}
+		wantCalls := append([]string{
+			"tmux -L officraft has-session -t member-m1",
+			"/usr/local/bin/claude --version",
+			"tmux -L officraft kill-session -t listen-m1",
+			"tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 " + goldenLaunchM1,
+			"tmux -L officraft set-option -t member-m1 window-size manual",
+			"tmux -L officraft resize-window -t member-m1 -x 160 -y 50",
+		}, nudgeCalls()...)
+		wantCalls = append(wantCalls,
+			"tmux -L officraft new-session -d -s listen-m1 -x 160 -y 50 "+goldenListenerM1,
+			"tmux -L officraft set-option -t listen-m1 window-size manual",
+			"tmux -L officraft resize-window -t listen-m1 -x 160 -y 50",
+			"tmux -L officraft display-message -p -t member-m1 #{pane_pid}")
+		if !reflect.DeepEqual(h.runner.calls, wantCalls) {
+			t.Errorf("calls =\n%v\nwant\n%v", h.runner.calls, wantCalls)
 		}
 		if len(h.slept) != 30 {
-			t.Errorf("slept %d times, want 30", len(h.slept))
+			t.Errorf("slept %d times, want 30: the fallback adds no wait", len(h.slept))
+		}
+		if want := []string{"m1: the notification mod did not load; notifications go by tmux paste"}; !reflect.DeepEqual(h.logs, want) {
+			t.Errorf("logs = %v, want %v", h.logs, want)
+		}
+	})
+
+	t.Run("under a Claude Code at or past the minimum, or one whose version cannot be read, the mod route is taken", func(t *testing.T) {
+		for _, tc := range []struct {
+			name    string
+			version wardenRun
+		}{
+			{"exactly the minimum", wardenRun{out: "2.1.287 (Claude Code)\n"}},
+			{"a later major", wardenRun{out: "3.0.0 (Claude Code)\n"}},
+			{"a version that is no version", wardenRun{out: "Claude Code nightly\n"}},
+			{"a probe that failed", wardenRun{err: errors.New("timeout after 2s")}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				h := newSpawnHarness()
+				h.runner.script["/usr/local/bin/claude --version"] = tc.version
+				got := h.deps().start(startParamsM1())
+
+				if want := (SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500"}); got != want {
+					t.Errorf("outcome = %+v, want %+v", got, want)
+				}
+				launch := "tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 " + goldenLaunchM1
+				if !slices.Contains(h.runner.calls, launch) {
+					t.Errorf("calls = %v, want the launch with the mod", h.runner.calls)
+				}
+				for _, call := range h.runner.calls {
+					if strings.Contains(call, "new-session -d -s listen-m1") {
+						t.Errorf("a paste listener was started beside a loaded mod: %v", call)
+					}
+				}
+			})
 		}
 	})
 
@@ -1248,7 +1430,7 @@ func TestStart(t *testing.T) {
 			`exec /usr/local/bin/claude --dangerously-skip-permissions ` +
 			`--disallowedTools AskUserQuestion --mcp-config /w/m1/.mcp.json --effort medium ` +
 			`--append-system-prompt ` + shellQuote(goldenFallbackPromptM1) +
-			` --settings ` + shellQuote(goldenInlineSettings)
+			` --settings ` + shellQuote(goldenInlineSettings) + ` --plugin-dir /w/m1/.officraft-mod`
 		for _, tc := range []struct {
 			name    string
 			probe   func(string) (bool, string)
@@ -1267,8 +1449,8 @@ func TestStart(t *testing.T) {
 				if got := d.start(startParamsM1()); !got.OK {
 					t.Fatalf("outcome = %+v, want OK", got)
 				}
-				if h.runner.calls[1] != wantLaunch {
-					t.Errorf("launch call =\n%s\nwant\n%s", h.runner.calls[1], wantLaunch)
+				if h.runner.calls[3] != wantLaunch {
+					t.Errorf("launch call =\n%s\nwant\n%s", h.runner.calls[3], wantLaunch)
 				}
 				for _, w := range h.writes {
 					if w.path == "/w/m1/system-prompt.md" {
@@ -1360,9 +1542,10 @@ func TestStart(t *testing.T) {
 			`export PATH=/w/m1:"$PATH"; ` +
 			`exec /usr/local/bin/claude --dangerously-skip-permissions --disallowedTools AskUserQuestion ` +
 			`--mcp-config /w/m1/.mcp.json --effort high ` +
-			`--append-system-prompt-file /w/m1/system-prompt.md --model opus --settings ` + shellQuote(goldenInlineSettings)
-		if h.runner.calls[1] != wantLaunch {
-			t.Errorf("launch call =\n%s\nwant\n%s", h.runner.calls[1], wantLaunch)
+			`--append-system-prompt-file /w/m1/system-prompt.md --model opus --settings ` + shellQuote(goldenInlineSettings) +
+			` --plugin-dir /w/m1/.officraft-mod`
+		if h.runner.calls[3] != wantLaunch {
+			t.Errorf("launch call =\n%s\nwant\n%s", h.runner.calls[3], wantLaunch)
 		}
 		for _, line := range h.logs {
 			if strings.Contains(line, "ghp_abc") {
@@ -1625,6 +1808,12 @@ func TestStart(t *testing.T) {
 			{"an ocagent link that cannot be published", func(h *spawnHarness, _ *SpawnDeps, _ *StartParams) {
 				h.symlinkEr = errors.New("read-only file system")
 			}, "symlink_failed: publishing workdir ocagent link: read-only file system"},
+			{"a stale mod-loaded marker that cannot be cleared", func(h *spawnHarness, _ *SpawnDeps, _ *StartParams) {
+				h.removeErr["/w/m1/.officraft-mod-loaded"] = errors.New("permission denied")
+			}, "write_file_failed: clearing stale .officraft-mod-loaded: permission denied"},
+			{"a notification mod that cannot be written", func(h *spawnHarness, _ *SpawnDeps, _ *StartParams) {
+				h.writeErr["/w/m1/.officraft-mod/hooks/register.ts"] = errors.New("no space left on device")
+			}, "write_file_failed: .officraft-mod/hooks/register.ts: no space left on device"},
 			{"a pretrust that failed", func(h *spawnHarness, _ *SpawnDeps, _ *StartParams) {
 				h.pretrustE = errors.New("permission denied")
 			}, "pretrust_failed: marking workdir trusted in claude.json: permission denied"},
@@ -1815,8 +2004,8 @@ func TestStart(t *testing.T) {
 		if want := (SpawnOutcome{OK: true, SessionID: "custom-session", PID: "700"}); got != want {
 			t.Errorf("outcome = %+v, want %+v", got, want)
 		}
-		if !strings.Contains(h.runner.calls[1], "OC_SESSION=custom-session") {
-			t.Errorf("launch call =\n%s\nwant the custom session", h.runner.calls[1])
+		if !strings.Contains(h.runner.calls[3], "OC_SESSION=custom-session") {
+			t.Errorf("launch call =\n%s\nwant the custom session", h.runner.calls[3])
 		}
 		prompt := ""
 		for _, w := range h.writes {
