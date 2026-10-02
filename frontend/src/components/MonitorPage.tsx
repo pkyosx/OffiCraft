@@ -35,9 +35,10 @@ import { avatarKindForMember } from "../lib/avatarKind";
 import { InlineEdit } from "./InlineEdit";
 import { MemberDetailPanel } from "./MemberDetailPanel";
 import { PresenceBadge } from "./PresenceBadge";
-import { CopyIcon, CheckIcon, CloseIcon, KeyIcon } from "./icons";
+import { CopyIcon, CheckIcon, CloseIcon, DownloadIcon, KeyIcon } from "./icons";
 import { RuntimeActionMenu } from "./RuntimeActionMenu";
 import { RuntimeLoginDialog } from "./RuntimeLoginDialog";
+import { RuntimeUpgradeDialog } from "./RuntimeUpgradeDialog";
 // The 歸零 pill on the account card is the SAME control as the one on the member
 // panel — same look, same danger colour, same size — so it wears the `mp` block's
 // class rather than a second copy of those rules under `mon`. Importing the
@@ -159,6 +160,7 @@ export function MonitorPage() {
     runtime: RuntimeLoginRuntime;
     loggedIn: boolean;
   } | null>(null);
+  const [upgradeTarget, setUpgradeTarget] = useState<MachineView | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -667,6 +669,13 @@ export function MonitorPage() {
             onClose={() => setLoginTarget(null)}
           />
         )}
+        {upgradeTarget && (
+          <RuntimeUpgradeDialog
+            machineId={upgradeTarget.machineId}
+            machineName={upgradeTarget.displayName}
+            onClose={() => setUpgradeTarget(null)}
+          />
+        )}
         <div className="mon-section__head">
           <div className="mon-section__title">{t.monitor.machinesTitle}</div>
         </div>
@@ -806,6 +815,7 @@ export function MonitorPage() {
                             loggedIn: hw?.runtimeCapabilities?.claude?.loggedIn === true,
                           })
                         }
+                        onUpgrade={() => setUpgradeTarget(m)}
                       />
                     </td>
                     <td
@@ -1502,6 +1512,7 @@ type RuntimeCapability = {
   installed: boolean | null;
   loggedIn: boolean | null;
   version: string | null;
+  belowNotifyMinimum?: boolean | null;
 };
 
 /** A runtime's cell content, made the trigger of its action menu only when the
@@ -1513,12 +1524,15 @@ function RuntimeVersionTrigger({
   fallbackVersion,
   stale,
   onLogin,
+  onUpgrade,
 }: {
   runtime: "claude" | "codex";
   capability?: RuntimeCapability;
   fallbackVersion: string | null;
   stale: boolean | null | undefined;
   onLogin: () => void;
+  /** Claude only: runs `claude update` on the machine. */
+  onUpgrade?: () => void;
 }) {
   const { t } = useI18n();
   const testIdPrefix = `mon-${runtime}`;
@@ -1528,6 +1542,7 @@ function RuntimeVersionTrigger({
       fallbackVersion={fallbackVersion}
       stale={stale}
       testIdPrefix={testIdPrefix}
+      notifyMinimumApplies={runtime === "claude"}
     />
   );
   if (!runtimeShownInstalled(capability, fallbackVersion)) return cell;
@@ -1546,6 +1561,16 @@ function RuntimeVersionTrigger({
           icon: <KeyIcon size={14} />,
           onSelect: onLogin,
         },
+        ...(onUpgrade
+          ? [
+              {
+                key: "upgrade",
+                label: t.monitor.runtimeUpgrade.upgrade,
+                icon: <DownloadIcon size={14} />,
+                onSelect: onUpgrade,
+              },
+            ]
+          : []),
       ]}
     >
       {cell}
@@ -1573,6 +1598,9 @@ function RuntimeVersionTrigger({
  * followed by a 未登入 chip whenever the cell shows a version or "installed"
  * and fresh telemetry reports signed out — an installed, up-to-date,
  * logged-out runtime is exactly the case the operator needs to see.
+ * A 版本太舊 chip follows a version the warden reports as older than the
+ * notification mod needs; unlike 未登入 it also shows on stale telemetry,
+ * because it qualifies the version printed beside it, which stays on screen.
  * ⚠️ Signed in and unknown (no login state reported) both show nothing after
  * the version: owner ruling, do not re-add a mark for either.
  * ⚠️ Owner ruling: stale telemetry carries no login state, so no 未登入 then.
@@ -1594,11 +1622,14 @@ function RuntimeVersionCell({
   fallbackVersion,
   stale,
   testIdPrefix,
+  notifyMinimumApplies,
 }: {
   capability?: RuntimeCapability;
   fallbackVersion: string | null;
   stale: boolean | null | undefined;
   testIdPrefix: string;
+  /** The notification mod's minimum is a Claude Code version. */
+  notifyMinimumApplies: boolean;
 }) {
   const { t } = useI18n();
   const dash = t.monitor.dash;
@@ -1648,6 +1679,11 @@ function RuntimeVersionCell({
       ) : (
         <span className="mon-muted" title={m.runtimeNoVersionHint}>
           {m.runtimeNoVersion}
+        </span>
+      )}
+      {notifyMinimumApplies && capability.version != null && capability.belowNotifyMinimum === true && (
+        <span className="mon-stale mon-bad" data-testid={`${testIdPrefix}-too-old`}>
+          {m.runtimeTooOld}
         </span>
       )}
       {capability.loggedIn === false && stale === false && (

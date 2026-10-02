@@ -378,6 +378,9 @@ func (s *apiServer) machineRuntimeCapabilities(machineID string) map[string]Runt
 		if v, ok := obj["version"].(string); ok {
 			capability.Version = &v
 		}
+		if v, ok := obj["below_notify_minimum"].(bool); ok && name == RuntimeClaude {
+			capability.BelowNotifyMinimum = &v
+		}
 		out[name] = capability
 	}
 	return out

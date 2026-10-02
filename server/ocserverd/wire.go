@@ -359,6 +359,18 @@ type runtimeLoginDTO struct {
 	UpdatedTS float64                 `json:"updated_ts"`
 }
 
+type runtimeUpgradeDTO struct {
+	UpgradeID   string  `json:"upgrade_id"`
+	MachineID   string  `json:"machine_id"`
+	Runtime     string  `json:"runtime"`
+	State       string  `json:"state"`
+	FromVersion *string `json:"from_version"`
+	ToVersion   *string `json:"to_version"`
+	Reason      *string `json:"reason"`
+	StartedTS   float64 `json:"started_ts"`
+	UpdatedTS   float64 `json:"updated_ts"`
+}
+
 type chatAttachmentDTO struct {
 	ID       string `json:"id"`
 	URL      string `json:"url"`

@@ -105,7 +105,7 @@ const noPill = (runtime: "Claude" | "Codex") =>
   ).toEqual([]);
 
 describe("MonitorPage runtime action menu", () => {
-  it("under installed Claude and Codex, each version is its own menu trigger named after the runtime, holding its chips, with only 登入", async () => {
+  it("under installed Claude and Codex, each version is its own menu trigger named after the runtime, holding its chips; Claude offers 登入 and 升級 Claude Code, Codex only 登入", async () => {
     await mount({ claude: installed(false), codex: installed(true) });
     const claude = pill("Claude 2.1.300 操作");
     expect(claude.getAttribute("aria-haspopup")).toBe("menu");
@@ -114,7 +114,7 @@ describe("MonitorPage runtime action menu", () => {
     expect(screen.getByTestId("mon-claude-version").textContent).toBe("2.1.300未登入");
     fireEvent.click(claude);
     expect(claude.getAttribute("aria-expanded")).toBe("true");
-    expect(screen.getAllByRole("menuitem").map((el) => el.textContent)).toEqual(["登入"]);
+    expect(screen.getAllByRole("menuitem").map((el) => el.textContent)).toEqual(["登入", "升級 Claude Code"]);
     fireEvent.keyDown(window, { key: "Escape" });
     expect(claude.getAttribute("aria-expanded")).toBe("false");
     expect(document.activeElement).toBe(claude);

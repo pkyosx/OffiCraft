@@ -41,6 +41,8 @@ import type {
   UninstallResultView,
   RuntimeLoginView,
   RuntimeLoginRuntime,
+  RuntimeUpgradeView,
+  RuntimeUpgradeRuntime,
   TeardownHereResultView,
   BootstrapResultView,
   MachineView,
@@ -2740,6 +2742,16 @@ export interface Api {
     code: string,
   ): Promise<RuntimeLoginView>;
   cancelRuntimeLogin(machineId: string, loginId: string): Promise<RuntimeLoginView>;
+
+  /**
+   * Claude Code upgrade on a machine (`POST /api/machines/{machine_id}/runtime-upgrade`
+   * and its `/{upgrade_id}`). Memory-only on the server, signalled on SSE topic
+   * `runtime_upgrade`; the caller refetches with `getRuntimeUpgrade`. Start
+   * answers the upgrade already in flight for that machine instead of a new one;
+   * an offline warden is a 409. There is no cancel.
+   */
+  startRuntimeUpgrade(machineId: string, runtime: RuntimeUpgradeRuntime): Promise<RuntimeUpgradeView>;
+  getRuntimeUpgrade(machineId: string, upgradeId: string): Promise<RuntimeUpgradeView>;
 
   /**
    * Re-fetch a machine's copy-paste install command anytime (`GET

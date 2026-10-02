@@ -513,6 +513,12 @@ func (s *apiServer) HandleIngestTelemetryApiMonitoringTelemetryPost(w http.Respo
 				return
 			}
 		}
+		if v, exists := capability["below_notify_minimum"]; exists && v != nil {
+			if _, valid := v.(bool); !valid {
+				writeError(w, http.StatusBadRequest, "runtimes."+name+".below_notify_minimum must be a boolean or null")
+				return
+			}
+		}
 	}
 	var runtime *string
 	if body.Runtime != nil {

@@ -260,6 +260,43 @@ func TestClaudeProberCollect(t *testing.T) {
 	})
 }
 
+func TestClaudeProberInvalidate(t *testing.T) {
+	t.Run("under an invalidate inside the TTL with the binary's stat unchanged, the next collect reads the version again, and the one after is cached", func(t *testing.T) {
+		fixed := time.Date(2026, 9, 7, 12, 0, 0, 0, time.UTC)
+		var runs [][]string
+		version := "2.1.200 (Claude Code)"
+		prober := &claudeProber{
+			env:        envMap(map[string]string{}),
+			resolveBin: func() string { return "/usr/local/bin/claude" },
+			stat:       func(string) (os.FileInfo, error) { return probeFileInfo{size: 10, mtime: fixed}, nil },
+			runner: runnerFunc(func(name string, args ...string) (string, error) {
+				runs = append(runs, append([]string{name}, args...))
+				return version, nil
+			}),
+			goos: "linux",
+			now:  func() time.Time { return fixed },
+		}
+
+		first := prober.collect()
+		version = "2.1.290 (Claude Code)"
+		cached := prober.collect()
+		prober.invalidate()
+		fresh := prober.collect()
+		again := prober.collect()
+
+		if want := map[string]any{"version": "2.1.200"}; !reflect.DeepEqual(first, want) || !reflect.DeepEqual(cached, want) {
+			t.Errorf("collect() before invalidate = %v then %v, want %v both times", first, cached, want)
+		}
+		if want := map[string]any{"version": "2.1.290"}; !reflect.DeepEqual(fresh, want) || !reflect.DeepEqual(again, want) {
+			t.Errorf("collect() after invalidate = %v then %v, want %v both times", fresh, again, want)
+		}
+		wantRuns := [][]string{{"/usr/local/bin/claude", "--version"}, {"/usr/local/bin/claude", "--version"}}
+		if !reflect.DeepEqual(runs, wantRuns) {
+			t.Errorf("runner ran %v, want %v", runs, wantRuns)
+		}
+	})
+}
+
 func TestClaudeProberVersion(t *testing.T) {
 	const bin = "/usr/local/bin/claude"
 	fixed := time.Date(2026, 9, 7, 12, 0, 0, 0, time.UTC)

@@ -12,6 +12,9 @@ func collectRuntimeCapabilities(env func(string) string, runner CmdRunner,
 	claudeCap := map[string]any{"installed": claudeBin != ""}
 	if version, ok := claude["version"].(string); ok && version != "" {
 		claudeCap["version"] = version
+		if below, known := claudeBelowNotifyMinimum(version); known {
+			claudeCap["below_notify_minimum"] = below
+		}
 	}
 	if claudeBin != "" && login.Claude != nil {
 		claudeCap["logged_in"] = *login.Claude

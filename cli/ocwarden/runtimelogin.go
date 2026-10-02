@@ -54,8 +54,8 @@ func refuseRealLoginInTest(bin string) {
 }
 
 // refuseRealPathInTest exits a test binary handed a path outside the temp dir:
-// a login binary that would really sign in, or a codex home whose auth.json a
-// test would overwrite.
+// a login binary that would really sign in, a claude that would really update
+// itself, or a codex home whose auth.json a test would overwrite.
 func refuseRealPathInTest(what, path string) {
 	if !testing.Testing() {
 		return
@@ -67,10 +67,14 @@ func refuseRealPathInTest(what, path string) {
 	if strings.HasPrefix(resolveExisting(path), tmp+string(filepath.Separator)) {
 		return
 	}
-	if what == "login" {
+	switch what {
+	case "login":
 		fmt.Fprintf(os.Stderr, "\nFATAL: refusing to run a real %s login inside a test binary.\n"+
 			"Login tests must stage a fake CLI in a temp dir and inject it.\n", path)
-	} else {
+	case "upgrade":
+		fmt.Fprintf(os.Stderr, "\nFATAL: refusing to run a real %s update inside a test binary.\n"+
+			"Upgrade tests must stage a fake CLI in a temp dir and inject it.\n", path)
+	default:
 		fmt.Fprintf(os.Stderr, "\nFATAL: refusing to write a real %s (%s) inside a test binary.\n", what, path)
 	}
 	os.Exit(1)
@@ -162,10 +166,14 @@ type loginProc struct {
 
 type loginStarter func(shell, script, bin string) (*loginProc, error)
 
-// startLoginProcess puts the login in its own process group so a kill reaches
-// whatever claude itself started.
 func startLoginProcess(shell, script, bin string) (*loginProc, error) {
 	refuseRealLoginInTest(bin)
+	return startGroupProcess(shell, script)
+}
+
+// startGroupProcess puts the process in its own process group so a kill
+// reaches whatever claude itself started.
+func startGroupProcess(shell, script string) (*loginProc, error) {
 	cmd := exec.Command(shell, "-c", script)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	stdin, err := cmd.StdinPipe()

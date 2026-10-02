@@ -1726,6 +1726,29 @@ export const zh = {
       noResponseCauses: "可能原因：機器離線，或這台機器上的 warden 版本太舊、還不支援從這裡登入。",
       close: "關閉",
     },
+    runtimeUpgrade: {
+      upgrade: "升級 Claude Code",
+      title: "升級 Claude Code",
+      subtitleLead: "在 ",
+      subtitleTail: " 上執行 claude update，升級成員使用的 Claude Code",
+      preparingLead: "正在請 ",
+      preparingTail: " 開始升級…",
+      running: "升級中…",
+      fromLead: "目前版本：",
+      succeededLead: "升級完成：",
+      arrow: " → ",
+      runningMembersHint: "已在執行的成員繼續使用原本的版本，之後啟動的成員才會用新版本",
+      failedHeading: "升級失敗",
+      failedLead: "升級失敗：",
+      reasonLead: "原因：",
+      expired: "這台機器太久沒有回報，升級結果不明，請重新升級",
+      startRefused: "無法開始升級",
+      offlineTail: " 目前離線，無法升級",
+      noResponseTail: " 沒有回應升級要求",
+      noResponseCauses: "這台機器上的 warden 版本太舊，還不支援從這裡升級 Claude Code；請先更新這台機器的 warden。",
+      restart: "重新升級",
+      close: "關閉",
+    },
     // §3 session table headers
     sessionCol: {
       member: "成員",
@@ -1838,6 +1861,7 @@ export const zh = {
       runtimeNoVersion: "已安裝",
       runtimeNoVersionHint: "已安裝，但讀不到版本。",
       runtimeLoggedOut: "未登入",
+      runtimeTooOld: "版本太舊",
       // 硬體樣本時效(T-b36a):過期的數值 server 會收回,於是 CPU/RAM/電源
       // 落回 dash——跟「從來沒回報過硬體」是同一個 dash。這兩個標籤就是把兩
       // 個世界分開的東西,要行動的只有後者(這台失聯了,不是它從沒說過話)。
