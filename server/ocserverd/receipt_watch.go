@@ -36,10 +36,12 @@ const receiptMissingReasonCode = "receipt_missing"
 //   - Claude only, the boot-nudge loop, which always runs all nudgeMaxAttempts ×
 //     nudgeSettle = 30s (on the notification-mod route the same 30s is a plain
 //     wait for the mod); when the mod did not load, the warden's paste fallback
-//     adds fallbackNudgeAttempts × nudgeSettle = 3s;
+//     adds fallbackNudgeAttempts × nudgeSettle = 3s, and before that its capture of
+//     the member pane for the warden log, notifyModCaptureBudget 2s +
+//     subprocessWaitDelay 2s (cli/ocwarden/notifymod.go);
 //
 // After those, commandReportTimeout 5s, plus up to one 30s lifecycle cadence
-// before the deadline is read. Worst case ≈ 108s for a Claude whose mod did not load and ≈ 97s for a Codex family
+// before the deadline is read. Worst case ≈ 112s for a Claude whose mod did not load and ≈ 97s for a Codex family
 // word — PAST this 90s deadline, so a start that is merely slow at every step
 // can be stamped receipt_missing with nothing wrong. Known and left as is here.
 // 🔴 Those warden constants live in another Go module and nothing links them;
