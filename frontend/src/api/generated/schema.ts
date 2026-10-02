@@ -1508,7 +1508,7 @@ export interface paths {
          *     - Held in server memory only, never persisted; a server restart forgets the upgrade.
          *     - An upgrade with no warden report for 20 minutes becomes `expired`, then is dropped about 10 minutes later.
          *     - A warden build that predates the verb ignores it and the upgrade stays `starting`; the UI gives up after 30s.
-         *     - While an upgrade for this machine and runtime is not yet terminal, a repeat returns that upgrade instead of starting another.
+         *     - While an upgrade for this machine and runtime is not yet terminal, a repeat returns that upgrade instead of starting another. A repeat that finds it still `starting` sends the command to the warden again under the same id, so an owner who has since updated an old warden can retry; it answers with that upgrade even when the warden is offline, and nothing is sent then. A repeat that finds it `running` sends nothing.
          *     - No cancel.
          *     - Admin agent only (403); an unknown, removed or non-machine id is a 404; an offline warden is a 409; a runtime other than `claude` is a 422.
          */

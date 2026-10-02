@@ -98,6 +98,20 @@ func TestRuntimeUpgradeStart(t *testing.T) {
 		f.dashboard.wantFrames()
 	})
 
+	t.Run("under an upgrade still starting whose warden went offline, a second start answers that upgrade and sends nothing", func(t *testing.T) {
+		f := newUpgradeFixture(t)
+		id := f.startUpgrade(t)
+		drainFrames(t, f.api, loginMachine)
+		f.api.hub.Disconnect(f.wardenConn)
+
+		status, data := apiJSON(t, f.h, "POST", upgradeStartPath, f.owner, `{"runtime":"claude"}`)
+		if status != http.StatusOK {
+			t.Fatalf("repeat start: %d %v", status, data)
+		}
+		apiWantBody(t, data, upgradeBody(id, "starting", nil, nil, nil, loginEpoch, loginEpoch))
+		wantNoWardenFrames(t, f, loginMachine)
+	})
+
 	t.Run("under an upgrade already running, a second start answers that upgrade and sends nothing", func(t *testing.T) {
 		f := newUpgradeFixture(t)
 		id := f.startUpgrade(t)

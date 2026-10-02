@@ -23,6 +23,22 @@ func escapeeLine(pidFile string) string {
 		pidFile + `' & while [ ! -s '` + pidFile + `' ]; do /bin/sleep 0.05; done; }`
 }
 
+// chattyEscapeeLine is escapeeLine for an escapee that writes a line to the
+// shell's stdout every 20ms until the pipe is closed on it.
+func chattyEscapeeLine(pidFile string) string {
+	return `{ /usr/bin/perl -MPOSIX -e 'POSIX::setsid(); $| = 1; open(my $f, ">", $ARGV[0]) or die; print $f $$; close $f; ` +
+		`while (1) { print "still here\n"; select(undef, undef, undef, 0.02) }' '` +
+		pidFile + `' & while [ ! -s '` + pidFile + `' ]; do /bin/sleep 0.05; done; }`
+}
+
+// lateEscapeeLine is escapeeLine for an escapee that prints one line on the
+// shell's stderr 300ms later and exits.
+func lateEscapeeLine(pidFile string) string {
+	return `{ /usr/bin/perl -MPOSIX -e 'POSIX::setsid(); open(my $f, ">", $ARGV[0]) or die; print $f $$; close $f; ` +
+		`select(undef, undef, undef, 0.3); print STDERR "Error: written after the exit\n"' '` +
+		pidFile + `' & while [ ! -s '` + pidFile + `' ]; do /bin/sleep 0.05; done; }`
+}
+
 // escapeeAlive reports whether the escapee recorded in pidFile is running, and
 // kills it when the test ends.
 func escapeeAlive(t *testing.T, pidFile string) bool {
@@ -51,7 +67,7 @@ func escapeeAlive(t *testing.T, pidFile string) bool {
 // the version file when there is one, prints the out file on stderr and exits
 // with the code in the rc file.
 type fakeUpdater struct {
-	root, bin, version, next, noVersion, pid, sawEnv, ran, hang, out, rc, escape, escapee string
+	root, bin, version, next, noVersion, pid, sawEnv, ran, hang, out, rc, escape, escapee, chatter, late string
 }
 
 func newFakeUpdater(t *testing.T) *fakeUpdater {
@@ -70,6 +86,8 @@ func newFakeUpdater(t *testing.T) *fakeUpdater {
 		rc:        filepath.Join(root, "rc"),
 		escape:    filepath.Join(root, "escape"),
 		escapee:   filepath.Join(root, "escapee-pid"),
+		chatter:   filepath.Join(root, "chatter"),
+		late:      filepath.Join(root, "late"),
 	}
 	f.bin = stageBinary(t, filepath.Join(root, "bin", "claude"), "#!/bin/sh\n"+
 		`case "$1" in`+"\n"+
@@ -81,6 +99,8 @@ func newFakeUpdater(t *testing.T) *fakeUpdater {
 		`  printf '%s' "${FROM_FILE-unset}" > '`+f.sawEnv+`'`+"\n"+
 		`  : > '`+f.ran+`'`+"\n"+
 		`  [ -f '`+f.escape+`' ] && `+escapeeLine(f.escapee)+"\n"+
+		`  [ -f '`+f.chatter+`' ] && `+chattyEscapeeLine(f.escapee)+"\n"+
+		`  [ -f '`+f.late+`' ] && `+lateEscapeeLine(f.escapee)+"\n"+
 		`  echo 'Checking for updates...'`+"\n"+
 		`  [ -f '`+f.hang+`' ] && /bin/sleep 30`+"\n"+
 		`  [ -f '`+f.next+`' ] && /bin/cp '`+f.next+`' '`+f.version+`'`+"\n"+
@@ -338,6 +358,36 @@ func TestUpgradeRelay(t *testing.T) {
 		if !escapeeAlive(t, h.fake.escapee) {
 			t.Fatal("control: the escapee was not running, so nothing held the output open")
 		}
+	})
+
+	t.Run("under a descendant that prints a line shortly after the update exited, that line is still the failure's last line", func(t *testing.T) {
+		h := newUpgradeHarness(t)
+		h.fake.write(t, h.fake.late, "")
+		h.fake.write(t, h.fake.rc, "1")
+		h.relay.Start("ru-l", "claude")
+		h.next(t)
+		if got, want := h.next(t), (upgradeReport{UpgradeID: "ru-l", State: "failed", FromVersion: "2.1.200",
+			ToVersion: "2.1.200", Reason: "claude update 執行失敗（exit status 1）：Error: written after the exit"}); got != want {
+			t.Fatalf("final report = %+v, want %+v", got, want)
+		}
+		escapeeAlive(t, h.fake.escapee)
+	})
+
+	t.Run("under an escaped descendant that never stops writing, the output is cut off at the drain cap and the relay still reports succeeded", func(t *testing.T) {
+		grace, limit := pipeDrainGrace, pipeDrainCap
+		pipeDrainCap = time.Second
+		t.Cleanup(func() { pipeDrainGrace, pipeDrainCap = grace, limit })
+		h := newUpgradeHarness(t)
+		h.fake.write(t, h.fake.chatter, "")
+		h.fake.write(t, h.fake.next, "2.1.290")
+		h.relay.Start("ru-c", "claude")
+		h.next(t)
+		if got, want := h.next(t), (upgradeReport{UpgradeID: "ru-c", State: "succeeded",
+			FromVersion: "2.1.200", ToVersion: "2.1.290"}); got != want {
+			t.Fatalf("final report = %+v, want %+v", got, want)
+		}
+		h.waitIdle(t)
+		escapeeAlive(t, h.fake.escapee)
 	})
 
 	t.Run("under a version that cannot be read before the update, the relay reports failed and never runs claude update", func(t *testing.T) {

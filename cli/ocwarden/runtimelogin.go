@@ -43,10 +43,16 @@ const (
 	codexLoginProcessCap = 16 * time.Minute
 
 	loginRenderPrefix = ".oc-login-env-"
+)
 
-	// How long output may still arrive after the process itself ended; only a
-	// descendant that outlived it writes then.
+// After the process ended, its output pipes are closed once every reader has
+// sat waiting with nothing to read for pipeDrainGrace, or pipeDrainCap after
+// the exit whatever the readers are doing. Vars only so tests can shorten them.
+var (
 	pipeDrainGrace = 2 * time.Second
+	// An escaped descendant that never stops writing keeps the readers busy, so
+	// quiet alone could hold the login or upgrade open for as long as it lives.
+	pipeDrainCap = 30 * time.Second
 )
 
 // refuseRealLoginInTest is the test-binary tripwire for the one process this
@@ -178,11 +184,13 @@ func startLoginProcess(shell, script, bin string) (*loginProc, error) {
 // startGroupProcess puts the process in its own process group so a kill
 // reaches whatever claude itself started.
 //
-// 🔴 Its output pipes are closed by this helper, pipeDrainGrace after the
-// process itself ended, not left to EOF: a descendant that escaped the group
-// (its own session, or forked as the kill went out) can hold them open for as
-// long as it lives, and a reader waiting on EOF would then keep the login or
-// upgrade "running" forever, cap included.
+// 🔴 Its output pipes are closed by this helper after the process ended (see
+// pipeDrainGrace), not left to EOF: a descendant that escaped the group (its
+// own session, or forked as the kill went out) can hold them open for as long
+// as it lives, and a reader waiting on EOF would then keep the login or
+// upgrade "running" forever, cap included. Quiet is judged by readers blocked
+// in Read, not by time since the last byte: a reader busy with an earlier line
+// (a progress POST) has not read what is still in the pipe yet.
 func startGroupProcess(shell, script string) (*loginProc, error) {
 	cmd := exec.Command(shell, "-c", script)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -209,20 +217,18 @@ func startGroupProcess(shell, script string) (*loginProc, error) {
 		errR.Close()
 		return nil, startErr
 	}
+	stdout, stderr := &drainReader{f: outR}, &drainReader{f: errR}
 	exited := make(chan struct{})
 	var waitErr error
 	go func() {
 		waitErr = cmd.Wait()
 		close(exited)
-		time.AfterFunc(pipeDrainGrace, func() {
-			outR.Close()
-			errR.Close()
-		})
+		closeWhenDrained(stdout, stderr)
 	}()
 	return &loginProc{
 		stdin:  stdin,
-		stdout: outR,
-		stderr: errR,
+		stdout: stdout,
+		stderr: stderr,
 		wait: func() error {
 			<-exited
 			return waitErr
@@ -233,6 +239,58 @@ func startGroupProcess(shell, script string) (*loginProc, error) {
 			}
 		},
 	}, nil
+}
+
+// drainReader records whether its reader is blocked waiting for output, and
+// since when.
+type drainReader struct {
+	f *os.File
+
+	mu      sync.Mutex
+	waiting time.Time
+	done    bool
+}
+
+func (d *drainReader) Read(p []byte) (int, error) {
+	d.mu.Lock()
+	d.waiting = time.Now()
+	d.mu.Unlock()
+	n, err := d.f.Read(p)
+	d.mu.Lock()
+	d.waiting = time.Time{}
+	if err != nil {
+		d.done = true
+	}
+	d.mu.Unlock()
+	return n, err
+}
+
+func (d *drainReader) quiet(now time.Time) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.done || (!d.waiting.IsZero() && now.Sub(d.waiting) >= pipeDrainGrace)
+}
+
+func closeWhenDrained(readers ...*drainReader) {
+	deadline := time.Now().Add(pipeDrainCap)
+	tick := pipeDrainGrace / 10
+	if tick <= 0 {
+		tick = time.Millisecond
+	}
+	for {
+		now := time.Now()
+		all := true
+		for _, r := range readers {
+			all = all && r.quiet(now)
+		}
+		if all || !now.Before(deadline) {
+			break
+		}
+		time.Sleep(tick)
+	}
+	for _, r := range readers {
+		_ = r.f.Close()
+	}
 }
 
 type loginRelay struct {
