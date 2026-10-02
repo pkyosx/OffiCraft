@@ -60,7 +60,23 @@ server 的標準埠是 **7755**。被別的程式占用時，安裝會**當場�
 
 先確認**那位成員被指派到的機器上**有 `tmux`，以及那位成員的 runtime 所需的 `claude` 或 `codex`（已登入）——warden 靠它們把成員 spawn 起來。缺了，成員就起不來。
 
-成員到 server 的 SSE 長連線是 warden 在成員旁邊另外起的一個程序持住的（成員自己不掛、也不維護它）——**持著連線才算 online**。所以 Waking 卡住或一直 Offline，多半是那個程序沒起來或起來就退了。到那位成員被指派到的機器上看：
+成員到 server 的 SSE 長連線由一個 `ocagent listen` 程序持住（成員自己不掛、也不維護它）——**持著連線才算 online**。所以 Waking 卡住或一直 Offline，多半是那個程序沒起來或起來就退了。Claude Code 成員的這個程序有兩種起法，warden 每次喚醒時選一種：
+
+- **通知模組（平常走這條）**：warden 讓成員的 Claude Code 載入 OffiCraft 通知模組，由模組把 `ocagent listen` 當成自己的子程序起起來，通知直接送進成員的主對話。這時機器上**沒有** `listen-<成員 id>` 這個 tmux session，看不到它是正常的。
+- **貼上（備援）**：那台機器的 Claude Code 版本比通知模組需要的舊，或模組這次沒有載入，warden 才改在成員旁邊另起一個 `listen-<成員 id>` tmux session，把通知貼進成員的視窗。這條路在有人把成員畫面切到子代理時會漏通知。
+
+**分辨成員走哪一條**：看成員面板的「最近操作」。喚醒那一行帶著「通知改用貼進 tmux 視窗的舊方式送達」的提醒（`notify_legacy_paste` 是版本太舊，`notify_mod_not_loaded` 是模組沒載入，提醒裡寫了常見原因），就是貼上；沒有這段提醒就是通知模組。
+
+走通知模組的成員，到那位成員被指派到的機器上看：
+
+```bash
+ls ~/.officraft/agents/<成員 id>/.officraft-mod-loaded   # 在＝模組有載入
+pgrep -fl 'ocagent listen --deliver-mod'                 # 模組起的 listener 還活著嗎
+```
+
+模組有載入、listener 卻不在，表示它起來就退了；它印的話只進成員 Claude Code 的 debug log（以 `claude --debug` 啟動時才看得到）。
+
+走貼上的成員：
 
 ```bash
 tmux -L officraft ls          # 應該看得到 listen-<成員 id>

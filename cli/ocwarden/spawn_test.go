@@ -150,6 +150,12 @@ func notifyModWrites(t *testing.T) []writtenFile {
 		{"/w/m1/.officraft-mod/.claude-plugin/plugin.json", notifyModFile(t, ".claude-plugin/plugin.json"), 0o600},
 		{"/w/m1/.officraft-mod/hooks/hooks.json", notifyModFile(t, "hooks/hooks.json"), 0o600},
 		{"/w/m1/.officraft-mod/hooks/register.ts", notifyModFile(t, "hooks/register.ts"), 0o600},
+		// Every name the mod uses comes from here; it spells none of them itself.
+		{"/w/m1/.officraft-mod/officraft.json",
+			`{"loaded_marker":"/w/m1/.officraft-mod-loaded","disabled_marker":"/w/m1/.officraft-mod-disabled",` +
+				`"ack_file":"/w/m1/.officraft-listen-ack","listener":{"argv":["/w/m1/ocagent","listen","--deliver-mod"],` +
+				`"cwd":"/w/m1","env":{"OC_LISTEN_ACK":"1","OC_LISTEN_ACK_FILE":"/w/m1/.officraft-listen-ack"}}}` + "\n",
+			0o600},
 	}
 }
 
@@ -1814,6 +1820,9 @@ func TestStart(t *testing.T) {
 			{"a notification mod that cannot be written", func(h *spawnHarness, _ *SpawnDeps, _ *StartParams) {
 				h.writeErr["/w/m1/.officraft-mod/hooks/register.ts"] = errors.New("no space left on device")
 			}, "write_file_failed: .officraft-mod/hooks/register.ts: no space left on device"},
+			{"a notification mod config that cannot be written", func(h *spawnHarness, _ *SpawnDeps, _ *StartParams) {
+				h.writeErr["/w/m1/.officraft-mod/officraft.json"] = errors.New("no space left on device")
+			}, "write_file_failed: .officraft-mod/officraft.json: no space left on device"},
 			{"a pretrust that failed", func(h *spawnHarness, _ *SpawnDeps, _ *StartParams) {
 				h.pretrustE = errors.New("permission denied")
 			}, "pretrust_failed: marking workdir trusted in claude.json: permission denied"},

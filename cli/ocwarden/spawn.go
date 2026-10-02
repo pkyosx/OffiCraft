@@ -909,6 +909,9 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 
 		// Read only after the nudge loop: the mod writes the marker at session start,
 		// and that loop is the only wait this path has.
+		// 🔴 Not atomic: a mod that loads between this read and the disabled-marker
+		// write still starts its listener, and of the two connections the station
+		// evicts one, whose `ocagent suicide` kills the member.
 		if !notifyByPaste && !d.notifyModLoaded(workdir) {
 			notifyByPaste, notifyNote = true, notifyModNotLoadedNote
 			d.disableNotifyMod(workdir)

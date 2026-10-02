@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path"
@@ -24,16 +25,50 @@ import (
 //go:embed mod/.claude-plugin/plugin.json mod/hooks/hooks.json mod/hooks/register.ts
 var notifyModFS embed.FS
 
-// 🔴 The three file names are spelled again in mod/hooks/register.ts; renaming
-// one side only sends every member to the paste route (loaded marker) or starts
-// two listeners on one identity (disabled marker).
+// The mod knows none of these names: it reads them from notifyModConfigFile,
+// which installNotifyMod writes from here. Only that file's own name is spelled
+// again, in mod/hooks/register.ts.
 const (
 	notifyModDirName        = ".officraft-mod"
+	notifyModConfigFile     = "officraft.json"
 	notifyModLoadedMarker   = ".officraft-mod-loaded"
 	notifyModDisabledMarker = ".officraft-mod-disabled"
+	notifyModAckFile        = ".officraft-listen-ack"
+
+	// Read by the listener from its environment (cli/ocagent/listen.go's
+	// listenAckFileEnv); bin/listen-notice-mirror-guard.py holds the two equal.
+	listenAckFileEnv = "OC_LISTEN_ACK_FILE"
 
 	notifyModMinClaudeVersion = "2.1.287"
 )
+
+type notifyModListener struct {
+	Argv []string          `json:"argv"`
+	Cwd  string            `json:"cwd"`
+	Env  map[string]string `json:"env"`
+}
+
+type notifyModConfig struct {
+	LoadedMarker   string            `json:"loaded_marker"`
+	DisabledMarker string            `json:"disabled_marker"`
+	AckFile        string            `json:"ack_file"`
+	Listener       notifyModListener `json:"listener"`
+}
+
+func buildNotifyModConfig(workdir string) string {
+	ackFile := filepath.Join(workdir, notifyModAckFile)
+	b, _ := json.Marshal(notifyModConfig{
+		LoadedMarker:   filepath.Join(workdir, notifyModLoadedMarker),
+		DisabledMarker: filepath.Join(workdir, notifyModDisabledMarker),
+		AckFile:        ackFile,
+		Listener: notifyModListener{
+			Argv: []string{filepath.Join(workdir, "ocagent"), "listen", "--deliver-mod"},
+			Cwd:  workdir,
+			Env:  map[string]string{listenAckEnv: "1", listenAckFileEnv: ackFile},
+		},
+	})
+	return string(b) + "\n"
+}
 
 var notifyModFiles = []string{".claude-plugin/plugin.json", "hooks/hooks.json", "hooks/register.ts"}
 
@@ -105,6 +140,9 @@ func (d SpawnDeps) installNotifyMod(workdir string) string {
 		if err := d.WriteFile(dest, string(body), 0o600); err != nil {
 			return fmt.Sprintf("write_file_failed: %s/%s: %v", notifyModDirName, name, err)
 		}
+	}
+	if err := d.WriteFile(filepath.Join(dir, notifyModConfigFile), buildNotifyModConfig(workdir), 0o600); err != nil {
+		return fmt.Sprintf("write_file_failed: %s/%s: %v", notifyModDirName, notifyModConfigFile, err)
 	}
 	return ""
 }
