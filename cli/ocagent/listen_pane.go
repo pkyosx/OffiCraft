@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // The listener runs BESIDE its claude member (started by cli/ocwarden/spawn.go,
@@ -28,6 +30,14 @@ const (
 	paneEnterSettle   = 700 * time.Millisecond
 
 	paneCmdTimeout = 5 * time.Second
+
+	// Owner ruling rc-62ede5d63772: anything bigger reaches the member as an id-only
+	// notice. It counts the bytes actually pasted, header included, and has to stay
+	// well under set-buffer's argv ceiling (~16.3 KB measured; the exact figure moves
+	// with the socket and buffer name lengths).
+	panePasteMaxBytes = 8 << 10
+
+	oversizedNoticeHeaderRunes = 200
 )
 
 type tmuxRun func(args ...string) error
@@ -183,8 +193,87 @@ func (w *paneWriter) drain() {
 		if len(batch) == 0 {
 			return
 		}
-		w.deliver(strings.Join(batch, "\n"))
+		for _, paste := range packPanePastes(batch) {
+			w.deliver(paste)
+		}
 	}
+}
+
+// Packs whole events (a column-0 line plus its indented continuation lines) into
+// pastes of at most panePasteMaxBytes; an event that alone exceeds it is replaced by
+// its id-only notice, so no paste is ever split between lines.
+func packPanePastes(lines []string) []string {
+	var pastes []string
+	var current string
+	for _, event := range splitPaneEvents(lines) {
+		if len(event) > panePasteMaxBytes {
+			event = oversizedEventNotice(event)
+		}
+		if current != "" && len(current)+1+len(event) > panePasteMaxBytes {
+			pastes = append(pastes, current)
+			current = ""
+		}
+		if current == "" {
+			current = event
+		} else {
+			current += "\n" + event
+		}
+	}
+	if current != "" {
+		pastes = append(pastes, current)
+	}
+	return pastes
+}
+
+func splitPaneEvents(lines []string) []string {
+	var events []string
+	for _, line := range lines {
+		isContinuation := strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")
+		if isContinuation && len(events) > 0 {
+			events[len(events)-1] += "\n" + line
+			continue
+		}
+		events = append(events, line)
+	}
+	return events
+}
+
+func oversizedEventNotice(event string) string {
+	header, _, _ := strings.Cut(event, "\n")
+	return previewLine(header, oversizedNoticeHeaderRunes) + fmt.Sprintf(
+		" [這則通知約 %d 行／%d 字，超過送進畫面的上限 %d KiB，正文沒有送進來 — 請用 %s 讀全文]",
+		strings.Count(event, "\n")+1, utf8.RuneCountInString(event), panePasteMaxBytes>>10, fullReadToolFor(header))
+}
+
+func fullReadToolFor(header string) string {
+	switch {
+	case strings.HasPrefix(header, agentLinePrefix+"reply-card "):
+		return replyCardFullReadTool
+	case strings.HasPrefix(header, agentLinePrefix+"task "):
+		return "get_task"
+	default:
+		return chatFullReadTool
+	}
+}
+
+var paneEventRefRe = regexp.MustCompile(`#c-[0-9A-Za-z]+|\brc-[0-9A-Za-z]+|\bT-[0-9A-Za-z]+`)
+
+// ASCII only, because it is typed with send-keys -l, which can drop multibyte
+// characters into a busy TUI.
+func undeliveredNotice(paste string) string {
+	events := splitPaneEvents(strings.Split(paste, "\n"))
+	refs := make([]string, 0, len(events))
+	for _, event := range events {
+		header, _, _ := strings.Cut(event, "\n")
+		if ref := paneEventRefRe.FindString(header); ref != "" {
+			refs = append(refs, ref)
+		} else {
+			refs = append(refs, "no id")
+		}
+	}
+	return fmt.Sprintf("%slisten: %d event(s) could not be pasted into this pane (%s) - none of their text "+
+		"was typed, read them with get_chat / get_reply_card / get_task",
+		agentLinePrefix, len(events), strings.Join(refs, ", "))
 }
 
 func takePaneLine(buf *bytes.Buffer) (string, bool) {
@@ -245,31 +334,28 @@ func forwardToPane(line string) bool {
 	return false
 }
 
-// 🔴 The fallback re-sends ONE LINE AT A TIME, never the batch: on tmux 3.6b a
-// bare paste turns each newline into Enter (a 17-line batch = 17 interleaved
-// turns); on 3.7c it does not (measured in a real Claude Code pane). It is
-// version-dependent, so assume the worst.
+// 🔴 Never fall back to pasting line by line (owner ruling): every line would become
+// its own turn, and on tmux 3.6b so would every newline of a bare paste. A failed
+// paste gets one id-only line typed instead.
 func (w *paneWriter) deliver(payload string) {
-	_ = w.run("-L", w.socket, "set-buffer", "-b", w.buffer, payload)
-	if err := w.run("-L", w.socket, "paste-buffer", "-t", w.session, "-b", w.buffer, "-d", "-p"); err == nil {
+	err := w.run("-L", w.socket, "set-buffer", "-b", w.buffer, payload)
+	if err == nil {
+		err = w.run("-L", w.socket, "paste-buffer", "-t", w.session, "-b", w.buffer, "-d", "-p")
+	}
+	if err == nil {
 		w.submit()
 		return
 	}
-	lines := strings.Split(payload, "\n")
-	for i, line := range lines {
-		_ = w.run("-L", w.socket, "set-buffer", "-b", w.buffer, line)
-		if err := w.run("-L", w.socket, "paste-buffer", "-t", w.session, "-b", w.buffer); err != nil {
-			// Bail on the first failure: a GONE pane fails every line, and stop()
-			// drains synchronously (a 17-line batch would hold shutdown ~36s). The
-			// remaining lines are LOST: the claude path has no ack gate (only the
-			// codex sidecar sets OC_LISTEN_ACK) and mark-read follows what was
-			// printed, so the listener's own log is the only record.
-			w.note("listen: gave up on %d line(s) after tmux refused a paste into %s\n",
-				len(lines)-i, w.session)
-			return
-		}
-		w.submit()
+	notice := undeliveredNotice(payload)
+	w.note("listen: tmux refused a paste into %s (%v); typing an id-only notice instead\n", w.session, err)
+	_ = w.run("-L", w.socket, "copy-mode", "-q", "-t", w.session)
+	if err := w.run("-L", w.socket, "send-keys", "-t", w.session, "-l", notice); err != nil {
+		// The events are LOST: the claude path has no ack gate (only the codex
+		// sidecar sets OC_LISTEN_ACK) and mark-read follows what was printed.
+		w.note("listen: the id-only notice did not reach %s either (%v): %s\n", w.session, err, notice)
+		return
 	}
+	w.submit()
 }
 
 func (w *paneWriter) note(format string, args ...any) {

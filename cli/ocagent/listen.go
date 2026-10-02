@@ -109,12 +109,9 @@ const (
 	taskTopic = "task"
 	tasksPath = "/api/tasks/"
 
-	// messageBodyValve is an anti-blowup valve, NOT a preview cap. Chat bodies and
-	// reply-card text are addressed to this agent, which reads them in full anyway,
-	// so truncating only adds a get_chat / get_reply_card round trip whose JSON
-	// envelope re-inflates the body 2–5×. 64 KiB prints every realistic
-	// message whole (the owner's must-print size, 5,000 chars, is ~15 KiB; a
-	// 20k-char SOP ~60 KiB) and trips only on a pathological paste.
+	// messageBodyValve is an anti-blowup valve for this listener's stdout, NOT a
+	// preview cap and NOT what a claude member's pane gets: that path pastes at most
+	// panePasteMaxBytes and turns anything bigger into an id-only notice.
 	messageBodyValve = 64 << 10
 
 	chatFullReadTool      = "get_chat"

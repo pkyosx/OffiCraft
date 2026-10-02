@@ -417,9 +417,10 @@ func tmuxDeliverNudge(r CmdRunner, sleep func(time.Duration), socket, session, n
 	// check was permanently false. The authority is the server's PRESENCE (a live SSE
 	// listener for this member id), NOT a report_waking receipt and NOT waking_since
 	// (stamped at dispatch).
-	if _, err := r.Run("tmux", "-L", socket, "paste-buffer", "-t", session, "-b", buf, "-d", "-p"); err != nil {
-		_, _ = r.Run("tmux", "-L", socket, "paste-buffer", "-t", session, "-b", buf)
-	}
+	//
+	// 🔴 No bare-paste retry when -p is refused: on tmux 3.6b a bare paste turns each
+	// newline into Enter, so a multi-line nudge would become one turn per line.
+	_, _ = r.Run("tmux", "-L", socket, "paste-buffer", "-t", session, "-b", buf, "-d", "-p")
 	for attempt := 0; attempt < nudgeMaxAttempts; attempt++ {
 		// Under emacs mode-keys a pane left in copy-mode swallows every Enter while the
 		// paste still lands; -q leaves any mode. Per attempt: a viewer can re-enter it.
