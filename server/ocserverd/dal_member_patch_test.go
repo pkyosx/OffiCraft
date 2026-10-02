@@ -243,59 +243,6 @@ func TestMemberWholeRow(t *testing.T) {
 	})
 }
 
-func TestUpdatableMemberFields(t *testing.T) {
-	t.Run("the insert-only columns are dropped and the rest keep their order and values", func(t *testing.T) {
-		m := dalTestMember("ow-1", "Wren")
-		m.Kind = KindOutsource
-		m.Codename = "O-7"
-		linked := "T-1"
-		m.LinkedTaskID = &linked
-
-		got := updatableMemberFields(memberWholeRow(m))
-		want := []memberField{
-			{col: "name", val: "Wren"},
-			{col: "kind", val: "outsource"},
-			{col: "role_key", val: "engineer"},
-			{col: "actual_model", val: "sonnet-4"},
-			{col: "actual_runtime", val: "codex"},
-			{col: "actual_effort", val: "high"},
-			{col: "desired_state", val: "online"},
-			{col: "last_machine_id", val: "mac-0"},
-			{col: "session_boot_ts", val: 1700000001.0},
-			{col: "waking_since", val: 1700000002.0},
-			{col: "roster_status", val: "active"},
-			{col: "linked_task_id", val: "T-1"},
-			{col: "codename", val: "O-7"},
-			{col: "created_ts", val: 1700000000.0},
-			{col: "released_ts", val: 1700000010.0},
-			{col: "activated_ts", val: 1700000011.0},
-			{col: "forced_stop_at", val: 1700000006.0, forwardOnly: true},
-			{col: "restart_after_stop", val: true},
-		}
-		if !reflect.DeepEqual(got, want) {
-			t.Fatalf("updatableMemberFields:\n got %+v\nwant %+v", got, want)
-		}
-	})
-
-	t.Run("an all-insert-only input keeps nothing, an all-updatable one keeps everything", func(t *testing.T) {
-		got := updatableMemberFields([]memberField{mfID("ann"), mfBankedCost(1), mfLastOp("stop")})
-		if !reflect.DeepEqual(got, []memberField{}) {
-			t.Fatalf("updatableMemberFields over insert-only columns: want an empty slice, got %+v", got)
-		}
-		in := []memberField{mfName("Ann"), mfKind(KindStaff)}
-		if got := updatableMemberFields(in); !reflect.DeepEqual(got, in) {
-			t.Fatalf("updatableMemberFields over updatable columns:\n got %+v\nwant %+v", got, in)
-		}
-	})
-
-	t.Run("nothing at all in is an empty slice out, not nil", func(t *testing.T) {
-		got := updatableMemberFields(nil)
-		if got == nil || len(got) != 0 {
-			t.Fatalf("updatableMemberFields(nil): want an empty slice, got %#v", got)
-		}
-	})
-}
-
 func TestPatchMemberOn(t *testing.T) {
 	t.Run("only the named columns move, and the neighbouring row is untouched", func(t *testing.T) {
 		d := newAPITestDAL(t)

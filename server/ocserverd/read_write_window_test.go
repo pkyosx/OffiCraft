@@ -1464,15 +1464,17 @@ func windowRefusal(what string) string {
 }
 
 // A lifecycle door re-reads the member row inside the transaction that writes
-// it, and lands the wind-down anchors, the whole row and any receipt or setter
-// together. The window closes on the row (dismissed, or a worker released,
-// behind the handler); the failure makes the whole-row write die after the
-// anchor write has already run in the same transaction.
+// it, and lands the wind-down anchors, the changed columns and any receipt or
+// setter together. The window closes on the row (dismissed, or a worker
+// released, behind the handler); the failure makes the changed-columns write
+// die after the anchor write has already run in the same transaction, or, for a
+// door that moves only the anchors, makes the anchor write itself die.
 type windowMemberDoor struct {
 	name, method, path, body string
 	worker                   bool // the target is ow-abc123 rather than kip
 	self                     bool // driven by the target's own credential
 	live                     bool // the target's session is connected
+	anchorsOnly              bool // the door moves no column besides the wind-down anchors
 	prepare                  string
 }
 
@@ -1484,30 +1486,30 @@ var windowMemberDoors = []windowMemberDoor{
 	{name: "deactivate", method: "POST", path: "/api/members/kip/deactivate", body: `{}`},
 	{name: "force stop", method: "POST", path: "/api/members/kip/force-stop", body: `{}`},
 	{name: "accelerated stop", method: "POST", path: "/api/members/kip/accelerated-stop", body: `{}`, live: true,
-		prepare: `UPDATE member SET desired_state = 'offline', stopping_since = 1700000000 WHERE id = 'kip'`},
+		prepare: `UPDATE member SET desired_state = 'offline', stopping_since = 1700000000 WHERE id = 'kip'`, anchorsOnly: true},
 	{name: "refocus", method: "POST", path: "/api/members/kip/refocus", body: `{}`, live: true,
-		prepare: `UPDATE member SET desired_state = 'online' WHERE id = 'kip'`},
+		prepare: `UPDATE member SET desired_state = 'online' WHERE id = 'kip'`, anchorsOnly: true},
 	{name: "report waking", method: "POST", path: "/api/self/waking", body: `{}`, self: true},
-	{name: "report stopping", method: "POST", path: "/api/self/stopping", body: `{}`, self: true},
-	{name: "report stopped", method: "POST", path: "/api/self/stopped", body: `{}`, self: true},
+	{name: "report stopping", method: "POST", path: "/api/self/stopping", body: `{}`, self: true, anchorsOnly: true},
+	{name: "report stopped", method: "POST", path: "/api/self/stopped", body: `{}`, self: true, anchorsOnly: true},
 	{name: "restart self", method: "POST", path: "/api/self/refocus", body: `{}`, self: true, live: true,
-		prepare: `UPDATE member SET desired_state = 'online' WHERE id = 'kip'`},
+		prepare: `UPDATE member SET desired_state = 'online' WHERE id = 'kip'`, anchorsOnly: true},
 
 	{name: "worker stop", method: "POST", path: "/api/members/ow-abc123/deactivate", body: `{}`, worker: true},
 	{name: "worker force stop", method: "POST", path: "/api/members/ow-abc123/force-stop", body: `{}`, worker: true},
 	{name: "worker accelerated stop", method: "POST", path: "/api/members/ow-abc123/accelerated-stop", body: `{}`,
 		worker: true, live: true,
-		prepare: `UPDATE member SET desired_state = 'offline', stopping_since = 1700000000 WHERE id = 'ow-abc123'`},
-	{name: "worker refocus", method: "POST", path: "/api/members/ow-abc123/refocus", body: `{}`, worker: true, live: true},
+		prepare: `UPDATE member SET desired_state = 'offline', stopping_since = 1700000000 WHERE id = 'ow-abc123'`, anchorsOnly: true},
+	{name: "worker refocus", method: "POST", path: "/api/members/ow-abc123/refocus", body: `{}`, worker: true, live: true, anchorsOnly: true},
 	{name: "worker restart", method: "POST", path: "/api/members/ow-abc123/activate", body: `{}`, worker: true,
 		prepare: `UPDATE member SET desired_state = 'offline', stopping_since = 1700000000 WHERE id = 'ow-abc123'`},
 	{name: "worker relocate", method: "POST", path: "/api/members/ow-abc123/relocate", body: `{"machine_id":"m-server-self"}`,
 		worker: true, prepare: `UPDATE member SET desired_machine_id = 'm-retired' WHERE id = 'ow-abc123'`},
 	{name: "worker model", method: "PATCH", path: "/api/members/ow-abc123", body: `{"model":"claude-opus-5"}`, worker: true},
 	{name: "worker report waking", method: "POST", path: "/api/self/waking", body: `{}`, worker: true, self: true},
-	{name: "worker report stopping", method: "POST", path: "/api/self/stopping", body: `{}`, worker: true, self: true},
-	{name: "worker report stopped", method: "POST", path: "/api/self/stopped", body: `{}`, worker: true, self: true},
-	{name: "worker restart self", method: "POST", path: "/api/self/refocus", body: `{}`, worker: true, self: true, live: true},
+	{name: "worker report stopping", method: "POST", path: "/api/self/stopping", body: `{}`, worker: true, self: true, anchorsOnly: true},
+	{name: "worker report stopped", method: "POST", path: "/api/self/stopped", body: `{}`, worker: true, self: true, anchorsOnly: true},
+	{name: "worker restart self", method: "POST", path: "/api/self/refocus", body: `{}`, worker: true, self: true, live: true, anchorsOnly: true},
 }
 
 // windowMemberDoorStack is the server a door runs on, with the target in the
@@ -1572,7 +1574,11 @@ func TestMemberLifecycleDoorsDecideFromTheRowTheyWrite(t *testing.T) {
 				d, _, _ := windowDAL(t, shape)
 				api, h, id, token := windowMemberDoorStack(t, d, door)
 				before := apiTestMemberRow(t, d, id)
-				apiTestFailMemberRowWrite(t, d, id)
+				if door.anchorsOnly {
+					apiTestFailMemberRowWrite(t, d, id)
+				} else {
+					apiTestFailMemberRowWriteAfterAnchors(t, d, id)
+				}
 				dashboard := apiTestListen(t, api, "")
 
 				status, data := windowJSON(t, h, door.method, door.path, token, door.body)

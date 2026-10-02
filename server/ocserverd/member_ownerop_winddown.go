@@ -359,11 +359,10 @@ func memberRestartQueuedReceipt(op string) string {
 // decideDown's offline arm), not a clock or a stopped-report, so a 強制停止
 // whose kill is still in flight is not restarted underneath itself.
 //
-// 🔴 T-55 TRIPWIRE: twelve fields land here in one tick. Every T-55 batch that
-// marks a column insertOnly silently drops one of them from the row write (the
-// member still comes up; only the stored row lags, so ordinary tests miss it).
-// 批次B (last_op*) and 批次C (wind-down anchors) are repaired below; 批次D
-// (desired_state + restart_after_stop) and 批次E (waking_since) will need the same.
+// 🔴 Twelve fields change here in one tick. A column made insert-only stops
+// landing through the changed-columns write with no error (the member still
+// comes up; only the stored row lags, so ordinary tests miss it): give it its
+// own setter call below, as last_op* and the wind-down anchors have.
 //
 // forced_stop_at is deliberately NOT cleared: it records that the PREVIOUS session
 // was cut off and is never cleared by a boot (migrations/00057).

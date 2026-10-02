@@ -4855,6 +4855,20 @@ func apiTestFailMemberRowWrite(t *testing.T, d *DAL, id string) {
 	}
 }
 
+// apiTestFailMemberRowWriteAfterAnchors lets the wind-down anchor write land and
+// fails every other UPDATE of id's row, so a door's changed-columns write dies
+// after its anchor write has already run in the same transaction.
+func apiTestFailMemberRowWriteAfterAnchors(t *testing.T, d *DAL, id string) {
+	t.Helper()
+	if _, err := d.wdb.Exec(`CREATE TRIGGER fail_member_row BEFORE UPDATE ON member
+		WHEN NEW.id = '` + id + `'
+		 AND NEW.stopping_since IS OLD.stopping_since AND NEW.stopped_since IS OLD.stopped_since
+		 AND NEW.refocus_since IS OLD.refocus_since AND NEW.refocus_op IS OLD.refocus_op
+		BEGIN SELECT RAISE(ABORT, 'member row unwritable'); END`); err != nil {
+		t.Fatalf("install failing trigger: %v", err)
+	}
+}
+
 // apiTestReceiptOf is a row's five last_op* columns folded to the three a
 // reader compares, so a test can write the whole expected receipt as a literal.
 func apiTestReceiptOf(t *testing.T, d *DAL, id string) map[string]any {

@@ -16,9 +16,9 @@ import (
 // Two orthogonal properties:
 //   - insertOnly: only row creation and a patch that NAMES the column write it
 //     (that is how the single-column setters work). writeMemberChangesOn never
-//     derives it from a diff, even when the caller's copy differs: these columns
-//     have writers that accumulate in SQL or move as a group, and a diffed
-//     absolute value would bypass both.
+//     derives it from a diff, even when the caller's copy differs: each of these
+//     columns is moved by its own setter, which carries the column's rule
+//     (accumulate in SQL, move as a group, only forward, or one owner face).
 //   - forwardOnly: the update becomes max(col, ?), so a stale or zero value
 //     cannot walk it back (owner ruling rc-78cb22a6de94). Declaring it is not
 //     enough on its own: every single-column setter of that column must also go
