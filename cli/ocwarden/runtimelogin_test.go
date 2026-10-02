@@ -393,6 +393,32 @@ func TestLoginRelay(t *testing.T) {
 		h.wantNoReport(t)
 	})
 
+	t.Run("under a reader still busy with a report when the process exits, the line printed just before the exit still reaches the failure reason", func(t *testing.T) {
+		h := newRelayHarness(t)
+		bin := stageBinary(t, filepath.Join(h.claude.root, "bin", "claude-tail"), "#!/bin/sh\n"+
+			`echo "If the browser didn't open, visit: `+fakeLoginURL+`"`+"\n"+
+			"/bin/sleep 0.3\n"+
+			"echo 'Login failed: tail'\n"+
+			"exit 1\n")
+		h.relay.resolveBin = func(string) string { return bin }
+		if err := os.MkdirAll(h.prober.agentHome, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		h.answer = func(rep loginReport) string {
+			if rep.State == "awaiting_code" {
+				time.Sleep(pipeDrainGrace + time.Second)
+			}
+			return rep.State
+		}
+		h.relay.Start("rl-t", "claude")
+		if got := h.next(t); got.State != "awaiting_code" {
+			t.Fatalf("first report = %+v, want awaiting_code", got)
+		}
+		if got, want := h.next(t), (loginReport{LoginID: "rl-t", State: "failed", Reason: "Login failed: tail"}); got != want {
+			t.Fatalf("final report = %+v, want %+v", got, want)
+		}
+	})
+
 	t.Run("under no code within the cap, the process is killed and the relay reports expired", func(t *testing.T) {
 		h := newRelayHarness(t)
 		h.relay.cap = 2 * time.Second
