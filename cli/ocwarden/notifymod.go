@@ -33,6 +33,7 @@ const (
 	notifyModConfigFile     = "officraft.json"
 	notifyModLoadedMarker   = ".officraft-mod-loaded"
 	notifyModDisabledMarker = ".officraft-mod-disabled"
+	notifyModBootedMarker   = ".officraft-mod-booted"
 	notifyModAckFile        = ".officraft-listen-ack"
 
 	// Read by the listener from its environment (cli/ocagent/listen.go's
@@ -54,7 +55,9 @@ type notifyModConfig struct {
 	BootPrompt     string `json:"boot_prompt"`
 	LoadedMarker   string `json:"loaded_marker"`
 	DisabledMarker string `json:"disabled_marker"`
-	AckFile        string `json:"ack_file"`
+	// Written once the boot prompt went in, so a fallback does not paste a second one.
+	BootedMarker string `json:"booted_marker"`
+	AckFile      string `json:"ack_file"`
 	// The mod writes the load marker only once the listener printed a frame or a
 	// line starting with one of these: a listener that refused to start prints
 	// neither, and the warden then falls back to pasting.
@@ -68,6 +71,7 @@ func buildNotifyModConfig(workdir, bootPrompt string) string {
 		BootPrompt:     bootPrompt,
 		LoadedMarker:   filepath.Join(workdir, notifyModLoadedMarker),
 		DisabledMarker: filepath.Join(workdir, notifyModDisabledMarker),
+		BootedMarker:   filepath.Join(workdir, notifyModBootedMarker),
 		AckFile:        ackFile,
 		ReadyPrefixes:  []string{noticeConnectedPrefix, noticeDisconnectedPrefix},
 		Listener: notifyModListener{
@@ -127,11 +131,12 @@ func parseDottedVersion(v string) ([]int, bool) {
 	return out, true
 }
 
-// Rewritten on every spawn. Both markers are cleared first: a loaded marker left
-// by the previous session would pass the check below for a mod that never loaded,
-// and a disabled one would keep a mod that does load from starting its listener.
+// Rewritten on every spawn. The markers are cleared first: a loaded marker left by
+// the previous session would pass the check below for a mod that never loaded, a
+// disabled one would keep a mod that does load from starting its listener, and a
+// booted one would keep a fallback from pasting the boot prompt nobody submitted.
 func (d SpawnDeps) installNotifyMod(workdir, bootPrompt string) string {
-	for _, marker := range []string{notifyModLoadedMarker, notifyModDisabledMarker} {
+	for _, marker := range []string{notifyModLoadedMarker, notifyModDisabledMarker, notifyModBootedMarker} {
 		if err := d.Remove(filepath.Join(workdir, marker)); err != nil && !os.IsNotExist(err) {
 			return fmt.Sprintf("write_file_failed: clearing stale %s: %v", marker, err)
 		}
@@ -158,6 +163,10 @@ func (d SpawnDeps) installNotifyMod(workdir, bootPrompt string) string {
 
 func (d SpawnDeps) notifyModLoaded(workdir string) bool {
 	return d.Exists != nil && d.Exists(filepath.Join(workdir, notifyModLoadedMarker))
+}
+
+func (d SpawnDeps) notifyModBooted(workdir string) bool {
+	return d.Exists != nil && d.Exists(filepath.Join(workdir, notifyModBootedMarker))
 }
 
 // ⚠️ A mod that loads AFTER this fallback would otherwise start a second

@@ -4,7 +4,8 @@ import { expect, test } from 'claude-code/testing'
 // What the warden writes beside the mod for member m1 (notifymod.go).
 const CONFIG_M1 =
   '{"boot_prompt":"開始。","loaded_marker":"/w/m1/.officraft-mod-loaded",' +
-  '"disabled_marker":"/w/m1/.officraft-mod-disabled","ack_file":"/w/m1/.officraft-listen-ack",' +
+  '"disabled_marker":"/w/m1/.officraft-mod-disabled","booted_marker":"/w/m1/.officraft-mod-booted",' +
+  '"ack_file":"/w/m1/.officraft-listen-ack",' +
   '"ready_prefixes":["[ocagent] listen: connected","[ocagent] listen: disconnected"],' +
   '"listener":{"argv":["/w/m1/ocagent","listen","--deliver-mod"],"cwd":"/w/m1",' +
   '"env":{"OC_LISTEN_ACK":"1","OC_LISTEN_ACK_FILE":"/w/m1/.officraft-listen-ack"}}}\n'
@@ -104,6 +105,7 @@ test('under a session start, the boot prompt goes in first, then the listener, t
   expect(w.spawned).toEqual([LISTENER])
   expect(w.trail).toEqual([
     'submit 開始。',
+    'write /w/m1/.officraft-mod-booted',
     'spawn',
     'write /w/m1/.officraft-mod-loaded',
     'submit [ocagent] chat from owner (#c-1): 甲\n    第二行',
@@ -114,6 +116,7 @@ test('under a session start, the boot prompt goes in first, then the listener, t
     { text: '[ocagent] chat from owner (#c-1): 甲\n    第二行', asUser: false },
   ])
   expect(w.writes).toEqual([
+    { path: '/w/m1/.officraft-mod-booted', text: 'booted\n' },
     { path: '/w/m1/.officraft-mod-loaded', text: 'loaded\n' },
     { path: '/w/m1/.officraft-listen-ack', text: 'ack 1\n' },
   ])
@@ -131,13 +134,14 @@ test('under a listener whose first output is a frame, that frame marks the mod l
 
   expect(w.trail).toEqual([
     'submit 開始。',
+    'write /w/m1/.officraft-mod-booted',
     'spawn',
     'write /w/m1/.officraft-mod-loaded',
     'submit [ocagent] listen: disconnected — dial tcp: refused',
   ])
 })
 
-test('under a listener that refuses to start, no marker is written', async ($, on) => {
+test('under a listener that refuses to start, no load marker is written', async ($, on) => {
   // Positive control: the first test, where a transport line writes it.
   const w = world(on, {
     stderr: ['[ocagent] listen: --deliver-mod needs OC_SESSION (…); refusing to start.\n'],
@@ -147,7 +151,7 @@ test('under a listener that refuses to start, no marker is written', async ($, o
   await settled(w.done)
 
   expect(w.spawned).toEqual([LISTENER])
-  expect(w.writes).toEqual([])
+  expect(w.writes).toEqual([{ path: '/w/m1/.officraft-mod-booted', text: 'booted\n' }])
 })
 
 for (const [name, refusal] of [
@@ -168,13 +172,13 @@ for (const [name, refusal] of [
   })
 }
 
-test('under the warden falling back before the listener connected, the mod marks nothing and stops the listener', async ($, on) => {
+test('under the warden falling back before the listener connected, the mod writes no load marker and stops the listener', async ($, on) => {
   const w = world(on, { disabledAfterSpawn: true, stderr: [CONNECTED], stdout: ['{"submit":"甲"}\n'] })
 
   await $.session.start(START)
   await settled(w.done)
 
-  expect(w.writes).toEqual([])
+  expect(w.writes).toEqual([{ path: '/w/m1/.officraft-mod-booted', text: 'booted\n' }])
   expect(w.submits).toEqual([{ text: '開始。', asUser: true }])
 })
 
@@ -197,7 +201,8 @@ for (const [name, failure] of [
 
     expect(w.submits.map(s => s.text)).toEqual(['開始。', '甲', '乙', '丙', '丁'])
     expect(w.writes).toEqual([
-      { path: '/w/m1/.officraft-mod-loaded', text: 'loaded\n' },
+      { path: '/w/m1/.officraft-mod-booted', text: 'booted\n' },
+    { path: '/w/m1/.officraft-mod-loaded', text: 'loaded\n' },
       { path: '/w/m1/.officraft-listen-ack', text: 'nack 1\n' },
       { path: '/w/m1/.officraft-listen-ack', text: 'ack 2\n' },
     ])
