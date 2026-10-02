@@ -241,7 +241,7 @@ func splitPaneEvents(lines []string) []string {
 func oversizedEventNotice(event string) string {
 	header, _, _ := strings.Cut(event, "\n")
 	return previewLine(header, oversizedNoticeHeaderRunes) + fmt.Sprintf(
-		" [這則通知共 %d 行／%d 字，超過送進畫面的上限 %d KiB，正文沒有送進來 — 請用 %s 讀全文]",
+		" [這則通知約 %d 行／%d 字，超過送進畫面的上限 %d KiB，正文沒有送進來 — 請用 %s 讀全文]",
 		strings.Count(event, "\n")+1, utf8.RuneCountInString(event), panePasteMaxBytes>>10, fullReadToolFor(header))
 }
 
@@ -334,9 +334,9 @@ func forwardToPane(line string) bool {
 	return false
 }
 
-// 🔴 Never fall back to pasting line by line: on tmux 3.6b a bare paste turns each
-// newline into Enter, and a 1194-line message became 1194 turns (owner: 「再怎樣都不應該
-// 一行行送」). A failed paste gets one id-only line typed instead.
+// 🔴 Never fall back to pasting line by line (owner ruling): every line would become
+// its own turn, and on tmux 3.6b so would every newline of a bare paste. A failed
+// paste gets one id-only line typed instead.
 func (w *paneWriter) deliver(payload string) {
 	err := w.run("-L", w.socket, "set-buffer", "-b", w.buffer, payload)
 	if err == nil {

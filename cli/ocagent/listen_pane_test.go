@@ -399,7 +399,7 @@ func TestPaneWriter(t *testing.T) {
 		w.Write([]byte(overCeiling + "\n"))
 		w.drain()
 		notice := header + strings.Repeat("a", 166) +
-			"… [這則通知共 1 行／8193 字，超過送進畫面的上限 8 KiB，正文沒有送進來 — 請用 get_chat 讀全文]"
+			"… [這則通知約 1 行／8193 字，超過送進畫面的上限 8 KiB，正文沒有送進來 — 請用 get_chat 讀全文]"
 		if want := deliveryOf("officraft", "member-m1", notice); !reflect.DeepEqual(rec.snapshot(), want) {
 			t.Errorf("tmux calls =\n%q\nwant\n%q", rec.snapshot(), want)
 		}
@@ -418,7 +418,7 @@ func TestPaneWriter(t *testing.T) {
 		w.drain()
 
 		notice := "[ocagent] chat from owner (#c-6feb08ebdbb6): line 0000 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" +
-			" [這則通知共 1194 行／53770 字，超過送進畫面的上限 8 KiB，正文沒有送進來 — 請用 get_chat 讀全文]"
+			" [這則通知約 1194 行／53770 字，超過送進畫面的上限 8 KiB，正文沒有送進來 — 請用 get_chat 讀全文]"
 		if want := deliveryOf("officraft", "member-m1", notice); !reflect.DeepEqual(rec.snapshot(), want) {
 			t.Errorf("tmux calls =\n%q\nwant\n%q", rec.snapshot(), want)
 		}
@@ -436,7 +436,7 @@ func TestPaneWriter(t *testing.T) {
 		w.drain()
 
 		notice := "[ocagent] chat from owner (#c-2): " + strings.Repeat("界", 166) +
-			"… [這則通知共 1 行／4034 字，超過送進畫面的上限 8 KiB，正文沒有送進來 — 請用 get_chat 讀全文]"
+			"… [這則通知約 1 行／4034 字，超過送進畫面的上限 8 KiB，正文沒有送進來 — 請用 get_chat 讀全文]"
 		if want := deliveryOf("officraft", "member-m1", notice); !reflect.DeepEqual(rec.snapshot(), want) {
 			t.Errorf("tmux calls =\n%q\nwant\n%q", rec.snapshot(), want)
 		}
@@ -447,10 +447,10 @@ func TestPaneWriter(t *testing.T) {
 		for _, tc := range []struct{ event, notice string }{
 			{"[ocagent] reply-card rc-1 answered: " + big,
 				"[ocagent] reply-card rc-1 answered: " + strings.Repeat("b", 164) +
-					"… [這則通知共 1 行／9036 字，超過送進畫面的上限 8 KiB，正文沒有送進來 — 請用 get_reply_card 讀全文]"},
+					"… [這則通知約 1 行／9036 字，超過送進畫面的上限 8 KiB，正文沒有送進來 — 請用 get_reply_card 讀全文]"},
 			{"[ocagent] task T-1 " + big,
 				"[ocagent] task T-1 " + strings.Repeat("b", 181) +
-					"… [這則通知共 1 行／9019 字，超過送進畫面的上限 8 KiB，正文沒有送進來 — 請用 get_task 讀全文]"},
+					"… [這則通知約 1 行／9019 字，超過送進畫面的上限 8 KiB，正文沒有送進來 — 請用 get_task 讀全文]"},
 		} {
 			var log bytes.Buffer
 			w, rec := newRecordingPaneWriter(&log)
@@ -459,6 +459,21 @@ func TestPaneWriter(t *testing.T) {
 			if want := deliveryOf("officraft", "member-m1", tc.notice); !reflect.DeepEqual(rec.snapshot(), want) {
 				t.Errorf("tmux calls =\n%q\nwant\n%q", rec.snapshot(), want)
 			}
+		}
+	})
+
+	t.Run("two events that fill the ceiling only without their joining newline go out as two pastes", func(t *testing.T) {
+		first := "[ocagent] chat from owner (#c-1): " + strings.Repeat("a", 4096-34)
+		second := "[ocagent] chat from owner (#c-2): " + strings.Repeat("b", 4096-34)
+
+		var log bytes.Buffer
+		w, rec := newRecordingPaneWriter(&log)
+		w.Write([]byte(first + "\n" + second + "\n"))
+		w.drain()
+
+		want := append(deliveryOf("officraft", "member-m1", first), deliveryOf("officraft", "member-m1", second)...)
+		if got := rec.snapshot(); !reflect.DeepEqual(got, want) {
+			t.Errorf("got %d call(s), want %d: 8193 bytes were pasted at once", len(got), len(want))
 		}
 	})
 
@@ -484,7 +499,7 @@ func TestPaneWriter(t *testing.T) {
 			"[ocagent] chat from owner (#c-1, ↩#c-0, 3s ago): 第一則",
 			"[ocagent] reply-card rc-2 answered: 好",
 			"[ocagent] task T-3 changed",
-			"[ocagent] signal context-high: 80%",
+			"[ocagent] signal context-high: 80%\n    內文提到 T-99 與 rc-98",
 		}
 		payload := strings.Join(events, "\n")
 		notice := "[ocagent] listen: 4 event(s) could not be pasted into this pane (#c-1, rc-2, T-3, no id)" +
@@ -667,7 +682,7 @@ func TestPaneWriter(t *testing.T) {
 		}
 		overEvent := chatEvent(t, "c-2", over.String())
 		overNotice := "[ocagent] chat from owner (#c-2): line 0000 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" +
-			" [這則通知共 1194 行／53759 字，超過送進畫面的上限 8 KiB，正文沒有送進來 — 請用 get_chat 讀全文]"
+			" [這則通知約 1194 行／53759 字，超過送進畫面的上限 8 KiB，正文沒有送進來 — 請用 get_chat 讀全文]"
 
 		for _, tc := range []struct {
 			name, event, pasted string
