@@ -174,7 +174,7 @@ var builtinTaskManuals = []builtinTaskManual{
 		TypeKey:     "builtin-role-design",
 		DisplayName: "建立／修改角色",
 		Purpose:     "建立新的角色，或調整既有角色的角色定義與判準（Insight）。",
-		Fields:      []ManualField{{Name: "role_name", Required: true, IsKey: true}},
+		Fields:      []ManualField{},
 		Assignee:    map[string]any{"kind": TaskExecutorStaff, "member_id": seedMiraID},
 	},
 	{

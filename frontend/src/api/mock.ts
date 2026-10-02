@@ -990,7 +990,7 @@ const MOCK_TASK_MANUAL_SEEDS: readonly StoredTaskManual[] = [
     typeKey: "builtin-role-design",
     displayName: "建立／修改角色",
     purpose: "建立新的角色，或調整既有角色的角色定義與判準（Insight）。",
-    fields: [{ name: "role_name", required: true, isKey: true }],
+    fields: [],
     sopMd: "# 角色基本定義\n\n（mock 內建手冊）\n",
     assignee: { kind: "staff", memberId: "mira" },
     updatedTs: 0,
