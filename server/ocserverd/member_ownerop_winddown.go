@@ -193,6 +193,24 @@ func ownerOpStartsAtOnce(op string) bool {
 	return op != memberOpRuntimeModel
 }
 
+// reconcileAfterOwnerOp is the instant tick a staff owner verb runs after its
+// write. On a member the verb only noted (wanted offline) that tick's one effect
+// is spending the queued 起來, so ownerOpStartsAtOnce decides whether it runs.
+func (s *apiServer) reconcileAfterOwnerOp(memberID, op string, noted bool) reconcileDecision {
+	if noted && !ownerOpStartsAtOnce(op) {
+		return reconcileDecision{}
+	}
+	return s.reconcileMemberNow(memberID)
+}
+
+// outsourceTickAfterOwnerOp is the worker face: the tick spends a queued 起來
+// whose stop has finished. Callers must not hold outsourceMu (the tick takes it).
+func (s *apiServer) outsourceTickAfterOwnerOp(op string) {
+	if ownerOpStartsAtOnce(op) {
+		s.outsourceTickNow()
+	}
+}
+
 // Owner ruling: the three notes an owner verb leaves on a stopped member are ✓ with
 // a note, never ✗ — the change was saved in every case. Do not stamp them through
 // stampOpReceipt.

@@ -864,6 +864,31 @@ func TestRelocateWorkerByID(t *testing.T) {
 }
 
 func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing.T) {
+	t.Run("換手 on a worker whose 強制停止 already took its session down starts it in the same request, as a success noting it had already stopped", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		session := apiTestRunningWorker(t, api, h, d, owner)
+		if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/force-stop", owner, ""); code != 200 {
+			t.Fatalf("force-stop: %d %v", code, data)
+		}
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		api.hub.Disconnect(session)
+
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
+		wsWantWardenFrames(t, api, ServerSelfHost,
+			wsStartFrame("ow-abc123", apiTestWorkerBootContext(t, h, owner), "claude", "sonnet", "medium"))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "waking", "desired_state": "online",
+			"desired_machine_id": "m-server-self", "machine": "m-server-self", "forced_stop_at": apiAnyNumber,
+			"last_op": "start", "last_op_ok": true, "last_op_log": "", "last_op_at": apiAnyNumber,
+			"last_op_reason": "restarting: the refocus was saved; this member had already " +
+				"stopped, so it is being started again to apply it",
+		}))
+	})
+
 	for _, workerStatus := range []string{"active", "assigned"} {
 		t.Run("換手 on a live "+workerStatus+" worker stamps the epoch, fans the 預告 at its own session and starts no clock", func(t *testing.T) {
 			api, h, d, owner := newAPITestServer(t)

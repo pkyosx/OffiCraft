@@ -917,9 +917,9 @@ type ownerOpOutcome struct {
 func (o ownerOpOutcome) Pending() bool { return !o.Dispatched && !o.AlreadyRunning }
 
 const (
-	ownerOpRelocate     = "relocate"
+	ownerOpRelocate     = memberOpRelocate
 	ownerOpRestart      = "restart"
-	ownerOpRuntimeModel = "runtime/model" // 換 model / runtime / effort
+	ownerOpRuntimeModel = memberOpRuntimeModel
 )
 
 // openOwnerOpHandover opens a graceful wind-down for an owner verb: stamp a fresh

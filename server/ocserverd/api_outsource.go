@@ -215,9 +215,7 @@ func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost
 	if queued {
 		s.publishOutsourceWorker(*worker, requestTrigger(r))
 		unlockMu()
-		// AFTER the unlock: the tick takes outsourceMu itself. Spends a queued
-		// start at once when the stop has already converged.
-		s.outsourceTickNow()
+		s.outsourceTickAfterOwnerOp(refocusOpRefocus)
 		if fresh, ferr := s.dal.GetOutsourceWorker(id); ferr == nil && fresh != nil {
 			worker = fresh
 		}
@@ -576,9 +574,8 @@ func (s *apiServer) handleSetOutsourceWorkerModel(w http.ResponseWriter, r *http
 	}
 	s.publishOutsourceWorker(*worker, requestTrigger(r))
 	unlockMu()
-	// AFTER the unlock: the tick takes outsourceMu itself.
-	if noted && ownerOpStartsAtOnce(ownerOpRuntimeModel) {
-		s.outsourceTickNow()
+	if noted {
+		s.outsourceTickAfterOwnerOp(ownerOpRuntimeModel)
 	}
 
 	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: worker.ID})

@@ -3240,6 +3240,32 @@ func TestHandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost(t *tes
 }
 
 func TestHandleRefocusMemberApiMembersMemberIdRefocusPost(t *testing.T) {
+	t.Run("重新聚焦 on a member whose 強制停止 already took its session down starts it in the same request, as a success noting it had already stopped", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestRunner(t, api, d, DesiredStateOnline)
+		session, err := api.hub.Connect("runner", "m-box")
+		if err != nil {
+			t.Fatalf("hub.Connect: %v", err)
+		}
+		if status, data := apiJSON(t, h, "POST", "/api/members/runner/force-stop", owner, `{}`); status != 200 {
+			t.Fatalf("force-stop: %d %v", status, data)
+		}
+		wsWantWardenFrames(t, api, "m-box", wsStopFrame("runner"))
+		api.hub.Disconnect(session)
+
+		status, data := apiJSON(t, h, "POST", "/api/members/runner/refocus", owner, `{}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "runner"})
+		wsWantWardenFrames(t, api, "m-box", apiTestRunnerStartFrame("sonnet"))
+		apiTestWantLastOp(t, h, owner, "runner", map[string]any{
+			"last_op": "start", "last_op_ok": true, "last_op_log": "", "last_op_at": apiAnyNumber,
+			"last_op_reason": "restarting: the refocus was saved; this member had already " +
+				"stopped, so it is being started again to apply it",
+		})
+	})
+
 	t.Run("an outsource worker is refocused through the shared member verb", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)

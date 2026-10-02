@@ -701,9 +701,7 @@ func (s *apiServer) HandleUpdateMemberApiMembersMemberIdPatch(w http.ResponseWri
 	s.publishMemberPatch(saved, requestTrigger(r))
 	if noted {
 		s.publishMemberPatch(saved, requestTrigger(r))
-		if ownerOpStartsAtOnce(memberOpRuntimeModel) {
-			s.reconcileMemberNow(saved.ID)
-		}
+		s.reconcileAfterOwnerOp(saved.ID, memberOpRuntimeModel, noted)
 	}
 	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: saved.ID})
 }
@@ -946,7 +944,7 @@ func (s *apiServer) HandleRelocateMemberApiMembersMemberIdRelocatePost(w http.Re
 	if noted {
 		s.publishMemberPatch(saved, requestTrigger(r))
 	}
-	dec := s.reconcileMemberNow(saved.ID)
+	dec := s.reconcileAfterOwnerOp(saved.ID, memberOpRelocate, noted)
 	receipt := agentRelocateReceiptDTO{ID: saved.ID}
 	// relocation_pending also covers an opened wind-down (nothing dispatched yet).
 	if dec.DispatchUnlanded || windDown {
@@ -1270,7 +1268,7 @@ func (s *apiServer) HandleRefocusMemberApiMembersMemberIdRefocusPost(w http.Resp
 	s.publishMemberPatch(saved, requestTrigger(r))
 	if queued {
 		s.publishMemberPatch(saved, requestTrigger(r))
-		s.reconcileMemberNow(saved.ID)
+		s.reconcileAfterOwnerOp(saved.ID, refocusOpRefocus, queued)
 	}
 	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: saved.ID})
 }
