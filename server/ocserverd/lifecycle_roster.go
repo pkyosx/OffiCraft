@@ -135,7 +135,7 @@ func (s *apiServer) runLifecycleRosterPasses(roster []Member, now float64) {
 // 🔴 The fold-back is never persisted: for the rest of the tick
 // StoppingSince/StoppedSince exist ONLY on the caller's slice. Readers include
 // values that travel under other names — AgentStopped (workerObservation,
-// worker_spawn.go) and the positional stoppedSince that workerHasStateToFlush
+// worker_spawn.go) and the positional stoppedSince that ownerOpHandoverPlanFor
 // passes into hasUncollectedOnlineOwnerOpState — so grepping the field names
 // misses them. The wind-down suite's helper workerTickPass re-reads the row from
 // the DAL, so it never observes this fold-back: green after deleting these lines

@@ -1240,15 +1240,15 @@ func parityCases() []verbCase {
 					api.HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost)
 				return workerTerminal(t, api, id, code.Code, notices)
 			},
-			// 正職: !aRefocusStampWouldReachTheAgent && aStopWasEverAskedFor →
-			// stampRestartIntent(m) and a 200. The stop keeps its stage and anchors.
+			// 正職: ownerOpHandoverPlanFor → QueueBehindStop →
+			// queueRestartBehindStop and a 200. The stop keeps its stage and anchors.
 			wantStaff: terminalState{
 				Status: http.StatusOK, DesiredState: DesiredStateOffline,
 				Stopping: anchorPast, Stopped: anchorZero,
 				Refocus: anchorZero, RefocusOp: "",
 				Waking: anchorZero, RestartAfterStop: true,
 				DesiredMachineID: parityMachineA,
-				// takes the queue-the-起來 branch (api_members.go:1608); the member is still
+				// takes the queue-the-起來 branch (applyRefocusVerb); the member is still
 				// online so the tick reaches decideDown's soft arm and spends nothing.
 				Dispatched: dispatchedNothing,
 				Cost:       costUntouched,
@@ -1259,9 +1259,8 @@ func parityCases() []verbCase {
 				// here (that is the 包② convergence) — it re-announced the old one.
 				Noticed: noticedNotice,
 			},
-			// 外包 (T-65 包②): the same branch, transcribed from the worker handler's
-			// own assignment — `queueWorkerRestartAfterStop(worker, refocusOpRefocus,
-			// …)` sets RestartAfterStop and touches nothing else, then answers 200.
+			// 外包 (T-65 包②): the same branch — applyRefocusVerb → queueRestartBehindStop
+			// sets RestartAfterStop and touches nothing else, then answers 200.
 			// The eager outsourceTickNow that follows is a no-op here twice over:
 			// newParityServer sets noOutsource, and the seeded session is ONLINE so
 			// the consume's `!hub.IsOnline` gate would refuse it anyway.

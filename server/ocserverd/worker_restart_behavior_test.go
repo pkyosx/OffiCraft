@@ -75,7 +75,7 @@ func TestRestartWorkerClearsThePreviousSessionsAnchors(t *testing.T) {
 }
 
 // The consequence a stale pair produces, which the epoch-scoped predicate does
-// NOT heal: workerHasStateToFlush asks "is THIS epoch's wind-down collected?",
+// NOT heal: ownerOpHandoverPlanFor asks "is THIS epoch's wind-down collected?",
 // and a leftover refocus+stopped pair answers YES about an epoch that ended
 // before this session existed — so the next owner verb is shot on the spot with
 // no close-out at all.
@@ -104,7 +104,7 @@ func TestOwnerVerbAfterARestartStillWindsDown(t *testing.T) {
 	}
 	api.hub.DrainWardenCommands(ServerSelfHost)
 	// The session the restart just dispatched comes up. Without this the 換 model
-	// below would take workerHasStateToFlush's !hub.IsOnline arm and the test
+	// below would take ownerOpHandoverPlanFor's not-online arm and the test
 	// would be green for a reason that has nothing to do with the anchors.
 	connectOnline(t, api, workerID)
 	if !api.hub.IsOnline(workerID) {

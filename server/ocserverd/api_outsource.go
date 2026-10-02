@@ -421,7 +421,7 @@ func (s *apiServer) handleRestartOutsourceWorker(w http.ResponseWriter, r *http.
 		worker.WakingSince = 0.0
 		// The other three anchors are cleared ONLY when a new session starts:
 		//   * NOT RUNNING — they date the session being replaced. A stale pair
-		//     (refocus > 0 ∧ stopped > 0) is read by workerHasStateToFlush as an
+		//     (refocus > 0 ∧ stopped > 0) is read by ownerOpHandoverPlanFor as an
 		//     already-collected wind-down, which shoots the next 改機器 / 換 model
 		//     with no close-out; the epoch scoping cannot heal a stale PAIR.
 		//   * ALREADY RUNNING — they describe a 加速停止 or 換手 mid-flight on the

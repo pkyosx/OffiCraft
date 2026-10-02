@@ -827,7 +827,7 @@ func TestRelocateAssignedWorker_X46(t *testing.T) {
 // queues the start and the worker comes back up. What keeps THIS fixture on the old
 // path is the thing the fixture never does — it sets desired_state directly and never
 // writes a stopping_since anchor, so aStopWasEverAskedFor is false and
-// queueWorkerRestartAfterStop refuses. See member_ownerop_winddown.go:554 and
+// queueWorkerRestartAfterStop refuses. See ownerOpHandoverPlanFor (member_ownerop_winddown.go) and
 // outsource_restart_after_stop_t65_test.go:90.
 //
 // ⇒ THIS TEST IS BLIND TO 包②, deliberately, and that means it is NOT a signal in
