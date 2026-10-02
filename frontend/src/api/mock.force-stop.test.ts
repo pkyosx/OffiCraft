@@ -127,6 +127,47 @@ describe("mock forceStopMember (staff)", () => {
 });
 
 describe("mock forceStopOutsourceMember", () => {
+  it("a wake pressed inside the window is not overwritten by the old session's disconnect", async () => {
+    __injectMockOutsourceWorker({
+      id: "ow-2",
+      codename: "O-2",
+      model: "opus",
+      effort: "medium",
+      status: "active",
+      taskId: "t-2",
+      taskTitle: "",
+      taskStatus: "in_progress",
+      createdTs: 1_790_000_000,
+      presence: "online",
+      desiredState: "online",
+      refocusOp: "",
+      forcedStopLive: false,
+      machine: "",
+      desiredMachineId: "",
+      account: null,
+      contextPct: null,
+      cost: null,
+      bankedCost: null,
+      lastOp: "",
+      lastOpOk: null,
+      lastOpLog: "",
+      lastOpReason: "",
+      lastOpAt: null,
+      creatorId: "",
+      delegatedBy: "",
+    });
+
+    await mockApi.forceStopMember("ow-2");
+    await mockApi.activateMember("ow-2");
+    vi.advanceTimersByTime(MOCK_FORCED_STOP_DISCONNECT_MS);
+    const w = await mockApi.getOutsourceWorker("ow-2");
+    expect({
+      presence: w.presence,
+      desiredState: w.desiredState,
+      forcedStopLive: w.forcedStopLive,
+    }).toEqual({ presence: "waking", desiredState: "online", forcedStopLive: false });
+  });
+
   it("holds a connected worker in stopping with forced_stop_live, then drops it, and a wake clears it", async () => {
     __injectMockOutsourceWorker({
       id: "ow-1",
