@@ -806,7 +806,7 @@ func TestRunListen(t *testing.T) {
 		started := false
 		start := func(Config, func(string) string, bool, io.Writer) int { started = true; return 0 }
 
-		rc := cmdListen([]string{"--deliver-tmux"}, Config{}, testEnv(map[string]string{}), &out, start, nil)
+		rc := cmdListen([]string{"--deliver-tmux"}, Config{}, testEnv(map[string]string{}), &out, io.Discard, start, nil)
 
 		if rc != 2 {
 			t.Errorf("rc = %d, want 2", rc)
@@ -835,7 +835,7 @@ func TestRunListen(t *testing.T) {
 		}
 
 		rc := cmdListen([]string{"--once", "--deliver-tmux"}, Config{},
-			testEnv(map[string]string{"OC_SESSION": "member-m1", "OC_TMUX_SOCKET": "lab"}), &out, start, rec.run)
+			testEnv(map[string]string{"OC_SESSION": "member-m1", "OC_TMUX_SOCKET": "lab"}), &out, io.Discard, start, rec.run)
 
 		if rc != 7 {
 			t.Errorf("rc = %d, want the run's own answer 7", rc)
@@ -847,14 +847,14 @@ func TestRunListen(t *testing.T) {
 	})
 
 	t.Run("without the flag the run writes to the caller's own writer and touches no tmux", func(t *testing.T) {
-		var out bytes.Buffer
+		var out, errOut bytes.Buffer
 		rec := &recordTmux{fail: map[int]bool{}}
 		start := func(_ Config, _ func(string) string, _ bool, sink io.Writer) int {
 			io.WriteString(sink, "[ocagent] chat #c-9\n")
 			return 0
 		}
 
-		rc := cmdListen(nil, Config{}, testEnv(map[string]string{"OC_SESSION": "member-m1"}), &out, start, rec.run)
+		rc := cmdListen(nil, Config{}, testEnv(map[string]string{"OC_SESSION": "member-m1"}), &out, &errOut, start, rec.run)
 
 		if rc != 0 {
 			t.Errorf("rc = %d, want 0", rc)
@@ -865,6 +865,9 @@ func TestRunListen(t *testing.T) {
 		if len(rec.snapshot()) != 0 {
 			t.Errorf("tmux was used without --deliver-tmux: %v", rec.snapshot())
 		}
+		if errOut.String() != "" {
+			t.Errorf("errOut = %q, want nothing", errOut.String())
+		}
 	})
 
 	t.Run("an unknown flag is refused", func(t *testing.T) {
@@ -872,11 +875,96 @@ func TestRunListen(t *testing.T) {
 		started := false
 		start := func(Config, func(string) string, bool, io.Writer) int { started = true; return 0 }
 
-		if rc := cmdListen([]string{"--nope"}, Config{}, testEnv(nil), &out, start, nil); rc != 2 {
+		if rc := cmdListen([]string{"--nope"}, Config{}, testEnv(nil), &out, io.Discard, start, nil); rc != 2 {
 			t.Errorf("rc = %d, want 2", rc)
 		}
 		if started {
 			t.Error("the listener was started on a flag parse error")
+		}
+	})
+
+	modEnv := map[string]string{
+		"OC_SESSION": "member-m1", "OC_LISTEN_ACK": "1", "OC_LISTEN_ACK_FILE": "/w/m1/.officraft-listen-ack",
+	}
+	without := func(key string) map[string]string {
+		env := map[string]string{}
+		for k, v := range modEnv {
+			if k != key {
+				env[k] = v
+			}
+		}
+		return env
+	}
+
+	t.Run("--deliver-mod refuses to start without what it needs, saying so on stderr", func(t *testing.T) {
+		for _, tc := range []struct {
+			name    string
+			argv    []string
+			env     map[string]string
+			refusal string
+		}{
+			{"no session", []string{"--deliver-mod"}, without("OC_SESSION"),
+				"[ocagent] listen: --deliver-mod needs OC_SESSION (the session to deliver into, and the session " +
+					"this listener must die with); refusing to start.\n"},
+			{"no ack file", []string{"--deliver-mod"}, without("OC_LISTEN_ACK_FILE"),
+				"[ocagent] listen: --deliver-mod needs OC_LISTEN_ACK=1 and OC_LISTEN_ACK_FILE (the file the mod " +
+					"answers each batch in); refusing to start.\n"},
+			{"acks not asked for", []string{"--deliver-mod"}, without("OC_LISTEN_ACK"),
+				"[ocagent] listen: --deliver-mod needs OC_LISTEN_ACK=1 and OC_LISTEN_ACK_FILE (the file the mod " +
+					"answers each batch in); refusing to start.\n"},
+			{"both routes at once", []string{"--deliver-mod", "--deliver-tmux"}, modEnv,
+				"[ocagent] listen: --deliver-tmux and --deliver-mod are two routes into the same member; " +
+					"pick one. Refusing to start.\n"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				var out, errOut bytes.Buffer
+				rec := &recordTmux{fail: map[int]bool{}}
+				started := false
+				start := func(Config, func(string) string, bool, io.Writer) int { started = true; return 0 }
+
+				rc := cmdListen(tc.argv, Config{}, testEnv(tc.env), &out, &errOut, start, rec.run)
+
+				if rc != 2 {
+					t.Errorf("rc = %d, want 2", rc)
+				}
+				if started {
+					t.Error("the listener was started anyway")
+				}
+				if errOut.String() != tc.refusal {
+					t.Errorf("errOut = %q, want %q", errOut.String(), tc.refusal)
+				}
+				if out.String() != "" || len(rec.snapshot()) != 0 {
+					t.Errorf("out = %q, tmux calls = %v; want neither", out.String(), rec.snapshot())
+				}
+			})
+		}
+	})
+
+	t.Run("--deliver-mod turns what the run prints into frames on stdout and diagnostics on stderr", func(t *testing.T) {
+		var out, errOut bytes.Buffer
+		rec := &recordTmux{fail: map[int]bool{}}
+		start := func(_ Config, _ func(string) string, once bool, sink io.Writer) int {
+			if !once {
+				t.Error("--once was not carried through")
+			}
+			io.WriteString(sink, "[ocagent] listen: retrying in 4s\n")
+			io.WriteString(sink, "[ocagent] chat #c-9 from Owner: 看一下\n")
+			return 7
+		}
+
+		rc := cmdListen([]string{"--once", "--deliver-mod"}, Config{}, testEnv(modEnv), &out, &errOut, start, rec.run)
+
+		if rc != 7 {
+			t.Errorf("rc = %d, want the run's own answer 7", rc)
+		}
+		if want := `{"submit":"[ocagent] chat #c-9 from Owner: 看一下"}` + "\n"; out.String() != want {
+			t.Errorf("out = %q, want %q", out.String(), want)
+		}
+		if want := "[ocagent] listen: retrying in 4s\n"; errOut.String() != want {
+			t.Errorf("errOut = %q, want %q", errOut.String(), want)
+		}
+		if len(rec.snapshot()) != 0 {
+			t.Errorf("tmux was used under --deliver-mod: %v", rec.snapshot())
 		}
 	})
 }

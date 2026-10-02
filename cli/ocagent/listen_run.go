@@ -50,8 +50,9 @@ type listener struct {
 	// Not a chat ledger (owner ruling rc-224dee5770dd): the server's unread set
 	// is the only record of what this listener has surfaced.
 	drainWarn *drainWarner
-	// Non-nil only for the codex sidecar (OC_LISTEN_ACK). nil ⇒ a printed line
-	// counts as delivered: the claude path, which must stay byte-for-byte as is.
+	// Non-nil only under OC_LISTEN_ACK (the codex sidecar, the claude
+	// notification mod). nil ⇒ a printed line counts as delivered: the paste
+	// route, which must stay byte-for-byte as is.
 	ack       *ackGate
 	replySeen *replyCardSeen
 	taskSnaps map[string]taskSnap

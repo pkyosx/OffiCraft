@@ -282,7 +282,7 @@ func (d SpawnDeps) ocAgentTarget() (string, bool) {
 // (--mcp-config) or persona (--append-system-prompt-file / --append-system-prompt).
 func buildLaunchCommand(claudeBin, workdir, mcpConfigPath string, sys claudeSystemPrompt, tokenFile, agentID, base, session, socket, model, effort, settingsJSON string, ch claudeHome) string {
 	return buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath, sys,
-		tokenFile, agentID, base, session, socket, model, effort, settingsJSON, nil, "", ch)
+		tokenFile, agentID, base, session, socket, model, effort, settingsJSON, nil, "", ch, "")
 }
 
 // ⚠️ ORDER IS THE WHOLE GUARANTEE: the CLAUDE_* purge and the HOME /
@@ -318,7 +318,7 @@ func claudeHomeExportPairs(ch claudeHome) [][2]string {
 // the file's same names — a positional override only, NOT enforcement of the OC_*
 // rule (that lives solely in the parser) — and (b) `export PATH=<workdir>:"$PATH"`
 // composes ON TOP of an env-file PATH.
-func buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath string, sys claudeSystemPrompt, tokenFile, agentID, base, session, socket, model, effort, settingsJSON string, extraEnv [][2]string, envRendered string, ch claudeHome) string {
+func buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath string, sys claudeSystemPrompt, tokenFile, agentID, base, session, socket, model, effort, settingsJSON string, extraEnv [][2]string, envRendered string, ch claudeHome, pluginDir string) string {
 	cd := claudeChildEnvPrologue(workdir, envRendered, ch)
 	pairs := [][2]string{
 		{baseEnv, base},
@@ -363,6 +363,9 @@ func buildLaunchCommandWithEnv(claudeBin, workdir, mcpConfigPath string, sys cla
 	if settingsJSON != "" {
 		parts = append(parts, "--settings", shellQuote(settingsJSON))
 	}
+	if pluginDir != "" {
+		parts = append(parts, "--plugin-dir", shellQuote(pluginDir))
+	}
 	return cd + exports + "exec " + strings.Join(parts, " ")
 }
 
@@ -378,9 +381,11 @@ func tmuxNewSession(r CmdRunner, socket, session, command string) error {
 	return nil
 }
 
-// OC_SESSION names the MEMBER's session, never the listener's own: it is what
-// `--deliver-tmux` pastes into and what the listener's self-exit probe watches — the
-// tie that stops an orphaned listener projecting a dead member as online.
+// The paste route (notifyByPaste): a claude member whose Claude Code cannot run
+// the notification mod hears through this sidecar instead. OC_SESSION names the
+// MEMBER's session, never the listener's own: it is what `--deliver-tmux` pastes
+// into and what the listener's self-exit probe watches — the tie that stops an
+// orphaned listener projecting a dead member as online.
 func buildListenerLaunchCommand(workdir, tokenFile, base, session, socket string,
 	extraEnv [][2]string, envRendered string) string {
 	s := "cd " + shellQuote(workdir) + "; "
@@ -402,13 +407,18 @@ func buildListenerLaunchCommand(workdir, tokenFile, base, session, socket string
 	return s + "exec ocagent listen --deliver-tmux"
 }
 
+// 🔴 Not tidiness, and run on EVERY claude spawn whichever route it takes: session
+// names are reused across respawns, so a leftover paste listener would not
+// self-exit, and the station kicking one of two listeners ends in `ocagent
+// suicide` killing the just-spawned member.
+func killStaleListenerSession(d SpawnDeps, socket, memberID string) {
+	_, _ = d.Runner.Run("tmux", "-L", socket, "kill-session", "-t", listenerSessionName(memberID))
+}
+
 // A failed listener start is LOGGED, never fatal: the member is already up and
-// nudged. 🔴 The stale kill is NOT tidiness: session names are reused across
-// respawns, so a leftover listener would not self-exit, and the station kicking one
-// of two listeners ends in `ocagent suicide` killing the just-spawned member.
+// nudged.
 func startListenerSession(d SpawnDeps, socket, session, memberID, command string) {
 	listenSession := listenerSessionName(memberID)
-	_, _ = d.Runner.Run("tmux", "-L", socket, "kill-session", "-t", listenSession)
 	if err := tmuxNewSession(d.Runner, socket, listenSession, command); err != nil {
 		d.logf("listener: could not start %s for %s (%v); the member boots deaf and "+
 			"the station will recycle it", listenSession, session, err)
@@ -651,9 +661,11 @@ type SpawnDeps struct {
 	MkdirAll          func(path string, perm os.FileMode) error
 	Symlink           func(oldname, newname string) error
 	Remove            func(name string) error
-	Nudge             string
-	Pretrust          func() error
-	PurgeTrash        func()
+	// nil reads every path as absent, which sends a claude member to the paste route.
+	Exists     func(path string) bool
+	Nudge      string
+	Pretrust   func() error
+	PurgeTrash func()
 	// nil means REAL time.Sleep (see nudgeClock): tests wanting speed pass a no-op
 	// explicitly.
 	Sleep func(time.Duration)
@@ -737,6 +749,14 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 			"session_already_exists: tmux session %q is already live (clobber-guard refused to stomp it)", session)}
 	}
 
+	notifyByPaste, notifyNote := false, ""
+	if runtimeName == "claude" {
+		if found, tooOld := d.claudeTooOldForNotifyMod(); tooOld {
+			notifyByPaste, notifyNote = true, notifyLegacyPasteNote(found)
+			d.logf("%s: Claude Code %s is older than %s; notifications go by tmux paste",
+				p.MemberID, found, notifyModMinClaudeVersion)
+		}
+	}
 	workdir := agentWorkdir(d.Home, p.MemberID)
 	if err := d.MkdirAll(workdir, 0o700); err != nil {
 		return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
@@ -849,6 +869,14 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 		}
 	}
 
+	pluginDir := ""
+	if runtimeName == "claude" && !notifyByPaste {
+		if refusal := d.installNotifyMod(workdir); refusal != "" {
+			return SpawnOutcome{OK: false, Reason: refusal}
+		}
+		pluginDir = filepath.Join(workdir, notifyModDirName)
+	}
+
 	command := ""
 	if runtimeName == "codex" {
 		command = buildCodexLaunchCommand(d.WardenBin, d.CodexBin, workdir,
@@ -857,7 +885,7 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 	} else {
 		command = buildLaunchCommandWithEnv(d.ClaudeBin, workdir, mcpConfigPath, sys,
 			tokenFile, p.MemberID, base, session, socket, p.Model, p.Effort, settingsJSON, extraEnv, envRendered,
-			d.ClaudeHome)
+			d.ClaudeHome, pluginDir)
 	}
 
 	if runtimeName == "claude" && d.Pretrust != nil {
@@ -867,6 +895,9 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 		}
 	}
 
+	if runtimeName == "claude" {
+		killStaleListenerSession(d, socket, p.MemberID)
+	}
 	if err := tmuxNewSession(d.Runner, socket, session, command); err != nil {
 		return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
 			"spawn_exec_failed: tmux new-session: %v", err)}
@@ -876,14 +907,23 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 		// would target a non-interactive pane.
 		tmuxDeliverNudge(d.Runner, d.Sleep, socket, session, nudge)
 
-		// The listener runs BESIDE the member, not inside its harness, which drops
+		// Read only after the nudge loop: the mod writes the marker at session start,
+		// and that loop is the only wait this path has.
+		if !notifyByPaste && !d.notifyModLoaded(workdir) {
+			notifyByPaste, notifyNote = true, notifyModNotLoadedNote
+			d.disableNotifyMod(workdir)
+			d.logf("%s: the notification mod did not load; notifications go by tmux paste", p.MemberID)
+		}
+		// The paste listener runs BESIDE the member, not inside its harness, which drops
 		// background jobs every 30 minutes (presence IS that connection). Started AFTER
 		// the nudge: a listener connecting first would paste into a still-starting TUI.
-		startListenerSession(d, socket, session, p.MemberID,
-			buildListenerLaunchCommand(workdir, tokenFile, base, session, socket,
-				extraEnv, envRendered))
+		if notifyByPaste {
+			startListenerSession(d, socket, session, p.MemberID,
+				buildListenerLaunchCommand(workdir, tokenFile, base, session, socket,
+					extraEnv, envRendered))
+		}
 	}
 
 	pid := tmuxPanePID(d.Runner, socket, session)
-	return SpawnOutcome{OK: true, SessionID: session, PID: pid}
+	return SpawnOutcome{OK: true, SessionID: session, PID: pid, Note: notifyNote}
 }

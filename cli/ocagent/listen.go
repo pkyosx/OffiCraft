@@ -110,8 +110,8 @@ const (
 	tasksPath = "/api/tasks/"
 
 	// messageBodyValve is an anti-blowup valve for this listener's stdout, NOT a
-	// preview cap and NOT what a claude member's pane gets: that path pastes at most
-	// panePasteMaxBytes and turns anything bigger into an id-only notice.
+	// preview cap and NOT what a claude member receives: that path delivers at most
+	// deliveryMaxBytes and turns anything bigger into an id-only notice.
 	messageBodyValve = 64 << 10
 
 	chatFullReadTool      = "get_chat"
@@ -592,13 +592,21 @@ func attachmentSummary(m map[string]any) string {
 	}
 }
 
-// listenAckEnv="1" is set by the parent (cli/ocwarden/codex_session.go) when a
-// codex sidecar consumes stdout: each line must become an App Server turn, which
-// can be refused, so printing proves nothing. Only the parent knows — never infer
-// it from a tty, the parent process or the member id: a wrong guess (ack mode with
-// nobody answering) hangs the drain. bin/listen-notice-mirror-guard.py holds the
-// name equal to ocwarden's copy.
+// listenAckEnv="1" is set by whoever consumes stdout when printing proves
+// nothing: the codex sidecar (cli/ocwarden/codex_session.go), where each line must
+// become an App Server turn, and the claude notification mod (cli/ocwarden/mod),
+// where each payload is a prompt submit; both can be refused. Only the parent
+// knows — never infer it from a tty, the parent process or the member id: a wrong
+// guess (ack mode with nobody answering) hangs the drain.
+// bin/listen-notice-mirror-guard.py holds the name equal to ocwarden's copy.
 const listenAckEnv = "OC_LISTEN_ACK"
+
+// listenAckFileEnv moves the answers from stdin to a file: a mod's child gets
+// its stdin once, at spawn. The mod overwrites the whole file with `ack N` or
+// `nack N`. Spelled again in cli/ocwarden/mod/hooks/register.ts.
+const listenAckFileEnv = "OC_LISTEN_ACK_FILE"
+
+const ackFilePoll = 200 * time.Millisecond
 
 type ackGate struct {
 	answers   <-chan string
@@ -612,7 +620,13 @@ type ackGate struct {
 const ackWaitTimeout = 30 * time.Second
 
 func newAckGate(env func(string) string, answers io.Reader) *ackGate {
-	if env == nil || env(listenAckEnv) != "1" || answers == nil {
+	if env == nil || env(listenAckEnv) != "1" {
+		return nil
+	}
+	if path := strings.TrimSpace(env(listenAckFileEnv)); path != "" {
+		return &ackGate{answers: watchAckFile(path, ackFilePoll), wait: ackWaitTimeout}
+	}
+	if answers == nil {
 		return nil
 	}
 	lines := make(chan string, 8)
@@ -624,6 +638,25 @@ func newAckGate(env func(string) string, answers io.Reader) *ackGate {
 		}
 	}()
 	return &ackGate{answers: lines, wait: ackWaitTimeout}
+}
+
+// The file is removed first: an answer left by the previous listener of this
+// workdir names a token this one will reuse.
+func watchAckFile(path string, every time.Duration) <-chan string {
+	_ = os.Remove(path)
+	lines := make(chan string, 8)
+	go func() {
+		last := ""
+		for {
+			raw, _ := os.ReadFile(path)
+			if answer := strings.TrimSpace(string(raw)); answer != "" && answer != last {
+				last = answer
+				lines <- answer
+			}
+			time.Sleep(every)
+		}
+	}()
+	return lines
 }
 
 func (g *ackGate) confirm(out io.Writer) bool {
@@ -987,7 +1020,8 @@ func renderReplyCardAnswer(card map[string]any) string {
 
 // unreadableAnswerNotice says restart_self, not "restart the listener": both
 // seeds forbid a member from running `ocagent listen` (it belongs to the
-// sidecar/ocwarden), and restart_self is a tool both runtimes hold. It must not
+// sidecar, the notification mod or ocwarden), and restart_self is a tool both
+// runtimes hold. It must not
 // tell anyone to touch the updater or upgrade another agent.
 const unreadableAnswerNotice = "(UNREADABLE ANSWER — an answer IS recorded on this " +
 	"card but this ocagent could not read it; do NOT treat this as \"no answer\". " +
