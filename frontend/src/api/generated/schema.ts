@@ -6539,8 +6539,11 @@ export interface components {
          * MonitoringAccountDTO
          * @description One account's usage. One row per account that reports telemetry carrying an
          *     ``account`` tag: each ``five_hour``/``seven_day`` window is selected
-         *     independently from that account's valid ``rate_limits`` reports (later
-         *     ``resets_at`` wins; ties use the report's rate-limit sample time), then shaped
+         *     independently from that account's valid ``rate_limits`` reports: reports
+         *     sampled within the telemetry freshness window come first, and among them the
+         *     later ``resets_at`` wins (ties use the report's rate-limit sample time); only
+         *     when no report is fresh do the older ones compete by the same rule. The window
+         *     is then shaped
          *     into pacing data. A missing, invalid, expired, or implausibly future reset time
          *     leaves that window honest-None. ``cost`` is the account's own accumulated spend, kept independently of its members' individual totals. It is not the sum of its sessions. Removing a member or clearing an individual member's cost does not reduce the account total; new spend continues to accumulate for the account. The
          *     accounts list is empty ONLY when no telemetry carries an account tag.

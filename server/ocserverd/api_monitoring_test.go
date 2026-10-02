@@ -2117,6 +2117,170 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		})
 	})
 
+	reportFiveHour := func(t *testing.T, api *apiServer, h http.Handler, id string, usedPct int, resetsAt int64) {
+		t.Helper()
+		token := apiTestAgentToken(t, api, id, "m-server-self")
+		if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", token,
+			`{"runtime":"claude","account":"shared-claude",`+
+				`"rate_limits":{"five_hour":{"used_percentage":`+strconv.Itoa(usedPct)+
+				`,"resets_at":`+strconv.FormatInt(resetsAt, 10)+`}}}`); status != 200 {
+			t.Fatalf("%s telemetry: want 200, got %d (%v)", id, status, data)
+		}
+	}
+	ageRateLimits := func(api *apiServer, id string, stamp float64) {
+		entry := api.telemetry.Get(id)
+		entry["rate_limits_ts"] = stamp
+		api.telemetry.Set(id, entry)
+	}
+	sharedAccountRow := func(fiveHour map[string]any) map[string]any {
+		return map[string]any{
+			"account":       "shared-claude",
+			"display_name":  "shared-claude",
+			"machine":       "m-server-self",
+			"cost":          nil,
+			"five_hour":     fiveHour,
+			"seven_day":     nil,
+			"limit_reached": nil,
+		}
+	}
+
+	t.Run("a fresh report and an older one with a later reset answer 200 with the fresh report's window", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		now := time.Now().Unix()
+		reportFiveHour(t, api, h, "mira", 10, now+4000)
+		ageRateLimits(api, "mira", float64(now)-telemetryFreshSecs-60)
+		reportFiveHour(t, api, h, "kip", 60, now+3000)
+
+		status, data := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"sessions": data["sessions"],
+			"machines": data["machines"],
+			"accounts": []any{sharedAccountRow(map[string]any{
+				"used_pct":    60,
+				"resets_at":   float64(now + 3000),
+				"elapsed_pct": apiAnyNumber,
+				"measured_at": apiAnyNumber,
+				"pace":        "ok",
+			})},
+		})
+	})
+
+	t.Run("fresh reports from the previous and the new window answer 200 with the new window", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		now := time.Now().Unix()
+		reportFiveHour(t, api, h, "mira", 90, now+100)
+		reportFiveHour(t, api, h, "kip", 5, now+3600)
+		ageRateLimits(api, "kip", float64(now)-30)
+
+		status, data := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"sessions": data["sessions"],
+			"machines": data["machines"],
+			"accounts": []any{sharedAccountRow(map[string]any{
+				"used_pct":    5,
+				"resets_at":   float64(now + 3600),
+				"elapsed_pct": apiAnyNumber,
+				"measured_at": apiAnyNumber,
+				"pace":        "ok",
+			})},
+		})
+	})
+
+	t.Run("fresh reports of the same window answer 200 with the newer sample", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		now := time.Now().Unix()
+		olderStamp := float64(now) - 30
+		reportFiveHour(t, api, h, "kip", 60, now+3000)
+		reportFiveHour(t, api, h, "mira", 20, now+3000)
+		ageRateLimits(api, "kip", olderStamp)
+
+		status, data := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"sessions": data["sessions"],
+			"machines": data["machines"],
+			"accounts": []any{sharedAccountRow(map[string]any{
+				"used_pct":    20,
+				"resets_at":   float64(now + 3000),
+				"elapsed_pct": apiAnyNumber,
+				"measured_at": apiAnyNumber,
+				"pace":        "ok",
+			})},
+		})
+	})
+
+	t.Run("a fresh report without a seven-day window answers 200 with the seven-day window from a stale report", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		now := time.Now().Unix()
+		staleStamp := float64(now) - telemetryFreshSecs - 60
+		kip := apiTestAgentToken(t, api, "kip", "m-server-self")
+		if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", kip,
+			`{"runtime":"claude","account":"shared-claude",`+
+				`"rate_limits":{"seven_day":{"used_percentage":40,"resets_at":`+strconv.FormatInt(now+86400, 10)+`}}}`); status != 200 {
+			t.Fatalf("kip telemetry: want 200, got %d (%v)", status, data)
+		}
+		ageRateLimits(api, "kip", staleStamp)
+		reportFiveHour(t, api, h, "mira", 60, now+3000)
+
+		status, data := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		row := sharedAccountRow(map[string]any{
+			"used_pct":    60,
+			"resets_at":   float64(now + 3000),
+			"elapsed_pct": apiAnyNumber,
+			"measured_at": apiAnyNumber,
+			"pace":        "ok",
+		})
+		row["seven_day"] = map[string]any{
+			"used_pct":    40,
+			"resets_at":   float64(now + 86400),
+			"elapsed_pct": apiAnyNumber,
+			"measured_at": staleStamp,
+			"pace":        nil,
+		}
+		apiWantBody(t, data, map[string]any{
+			"sessions": data["sessions"],
+			"machines": data["machines"],
+			"accounts": []any{row},
+		})
+	})
+
+	t.Run("only stale reports answer 200 with the later reset and no pace verdict", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		now := time.Now().Unix()
+		staleStamp := float64(now) - telemetryFreshSecs - 60
+		reportFiveHour(t, api, h, "mira", 10, now+4000)
+		reportFiveHour(t, api, h, "kip", 60, now+3000)
+		ageRateLimits(api, "mira", staleStamp)
+		ageRateLimits(api, "kip", staleStamp+30)
+
+		status, data := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"sessions": data["sessions"],
+			"machines": data["machines"],
+			"accounts": []any{sharedAccountRow(map[string]any{
+				"used_pct":    10,
+				"resets_at":   float64(now + 4000),
+				"elapsed_pct": apiAnyNumber,
+				"measured_at": staleStamp,
+				"pace":        nil,
+			})},
+		})
+	})
+
 	t.Run("a removed machine answers 200 with its account naming no machine", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		gone := Member{ID: "m-gone", Name: "gone-host", Codename: "gone-host", Kind: KindWarden,

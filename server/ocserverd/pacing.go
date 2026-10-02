@@ -132,8 +132,8 @@ func ShapeWindow(raw any, windowSec, now float64, measuredAt *float64, freshSecs
 	}
 }
 
-// measuredAt is PER WINDOW: the fold picks each window independently (later
-// resets_at wins), so one account-wide stamp would let a fresh 5h window
+// measuredAt is PER WINDOW: the fold picks each window independently
+// (pickRateLimitWindow), so one account-wide stamp would let a fresh 5h window
 // vouch for a frozen 7d one.
 func ShapeWindows(rateLimits any, now float64, measuredAt map[string]float64, freshSecs float64) map[string]*PaceWindow {
 	out := map[string]*PaceWindow{"five_hour": nil, "seven_day": nil}
