@@ -477,8 +477,9 @@ func TestActivateMember_UnderAPressWhileWakingWhoseStopCannotReachTheBootingMach
 	if status != 200 {
 		t.Fatalf("second activate: %d %v", status, receipt)
 	}
-	reason := "warden_unreachable: 喚醒 was recorded, but nothing has been dispatched yet — " +
-		"the machine's warden did not take the start. It will be retried; if it stays here, check that machine"
+	reason := "warden_unreachable: an earlier start is still booting on machine 'm-server-self' and " +
+		"this 喚醒's stop could not reach it, so no second start was sent. It will be retried once " +
+		"that start times out; if it stays here, check machine 'm-server-self'"
 	apiWantValue(t, "receipt", any(receipt), any(map[string]any{
 		"id": seedMiraID, "activation_pending": true, "last_op_reason": reason,
 	}))

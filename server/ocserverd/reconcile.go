@@ -133,17 +133,24 @@ type reconcileState struct {
 	// OfflineSince feeds the zombie-takeover second-confirmation window ONLY. Restart amnesia
 	// re-arms the window from zero, again the safe direction.
 	OfflineSince float64
-	// StartTarget: the warden the last START was handed to; read only through inFlightStartTarget.
+	// StartTarget: the warden the last START was handed to; read only through inFlightStartOf.
 	// The staff kill chain cannot stand in for it: it names a session's last landing before the
 	// pin, so after a 換機器 it points at the old machine while the START boots on the new one.
 	StartTarget string
 }
 
-func inFlightStartTarget(st reconcileState) string {
+// inFlightStart names one START, not just its machine: a later START to the same machine is a
+// different session.
+type inFlightStart struct {
+	Target string
+	At     float64
+}
+
+func inFlightStartOf(st reconcileState) inFlightStart {
 	if st.LastCommand != reconcileCmdStart {
-		return ""
+		return inFlightStart{}
 	}
-	return st.StartTarget
+	return inFlightStart{Target: st.StartTarget, At: st.LastCommandAt}
 }
 
 func newReconcileState() reconcileState {
@@ -1844,22 +1851,26 @@ func (s *apiServer) dispatchRobustStopAlsoTo(memberID, alsoTo string) shutdownDi
 	return s.dispatchShutdownAlsoTo(memberID, "robust-stop", alsoTo)
 }
 
-func (s *apiServer) inFlightStartTargetOf(memberID string) string {
+func (s *apiServer) inFlightStartOfMember(memberID string) inFlightStart {
 	s.reconcileMu.Lock()
 	defer s.reconcileMu.Unlock()
-	return inFlightStartTarget(s.reconcileStateOf(memberID))
+	return inFlightStartOf(s.reconcileStateOf(memberID))
 }
 
 // noteStartSupersededByStop takes reconcileMu itself: its caller is an HTTP handler that holds no
-// reconcile lock. The START is re-read under the lock: one a tick sent after the stop went out is
-// not what the stop ended.
-func (s *apiServer) noteStartSupersededByStop(memberID string, stop shutdownDispatch, now float64) {
+// reconcile lock. `ended` is the START read before the stop went out; a tick may have sent another
+// one since, possibly to a machine the stop also reached, and the stop did not end that one.
+func (s *apiServer) noteStartSupersededByStop(
+	memberID string, ended inFlightStart, stop shutdownDispatch, now float64,
+) bool {
 	s.reconcileMu.Lock()
 	defer s.reconcileMu.Unlock()
 	st := s.reconcileStateOf(memberID)
-	if stopReachedStart(inFlightStartTarget(st), stop.Landed) {
-		s.setReconcileState(memberID, startSupersededByStop(st, now))
+	if inFlightStartOf(st) != ended || !stopReachedStart(ended.Target, stop.Landed) {
+		return false
 	}
+	s.setReconcileState(memberID, startSupersededByStop(st, now))
+	return true
 }
 
 // noteRobustStopDispatched takes reconcileMu itself: every caller is an HTTP handler that holds no
