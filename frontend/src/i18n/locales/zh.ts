@@ -783,6 +783,21 @@ export const zh = {
       claude: "未登入 Claude",
       codex: "未登入 Codex",
     },
+    // 驚嘆號滑過去的模型呼叫失敗原因,一個原因一行(compose.ts 組裝)。
+    modelCallWarning: {
+      runtime: {
+        claude: "Claude",
+        codex: "Codex",
+      },
+      auth: "登入失效",
+      otherLead: "模型呼叫失敗（",
+      otherTail: "）",
+      rateLimit: "已達用量上限",
+      // 「14:32 重置」;空字串的那一片在組句時略過。
+      resetsLead: "",
+      resetsTail: "重置",
+      server: "伺服器異常",
+    },
   },
   login: {
     title: "登入 AI 工作室",
@@ -1266,6 +1281,8 @@ export const zh = {
     modelMachineDefault: "使用此機器的 Codex 預設模型",
     claudeAccount: "Claude Account",
     codexAccount: "Codex Account",
+    modelCallLastSuccess: "最後一次模型呼叫成功",
+    modelCallLastSuccessAgoTail: "前",
     modelEffortError: "儲存失敗，請稍後重試",
     stopError: "操作失敗，請稍後重試",
     runtime: "運行狀況",
@@ -1622,6 +1639,7 @@ export const zh = {
     // 寫成字串模板的話,白名單收不到它,那兩個字就永遠換不掉(T-081b)。
     measuredAgoLead: "量於",
     measuredAgoTail: "前",
+    limitReached: "已達上限",
     // 帳號詳情 modal(T-a9a7):該 claude 帳號背後的真實識別。email/org 來自
     // owner-only 的 account_label;任何缺值一律誠實顯示 "—",絕不猜。
     detail: {

@@ -763,9 +763,9 @@ var identityGateLedger = map[string]string{
 		"the machine directory is the roster FILTERED to kind==warden, the same filter " +
 		"GET /api/machines applies, so a machine resolves to the name that face shows. " +
 		"Machine-vs-person axis.",
-	"api_machines.go :: publishLoginPairsOn :: m.Kind == machineKind": "" +
-		"a machine row has no runtime_login_warnings to refresh. Machine-vs-person axis.",
-	"api_machines.go :: publishLoginPairsOn :: m.Kind == KindOutsource": "" +
+	"api_machines.go :: loginPairsOf :: m.Kind == machineKind": "" +
+		"a machine row has no runtime_login_warnings or model_call_warnings to refresh. Machine-vs-person axis.",
+	"api_machines.go :: loginPairsOf :: m.Kind == KindOutsource": "" +
 		"the login-pair refresh reads each row's shown machine the way its MemberDTO " +
 		"projection does, and that is the declared observation-input difference: a " +
 		"worker's machine comes from its dispatch target (projectWorker), a staff " +
@@ -1181,6 +1181,11 @@ var identityGateLedger = map[string]string{
 		"NOT an identity gate — the same document-kind vocabulary, at the write path.",
 	"api_bootdocs.go :: resetBootDoc :: Kind: spec.Kind": "" +
 		"NOT an identity gate — the same document-kind vocabulary, at the reset path.",
+	"model_call.go :: mergeModelCall :: Kind: string(f.Kind)": "" +
+		"NOT an identity gate — MODEL-CALL FAILURE kind (auth / rate_limit / server / " +
+		"other), copied from the report onto the stored failure.",
+	"model_call.go :: modelCallWarningOf :: Kind: f.Kind": "" +
+		"NOT an identity gate — the same model-call failure kind, copied onto the warning DTO.",
 	"api_replycards.go :: replyCardListItemOf :: Kind: c.Kind": "" +
 		"NOT an identity gate — REPLY-CARD kind (the question's shape), another " +
 		"vocabulary sharing the field name.",
@@ -1205,6 +1210,12 @@ var identityGateLedger = map[string]string{
 	// are kept on the ledger rather than special-cased in the scanner, because a
 	// scanner tuned to hide its own near-misses stops finding the real ones —
 	// the same ruling api_roles.go :: HandleDeleteRole got in authzOutsideRouteTable.
+	"model_call.go :: carriesReset :: f.Kind == string(ModelCallFailureDTOKindRateLimit)": "" +
+		"NOT an identity gate — MODEL-CALL FAILURE kind: only a usage-limit refusal " +
+		"carries a reset time. No population is on either side.",
+	"model_call.go :: ownFailureShows :: f.Kind == string(ModelCallFailureDTOKindAuth)": "" +
+		"NOT an identity gate — the same model-call failure kind: an auth failure yields " +
+		"to the runtime_login_warnings entry for the same cause.",
 	"api_bootdocs.go :: bootDocRegFor :: reg.Kind == kind": "" +
 		"NOT an identity gate — `Kind` here is a DOCUMENT kind (boot sequence, " +
 		"offboard, task closeout…), an unrelated vocabulary that happens to reuse the " +

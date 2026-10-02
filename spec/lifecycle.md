@@ -714,7 +714,7 @@ in this section may be persisted, and the mirror stores an ORDER, not observed s
 | store | keyed by | written by | read by | restart semantics |
 |---|---|---|---|---|
 | context gauge (inventory #3) | verified caller `sub` | `POST /api/agent/context` (merge: MUST NOT clobber `boot_ts`; stamps `context_pct`, `rate_limits`, `ts`, `context_pct_ts`); SSE connect stamps `boot_ts` | context-high band, auto-recycle, monitoring fold | empty on restart (honest-empty; reporter refills) |
-| warden telemetry (inventory #5) | verified caller `sub` | `POST /api/monitoring/telemetry` — partial-report MERGE: only supplied fields (`rate_limits`/`tokens`/`hardware`/`cost`/`effort`/`runtime`/`runtimes`/`self_update`/`command_result`, `machine`/`account` tags) overwrite; `runtimes` is a value-free provider readiness map and MUST NOT contain credential material; an all-absent body is 400 | monitoring fold; disconnect-edge bank and runtime-capable placement | empty on restart; a purely-banked account disappears from the monitoring fold until re-reported (honest-empty by design) |
+| warden telemetry (inventory #5) | verified caller `sub` | `POST /api/monitoring/telemetry` — partial-report MERGE: only supplied fields (`rate_limits`/`tokens`/`hardware`/`cost`/`effort`/`runtime`/`runtimes`/`self_update`/`command_result`, `machine`/`account` tags) overwrite; `model_call` is the one block that does not overwrite: its success time and its failure are each merged with the stored one by keeping the LARGER time, so a repeated, reordered or lost report changes nothing; a merge that changes a member's `model_call_warnings` sends that member's patch, and a stored `rate_limit` failure carrying `resets_at` pushes once more when that time passes; `runtimes` is a value-free provider readiness map and MUST NOT contain credential material; an all-absent body is 400 | monitoring fold; disconnect-edge bank and runtime-capable placement; `model_call_warnings` / `model_call_last_success_ts` and the account card's `limit_reached` | empty on restart; a purely-banked account disappears from the monitoring fold until re-reported (honest-empty by design); both model-call times are forgotten, so `model_call_last_success_ts` reads 0 and no model-call warning shows until the next report |
 | reconcile store (inventory #7) | member id | producer tick (per-member reconcile state: `last_command`, `last_command_at`, `stop_deadline`, attempts/backoff/circuit) | producer tick | forgotten on restart → the "awaiting presence"/dedupe windows reset; the next tick re-decides from presence (self-healing) |
 | runtime-login relay | login id (one in flight per machine + runtime) | owner/admin start, code, cancel; the machine's own warden report (`POST /api/monitoring/runtime-login`) | `GET /api/machines/{machine_id}/runtime-login/{login_id}`; `runtime_login` signal | empty on restart (every login reads 404); the auth URL, the pasted code and codex's one-time `user_code` are never written anywhere, and `login_*` frames are never mirrored to `warden_command_queue`. The relay is NOT gated by `--no-reconcile` (§4.1): it is an owner action, not this producer's dispatch |
 | warden-command FIFO (inventory #6) | warden member id | producer dispatch | SSE warden band | pending frames dropped **for every verb except `update`**, and re-folded next tick from observed presence; `update` alone has a durable mirror (`warden_command_queue`) and is restored into the FIFO on restart, because nothing re-derives "the owner asked this machine to upgrade". START is excluded on top of that — its `args` carry a live `member_token` (spec/sse.md §7) |
@@ -726,16 +726,19 @@ the durable `member.banked_cost` exactly once per online→offline edge, then po
 
 Identity-from-token: both ingest stores MUST key on the **verified token `sub`**, never a
 self-reported agent id. A non-numeric `context_pct`, or
-a wrong-typed telemetry field, is a flat **400** (not 422) — **EXCEPTION**: the three
-telemetry blocks whose nested shape the spec DECLARES (`hardware` / `claude` / `runtimes`,
-T-90be) are typed as objects, so a non-object THERE is refused by the decoder as a **422**
+a wrong-typed telemetry field, is a flat **400** (not 422) — **EXCEPTION**: the
+telemetry blocks whose nested shape the spec DECLARES (`hardware` / `claude` / `runtimes` /
+`model_call`) are typed as objects, so a non-object THERE is refused by the decoder as a **422**
 before the handler runs. The undeclared blocks (`binaries` / `rate_limits` / `tokens` /
 `command_result` / `self_update`) still answer the flat 400, and so does the all-absent body
 — `{}` and `{"hardware": null}` alike, because a JSON null decodes to an ABSENT field, not
 to a wrong type. The split is where the refusal happens, not how strict the wire is: the
-declared blocks' CONTENTS stay permissive (`additionalProperties` true — an unknown nested
+CONTENTS of `hardware` / `claude` / `runtimes` stay permissive (`additionalProperties` true — an unknown nested
 key must still land, see `TestHandleIngestTelemetry_UndeclaredNestedKeyStillLands`), and an
 empty `hardware: {}` is a 200, because a report whose every probe failed is still a sample.
+`model_call` is the exception whose CONTENTS are strict too (`additionalProperties` false):
+an unknown nested key or a wrong-typed time is refused by the decoder as a **422**, and a
+`last_failure.kind` outside `auth` / `rate_limit` / `server` / `other` (absent included) is a **400**.
 The whole table is executable in
 `server/ocserverd/api_monitoring_test.go::TestHandleIngestTelemetry_WrongTypedBlockStatusTable`,
 so this paragraph can only drift from the wire across a red test.

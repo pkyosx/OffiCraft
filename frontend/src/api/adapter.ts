@@ -12,6 +12,7 @@ import type { ThemeBundle } from "../lib/themeBundle";
 import type {
   Member,
   RuntimeLoginWarning,
+  ModelCallWarning,
   MemberLifecycle,
   MemberActivateResult,
   MemberRelocateResult,
@@ -811,6 +812,9 @@ export interface OutsourceWorkerView {
    * which `machine` (the in-memory dispatch target) does not. */
   actualMachine?: string;
   runtimeLoginWarnings?: RuntimeLoginWarning[];
+  modelCallWarnings?: ModelCallWarning[];
+  /** Epoch seconds of the newest successful model call; null = none reported. */
+  modelCallLastSuccessTs?: number | null;
   /** Worker lifecycle status (assigned → active → released). OPTIONAL so
    * hand-built fixtures stay valid (taskTitle precedent); the mapper always
    * sets it (honest "" when absent). */

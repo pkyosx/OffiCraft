@@ -65,6 +65,7 @@ function mkVM(over: Partial<AgentDetailVM> = {}): AgentDetailVM {
     lastOpLog: "",
     lastOpReason: "",
     lastOpAt: null,
+    modelCallLastSuccessTs: null,
     terminalAttachCommand: SERVED,
     terminalHint: "hint",
     terminalUnavailable: "this server provides none",

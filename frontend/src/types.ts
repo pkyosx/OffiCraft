@@ -33,6 +33,20 @@ export interface RuntimeLoginWarning {
   pending: boolean;
 }
 
+export type ModelCallFailureKind = "auth" | "rate_limit" | "server" | "other";
+
+export interface ModelCallWarning {
+  runtime: "claude" | "codex";
+  kind: ModelCallFailureKind;
+  /** The runtime's own error code, verbatim. */
+  code: string;
+  /** Epoch seconds the usage limit resets; null when the runtime did not say. */
+  resetsAt: number | null;
+  sinceTs: number;
+  /** true = another member on the same account hit the limit. */
+  accountWide: boolean;
+}
+
 export interface Member {
   id: string;
   /** Personal image URL bound to this stable member id. Empty/absent keeps the
@@ -142,6 +156,11 @@ export interface Member {
   /** Machine/runtime pairs this member runs on, or is about to, whose runtime
    * that machine reports as logged out (wire `runtime_login_warnings`). */
   runtimeLoginWarnings?: RuntimeLoginWarning[];
+  /** Why this member's model calls are failing right now (wire
+   * `model_call_warnings`). */
+  modelCallWarnings?: ModelCallWarning[];
+  /** Epoch seconds of the newest successful model call; null = none reported. */
+  modelCallLastSuccessTs?: number | null;
 
   /**
    * Fleet remote-ops stage 1 — the "most recent operation" receipt the warden
@@ -606,6 +625,8 @@ export interface MonAccountView {
      * moving clock describes the clock, not the account. */
     overheated: boolean;
   } | null;
+  /** The usage-limit refusal in force on this account; null = none. */
+  limitReached: { code: string; resetsAt: number | null; ts: number } | null;
 }
 
 /** Monitoring telemetry envelope (three sections). */

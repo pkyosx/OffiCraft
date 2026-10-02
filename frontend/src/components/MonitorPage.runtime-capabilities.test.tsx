@@ -191,6 +191,7 @@ describe("MonitorPage per-runtime version columns", () => {
       <I18nProvider>
         <RuntimeLoginWarningMark
           warnings={[{ machineId: "m1", machineName: "seth-m5", runtime: "claude", pending: false }]}
+          modelCallWarnings={[]}
         />
       </I18nProvider>
     );

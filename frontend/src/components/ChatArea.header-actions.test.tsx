@@ -131,6 +131,28 @@ describe("ChatArea header 任務/角色設定 圖示 (T-dfae)", () => {
     expect(clean.queryByTestId("runtime-login-warning")).toBeNull();
   });
 
+  it("under only a model-call warning, the header's presence line carries the exclamation naming that reason", () => {
+    const warned = renderChat({
+      member: mkMember({
+        runtimeLoginWarnings: [],
+        modelCallWarnings: [
+          {
+            runtime: "claude",
+            kind: "auth",
+            code: "authentication_failed",
+            resetsAt: null,
+            sinceTs: 1_790_000_000,
+            accountWide: false,
+          },
+        ],
+      }),
+    });
+    const mark = warned.getByTestId("runtime-login-warning");
+    fireEvent.focus(mark);
+    expect(screen.getByRole("tooltip").textContent).toBe("Claude 登入失效");
+    expect(mark.closest(".chat__header-sub")).not.toBeNull();
+  });
+
   it("neither click bubbles into the clickable header (open detail)", () => {
     const onOpenDetail = vi.fn();
     const { getByLabelText } = renderChat({

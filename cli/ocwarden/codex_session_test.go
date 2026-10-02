@@ -1626,6 +1626,275 @@ func TestCodexSessionReportRateLimits(t *testing.T) {
 	}
 }
 
+func TestCodexSessionRecordTurnOutcome(t *testing.T) {
+	turn := func(status string, completedAt any, turnError any) map[string]any {
+		return map[string]any{"threadId": "th_1", "turn": map[string]any{
+			"id": "t-1", "items": []any{}, "status": status, "error": turnError,
+			"startedAt": float64(1719999990), "completedAt": completedAt, "durationMs": float64(10),
+		}}
+	}
+	failedWith := func(info any) map[string]any {
+		return turn("failed", float64(1720000300),
+			map[string]any{"message": "boom", "codexErrorInfo": info, "additionalDetails": nil})
+	}
+	identityPost := func(modelCall map[string]any) codexPost {
+		body := map[string]any{"runtime": "codex", "account": "codex:abc", "account_label": "ChatGPT"}
+		if modelCall != nil {
+			body["model_call"] = modelCall
+		}
+		return codexPost{method: http.MethodPost, url: "https://x.test/api/monitoring/telemetry",
+			auth: "Bearer tok", ctype: "application/json", body: body}
+	}
+	failurePost := func(failure, modelCall map[string]any) codexPost {
+		modelCall["last_failure"] = failure
+		return codexPost{method: http.MethodPost, url: "https://x.test/api/monitoring/telemetry",
+			auth: "Bearer tok", ctype: "application/json", body: map[string]any{
+				"runtime": "codex", "account": "codex:abc", "account_label": "ChatGPT",
+				"model_call": modelCall,
+			}}
+	}
+	newSession := func() *codexTestSession {
+		s := newCodexTestSession()
+		s.base, s.token, s.account = "https://x.test", "tok", "codex:abc"
+		return s
+	}
+
+	t.Run("a completed turn sends nothing and its end rides the next identity heartbeat", func(t *testing.T) {
+		fake := interceptCodexPosts(t, http.StatusOK, nil)
+		s := newSession()
+
+		s.recordTurnOutcome(turn("completed", float64(1720000200), nil))
+		if len(fake.posts) != 0 {
+			t.Fatalf("a completed turn sent %+v, want nothing", fake.posts)
+		}
+		s.reportIdentity()
+
+		want := []codexPost{identityPost(map[string]any{"last_success_ts": float64(1720000200)})}
+		if !reflect.DeepEqual(fake.posts, want) {
+			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
+		}
+		if s.pane.Len() != 0 {
+			t.Errorf("the pane shows %q, want nothing", s.pane.String())
+		}
+	})
+
+	t.Run("an older completed turn never moves the success time back", func(t *testing.T) {
+		fake := interceptCodexPosts(t, http.StatusOK, nil)
+		s := newSession()
+
+		s.recordTurnOutcome(turn("completed", float64(1720000200), nil))
+		s.recordTurnOutcome(turn("completed", float64(1720000100), nil))
+		s.reportIdentity()
+
+		want := []codexPost{identityPost(map[string]any{"last_success_ts": float64(1720000200)})}
+		if !reflect.DeepEqual(fake.posts, want) {
+			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
+		}
+	})
+
+	t.Run("a completed turn without completedAt is stamped with the time it was seen", func(t *testing.T) {
+		fake := interceptCodexPosts(t, http.StatusOK, nil)
+		s := newSession()
+		before := float64(time.Now().Unix())
+
+		s.recordTurnOutcome(turn("completed", nil, nil))
+		s.reportIdentity()
+
+		after := float64(time.Now().Unix() + 1)
+		if len(fake.posts) != 1 {
+			t.Fatalf("the sidecar sent %+v, want one identity post", fake.posts)
+		}
+		mc, _ := fake.posts[0].body["model_call"].(map[string]any)
+		if ts, _ := mc["last_success_ts"].(float64); ts < before || ts > after {
+			t.Errorf("last_success_ts = %v, want between %v and %v", mc["last_success_ts"], before, after)
+		}
+	})
+
+	t.Run("a turn that was interrupted or is still running is neither a success nor a failure", func(t *testing.T) {
+		for _, status := range []string{"interrupted", "inProgress", ""} {
+			t.Run(status, func(t *testing.T) {
+				fake := interceptCodexPosts(t, http.StatusOK, nil)
+				s := newSession()
+
+				s.recordTurnOutcome(turn(status, float64(1720000200),
+					map[string]any{"message": "stopped", "codexErrorInfo": "other", "additionalDetails": nil}))
+				if len(fake.posts) != 0 {
+					t.Fatalf("a %q turn sent %+v, want nothing", status, fake.posts)
+				}
+				s.reportIdentity()
+
+				if want := []codexPost{identityPost(nil)}; !reflect.DeepEqual(fake.posts, want) {
+					t.Errorf("the heartbeat after a %q turn sent %+v, want %+v", status, fake.posts, want)
+				}
+				if s.pane.Len() != 0 {
+					t.Errorf("the pane shows %q, want nothing", s.pane.String())
+				}
+			})
+		}
+	})
+
+	t.Run("a failed turn is reported at once under its kind", func(t *testing.T) {
+		cases := []struct {
+			name     string
+			info     any
+			wantKind string
+			wantCode string
+		}{
+			{"unauthorized", "unauthorized", "auth", "unauthorized"},
+			{"rate limit with no snapshot", "rateLimitExceeded", "rate_limit", "rateLimitExceeded"},
+			{"session budget", "sessionBudgetExceeded", "rate_limit", "sessionBudgetExceeded"},
+			{"usage limit", "usageLimitExceeded", "rate_limit", "usageLimitExceeded"},
+			{"overloaded", "serverOverloaded", "server", "serverOverloaded"},
+			{"internal error", "internalServerError", "server", "internalServerError"},
+			{"connection failure carries its name as the code",
+				map[string]any{"httpConnectionFailed": map[string]any{"httpStatusCode": float64(502)}},
+				"server", "httpConnectionFailed"},
+			{"stream connection failure",
+				map[string]any{"responseStreamConnectionFailed": map[string]any{"httpStatusCode": nil}},
+				"server", "responseStreamConnectionFailed"},
+			{"stream disconnected",
+				map[string]any{"responseStreamDisconnected": map[string]any{"httpStatusCode": nil}},
+				"server", "responseStreamDisconnected"},
+			{"too many failed attempts",
+				map[string]any{"responseTooManyFailedAttempts": map[string]any{"httpStatusCode": float64(500)}},
+				"server", "responseTooManyFailedAttempts"},
+			{"any other variant", "contextWindowExceeded", "other", "contextWindowExceeded"},
+			{"any other object variant",
+				map[string]any{"activeTurnNotSteerable": map[string]any{"turnKind": "review"}},
+				"other", "activeTurnNotSteerable"},
+			{"no error info", nil, "other", "unknown"},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				fake := interceptCodexPosts(t, http.StatusOK, nil)
+				s := newSession()
+
+				s.recordTurnOutcome(failedWith(tc.info))
+
+				want := []codexPost{failurePost(map[string]any{"ts": float64(1720000300), "kind": tc.wantKind,
+					"code": tc.wantCode, "resets_at": nil}, map[string]any{})}
+				if !reflect.DeepEqual(fake.posts, want) {
+					t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
+				}
+				if got, want := s.paneLines(t), []string{"turn failed · " + tc.wantCode}; !reflect.DeepEqual(got, want) {
+					t.Errorf("the pane shows %q, want %q", got, want)
+				}
+			})
+		}
+	})
+
+	t.Run("a failure carries the success time already seen", func(t *testing.T) {
+		fake := interceptCodexPosts(t, http.StatusOK, nil)
+		s := newSession()
+
+		s.recordTurnOutcome(turn("completed", float64(1720000200), nil))
+		s.recordTurnOutcome(failedWith("serverOverloaded"))
+
+		want := []codexPost{failurePost(map[string]any{"ts": float64(1720000300), "kind": "server",
+			"code": "serverOverloaded", "resets_at": nil},
+			map[string]any{"last_success_ts": float64(1720000200)})}
+		if !reflect.DeepEqual(fake.posts, want) {
+			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
+		}
+	})
+
+	t.Run("a failed turn without completedAt is stamped with the time it was seen", func(t *testing.T) {
+		fake := interceptCodexPosts(t, http.StatusOK, nil)
+		s := newSession()
+		before := float64(time.Now().Unix())
+
+		s.recordTurnOutcome(turn("failed", nil,
+			map[string]any{"message": "boom", "codexErrorInfo": "serverOverloaded", "additionalDetails": nil}))
+
+		after := float64(time.Now().Unix() + 1)
+		if len(fake.posts) != 1 {
+			t.Fatalf("the sidecar sent %+v, want one failure post", fake.posts)
+		}
+		mc, _ := fake.posts[0].body["model_call"].(map[string]any)
+		failure, _ := mc["last_failure"].(map[string]any)
+		if ts, _ := failure["ts"].(float64); ts < before || ts > after {
+			t.Errorf("last_failure.ts = %v, want between %v and %v", failure["ts"], before, after)
+		}
+	})
+
+	t.Run("a rate limit takes its reset time from the exhausted window of the merged snapshot", func(t *testing.T) {
+		cases := []struct {
+			name      string
+			snapshots []map[string]any
+			want      any
+		}{
+			{
+				name: "the exhausted window's reset",
+				snapshots: []map[string]any{{
+					"primary":   map[string]any{"windowDurationMins": float64(300), "usedPercent": float64(100), "resetsAt": float64(1720003600)},
+					"secondary": map[string]any{"windowDurationMins": float64(10080), "usedPercent": float64(40), "resetsAt": float64(1720500000)},
+				}},
+				want: float64(1720003600),
+			},
+			{
+				name: "both exhausted: the later reset, when the limit actually lifts",
+				snapshots: []map[string]any{{
+					"primary":   map[string]any{"windowDurationMins": float64(300), "usedPercent": float64(100), "resetsAt": float64(1720003600)},
+					"secondary": map[string]any{"windowDurationMins": float64(10080), "usedPercent": float64(100), "resetsAt": float64(1720500000)},
+				}},
+				want: float64(1720500000),
+			},
+			{
+				name: "a sparse update keeps the window it did not mention",
+				snapshots: []map[string]any{
+					{
+						"primary":   map[string]any{"windowDurationMins": float64(300), "usedPercent": float64(20), "resetsAt": float64(1720003600)},
+						"secondary": map[string]any{"windowDurationMins": float64(10080), "usedPercent": float64(100), "resetsAt": float64(1720500000)},
+					},
+					{"primary": map[string]any{"windowDurationMins": float64(300), "usedPercent": float64(30), "resetsAt": float64(1720003600)}},
+				},
+				want: float64(1720500000),
+			},
+			{
+				name: "no window exhausted: the reset is unknown",
+				snapshots: []map[string]any{{
+					"primary": map[string]any{"windowDurationMins": float64(300), "usedPercent": float64(99), "resetsAt": float64(1720003600)},
+				}},
+				want: nil,
+			},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				fake := interceptCodexPosts(t, http.StatusOK, nil)
+				s := newSession()
+				for _, snapshot := range tc.snapshots {
+					s.reportRateLimits(snapshot)
+				}
+				before := len(fake.posts)
+
+				s.recordTurnOutcome(failedWith("usageLimitExceeded"))
+
+				want := []codexPost{failurePost(map[string]any{"ts": float64(1720000300), "kind": "rate_limit",
+					"code": "usageLimitExceeded", "resets_at": tc.want}, map[string]any{})}
+				if !reflect.DeepEqual(fake.posts[before:], want) {
+					t.Errorf("the sidecar sent %+v, want %+v", fake.posts[before:], want)
+				}
+			})
+		}
+	})
+
+	t.Run("a non-rate-limit failure never carries a reset time", func(t *testing.T) {
+		fake := interceptCodexPosts(t, http.StatusOK, nil)
+		s := newSession()
+		s.reportRateLimits(map[string]any{"primary": map[string]any{
+			"windowDurationMins": float64(300), "usedPercent": float64(100), "resetsAt": float64(1720003600)}})
+		before := len(fake.posts)
+
+		s.recordTurnOutcome(failedWith("serverOverloaded"))
+
+		want := []codexPost{failurePost(map[string]any{"ts": float64(1720000300), "kind": "server",
+			"code": "serverOverloaded", "resets_at": nil}, map[string]any{})}
+		if !reflect.DeepEqual(fake.posts[before:], want) {
+			t.Errorf("the sidecar sent %+v, want %+v", fake.posts[before:], want)
+		}
+	})
+}
+
 func TestCodexSessionRecordCompaction(t *testing.T) {
 	compaction := func(id string) map[string]any {
 		return map[string]any{"item": map[string]any{"type": "contextCompaction", "id": id}}

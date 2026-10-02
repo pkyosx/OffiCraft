@@ -394,13 +394,15 @@ func (s *apiServer) unreadCountsForRequest(r *http.Request) (map[string]int, err
 	return s.dal.UnreadCountsFor(currentActor(r))
 }
 
-func (s *apiServer) newMemberDTO(m Member, roleName, observedMachine string, unreadCount int, machines machineDirectory) memberDTO {
+func (s *apiServer) newMemberDTO(m Member, roleName, observedMachine string, unreadCount int, machines machineDirectory, calls modelCallBoard) memberDTO {
 	presence := PresenceState(m, nowSecs(), s.hub.IsOnline(m.ID))
 	dto := newMemberDTO(m, roleName, observedMachine, unreadCount, presence,
 		winddownDeadlineOf(m, s.reconcileConfigLive()),
 		terminalAttachCommand(s.namespace, m.ID))
 	dto.RuntimeLoginWarnings = s.runtimeLoginWarnings(machines,
 		s.staffLoginPairs(machines, m, observedMachine, presence))
+	dto.ModelCallWarnings = calls.warnings(m, dto.RuntimeLoginWarnings)
+	dto.ModelCallLastSuccessTs = calls.lastSuccess(m.ID)
 	return dto
 }
 
@@ -443,6 +445,7 @@ func newMemberDTO(m Member, roleName, observedMachine string, unreadCount int,
 		// is wrong on every namespaced station.
 		TerminalAttachCommand: terminalAttach,
 		RuntimeLoginWarnings:  []RuntimeLoginWarningDTO{},
+		ModelCallWarnings:     []modelCallWarningDTO{},
 	}
 }
 
@@ -462,6 +465,7 @@ func (s *apiServer) newMemberLightDTO(m Member, roleName string) memberDTO {
 		// "server too old to send one", which a light row would state falsely.
 		TerminalAttachCommand: terminalAttachCommand(s.namespace, m.ID),
 		RuntimeLoginWarnings:  []RuntimeLoginWarningDTO{},
+		ModelCallWarnings:     []modelCallWarningDTO{},
 	}
 }
 

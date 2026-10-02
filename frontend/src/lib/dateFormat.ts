@@ -93,11 +93,15 @@ export function formatDayLabel(
 export function formatAbsolute(tsSeconds: number, nowSeconds: number): string {
   const d = new Date(tsSeconds * 1000);
   const now = new Date(nowSeconds * 1000);
-  const hm = `${String(d.getHours()).padStart(2, "0")}:${String(
-    d.getMinutes(),
-  ).padStart(2, "0")}`;
+  const hm = formatClock(tsSeconds);
   const md = `${d.getMonth() + 1}/${d.getDate()}`;
   return d.getFullYear() === now.getFullYear()
     ? `${md} ${hm}`
     : `${d.getFullYear()}/${md} ${hm}`;
+}
+
+/** Local 24h "HH:mm" of `tsSeconds`. */
+export function formatClock(tsSeconds: number): string {
+  const d = new Date(tsSeconds * 1000);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }

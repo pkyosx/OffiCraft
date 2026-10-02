@@ -592,4 +592,42 @@ describe("MonitorPage AI Sessions — column sort", () => {
     );
     expect(marks).toEqual([["beta 未登入 Claude"], []]);
   });
+
+  it("under a roster member with only a model-call warning, its row shows the mark named after that reason and the other row shows none", async () => {
+    listMembers.mockResolvedValue([
+      {
+        id: "mem-eva",
+        name: "Eva",
+        kind: "staff",
+        modelCallWarnings: [
+          {
+            runtime: "claude",
+            kind: "server",
+            code: "overloaded",
+            resetsAt: null,
+            sinceTs: 1_790_000_000,
+            accountWide: false,
+          },
+        ],
+      } as Member,
+      { id: "mem-kai", name: "Kai", kind: "staff" } as Member,
+    ]);
+    getMonitoring.mockResolvedValue({
+      accounts: [],
+      machines: [],
+      sessions: [
+        session({ id: "mem-eva", name: "Eva" }),
+        session({ id: "mem-kai", name: "Kai" }),
+      ],
+    });
+    renderMonitor();
+
+    await screen.findByText("Eva");
+    const marks = sessionRows().map((r) =>
+      Array.from(r.querySelectorAll('[data-testid="runtime-login-warning"]')).map((m) =>
+        m.getAttribute("aria-label")
+      )
+    );
+    expect(marks).toEqual([["Claude 伺服器異常"], []]);
+  });
 });

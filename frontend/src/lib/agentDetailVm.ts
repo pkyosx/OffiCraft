@@ -175,6 +175,7 @@ export interface AgentDetailVmInput {
   lastOpLog: string | undefined;
   lastOpReason: string | undefined;
   lastOpAt: number | null | undefined;
+  modelCallLastSuccessTs: number | null | undefined;
   /** The station's whole attach command, verbatim ("" = server older than
    * T-139). NOT a session name: this seam carries no ingredient a caller could
    * build a command out of. */
@@ -277,6 +278,7 @@ export function buildAgentDetailVm(input: AgentDetailVmInput): AgentDetailVM {
     lastOpLog: input.lastOpLog ?? "",
     lastOpReason: input.lastOpReason ?? "",
     lastOpAt: input.lastOpAt ?? null,
+    modelCallLastSuccessTs: input.modelCallLastSuccessTs ?? null,
     terminalAttachCommand: input.terminalAttachCommand,
     terminalHint: input.terminalHint,
     terminalUnavailable: input.terminalUnavailable,

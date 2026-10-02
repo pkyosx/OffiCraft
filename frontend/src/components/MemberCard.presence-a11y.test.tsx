@@ -160,6 +160,36 @@ describe("MemberCard presence — the dot carries it", () => {
     expect(screen.queryByRole("tooltip")).toBeNull();
   });
 
+  it("under only a model-call warning, the card shows one exclamation right after the dot naming that reason", () => {
+    const { getAllByTestId, container } = render(
+      <I18nProvider>
+        <MemberCard
+          member={mkMember({
+            lifecycle: "online",
+            runtimeLoginWarnings: [],
+            modelCallWarnings: [
+              {
+                runtime: "claude",
+                kind: "rate_limit",
+                code: "rate_limit",
+                resetsAt: null,
+                sinceTs: 1_790_000_000,
+                accountWide: true,
+              },
+            ],
+          })}
+          selected={false}
+          onOpenDetail={() => {}}
+          onChat={() => {}}
+        />
+      </I18nProvider>,
+    );
+    const marks = getAllByTestId("runtime-login-warning");
+    expect(marks).toHaveLength(1);
+    expect(marks[0].getAttribute("aria-label")).toBe("已達用量上限");
+    expect(marks[0].previousElementSibling).toBe(container.querySelector(".lifecycle-dot"));
+  });
+
   it("gives each of the five lifecycle states a distinct label", () => {
     const labels = ALL.map((lifecycle) => {
       const { getByRole, unmount } = renderCard(lifecycle);

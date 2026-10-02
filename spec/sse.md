@@ -223,7 +223,7 @@ machine runtime-login relay; everything else is the M1 freeze):
 
 | topic | trigger | op |
 |---|---|---|
-| `member` | any roster write, including outsource assignment / claim / release | patch / remove |
+| `member` | any roster write, including outsource assignment / claim / release; a telemetry ingest that changes a member's derived warnings (`runtime_login_warnings`, `model_call_warnings`); a usage-limit reset timer firing at a reported `resets_at` | patch / remove |
 | `chat` | message append | patch |
 | `chat_read` | read-watermark advance | patch |
 | `reply_card` | reply-card create / answer / answer revision / expire | patch |
@@ -233,7 +233,7 @@ machine runtime-login relay; everything else is the M1 freeze):
 | `role_def` | role overlay write/reset/delete | patch |
 | `insight` | insight overlay write (replace / patch / reset) / restore / cascade delete | patch |
 | `context` | agent context-gauge ingest (`POST /api/agent/context`) | signal |
-| `monitoring` | warden telemetry ingest (`POST /api/monitoring/telemetry`) | signal |
+| `monitoring` | warden telemetry ingest (`POST /api/monitoring/telemetry`); a reported usage limit reaching its reset time | signal |
 | `runtime_login` | runtime-login start / code / cancel, warden report (`POST /api/monitoring/runtime-login`), drop after terminal | signal |
 
 ⚠️ **Known code-internal inconsistency at freeze, resolved in favour of the wire**: the

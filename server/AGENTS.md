@@ -78,6 +78,7 @@
 ## 5. telemetry、monitoring 與 avatar
 
 - telemetry 的 `hardware`、`claude`、`runtimes` 是 producer 回報的 block；per-sample `hardware_ts`／`runtimes_ts` 與 entry `ts` 分開。freshness 由 server 算並上 wire，client 不自行重算。
+- telemetry 的 `model_call` 是嚴格驗證的 block（未知巢狀鍵、錯型別 422，`kind` 不在閉集 400），只存在記憶體；成功與失敗時間各自取最大值合併，重啟後清空。
 - hardware stale 會收回數值但保留 timestamp；runtimes stale 保留 map 並標 `runtime_capabilities_stale`，因為 placement 仍需要最後能力資訊。machines 的列集合由 active warden roster 決定，不由 telemetry keys 決定；離線仍在冊要列，removed 不列，telemetry 不會復活 removed machine。
 - `warden_shape` 是 warden 自報的 closed enum；`bin_status` 才是 server 以回報指紋和 embedded binary 比對出的結果。不要從另一個欄位推導缺席值。hardware 錯型別保留後由 read side 以 `hardware_invalid` 指名 fresh sample 的宣告鍵；runtimes 錯型別在 ingest 400，未宣告 hardware key 不算 invalid。
 - `GET /api/monitoring` 的 sessions = active staff + live outsource workers；每個 model、runtime、effort、machine 等 telemetry 欄都只讀該 actor 的自報值，沒有 roster/config fallback。reported launch facts 落 durable 欄位，re-exec 後仍在；outsource DTO 的 model/effort 仍是 owner intent，不能拿 monitoring 值回寫編輯設定。released worker 不在 sessions，但仍在 actors/cost。

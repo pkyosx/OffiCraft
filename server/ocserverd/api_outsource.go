@@ -15,11 +15,13 @@ import (
 func (s *apiServer) projectWorker(
 	worker OutsourceWorker, task *Task, unread int, now float64,
 	tele, gauge map[string]map[string]any, machines machineDirectory,
-	accountDisplay func(string) string, typeNames map[string]string,
+	accountDisplay func(string) string, typeNames map[string]string, calls modelCallBoard,
 ) memberDTO {
 	// Display-only: the identity-sweep 正身 check keeps reading workerSpawnObs, so
 	// no kill decision widens.
 	machineObserved := s.workerObservedMachine(worker.ID, tele[worker.ID])
+	loginWarnings := s.runtimeLoginWarnings(machines,
+		workerLoginPairs(machines, worker, machineObserved))
 	return s.newOutsourceMemberDTO(worker, task, outsourceWorkerProjection{
 		cfg:         s.reconcileConfigLive(),
 		unread:      unread,
@@ -39,9 +41,10 @@ func (s *apiServer) projectWorker(
 		typeDisplay:    func(key string) string { return typeNames[key] },
 		// Unconditional — no online / desired-state gate; see terminal_attach.go
 		// for why the empty string had to stay free.
-		terminalAttach: terminalAttachCommand(s.namespace, worker.ID),
-		loginWarnings: s.runtimeLoginWarnings(machines,
-			workerLoginPairs(machines, worker, machineObserved)),
+		terminalAttach:       terminalAttachCommand(s.namespace, worker.ID),
+		loginWarnings:        loginWarnings,
+		modelCallWarnings:    calls.warnings(memberFromWorker(worker), loginWarnings),
+		modelCallLastSuccess: calls.lastSuccess(worker.ID),
 	})
 }
 

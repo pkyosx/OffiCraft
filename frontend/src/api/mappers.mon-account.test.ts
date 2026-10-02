@@ -18,6 +18,7 @@ const wireAccount = (
   cost: null,
   five_hour: null,
   seven_day: null,
+  limit_reached: null,
   ...over,
 });
 
@@ -116,5 +117,35 @@ describe("toMonitoring usage-window measured_at (T-3b90)", () => {
       measured_at: 1_700_000_000,
     });
     expect(hot.sevenDay?.overheated).toBe(true);
+  });
+});
+
+describe("toMonitoring account limit_reached", () => {
+  it("under a limit in force, carries its code, reset time and failure time", () => {
+    const v = toMonitoring({
+      sessions: [],
+      machines: [],
+      accounts: [
+        wireAccount({
+          limit_reached: { code: "rate_limit", kind: "rate_limit", resets_at: 1_790_003_600, ts: 1_790_000_000 },
+        }),
+      ],
+    });
+    expect(v.accounts[0].limitReached).toEqual({
+      code: "rate_limit",
+      resetsAt: 1_790_003_600,
+      ts: 1_790_000_000,
+    });
+  });
+
+  it("under null or an absent key, maps to null", () => {
+    expect(
+      toMonitoring({ sessions: [], machines: [], accounts: [wireAccount()] }).accounts[0].limitReached,
+    ).toBeNull();
+    const row = wireAccount();
+    delete (row as Record<string, unknown>).limit_reached;
+    expect(
+      toMonitoring({ sessions: [], machines: [], accounts: [row] }).accounts[0].limitReached,
+    ).toBeNull();
   });
 });

@@ -801,6 +801,56 @@ describe("WorkerDetailPanel — header matches the sidebar 外包 row (T-f190 UI
     expect(marks[0].previousElementSibling?.getAttribute("data-testid")).toBe("worker-detail-header-dot");
   });
 
+  it("under only a model-call warning, the header dot is followed by the exclamation naming that reason", async () => {
+    __injectMockTask(mkTask({ id: "t-1", taskNo: "T-e9f4" }));
+    __injectMockOutsourceWorker(
+      mkWorker({
+        id: "ow-1",
+        taskId: "t-1",
+        presence: "online",
+        runtimeLoginWarnings: [],
+        modelCallWarnings: [
+          {
+            runtime: "codex",
+            kind: "server",
+            code: "serverOverloaded",
+            resetsAt: null,
+            sinceTs: 1_790_000_000,
+            accountWide: false,
+          },
+        ],
+      }),
+    );
+    const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
+    const header = await findByTestId("worker-detail-header-task");
+    const marks = within(header).getAllByTestId("runtime-login-warning");
+    expect(marks).toHaveLength(1);
+    fireEvent.mouseEnter(marks[0]);
+    expect(screen.getByRole("tooltip").textContent).toBe("Codex 伺服器異常");
+  });
+
+  it("under a reported success 2 hours ago, the last-model-call row reads 2h 前; with none it reads the dash", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(1_790_000_000 * 1000));
+    try {
+      __injectMockTask(mkTask({ id: "t-1", taskNo: "T-e9f4" }));
+      __injectMockTask(mkTask({ id: "t-2", taskNo: "T-e9f5" }));
+      __injectMockOutsourceWorker(
+        mkWorker({ id: "ow-1", taskId: "t-1", presence: "online", modelCallLastSuccessTs: 1_790_000_000 - 7200 }),
+      );
+      __injectMockOutsourceWorker(
+        mkWorker({ id: "ow-2", taskId: "t-2", presence: "online", modelCallLastSuccessTs: null }),
+      );
+      const recent = renderOfficeAt("#office/worker/ow-1");
+      expect((await recent.findByTestId("worker-detail-model-call-last-success")).textContent).toBe("2h 前");
+      recent.unmount();
+      const none = renderOfficeAt("#office/worker/ow-2");
+      expect((await none.findByTestId("worker-detail-model-call-last-success")).textContent).toBe("—");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("header falls back to 自由代辦 when the task has no type (adhoc, blank typeKey)", async () => {
     __injectMockTask(
       mkTask({ id: "t-1", taskNo: "T-adhc", title: "隨手需求", typeKey: "" }),

@@ -287,6 +287,44 @@ describe("OutsourcePanel", () => {
     expect(within(cleanLine).queryByTestId("runtime-login-warning")).toBeNull();
   });
 
+  it("under only a model-call warning, the row's dot is followed by the exclamation naming that reason, and a clean row has none", async () => {
+    const warned = mkTask({ id: "t-warned", taskNo: "T-warned" });
+    const clean = mkTask({ id: "t-clean", taskNo: "T-clean" });
+    __injectMockTask(warned);
+    __injectMockTask(clean);
+    __injectMockOutsourceWorker(
+      mkWorker({
+        id: "ow-warned",
+        taskId: warned.id,
+        presence: "online",
+        runtimeLoginWarnings: [],
+        modelCallWarnings: [
+          {
+            runtime: "codex",
+            kind: "other",
+            code: "contextWindowExceeded",
+            resetsAt: null,
+            sinceTs: 1_790_000_000,
+            accountWide: false,
+          },
+        ],
+      }),
+    );
+    __injectMockOutsourceWorker(
+      mkWorker({ id: "ow-clean", taskId: clean.id, presence: "online", modelCallWarnings: [] }),
+    );
+
+    const { findByTestId } = renderOutsource();
+    const warnedLine = await findByTestId("outsource-task-line-ow-warned");
+    const cleanLine = await findByTestId("outsource-task-line-ow-clean");
+    const marks = within(warnedLine).getAllByTestId("runtime-login-warning");
+    expect(marks).toHaveLength(1);
+    fireEvent.mouseEnter(marks[0]);
+    expect(screen.getByRole("tooltip").textContent).toBe("Codex 模型呼叫失敗（contextWindowExceeded）");
+    expect(marks[0].previousElementSibling?.getAttribute("data-testid")).toBe("outsource-presence-ow-warned");
+    expect(within(cleanLine).queryByTestId("runtime-login-warning")).toBeNull();
+  });
+
   it("under Enter or Space on the row's focused login mark, the row does not open the chat, while Enter on the row itself does", async () => {
     const task = mkTask({ id: "t-keys", taskNo: "T-keys" });
     __injectMockTask(task);

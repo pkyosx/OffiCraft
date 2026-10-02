@@ -1118,7 +1118,7 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			t.Fatalf("want 400, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "validation_error", "rate_limits, tokens, hardware, binaries, claude, cost, effort, runtime, runtimes, "+
-			"self_update, command_result, warden_shape or cutover_effect is required")
+			"self_update, command_result, warden_shape, cutover_effect or model_call is required")
 	})
 
 	t.Run("a block that is not an object answers 400 naming the block", func(t *testing.T) {
@@ -1931,6 +1931,7 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 			"cost":          3.5,
 			"five_hour":     account["five_hour"],
 			"seven_day":     nil,
+			"limit_reached": nil,
 		})
 		sessions := apiTestSessionsByID(t, data, "mira", "kip", "m-server-self")
 		wardenSession := apiTestMonitoringSession("m-server-self", "伺服器這一台", "")
@@ -1955,12 +1956,13 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 			"sessions": data["sessions"],
 			"machines": data["machines"],
 			"accounts": []any{map[string]any{
-				"account":      "eva-m5-claude",
-				"display_name": "eva-m5-claude",
-				"machine":      "m-server-self",
-				"cost":         nil,
-				"five_hour":    nil,
-				"seven_day":    nil,
+				"account":       "eva-m5-claude",
+				"display_name":  "eva-m5-claude",
+				"machine":       "m-server-self",
+				"cost":          nil,
+				"five_hour":     nil,
+				"seven_day":     nil,
+				"limit_reached": nil,
 			}},
 		})
 	})
@@ -2063,7 +2065,8 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 					"measured_at": apiAnyNumber,
 					"pace":        "ok",
 				},
-				"seven_day": nil,
+				"seven_day":     nil,
+				"limit_reached": nil,
 			}},
 		})
 	})
@@ -2108,7 +2111,8 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 					"measured_at": apiAnyNumber,
 					"pace":        "ok",
 				},
-				"seven_day": nil,
+				"seven_day":     nil,
+				"limit_reached": nil,
 			}},
 		})
 	})
@@ -2137,12 +2141,13 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 			"sessions": data["sessions"],
 			"machines": []any{apiTestMonitoringMachine()},
 			"accounts": []any{map[string]any{
-				"account":      "gone-claude",
-				"display_name": "gone-claude",
-				"machine":      "",
-				"cost":         nil,
-				"five_hour":    nil,
-				"seven_day":    nil,
+				"account":       "gone-claude",
+				"display_name":  "gone-claude",
+				"machine":       "",
+				"cost":          nil,
+				"five_hour":     nil,
+				"seven_day":     nil,
+				"limit_reached": nil,
 			}},
 		})
 	})

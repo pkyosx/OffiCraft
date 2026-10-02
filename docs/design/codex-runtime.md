@@ -70,8 +70,8 @@ This is composition across two independent axes, not four persona copies:
 
 - **Actor semantics** remain the existing member vs outsource distinction:
   members report waking and recover their resume snapshot; workers claim their one task.
-- **Runtime mechanics** describe only who owns the listener, context reporting, and
-  interactive-question behavior.
+- **Runtime mechanics** describe only who owns the listener, context reporting,
+  interactive-question behavior, and model-call outcome reporting.
 
 The Claude member boot sequence preserved current behavior byte-for-behavior at the time
 this document was written: after boot readiness the agent started bare `ocagent listen`
@@ -87,6 +87,8 @@ The Codex member boot sequence changes only execution ownership:
 2. `turn/completed` is the readiness boundary. Only then does the sidecar launch the same
    bare `ocagent listen` child and consume its stdout; the model must not launch a second
    listener.
+   Every `turn/completed`, this one included, also records the turn's model-call outcome:
+   `completed` is a success, `failed` is a failure, `interrupted` counts as neither.
 3. The sidecar converts listener events into the established idle `turn/start` / active
    `turn/steer` policy. Thus SSE presence still means ready/online and false-online during
    boot remains impossible.

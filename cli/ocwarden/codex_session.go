@@ -140,6 +140,11 @@ type codexSession struct {
 	// Replayed item/completed notifications must not look like fresh
 	// compactions and recycle a just-booted agent.
 	completedCompactions map[string]struct{}
+	// Rides the identity heartbeat rather than a post of its own.
+	lastSuccessTs float64
+	// Merged across sparse account/rateLimits/updated notifications: a turn
+	// error never says when the limit lifts, only the snapshot does.
+	rateLimitWindows map[string]map[string]any
 
 	pending map[int]*codexDelivery
 	batch   *codexBatch
@@ -515,9 +520,94 @@ func (s *codexSession) post(path string, payload map[string]any) {
 }
 
 func (s *codexSession) reportIdentity() {
-	s.post("/api/monitoring/telemetry", map[string]any{
-		"runtime": "codex", "account": s.account, "account_label": "ChatGPT",
-	})
+	identity := map[string]any{"runtime": "codex", "account": s.account, "account_label": "ChatGPT"}
+	if s.lastSuccessTs > 0 {
+		identity["model_call"] = map[string]any{"last_success_ts": s.lastSuccessTs}
+	}
+	s.post("/api/monitoring/telemetry", identity)
+}
+
+var codexModelCallKinds = map[string]string{
+	"unauthorized":                   "auth",
+	"usageLimitExceeded":             "rate_limit",
+	"rateLimitExceeded":              "rate_limit",
+	"sessionBudgetExceeded":          "rate_limit",
+	"serverOverloaded":               "server",
+	"internalServerError":            "server",
+	"httpConnectionFailed":           "server",
+	"responseStreamConnectionFailed": "server",
+	"responseStreamDisconnected":     "server",
+	"responseTooManyFailedAttempts":  "server",
+}
+
+// codexErrorInfo is a bare variant name or a one-key object such as
+// {"httpConnectionFailed":{"httpStatusCode":502}}; the key is the code.
+func codexModelCallCode(turnError map[string]any) string {
+	switch info := turnError["codexErrorInfo"].(type) {
+	case string:
+		if info != "" {
+			return info
+		}
+	case map[string]any:
+		if len(info) == 1 {
+			for key := range info {
+				return key
+			}
+		}
+	}
+	return "unknown"
+}
+
+// An interrupted turn counts as neither a success nor a failure.
+func (s *codexSession) recordTurnOutcome(params map[string]any) {
+	turn, _ := params["turn"].(map[string]any)
+	ended := jsonNumber(turn["completedAt"])
+	if ended <= 0 {
+		ended = float64(time.Now().UnixNano()) / 1e9
+	}
+	switch turn["status"] {
+	case "completed":
+		if ended > s.lastSuccessTs {
+			s.lastSuccessTs = ended
+		}
+	case "failed":
+		turnError, _ := turn["error"].(map[string]any)
+		code := codexModelCallCode(turnError)
+		kind, known := codexModelCallKinds[code]
+		if !known {
+			kind = "other"
+		}
+		failure := map[string]any{"ts": ended, "kind": kind, "code": code, "resets_at": nil}
+		if kind == "rate_limit" {
+			if resetsAt := s.exhaustedWindowResetsAt(); resetsAt > 0 {
+				failure["resets_at"] = resetsAt
+			}
+		}
+		modelCall := map[string]any{"last_failure": failure}
+		if s.lastSuccessTs > 0 {
+			modelCall["last_success_ts"] = s.lastSuccessTs
+		}
+		s.activity("turn failed · %s", code)
+		failureReport := map[string]any{
+			"runtime": "codex", "account": s.account, "account_label": "ChatGPT", "model_call": modelCall,
+		}
+		s.post("/api/monitoring/telemetry", failureReport)
+	}
+}
+
+// The limit lifts when the LAST exhausted window resets, so the latest one wins.
+// No window at 100% means the snapshot cannot say which limit refused the call.
+func (s *codexSession) exhaustedWindowResetsAt() float64 {
+	latest := 0.0
+	for _, w := range s.rateLimitWindows {
+		if jsonNumber(w["usedPercent"]) < 100 {
+			continue
+		}
+		if resetsAt := jsonNumber(w["resetsAt"]); resetsAt > latest {
+			latest = resetsAt
+		}
+	}
+	return latest
 }
 
 func (s *codexSession) requestRateLimits() {
@@ -579,6 +669,12 @@ func (s *codexSession) reportRateLimits(snapshot map[string]any) {
 	windows := map[string]any{}
 	for _, key := range []string{"primary", "secondary"} {
 		w, _ := snapshot[key].(map[string]any)
+		if w != nil {
+			if s.rateLimitWindows == nil {
+				s.rateLimitWindows = map[string]map[string]any{}
+			}
+			s.rateLimitWindows[key] = w
+		}
 		mins := jsonNumber(w["windowDurationMins"])
 		used := jsonNumber(w["usedPercent"])
 		if w == nil || mins <= 0 {
@@ -957,6 +1053,7 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 				s.active = false
 				s.turnID = ""
 				s.activity("turn completed")
+				s.recordTurnOutcome(params)
 				if !listenerStarted {
 					listenerStarted = true
 					listenerCmd = exec.Command(filepath.Join(*workdir, "ocagent"), "listen")

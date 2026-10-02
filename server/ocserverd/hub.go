@@ -726,6 +726,19 @@ func (s *memStore) Delete(id string) {
 	delete(s.entries, id)
 }
 
+// Any reads the live entries without copying them; match must not keep or
+// modify an entry.
+func (s *memStore) Any(match func(entry map[string]any) bool) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, entry := range s.entries {
+		if match(entry) {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *memStore) Snapshot() map[string]map[string]any {
 	s.mu.Lock()
 	defer s.mu.Unlock()

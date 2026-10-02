@@ -157,3 +157,58 @@ func schemaViolations(body string, declared map[string]string) []string {
 	sort.Strings(bad)
 	return bad
 }
+
+// modelCallViolations compares the body's model_call against the frozen nested
+// schemas, which schemaViolations cannot see into: model_call is declared as an
+// anyOf, so its own entry carries no type.
+func modelCallViolations(t *testing.T, body string) []string {
+	t.Helper()
+	var obj struct {
+		ModelCall map[string]json.RawMessage `json:"model_call"`
+	}
+	if json.Unmarshal([]byte(body), &obj) != nil {
+		return []string{"<body is not a JSON object>"}
+	}
+	if obj.ModelCall == nil {
+		return nil
+	}
+	bad := schemaViolations(mustJSON(t, obj.ModelCall), frozenIngestProperties(t, "ModelCallReportDTO"))
+	raw, ok := obj.ModelCall["last_failure"]
+	if !ok || jsonKind(raw) == "null" {
+		return bad
+	}
+	if jsonKind(raw) != "object" {
+		return append(bad, "last_failure (sent "+jsonKind(raw)+")")
+	}
+	failure := map[string]json.RawMessage{}
+	_ = json.Unmarshal(raw, &failure)
+	for _, one := range schemaViolations(string(raw), frozenIngestProperties(t, "ModelCallFailureDTO")) {
+		bad = append(bad, "last_failure."+one)
+	}
+	for _, key := range []string{"code", "kind", "ts"} {
+		if _, present := failure[key]; !present {
+			bad = append(bad, "last_failure."+key+" (required, missing)")
+		}
+	}
+	var kind string
+	_ = json.Unmarshal(failure["kind"], &kind)
+	switch kind {
+	case "auth", "rate_limit", "server", "other":
+	default:
+		bad = append(bad, "last_failure.kind ("+kind+" is not in the enum)")
+	}
+	if r, present := failure["resets_at"]; present && jsonKind(r) != "null" && jsonKind(r) != "number" {
+		bad = append(bad, "last_failure.resets_at (sent "+jsonKind(r)+")")
+	}
+	sort.Strings(bad)
+	return bad
+}
+
+func mustJSON(t *testing.T, v any) string {
+	t.Helper()
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}

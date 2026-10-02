@@ -60,6 +60,7 @@ const baseVM: Omit<AgentDetailVM, "testIdPrefix"> = {
   lastOpLog: "",
   lastOpReason: "",
   lastOpAt: null,
+  modelCallLastSuccessTs: null,
   terminalAttachCommand: "tmux -L officraft attach -t member-mira",
   terminalHint: "hint",
 };

@@ -70,6 +70,72 @@ func (e BootDocKind) Valid() bool {
 	}
 }
 
+// Defines values for ModelCallFailureDTOKind.
+const (
+	ModelCallFailureDTOKindAuth      ModelCallFailureDTOKind = "auth"
+	ModelCallFailureDTOKindOther     ModelCallFailureDTOKind = "other"
+	ModelCallFailureDTOKindRateLimit ModelCallFailureDTOKind = "rate_limit"
+	ModelCallFailureDTOKindServer    ModelCallFailureDTOKind = "server"
+)
+
+// Valid indicates whether the value is a known member of the ModelCallFailureDTOKind enum.
+func (e ModelCallFailureDTOKind) Valid() bool {
+	switch e {
+	case ModelCallFailureDTOKindAuth:
+		return true
+	case ModelCallFailureDTOKindOther:
+		return true
+	case ModelCallFailureDTOKindRateLimit:
+		return true
+	case ModelCallFailureDTOKindServer:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ModelCallWarningDTOKind.
+const (
+	ModelCallWarningDTOKindAuth      ModelCallWarningDTOKind = "auth"
+	ModelCallWarningDTOKindOther     ModelCallWarningDTOKind = "other"
+	ModelCallWarningDTOKindRateLimit ModelCallWarningDTOKind = "rate_limit"
+	ModelCallWarningDTOKindServer    ModelCallWarningDTOKind = "server"
+)
+
+// Valid indicates whether the value is a known member of the ModelCallWarningDTOKind enum.
+func (e ModelCallWarningDTOKind) Valid() bool {
+	switch e {
+	case ModelCallWarningDTOKindAuth:
+		return true
+	case ModelCallWarningDTOKindOther:
+		return true
+	case ModelCallWarningDTOKindRateLimit:
+		return true
+	case ModelCallWarningDTOKindServer:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ModelCallWarningDTORuntime.
+const (
+	ModelCallWarningDTORuntimeClaude ModelCallWarningDTORuntime = "claude"
+	ModelCallWarningDTORuntimeCodex  ModelCallWarningDTORuntime = "codex"
+)
+
+// Valid indicates whether the value is a known member of the ModelCallWarningDTORuntime enum.
+func (e ModelCallWarningDTORuntime) Valid() bool {
+	switch e {
+	case ModelCallWarningDTORuntimeClaude:
+		return true
+	case ModelCallWarningDTORuntimeCodex:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for MonitoringSessionDTORuntime.
 const (
 	MonitoringSessionDTORuntimeClaude MonitoringSessionDTORuntime = "claude"
@@ -252,16 +318,16 @@ func (e RuntimeLoginStartDTORuntime) Valid() bool {
 
 // Defines values for RuntimeLoginWarningDTORuntime.
 const (
-	Claude RuntimeLoginWarningDTORuntime = "claude"
-	Codex  RuntimeLoginWarningDTORuntime = "codex"
+	RuntimeLoginWarningDTORuntimeClaude RuntimeLoginWarningDTORuntime = "claude"
+	RuntimeLoginWarningDTORuntimeCodex  RuntimeLoginWarningDTORuntime = "codex"
 )
 
 // Valid indicates whether the value is a known member of the RuntimeLoginWarningDTORuntime enum.
 func (e RuntimeLoginWarningDTORuntime) Valid() bool {
 	switch e {
-	case Claude:
+	case RuntimeLoginWarningDTORuntimeClaude:
 		return true
-	case Codex:
+	case RuntimeLoginWarningDTORuntimeCodex:
 		return true
 	default:
 		return false
@@ -592,8 +658,11 @@ type AgentTelemetryIngestDTO struct {
 	Machine  interface{}             `json:"machine,omitempty"`
 
 	// Model The session's LIVE model, reported verbatim by the harness that is actually running it — the Claude Code statusLine payload's ``model.id`` for the claude runtime, for codex the full model id the sidecar was launched with (a family word such as sol has already been resolved by the warden). ``model.id`` and NOT ``model.display_name``: the id is what the boot seed already tells a member to report ("填 Claude Code 提供的真實 model id,不要猜值"), and it is the only one of the two that carries the ``[1m]`` 1M-context marker — a distinction the cockpit column shows today and must not lose. It carries the same INGEST contract as ``effort``: what the session IS, never the owner-configured launch setting it was started with (a mid-session model switch is visible here and nowhere else). The two diverge AFTER ingest — see ``MonitoringSessionDTO.model`` — so the shared contract is about what a producer must send, not about how the server stores it. OMITTED when the harness reports no model — an empty string would turn "not measured" into a reported blank, which is exactly the failure mode this field exists to end. Omitted leaves previously stored telemetry untouched.
-	Model      interface{} `json:"model,omitempty"`
-	RateLimits interface{} `json:"rate_limits,omitempty"`
+	Model interface{} `json:"model,omitempty"`
+
+	// ModelCall The session's newest model-call success and failure times. A Claude member sends a failure the moment a turn ends in an API error, and its success time on the context report it already sends; a Codex member sends both from its sidecar. Omitted leaves previously stored times untouched.
+	ModelCall  *ModelCallReportDTO `json:"model_call,omitempty"`
+	RateLimits interface{}         `json:"rate_limits,omitempty"`
 
 	// Runtime Optional session runtime: ``claude`` or ``codex``. Omitted leaves previously stored telemetry untouched.
 	Runtime interface{} `json:"runtime,omitempty"`
@@ -1934,9 +2003,15 @@ type MemberDTO struct {
 	LastOpReason *string `json:"last_op_reason,omitempty"`
 	Machine      *string `json:"machine,omitempty"`
 	Model        *string `json:"model,omitempty"`
-	Name         string  `json:"name"`
-	OwnerId      *string `json:"owner_id,omitempty"`
-	Presence     *string `json:"presence,omitempty"`
+
+	// ModelCallLastSuccessTs Epoch seconds of this member's newest model call that ended normally, as last reported; 0 = none reported since the server started (the times live in memory).
+	ModelCallLastSuccessTs *float64 `json:"model_call_last_success_ts,omitempty"`
+
+	// ModelCallWarnings Why this member's model calls are not working right now, judged ONLY by comparing times: a failure shows while it is newer than the member's newest success; a ``rate_limit`` failure that carries a reset time also shows on every member reporting the same account, until any member of that account succeeds after it or the reset time passes. An ``auth`` failure is left out while ``runtime_login_warnings`` already carries a current (non-pending) entry for the same runtime, so the same cause is not listed twice. Empty on a ``fields=light`` row, where it is not computed.
+	ModelCallWarnings *[]ModelCallWarningDTO `json:"model_call_warnings,omitempty"`
+	Name              string                 `json:"name"`
+	OwnerId           *string                `json:"owner_id,omitempty"`
+	Presence          *string                `json:"presence,omitempty"`
 
 	// RefocusDeadline Epoch seconds by which the in-flight wind-down is force-collected (the anchor + the reconcile recycle grace). THE ANCHOR IS THE ARM, not always ``refocus_since``: a 換手 (``desired_state`` stays online) anchors on ``refocus_since``; a 下線 (``desired_state=offline``) carries no ``refocus_since`` at all and anchors on ``stopping_since``, which is what an owner-pressed 加速停止 re-stamps on that arm. ZERO CARRIES TWO MEANINGS, and a client that reads it as one of them will be wrong about the other: no handover is in flight, OR a handover is in flight that NOTHING collects on a clock at all — which is now the NORMAL case rather than a carve-out: every cause except ``context_high`` and ``accelerated_stop`` is collected only by the agent's own ``report_stopped`` or by the owner pressing force-stop, and carries no deadline (owner 2026-08-21). ``refocus_op`` is what tells the two apart. Rendering no deadline is correct for both, and the sentence a client shows for an in-flight no-clock handover must not quote a time at all. Derived at read time, never stored. It exists so a client can say WHEN a pending launch change takes effect at the latest without hard-coding a server constant; the collection fires the instant the agent answers ``report_stopped``, so this is a CEILING, not a prediction (T-7f28). Additive-optional.
 	RefocusDeadline *float64 `json:"refocus_deadline,omitempty"`
@@ -2063,6 +2138,51 @@ type MintRequestDTO struct {
 	TtlDays  int    `json:"ttl_days"`
 }
 
+// ModelCallFailureDTO The newest model call that ended in an error, as the machine saw it. “auth“ = the runtime says its login is no longer valid (Claude: authentication_failed, oauth_org_not_allowed, account_on_hold, verification_required, cloud_credential_error; Codex: unauthorized). “rate_limit“ = the account's usage limit refused the call (Claude: rate_limit; Codex: usageLimitExceeded, rateLimitExceeded, sessionBudgetExceeded). “server“ = the provider failed or was overloaded (Claude: server_error, overloaded; Codex: serverOverloaded, internalServerError and the connection/stream failures). “other“ = any other failure; “code“ says which.
+type ModelCallFailureDTO struct {
+	// Code The runtime's own error code, verbatim (Claude's StopFailure ``error``; Codex's ``codexErrorInfo`` variant name).
+	Code string                  `json:"code"`
+	Kind ModelCallFailureDTOKind `json:"kind"`
+
+	// ResetsAt Epoch seconds the usage limit resets, when the runtime said so. Only meaningful for ``rate_limit``.
+	ResetsAt *float64 `json:"resets_at,omitempty"`
+
+	// Ts Epoch seconds the failing call ended.
+	Ts float64 `json:"ts"`
+}
+
+// ModelCallFailureDTOKind defines model for ModelCallFailureDTO.Kind.
+type ModelCallFailureDTOKind string
+
+// ModelCallReportDTO The two model-call times this session last saw. The server keeps, per member, the LARGEST success time and the LARGEST failure time it has ever been sent, so a report may repeat, arrive out of order or be lost without changing the outcome; a member is failing exactly while its newest failure is newer than its newest success.
+type ModelCallReportDTO struct {
+	LastFailure *ModelCallFailureDTO `json:"last_failure,omitempty"`
+
+	// LastSuccessTs Epoch seconds the newest model call that ended normally ended.
+	LastSuccessTs *float64 `json:"last_success_ts,omitempty"`
+}
+
+// ModelCallWarningDTO One reason this member's model calls are not working right now, on “MemberDTO.model_call_warnings“. “auth“ = the runtime says its login is no longer valid (Claude: authentication_failed, oauth_org_not_allowed, account_on_hold, verification_required, cloud_credential_error; Codex: unauthorized). “rate_limit“ = the account's usage limit refused the call (Claude: rate_limit; Codex: usageLimitExceeded, rateLimitExceeded, sessionBudgetExceeded). “server“ = the provider failed or was overloaded (Claude: server_error, overloaded; Codex: serverOverloaded, internalServerError and the connection/stream failures). “other“ = any other failure; “code“ says which. The list carries only failures a runtime actually reported; a member that has stopped answering without reporting an error shows nothing here.
+type ModelCallWarningDTO struct {
+	// AccountWide true = a ``rate_limit`` reported by another member on the same account; the account's limit applies to this member too.
+	AccountWide bool `json:"account_wide"`
+
+	// Code The runtime's own error code, verbatim.
+	Code     string                     `json:"code"`
+	Kind     ModelCallWarningDTOKind    `json:"kind"`
+	ResetsAt *float64                   `json:"resets_at,omitempty"`
+	Runtime  ModelCallWarningDTORuntime `json:"runtime"`
+
+	// SinceTs Epoch seconds of the failure.
+	SinceTs float64 `json:"since_ts"`
+}
+
+// ModelCallWarningDTOKind defines model for ModelCallWarningDTO.Kind.
+type ModelCallWarningDTOKind string
+
+// ModelCallWarningDTORuntime defines model for ModelCallWarningDTO.Runtime.
+type ModelCallWarningDTORuntime string
+
 // MonitoringAccountDTO One account's usage. One row per account that reports telemetry carrying an
 // “account“ tag: each “five_hour“/“seven_day“ window is selected
 // independently from that account's valid “rate_limits“ reports (later
@@ -2090,6 +2210,9 @@ type MonitoringAccountDTO struct {
 	Cost         *float64                `json:"cost,omitempty"`
 	DisplayName  *string                 `json:"display_name,omitempty"`
 	FiveHour     *map[string]interface{} `json:"five_hour,omitempty"`
+
+	// LimitReached The account's usage limit refusal that is in force right now: the newest ``rate_limit`` failure any member on this account reported with a reset time, while no member of the account has succeeded after it and the reset time has not passed. null = no limit in force.
+	LimitReached *ModelCallFailureDTO    `json:"limit_reached,omitempty"`
 	Machine      *string                 `json:"machine,omitempty"`
 	SevenDay     *map[string]interface{} `json:"seven_day,omitempty"`
 }

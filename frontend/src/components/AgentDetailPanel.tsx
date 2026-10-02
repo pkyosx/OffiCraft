@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useI18n } from "../i18n";
 import { effortText } from "../i18n/compose";
 import { formatCost } from "../lib/cost";
+import { formatDuration } from "../lib/duration";
 import { Markdown } from "./Markdown";
 import { ConfirmModal } from "./ConfirmModal";
 import {
@@ -137,6 +138,8 @@ export interface AgentDetailVM {
   lastOpLog: string;
   lastOpReason: string;
   lastOpAt: number | null;
+  /** Epoch seconds of the newest successful model call; null ⇒ dash. */
+  modelCallLastSuccessTs: number | null;
   /** The WHOLE attach command from the station, rendered and copied verbatim;
    * "" = this server is older than T-139 and sent none. The panel deliberately
    * takes the finished string, not a session name — see types.ts. */
@@ -615,6 +618,16 @@ export function AgentDetailPanel({
           </div>
           <div className="mp-field__value" data-testid={`${p}-account`}>
             {vm.accountText || dash}
+          </div>
+          <div className="mp-field__label mp-field__label--stacked">
+            {t.mp.modelCallLastSuccess}
+          </div>
+          <div className="mp-field__value" data-testid={`${p}-model-call-last-success`}>
+            {vm.modelCallLastSuccessTs != null
+              ? msg.memberModelCallLastSuccess(
+                  formatDuration(Math.max(0, Date.now() / 1000 - vm.modelCallLastSuccessTs)),
+                )
+              : dash}
           </div>
         </div>
       </div>

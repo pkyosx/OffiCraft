@@ -35,7 +35,7 @@ func TestCodexUplinkBodies(t *testing.T) {
 	defer srv.Close()
 
 	session := &codexSession{base: srv.URL, token: "wire-token", account: "codex:wire",
-		model: "gpt-5-codex", effort: "high"}
+		model: "gpt-5-codex", effort: "high", lastSuccessTs: 1720000100}
 
 	driven := map[string]int{}
 	drive := func(name string, produce func()) {
@@ -71,12 +71,26 @@ func TestCodexUplinkBodies(t *testing.T) {
 		})
 	})
 
+	drive("model-call-failure", func() {
+		session.rateLimitWindows = map[string]map[string]any{
+			"primary": {"windowDurationMins": float64(300), "usedPercent": float64(100),
+				"resetsAt": float64(1720003600)},
+		}
+		session.recordTurnOutcome(map[string]any{"turn": map[string]any{
+			"id": "t-1", "status": "completed", "error": nil, "completedAt": float64(1720000200)}})
+		session.recordTurnOutcome(map[string]any{"turn": map[string]any{
+			"id": "t-2", "status": "failed", "completedAt": float64(1720000300),
+			"error": map[string]any{"message": "usage limit", "codexErrorInfo": "usageLimitExceeded",
+				"additionalDetails": nil}}})
+	})
+
 	wantCaptures := []capture{
 		{
 			run:   "identity",
 			route: "/api/monitoring/telemetry",
 			body: map[string]any{
 				"runtime": "codex", "account": "codex:wire", "account_label": "ChatGPT",
+				"model_call": map[string]any{"last_success_ts": float64(1720000100)},
 			},
 		},
 		{
@@ -107,6 +121,18 @@ func TestCodexUplinkBodies(t *testing.T) {
 						"used_percentage": float64(1), "resets_at": float64(1720000000)},
 					"seven_day": map[string]any{
 						"used_percentage": float64(0), "resets_at": float64(1720500000)},
+				},
+			},
+		},
+		{
+			run:   "model-call-failure",
+			route: "/api/monitoring/telemetry",
+			body: map[string]any{
+				"runtime": "codex", "account": "codex:wire", "account_label": "ChatGPT",
+				"model_call": map[string]any{
+					"last_failure": map[string]any{"ts": float64(1720000300), "kind": "rate_limit",
+						"code": "usageLimitExceeded", "resets_at": float64(1720003600)},
+					"last_success_ts": float64(1720000200),
 				},
 			},
 		},

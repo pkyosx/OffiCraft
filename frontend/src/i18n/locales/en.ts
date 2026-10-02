@@ -730,6 +730,19 @@ export const en: Dict = {
       claude: "signed out of Claude",
       codex: "signed out of Codex",
     },
+    modelCallWarning: {
+      runtime: {
+        claude: "Claude",
+        codex: "Codex",
+      },
+      auth: "sign-in expired",
+      otherLead: "model call failed (",
+      otherTail: ")",
+      rateLimit: "Usage limit reached",
+      resetsLead: "resets",
+      resetsTail: "",
+      server: "server error",
+    },
   },
   login: {
     title: "Sign in",
@@ -1243,6 +1256,8 @@ export const en: Dict = {
     modelMachineDefault: "Use this machine's Codex default model",
     claudeAccount: "Claude Account",
     codexAccount: "Codex Account",
+    modelCallLastSuccess: "Last successful model call",
+    modelCallLastSuccessAgoTail: "ago",
     modelEffortError: "Save failed. Please try again.",
     stopError: "Action failed, please retry",
     runtime: "Runtime",
@@ -1595,6 +1610,7 @@ export const en: Dict = {
     // now. Without this the two read as if taken together.
     measuredAgoLead: "measured",
     measuredAgoTail: "ago",
+    limitReached: "Limit reached",
     detail: {
       open: "Account details",
       title: "Account details",

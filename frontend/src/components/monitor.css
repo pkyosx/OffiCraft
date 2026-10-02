@@ -77,6 +77,12 @@
   font-weight: 600;
   color: var(--color-text);
 }
+.mon-acct__limit {
+  margin: -6px 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-danger);
+}
 .mon-dot--hot {
   background: var(--color-hot) !important;
 }

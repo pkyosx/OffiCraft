@@ -1621,7 +1621,7 @@ export interface paths {
          * @description - Every member not removed, outsource members and warden (machine) rows included; soft-removed members never appear.
          *     - `machine` is where the member is OBSERVED running, not its desired machine — they differ after a relocate until reconcile lands.
          *     - `unread_count` is for YOU: messages that member sent you above your read watermark, regardless of presence.
-         *     - `fields=light` skips the expensive computations and answers the SAME shape: `unread_count` 0, `machine`, `presence` and `runtime_login_warnings` empty. Those are un-computed values, not measured ones.
+         *     - `fields=light` skips the expensive computations and answers the SAME shape: `unread_count` 0, `machine`, `presence`, `runtime_login_warnings` and `model_call_warnings` empty, `model_call_last_success_ts` 0. Those are un-computed values, not measured ones.
          *     - Cleared ONLY by POST /api/chat/mark-read; listing marks nothing.
          */
         get: operations["handle_list_members_api_members_get"];
@@ -4245,6 +4245,12 @@ export interface components {
              * @description The session's LIVE model, reported verbatim by the harness that is actually running it — the Claude Code statusLine payload's ``model.id`` for the claude runtime, for codex the full model id the sidecar was launched with (a family word such as sol has already been resolved by the warden). ``model.id`` and NOT ``model.display_name``: the id is what the boot seed already tells a member to report ("填 Claude Code 提供的真實 model id,不要猜值"), and it is the only one of the two that carries the ``[1m]`` 1M-context marker — a distinction the cockpit column shows today and must not lose. It carries the same INGEST contract as ``effort``: what the session IS, never the owner-configured launch setting it was started with (a mid-session model switch is visible here and nowhere else). The two diverge AFTER ingest — see ``MonitoringSessionDTO.model`` — so the shared contract is about what a producer must send, not about how the server stores it. OMITTED when the harness reports no model — an empty string would turn "not measured" into a reported blank, which is exactly the failure mode this field exists to end. Omitted leaves previously stored telemetry untouched.
              */
             model?: unknown;
+            /**
+             * Model Call
+             * @description The session's newest model-call success and failure times. A Claude member sends a failure the moment a turn ends in an API error, and its success time on the context report it already sends; a Codex member sends both from its sidecar. Omitted leaves previously stored times untouched.
+             * @default null
+             */
+            model_call: components["schemas"]["ModelCallReportDTO"] | null;
             /** Rate Limits */
             rate_limits?: unknown;
             /**
@@ -6200,10 +6206,23 @@ export interface components {
              */
             machine: string;
             /**
+             * Model Call Last Success Ts
+             * Format: double
+             * @description Epoch seconds of this member's newest model call that ended normally, as last reported; 0 = none reported since the server started (the times live in memory).
+             * @default 0
+             */
+            model_call_last_success_ts: number;
+            /**
              * Model
              * @default
              */
             model: string;
+            /**
+             * Model Call Warnings
+             * @description Why this member's model calls are not working right now, judged ONLY by comparing times: a failure shows while it is newer than the member's newest success; a ``rate_limit`` failure that carries a reset time also shows on every member reporting the same account, until any member of that account succeeds after it or the reset time passes. An ``auth`` failure is left out while ``runtime_login_warnings`` already carries a current (non-pending) entry for the same runtime, so the same cause is not listed twice. Empty on a ``fields=light`` row, where it is not computed.
+             * @default []
+             */
+            model_call_warnings: components["schemas"]["ModelCallWarningDTO"][];
             /** Name */
             name: string;
             /**
@@ -6438,6 +6457,85 @@ export interface components {
             ttl_days: number;
         };
         /**
+         * ModelCallFailureDTO
+         * @description The newest model call that ended in an error, as the machine saw it. ``auth`` = the runtime says its login is no longer valid (Claude: authentication_failed, oauth_org_not_allowed, account_on_hold, verification_required, cloud_credential_error; Codex: unauthorized). ``rate_limit`` = the account's usage limit refused the call (Claude: rate_limit; Codex: usageLimitExceeded, rateLimitExceeded, sessionBudgetExceeded). ``server`` = the provider failed or was overloaded (Claude: server_error, overloaded; Codex: serverOverloaded, internalServerError and the connection/stream failures). ``other`` = any other failure; ``code`` says which.
+         */
+        ModelCallFailureDTO: {
+            /**
+             * Code
+             * @description The runtime's own error code, verbatim (Claude's StopFailure ``error``; Codex's ``codexErrorInfo`` variant name).
+             */
+            code: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "auth" | "rate_limit" | "server" | "other";
+            /**
+             * Resets At
+             * @description Epoch seconds the usage limit resets, when the runtime said so. Only meaningful for ``rate_limit``.
+             * @default null
+             */
+            resets_at: number | null;
+            /**
+             * Ts
+             * Format: double
+             * @description Epoch seconds the failing call ended.
+             */
+            ts: number;
+        };
+        /**
+         * ModelCallReportDTO
+         * @description The two model-call times this session last saw. The server keeps, per member, the LARGEST success time and the LARGEST failure time it has ever been sent, so a report may repeat, arrive out of order or be lost without changing the outcome; a member is failing exactly while its newest failure is newer than its newest success.
+         */
+        ModelCallReportDTO: {
+            /** @default null */
+            last_failure: components["schemas"]["ModelCallFailureDTO"] | null;
+            /**
+             * Last Success Ts
+             * @description Epoch seconds the newest model call that ended normally ended.
+             * @default null
+             */
+            last_success_ts: number | null;
+        };
+        /**
+         * ModelCallWarningDTO
+         * @description One reason this member's model calls are not working right now, on ``MemberDTO.model_call_warnings``. ``auth`` = the runtime says its login is no longer valid (Claude: authentication_failed, oauth_org_not_allowed, account_on_hold, verification_required, cloud_credential_error; Codex: unauthorized). ``rate_limit`` = the account's usage limit refused the call (Claude: rate_limit; Codex: usageLimitExceeded, rateLimitExceeded, sessionBudgetExceeded). ``server`` = the provider failed or was overloaded (Claude: server_error, overloaded; Codex: serverOverloaded, internalServerError and the connection/stream failures). ``other`` = any other failure; ``code`` says which. The list carries only failures a runtime actually reported; a member that has stopped answering without reporting an error shows nothing here.
+         */
+        ModelCallWarningDTO: {
+            /**
+             * Account Wide
+             * @description true = a ``rate_limit`` reported by another member on the same account; the account's limit applies to this member too.
+             */
+            account_wide: boolean;
+            /**
+             * Code
+             * @description The runtime's own error code, verbatim.
+             */
+            code: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "auth" | "rate_limit" | "server" | "other";
+            /**
+             * Resets At
+             * @default null
+             */
+            resets_at: number | null;
+            /**
+             * Runtime
+             * @enum {string}
+             */
+            runtime: "claude" | "codex";
+            /**
+             * Since Ts
+             * Format: double
+             * @description Epoch seconds of the failure.
+             */
+            since_ts: number;
+        };
+        /**
          * MonitoringAccountDTO
          * @description One account's usage. One row per account that reports telemetry carrying an
          *     ``account`` tag: each ``five_hour``/``seven_day`` window is selected
@@ -6479,6 +6577,12 @@ export interface components {
             five_hour?: {
                 [key: string]: unknown;
             } | null;
+            /**
+             * Limit Reached
+             * @description The account's usage limit refusal that is in force right now: the newest ``rate_limit`` failure any member on this account reported with a reset time, while no member of the account has succeeded after it and the reset time has not passed. null = no limit in force.
+             * @default null
+             */
+            limit_reached: components["schemas"]["ModelCallFailureDTO"] | null;
             /**
              * Machine
              * @default

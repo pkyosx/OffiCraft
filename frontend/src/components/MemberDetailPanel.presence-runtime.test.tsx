@@ -72,6 +72,13 @@ function runtimeIdentityCell(container: HTMLElement): HTMLElement {
   return label.closest(".mp-field") as HTMLElement;
 }
 
+function machineAndAccount(cell: HTMLElement): (string | null)[] {
+  return [
+    within(cell).getByTestId("mp-machine").textContent,
+    within(cell).getByTestId("mp-account").textContent,
+  ];
+}
+
 describe("MemberDetailPanel · presence-gated machine + account", () => {
   it("not awakened (offline) shows dash for both machine and Claude Account", async () => {
     const { container } = renderPanel(
@@ -84,7 +91,7 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
     expect(within(cell).queryByText("seth-m5")).toBeNull();
     expect(within(cell).queryByText("eva-claude")).toBeNull();
     // Both values read the honest dash.
-    expect(within(cell).getAllByText(dash)).toHaveLength(2);
+    expect(machineAndAccount(cell)).toEqual([dash, dash]);
   });
 
   it("stopped (post-run) still shows dash — banked telemetry must not linger", async () => {
@@ -95,7 +102,7 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
 
     expect(within(cell).queryByText("seth-m5")).toBeNull();
     expect(within(cell).queryByText("eva-claude")).toBeNull();
-    expect(within(cell).getAllByText(dash)).toHaveLength(2);
+    expect(machineAndAccount(cell)).toEqual([dash, dash]);
   });
 
   it("under stopping, the machine still shows while the Claude Account reads a dash", async () => {
@@ -106,7 +113,7 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
 
     expect(within(cell).getByText("seth-m5")).toBeTruthy();
     expect(within(cell).queryByText("eva-claude")).toBeNull();
-    expect(within(cell).getAllByText(dash)).toHaveLength(1);
+    expect(machineAndAccount(cell)).toEqual(["seth-m5", dash]);
   });
 
   it("under runtime login warnings, the presence line carries one exclamation whose hover hint lists each pair on its own line", async () => {
@@ -133,9 +140,55 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
     ).toEqual(["seth-m5 未登入 Claude", "Studio B 未登入 Codex"]);
   });
 
-  it("under no runtime login warning, the presence line has no exclamation", async () => {
+  it("under only a model-call warning, the presence line carries the exclamation with that reason", async () => {
     const { container } = renderPanel(
-      mkMember({ status: "online", lifecycle: "online", runtimeLoginWarnings: [] })
+      mkMember({
+        status: "online",
+        lifecycle: "online",
+        runtimeLoginWarnings: [],
+        modelCallWarnings: [
+          {
+            runtime: "claude",
+            kind: "other",
+            code: "invalid_request",
+            resetsAt: null,
+            sinceTs: 1_790_000_000,
+            accountWide: false,
+          },
+        ],
+      })
+    );
+    const mark = await waitFor(() => within(container).getByTestId("runtime-login-warning"));
+    expect(mark.closest(".presence-badge")).not.toBeNull();
+    fireEvent.mouseEnter(mark);
+    expect(screen.getByRole("tooltip").textContent).toBe("Claude 模型呼叫失敗（invalid_request）");
+  });
+
+  it("under a reported success 3 minutes ago, the last-model-call row reads 3m 前, and with none reported it reads the dash", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(1_790_000_000 * 1000));
+    try {
+      const recent = renderPanel(
+        mkMember({ status: "online", lifecycle: "online", modelCallLastSuccessTs: 1_790_000_000 - 180 })
+      );
+      const row = await waitFor(() => within(recent.container).getByTestId("mp-model-call-last-success"));
+      expect(row.textContent).toBe("3m 前");
+      expect(row.previousElementSibling?.textContent).toBe("最後一次模型呼叫成功");
+      recent.unmount();
+
+      const none = renderPanel(
+        mkMember({ status: "online", lifecycle: "online", modelCallLastSuccessTs: null })
+      );
+      const empty = await waitFor(() => within(none.container).getByTestId("mp-model-call-last-success"));
+      expect(empty.textContent).toBe(dash);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("under neither a runtime login warning nor a model call warning, the presence line has no exclamation", async () => {
+    const { container } = renderPanel(
+      mkMember({ status: "online", lifecycle: "online", runtimeLoginWarnings: [], modelCallWarnings: [] })
     );
     await waitFor(() => runtimeIdentityCell(container));
     expect(within(container).queryByTestId("runtime-login-warning")).toBeNull();

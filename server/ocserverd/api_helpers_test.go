@@ -834,41 +834,43 @@ func TestNewMemberDTO(t *testing.T) {
 		}
 		dashboard := apiTestListen(t, api, "")
 
-		dto := api.newMemberDTO(member, "Quartermaster", "m-obs", 5, machineDirectory{})
+		dto := api.newMemberDTO(member, "Quartermaster", "m-obs", 5, machineDirectory{}, modelCallBoard{})
 
 		apiWantValue(t, "dto", any(apiHelpersWire(t, dto)), any(map[string]any{
-			"id":                      "m-rich",
-			"avatar_url":              "/api/chat/attachment/ava-abc123",
-			"name":                    "Rill",
-			"kind":                    "staff",
-			"role_key":                "r-quarter",
-			"role_name":               "Quartermaster",
-			"runtime":                 "codex",
-			"model":                   "opus",
-			"actual_model":            "sonnet",
-			"actual_runtime":          "claude",
-			"actual_effort":           "high",
-			"actual_machine":          "m-last",
-			"effort":                  "max",
-			"desired_state":           "online",
-			"desired_machine_id":      "m-pin",
-			"machine":                 "m-obs",
-			"presence":                "offline",
-			"refocus_since":           100,
-			"refocus_op":              "accelerated_stop",
-			"refocus_deadline":        220,
-			"last_op":                 "START",
-			"last_op_ok":              true,
-			"last_op_log":             "started",
-			"last_op_reason":          "ok: fine",
-			"last_op_at":              42,
-			"forced_stop_at":          7,
-			"unread_count":            5,
-			"roster_status":           "active",
-			"owner_id":                "owner",
-			"schema_version":          3,
-			"terminal_attach_command": "tmux -L officraft attach -t member-m-rich",
-			"runtime_login_warnings":  []any{},
+			"id":                         "m-rich",
+			"avatar_url":                 "/api/chat/attachment/ava-abc123",
+			"name":                       "Rill",
+			"kind":                       "staff",
+			"role_key":                   "r-quarter",
+			"role_name":                  "Quartermaster",
+			"runtime":                    "codex",
+			"model":                      "opus",
+			"actual_model":               "sonnet",
+			"actual_runtime":             "claude",
+			"actual_effort":              "high",
+			"actual_machine":             "m-last",
+			"effort":                     "max",
+			"desired_state":              "online",
+			"desired_machine_id":         "m-pin",
+			"machine":                    "m-obs",
+			"presence":                   "offline",
+			"refocus_since":              100,
+			"refocus_op":                 "accelerated_stop",
+			"refocus_deadline":           220,
+			"last_op":                    "START",
+			"last_op_ok":                 true,
+			"last_op_log":                "started",
+			"last_op_reason":             "ok: fine",
+			"last_op_at":                 42,
+			"forced_stop_at":             7,
+			"unread_count":               5,
+			"roster_status":              "active",
+			"owner_id":                   "owner",
+			"schema_version":             3,
+			"terminal_attach_command":    "tmux -L officraft attach -t member-m-rich",
+			"runtime_login_warnings":     []any{},
+			"model_call_last_success_ts": 0,
+			"model_call_warnings":        []any{},
 		}))
 		dashboard.wantFrames()
 	})
@@ -877,12 +879,12 @@ func TestNewMemberDTO(t *testing.T) {
 		api, _, d, _ := newAPITestServer(t)
 		member := apiHelpersMember(t, d, seedMiraID)
 
-		offline := api.newMemberDTO(member, "Assistant", "", 0, machineDirectory{})
+		offline := api.newMemberDTO(member, "Assistant", "", 0, machineDirectory{}, modelCallBoard{})
 		listener, err := api.hub.Connect(seedMiraID, "")
 		if err != nil {
 			t.Fatalf("hub.Connect: %v", err)
 		}
-		online := api.newMemberDTO(member, "Assistant", "", 0, machineDirectory{})
+		online := api.newMemberDTO(member, "Assistant", "", 0, machineDirectory{}, modelCallBoard{})
 		api.hub.Disconnect(listener)
 
 		apiWantValue(t, "presence with no connection", any(offline.Presence), any("offline"))
@@ -980,7 +982,7 @@ func TestNewMemberDTO(t *testing.T) {
 				t.Cleanup(func() { api.hub.Disconnect(link) })
 			}
 
-			dto := api.newMemberDTO(member, "", api.observedHost(member), 0, dir)
+			dto := api.newMemberDTO(member, "", api.observedHost(member), 0, dir, modelCallBoard{})
 
 			apiWantValue(t, c.name, apiHelpersWire(t, dto)["runtime_login_warnings"], any(c.want))
 		}
@@ -1005,38 +1007,40 @@ func TestNewMemberLightDTO(t *testing.T) {
 		dto := api.newMemberLightDTO(member, "Quartermaster")
 
 		apiWantValue(t, "dto", any(apiHelpersWire(t, dto)), any(map[string]any{
-			"id":                      "m-rich",
-			"avatar_url":              "/api/chat/attachment/ava-abc123",
-			"name":                    "Rill",
-			"kind":                    "staff",
-			"role_key":                "r-quarter",
-			"role_name":               "Quartermaster",
-			"runtime":                 "codex",
-			"roster_status":           "active",
-			"owner_id":                "owner",
-			"schema_version":          3,
-			"terminal_attach_command": "tmux -L officraft attach -t member-m-rich",
-			"model":                   "",
-			"actual_model":            "",
-			"actual_runtime":          "",
-			"actual_effort":           "",
-			"actual_machine":          "",
-			"effort":                  "",
-			"desired_state":           "",
-			"desired_machine_id":      "",
-			"machine":                 "",
-			"presence":                "",
-			"refocus_since":           0,
-			"refocus_op":              "",
-			"refocus_deadline":        0,
-			"last_op":                 "",
-			"last_op_ok":              nil,
-			"last_op_log":             "",
-			"last_op_reason":          "",
-			"last_op_at":              0,
-			"forced_stop_at":          0,
-			"unread_count":            0,
-			"runtime_login_warnings":  []any{},
+			"id":                         "m-rich",
+			"avatar_url":                 "/api/chat/attachment/ava-abc123",
+			"name":                       "Rill",
+			"kind":                       "staff",
+			"role_key":                   "r-quarter",
+			"role_name":                  "Quartermaster",
+			"runtime":                    "codex",
+			"roster_status":              "active",
+			"owner_id":                   "owner",
+			"schema_version":             3,
+			"terminal_attach_command":    "tmux -L officraft attach -t member-m-rich",
+			"model":                      "",
+			"actual_model":               "",
+			"actual_runtime":             "",
+			"actual_effort":              "",
+			"actual_machine":             "",
+			"effort":                     "",
+			"desired_state":              "",
+			"desired_machine_id":         "",
+			"machine":                    "",
+			"presence":                   "",
+			"refocus_since":              0,
+			"refocus_op":                 "",
+			"refocus_deadline":           0,
+			"last_op":                    "",
+			"last_op_ok":                 nil,
+			"last_op_log":                "",
+			"last_op_reason":             "",
+			"last_op_at":                 0,
+			"forced_stop_at":             0,
+			"unread_count":               0,
+			"runtime_login_warnings":     []any{},
+			"model_call_last_success_ts": 0,
+			"model_call_warnings":        []any{},
 		}))
 		dashboard.wantFrames()
 	})
@@ -1056,7 +1060,7 @@ func TestNewMemberLightDTO(t *testing.T) {
 		apiWantValue(t, "presence stays blank", any(online.Presence), any(""))
 		apiWantValue(t, "the whole projection is unchanged", any(online), any(offline))
 		apiWantValue(t, "the full projection would have said otherwise",
-			any(api.newMemberDTO(member, "Assistant", "", 0, machineDirectory{}).Presence), any("offline"))
+			any(api.newMemberDTO(member, "Assistant", "", 0, machineDirectory{}, modelCallBoard{}).Presence), any("offline"))
 	})
 }
 

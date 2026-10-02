@@ -111,7 +111,7 @@ func startParamsM1() StartParams {
 // against a literal instead of agreeing with itself.
 const goldenClaudePurge = `for __oc_e in $(/usr/bin/env); do case $__oc_e in CLAUDE_CODE_USE_BEDROCK=*|CLAUDE_CODE_USE_VERTEX=*|CLAUDE_CODE_OAUTH_TOKEN=*) continue;; CLAUDE_*=*) ;; *) continue;; esac; __oc_n=${__oc_e%%=*}; case $__oc_n in *[!A-Za-z0-9_]*) continue;; esac; unset "$__oc_n"; done; unset __oc_e __oc_n; `
 
-const goldenInlineSettings = `{"skipDangerousModePermissionPrompt":true,"tui":"fullscreen","statusLine":{"type":"command","command":"ocagent context-report"},"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"ocagent guard-bash"}]}],"PermissionRequest":[{"hooks":[{"type":"command","command":"ocagent guard-permission"}]}]}}`
+const goldenInlineSettings = `{"skipDangerousModePermissionPrompt":true,"tui":"fullscreen","statusLine":{"type":"command","command":"ocagent context-report"},"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"ocagent guard-bash"}]}],"PermissionRequest":[{"hooks":[{"type":"command","command":"ocagent guard-permission"}]}],"Stop":[{"hooks":[{"type":"command","command":"ocagent model-call-report"}]}],"StopFailure":[{"hooks":[{"type":"command","command":"ocagent model-call-report"}]}]}}`
 
 var goldenLaunchM1 = `cd /w/m1; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
 	`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft ` +
@@ -238,6 +238,26 @@ func TestBuildStatuslineSettings(t *testing.T) {
           {
             "type": "command",
             "command": "ocagent guard-permission"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ocagent model-call-report"
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ocagent model-call-report"
           }
         ]
       }

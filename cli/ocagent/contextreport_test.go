@@ -134,6 +134,52 @@ func TestCmdContextReport(t *testing.T) {
 		}
 	})
 
+	t.Run("a delivered success time is recorded as accepted, never moving the record back", func(t *testing.T) {
+		cases := []struct {
+			name     string
+			sent     float64
+			status   int
+			wantSent string
+		}{
+			{name: "nothing accepted before", status: 200, wantSent: "985.5"},
+			{name: "an older accepted success", sent: 950, status: 200, wantSent: "985.5"},
+			{name: "a newer accepted success", sent: 990, status: 200, wantSent: "990"},
+			{name: "a refused report", sent: 950, status: 503, wantSent: "950"},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				home := t.TempDir()
+				cfg := Config{BaseConfigured: true, Base: "http://x", Token: "t", MemberID: "kyle", AgentsRoot: home}
+				dir := filepath.Join(home, "kyle")
+				writeModelCallTime(filepath.Join(dir, "model_call.success"), 985.5)
+				if tc.sent > 0 {
+					writeModelCallTime(filepath.Join(dir, "model_call.success_sent"), tc.sent)
+				}
+				client := &fakeHTTP{status: tc.status, body: "{}"}
+				var out, errOut bytes.Buffer
+
+				cmdContextReport(client, cfg, testEnv(map[string]string{"HOME": t.TempDir()}),
+					1000.0, strings.NewReader(payload), &out, &errOut)
+
+				want := []string{
+					`POST /api/agent/context {"context_pct":40}`,
+					`POST /api/monitoring/telemetry {"runtime":"claude","cost":2,"machine":"m-server-self",` +
+						`"model_call":{"last_success_ts":985.5}}`,
+				}
+				if !reflect.DeepEqual(client.seen, want) {
+					t.Errorf("sent\n  %q\nwant\n  %q", client.seen, want)
+				}
+				gotSent := ""
+				if raw, err := os.ReadFile(filepath.Join(dir, "model_call.success_sent")); err == nil {
+					gotSent = string(raw)
+				}
+				if gotSent != tc.wantSent {
+					t.Errorf("accepted-success record = %q, want %q", gotSent, tc.wantSent)
+				}
+			})
+		}
+	})
+
 	t.Run("a burst inside the failure backoff sends nothing", func(t *testing.T) {
 		home := t.TempDir()
 		cfg := Config{BaseConfigured: true, Base: "http://x", Token: "t", MemberID: "kyle", AgentsRoot: home}
