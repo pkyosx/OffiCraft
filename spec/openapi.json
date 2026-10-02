@@ -285,6 +285,19 @@
             "description": "The session's LIVE model, reported verbatim by the harness that is actually running it — the Claude Code statusLine payload's ``model.id`` for the claude runtime, for codex the full model id the sidecar was launched with (a family word such as sol has already been resolved by the warden). ``model.id`` and NOT ``model.display_name``: the id is what the boot seed already tells a member to report (\"填 Claude Code 提供的真實 model id,不要猜值\"), and it is the only one of the two that carries the ``[1m]`` 1M-context marker — a distinction the cockpit column shows today and must not lose. It carries the same INGEST contract as ``effort``: what the session IS, never the owner-configured launch setting it was started with (a mid-session model switch is visible here and nowhere else). The two diverge AFTER ingest — see ``MonitoringSessionDTO.model`` — so the shared contract is about what a producer must send, not about how the server stores it. OMITTED when the harness reports no model — an empty string would turn \"not measured\" into a reported blank, which is exactly the failure mode this field exists to end. Omitted leaves previously stored telemetry untouched.",
             "title": "Model"
           },
+          "model_call": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelCallReportDTO"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The session's newest model-call success and failure times. A Claude member sends a failure the moment a turn ends in an API error, and its success time on the context report it already sends; a Codex member sends both from its sidecar. Omitted leaves previously stored times untouched.",
+            "title": "Model Call"
+          },
           "rate_limits": {
             "title": "Rate Limits"
           },
@@ -2775,10 +2788,26 @@
             "title": "Machine",
             "type": "string"
           },
+          "model_call_last_success_ts": {
+            "default": 0.0,
+            "description": "Epoch seconds of this member's newest model call that ended normally, as last reported; 0 = none reported since the server started (the times live in memory).",
+            "format": "double",
+            "title": "Model Call Last Success Ts",
+            "type": "number"
+          },
           "model": {
             "default": "",
             "title": "Model",
             "type": "string"
+          },
+          "model_call_warnings": {
+            "default": [],
+            "description": "Why this member's model calls are not working right now, judged ONLY by comparing times: a failure shows while it is newer than the member's newest success; a ``rate_limit`` failure that carries a reset time also shows on every member reporting the same account, until any member of that account succeeds after it or the reset time passes. An ``auth`` failure is left out while ``runtime_login_warnings`` already carries a current (non-pending) entry for the same runtime, so the same cause is not listed twice. Empty on a ``fields=light`` row, where it is not computed.",
+            "items": {
+              "$ref": "#/components/schemas/ModelCallWarningDTO"
+            },
+            "title": "Model Call Warnings",
+            "type": "array"
           },
           "name": {
             "title": "Name",
@@ -3142,6 +3171,149 @@
         "title": "MintRequestDTO",
         "type": "object"
       },
+      "ModelCallFailureDTO": {
+        "additionalProperties": false,
+        "description": "The newest model call that ended in an error, as the machine saw it. ``auth`` = the runtime says its login is no longer valid (Claude: authentication_failed, oauth_org_not_allowed, account_on_hold, verification_required, cloud_credential_error; Codex: unauthorized). ``rate_limit`` = the account's usage limit refused the call (Claude: rate_limit; Codex: usageLimitExceeded, rateLimitExceeded, sessionBudgetExceeded). ``server`` = the provider failed or was overloaded (Claude: server_error, overloaded; Codex: serverOverloaded, internalServerError and the connection/stream failures). ``other`` = any other failure; ``code`` says which.",
+        "properties": {
+          "code": {
+            "description": "The runtime's own error code, verbatim (Claude's StopFailure ``error``; Codex's ``codexErrorInfo`` variant name).",
+            "title": "Code",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "auth",
+              "rate_limit",
+              "server",
+              "other"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "resets_at": {
+            "anyOf": [
+              {
+                "format": "double",
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Epoch seconds the usage limit resets, when the runtime said so. Only meaningful for ``rate_limit``.",
+            "title": "Resets At"
+          },
+          "ts": {
+            "description": "Epoch seconds the failing call ended.",
+            "format": "double",
+            "title": "Ts",
+            "type": "number"
+          }
+        },
+        "required": [
+          "code",
+          "kind",
+          "ts"
+        ],
+        "title": "ModelCallFailureDTO",
+        "type": "object"
+      },
+      "ModelCallReportDTO": {
+        "additionalProperties": false,
+        "description": "The two model-call times this session last saw. The server keeps, per member, the LARGEST success time and the LARGEST failure time it has ever been sent, so a report may repeat, arrive out of order or be lost without changing the outcome; a member is failing exactly while its newest failure is newer than its newest success.",
+        "properties": {
+          "last_failure": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelCallFailureDTO"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "last_success_ts": {
+            "anyOf": [
+              {
+                "format": "double",
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Epoch seconds the newest model call that ended normally ended.",
+            "title": "Last Success Ts"
+          }
+        },
+        "title": "ModelCallReportDTO",
+        "type": "object"
+      },
+      "ModelCallWarningDTO": {
+        "additionalProperties": false,
+        "description": "One reason this member's model calls are not working right now, on ``MemberDTO.model_call_warnings``. ``auth`` = the runtime says its login is no longer valid (Claude: authentication_failed, oauth_org_not_allowed, account_on_hold, verification_required, cloud_credential_error; Codex: unauthorized). ``rate_limit`` = the account's usage limit refused the call (Claude: rate_limit; Codex: usageLimitExceeded, rateLimitExceeded, sessionBudgetExceeded). ``server`` = the provider failed or was overloaded (Claude: server_error, overloaded; Codex: serverOverloaded, internalServerError and the connection/stream failures). ``other`` = any other failure; ``code`` says which. The list carries only failures a runtime actually reported; a member that has stopped answering without reporting an error shows nothing here.",
+        "properties": {
+          "account_wide": {
+            "description": "true = a ``rate_limit`` reported by another member on the same account; the account's limit applies to this member too.",
+            "title": "Account Wide",
+            "type": "boolean"
+          },
+          "code": {
+            "description": "The runtime's own error code, verbatim.",
+            "title": "Code",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "auth",
+              "rate_limit",
+              "server",
+              "other"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "resets_at": {
+            "anyOf": [
+              {
+                "format": "double",
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Resets At"
+          },
+          "runtime": {
+            "enum": [
+              "claude",
+              "codex"
+            ],
+            "title": "Runtime",
+            "type": "string"
+          },
+          "since_ts": {
+            "description": "Epoch seconds of the failure.",
+            "format": "double",
+            "title": "Since Ts",
+            "type": "number"
+          }
+        },
+        "required": [
+          "account_wide",
+          "code",
+          "kind",
+          "runtime",
+          "since_ts"
+        ],
+        "title": "ModelCallWarningDTO",
+        "type": "object"
+      },
       "MonitoringAccountDTO": {
         "additionalProperties": false,
         "description": "One account's usage. One row per account that reports telemetry carrying an\n``account`` tag: each ``five_hour``/``seven_day`` window is selected\nindependently from that account's valid ``rate_limits`` reports (later\n``resets_at`` wins; ties use the report's rate-limit sample time), then shaped\ninto pacing data. A missing, invalid, expired, or implausibly future reset time\nleaves that window honest-None. ``cost`` is the SUM of its sessions' cost. The\naccounts list is empty ONLY when no telemetry carries an account tag.\n\n``machine`` is the machine(s) the account is ACTUALLY USED ON — the OBSERVED\nposition(s) of the agent(s) drawing this account's quota, computed by the SAME\nprojection the machines/sessions folds use (telemetry-reported ``machine`` →\nlive SSE machine claim → desired ``desired_machine_id``), NOT the roster's\ndesired placement. A claude account can be used by several agents on different\nboxes, so when it spans >1 machine the distinct hosts are comma-joined\n(single-machine → just that host; honest-empty \"\" when no agent reports one).\n\nEach shaped window additionally carries ``measured_at`` — the epoch second the winning report's ``used_percentage`` was taken. It is not decoration: ``used_pct`` is a SNAPSHOT that freezes the moment the last agent on that account goes away, while ``elapsed_pct`` is recomputed from the request's ``now`` every single time, so without the stamp a days-old figure and a live one render byte-identically. The stamp is PER WINDOW because the two windows are selected independently — a fresh 5h window must never vouch for a frozen 7d one. Honest-null when nothing stamped the sample; NEVER back-filled with the serving time.\n\nFor the same reason ``pace`` is withheld (null) once a snapshot has gone unrefreshed past the telemetry freshness window, or is of unknown age: the verdict compares a frozen number against a moving clock, so it would appear and clear itself purely as time passes, with no new data and nothing the owner could do about it. The NUMBER is still served — only the present-tense judgement is withheld.",
@@ -3190,6 +3362,19 @@
               }
             ],
             "title": "Five Hour"
+          },
+          "limit_reached": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelCallFailureDTO"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The account's usage limit refusal that is in force right now: the newest ``rate_limit`` failure any member on this account reported with a reset time, while no member of the account has succeeded after it and the reset time has not passed. null = no limit in force.",
+            "title": "Limit Reached"
           },
           "machine": {
             "default": "",
