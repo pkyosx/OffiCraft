@@ -3,9 +3,11 @@
 // resolveClaudeBin chain) plus the PRESENCE-ONLY shape of its credentials, so
 // the cockpit's machine rows can diagnose it without an SSH session.
 //
-// The version exec is skipped while the resolved binary's (size, mtime) is
-// unchanged: the native installer symlinks ~/.local/bin/claude → versions/<v>
-// and os.Stat follows the symlink, so an upgrade changes the stat identity.
+// The whole group, version included, is re-probed once per claudeProbeTTL.
+// ⚠️ Do not skip the version exec while the binary's stat looks unchanged: a
+// version manager's shim (asdf, nvm, volta) keeps its own bytes and mtime when
+// the claude behind it changes, so such a shortcut would report the old version
+// until the warden restarts.
 package main
 
 import (
@@ -36,11 +38,6 @@ type claudeProber struct {
 	goos       string
 	now        func() time.Time
 
-	verPath  string
-	verSize  int64
-	verMtime time.Time
-	verValue string
-
 	cached   map[string]any
 	cachedAt time.Time
 	stale    atomic.Bool
@@ -60,9 +57,8 @@ func newClaudeProber(env func(string) string, runner CmdRunner, goos string) *cl
 
 // A failed probe omits its key: the server reads an absent key as unknown, so
 // never report a guess.
-// invalidate makes the next collect read the version again even when the
-// binary's stat is unchanged: an update can replace a file behind a path whose
-// size and mtime look the same.
+// invalidate makes the next collect probe again inside the TTL, so a finished
+// upgrade's version reaches the very next heartbeat.
 func (p *claudeProber) invalidate() {
 	p.stale.Store(true)
 }
@@ -70,7 +66,6 @@ func (p *claudeProber) invalidate() {
 func (p *claudeProber) collect() map[string]any {
 	if p.stale.Swap(false) {
 		p.cached = nil
-		p.verPath = ""
 	}
 	if p.cached != nil && p.now().Sub(p.cachedAt) < claudeProbeTTL {
 		return p.cached
@@ -104,25 +99,18 @@ func (p *claudeProber) collect() map[string]any {
 func (p *claudeProber) version() string {
 	bin := p.resolveBin()
 	if bin == "" {
-		p.verPath = ""
 		return ""
 	}
 	info, err := p.stat(bin)
 	if err != nil || info.IsDir() {
-		p.verPath = ""
 		return ""
-	}
-	if p.verPath == bin && p.verSize == info.Size() && p.verMtime.Equal(info.ModTime()) {
-		return p.verValue
 	}
 	out, err := p.runner.Run(bin, "--version")
 	fields := strings.Fields(out)
 	if err != nil || len(fields) == 0 {
-		p.verPath = ""
 		return ""
 	}
-	p.verPath, p.verSize, p.verMtime, p.verValue = bin, info.Size(), info.ModTime(), fields[0]
-	return p.verValue
+	return fields[0]
 }
 
 // The file holds live OAuth tokens: decode ONLY into a typed struct binding the

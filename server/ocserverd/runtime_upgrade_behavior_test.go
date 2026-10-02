@@ -78,7 +78,7 @@ func TestRuntimeUpgradeStart(t *testing.T) {
 		assertNoFrame(t, f.wardenConn, "the owner-only runtime_upgrade signal")
 	})
 
-	t.Run("under an upgrade already in flight for the machine, a second start answers that upgrade and sends nothing", func(t *testing.T) {
+	t.Run("under an upgrade still starting, a second start answers that upgrade and sends its frame again", func(t *testing.T) {
 		f := newUpgradeFixture(t)
 		id := f.startUpgrade(t)
 		drainFrames(t, f.api, loginMachine)
@@ -90,6 +90,28 @@ func TestRuntimeUpgradeStart(t *testing.T) {
 			t.Fatalf("repeat start: %d %v", status, data)
 		}
 		apiWantBody(t, data, upgradeBody(id, "starting", nil, nil, nil, loginEpoch, loginEpoch))
+		apiWantValue(t, "frames", any(drainFrames(t, f.api, loginMachine)), any([]drainedFrame{{
+			Topic: "warden-command", RPC: "runtime_upgrade",
+			Args: map[string]any{"member_id": loginMachine, "upgrade_id": id, "runtime": "claude"},
+		}}))
+		wantNoWardenFrames(t, f, loginOtherMachine)
+		f.dashboard.wantFrames()
+	})
+
+	t.Run("under an upgrade already running, a second start answers that upgrade and sends nothing", func(t *testing.T) {
+		f := newUpgradeFixture(t)
+		id := f.startUpgrade(t)
+		drainFrames(t, f.api, loginMachine)
+		if status, data := f.reportUpgrade(t, f.warden, `{"upgrade_id":"`+id+`","state":"running","from_version":"2.1.200"}`); status != http.StatusOK {
+			t.Fatalf("running report: %d %v", status, data)
+		}
+		f.dashboard.wantFrames(upgradeSignal(id, "owner"), upgradeSignal(id, loginMachine))
+
+		status, data := apiJSON(t, f.h, "POST", upgradeStartPath, f.owner, `{"runtime":"claude"}`)
+		if status != http.StatusOK {
+			t.Fatalf("repeat start: %d %v", status, data)
+		}
+		apiWantBody(t, data, upgradeBody(id, "running", "2.1.200", nil, nil, loginEpoch, loginEpoch))
 		wantNoWardenFrames(t, f, loginMachine)
 		f.dashboard.wantFrames()
 	})

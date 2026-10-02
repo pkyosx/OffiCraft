@@ -187,6 +187,16 @@ func (s *apiServer) HandleStartRuntimeUpgradeApiMachinesMachineIdRuntimeUpgradeP
 	now := st.now()
 	swept := st.sweepLocked(now)
 	if existing := st.inFlightLocked(machineId, runtime); existing != nil {
+		// Still starting means no warden has picked it up — typically one that
+		// predated the verb and was updated since — so the frame goes out again
+		// under the same id; a warden already running that id ignores it.
+		if existing.state == runtimeUpgradeStarting {
+			if frame, built := buildRuntimeLoginFrame(wardenCmdRuntimeUpgrade, wardenRuntimeUpgradeArgs{
+				MemberID: machineId, UpgradeID: existing.id, Runtime: runtime,
+			}); built {
+				s.enqueueToWarden(machineId, machineId, frame)
+			}
+		}
 		out := existing.dto()
 		st.mu.Unlock()
 		s.publishRuntimeUpgrade(triggerServer, swept...)
