@@ -98,22 +98,29 @@ func deliveryOf(socket, session, payload string) [][]string {
 	}
 }
 
-// degradedDeliveryOf is the argv one line must produce on the path this host's
-// tmux takes when it rejects the flags: its own set-buffer, a bare paste, and
-// its own Enters. Typed out rather than derived from deliveryOf, so a change to
-// either path has to be re-justified against a literal.
-func degradedDeliveryOf(socket, session, line string) [][]string {
-	buffer := "oc-listen-deliver-" + session
-	return [][]string{
-		{"-L", socket, "set-buffer", "-b", buffer, line},
-		{"-L", socket, "paste-buffer", "-t", session, "-b", buffer},
-		{"-L", socket, "copy-mode", "-q", "-t", session},
-		{"-L", socket, "send-keys", "-t", session, "Enter"},
-		{"-L", socket, "copy-mode", "-q", "-t", session},
-		{"-L", socket, "send-keys", "-t", session, "Enter"},
-		{"-L", socket, "copy-mode", "-q", "-t", session},
-		{"-L", socket, "send-keys", "-t", session, "Enter"},
-	}
+// undeliveredOf is the argv a delivery of payload must produce when tmux refuses
+// the paste at call index failAt (0 = set-buffer, 1 = paste-buffer): nothing more
+// of the payload, then one typed id-only line and its Enters.
+func undeliveredOf(socket, session, payload string, failAt int, notice string) [][]string {
+	calls := deliveryOf(socket, session, payload)[:failAt+1]
+	return append(calls,
+		[]string{"-L", socket, "copy-mode", "-q", "-t", session},
+		[]string{"-L", socket, "send-keys", "-t", session, "-l", notice},
+		[]string{"-L", socket, "copy-mode", "-q", "-t", session},
+		[]string{"-L", socket, "send-keys", "-t", session, "Enter"},
+		[]string{"-L", socket, "copy-mode", "-q", "-t", session},
+		[]string{"-L", socket, "send-keys", "-t", session, "Enter"},
+		[]string{"-L", socket, "copy-mode", "-q", "-t", session},
+		[]string{"-L", socket, "send-keys", "-t", session, "Enter"},
+	)
+}
+
+// chatEvent renders a chat event the way the listener prints it.
+func chatEvent(t *testing.T, id, body string) string {
+	t.Helper()
+	var out bytes.Buffer
+	printChatLine(&out, map[string]any{"id": id, "from": "owner", "body": body}, 0)
+	return strings.TrimSuffix(out.String(), "\n")
 }
 
 // quotedInBody is the CONTINUATION line of a chat body that quotes a transport
@@ -373,83 +380,180 @@ func TestPaneWriter(t *testing.T) {
 		}
 	})
 
-	t.Run("a paste the tmux on this host rejects is re-sent one line at a time", func(t *testing.T) {
-		// Measured on tmux 3.6b: the bare paste turns every newline in the buffer
-		// into Enter. Re-sending a BATCH that way would submit one turn per line
-		// with three stray Enters between them; re-sending line by line is the
-		// pre-batch behaviour, which is the worst this path may degrade to.
-		//
-		// tmux 3.7c does NOT do that (measured against a real Claude Code pane),
-		// so which hosts need this is unknown and the pessimistic reading is the
-		// one that costs nothing.
+	t.Run("an event up to the paste ceiling goes out whole and one byte more goes out as its id", func(t *testing.T) {
+		// Owner ruling rc-62ede5d63772: the ceiling counts every byte pasted,
+		// the header included.
+		header := "[ocagent] chat from owner (#c-1): "
+		atCeiling := header + strings.Repeat("a", 8192-len(header))
+		overCeiling := atCeiling + "a"
+
 		var log bytes.Buffer
-		rec := &recordTmux{fail: map[int]bool{1: true}} // the -d -p paste
-		w := newPaneWriter(&log, "officraft", "member-m1", rec.run, func(time.Duration) {})
-
-		lines := []string{"[ocagent] chat #c-1", "[ocagent] chat #c-2", "[ocagent] chat #c-3"}
-		w.Write([]byte(strings.Join(lines, "\n") + "\n"))
+		w, rec := newRecordingPaneWriter(&log)
+		w.Write([]byte(atCeiling + "\n"))
 		w.drain()
-
-		// The rejected batch paste, then one complete delivery per line.
-		want := deliveryOf("officraft", "member-m1", strings.Join(lines, "\n"))[:2]
-		for _, line := range lines {
-			want = append(want, degradedDeliveryOf("officraft", "member-m1", line)...)
+		if want := deliveryOf("officraft", "member-m1", atCeiling); !reflect.DeepEqual(rec.snapshot(), want) {
+			t.Errorf("an 8192-byte event was not pasted whole: %d call(s)", len(rec.snapshot()))
 		}
-		if got := rec.snapshot(); !reflect.DeepEqual(got, want) {
-			t.Errorf("tmux calls =\n%v\nwant\n%v", got, want)
+
+		w, rec = newRecordingPaneWriter(&log)
+		w.Write([]byte(overCeiling + "\n"))
+		w.drain()
+		notice := header + strings.Repeat("a", 166) +
+			"… [這則通知共 1 行／8193 字，超過送進畫面的上限 8 KiB，正文沒有送進來 — 請用 get_chat 讀全文]"
+		if want := deliveryOf("officraft", "member-m1", notice); !reflect.DeepEqual(rec.snapshot(), want) {
+			t.Errorf("tmux calls =\n%q\nwant\n%q", rec.snapshot(), want)
 		}
 	})
 
-	t.Run("a degraded delivery into a pane that is gone stops after the first line", func(t *testing.T) {
-		// The fallback fires on ANY paste error, and a target that no longer exists
-		// fails every one. Walking the whole batch would spend three paced Enters
-		// per line while stop() waits for the drain.
-		var log bytes.Buffer
-		rec := &recordTmux{fail: map[int]bool{1: true, 3: true}} // the -d -p paste, then the first bare one
-		w := newPaneWriter(&log, "officraft", "member-m1", rec.run, func(time.Duration) {})
+	t.Run("a thousand-line message reaches the pane as one id-only line", func(t *testing.T) {
+		var b strings.Builder
+		for i := 0; i < 1194; i++ {
+			fmt.Fprintf(&b, "line %04d xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n", i)
+		}
+		event := chatEvent(t, "c-6feb08ebdbb6", b.String())
 
-		lines := []string{"[ocagent] chat #c-1", "[ocagent] chat #c-2", "[ocagent] chat #c-3"}
-		w.Write([]byte(strings.Join(lines, "\n") + "\n"))
+		var log bytes.Buffer
+		w, rec := newRecordingPaneWriter(&log)
+		w.Write([]byte(event + "\n"))
 		w.drain()
 
-		// The rejected batch paste, then one set-buffer + one failed paste, and
-		// nothing after it: no Enter, no second line.
-		//
-		// 🔴 HALF A GUARD, same shape as above: "always stop after the first line"
-		// passes this too, and a_paste_the_tmux_on_this_host_rejects is what
-		// refuses that.
-		want := deliveryOf("officraft", "member-m1", strings.Join(lines, "\n"))[:2]
-		want = append(want, degradedDeliveryOf("officraft", "member-m1", lines[0])[:2]...)
-		if got := rec.snapshot(); !reflect.DeepEqual(got, want) {
-			t.Errorf("tmux calls =\n%v\nwant\n%v", got, want)
+		notice := "[ocagent] chat from owner (#c-6feb08ebdbb6): line 0000 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" +
+			" [這則通知共 1194 行／53770 字，超過送進畫面的上限 8 KiB，正文沒有送進來 — 請用 get_chat 讀全文]"
+		if want := deliveryOf("officraft", "member-m1", notice); !reflect.DeepEqual(rec.snapshot(), want) {
+			t.Errorf("tmux calls =\n%q\nwant\n%q", rec.snapshot(), want)
 		}
+		if got := log.String(); got != event+"\n" {
+			t.Errorf("the listener's own log lost the full text: %d bytes, want %d", len(got), len(event)+1)
+		}
+	})
 
-		// The three lines are GONE — drain took them off the queue, the claude path
-		// has no ack gate, and mark-read follows what was printed. The only thing
-		// that can still tell anyone is this log, so it has to name the count.
-		if got := log.String(); !strings.Contains(got, "gave up on 3 line(s)") {
-			t.Errorf("the dropped lines were not reported in the listener's log:\n%s", got)
+	t.Run("the notice keeps at most 200 characters of the first line, cut between characters", func(t *testing.T) {
+		event := chatEvent(t, "c-2", strings.Repeat("界", 4000))
+
+		var log bytes.Buffer
+		w, rec := newRecordingPaneWriter(&log)
+		w.Write([]byte(event + "\n"))
+		w.drain()
+
+		notice := "[ocagent] chat from owner (#c-2): " + strings.Repeat("界", 166) +
+			"… [這則通知共 1 行／4034 字，超過送進畫面的上限 8 KiB，正文沒有送進來 — 請用 get_chat 讀全文]"
+		if want := deliveryOf("officraft", "member-m1", notice); !reflect.DeepEqual(rec.snapshot(), want) {
+			t.Errorf("tmux calls =\n%q\nwant\n%q", rec.snapshot(), want)
+		}
+	})
+
+	t.Run("an oversized reply card or task points at its own read tool", func(t *testing.T) {
+		big := strings.Repeat("b", 9000)
+		for _, tc := range []struct{ event, notice string }{
+			{"[ocagent] reply-card rc-1 answered: " + big,
+				"[ocagent] reply-card rc-1 answered: " + strings.Repeat("b", 164) +
+					"… [這則通知共 1 行／9036 字，超過送進畫面的上限 8 KiB，正文沒有送進來 — 請用 get_reply_card 讀全文]"},
+			{"[ocagent] task T-1 " + big,
+				"[ocagent] task T-1 " + strings.Repeat("b", 181) +
+					"… [這則通知共 1 行／9019 字，超過送進畫面的上限 8 KiB，正文沒有送進來 — 請用 get_task 讀全文]"},
+		} {
+			var log bytes.Buffer
+			w, rec := newRecordingPaneWriter(&log)
+			w.Write([]byte(tc.event + "\n"))
+			w.drain()
+			if want := deliveryOf("officraft", "member-m1", tc.notice); !reflect.DeepEqual(rec.snapshot(), want) {
+				t.Errorf("tmux calls =\n%q\nwant\n%q", rec.snapshot(), want)
+			}
+		}
+	})
+
+	t.Run("queued events that together pass the ceiling are split between events, never inside one", func(t *testing.T) {
+		first := chatEvent(t, "c-1", "甲\n"+strings.Repeat("a", 5000))
+		second := chatEvent(t, "c-2", "乙\n"+strings.Repeat("b", 5000))
+		third := "[ocagent] chat from owner (#c-3): 短的"
+
+		var log bytes.Buffer
+		w, rec := newRecordingPaneWriter(&log)
+		w.Write([]byte(first + "\n" + second + "\n" + third + "\n"))
+		w.drain()
+
+		want := append(deliveryOf("officraft", "member-m1", first),
+			deliveryOf("officraft", "member-m1", second+"\n"+third)...)
+		if got := rec.snapshot(); !reflect.DeepEqual(got, want) {
+			t.Errorf("got %d call(s), want %d: the batch was not split at the event boundary", len(got), len(want))
+		}
+	})
+
+	t.Run("a refused paste types one id-only line and none of the text", func(t *testing.T) {
+		events := []string{
+			"[ocagent] chat from owner (#c-1, ↩#c-0, 3s ago): 第一則",
+			"[ocagent] reply-card rc-2 answered: 好",
+			"[ocagent] task T-3 changed",
+			"[ocagent] signal context-high: 80%",
+		}
+		payload := strings.Join(events, "\n")
+		notice := "[ocagent] listen: 4 event(s) could not be pasted into this pane (#c-1, rc-2, T-3, no id)" +
+			" - none of their text was typed, read them with get_chat / get_reply_card / get_task"
+		for _, tc := range []struct {
+			name   string
+			failAt int
+		}{
+			{"set-buffer refused", 0},
+			{"paste-buffer refused", 1},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				var log bytes.Buffer
+				rec := &recordTmux{fail: map[int]bool{tc.failAt: true}}
+				w := newPaneWriter(&log, "officraft", "member-m1", rec.run, func(time.Duration) {})
+				w.Write([]byte(payload + "\n"))
+				w.drain()
+
+				if want := undeliveredOf("officraft", "member-m1", payload, tc.failAt, notice); !reflect.DeepEqual(rec.snapshot(), want) {
+					t.Errorf("tmux calls =\n%q\nwant\n%q", rec.snapshot(), want)
+				}
+				wantLog := payload + "\n" +
+					"[ocagent] listen: tmux refused a paste into member-m1 (tmux refused); typing an id-only notice instead\n"
+				if got := log.String(); got != wantLog {
+					t.Errorf("log = %q, want %q", got, wantLog)
+				}
+			})
+		}
+	})
+
+	t.Run("a pane that refuses the id-only line too gets no Enter and the log keeps the line", func(t *testing.T) {
+		var log bytes.Buffer
+		rec := &recordTmux{fail: map[int]bool{1: true, 3: true}} // the paste, then the typed notice
+		w := newPaneWriter(&log, "officraft", "member-m1", rec.run, func(time.Duration) {})
+		line := "[ocagent] chat from owner (#c-1): 在嗎"
+		w.Write([]byte(line + "\n"))
+		w.drain()
+
+		notice := "[ocagent] listen: 1 event(s) could not be pasted into this pane (#c-1)" +
+			" - none of their text was typed, read them with get_chat / get_reply_card / get_task"
+		if want := undeliveredOf("officraft", "member-m1", line, 1, notice)[:4]; !reflect.DeepEqual(rec.snapshot(), want) {
+			t.Errorf("tmux calls =\n%q\nwant\n%q", rec.snapshot(), want)
+		}
+		wantLog := line + "\n" +
+			"[ocagent] listen: tmux refused a paste into member-m1 (tmux refused); typing an id-only notice instead\n" +
+			"[ocagent] listen: the id-only notice did not reach member-m1 either (tmux refused): " + notice + "\n"
+		if got := log.String(); got != wantLog {
+			t.Errorf("log = %q, want %q", got, wantLog)
 		}
 	})
 
 	t.Run("the listener's own log is written from two goroutines", func(t *testing.T) {
 		// 🔴 THIS CASE EXISTS BECAUSE -race COULD NOT SEE THE BUG. inner is written
-		// by the SSE scan loop (Write) and by the PUMP (the give-up notice), and no
-		// other case in this file makes those two touch it without ordering — so
+		// by the SSE scan loop (Write) and by the PUMP (the refused-paste note), and
+		// no other case in this file makes those two touch it without ordering — so
 		// moving that write back outside the lock stayed green under
 		// `-race -count=3`, measured. A throwaway probe reported the race the
 		// moment the two were made to collide; this builds that collision.
 		var log bytes.Buffer
 		rec := &recordTmux{
-			fail:  map[int]bool{1: true, 3: true}, // the -d -p batch, then the first bare paste
+			fail:  map[int]bool{1: true},
 			hold:  make(chan struct{}),
 			held:  make(chan struct{}),
-			holdN: 3,
+			holdN: 1,
 		}
 		w := newPaneWriter(&log, "officraft", "member-m1", rec.run, func(time.Duration) {})
 		stop := w.start()
 
-		w.Write([]byte("[ocagent] chat #c-1\n[ocagent] chat #c-2\n[ocagent] chat #c-3\n"))
+		w.Write([]byte("[ocagent] chat #c-1\n"))
 		rec.awaitHeld(t)
 
 		// Bounded on purpose: an unbounded writer would keep refilling the queue
@@ -461,12 +565,12 @@ func TestPaneWriter(t *testing.T) {
 				w.Write([]byte("[ocagent] chat #c-x\n"))
 			}
 		}()
-		close(rec.hold) // the held paste now fails ⇒ the pump writes the give-up notice
+		close(rec.hold) // the held paste now fails ⇒ the pump writes its note
 		<-done
 		stop()
 
-		if got := log.String(); !strings.Contains(got, "gave up on 3 line(s)") {
-			t.Errorf("the give-up notice never reached the log:\n%s", got)
+		if got := log.String(); !strings.Contains(got, "tmux refused a paste into member-m1") {
+			t.Errorf("the refused-paste note never reached the log:\n%s", got)
 		}
 	})
 
@@ -538,6 +642,83 @@ func TestPaneWriter(t *testing.T) {
 			deliveryOf("officraft", "member-m1", "[ocagent] listen: giving up — 30 attempts")...)
 		if got := rec.snapshot(); !reflect.DeepEqual(got, want) {
 			t.Errorf("tmux calls =\n%v\nwant\n%v", got, want)
+		}
+	})
+
+	t.Run("a real pane that asks for bracketed paste receives each message as ONE paste", func(t *testing.T) {
+		// The receiver turns bracketed paste on the way a TUI does: tmux adds the
+		// markers only for a program that asked, and with them a multi-line paste
+		// is one input rather than one per line.
+		bin := resolveTmuxBin()
+		if bin == "" {
+			t.Skip("tmux not installed")
+		}
+		var under strings.Builder
+		for i := 0; under.Len() < 6400; i++ {
+			fmt.Fprintf(&under, "第 %03d 行 xxxxxxxxxx\n", i)
+		}
+		underEvent := chatEvent(t, "c-1", under.String())
+		if len(underEvent) > 8192 || strings.Count(underEvent, "\n") < 100 {
+			t.Fatalf("the near-ceiling case is %d bytes / %d lines — it would test nothing", len(underEvent), strings.Count(underEvent, "\n"))
+		}
+		var over strings.Builder
+		for i := 0; i < 1194; i++ {
+			fmt.Fprintf(&over, "line %04d xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n", i)
+		}
+		overEvent := chatEvent(t, "c-2", over.String())
+		overNotice := "[ocagent] chat from owner (#c-2): line 0000 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" +
+			" [這則通知共 1194 行／53759 字，超過送進畫面的上限 8 KiB，正文沒有送進來 — 請用 get_chat 讀全文]"
+
+		for _, tc := range []struct {
+			name, event, pasted string
+		}{
+			{"a message just under the ceiling is pasted whole", underEvent, underEvent},
+			{"a thousand-line message is pasted as its id-only line", overEvent, overNotice},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				socket := fmt.Sprintf("oc-test-%d-%d", os.Getpid(), time.Now().UnixNano())
+				dir := t.TempDir()
+				out, ready := filepath.Join(dir, "received.bin"), filepath.Join(dir, "ready")
+				tmux := func(args ...string) string {
+					t.Helper()
+					got, err := exec.Command(bin, append([]string{"-L", socket, "-f", "/dev/null"}, args...)...).CombinedOutput()
+					if err != nil {
+						t.Fatalf("tmux %v: %v: %s", args, err, got)
+					}
+					return strings.TrimSpace(string(got))
+				}
+				tmux("new-session", "-d", "-s", "member-m1",
+					fmt.Sprintf("stty raw -echo; printf '\\033[?2004h'; touch '%s'; exec cat > '%s'", ready, out))
+				socketPath := tmux("display-message", "-p", "#{socket_path}")
+				t.Cleanup(func() {
+					_ = exec.Command(bin, "-L", socket, "kill-server").Run()
+					_ = os.Remove(socketPath)
+				})
+				deadline := time.Now().Add(3 * time.Second)
+				for _, err := os.Stat(ready); err != nil; _, err = os.Stat(ready) {
+					if time.Now().After(deadline) {
+						t.Fatal("the receiver never started")
+					}
+					time.Sleep(20 * time.Millisecond)
+				}
+				// tmux has no format for "this pane asked for bracketed paste", so the
+				// request written just before the ready file gets a moment to be read.
+				time.Sleep(300 * time.Millisecond)
+
+				w := newPaneWriter(io.Discard, socket, "member-m1", nil, func(time.Duration) {})
+				w.Write([]byte(tc.event + "\n"))
+				w.drain()
+
+				want := "\x1b[200~" + strings.ReplaceAll(tc.pasted, "\n", "\r") + "\x1b[201~\r\r\r"
+				var got []byte
+				for deadline = time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+					if got, _ = os.ReadFile(out); string(got) == want {
+						return
+					}
+				}
+				t.Errorf("the pane received %d bytes, %d paste(s), want %d bytes in one paste then three Enters\ngot  %.300q\nwant %.300q",
+					len(got), strings.Count(string(got), "\x1b[200~"), len(want), got, want)
+			})
 		}
 	})
 

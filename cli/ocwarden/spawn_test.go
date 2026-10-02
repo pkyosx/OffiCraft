@@ -661,11 +661,9 @@ func TestTmuxDeliverNudge(t *testing.T) {
 		"tmux -L officraft paste-buffer -t member-m1 -b oc-spawn-nudge -d -p": {err: errors.New("unknown flag: -p")},
 	}}
 	tmuxDeliverNudge(old, func(time.Duration) {}, "officraft", "member-m1", "開始。")
-	if old.calls[2] != "tmux -L officraft paste-buffer -t member-m1 -b oc-spawn-nudge" {
-		t.Errorf("a rejected paste must retry bare-flag, call 2 = %q", old.calls[2])
-	}
-	if len(old.calls) != 63 {
-		t.Errorf("calls = %d, want 63 (set-buffer + 2 pastes + 30 × (copy-mode + Enter))", len(old.calls))
+	if !reflect.DeepEqual(old.calls, want) {
+		t.Errorf("a rejected paste must not be retried without -p; calls (%d) =\n%v\nwant (%d)\n%v",
+			len(old.calls), old.calls, len(want), want)
 	}
 
 	t.Run("the nudge is submitted into a real pane whatever mode someone left it in", func(t *testing.T) {
