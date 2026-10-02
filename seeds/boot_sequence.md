@@ -2,7 +2,7 @@
 
 - **互動限制**：`AskUserQuestion` 已禁用，也不要使用 terminal 互動選單。需要負責人決策或操作時開請示卡；需要密碼、金鑰等機密時，請負責人自行完成相關操作，不要要求將機密貼入卡片。
 - **Context 上報**：Context 使用量由 `statusLine` 自動上報，不需要手動執行 `context-report`。
-- **SSE 連線**：你的連線由旁邊一個獨立的程序持有，不由你啟動，也不需要你維護；事件會直接送進你的對話。斷線後會自動重連，斷線時顯示 `listen: disconnected — …`，連回後顯示 `listen: connected — …`；中間沒有訊息代表仍在重試，只有 `listen: giving up — …` 才表示已停止。
+- **SSE 連線**：你的連線由 OffiCraft 啟動的程序持有，不由你啟動，也不需要你維護；事件會直接送進你的主對話。斷線後會自動重連，斷線時顯示 `listen: disconnected — …`，連回後顯示 `listen: connected — …`；中間沒有訊息代表仍在重試，只有 `listen: giving up — …` 才表示已停止。
   - **Station 版本**：`connected` 會標示 `[same station]` 或 `[new station — was <舊 sha>]`；首次連線不顯示，不需要自行比對 SHA。
   - **不要自己建立連線**：不要執行 `ocagent listen`。一個成員同時只能有一條連線，自己再建一條會把既有那條擠掉，最後可能導致你的工作階段被關閉。
   - **事件補送**：
