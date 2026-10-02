@@ -235,6 +235,15 @@ func robustStopRetryStep(dispatchedAt float64, alive bool, stopRetry, now float6
 	}
 }
 
+// Apply only after the stop was recorded somewhere, or a still-running session gets a second
+// START beside it.
+func startSupersededByStop(st reconcileState, now float64) reconcileState {
+	st.Phase = reconcilePhaseStopping
+	st.LastCommand = reconcileCmdStop
+	st.LastCommandAt = now
+	return st
+}
+
 func reconcileDecide(
 	obs memberObservation, st reconcileState, cfg reconcileConfig, now float64,
 ) reconcileDecision {
@@ -1798,13 +1807,21 @@ func (s *apiServer) reconcileMemberNow(memberID string) reconcileDecision {
 	return s.reconcileTickMemberLocked(*m, nowSecs())
 }
 
-func (s *apiServer) dispatchRobustStopNow(memberID string) {
+func (s *apiServer) dispatchRobustStopNow(memberID string) shutdownDispatch {
 	if s.noReconcile {
-		return
+		return shutdownDispatch{}
 	}
 	// The --no-reconcile gate stays at THIS caller: it is the producer kill switch, and the outsource
 	// verbs have never consulted it (api_stub.go).
-	s.dispatchShutdown(memberID, "robust-stop")
+	return s.dispatchShutdown(memberID, "robust-stop")
+}
+
+// noteStartSupersededByStop takes reconcileMu itself: its caller is an HTTP handler that holds no
+// reconcile lock.
+func (s *apiServer) noteStartSupersededByStop(memberID string, now float64) {
+	s.reconcileMu.Lock()
+	defer s.reconcileMu.Unlock()
+	s.setReconcileState(memberID, startSupersededByStop(s.reconcileStateOf(memberID), now))
 }
 
 // noteRobustStopDispatched takes reconcileMu itself: every caller is an HTTP handler that holds no

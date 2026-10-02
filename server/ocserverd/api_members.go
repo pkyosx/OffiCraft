@@ -818,7 +818,11 @@ func (s *apiServer) HandleActivateMemberApiMembersMemberIdActivatePost(w http.Re
 	dec := reconcileDecision{}
 	if !sessionAlive {
 		s.bankLiveCost(saved.ID)
-		s.dispatchRobustStopNow(saved.ID)
+		// A wake still booting from an earlier press is what this stop ends; without the
+		// supersede, the reconcile below waits on that START and nothing new goes out.
+		if s.dispatchRobustStopNow(saved.ID).Sent {
+			s.noteStartSupersededByStop(saved.ID, nowSecs())
+		}
 		dec = s.reconcileMemberNow(saved.ID)
 	}
 	receipt := memberActivateReceiptDTO{ID: saved.ID}

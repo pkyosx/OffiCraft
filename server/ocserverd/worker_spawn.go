@@ -1049,11 +1049,7 @@ func (s *apiServer) stopWorkerSessionForHandover(w OutsourceWorker, reason strin
 	s.bankLiveCost(w.ID)
 	s.clearSessionBootTS(w.ID)
 	delete(s.workerSpawnAt, w.ID)
-	st := s.reconcileStateOf(w.ID)
-	st.Phase = reconcilePhaseStopping
-	st.LastCommand = reconcileCmdStop
-	st.LastCommandAt = now
-	s.setReconcileState(w.ID, st)
+	s.setReconcileState(w.ID, startSupersededByStop(s.reconcileStateOf(w.ID), now))
 	return true
 }
 

@@ -391,3 +391,63 @@ func TestActivateMember_UnderAMachineReportingTheRuntimeLoggedOutTheWakeGoesOut(
 		})
 	}
 }
+
+func TestActivateMember_UnderAPressWhileWakingTheStopIsFollowedByAFreshStartAndNoFailure(t *testing.T) {
+	cases := []struct {
+		population string
+		seed       func(t *testing.T, api *apiServer) (id, firstBody string)
+	}{
+		{"staff", func(t *testing.T, api *apiServer) (string, string) {
+			connectWarden(t, api, ServerSelfHost)
+			return seedMiraID, `{}`
+		}},
+		{"outsource", func(t *testing.T, api *apiServer) (string, string) {
+			api.noOutsource = true
+			return newActiveWorker(t, api, false), `{}`
+		}},
+	}
+	for _, c := range cases {
+		t.Run("under a "+c.population+" member, the second press answers no pending and dispatches stop then start", func(t *testing.T) {
+			api, h, _, owner := newAPITestServer(t)
+			id, firstBody := c.seed(t, api)
+			if status, data := apiJSON(t, h, "POST", "/api/members/"+id+"/activate", owner, firstBody); status != 200 {
+				t.Fatalf("first activate: %d %v", status, data)
+			}
+			if n := startFramesOn(t, api, ServerSelfHost); n != 1 {
+				t.Fatalf("premise: the first press queued %d START(s), want 1", n)
+			}
+			if _, data := apiJSON(t, h, "GET", "/api/members/"+id, owner, ""); data["presence"] != "waking" {
+				t.Fatalf("premise: after the first press presence = %v, want waking", data["presence"])
+			}
+
+			status, receipt := apiJSON(t, h, "POST", "/api/members/"+id+"/activate", owner, `{}`)
+
+			if status != 200 {
+				t.Fatalf("second activate: %d %v", status, receipt)
+			}
+			apiWantValue(t, "receipt", any(receipt), any(map[string]any{"id": id}))
+			var rpcs []string
+			for _, f := range drainFrames(t, api, ServerSelfHost) {
+				if f.Args["member_id"] == id {
+					rpcs = append(rpcs, f.RPC)
+				}
+			}
+			apiWantValue(t, "frames", any(rpcs), any([]string{"stop", "start"}))
+			_, row := apiJSON(t, h, "GET", "/api/members/"+id, owner, "")
+			got := map[string]any{
+				"presence":       row["presence"],
+				"desired_state":  row["desired_state"],
+				"last_op":        row["last_op"],
+				"last_op_ok":     row["last_op_ok"],
+				"last_op_reason": row["last_op_reason"],
+			}
+			apiWantValue(t, "member", any(got), any(map[string]any{
+				"presence":       "waking",
+				"desired_state":  "online",
+				"last_op":        "",
+				"last_op_ok":     nil,
+				"last_op_reason": "",
+			}))
+		})
+	}
+}
