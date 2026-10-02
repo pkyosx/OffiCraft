@@ -112,8 +112,16 @@ func buildMCPConfig(base, token string) string {
 // answers it once raised (no matcher: every question reaching it is unanswerable).
 // All three commands are named bare because the launch line puts the workdir holding
 // the ocagent symlink first on PATH.
+//
+// skipDangerousModePermissionPrompt and tui each answer a first-launch dialog in
+// advance: on a config that never saw them, the bypass warning defaults to "No, exit"
+// (the nudge's Enter loop quits the member), and a logged-in config gets a "try the
+// fullscreen renderer?" dialog that swallows the pasted nudge. "fullscreen" is what
+// that dialog's default answer turns on, i.e. what members already run with.
 func buildStatuslineSettings() string {
 	return "{\n" +
+		"  \"skipDangerousModePermissionPrompt\": true,\n" +
+		"  \"tui\": \"fullscreen\",\n" +
 		"  \"statusLine\": {\n" +
 		"    \"type\": \"command\",\n" +
 		"    \"command\": \"ocagent context-report\"\n" +
@@ -403,7 +411,9 @@ func tmuxDeliverNudge(r CmdRunner, sleep func(time.Duration), socket, session, n
 	const buf = "oc-spawn-nudge"
 	_, _ = r.Run("tmux", "-L", socket, "set-buffer", "-b", buf, nudge)
 	// Paste ONCE (it lands even in a not-ready REPL); only the Enter races, so it
-	// is retried. This loop deliberately does NOT judge success — a statusline-scraping
+	// is retried. A dialog drawn before the REPL discards the paste instead, which is
+	// why every first-launch dialog is answered in advance (pretrustWorkdir,
+	// buildStatuslineSettings). This loop deliberately does NOT judge success — a statusline-scraping
 	// check was permanently false. The authority is the server's PRESENCE (a live SSE
 	// listener for this member id), NOT a report_waking receipt and NOT waking_since
 	// (stamped at dispatch).
@@ -503,9 +513,13 @@ func osWriteFile(path, content string, mode os.FileMode) error {
 }
 
 // LOAD-BEARING: without it the "trust this folder?" dialog eats the boot nudge →
-// dead-on-boot.
+// dead-on-boot. hasCompletedOnboarding covers a config that never ran claude
+// interactively (a fresh machine, or one where someone ran /logout): `claude auth
+// login` does not set it, so the member stops on the theme picker and then asks to
+// log in again although the machine shows as logged in.
 func pretrustWorkdir(claudeJSONPath, workdir string) error {
-	return editClaudeProjectEntry(claudeJSONPath, workdir, func(entry map[string]any) {
+	return editClaudeProjectEntry(claudeJSONPath, workdir, func(root, entry map[string]any) {
+		root["hasCompletedOnboarding"] = true
 		entry["hasTrustDialogAccepted"] = true
 	})
 }
@@ -519,7 +533,7 @@ func claudeProjectKey(workdir string) string {
 	return workdir
 }
 
-func editClaudeProjectEntry(claudeJSONPath, workdir string, fn func(entry map[string]any)) error {
+func editClaudeProjectEntry(claudeJSONPath, workdir string, fn func(root, entry map[string]any)) error {
 	workdir = claudeProjectKey(workdir)
 	data := map[string]any{}
 	raw, err := os.ReadFile(claudeJSONPath)
@@ -546,7 +560,7 @@ func editClaudeProjectEntry(claudeJSONPath, workdir string, fn func(entry map[st
 		entry = map[string]any{}
 		projects[workdir] = entry
 	}
-	fn(entry)
+	fn(data, entry)
 
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
