@@ -43,7 +43,7 @@ func (shellKeep) RunKeepStdout(name string, args ...string) (string, error) {
 // the process exits with the code in the rc file. `auth status` prints the
 // status reply.
 type fakeClaude struct {
-	root, bin, pid, gotCode, rc, stderr, status, osc, echo, sawEnv, readLine string
+	root, bin, pid, gotCode, rc, stderr, status, osc, echo, sawEnv, readLine, escape, escapee string
 }
 
 func newFakeClaude(t *testing.T) *fakeClaude {
@@ -60,10 +60,13 @@ func newFakeClaude(t *testing.T) *fakeClaude {
 		echo:     filepath.Join(root, "echo"),
 		sawEnv:   filepath.Join(root, "saw-env"),
 		readLine: filepath.Join(root, "read-line"),
+		escape:   filepath.Join(root, "escape"),
+		escapee:  filepath.Join(root, "escapee-pid"),
 	}
 	f.bin = stageBinary(t, filepath.Join(root, "bin", "claude"), "#!/bin/sh\n"+
 		`if [ "$1 $2" = "auth status" ]; then /bin/cat '`+f.status+`'; exit 0; fi`+"\n"+
 		`echo $$ > '`+f.pid+`'`+"\n"+
+		`[ -f '`+f.escape+`' ] && `+escapeeLine(f.escapee)+"\n"+
 		`printf '%s' "${FROM_FILE-unset}" > '`+f.sawEnv+`'`+"\n"+
 		`echo 'Opening browser to sign in…'`+"\n"+
 		`if [ -f '`+f.osc+`' ]; then printf "\\033[2mIf the browser didn't open, visit: \\033]8;;%s\\007claude.ai/oauth/authorize\\033]8;;\\007\\033[0m\\n" '`+fakeLoginURL+`'; `+
@@ -373,6 +376,19 @@ func TestLoginRelay(t *testing.T) {
 		h.waitEnded(t, "rl-3")
 		if h.claude.alive(t) {
 			t.Error("the login process survived the cancel")
+		}
+		h.wantNoReport(t)
+	})
+
+	t.Run("under a cancel while an escaped descendant holds the output open, the login still ends within seconds", func(t *testing.T) {
+		h := newRelayHarness(t)
+		h.claude.write(t, h.claude.escape, "")
+		h.relay.Start("rl-e", "claude")
+		h.next(t)
+		h.relay.Cancel("rl-e")
+		h.waitEnded(t, "rl-e")
+		if !escapeeAlive(t, h.claude.escapee) {
+			t.Fatal("control: the escapee was not running, so nothing held the output open")
 		}
 		h.wantNoReport(t)
 	})

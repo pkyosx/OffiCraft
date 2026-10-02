@@ -14,6 +14,36 @@ import (
 	"time"
 )
 
+// escapeeLine is a shell line that starts a process in a session of its own,
+// out of reach of a process-group kill, which holds the shell's stdout and
+// stderr open for a minute and records its pid in pidFile; the shell goes on
+// only once it has, so a kill can never land before the escape.
+func escapeeLine(pidFile string) string {
+	return `{ /usr/bin/perl -MPOSIX -e 'POSIX::setsid(); open(my $f, ">", $ARGV[0]) or die; print $f $$; close $f; sleep 60' '` +
+		pidFile + `' & while [ ! -s '` + pidFile + `' ]; do /bin/sleep 0.05; done; }`
+}
+
+// escapeeAlive reports whether the escapee recorded in pidFile is running, and
+// kills it when the test ends.
+func escapeeAlive(t *testing.T, pidFile string) bool {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	var pid int
+	for time.Now().Before(deadline) {
+		raw, err := os.ReadFile(pidFile)
+		if n, convErr := strconv.Atoi(strings.TrimSpace(string(raw))); err == nil && convErr == nil && n > 0 {
+			pid = n
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if pid == 0 {
+		t.Fatal("the escapee never recorded its pid")
+	}
+	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+	return syscall.Kill(pid, 0) == nil
+}
+
 // fakeUpdater is a stand-in for the claude CLI's version and update commands:
 // `--version` prints the version file (exit 1 when the noversion file exists);
 // `update` records its pid and the FROM_FILE it was started with, prints a
@@ -21,7 +51,7 @@ import (
 // the version file when there is one, prints the out file on stderr and exits
 // with the code in the rc file.
 type fakeUpdater struct {
-	root, bin, version, next, noVersion, pid, sawEnv, ran, hang, out, rc string
+	root, bin, version, next, noVersion, pid, sawEnv, ran, hang, out, rc, escape, escapee string
 }
 
 func newFakeUpdater(t *testing.T) *fakeUpdater {
@@ -38,6 +68,8 @@ func newFakeUpdater(t *testing.T) *fakeUpdater {
 		hang:      filepath.Join(root, "hang"),
 		out:       filepath.Join(root, "out"),
 		rc:        filepath.Join(root, "rc"),
+		escape:    filepath.Join(root, "escape"),
+		escapee:   filepath.Join(root, "escapee-pid"),
 	}
 	f.bin = stageBinary(t, filepath.Join(root, "bin", "claude"), "#!/bin/sh\n"+
 		`case "$1" in`+"\n"+
@@ -48,6 +80,7 @@ func newFakeUpdater(t *testing.T) *fakeUpdater {
 		`  echo $$ > '`+f.pid+`'`+"\n"+
 		`  printf '%s' "${FROM_FILE-unset}" > '`+f.sawEnv+`'`+"\n"+
 		`  : > '`+f.ran+`'`+"\n"+
+		`  [ -f '`+f.escape+`' ] && `+escapeeLine(f.escapee)+"\n"+
 		`  echo 'Checking for updates...'`+"\n"+
 		`  [ -f '`+f.hang+`' ] && /bin/sleep 30`+"\n"+
 		`  [ -f '`+f.next+`' ] && /bin/cp '`+f.next+`' '`+f.version+`'`+"\n"+
@@ -126,7 +159,11 @@ func newUpgradeHarness(t *testing.T) *upgradeHarness {
 			if proc != nil {
 				proc.kill()
 			}
-			<-run.done
+			select {
+			case <-run.done:
+			case <-time.After(10 * time.Second):
+				t.Error("the upgrade run never ended")
+			}
 		}
 	})
 	return h
@@ -263,6 +300,43 @@ func TestUpgradeRelay(t *testing.T) {
 		}
 		if h.fake.alive(t) {
 			t.Error("the update process outlived its cap")
+		}
+	})
+
+	t.Run("under an update that leaves a descendant in its own session holding the output open, the relay still reports succeeded within seconds and takes the next upgrade", func(t *testing.T) {
+		h := newUpgradeHarness(t)
+		h.fake.write(t, h.fake.escape, "")
+		h.fake.write(t, h.fake.next, "2.1.290")
+		h.relay.Start("ru-e1", "claude")
+		h.next(t)
+		if got, want := h.next(t), (upgradeReport{UpgradeID: "ru-e1", State: "succeeded",
+			FromVersion: "2.1.200", ToVersion: "2.1.290"}); got != want {
+			t.Fatalf("final report = %+v, want %+v", got, want)
+		}
+		h.waitIdle(t)
+		if !escapeeAlive(t, h.fake.escapee) {
+			t.Fatal("control: the escapee was not running, so nothing held the output open")
+		}
+		h.relay.Start("ru-e2", "claude")
+		if got := h.next(t); got.UpgradeID != "ru-e2" || got.State != "running" {
+			t.Fatalf("the next upgrade's first report = %+v, want ru-e2 running", got)
+		}
+	})
+
+	t.Run("under an update killed at its cap whose escaped descendant holds the output open, the relay still reports failed within seconds", func(t *testing.T) {
+		h := newUpgradeHarness(t)
+		h.relay.cap = 300 * time.Millisecond
+		h.fake.write(t, h.fake.escape, "")
+		h.fake.write(t, h.fake.hang, "")
+		h.relay.Start("ru-e3", "claude")
+		h.next(t)
+		if got, want := h.next(t), (upgradeReport{UpgradeID: "ru-e3", State: "failed", FromVersion: "2.1.200",
+			ToVersion: "2.1.200", Reason: "claude update 超過 300ms 沒有結束，已中止"}); got != want {
+			t.Fatalf("final report = %+v, want %+v", got, want)
+		}
+		h.waitIdle(t)
+		if !escapeeAlive(t, h.fake.escapee) {
+			t.Fatal("control: the escapee was not running, so nothing held the output open")
 		}
 	})
 

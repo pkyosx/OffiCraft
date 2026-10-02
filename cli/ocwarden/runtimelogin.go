@@ -43,6 +43,10 @@ const (
 	codexLoginProcessCap = 16 * time.Minute
 
 	loginRenderPrefix = ".oc-login-env-"
+
+	// How long output may still arrive after the process itself ended; only a
+	// descendant that outlived it writes then.
+	pipeDrainGrace = 2 * time.Second
 )
 
 // refuseRealLoginInTest is the test-binary tripwire for the one process this
@@ -173,6 +177,12 @@ func startLoginProcess(shell, script, bin string) (*loginProc, error) {
 
 // startGroupProcess puts the process in its own process group so a kill
 // reaches whatever claude itself started.
+//
+// 🔴 Its output pipes are closed by this helper, pipeDrainGrace after the
+// process itself ended, not left to EOF: a descendant that escaped the group
+// (its own session, or forked as the kill went out) can hold them open for as
+// long as it lives, and a reader waiting on EOF would then keep the login or
+// upgrade "running" forever, cap included.
 func startGroupProcess(shell, script string) (*loginProc, error) {
 	cmd := exec.Command(shell, "-c", script)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -180,22 +190,43 @@ func startGroupProcess(shell, script string) (*loginProc, error) {
 	if err != nil {
 		return nil, err
 	}
-	stdout, err := cmd.StdoutPipe()
+	outR, outW, err := os.Pipe()
 	if err != nil {
 		return nil, err
 	}
-	stderr, err := cmd.StderrPipe()
+	errR, errW, err := os.Pipe()
 	if err != nil {
+		outR.Close()
+		outW.Close()
 		return nil, err
 	}
-	if err := cmd.Start(); err != nil {
-		return nil, err
+	cmd.Stdout, cmd.Stderr = outW, errW
+	startErr := cmd.Start()
+	outW.Close()
+	errW.Close()
+	if startErr != nil {
+		outR.Close()
+		errR.Close()
+		return nil, startErr
 	}
+	exited := make(chan struct{})
+	var waitErr error
+	go func() {
+		waitErr = cmd.Wait()
+		close(exited)
+		time.AfterFunc(pipeDrainGrace, func() {
+			outR.Close()
+			errR.Close()
+		})
+	}()
 	return &loginProc{
 		stdin:  stdin,
-		stdout: stdout,
-		stderr: stderr,
-		wait:   cmd.Wait,
+		stdout: outR,
+		stderr: errR,
+		wait: func() error {
+			<-exited
+			return waitErr
+		},
 		kill: func() {
 			if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil {
 				_ = cmd.Process.Kill()

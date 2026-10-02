@@ -297,6 +297,52 @@ func TestClaudeProberInvalidate(t *testing.T) {
 	})
 }
 
+func TestClaudeProberVersionBehindAShim(t *testing.T) {
+	t.Run("under a binary whose stat never changes while its --version does, the first collect past the TTL reports the new version and below_notify_minimum flips", func(t *testing.T) {
+		root := t.TempDir()
+		t.Setenv("PATH", filepath.Join(root, "nothing-here"))
+		shim := stageBinary(t, filepath.Join(root, "bin", "claude"), "#!/bin/sh\nexec asdf exec claude \"$@\"\n")
+		fixed := time.Date(2026, 9, 7, 12, 0, 0, 0, time.UTC)
+		clock := fixed
+		version := "2.1.287 (Claude Code)"
+		var runs int
+		env := envMap(map[string]string{"OC_CLAUDE_BIN": shim})
+		prober := &claudeProber{
+			env:        env,
+			resolveBin: func() string { return shim },
+			stat:       os.Stat,
+			runner: runnerFunc(func(name string, args ...string) (string, error) {
+				runs++
+				return version, nil
+			}),
+			goos: "linux",
+			now:  func() time.Time { return clock },
+		}
+		noCodex := runnerFunc(func(string, ...string) (string, error) { return "", errors.New("no codex here") })
+		capabilities := func() map[string]any {
+			return collectRuntimeCapabilities(env, noCodex, prober.collect(), loginState{})["claude"].(map[string]any)
+		}
+
+		before := capabilities()
+		version = "2.1.286 (Claude Code)"
+		clock = fixed.Add(claudeProbeTTL - time.Second)
+		cached := capabilities()
+		clock = fixed.Add(claudeProbeTTL)
+		after := capabilities()
+
+		wantBefore := map[string]any{"installed": true, "version": "2.1.287", "below_notify_minimum": false}
+		if !reflect.DeepEqual(before, wantBefore) || !reflect.DeepEqual(cached, wantBefore) {
+			t.Errorf("claude capability inside the TTL = %v then %v, want %v both times", before, cached, wantBefore)
+		}
+		if want := map[string]any{"installed": true, "version": "2.1.286", "below_notify_minimum": true}; !reflect.DeepEqual(after, want) {
+			t.Errorf("claude capability past the TTL = %v, want %v", after, want)
+		}
+		if runs != 2 {
+			t.Errorf("--version ran %d time(s), want 2", runs)
+		}
+	})
+}
+
 func TestClaudeProberVersion(t *testing.T) {
 	const bin = "/usr/local/bin/claude"
 	fixed := time.Date(2026, 9, 7, 12, 0, 0, 0, time.UTC)
@@ -372,44 +418,6 @@ func TestClaudeProberVersion(t *testing.T) {
 			}
 		})
 	}
-
-	t.Run("the exec is skipped while the binary's stat identity is unchanged", func(t *testing.T) {
-		seams := &probeSeams{}
-		info := probeFileInfo{size: 10, mtime: fixed}
-		version := "2.1.211 (Claude Code)"
-		prober := &claudeProber{
-			resolveBin: func() string { return bin },
-			stat:       func(string) (os.FileInfo, error) { return info, nil },
-			runner: runnerFunc(func(name string, args ...string) (string, error) {
-				seams.runCalls = append(seams.runCalls, append([]string{name}, args...))
-				return version, nil
-			}),
-		}
-
-		first, second := prober.version(), prober.version()
-		if first != "2.1.211" || second != "2.1.211" {
-			t.Errorf("version() = %q then %q, want 2.1.211 both times", first, second)
-		}
-		if want := [][]string{{bin, "--version"}}; !reflect.DeepEqual(seams.runCalls, want) {
-			t.Errorf("runner ran %v, want %v", seams.runCalls, want)
-		}
-
-		info = probeFileInfo{size: 11, mtime: fixed}
-		version = "2.2.0 (Claude Code)"
-		if got := prober.version(); got != "2.2.0" {
-			t.Errorf("version() after an upgrade = %q, want 2.2.0", got)
-		}
-		wantRuns := [][]string{{bin, "--version"}, {bin, "--version"}}
-		if !reflect.DeepEqual(seams.runCalls, wantRuns) {
-			t.Errorf("runner ran %v, want %v", seams.runCalls, wantRuns)
-		}
-
-		info = probeFileInfo{size: 11, mtime: fixed.Add(time.Minute)}
-		version = "2.3.0 (Claude Code)"
-		if got := prober.version(); got != "2.3.0" {
-			t.Errorf("version() after an mtime change = %q, want 2.3.0", got)
-		}
-	})
 
 	t.Run("a failed probe is retried rather than cached", func(t *testing.T) {
 		seams := &probeSeams{}

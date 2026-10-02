@@ -34,12 +34,12 @@ func TestCollectRuntimeCapabilities(t *testing.T) {
 			wantRuns: nil,
 		},
 		{
-			name:   "under an absent claude, the probed version is still reported and no login verdict",
+			name:   "under an absent claude, the probed version is still reported, with no login verdict and no below_notify_minimum",
 			env:    map[string]string{"HOME": root},
 			claude: map[string]any{"version": "2.1.211", "cred_file": true},
 			login:  loginState{Claude: &yes},
 			want: map[string]any{
-				"claude": map[string]any{"installed": false, "version": "2.1.211", "below_notify_minimum": true},
+				"claude": map[string]any{"installed": false, "version": "2.1.211"},
 				"codex":  map[string]any{"installed": false},
 			},
 		},
