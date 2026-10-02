@@ -537,7 +537,7 @@ func (s *apiServer) handleSetOutsourceWorkerModel(w http.ResponseWriter, r *http
 		// Whether the owner wants it running is NOT re-asked here —
 		// respawnWorkerForOwnerOp owns that branch for all three owner verbs.
 		respawn = launchIntentChanged && online
-		if !respawn && launchIntentChanged && worker.DesiredState == DesiredStateOffline {
+		if !respawn && launchIntentChanged {
 			// A converged stop never enters the funnel (no live session), so the
 			// queued restart is stamped here; 改機器 has no such gate. Owner
 			// 2026-08-30: 「change model / machine 只是帶起來的方式不一樣而已」.

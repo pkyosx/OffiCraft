@@ -920,48 +920,36 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
 		apiTestWorkerWantedOnline(t, d, "ow-abc123")
-		apiTestListen(t, api, "ow-abc123")
+		contractor := apiTestListen(t, api, "ow-abc123")
 		if err := d.SetMemberWindDownAnchors("ow-abc123", 0, 20, 0, ""); err != nil {
 			t.Fatalf("SetMemberWindDownAnchors: %v", err)
 		}
-
-		if status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", owner, ""); status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		w, err := d.GetOutsourceWorker("ow-abc123")
-		if err != nil || w == nil {
-			t.Fatalf("GetOutsourceWorker: %v (%v)", w, err)
-		}
-		if w.StoppingSince != 0 || w.StoppedSince != 0 || w.RefocusSince <= 0 || w.RefocusOp != "refocus" {
-			t.Fatalf("want stopping=0 stopped=0 refocus>0 op=%q, got stopping=%v stopped=%v refocus=%v op=%q",
-				"refocus", w.StoppingSince, w.StoppedSince, w.RefocusSince, w.RefocusOp)
-		}
-	})
-
-	t.Run("換手 on a live worker whose desired_state is neither online nor offline answers 409 and stamps nothing, because the agent would never see it", func(t *testing.T) {
-		api, h, d, owner := newAPITestServer(t)
-		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
-		apiTestListen(t, api, "ow-abc123")
-		if err := d.PatchMember("ow-abc123", mfDesiredState(DesiredStateUninstall)); err != nil {
-			t.Fatalf("PatchMember: %v", err)
-		}
+		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/refocus", owner, "")
-		if status != 409 {
-			t.Fatalf("want 409, got %d (%v)", status, data)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "conflict",
-			"refocus requires a live worker — this one is stopped and has never been "+
-				"asked to stop, so there is no wind-down for a 起來 to be queued behind "+
-				"(喚醒 it when you want it to run)")
+		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"desired_state": "online",
+			"status":        "active", "presence": "online",
+			"refocus_since": apiAnyNumber, "refocus_op": "refocus",
+		}))
+		dashboard.wantFrames(
+			apiTestHandoverDelta(2, "online", apiTestOffboardNotice, "owner"),
+			apiTestHandoverDelta(3, "online", apiTestOffboardNotice, "owner"),
+		)
+		contractor.wantFrames(
+			apiTestHandoverDelta(2, "online", apiTestOffboardNotice, "owner"),
+			apiTestHandoverDelta(3, "online", apiTestOffboardNotice, "owner"),
+		)
 		w, err := d.GetOutsourceWorker("ow-abc123")
 		if err != nil || w == nil {
 			t.Fatalf("GetOutsourceWorker: %v (%v)", w, err)
 		}
-		if w.RefocusSince != 0 || w.RefocusOp != "" || w.RestartAfterStop {
-			t.Fatalf("want refocus=0 op=%q restart=false, got refocus=%v op=%q restart=%v",
-				"", w.RefocusSince, w.RefocusOp, w.RestartAfterStop)
-		}
+		apiWantValue(t, "stopped_since", any(w.StoppedSince), any(0.0))
+		apiWantValue(t, "stopping_since", any(w.StoppingSince), any(0.0))
 	})
 
 	t.Run("換手 with no live session answers 409 and stamps nothing", func(t *testing.T) {

@@ -867,7 +867,7 @@ func (s *apiServer) respawnWorkerForOwnerOp(w OutsourceWorker, op string) ownerO
 			s.publishOutsourceWorker(*fresh, triggerServer)
 			return ownerOpOutcome{HeldDown: true}
 		}
-		if fresh == nil || fresh.DesiredState != DesiredStateOffline {
+		if fresh == nil || ownerOpHandoverPlanFor(memberFromWorker(*fresh), false) != ownerOpPlanHeldDown {
 			return ownerOpOutcome{HeldDown: true}
 		}
 		s.stampWorkerPlacementBlocked(&w, spawnReasonHeldDown+": the "+op+" was saved, "+
@@ -934,10 +934,15 @@ func (s *apiServer) openOwnerOpHandover(w OutsourceWorker, op string) bool {
 			return err
 		}
 		fresh = *cur
-		if cur.Status == WorkerStatusReleased || cur.DesiredState == DesiredStateOffline {
+		if cur.Status == WorkerStatusReleased {
 			return nil
 		}
 		proj = memberFromWorker(*cur)
+		// Presence was the caller's question; a session that dropped since is
+		// collected by openWorkerHandoverGrace, so only the row is asked again here.
+		if ownerOpHandoverPlanFor(proj, true) != ownerOpPlanWindDown {
+			return nil
+		}
 		if !armRefocusEpoch(&proj, op, nowSecs()) {
 			return nil
 		}

@@ -1631,6 +1631,23 @@ func TestHandleGetMemberApiMembersMemberIdGet(t *testing.T) {
 }
 
 func TestHandleUpdateMemberApiMembersMemberIdPatch(t *testing.T) {
+	t.Run("a changed model on a member whose stop is still in flight queues the 起來 behind it, and the receipt names the model change", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
+			t.Fatalf("activate: %d %v", status, data)
+		}
+		apiTestListen(t, api, "kip")
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/deactivate", owner, `{}`); status != 200 {
+			t.Fatalf("deactivate: %d %v", status, data)
+		}
+
+		status, data := apiJSON(t, h, "PATCH", "/api/members/kip", owner, `{"model":"opus"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		wantQueuedRestartReceipt(t, d, "kip", "runtime/model")
+	})
+
 	t.Run("a rename answers the member id and fans the delta to the dashboard and to that member's own connection", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		dashboard := apiTestListen(t, api, "")
@@ -1972,7 +1989,39 @@ func TestHandleActivateMemberApiMembersMemberIdActivatePost(t *testing.T) {
 	})
 }
 
+// wantQueuedRestartReceipt reads the row a 重啟 verb pressed during a stop in flight
+// leaves behind: the stop stands, the 起來 is queued, and the receipt names the verb.
+func wantQueuedRestartReceipt(t *testing.T, d *DAL, id, op string) {
+	t.Helper()
+	m := apiTestMemberRow(t, d, id)
+	ok := false
+	apiWantValue(t, "desired_state", any(m.DesiredState), any("offline"))
+	apiWantValue(t, "restart_after_stop", any(m.RestartAfterStop), any(true))
+	apiWantValue(t, "last_op", any(m.LastOp), any("start"))
+	apiWantValue(t, "last_op_ok", any(m.LastOpOK), any(&ok))
+	apiWantValue(t, "last_op_reason", any(m.LastOpReason), any("held_down: the "+op+" was saved "+
+		"and this member is still being stopped — the stop in flight is honoured as-is, and it "+
+		"will be started again once it is down"))
+}
+
 func TestHandleRelocateMemberApiMembersMemberIdRelocatePost(t *testing.T) {
+	t.Run("relocating a member whose stop is still in flight queues the 起來 behind it, and the receipt names the relocate", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
+			t.Fatalf("activate: %d %v", status, data)
+		}
+		apiTestListen(t, api, "kip")
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/deactivate", owner, `{}`); status != 200 {
+			t.Fatalf("deactivate: %d %v", status, data)
+		}
+
+		status, data := apiJSON(t, h, "POST", "/api/members/kip/relocate", owner, `{"machine_id":"m-server-self"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		wantQueuedRestartReceipt(t, d, "kip", "relocate")
+	})
+
 	t.Run("relocating a stopped member stores the pin and leaves the held-down receipt on the row", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		dashboard := apiTestListen(t, api, "")
@@ -2965,19 +3014,40 @@ func TestHandleRefocusMemberApiMembersMemberIdRefocusPost(t *testing.T) {
 		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
 			t.Fatalf("activate: %d %v", status, data)
 		}
-		apiTestListen(t, api, "kip")
+		self := apiTestListen(t, api, "kip")
 		if err := d.SetMemberWindDownAnchors("kip", 0, 20, 0, ""); err != nil {
 			t.Fatalf("SetMemberWindDownAnchors: %v", err)
 		}
+		before := apiTestMemberRow(t, d, "kip")
+		dashboard := apiTestListen(t, api, "")
 
-		if status, data := apiJSON(t, h, "POST", "/api/members/kip/refocus", owner, `{}`); status != 200 {
+		status, data := apiJSON(t, h, "POST", "/api/members/kip/refocus", owner, `{}`)
+		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		m := apiTestMemberRow(t, d, "kip")
-		if m.StoppingSince != 0 || m.StoppedSince != 0 || m.RefocusSince <= 0 || m.RefocusOp != "refocus" {
-			t.Fatalf("want stopping=0 stopped=0 refocus>0 op=%q, got stopping=%v stopped=%v refocus=%v op=%q",
-				"refocus", m.StoppingSince, m.StoppedSince, m.RefocusSince, m.RefocusOp)
+		apiWantBody(t, data, map[string]any{"id": "kip"})
+		frame := map[string]any{
+			"seq": apiAnyNumber, "topic": "member", "op": "patch",
+			"data": map[string]any{
+				"entity": "member", "key": "owner::kip", "epoch": apiAnyNumber, "deleted": false,
+				"payload": map[string]any{
+					"id": "kip", "name": "Kip", "status": "active", "desired_state": "online",
+					"owner_id": "owner", "offboard_notice": apiTestOffboardNotice,
+				},
+			},
+			"ts": apiAnyNumber, "trigger": "owner",
 		}
+		dashboard.wantFrames(frame)
+		self.wantFrames(frame)
+		got := apiTestMemberRow(t, d, "kip")
+		if got.RefocusSince <= before.RefocusSince {
+			t.Fatalf("refocus_since: want a fresh stamp after %v, got %v", before.RefocusSince, got.RefocusSince)
+		}
+		want := before
+		want.RefocusSince, want.RefocusOp = got.RefocusSince, "refocus"
+		want.StoppedSince, want.StoppingSince = 0, 0
+		apiTestWantEqual(t, "row after the refocus", got, want)
+		apiWantValue(t, "stopped_since", any(got.StoppedSince), any(0.0))
 	})
 
 	t.Run("a live member that is wanted online gets the refocus epoch and the wind-down notice", func(t *testing.T) {
@@ -3032,15 +3102,16 @@ func TestHandleRefocusMemberApiMembersMemberIdRefocusPost(t *testing.T) {
 		}
 	})
 
-	t.Run("a live member whose desired_state is neither online nor offline answers 409 and no epoch is opened, because the agent would never see it", func(t *testing.T) {
+	t.Run("a member wanted online with no live session answers 409 and the row is left as it was", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
 			t.Fatalf("activate: %d %v", status, data)
 		}
-		apiTestListen(t, api, "kip")
-		if err := d.PatchMember("kip", mfDesiredState(DesiredStateUninstall)); err != nil {
-			t.Fatalf("PatchMember: %v", err)
+		before := apiTestMemberRow(t, d, "kip")
+		if before.DesiredState != DesiredStateOnline {
+			t.Fatalf("fixture: want desired_state online, got %q", before.DesiredState)
 		}
+		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/members/kip/refocus", owner, `{}`)
 		if status != 409 {
@@ -3049,11 +3120,8 @@ func TestHandleRefocusMemberApiMembersMemberIdRefocusPost(t *testing.T) {
 		apiWantError(t, data, "conflict",
 			"refocus requires the member to have a live session and to be wanted "+
 				"online (§3.4 #14)")
-		m := apiTestMemberRow(t, d, "kip")
-		if m.RefocusSince != 0 || m.RefocusOp != "" || m.RestartAfterStop {
-			t.Fatalf("want refocus=0 op=%q restart=false, got refocus=%v op=%q restart=%v",
-				"", m.RefocusSince, m.RefocusOp, m.RestartAfterStop)
-		}
+		dashboard.wantFrames()
+		apiTestWantEqual(t, "row after the refused refocus", apiTestMemberRow(t, d, "kip"), before)
 	})
 
 	t.Run("a member with no live session answers 409 and no epoch is opened", func(t *testing.T) {
