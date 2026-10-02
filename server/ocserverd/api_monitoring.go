@@ -806,11 +806,12 @@ func entryNum(entry map[string]any, key string) *float64 {
 // Three 30s heartbeat cadences: two may be lost without a healthy machine
 // flickering to "no data". Deliberately NOT tied to presence.
 //
-// ⚠️ It also gates the rate-limit pace verdict, and rate_limits for claude comes
-// from cli/ocagent's contextreport (reportThrottleSecs 30.0), not the warden
-// (reportThrottle 30s): two 30s constants in different Go modules with nothing
-// linking them. Raising either would silently withhold verdicts with the suite
-// green — if you touch either throttle, come back here.
+// ⚠️ It also gates the rate-limit pace verdict and which report an account's
+// window is picked from, and rate_limits for claude comes from cli/ocagent's
+// contextreport (reportThrottleSecs 30.0), not the warden (reportThrottle 30s):
+// two 30s constants in different Go modules with nothing linking them. Raising
+// either would silently withhold verdicts and let stale reports win with the
+// suite green — if you touch either throttle, come back here.
 const telemetryFreshSecs = 90.0
 
 func runtimeCapabilitiesStampOf(entry map[string]any) float64 {
@@ -851,6 +852,38 @@ func usableRateLimitWindow(raw any, windowSecs, now float64) (map[string]any, fl
 		return nil, 0, false
 	}
 	return window, *resetAt, true
+}
+
+type rateLimitCandidate struct {
+	window     map[string]any
+	resetAt    float64
+	measuredAt float64
+}
+
+// Among fresh reports the later resets_at wins: right after a window rolls
+// over, idle members still report the previous period. Freshness comes first
+// because the account tag is read from a machine-wide login file, so after a
+// re-login a member still on the old account reports that account's window
+// under the new name, and its later resets_at would otherwise win until it
+// expires. Only when nothing is fresh do stale reports compete.
+func pickRateLimitWindow(candidates []rateLimitCandidate, now float64) rateLimitCandidate {
+	fresh := make([]rateLimitCandidate, 0, len(candidates))
+	for _, c := range candidates {
+		if now-c.measuredAt <= telemetryFreshSecs {
+			fresh = append(fresh, c)
+		}
+	}
+	pool := fresh
+	if len(pool) == 0 {
+		pool = candidates
+	}
+	picked := pool[0]
+	for _, c := range pool[1:] {
+		if c.resetAt > picked.resetAt || (c.resetAt == picked.resetAt && c.measuredAt > picked.measuredAt) {
+			picked = c
+		}
+	}
+	return picked
 }
 
 func hardwareStampOf(entry map[string]any) float64 {
@@ -1130,11 +1163,7 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 			acctHosts[account][host] = true
 		}
 	}
-	freshRL := map[string]map[string]any{}
-	rlTS := map[string]map[string]float64{}
-	rlResetAt := map[string]map[string]float64{}
-	acctCost := map[string]float64{}
-	acctHasCost := map[string]bool{}
+	rlCandidates := map[string]map[string][]rateLimitCandidate{}
 	for _, a := range actors {
 		entry := tele(a.id)
 		account := telemetryAccount(entry, a.runtime)
@@ -1142,26 +1171,32 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 			continue
 		}
 		if rl, isObj := entry["rate_limits"].(map[string]any); isObj {
-			if freshRL[account] == nil {
-				freshRL[account] = map[string]any{}
-				rlTS[account] = map[string]float64{}
-				rlResetAt[account] = map[string]float64{}
+			if rlCandidates[account] == nil {
+				rlCandidates[account] = map[string][]rateLimitCandidate{}
 			}
 			for windowKey, windowSecs := range WindowSeconds {
 				window, resetAt, usable := usableRateLimitWindow(rl[windowKey], windowSecs, now)
 				if !usable {
 					continue
 				}
-				priorTS, seen := rlTS[account][windowKey]
-				if !seen || resetAt > rlResetAt[account][windowKey] ||
-					(resetAt == rlResetAt[account][windowKey] && rateLimitStampOf(entry) > priorTS) {
-					rlTS[account][windowKey] = rateLimitStampOf(entry)
-					rlResetAt[account][windowKey] = resetAt
-					freshRL[account][windowKey] = window
-				}
+				rlCandidates[account][windowKey] = append(rlCandidates[account][windowKey],
+					rateLimitCandidate{window: window, resetAt: resetAt, measuredAt: rateLimitStampOf(entry)})
 			}
 		}
 	}
+	freshRL := map[string]map[string]any{}
+	rlTS := map[string]map[string]float64{}
+	for account, byWindow := range rlCandidates {
+		freshRL[account] = map[string]any{}
+		rlTS[account] = map[string]float64{}
+		for windowKey, candidates := range byWindow {
+			picked := pickRateLimitWindow(candidates, now)
+			freshRL[account][windowKey] = picked.window
+			rlTS[account][windowKey] = picked.measuredAt
+		}
+	}
+	acctCost := map[string]float64{}
+	acctHasCost := map[string]bool{}
 	// The account figure is the account's OWN accumulator, not a fold over
 	// actors (T-53, owner ruling rc-5c5d7c7c6dcd「分開：帳號卡自己一份數字，清它不動
 	// 成員」): it need not equal the members' sum, and an actor leaving does not
