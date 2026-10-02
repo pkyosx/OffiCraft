@@ -3,6 +3,7 @@ package main
 import (
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -10,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // A claude member hears OffiCraft events through one of two routes, picked per
@@ -31,6 +33,7 @@ var notifyModFS embed.FS
 const (
 	notifyModDirName        = ".officraft-mod"
 	notifyModConfigFile     = "officraft.json"
+	notifyModStartedMarker  = ".officraft-mod-started"
 	notifyModLoadedMarker   = ".officraft-mod-loaded"
 	notifyModDisabledMarker = ".officraft-mod-disabled"
 	notifyModBootedMarker   = ".officraft-mod-booted"
@@ -52,7 +55,11 @@ type notifyModListener struct {
 type notifyModConfig struct {
 	// Submitted by the mod BEFORE it starts the listener, so the boot is the
 	// member's first turn and a backlog the listener prints queues behind it.
-	BootPrompt     string `json:"boot_prompt"`
+	BootPrompt string `json:"boot_prompt"`
+	// Written first thing in the mod's session.start, before any other check:
+	// after a fallback, its presence and mtime tell a late session.start from a
+	// mod that never ran (logged by logNotifyModFallback).
+	StartedMarker  string `json:"started_marker"`
 	LoadedMarker   string `json:"loaded_marker"`
 	DisabledMarker string `json:"disabled_marker"`
 	// Written once the boot prompt went in, so a fallback does not paste a second one.
@@ -69,6 +76,7 @@ func buildNotifyModConfig(workdir, bootPrompt string) string {
 	ackFile := filepath.Join(workdir, notifyModAckFile)
 	b, _ := json.Marshal(notifyModConfig{
 		BootPrompt:     bootPrompt,
+		StartedMarker:  filepath.Join(workdir, notifyModStartedMarker),
 		LoadedMarker:   filepath.Join(workdir, notifyModLoadedMarker),
 		DisabledMarker: filepath.Join(workdir, notifyModDisabledMarker),
 		BootedMarker:   filepath.Join(workdir, notifyModBootedMarker),
@@ -143,10 +151,11 @@ func parseDottedVersion(v string) ([]int, bool) {
 
 // Rewritten on every spawn. The markers are cleared first: a loaded marker left by
 // the previous session would pass the check below for a mod that never loaded, a
-// disabled one would keep a mod that does load from starting its listener, and a
-// booted one would keep a fallback from pasting the boot prompt nobody submitted.
+// disabled one would keep a mod that does load from starting its listener, a
+// booted one would keep a fallback from pasting the boot prompt nobody submitted,
+// and a started one would date a fallback's diagnosis to the previous session.
 func (d SpawnDeps) installNotifyMod(workdir, bootPrompt string) string {
-	for _, marker := range []string{notifyModLoadedMarker, notifyModDisabledMarker, notifyModBootedMarker} {
+	for _, marker := range []string{notifyModStartedMarker, notifyModLoadedMarker, notifyModDisabledMarker, notifyModBootedMarker} {
 		if err := d.Remove(filepath.Join(workdir, marker)); err != nil && !os.IsNotExist(err) {
 			return fmt.Sprintf("write_file_failed: clearing stale %s: %v", marker, err)
 		}
@@ -211,4 +220,77 @@ func (d SpawnDeps) reapWorkdirListeners(memberID, workdir string) {
 	case found > 0:
 		d.logf("%s: %d leftover ocagent process(es) in %s did not exit; spawning anyway", memberID, found, workdir)
 	}
+}
+
+// Diagnostics for the warden log only, never the owner-facing Note: the pane is
+// whatever the member's screen held, and the owner's 最近操作 is no place for it.
+const (
+	notifyModFallbackLogPrefix = "notify-mod-fallback"
+	notifyModFallbackPaneLines = 40
+	// The pane is arbitrary text logged as-is; the cap keeps one fallback from
+	// flooding the warden log (a 160-column pane runs to ~8 KiB in 50 rows).
+	notifyModFallbackPaneCap = 4096
+	notifyModCaptureBudget   = 2 * time.Second
+)
+
+// Best effort: every failure is a log line, and nothing here changes the spawn.
+// It tells "session.start fired late" (started marker, dated) from "the mod never
+// ran" (no marker), and shows what the member's pane showed.
+func (d SpawnDeps) logNotifyModFallback(memberID, workdir, socket, session string, launchedAt time.Time) {
+	marker := filepath.Join(workdir, notifyModStartedMarker)
+	switch mtime, err := d.modTime(marker); {
+	case err == nil:
+		d.logf("%s: %s: %s written %s after launch", memberID, notifyModFallbackLogPrefix,
+			notifyModStartedMarker, mtime.Sub(launchedAt).Round(100*time.Millisecond))
+	case os.IsNotExist(err):
+		d.logf("%s: %s: %s absent: the mod's session.start never ran with its config", memberID,
+			notifyModFallbackLogPrefix, notifyModStartedMarker)
+	default:
+		d.logf("%s: %s: %s unreadable: %v", memberID, notifyModFallbackLogPrefix, notifyModStartedMarker, err)
+	}
+
+	out, err := withRunTimeout(d.Runner, notifyModCaptureBudget).Run("tmux", "-L", socket, "capture-pane", "-p", "-t", session)
+	if err != nil {
+		d.logf("%s: %s: capture-pane of %s failed: %v", memberID, notifyModFallbackLogPrefix, session, err)
+		return
+	}
+	lines := strings.Split(strings.TrimRight(out, " \n"), "\n")
+	if len(lines) > notifyModFallbackPaneLines {
+		lines = lines[len(lines)-notifyModFallbackPaneLines:]
+	}
+	pane, cut := tailBytes(strings.Join(lines, "\n"), notifyModFallbackPaneCap)
+	note := ""
+	if cut {
+		note = fmt.Sprintf(", cut to its last %d bytes", notifyModFallbackPaneCap)
+	}
+	d.logf("%s: %s: pane %s, last %d lines%s:", memberID, notifyModFallbackLogPrefix, session, notifyModFallbackPaneLines, note)
+	for _, line := range strings.Split(pane, "\n") {
+		d.logf("%s: %s pane| %s", memberID, notifyModFallbackLogPrefix, line)
+	}
+}
+
+// tailBytes keeps at most max bytes from the end of s, starting on a rune.
+func tailBytes(s string, max int) (string, bool) {
+	if len(s) <= max {
+		return s, false
+	}
+	start := len(s) - max
+	for start < len(s) && !utf8.RuneStart(s[start]) {
+		start++
+	}
+	return s[start:], true
+}
+
+func (d SpawnDeps) modTime(path string) (time.Time, error) {
+	if d.ModTime == nil {
+		return time.Time{}, errors.New("no ModTime seam")
+	}
+	return d.ModTime(path)
+}
+
+func (d SpawnDeps) now() time.Time {
+	if d.Now == nil {
+		return time.Now()
+	}
+	return d.Now()
 }

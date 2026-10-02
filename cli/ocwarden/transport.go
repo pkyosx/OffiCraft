@@ -335,6 +335,14 @@ func resolveRepoRoot(executable func() (string, error)) string {
 // binary that was never downloaded.
 func pathStatable(p string) bool { _, err := os.Stat(p); return err == nil }
 
+func fileModTime(p string) (time.Time, error) {
+	fi, err := os.Stat(p)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return fi.ModTime(), nil
+}
+
 func newOcAgentResolver(executable func() (string, error), exists func(string) bool) func() (string, bool) {
 	return func() (string, bool) {
 		return resolveOcAgentBin(executable, exists, resolveRepoRoot(executable))
@@ -413,6 +421,8 @@ func buildSpawnDeps(cfg Config, env func(string) string, runner CmdRunner, socke
 		Symlink:           os.Symlink,
 		Remove:            os.Remove,
 		Exists:            pathStatable,
+		ModTime:           fileModTime,
+		Now:               time.Now,
 		ReapWorkdirListeners: func(workdir string) (int, bool) {
 			pids := ocagentPIDsByCwd(runner, workdir)
 			return len(pids), sweepPIDs(pids, realKill, time.Sleep)
