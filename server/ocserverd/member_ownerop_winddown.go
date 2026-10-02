@@ -84,9 +84,9 @@ func hasUncollectedOnlineOwnerOpState(refocusSince, stoppedSince float64, online
 	return online && !(refocusSince > 0.0 && stoppedSince > 0.0)
 }
 
-// ownerOpHandoverPlan is what an owner verb that leaves the member running (重新聚焦,
-// 換模型, 改機器, 喚醒) does with its session — one answer for staff and workers;
-// only the row, the lock and the write differ per population.
+// ownerOpHandoverPlan is what an owner verb that leaves the member running does
+// with its session — one answer for staff and workers; only the row, the lock and
+// the write differ per population.
 type ownerOpHandoverPlan int
 
 const (
@@ -287,21 +287,18 @@ type refocusVerdict int
 
 const (
 	refocusArmed refocusVerdict = iota
-	refocusQueuedBehindStop
-	refocusRefusedNeverStopped
+	refocusRefusedWantedOffline
 	refocusRefusedNoSession
 	refocusRefusedLadder
 )
 
-// applyRefocusVerb is 重新聚焦 for both populations. A stopped member only gets a
-// 起來 recorded; the stop in flight keeps its stage and anchors (owner 2026-08-30).
+// applyRefocusVerb is 重新聚焦 for both populations.
+// ⚠️ Owner ruling: a member wanted offline (stopping or stopped) is refused, never
+// queued behind its stop the way 改機器 / 換模型 are; 喚醒 is how it comes back.
 func applyRefocusVerb(row ownerOpRow, snapshot Member, online bool, now float64) refocusVerdict {
 	switch ownerOpHandoverPlanFor(snapshot, online) {
-	case ownerOpPlanQueueBehindStop:
-		queueRestartBehindStop(row, refocusOpRefocus, online, now)
-		return refocusQueuedBehindStop
-	case ownerOpPlanHeldDown:
-		return refocusRefusedNeverStopped
+	case ownerOpPlanQueueBehindStop, ownerOpPlanHeldDown:
+		return refocusRefusedWantedOffline
 	}
 	if !online {
 		return refocusRefusedNoSession
@@ -312,6 +309,11 @@ func applyRefocusVerb(row ownerOpRow, snapshot Member, online bool, now float64)
 		return refocusRefusedLadder
 	}
 	return refocusArmed
+}
+
+func refocusWantedOfflineRefusalMsg(noun string) string {
+	return "refocus requires the " + noun + " to be online; this " + noun +
+		" is stopping or stopped — press 喚醒 to bring it back"
 }
 
 func refocusLadderRefusalMsg(noun string) string {

@@ -1750,9 +1750,8 @@ func TestMemberLifecycleDoorsDecideFromTheRowTheyWrite(t *testing.T) {
 				path: "/api/members/ow-abc123/refocus", body: `{}`, worker: true, live: true},
 			window: `UPDATE member SET desired_state = 'offline' WHERE id = '%ID%'`,
 			status: http.StatusConflict,
-			refusal: "refocus requires a live worker — this one is stopped and has never " +
-				"been asked to stop, so there is no wind-down for a 起來 to be " +
-				"queued behind (喚醒 it when you want it to run)",
+			refusal: "refocus requires the worker to be online; this worker is stopping or " +
+				"stopped — press 喚醒 to bring it back",
 			row: func(t *testing.T, m Member) {
 				if m.RefocusSince != 0 || m.RestartAfterStop {
 					t.Fatalf("refocus_since=%v restart_after_stop=%v, want neither", m.RefocusSince, m.RestartAfterStop)
@@ -1820,12 +1819,8 @@ func TestMemberLifecycleDoorsDecideFromTheRowTheyWrite(t *testing.T) {
 			prepare: `UPDATE member SET desired_state = 'offline' WHERE id = 'kip'`},
 		{name: "relocate held down", method: "POST", path: "/api/members/kip/relocate", body: `{"machine_id":"m-server-self"}`,
 			prepare: `UPDATE member SET desired_state = 'offline', desired_machine_id = 'm-retired' WHERE id = 'kip'`},
-		{name: "refocus queued behind a stop", method: "POST", path: "/api/members/kip/refocus", body: `{}`,
-			prepare: strings.ReplaceAll(stopOpen, "%ID%", "kip")},
 		{name: "worker restart on a live session", method: "POST", path: "/api/members/ow-abc123/activate", body: `{}`,
 			worker: true, live: true, prepare: strings.ReplaceAll(stopOpen, "%ID%", "ow-abc123")},
-		{name: "worker refocus queued behind a stop", method: "POST", path: "/api/members/ow-abc123/refocus", body: `{}`,
-			worker: true, prepare: strings.ReplaceAll(stopOpen, "%ID%", "ow-abc123")},
 		{name: "worker model queued behind a stop", method: "PATCH", path: "/api/members/ow-abc123", body: `{"model":"claude-opus-5"}`,
 			worker: true, prepare: strings.ReplaceAll(stopOpen, "%ID%", "ow-abc123")},
 	} {

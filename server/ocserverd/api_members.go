@@ -1233,25 +1233,16 @@ func (s *apiServer) HandleRefocusMemberApiMembersMemberIdRefocusPost(w http.Resp
 	}
 	online := s.hub.IsOnline(memberId)
 	var saved Member
-	queued := false
 	err = s.dal.inTx(func(tx *writeTx) error {
 		cur, err := resolveMemberOn(tx, memberId, anyMember)
 		if err != nil {
 			return err
 		}
 		before := *cur
-		queued = false
 		switch applyRefocusVerb(ownerOpRowOfMember(cur), *cur, online, nowSecs()) {
-		case refocusQueuedBehindStop:
-			queued = true
-			saved = *cur
-			if err := writeMemberOn(tx, before, *cur); err != nil {
-				return err
-			}
-			// The receipt lands before the tick below: the tick can spend the intent and
-			// stamp its own receipt, which a later write would overwrite.
-			return persistMemberOpReceiptOn(tx, *cur)
-		case refocusRefusedNeverStopped, refocusRefusedNoSession:
+		case refocusRefusedWantedOffline:
+			return refuseInTx(http.StatusConflict, refocusWantedOfflineRefusalMsg("member"))
+		case refocusRefusedNoSession:
 			return refuseInTx(http.StatusConflict,
 				"refocus requires the member to have a live session and to be wanted "+
 					"online (§3.4 #14)")
@@ -1266,10 +1257,6 @@ func (s *apiServer) HandleRefocusMemberApiMembersMemberIdRefocusPost(w http.Resp
 		return
 	}
 	s.publishMemberPatch(saved, requestTrigger(r))
-	if queued {
-		s.publishMemberPatch(saved, requestTrigger(r))
-		s.reconcileAfterOwnerOp(saved.ID, refocusOpRefocus, queued)
-	}
 	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: saved.ID})
 }
 

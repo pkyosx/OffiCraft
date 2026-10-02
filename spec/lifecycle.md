@@ -896,14 +896,16 @@ decides that time is up.
   (T-14 項目 7): if `restart_after_stop` is set, THIS edge clears it, flips `desired_state`
   back to `online` and clears the wind-down anchors, so the same tick takes the §4.3
   `desired_state=online` arm and STARTs the member. `forced_stop_at` is deliberately kept —
-  it records the session BEFORE this one. A 重啟 verb (重新聚焦 / 改機器 / 換 model) arriving
+  it records the session BEFORE this one. A 重啟 verb (改機器 / 換 model) arriving
   while a stop is in flight (`stopping_since > 0`) is what sets the flag: the stop keeps its
   rung and its anchors, and only 「起來」 is added — 「沿用強硬下線規則 但是附加上線規則」.
   A 重啟 verb on a member merely AT REST (never asked to stop, `stopping_since = 0`) still
-  only saves (T-ed79 #4/#14). Each of the three leaves `last_op=start` with
-  `last_op_ok=true` and a note — never a failure — staff and outsource alike: `restart_queued`
+  only saves (T-ed79 #4/#14). 重新聚焦 is not a 重啟 verb here: on any member wanted
+  offline (stopping, stopped or at rest) it answers **409** and writes nothing, staff and
+  outsource alike — 喚醒 is how such a member comes back. Both 重啟 verbs leave
+  `last_op=start` with `last_op_ok=true` and a note — never a failure — staff and outsource alike: `restart_queued`
   while the session is still online (the stop is running), `restarting` when it is already
-  gone (the flag is spent at once by the relocate, by 重新聚焦, and by the next tick after a
+  gone (the flag is spent at once by the relocate, and by the next tick after a
   model change; the spend itself notes `restarting` unless that note is already there), and
   `held_down` for the member at rest (「press 喚醒 when you want it to run」). 喚醒 clears
   any of the three, so the next line is the warden's own START result.

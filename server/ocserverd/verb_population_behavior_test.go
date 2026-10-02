@@ -1217,7 +1217,7 @@ func parityCases() []verbCase {
 		{
 			verb: "重新聚焦",
 			note: "seed: the owner has ALREADY stopped this row (desired offline + " +
-				"stopping_since in the past) and the session is still live. Both → refocus.",
+				"stopping_since in the past) and the session is still live. Both refuse.",
 			runStaff: func(t *testing.T) terminalState {
 				api := newParityServer(t)
 				seedParityMember(t, api, "m-parity-refocus", func(m *Member) {
@@ -1240,43 +1240,26 @@ func parityCases() []verbCase {
 					api.HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost)
 				return workerTerminal(t, api, id, code.Code, notices)
 			},
-			// 正職: ownerOpHandoverPlanFor → QueueBehindStop →
-			// queueRestartBehindStop and a 200. The stop keeps its stage and anchors.
+			// Both write nothing: the stop in flight keeps its stage, anchors and receipt.
 			wantStaff: terminalState{
-				Status: http.StatusOK, DesiredState: DesiredStateOffline,
+				Status: http.StatusConflict, DesiredState: DesiredStateOffline,
 				Stopping: anchorPast, Stopped: anchorZero,
 				Refocus: anchorZero, RefocusOp: "",
-				Waking: anchorZero, RestartAfterStop: true,
+				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
-				// takes the queue-the-起來 branch (applyRefocusVerb); the member is still
-				// online so the tick reaches decideDown's soft arm and spends nothing.
-				Dispatched: dispatchedNothing,
-				Cost:       costUntouched,
-				// the queue-the-起來 branch fans the member delta twice after its
-				// transaction (HandleRefocusMember). The row is desired-offline with
-				// stopping_since in the past and no forced epoch, so each delta carries
-				// the soft 預告 of the stop ALREADY in flight. 重新聚焦 opened no epoch
-				// here (that is the 包② convergence) — it re-announced the old one.
-				Noticed: noticedNotice,
+				Dispatched:       dispatchedNothing,
+				Cost:             costUntouched,
+				Noticed:          noticedNothing,
 			},
-			// 外包 (T-65 包②): the same branch — applyRefocusVerb → queueRestartBehindStop
-			// sets RestartAfterStop and touches nothing else, then answers 200.
-			// The eager outsourceTickNow that follows is a no-op here twice over:
-			// newParityServer sets noOutsource, and the seeded session is ONLINE so
-			// the consume's `!hub.IsOnline` gate would refuse it anyway.
 			wantOutsource: terminalState{
-				Status: http.StatusOK, DesiredState: DesiredStateOffline,
+				Status: http.StatusConflict, DesiredState: DesiredStateOffline,
 				Stopping: anchorPast, Stopped: anchorZero,
 				Refocus: anchorZero, RefocusOp: "",
-				Waking: anchorZero, RestartAfterStop: true,
+				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
-				// queues the 起來 (api_outsource.go:455) and its follow-up outsourceTickNow is
-				// gated off wholesale by noOutsource (outsource_sched.go:744-748).
-				Dispatched: dispatchedNothing,
-				Cost:       costUntouched,
-				// The unified member projection re-announces the stop already in flight,
-				// matching the staff path's soft notice.
-				Noticed: noticedNotice,
+				Dispatched:       dispatchedNothing,
+				Cost:             costUntouched,
+				Noticed:          noticedNothing,
 			},
 		},
 		{
