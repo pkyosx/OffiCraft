@@ -154,7 +154,7 @@ func TestStoppedStaffOnTheRosterKeepsItsCredentials(t *testing.T) {
 	}
 	apiWantError(t, apiTestDecodeJSONBody(t, rec), "conflict",
 		"member 'kip' has a stop in effect (desired_state=offline) — SSE refused "+
-			"(a stopped member must not re-project online; activate it to reconnect)")
+			"(a stopped member must not re-project online; 喚醒 it to reconnect)")
 }
 
 func TestReleasedWorkerCredentialsAreRefusedAfterItsOwnMarkDone(t *testing.T) {
