@@ -3904,3 +3904,39 @@ func TestTheReconcileStateStoreTakesWritersFromManyGoroutines(t *testing.T) {
 		}
 	}
 }
+
+func TestNoteStartSupersededByStop(t *testing.T) {
+	booting := reconcileState{Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart,
+		LastCommandAt: 100, StartTarget: "m-b"}
+	cases := []struct {
+		name      string
+		stored    reconcileState
+		wantOK    bool
+		wantState reconcileState
+	}{
+		{"under the START read before the stop, a stop on its machine supersedes it",
+			booting, true,
+			reconcileState{Phase: reconcilePhaseStopping, LastCommand: reconcileCmdStop, LastCommandAt: 300}},
+		{"under a START a tick sent after the stop was read, the stop does not supersede it",
+			reconcileState{Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart,
+				LastCommandAt: 200, StartTarget: "m-b"}, false,
+			reconcileState{Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart,
+				LastCommandAt: 200, StartTarget: "m-b"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := newReconcileTestServer(t)
+			s.setReconcileState("m-x", c.stored)
+
+			ok := s.noteStartSupersededByStop("m-x", inFlightStart{Target: "m-b", At: 100},
+				shutdownDispatch{Landed: []string{"m-b"}}, 300)
+
+			if ok != c.wantOK {
+				t.Fatalf("superseded = %v, want %v", ok, c.wantOK)
+			}
+			if got := s.reconcileStateOf("m-x"); got != c.wantState {
+				t.Fatalf("state = %+v, want %+v", got, c.wantState)
+			}
+		})
+	}
+}
