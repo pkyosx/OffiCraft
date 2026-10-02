@@ -24,14 +24,15 @@ const (
 // prints the colored device-code prompt behind an unrelated bare https line (on
 // stderr when the to-stderr file exists; without the code line when the
 // no-code file exists); with the self-timeout file it then ends the way codex
-// does after 15 minutes. Otherwise it waits until the approve or deny file
+// does after 15 minutes; with the self-term file it SIGTERMs itself, and with
+// the plain-exit file it exits 3 saying nothing more. Otherwise it waits until the approve or deny file
 // appears. deny's content goes to stderr and the exit is 1; approve copies the
 // issued file (when there is one) to $CODEX_HOME/auth.json and exits 0 after
 // "Successfully logged in". `login status` exits 1 under the CODEX_HOME named
 // in the refuse-home file, else with the status-rc file's code, else 0 exactly
 // when $CODEX_HOME/auth.json exists.
 type fakeCodex struct {
-	root, bin, pid, sawEnv, sawHome, sawConfig, toStderr, approve, deny, statusRC, refuseHome, selfTimeout, noCode, issued string
+	root, bin, pid, sawEnv, sawHome, sawConfig, toStderr, approve, deny, statusRC, refuseHome, selfTimeout, selfTerm, plainExit, noCode, issued string
 }
 
 func newFakeCodex(t *testing.T) *fakeCodex {
@@ -49,6 +50,8 @@ func newFakeCodex(t *testing.T) *fakeCodex {
 		statusRC:    filepath.Join(root, "status-rc"),
 		refuseHome:  filepath.Join(root, "refuse-home"),
 		selfTimeout: filepath.Join(root, "self-timeout"),
+		selfTerm:    filepath.Join(root, "self-term"),
+		plainExit:   filepath.Join(root, "plain-exit"),
 		noCode:      filepath.Join(root, "no-code"),
 		issued:      filepath.Join(root, "issued", "auth.json"),
 	}
@@ -70,6 +73,8 @@ func newFakeCodex(t *testing.T) *fakeCodex {
 		`[ -f "$__home/config.toml" ] && /bin/cp "$__home/config.toml" '`+f.sawConfig+`'`+"\n"+
 		`/bin/rm -f "$__home/auth.json"`+"\n"+
 		`if [ -f '`+f.toStderr+`' ]; then { `+prompt+`; } >&2; else `+prompt+`; fi`+"\n"+
+		`[ -f '`+f.selfTerm+`' ] && kill -TERM $$`+"\n"+
+		`[ -f '`+f.plainExit+`' ] && exit 3`+"\n"+
 		`if [ -f '`+f.selfTimeout+`' ]; then echo 'Error logging in with device code: device auth timed out after 15 minutes' >&2; exit 1; fi`+"\n"+
 		`while [ ! -f '`+f.approve+`' ] && [ ! -f '`+f.deny+`' ]; do /bin/sleep 0.05; done`+"\n"+
 		`if [ -f '`+f.deny+`' ]; then /bin/cat '`+f.deny+`' >&2; exit 1; fi`+"\n"+
@@ -343,6 +348,35 @@ func TestCodexLoginRelay(t *testing.T) {
 			t.Error("the install did not complete")
 		}
 	})
+
+	t.Run("under the codex login process killed by a signal, the reason names the signal, not codex's last prompt line", func(t *testing.T) {
+		h, _ := newCodexHarness(t)
+		h.codex.write(t, h.codex.selfTerm, "")
+		h.relay.Start("rl-cg", "codex")
+		if got := h.next(t); got != awaiting("rl-cg") {
+			t.Fatalf("first report = %+v, want %+v", got, awaiting("rl-cg"))
+		}
+		if got, want := h.next(t), (loginReport{LoginID: "rl-cg", State: "failed",
+			Reason: "the codex login process was terminated (signal: terminated)"}); got != want {
+			t.Fatalf("final report = %+v, want %+v", got, want)
+		}
+	})
+
+	for _, onStderr := range []bool{false, true} {
+		t.Run(fmt.Sprintf("under codex exiting non-zero with nothing but its sign-in prompt printed (on stderr: %v), the reason is the exit status", onStderr), func(t *testing.T) {
+			h, _ := newCodexHarness(t)
+			if onStderr {
+				h.codex.write(t, h.codex.toStderr, "")
+			}
+			h.codex.write(t, h.codex.plainExit, "")
+			h.relay.Start("rl-cp", "codex")
+			h.next(t)
+			if got, want := h.next(t), (loginReport{LoginID: "rl-cp", State: "failed",
+				Reason: "codex login exited with status 3"}); got != want {
+				t.Fatalf("final report = %+v, want %+v", got, want)
+			}
+		})
+	}
 
 	t.Run("under a refused device login followed by a hint, the reason is the Error logging in line and the existing login survives", func(t *testing.T) {
 		h, codexHome := newCodexHarness(t)

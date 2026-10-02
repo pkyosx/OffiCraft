@@ -6,11 +6,13 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -28,7 +30,12 @@ var (
 	codexDeviceCodeLine = regexp.MustCompile(`^[A-Z0-9]{4,}-[A-Z0-9]{4,}$`)
 	codexExpiresIn      = regexp.MustCompile(`expires in (\d+) minutes?`)
 	codexFailurePrefix  = []string{"Error logging in with device code:", "Codex is not enabled"}
-	codexStoreSetting   = regexp.MustCompile(`(?m)^[ \t]*cli_auth_credentials_store[ \t]*=[ \t]*["']([^"'\n]*)["']`)
+	// What codex prints to walk the owner through the sign-in. None of it says
+	// why a login failed, and the last of it ("Continue only if you started this
+	// login…") reads like a phishing warning when shown as the reason.
+	codexPromptLine = regexp.MustCompile(`^(Welcome to Codex|OpenAI's command-line coding agent|Docs:|` +
+		`Follow these steps|Continue only if|Successfully logged in|\d+\. |https?://)`)
+	codexStoreSetting = regexp.MustCompile(`(?m)^[ \t]*cli_auth_credentials_store[ \t]*=[ \t]*["']([^"'\n]*)["']`)
 )
 
 const (
@@ -172,9 +179,11 @@ func (f *codexLoginFlow) line(s *loginSession, stderr bool, raw string) {
 		return
 	}
 	f.mu.Lock()
-	if stderr {
+	switch {
+	case codexPromptLine.MatchString(line) || codexDeviceCodeLine.MatchString(line):
+	case stderr:
 		f.lastErr = line
-	} else {
+	default:
 		f.lastOut = line
 	}
 	for _, prefix := range codexFailurePrefix {
@@ -245,13 +254,23 @@ func (f *codexLoginFlow) failedState() string {
 	return "failed"
 }
 
-func (f *codexLoginFlow) failureReason() string {
+func (f *codexLoginFlow) failureReason(waitErr error) string {
+	var exit *exec.ExitError
+	isExit := errors.As(waitErr, &exit)
+	if isExit {
+		if ws, ok := exit.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+			return "the codex login process was terminated (signal: " + ws.Signal().String() + ")"
+		}
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	for _, reason := range []string{f.preferred, f.lastErr, f.lastOut} {
 		if reason != "" {
 			return reason
 		}
+	}
+	if isExit {
+		return "codex login exited with status " + strconv.Itoa(exit.ExitCode())
 	}
 	return ""
 }

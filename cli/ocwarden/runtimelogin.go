@@ -219,7 +219,8 @@ type loginRelay struct {
 // line runs on the stdout and the stderr reader goroutines at once.
 type loginFlow interface {
 	line(s *loginSession, stderr bool, raw string)
-	failureReason() string
+	// failureReason explains a non-zero exit; "" leaves it to the exit itself.
+	failureReason(waitErr error) string
 	// failedState is the state a non-zero exit reports: codex's own expiry of
 	// the one-time code is an exit 1 that means `expired`, not `failed`.
 	failedState() string
@@ -394,7 +395,7 @@ func (r *loginRelay) watch(s *loginSession, rendered string) {
 		s.flow.conclude(s)
 	default:
 		r.log("%s: login process exited (%v)", s.id, waitErr)
-		reason := s.flow.failureReason()
+		reason := s.flow.failureReason(waitErr)
 		if reason == "" {
 			reason = "the login process exited: " + waitErr.Error()
 		}
@@ -455,7 +456,7 @@ func (f *claudeLoginFlow) line(s *loginSession, stderr bool, raw string) {
 	}
 }
 
-func (f *claudeLoginFlow) failureReason() string {
+func (f *claudeLoginFlow) failureReason(error) string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	for _, reason := range []string{f.loginFailed, f.lastErr, f.lastOut} {
