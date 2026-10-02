@@ -41,7 +41,7 @@ func TestModelCallReportUplinkBodies(t *testing.T) {
 	}
 
 	failure := drive("failure", fixtureHookStart, stopFailureInput("rate_limit", fixturePath(t, "sample-rate-limit.jsonl")))
-	cleared := drive("clearing-success", 1790850900.5, stopInput)
+	stopSuccess := drive("stop-success", 1790850900.5, stopInput)
 
 	wantFailure := `{"runtime":"claude","account":"au-1/org-1","account_label":"kyle@x.io(OffiCraft)",` +
 		`"machine":"lab-1","model_call":{"last_failure":{"ts":1790850886.3,"kind":"rate_limit",` +
@@ -49,10 +49,10 @@ func TestModelCallReportUplinkBodies(t *testing.T) {
 	if failure.body != wantFailure {
 		t.Errorf("failure body =\n  %s\nwant\n  %s", failure.body, wantFailure)
 	}
-	wantCleared := `{"runtime":"claude","account":"au-1/org-1","account_label":"kyle@x.io(OffiCraft)",` +
+	wantStopSuccess := `{"runtime":"claude","account":"au-1/org-1","account_label":"kyle@x.io(OffiCraft)",` +
 		`"machine":"lab-1","model_call":{"last_success_ts":1790850900.5}}`
-	if cleared.body != wantCleared {
-		t.Errorf("clearing success body =\n  %s\nwant\n  %s", cleared.body, wantCleared)
+	if stopSuccess.body != wantStopSuccess {
+		t.Errorf("stop success body =\n  %s\nwant\n  %s", stopSuccess.body, wantStopSuccess)
 	}
 
 	committed := manifestUplinkPaths(t, "cli/ocagent/modelcallreport_wire_test.go")

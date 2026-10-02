@@ -48,7 +48,7 @@
       "wire_case": "failure"
     },
     {
-      "id": "ocagent-model-call-clearing-success",
+      "id": "ocagent-model-call-stop-success",
       "source": "cli/ocagent/modelcallreport.go",
       "callsite": "if postModelCall(client, cfg, newModelCallBody(env, modelCallReport{LastSuccessTs: &success}), errOut) {",
       "kind": "json",
@@ -56,22 +56,22 @@
       "path": "/api/monitoring/telemetry",
       "request_schema": "#/components/schemas/AgentTelemetryIngestDTO",
       "wire_test": "cli/ocagent/modelcallreport_wire_test.go",
-      "wire_needle": "drive(\"clearing-success\", 1790850900.5, stopInput)",
-      "wire_case": "clearing-success"
+      "wire_needle": "drive(\"stop-success\", 1790850900.5, stopInput)",
+      "wire_case": "stop-success"
     },
     {
       "id": "ocagent-model-call-post-seam",
       "source": "cli/ocagent/modelcallreport.go",
       "callsite": "status, detail := httpRequest(client, http.MethodPost, cfg.Base+modelCallTelemetryPath, cfg.Token, body)",
       "kind": "seam",
-      "seam_reason": "postModelCall's own send: ocagent-model-call-failure and ocagent-model-call-clearing-success travel through it and are compared there."
+      "seam_reason": "postModelCall's own send: ocagent-model-call-failure and ocagent-model-call-stop-success travel through it and are compared there."
     },
     {
       "id": "ocagent-model-call-stop-hop",
       "source": "cli/ocagent/modelcallreport.go",
       "callsite": "reportStopSuccess(client, cfg, env, now, errOut)",
       "kind": "seam",
-      "seam_reason": "hop: a Stop hook reaches ocagent-model-call-clearing-success when the station has no accepted success from the last throttle window, or a failure is newer than the one it has; otherwise it sends nothing."
+      "seam_reason": "hop: a Stop hook reaches ocagent-model-call-stop-success when the station has no accepted success from the last throttle window, or a failure is newer than the one it has; otherwise it sends nothing."
     },
     {
       "id": "ocagent-request-seam",
@@ -587,7 +587,7 @@
       "source": "cli/ocagent/main.go",
       "callsite": "return cmdModelCallReport(&http.Client{Timeout: modelCallReportTimeout}, cfg, env, now, in, os.Stderr)",
       "kind": "seam",
-      "seam_reason": "hop: the model-call-report command reaches ocagent-model-call-failure and ocagent-model-call-clearing-success"
+      "seam_reason": "hop: the model-call-report command reaches ocagent-model-call-failure and ocagent-model-call-stop-success"
     },
     {
       "id": "ocagent-model-call-report-hop",

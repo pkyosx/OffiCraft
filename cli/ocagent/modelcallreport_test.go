@@ -133,7 +133,7 @@ func TestCmdModelCallReport(t *testing.T) {
 		}
 	})
 
-	t.Run("a clearing success that does not get through stays owed and still exits 0", func(t *testing.T) {
+	t.Run("a Stop success that does not get through stays owed and still exits 0", func(t *testing.T) {
 		cases := []struct {
 			name    string
 			client  *fakeHTTP
@@ -222,16 +222,20 @@ func TestCmdModelCallReport(t *testing.T) {
 			t.Run(tc.wantCode, func(t *testing.T) {
 				srv, posts := contextServer(t)
 				cfg := newCfg(t, srv.URL)
+				slept := stubModelCallSleep(t, nil)
 				var errOut bytes.Buffer
 
-				cmdModelCallReport(srv.Client(), cfg, env, 1000,
+				cmdModelCallReport(srv.Client(), cfg, env, fixtureHookStart+60,
 					strings.NewReader(stopFailureInput(tc.code, fixturePath(t, "sample-rate-limit.jsonl"))), &errOut)
 
 				want := `{"runtime":"claude","account":"au-1/org-1","account_label":"kyle@x.io(OffiCraft)",` +
-					`"machine":"lab-1","model_call":{"last_failure":{"ts":1000,"kind":"` + tc.wantKind +
+					`"machine":"lab-1","model_call":{"last_failure":{"ts":1790850946.3,"kind":"` + tc.wantKind +
 					`","code":"` + tc.wantCode + `","resets_at":null}}}`
 				if len(*posts) != 1 || (*posts)[0].body != want {
 					t.Errorf("sent %+v, want one body %s", *posts, want)
+				}
+				if len(*slept) != 0 {
+					t.Errorf("waited %v, want no wait: only a rate limit has a reset time to wait for", *slept)
 				}
 			})
 		}
@@ -248,6 +252,7 @@ func TestCmdModelCallReport(t *testing.T) {
 		}
 		padding := []byte(strings.Repeat(`{"type":"user","message":"`+strings.Repeat("x", 1000)+`"}`+"\n", 300))
 		ownRow := rateLimitRow(t, "2026-10-01T10:35:46.350Z", "1790860000")
+		ownEarlyRow := rateLimitRow(t, "2026-10-01T10:35:45.300Z", "1790860000")
 		olderRow := rateLimitRow(t, "2026-10-01T10:34:46.307Z", "1790854200")
 		otherRows, err := os.ReadFile(fixturePath(t, "sample-other-errors.jsonl"))
 		if err != nil {
@@ -282,6 +287,11 @@ func TestCmdModelCallReport(t *testing.T) {
 				name:       "its own row never lands: no reset time after the wait",
 				transcript: func(t *testing.T) string { return filepath.Join(t.TempDir(), "missing.jsonl") },
 				wantResets: "null", wantSlept: thirtyWaits,
+			},
+			{
+				name:       "its own row stamped 1s before the hook starts, inside the slack",
+				transcript: func(t *testing.T) string { return writeTranscript(t, olderRow, ownEarlyRow) },
+				wantResets: "1790860000",
 			},
 			{
 				name:       "its own row is already there behind an older one",
