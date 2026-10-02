@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func fixturePath(t *testing.T, name string) string {
@@ -25,6 +26,38 @@ func stopFailureInput(code, transcript string) string {
 		`"hook_event_name":"StopFailure","error":"` + code + `","last_assistant_message":"<redacted>"}`
 }
 
+// The rate-limit fixture's own row is stamped 2026-10-01T10:34:46.307Z; a hook
+// that starts at fixtureHookStart is the failure that row belongs to.
+const fixtureHookStart = 1790850886.3
+
+// rateLimitRow is the real rate-limit sample restamped, as the harness would
+// write it for a later failure.
+func rateLimitRow(t *testing.T, timestamp, resetsAt string) []byte {
+	t.Helper()
+	raw, err := os.ReadFile(fixturePath(t, "sample-rate-limit.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := strings.Replace(string(raw), `"timestamp": "2026-10-01T10:34:46.307Z"`, `"timestamp": "`+timestamp+`"`, 1)
+	return []byte(strings.Replace(row, `"resetsAt": 1790854200`, `"resetsAt": `+resetsAt, 1))
+}
+
+// stubModelCallSleep replaces the transcript wait's sleep for one test: it
+// records every wait and runs onSleep(n) on the n-th.
+func stubModelCallSleep(t *testing.T, onSleep func(n int)) *[]time.Duration {
+	t.Helper()
+	var slept []time.Duration
+	saved := modelCallSleep
+	modelCallSleep = func(d time.Duration) {
+		slept = append(slept, d)
+		if onSleep != nil {
+			onSleep(len(slept))
+		}
+	}
+	t.Cleanup(func() { modelCallSleep = saved })
+	return &slept
+}
+
 const stopInput = `{"session_id":"11111111-1111-4111-8111-111111111111","transcript_path":"/nowhere.jsonl",` +
 	`"cwd":"/Users/example","prompt_id":"p-1","permission_mode":"default","hook_event_name":"Stop",` +
 	`"stop_hook_active":false,"last_assistant_message":"OK","background_tasks":[],"session_crons":[]}`
@@ -40,25 +73,28 @@ func TestCmdModelCallReport(t *testing.T) {
 		return filepath.Join(cfg.AgentsRoot, "kyle", name)
 	}
 
-	t.Run("a Stop hook goes on the network only while a failure is newer than the last success it got accepted", func(t *testing.T) {
+	t.Run("a Stop hook sends its success when the station has none from the last 30s or a newer failure", func(t *testing.T) {
+		sentNow := []capturedPost{{
+			path: "/api/monitoring/telemetry", auth: "Bearer t",
+			body: `{"runtime":"claude","account":"au-1/org-1","account_label":"kyle@x.io(OffiCraft)",` +
+				`"machine":"lab-1","model_call":{"last_success_ts":1000.5}}`,
+		}}
 		cases := []struct {
 			name          string
 			failure, sent float64
 			wantPosts     []capturedPost
 			wantSent      string
 		}{
-			{
-				name: "a failure no success has cleared yet", failure: 980, sent: 950,
-				wantPosts: []capturedPost{{
-					path: "/api/monitoring/telemetry", auth: "Bearer t",
-					body: `{"runtime":"claude","account":"au-1/org-1","account_label":"kyle@x.io(OffiCraft)",` +
-						`"machine":"lab-1","model_call":{"last_success_ts":1000.5}}`,
-				}},
-				wantSent: "1000.5",
-			},
-			{name: "no failure ever recorded", failure: 0, sent: 0, wantSent: ""},
-			{name: "the clearing success was already accepted", failure: 980, sent: 990, wantSent: "990"},
-			{name: "a success sent at the failure's own time", failure: 980, sent: 980, wantSent: "980"},
+			{name: "never sent before", wantPosts: sentNow, wantSent: "1000.5"},
+			{name: "the last accepted success is older than 30s", sent: 960, wantPosts: sentNow, wantSent: "1000.5"},
+			{name: "the last accepted success is exactly 30s old", sent: 970.5, wantPosts: sentNow, wantSent: "1000.5"},
+			{name: "a failure newer than the success accepted 10s ago", failure: 995, sent: 990,
+				wantPosts: sentNow, wantSent: "1000.5"},
+			{name: "a success accepted 10s ago and no failure", sent: 990, wantSent: "990"},
+			{name: "a success accepted 10s ago, after the last failure", failure: 980, sent: 990, wantSent: "990"},
+			{name: "a success accepted at the failure's own time, 20s ago", failure: 980, sent: 980, wantSent: "980"},
+			{name: "an accepted success newer than this one is never moved back", failure: 3000, sent: 2000,
+				wantPosts: sentNow, wantSent: "2000"},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
@@ -137,9 +173,10 @@ func TestCmdModelCallReport(t *testing.T) {
 		srv, posts := contextServer(t)
 		cfg := newCfg(t, srv.URL)
 		writeModelCallTime(memberFile(cfg, "model_call.success"), 900)
+		slept := stubModelCallSleep(t, nil)
 		var errOut bytes.Buffer
 
-		rc := cmdModelCallReport(srv.Client(), cfg, env, 1000.5,
+		rc := cmdModelCallReport(srv.Client(), cfg, env, fixtureHookStart,
 			strings.NewReader(stopFailureInput("rate_limit", fixturePath(t, "sample-rate-limit.jsonl"))), &errOut)
 
 		if rc != 0 {
@@ -149,14 +186,17 @@ func TestCmdModelCallReport(t *testing.T) {
 			path: "/api/monitoring/telemetry",
 			auth: "Bearer t",
 			body: `{"runtime":"claude","account":"au-1/org-1","account_label":"kyle@x.io(OffiCraft)",` +
-				`"machine":"lab-1","model_call":{"last_failure":{"ts":1000.5,"kind":"rate_limit",` +
+				`"machine":"lab-1","model_call":{"last_failure":{"ts":1790850886.3,"kind":"rate_limit",` +
 				`"code":"rate_limit","resets_at":1790854200},"last_success_ts":900}}`,
 		}}
 		if !reflect.DeepEqual(*posts, want) {
 			t.Errorf("sent\n  %+v\nwant\n  %+v", *posts, want)
 		}
-		if got := readFileString(t, memberFile(cfg, "model_call.failure")); got != "1000.5" {
-			t.Errorf("failure record = %q, want %q", got, "1000.5")
+		if len(*slept) != 0 {
+			t.Errorf("waited %v, want no wait for a row already written", *slept)
+		}
+		if got := readFileString(t, memberFile(cfg, "model_call.failure")); got != "1790850886.3" {
+			t.Errorf("failure record = %q, want %q", got, "1790850886.3")
 		}
 		if got := readFileString(t, memberFile(cfg, "model_call.success")); got != "900" {
 			t.Errorf("success record = %q, want it untouched at %q", got, "900")
@@ -197,73 +237,109 @@ func TestCmdModelCallReport(t *testing.T) {
 		}
 	})
 
-	t.Run("a rate limit whose reset time cannot be read is still reported, without one", func(t *testing.T) {
-		big := filepath.Join(t.TempDir(), "long.jsonl")
-		rateRow, err := os.ReadFile(fixturePath(t, "sample-rate-limit.jsonl"))
-		if err != nil {
-			t.Fatal(err)
+	t.Run("a rate limit carries the reset time of its own error row only", func(t *testing.T) {
+		const hookStart = fixtureHookStart + 60
+		writeTranscript := func(t *testing.T, rows ...[]byte) string {
+			path := filepath.Join(t.TempDir(), "transcript.jsonl")
+			if err := os.WriteFile(path, bytes.Join(rows, nil), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			return path
 		}
-		padding := strings.Repeat(`{"type":"user","message":"`+strings.Repeat("x", 1000)+`"}`+"\n", 300)
-		if err := os.WriteFile(big, append(rateRow, padding...), 0o644); err != nil {
-			t.Fatal(err)
-		}
+		padding := []byte(strings.Repeat(`{"type":"user","message":"`+strings.Repeat("x", 1000)+`"}`+"\n", 300))
+		ownRow := rateLimitRow(t, "2026-10-01T10:35:46.350Z", "1790860000")
+		olderRow := rateLimitRow(t, "2026-10-01T10:34:46.307Z", "1790854200")
 		otherRows, err := os.ReadFile(fixturePath(t, "sample-other-errors.jsonl"))
 		if err != nil {
 			t.Fatal(err)
 		}
-		olderQuota := filepath.Join(t.TempDir(), "older-quota.jsonl")
-		if err := os.WriteFile(olderQuota, append(append([]byte{}, rateRow...), otherRows...), 0o644); err != nil {
-			t.Fatal(err)
+		ownServerRow := []byte(strings.Replace(strings.SplitAfter(string(otherRows), "\n")[0],
+			`"timestamp": "2026-09-22T00:55:56.322Z"`, `"timestamp": "2026-10-01T10:35:46.350Z"`, 1))
+		thirtyWaits := make([]time.Duration, 30)
+		for i := range thirtyWaits {
+			thirtyWaits[i] = 100 * time.Millisecond
 		}
-		cases := []struct{ name, transcript string }{
-			{"an older error row's quota is not this failure's", olderQuota},
-			{"no transcript", filepath.Join(t.TempDir(), "missing.jsonl")},
-			{"the newest error row has no quota", fixturePath(t, "sample-other-errors.jsonl")},
-			{"the only quota row is beyond the tail that is read", big},
+
+		cases := []struct {
+			name       string
+			transcript func(t *testing.T) string
+			lateRow    []byte
+			wantResets string
+			wantSlept  []time.Duration
+		}{
+			{
+				name:       "only an older failure's row: no reset time, never the old one",
+				transcript: func(t *testing.T) string { return writeTranscript(t, olderRow) },
+				wantResets: "null", wantSlept: thirtyWaits,
+			},
+			{
+				name:       "its own row lands 50ms after the hook starts",
+				transcript: func(t *testing.T) string { return writeTranscript(t, olderRow) },
+				lateRow:    ownRow,
+				wantResets: "1790860000", wantSlept: []time.Duration{100 * time.Millisecond},
+			},
+			{
+				name:       "its own row never lands: no reset time after the wait",
+				transcript: func(t *testing.T) string { return filepath.Join(t.TempDir(), "missing.jsonl") },
+				wantResets: "null", wantSlept: thirtyWaits,
+			},
+			{
+				name:       "its own row is already there behind an older one",
+				transcript: func(t *testing.T) string { return writeTranscript(t, olderRow, ownRow) },
+				wantResets: "1790860000",
+			},
+			{
+				name:       "its own row carries no quota: no reset time, no wait",
+				transcript: func(t *testing.T) string { return writeTranscript(t, olderRow, ownServerRow) },
+				wantResets: "null",
+			},
+			{
+				name:       "its own row at the end of a transcript longer than the tail",
+				transcript: func(t *testing.T) string { return writeTranscript(t, padding, ownRow) },
+				wantResets: "1790860000",
+			},
+			{
+				name:       "its own row beyond the tail that is read",
+				transcript: func(t *testing.T) string { return writeTranscript(t, ownRow, padding) },
+				wantResets: "null", wantSlept: thirtyWaits,
+			},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
+				transcript := tc.transcript(t)
+				slept := stubModelCallSleep(t, func(n int) {
+					if n != 1 || tc.lateRow == nil {
+						return
+					}
+					f, err := os.OpenFile(transcript, os.O_APPEND|os.O_WRONLY, 0o644)
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer f.Close()
+					if _, err := f.Write(tc.lateRow); err != nil {
+						t.Fatal(err)
+					}
+				})
 				srv, posts := contextServer(t)
 				cfg := newCfg(t, srv.URL)
 				var errOut bytes.Buffer
 
-				rc := cmdModelCallReport(srv.Client(), cfg, env, 1000,
-					strings.NewReader(stopFailureInput("rate_limit", tc.transcript)), &errOut)
+				rc := cmdModelCallReport(srv.Client(), cfg, env, hookStart,
+					strings.NewReader(stopFailureInput("rate_limit", transcript)), &errOut)
 
 				want := `{"runtime":"claude","account":"au-1/org-1","account_label":"kyle@x.io(OffiCraft)",` +
-					`"machine":"lab-1","model_call":{"last_failure":{"ts":1000,"kind":"rate_limit",` +
-					`"code":"rate_limit","resets_at":null}}}`
+					`"machine":"lab-1","model_call":{"last_failure":{"ts":1790850946.3,"kind":"rate_limit",` +
+					`"code":"rate_limit","resets_at":` + tc.wantResets + `}}}`
 				if rc != 0 || len(*posts) != 1 || (*posts)[0].body != want {
 					t.Errorf("rc=%d sent %+v, want rc 0 and one body %s", rc, *posts, want)
+				}
+				if !reflect.DeepEqual(*slept, tc.wantSlept) {
+					t.Errorf("waited %v, want %v", *slept, tc.wantSlept)
 				}
 				if errOut.String() != "" {
 					t.Errorf("stderr = %q, want empty", errOut.String())
 				}
 			})
-		}
-	})
-
-	t.Run("the newest quota row is found at the end of a transcript longer than the tail", func(t *testing.T) {
-		big := filepath.Join(t.TempDir(), "long.jsonl")
-		rateRow, err := os.ReadFile(fixturePath(t, "sample-rate-limit.jsonl"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		padding := strings.Repeat(`{"type":"user","message":"`+strings.Repeat("x", 1000)+`"}`+"\n", 300)
-		if err := os.WriteFile(big, append([]byte(padding), rateRow...), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		srv, posts := contextServer(t)
-		cfg := newCfg(t, srv.URL)
-		var errOut bytes.Buffer
-
-		cmdModelCallReport(srv.Client(), cfg, env, 1000, strings.NewReader(stopFailureInput("rate_limit", big)), &errOut)
-
-		want := `{"runtime":"claude","account":"au-1/org-1","account_label":"kyle@x.io(OffiCraft)",` +
-			`"machine":"lab-1","model_call":{"last_failure":{"ts":1000,"kind":"rate_limit",` +
-			`"code":"rate_limit","resets_at":1790854200}}}`
-		if len(*posts) != 1 || (*posts)[0].body != want {
-			t.Errorf("sent %+v, want one body %s", *posts, want)
 		}
 	})
 

@@ -5,9 +5,10 @@ package main
 // API error only StopFailure. Both are fire-and-forget: the exit code and
 // stdout are ignored, so it always exits 0 and diagnostics go to stderr.
 //
-// Stop stays off the network except for the first success after a failure:
-// that one is sent at once, because context-report only runs when the status
-// line re-renders, which an idle member may never do again.
+// Stop sends its success at once when the station has none from the last
+// throttle window, or when a failure is newer than the last success it has:
+// context-report only runs when the status line re-renders, which it does before
+// Stop and then never again on a member that goes idle.
 //
 // OC_BASE CLASSIFICATION: SIGNAL ONLY — stderr line, never a refusal: a refusal
 // would drop the one failure report this turn produces.
@@ -32,6 +33,18 @@ const modelCallTelemetryPath = "/api/monitoring/telemetry"
 // Shorter than httpTimeout: nothing reads the answer, so a hung station should
 // not keep a hook process alive for long.
 const modelCallReportTimeout = 5 * time.Second
+
+// The harness writes this failure's error row to the transcript AFTER the
+// hook starts (measured 15–38ms), so an older row is never this failure's and
+// the newer one is waited for. The slack absorbs the row's own timestamp being
+// taken a little before the hook.
+const (
+	transcriptErrorRowSlackSecs = 5.0
+	transcriptPollInterval      = 100 * time.Millisecond
+	transcriptPollAttempts      = 30
+)
+
+var modelCallSleep = time.Sleep
 
 // Only the tail is read: transcripts grow without bound, and the error row the
 // harness just wrote is the last thing in the file.
@@ -91,7 +104,7 @@ func cmdModelCallReport(client httpClient, cfg Config, env func(string) string, 
 	switch in.HookEventName {
 	case "Stop":
 		writeModelCallTime(modelCallSuccessPath(cfg), now)
-		reportClearingSuccess(client, cfg, env, now, errOut)
+		reportStopSuccess(client, cfg, env, now, errOut)
 	case "StopFailure":
 		reportModelCallFailure(client, cfg, env, now, in, errOut)
 	}
@@ -105,7 +118,7 @@ func reportModelCallFailure(client httpClient, cfg Config, env func(string) stri
 	}
 	failure := modelCallFailure{Ts: now, Kind: claudeModelCallKind(code), Code: code}
 	if failure.Kind == "rate_limit" {
-		failure.ResetsAt = transcriptQuotaResetsAt(in.TranscriptPath)
+		failure.ResetsAt = awaitTranscriptQuotaResetsAt(in.TranscriptPath, now-transcriptErrorRowSlackSecs)
 	}
 	writeModelCallTime(modelCallFailurePath(cfg), now)
 
@@ -120,10 +133,10 @@ func reportModelCallFailure(client httpClient, cfg Config, env func(string) stri
 	postModelCall(client, cfg, newModelCallBody(env, report), errOut)
 }
 
-func reportClearingSuccess(client httpClient, cfg Config, env func(string) string, success float64, errOut io.Writer) {
-	failure, failed := readModelCallTime(modelCallFailurePath(cfg))
+func reportStopSuccess(client httpClient, cfg Config, env func(string) string, success float64, errOut io.Writer) {
 	sent, _ := readModelCallTime(modelCallSuccessSentPath(cfg))
-	if !failed || failure <= sent {
+	failure, _ := readModelCallTime(modelCallFailurePath(cfg))
+	if success-sent < reportThrottleSecs && failure <= sent {
 		return
 	}
 	_ = warnMissingBase(cfg, "model-call-report", errOut)
@@ -131,7 +144,7 @@ func reportClearingSuccess(client httpClient, cfg Config, env func(string) strin
 		return
 	}
 	if postModelCall(client, cfg, newModelCallBody(env, modelCallReport{LastSuccessTs: &success}), errOut) {
-		writeModelCallTime(modelCallSuccessSentPath(cfg), success)
+		recordSuccessSent(cfg, success)
 	}
 }
 
@@ -155,21 +168,35 @@ func postModelCall(client httpClient, cfg Config, body modelCallBody, errOut io.
 	return false
 }
 
-// The reset time is only in the transcript: the harness's last
-// isApiErrorMessage row carries quotaLimits.resetsAt (epoch seconds). Anything
-// unreadable is "the runtime did not say", never an error.
-func transcriptQuotaResetsAt(path string) *float64 {
+// The reset time is only in the transcript: the harness's isApiErrorMessage row
+// carries quotaLimits.resetsAt (epoch seconds). Anything unreadable, or no row
+// for this failure within the wait, is "the runtime did not say", never an error.
+func awaitTranscriptQuotaResetsAt(path string, notBefore float64) *float64 {
+	for attempt := 0; ; attempt++ {
+		if resetsAt, found := transcriptQuotaResetsAt(path, notBefore); found {
+			return resetsAt
+		}
+		if attempt == transcriptPollAttempts {
+			return nil
+		}
+		modelCallSleep(transcriptPollInterval)
+	}
+}
+
+// found is false until the newest error row is one written at or after
+// notBefore.
+func transcriptQuotaResetsAt(path string, notBefore float64) (resetsAt *float64, found bool) {
 	if path == "" {
-		return nil
+		return nil, false
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		return nil
+		return nil, false
 	}
 	defer f.Close()
 	info, err := f.Stat()
 	if err != nil || info.IsDir() {
-		return nil
+		return nil, false
 	}
 	start := info.Size() - transcriptTailBytes
 	if start < 0 {
@@ -177,7 +204,7 @@ func transcriptQuotaResetsAt(path string) *float64 {
 	}
 	tail := make([]byte, info.Size()-start)
 	if _, err := f.ReadAt(tail, start); err != nil && err != io.EOF {
-		return nil
+		return nil, false
 	}
 	lines := bytes.Split(tail, []byte("\n"))
 	if start > 0 {
@@ -185,7 +212,8 @@ func transcriptQuotaResetsAt(path string) *float64 {
 	}
 	for i := len(lines) - 1; i >= 0; i-- {
 		var row struct {
-			IsAPIErrorMessage bool `json:"isApiErrorMessage"`
+			IsAPIErrorMessage bool      `json:"isApiErrorMessage"`
+			Timestamp         time.Time `json:"timestamp"`
 			QuotaLimits       struct {
 				ResetsAt *float64 `json:"resetsAt"`
 			} `json:"quotaLimits"`
@@ -193,9 +221,12 @@ func transcriptQuotaResetsAt(path string) *float64 {
 		if json.Unmarshal(lines[i], &row) != nil || !row.IsAPIErrorMessage {
 			continue
 		}
-		return row.QuotaLimits.ResetsAt
+		if float64(row.Timestamp.UnixNano())/1e9 < notBefore {
+			return nil, false
+		}
+		return row.QuotaLimits.ResetsAt, true
 	}
-	return nil
+	return nil, false
 }
 
 func modelCallSuccessPath(cfg Config) string {
@@ -206,10 +237,18 @@ func modelCallFailurePath(cfg Config) string {
 	return filepath.Join(filepath.Dir(reportStampPath(cfg)), "model_call.failure")
 }
 
-// The newest success time the Stop hook got accepted: once it is newer than the
-// last failure, Stop goes back to staying off the network.
+// The newest success time the station has accepted, from either Stop or
+// context-report; only ever moves forward (recordSuccessSent).
 func modelCallSuccessSentPath(cfg Config) string {
 	return filepath.Join(filepath.Dir(reportStampPath(cfg)), "model_call.success_sent")
+}
+
+func recordSuccessSent(cfg Config, success float64) {
+	path := modelCallSuccessSentPath(cfg)
+	if sent, ok := readModelCallTime(path); ok && sent >= success {
+		return
+	}
+	writeModelCallTime(path, success)
 }
 
 func readModelCallTime(path string) (float64, bool) {

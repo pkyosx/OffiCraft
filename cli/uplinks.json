@@ -44,7 +44,7 @@
       "path": "/api/monitoring/telemetry",
       "request_schema": "#/components/schemas/AgentTelemetryIngestDTO",
       "wire_test": "cli/ocagent/modelcallreport_wire_test.go",
-      "wire_needle": "drive(\"failure\", stopFailureInput(\"rate_limit\", fixturePath(t, \"sample-rate-limit.jsonl\")))",
+      "wire_needle": "drive(\"failure\", fixtureHookStart, stopFailureInput(\"rate_limit\", fixturePath(t, \"sample-rate-limit.jsonl\")))",
       "wire_case": "failure"
     },
     {
@@ -56,7 +56,7 @@
       "path": "/api/monitoring/telemetry",
       "request_schema": "#/components/schemas/AgentTelemetryIngestDTO",
       "wire_test": "cli/ocagent/modelcallreport_wire_test.go",
-      "wire_needle": "drive(\"clearing-success\", stopInput)",
+      "wire_needle": "drive(\"clearing-success\", 1790850900.5, stopInput)",
       "wire_case": "clearing-success"
     },
     {
@@ -69,9 +69,9 @@
     {
       "id": "ocagent-model-call-stop-hop",
       "source": "cli/ocagent/modelcallreport.go",
-      "callsite": "reportClearingSuccess(client, cfg, env, now, errOut)",
+      "callsite": "reportStopSuccess(client, cfg, env, now, errOut)",
       "kind": "seam",
-      "seam_reason": "hop: a Stop hook reaches ocagent-model-call-clearing-success, and only while a failure is newer than the last success it got accepted; otherwise it sends nothing."
+      "seam_reason": "hop: a Stop hook reaches ocagent-model-call-clearing-success when the station has no accepted success from the last throttle window, or a failure is newer than the one it has; otherwise it sends nothing."
     },
     {
       "id": "ocagent-request-seam",

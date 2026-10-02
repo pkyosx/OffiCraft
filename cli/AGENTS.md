@@ -34,7 +34,7 @@
 
 - `context-report` 的 30 秒 stamp 表示「上一輪 POST 全部被 server 接受」；只在成功後寫，失敗不可蓋健康戳。退避另存每 agent 一份 `context_report.backoff`，連續失敗從 30 秒倍增至 300 秒封頂；status 0 的連線故障也算失敗，成功立即清退避。讀檔壞／缺要 fail-open。
 - session effort 取 statusLine payload 的 live `effort.level`（成員的啟動環境不帶 effort）；model 送 `model.id`，不是 display name。兩者只送 `/api/monitoring/telemetry`，空值省略，不能塞進 `AgentContextIngestDTO`，也不能 fallback 回 roster/config。reported value 是 monitoring 的現況，不是 outsource editor 的 owner intent。
-- 模型呼叫的成功／失敗時間：Claude 成員由 `Stop`／`StopFailure` hook 跑 `ocagent model-call-report`。`StopFailure` 當下送 telemetry 的 `model_call.last_failure`；`Stop` 寫本機成功時間，只有在本機最後失敗比上次被接受的清除用成功（`model_call.success_sent`）新時才當下送一則 `last_success_ts`，其餘不連網——不要靠 `context-report` 清警告，閒著的成員不會再重繪狀態列。成功時間平常搭 `context-report` 的 telemetry，節流不變。Codex 由 sidecar 的 `turn/completed` 判定，`interrupted` 兩邊都不算。
+- 模型呼叫的成功／失敗時間：Claude 成員由 `Stop`／`StopFailure` hook 跑 `ocagent model-call-report`。`StopFailure` 當下送 `model_call.last_failure`；rate_limit 的 `resets_at` 只取**這一次**的錯誤行（transcript 時間戳不早於 hook 開始前幾秒），那一行在 hook 開始後才寫入，所以短暫輪詢檔尾，等不到給 null，舊錯誤行一律不用。`Stop` 寫本機成功時間後，若站台最後接受的成功（`model_call.success_sent`）已超過 30 秒或從沒送過、或本機最後失敗比它新，就當下送一則 `last_success_ts`；`context-report` 每次送達帶成功時間的 telemetry 也寫 `success_sent`，兩條路只取最大值。不要改回只靠 `context-report`：它在一輪結束前先跑，閒著的成員之後不會再重繪狀態列。Codex 由 sidecar 的 `turn/completed` 判定，`interrupted` 兩邊都不算。
 - warden 的 `dispatched … OK` 只在 command receipt 真的送達 server 時可印。若 op 已執行但 receipt 未送達，印 executed-but-undelivered；op 本身失敗永遠優先於 receipt transport error。UNINSTALL 的 receipt 仍是硬條件，不能改成 best-effort。
 
 ## 5. agent listener 與 worker session

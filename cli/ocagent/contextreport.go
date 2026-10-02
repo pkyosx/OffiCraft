@@ -107,7 +107,8 @@ func cmdContextReport(client httpClient, cfg Config, env func(string) string, no
 			if machine := machineID(env); machine != "" {
 				body.Machine = machine
 			}
-			if success, ok := readModelCallTime(modelCallSuccessPath(cfg)); ok {
+			success, haveSuccess := readModelCallTime(modelCallSuccessPath(cfg))
+			if haveSuccess {
 				body.ModelCall = &modelCallReport{LastSuccessTs: &success}
 			}
 			delivered = reportPost(client, cfg, "/api/monitoring/telemetry", body, errOut) && delivered
@@ -119,6 +120,9 @@ func cmdContextReport(client httpClient, cfg Config, env func(string) string, no
 			if delivered {
 				writeReportStamp(stamp, now)
 				clearReportBackoff(backoffFile)
+				if haveSuccess {
+					recordSuccessSent(cfg, success)
+				}
 			} else {
 				writeReportBackoff(backoffFile, reportBackoffState{
 					failures: backoff.failures + 1, lastAttempt: now,
