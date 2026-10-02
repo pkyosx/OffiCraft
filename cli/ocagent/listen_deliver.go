@@ -67,9 +67,9 @@ func listenSink(out, errOut io.Writer, env func(string) string, deliverTmux, del
 	return w, w.start(), true
 }
 
-// 🔴 A function so tests can pin the wiring: independent review made the flag
-// switch ignore listenSink's answers and the package stayed green while
-// --deliver-tmux silently became a no-op.
+// ⚠️ Keep the flag switch going through listenSink: handing start the raw out
+// instead leaves every package test of the writers green while the member hears
+// nothing (TestRunListen pins it).
 func cmdListen(argv []string, cfg Config, env func(string) string, out, errOut io.Writer,
 	start func(Config, func(string) string, bool, io.Writer) int, run tmuxRun) int {
 	fs := flag.NewFlagSet("ocagent listen", flag.ContinueOnError)
@@ -165,8 +165,10 @@ type bootConnectFilter struct {
 	firstConnectSettled bool
 }
 
-// The connect that opens a BOOT is swallowed (the member is mid boot turn);
-// later connects mean "the stream is back" and are forwarded.
+// The connect that opens a BOOT is swallowed: the boot turn is already running
+// or queued (pasted by the warden, or submitted by the mod before it starts the
+// listener) and reads the station itself. Later connects mean "the stream is
+// back" and are forwarded.
 //
 // 🔴 "Opens a boot" ≠ "first connect printed": if the first dial fails, the
 // forwarded disconnect notice promised the member that the next

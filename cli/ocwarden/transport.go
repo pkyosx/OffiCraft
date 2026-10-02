@@ -413,8 +413,12 @@ func buildSpawnDeps(cfg Config, env func(string) string, runner CmdRunner, socke
 		Symlink:           os.Symlink,
 		Remove:            os.Remove,
 		Exists:            pathStatable,
-		Sleep:             time.Sleep,
-		Pretrust:          nil,
+		ReapWorkdirListeners: func(workdir string) (int, bool) {
+			pids := ocagentPIDsByCwd(runner, workdir)
+			return len(pids), sweepPIDs(pids, realKill, time.Sleep)
+		},
+		Sleep:    time.Sleep,
+		Pretrust: nil,
 	}
 }
 

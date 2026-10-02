@@ -27,8 +27,9 @@ import (
 // the listener probes its own tmux session (makeSessionProbe, folded in
 // listen_run.go) and exits once it is gone, or unverifiable for too long.
 //
-// Every line printed on out reaches the agent: claude reads it via Monitor;
-// codex via the ocwarden sidecar, which swallows "[ocagent] listen:" lines
+// Every line printed on out reaches the agent: a claude member through its
+// notification mod or the paste listener (listen_deliver.go); codex via the
+// ocwarden sidecar, which swallows "[ocagent] listen:" lines
 // (except the transport notices; actionableCodexListenerLine) and turns every
 // other line into a model turn.
 //

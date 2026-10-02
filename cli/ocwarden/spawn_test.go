@@ -43,6 +43,10 @@ type spawnHarness struct {
 	// present answers the Exists seam; every path asked is recorded.
 	present map[string]bool
 	asked   []string
+	// reaped answers the leftover-listener reap, which is recorded in the runner's
+	// call list so its order against the launch shows.
+	reaped    int
+	reapStuck bool
 }
 
 func (h *spawnHarness) deps() SpawnDeps {
@@ -89,6 +93,10 @@ func (h *spawnHarness) deps() SpawnDeps {
 		Exists: func(path string) bool {
 			h.asked = append(h.asked, path)
 			return h.present[path]
+		},
+		ReapWorkdirListeners: func(workdir string) (int, bool) {
+			h.runner.calls = append(h.runner.calls, "reap "+workdir)
+			return h.reaped, !h.reapStuck
 		},
 		Logf:       func(format string, a ...any) { h.logs = append(h.logs, fmt.Sprintf(format, a...)) },
 		Pretrust:   func() error { h.pretrusts++; return h.pretrustE },
@@ -152,9 +160,11 @@ func notifyModWrites(t *testing.T) []writtenFile {
 		{"/w/m1/.officraft-mod/hooks/register.ts", notifyModFile(t, "hooks/register.ts"), 0o600},
 		// Every name the mod uses comes from here; it spells none of them itself.
 		{"/w/m1/.officraft-mod/officraft.json",
-			`{"loaded_marker":"/w/m1/.officraft-mod-loaded","disabled_marker":"/w/m1/.officraft-mod-disabled",` +
-				`"ack_file":"/w/m1/.officraft-listen-ack","listener":{"argv":["/w/m1/ocagent","listen","--deliver-mod"],` +
-				`"cwd":"/w/m1","env":{"OC_LISTEN_ACK":"1","OC_LISTEN_ACK_FILE":"/w/m1/.officraft-listen-ack"}}}` + "\n",
+			`{"boot_prompt":"開始。","loaded_marker":"/w/m1/.officraft-mod-loaded",` +
+				`"disabled_marker":"/w/m1/.officraft-mod-disabled","ack_file":"/w/m1/.officraft-listen-ack",` +
+				`"ready_prefixes":["[ocagent] listen: connected","[ocagent] listen: disconnected"],` +
+				`"listener":{"argv":["/w/m1/ocagent","listen","--deliver-mod"],"cwd":"/w/m1",` +
+				`"env":{"OC_LISTEN_ACK":"1","OC_LISTEN_ACK_FILE":"/w/m1/.officraft-listen-ack"}}}` + "\n",
 			0o600},
 	}
 }
@@ -1262,29 +1272,32 @@ func TestStart(t *testing.T) {
 			t.Errorf("pretrusts=%d purges=%d, want 1/1", h.pretrusts, h.purges)
 		}
 		// The paste listener a previous warden may have left is killed; none is started.
-		wantCalls := append([]string{
+		wantCalls := []string{
 			"tmux -L officraft has-session -t member-m1",
 			"/usr/local/bin/claude --version",
 			"tmux -L officraft kill-session -t listen-m1",
+			"reap /w/m1",
 			"tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 " + goldenLaunchM1,
 			"tmux -L officraft set-option -t member-m1 window-size manual",
 			"tmux -L officraft resize-window -t member-m1 -x 160 -y 50",
-		}, nudgeCalls()...)
-		wantCalls = append(wantCalls, "tmux -L officraft display-message -p -t member-m1 #{pane_pid}")
+			// Nothing is pasted: the mod submits the boot prompt itself.
+			"tmux -L officraft display-message -p -t member-m1 #{pane_pid}",
+		}
 		if !reflect.DeepEqual(h.runner.calls, wantCalls) {
 			t.Errorf("calls =\n%v\nwant\n%v", h.runner.calls, wantCalls)
 		}
 		if want := []string{"/w/m1/.officraft-mod-loaded"}; !reflect.DeepEqual(h.asked, want) {
 			t.Errorf("exists asked = %v, want %v", h.asked, want)
 		}
-		if strings.Contains(h.runner.calls[3], "--settings /w/m1/settings.json") {
+		if strings.Contains(h.runner.calls[4], "--settings /w/m1/settings.json") {
 			t.Fatal("the launch still reads a workdir settings file that can be changed after the pre-trust gate")
 		}
-		if !strings.Contains(h.runner.calls[3], "--settings "+shellQuote(goldenInlineSettings)) {
+		if !strings.Contains(h.runner.calls[4], "--settings "+shellQuote(goldenInlineSettings)) {
 			t.Fatal("the generated settings must ride the launch argv as inline JSON")
 		}
-		if len(h.slept) != 30 {
-			t.Errorf("slept %d times, want 30", len(h.slept))
+		// The nudge loop's own 30 × 1 s, now spent waiting for the mod.
+		if want := slices.Repeat([]time.Duration{time.Second}, 30); !reflect.DeepEqual(h.slept, want) {
+			t.Errorf("slept %v, want %v", h.slept, want)
 		}
 		if len(h.logs) != 0 {
 			t.Errorf("logs = %v, want none", h.logs)
@@ -1320,6 +1333,7 @@ func TestStart(t *testing.T) {
 			"tmux -L officraft has-session -t member-m1",
 			"/usr/local/bin/claude --version",
 			"tmux -L officraft kill-session -t listen-m1",
+			"reap /w/m1",
 			"tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 " + goldenLaunchM1Paste,
 			"tmux -L officraft set-option -t member-m1 window-size manual",
 			"tmux -L officraft resize-window -t member-m1 -x 160 -y 50",
@@ -1365,6 +1379,7 @@ func TestStart(t *testing.T) {
 			"tmux -L officraft has-session -t member-m1",
 			"/usr/local/bin/claude --version",
 			"tmux -L officraft kill-session -t listen-m1",
+			"reap /w/m1",
 			"tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 " + goldenLaunchM1,
 			"tmux -L officraft set-option -t member-m1 window-size manual",
 			"tmux -L officraft resize-window -t member-m1 -x 160 -y 50",
@@ -1377,11 +1392,36 @@ func TestStart(t *testing.T) {
 		if !reflect.DeepEqual(h.runner.calls, wantCalls) {
 			t.Errorf("calls =\n%v\nwant\n%v", h.runner.calls, wantCalls)
 		}
-		if len(h.slept) != 30 {
-			t.Errorf("slept %d times, want 30: the fallback adds no wait", len(h.slept))
+		// The wait for the mod, then the nudge pasted as on the paste route.
+		if want := slices.Repeat([]time.Duration{time.Second}, 60); !reflect.DeepEqual(h.slept, want) {
+			t.Errorf("slept %v, want %v", h.slept, want)
 		}
 		if want := []string{"m1: the notification mod did not load; notifications go by tmux paste"}; !reflect.DeepEqual(h.logs, want) {
 			t.Errorf("logs = %v, want %v", h.logs, want)
+		}
+	})
+
+	t.Run("under leftover ocagent processes in the workdir, they are reaped before the launch and logged", func(t *testing.T) {
+		for _, tc := range []struct {
+			name  string
+			stuck bool
+			log   string
+		}{
+			{"reaped", false, "m1: reaped 2 leftover ocagent process(es) in /w/m1"},
+			{"still alive", true, "m1: 2 leftover ocagent process(es) in /w/m1 did not exit; spawning anyway"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				h := newSpawnHarness()
+				h.reaped, h.reapStuck = 2, tc.stuck
+				got := h.deps().start(startParamsM1())
+
+				if want := (SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500"}); got != want {
+					t.Errorf("outcome = %+v, want %+v", got, want)
+				}
+				if want := []string{tc.log}; !reflect.DeepEqual(h.logs, want) {
+					t.Errorf("logs = %v, want %v", h.logs, want)
+				}
+			})
 		}
 	})
 
@@ -1455,8 +1495,8 @@ func TestStart(t *testing.T) {
 				if got := d.start(startParamsM1()); !got.OK {
 					t.Fatalf("outcome = %+v, want OK", got)
 				}
-				if h.runner.calls[3] != wantLaunch {
-					t.Errorf("launch call =\n%s\nwant\n%s", h.runner.calls[3], wantLaunch)
+				if h.runner.calls[4] != wantLaunch {
+					t.Errorf("launch call =\n%s\nwant\n%s", h.runner.calls[4], wantLaunch)
 				}
 				for _, w := range h.writes {
 					if w.path == "/w/m1/system-prompt.md" {
@@ -1550,8 +1590,8 @@ func TestStart(t *testing.T) {
 			`--mcp-config /w/m1/.mcp.json --effort high ` +
 			`--append-system-prompt-file /w/m1/system-prompt.md --model opus --settings ` + shellQuote(goldenInlineSettings) +
 			` --plugin-dir /w/m1/.officraft-mod`
-		if h.runner.calls[3] != wantLaunch {
-			t.Errorf("launch call =\n%s\nwant\n%s", h.runner.calls[3], wantLaunch)
+		if h.runner.calls[4] != wantLaunch {
+			t.Errorf("launch call =\n%s\nwant\n%s", h.runner.calls[4], wantLaunch)
 		}
 		for _, line := range h.logs {
 			if strings.Contains(line, "ghp_abc") {
@@ -1898,9 +1938,12 @@ func TestStart(t *testing.T) {
 			}
 		}
 		for _, w := range h.writes {
-			if w.path == "/w/m1/system-prompt.md" {
+			if w.path == "/w/m1/system-prompt.md" || strings.Contains(w.path, ".officraft-mod") {
 				t.Errorf("a codex spawn wrote %s", w.path)
 			}
+		}
+		if want := []string{"/w/m1"}; !reflect.DeepEqual(h.mkdirs, want) {
+			t.Errorf("mkdirs = %v, want %v: a codex spawn gets no notification mod", h.mkdirs, want)
 		}
 		if len(h.slept) != 0 {
 			t.Errorf("slept %v, want none", h.slept)
@@ -2013,8 +2056,8 @@ func TestStart(t *testing.T) {
 		if want := (SpawnOutcome{OK: true, SessionID: "custom-session", PID: "700"}); got != want {
 			t.Errorf("outcome = %+v, want %+v", got, want)
 		}
-		if !strings.Contains(h.runner.calls[3], "OC_SESSION=custom-session") {
-			t.Errorf("launch call =\n%s\nwant the custom session", h.runner.calls[3])
+		if !strings.Contains(h.runner.calls[4], "OC_SESSION=custom-session") {
+			t.Errorf("launch call =\n%s\nwant the custom session", h.runner.calls[4])
 		}
 		prompt := ""
 		for _, w := range h.writes {

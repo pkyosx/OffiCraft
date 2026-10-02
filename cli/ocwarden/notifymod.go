@@ -49,18 +49,27 @@ type notifyModListener struct {
 }
 
 type notifyModConfig struct {
-	LoadedMarker   string            `json:"loaded_marker"`
-	DisabledMarker string            `json:"disabled_marker"`
-	AckFile        string            `json:"ack_file"`
-	Listener       notifyModListener `json:"listener"`
+	// Submitted by the mod BEFORE it starts the listener, so the boot is the
+	// member's first turn and a backlog the listener prints queues behind it.
+	BootPrompt     string `json:"boot_prompt"`
+	LoadedMarker   string `json:"loaded_marker"`
+	DisabledMarker string `json:"disabled_marker"`
+	AckFile        string `json:"ack_file"`
+	// The mod writes the load marker only once the listener printed a frame or a
+	// line starting with one of these: a listener that refused to start prints
+	// neither, and the warden then falls back to pasting.
+	ReadyPrefixes []string          `json:"ready_prefixes"`
+	Listener      notifyModListener `json:"listener"`
 }
 
-func buildNotifyModConfig(workdir string) string {
+func buildNotifyModConfig(workdir, bootPrompt string) string {
 	ackFile := filepath.Join(workdir, notifyModAckFile)
 	b, _ := json.Marshal(notifyModConfig{
+		BootPrompt:     bootPrompt,
 		LoadedMarker:   filepath.Join(workdir, notifyModLoadedMarker),
 		DisabledMarker: filepath.Join(workdir, notifyModDisabledMarker),
 		AckFile:        ackFile,
+		ReadyPrefixes:  []string{noticeConnectedPrefix, noticeDisconnectedPrefix},
 		Listener: notifyModListener{
 			Argv: []string{filepath.Join(workdir, "ocagent"), "listen", "--deliver-mod"},
 			Cwd:  workdir,
@@ -121,7 +130,7 @@ func parseDottedVersion(v string) ([]int, bool) {
 // Rewritten on every spawn. Both markers are cleared first: a loaded marker left
 // by the previous session would pass the check below for a mod that never loaded,
 // and a disabled one would keep a mod that does load from starting its listener.
-func (d SpawnDeps) installNotifyMod(workdir string) string {
+func (d SpawnDeps) installNotifyMod(workdir, bootPrompt string) string {
 	for _, marker := range []string{notifyModLoadedMarker, notifyModDisabledMarker} {
 		if err := d.Remove(filepath.Join(workdir, marker)); err != nil && !os.IsNotExist(err) {
 			return fmt.Sprintf("write_file_failed: clearing stale %s: %v", marker, err)
@@ -141,7 +150,7 @@ func (d SpawnDeps) installNotifyMod(workdir string) string {
 			return fmt.Sprintf("write_file_failed: %s/%s: %v", notifyModDirName, name, err)
 		}
 	}
-	if err := d.WriteFile(filepath.Join(dir, notifyModConfigFile), buildNotifyModConfig(workdir), 0o600); err != nil {
+	if err := d.WriteFile(filepath.Join(dir, notifyModConfigFile), buildNotifyModConfig(workdir, bootPrompt), 0o600); err != nil {
 		return fmt.Sprintf("write_file_failed: %s/%s: %v", notifyModDirName, notifyModConfigFile, err)
 	}
 	return ""
@@ -157,5 +166,30 @@ func (d SpawnDeps) disableNotifyMod(workdir string) {
 	marker := filepath.Join(workdir, notifyModDisabledMarker)
 	if err := d.WriteFile(marker, "the warden fell back to the tmux paste listener\n", 0o600); err != nil {
 		d.logf("could not write %s (%v); a late-loading mod would start a second listener", marker, err)
+	}
+}
+
+// Paced like the nudge loop it replaces on the mod route, so the spawn budget
+// (receiptDeadlineSecs) is unchanged.
+func waitForNotifyMod(sleep func(time.Duration)) {
+	sleep = nudgeClock(sleep)
+	for attempt := 0; attempt < nudgeMaxAttempts; attempt++ {
+		sleep(nudgeSettle)
+	}
+}
+
+// A mod's listener left by a session whose Claude Code died without taking its
+// child along would hold this member's identity beside the new one. Best effort,
+// like stop(): a failure is logged and the spawn goes on.
+func (d SpawnDeps) reapWorkdirListeners(memberID, workdir string) {
+	if d.ReapWorkdirListeners == nil {
+		return
+	}
+	found, cleared := d.ReapWorkdirListeners(workdir)
+	switch {
+	case found > 0 && cleared:
+		d.logf("%s: reaped %d leftover ocagent process(es) in %s", memberID, found, workdir)
+	case found > 0:
+		d.logf("%s: %d leftover ocagent process(es) in %s did not exit; spawning anyway", memberID, found, workdir)
 	}
 }
