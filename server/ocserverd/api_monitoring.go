@@ -837,10 +837,8 @@ type monitoringActor struct {
 	id      string
 	runtime string
 	host    string
-	banked  float64
-	// Deliberately not `live`: a released worker may still be spending (so it
-	// stays in the cost fold) but is not tallied as present on its box. Released
-	// is a worker's steady state, so this is false for most workers.
+	// Deliberately not `live`: a departed actor still attributes its account to
+	// its box but is not tallied as present there.
 	countsAsPresentAgent bool
 }
 
@@ -858,7 +856,7 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 		internalError(w, err)
 		return
 	}
-	var members []Member
+	var members, departed []Member
 	for _, m := range all {
 		// Asked with the SAME named predicate the lifecycle halves use
 		// (lifecycle_roster.go), which puts this handler under the parity test.
@@ -868,9 +866,11 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 		if lifecycleTickDriverFor(m) != driverReconcile {
 			continue
 		}
-		if m.RosterStatus != RosterStatusRemoved {
-			members = append(members, m)
+		if m.RosterStatus == RosterStatusRemoved {
+			departed = append(departed, m)
+			continue
 		}
+		members = append(members, m)
 	}
 	telemetry := s.telemetry.Snapshot()
 	gauge := s.gauge.Snapshot()
@@ -908,8 +908,8 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 	// members: members is driver-filtered and would miss every outsource session.
 	//
 	// ⚠️ Known, deliberately not addressed here: actors grows monotonically —
-	// ListOutsourceWorkers returns every outsource row ever created, and worker
-	// telemetry is never deleted.
+	// exits only mark the row, and telemetry is never deleted (only a restart
+	// clears it).
 	workers, err := s.dal.ListOutsourceWorkers()
 	if err != nil {
 		internalError(w, err)
@@ -918,24 +918,25 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 	actors := make([]monitoringActor, 0, len(members)+len(workers))
 	for _, m := range members {
 		actors = append(actors, monitoringActor{
-			id: m.ID, runtime: m.Runtime, host: s.observedHost(m), banked: m.BankedCost,
+			id: m.ID, runtime: m.Runtime, host: s.observedHost(m),
 
 			countsAsPresentAgent: true,
 		})
 	}
+	// ⚠️ Departed members and released workers are DELIBERATELY included (owner
+	// ruling rc-968d6f360cbe): their telemetry outlives the exit, and the raw-key
+	// loop at the end still lists its account, so an actor skipped here leaves
+	// that account card with no machine and no usage windows.
+	for _, m := range departed {
+		actors = append(actors, monitoringActor{
+			id: m.ID, runtime: m.Runtime, host: s.observedHost(m),
+		})
+	}
 	for _, wk := range workers {
-		// ⚠️ Released workers are DELIBERATELY included. The raw-key loop at the
-		// end mints an account row from any telemetry entry, so an actor it sees
-		// but this loop skips renders as a card of dashes. The member side's
-		// removed filter is not a precedent: a removed member's telemetry is
-		// deleted, a released worker's never is. Released is the steady state
-		// (every task close releases its worker), and spent money must not jump
-		// backwards when a task closes.
 		actors = append(actors, monitoringActor{
 			id:                   wk.ID,
 			runtime:              wk.Runtime,
 			host:                 s.observedWorkerHost(wk.ID, telemetry[wk.ID]),
-			banked:               wk.BankedCost,
 			countsAsPresentAgent: wk.Status != WorkerStatusReleased,
 		})
 	}
@@ -1093,9 +1094,11 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 		machines = append(machines, row)
 	}
 
+	// Over the roster's hosts, not acctByHost's: a departed actor's last box may
+	// have been removed since, and an account card must not name it.
 	acctHosts := map[string]map[string]bool{}
-	for host, accts := range acctByHost {
-		for account := range accts {
+	for _, host := range hosts {
+		for account := range acctByHost[host] {
 			if acctHosts[account] == nil {
 				acctHosts[account] = map[string]bool{}
 			}

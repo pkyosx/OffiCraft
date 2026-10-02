@@ -2029,6 +2029,124 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		})
 	})
 
+	t.Run("a departed staff member answers 200 with its account still naming the machine and usage it reported", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		kip := apiTestAgentToken(t, api, "kip", "m-server-self")
+		resetsAt := time.Now().Unix() + 3600
+		apiJSON(t, h, "POST", "/api/monitoring/telemetry", kip,
+			`{"runtime":"claude","account":"kip-claude","account_label":"kip@example.com","cost":2,`+
+				`"rate_limits":{"five_hour":{"used_percentage":10,"resets_at":`+strconv.FormatInt(resetsAt, 10)+`}}}`)
+		if status, data := apiJSON(t, h, "DELETE", "/api/members/kip", owner, ""); status != 200 {
+			t.Fatalf("dismiss kip: want 200, got %d (%v)", status, data)
+		}
+
+		status, data := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiTestSessionsByID(t, data, "mira", "m-server-self")
+		machine := apiTestMonitoringMachine()
+		machine["accounts"] = []any{"kip-claude"}
+		apiWantBody(t, data, map[string]any{
+			"sessions": data["sessions"],
+			"machines": []any{machine},
+			"accounts": []any{map[string]any{
+				"account":       "kip-claude",
+				"account_label": "kip@example.com",
+				"display_name":  "kip@example.com",
+				"machine":       "m-server-self",
+				"cost":          2,
+				"five_hour": map[string]any{
+					"used_pct":    10,
+					"resets_at":   float64(resetsAt),
+					"elapsed_pct": apiAnyNumber,
+					"measured_at": apiAnyNumber,
+					"pace":        "ok",
+				},
+				"seven_day": nil,
+			}},
+		})
+	})
+
+	t.Run("a released contractor answers 200 with its account still naming the machine and usage it reported", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
+		worker := apiTestAgentToken(t, api, "ow-abc123", "m-server-self")
+		resetsAt := time.Now().Unix() + 3600
+		apiJSON(t, h, "POST", "/api/monitoring/telemetry", worker,
+			`{"runtime":"claude","account":"ow-claude","account_label":"ow@example.com","cost":3,`+
+				`"rate_limits":{"five_hour":{"used_percentage":10,"resets_at":`+strconv.FormatInt(resetsAt, 10)+`}}}`)
+		released, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || released == nil {
+			t.Fatalf("GetOutsourceWorker: %v (%v)", released, err)
+		}
+		released.Status = WorkerStatusReleased
+		if err := d.PutOutsourceWorker(*released); err != nil {
+			t.Fatalf("PutOutsourceWorker: %v", err)
+		}
+
+		status, data := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiTestSessionsByID(t, data, "mira", "kip", "m-server-self")
+		machine := apiTestMonitoringMachine()
+		machine["accounts"] = []any{"ow-claude"}
+		apiWantBody(t, data, map[string]any{
+			"sessions": data["sessions"],
+			"machines": []any{machine},
+			"accounts": []any{map[string]any{
+				"account":       "ow-claude",
+				"account_label": "ow@example.com",
+				"display_name":  "ow@example.com",
+				"machine":       "m-server-self",
+				"cost":          3,
+				"five_hour": map[string]any{
+					"used_pct":    10,
+					"resets_at":   float64(resetsAt),
+					"elapsed_pct": apiAnyNumber,
+					"measured_at": apiAnyNumber,
+					"pace":        "ok",
+				},
+				"seven_day": nil,
+			}},
+		})
+	})
+
+	t.Run("a removed machine answers 200 with its account naming no machine", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		gone := Member{ID: "m-gone", Name: "gone-host", Codename: "gone-host", Kind: KindWarden,
+			RosterStatus: RosterStatusActive, ActivatedTS: 1}
+		if err := d.PutMember(gone); err != nil {
+			t.Fatalf("PutMember: %v", err)
+		}
+		warden := apiTestAgentToken(t, api, "m-gone", "m-gone")
+		apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden,
+			`{"runtime":"claude","account":"gone-claude","tokens":{"input":1}}`)
+		gone.RosterStatus = RosterStatusRemoved
+		if err := d.PutMember(gone); err != nil {
+			t.Fatalf("PutMember: %v", err)
+		}
+
+		status, data := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiTestSessionsByID(t, data, "mira", "kip", "m-server-self")
+		apiWantBody(t, data, map[string]any{
+			"sessions": data["sessions"],
+			"machines": []any{apiTestMonitoringMachine()},
+			"accounts": []any{map[string]any{
+				"account":      "gone-claude",
+				"display_name": "gone-claude",
+				"machine":      "",
+				"cost":         nil,
+				"five_hour":    nil,
+				"seven_day":    nil,
+			}},
+		})
+	})
+
 	t.Run("a machine alias answers 200 with the alias on the machine and account rows", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		if err := d.PutMachineAlias(MachineAlias{MachineID: "m-server-self", DisplayName: "伺服器這一台"}); err != nil {
