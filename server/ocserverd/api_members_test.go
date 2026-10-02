@@ -1641,11 +1641,17 @@ func TestHandleUpdateMemberApiMembersMemberIdPatch(t *testing.T) {
 			t.Fatalf("deactivate: %d %v", status, data)
 		}
 
+		before := apiTestMemberRow(t, d, "kip")
+		if before.StoppingSince <= 0 || before.DesiredState != DesiredStateOffline {
+			t.Fatalf("fixture: want a stop in flight, got stopping_since=%v desired=%q",
+				before.StoppingSince, before.DesiredState)
+		}
+
 		status, data := apiJSON(t, h, "PATCH", "/api/members/kip", owner, `{"model":"opus"}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		wantQueuedRestartReceipt(t, d, "kip", "runtime/model")
+		wantQueuedRestartRow(t, d, "kip", before, "runtime/model", func(m *Member) { m.Model = "opus" })
 	})
 
 	t.Run("a rename answers the member id and fans the delta to the dashboard and to that member's own connection", func(t *testing.T) {
@@ -1991,17 +1997,25 @@ func TestHandleActivateMemberApiMembersMemberIdActivatePost(t *testing.T) {
 
 // wantQueuedRestartReceipt reads the row a 重啟 verb pressed during a stop in flight
 // leaves behind: the stop stands, the 起來 is queued, and the receipt names the verb.
-func wantQueuedRestartReceipt(t *testing.T, d *DAL, id, op string) {
+// wantQueuedRestartRow compares the whole row against the one read before the verb:
+// the stop in flight keeps its stage and anchors, and only the saved change, the
+// queued 起來 and its receipt are new.
+func wantQueuedRestartRow(t *testing.T, d *DAL, id string, before Member, op string, saved func(*Member)) {
 	t.Helper()
-	m := apiTestMemberRow(t, d, id)
+	got := apiTestMemberRow(t, d, id)
+	if got.LastOpAt <= 0 {
+		t.Fatalf("last_op_at = %v, want the receipt's timestamp", got.LastOpAt)
+	}
 	ok := false
-	apiWantValue(t, "desired_state", any(m.DesiredState), any("offline"))
-	apiWantValue(t, "restart_after_stop", any(m.RestartAfterStop), any(true))
-	apiWantValue(t, "last_op", any(m.LastOp), any("start"))
-	apiWantValue(t, "last_op_ok", any(m.LastOpOK), any(&ok))
-	apiWantValue(t, "last_op_reason", any(m.LastOpReason), any("held_down: the "+op+" was saved "+
-		"and this member is still being stopped — the stop in flight is honoured as-is, and it "+
-		"will be started again once it is down"))
+	want := before
+	saved(&want)
+	want.RestartAfterStop = true
+	want.LastOp = "start"
+	want.LastOpOK = &ok
+	want.LastOpReason = "held_down: the " + op + " was saved and this member is still being " +
+		"stopped — the stop in flight is honoured as-is, and it will be started again once it is down"
+	want.LastOpAt = got.LastOpAt
+	apiTestWantEqual(t, "row after the queued 起來", got, want)
 }
 
 func TestHandleRelocateMemberApiMembersMemberIdRelocatePost(t *testing.T) {
@@ -2015,11 +2029,18 @@ func TestHandleRelocateMemberApiMembersMemberIdRelocatePost(t *testing.T) {
 			t.Fatalf("deactivate: %d %v", status, data)
 		}
 
-		status, data := apiJSON(t, h, "POST", "/api/members/kip/relocate", owner, `{"machine_id":"m-server-self"}`)
+		reconcileTestPut(t, d, Member{ID: "m-box", Name: "Box", Kind: KindWarden})
+		before := apiTestMemberRow(t, d, "kip")
+		if before.StoppingSince <= 0 || before.DesiredState != DesiredStateOffline || before.DesiredMachineID == "m-box" {
+			t.Fatalf("fixture: want a stop in flight off m-box, got stopping_since=%v desired=%q machine=%q",
+				before.StoppingSince, before.DesiredState, before.DesiredMachineID)
+		}
+
+		status, data := apiJSON(t, h, "POST", "/api/members/kip/relocate", owner, `{"machine_id":"m-box"}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		wantQueuedRestartReceipt(t, d, "kip", "relocate")
+		wantQueuedRestartRow(t, d, "kip", before, "relocate", func(m *Member) { m.DesiredMachineID = "m-box" })
 	})
 
 	t.Run("relocating a stopped member stores the pin and leaves the held-down receipt on the row", func(t *testing.T) {

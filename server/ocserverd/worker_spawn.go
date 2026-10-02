@@ -958,7 +958,7 @@ func (s *apiServer) openOwnerOpHandover(w OutsourceWorker, op string) bool {
 	}
 	if !armed {
 		outsourceLog("%s %s (%s): wind-down NOT re-opened — this worker is stopped, "+
-			"released, or already further along the ladder (下線 → 加速 → 強制) at %q; "+
+			"released, its wind-down is already collected, or it is further along the ladder (下線 → 加速 → 強制) at %q; "+
 			"the change is saved and what is open keeps its own deadline",
 			op, w.ID, w.Codename, fresh.RefocusOp)
 		return false
