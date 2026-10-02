@@ -80,7 +80,10 @@ export function OutsourceTaskLine({
             status={presenceVisual(w.presence)}
             testId={`${idPrefix}-presence-${w.id}`}
           />
-          <RuntimeLoginWarningMark warnings={w.runtimeLoginWarnings} />
+          <RuntimeLoginWarningMark
+            warnings={w.runtimeLoginWarnings}
+            modelCallWarnings={w.modelCallWarnings}
+          />
         </>
       )}
       {w.taskNo && (

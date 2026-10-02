@@ -36,6 +36,44 @@
       "wire_needle": "if bad := schemaViolations(tel.body, telemetryDeclared); len(bad) > 0 {"
     },
     {
+      "id": "ocagent-model-call-failure",
+      "source": "cli/ocagent/modelcallreport.go",
+      "callsite": "postModelCall(client, cfg, newModelCallBody(env, report), errOut)",
+      "kind": "json",
+      "method": "post",
+      "path": "/api/monitoring/telemetry",
+      "request_schema": "#/components/schemas/AgentTelemetryIngestDTO",
+      "wire_test": "cli/ocagent/modelcallreport_wire_test.go",
+      "wire_needle": "drive(\"failure\", stopFailureInput(\"rate_limit\", fixturePath(t, \"sample-rate-limit.jsonl\")))",
+      "wire_case": "failure"
+    },
+    {
+      "id": "ocagent-model-call-clearing-success",
+      "source": "cli/ocagent/modelcallreport.go",
+      "callsite": "if postModelCall(client, cfg, newModelCallBody(env, modelCallReport{LastSuccessTs: &success}), errOut) {",
+      "kind": "json",
+      "method": "post",
+      "path": "/api/monitoring/telemetry",
+      "request_schema": "#/components/schemas/AgentTelemetryIngestDTO",
+      "wire_test": "cli/ocagent/modelcallreport_wire_test.go",
+      "wire_needle": "drive(\"clearing-success\", stopInput)",
+      "wire_case": "clearing-success"
+    },
+    {
+      "id": "ocagent-model-call-post-seam",
+      "source": "cli/ocagent/modelcallreport.go",
+      "callsite": "status, detail := httpRequest(client, http.MethodPost, cfg.Base+modelCallTelemetryPath, cfg.Token, body)",
+      "kind": "seam",
+      "seam_reason": "postModelCall's own send: ocagent-model-call-failure and ocagent-model-call-clearing-success travel through it and are compared there."
+    },
+    {
+      "id": "ocagent-model-call-stop-hop",
+      "source": "cli/ocagent/modelcallreport.go",
+      "callsite": "reportClearingSuccess(client, cfg, env, now, errOut)",
+      "kind": "seam",
+      "seam_reason": "hop: a Stop hook reaches ocagent-model-call-clearing-success, and only while a failure is newer than the last success it got accepted; otherwise it sends nothing."
+    },
+    {
       "id": "ocagent-request-seam",
       "source": "cli/ocagent/http.go",
       "callsite": "req, err := http.NewRequest(method, url, body)",
@@ -235,7 +273,7 @@
     {
       "id": "codex-identity",
       "source": "cli/ocwarden/codex_session.go",
-      "callsite": "s.post(\"/api/monitoring/telemetry\", map[string]any{\n\t\t\"runtime\": \"codex\", \"account\": s.account, \"account_label\": \"ChatGPT\",\n\t})",
+      "callsite": "s.post(\"/api/monitoring/telemetry\", identity)",
       "kind": "json",
       "method": "post",
       "path": "/api/monitoring/telemetry",
@@ -243,6 +281,18 @@
       "wire_test": "cli/ocwarden/codex_uplink_wire_test.go",
       "wire_needle": "drive(\"identity\", session.reportIdentity)",
       "wire_case": "identity"
+    },
+    {
+      "id": "codex-model-call-failure",
+      "source": "cli/ocwarden/codex_session.go",
+      "callsite": "s.post(\"/api/monitoring/telemetry\", failureReport)",
+      "kind": "json",
+      "method": "post",
+      "path": "/api/monitoring/telemetry",
+      "request_schema": "#/components/schemas/AgentTelemetryIngestDTO",
+      "wire_test": "cli/ocwarden/codex_uplink_wire_test.go",
+      "wire_needle": "drive(\"model-call-failure\", func() {",
+      "wire_case": "model-call-failure"
     },
     {
       "id": "codex-context",
@@ -533,6 +583,20 @@
       "seam_reason": "hop: the context-report command reaches ocagent-context and ocagent-telemetry"
     },
     {
+      "id": "ocagent-cmd-model-call-report",
+      "source": "cli/ocagent/main.go",
+      "callsite": "return cmdModelCallReport(&http.Client{Timeout: modelCallReportTimeout}, cfg, env, now, in, os.Stderr)",
+      "kind": "seam",
+      "seam_reason": "hop: the model-call-report command reaches ocagent-model-call-failure and ocagent-model-call-clearing-success"
+    },
+    {
+      "id": "ocagent-model-call-report-hop",
+      "source": "cli/ocagent/modelcallreport.go",
+      "callsite": "reportModelCallFailure(client, cfg, env, now, in, errOut)",
+      "kind": "seam",
+      "seam_reason": "hop: a StopFailure hook reaches ocagent-model-call-failure"
+    },
+    {
       "id": "ocagent-cmd-2",
       "source": "cli/ocagent/main.go",
       "callsite": "return cmdListen(rest, cfg, env, out, runListen, nil)",
@@ -573,6 +637,13 @@
       "callsite": "s.reportRateLimits(rateLimitSnapshot(result))",
       "kind": "seam",
       "seam_reason": "hop to the codex rate-limit POST declared by codex-rate-limits"
+    },
+    {
+      "id": "codex-hop-turn-outcome",
+      "source": "cli/ocwarden/codex_session.go",
+      "callsite": "s.recordTurnOutcome(params)",
+      "kind": "seam",
+      "seam_reason": "hop to the codex failure POST declared by codex-model-call-failure; a completed turn only records its time for codex-identity"
     },
     {
       "id": "codex-hop-7",

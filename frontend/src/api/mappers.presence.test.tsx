@@ -35,6 +35,8 @@ function mkWireMember(over: Partial<WireMember>): WireMember {
     actual_effort: "",
     actual_machine: "",
     runtime_login_warnings: [],
+    model_call_warnings: [],
+    model_call_last_success_ts: 0,
     refocus_op: "",
     refocus_deadline: 0,
     effort: "medium",
@@ -143,6 +145,64 @@ describe("presence narrowing at the mapper seam (T-59d6)", () => {
       toMember({ ...mkWireMember({}), runtime_login_warnings: undefined } as unknown as WireMember)
         .runtimeLoginWarnings,
     ).toEqual([]);
+  });
+
+  it("maps model_call_warnings and model_call_last_success_ts onto both the member and the worker; an absent list is empty and 0 is null", () => {
+    const wire = [
+      {
+        runtime: "claude" as const,
+        kind: "rate_limit" as const,
+        code: "rate_limit",
+        resets_at: 1_790_003_600,
+        since_ts: 1_790_000_000,
+        account_wide: true,
+      },
+      {
+        runtime: "codex" as const,
+        kind: "server" as const,
+        code: "serverOverloaded",
+        resets_at: null,
+        since_ts: 1_790_000_100,
+        account_wide: false,
+      },
+    ];
+    const want = [
+      {
+        runtime: "claude",
+        kind: "rate_limit",
+        code: "rate_limit",
+        resetsAt: 1_790_003_600,
+        sinceTs: 1_790_000_000,
+        accountWide: true,
+      },
+      {
+        runtime: "codex",
+        kind: "server",
+        code: "serverOverloaded",
+        resetsAt: null,
+        sinceTs: 1_790_000_100,
+        accountWide: false,
+      },
+    ];
+    const member = toMember(
+      mkWireMember({ model_call_warnings: wire, model_call_last_success_ts: 1_789_999_000 }),
+    );
+    expect([member.modelCallWarnings, member.modelCallLastSuccessTs]).toEqual([want, 1_789_999_000]);
+    const worker = toOutsourceWorker({
+      ...mkWireMember({}),
+      model_call_warnings: wire,
+      model_call_last_success_ts: 1_789_999_000,
+    } as WireOutsourceWorker);
+    expect([worker.modelCallWarnings, worker.modelCallLastSuccessTs]).toEqual([want, 1_789_999_000]);
+
+    const none = toMember(mkWireMember({ model_call_warnings: [], model_call_last_success_ts: 0 }));
+    expect([none.modelCallWarnings, none.modelCallLastSuccessTs]).toEqual([[], null]);
+    const absent = toMember({
+      ...mkWireMember({}),
+      model_call_warnings: undefined,
+      model_call_last_success_ts: undefined,
+    } as unknown as WireMember);
+    expect([absent.modelCallWarnings, absent.modelCallLastSuccessTs]).toEqual([[], null]);
   });
 
   it("WORKER path: absence stays undefined (released / never dispatched is a real distinction)", () => {

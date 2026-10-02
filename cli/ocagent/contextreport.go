@@ -65,6 +65,9 @@ type telemetryBody struct {
 	Machine      string `json:"machine,omitempty"`
 	Effort       string `json:"effort,omitempty"`
 	Model        string `json:"model,omitempty"`
+	// Success time only: the failure goes out from model-call-report the moment
+	// it happens.
+	ModelCall *modelCallReport `json:"model_call,omitempty"`
 }
 
 func cmdContextReport(client httpClient, cfg Config, env func(string) string, now float64, stdin io.Reader, out, errOut io.Writer) int {
@@ -103,6 +106,9 @@ func cmdContextReport(client httpClient, cfg Config, env func(string) string, no
 			}
 			if machine := machineID(env); machine != "" {
 				body.Machine = machine
+			}
+			if success, ok := readModelCallTime(modelCallSuccessPath(cfg)); ok {
+				body.ModelCall = &modelCallReport{LastSuccessTs: &success}
 			}
 			delivered = reportPost(client, cfg, "/api/monitoring/telemetry", body, errOut) && delivered
 			// The stamp advances only when every POST was accepted: it is the only

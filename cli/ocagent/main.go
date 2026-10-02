@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"time"
 )
@@ -29,6 +30,7 @@ var planeASubcommands = []struct{ name, help string }{
 	// refused can find them in --help.
 	{"guard-bash", "PreToolUse hook: refuse the removal shapes that stall a headless member"},
 	{"guard-permission", "PermissionRequest hook: refuse every confirmation prompt nobody is here to answer"},
+	{"model-call-report", "Stop / StopFailure hook: record the turn's outcome; report a failure to monitoring at once"},
 	{"version", "print this build's identity: build.sha, VCS stamp when present, self-hash"},
 }
 
@@ -153,6 +155,15 @@ func realMain(argv []string, env func(string) string, in io.Reader, out io.Write
 			return 2
 		}
 		return cmdGuardPermission(in, out)
+
+	case "model-call-report":
+		fs := flag.NewFlagSet("ocagent model-call-report", flag.ContinueOnError)
+		fs.SetOutput(out)
+		if err := fs.Parse(rest); err != nil {
+			return 2
+		}
+		now := float64(time.Now().UnixNano()) / 1e9
+		return cmdModelCallReport(&http.Client{Timeout: modelCallReportTimeout}, cfg, env, now, in, os.Stderr)
 
 	case "version", "--version", "-v":
 		return cmdVersion(out)

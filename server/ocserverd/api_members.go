@@ -353,9 +353,9 @@ func (s *apiServer) HandleDeleteMemberAvatarApiMembersMemberIdAvatarDelete(
 	writeJSON(w, http.StatusOK, memberAvatarResult(*m, "", nil))
 }
 
-// ?fields=light: unread_count, presence, machine, last_op* and
-// runtime_login_warnings are NOT computed (honest-empty); a consumer must not
-// read them as known values.
+// ?fields=light: unread_count, presence, machine, last_op*,
+// runtime_login_warnings and model_call_* are NOT computed (honest-empty); a
+// consumer must not read them as known values.
 func (s *apiServer) HandleListMembersApiMembersGet(w http.ResponseWriter, r *http.Request, params HandleListMembersApiMembersGetParams) {
 	members, err := s.dal.ListMembers()
 	if err != nil {
@@ -377,6 +377,7 @@ func (s *apiServer) HandleListMembersApiMembersGet(w http.ResponseWriter, r *htt
 	var tele, gauge map[string]map[string]any
 	var accountDisplay func(string) string
 	var typeNames map[string]string
+	var calls modelCallBoard
 	now := nowSecs()
 	if !light {
 		machineNames, err := s.dal.MachineDisplayNames()
@@ -393,6 +394,7 @@ func (s *apiServer) HandleListMembersApiMembersGet(w http.ResponseWriter, r *htt
 			return
 		}
 		typeNames = s.taskTypeDisplayNames()
+		calls = newModelCallBoard(members, tele, s.modelCallClock())
 	}
 
 	out := []memberDTO{}
@@ -416,10 +418,10 @@ func (s *apiServer) HandleListMembersApiMembersGet(w http.ResponseWriter, r *htt
 				internalError(w, err)
 				return
 			}
-			out = append(out, s.projectWorker(worker, task, unread[m.ID], now, tele, gauge, machines, accountDisplay, typeNames))
+			out = append(out, s.projectWorker(worker, task, unread[m.ID], now, tele, gauge, machines, accountDisplay, typeNames, calls))
 			continue
 		}
-		out = append(out, s.newMemberDTO(m, roleName, s.observedHost(m), unread[m.ID], machines))
+		out = append(out, s.newMemberDTO(m, roleName, s.observedHost(m), unread[m.ID], machines, calls))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -543,6 +545,11 @@ func (s *apiServer) HandleGetMemberApiMembersMemberIdGet(w http.ResponseWriter, 
 		internalError(w, err)
 		return
 	}
+	calls, err := s.loadModelCallBoard()
+	if err != nil {
+		internalError(w, err)
+		return
+	}
 	if m.Kind == KindOutsource {
 		worker := workerFromMember(*m)
 		task, err := s.dal.GetTask(worker.TaskID)
@@ -557,10 +564,10 @@ func (s *apiServer) HandleGetMemberApiMembersMemberIdGet(w http.ResponseWriter, 
 			internalError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, s.projectWorker(worker, task, unread[m.ID], nowSecs(), tele, gauge, machines, accountDisplay, s.taskTypeDisplayNames()))
+		writeJSON(w, http.StatusOK, s.projectWorker(worker, task, unread[m.ID], nowSecs(), tele, gauge, machines, accountDisplay, s.taskTypeDisplayNames(), calls))
 		return
 	}
-	writeJSON(w, http.StatusOK, s.newMemberDTO(*m, roleName, s.observedHost(*m), unread[m.ID], machines))
+	writeJSON(w, http.StatusOK, s.newMemberDTO(*m, roleName, s.observedHost(*m), unread[m.ID], machines, calls))
 }
 
 // Same buildBootContext call as buildStartFrame, so the preview is the text a

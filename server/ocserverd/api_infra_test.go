@@ -1515,12 +1515,13 @@ func TestHandleResetCostApiMembersMemberIdCostResetPost(t *testing.T) {
 			"cleared_banked_cost": nil,
 		})
 		apiWantValue(t, "account", any(apiTestAccount(t, h, owner, "acct/x")), map[string]any{
-			"account":      "acct/x",
-			"display_name": "acct/x",
-			"cost":         2.5,
-			"machine":      "",
-			"five_hour":    nil,
-			"seven_day":    nil,
+			"account":       "acct/x",
+			"display_name":  "acct/x",
+			"cost":          2.5,
+			"machine":       "",
+			"five_hour":     nil,
+			"seven_day":     nil,
+			"limit_reached": nil,
 		})
 	})
 
@@ -1754,12 +1755,13 @@ func TestAccrueAccountSpend(t *testing.T) {
 		}
 
 		apiWantValue(t, "account", any(apiTestAccount(t, h, owner, "acct/x")), map[string]any{
-			"account":      "acct/x",
-			"display_name": "acct/x",
-			"cost":         4.0,
-			"machine":      "",
-			"five_hour":    nil,
-			"seven_day":    nil,
+			"account":       "acct/x",
+			"display_name":  "acct/x",
+			"cost":          4.0,
+			"machine":       "",
+			"five_hour":     nil,
+			"seven_day":     nil,
+			"limit_reached": nil,
 		})
 	})
 
@@ -1931,12 +1933,13 @@ func TestHandleResetAccountCostApiAccountsCostResetPost(t *testing.T) {
 			"cleared_cost": 2.5,
 		})
 		apiWantValue(t, "account", any(apiTestAccount(t, h, owner, "acct/x")), map[string]any{
-			"account":      "acct/x",
-			"display_name": "acct/x",
-			"cost":         nil,
-			"machine":      "",
-			"five_hour":    nil,
-			"seven_day":    nil,
+			"account":       "acct/x",
+			"display_name":  "acct/x",
+			"cost":          nil,
+			"machine":       "",
+			"five_hour":     nil,
+			"seven_day":     nil,
+			"limit_reached": nil,
 		})
 		if row := apiTestSession(t, h, owner, "kip"); row["cost"] != 2.5 || row["banked_cost"] != nil {
 			t.Fatalf("clearing the account must not move the actor's figures, kip = %v", row)

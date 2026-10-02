@@ -15,7 +15,8 @@ var memberReadFaceKeys = []string{
 	"forced_stop_at", "id", "kind", "last_op", "last_op_at", "last_op_log",
 	"last_op_ok", "last_op_reason", "machine", "model", "name", "owner_id",
 	"presence", "refocus_deadline", "refocus_op", "refocus_since", "role_key",
-	"role_name", "roster_status", "runtime", "runtime_login_warnings",
+	"model_call_last_success_ts", "model_call_warnings", "role_name",
+	"roster_status", "runtime", "runtime_login_warnings",
 	"schema_version", "terminal_attach_command", "unread_count",
 }
 

@@ -7,8 +7,9 @@ import (
 	"testing"
 )
 
-// manifestUplinkPaths is the runtime half of the uplink join: per route, how many
-// JSON uplinks cli/uplinks.json hangs on one wire test. bin/uplink-guard.py cannot
+// manifestUplinkPaths is the runtime half of the uplink join: per route (or per
+// "wire_case → route" where a row names its producer run), how many JSON uplinks
+// cli/uplinks.json hangs on one wire test. bin/uplink-guard.py cannot
 // answer this — everything it validates it validates in the same pass — so the
 // committed side is read back here and compared against what a producer actually
 // put on the wire.
@@ -23,6 +24,7 @@ func manifestUplinkPaths(t *testing.T, wireTest string) map[string]int {
 			ID       string `json:"id"`
 			Kind     string `json:"kind"`
 			Path     string `json:"path"`
+			WireCase string `json:"wire_case"`
 			WireTest string `json:"wire_test"`
 		} `json:"uplinks"`
 	}
@@ -31,9 +33,14 @@ func manifestUplinkPaths(t *testing.T, wireTest string) map[string]int {
 	}
 	want := map[string]int{}
 	for _, one := range doc.Uplinks {
-		if one.Kind == "json" && one.WireTest == wireTest {
-			want[one.Path]++
+		if one.Kind != "json" || one.WireTest != wireTest {
+			continue
 		}
+		key := one.Path
+		if one.WireCase != "" {
+			key = one.WireCase + " → " + one.Path
+		}
+		want[key]++
 	}
 	// Zero committed rows makes every comparison below this vacuous rather than
 	// passing, so it is a failure and not a floor.

@@ -507,7 +507,10 @@ export function WorkerDetailPanel({
             status={presenceVisual(worker.presence)}
             testId="worker-detail-header-dot"
           />
-          <RuntimeLoginWarningMark warnings={worker.runtimeLoginWarnings} />
+          <RuntimeLoginWarningMark
+            warnings={worker.runtimeLoginWarnings}
+            modelCallWarnings={worker.modelCallWarnings}
+          />
           {worker.taskNo && (
             <button
               type="button"
@@ -913,6 +916,7 @@ export function WorkerDetailPanel({
         lastOpLog: worker.lastOpLog,
         lastOpReason: worker.lastOpReason,
         lastOpAt: worker.lastOpAt,
+        modelCallLastSuccessTs: worker.modelCallLastSuccessTs,
         // T-139: was `member-${worker.id}` — a THIRD independent copy of the
         // session-naming rule, wrapped downstream in a hardcoded socket. The
         // station composes the whole line now.

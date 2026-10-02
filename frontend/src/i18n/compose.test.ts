@@ -29,7 +29,7 @@ const ALL_MINUTES = Array.from({ length: 60 }, (_, i) => i);
 const EVERY_FIVE = Array.from({ length: 12 }, (_, i) => i * 5);
 
 /** [language, message, arguments, the text that must appear on screen]. */
-const EXPECTED: [Lang, string, (string | number | string[] | number[])[], string][] = [
+const EXPECTED: [Lang, string, (string | number | string[] | number[] | null)[], string][] = [
     // The 429 credential brake. Pinned in BOTH languages because the space
     // after the number is language-specific and is the opposite of `sp`: zh
     // wants it, en does not. Getting that backwards yields "請於 42秒後再試。"
@@ -90,6 +90,16 @@ const EXPECTED: [Lang, string, (string | number | string[] | number[])[], string
     ["zh", "workerMachineMovingTo", ["Alpha"], "→ 要換到 Alpha"],
     ["zh", "runtimeLoginWarning", ["seth-m1", "claude"], "seth-m1 未登入 Claude"],
     ["zh", "runtimeLoginWarning", ["seth-m1", "codex"], "seth-m1 未登入 Codex"],
+    ["zh", "modelCallAuthWarning", ["claude"], "Claude 登入失效"],
+    ["zh", "modelCallAuthWarning", ["codex"], "Codex 登入失效"],
+    ["zh", "modelCallOtherWarning", ["claude", "invalid_request"], "Claude 模型呼叫失敗（invalid_request）"],
+    ["zh", "modelCallRateLimitWarning", ["14:32"], "已達用量上限 · 14:32 重置"],
+    ["zh", "modelCallRateLimitWarning", [null], "已達用量上限"],
+    ["zh", "modelCallServerWarning", ["claude"], "Claude 伺服器異常"],
+    ["zh", "modelCallServerWarning", ["codex"], "Codex 伺服器異常"],
+    ["zh", "memberModelCallLastSuccess", ["3m"], "3m 前"],
+    ["zh", "monitorLimitReached", ["14:32"], "已達上限 · 14:32 重置"],
+    ["zh", "monitorLimitReached", [null], "已達上限"],
     ["zh", "agentPendingChange", ["Codex"], "→ 要換成 Codex"],
     [
       "zh",
@@ -220,6 +230,16 @@ const EXPECTED: [Lang, string, (string | number | string[] | number[])[], string
     ["en", "workerMachineMovingTo", ["Alpha"], "→ Moving to Alpha"],
     ["en", "runtimeLoginWarning", ["seth-m1", "claude"], "seth-m1 signed out of Claude"],
     ["en", "runtimeLoginWarning", ["seth-m1", "codex"], "seth-m1 signed out of Codex"],
+    ["en", "modelCallAuthWarning", ["claude"], "Claude sign-in expired"],
+    ["en", "modelCallAuthWarning", ["codex"], "Codex sign-in expired"],
+    ["en", "modelCallOtherWarning", ["codex", "contextWindowExceeded"], "Codex model call failed (contextWindowExceeded)"],
+    ["en", "modelCallRateLimitWarning", ["14:32"], "Usage limit reached · resets 14:32"],
+    ["en", "modelCallRateLimitWarning", [null], "Usage limit reached"],
+    ["en", "modelCallServerWarning", ["claude"], "Claude server error"],
+    ["en", "modelCallServerWarning", ["codex"], "Codex server error"],
+    ["en", "memberModelCallLastSuccess", ["2h 15m"], "2h 15m ago"],
+    ["en", "monitorLimitReached", ["14:32"], "Limit reached · resets 14:32"],
+    ["en", "monitorLimitReached", [null], "Limit reached"],
     ["en", "agentPendingChange", ["Codex"], "→ Changing to Codex"],
     [
       "en",
@@ -298,7 +318,7 @@ describe("makeMessages", () => {
     (lang, name, args, want) => {
       const composed = makeMessages(DICTS[lang], lang) as unknown as Record<
         string,
-        (...a: (string | number | string[] | number[])[]) => string
+        (...a: (string | number | string[] | number[] | null)[]) => string
       >;
       expect(composed[name](...args)).toBe(want);
     }

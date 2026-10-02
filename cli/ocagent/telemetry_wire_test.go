@@ -43,6 +43,7 @@ func TestContextReportUplinkBodies(t *testing.T) {
 	cases := []struct {
 		name          string
 		payload       string
+		success       float64
 		wantPaths     []string
 		wantContext   string
 		wantTelemetry string
@@ -70,6 +71,15 @@ func TestContextReportUplinkBodies(t *testing.T) {
 			wantTelemetry: identityOnly,
 		},
 		{
+			name:      "a recorded success time rides the telemetry body",
+			payload:   `{}`,
+			success:   985.5,
+			wantPaths: []string{"/api/monitoring/telemetry"},
+			wantTelemetry: `{"runtime":"claude","account":"au-1/org-1",` +
+				`"account_label":"kyle@x.io(OffiCraft)","machine":"lab-1",` +
+				`"model_call":{"last_success_ts":985.5}}`,
+		},
+		{
 			name:          "unmeasurable values are omitted, never reported as zero",
 			payload:       `{"context_window":{"used_percentage":"41.5"},"cost":{"total_cost_usd":"free"}}`,
 			wantPaths:     []string{"/api/monitoring/telemetry"},
@@ -82,6 +92,9 @@ func TestContextReportUplinkBodies(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			srv, posts := contextServer(t)
 			cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "t", MemberID: "kyle", AgentsRoot: t.TempDir()}
+			if tc.success > 0 {
+				writeModelCallTime(modelCallSuccessPath(cfg), tc.success)
+			}
 			var out, errOut bytes.Buffer
 
 			rc := cmdContextReport(srv.Client(), cfg,
@@ -108,6 +121,9 @@ func TestContextReportUplinkBodies(t *testing.T) {
 			if bad := schemaViolations(tel.body, telemetryDeclared); len(bad) > 0 {
 				t.Errorf("telemetry body has keys the frozen schema refuses %v — the whole "+
 					"report would be rejected; body=%s", bad, tel.body)
+			}
+			if bad := modelCallViolations(t, tel.body); len(bad) > 0 {
+				t.Errorf("model_call does not match the frozen schema %v; body=%s", bad, tel.body)
 			}
 			if tel.body != tc.wantTelemetry {
 				t.Errorf("telemetry body =\n  %s\nwant\n  %s", tel.body, tc.wantTelemetry)

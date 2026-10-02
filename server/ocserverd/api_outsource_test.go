@@ -58,8 +58,10 @@ func apiTestWorkerRow(t *testing.T, over map[string]any) map[string]any {
 		"refocus_since": 0, "refocus_op": "", "refocus_deadline": 0,
 		"desired_state": "", "forced_stop_at": 0, "roster_status": "active",
 		"owner_id": "owner", "schema_version": 3,
-		"terminal_attach_command": "tmux -L officraft attach -t member-ow-abc123",
-		"runtime_login_warnings":  []any{},
+		"terminal_attach_command":    "tmux -L officraft attach -t member-ow-abc123",
+		"runtime_login_warnings":     []any{},
+		"model_call_last_success_ts": 0,
+		"model_call_warnings":        []any{},
 	}
 	allowed := map[string]bool{
 		"account": true, "banked_cost": true, "compaction_count": true,
@@ -218,7 +220,7 @@ func TestProjectWorker(t *testing.T) {
 	t.Run("uses the in-memory dispatch target when one exists", func(t *testing.T) {
 		api.workerSpawnTarget[worker.ID] = "m-dispatch"
 		got := api.projectWorker(worker, task, 3, 1700000000, tele, gauge, machines,
-			accountDisplay, typeNames)
+			accountDisplay, typeNames, modelCallBoard{})
 
 		if got.Machine != "Dispatch box" {
 			t.Fatalf("machine: want Dispatch box, got %q", got.Machine)
@@ -234,7 +236,7 @@ func TestProjectWorker(t *testing.T) {
 	t.Run("falls back to the observed telemetry host after a restart", func(t *testing.T) {
 		delete(api.workerSpawnTarget, worker.ID)
 		got := api.projectWorker(worker, task, 0, 1700000000, tele, gauge, machines,
-			accountDisplay, typeNames)
+			accountDisplay, typeNames, modelCallBoard{})
 
 		if got.Machine != "Telemetry box" {
 			t.Fatalf("machine fallback: want Telemetry box, got %q", got.Machine)
@@ -255,7 +257,7 @@ func TestProjectWorker(t *testing.T) {
 		moving.DesiredMachineID = "m-pin"
 
 		got := api.projectWorker(moving, task, 0, 1700000000, tele, gauge, machines,
-			accountDisplay, typeNames)
+			accountDisplay, typeNames, modelCallBoard{})
 
 		apiWantValue(t, "warnings", any(got.RuntimeLoginWarnings), any([]RuntimeLoginWarningDTO{
 			{MachineId: "m-dispatch", MachineName: "Dispatch box", Pending: false, Runtime: "codex"},
@@ -274,7 +276,7 @@ func TestProjectWorker(t *testing.T) {
 		settled.DesiredMachineID = "m-pin"
 
 		got := api.projectWorker(settled, task, 0, 1700000000, tele, gauge, machines,
-			accountDisplay, typeNames)
+			accountDisplay, typeNames, modelCallBoard{})
 
 		apiWantValue(t, "warnings", any(got.RuntimeLoginWarnings), any([]RuntimeLoginWarningDTO{}))
 	})
@@ -290,7 +292,7 @@ func TestProjectWorker(t *testing.T) {
 		stale.ActualRuntime = "codex"
 
 		got := api.projectWorker(stale, task, 0, 1700000000, tele, gauge, machines,
-			accountDisplay, typeNames)
+			accountDisplay, typeNames, modelCallBoard{})
 
 		apiWantValue(t, "warnings", any(got.RuntimeLoginWarnings), any([]RuntimeLoginWarningDTO{}))
 	})

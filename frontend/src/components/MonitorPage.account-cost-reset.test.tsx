@@ -58,6 +58,7 @@ const acct = (over: Partial<MonAccountView> = {}): MonAccountView => ({
   accountLabel: "eva@example.test(Example Org)",
   displayName: "Eva 的帳號",
   machine: "mbp5",
+  limitReached: null,
   cost: 1234.5,
   fiveHour: null,
   sevenDay: null,

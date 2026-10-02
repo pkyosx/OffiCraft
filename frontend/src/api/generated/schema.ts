@@ -1621,7 +1621,7 @@ export interface paths {
          * @description - Every member not removed, outsource members and warden (machine) rows included; soft-removed members never appear.
          *     - `machine` is where the member is OBSERVED running, not its desired machine — they differ after a relocate until reconcile lands.
          *     - `unread_count` is for YOU: messages that member sent you above your read watermark, regardless of presence.
-         *     - `fields=light` skips the expensive computations and answers the SAME shape: `unread_count` 0, `machine`, `presence` and `runtime_login_warnings` empty. Those are un-computed values, not measured ones.
+         *     - `fields=light` skips the expensive computations and answers the SAME shape: `unread_count` 0, `machine`, `presence`, `runtime_login_warnings` and `model_call_warnings` empty, `model_call_last_success_ts` 0. Those are un-computed values, not measured ones.
          *     - Cleared ONLY by POST /api/chat/mark-read; listing marks nothing.
          */
         get: operations["handle_list_members_api_members_get"];

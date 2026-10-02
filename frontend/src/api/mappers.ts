@@ -19,6 +19,7 @@ import {
 import type {
   Member,
   RuntimeLoginWarning,
+  ModelCallWarning,
   MemberStatus,
   MemberLifecycle,
   RoleKey,
@@ -221,6 +222,24 @@ export function toRuntimeLoginWarnings(
   }));
 }
 
+export function toModelCallWarnings(
+  w: WireMember["model_call_warnings"],
+): ModelCallWarning[] {
+  return (w ?? []).map((x) => ({
+    runtime: x.runtime,
+    kind: x.kind,
+    code: x.code,
+    resetsAt: x.resets_at ?? null,
+    sinceTs: x.since_ts,
+    accountWide: x.account_wide,
+  }));
+}
+
+/** Wire 0 = nothing reported since the server started. */
+export function toModelCallLastSuccessTs(ts: number | undefined): number | null {
+  return ts && ts > 0 ? ts : null;
+}
+
 export function toMember(w: WireMember): Member {
   // Narrowed ONCE per member (T-59d6): both `status` and `lifecycle` below are
   // projections of the same presence word, so they must agree about what
@@ -309,6 +328,8 @@ export function toMember(w: WireMember): Member {
     // still legible while it is offline.
     actualMachine: w.actual_machine || "",
     runtimeLoginWarnings: toRuntimeLoginWarnings(w.runtime_login_warnings),
+    modelCallWarnings: toModelCallWarnings(w.model_call_warnings),
+    modelCallLastSuccessTs: toModelCallLastSuccessTs(w.model_call_last_success_ts),
 
     // fleet remote-ops stage 1: the last warden-op receipt (snake→camel passthrough).
     // last_op_at > 0 → real epoch (shown as the op time); 0 → null (no op yet) so the
@@ -854,6 +875,8 @@ export function toOutsourceWorker(w: WireOutsourceWorker): OutsourceWorkerView {
     actualEffort: w.actual_effort ?? "",
     actualMachine: w.actual_machine ?? "",
     runtimeLoginWarnings: toRuntimeLoginWarnings(w.runtime_login_warnings),
+    modelCallWarnings: toModelCallWarnings(w.model_call_warnings),
+    modelCallLastSuccessTs: toModelCallLastSuccessTs(w.model_call_last_success_ts),
     // Runtime facts: nullable on the wire (null = unreported). A defaulted-away
     // field arrives as undefined — coalesce to null (the honest dash), never 0.
     account: w.account ?? null,
@@ -1199,6 +1222,13 @@ function toMonAccount(w: WireMonAccount): MonAccountView {
           timePct: numOrNull(w.seven_day.elapsed_pct),
           measuredAt: numOrNull(w.seven_day.measured_at),
           overheated: w.seven_day.pace === "hot",
+        }
+      : null,
+    limitReached: w.limit_reached
+      ? {
+          code: w.limit_reached.code,
+          resetsAt: w.limit_reached.resets_at ?? null,
+          ts: w.limit_reached.ts,
         }
       : null,
   };

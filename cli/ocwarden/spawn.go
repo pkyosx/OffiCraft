@@ -110,8 +110,9 @@ func buildMCPConfig(base, token string) string {
 // --dangerously-skip-permissions cannot waive, with nobody at the keyboard:
 // PreToolUse→guard-bash keeps it from being raised, PermissionRequest→guard-permission
 // answers it once raised (no matcher: every question reaching it is unanswerable).
-// All three commands are named bare because the launch line puts the workdir holding
-// the ocagent symlink first on PATH.
+// Stop and StopFailure both run model-call-report: a normal turn fires only Stop, an
+// API error only StopFailure. Every command is named bare because the launch line
+// puts the workdir holding the ocagent symlink first on PATH.
 //
 // skipDangerousModePermissionPrompt and tui each answer a first-launch dialog in
 // advance: on a config that never saw them, the bypass warning defaults to "No, exit"
@@ -144,6 +145,26 @@ func buildStatuslineSettings() string {
 		"          {\n" +
 		"            \"type\": \"command\",\n" +
 		"            \"command\": \"ocagent guard-permission\"\n" +
+		"          }\n" +
+		"        ]\n" +
+		"      }\n" +
+		"    ],\n" +
+		"    \"Stop\": [\n" +
+		"      {\n" +
+		"        \"hooks\": [\n" +
+		"          {\n" +
+		"            \"type\": \"command\",\n" +
+		"            \"command\": \"ocagent model-call-report\"\n" +
+		"          }\n" +
+		"        ]\n" +
+		"      }\n" +
+		"    ],\n" +
+		"    \"StopFailure\": [\n" +
+		"      {\n" +
+		"        \"hooks\": [\n" +
+		"          {\n" +
+		"            \"type\": \"command\",\n" +
+		"            \"command\": \"ocagent model-call-report\"\n" +
 		"          }\n" +
 		"        ]\n" +
 		"      }\n" +

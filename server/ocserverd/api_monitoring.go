@@ -438,10 +438,15 @@ func (s *apiServer) HandleIngestTelemetryApiMonitoringTelemetryPost(w http.Respo
 		body.Binaries == nil && body.Claude == nil && body.Cost == nil &&
 		body.Effort == nil && body.Runtime == nil && body.Runtimes == nil &&
 		body.SelfUpdate == nil && body.CommandResult == nil && body.WardenShape == nil &&
-		body.CutoverEffect == nil {
+		body.CutoverEffect == nil && body.ModelCall == nil {
 		writeError(w, http.StatusBadRequest,
 			"rate_limits, tokens, hardware, binaries, claude, cost, effort, runtime, runtimes, "+
-				"self_update, command_result, warden_shape or cutover_effect is required")
+				"self_update, command_result, warden_shape, cutover_effect or model_call is required")
+		return
+	}
+	if body.ModelCall != nil && !validModelCallReport(body.ModelCall) {
+		writeError(w, http.StatusBadRequest,
+			"model_call.last_failure.kind must be 'auth', 'rate_limit', 'server' or 'other'")
 		return
 	}
 	asObject := func(v any, name string) (map[string]any, bool) {
@@ -658,6 +663,17 @@ func (s *apiServer) HandleIngestTelemetryApiMonitoringTelemetryPost(w http.Respo
 	// rc-5c5d7c7c6dcd), and AFTER applyAccountReport so the increase is credited
 	// to the account this report proved.
 	s.accrueAccountSpend(entry)
+	var modelCallChanged bool
+	var storedFailure *modelCallFailureDTO
+	if body.ModelCall != nil {
+		mayChange := s.modelCallMayChangeWarnings(entry, body.ModelCall)
+		modelCallChanged, storedFailure = mergeModelCall(entry, body.ModelCall)
+		modelCallChanged = modelCallChanged && mayChange
+	}
+	var modelCallBefore map[string]map[string]any
+	if modelCallChanged {
+		modelCallBefore = s.telemetry.Snapshot()
+	}
 	entry["ts"] = nowSecs()
 	s.telemetry.Set(agentID, entry)
 	s.stampReportedLaunchFacts(agentID,
@@ -667,6 +683,12 @@ func (s *apiServer) HandleIngestTelemetryApiMonitoringTelemetryPost(w http.Respo
 
 	if loginFlipped {
 		s.publishLoginPairsOn(agentID, requestTrigger(r))
+	}
+	if modelCallChanged {
+		s.publishModelCallChanges(modelCallBefore, s.modelCallClock(), requestTrigger(r))
+		if storedFailure != nil {
+			s.scheduleModelCallReset(*storedFailure)
+		}
 	}
 
 	if commandResult != nil {
@@ -1174,6 +1196,7 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 			accountKeys[account] = true
 		}
 	}
+	calls := newModelCallBoard(all, telemetry, s.modelCallClock())
 	sortedAccounts := make([]string, 0, len(accountKeys))
 	for account := range accountKeys {
 		sortedAccounts = append(sortedAccounts, account)
@@ -1209,6 +1232,7 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 			Cost:         cost,
 			FiveHour:     windows["five_hour"],
 			SevenDay:     windows["seven_day"],
+			LimitReached: calls.limit(account),
 		})
 	}
 

@@ -19,6 +19,7 @@ subcommands:
   diff            print a compare-screen link (a host-less /diff path) for two attachment ids / document versions (--external mints a no-login URL)
   guard-bash      PreToolUse hook: refuse the removal shapes that stall a headless member
   guard-permission PermissionRequest hook: refuse every confirmation prompt nobody is here to answer
+  model-call-report Stop / StopFailure hook: record the turn's outcome; report a failure to monitoring at once
   version         print this build's identity: build.sha, VCS stamp when present, self-hash
 `
 

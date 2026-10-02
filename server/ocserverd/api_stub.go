@@ -38,6 +38,12 @@ type apiServer struct {
 	tokenKeyObs   map[string]tokenKeyObservation
 
 	keyRenewClock func() time.Time
+
+	modelCallNow       func() float64
+	modelCallAfterFunc func(time.Duration, func())
+	// modelCallDiffObserved is called on every roster-wide model-call diff;
+	// nil in production.
+	modelCallDiffObserved func()
 	// settingsMu guards the LIVE settings fields below: owner endpoints update
 	// them IN PLACE while the SSE loop and reconcile cadence read concurrently —
 	// read through the accessors, never the bare fields. A writer holds it only

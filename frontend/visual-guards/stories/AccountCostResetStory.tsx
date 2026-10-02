@@ -22,6 +22,7 @@ const baseAccount: MonAccountView = {
   cost: 37,
   fiveHour: null,
   sevenDay: null,
+  limitReached: null,
 };
 
 /** The steady state: an account with spend on the clock, so the button is live. */

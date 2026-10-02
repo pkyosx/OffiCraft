@@ -2,5 +2,11 @@
   display: inline-flex;
   align-items: center;
   flex: none;
+}
+.runtime-login-warning--danger {
+  color: var(--color-danger);
+}
+/* Kept as its own rule so a server outage can take a different colour. */
+.runtime-login-warning--server {
   color: var(--color-danger);
 }

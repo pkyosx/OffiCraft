@@ -9,6 +9,7 @@ import {
   splitByDay,
   formatDayLabel,
   formatAbsolute,
+  formatClock,
   type DayLabelDict,
 } from "./dateFormat";
 
@@ -148,5 +149,13 @@ describe("formatAbsolute", () => {
     expect(formatAbsolute(ts(2025, 12, 31, 8, 0), now)).toBe(
       "2025/12/31 08:00",
     );
+  });
+});
+
+describe("formatClock", () => {
+  it("under any local time, renders zero-padded 24h HH:mm with no date", () => {
+    expect(formatClock(ts(2026, 7, 13, 9, 5))).toBe("09:05");
+    expect(formatClock(ts(2025, 12, 31, 23, 59))).toBe("23:59");
+    expect(formatClock(ts(2026, 1, 1, 0, 0))).toBe("00:00");
   });
 });

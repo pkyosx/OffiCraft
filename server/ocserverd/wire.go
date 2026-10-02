@@ -217,6 +217,27 @@ type memberDTO struct {
 	DelegatedBy           string   `json:"delegated_by,omitempty"`
 
 	RuntimeLoginWarnings []RuntimeLoginWarningDTO `json:"runtime_login_warnings"`
+
+	ModelCallLastSuccessTs float64               `json:"model_call_last_success_ts"`
+	ModelCallWarnings      []modelCallWarningDTO `json:"model_call_warnings"`
+}
+
+// Hand-written so resets_at goes out as an explicit null; the generated
+// structs omit it.
+type modelCallFailureDTO struct {
+	Code     string   `json:"code"`
+	Kind     string   `json:"kind"`
+	ResetsAt *float64 `json:"resets_at"`
+	Ts       float64  `json:"ts"`
+}
+
+type modelCallWarningDTO struct {
+	AccountWide bool     `json:"account_wide"`
+	Code        string   `json:"code"`
+	Kind        string   `json:"kind"`
+	ResetsAt    *float64 `json:"resets_at"`
+	Runtime     string   `json:"runtime"`
+	SinceTs     float64  `json:"since_ts"`
 }
 
 type machineDTO struct {
@@ -580,6 +601,8 @@ type monitoringAccountDTO struct {
 	Cost         *float64    `json:"cost"`
 	FiveHour     *PaceWindow `json:"five_hour"`
 	SevenDay     *PaceWindow `json:"seven_day"`
+
+	LimitReached *modelCallFailureDTO `json:"limit_reached"`
 }
 
 type monitoringDTO struct {
@@ -1630,6 +1653,9 @@ type outsourceWorkerProjection struct {
 	terminalAttach string
 
 	loginWarnings []RuntimeLoginWarningDTO
+
+	modelCallWarnings    []modelCallWarningDTO
+	modelCallLastSuccess float64
 }
 
 // noteCap is the caller's s.stepNoteCap() — the ceiling writes are refused
@@ -2005,6 +2031,10 @@ func (s *apiServer) newOutsourceMemberDTO(w OutsourceWorker, task *Task, p outso
 	if p.loginWarnings != nil {
 		dto.RuntimeLoginWarnings = p.loginWarnings
 	}
+	if p.modelCallWarnings != nil {
+		dto.ModelCallWarnings = p.modelCallWarnings
+	}
+	dto.ModelCallLastSuccessTs = p.modelCallLastSuccess
 	return dto
 }
 

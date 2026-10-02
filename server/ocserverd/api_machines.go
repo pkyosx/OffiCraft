@@ -1331,6 +1331,24 @@ func loginStatesDiffer(a, b map[string]*bool) bool {
 	return false
 }
 
+// loginPairsOf answers the row a member patch is published for and the pairs
+// its runtime_login_warnings read; listed=false for a row the roster does not
+// show.
+func (s *apiServer) loginPairsOf(dir machineDirectory, m Member) (Member, []runtimeLoginPair, bool) {
+	if m.RosterStatus == RosterStatusRemoved || m.Kind == machineKind {
+		return m, nil, false
+	}
+	if m.Kind == KindOutsource {
+		w := workerFromMember(m)
+		if w.Status == WorkerStatusReleased {
+			return m, nil, false
+		}
+		return memberFromWorker(w), workerLoginPairs(dir, w, s.workerObservedMachine(w.ID, s.telemetry.Get(w.ID))), true
+	}
+	return m, s.staffLoginPairs(dir, m, s.observedHost(m),
+		PresenceState(m, nowSecs(), s.hub.IsOnline(m.ID))), true
+}
+
 // publishLoginPairsOn refreshes every roster row whose runtime_login_warnings
 // can read this machine: the warnings are derived, so no row write announces
 // the change on its own.
@@ -1345,21 +1363,9 @@ func (s *apiServer) publishLoginPairsOn(machineID, trigger string) {
 	}
 	dir := newMachineDirectory(members, aliases)
 	for _, m := range members {
-		if m.RosterStatus == RosterStatusRemoved || m.Kind == machineKind {
+		row, pairs, listed := s.loginPairsOf(dir, m)
+		if !listed {
 			continue
-		}
-		row := m
-		var pairs []runtimeLoginPair
-		if m.Kind == KindOutsource {
-			w := workerFromMember(m)
-			if w.Status == WorkerStatusReleased {
-				continue
-			}
-			row = memberFromWorker(w)
-			pairs = workerLoginPairs(dir, w, s.workerObservedMachine(w.ID, s.telemetry.Get(w.ID)))
-		} else {
-			pairs = s.staffLoginPairs(dir, m, s.observedHost(m),
-				PresenceState(m, nowSecs(), s.hub.IsOnline(m.ID)))
 		}
 		for _, p := range pairs {
 			if p.machine == machineID {

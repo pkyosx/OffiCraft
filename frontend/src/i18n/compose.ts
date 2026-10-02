@@ -84,6 +84,13 @@ export interface Messages {
   agentPendingChange: (value: string) => string;
   workerMachineMovingTo: (machine: string) => string;
   runtimeLoginWarning: (machine: string, runtime: "claude" | "codex") => string;
+  modelCallAuthWarning: (runtime: "claude" | "codex") => string;
+  modelCallOtherWarning: (runtime: "claude" | "codex", code: string) => string;
+  /** `resetsAt` is the already-formatted clock time, or null when the runtime
+   * gave none — that sentence then says nothing about a reset. */
+  modelCallRateLimitWarning: (resetsAt: string | null) => string;
+  modelCallServerWarning: (runtime: "claude" | "codex") => string;
+  memberModelCallLastSuccess: (age: string) => string;
   /** `by` is the deadline text, or null when the wind-down is on NO clock —
    * which since T-ed79 is every cause except the second context threshold. The
    * no-clock sentence must not contain any time at all. */
@@ -112,6 +119,7 @@ export interface Messages {
   machineOfflineOption: (name: string) => string;
   // ── monitor › accounts ──
   monitorMeasuredAgo: (age: string) => string;
+  monitorLimitReached: (resetsAt: string | null) => string;
   // ── monitor › machines ──
   machineBootstrapErrorDetail: (detail: string) => string;
   machineBootstrapFailed: (exitCode: number) => string;
@@ -185,6 +193,11 @@ export function makeMessages(t: Dict, language: Lang): Messages {
   /** How many numbers a scattered `custom` set prints before the rest is
    * carried by a count (owner ruling, T-49e7 round 2: 「最多列 4 個」). */
   const LIST_CAP = 4;
+  const mcw = t.lifecycle.modelCallWarning;
+  // zh puts the time before 重置 and en after "resets", so one of the two
+  // fragments is empty in each language and must not leave a stray space.
+  const resetsAtText = (time: string): string =>
+    [mcw.resetsLead, time, mcw.resetsTail].filter((part) => part !== "").join(" ");
   /** Render one `custom` set as at most LIST_CAP numbers plus, when there are
    * more, a phrase naming HOW MANY WERE NOT PRINTED. The tail sits inside the
    * listed phrase's own tail ("第 0、7、13、22 分" + "等,另 2 個") so the
@@ -213,6 +226,10 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     // (「量於 3d 前」, with spaces). Caught in independent review.
     monitorMeasuredAgo: (age) =>
       `${mon.measuredAgoLead} ${age} ${mon.measuredAgoTail}`,
+    monitorLimitReached: (resetsAt) =>
+      resetsAt === null
+        ? mon.limitReached
+        : `${mon.limitReached} · ${resetsAtText(resetsAt)}`,
     // 「3版」/「3 versions」 — the artifact row's versions entry (T-60). Only
     // ever printed for n > 1 (one version is not a history), so the tail needs
     // no singular twin.
@@ -314,6 +331,13 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     // then the runtime it is signed out of; no "moving to" wording.
     runtimeLoginWarning: (machine, runtime) =>
       `${machine} ${t.lifecycle.loginWarning[runtime]}`,
+    modelCallAuthWarning: (runtime) => `${mcw.runtime[runtime]} ${mcw.auth}`,
+    modelCallOtherWarning: (runtime, code) =>
+      `${mcw.runtime[runtime]} ${mcw.otherLead}${code}${mcw.otherTail}`,
+    modelCallRateLimitWarning: (resetsAt) =>
+      resetsAt === null ? mcw.rateLimit : `${mcw.rateLimit} · ${resetsAtText(resetsAt)}`,
+    modelCallServerWarning: (runtime) => `${mcw.runtime[runtime]} ${mcw.server}`,
+    memberModelCallLastSuccess: (age) => `${age} ${mp.modelCallLastSuccessAgoTail}`,
     // 「正在收尾以套用你的改動 · 最晚 14:32 生效」 — the deadline is a CEILING
     // (the collect fires as soon as the agent reports stopped), so the wording
     // says 最晚 rather than promising a time.
