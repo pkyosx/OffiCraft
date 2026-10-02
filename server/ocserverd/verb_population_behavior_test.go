@@ -1240,8 +1240,7 @@ func parityCases() []verbCase {
 					api.HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost)
 				return workerTerminal(t, api, id, code.Code, notices)
 			},
-			// Both refuse with 409 through applyRefocusVerb's wanted-offline arm and
-			// write nothing: the stop in flight keeps its stage, anchors and receipt.
+			// Both write nothing: the stop in flight keeps its stage, anchors and receipt.
 			wantStaff: terminalState{
 				Status: http.StatusConflict, DesiredState: DesiredStateOffline,
 				Stopping: anchorPast, Stopped: anchorZero,
