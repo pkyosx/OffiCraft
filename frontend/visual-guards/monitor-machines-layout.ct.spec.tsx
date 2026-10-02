@@ -6,8 +6,12 @@
 // layout, so this is measured in a real browser on the real MachinesTable.
 //
 // MUTANTS (each verified red):
-//   drop `table-layout: fixed`              → column x differs between states
-//   drop the CellStack (marks inline again) → column x differs between states
+//   marks inline AND auto table layout (the layout before the fix)
+//                                           → column x differs between states
+//   marks inline again                      → mark-below test
+//   drop `table-layout: fixed` or the column widths → 800px test
+//   操作 column not sticky                  → gear off-screen at 760/900px
+//   phone card mode disabled                → phone test (the frame scrolls)
 //   `.mon-stale` border back to --color-border → frame contrast below 1.5
 //   (in the built-in palette --color-border IS --color-card)
 //   drop the table's min-width               → 機器 name cut short at 800px
@@ -94,7 +98,9 @@ test("the 操作 column is one ⚙ button whose menu lists the row's operations"
   await page.keyboard.press("ArrowDown");
   await expect(page.getByTestId("mon-uninstall-btn")).toBeFocused();
   await page.keyboard.press("ArrowDown");
-  await expect(page.getByTestId("mon-install-btn"), "a disabled item is skipped").toBeFocused();
+  await expect(page.getByTestId("mon-delete-btn"), "a disabled item is still reachable, to hear why").toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(page.getByTestId("mon-install-btn")).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(items).toHaveCount(0);
   await expect(gear).toBeFocused();
@@ -148,13 +154,39 @@ for (const theme of ["dark", "light"] as const) {
   });
 }
 
+async function overflow(page: Page) {
+  return page.evaluate(() => {
+    const over = (sel: string) =>
+      Math.max(0, ...Array.from(document.querySelectorAll(sel)).map((el) => el.scrollWidth - el.clientWidth));
+    return {
+      page: document.scrollingElement!.scrollWidth - document.scrollingElement!.clientWidth,
+      monitor: over(".monitor"),
+      frame: over(".mon-table-wrap"),
+    };
+  });
+}
+
+for (const width of [760, 900]) {
+  test(`at ${width}px the ⚙ stays inside the scrolled frame and opens its menu`, async ({ mount, page }) => {
+    await page.setViewportSize({ width: width + 20, height: 900 });
+    await mount(<MonitorMachinesLayoutStory width={width} states={["stale"]} />);
+    expect((await overflow(page)).frame, "control: the frame does scroll at this width").toBeGreaterThan(0);
+    const frame = (await page.locator(".mon-table-wrap").boundingBox())!;
+    const gear = page.getByRole("button", { name: "機器操作（伺服器這一台）" });
+    const g = (await gear.boundingBox())!;
+    expect(g.x).toBeGreaterThanOrEqual(frame.x);
+    expect(g.x + g.width).toBeLessThanOrEqual(frame.x + frame.width);
+    await gear.click();
+    await expect(page.getByRole("menuitem")).toHaveText(["安裝", "解除安裝", "刪除"]);
+  });
+}
+
 test("narrower desktop: the table scrolls inside its own frame, the page does not", async ({ mount, page }) => {
   await page.setViewportSize({ width: 820, height: 900 });
   await mount(<MonitorMachinesLayoutStory width={800} />);
-  const over = await page.evaluate(
-    () => document.scrollingElement!.scrollWidth - document.scrollingElement!.clientWidth
-  );
-  expect(over).toBeLessThanOrEqual(1);
+  const over = await overflow(page);
+  expect(over.page).toBeLessThanOrEqual(1);
+  expect(over.monitor, ".monitor scrolls vertically and would swallow a sideways spill").toBeLessThanOrEqual(1);
   const edges = await columnEdges(page);
   expect(edges.stale.td).toEqual(edges.normal.td);
   const spill = await page.evaluate(() => {
@@ -175,8 +207,5 @@ test("narrower desktop: the table scrolls inside its own frame, the page does no
 test("phone: the card mode does not scroll the page", async ({ mount, page }) => {
   await page.setViewportSize({ width: 375, height: 900 });
   await mount(<MonitorMachinesLayoutStory />);
-  const over = await page.evaluate(
-    () => document.scrollingElement!.scrollWidth - document.scrollingElement!.clientWidth
-  );
-  expect(over).toBeLessThanOrEqual(1);
+  expect(await overflow(page)).toEqual({ page: 0, monitor: 0, frame: 0 });
 });

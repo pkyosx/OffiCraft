@@ -107,12 +107,12 @@
   flex: none;
   color: var(--color-text-muted);
 }
-.runtime-menu__item:hover:not(:disabled),
+.runtime-menu__item:hover:not([aria-disabled="true"]),
 .runtime-menu__item:focus-visible {
   background: color-mix(in srgb, var(--color-overlay) 7%, transparent);
   outline: none;
 }
-.runtime-menu__item:disabled {
+.runtime-menu__item[aria-disabled="true"] {
   opacity: 0.45;
   cursor: not-allowed;
 }

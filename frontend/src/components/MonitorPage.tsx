@@ -1406,7 +1406,7 @@ export function MachinesTable({
                   data-label={t.monitor.machine.actionsCol}
                 >
                   <RuntimeActionMenu
-                    label={`${t.monitor.machine.actionsMenu}（${m.displayName}）`}
+                    label={t.monitor.machine.actionsMenu(m.displayName)}
                     testIdPrefix="mon-actions"
                     iconOnly
                     align="end"
