@@ -818,11 +818,12 @@ func (s *apiServer) HandleActivateMemberApiMembersMemberIdActivatePost(w http.Re
 	dec := reconcileDecision{}
 	if !sessionAlive {
 		s.bankLiveCost(saved.ID)
-		// A wake still booting from an earlier press is what this stop ends; without the
-		// supersede, the reconcile below waits on that START and nothing new goes out.
-		if s.dispatchRobustStopNow(saved.ID).Sent {
-			s.noteStartSupersededByStop(saved.ID, nowSecs())
-		}
+		// A START from an earlier press may still be booting, and the kill chain can name a
+		// different machine (a last landing outranks the pin), so the stop goes there too. Only a
+		// stop that reached it may supersede it; otherwise the reconcile below waits on it.
+		startTarget := s.inFlightStartTargetOf(saved.ID)
+		stop := s.dispatchRobustStopAlsoTo(saved.ID, startTarget)
+		s.noteStartSupersededByStop(saved.ID, stop, nowSecs())
 		dec = s.reconcileMemberNow(saved.ID)
 	}
 	receipt := memberActivateReceiptDTO{ID: saved.ID}

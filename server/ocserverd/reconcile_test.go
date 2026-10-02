@@ -2209,6 +2209,7 @@ func TestReconcileOne(t *testing.T) {
 				State: reconcileState{
 					Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart,
 					LastCommandAt: reconcileTestNow, OfflineSince: reconcileTestNow,
+					StartTarget: "m-box",
 				},
 			})
 		})
@@ -2325,6 +2326,7 @@ func TestReconcileOne(t *testing.T) {
 			State: reconcileState{
 				Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart,
 				LastCommandAt: reconcileTestNow, OfflineSince: reconcileTestNow,
+				StartTarget: "m-box",
 			},
 		}
 		for _, runtime := range []string{RuntimeClaude, RuntimeCodex} {
@@ -2424,6 +2426,7 @@ func TestReconcileOne(t *testing.T) {
 				State: reconcileState{
 					Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart,
 					LastCommandAt: reconcileTestNow, OfflineSince: reconcileTestNow,
+					StartTarget: "m-cx",
 				},
 			})
 		})
@@ -2615,6 +2618,7 @@ func TestReconcileTickMemberLocked(t *testing.T) {
 		wantState := reconcileState{
 			Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart,
 			LastCommandAt: reconcileTestNow, OfflineSince: reconcileTestNow,
+			StartTarget: "m-box",
 		}
 		if reconcileTestState(api, "runner") != wantState {
 			t.Fatalf("stored state:\n got %+v\nwant %+v", reconcileTestState(api, "runner"), wantState)

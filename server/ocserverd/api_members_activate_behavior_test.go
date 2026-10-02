@@ -394,27 +394,40 @@ func TestActivateMember_UnderAMachineReportingTheRuntimeLoggedOutTheWakeGoesOut(
 
 func TestActivateMember_UnderAPressWhileWakingTheStopIsFollowedByAFreshStartAndNoFailure(t *testing.T) {
 	cases := []struct {
-		population string
-		seed       func(t *testing.T, api *apiServer) (id, firstBody string)
+		name string
+		seed func(t *testing.T, api *apiServer) string
+		// The member's frames each warden receives from the second press alone.
+		want map[string][]string
 	}{
-		{"staff", func(t *testing.T, api *apiServer) (string, string) {
+		{"under a staff member", func(t *testing.T, api *apiServer) string {
 			connectWarden(t, api, ServerSelfHost)
-			return seedMiraID, `{}`
-		}},
-		{"outsource", func(t *testing.T, api *apiServer) (string, string) {
+			return seedMiraID
+		}, map[string][]string{ServerSelfHost: {"stop", "start"}}},
+		{"under a staff member that last ran on another machine", func(t *testing.T, api *apiServer) string {
+			putWarden(t, api, "mach-a")
+			connectWarden(t, api, "mach-a")
+			connectWarden(t, api, ServerSelfHost)
+			shutdownLastLanding(t, api.dal, seedMiraID, "mach-a")
+			return seedMiraID
+		}, map[string][]string{"mach-a": {"stop"}, ServerSelfHost: {"stop", "start"}}},
+		{"under an outsource member", func(t *testing.T, api *apiServer) string {
 			api.noOutsource = true
-			return newActiveWorker(t, api, false), `{}`
-		}},
+			return newActiveWorker(t, api, false)
+		}, map[string][]string{ServerSelfHost: {"stop", "start"}}},
 	}
 	for _, c := range cases {
-		t.Run("under a "+c.population+" member, the second press answers no pending and dispatches stop then start", func(t *testing.T) {
+		t.Run(c.name+", the second press answers no pending and dispatches stop then start", func(t *testing.T) {
 			api, h, _, owner := newAPITestServer(t)
-			id, firstBody := c.seed(t, api)
-			if status, data := apiJSON(t, h, "POST", "/api/members/"+id+"/activate", owner, firstBody); status != 200 {
+			id := c.seed(t, api)
+			if status, data := apiJSON(t, h, "POST", "/api/members/"+id+"/activate", owner, `{}`); status != 200 {
 				t.Fatalf("first activate: %d %v", status, data)
 			}
-			if n := startFramesOn(t, api, ServerSelfHost); n != 1 {
-				t.Fatalf("premise: the first press queued %d START(s), want 1", n)
+			first := map[string][]string{}
+			for warden := range c.want {
+				first[warden] = memberRPCsOn(t, api, warden, id)
+			}
+			if starts := countRPC(first[ServerSelfHost], "start"); starts != 1 {
+				t.Fatalf("premise: the first press queued %d START(s) on %s, want 1 (%v)", starts, ServerSelfHost, first)
 			}
 			if _, data := apiJSON(t, h, "GET", "/api/members/"+id, owner, ""); data["presence"] != "waking" {
 				t.Fatalf("premise: after the first press presence = %v, want waking", data["presence"])
@@ -426,22 +439,12 @@ func TestActivateMember_UnderAPressWhileWakingTheStopIsFollowedByAFreshStartAndN
 				t.Fatalf("second activate: %d %v", status, receipt)
 			}
 			apiWantValue(t, "receipt", any(receipt), any(map[string]any{"id": id}))
-			var rpcs []string
-			for _, f := range drainFrames(t, api, ServerSelfHost) {
-				if f.Args["member_id"] == id {
-					rpcs = append(rpcs, f.RPC)
-				}
+			got := map[string][]string{}
+			for warden := range c.want {
+				got[warden] = memberRPCsOn(t, api, warden, id)
 			}
-			apiWantValue(t, "frames", any(rpcs), any([]string{"stop", "start"}))
-			_, row := apiJSON(t, h, "GET", "/api/members/"+id, owner, "")
-			got := map[string]any{
-				"presence":       row["presence"],
-				"desired_state":  row["desired_state"],
-				"last_op":        row["last_op"],
-				"last_op_ok":     row["last_op_ok"],
-				"last_op_reason": row["last_op_reason"],
-			}
-			apiWantValue(t, "member", any(got), any(map[string]any{
+			apiWantValue(t, "frames", any(got), any(c.want))
+			apiWantValue(t, "member", any(activateRowFields(t, h, owner, id)), any(map[string]any{
 				"presence":       "waking",
 				"desired_state":  "online",
 				"last_op":        "",
@@ -449,5 +452,77 @@ func TestActivateMember_UnderAPressWhileWakingTheStopIsFollowedByAFreshStartAndN
 				"last_op_reason": "",
 			}))
 		})
+	}
+}
+
+func TestActivateMember_UnderAPressWhileWakingWhoseStopCannotReachTheBootingMachineNoSecondStartGoesOut(t *testing.T) {
+	api, h, _, owner := newAPITestServer(t)
+	putWarden(t, api, "mach-c")
+	connectWarden(t, api, "mach-c")
+	booting, err := api.hub.Connect(ServerSelfHost, "")
+	if err != nil {
+		t.Fatalf("hub connect %s: %v", ServerSelfHost, err)
+	}
+	if status, data := apiJSON(t, h, "POST", "/api/members/"+seedMiraID+"/activate", owner, `{}`); status != 200 {
+		t.Fatalf("first activate: %d %v", status, data)
+	}
+	if starts := countRPC(memberRPCsOn(t, api, ServerSelfHost, seedMiraID), "start"); starts != 1 {
+		t.Fatalf("premise: the first press queued %d START(s) on %s, want 1", starts, ServerSelfHost)
+	}
+	api.hub.Disconnect(booting)
+
+	status, receipt := apiJSON(t, h, "POST", "/api/members/"+seedMiraID+"/activate", owner,
+		`{"machine_id":"mach-c"}`)
+
+	if status != 200 {
+		t.Fatalf("second activate: %d %v", status, receipt)
+	}
+	reason := "warden_unreachable: 喚醒 was recorded, but nothing has been dispatched yet — " +
+		"the machine's warden did not take the start. It will be retried; if it stays here, check that machine"
+	apiWantValue(t, "receipt", any(receipt), any(map[string]any{
+		"id": seedMiraID, "activation_pending": true, "last_op_reason": reason,
+	}))
+	apiWantValue(t, "frames", any(map[string][]string{
+		"mach-c": memberRPCsOn(t, api, "mach-c", seedMiraID),
+	}), any(map[string][]string{"mach-c": {"stop"}}))
+	apiWantValue(t, "member", any(activateRowFields(t, h, owner, seedMiraID)), any(map[string]any{
+		"presence":       "offline",
+		"desired_state":  "online",
+		"last_op":        "start",
+		"last_op_ok":     false,
+		"last_op_reason": reason,
+	}))
+}
+
+func memberRPCsOn(t *testing.T, api *apiServer, warden, memberID string) []string {
+	t.Helper()
+	rpcs := []string{}
+	for _, f := range drainFrames(t, api, warden) {
+		if f.Args["member_id"] == memberID {
+			rpcs = append(rpcs, f.RPC)
+		}
+	}
+	return rpcs
+}
+
+func countRPC(rpcs []string, rpc string) int {
+	n := 0
+	for _, r := range rpcs {
+		if r == rpc {
+			n++
+		}
+	}
+	return n
+}
+
+func activateRowFields(t *testing.T, h http.Handler, owner, id string) map[string]any {
+	t.Helper()
+	_, row := apiJSON(t, h, "GET", "/api/members/"+id, owner, "")
+	return map[string]any{
+		"presence":       row["presence"],
+		"desired_state":  row["desired_state"],
+		"last_op":        row["last_op"],
+		"last_op_ok":     row["last_op_ok"],
+		"last_op_reason": row["last_op_reason"],
 	}
 }

@@ -25,6 +25,7 @@ package main
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 )
 
@@ -720,6 +721,14 @@ func (o workerStopOutcome) recorded() bool {
 	return len(o.Landed) > 0 || o.Parked != ""
 }
 
+// A parked stop counts: the tick re-fires it there.
+func (o workerStopOutcome) reached() []string {
+	if o.Parked == "" {
+		return o.Landed
+	}
+	return append(slices.Clone(o.Landed), o.Parked)
+}
+
 type takeoverBench struct {
 	Machine string
 	At      float64
@@ -1030,9 +1039,10 @@ func (s *apiServer) observedWorkerHost(workerID string, tele map[string]any) str
 
 // Callers hold s.outsourceMu.
 func (s *apiServer) stopWorkerSessionForHandover(w OutsourceWorker, reason string, now float64) bool {
+	spawnTarget := s.workerSpawnTarget[w.ID]
 	targets := s.workerKillTargets(w.ID, w.LastMachineID)
 	out := s.stopWorkerSessionOrPark(targets, w.ID, now)
-	if !out.recorded() && w.Status == WorkerStatusActive {
+	if !stopReachedStart(spawnTarget, out.reached()) && w.Status == WorkerStatusActive {
 		outsourceLog("%s deferred %s (%s): the kill is on no warden's FIFO and parked "+
 			"nowhere (targets %v); nothing stopped — tick retries",
 			reason, w.ID, w.Codename, targets)

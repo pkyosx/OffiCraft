@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -132,6 +133,17 @@ type reconcileState struct {
 	// OfflineSince feeds the zombie-takeover second-confirmation window ONLY. Restart amnesia
 	// re-arms the window from zero, again the safe direction.
 	OfflineSince float64
+	// StartTarget: the warden the last START was handed to; read only through inFlightStartTarget.
+	// The staff kill chain cannot stand in for it: it names a session's last landing before the
+	// pin, so after a 換機器 it points at the old machine while the START boots on the new one.
+	StartTarget string
+}
+
+func inFlightStartTarget(st reconcileState) string {
+	if st.LastCommand != reconcileCmdStart {
+		return ""
+	}
+	return st.StartTarget
 }
 
 func newReconcileState() reconcileState {
@@ -235,12 +247,22 @@ func robustStopRetryStep(dispatchedAt float64, alive bool, stopRetry, now float6
 	}
 }
 
-// Apply only after the stop was recorded somewhere, or a still-running session gets a second
-// START beside it.
+// stopReachedStart: reached is every machine the stop was handed to or owed on. While a START is
+// in flight only a stop on its machine ends that session; with none in flight any stop will do.
+func stopReachedStart(startTarget string, reached []string) bool {
+	if startTarget == "" {
+		return len(reached) > 0
+	}
+	return slices.Contains(reached, startTarget)
+}
+
+// Apply only when stopReachedStart holds: afterwards the decider no longer waits on the old START,
+// so a session the stop missed could end up running beside its replacement.
 func startSupersededByStop(st reconcileState, now float64) reconcileState {
 	st.Phase = reconcilePhaseStopping
 	st.LastCommand = reconcileCmdStop
 	st.LastCommandAt = now
+	st.StartTarget = ""
 	return st
 }
 
@@ -395,6 +417,7 @@ func decideUp(
 		st.LastCommand = reconcileCmdNone
 		st.LastCommandAt = 0.0
 		st.StopDeadline = 0.0
+		st.StartTarget = ""
 		dec := decisionNone(obs, st, "online: converged")
 		dec.ConvergedOnline = true
 		return dec
@@ -933,6 +956,7 @@ func (s *apiServer) reconcileOne(m Member, st reconcileState, now float64) recon
 		// the boot_ts back.
 		s.clearSessionBootTSForStart(m.ID)
 		s.armReceiptWatch(m.ID, reconcileCmdStart, warden, now)
+		decision.State.StartTarget = warden
 		return decision
 	case reconcileCmdStop:
 		if decision.StopKind == stopKindSessionGone {
@@ -1807,21 +1831,35 @@ func (s *apiServer) reconcileMemberNow(memberID string) reconcileDecision {
 	return s.reconcileTickMemberLocked(*m, nowSecs())
 }
 
-func (s *apiServer) dispatchRobustStopNow(memberID string) shutdownDispatch {
+func (s *apiServer) dispatchRobustStopNow(memberID string) {
+	s.dispatchRobustStopAlsoTo(memberID, "")
+}
+
+func (s *apiServer) dispatchRobustStopAlsoTo(memberID, alsoTo string) shutdownDispatch {
 	if s.noReconcile {
 		return shutdownDispatch{}
 	}
 	// The --no-reconcile gate stays at THIS caller: it is the producer kill switch, and the outsource
 	// verbs have never consulted it (api_stub.go).
-	return s.dispatchShutdown(memberID, "robust-stop")
+	return s.dispatchShutdownAlsoTo(memberID, "robust-stop", alsoTo)
+}
+
+func (s *apiServer) inFlightStartTargetOf(memberID string) string {
+	s.reconcileMu.Lock()
+	defer s.reconcileMu.Unlock()
+	return inFlightStartTarget(s.reconcileStateOf(memberID))
 }
 
 // noteStartSupersededByStop takes reconcileMu itself: its caller is an HTTP handler that holds no
-// reconcile lock.
-func (s *apiServer) noteStartSupersededByStop(memberID string, now float64) {
+// reconcile lock. The START is re-read under the lock: one a tick sent after the stop went out is
+// not what the stop ended.
+func (s *apiServer) noteStartSupersededByStop(memberID string, stop shutdownDispatch, now float64) {
 	s.reconcileMu.Lock()
 	defer s.reconcileMu.Unlock()
-	s.setReconcileState(memberID, startSupersededByStop(s.reconcileStateOf(memberID), now))
+	st := s.reconcileStateOf(memberID)
+	if stopReachedStart(inFlightStartTarget(st), stop.Landed) {
+		s.setReconcileState(memberID, startSupersededByStop(st, now))
+	}
 }
 
 // noteRobustStopDispatched takes reconcileMu itself: every caller is an HTTP handler that holds no
