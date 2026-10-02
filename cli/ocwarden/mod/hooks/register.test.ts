@@ -154,6 +154,16 @@ test('under a listener that refuses to start, no load marker is written', async 
   expect(w.writes).toEqual([{ path: '/w/m1/.officraft-mod-booted', text: 'booted\n' }])
 })
 
+test('under a listener whose stdout is no frame and that prints no transport line, no load marker is written', async ($, on) => {
+  // Positive control: "first output is a frame", where a frame writes it.
+  const w = world(on, { stdout: ['flag provided but not defined: -x\n'] })
+
+  await $.session.start(START)
+  await settled(w.done)
+
+  expect(w.writes).toEqual([{ path: '/w/m1/.officraft-mod-booted', text: 'booted\n' }])
+})
+
 for (const [name, refusal] of [
   ['refuses', { refuse: ['開始。'] }],
   ['throws on', { throwOn: ['開始。'] }],

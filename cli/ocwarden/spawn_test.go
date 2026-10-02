@@ -1421,6 +1421,30 @@ func TestStart(t *testing.T) {
 		}
 	})
 
+	t.Run("under a configured nudge, that text is the boot prompt the mod submits", func(t *testing.T) {
+		h := newSpawnHarness()
+		d := h.deps()
+		d.Nudge = "請開機。"
+		if got := d.start(startParamsM1()); !got.OK {
+			t.Fatalf("outcome = %+v, want OK", got)
+		}
+		want := `{"boot_prompt":"請開機。","loaded_marker":"/w/m1/.officraft-mod-loaded",` +
+			`"disabled_marker":"/w/m1/.officraft-mod-disabled","booted_marker":"/w/m1/.officraft-mod-booted",` +
+			`"ack_file":"/w/m1/.officraft-listen-ack",` +
+			`"ready_prefixes":["[ocagent] listen: connected","[ocagent] listen: disconnected"],` +
+			`"listener":{"argv":["/w/m1/ocagent","listen","--deliver-mod"],"cwd":"/w/m1",` +
+			`"env":{"OC_LISTEN_ACK":"1","OC_LISTEN_ACK_FILE":"/w/m1/.officraft-listen-ack"}}}` + "\n"
+		var got string
+		for _, w := range h.writes {
+			if w.path == "/w/m1/.officraft-mod/officraft.json" {
+				got = w.content
+			}
+		}
+		if got != want {
+			t.Errorf("officraft.json =\n%s\nwant\n%s", got, want)
+		}
+	})
+
 	t.Run("under leftover ocagent processes in the workdir, they are reaped before the launch and logged", func(t *testing.T) {
 		for _, tc := range []struct {
 			name  string
