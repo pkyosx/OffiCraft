@@ -278,9 +278,8 @@ respawn，什麼都不問）。現在它開的是**與更改同一份 dialog**�
 | 1 | `POST …/model`（`runtime` / `model` / `effort`） | 喚醒會重生 session，設定必須先落地，否則新 session 用舊模型起來 |
 | 2 | `POST /api/members/{member_id}/activate`（機器有改時帶 `machine_id`） | 唯一會把它叫起來的那條，釘選也由它寫入——與正職同形，一次喚醒只送這一個請求 |
 
-🔴 **喚醒不先打 relocate**：對一個 stopped 的 worker，伺服器把 relocate 當成「排在停止後的重啟」，
-寫下 op=start、ok=false 的 held_down 回執，而接著的 activate 不會覆寫它——「最近操作」就會對一次
-成功的喚醒顯示「✗ 喚醒 失敗」。
+🔴 **喚醒不先打 relocate**：對一個已經停好的 worker，伺服器把 relocate 當成「停止後的重啟」並當場派出
+START，接著的 activate 會再殺一次、再派一次——一次喚醒變成兩次開機加一刀。
 
 對一個 **stopped**（`desired_state=offline`）的 worker，步驟 1 在這次請求裡不派工——
 server 在 `desired_state=offline` 時只記下，所以步驟 2 是這次唯一會派工的一步。

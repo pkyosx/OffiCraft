@@ -42,6 +42,41 @@ func apiTestWorkerWantedOnline(t *testing.T, d *DAL, id string) {
 	}
 }
 
+// apiTestRunningWorker is the fixture worker wanted online and running on the
+// server-self machine, with that warden and a second one, m-box, both up.
+// Answers the worker's own session.
+func apiTestRunningWorker(t *testing.T, api *apiServer, h http.Handler, d *DAL, owner string) *hubListener {
+	t.Helper()
+	apiTestStoppedWorker(t, api, h, d, owner)
+	apiTestWorkerWantedOnline(t, d, "ow-abc123")
+	session, err := api.hub.Connect("ow-abc123", ServerSelfHost)
+	if err != nil {
+		t.Fatalf("hub.Connect: %v", err)
+	}
+	return session
+}
+
+// apiTestStoppedWorker is the fixture worker held offline on the server-self
+// machine and never asked to stop, with that warden and m-box both up.
+func apiTestStoppedWorker(t *testing.T, api *apiServer, h http.Handler, d *DAL, owner string) {
+	t.Helper()
+	apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+	w, err := d.GetOutsourceWorker("ow-abc123")
+	if err != nil || w == nil {
+		t.Fatalf("GetOutsourceWorker: %v (%v)", w, err)
+	}
+	w.DesiredState = DesiredStateOffline
+	if err := d.PutOutsourceWorker(*w); err != nil {
+		t.Fatalf("PutOutsourceWorker: %v", err)
+	}
+	if err := d.SetMemberDesiredMachineID("ow-abc123", ServerSelfHost); err != nil {
+		t.Fatalf("SetMemberDesiredMachineID: %v", err)
+	}
+	reconcileTestPut(t, d, Member{ID: "m-box", Name: "Box", Kind: KindWarden})
+	apiTestListen(t, api, ServerSelfHost)
+	apiTestListen(t, api, "m-box")
+}
+
 func apiTestWorkerRow(t *testing.T, over map[string]any) map[string]any {
 	t.Helper()
 	row := map[string]any{
@@ -644,6 +679,110 @@ func TestHandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost(t *testi
 		dashboard.wantFrames()
 	})
 
+	t.Run("moving a worker whose 停止 is still in flight saves the pin as a success noting the stop, then starts it on the new machine once the session is gone", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		session := apiTestRunningWorker(t, api, h, d, owner)
+		if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/deactivate", owner, ""); code != 200 {
+			t.Fatalf("stop: %d %v", code, data)
+		}
+
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/relocate", owner,
+			`{"machine_id":"m-box"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id": "ow-abc123", "relocation_pending": true,
+		})
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		wsWantWardenFrames(t, api, "m-box")
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "stopping", "desired_state": "offline",
+			"desired_machine_id": "m-box", "machine": "m-server-self",
+			"last_op": "start", "last_op_ok": true, "last_op_log": "", "last_op_at": apiAnyNumber,
+			"last_op_reason": "restart_queued: the relocate was saved; this member is still " +
+				"being stopped, and it will be started again to apply it once that stop completes",
+		}))
+
+		api.hub.Disconnect(session)
+		api.runOutsourceTick(nowSecs())
+		wsWantWardenFrames(t, api, "m-box",
+			wsStartFrame("ow-abc123", apiTestWorkerBootContext(t, h, owner), "claude", "sonnet", "medium"))
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "waking", "desired_state": "online",
+			"desired_machine_id": "m-box", "machine": "m-box",
+			"last_op": "start", "last_op_ok": true, "last_op_log": "", "last_op_at": apiAnyNumber,
+			"last_op_reason": "restarting: the stop has completed, so this member is being " +
+				"started again to apply what was saved while it was stopping",
+		}))
+	})
+
+	t.Run("moving a worker whose 強制停止 already took its session down starts it on the new machine in the same request, as a success noting it had already stopped", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		session := apiTestRunningWorker(t, api, h, d, owner)
+		if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/force-stop", owner, ""); code != 200 {
+			t.Fatalf("force-stop: %d %v", code, data)
+		}
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		api.hub.Disconnect(session)
+
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/relocate", owner,
+			`{"machine_id":"m-box"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
+		wsWantWardenFrames(t, api, "m-box",
+			wsStartFrame("ow-abc123", apiTestWorkerBootContext(t, h, owner), "claude", "sonnet", "medium"))
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		settled := apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "waking", "desired_state": "online",
+			"desired_machine_id": "m-box", "machine": "m-box", "forced_stop_at": apiAnyNumber,
+			"last_op": "start", "last_op_ok": true, "last_op_log": "", "last_op_at": apiAnyNumber,
+			"last_op_reason": "restarting: the relocate was saved; this member had already " +
+				"stopped, so it is being started again to apply it",
+		})
+		apiTestWantWorker(t, h, owner, "ow-abc123", settled)
+
+		api.runOutsourceTick(nowSecs())
+		wsWantWardenFrames(t, api, "m-box")
+		apiTestWantWorker(t, h, owner, "ow-abc123", settled)
+	})
+
+	t.Run("moving a worker nobody ever asked to stop saves the pin and starts nothing, as a success noting it stays stopped; 喚醒 then clears that record and starts it", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestStoppedWorker(t, api, h, d, owner)
+
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/relocate", owner,
+			`{"machine_id":"m-box"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "ow-abc123", "relocation_pending": true})
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		wsWantWardenFrames(t, api, "m-box")
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "desired_state": "offline", "desired_machine_id": "m-box",
+			"last_op": "start", "last_op_ok": true, "last_op_log": "", "last_op_at": apiAnyNumber,
+			"last_op_reason": "held_down: the relocate was saved; this member stays stopped — " +
+				"press 喚醒 when you want it to run",
+		}))
+
+		status, data = apiJSON(t, h, "POST", "/api/members/ow-abc123/activate", owner, "")
+		if status != 200 {
+			t.Fatalf("activate: %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
+		wsWantWardenFrames(t, api, "m-box", wsStopFrame("ow-abc123"),
+			wsStartFrame("ow-abc123", apiTestWorkerBootContext(t, h, owner), "claude", "sonnet", "medium"))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "waking", "desired_state": "online",
+			"desired_machine_id": "m-box", "machine": "m-box",
+			"last_op": "", "last_op_ok": nil, "last_op_log": "", "last_op_reason": "", "last_op_at": 0,
+		}))
+	})
+
 	for _, shape := range windowDALShapes {
 		t.Run(shape+": a wind-down whose epoch write fails leaves no epoch behind", func(t *testing.T) {
 			d, _, _ := windowDAL(t, shape)
@@ -877,10 +1016,9 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "presence": "stopping", "desired_state": "offline",
-			"last_op": "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
-			"last_op_reason": "held_down: the refocus was saved and this member is still " +
-				"being stopped — the stop in flight is honoured as-is, and it will be " +
-				"started again once it is down",
+			"last_op": "start", "last_op_ok": true, "last_op_at": apiAnyNumber,
+			"last_op_reason": "restart_queued: the refocus was saved; this member is still " +
+				"being stopped, and it will be started again to apply it once that stop completes",
 		}))
 		// The 停止 in flight is itself an open wind-down, so this write carries
 		// the 〈停止〉 notice too (offboardDeltaPayload).
@@ -2048,6 +2186,73 @@ func TestHandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(t *testing.
 		push()
 	})
 
+	t.Run("a changed model on a worker nobody ever asked to stop is saved and starts nothing, as a success noting it stays stopped; 喚醒 then clears that record and starts it on the new model", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestStoppedWorker(t, api, h, d, owner)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/members/ow-abc123", owner, `{"model":"opus"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "desired_state": "offline", "desired_machine_id": "m-server-self",
+			"model":   "opus",
+			"last_op": "start", "last_op_ok": true, "last_op_log": "", "last_op_at": apiAnyNumber,
+			"last_op_reason": "held_down: the runtime/model was saved; this member stays stopped — " +
+				"press 喚醒 when you want it to run",
+		}))
+
+		status, data = apiJSON(t, h, "POST", "/api/members/ow-abc123/activate", owner, "")
+		if status != 200 {
+			t.Fatalf("activate: %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"),
+			wsStartFrame("ow-abc123", apiTestWorkerBootContext(t, h, owner), "claude", "opus", "medium"))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "waking", "desired_state": "online",
+			"desired_machine_id": "m-server-self", "machine": "m-server-self", "model": "opus",
+			"last_op": "", "last_op_ok": nil, "last_op_log": "", "last_op_reason": "", "last_op_at": 0,
+		}))
+	})
+
+	t.Run("a changed model on a worker whose 強制停止 already took its session down is saved as a success noting it had already stopped, and the next tick starts it on the new model", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		session := apiTestRunningWorker(t, api, h, d, owner)
+		if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/force-stop", owner, ""); code != 200 {
+			t.Fatalf("force-stop: %d %v", code, data)
+		}
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		api.hub.Disconnect(session)
+
+		status, data := apiJSON(t, h, "PATCH", "/api/members/ow-abc123", owner, `{"model":"opus"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
+		restarting := "restarting: the runtime/model was saved; this member had already " +
+			"stopped, so it is being started again to apply it"
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "stopped", "desired_state": "offline",
+			"desired_machine_id": "m-server-self", "model": "opus", "forced_stop_at": apiAnyNumber,
+			"last_op": "start", "last_op_ok": true, "last_op_log": "", "last_op_at": apiAnyNumber,
+			"last_op_reason": restarting,
+		}))
+
+		api.runOutsourceTick(nowSecs())
+		wsWantWardenFrames(t, api, ServerSelfHost,
+			wsStartFrame("ow-abc123", apiTestWorkerBootContext(t, h, owner), "claude", "opus", "medium"))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "waking", "desired_state": "online",
+			"desired_machine_id": "m-server-self", "machine": "m-server-self",
+			"model": "opus", "forced_stop_at": apiAnyNumber,
+			"last_op": "start", "last_op_ok": true, "last_op_log": "", "last_op_at": apiAnyNumber,
+			"last_op_reason": restarting,
+		}))
+	})
+
 	for _, workerStatus := range []string{"active", "assigned"} {
 		t.Run("a changed model on a live "+workerStatus+" worker opens the wind-down that carries it into the next session", func(t *testing.T) {
 			api, h, d, owner := newAPITestServer(t)
@@ -2290,7 +2495,10 @@ func TestHandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(t *testing.
 		}
 		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-			"model": "opus",
+			"model":   "opus",
+			"last_op": "start", "last_op_ok": true, "last_op_at": apiAnyNumber,
+			"last_op_reason": "held_down: the runtime/model was saved; this member stays stopped — " +
+				"press 喚醒 when you want it to run",
 		}))
 	})
 

@@ -1175,9 +1175,8 @@ describe("WorkerDetailPanel — lifecycle ops (T-32e1/T-f190)", () => {
       .mockImplementation(async () => {
         order.push("model");
       });
-    // A relocate on a stopped worker leaves a held_down start receipt the
-    // activate does not overwrite: the panel would paint 「✗ 喚醒 失敗」 over a
-    // wake that succeeded.
+    // A relocate on a worker whose stop has finished starts it on the spot, and
+    // the activate after it would kill that session and start a second one.
     const relocate = vi.spyOn(api, "relocateMember");
     const realActivate = api.activateMember.bind(api);
     const restart = vi

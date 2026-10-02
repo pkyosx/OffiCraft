@@ -2054,9 +2054,9 @@ func TestRespawnWorkerForOwnerOp(t *testing.T) {
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status": "active", "presence": "online", "desired_state": "offline",
 			"machine": "m-server-self",
-			"last_op": "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
-			"last_op_reason": "held_down: the relocate was saved, but nothing was started — " +
-				"this worker is stopped; 喚醒 it when you want it to run",
+			"last_op": "start", "last_op_ok": true, "last_op_at": apiAnyNumber,
+			"last_op_reason": "held_down: the relocate was saved; this member stays stopped — " +
+				"press 喚醒 when you want it to run",
 		}))
 	})
 

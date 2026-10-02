@@ -792,8 +792,10 @@ func (s *apiServer) HandleActivateMemberApiMembersMemberIdActivatePost(w http.Re
 				return err
 			}
 		}
+		receiptChanged := sessionAlive
 		if !sessionAlive {
 			clearWindDownRow(windDownAnchorRowOfMember(cur))
+			receiptChanged = clearStoppedOwnerOpNote(ownerOpRowOfMember(cur))
 		} else {
 			stampSessionAliveWakeReceipt(cur, nowSecs())
 		}
@@ -801,7 +803,7 @@ func (s *apiServer) HandleActivateMemberApiMembersMemberIdActivatePost(w http.Re
 		if err := persistMemberRowOn(tx, before, *cur); err != nil {
 			return err
 		}
-		if sessionAlive {
+		if receiptChanged {
 			return persistMemberOpReceiptOn(tx, *cur)
 		}
 		return nil
@@ -953,14 +955,6 @@ func (s *apiServer) HandleRelocateMemberApiMembersMemberIdRelocatePost(w http.Re
 		receipt.RelocationDeferred = true
 	}
 	writeJSON(w, http.StatusOK, receipt)
-}
-
-// Twin of the worker receipt respawnWorkerForOwnerOp writes. Only the held-down
-// case gets a receipt: an offline member picks the value up at its next wake, and
-// stamping it would be noise.
-func memberHeldDownReceipt(op string) string {
-	return spawnReasonHeldDown + ": the " + op + " was saved, but nothing was " +
-		"started — this member is stopped; 喚醒 it when you want it to run"
 }
 
 // 🔴 The harm is on the NEXT generation: activate clears neither refocus_since nor

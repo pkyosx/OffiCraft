@@ -429,10 +429,12 @@ func (s *apiServer) handleRestartOutsourceWorker(w http.ResponseWriter, r *http.
 		//   * forced_stop_at is KEPT on both arms, as staff activate does: it
 		//     describes the session BEFORE (dal.go, migrations/00057), and its max()
 		//     upsert would fight a clear anyway.
+		receiptChanged := sessionAliveReceipt
 		if !sessionAliveReceipt {
 			worker.RefocusSince = 0.0
 			worker.RefocusOp = ""
 			worker.StoppedSince = 0.0
+			receiptChanged = clearStoppedOwnerOpNote(ownerOpRowOfWorker(worker))
 		}
 		// 後蓋前: this handler spends the queued 起來 right now; leaving it armed
 		// would fire a SECOND start after the next 下線.
@@ -445,7 +447,7 @@ func (s *apiServer) handleRestartOutsourceWorker(w http.ResponseWriter, r *http.
 		// request-start snapshot written after it would bury the newer sentence on a
 		// 200. ⚠️ No test holds this order — an independent review moved it and the
 		// suite stayed green.
-		if sessionAliveReceipt {
+		if receiptChanged {
 			return setMemberLastOpOn(tx, worker.ID, worker.LastOp, worker.LastOpOK,
 				worker.LastOpLog, worker.LastOpReason, worker.LastOpAt)
 		}
@@ -532,10 +534,13 @@ func (s *apiServer) handleSetOutsourceWorkerModel(w http.ResponseWriter, r *http
 		// respawnWorkerForOwnerOp owns that branch for all three owner verbs.
 		respawn = launchIntentChanged && online
 		if !respawn && launchIntentChanged {
-			// A converged stop never enters the funnel (no live session), so the
-			// queued restart is stamped here; 改機器 has no such gate. Owner
-			// 2026-08-30: 「change model / machine 只是帶起來的方式不一樣而已」.
-			if s.queueWorkerRestartAfterStop(worker, ownerOpRuntimeModel, nowSecs()) {
+			// With no live session the funnel is never entered, so a stopped worker's
+			// note is stamped here; 改機器 has no such gate. Owner 2026-08-30:
+			// 「change model / machine 只是帶起來的方式不一樣而已」.
+			// ⚠️ A queued 起來 is left to the next tick on purpose: the 喚醒 dialog saves
+			// the model first and wakes right after, and starting here would put two
+			// starts and a kill on the warden.
+			if applyWorkerStoppedOwnerOp(worker, ownerOpRuntimeModel, online, nowSecs()) {
 				if err := persistWorkerRestartIntentOn(tx, before, *worker); err != nil {
 					return err
 				}

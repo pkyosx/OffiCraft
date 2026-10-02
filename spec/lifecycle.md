@@ -899,8 +899,14 @@ decides that time is up.
   it records the session BEFORE this one. A 重啟 verb (重新聚焦 / 改機器 / 換 model) arriving
   while a stop is in flight (`stopping_since > 0`) is what sets the flag: the stop keeps its
   rung and its anchors, and only 「起來」 is added — 「沿用強硬下線規則 但是附加上線規則」.
-  A 重啟 verb on a member merely AT REST (no stop in flight) still only saves and answers
-  `held_down` (T-ed79 #4/#14): 「喚醒 it when you want it to run」.
+  A 重啟 verb on a member merely AT REST (never asked to stop, `stopping_since = 0`) still
+  only saves (T-ed79 #4/#14). Each of the three leaves `last_op=start` with
+  `last_op_ok=true` and a note — never a failure — staff and outsource alike: `restart_queued`
+  while the session is still online (the stop is running), `restarting` when it is already
+  gone (the flag is spent at once by the relocate, by 重新聚焦, and by the next tick after a
+  model change; the spend itself notes `restarting` unless that note is already there), and
+  `held_down` for the member at rest (「press 喚醒 when you want it to run」). 喚醒 clears
+  any of the three, so the next line is the warden's own START result.
 - online → the member is `stopping` and the producer dispatches **NOTHING**, indefinitely.
   The agent has been handed the offboard sequence and is working it; a clock here would
   cut off a session that was told there is no countdown.
