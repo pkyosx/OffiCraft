@@ -8,6 +8,7 @@ type Config = {
   boot_prompt: string
   loaded_marker: string
   disabled_marker: string
+  booted_marker: string
   ack_file: string
   ready_prefixes: string[]
   listener: { argv: string[]; cwd: string; env: Record<string, string> }
@@ -40,6 +41,8 @@ async function boot($: EngineInterface, config: Config): Promise<void> {
     $.ui.log('the boot prompt was refused; not listening', { to: 'debug' })
     return
   }
+  // Tells a warden that falls back to pasting not to paste a second boot prompt.
+  await $.fs.write(config.booted_marker, 'booted\n')
   await listen($, config)
 }
 
@@ -63,6 +66,7 @@ function isConfig(value: unknown): value is Config {
     typeof c.boot_prompt === 'string' &&
     typeof c.loaded_marker === 'string' &&
     typeof c.disabled_marker === 'string' &&
+    typeof c.booted_marker === 'string' &&
     typeof c.ack_file === 'string' &&
     Array.isArray(c.ready_prefixes) &&
     c.ready_prefixes.every(p => typeof p === 'string') &&

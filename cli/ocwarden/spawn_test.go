@@ -161,7 +161,8 @@ func notifyModWrites(t *testing.T) []writtenFile {
 		// Every name the mod uses comes from here; it spells none of them itself.
 		{"/w/m1/.officraft-mod/officraft.json",
 			`{"boot_prompt":"開始。","loaded_marker":"/w/m1/.officraft-mod-loaded",` +
-				`"disabled_marker":"/w/m1/.officraft-mod-disabled","ack_file":"/w/m1/.officraft-listen-ack",` +
+				`"disabled_marker":"/w/m1/.officraft-mod-disabled","booted_marker":"/w/m1/.officraft-mod-booted",` +
+				`"ack_file":"/w/m1/.officraft-listen-ack",` +
 				`"ready_prefixes":["[ocagent] listen: connected","[ocagent] listen: disconnected"],` +
 				`"listener":{"argv":["/w/m1/ocagent","listen","--deliver-mod"],"cwd":"/w/m1",` +
 				`"env":{"OC_LISTEN_ACK":"1","OC_LISTEN_ACK_FILE":"/w/m1/.officraft-listen-ack"}}}` + "\n",
@@ -179,12 +180,14 @@ const goldenNotifyModNotLoadedNote = "notify_mod_not_loaded: OffiCraft 的通知
 	"有人把視窗切到子代理（sub-agent）畫面時，通知可能漏掉。"
 
 // nudgeCalls is the boot nudge into member-m1: one paste, then 30 paced Enters.
-func nudgeCalls() []string {
+func nudgeCalls() []string { return nudgeCallsWithEnters(30) }
+
+func nudgeCallsWithEnters(enters int) []string {
 	calls := []string{
 		"tmux -L officraft set-buffer -b oc-spawn-nudge 開始。",
 		"tmux -L officraft paste-buffer -t member-m1 -b oc-spawn-nudge -d -p",
 	}
-	for i := 0; i < 30; i++ {
+	for i := 0; i < enters; i++ {
 		calls = append(calls,
 			"tmux -L officraft copy-mode -q -t member-m1",
 			"tmux -L officraft send-keys -t member-m1 Enter")
@@ -1260,7 +1263,8 @@ func TestStart(t *testing.T) {
 		}
 		// Both markers go before the launch: a stale loaded marker would pass the
 		// check for a mod that never loaded, a stale disabled one would mute it.
-		wantRemoves := []string{"/w/m1/ocagent", "/w/m1/.oc-env", "/w/m1/.officraft-mod-loaded", "/w/m1/.officraft-mod-disabled"}
+		wantRemoves := []string{"/w/m1/ocagent", "/w/m1/.oc-env", "/w/m1/.officraft-mod-loaded", "/w/m1/.officraft-mod-disabled",
+			"/w/m1/.officraft-mod-booted"}
 		if !reflect.DeepEqual(h.removes, wantRemoves) {
 			t.Errorf("removes = %v, want %v", h.removes, wantRemoves)
 		}
@@ -1355,49 +1359,65 @@ func TestStart(t *testing.T) {
 	})
 
 	t.Run("under a mod that did not load, the member falls back to the paste listener and the mod is told to stand down", func(t *testing.T) {
-		h := newSpawnHarness()
-		h.present = map[string]bool{}
-		got := h.deps().start(startParamsM1())
+		for _, tc := range []struct {
+			name   string
+			booted bool
+			nudge  []string
+			slept  int
+		}{
+			// The REPL has been up for the whole wait: three Enters, not thirty.
+			{"the boot prompt is pasted when the mod never submitted it", false, nudgeCallsWithEnters(3), 33},
+			// The mod booted the member but its listener never connected.
+			{"no second boot prompt after the mod submitted one", true, nil, 30},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				h := newSpawnHarness()
+				h.present = map[string]bool{"/w/m1/.officraft-mod-booted": tc.booted}
+				got := h.deps().start(startParamsM1())
 
-		want := SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500", Note: goldenNotifyModNotLoadedNote}
-		if got != want {
-			t.Errorf("outcome = %+v, want %+v", got, want)
-		}
-		wantWrites := append([]writtenFile{
-			{"/w/m1/persona.md", "you are m1", 0o600},
-			{"/w/m1/.mcp.json", buildMCPConfig("http://127.0.0.1:7755", "jwt-m1"), 0o600},
-			{"/w/m1/settings.json", buildStatuslineSettings(), 0o600},
-			{"/w/m1/.oc-token", "jwt-m1", 0o600},
-			{"/w/m1/system-prompt.md", goldenSystemPromptM1, 0o600},
-		}, notifyModWrites(t)...)
-		wantWrites = append(wantWrites,
-			writtenFile{"/w/m1/.officraft-mod-disabled", "the warden fell back to the tmux paste listener\n", 0o600})
-		if !reflect.DeepEqual(h.writes, wantWrites) {
-			t.Errorf("writes =\n%+v\nwant\n%+v", h.writes, wantWrites)
-		}
-		wantCalls := append([]string{
-			"tmux -L officraft has-session -t member-m1",
-			"/usr/local/bin/claude --version",
-			"tmux -L officraft kill-session -t listen-m1",
-			"reap /w/m1",
-			"tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 " + goldenLaunchM1,
-			"tmux -L officraft set-option -t member-m1 window-size manual",
-			"tmux -L officraft resize-window -t member-m1 -x 160 -y 50",
-		}, nudgeCalls()...)
-		wantCalls = append(wantCalls,
-			"tmux -L officraft new-session -d -s listen-m1 -x 160 -y 50 "+goldenListenerM1,
-			"tmux -L officraft set-option -t listen-m1 window-size manual",
-			"tmux -L officraft resize-window -t listen-m1 -x 160 -y 50",
-			"tmux -L officraft display-message -p -t member-m1 #{pane_pid}")
-		if !reflect.DeepEqual(h.runner.calls, wantCalls) {
-			t.Errorf("calls =\n%v\nwant\n%v", h.runner.calls, wantCalls)
-		}
-		// The wait for the mod, then the nudge pasted as on the paste route.
-		if want := slices.Repeat([]time.Duration{time.Second}, 60); !reflect.DeepEqual(h.slept, want) {
-			t.Errorf("slept %v, want %v", h.slept, want)
-		}
-		if want := []string{"m1: the notification mod did not load; notifications go by tmux paste"}; !reflect.DeepEqual(h.logs, want) {
-			t.Errorf("logs = %v, want %v", h.logs, want)
+				want := SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500", Note: goldenNotifyModNotLoadedNote}
+				if got != want {
+					t.Errorf("outcome = %+v, want %+v", got, want)
+				}
+				wantWrites := append([]writtenFile{
+					{"/w/m1/persona.md", "you are m1", 0o600},
+					{"/w/m1/.mcp.json", buildMCPConfig("http://127.0.0.1:7755", "jwt-m1"), 0o600},
+					{"/w/m1/settings.json", buildStatuslineSettings(), 0o600},
+					{"/w/m1/.oc-token", "jwt-m1", 0o600},
+					{"/w/m1/system-prompt.md", goldenSystemPromptM1, 0o600},
+				}, notifyModWrites(t)...)
+				wantWrites = append(wantWrites,
+					writtenFile{"/w/m1/.officraft-mod-disabled", "the warden fell back to the tmux paste listener\n", 0o600})
+				if !reflect.DeepEqual(h.writes, wantWrites) {
+					t.Errorf("writes =\n%+v\nwant\n%+v", h.writes, wantWrites)
+				}
+				wantCalls := append([]string{
+					"tmux -L officraft has-session -t member-m1",
+					"/usr/local/bin/claude --version",
+					"tmux -L officraft kill-session -t listen-m1",
+					"reap /w/m1",
+					"tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 " + goldenLaunchM1,
+					"tmux -L officraft set-option -t member-m1 window-size manual",
+					"tmux -L officraft resize-window -t member-m1 -x 160 -y 50",
+				}, tc.nudge...)
+				wantCalls = append(wantCalls,
+					"tmux -L officraft new-session -d -s listen-m1 -x 160 -y 50 "+goldenListenerM1,
+					"tmux -L officraft set-option -t listen-m1 window-size manual",
+					"tmux -L officraft resize-window -t listen-m1 -x 160 -y 50",
+					"tmux -L officraft display-message -p -t member-m1 #{pane_pid}")
+				if !reflect.DeepEqual(h.runner.calls, wantCalls) {
+					t.Errorf("calls =\n%v\nwant\n%v", h.runner.calls, wantCalls)
+				}
+				if want := []string{"/w/m1/.officraft-mod-loaded", "/w/m1/.officraft-mod-booted"}; !reflect.DeepEqual(h.asked, want) {
+					t.Errorf("exists asked = %v, want %v", h.asked, want)
+				}
+				if want := slices.Repeat([]time.Duration{time.Second}, tc.slept); !reflect.DeepEqual(h.slept, want) {
+					t.Errorf("slept %v, want %v", h.slept, want)
+				}
+				if want := []string{"m1: the notification mod did not load; notifications go by tmux paste"}; !reflect.DeepEqual(h.logs, want) {
+					t.Errorf("logs = %v, want %v", h.logs, want)
+				}
+			})
 		}
 	})
 

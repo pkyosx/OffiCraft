@@ -15,14 +15,17 @@ import (
 
 const (
 	defaultNudge = "開始。"
-	// The Enter loop is UNCONDITIONAL: every spawn spends 30×1s here, out of the
+	// The Enter loop is UNCONDITIONAL: every claude spawn spends 30×1s here (the
+	// mod route in a plain wait of the same pacing), out of the
 	// 90s receiptDeadlineSecs in server/ocserverd/receipt_watch.go (the START receipt
 	// is POSTed only after Spawn returns); that comment lists the rest of the spawn
 	// path's budgets, and their worst case already runs past 90s. NEITHER NUMBER
 	// HAS EVER BEEN MEASURED, and nothing mechanical links them: cli/ocwarden and
 	// server/ocserverd are separate Go modules.
 	nudgeMaxAttempts = 30
-	nudgeSettle      = 1 * time.Second
+	// The paste fallback of a mod that did not load (see its call site).
+	fallbackNudgeAttempts = 3
+	nudgeSettle           = 1 * time.Second
 
 	paneCols = 160
 	paneRows = 50
@@ -438,6 +441,10 @@ func nudgeClock(sleep func(time.Duration)) func(time.Duration) {
 // Delivered via a tmux buffer, never send-keys -l (drops multibyte under a busy
 // TUI); set-buffer takes it as argv because CmdRunner has no stdin channel.
 func tmuxDeliverNudge(r CmdRunner, sleep func(time.Duration), socket, session, nudge string) {
+	deliverNudge(r, sleep, socket, session, nudge, nudgeMaxAttempts)
+}
+
+func deliverNudge(r CmdRunner, sleep func(time.Duration), socket, session, nudge string, attempts int) {
 	sleep = nudgeClock(sleep)
 	const buf = "oc-spawn-nudge"
 	_, _ = r.Run("tmux", "-L", socket, "set-buffer", "-b", buf, nudge)
@@ -452,7 +459,7 @@ func tmuxDeliverNudge(r CmdRunner, sleep func(time.Duration), socket, session, n
 	// 🔴 No bare-paste retry when -p is refused: on tmux 3.6b a bare paste turns each
 	// newline into Enter, so a multi-line nudge would become one turn per line.
 	_, _ = r.Run("tmux", "-L", socket, "paste-buffer", "-t", session, "-b", buf, "-d", "-p")
-	for attempt := 0; attempt < nudgeMaxAttempts; attempt++ {
+	for attempt := 0; attempt < attempts; attempt++ {
 		// Under emacs mode-keys a pane left in copy-mode swallows every Enter while the
 		// paste still lands; -q leaves any mode. Per attempt: a viewer can re-enter it.
 		_, _ = r.Run("tmux", "-L", socket, "copy-mode", "-q", "-t", session)
@@ -923,7 +930,11 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 			notifyByPaste, notifyNote = true, notifyModNotLoadedNote
 			d.disableNotifyMod(workdir)
 			d.logf("%s: the notification mod did not load; notifications go by tmux paste", p.MemberID)
-			tmuxDeliverNudge(d.Runner, d.Sleep, socket, session, nudge)
+			if !d.notifyModBooted(workdir) {
+				// The member's Claude Code has been up for the whole 30 s wait, so its
+				// prompt is drawn: the Enters only cover a redraw racing the first one.
+				deliverNudge(d.Runner, d.Sleep, socket, session, nudge, fallbackNudgeAttempts)
+			}
 		}
 		// The paste listener runs BESIDE the member, not inside its harness, which drops
 		// background jobs every 30 minutes (presence IS that connection). Started AFTER
