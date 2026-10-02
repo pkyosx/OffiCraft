@@ -1929,6 +1929,30 @@ func TestHandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost(t *tes
 }
 
 func TestHandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(t *testing.T) {
+	t.Run("喚醒 keeps a failure record that is not an owner verb's note, and starts the worker", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestStoppedWorker(t, api, h, d, owner)
+		failed := false
+		if err := d.SetMemberLastOp("ow-abc123", "start", &failed, "", "wake_timeout: it never came up", 1700000000); err != nil {
+			t.Fatalf("SetMemberLastOp: %v", err)
+		}
+
+		status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/activate", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id": "ow-abc123", "last_op_reason": "wake_timeout: it never came up",
+		})
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"),
+			wsStartFrame("ow-abc123", apiTestWorkerBootContext(t, h, owner), "claude", "sonnet", "medium"))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "waking", "desired_state": "online",
+			"desired_machine_id": "m-server-self", "machine": "m-server-self",
+			"last_op": "start", "last_op_ok": false, "last_op_log": "",
+			"last_op_reason": "wake_timeout: it never came up", "last_op_at": 1700000000,
+		}))
+	})
 	t.Run("喚醒 on a stopped worker records the intent and names the cause its start could not be delivered", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
@@ -2248,6 +2272,47 @@ func TestHandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(t *testing.
 			"status": "active", "presence": "waking", "desired_state": "online",
 			"desired_machine_id": "m-server-self", "machine": "m-server-self",
 			"model": "opus", "forced_stop_at": apiAnyNumber,
+			"last_op": "start", "last_op_ok": true, "last_op_log": "", "last_op_at": apiAnyNumber,
+			"last_op_reason": restarting,
+		}))
+	})
+
+	t.Run("a changed model on a worker whose 停止 finishes while the request is under way starts nothing in that request, and the next tick starts it on the new model", func(t *testing.T) {
+		d, hook, _ := windowDAL(t, "one connection")
+		api, h, _, owner := newAPITestServerOn(t, d)
+		session := apiTestRunningWorker(t, api, h, d, owner)
+		if code, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/deactivate", owner, ""); code != 200 {
+			t.Fatalf("stop: %d %v", code, data)
+		}
+		// The handler samples the session before its first transaction; the stop
+		// lands between that sample and the hand-off.
+		hook.mu.Lock()
+		hook.armAfter = "FROM member WHERE id"
+		hook.fire = func() { api.hub.Disconnect(session) }
+		hook.mu.Unlock()
+
+		status, data := windowJSON(t, h, "PATCH", "/api/members/ow-abc123", owner, `{"model":"opus"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		hook.wantFiredOnce(t)
+		apiWantBody(t, data, map[string]any{"id": "ow-abc123"})
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		restarting := "restarting: the runtime/model was saved; this member had already " +
+			"stopped, so it is being started again to apply it"
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "stopped", "desired_state": "offline",
+			"desired_machine_id": "m-server-self", "model": "opus",
+			"last_op": "start", "last_op_ok": true, "last_op_log": "", "last_op_at": apiAnyNumber,
+			"last_op_reason": restarting,
+		}))
+
+		api.runOutsourceTick(nowSecs())
+		wsWantWardenFrames(t, api, ServerSelfHost,
+			wsStartFrame("ow-abc123", apiTestWorkerBootContext(t, h, owner), "claude", "opus", "medium"))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "waking", "desired_state": "online",
+			"desired_machine_id": "m-server-self", "machine": "m-server-self", "model": "opus",
 			"last_op": "start", "last_op_ok": true, "last_op_log": "", "last_op_at": apiAnyNumber,
 			"last_op_reason": restarting,
 		}))

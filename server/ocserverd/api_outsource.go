@@ -497,7 +497,7 @@ func (s *apiServer) handleSetOutsourceWorkerModel(w http.ResponseWriter, r *http
 	defer unlockMu()
 	online := s.hub.IsOnline(id)
 	var worker *OutsourceWorker
-	launchIntentChanged, respawn := false, false
+	launchIntentChanged, respawn, noted := false, false, false
 	var wantModel, wantRuntime, wantEffort string
 	// Each intent lands through its sole writer (they are insert-only).
 	setIntents := func(tx *writeTx) error {
@@ -537,10 +537,8 @@ func (s *apiServer) handleSetOutsourceWorkerModel(w http.ResponseWriter, r *http
 			// With no live session the funnel is never entered, so a stopped worker's
 			// note is stamped here; 改機器 has no such gate. Owner 2026-08-30:
 			// 「change model / machine 只是帶起來的方式不一樣而已」.
-			// ⚠️ A queued 起來 is left to the next tick on purpose: the 喚醒 dialog saves
-			// the model first and wakes right after, and starting here would put two
-			// starts and a kill on the warden.
-			if applyWorkerStoppedOwnerOp(worker, ownerOpRuntimeModel, online, nowSecs()) {
+			noted = applyWorkerStoppedOwnerOp(worker, ownerOpRuntimeModel, online, nowSecs())
+			if noted {
 				if err := persistWorkerRestartIntentOn(tx, before, *worker); err != nil {
 					return err
 				}
@@ -560,8 +558,9 @@ func (s *apiServer) handleSetOutsourceWorkerModel(w http.ResponseWriter, r *http
 		// The funnel runs BEFORE the intents land, in a transaction of their own:
 		// the tick starts the replacement only once the worker reads offline, by
 		// which time they have landed; if the session drops between gate and
-		// funnel, the funnel starts it from *worker, which already carries the new
-		// values. Store first and a failure leaves the new value with no wind-down,
+		// funnel, a worker wanted online is started from *worker, which already
+		// carries the new values, and a stopped one is only noted (ownerOpStartsAtOnce).
+		// Store first and a failure leaves the new value with no wind-down,
 		// and the retry compares against the already-stored value and opens none
 		// either. This order fails convergently. outsourceMu keeps the collect
 		// from landing between the two writes.
@@ -577,6 +576,10 @@ func (s *apiServer) handleSetOutsourceWorkerModel(w http.ResponseWriter, r *http
 	}
 	s.publishOutsourceWorker(*worker, requestTrigger(r))
 	unlockMu()
+	// AFTER the unlock: the tick takes outsourceMu itself.
+	if noted && ownerOpStartsAtOnce(ownerOpRuntimeModel) {
+		s.outsourceTickNow()
+	}
 
 	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: worker.ID})
 }

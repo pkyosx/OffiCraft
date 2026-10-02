@@ -182,6 +182,17 @@ func applyStoppedOwnerOp(row ownerOpRow, snapshot Member, op string, online bool
 	return true
 }
 
+// ownerOpStartsAtOnce is whether an owner verb on a member whose stop has already
+// finished starts it within the same request, staff and workers alike; otherwise
+// the next tick spends the queued 起來.
+// ⚠️ A model/runtime change must wait: the 喚醒 dialog saves the model and wakes
+// right after, so a start here puts a second start and a kill on the warden; and
+// the worker hand-off runs before the new values are stored, so a start from it
+// boots the old model.
+func ownerOpStartsAtOnce(op string) bool {
+	return op != memberOpRuntimeModel
+}
+
 // Owner ruling: the three notes an owner verb leaves on a stopped member are ✓ with
 // a note, never ✗ — the change was saved in every case. Do not stamp them through
 // stampOpReceipt.
@@ -388,9 +399,9 @@ func (s *apiServer) armMemberOwnerOpHandover(m *Member, op string, cfg reconcile
 }
 
 // applyMemberOwnerOpPlan is the staff shell of an owner verb that leaves the member
-// running. It writes cur in memory only; heldDown says a receipt was stamped and
+// running. It writes cur in memory only; noted says a receipt was stamped and
 // must be persisted.
-func (s *apiServer) applyMemberOwnerOpPlan(cur *Member, op string, cfg reconcileConfig, online bool) (windDown, heldDown bool) {
+func (s *apiServer) applyMemberOwnerOpPlan(cur *Member, op string, cfg reconcileConfig, online bool) (windDown, noted bool) {
 	if ownerOpHandoverPlanFor(*cur, online) == ownerOpPlanWindDown {
 		return s.armMemberOwnerOpHandover(cur, op, cfg, online), false
 	}

@@ -1758,6 +1758,7 @@ func TestHandleUpdateMemberApiMembersMemberIdPatch(t *testing.T) {
 				"stopped, so it is being started again to apply it",
 		}
 		apiTestWantLastOp(t, h, owner, "runner", restarting)
+		wsWantWardenFrames(t, api, "m-box")
 
 		api.runReconcileTick(nowSecs())
 		wsWantWardenFrames(t, api, "m-box", apiTestRunnerStartFrame("opus"))
@@ -2029,6 +2030,26 @@ func TestHandleActivateMemberApiMembersMemberIdActivatePost(t *testing.T) {
 			apiTestMemberFrame(2, "patch", "kip", memberPayload, "server"),
 			apiTestMemberFrame(3, "patch", "kip", memberPayload, "server"))
 		bystander.wantFrames()
+	})
+
+	t.Run("喚醒 keeps a failure record that is not an owner verb's note, and starts the member", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestRunner(t, api, d, DesiredStateOffline)
+		failed := false
+		if err := d.SetMemberLastOp("runner", "start", &failed, "", "wake_timeout: it never came up", 1700000000); err != nil {
+			t.Fatalf("SetMemberLastOp: %v", err)
+		}
+
+		status, data := apiJSON(t, h, "POST", "/api/members/runner/activate", owner, `{}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": "runner"})
+		wsWantWardenFrames(t, api, "m-box", wsStopFrame("runner"), apiTestRunnerStartFrame("sonnet"))
+		apiTestWantLastOp(t, h, owner, "runner", map[string]any{
+			"last_op": "start", "last_op_ok": false, "last_op_log": "",
+			"last_op_reason": "wake_timeout: it never came up", "last_op_at": 1700000000,
+		})
 	})
 
 	t.Run("a machine id nothing carries answers 404 naming the machine and fans nothing", func(t *testing.T) {

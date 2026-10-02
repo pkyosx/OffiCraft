@@ -883,9 +883,7 @@ func (s *apiServer) respawnWorkerForOwnerOp(w OutsourceWorker, op string) ownerO
 			return ownerOpOutcome{HeldDown: true}
 		}
 		s.publishOutsourceWorker(*fresh, triggerServer)
-		// The stop has already finished: start it now, as the staff relocate's
-		// reconcileMemberNow does, rather than at the next tick.
-		if !online && s.consumeWorkerRestartAfterStop(fresh, now) {
+		if !online && ownerOpStartsAtOnce(op) && s.consumeWorkerRestartAfterStop(fresh, now) {
 			return s.reconcileWorkerNow(*fresh, now)
 		}
 		return ownerOpOutcome{HeldDown: true}
