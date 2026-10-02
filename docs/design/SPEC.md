@@ -71,7 +71,7 @@ presence 是 **server 端算出來的**，不是 agent 自報的心跳狀態。�
 離線(offline) ──(你按喚醒：寫下意圖 desired_state=online；面板先樂觀翻成喚醒中)──►
    ──(server 同一次請求內重決、START 被 warden 接走：蓋上錨點)──► 喚醒中(waking)
    ──(`WakingTTLSecs` 內沒連上 SSE)──► 回到 離線(offline)
-   ──(成員旁邊的連線程序接上、server 見 SSE 連上)──► 線上(online == connected)
+   ──(成員的連線程序接上〔通知模組的子程序，或備援時 warden 在旁邊起的〕、server 見 SSE 連上)──► 線上(online == connected)
    ──(收 stopping 訊號、SSE 仍在)──► stopping ──(SSE 斷)──► stopped/offline
 ```
 - **離線 / stopped**：灰點
