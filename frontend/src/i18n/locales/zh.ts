@@ -1779,6 +1779,7 @@ export const zh = {
     // machine lifecycle: onboard (新增機器 / 上線) + teardown (拆除)
     machine: {
       actionsCol: "操作",
+      actionsMenu: "機器操作",
       copy: "複製",
       copied: "已複製",
       close: "關閉",

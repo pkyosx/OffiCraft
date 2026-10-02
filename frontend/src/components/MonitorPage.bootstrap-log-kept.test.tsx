@@ -17,6 +17,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { MonitorPage } from "./MonitorPage";
 import type { Member, MachineView, MonMachineView } from "../types";
+import { machineAction } from "./machineActions.testHelper";
 
 const listMembers = vi.fn(async (): Promise<Member[]> => []);
 const listMachines = vi.fn(async (): Promise<MachineView[]> => []);
@@ -91,7 +92,7 @@ describe("MonitorPage bootstrap-on-server log retention", () => {
       log,
     });
     renderMonitor();
-    fireEvent.click(await screen.findByTestId("mon-install-btn"));
+    fireEvent.click(await machineAction("mon-install-btn"));
 
     const shown = await screen.findByTestId("mon-bootstrap-log");
     expect(shown.textContent).toContain("SUCCESS: warden is running and STABLE");
@@ -109,7 +110,7 @@ describe("MonitorPage bootstrap-on-server log retention", () => {
       log: "[ocwarden install] FATAL: claude_bin_unresolved: no claude CLI on this host",
     });
     renderMonitor();
-    fireEvent.click(await screen.findByTestId("mon-install-btn"));
+    fireEvent.click(await machineAction("mon-install-btn"));
 
     const shown = await screen.findByTestId("mon-bootstrap-log");
     expect(shown.textContent).toContain("claude_bin_unresolved");

@@ -217,7 +217,10 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--color-text-muted);
-  border: 1px solid var(--color-border);
+  /* Drawn in the muted text colour, not --color-border: that token is nearly
+   * the card's own colour, so the chip read as frameless next to the amber
+   * .mon-bad ones. Grey on purpose — old is not broken. */
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 55%, transparent);
 }
 
 /* A value that was REPORTED but is UNREADABLE (T-aad2) — same chip geometry as
@@ -485,20 +488,48 @@
 .mon-table__right {
   text-align: right !important;
 }
-/* per-machine action button group (copy boot cmd · bootstrap · teardown) */
-.mon-actions {
+/* 機器資訊: every column but 機器 has a fixed width, so a mark in one cell
+ * (版本太舊, 未登入, 過期) never shifts its neighbours, and the rows look the same
+ * in every state. Desktop only: the ≤720px card mode does not lay out columns.
+ * The min-width is what 機器 needs on top of the fixed columns; below it the
+ * wrap's own horizontal scroll takes over, as it always has. */
+@media (min-width: 721px) {
+  .mon-table--machines {
+    table-layout: fixed;
+    min-width: 920px;
+  }
+  .mon-col--claude {
+    width: 156px;
+  }
+  .mon-col--codex {
+    width: 124px;
+  }
+  .mon-col--pct {
+    width: 72px;
+  }
+  .mon-col--power {
+    width: 92px;
+  }
+  .mon-col--actions {
+    width: 84px;
+  }
+}
+/* A value with its marks on a second line under it (CellStack). */
+.mon-cell-stack {
   display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
 }
-.mon-actions .btn {
-  cursor: pointer;
+.mon-table__left .mon-cell-stack {
+  align-items: flex-start;
 }
-.mon-actions .btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.mon-cell-marks {
+  display: inline-flex;
+  gap: 4px;
+}
+.mon-cell-marks .mon-stale {
+  margin-left: 0;
 }
 
 /* machine identity cell — display name + id chip + online badge, ONE column

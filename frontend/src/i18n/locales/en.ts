@@ -1745,6 +1745,7 @@ export const en: Dict = {
     },
     machine: {
       actionsCol: "Actions",
+      actionsMenu: "Machine actions",
       copy: "Copy",
       copied: "Copied",
       close: "Close",
