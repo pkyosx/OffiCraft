@@ -384,6 +384,15 @@ def test_every_closed_topic_emits(
         if r.status_code == 200:
             login_started.update(r.json())
         return r
+    upgrade_started: dict[str, Any] = {}
+
+    def start_upgrade() -> Any:
+        r = client.post(
+            f"/api/machines/{login_machine}/runtime-upgrade",
+            json={"runtime": "claude"}, headers=_auth(owner_token))
+        if r.status_code == 200:
+            upgrade_started.update(r.json())
+        return r
     triggers: list[tuple[str, Any]] = [
         ("member", lambda: client.patch(
             f"/api/members/{member}", json=member_patch_body,
@@ -432,6 +441,7 @@ def test_every_closed_topic_emits(
             json={"rate_limits": {"primary_used_pct": 2}},
             headers=_auth(agent_a.token))),
         ("runtime_login", start_login),
+        ("runtime_upgrade", start_upgrade),
     ]
     expected_op = {
         "member": "patch", "chat": "patch", "chat_read": "patch",
@@ -441,6 +451,7 @@ def test_every_closed_topic_emits(
         "insight": "patch",
         "context": "signal", "monitoring": "signal",
         "runtime_login": "signal",
+        "runtime_upgrade": "signal",
     }
     # ── the self-confrontation: this table IS the closed set, not a subset ────
     closed = _closed_topic_set()
@@ -582,6 +593,8 @@ def test_every_closed_topic_emits(
             )
         if topic == "runtime_login":
             assert frame["data"]["key"] == login_started["login_id"], (frame, login_started)
+        if topic == "runtime_upgrade":
+            assert frame["data"]["key"] == upgrade_started["upgrade_id"], (frame, upgrade_started)
         if frame["op"] == "signal":
             # §3.2: volatile in-memory store change — payload always null.
             assert frame["data"]["payload"] is None, (topic, frame)
@@ -664,6 +677,74 @@ def test_runtime_login_relay_flow(base_url, client, owner_token, fresh_machine) 
                         headers=_auth(warden_token))
         assert r.status_code == 200, r.text
         assert r.json()["state"] == "cancelled", r.json()
+    finally:
+        warden.close()
+
+
+def test_runtime_upgrade_relay_flow(base_url, client, owner_token, fresh_machine) -> None:
+    """The runtime-upgrade relay end to end over HTTP + the warden's own stream:
+    the owner's start reaches that warden as runtime_upgrade, a repeat start
+    answers the same upgrade and sends nothing more, the warden's reports are
+    read back by the owner, another machine's warden cannot report on it, a
+    non-claude runtime is refused, and a terminal state is sticky."""
+    machine = fresh_machine()
+    other = fresh_machine()
+    warden_token = mint_member_token(client, owner_token, machine, ttl_days=1)
+    other_token = mint_member_token(client, owner_token, other, ttl_days=1)
+    warden = SSEConnection(base_url, warden_token)
+    owner = _auth(owner_token)
+    base = f"/api/machines/{machine}/runtime-upgrade"
+    try:
+        assert warden.status_code == 200, warden.error_body
+        warden.wait_for(lambda ev: ev["comment"] == "connected")
+
+        r = client.post(base, json={"runtime": "codex"}, headers=owner)
+        assert r.status_code == 422, r.text
+
+        r = client.post(base, json={"runtime": "claude"}, headers=owner)
+        assert r.status_code == 200, r.text
+        started = r.json()
+        upgrade_id = started["upgrade_id"]
+        assert {k: started[k] for k in ("machine_id", "runtime", "state", "from_version", "to_version", "reason")} == {
+            "machine_id": machine, "runtime": "claude", "state": "starting",
+            "from_version": None, "to_version": None, "reason": None,
+        }, started
+        frame = warden.wait_for_frame("warden-command")["frame"]
+        assert frame["data"] == {
+            "rpc": "runtime_upgrade",
+            "args": {"member_id": machine, "upgrade_id": upgrade_id, "runtime": "claude"},
+        }, frame
+
+        r = client.post(base, json={"runtime": "claude"}, headers=owner)
+        assert r.status_code == 200, r.text
+        assert r.json()["upgrade_id"] == upgrade_id, r.json()
+
+        r = client.post("/api/monitoring/runtime-upgrade",
+                        json={"upgrade_id": upgrade_id, "state": "succeeded", "to_version": "9.9.9"},
+                        headers=_auth(other_token))
+        assert r.status_code == 404, r.text
+
+        r = client.post("/api/monitoring/runtime-upgrade",
+                        json={"upgrade_id": upgrade_id, "state": "running", "from_version": "2.1.200"},
+                        headers=_auth(warden_token))
+        assert r.status_code == 200, r.text
+        g = client.get(f"{base}/{upgrade_id}", headers=owner)
+        assert g.status_code == 200, g.text
+        assert (g.json()["state"], g.json()["from_version"]) == ("running", "2.1.200"), g.json()
+
+        r = client.post("/api/monitoring/runtime-upgrade",
+                        json={"upgrade_id": upgrade_id, "state": "succeeded",
+                              "from_version": "2.1.200", "to_version": "2.1.290"},
+                        headers=_auth(warden_token))
+        assert r.status_code == 200, r.text
+        assert (r.json()["state"], r.json()["from_version"], r.json()["to_version"]) == (
+            "succeeded", "2.1.200", "2.1.290"), r.json()
+
+        r = client.post("/api/monitoring/runtime-upgrade",
+                        json={"upgrade_id": upgrade_id, "state": "failed", "reason": "late"},
+                        headers=_auth(warden_token))
+        assert r.status_code == 200, r.text
+        assert (r.json()["state"], r.json()["reason"]) == ("succeeded", None), r.json()
     finally:
         warden.close()
 

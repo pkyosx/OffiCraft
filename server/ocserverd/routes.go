@@ -600,12 +600,18 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler: w.HandleIngestTelemetryApiMonitoringTelemetryPost,
 			MCPTool: "ingest_telemetry",
 		}),
-		// principalMachine so the warden clears the floor; the handler admits only
-		// the login's own machine.
+		// principalMachine so the warden clears the floor; each of the two report
+		// handlers below admits only the login's or upgrade's own machine.
 		Gated(principalMachine, routeDef{
 			Method:     "POST",
 			Path:       "/api/monitoring/runtime-login",
 			Handler:    w.HandleReportRuntimeLoginApiMonitoringRuntimeLoginPost,
+			MCPExclude: true,
+		}),
+		Gated(principalMachine, routeDef{
+			Method:     "POST",
+			Path:       "/api/monitoring/runtime-upgrade",
+			Handler:    w.HandleReportRuntimeUpgradeApiMonitoringRuntimeUpgradePost,
 			MCPExclude: true,
 		}),
 		Gated(principalMachine, routeDef{
@@ -728,6 +734,18 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Method:     "POST",
 			Path:       "/api/machines/{machine_id}/runtime-login/{login_id}/cancel",
 			Handler:    w.HandleCancelRuntimeLoginApiMachinesMachineIdRuntimeLoginLoginIdCancelPost,
+			MCPExclude: true,
+		}),
+		Gated(principalAdminAgent, routeDef{
+			Method:     "POST",
+			Path:       "/api/machines/{machine_id}/runtime-upgrade",
+			Handler:    w.HandleStartRuntimeUpgradeApiMachinesMachineIdRuntimeUpgradePost,
+			MCPExclude: true,
+		}),
+		Gated(principalAdminAgent, routeDef{
+			Method:     "GET",
+			Path:       "/api/machines/{machine_id}/runtime-upgrade/{upgrade_id}",
+			Handler:    w.HandleGetRuntimeUpgradeApiMachinesMachineIdRuntimeUpgradeUpgradeIdGet,
 			MCPExclude: true,
 		}),
 		Gated(principalAdminAgent, routeDef{

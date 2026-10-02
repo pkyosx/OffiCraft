@@ -110,12 +110,22 @@ func (d SpawnDeps) claudeTooOldForNotifyMod() (found string, tooOld bool) {
 	if err != nil || len(fields) == 0 {
 		return "", false
 	}
-	have, ok := parseDottedVersion(fields[0])
-	if !ok {
+	below, known := claudeBelowNotifyMinimum(fields[0])
+	if !known {
 		return "", false
 	}
+	return fields[0], below
+}
+
+// claudeBelowNotifyMinimum is the one comparison with notifyModMinClaudeVersion:
+// the spawn's route choice and the heartbeat's below_notify_minimum both read it.
+func claudeBelowNotifyMinimum(version string) (below, known bool) {
+	have, ok := parseDottedVersion(version)
+	if !ok {
+		return false, false
+	}
 	want, _ := parseDottedVersion(notifyModMinClaudeVersion)
-	return fields[0], compareCodexModelVersions(have, want) < 0
+	return compareCodexModelVersions(have, want) < 0, true
 }
 
 func parseDottedVersion(v string) ([]int, bool) {

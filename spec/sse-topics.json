@@ -12,6 +12,7 @@
     "reply_card",
     "role_def",
     "runtime_login",
+    "runtime_upgrade",
     "task",
     "task_manual"
   ]

@@ -3572,6 +3572,18 @@ _RUNTIME_LOGIN_SKIP = (
     " the server unit tests (runtime_login_behavior_test.go)."
 )
 
+_RUNTIME_UPGRADE_SKIP = (
+    "the positive face needs a LIVE warden SSE connection on the target machine"
+    " (an offline warden is the honest 409 with nothing relayed), and the "
+    "warden report needs an upgrade that only that live path creates; this file "
+    "has no SSE warden. Start, the runtime_upgrade frame on the warden's own "
+    "stream, the repeat start, the warden reports, read-back, the other "
+    "machine's 404 and the sticky terminal state are driven end to end in "
+    "test_sse.py::test_runtime_upgrade_relay_flow; the authz faces are in the "
+    "auth matrix, and the memory-only, expiry and own-machine-only semantics in"
+    " the server unit tests (runtime_upgrade_behavior_test.go)."
+)
+
 SKIPPED_HAPPY: dict[str, str] = {
     "POST /api/auth/set-password": (
         "the positive face needs an UNSET password + the serve-log claim token; "
@@ -3629,6 +3641,10 @@ SKIPPED_HAPPY: dict[str, str] = {
     "POST /api/machines/{machine_id}/runtime-login/{login_id}/code": _RUNTIME_LOGIN_SKIP,
     "POST /api/machines/{machine_id}/runtime-login/{login_id}/cancel": _RUNTIME_LOGIN_SKIP,
     "POST /api/monitoring/runtime-login": _RUNTIME_LOGIN_SKIP,
+    # Runtime upgrade: one reason for all three rows.
+    "POST /api/machines/{machine_id}/runtime-upgrade": _RUNTIME_UPGRADE_SKIP,
+    "GET /api/machines/{machine_id}/runtime-upgrade/{upgrade_id}": _RUNTIME_UPGRADE_SKIP,
+    "POST /api/monitoring/runtime-upgrade": _RUNTIME_UPGRADE_SKIP,
     "POST /api/machines/{machine_id}/bootstrap-here": (
         "positive face runs `ocwarden install` on the HOST under test — a side "
         "effect the black-box harness must not trigger (matrix DEGRADED row)."

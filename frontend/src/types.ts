@@ -389,6 +389,9 @@ export interface MachineView {
         installed: boolean | null;
         loggedIn: boolean | null;
         version: string | null;
+        /** Claude only: the warden says this version is older than the
+         * notification mod needs. null = unknown or not reported. */
+        belowNotifyMinimum?: boolean | null;
       }
     >
   >;
@@ -497,6 +500,27 @@ export interface RuntimeLoginView {
   expiresTs: number | null;
   account: { email: string | null; orgName: string | null; plan: string | null } | null;
   reason: string | null;
+  updatedTs: number;
+}
+
+export type RuntimeUpgradeRuntime = "claude";
+
+/** `RuntimeUpgradeDTO.state`. `starting` never advances on a warden that
+ * predates the upgrade verb, so the UI gives up on it after 30s. A state this
+ * build does not know is read as still in flight. */
+export type RuntimeUpgradeState = "starting" | "running" | "succeeded" | "failed" | "expired";
+
+/** One Claude Code upgrade the server relays to a machine's warden. Memory-only
+ * on the server: a restart or ~10 minutes after it ends, it reads as 404. */
+export interface RuntimeUpgradeView {
+  upgradeId: string;
+  machineId: string;
+  runtime: RuntimeUpgradeRuntime;
+  state: RuntimeUpgradeState;
+  fromVersion: string | null;
+  toVersion: string | null;
+  reason: string | null;
+  startedTs: number;
   updatedTs: number;
 }
 

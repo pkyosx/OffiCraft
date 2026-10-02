@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -25,7 +26,7 @@ const claudeCredFileRel = "/.claude/.credentials.json"
 const claudeKeychainService = "Claude Code-credentials"
 
 // Single-goroutine by contract: only the telemetry producer loop calls collect,
-// so there is no lock.
+// so there is no lock. invalidate is the one entry from another goroutine.
 type claudeProber struct {
 	env        func(string) string
 	resolveBin func() string
@@ -42,6 +43,7 @@ type claudeProber struct {
 
 	cached   map[string]any
 	cachedAt time.Time
+	stale    atomic.Bool
 }
 
 func newClaudeProber(env func(string) string, runner CmdRunner, goos string) *claudeProber {
@@ -58,7 +60,18 @@ func newClaudeProber(env func(string) string, runner CmdRunner, goos string) *cl
 
 // A failed probe omits its key: the server reads an absent key as unknown, so
 // never report a guess.
+// invalidate makes the next collect read the version again even when the
+// binary's stat is unchanged: an update can replace a file behind a path whose
+// size and mtime look the same.
+func (p *claudeProber) invalidate() {
+	p.stale.Store(true)
+}
+
 func (p *claudeProber) collect() map[string]any {
+	if p.stale.Swap(false) {
+		p.cached = nil
+		p.verPath = ""
+	}
 	if p.cached != nil && p.now().Sub(p.cachedAt) < claudeProbeTTL {
 		return p.cached
 	}
