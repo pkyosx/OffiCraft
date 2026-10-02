@@ -1663,6 +1663,7 @@ export interface paths {
          * Dismiss a member (soft delete). Pure seam, no UI (§9.1). Staff only -- an outsource-worker id is a 404: a worker leaves by being RELEASED with its task, not by being dismissed. Answers with a bounded receipt (``id``), not the roster row — call ``get_member`` when you need the rest.
          * @description - Soft delete: `status` becomes `removed` and the member is asked offline, but the row survives so attribution and audit still work.
          *     - Writes intent only; the live session is torn down asynchronously, so expect a winding-down phase.
+         *     - The member's credentials are refused from the next request on: its calls answer 401 and its SSE reconnect 409, while the session it already runs still winds down.
          *     - Owner token or admin-role member only; an ordinary agent is 403.
          */
         delete: operations["handle_dismiss_member_api_members__member_id__delete"];

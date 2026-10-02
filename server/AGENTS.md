@@ -32,7 +32,7 @@
 - DTO 的 wire shape 由 `wire.go` 的手寫型別維護；`null`、空字串、缺欄與 `additionalProperties:false` 都是語意。不要因生成 struct 的 `omitempty` 偷掉既定 wire。
 - verified token 的 `sub` 是 caller identity，不採信 request body 的 caller id。`requires` 是唯一 route capability floor；boot-time assertion 要拒絕未知 floor、auth／requires 不一致與漏寫 floor。MCP tool 的 caller、target、作用域必須沿用同一條 route gate，不得借 target 的身分。
 - capability 階梯是 `machine < agent < admin_agent < owner`。`owner`、`admin_agent` 與 `MCPExclude` 的現行分配只以 `routes.go` 和治理測試為準，不在本檔硬編可變端點名單；`/api/mint`、owner 憑證與個人 push 類能力不能因「方便自動化」而下放。
-- machine roster 是 machine token 的撤銷權威：刪除 machine 後下一個 request 應拒絕，檢查不可只靠 cached presence。這裡刻意是「lookup error 不等於 revoked」；未知 row 也不自動當成 revoked，避免資料讀取故障變成全機隊誤撤銷。
+- roster 是 token 的撤銷權威：刪除 machine、遣散正職、釋放外包之後，下一個 request 應拒絕，檢查不可只靠 cached presence。machine 走 `revocationRefusal`；離開名冊的正職與外包走 `memberRemovedRefusal`（401，不帶 `X-OC-Auth-Refusal`）。🔴 唯一的例外是 `/api/events`：route 上的 `RosterRefusalInHandler` 讓它過 auth、改由 stop gate 回 409，因為每一版 `ocagent listen` 只在 409（或 `agent-superseded`）上自我結束，換成 401 會讓舊 listener 與它服務的 session 無限重試。這裡刻意是「lookup error 不等於 revoked」；未知 row 也不自動當成 revoked，避免資料讀取故障變成全機隊誤撤銷。
 - 身分 mint 只在 server；warden、agent、worker 不自行 mint 或 bootstrap token。pull/bootstrap transition 不是新的授權路徑。
 
 ## 3. SSE、warden 與 reconcile

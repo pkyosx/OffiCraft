@@ -325,12 +325,8 @@ func (s *apiServer) sseStopGateRefusal(memberID string) string {
 	if err != nil || m == nil {
 		return ""
 	}
-	if m.Kind == KindOutsource && m.RosterStatus == RosterStatusRemoved {
-		// A RELEASED worker's session deliberately lives on for its close-out duties
-		// (worker_spawn.go reclaim grace) although its row is roster-removed, so the
-		// roster gate below would wrongly refuse it.
-		return ""
-	}
+	// The only SSE refusal a dismissed member or released worker gets: requireAuth
+	// leaves it to this arm (routes.go RosterRefusalInHandler).
 	if m.RosterStatus != RosterStatusActive {
 		return "member '" + m.ID + "' is removed from the roster — SSE refused " +
 			"(a dismissed member must not re-project online)"

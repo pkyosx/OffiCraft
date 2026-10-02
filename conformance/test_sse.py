@@ -893,10 +893,10 @@ def test_first_connect_clears_waking(base_url, client, owner_token) -> None:
 # ── zombie stop gate (pre-stream 409 once the stop has COLLECTED) ────────────
 #
 # Defence line B of the zombie-agent work: a listener that survived its kill
-# must never RE-project a stopped member online by reconnecting. A dismissed
-# member's reconnect, a force-stopped member's reconnect and a member that has
-# REPORTED stopped are refused PRE-stream with the conflict envelope (the
-# dual-SSE guard's envelope family).
+# must never RE-project a stopped member online by reconnecting. A force-stopped
+# member's reconnect and a member that has REPORTED stopped are refused
+# PRE-stream with the conflict envelope (the dual-SSE guard's envelope family),
+# and so is a dismissed member's (test_dismissed_member_reconnect_refused).
 #
 # What the gate deliberately does NOT refuse is the window in between: 下線 has
 # no clock, so a session legitimately sits at desired_state=offline ∧
@@ -1044,7 +1044,9 @@ def test_fresh_hire_desired_offline_still_connects(
 
 
 def test_dismissed_member_reconnect_refused(base_url, client, owner_token) -> None:
-    """A dismissed (roster removed) member must never re-project online."""
+    """A dismissed (roster removed) member must never re-project online: its
+    reconnect is the stop gate's 409, the refusal every agent listener exits
+    on, while its other calls are refused 401 at the auth gate."""
     agent = _fresh_agent(client, owner_token, f"dismiss-{uuid.uuid4().hex[:6]}")
     with SSEConnection(base_url, agent.token) as conn:
         assert conn.status_code == 200, conn.error_body
@@ -1053,17 +1055,27 @@ def test_dismissed_member_reconnect_refused(base_url, client, owner_token) -> No
         f"/api/members/{agent.member_id}", headers=_auth(owner_token)
     )
     assert r.status_code == 200, r.text
-    deadline = time.monotonic() + 5.0
     zombie = SSEConnection(base_url, agent.token)
-    while zombie.status_code != 409 and time.monotonic() < deadline:
-        zombie.close()  # defensive retry: the roster gate answers 409 pre-Connect
-        time.sleep(0.2)
-        zombie = SSEConnection(base_url, agent.token)
-    assert zombie.status_code == 409, (
-        f"a removed member's reconnect must be refused 409, got {zombie.status_code}"
-    )
-    assert json.loads(zombie.error_body)["error"]["code"] == "conflict"
-    zombie.close()
+    try:
+        assert zombie.status_code == 409, (
+            f"a removed member's reconnect must be refused 409, got {zombie.status_code}"
+        )
+        assert json.loads(zombie.error_body) == {"error": {
+            "code": "conflict",
+            "message": f"member '{agent.member_id}' is removed from the roster — "
+                       "SSE refused (a dismissed member must not re-project online)",
+        }}
+        assert zombie.headers.get("X-OC-Auth-Refusal") is None
+    finally:
+        zombie.close()
+    r = client.get("/api/tasks", headers=_auth(agent.token))
+    assert r.status_code == 401, r.text
+    assert r.headers.get("X-OC-Auth-Refusal") is None
+    assert r.json() == {"error": {
+        "code": "unauthorized",
+        "message": f"member '{agent.member_id}' has left the roster; "
+                   "its credentials are no longer valid",
+    }}
 
 
 def test_warden_exempt_from_desired_offline_gate(

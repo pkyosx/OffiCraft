@@ -77,8 +77,7 @@ func resolvePrincipal(claims map[string]any, lookup func(id string) (*Member, er
 // deny-by-default: revoking on a failed read turns a transient DB hiccup into a
 // fleet-wide credential outage.
 //
-// SCOPE is kind=="warden" ONLY, and that is load-bearing: RosterStatusRemoved also
-// records a released outsource worker and a dismissed member.
+// A removed staff member or released worker is memberRemovedRefusal's.
 //
 // Two arms: a warden's token carries machine_id "" by design ("a warden carries NO
 // self-binding"), so its arm keys on `sub`; an agent/worker boot token carries
@@ -124,6 +123,23 @@ func revocationRefusal(claims map[string]any, lookup func(id string) (*Member, e
 // caller the DAL cannot resolve.
 func isRemovedMachine(m *Member) bool {
 	return m != nil && m.Kind == machineKind && m.RosterStatus == RosterStatusRemoved
+}
+
+// memberRemovedRefusal covers dismissed staff and released outsource workers alike;
+// fail-open on a lookup error or a nil row, as revocationRefusal is.
+func memberRemovedRefusal(claims map[string]any, lookup func(id string) (*Member, error)) string {
+	if scope, _ := claims["scope"].(string); scope == "owner" {
+		return ""
+	}
+	if lookup == nil {
+		return ""
+	}
+	sub, _ := claims["sub"].(string)
+	m, err := lookup(sub)
+	if err != nil || m == nil || m.Kind == machineKind || m.RosterStatus != RosterStatusRemoved {
+		return ""
+	}
+	return "member '" + sub + "' has left the roster; its credentials are no longer valid"
 }
 
 // permanentCredentialRefusal confines exp-less JWTs to an active warden roster row;

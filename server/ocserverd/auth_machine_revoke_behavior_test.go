@@ -9,11 +9,10 @@ package main
 //	① the deleted machine really is refused — measured on the wire, through the
 //	   whole mux (requireAuth → RBAC choke → handler), on the request shapes the
 //	   live warden/agent actually send;
-//	② nothing else is. This one is the load-bearing half. Its discriminating
-//	   power is proved by a mutant that WIDENS the check (drop the kind==warden
-//	   restriction) — ② goes red because a RELEASED outsource worker carries the
-//	   very same RosterStatusRemoved, and the close-out contract keeps that
-//	   session working on purpose.
+//	② nothing else is. This one is the load-bearing half: deleting one machine
+//	   must leave every caller on another machine, and every member still on the
+//	   roster, untouched. A removed member is refused too, but by
+//	   memberRemovedRefusal (auth_member_removed_behavior_test.go), not here.
 //
 // Everything runs against a temp sqlite + httptest server. Nothing here
 // touches a real machine, a real warden, or a real agent.
@@ -299,10 +298,7 @@ func TestPermanentCredentialsAreLimitedToActiveWardens(t *testing.T) {
 // one deleted machine, and every OTHER live caller shape in the product exercised
 // on a request it really makes. This test must be green BOTH before and after
 // the T-9cf8 change (nothing here ever depended on the gate) — its job is to go
-// red the moment the gate over-reaches. That discriminating power is proved by
-// the widening mutant: drop `m.Kind == machineKind` from isRemovedMachine and
-// the released-outsource-worker arm goes red, because a released worker carries
-// exactly the same RosterStatusRemoved and is contractually still working.
+// red the moment the gate over-reaches onto callers whose own machine is alive.
 //
 // It deliberately asserts NOTHING about the gate firing — that is sentinel ①'s
 // job, and mixing the two would make this guard fail for the one reason it must
@@ -476,10 +472,10 @@ func TestRevocationRefusalUnitTable(t *testing.T) {
 		{"a live machine",
 			map[string]any{"scope": "agent", "sub": "m-live", "machine_id": ""},
 			lookup, false, ""},
-		{"a RELEASED outsource worker (same roster status, different kind)",
+		{"a RELEASED outsource worker is memberRemovedRefusal's, not a machine revocation",
 			map[string]any{"scope": "agent", "sub": "ow-released", "machine_id": "m-live"},
 			lookup, false, ""},
-		{"a DISMISSED member (out of scope for this ticket)",
+		{"a DISMISSED member is memberRemovedRefusal's, not a machine revocation",
 			map[string]any{"scope": "agent", "sub": "m-dismissed", "machine_id": "m-live"},
 			lookup, false, ""},
 		{"the owner (no roster row, iat floor is its seam)",
@@ -506,6 +502,54 @@ func TestRevocationRefusalUnitTable(t *testing.T) {
 		}
 		if got != "" {
 			t.Errorf("%s: must NOT be revoked, got refusal %q", c.name, got)
+		}
+	}
+}
+
+// TestMemberRemovedRefusalUnitTable pins the person-side predicate, including
+// its fail-open decisions and its machine exclusion.
+func TestMemberRemovedRefusalUnitTable(t *testing.T) {
+	rows := map[string]Member{
+		"m-dead":      {ID: "m-dead", Kind: KindWarden, RosterStatus: RosterStatusRemoved},
+		"ow-released": {ID: "ow-released", Kind: KindOutsource, RosterStatus: RosterStatusRemoved},
+		"m-dismissed": {ID: "m-dismissed", Kind: KindStaff, RosterStatus: RosterStatusRemoved},
+		"ow-active":   {ID: "ow-active", Kind: KindOutsource, RosterStatus: RosterStatusActive},
+		"m-active":    {ID: "m-active", Kind: KindStaff, RosterStatus: RosterStatusActive},
+	}
+	lookup := func(id string) (*Member, error) {
+		if m, ok := rows[id]; ok {
+			return &m, nil
+		}
+		return nil, nil
+	}
+	boom := func(string) (*Member, error) { return nil, fmt.Errorf("db is down") }
+
+	cases := []struct {
+		name   string
+		claims map[string]any
+		lookup func(string) (*Member, error)
+		want   string
+	}{
+		{"a dismissed staff member",
+			map[string]any{"scope": "agent", "sub": "m-dismissed"}, lookup,
+			"member 'm-dismissed' has left the roster; its credentials are no longer valid"},
+		{"a released outsource worker",
+			map[string]any{"scope": "agent", "sub": "ow-released"}, lookup,
+			"member 'ow-released' has left the roster; its credentials are no longer valid"},
+		{"a removed warden is revocationRefusal's",
+			map[string]any{"scope": "agent", "sub": "m-dead"}, lookup, ""},
+		{"an active worker", map[string]any{"scope": "agent", "sub": "ow-active"}, lookup, ""},
+		{"an active staff member", map[string]any{"scope": "agent", "sub": "m-active"}, lookup, ""},
+		{"the owner", map[string]any{"scope": "owner", "sub": "m-dismissed"}, lookup, ""},
+		{"an unknown sub", map[string]any{"scope": "agent", "sub": "nobody"}, lookup, ""},
+		{"a DB failure never refuses",
+			map[string]any{"scope": "agent", "sub": "m-dismissed"}, boom, ""},
+		{"no lookup wired never refuses",
+			map[string]any{"scope": "agent", "sub": "m-dismissed"}, nil, ""},
+	}
+	for _, c := range cases {
+		if got := memberRemovedRefusal(c.claims, c.lookup); got != c.want {
+			t.Errorf("%s: refusal = %q, want %q", c.name, got, c.want)
 		}
 	}
 }
@@ -647,58 +691,56 @@ func TestTeardownHereRefusesAnOrdinaryMachineToo(t *testing.T) {
 	}
 }
 
-// TestSSERefusalPrecedenceIsUnchangedForNonWardens pins the ONE cross-gate
-// interaction this cut has: `GET /api/events` now sits behind the auth gate as
-// well as the pre-existing zombie stop gate, and the auth gate runs FIRST.
-//
-// WHY IT IS PINNED HERE: conformance's `test_dismissed_member_reconnect_refused`
-// asserts a roster-removed member's reconnect is a **409** with code "conflict".
-// That test hires a plain member (kind=staff), so the kind restriction keeps
-// it on the old path and it still passes — checked, not assumed. But the moment
-// someone widens this gate to every removed row, that conformance test flips to
-// 401 and fails in a suite this package does not run. This test makes the
-// contract fail HERE, in the package that owns the change, instead of there.
-func TestSSERefusalPrecedenceIsUnchangedForNonWardens(t *testing.T) {
-	srv, secret, api := revokeStack(t)
-	now := time.Now().Unix()
+// TestSSERefusalForRemovedRows: `GET /api/events` sits behind the auth gate and
+// the zombie stop gate. A removed WARDEN is refused by the auth gate (401, the
+// machine message). A dismissed member or released worker is let through it on
+// this route only and refused by the stop gate's roster arm (409 conflict) — the
+// refusal every ocagent listener version exits on. No refusal here carries the
+// standing-refusal header. conformance test_sse.py
+// test_dismissed_member_reconnect_refused asserts the same wire for a dismissed
+// member.
+func TestSSERefusalForRemovedRows(t *testing.T) {
+	api, h, d, owner := newAPITestServer(t)
+	machineID := apiTestOnboardMachine(t, h, owner, "Studio Mac")
+	wardenTok := apiHelpersWardenToken(t, api, d, machineID)
+	kipTok := apiTestAgentToken(t, api, "kip", "")
+	apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+	workerTok := apiTestAgentToken(t, api, "ow-abc123", "")
 
-	putTestMember(t, api, Member{
-		ID: "m-gone", Name: "gone", Kind: KindWarden, Effort: "medium",
-		DesiredState: DesiredStateOffline, RosterStatus: RosterStatusActive,
-	})
-	dismissed := testAgent("m-fired")
-	dismissed.DesiredMachineID = ""
-	putTestMember(t, api, dismissed)
-
-	wardenTok, err := mintJWT("m-gone", "agent", 3600, secret, now, "")
-	if err != nil {
-		t.Fatal(err)
+	if status, data := apiJSON(t, h, "DELETE", "/api/machines/"+machineID, owner, ""); status != 200 {
+		t.Fatalf("delete machine: %d %v", status, data)
 	}
-	firedTok, err := mintJWT("m-fired", "agent", 3600, secret, now, "")
-	if err != nil {
-		t.Fatal(err)
+	if status, data := apiJSON(t, h, "DELETE", "/api/members/kip", owner, ""); status != 200 {
+		t.Fatalf("dismiss: %d %v", status, data)
+	}
+	if _, err := api.dal.ReleaseWorkerByID("ow-abc123", nowSecs()); err != nil {
+		t.Fatalf("release: %v", err)
 	}
 
-	revokeMachine(t, api, "m-gone")
-	dismissed.RosterStatus = RosterStatusRemoved
-	putTestMember(t, api, dismissed)
-
-	// The removed WARDEN: the new credential cut answers first.
-	st, body := revokeCall(t, "GET", srv.URL+"/api/events", wardenTok, "")
-	if st != http.StatusUnauthorized {
-		t.Fatalf("a removed machine's SSE reconnect: want 401 from the credential "+
-			"cut, got %d %s", st, body)
+	gateMsg := func(id string) string {
+		return "member '" + id + "' is removed from the roster — SSE refused " +
+			"(a dismissed member must not re-project online)"
 	}
-
-	// The dismissed MEMBER: untouched, still the pre-existing zombie-gate 409
-	// with the conflict envelope — the exact pair conformance asserts.
-	st, body = revokeCall(t, "GET", srv.URL+"/api/events", firedTok, "")
-	if st != http.StatusConflict {
-		t.Fatalf("a dismissed member's SSE reconnect must stay the zombie gate's "+
-			"409 (conformance test_sse.py test_dismissed_member_reconnect_refused "+
-			"pins it), got %d %s", st, body)
+	cases := []struct {
+		who, token    string
+		status        int
+		code, message string
+	}{
+		{"the removed warden", wardenTok, 401, "unauthorized", machineRevokedMsg(machineID)},
+		{"the dismissed member", kipTok, 409, "conflict", gateMsg("kip")},
+		{"the released worker", workerTok, 409, "conflict", gateMsg("ow-abc123")},
 	}
-	if !strings.Contains(body, `"code":"conflict"`) {
-		t.Fatalf("the dismissed member's refusal must keep the conflict envelope, got %s", body)
+	for _, c := range cases {
+		rec := boundedRequest(t, h, "GET", "/api/events", c.token, "")
+		if rec.Code != c.status {
+			t.Fatalf("%s's SSE reconnect: want %d, got %d %s", c.who, c.status, rec.Code, rec.Body.String())
+		}
+		if got := rec.Header().Values(authRefusalHeader); len(got) != 0 {
+			t.Fatalf("%s's SSE reconnect: want no %s, got %q", c.who, authRefusalHeader, got)
+		}
+		apiWantError(t, apiTestDecodeJSONBody(t, rec), c.code, c.message)
+	}
+	if api.hub.IsOnline(machineID) || api.hub.IsOnline("kip") || api.hub.IsOnline("ow-abc123") {
+		t.Fatal("a refused handshake must not project anything online")
 	}
 }

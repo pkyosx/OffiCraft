@@ -177,6 +177,12 @@ const authTokenQueryParam = "token"
 // reaches a roster read; it also binds every exp-less credential to an active
 // warden row — no other signed JWT may become permanent.
 func requireAuth(keys *keyring, ownerIatFloor func() int64, lookup func(id string) (*Member, error), next http.Handler) http.Handler {
+	return gateAuth(keys, ownerIatFloor, lookup, false, next)
+}
+
+// rosterRefusalInHandler skips memberRemovedRefusal for a route whose handler
+// answers a roster-removed caller itself (RouteSpec.RosterRefusalInHandler).
+func gateAuth(keys *keyring, ownerIatFloor func() int64, lookup func(id string) (*Member, error), rosterRefusalInHandler bool, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if keys == nil || len(keys.verifySecrets()) == 0 {
 			writeError(w, http.StatusUnauthorized, "auth not configured")
@@ -222,6 +228,14 @@ func requireAuth(keys *keyring, ownerIatFloor func() int64, lookup func(id strin
 			writeError(w, http.StatusUnauthorized, "invalid token")
 			return
 		}
+		if !rosterRefusalInHandler {
+			if refusal := memberRemovedRefusal(claims, lookup); refusal != "" {
+				sub, _ := claims["sub"].(string)
+				log.Printf("[auth] REFUSED %s: member has left the roster.", sub)
+				writeError(w, http.StatusUnauthorized, refusal)
+				return
+			}
+		}
 		if refusal := revocationRefusal(claims, lookup); refusal != "" {
 			writeError(w, http.StatusUnauthorized, refusal)
 			return
@@ -266,7 +280,7 @@ func buildHandler(specs []RouteSpec, keys *keyring, lookup func(id string) (*Mem
 			if spec.Requires != principalMachine {
 				h = requirePrincipalClass(spec.Requires, lookup, h)
 			}
-			h = requireAuth(keys, ownerIatFloor, lookup, h)
+			h = gateAuth(keys, ownerIatFloor, lookup, spec.RosterRefusalInHandler, h)
 			if spec.ShareSig != nil {
 				h = shareSigGate(keys, spec.ShareSig, spec.Handler, h)
 			}

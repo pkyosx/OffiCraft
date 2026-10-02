@@ -4160,13 +4160,17 @@ func TestHandleReassignTaskApiTasksTaskIdReassignPost(t *testing.T) {
 		if len(zed) != 1 || !strings.HasPrefix(zed[0].Body, "[T-1] 你接手了這張任務，這張任務沒有前任。\n\n") {
 			t.Fatalf("the new successor gets the no-predecessor takeover notice, got %+v", zed)
 		}
-		for who, token := range map[string]string{"kip": f.predecessor, "zed": f.outsider} {
-			status, data := apiJSON(t, f.h, "POST", "/api/tasks/T-1/priority", token, `{"priority":"high"}`)
-			if status != 403 {
-				t.Fatalf("%s: want 403, got %d %v", who, status, data)
-			}
-			apiWantError(t, data, "forbidden", "caller is not the task's executor")
+		status, data := apiJSON(t, f.h, "POST", "/api/tasks/T-1/priority", f.predecessor, `{"priority":"high"}`)
+		if status != 401 {
+			t.Fatalf("kip: want 401, got %d %v", status, data)
 		}
+		apiWantError(t, data, "unauthorized",
+			"member 'kip' has left the roster; its credentials are no longer valid")
+		status, data = apiJSON(t, f.h, "POST", "/api/tasks/T-1/priority", f.outsider, `{"priority":"high"}`)
+		if status != 403 {
+			t.Fatalf("zed: want 403, got %d %v", status, data)
+		}
+		apiWantError(t, data, "forbidden", "caller is not the task's executor")
 		f.must(t, "POST", "/api/tasks/T-1/claim", f.outsider, "")
 	})
 
