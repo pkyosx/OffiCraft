@@ -113,10 +113,12 @@ describe("MonitorPage Claude upgrade", () => {
     expect(screen.getByTestId("runtime-upgrade-preparing").textContent).toBe("正在請 工作站 開始升級…");
   });
 
-  it("under a Claude version below the notification minimum, the Claude cell shows 版本太舊; at or above it, unknown, or on Codex, it does not", async () => {
+  it("under a Claude version below the notification minimum, the Claude cell shows 版本太舊; at or above it, or unknown, it does not; Codex renders the same field the same way", async () => {
     await mount(card({ claude: claude(true), codex }));
     expect(screen.getByTestId("mon-claude-version").textContent).toBe("2.1.200版本太舊");
-    expect(screen.getByTestId("mon-codex-version").textContent).toBe("0.52.0");
+    // The server sends below_notify_minimum for claude alone; the cell does not
+    // tell the runtimes apart.
+    expect(screen.getByTestId("mon-codex-version").textContent).toBe("0.52.0版本太舊");
     cleanup();
     await mount(card({ claude: claude(false), codex }));
     expect(screen.getByTestId("mon-claude-version").textContent).toBe("2.1.200");

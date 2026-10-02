@@ -4,11 +4,15 @@
 // (過期 on every cell), widened its cells and moved every column to its right,
 // and the three action buttons stacked into two or three rows. jsdom has no
 // layout, so this is measured in a real browser on the real MachinesTable.
+// The owner then picked the marks on the SAME line as the value, in fixed
+// columns, Claude and Codex one width, and a ⚙ with no frame.
 //
 // MUTANTS (each verified red):
 //   marks inline AND auto table layout (the layout before the fix)
 //                                           → column x differs between states
-//   marks inline again                      → mark-below test
+//   marks back on a line of their own       → same-line test, row height test
+//   Claude / Codex column narrowed           → a mark spills out of its cell
+//   Codex column a different width           → equal-width test
 //   drop `table-layout: fixed` or the column widths → 800px test
 //   操作 column not sticky                  → gear off-screen at 760/900px
 //   操作 cells transparent                  → a scrolled cell shows through
@@ -19,6 +23,7 @@
 //   drop the table's min-width               → 機器 name cut short at 800px
 //   menu focus counting disabled items       → keyboard test
 //   menu aligned to the gear's left edge     → menu right edge test
+//   ⚙ border back at rest, on hover or open  → frameless ⚙ test
 import { test, expect } from "@playwright/experimental-ct-react";
 import type { Page } from "@playwright/test";
 import { MonitorMachinesLayoutStory } from "./stories/MonitorMachinesLayoutStory";
@@ -46,6 +51,7 @@ test("at the 1000px desktop content width, every column starts at the same x in 
 }) => {
   await page.setViewportSize({ width: 1500, height: 900 });
   await mount(<MonitorMachinesLayoutStory />);
+  expect((await overflow(page)).frame, "the table fits the desktop content width without scrolling").toBe(0);
   const edges = await columnEdges(page);
   expect(edges.normal.th).toHaveLength(7);
   expect(edges.normal.td).toHaveLength(7);
@@ -55,27 +61,127 @@ test("at the 1000px desktop content width, every column starts at the same x in 
   }
 });
 
-test("a mark sits on its own line under the value, inside its column", async ({ mount, page }) => {
-  await page.setViewportSize({ width: 1500, height: 900 });
-  await mount(<MonitorMachinesLayoutStory states={["stale"]} />);
-  const boxes = await page.evaluate(() => {
-    const box = (el: Element | null) => (el as HTMLElement).getBoundingClientRect();
+const MARKED_CELLS = ["mon-claude-version", "mon-codex-version", "mon-cpu", "mon-ram", "mon-power"];
+
+/** For every marked cell of the mounted rows: whether each mark shares the
+ * value's line, and whether value, marks and chevron all stay inside the cell. */
+async function markPlacement(page: Page) {
+  return page.evaluate((ids) => {
+    const box = (el: Element) => el.getBoundingClientRect();
     const out = [];
-    for (const id of ["mon-claude-version", "mon-codex-version", "mon-cpu", "mon-ram", "mon-power"]) {
-      const cell = document.querySelector(`[data-testid="${id}"]`)!;
-      const stack = cell.querySelector(".mon-cell-stack")!;
-      const value = stack.firstElementChild!;
-      const marks = stack.querySelector(".mon-cell-marks")!;
-      const c = box(cell);
-      const v = box(value);
-      const m = box(marks);
-      out.push({ id, below: m.top >= v.bottom - 0.5, inside: m.left >= c.left && m.right <= c.right });
+    for (const section of Array.from(document.querySelectorAll("[data-state]"))) {
+      for (const id of ids) {
+        const cell = section.querySelector(`[data-testid="${id}"]`)!;
+        const line = cell.querySelector(".mon-cell-line")!;
+        const value = box(line.firstElementChild!);
+        const parts = [
+          ...Array.from(line.querySelectorAll(".mon-cell-marks > *")),
+          ...Array.from(cell.querySelectorAll(".runtime-menu__chevron")),
+        ];
+        const c = box(cell);
+        // The right padding is the gap to the next column; nothing runs into it.
+        const right = c.right - parseFloat(getComputedStyle(cell).paddingRight);
+        const mid = (r: DOMRect) => (r.top + r.bottom) / 2;
+        out.push({
+          id: `${section.getAttribute("data-state")} ${id}`,
+          marks: line.querySelectorAll(".mon-cell-marks > *").length,
+          sameLine: parts.every((el) => Math.abs(mid(box(el)) - mid(value)) <= 2),
+          inside: [value, ...parts.map(box)].every((r) => r.left >= c.left && r.right <= right + 0.5),
+        });
+      }
     }
     return out;
+  }, MARKED_CELLS);
+}
+
+for (const width of [1000, 900]) {
+  test(`at ${width}px a mark sits on the value's line, and the most a cell carries fits its column`, async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: width + 500, height: 900 });
+    await mount(<MonitorMachinesLayoutStory width={width} />);
+    const placed = await markPlacement(page);
+    const marked = Object.fromEntries(placed.map((p) => [p.id, p.marks]));
+    // Control: the worst cells really are carrying two marks each.
+    expect(marked["chips mon-claude-version"]).toBe(2);
+    expect(marked["chips mon-codex-version"]).toBe(2);
+    expect(marked["stale mon-claude-version"]).toBe(2);
+    expect(marked["stale mon-codex-version"]).toBe(2);
+    expect(marked["stale mon-cpu"]).toBe(1);
+    for (const p of placed) {
+      expect(p, p.id).toEqual({ ...p, sameLine: true, inside: true });
+    }
   });
-  for (const b of boxes) {
-    expect(b, b.id).toEqual({ id: b.id, below: true, inside: true });
-  }
+}
+
+test("a marked row is no taller than a plain one", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1500, height: 900 });
+  await mount(<MonitorMachinesLayoutStory />);
+  const heights = await page.evaluate(() =>
+    Array.from(document.querySelectorAll("[data-state] tbody tr")).map((tr) =>
+      Math.round(tr.getBoundingClientRect().height)
+    )
+  );
+  expect(heights).toHaveLength(3);
+  expect(heights[1], "chips row").toBe(heights[0]);
+  expect(heights[2], "stale row").toBe(heights[0]);
+});
+
+for (const width of [1000, 900, 800]) {
+  test(`at ${width}px the Claude and Codex columns are one width in every state`, async ({ mount, page }) => {
+    await page.setViewportSize({ width: width + 500, height: 900 });
+    await mount(<MonitorMachinesLayoutStory width={width} />);
+    const widths = await page.evaluate(() =>
+      Array.from(document.querySelectorAll("[data-state]")).map((section) => {
+        const w = (sel: string) => Math.round(section.querySelector(sel)!.getBoundingClientRect().width);
+        return {
+          state: section.getAttribute("data-state"),
+          claude: w('[data-testid="mon-claude-version"]'),
+          codex: w('[data-testid="mon-codex-version"]'),
+          claudeHead: w("thead th:nth-child(2)"),
+          codexHead: w("thead th:nth-child(3)"),
+        };
+      })
+    );
+    const first = widths[0].claude;
+    expect(first, "the column has a real width").toBeGreaterThan(100);
+    for (const row of widths) {
+      expect(row, row.state!).toEqual({ state: row.state, claude: first, codex: first, claudeHead: first, codexHead: first });
+    }
+  });
+}
+
+test("the ⚙ draws no frame at rest, on hover or with its menu open", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1500, height: 900 });
+  await mount(<MonitorMachinesLayoutStory states={["normal"]} />);
+  const gear = page.getByRole("button", { name: "機器操作（伺服器這一台）" });
+  const frame = () =>
+    gear.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      const probe = document.createElement("canvas").getContext("2d")!;
+      const alpha = (css: string) => {
+        probe.clearRect(0, 0, 1, 1);
+        probe.fillStyle = "#000";
+        probe.fillStyle = css;
+        probe.fillRect(0, 0, 1, 1);
+        return probe.getImageData(0, 0, 1, 1).data[3];
+      };
+      const sides = ["Top", "Right", "Bottom", "Left"] as const;
+      const border = sides.some(
+        (s) => parseFloat(cs[`border${s}Width`]) > 0 && cs[`border${s}Style`] !== "none" && alpha(cs[`border${s}Color`]) > 0
+      );
+      const outline = cs.outlineStyle !== "none" && parseFloat(cs.outlineWidth) > 0;
+      return { border, outline };
+    });
+  expect(await frame(), "at rest").toEqual({ border: false, outline: false });
+  await gear.hover();
+  expect(await frame(), "hovered").toEqual({ border: false, outline: false });
+  await gear.click();
+  await expect(page.getByRole("menu")).toBeVisible();
+  // Off the gear, so the open state is measured without :hover.
+  await page.mouse.move(0, 0);
+  expect(await frame(), "open").toEqual({ border: false, outline: false });
 });
 
 test("the 操作 column is one ⚙ button whose menu lists the row's operations", async ({ mount, page }) => {

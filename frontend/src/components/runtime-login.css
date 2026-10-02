@@ -130,8 +130,15 @@
 .runtime-menu__pop[data-align="end"][data-placement="above"] {
   border-bottom-left-radius: 7px;
 }
-/* An icon-only trigger (a row's ⚙ operations menu): a square that keeps its
- * border visible at rest, since there is no text to say it is a control. */
+/* An icon-only trigger (a row's ⚙ operations menu): a bare icon with no frame
+ * in any state (owner ruling); hover and open tint it, the keyboard gets the
+ * focus ring. */
+.runtime-menu__trigger--icon,
+.runtime-menu__trigger--icon:hover,
+.runtime-menu__trigger--icon:focus-visible,
+.runtime-menu__trigger--icon[aria-expanded="true"] {
+  border-color: transparent;
+}
 .runtime-menu__trigger--icon {
   justify-content: center;
   width: 30px;
@@ -139,7 +146,9 @@
   margin-left: 0;
   padding: 0;
   color: var(--color-text-muted);
-  border-color: color-mix(in srgb, var(--color-overlay) 14%, transparent);
+}
+.runtime-menu__trigger--icon[data-placement] {
+  border-radius: 7px;
 }
 .runtime-menu__trigger--icon:hover,
 .runtime-menu__trigger--icon:focus-visible,

@@ -1,6 +1,8 @@
 // Story — the 機器資訊 table in its three looks: a plain row, a row whose
-// Claude cell carries the 版本太舊 and 未登入 chips, and a row whose telemetry
-// went stale (過期 on every cell). Mounted through the real MachinesTable with
+// Claude and Codex cells carry the 版本太舊 and 未登入 chips, and a row whose
+// telemetry went stale (過期 on every cell). Codex's 版本太舊 is not something
+// the server sends today (below_notify_minimum is Claude's alone); it is here
+// because both columns render the same fields the same way and must fit them. Mounted through the real MachinesTable with
 // hand-built rows (no api), inside a 1000px box — the content width of the
 // monitor page at a 1500px desktop viewport.
 import { I18nProvider } from "../../src/i18n";
@@ -58,7 +60,7 @@ const rows: Record<MachinesLayoutState, { machine: MachineView; hw: MonMachineVi
       cpuPct: 16,
       runtimeCapabilities: {
         claude: { installed: true, loggedIn: false, version: "2.1.286", belowNotifyMinimum: true },
-        codex: { installed: true, loggedIn: true, version: "0.159.2" },
+        codex: { installed: true, loggedIn: false, version: "0.159.2", belowNotifyMinimum: true },
       },
     },
   },
@@ -72,7 +74,7 @@ const rows: Record<MachinesLayoutState, { machine: MachineView; hw: MonMachineVi
       acPower: null,
       runtimeCapabilities: {
         claude: { installed: true, loggedIn: false, version: "2.1.286", belowNotifyMinimum: true },
-        codex: { installed: true, loggedIn: true, version: "0.159.2" },
+        codex: { installed: true, loggedIn: false, version: "0.159.2", belowNotifyMinimum: true },
       },
       runtimeCapabilitiesStale: true,
       hardwareStale: true,

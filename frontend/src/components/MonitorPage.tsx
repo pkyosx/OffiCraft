@@ -1369,26 +1369,26 @@ export function MachinesTable({
                  * lately" and "the reporter is broken" are different jobs
                  * for whoever is reading this screen. */}
                 <td data-label={t.monitor.machineCol.cpu} data-testid="mon-cpu">
-                  <CellStack value={<span>{pctText(hw?.cpuPct ?? null, dash)}</span>}>
+                  <CellLine value={<span>{pctText(hw?.cpuPct ?? null, dash)}</span>}>
                     {hw?.hardwareStale === true && <HardwareStaleMark />}
                     {badHardware(hw, "cpu_pct") && <HardwareBadMark />}
-                  </CellStack>
+                  </CellLine>
                 </td>
                 <td data-label={t.monitor.machineCol.ram} data-testid="mon-ram">
-                  <CellStack value={<span>{pctText(hw?.ramPct ?? null, dash)}</span>}>
+                  <CellLine value={<span>{pctText(hw?.ramPct ?? null, dash)}</span>}>
                     {hw?.hardwareStale === true && <HardwareStaleMark />}
                     {badHardware(hw, "ram_pct") && <HardwareBadMark />}
-                  </CellStack>
+                  </CellLine>
                 </td>
                 <td data-label={t.monitor.machineCol.power} data-testid="mon-power">
-                  <CellStack
+                  <CellLine
                     value={<span>{powerText(hw ? hw.acPower : null, hw?.batteryPct ?? null, dash)}</span>}
                   >
                     {hw?.hardwareStale === true && <HardwareStaleMark />}
                     {(badHardware(hw, "ac_power") || badHardware(hw, "battery_pct")) && (
                       <HardwareBadMark />
                     )}
-                  </CellStack>
+                  </CellLine>
                 </td>
                 {/* Actions — the machine-lifecycle verbs (T-IUD):
                  *   install   → server-self: in-place bootstrap-on-server —
@@ -1605,7 +1605,6 @@ function RuntimeVersionTrigger({
       fallbackVersion={fallbackVersion}
       stale={stale}
       testIdPrefix={testIdPrefix}
-      notifyMinimumApplies={runtime === "claude"}
     />
   );
   if (!runtimeShownInstalled(capability, fallbackVersion)) return cell;
@@ -1664,6 +1663,9 @@ function RuntimeVersionTrigger({
  * A 版本太舊 chip follows a version the warden reports as older than the
  * notification mod needs; unlike 未登入 it also shows on stale telemetry,
  * because it qualifies the version printed beside it, which stays on screen.
+ * Only Claude reports it today (the server keeps `below_notify_minimum` for
+ * claude alone); the cell does not check the runtime, so the Claude and Codex
+ * columns render the same capability fields the same way.
  * ⚠️ Signed in and unknown (no login state reported) both show nothing after
  * the version: owner ruling, do not re-add a mark for either.
  * ⚠️ Owner ruling: stale telemetry carries no login state, so no 未登入 then.
@@ -1685,14 +1687,11 @@ function RuntimeVersionCell({
   fallbackVersion,
   stale,
   testIdPrefix,
-  notifyMinimumApplies,
 }: {
   capability?: RuntimeCapability;
   fallbackVersion: string | null;
   stale: boolean | null | undefined;
   testIdPrefix: string;
-  /** The notification mod's minimum is a Claude Code version. */
-  notifyMinimumApplies: boolean;
 }) {
   const { t } = useI18n();
   const dash = t.monitor.dash;
@@ -1721,7 +1720,7 @@ function RuntimeVersionCell({
   // A reported false is an ANSWER: say it, do not leave the cell blank.
   if (capability.installed === false) {
     return (
-      <CellStack
+      <CellLine
         value={
           <span className="mon-muted" title={m.runtimeNotInstalledHint}>
             {m.runtimeNotInstalled}
@@ -1729,7 +1728,7 @@ function RuntimeVersionCell({
         }
       >
         {staleMark}
-      </CellStack>
+      </CellLine>
     );
   }
 
@@ -1739,7 +1738,7 @@ function RuntimeVersionCell({
   }
 
   return (
-    <CellStack
+    <CellLine
       value={
         capability.version != null ? (
           <span>{capability.version}</span>
@@ -1750,7 +1749,7 @@ function RuntimeVersionCell({
         )
       }
     >
-      {notifyMinimumApplies && capability.version != null && capability.belowNotifyMinimum === true && (
+      {capability.version != null && capability.belowNotifyMinimum === true && (
         <span className="mon-stale mon-bad" data-testid={`${testIdPrefix}-too-old`}>
           {m.runtimeTooOld}
         </span>
@@ -1761,17 +1760,17 @@ function RuntimeVersionCell({
         </span>
       )}
       {staleMark}
-    </CellStack>
+    </CellLine>
   );
 }
 
-/** A machine-table value with its marks (版本太舊, 未登入, 過期, …) on a line
- * of their own under it, so a mark never widens its column: the table's
- * column positions stay the same whatever a row is marked with. */
-function CellStack({ value, children }: { value: ReactNode; children?: ReactNode }) {
+/** A machine-table value with its marks (版本太舊, 未登入, 過期, …) on the same
+ * line after it. The columns are wide enough for the most a cell can carry
+ * (monitor.css), so a mark never moves the columns beside it. */
+function CellLine({ value, children }: { value: ReactNode; children?: ReactNode }) {
   const marks = Children.toArray(children);
   return (
-    <span className="mon-cell-stack">
+    <span className="mon-cell-line">
       {value}
       {marks.length > 0 && <span className="mon-cell-marks">{marks}</span>}
     </span>
