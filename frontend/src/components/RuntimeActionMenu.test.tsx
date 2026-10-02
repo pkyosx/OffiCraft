@@ -1,31 +1,81 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { RuntimeActionMenu } from "./RuntimeActionMenu";
+import { RuntimeActionMenu, type RuntimeActionItem } from "./RuntimeActionMenu";
 
 afterEach(cleanup);
 
+const LABEL = "Codex 0.159.2 操作";
+
+function menu(items: RuntimeActionItem[]) {
+  return (
+    <RuntimeActionMenu label={LABEL} testIdPrefix="mon-codex" items={items}>
+      <span>0.159.2</span>
+      <span data-testid="chip">未登入</span>
+    </RuntimeActionMenu>
+  );
+}
+
+const login = (onSelect: () => void = () => {}): RuntimeActionItem => ({
+  key: "login",
+  label: "登入",
+  icon: <svg data-testid="login-icon" />,
+  onSelect,
+});
+
+const trigger = () => screen.getByRole("button", { name: LABEL });
+
 describe("RuntimeActionMenu", () => {
+  it("under items, the version and its chips are the content of one menu button named by the label", () => {
+    render(menu([login()]));
+    const t = trigger();
+    expect(t.getAttribute("aria-haspopup")).toBe("menu");
+    expect(t.getAttribute("aria-expanded")).toBe("false");
+    expect(t.textContent).toBe("0.159.2未登入");
+    expect(t.contains(screen.getByTestId("chip"))).toBe(true);
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
   it("under a click on the trigger, opens a menu of its items and picking one runs it and closes the menu", () => {
     const onLogin = vi.fn();
-    render(
-      <RuntimeActionMenu
-        label="操作"
-        testIdPrefix="mon-claude"
-        items={[{ key: "login", label: "登入", onSelect: onLogin }]}
-      />
-    );
-    const trigger = screen.getByTestId("mon-claude-menu");
-    expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
-    expect(trigger.getAttribute("aria-expanded")).toBe("false");
-    expect(screen.queryByRole("menu")).toBeNull();
+    render(menu([login(onLogin)]));
+    fireEvent.click(trigger());
+    expect(trigger().getAttribute("aria-expanded")).toBe("true");
+    const pop = screen.getByRole("menu", { name: LABEL });
+    expect(pop.textContent).toBe("登入");
+    expect(screen.getAllByRole("menuitem").map((el) => el.textContent)).toEqual(["登入"]);
+    expect(screen.getByRole("menuitem").contains(screen.getByTestId("login-icon"))).toBe(true);
 
-    fireEvent.click(trigger);
-    expect(trigger.getAttribute("aria-expanded")).toBe("true");
-    const items = screen.getAllByRole("menuitem").map((el) => el.textContent);
-    expect(items).toEqual(["登入"]);
-
-    fireEvent.click(screen.getByTestId("mon-claude-menu-login"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "登入" }));
     expect(onLogin).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(trigger().getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("under a second click on the trigger, the open menu closes", () => {
+    render(menu([login()]));
+    fireEvent.click(trigger());
+    expect(trigger().getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(trigger());
+    expect(trigger().getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("under ArrowDown on the trigger, the menu opens with its first item focused; Esc closes it and refocuses the trigger", () => {
+    render(menu([login()]));
+    trigger().focus();
+    fireEvent.keyDown(trigger(), { key: "ArrowDown" });
+    expect(trigger().getAttribute("aria-expanded")).toBe("true");
+    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "登入" }));
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(trigger().getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(trigger());
+  });
+
+  it("under other keys on the closed trigger, nothing opens", () => {
+    render(menu([login()]));
+    fireEvent.keyDown(trigger(), { key: "ArrowUp" });
+    fireEvent.keyDown(trigger(), { key: "a" });
     expect(screen.queryByRole("menu")).toBeNull();
   });
 
@@ -34,19 +84,15 @@ describe("RuntimeActionMenu", () => {
     render(
       <div>
         <span data-testid="outside">x</span>
-        <RuntimeActionMenu
-          label="操作"
-          testIdPrefix="mon-claude"
-          items={[{ key: "login", label: "登入", onSelect: onLogin }]}
-        />
+        {menu([login(onLogin)])}
       </div>
     );
-    fireEvent.click(screen.getByTestId("mon-claude-menu"));
+    fireEvent.click(trigger());
     expect(screen.getByRole("menu")).toBeTruthy();
     fireEvent.keyDown(window, { key: "Escape" });
     expect(screen.queryByRole("menu")).toBeNull();
 
-    fireEvent.click(screen.getByTestId("mon-claude-menu"));
+    fireEvent.click(trigger());
     expect(screen.getByRole("menu")).toBeTruthy();
     fireEvent.mouseDown(screen.getByTestId("outside"));
     expect(screen.queryByRole("menu")).toBeNull();
@@ -56,47 +102,28 @@ describe("RuntimeActionMenu", () => {
   it("under a host inside an overflow:auto wrapper, the menu is rendered outside it, on <body>, and focuses its first item", () => {
     render(
       <div data-testid="wrap" style={{ overflow: "auto" }}>
-        <RuntimeActionMenu
-          label="操作"
-          testIdPrefix="mon-claude"
-          items={[
-            { key: "login", label: "登入", onSelect: () => {} },
-            { key: "upgrade", label: "升級", onSelect: () => {} },
-          ]}
-        />
+        {menu([login(), { key: "upgrade", label: "升級", onSelect: () => {} }])}
       </div>
     );
-    fireEvent.click(screen.getByTestId("mon-claude-menu"));
+    fireEvent.click(trigger());
     const pop = screen.getByRole("menu");
     expect(screen.getByTestId("wrap").contains(pop)).toBe(false);
     expect(pop.parentElement).toBe(document.body);
     expect(getComputedStyle(pop).visibility).not.toBe("hidden");
-    expect(document.activeElement).toBe(screen.getByTestId("mon-claude-menu-login"));
+    expect(document.activeElement).toBe(screen.getByTestId("mon-codex-menu-login"));
     fireEvent.keyDown(pop, { key: "ArrowDown" });
-    expect(document.activeElement).toBe(screen.getByTestId("mon-claude-menu-upgrade"));
+    expect(document.activeElement).toBe(screen.getByTestId("mon-codex-menu-upgrade"));
     fireEvent.keyDown(pop, { key: "ArrowDown" });
-    expect(document.activeElement).toBe(screen.getByTestId("mon-claude-menu-login"));
-  });
-
-  it("under Esc, the menu closes and focus returns to the trigger", () => {
-    render(
-      <RuntimeActionMenu label="操作" testIdPrefix="mon-claude" items={[{ key: "login", label: "登入", onSelect: () => {} }]} />
-    );
-    fireEvent.click(screen.getByTestId("mon-claude-menu"));
-    fireEvent.keyDown(window, { key: "Escape" });
-    expect(screen.queryByRole("menu")).toBeNull();
-    expect(document.activeElement).toBe(screen.getByTestId("mon-claude-menu"));
+    expect(document.activeElement).toBe(screen.getByTestId("mon-codex-menu-login"));
   });
 
   it("under a scroll or a resize anywhere, the open menu closes", () => {
-    render(
-      <RuntimeActionMenu label="操作" testIdPrefix="mon-claude" items={[{ key: "login", label: "登入", onSelect: () => {} }]} />
-    );
-    fireEvent.click(screen.getByTestId("mon-claude-menu"));
+    render(menu([login()]));
+    fireEvent.click(trigger());
     expect(screen.getByRole("menu")).toBeTruthy();
     fireEvent.scroll(document.body);
     expect(screen.queryByRole("menu")).toBeNull();
-    fireEvent.click(screen.getByTestId("mon-claude-menu"));
+    fireEvent.click(trigger());
     expect(screen.getByRole("menu")).toBeTruthy();
     fireEvent(window, new Event("resize"));
     expect(screen.queryByRole("menu")).toBeNull();
@@ -104,23 +131,20 @@ describe("RuntimeActionMenu", () => {
 
   it("under a mousedown inside the portalled menu, it stays open until the item's click", () => {
     const onLogin = vi.fn();
-    render(
-      <RuntimeActionMenu label="操作" testIdPrefix="mon-claude" items={[{ key: "login", label: "登入", onSelect: onLogin }]} />
-    );
-    fireEvent.click(screen.getByTestId("mon-claude-menu"));
-    const item = screen.getByTestId("mon-claude-menu-login");
+    render(menu([login(onLogin)]));
+    fireEvent.click(trigger());
+    const item = screen.getByTestId("mon-codex-menu-login");
     fireEvent.mouseDown(item);
     expect(screen.getByRole("menu")).toBeTruthy();
     fireEvent.click(item);
     expect(onLogin).toHaveBeenCalledTimes(1);
   });
 
-  it("under no items, renders nothing at all", () => {
-    const { container, rerender } = render(
-      <RuntimeActionMenu label="操作" testIdPrefix="mon-codex" items={[{ key: "x", label: "x", onSelect: () => {} }]} />
-    );
-    expect(container.querySelector("[data-testid='mon-codex-menu']")).not.toBeNull();
-    rerender(<RuntimeActionMenu label="操作" testIdPrefix="mon-codex" items={[]} />);
-    expect(container.innerHTML).toBe("");
+  it("under no items, the content renders as plain text with no button", () => {
+    const { container, rerender } = render(menu([login()]));
+    expect(screen.queryByRole("button")).not.toBeNull();
+    rerender(menu([]));
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(container.textContent).toBe("0.159.2未登入");
   });
 });

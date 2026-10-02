@@ -34,7 +34,7 @@ import { avatarKindForMember } from "../lib/avatarKind";
 import { InlineEdit } from "./InlineEdit";
 import { MemberDetailPanel } from "./MemberDetailPanel";
 import { PresenceBadge } from "./PresenceBadge";
-import { CopyIcon, CheckIcon, CloseIcon } from "./icons";
+import { CopyIcon, CheckIcon, CloseIcon, KeyIcon } from "./icons";
 import { RuntimeActionMenu } from "./RuntimeActionMenu";
 import { RuntimeLoginDialog } from "./RuntimeLoginDialog";
 // The 歸零 pill on the account card is the SAME control as the one on the member
@@ -793,65 +793,38 @@ export function MonitorPage() {
                       data-label={t.monitor.machineCol.claude}
                       data-testid="mon-claude-version"
                     >
-                      <RuntimeVersionCell
+                      <RuntimeVersionTrigger
+                        runtime="claude"
                         capability={hw?.runtimeCapabilities?.claude}
                         fallbackVersion={m.claudeVersion}
                         stale={hw?.runtimeCapabilitiesStale}
-                        testIdPrefix="mon-claude"
+                        onLogin={() =>
+                          setLoginTarget({
+                            machine: m,
+                            runtime: "claude",
+                            loggedIn: hw?.runtimeCapabilities?.claude?.loggedIn === true,
+                          })
+                        }
                       />
-                      {runtimeShownInstalled(
-                        hw?.runtimeCapabilities?.claude,
-                        m.claudeVersion
-                      ) && (
-                        <RuntimeActionMenu
-                          label={t.monitor.runtimeLogin.menuLabel}
-                          testIdPrefix="mon-claude"
-                          items={[
-                            {
-                              key: "login",
-                              label: t.monitor.runtimeLogin.login,
-                              onSelect: () =>
-                                setLoginTarget({
-                                  machine: m,
-                                  runtime: "claude",
-                                  loggedIn:
-                                    hw?.runtimeCapabilities?.claude?.loggedIn === true,
-                                }),
-                            },
-                          ]}
-                        />
-                      )}
                     </td>
                     <td
                       className="mon-table__left"
                       data-label={t.monitor.machineCol.codex}
                       data-testid="mon-codex-version"
                     >
-                      <RuntimeVersionCell
+                      <RuntimeVersionTrigger
+                        runtime="codex"
                         capability={hw?.runtimeCapabilities?.codex}
                         fallbackVersion={null}
                         stale={hw?.runtimeCapabilitiesStale}
-                        testIdPrefix="mon-codex"
+                        onLogin={() =>
+                          setLoginTarget({
+                            machine: m,
+                            runtime: "codex",
+                            loggedIn: hw?.runtimeCapabilities?.codex?.loggedIn === true,
+                          })
+                        }
                       />
-                      {runtimeShownInstalled(hw?.runtimeCapabilities?.codex, null) && (
-                        <RuntimeActionMenu
-                          label={t.monitor.runtimeLogin.menuLabel}
-                          testIdPrefix="mon-codex"
-                          items={[
-                            {
-                              key: "login",
-                              label: t.monitor.runtimeLogin.login,
-                              onSelect: () =>
-                                setLoginTarget({
-                                  machine: m,
-                                  runtime: "codex",
-                                  loggedIn:
-                                    hw?.runtimeCapabilities?.codex?.loggedIn === true,
-                                }),
-                            },
-                          ]}
-                        />
-                      )}
                     </td>
                     {/* Hardware telemetry (joined by host). Honest dash when the
                      * host reported no telemetry — never a fabricated number.
@@ -1524,6 +1497,61 @@ function runtimeShownInstalled(
   return !(capability.installed == null && capability.version == null);
 }
 
+type RuntimeCapability = {
+  installed: boolean | null;
+  loggedIn: boolean | null;
+  version: string | null;
+};
+
+/** A runtime's cell content, made the trigger of its action menu only when the
+ * runtime is shown as installed: there is nothing to sign in to on a machine
+ * that does not have it, so those cells stay plain text. */
+function RuntimeVersionTrigger({
+  runtime,
+  capability,
+  fallbackVersion,
+  stale,
+  onLogin,
+}: {
+  runtime: "claude" | "codex";
+  capability?: RuntimeCapability;
+  fallbackVersion: string | null;
+  stale: boolean | null | undefined;
+  onLogin: () => void;
+}) {
+  const { t } = useI18n();
+  const testIdPrefix = `mon-${runtime}`;
+  const cell = (
+    <RuntimeVersionCell
+      capability={capability}
+      fallbackVersion={fallbackVersion}
+      stale={stale}
+      testIdPrefix={testIdPrefix}
+    />
+  );
+  if (!runtimeShownInstalled(capability, fallbackVersion)) return cell;
+  const version = capability ? capability.version : fallbackVersion;
+  const label = [t.monitor.machineCol[runtime], version, t.monitor.runtimeLogin.menuLabel]
+    .filter(Boolean)
+    .join(" ");
+  return (
+    <RuntimeActionMenu
+      label={label}
+      testIdPrefix={testIdPrefix}
+      items={[
+        {
+          key: "login",
+          label: t.monitor.runtimeLogin.login,
+          icon: <KeyIcon size={15} />,
+          onSelect: onLogin,
+        },
+      ]}
+    >
+      {cell}
+    </RuntimeActionMenu>
+  );
+}
+
 /** One runtime's cell in the machine table (T-674d) — the per-runtime version
  * columns that replaced the single ✓/✗ Runtimes digest.
  *
@@ -1566,7 +1594,7 @@ function RuntimeVersionCell({
   stale,
   testIdPrefix,
 }: {
-  capability?: { installed: boolean | null; loggedIn: boolean | null; version: string | null };
+  capability?: RuntimeCapability;
   fallbackVersion: string | null;
   stale: boolean | null | undefined;
   testIdPrefix: string;

@@ -1,4 +1,5 @@
 import {
+  type ReactNode,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -7,6 +8,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
+import { ChevronDownIcon } from "./icons";
 import "./runtime-login.css";
 
 const GAP = 4;
@@ -15,21 +17,28 @@ const EDGE = 8;
 export interface RuntimeActionItem {
   key: string;
   label: string;
+  icon?: ReactNode;
   onSelect: () => void;
 }
 
-/** The "⋯" action menu beside one runtime's version on a machine row. The
- * popup is portalled to <body> with fixed positioning (the InstantHint
- * pattern): the machine table sits in an `overflow: auto` wrapper that clips
- * anything rendered in place, and a one-row table leaves no room below. */
+/** One runtime's version on a machine row, made into the trigger of that
+ * runtime's action menu: `children` (the version and its chips) sit inside a
+ * quiet pill with a chevron. `label` is the trigger's accessible name and must
+ * name the runtime, since the visible text alone does not say which column it
+ * is in. The popup is portalled to <body> with fixed positioning (the
+ * InstantHint pattern): the machine table sits in an `overflow: auto` wrapper
+ * that clips anything rendered in place, and a one-row table leaves no room
+ * below. */
 export function RuntimeActionMenu({
   label,
   items,
   testIdPrefix,
+  children,
 }: {
   label: string;
   items: RuntimeActionItem[];
   testIdPrefix: string;
+  children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<CSSProperties | null>(null);
@@ -81,7 +90,7 @@ export function RuntimeActionMenu({
     if (open && pos) popRef.current?.querySelector<HTMLElement>("[role='menuitem']")?.focus();
   }, [open, pos]);
 
-  if (items.length === 0) return null;
+  if (items.length === 0) return <>{children}</>;
   return (
     <span className="runtime-menu">
       <button
@@ -89,17 +98,20 @@ export function RuntimeActionMenu({
         type="button"
         className="runtime-menu__trigger"
         aria-label={label}
-        title={label}
         aria-haspopup="menu"
         aria-expanded={open}
         data-testid={`${testIdPrefix}-menu`}
         onClick={() => setOpen((o) => !o)}
+        onKeyDown={(e) => {
+          if (e.key !== "ArrowDown" || open) return;
+          e.preventDefault();
+          setOpen(true);
+        }}
       >
-        <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" fill="currentColor">
-          <circle cx="3" cy="8" r="1.5" />
-          <circle cx="8" cy="8" r="1.5" />
-          <circle cx="13" cy="8" r="1.5" />
-        </svg>
+        {children}
+        <span className="runtime-menu__chevron" aria-hidden="true">
+          <ChevronDownIcon size={12} />
+        </span>
       </button>
       {open &&
         createPortal(
@@ -133,6 +145,11 @@ export function RuntimeActionMenu({
                   item.onSelect();
                 }}
               >
+                {item.icon && (
+                  <span className="runtime-menu__icon" aria-hidden="true">
+                    {item.icon}
+                  </span>
+                )}
                 {item.label}
               </button>
             ))}

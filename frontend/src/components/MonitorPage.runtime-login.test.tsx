@@ -98,54 +98,93 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+const pill = (name: string) => screen.getByRole("button", { name });
+const noPill = (runtime: "Claude" | "Codex") =>
+  expect(
+    screen.queryAllByRole("button").filter((b) => (b.getAttribute("aria-label") ?? "").startsWith(runtime))
+  ).toEqual([]);
+
 describe("MonitorPage runtime action menu", () => {
-  it("under installed Claude and Codex, each cell carries its own ⋯ menu with 登入", async () => {
+  it("under installed Claude and Codex, each version is its own menu trigger named after the runtime, holding its chips, with only 登入", async () => {
     await mount({ claude: installed(false), codex: installed(true) });
-    const claudeCell = screen.getByTestId("mon-claude-version");
-    expect(claudeCell.textContent).toBe("2.1.300未登入");
-    fireEvent.click(screen.getByTestId("mon-claude-menu"));
+    const claude = pill("Claude 2.1.300 操作");
+    expect(claude.getAttribute("aria-haspopup")).toBe("menu");
+    expect(claude.textContent).toBe("2.1.300未登入");
+    expect(claude.contains(screen.getByTestId("mon-claude-logged-out"))).toBe(true);
+    expect(screen.getByTestId("mon-claude-version").textContent).toBe("2.1.300未登入");
+    fireEvent.click(claude);
+    expect(claude.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getAllByRole("menuitem").map((el) => el.textContent)).toEqual(["登入"]);
     fireEvent.keyDown(window, { key: "Escape" });
-    expect(screen.getByTestId("mon-codex-version").textContent).toBe("2.1.300");
-    fireEvent.click(screen.getByTestId("mon-codex-menu"));
+    expect(claude.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(claude);
+
+    const codex = pill("Codex 2.1.300 操作");
+    expect(codex.textContent).toBe("2.1.300");
+    fireEvent.keyDown(codex, { key: "ArrowDown" });
+    expect(codex.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getAllByRole("menuitem").map((el) => el.textContent)).toEqual(["登入"]);
+    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "登入" }));
+  });
+
+  it("under a stale report, the stale marker rides inside the trigger", async () => {
+    listMachines.mockResolvedValue([row(null)]);
+    getMonitoring.mockResolvedValue({
+      accounts: [],
+      sessions: [],
+      machines: [{ ...card({ claude: installed(true), codex: installed(null) }), runtimeCapabilitiesStale: true }],
+    });
+    render(
+      <I18nProvider>
+        <MonitorPage />
+      </I18nProvider>
+    );
+    await screen.findByTestId("mon-codex-version");
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(pill("Codex 2.1.300 操作").contains(screen.getByTestId("mon-codex-stale"))).toBe(true);
   });
 
   it("under 登入 in the Codex column, the Codex sign-in dialog opens for that machine", async () => {
     await mount({ claude: installed(true), codex: installed(false) });
-    fireEvent.click(screen.getByTestId("mon-codex-menu"));
-    fireEvent.click(screen.getByTestId("mon-codex-menu-login"));
+    fireEvent.click(pill("Codex 2.1.300 操作"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "登入" }));
     expect(startRuntimeLogin).toHaveBeenCalledWith("m-box", "codex");
     expect(screen.getByRole("dialog").getAttribute("aria-label")).toBe("登入 Codex");
     expect(screen.queryByTestId("runtime-login-replace-hint")).toBeNull();
   });
 
-  it("under a Codex reported not installed, its cell has no menu while Claude's has one", async () => {
+  it("under a Codex reported not installed, its cell is plain text while Claude's is a trigger", async () => {
     await mount({ claude: installed(true), codex: { installed: false, loggedIn: null, version: null } });
-    expect(screen.getByTestId("mon-claude-menu")).toBeTruthy();
-    expect(screen.queryByTestId("mon-codex-menu")).toBeNull();
+    expect(pill("Claude 2.1.300 操作")).toBeTruthy();
+    noPill("Codex");
+    expect(screen.getByTestId("mon-codex-version").textContent).toBe("未安裝");
   });
 
   it("under 登入, the sign-in dialog opens for that machine", async () => {
     await mount({ claude: installed(true), codex: installed(true) });
-    fireEvent.click(screen.getByTestId("mon-claude-menu"));
-    fireEvent.click(screen.getByTestId("mon-claude-menu-login"));
+    fireEvent.click(pill("Claude 2.1.300 操作"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "登入" }));
     expect(startRuntimeLogin).toHaveBeenCalledWith("m-box", "claude");
     expect(screen.getByTestId("runtime-login-preparing").textContent).toBe("正在請 工作站 準備登入…");
     expect(screen.getByTestId("runtime-login-replace-hint")).toBeTruthy();
   });
 
-  it("under a Claude reported not installed, there is no menu", async () => {
+  it("under a Claude reported not installed, its cell is plain text", async () => {
     await mount({ claude: { installed: false, loggedIn: null, version: null }, codex: installed(true) });
     expect(screen.getByTestId("mon-claude-version").textContent).toBe("未安裝");
-    expect(screen.queryByTestId("mon-claude-menu")).toBeNull();
+    noPill("Claude");
+    expect(pill("Codex 2.1.300 操作")).toBeTruthy();
   });
 
-  it("under no capability report but a registry version, the menu is offered; with neither, it is not", async () => {
+  it("under no capability report but a registry version, the trigger is offered; with neither, it is not", async () => {
     await mount(null, "2.1.200");
-    expect(screen.getByTestId("mon-claude-menu")).toBeTruthy();
+    expect(pill("Claude 2.1.200 操作").textContent).toBe("2.1.200");
+    noPill("Codex");
     cleanup();
     await mount(null, null);
-    expect(screen.queryByTestId("mon-claude-menu")).toBeNull();
+    noPill("Claude");
+    noPill("Codex");
   });
 });

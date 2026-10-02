@@ -1,33 +1,59 @@
-/* The "⋯" runtime action menu on a machine row and the runtime sign-in dialog. */
+/* A runtime's version pill on a machine row (the trigger of its action menu)
+ * and the runtime sign-in dialog. */
 .runtime-menu {
-  position: relative;
   display: inline-flex;
   vertical-align: middle;
-  margin-left: 6px;
 }
+/* Quiet at rest so the column still reads as plain version text; the negative
+ * margin keeps the text aligned with the column header while the padding only
+ * shows once the border does. */
 .runtime-menu__trigger {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
+  gap: 6px;
+  min-height: 24px;
+  margin-left: -8px;
+  padding: 0 6px 0 8px;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: 7px;
   background: transparent;
-  color: var(--color-text-muted);
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
   cursor: pointer;
 }
+.runtime-menu__trigger .mon-stale {
+  margin-left: 0;
+}
 .runtime-menu__trigger:hover,
+.runtime-menu__trigger:focus-visible,
 .runtime-menu__trigger[aria-expanded="true"] {
-  border-color: color-mix(in srgb, var(--color-overlay) 10%, transparent);
+  border-color: color-mix(in srgb, var(--color-overlay) 14%, transparent);
+  background: color-mix(in srgb, var(--color-overlay) 5%, transparent);
+}
+.runtime-menu__trigger:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+.runtime-menu__chevron {
+  display: inline-flex;
+  color: var(--color-text-muted);
+  transition: transform 0.15s ease;
+}
+.runtime-menu__trigger[aria-expanded="true"] .runtime-menu__chevron {
   color: var(--color-text);
+  transform: rotate(180deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .runtime-menu__chevron {
+    transition: none;
+  }
 }
 /* Portalled to <body> and placed by RuntimeActionMenu from the trigger's rect. */
 .runtime-menu__pop {
   position: fixed;
   z-index: 50;
-  min-width: 120px;
+  min-width: 150px;
   padding: 6px;
   border-radius: 12px;
   border: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
@@ -38,7 +64,10 @@
   gap: 2px;
 }
 .runtime-menu__item {
-  padding: 7px 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
   border: none;
   border-radius: 8px;
   background: transparent;
@@ -47,6 +76,11 @@
   text-align: left;
   white-space: nowrap;
   cursor: pointer;
+}
+.runtime-menu__icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--color-text-muted);
 }
 .runtime-menu__item:focus-visible {
   outline: 2px solid var(--color-accent);
