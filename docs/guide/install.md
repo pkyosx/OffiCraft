@@ -37,8 +37,11 @@
 
 > [!IMPORTANT]
 > **`claude` 建議新到內建 Monitor tool（2.1.98 起）。** 成員用 **Monitor** 這個內建工具等待長時間的背景工作。
-> 到 server 的 SSE 長連線**不經過它**——那條連線由 warden 在成員旁邊另外起的程序持住（**持著連線＝online**，見
-> [架構與運作原理](architecture.md)），所以 `claude` 太舊不會讓成員亮不起來。升級：`npm install -g @anthropic-ai/claude-code`。
+> 到 server 的 SSE 長連線**不經過它**——那條連線由另一個 `ocagent listen` 程序持住（**持著連線＝online**，見
+> [架構與運作原理](architecture.md)），所以 `claude` 太舊不會讓成員亮不起來。
+> 平常那個程序由 OffiCraft 通知模組在成員的 Claude Code 裡當子程序起起來；`claude` 比通知模組需要的最低版本舊時，
+> warden 改在成員旁邊另起一個 `listen-<成員 id>` tmux session、把通知貼進成員的視窗——這條路在有人
+> 把成員畫面切到子代理時會漏通知（見 [疑難排解](troubleshooting.md)）。升級：`npm install -g @anthropic-ai/claude-code`。
 >
 > 注意：**安裝器擋「沒裝」，但不擋「太舊」**——它確認 `tmux` 與（claude／codex 至少一種）解析得到（缺就停），但**不比對版本號**。所以「2.1.98 以上」是**你要自己確保**的建議，不是安裝當下會替你把關的東西；裝了太舊的 `claude`，安裝照樣過、成員也亮得起來，只是成員用不到 Monitor 這個等待工具。
 
