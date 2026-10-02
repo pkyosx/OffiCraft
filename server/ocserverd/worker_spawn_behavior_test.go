@@ -218,7 +218,7 @@ func TestBuildWorkerBootContext_RuntimeGuidanceIsTheSeedsOwnAndItIsLast(t *testi
 // putWardenFixture registers one more active warden (= machine) on the roster.
 func putWardenFixture(t *testing.T, s *apiServer, id string) {
 	t.Helper()
-	if err := s.dal.PutMember(Member{
+	if err := s.dal.putMemberWholeRowForTest(Member{
 		ID: id, Name: id + " box", Kind: KindWarden, Effort: "medium",
 		DesiredState: DesiredStateOffline, RosterStatus: RosterStatusActive,
 	}); err != nil {
@@ -1855,7 +1855,7 @@ func TestReclaimWorkerSession_RecordedTarget(t *testing.T) {
 
 func TestReclaimWorkerSession_NoTargetBroadcastsToOnlineWardens(t *testing.T) {
 	s := newWorkerTestServer(t)
-	if err := s.dal.PutMember(Member{
+	if err := s.dal.putMemberWholeRowForTest(Member{
 		ID: "m-other", Name: "other box", Kind: KindWarden, Effort: "medium",
 		DesiredState: DesiredStateOffline, RosterStatus: RosterStatusActive,
 	}); err != nil {

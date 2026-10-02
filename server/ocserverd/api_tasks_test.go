@@ -1230,7 +1230,7 @@ func TestCallerMayDriveTask(t *testing.T) {
 
 	t.Run("under the reassign hold the predecessor drives the task and the successor does not", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
-		if err := d.PutMember(Member{ID: "rex", Name: "Rex", Kind: KindStaff, RoleKey: "engineer", RosterStatus: RosterStatusActive}); err != nil {
+		if err := d.putMemberWholeRowForTest(Member{ID: "rex", Name: "Rex", Kind: KindStaff, RoleKey: "engineer", RosterStatus: RosterStatusActive}); err != nil {
 			t.Fatalf("PutMember: %v", err)
 		}
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
@@ -1332,7 +1332,7 @@ func TestCallerMayEditTaskText(t *testing.T) {
 
 	t.Run("the creator is refused while a predecessor holds a task reassigned to an unbound slot", func(t *testing.T) {
 		api, h, d, _ := newAPITestServer(t)
-		if err := d.PutMember(Member{ID: "rex", Name: "Rex", Kind: KindStaff, RoleKey: "engineer", RosterStatus: RosterStatusActive}); err != nil {
+		if err := d.putMemberWholeRowForTest(Member{ID: "rex", Name: "Rex", Kind: KindStaff, RoleKey: "engineer", RosterStatus: RosterStatusActive}); err != nil {
 			t.Fatalf("PutMember: %v", err)
 		}
 		agent := apiTestAgentToken(t, api, "kip", "")
@@ -1359,7 +1359,7 @@ func TestCallerMayEditTaskText(t *testing.T) {
 				t.Fatal("the predecessor must be admitted")
 			}
 		})
-		if err := d.PutMember(Member{ID: "rex", Name: "Rex", Kind: KindStaff, RoleKey: "engineer", RosterStatus: RosterStatusRemoved}); err != nil {
+		if err := d.putMemberWholeRowForTest(Member{ID: "rex", Name: "Rex", Kind: KindStaff, RoleKey: "engineer", RosterStatus: RosterStatusRemoved}); err != nil {
 			t.Fatalf("PutMember: %v", err)
 		}
 		taskTestUnderCaller(t, api, d, agent, func(r *http.Request) {
@@ -4894,7 +4894,7 @@ func TestExecutorLabel(t *testing.T) {
 
 	t.Run("a member with no display name falls back to its own id", func(t *testing.T) {
 		api, _, d, _ := newAPITestServer(t)
-		if err := d.PutMember(Member{
+		if err := d.putMemberWholeRowForTest(Member{
 			ID: "rex", Kind: KindStaff, RoleKey: "engineer", RosterStatus: RosterStatusActive,
 		}); err != nil {
 			t.Fatalf("PutMember: %v", err)
@@ -8325,7 +8325,7 @@ func TestHandleForceTaskDoneApiTasksTaskIdForceDonePost(t *testing.T) {
 
 	t.Run("the admin assistant may force, and a plain agent and the executor may not", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
-		if err := d.PutMember(Member{
+		if err := d.putMemberWholeRowForTest(Member{
 			ID: "mira", Name: "Mira", Kind: KindStaff, RoleKey: adminRoleKey,
 			RosterStatus: RosterStatusActive,
 		}); err != nil {

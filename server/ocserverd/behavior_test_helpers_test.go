@@ -29,7 +29,7 @@ func resumeCtxServer(t *testing.T) *apiServer {
 		"m-loud":  "大聲",
 		"m-quiet": "安靜",
 	} {
-		if err := api.dal.PutMember(Member{
+		if err := api.dal.putMemberWholeRowForTest(Member{
 			ID: id, Name: name, Kind: "staff", RosterStatus: RosterStatusActive,
 		}); err != nil {
 			t.Fatalf("seed member %s: %v", id, err)
@@ -394,7 +394,7 @@ func putOutsourceManual(t *testing.T, api *apiServer, typeKey, model string, cop
 func createOutsourceTask(t *testing.T, api *apiServer, typeKey, title string) taskDTO {
 	t.Helper()
 	if m, _ := api.dal.GetMember("m-front"); m == nil {
-		if err := api.dal.PutMember(Member{
+		if err := api.dal.putMemberWholeRowForTest(Member{
 			ID: "m-front", Name: "小前", Kind: "staff", RoleKey: adminRoleKey,
 			RosterStatus: RosterStatusActive,
 		}); err != nil {
@@ -729,7 +729,7 @@ func testAgent(id string) Member {
 
 func putTestMember(t *testing.T, s *apiServer, m Member) {
 	t.Helper()
-	if err := s.dal.PutMember(m); err != nil {
+	if err := s.dal.putMemberWholeRowForTest(m); err != nil {
 		t.Fatalf("put member %s: %v", m.ID, err)
 	}
 	if err := s.dal.SetMemberWindDownAnchors(m.ID, m.StoppingSince, m.StoppedSince,
@@ -769,7 +769,7 @@ func connectOnline(t *testing.T, s *apiServer, memberID string) *hubListener {
 // seed shape; it does not restore any ticket-named test file.
 func putActiveMember(t *testing.T, api *apiServer, id, name, kind string) {
 	t.Helper()
-	if err := api.dal.PutMember(Member{
+	if err := api.dal.putMemberWholeRowForTest(Member{
 		ID: id, Name: name, Kind: kind, Effort: "medium",
 		RosterStatus: RosterStatusActive,
 	}); err != nil {

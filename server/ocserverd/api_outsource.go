@@ -147,13 +147,7 @@ func (s *apiServer) relocateWorkerByID(w http.ResponseWriter, r *http.Request, i
 			return err
 		}
 		worker.DesiredMachineID = machineID
-		// PutOutsourceWorker is PutMember, whose SET list no longer carries
-		// desired_machine_id: without this sole-writer call the relocate would answer
-		// 200 and move nothing.
-		if err := setMemberDesiredMachineIDOn(tx, worker.ID, machineID); err != nil {
-			return err
-		}
-		return putMemberOn(tx, memberFromWorker(*worker))
+		return setMemberDesiredMachineIDOn(tx, worker.ID, machineID)
 	})
 	if err != nil {
 		unlockMu()
@@ -194,11 +188,12 @@ func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost
 		if worker, err = resolveLiveWorkerOn(tx, id); err != nil {
 			return err
 		}
+		before := *worker
 		queued = false
 		switch applyRefocusVerb(ownerOpRowOfWorker(worker), memberFromWorker(*worker), online, nowSecs()) {
 		case refocusQueuedBehindStop:
 			queued = true
-			return persistWorkerRestartIntentOn(tx, *worker)
+			return persistWorkerRestartIntentOn(tx, before, *worker)
 		case refocusRefusedNeverStopped:
 			return refuseInTx(http.StatusConflict,
 				"refocus requires a live worker — this one is stopped and has never "+
@@ -210,7 +205,7 @@ func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost
 		case refocusRefusedLadder:
 			return refuseInTx(http.StatusConflict, refocusLadderRefusalMsg("worker"))
 		}
-		return persistWorkerRowOn(tx, *worker)
+		return persistWorkerRowOn(tx, before, *worker)
 	})
 	if err != nil {
 		unlockMu()
@@ -251,6 +246,7 @@ func (s *apiServer) HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcc
 		if worker, err = resolveLiveWorkerOn(tx, id); err != nil {
 			return err
 		}
+		before := *worker
 		if !online {
 			return refuseInTx(http.StatusConflict, acceleratedStopNeedsALiveSessionMsg)
 		}
@@ -262,7 +258,7 @@ func (s *apiServer) HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcc
 		worker.RefocusSince = proj.RefocusSince
 		worker.RefocusOp = proj.RefocusOp
 		worker.RestartAfterStop = proj.RestartAfterStop
-		return persistWorkerRowOn(tx, *worker)
+		return persistWorkerRowOn(tx, before, *worker)
 	})
 	if err != nil {
 		unlockMu()
@@ -304,11 +300,12 @@ func (s *apiServer) HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(w htt
 		if worker, err = resolveLiveWorkerOn(tx, id); err != nil {
 			return err
 		}
+		before := *worker
 		// The row writes are applyStopVerbRow's (shared with the staff deactivate).
 		// memberFromWorker only supplies the PRE-stop anchors; the result lands on the
 		// WORKER row through stopVerbRowOfWorker's pointers, not on the projection.
 		applyStopVerbRow(stopVerbRowOfWorker(worker), memberFromWorker(*worker), nowSecs())
-		return persistWorkerRowOn(tx, *worker)
+		return persistWorkerRowOn(tx, before, *worker)
 	})
 	if err != nil {
 		unlockMu()
@@ -343,6 +340,7 @@ func (s *apiServer) HandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStop
 		if worker, err = resolveLiveWorkerOn(tx, id); err != nil {
 			return err
 		}
+		before := *worker
 		worker.DesiredState = DesiredStateOffline
 		worker.RefocusSince = 0.0
 		worker.RefocusOp = ""
@@ -352,7 +350,7 @@ func (s *apiServer) HandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStop
 		if worker.StoppingSince <= 0.0 || worker.StoppingSince > forcedAt {
 			worker.StoppingSince = forcedAt
 		}
-		return persistWorkerRowOn(tx, *worker)
+		return persistWorkerRowOn(tx, before, *worker)
 	})
 	if err != nil {
 		unlockMu()
@@ -396,6 +394,7 @@ func (s *apiServer) handleRestartOutsourceWorker(w http.ResponseWriter, r *http.
 		if worker, err = resolveLiveWorkerOn(tx, id); err != nil {
 			return err
 		}
+		before := *worker
 		if body.MachineId != nil && *body.MachineId != "" {
 			if _, err := resolveMachineOn(tx, *body.MachineId); err != nil {
 				return machineResolveRefusal(err, *body.MachineId)
@@ -438,9 +437,7 @@ func (s *apiServer) handleRestartOutsourceWorker(w http.ResponseWriter, r *http.
 		// 後蓋前: this handler spends the queued 起來 right now; leaving it armed
 		// would fire a SECOND start after the next 下線.
 		clearWorkerRestartIntent(worker)
-		// Which columns the row write no longer carries lives only in
-		// singleColumnOwnedFields.
-		if err := persistWorkerRowOn(tx, *worker); err != nil {
+		if err := persistWorkerRowOn(tx, before, *worker); err != nil {
 			return err
 		}
 		// BEFORE the respawn: respawnWorkerForOwnerOp writes receipts of its own
@@ -500,8 +497,7 @@ func (s *apiServer) handleSetOutsourceWorkerModel(w http.ResponseWriter, r *http
 	var worker *OutsourceWorker
 	launchIntentChanged, respawn := false, false
 	var wantModel, wantRuntime, wantEffort string
-	// Each intent lands through its sole writer (PutOutsourceWorker no longer
-	// carries them).
+	// Each intent lands through its sole writer (they are insert-only).
 	setIntents := func(tx *writeTx) error {
 		if body.Model != nil {
 			if err := setMemberModelOn(tx, id, wantModel); err != nil {
@@ -527,13 +523,11 @@ func (s *apiServer) handleSetOutsourceWorkerModel(w http.ResponseWriter, r *http
 		if worker, err = resolveLiveWorkerOn(tx, id); err != nil {
 			return err
 		}
+		before := *worker
 		if launchIntentChanged, err = applyWorkerLaunchIntent(worker, body); err != nil {
 			return err
 		}
 		wantModel, wantRuntime, wantEffort = worker.Model, NormalizeRuntime(worker.Runtime), worker.Effort
-		if err := putMemberOn(tx, memberFromWorker(*worker)); err != nil {
-			return err
-		}
 		// Whether the owner wants it running is NOT re-asked here —
 		// respawnWorkerForOwnerOp owns that branch for all three owner verbs.
 		respawn = launchIntentChanged && online
@@ -542,7 +536,7 @@ func (s *apiServer) handleSetOutsourceWorkerModel(w http.ResponseWriter, r *http
 			// queued restart is stamped here; 改機器 has no such gate. Owner
 			// 2026-08-30: 「change model / machine 只是帶起來的方式不一樣而已」.
 			if s.queueWorkerRestartAfterStop(worker, ownerOpRuntimeModel, nowSecs()) {
-				if err := persistWorkerRestartIntentOn(tx, *worker); err != nil {
+				if err := persistWorkerRestartIntentOn(tx, before, *worker); err != nil {
 					return err
 				}
 			}

@@ -221,9 +221,8 @@ func winddownKindFor(op string) (kind string, clocked bool) {
 	return offboardKindSoft, false
 }
 
-// armRefocusEpoch mutates m and persists nothing. The epoch does NOT ride the
-// caller's putMember: T-55 moved its four columns out of the whole-row write
-// (see singleColumnOwnedFields); they land through setMemberWindDownAnchorsOn.
+// armRefocusEpoch mutates m and persists nothing. Its four columns are
+// insert-only; they land through setMemberWindDownAnchorsOn.
 //
 // 🔴 A NEW epoch must never inherit the previous wind-down's stopped_since:
 // decideUp's recycle arm reads stopped_since > 0 with a refocus marker present as
@@ -390,6 +389,7 @@ func (s *apiServer) consumeRestartAfterStop(m *Member, now float64) bool {
 			cur.DesiredState != DesiredStateOffline {
 			return nil
 		}
+		before := *cur
 		cur.RestartAfterStop = false
 		cur.DesiredState = DesiredStateOnline
 		clearWindDownRow(windDownAnchorRowOfMember(cur))
@@ -397,7 +397,7 @@ func (s *apiServer) consumeRestartAfterStop(m *Member, now float64) bool {
 		stampMemberOpReceipt(cur, spawnReasonHeldDown+": the stop the owner asked for has "+
 			"landed — starting this member again, which is what the 重新聚焦 or 更改 "+
 			"pressed during the wind-down asked for", now)
-		if err := persistMemberRowOn(tx, *cur); err != nil {
+		if err := persistMemberRowOn(tx, before, *cur); err != nil {
 			return err
 		}
 		if err := persistMemberOpReceiptOn(tx, *cur); err != nil {
@@ -443,11 +443,12 @@ func (s *apiServer) queueWorkerRestartAfterStopOnRow(id, op string, now float64)
 			return err
 		}
 		fresh = cur
+		before := *cur
 		if !s.queueWorkerRestartAfterStop(cur, op, now) {
 			return nil
 		}
 		queued = true
-		return persistWorkerRestartIntentOn(tx, *cur)
+		return persistWorkerRestartIntentOn(tx, before, *cur)
 	})
 	if err != nil {
 		return nil, false, err
@@ -455,14 +456,14 @@ func (s *apiServer) queueWorkerRestartAfterStopOnRow(id, op string, now float64)
 	return fresh, queued, nil
 }
 
-// Two writers in one transaction: the flag rides the whole-row write; the five
-// last_op* columns land only through SetMemberLastOp.
-func persistWorkerRestartIntentOn(tx *writeTx, w OutsourceWorker) error {
-	if err := putMemberOn(tx, memberFromWorker(w)); err != nil {
+// Two writers in one transaction: the flag rides the changed-columns write; the
+// five last_op* columns land only through SetMemberLastOp.
+func persistWorkerRestartIntentOn(tx *writeTx, before, after OutsourceWorker) error {
+	if err := writeMemberChangesOn(tx, memberFromWorker(before), memberFromWorker(after)); err != nil {
 		return err
 	}
-	return setMemberLastOpOn(tx, w.ID, w.LastOp, w.LastOpOK, w.LastOpLog,
-		w.LastOpReason, w.LastOpAt)
+	return setMemberLastOpOn(tx, after.ID, after.LastOp, after.LastOpOK, after.LastOpLog,
+		after.LastOpReason, after.LastOpAt)
 }
 
 func clearWorkerRestartIntent(w *OutsourceWorker) {
@@ -498,6 +499,7 @@ func (s *apiServer) consumeWorkerRestartAfterStop(w *OutsourceWorker, now float6
 			cur.DesiredState != DesiredStateOffline {
 			return nil
 		}
+		before := *cur
 		cur.RestartAfterStop = false
 		cur.DesiredState = DesiredStateOnline
 		clearWindDownRow(windDownAnchorRowOfWorker(cur))
@@ -506,11 +508,7 @@ func (s *apiServer) consumeWorkerRestartAfterStop(w *OutsourceWorker, now float6
 			reconcileCmdStart, spawnReasonHeldDown+": the stop the owner asked for has "+
 				"landed — starting this worker again, which is what the 重新聚焦 or 更改 "+
 				"pressed during the wind-down asked for", now)
-		if err := setMemberWindDownAnchorsOn(tx, cur.ID, cur.StoppingSince, cur.StoppedSince,
-			cur.RefocusSince, cur.RefocusOp); err != nil {
-			return err
-		}
-		if err := putMemberOn(tx, memberFromWorker(*cur)); err != nil {
+		if err := persistWorkerRowOn(tx, before, *cur); err != nil {
 			return err
 		}
 		if err := setMemberLastOpOn(tx, cur.ID, cur.LastOp, cur.LastOpOK, cur.LastOpLog,

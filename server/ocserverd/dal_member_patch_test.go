@@ -89,7 +89,7 @@ func TestMfCodename(t *testing.T) {
 
 		clash := dalTestMember("ow-2", "Rook")
 		clash.Codename = "O-7"
-		err := d.PutMember(clash)
+		err := d.putMemberWholeRowForTest(clash)
 		if err == nil {
 			t.Fatalf("a second row under the same codename: want a refusal, got nil")
 		}
@@ -393,20 +393,20 @@ func TestPatchMemberOn(t *testing.T) {
 	})
 }
 
-func TestInsertMemberRowIfAbsent(t *testing.T) {
+func TestInsertMemberRow(t *testing.T) {
 	t.Run("an absent id lands the whole row, insert-only columns included", func(t *testing.T) {
 		d := newAPITestDAL(t)
 		m := dalTestMember("ann", "Ann")
 		m.Codename = "O-7"
 		linked := "T-1"
 		m.LinkedTaskID = &linked
-		if err := insertMemberRowIfAbsent(d.wdb, memberWholeRow(m)); err != nil {
-			t.Fatalf("insertMemberRowIfAbsent: %v", err)
+		if err := insertMemberRow(d.wdb, memberWholeRow(m)); err != nil {
+			t.Fatalf("insertMemberRow: %v", err)
 		}
 		dalWantMember(t, d, m)
 	})
 
-	t.Run("an id that already exists is left exactly as it stands", func(t *testing.T) {
+	t.Run("an id that already exists is refused and left exactly as it stands", func(t *testing.T) {
 		d := newAPITestDAL(t)
 		stored := dalPutMember(t, d, dalTestMember("ann", "Ann"))
 		bob := dalPutMember(t, d, dalTestMember("bob", "Bob"))
@@ -415,13 +415,14 @@ func TestInsertMemberRowIfAbsent(t *testing.T) {
 		incoming.RoleKey = "auditor"
 		incoming.BankedCost = 0
 		incoming.RosterStatus = RosterStatusRemoved
-		if err := insertMemberRowIfAbsent(d.wdb, memberWholeRow(incoming)); err != nil {
-			t.Fatalf("insertMemberRowIfAbsent onto an existing id: %v", err)
+		err := insertMemberRow(d.wdb, memberWholeRow(incoming))
+		if err == nil || !strings.Contains(err.Error(), "UNIQUE constraint failed: member.id") {
+			t.Fatalf("insertMemberRow onto an existing id: want the UNIQUE refusal, got %v", err)
 		}
 		dalWantMember(t, d, stored)
 		dalWantMember(t, d, bob)
 		if got := dalMemberIDs(t, d); !reflect.DeepEqual(got, []string{"ann", "bob"}) {
-			t.Fatalf("the roster after the no-op insert: want [ann bob], got %v", got)
+			t.Fatalf("the roster after the refused insert: want [ann bob], got %v", got)
 		}
 	})
 }
@@ -535,4 +536,83 @@ func dalSplitColumns(list string) []string {
 		}
 	}
 	return out
+}
+
+func changedCols(before, after Member) []string {
+	var cols []string
+	for _, f := range changedMemberFields(before, after) {
+		cols = append(cols, f.col)
+	}
+	sort.Strings(cols)
+	return cols
+}
+
+func TestChangedMemberFields(t *testing.T) {
+	base := Member{ID: "ann", Name: "Ann", Kind: KindStaff, DesiredState: DesiredStateOnline,
+		RosterStatus: RosterStatusActive}
+
+	t.Run("an untouched copy changes nothing", func(t *testing.T) {
+		if got := changedCols(base, base); len(got) != 0 {
+			t.Fatalf("want no columns, got %v", got)
+		}
+	})
+
+	t.Run("only the moved column is written", func(t *testing.T) {
+		after := base
+		after.LastMachineID = "m-1"
+		apiWantValue(t, "columns", any(changedCols(base, after)), any([]string{"last_machine_id"}))
+	})
+
+	t.Run("a stop that also clears the queued restart writes both in one statement", func(t *testing.T) {
+		before := base
+		before.RestartAfterStop = true
+		after := before
+		after.DesiredState = DesiredStateOffline
+		after.RestartAfterStop = false
+		apiWantValue(t, "columns", any(changedCols(before, after)),
+			any([]string{"desired_state", "restart_after_stop"}))
+	})
+
+	t.Run("two pointers to the same task id are no change: values are compared, not pointers", func(t *testing.T) {
+		x, y := "T-1", "T-1"
+		before, after := base, base
+		before.LinkedTaskID, after.LinkedTaskID = &x, &y
+		if got := changedCols(before, after); len(got) != 0 {
+			t.Fatalf("want no columns, got %v", got)
+		}
+	})
+
+	t.Run("an insert-only column is never derived from the diff", func(t *testing.T) {
+		after := base
+		after.Model = "other"
+		after.BankedCost = 9
+		after.StoppedSince = 5
+		if got := changedCols(base, after); len(got) != 0 {
+			t.Fatalf("want no columns, got %v", got)
+		}
+	})
+}
+
+func TestStaleCopyThroughTheChangesDoorLeavesOtherColumnsAlone(t *testing.T) {
+	d := newTestDAL(t)
+	row := Member{ID: "ann", Name: "Ann", Kind: KindStaff, RoleKey: "dev", DesiredState: DesiredStateOnline,
+		RosterStatus: RosterStatusActive}
+	if err := d.CreateMember(row); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	stale := row
+	if err := d.PatchMember("ann", mfRosterStatus(RosterStatusRemoved)); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	after := stale
+	after.LastMachineID = "m-1"
+	if err := d.inTx(func(tx *writeTx) error { return writeMemberChangesOn(tx, stale, after) }); err != nil {
+		t.Fatalf("write changes: %v", err)
+	}
+	got, err := d.GetMember("ann")
+	if err != nil || got == nil {
+		t.Fatalf("read back: %+v %v", got, err)
+	}
+	apiWantValue(t, "roster_status", any(got.RosterStatus), any(RosterStatusRemoved))
+	apiWantValue(t, "last_machine_id", any(got.LastMachineID), any("m-1"))
 }

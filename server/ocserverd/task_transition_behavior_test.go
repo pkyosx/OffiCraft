@@ -236,7 +236,7 @@ func newHandoverFixture(t *testing.T) handoverFixture {
 	t.Helper()
 	api, h, d, owner := newAPITestServer(t)
 	for _, id := range []string{"rex", "zed"} {
-		if err := d.PutMember(Member{
+		if err := d.putMemberWholeRowForTest(Member{
 			ID: id, Name: id, Kind: KindStaff, RoleKey: "engineer",
 			RosterStatus: RosterStatusActive,
 		}); err != nil {

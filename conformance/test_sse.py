@@ -466,7 +466,7 @@ def test_every_closed_topic_emits(
     # trigger ran. This test's setup writes to the roster (``fresh_member()``,
     # ``hire_member(...)``) while ``owner_sse`` is ALREADY OPEN, so without this
     # barrier the first row (``member``) consumed one of those setup frames and
-    # its assertion was VACUOUSLY TRUE: deleting putMember's publish seam
+    # its assertion was VACUOUSLY TRUE: deleting the hire path's publish seam
     # outright (write straight to the store, HTTP still 200, wire silent)
     # left this row — and the whole suite — green. Reviewed and reproduced;
     # that is the exact failure this test exists to catch.
@@ -527,7 +527,7 @@ def test_every_closed_topic_emits(
             #
             # "a member frame arrived" was satisfiable by ANY member frame,
             # including one this test's own setup produced seconds earlier; that
-            # is how the row stayed green with putMember's publish seam bypassed
+            # is how the row stayed green with the hire path's publish seam bypassed
             # entirely.
             #
             # 🔴 CORRECTION (independent review round 2, MEASURED — the previous

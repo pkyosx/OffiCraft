@@ -356,7 +356,7 @@ func TestConsumeRestartAfterStop(t *testing.T) {
 		m.StoppingSince, m.StoppedSince = 20, 30
 		m.RefocusSince, m.RefocusOp = 10, memberOpRelocate
 		m.WakingSince = 40
-		if err := d.PutMember(m); err != nil {
+		if err := d.putMemberWholeRowForTest(m); err != nil {
 			t.Fatalf("PutMember: %v", err)
 		}
 		if err := d.SetMemberWindDownAnchors(m.ID, m.StoppingSince, m.StoppedSince,

@@ -1499,7 +1499,8 @@ var windowMemberDoors = []windowMemberDoor{
 		worker: true, live: true,
 		prepare: `UPDATE member SET desired_state = 'offline', stopping_since = 1700000000 WHERE id = 'ow-abc123'`},
 	{name: "worker refocus", method: "POST", path: "/api/members/ow-abc123/refocus", body: `{}`, worker: true, live: true},
-	{name: "worker restart", method: "POST", path: "/api/members/ow-abc123/activate", body: `{}`, worker: true},
+	{name: "worker restart", method: "POST", path: "/api/members/ow-abc123/activate", body: `{}`, worker: true,
+		prepare: `UPDATE member SET desired_state = 'offline', stopping_since = 1700000000 WHERE id = 'ow-abc123'`},
 	{name: "worker relocate", method: "POST", path: "/api/members/ow-abc123/relocate", body: `{"machine_id":"m-server-self"}`,
 		worker: true, prepare: `UPDATE member SET desired_machine_id = 'm-retired' WHERE id = 'ow-abc123'`},
 	{name: "worker model", method: "PATCH", path: "/api/members/ow-abc123", body: `{"model":"claude-opus-5"}`, worker: true},
@@ -1571,7 +1572,7 @@ func TestMemberLifecycleDoorsDecideFromTheRowTheyWrite(t *testing.T) {
 				d, _, _ := windowDAL(t, shape)
 				api, h, id, token := windowMemberDoorStack(t, d, door)
 				before := apiTestMemberRow(t, d, id)
-				apiTestFailWholeRowWrite(t, d, id)
+				apiTestFailMemberRowWrite(t, d, id)
 				dashboard := apiTestListen(t, api, "")
 
 				status, data := windowJSON(t, h, door.method, door.path, token, door.body)
@@ -1580,11 +1581,11 @@ func TestMemberLifecycleDoorsDecideFromTheRowTheyWrite(t *testing.T) {
 					t.Fatalf("want 500, got %d (%v)", status, data)
 				}
 				apiWantError(t, data, "internal_error",
-					"internal error: constraint failed: whole row unwritable (1811)")
+					"internal error: constraint failed: member row unwritable (1811)")
 				apiTestWantEqual(t, "the row after the failed write", apiTestMemberRow(t, d, id), before)
 				dashboard.wantFrames()
 
-				apiTestRestoreWholeRowWrite(t, d)
+				apiTestRestoreMemberRowWrite(t, d)
 				if status, data := windowJSON(t, h, door.method, door.path, token, door.body); status != http.StatusOK {
 					t.Fatalf("retry: want 200, got %d (%v)", status, data)
 				}

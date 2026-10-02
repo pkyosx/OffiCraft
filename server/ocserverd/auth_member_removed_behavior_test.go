@@ -228,3 +228,78 @@ func TestOnlyTheSSEHandshakeLeavesTheRosterRefusalToItsHandler(t *testing.T) {
 		t.Fatalf("routes leaving the roster refusal to the handler = %q, want [GET /api/events]", got)
 	}
 }
+
+// A write that edits a copy taken while the member was still on the roster lands
+// only what it edited, so the copy's roster_status cannot revive the member.
+func TestStaleCopyWriteAfterRemovalLeavesTheMemberRemoved(t *testing.T) {
+	t.Run("dismissed staff", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		api.loopback = h
+		if status, data := apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"Ship it","executor_member_id":"kip"}`); status != 200 {
+			t.Fatalf("create task: %d %v", status, data)
+		}
+		kip := apiTestAgentToken(t, api, "kip", "")
+		stale, err := d.GetMember("kip")
+		if err != nil || stale == nil || stale.RosterStatus != RosterStatusActive {
+			t.Fatalf("snapshot before dismissal: want an active row, got %+v (%v)", stale, err)
+		}
+
+		if status, data := apiJSON(t, h, "DELETE", "/api/members/kip", owner, ""); status != 200 {
+			t.Fatalf("dismiss: want 200, got %d (%v)", status, data)
+		}
+		edited := *stale
+		edited.Name = "Kip Renamed"
+		if err := d.inTx(func(tx *writeTx) error { return writeMemberOn(tx, *stale, edited) }); err != nil {
+			t.Fatalf("stale write: %v", err)
+		}
+
+		got, err := d.GetMember("kip")
+		if err != nil || got == nil || got.RosterStatus != RosterStatusRemoved || got.Name != "Kip Renamed" {
+			t.Fatalf("after the stale write: want roster_status %q with the edit landed, got %+v (%v)",
+				RosterStatusRemoved, got, err)
+		}
+		wantRemovedRefused(t, api, h, kip, "kip", "T-1")
+	})
+
+	t.Run("released outsource worker", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		api.loopback = h
+		api.noOutsource = true
+		putOutsourceManual(t, api, "review-pr", "claude-sonnet-4-5", 1)
+		if status, data := apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"review","type_key":"review-pr"}`); status != 200 {
+			t.Fatalf("create task: %d %v", status, data)
+		}
+		api.runOutsourceTick(1000.0)
+		task, err := d.GetTask("T-1")
+		if err != nil || task == nil || task.ExecutorKind != KindOutsource || task.ExecutorID == "" {
+			t.Fatalf("the tick must bind a worker to T-1, got %+v (%v)", task, err)
+		}
+		workerID := task.ExecutorID
+		worker := apiTestAgentToken(t, api, workerID, "")
+		if status, data := apiJSON(t, h, "POST", "/api/self/waking", worker, `{}`); status != 200 {
+			t.Fatalf("report waking: %d %v", status, data)
+		}
+		stale, err := d.GetMember(workerID)
+		if err != nil || stale == nil || stale.RosterStatus != RosterStatusActive {
+			t.Fatalf("snapshot before release: want an active row, got %+v (%v)", stale, err)
+		}
+
+		if released, err := d.ReleaseWorkerByID(workerID, 2000.0); err != nil || released == nil {
+			t.Fatalf("release: want the worker released, got %+v (%v)", released, err)
+		}
+		edited := *stale
+		edited.ActualModel = "claude-opus-5"
+		if err := d.inTx(func(tx *writeTx) error { return writeMemberOn(tx, *stale, edited) }); err != nil {
+			t.Fatalf("stale write: %v", err)
+		}
+
+		got, err := d.GetMember(workerID)
+		if err != nil || got == nil || got.RosterStatus != RosterStatusRemoved || got.ActualModel != "claude-opus-5" {
+			t.Fatalf("after the stale write: want roster_status %q with the edit landed, got %+v (%v)",
+				RosterStatusRemoved, got, err)
+		}
+		wantRemovedRefused(t, api, h, worker, workerID, "T-1")
+	})
+}

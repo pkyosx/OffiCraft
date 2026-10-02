@@ -10,7 +10,7 @@ func seedOutOfBox(d *DAL) error {
 		return err
 	}
 	if mira == nil {
-		if err := d.PutMember(Member{
+		if err := d.CreateMember(Member{
 			ID:               seedMiraID,
 			Name:             "Mira",
 			Kind:             KindStaff,
@@ -28,7 +28,7 @@ func seedOutOfBox(d *DAL) error {
 		return err
 	}
 	if self == nil {
-		if err := d.PutMember(Member{
+		if err := d.CreateMember(Member{
 			ID:               ServerSelfHost,
 			Name:             seedServerSelfDisplay,
 			Kind:             KindWarden,

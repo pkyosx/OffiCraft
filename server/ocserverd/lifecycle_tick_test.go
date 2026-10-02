@@ -39,7 +39,7 @@ func TestRunLifecycleTick(t *testing.T) {
 			t.Fatalf("GetMember(mira): %v (%+v)", err, mira)
 		}
 		mira.DesiredState = DesiredStateOnline
-		if err := d.PutMember(*mira); err != nil {
+		if err := d.putMemberWholeRowForTest(*mira); err != nil {
 			t.Fatalf("PutMember(mira): %v", err)
 		}
 		warden, err := api.hub.Connect(ServerSelfHost, ServerSelfHost)

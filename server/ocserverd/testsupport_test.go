@@ -87,7 +87,7 @@ func apiTestStackOn(t *testing.T, d *DAL, withSigningSecret bool) (*apiServer, h
 	if err := seedOutOfBox(d); err != nil {
 		t.Fatalf("seedOutOfBox: %v", err)
 	}
-	if err := d.PutMember(Member{
+	if err := d.putMemberWholeRowForTest(Member{
 		ID:           apiTestPlainAgentID,
 		Name:         "Kip",
 		Kind:         KindStaff,
@@ -173,7 +173,7 @@ func apiTestPrincipalToken(t *testing.T, api *apiServer, d *DAL, class principal
 	default:
 		t.Fatalf("apiTestPrincipalToken cannot seed %v", class)
 	}
-	if err := d.PutMember(member); err != nil {
+	if err := d.putMemberWholeRowForTest(member); err != nil {
 		t.Fatalf("PutMember(%q): %v", id, err)
 	}
 	if got := classifyMember(&member); got != class {

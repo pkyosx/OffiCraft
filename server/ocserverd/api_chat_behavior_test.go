@@ -662,7 +662,7 @@ func TestPostChatRecipientKinds(t *testing.T) {
 		{ID: "m-removed", Kind: KindStaff, RosterStatus: RosterStatusRemoved},
 		{ID: "ow-removed", Kind: KindOutsource, RosterStatus: RosterStatusRemoved},
 	} {
-		if err := s.dal.PutMember(m); err != nil {
+		if err := s.dal.putMemberWholeRowForTest(m); err != nil {
 			t.Fatalf("seed %s: %v", m.ID, err)
 		}
 	}

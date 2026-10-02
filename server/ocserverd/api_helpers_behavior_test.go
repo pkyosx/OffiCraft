@@ -81,7 +81,7 @@ func TestResolveMember_UnsetScopeRefuses(t *testing.T) {
 	}
 	// Same for a staff row: the refusal is about the CALLER not choosing, not
 	// about which row was asked for.
-	if err := api.dal.PutMember(fullMember("mira")); err != nil {
+	if err := api.dal.putMemberWholeRowForTest(fullMember("mira")); err != nil {
 		t.Fatalf("put member: %v", err)
 	}
 	if _, err := api.resolveMember("mira", never); !errors.Is(err, errScopeUnset) {
@@ -147,7 +147,7 @@ func TestStaffOnlyVerbsStillRefuseOutsource(t *testing.T) {
 
 func TestUpdateMember_RuntimeRoundTripsAndValidates(t *testing.T) {
 	api := newTasksTestServer(t)
-	if err := api.dal.PutMember(fullMember("mira")); err != nil {
+	if err := api.dal.putMemberWholeRowForTest(fullMember("mira")); err != nil {
 		t.Fatalf("put member: %v", err)
 	}
 	rec := httptest.NewRecorder()
@@ -194,7 +194,7 @@ func TestUpdateMember_RuntimeRoundTripsAndValidates(t *testing.T) {
 // direction, a gate that grows a level the door never advertises.
 func TestUpdateMember_EffortRoundTripsAndValidates(t *testing.T) {
 	api := newTasksTestServer(t)
-	if err := api.dal.PutMember(fullMember("mira")); err != nil {
+	if err := api.dal.putMemberWholeRowForTest(fullMember("mira")); err != nil {
 		t.Fatalf("put member: %v", err)
 	}
 	rec := httptest.NewRecorder()

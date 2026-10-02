@@ -66,7 +66,7 @@ func reconcileTestPut(t *testing.T, d *DAL, m Member) {
 	if m.RosterStatus == "" {
 		m.RosterStatus = RosterStatusActive
 	}
-	if err := d.PutMember(m); err != nil {
+	if err := d.putMemberWholeRowForTest(m); err != nil {
 		t.Fatalf("PutMember(%s): %v", m.ID, err)
 	}
 }

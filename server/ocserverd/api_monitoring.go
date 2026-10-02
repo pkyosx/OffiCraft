@@ -322,6 +322,7 @@ func (s *apiServer) foldCommandResult(commandResult map[string]any, trigger, rep
 		if err != nil || cur == nil {
 			return err
 		}
+		before := *cur
 		opLog := logText
 		if clue := supersededDispatchClue(*cur); clue != "" {
 			opLog = clue + "\n" + opLog
@@ -341,7 +342,7 @@ func (s *apiServer) foldCommandResult(commandResult map[string]any, trigger, rep
 		converged = cur.LastOp == "uninstall" && cur.LastOpOK != nil && *cur.LastOpOK
 		if converged {
 			cur.DesiredState = DesiredStateOffline
-			if err := writeMemberOn(tx, *cur); err != nil {
+			if err := writeMemberOn(tx, before, *cur); err != nil {
 				return err
 			}
 		}
@@ -735,14 +736,14 @@ func (s *apiServer) stampReportedLaunchFacts(agentID, model, runtime, effort, tr
 		s.outsourceMu.Lock()
 		defer s.outsourceMu.Unlock()
 	}
-	// Decided and written on the row as it stands in the transaction: the whole-row
-	// write would otherwise carry this read's copy of every other column back.
+	// Decided on the row as it stands in the transaction, not on the read above.
 	var stamped Member
 	err = s.dal.inTx(func(tx *writeTx) error {
 		cur, err := getMemberOn(tx, agentID)
 		if err != nil || cur == nil || cur.RosterStatus == RosterStatusRemoved {
 			return err
 		}
+		before := *cur
 		changed := false
 		for _, f := range []struct {
 			name     string
@@ -763,7 +764,7 @@ func (s *apiServer) stampReportedLaunchFacts(agentID, model, runtime, effort, tr
 			return nil
 		}
 		stamped = *cur
-		return writeMemberOn(tx, *cur)
+		return writeMemberOn(tx, before, *cur)
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr,

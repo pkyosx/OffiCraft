@@ -237,7 +237,7 @@ func TestACredentialTheGateRefusesRecordsNothing(t *testing.T) {
 		t.Fatalf("read m-gone: %v %v", gone, err)
 	}
 	gone.RosterStatus = RosterStatusRemoved
-	if err := dal.PutMember(*gone); err != nil {
+	if err := dal.putMemberWholeRowForTest(*gone); err != nil {
 		t.Fatalf("soft-delete m-gone: %v", err)
 	}
 	if st, _ := t80Get(t, srv.URL+"/api/members", revoked); st != http.StatusUnauthorized {

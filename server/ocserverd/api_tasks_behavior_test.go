@@ -867,7 +867,7 @@ func TestCreateTaskDedupesOnNonTerminalAndReopensPastTerminal(t *testing.T) {
 // admin_agent seed needs role_key="assistant"; a plain 正職 leaves it empty).
 func putMemberRow(t *testing.T, api *apiServer, id, kind, roleKey string) {
 	t.Helper()
-	if err := api.dal.PutMember(Member{
+	if err := api.dal.putMemberWholeRowForTest(Member{
 		ID: id, Name: id, Kind: kind, RoleKey: roleKey, Effort: "medium",
 		RosterStatus: RosterStatusActive,
 	}); err != nil {
@@ -1223,7 +1223,7 @@ func dispatchInheritanceServer(t *testing.T) *apiServer {
 	seedMachine(t, api, "m-manual-box")
 	seedMachine(t, api, "m-disp-box")
 	seedMachine(t, api, "m-explicit-box")
-	if err := api.dal.PutMember(Member{
+	if err := api.dal.putMemberWholeRowForTest(Member{
 		ID: "m-disp", Name: "Dispatcher", Kind: KindStaff,
 		Runtime: RuntimeCodex, Model: "gpt-5-codex", Effort: "low",
 		DesiredMachineID: "m-disp-box", RosterStatus: RosterStatusActive,
@@ -2878,7 +2878,7 @@ func TestSetTaskPriorityExecutorFreezesAndUnfreezesSymmetrically(t *testing.T) {
 // the way out (a stale name on a running task is its own lie).
 func TestSetTaskPriorityFrozenByNamesWhoFroze(t *testing.T) {
 	api := newTasksTestServer(t)
-	if err := api.dal.PutMember(Member{
+	if err := api.dal.putMemberWholeRowForTest(Member{
 		ID: "m-admin", Kind: KindStaff, RoleKey: adminRoleKey,
 	}); err != nil {
 		t.Fatalf("PutMember: %v", err)
@@ -2963,7 +2963,7 @@ func TestSetTaskPriorityForeignAgentIs403(t *testing.T) {
 // on a task it does not execute.
 func TestSetTaskPriorityAdminAgentMayRetuneAndFreeze(t *testing.T) {
 	api := newTasksTestServer(t)
-	if err := api.dal.PutMember(Member{
+	if err := api.dal.putMemberWholeRowForTest(Member{
 		ID: "m-admin", Kind: KindStaff, RoleKey: adminRoleKey,
 	}); err != nil {
 		t.Fatalf("PutMember: %v", err)

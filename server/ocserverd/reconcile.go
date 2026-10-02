@@ -830,8 +830,8 @@ func (s *apiServer) resolveEmptyRuntimeForPlacement(m *Member, warden string) {
 		reconcileLog("%s: runtime resolution persist failed: %v", m.ID, err)
 		return
 	}
-	// runtime left PutMember's DO UPDATE SET (T-55), so a whole-row write would persist nothing; the
-	// member delta is re-issued explicitly or the cockpit keeps showing the unresolved runtime.
+	// runtime is insert-only, so only its setter persists it; the member delta is re-issued
+	// explicitly or the cockpit keeps showing the unresolved runtime.
 	if resolvedRow != nil {
 		s.publishMemberPatch(*resolvedRow, triggerServer)
 	}
@@ -1071,9 +1071,9 @@ func (s *apiServer) armDecidedHandover(memberID string, decision reconcileDecisi
 // must not be routed through here; a clear back to nil is not a receipt either. RECEIPT-CORE-AUDIT
 // marks the exceptions within the refusal class.
 //
-// Stamping alone stores nothing: the five columns left PutMember's DO UPDATE SET (T-55), so every
-// stamp must be persisted via dal.SetMemberLastOp. It takes field pointers, not a shared embedded
-// struct, because scanMember/PutMember list these columns positionally.
+// Stamping alone stores nothing: the five columns are insert-only, so every stamp must be
+// persisted via dal.SetMemberLastOp. It takes field pointers, not a shared embedded struct,
+// because scanMember lists these columns positionally.
 func stampOpReceipt(lastOp *string, lastOpOK **bool, lastOpLog, lastOpReason *string,
 	lastOpAt *float64, op, reason string, now float64) {
 	writeOpReceipt(lastOp, lastOpOK, lastOpLog, lastOpReason, lastOpAt, false, op, reason, now)
@@ -1475,7 +1475,7 @@ func (s *apiServer) stampContextHighRecycle(members []Member, now float64) {
 		}
 		if promoting {
 			// No frame needed: offboardDeltaPayload composes the FINAL notice from refocus_op on every
-			// row write, so the putMember above already carried it.
+			// row write, so the anchor write above already carried it.
 			reconcileLog("recycle: promoted %s to %s (%s)", m.ID, refocusOpContextHigh,
 				NormalizeRuntime(m.Runtime))
 		} else {
@@ -1666,9 +1666,10 @@ func (s *apiServer) foldUninstallIntentOnRow(id string) (folded, fresh *Member, 
 		if cur.Kind != KindWarden || parseDesired(cur.DesiredState) != DesiredStateUninstall {
 			return nil
 		}
+		before := *cur
 		cur.DesiredState = DesiredStateOffline
 		folded = cur
-		return writeMemberOn(tx, *cur)
+		return writeMemberOn(tx, before, *cur)
 	})
 	if err != nil {
 		return nil, nil, err

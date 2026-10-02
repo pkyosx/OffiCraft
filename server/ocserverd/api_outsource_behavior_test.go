@@ -47,7 +47,7 @@ func TestListOutsourceWorkers_RuntimeFold(t *testing.T) {
 	// Seed that member so delegated_by resolves to a REAL name.
 	creator := fullMember("m-front")
 	creator.Name = "小前"
-	if err := api.dal.PutMember(creator); err != nil {
+	if err := api.dal.putMemberWholeRowForTest(creator); err != nil {
 		t.Fatalf("seed creator: %v", err)
 	}
 
@@ -327,7 +327,7 @@ func TestRelocateOutsourceWorker(t *testing.T) {
 	// the hub so the re-dispatch lands on it.
 	newMachine := fullMember("m-new")
 	newMachine.Kind = machineKind
-	if err := api.dal.PutMember(newMachine); err != nil {
+	if err := api.dal.putMemberWholeRowForTest(newMachine); err != nil {
 		t.Fatalf("seed machine: %v", err)
 	}
 	connectWarden(t, api, "m-new")
@@ -479,7 +479,7 @@ func seedMachine(t *testing.T, api *apiServer, id string) {
 	t.Helper()
 	m := fullMember(id)
 	m.Kind = machineKind
-	if err := api.dal.PutMember(m); err != nil {
+	if err := api.dal.putMemberWholeRowForTest(m); err != nil {
 		t.Fatalf("seed machine %s: %v", id, err)
 	}
 }

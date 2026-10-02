@@ -978,14 +978,15 @@ func (s *apiServer) openOwnerOpHandover(w OutsourceWorker, op string) bool {
 	return true
 }
 
-// persistWorkerRowOn is persistMemberRowOn for a worker row (PutOutsourceWorker's
-// write: no ValidateMember).
-func persistWorkerRowOn(tx *writeTx, w OutsourceWorker) error {
-	if err := setMemberWindDownAnchorsOn(tx, w.ID, w.StoppingSince, w.StoppedSince,
-		w.RefocusSince, w.RefocusOp); err != nil {
+// persistWorkerRowOn is persistMemberRowOn for a worker row (no ValidateMember).
+// Both sides go through memberFromWorker, so normalisation it applies to both
+// cancels out; an assigned → active flip shows up as activated_ts 0 → now.
+func persistWorkerRowOn(tx *writeTx, before, after OutsourceWorker) error {
+	b, a := memberFromWorker(before), memberFromWorker(after)
+	if err := writeWindDownAnchorChangesOn(tx, b, a); err != nil {
 		return err
 	}
-	return putMemberOn(tx, memberFromWorker(w))
+	return writeMemberChangesOn(tx, b, a)
 }
 
 // Callers hold s.outsourceMu.
@@ -1235,7 +1236,8 @@ func resolveLiveWorkerOn(q sqlRowQuerier, id string) (*OutsourceWorker, error) {
 
 // workerReportWaking: waking_since is deliberately NOT stamped here (it is
 // stamped at dispatch, the staff rule). This is the only assigned → active write
-// point; Status is a projection of activated_ts, so putMember persists the flip.
+// point; Status is a projection of activated_ts, so the flip lands as the
+// activated_ts change memberFromWorker mints.
 // stampFloor, when set, raises the caller's credential floor in the same
 // transaction: the floor lands with the wake or not at all
 // (HandleReportWakingApiSelfWakingPost).
@@ -1253,6 +1255,7 @@ func (s *apiServer) workerReportWaking(id string, model *string, sessionIat floa
 		if err != nil {
 			return err
 		}
+		before := memberFromWorker(*w)
 		if w.Status == WorkerStatusAssigned {
 			w.Status = WorkerStatusActive
 		}
@@ -1261,7 +1264,7 @@ func (s *apiServer) workerReportWaking(id string, model *string, sessionIat floa
 		if model != nil {
 			m.ActualModel = *model
 		}
-		return persistMemberRowOn(tx, m)
+		return persistMemberRowOn(tx, before, m)
 	})
 	if err != nil {
 		return nil, err
@@ -1281,9 +1284,10 @@ func (s *apiServer) workerReportStopping(id, trigger string) (*Member, error) {
 		if err != nil {
 			return err
 		}
+		before := memberFromWorker(*w)
 		openWindDownRow(windDownAnchorRowOfWorker(w), nowSecs())
 		m = memberFromWorker(*w)
-		return persistMemberRowOn(tx, m)
+		return persistMemberRowOn(tx, before, m)
 	})
 	if err != nil {
 		return nil, err
@@ -1303,13 +1307,14 @@ func (s *apiServer) workerReportStopped(id, trigger string) (*Member, string, er
 		if w, err = resolveLiveWorkerOn(tx, id); err != nil {
 			return err
 		}
+		before := memberFromWorker(*w)
 		collect, stopEffect, prior = decideStoppedReport(windDownAnchorRowOfWorker(w), now)
 		if !collect {
 			return nil
 		}
 		// The latch lands with the row or not at all: a latch left behind a failed
 		// write would make every retry read "already reported" and send no kill.
-		return persistMemberRowOn(tx, memberFromWorker(*w))
+		return persistMemberRowOn(tx, before, memberFromWorker(*w))
 	})
 	if err != nil {
 		unlockMu()
@@ -1423,6 +1428,7 @@ func (s *apiServer) workerRestartSelf(id string, now float64, trigger string) (*
 		if w, err = resolveLiveWorkerOn(tx, id); err != nil {
 			return err
 		}
+		before := *w
 		proj := memberFromWorker(*w)
 		if !aRefocusStampWouldReachTheAgent(proj) {
 			return refuseInTx(http.StatusConflict, restartSelfNeedsALiveSessionMsg)
@@ -1434,7 +1440,7 @@ func (s *apiServer) workerRestartSelf(id string, now float64, trigger string) (*
 		w.RefocusOp = proj.RefocusOp
 		w.StoppingSince = proj.StoppingSince
 		w.StoppedSince = proj.StoppedSince
-		return persistWorkerRowOn(tx, *w)
+		return persistWorkerRowOn(tx, before, *w)
 	})
 	if err != nil {
 		return nil, err

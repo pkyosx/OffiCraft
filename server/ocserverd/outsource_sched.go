@@ -433,7 +433,7 @@ func (s *apiServer) runOutsourceTick(now float64) {
 			if err != nil || cur == nil || !outsourceAwaitingAssignment(*cur) {
 				return err
 			}
-			if err := putMemberOn(tx, memberFromWorker(worker)); err != nil {
+			if err := createMemberOn(tx, memberFromWorker(worker)); err != nil {
 				return err
 			}
 			cur.ExecutorID = worker.ID

@@ -575,7 +575,7 @@ func TestFoldCommandResult(t *testing.T) {
 		api, _, d, _ := newAPITestServer(t)
 		before := apiTestMemberRow(t, d, "kip")
 		before.DesiredState = DesiredStateOnline
-		if err := d.PutMember(before); err != nil {
+		if err := d.putMemberWholeRowForTest(before); err != nil {
 			t.Fatalf("PutMember: %v", err)
 		}
 		dashboard := apiTestListen(t, api, "")
@@ -1431,7 +1431,7 @@ func TestStampReportedLaunchFacts(t *testing.T) {
 		before.ActualModel = "old-model"
 		before.ActualRuntime = "old-runtime"
 		before.ActualEffort = "old-effort"
-		if err := d.PutMember(before); err != nil {
+		if err := d.putMemberWholeRowForTest(before); err != nil {
 			t.Fatalf("PutMember: %v", err)
 		}
 		dashboard := apiTestListen(t, api, "")
@@ -1448,7 +1448,7 @@ func TestStampReportedLaunchFacts(t *testing.T) {
 		before.ActualModel = "old-model"
 		before.ActualRuntime = "old-runtime"
 		before.ActualEffort = "old-effort"
-		if err := d.PutMember(before); err != nil {
+		if err := d.putMemberWholeRowForTest(before); err != nil {
 			t.Fatalf("PutMember: %v", err)
 		}
 		dashboard := apiTestListen(t, api, "")
@@ -1469,7 +1469,7 @@ func TestStampReportedLaunchFacts(t *testing.T) {
 		before.ActualModel = "opus"
 		before.ActualRuntime = "codex"
 		before.ActualEffort = "high"
-		if err := d.PutMember(before); err != nil {
+		if err := d.putMemberWholeRowForTest(before); err != nil {
 			t.Fatalf("PutMember: %v", err)
 		}
 		dashboard := apiTestListen(t, api, "")
@@ -1494,7 +1494,7 @@ func TestStampReportedLaunchFacts(t *testing.T) {
 				if dismissed {
 					before = apiTestMemberRow(t, d, id)
 					before.RosterStatus = RosterStatusRemoved
-					if err := d.PutMember(before); err != nil {
+					if err := d.putMemberWholeRowForTest(before); err != nil {
 						t.Fatalf("PutMember: %v", err)
 					}
 				}
@@ -1969,7 +1969,7 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 
 	t.Run("a live contractor answers 200 with one session row and one more agent on its machine", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
-		if err := d.PutMember(Member{
+		if err := d.putMemberWholeRowForTest(Member{
 			ID:               "ow-1",
 			Name:             "Contractor One",
 			Codename:         "Contractor One",
@@ -2006,7 +2006,7 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 
 	t.Run("a released contractor answers 200 with the session list still naming only the live roster", func(t *testing.T) {
 		_, h, d, owner := newAPITestServer(t)
-		if err := d.PutMember(Member{
+		if err := d.putMemberWholeRowForTest(Member{
 			ID:           "ow-2",
 			Name:         "Contractor Two",
 			Codename:     "Contractor Two",
@@ -2121,14 +2121,14 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		gone := Member{ID: "m-gone", Name: "gone-host", Codename: "gone-host", Kind: KindWarden,
 			RosterStatus: RosterStatusActive, ActivatedTS: 1}
-		if err := d.PutMember(gone); err != nil {
+		if err := d.putMemberWholeRowForTest(gone); err != nil {
 			t.Fatalf("PutMember: %v", err)
 		}
 		warden := apiTestAgentToken(t, api, "m-gone", "m-gone")
 		apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden,
 			`{"runtime":"claude","account":"gone-claude","tokens":{"input":1}}`)
 		gone.RosterStatus = RosterStatusRemoved
-		if err := d.PutMember(gone); err != nil {
+		if err := d.putMemberWholeRowForTest(gone); err != nil {
 			t.Fatalf("PutMember: %v", err)
 		}
 

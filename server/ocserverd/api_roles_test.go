@@ -997,7 +997,7 @@ func TestHandleDeleteRoleApiRolesRoleDelete(t *testing.T) {
 		if err := d.PutRoleDef(RoleDef{RoleKey: "r-design", Name: "Design", DefinitionMD: "# Duty"}); err != nil {
 			t.Fatalf("PutRoleDef: %v", err)
 		}
-		if err := d.PutMember(Member{
+		if err := d.putMemberWholeRowForTest(Member{
 			ID: "m-zed", Name: "Zed", Kind: KindStaff, RoleKey: "r-design",
 			RosterStatus: RosterStatusActive, DesiredMachineID: ServerSelfHost,
 		}); err != nil {
@@ -1092,7 +1092,7 @@ func TestHandleDeleteRoleApiRolesRoleDelete(t *testing.T) {
 		if err := d.PutRoleDef(RoleDef{RoleKey: "r-design", Name: "Design", DefinitionMD: "# Duty"}); err != nil {
 			t.Fatalf("PutRoleDef: %v", err)
 		}
-		if err := d.PutMember(Member{
+		if err := d.putMemberWholeRowForTest(Member{
 			ID: "m-zed", Name: "Zed", Kind: KindStaff, RoleKey: "r-design",
 			RosterStatus: RosterStatusRemoved, DesiredMachineID: ServerSelfHost,
 		}); err != nil {
@@ -1180,7 +1180,7 @@ func TestHandleDeleteRoleApiRolesRoleDelete(t *testing.T) {
 		if err := d.PutRoleDef(RoleDef{RoleKey: "r-design", Name: "Design", DefinitionMD: "# Duty"}); err != nil {
 			t.Fatalf("PutRoleDef: %v", err)
 		}
-		if err := d.PutMember(Member{
+		if err := d.putMemberWholeRowForTest(Member{
 			ID: "m-zed", Name: "Zed", Kind: KindStaff,
 			RoleKey: "r-design", RosterStatus: RosterStatusActive,
 		}); err != nil {
@@ -1206,7 +1206,7 @@ func TestHandleDeleteRoleApiRolesRoleDelete(t *testing.T) {
 			{ID: "m-b", Name: "Bo", Kind: KindStaff, RoleKey: "r-design", RosterStatus: RosterStatusActive},
 			{ID: "m-a", Name: "Ana", Kind: KindStaff, RoleKey: "r-design", RosterStatus: RosterStatusActive},
 		} {
-			if err := d.PutMember(m); err != nil {
+			if err := d.putMemberWholeRowForTest(m); err != nil {
 				t.Fatalf("PutMember: %v", err)
 			}
 		}
@@ -1279,7 +1279,7 @@ func TestHandleDeleteRoleApiRolesRoleDelete(t *testing.T) {
 		if err := d.PutRoleDef(RoleDef{RoleKey: "r-design", Name: "Design", DefinitionMD: "# Duty"}); err != nil {
 			t.Fatalf("PutRoleDef: %v", err)
 		}
-		if err := d.PutMember(Member{
+		if err := d.putMemberWholeRowForTest(Member{
 			ID: "m-zed", Name: "Zed", Kind: KindStaff,
 			RoleKey: "r-design", RosterStatus: RosterStatusActive,
 		}); err != nil {

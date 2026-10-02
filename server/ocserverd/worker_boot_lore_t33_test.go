@@ -72,7 +72,7 @@ func workerBootLoreFixture(t *testing.T) (staffDoc, workerDoc, workerID string) 
 		ID: "m-t33boot", Name: "Staffer", Kind: KindStaff, RoleKey: defaultBootRole,
 		Runtime: RuntimeClaude, RosterStatus: RosterStatusActive,
 	}
-	if err := s.dal.PutMember(*staffMember); err != nil {
+	if err := s.dal.putMemberWholeRowForTest(*staffMember); err != nil {
 		t.Fatalf("PutMember: %v", err)
 	}
 
@@ -239,7 +239,7 @@ func TestMemberBootDocumentsCarryEveryoneLore(t *testing.T) {
 		s := newWorkerTestServer(t)
 		mira := Member{ID: seedMiraID, Name: "Mira", Kind: KindStaff, RoleKey: defaultBootRole,
 			Runtime: RuntimeClaude, RosterStatus: RosterStatusActive}
-		if err := s.dal.PutMember(mira); err != nil {
+		if err := s.dal.putMemberWholeRowForTest(mira); err != nil {
 			t.Fatalf("PutMember: %v", err)
 		}
 		const workerID = "ow-t236cap"
