@@ -49,8 +49,9 @@ type spawnHarness struct {
 	presentAt map[string]time.Duration
 	// The harness clock runs on what the spawn slept plus captureCost per pane
 	// capture; paneAt, when set, answers every capture by that clock.
-	captureCost time.Duration
-	paneAt      func(elapsed time.Duration) string
+	captureCost  time.Duration
+	paneAt       func(elapsed time.Duration) string
+	paneTimeouts []time.Duration
 	// reaped answers the leftover-listener reap, which is recorded in the runner's
 	// call list so its order against the launch shows.
 	reaped    int
@@ -73,6 +74,26 @@ func (h *spawnHarness) elapsed() time.Duration {
 // paneRunner answers pane captures from the harness clock; every call still
 // lands in the wardenRunner's call list.
 type paneRunner struct{ h *spawnHarness }
+
+// Its withTimeout records each budget a call runs under in h.paneTimeouts.
+func (r paneRunner) withTimeout(timeout time.Duration) CmdRunner {
+	return timedPaneRunner{r, timeout}
+}
+
+type timedPaneRunner struct {
+	paneRunner
+	timeout time.Duration
+}
+
+func (t timedPaneRunner) withTimeout(timeout time.Duration) CmdRunner {
+	t.timeout = timeout
+	return t
+}
+
+func (t timedPaneRunner) Run(name string, args ...string) (string, error) {
+	t.h.paneTimeouts = append(t.h.paneTimeouts, t.timeout)
+	return t.paneRunner.Run(name, args...)
+}
 
 func (r paneRunner) Run(name string, args ...string) (string, error) {
 	out, err := r.h.runner.Run(name, args...)
@@ -1652,6 +1673,11 @@ func TestStart(t *testing.T) {
 			}
 			if want := []string{reloadLog}; !reflect.DeepEqual(h.logs, want) {
 				t.Errorf("logs = %q, want %q", h.logs, want)
+			}
+			// The version probe, two captures and the three send calls, each under
+			// its 2 s: the wait's overrun in receiptDeadlineSecs counts on it.
+			if want := slices.Repeat([]time.Duration{2 * time.Second}, 6); !reflect.DeepEqual(h.paneTimeouts, want) {
+				t.Errorf("timeouts = %v, want %v", h.paneTimeouts, want)
 			}
 			for _, w := range h.writes {
 				if w.path == "/w/m1/.officraft-mod-disabled" {
