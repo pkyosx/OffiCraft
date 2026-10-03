@@ -12,7 +12,7 @@
 //
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { render, fireEvent, waitFor } from "@testing-library/react";
+import { render, fireEvent } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { SettingsPage } from "./SettingsPage";
@@ -75,12 +75,13 @@ describe("SettingsPage · global-context 4 blocks", () => {
     expect(utils.container.querySelector(".doc-card__file code")).toBeNull();
   });
 
-  it("使用者自訂 is editable: starts empty/default, save persists via the api", async () => {
+  it("使用者自訂 is editable: starts empty without factory status, save persists via the api", async () => {
     const utils = await openRolesLog();
     fireEvent.click(utils.getByText(s.customName));
-    // Empty seed → the default badge shows and the edit affordance exists.
+    // This additive block has no factory seed, so it has no factory-status badge.
     await utils.findByText(s.edit);
-    expect(utils.getByText(s.defaultBadge)).toBeTruthy();
+    expect(utils.queryByText(s.docStatusSyncedBadge)).toBeNull();
+    expect(utils.queryByText(s.docStatusModifiedBadge)).toBeNull();
     expect(utils.container.querySelector(".doc-card__file code")).toBeNull();
 
     fireEvent.click(utils.getByText(s.edit));
@@ -89,8 +90,9 @@ describe("SettingsPage · global-context 4 blocks", () => {
     fireEvent.change(editor!, { target: { value: "多用 emoji 回覆 owner" } });
     fireEvent.click(utils.getByText(s.doneEdit));
 
-    // The save response folds back: owner text rendered, default badge gone.
+    // The save response folds back: owner text renders without a factory-status badge.
     await utils.findByText("多用 emoji 回覆 owner");
-    await waitFor(() => expect(utils.queryByText(s.defaultBadge)).toBeNull());
+    expect(utils.queryByText(s.docStatusSyncedBadge)).toBeNull();
+    expect(utils.queryByText(s.docStatusModifiedBadge)).toBeNull();
   });
 });

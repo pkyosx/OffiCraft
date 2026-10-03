@@ -41,6 +41,10 @@
   margin-top: 2px;
   font-size: 24px;
 }
+.manual-def-status {
+  margin-left: 10px;
+  vertical-align: middle;
+}
 
 /* NO STACKED-DOCUMENT PAGE EXISTS ANY MORE (T-bac4 retired `.settings-stack`).
  *
@@ -430,7 +434,7 @@
   gap: 8px;
   min-width: 0;
 }
-/* T-ae38: the Duty doc's size budget, in the card head beside the 預設 badge.
+/* T-ae38: the Duty doc's size budget, in the card head beside the factory-status badge.
  * Deliberately its OWN class in THIS sheet rather than reusing the role-journal
  * cards' `.mp-insight__size` — that block belongs to member-detail.css, and
  * borrowing it here would make SettingsPage a consumer of a stylesheet it does

@@ -963,6 +963,8 @@ export const MESSAGE_KEYS: readonly string[] = [
   "settings.docOverCapTail",
   "settings.docReadOnlyHead",
   "settings.docReplaceNote",
+  "settings.docStatusModifiedBadge",
+  "settings.docStatusSyncedBadge",
   "settings.docUsage",
   "settings.doneEdit",
   "settings.edit",

@@ -2099,6 +2099,8 @@ export const en: Dict = {
     historyTaskReadyForDoneTitle:
       "Your task is ready to be closed · version history",
     defaultBadge: "Default",
+    docStatusSyncedBadge: "In sync with factory default",
+    docStatusModifiedBadge: "Modified",
     edit: "Edit",
     doneEdit: "Done",
     cancel: "Cancel",
@@ -2131,7 +2133,7 @@ export const en: Dict = {
     historyRestoreError: "Restore failed. Please try again.",
     historySeedTitle: "Initial version",
     historySeedNote: "The content this document shipped with.",
-    historySeedRestore: "Restore the initial version",
+    historySeedRestore: "Sync to factory default",
     historySeedConfirm:
       "Restore the initial version? The current content is overwritten.",
     historySeedUnavailable:
