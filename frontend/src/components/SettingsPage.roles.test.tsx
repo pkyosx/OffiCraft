@@ -74,6 +74,9 @@ describe("SettingsPage · #settings/roles deep-link (T-f074 正職 ➕👤)", ()
     // block is not on this page any more — 全域情境 holds it.
     await utils.findByText(s.roleDefsSection);
     expect(utils.getByText(`+ ${s.addRole}`)).toBeTruthy();
+    expect(
+      utils.getByTestId("role-status-badge-assistant").textContent
+    ).toBe("與出廠預設同步");
   });
 
   it("opens the 角色誌 list already in CREATE mode when initialRolesCreate is set (T-25b7 #settings/roles/new)", async () => {
@@ -101,6 +104,9 @@ describe("SettingsPage · #settings/roles deep-link (T-f074 正職 ➕👤)", ()
     const titles = await utils.findAllByText(zh.office.role.assistant);
     expect(titles.length).toBeGreaterThan(0);
     await utils.findAllByText(s.edit);
+    expect(utils.getByTestId("doc-card-status-badge").textContent).toBe(
+      "與出廠預設同步"
+    );
     expect(utils.queryByText(`+ ${s.addRole}`)).toBeNull();
   });
 

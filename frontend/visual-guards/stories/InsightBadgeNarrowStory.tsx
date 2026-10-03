@@ -1,4 +1,4 @@
-// CT story for T-5e79 — the 「預設」 pill (`.set-badge`) and the 「編輯」 button
+// CT story for T-5e79 — the factory-status pill (`.set-badge`) and the 「編輯」 button
 // (`.doc-btn--edit`) that sit in the SAME header row of the Insight card.
 //
 // Why the real card and not a hand-built row: the defect is a flex-shrink
@@ -19,7 +19,7 @@
 //
 // roleKey="assistant" is the ONE role the mock (and the server) carries an
 // insight file seed for, so it is the only role whose card satisfies the
-// badge's render gate `isDefault && text.trim() !== ""` out of the box — the
+// badge's render gate `hasSeed` out of the box — the
 // same state the owner screenshotted on 2026-08-04 after restoring the
 // assistant's insight to the factory version.
 import { I18nProvider } from "../../src/i18n";

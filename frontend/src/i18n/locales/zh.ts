@@ -2101,8 +2101,11 @@ export const zh = {
     // 一樣真的會有版本紀錄。
     historyTaskUnblockedTitle: "擋著你手上任務的票解開了的版本紀錄",
     historyTaskReadyForDoneTitle: "你手上的任務可以結案了的版本紀錄",
-    // seed vs owner-edited
+    // Keep the legacy key in the theme whitelist for saved packs; current cards
+    // use the explicit factory-status keys below.
     defaultBadge: "預設",
+    docStatusSyncedBadge: "與出廠預設同步",
+    docStatusModifiedBadge: "已修改",
     // ── detail: view / edit ──
     edit: "編輯",
     doneEdit: "完成編輯",
@@ -2152,7 +2155,7 @@ export const zh = {
     //    看得到內容與差異，還原仍在同一個破壞性確認框後面。
     historySeedTitle: "初始版本",
     historySeedNote: "這份文件最初附帶的內容。",
-    historySeedRestore: "還原成初始版本",
+    historySeedRestore: "同步出廠預設",
     historySeedConfirm: "確定還原成初始版本？目前的內容會被覆蓋。",
     // 初始版本的內容讀不到時的誠實說法：不能講成「這個版本是空白的」（那是另
     // 一個、而且是錯的主張），但還原本身不需要這份內容，所以照樣按得下去。

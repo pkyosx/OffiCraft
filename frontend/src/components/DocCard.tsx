@@ -101,12 +101,15 @@ export interface DocCardProps {
   errorNote?: ReactNode;
   /** Read-only mode: no edit/reset affordances, just the rendered markdown. */
   readOnly?: boolean;
-  /** Overrides the "Default" is_default badge. */
+  /** Overrides the computed factory-status badge. */
   badge?: string;
-  /** The 預設 verdict, when the caller knows it independently of `doc` (the
-   * roles page reads it off the roster row). Wins over the doc's own flag, and
-   * is what lets the badge stay honest while the body read is in flight or
-   * failed — without it a null `doc` can only say nothing. */
+  /** Whether a factory version exists. Without one, isDefault does not mean
+   * "in sync" and this document has no factory state to report. */
+  hasSeed?: boolean;
+  /** Whether this seeded document has no online overlay, when the caller
+   * knows that independently of `doc` (the roles page reads it off the roster
+   * row). Wins over the doc's own flag so the status remains accurate while
+   * the body read is in flight or failed. */
   isDefault?: boolean;
   /** This document's size budget, `{size, cap}` in CHARACTERS (T-ae38). Passed
    * only by documents that HAVE a cap; the global-context views omit it because
@@ -198,6 +201,7 @@ export function DocCard({
   errorNote,
   readOnly = false,
   badge,
+  hasSeed = false,
   isDefault: isDefaultOverride,
   usage,
   replaceNote,
@@ -222,16 +226,15 @@ export function DocCard({
   const readOnlyHead = doc?.readOnlyHead ?? "";
   // 🔴 A null doc means the body has NOT been read (loading, or the read
   // failed) — it does not mean the document is untouched. The old fallback
-  // here was `true`, which turned "I do not know" into the positive claim 預設:
-  // an owner-EDITED role whose `getRole` failed was badged as shipped-default,
-  // beside an empty body, and nothing said otherwise. The badge is a claim, so
-  // an unknown document makes none.
+  // here was `true`, which turned "I do not know" into the positive claim
+  // 「與出廠預設同步」 beside an empty body. Keep the status unknown unless
+  // either the loaded doc or the caller's independent roster read supplies it.
   //
-  // `isDefaultOverride` exists because a caller can often know this WITHOUT the
-  // body: the roles page holds the roster row, and the roster has carried
-  // `is_default` all along. Passing it keeps the badge true through exactly the
-  // window where the doc read is pending or broken.
-  const isDefault = isDefaultOverride ?? (doc ? doc.isDefault : false);
+  // `isDefaultOverride` exists because a caller can often know this WITHOUT
+  // the body: the roles page holds the roster row, and the roster has carried
+  // `is_default` all along. Passing it keeps the status accurate while the doc
+  // read is pending or broken.
+  const isDefault = isDefaultOverride ?? (doc ? doc.isDefault : undefined);
 
   // While editing, both the readout and the refusal judge the DRAFT. Mirrors
   // the server's own rule (docCapBlocked): over the cap is refused unless the
@@ -451,12 +454,11 @@ export function DocCard({
             {badge ? (
               <span className="set-badge">{badge}</span>
             ) : (
-              isDefault && (
-                <span
-                  className="set-badge"
-                  data-testid="doc-card-default-badge"
-                >
-                  {t.settings.defaultBadge}
+              hasSeed && isDefault !== undefined && (
+                <span className="set-badge" data-testid="doc-card-status-badge">
+                  {isDefault
+                    ? t.settings.docStatusSyncedBadge
+                    : t.settings.docStatusModifiedBadge}
                 </span>
               )
             )}
