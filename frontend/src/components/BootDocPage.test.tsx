@@ -546,13 +546,13 @@ describe("BootDocPage", () => {
     expect(utils.container.textContent).not.toContain(
       String(seedBody).replace(/^#+ /, "")
     );
-    // The seed still exists, and the roster status says the live document is
-    // modified even while this test reads the current body from the API.
+    // The seed still exists, and the status badge reports that the live
+    // document is modified while this test reads the current body from the API.
     expect(utils.getByTestId("doc-card-status-badge").textContent).toBe(
       "已修改"
     );
 
-    // The seed did not stop existing — it is what 還原出廠版 goes back to.
+    // The seed did not stop existing — 同步出廠預設 restores it.
     expect(
       await api.getDocumentSeed("system_interaction", "global")
     ).toMatchObject({ content: { text: SEED_SYSTEM_INTERACTION_MD.trim() } });

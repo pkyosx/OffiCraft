@@ -605,48 +605,9 @@
   justify-content: space-between;
   gap: 10px;
 }
-/* T-5e79 — RELIEF VALVE for the two no-shrink rules the same ticket added in
- * settings.css (`.set-badge` / `.doc-btn`). Before them this row always
- * "fitted", but only by squeezing the 預設 pill and the 編輯 button until their
- * CJK labels broke onto two lines and spilled out of their own boxes — that IS
- * the defect. Once neither is compressible the row's min-content can exceed the
- * card, and MEASURED on the fixed sheet that happens ONLY at the very bottom of
- * the range: 23px of head overflow at 320px, and exactly 0 from 360px up
- * (320/360/375/390/414/480/600/720/900/1040/1440 all probed).
- *
- * ⚠️ EVERY number in this comment was measured in the zh locale. That is the
- * locale of the screenshot this fix came from, but it is NOT the whole product,
- * and the en numbers are different — see the KNOWN GAP at the end of this
- * block. Do not read "exactly 0 from 360px up" as a statement about the app.
- *
- * 🔴 The breakpoint is deliberately 359px and NOT the site's 720px mobile
- * breakpoint. `flex-wrap` here is not free: with wrapping ON the title span is
- * laid out at its MAX-content before the line is broken, so at 375/390 — where
- * the row fits perfectly well by letting the title shrink — the 編輯 button
- * gets pushed onto a second line and the header grows ~19px taller (MEASURED:
- * headH 61 vs 42). Owner reads the cockpit at those widths, so the valve must
- * not reach them. In zh the row stops overflowing somewhere between 341px
- * (MEASURED: 2px over) and 360px (0), so the cut sits at 359 — above every zh
- * width that actually overflows, below every phone width the repo's other
- * guards use (360/375/390/414).
- *
- * 🔴 KNOWN GAP, en locale (measured by the independent reviewer, not by the
- * author of the line above): English does NOT stop overflowing at 360. It
- * overflows 360→~380 (MEASURED: headOver 22 at 360, 21 at 361, 7 at 375, 0 at
- * 390), so above the valve there is a band where en still spills.
- *
- * That band is PRE-EXISTING, not a regression from this change — the reviewer
- * measured the pre-fix tree (both nowrap rules and this valve removed) and got
- * BYTE-IDENTICAL en numbers. Latin min-content is the whole word, so `nowrap`
- * changes nothing for en; the valve is what does the work, and below 360 it
- * makes en strictly better (MEASURED at 320: headOver 62→0, cardOver 42→0).
- *
- * Widening the valve to cover en would push the wrap into 360-390, which is
- * exactly the range this breakpoint exists to stay out of — so it is a real
- * trade-off and not an oversight. Deliberately NOT fixed here: out of the scope
- * the owner approved (he reported a zh screenshot). Recorded rather than
- * silently left, so the next person measuring en does not think they found a
- * regression. */
+/* Keep the status badge and edit action on one line. At phone widths, the
+ * title group can shrink and its text can wrap before either fixed-height
+ * control wraps or escapes the card. */
 @media (max-width: 359px) {
   .mp-lessons__head {
     flex-wrap: wrap;
@@ -656,9 +617,13 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
   font-size: 14px;
   font-weight: 600;
   color: var(--color-text-strong);
+}
+.mp-lessons__title-label {
+  min-width: 0;
 }
 .mp-lessons__icon {
   color: var(--color-text-muted);

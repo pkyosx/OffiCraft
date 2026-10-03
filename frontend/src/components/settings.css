@@ -211,26 +211,9 @@
   color: var(--color-text-muted);
 }
 
-/* "預設" (seed) status pill */
-/* T-5e79 — owner screenshot 2026-08-04: at ≤390px the pill's two CJK glyphs were
- * broken onto TWO lines and spilled 6px above / 4.5px below the 19px capsule
- * (measured pre-fix at 320/360/375/390; fine from 414px up).
- *
- * The pill is a shrinkable flex ITEM in every host it has (`.mp-lessons__title`,
- * `.doc-card__file`, `.set-entry__name`, the doc-history rows) while its own
- * `height` is FIXED. Without a `white-space` declaration the min-content width
- * of CJK text is ONE GLYPH, so the flex algorithm is free to squeeze the box
- * narrower than its label; the capsule cannot grow to match, and the spill is
- * what the owner saw. `nowrap` raises min-content to the whole label, and a
- * flex item's default `min-width: auto` then floors the box there — which is
- * why this one declaration is the whole fix and no `flex: none` is needed.
- * (MEASURED: `flex: none` alone ALSO holds the guard green, so the two were
- * redundant; the single semantic one is kept, and it is the one that also works
- * in a non-flex host.)
- *
- * Fixed on the badge rather than at the one call site the screenshot came from:
- * the pill ships in five components today, all of them with the same fixed
- * height and the same exposure. */
+/* Status labels stay on one line because this capsule has a fixed height. The
+ * whitespace rule sets a flex item's minimum width to its full localized text
+ * without disabling the host's flex sizing. */
 .set-badge {
   display: inline-flex;
   align-items: center;

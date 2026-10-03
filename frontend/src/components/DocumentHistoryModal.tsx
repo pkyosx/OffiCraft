@@ -230,10 +230,8 @@ export function DocumentHistoryModal({
   // diff paints the whole live document as an addition — the exact lie this
   // file exists to stop, resurrected under a green suite.
   const contentUnreadable = seedUnavailable || effectiveContent === undefined;
-  /** …and it must say so in ITS OWN words. `historySeedUnavailable` names 初始
-   * 版本 twice; printed on a revision that HAS an id, a timestamp and an author
-   * it misidentifies the version standing next to a destructive button, which
-   * is the same family of defect as the one above. */
+  /** Retained revisions use separate copy: `historySeedUnavailable` describes
+   * unreadable factory content and remains accurate for the factory row only. */
   const unreadableNotice = contentLoading
     ? t.settings.historyLoading
     : seedUnavailable
