@@ -105,7 +105,7 @@ export function InsightCard({ roleKey }: InsightCardProps) {
       <div className="mp-lessons__head">
         <span className="mp-lessons__title">
           <LayersIcon size={15} className="mp-lessons__icon" />
-          <span>{t.mp.insight}</span>
+          <span className="mp-lessons__title-label">{t.mp.insight}</span>
           {/* 🔴 THE FACTORY STATUS (T-e1e3). Insight now folds against a PER-ROLE
             * file seed, so `text` being non-empty no longer proves a person
             * wrote it: an untouched `assistant` reads the factory wording.

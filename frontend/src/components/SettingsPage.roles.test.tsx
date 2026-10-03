@@ -119,6 +119,20 @@ describe("SettingsPage · #settings/roles deep-link (T-f074 正職 ➕👤)", ()
     await utils.findByText(s.roleDefsSection);
     expect(utils.getByText(`+ ${s.addRole}`)).toBeTruthy();
   });
+
+  it("shows no factory-status label on a custom role in the role list", async () => {
+    const utils = await openRolesLog();
+    await createViaRow(utils);
+
+    const custom = (await api.listRoles()).find((r) => r.name === "研究員")!;
+    expect(utils.getByText(s.customBadge)).toBeTruthy();
+    expect(
+      utils.queryByTestId(`role-status-badge-${custom.key}`)
+    ).toBeNull();
+    expect(
+      utils.getByTestId("role-status-badge-assistant").textContent
+    ).toBe("與出廠預設同步");
+  });
 });
 
 describe("SettingsPage · 角色誌 新增角色 auto-scroll (T-25b7 owner feedback)", () => {

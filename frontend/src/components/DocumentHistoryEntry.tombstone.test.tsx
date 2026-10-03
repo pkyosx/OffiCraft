@@ -293,10 +293,9 @@ describe("DocumentHistoryEntry · a tombstoned revision is the shipped default",
   });
 
   it("names the RIGHT version when it says the default cannot be read", async () => {
-    // 「初始版本的內容目前讀不到…還原成初始版本仍然可以執行」 was written for the
-    // 初始版本 ROW. Printed on a revision that has an id, a timestamp and an
-    // author, it misidentifies the version standing next to a destructive
-    // button — the same family of defect as the diff this file exists to fix.
+    // 「出廠預設內容目前讀不到…同步出廠預設仍可執行」 describes the factory
+    // entry. This retained revision has its own default-content notice because
+    // it has an id, a timestamp and an author.
     const utils = await openReader({
       kind: "role_definition",
       docKey: "assistant",
