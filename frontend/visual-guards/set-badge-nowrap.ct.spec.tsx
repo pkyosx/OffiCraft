@@ -12,7 +12,7 @@
 //   414+   1            13px, inside the pill             1   16px, inside
 // So this is a NARROW-WIDTH-ONLY defect: it is structurally invisible at desktop
 // widths, and it is also structurally invisible to the vitest/jsdom suite, which
-// applies no layout engine — `insight-default-badge` is in the DOM either way.
+// applies no layout engine — `insight-status-badge` is in the DOM either way.
 //
 // WHAT IS ASSERTED IS GEOMETRY THE OWNER CAN SEE, not CSS property strings:
 //   (1) the label occupies exactly ONE line box, and
@@ -77,24 +77,24 @@ async function textGeometry(el: Locator) {
 // 1040 = the desktop content column's max width — the control that says the
 // fix did not move the breakage somewhere else.
 for (const width of [320, 375, 390, 1040]) {
-  test(`width ${width}: 預設 badge and 編輯 button keep their labels on one line, inside their own box`, async ({
+  test(`width ${width}: factory-status badge and 編輯 button keep their labels on one line, inside their own box`, async ({
     mount,
     page,
   }) => {
     await page.setViewportSize({ width, height: 900 });
     const cmp = await mount(<InsightBadgeNarrowStory />);
 
-    // The badge only renders for a role whose insight is BOTH is_default and
-    // non-empty; if this ever stops resolving, the guard must fail loudly
-    // rather than silently measure nothing.
-    const badge = cmp.getByTestId("insight-default-badge");
+    // The badge only renders for a role with a factory insight seed; if this
+    // ever stops resolving, the guard must fail loudly rather than silently
+    // measure nothing.
+    const badge = cmp.getByTestId("insight-status-badge");
     await expect(badge).toBeVisible();
-    await expect(badge).toHaveText("預設");
+    await expect(badge).toHaveText("與出廠預設同步");
 
     const badgeGeo = await textGeometry(badge);
-    expect(badgeGeo.lines, "預設 badge label line boxes").toBe(1);
-    expect(badgeGeo.spillAbove, "預設 label spilling above the pill").toBeLessThanOrEqual(0.5);
-    expect(badgeGeo.spillBelow, "預設 label spilling below the pill").toBeLessThanOrEqual(0.5);
+    expect(badgeGeo.lines, "factory-status badge label line boxes").toBe(1);
+    expect(badgeGeo.spillAbove, "factory-status label spilling above the pill").toBeLessThanOrEqual(0.5);
+    expect(badgeGeo.spillBelow, "factory-status label spilling below the pill").toBeLessThanOrEqual(0.5);
 
     const editLabel = cmp.locator(".doc-btn--edit span");
     await expect(editLabel).toHaveText("編輯");

@@ -2088,6 +2088,8 @@ export const en: Dict = {
     historyTaskReadyForDoneTitle:
       "Your task is ready to be closed · version history",
     defaultBadge: "Default",
+    docStatusSyncedBadge: "In sync with factory default",
+    docStatusModifiedBadge: "Modified",
     edit: "Edit",
     doneEdit: "Done",
     cancel: "Cancel",
@@ -2120,11 +2122,11 @@ export const en: Dict = {
     historyRestoreError: "Restore failed. Please try again.",
     historySeedTitle: "Initial version",
     historySeedNote: "The content this document shipped with.",
-    historySeedRestore: "Restore the initial version",
+    historySeedRestore: "Sync to factory default",
     historySeedConfirm:
-      "Restore the initial version? The current content is overwritten.",
+      "Sync to factory default? The current content will be overwritten.",
     historySeedUnavailable:
-      "The initial version's content cannot be read right now, so it cannot be shown or compared. Restoring it still works.",
+      "The factory-default content cannot be read right now, so it cannot be shown or compared. Syncing it still works.",
     historyBack: "Back to the version list",
     historyBlockedBadge: "Cannot restore",
     historyBlockedReasonLead: '"',
@@ -2157,7 +2159,7 @@ export const en: Dict = {
     historySopSub:
       "Only the SOP is versioned; edits to the purpose and the identifier fields keep no history. The last 3 revisions are kept, and restoring overwrites the SOP only.",
     historyManualSeedConfirm:
-      "Restore the initial version? The whole manual (name, purpose, identifier fields, SOP and assignee) goes back to how it shipped, overwriting the current edits.",
+      "Sync to factory default? The whole manual (name, purpose, identifier fields, SOP and assignee) goes back to its shipped settings, overwriting the current edits.",
     historyField: {
       text: "Content",
       name: "Name",

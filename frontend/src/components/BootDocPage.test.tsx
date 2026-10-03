@@ -317,7 +317,9 @@ describe("BootDocPage", () => {
     expect(save).not.toHaveBeenCalled();
 
     // Back on the factory version, and the page says so.
-    await utils.findByText(s.defaultBadge);
+    expect((await utils.findByTestId("doc-card-status-badge")).textContent).toBe(
+      "與出廠預設同步"
+    );
   });
 
   it("a failed read says so and offers NO recovery door — the accepted cost of putting the restore behind edit mode", async () => {
@@ -544,11 +546,13 @@ describe("BootDocPage", () => {
     expect(utils.container.textContent).not.toContain(
       String(seedBody).replace(/^#+ /, "")
     );
-    // …and it is not the default any more, which is the same claim said in the
-    // cockpit's own vocabulary.
-    expect(utils.queryByText(s.defaultBadge)).toBeNull();
+    // The seed still exists, and the status badge reports that the live
+    // document is modified while this test reads the current body from the API.
+    expect(utils.getByTestId("doc-card-status-badge").textContent).toBe(
+      "已修改"
+    );
 
-    // The seed did not stop existing — it is what 還原出廠版 goes back to.
+    // The seed did not stop existing — 同步出廠預設 restores it.
     expect(
       await api.getDocumentSeed("system_interaction", "global")
     ).toMatchObject({ content: { text: SEED_SYSTEM_INTERACTION_MD.trim() } });

@@ -2101,8 +2101,11 @@ export const zh = {
     // 一樣真的會有版本紀錄。
     historyTaskUnblockedTitle: "擋著你手上任務的票解開了的版本紀錄",
     historyTaskReadyForDoneTitle: "你手上的任務可以結案了的版本紀錄",
-    // seed vs owner-edited
+    // Keep the legacy key in the theme whitelist for saved packs; current cards
+    // use the explicit factory-status keys below.
     defaultBadge: "預設",
+    docStatusSyncedBadge: "與出廠預設同步",
+    docStatusModifiedBadge: "已修改",
     // ── detail: view / edit ──
     edit: "編輯",
     doneEdit: "完成編輯",
@@ -2146,18 +2149,14 @@ export const zh = {
     historyRestoreConfirmTail: "」這個版本？目前的內容會被覆蓋，但會存成新的版本紀錄。",
     historyRestoreConfirmAction: "確認還原",
     historyRestoreError: "還原失敗，請稍後重試",
-    // ── 初始版本（T-1f39，owner 2026-07-31）——重置鈕退場後，清單最後一項就是
-    //    這份文件出廠時的內容，也是唯一的重置入口，因此走同一個破壞性確認框。
-    //    T-40f0（owner rc-28885813e065 ①）起這一列跟別的版本完全一樣：點下去先
-    //    看得到內容與差異，還原仍在同一個破壞性確認框後面。
+    // 清單最後一列是出廠內容，也是同步入口；打開後可先檢視內容與差異。
     historySeedTitle: "初始版本",
     historySeedNote: "這份文件最初附帶的內容。",
-    historySeedRestore: "還原成初始版本",
-    historySeedConfirm: "確定還原成初始版本？目前的內容會被覆蓋。",
-    // 初始版本的內容讀不到時的誠實說法：不能講成「這個版本是空白的」（那是另
-    // 一個、而且是錯的主張），但還原本身不需要這份內容，所以照樣按得下去。
+    historySeedRestore: "同步出廠預設",
+    historySeedConfirm: "確定同步出廠預設？目前的內容會被覆蓋。",
+    // 出廠內容讀不到時仍可同步，因為同步不需要先讀取這份內容。
     historySeedUnavailable:
-      "初始版本的內容目前讀不到，暫時無法顯示或比較；還原成初始版本仍然可以執行。",
+      "出廠預設內容目前讀不到，暫時無法顯示或比較；同步出廠預設仍可執行。",
     // 讀完一個版本退回清單——關閉是離開版本紀錄，這是回上一層。
     historyBack: "返回版本列表",
     // 超過長度上限、伺服器一定會拒絕的版本：照樣列出來，但標成不可還原。
@@ -2183,9 +2182,7 @@ export const zh = {
     // 這一句只有在「出廠預設本身就是空的」時才會出現（全域情境的預設就是空文件）；
     // 預設有內容的文件會直接把那份內容畫出來。
     historyModalDefaultContent: "這個版本當時採用出廠預設內容。",
-    // 上面那一句的「讀不到」版本,而且**不共用** historySeedUnavailable —— 那句
-    // 逐字講的是「初始版本」,印在一個有代號、有時間、有作者的留存版本上就是講錯
-    // 版本身分,而它就站在還原鈕旁邊。
+    // 留存版本另用此文案，說明該版本採用出廠內容但目前無法讀取。
     historyDefaultUnreadable:
       "這個版本當時採用出廠預設內容,但預設內容目前讀不到,暫時無法顯示或比較;還原這個版本仍然可以執行。",
     historyClose: "關閉",
@@ -2200,7 +2197,7 @@ export const zh = {
     historySopSub:
       "只有 SOP 會保留版本；用途與識別鍵的修改不留版本紀錄。系統保留最近 3 次修改；還原只會覆蓋 SOP。",
     historyManualSeedConfirm:
-      "確定還原成初始版本？整本手冊（名稱、用途、識別鍵、SOP 與負責成員）都會回到出廠時的內容，目前的修改會被覆蓋。",
+      "確定同步出廠預設？整本手冊（名稱、用途、識別鍵、SOP 與負責成員）都會回到出廠設定，目前的修改會被覆蓋。",
     historyField: {
       text: "內容",
       name: "名稱",

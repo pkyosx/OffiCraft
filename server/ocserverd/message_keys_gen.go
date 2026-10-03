@@ -957,6 +957,8 @@ var messageKeys = map[string]bool{
 	"settings.docOverCapTail":                          true,
 	"settings.docReadOnlyHead":                         true,
 	"settings.docReplaceNote":                          true,
+	"settings.docStatusModifiedBadge":                  true,
+	"settings.docStatusSyncedBadge":                    true,
 	"settings.docUsage":                                true,
 	"settings.doneEdit":                                true,
 	"settings.edit":                                    true,

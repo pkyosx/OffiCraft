@@ -16,6 +16,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, fireEvent, waitFor, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
+import { en } from "../i18n/locales/en";
 import { DocumentHistoryModal } from "./DocumentHistoryModal";
 import { mockApiError } from "../api/errorCodes";
 import { DOC_CAP_CHARS_DEFAULT, DOC_CAP_CHARS_DEFAULTS } from "../api/docCap";
@@ -438,7 +439,11 @@ describe("DocumentHistoryModal", () => {
       const utils = openSeed({ onRestore });
 
       const restore = utils.getByTestId("doc-history-modal-restore");
-      expect(restore.textContent).toBe(s.historySeedRestore);
+      expect(s.historySeedRestore).toBe("同步出廠預設");
+      expect(restore.textContent).toBe("同步出廠預設");
+      expect(en.settings.historySeedRestore).toBe("Sync to factory default");
+      expect(en.settings.docStatusSyncedBadge).toBe("In sync with factory default");
+      expect(en.settings.docStatusModifiedBadge).toBe("Modified");
       fireEvent.click(restore);
       // Looking was free; going back is not, and the gate is the same one.
       expect(onRestore).not.toHaveBeenCalled();

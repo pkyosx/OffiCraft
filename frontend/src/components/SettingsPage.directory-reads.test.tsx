@@ -91,9 +91,9 @@ describe("設定 › 角色誌 · the roster is a directory (T-1170)", () => {
     // An empty card under a real role's title would read as "this role has no
     // definition", which is a different and false claim.
     //
-    // The role is EDITED first, on purpose. That is what makes the badge
-    // assertion below discriminating: the roster row now says 預設 is false,
-    // so a badge on this page can only have come from the (absent) document.
+    // The role is EDITED first, on purpose. The roster still supplies both
+    // isSeed and isDefault, so the status remains known even if the body read
+    // fails.
     await mockApi.saveRole("assistant", { definitionMd: DUTY_MD });
     vi.spyOn(mockApi, "getRole").mockRejectedValue(new Error("boom"));
 
@@ -107,12 +107,11 @@ describe("設定 › 角色誌 · the roster is a directory (T-1170)", () => {
     // nobody managed to read.
     expect(utils.getByTestId("doc-card-edit")).toHaveProperty("disabled", true);
 
-    // 🔴 THE FAILURE PAGE MUST NOT ALSO MAKE CLAIMS IT CANNOT SUPPORT.
-    // The role above was EDITED by its owner, so 預設 is false — and the badge
-    // used to be derived from the document, which on this page is null. That
-    // turned "I could not read it" into the positive claim 預設, on the one
-    // screen where the reader has nothing else to go on.
-    expect(utils.queryByTestId("doc-card-default-badge")).toBeNull();
+    // The body failed to load, but the roster confirms this seeded role has an
+    // online overlay, so its status remains 「已修改」.
+    expect(utils.getByTestId("doc-card-status-badge").textContent).toBe(
+      "已修改"
+    );
     // Nor may it print a size budget over a body it failed to load: the roster
     // row carries both numbers and answered fine, so 「N / cap」 would render
     // above a blank document and the two would contradict each other.
@@ -151,10 +150,10 @@ describe("設定 › 角色誌 · the roster is a directory (T-1170)", () => {
     await utils.findByTestId("doc-card-usage");
   });
 
-  it("keeps the 預設 badge honest off the ROSTER row while the document is still in flight", async () => {
-    // The seeded role IS shipped-default and its roster row says so, so the
-    // badge is readable before the body arrives. This is the other direction of
-    // the same rule: the page must not go silent about a fact it holds.
+  it("shows the synced status from the ROSTER row while the document is still in flight", async () => {
+    // The seeded role has no overlay and its roster row says so, so its status
+    // is readable before the body arrives. The page must not go silent about a
+    // fact it already holds.
     let release: (v: unknown) => void = () => {};
     const held = new Promise((r) => {
       release = r;
@@ -170,7 +169,9 @@ describe("設定 › 角色誌 · the roster is a directory (T-1170)", () => {
     fireEvent.click(await utils.findByText(zh.office.role.assistant));
 
     await utils.findByTestId("role-doc-loading");
-    await utils.findByTestId("doc-card-default-badge");
+    expect((await utils.findByTestId("doc-card-status-badge")).textContent).toBe(
+      "與出廠預設同步"
+    );
     release(undefined);
   });
 });

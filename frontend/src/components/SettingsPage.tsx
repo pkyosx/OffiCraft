@@ -951,6 +951,7 @@ export function SettingsPage({
     return (
       <DocCard
         title={roleTitle}
+        hasSeed={role?.isSeed}
         // 角色名 rename — CUSTOM roles only (seed titles are i18n-localized by
         // key AND server-side name-locked). Same pencil inline-edit pattern as
         // the machine row; the save rides the existing role PATCH choke, and
@@ -989,7 +990,7 @@ export function SettingsPage({
         // carried `is_default` all along and it answers on its own request, so
         // this stays true through the window where `getRole` is in flight or
         // has failed — which is exactly the window in which reading it off the
-        // (absent) document badged an owner-edited role as shipped-default.
+        // (absent) document labelled an owner-edited role as synced.
         isDefault={role?.isDefault}
         // The roster answering while THIS read failed is a new state (they are
         // two requests now), and it has to say so instead of showing an empty
@@ -2882,8 +2883,15 @@ function RolesLog({
                 <span className="set-entry__body">
                   <span className="set-entry__name">
                     {(t.office.role as Record<string, string>)[r.key] ?? r.name}
-                    {r.isDefault && (
-                      <span className="set-badge">{t.settings.defaultBadge}</span>
+                    {r.isSeed && (
+                      <span
+                        className="set-badge"
+                        data-testid={`role-status-badge-${r.key}`}
+                      >
+                        {r.isDefault
+                          ? t.settings.docStatusSyncedBadge
+                          : t.settings.docStatusModifiedBadge}
+                      </span>
                     )}
                     {!r.isSeed && (
                       <span className="set-badge">{t.settings.customBadge}</span>
@@ -3031,4 +3039,3 @@ function RolesLog({
     </div>
   );
 }
-

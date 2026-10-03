@@ -2018,8 +2018,9 @@ function applyDocumentHistory(
     }
     // T-791e. The tombstoned arm drops the overlay so the block goes back to
     // following its factory seed — writing the seed text in as an owner edit
-    // would leave `is_default` false and the 預設 badge off for a document that
-    // IS the default.
+    // would leave `is_default` false and label it 「已修改」 even though its
+    // content matches the seed. Reset means removing the overlay, not copying
+    // seed text into one.
     case "system_interaction":
     case "boot_sequence":
     case "offboard": {

@@ -121,6 +121,7 @@ export function BootDocPage({
       title={title}
       crumbs={crumbs}
       collapsible={collapsible}
+      hasSeed={doc?.hasSeed ?? false}
       // 🔴 THE EDITOR HOLDS THE BODY, THE HEAD IS SHOWN BESIDE IT (T-3201).
       // `text` here is the EDITABLE half — the wire's `body`, which is byte for
       // byte what `save` takes back — and the read-only half rides along as
