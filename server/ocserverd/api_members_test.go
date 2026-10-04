@@ -4665,44 +4665,67 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 
 	// ── the fleet is dark: nothing names a machine and no warden is online ───
 
-	t.Run("a wanted-online worker's report on a dark fleet is rolled back and says why", func(t *testing.T) {
-		api, h, d, owner, contractor := apiTestDarkWorker(t, DesiredStateOnline)
-		infraSeedAnchoredSession(t, api, d, "ow-abc123")
+	// One judgement for both populations: the report is collected at once even
+	// though no machine has the stop, and the session anchor stays because nothing
+	// was killed yet — dropping boot_ts would make restart_self's minimum-liveness
+	// gate and the boot-storm guard fail OPEN on a session that may still run.
+	for _, tc := range []struct {
+		who     string
+		dark    func(t *testing.T) (*apiServer, http.Handler, *DAL, string, string)
+		receipt map[string]any
+	}{
+		{
+			who: "staff",
+			dark: func(t *testing.T) (*apiServer, http.Handler, *DAL, string, string) {
+				t.Helper()
+				api, h, d, owner := newAPITestServer(t)
+				if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
+					t.Fatalf("activate: %d %v", status, data)
+				}
+				return api, h, d, "kip", apiTestAgentToken(t, api, "kip", "")
+			},
+			receipt: map[string]any{
+				"last_op": "start", "at": apiAnyNumber,
+				"reason": "warden_unreachable: 喚醒 was recorded, but nothing has been " +
+					"dispatched yet — the machine's warden did not take the start. It will " +
+					"be retried; if it stays here, check that machine",
+			},
+		},
+		{
+			who: "worker",
+			dark: func(t *testing.T) (*apiServer, http.Handler, *DAL, string, string) {
+				t.Helper()
+				api, h, d, _, contractor := apiTestDarkWorker(t, DesiredStateOnline)
+				return api, h, d, "ow-abc123", contractor
+			},
+			receipt: map[string]any{"last_op": "", "reason": "", "at": float64(0)},
+		},
+	} {
+		t.Run("a wanted-online "+tc.who+" report on a dark fleet is collected at once and keeps the session anchor", func(t *testing.T) {
+			api, h, d, id, token := tc.dark(t)
+			infraSeedAnchoredSession(t, api, d, id)
 
-		status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`)
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, map[string]any{
-			"id":               "ow-abc123",
-			"desired_state":    "online",
-			"refocus_op":       "",
-			"refocus_deadline": 0,
-			"stop_effect":      "collected",
+			status, data := apiJSON(t, h, "POST", "/api/self/stopped", token, `{}`)
+			if status != 200 {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			apiWantBody(t, data, map[string]any{
+				"id":               id,
+				"desired_state":    "online",
+				"refocus_op":       "",
+				"refocus_deadline": 0,
+				"stop_effect":      "collected",
+			})
+			wsWantWardenFrames(t, api, ServerSelfHost)
+			row, err := d.GetMember(id)
+			if err != nil || row == nil {
+				t.Fatalf("GetMember(%q): %v (%v)", id, row, err)
+			}
+			apiWantValue(t, "the close-out anchor is latched", any(row.StoppedSince > 0), any(true))
+			apiWantValue(t, "the receipt", any(apiTestReceiptOf(t, d, id)), any(tc.receipt))
+			infraWantSession(t, api, d, id, 1700000000, 1700000000, infraSeededGauge())
 		})
-		wsWantWardenFrames(t, api, ServerSelfHost)
-		row, err := d.GetMember("ow-abc123")
-		if err != nil || row == nil {
-			t.Fatalf("GetMember: %v (%v)", row, err)
-		}
-		apiWantValue(t, "the close-out anchor after the rollback",
-			any(row.StoppedSince), any(float64(0)))
-		// 🔴 AND THE SESSION ANCHOR SURVIVES. Nothing was sent, so nothing died:
-		// dropping boot_ts here would make restart_self's minimum-liveness gate and
-		// the boot-storm guard fail OPEN on a session that is still running.
-		infraWantSession(t, api, d, "ow-abc123", 1700000000, 1700000000, infraSeededGauge())
-		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-			"status": "active", "desired_state": "online",
-			// The seeded session gauge surfaces on this projection; naming it keeps
-			// the comparison whole instead of dropping to a field subset.
-			"compaction_count": 3, "context_pct": 45,
-			"last_op": "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
-			"last_op_reason": "respawn_deferred: the stopped-report could not clear this " +
-				"worker's previous session — it is marked active but neither the server's " +
-				"spawn memory, a live connection, its last landing nor any online warden " +
-				"knows which machine it is on; retrying",
-		}))
-	})
+	}
 
 	t.Run("a HELD-DOWN worker's report on a dark fleet stays collected, with no rollback and no promise of a retry", func(t *testing.T) {
 		// 🔴 THE TWO ARMS DIVERGE HERE ON PURPOSE. A worker that is coming back has

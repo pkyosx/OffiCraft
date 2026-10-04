@@ -626,9 +626,9 @@ func (s *apiServer) consumeWorkerRestartAfterStop(w *OutsourceWorker, now float6
 // both populations (both report_stopped faces via decideStoppedReport,
 // collectWorkerHandover, collectWorkerStop).
 //
-//   - `prior` is what collectWorkerHandover rolls the latch back to when the stop
-//     finds no kill target. 🔴 IT MUST BE READ BEFORE THE STAMP: move the read
-//     after it and the rollback silently "restores" the latch it should undo.
+//   - `prior` is what latchWorkerStopped puts the in-memory latch back to when
+//     its write fails. 🔴 IT MUST BE READ BEFORE THE STAMP: move the read after it
+//     and the rollback silently "restores" the latch it should undo.
 //   - 🔴 THE `<= 0` GUARD IS THE ONCE-ONLY: a stopped-report racing the grace
 //     timeout can never double-collect (D4), and a repeat report never MOVES the
 //     anchor.

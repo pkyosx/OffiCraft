@@ -2009,8 +2009,7 @@ func TestHandleRestartOutsourceWorkerApiOutsourceWorkersIdRestartPost(t *testing
 		}))
 		dashboard.wantFrames(
 			apiTestWorkerStateDelta(3, "active", "online", "server"),
-			apiTestWorkerStateDelta(4, "active", "online", "server"),
-			apiTestWorkerStateDelta(5, "active", "online", "owner"),
+			apiTestWorkerStateDelta(4, "active", "online", "owner"),
 		)
 		bystander.wantFrames()
 		push()

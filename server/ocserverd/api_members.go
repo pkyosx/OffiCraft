@@ -1468,7 +1468,7 @@ func (s *apiServer) HandleReportStoppedApiSelfStoppedPost(w http.ResponseWriter,
 		// 🔴 A stopped-report is ALWAYS collected (owner, rc-b08d49dc3b03 option ①). The
 		// latch lands with the row or not at all: a latch left behind a failed write
 		// would make every retry read "already reported" and dispatch nothing, forever.
-		collect, stopEffect, _ = decideStoppedReport(windDownAnchorRowOfMember(cur), nowSecs())
+		collect, stopEffect = decideStoppedReport(windDownAnchorRowOfMember(cur), nowSecs())
 		saved = *cur
 		return persistMemberRowOn(tx, before, *cur)
 	})
@@ -1484,12 +1484,11 @@ func (s *apiServer) HandleReportStoppedApiSelfStoppedPost(w http.ResponseWriter,
 	s.writeSelfReportStopReceipt(w, saved, stopEffect)
 }
 
-func decideStoppedReport(row windDownAnchorRow, now float64) (collect bool, stopEffect string, prior float64) {
-	latched, prior := collectWindDownRow(row, now)
-	if !latched {
-		return false, stopEffectAlreadyReported, prior
+func decideStoppedReport(row windDownAnchorRow, now float64) (collect bool, stopEffect string) {
+	if latched, _ := collectWindDownRow(row, now); !latched {
+		return false, stopEffectAlreadyReported
 	}
-	return true, stopEffectCollected, prior
+	return true, stopEffectCollected
 }
 
 // 🔴 The live-session guard tests the SSE connection, not presence: the notice's
