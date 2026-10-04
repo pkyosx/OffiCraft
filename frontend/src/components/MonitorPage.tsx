@@ -32,6 +32,7 @@ import {
 import { useHashRoute } from "../lib/hashRoute";
 import { Avatar } from "./Avatar";
 import { avatarKindForMember } from "../lib/avatarKind";
+import { DiskUsageCell } from "./DiskUsageCell";
 import { InlineEdit } from "./InlineEdit";
 import { MemberDetailPanel } from "./MemberDetailPanel";
 import { PresenceBadge } from "./PresenceBadge";
@@ -1196,6 +1197,7 @@ export function MachinesTable({
           <col className="mon-col--pct" />
           <col className="mon-col--pct" />
           <col className="mon-col--power" />
+          <col className="mon-col--disk" />
           <col className="mon-col--actions" />
         </colgroup>
         <thead>
@@ -1213,6 +1215,7 @@ export function MachinesTable({
             <th>{t.monitor.machineCol.cpu}</th>
             <th>{t.monitor.machineCol.ram}</th>
             <th>{t.monitor.machineCol.power}</th>
+            <th>{t.monitor.diskUsage.column}</th>
             <th className="mon-table__right">
               {t.monitor.machine.actionsCol}
             </th>
@@ -1221,7 +1224,7 @@ export function MachinesTable({
         <tbody>
           {machines.length === 0 ? (
             <tr>
-              <td className="mon-table__left mon-muted" colSpan={7}>
+              <td className="mon-table__left mon-muted" colSpan={8}>
                 {t.monitor.machine.machinesEmpty}
               </td>
             </tr>
@@ -1389,6 +1392,9 @@ export function MachinesTable({
                       <HardwareBadMark />
                     )}
                   </CellLine>
+                </td>
+                <td data-label={t.monitor.diskUsage.column} data-testid="mon-disk">
+                  <DiskUsageCell usage={hw?.diskUsage} />
                 </td>
                 {/* Actions — the machine-lifecycle verbs (T-IUD):
                  *   install   → server-self: in-place bootstrap-on-server —

@@ -75,6 +75,7 @@ const card = (caps: Caps): MonMachineView => ({
   claudeVersion: null,
   claudeCredSource: null,
   claudeSubReadable: null,
+  diskUsage: null,
 });
 
 const installed = (loggedIn: boolean | null) => ({ installed: true, loggedIn, version: "2.1.300" });

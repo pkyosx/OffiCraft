@@ -1,13 +1,14 @@
 // Story — the 機器資訊 table in its three looks: a plain row, a row whose
-// Claude and Codex cells carry the 版本太舊 and 未登入 chips, and a row whose
-// telemetry went stale (過期 on every cell). Codex's 版本太舊 is not something
+// Claude and Codex cells carry the 版本太舊 and 未登入 chips and whose disk was
+// never measured, and a row whose telemetry went stale (過期 on every cell) on
+// an offline machine whose cutover is 未生效 — the widest 機器 cell. Codex's 版本太舊 is not something
 // the server sends today (below_notify_minimum is Claude's alone); it is here
 // because both columns render the same fields the same way and must fit them. Mounted through the real MachinesTable with
-// hand-built rows (no api), inside a 1000px box — the content width of the
-// monitor page at a 1500px desktop viewport.
+// hand-built rows (no api), inside a 1000px box (the monitor page content is 996px at any desktop
+// viewport from 1100px up).
 import { I18nProvider } from "../../src/i18n";
 import { MachinesTable } from "../../src/components/MonitorPage";
-import type { MachineView, MonMachineView } from "../../src/types";
+import type { MachineDiskUsageView, MachineView, MonMachineView } from "../../src/types";
 import "../../src/components/monitor.css";
 
 const machine: MachineView = {
@@ -21,6 +22,28 @@ const machine: MachineView = {
   claudeVersion: "2.1.287",
   claudeCredSource: "keychain",
   claudeSubReadable: true,
+};
+
+const GIB = 1024 ** 3;
+
+/** The widest total the 磁碟 column has to hold: "1023.9 GB". */
+const diskUsage: MachineDiskUsageView = {
+  measuredAt: Math.floor(Date.now() / 1000) - 12 * 60,
+  totalBytes: Math.round(1023.9 * GIB),
+  databaseBytes: Math.round(2.3 * GIB),
+  backupsBytes: Math.round(12.7 * GIB),
+  databaseMeasuredAt: Math.floor(Date.now() / 1000) - 5 * 60,
+  workspaceBytes: Math.round(15.6 * GIB),
+  conversationBytes: Math.round(7.7 * GIB),
+  claudeConversationBytes: Math.round(3.5 * GIB),
+  codexConversationBytes: Math.round(4.2 * GIB),
+  otherBytes: Math.round(985.6 * GIB),
+  members: [
+    { memberId: "mira", name: "Mira", rosterStatus: "active", workspaceBytes: null, conversationBytes: null, totalBytes: Math.round(7.9 * GIB) },
+    { memberId: "ow-151", name: "O-151", rosterStatus: "removed", workspaceBytes: null, conversationBytes: null, totalBytes: Math.round(3.9 * GIB) },
+  ],
+  diskFreeBytes: Math.round(384 * GIB),
+  diskTotalBytes: Math.round(931.5 * GIB),
 };
 
 const hardware: MonMachineView = {
@@ -47,6 +70,7 @@ const hardware: MonMachineView = {
   hardwareInvalid: [],
   claudeCredSource: "keychain",
   claudeSubReadable: true,
+  diskUsage,
 };
 
 export type MachinesLayoutState = "normal" | "chips" | "stale";
@@ -58,6 +82,7 @@ const rows: Record<MachinesLayoutState, { machine: MachineView; hw: MonMachineVi
     hw: {
       ...hardware,
       cpuPct: 16,
+      diskUsage: null,
       runtimeCapabilities: {
         claude: { installed: true, loggedIn: false, version: "2.1.286", belowNotifyMinimum: true },
         codex: { installed: true, loggedIn: false, version: "0.159.2", belowNotifyMinimum: true },
@@ -65,7 +90,7 @@ const rows: Record<MachinesLayoutState, { machine: MachineView; hw: MonMachineVi
     },
   },
   stale: {
-    machine: { ...machine, online: false, claudeVersion: "2.1.286" },
+    machine: { ...machine, online: false, claudeVersion: "2.1.286", cutoverEffect: "not_effective" },
     hw: {
       ...hardware,
       cpuPct: null,

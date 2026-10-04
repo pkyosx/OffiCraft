@@ -5,7 +5,10 @@
 // and the three action buttons stacked into two or three rows. jsdom has no
 // layout, so this is measured in a real browser on the real MachinesTable.
 // The owner then picked the marks on the SAME line as the value, in fixed
-// columns, Claude and Codex one width, and a ⚙ with no frame.
+// columns, Claude and Codex one width, and a ⚙ with no frame. Later
+// (rc-983ebe0ebc9a) the owner added 磁碟 between 電源 and 操作 and ruled that a
+// table too wide for its frame scrolls inside it with 機器 fixed on the left —
+// replacing "fits the desktop content width without scrolling".
 //
 // MUTANTS (each verified red):
 //   marks inline AND auto table layout (the layout before the fix)
@@ -21,6 +24,11 @@
 //   `.mon-stale` border back to --color-border → frame contrast below 1.5
 //   (in the built-in palette --color-border IS --color-card)
 //   drop the table's min-width               → 機器 name cut short at 800px
+//   min-width below 機器's widest row         → 機器 cell cut short (sticky test)
+//   磁碟 column removed or moved              → column order test
+//   磁碟 column narrowed                      → 磁碟 value test
+//   機器 column not sticky                    → 機器 left edge moves on scroll
+//   機器 cells transparent                    → a scrolled cell shows through
 //   menu focus counting disabled items       → keyboard test
 //   menu aligned to the gear's left edge     → menu right edge test
 //   ⚙ border back at rest, on hover or open  → frameless ⚙ test
@@ -52,10 +60,9 @@ test("at the 1000px desktop content width, every column starts at the same x in 
 }) => {
   await page.setViewportSize({ width: 1500, height: 900 });
   await mount(<MonitorMachinesLayoutStory />);
-  expect((await overflow(page)).frame, "the table fits the desktop content width without scrolling").toBe(0);
   const edges = await columnEdges(page);
-  expect(edges.normal.th).toHaveLength(7);
-  expect(edges.normal.td).toHaveLength(7);
+  expect(edges.normal.th).toHaveLength(8);
+  expect(edges.normal.td).toHaveLength(8);
   for (const state of ["chips", "stale"] as const) {
     expect(edges[state].th, `${state} header x`).toEqual(edges.normal.th);
     expect(edges[state].td, `${state} cell x`).toEqual(edges.normal.td);
@@ -115,6 +122,54 @@ for (const width of [1000, 900]) {
     }
   });
 }
+
+test("the columns run 機器, Claude, Codex, CPU, RAM, 電源, 磁碟, 操作 at their fixed widths", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1500, height: 900 });
+  await mount(<MonitorMachinesLayoutStory states={["normal"]} />);
+  const heads = await page.evaluate(() =>
+    Array.from(document.querySelectorAll("thead th")).map((th) => [
+      th.textContent!.trim(),
+      Math.round(th.getBoundingClientRect().width),
+    ])
+  );
+  expect(heads.slice(1)).toEqual([
+    ["Claude", 184],
+    ["Codex", 184],
+    ["CPU", 72],
+    ["RAM", 72],
+    ["電源", 88],
+    ["磁碟", 96],
+    ["操作", 56],
+  ]);
+  expect(heads[0][0]).toBe("機器");
+  const order = await page.evaluate(() =>
+    Array.from(document.querySelectorAll("tbody td")).map((td) => td.getAttribute("data-testid"))
+  );
+  expect(order.slice(5, 7)).toEqual(["mon-power", "mon-disk"]);
+});
+
+test("the 磁碟 total and 尚未量測 each sit on one line inside the column", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1500, height: 900 });
+  await mount(<MonitorMachinesLayoutStory states={["normal", "chips"]} />);
+  const cells = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('[data-testid="mon-disk"]')).map((cell) => {
+      const value = cell.querySelector(".disk-usage__trigger, .disk-usage__unmeasured")!;
+      const c = cell.getBoundingClientRect();
+      const v = value.getBoundingClientRect();
+      const lineHeight = parseFloat(getComputedStyle(value).lineHeight) || 20;
+      return {
+        text: value.textContent,
+        inside: v.left >= c.left && v.right <= c.right + 0.5,
+        oneLine: v.height < lineHeight * 1.8,
+        unclipped: value.scrollWidth <= value.clientWidth + 1,
+      };
+    })
+  );
+  expect(cells).toEqual([
+    { text: "1023.9 GB", inside: true, oneLine: true, unclipped: true },
+    { text: "尚未量測", inside: true, oneLine: true, unclipped: true },
+  ]);
+});
 
 test("a marked row is no taller than a plain one", async ({ mount, page }) => {
   await page.setViewportSize({ width: 1500, height: 900 });
@@ -293,7 +348,8 @@ async function overflow(page: Page) {
   });
 }
 
-for (const width of [760, 900]) {
+// 996px is the monitor page's content width at a 1280px (or any wider) desktop.
+for (const width of [760, 900, 996]) {
   test(`at ${width}px the ⚙ stays inside the scrolled frame and opens its menu`, async ({ mount, page }) => {
     await page.setViewportSize({ width: width + 20, height: 900 });
     await mount(<MonitorMachinesLayoutStory width={width} states={["stale"]} />);
@@ -347,6 +403,71 @@ for (const width of [760, 900]) {
       );
       expect(hit, `the ⚙ cell is on top at scrollLeft ${scroll}`).toBe(true);
     }
+  });
+}
+
+for (const width of [760, 900, 996]) {
+  test(`at ${width}px the table scrolls inside its frame with 機器 fixed on the left, uncut and covering what passes under it`, async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: width + 20, height: 900 });
+    await mount(<MonitorMachinesLayoutStory width={width} />);
+    const over = await overflow(page);
+    expect(over.page, "the page itself does not scroll sideways").toBeLessThanOrEqual(0);
+    expect(over.monitor).toBeLessThanOrEqual(0);
+    expect(over.frame, "control: the frame does scroll at this width").toBeGreaterThan(0);
+
+    const wraps = page.locator(".mon-table-wrap");
+    const machineCells = page.locator('[data-state="stale"] tbody td:first-child');
+    const machineHead = page.locator('[data-state="stale"] thead th:first-child');
+    const frame = (await wraps.last().boundingBox())!;
+    const startCell = (await machineCells.boundingBox())!;
+    const startHead = (await machineHead.boundingBox())!;
+    // The frame has a 1px border.
+    expect(Math.round(startCell.x)).toBe(Math.round(frame.x + 1));
+
+    await page.evaluate(() => document.querySelectorAll(".mon-table-wrap").forEach((el) => (el.scrollLeft = 10_000)));
+    expect(await wraps.last().evaluate((el) => el.scrollLeft), "control: the frame scrolled").toBeGreaterThan(0);
+    const cell = (await machineCells.boundingBox())!;
+    const head = (await machineHead.boundingBox())!;
+    expect({ cell: Math.round(cell.x), head: Math.round(head.x) }, "機器 stays on the frame's left edge").toEqual({
+      cell: Math.round(startCell.x),
+      head: Math.round(startHead.x),
+    });
+    const gear = (await page.getByRole("button", { name: "機器操作（伺服器這一台）" }).last().boundingBox())!;
+    expect(gear.x + gear.width).toBeLessThanOrEqual(frame.x + frame.width);
+
+    const fit = await page.evaluate(() =>
+      Array.from(document.querySelectorAll("[data-state] tbody td:first-child")).map((td) => {
+        const name = td.querySelector(".mon-machine-name")!;
+        const right = td.getBoundingClientRect().right - parseFloat(getComputedStyle(td).paddingRight);
+        return {
+          spill: Math.max(...Array.from(name.children).map((el) => el.getBoundingClientRect().right)) - right > 0.5,
+          clipped: Array.from(name.querySelectorAll("*")).some((el) => el.scrollWidth > el.clientWidth + 1),
+        };
+      })
+    );
+    expect(fit, "nothing in a 機器 cell runs out of it or is cut short").toEqual([
+      { spill: false, clipped: false },
+      { spill: false, clipped: false },
+      { spill: false, clipped: false },
+    ]);
+
+    // Scrolled all the way, the cells to the right of 機器 run under it. Painted
+    // opaque, hiding them changes no pixel inside the 機器 cell.
+    const clip = { x: cell.x, y: cell.y, width: cell.width, height: cell.height };
+    const covered = await page.screenshot({ clip });
+    const hide = (v: string) =>
+      page.evaluate((v) => {
+        document
+          .querySelectorAll('[data-state="stale"] tbody td:not(:first-child)')
+          .forEach((el) => ((el as HTMLElement).style.visibility = v));
+      }, v);
+    await hide("hidden");
+    const bare = await page.screenshot({ clip });
+    await hide("");
+    expect(covered.equals(bare), "a scrolled cell shows through the 機器 cell").toBe(true);
   });
 }
 

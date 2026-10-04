@@ -80,6 +80,7 @@ const card = (machineId: string): MonMachineView => ({
   claudeVersion: null,
   claudeCredSource: null,
   claudeSubReadable: null,
+  diskUsage: null,
 });
 
 function renderMonitor() {

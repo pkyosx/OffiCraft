@@ -613,9 +613,8 @@ export interface MonMachineView {
   hardwareInvalid: string[];
   claudeCredSource: ClaudeCredSource;
   claudeSubReadable: boolean | null;
-  /** null = nothing measured for this machine since the server started. The
-   * mapper always sets it; optional only so hand-built test rows can omit it. */
-  diskUsage?: MachineDiskUsageView | null;
+  /** null = nothing measured for this machine since the server started. */
+  diskUsage: MachineDiskUsageView | null;
 }
 
 /** OffiCraft's disk usage on one machine. Sizes are bytes; a null field was not

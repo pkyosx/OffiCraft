@@ -90,6 +90,7 @@ const card = (
   claudeVersion: null,
   claudeCredSource: null,
   claudeSubReadable: null,
+  diskUsage: null,
 });
 
 function mount(machineCard: MonMachineView) {

@@ -7,12 +7,12 @@
   white-space: nowrap;
 }
 /* Quiet at rest so the column reads as plain numbers; the negative margin
- * keeps the text aligned with the column header. */
+ * keeps the text on the right-aligned column's edge. */
 .disk-usage__trigger {
   display: inline-flex;
   align-items: center;
   min-height: 24px;
-  margin-left: -6px;
+  margin-right: -6px;
   padding: 0 6px;
   border: 1px solid transparent;
   border-radius: 7px;
