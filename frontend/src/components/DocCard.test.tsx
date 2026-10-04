@@ -19,8 +19,7 @@
 //    (measured: "310 / 1000" while the draft held 4,000 characters), sent the
 //    write, and turned the server's refusal into an unhandled promise rejection
 //    and nothing on screen. Both halves are asserted below — the cockpit-side
-//    refusal, and the server's own words when a save fails anyway. T-342 also
-//    adds a factory-status badge only to documents with a factory seed.
+//    refusal, and the server's own words when a save fails anyway.
 //
 // 🔴 使用者自訂 PASSES NO `usage` AND IS THEREFORE UNTOUCHED BY ALL OF IT. That
 // is the control: global_context genuinely has no cap (docCap.ts's

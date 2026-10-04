@@ -367,7 +367,7 @@ describe("DocumentHistoryModal", () => {
     expect(utils.getByText(s.historyModalEmpty)).toBeTruthy();
   });
 
-  it("says a retained revision whose read failed cannot be read, and keeps restore live", () => {
+  it("says a retained revision whose read failed cannot be read, without promising the restore will work", () => {
     const utils = render(
       <I18nProvider>
         <DocumentHistoryModal
@@ -385,7 +385,10 @@ describe("DocumentHistoryModal", () => {
     );
     expect(
       utils.getByTestId("doc-history-version-unreadable").textContent
-    ).toBe("這個版本的內容目前讀不到，暫時無法顯示或比較；還原這個版本仍然可以執行。");
+    ).toBe("這個版本的內容目前讀不到，暫時無法顯示或比較。");
+    expect(en.settings.historyVersionUnreadable).toBe(
+      "This version's content cannot be read right now, so it cannot be shown or compared."
+    );
     expect(
       (utils.getByTestId("doc-history-modal-restore") as HTMLButtonElement)
         .disabled

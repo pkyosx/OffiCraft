@@ -1414,8 +1414,8 @@ func TestRestoreTaskManualField(t *testing.T) {
 	})
 }
 
-// seedLegacyTombstoneRevision writes the row a reset used to leave behind
-// before following-the-default stopped being retained.
+// seedLegacyTombstoneRevision writes a tombstone revision row, which every
+// history read must hide while it still counts toward the retention slots.
 func seedLegacyTombstoneRevision(t *testing.T, d *DAL) {
 	t.Helper()
 	if _, err := d.wdb.Exec(`INSERT INTO document_history

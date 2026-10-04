@@ -774,10 +774,10 @@ func (d *DAL) ListDocumentHistory(kind, key string) ([]DocumentHistory, error) {
 	return out, rows.Err()
 }
 
-// Rows retained before tombstones stopped being snapshotted are hidden from
-// every read (list, get, restore, diff) rather than deleted: restoring one
-// would only re-sync the document to its default, which the 預設內容 row does.
-// They still occupy retention slots until newer revisions push them out.
+// A tombstone revision is hidden from every read (list, get, restore, diff)
+// rather than deleted: restoring one would only re-sync the document to its
+// default, which the 預設內容 row already does. Hidden rows still count toward
+// the retention slots until newer revisions push them out.
 func documentHistoryIsTombstone(contentJSON string) bool {
 	content := map[string]string{}
 	if err := json.Unmarshal([]byte(contentJSON), &content); err != nil {

@@ -293,7 +293,7 @@ describe("mockApi · boot-context blocks", () => {
     ).rejects.toMatchObject({ status: 404 });
   });
 
-  it("restoring a retained revision puts the block back, tombstone included", async () => {
+  it("restoring a retained revision writes its text back and the block shows as modified", async () => {
     await mockApi.saveBootDoc("boot_sequence", "claude", "第一版");
     await mockApi.saveBootDoc("boot_sequence", "claude", "第二版");
     const [older] = await documentRevisions(mockApi, "boot_sequence", "claude");
@@ -303,19 +303,18 @@ describe("mockApi · boot-context blocks", () => {
       body: "第一版",
       isDefault: false,
     });
+  });
 
-    // And restoring the tombstoned 預設內容 row puts it back ON the seed rather
-    // than writing the seed text in as an edit.
-    const seedRow = (
-      await documentRevisions(mockApi, "boot_sequence", "claude")
-    ).find((v) => v.content.tombstoned === "true");
-    expect(seedRow).toBeUndefined();
+  it("restoring the revision a reset retained writes that text back as an edit", async () => {
+    await mockApi.saveBootDoc("boot_sequence", "claude", "重置前的版本");
     await mockApi.resetBootDoc("boot_sequence", "claude");
-    const afterReset = await documentRevisions(mockApi, 
-      "boot_sequence",
-      "claude"
-    );
-    expect(afterReset[0].content.tombstoned).toBe("false");
+    const [kept] = await documentRevisions(mockApi, "boot_sequence", "claude");
+    await mockApi.restoreDocumentHistory("boot_sequence", "claude", kept.id);
+    expect(await mockApi.getBootDoc("boot_sequence", "claude")).toMatchObject({
+      text: storedFor(SEED_BOOT_SEQUENCE_MD, "重置前的版本"),
+      body: "重置前的版本",
+      isDefault: false,
+    });
   });
 });
 

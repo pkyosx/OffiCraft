@@ -2158,7 +2158,7 @@ export const en: Dict = {
     historyModalEmpty: "This version has no content.",
     historyModalDefaultContent: "The default content is empty.",
     historyVersionUnreadable:
-      "This version's content cannot be read right now, so it cannot be shown or compared. Restoring this version still works.",
+      "This version's content cannot be read right now, so it cannot be shown or compared.",
     historyClose: "Close",
     historyRoleDefTitle: "Role definition · version history",
     historyInsightTitle: "Insight · version history",

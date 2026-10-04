@@ -120,6 +120,19 @@ describe("SettingsPage · #settings/roles deep-link (T-f074 正職 ➕👤)", ()
     expect(utils.getByText(`+ ${s.addRole}`)).toBeTruthy();
   });
 
+  it("labels an edited seeded role as modified in the role list", async () => {
+    await api.saveRole("assistant", { definitionMd: "owner 改寫的角色定義" });
+    const utils = render(
+      <I18nProvider>
+        <SettingsPage initialRoles />
+      </I18nProvider>
+    );
+    await utils.findByText(s.roleDefsSection);
+    expect(
+      utils.getByTestId("role-status-badge-assistant").textContent
+    ).toBe("已修改");
+  });
+
   it("shows no factory-status label on a custom role in the role list", async () => {
     const utils = await openRolesLog();
     await createViaRow(utils);

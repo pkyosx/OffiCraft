@@ -793,6 +793,9 @@ export function SettingsPage({
       <DocCard
         title={t.settings.customName}
         doc={gc.ctx}
+        // Its default content is the empty document, which still counts as a
+        // default: the badge follows whether an overlay exists.
+        hasSeed
         crumbs={[
           crumbRoot,
           crumbGlobalContext,
