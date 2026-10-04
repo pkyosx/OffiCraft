@@ -822,14 +822,9 @@ func (s *apiServer) HandleActivateMemberApiMembersMemberIdActivatePost(w http.Re
 	booting := inFlightStart{}
 	if !sessionAlive {
 		s.bankLiveCost(saved.ID)
-		// A START from an earlier press may still be booting, and the kill chain can name a
-		// different machine (a last landing outranks the pin), so the stop goes there too. Only a
-		// stop that reached it may supersede it; otherwise the reconcile below waits on it.
-		booting = s.inFlightStartOfMember(saved.ID)
-		stop := s.dispatchRobustStopAlsoTo(saved.ID, booting.Target)
-		if s.noteStartSupersededByStop(saved.ID, booting, stop, nowSecs()) {
-			booting = inFlightStart{}
-		}
+		// A START from an earlier press may still be booting; unless the stop reached it, the
+		// reconcile below waits on it.
+		booting = s.dispatchRobustStopPastBootingStart(saved.ID)
 		dec = s.reconcileMemberNow(saved.ID)
 	}
 	receipt := memberActivateReceiptDTO{ID: saved.ID}
@@ -1081,10 +1076,10 @@ func (s *apiServer) HandleDeactivateMemberApiMembersMemberIdDeactivatePost(w htt
 	if arm == stopArmCancelWake {
 		// Not widened to the online case: a live member gets the soft window and is
 		// collected by its own report_stopped or the owner's 加速停止 / 強制停止.
-		s.dispatchRobustStopNow(saved.ID)
+		s.dispatchRobustStopPastBootingStart(saved.ID)
 	}
-	// Arms no clock (owner ruling). Still run after a cancel: the raw dispatch above
-	// does not touch the reconcile store.
+	// Arms no clock (owner ruling). Still run after a cancel: the dispatch above
+	// touches the reconcile store only to retire a START its stop reached.
 	s.reconcileMemberNow(saved.ID)
 	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: saved.ID})
 }

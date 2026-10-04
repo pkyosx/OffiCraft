@@ -267,3 +267,66 @@ func TestDeactivateMember_StaysAdminGatedAfterTheCancelDispatch(t *testing.T) {
 			deactivate.Requires, forceStop.Requires)
 	}
 }
+
+// wakingElsewhere is a WAKING staff member whose kill chain names its last
+// landing (mach-old) while the START it waits on is booting on its pin
+// (mach-boot); both wardens online. Answers the machines a STOP for it reached.
+func wakingElsewhere(t *testing.T) (*apiServer, string, func() map[string]any) {
+	t.Helper()
+	s := newReconcileTestServer(t)
+	putWarden(t, s, "mach-old")
+	connectOnline(t, s, "mach-old")
+	putWarden(t, s, "mach-boot")
+	connectOnline(t, s, "mach-boot")
+	m := testAgent("m-wake-elsewhere")
+	m.DesiredState = DesiredStateOnline
+	m.DesiredMachineID = "mach-boot"
+	m.LastMachineID = "mach-old"
+	m.WakingSince = nowSecs()
+	putTestMember(t, s, m)
+	s.setReconcileState(m.ID, reconcileState{
+		Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart,
+		LastCommandAt: nowSecs(), StartTarget: "mach-boot",
+	})
+	return s, m.ID, func() map[string]any {
+		stops := map[string]any{}
+		for _, machine := range []string{"mach-old", "mach-boot"} {
+			for _, f := range drainFrames(t, s, machine) {
+				if f.RPC == reconcileCmdStop && f.Args["member_id"] == m.ID {
+					stops[machine] = true
+				}
+			}
+		}
+		return stops
+	}
+}
+
+// A worker's kill chain puts its spawn target first, so its STOP always reaches
+// the booting machine; a staff STOP must too.
+func TestHandleDeactivateMember_CancellingAWakeReachesTheMachineTheStartIsBootingOn(t *testing.T) {
+	s, id, stops := wakingElsewhere(t)
+
+	rec := httptest.NewRecorder()
+	s.HandleDeactivateMemberApiMembersMemberIdDeactivatePost(rec,
+		taskReq(t, "POST", "/api/members/"+id+"/deactivate", map[string]any{},
+			wireOwnerID, "owner"), id)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("deactivate: %d %s", rec.Code, rec.Body.String())
+	}
+	apiWantValue(t, "machines the cancel's STOP reached", any(stops()),
+		any(map[string]any{"mach-old": true, "mach-boot": true}))
+}
+
+func TestHandleForceStopMember_ReachesTheMachineAStartIsBootingOn(t *testing.T) {
+	s, id, stops := wakingElsewhere(t)
+
+	rec := httptest.NewRecorder()
+	s.HandleForceStopMemberApiMembersMemberIdForceStopPost(rec,
+		taskReq(t, "POST", "/api/members/"+id+"/force-stop", map[string]any{},
+			wireOwnerID, "owner"), id)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("force-stop: %d %s", rec.Code, rec.Body.String())
+	}
+	apiWantValue(t, "machines the force-stop's STOP reached", any(stops()),
+		any(map[string]any{"mach-old": true, "mach-boot": true}))
+}

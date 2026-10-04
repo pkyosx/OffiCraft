@@ -1818,8 +1818,28 @@ func (s *apiServer) reconcileMemberNow(memberID string) reconcileDecision {
 	return s.reconcileTickMemberLocked(*m, nowSecs())
 }
 
-func (s *apiServer) dispatchRobustStopNow(memberID string) {
-	s.dispatchRobustStopAlsoTo(memberID, "")
+// dispatchRobustStopNow is every staff out-of-band robust STOP. It also reaches a
+// START still booting, whose machine the kill chain cannot name (the session has
+// neither connected nor landed, and a last landing outranks the pin) — the
+// worker's chain reaches it by putting its spawn target first.
+// 🔴 Reads the reconcile store WITHOUT reconcileMu: a handler's kill must never
+// wait on the tick (TestDispatchShutdown).
+func (s *apiServer) dispatchRobustStopNow(memberID string) shutdownDispatch {
+	booting := inFlightStartOf(s.reconcileStateOf(memberID))
+	return s.dispatchRobustStopAlsoTo(memberID, booting.Target)
+}
+
+// dispatchRobustStopPastBootingStart is dispatchRobustStopNow for a press that
+// then reconciles at once (喚醒, 取消喚醒): only a stop that reached the booting
+// START supersedes it, otherwise that reconcile must keep waiting on it. Answers
+// the START still owed that wait. Takes reconcileMu.
+func (s *apiServer) dispatchRobustStopPastBootingStart(memberID string) inFlightStart {
+	booting := s.inFlightStartOfMember(memberID)
+	stop := s.dispatchRobustStopAlsoTo(memberID, booting.Target)
+	if s.noteStartSupersededByStop(memberID, booting, stop, nowSecs()) {
+		return inFlightStart{}
+	}
+	return booting
 }
 
 func (s *apiServer) dispatchRobustStopAlsoTo(memberID, alsoTo string) shutdownDispatch {
