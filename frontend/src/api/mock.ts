@@ -205,6 +205,7 @@ import {
   SEED_TASK_READY_FOR_DONE_MD,
 } from "./seeds";
 import { mockApiError } from "./errorCodes";
+import { isLoreType } from "./loreType";
 import { formatDiffUrl, type DiffParams } from "../lib/diffLink";
 
 /** The offline cockpit's compare fixture — two texts that differ by one edited
@@ -1097,6 +1098,7 @@ const mockLoreEntries: LoreEntryView[] = [
     effectiveTs: 1788600000,
     createdTs: 1788500000,
     updatedTs: 1788600000,
+    loreType: "owner_decision",
   },
   {
     id: "L-2",
@@ -1114,6 +1116,7 @@ const mockLoreEntries: LoreEntryView[] = [
     effectiveTs: 1788400000,
     createdTs: 1788400000,
     updatedTs: 1788400000,
+    loreType: "instruction_supplement",
   },
   {
     id: "L-3",
@@ -1131,6 +1134,7 @@ const mockLoreEntries: LoreEntryView[] = [
     effectiveTs: 1788300000,
     createdTs: 1788300000,
     updatedTs: 1788700000,
+    loreType: "instruction_conflict",
   },
   {
     id: "L-4",
@@ -1148,6 +1152,7 @@ const mockLoreEntries: LoreEntryView[] = [
     effectiveTs: 1788450000,
     createdTs: 1788450000,
     updatedTs: 1788450000,
+    loreType: "owner_preference",
   },
   // A SECOND member's rows, so that "keyed by a member id" has a fixture where
   // the two members are actually different people. L-1..L-3 are Mira's (staff);
@@ -1174,6 +1179,7 @@ const mockLoreEntries: LoreEntryView[] = [
     effectiveTs: 1788460000,
     createdTs: 1788460000,
     updatedTs: 1788460000,
+    loreType: "other",
   },
   // 🔴 THE ORPHAN. On the wire this row's scope_kind is the retired literal
   // "role"; `toLoreEntry` maps every unrecognised kind to "unknown", which is
@@ -1198,6 +1204,7 @@ const mockLoreEntries: LoreEntryView[] = [
     effectiveTs: 1788440000,
     createdTs: 1788440000,
     updatedTs: 1788440000,
+    loreType: "",
   },
   {
     id: "L-7",
@@ -1215,8 +1222,12 @@ const mockLoreEntries: LoreEntryView[] = [
     effectiveTs: 1788470000,
     createdTs: 1788470000,
     updatedTs: 1788470000,
+    loreType: "",
   },
 ];
+
+const LORE_TYPE_LIST =
+  "instruction_conflict, instruction_supplement, owner_decision, owner_preference or other";
 
 /** The FIXED display order (spec §6): 置頂 → 生效中 → 已失效, newest effective
  * first inside each group, `seq` as the tie-break so two entries sharing an
@@ -5196,12 +5207,23 @@ const mockApiImpl = {
     const keys = axis(opts?.scopeKeys, opts?.scopeKey);
     const states = axis(opts?.states, opts?.state);
     const authors = axis(opts?.authorIds, opts?.authorId);
+    const loreTypes = opts?.loreTypes ?? [];
+    for (const lt of loreTypes) {
+      if (!isLoreType(lt)) {
+        throw mockApiError(
+          "http 400 for GET /api/lore",
+          400,
+          `lore_types must be one of ${LORE_TYPE_LIST} — got ${JSON.stringify(lt)}`
+        );
+      }
+    }
     const matches = mockLoreEntries.filter(
       (e) =>
         (kinds.length === 0 || kinds.includes(e.scopeKind as (typeof kinds)[number])) &&
         (keys.length === 0 || keys.includes(e.scopeKey)) &&
         (states.length === 0 || states.includes(e.state)) &&
-        (authors.length === 0 || authors.includes(e.authorId))
+        (authors.length === 0 || authors.includes(e.authorId)) &&
+        (loreTypes.length === 0 || (e.loreType !== "" && loreTypes.includes(e.loreType)))
     );
     const ordered = [...matches].sort(mockLoreOrder);
 
@@ -5273,6 +5295,13 @@ const mockApiImpl = {
   // The mock still MUTATES its store, which is the part any caller can observe
   // — through listLoreEntries, exactly as against a real server.
   async writeLoreEntry(entry: LoreEntryWrite): Promise<void> {
+    if (entry.loreType && !isLoreType(entry.loreType)) {
+      throw mockApiError(
+        "http 400 for POST /api/lore",
+        400,
+        `lore_type must be one of ${LORE_TYPE_LIST}, or omitted for no tag — got ${JSON.stringify(entry.loreType)}; nothing was written`
+      );
+    }
     const now = Date.now() / 1000;
     const seq = mockLoreEntries.length + 1;
     const made: LoreEntryView = {
@@ -5297,6 +5326,7 @@ const mockApiImpl = {
       effectiveTs: now,
       createdTs: now,
       updatedTs: now,
+      loreType: entry.loreType ?? "",
     };
     mockLoreEntries.push(made);
   },

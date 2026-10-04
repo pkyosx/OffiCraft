@@ -445,6 +445,29 @@ button.lore-row__scope-chip--editable:hover {
   max-width: 100%;
 }
 
+/* Type tag: the row's leading capsule. Filled and dot-less so it does not read
+ * as one more state pill beside the status badge. */
+.lore-badge--lore-type {
+  border-color: transparent;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+.lore-badge--lore-type::before {
+  content: none;
+}
+.lore-badge--lore-type-instruction_conflict {
+  color: var(--color-danger);
+}
+.lore-badge--lore-type-instruction_supplement {
+  color: var(--color-warn-fg);
+}
+.lore-badge--lore-type-owner_decision,
+.lore-badge--lore-type-owner_preference {
+  color: var(--color-lore-type-owner);
+}
+.lore-badge--lore-type-other {
+  color: var(--color-text-muted);
+}
+
 /* ── badge → state menu (copy of .task-card__status / __status-chip) ── */
 .lore-row__status {
   position: relative;
