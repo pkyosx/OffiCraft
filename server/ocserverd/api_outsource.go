@@ -274,6 +274,8 @@ func (s *apiServer) HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcc
 func (s *apiServer) HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(w http.ResponseWriter, r *http.Request, id string) {
 	unlockMu := s.outsourceMu.Acquire()
 	defer unlockMu()
+	sessionAlive := s.hub.IsOnline(id)
+	arm := stopArmSoftWindow
 	var worker *OutsourceWorker
 	err := s.dal.inTx(func(tx *writeTx) error {
 		var err error
@@ -281,6 +283,7 @@ func (s *apiServer) HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(w htt
 			return err
 		}
 		before := *worker
+		arm = stopVerbArmOf(memberFromWorker(*worker), sessionAlive, nowSecs())
 		// The row writes are applyStopVerbRow's (shared with the staff deactivate).
 		// memberFromWorker only supplies the PRE-stop anchors; the result lands on the
 		// WORKER row through stopVerbRowOfWorker's pointers, not on the projection.
@@ -295,7 +298,11 @@ func (s *apiServer) HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(w htt
 	// Online: 預告 + wait. Offline: immediate kill (nothing can hear it).
 	// openWorkerHandoverGrace re-reads liveness itself, so a disconnect racing
 	// this handler cannot end in a respawn.
-	s.openWorkerHandoverGrace(*worker, requestTrigger(r))
+	if arm == stopArmCancelWake {
+		s.stopWorkerNow(*worker)
+	} else {
+		s.openWorkerHandoverGrace(*worker, requestTrigger(r))
+	}
 	if fresh, ferr := s.dal.GetOutsourceWorker(id); ferr == nil && fresh != nil {
 		worker = fresh
 	}

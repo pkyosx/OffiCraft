@@ -68,6 +68,40 @@ func TestHandleDeactivateMember_CancellingAWakeDispatchesAStop(t *testing.T) {
 			"the cadence cannot, decideDown treats !online as already converged, " +
 			"so the booting process would come up anyway")
 	}
+	if got, _ := s.dal.GetMember("m-wake-cancel"); got == nil || got.StoppedSince != 0 {
+		t.Fatalf("a cancelled wake is collected only once its session is confirmed gone: %+v", got)
+	}
+}
+
+func TestStopOutsourceWorker_CancellingAWakeDispatchesAStopAndCollectsNothing(t *testing.T) {
+	api := newTasksTestServer(t)
+	api.noOutsource = true
+	workerID := newActiveWorker(t, api, false)
+	if err := api.dal.SetMemberWakingSince(workerID, nowSecs()); err != nil {
+		t.Fatalf("SetMemberWakingSince: %v", err)
+	}
+	pre, _ := api.dal.GetOutsourceWorker(workerID)
+	if got := PresenceState(memberFromWorker(*pre), nowSecs(), false); got != MemberPresenceWaking {
+		t.Fatalf("fixture must be in the waking projection, got %q", got)
+	}
+	api.hub.DrainWardenCommands(ServerSelfHost)
+
+	if rec := postWorker(t, api, workerID, "stop", nil,
+		api.HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost); rec.Code != http.StatusOK {
+		t.Fatalf("stop: %d %s", rec.Code, rec.Body.String())
+	}
+
+	got := []any{}
+	for _, f := range api.hub.DrainWardenCommands(ServerSelfHost) {
+		rpc, args := decodeWardenFrame(t, f.Frame)
+		got = append(got, []any{rpc, args["member_id"]})
+	}
+	apiWantValue(t, "frames to the booting machine", any(got), any([]any{[]any{"stop", workerID}}))
+	after, _ := api.dal.GetOutsourceWorker(workerID)
+	if after.StoppedSince != 0 || after.DesiredState != DesiredStateOffline {
+		t.Fatalf("a cancelled wake is held down and collected only once its session is confirmed "+
+			"gone: desired_state %q stopped_since %v", after.DesiredState, after.StoppedSince)
+	}
 }
 
 // TestHandleDeactivateMember_OnlineMemberKeepsTheGracefulGrace — the negative

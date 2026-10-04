@@ -1016,6 +1016,28 @@ func applyStopVerbRow(row stopVerbRow, snapshot Member, now float64) {
 	*row.StoppingSince = stopEpochAnchor(snapshot, now)
 }
 
+type stopVerbArm int
+
+const (
+	stopArmSoftWindow stopVerbArm = iota
+	stopArmCollectNow
+	stopArmCancelWake
+)
+
+// stopVerbArmOf is the judgement 停止 makes about the session, for staff and workers alike.
+// pre must be the row BEFORE applyStopVerbRow: stamping stopping_since ends the waking
+// projection. 🔴 Cancelling a wake is not a graceful stop (T-7526): the booting process gets a
+// STOP now, but nothing is collected until its session is confirmed gone.
+func stopVerbArmOf(pre Member, sessionAlive bool, now float64) stopVerbArm {
+	switch {
+	case sessionAlive:
+		return stopArmSoftWindow
+	case PresenceState(pre, now, false) == MemberPresenceWaking:
+		return stopArmCancelWake
+	}
+	return stopArmCollectNow
+}
+
 func (s *apiServer) HandleDeactivateMemberApiMembersMemberIdDeactivatePost(w http.ResponseWriter, r *http.Request, memberId string) {
 	m, err := s.resolveMember(memberId, anyMember)
 	if err != nil {
@@ -1028,25 +1050,19 @@ func (s *apiServer) HandleDeactivateMemberApiMembersMemberIdDeactivatePost(w htt
 	}
 	sessionAlive := s.hub.IsOnline(m.ID)
 	var stopped, saved Member
-	cancellingWake, collect := false, false
+	arm := stopArmSoftWindow
 	err = s.dal.inTx(func(tx *writeTx) error {
 		cur, err := resolveMemberOn(tx, memberId, anyMember)
 		if err != nil {
 			return err
 		}
 		before := *cur
-		// 🔴 Cancelling a wake is not a graceful stop (T-7526). Read BEFORE the
-		// mutation: stamping stopping_since ends the waking projection. A waking
-		// member is not online, and decideDown's offline arm sends nothing until the
-		// confirm window has passed, so without this the cancel did nothing for that
-		// long.
-		cancellingWake = PresenceState(*cur, nowSecs(), sessionAlive) == MemberPresenceWaking
+		arm = stopVerbArmOf(*cur, sessionAlive, nowSecs())
 		applyStopVerbRow(stopVerbRowOfMember(cur), *cur, nowSecs())
 		stopped = *cur
 		// An offline member is collected right here: the stopped latch lands with the
 		// stop, so a failure leaves neither and a retry is a first collect again.
-		collect = !sessionAlive && !cancellingWake
-		if collect {
+		if arm == stopArmCollectNow {
 			collectWindDownRow(windDownAnchorRowOfMember(cur), nowSecs())
 		}
 		saved = *cur
@@ -1057,12 +1073,12 @@ func (s *apiServer) HandleDeactivateMemberApiMembersMemberIdDeactivatePost(w htt
 		return
 	}
 	s.publishMemberPatch(stopped, requestTrigger(r))
-	if collect {
+	if arm == stopArmCollectNow {
 		s.publishMemberPatch(saved, requestTrigger(r))
 		s.bankLiveCost(saved.ID)
 		s.dispatchRobustStopNow(saved.ID)
 	}
-	if cancellingWake {
+	if arm == stopArmCancelWake {
 		// Not widened to the online case: a live member gets the soft window and is
 		// collected by its own report_stopped or the owner's 加速停止 / 強制停止.
 		s.dispatchRobustStopNow(saved.ID)
