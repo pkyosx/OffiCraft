@@ -535,13 +535,13 @@ func TestAWardenThatReturnsGetsTheOwedStopAheadOfAHandlersStart(t *testing.T) {
 			wsVerbs(t, api, ServerSelfHost)
 
 			slNoSuchSession(t, api, h, ServerSelfHost, id)
-			api.sweepLapsedReceipts(nowSecs() + receiptDeadlineSecs)
+			api.sweepLapsedReceipts(nowSecs() + startReceiptDeadlineSecs)
 
 			m := apiTestMemberRow(t, d, id)
 			apiWantValue(t, "last_op", any(m.LastOp), any("start"))
 			apiWantValue(t, "last_op_reason", any(m.LastOpReason), any(
 				"receipt_missing: the start was handed to machine \"m-server-self\" but no receipt "+
-					"came back within 90s — the op may or may not have run; this row's last state is "+
+					"came back within 150s — the op may or may not have run; this row's last state is "+
 					"UNKNOWN, not failed. Suspect the machine's link to the server (the receipt POST) "+
 					"before suspecting the op itself"))
 		})
