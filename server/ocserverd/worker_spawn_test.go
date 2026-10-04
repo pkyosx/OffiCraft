@@ -842,7 +842,7 @@ func TestNotifyWorkerSpawn(t *testing.T) {
 		})
 	})
 
-	t.Run("a landed start drops the previous session's boot anchor and the kill parked for the machine it lands on", func(t *testing.T) {
+	t.Run("a landed start drops the previous session's boot anchor, and the kill parked for the machine it lands on goes out first and is then retired", func(t *testing.T) {
 		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
 		api.gauge.Set("ow-abc123", map[string]any{"boot_ts": 111.0, "compaction_count": 2.0})
 		api.outsourceMu.Lock()
@@ -855,7 +855,7 @@ func TestNotifyWorkerSpawn(t *testing.T) {
 		api.notifyWorkerSpawn(wsPinned(w), 1000)
 		api.outsourceMu.Unlock()
 		apiWantValue(t, "gauge", any(api.gauge.Get("ow-abc123")), any(map[string]any{}))
-		apiWantValue(t, "the start", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"start"}))
+		apiWantValue(t, "the queue", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop", "start"}))
 
 		// A re-fire now would shoot the session that start creates.
 		api.runOutsourceTick(1001)

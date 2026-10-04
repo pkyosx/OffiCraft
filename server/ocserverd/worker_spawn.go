@@ -470,6 +470,7 @@ func (s *apiServer) notifyWorkerSpawn(w OutsourceWorker, now float64) bool {
 			": could not build this worker's start frame: "+err.Error(), now)
 		return false
 	}
+	s.flushParkedStopBeforeStart(w.ID, now, s.workerFanout(w))
 	if !s.enqueueToWarden(w.ID, warden, frame) {
 		s.stampWorkerPlacementBlocked(&w, spawnReasonWardenLost+": machine '"+warden+
 			"' went offline between the placement decision and the dispatch", now)
@@ -872,6 +873,11 @@ func (s *apiServer) resolveWorkerKillTarget(workerID, lastMachine string) string
 func (s *apiServer) workerKillTargets(workerID, lastMachine string) []string {
 	targets, _ := s.workerKillChain(workerID, lastMachine)
 	return targets
+}
+
+// workerFanout re-resolves a parked fan-out's targets. Callers hold s.outsourceMu.
+func (s *apiServer) workerFanout(w OutsourceWorker) func() []string {
+	return func() []string { return s.workerKillTargets(w.ID, w.LastMachineID) }
 }
 
 // Callers hold s.outsourceMu.

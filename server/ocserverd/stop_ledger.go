@@ -200,18 +200,34 @@ func (s *apiServer) stepRobustStop(id string, now float64, fanout func() []strin
 		s.robustStopMu.Unlock()
 		return false
 	case robustStopResend:
-		fan := rs.Target == ""
-		targets := []string{rs.Target}
-		if fan {
-			targets = fanout()
-		}
 		if rs.Landed {
 			reconcileLog("robust stop %s: session still live past stop_retry (aimed at %q) — "+
 				"the kill did not take, re-dispatching", id, rs.Target)
 		}
-		s.sendRobustStopOver(id, targets, fan, now, &rs)
+		s.resendRobustStop(id, rs, now, fanout)
 	}
 	return s.robustStopOwed(id)
+}
+
+func (s *apiServer) resendRobustStop(id string, rs robustStop, now float64, fanout func() []string) {
+	fan := rs.Target == ""
+	targets := []string{rs.Target}
+	if fan {
+		targets = fanout()
+	}
+	s.sendRobustStopOver(id, targets, fan, now, &rs)
+}
+
+// flushParkedStopBeforeStart re-fires a parked STOP immediately before a START is
+// queued, so a warden FIFO that gets both holds the STOP first. Both START queue
+// sites call it: a handler's reconcile decides without stepping the ledger, and
+// the START's landing (disarmRobustStopOnStart) would otherwise retire a STOP
+// that never left — the old session would run beside the new one. Called with
+// the START site's scheduler lock held, as stepRobustStop is.
+func (s *apiServer) flushParkedStopBeforeStart(id string, now float64, fanout func() []string) {
+	if rs, ok := s.robustStopOf(id); ok && !rs.Landed {
+		s.resendRobustStop(id, rs, now, fanout)
+	}
 }
 
 // robustStopOwed: a STOP is out and the session it aimed at still runs. The

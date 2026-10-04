@@ -266,9 +266,7 @@ func (s *apiServer) runOutsourceTick(now float64) {
 		s.consumeWorkerRestartAfterStop(&w, now)
 		// Step an owed robust STOP FIRST, before any branch below can re-spawn
 		// onto the same machine.
-		s.stepRobustStop(w.ID, now, func() []string {
-			return s.workerKillTargets(w.ID, w.LastMachineID)
-		})
+		s.stepRobustStop(w.ID, now, s.workerFanout(w))
 		switch w.Status {
 		case WorkerStatusAssigned, WorkerStatusActive:
 			// The FSM is the ONLY collector of a wind-down or 停止 epoch: do not gate it

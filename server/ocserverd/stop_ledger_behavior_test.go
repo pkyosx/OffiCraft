@@ -457,3 +457,74 @@ func TestAnAimedStopAgainstAClaimLessConnectionIsStillOwed(t *testing.T) {
 	api.runReconcileTick(nowSecs() + api.reconcileConfigLive().StopRetry + 1)
 	wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("pinned"))
 }
+
+// A handler's reconcile decides without stepping the ledger, so a warden that
+// came back between two ticks can be handed a START before the tick re-fires the
+// STOP owed on it — and the START's landing would retire that STOP unsent,
+// leaving the old session running beside the new one.
+func TestAWardenThatReturnsGetsTheOwedStopAheadOfAHandlersStart(t *testing.T) {
+	for _, tc := range []struct {
+		who string
+		// darkReport: the member's own stopped-report while no warden is online,
+		// so its STOP is parked as a fan-out. Answers the member's id.
+		darkReport func(t *testing.T) (*apiServer, *DAL, string)
+		// pin gives the member a machine its START can go to.
+		pin   func(t *testing.T, d *DAL, id string)
+		start func(api *apiServer, d *DAL, id string)
+	}{
+		{
+			who: "staff",
+			darkReport: func(t *testing.T) (*apiServer, *DAL, string) {
+				t.Helper()
+				api, h, d, owner := newAPITestServer(t)
+				if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
+					t.Fatalf("activate: %d %v", status, data)
+				}
+				if status, data := apiJSON(t, h, "POST", "/api/self/stopped",
+					apiTestAgentToken(t, api, "kip", ""), `{}`); status != 200 {
+					t.Fatalf("stopped: %d %v", status, data)
+				}
+				return api, d, "kip"
+			},
+			pin:   func(t *testing.T, d *DAL, id string) { shutdownBootable(t, d, id, ServerSelfHost) },
+			start: func(api *apiServer, _ *DAL, id string) { api.reconcileMemberNow(id) },
+		},
+		{
+			who: "worker",
+			darkReport: func(t *testing.T) (*apiServer, *DAL, string) {
+				t.Helper()
+				api, h, d, _, contractor := apiTestDarkWorker(t, DesiredStateOnline)
+				if status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`); status != 200 {
+					t.Fatalf("stopped: %d %v", status, data)
+				}
+				return api, d, "ow-abc123"
+			},
+			pin: func(t *testing.T, d *DAL, id string) {
+				if err := d.SetMemberDesiredMachineID(id, ServerSelfHost); err != nil {
+					t.Fatalf("SetMemberDesiredMachineID: %v", err)
+				}
+			},
+			start: func(api *apiServer, d *DAL, id string) {
+				w, err := d.GetOutsourceWorker(id)
+				if err != nil || w == nil {
+					t.Fatalf("GetOutsourceWorker: %v (%v)", w, err)
+				}
+				api.outsourceMu.Lock()
+				defer api.outsourceMu.Unlock()
+				api.reconcileWorkerNow(*w, nowSecs())
+			},
+		},
+	} {
+		t.Run("a "+tc.who+" START sent by a handler", func(t *testing.T) {
+			api, d, id := tc.darkReport(t)
+			// The STOP was parked before the pin existed, so it stays a fan-out.
+			tc.pin(t, d, id)
+			apiTestListen(t, api, ServerSelfHost)
+
+			tc.start(api, d, id)
+
+			apiWantValue(t, "the returning warden's queue", any(wsVerbs(t, api, ServerSelfHost)),
+				any([]any{"stop", "start"}))
+		})
+	}
+}

@@ -903,6 +903,7 @@ func (s *apiServer) reconcileOne(m Member, st reconcileState, now float64) recon
 			decision.State = prior
 			return decision
 		}
+		s.flushParkedStopBeforeStart(m.ID, now, s.memberFanout(m))
 		if !s.enqueueWardenFrame(m.ID, frame) {
 			decision.Command = reconcileCmdNone
 			decision.State = st
@@ -1814,10 +1815,14 @@ func (s *apiServer) runReconcileTick(now float64) {
 
 // Caller holds reconcileMu.
 func (s *apiServer) stepMemberRobustStop(m Member, now float64) {
-	s.stepRobustStop(m.ID, now, func() []string {
+	s.stepRobustStop(m.ID, now, s.memberFanout(m))
+}
+
+func (s *apiServer) memberFanout(m Member) func() []string {
+	return func() []string {
 		targets, _ := s.killTargetChain(m.ID, killTargetSources{LastMachineID: m.LastMachineID})
 		return targets
-	})
+	}
 }
 
 func (s *apiServer) reconcileMemberNow(memberID string) reconcileDecision {
