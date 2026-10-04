@@ -483,6 +483,13 @@ const REGISTRY = [
     verdict: "focus/blur/visibility; global",
   },
   {
+    file: "hooks/useNowSeconds.ts",
+    kind: "setTimeout/setInterval",
+    count: 1,
+    verdict:
+      "the local-midnight re-render; it only bumps this mount's own counter so the next render re-reads the clock, reads no server data and carries no conversation's value, and is cleared on unmount",
+  },
+  {
     file: "hooks/useOwnerName.tsx",
     kind: ".then/.catch/.finally",
     count: 4,

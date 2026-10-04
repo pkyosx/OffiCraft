@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { MonitorPage } from "./MonitorPage";
 import type { Member, MachineView, MonAccountView } from "../types";
@@ -97,6 +97,31 @@ describe("MonitorPage account card limit line", () => {
     expect((await screen.findByTestId("mon-acct-limit-reached")).textContent).toBe(
       "已達上限 · 明天 04:30 重置",
     );
+  });
+
+  it("under nothing else re-rendering, the reset day rolls over at local midnight", async () => {
+    vi.useRealTimers();
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(2026, 9, 2, 23, 50, 0, 0));
+    getMonitoring.mockResolvedValue({
+      accounts: [acct("limited", { code: "rate_limit", resetsAt: localTs(4, 30, 1), ts: localTs(9, 0) })],
+      sessions: [],
+      machines: [],
+    });
+    render(
+      <I18nProvider>
+        <MonitorPage />
+      </I18nProvider>,
+    );
+    const line = await screen.findByTestId("mon-acct-limit-reached");
+    expect(line.textContent).toBe("已達上限 · 明天 04:30 重置");
+    const fetches = getMonitoring.mock.calls.length;
+
+    act(() => {
+      vi.advanceTimersByTime(11 * 60 * 1000);
+    });
+    expect(getMonitoring.mock.calls.length).toBe(fetches);
+    expect(screen.getByTestId("mon-acct-limit-reached").textContent).toBe("已達上限 · 今天 04:30 重置");
   });
 
   it("under a limit with no reset time, the line names the limit alone", async () => {
