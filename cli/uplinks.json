@@ -340,7 +340,7 @@
     {
       "id": "warden-poster-passed-to-runonce",
       "source": "cli/ocwarden/main.go",
-      "callsite": "post, binaries, claude, shape, effect, runtimes...)",
+      "callsite": "post, binaries, claude, shape, effect, disk.snapshot, runtimes...)",
       "kind": "seam",
       "seam_reason": "The shared poster seam handed to the report loop. The send it eventually performs is warden-heartbeat, which is compared there; passing the value along adds no new route."
     },

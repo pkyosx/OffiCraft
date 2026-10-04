@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -183,13 +184,18 @@ func (n *schemaNode) closed() bool {
 	return strings.TrimSpace(string(n.AdditionalProperties)) == "false"
 }
 
+// A whole number decodes as float64 like any other; JSON Schema calls it an
+// integer, which a "number" field also accepts.
 func jsonTypeOf(value any) string {
-	switch value.(type) {
+	switch v := value.(type) {
 	case nil:
 		return "null"
 	case bool:
 		return "boolean"
 	case float64:
+		if v == math.Trunc(v) {
+			return "integer"
+		}
 		return "number"
 	case string:
 		return "string"
@@ -318,14 +324,15 @@ func mistypedPayloadValues(payload map[string]any, node *schemaNode) []string {
 			if !declared || child == nil {
 				continue
 			}
-			if want := child.declaredTypes(); len(want) > 0 && !want[jsonTypeOf(value)] {
+			got := jsonTypeOf(value)
+			if want := child.declaredTypes(); len(want) > 0 && !want[got] && !(got == "integer" && want["number"]) {
 				names := make([]string, 0, len(want))
 				for name := range want {
 					names = append(names, name)
 				}
 				sort.Strings(names)
 				bad = append(bad, fmt.Sprintf("%s%s: got %s, want %s",
-					prefix, key, jsonTypeOf(value), strings.Join(names, "|")))
+					prefix, key, got, strings.Join(names, "|")))
 				continue
 			}
 			if nested, isObj := value.(map[string]any); isObj && len(child.objectShape().Properties) > 0 {

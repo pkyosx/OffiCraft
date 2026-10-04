@@ -416,6 +416,7 @@ type ReportResult struct {
 	// Set only on an accepted heartbeat, from its receipt.
 	LoginCheckInterval   time.Duration
 	LoginRecheckInterval time.Duration
+	DiskUsageInterval    time.Duration
 }
 
 func errorMessageOf(body map[string]any) string {
@@ -437,7 +438,7 @@ func nextBackoff(cur time.Duration) time.Duration {
 
 func runOnce(cfg Config, collect func() map[string]any, machine func() string, post Poster,
 	binaries func() map[string]string, claude func() map[string]any, shape func() string,
-	effect func() string, runtimes ...func() map[string]any) ReportResult {
+	effect func() string, diskUsage func() map[string]any, runtimes ...func() map[string]any) ReportResult {
 	if cfg.Token == "" || cfg.ID == "" {
 		return ReportResult{Reason: "no OC_TOKEN/OC_ID"}
 	}
@@ -462,18 +463,26 @@ func runOnce(cfg Config, collect func() map[string]any, machine func() string, p
 	if len(runtimes) > 0 && runtimes[0] != nil {
 		runtimeCaps = runtimes[0]()
 	}
-	if len(hardware) == 0 && len(bins) == 0 && len(cl) == 0 && shp == "" && eff == "" && len(runtimeCaps) == 0 {
+	var disk map[string]any
+	if diskUsage != nil {
+		disk = diskUsage()
+	}
+	if len(hardware) == 0 && len(bins) == 0 && len(cl) == 0 && shp == "" && eff == "" && len(runtimeCaps) == 0 && len(disk) == 0 {
 		return ReportResult{Reason: "no hardware probed (skip POST)"}
 	}
 	payload, err := buildTelemetryPayload(cfg.ID, machine(), hardware, bins, cl, shp, eff, runtimeCaps)
 	if err != nil {
 		return ReportResult{Reason: "build rejected: " + err.Error()}
 	}
+	if len(disk) > 0 {
+		payload["disk_usage"] = disk
+	}
 	status, body := post(telemetryPath, payload)
 	if status == 200 {
 		return ReportResult{Posted: true, Status: 200, Reason: "posted",
 			LoginCheckInterval:   loginIntervalFromReceipt(body, "login_check_interval_secs", defaultLoginCheckInterval),
-			LoginRecheckInterval: loginIntervalFromReceipt(body, "login_recheck_interval_secs", defaultLoginRecheckInterval)}
+			LoginRecheckInterval: loginIntervalFromReceipt(body, "login_recheck_interval_secs", defaultLoginRecheckInterval),
+			DiskUsageInterval:    diskUsageIntervalFromReceipt(body)}
 	}
 	reason := fmt.Sprintf("post status %d", status)
 	if detail := errorMessageOf(body); detail != "" {
@@ -485,7 +494,7 @@ func runOnce(cfg Config, collect func() map[string]any, machine func() string, p
 func run(ctx context.Context, cfg Config, collect func() map[string]any, machine func() string, post Poster,
 	binaries func() map[string]string, claude func() map[string]any, shape func() string,
 	effect func() string, sleep func(context.Context, time.Duration) bool, iterations int, out io.Writer,
-	loginIntervals func(check, recheck time.Duration), runtimes ...func() map[string]any) int {
+	loginIntervals func(check, recheck time.Duration), disk *diskUsageReporter, runtimes ...func() map[string]any) int {
 
 	if cfg.Token == "" || cfg.ID == "" {
 		fmt.Fprintln(out, "[ocwarden] run: no OC_TOKEN/OC_ID — nothing to report; exiting.")
@@ -496,9 +505,12 @@ func run(ctx context.Context, cfg Config, collect func() map[string]any, machine
 		if ctx.Err() != nil {
 			return 0
 		}
-		result := runOnce(cfg, collect, machine, post, binaries, claude, shape, effect, runtimes...)
+		result := runOnce(cfg, collect, machine, post, binaries, claude, shape, effect, disk.snapshot, runtimes...)
 		if result.Posted && loginIntervals != nil {
 			loginIntervals(result.LoginCheckInterval, result.LoginRecheckInterval)
+		}
+		if result.Posted {
+			disk.setInterval(result.DiskUsageInterval)
 		}
 		wait := backoff
 		if result.Posted || result.Status == 0 {
@@ -733,6 +745,16 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 		logf("[ocwarden] self-update: enabled (poll %s; %s + %s; reconnect-kick on)", selfUpdateInterval, wardenBinaryPath, agentBinaryPath)
 	}
 
+	// Measured only by a serving warden: `run --once` posts one heartbeat and
+	// exits long before a measurement finishes.
+	var disk *diskUsageReporter
+	if probe, ok := newDiskUsageProbe(env, runner, runtime.GOOS); ok && cfg.Token != "" && cfg.ID != "" && iters == 0 {
+		disk = newDiskUsageReporter(probe.measure)
+		wg.Add(1)
+		go func() { defer wg.Done(); disk.run(ctx, sleepUntil) }()
+		logf("[ocwarden] disk usage: enabled (%s)", probe.root)
+	}
+
 	runtimeProbe := func() map[string]any {
 		return collectRuntimeCapabilities(env, runner, claudeProbe.collect(), login.state())
 	}
@@ -745,7 +767,7 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 		return sleepUntilOrKick(ctx, d, login.kicked())
 	}
 	rc := run(ctx, cfg, collect, machine, post, fingerprints.collect, claudeProbe.collect,
-		wardenShapeOf, cutoverEffectOf, sleep, iters, out, setLoginIntervals, runtimeProbe)
+		wardenShapeOf, cutoverEffectOf, sleep, iters, out, setLoginIntervals, disk, runtimeProbe)
 
 	stop()
 	waitGraceful(&wg, shutdownGrace)

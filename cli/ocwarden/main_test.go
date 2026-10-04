@@ -523,8 +523,9 @@ func TestRunOnce(t *testing.T) {
 			func() map[string]any { return map[string]any{"present": true} },
 			func() string { return "anchor" },
 			func() string { return "in_effect" },
+			func() map[string]any { return map[string]any{"root_bytes": int64(1024)} },
 			func() map[string]any { return map[string]any{"claude": true} })
-		if want := (ReportResult{Posted: true, Status: 200, Reason: "posted", LoginCheckInterval: 300 * time.Second, LoginRecheckInterval: 30 * time.Second}); got != want {
+		if want := (ReportResult{Posted: true, Status: 200, Reason: "posted", LoginCheckInterval: 300 * time.Second, LoginRecheckInterval: 30 * time.Second, DiskUsageInterval: time.Hour}); got != want {
 			t.Errorf("result = %+v, want %+v", got, want)
 		}
 		if want := []string{"/api/monitoring/telemetry"}; !reflect.DeepEqual(paths, want) {
@@ -538,6 +539,7 @@ func TestRunOnce(t *testing.T) {
 			"warden_shape":   "anchor",
 			"cutover_effect": "in_effect",
 			"runtimes":       map[string]any{"claude": true},
+			"disk_usage":     map[string]any{"root_bytes": int64(1024)},
 		}}
 		if !reflect.DeepEqual(payloads, want) {
 			t.Errorf("payload = %v, want %v", payloads, want)
@@ -563,11 +565,57 @@ func TestRunOnce(t *testing.T) {
 			{"only the recheck", map[string]any{"login_recheck_interval_secs": 600.0}, 300 * time.Second, 600 * time.Second},
 		} {
 			post := func(string, map[string]any) (int, map[string]any) { return 200, c.receipt }
-			got := runOnce(cfg, hardware, machine, post, nil, nil, nil, nil)
-			want := ReportResult{Posted: true, Status: 200, Reason: "posted", LoginCheckInterval: c.want, LoginRecheckInterval: c.wantRecheck}
+			got := runOnce(cfg, hardware, machine, post, nil, nil, nil, nil, nil)
+			want := ReportResult{Posted: true, Status: 200, Reason: "posted", LoginCheckInterval: c.want, LoginRecheckInterval: c.wantRecheck, DiskUsageInterval: time.Hour}
 			if got != want {
 				t.Errorf("%s: result = %+v, want %+v", c.name, got, want)
 			}
+		}
+	})
+
+	t.Run("under a receipt's disk usage interval, the result carries it when it is a whole number of seconds in 600..86400; otherwise one hour", func(t *testing.T) {
+		for _, c := range []struct {
+			name    string
+			receipt map[string]any
+			want    time.Duration
+		}{
+			{"in range", map[string]any{"disk_usage_interval_secs": 7200.0}, 7200 * time.Second},
+			{"floor", map[string]any{"disk_usage_interval_secs": 600.0}, 600 * time.Second},
+			{"ceiling", map[string]any{"disk_usage_interval_secs": 86400.0}, 86400 * time.Second},
+			{"below the floor", map[string]any{"disk_usage_interval_secs": 599.0}, time.Hour},
+			{"above the ceiling", map[string]any{"disk_usage_interval_secs": 86401.0}, time.Hour},
+			{"fractional", map[string]any{"disk_usage_interval_secs": 900.5}, time.Hour},
+			{"null", map[string]any{"disk_usage_interval_secs": nil}, time.Hour},
+			{"a string", map[string]any{"disk_usage_interval_secs": "7200"}, time.Hour},
+			{"missing", map[string]any{"login_check_interval_secs": 90.0}, time.Hour},
+		} {
+			post := func(string, map[string]any) (int, map[string]any) { return 200, c.receipt }
+			got := runOnce(cfg, hardware, machine, post, nil, nil, nil, nil, nil)
+			want := ReportResult{Posted: true, Status: 200, Reason: "posted",
+				LoginCheckInterval: 300 * time.Second, LoginRecheckInterval: 30 * time.Second, DiskUsageInterval: c.want}
+			if c.name == "missing" {
+				want.LoginCheckInterval = 90 * time.Second
+			}
+			if got != want {
+				t.Errorf("%s: result = %+v, want %+v", c.name, got, want)
+			}
+		}
+	})
+
+	t.Run("a disk-usage-only cycle still posts", func(t *testing.T) {
+		var payloads []map[string]any
+		post := func(_ string, payload map[string]any) (int, map[string]any) {
+			payloads = append(payloads, payload)
+			return 200, nil
+		}
+		got := runOnce(cfg, func() map[string]any { return nil }, func() string { return "" }, post,
+			nil, nil, nil, nil, func() map[string]any { return map[string]any{"disk_free_bytes": int64(5)} })
+		if want := (ReportResult{Posted: true, Status: 200, Reason: "posted", LoginCheckInterval: 300 * time.Second, LoginRecheckInterval: 30 * time.Second, DiskUsageInterval: time.Hour}); got != want {
+			t.Errorf("result = %+v, want %+v", got, want)
+		}
+		want := []map[string]any{{"disk_usage": map[string]any{"disk_free_bytes": int64(5)}}}
+		if !reflect.DeepEqual(payloads, want) {
+			t.Errorf("payload = %v, want %v", payloads, want)
 		}
 	})
 
@@ -583,7 +631,7 @@ func TestRunOnce(t *testing.T) {
 			{"no token", Config{ID: "warden-1"}},
 			{"no id", Config{Token: "jwt-warden"}},
 		} {
-			got := runOnce(c.cfg, hardware, machine, post, nil, nil, nil, nil)
+			got := runOnce(c.cfg, hardware, machine, post, nil, nil, nil, nil, nil)
 			if want := (ReportResult{Reason: "no OC_TOKEN/OC_ID"}); got != want {
 				t.Errorf("%s: result = %+v, want %+v", c.name, got, want)
 			}
@@ -597,7 +645,7 @@ func TestRunOnce(t *testing.T) {
 		}
 		got := runOnce(cfg, func() map[string]any { return nil }, machine, post,
 			func() map[string]string { return nil }, func() map[string]any { return nil },
-			func() string { return "" }, func() string { return "" })
+			func() string { return "" }, func() string { return "" }, func() map[string]any { return nil })
 		if want := (ReportResult{Reason: "no hardware probed (skip POST)"}); got != want {
 			t.Errorf("result = %+v, want %+v", got, want)
 		}
@@ -610,8 +658,8 @@ func TestRunOnce(t *testing.T) {
 			return 200, nil
 		}
 		got := runOnce(cfg, func() map[string]any { return nil }, func() string { return "" }, post,
-			func() map[string]string { return map[string]string{"ocagent": "sha-a"} }, nil, nil, nil)
-		if want := (ReportResult{Posted: true, Status: 200, Reason: "posted", LoginCheckInterval: 300 * time.Second, LoginRecheckInterval: 30 * time.Second}); got != want {
+			func() map[string]string { return map[string]string{"ocagent": "sha-a"} }, nil, nil, nil, nil)
+		if want := (ReportResult{Posted: true, Status: 200, Reason: "posted", LoginCheckInterval: 300 * time.Second, LoginRecheckInterval: 30 * time.Second, DiskUsageInterval: time.Hour}); got != want {
 			t.Errorf("result = %+v, want %+v", got, want)
 		}
 		want := []map[string]any{{"binaries": map[string]string{"ocagent": "sha-a"}}}
@@ -626,7 +674,7 @@ func TestRunOnce(t *testing.T) {
 				"code": "unprocessable", "message": "agent_id: unknown field",
 			}}
 		}
-		got := runOnce(cfg, hardware, machine, post, nil, nil, nil, nil)
+		got := runOnce(cfg, hardware, machine, post, nil, nil, nil, nil, nil)
 		want := ReportResult{Status: 422, Reason: "post status 422: agent_id: unknown field"}
 		if got != want {
 			t.Errorf("result = %+v, want %+v", got, want)
@@ -635,7 +683,7 @@ func TestRunOnce(t *testing.T) {
 
 	t.Run("a transport fault reports the falsy status", func(t *testing.T) {
 		post := func(string, map[string]any) (int, map[string]any) { return 0, nil }
-		got := runOnce(cfg, hardware, machine, post, nil, nil, nil, nil)
+		got := runOnce(cfg, hardware, machine, post, nil, nil, nil, nil, nil)
 		if want := (ReportResult{Status: 0, Reason: "post status 0"}); got != want {
 			t.Errorf("result = %+v, want %+v", got, want)
 		}
@@ -655,7 +703,7 @@ func TestRun(t *testing.T) {
 				return 200, nil
 			}, nil, nil, nil, nil,
 			func(context.Context, time.Duration) bool { t.Error("must not sleep"); return true },
-			1, &out, nil)
+			1, &out, nil, nil)
 		if rc != 0 {
 			t.Errorf("rc = %d, want 0", rc)
 		}
@@ -673,7 +721,7 @@ func TestRun(t *testing.T) {
 			func(string, map[string]any) (int, map[string]any) { posts++; return 200, nil },
 			nil, nil, nil, nil,
 			func(_ context.Context, d time.Duration) bool { waits = append(waits, d); return true },
-			1, &out, nil)
+			1, &out, nil, nil)
 		if rc != 0 || posts != 1 {
 			t.Errorf("rc = %d, posts = %d, want 0 and 1", rc, posts)
 		}
@@ -704,9 +752,51 @@ func TestRun(t *testing.T) {
 				return r.status, r.body
 			}, nil, nil, nil, nil,
 			func(context.Context, time.Duration) bool { return true },
-			3, &out, func(check, recheck time.Duration) { applied = append(applied, [2]time.Duration{check, recheck}) })
+			3, &out, func(check, recheck time.Duration) { applied = append(applied, [2]time.Duration{check, recheck}) }, nil)
 		if want := [][2]time.Duration{{60 * time.Second, 90 * time.Second}, {300 * time.Second, 30 * time.Second}}; !reflect.DeepEqual(applied, want) {
 			t.Errorf("applied intervals = %v, want %v", applied, want)
+		}
+	})
+
+	t.Run("each heartbeat carries the latest finished disk usage, none before the first; an accepted receipt's interval reaches the next wait, a refused one does not", func(t *testing.T) {
+		measured := 0
+		disk := newDiskUsageReporter(func() map[string]any {
+			measured++
+			return map[string]any{"root_bytes": int64(measured * 1024)}
+		})
+		var bodies []map[string]any
+		replies := []struct {
+			status int
+			body   map[string]any
+		}{
+			{200, map[string]any{"disk_usage_interval_secs": 1800.0}},
+			{200, map[string]any{"disk_usage_interval_secs": 7200.0}},
+			{422, map[string]any{"error": map[string]any{"message": "bad"}}},
+		}
+		post := func(_ string, payload map[string]any) (int, map[string]any) {
+			bodies = append(bodies, payload)
+			r := replies[len(bodies)-1]
+			return r.status, r.body
+		}
+		var out bytes.Buffer
+		run(context.Background(), cfg, hardware, machine, post, nil, nil, nil, nil,
+			func(context.Context, time.Duration) bool { return true }, 1, &out, nil, disk)
+		disk.run(context.Background(), func(context.Context, time.Duration) bool { return false })
+		run(context.Background(), cfg, hardware, machine, post, nil, nil, nil, nil,
+			func(context.Context, time.Duration) bool { return true }, 2, &out, nil, disk)
+
+		want := []map[string]any{
+			{"machine": "Seth's MacBook Pro", "hardware": map[string]any{"cpu_pct": 20.0}},
+			{"machine": "Seth's MacBook Pro", "hardware": map[string]any{"cpu_pct": 20.0}, "disk_usage": map[string]any{"root_bytes": int64(1024)}},
+			{"machine": "Seth's MacBook Pro", "hardware": map[string]any{"cpu_pct": 20.0}, "disk_usage": map[string]any{"root_bytes": int64(1024)}},
+		}
+		if !reflect.DeepEqual(bodies, want) {
+			t.Errorf("bodies =\n  %v\nwant\n  %v", bodies, want)
+		}
+		var wait time.Duration
+		disk.run(context.Background(), func(_ context.Context, d time.Duration) bool { wait = d; return false })
+		if wait != 7200*time.Second {
+			t.Errorf("next disk usage wait = %v, want 2h0m0s", wait)
 		}
 	})
 
@@ -718,7 +808,7 @@ func TestRun(t *testing.T) {
 				return 422, map[string]any{"error": map[string]any{"message": "agent_id: unknown field"}}
 			}, nil, nil, nil, nil,
 			func(_ context.Context, d time.Duration) bool { waits = append(waits, d); return true },
-			3, &out, nil)
+			3, &out, nil, nil)
 		if rc != 0 {
 			t.Errorf("rc = %d, want 0", rc)
 		}
@@ -738,7 +828,7 @@ func TestRun(t *testing.T) {
 			func(string, map[string]any) (int, map[string]any) { return 0, nil },
 			nil, nil, nil, nil,
 			func(_ context.Context, d time.Duration) bool { waits = append(waits, d); return true },
-			2, &out, nil)
+			2, &out, nil, nil)
 		if want := []time.Duration{30 * time.Second, 30 * time.Second}; !reflect.DeepEqual(waits, want) {
 			t.Errorf("waits = %v, want %v", waits, want)
 		}
@@ -757,7 +847,7 @@ func TestRun(t *testing.T) {
 				return 200, nil
 			}, nil, nil, nil, nil,
 			func(context.Context, time.Duration) bool { t.Error("must not sleep"); return true },
-			0, &out, nil)
+			0, &out, nil, nil)
 		if rc != 0 || out.String() != "" {
 			t.Errorf("rc = %d, out = %q, want 0 and silence", rc, out.String())
 		}
@@ -770,7 +860,7 @@ func TestRun(t *testing.T) {
 			func(string, map[string]any) (int, map[string]any) { posts++; return 200, nil },
 			nil, nil, nil, nil,
 			func(context.Context, time.Duration) bool { return false },
-			0, &out, nil)
+			0, &out, nil, nil)
 		if rc != 0 || posts != 1 {
 			t.Errorf("rc = %d, posts = %d, want 0 and 1", rc, posts)
 		}
