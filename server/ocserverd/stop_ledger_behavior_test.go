@@ -386,3 +386,21 @@ func TestAParkedStopIsLoggedOnParkAndThenAtMostOncePerMinute(t *testing.T) {
 		"fail-closed": float64(strings.Count(logged, `target warden "m-dark" NOT reachable`)),
 	}), any(map[string]any{"park": 2, "fail-closed": 1}))
 }
+
+func TestAnAimedStopAgainstAClaimLessConnectionIsStillOwed(t *testing.T) {
+	// The connection names no machine, so nothing proves the aimed session gone.
+	api, h, d, owner := newAPITestServer(t)
+	reconcileTestPut(t, d, Member{
+		ID: "pinned", Name: "Pinned", Kind: KindStaff, RoleKey: "assistant",
+		DesiredState: DesiredStateOnline, DesiredMachineID: ServerSelfHost,
+	})
+	apiTestListen(t, api, ServerSelfHost)
+	reconcileTestOnline(t, api, "pinned", "")
+	if status, data := apiJSON(t, h, "POST", "/api/members/pinned/force-stop", owner, `{}`); status != 200 {
+		t.Fatalf("force-stop: %d %v", status, data)
+	}
+	wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("pinned"))
+
+	api.runReconcileTick(nowSecs() + api.reconcileConfigLive().StopRetry + 1)
+	wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("pinned"))
+}
