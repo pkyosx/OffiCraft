@@ -237,8 +237,8 @@ func stopReachedStart(startTarget string, reached []string) bool {
 	return slices.Contains(reached, startTarget)
 }
 
-// Apply only when stopReachedStart holds: afterwards the decider no longer waits on the old START,
-// so a session the stop missed could end up running beside its replacement.
+// Apply only when robustStopEffectOf says SupersedeStart: afterwards the decider no longer waits on
+// the old START, so a session the stop missed could end up running beside its replacement.
 func startSupersededByStop(st reconcileState, now float64) reconcileState {
 	st.Phase = reconcilePhaseStopping
 	st.LastCommand = reconcileCmdStop
@@ -1048,7 +1048,7 @@ func (s *apiServer) collectMemberStop(memberID string, decision reconcileDecisio
 		reconcileLog("%s: session-gone collect: no kill target — live claim, last landing "+
 			"and pin all silent, and no warden is online", memberID)
 	}
-	// Only when something was aimed at, as in dispatchShutdown.
+	// Only when something was aimed at.
 	if len(targets) > 0 {
 		s.clearSessionBootTS(memberID)
 	}
@@ -1895,7 +1895,7 @@ func (s *apiServer) noteStartSupersededByStop(
 	s.reconcileMu.Lock()
 	defer s.reconcileMu.Unlock()
 	st := s.reconcileStateOf(memberID)
-	if inFlightStartOf(st) != ended || !stopReachedStart(ended.Target, stop.Landed) {
+	if inFlightStartOf(st) != ended || !robustStopEffectOf(stop.Recorded, ended.Target).SupersedeStart {
 		return false
 	}
 	s.setReconcileState(memberID, startSupersededByStop(st, now))

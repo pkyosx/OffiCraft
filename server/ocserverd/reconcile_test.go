@@ -217,6 +217,34 @@ func TestRobustStopStepOf(t *testing.T) {
 	})
 }
 
+func TestRobustStopEffectOf(t *testing.T) {
+	for _, c := range []struct {
+		name        string
+		out         robustStopOutcome
+		startTarget string
+		want        robustStopEffect
+	}{
+		{"landed on the booting START's machine: a session boundary, and that START is over",
+			robustStopOutcome{Landed: []string{"m-b"}}, "m-b", robustStopEffect{ClearBootTS: true, SupersedeStart: true}},
+		{"parked by name on the booting START's machine counts the same: that machine owes the kill",
+			robustStopOutcome{Parked: "m-b"}, "m-b", robustStopEffect{ClearBootTS: true, SupersedeStart: true}},
+		{"landed only elsewhere: a session boundary, but the booting START may still come up",
+			robustStopOutcome{Landed: []string{"m-a"}}, "m-b", robustStopEffect{ClearBootTS: true}},
+		{"landed anywhere with no START in flight ends the wait",
+			robustStopOutcome{Landed: []string{"m-a"}}, "", robustStopEffect{ClearBootTS: true, SupersedeStart: true}},
+		{"a fan-out no machine took: nothing ended, nothing is superseded",
+			robustStopOutcome{}, "", robustStopEffect{}},
+		{"a fan-out no machine took under a booting START: nothing ended, nothing is superseded",
+			robustStopOutcome{}, "m-b", robustStopEffect{}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := robustStopEffectOf(c.out, c.startTarget); got != c.want {
+				t.Fatalf("effect = %+v, want %+v", got, c.want)
+			}
+		})
+	}
+}
+
 func TestRecycleGraceFor(t *testing.T) {
 	t.Run("the two 加速停止 causes are the only clocked ones and both get the configured recycle grace", func(t *testing.T) {
 		cfg := defaultReconcileConfig()
@@ -3948,7 +3976,7 @@ func TestNoteStartSupersededByStop(t *testing.T) {
 			s.setReconcileState("m-x", c.stored)
 
 			ok := s.noteStartSupersededByStop("m-x", inFlightStart{Target: "m-b", At: 100},
-				shutdownDispatch{Landed: []string{"m-b"}}, 300)
+				shutdownDispatch{Landed: []string{"m-b"}, Recorded: robustStopOutcome{Landed: []string{"m-b"}}}, 300)
 
 			if ok != c.wantOK {
 				t.Fatalf("superseded = %v, want %v", ok, c.wantOK)

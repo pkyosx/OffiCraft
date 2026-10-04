@@ -901,19 +901,20 @@ func (s *apiServer) stopWorkerSessionForHandover(w OutsourceWorker, reason strin
 	spawnTarget := s.workerSpawnTarget[w.ID]
 	targets, broadcast := s.workerKillChain(w.ID, w.LastMachineID)
 	out := s.sendRobustStop(w.ID, targets, broadcast, now)
+	effect := robustStopEffectOf(out, spawnTarget)
 	s.bankLiveCost(w.ID)
 	delete(s.workerSpawnAt, w.ID)
-	if len(out.reached()) == 0 {
-		outsourceLog("handover %s (%s): reason=%s — the kill reached no machine (targets %v) "+
-			"and waits in the ledger as a fan-out; collected anyway, the ledger stops the old "+
-			"session before the replacement's START", w.ID, w.Codename, reason, targets)
-	} else {
+	if effect.ClearBootTS {
 		outsourceLog("handover %s (%s): reason=%s — stopping session on %v (task %s); "+
 			"the replacement starts once the worker reads offline",
 			w.ID, w.Codename, reason, out.reached(), w.TaskID)
 		s.clearSessionBootTS(w.ID)
+	} else {
+		outsourceLog("handover %s (%s): reason=%s — the kill reached no machine (targets %v) "+
+			"and waits in the ledger as a fan-out; collected anyway, the ledger stops the old "+
+			"session before the replacement's START", w.ID, w.Codename, reason, targets)
 	}
-	if stopReachedStart(spawnTarget, out.reached()) {
+	if effect.SupersedeStart {
 		s.setReconcileState(w.ID, startSupersededByStop(s.reconcileStateOf(w.ID), now))
 	}
 }
@@ -939,16 +940,13 @@ func (s *apiServer) stopWorkerNow(w OutsourceWorker) {
 	targets, broadcast := s.workerKillChain(w.ID, w.LastMachineID)
 	s.bankLiveCost(w.ID)
 	out := s.sendRobustStop(w.ID, targets, broadcast, nowSecs())
-	if len(out.reached()) == 0 {
+	delete(s.workerSpawnAt, w.ID)
+	if !robustStopEffectOf(out, "").ClearBootTS {
 		outsourceLog("stop %s (%s): the kill reached no machine (targets %v) and waits "+
 			"in the ledger as a fan-out — held down anyway", w.ID, w.Codename, targets)
-		// Returning here keeps boot_ts: no kill is on any FIFO, so no session
-		// ended yet. (dispatchShutdown uses a weaker test and still clears it.)
-		delete(s.workerSpawnAt, w.ID)
 		return
 	}
 	s.clearSessionBootTS(w.ID)
-	delete(s.workerSpawnAt, w.ID)
 	if out.Parked != "" {
 		outsourceLog("stop %s (%s): stop parked on [%s] — not landed, the ledger re-sends it; "+
 			"held down (no re-spawn)", w.ID, w.Codename, out.Parked)

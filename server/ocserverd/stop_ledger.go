@@ -49,6 +49,28 @@ func (o robustStopOutcome) reached() []string {
 	return append(append([]string(nil), o.Landed...), o.Parked)
 }
 
+// robustStopEffect is what a caller may conclude from a robust STOP it just sent.
+// The collect is not in it: a close-out collect stands whatever the outcome, for
+// staff and outsource workers alike, since the ledger keeps re-firing the STOP.
+type robustStopEffect struct {
+	// ClearBootTS: a session boundary may be recorded. With nothing reached no
+	// session ended yet, and dropping boot_ts would fail restart_self's
+	// minimum-liveness gate and the boot-storm guard OPEN.
+	ClearBootTS bool
+	// SupersedeStart: the deciders may stop waiting on the in-flight START.
+	SupersedeStart bool
+}
+
+// robustStopEffectOf is THE judgement over a robust STOP's outcome, both
+// populations. startTarget is the in-flight START's machine, "" for none.
+func robustStopEffectOf(out robustStopOutcome, startTarget string) robustStopEffect {
+	reached := out.reached()
+	return robustStopEffect{
+		ClearBootTS:    len(reached) > 0,
+		SupersedeStart: stopReachedStart(startTarget, reached),
+	}
+}
+
 type robustStopStep int
 
 const (

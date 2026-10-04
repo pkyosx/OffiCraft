@@ -23,11 +23,9 @@ type shutdownDispatch struct {
 	Sent      bool
 	Landed    []string
 	Outsource bool
-	Recorded  robustStopOutcome
-	// Addressed FALSE: the chain resolved to nothing, so nothing was attempted.
-	// The ledger still holds the STOP (parked as a fan-out) either way; whether a
-	// machine has it is Recorded.reached().
-	Addressed bool
+	// Recorded is what the ledger made of the STOP; what a caller may conclude
+	// from it is robustStopEffectOf's, never a test of its own.
+	Recorded robustStopOutcome
 }
 
 type killTargetSources struct {
@@ -195,7 +193,7 @@ func (s *apiServer) dispatchShutdownAlsoTo(id, reason, alsoTo string) shutdownDi
 		targets = append(targets, alsoTo)
 	}
 	out := shutdownDispatch{
-		Broadcast: broadcast, Outsource: outsource, Addressed: len(targets) > 0,
+		Broadcast: broadcast, Outsource: outsource,
 	}
 	if !broadcast && len(targets) == 1 {
 		out.Target = targets[0]
@@ -208,10 +206,7 @@ func (s *apiServer) dispatchShutdownAlsoTo(id, reason, alsoTo string) shutdownDi
 		reconcileLog("shutdown %s (%s): no kill target — spawn memory, live claim, "+
 			"last landing and pin all silent, and no warden is online", id, reason)
 	}
-	// 🔴 Only when something was aimed at: otherwise nothing was sent and the
-	// session may still be running, and dropping its boot_ts would make
-	// restart_self's minimum-liveness gate and the boot-storm guard fail OPEN.
-	if out.Addressed {
+	if robustStopEffectOf(out.Recorded, "").ClearBootTS {
 		s.clearSessionBootTS(id)
 	}
 	return out
