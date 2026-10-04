@@ -8,10 +8,12 @@
 #     event at commit time instead of at autodeploy.
 #
 # It is a convenience first line of defence, NOT the authority — the merge
-# verdict is the pull request's cloud checks, and `bin/release publish` reads
-# that same round's verdict. Nothing runs bin/ci.sh on your behalf, and nobody is
-# expected to run all of it before pushing: locally you run the checks related
-# to your change (see bin/ci.sh's header). Enable this hook once per clone:
+# verdict is the pull request's cloud checks. `bin/release publish`, when the
+# push-to-main auto-beta job calls it, reads the verdict of the Actions run it is
+# running in (GITHUB_RUN_ID) for the commit it ships; a manual publish outside
+# Actions checks no CI verdict at all. Nothing runs bin/ci.sh on your behalf, and
+# nobody is expected to run all of it before pushing: locally you run the checks
+# related to your change (see bin/ci.sh's header). Enable this hook once per clone:
 #
 #     git config core.hooksPath .githooks
 #

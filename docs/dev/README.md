@@ -54,14 +54,14 @@ cd e2e_test && bash run_all.sh
 
 一台開發機上同時跑著好幾個 agent，測試吃滿全部核心會把其他人卡住，所以**本機**跑測試時每一輪最多用
 `OC_LOCAL_TEST_WORKERS` 個 worker（未設＝4）。要調就設這個變數，例如 `OC_LOCAL_TEST_WORKERS=2`；
-值不是正整數會直接報錯，不會靜默變成不限。
+值不是正整數時，下表前三種跑法會直接報錯，不會靜默變成不限；直接打 `go test` 那條路例外（見表）。
 
 | 怎麼跑 | 有沒有套上限 |
 | --- | --- |
 | vitest（`npx vitest run …`、`npm test`、`make test-frontend-unit`） | 有：`frontend/vite.config.ts` 讀 `frontend/local-test-workers.ts` |
 | Playwright CT（`npx playwright test -c playwright-ct.config.ts …`、`make test-frontend-ct`） | 有：同一支 helper（paint guards 本來就固定 1 個 worker） |
 | `make test-go`（含 `bin/run-checks.sh test-go`、`bin/ci.sh`） | 有：recipe 匯出 `GOMAXPROCS`，go 的 `-p` 預設值與每支測試 binary 的執行緒數都跟著它 |
-| 直接打 `go test` | **沒有**，要自己帶 `GOMAXPROCS="${OC_LOCAL_TEST_WORKERS:-4}"`：Go 沒有 repo 層級的地方能放這個值（`go.mod`／`go.work` 不收環境變數或旗標，`godebug` 指令只有 `containermaxprocs`／`updatemaxprocs` 這類開關，沒有指定數值的鍵；`go env -w` 寫的是整個使用者帳號，會連別的 repo 一起改） |
+| 直接打 `go test` | **沒有**，要自己帶 `GOMAXPROCS="${OC_LOCAL_TEST_WORKERS:-4}"`：Go 沒有 repo 層級的地方能放這個值（`go.mod`／`go.work` 不收環境變數或旗標，`godebug` 指令只有 `containermaxprocs`／`updatemaxprocs` 這類開關，沒有指定數值的鍵；`go env -w` 寫的是整個使用者帳號，會連別的 repo 一起改）。⚠️ 這條路**不驗證值**：`GOMAXPROCS` 是 `abc`、`0`、`-1`、`4.5` 時 Go 不報錯，直接回到全部核心 |
 
 **CI 上不套**：環境裡有非空的 `CI`（GitHub Actions 一定會設）時，上面全部維持各工具原本的預設平行度，
 `OC_LOCAL_TEST_WORKERS` 也會被忽略。e2e 不在這張表裡：它本來就固定 1 個 worker（`e2e_test/playwright.config.js`）。
@@ -120,7 +120,7 @@ bash bin/local-ci.sh --dry-run       # 只印它會做什麼，什麼都不跑
 **什麼時候跑**：出 GA 之前，或改到 live-agent 行為想真的看它跑起來的時候。它不是日常步驟——
 這一支會架一整座站、開真瀏覽器，帶旗標時還會花錢；日常只跑相關測試（見上面〈CI〉開頭）。
 
-- 它**不是** `bin/ci.sh` 的改名、也不是取代它：`bin/ci.sh` 一個字沒動，仍然自成一套。`local-ci.sh` 只是**呼叫**它，再補上它刻意不做的那一段（`e2e_test/run_all.sh`）。
+- 它**不是** `bin/ci.sh` 的改名、也不是取代它：`bin/ci.sh` 自成一套。`local-ci.sh` 只是**呼叫**它，再補上它刻意不做的那一段（`e2e_test/run_all.sh`）。
 - 它也**不是** `make ci` 那種彙總項目：它一個檢查都不點名，那一輪是什麼由 `bin/ci.sh` 自己的
   target 陣列決定 ⇒ **repo 裡沒有第二份「CI 跑哪些」的清單**。
 - phase 1 的判決照本檔上面那條兩半規則走（rc == 0 **且**末行精確等於權威字串），不是只看 rc。

@@ -3,10 +3,10 @@
 #
 # ── WHAT THIS IS, AND WHAT IT IS NOT ─────────────────────────────────────────
 # This is NOT a replacement for bin/ci.sh and NOT a rename of it. bin/ci.sh is
-# unchanged and still self-contained, and nothing about which round decides a
-# land moved here: the merge verdict is the pull request's cloud checks, and day
-# to day you run only the checks related to your change (bin/ci.sh's header has
-# the owner's words). This script CALLS bin/ci.sh and
+# self-contained, and this script does not decide whether a change may land:
+# the merge verdict is the pull request's cloud checks, and day to day you run
+# only the checks related to your change (bin/ci.sh's header has the owner's
+# words). This script CALLS bin/ci.sh and
 # then does the one thing it deliberately does not do: run the playwright specs
 # in e2e_test/ (bin/ci.sh only exercises their wiring, via tests_guard — a green
 # there means zero specs ran).

@@ -42,9 +42,19 @@ function inlinePrePaint(): Plugin {
   };
 }
 
-const testWorkers = localTestWorkers();
+// Only vitest (mode "test") reads the worker options. Resolving the cap for
+// `vite build` or the dev server as well would let a malformed
+// OC_LOCAL_TEST_WORKERS break the product build.
+function testWorkerOptions(mode: string) {
+  if (mode !== "test") return {};
+  const workers = localTestWorkers();
+  // minWorkers must come down with it: vitest's run-mode default minimum is
+  // numCpus - 1, and a maxWorkers below that aborts the run with
+  // "minThreads and maxThreads must not conflict".
+  return workers === undefined ? {} : { maxWorkers: workers, minWorkers: 1 };
+}
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [inlinePrePaint(), react()],
   server: {
     // api/seeds.ts imports the repo-root seeds/*.md (the single source of truth)
@@ -57,10 +67,7 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
-    // minWorkers must come down with it: in run mode vitest's default minimum is
-    // the full core count, and a maxWorkers below that aborts the run with
-    // "minThreads and maxThreads must not conflict".
-    ...(testWorkers === undefined ? {} : { maxWorkers: testWorkers, minWorkers: 1 }),
+    ...testWorkerOptions(mode),
     // T-187c: the Playwright Component-Testing visual guards live in
     // visual-guards/*.ct.spec.tsx and run in a REAL browser (see
     // playwright-ct.config.ts). Vitest's default include glob
@@ -87,4 +94,4 @@ export default defineConfig({
       "**/*.paint.spec.ts",
     ],
   },
-});
+}));
