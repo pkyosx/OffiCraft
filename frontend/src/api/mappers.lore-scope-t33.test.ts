@@ -151,6 +151,7 @@ const VIEW = {
   effectiveTs: 1788460000,
   createdTs: 1788460000,
   updatedTs: 1788460000,
+  loreType: "",
 };
 
 describe("toLoreEntry scope switching fields", () => {
@@ -181,5 +182,33 @@ describe("toLoreEntry scope switching fields", () => {
         }),
       ),
     ).toEqual({ ...VIEW, taskTypeKey: "", scopeOptions: ["agent", "everyone"] });
+  });
+});
+
+const UNTYPED = { ...VIEW, taskTypeKey: "", scopeOptions: [] };
+
+describe("toLoreEntry lore_type", () => {
+  it("each of the five type tags comes through as loreType", () => {
+    expect(
+      [
+        "instruction_conflict",
+        "instruction_supplement",
+        "owner_decision",
+        "owner_preference",
+        "other",
+      ].map((lt) => toLoreEntry(wireEntry("agent", "ow-7d8ad859dd9b", { lore_type: lt }))),
+    ).toEqual([
+      { ...UNTYPED, loreType: "instruction_conflict" },
+      { ...UNTYPED, loreType: "instruction_supplement" },
+      { ...UNTYPED, loreType: "owner_decision" },
+      { ...UNTYPED, loreType: "owner_preference" },
+      { ...UNTYPED, loreType: "other" },
+    ]);
+  });
+
+  it("no tag, an older server without the field, and a value this build does not know all read as no tag", () => {
+    for (const extra of [{ lore_type: "" }, {}, { lore_type: "owner_whim" }]) {
+      expect(toLoreEntry(wireEntry("agent", "ow-7d8ad859dd9b", extra))).toEqual(UNTYPED);
+    }
   });
 });

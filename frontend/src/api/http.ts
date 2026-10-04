@@ -2092,6 +2092,7 @@ export const httpApi: Api = {
       scope_keys?: string[];
       states?: string[];
       author_ids?: string[];
+      lore_types?: string[];
       limit?: number;
       offset?: number;
     } = {};
@@ -2108,6 +2109,9 @@ export const httpApi: Api = {
     if (opts?.states && opts.states.length > 0) query.states = opts.states;
     if (opts?.authorIds && opts.authorIds.length > 0) {
       query.author_ids = opts.authorIds;
+    }
+    if (opts?.loreTypes && opts.loreTypes.length > 0) {
+      query.lore_types = opts.loreTypes;
     }
     if (opts?.limit !== undefined) query.limit = opts.limit;
     if (opts?.offset !== undefined) query.offset = opts.offset;
@@ -2129,11 +2133,12 @@ export const httpApi: Api = {
     // absent both mean "the writer's own boot document" on this route today,
     // and sending the one that has to be special-cased is how that equivalence
     // quietly becomes load-bearing.
-    const body: { title: string; body: string; task_id?: string } = {
+    const body: { title: string; body: string; task_id?: string; lore_type?: string } = {
       title: entry.title,
       body: entry.body,
     };
     if (entry.taskId) body.task_id = entry.taskId;
+    if (entry.loreType) body.lore_type = entry.loreType;
     unwrap(await client.POST("/api/lore", { body }));
   },
 

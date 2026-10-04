@@ -68,6 +68,7 @@ function mkEntry(over: Partial<LoreEntryView> & { id: string }): LoreEntryView {
     effectiveTs: 1788400000,
     createdTs: 1788400000,
     updatedTs: 1788400000,
+    loreType: "",
     ...over,
   };
 }
@@ -1094,7 +1095,51 @@ describe("LorePage — 篩選器複選", () => {
     );
   });
 
-  it("has the four fields", async () => {
+  it("sends the ticked types as loreTypes, lists all five in order, and 清除篩選 drops them", async () => {
+    const spy = stubList(page([mkEntry({ id: "L-1" })]));
+    const { container } = renderPage();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
+    expect(
+      container.querySelector('[data-testid="lore-filter-clear"]'),
+    ).toBeNull();
+
+    fireEvent.click(
+      container.querySelector<HTMLElement>('[data-testid="lore-filter-type"]')!,
+    );
+    const options = Array.from(
+      container.querySelectorAll('[data-testid^="lore-filter-type-opt-"]'),
+    ).map((el) => [el.getAttribute("data-testid"), el.textContent]);
+    expect(options).toEqual([
+      ["lore-filter-type-opt-instruction_conflict", "指示衝突"],
+      ["lore-filter-type-opt-instruction_supplement", "指示補充"],
+      ["lore-filter-type-opt-owner_decision", "Owner 決策"],
+      ["lore-filter-type-opt-owner_preference", "Owner 偏好"],
+      ["lore-filter-type-opt-other", "其他"],
+    ]);
+
+    tick(container, "lore-filter-type", "owner_decision");
+    await waitFor(() =>
+      expect(lastOpts(spy)).toEqual({ loreTypes: ["owner_decision"], limit: 30, offset: 0 }),
+    );
+    tick(container, "lore-filter-type", "other");
+    await waitFor(() =>
+      expect(lastOpts(spy)).toEqual({
+        loreTypes: ["owner_decision", "other"],
+        limit: 30,
+        offset: 0,
+      }),
+    );
+
+    fireEvent.click(
+      container.querySelector<HTMLElement>('[data-testid="lore-filter-clear"]')!,
+    );
+    await waitFor(() => expect(lastOpts(spy)).toEqual({ limit: 30, offset: 0 }));
+    expect(
+      container.querySelector('[data-testid="lore-filter-clear"]'),
+    ).toBeNull();
+  });
+
+  it("has the five fields", async () => {
     vi.spyOn(api, "listTaskManuals").mockResolvedValue([
       { typeKey: "review-pr", displayName: "PR 審查", purpose: "", fields: [] },
     ] as never);
@@ -1102,12 +1147,11 @@ describe("LorePage — 篩選器複選", () => {
     const { container } = renderPage();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
 
-    // The owner named FOUR controls on 2026-09-08 (所有撰寫人 / 所有成員傳承 /
-    // 所有任務傳承 / 所有狀態).
     for (const present of [
       "lore-filter-author",
       "lore-filter-member",
       "lore-filter-belongs",
+      "lore-filter-type",
       "lore-filter-state",
     ]) {
       expect(container.querySelector(`[data-testid="${present}"]`)).not.toBeNull();
@@ -1119,7 +1163,7 @@ describe("LorePage — 篩選器複選", () => {
   // labels already existed and two of them said 「全部」 — the row was mixing
   // two words for one idea, which teaches a reader that the two mean different
   // kinds of "no constraint".
-  it("names all four unconstrained states 「所有…」", async () => {
+  it("names all five unconstrained states 「所有…」", async () => {
     stubList(page([mkEntry({ id: "L-1" })]));
     const { container } = renderPage();
     await waitFor(() => expect(renderedIds(container)).toHaveLength(1));
@@ -1132,6 +1176,7 @@ describe("LorePage — 篩選器複選", () => {
     expect(labelOf("lore-filter-author")).toContain("所有撰寫人");
     expect(labelOf("lore-filter-member")).toContain("所有成員傳承");
     expect(labelOf("lore-filter-belongs")).toContain("所有任務傳承");
+    expect(labelOf("lore-filter-type")).toContain("所有類型");
     expect(labelOf("lore-filter-state")).toContain("所有狀態");
   });
 
@@ -1288,7 +1333,7 @@ describe("LorePage — 收斂到單一範圍時，上限線回得來", () => {
 //   篩選列  撰寫人 → 成員傳承 → 任務傳承 → 狀態      (owner 2026-09-08, verbatim)
 //   列上    編號 → 狀態 → 屬於                          (任務卡: 編號 → 優先權 → 狀態 → 類型)
 describe("LorePage — 順序跟任務頁一致", () => {
-  it("puts the four filters in the owner's order, and keeps that order as they are used", async () => {
+  it("puts the five filters in the owner's order, and keeps that order as they are used", async () => {
     vi.spyOn(api, "listTaskManuals").mockResolvedValue([
       { typeKey: "review-pr", displayName: "PR 審查", purpose: "", fields: [] },
     ] as never);
@@ -1310,6 +1355,7 @@ describe("LorePage — 順序跟任務頁一致", () => {
             "lore-filter-author",
             "lore-filter-member",
             "lore-filter-belongs",
+            "lore-filter-type",
             "lore-filter-state",
           ].includes(id),
         );
@@ -1318,6 +1364,7 @@ describe("LorePage — 順序跟任務頁一致", () => {
       "lore-filter-author",
       "lore-filter-member",
       "lore-filter-belongs",
+      "lore-filter-type",
       "lore-filter-state",
     ]);
 
@@ -1339,6 +1386,7 @@ describe("LorePage — 順序跟任務頁一致", () => {
         "lore-filter-author",
         "lore-filter-member",
         "lore-filter-belongs",
+        "lore-filter-type",
         "lore-filter-state",
       ]),
     );
@@ -1360,6 +1408,69 @@ describe("LorePage — 順序跟任務頁一致", () => {
     // somebody else, so it is what the eye should land on first — and it landed
     // second here until the owner put the two screenshots side by side.
     expect(marks).toEqual(["lore-entry-id", "lore-state", "lore-scope"]);
+  });
+
+  it("puts the type tag at the very front of a collapsed row, ahead of the id and the title", async () => {
+    stubList(
+      page([
+        mkEntry({ id: "L-1", loreType: "instruction_conflict", effectiveTs: 6 }),
+        mkEntry({ id: "L-2", loreType: "instruction_supplement", effectiveTs: 5 }),
+        mkEntry({ id: "L-3", loreType: "owner_decision", effectiveTs: 4 }),
+        mkEntry({ id: "L-4", loreType: "owner_preference", effectiveTs: 3 }),
+        mkEntry({ id: "L-5", loreType: "other", effectiveTs: 2 }),
+        mkEntry({ id: "L-6", loreType: "", effectiveTs: 1 }),
+      ]),
+    );
+    const { container } = renderPage();
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(6));
+
+    const tags = ["L-1", "L-2", "L-3", "L-4", "L-5", "L-6"].map((id) => {
+      const row = rowById(container, id);
+      expect(row.getAttribute("aria-expanded")).toBe("false");
+      const firstInRow = row.querySelector(
+        '[data-testid="lore-type"], [data-testid="lore-entry-id"], .lore-row__title',
+      );
+      const tag = row.querySelector('[data-testid="lore-type"]');
+      return [id, firstInRow?.getAttribute("data-testid") ?? null, tag?.textContent ?? null];
+    });
+    expect(tags).toEqual([
+      ["L-1", "lore-type", "指示衝突"],
+      ["L-2", "lore-type", "指示補充"],
+      ["L-3", "lore-type", "Owner 決策"],
+      ["L-4", "lore-type", "Owner 偏好"],
+      ["L-5", "lore-type", "其他"],
+      ["L-6", "lore-entry-id", null],
+    ]);
+  });
+
+  it("labels the type tag in English under the en language", async () => {
+    localStorage.setItem("oc.language", "en");
+    try {
+      stubList(
+        page([
+          mkEntry({ id: "L-1", loreType: "instruction_conflict", effectiveTs: 5 }),
+          mkEntry({ id: "L-2", loreType: "instruction_supplement", effectiveTs: 4 }),
+          mkEntry({ id: "L-3", loreType: "owner_decision", effectiveTs: 3 }),
+          mkEntry({ id: "L-4", loreType: "owner_preference", effectiveTs: 2 }),
+          mkEntry({ id: "L-5", loreType: "other", effectiveTs: 1 }),
+        ]),
+      );
+      const { container } = renderPage();
+      await waitFor(() => expect(renderedIds(container)).toHaveLength(5));
+      expect(
+        ["L-1", "L-2", "L-3", "L-4", "L-5"].map(
+          (id) => rowById(container, id).querySelector('[data-testid="lore-type"]')?.textContent,
+        ),
+      ).toEqual([
+        "Instruction conflict",
+        "Instruction supplement",
+        "Owner decision",
+        "Owner preference",
+        "Other",
+      ]);
+    } finally {
+      localStorage.removeItem("oc.language");
+    }
   });
 
   it("draws the id badge like 任務卡's — the # and a glyph, not a bare number", async () => {

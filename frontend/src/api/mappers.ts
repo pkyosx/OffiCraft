@@ -10,6 +10,7 @@ import { DOC_CAP_CHARS_DEFAULTS } from "./docCap";
 import { CHAT_BUDGET_CHARS_DEFAULT } from "./chatBudget";
 import { STEP_NOTE_CAP_CHARS_DEFAULT } from "./stepNoteCap";
 import { LORE_CAP_CHARS_DEFAULTS } from "./loreCap";
+import { isLoreType } from "./loreType";
 import { BACKUP_RETAIN_DEFAULT } from "./backupRetain";
 import {
   readSuggestedRepliesLoreMessage,
@@ -2132,6 +2133,8 @@ export function toLoreEntry(
     effectiveTs: w.effective_ts,
     createdTs: w.created_ts,
     updatedTs: w.updated_ts,
+    // A value this cockpit does not know shows as no tag rather than a guess.
+    loreType: isLoreType(w.lore_type) ? w.lore_type : "",
   };
 }
 
