@@ -100,22 +100,41 @@ describe("InstantHint", () => {
     expect(screen.queryByRole("tooltip")).toBeNull();
   });
 
-  it("under two hints open at once (one focused, one hovered), each has its own id and each trigger points at its own hint", () => {
+  function renderPair() {
     render(
       <>
         <InstantHint hint="甲" data-testid="a">!</InstantHint>
         <InstantHint hint="乙" data-testid="b">!</InstantHint>
       </>,
     );
-    const a = screen.getByTestId("a");
-    const b = screen.getByTestId("b");
+    return { a: screen.getByTestId("a"), b: screen.getByTestId("b") };
+  }
+  const shown = () => screen.queryAllByRole("tooltip").map((h) => h.textContent);
+
+  it("under a hover on a second trigger while the first is focused, only the second's hint shows and only it is pointed at, by its own id", () => {
+    const { a, b } = renderPair();
     fireEvent.focus(a);
+    const aId = a.getAttribute("aria-describedby");
+    expect(shown()).toEqual(["甲"]);
     fireEvent.mouseEnter(b);
-    const hints = screen.getAllByRole("tooltip");
-    expect(hints).toHaveLength(2);
-    expect(hints[0].id).not.toBe(hints[1].id);
-    expect(document.getElementById(a.getAttribute("aria-describedby")!)?.textContent).toBe("甲");
-    expect(document.getElementById(b.getAttribute("aria-describedby")!)?.textContent).toBe("乙");
+    expect(shown()).toEqual(["乙"]);
+    expect(a.hasAttribute("aria-describedby")).toBe(false);
+    const bId = b.getAttribute("aria-describedby");
+    expect(bId).not.toBe(aId);
+    expect(document.getElementById(bId!)?.textContent).toBe("乙");
+  });
+
+  it("under a hover or focus on another trigger while one is pinned, the pinned hint closes and only the new one shows, in either direction", () => {
+    const { a, b } = renderPair();
+    fireEvent.click(a);
+    fireEvent.mouseEnter(b);
+    expect(shown()).toEqual(["乙"]);
+    fireEvent.mouseLeave(b);
+    expect(shown()).toEqual([]);
+
+    fireEvent.click(b);
+    fireEvent.focus(a);
+    expect(shown()).toEqual(["甲"]);
   });
 
   it("under Enter or Space on the focused trigger, the key does not reach an enclosing handler, while Tab does", () => {

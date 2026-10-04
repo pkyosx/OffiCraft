@@ -13,6 +13,11 @@ import "./instant-hint.css";
 const GAP = 6;
 const EDGE = 8;
 
+/** Closes whichever hint is open now. Hover and focus never produce a click, so
+ * the click-outside listener alone would leave a pinned hint open beside one
+ * the pointer just moved onto. */
+let closeOpenHint: (() => void) | null = null;
+
 /** The trigger's box without its padding. A host may pad the trigger to widen
  * its tap area on touch screens; placing the hint against the padded box would
  * float it that far away from what it explains. */
@@ -29,9 +34,9 @@ function contentRect(el: HTMLElement): { top: number; bottom: number; left: numb
 /** A span whose explanation shows the moment it is hovered or focused, in place
  * of a native `title` (which the browser holds back for about a second). A
  * click or tap pins it open until the next click on the trigger or anywhere
- * outside it, Escape, a scroll or a resize, so phones (no hover) can read it
- * too. Each
- * `\n` in `hint` starts a new line. The hint is portalled to <body> with fixed
+ * outside it, Escape, a scroll, a resize or another hint opening (only one
+ * shows at a time), so phones (no hover) can read it too. Each `\n` in `hint`
+ * starts a new line. The hint is portalled to <body> with fixed
  * positioning because its hosts sit inside ellipsis / overflow-hidden rows that
  * would clip anything rendered in place. */
 export function InstantHint({
@@ -50,6 +55,17 @@ export function InstantHint({
   // what stops that tap from toggling the hint straight shut.
   const [state, setState] = useState<"closed" | "shown" | "pinned">("closed");
   const open = state !== "closed";
+  const [closeSelf] = useState(() => () => setState("closed"));
+
+  useEffect(() => {
+    if (!open) return;
+    if (closeOpenHint !== closeSelf) closeOpenHint?.();
+    closeOpenHint = closeSelf;
+    return () => {
+      if (closeOpenHint === closeSelf) closeOpenHint = null;
+    };
+  }, [open, closeSelf]);
+
   const [pos, setPos] = useState<CSSProperties | null>(null);
 
   useLayoutEffect(() => {
