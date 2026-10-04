@@ -343,3 +343,26 @@ func TestABroadcastThatReachedTheOnlyOnlineWardenIsStillAFanOut(t *testing.T) {
 	api.runReconcileTick(nowSecs() + api.reconcileConfigLive().StopRetry + 1)
 	wsWantWardenFrames(t, api, "m-two", wsStopFrame("loose"))
 }
+
+func TestAStopRecordedWhileTheTickResendsIsNotOverwritten(t *testing.T) {
+	api, _, d, _ := newAPITestServer(t)
+	reconcileTestPut(t, d, Member{
+		ID: "loose", Name: "Loose", Kind: KindStaff, RoleKey: "assistant",
+		DesiredState: DesiredStateOffline,
+	})
+	shutdownWarden(t, api, d, "m-newer")
+	shutdownWarden(t, api, d, "m-chain")
+	api.robustStopMu.Lock()
+	api.robustStops["loose"] = robustStop{At: 1000}
+	api.robustStopMu.Unlock()
+
+	// A handler records its own STOP between the tick's read and its re-send.
+	api.stepRobustStop("loose", 1001, func() []string {
+		api.sendRobustStop("loose", []string{"m-newer"}, false, 1000.5)
+		return []string{"m-chain"}
+	})
+
+	rs, _ := api.robustStopOf("loose")
+	apiWantValue(t, "the record", any(map[string]any{"target": rs.Target, "at": rs.At}),
+		any(map[string]any{"target": "m-newer", "at": 1000.5}))
+}

@@ -93,6 +93,13 @@ func (s *apiServer) robustStopOf(id string) (robustStop, bool) {
 // broadcast that happened to list a single online warden. Takes no scheduler
 // lock.
 func (s *apiServer) sendRobustStop(id string, targets []string, fanout bool, now float64) robustStopOutcome {
+	return s.sendRobustStopOver(id, targets, fanout, now, nil)
+}
+
+// sendRobustStopOver with over non-nil is the tick's re-send of the record it
+// read: written only if that record is still the one on file, so a STOP a
+// handler recorded meanwhile (or a START's disarm) is not clobbered.
+func (s *apiServer) sendRobustStopOver(id string, targets []string, fanout bool, now float64, over *robustStop) robustStopOutcome {
 	aimed := ""
 	if !fanout && len(targets) == 1 {
 		aimed = targets[0]
@@ -100,7 +107,9 @@ func (s *apiServer) sendRobustStop(id string, targets []string, fanout bool, now
 	landed := s.sendStopFrames(id, targets, now)
 	rec := robustStop{Target: aimed, At: now, Landed: len(landed) > 0}
 	s.robustStopMu.Lock()
-	s.robustStops[id] = rec
+	if cur, ok := s.robustStops[id]; over == nil || (ok && cur == *over) {
+		s.robustStops[id] = rec
+	}
 	s.robustStopMu.Unlock()
 	switch {
 	case rec.Landed:
@@ -117,8 +126,8 @@ func (s *apiServer) sendRobustStop(id string, targets []string, fanout bool, now
 // stepRobustStop re-sends or retires id's owed STOP and answers whether one is
 // still owed against a live session. Only the two ticks call it, once per id per
 // tick; fanout re-resolves a fan-out's targets with the caller's lock already
-// held. The record is cleared compare-and-clear, so a STOP a handler armed while
-// this was judging is not wiped.
+// held. The record is cleared and rewritten compare-and-set, so a STOP a handler
+// armed while this was judging is neither wiped nor overwritten.
 func (s *apiServer) stepRobustStop(id string, now float64, fanout func() []string) bool {
 	rs, ok := s.robustStopOf(id)
 	if !ok {
@@ -143,7 +152,7 @@ func (s *apiServer) stepRobustStop(id string, now float64, fanout func() []strin
 			reconcileLog("robust stop %s: session still live past stop_retry (aimed at %q) — "+
 				"the kill did not take, re-dispatching", id, rs.Target)
 		}
-		s.sendRobustStop(id, targets, fan, now)
+		s.sendRobustStopOver(id, targets, fan, now, &rs)
 	}
 	return s.robustStopOwed(id)
 }
