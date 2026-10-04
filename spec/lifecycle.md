@@ -921,7 +921,9 @@ decides that time is up.
      `stop_retry` after while the session stays connected) and `offboardKindOf` quotes that
      same instant to the agent. The member is collected, as on the offline arm, once the
      session has been offline for the whole confirm window; staff and outsource workers run
-     this same `decideDown` (owner 2026-10-04 `rc-0e0ee29bc6e6`). This does NOT reopen `rc-27d1710174dd`: the
+     this same `decideDown` (owner 2026-10-04 `rc-0e0ee29bc6e6`). Once the agent's
+     `report_stopped` is collected the clock sends nothing more: the robust STOP that report
+     dispatched owns the kill and its own re-send. This does NOT reopen `rc-27d1710174dd`: the
      ruling is about the SERVER deciding time is up, and nothing here arms without the
      owner's press; and
   3. **the owner pressing 強制下線** — the SAME command, it only skips the waiting.

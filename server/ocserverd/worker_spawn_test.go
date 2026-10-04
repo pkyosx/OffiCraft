@@ -3561,13 +3561,13 @@ func TestReconcileWorkerLiveness(t *testing.T) {
 		apiWantValue(t, "still connected at stop_retry", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop"}))
 
 		api.hub.Disconnect(session)
-		api.reconcileWorkerLiveness(w, 400)
-		api.reconcileWorkerLiveness(w, 519)
+		api.reconcileWorkerLiveness(w, 450)
+		api.reconcileWorkerLiveness(w, 569)
 		apiWantValue(t, "offline, one second short of the confirm window", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
 		if got := stoppedSince(); got != 0 {
 			t.Fatalf("a session not yet confirmed gone may still reconnect; stopped_since = %v", got)
 		}
-		api.reconcileWorkerLiveness(w, 520)
+		api.reconcileWorkerLiveness(w, 570)
 		apiWantValue(t, "at the confirm window", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop"}))
 		if got := stoppedSince(); got <= 0 {
 			t.Fatalf("a session confirmed gone is collected; stopped_since = %v", got)
