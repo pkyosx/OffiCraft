@@ -151,6 +151,17 @@
   align-items: center;
   gap: 8px;
 }
+/* Wraps like 任務卡's badge row: on a phone the badge that does not fit moves
+ * to its own line whole (owner, for 任務卡: 「手機上 type 自己一行我接受」),
+ * instead of the 屬於 badge being squeezed down to its glyph. */
+.lore-row__badges {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 
 .lore-row__id-badge {
   flex: none;
