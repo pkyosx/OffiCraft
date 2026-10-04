@@ -40,17 +40,18 @@
 | `effective_ts` | REAL | 生效期；建立時＝現在 |
 | `created_ts` | REAL | **建立時間，永不變動** —— 這是「最初的生效期」，讓「提到最新」可逆 |
 | `updated_ts` | REAL | 狀態或理由變動時更新 |
-| `lore_type` | TEXT | 類型標籤，`instruction_conflict`（指示衝突）/ `instruction_supplement`（指示補充）/ `owner_decision`（Owner 決策）/ `owner_preference`（Owner 偏好）/ `other`（其他）五選一，`''` ＝無標籤；一筆最多一個，DB CHECK 只收這六個值。寫入當下決定，之後不變 |
+| `lore_type` | TEXT | 類型標籤，`instruction_conflict`（指示衝突）/ `instruction_supplement`（指示補充）/ `owner_decision`（Owner 決策）/ `owner_preference`（Owner 偏好）/ `other`（其他）五選一，**每一筆一定是其中一個**：寫入沒給類型、以及標題沒有類型前綴的既有條目，一律是 `other`（owner `rc-8ff3a3d41a26` 圈 B：「一律算『其他』」）。欄位 `NOT NULL DEFAULT 'other'`，DB CHECK 只收這五個值（不收 `''`）。寫入當下決定，之後不變 |
 
 🔴 **條目沒有編輯路徑。** 不提供改 `title` / `body` 的 API。可變的只有 `state`、`retire_reason`、`effective_ts`，以及 T-236 起只限負責人／admin agent 的 `scope_kind` / `scope_key`（`set_lore_entry_scope`，見 §5）。
 🔴 **`created_ts` 一旦寫入永不變動**，`effective_ts` 才是「提到最新」會蓋掉的那一個。
 
 索引：`(scope_kind, scope_key, state, effective_ts DESC)`。
 
-`lore_type` 由 `00113` 加上，同一支 migration 把既有的標題前綴搬成標籤：
+`lore_type` 由 `00113` 加上（加欄位時既有的每一列都拿到預設值 `other`），同一支 migration 把既有的標題前綴搬成標籤：
 - 標題以 `[指示衝突] `、`[指示補充] `、`[Owner 決策] `、`[Owner 偏好] `（括號後一個半形空格）**開頭** ⇒ 設對應的 `lore_type`，標題拿掉這段前綴（含空格），其餘一字不動。比對用 `substr` 比開頭，不用 `LIKE`（`LIKE` 對英文不分大小寫，`_`、`%` 是萬用字元）；標題中間出現的前綴不算。
 - 標題以 `[工作原則]` 開頭 ⇒ `lore_type='other'`，**標題不動**（owner：「工作原則可以不動前綴，只是label要標成其他」）。
-- 其他列不動、無標籤。
+- 其他列（沒有前綴、前綴不在開頭、大小寫或空格不符）⇒ `lore_type='other'`，**標題不動**。
+- 每一列只處理一次：比對的是備份表裡的原標題，所以 `[指示衝突] [Owner 決策] …` 只拿掉 `[指示衝突] `、標成 `instruction_conflict`，剩下的 `[Owner 決策] …` 留在標題裡。
 - 被改標題的列先把 `(id, title)` 存進 `lore_entry_title_backup_00113`；Down 用它還原標題，再移除欄位與備份表。
 
 ### 範圍收斂：三種 → 兩種（owner 2026-09-07，卡 `rc-a43100fd0486` 圈 [0]）
@@ -98,7 +99,7 @@
 在 `GET /api/task-manuals/{type_key}` 回應裡走自己的欄位（`lore` ＋ `lore_chars`）。**不進任何人的開機檔**，正職與外包一視同仁。
 
 🔴 **三個出口共用同一份挑選邏輯**（`selectLoreEntries`；成員出口經 `selectMemberLore`、手冊出口經 `selectLoreForScope`），各自傳不同的 scope 進去。在任何一條路徑上另寫一份挑選，症狀會是「同一筆條目在一個出口看得到、在另一個出口看不到」，而且不報錯。
-**類型標籤怎麼顯示**（`renderLoreBlock`，三個出口共用）：四種有標籤的在編號後、標題前顯示中文標籤，格式 `## L-667 [Owner 決策] 標題`，四個字面值是 `指示衝突`、`指示補充`、`Owner 決策`、`Owner 偏好`。🔴 **`other` 與無標籤都不顯示標籤**（owner：開機文件不提「其他」；`[工作原則]` 那幾筆的標題本身還帶著前綴）。字數上限只算標題＋內容，不算標籤。
+**類型標籤怎麼顯示**（`renderLoreBlock`，三個出口共用）：四種有標籤的在編號後、標題前顯示中文標籤，格式 `## L-667 [Owner 決策] 標題`，四個字面值是 `指示衝突`、`指示補充`、`Owner 決策`、`Owner 偏好`。🔴 **`other` 不顯示標籤**（owner：開機文件不提「其他」；`[工作原則]` 那幾筆的標題本身還帶著前綴）。字數上限只算標題＋內容，不算標籤。
 
 🔴 除了接上這三個出口所需的改動之外，**不要去抽正職與外包共用開頭那段既有的重複** —— 那段跟傳承無關，屬於 T-14 的範圍，不在本次授權內。
 
@@ -126,7 +127,7 @@
 寫入只走 MCP，座艙不做撰寫表單。
 
 - **寫一筆**：`title`、`body`、可空的 `task_id`、可空的 `lore_type`。
-  - `lore_type` 是五個值之一 ⇒ 存那個英文代號；省略、`null` 或 `""` ⇒ 無標籤。五個值以外 ⇒ 400，訊息點名那個值，**一個字都不寫**。類型不寫進標題。
+  - `lore_type` 是五個值之一 ⇒ 存那個英文代號；省略、`null` 或 `""`（含只有空白）⇒ 存 `other`（owner `rc-8ff3a3d41a26`）。五個值以外 ⇒ 400，訊息點名那個值，**一個字都不寫**。類型不寫進標題。
   - `task_id` 空 ⇒ 寫進**呼叫者自己的開機檔**：`scope_kind='agent'`、`scope_key` ＝**呼叫者自己的 member id**，正職與外包一視同仁（2026-09-07 範圍收斂之後這裡不再分兩支）。
     名冊上沒有這個人（owner 沒有名冊列）⇒ 400，訊息要指路去寫任務傳承。權限層級在成員門檻以下的身分（機器守衛）連這支介面都呼叫不到，是 403。
   - `task_id` 有 ⇒ 取該任務的 `type_key`。**有類型 ⇒ 寫進那本手冊。**
@@ -136,7 +137,7 @@
   - 寫入永遠不會落在 `everyone`。
 - **改狀態**：`entry_id` ＋ 目標狀態（`active` / `pinned` / `retired`），可帶 `retire_reason`。
 - **提到最新**：`entry_id` ⇒ `effective_ts` ← 現在。`created_ts` 不動。
-- **讀清單**：依 scope 篩選、分頁。每筆帶 `lore_type`。類型篩選 `lore_types`（只有複數）：五個值以外的元素 ⇒ 400 並點名；跟其他軸一樣在 SQL 裡 AND 進去；無標籤的列不會被任何類型值命中。
+- **讀清單**：依 scope 篩選、分頁。每筆帶 `lore_type`。類型篩選 `lore_types`（只有複數）：五個值以外的元素 ⇒ 400 並點名；跟其他軸一樣在 SQL 裡 AND 進去。每一筆都有類型，所以五個值全勾等於不篩。
 - **改適用範圍**（T-236，只限負責人／admin agent，其他人含撰寫人都是 403）：`set_lore_entry_scope`，`entry_id` ＋目標 `scope_kind`（`agent` / `manual` / `everyone`）。`scope_key` 由伺服器推：撰寫人的 member id／條目來源任務的類型（來源任務沒有類型、而撰寫人是外包時，改用那位外包綁定任務的類型）／空字串。推不出類型時 `manual` 是 400。清單上每筆的 `scope_options` 就是這支接受的選項。下次開機生效，不通知撰寫人、不留變更紀錄。
 
 ---
@@ -145,7 +146,7 @@
 
 自己的分頁。**整套照任務卡的設計語言**（去讀 `TaskCard.tsx` / `tasks.css` 實際的樣子，不要照轉述）：
 
-- **類型標籤在列的最前面**：一顆膠囊，排在條目編號之前、標題之前，收合狀態也看得到；五種各自顯示中文（英文介面顯示 Instruction conflict / Instruction supplement / Owner decision / Owner preference / Other），`other` 在這裡照樣顯示「其他」；無標籤不顯示。五種用**同一個顏色**，不依類型分色（owner `rc-f15bc5f4013d`：「標籤應該不需要每個有不同的顏色」）
+- **類型標籤在列的最前面**：一顆膠囊，排在條目編號之前、標題之前，收合狀態也看得到；五種各自顯示中文（英文介面顯示 Instruction conflict / Instruction supplement / Owner decision / Owner preference / Other），`other` 在這裡照樣顯示「其他」，所以每一列都有這顆膠囊。五種用**同一個顏色**，不依類型分色（owner `rc-f15bc5f4013d`：「標籤應該不需要每個有不同的顏色」）
 - 整列可點展開／收合，內容預設一行截斷
 - 右上角一顆 chevron 指示器（inline SVG，無邊框無背景，展開是換一顆圖不是旋轉）
 - **一顆狀態徽章**，點了在徽章左緣下方開小選單選 `失效 / 生效 / 置頂`，當前值用強調色＋700

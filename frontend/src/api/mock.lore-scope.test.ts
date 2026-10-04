@@ -77,7 +77,7 @@ const L7 = {
   effectiveTs: 1788470000,
   createdTs: 1788470000,
   updatedTs: 1788470000,
-  loreType: "",
+  loreType: "other",
 };
 
 async function entry(api: Awaited<ReturnType<typeof freshMock>>, id: string) {
@@ -213,22 +213,25 @@ describe("mock lore_type", () => {
     vi.spyOn(Date, "now").mockReturnValue(1790000000000);
   });
 
-  it("filters on loreTypes like the server: one type, two types, and no tag matches none", async () => {
+  it("filters on loreTypes like the server: one type, two types, every type", async () => {
     const api = await freshMock();
     const ids = async (loreTypes: Parameters<typeof api.listLoreEntries>[0]) =>
       (await api.listLoreEntries(loreTypes)).entries.map((e) => [e.id, e.loreType]);
-    expect(await ids({})).toEqual([
+    const everyEntry = [
       ["L-1", "owner_decision"],
-      ["L-7", ""],
+      ["L-7", "other"],
       ["L-5", "other"],
       ["L-4", "owner_preference"],
-      ["L-6", ""],
+      ["L-6", "other"],
       ["L-2", "instruction_supplement"],
       ["L-3", "instruction_conflict"],
-    ]);
+    ];
+    expect(await ids({})).toEqual(everyEntry);
     expect(await ids({ loreTypes: ["owner_preference"] })).toEqual([["L-4", "owner_preference"]]);
     expect(await ids({ loreTypes: ["other", "instruction_conflict"] })).toEqual([
+      ["L-7", "other"],
       ["L-5", "other"],
+      ["L-6", "other"],
       ["L-3", "instruction_conflict"],
     ]);
     expect(
@@ -241,13 +244,7 @@ describe("mock lore_type", () => {
           "other",
         ],
       }),
-    ).toEqual([
-      ["L-1", "owner_decision"],
-      ["L-5", "other"],
-      ["L-4", "owner_preference"],
-      ["L-2", "instruction_supplement"],
-      ["L-3", "instruction_conflict"],
-    ]);
+    ).toEqual(everyEntry);
   });
 
   it("an unknown lore type is a 400 on the list and on the write, and the write stores nothing", async () => {
@@ -273,19 +270,19 @@ describe("mock lore_type", () => {
       status: 400,
       code: "validation_error",
       serverMessage:
-        'lore_type must be one of instruction_conflict, instruction_supplement, owner_decision, owner_preference or other, or omitted for no tag — got "owner_whim"; nothing was written',
+        'lore_type must be one of instruction_conflict, instruction_supplement, owner_decision, owner_preference or other, or omitted for other — got "owner_whim"; nothing was written',
       retryAfter: null,
     });
     expect((await api.listLoreEntries()).entries).toHaveLength(7);
   });
 
-  it("a write stores its lore type, and one without stores no tag", async () => {
+  it("a write stores its lore type, and one without stores other", async () => {
     const api = await freshMock();
     await api.writeLoreEntry({ title: "有標籤", body: "b", loreType: "owner_decision" });
     await api.writeLoreEntry({ title: "沒標籤", body: "b" });
     const written = (await api.listLoreEntries()).entries.filter((e) => e.seq > 7);
     expect(written.map((e) => [e.id, e.title, e.loreType])).toEqual([
-      ["L-9", "沒標籤", ""],
+      ["L-9", "沒標籤", "other"],
       ["L-8", "有標籤", "owner_decision"],
     ]);
   });

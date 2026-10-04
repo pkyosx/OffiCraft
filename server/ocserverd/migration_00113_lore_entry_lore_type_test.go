@@ -76,6 +76,7 @@ var lore00113Before = []loreTitleRow{
 	{"L-9", "[owner 決策] 小寫", ""},
 	{"L-10", "[指示衝突] [工作原則] 疊兩層", ""},
 	{"L-11", "[指示衝突] [Owner 決策] 兩個前綴", ""},
+	{"L-12", "[Owner 決策] [Owner 偏好] 兩個前綴", ""},
 }
 
 func seedLore00113(t *testing.T, db *sql.DB) {
@@ -104,12 +105,13 @@ func TestMigration00113(t *testing.T) {
 			{"L-3", "先驗證真實情境", "owner_decision"},
 			{"L-4", "回覆用中文", "owner_preference"},
 			{"L-5", "[工作原則] 先讀規格再動手", "other"},
-			{"L-6", "沒有前綴的傳承", ""},
-			{"L-7", "先讀 [Owner 決策] 再動手", ""},
-			{"L-8", "[Owner 決策]沒有空格", ""},
-			{"L-9", "[owner 決策] 小寫", ""},
+			{"L-6", "沒有前綴的傳承", "other"},
+			{"L-7", "先讀 [Owner 決策] 再動手", "other"},
+			{"L-8", "[Owner 決策]沒有空格", "other"},
+			{"L-9", "[owner 決策] 小寫", "other"},
 			{"L-10", "[工作原則] 疊兩層", "instruction_conflict"},
 			{"L-11", "[Owner 決策] 兩個前綴", "instruction_conflict"},
+			{"L-12", "[Owner 偏好] 兩個前綴", "owner_decision"},
 		})
 
 		rows, err := db.Query(`SELECT id, title, '' FROM lore_entry_title_backup_00113 ORDER BY id`)
@@ -129,13 +131,16 @@ func TestMigration00113(t *testing.T) {
 			{"L-1", "[指示衝突] restart_self 不會自行完成重啟", ""},
 			{"L-10", "[指示衝突] [工作原則] 疊兩層", ""},
 			{"L-11", "[指示衝突] [Owner 決策] 兩個前綴", ""},
+			{"L-12", "[Owner 決策] [Owner 偏好] 兩個前綴", ""},
 			{"L-2", "[指示補充] 缺少的條件", ""},
 			{"L-3", "[Owner 決策] 先驗證真實情境", ""},
 			{"L-4", "[Owner 偏好] 回覆用中文", ""},
 		})
 
-		if _, err := db.Exec(`UPDATE lore_entry SET lore_type = 'bogus' WHERE id = 'L-6'`); err == nil {
-			t.Fatal("after 00113 the CHECK admits an arbitrary lore_type")
+		for _, bad := range []string{"bogus", ""} {
+			if _, err := db.Exec(`UPDATE lore_entry SET lore_type = ? WHERE id = 'L-6'`, bad); err == nil {
+				t.Fatalf("after 00113 the CHECK admits lore_type %q", bad)
+			}
 		}
 		if _, err := db.Exec(`INSERT INTO lore_entry
 			(id, seq, scope_kind, scope_key, title, body, author_id, source_task_id,
@@ -144,8 +149,8 @@ func TestMigration00113(t *testing.T) {
 			t.Fatalf("an insert that names no lore_type is refused: %v", err)
 		}
 		var lt string
-		if err := db.QueryRow(`SELECT lore_type FROM lore_entry WHERE id = 'L-99'`).Scan(&lt); err != nil || lt != "" {
-			t.Fatalf("default lore_type = %q / %v, want \"\"", lt, err)
+		if err := db.QueryRow(`SELECT lore_type FROM lore_entry WHERE id = 'L-99'`).Scan(&lt); err != nil || lt != "other" {
+			t.Fatalf("default lore_type = %q / %v, want \"other\"", lt, err)
 		}
 	})
 

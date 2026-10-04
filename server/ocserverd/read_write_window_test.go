@@ -1937,7 +1937,7 @@ func windowLoreEntry(t *testing.T, d *DAL, author, scopeKind, scopeKey string) L
 	e, err := d.CreateLoreEntryMintingID(LoreEntry{
 		ScopeKind: scopeKind, ScopeKey: scopeKey, Title: "寫過的事", Body: "內容",
 		AuthorID: author, State: LoreStateActive,
-		EffectiveTS: 100, CreatedTS: 100, UpdatedTS: 100,
+		EffectiveTS: 100, CreatedTS: 100, UpdatedTS: 100, LoreType: LoreTypeOther,
 	})
 	if err != nil {
 		t.Fatalf("CreateLoreEntryMintingID: %v", err)

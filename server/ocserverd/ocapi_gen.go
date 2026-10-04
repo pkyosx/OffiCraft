@@ -1537,7 +1537,7 @@ type LoreEntryDTO struct {
 	// Id ``L-<n>``, ``n`` ascending globally. This is the handle every write face takes as ``entry_id``.
 	Id string `json:"id"`
 
-	// LoreType The entry's type tag: ``instruction_conflict`` (指示衝突), ``instruction_supplement`` (指示補充), ``owner_decision`` (Owner 決策), ``owner_preference`` (Owner 偏好) or ``other`` (其他), or "" for an entry that carries no tag. At most one per entry. The cockpit shows it ahead of the title and the boot document renders it ahead of the title, so the title itself carries no type prefix.
+	// LoreType The entry's type tag: ``instruction_conflict`` (指示衝突), ``instruction_supplement`` (指示補充), ``owner_decision`` (Owner 決策), ``owner_preference`` (Owner 偏好) or ``other`` (其他); every entry carries exactly one, and an entry written without a type is ``other``. The cockpit shows it ahead of the title and the boot document renders it ahead of the title (except ``other``, which the boot document does not show), so the title itself carries no type prefix.
 	LoreType *string `json:"lore_type,omitempty"`
 
 	// RetireReason Why it was retired, or "". Meaningful only while ``state`` is ``retired``, and cleared when the entry is moved back.
@@ -1664,7 +1664,7 @@ type LoreEntryWriteDTO struct {
 	// Body The entry itself, at most ``lore_cap_chars_body`` characters.
 	Body string `json:"body"`
 
-	// LoreType The entry's type tag, one of ``instruction_conflict`` (指示衝突), ``instruction_supplement`` (指示補充), ``owner_decision`` (Owner 決策), ``owner_preference`` (Owner 偏好) or ``other`` (其他). Anything else is a 400 that names the value and writes nothing. Omitted, null or "" writes an entry with no tag.
+	// LoreType The entry's type tag, one of ``instruction_conflict`` (指示衝突), ``instruction_supplement`` (指示補充), ``owner_decision`` (Owner 決策), ``owner_preference`` (Owner 偏好) or ``other`` (其他). Anything else is a 400 that names the value and writes nothing. Omitted, null or "" writes ``other``.
 	LoreType *string `json:"lore_type,omitempty"`
 
 	// TaskId The task whose TYPE this entry belongs to. Send a TASK id here, not a type_key — the server reads the type off the task, which is also what records where the lesson came from.
@@ -4557,7 +4557,7 @@ type HandleListLoreEntriesApiLoreGetParams struct {
 	States *[]string `form:"states,omitempty" json:"states,omitempty"`
 	State  *string   `form:"state,omitempty" json:"state,omitempty"`
 
-	// LoreTypes REPEATABLE type-tag set (``?lore_types=owner_decision&lore_types=owner_preference``), matched against ``lore_type``. Accepted values: ``instruction_conflict``, ``instruction_supplement``, ``owner_decision``, ``owner_preference``, ``other``; ANY other element is a 400 that NAMES it, because an ignored typo returns an empty page that reads exactly like a real "there are none". Entries with no tag match no value. Absent or all-blank means no constraint on this axis. additive-optional.
+	// LoreTypes REPEATABLE type-tag set (``?lore_types=owner_decision&lore_types=owner_preference``), matched against ``lore_type``. Accepted values: ``instruction_conflict``, ``instruction_supplement``, ``owner_decision``, ``owner_preference``, ``other``; ANY other element is a 400 that NAMES it, because an ignored typo returns an empty page that reads exactly like a real "there are none". Absent or all-blank means no constraint on this axis. additive-optional.
 	LoreTypes *[]string `form:"lore_types,omitempty" json:"lore_types,omitempty"`
 
 	// AuthorIds REPEATABLE author set (``?author_ids=mira&author_ids=nova``) — the multi-select twin of ``author_id``. Member ids are free-form and are matched literally against the author PINNED at write time, so there is no closed set and no 400; an id nobody carries simply contributes no rows. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. additive-optional.

@@ -3218,8 +3218,8 @@ export type LoreEntryState = "active" | "pinned" | "retired";
 /** The scopes the server has (`everyone` since T-236). */
 export type LoreScopeKind = "agent" | "manual" | "everyone";
 
-/** An entry's type tag. An entry carries at most one; `""` on a
- * `LoreEntryView` is an entry with no tag. */
+/** An entry's type tag. Every entry carries exactly one; one written without
+ * a type is `other` (owner rc-8ff3a3d41a26). */
 export type LoreType =
   | "instruction_conflict"
   | "instruction_supplement"
@@ -3279,7 +3279,7 @@ export interface LoreEntryView {
   effectiveTs: number;
   createdTs: number;
   updatedTs: number;
-  loreType: LoreType | "";
+  loreType: LoreType;
 }
 
 /** The server-side narrowing one list request may carry. Every field is a query
@@ -3321,7 +3321,7 @@ export interface LoreListOptions {
   scopeKeys?: string[];
   states?: LoreEntryState[];
   authorIds?: string[];
-  /** Sent as `lore_types`. An entry with no tag matches no value. */
+  /** Sent as `lore_types`. */
   loreTypes?: LoreType[];
   limit?: number;
   offset?: number;
@@ -3354,6 +3354,6 @@ export interface LoreEntryWrite {
   title: string;
   body: string;
   taskId?: string;
-  /** Omitted writes an entry with no tag. */
+  /** Omitted writes `other`. */
   loreType?: LoreType;
 }

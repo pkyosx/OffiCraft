@@ -1204,7 +1204,7 @@ const mockLoreEntries: LoreEntryView[] = [
     effectiveTs: 1788440000,
     createdTs: 1788440000,
     updatedTs: 1788440000,
-    loreType: "",
+    loreType: "other",
   },
   {
     id: "L-7",
@@ -1222,7 +1222,7 @@ const mockLoreEntries: LoreEntryView[] = [
     effectiveTs: 1788470000,
     createdTs: 1788470000,
     updatedTs: 1788470000,
-    loreType: "",
+    loreType: "other",
   },
 ];
 
@@ -5192,7 +5192,7 @@ const mockApiImpl = {
         (keys.length === 0 || keys.includes(e.scopeKey)) &&
         (states.length === 0 || states.includes(e.state)) &&
         (authors.length === 0 || authors.includes(e.authorId)) &&
-        (loreTypes.length === 0 || (e.loreType !== "" && loreTypes.includes(e.loreType)))
+        (loreTypes.length === 0 || loreTypes.includes(e.loreType))
     );
     const ordered = [...matches].sort(mockLoreOrder);
 
@@ -5268,7 +5268,7 @@ const mockApiImpl = {
       throw mockApiError(
         "http 400 for POST /api/lore",
         400,
-        `lore_type must be one of ${LORE_TYPE_LIST}, or omitted for no tag — got ${JSON.stringify(entry.loreType)}; nothing was written`
+        `lore_type must be one of ${LORE_TYPE_LIST}, or omitted for other — got ${JSON.stringify(entry.loreType)}; nothing was written`
       );
     }
     const now = Date.now() / 1000;
@@ -5295,7 +5295,7 @@ const mockApiImpl = {
       effectiveTs: now,
       createdTs: now,
       updatedTs: now,
-      loreType: entry.loreType ?? "",
+      loreType: entry.loreType || "other",
     };
     mockLoreEntries.push(made);
   },

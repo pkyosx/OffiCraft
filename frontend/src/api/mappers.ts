@@ -2133,8 +2133,9 @@ export function toLoreEntry(
     effectiveTs: w.effective_ts,
     createdTs: w.created_ts,
     updatedTs: w.updated_ts,
-    // A value this cockpit does not know shows as no tag rather than a guess.
-    loreType: isLoreType(w.lore_type) ? w.lore_type : "",
+    // Missing (an older server) or a value this build does not know reads as
+    // other, the type every entry written without one has.
+    loreType: isLoreType(w.lore_type) ? w.lore_type : "other",
   };
 }
 

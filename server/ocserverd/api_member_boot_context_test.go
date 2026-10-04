@@ -47,6 +47,7 @@ func memberPreviewSeed(t *testing.T, d *DAL, members ...Member) {
 	for _, e := range entries {
 		e.AuthorID, e.State = "owner", LoreStateActive
 		e.EffectiveTS, e.CreatedTS, e.UpdatedTS = 1, 1, 1
+		e.LoreType = LoreTypeOther
 		if _, err := d.CreateLoreEntryMintingID(e); err != nil {
 			t.Fatalf("CreateLoreEntryMintingID(%s): %v", e.Body, err)
 		}

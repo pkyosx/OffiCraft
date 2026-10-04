@@ -1177,8 +1177,8 @@ func ValidLoreState(s string) bool {
 	return false
 }
 
-// Lore type tags; "" is an entry with no tag. The DB CHECK (migrations/00113)
-// admits exactly these and "".
+// Lore type tags. Every entry carries exactly one; the DB CHECK
+// (migrations/00113) admits exactly these.
 const (
 	LoreTypeInstructionConflict   = "instruction_conflict"
 	LoreTypeInstructionSupplement = "instruction_supplement"

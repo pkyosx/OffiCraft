@@ -49,13 +49,14 @@ func (s *apiServer) HandleWriteLoreEntryApiLorePost(w http.ResponseWriter, r *ht
 		return
 	}
 
-	loreType := ""
-	if body.LoreType != nil {
+	// Owner rc-8ff3a3d41a26: an entry written without a type is other.
+	loreType := LoreTypeOther
+	if body.LoreType != nil && strings.TrimSpace(*body.LoreType) != "" {
 		loreType = strings.TrimSpace(*body.LoreType)
 	}
-	if loreType != "" && !ValidLoreType(loreType) {
+	if !ValidLoreType(loreType) {
 		writeError(w, http.StatusBadRequest,
-			"lore_type must be one of "+loreTypeList+", or omitted for no tag — got "+
+			"lore_type must be one of "+loreTypeList+", or omitted for other — got "+
 				strconv.Quote(loreType)+"; nothing was written")
 		return
 	}

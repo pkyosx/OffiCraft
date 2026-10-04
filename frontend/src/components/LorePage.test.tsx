@@ -68,7 +68,7 @@ function mkEntry(over: Partial<LoreEntryView> & { id: string }): LoreEntryView {
     effectiveTs: 1788400000,
     createdTs: 1788400000,
     updatedTs: 1788400000,
-    loreType: "",
+    loreType: "other",
     ...over,
   };
 }
@@ -1410,7 +1410,7 @@ describe("LorePage — 順序跟任務頁一致", () => {
     expect(marks).toEqual(["lore-entry-id", "lore-state", "lore-scope"]);
   });
 
-  it("puts the type tag at the very front of a collapsed row, ahead of the id and the title", async () => {
+  it("puts the type tag at the very front of every collapsed row, ahead of the id and the title", async () => {
     stubList(
       page([
         mkEntry({ id: "L-1", loreType: "instruction_conflict", effectiveTs: 6 }),
@@ -1418,13 +1418,12 @@ describe("LorePage — 順序跟任務頁一致", () => {
         mkEntry({ id: "L-3", loreType: "owner_decision", effectiveTs: 4 }),
         mkEntry({ id: "L-4", loreType: "owner_preference", effectiveTs: 3 }),
         mkEntry({ id: "L-5", loreType: "other", effectiveTs: 2 }),
-        mkEntry({ id: "L-6", loreType: "", effectiveTs: 1 }),
       ]),
     );
     const { container } = renderPage();
-    await waitFor(() => expect(renderedIds(container)).toHaveLength(6));
+    await waitFor(() => expect(renderedIds(container)).toHaveLength(5));
 
-    const tags = ["L-1", "L-2", "L-3", "L-4", "L-5", "L-6"].map((id) => {
+    const tags = ["L-1", "L-2", "L-3", "L-4", "L-5"].map((id) => {
       const row = rowById(container, id);
       expect(row.getAttribute("aria-expanded")).toBe("false");
       const firstInRow = row.querySelector(
@@ -1439,7 +1438,6 @@ describe("LorePage — 順序跟任務頁一致", () => {
       ["L-3", "lore-type", "Owner 決策"],
       ["L-4", "lore-type", "Owner 偏好"],
       ["L-5", "lore-type", "其他"],
-      ["L-6", "lore-entry-id", null],
     ]);
   });
 

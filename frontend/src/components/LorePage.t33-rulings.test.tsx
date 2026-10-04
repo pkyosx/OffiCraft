@@ -56,7 +56,7 @@ function mkEntry(over: Partial<LoreEntryView> & { id: string }): LoreEntryView {
     effectiveTs: 1788400000,
     createdTs: 1788400000,
     updatedTs: 1788400000,
-    loreType: "",
+    loreType: "other",
     ...over,
   };
 }

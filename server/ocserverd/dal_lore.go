@@ -40,7 +40,7 @@ type LoreEntry struct {
 	CreatedTS float64
 	UpdatedTS float64
 
-	// LoreType is "" for an entry with no tag.
+	// LoreType is one of the five Valid ones; the DB CHECK refuses "".
 	LoreType string
 }
 

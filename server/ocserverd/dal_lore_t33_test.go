@@ -25,6 +25,7 @@ func seedLore(t *testing.T, d *DAL, scopeKind, scopeKey, title, state string, ef
 		EffectiveTS: effectiveTS,
 		CreatedTS:   effectiveTS,
 		UpdatedTS:   effectiveTS,
+		LoreType:    LoreTypeOther,
 	})
 	if err != nil {
 		t.Fatalf("CreateLoreEntryMintingID(%s): %v", title, err)

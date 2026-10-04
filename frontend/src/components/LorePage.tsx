@@ -1204,16 +1204,14 @@ function LoreRow({
     >
       <div className="lore-row__head">
         {/* The type tag leads the row, ahead of the id, so a collapsed row
-            shows it before anything else. No tag, no capsule. */}
-        {entry.loreType !== "" && (
-          <span
-            className="lore-badge lore-badge--lore-type"
-            data-testid="lore-type"
-            data-lore-type={entry.loreType}
-          >
-            {loreTypeLabel(t, entry.loreType)}
-          </span>
-        )}
+            shows it before anything else. */}
+        <span
+          className="lore-badge lore-badge--lore-type"
+          data-testid="lore-type"
+          data-lore-type={entry.loreType}
+        >
+          {loreTypeLabel(t, entry.loreType)}
+        </span>
         {/* 🔴 THE BADGE ORDER IS 任務卡'S ORDER (owner, 2026-09-07: 「The order
             of buttons / filters matters」「make them consistent with task」).
             That card reads 編號 → 優先權 → 狀態 → 類型, so this row reads

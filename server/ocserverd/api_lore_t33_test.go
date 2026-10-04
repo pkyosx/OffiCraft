@@ -954,7 +954,7 @@ func seedScopedLore(t *testing.T, api *apiServer, author, sourceTaskID, title st
 	e, err := api.dal.CreateLoreEntryMintingID(LoreEntry{
 		ScopeKind: LoreScopeAgent, ScopeKey: author, Title: title, Body: "內容",
 		AuthorID: author, SourceTaskID: sourceTaskID, State: LoreStateActive,
-		EffectiveTS: 100, CreatedTS: 100, UpdatedTS: 100,
+		EffectiveTS: 100, CreatedTS: 100, UpdatedTS: 100, LoreType: LoreTypeOther,
 	})
 	if err != nil {
 		t.Fatalf("CreateLoreEntryMintingID: %v", err)
@@ -988,7 +988,6 @@ type loreEntryWant struct {
 	updated          any
 	typeKey          string
 	options          []any
-	loreType         string
 }
 
 func (w loreEntryWant) body() map[string]any {
@@ -998,7 +997,7 @@ func (w loreEntryWant) body() map[string]any {
 		"source_task_id": w.e.SourceTaskID, "state": w.state, "retire_reason": "",
 		"effective_ts": w.e.EffectiveTS, "created_ts": w.e.CreatedTS,
 		"updated_ts": w.updated, "task_type_key": w.typeKey, "scope_options": w.options,
-		"lore_type": w.loreType,
+		"lore_type": "other",
 	}
 }
 
@@ -1213,7 +1212,7 @@ func TestSetLoreEntryScope(t *testing.T) {
 		e, err := st.api.dal.CreateLoreEntryMintingID(LoreEntry{
 			ScopeKind: "role", ScopeKey: "researcher", Title: "孤兒", Body: "內容",
 			AuthorID: staff, State: LoreStatePinned,
-			EffectiveTS: 100, CreatedTS: 100, UpdatedTS: 100,
+			EffectiveTS: 100, CreatedTS: 100, UpdatedTS: 100, LoreType: LoreTypeOther,
 		})
 		if err != nil {
 			t.Fatalf("seed role orphan: %v", err)
@@ -1282,9 +1281,10 @@ func TestWriteLoreTypeTag(t *testing.T) {
 		{"owner_decision", `,"lore_type":"owner_decision"`, "owner_decision"},
 		{"owner_preference", `,"lore_type":"owner_preference"`, "owner_preference"},
 		{"other", `,"lore_type":"other"`, "other"},
-		{"omitted is no tag", ``, ""},
-		{"null is no tag", `,"lore_type":null`, ""},
-		{"empty is no tag", `,"lore_type":""`, ""},
+		{"omitted is other", ``, "other"},
+		{"null is other", `,"lore_type":null`, "other"},
+		{"empty is other", `,"lore_type":""`, "other"},
+		{"blank is other", `,"lore_type":"  "`, "other"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			title := "標題 " + tc.name
@@ -1324,7 +1324,7 @@ func TestWriteLoreTypeTag(t *testing.T) {
 			}
 			apiWantError(t, data, "validation_error",
 				"lore_type must be one of instruction_conflict, instruction_supplement, "+
-					"owner_decision, owner_preference or other, or omitted for no tag — got "+
+					"owner_decision, owner_preference or other, or omitted for other — got "+
 					strconv.Quote(bad)+"; nothing was written")
 			status, page := apiJSON(t, st.h, "GET", "/api/lore?author_ids=m-scope-admin", st.user, "")
 			if status != http.StatusOK {
@@ -1355,7 +1355,7 @@ func TestTaskManualLoreShowsTheTypeLabelAheadOfTheTitle(t *testing.T) {
 		{"丙三", "owner_decision"},
 		{"丁四", "owner_preference"},
 		{"[工作原則] 戊五", "other"},
-		{"己六", ""},
+		{"己六", "other"},
 	} {
 		if _, err := st.api.dal.CreateLoreEntryMintingID(LoreEntry{
 			ScopeKind: LoreScopeManual, ScopeKey: "tm-typed-lore", Title: w.title, Body: "內容",
@@ -1390,7 +1390,7 @@ func TestStaffBootDocumentShowsTheTypeLabelAheadOfTheTitle(t *testing.T) {
 	for _, w := range []struct{ title, loreType string }{
 		{"庚七", "owner_decision"},
 		{"[工作原則] 辛八", "other"},
-		{"壬九", ""},
+		{"壬九", "other"},
 		{"癸十", "instruction_conflict"},
 	} {
 		if _, err := st.api.dal.CreateLoreEntryMintingID(LoreEntry{
