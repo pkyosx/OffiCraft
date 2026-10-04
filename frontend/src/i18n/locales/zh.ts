@@ -143,7 +143,7 @@ export const zh = {
     capLineSep: " · ",
     capLineMid: " 上限 ",
     capLineTail: " 字，以下的傳承成員讀不到",
-    // 篩選列：所有撰寫人 → 所有成員傳承 → 所有任務傳承 → 所有狀態 → 清除篩選。
+    // 篩選列：所有撰寫人 → 所有成員傳承 → 所有任務傳承 → 所有類型 → 所有狀態 → 清除篩選。
     // 順序與名字都是負責人 2026-09-08 逐字給的，抄任務頁的排法，少掉它那個
     // 任務編號搜尋框（傳承的編號沒有人會用打的去找）。
     //
@@ -172,6 +172,14 @@ export const zh = {
     filterMemberAll: "所有成員傳承",
     filterTaskNoun: "任務傳承",
     filterTaskAll: "所有任務傳承",
+    // 類型標籤：條目列最前面的膠囊與篩選列「類型」那一格共用這一組詞。
+    loreTypeInstructionConflict: "指示衝突",
+    loreTypeInstructionSupplement: "指示補充",
+    loreTypeOwnerDecision: "Owner 決策",
+    loreTypeOwnerPreference: "Owner 偏好",
+    loreTypeOther: "其他",
+    filterTypeNoun: "類型",
+    filterTypeAll: "所有類型",
     filterStateNoun: "狀態",
     filterStateAll: "所有狀態",
     // 整列可點展開／收合

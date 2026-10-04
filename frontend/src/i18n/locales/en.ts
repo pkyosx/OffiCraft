@@ -149,7 +149,8 @@ export const en: Dict = {
     capLineSep: " · ",
     capLineMid: " cap ",
     capLineTail: " characters — members cannot see the lore below this line",
-    // The filter row: author → member lore → task lore → state → clear, the
+    // The filter row: author → member lore → task lore → type → state → clear
+    // (type placed before state by the owner). Otherwise the
     // order and the names the owner dictated on 2026-09-08 (所有撰寫人 / 所有
     // 成員傳承 / 所有任務傳承 / 所有狀態). It is the 任務頁's shape minus its id
     // search box — a 傳承 id is not something anybody goes looking for by typing
@@ -176,6 +177,14 @@ export const en: Dict = {
     filterMemberAll: "All member lore",
     filterTaskNoun: "Task lore",
     filterTaskAll: "All task lore",
+    // Type tag: the capsule at the front of a row and the 類型 filter share these words.
+    loreTypeInstructionConflict: "Instruction conflict",
+    loreTypeInstructionSupplement: "Instruction supplement",
+    loreTypeOwnerDecision: "Owner decision",
+    loreTypeOwnerPreference: "Owner preference",
+    loreTypeOther: "Other",
+    filterTypeNoun: "Type",
+    filterTypeAll: "All types",
     filterStateNoun: "State",
     filterStateAll: "All states",
     // The whole row is the expand/collapse surface.
