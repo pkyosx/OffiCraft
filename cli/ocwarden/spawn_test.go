@@ -1843,7 +1843,7 @@ func TestStart(t *testing.T) {
 				}
 				// The version probe's 2s, then each capture's (15 polls, the fallback's):
 				// a hung tmux must not stall the spawn past its line in
-				// receiptDeadlineSecs (server/ocserverd/receipt_watch.go).
+				// startReceiptDeadlineSecs (server/ocserverd/receipt_watch.go).
 				if want := slices.Repeat([]time.Duration{2 * time.Second}, 17); !reflect.DeepEqual(rec.timeouts, want) {
 					t.Errorf("timeouts = %v, want %v", rec.timeouts, want)
 				}
@@ -1915,7 +1915,7 @@ func TestStart(t *testing.T) {
 				t.Errorf("logs = %q, want %q", h.logs, want)
 			}
 			// The version probe, two captures and the three send calls, each under
-			// its 2 s: the wait's overrun in receiptDeadlineSecs counts on it.
+			// its 2 s: the wait's overrun in startReceiptDeadlineSecs counts on it.
 			if want := slices.Repeat([]time.Duration{2 * time.Second}, 6); !reflect.DeepEqual(h.paneTimeouts, want) {
 				t.Errorf("timeouts = %v, want %v", h.paneTimeouts, want)
 			}

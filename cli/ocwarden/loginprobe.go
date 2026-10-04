@@ -26,7 +26,7 @@ const loginCheckEnvName = ".oc-login-check-env"
 // check included: past it the verdict is unknown and the spawn launches. The
 // periodic check can hold the prober for ~25 s (shell capture, auth status and
 // keychain on claude, then codex), and the START receipt has to reach the
-// server inside its receiptDeadlineSecs (server/ocserverd/receipt_watch.go),
+// server inside its startReceiptDeadlineSecs (server/ocserverd/receipt_watch.go),
 // whose derivation counts this budget. 🔴 Raising it eats into that deadline;
 // nothing links the two modules.
 const spawnCheckBudget = 15 * time.Second

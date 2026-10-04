@@ -152,7 +152,7 @@ type notifyModRetry struct {
 // The launch line is reused as is: a normal stop + wake starts a fresh session
 // with the same line too (no --resume), and this first one never had a turn.
 // Its budget, one teardown and one more 30 s wait, is a line of
-// receiptDeadlineSecs (server/ocserverd/receipt_watch.go).
+// startReceiptDeadlineSecs (server/ocserverd/receipt_watch.go).
 func (d SpawnDeps) retryNotifyMod(memberID, workdir, socket, session, command string, launchedAt time.Time) notifyModRetry {
 	// 🔴 BEFORE the started check: the mod writes its started marker before it
 	// reads this one, so a session.start racing this check either shows below or

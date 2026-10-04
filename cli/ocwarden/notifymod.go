@@ -93,7 +93,7 @@ func buildNotifyModConfig(workdir, bootPrompt string) string {
 
 var notifyModFiles = []string{".claude-plugin/plugin.json", "hooks/hooks.json", "hooks/register.ts"}
 
-// Its run time is part of the spawn budget listed at receiptDeadlineSecs
+// Its run time is part of the spawn budget listed at startReceiptDeadlineSecs
 // (server/ocserverd/receipt_watch.go).
 const claudeVersionProbeBudget = 2 * time.Second
 
@@ -214,7 +214,7 @@ const claudePluginsChangedBanner = "Run /reload-plugins to activate"
 const notifyModPollTicks = 2
 
 // Paced like the nudge loop it replaces on the mod route and bounded by the same
-// 30 s (receiptDeadlineSecs): at most nudgeMaxAttempts sleeps and no poll starts
+// 30 s (startReceiptDeadlineSecs): at most nudgeMaxAttempts sleeps and no poll starts
 // past the deadline. Every tmux call here runs under notifyModCaptureBudget, so
 // each costs at most 2 s + the runner's subprocessWaitDelay 2 s; the most the
 // last poll can run over is its nudgeSettle sleep, one capture and the one-time

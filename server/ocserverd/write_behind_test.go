@@ -934,7 +934,7 @@ func TestOnboardingDoesNotReviveAnAssistantDismissedAfterItsRead(t *testing.T) {
 func TestAReceiptMissingStampPublishesTheRowAsItIsAfterTheStamp(t *testing.T) {
 	d, hook, path := windowDAL(t, "split pools")
 	api := windowStaff(t, d, `desired_state = 'offline'`)
-	api.armReceiptWatch("kip", reconcileCmdStop, ServerSelfHost, 1699999900)
+	api.armReceiptWatch("kip", reconcileCmdStop, ServerSelfHost, 1700000000)
 	dashboard := apiTestListen(t, api, "")
 	behind := windowWriteBehind(t, hook, path, "FROM member WHERE id = ?",
 		`UPDATE member SET desired_state = 'online', stopping_since = 0 WHERE id = 'kip'`)
@@ -947,7 +947,7 @@ func TestAReceiptMissingStampPublishesTheRowAsItIsAfterTheStamp(t *testing.T) {
 	}
 	got := apiTestMemberRow(t, d, "kip")
 	const reason = "receipt_missing: the stop was handed to machine \"m-server-self\" but no receipt came " +
-		"back within 150s — the op may or may not have run; this row's last state is UNKNOWN, not failed. " +
+		"back within 90s — the op may or may not have run; this row's last state is UNKNOWN, not failed. " +
 		"Suspect the machine's link to the server (the receipt POST) before suspecting the op itself"
 	if got.DesiredState != DesiredStateOnline || got.LastOp != "stop" || got.LastOpReason != reason {
 		t.Fatalf("row: desired_state %q last_op %q reason %q; want online, stop, %q",

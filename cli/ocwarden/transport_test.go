@@ -766,7 +766,7 @@ func TestBuildSpawnDeps(t *testing.T) {
 	if ok, _ := deps.ClaudeTakesPromptFile("/a/system-prompt.md"); ok {
 		t.Error("a claude that rejects --append-system-prompt-file was reported as taking it")
 	}
-	// 2s is a line of the receiptDeadlineSecs budget (server/ocserverd/receipt_watch.go).
+	// 2s is a line of the startReceiptDeadlineSecs budget (server/ocserverd/receipt_watch.go).
 	if want := []time.Duration{2 * time.Second, 2 * time.Second}; !reflect.DeepEqual(runner.timeouts, want) {
 		t.Errorf("timeouts the probe ran under = %v, want %v", runner.timeouts, want)
 	}

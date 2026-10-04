@@ -17,7 +17,7 @@ const (
 	defaultNudge = "開始。"
 	// The Enter loop is UNCONDITIONAL: every claude spawn spends 30×1s here (the
 	// mod route polls within the same 30 s, see waitForNotifyMod), out of the
-	// 150s receiptDeadlineSecs in server/ocserverd/receipt_watch.go (the START receipt
+	// 150s startReceiptDeadlineSecs in server/ocserverd/receipt_watch.go (the START receipt
 	// is POSTed only after Spawn returns); that comment lists the rest of the spawn
 	// path's budgets, and their worst case already runs past it. NEITHER NUMBER
 	// HAS EVER BEEN MEASURED, and nothing mechanical links them: cli/ocwarden and
@@ -215,7 +215,7 @@ func buildAppendSystemPrompt(agentID, role, personaFile string) string {
 const claudePromptFileProbeFlag = "--oc-probe-unsupported-flag"
 
 // Spent before the START receipt is sent, so it is one line of the budget
-// listed at receiptDeadlineSecs (server/ocserverd/receipt_watch.go). A timeout
+// listed at startReceiptDeadlineSecs (server/ocserverd/receipt_watch.go). A timeout
 // reads as "not supported" and still boots.
 const claudePromptFileProbeBudget = 2 * time.Second
 
