@@ -13,6 +13,19 @@ import "./instant-hint.css";
 const GAP = 6;
 const EDGE = 8;
 
+/** The trigger's box without its padding. A host may pad the trigger to widen
+ * its tap area on touch screens; placing the hint against the padded box would
+ * float it that far away from what it explains. */
+function contentRect(el: HTMLElement): { top: number; bottom: number; left: number } {
+  const r = el.getBoundingClientRect();
+  const cs = getComputedStyle(el);
+  return {
+    top: r.top + (parseFloat(cs.paddingTop) || 0),
+    bottom: r.bottom - (parseFloat(cs.paddingBottom) || 0),
+    left: r.left + (parseFloat(cs.paddingLeft) || 0),
+  };
+}
+
 /** A span whose explanation shows the moment it is hovered or focused, in place
  * of a native `title` (which the browser holds back for about a second). A
  * click or tap pins it open until the next click on the trigger or anywhere
@@ -44,7 +57,7 @@ export function InstantHint({
       setPos(null);
       return;
     }
-    const trigger = triggerRef.current?.getBoundingClientRect();
+    const trigger = triggerRef.current && contentRect(triggerRef.current);
     const box = hintRef.current?.getBoundingClientRect();
     if (!trigger || !box) return;
     const below = trigger.bottom + GAP;
