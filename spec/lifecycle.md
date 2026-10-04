@@ -1179,9 +1179,8 @@ ONE-SHOT, never a standing order):
   declares its own `AppliesTo`, so a formality added to the list reaches BOTH sides
   by construction and one that must not has to write the restriction down where a
   reader — and `lifecycle_roster_parity_t170e_test.go` — sees it by name. Exactly
-  one pass is restricted today: `recycle_loop_break` is staff-only, because a worker
-  already has a loop-break in `autoHandoverWorker` asking a different question
-  (`boot_ts > refocus_since`). A wind-down rule that goes ON this list and is then
+  one pass is restricted today: `recycle_loop_break` is staff-only, because a worker's
+  loop-break asks a different question (`boot_ts > refocus_since`). A wind-down rule that goes ON this list and is then
   quietly narrowed to one side fails by name in that test.
   - 🔴 **KNOWN GAP — `LIFECYCLE-LIST-IS-OPT-IN-T170E`.** An earlier draft of this
     bullet claimed "a wind-down rule that is not on this list does not apply to

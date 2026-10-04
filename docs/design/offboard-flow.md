@@ -193,17 +193,18 @@ body）現在做的是：翻 `desired_state=offline`（保持「停止壓過
 - **refocus epoch 還是被清掉，但理由換了**。原本的註解說「明示的停止壓過換手」——停止
   把收尾丟掉然後殺。現在停止**本身就是**一種收尾，沒有東西被壓過：worker 繼續走同一份
   〈停止〉，只是後面不再接一個新 session。清掉的理由變成機械的：
-  `autoHandoverWorker` 的 in-flight 臂是用 kill+**respawn** 收口的，留著它會把 owner 剛
+  refocus epoch 是由 FSM 的 recycle 臂用 kill+**respawn** 收口的，留著它會把 owner 剛
   壓下去的 worker 又叫起來。
 - **`desired_state` 一開始就翻成 offline，這是刻意的**，而且它不會讓別的東西提早收掉
-  worker：`autoHandoverWorker` 現在對 desired-offline 的 worker **最先**分流到停止臂並
-  return，排程 tick 的其他復活分支本來就跳過 held-down 的 worker。真正的風險方向是**被
+  worker：desired-offline 的 worker 跟正職走同一段 `decideDown`，那一段只會送停止、不會
+  START，排程 tick 的其他復活分支本來就跳過 held-down 的 worker。真正的風險方向是**被
   respawn**，不是被提早收——上面那條清 refocus 的理由講的就是它。
 - **加速停止在外包身上也走得通了**。`/accelerated-stop` 原本對 `desired_state=offline`
   回 409（在停止還是當場殺的年代是對的），那會讓 owner 只剩 停止 →（409）→ 強制停止。
   它現在跟正職一樣吃兩條臂；下線那一臂重蓋 `stopping_since`、寫
-  `refocus_op=accelerated_stop`，`autoHandoverWorker` 的停止臂在 `stopping_since + grace`
-  收口。護欄：`TestWorkerStop_AcceleratedStopEscalatesTheStopEpochAndIsHonoured`。
+  `refocus_op=accelerated_stop`。到了 `stopping_since + grace`，`decideDown`（正職與外包
+  同一段）送出停止指令，送往 session 實際所在的機器；session 確認斷線滿 120 秒才收口
+  （owner 2026-10-04 `rc-0e0ee29bc6e6` 選 A）。護欄：`TestWorkerStop_AcceleratedStopEscalatesTheStopEpochAndIsHonoured`。
 
 ### 🔴 token 到期前一小時也會開一條「停止」（owner 2026-08-21）
 
