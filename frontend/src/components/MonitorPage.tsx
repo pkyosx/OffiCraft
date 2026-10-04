@@ -1173,6 +1173,9 @@ export function MonitorPage() {
 function revealUnderPinnedColumns(e: FocusEvent<HTMLDivElement>) {
   const wrap = e.currentTarget;
   if (wrap.scrollWidth <= wrap.clientWidth || !(e.target instanceof HTMLElement)) return;
+  // Keyboard focus only: a mouse or touch click focuses its button too, and
+  // scrolling then would close the panel or menu that click just opened.
+  if (!e.target.matches(":focus-visible")) return;
   const cell = e.target.closest("td, th");
   const row = cell?.parentElement;
   if (!cell || !row || !wrap.contains(cell)) return;

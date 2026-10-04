@@ -29,6 +29,7 @@
 //   機器 column not sticky                    → 機器 left edge moves on scroll
 //   機器 cells transparent                    → a scrolled cell shows through
 //   frame does not reveal a focused control  → keyboard focus hidden under ⚙ / 機器
+//   reveal also runs on a mouse click        → half-covered click test (panel / menu closes)
 //   panel without max-height                 → short-window test
 //   panel scroll closes it                   → short-window test
 //   scroll shades measured only on scroll    → shade test (no cue at rest)
@@ -554,6 +555,59 @@ test("at 996px a control reached by keyboard is scrolled out from under the pinn
   }
   await expect(claude).toBeFocused();
   expect(await focusedOnTop(page), "the focused Claude version is not hidden under 機器").toBe(true);
+});
+
+/** Lets a scroll queued by the last input land, and its listeners run. */
+async function nextFrames(page: Page) {
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+}
+
+test("clicking the uncovered part of a control half under a pinned column opens it and leaves the frame where it was", async ({
+  mount,
+  page,
+}) => {
+  // 磁碟 value half under the ⚙ column (996px frame).
+  await page.setViewportSize({ width: 996, height: 900 });
+  const story = await mount(<MonitorMachinesLayoutStory width={1200} states={["normal"]} />);
+  const wrap = page.locator(".mon-table-wrap");
+  const disk = page.getByTestId("disk-usage-trigger");
+  const diskAt = await page.evaluate(() => {
+    const wrap = document.querySelector(".mon-table-wrap")!;
+    const trigger = document.querySelector('[data-testid="disk-usage-trigger"]')!.getBoundingClientRect();
+    const gear = document.querySelector(".mon-table--machines tbody td:last-child")!.getBoundingClientRect();
+    wrap.scrollLeft += trigger.left + 20 - gear.left;
+    const t = document.querySelector('[data-testid="disk-usage-trigger"]')!.getBoundingClientRect();
+    const g = document.querySelector(".mon-table--machines tbody td:last-child")!.getBoundingClientRect();
+    return { x: t.left + 10, y: t.top + t.height / 2, covered: t.right > g.left, scrollLeft: wrap.scrollLeft };
+  });
+  expect(diskAt.covered, "control: the 磁碟 value is partly under ⚙").toBe(true);
+  await nextFrames(page);
+  await page.mouse.click(diskAt.x, diskAt.y);
+  await nextFrames(page);
+  await expect(disk).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByTestId("disk-usage-panel")).toHaveCount(1);
+  expect(await wrap.evaluate((el) => el.scrollLeft)).toBe(diskAt.scrollLeft);
+
+  // Claude version half under the 機器 column (760px frame).
+  await page.mouse.click(1, 1);
+  await page.setViewportSize({ width: 760, height: 900 });
+  await story.update(<MonitorMachinesLayoutStory width={760} states={["normal"]} />);
+  const claudeAt = await page.evaluate(() => {
+    const wrap = document.querySelector(".mon-table-wrap")!;
+    wrap.scrollLeft = 0;
+    const trigger = document.querySelector('[data-testid="mon-claude-version"] button')!.getBoundingClientRect();
+    const machine = document.querySelector(".mon-table--machines tbody td:first-child")!.getBoundingClientRect();
+    wrap.scrollLeft += trigger.left + 20 - machine.right;
+    const t = document.querySelector('[data-testid="mon-claude-version"] button')!.getBoundingClientRect();
+    const m = document.querySelector(".mon-table--machines tbody td:first-child")!.getBoundingClientRect();
+    return { x: t.right - 10, y: t.top + t.height / 2, covered: t.left < m.right, scrollLeft: wrap.scrollLeft };
+  });
+  expect(claudeAt.covered, "control: the Claude version is partly under 機器").toBe(true);
+  await nextFrames(page);
+  await page.mouse.click(claudeAt.x, claudeAt.y);
+  await nextFrames(page);
+  await expect(page.getByRole("menu")).toHaveCount(1);
+  expect(await wrap.evaluate((el) => el.scrollLeft)).toBe(claudeAt.scrollLeft);
 });
 
 test("on a short window the 磁碟 breakdown stays inside the window and scrolls inside itself", async ({
