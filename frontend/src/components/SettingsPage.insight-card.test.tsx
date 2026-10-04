@@ -88,6 +88,7 @@ describe("SettingsPage · InsightCard (T-3809)", () => {
     await mockApi.createRole({ name: "臨時角色" });
     const utils = await openRolePage("臨時角色");
     expect(insightCard(utils)).toBeTruthy();
+    expect(utils.queryByTestId("doc-card-status-badge")).toBeNull();
   });
 
   it("an untouched doc with NO seed reads as EMPTY — not as loading, not as an error", async () => {
@@ -105,12 +106,12 @@ describe("SettingsPage · InsightCard (T-3809)", () => {
     // be reachable by rendering either of the other two.
     expect(within(card).queryByText(mp.insightLoading)).toBeNull();
     expect(within(card).queryByText(mp.insightError)).toBeNull();
-    // And an absence is never labelled 「預設」 — that badge names FACTORY
+    // And an absence is never labelled as in sync — that badge names FACTORY
     // wording, not the lack of anything.
-    expect(within(card).queryByTestId("insight-default-badge")).toBeNull();
+    expect(within(card).queryByTestId("insight-status-badge")).toBeNull();
   });
 
-  it("the assistant's untouched doc serves the FACTORY seed, badged 「預設」", async () => {
+  it("the assistant's untouched doc serves the FACTORY seed, badged as synced", async () => {
     // 🔴 ACCEPTANCE #4 — "the cockpit must not show factory content as if a
     // person wrote it". Before T-e1e3 this card never read `isDefault` at all,
     // so shipped wording would have rendered exactly like an authored document
@@ -121,17 +122,17 @@ describe("SettingsPage · InsightCard (T-3809)", () => {
     // The seed is really being served (anti-tautology for the badge assertion:
     // a badge on an empty card would prove nothing).
     expect(within(card).queryByText(mp.insightEmpty)).toBeNull();
-    const badge = within(card).getByTestId("insight-default-badge");
-    expect(badge.textContent).toBe(s.defaultBadge);
+    const badge = within(card).getByTestId("insight-status-badge");
+    expect(badge.textContent).toBe("與預設內容同步");
   });
 
-  it("the badge disappears once the role writes its own", async () => {
-    // The VALUE half: a badge that is always rendered would satisfy the
-    // assertion above while telling the owner nothing.
+  it("a seeded Insight shows the edited state once the role writes its own", async () => {
     await mockApi.saveInsight("assistant", "# 我自己寫的判準\n");
     const utils = await openRolePage(zh.office.role.assistant);
     const card = insightCard(utils)!;
-    expect(within(card).queryByTestId("insight-default-badge")).toBeNull();
+    expect(within(card).getByTestId("insight-status-badge").textContent).toBe(
+      "已修改"
+    );
   });
 
   it("a seed is PER-ROLE — a custom role never inherits the assistant's", async () => {
@@ -216,14 +217,14 @@ describe("SettingsPage · InsightCard (T-3809)", () => {
     ).toBeGreaterThan(0);
   });
 
-  // T-6501: the 初始版本 row is the ONLY way back to the factory insight, and
+  // T-6501: the 預設內容 row is the ONLY way back to the factory insight, and
   // DocumentHistoryEntry only grows it where `onReset` is wired.
   //
   // 🔴 BOTH DIRECTIONS ARE ASSERTED, and the negative one is what makes this
   // worth having: an implementation that wires `onReset` UNCONDITIONALLY passes
   // the positive test perfectly, and the only symptom is that every custom role
   // is offered a reset the server refuses (409). One assertion here would ship that.
-  it("offers 初始版本 on a role that HAS a factory insight", async () => {
+  it("offers 預設內容 on a role that HAS a factory insight", async () => {
     // Written first, so this also pins that the row survives the role having
     // its own doc — hasSeed answers what exists to fall back TO, not what is
     // being read, and that is exactly when a reset is worth offering.
@@ -238,7 +239,7 @@ describe("SettingsPage · InsightCard (T-3809)", () => {
     expect(within(list).getByTestId("doc-history-seed")).toBeTruthy();
   });
 
-  it("offers NO 初始版本 on a role with no factory insight", async () => {
+  it("offers NO 預設內容 on a role with no factory insight", async () => {
     await mockApi.createRole({ name: "沒有出廠判準的角色" });
     const utils = await openRolePage("沒有出廠判準的角色");
     const card = insightCard(utils)!;
@@ -250,7 +251,7 @@ describe("SettingsPage · InsightCard (T-3809)", () => {
     expect(within(list).queryByTestId("doc-history-seed")).toBeNull();
   });
 
-  // ⚠️ CONTRACT CHANGE (T-40f0, owner rc-28885813e065 ①): the 初始版本 row no
+  // ⚠️ CONTRACT CHANGE (T-40f0, owner rc-28885813e065 ①): the 預設內容 row no
   // longer jumps straight to a reset confirmation of its own. It opens the same
   // reader every other row opens, and the reset now rides the ONE destructive
   // confirm that lives in DocumentHistoryModal (`doc-history-restore-confirm`),
@@ -261,7 +262,7 @@ describe("SettingsPage · InsightCard (T-3809)", () => {
   // the Insight card's own re-read. What this test owns is the HOST WIRING —
   // that InsightCard's `onReset` reaches the insight reset for THIS role, and
   // that the card on screen follows it.
-  it("the 初始版本 row restores the factory insight, behind the shared confirm", async () => {
+  it("the 預設內容 row restores the factory insight, behind the shared confirm", async () => {
     const seed = (await mockApi.getInsight("assistant")).text;
     const written = "這一份是角色自己寫的，不是出廠版。";
     expect(written).not.toBe(seed); // anti-tautology: the reset must MOVE something
@@ -291,13 +292,13 @@ describe("SettingsPage · InsightCard (T-3809)", () => {
     fireEvent.click(utils.getByTestId("doc-history-restore-confirm-btn"));
 
     expect((await mockApi.getInsight("assistant")).text).toBe(seed);
-    // And the card followed: the written doc is gone and the 「預設」 badge is
+    // And the card followed: the written doc is gone and the synced status is
     // back (is_default flipped). Asserting the seed's own prose instead would
     // be brittle — the renderer splits markdown across nodes — and would say
     // less: the badge IS the "this is factory wording" claim.
     expect(
-      await utils.findByTestId("insight-default-badge")
-    ).toBeTruthy();
+      (await utils.findByTestId("insight-status-badge")).textContent
+    ).toBe("與預設內容同步");
     expect(within(insightCard(utils)!).queryByText(written)).toBeNull();
   });
 });

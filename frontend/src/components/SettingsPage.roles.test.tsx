@@ -74,6 +74,9 @@ describe("SettingsPage · #settings/roles deep-link (T-f074 正職 ➕👤)", ()
     // block is not on this page any more — 全域情境 holds it.
     await utils.findByText(s.roleDefsSection);
     expect(utils.getByText(`+ ${s.addRole}`)).toBeTruthy();
+    expect(
+      utils.getByTestId("role-status-badge-assistant").textContent
+    ).toBe("與預設內容同步");
   });
 
   it("opens the 角色誌 list already in CREATE mode when initialRolesCreate is set (T-25b7 #settings/roles/new)", async () => {
@@ -101,6 +104,9 @@ describe("SettingsPage · #settings/roles deep-link (T-f074 正職 ➕👤)", ()
     const titles = await utils.findAllByText(zh.office.role.assistant);
     expect(titles.length).toBeGreaterThan(0);
     await utils.findAllByText(s.edit);
+    expect(utils.getByTestId("doc-card-status-badge").textContent).toBe(
+      "與預設內容同步"
+    );
     expect(utils.queryByText(`+ ${s.addRole}`)).toBeNull();
   });
 
@@ -112,6 +118,33 @@ describe("SettingsPage · #settings/roles deep-link (T-f074 正職 ➕👤)", ()
     );
     await utils.findByText(s.roleDefsSection);
     expect(utils.getByText(`+ ${s.addRole}`)).toBeTruthy();
+  });
+
+  it("labels an edited seeded role as modified in the role list", async () => {
+    await api.saveRole("assistant", { definitionMd: "owner 改寫的角色定義" });
+    const utils = render(
+      <I18nProvider>
+        <SettingsPage initialRoles />
+      </I18nProvider>
+    );
+    await utils.findByText(s.roleDefsSection);
+    expect(
+      utils.getByTestId("role-status-badge-assistant").textContent
+    ).toBe("已修改");
+  });
+
+  it("shows no factory-status label on a custom role in the role list", async () => {
+    const utils = await openRolesLog();
+    await createViaRow(utils);
+
+    const custom = (await api.listRoles()).find((r) => r.name === "研究員")!;
+    expect(utils.getByText(s.customBadge)).toBeTruthy();
+    expect(
+      utils.queryByTestId(`role-status-badge-${custom.key}`)
+    ).toBeNull();
+    expect(
+      utils.getByTestId("role-status-badge-assistant").textContent
+    ).toBe("與預設內容同步");
   });
 });
 
@@ -369,14 +402,14 @@ describe("SettingsPage · 自訂角色 改名 (custom-only rename)", () => {
 
 describe("SettingsPage · 角色詳情 版本紀錄", () => {
   // T-1f39 (owner 2026-07-31): 重置 lost its own button — the slot now holds
-  // 版本紀錄, and the reset survives as the 初始版本 row inside it. The role
+  // 版本紀錄, and the reset survives as the 預設內容 row inside it. The role
   // page is where the SEED/CUSTOM split still has to hold: a seed role has a
   // file to go back to, a custom one does not (the server refuses its reset as not applicable), so
   // the row must be there for one and absent for the other.
   it("edit mode offers a way back to the seed on a seed role but NOT on a custom role", async () => {
     const utils = await openRolesLog();
 
-    // Seed assistant: edit mode carries 版本紀錄, whose list ends in 初始版本.
+    // Seed assistant: edit mode carries 版本紀錄, whose list ends in 預設內容.
     fireEvent.click(utils.getByText(zh.office.role.assistant));
     fireEvent.click((await utils.findAllByText(zh.settings.edit))[0]);
     fireEvent.click(utils.getByTestId("doc-history-entry-role_definition"));

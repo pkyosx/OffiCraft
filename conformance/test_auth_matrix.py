@@ -1274,7 +1274,7 @@ MATRIX: dict[str, Route] = {
         requires="machine",
         path=lambda ctx, i: "/api/document-history/global_context/global",
     ),
-    # The SHIPPED DEFAULT (初始版本) of the same document — the same read floor,
+    # The DEFAULT CONTENT (預設內容) of the same document — the same read floor,
     # because comparing against it is reading. It aims at global_context, whose
     # default always exists (the empty document), so every at-or-above-floor
     # identity lands on a 200 and the row measures the FLOOR rather than one

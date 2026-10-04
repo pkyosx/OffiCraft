@@ -13,18 +13,17 @@
 //      不是靠標題文案解釋掉的。
 //   2. **點了才打 API**。`useDocumentHistory` 的 enabled 就是這件事本身；沒點開
 //      的編輯面一通請求都不發。
-//   3. **重置變成清單最後一項「初始版本」**。有 seed 預設的文件（`onReset`）才有
+//   3. **重置變成清單最後一項「預設內容」**。有 seed 預設的文件（`onReset`）才有
 //      這一項；沒有的（自訂角色、自訂任務手冊）不能長出一個按了會被拒絕的入口。它現在
 //      是重置的唯一入口，所以走跟還原一模一樣的破壞性確認框。
 //
-// 清單列本身沿用原本卡片的內容（時間／修改者／逐欄預覽／超上限的不可還原徽章／
-// 當時為預設內容），點一列進 DocumentHistoryModal 讀、比、還原，讀完可以退回清單。
+// 清單列本身沿用原本卡片的內容（時間／修改者／逐欄預覽／超上限的不可還原徽章），點一列進 DocumentHistoryModal 讀、比、還原，讀完可以退回清單。
 //
-// T-40f0（owner rc-28885813e065 ①）:「初始版本」那一列**行為與其他版本完全一致**。
+// T-40f0（owner rc-28885813e065 ①）:「預設內容」那一列**行為與其他版本完全一致**。
 // 在此之前它是唯一一列點下去直接跳還原確認的——因為 seed 的內容根本沒交到前端，
 // 伺服器只在「重置之後」才吐出它。現在它一樣先進 DocumentHistoryModal（帶 `seed`），
 // 先看得到內容與差異，還原仍在同一個破壞性確認框後面。
-// 🔴 兩件事刻意沒變：那一列站的位置（入口不變、不會更難找），以及「初始版本不做別人
+// 🔴 兩件事刻意沒變：那一列站的位置（入口不變、不會更難找），以及「預設內容不做別人
 //    的人質」——它仍然在 GET 版本清單失敗時照樣長出來，而且 seed 內容自己那個 GET
 //    失敗時，還原照樣按得下去（modal 的 `seedUnavailable` 誠實說明看不到，而不是
 //    假裝這個版本是空白的）。
@@ -89,11 +88,11 @@ export interface DocumentHistoryEntryProps {
   /**
    * Restore the FILE SEED — the document's shipped default. Present only where
    * one exists; where it does not (custom roles, custom task manuals) the
-   * 初始版本 row must not appear, because the server refuses that reset. This is
+   * 預設內容 row must not appear, because the server refuses that reset. This is
    * now the ONLY reset affordance in the cockpit.
    */
   onReset?: () => Promise<unknown> | void;
-  /** Replaces the 初始版本 confirmation where the reset rewrites more than
+  /** Replaces the 預設內容 confirmation where the reset rewrites more than
    * this document. */
   seedConfirm?: string;
   /** Dead while the surrounding editor has a write in flight. */
@@ -154,7 +153,7 @@ export function DocumentHistoryEntry({
     // the live value and there is no knob for this one to lag behind.
     taskEvent: TASK_EVENT_CAP_CHARS_DEFAULT,
   } : undefined;
-  // The shipped default, so the 初始版本 row can be READ and COMPARED like every
+  // The shipped default, so the 預設內容 row can be READ and COMPARED like every
   // other row (T-40f0). Fetched only where that row exists (`onReset`) and only
   // once the list is open — same 「點了才打 API」 rule the history itself follows.
   const seedDoc = useDocumentSeed(kind, docKey, {
@@ -162,7 +161,7 @@ export function DocumentHistoryEntry({
   });
   // T-1170 「要看內文時真的去取內文」: the list carries no text, so the reader's
   // document is fetched for the revision that was actually picked — and only
-  // then. `null` while the list is up or the 初始版本 row is being read (that
+  // then. `null` while the list is up or the 預設內容 row is being read (that
   // row's content is the seed, which has its own read above).
   const revision = useDocumentRevision(
     kind,
@@ -248,7 +247,7 @@ export function DocumentHistoryEntry({
                   {t.settings.historyLoading}
                 </div>
               )}
-              {/* A failed load is reported, but it does NOT take 初始版本 with
+              {/* A failed load is reported, but it does NOT take 預設內容 with
                 * it. That row is the only reset affordance left in the cockpit
                 * and it needs no server data at all — gating it on this GET
                 * made 重置 the hostage of an unrelated request. */}
@@ -307,11 +306,6 @@ export function DocumentHistoryEntry({
                               {t.settings.historyByLabel}{" "}
                               {actorLine(v.actorId)}
                             </span>
-                            {v.tombstoned && (
-                              <span className="set-badge">
-                                {t.settings.historyDefaultBadge}
-                              </span>
-                            )}
                             {blocked && (
                               <span className="set-badge set-badge--blocked">
                                 {t.settings.historyBlockedBadge}
@@ -342,19 +336,9 @@ export function DocumentHistoryEntry({
                             * beside the identity line is a revision that CANNOT
                             * be restored, which has to say so before the click,
                             * not after. */}
-                          {/* Two reasons a row previews nothing, and they are
-                            * NOT the same statement (T-40f0 node 11). A
-                            * tombstoned revision's text column is empty because
-                            * the text lives in the seed file — restoring it
-                            * puts the document back ON that default, so
-                            * 「（當時是空白內容）」 is false there. That line is
-                            * kept for the version that really did store an
-                            * empty string. */}
                           {!hasContent && (
                             <div className="doc-hist__empty">
-                              {v.tombstoned
-                                ? t.settings.historyDefaultContent
-                                : t.settings.historyNoContent}
+                              {t.settings.historyNoContent}
                             </div>
                           )}
                         </div>
@@ -362,7 +346,7 @@ export function DocumentHistoryEntry({
                     );
                   })}
 
-                  {/* 初始版本 — the file seed, at the BOTTOM because it is the
+                  {/* 預設內容 — the file seed, at the BOTTOM because it is the
                     * oldest thing this document has ever been, and the list is
                     * newest-first. Only where a seed exists. */}
                   {onReset && (
@@ -422,20 +406,12 @@ export function DocumentHistoryEntry({
           kind={kind}
           // The seed still rides in as a PSEUDO-version so the reader, the diff
           // and the cap verdict stay one code path. Its timestamp is the honest
-          // "never" (`seed` makes the modal name it 初始版本 instead of
+          // "never" (`seed` makes the modal name it 預設內容 instead of
           // rendering a fabricated 修改者 line), and its content is `undefined`
           // only while the seed GET is in flight or failed — which is the case
           // `seedUnavailable` exists to state out loud rather than let it read
           // as 「這個版本沒有內容」.
           createdTs={reading.kind === "version" ? reading.version.createdTs : 0}
-          // A retained revision's flag comes off the DIRECTORY row; the seed's
-          // comes off its own document, which carries `tombstoned` because
-          // restoring it is what puts the doc back ON the default.
-          tombstoned={
-            reading.kind === "version"
-              ? reading.version.tombstoned
-              : seedDoc.content?.tombstoned === "true"
-          }
           // Same split for the cap verdict's input: the list already measured
           // the retained revision, and the seed is measured from the document
           // in hand (it is not a list row, so nothing measured it upstream).
@@ -452,12 +428,6 @@ export function DocumentHistoryEntry({
           seedUnavailable={
             reading.kind === "seed" && seedDoc.content === undefined
           }
-          // The shipped default is ALSO what a TOMBSTONED retained revision
-          // restores to (T-40f0 node 11) — the reader and the diff use it as
-          // that revision's effective content, so the diff describes the state
-          // the restore actually leaves behind instead of announcing that the
-          // whole document would be deleted.
-          seedContent={seedDoc.content}
           seedConfirm={seedConfirm}
           actorLine={
             reading.kind === "version" ? actorLine(reading.version.actorId) : ""

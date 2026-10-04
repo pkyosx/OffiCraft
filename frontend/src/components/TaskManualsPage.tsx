@@ -450,6 +450,16 @@ export function TaskManualDefinitionPage({
       <Breadcrumbs items={crumbs} />
       <h1 className="settings__title settings__title--doc">
         {t.settings.manualTabDefinition}
+        {manual?.isSeed && (
+          <span
+            className="set-badge manual-def-status"
+            data-testid="manual-document-status"
+          >
+            {manual.isDefault
+              ? t.settings.docStatusSyncedBadge
+              : t.settings.docStatusModifiedBadge}
+          </span>
+        )}
       </h1>
       {/* 版本紀錄 lives in this card's own edit toolbar (T-1f39, owner
         * 2026-07-31) and covers the SOP ONLY — this page also edits 用途 and
@@ -914,7 +924,7 @@ function DefinitionCard({
           />
           {/* 版本紀錄 — the ONLY place it appears on this page: only the SOP is
             * versioned, and this is the SOP's own edit row. Only a built-in
-            * manual has a 初始版本 row, and going back to it rewrites the whole
+            * manual has a 預設內容 row, and going back to it rewrites the whole
             * manual, not just the SOP — hence its own confirmation. */}
           {switchFor(
             3,

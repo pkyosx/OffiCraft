@@ -11,7 +11,7 @@
 //      owner removed that button on 2026-08-14 (card rc-f1950f4d286e, option 2:
 //      "完全照 insight") with the cost stated on the card. So the geometry
 //      claim now applies to where the restore actually lives: inside edit mode,
-//      in the history list's 初始版本 row. That is what this file measures, and
+//      in the history list's 預設內容 row. That is what this file measures, and
 //      it is a WEAKER guarantee than the retired one by exactly the amount the
 //      owner chose to give up — a page whose read failed reaches no restore at
 //      all. Do not add a top-level button back to satisfy this file.
@@ -125,7 +125,7 @@ for (const width of [320, 375, 390, 1040]) {
     // (4) The recovery path is reachable AT THIS WIDTH. It is behind edit mode
     // now (see the header), so the walk starts here — and the point of doing it
     // on a phone is that every box on the way must be pressable, not merely
-    // present: the history entry, then the 初始版本 row inside the list.
+    // present: the history entry, then the 預設內容 row inside the list.
     const entry = cmp.getByTestId("doc-history-entry-boot_sequence");
     await expect(entry).toBeVisible();
     const entryBox = (await entry.boundingBox())!;
@@ -140,11 +140,11 @@ for (const width of [320, 375, 390, 1040]) {
     const seed = cmp.getByTestId("doc-history-seed-open");
     await expect(seed).toBeVisible();
     const seedBox = (await seed.boundingBox())!;
-    expect(seedBox.x, "初始版本 left edge").toBeGreaterThanOrEqual(-0.5);
+    expect(seedBox.x, "預設內容 left edge").toBeGreaterThanOrEqual(-0.5);
     expect(
       seedBox.x + seedBox.width,
-      "初始版本 right edge vs viewport"
+      "預設內容 right edge vs viewport"
     ).toBeLessThanOrEqual(width + 0.5);
-    expect(seedBox.width, "初始版本 tappable width").toBeGreaterThan(40);
+    expect(seedBox.width, "預設內容 tappable width").toBeGreaterThan(40);
   });
 }

@@ -71,4 +71,4 @@ GET /api/task-manuals 的列表只靠 type_key。partial POST 中 null 是 no-op
 
 欄位要標 required/key；指派可為 member 或 outsource，並保留 model、effort、machine、copies 語意：copies=0 表示無限，machine 必須是實際機器，不自動 fallback，也不要送空 machine。離線時不自動改派。
 
-內建手冊隨 OffiCraft 出貨（`is_seed`），使用者另外可以建立自訂手冊。列表以分組標題「內建／自訂」區分（沿用 ThemeSettings 的做法與 `themeMarkers` 用詞，列上不加徽章），自訂組只在有自訂手冊時出現；內建列的刪除鈕保留但停用，伺服器也會以 403 拒絕。編輯內建手冊是覆蓋在出廠版本之上（`is_default` 轉 false），出廠版本不會被改寫。重置只有一個入口：SOP 版本紀錄的「初始版本」，只對內建手冊出現；它會把整本手冊（含負責成員）還原成出廠版本，所以確認文字用 `historyManualSeedConfirm`，不要換回只講 SOP 的那句。
+內建手冊隨 OffiCraft 出貨（`is_seed`），使用者另外可以建立自訂手冊。列表以分組標題「內建／自訂」區分（沿用 ThemeSettings 的做法與 `themeMarkers` 用詞，列上不加徽章），自訂組只在有自訂手冊時出現；內建列的刪除鈕保留但停用，伺服器也會以 403 拒絕。編輯內建手冊是覆蓋在出廠版本之上（`is_default` 轉 false），出廠版本不會被改寫。重置只有一個入口：SOP 版本紀錄的「預設內容」，只對內建手冊出現；它會把整本手冊（含負責成員）還原成出廠版本，所以確認文字用 `historyManualSeedConfirm`，不要換回只講 SOP 的那句。

@@ -27,8 +27,9 @@
 //     🔴 Since T-e1e3 that is no longer the ONLY reading: insight folds against
 //     a PER-ROLE seed (`seeds/insight_<roleKey>.md`, today only `assistant`), so
 //     a non-empty doc may be FACTORY wording rather than something the role
-//     wrote. `isDefault` is the only thing that tells them apart, and the badge
-//     below is where this card says so.
+//     wrote. `hasSeed` says whether factory wording exists; `isDefault` says
+//     whether the live document still follows it, and the badge below reports
+//     both states.
 //
 // The card is NOT a privacy boundary and says so on its face: READ is
 // unrestricted by owner ruling (rc-dc171587220c). Insight is SEPARATE, not
@@ -104,20 +105,21 @@ export function InsightCard({ roleKey }: InsightCardProps) {
       <div className="mp-lessons__head">
         <span className="mp-lessons__title">
           <LayersIcon size={15} className="mp-lessons__icon" />
-          <span>{t.mp.insight}</span>
-          {/* 🔴 THE FACTORY BADGE (T-e1e3). Insight now folds against a PER-ROLE
+          <span className="mp-lessons__title-label">{t.mp.insight}</span>
+          {/* 🔴 THE FACTORY STATUS (T-e1e3). Insight now folds against a PER-ROLE
             * file seed, so `text` being non-empty no longer proves a person
             * wrote it: an untouched `assistant` reads the factory wording.
-            * Without this badge the cockpit renders shipped wording exactly like
-            * something the role authored — the ticket's acceptance #4, and the
-            * whole reason is_default had to be surfaced here at all.
+            * The seed-presence flag distinguishes an actual factory document
+            * from an unseeded role; isDefault then distinguishes the synced
+            * factory text from an owner-edited overlay.
             *
-            * Gated on non-empty text as well as isDefault: a role with NO seed
-            * is also is_default=true, and calling its blank card 「預設」 would
-            * label an absence as a factory document. */}
-          {insight?.isDefault && insight.text.trim() !== "" && (
-            <span className="set-badge" data-testid="insight-default-badge">
-              {t.settings.defaultBadge}
+            * `hasSeed` is the gate. A role with no seed also has
+            * `isDefault=true`, but has no factory status to display. */}
+          {insight?.hasSeed && (
+            <span className="set-badge" data-testid="insight-status-badge">
+              {insight.isDefault
+                ? t.settings.docStatusSyncedBadge
+                : t.settings.docStatusModifiedBadge}
             </span>
           )}
           {/* Always rendered once the doc has loaded — including at 0 chars.
@@ -133,7 +135,7 @@ export function InsightCard({ roleKey }: InsightCardProps) {
           <div className="mp-lessons__actions">
             {/* 版本紀錄 (T-1f39). docKey is the BARE role_key.
               *
-              * 🔴 THE 初始版本 ROW IS GATED ON hasSeed, NEVER ON isDefault
+              * 🔴 THE 預設內容 ROW IS GATED ON hasSeed, NEVER ON isDefault
               * (T-6501). DocumentHistoryEntry's own rule is that the row may
               * only appear where a seed PROVABLY exists — a row that 404s is a
               * dead affordance. `isDefault` answers a DIFFERENT question ("has

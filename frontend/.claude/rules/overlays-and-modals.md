@@ -56,7 +56,7 @@ overlay portal 到 document.body，避免宿主 stacking context 困住它；需
 
 ## DocCard
 
-DocCard 是設定頁可編輯長文件的共用外殼：標題、字數、版本入口、超上限阻擋、儲存確認與錯誤列；body 由 renderBody 提供。BootDocPage 使用它但保持唯讀，不能長回自己的 editor。新能力一律 optional，不傳就保留既有 caller 行為；不要加回已退場的 above、factoryReset、boot-doc.css 或 reset 分支。還原只在編輯模式的版本紀錄初始版本列提供。
+DocCard 是設定頁可編輯長文件的共用外殼：標題、字數、版本入口、超上限阻擋、儲存確認與錯誤列；body 由 renderBody 提供。BootDocPage 使用它但保持唯讀，不能長回自己的 editor。新能力一律 optional，不傳就保留既有 caller 行為；不要加回已退場的 above、factoryReset、boot-doc.css 或 reset 分支。還原只在編輯模式的版本紀錄預設內容列提供。
 
 `doc.readOnlyHead` 是文件本身帶的唯讀上半，由 DocCard 畫在編輯框上方（編輯中也留著），不經 renderBody —— BootDocPage 不准提到那個 prop，它的測試會 grep 原始碼。沒有 readOnlyHead 的文件行為完全不變。
 

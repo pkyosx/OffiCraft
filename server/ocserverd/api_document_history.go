@@ -66,15 +66,16 @@ func documentHistoryRestoreDTO(h DocumentHistory) (DocumentHistoryRestoreDTO, er
 	return DocumentHistoryRestoreDTO{Id: h.ID, Content: content, CreatedTs: h.CreatedTS, ActorId: h.ActorID}, nil
 }
 
-// A tombstone means "follow the seed"; writing the same text back as a live
-// overlay would silently turn a default document into a customized one.
 func historyTombstoned(content map[string]string) bool {
 	value, _ := strconv.ParseBool(content["tombstoned"])
 	return value
 }
 
+// A document following its default (no row, or a reset's tombstone) retains
+// nothing: the 預設內容 row already stands for that state, and a retained
+// tombstone would list a version whose restore only re-syncs to the default.
 func userContextHistorySnapshot(current *UserContext) (string, error) {
-	if current == nil {
+	if current == nil || current.Tombstoned {
 		return "{}", nil
 	}
 	return historyJSON(map[string]string{
@@ -83,7 +84,7 @@ func userContextHistorySnapshot(current *UserContext) (string, error) {
 }
 
 func roleDefHistorySnapshot(current *RoleDef) (string, error) {
-	if current == nil {
+	if current == nil || current.Tombstoned {
 		return "{}", nil
 	}
 	// The role NAME is deliberately not versioned (owner ruling, T-1f39); a
@@ -121,7 +122,7 @@ func manualSnapshotIn(typeKey string, of func(TaskManual) (string, error)) func(
 		if err != nil {
 			return "", err
 		}
-		// Raw overlay on purpose: an unedited built-in's seed is the 初始版本
+		// Raw overlay on purpose: an unedited built-in's seed is the 預設內容
 		// row, not a retained version (a reset's tombstone carries no SOP).
 		if current == nil {
 			return "{}", nil
@@ -270,9 +271,8 @@ func (s *apiServer) HandleGetDocumentVersionApiDocumentHistoryKindKeyIdGet(w htt
 // mismatched name renders 「沒有差異」 against every version instead of erroring.
 //
 // hasSeed is false exactly where the reset is refused (no shipped version), so
-// this 404s there — the cockpit renders its 初始版本 row from that. Seeds are
-// tombstoned because that is how resets are written; it drives the
-// 「當時為預設內容」 badge.
+// this 404s there — the cockpit renders its 預設內容 row from that. Seeds carry
+// tombstoned=true because that is how resets are written.
 func (s *apiServer) documentSeedContent(kind, key string) (map[string]string, bool, error) {
 	switch kind {
 	case "global_context":
@@ -425,7 +425,7 @@ func (s *apiServer) restoreDocumentHistory(r *http.Request, kind, key string, co
 	switch kind {
 	case "global_context":
 		return s.dal.SaveWithDocumentHistory(kind, key, actor, userContextSnapshotIn, func(ex sqlExecer) error {
-			return putUserContextOn(ex, UserContext{Text: content["text"], Tombstoned: historyTombstoned(content)})
+			return putUserContextOn(ex, UserContext{Text: content["text"]})
 		})
 	case "role_definition":
 		folded, err := s.foldRoleDefDTO(key)
@@ -442,7 +442,7 @@ func (s *apiServer) restoreDocumentHistory(r *http.Request, kind, key string, co
 		}
 		name := folded.Name
 		return s.dal.SaveWithDocumentHistory(kind, key, actor, roleDefSnapshotIn(key), func(ex sqlExecer) error {
-			return putRoleDefOn(ex, RoleDef{RoleKey: key, Name: name, DefinitionMD: content["definition_md"], Tombstoned: historyTombstoned(content)})
+			return putRoleDefOn(ex, RoleDef{RoleKey: key, Name: name, DefinitionMD: content["definition_md"]})
 		})
 	case docKindTaskDescription:
 		// No doc cap: the description has none on the create side either, so a
@@ -491,7 +491,7 @@ func (s *apiServer) restoreDocumentHistory(r *http.Request, kind, key string, co
 			return errDocumentHistoryCap
 		}
 		return s.dal.SaveWithDocumentHistory(kind, key, actor, insightSnapshotIn(key), func(ex sqlExecer) error {
-			return putInsightOn(ex, Insight{RoleKey: key, Text: content["text"], Tombstoned: historyTombstoned(content)})
+			return putInsightOn(ex, Insight{RoleKey: key, Text: content["text"]})
 		})
 	case docKindSystemInteraction, docKindBootSequence, docKindOffboard,
 		docKindAcceleratedStop, docKindTaskCloseout, docKindTaskReassignPredecessor,
@@ -523,8 +523,7 @@ func (s *apiServer) restoreDocumentHistory(r *http.Request, kind, key string, co
 		return s.dal.SaveWithDocumentHistory(kind, key, actor, bootDocSnapshotIn(kind, key), func(ex sqlExecer) error {
 			return putBootDocumentOn(ex, BootDocument{
 				Kind: kind, Key: key,
-				Text:       restored,
-				Tombstoned: historyTombstoned(content),
+				Text: restored,
 			})
 		})
 	case docKindTaskManualSop:

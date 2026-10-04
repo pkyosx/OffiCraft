@@ -90,19 +90,6 @@ describe("mockApi.listDocumentHistory", () => {
     expect(row.tombstoned).toBe(false);
   });
 
-  it("reports a tombstone as a FLAG, and never as a content field", async () => {
-    await mockApi.saveGlobalContext("寫過的內容");
-    await mockApi.resetGlobalContext();
-    await mockApi.saveGlobalContext("之後又寫的內容");
-
-    const [row] = await mockApi.listDocumentHistory("global_context", "global");
-    expect(row.tombstoned).toBe(true);
-    // `tombstoned` is not a document field, so it must not appear among the
-    // sizes — a caller counting content fields there would read a tombstoned
-    // revision as one that has text.
-    expect(row.sizes).not.toHaveProperty("tombstoned");
-  });
-
   it("measures in CODE POINTS, so an astral character counts once", async () => {
     // The cap verdict is derived from these numbers. `String.length` would say
     // 2 per emoji and mark a revision as over-cap that the server accepts —

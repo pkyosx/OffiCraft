@@ -75,12 +75,13 @@ describe("SettingsPage · global-context 4 blocks", () => {
     expect(utils.container.querySelector(".doc-card__file code")).toBeNull();
   });
 
-  it("使用者自訂 is editable: starts empty/default, save persists via the api", async () => {
+  it("使用者自訂 starts in sync with its empty default, and a save marks it modified", async () => {
     const utils = await openRolesLog();
     fireEvent.click(utils.getByText(s.customName));
-    // Empty seed → the default badge shows and the edit affordance exists.
     await utils.findByText(s.edit);
-    expect(utils.getByText(s.defaultBadge)).toBeTruthy();
+    expect(utils.getByTestId("doc-card-status-badge").textContent).toBe(
+      "與預設內容同步"
+    );
     expect(utils.container.querySelector(".doc-card__file code")).toBeNull();
 
     fireEvent.click(utils.getByText(s.edit));
@@ -89,8 +90,11 @@ describe("SettingsPage · global-context 4 blocks", () => {
     fireEvent.change(editor!, { target: { value: "多用 emoji 回覆 owner" } });
     fireEvent.click(utils.getByText(s.doneEdit));
 
-    // The save response folds back: owner text rendered, default badge gone.
     await utils.findByText("多用 emoji 回覆 owner");
-    await waitFor(() => expect(utils.queryByText(s.defaultBadge)).toBeNull());
+    await waitFor(() =>
+      expect(utils.getByTestId("doc-card-status-badge").textContent).toBe(
+        "已修改"
+      )
+    );
   });
 });

@@ -1852,7 +1852,7 @@ export function toInsight(w: WireInsight): InsightView {
     // Older payloads omit has_seed → default FALSE. 🔴 The fail-safe direction
     // is the OPPOSITE of toRoleDef's is_seed: there the safe answer is "assume
     // a seed exists, don't offer delete"; here the field gates whether the
-    // 初始版本 reset row is drawn at all, so an unproven true would draw a row
+    // 預設內容 reset row is drawn at all, so an unproven true would draw a row
     // that 404s. Absent evidence, offer nothing.
     hasSeed: w.has_seed ?? false,
   };

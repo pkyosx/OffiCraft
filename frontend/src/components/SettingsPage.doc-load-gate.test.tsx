@@ -67,11 +67,8 @@ describe("SettingsPage · DocDetail load gate (T-2d99)", () => {
     // And the commit affordance never appears, so there is nothing to submit.
     expect(utils.queryByText(s.doneEdit)).toBeNull();
 
-    // The same null doc must not be BADGED either. `預設` is a positive claim
-    // about a document nobody has read yet, and the card used to make it by
-    // default (`doc ? doc.isDefault : true`) — so a block the owner had in fact
-    // customised was labelled shipped-default for the whole load, and for ever
-    // if the load failed. An unknown document says nothing.
-    expect(utils.queryByTestId("doc-card-default-badge")).toBeNull();
+    // The same null doc must not get a factory-status badge either. No seed
+    // status is known until this boot-document read lands.
+    expect(utils.queryByTestId("doc-card-status-badge")).toBeNull();
   });
 });

@@ -16,8 +16,8 @@
 //      each holding its own draft (owner 2026-07-31, superseding the
 //      one-block-at-a-time rule). The 版本紀錄 entry belongs to block ③'s edit
 //      row only (only the SOP is versioned).
-//      Only a built-in manual has 初始版本, and resetting it restores the
-//      whole manual, 負責成員 included.
+//      Only a built-in manual has a factory-default history entry, and syncing
+//      it restores the whole manual, 負責成員 included.
 //   5. 負責成員 card: member pick or 外包 (model + effort + copies ×N).
 //   6. Delete: confirm modal; a type with OPEN tasks survives its 409 with the
 //      honest 先讓它們結束 message; a closed-task type deletes.
@@ -251,7 +251,7 @@ describe("設定 › 任務手冊 — list", () => {
 });
 
 describe("設定 › 任務手冊 — detail", () => {
-  it("a built-in manual's 初始版本 resets the whole manual after the manual-wide confirmation", async () => {
+  it("a built-in manual's factory-default history entry syncs the whole manual after the manual-wide confirmation", async () => {
     await api.updateTaskManual("builtin-task-manual-design", {
       purpose: "改過的用途",
       sopMd: "改過的 SOP",
@@ -266,7 +266,10 @@ describe("設定 › 任務手冊 — detail", () => {
     fireEvent.click(await findByTestId("doc-history-seed-open"));
     fireEvent.click(await findByTestId("doc-history-modal-restore"));
     expect(getByTestId("doc-history-restore-confirm").textContent).toContain(
-      "整本手冊（名稱、用途、識別鍵、SOP 與負責成員）都會回到出廠時的內容"
+      "確定同步預設內容？整本手冊（名稱、用途、識別鍵、SOP 與負責成員）都會回到預設設定，目前的修改會被覆蓋。"
+    );
+    expect(getByTestId("doc-history-restore-confirm-btn").textContent).toBe(
+      "確認同步"
     );
     fireEvent.click(getByTestId("doc-history-restore-confirm-btn"));
 
@@ -285,7 +288,7 @@ describe("設定 › 任務手冊 — detail", () => {
     expect(queryByTestId("manual-def-edit-3")).not.toBeNull();
   });
 
-  it("a custom manual's SOP history offers no 初始版本", async () => {
+  it("a custom manual's SOP history offers no factory-default entry", async () => {
     __injectMockTaskManual(mkManual({ typeKey: "review-pr", sopMd: "v0" }));
     await api.updateTaskManual("review-pr", { sopMd: "v1" });
     const { findByTestId, getByTestId } = await renderManualsList();

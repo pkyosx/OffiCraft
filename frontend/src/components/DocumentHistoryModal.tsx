@@ -19,47 +19,17 @@
 // editor above — `historyDiffNote` says so on screen, because the two differ
 // exactly when the owner is mid-edit and that is when the diff is read.
 //
-// 初始版本 USES THE SAME READER (T-40f0, owner rc-28885813e065 ①). The list's
-// bottom row — the document's shipped default — used to go STRAIGHT to a restore
-// confirmation, because the seed text was something the server only ever handed
-// back AFTER a reset had already overwritten the document. So the ONE entry whose
-// restore is least reversible was also the only one nobody could look at first.
-// It now arrives here as a pseudo-version (`seed`), reads and diffs through the
-// very same panes, and restores through the very same confirmation — the row
-// itself did not move, so the entry is no harder to find than it was.
+// 預設內容 USES THE SAME READER. The list's bottom row — the document's
+// default — arrives here as a pseudo-version (`seed`), reads and diffs through
+// the very same panes, and syncs through the very same confirmation.
 //
-// A TOMBSTONED REVISION IS NOT AN EMPTY ONE (T-40f0 node 11, owner screenshot).
-// `tombstoned="true"` is the overlay's way of saying "follow the shipped
-// default" — the row's text column is EMPTY in the database because the text
-// lives in the seed file, not because anybody ever wrote an empty document.
-// Reading that empty column as literal content made all three panes lie, and
-// the worst of them was the diff: a 285-line document rendered as "every line
-// goes away", i.e. 「還原＝清空」, next to a destructive button. What restoring
-// such a revision ACTUALLY does is write a tombstone back
-// (`restoreDocumentHistory` → `Tombstoned: true`), which folds to the shipped
-// default. So the effective content of a tombstoned revision IS the seed, and
-// this file uses it for BOTH panes.
+// A retained revision always carries its own text: the server never lists a
+// revision whose document was following the default, because the 預設內容 row
+// already stands for that state. Do not substitute the seed into a revision's
+// panes — what the diff shows must equal what a restore writes back.
 //
-// 🔴 THE ONE CRITERION: what the diff says must equal the state a restore
-// leaves behind. That is why the substitution happens here rather than in
-// `documentFields`/`comparedFieldNames` — those are shape functions with no
-// notion of a document's default — and why it is here rather than in each host
-// card: every kind whose snapshot carries a `tombstoned` flag goes through this
-// one reader.
-//
-// WHAT THAT REACH ACTUALLY IS, stated honestly rather than as a slogan:
-//   * `role_definition` and `global_context` — verified end to end (a retained
-//     tombstone opened through DocumentHistoryEntry against the shared mock).
-//   * `insight` — verified end to end since `api/mock.ts` learned to serve its
-//     seed; before that the mock 404'd where the server answers, so the cockpit
-//     could only ever trade one wrong screen for a differently wrong one.
-//
-// 🔴 The CAP verdict deliberately still judges THIS REVISION's own sizes, NOT
-// the effective content: the server's restore checks `content["text"]` too (it
-// writes the tombstone, not the seed text), so judging the seed here would grey
-// out revisions the server accepts — the exact direction api/docCap.ts refuses
-// to be wrong in. Since T-1170 those sizes arrive from the DIRECTORY row, so
-// the verdict is also ready before the revision's text is.
+// 🔴 The CAP verdict judges THIS REVISION's own sizes, which arrive from the
+// DIRECTORY row, so the verdict is ready before the revision's text is.
 //
 // RESTORE MOVED IN HERE and is reachable nowhere else. Everything the row-level
 // button carried came with it, unchanged: it is DESTRUCTIVE so it still goes
@@ -93,7 +63,6 @@ type Pane = "content" | "diff";
 export function DocumentHistoryModal({
   kind,
   createdTs,
-  tombstoned,
   sizes,
   content: revisionContent,
   contentLoading,
@@ -105,16 +74,11 @@ export function DocumentHistoryModal({
   onRestore,
   seed,
   seedUnavailable,
-  seedContent,
   seedConfirm,
 }: {
   kind: DocumentKind;
   /** When the revision was retained (`0` for the seed — nobody wrote it). */
   createdTs: number;
-  /** This revision was a TOMBSTONE — "follow the shipped default". Read off the
-   * directory row rather than off the text, so it is known before (and without)
-   * the content read. */
-  tombstoned: boolean;
   /** The revision's per-field sizes — what the cap verdict judges. It comes
    * from the DIRECTORY (T-1170), so a revision the server would refuse is
    * marked and its 還原 dead from the first frame, rather than only once the
@@ -161,7 +125,7 @@ export function DocumentHistoryModal({
   onRestore: () => Promise<void>;
   /**
    * TRUE when `version` is not a retained revision but the document's SHIPPED
-   * DEFAULT (初始版本). It has no timestamp and no actor — nobody wrote it — so
+   * DEFAULT (預設內容). It has no timestamp and no actor — nobody wrote it — so
    * the header names it instead of pretending someone did, and the confirmation
    * uses the reset's own wording.
    */
@@ -173,15 +137,6 @@ export function DocumentHistoryModal({
    * back on its default needs nothing from this client.
    */
   seedUnavailable?: boolean;
-  /**
-   * The document's SHIPPED DEFAULT under the revision field names — what a
-   * tombstoned revision actually restores to. `undefined` while the seed GET is
-   * in flight, when it failed, or where this document ships no default at all
-   * (the host only fetches it where a reset exists). A tombstoned revision then
-   * says its content cannot be read rather than claiming it is empty, which is
-   * the same honesty `seedUnavailable` buys the 初始版本 row.
-   */
-  seedContent?: Record<string, string>;
   /** `seed` only: replaces the default confirmation where going back to the
    * shipped version rewrites more than this one document. */
   seedConfirm?: string;
@@ -203,7 +158,7 @@ export function DocumentHistoryModal({
 
   const when = formatAbsolute(createdTs, Date.now() / 1000);
   /** What the diff's `-` side is called, and what the confirmation names. The
-   * seed has no timestamp to name it by — 初始版本 IS its name. */
+   * seed has no timestamp to name it by — 預設內容 IS its name. */
   const versionLabel = seed
     ? t.settings.historySeedTitle
     : msg.docHistoryVersionLabel(when);
@@ -216,35 +171,18 @@ export function DocumentHistoryModal({
   const fieldLabel = (name: string) =>
     (t.settings.historyField as Record<string, string>)[name] ?? name;
 
-  // See the header note: the tombstone is a POINTER at the shipped default, so
-  // the content this version would restore to is the seed, not the empty text
-  // column the wire carries. `seed` is excluded because the 初始版本
-  // pseudo-version's `content` ALREADY IS the default — substituting there would
-  // make that row depend on a second copy of what it is holding, and it has its
-  // own `seedUnavailable` for the case where that copy is missing.
-  const effectiveContent = tombstoned && !seed ? seedContent : revisionContent;
-  // Neither pane may call a tombstoned revision empty when the default could
-  // not be read — that is a different, and false, statement. This branch is
-  // LOAD-BEARING, not a formality: without it a tombstoned retained revision
-  // whose seed GET failed falls straight back to the empty text column and the
-  // diff paints the whole live document as an addition — the exact lie this
-  // file exists to stop, resurrected under a green suite.
-  const contentUnreadable = seedUnavailable || effectiveContent === undefined;
-  /** …and it must say so in ITS OWN words. `historySeedUnavailable` names 初始
-   * 版本 twice; printed on a revision that HAS an id, a timestamp and an author
-   * it misidentifies the version standing next to a destructive button, which
-   * is the same family of defect as the one above. */
+  const contentUnreadable = seedUnavailable || revisionContent === undefined;
   const unreadableNotice = contentLoading
     ? t.settings.historyLoading
     : seedUnavailable
       ? t.settings.historySeedUnavailable
-      : t.settings.historyDefaultUnreadable;
+      : t.settings.historyVersionUnreadable;
   const unreadableTestId = contentLoading
     ? "doc-history-content-loading"
     : seedUnavailable
       ? "doc-history-seed-unavailable"
-      : "doc-history-default-unreadable";
-  const content = effectiveContent ?? {};
+      : "doc-history-version-unreadable";
+  const content = revisionContent ?? {};
 
   const blockedFields = docCapBlockedFields(
     kind,
@@ -257,11 +195,9 @@ export function DocumentHistoryModal({
   const compared = currentContent
     ? comparedFieldNames(kind, content, currentContent)
     : [];
-  /** What an EMPTY pane means: a document that really was blank, or one that
-   * was sitting on a shipped default which is itself empty (the global block —
-   * its default IS the empty document). Collapsing the two would put 「這個版本
-   * 沒有任何內容」 back on a version that has content, just not its own. */
-  const emptyNotice = tombstoned
+  /** The global block's default IS the empty document; 「這個版本沒有任何內容」
+   * would misname it as a revision someone emptied. */
+  const emptyNotice = seed
     ? t.settings.historyModalDefaultContent
     : t.settings.historyModalEmpty;
 
@@ -316,9 +252,6 @@ export function DocumentHistoryModal({
               <span className="doc-hist-modal__actor">
                 {t.settings.historyByLabel} {actorLine}
               </span>
-            )}
-            {tombstoned && (
-              <span className="set-badge">{t.settings.historyDefaultBadge}</span>
             )}
             {blocked && (
               <span className="set-badge set-badge--blocked">
@@ -479,7 +412,11 @@ export function DocumentHistoryModal({
           error={restoreError}
           busy={busy}
           cancelLabel={t.settings.cancel}
-          confirmLabel={t.settings.historyRestoreConfirmAction}
+          confirmLabel={
+            seed
+              ? t.settings.historySeedConfirmAction
+              : t.settings.historyRestoreConfirmAction
+          }
           onCancel={() => {
             setConfirming(false);
             setRestoreError(null);

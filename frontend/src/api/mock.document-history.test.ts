@@ -61,12 +61,10 @@ describe("mockApi · document history", () => {
     ).toEqual([]);
   });
 
-  it("retains the state each write replaced, newest first", async () => {
+  it("retains the state each write replaced, newest first, and nothing for the write after a reset", async () => {
     await mockApi.saveGlobalContext("first");
     await mockApi.saveGlobalContext("second");
     await mockApi.saveGlobalContext("third");
-    // A reset is a write too — it persists a tombstoned row, which the write
-    // after it retains.
     await mockApi.resetGlobalContext();
     await mockApi.saveGlobalContext("fourth");
 
@@ -74,11 +72,11 @@ describe("mockApi · document history", () => {
       "global_context",
       "global"
     );
-    expect(versions.map((v) => v.content.text)).toEqual(["", "third", "second"]);
-    // The newest one is the doc as the reset left it — the tombstone flag is
-    // why a restore of it can honestly go back to seed.
-    expect(versions[0].content.tombstoned).toBe("true");
-    expect(versions[1].content.tombstoned).toBe("false");
+    expect(versions.map((v) => v.content)).toEqual([
+      { text: "third", tombstoned: "false" },
+      { text: "second", tombstoned: "false" },
+      { text: "first", tombstoned: "false" },
+    ]);
     expect(versions[0].actorId).toBeTruthy();
     expect(versions[0].createdTs).toBeGreaterThan(0);
   });
@@ -126,42 +124,49 @@ describe("mockApi · document history", () => {
     expect(after[0].content.text).toBe("replacement");
   });
 
-  it("restoring a tombstoned revision puts the document back on its seed", async () => {
+  it("a document following its default retains nothing, for each kind that resets", async () => {
     await mockApi.saveRole("assistant", { definitionMd: "owner rewrite" });
-    // The reset puts the role back on its seed (a tombstoned row); the write
-    // after it is what retains that state as a revision.
     await mockApi.resetRole("assistant");
     await mockApi.saveRole("assistant", { definitionMd: "second rewrite" });
-    const [seedVersion] = await documentRevisions(mockApi, 
+    await mockApi.saveInsight("assistant", "owner insight");
+    await mockApi.resetInsight("assistant");
+    await mockApi.saveInsight("assistant", "second insight");
+    await mockApi.saveBootDoc("offboard", "global", "owner offboard");
+    await mockApi.resetBootDoc("offboard", "global");
+    await mockApi.saveBootDoc("offboard", "global", "second offboard");
+
+    expect(
+      (await documentRevisions(mockApi, "role_definition", "assistant")).map(
+        (v) => v.content
+      )
+    ).toEqual([
+      { name: "Assistant", definition_md: "owner rewrite", tombstoned: "false" },
+    ]);
+    expect(
+      (await documentRevisions(mockApi, "insight", "assistant")).map(
+        (v) => v.content
+      )
+    ).toEqual([{ text: "owner insight", tombstoned: "false" }]);
+    const offboard = await documentRevisions(mockApi, "offboard", "global");
+    expect(offboard).toHaveLength(1);
+    expect(offboard[0].content.tombstoned).toBe("false");
+    expect(offboard[0].content.text).toContain("owner offboard");
+  });
+
+  it("restoring the revision a reset retained writes its text back as an edit, not as the default", async () => {
+    await mockApi.saveRole("assistant", { definitionMd: "owner rewrite" });
+    await mockApi.resetRole("assistant");
+    const [kept] = await documentRevisions(
+      mockApi,
       "role_definition",
       "assistant"
     );
-    expect(seedVersion.content.tombstoned).toBe("true");
-    // 🔴 TWO STATEMENTS, deliberately not one (T-40f0 node 11). This used to
-    // assert `role.definitionMd === seedVersion.content.definition_md` after
-    // the restore — one sentence that quietly claimed "what a tombstoned
-    // revision STORES equals what the document folds to". On the real server
-    // that is FALSE: the stored column is empty and the seed is supplied by the
-    // fold. Writing it as one equality made the display-layer defect (the diff
-    // announcing that restoring would wipe the document) unrepresentable in
-    // any mock-built fixture.
-    expect(seedVersion.content.definition_md).toBe("");
 
-    await mockApi.restoreDocumentHistory(
-      "role_definition",
-      "assistant",
-      seedVersion.id
-    );
+    await mockApi.restoreDocumentHistory("role_definition", "assistant", kept.id);
+
     const role = await mockApi.getRole("assistant");
-    expect(role.isDefault).toBe(true);
-    // …and the FOLD is where the seed text comes back — non-empty, and not the
-    // rewrite it replaced.
-    expect(role.definitionMd.length).toBeGreaterThan(0);
-    expect(role.definitionMd).not.toBe("second rewrite");
-    expect(role.definitionMd).toBe(
-      (await mockApi.getDocumentSeed("role_definition", "assistant")).content
-        .definition_md
-    );
+    expect(role.definitionMd).toBe("owner rewrite");
+    expect(role.isDefault).toBe(false);
   });
 
   // T-1f39 split the manual's four-field bundle into its own SOP series and
@@ -349,9 +354,9 @@ describe("mockApi · document history", () => {
     ).toHaveLength(1);
   });
 
-  // ── 初始版本 (T-40f0) ─────────────────────────────────────────────────────
+  // ── 預設內容 (T-40f0) ─────────────────────────────────────────────────────
   // The mock has to mirror WHICH documents ship a default, or the offline
-  // cockpit renders a 初始版本 row that compares fine here and 404s in
+  // cockpit renders a 預設內容 row that compares fine here and 404s in
   // production (or the reverse).
   it("serves the shipped default of the two documents that have one", async () => {
     // The global block's default IS the empty document — and the field NAME has

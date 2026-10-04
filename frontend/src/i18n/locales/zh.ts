@@ -1177,7 +1177,7 @@ export const zh = {
       // 「這一側是活的」那個標記：同一條連結下個月點開會顯示不一樣的差異，
       // 讀者必須從畫面上看得出來，而不是自己推。
       diffSideCurrent: "目前存檔內容",
-      diffSideSeed: "初始版本",
+      diffSideSeed: "預設內容",
       diffSideRevision: (id: string) => `版本 #${id}`,
       diffSideLive: (label: string, at: string) => `${label}（讀取於 ${at}，之後會不一樣）`,
       // 比較畫不出來，因為**有一側已經不在了**：附件被回收，或版本已經被
@@ -2079,7 +2079,7 @@ export const zh = {
     // 唯讀文件的說明：說「這份是什麼」，不說「你沒有權限」——沒有任何人可以改，
     // 講權限會讓人去找一個根本不存在的角色來授權。
     bootDocReadOnlyNote:
-      "這份文件顯示在這裡，是為了讓你看得到 agent 到底被告知了什麼；它不給任何人編輯，也沒有出廠版以外的版本。",
+      "這份文件顯示在這裡，是為了讓你看得到 agent 到底被告知了什麼；它不給任何人編輯，也沒有預設內容以外的版本。",
     bootDocSaveConfirmAcceleratedStop:
       "要儲存這份加速停止程序嗎？之後每一個被要求提前收工的 agent 都會讀到這份內容，而且是在只剩下一小段時間的情況下讀——寫得完才算數。",
     bootDocSaveConfirmTaskEvent:
@@ -2087,9 +2087,9 @@ export const zh = {
     // ── 開機情境區塊：可編輯面（T-791e）──
     bootDocNoteHistoryLead: "版本紀錄只保留最近 ",
     bootDocNoteHistoryTail:
-      " 版，而且是以「存檔次數」計、不是以時間計——連按幾次小修就會把較舊的版本沖掉。「還原出廠版」不受影響，永遠在。",
+      " 版，而且是以「存檔次數」計、不是以時間計——連按幾次小修就會把較舊的版本沖掉。「同步預設內容」不受影響，永遠在。",
     bootDocSaveConfirmBoot:
-      "要儲存這份啟動步驟嗎？寫壞會讓之後開機的成員無法上線，而且不會有任何錯誤訊息。存檔前請確認看過預覽；出事就按「還原出廠版」。",
+      "要儲存這份啟動步驟嗎？寫壞會讓之後開機的成員無法上線，而且不會有任何錯誤訊息。存檔前請確認看過預覽；出事就到版本紀錄打開「預設內容」，按「同步預設內容」。",
     bootDocSaveConfirmSystem:
       "要儲存這份系統互動說明嗎？之後開機的每一個 agent 都會讀到這份內容。",
     bootDocSaveConfirmOffboard:
@@ -2111,8 +2111,11 @@ export const zh = {
     // 一樣真的會有版本紀錄。
     historyTaskUnblockedTitle: "擋著你手上任務的票解開了的版本紀錄",
     historyTaskReadyForDoneTitle: "你手上的任務可以結案了的版本紀錄",
-    // seed vs owner-edited
+    // Keep the legacy key in the theme whitelist for saved packs; current cards
+    // use the explicit factory-status keys below.
     defaultBadge: "預設",
+    docStatusSyncedBadge: "與預設內容同步",
+    docStatusModifiedBadge: "已修改",
     // ── detail: view / edit ──
     edit: "編輯",
     doneEdit: "完成編輯",
@@ -2144,30 +2147,22 @@ export const zh = {
     historyLoading: "載入版本紀錄中…",
     historyError: "載入版本紀錄失敗，請稍後重試",
     historyEmpty: "還沒有保留任何版本",
-    // 「真的寫了空字串」與「當時跟著出廠預設走」是兩件事，混成一句會讓後者看起來
-    // 像一份被清空的文件——而還原它其實是把文件放回預設內容，不是清空（T-40f0
-    // 節點 11，owner 2026-08-05 截圖）。
     historyNoContent: "（當時是空白內容）",
-    historyDefaultContent: "（當時採用出廠預設內容）",
     historyByLabel: "修改者",
-    historyDefaultBadge: "當時為預設內容",
     historyRestore: "還原這個版本",
     historyRestoreConfirmLead: "確定還原「",
     historyRestoreConfirmTail: "」這個版本？目前的內容會被覆蓋，但會存成新的版本紀錄。",
     historyRestoreConfirmAction: "確認還原",
     historyRestoreError: "還原失敗，請稍後重試",
-    // ── 初始版本（T-1f39，owner 2026-07-31）——重置鈕退場後，清單最後一項就是
-    //    這份文件出廠時的內容，也是唯一的重置入口，因此走同一個破壞性確認框。
-    //    T-40f0（owner rc-28885813e065 ①）起這一列跟別的版本完全一樣：點下去先
-    //    看得到內容與差異，還原仍在同一個破壞性確認框後面。
-    historySeedTitle: "初始版本",
+    // 清單最後一列是預設內容，也是同步入口；打開後可先檢視內容與差異。
+    historySeedTitle: "預設內容",
     historySeedNote: "這份文件最初附帶的內容。",
-    historySeedRestore: "還原成初始版本",
-    historySeedConfirm: "確定還原成初始版本？目前的內容會被覆蓋。",
-    // 初始版本的內容讀不到時的誠實說法：不能講成「這個版本是空白的」（那是另
-    // 一個、而且是錯的主張），但還原本身不需要這份內容，所以照樣按得下去。
+    historySeedRestore: "同步預設內容",
+    historySeedConfirm: "確定同步預設內容？目前的內容會被覆蓋。",
+    historySeedConfirmAction: "確認同步",
+    // 預設內容讀不到時仍可同步，因為同步不需要先讀取這份內容。
     historySeedUnavailable:
-      "初始版本的內容目前讀不到，暫時無法顯示或比較；還原成初始版本仍然可以執行。",
+      "預設內容目前讀不到，暫時無法顯示或比較；同步預設內容仍可執行。",
     // 讀完一個版本退回清單——關閉是離開版本紀錄，這是回上一層。
     historyBack: "返回版本列表",
     // 超過長度上限、伺服器一定會拒絕的版本：照樣列出來，但標成不可還原。
@@ -2190,14 +2185,11 @@ export const zh = {
     historyActorTail: "）",
     historyCurrentLabel: "目前存檔內容",
     historyModalEmpty: "這個版本沒有任何內容。",
-    // 這一句只有在「出廠預設本身就是空的」時才會出現（全域情境的預設就是空文件）；
-    // 預設有內容的文件會直接把那份內容畫出來。
-    historyModalDefaultContent: "這個版本當時採用出廠預設內容。",
-    // 上面那一句的「讀不到」版本,而且**不共用** historySeedUnavailable —— 那句
-    // 逐字講的是「初始版本」,印在一個有代號、有時間、有作者的留存版本上就是講錯
-    // 版本身分,而它就站在還原鈕旁邊。
-    historyDefaultUnreadable:
-      "這個版本當時採用出廠預設內容,但預設內容目前讀不到,暫時無法顯示或比較;還原這個版本仍然可以執行。",
+    // 只有預設內容本身是空文件時才會出現（全域情境的預設就是空文件），
+    // 不能說成「這個版本沒有任何內容」。
+    historyModalDefaultContent: "預設內容是空白的。",
+    historyVersionUnreadable:
+      "這個版本的內容目前讀不到，暫時無法顯示或比較。",
     historyClose: "關閉",
     // 一頁上同時放著兩份可編輯長文時（角色誌＝角色定義＋判準），標題只寫
     // 「版本紀錄」看不出管的是哪一份——卡片得自己講清楚。owner 2026-07-31 實際
@@ -2210,7 +2202,7 @@ export const zh = {
     historySopSub:
       "只有 SOP 會保留版本；用途與識別鍵的修改不留版本紀錄。系統保留最近 3 次修改；還原只會覆蓋 SOP。",
     historyManualSeedConfirm:
-      "確定還原成初始版本？整本手冊（名稱、用途、識別鍵、SOP 與負責成員）都會回到出廠時的內容，目前的修改會被覆蓋。",
+      "確定同步預設內容？整本手冊（名稱、用途、識別鍵、SOP 與負責成員）都會回到預設設定，目前的修改會被覆蓋。",
     historyField: {
       text: "內容",
       name: "名稱",

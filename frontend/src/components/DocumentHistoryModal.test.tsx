@@ -16,6 +16,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, fireEvent, waitFor, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
+import { en } from "../i18n/locales/en";
 import { DocumentHistoryModal } from "./DocumentHistoryModal";
 import { mockApiError } from "../api/errorCodes";
 import { DOC_CAP_CHARS_DEFAULT, DOC_CAP_CHARS_DEFAULTS } from "../api/docCap";
@@ -56,7 +57,6 @@ function open(opts: {
         // reads since T-1170, so the fixture spells both rather than one
         // object that carries everything.
         createdTs={VERSION_TS}
-        tombstoned={content.tombstoned === "true"}
         sizes={contentSizes(content)}
         content={content}
         actorLine="Mira（owner-1）"
@@ -245,10 +245,9 @@ describe("DocumentHistoryModal", () => {
     // The confirmation is the gate: nothing has been overwritten yet.
     expect(onRestore).not.toHaveBeenCalled();
     expect(
-      within(utils.getByTestId("doc-history-restore-confirm")).getByText(
-        s.historyRestoreConfirmAction
-      )
-    ).toBeTruthy();
+      utils.getByTestId("doc-history-restore-confirm-btn").textContent
+    ).toBe("確認還原");
+    expect(en.settings.historyRestoreConfirmAction).toBe("Restore");
 
     fireEvent.click(utils.getByTestId("doc-history-restore-confirm-btn"));
 
@@ -367,12 +366,38 @@ describe("DocumentHistoryModal", () => {
     expect(utils.getByText(s.historyModalEmpty)).toBeTruthy();
   });
 
-  // ── 初始版本 as a pseudo-version (T-40f0) ──────────────────────────────────
-  // The list's bottom row used to jump straight to a reset confirmation, because
-  // the seed's content was never sent to the cockpit. It now arrives here and
-  // reads/diffs/restores through this one code path, with two differences that
+  it("says a retained revision whose read failed cannot be read, without promising the restore will work", () => {
+    const utils = render(
+      <I18nProvider>
+        <DocumentHistoryModal
+          kind="insight"
+          createdTs={VERSION_TS}
+          sizes={{ text: 4 }}
+          content={undefined}
+          actorLine="Mira（owner-1）"
+          currentContent={{ text: VERSION_MD }}
+          docCaps={DOC_CAP_CHARS_DEFAULTS}
+          onRestore={async () => {}}
+          onClose={() => {}}
+        />
+      </I18nProvider>
+    );
+    expect(
+      utils.getByTestId("doc-history-version-unreadable").textContent
+    ).toBe("這個版本的內容目前讀不到，暫時無法顯示或比較。");
+    expect(en.settings.historyVersionUnreadable).toBe(
+      "This version's content cannot be read right now, so it cannot be shown or compared."
+    );
+    expect(
+      (utils.getByTestId("doc-history-modal-restore") as HTMLButtonElement)
+        .disabled
+    ).toBe(false);
+  });
+
+  // ── 預設內容 as a pseudo-version ──────────────────────────────────────────
+  // Reads/diffs/syncs through this one code path, with two differences that
   // both come from the same fact: nobody wrote it and it has no timestamp.
-  describe("the shipped default (初始版本)", () => {
+  describe("the default content (預設內容)", () => {
     function openSeed(opts: {
       content?: Record<string, string>;
       currentContent?: Record<string, string>;
@@ -384,10 +409,6 @@ describe("DocumentHistoryModal", () => {
           <DocumentHistoryModal
             kind="global_context"
             createdTs={0}
-            tombstoned={
-              (opts.content ?? { text: "", tombstoned: "true" }).tombstoned ===
-              "true"
-            }
             sizes={contentSizes(opts.content ?? { text: "", tombstoned: "true" })}
             content={opts.content ?? { text: "", tombstoned: "true" }}
             seed
@@ -407,13 +428,29 @@ describe("DocumentHistoryModal", () => {
       const header = utils.container.querySelector(
         ".doc-hist-modal__header"
       ) as HTMLElement;
-      expect(header.textContent).toContain(s.historySeedTitle);
       // No 修改者 line: there is nobody to name, and naming nobody as somebody
       // is the failure mode a bare `actorLine` would have produced.
       expect(header.textContent).not.toContain(s.historyByLabel);
       expect(
         utils.container.querySelector(".doc-hist-modal__when")?.textContent
-      ).toBe(s.historySeedTitle);
+      ).toBe("預設內容");
+      expect(en.settings.historySeedTitle).toBe("Default content");
+    });
+
+    it("carries no badge of its own, and an empty default says the default is empty", () => {
+      const utils = openSeed({});
+      const ident = utils.container.querySelector(
+        ".doc-hist-modal__ident"
+      ) as HTMLElement;
+      expect(ident.textContent).toBe("預設內容");
+      expect(ident.querySelector(".set-badge")).toBeNull();
+      const body = utils.container.querySelector(
+        ".doc-hist-modal__body"
+      ) as HTMLElement;
+      expect(body.textContent).toBe("預設內容是空白的。");
+      expect(en.settings.historyModalDefaultContent).toBe(
+        "The default content is empty."
+      );
     });
 
     it("diffs against the live document with the default on the - side", () => {
@@ -426,11 +463,11 @@ describe("DocumentHistoryModal", () => {
         ["1", "", "-", "shipped default"],
         ["", "1", "+", "owner's rewrite"],
       ]);
-      // The `-` side is labelled 初始版本 — the same slot a retained revision
+      // The `-` side is labelled 預設內容 — the same slot a retained revision
       // fills with its timestamp.
       expect(
         utils.container.querySelector(".diff-view__label--before")?.textContent
-      ).toBe(`-${s.historySeedTitle}`);
+      ).toBe("-預設內容");
     });
 
     it("restores through the SAME confirmation, with the reset's own wording", async () => {
@@ -438,13 +475,23 @@ describe("DocumentHistoryModal", () => {
       const utils = openSeed({ onRestore });
 
       const restore = utils.getByTestId("doc-history-modal-restore");
-      expect(restore.textContent).toBe(s.historySeedRestore);
+      expect(restore.textContent).toBe("同步預設內容");
+      expect(en.settings.historySeedRestore).toBe("Sync to default");
+      expect(en.settings.docStatusSyncedBadge).toBe("In sync with default");
+      expect(en.settings.docStatusModifiedBadge).toBe("Modified");
       fireEvent.click(restore);
       // Looking was free; going back is not, and the gate is the same one.
       expect(onRestore).not.toHaveBeenCalled();
       expect(
         utils.getByTestId("doc-history-restore-confirm").textContent
-      ).toContain(s.historySeedConfirm);
+      ).toContain("確定同步預設內容？目前的內容會被覆蓋。");
+      expect(
+        utils.getByTestId("doc-history-restore-confirm-btn").textContent
+      ).toBe("確認同步");
+      expect(en.settings.historySeedConfirmAction).toBe("Sync");
+      expect(en.settings.historySeedConfirm).toBe(
+        "Sync to default? The current content will be overwritten."
+      );
 
       fireEvent.click(utils.getByTestId("doc-history-restore-confirm-btn"));
       await waitFor(() => expect(onRestore).toHaveBeenCalledTimes(1));
@@ -457,7 +504,10 @@ describe("DocumentHistoryModal", () => {
       const utils = openSeed({ content: {}, seedUnavailable: true });
       expect(
         utils.getByTestId("doc-history-seed-unavailable").textContent
-      ).toBe(s.historySeedUnavailable);
+      ).toBe("預設內容目前讀不到，暫時無法顯示或比較；同步預設內容仍可執行。");
+      expect(en.settings.historySeedUnavailable).toBe(
+        "The default content cannot be read right now, so it cannot be shown or compared. Syncing to default still works."
+      );
       expect(utils.queryByText(s.historyModalEmpty)).toBeNull();
       expect(
         (utils.getByTestId("doc-history-modal-restore") as HTMLButtonElement)

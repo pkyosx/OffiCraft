@@ -217,7 +217,7 @@ func TestInsightHistorySnapshot(t *testing.T) {
 	}{
 		"no row":               {current: nil, want: `{}`},
 		"a live empty row":     {current: &Insight{RoleKey: "engineer"}, want: `{"text":"","tombstoned":"false"}`},
-		"a tombstoned row":     {current: &Insight{RoleKey: "engineer", Text: "保留版本", Tombstoned: true}, want: `{"text":"保留版本","tombstoned":"true"}`},
+		"a tombstoned row":     {current: &Insight{RoleKey: "engineer", Text: "保留版本", Tombstoned: true}, want: `{}`},
 		"a live row with text": {current: &Insight{RoleKey: "engineer", Text: "如何權衡"}, want: `{"text":"如何權衡","tombstoned":"false"}`},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -236,7 +236,7 @@ func TestInsightSnapshotIn(t *testing.T) {
 	t.Run("the transaction reader returns the addressed insight document", func(t *testing.T) {
 		_, _, d, _ := newAPITestServer(t)
 		if err := d.PutInsight(Insight{
-			RoleKey: "engineer", Text: "交易前洞見", Tombstoned: true,
+			RoleKey: "engineer", Text: "交易前洞見",
 		}); err != nil {
 			t.Fatalf("PutInsight: %v", err)
 		}
@@ -245,8 +245,24 @@ func TestInsightSnapshotIn(t *testing.T) {
 		if err != nil {
 			t.Fatalf("insightSnapshotIn: %v", err)
 		}
-		if got != `{"text":"交易前洞見","tombstoned":"true"}` {
-			t.Fatalf("snapshot = %q, want %q", got, `{"text":"交易前洞見","tombstoned":"true"}`)
+		if got != `{"text":"交易前洞見","tombstoned":"false"}` {
+			t.Fatalf("snapshot = %q, want %q", got, `{"text":"交易前洞見","tombstoned":"false"}`)
+		}
+	})
+
+	t.Run("the transaction reader represents a reset insight document as the empty object", func(t *testing.T) {
+		_, _, d, _ := newAPITestServer(t)
+		if err := d.PutInsight(Insight{
+			RoleKey: "engineer", Text: "交易前洞見", Tombstoned: true,
+		}); err != nil {
+			t.Fatalf("PutInsight: %v", err)
+		}
+		got, err := insightSnapshotIn("engineer")(d.rdb)
+		if err != nil {
+			t.Fatalf("insightSnapshotIn: %v", err)
+		}
+		if got != `{}` {
+			t.Fatalf("snapshot = %q, want %q", got, `{}`)
 		}
 	})
 

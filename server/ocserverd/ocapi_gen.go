@@ -1238,7 +1238,7 @@ type DiffPairDTO struct {
 	//
 	// ``gone`` is the honest answer for an address that resolves to nothing — a pruned revision, a blob that is no longer stored, a document or field this station does not have. It is NOT an error: the address was sayable, and whether it still resolves is a read-time fact. When ``gone`` is true, ``text`` is absent and ``gone_reason`` says which of those happened.
 	//
-	// ``label`` is empty when the caller supplied none. That is deliberate for a document side: the reader already has a better heading than anything a minting process could write (「目前存檔內容」/「初始版本」/「版本 #12」 in the reader's own language), and a label written at mint time would override it in one language for everyone.
+	// ``label`` is empty when the caller supplied none. That is deliberate for a document side: the reader already has a better heading than anything a minting process could write (「目前存檔內容」/「預設內容」/「版本 #12」 in the reader's own language), and a label written at mint time would override it in one language for everyone.
 	//
 	// ``mime`` is the stored media type of a blob side, absent for a document side. A side whose bytes are not text is still returned verbatim; the reader decides what it can draw.
 	After DiffSideDTO `json:"after"`
@@ -1247,7 +1247,7 @@ type DiffPairDTO struct {
 	//
 	// ``gone`` is the honest answer for an address that resolves to nothing — a pruned revision, a blob that is no longer stored, a document or field this station does not have. It is NOT an error: the address was sayable, and whether it still resolves is a read-time fact. When ``gone`` is true, ``text`` is absent and ``gone_reason`` says which of those happened.
 	//
-	// ``label`` is empty when the caller supplied none. That is deliberate for a document side: the reader already has a better heading than anything a minting process could write (「目前存檔內容」/「初始版本」/「版本 #12」 in the reader's own language), and a label written at mint time would override it in one language for everyone.
+	// ``label`` is empty when the caller supplied none. That is deliberate for a document side: the reader already has a better heading than anything a minting process could write (「目前存檔內容」/「預設內容」/「版本 #12」 in the reader's own language), and a label written at mint time would override it in one language for everyone.
 	//
 	// ``mime`` is the stored media type of a blob side, absent for a document side. A side whose bytes are not text is still returned verbatim; the reader decides what it can draw.
 	Before DiffSideDTO `json:"before"`
@@ -1264,7 +1264,7 @@ type DiffShareLinkDTO struct {
 //
 // “gone“ is the honest answer for an address that resolves to nothing — a pruned revision, a blob that is no longer stored, a document or field this station does not have. It is NOT an error: the address was sayable, and whether it still resolves is a read-time fact. When “gone“ is true, “text“ is absent and “gone_reason“ says which of those happened.
 //
-// “label“ is empty when the caller supplied none. That is deliberate for a document side: the reader already has a better heading than anything a minting process could write (「目前存檔內容」/「初始版本」/「版本 #12」 in the reader's own language), and a label written at mint time would override it in one language for everyone.
+// “label“ is empty when the caller supplied none. That is deliberate for a document side: the reader already has a better heading than anything a minting process could write (「目前存檔內容」/「預設內容」/「版本 #12」 in the reader's own language), and a label written at mint time would override it in one language for everyone.
 //
 // “mime“ is the stored media type of a blob side, absent for a document side. A side whose bytes are not text is still returned verbatim; the reader decides what it can draw.
 type DiffSideDTO struct {
@@ -1329,9 +1329,9 @@ type DocSummaryDTO struct {
 	Title string `json:"title"`
 }
 
-// DocumentHistoryDTO ONE retained revision of an editable document as a CATALOGUE ROW: which revision it is, when it was retained and by whom, whether it was a tombstone, and HOW LONG each of its fields was — never the text. A version list is how a reader CHOOSES a revision, and choosing does not need the prose: one list_document_history answer had a structural ceiling in the hundreds of thousands of characters and no narrowing of any kind. The body of a chosen revision is fetched one at a time (get_document_version).
+// DocumentHistoryDTO ONE retained revision of an editable document as a CATALOGUE ROW: which revision it is, when it was retained and by whom, and HOW LONG each of its fields was — never the text. A version list is how a reader CHOOSES a revision, and choosing does not need the prose: one list_document_history answer had a structural ceiling in the hundreds of thousands of characters and no narrowing of any kind. The body of a chosen revision is fetched one at a time (get_document_version).
 //
-// “field_chars“ is a MAP because the field names differ by kind (“text“ / “definition_md“ / “description“ / “title“) — the same keys that revision's “content“ carries, MINUS “tombstoned“, which is served as its own boolean rather than as a stringly-typed entry with a character count.
+// “field_chars“ is a MAP because the field names differ by kind (“text“ / “definition_md“ / “description“ / “title“) — the same keys that revision's “content“ carries, MINUS “tombstoned“, which is served as its own boolean rather than as a stringly-typed entry with a character count. A document that was following its default content retains no revision, and a tombstone revision retained by an older server is not listed, so “tombstoned“ is always false on a listed row; it is kept for wire compatibility.
 type DocumentHistoryDTO struct {
 	ActorId    string         `json:"actor_id"`
 	CreatedTs  float64        `json:"created_ts"`
@@ -1348,7 +1348,7 @@ type DocumentHistoryRestoreDTO struct {
 	Id        int64             `json:"id"`
 }
 
-// DocumentHistoryVersionDTO The BODY of ONE named retained revision: the same “content“ map that revision was stored with (field names by kind — “text“ / “definition_md“ / “description“ / “title“, plus “tombstoned“), echoed alongside the address that was asked for. Read-only. It is the companion of list_document_history, which carries every revision's identity and sizes but no prose: choose from the list, then fetch exactly the one revision you mean to read.
+// DocumentHistoryVersionDTO The BODY of ONE named retained revision: the same “content“ map that revision was stored with (field names by kind — “text“ / “definition_md“ / “description“ / “title“, plus “tombstoned“, always false on a revision this route serves), echoed alongside the address that was asked for. Read-only. A tombstone revision retained by an older server is not served: its id answers 404, exactly as it is absent from the list. It is the companion of list_document_history, which carries every revision's identity and sizes but no prose: choose from the list, then fetch exactly the one revision you mean to read.
 type DocumentHistoryVersionDTO struct {
 	Content map[string]string `json:"content"`
 	Id      int64             `json:"id"`
@@ -1356,7 +1356,7 @@ type DocumentHistoryVersionDTO struct {
 	Kind    string            `json:"kind"`
 }
 
-// DocumentSeedDTO The SHIPPED DEFAULT of an editable long-form document — what a reset puts back, expressed in the SAME field names a retained revision uses so one reader can compare either against the live document. READ-ONLY: this route writes nothing, so looking at 初始版本 can never overwrite anything. 404 when the document has no shipped default (a custom role, a task manual created on this station) — exactly the documents whose reset the server refuses as not applicable (409).
+// DocumentSeedDTO The DEFAULT CONTENT (預設內容) of an editable long-form document — what a reset puts back, expressed in the SAME field names a retained revision uses so one reader can compare either against the live document. READ-ONLY: this route writes nothing, so looking at 預設內容 can never overwrite anything. 404 when the document has no default content (a custom role, a task manual created on this station) — exactly the documents whose reset the server refuses as not applicable (409).
 type DocumentSeedDTO struct {
 	Content map[string]string `json:"content"`
 	Key     string            `json:"key"`
@@ -4977,7 +4977,7 @@ type ServerInterface interface {
 	// Read one product-guide doc in full (markdown; unknown slug → 404).
 	// (GET /api/docs/{slug})
 	HandleGetDocApiDocsSlugGet(w http.ResponseWriter, r *http.Request, slug string)
-	// READ the CATALOGUE of retained versions of one editable document: which versions exist, when each was replaced and by whom, whether each was a tombstone, and HOW LONG each of its fields was. It does NOT carry the versions themselves — a version list is how you CHOOSE one, and choosing does not need the prose; fetch the one you picked with get_document_version. Read-only, newest first, and only the most recent few are kept — HOW MANY is per-document and is not stated here, because it differs by kind and this sentence would go stale silently; what you get back is the answer. Putting a version BACK is deliberately not an agent tool — the owner does that from the cockpit — so this cannot change anything.
+	// READ the CATALOGUE of retained versions of one editable document: which versions exist, when each was replaced and by whom, and HOW LONG each of its fields was. A document that was following its default content retains no version (that state is the get_document_seed default content, not a list entry), and a tombstone version retained by an older server is not listed, so “tombstoned“ is always false here; it is kept for wire compatibility. It does NOT carry the versions themselves — a version list is how you CHOOSE one, and choosing does not need the prose; fetch the one you picked with get_document_version. Read-only, newest first, and only the most recent few are kept — HOW MANY is per-document and is not stated here, because it differs by kind and this sentence would go stale silently; what you get back is the answer. Putting a version BACK is deliberately not an agent tool — the owner does that from the cockpit — so this cannot change anything.
 	//
 	// WHICH DOCUMENTS THIS COVERS, AND WHAT `key` LOOKS LIKE FOR EACH, ARE DELIBERATELY NOT LISTED HERE. A list of kinds — or of key shapes — written into a description goes stale the moment a new editable document ships, and NOTHING turns red when it does: this description used to enumerate six kinds and a key shape per kind, and both had already gone stale before the lists were taken out. Two rules you can actually execute replace them.
 	//
@@ -4986,7 +4986,7 @@ type ServerInterface interface {
 	// COVERAGE: a syntactically valid `key` that simply has no retained versions yet is not an error — it returns an empty list, the honest 'nothing has been saved here', not a gap to work around.
 	// (GET /api/document-history/{kind}/{key})
 	HandleListDocumentHistoryApiDocumentHistoryKindKeyGet(w http.ResponseWriter, r *http.Request, kind string, key string)
-	// READ the SHIPPED DEFAULT of one editable document — the text a reset would put back, i.e. the 初始版本 entry of that document's version list. Read-only: this tool writes nothing, so reading the default can never replace the live document. Putting the default BACK is deliberately not an agent tool — the owner does that from the cockpit — exactly as with list_document_history. “content“ carries the SAME field names a retained version carries, so the same reader can compare a default against the live document.
+	// READ the DEFAULT CONTENT of one editable document — the text a reset would put back, i.e. the 預設內容 (default content) entry of that document's version list. Read-only: this tool writes nothing, so reading the default can never replace the live document. Putting the default BACK is deliberately not an agent tool — the owner does that from the cockpit — exactly as with list_document_history. “content“ carries the SAME field names a retained version carries, so the same reader can compare a default against the live document.
 	//
 	// WHICH DOCUMENTS THIS COVERS IS DELIBERATELY NOT LISTED HERE. A list of kinds written into a description goes stale the moment a new editable document ships and NOTHING turns red when it does — this one had gone wrong about three kinds before the list was taken out. Two rules you can actually execute replace it.
 	//
@@ -4999,10 +4999,10 @@ type ServerInterface interface {
 	//
 	// THIS IS THE SECOND HALF OF A PAIR. list_document_history answers WHICH versions exist and how big each field of each one is, and carries no prose at all; this answers WHAT ONE OF THEM SAID. Name the “id“ you read off that list. Asking for every version's text is the cost that pairing exists to remove, so fetch the one you actually mean to read.
 	//
-	// ADDRESSING: “kind“ and “key“ name a document exactly as they do for list_document_history — the same server-side gate answers all three routes, so whatever that tool can address, this one can too, and they can never silently disagree. A “kind“ this server does not know is refused with 400; a retired kind is refused with 400 naming the series that replaced it; a “key“ that fails its kind's required shape is refused with 400 naming the problem. An “id“ that is not a retained version of THAT document is a 404 — including an id that belongs to some other document, which is why the address is the whole triple and not the id alone.
+	// ADDRESSING: “kind“ and “key“ name a document exactly as they do for list_document_history — the same server-side gate answers all three routes, so whatever that tool can address, this one can too, and they can never silently disagree. A “kind“ this server does not know is refused with 400; a retired kind is refused with 400 naming the series that replaced it; a “key“ that fails its kind's required shape is refused with 400 naming the problem. An “id“ that is not a retained version of THAT document is a 404 — including an id that belongs to some other document, which is why the address is the whole triple and not the id alone. A tombstone version retained by an older server is also a 404, exactly as it is absent from list_document_history.
 	// (GET /api/document-history/{kind}/{key}/{id})
 	HandleGetDocumentVersionApiDocumentHistoryKindKeyIdGet(w http.ResponseWriter, r *http.Request, kind string, key string, id int64)
-	// Restore a retained document version as a new write.
+	// Restore a retained document version as a new write: the version's text is written back as an edit, so the document is no longer default (“is_default“ false). An id that list_document_history does not list, including a tombstone version retained by an older server, answers 404.
 	// (POST /api/document-history/{kind}/{key}/{id}/restore)
 	HandleRestoreDocumentHistoryApiDocumentHistoryKindKeyIdRestorePost(w http.ResponseWriter, r *http.Request, kind string, key string, id int64)
 	// SSE delta stream (owner-scoped fan-out; reconcile-by-refetch).

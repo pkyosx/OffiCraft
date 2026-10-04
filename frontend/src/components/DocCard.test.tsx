@@ -11,7 +11,7 @@
 //    restore, no save confirmation, no whole-replace note, and 完成編輯 still
 //    goes through on a draft nobody changed.
 //
-// 2. THE OVER-CAP DOOR IS NEW, AND IT IS THE ONE SANCTIONED DIFFERENCE. On the
+// 2. THE OVER-CAP DOOR IS ONE SANCTIONED DIFFERENCE. On the
 //    untouched tree the role definition's cap was unenforceable from the
 //    cockpit and unreportable afterwards: `DocDetail.commit()` was `try/finally`
 //    with no `catch`, so a 4,000-character definition against a 1,000-character

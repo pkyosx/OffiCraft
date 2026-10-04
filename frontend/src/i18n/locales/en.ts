@@ -1134,7 +1134,7 @@ export const en: Dict = {
       // shows a different comparison, and the reader has to be able to see that
       // from the screen rather than infer it.
       diffSideCurrent: "Current saved content",
-      diffSideSeed: "Shipped default",
+      diffSideSeed: "Default content",
       diffSideRevision: (id: string) => `Revision #${id}`,
       diffSideLive: (label: string, at: string) => `${label} (read ${at} — changes over time)`,
       // The compare could not be drawn because ONE SIDE is no longer there: a
@@ -2064,16 +2064,16 @@ export const en: Dict = {
     taskReadyForDoneSub:
       "What an agent is told each time its task becomes ready to close · editable",
     bootDocReadOnlyNote:
-      "This document is shown so you can see exactly what agents are told. Nobody may edit it, and it has no version other than the shipped one.",
+      "This document is shown so you can see exactly what agents are told. Nobody may edit it, and it has no version other than the default content.",
     bootDocSaveConfirmAcceleratedStop:
       "Save this accelerated-stop procedure? Every agent asked to wrap up early reads this content, and reads it with only a short window left — it has to be finishable in that time.",
     bootDocSaveConfirmTaskEvent:
       "Save this task-event procedure? Every agent notified of this event from now on reads this content.",
     bootDocNoteHistoryLead: "Version history keeps the last ",
     bootDocNoteHistoryTail:
-      " versions, counted in SAVES rather than in time — a run of small saves pushes the older ones out. Restoring the factory version is never affected and is always available.",
+      " versions, counted in SAVES rather than in time — a run of small saves pushes the older ones out. Sync to default is never affected and is always available.",
     bootDocSaveConfirmBoot:
-      "Save these boot steps? Broken boot steps stop members booting after this from coming online, with no error message anywhere. Check the preview before saving; if it does go wrong, press Restore factory version.",
+      "Save these boot steps? Broken boot steps stop members booting after this from coming online, with no error message anywhere. Check the preview before saving; if it does go wrong, open Default content in the version history and press Sync to default.",
     bootDocSaveConfirmSystem:
       "Save this system-interaction document? Every agent that boots after the save reads this content.",
     bootDocSaveConfirmOffboard:
@@ -2099,6 +2099,8 @@ export const en: Dict = {
     historyTaskReadyForDoneTitle:
       "Your task is ready to be closed · version history",
     defaultBadge: "Default",
+    docStatusSyncedBadge: "In sync with default",
+    docStatusModifiedBadge: "Modified",
     edit: "Edit",
     doneEdit: "Done",
     cancel: "Cancel",
@@ -2120,22 +2122,21 @@ export const en: Dict = {
     historyError: "Failed to load version history. Please try again.",
     historyEmpty: "No revisions retained yet",
     historyNoContent: "(was empty)",
-    historyDefaultContent: "(was on the shipped default)",
     historyByLabel: "Edited by",
-    historyDefaultBadge: "Was the default content",
     historyRestore: "Restore this version",
     historyRestoreConfirmLead: 'Restore the version from "',
     historyRestoreConfirmTail:
       '"? The current content is overwritten, but is kept as a new revision.',
     historyRestoreConfirmAction: "Restore",
     historyRestoreError: "Restore failed. Please try again.",
-    historySeedTitle: "Initial version",
-    historySeedNote: "The content this document shipped with.",
-    historySeedRestore: "Restore the initial version",
+    historySeedTitle: "Default content",
+    historySeedNote: "The default content this document comes with.",
+    historySeedRestore: "Sync to default",
     historySeedConfirm:
-      "Restore the initial version? The current content is overwritten.",
+      "Sync to default? The current content will be overwritten.",
+    historySeedConfirmAction: "Sync",
     historySeedUnavailable:
-      "The initial version's content cannot be read right now, so it cannot be shown or compared. Restoring it still works.",
+      "The default content cannot be read right now, so it cannot be shown or compared. Syncing to default still works.",
     historyBack: "Back to the version list",
     historyBlockedBadge: "Cannot restore",
     historyBlockedReasonLead: '"',
@@ -2156,10 +2157,9 @@ export const en: Dict = {
     historyActorTail: ")",
     historyCurrentLabel: "Current saved content",
     historyModalEmpty: "This version has no content.",
-    historyModalDefaultContent:
-      "This version was on the content this document shipped with.",
-    historyDefaultUnreadable:
-      "This version was on the content this document shipped with, but that default cannot be read right now, so it cannot be shown or compared. Restoring this version still works.",
+    historyModalDefaultContent: "The default content is empty.",
+    historyVersionUnreadable:
+      "This version's content cannot be read right now, so it cannot be shown or compared.",
     historyClose: "Close",
     historyRoleDefTitle: "Role definition · version history",
     historyInsightTitle: "Insight · version history",
@@ -2168,7 +2168,7 @@ export const en: Dict = {
     historySopSub:
       "Only the SOP is versioned; edits to the purpose and the identifier fields keep no history. The last 3 revisions are kept, and restoring overwrites the SOP only.",
     historyManualSeedConfirm:
-      "Restore the initial version? The whole manual (name, purpose, identifier fields, SOP and assignee) goes back to how it shipped, overwriting the current edits.",
+      "Sync to default? The whole manual (name, purpose, identifier fields, SOP and assignee) goes back to its default settings, overwriting the current edits.",
     historyField: {
       text: "Content",
       name: "Name",
