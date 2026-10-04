@@ -660,6 +660,9 @@ export function useChat(
   // lived in a `useKeyedRecord` keyed on `withId`, which is the same thing as a
   // mount now that `ChatArea` is mounted under `key={peerId}`.
   const convRef = useRef<ConversationSlot | null>(null);
+  // The subscription effect's `load`, so a lease that drops can pay the debt a
+  // held load left behind (see `withAnchorFetch`). Null while unsubscribed.
+  const loadRef = useRef<(() => void) | null>(null);
   if (convRef.current === null) {
     convRef.current = {
       latches: openLatches(
@@ -781,6 +784,9 @@ export function useChat(
     const seq = view.takeTicket();
     try {
       const next = await api.listChat(withId);
+      // This page is newer than any load that was turned away or failed.
+      conv.dropDebt?.();
+      conv.dropDebt = null;
       // 🔴 A LATE RESET MUST NOT BURN A GENERATION TICKET (T-48, R5-1; bound to
       // the VISIT in R6-1). The watermark used to be raised HERE, on the line
       // above the commit, unconditionally: a `resetToLatest` belonging to a
@@ -808,6 +814,8 @@ export function useChat(
       // told about it.
       void ok;
     } catch (e) {
+      // Same debt as a failed `load()`: the SSE sink pays it on the next burst.
+      conv.dropDebt = conv.latches.acquire("loadStale");
       console.warn("useChat: resetToLatest failed", e);
     }
   }, [withId, conv, view]);
@@ -935,7 +943,7 @@ export function useChat(
     // like a foreground one and the unread state is left to markRead(). Never
     // swallow a rejection into a phantom-empty thread — log it (a 401 is
     // already handled at the http layer, which bounces to login).
-    const load = () => {
+    const load = (owed = true) => {
       // 🔴 AN ANCHOR WINDOW IS NOT REFRESHED BY A NEWEST PAGE (T-48 ③). See
       // Thread.hasNewer: merging the live tail into a historical window creates
       // a seam the T-b0bb machinery would spend six round-trips failing to
@@ -971,10 +979,18 @@ export function useChat(
       // conversation's hook, and `ChatArea`'s `key={peerId}` is what gives each
       // conversation its own hook. Same caveat as the read above: the guarantee
       // lives in the key, not here.
+      //
+      // ⚠️ A load turned away here is OWED: it was asked for because something
+      // in this room changed while the anchor was on its way, and the anchor
+      // window was read before that change. The debt is paid when the lease
+      // drops (`withAnchorFetch`); without it the message that arrived during
+      // the hold stays off screen until some later event. The mount's own call
+      // is the one exception — the anchor fetch replaces it.
       if (
         conv.latches.isHeld("entryAnchor") ||
         conv.latches.isHeld("anchorFetch")
       ) {
+        if (owed) conv.dropDebt = conv.latches.acquire("loadStale");
         return;
       }
       // The generation ticket is taken at FIRE time, so a load that started
@@ -1059,7 +1075,8 @@ export function useChat(
     // "not in the DOM" branch — an empty thread has nothing in the DOM), and its
     // miss branch falls back to `resetToLatest`. Both endings clear the pending
     // flag. If that ever stops being true this room stays blank.
-    load();
+    load(false);
+    loadRef.current = load;
     void refetchReads();
 
     // SSE: reconcile the thread by refetching on the relevant topics — but only
@@ -1093,7 +1110,8 @@ export function useChat(
         //
         // 🔴 T-929f: `touchesThisThread` answers "is this delta about us", and
         // that is the right question ONLY while the thread we are holding is
-        // the truth. Once a load has failed we are knowingly holding a stale
+        // the truth. Once a load has failed (or been turned away by the anchor
+        // hold) we are knowingly holding a stale
         // page, and no amount of reasoning about a DIFFERENT conversation's
         // participants can fill it in — so a relevant burst (any chat /
         // chat_read topic, already established above) forces the load through
@@ -1131,6 +1149,7 @@ export function useChat(
 
     return () => {
       alive = false;
+      loadRef.current = null;
       unsubscribe();
       window.removeEventListener("focus", onMaybeActive);
       document.removeEventListener("visibilitychange", onMaybeActive);
@@ -1373,13 +1392,22 @@ export function useChat(
         // conversation the owner has already left is an orphan nobody reads,
         // so releasing it is a no-op, which is the correct answer.
         release?.();
+        if (
+          conv.latches.isHeld("loadStale") &&
+          !conv.latches.isHeld("anchorFetch")
+        ) {
+          loadRef.current?.();
+        }
       }
     },
     [conv],
   );
 
-  const loadAround = useCallback(
-    async (msgId: string): Promise<JumpOutcome> => {
+  // `settleOnMiss: false` leaves the first load unsettled on "missing" /
+  // "unreachable", for a caller that falls back to the newest page and settles
+  // after it — settling here would show the empty room for that round trip.
+  const loadAroundFrom = useCallback(
+    async (msgId: string, settleOnMiss: boolean): Promise<JumpOutcome> => {
       // 🔴 THE TRIP'S OWN GENERATION, TAKEN BEFORE THE FIRST REQUEST (T-48
       // fix14, review25 F1). `view.takeTicket()` orders COMMITS; this orders
       // TRIPS, which is a different question and asked earlier: a jump that has
@@ -1397,8 +1425,9 @@ export function useChat(
       // This is the anchor door's half of `initialLoading`; the ordinary door's
       // half is in `load()`. There are exactly two, they write the same flag,
       // and neither can end without writing it.
+      let outcome: JumpOutcome = "unreachable";
       try {
-        return await withAnchorFetch(async () => {
+        outcome = await withAnchorFetch(async (): Promise<JumpOutcome> => {
           const seq = view.takeTicket();
           let older: ChatMessage[];
           let newer: ChatMessage[];
@@ -1514,14 +1543,20 @@ export function useChat(
           if (!ok) return "superseded";
           return "found";
         });
+        return outcome;
       } finally {
-        settleFirstLoad();
+        if (settleOnMiss || (outcome !== "missing" && outcome !== "unreachable"))
+          settleFirstLoad();
         // Only the CURRENT trip takes the wait down. A superseded one ending
         // later must not clear the spinner its replacement is still under.
         if (walkGenRef.current === gen) setAnchorWalking(false);
       }
     },
     [withId, withAnchorFetch, view, fetchToLatest, settleFirstLoad],
+  );
+  const loadAround = useCallback(
+    (msgId: string) => loadAroundFrom(msgId, true),
+    [loadAroundFrom],
   );
 
   // ⚠️ THIS IS THE FETCHER FOR THE UNREAD ENTRY. The room was opened held
@@ -1537,20 +1572,30 @@ export function useChat(
       } catch (e) {
         console.warn("useChat: first-unread lookup failed", e);
       }
+      // The owner may have left while the lookup was out; the room it was for
+      // is gone, so nothing more is fetched for it.
+      if (!walkAliveRef.current) return;
       if (first) {
         setEntryUnreadId(first.id);
-        const outcome = await loadAround(first.id);
+        let outcome: JumpOutcome;
+        try {
+          outcome = await loadAroundFrom(first.id, false);
+        } catch (e) {
+          console.warn("useChat: first-unread window failed", e);
+          outcome = "unreachable";
+        }
         // Found, or overtaken / called off by a newer load: nothing to fall
         // back from. Only a target the server cannot serve falls back.
         if (outcome !== "missing" && outcome !== "unreachable") return;
         setEntryUnreadId(null);
+        if (!walkAliveRef.current) return;
       }
       await resetToLatest();
-      // resetToLatest does not settle the first load; an empty room would
-      // otherwise keep the spinner up forever.
+      // Neither resetToLatest nor a missed loadAroundFrom settles the first
+      // load; an empty room would otherwise keep the spinner up forever.
       settleFirstLoad();
     })();
-  }, [withId, loadAround, resetToLatest, settleFirstLoad]);
+  }, [withId, loadAroundFrom, resetToLatest, settleFirstLoad]);
 
   const markRead = useCallback(
     async (lastReadTs: number) => {

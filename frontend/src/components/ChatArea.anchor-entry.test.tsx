@@ -24,7 +24,7 @@ import { render, act, waitFor, fireEvent } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { ChatArea } from "./ChatArea";
 import type { Member } from "../types";
-import type { ChatMessage, ReplyCard } from "../api/adapter";
+import type { ChatMessage, ReplyCard, SseDelta } from "../api/adapter";
 
 const OWNER = "owner";
 const A = "m-aaaaaaaaaaaa";
@@ -58,6 +58,24 @@ let windowStale = false;
 let firstUnreadAnswer: string | null | Error = null;
 /** Every `getFirstUnreadChat` this room made, by peer. */
 let firstUnreadAsks: string[] = [];
+/** Holds `getFirstUnreadChat` in flight, so the room can be left mid-lookup. */
+let holdFirst: null | (() => void) = null;
+/** Makes the window pair read the log when it is ASKED, not when it is let go —
+ * i.e. the server has already answered and only the commit is still pending, so
+ * a message posted while the pair is held is not in it. */
+let windowsSnapshotAtCall = false;
+/** The next N plain newest-page reads fail (a dropped connection). */
+let plainFailures = 0;
+/** Every live `subscribeEvents` subscriber; `sse()` fans one delta to all. */
+let sinks: ((topic: string, delta?: SseDelta) => void)[] = [];
+function sse(topic: string, names: { from?: string; to?: string }) {
+  const delta: SseDelta = {
+    topic,
+    names,
+    ids: [names.from, names.to].filter((v): v is string => v !== undefined),
+  };
+  for (const s of [...sinks]) s(topic, delta);
+}
 /** Same, for the plain newest page — so 回到最新's own fetch can be left in the
  * air across a conversation switch. */
 let holdPlain: null | (() => void) = null;
@@ -129,6 +147,10 @@ vi.mock("../api", () => ({
           };
         });
       }
+      if (!cursor && plainFailures > 0) {
+        plainFailures -= 1;
+        throw new Error("listChat: 502");
+      }
       const all = threadOf(withId);
       const size = limit ?? 30;
       if (cursor) {
@@ -148,6 +170,7 @@ vi.mock("../api", () => ({
       limit: number,
     ) => {
       windowCalls.push({ withId, anchor });
+      const asked = threadOf(withId);
       if (holdWindows) {
         await new Promise<void>((r) => {
           const prev = holdWindows;
@@ -161,7 +184,7 @@ vi.mock("../api", () => ({
       if (windowFailAfter > 0 && windowCalls.length > windowFailAfter) {
         throw new Error("listChatWindow: 502 (walk page)");
       }
-      const all = threadOf(withId);
+      const all = windowsSnapshotAtCall ? asked : threadOf(withId);
       const at = all.findIndex(
         (m) => m.id === (anchor.endId ?? anchor.startId),
       );
@@ -202,8 +225,30 @@ vi.mock("../api", () => ({
     },
     getFirstUnreadChat: async (withId: string) => {
       firstUnreadAsks.push(withId);
+      if (holdFirst) {
+        await new Promise<void>((r) => {
+          const prev = holdFirst;
+          holdFirst = () => {
+            prev?.();
+            r();
+          };
+        });
+      }
       if (firstUnreadAnswer instanceof Error) throw firstUnreadAnswer;
-      return log.find((m) => m.id === firstUnreadAnswer) ?? null;
+      if (firstUnreadAnswer === null) return null;
+      // An id the log does not carry stands for a message deleted after the
+      // server named it: the lookup answers it, the window pair cannot serve it.
+      return (
+        log.find((m) => m.id === firstUnreadAnswer) ?? {
+          id: firstUnreadAnswer,
+          from: withId,
+          to: OWNER,
+          body: "",
+          ts: 1,
+          attachments: [],
+          replyCardId: null,
+        }
+      );
     },
     listChatReads: async () => [],
     /** Every mark-read this room sent, with the watermark it claimed. This is
@@ -213,7 +258,12 @@ vi.mock("../api", () => ({
       markReads.push(b.lastReadTs);
     },
     postChat: async () => ({}),
-    subscribeEvents: () => () => {},
+    subscribeEvents: (fn: (topic: string, delta?: SseDelta) => void) => {
+      sinks.push(fn);
+      return () => {
+        sinks = sinks.filter((s) => s !== fn);
+      };
+    },
     getOutsourceWorker: async () => ({}),
   },
 }));
@@ -297,6 +347,10 @@ beforeEach(() => {
   markReads = [];
   firstUnreadAnswer = null;
   firstUnreadAsks = [];
+  holdFirst = null;
+  windowsSnapshotAtCall = false;
+  plainFailures = 0;
+  sinks = [];
   windowStale = false;
   scrolls = [];
   cardReads = [];
@@ -1304,5 +1358,160 @@ describe("ChatArea 帶著未讀進房,停在伺服器說的第一則未讀", () 
       "這個範圍還沒有訊息",
     );
     expect(bubbles(container)).toEqual([]);
+  });
+});
+
+// ── 進房還在等錨點時發生的事 ─────────────────────────────────────────────────
+describe("ChatArea 進房等錨點期間的新訊息、退回與離房", () => {
+  beforeEach(installLayout);
+  afterEach(uninstallLayout);
+
+  const LATE: ChatMessage = {
+    id: "late",
+    from: A,
+    to: OWNER,
+    body: "late",
+    ts: 500,
+    attachments: [],
+    replyCardId: null,
+  };
+
+  it("帶未讀進房、錨點那一段已讀回還沒落地時對方又送一則,落地後那一則照樣出現", async () => {
+    seed(A, "a", 40, 100);
+    firstUnreadAnswer = "a0";
+    windowsSnapshotAtCall = true;
+    holdWindows = () => {};
+
+    const { container } = render(view(withUnread(alice, 40)));
+    await waitFor(() => expect(windowCalls).toHaveLength(2));
+    await act(async () => {
+      log.push(LATE);
+      const release = holdWindows;
+      holdWindows = null;
+      release?.();
+      sse("chat", { from: A, to: OWNER });
+      await new Promise((r) => setTimeout(r, 60));
+    });
+
+    await waitFor(() =>
+      expect(bubbles(container)).toEqual([
+        ...Array.from({ length: 40 }, (_, i) => `a${i}`),
+        "late",
+      ]),
+    );
+    expect(dividerRow(container)).toBe("a0");
+    expect(markReads).toEqual([]);
+  });
+
+  it("帶著跳轉目標進房、錨點那一段已讀回還沒落地時對方又送一則,落地後那一則照樣出現", async () => {
+    seed(A, "a", 40, 100);
+    windowsSnapshotAtCall = true;
+    holdWindows = () => {};
+
+    const { container } = render(view(alice, "a3"));
+    await waitFor(() => expect(windowCalls).toHaveLength(2));
+    await act(async () => {
+      log.push(LATE);
+      const release = holdWindows;
+      holdWindows = null;
+      release?.();
+      sse("chat", { from: A, to: OWNER });
+      await new Promise((r) => setTimeout(r, 60));
+    });
+
+    await waitFor(() =>
+      expect(bubbles(container)).toEqual([
+        ...Array.from({ length: 40 }, (_, i) => `a${i}`),
+        "late",
+      ]),
+    );
+  });
+
+  it("第一則未讀那一段讀不到(已被刪掉)而退回最新頁時,等最新頁的期間顯示轉圈,不顯示空房間", async () => {
+    seed(A, "a", 10, 100);
+    firstUnreadAnswer = "gone";
+    holdPlain = () => {};
+
+    const { container } = render(view(withUnread(alice, 2)));
+    await waitFor(() => expect(plainCalls).toEqual([A]));
+    // 轉圈要等 CHAT_LOADING_DELAY_MS(150ms)才畫。
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 300));
+    });
+    expect(windowCalls).toEqual([
+      { withId: A, anchor: { endId: "gone" } },
+      { withId: A, anchor: { startId: "gone" } },
+    ]);
+    expect(container.querySelector(".chat__empty")).toBeNull();
+    expect(container.querySelector(".chat__loading")?.textContent).toBe(
+      "正在載入對話…",
+    );
+
+    await act(async () => {
+      const release = holdPlain;
+      holdPlain = null;
+      release?.();
+      await new Promise((r) => setTimeout(r, 60));
+    });
+    expect(bubbles(container)).toEqual(
+      Array.from({ length: 10 }, (_, i) => `a${i}`),
+    );
+    expect(container.querySelector(".chat__loading")).toBeNull();
+    expect(dividerRow(container)).toBeNull();
+    expect(markReads).toEqual([109]);
+  });
+
+  it("退回最新頁那一次也讀失敗時,下一個聊天事件(即使是別間房的)會把最新頁補抓回來", async () => {
+    seed(A, "a", 10, 100);
+    firstUnreadAnswer = null;
+    plainFailures = 1;
+
+    const { container } = render(view(withUnread(alice, 2)));
+    await waitFor(() => expect(plainCalls).toEqual([A]));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 300));
+    });
+    expect(bubbles(container)).toEqual([]);
+    expect(container.querySelector(".chat__empty")?.textContent).toBe(
+      "這個範圍還沒有訊息",
+    );
+
+    await act(async () => {
+      sse("chat", { from: B, to: OWNER });
+      await new Promise((r) => setTimeout(r, 60));
+    });
+    expect(plainCalls).toEqual([A, A]);
+    expect(bubbles(container)).toEqual(
+      Array.from({ length: 10 }, (_, i) => `a${i}`),
+    );
+    expect(markReads).toEqual([109]);
+  });
+
+  it("查第一則未讀還在路上就切到別人,舊房的答案落地後不再替舊房發任何請求", async () => {
+    seed(A, "a", 40, 100);
+    seed(B, "b", 5, 500);
+    firstUnreadAnswer = "a0";
+    holdFirst = () => {};
+
+    const { container, rerender } = render(view(withUnread(alice, 40)));
+    await waitFor(() => expect(firstUnreadAsks).toEqual([A]));
+    await act(async () => {
+      rerender(view(bruno));
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    await waitFor(() =>
+      expect(bubbles(container)).toEqual(["b0", "b1", "b2", "b3", "b4"]),
+    );
+
+    await act(async () => {
+      const release = holdFirst;
+      holdFirst = null;
+      release?.();
+      await new Promise((r) => setTimeout(r, 60));
+    });
+    expect(windowCalls).toEqual([]);
+    expect(plainCalls).toEqual([B]);
+    expect(bubbles(container)).toEqual(["b0", "b1", "b2", "b3", "b4"]);
+    expect(dividerRow(container)).toBeNull();
   });
 });
