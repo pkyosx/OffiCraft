@@ -95,8 +95,8 @@ describe("RuntimeLoginWarningMark", () => {
         hoverLines([{ machineId: "m1", machineName: "seth-m1", runtime: "codex", pending: true }]),
       ).toEqual({
         marks: 1,
-        lines: ["seth-m1 signed out of Codex", "To sign in: Monitor → Machines, Codex column, ⋯ → Sign in."],
-        label: "seth-m1 signed out of Codex\nTo sign in: Monitor → Machines, Codex column, ⋯ → Sign in.",
+        lines: ["seth-m1 signed out of Codex", "To sign in: Monitor → Machines, Codex column, ⋯ → Sign in"],
+        label: "seth-m1 signed out of Codex\nTo sign in: Monitor → Machines, Codex column, ⋯ → Sign in",
         className: "runtime-login-warning runtime-login-warning--danger",
       });
     } finally {
@@ -179,10 +179,10 @@ describe("RuntimeLoginWarningMark", () => {
           "Claude model call failed (max_output_tokens)",
           "Usage limit reached · resets today 09:30",
           "Claude server error",
-          "To sign in: Monitor → Machines, Codex column, ⋯ → Sign in.",
+          "To sign in: Monitor → Machines, Codex column, ⋯ → Sign in",
         ],
         label:
-          "Codex sign-in expired\nClaude model call failed (max_output_tokens)\nUsage limit reached · resets today 09:30\nClaude server error\nTo sign in: Monitor → Machines, Codex column, ⋯ → Sign in.",
+          "Codex sign-in expired\nClaude model call failed (max_output_tokens)\nUsage limit reached · resets today 09:30\nClaude server error\nTo sign in: Monitor → Machines, Codex column, ⋯ → Sign in",
         className: "runtime-login-warning runtime-login-warning--danger",
       });
     } finally {

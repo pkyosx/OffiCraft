@@ -378,8 +378,11 @@
   flex-direction: column;
   min-width: 0;
 }
+/* An empty original (a lead/tail fragment) still takes a line, so every row
+   keeps the same height. */
 .ts-wording-en {
   font-size: 13px;
+  min-height: 1lh;
   color: var(--color-text);
   overflow: hidden;
   text-overflow: ellipsis;
