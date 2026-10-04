@@ -462,7 +462,7 @@ button.lore-row__scope-chip--editable:hover {
 }
 .lore-badge--lore-type-owner_decision,
 .lore-badge--lore-type-owner_preference {
-  color: var(--color-indigo);
+  color: var(--color-lore-type-owner);
 }
 .lore-badge--lore-type-other {
   color: var(--color-text-muted);
