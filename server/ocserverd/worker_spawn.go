@@ -954,8 +954,12 @@ func (s *apiServer) stopWorkerNow(w OutsourceWorker) {
 	}
 	s.clearSessionBootTS(w.ID)
 	delete(s.workerSpawnAt, w.ID)
-	outsourceLog("stop %s (%s): session killed on %v, held down (no re-spawn)",
-		w.ID, w.Codename, targets)
+	if out.Parked != "" {
+		outsourceLog("stop %s (%s): stop parked on [%s] — not landed, the ledger re-sends it; "+
+			"held down (no re-spawn)", w.ID, w.Codename, out.Parked)
+		return
+	}
+	outsourceLog("stop %s (%s): stop sent to %v, held down (no re-spawn)", w.ID, w.Codename, out.Landed)
 }
 
 // openWorkerHandoverGrace fans the member-topic 預告 at the worker's own session
@@ -1066,8 +1070,7 @@ func (s *apiServer) collectWorkerSessionGone(w OutsourceWorker, now float64) boo
 	}
 	s.publishMemberPatch(memberFromWorker(*fresh), triggerServer)
 	s.stopWorkerNow(*fresh)
-	outsourceLog("stop collect %s (stop-session-gone): close-out collected — session killed, "+
-		"held down", w.ID)
+	outsourceLog("stop collect %s (stop-session-gone): close-out collected, held down", w.ID)
 	return true
 }
 
@@ -1080,8 +1083,7 @@ func (s *apiServer) collectWorkerStop(w OutsourceWorker, reason, trigger string)
 		return err
 	}
 	s.stopWorkerNow(w)
-	outsourceLog("stop collect %s (%s): close-out collected — session killed, held down",
-		w.ID, reason)
+	outsourceLog("stop collect %s (%s): close-out collected, held down", w.ID, reason)
 	return nil
 }
 
