@@ -15,7 +15,9 @@ package main
 
 type robustStop struct {
 	// Target is the one machine the kill chain named; "" for a fan-out, which is
-	// re-resolved through the kill chain on every re-send.
+	// re-resolved through the kill chain on every re-send. A named stop that also
+	// reaches a booting START's machine has two targets and is recorded as a
+	// fan-out too: no_such_session no longer retires it and any landed START does.
 	Target string
 	At     float64
 	// Landed false means parked: no warden took the frame (the named one refused,
