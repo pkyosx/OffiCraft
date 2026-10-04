@@ -1203,228 +1203,230 @@ function LoreRow({
       onKeyDown={onRowToggleKeyDown}
     >
       <div className="lore-row__head">
-        {/* The type tag leads the row, ahead of the id, so a collapsed row
-            shows it before anything else. */}
-        <span
-          className="lore-badge lore-badge--lore-type"
-          data-testid="lore-type"
-          data-lore-type={entry.loreType}
-        >
-          {loreTypeLabel(t, entry.loreType)}
-        </span>
-        {/* 🔴 THE BADGE ORDER IS 任務卡'S ORDER (owner, 2026-09-07: 「The order
-            of buttons / filters matters」「make them consistent with task」).
-            That card reads 編號 → 優先權 → 狀態 → 類型, so this row reads
-            編號 → 狀態 → 屬於, behind the type tag the owner put at the very
-            front. The id leads the card's order on both because it is what you
-            quote to somebody else; it used to sit second here, behind the state,
-            and the two pages disagreed about where a reader's eye should land.
-            傳承 has no 優先權 — there is nothing to put in that slot, and
-            inventing one to fill the gap would be consistency in the shape only. */}
-        {/* 條目編號, right of the status chip. It is a <button>, so the row's
-            own toggle handler lets it through the same way it lets the status
-            chip through — clicking the id copies it and does NOT expand the
-            row. */}
-        <button
-          type="button"
-          className="lore-row__id-badge"
-          data-testid="lore-entry-id"
-          aria-label={msg.loreCopyEntryId(entry.id)}
-          title={msg.loreCopyEntryId(entry.id)}
-          onClick={copyEntryId}
-        >
-          {/* 🔴 THE SAME BADGE AS 任務卡's, DOWN TO THE `#` AND THE ICON. The two
-              are the same thing — 「這一筆的編號」, click to copy — and they were
-              drawn two different ways: the task carried a glyph and a `#`, the
-              entry carried neither. The owner spotted it by putting the two
-              screenshots side by side, which is how a difference like this gets
-              found: never by reading one page against its own spec.
-              The icon differs (a book, not a checklist) because it names WHICH
-              register the number belongs to — the same icon the 傳承 tab uses.
-              What is shared is the SHAPE; what identifies is the glyph. */}
-          {copied ? <CheckIcon size={13} /> : <BookIcon size={13} />}#
-          {entry.id}
-          {copied && (
-            <span
-              className="lore-row__id-badge-copied"
-              role="status"
-              data-testid="lore-entry-id-copied"
-            >
-              {t.lore.entryIdCopied}
-            </span>
-          )}
-        </button>
-
-        {/* ONE status badge, and it is also the control (spec §6). The menu
-            hangs from the badge's LEFT edge — .lore-row__status-pop pins
-            left:0 — because the badge sits at the row's left end and a
-            right-anchored pop would open off the row. */}
-        <div className="lore-row__status" ref={statusRef}>
+        <div className="lore-row__badges">
+          {/* The type tag leads the row, ahead of the id, so a collapsed row
+              shows it before anything else. */}
+          <span
+            className="lore-badge lore-badge--lore-type"
+            data-testid="lore-type"
+            data-lore-type={entry.loreType}
+          >
+            {loreTypeLabel(t, entry.loreType)}
+          </span>
+          {/* 🔴 THE BADGE ORDER IS 任務卡'S ORDER (owner, 2026-09-07: 「The order
+              of buttons / filters matters」「make them consistent with task」).
+              That card reads 編號 → 優先權 → 狀態 → 類型, so this row reads
+              編號 → 狀態 → 屬於, behind the type tag the owner put at the very
+              front. The id leads the card's order on both because it is what you
+              quote to somebody else; it used to sit second here, behind the state,
+              and the two pages disagreed about where a reader's eye should land.
+              傳承 has no 優先權 — there is nothing to put in that slot, and
+              inventing one to fill the gap would be consistency in the shape only. */}
+          {/* 條目編號, right of the status chip. It is a <button>, so the row's
+              own toggle handler lets it through the same way it lets the status
+              chip through — clicking the id copies it and does NOT expand the
+              row. */}
           <button
             type="button"
-            className={`lore-badge lore-badge--state-${entry.state} lore-row__status-chip`}
-            title={t.lore.stateMenuLabel}
-            aria-label={t.lore.stateMenuLabel}
-            aria-haspopup="menu"
-            aria-expanded={stateOpen}
-            data-testid="lore-state"
-            onClick={() => setStateOpen((o) => !o)}
+            className="lore-row__id-badge"
+            data-testid="lore-entry-id"
+            aria-label={msg.loreCopyEntryId(entry.id)}
+            title={msg.loreCopyEntryId(entry.id)}
+            onClick={copyEntryId}
           >
-            {stateLabel}
+            {/* 🔴 THE SAME BADGE AS 任務卡's, DOWN TO THE `#` AND THE ICON. The two
+                are the same thing — 「這一筆的編號」, click to copy — and they were
+                drawn two different ways: the task carried a glyph and a `#`, the
+                entry carried neither. The owner spotted it by putting the two
+                screenshots side by side, which is how a difference like this gets
+                found: never by reading one page against its own spec.
+                The icon differs (a book, not a checklist) because it names WHICH
+                register the number belongs to — the same icon the 傳承 tab uses.
+                What is shared is the SHAPE; what identifies is the glyph. */}
+            {copied ? <CheckIcon size={13} /> : <BookIcon size={13} />}#
+            {entry.id}
+            {copied && (
+              <span
+                className="lore-row__id-badge-copied"
+                role="status"
+                data-testid="lore-entry-id-copied"
+              >
+                {t.lore.entryIdCopied}
+              </span>
+            )}
           </button>
-          {stateOpen && (
-            <div
-              className="lore-row__menu-pop lore-row__status-pop"
-              role="menu"
-              aria-label={t.lore.stateMenuLabel}
-              data-testid="lore-state-options"
-            >
-              {STATE_ACTIONS.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  role="menuitem"
-                  // 「當前值用強調色＋700」 IS this modifier — the same one the
-                  // 任務卡's 優先權/狀態 menus use (tasks.css
-                  // .task-card__menu-item--active), copied into lore.css.
-                  className={`lore-row__menu-item${
-                    entry.state === s ? " lore-row__menu-item--active" : ""
-                  }`}
-                  data-testid={`lore-state-${s}`}
-                  onClick={() => {
-                    setStateOpen(false);
-                    if (entry.state !== s) onSetState(entry.id, s);
-                  }}
-                >
-                  {actionLabel(s)}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
 
-        {/* 屬於 — which scope pays for this entry.
-            🔴 IT IS ON THE COLLAPSED ROW, WHICH IS THE WHOLE POINT. It used to
-            sit in the expanded body, and the reason given for putting it on the
-            row at all was that 全部 — where the page OPENS — mixes every scope
-            together and the reader cannot tell a 角色傳承 from one manual's.
-            That reader is looking at a COLLAPSED list. A chip they have to open
-            a row to reach answers the question only for somebody who already
-            went looking, which is not the person who was lost (owner, card
-            rc-11734523eb52; the first attempt landed inside `expanded &&`).
-            It is a <button> when it leads somewhere — the 適用範圍 menu, or the
-            manual — so the row's closest() filter lets the click through
-            instead of toggling. */}
-        <span className="lore-row__scope" data-testid="lore-scope" ref={scopeRef}>
-          {/* ONE badge naming the current scope (T-236 mockup): 任務：<手冊>
-              with the gear, 建立者：<作者> with the person glyph, 所有人 with the
-              group glyph; an unknown kind shows its raw key and no glyph.
-              For a viewer who may switch scopes the badge is the 適用範圍 menu
-              trigger, and the manual jump moves into that menu. Otherwise a
-              manual badge still opens the manual and the rest are plain text. */}
-          {scopeMenu ? (
+          {/* ONE status badge, and it is also the control (spec §6). The menu
+              hangs from the badge's LEFT edge — .lore-row__status-pop pins
+              left:0 — because the badge sits at the row's left end and a
+              right-anchored pop would open off the row. */}
+          <div className="lore-row__status" ref={statusRef}>
             <button
               type="button"
-              className="lore-badge lore-badge--type lore-row__scope-chip lore-row__scope-chip--editable"
-              data-testid="lore-scope-name"
-              data-scope-kind={scope.kind}
+              className={`lore-badge lore-badge--state-${entry.state} lore-row__status-chip`}
+              title={t.lore.stateMenuLabel}
+              aria-label={t.lore.stateMenuLabel}
               aria-haspopup="menu"
-              aria-expanded={scopeOpen}
-              title={t.lore.scopeMenuLabel}
-              onClick={() => setScopeOpen((o) => !o)}
+              aria-expanded={stateOpen}
+              data-testid="lore-state"
+              onClick={() => setStateOpen((o) => !o)}
             >
-              {scopeGlyph}
-              <span className="lore-row__scope-name">{scopeText}</span>
-              <ChevronDownIcon size={12} className="lore-row__scope-caret" />
+              {stateLabel}
             </button>
-          ) : scope.kind === "manual" ? (
-            <button
-              type="button"
-              className="lore-badge lore-badge--type lore-row__scope-chip"
-              data-testid="lore-scope-name"
-              data-scope-kind="manual"
-              aria-label={msg.loreOpenManual(scope.label)}
-              title={msg.loreOpenManual(scope.label)}
-              onClick={() => onOpenManual(scope.manualKey)}
-            >
-              {scopeGlyph}
-              <span className="lore-row__scope-name">{scopeText}</span>
-            </button>
-          ) : (
-            <span
-              className="lore-badge lore-badge--type"
-              data-testid="lore-scope-name"
-              data-scope-kind={scope.kind}
-            >
-              {scopeGlyph}
-              <span className="lore-row__scope-name">{scopeText}</span>
-            </span>
-          )}
-          {scopeMenu && scopeOpen && (
-            <div
-              className="lore-row__menu-pop lore-row__scope-pop"
-              role="menu"
-              aria-label={t.lore.scopeMenuLabel}
-              data-testid="lore-scope-options"
-            >
-              <div className="lore-row__scope-pop-title">{t.lore.scopeMenuLabel}</div>
-              {scopeMenu.choices.map((c) => {
-                const current = c.kind === entry.scopeKind;
-                const tag =
-                  c.kind === scopeMenu.defaultKind
-                    ? t.lore.scopeTagDefault
-                    : current
-                      ? t.lore.scopeTagCurrent
-                      : "";
-                return (
+            {stateOpen && (
+              <div
+                className="lore-row__menu-pop lore-row__status-pop"
+                role="menu"
+                aria-label={t.lore.stateMenuLabel}
+                data-testid="lore-state-options"
+              >
+                {STATE_ACTIONS.map((s) => (
                   <button
-                    key={c.kind}
+                    key={s}
                     type="button"
-                    role="menuitemradio"
-                    aria-checked={current}
-                    className={`lore-row__menu-item lore-row__scope-option${
-                      current ? " lore-row__menu-item--active" : ""
+                    role="menuitem"
+                    // 「當前值用強調色＋700」 IS this modifier — the same one the
+                    // 任務卡's 優先權/狀態 menus use (tasks.css
+                    // .task-card__menu-item--active), copied into lore.css.
+                    className={`lore-row__menu-item${
+                      entry.state === s ? " lore-row__menu-item--active" : ""
                     }`}
-                    data-testid={`lore-scope-${c.kind}`}
+                    data-testid={`lore-state-${s}`}
                     onClick={() => {
-                      setScopeOpen(false);
-                      if (!current) onSetScope(entry.id, c.kind);
+                      setStateOpen(false);
+                      if (entry.state !== s) onSetState(entry.id, s);
                     }}
                   >
-                    <span className="lore-row__scope-check" aria-hidden="true">
-                      {current && <CheckIcon size={14} />}
-                    </span>
-                    <span className="lore-row__scope-option-head">
-                      <span data-testid="lore-scope-option-label">{c.label}</span>
-                      {tag !== "" && (
-                        <span
-                          className="lore-row__scope-tag"
-                          data-testid="lore-scope-option-tag"
-                        >
-                          {tag}
-                        </span>
-                      )}
-                    </span>
+                    {actionLabel(s)}
                   </button>
-                );
-              })}
-              {scope.manualKey !== "" && (
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="lore-row__menu-item lore-row__scope-open-manual"
-                  data-testid="lore-scope-open-manual"
-                  onClick={() => {
-                    setScopeOpen(false);
-                    onOpenManual(scope.manualKey);
-                  }}
-                >
-                  {msg.loreOpenManual(scope.label)}
-                </button>
-              )}
-            </div>
-          )}
-        </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 屬於 — which scope pays for this entry.
+              🔴 IT IS ON THE COLLAPSED ROW, WHICH IS THE WHOLE POINT. It used to
+              sit in the expanded body, and the reason given for putting it on the
+              row at all was that 全部 — where the page OPENS — mixes every scope
+              together and the reader cannot tell a 角色傳承 from one manual's.
+              That reader is looking at a COLLAPSED list. A chip they have to open
+              a row to reach answers the question only for somebody who already
+              went looking, which is not the person who was lost (owner, card
+              rc-11734523eb52; the first attempt landed inside `expanded &&`).
+              It is a <button> when it leads somewhere — the 適用範圍 menu, or the
+              manual — so the row's closest() filter lets the click through
+              instead of toggling. */}
+          <span className="lore-row__scope" data-testid="lore-scope" ref={scopeRef}>
+            {/* ONE badge naming the current scope (T-236 mockup): 任務：<手冊>
+                with the gear, 建立者：<作者> with the person glyph, 所有人 with the
+                group glyph; an unknown kind shows its raw key and no glyph.
+                For a viewer who may switch scopes the badge is the 適用範圍 menu
+                trigger, and the manual jump moves into that menu. Otherwise a
+                manual badge still opens the manual and the rest are plain text. */}
+            {scopeMenu ? (
+              <button
+                type="button"
+                className="lore-badge lore-badge--type lore-row__scope-chip lore-row__scope-chip--editable"
+                data-testid="lore-scope-name"
+                data-scope-kind={scope.kind}
+                aria-haspopup="menu"
+                aria-expanded={scopeOpen}
+                title={t.lore.scopeMenuLabel}
+                onClick={() => setScopeOpen((o) => !o)}
+              >
+                {scopeGlyph}
+                <span className="lore-row__scope-name">{scopeText}</span>
+                <ChevronDownIcon size={12} className="lore-row__scope-caret" />
+              </button>
+            ) : scope.kind === "manual" ? (
+              <button
+                type="button"
+                className="lore-badge lore-badge--type lore-row__scope-chip"
+                data-testid="lore-scope-name"
+                data-scope-kind="manual"
+                aria-label={msg.loreOpenManual(scope.label)}
+                title={msg.loreOpenManual(scope.label)}
+                onClick={() => onOpenManual(scope.manualKey)}
+              >
+                {scopeGlyph}
+                <span className="lore-row__scope-name">{scopeText}</span>
+              </button>
+            ) : (
+              <span
+                className="lore-badge lore-badge--type"
+                data-testid="lore-scope-name"
+                data-scope-kind={scope.kind}
+              >
+                {scopeGlyph}
+                <span className="lore-row__scope-name">{scopeText}</span>
+              </span>
+            )}
+            {scopeMenu && scopeOpen && (
+              <div
+                className="lore-row__menu-pop lore-row__scope-pop"
+                role="menu"
+                aria-label={t.lore.scopeMenuLabel}
+                data-testid="lore-scope-options"
+              >
+                <div className="lore-row__scope-pop-title">{t.lore.scopeMenuLabel}</div>
+                {scopeMenu.choices.map((c) => {
+                  const current = c.kind === entry.scopeKind;
+                  const tag =
+                    c.kind === scopeMenu.defaultKind
+                      ? t.lore.scopeTagDefault
+                      : current
+                        ? t.lore.scopeTagCurrent
+                        : "";
+                  return (
+                    <button
+                      key={c.kind}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={current}
+                      className={`lore-row__menu-item lore-row__scope-option${
+                        current ? " lore-row__menu-item--active" : ""
+                      }`}
+                      data-testid={`lore-scope-${c.kind}`}
+                      onClick={() => {
+                        setScopeOpen(false);
+                        if (!current) onSetScope(entry.id, c.kind);
+                      }}
+                    >
+                      <span className="lore-row__scope-check" aria-hidden="true">
+                        {current && <CheckIcon size={14} />}
+                      </span>
+                      <span className="lore-row__scope-option-head">
+                        <span data-testid="lore-scope-option-label">{c.label}</span>
+                        {tag !== "" && (
+                          <span
+                            className="lore-row__scope-tag"
+                            data-testid="lore-scope-option-tag"
+                          >
+                            {tag}
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                  );
+                })}
+                {scope.manualKey !== "" && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="lore-row__menu-item lore-row__scope-open-manual"
+                    data-testid="lore-scope-open-manual"
+                    onClick={() => {
+                      setScopeOpen(false);
+                      onOpenManual(scope.manualKey);
+                    }}
+                  >
+                    {msg.loreOpenManual(scope.label)}
+                  </button>
+                )}
+              </div>
+            )}
+          </span>
+        </div>
 
         {/* A pure STATE INDICATOR: aria-hidden, no role, pointer-events:none in
             CSS, and a DIFFERENT ICON per state rather than one icon rotated. */}
