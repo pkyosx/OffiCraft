@@ -1035,7 +1035,6 @@ export function LorePage({
 }
 
 
-/** ONE 傳承 row. Collapsed by default; the whole row is the toggle surface. */
 function loreTypeLabel(t: ReturnType<typeof useI18n>["t"], lt: LoreType): string {
   switch (lt) {
     case "instruction_conflict":
@@ -1051,6 +1050,7 @@ function loreTypeLabel(t: ReturnType<typeof useI18n>["t"], lt: LoreType): string
   }
 }
 
+/** ONE 傳承 row. Collapsed by default; the whole row is the toggle surface. */
 function LoreRow({
   entry,
   dimmed,

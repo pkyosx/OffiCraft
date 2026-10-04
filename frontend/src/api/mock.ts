@@ -1226,13 +1226,13 @@ const mockLoreEntries: LoreEntryView[] = [
   },
 ];
 
+const LORE_TYPE_LIST =
+  "instruction_conflict, instruction_supplement, owner_decision, owner_preference or other";
+
 /** The FIXED display order (spec §6): 置頂 → 生效中 → 已失效, newest effective
  * first inside each group, `seq` as the tie-break so two entries sharing an
  * effective timestamp still order the same way on every read. It is not
  * configurable — the filter is. */
-const LORE_TYPE_LIST =
-  "instruction_conflict, instruction_supplement, owner_decision, owner_preference or other";
-
 function mockLoreOrder(a: LoreEntryView, b: LoreEntryView): number {
   const rank = (s: LoreEntryView["state"]) =>
     s === "pinned" ? 0 : s === "active" ? 1 : 2;
