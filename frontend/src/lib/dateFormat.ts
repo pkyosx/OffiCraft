@@ -100,6 +100,27 @@ export function formatAbsolute(tsSeconds: number, nowSeconds: number): string {
     : `${d.getFullYear()}/${md} ${hm}`;
 }
 
+/**
+ * When a usage limit lifts: "<today> 16:39" / "<tomorrow> 16:39", otherwise
+ * formatAbsolute's numeric date ("10/7 16:39", "2027/1/2 16:39").
+ */
+export function formatResetTime(
+  tsSeconds: number,
+  nowSeconds: number,
+  d: { today: string; tomorrow: string },
+): string {
+  const dayTs = dayStartOf(tsSeconds);
+  const todayTs = dayStartOf(nowSeconds);
+  if (dayTs === todayTs) return `${d.today} ${formatClock(tsSeconds)}`;
+  // Date arithmetic, not todayTs + 86400: a DST day is 23h or 25h long.
+  const t = new Date(todayTs * 1000);
+  t.setDate(t.getDate() + 1);
+  if (dayTs === Math.floor(t.getTime() / 1000)) {
+    return `${d.tomorrow} ${formatClock(tsSeconds)}`;
+  }
+  return formatAbsolute(tsSeconds, nowSeconds);
+}
+
 /** Local 24h "HH:mm" of `tsSeconds`. */
 export function formatClock(tsSeconds: number): string {
   const d = new Date(tsSeconds * 1000);

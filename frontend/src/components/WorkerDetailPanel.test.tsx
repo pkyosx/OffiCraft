@@ -798,7 +798,10 @@ describe("WorkerDetailPanel — header matches the sidebar 外包 row (T-f190 UI
     expect(marks).toHaveLength(1);
     expect(marks[0].hasAttribute("title")).toBe(false);
     fireEvent.mouseEnter(marks[0]);
-    expect(screen.getByRole("tooltip").textContent).toBe("Mac Mini 未登入 Codex");
+    expect(Array.from(screen.getByRole("tooltip").children).map((l) => l.textContent)).toEqual([
+      "Mac Mini 未登入 Codex",
+      "可到「監控」頁的機器資訊，在 Codex 欄按版本號 →「登入」",
+    ]);
     expect(marks[0].previousElementSibling?.getAttribute("data-testid")).toBe("worker-detail-header-dot");
   });
 

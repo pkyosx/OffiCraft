@@ -122,7 +122,10 @@ describe("ChatArea header 任務/角色設定 圖示 (T-dfae)", () => {
     const mark = warned.getByTestId("runtime-login-warning");
     expect(mark.hasAttribute("title")).toBe(false);
     fireEvent.focus(mark);
-    expect(screen.getByRole("tooltip").textContent).toBe("mac-1 未登入 Claude");
+    expect(Array.from(screen.getByRole("tooltip").children).map((l) => l.textContent)).toEqual([
+      "mac-1 未登入 Claude",
+      "可到「監控」頁的機器資訊，在 Claude 欄按版本號 →「登入」",
+    ]);
     fireEvent.blur(mark);
     expect(mark.closest(".chat__header-sub")).not.toBeNull();
     warned.unmount();
@@ -149,7 +152,10 @@ describe("ChatArea header 任務/角色設定 圖示 (T-dfae)", () => {
     });
     const mark = warned.getByTestId("runtime-login-warning");
     fireEvent.focus(mark);
-    expect(screen.getByRole("tooltip").textContent).toBe("Claude 登入失效");
+    expect(Array.from(screen.getByRole("tooltip").children).map((l) => l.textContent)).toEqual([
+      "Claude 登入失效",
+      "可到「監控」頁的機器資訊，在 Claude 欄按版本號 →「登入」",
+    ]);
     expect(mark.closest(".chat__header-sub")).not.toBeNull();
   });
 
