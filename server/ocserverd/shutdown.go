@@ -7,9 +7,10 @@ import "slices"
 // recorded in the one robust-stop ledger (stop_ledger.go, sendRobustStop) and
 // re-sent only by the ticks. dispatchShutdown (directly or through
 // dispatchShutdownAlsoTo) has exactly TWO callers: the staff out-of-band robust
-// STOP and the worker's stopped-report conclusion. The worker's other kills
-// (handover, held-down stop, takeover) call sendRobustStop with targets their
-// caller resolved under outsourceMu; reclaim sends unrecorded.
+// STOP and the worker's stopped-report conclusion. The session-gone collects of
+// both populations and the worker's held-down stop go through stopResidualSession,
+// the worker's handover and takeover through sendRobustStop, all with targets their
+// caller resolved under its own tick lock; reclaim sends unrecorded.
 //
 // 🔴 LOCK CONTRACT: dispatchShutdown's caller holds NEITHER outsourceMu NOR
 // reconcileMu. It takes outsourceMu for the spawn observation and drops it
@@ -198,15 +199,22 @@ func (s *apiServer) dispatchShutdownAlsoTo(id, reason, alsoTo string) shutdownDi
 	if !broadcast && len(targets) == 1 {
 		out.Target = targets[0]
 	}
-	now := nowSecs()
-	out.Recorded = s.sendRobustStop(id, targets, broadcast, now)
+	out.Recorded = s.stopResidualSession(id, targets, broadcast, nowSecs())
 	out.Landed = out.Recorded.Landed
 	out.Sent = len(out.Landed) > 0
 	if len(targets) == 0 {
 		reconcileLog("shutdown %s (%s): no kill target — spawn memory, live claim, "+
 			"last landing and pin all silent, and no warden is online", id, reason)
 	}
-	if robustStopEffectOf(out.Recorded, "").ClearBootTS {
+	return out
+}
+
+// stopResidualSession is the one "stop the session this id leaves behind" of both
+// populations: the STOP is recorded in the ledger, and the session boundary is
+// recorded only when robustStopEffectOf allows it. Takes no scheduler lock.
+func (s *apiServer) stopResidualSession(id string, targets []string, fanout bool, now float64) robustStopOutcome {
+	out := s.sendRobustStop(id, targets, fanout, now)
+	if robustStopEffectOf(out, "").ClearBootTS {
 		s.clearSessionBootTS(id)
 	}
 	return out

@@ -1025,8 +1025,8 @@ func latchSessionGoneCollectOn(tx *writeTx, memberID string, now float64) (*Memb
 }
 
 // collectMemberStop latches the collect, then stops whatever the dropped connection left
-// behind. The tick holds reconcileMu, which dispatchShutdown takes, so this resolves the same
-// kill chain and sends through the same sender itself.
+// behind through stopResidualSession, as collectWorkerSessionGone does. The tick holds
+// reconcileMu, which dispatchShutdown takes, so this resolves the kill chain itself.
 func (s *apiServer) collectMemberStop(memberID string, decision reconcileDecision, prior reconcileState, now float64) reconcileDecision {
 	var collected *Member
 	err := s.dal.inTx(func(tx *writeTx) error {
@@ -1044,20 +1044,12 @@ func (s *apiServer) collectMemberStop(memberID string, decision reconcileDecisio
 		return decision
 	}
 	s.publishMemberPatch(*collected, triggerServer)
-	targets, _ := s.killTargetChain(memberID, killTargetSources{LastMachineID: collected.LastMachineID})
+	targets, broadcast := s.killTargetChain(memberID, killTargetSources{LastMachineID: collected.LastMachineID})
 	if len(targets) == 0 {
 		reconcileLog("%s: session-gone collect: no kill target — live claim, last landing "+
 			"and pin all silent, and no warden is online", memberID)
 	}
-	// Only when something was aimed at.
-	if len(targets) > 0 {
-		s.clearSessionBootTS(memberID)
-	}
-	if len(s.sendStopFrames(memberID, targets, now)) == 0 {
-		decision.Command = reconcileCmdNone
-		decision.State = prior
-		decision.DispatchUnlanded = true
-	}
+	s.stopResidualSession(memberID, targets, broadcast, now)
 	return decision
 }
 

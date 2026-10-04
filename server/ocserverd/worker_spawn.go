@@ -945,14 +945,13 @@ func (s *apiServer) reconcileWorkerNow(w OutsourceWorker, now float64) ownerOpOu
 func (s *apiServer) stopWorkerNow(w OutsourceWorker) {
 	targets, broadcast := s.workerKillChain(w.ID, w.LastMachineID)
 	s.bankLiveCost(w.ID)
-	out := s.sendRobustStop(w.ID, targets, broadcast, nowSecs())
+	out := s.stopResidualSession(w.ID, targets, broadcast, nowSecs())
 	delete(s.workerSpawnAt, w.ID)
 	if !robustStopEffectOf(out, "").ClearBootTS {
 		outsourceLog("stop %s (%s): the kill reached no machine (targets %v) and waits "+
 			"in the ledger as a fan-out — held down anyway", w.ID, w.Codename, targets)
 		return
 	}
-	s.clearSessionBootTS(w.ID)
 	if out.Parked != "" {
 		outsourceLog("stop %s (%s): stop parked on [%s] — not landed, the ledger re-sends it; "+
 			"held down (no re-spawn)", w.ID, w.Codename, out.Parked)
@@ -1028,8 +1027,8 @@ func (s *apiServer) latchWorkerStopped(w *OutsourceWorker, prior float64, reason
 	return nil
 }
 
-// collectWorkerSessionGone is collectMemberStop for a worker: the same latch, then the worker's
-// own kill send. Callers hold s.outsourceMu.
+// collectWorkerSessionGone is collectMemberStop for a worker: the same latch and the same
+// stopResidualSession, through stopWorkerNow. Callers hold s.outsourceMu.
 func (s *apiServer) collectWorkerSessionGone(w OutsourceWorker, now float64) bool {
 	var fresh *OutsourceWorker
 	err := s.dal.inTx(func(tx *writeTx) error {
