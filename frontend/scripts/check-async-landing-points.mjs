@@ -598,6 +598,12 @@ const REGISTRY = [
  * that: the SSE transport is exactly where a per-room cache would be put. */
 const MODULE_STATE = [
   {
+    file: "components/InstantHint.tsx",
+    name: "closeOpenHint",
+    verdict:
+      "the close callback of the one hint on screen, or null; keyed by nothing because at most one hint shows app-wide. It carries no conversation's value — calling it only closes that mount's own hint — and the mount clears it when its hint closes or it unmounts",
+  },
+  {
     file: "api/http.ts",
     name: "sseSubscribers",
     verdict:

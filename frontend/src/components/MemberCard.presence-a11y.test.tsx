@@ -343,6 +343,34 @@ describe("MemberCard presence dot hint", () => {
     expect(onOpenDetail).not.toHaveBeenCalled();
   });
 
+  it("under a hover on the dot while the warning hint is pinned, only the dot's hint is on screen", () => {
+    const { dot, getByTestId } = renderRow(WARNED);
+    fireEvent.click(getByTestId("runtime-login-warning"));
+    expect(tooltipLines()).toEqual([MARK_LINES]);
+    fireEvent.mouseEnter(dot);
+    expect(tooltipLines()).toEqual([["離線"]]);
+  });
+
+  it("under a hover on the warning mark while the dot hint is pinned, only the warning hint is on screen", () => {
+    const { dot, getByTestId } = renderRow(WARNED);
+    fireEvent.click(dot);
+    expect(tooltipLines()).toEqual([["離線"]]);
+    fireEvent.mouseEnter(getByTestId("runtime-login-warning"));
+    expect(tooltipLines()).toEqual([MARK_LINES]);
+  });
+
+  it("under keyboard focus moving between the pinned dot and the warning mark, only the focused one's hint is on screen", () => {
+    const { dot, getByTestId } = renderRow(WARNED);
+    const mark = getByTestId("runtime-login-warning");
+    fireEvent.click(dot);
+    act(() => mark.focus());
+    expect(tooltipLines()).toEqual([MARK_LINES]);
+
+    fireEvent.click(mark);
+    act(() => dot.focus());
+    expect(tooltipLines()).toEqual([["離線"]]);
+  });
+
   it("keeps the state as the dot's own accessible name on the one focusable element, with no focusable layer inside it", () => {
     const { dot, getByRole } = renderRow({ lifecycle: "offline" });
     expect(getByRole("img", { name: "離線" })).toBe(dot);

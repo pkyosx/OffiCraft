@@ -24,7 +24,7 @@ paths:
 
 共用 LifecycleDot、PresenceBadge、MemberCard、MonitorPage、MemberDetailPanel 與外包列的唯一狀態聯集是 offline、waking、online、stopping、stopped。畫面取 hub.is_online 與 server lifecycle，不取 DB member.online；那個欄位只供 reconcile fallback。外包 worker 也不能因為仍在任務列就畫成 online。
 
-圓點旁的驚嘆號（RuntimeLoginWarningMark）合併兩種來源：runtime_login_warnings（機器回報未登入）與 model_call_warnings（模型呼叫失敗），一個原因一行；兩者都空才不畫。rate_limit 不論幾筆都只畫一行（server 刻意會送成員自己無重置時間的一筆加帳號共用有重置時間的一筆），有重置時間就取最晚的；有未登入或登入失效時，最後按 runtime 各加一行「到監控頁登入」的指引。點驚嘆號會釘住提示（再點、點外面——包括點另一個驚嘆號——、Esc、捲動或 resize 才收；hover 不會解除釘住），點擊不往上冒泡，不會打開所在的列；手機沒有 hover，這是唯一看得到原因的方法（owner 要求），別恢復成讓點擊穿到列上。
+圓點旁的驚嘆號（RuntimeLoginWarningMark）合併兩種來源：runtime_login_warnings（機器回報未登入）與 model_call_warnings（模型呼叫失敗），一個原因一行；兩者都空才不畫。rate_limit 不論幾筆都只畫一行（server 刻意會送成員自己無重置時間的一筆加帳號共用有重置時間的一筆），有重置時間就取最晚的；有未登入或登入失效時，最後按 runtime 各加一行「到監控頁登入」的指引。點驚嘆號會釘住提示（再點、點外面——包括點另一個驚嘆號——、Esc、捲動、resize，或另一個 InstantHint 被打開（含 hover／focus）才收；全畫面同時最多一個提示；hover 自己這顆不會解除釘住），點擊不往上冒泡，不會打開所在的列；手機沒有 hover，這是唯一看得到原因的方法（owner 要求），別恢復成讓點擊穿到列上。
 
 圓點（LifecycleDot）本身就是同一種 InstantHint 觸發點：hover 立刻顯示狀態字、點擊釘住且不冒泡（不進聊天或詳情），別改回原生 title（電腦要等一秒、手機根本看不到）。狀態字同時是圓點的 aria-label，圓點是唯一一層可聚焦元素，不要再包一層可聚焦的 wrapper。手機觸控範圍（hover: none）：圓點只往左、往下擴（用 ::after，不用 padding，免得色點變大、提示位置偏掉）；驚嘆號不往左擴。兩者範圍不可重疊，中間空隙兩者都不算——往右或往上擴會讓瀏覽器的觸控修正把點名字或點驚嘆號的手指吸到圓點上。
 
