@@ -531,8 +531,8 @@ func (s *apiServer) workerSpawnObs(workerID string) (target string, at float64) 
 	return s.workerSpawnTarget[workerID], s.workerSpawnAt[workerID]
 }
 
-// reconcileWorkerLiveness runs one non-stopped worker through the shared member
-// FSM (reconcileDecide). Relocation stays masked: its event-driven handler owns
+// reconcileWorkerLiveness runs one assigned or active worker through the shared
+// member FSM (reconcileDecide), whatever its desired_state. Relocation stays masked: its event-driven handler owns
 // the placement change. Returns whether a START was dispatched. Callers hold
 // s.outsourceMu.
 func (s *apiServer) reconcileWorkerLiveness(w OutsourceWorker, now float64) bool {
@@ -545,6 +545,7 @@ func (s *apiServer) reconcileWorkerLiveness(w OutsourceWorker, now float64) bool
 		st.LastCommandAt = 0.0
 	}
 	obs := workerObservation(w, s.hub.IsOnline(w.ID))
+	s.observeStopCollect(&obs, memberFromWorker(w), now)
 	decision := reconcileDecide(obs, st, s.reconcileConfigLive(), now)
 	started := false
 	switch decision.Command {
@@ -556,6 +557,19 @@ func (s *apiServer) reconcileWorkerLiveness(w OutsourceWorker, now float64) bool
 			s.setReconcileState(w.ID, st)
 		}
 	case reconcileCmdStop:
+		switch decision.StopKind {
+		case stopKindSessionGone:
+			if err := s.collectWorkerStop(w, "stop-session-gone", triggerServer); err != nil {
+				s.setReconcileState(w.ID, st)
+				return false
+			}
+			s.setReconcileState(w.ID, decision.State)
+			return false
+		case stopKindWinddown:
+			decision = s.dispatchStop(w.ID, s.workerKillTargets(w.ID, w.LastMachineID), decision, st, now)
+			s.setReconcileState(w.ID, decision.State)
+			return false
+		}
 		if decision.StopKind == stopKindRecycle {
 			s.setReconcileState(w.ID, decision.State)
 			s.collectWorkerHandover(&w, "fsm-recycle", triggerServer, now)
@@ -572,8 +586,7 @@ func (s *apiServer) reconcileWorkerLiveness(w OutsourceWorker, now float64) bool
 		// Bench only on a zombie takeover. Keep this guard even if other stop kinds
 		// look unreachable: reconcileStates is shared with staff, and a robust_resend
 		// reaching here was measured benching the machine. relocate is masked
-		// (workerObservation leaves the machine pair empty); winddown needs desired
-		// offline, which the tick never reconciles.
+		// (workerObservation leaves the machine pair empty).
 		if decision.StopKind != stopKindZombieTakeover {
 			outsourceLog("rescue %s (%s): %s — robust stop → %s, NOT benched "+
 				"(stop kind %q is not a zombie takeover)",
@@ -647,21 +660,21 @@ func undeliveredWorkerStart(h *Hub, workerID string, spawnAt float64) bool {
 	return lost && note.Verb == reconcileCmdStart
 }
 
-// workerObservation masks, on purpose: TargetMachine/RunningMachine (the
-// relocation arm — 改機器 is collected by the owner-op refocus epoch; feeding the
-// pair would race two collectors) and StoppingSince (decideDown's 加速停止 arm —
-// would open a kill path).
+// workerObservation masks TargetMachine/RunningMachine on purpose: the relocation
+// arm — 改機器 is collected by the owner-op refocus epoch, and feeding the pair
+// would race two collectors.
 func workerObservation(w OutsourceWorker, online bool) memberObservation {
 	return memberObservation{
 		MemberID: w.ID,
 
-		Desired:      w.DesiredState,
-		Online:       online,
-		RefocusSince: w.RefocusSince,
-		RefocusOp:    w.RefocusOp,
-		AgentStopped: w.StoppedSince > 0.0,
-		LastOpKind:   canonicalWorkerLastOp(w.LastOp),
-		LastOpReason: w.LastOpReason,
+		Desired:       w.DesiredState,
+		Online:        online,
+		RefocusSince:  w.RefocusSince,
+		RefocusOp:     w.RefocusOp,
+		StoppingSince: w.StoppingSince,
+		AgentStopped:  w.StoppedSince > 0.0,
+		LastOpKind:    canonicalWorkerLastOp(w.LastOp),
+		LastOpReason:  w.LastOpReason,
 	}
 }
 
@@ -1102,35 +1115,11 @@ func (s *apiServer) stopWorkerNow(w OutsourceWorker) {
 		w.ID, w.Codename, targets)
 }
 
-// autoHandoverWorker drives only the 停止 epoch (desired_state=offline): the
-// shared FSM never sees a desired-offline worker, so this is that intent's only
-// driver. Handover collection and context thresholds live in the shared FSM and
-// stampContextHighRecycle. Owner ruling rc-10cc6f9b2572: a refocus epoch closes
-// only when the replacement calls report_waking. Callers hold s.outsourceMu.
-func (s *apiServer) autoHandoverWorker(w OutsourceWorker, now float64) {
-	// A 停止 is normally collected by the worker's report_stopped. Here: the
-	// session is confirmed gone, or the owner's 加速停止 deadline passed. A plain
-	// 停止 has no clock and waits indefinitely (owner ruling rc-27d1710174dd).
-	if w.DesiredState == DesiredStateOffline {
-		sessionGone := s.sessionConfirmedGone(w.ID, now)
-		if stopAwaitsCollect(memberFromWorker(w)) {
-			if sessionGone {
-				s.collectWorkerStop(w, "stop-session-gone", triggerServer)
-			} else if grace, clocked := recycleGraceFor(
-				w.RefocusOp, s.reconcileConfigLive()); clocked &&
-				now >= w.StoppingSince+grace {
-				s.collectWorkerStop(w, "stop-accelerated-deadline", triggerServer)
-			}
-		}
-		return
-	}
-}
-
 // openWorkerHandoverGrace fans the member-topic 預告 at the worker's own session
 // (its ocagent recycleHook refetches GET /api/members/<self> and prints the
 // handover wake) and returns; the kill belongs to the FSM's recycle arm. An
 // offline worker skips the window and is collected at once. This entry sample is
-// deliberately NOT de-bounced (unlike autoHandoverWorker): it runs once at the
+// deliberately NOT de-bounced (unlike the tick's session-gone collect): it runs once at the
 // owner's press, same as the staff twin. Callers hold s.outsourceMu and have
 // already persisted the refocus stamp.
 func (s *apiServer) openWorkerHandoverGrace(w OutsourceWorker, trigger string) {

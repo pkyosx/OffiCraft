@@ -211,6 +211,68 @@ func TestRelocateMember_MigratesLiveMember(t *testing.T) {
 	}
 }
 
+func TestRelocateMember_StoppingMemberIsCollectedWhereItRuns(t *testing.T) {
+	s := newReconcileTestServer(t)
+	putWarden(t, s, "mach-old")
+	putWarden(t, s, "mach-new")
+
+	mover := testAgent("m-stopping")
+	mover.DesiredState = DesiredStateOnline
+	mover.DesiredMachineID = "mach-old"
+	putTestMember(t, s, mover)
+	connectOnline(t, s, "mach-old")
+	connectOnline(t, s, "mach-new")
+	connectOnlineMachine(t, s, "m-stopping", "mach-old")
+
+	for _, press := range []struct{ path, body string }{
+		{"/api/members/m-stopping/deactivate", ""},
+		{"/api/members/m-stopping/accelerated-stop", ""},
+		{"/api/members/m-stopping/relocate", "mach-new"},
+	} {
+		body := map[string]any{}
+		if press.body != "" {
+			body["machine_id"] = press.body
+		}
+		rec := httptest.NewRecorder()
+		req := taskReq(t, "POST", press.path, body, wireOwnerID, "owner")
+		switch {
+		case strings.HasSuffix(press.path, "/deactivate"):
+			s.HandleDeactivateMemberApiMembersMemberIdDeactivatePost(rec, req, "m-stopping")
+		case strings.HasSuffix(press.path, "/accelerated-stop"):
+			s.HandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost(rec, req, "m-stopping")
+		default:
+			s.HandleRelocateMemberApiMembersMemberIdRelocatePost(rec, req, "m-stopping")
+		}
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: %d %s", press.path, rec.Code, rec.Body.String())
+		}
+	}
+	drainFrames(t, s, "mach-old")
+	drainFrames(t, s, "mach-new")
+
+	row, err := s.dal.GetMember("m-stopping")
+	if err != nil || row == nil {
+		t.Fatalf("re-read member: %v", err)
+	}
+	if row.DesiredMachineID != "mach-new" || row.RefocusOp != refocusOpAcceleratedStop {
+		t.Fatalf("fixture: want an accelerated stop pinned to mach-new, got pin %q op %q",
+			row.DesiredMachineID, row.RefocusOp)
+	}
+
+	// 3601: past the longest 加速停止 grace the setting accepts (3600).
+	dec := s.reconcileOne(*row, newReconcileState(), row.StoppingSince+3601)
+	if dec.Command != reconcileCmdStop || dec.DispatchUnlanded {
+		t.Fatalf("past the 加速停止 grace the tick must dispatch a STOP: %+v", dec)
+	}
+	oldFrames := drainFrames(t, s, "mach-old")
+	if len(oldFrames) != 1 || oldFrames[0].RPC != "stop" || oldFrames[0].Args["member_id"] != "m-stopping" {
+		t.Fatalf("the STOP must reach the machine the session runs on (mach-old): %+v", oldFrames)
+	}
+	if newFrames := drainFrames(t, s, "mach-new"); len(newFrames) != 0 {
+		t.Fatalf("the new pin holds no session and must get no STOP: %+v", newFrames)
+	}
+}
+
 // TestRelocateMember_OfflineMemberIsNotWoundDown is the誤擋 half: 改機器 on a
 // member with NO live session must stay the instant re-pin it always was. There
 // is nothing to hear a 預告 and nothing to flush, so stamping a refocus epoch

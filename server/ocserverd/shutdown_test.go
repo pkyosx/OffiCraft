@@ -394,3 +394,41 @@ func shutdownWaitFor(t *testing.T, ready func() bool) bool {
 	}
 	return false
 }
+
+func TestKillTargetChain(t *testing.T) {
+	t.Run("a staff kill is addressed to the machine the session actually claims, not the machine it is pinned to", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "pinned", Name: "Pinned", Kind: KindStaff, RoleKey: "engineer", DesiredMachineID: "m-box"})
+		reconcileTestOnline(t, api, "pinned", "m-old")
+		targets, broadcast := api.killTargetChain("pinned", killTargetSources{})
+		apiWantValue(t, "targets", any(map[string]any{"targets": targets, "broadcast": broadcast}),
+			any(map[string]any{"targets": []string{"m-old"}, "broadcast": false}))
+	})
+
+	t.Run("with no live claim a staff kill falls back to the pin", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "pinned", Name: "Pinned", Kind: KindStaff, RoleKey: "engineer", DesiredMachineID: "m-box"})
+		targets, broadcast := api.killTargetChain("pinned", killTargetSources{})
+		apiWantValue(t, "targets", any(map[string]any{"targets": targets, "broadcast": broadcast}),
+			any(map[string]any{"targets": []string{"m-box"}, "broadcast": false}))
+	})
+
+	t.Run("a claim-less connection does not shadow the pin — the blank claim is not an address", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "pinned", Name: "Pinned", Kind: KindStaff, RoleKey: "engineer", DesiredMachineID: "m-box"})
+		reconcileTestOnline(t, api, "pinned", "")
+		targets, broadcast := api.killTargetChain("pinned", killTargetSources{})
+		apiWantValue(t, "targets", any(map[string]any{"targets": targets, "broadcast": broadcast}),
+			any(map[string]any{"targets": []string{"m-box"}, "broadcast": false}))
+	})
+
+	t.Run("with nothing to name, the kill is broadcast to every online warden", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "unpinned", Name: "U", Kind: KindStaff, RoleKey: "engineer"})
+		reconcileTestPut(t, d, Member{ID: "m-dark", Name: "Dark", Kind: KindWarden})
+		reconcileTestOnline(t, api, "m-box", "")
+		targets, broadcast := api.killTargetChain("unpinned", killTargetSources{})
+		apiWantValue(t, "targets", any(map[string]any{"targets": targets, "broadcast": broadcast}),
+			any(map[string]any{"targets": []string{"m-box"}, "broadcast": true}))
+	})
+}

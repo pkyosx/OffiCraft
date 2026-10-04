@@ -109,7 +109,7 @@ func gaugeBootTS(record map[string]any) (float64, bool) {
 }
 
 // gaugeSecsSinceBoot is shared by every bootStormTripped caller
-// (reconcile.stampContextHighRecycle, HandleRestartSelf, autoHandoverWorker)
+// (reconcile.stampContextHighRecycle, HandleRestartSelf)
 // so they cannot drift. nil when there is no usable boot_ts (e.g.
 // server-restart amnesia), so the guard FAILS OPEN, never a false trip.
 func gaugeSecsSinceBoot(record map[string]any, now float64) *float64 {

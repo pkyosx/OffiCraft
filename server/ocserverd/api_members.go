@@ -1002,9 +1002,8 @@ func stopVerbRowOfWorker(w *OutsourceWorker) stopVerbRow {
 
 // `snapshot` is the row BEFORE this call: stopEpochAnchor must read the pre-stop
 // anchors, not a half-mutated row.
-//   - refocus_since/refocus_op cleared: on staff, the destructive next-generation
-//     reader armRefocusEpoch describes; on workers, autoHandoverWorker would
-//     kill+RESPAWN a worker the owner just held down. Both reasons hold.
+//   - refocus_since/refocus_op cleared: the destructive next-generation reader
+//     armRefocusEpoch describes; workers run the same FSM, so it holds for both.
 //   - restart_after_stop cleared: 後蓋前 — any queued 起來 is cancelled.
 //
 // 🔴 activate does NOT clear stopped_since, so a new session can come up ONLINE

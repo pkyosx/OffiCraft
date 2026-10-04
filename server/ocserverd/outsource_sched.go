@@ -261,37 +261,19 @@ func (s *apiServer) runOutsourceTick(now float64) {
 	s.runWorkerLifecyclePasses(workers, now)
 
 	for _, w := range workers {
-		// 🔴 Must stay ABOVE the switch: the owner's queued 起來 is spent at the
-		// converged-offline edge, and both branches below filter out
-		// desired-offline workers, so consuming it behind either filter would
-		// leave the button answering 200 and doing nothing forever.
+		// Runs before the FSM below, so a queued 起來 spent at the converged-offline
+		// edge is started in the same tick.
 		s.consumeWorkerRestartAfterStop(&w, now)
 		// Re-fire a parked refused kill FIRST, before any branch below can
 		// re-spawn onto the same machine.
 		s.retryPendingWorkerStop(w.ID, now)
 		switch w.Status {
-		case WorkerStatusAssigned:
-			// Owner-explicit stop dominates every auto-revival (member parity).
-			if w.DesiredState == DesiredStateOffline {
-				s.autoHandoverWorker(w, now)
-				continue
-			}
+		case WorkerStatusAssigned, WorkerStatusActive:
+			// The FSM is the ONLY collector of a wind-down or 停止 epoch: do not gate it
+			// on RefocusSince == 0, desired_state or !online (decideUp's recycle arm needs
+			// Online; decideDown collects an offline session). A healthy online worker
+			// with no epoch dispatches nothing.
 			s.reconcileWorkerLiveness(w, now)
-		case WorkerStatusActive:
-			// No stopped-worker guard here: autoHandoverWorker self-guards
-			// (StoppedSince > 0), and an outer guard would only mask it.
-			s.autoHandoverWorker(w, now)
-			// The FSM is the ONLY collector of a wind-down epoch: do not gate it
-			// on RefocusSince == 0 or !online (decideUp's recycle arm needs
-			// Online). A healthy online worker with no epoch dispatches nothing.
-			// Re-read first: the stop driver may have persisted new anchors.
-			fresh, ferr := s.dal.GetOutsourceWorker(w.ID)
-			if ferr != nil || fresh == nil || fresh.Status == WorkerStatusReleased {
-				continue
-			}
-			if fresh.DesiredState != DesiredStateOffline {
-				s.reconcileWorkerLiveness(*fresh, now)
-			}
 		case WorkerStatusReleased:
 			if w.ReleasedTS > 0 && now-w.ReleasedTS >= workerReclaimGraceSecs &&
 				!s.workerReclaimed[w.ID] {

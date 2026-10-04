@@ -247,7 +247,7 @@ func (s *apiServer) HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcc
 	}
 	// The only fan-out of the final sentence to the worker: publishOutsourceWorker
 	// is the owner-only cockpit patch and never reaches the worker's stream.
-	// Without this, autoHandoverWorker's deadline clock starts while the worker
+	// Without this, the 加速停止 deadline clock (decideDown) starts while the worker
 	// last heard the 停止 SOFT sentence.
 	s.openWorkerHandoverGrace(*worker, requestTrigger(r))
 	if fresh, ferr := s.dal.GetOutsourceWorker(id); ferr == nil && fresh != nil {
@@ -266,9 +266,9 @@ func (s *apiServer) HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcc
 //     arrive.
 //   - NO kill: the 收口 is the worker's own report_stopped. No deadline unless
 //     the owner presses 加速停止 (rc-27d1710174dd 「不要兜底」).
-//   - Refocus is cleared for a mechanical reason: autoHandoverWorker's in-flight
-//     arm collects a refocus epoch by kill+RESPAWN, which would revive a worker
-//     the owner just held down.
+//   - Refocus is cleared for a mechanical reason: the FSM's recycle arm collects
+//     a refocus epoch by kill+RESPAWN, which would revive a worker the owner just
+//     held down.
 //
 // The bound task stays in its own status.
 func (s *apiServer) HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(w http.ResponseWriter, r *http.Request, id string) {

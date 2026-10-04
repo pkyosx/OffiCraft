@@ -379,7 +379,7 @@ func outsourceSchedTestQueuedTask(t *testing.T, d *DAL, id, typeKey string) Task
 }
 
 func TestRunOutsourceTick(t *testing.T) {
-	t.Run("a stopped worker is collected at its 加速停止 deadline whether or not it has reported waking", func(t *testing.T) {
+	t.Run("a stopped worker is sent a STOP at its 加速停止 deadline whether or not it has reported waking, and is not collected while its session is connected", func(t *testing.T) {
 		for _, status := range []string{WorkerStatusActive, WorkerStatusAssigned} {
 			t.Run(status, func(t *testing.T) {
 				api, h, d, owner := newAPITestServer(t)
@@ -410,15 +410,15 @@ func TestRunOutsourceTick(t *testing.T) {
 					t.Fatalf("stopped_since=%v one second short of the deadline, want 0", earlyRow.StoppedSince)
 				}
 				apiWantValue(t, "at the deadline", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop"}))
-				if got := apiTestMemberRow(t, d, "ow-abc123").StoppedSince; got <= 0 {
-					t.Fatalf("stopped_since=%v at the deadline, want the collection latched", got)
+				if got := apiTestMemberRow(t, d, "ow-abc123").StoppedSince; got != 0 {
+					t.Fatalf("stopped_since=%v at the deadline, want 0: collection waits for the session to be confirmed gone", got)
 				}
 				apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 					"status": status, "presence": "stopping", "desired_state": "offline",
 					"desired_machine_id": ServerSelfHost, "machine": ServerSelfHost,
 					"refocus_op": "accelerated_stop", "refocus_deadline": anchor + 120,
 				}))
-				dashboard.wantFrames(apiTestHandoverDelta(6, "offline", apiAnyString, "server"))
+				dashboard.wantFrames()
 			})
 		}
 	})

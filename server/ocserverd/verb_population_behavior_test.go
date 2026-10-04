@@ -1616,22 +1616,20 @@ func TestVerbPopulationParityWhitelistIsExplained(t *testing.T) {
 // the two populations' kill frames are ADDRESSED to the same warden, and that is
 // what these two functions answer.
 //
-// 🔴 The two resolvers are NOT the same function and do not agree in general
-// (this is a real, previously unmeasured divergence, T-65 包③ recon):
+// 🔴 Both populations reach the same resolver (namedKillTarget) with different
+// sources, so they do not agree in general:
 //
-//	resolveWorkerKillTarget  workerSpawnTarget[id]  → hub.MachineOf(id) → ""
-//	memberKillTargetWarden   hub.MachineOf(id)      → wardenTargetOf(id)
+//	外包  workerSpawnTarget[id] → hub.MachineOf(id) → last_machine_id
+//	正職  hub.MachineOf(id)     → last_machine_id   → the pin
 //
-// Different first choice, different last resort ("" = dispatch nothing, vs the
-// pin). They agree HERE because the fixture puts a live SSE claim and a spawn
-// target on one machine. Converging or whitelisting that divergence is 包③'s
-// job; keeping the fixture honest while that happens is this test's job.
+// They agree HERE because the fixture puts a live SSE claim and a spawn target
+// on one machine; keeping the fixture honest is this test's job.
 func TestVerbPopulationParityFixtureLandsBothPopulationsOnOneWarden(t *testing.T) {
 	api := newParityServer(t)
 	seedParityMember(t, api, "m-parity-placement", nil)
 	workerID := seedParityWorker(t, api, nil)
 
-	staffTarget := api.memberKillTargetWarden("m-parity-placement")
+	staffTarget := api.namedKillTarget("m-parity-placement", killTargetSources{})
 	workerTarget := api.resolveWorkerKillTarget(workerID, "")
 
 	if staffTarget != parityMachineA {
