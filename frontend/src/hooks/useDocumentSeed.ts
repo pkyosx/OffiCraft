@@ -1,4 +1,4 @@
-// hooks/useDocumentSeed.ts — the SHIPPED DEFAULT of one editable long-form
+// hooks/useDocumentSeed.ts — the DEFAULT CONTENT of one editable long-form
 // document, so 預設內容 can be READ and COMPARED before anyone restores it
 // (T-40f0, owner rc-28885813e065 ①).
 //

@@ -44,7 +44,7 @@ func TestDiffPageQuery(t *testing.T) {
 func TestOptString(t *testing.T) {
 	empty := ""
 	padded := " att-0123456789ab "
-	label := " 初始版本 "
+	label := " 預設內容 "
 	for _, tc := range []struct {
 		name  string
 		input *string
@@ -53,7 +53,7 @@ func TestOptString(t *testing.T) {
 		{name: "nil optional parameter is empty", input: nil, want: ""},
 		{name: "present empty parameter is empty", input: &empty, want: ""},
 		{name: "address padding is preserved", input: &padded, want: " att-0123456789ab "},
-		{name: "label padding is preserved", input: &label, want: " 初始版本 "},
+		{name: "label padding is preserved", input: &label, want: " 預設內容 "},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := optString(tc.input); got != tc.want {
@@ -178,7 +178,7 @@ func TestHandleGetDiffShareLinkApiDiffShareLinkGet(t *testing.T) {
 
 		status, data := apiJSON(t, h, "GET",
 			"/api/diff/share-link?before="+before+"&after="+after+
-				"&label_before="+url.QueryEscape("初始版本")+"&label_after=now", agent, "")
+				"&label_before="+url.QueryEscape("預設內容")+"&label_after=now", agent, "")
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -187,7 +187,7 @@ func TestHandleGetDiffShareLinkApiDiffShareLinkGet(t *testing.T) {
 
 		link, _ := data["url"].(string)
 		apiWantDiffLink(t, link, map[string]string{
-			"before": before, "after": after, "label_before": "初始版本", "label_after": "now",
+			"before": before, "after": after, "label_before": "預設內容", "label_after": "now",
 		})
 
 		parsed, _ := url.Parse(link)
@@ -196,12 +196,12 @@ func TestHandleGetDiffShareLinkApiDiffShareLinkGet(t *testing.T) {
 			t.Fatalf("the minted link must open the pair: %d %v", status, pair)
 		}
 		apiWantBody(t, pair, map[string]any{
-			"before": map[string]any{"address": before, "gone": false, "label": "初始版本", "mime": "text/plain", "text": "the old wording"},
+			"before": map[string]any{"address": before, "gone": false, "label": "預設內容", "mime": "text/plain", "text": "the old wording"},
 			"after":  map[string]any{"address": after, "gone": false, "label": "now", "mime": "text/plain", "text": "the new wording"},
 		})
 
 		tampered := parsed.Query()
-		tampered.Set("label_after", "初始版本")
+		tampered.Set("label_after", "預設內容")
 		status, refused := apiJSON(t, h, "GET", "/api/diff?"+tampered.Encode(), "", "")
 		if status != 401 {
 			t.Fatalf("want 401, got %d (%v)", status, refused)
@@ -295,14 +295,14 @@ func TestHandleGetDiffApiDiffGet(t *testing.T) {
 		status, data := apiJSON(t, h, "GET",
 			"/api/diff?before="+url.QueryEscape("doc:global_context/global/seed/text")+
 				"&after="+url.QueryEscape("doc:global_context/global/current/text")+
-				"&label_before="+url.QueryEscape("初始版本"), agent, "")
+				"&label_before="+url.QueryEscape("預設內容"), agent, "")
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
 			"before": map[string]any{
 				"address": "doc:global_context/global/seed/text", "gone": false,
-				"label": "初始版本", "text": "",
+				"label": "預設內容", "text": "",
 			},
 			"after": map[string]any{
 				"address": "doc:global_context/global/current/text", "gone": false,

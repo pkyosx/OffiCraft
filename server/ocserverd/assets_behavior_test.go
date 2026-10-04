@@ -207,7 +207,7 @@ func seedExcerpt(name, text string) string {
 // out-of-box display name of the seed MEMBER row (dbseed.go) — a label the
 // owner may change at any moment through PATCH /api/members/{id}. Seeds are
 // baked into the binary and do not change with it, so the day the owner renames
-// her, the FACTORY VERSION of that document — the very text the 初始版本 row
+// her, the FACTORY VERSION of that document — the very text the 預設內容 row
 // offers to restore — describes a person who does not exist.
 //
 // A role definition says what the role DOES; who currently holds it is a fact
@@ -215,7 +215,7 @@ func seedExcerpt(name, text string) string {
 //
 // 🔴 SCOPE IS EVERY STAGED `*.md`, NOT JUST THE ROLE DEFINITION. This started as
 // a role-definition-only loop, which left `seeds/insight_<key>.md` — embedded in
-// the same binary, restored by the same 初始版本 row, stale for the same reason —
+// the same binary, restored by the same 預設內容 row, stale for the same reason —
 // out of range. The reason ("a shipped file cannot track a mutable roster
 // label") holds verbatim for every file in the corpus, so the corpus IS the
 // scope: a seed added tomorrow is covered without anyone remembering to add it
