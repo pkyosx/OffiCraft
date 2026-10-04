@@ -531,6 +531,7 @@ func (s *apiServer) reconcileWorkerLiveness(w OutsourceWorker, now float64) bool
 		st.LastCommandAt = 0.0
 	}
 	obs := workerObservation(w, s.hub.IsOnline(w.ID))
+	obs.RobustStopOwed = s.robustStopOwed(w.ID)
 	s.observeStopCollect(&obs, memberFromWorker(w), now)
 	decision := reconcileDecide(obs, st, s.reconcileConfigLive(), now)
 	started := false
@@ -569,10 +570,10 @@ func (s *apiServer) reconcileWorkerLiveness(w OutsourceWorker, now float64) bool
 		s.setReconcileState(w.ID, decision.State)
 		s.sendRobustStop(w.ID, []string{target}, now)
 		delete(s.workerSpawnAt, w.ID)
-		// Bench only on a zombie takeover. Keep this guard even if other stop kinds
-		// look unreachable: reconcileStates is shared with staff, and a robust_resend
-		// reaching here was measured benching the machine. relocate is masked
-		// (workerObservation leaves the machine pair empty).
+		// Bench only on a zombie takeover. No other stop kind reaches here today (the
+		// robust-stop ledger re-sends outside the decider; relocate is masked by
+		// workerObservation), but reconcileDecide is shared with staff: a new stop
+		// kind would otherwise bench a healthy machine.
 		if decision.StopKind != stopKindZombieTakeover {
 			outsourceLog("rescue %s (%s): %s — robust stop → %s, NOT benched "+
 				"(stop kind %q is not a zombie takeover)",

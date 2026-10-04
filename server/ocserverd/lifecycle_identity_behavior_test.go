@@ -1786,14 +1786,12 @@ var lifecycleProducerLoopRulings = map[string]producerLoopRuling{
 			"loop, not a formality — a new stamp added in here would be exactly the " +
 			"regression this gate exists to announce.",
 	},
-	"runReconcileTick :: for _, m := range removedOwingStop": {
+	"runReconcileTick :: for _, m := range removed": {
 		Count: 1,
-		Why: "the decide pass for dismissed staff that still owe the out-of-band robust " +
-			"STOP their exit sent, so an unlanded one is re-sent until the session is " +
-			"offline. It runs reconcileTickMemberLocked only, never the roster passes. " +
-			"Not a formality withheld from 外包: a released worker gets the same " +
-			"guarantee from runOutsourceTick's WorkerStatusReleased arm, which retries " +
-			"reclaimWorkerSession until a warden takes the kill.",
+		Why: "steps the robust-stop ledger for dismissed staff, so the out-of-band STOP " +
+			"their exit sent keeps being re-sent while the session it aimed at lives. " +
+			"Nothing is decided and no roster pass runs. Not a formality withheld from " +
+			"外包: runOutsourceTick steps the same ledger for released workers too.",
 	},
 	"runOutsourceTick :: for _, t := range tasks": {
 		Count: 4,

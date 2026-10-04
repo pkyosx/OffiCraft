@@ -4746,33 +4746,23 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 		})
 	})
 
-	// ── the two populations' retry ledgers stay their own (T-253 F1) ─────────
+	// ── the owed stop holds only while the session lives ────────────────────
 
-	t.Run("a worker's stop arms the worker ledger and NOT the member producer's marker", func(t *testing.T) {
-		// 🔴 reconcileStates IS ONE STORE FOR BOTH POPULATIONS. RobustStopPendingAt
-		// is the MEMBER producer's at-least-once arm; writing it for a worker hands
-		// the worker tick a marker its own decider acts on — suppressing the START
-		// that is due, then returning a STOP the worker path reads as a zombie
-		// takeover and benches the machine for.
+	t.Run("a worker's stop is owed only while its session lives: once it goes the next tick starts the replacement", func(t *testing.T) {
 		api, h, _, owner, session, contractor := apiTestLiveWorker(t)
 
 		if status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`); status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
-		apiWantValue(t, "the member producer's marker",
-			any(api.reconcileStateOf("ow-abc123").RobustStopPendingAt), any(float64(0)))
 
-		// The consequence, not just the field: the session goes away and the very
-		// next tick starts the replacement instead of waiting on a kill that was
-		// never the member producer's to re-send.
 		api.hub.Disconnect(session)
 		api.runOutsourceTick(nowSecs())
 		wsWantWardenFrames(t, api, ServerSelfHost,
 			wsStartFrame("ow-abc123", apiTestWorkerBootContext(t, h, owner), "claude", "sonnet", "medium"))
 	})
 
-	t.Run("POSITIVE CONTROL: a staff stop does arm the member producer's marker", func(t *testing.T) {
+	t.Run("a staff stop holds the next member tick's fire while the session lingers", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
 			t.Fatalf("activate: %d %v", status, data)
@@ -4787,14 +4777,9 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("kip"))
-		if got := api.reconcileStateOf("kip").RobustStopPendingAt; got <= 0 {
-			t.Fatalf("the member producer's marker must be armed, got %v", got)
-		}
-		// The consequence, at the same level as the worker arm's: the session is
-		// still up (the warden has not drained the kill yet — the real ordering),
-		// and the very next member tick therefore holds its fire instead of
-		// deciding anything, because a kill this producer owns is already out and
-		// inside stop_retry.
+		// The session is still up (the warden has not drained the kill yet — the
+		// real ordering), so the very next member tick holds its fire instead of
+		// deciding anything: a kill is already out and owed.
 		apiTestListen(t, api, "kip")
 		row, err := d.GetMember("kip")
 		if err != nil || row == nil {
@@ -4805,8 +4790,7 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 			"command": next.Command, "reason": next.Reason,
 		}), any(map[string]any{
 			"command": "none",
-			"reason": "robust stop dispatched out-of-band — awaiting warden kill " +
-				"(within stop_retry)",
+			"reason":  "robust stop dispatched out-of-band — awaiting warden kill",
 		}))
 		wsWantWardenFrames(t, api, ServerSelfHost)
 	})

@@ -88,7 +88,6 @@ const (
 	stopKindZombieTakeover = "zombie_takeover"
 	stopKindRelocate       = "relocate"
 	stopKindWinddown       = "winddown"
-	stopKindRobustResend   = "robust_resend"
 	// stopKindSessionGone: the dispatcher latches stopped_since before sending, which is what
 	// makes this STOP once-only.
 	stopKindSessionGone = "session_gone"
@@ -124,12 +123,6 @@ type reconcileState struct {
 	LastCommand          string
 	LastCommandAt        float64
 	StopDeadline         float64
-	// RobustStopPendingAt: when dispatchRobustStopNow last sent an out-of-band robust STOP
-	// (force-stop, cancel-wake kill, report_stopped collect); 0 = none outstanding. That send is
-	// dropped on an unreachable warden and no decide arm re-derives it, so this is its only retry.
-	// 🔴 Do not re-derive it from stopped_since: 下線 → 喚醒 leaves a predecessor's stopped_since on
-	// a fresh session, which would then be robust-stopped on its first tick.
-	RobustStopPendingAt float64
 	// OfflineSince feeds the zombie-takeover second-confirmation window ONLY. Restart amnesia
 	// re-arms the window from zero, again the safe direction.
 	OfflineSince float64
@@ -195,6 +188,11 @@ type memberObservation struct {
 	// staff and workers.
 	StopAwaitsCollect    bool
 	SessionConfirmedGone bool
+	// RobustStopOwed: an out-of-band robust STOP is in the ledger (stop_ledger.go) and the session
+	// it aimed at still runs. The ledger re-sends it; the decider only holds its fire.
+	// 🔴 Do not re-derive it from stopped_since: 下線 → 喚醒 leaves a predecessor's stopped_since on
+	// a fresh session, which would then be robust-stopped on its first tick.
+	RobustStopOwed bool
 }
 
 type reconcileDecision struct {
@@ -230,19 +228,6 @@ func decisionNone(obs memberObservation, st reconcileState, reason string) recon
 	}
 }
 
-// alive is the caller's evidence the session THIS STOP aimed at still runs — the worker producer
-// narrows it to online AND still on the addressed machine, since a respawn reuses the id.
-func robustStopRetryStep(dispatchedAt float64, alive bool, stopRetry, now float64) robustStopStep {
-	switch {
-	case dispatchedAt <= 0.0 || !alive:
-		return robustStopDone
-	case now-dispatchedAt >= stopRetry:
-		return robustStopResend
-	default:
-		return robustStopWait
-	}
-}
-
 // stopReachedStart: reached is every machine the stop was handed to or owed on. While a START is
 // in flight only a stop on its machine ends that session; with none in flight any stop will do.
 func stopReachedStart(startTarget string, reached []string) bool {
@@ -271,30 +256,13 @@ func reconcileDecide(
 		st.BackoffUntil = 0.0
 	}
 	// Before the desired-state switch: the member is being collected whichever arm would own it,
-	// and decideUp's converged arm would otherwise wipe the stop bookkeeping.
-	if st.RobustStopPendingAt > 0.0 {
-		switch robustStopRetryStep(st.RobustStopPendingAt, obs.Online, cfg.StopRetry, now) {
-		case robustStopDone:
-			st.RobustStopPendingAt = 0.0
-		case robustStopResend:
-			st.RobustStopPendingAt = now
-			st.Phase = reconcilePhaseStopping
-			st.LastCommand = reconcileCmdStop
-			st.LastCommandAt = now
-			return reconcileDecision{
-				Command: reconcileCmdStop, MemberID: obs.MemberID,
-				StopKind: stopKindRobustResend,
-				Reason: "robust stop: re-dispatch (out-of-band STOP unlanded — " +
-					"still online past stop_retry)",
-				State:          st,
-				DispatchWarden: obs.RunningMachine,
-			}
-		default:
-			st.Phase = reconcilePhaseStopping
-			return decisionNone(obs, st,
-				"robust stop dispatched out-of-band — awaiting warden kill "+
-					"(within stop_retry)")
-		}
+	// and decideUp's converged arm would otherwise wipe the stop bookkeeping. No STOP from here:
+	// the ledger is the only re-sender, so a re-send never reaches a caller's own stop handling
+	// (reconcileWorkerLiveness would read it as a zombie takeover).
+	if obs.RobustStopOwed {
+		st.Phase = reconcilePhaseStopping
+		return decisionNone(obs, st,
+			"robust stop dispatched out-of-band — awaiting warden kill")
 	}
 	switch obs.Desired {
 	case DesiredStateUninstall:
@@ -879,6 +847,7 @@ func (s *apiServer) reconcileOne(m Member, st reconcileState, now float64) recon
 		TargetMachine:   m.DesiredMachineID,
 		RunningMachine:  s.hub.MachineOf(m.ID),
 		HandoverArmable: s.memberOwnerOpHandoverArmable(m, memberOpRelocate),
+		RobustStopOwed:  s.robustStopOwed(m.ID),
 	}
 	s.observeStopCollect(&obs, m, now)
 	decision := reconcileDecide(obs, st, s.reconcileConfigLive(), now)
@@ -943,6 +912,7 @@ func (s *apiServer) reconcileOne(m Member, st reconcileState, now float64) recon
 		// A landed START begins a new session; a session_already_exists refusal on the receipt puts
 		// the boot_ts back.
 		s.clearSessionBootTSForStart(m.ID)
+		s.disarmRobustStopOnStart(m.ID, warden)
 		s.armReceiptWatch(m.ID, reconcileCmdStart, warden, now)
 		decision.State.StartTarget = warden
 		return decision
@@ -1782,7 +1752,7 @@ func (s *apiServer) runReconcileTick(now float64) {
 		reconcileLog("tick: roster read failed: %v", err)
 		return
 	}
-	var members, removedOwingStop []Member
+	var members, removed []Member
 	for _, m := range all {
 		// 🔴 ListMembers includes contractor rows; this line is the only thing keeping them out of the
 		// member FSM (else one row takes a `start` from both halves in the same tick).
@@ -1790,9 +1760,7 @@ func (s *apiServer) runReconcileTick(now float64) {
 			continue
 		}
 		if !lifecyclePolicyFor(m).ShouldExist() {
-			if s.removedRowOwesRobustStop(m) {
-				removedOwingStop = append(removedOwingStop, m)
-			}
+			removed = append(removed, m)
 			continue
 		}
 		members = append(members, m)
@@ -1805,20 +1773,22 @@ func (s *apiServer) runReconcileTick(now float64) {
 	s.sweepLapsedReceipts(now)
 	reconcileLog("tick: %d candidate(s)", len(members))
 	for i := range members {
+		s.stepMemberRobustStop(members[i], now)
 		s.reconcileTickMemberLocked(members[i], now)
 	}
-	// Kept out of the roster passes above: those stamp and clear wind-down anchors on rows that are
-	// meant to keep running.
-	for _, m := range removedOwingStop {
-		s.reconcileTickMemberLocked(m, now)
+	// A dismissed member is never decided again, but the STOP its dismissal sent is still owed until
+	// the session is gone.
+	for _, m := range removed {
+		s.stepMemberRobustStop(m, now)
 	}
 }
 
-// removedRowOwesRobustStop keeps a dismissed member on the tick until its out-of-band STOP is
-// judged landed; dropped at removal, an unlanded STOP would never be re-sent. Caller holds
-// reconcileMu.
-func (s *apiServer) removedRowOwesRobustStop(m Member) bool {
-	return m.RosterStatus == RosterStatusRemoved && s.reconcileStateOf(m.ID).RobustStopPendingAt > 0.0
+// Caller holds reconcileMu.
+func (s *apiServer) stepMemberRobustStop(m Member, now float64) {
+	s.stepRobustStop(m.ID, now, func() []string {
+		targets, _ := s.killTargetChain(m.ID, killTargetSources{LastMachineID: m.LastMachineID})
+		return targets
+	})
 }
 
 func (s *apiServer) reconcileMemberNow(memberID string) reconcileDecision {
@@ -1881,16 +1851,6 @@ func (s *apiServer) noteStartSupersededByStop(
 	}
 	s.setReconcileState(memberID, startSupersededByStop(st, now))
 	return true
-}
-
-// noteRobustStopDispatched takes reconcileMu itself: every caller is an HTTP handler that holds no
-// reconcile lock.
-func (s *apiServer) noteRobustStopDispatched(memberID string, now float64) {
-	s.reconcileMu.Lock()
-	defer s.reconcileMu.Unlock()
-	st := s.reconcileStateOf(memberID)
-	st.RobustStopPendingAt = now
-	s.setReconcileState(memberID, st)
 }
 
 // identitySweepDedupeSecs reuses the stop_retry pace, so a sweep re-fires no faster than a STOP.

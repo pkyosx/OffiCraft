@@ -74,12 +74,6 @@ func shutdownStaff(t *testing.T, api *apiServer, h http.Handler, d *DAL,
 	return apiTestAgentToken(t, api, "kip", "")
 }
 
-// shutdownLockOrderRuling is the one sentence every failure of the lock-order
-// guard must print, whether it fails by assertion or by not finishing.
-const shutdownLockOrderRuling = "T-253 lock order: the scheduler lock is still held while the " +
-	"shutdown waits on the reconcile lock — that is the nested hold the T-14 ruling " +
-	"forbids (lock A → run A → drop → lock B → run B → drop)"
-
 func TestDispatchShutdown(t *testing.T) {
 	// ── the kill chain's two new sources (T-253 B) ──────────────────────────
 
@@ -229,33 +223,18 @@ func TestDispatchShutdown(t *testing.T) {
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
 	})
 
-	t.Run("an id the roster cannot answer for is treated as a WORKER, so nothing is left behind to suppress its next start", func(t *testing.T) {
-		// 🔴 FAIL-CLOSED. The kind decides whether the member producer's
-		// at-least-once marker is armed, and arming it for a worker is the F1
-		// defect: the worker tick's decider then holds the START that is due and,
-		// past stop_retry, benches the machine for a STOP it reads as a zombie
-		// takeover. A row this server cannot read must land on the cheap mistake,
-		// not the ruling-level one.
-		//
-		// The CONSEQUENCE — the next tick starting the replacement instead of
-		// waiting — is measured on a row that exists, in
-		// TestHandleReportStoppedApiSelfStoppedPost. Here there is no row by
-		// construction (that is the case under test), so no tick can run and the
-		// marker is all there is to read.
+	t.Run("an id the roster cannot answer for is still killed: the fan-out carries it", func(t *testing.T) {
 		api, _, _, _ := newAPITestServer(t)
 		apiTestListen(t, api, ServerSelfHost)
 
 		api.dispatchShutdown("ow-no-such-row", "test")
 
-		// The kill itself still goes out — an unreadable row must not swallow the
-		// stop — and with no source able to name a machine it is the chain's
-		// fan-out that carries it.
+		// An unreadable row must not swallow the stop, and with no source able to
+		// name a machine it is the chain's fan-out that carries it.
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-no-such-row"))
-		apiWantValue(t, "the member producer's marker",
-			any(api.reconcileStateOf("ow-no-such-row").RobustStopPendingAt), any(float64(0)))
 	})
 
-	t.Run("CONTROL: an id the roster DOES answer for as staff keeps the cadence's re-send of its kill", func(t *testing.T) {
+	t.Run("a staff shutdown is re-sent by the cadence while the session lingers past stop_retry", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
 			t.Fatalf("activate: %d %v", status, data)
@@ -264,51 +243,21 @@ func TestDispatchShutdown(t *testing.T) {
 			t.Fatalf("SetMemberDesiredMachineID: %v", err)
 		}
 		apiTestListen(t, api, ServerSelfHost)
+		api.hub.DrainWardenCommands(ServerSelfHost)
 
 		api.dispatchShutdown("kip", "test")
-
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("kip"))
-		if got := api.reconcileStateOf("kip").RobustStopPendingAt; got <= 0 {
-			t.Fatalf("a staff shutdown must arm the marker, got %v", got)
-		}
+
+		apiTestListen(t, api, "kip")
+		api.runReconcileTick(nowSecs() + api.reconcileConfigLive().StopRetry + 1)
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("kip"))
 	})
 
-	// ── the two locks are taken in sequence, never nested (T-253 C) ─────────
-	//
-	// 🔴 WHAT ACTUALLY HOLDS THIS UP DIFFERS BY POPULATION, AND SAYING SO IS THE
-	// POINT — the earlier version of this test claimed a mechanism it did not
-	// have, which is worse than having none.
-	//
-	//   * STAFF is the arm where the two locks really are a SEQUENCE:
-	//     dispatchShutdown takes outsourceMu (the spawn observation), drops it,
-	//     and then takes reconcileMu for the at-least-once marker. That is the
-	//     ordering the subtest below measures, and holding reconcileMu really
-	//     does block the handler inside the shutdown.
-	//   * OUTSOURCE does not reach reconcileMu at all any more: the marker is
-	//     staff-only since T-253 F1, so a worker's shutdown never touches the
-	//     second lock and "never both at once" is true of it VACUOUSLY. What it
-	//     still needs — dropping outsourceMu before the shared shutdown — is
-	//     enforced STRUCTURALLY instead: dispatchShutdown re-takes outsourceMu,
-	//     and Go mutexes do not re-enter, so a caller that kept it self-deadlocks
-	//     on the spot. Measured: moving that Unlock past the shutdown hangs the
-	//     request inside resolveShutdownTargets. The worker-side test for it is
-	//     the receipt-lock barrier in TestHandleReportStoppedApiSelfStoppedPost,
-	//     which cannot reach its assertions unless the handler got through that
-	//     re-acquire.
-
-	t.Run("a staff shutdown drops the scheduler lock before it takes the reconcile lock", func(t *testing.T) {
-		// 🔴 THE OWNER RULING THIS PINS (T-14, lifecycle_tick.go verbatim): lock A →
-		// run A → drop → lock B → run B → drop.
-		//
-		// HOW IT TELLS THE TWO APART. reconcileMu is held for the whole
-		// experiment, so the handler is guaranteed to BLOCK inside the shutdown —
-		// the staff arm cannot finish without the marker. If it still held
-		// outsourceMu at that moment nobody else could ever take outsourceMu, so
-		// acquiring it is exactly the observation that the lock was dropped first.
-		//
-		// Every wait below is bounded well inside the package timeout, so this can
-		// only fail as a named assertion on the test's own goroutine — never as a
-		// package-wide timeout panic that takes every other result with it.
+	// 🔴 The shutdown takes outsourceMu (the spawn observation) and nothing else
+	// of the scheduler's: the stop is recorded in the robust-stop ledger, whose
+	// lock is a leaf. So the reconcile tick holding reconcileMu can never stall a
+	// handler's kill, and no caller can end up holding both scheduler locks.
+	t.Run("a staff stopped-report's kill goes out while the reconcile tick holds its lock", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
 			t.Fatalf("activate: %d %v", status, data)
@@ -321,61 +270,16 @@ func TestDispatchShutdown(t *testing.T) {
 		agent := apiTestAgentToken(t, api, "kip", "")
 
 		api.reconcileMu.Lock()
-		unlocked := false
-		unlock := func() {
-			if !unlocked {
-				unlocked = true
-				api.reconcileMu.Unlock()
-			}
-		}
-		defer unlock()
-
+		defer api.reconcileMu.Unlock()
 		answered := make(chan int, 1)
 		go func() {
 			answered <- apiRequest(t, h, "POST", "/api/self/stopped", agent, `{}`).Code
 		}()
-
-		// The durable latch is written before the shutdown, so its arrival means
-		// the handler has reached the hand-off.
-		if !shutdownWaitFor(t, func() bool {
-			m, err := d.GetMember("kip")
-			return err == nil && m != nil && m.StoppedSince > 0
-		}) {
-			t.Fatal("the close-out latch never landed — the handler did not reach the shutdown")
-		}
-
-		// THE MEASUREMENT. The handler is inside the shutdown waiting on
-		// reconcileMu; outsourceMu must therefore be free.
-		free := make(chan struct{})
-		go func() {
-			api.outsourceMu.Lock()
-			api.outsourceMu.Unlock()
-			close(free)
-		}()
-		select {
-		case <-free:
-		case <-time.After(5 * time.Second):
-			unlock()
-			t.Fatal(shutdownLockOrderRuling)
-		}
-
-		// POSITIVE CONTROL, and it does discriminate here: while reconcileMu is
-		// held the request MUST still be in flight. If it had already answered,
-		// the acquisition above would have proved nothing about ordering.
-		select {
-		case code := <-answered:
-			unlock()
-			t.Fatalf("the request answered %d while the reconcile lock was held — it "+
-				"never blocks on the second lock, so this test measures nothing", code)
-		default:
-		}
-
-		unlock()
 		select {
 		case code := <-answered:
 			apiWantValue(t, "status", any(float64(code)), any(200))
 		case <-time.After(5 * time.Second):
-			t.Fatal("the stopped-report never completed once the reconcile lock was free")
+			t.Fatal("the stopped-report blocked on the reconcile lock")
 		}
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("kip"))
 	})

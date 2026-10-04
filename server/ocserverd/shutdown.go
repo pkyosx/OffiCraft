@@ -3,19 +3,19 @@ package main
 import "slices"
 
 // Every kill of either population resolves through killTargetChain and sends
-// through sendStopFrames. dispatchShutdown (directly or through
+// through sendStopFrames; every out-of-band robust STOP of either population is
+// recorded in the one robust-stop ledger (stop_ledger.go, sendRobustStop) and
+// re-sent only by the ticks. dispatchShutdown (directly or through
 // dispatchShutdownAlsoTo) has exactly TWO callers: the staff out-of-band robust
-// STOP and the worker's stopped-report conclusion. The
-// worker's other kills (handover, held-down stop, reclaim) enter at
-// stopWorkerSessionOrPark, which uses the same chain and sender but keeps its
-// OWN ledger.
+// STOP and the worker's stopped-report conclusion. The worker's other kills
+// (handover, held-down stop, takeover) call sendRobustStop with targets their
+// caller resolved under outsourceMu; reclaim sends unrecorded.
 //
 // 🔴 LOCK CONTRACT: dispatchShutdown's caller holds NEITHER outsourceMu NOR
-// reconcileMu. It takes them ONE AT A TIME, as the T-14 owner ruling fixes
-// (lock A → run A → drop → lock B → run B → drop): outsourceMu for the spawn
-// observation, then reconcileMu for the at-least-once dispatch marker. A caller
-// still holding outsourceMu deadlocks. killTargetChain takes no lock at all,
-// which is what lets the tick's already-locked kill sites share the ordering.
+// reconcileMu. It takes outsourceMu for the spawn observation and drops it
+// before the send; the ledger's own lock is a leaf. A caller still holding
+// outsourceMu deadlocks. killTargetChain takes no lock at all, which is what
+// lets the ticks' already-locked kill sites share the chain.
 
 type shutdownDispatch struct {
 	Target    string
@@ -88,7 +88,7 @@ func (s *apiServer) killTargetCandidates(id string, src killTargetSources) []str
 
 // 🔴 The reachability filter belongs to reclaimWorkerSession ONLY. Everywhere
 // else a NAMED-but-offline machine still wins and the kill is parked there
-// (stopWorkerSessionOrPark). A reclaimed worker is released, so the session
+// (sendRobustStop). A reclaimed worker is released, so the session
 // must die wherever it is; parking on a dark machine while another may hold the
 // session is the wrong trade.
 func (s *apiServer) reachableKillTarget(id string, src killTargetSources) string {
@@ -132,10 +132,9 @@ func (s *apiServer) onlineWardens() []string {
 // stamp that delays its replacement's START.
 func (s *apiServer) resolveShutdownTargets(id string) (targets []string, broadcast, outsource bool) {
 	m, err := s.dal.GetMember(id)
-	// 🔴 FAIL-CLOSED TO "WORKER" WHEN THE ROSTER CANNOT BE READ. Guessing
-	// "staff" is the F1 defect: a worker handed RobustStopPendingAt has its START
-	// suppressed and its machine benched as a zombie takeover. Guessing "worker"
-	// costs one staff kill its cadence re-send.
+	// The kind only picks the chain. With the roster unreadable the worker chain
+	// is the wider one: it still reads the in-memory spawn target, while the
+	// staff chain's extra source (the pin) needs the row anyway.
 	src := killTargetSources{Outsource: true}
 	if err == nil && m != nil {
 		src.LastMachineID = m.LastMachineID
@@ -203,25 +202,12 @@ func (s *apiServer) dispatchShutdownAlsoTo(id, reason, alsoTo string) shutdownDi
 		out.Target = targets[0]
 	}
 	now := nowSecs()
-	if outsource {
-		out.Recorded = s.sendRobustStop(id, targets, now)
-		out.Landed = out.Recorded.Landed
-	} else {
-		out.Landed = s.sendStopFrames(id, targets, now)
-	}
+	out.Recorded = s.sendRobustStop(id, targets, now)
+	out.Landed = out.Recorded.Landed
 	out.Sent = len(out.Landed) > 0
 	if len(targets) == 0 {
 		reconcileLog("shutdown %s (%s): no kill target — spawn memory, live claim, "+
 			"last landing and pin all silent, and no warden is online", id, reason)
-	}
-	// 🔴 STAFF ONLY. reconcileStates is shared by both populations and
-	// reconcileWorkerLiveness feeds the same reconcileDecide: a worker given
-	// RobustStopPendingAt has its due START suppressed, then gets a STOP its path
-	// reads as a ZOMBIE TAKEOVER and benches the machine. Workers re-send through
-	// workerStopLanded / workerStopPending. Armed for staff even on a fail-closed
-	// refusal, because an unreachable warden is exactly how a collect goes missing.
-	if !out.Outsource {
-		s.noteRobustStopDispatched(id, now)
 	}
 	// 🔴 Only when something was aimed at: otherwise nothing was sent and the
 	// session may still be running, and dropping its boot_ts would make
