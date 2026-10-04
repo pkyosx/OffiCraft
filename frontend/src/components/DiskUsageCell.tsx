@@ -190,7 +190,7 @@ function breakdownRows(
         )}
       </>
     );
-    push(`member-${m.memberId}`, label, m.totalBytes, { section: i === 0 });
+    push(`top:${m.memberId}`, label, m.totalBytes, { section: i === 0 });
   });
   const rest = members.slice(TOP_MEMBERS);
   if (rest.length > 0) {
