@@ -1,0 +1,95 @@
+.disk-usage {
+  display: inline-flex;
+  vertical-align: middle;
+}
+.disk-usage__unmeasured {
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+/* Quiet at rest so the column reads as plain numbers; the negative margin
+ * keeps the text aligned with the column header. */
+.disk-usage__trigger {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  margin-left: -6px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.disk-usage__trigger:hover,
+.disk-usage__trigger:focus-visible,
+.disk-usage__trigger[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--color-overlay) 14%, transparent);
+  background: color-mix(in srgb, var(--color-overlay) 5%, transparent);
+}
+.disk-usage__trigger:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+/* Above the 1100 modal layer, like .instant-hint: the table can sit under an
+ * open detail panel. */
+.disk-usage__panel {
+  position: fixed;
+  z-index: 1200;
+  box-sizing: border-box;
+  min-width: 240px;
+  max-width: min(360px, calc(100vw - 16px));
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
+  background: var(--color-card);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--color-shadow) 35%, transparent);
+  color: var(--color-text);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: left;
+}
+.disk-usage__rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.disk-usage__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 2px 0;
+}
+.disk-usage__row--section {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
+}
+.disk-usage__row--sub .disk-usage__label {
+  padding-left: 12px;
+  color: var(--color-text-muted);
+}
+.disk-usage__label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.disk-usage__value {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.disk-usage__left {
+  margin-left: 6px;
+  padding: 0 0.35em;
+  border-radius: 3px;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 0.9em;
+  white-space: nowrap;
+}
+.disk-usage__measured {
+  margin-top: 6px;
+  color: var(--color-text-muted);
+}

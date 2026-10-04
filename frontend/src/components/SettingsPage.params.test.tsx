@@ -66,6 +66,9 @@ describe("SettingsPage · 參數調整", () => {
     const loginRecheck = utils.getByLabelText(s.runtimeLoginRecheckInterval) as HTMLInputElement;
     expect(loginRecheck.value).toBe("30");
     expect(rows.indexOf(loginRecheck)).toBe(rows.indexOf(loginCheck) + 1);
+    const diskUsage = utils.getByLabelText(s.diskUsageInterval) as HTMLInputElement;
+    expect(diskUsage.value).toBe("3600");
+    expect(rows.indexOf(diskUsage)).toBe(rows.indexOf(loginRecheck) + 1);
   });
 
   it("changing the login TTL patches the server immediately", async () => {
@@ -179,6 +182,27 @@ describe("SettingsPage · 參數調整", () => {
       expect(secs.value).toBe("30");
     }
     expect((await api.getServerSettings())[field]).toBe(30);
+    expect(patch).toHaveBeenCalledTimes(2);
+    patch.mockRestore();
+  });
+
+  it("under an in-range disk usage interval it persists, and outside 600..86400 it snaps back without a write", async () => {
+    const patch = vi.spyOn(api, "patchServerSettings");
+    const utils = await openParams();
+    const secs = utils.getByLabelText(s.diskUsageInterval) as HTMLInputElement;
+    for (const edge of [86400, 600]) {
+      fireEvent.change(secs, { target: { value: String(edge) } });
+      fireEvent.blur(secs);
+      await waitFor(async () => expect((await api.getServerSettings()).diskUsageIntervalSecs).toBe(edge));
+      expect(patch).toHaveBeenLastCalledWith({ diskUsageIntervalSecs: edge });
+    }
+    for (const outside of ["599", "86401", "1800.5"]) {
+      fireEvent.change(secs, { target: { value: outside } });
+      fireEvent.blur(secs);
+      await utils.findByText(s.paramsSaveError);
+      expect(secs.value).toBe("600");
+    }
+    expect((await api.getServerSettings()).diskUsageIntervalSecs).toBe(600);
     expect(patch).toHaveBeenCalledTimes(2);
     patch.mockRestore();
   });

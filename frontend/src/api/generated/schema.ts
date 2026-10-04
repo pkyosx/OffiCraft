@@ -4279,6 +4279,54 @@ export interface components {
              * @description Warden heartbeats only — whether the anchor cutover is actually IN EFFECT for the processes that CARRY agents, which ``warden_shape`` cannot answer: that field observes warden's own parent process, while the agents live under a tmux server that keeps its original identity across a warden restart — the two populations diverge at exactly the moment the cutover lands. Deliberately THREE-VALUED and fail-closed: ``effective`` = launchd is running the anchor now AND every process carrying an agent session is younger than the current anchor job leader, so it can only have been forked under the anchor identity; ``not_effective`` = a carrier predates the anchor file itself and therefore cannot hold that identity (the one deterministic negative); ``unproven`` = cannot be shown either way, which is NOT a synonym for ``effective`` and must never be rendered as one — a boolean green light is the exact defect this field exists to retire. OMITTED by every warden build older than this release: absent means 'this machine has not received the new build yet', ``unproven`` means 'the new build ran and could not prove it'. Permissive like the other scalars here: a value outside the three states is a flat 400, never a 422.
              */
             cutover_effect?: unknown;
+            /**
+             * Disk Usage
+             * @description Warden heartbeats only — the latest OffiCraft disk-usage measurement of THIS station on this host. Measured in the background at the org's ``disk_usage_interval_secs`` (it takes tens of seconds, so it never runs on the 30-second heartbeat), then repeated verbatim on every heartbeat until the next measurement replaces it, so a restarted server has it again within one heartbeat. ``measured_at`` is when the measurement finished, not when this heartbeat was sent. Sizes are bytes of allocated disk blocks, the same quantity ``du`` reports. Each field is omitted when its probe failed. NOT closed, for the same reason as ``hardware``: one undeclared nested key must not 422 the whole heartbeat. Database and backup sizes are not here: only the server knows its database path, and it measures them itself.
+             */
+            disk_usage?: {
+                /**
+                 * Measured At
+                 * @description Epoch seconds when this measurement finished.
+                 */
+                measured_at?: number | null;
+                /**
+                 * Took Secs
+                 * @description How long the measurement took, in seconds.
+                 */
+                took_secs?: number | null;
+                /**
+                 * Root Bytes
+                 * @description The whole OffiCraft directory of this station on this host (``~/.officraft``, or ``~/.officraft-<namespace>``), database and backups included when they live there.
+                 */
+                root_bytes?: number | null;
+                /**
+                 * Members
+                 * @description One entry per member id that owns a workspace under ``<root>/agents/`` or conversation logs whose working directory is one, including members that have since left the roster.
+                 */
+                members?: components["schemas"]["DiskUsageMemberReportDTO"][] | null;
+                /**
+                 * Claude Conversation Bytes
+                 * @description Claude conversation logs of this station's members: the ``~/.claude/projects`` directories whose name encodes a working directory under ``<root>/agents/``.
+                 */
+                claude_conversation_bytes?: number | null;
+                /**
+                 * Codex Conversation Bytes
+                 * @description Codex conversation logs of this station's members: the ``~/.codex/sessions`` files whose recorded working directory is under ``<root>/agents/``.
+                 */
+                codex_conversation_bytes?: number | null;
+                /**
+                 * Disk Free Bytes
+                 * @description Free space available to this user on the volume holding the OffiCraft directory.
+                 */
+                disk_free_bytes?: number | null;
+                /**
+                 * Disk Total Bytes
+                 * @description Total size of the volume holding the OffiCraft directory.
+                 */
+                disk_total_bytes?: number | null;
+            } & {
+                [key: string]: unknown;
+            };
             /** Effort */
             effort?: unknown;
             /**
@@ -4411,6 +4459,11 @@ export interface components {
              * @description The identity this report was filed under — the verified JWT sub, never a self-report. A reporter that believed it was somebody else learns it here.
              */
             agent_id: string;
+            /**
+             * Disk Usage Interval Secs
+             * @description How often, in seconds, this warden measures OffiCraft disk usage: the org's ``disk_usage_interval_secs``. Filled only when the caller is a machine (warden) credential; null or absent for an agent caller.
+             */
+            disk_usage_interval_secs?: number | null;
             /**
              * Login Check Interval Secs
              * @description How often, in seconds, this warden re-checks a Claude/Codex login that last read as logged in: the org's ``runtime_login_check_interval_secs``. Filled only when the caller is a machine (warden) credential; null or absent for an agent caller.
@@ -5331,6 +5384,29 @@ export interface components {
             text?: string;
         };
         /**
+         * DiskUsageMemberReportDTO
+         * @description One member's share of a warden's disk-usage measurement. Sizes are bytes of allocated disk blocks, as ``du`` reports them; a field is omitted when it was not measured.
+         */
+        DiskUsageMemberReportDTO: {
+            /**
+             * Member Id
+             * @description The directory name under ``<root>/agents/``, which is the member id.
+             */
+            member_id: string;
+            /**
+             * Workspace Bytes
+             * @description ``<root>/agents/<member_id>``.
+             */
+            workspace_bytes?: number | null;
+            /**
+             * Conversation Bytes
+             * @description Claude and Codex conversation logs whose working directory is under this member's workspace.
+             */
+            conversation_bytes?: number | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * DocDTO
          * @description One product-guide doc in full (GET /api/docs/{slug}). markdown_md carries the embedded markdown with relative image paths rewritten to the served /api/docs/assets/ endpoint.
          */
@@ -5928,6 +6004,99 @@ export interface components {
              * @default true
              */
             removed: boolean;
+        };
+        /**
+         * MachineDiskUsageDTO
+         * @description How much disk OffiCraft uses on one machine. The warden measures this station's OffiCraft directory and its members' conversation logs at the org's ``disk_usage_interval_secs``; on the server's own machine the server adds its database and backups. A field is null when it has not been measured; the whole object is null on a machine that has reported no measurement since the server started and is not the server's own machine. Sizes are bytes of allocated disk blocks, the quantity ``du`` reports. Measuring only: nothing here deletes anything.
+         */
+        MachineDiskUsageDTO: {
+            /**
+             * Measured At
+             * @description Epoch seconds when the warden's measurement finished; null when the warden has reported none since the server started. Read the age off it: a warden that went offline keeps its last measurement here.
+             */
+            measured_at?: number | null;
+            /**
+             * Total Bytes
+             * @description Everything OffiCraft uses on this machine for this station: the OffiCraft directory plus the members' conversation logs, plus the database and backups when they live outside that directory. Null until the warden has measured.
+             */
+            total_bytes?: number | null;
+            /**
+             * Database Bytes
+             * @description Server's own machine only: the database file with its write-ahead log and shared-memory files.
+             */
+            database_bytes?: number | null;
+            /**
+             * Backups Bytes
+             * @description Server's own machine only: the database backup directory.
+             */
+            backups_bytes?: number | null;
+            /**
+             * Database Measured At
+             * @description Epoch seconds when the server last measured ``database_bytes`` and ``backups_bytes``.
+             */
+            database_measured_at?: number | null;
+            /**
+             * Workspace Bytes
+             * @description Sum of the members' workspaces (``<root>/agents``).
+             */
+            workspace_bytes?: number | null;
+            /**
+             * Conversation Bytes
+             * @description Claude plus Codex conversation logs of this station's members.
+             */
+            conversation_bytes?: number | null;
+            /** Claude Conversation Bytes */
+            claude_conversation_bytes?: number | null;
+            /** Codex Conversation Bytes */
+            codex_conversation_bytes?: number | null;
+            /**
+             * Other Bytes
+             * @description The rest of the OffiCraft directory: binaries, logs, release backups and anything else that is not the database, backups or a member workspace. Null when a part it is computed from is missing.
+             */
+            other_bytes?: number | null;
+            /**
+             * Members
+             * @description Every member with a workspace or conversation logs on this machine, largest ``total_bytes`` first; empty until measured.
+             */
+            members: components["schemas"]["MachineDiskUsageMemberDTO"][];
+            /**
+             * Disk Free Bytes
+             * @description Free space on the volume holding the OffiCraft directory.
+             */
+            disk_free_bytes?: number | null;
+            /**
+             * Disk Total Bytes
+             * @description Total size of that volume.
+             */
+            disk_total_bytes?: number | null;
+        };
+        /**
+         * MachineDiskUsageMemberDTO
+         * @description One member's disk usage on one machine, as served by ``get_monitoring``.
+         */
+        MachineDiskUsageMemberDTO: {
+            /** Member Id */
+            member_id: string;
+            /**
+             * Name
+             * @description The member's roster name; null when no roster row carries this id.
+             */
+            name?: string | null;
+            /**
+             * Roster Status
+             * @description ``active`` for a current member, ``removed`` for a released outsource worker or dismissed staff whose row remains, ``unknown`` when no roster row carries this id. A workspace whose member is not ``active`` is what a cleanup looks at first.
+             * @enum {string}
+             */
+            roster_status: "active" | "removed" | "unknown";
+            /** Workspace Bytes */
+            workspace_bytes?: number | null;
+            /** Conversation Bytes */
+            conversation_bytes?: number | null;
+            /**
+             * Total Bytes
+             * @description ``workspace_bytes`` + ``conversation_bytes``, a missing side counted as 0. The list is sorted by this, largest first.
+             */
+            total_bytes: number;
         };
         /**
          * MachineOnboardDTO
@@ -6741,6 +6910,8 @@ export interface components {
              * @description Same reported cutover-effect verdict the machine registry row carries (``effective`` | ``not_effective`` | ``unproven``; null = warden too old to report one) — see ``MachineDTO.cutover_effect``.
              */
             cutover_effect?: string | null;
+            /** @description How much disk OffiCraft uses on this machine, with its breakdown and measurement time; null when nothing has been measured for it since the server started. */
+            disk_usage?: components["schemas"]["MachineDiskUsageDTO"] | null;
             /**
              * Display Name
              * @default
@@ -8564,6 +8735,12 @@ export interface components {
              */
             runtime_login_recheck_interval_secs: number;
             /**
+             * Disk Usage Interval Secs
+             * @description How often, in seconds (600 through 86400), each warden measures how much disk OffiCraft uses on its machine, and the server measures its database and backups. One measurement walks the whole OffiCraft directory and takes tens of seconds of disk reads, hence the 10-minute floor. Wardens learn the value from their heartbeat reply.
+             * @default 3600
+             */
+            disk_usage_interval_secs: number;
+            /**
              * Agent Token Ttl
              * @description Agent and outsource-worker JWT lifetime in seconds. Fresh installs default to 7 days.
              * @default 604800
@@ -8802,6 +8979,11 @@ export interface components {
              * @description How often, in seconds, each warden re-checks Claude or Codex login on its machine while that runtime last read as logged out or its check failed. Must be 30 through 3600; the floor is 30 because a warden reports at most every 30 seconds, so 30 means every heartbeat. Wardens pick a change up from their next heartbeat reply.
              */
             runtime_login_recheck_interval_secs?: number | null;
+            /**
+             * Disk Usage Interval Secs
+             * @description How often, in seconds, each warden measures how much disk OffiCraft uses on its machine. Must be 600 through 86400. Wardens pick a change up from their next heartbeat reply.
+             */
+            disk_usage_interval_secs?: number | null;
             /** Agent Token Ttl */
             agent_token_ttl?: number | null;
             /**

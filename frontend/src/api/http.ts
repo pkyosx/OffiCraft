@@ -2575,6 +2575,7 @@ export const httpApi: Api = {
       reassign_handover_timeout_secs?: number;
       runtime_login_check_interval_secs?: number;
       runtime_login_recheck_interval_secs?: number;
+      disk_usage_interval_secs?: number;
       warden_credential_lifetime_secs?: number;
       outsource_max_parallel?: number;
       doc_cap_chars_duty?: number;
@@ -2620,6 +2621,8 @@ export const httpApi: Api = {
       body.runtime_login_check_interval_secs = patch.runtimeLoginCheckIntervalSecs;
     if (patch.runtimeLoginRecheckIntervalSecs !== undefined)
       body.runtime_login_recheck_interval_secs = patch.runtimeLoginRecheckIntervalSecs;
+    if (patch.diskUsageIntervalSecs !== undefined)
+      body.disk_usage_interval_secs = patch.diskUsageIntervalSecs;
     if (patch.wardenCredentialLifetimeSecs !== undefined)
       body.warden_credential_lifetime_secs = patch.wardenCredentialLifetimeSecs;
     if (patch.outsourceMaxParallel !== undefined) {

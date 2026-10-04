@@ -1658,6 +1658,21 @@ export const zh = {
     measuredAgoLead: "量於",
     measuredAgoTail: "前",
     limitReached: "已達上限",
+    diskUsage: {
+      column: "磁碟",
+      notMeasured: "尚未量測",
+      open: "磁碟用量明細",
+      database: "資料庫",
+      backups: "備份",
+      workspaces: "成員 workspace 合計",
+      memberLeft: "已離開",
+      othersLead: "其餘 ",
+      othersTailOne: " 位合計",
+      othersTailMany: " 位合計",
+      conversations: "對話紀錄",
+      other: "其他",
+      disk: "硬碟剩餘／總容量",
+    },
     // 帳號詳情 modal(T-a9a7):該 claude 帳號背後的真實識別。email/org 來自
     // owner-only 的 account_label;任何缺值一律誠實顯示 "—",絕不猜。
     detail: {
@@ -2301,6 +2316,9 @@ export const zh = {
     runtimeLoginRecheckInterval: "未登入時重查間隔",
     runtimeLoginRecheckIntervalSub:
       "Claude 或 Codex 未登入（或檢查失敗）時，每台機器多久再檢查一次；30 秒即每次回報都檢查。改動會在各機器下一次回報時生效（30–3600 秒）",
+    diskUsageInterval: "磁碟用量量測間隔",
+    diskUsageIntervalSub:
+      "warden 多久量一次 OffiCraft 在每台機器佔用的磁碟空間。改動會在各機器下一次回報時生效（600–86400 秒，10 分鐘到 1 天）",
     rounds: "次",
     // T-ae38 起(T-30f1 又拆過一次):上限不再是一個。這些文件被刪掉的成本差很多
     // ——角色定義是常設說明、判準是逐次累積的權衡——所以不再共用同一把尺。
