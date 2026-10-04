@@ -20,6 +20,7 @@ const {
   hireMember,
   mintMemberToken,
   postChatAs,
+  markChatRead,
   blockWebFonts,
   bootAuthedSpa,
   uniqueName,
@@ -280,6 +281,9 @@ test.describe('T-4e95 · reply-to — banner, wire, quote row, jump', () => {
       data: { to: 'owner', body: FAR_ANSWER, reply_to: original.id },
     });
     expect(posted.status(), await posted.text()).toBe(200);
+    // ⚠️ Read up to the answer first: an unread room opens AT its first unread
+    // message, which here is the original itself — and then it is loaded.
+    await markChatRead(request, token, M.id, (await posted.json()).ts);
 
     // 🔴 THE INSTRUMENT. Every by-ids read is counted BEFORE the SPA boots, so a
     // read fired during the first paint cannot slip past. Nothing is blocked —
