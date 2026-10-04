@@ -388,6 +388,28 @@ func TestConnectOnceCommandLongerThanReadDeadline(t *testing.T) {
 			t.Errorf("ran %v, want %v: frames sent during the slow command were lost", h.stops, want)
 		}
 	})
+
+	t.Run("AfterFunc watchdog is re-armed after the command", func(t *testing.T) {
+		// Stopped for the command, it must come back: a stream that then goes
+		// silent is still dropped.
+		h := newSSEHarness(t, http.StatusOK, nil)
+		h.transport.idleReadTimeout = deadline
+		var mu sync.Mutex
+		h.transport.deps.Stop = slowStop(&mu, &h.stops, make(chan struct{}))
+		h.stream.lines <- frame("m-1")
+		done := make(chan error, 1)
+		go func() { _, err := h.transport.connectOnce(context.Background()); done <- err }()
+		select {
+		case err := <-done:
+			if err == nil {
+				t.Error("connectOnce ended cleanly, want the idle watchdog's read timeout")
+			}
+		case <-time.After(busy + 20*deadline):
+			close(h.stream.lines)
+			<-done
+			t.Error("a silent stream after the command was never dropped: the watchdog stayed stopped")
+		}
+	})
 }
 
 func TestHandlePayload(t *testing.T) {
