@@ -389,6 +389,46 @@ func TestConnectOnceCommandLongerThanReadDeadline(t *testing.T) {
 		}
 	})
 
+	t.Run("socket read deadline is re-armed after the command", func(t *testing.T) {
+		// Reset, not cleared: a stream that goes silent after the command is
+		// still dropped by the read deadline.
+		release := make(chan struct{})
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = io.WriteString(w, frame("m-1"))
+			w.(http.Flusher).Flush()
+			select { // silent, connection held open
+			case <-r.Context().Done():
+			case <-release:
+			}
+		}))
+		defer srv.Close()
+		defer close(release)
+		var mu sync.Mutex
+		var stops []string
+		tr := &sseTransport{
+			base:            srv.URL,
+			client:          srv.Client(),
+			idleReadTimeout: deadline,
+			logf:            func(string, ...any) {},
+			deps:            CommandDeps{Stop: slowStop(&mu, &stops, make(chan struct{}))},
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		done := make(chan error, 1)
+		go func() { _, err := tr.connectOnce(ctx); done <- err }()
+		select {
+		case err := <-done:
+			if !errors.Is(err, os.ErrDeadlineExceeded) {
+				t.Errorf("connectOnce err = %v, want the read deadline's i/o timeout", err)
+			}
+		case <-time.After(busy + 20*deadline):
+			cancel()
+			<-done
+			t.Error("a silent stream after the command was never dropped: the read deadline was cleared")
+		}
+	})
+
 	t.Run("AfterFunc watchdog is re-armed after the command", func(t *testing.T) {
 		// Stopped for the command, it must come back: a stream that then goes
 		// silent is still dropped.

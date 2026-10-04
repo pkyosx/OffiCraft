@@ -1664,6 +1664,27 @@ func TestStart(t *testing.T) {
 			}
 		})
 
+		t.Run("a teardown that fails with has-session unknown counts the session alive and falls back", func(t *testing.T) {
+			h := newSpawnHarness()
+			h.present = map[string]bool{}
+			h.stopStuck = true
+			// The probe itself broke (nil): not proof the session is gone.
+			h.onStop = func() { h.runner.script[hasSession] = wardenRun{err: errors.New("permission denied")} }
+			got := h.deps().start(startParamsM1())
+
+			if want := (SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500", Note: goldenNotifyModNotLoadedNote}); got != want {
+				t.Errorf("outcome = %+v, want %+v", got, want)
+			}
+			wantCalls := append(slices.Clone(launch), notifyModPollCaptures...)
+			wantCalls = append(wantCalls, capture, "stop-attempt officraft member-m1 /w/m1", hasSession, capture)
+			wantCalls = append(wantCalls, nudgeCallsWithEnters(3)...)
+			wantCalls = append(wantCalls, listener...)
+			wantCalls = append(wantCalls, pid)
+			if !reflect.DeepEqual(h.runner.calls, wantCalls) {
+				t.Errorf("calls =\n%v\nwant\n%v", h.runner.calls, wantCalls)
+			}
+		})
+
 		t.Run("a teardown that killed the session but left a sweep survivor reports the spawn failed", func(t *testing.T) {
 			h := newSpawnHarness()
 			h.present = map[string]bool{}
