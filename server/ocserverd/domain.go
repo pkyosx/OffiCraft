@@ -1177,6 +1177,28 @@ func ValidLoreState(s string) bool {
 	return false
 }
 
+// Lore type tags; "" is an entry with no tag. The DB CHECK (migrations/00113)
+// admits exactly these and "".
+const (
+	LoreTypeInstructionConflict   = "instruction_conflict"
+	LoreTypeInstructionSupplement = "instruction_supplement"
+	LoreTypeOwnerDecision         = "owner_decision"
+	LoreTypeOwnerPreference       = "owner_preference"
+	LoreTypeOther                 = "other"
+)
+
+const loreTypeList = LoreTypeInstructionConflict + ", " + LoreTypeInstructionSupplement + ", " +
+	LoreTypeOwnerDecision + ", " + LoreTypeOwnerPreference + " or " + LoreTypeOther
+
+func ValidLoreType(s string) bool {
+	switch s {
+	case LoreTypeInstructionConflict, LoreTypeInstructionSupplement,
+		LoreTypeOwnerDecision, LoreTypeOwnerPreference, LoreTypeOther:
+		return true
+	}
+	return false
+}
+
 // loreRoleCapCharsDefault is the MEMBER fold's budget; the name (and its
 // settings key lore.cap_chars.role) predates the member rekey and stays because
 // renaming would change a key the owner has already set. The member and manual

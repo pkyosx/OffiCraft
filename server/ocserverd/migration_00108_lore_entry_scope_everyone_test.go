@@ -61,7 +61,7 @@ func migration00108UpAdmitsEveryoneAndKeepsEveryRowAndTheIndex(t *testing.T) {
 	}
 
 	rows, err := db.Query(`SELECT id, seq, scope_kind, scope_key, title, body, author_id,
-		source_task_id, state, retire_reason, effective_ts, created_ts, updated_ts
+		source_task_id, state, retire_reason, effective_ts, created_ts, updated_ts, '' AS lore_type
 		FROM lore_entry ORDER BY seq`)
 	if err != nil {
 		t.Fatalf("read back: %v", err)

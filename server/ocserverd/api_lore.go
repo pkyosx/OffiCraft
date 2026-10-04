@@ -49,6 +49,17 @@ func (s *apiServer) HandleWriteLoreEntryApiLorePost(w http.ResponseWriter, r *ht
 		return
 	}
 
+	loreType := ""
+	if body.LoreType != nil {
+		loreType = strings.TrimSpace(*body.LoreType)
+	}
+	if loreType != "" && !ValidLoreType(loreType) {
+		writeError(w, http.StatusBadRequest,
+			"lore_type must be one of "+loreTypeList+", or omitted for no tag — got "+
+				strconv.Quote(loreType)+"; nothing was written")
+		return
+	}
+
 	taskID := ""
 	if body.TaskId != nil {
 		taskID = strings.TrimSpace(*body.TaskId)
@@ -115,6 +126,7 @@ func (s *apiServer) HandleWriteLoreEntryApiLorePost(w http.ResponseWriter, r *ht
 		EffectiveTS: now,
 		CreatedTS:   now,
 		UpdatedTS:   now,
+		LoreType:    loreType,
 	})
 	if err != nil {
 		internalError(w, err)
@@ -273,9 +285,10 @@ func (s *apiServer) HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *ht
 	states, statesPlural := loreFilterValues(params.States, params.State)
 	authors, _ := loreFilterValues(params.AuthorIds, params.AuthorId)
 	entryIDs, _ := loreFilterValues(params.EntryIds, params.EntryId)
+	loreTypes, _ := loreFilterValues(params.LoreTypes, nil)
 	f := loreListFilter{
 		ScopeKinds: kinds, ScopeKeys: keys, States: states, AuthorIDs: authors,
-		EntryIDs: entryIDs,
+		EntryIDs: entryIDs, LoreTypes: loreTypes,
 	}
 	// 'role' was collapsed into agent (rc-a43100fd0486) and is refused; the orphan
 	// rows migrations/00100 left at scope_kind='role' still come back on any page
@@ -294,6 +307,13 @@ func (s *apiServer) HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *ht
 				loreFilterParamName("state", statesPlural)+" must be one of "+
 					LoreStateActive+", "+LoreStatePinned+", "+LoreStateRetired+
 					" — got "+strconv.Quote(st))
+			return
+		}
+	}
+	for _, lt := range loreTypes {
+		if !ValidLoreType(lt) {
+			writeError(w, http.StatusBadRequest,
+				"lore_types must be one of "+loreTypeList+" — got "+strconv.Quote(lt))
 			return
 		}
 	}
@@ -498,6 +518,7 @@ func loreFilterParamName(singular string, fromPlural bool) string {
 func newLoreEntryDTO(e LoreEntry, facts loreScopeFacts) LoreEntryDTO {
 	taskTypeKey := facts.TaskTypeKey
 	options := loreScopeOptions(facts)
+	loreType := e.LoreType
 	return LoreEntryDTO{
 		Id:           e.ID,
 		Seq:          e.Seq,
@@ -512,6 +533,7 @@ func newLoreEntryDTO(e LoreEntry, facts loreScopeFacts) LoreEntryDTO {
 		EffectiveTs:  e.EffectiveTS,
 		CreatedTs:    e.CreatedTS,
 		UpdatedTs:    e.UpdatedTS,
+		LoreType:     &loreType,
 		TaskTypeKey:  &taskTypeKey,
 		ScopeOptions: &options,
 	}

@@ -1537,6 +1537,9 @@ type LoreEntryDTO struct {
 	// Id ``L-<n>``, ``n`` ascending globally. This is the handle every write face takes as ``entry_id``.
 	Id string `json:"id"`
 
+	// LoreType The entry's type tag: ``instruction_conflict`` (指示衝突), ``instruction_supplement`` (指示補充), ``owner_decision`` (Owner 決策), ``owner_preference`` (Owner 偏好) or ``other`` (其他), or "" for an entry that carries no tag. At most one per entry. The cockpit shows it ahead of the title and the boot document renders it ahead of the title, so the title itself carries no type prefix.
+	LoreType *string `json:"lore_type,omitempty"`
+
 	// RetireReason Why it was retired, or "". Meaningful only while ``state`` is ``retired``, and cleared when the entry is moved back.
 	RetireReason string `json:"retire_reason"`
 
@@ -1661,6 +1664,9 @@ type LoreEntryWriteDTO struct {
 	// Body The entry itself, at most ``lore_cap_chars_body`` characters.
 	Body string `json:"body"`
 
+	// LoreType The entry's type tag, one of ``instruction_conflict`` (指示衝突), ``instruction_supplement`` (指示補充), ``owner_decision`` (Owner 決策), ``owner_preference`` (Owner 偏好) or ``other`` (其他). Anything else is a 400 that names the value and writes nothing. Omitted, null or "" writes an entry with no tag.
+	LoreType *string `json:"lore_type,omitempty"`
+
 	// TaskId The task whose TYPE this entry belongs to. Send a TASK id here, not a type_key — the server reads the type off the task, which is also what records where the lesson came from.
 	//
 	// What decides the scope is the EFFECTIVE RELATED TASK: this task when it carries a type, and NULL otherwise. NULL covers BOTH omitting this field and naming a 臨時任務 that carries no type, and it files the entry under the writer's OWN boot document — an ``agent`` scope keyed to the writer, staff and outsource alike (the staff-to-``role`` arm is retired; see ``LoreEntryDTO.scope_kind``) (owner 2026-09-07, card rc-3c24fdc61ed3).
@@ -1668,7 +1674,7 @@ type LoreEntryWriteDTO struct {
 	// 🔴 A task carrying no type used to be REFUSED here. It is not any more, and the refusal was retired rather than relaxed: the owner ruled that a task with no type is not a place an entry could hang in the first place, so naming one is the same input as naming none, not a request that got redirected. When that happens ``scope_note`` on the write receipt says so in one sentence, because the caller cannot otherwise tell the two 200s apart.
 	TaskId *string `json:"task_id,omitempty"`
 
-	// Title The entry's one-line heading, at most ``lore_cap_chars_title`` characters.
+	// Title The entry's one-line heading, at most ``lore_cap_chars_title`` characters. Do not put the type in the title — it goes in ``lore_type``.
 	Title string `json:"title"`
 }
 
@@ -4551,6 +4557,9 @@ type HandleListLoreEntriesApiLoreGetParams struct {
 	States *[]string `form:"states,omitempty" json:"states,omitempty"`
 	State  *string   `form:"state,omitempty" json:"state,omitempty"`
 
+	// LoreTypes REPEATABLE type-tag set (``?lore_types=owner_decision&lore_types=owner_preference``), matched against ``lore_type``. Accepted values: ``instruction_conflict``, ``instruction_supplement``, ``owner_decision``, ``owner_preference``, ``other``; ANY other element is a 400 that NAMES it, because an ignored typo returns an empty page that reads exactly like a real "there are none". Entries with no tag match no value. Absent or all-blank means no constraint on this axis. additive-optional.
+	LoreTypes *[]string `form:"lore_types,omitempty" json:"lore_types,omitempty"`
+
 	// AuthorIds REPEATABLE author set (``?author_ids=mira&author_ids=nova``) — the multi-select twin of ``author_id``. Member ids are free-form and are matched literally against the author PINNED at write time, so there is no closed set and no 400; an id nobody carries simply contributes no rows. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. additive-optional.
 	AuthorIds *[]string `form:"author_ids,omitempty" json:"author_ids,omitempty"`
 	AuthorId  *string   `form:"author_id,omitempty" json:"author_id,omitempty"`
@@ -7017,6 +7026,19 @@ func (siw *ServerInterfaceWrapper) HandleListLoreEntriesApiLoreGet(w http.Respon
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "state"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "state", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "lore_types" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "lore_types", r.URL.Query(), &params.LoreTypes, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "lore_types"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "lore_types", Err: err})
 		}
 		return
 	}
