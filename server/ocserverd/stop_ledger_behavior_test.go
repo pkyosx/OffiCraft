@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -365,4 +366,23 @@ func TestAStopRecordedWhileTheTickResendsIsNotOverwritten(t *testing.T) {
 	rs, _ := api.robustStopOf("loose")
 	apiWantValue(t, "the record", any(map[string]any{"target": rs.Target, "at": rs.At}),
 		any(map[string]any{"target": "m-newer", "at": 1000.5}))
+}
+
+func TestAParkedStopIsLoggedOnParkAndThenAtMostOncePerMinute(t *testing.T) {
+	api, _, d, _ := newAPITestServer(t)
+	reconcileTestPut(t, d, Member{
+		ID: "loose", Name: "Loose", Kind: KindStaff, RoleKey: "assistant",
+		DesiredState: DesiredStateOffline,
+	})
+	seedMachine(t, api, "m-dark")
+	logged := captureStderr(t, func() {
+		api.sendRobustStop("loose", []string{"m-dark"}, false, 1000)
+		for _, at := range []float64{1001, 1010, 1030, 1059, 1061, 1070} {
+			api.stepRobustStop("loose", at, func() []string { return nil })
+		}
+	})
+	apiWantValue(t, "log lines", any(map[string]any{
+		"park":        float64(strings.Count(logged, "robust stop loose: target m-dark unreachable")),
+		"fail-closed": float64(strings.Count(logged, `target warden "m-dark" NOT reachable`)),
+	}), any(map[string]any{"park": 2, "fail-closed": 1}))
 }

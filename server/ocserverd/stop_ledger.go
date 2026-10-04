@@ -22,7 +22,12 @@ type robustStop struct {
 	// or every one a fan-out reached did, or there was none to reach), and the
 	// tick re-fires it every pass until a warden takes it.
 	Landed bool
+	// LoggedAt is when this park was last logged: a parked STOP is re-fired every
+	// tick, possibly for hours, and must not log every tick.
+	LoggedAt float64
 }
+
+const robustStopParkLogSecs = 60.0
 
 type robustStopOutcome struct {
 	Landed []string
@@ -104,8 +109,22 @@ func (s *apiServer) sendRobustStopOver(id string, targets []string, fanout bool,
 	if !fanout && len(targets) == 1 {
 		aimed = targets[0]
 	}
-	landed := s.sendStopFrames(id, targets, now)
+	send := targets
+	if over != nil {
+		// A re-send skips wardens that would refuse anyway: the fail-closed gate
+		// logs every refusal, and a parked STOP is re-fired every tick.
+		send = s.onlineOnly(targets)
+	}
+	landed := s.sendStopFrames(id, send, now)
 	rec := robustStop{Target: aimed, At: now, Landed: len(landed) > 0}
+	logPark := !rec.Landed
+	if logPark && over != nil && !over.Landed && over.Target == aimed {
+		rec.LoggedAt = over.LoggedAt
+		logPark = now-over.LoggedAt >= robustStopParkLogSecs
+	}
+	if logPark {
+		rec.LoggedAt = now
+	}
 	s.robustStopMu.Lock()
 	if cur, ok := s.robustStops[id]; over == nil || (ok && cur == *over) {
 		s.robustStops[id] = rec
@@ -115,12 +134,26 @@ func (s *apiServer) sendRobustStopOver(id string, targets []string, fanout bool,
 	case rec.Landed:
 		return robustStopOutcome{Landed: landed}
 	case aimed == "":
-		reconcileLog("robust stop %s: no warden took the fan-out (targets %v) — parked, "+
-			"the tick re-resolves the kill chain and re-fires it", id, targets)
+		if logPark {
+			reconcileLog("robust stop %s: no warden took the fan-out (targets %v) — parked, "+
+				"the tick re-resolves the kill chain and re-fires it", id, targets)
+		}
 		return robustStopOutcome{}
 	}
-	reconcileLog("robust stop %s: target %s unreachable — parked, the tick re-fires it", id, aimed)
+	if logPark {
+		reconcileLog("robust stop %s: target %s unreachable — parked, the tick re-fires it", id, aimed)
+	}
 	return robustStopOutcome{Parked: aimed}
+}
+
+func (s *apiServer) onlineOnly(targets []string) []string {
+	out := make([]string, 0, len(targets))
+	for _, t := range targets {
+		if s.hub.IsOnline(t) {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // stepRobustStop re-sends or retires id's owed STOP and answers whether one is
