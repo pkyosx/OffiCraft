@@ -808,7 +808,7 @@ The server owns desired-state reconciliation; the warden is a stateless executor
   (b) **Outsource workers.** Worker spawn and stop dispatch (`worker_spawn.go`) never consults
   `--no-reconcile`; the mirror flag `--no-outsource` gates only the assignment PRODUCER
   (`outsourceTickNow`, plus that producer's half of the cadence tick). Everything else that reaches
-  `respawnWorkerForOwnerOp` / `enqueueWorkerStop` consults **neither** flag — the owner verbs
+  `respawnWorkerForOwnerOp` / `sendRobustStop` consults **neither** flag — the owner verbs
   (restart, model change, relocate, stop, refocus), a task terminate that dismisses its
   workers, and the worker's own `report_stopped` — so a shadow server with both flags set
   still spawns and kills real worker sessions. This list is not exhaustive; the invariant to
@@ -834,10 +834,11 @@ The server owns desired-state reconciliation; the warden is a stateless executor
   instant tick makes the next cadence tick a no-op (idempotent, no double spawn).
 - Candidate set per cadence tick: every ACTIVE non-warden member, plus any ACTIVE warden
   whose `desired_state == "uninstall"` (wardens are never spawn/stop candidates — no warden
-  reconciles another warden), plus a dismissed staff member only while the robust STOP its
-  dismissal sent is still owed (`RobustStopPendingAt`). The session-gone collect of §4.3 is
-  never computed for it, so the only STOP it is sent is that one and its re-sends. It leaves
-  the set on the first offline sample; a session that comes back after that is not stopped
+  reconciles another warden). A dismissed staff member is not a candidate, but the tick still
+  steps the robust-stop ledger for it, so the STOP its dismissal sent keeps being re-sent while
+  it is owed. Nothing else is computed for it (no decision, no session-gone collect of §4.3), so
+  the only STOP it is sent is that one and its re-sends. The ledger drops it on the first
+  offline sample; a session that comes back after that is not stopped
   by the tick but by the SSE stop gate, which refuses a removed member's handshake with a
   409 (every other request of its is refused 401 by §1.3 cut 5), and the agent's listener
   ends its own session after a run of 409s.
@@ -865,8 +866,8 @@ runtime capability report.
   stop to the machine that START was sent to as well as wherever the kill chain points; a stop
   that reaches that machine ends the START: `last_command` becomes STOP, so the same tick
   dispatches a fresh START instead of waiting (backoff and the circuit breaker below still
-  apply), and 喚醒 answers no `activation_pending`. For a worker, a stop parked on that machine
-  (re-fired by the tick) counts as reaching it. A stop that does not reach it ends nothing, and
+  apply), and 喚醒 answers no `activation_pending`. A stop parked on that machine (re-fired by
+  the tick) counts as reaching it. A stop that does not reach it ends nothing, and
   the START is waited on as above; 喚醒 then answers `activation_pending` with a
   `warden_unreachable` reason naming the machine the START is still booting on.
 - ¬online ∧ START timed out → register a failure that arms exponential backoff
@@ -988,10 +989,17 @@ decides that time is up.
 - 🔴 **Neither of those two paths goes through the producer's own discipline.** Both go
   through `dispatchRobustStopNow`, which does NOT write `last_command` /
   `last_command_at` — so the producer's de-dupe/re-dispatch discipline below never engages
-  for them. **It is no longer one-shot, though (T-ed79):** every dispatch from there arms an
-  at-least-once marker (`reconcileState.RobustStopPendingAt`, armed UNCONDITIONALLY —
-  including when the fail-closed enqueue gate refused the frame), and the cadence re-sends
-  the STOP once the member is STILL online past `stop_retry`. Since T-253 the same dispatch
+  for them. **It is not one-shot, though:** every dispatch from there is recorded in the
+  robust-stop ledger (`stop_ledger.go`, one record per id, shared by staff and outsource
+  workers). A STOP that landed is re-sent by the cadence once the session it aimed at is STILL
+  alive past `stop_retry` ("alive": connected, and either the STOP was a broadcast, the
+  connection names no machine, or it names the machine the STOP was aimed at); a single
+  target the fail-closed enqueue gate refused is parked and re-fired every tick until a warden
+  takes it; a broadcast every warden refused, or a STOP with no target at all, is recorded
+  nowhere and the caller defers or rolls back. A `no_such_session` receipt from the machine
+  the STOP was aimed at, or a START landing there (any START, for a broadcast), retires the
+  record. While a record is owed against a live session the decider holds every arm
+  (`none`, phase `stopping`): the ledger is the only re-sender of an out-of-band robust STOP. Since T-253 the same dispatch
   also addresses a wider target chain, ending in a broadcast to every online warden, so
   "nobody knew which machine to aim at" is no longer a way for the collect to go missing
   either. What is still NOT automatic is escalation beyond re-sending the same STOP: if the
