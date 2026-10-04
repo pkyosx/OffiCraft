@@ -552,7 +552,7 @@
     position: absolute;
     top: 0;
     bottom: 0;
-    width: 12px;
+    width: 24px;
     pointer-events: none;
     opacity: 0;
     transition: opacity 0.15s;
@@ -560,12 +560,14 @@
   .mon-table--machines th:first-child::after,
   .mon-table--machines td:first-child::after {
     left: 100%;
-    box-shadow: inset 10px 0 10px -10px color-mix(in srgb, var(--color-shadow) 75%, transparent);
+    box-shadow: inset 20px 0 16px -14px color-mix(in srgb, var(--color-shadow) 30%, transparent);
   }
   .mon-table--machines th:last-child::before,
   .mon-table--machines td:last-child::before {
     right: 100%;
-    box-shadow: inset -10px 0 10px -10px color-mix(in srgb, var(--color-shadow) 75%, transparent);
+    box-shadow:
+      inset -1px 0 0 color-mix(in srgb, var(--color-overlay) 14%, transparent),
+      inset -20px 0 16px -14px color-mix(in srgb, var(--color-shadow) 30%, transparent);
   }
   .mon-table-wrap--more-left .mon-table--machines th:first-child::after,
   .mon-table-wrap--more-left .mon-table--machines td:first-child::after,
