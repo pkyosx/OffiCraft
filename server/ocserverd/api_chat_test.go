@@ -3084,8 +3084,8 @@ func TestResumeFloorParts(t *testing.T) {
 		}
 		apiWantValue(t, "roster", apiTestJSONOf(t, roster), any(apiTestSeedRoster()))
 		apiWantValue(t, "machines", apiTestJSONOf(t, machines), any(apiTestSeedMachines()))
-		if rosterSize != 228 || machinesSize != 19 {
-			t.Fatalf("sizes = %d, %d, want 228, 19", rosterSize, machinesSize)
+		if rosterSize != 213 || machinesSize != 19 {
+			t.Fatalf("sizes = %d, %d, want 213, 19", rosterSize, machinesSize)
 		}
 		if !reflect.DeepEqual(names, map[string]string{
 			"kip": "Kip", "mira": "Mira", "m-server-self": "伺服器這一台",
@@ -3105,8 +3105,8 @@ func TestResumeFloorParts(t *testing.T) {
 			t.Fatalf("resumeFloorParts: %v", err)
 		}
 		apiWantValue(t, "roster", apiTestJSONOf(t, roster), []any{apiTestSeedRoster()[1]})
-		if rosterSize != 208 {
-			t.Fatalf("roster_chars = %d, want 208", rosterSize)
+		if rosterSize != 193 {
+			t.Fatalf("roster_chars = %d, want 193", rosterSize)
 		}
 		if names["kip"] != "Kip" {
 			t.Fatalf("names = %#v, want the dismissed colleague still named", names)
@@ -3346,7 +3346,7 @@ func TestHandlePeekResumeSummarySizeApiResumeSummarySizeGet(t *testing.T) {
 		apiWantBody(t, data, map[string]any{
 			"identity":              "owner",
 			"overview":              apiTestResumeOverview(0, 26),
-			"estimated_total_chars": 273,
+			"estimated_total_chars": 258,
 			"note":                  apiTestPeekNote,
 		})
 		dashboard.wantFrames()
@@ -3363,7 +3363,7 @@ func TestHandlePeekResumeSummarySizeApiResumeSummarySizeGet(t *testing.T) {
 		apiWantBody(t, data, map[string]any{
 			"identity":              "owner",
 			"overview":              apiTestResumeOverview(1, 64),
-			"estimated_total_chars": 311,
+			"estimated_total_chars": 296,
 			"note":                  apiTestPeekNote,
 		})
 	})
@@ -3696,7 +3696,7 @@ func apiTestResumeOverview(chatCount, chatChars int) map[string]any {
 		"tasks_detail_chars":           0,
 		"cards_waiting":                0,
 		"cards_answered_recent":        0,
-		"roster_chars":                 228,
+		"roster_chars":                 213,
 		"machines_chars":               19,
 		"steps_on_answered_card":       0,
 		"steps_on_answered_card_chars": 0,
@@ -3716,4 +3716,4 @@ const apiTestResumeNote = "這是一份**開機快照**，不是完整資料。\
 
 const apiTestPeekNote = "Size-only preview of resume_summary — counts/sizes ONLY, no chat or task content. estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars + steps_on_answered_card_chars, all five reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit, the two studio-floor blocks, and the answered-card pointers its task rows carry. steps_on_answered_card > 0 means that many steps AMONG THE FEW MOST-RECENTLY-UPDATED TASKS the snapshot carries — not across all your tasks — are sitting on a reply card the owner ALREADY answered while the step is still in_progress, and nobody has acted on the answer yet; pull resume_summary (or the cards) and read it before anything else. It is a FLOOR, not a total: the task block is capped at the most recently updated tasks, so when you hold more tasks than that cap, an older task stuck on an answered card is not counted here and 0 does not prove there is none — use list_tasks / list_reply_cards to be sure. So it is what pulling the snapshot actually costs. Use it to decide: if small (rule of thumb < 20000 chars, ≈ 5k tokens) call resume_summary directly in your main session; if large, spawn a cheap sub-agent (e.g. haiku) to call resume_summary and return a compressed digest, so the full payload never burns your own context."
 
-const apiTestSeedAssistantDuty = "Owner 的助理，工作室的預設對口。\n\n- **不知道該找誰**：先找我，我會判斷並安排後續。\n- **OffiCraft 怎麼運作**：怎麼使用、規則是什麼、某個操作在哪裡，都可以問我。\n- **你做不到的操作**：我的權限比一般成員大，權限之內的我可以代你執行；只有 Owner 能決定的，我整理好開一張卡送到他面前。\n- 系統升級後需要的後續協助"
+const apiTestSeedAssistantDuty = "Owner 的助理，工作室的預設對口。\n\n- **不知道該找誰**：先找我，我會判斷並安排後續。\n- **OffiCraft 怎麼運作**：怎麼使用、規則是什麼、某個操作在哪裡，都可以問我。\n- **你做不到的操作**：我的權限比一般成員大，權限之內的我可以代你執行；只有 Owner 能決定的，我整理好開一張卡送到他面前。"
