@@ -362,4 +362,68 @@ describe("RuntimeLoginWarningMark under a click or tap", () => {
     fireEvent.mouseLeave(mark);
     expect(tooltipLines()).toBeNull();
   });
+
+  it("under repeated hover with no click, each mouseenter shows the hint and each mouseleave closes it", () => {
+    const { mark } = renderInRow();
+    fireEvent.mouseEnter(mark);
+    expect(tooltipLines()).toEqual(["seth-m1 未登入 Claude", SIGN_IN_CLAUDE]);
+    fireEvent.mouseLeave(mark);
+    expect(tooltipLines()).toBeNull();
+    fireEvent.mouseEnter(mark);
+    expect(tooltipLines()).toEqual(["seth-m1 未登入 Claude", SIGN_IN_CLAUDE]);
+    fireEvent.mouseLeave(mark);
+    expect(tooltipLines()).toBeNull();
+  });
+
+  it("under a hover over a pinned hint, it stays pinned through mouseenter and mouseleave, and one click closes it", () => {
+    const { mark } = renderInRow();
+    fireEvent.click(mark);
+    fireEvent.mouseLeave(mark);
+    fireEvent.mouseEnter(mark);
+    fireEvent.mouseLeave(mark);
+    const hint = screen.getByRole("tooltip");
+    expect(hint.className).toBe("instant-hint instant-hint--pinned");
+    expect(tooltipLines()).toEqual(["seth-m1 未登入 Claude", SIGN_IN_CLAUDE]);
+    fireEvent.click(mark);
+    expect(tooltipLines()).toBeNull();
+  });
+
+  it("under Escape, a pinned hint closes, and so does one shown by hover", () => {
+    const { mark } = renderInRow();
+    fireEvent.click(mark);
+    expect(tooltipLines()).toEqual(["seth-m1 未登入 Claude", SIGN_IN_CLAUDE]);
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(tooltipLines()).toBeNull();
+    fireEvent.mouseEnter(mark);
+    expect(tooltipLines()).toEqual(["seth-m1 未登入 Claude", SIGN_IN_CLAUDE]);
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(tooltipLines()).toBeNull();
+  });
+
+  it("under a click on a second mark while the first is pinned, only the second's hint is open", () => {
+    render(
+      <I18nProvider>
+        <div onClick={() => {}}>
+          <RuntimeLoginWarningMark
+            warnings={[{ machineId: "m1", machineName: "seth-m1", runtime: "claude", pending: false }]}
+            modelCallWarnings={[]}
+          />
+        </div>
+        <div onClick={() => {}}>
+          <RuntimeLoginWarningMark
+            warnings={[{ machineId: "m2", machineName: "Mac Mini", runtime: "codex", pending: false }]}
+            modelCallWarnings={[]}
+          />
+        </div>
+      </I18nProvider>,
+    );
+    const [a, b] = screen.getAllByTestId("runtime-login-warning");
+    fireEvent.click(a);
+    expect(tooltipLines()).toEqual(["seth-m1 未登入 Claude", SIGN_IN_CLAUDE]);
+    fireEvent.click(b);
+    const hints = screen.getAllByRole("tooltip");
+    expect(hints.map((h) => Array.from(h.children).map((l) => l.textContent))).toEqual([
+      ["Mac Mini 未登入 Codex", SIGN_IN_CODEX],
+    ]);
+  });
 });

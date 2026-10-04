@@ -16,7 +16,8 @@ const EDGE = 8;
 /** A span whose explanation shows the moment it is hovered or focused, in place
  * of a native `title` (which the browser holds back for about a second). A
  * click or tap pins it open until the next click on the trigger or anywhere
- * outside, so phones (no hover) can read it too. Each
+ * outside it, Escape, a scroll or a resize, so phones (no hover) can read it
+ * too. Each
  * `\n` in `hint` starts a new line. The hint is portalled to <body> with fixed
  * positioning because its hosts sit inside ellipsis / overflow-hidden rows that
  * would clip anything rendered in place. */
@@ -29,9 +30,9 @@ export function InstantHint({
   const id = useId();
   const triggerRef = useRef<HTMLSpanElement>(null);
   const hintRef = useRef<HTMLDivElement>(null);
-  // "pinned" is set only by a click, and only a click or scroll closes it, so
-  // neither mouseleave nor the blur from tapping the hint itself drops a hint
-  // the reader asked to keep. A tap fires mouseenter right before click; keeping
+  // "pinned" is set only by a click, and mouseleave / blur never clear it, so
+  // neither the pointer leaving nor the blur from tapping the hint itself drops
+  // a hint the reader asked to keep; what closes it is listed in the effect below. A tap fires mouseenter right before click; keeping
   // the two apart is what stops that tap from toggling the hint straight shut.
   const [state, setState] = useState<"closed" | "shown" | "pinned">("closed");
   const open = state !== "closed";
@@ -62,14 +63,21 @@ export function InstantHint({
       if (triggerRef.current?.contains(target) || hintRef.current?.contains(target)) return;
       close();
     };
+    const closeOnEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
     // A fixed hint does not follow its trigger when something scrolls.
     window.addEventListener("scroll", close, true);
     window.addEventListener("resize", close);
-    document.addEventListener("click", closeOutside);
+    // Capture phase: another hint's trigger stops its click from bubbling, so a
+    // bubbling listener would leave this one open beside the next.
+    document.addEventListener("click", closeOutside, true);
+    document.addEventListener("keydown", closeOnEscape);
     return () => {
       window.removeEventListener("scroll", close, true);
       window.removeEventListener("resize", close);
-      document.removeEventListener("click", closeOutside);
+      document.removeEventListener("click", closeOutside, true);
+      document.removeEventListener("keydown", closeOnEscape);
     };
   }, [open]);
 

@@ -460,9 +460,9 @@ const REGISTRY = [
   {
     file: "components/InstantHint.tsx",
     kind: "addEventListener",
-    count: 3,
+    count: 4,
     verdict:
-      "scroll + resize + document click while a hint is shown; all three only close this mount's own hint, carry no conversation's value, and are removed by the effect cleanup when the hint closes or the host unmounts",
+      "scroll + resize + capture-phase document click + document keydown (Escape) while a hint is shown; all four only close this mount's own hint, carry no conversation's value, and are removed by the effect cleanup when the hint closes or the host unmounts",
   },
   {
     file: "hooks/sharedServerSettings.ts",
