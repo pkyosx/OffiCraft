@@ -1005,9 +1005,16 @@ decides that time is up.
   as a broadcast and re-resolved through the kill chain every tick, so it goes out the moment
   a warden can take it. A broadcast stays a broadcast even when it listed a single online
   warden. Whether a caller counts the session stopped is separate: only a STOP that landed,
-  or is parked on a named machine, reached anything — the worker's stopped-report and
-  handover collects still roll back on a STOP that reached nothing (the ledger keeps
-  re-firing it either way); the staff collect stands (owner ruling `rc-b08d49dc3b03`). A
+  or is parked on a named machine, reached anything (`robustStopEffectOf`, one judgement for
+  both populations: only then is `boot_ts` cleared, and only a STOP that reached the booting
+  START's machine supersedes it). A collect stands either way — staff and worker,
+  stopped-report and handover alike (owner rulings `rc-b08d49dc3b03`, `rc-ae3f9765a6f5`):
+  the row reads stopped at once and the ledger keeps re-firing the STOP. **A parked STOP goes
+  out before any START:** both START queue sites re-fire a parked record immediately before
+  queueing the START (`flushParkedStopBeforeStart`), because a handler's reconcile does not
+  step the ledger and a landed START retires the record — without the flush a warden that came
+  back between ticks would get the START alone and the old session would run beside the new
+  one. A
   `no_such_session` receipt from the machine
   the STOP was aimed at, or a START landing there (any START, for a broadcast), retires the
   record. While a record is owed against a live session the decider holds every arm

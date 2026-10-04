@@ -430,7 +430,7 @@ func (s *apiServer) handleRestartOutsourceWorker(w http.ResponseWriter, r *http.
 			return err
 		}
 		// BEFORE the respawn: respawnWorkerForOwnerOp writes receipts of its own
-		// (stampWorkerPlacementBlocked, stopWorkerSessionForHandover), and this
+		// (stampWorkerPlacementBlocked), and this
 		// request-start snapshot written after it would bury the newer sentence on a
 		// 200. ⚠️ No test holds this order — an independent review moved it and the
 		// suite stayed green.
