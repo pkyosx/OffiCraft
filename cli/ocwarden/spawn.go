@@ -19,8 +19,8 @@ const (
 	// mod route polls within the same 30 s, see waitForNotifyMod), out of the
 	// 150s startReceiptDeadlineSecs in server/ocserverd/receipt_watch.go (the START receipt
 	// is POSTed only after Spawn returns); that comment lists the rest of the spawn
-	// path's budgets and the measured starts (3s normal, 69s for a restart plus
-	// paste fallback); only the restart path's budget worst case, ≈ 185s, runs
+	// path's budgets and the measured starts (3s normal, 34s for a restart that
+	// then loads the mod, 69s for a restart plus paste fallback); only the restart path's budget worst case, ≈ 185s, runs
 	// past it. Nothing mechanical links them: cli/ocwarden and server/ocserverd
 	// are separate Go modules.
 	nudgeMaxAttempts = 30

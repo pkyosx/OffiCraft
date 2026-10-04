@@ -55,10 +55,10 @@ const receiptDeadlineSecs = 90.0
 // before the deadline is read.
 //
 // 150s because, measured on a station (warden log "received start frame" to
-// "dispatched start OK"), a normal start takes 3s and a restart whose mod still
-// does not load, with its paste fallback, 69s; by the budgets above a Claude
-// start whose mod did not load is ≈ 129s at worst without the restart. A restart
-// that then succeeds has not been measured. The restart path's own budget worst
+// "dispatched start OK"), a normal start takes 3s, a restart whose mod then
+// loads 34s, and a restart whose mod still does not load, with its paste
+// fallback, 69s; by the budgets above a Claude start whose mod did not load is
+// ≈ 129s at worst without the restart. The restart path's own budget worst
 // case, ≈ 185s, is PAST 150s, so a restart that is slow at every step can be
 // stamped receipt_missing with nothing wrong: known, and left as is.
 // 🔴 Those warden constants live in another Go module and nothing links them;
