@@ -4320,6 +4320,10 @@
             },
             "task_id": {
               "type": "string"
+            },
+            "lore_type": {
+              "description": "The entry's type tag: ``instruction_conflict``, ``instruction_supplement``, ``owner_decision``, ``owner_preference`` or ``other``. Anything else is a 400 that writes nothing. Omitted or an empty string writes an entry with no tag. The type goes here, never as a prefix in the title.",
+              "type": "string"
             }
           },
           "required": [
@@ -4384,6 +4388,13 @@
             },
             "entry_id": {
               "type": "string"
+            },
+            "lore_types": {
+              "description": "REPEATABLE type-tag set (``?lore_types=owner_decision``): ``instruction_conflict``, ``instruction_supplement``, ``owner_decision``, ``owner_preference`` or ``other``. Any other value is a 400 naming it. Entries with no tag match no value.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
             },
             "limit": {
               "type": "integer"
