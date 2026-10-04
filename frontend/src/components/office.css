@@ -46,6 +46,7 @@
 .lifecycle-dot {
   position: relative;
   display: inline-block;
+  flex: none;
   width: 9px;
   height: 9px;
   border-radius: 50%;
@@ -53,10 +54,9 @@
 /* A touch screen has no hover, so tapping the 9px dot is the only way to read
  * its state. The tap area grows from a pseudo-element rather than padding, so
  * the coloured circle and the hint's anchor stay where they are. It grows only
- * left and down: rightward it would meet the warning mark's own tap area (the
- * gap between them must open neither), and upward it would reach the name line,
- * where the browser's tap adjustment would pull taps meant for the name (which
- * opens the chat) onto the dot. Left stops short of the roster avatar beside it. */
+ * left and down: rightward it would overlap the warning mark's own tap area,
+ * and upward it would reach the name line, where the browser's tap adjustment
+ * would pull taps meant for the name (which opens the chat) onto the dot. Left stops short of the roster avatar beside it. */
 @media (hover: none) {
   .lifecycle-dot::after {
     content: "";
@@ -2751,15 +2751,6 @@ button.chat__msg-file {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-/* The PRESENCE dot leads the rail row's task line (owner 2026-07-16: 點在行首,
- * member-row parity). T-59d6 retired the private `.outsource-row__online-dot`
- * (a misnomer AND a second colour source — it hard-coded the online green for
- * every worker): the line now renders the shared `.lifecycle-dot`, so all five
- * --color-dot-* states are visually distinct here exactly as on the 正職
- * roster. Only the flex sizing is local. The chat header's copy has NO dot. */
-.outsource-row__task-line > .lifecycle-dot {
-  flex: none;
 }
 /* line 2's single-row container (owner 2026-07-16: ● dot, chip, then type) —
  * shared by the rail row AND the worker chat header's subtitle (the shared
