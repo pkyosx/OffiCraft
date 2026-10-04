@@ -248,7 +248,10 @@ func TestEmptyEntryIdSetIsTheSameAsNotSendingIt(t *testing.T) {
 // parameter beside it changes NOTHING in the catalog, and the generator still
 // prints success. So 「the REST param is there」 is not evidence for 「the tool
 // has it」, and only reading the served catalog is.
-func TestListLoreEntriesToolAdvertisesTheEntryIdAxis(t *testing.T) {
+// gen-mcp-catalog copies x-mcp.legacy.descriptor verbatim and reports success
+// either way, so a parameter that exists on the HTTP route can still be missing
+// from the tool an agent actually calls.
+func TestLoreToolsAdvertiseTheirParameters(t *testing.T) {
 	raw, err := os.ReadFile("../../spec/mcp-catalog.json")
 	if err != nil {
 		t.Fatalf("read spec/mcp-catalog.json: %v", err)
@@ -264,26 +267,28 @@ func TestListLoreEntriesToolAdvertisesTheEntryIdAxis(t *testing.T) {
 	if err := json.Unmarshal(raw, &catalog); err != nil {
 		t.Fatalf("decode spec/mcp-catalog.json: %v", err)
 	}
-	for _, tool := range catalog.Tools {
-		if tool.Name != "list_lore_entries" {
-			continue
-		}
-		for _, want := range []string{"entry_ids", "entry_id"} {
-			if _, ok := tool.InputSchema.Properties[want]; !ok {
-				t.Fatalf("the list_lore_entries TOOL has no %q parameter. An agent "+
-					"cannot ask for one 傳承 by its number, and there is no "+
-					"get_lore_entry tool to fall back to — so 「agent 起疑時自己讀原文」 "+
-					"is not something it can do. The parameter existing on GET /api/lore "+
-					"does not carry it here: gen-mcp-catalog copies x-mcp.legacy."+
-					"descriptor verbatim and reports success either way. Tool "+
-					"parameters present: %v", want, sortedKeys(tool.InputSchema.Properties))
+	for _, tc := range []struct {
+		tool, param, why string
+	}{
+		{"list_lore_entries", "entry_ids", "an agent cannot ask for one 傳承 by its number, and there is no get_lore_entry tool to fall back to"},
+		{"list_lore_entries", "entry_id", "an agent cannot ask for one 傳承 by its number, and there is no get_lore_entry tool to fall back to"},
+		{"list_lore_entries", "lore_types", "an agent cannot filter 傳承 by type"},
+		{"write_lore_entry", "lore_type", "the boot document tells agents to put the type in lore_type and not in the title, so an agent writing from the tool schema loses the type entirely"},
+	} {
+		t.Run(tc.tool+" has "+tc.param, func(t *testing.T) {
+			for _, tool := range catalog.Tools {
+				if tool.Name != tc.tool {
+					continue
+				}
+				if _, ok := tool.InputSchema.Properties[tc.param]; !ok {
+					t.Fatalf("the %s TOOL has no %q parameter: %s. Tool parameters present: %v",
+						tc.tool, tc.param, tc.why, sortedKeys(tool.InputSchema.Properties))
+				}
+				return
 			}
-		}
-		return
+			t.Fatalf("spec/mcp-catalog.json has no %s tool at all", tc.tool)
+		})
 	}
-	t.Fatal("spec/mcp-catalog.json has no list_lore_entries tool at all — the " +
-		"lore list is not reachable by any agent, which is a larger failure than " +
-		"the one this test was written for.")
 }
 
 func sortedKeys(m map[string]json.RawMessage) []string {
