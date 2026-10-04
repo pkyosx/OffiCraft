@@ -17,7 +17,7 @@
     // what makes "anywhere in the tree" true, rather than narrowing the claim.
     "visual-guards",
     // The Playwright configs themselves were in no tsconfig either
-    // (tsconfig.node.json only includes vite.config.ts), so a type error in the
+    // (tsconfig.node.json covers only vite.config.ts and its helper), so a type error in the
     // config that HOSTS the guards was as invisible as one inside them.
     "playwright-paint.config.ts",
     "playwright-ct.config.ts",

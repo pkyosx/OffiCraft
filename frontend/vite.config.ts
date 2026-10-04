@@ -3,6 +3,7 @@ import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { build as esbuild } from "esbuild";
 import { fileURLToPath } from "node:url";
+import { localTestWorkers } from "./local-test-workers";
 
 // [T-1500] Inline the pre-React theme applier into index.html.
 // It is bundled FROM src/paint/prePaint.ts — i.e. it imports the real
@@ -41,7 +42,19 @@ function inlinePrePaint(): Plugin {
   };
 }
 
-export default defineConfig({
+// Only vitest (mode "test") reads the worker options. Resolving the cap for
+// `vite build` or the dev server as well would let a malformed
+// OC_LOCAL_TEST_WORKERS break the product build.
+function testWorkerOptions(mode: string) {
+  if (mode !== "test") return {};
+  const workers = localTestWorkers();
+  // minWorkers must come down with it: vitest's run-mode default minimum is
+  // numCpus - 1, and a maxWorkers below that aborts the run with
+  // "minThreads and maxThreads must not conflict".
+  return workers === undefined ? {} : { maxWorkers: workers, minWorkers: 1 };
+}
+
+export default defineConfig(({ mode }) => ({
   plugins: [inlinePrePaint(), react()],
   server: {
     // api/seeds.ts imports the repo-root seeds/*.md (the single source of truth)
@@ -54,6 +67,7 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
+    ...testWorkerOptions(mode),
     // T-187c: the Playwright Component-Testing visual guards live in
     // visual-guards/*.ct.spec.tsx and run in a REAL browser (see
     // playwright-ct.config.ts). Vitest's default include glob
@@ -80,4 +94,4 @@ export default defineConfig({
       "**/*.paint.spec.ts",
     ],
   },
-});
+}));

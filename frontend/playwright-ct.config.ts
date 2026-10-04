@@ -12,12 +12,16 @@
 // Kept OFF the fast path's default globs: specs are *.ct.spec.tsx under
 // visual-guards/, which vite.config.ts's test.exclude removes from vitest.
 import { defineConfig, devices } from "@playwright/experimental-ct-react";
+import { localTestWorkers } from "./local-test-workers";
+
+const testWorkers = localTestWorkers();
 
 export default defineConfig({
   testDir: "./visual-guards",
   testMatch: "**/*.ct.spec.tsx",
   snapshotDir: "./visual-guards/__snapshots__",
   fullyParallel: true,
+  ...(testWorkers === undefined ? {} : { workers: testWorkers }),
   // CI must never pass because someone left a .only in a guard.
   forbidOnly: !!process.env.CI,
   retries: 0,
