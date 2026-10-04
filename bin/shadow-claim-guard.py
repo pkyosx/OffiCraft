@@ -85,7 +85,7 @@ DISPATCH_DIR = ROOT / "server" / "ocserverd"
 # 🔴 enqueueStopFrames / sendStopFrames JOINED IN T-253, and leaving them out
 # would have shrunk (A) silently. That ticket moved every `stop` send behind one
 # body: the kill sites (reconcileOne's STOP arm, dispatchShutdown, the identity
-# sweep, enqueueWorkerStop) stopped calling enqueueToWarden directly and now call
+# sweep, sendRobustStop) stopped calling enqueueToWarden directly and now call
 # these two instead. The guard would still have been TECHNICALLY right — the send
 # bottoms out in enqueueToWarden, so (A) stayed non-empty via that one frame —
 # but it would have attributed every one of those dispatches to enqueueStopFrames
@@ -93,7 +93,7 @@ DISPATCH_DIR = ROOT / "server" / "ocserverd"
 # sibling rule below (`name in DISPATCH_HELPERS` → skip) is what keeps the two
 # new names from reporting each other as dispatch sites.
 DISPATCH_HELPERS = (
-    "enqueueWardenFrame", "enqueueToWarden", "enqueueWorkerStop",
+    "enqueueWardenFrame", "enqueueToWarden", "sendRobustStop",
     "enqueueStopFrames", "sendStopFrames",
 )
 

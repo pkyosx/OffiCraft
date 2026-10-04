@@ -39,10 +39,10 @@ from typing import List, Optional, Tuple
 ROOT = Path(__file__).resolve().parents[2]
 GUARD = ROOT / "bin" / "shadow-claim-guard.py"
 
-# Every helper in DISPATCH_HELPERS appears here, and enqueueWorkerStop is the
+# Every helper in DISPATCH_HELPERS appears here, and sendRobustStop is the
 # reason: it is the helper on the chain this whole ticket is about (the owner
 # pressing stop on an outsource worker), and an earlier version of this file
-# exercised only enqueueToWarden. Deleting enqueueWorkerStop from the guard left
+# exercised only enqueueToWarden. Deleting sendRobustStop from the guard left
 # both the guard and this control GREEN — the one deletion that matters most was
 # the one nothing here noticed.
 #
@@ -77,12 +77,12 @@ func (s *apiServer) sendStopFrames(id string, targets []string, now float64) []s
 	return s.enqueueStopFrames(id, targets)
 }
 
-func (s *apiServer) enqueueWorkerStop(target, workerID string) bool {
+func (s *apiServer) sendRobustStop(target, workerID string) bool {
 	return len(s.sendStopFrames(workerID, []string{target}, 0)) > 0
 }
 
 func (s *apiServer) stopWorkerSessionOrPark(target, workerID string) bool {
-	return s.enqueueWorkerStop(target, workerID)
+	return s.sendRobustStop(target, workerID)
 }
 
 func (s *apiServer) dispatchShutdown(id string) bool {
@@ -111,7 +111,7 @@ func (s *apiServer) sendStopFrames(id string, targets []string, now float64) []s
 	return s.enqueueStopFrames(id, targets)
 }
 
-func (s *apiServer) enqueueWorkerStop(target, workerID string) bool {
+func (s *apiServer) sendRobustStop(target, workerID string) bool {
 	return len(s.sendStopFrames(workerID, []string{target}, 0)) > 0
 }
 
@@ -119,7 +119,7 @@ func (s *apiServer) stopWorkerSessionOrPark(target, workerID string) bool {
 	if s.noReconcile {
 		return false
 	}
-	return s.enqueueWorkerStop(target, workerID)
+	return s.sendRobustStop(target, workerID)
 }
 
 func (s *apiServer) dispatchShutdown(id string) bool {
@@ -346,14 +346,14 @@ def main() -> None:
     guard_src = GUARD.read_text(encoding="utf-8")
     decl = re.search(r"DISPATCH_HELPERS = \(([^)]*)\)", guard_src)
     declared = set(re.findall(r"\"(\w+)\"", decl.group(1))) if decl else set()
-    expected = ("enqueueWardenFrame", "enqueueToWarden", "enqueueWorkerStop",
+    expected = ("enqueueWardenFrame", "enqueueToWarden", "sendRobustStop",
                 "enqueueStopFrames", "sendStopFrames")
     helpers = [h for h in expected if h in declared]
     if len(helpers) != len(expected):
         failures.append(
             "DISPATCH_HELPERS no longer names every warden-dispatch helper "
             f"(found {helpers}, want {list(expected)}). If one was renamed in the "
-            "server, rename it here; do NOT drop it — enqueueWorkerStop is the "
+            "server, rename it here; do NOT drop it — sendRobustStop is the "
             "chain T-941e is about, and enqueueStopFrames / sendStopFrames are the "
             "T-253 shared stop send, whose loss costs ATTRIBUTION rather than the "
             "row itself (the chain still bottoms out in enqueueToWarden), which is "

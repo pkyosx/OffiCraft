@@ -98,7 +98,7 @@ func TestANoSuchSessionReceiptFromTheAimedWardenEndsAStaffStopsResends(t *testin
 	})
 }
 
-func TestAWorkerOwingARobustStopIsNotStartedOrBenchedWhileItsSessionLingersOnTheAimedMachine(t *testing.T) {
+func TestAWorkerOwingARobustStopIsResentButNeverBenchedWhileItsSessionLingersOnTheAimedMachine(t *testing.T) {
 	api, h, d, owner, session, contractor := apiTestLiveWorker(t)
 	if status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`); status != 200 {
 		t.Fatalf("stopped: %d %v", status, data)
