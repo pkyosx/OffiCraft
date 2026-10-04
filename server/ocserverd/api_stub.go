@@ -198,6 +198,11 @@ type apiServer struct {
 	// from both producers and disarmed from the telemetry ingest goroutine.
 	receiptMu      txguard.Mutex
 	receiptPending map[string]pendingReceipt
+	// robustStops is the robust-STOP ledger of both populations (stop_ledger.go).
+	// robustStopMu is a leaf: never reconcileMu/outsourceMu, never held across a
+	// call out.
+	robustStopMu txguard.Mutex
+	robustStops  map[string]robustStop
 
 	outsourceMu txguard.Mutex
 	// noOutsource is read at the call site (runLifecycleTick) and in
@@ -211,15 +216,6 @@ type apiServer struct {
 	workerReclaimed   map[string]bool
 
 	workerSpawnAttempts map[string]int
-	// workerStopPending: the fail-closed dispatch gate drops a STOP toward an
-	// unreachable warden, so a live-worker kill is parked here and re-fired by the
-	// scheduler tick until the target drains it.
-	workerStopPending map[string]string
-	// workerStopLanded: a frame on a warden's FIFO is not a dead session — the
-	// drain deletes the FIFO before writing it and no ack exists, so an empty
-	// backlog means "collected", not "delivered". The outsource tick re-pushes the
-	// STOP while the killed session is still there.
-	workerStopLanded map[string]workerStopDispatch
 
 	workerMachinePref map[string]string
 	// workerMachineBench: "<worker id>|<machine id>" → cooldown-until ts.

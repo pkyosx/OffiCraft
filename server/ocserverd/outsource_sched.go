@@ -264,9 +264,11 @@ func (s *apiServer) runOutsourceTick(now float64) {
 		// Runs before the FSM below, so a queued 起來 spent at the converged-offline
 		// edge is started in the same tick.
 		s.consumeWorkerRestartAfterStop(&w, now)
-		// Re-fire a parked refused kill FIRST, before any branch below can
-		// re-spawn onto the same machine.
-		s.retryPendingWorkerStop(w.ID, now)
+		// Step an owed robust STOP FIRST, before any branch below can re-spawn
+		// onto the same machine.
+		s.stepRobustStop(w.ID, now, func() []string {
+			return s.workerKillTargets(w.ID, w.LastMachineID)
+		})
 		switch w.Status {
 		case WorkerStatusAssigned, WorkerStatusActive:
 			// The FSM is the ONLY collector of a wind-down or 停止 epoch: do not gate it

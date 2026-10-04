@@ -4813,7 +4813,7 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 
 	// ── a report that had to broadcast leaves a usable retry record (F3) ─────
 
-	t.Run("a report that had to broadcast is armed AT NOBODY, and the retry can still act on that", func(t *testing.T) {
+	t.Run("a report that had to broadcast is re-sent as a broadcast while the session lives on without naming a machine", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
 		apiTestWorkerWantedOnline(t, d, "ow-abc123")
@@ -4821,6 +4821,7 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 		shutdownWarden(t, api, d, "m-two")
 		// The worker never connected, so nothing names a machine — the fan-out case.
 		contractor := apiTestAgentToken(t, api, "ow-abc123", "")
+		reported := nowSecs()
 
 		if status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`); status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
@@ -4828,27 +4829,14 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 		wsWantWardenFrames(t, api, "m-one", wsStopFrame("ow-abc123"))
 		wsWantWardenFrames(t, api, "m-two", wsStopFrame("ow-abc123"))
 
-		api.outsourceMu.Lock()
-		armed := api.workerStopLanded["ow-abc123"]
-		api.outsourceMu.Unlock()
-		// AIMED AT NOBODY, and that is the record: a fan-out cannot name the
-		// machine that owes it a dead session, so the retry judges it by presence
-		// instead of by a machine comparison.
-		apiWantValue(t, "the armed kill", any(map[string]any{
-			"target": armed.Target, "at": armed.At,
-		}), any(map[string]any{"target": "", "at": apiAnyNumber}))
-
-		// …and it is a record the retry can act on: the session turns out to be
-		// alive after all, so past stop_retry the kill goes out again. This worker
-		// reconnects without naming a machine, so what the presence-only reading
-		// buys over a machine comparison is NOT measured here — the case that
-		// discriminates the two is TestRetryUnlandedWorkerStop's broadcast arm.
+		// A fan-out cannot name the machine that owes it a dead session, so the
+		// retry judges it by presence and re-resolves the chain to re-send: the
+		// session turns out to be alive after all, still naming no machine, so past
+		// stop_retry the kill fans out again.
 		if _, err := api.hub.Connect("ow-abc123", ""); err != nil {
 			t.Fatalf("hub.Connect: %v", err)
 		}
-		api.outsourceMu.Lock()
-		api.retryUnlandedWorkerStop("ow-abc123", armed.At+api.reconcileConfigLive().StopRetry+1)
-		api.outsourceMu.Unlock()
+		api.runOutsourceTick(reported + api.reconcileConfigLive().StopRetry + 1)
 		wsWantWardenFrames(t, api, "m-one", wsStopFrame("ow-abc123"))
 		wsWantWardenFrames(t, api, "m-two", wsStopFrame("ow-abc123"))
 	})

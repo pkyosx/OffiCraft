@@ -230,17 +230,6 @@ func decisionNone(obs memberObservation, st reconcileState, reason string) recon
 	}
 }
 
-// robustStopStep is the at-least-once judgment for one armed out-of-band robust STOP, shared by
-// the member producer (RobustStopPendingAt, top of reconcileDecide) and the worker producer
-// (workerStopLanded, retryUnlandedWorkerStop) — do not fork a private copy.
-type robustStopStep int
-
-const (
-	robustStopDone robustStopStep = iota
-	robustStopWait
-	robustStopResend
-)
-
 // alive is the caller's evidence the session THIS STOP aimed at still runs — the worker producer
 // narrows it to online AND still on the addressed machine, since a respawn reuses the id.
 func robustStopRetryStep(dispatchedAt float64, alive bool, stopRetry, now float64) robustStopStep {

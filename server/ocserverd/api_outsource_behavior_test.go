@@ -698,9 +698,6 @@ func TestRelocateActiveWorker(t *testing.T) {
 		for _, at := range []float64{now, now + 30, now + 120} {
 			api.runOutsourceTick(at)
 			wantDrained(t, api, "m-new")
-			if got := api.workerStopPending[workerID]; got != "m-old" {
-				t.Fatalf("tick at +%.0f: parked kill = %q, want m-old", at-now, got)
-			}
 		}
 
 		api.hub.Disconnect(session)
