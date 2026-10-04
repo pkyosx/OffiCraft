@@ -1412,37 +1412,36 @@ func TestSendStopFrames(t *testing.T) {
 }
 
 func TestSendRobustStop(t *testing.T) {
-	// 🔴 THE ANSWER, NOT THE SENDING. The three shapes below are the three things
-	// that can become of one kill, and a caller's whole decision hangs on telling
-	// them apart: landed somewhere, owed to a machine we can name, or owed to
-	// nobody at all. Only the third means "this session was not killed and
-	// nothing will retry".
-	t.Run("a fan-out every warden refuses is owed to nobody, says so, and is not re-fired once the wardens come back", func(t *testing.T) {
+	// 🔴 THE ANSWER, NOT THE SENDING. A kill either landed somewhere or is owed:
+	// to the one machine the chain named (parked there), or — a fan-out nobody
+	// took — to whatever the chain resolves to on the next tick. Nothing that was
+	// sent is ever forgotten; only reached() tells a caller a machine has it.
+	t.Run("a fan-out every warden refuses is parked as a fan-out and re-fired through the chain once a warden comes back", func(t *testing.T) {
 		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
 		seedMachine(t, api, "m-one")
 		seedMachine(t, api, "m-two") // rostered, never connected
 
-		out := api.sendRobustStop("ow-abc123", []string{"m-one", "m-two"}, 1000)
+		out := api.sendRobustStop("ow-abc123", []string{"m-one", "m-two"}, true, 1000)
 
 		apiWantValue(t, "the outcome", any(map[string]any{
-			"landed": wsStrings(out.Landed), "parked": out.Parked, "recorded": out.recorded(),
-		}), any(map[string]any{"landed": []any{}, "parked": "", "recorded": false}))
+			"landed": wsStrings(out.Landed), "parked": out.Parked, "reached": wsStrings(out.reached()),
+		}), any(map[string]any{"landed": []any{}, "parked": "", "reached": []any{}}))
 		apiTestListen(t, api, "m-one")
 		apiTestListen(t, api, "m-two")
 		api.runOutsourceTick(1001)
-		wsWantWardenFrames(t, api, "m-one")
-		wsWantWardenFrames(t, api, "m-two")
+		wsWantWardenFrames(t, api, "m-one", wsStopFrame("ow-abc123"))
+		wsWantWardenFrames(t, api, "m-two", wsStopFrame("ow-abc123"))
 	})
 
 	t.Run("CONTROL: one named target that refuses is parked, and fired there once it comes back", func(t *testing.T) {
 		api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
 		seedMachine(t, api, "m-one")
 
-		out := api.sendRobustStop("ow-abc123", []string{"m-one"}, 1000)
+		out := api.sendRobustStop("ow-abc123", []string{"m-one"}, false, 1000)
 
 		apiWantValue(t, "the outcome", any(map[string]any{
-			"landed": wsStrings(out.Landed), "parked": out.Parked, "recorded": out.recorded(),
-		}), any(map[string]any{"landed": []any{}, "parked": "m-one", "recorded": true}))
+			"landed": wsStrings(out.Landed), "parked": out.Parked, "reached": wsStrings(out.reached()),
+		}), any(map[string]any{"landed": []any{}, "parked": "m-one", "reached": []any{"m-one"}}))
 		apiTestListen(t, api, "m-one")
 		api.runOutsourceTick(1001)
 		wsWantWardenFrames(t, api, "m-one", wsStopFrame("ow-abc123"))
@@ -1454,11 +1453,11 @@ func TestSendRobustStop(t *testing.T) {
 		apiTestListen(t, api, "m-one")
 		seedMachine(t, api, "m-two") // rostered, never connected
 
-		out := api.sendRobustStop("ow-abc123", []string{"m-one", "m-two"}, 1000)
+		out := api.sendRobustStop("ow-abc123", []string{"m-one", "m-two"}, true, 1000)
 
 		apiWantValue(t, "the outcome", any(map[string]any{
-			"landed": wsStrings(out.Landed), "parked": out.Parked, "recorded": out.recorded(),
-		}), any(map[string]any{"landed": []any{"m-one"}, "parked": "", "recorded": true}))
+			"landed": wsStrings(out.Landed), "parked": out.Parked, "reached": wsStrings(out.reached()),
+		}), any(map[string]any{"landed": []any{"m-one"}, "parked": "", "reached": []any{"m-one"}}))
 		wsWantWardenFrames(t, api, "m-one", wsStopFrame("ow-abc123"))
 	})
 }
@@ -1477,8 +1476,8 @@ func TestSendRobustStop(t *testing.T) {
 // ⚠️ THE TWO CONTROLS BELOW ARE REACHABLE FROM THE ENDPOINT AND ARE ALSO TESTED
 // THERE — they are not an oversight and not duplication for its own sake. They
 // are here so the one case that ISN'T reachable has same-seam neighbours to be
-// read against: without them "recorded ⇒ no rollback" would be asserted a level
-// away from "not recorded ⇒ rollback", and a reader could not tell whether the
+// read against: without them "reached ⇒ no rollback" would be asserted a level
+// away from "reached nothing ⇒ rollback", and a reader could not tell whether the
 // difference came from the outcome or from the layer. The endpoint twins are
 // TestHandleReportStoppedApiSelfStoppedPost's dark-fleet pair.
 func TestConcludeWorkerStoppedReport(t *testing.T) {
@@ -1502,7 +1501,7 @@ func TestConcludeWorkerStoppedReport(t *testing.T) {
 		return prior
 	}
 
-	t.Run("a fan-out every warden refused is recorded nowhere, so the collect is taken back and the row says why", func(t *testing.T) {
+	t.Run("a fan-out every warden refused reached no machine, so the collect is taken back and the row says why", func(t *testing.T) {
 		api, h, d, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
 		prior := wsReported(t, api, d, DesiredStateOnline)
 
@@ -1527,7 +1526,7 @@ func TestConcludeWorkerStoppedReport(t *testing.T) {
 		}))
 	})
 
-	t.Run("CONTROL: a kill that landed IS recorded, so the collect stands", func(t *testing.T) {
+	t.Run("CONTROL: a kill that landed reached a machine, so the collect stands", func(t *testing.T) {
 		api, h, d, owner, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
 		prior := wsReported(t, api, d, DesiredStateOnline)
 
@@ -2128,8 +2127,8 @@ func TestStopWorkerSessionForHandover(t *testing.T) {
 
 		apiWantValue(t, "stopped", any(stopped), any(false))
 		apiWantValue(t, "deferral logged", any(strings.Contains(logged,
-			"relocate deferred ow-abc123 (Contractor): the kill is on no warden's FIFO "+
-				"and parked nowhere (targets [])")), any(true))
+			"relocate deferred ow-abc123 (Contractor): the kill reached no machine "+
+				"(targets []) and waits in the ledger as a fan-out")), any(true))
 		wsWantWardenFrames(t, api, ServerSelfHost)
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
 			"status":  "active",

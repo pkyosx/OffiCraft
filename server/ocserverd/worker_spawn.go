@@ -568,7 +568,7 @@ func (s *apiServer) reconcileWorkerLiveness(w OutsourceWorker, now float64) bool
 			return false
 		}
 		s.setReconcileState(w.ID, decision.State)
-		s.sendRobustStop(w.ID, []string{target}, now)
+		s.sendRobustStop(w.ID, []string{target}, false, now)
 		delete(s.workerSpawnAt, w.ID)
 		// Bench only on a zombie takeover. No other stop kind reaches here today (the
 		// robust-stop ledger re-sends outside the decider; relocate is masked by
@@ -870,12 +870,17 @@ func (s *apiServer) resolveWorkerKillTarget(workerID, lastMachine string) string
 
 // Callers hold s.outsourceMu.
 func (s *apiServer) workerKillTargets(workerID, lastMachine string) []string {
-	targets, _ := s.killTargetChain(workerID, killTargetSources{
+	targets, _ := s.workerKillChain(workerID, lastMachine)
+	return targets
+}
+
+// Callers hold s.outsourceMu.
+func (s *apiServer) workerKillChain(workerID, lastMachine string) (targets []string, broadcast bool) {
+	return s.killTargetChain(workerID, killTargetSources{
 		SpawnTarget:   s.workerSpawnTarget[workerID],
 		LastMachineID: lastMachine,
 		Outsource:     true,
 	})
-	return targets
 }
 
 // observedWorkerHost is the cockpit machine cell's fallback when in-memory spawn
@@ -894,11 +899,11 @@ func (s *apiServer) observedWorkerHost(workerID string, tele map[string]any) str
 // Callers hold s.outsourceMu.
 func (s *apiServer) stopWorkerSessionForHandover(w OutsourceWorker, reason string, now float64) bool {
 	spawnTarget := s.workerSpawnTarget[w.ID]
-	targets := s.workerKillTargets(w.ID, w.LastMachineID)
-	out := s.sendRobustStop(w.ID, targets, now)
+	targets, broadcast := s.workerKillChain(w.ID, w.LastMachineID)
+	out := s.sendRobustStop(w.ID, targets, broadcast, now)
 	if !stopReachedStart(spawnTarget, out.reached()) && w.Status == WorkerStatusActive {
-		outsourceLog("%s deferred %s (%s): the kill is on no warden's FIFO and parked "+
-			"nowhere (targets %v); nothing stopped — tick retries",
+		outsourceLog("%s deferred %s (%s): the kill reached no machine (targets %v) and "+
+			"waits in the ledger as a fan-out; nothing stopped yet — tick retries",
 			reason, w.ID, w.Codename, targets)
 		s.stampWorkerPlacementBlocked(&w, spawnReasonRespawnDeferred+": the "+reason+
 			" could not clear this worker's previous session — it is marked active, but "+
@@ -935,14 +940,14 @@ func (s *apiServer) reconcileWorkerNow(w OutsourceWorker, now float64) ownerOpOu
 // stopWorkerNow is the owner's 停止: the caller has already set
 // desired_state=offline, so this only kills. Callers hold s.outsourceMu.
 func (s *apiServer) stopWorkerNow(w OutsourceWorker) {
-	targets := s.workerKillTargets(w.ID, w.LastMachineID)
+	targets, broadcast := s.workerKillChain(w.ID, w.LastMachineID)
 	s.bankLiveCost(w.ID)
-	out := s.sendRobustStop(w.ID, targets, nowSecs())
-	if !out.recorded() {
-		outsourceLog("stop %s (%s): the kill is on no warden's FIFO and parked "+
-			"nowhere (targets %v) — held down anyway", w.ID, w.Codename, targets)
+	out := s.sendRobustStop(w.ID, targets, broadcast, nowSecs())
+	if len(out.reached()) == 0 {
+		outsourceLog("stop %s (%s): the kill reached no machine (targets %v) and waits "+
+			"in the ledger as a fan-out — held down anyway", w.ID, w.Codename, targets)
 		// Returning here keeps boot_ts: no kill is on any FIFO, so no session
-		// ended. (dispatchShutdown uses a weaker test and still clears it.)
+		// ended yet. (dispatchShutdown uses a weaker test and still clears it.)
 		delete(s.workerSpawnAt, w.ID)
 		return
 	}
@@ -1218,16 +1223,17 @@ func (s *apiServer) concludeWorkerStoppedReport(
 		return nil
 	}
 	s.noteWorkerShutdownDispatched(*fresh, now)
-	// recorded(), not out.Addressed: a fan-out every warden refused is addressed
-	// but recorded nowhere.
-	if out.Recorded.recorded() || fresh.Status != WorkerStatusActive {
+	// reached(), not out.Addressed: a fan-out every warden refused is addressed
+	// and waits in the ledger, but no machine has it — the session was not
+	// stopped, so a worker coming back must not count it collected.
+	if len(out.Recorded.reached()) > 0 || fresh.Status != WorkerStatusActive {
 		return s.rereadWorker(id, fresh)
 	}
 	// Only a worker coming back is deferred. A held-down worker keeps its collect:
 	// rolling back would make the row read 「retrying」 while the wire said 「collected」.
 	if fresh.DesiredState == DesiredStateOffline {
-		outsourceLog("stop collect %s (%s): the kill is on no warden's FIFO and parked "+
-			"nowhere — kill skipped, held down", fresh.ID, fresh.Codename)
+		outsourceLog("stop collect %s (%s): the kill reached no machine and waits in the "+
+			"ledger as a fan-out — held down", fresh.ID, fresh.Codename)
 		return s.rereadWorker(id, fresh)
 	}
 	s.stampWorkerPlacementBlocked(fresh, spawnReasonRespawnDeferred+": the "+

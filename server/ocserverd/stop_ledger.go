@@ -14,25 +14,27 @@ package main
 // under it would nest the two scheduler locks the T-14 ruling keeps apart.
 
 type robustStop struct {
-	// Target is the one machine the STOP was aimed at; "" for a fan-out, which is
+	// Target is the one machine the kill chain named; "" for a fan-out, which is
 	// re-resolved through the kill chain on every re-send.
 	Target string
 	At     float64
-	// Landed false means parked: the aimed warden refused the frame, and the
-	// tick re-fires it there every pass until a warden takes it.
+	// Landed false means parked: no warden took the frame (the named one refused,
+	// or every one a fan-out reached did, or there was none to reach), and the
+	// tick re-fires it every pass until a warden takes it.
 	Landed bool
 }
 
 type robustStopOutcome struct {
 	Landed []string
+	// Parked is the named machine a refused STOP is parked on. A parked fan-out
+	// leaves it "": the STOP is owed, but no machine has it yet.
 	Parked string
 }
 
-func (o robustStopOutcome) recorded() bool {
-	return len(o.Landed) > 0 || o.Parked != ""
-}
-
-// A parked stop counts: the tick re-fires it there.
+// reached: the machines that have the STOP or are owed it by name. Empty means
+// the session was not killed now and nobody yet knows where it will be — the
+// ledger still re-fires it, but a caller about to start a replacement must not
+// count it as stopped.
 func (o robustStopOutcome) reached() []string {
 	if o.Parked == "" {
 		return o.Landed
@@ -84,32 +86,30 @@ func (s *apiServer) robustStopOf(id string) (robustStop, bool) {
 	return rs, ok
 }
 
-// sendRobustStop sends a robust STOP and records it. A refused single target is
-// parked; a fan-out every warden refused, or no target at all, records nothing
-// and returns an empty outcome — the caller must defer or roll back. Takes no
-// scheduler lock.
-func (s *apiServer) sendRobustStop(id string, targets []string, now float64) robustStopOutcome {
-	if len(targets) == 0 {
-		return robustStopOutcome{}
-	}
-	landed := s.sendStopFrames(id, targets, now)
+// sendRobustStop sends a robust STOP and records it, whatever became of it: a
+// STOP that left the server's hands owes the session's death until the session
+// is gone, and the ledger is the only thing that remembers. fanout says targets
+// is the kill chain's broadcast rather than the one machine it named — even a
+// broadcast that happened to list a single online warden. Takes no scheduler
+// lock.
+func (s *apiServer) sendRobustStop(id string, targets []string, fanout bool, now float64) robustStopOutcome {
 	aimed := ""
-	if len(targets) == 1 {
+	if !fanout && len(targets) == 1 {
 		aimed = targets[0]
 	}
+	landed := s.sendStopFrames(id, targets, now)
+	rec := robustStop{Target: aimed, At: now, Landed: len(landed) > 0}
 	s.robustStopMu.Lock()
-	defer s.robustStopMu.Unlock()
+	s.robustStops[id] = rec
+	s.robustStopMu.Unlock()
 	switch {
-	case len(landed) > 0:
-		s.robustStops[id] = robustStop{Target: aimed, At: now, Landed: true}
+	case rec.Landed:
 		return robustStopOutcome{Landed: landed}
 	case aimed == "":
-		delete(s.robustStops, id)
-		reconcileLog("robust stop %s: every warden in the fan-out refused (%v) — "+
-			"nothing sent and nothing parked; the caller must defer", id, targets)
+		reconcileLog("robust stop %s: no warden took the fan-out (targets %v) — parked, "+
+			"the tick re-resolves the kill chain and re-fires it", id, targets)
 		return robustStopOutcome{}
 	}
-	s.robustStops[id] = robustStop{Target: aimed, At: now}
 	reconcileLog("robust stop %s: target %s unreachable — parked, the tick re-fires it", id, aimed)
 	return robustStopOutcome{Parked: aimed}
 }
@@ -134,15 +134,16 @@ func (s *apiServer) stepRobustStop(id string, now float64, fanout func() []strin
 		s.robustStopMu.Unlock()
 		return false
 	case robustStopResend:
+		fan := rs.Target == ""
 		targets := []string{rs.Target}
-		if rs.Target == "" {
+		if fan {
 			targets = fanout()
 		}
 		if rs.Landed {
 			reconcileLog("robust stop %s: session still live past stop_retry (aimed at %q) — "+
 				"the kill did not take, re-dispatching", id, rs.Target)
 		}
-		s.sendRobustStop(id, targets, now)
+		s.sendRobustStop(id, targets, fan, now)
 	}
 	return s.robustStopOwed(id)
 }

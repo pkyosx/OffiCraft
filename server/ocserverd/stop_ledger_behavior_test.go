@@ -280,3 +280,66 @@ func TestAStaffWakeStartRetiresTheStopItSentAheadOfIt(t *testing.T) {
 	api.runReconcileTick(nowSecs() + api.reconcileConfigLive().StopRetry + 1)
 	apiWantValue(t, "later frames", any(wsVerbs(t, api, "m-box")), any([]any{}))
 }
+
+func TestAStopNoWardenCouldTakeIsFiredWhenOneConnects(t *testing.T) {
+	// The dark fleet is the only way to make every warden refuse from an
+	// endpoint: onlineWardens and the enqueue gate read the same presence.
+	t.Run("staff force-stop of a claim-less session with nothing named", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		reconcileTestPut(t, d, Member{
+			ID: "loose", Name: "Loose", Kind: KindStaff, RoleKey: "assistant",
+			DesiredState: DesiredStateOnline,
+		})
+		reconcileTestOnline(t, api, "loose", "")
+		if status, data := apiJSON(t, h, "POST", "/api/members/loose/force-stop", owner, `{}`); status != 200 {
+			t.Fatalf("force-stop: %d %v", status, data)
+		}
+		now := nowSecs()
+		api.runReconcileTick(now + 1)
+
+		apiTestListen(t, api, ServerSelfHost)
+		api.runReconcileTick(now + 2)
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("loose"))
+	})
+
+	t.Run("worker stopped-report of a claim-less session with nothing named", func(t *testing.T) {
+		api, h, _, _, contractor := apiTestDarkWorker(t, DesiredStateOffline)
+		session, err := api.hub.Connect("ow-abc123", "")
+		if err != nil {
+			t.Fatalf("hub.Connect: %v", err)
+		}
+		t.Cleanup(func() { api.hub.Disconnect(session) })
+		if status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`); status != 200 {
+			t.Fatalf("stopped: %d %v", status, data)
+		}
+		now := nowSecs()
+		api.runOutsourceTick(now + 1)
+
+		apiTestListen(t, api, ServerSelfHost)
+		api.runOutsourceTick(now + 2)
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+	})
+}
+
+func TestABroadcastThatReachedTheOnlyOnlineWardenIsStillAFanOut(t *testing.T) {
+	// One online warden makes the broadcast a one-element list; it must still
+	// re-resolve, not be pinned to that warden as if the chain had named it.
+	api, h, d, owner := newAPITestServer(t)
+	reconcileTestPut(t, d, Member{
+		ID: "loose", Name: "Loose", Kind: KindStaff, RoleKey: "assistant",
+		DesiredState: DesiredStateOnline,
+	})
+	shutdownWarden(t, api, d, "m-one")
+	claimless := reconcileTestOnline(t, api, "loose", "")
+	if status, data := apiJSON(t, h, "POST", "/api/members/loose/force-stop", owner, `{}`); status != 200 {
+		t.Fatalf("force-stop: %d %v", status, data)
+	}
+	wsWantWardenFrames(t, api, "m-one", wsStopFrame("loose"))
+
+	// The connection now names the machine the session is really on.
+	api.hub.Disconnect(claimless)
+	shutdownWarden(t, api, d, "m-two")
+	reconcileTestOnline(t, api, "loose", "m-two")
+	api.runReconcileTick(nowSecs() + api.reconcileConfigLive().StopRetry + 1)
+	wsWantWardenFrames(t, api, "m-two", wsStopFrame("loose"))
+}

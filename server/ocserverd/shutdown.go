@@ -24,10 +24,9 @@ type shutdownDispatch struct {
 	Landed    []string
 	Outsource bool
 	Recorded  robustStopOutcome
-	// Addressed FALSE is the deferral signal: nothing was attempted, the only
-	// shape a caller that latched stopped_since must roll back. A frame the
-	// reachability gate REFUSED is addressed-but-not-sent — owed to a known
-	// machine, parked, not rolled back.
+	// Addressed FALSE: the chain resolved to nothing, so nothing was attempted.
+	// The ledger still holds the STOP (parked as a fan-out) either way; whether a
+	// machine has it is Recorded.reached().
 	Addressed bool
 }
 
@@ -202,7 +201,7 @@ func (s *apiServer) dispatchShutdownAlsoTo(id, reason, alsoTo string) shutdownDi
 		out.Target = targets[0]
 	}
 	now := nowSecs()
-	out.Recorded = s.sendRobustStop(id, targets, now)
+	out.Recorded = s.sendRobustStop(id, targets, broadcast, now)
 	out.Landed = out.Recorded.Landed
 	out.Sent = len(out.Landed) > 0
 	if len(targets) == 0 {

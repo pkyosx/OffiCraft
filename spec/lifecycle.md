@@ -994,10 +994,17 @@ decides that time is up.
   robust-stop ledger (`stop_ledger.go`, one record per id, shared by staff and outsource
   workers). A STOP that landed is re-sent by the cadence once the session it aimed at is STILL
   alive past `stop_retry` ("alive": connected, and either the STOP was a broadcast, the
-  connection names no machine, or it names the machine the STOP was aimed at); a single
-  target the fail-closed enqueue gate refused is parked and re-fired every tick until a warden
-  takes it; a broadcast every warden refused, or a STOP with no target at all, is recorded
-  nowhere and the caller defers or rolls back. A `no_such_session` receipt from the machine
+  connection names no machine, or it names the machine the STOP was aimed at). A STOP no
+  warden took is never dropped: one aimed at the machine the kill chain named is parked there
+  and re-fired every tick until that warden takes it; a broadcast every warden refused, or a
+  STOP with no target at all (no source names a machine and no warden is online), is parked
+  as a broadcast and re-resolved through the kill chain every tick, so it goes out the moment
+  a warden can take it. A broadcast stays a broadcast even when it listed a single online
+  warden. Whether a caller counts the session stopped is separate: only a STOP that landed,
+  or is parked on a named machine, reached anything — the worker's stopped-report and
+  handover collects still roll back on a STOP that reached nothing (the ledger keeps
+  re-firing it either way); the staff collect stands (owner ruling `rc-b08d49dc3b03`). A
+  `no_such_session` receipt from the machine
   the STOP was aimed at, or a START landing there (any START, for a broadcast), retires the
   record. While a record is owed against a live session the decider holds every arm
   (`none`, phase `stopping`): the ledger is the only re-sender of an out-of-band robust STOP. Since T-253 the same dispatch
