@@ -131,43 +131,53 @@ func TestMeasureServerDisk(t *testing.T) {
 }
 
 func TestRunServerDiskUsage(t *testing.T) {
-	t.Run("the first measurement lands before the first wait, and every wait re-reads the owner's interval", func(t *testing.T) {
+	t.Run("the first measurement lands before the first wait; an interval lowered from a day to 600 s after 600 s have passed measures at the next wake, and one raised before it is due measures nothing early", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		root, dbPath := diskTestStation(t)
-		clocks := []time.Time{time.Unix(1759500000, 0), time.Unix(1759503600, 0)}
-		calls := 0
-		clock := func() time.Time {
-			now := clocks[calls]
-			calls++
-			return now
+		patch := func(body string) {
+			if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, body); status != 200 {
+				t.Fatalf("PATCH: %d %v", status, data)
+			}
 		}
+		patch(`{"disk_usage_interval_secs":86400}`)
+		start := time.Unix(1759500000, 0)
+		now := start
 		var waits []time.Duration
+		var measuredAt []float64
 		var seenAtFirstWait *serverDiskSample
 		sleep := func(d time.Duration) bool {
 			waits = append(waits, d)
 			if len(waits) == 1 {
 				seenAtFirstWait = api.serverDisk.Load()
-				if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"disk_usage_interval_secs":1200}`); status != 200 {
-					t.Fatalf("PATCH: %d %v", status, data)
-				}
-				return true
 			}
-			return false
+			if at := api.serverDisk.Load().MeasuredAt; len(measuredAt) == 0 || measuredAt[len(measuredAt)-1] != at {
+				measuredAt = append(measuredAt, at)
+			}
+			if len(measuredAt) == 3 {
+				return false
+			}
+			now = now.Add(d)
+			switch now.Sub(start) {
+			case 900 * time.Second:
+				patch(`{"disk_usage_interval_secs":600}`)
+			case 1260 * time.Second:
+				patch(`{"disk_usage_interval_secs":1200}`)
+			}
+			return true
 		}
 
-		api.runServerDiskUsage(dbPath, root, clock, sleep)
+		api.runServerDiskUsage(dbPath, root, func() time.Time { return now }, sleep)
 
-		apiWantValue(t, "waits", any(waits), any([]time.Duration{3600 * time.Second, 1200 * time.Second}))
+		apiWantValue(t, "measured at", any(measuredAt), any([]float64{1759500000, 1759500900, 1759502100}))
+		wantWaits := make([]time.Duration, 36)
+		for i := range wantWaits {
+			wantWaits[i] = time.Minute
+		}
+		apiWantValue(t, "waits", any(waits), any(wantWaits))
 		apiWantValue(t, "sample at the first wait", any(*seenAtFirstWait), any(serverDiskSample{
 			DatabaseBytes:   diskTestInt(16384),
 			BackupsBytes:    diskTestInt(20480),
 			MeasuredAt:      1759500000,
-			DBInStationRoot: true,
-		}))
-		apiWantValue(t, "latest sample", any(*api.serverDisk.Load()), any(serverDiskSample{
-			DatabaseBytes:   diskTestInt(16384),
-			BackupsBytes:    diskTestInt(20480),
-			MeasuredAt:      1759503600,
 			DBInStationRoot: true,
 		}))
 	})

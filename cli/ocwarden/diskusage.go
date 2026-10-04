@@ -25,6 +25,9 @@ const (
 	// under load; past this the measurement is dropped rather than left holding
 	// the next one back.
 	diskUsageDuTimeout = 15 * time.Minute
+	// The reporter re-reads its interval at least this often, so an owner's
+	// change applies within it rather than after the wait already begun.
+	diskUsageWakeEvery = time.Minute
 	codexMetaReadLimit = 4096
 )
 
@@ -38,6 +41,7 @@ func diskUsageIntervalFromReceipt(body map[string]any) time.Duration {
 }
 
 type diskUsageProbe struct {
+	home           string
 	root           string
 	claudeProjects string
 	codexSessions  string
@@ -72,6 +76,7 @@ func newDiskUsageProbe(env func(string) string, runner CmdRunner, goos string) (
 		codexHome = filepath.Join(home, ".codex")
 	}
 	return diskUsageProbe{
+		home:           home,
 		root:           officraftRootFor(home, ns),
 		claudeProjects: projects,
 		codexSessions:  filepath.Join(filepath.Clean(codexHome), "sessions"),
@@ -135,17 +140,18 @@ func (p diskUsageProbe) measure() map[string]any {
 	agentsDir := filepath.Join(p.root, "agents")
 
 	var ids []string
-	if entries, err := os.ReadDir(agentsDir); err == nil {
-		for _, e := range entries {
-			if e.IsDir() {
-				ids = append(ids, e.Name())
-			}
+	entries, listErr := os.ReadDir(agentsDir)
+	for _, e := range entries {
+		if e.IsDir() {
+			ids = append(ids, e.Name())
 		}
 	}
 	workspace := map[string]int64{}
+	rootMeasured := false
 	if sizes := p.du("-k", "-d", "2", p.root); sizes != nil {
 		if total, ok := sizes[p.root]; ok {
 			usage["root_bytes"] = total
+			rootMeasured = listErr == nil || errors.Is(listErr, fs.ErrNotExist)
 			for _, id := range ids {
 				if n, ok := sizes[filepath.Join(agentsDir, id)]; ok {
 					workspace[id] = n
@@ -176,11 +182,19 @@ func (p diskUsageProbe) measure() map[string]any {
 		ordered = append(ordered, id)
 	}
 	sort.Strings(ordered)
+	listed := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		listed[id] = true
+	}
 	members := make([]any, 0, len(ordered))
 	for _, id := range ordered {
 		m := map[string]any{"member_id": id}
 		if n, ok := workspace[id]; ok {
 			m["workspace_bytes"] = n
+		} else if rootMeasured && !listed[id] {
+			// Logs only, no workspace left: a measured 0, so the server can tell
+			// it from a workspace du could not size.
+			m["workspace_bytes"] = int64(0)
 		}
 		// A share from only one runtime would read as the member's whole history.
 		if claudeOK && codexOK {
@@ -209,9 +223,17 @@ func (p diskUsageProbe) claudeConversations(agentsDir string, ids []string, shar
 		return 0, false
 	}
 	prefix := claudeProjectName(agentsDir) + "-"
+	// Another station's prefix can extend this one (namespace "agents":
+	// .officraft-agents/agents vs .officraft/agents); its directories are its own.
+	var longer []string
+	for _, other := range p.stationClaudePrefixes() {
+		if len(other) > len(prefix) && strings.HasPrefix(other, prefix) {
+			longer = append(longer, other)
+		}
+	}
 	var dirs []string
 	for _, e := range entries {
-		if e.IsDir() && strings.HasPrefix(e.Name(), prefix) {
+		if e.IsDir() && strings.HasPrefix(e.Name(), prefix) && !hasAnyPrefix(e.Name(), longer) {
 			dirs = append(dirs, filepath.Join(p.claudeProjects, e.Name()))
 		}
 	}
@@ -222,10 +244,19 @@ func (p diskUsageProbe) claudeConversations(agentsDir string, ids []string, shar
 	if sizes == nil {
 		return 0, false
 	}
-	encoded := make(map[string]string, len(ids))
+	type candidate struct{ id, enc string }
+	owners := make([]candidate, 0, len(ids))
 	for _, id := range ids {
-		encoded[id] = claudeProjectName(filepath.Join(agentsDir, id))
+		owners = append(owners, candidate{id, claudeProjectName(filepath.Join(agentsDir, id))})
 	}
+	// An id can be another id plus '-' and more (ow, ow-3), so the longest
+	// encoding is tried first.
+	sort.Slice(owners, func(i, j int) bool {
+		if len(owners[i].enc) != len(owners[j].enc) {
+			return len(owners[i].enc) > len(owners[j].enc)
+		}
+		return owners[i].id < owners[j].id
+	})
 	var total int64
 	for _, dir := range dirs {
 		n, ok := sizes[dir]
@@ -234,19 +265,42 @@ func (p diskUsageProbe) claudeConversations(agentsDir string, ids []string, shar
 		}
 		total += n
 		name := filepath.Base(dir)
-		// An id can be another id plus '-' and more (ow, ow-3), so the longest
-		// match wins.
-		owner := ""
-		for id, enc := range encoded {
-			if (name == enc || strings.HasPrefix(name, enc+"-")) && len(enc) > len(encoded[owner]) {
-				owner = id
+		for _, o := range owners {
+			if name == o.enc || strings.HasPrefix(name, o.enc+"-") {
+				share[o.id] += n
+				break
 			}
-		}
-		if owner != "" {
-			share[owner] += n
 		}
 	}
 	return total, true
+}
+
+// stationClaudePrefixes is the Claude project prefix of every OffiCraft station
+// root in HOME (.officraft and .officraft-<namespace>).
+func (p diskUsageProbe) stationClaudePrefixes() []string {
+	entries, err := os.ReadDir(p.home)
+	if err != nil {
+		return nil
+	}
+	var prefixes []string
+	for _, e := range entries {
+		name := e.Name()
+		ns, isNS := strings.CutPrefix(name, ".officraft-")
+		if name != ".officraft" && !(isNS && namespaceShape.MatchString(ns)) {
+			continue
+		}
+		prefixes = append(prefixes, claudeProjectName(filepath.Join(p.home, name, "agents"))+"-")
+	}
+	return prefixes
+}
+
+func hasAnyPrefix(s string, prefixes []string) bool {
+	for _, p := range prefixes {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	return false
 }
 
 func (p diskUsageProbe) codexConversations(agentsDir string, share map[string]int64) (int64, bool) {
@@ -320,6 +374,7 @@ func codexSessionCwd(path string) string {
 // latest finished measurement: a measurement takes minutes, the heartbeat 30 s.
 type diskUsageReporter struct {
 	measure func() map[string]any
+	now     func() time.Time
 
 	mu       sync.Mutex
 	latest   map[string]any
@@ -327,7 +382,7 @@ type diskUsageReporter struct {
 }
 
 func newDiskUsageReporter(measure func() map[string]any) *diskUsageReporter {
-	return &diskUsageReporter{measure: measure, interval: defaultDiskUsageInterval}
+	return &diskUsageReporter{measure: measure, now: time.Now, interval: defaultDiskUsageInterval}
 }
 
 func (r *diskUsageReporter) snapshot() map[string]any {
@@ -348,17 +403,26 @@ func (r *diskUsageReporter) setInterval(d time.Duration) {
 	r.interval = d
 }
 
-// run measures at once, then once per interval; measurements never overlap
-// because this loop is the only caller of measure.
+// run measures at once, then again once the interval has passed since the last
+// measurement finished; measurements never overlap because this loop is the
+// only caller of measure.
 func (r *diskUsageReporter) run(ctx context.Context, sleep func(context.Context, time.Duration) bool) {
 	for ctx.Err() == nil {
 		usage := r.measure()
+		finished := r.now()
 		r.mu.Lock()
 		r.latest = usage
-		wait := r.interval
 		r.mu.Unlock()
-		if !sleep(ctx, wait) {
-			return
+		for {
+			r.mu.Lock()
+			wait := finished.Add(r.interval).Sub(r.now())
+			r.mu.Unlock()
+			if wait <= 0 {
+				break
+			}
+			if !sleep(ctx, min(wait, diskUsageWakeEvery)) {
+				return
+			}
 		}
 	}
 }

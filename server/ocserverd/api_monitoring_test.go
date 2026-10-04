@@ -1060,7 +1060,7 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 		wantDisk := func(measuredAt float64, root int) map[string]any {
 			return map[string]any{
 				"measured_at":               measuredAt,
-				"total_bytes":               root,
+				"total_bytes":               nil,
 				"database_bytes":            nil,
 				"backups_bytes":             nil,
 				"database_measured_at":      nil,
@@ -2482,7 +2482,7 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		api.recordServerDisk(dbPath, root, time.Unix(1759500100, 0))
 		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
 		apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden, `{"disk_usage":{
-			"measured_at":1759500000,"root_bytes":100000,"claude_conversation_bytes":1000,
+			"measured_at":1759500000,"root_bytes":100000,"claude_conversation_bytes":1000,"codex_conversation_bytes":0,
 			"members":[{"member_id":"mira","workspace_bytes":30000,"conversation_bytes":1000}]}}`)
 
 		status, view := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
@@ -2499,7 +2499,7 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 			"workspace_bytes":           30000,
 			"conversation_bytes":        1000,
 			"claude_conversation_bytes": 1000,
-			"codex_conversation_bytes":  nil,
+			"codex_conversation_bytes":  0,
 			"other_bytes":               33136,
 			"disk_free_bytes":           nil,
 			"disk_total_bytes":          nil,
@@ -2521,7 +2521,7 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		api.recordServerDisk(dbPath, t.TempDir(), time.Unix(1759500100, 0))
 		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
 		apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden, `{"disk_usage":{
-			"measured_at":1759500000,"root_bytes":100000,"claude_conversation_bytes":1000,
+			"measured_at":1759500000,"root_bytes":100000,"claude_conversation_bytes":1000,"codex_conversation_bytes":0,
 			"members":[{"member_id":"mira","workspace_bytes":30000,"conversation_bytes":1000}]}}`)
 
 		status, view := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
@@ -2538,7 +2538,7 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 			"workspace_bytes":           30000,
 			"conversation_bytes":        1000,
 			"claude_conversation_bytes": 1000,
-			"codex_conversation_bytes":  nil,
+			"codex_conversation_bytes":  0,
 			"other_bytes":               70000,
 			"disk_free_bytes":           nil,
 			"disk_total_bytes":          nil,
@@ -2590,7 +2590,8 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
 		apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden, `{"disk_usage":{
-			"measured_at":1759500000,"root_bytes":100000,"members":[]}}`)
+			"measured_at":1759500000,"root_bytes":100000,
+			"claude_conversation_bytes":0,"codex_conversation_bytes":0,"members":[]}}`)
 
 		status, view := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
 		if status != 200 {
@@ -2604,9 +2605,9 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 			"backups_bytes":             nil,
 			"database_measured_at":      nil,
 			"workspace_bytes":           0,
-			"conversation_bytes":        nil,
-			"claude_conversation_bytes": nil,
-			"codex_conversation_bytes":  nil,
+			"conversation_bytes":        0,
+			"claude_conversation_bytes": 0,
+			"codex_conversation_bytes":  0,
 			"other_bytes":               nil,
 			"disk_free_bytes":           nil,
 			"disk_total_bytes":          nil,
@@ -2630,7 +2631,7 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 			"measured_at":1759500000,"root_bytes":1000,
 			"members":[
 				{"member_id":"mira","workspace_bytes":100},
-				{"member_id":"ow-ghost","conversation_bytes":400},
+				{"member_id":"ow-ghost","workspace_bytes":0,"conversation_bytes":400},
 				{"member_id":"dev-gone","workspace_bytes":100}
 			]}}`)
 
@@ -2641,7 +2642,7 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		wantBox := apiTestDiskBoxMachine()
 		wantBox["disk_usage"] = map[string]any{
 			"measured_at":               1759500000,
-			"total_bytes":               1000,
+			"total_bytes":               nil,
 			"database_bytes":            nil,
 			"backups_bytes":             nil,
 			"database_measured_at":      nil,
@@ -2654,7 +2655,7 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 			"disk_total_bytes":          nil,
 			"members": []any{
 				map[string]any{"member_id": "ow-ghost", "name": nil, "roster_status": "unknown",
-					"workspace_bytes": nil, "conversation_bytes": 400, "total_bytes": 400},
+					"workspace_bytes": 0, "conversation_bytes": 400, "total_bytes": 400},
 				map[string]any{"member_id": "dev-gone", "name": "Gone Dev", "roster_status": "removed",
 					"workspace_bytes": 100, "conversation_bytes": nil, "total_bytes": 100},
 				map[string]any{"member_id": "mira", "name": "Mira", "roster_status": "active",
@@ -2668,7 +2669,7 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		})
 	})
 
-	t.Run("under a measurement whose fields carry the wrong types, the heartbeat is accepted and each such field reads as not measured", func(t *testing.T) {
+	t.Run("under a measurement whose fields carry the wrong types, the heartbeat is accepted, each such field reads as not measured and every sum built on one is null", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		box := apiTestDiskBox(t, api, d)
 		status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", box, `{"disk_usage":{
@@ -2691,7 +2692,7 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 			"database_bytes":            nil,
 			"backups_bytes":             nil,
 			"database_measured_at":      nil,
-			"workspace_bytes":           0,
+			"workspace_bytes":           nil,
 			"conversation_bytes":        nil,
 			"claude_conversation_bytes": nil,
 			"codex_conversation_bytes":  nil,
@@ -2710,11 +2711,11 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		})
 	})
 
-	t.Run("under a members field that is not a list, workspaces and other are null and members is empty", func(t *testing.T) {
+	t.Run("under a members field that is not a list, workspaces and other are null, members is empty and the total still adds root and both logs", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		box := apiTestDiskBox(t, api, d)
 		apiJSON(t, h, "POST", "/api/monitoring/telemetry", box, `{"disk_usage":{
-			"measured_at":1759500000,"root_bytes":500,"codex_conversation_bytes":20,"members":"many"}}`)
+			"measured_at":1759500000,"root_bytes":500,"claude_conversation_bytes":30,"codex_conversation_bytes":20,"members":"many"}}`)
 
 		status, view := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
 		if status != 200 {
@@ -2723,13 +2724,13 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		wantBox := apiTestDiskBoxMachine()
 		wantBox["disk_usage"] = map[string]any{
 			"measured_at":               1759500000,
-			"total_bytes":               520,
+			"total_bytes":               550,
 			"database_bytes":            nil,
 			"backups_bytes":             nil,
 			"database_measured_at":      nil,
 			"workspace_bytes":           nil,
-			"conversation_bytes":        20,
-			"claude_conversation_bytes": nil,
+			"conversation_bytes":        50,
+			"claude_conversation_bytes": 30,
 			"codex_conversation_bytes":  20,
 			"other_bytes":               nil,
 			"disk_free_bytes":           nil,
@@ -2743,7 +2744,7 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		})
 	})
 
-	t.Run("under workspaces reported larger than the root, other is 0 rather than negative", func(t *testing.T) {
+	t.Run("under workspaces reported larger than the root, other is 0 rather than negative; with neither runtime's logs measured, the total is null", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		box := apiTestDiskBox(t, api, d)
 		apiJSON(t, h, "POST", "/api/monitoring/telemetry", box, `{"disk_usage":{
@@ -2756,7 +2757,7 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		wantBox := apiTestDiskBoxMachine()
 		wantBox["disk_usage"] = map[string]any{
 			"measured_at":               1759500000,
-			"total_bytes":               100,
+			"total_bytes":               nil,
 			"database_bytes":            nil,
 			"backups_bytes":             nil,
 			"database_measured_at":      nil,
@@ -2775,6 +2776,88 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		apiWantBody(t, view, map[string]any{
 			"sessions": view["sessions"],
 			"machines": []any{wantBox, apiTestMonitoringMachine()},
+			"accounts": []any{},
+		})
+	})
+
+	t.Run("under the shape a warden sends when the whole-root du timed out and Codex failed, workspaces, conversations, total and other are null and members carry no sizes", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		box := apiTestDiskBox(t, api, d)
+		status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", box, `{"disk_usage":{
+			"measured_at":1790000107,"took_secs":900.4,
+			"claude_conversation_bytes":155648,
+			"disk_free_bytes":250000000000,"disk_total_bytes":994662584320,
+			"members":[{"member_id":"kip"},{"member_id":"mira"}]}}`)
+		if status != 200 {
+			t.Fatalf("ingest: want 200, got %d (%v)", status, data)
+		}
+
+		status, view := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, view)
+		}
+		wantBox := apiTestDiskBoxMachine()
+		wantBox["disk_usage"] = map[string]any{
+			"measured_at":               1790000107,
+			"total_bytes":               nil,
+			"database_bytes":            nil,
+			"backups_bytes":             nil,
+			"database_measured_at":      nil,
+			"workspace_bytes":           nil,
+			"conversation_bytes":        nil,
+			"claude_conversation_bytes": 155648,
+			"codex_conversation_bytes":  nil,
+			"other_bytes":               nil,
+			"disk_free_bytes":           250000000000,
+			"disk_total_bytes":          994662584320,
+			"members": []any{
+				map[string]any{"member_id": "kip", "name": "Kip", "roster_status": "active",
+					"workspace_bytes": nil, "conversation_bytes": nil, "total_bytes": 0},
+				map[string]any{"member_id": "mira", "name": "Mira", "roster_status": "active",
+					"workspace_bytes": nil, "conversation_bytes": nil, "total_bytes": 0},
+			},
+		}
+		apiWantBody(t, view, map[string]any{
+			"sessions": view["sessions"],
+			"machines": []any{wantBox, apiTestMonitoringMachine()},
+			"accounts": []any{},
+		})
+	})
+
+	t.Run("under the server's database outside the station root with its backups unmeasured, the server row's total is null", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		api.serverDisk.Store(&serverDiskSample{DatabaseBytes: diskTestInt(16384), MeasuredAt: 1759500100})
+		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+		apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden, `{"disk_usage":{
+			"measured_at":1759500000,"root_bytes":100000,"claude_conversation_bytes":1000,"codex_conversation_bytes":0,
+			"members":[{"member_id":"mira","workspace_bytes":30000,"conversation_bytes":1000}]}}`)
+
+		status, view := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, view)
+		}
+		want := apiTestMonitoringMachine()
+		want["disk_usage"] = map[string]any{
+			"measured_at":               1759500000,
+			"total_bytes":               nil,
+			"database_bytes":            16384,
+			"backups_bytes":             nil,
+			"database_measured_at":      1759500100,
+			"workspace_bytes":           30000,
+			"conversation_bytes":        1000,
+			"claude_conversation_bytes": 1000,
+			"codex_conversation_bytes":  0,
+			"other_bytes":               70000,
+			"disk_free_bytes":           nil,
+			"disk_total_bytes":          nil,
+			"members": []any{
+				map[string]any{"member_id": "mira", "name": "Mira", "roster_status": "active",
+					"workspace_bytes": 30000, "conversation_bytes": 1000, "total_bytes": 31000},
+			},
+		}
+		apiWantBody(t, view, map[string]any{
+			"sessions": view["sessions"],
+			"machines": []any{want},
 			"accounts": []any{},
 		})
 	})

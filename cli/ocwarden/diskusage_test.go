@@ -63,7 +63,7 @@ type diskUsageFixture struct {
 
 // newDiskUsageFixture lays out one station: workspaces m-1, m-12, ow and ow-3;
 // Claude projects for m-1 (two), ow, ow-3, a departed member, a sibling
-// station and an unrelated directory; Codex rollouts for m-12, m-1, a departed
+// station, a station namespaced "agents" and an unrelated directory; Codex rollouts for m-12, m-1, a departed
 // member, a sibling station, a non-meta first line and the agents dir itself.
 func newDiskUsageFixture(t *testing.T) *diskUsageFixture {
 	t.Helper()
@@ -83,17 +83,19 @@ func newDiskUsageFixture(t *testing.T) *diskUsageFixture {
 
 	enc := func(p string) string { return claudeProjectName(p) }
 	f.claudeDirs = map[string]string{
-		enc(filepath.Join(agents, "m-1")):                           "10",
-		enc(filepath.Join(agents, "m-1")) + "-work-y":               "20",
-		enc(filepath.Join(agents, "ow-3")) + "-work-x":              "40",
-		enc(filepath.Join(agents, "ow")) + "-scratch":               "2",
-		enc(filepath.Join(agents, "gone")):                          "80",
-		enc(filepath.Join(home, ".officraft-dev", "agents", "m-1")): "1000",
-		enc(home) + "-elsewhere":                                    "3000",
+		enc(filepath.Join(agents, "m-1")):                                     "10",
+		enc(filepath.Join(agents, "m-1")) + "-work-y":                         "20",
+		enc(filepath.Join(agents, "ow-3")) + "-work-x":                        "40",
+		enc(filepath.Join(agents, "ow")) + "-scratch":                         "2",
+		enc(filepath.Join(agents, "gone")):                                    "80",
+		enc(filepath.Join(home, ".officraft-dev", "agents", "m-1")):           "1000",
+		enc(filepath.Join(home, ".officraft-agents", "agents", "m-1")) + "-w": "500",
+		enc(home) + "-elsewhere":                                              "3000",
 	}
 	for name := range f.claudeDirs {
 		mkdirs(t, filepath.Join(f.projects, name))
 	}
+	mkdirs(t, filepath.Join(home, ".officraft-agents", "agents", "m-1"))
 	if err := os.WriteFile(filepath.Join(f.projects, enc(filepath.Join(agents, "m-1"))+"-file"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -110,8 +112,9 @@ func newDiskUsageFixture(t *testing.T) *diskUsageFixture {
 	return f
 }
 
-// duReply answers the whole-root du with rootOut (default: a full tree) and the
-// projects du with one line per directory asked about.
+// duReply answers the whole-root du with a full tree, or with rootErr when one is
+// given, and the projects du with one line per directory asked about, or with
+// sizesErr.
 func (f *diskUsageFixture) duReply(rootErr error, sizesErr error) func(string, []string) (string, error) {
 	agents := filepath.Join(f.root, "agents")
 	return func(name string, args []string) (string, error) {
@@ -188,7 +191,7 @@ func (f *diskUsageFixture) projectsCall(prefix string) string {
 }
 
 func TestDiskUsageProbeMeasure(t *testing.T) {
-	t.Run("under every probe succeeding on macOS, the report sizes the root, each member and both runtimes' logs", func(t *testing.T) {
+	t.Run("under every probe succeeding on macOS, the report sizes the root, each member (0 for logs with no workspace left) and both runtimes' logs, leaving out a station whose Claude prefix extends this one's", func(t *testing.T) {
 		f := newDiskUsageFixture(t)
 		got := f.probe(t, "darwin").measure()
 		want := map[string]any{
@@ -196,7 +199,7 @@ func TestDiskUsageProbeMeasure(t *testing.T) {
 			"took_secs":   107.3,
 			"root_bytes":  int64(35840000),
 			"members": []any{
-				map[string]any{"member_id": "left-9", "conversation_bytes": int64(4096)},
+				map[string]any{"member_id": "left-9", "workspace_bytes": int64(0), "conversation_bytes": int64(4096)},
 				map[string]any{"member_id": "m-1", "workspace_bytes": int64(5120000), "conversation_bytes": int64(34816)},
 				map[string]any{"member_id": "m-12", "workspace_bytes": int64(1024), "conversation_bytes": int64(8192)},
 				map[string]any{"member_id": "ow", "workspace_bytes": int64(307200), "conversation_bytes": int64(2048)},
@@ -289,7 +292,7 @@ func TestDiskUsageProbeMeasure(t *testing.T) {
 			"took_secs":   107.3,
 			"root_bytes":  int64(35840000),
 			"members": []any{
-				map[string]any{"member_id": "left-9"},
+				map[string]any{"member_id": "left-9", "workspace_bytes": int64(0)},
 				map[string]any{"member_id": "m-1", "workspace_bytes": int64(5120000)},
 				map[string]any{"member_id": "m-12", "workspace_bytes": int64(1024)},
 				map[string]any{"member_id": "ow", "workspace_bytes": int64(307200)},
@@ -394,12 +397,15 @@ func TestNewDiskUsageProbe(t *testing.T) {
 }
 
 func TestDiskUsageReporter(t *testing.T) {
-	t.Run("it measures at once, then waits the interval current at each wait", func(t *testing.T) {
-		measured := 0
+	t.Run("it measures at once, then again once the interval has passed since the last measurement finished, waking at most every minute", func(t *testing.T) {
+		clock := newFakeClock(time.Unix(1790000000, 0))
+		var measuredAt []time.Time
 		r := newDiskUsageReporter(func() map[string]any {
-			measured++
-			return map[string]any{"root_bytes": int64(measured)}
+			clock.advance(5 * time.Minute)
+			measuredAt = append(measuredAt, clock.now())
+			return map[string]any{"root_bytes": int64(len(measuredAt))}
 		})
+		r.now = clock.now
 		if got := r.snapshot(); got != nil {
 			t.Errorf("snapshot before any measurement = %v, want nil", got)
 		}
@@ -408,15 +414,60 @@ func TestDiskUsageReporter(t *testing.T) {
 		r.run(context.Background(), func(_ context.Context, d time.Duration) bool {
 			waits = append(waits, d)
 			seen = append(seen, r.snapshot())
-			r.setInterval(2 * time.Hour)
-			return len(waits) < 2
+			clock.advance(d)
+			return len(measuredAt) < 2
 		})
-		if want := []time.Duration{time.Hour, 2 * time.Hour}; !reflect.DeepEqual(waits, want) {
-			t.Errorf("waits = %v, want %v", waits, want)
+		wantWaits := make([]time.Duration, 61)
+		for i := range wantWaits {
+			wantWaits[i] = time.Minute
 		}
-		want := []map[string]any{{"root_bytes": int64(1)}, {"root_bytes": int64(2)}}
-		if measured != 2 || !reflect.DeepEqual(seen, want) {
-			t.Errorf("measured %d times, snapshots %v; want 2 and %v", measured, seen, want)
+		if !reflect.DeepEqual(waits, wantWaits) {
+			t.Fatalf("waits = %v, want 61 waits of 1m", waits)
+		}
+		wantAt := []time.Time{time.Unix(1790000300, 0), time.Unix(1790004200, 0)}
+		if !reflect.DeepEqual(measuredAt, wantAt) {
+			t.Errorf("measured at %v, want %v", measuredAt, wantAt)
+		}
+		if want := map[string]any{"root_bytes": int64(1)}; !reflect.DeepEqual(seen[59], want) {
+			t.Errorf("snapshot at the last wait = %v, want %v", seen[59], want)
+		}
+		if want := map[string]any{"root_bytes": int64(2)}; !reflect.DeepEqual(seen[60], want) {
+			t.Errorf("snapshot at the wait after the second measurement = %v, want %v", seen[60], want)
+		}
+	})
+
+	t.Run("under an interval lowered from a day to 600 s after 600 s have passed, the next wake measures; under one raised before it is due, nothing is measured early", func(t *testing.T) {
+		start := time.Unix(1790000000, 0)
+		clock := newFakeClock(start)
+		var measuredAt []time.Duration
+		r := newDiskUsageReporter(func() map[string]any {
+			measuredAt = append(measuredAt, clock.now().Sub(start))
+			return map[string]any{}
+		})
+		r.now = clock.now
+		r.setInterval(86400 * time.Second)
+		var waits []time.Duration
+		r.run(context.Background(), func(_ context.Context, d time.Duration) bool {
+			waits = append(waits, d)
+			clock.advance(d)
+			switch clock.now().Sub(start) {
+			case 900 * time.Second:
+				r.setInterval(600 * time.Second)
+			case 1260 * time.Second:
+				r.setInterval(1200 * time.Second)
+			}
+			return len(measuredAt) < 3
+		})
+		if want := []time.Duration{0, 900 * time.Second, 2100 * time.Second}; !reflect.DeepEqual(measuredAt, want) {
+			t.Errorf("measured at +%v, want +%v", measuredAt, want)
+		}
+		for _, d := range waits {
+			if d != time.Minute {
+				t.Fatalf("waits = %v, want every wait 1m", waits)
+			}
+		}
+		if len(waits) != 36 {
+			t.Errorf("%d waits, want 36", len(waits))
 		}
 	})
 
@@ -458,3 +509,9 @@ func TestDiskUsageReporter(t *testing.T) {
 		r.run(ctx, func(context.Context, time.Duration) bool { return true })
 	})
 }
+
+type fakeClock struct{ at time.Time }
+
+func newFakeClock(at time.Time) *fakeClock   { return &fakeClock{at: at} }
+func (c *fakeClock) now() time.Time          { return c.at }
+func (c *fakeClock) advance(d time.Duration) { c.at = c.at.Add(d) }

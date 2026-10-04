@@ -213,7 +213,7 @@ func TestWardenTelemetryUplinkBodies(t *testing.T) {
 			"took_secs":   107.3,
 			"root_bytes":  float64(35840000),
 			"members": []any{
-				map[string]any{"member_id": "left-9", "conversation_bytes": float64(4096)},
+				map[string]any{"member_id": "left-9", "workspace_bytes": float64(0), "conversation_bytes": float64(4096)},
 				map[string]any{"member_id": "m-1", "workspace_bytes": float64(5120000), "conversation_bytes": float64(34816)},
 				map[string]any{"member_id": "m-12", "workspace_bytes": float64(1024), "conversation_bytes": float64(8192)},
 				map[string]any{"member_id": "ow", "workspace_bytes": float64(307200), "conversation_bytes": float64(2048)},

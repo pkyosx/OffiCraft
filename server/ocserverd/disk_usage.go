@@ -113,13 +113,24 @@ func (s *apiServer) recordServerDisk(dbPath, stationRoot string, now time.Time) 
 	s.serverDisk.Store(&sample)
 }
 
-// runServerDiskUsage measures immediately, then re-reads the interval setting
-// before every wait so an owner's change applies from the next round.
+// serverDiskWakeEvery bounds each wait so an owner's interval change applies
+// within it, not after a wait of up to a day already begun.
+const serverDiskWakeEvery = time.Minute
+
+// runServerDiskUsage measures immediately, then again once the current
+// interval setting has passed since the last measurement.
 func (s *apiServer) runServerDiskUsage(dbPath, stationRoot string, clock func() time.Time, sleep func(time.Duration) bool) {
 	for {
-		s.recordServerDisk(dbPath, stationRoot, clock())
-		if !sleep(time.Duration(s.diskUsageInterval()) * time.Second) {
-			return
+		last := clock()
+		s.recordServerDisk(dbPath, stationRoot, last)
+		for {
+			wait := last.Add(time.Duration(s.diskUsageInterval()) * time.Second).Sub(clock())
+			if wait <= 0 {
+				break
+			}
+			if !sleep(min(wait, serverDiskWakeEvery)) {
+				return
+			}
 		}
 	}
 }
@@ -203,13 +214,11 @@ func machineDiskUsage(report map[string]any, self *serverDiskSample, isSelf bool
 	codex := diskByteCount(report["codex_conversation_bytes"])
 	out.ClaudeConversationBytes = claude
 	out.CodexConversationBytes = codex
-	if claude != nil || codex != nil {
-		v := orZero(claude) + orZero(codex)
-		out.ConversationBytes = &v
-	}
+	out.ConversationBytes = addBytes(claude, codex)
 
 	if list, ok := report["members"].([]any); ok {
 		workspace := 0
+		allSized := true
 		for _, raw := range list {
 			entry, ok := raw.(map[string]any)
 			if !ok {
@@ -226,7 +235,11 @@ func machineDiskUsage(report map[string]any, self *serverDiskSample, isSelf bool
 				RosterStatus:      string(Unknown),
 			}
 			row.TotalBytes = orZero(row.WorkspaceBytes) + orZero(row.ConversationBytes)
-			workspace += orZero(row.WorkspaceBytes)
+			if row.WorkspaceBytes == nil {
+				allSized = false
+			} else {
+				workspace += *row.WorkspaceBytes
+			}
 			if m, known := roster[id]; known {
 				name := m.Name
 				row.Name = &name
@@ -244,15 +257,15 @@ func machineDiskUsage(report map[string]any, self *serverDiskSample, isSelf bool
 			}
 			return a.MemberID < b.MemberID
 		})
-		out.WorkspaceBytes = &workspace
+		if allSized {
+			out.WorkspaceBytes = &workspace
+		}
 	}
 
-	if root != nil {
-		total := *root + orZero(claude) + orZero(codex)
-		if self != nil && !self.DBInStationRoot {
-			total += orZero(self.DatabaseBytes) + orZero(self.BackupsBytes)
-		}
-		out.TotalBytes = &total
+	// A total missing any part would read as a smaller station, not an unknown one.
+	out.TotalBytes = addBytes(root, claude, codex)
+	if out.TotalBytes != nil && self != nil && !self.DBInStationRoot {
+		out.TotalBytes = addBytes(out.TotalBytes, self.DatabaseBytes, self.BackupsBytes)
 	}
 
 	other := addBytes(root)

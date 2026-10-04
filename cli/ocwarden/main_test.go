@@ -793,10 +793,19 @@ func TestRun(t *testing.T) {
 		if !reflect.DeepEqual(bodies, want) {
 			t.Errorf("bodies =\n  %v\nwant\n  %v", bodies, want)
 		}
-		var wait time.Duration
-		disk.run(context.Background(), func(_ context.Context, d time.Duration) bool { wait = d; return false })
-		if wait != 7200*time.Second {
-			t.Errorf("next disk usage wait = %v, want 2h0m0s", wait)
+		start := time.Unix(1790000000, 0)
+		clock := newFakeClock(start)
+		disk.now = clock.now
+		before := measured
+		disk.run(context.Background(), func(_ context.Context, d time.Duration) bool {
+			if measured == before+2 {
+				return false
+			}
+			clock.advance(d)
+			return true
+		})
+		if gap := clock.now().Sub(start); gap != 7200*time.Second {
+			t.Errorf("next disk usage measurement %v after the first, want 2h0m0s", gap)
 		}
 	})
 
