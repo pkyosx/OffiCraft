@@ -1,6 +1,6 @@
 /* Above the 1100 modal layer: the hint's hosts include detail panels and
- * overlays. pointer-events: none keeps it from ever taking a click that React
- * would bubble through the portal into a clickable host row. */
+ * overlays. pointer-events: none keeps a hover hint from ever taking a click
+ * that React would bubble through the portal into a clickable host row. */
 .instant-hint {
   position: fixed;
   z-index: 1200;
@@ -19,4 +19,10 @@
   overflow-wrap: anywhere;
   text-align: left;
   pointer-events: none;
+}
+/* A hint pinned by a tap covers the rows below it on a phone; a tap landing
+ * on it stays there (InstantHint stops it) instead of opening whatever row
+ * lies underneath. */
+.instant-hint--pinned {
+  pointer-events: auto;
 }

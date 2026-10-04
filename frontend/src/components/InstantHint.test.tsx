@@ -143,6 +143,29 @@ describe("InstantHint", () => {
     expect([hint.style.top, hint.style.left, hint.style.visibility]).toEqual(["122px", "50px", ""]);
   });
 
+  it("under a trigger padded for a larger tap area, the hint is placed against the content, not the padding", () => {
+    stubRects({ top: 97, bottom: 130, left: 46 }, { width: 200, height: 40 });
+    render(
+      <InstantHint hint="Claude 未登入" data-testid="trigger" style={{ padding: "3px 6px 14px 4px" }}>
+        !
+      </InstantHint>,
+    );
+    fireEvent.mouseEnter(screen.getByTestId("trigger"));
+    const hint = screen.getByRole("tooltip");
+    expect([hint.style.top, hint.style.left]).toEqual(["122px", "50px"]);
+  });
+
+  it("under a padded trigger with no room below, the hint sits 6px above the content", () => {
+    stubRects({ top: 737, bottom: 770, left: 46 }, { width: 200, height: 40 });
+    render(
+      <InstantHint hint="Claude 未登入" data-testid="trigger" style={{ padding: "3px 6px 14px 4px" }}>
+        !
+      </InstantHint>,
+    );
+    fireEvent.mouseEnter(screen.getByTestId("trigger"));
+    expect(screen.getByRole("tooltip").style.top).toBe("694px");
+  });
+
   it("under no room below the trigger, the hint sits 6px above it", () => {
     stubRects({ top: 740, bottom: 756, left: 50 }, { width: 200, height: 40 });
     fireEvent.mouseEnter(renderHint("Claude 未登入"));

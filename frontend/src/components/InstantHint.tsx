@@ -13,8 +13,24 @@ import "./instant-hint.css";
 const GAP = 6;
 const EDGE = 8;
 
+/** The trigger's box without its padding. A host may pad the trigger to widen
+ * its tap area on touch screens; placing the hint against the padded box would
+ * float it that far away from what it explains. */
+function contentRect(el: HTMLElement): { top: number; bottom: number; left: number } {
+  const r = el.getBoundingClientRect();
+  const cs = getComputedStyle(el);
+  return {
+    top: r.top + (parseFloat(cs.paddingTop) || 0),
+    bottom: r.bottom - (parseFloat(cs.paddingBottom) || 0),
+    left: r.left + (parseFloat(cs.paddingLeft) || 0),
+  };
+}
+
 /** A span whose explanation shows the moment it is hovered or focused, in place
- * of a native `title` (which the browser holds back for about a second). Each
+ * of a native `title` (which the browser holds back for about a second). A
+ * click or tap pins it open until the next click on the trigger or anywhere
+ * outside it, Escape, a scroll or a resize, so phones (no hover) can read it
+ * too. Each
  * `\n` in `hint` starts a new line. The hint is portalled to <body> with fixed
  * positioning because its hosts sit inside ellipsis / overflow-hidden rows that
  * would clip anything rendered in place. */
@@ -27,7 +43,13 @@ export function InstantHint({
   const id = useId();
   const triggerRef = useRef<HTMLSpanElement>(null);
   const hintRef = useRef<HTMLDivElement>(null);
-  const [open, setOpen] = useState(false);
+  // "pinned" is set only by a click, and mouseleave / blur never clear it, so
+  // neither the pointer leaving nor the blur from tapping the hint itself drops
+  // a hint the reader asked to keep; what closes it is listed in the effect
+  // below. A tap fires mouseenter right before click; keeping the two apart is
+  // what stops that tap from toggling the hint straight shut.
+  const [state, setState] = useState<"closed" | "shown" | "pinned">("closed");
+  const open = state !== "closed";
   const [pos, setPos] = useState<CSSProperties | null>(null);
 
   useLayoutEffect(() => {
@@ -35,7 +57,7 @@ export function InstantHint({
       setPos(null);
       return;
     }
-    const trigger = triggerRef.current?.getBoundingClientRect();
+    const trigger = triggerRef.current && contentRect(triggerRef.current);
     const box = hintRef.current?.getBoundingClientRect();
     if (!trigger || !box) return;
     const below = trigger.bottom + GAP;
@@ -49,15 +71,32 @@ export function InstantHint({
 
   useEffect(() => {
     if (!open) return;
+    const close = () => setState("closed");
+    const closeOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (triggerRef.current?.contains(target) || hintRef.current?.contains(target)) return;
+      close();
+    };
+    const closeOnEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
     // A fixed hint does not follow its trigger when something scrolls.
-    const close = () => setOpen(false);
     window.addEventListener("scroll", close, true);
     window.addEventListener("resize", close);
+    // Capture phase: another hint's trigger stops its click from bubbling, so a
+    // bubbling listener would leave this one open beside the next.
+    document.addEventListener("click", closeOutside, true);
+    document.addEventListener("keydown", closeOnEscape);
     return () => {
       window.removeEventListener("scroll", close, true);
       window.removeEventListener("resize", close);
+      document.removeEventListener("click", closeOutside, true);
+      document.removeEventListener("keydown", closeOnEscape);
     };
   }, [open]);
+
+  const show = () => setState((s) => (s === "pinned" ? s : "shown"));
+  const hide = () => setState((s) => (s === "pinned" ? s : "closed"));
 
   return (
     <>
@@ -66,13 +105,16 @@ export function InstantHint({
         ref={triggerRef}
         tabIndex={0}
         aria-describedby={open ? id : undefined}
-        onMouseEnter={() => setOpen(true)}
-        onMouseLeave={() => setOpen(false)}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setOpen(false)}
-        // The focusable trigger sits inside row-buttons that activate on
-        // Enter/Space; letting those keys bubble would open the row. Pointer
-        // clicks still reach the row on purpose.
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        onFocus={show}
+        onBlur={hide}
+        // The trigger sits inside row-buttons that open on click and on
+        // Enter/Space; neither may bubble, or using the hint opens the row.
+        onClick={(e) => {
+          e.stopPropagation();
+          setState((s) => (s === "pinned" ? "closed" : "pinned"));
+        }}
         onKeyDown={(e) => {
           onKeyDown?.(e);
           if (e.key === "Enter" || e.key === " ") e.stopPropagation();
@@ -86,7 +128,10 @@ export function InstantHint({
             ref={hintRef}
             id={id}
             role="tooltip"
-            className="instant-hint"
+            className={state === "pinned" ? "instant-hint instant-hint--pinned" : "instant-hint"}
+            // React bubbles portal events through the trigger's tree, so a tap
+            // on the hint would otherwise open the row too.
+            onClick={(e) => e.stopPropagation()}
             style={pos ?? { top: 0, left: 0, visibility: "hidden" }}
           >
             {hint.split("\n").map((line, i) => (

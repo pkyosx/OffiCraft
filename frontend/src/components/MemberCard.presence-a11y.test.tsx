@@ -160,6 +160,35 @@ describe("MemberCard presence — the dot carries it", () => {
     expect(screen.queryByRole("tooltip")).toBeNull();
   });
 
+  it("under a click on the warning mark, the card shows the hint and opens neither the chat nor the detail, while a click elsewhere on the card still opens the chat", () => {
+    const onChat = vi.fn();
+    const onOpenDetail = vi.fn();
+    const { getByTestId, getByText } = render(
+      <I18nProvider>
+        <MemberCard
+          member={mkMember({
+            lifecycle: "online",
+            runtimeLoginWarnings: [
+              { machineId: "mac-1", machineName: "mac-1", runtime: "codex", pending: false },
+            ],
+          })}
+          selected={false}
+          onOpenDetail={onOpenDetail}
+          onChat={onChat}
+        />
+      </I18nProvider>,
+    );
+    fireEvent.click(getByTestId("runtime-login-warning"));
+    expect(Array.from(screen.getByRole("tooltip").children).map((l) => l.textContent)).toEqual(["mac-1 未登入 Codex", "可到「監控」頁的機器資訊，在 Codex 欄按版本號 →「登入」"]);
+    expect(onChat).not.toHaveBeenCalled();
+    expect(onOpenDetail).not.toHaveBeenCalled();
+
+    fireEvent.click(getByText("Mira"));
+    expect(onChat).toHaveBeenCalledTimes(1);
+    expect(onOpenDetail).not.toHaveBeenCalled();
+    expect(screen.queryByRole("tooltip")).toBeNull();
+  });
+
   it("under only a model-call warning, the card shows one exclamation right after the dot naming that reason", () => {
     const { getAllByTestId, container } = render(
       <I18nProvider>

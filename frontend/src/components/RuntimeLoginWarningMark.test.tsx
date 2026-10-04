@@ -286,3 +286,144 @@ describe("RuntimeLoginWarningMark across local midnight", () => {
     expect(label()).toBe("Claude 已達用量上限 · 今天 04:30 重置");
   });
 });
+
+describe("RuntimeLoginWarningMark under a click or tap", () => {
+  const tooltipLines = () =>
+    screen.queryByRole("tooltip")
+      ? Array.from(screen.getByRole("tooltip").children).map((l) => l.textContent)
+      : null;
+
+  function renderInRow() {
+    const onRowClick = vi.fn();
+    render(
+      <I18nProvider>
+        <div data-testid="row" onClick={onRowClick}>
+          <RuntimeLoginWarningMark
+            warnings={[{ machineId: "m1", machineName: "seth-m1", runtime: "claude", pending: false }]}
+            modelCallWarnings={[]}
+          />
+        </div>
+      </I18nProvider>,
+    );
+    return { mark: screen.getByTestId("runtime-login-warning"), onRowClick };
+  }
+
+  it("under a click on the mark, the hint opens and the enclosing row's click handler is not called", () => {
+    const { mark, onRowClick } = renderInRow();
+    fireEvent.click(mark);
+    expect(tooltipLines()).toEqual(["seth-m1 未登入 Claude", SIGN_IN_CLAUDE]);
+    expect(onRowClick).not.toHaveBeenCalled();
+  });
+
+  it("under a second click on the mark, the hint closes, and the row still is not called", () => {
+    const { mark, onRowClick } = renderInRow();
+    fireEvent.click(mark);
+    fireEvent.click(mark);
+    expect(tooltipLines()).toBeNull();
+    expect(onRowClick).not.toHaveBeenCalled();
+  });
+
+  it("under a click outside after the mark was clicked open, the hint closes", () => {
+    const { mark } = renderInRow();
+    fireEvent.click(mark);
+    expect(tooltipLines()).toEqual(["seth-m1 未登入 Claude", SIGN_IN_CLAUDE]);
+    fireEvent.click(document.body);
+    expect(tooltipLines()).toBeNull();
+  });
+
+  it("under a click on the open hint itself, the hint stays open and the row is not called", () => {
+    const { mark, onRowClick } = renderInRow();
+    fireEvent.click(mark);
+    const hint = screen.getByRole("tooltip");
+    expect(hint.className).toBe("instant-hint instant-hint--pinned");
+    fireEvent.click(hint);
+    expect(tooltipLines()).toEqual(["seth-m1 未登入 Claude", SIGN_IN_CLAUDE]);
+    expect(onRowClick).not.toHaveBeenCalled();
+  });
+
+  it("under a tap (mouseenter, focus, then click), the hint stays open, survives mouseleave and blur, and the next tap closes it", () => {
+    const { mark, onRowClick } = renderInRow();
+    fireEvent.mouseEnter(mark);
+    fireEvent.focus(mark);
+    fireEvent.click(mark);
+    expect(tooltipLines()).toEqual(["seth-m1 未登入 Claude", SIGN_IN_CLAUDE]);
+    fireEvent.mouseLeave(mark);
+    fireEvent.blur(mark);
+    expect(tooltipLines()).toEqual(["seth-m1 未登入 Claude", SIGN_IN_CLAUDE]);
+    fireEvent.click(mark);
+    expect(tooltipLines()).toBeNull();
+    expect(onRowClick).not.toHaveBeenCalled();
+  });
+
+  it("under a hover with no click, the hint is not pinned and mouseleave closes it", () => {
+    const { mark } = renderInRow();
+    fireEvent.mouseEnter(mark);
+    expect(screen.getByRole("tooltip").className).toBe("instant-hint");
+    fireEvent.mouseLeave(mark);
+    expect(tooltipLines()).toBeNull();
+  });
+
+  it("under repeated hover with no click, each mouseenter shows the hint and each mouseleave closes it", () => {
+    const { mark } = renderInRow();
+    fireEvent.mouseEnter(mark);
+    expect(tooltipLines()).toEqual(["seth-m1 未登入 Claude", SIGN_IN_CLAUDE]);
+    fireEvent.mouseLeave(mark);
+    expect(tooltipLines()).toBeNull();
+    fireEvent.mouseEnter(mark);
+    expect(tooltipLines()).toEqual(["seth-m1 未登入 Claude", SIGN_IN_CLAUDE]);
+    fireEvent.mouseLeave(mark);
+    expect(tooltipLines()).toBeNull();
+  });
+
+  it("under a hover over a pinned hint, it stays pinned through mouseenter and mouseleave, and one click closes it", () => {
+    const { mark } = renderInRow();
+    fireEvent.click(mark);
+    fireEvent.mouseLeave(mark);
+    fireEvent.mouseEnter(mark);
+    fireEvent.mouseLeave(mark);
+    const hint = screen.getByRole("tooltip");
+    expect(hint.className).toBe("instant-hint instant-hint--pinned");
+    expect(tooltipLines()).toEqual(["seth-m1 未登入 Claude", SIGN_IN_CLAUDE]);
+    fireEvent.click(mark);
+    expect(tooltipLines()).toBeNull();
+  });
+
+  it("under Escape, a pinned hint closes, and so does one shown by hover", () => {
+    const { mark } = renderInRow();
+    fireEvent.click(mark);
+    expect(tooltipLines()).toEqual(["seth-m1 未登入 Claude", SIGN_IN_CLAUDE]);
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(tooltipLines()).toBeNull();
+    fireEvent.mouseEnter(mark);
+    expect(tooltipLines()).toEqual(["seth-m1 未登入 Claude", SIGN_IN_CLAUDE]);
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(tooltipLines()).toBeNull();
+  });
+
+  it("under a click on a second mark while the first is pinned, only the second's hint is open", () => {
+    render(
+      <I18nProvider>
+        <div onClick={() => {}}>
+          <RuntimeLoginWarningMark
+            warnings={[{ machineId: "m1", machineName: "seth-m1", runtime: "claude", pending: false }]}
+            modelCallWarnings={[]}
+          />
+        </div>
+        <div onClick={() => {}}>
+          <RuntimeLoginWarningMark
+            warnings={[{ machineId: "m2", machineName: "Mac Mini", runtime: "codex", pending: false }]}
+            modelCallWarnings={[]}
+          />
+        </div>
+      </I18nProvider>,
+    );
+    const [a, b] = screen.getAllByTestId("runtime-login-warning");
+    fireEvent.click(a);
+    expect(tooltipLines()).toEqual(["seth-m1 未登入 Claude", SIGN_IN_CLAUDE]);
+    fireEvent.click(b);
+    const hints = screen.getAllByRole("tooltip");
+    expect(hints.map((h) => Array.from(h.children).map((l) => l.textContent))).toEqual([
+      ["Mac Mini 未登入 Codex", SIGN_IN_CODEX],
+    ]);
+  });
+});
