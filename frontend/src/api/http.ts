@@ -2145,12 +2145,12 @@ export const httpApi: Api = {
     // absent both mean "the writer's own boot document" on this route today,
     // and sending the one that has to be special-cased is how that equivalence
     // quietly becomes load-bearing.
-    const body: { title: string; body: string; task_id?: string; lore_type?: string } = {
+    const body: { title: string; body: string; task_id?: string; lore_type: string } = {
       title: entry.title,
       body: entry.body,
+      lore_type: entry.loreType,
     };
     if (entry.taskId) body.task_id = entry.taskId;
-    if (entry.loreType) body.lore_type = entry.loreType;
     unwrap(await client.POST("/api/lore", { body }));
   },
 

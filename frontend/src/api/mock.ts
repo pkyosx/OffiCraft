@@ -100,6 +100,7 @@ import type {
   LoreEntryPageView,
   LoreEntryState,
   LoreEntryWrite,
+  LoreType,
   LoreListOptions,
   LoreScopeKind,
 } from "./adapter";
@@ -1228,6 +1229,10 @@ const mockLoreEntries: LoreEntryView[] = [
 
 const LORE_TYPE_LIST =
   "instruction_conflict, instruction_supplement, owner_decision, owner_preference or other";
+const LORE_TYPE_MISSING =
+  "lore_type is required — nothing was written. Set it to the entry's type: " +
+  "instruction_conflict (指示衝突), instruction_supplement (指示補充), owner_decision (Owner 決策), " +
+  "owner_preference (Owner 偏好) or other (其他). Put the type in lore_type, not as a prefix in the title.";
 
 /** The FIXED display order (spec §6): 置頂 → 生效中 → 已失效, newest effective
  * first inside each group, `seq` as the tie-break so two entries sharing an
@@ -5264,11 +5269,15 @@ const mockApiImpl = {
   // The mock still MUTATES its store, which is the part any caller can observe
   // — through listLoreEntries, exactly as against a real server.
   async writeLoreEntry(entry: LoreEntryWrite): Promise<void> {
-    if (entry.loreType && !isLoreType(entry.loreType)) {
+    const loreType = (entry.loreType ?? "").trim();
+    if (loreType === "") {
+      throw mockApiError("http 400 for POST /api/lore", 400, LORE_TYPE_MISSING);
+    }
+    if (!isLoreType(loreType)) {
       throw mockApiError(
         "http 400 for POST /api/lore",
         400,
-        `lore_type must be one of ${LORE_TYPE_LIST}, or omitted for other — got ${JSON.stringify(entry.loreType)}; nothing was written`
+        `lore_type must be one of ${LORE_TYPE_LIST} — got ${JSON.stringify(loreType)}; nothing was written`
       );
     }
     const now = Date.now() / 1000;
@@ -5295,7 +5304,7 @@ const mockApiImpl = {
       effectiveTs: now,
       createdTs: now,
       updatedTs: now,
-      loreType: entry.loreType || "other",
+      loreType: loreType as LoreType,
     };
     mockLoreEntries.push(made);
   },

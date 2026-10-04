@@ -10179,7 +10179,7 @@
             "type": "string"
           },
           "lore_type": {
-            "description": "The entry's type tag: ``instruction_conflict`` (指示衝突), ``instruction_supplement`` (指示補充), ``owner_decision`` (Owner 決策), ``owner_preference`` (Owner 偏好) or ``other`` (其他); every entry carries exactly one, and an entry written without a type is ``other``. The cockpit shows it ahead of the title and the boot document renders it ahead of the title (except ``other``, which the boot document does not show), so the title itself carries no type prefix.",
+            "description": "The entry's type tag: ``instruction_conflict`` (指示衝突), ``instruction_supplement`` (指示補充), ``owner_decision`` (Owner 決策), ``owner_preference`` (Owner 偏好) or ``other`` (其他); every entry carries exactly one. A write must name it; entries written before the tag existed whose title carried no type prefix are ``other``. The cockpit shows it ahead of the title and the boot document renders it ahead of the title (except ``other``, which the boot document does not show), so the title itself carries no type prefix.",
             "title": "Lore Type",
             "type": "string"
           },
@@ -10232,16 +10232,9 @@
             "type": "string"
           },
           "lore_type": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The entry's type tag, one of ``instruction_conflict`` (指示衝突), ``instruction_supplement`` (指示補充), ``owner_decision`` (Owner 決策), ``owner_preference`` (Owner 偏好) or ``other`` (其他). Anything else is a 400 that names the value and writes nothing. Omitted, null or \"\" writes ``other``.",
-            "title": "Lore Type"
+            "description": "REQUIRED. The entry's type tag, one of ``instruction_conflict`` (指示衝突), ``instruction_supplement`` (指示補充), ``owner_decision`` (Owner 決策), ``owner_preference`` (Owner 偏好) or ``other`` (其他). Missing or blank is a 400 whose message names the field and lists these five values; any other value is a 400 that names it. Either way nothing is written.",
+            "title": "Lore Type",
+            "type": "string"
           },
           "body": {
             "description": "The entry itself, at most ``lore_cap_chars_body`` characters.",
@@ -10263,7 +10256,8 @@
         },
         "required": [
           "title",
-          "body"
+          "body",
+          "lore_type"
         ],
         "title": "LoreEntryWriteDTO",
         "additionalProperties": false,
@@ -23414,7 +23408,7 @@
           "name": "write_lore_entry",
           "description": "Write ONE 傳承 entry (its title and body are never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (臨時任務), files into your OWN boot document -- an ``agent`` scope keyed to you, staff and outsource alike. A write never files to ``everyone`` (所有人): only an admin's set_lore_entry_scope moves an entry there. The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. Title and body are each capped in characters (Unicode code points) by settings the owner or an admin agent can change (``lore_cap_chars_title`` and ``lore_cap_chars_body`` in ``update_settings``); an over-cap title or body is a 400 that writes nothing and states the cap in force.",
           "legacy": {
-            "descriptor": "{\n        \"description\": \"Write ONE 傳承 entry (its title and body are never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (臨時任務), files into your OWN boot document -- an ``agent`` scope keyed to you, staff and outsource alike. A write never files to ``everyone`` (所有人): only an admin's set_lore_entry_scope moves an entry there. The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. Title and body are each capped in characters (Unicode code points) by settings the owner or an admin agent can change (``lore_cap_chars_title`` and ``lore_cap_chars_body`` in ``update_settings``); an over-cap title or body is a 400 that writes nothing and states the cap in force.\",\n        \"inputSchema\": {\n          \"properties\": {\n            \"title\": {\n              \"type\": \"string\"\n            },\n            \"body\": {\n              \"type\": \"string\"\n            },\n            \"task_id\": {\n              \"type\": \"string\"\n            },\n            \"lore_type\": {\n              \"description\": \"The entry's type tag: ``instruction_conflict``, ``instruction_supplement``, ``owner_decision``, ``owner_preference`` or ``other``. Anything else is a 400 that writes nothing. Omitted, null or an empty string writes ``other``. The type goes here, never as a prefix in the title.\",\n              \"type\": \"string\"\n            }\n          },\n          \"required\": [\n            \"title\",\n            \"body\"\n          ],\n          \"type\": \"object\"\n        },\n        \"name\": \"write_lore_entry\"\n      }"
+            "descriptor": "{\n        \"description\": \"Write ONE 傳承 entry (its title and body are never editable afterwards). ``task_id`` picks the scope, and there is ALWAYS somewhere for it to land: a task that carries a TYPE files under that type's manual; no task at all, OR a task with no type (臨時任務), files into your OWN boot document -- an ``agent`` scope keyed to you, staff and outsource alike. A write never files to ``everyone`` (所有人): only an admin's set_lore_entry_scope moves an entry there. The untyped-task case answers a ``scope_note`` saying where it actually went, because you asked for a manual and did not get one. Only a caller with no roster row at all is a 400 -- there is no boot document to file into. Title and body are each capped in characters (Unicode code points) by settings the owner or an admin agent can change (``lore_cap_chars_title`` and ``lore_cap_chars_body`` in ``update_settings``); an over-cap title or body is a 400 that writes nothing and states the cap in force.\",\n        \"inputSchema\": {\n          \"properties\": {\n            \"title\": {\n              \"type\": \"string\"\n            },\n            \"body\": {\n              \"type\": \"string\"\n            },\n            \"task_id\": {\n              \"type\": \"string\"\n            },\n            \"lore_type\": {\n              \"description\": \"REQUIRED. The entry's type tag: ``instruction_conflict``, ``instruction_supplement``, ``owner_decision``, ``owner_preference`` or ``other``. Missing, blank or any other value is a 400 that lists these five values and writes nothing. The type goes here, never as a prefix in the title.\",\n              \"type\": \"string\"\n            }\n          },\n          \"required\": [\n            \"title\",\n            \"body\",\n            \"lore_type\"\n          ],\n          \"type\": \"object\"\n        },\n        \"name\": \"write_lore_entry\"\n      }"
           }
         }
       }

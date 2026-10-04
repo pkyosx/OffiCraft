@@ -4322,13 +4322,14 @@
               "type": "string"
             },
             "lore_type": {
-              "description": "The entry's type tag: ``instruction_conflict``, ``instruction_supplement``, ``owner_decision``, ``owner_preference`` or ``other``. Anything else is a 400 that writes nothing. Omitted, null or an empty string writes ``other``. The type goes here, never as a prefix in the title.",
+              "description": "REQUIRED. The entry's type tag: ``instruction_conflict``, ``instruction_supplement``, ``owner_decision``, ``owner_preference`` or ``other``. Missing, blank or any other value is a 400 that lists these five values and writes nothing. The type goes here, never as a prefix in the title.",
               "type": "string"
             }
           },
           "required": [
             "title",
-            "body"
+            "body",
+            "lore_type"
           ],
           "type": "object"
         },

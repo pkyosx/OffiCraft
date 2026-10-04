@@ -270,20 +270,29 @@ describe("mock lore_type", () => {
       status: 400,
       code: "validation_error",
       serverMessage:
-        'lore_type must be one of instruction_conflict, instruction_supplement, owner_decision, owner_preference or other, or omitted for other — got "owner_whim"; nothing was written',
+        'lore_type must be one of instruction_conflict, instruction_supplement, owner_decision, owner_preference or other — got "owner_whim"; nothing was written',
       retryAfter: null,
     });
     expect((await api.listLoreEntries()).entries).toHaveLength(7);
   });
 
-  it("a write stores its lore type, and one without stores other", async () => {
+  it("a write stores its lore type, and one without a type is refused with the five values", async () => {
     const api = await freshMock();
     await api.writeLoreEntry({ title: "有標籤", body: "b", loreType: "owner_decision" });
-    await api.writeLoreEntry({ title: "沒標籤", body: "b" });
+    expect(
+      await refusal(api.writeLoreEntry({ title: "沒標籤", body: "b", loreType: "" as never })),
+    ).toEqual({
+      name: "ApiError",
+      message: "http 400 for POST /api/lore",
+      status: 400,
+      code: "validation_error",
+      serverMessage:
+        "lore_type is required — nothing was written. Set it to the entry's type: " +
+        "instruction_conflict (指示衝突), instruction_supplement (指示補充), owner_decision (Owner 決策), " +
+        "owner_preference (Owner 偏好) or other (其他). Put the type in lore_type, not as a prefix in the title.",
+      retryAfter: null,
+    });
     const written = (await api.listLoreEntries()).entries.filter((e) => e.seq > 7);
-    expect(written.map((e) => [e.id, e.title, e.loreType])).toEqual([
-      ["L-9", "沒標籤", "other"],
-      ["L-8", "有標籤", "owner_decision"],
-    ]);
+    expect(written.map((e) => [e.id, e.title, e.loreType])).toEqual([["L-8", "有標籤", "owner_decision"]]);
   });
 });

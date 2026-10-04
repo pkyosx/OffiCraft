@@ -186,7 +186,7 @@ func TestReleasedWorkerCredentialsAreRefusedAfterItsOwnMarkDone(t *testing.T) {
 			`{"kind":"link","name":"PR #1","description":"the change","url":"https://example.com/pr/1"}`},
 		{"reply card", "POST", "/api/reply-cards",
 			`{"kind":"decision","summary":"ship?","options":[{"text":"yes"}],"linked_task":null}`},
-		{"write lore", "POST", "/api/lore", `{"title":"lesson","body":"what the review taught"}`},
+		{"write lore", "POST", "/api/lore", `{"title":"lesson","body":"what the review taught","lore_type":"other"}`},
 	}
 	for _, c := range closeOut {
 		rec := apiRequest(t, h, c.method, c.path, worker, c.body)

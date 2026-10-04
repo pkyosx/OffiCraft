@@ -1537,7 +1537,7 @@ type LoreEntryDTO struct {
 	// Id ``L-<n>``, ``n`` ascending globally. This is the handle every write face takes as ``entry_id``.
 	Id string `json:"id"`
 
-	// LoreType The entry's type tag: ``instruction_conflict`` (指示衝突), ``instruction_supplement`` (指示補充), ``owner_decision`` (Owner 決策), ``owner_preference`` (Owner 偏好) or ``other`` (其他); every entry carries exactly one, and an entry written without a type is ``other``. The cockpit shows it ahead of the title and the boot document renders it ahead of the title (except ``other``, which the boot document does not show), so the title itself carries no type prefix.
+	// LoreType The entry's type tag: ``instruction_conflict`` (指示衝突), ``instruction_supplement`` (指示補充), ``owner_decision`` (Owner 決策), ``owner_preference`` (Owner 偏好) or ``other`` (其他); every entry carries exactly one. A write must name it; entries written before the tag existed whose title carried no type prefix are ``other``. The cockpit shows it ahead of the title and the boot document renders it ahead of the title (except ``other``, which the boot document does not show), so the title itself carries no type prefix.
 	LoreType *string `json:"lore_type,omitempty"`
 
 	// RetireReason Why it was retired, or "". Meaningful only while ``state`` is ``retired``, and cleared when the entry is moved back.
@@ -1664,8 +1664,8 @@ type LoreEntryWriteDTO struct {
 	// Body The entry itself, at most ``lore_cap_chars_body`` characters.
 	Body string `json:"body"`
 
-	// LoreType The entry's type tag, one of ``instruction_conflict`` (指示衝突), ``instruction_supplement`` (指示補充), ``owner_decision`` (Owner 決策), ``owner_preference`` (Owner 偏好) or ``other`` (其他). Anything else is a 400 that names the value and writes nothing. Omitted, null or "" writes ``other``.
-	LoreType *string `json:"lore_type,omitempty"`
+	// LoreType REQUIRED. The entry's type tag, one of ``instruction_conflict`` (指示衝突), ``instruction_supplement`` (指示補充), ``owner_decision`` (Owner 決策), ``owner_preference`` (Owner 偏好) or ``other`` (其他). Missing or blank is a 400 whose message names the field and lists these five values; any other value is a 400 that names it. Either way nothing is written.
+	LoreType string `json:"lore_type"`
 
 	// TaskId The task whose TYPE this entry belongs to. Send a TASK id here, not a type_key — the server reads the type off the task, which is also what records where the lesson came from.
 	//

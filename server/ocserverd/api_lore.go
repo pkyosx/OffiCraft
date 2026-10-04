@@ -49,14 +49,16 @@ func (s *apiServer) HandleWriteLoreEntryApiLorePost(w http.ResponseWriter, r *ht
 		return
 	}
 
-	// Owner rc-8ff3a3d41a26: an entry written without a type is other.
-	loreType := LoreTypeOther
-	if body.LoreType != nil && strings.TrimSpace(*body.LoreType) != "" {
-		loreType = strings.TrimSpace(*body.LoreType)
+	// A missing type is refused rather than defaulted (owner rc-714fa3879796): the
+	// message is how an agent that never read the new boot document learns the field.
+	loreType := strings.TrimSpace(body.LoreType)
+	if loreType == "" {
+		writeError(w, http.StatusBadRequest, loreTypeMissingMsg)
+		return
 	}
 	if !ValidLoreType(loreType) {
 		writeError(w, http.StatusBadRequest,
-			"lore_type must be one of "+loreTypeList+", or omitted for other — got "+
+			"lore_type must be one of "+loreTypeList+" — got "+
 				strconv.Quote(loreType)+"; nothing was written")
 		return
 	}
@@ -148,6 +150,10 @@ func (s *apiServer) HandleWriteLoreEntryApiLorePost(w http.ResponseWriter, r *ht
 	}
 	writeJSON(w, http.StatusOK, dto)
 }
+
+const loreTypeMissingMsg = "lore_type is required — nothing was written. Set it to the entry's type: " +
+	"instruction_conflict (指示衝突), instruction_supplement (指示補充), owner_decision (Owner 決策), " +
+	"owner_preference (Owner 偏好) or other (其他). Put the type in lore_type, not as a prefix in the title."
 
 func loreOverCapMsg(field string, got, capChars int) string {
 	return field + " is " + strconv.Itoa(got) + " characters, over the " + strconv.Itoa(capChars) +

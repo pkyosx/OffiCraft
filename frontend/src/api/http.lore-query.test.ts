@@ -195,7 +195,7 @@ describe("httpApi lore_type on the wire", () => {
     expect(lastUrl().search).toBe("");
   });
 
-  it("writes lore_type in the body when given, and leaves it out when not", async () => {
+  it("writes lore_type in the body", async () => {
     const receipt = {
       id: "L-9",
       seq: 9,
@@ -208,7 +208,7 @@ describe("httpApi lore_type on the wire", () => {
     const bodies: unknown[] = [];
     for (const entry of [
       { title: "t", body: "b", loreType: "owner_preference" as const },
-      { title: "t", body: "b" },
+      { title: "t", body: "b", loreType: "other" as const },
     ]) {
       await httpApi.writeLoreEntry(entry);
       const calls = fetchMock.mock.calls as unknown as [Request][];
@@ -218,7 +218,7 @@ describe("httpApi lore_type on the wire", () => {
     }
     expect(bodies).toEqual([
       { title: "t", body: "b", lore_type: "owner_preference" },
-      { title: "t", body: "b" },
+      { title: "t", body: "b", lore_type: "other" },
     ]);
   });
 });

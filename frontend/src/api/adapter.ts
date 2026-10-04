@@ -3354,6 +3354,5 @@ export interface LoreEntryWrite {
   title: string;
   body: string;
   taskId?: string;
-  /** Omitted writes `other`. */
-  loreType?: LoreType;
+  loreType: LoreType;
 }

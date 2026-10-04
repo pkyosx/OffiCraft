@@ -43,8 +43,19 @@ func hireLoreStaff(t *testing.T, s *apiServer, id, roleKey string) string {
 	return id
 }
 
+// postLore fills in lore_type when a fixture leaves it out: the write face
+// refuses a missing type, and these tests are about everything else.
 func postLore(t *testing.T, s *apiServer, sub string, body any) *httptest.ResponseRecorder {
 	t.Helper()
+	if m, ok := body.(map[string]any); ok {
+		if _, has := m["lore_type"]; !has {
+			withType := map[string]any{"lore_type": LoreTypeOther}
+			for k, v := range m {
+				withType[k] = v
+			}
+			body = withType
+		}
+	}
 	rec := httptest.NewRecorder()
 	s.HandleWriteLoreEntryApiLorePost(rec,
 		taskReq(t, "POST", "/api/lore", body, sub, "agent"))
@@ -1281,10 +1292,6 @@ func TestWriteLoreTypeTag(t *testing.T) {
 		{"owner_decision", `,"lore_type":"owner_decision"`, "owner_decision"},
 		{"owner_preference", `,"lore_type":"owner_preference"`, "owner_preference"},
 		{"other", `,"lore_type":"other"`, "other"},
-		{"omitted is other", ``, "other"},
-		{"null is other", `,"lore_type":null`, "other"},
-		{"empty is other", `,"lore_type":""`, "other"},
-		{"blank is other", `,"lore_type":"  "`, "other"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			title := "標題 " + tc.name
@@ -1315,6 +1322,33 @@ func TestWriteLoreTypeTag(t *testing.T) {
 		})
 	}
 
+	for _, missing := range []struct{ name, field string }{
+		{"omitted", ``},
+		{"null", `,"lore_type":null`},
+		{"empty", `,"lore_type":""`},
+		{"blank", `,"lore_type":"  "`},
+	} {
+		t.Run("refuses a "+missing.name+" type with the five values and writes nothing", func(t *testing.T) {
+			status, data := apiJSON(t, st.h, "POST", "/api/lore", st.admin,
+				`{"title":"不該寫進去","body":"內容"`+missing.field+`}`)
+			if status != http.StatusBadRequest {
+				t.Fatalf("write with %s lore_type: %d %v, want 400", missing.name, status, data)
+			}
+			apiWantError(t, data, "validation_error",
+				"lore_type is required — nothing was written. Set it to the entry's type: "+
+					"instruction_conflict (指示衝突), instruction_supplement (指示補充), "+
+					"owner_decision (Owner 決策), owner_preference (Owner 偏好) or other (其他). "+
+					"Put the type in lore_type, not as a prefix in the title.")
+			status, page := apiJSON(t, st.h, "GET", "/api/lore?author_ids=m-scope-admin", st.user, "")
+			if status != http.StatusOK {
+				t.Fatalf("list: %d %v", status, page)
+			}
+			apiWantBody(t, page, map[string]any{
+				"entries": []any{}, "limit": 30, "offset": 0, "cap_chars": 0, "first_dropped_id": "",
+			})
+		})
+	}
+
 	for _, bad := range []string{"owner-decision", "Owner 決策", "OTHER", "instruction_conflict,other"} {
 		t.Run("refuses "+bad+" and writes nothing", func(t *testing.T) {
 			status, data := apiJSON(t, st.h, "POST", "/api/lore", st.admin,
@@ -1324,7 +1358,7 @@ func TestWriteLoreTypeTag(t *testing.T) {
 			}
 			apiWantError(t, data, "validation_error",
 				"lore_type must be one of instruction_conflict, instruction_supplement, "+
-					"owner_decision, owner_preference or other, or omitted for other — got "+
+					"owner_decision, owner_preference or other — got "+
 					strconv.Quote(bad)+"; nothing was written")
 			status, page := apiJSON(t, st.h, "GET", "/api/lore?author_ids=m-scope-admin", st.user, "")
 			if status != http.StatusOK {

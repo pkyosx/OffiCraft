@@ -10747,7 +10747,7 @@ export interface components {
             state: string;
             /**
              * Lore Type
-             * @description The entry's type tag: ``instruction_conflict`` (指示衝突), ``instruction_supplement`` (指示補充), ``owner_decision`` (Owner 決策), ``owner_preference`` (Owner 偏好) or ``other`` (其他); every entry carries exactly one, and an entry written without a type is ``other``. The cockpit shows it ahead of the title and the boot document renders it ahead of the title (except ``other``, which the boot document does not show), so the title itself carries no type prefix.
+             * @description The entry's type tag: ``instruction_conflict`` (指示衝突), ``instruction_supplement`` (指示補充), ``owner_decision`` (Owner 決策), ``owner_preference`` (Owner 偏好) or ``other`` (其他); every entry carries exactly one. A write must name it; entries written before the tag existed whose title carried no type prefix are ``other``. The cockpit shows it ahead of the title and the boot document renders it ahead of the title (except ``other``, which the boot document does not show), so the title itself carries no type prefix.
              */
             lore_type?: string;
             /**
@@ -10794,9 +10794,9 @@ export interface components {
             title: string;
             /**
              * Lore Type
-             * @description The entry's type tag, one of ``instruction_conflict`` (指示衝突), ``instruction_supplement`` (指示補充), ``owner_decision`` (Owner 決策), ``owner_preference`` (Owner 偏好) or ``other`` (其他). Anything else is a 400 that names the value and writes nothing. Omitted, null or "" writes ``other``.
+             * @description REQUIRED. The entry's type tag, one of ``instruction_conflict`` (指示衝突), ``instruction_supplement`` (指示補充), ``owner_decision`` (Owner 決策), ``owner_preference`` (Owner 偏好) or ``other`` (其他). Missing or blank is a 400 whose message names the field and lists these five values; any other value is a 400 that names it. Either way nothing is written.
              */
-            lore_type?: string | null;
+            lore_type: string;
             /**
              * Body
              * @description The entry itself, at most ``lore_cap_chars_body`` characters.

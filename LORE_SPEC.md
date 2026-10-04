@@ -40,7 +40,7 @@
 | `effective_ts` | REAL | 生效期；建立時＝現在 |
 | `created_ts` | REAL | **建立時間，永不變動** —— 這是「最初的生效期」，讓「提到最新」可逆 |
 | `updated_ts` | REAL | 狀態或理由變動時更新 |
-| `lore_type` | TEXT | 類型標籤，`instruction_conflict`（指示衝突）/ `instruction_supplement`（指示補充）/ `owner_decision`（Owner 決策）/ `owner_preference`（Owner 偏好）/ `other`（其他）五選一，**每一筆一定是其中一個**：寫入沒給類型、以及標題沒有類型前綴的既有條目，一律是 `other`（owner `rc-8ff3a3d41a26` 圈 B：「一律算『其他』」）。欄位 `NOT NULL DEFAULT 'other'`，DB CHECK 只收這五個值（不收 `''`）。寫入當下決定，之後不變 |
+| `lore_type` | TEXT | 類型標籤，`instruction_conflict`（指示衝突）/ `instruction_supplement`（指示補充）/ `owner_decision`（Owner 決策）/ `owner_preference`（Owner 偏好）/ `other`（其他）五選一，**每一筆一定是其中一個**：寫入一定要給類型（owner `rc-714fa3879796` 圈 A）；標題沒有類型前綴的既有條目由 migration 標成 `other`（owner `rc-8ff3a3d41a26` 圈 B：「一律算『其他』」）。欄位 `NOT NULL DEFAULT 'other'`，DB CHECK 只收這五個值（不收 `''`）。寫入當下決定，之後不變 |
 
 🔴 **條目沒有編輯路徑。** 不提供改 `title` / `body` 的 API。可變的只有 `state`、`retire_reason`、`effective_ts`，以及 T-236 起只限負責人／admin agent 的 `scope_kind` / `scope_key`（`set_lore_entry_scope`，見 §5）。
 🔴 **`created_ts` 一旦寫入永不變動**，`effective_ts` 才是「提到最新」會蓋掉的那一個。
@@ -127,7 +127,7 @@
 寫入只走 MCP，座艙不做撰寫表單。
 
 - **寫一筆**：`title`、`body`、可空的 `task_id`、可空的 `lore_type`。
-  - `lore_type` 是五個值之一 ⇒ 存那個英文代號；省略、`null` 或 `""`（含只有空白）⇒ 存 `other`（owner `rc-8ff3a3d41a26`）。五個值以外 ⇒ 400，訊息點名那個值，**一個字都不寫**。類型不寫進標題。
+  - `lore_type` **必填**，是五個值之一 ⇒ 存那個英文代號。省略、`null` 或 `""`（含只有空白）⇒ 400，訊息說明 `lore_type` 必填並列出五個值（含中文），**一個字都不寫**（owner `rc-714fa3879796` 圈 A：沒填就回錯誤，讓沒讀過新開機文件的成員從錯誤訊息學會）。五個值以外 ⇒ 400，訊息點名那個值，一個字都不寫。類型不寫進標題。
   - `task_id` 空 ⇒ 寫進**呼叫者自己的開機檔**：`scope_kind='agent'`、`scope_key` ＝**呼叫者自己的 member id**，正職與外包一視同仁（2026-09-07 範圍收斂之後這裡不再分兩支）。
     名冊上沒有這個人（owner 沒有名冊列）⇒ 400，訊息要指路去寫任務傳承。權限層級在成員門檻以下的身分（機器守衛）連這支介面都呼叫不到，是 403。
   - `task_id` 有 ⇒ 取該任務的 `type_key`。**有類型 ⇒ 寫進那本手冊。**
