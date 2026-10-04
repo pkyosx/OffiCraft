@@ -32,8 +32,9 @@ export function InstantHint({
   const hintRef = useRef<HTMLDivElement>(null);
   // "pinned" is set only by a click, and mouseleave / blur never clear it, so
   // neither the pointer leaving nor the blur from tapping the hint itself drops
-  // a hint the reader asked to keep; what closes it is listed in the effect below. A tap fires mouseenter right before click; keeping
-  // the two apart is what stops that tap from toggling the hint straight shut.
+  // a hint the reader asked to keep; what closes it is listed in the effect
+  // below. A tap fires mouseenter right before click; keeping the two apart is
+  // what stops that tap from toggling the hint straight shut.
   const [state, setState] = useState<"closed" | "shown" | "pinned">("closed");
   const open = state !== "closed";
   const [pos, setPos] = useState<CSSProperties | null>(null);
