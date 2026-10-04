@@ -898,7 +898,9 @@ decides that time is up.
   120 s** (owner ruling `rc-dbee69264859`, anti network blip; a reconnect restarts the
   window, and so does a START dispatch — a boot cancelled before it ever connects must
   not inherit the previous stop's offline run). Then the tick latches `stopped_since` and sends one STOP down the kill chain to
-  clear any residual session. This is the same judgement, from the same code, the outsource
+  clear any residual session — a robust STOP recorded in the robust-stop ledger (below: re-fired until a
+  warden takes it), with `boot_ts` cleared only as `robustStopEffectOf` allows. This is the
+  same judgement and the same send (`stopResidualSession`), from the same code, the outsource
   tick makes for a stopped worker. It is a confirmation window on an observed disconnect, not
   a deadline on the close-out: a member that stays connected is still never collected by
   time.
@@ -1008,7 +1010,7 @@ decides that time is up.
   or is parked on a named machine, reached anything (`robustStopEffectOf`, one judgement for
   both populations: only then is `boot_ts` cleared, and only a STOP that reached the booting
   START's machine supersedes it). A collect stands either way — staff and worker,
-  stopped-report and handover alike (owner rulings `rc-b08d49dc3b03`, `rc-ae3f9765a6f5`):
+  stopped-report, handover and session-gone collect alike (owner rulings `rc-b08d49dc3b03`, `rc-ae3f9765a6f5`):
   the row reads stopped at once and the ledger keeps re-firing the STOP. **A parked STOP goes
   out before any START:** both START queue sites re-fire a parked record immediately before
   queueing the START (`flushParkedStopBeforeStart`), because a handler's reconcile does not

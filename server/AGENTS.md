@@ -86,7 +86,7 @@
 ## 6. command receipt 與操作可見性
 
 - warden `command_result` receipt 是「op 真的執行」的唯一證據；POST receipt 是 best-effort。server 只在 frame enqueue 成功後 arm `receipt_watch`，門檻只有 start 是 150 秒（`startReceiptDeadlineSecs`：站台實測（warden log `received start frame` → `dispatched start OK`）一般 start 3 秒、重啟後載入成功 34 秒、重啟後仍沒載入並退回貼上 69 秒；budget 推導的最壞：不重啟 ≈129 秒、重啟 ≈185 秒——後者超過 150，已知且保留），其他指令 90 秒（`receiptDeadlineSecs`）。
-- `receipt_missing` 由 server sweep 寫進既有 `last_op*`，語意是 `UNKNOWN` 而非 failed；解除條件是**它等的那台機器**的 receipt 抵達，必須在 `foldCommandResult` 的 early return 前 note。每次 dispatch 只 stamp 一次，且與其他 last-op reason 共用單槽；UNINSTALL 不掛這道死線。
+- `receipt_missing` 由 server sweep 寫進既有 `last_op*`，語意是 `UNKNOWN` 而非 failed；解除條件是**它等的那台機器**回了**它等的那個動詞**的 receipt（START 前補打的 STOP 與 START 進同一台 warden，STOP 的回執不能解除 START 的死線），必須在 `foldCommandResult` 的 early return 前 note。每次 dispatch 只 stamp 一次，且與其他 last-op reason 共用單槽；UNINSTALL 不掛這道死線。
 - receipt 的「是哪一台回的」一律取自**已驗證 token**（`receiptReporterMachine`）：warden 憑證的 `sub` 就是 machine id、且刻意不帶 `machine_id` claim。`CommandResult` 不得為此長出 warden/機器欄位。解析不出來時回 `""` = UNKNOWN（不是「沒有人」），所有讀它的地方都必須退回改動前的行為。
 - robust stop 重試（正職與外包同一本帳）判「刀砍下去了沒」不能只看 presence：**瞄準的那台機器**回的 `no_such_session` receipt 就是收工證據（`closeRobustStopOnNoSuchSession`）。別台廣播回的一律忽略。warden 一次 stop 的 receipt 只會回**兩種非空 reason 加上空字串**（`cli/ocwarden/command.go`，`rpc=stop` 與 legacy `rpc=worker_stop` 各自相同），今天只有中間那種收工：
   - `ok=true`、**receipt 的 reason 是空字串** —— 真的殺掉了。⚠️ 不要照字面去找 `"stopped"`：那個字只進 `Log`，receipt 的 `Reason` 在成功且非 no-op 時被刻意清空（成功的 op 不佔用座艙的 `last_op_reason`）。這一種 **不收工，重試會再送一刀**（已知邊界，這一輪不修）—— 判收工的 `isStopNoopReceipt` 認的是 `no_such_session` 前綴，空字串沒有它。它會自癒：既然真的殺掉了，重送的那一刀打在已死的 session 上，warden 下一輪回的就是 `no_such_session`，於是收工 —— 代價是**最多多一次重送**，不是無限重試，方向也在安全那一側（寧可多殺一次，不要留殘活 session）。要不要收窄是另一個決定。
