@@ -38,6 +38,9 @@
 //   menu aligned to the gear's left edge     → menu right edge test
 //   ⚙ border back at rest, on hover or open  → frameless ⚙ test
 //   ⚙ focus ring removed (`outline: none`)   → keyboard focus ring test
+//   frame without `overscroll-behavior-x: none` (or `contain`)
+//                                           → swipe-past-the-end test (pinned columns rubber-band)
+//   a line on 機器's edge at rest            → rest line test
 import { test, expect } from "@playwright/experimental-ct-react";
 import type { Page } from "@playwright/test";
 import { MonitorMachinesLayoutStory } from "./stories/MonitorMachinesLayoutStory";
@@ -663,4 +666,114 @@ test("phone: the card mode does not scroll the page", async ({ mount, page }) =>
   await page.setViewportSize({ width: 375, height: 900 });
   await mount(<MonitorMachinesLayoutStory />);
   expect(await overflow(page)).toEqual({ page: 0, monitor: 0, frame: 0 });
+});
+
+/** Paints a frame (PNG, base64) and returns, for each box, whether its pixels
+ * match the same box in the first frame. Boxes are in CSS px; frames may be
+ * scaled. */
+async function boxesMatchFirst(page: Page, frames: string[], boxes: { x: number; y: number; width: number; height: number }[]) {
+  return page.evaluate(
+    async ({ frames, boxes }) => {
+      const vw = window.innerWidth;
+      const read = async (b64: string) => {
+        const img = new Image();
+        img.src = "data:image/png;base64," + b64;
+        await img.decode();
+        const k = img.naturalWidth / vw;
+        const c = document.createElement("canvas");
+        c.width = img.naturalWidth;
+        c.height = img.naturalHeight;
+        const g = c.getContext("2d")!;
+        g.drawImage(img, 0, 0);
+        return boxes.map((b) =>
+          Array.from(
+            g.getImageData(Math.round(b.x * k), Math.round(b.y * k), Math.round(b.width * k), Math.round(b.height * k)).data
+          ).join(",")
+        );
+      };
+      const first = await read(frames[0]);
+      const out: boolean[][] = [];
+      for (const f of frames) out.push((await read(f)).map((px, i) => px === first[i]));
+      return out;
+    },
+    { frames, boxes }
+  );
+}
+
+test("swiping past either end of the frame leaves 機器 and 操作 where they are", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1016, height: 500 });
+  await mount(<MonitorMachinesLayoutStory width={996} states={["normal"]} />);
+  const wrap = page.locator(".mon-table-wrap");
+  const frame = (await wrap.boundingBox())!;
+  const inset = async (sel: string) => {
+    const b = (await page.locator(sel).boundingBox())!;
+    return { x: b.x + 2, y: b.y + 2, width: b.width - 4, height: b.height - 4 };
+  };
+  const pinned = [
+    await inset(".mon-table--machines tbody td:first-child"),
+    await inset(".mon-table--machines tbody td:last-child"),
+  ];
+  await wrap.evaluate((el) => {
+    (window as unknown as { maxLeft: number }).maxLeft = 0;
+    el.addEventListener("scroll", () => {
+      const w = window as unknown as { maxLeft: number };
+      w.maxLeft = Math.max(w.maxLeft, el.scrollLeft);
+    });
+  });
+
+  // A synthesized wheel gesture carries the begin/update/end phases a Mac
+  // trackpad sends, which is what makes Chromium rubber-band the scroller.
+  const cdp = await page.context().newCDPSession(page);
+  const frames: string[] = [];
+  cdp.on("Page.screencastFrame", (f) => {
+    frames.push(f.data);
+    void cdp.send("Page.screencastFrameAck", { sessionId: f.sessionId }).catch(() => {});
+  });
+  await cdp.send("Page.startScreencast", { format: "png", everyNthFrame: 1 });
+  await page.waitForTimeout(200);
+  const at = { x: frame.x + 600, y: frame.y + frame.height / 2, yDistance: 0, gestureSourceType: "mouse", speed: 1200 };
+  await cdp.send("Input.synthesizeScrollGesture", { ...at, xDistance: -400 });
+  await page.waitForTimeout(800);
+  await cdp.send("Input.synthesizeScrollGesture", { ...at, xDistance: 400 });
+  await page.waitForTimeout(800);
+  await cdp.send("Page.stopScreencast");
+
+  const max = await wrap.evaluate((el) => el.scrollWidth - el.clientWidth);
+  expect(await page.evaluate(() => (window as unknown as { maxLeft: number }).maxLeft), "control: the swipe reached the right end").toBe(max);
+  expect(await wrap.evaluate((el) => el.scrollLeft), "control: and came back to the left end").toBe(0);
+  expect(frames.length, "control: the swipe painted frames").toBeGreaterThan(3);
+  const matched = await boxesMatchFirst(page, frames, pinned);
+  const moved = matched.map((m, i) => [i, m] as const).filter(([, m]) => !m.every(Boolean));
+  expect(moved, "frames where a pinned column's pixels differ from rest ([frame, [機器, 操作]])").toEqual([]);
+});
+
+test("at rest no line is drawn at 機器's edge; scrolled, the edge is marked", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1016, height: 500 });
+  await mount(<MonitorMachinesLayoutStory width={996} states={["normal"]} />);
+  const wrap = page.locator(".mon-table-wrap");
+  const cell = (await page.locator(".mon-table--machines tbody td:first-child").boundingBox())!;
+  // Pixel columns at 機器's last px, the first px past it, and one deep in
+  // Claude's left padding (plain card colour at rest).
+  const columns = async () => {
+    const shot = await page.screenshot({ clip: { x: cell.x + cell.width - 1, y: cell.y + 4, width: 12, height: cell.height - 8 } });
+    return page.evaluate(async (b64) => {
+      const img = new Image();
+      img.src = "data:image/png;base64," + b64;
+      await img.decode();
+      const c = document.createElement("canvas");
+      c.width = img.naturalWidth;
+      c.height = img.naturalHeight;
+      const g = c.getContext("2d")!;
+      g.drawImage(img, 0, 0);
+      const col = (x: number) => Array.from(g.getImageData(x, 0, 1, c.height).data).join(",");
+      return { inside: col(0), outside: col(1), card: col(c.width - 1) };
+    }, shot.toString("base64"));
+  };
+  const rest = await columns();
+  expect({ inside: rest.inside === rest.card, outside: rest.outside === rest.card }, "at rest 機器's edge is plain card").toEqual({
+    inside: true,
+    outside: true,
+  });
+  await wrap.evaluate((el) => (el.scrollLeft = 20));
+  await expect.poll(async () => (await columns()).outside !== rest.card, "scrolled, 機器's edge is marked").toBe(true);
 });

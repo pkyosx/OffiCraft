@@ -148,6 +148,10 @@
   border: 1px solid color-mix(in srgb, var(--color-overlay) 5%, transparent);
   background: var(--color-card);
   overflow-x: auto;
+  /* A trackpad swipe past either end rubber-bands the whole table, sticky
+   * columns included; `contain` still bounces, only `none` holds them. X only,
+   * so vertical swipes over the table still scroll the page. */
+  overscroll-behavior-x: none;
 }
 .mon-table {
   width: 100%;
@@ -526,15 +530,13 @@
   }
   /* When the frame scrolls, 機器 stays on its left edge and the ⚙ (the row's
    * only way to its operations) on its right; the opaque card colour keeps the
-   * scrolled cells from showing through, and the line marks where they pass
-   * under 機器. */
+   * scrolled cells from showing through. */
   .mon-table--machines th:first-child,
   .mon-table--machines td:first-child {
     position: sticky;
     left: 0;
     z-index: 1;
     background: var(--color-card);
-    box-shadow: inset -1px 0 0 color-mix(in srgb, var(--color-overlay) 8%, transparent);
   }
   .mon-table--machines th:last-child,
   .mon-table--machines td:last-child {
@@ -543,7 +545,9 @@
     background: var(--color-card);
   }
   /* A shade on the pinned column's inner edge says more of the table lies
-   * under it; without it a wide table reads as complete at 電源 | 操作. */
+   * under it; without it a wide table reads as complete at 電源 | 操作. The
+   * edge line lives in the shade too: a line drawn at rest reads as a stray
+   * divider in the middle of a table that has nothing under 機器. */
   .mon-table--machines th:first-child::after,
   .mon-table--machines td:first-child::after,
   .mon-table--machines th:last-child::before,
@@ -560,7 +564,9 @@
   .mon-table--machines th:first-child::after,
   .mon-table--machines td:first-child::after {
     left: 100%;
-    box-shadow: inset 20px 0 16px -14px color-mix(in srgb, var(--color-shadow) 30%, transparent);
+    box-shadow:
+      inset 1px 0 0 color-mix(in srgb, var(--color-overlay) 14%, transparent),
+      inset 20px 0 16px -14px color-mix(in srgb, var(--color-shadow) 30%, transparent);
   }
   .mon-table--machines th:last-child::before,
   .mon-table--machines td:last-child::before {
