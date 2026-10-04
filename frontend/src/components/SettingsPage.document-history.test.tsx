@@ -521,7 +521,9 @@ describe("SettingsPage · 版本紀錄", () => {
     // to be a single click, and moving it must not have made it cheaper.
     expect(reset).not.toHaveBeenCalled();
     const confirm = utils.getByTestId("doc-history-restore-confirm");
-    expect(within(confirm).getByText(s.historyRestoreConfirmAction)).toBeTruthy();
+    expect(
+      utils.getByTestId("doc-history-restore-confirm-btn").textContent
+    ).toBe("確認同步");
     expect(confirm.textContent).toContain(s.historySeedConfirm);
 
     fireEvent.click(utils.getByTestId("doc-history-restore-confirm-btn"));

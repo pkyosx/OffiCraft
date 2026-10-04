@@ -1018,6 +1018,7 @@ var messageKeys = map[string]bool{
 	"settings.historyRestoreError":                     true,
 	"settings.historyRoleDefTitle":                     true,
 	"settings.historySeedConfirm":                      true,
+	"settings.historySeedConfirmAction":                true,
 	"settings.historySeedNote":                         true,
 	"settings.historySeedRestore":                      true,
 	"settings.historySeedTitle":                        true,

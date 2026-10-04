@@ -2159,6 +2159,7 @@ export const zh = {
     historySeedNote: "這份文件最初附帶的內容。",
     historySeedRestore: "同步預設內容",
     historySeedConfirm: "確定同步預設內容？目前的內容會被覆蓋。",
+    historySeedConfirmAction: "確認同步",
     // 預設內容讀不到時仍可同步，因為同步不需要先讀取這份內容。
     historySeedUnavailable:
       "預設內容目前讀不到，暫時無法顯示或比較；同步預設內容仍可執行。",

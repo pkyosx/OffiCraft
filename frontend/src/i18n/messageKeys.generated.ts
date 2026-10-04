@@ -1017,6 +1017,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "settings.historyRestoreError",
   "settings.historyRoleDefTitle",
   "settings.historySeedConfirm",
+  "settings.historySeedConfirmAction",
   "settings.historySeedNote",
   "settings.historySeedRestore",
   "settings.historySeedTitle",

@@ -412,7 +412,11 @@ export function DocumentHistoryModal({
           error={restoreError}
           busy={busy}
           cancelLabel={t.settings.cancel}
-          confirmLabel={t.settings.historyRestoreConfirmAction}
+          confirmLabel={
+            seed
+              ? t.settings.historySeedConfirmAction
+              : t.settings.historyRestoreConfirmAction
+          }
           onCancel={() => {
             setConfirming(false);
             setRestoreError(null);

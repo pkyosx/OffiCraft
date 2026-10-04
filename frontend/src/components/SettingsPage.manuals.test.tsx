@@ -268,6 +268,9 @@ describe("設定 › 任務手冊 — detail", () => {
     expect(getByTestId("doc-history-restore-confirm").textContent).toContain(
       "確定同步預設內容？整本手冊（名稱、用途、識別鍵、SOP 與負責成員）都會回到預設設定，目前的修改會被覆蓋。"
     );
+    expect(getByTestId("doc-history-restore-confirm-btn").textContent).toBe(
+      "確認同步"
+    );
     fireEvent.click(getByTestId("doc-history-restore-confirm-btn"));
 
     await waitFor(() => expect(queryByTestId("doc-history-modal")).toBeNull());

@@ -245,10 +245,9 @@ describe("DocumentHistoryModal", () => {
     // The confirmation is the gate: nothing has been overwritten yet.
     expect(onRestore).not.toHaveBeenCalled();
     expect(
-      within(utils.getByTestId("doc-history-restore-confirm")).getByText(
-        s.historyRestoreConfirmAction
-      )
-    ).toBeTruthy();
+      utils.getByTestId("doc-history-restore-confirm-btn").textContent
+    ).toBe("確認還原");
+    expect(en.settings.historyRestoreConfirmAction).toBe("Restore");
 
     fireEvent.click(utils.getByTestId("doc-history-restore-confirm-btn"));
 
@@ -486,6 +485,10 @@ describe("DocumentHistoryModal", () => {
       expect(
         utils.getByTestId("doc-history-restore-confirm").textContent
       ).toContain("確定同步預設內容？目前的內容會被覆蓋。");
+      expect(
+        utils.getByTestId("doc-history-restore-confirm-btn").textContent
+      ).toBe("確認同步");
+      expect(en.settings.historySeedConfirmAction).toBe("Sync");
       expect(en.settings.historySeedConfirm).toBe(
         "Sync to default? The current content will be overwritten."
       );

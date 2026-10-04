@@ -2134,6 +2134,7 @@ export const en: Dict = {
     historySeedRestore: "Sync to default",
     historySeedConfirm:
       "Sync to default? The current content will be overwritten.",
+    historySeedConfirmAction: "Sync",
     historySeedUnavailable:
       "The default content cannot be read right now, so it cannot be shown or compared. Syncing to default still works.",
     historyBack: "Back to the version list",
