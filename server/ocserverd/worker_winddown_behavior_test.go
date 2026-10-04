@@ -453,3 +453,52 @@ func TestRelocateWorker_ALadderRefusalIsStillPendingAndDeferred_T170e(t *testing
 			deadlineBefore, got)
 	}
 }
+
+func TestStoppingWorkerRelocated_TheAcceleratedDeadlineStopsItWhereItRuns(t *testing.T) {
+	api := newTasksTestServer(t)
+	api.noOutsource = true
+	workerID := newActiveOnlineWorker(t, api)
+	seedMachine(t, api, "m-elsewhere")
+	connectWarden(t, api, "m-elsewhere")
+
+	for _, press := range []struct {
+		op   string
+		body map[string]any
+		h    func(http.ResponseWriter, *http.Request, string)
+	}{
+		{"stop", nil, api.HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost},
+		{"accelerated-stop", nil, api.HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost},
+		{"relocate", map[string]any{"machine_id": "m-elsewhere"}, api.HandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost},
+	} {
+		if rec := postWorker(t, api, workerID, press.op, press.body, press.h); rec.Code != http.StatusOK {
+			t.Fatalf("%s: %d %s", press.op, rec.Code, rec.Body.String())
+		}
+	}
+	api.hub.DrainWardenCommands(ServerSelfHost)
+	api.hub.DrainWardenCommands("m-elsewhere")
+	before, _ := api.dal.GetOutsourceWorker(workerID)
+	if before.DesiredMachineID != "m-elsewhere" || before.RefocusOp != refocusOpAcceleratedStop {
+		t.Fatalf("fixture: want an accelerated stop pinned to m-elsewhere, got pin %q op %q",
+			before.DesiredMachineID, before.RefocusOp)
+	}
+
+	// 3601: past the longest 加速停止 grace the setting accepts (3600).
+	api.runOutsourceTick(before.StoppingSince + 3601)
+
+	stops := func(warden string) []any {
+		got := []any{}
+		for _, f := range api.hub.DrainWardenCommands(warden) {
+			rpc, args := decodeWardenFrame(t, f.Frame)
+			got = append(got, []any{rpc, args["member_id"]})
+		}
+		return got
+	}
+	apiWantValue(t, "the machine the session runs on", any(stops(ServerSelfHost)),
+		any([]any{[]any{"stop", workerID}}))
+	apiWantValue(t, "the new pin, which holds no session", any(stops("m-elsewhere")), any([]any{}))
+	after, _ := api.dal.GetOutsourceWorker(workerID)
+	if after.StoppedSince != 0 {
+		t.Fatalf("the deadline only sends the STOP, as for staff; stopped_since = %v while "+
+			"the session is still connected", after.StoppedSince)
+	}
+}

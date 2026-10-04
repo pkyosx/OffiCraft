@@ -191,9 +191,8 @@ type memberObservation struct {
 	TargetMachine   string
 	RunningMachine  string
 	HandoverArmable bool
-	// StopAwaitsCollect / SessionConfirmedGone: the staff half of the judgement the outsource
-	// tick makes in autoHandoverWorker (stopAwaitsCollect, sessionConfirmedGone). Workers leave
-	// both false: a desired-offline worker never reaches this decider.
+	// StopAwaitsCollect / SessionConfirmedGone: filled by observeStopCollect, the same way for
+	// staff and workers.
 	StopAwaitsCollect    bool
 	SessionConfirmedGone bool
 }
@@ -204,7 +203,7 @@ type reconcileDecision struct {
 	Reason   string
 	State    reconcileState
 	// DispatchWarden routes a STOP to the warden where the session actually runs; "" routes a
-	// wind-down STOP via the kill chain (memberKillTargetWarden) and any other via wardenTargetOf
+	// wind-down STOP via the kill chain (killTargetChain) and any other via wardenTargetOf
 	// (the desired machine). Sending a relocation STOP to the new machine's warden
 	// would no-op forever — only the warden holding the session can kill it.
 	DispatchWarden string
@@ -895,12 +894,7 @@ func (s *apiServer) reconcileOne(m Member, st reconcileState, now float64) recon
 		RunningMachine:  s.hub.MachineOf(m.ID),
 		HandoverArmable: s.memberOwnerOpHandoverArmable(m, memberOpRelocate),
 	}
-	// A dismissed row rides the tick only for the robust STOP its dismissal owes; collecting
-	// it would send a second STOP the moment that one is judged landed.
-	if obs.Desired == DesiredStateOffline && m.RosterStatus == RosterStatusActive {
-		obs.StopAwaitsCollect = stopAwaitsCollect(m)
-		obs.SessionConfirmedGone = s.sessionConfirmedGone(m.ID, now)
-	}
+	s.observeStopCollect(&obs, m, now)
 	decision := reconcileDecide(obs, st, s.reconcileConfigLive(), now)
 	switch decision.Command {
 	case reconcileCmdNone:
@@ -970,23 +964,16 @@ func (s *apiServer) reconcileOne(m Member, st reconcileState, now float64) recon
 		if decision.StopKind == stopKindSessionGone {
 			return s.collectMemberStop(m.ID, decision, st, now)
 		}
-		// sendStopFrames (shutdown.go) takes no scheduler lock, so it is safe with reconcileMu held.
-		warden := decision.DispatchWarden
-		if warden == "" && decision.StopKind == stopKindWinddown {
+		targets := []string{decision.DispatchWarden}
+		switch {
+		case decision.DispatchWarden != "":
+		case decision.StopKind == stopKindWinddown:
 			// A 換機器 during the wind-down moves the pin but not the session.
-			warden = s.memberKillTargetWarden(m.ID)
+			targets, _ = s.killTargetChain(m.ID, killTargetSources{LastMachineID: m.LastMachineID})
+		default:
+			targets = []string{s.wardenTargetOf(m.ID)}
 		}
-		if warden == "" {
-			warden = s.wardenTargetOf(m.ID)
-		}
-		if len(s.sendStopFrames(m.ID, []string{warden}, now)) == 0 {
-			decision.Command = reconcileCmdNone
-			decision.State = st
-			decision.DispatchUnlanded = true
-			return decision
-		}
-		s.clearSessionBootTS(m.ID)
-		return decision
+		return s.dispatchStop(m.ID, targets, decision, st, now)
 	default:
 		// 🔴 Deliberately NOT the shared stop send and NOT receipt-watched: the warden blocks on
 		// delivery and refuses to self-exit without a 2xx, and the reconcile keeps re-issuing it.
@@ -1008,6 +995,32 @@ func (s *apiServer) reconcileOne(m Member, st reconcileState, now float64) recon
 		s.clearSessionBootTS(m.ID)
 		return decision
 	}
+}
+
+// observeStopCollect is the stop-collect half of the observation, for staff and workers alike. A
+// dismissed row rides the tick only for the robust STOP its dismissal owes; collecting it would
+// send a second STOP the moment that one is judged landed.
+func (s *apiServer) observeStopCollect(obs *memberObservation, m Member, now float64) {
+	if parseDesired(m.DesiredState) == DesiredStateOffline && m.RosterStatus == RosterStatusActive {
+		obs.StopAwaitsCollect = stopAwaitsCollect(m)
+		obs.SessionConfirmedGone = s.sessionConfirmedGone(m.ID, now)
+	}
+}
+
+// dispatchStop sends a decided STOP for staff and workers alike; an unlanded one keeps the prior
+// state so the next tick decides it again. sendStopFrames (shutdown.go) takes no scheduler lock,
+// so either tick may call this with its own lock held.
+func (s *apiServer) dispatchStop(
+	memberID string, targets []string, decision reconcileDecision, prior reconcileState, now float64,
+) reconcileDecision {
+	if len(s.sendStopFrames(memberID, targets, now)) == 0 {
+		decision.Command = reconcileCmdNone
+		decision.State = prior
+		decision.DispatchUnlanded = true
+		return decision
+	}
+	s.clearSessionBootTS(memberID)
+	return decision
 }
 
 // collectMemberStop is the staff twin of collectWorkerStop: latch stopped_since, then stop

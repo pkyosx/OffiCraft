@@ -1184,7 +1184,7 @@ func TestWorkerObservation(t *testing.T) {
 		}))
 	})
 
-	t.Run("the four recycle fields come off the row and the last_op verb is folded, while the machine pair and stopping anchor stay masked", func(t *testing.T) {
+	t.Run("the recycle fields and the stopping anchor come off the row and the last_op verb is folded, while the machine pair stays masked", func(t *testing.T) {
 		_, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
 		w.DesiredState = DesiredStateOnline
 		w.RefocusSince = 10
@@ -1199,7 +1199,7 @@ func TestWorkerObservation(t *testing.T) {
 		apiWantValue(t, "observation", any(wsObservation(workerObservation(w, true))), any(map[string]any{
 			"member_id": "ow-abc123", "desired": "online", "online": true,
 			"refocus_since": 10.0, "refocus_op": "relocate",
-			"stopping_since": 0.0, "agent_stopped": true,
+			"stopping_since": 30.0, "agent_stopped": true,
 			"last_op_kind":   "start",
 			"last_op_reason": "session_already_exists: a live session is holding the slot",
 			"target_machine": "", "running_machine": "", "handover_armable": false,
@@ -3020,126 +3020,6 @@ func TestOpenWorkerHandoverGrace(t *testing.T) {
 	})
 }
 
-func TestAutoHandoverWorker(t *testing.T) {
-	t.Run("a held-down worker is collected once its session is CONFIRMED gone, not on the first offline sample", func(t *testing.T) {
-		api, h, _, owner, w := wsWindDown(t, WorkerStatusActive, DesiredStateOffline, "", 0, 200, 0, false)
-		apiTestListen(t, api, ServerSelfHost)
-
-		api.outsourceMu.Lock()
-		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
-		api.autoHandoverWorker(w, 1000)
-		firstSample := wsVerbs(t, api, ServerSelfHost)
-		api.autoHandoverWorker(w, 1119)
-		insideWindow := wsVerbs(t, api, ServerSelfHost)
-		api.autoHandoverWorker(w, 1120)
-		api.outsourceMu.Unlock()
-
-		apiWantValue(t, "the first sample", any(firstSample), any([]any{}))
-		apiWantValue(t, "one second short of the window", any(insideWindow), any([]any{}))
-		apiWantValue(t, "at the window", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop"}))
-		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-			"status": "active", "presence": "stopped", "desired_state": "offline",
-			"machine": "m-server-self",
-		}))
-	})
-
-	t.Run("an owner-pressed 加速停止 is collected on ITS clock, counted from the press", func(t *testing.T) {
-		api, _, _, _, w := wsWindDown(t, WorkerStatusActive, DesiredStateOffline, "accelerated_stop", 0, 200, 0, true)
-		apiTestListen(t, api, ServerSelfHost)
-
-		api.outsourceMu.Lock()
-		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
-		api.autoHandoverWorker(w, 319)
-		early := wsVerbs(t, api, ServerSelfHost)
-		api.autoHandoverWorker(w, 320)
-		api.outsourceMu.Unlock()
-
-		apiWantValue(t, "one second short of the deadline", any(early), any([]any{}))
-		apiWantValue(t, "at the deadline", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop"}))
-	})
-
-	t.Run("a plain 停止 runs no clock at all, so a live worker is waited on indefinitely", func(t *testing.T) {
-		api, _, _, _, w := wsWindDown(t, WorkerStatusActive, DesiredStateOffline, "", 0, 200, 0, true)
-		apiTestListen(t, api, ServerSelfHost)
-
-		api.outsourceMu.Lock()
-		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
-		api.autoHandoverWorker(w, 999999)
-		api.outsourceMu.Unlock()
-
-		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
-	})
-
-	t.Run("a held-down worker that has already reported stopped is waiting for nothing, so the arm stays silent", func(t *testing.T) {
-		api, _, _, _, w := wsWindDown(t, WorkerStatusActive, DesiredStateOffline, "", 0, 200, 250, false)
-		apiTestListen(t, api, ServerSelfHost)
-
-		api.outsourceMu.Lock()
-		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
-		api.autoHandoverWorker(w, 1000)
-		api.autoHandoverWorker(w, 5000)
-		api.outsourceMu.Unlock()
-
-		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
-	})
-
-	t.Run("a session that booted after the epoch keeps the epoch until report_waking", func(t *testing.T) {
-		api, h, _, owner, w := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "relocate", 100, 110, 120, true)
-		api.gauge.Set("ow-abc123", map[string]any{"boot_ts": 200.0})
-		apiTestListen(t, api, ServerSelfHost)
-
-		api.outsourceMu.Lock()
-		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
-		api.autoHandoverWorker(w, 1000)
-		api.outsourceMu.Unlock()
-
-		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
-		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-			"status": "active", "presence": "stopping", "desired_state": "online",
-			"machine":       "m-server-self",
-			"refocus_since": 100, "refocus_op": "relocate",
-		}))
-	})
-
-	t.Run("an epoch whose session booted BEFORE the stamp is mid-flight: the epoch stands and nothing is collected here", func(t *testing.T) {
-		api, h, _, owner, w := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "relocate", 300, 0, 0, true)
-		api.gauge.Set("ow-abc123", map[string]any{"boot_ts": 200.0})
-		apiTestListen(t, api, ServerSelfHost)
-
-		api.outsourceMu.Lock()
-		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
-		api.autoHandoverWorker(w, 1000)
-		api.outsourceMu.Unlock()
-
-		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
-		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-			"status": "active", "presence": "online", "desired_state": "online",
-			"machine":       "m-server-self",
-			"refocus_since": 300, "refocus_op": "relocate",
-		}))
-	})
-
-	t.Run("a desired-online worker with no epoch open is left entirely alone, because the threshold arm is gone", func(t *testing.T) {
-		api, h, _, owner, w := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, "", 0, 0, 0, true)
-		apiTestListen(t, api, ServerSelfHost)
-		dashboard := apiTestListen(t, api, "")
-
-		api.outsourceMu.Lock()
-		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
-		api.autoHandoverWorker(w, 1000)
-		api.outsourceMu.Unlock()
-
-		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
-		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-			"status": "active", "presence": "online", "desired_state": "online",
-			"machine": "m-server-self",
-		}))
-		dashboard.wantFrames()
-	})
-}
-
-// wsWakingDelta is the member delta a worker's first boot report fans — the
-// wake shape, which carries no offboard notice.
 func wsWakingDelta(seq int) map[string]any {
 	return map[string]any{
 		"seq": seq, "topic": "member", "op": "patch",
@@ -3627,6 +3507,96 @@ func wsWithReceipt(t *testing.T, api *apiServer, d *DAL, verb, reason string) Ou
 }
 
 func TestReconcileWorkerLiveness(t *testing.T) {
+	t.Run("a held-down worker is collected once its session is CONFIRMED gone, not on the first offline sample", func(t *testing.T) {
+		api, h, _, owner, w := wsWindDown(t, WorkerStatusActive, DesiredStateOffline, "", 0, 200, 0, false)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.reconcileWorkerLiveness(w, 1000)
+		firstSample := wsVerbs(t, api, ServerSelfHost)
+		api.reconcileWorkerLiveness(w, 1119)
+		insideWindow := wsVerbs(t, api, ServerSelfHost)
+		api.reconcileWorkerLiveness(w, 1120)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "the first sample", any(firstSample), any([]any{}))
+		apiWantValue(t, "one second short of the window", any(insideWindow), any([]any{}))
+		apiWantValue(t, "at the window", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop"}))
+		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
+			"status": "active", "presence": "stopped", "desired_state": "offline",
+			"machine": "m-server-self",
+		}))
+	})
+
+	t.Run("an owner-pressed 加速停止 sends a STOP on ITS clock, counted from the press, and collects only once the session is confirmed gone", func(t *testing.T) {
+		api, _, d, _, w := wsWindDown(t, WorkerStatusActive, DesiredStateOffline, "accelerated_stop", 0, 200, 0, false)
+		apiTestListen(t, api, ServerSelfHost)
+		session, err := api.hub.Connect("ow-abc123", ServerSelfHost)
+		if err != nil {
+			t.Fatalf("hub.Connect: %v", err)
+		}
+		stoppedSince := func() float64 {
+			t.Helper()
+			row, err := d.GetOutsourceWorker("ow-abc123")
+			if err != nil || row == nil {
+				t.Fatalf("GetOutsourceWorker: %v", err)
+			}
+			return row.StoppedSince
+		}
+
+		api.outsourceMu.Lock()
+		defer api.outsourceMu.Unlock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.reconcileWorkerLiveness(w, 319)
+		apiWantValue(t, "one second short of the deadline", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+		api.reconcileWorkerLiveness(w, 320)
+		apiWantValue(t, "at the deadline", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop"}))
+		if got := stoppedSince(); got != 0 {
+			t.Fatalf("the deadline only sends the STOP; stopped_since = %v while the session is still connected", got)
+		}
+		api.reconcileWorkerLiveness(w, 330)
+		apiWantValue(t, "inside stop_retry after the deadline", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+
+		api.hub.Disconnect(session)
+		api.reconcileWorkerLiveness(w, 400)
+		api.reconcileWorkerLiveness(w, 519)
+		apiWantValue(t, "offline, one second short of the confirm window", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+		if got := stoppedSince(); got != 0 {
+			t.Fatalf("a session not yet confirmed gone may still reconnect; stopped_since = %v", got)
+		}
+		api.reconcileWorkerLiveness(w, 520)
+		apiWantValue(t, "at the confirm window", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop"}))
+		if got := stoppedSince(); got <= 0 {
+			t.Fatalf("a session confirmed gone is collected; stopped_since = %v", got)
+		}
+	})
+
+	t.Run("a plain 停止 runs no clock at all, so a live worker is waited on indefinitely", func(t *testing.T) {
+		api, _, _, _, w := wsWindDown(t, WorkerStatusActive, DesiredStateOffline, "", 0, 200, 0, true)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.reconcileWorkerLiveness(w, 999999)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+	})
+
+	t.Run("a held-down worker that has already reported stopped is waiting for nothing, so the arm stays silent", func(t *testing.T) {
+		api, _, _, _, w := wsWindDown(t, WorkerStatusActive, DesiredStateOffline, "", 0, 200, 250, false)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.reconcileWorkerLiveness(w, 1000)
+		api.reconcileWorkerLiveness(w, 5000)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "the verbs dispatched", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+	})
+
 	t.Run("a worker that should be running and is not gets a START, and the FSM records it as in flight", func(t *testing.T) {
 		api, h, _, owner, w := wsWindDown(t, WorkerStatusAssigned, DesiredStateOnline, "", 0, 0, 0, false)
 		apiTestListen(t, api, ServerSelfHost)
