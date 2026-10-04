@@ -106,7 +106,12 @@ func memberIDRawOf(commandResult map[string]any) string {
 // sweep broadcasts a stop to every warden and every one answers, so matching on
 // the target id alone let any healthy machine cancel a deadline owed by a
 // specific, possibly dark, one.
-func (s *apiServer) noteReceiptArrived(targetID, reporter string) {
+//
+// 🔴 rpc is the receipt's own rpc. A parked STOP is flushed onto the same warden
+// right before a START, so the START's watch replaces the STOP's and the STOP's
+// receipt (usually no_such_session) arrives first from the same machine: matched
+// on the machine alone, it would cancel the START's deadline.
+func (s *apiServer) noteReceiptArrived(targetID, reporter, rpc string) {
 	if targetID == "" {
 		return
 	}
@@ -119,7 +124,22 @@ func (s *apiServer) noteReceiptArrived(targetID, reporter string) {
 	if p.Warden != "" && reporter != "" && p.Warden != reporter {
 		return
 	}
+	if verb := receiptVerbOf(rpc); verb != "" && verb != p.RPC {
+		return
+	}
 	delete(s.receiptPending, targetID)
+}
+
+// receiptVerbOf maps a receipt's rpc onto the verb a watch is armed with, "" for
+// one it does not know.
+func receiptVerbOf(rpc string) string {
+	switch {
+	case isStopRPC(rpc):
+		return reconcileCmdStop
+	case rpc == reconcileCmdStart || rpc == legacyWardenCmdWorkerStart:
+		return reconcileCmdStart
+	}
+	return ""
 }
 
 func (s *apiServer) takeLapsedReceipts(now float64) map[string]pendingReceipt {

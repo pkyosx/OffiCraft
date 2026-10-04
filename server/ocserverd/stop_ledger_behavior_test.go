@@ -467,14 +467,14 @@ func TestAWardenThatReturnsGetsTheOwedStopAheadOfAHandlersStart(t *testing.T) {
 		who string
 		// darkReport: the member's own stopped-report while no warden is online,
 		// so its STOP is parked as a fan-out. Answers the member's id.
-		darkReport func(t *testing.T) (*apiServer, *DAL, string)
+		darkReport func(t *testing.T) (*apiServer, http.Handler, *DAL, string)
 		// pin gives the member a machine its START can go to.
 		pin   func(t *testing.T, d *DAL, id string)
 		start func(api *apiServer, d *DAL, id string)
 	}{
 		{
 			who: "staff",
-			darkReport: func(t *testing.T) (*apiServer, *DAL, string) {
+			darkReport: func(t *testing.T) (*apiServer, http.Handler, *DAL, string) {
 				t.Helper()
 				api, h, d, owner := newAPITestServer(t)
 				if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
@@ -484,20 +484,20 @@ func TestAWardenThatReturnsGetsTheOwedStopAheadOfAHandlersStart(t *testing.T) {
 					apiTestAgentToken(t, api, "kip", ""), `{}`); status != 200 {
 					t.Fatalf("stopped: %d %v", status, data)
 				}
-				return api, d, "kip"
+				return api, h, d, "kip"
 			},
 			pin:   func(t *testing.T, d *DAL, id string) { shutdownBootable(t, d, id, ServerSelfHost) },
 			start: func(api *apiServer, _ *DAL, id string) { api.reconcileMemberNow(id) },
 		},
 		{
 			who: "worker",
-			darkReport: func(t *testing.T) (*apiServer, *DAL, string) {
+			darkReport: func(t *testing.T) (*apiServer, http.Handler, *DAL, string) {
 				t.Helper()
 				api, h, d, _, contractor := apiTestDarkWorker(t, DesiredStateOnline)
 				if status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`); status != 200 {
 					t.Fatalf("stopped: %d %v", status, data)
 				}
-				return api, d, "ow-abc123"
+				return api, h, d, "ow-abc123"
 			},
 			pin: func(t *testing.T, d *DAL, id string) {
 				if err := d.SetMemberDesiredMachineID(id, ServerSelfHost); err != nil {
@@ -516,7 +516,7 @@ func TestAWardenThatReturnsGetsTheOwedStopAheadOfAHandlersStart(t *testing.T) {
 		},
 	} {
 		t.Run("a "+tc.who+" START sent by a handler", func(t *testing.T) {
-			api, d, id := tc.darkReport(t)
+			api, _, d, id := tc.darkReport(t)
 			// The STOP was parked before the pin existed, so it stays a fan-out.
 			tc.pin(t, d, id)
 			apiTestListen(t, api, ServerSelfHost)
@@ -525,6 +525,25 @@ func TestAWardenThatReturnsGetsTheOwedStopAheadOfAHandlersStart(t *testing.T) {
 
 			apiWantValue(t, "the returning warden's queue", any(wsVerbs(t, api, ServerSelfHost)),
 				any([]any{"stop", "start"}))
+		})
+
+		t.Run("a "+tc.who+" START whose warden answers only the STOP ahead of it is still stamped receipt_missing", func(t *testing.T) {
+			api, h, d, id := tc.darkReport(t)
+			tc.pin(t, d, id)
+			apiTestListen(t, api, ServerSelfHost)
+			tc.start(api, d, id)
+			wsVerbs(t, api, ServerSelfHost)
+
+			slNoSuchSession(t, api, h, ServerSelfHost, id)
+			api.sweepLapsedReceipts(nowSecs() + receiptDeadlineSecs)
+
+			m := apiTestMemberRow(t, d, id)
+			apiWantValue(t, "last_op", any(m.LastOp), any("start"))
+			apiWantValue(t, "last_op_reason", any(m.LastOpReason), any(
+				"receipt_missing: the start was handed to machine \"m-server-self\" but no receipt "+
+					"came back within 90s — the op may or may not have run; this row's last state is "+
+					"UNKNOWN, not failed. Suspect the machine's link to the server (the receipt POST) "+
+					"before suspecting the op itself"))
 		})
 	}
 }
