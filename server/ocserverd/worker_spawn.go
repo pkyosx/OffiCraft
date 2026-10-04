@@ -478,6 +478,7 @@ func (s *apiServer) notifyWorkerSpawn(w OutsourceWorker, now float64) bool {
 		return false
 	}
 	s.disarmRobustStopOnStart(w.ID, warden)
+	s.restartConfirmWindowOnStart(w.ID)
 	// A landed START begins a new session: drop the old boot_ts anchor here (as
 	// the member producer does). It is durable, so a leftover would be adopted by
 	// the fresh session and wave through the respawn-storm floor. Also needed for

@@ -675,6 +675,16 @@ func (s *apiServer) sessionConfirmedGone(memberID string, now float64) bool {
 	return now-since.(float64) >= offlineConfirmGraceSecs
 }
 
+// restartConfirmWindowOnStart: a START dispatch begins a new session, so an
+// offline run anchored before it belongs to the previous one. Without this, a
+// boot cancelled before it ever connects (onFirstConnect never fires) keeps the
+// earlier stop's anchor, and the cancel's stop reads as already past the window
+// and is collected on its first sample. Not cleared when a stop arms instead: a
+// repeated 停止 press would restart a window the current session is already in.
+func (s *apiServer) restartConfirmWindowOnStart(id string) {
+	s.offlineConfirmSince.Delete(id)
+}
+
 // 🔴 外包 force-stop (api_outsource.go) deliberately does NOT use this: it adds a
 // pull-back arm for a stamp in the future. Routing it here would break
 // ForcedStopAt >= StoppingSince, which forcedEpochLive rests on; adding the arm

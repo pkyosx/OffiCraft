@@ -896,7 +896,8 @@ decides that time is up.
   force-stopped) → the session dropped without reporting. It is **not** converged yet: the
   member stays `stopping` and nothing is sent until it has been offline **continuously for
   120 s** (owner ruling `rc-dbee69264859`, anti network blip; a reconnect restarts the
-  window). Then the tick latches `stopped_since` and sends one STOP down the kill chain to
+  window, and so does a START dispatch — a boot cancelled before it ever connects must
+  not inherit the previous stop's offline run). Then the tick latches `stopped_since` and sends one STOP down the kill chain to
   clear any residual session. This is the same judgement, from the same code, the outsource
   tick makes for a stopped worker. It is a confirmation window on an observed disconnect, not
   a deadline on the close-out: a member that stays connected is still never collected by

@@ -62,6 +62,15 @@ func stoppedStaffAfterDisconnect(t *testing.T) (*apiServer, http.Handler, *DAL, 
 	return api, h, d, owner
 }
 
+// wardenRPCs is the rpc of each drained warden frame, in order.
+func wardenRPCs(frames []map[string]any) []any {
+	out := []any{}
+	for _, f := range frames {
+		out = append(out, f["data"].(map[string]any)["rpc"])
+	}
+	return out
+}
+
 func wantStaffStop(t *testing.T, d *DAL, label string, stoppedSince float64) {
 	t.Helper()
 	m := reconcileTestRow(t, d, "kip")
@@ -182,6 +191,39 @@ func TestAStoppedStaffMemberWhoseSessionDroppedIsCollectedAfterTheConfirmWindow(
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("kip"))
 		wantStaffStop(t, d, "a window from the new disconnect", t0+250)
 	})
+
+	t.Run("an anchor from an earlier stop does not survive a new START that never connects: a stop while booting waits a full window from the stop", func(t *testing.T) {
+		api, h, d, owner := stoppedStaffAfterDisconnect(t)
+		bootable := reconcileTestRow(t, d, "kip")
+		bootable.RoleKey = defaultBootRole
+		putTestMember(t, api, bootable)
+		t0 := nowSecs() - 1000
+		api.runReconcileTick(t0)
+		api.runReconcileTick(t0 + 120)
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("kip"))
+		wantStaffStop(t, d, "the earlier stop", t0+120)
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
+			t.Fatalf("activate: %d %v", status, data)
+		}
+		apiWantValue(t, "frames of the wake", any(wardenRPCs(wsDrainWardenFrames(t, api, ServerSelfHost))),
+			any([]any{"stop", "start"}))
+
+		pressed := nowSecs()
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/deactivate", owner, `{}`); status != 200 {
+			t.Fatalf("deactivate while booting: %d %v", status, data)
+		}
+		returned := nowSecs()
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("kip"))
+		wantStaffStop(t, d, "right after the stop", 0)
+
+		api.runReconcileTick(pressed + 119)
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		wantStaffStop(t, d, "one second short of a window from the stop", 0)
+
+		api.runReconcileTick(returned + 120)
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("kip"))
+		wantStaffStop(t, d, "a window from the stop", returned+120)
+	})
 }
 
 // stoppedWorkerAfterDisconnect is the outsource twin of stoppedStaffAfterDisconnect.
@@ -267,5 +309,37 @@ func TestAStoppedWorkerWhoseSessionDroppedIsCollectedAfterTheConfirmWindow(t *te
 		api.runOutsourceTick(t0 + 250)
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
 		wantWorkerStop(t, d, "a window from the new disconnect", true)
+	})
+
+	t.Run("an anchor from an earlier stop does not survive a new START that never connects: a stop while booting waits a full window from the stop", func(t *testing.T) {
+		api, h, d, owner := stoppedWorkerAfterDisconnect(t)
+		t0 := nowSecs() - 1000
+		api.runOutsourceTick(t0)
+		api.runOutsourceTick(t0 + 120)
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		wantWorkerStop(t, d, "the earlier stop", true)
+		if status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/activate", owner, `{}`); status != 200 {
+			t.Fatalf("activate: %d %v", status, data)
+		}
+		api.runOutsourceTick(nowSecs())
+		apiWantValue(t, "frames of the wake", any(wardenRPCs(wsDrainWardenFrames(t, api, ServerSelfHost))),
+			any([]any{"stop", "start"}))
+
+		if status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/deactivate", owner, ""); status != 200 {
+			t.Fatalf("deactivate while booting: %d %v", status, data)
+		}
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		firstTick := nowSecs() + 11
+		api.runOutsourceTick(firstTick)
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		wantWorkerStop(t, d, "the first tick after the stop", false)
+
+		api.runOutsourceTick(firstTick + 119)
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		wantWorkerStop(t, d, "one second short of a window from the first offline sample", false)
+
+		api.runOutsourceTick(firstTick + 120)
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		wantWorkerStop(t, d, "a window from the first offline sample", true)
 	})
 }

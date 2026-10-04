@@ -913,6 +913,7 @@ func (s *apiServer) reconcileOne(m Member, st reconcileState, now float64) recon
 		// the boot_ts back.
 		s.clearSessionBootTSForStart(m.ID)
 		s.disarmRobustStopOnStart(m.ID, warden)
+		s.restartConfirmWindowOnStart(m.ID)
 		s.armReceiptWatch(m.ID, reconcileCmdStart, warden, now)
 		decision.State.StartTarget = warden
 		return decision
