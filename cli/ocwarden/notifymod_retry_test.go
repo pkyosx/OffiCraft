@@ -4,6 +4,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -105,10 +107,41 @@ func TestReadHooksModulesFlag(t *testing.T) {
 	})
 }
 
-func TestNotifyModRetriedNote(t *testing.T) {
-	got := notifyModRetriedNote(hooksModulesFlag{Value: "false"}, hooksModulesFlag{Value: "true"})
-	want := "warden 已自動重啟 Claude Code 再試一次，仍沒有載入（啟動前 Claude Code 快取的 tengu_plugin_hooks_modules：第 1 次 false，第 2 次 true）。"
-	if got != want {
-		t.Errorf("note = %q, want %q", got, want)
+func TestNotifyModNotLoadedNoteNamesBothFlagValues(t *testing.T) {
+	got := notifyModNotLoadedNote([]hooksModulesFlag{{Value: "false"}, {Value: "true"}})
+	if want := "已自動重啟 Claude Code 一次仍沒載入；啟動前快取的開關：第 1 次 false、第 2 次 true。"; !strings.Contains(got, want) {
+		t.Errorf("note = %q, want it to contain %q", got, want)
+	}
+	if got := notifyModNotLoadedNote([]hooksModulesFlag{{Value: "false"}}); strings.Contains(got, "重啟") {
+		t.Errorf("note without a restart = %q, want no restart sentence", got)
+	}
+}
+
+// The station truncates last_op_reason at commandResultReasonMax bytes, read
+// here from the server source so the two cannot drift apart.
+func TestNotifyNotesFitStationReasonCap(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "..", "server", "ocserverd", "api_monitoring.go"))
+	if err != nil {
+		t.Fatalf("read the station's cap: %v", err)
+	}
+	m := regexp.MustCompile(`(?m)^const commandResultReasonMax = (\d+)$`).FindSubmatch(src)
+	if m == nil {
+		t.Fatal("commandResultReasonMax not found in server/ocserverd/api_monitoring.go")
+	}
+	limit, _ := strconv.Atoi(string(m[1]))
+	// The longest values the flag read can yield: a capped JSON value, and the
+	// longest of its own words.
+	capped := hooksModulesFlag{Value: "…" + strings.Repeat("x", hooksModulesFlagValueCap)}
+	unreadable := hooksModulesFlag{Value: "unreadable"}
+	notes := map[string]string{
+		"not loaded, no restart":               notifyModNotLoadedNote([]hooksModulesFlag{unreadable}),
+		"not loaded after restart, unreadable": notifyModNotLoadedNote([]hooksModulesFlag{unreadable, unreadable}),
+		"not loaded after restart, capped":     notifyModNotLoadedNote([]hooksModulesFlag{capped, capped}),
+		"legacy paste, long version":           notifyLegacyPasteNote(strings.Repeat("9", 16) + "." + strings.Repeat("9", 16)),
+	}
+	for name, note := range notes {
+		if len(note) > limit {
+			t.Errorf("%s: %d bytes > the station's %d, so the owner sees it cut off: %q", name, len(note), limit, note)
+		}
 	}
 }

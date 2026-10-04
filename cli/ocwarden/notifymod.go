@@ -97,18 +97,34 @@ var notifyModFiles = []string{".claude-plugin/plugin.json", "hooks/hooks.json", 
 // (server/ocserverd/receipt_watch.go).
 const claudeVersionProbeBudget = 2 * time.Second
 
-// Owner-facing advisories on an OK spawn, folded into 最近操作 (command.go).
+// Owner-facing advisories on an OK spawn, folded into 最近操作 (command.go). The
+// station keeps only the first commandResultReasonMax bytes
+// (server/ocserverd/api_monitoring.go), so what the owner must act on comes
+// first and the details stay in the warden log.
 func notifyLegacyPasteNote(found string) string {
 	return "notify_legacy_paste: 這台機器的 Claude Code 是 " + found + "，比通知模組需要的 " +
-		notifyModMinClaudeVersion + " 舊，這位成員的通知改用貼進 tmux 視窗的舊方式送達；" +
-		"有人把視窗切到子代理（sub-agent）畫面時，貼進去的通知會送錯地方而漏掉。" +
-		"請到調度台升級這台機器的 Claude Code。"
+		notifyModMinClaudeVersion + " 舊，" + notifyByPasteNote + "請到調度台升級這台機器的 Claude Code。"
 }
 
-const notifyModNotLoadedNote = "notify_mod_not_loaded: OffiCraft 的通知模組（Claude Code mod）這次沒有載入，" +
-	"常見原因：工作目錄沒有被信任、設定了 disableAllHooks、以 --safe-mode 啟動，" +
-	"或受管設定（managed settings）擋掉了 --plugin-dir。這位成員的通知改用貼進 tmux 視窗的舊方式送達；" +
-	"有人把視窗切到子代理（sub-agent）畫面時，通知可能漏掉。"
+const notifyByPasteNote = "這位成員的通知改用貼進 tmux 視窗送達，視窗切到子代理（sub-agent）畫面時可能漏掉。"
+
+// attempts holds the flag read before each launch; two means the restart ran.
+func notifyModNotLoadedNote(attempts []hooksModulesFlag) string {
+	s := "notify_mod_not_loaded: 通知模組沒有載入，" + notifyByPasteNote
+	if len(attempts) == notifyModAttempts {
+		s += "已自動重啟 Claude Code 一次仍沒載入；啟動前快取的開關：第 1 次 " +
+			noteFlagValue(attempts[0]) + "、第 2 次 " + noteFlagValue(attempts[1]) + "。"
+	}
+	return s + "常見原因：工作目錄未信任、disableAllHooks、--safe-mode、受管設定擋掉 --plugin-dir。"
+}
+
+// The flag is a boolean; anything longer than "unreadable" is left to the log.
+func noteFlagValue(f hooksModulesFlag) string {
+	if len(f.Value) > len("unreadable") {
+		return "非布林值"
+	}
+	return f.Value
+}
 
 // An unreadable version is not "too old": the load marker catches a Claude Code
 // that cannot run the mod after all.

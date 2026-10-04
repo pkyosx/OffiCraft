@@ -275,13 +275,18 @@ func notifyModWrites(t *testing.T) []writtenFile {
 }
 
 const goldenNotifyLegacyPasteNote = "notify_legacy_paste: 這台機器的 Claude Code 是 2.1.286，比通知模組需要的 2.1.287 舊，" +
-	"這位成員的通知改用貼進 tmux 視窗的舊方式送達；有人把視窗切到子代理（sub-agent）畫面時，" +
-	"貼進去的通知會送錯地方而漏掉。請到調度台升級這台機器的 Claude Code。"
+	"這位成員的通知改用貼進 tmux 視窗送達，視窗切到子代理（sub-agent）畫面時可能漏掉。" +
+	"請到調度台升級這台機器的 Claude Code。"
 
-const goldenNotifyModNotLoadedNote = "notify_mod_not_loaded: OffiCraft 的通知模組（Claude Code mod）這次沒有載入，" +
-	"常見原因：工作目錄沒有被信任、設定了 disableAllHooks、以 --safe-mode 啟動，" +
-	"或受管設定（managed settings）擋掉了 --plugin-dir。這位成員的通知改用貼進 tmux 視窗的舊方式送達；" +
-	"有人把視窗切到子代理（sub-agent）畫面時，通知可能漏掉。"
+const goldenNotifyModNotLoadedNote = "notify_mod_not_loaded: 通知模組沒有載入，" +
+	"這位成員的通知改用貼進 tmux 視窗送達，視窗切到子代理（sub-agent）畫面時可能漏掉。" +
+	"常見原因：工作目錄未信任、disableAllHooks、--safe-mode、受管設定擋掉 --plugin-dir。"
+
+// After the one restart, with no ~/.claude.json (the harness default) before either launch.
+const goldenNotifyModRetriedNote = "notify_mod_not_loaded: 通知模組沒有載入，" +
+	"這位成員的通知改用貼進 tmux 視窗送達，視窗切到子代理（sub-agent）畫面時可能漏掉。" +
+	"已自動重啟 Claude Code 一次仍沒載入；啟動前快取的開關：第 1 次 absent、第 2 次 absent。" +
+	"常見原因：工作目錄未信任、disableAllHooks、--safe-mode、受管設定擋掉 --plugin-dir。"
 
 // The read-only log of Claude Code's cached hook-modules flag, for a warden
 // owner with no ~/.claude.json (the harness default).
@@ -1525,8 +1530,7 @@ func TestStart(t *testing.T) {
 			got := h.deps().start(startParamsM1())
 
 			want := SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500",
-				Note: goldenNotifyModNotLoadedNote + "warden 已自動重啟 Claude Code 再試一次，仍沒有載入（啟動前 Claude Code 快取的 " +
-					"tengu_plugin_hooks_modules：第 1 次 absent，第 2 次 absent）。"}
+				Note: goldenNotifyModRetriedNote}
 			if got != want {
 				t.Errorf("outcome = %+v, want %+v", got, want)
 			}
@@ -2008,8 +2012,7 @@ func TestStart(t *testing.T) {
 			got := h.deps().start(startParamsM1())
 
 			want := SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500",
-				Note: goldenNotifyModNotLoadedNote + "warden 已自動重啟 Claude Code 再試一次，仍沒有載入（啟動前 Claude Code 快取的 " +
-					"tengu_plugin_hooks_modules：第 1 次 absent，第 2 次 absent）。"}
+				Note: goldenNotifyModRetriedNote}
 			if got != want {
 				t.Errorf("outcome = %+v, want %+v", got, want)
 			}

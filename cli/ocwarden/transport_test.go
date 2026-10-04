@@ -1086,8 +1086,7 @@ func TestBuildCommandDeps(t *testing.T) {
 		// No member really ran, so the notification mod never wrote its marker,
 		// not after the one restart either: that advisory is the only one this
 		// spawn may carry. The seed has no feature cache, so both reads say absent.
-		wantNote := goldenNotifyModNotLoadedNote + "warden 已自動重啟 Claude Code 再試一次，仍沒有載入（啟動前 Claude Code 快取的 " +
-			"tengu_plugin_hooks_modules：第 1 次 absent，第 2 次 absent）。"
+		wantNote := goldenNotifyModRetriedNote
 		if got.Note != wantNote {
 			t.Fatalf("startup note = %q, want only the mod fallback after one restart", got.Note)
 		}

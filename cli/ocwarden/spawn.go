@@ -19,9 +19,10 @@ const (
 	// mod route polls within the same 30 s, see waitForNotifyMod), out of the
 	// 150s startReceiptDeadlineSecs in server/ocserverd/receipt_watch.go (the START receipt
 	// is POSTed only after Spawn returns); that comment lists the rest of the spawn
-	// path's budgets, and their worst case already runs past it. NEITHER NUMBER
-	// HAS EVER BEEN MEASURED, and nothing mechanical links them: cli/ocwarden and
-	// server/ocserverd are separate Go modules.
+	// path's budgets and the measured starts (3s normal, 69s for a restart plus
+	// paste fallback); only the restart path's budget worst case, ≈ 185s, runs
+	// past it. Nothing mechanical links them: cli/ocwarden and server/ocserverd
+	// are separate Go modules.
 	nudgeMaxAttempts = 30
 	// The paste fallback of a mod that did not load (see its call site).
 	fallbackNudgeAttempts = 3
@@ -962,10 +963,7 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 		// below, so the member boots twice (the mod's listener still stops on the
 		// disabled marker): a pending submit cannot be cancelled.
 		if !notifyByPaste && !modLoaded {
-			notifyByPaste, notifyNote = true, notifyModNotLoadedNote
-			if len(attemptFlags) == notifyModAttempts {
-				notifyNote += notifyModRetriedNote(attemptFlags[0], attemptFlags[1])
-			}
+			notifyByPaste, notifyNote = true, notifyModNotLoadedNote(attemptFlags)
 			if !disabled {
 				d.disableNotifyMod(workdir)
 			}

@@ -126,12 +126,6 @@ func (d SpawnDeps) logHooksModulesFlag(memberID, when string) hooksModulesFlag {
 	return f
 }
 
-// Appended to notifyModNotLoadedNote when the restart did not help either.
-func notifyModRetriedNote(first, second hooksModulesFlag) string {
-	return "warden 已自動重啟 Claude Code 再試一次，仍沒有載入（啟動前 Claude Code 快取的 " +
-		claudeHooksModulesFlag + "：第 1 次 " + first.Value + "，第 2 次 " + second.Value + "）。"
-}
-
 type notifyModRetry struct {
 	relaunched bool
 	launchedAt time.Time

@@ -54,12 +54,13 @@ const receiptDeadlineSecs = 90.0
 // After those, commandReportTimeout 5s, plus up to one 30s lifecycle cadence
 // before the deadline is read.
 //
-// 150s because a restart whose mod still does not load measured ≈ 110s end to
-// end, and by the budgets above a Claude start whose mod did not load, without
-// the restart, is ≈ 129s at worst: ≈ 40s and ≈ 21s of margin. The restart's
-// own worst case, ≈ 185s, is still PAST it, so a restart that is merely slow at
-// every step can be stamped receipt_missing with nothing wrong. Known and left
-// as is here.
+// 150s because, measured on a station (warden log "received start frame" to
+// "dispatched start OK"), a normal start takes 3s and a restart whose mod still
+// does not load, with its paste fallback, 69s; by the budgets above a Claude
+// start whose mod did not load is ≈ 129s at worst without the restart. A restart
+// that then succeeds has not been measured. The restart path's own budget worst
+// case, ≈ 185s, is PAST 150s, so a restart that is slow at every step can be
+// stamped receipt_missing with nothing wrong: known, and left as is.
 // 🔴 Those warden constants live in another Go module and nothing links them;
 // raising any of them widens that gap. Erring long is the safe direction.
 const startReceiptDeadlineSecs = 150.0
