@@ -848,9 +848,9 @@
     {
       "id": "warden-handlepayload-value",
       "source": "cli/ocwarden/transport.go",
-      "callsite": "return true, scanSSEWithActivity(resp.Body, t.handlePayload, onActivity)",
+      "callsite": "t.handlePayload(payload)",
       "kind": "seam",
-      "seam_reason": "the command-frame handler handed to the SSE scanner as a VALUE: the loop calls it per frame and it reaches the command_result receipts, each declared on its own callsite in command.go."
+      "seam_reason": "the command-frame handler, called per frame from the closure the SSE scanner is handed (which pauses and re-arms the idle-read watchdog around it); it reaches the command_result receipts, each declared on its own callsite in command.go."
     },
     {
       "id": "warden-renew-request",
