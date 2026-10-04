@@ -292,6 +292,14 @@ describe("mock lore_type", () => {
         "owner_preference (Owner 偏好) or other (其他). Put the type in lore_type, not as a prefix in the title.",
       retryAfter: null,
     });
+    expect(
+      (await refusal(api.writeLoreEntry({ title: "空白", body: "b", loreType: "  " as never })))
+        .serverMessage,
+    ).toBe(
+      "lore_type is required — nothing was written. Set it to the entry's type: " +
+        "instruction_conflict (指示衝突), instruction_supplement (指示補充), owner_decision (Owner 決策), " +
+        "owner_preference (Owner 偏好) or other (其他). Put the type in lore_type, not as a prefix in the title.",
+    );
     const written = (await api.listLoreEntries()).entries.filter((e) => e.seq > 7);
     expect(written.map((e) => [e.id, e.title, e.loreType])).toEqual([["L-8", "有標籤", "owner_decision"]]);
   });

@@ -1449,3 +1449,35 @@ func TestStaffBootDocumentShowsTheTypeLabelAheadOfTheTitle(t *testing.T) {
 		t.Fatalf("boot document does not carry exactly this 傳承 block:\n%s\n--- doc ---\n%s", wantBlock, doc)
 	}
 }
+
+// The 400 is the only place a member that booted before the type existed
+// learns the field, so its full text has to reach the agent through the tool.
+func TestWriteLoreToolCallWithoutATypeHandsTheAgentTheFiveValues(t *testing.T) {
+	api, h, d, owner := newAPITestServer(t)
+	api.loopback = h
+	token := apiTestPrincipalToken(t, api, d, principalAgent, "m-lore-mcp")
+
+	status, data := apiMCP(t, h, token,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"write_lore_entry","arguments":{"title":"一件事","body":"內容"}}}`)
+
+	if status != 200 {
+		t.Fatalf("want 200, got %d (%v)", status, data)
+	}
+	result, _ := data["result"].(map[string]any)
+	if result == nil || result["isError"] != true {
+		t.Fatalf("want a tool error, got %v", data)
+	}
+	content, _ := result["content"].([]any)
+	first, _ := content[0].(map[string]any)
+	want := `{"error":{"code":"validation_error","message":"lore_type is required — nothing was written. ` +
+		`Set it to the entry's type: instruction_conflict (指示衝突), instruction_supplement (指示補充), ` +
+		`owner_decision (Owner 決策), owner_preference (Owner 偏好) or other (其他). ` +
+		`Put the type in lore_type, not as a prefix in the title."}}`
+	if len(content) != 1 || first["type"] != "text" || first["text"] != want {
+		t.Fatalf("the agent must receive the whole refusal, got %v", content)
+	}
+	if status, page := apiJSON(t, h, "GET", "/api/lore", owner, ""); status != 200 ||
+		len(page["entries"].([]any)) != 0 {
+		t.Fatalf("a refused write must leave no entry, got %d %v", status, page)
+	}
+}

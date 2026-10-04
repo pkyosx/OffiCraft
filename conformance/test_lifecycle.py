@@ -591,7 +591,7 @@ def test_member_boot_context_preview_equals_the_member_boot_fold_verbatim(
     member_token = mint_member_token(client, owner_token, member_id, ttl_days=1)
     r = client.post(
         "/api/lore",
-        json={"title": lore_title, "body": "conf preview lore body"},
+        json={"title": lore_title, "body": "conf preview lore body", "lore_type": "other"},
         headers=_auth(member_token),
     )
     assert r.status_code == 200, r.text

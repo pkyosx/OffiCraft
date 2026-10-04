@@ -606,7 +606,7 @@ def _matrix_lore_entry(ctx: Ctx) -> str:
     """
     r = ctx.client.post(
         "/api/lore",
-        json={"title": "conf matrix lore", "body": "conf matrix lore body"},
+        json={"title": "conf matrix lore", "body": "conf matrix lore body", "lore_type": "other"},
         headers={"Authorization": f"Bearer {ctx.agent_a.token}"},
     )
     assert r.status_code == 200, f"scratch lore entry failed: {r.status_code} {r.text}"
@@ -1951,12 +1951,13 @@ MATRIX: dict[str, Route] = {
         # this door — the 400 is a scope-resolution outcome, not a refusal
         # about who may write — so `owner` is the only override.
         #
-        # title and body are both non-empty (the handler's first 400) and far
-        # under the character caps (its second and third), so no at-floor cell
-        # can 400 for a content reason and be mistaken for the scope one.
+        # title and body are both non-empty (the handler's first 400), far
+        # under the character caps (its second and third), and lore_type is a
+        # valid value (its fourth), so no at-floor cell can 400 for a content
+        # reason and be mistaken for the scope one.
         requires="agent",
         overrides={"owner": 400},
-        body={"title": "conf matrix lore", "body": "conf matrix lore body"},
+        body={"title": "conf matrix lore", "body": "conf matrix lore body", "lore_type": "other"},
     ),
     "POST /api/lore/{entry_id}/state": Route(
         # Author-gated ABOVE the declared floor, inside the handler:
