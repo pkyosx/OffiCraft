@@ -266,7 +266,7 @@ describe("設定 › 任務手冊 — detail", () => {
     fireEvent.click(await findByTestId("doc-history-seed-open"));
     fireEvent.click(await findByTestId("doc-history-modal-restore"));
     expect(getByTestId("doc-history-restore-confirm").textContent).toContain(
-      "確定同步出廠預設？整本手冊（名稱、用途、識別鍵、SOP 與負責成員）都會回到出廠設定，目前的修改會被覆蓋。"
+      "確定同步預設內容？整本手冊（名稱、用途、識別鍵、SOP 與負責成員）都會回到預設設定，目前的修改會被覆蓋。"
     );
     fireEvent.click(getByTestId("doc-history-restore-confirm-btn"));
 

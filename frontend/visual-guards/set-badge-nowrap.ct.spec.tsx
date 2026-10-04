@@ -89,7 +89,7 @@ for (const width of [320, 375, 390, 1040]) {
     // measure nothing.
     const badge = cmp.getByTestId("insight-status-badge");
     await expect(badge).toBeVisible();
-    await expect(badge).toHaveText("與出廠預設同步");
+    await expect(badge).toHaveText("與預設內容同步");
 
     const badgeGeo = await textGeometry(badge);
     expect(badgeGeo.lines, "factory-status badge label line boxes").toBe(1);

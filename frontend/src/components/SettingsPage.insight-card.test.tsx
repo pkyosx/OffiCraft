@@ -123,7 +123,7 @@ describe("SettingsPage · InsightCard (T-3809)", () => {
     // a badge on an empty card would prove nothing).
     expect(within(card).queryByText(mp.insightEmpty)).toBeNull();
     const badge = within(card).getByTestId("insight-status-badge");
-    expect(badge.textContent).toBe("與出廠預設同步");
+    expect(badge.textContent).toBe("與預設內容同步");
   });
 
   it("a seeded Insight shows the edited state once the role writes its own", async () => {
@@ -217,14 +217,14 @@ describe("SettingsPage · InsightCard (T-3809)", () => {
     ).toBeGreaterThan(0);
   });
 
-  // T-6501: the 初始版本 row is the ONLY way back to the factory insight, and
+  // T-6501: the 預設內容 row is the ONLY way back to the factory insight, and
   // DocumentHistoryEntry only grows it where `onReset` is wired.
   //
   // 🔴 BOTH DIRECTIONS ARE ASSERTED, and the negative one is what makes this
   // worth having: an implementation that wires `onReset` UNCONDITIONALLY passes
   // the positive test perfectly, and the only symptom is that every custom role
   // is offered a reset the server refuses (409). One assertion here would ship that.
-  it("offers 初始版本 on a role that HAS a factory insight", async () => {
+  it("offers 預設內容 on a role that HAS a factory insight", async () => {
     // Written first, so this also pins that the row survives the role having
     // its own doc — hasSeed answers what exists to fall back TO, not what is
     // being read, and that is exactly when a reset is worth offering.
@@ -239,7 +239,7 @@ describe("SettingsPage · InsightCard (T-3809)", () => {
     expect(within(list).getByTestId("doc-history-seed")).toBeTruthy();
   });
 
-  it("offers NO 初始版本 on a role with no factory insight", async () => {
+  it("offers NO 預設內容 on a role with no factory insight", async () => {
     await mockApi.createRole({ name: "沒有出廠判準的角色" });
     const utils = await openRolePage("沒有出廠判準的角色");
     const card = insightCard(utils)!;
@@ -251,7 +251,7 @@ describe("SettingsPage · InsightCard (T-3809)", () => {
     expect(within(list).queryByTestId("doc-history-seed")).toBeNull();
   });
 
-  // ⚠️ CONTRACT CHANGE (T-40f0, owner rc-28885813e065 ①): the 初始版本 row no
+  // ⚠️ CONTRACT CHANGE (T-40f0, owner rc-28885813e065 ①): the 預設內容 row no
   // longer jumps straight to a reset confirmation of its own. It opens the same
   // reader every other row opens, and the reset now rides the ONE destructive
   // confirm that lives in DocumentHistoryModal (`doc-history-restore-confirm`),
@@ -262,7 +262,7 @@ describe("SettingsPage · InsightCard (T-3809)", () => {
   // the Insight card's own re-read. What this test owns is the HOST WIRING —
   // that InsightCard's `onReset` reaches the insight reset for THIS role, and
   // that the card on screen follows it.
-  it("the 初始版本 row restores the factory insight, behind the shared confirm", async () => {
+  it("the 預設內容 row restores the factory insight, behind the shared confirm", async () => {
     const seed = (await mockApi.getInsight("assistant")).text;
     const written = "這一份是角色自己寫的，不是出廠版。";
     expect(written).not.toBe(seed); // anti-tautology: the reset must MOVE something
@@ -298,7 +298,7 @@ describe("SettingsPage · InsightCard (T-3809)", () => {
     // less: the badge IS the "this is factory wording" claim.
     expect(
       (await utils.findByTestId("insight-status-badge")).textContent
-    ).toBe("與出廠預設同步");
+    ).toBe("與預設內容同步");
     expect(within(insightCard(utils)!).queryByText(written)).toBeNull();
   });
 });

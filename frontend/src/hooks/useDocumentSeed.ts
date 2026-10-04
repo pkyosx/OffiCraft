@@ -1,5 +1,5 @@
 // hooks/useDocumentSeed.ts — the SHIPPED DEFAULT of one editable long-form
-// document, so 初始版本 can be READ and COMPARED before anyone restores it
+// document, so 預設內容 can be READ and COMPARED before anyone restores it
 // (T-40f0, owner rc-28885813e065 ①).
 //
 // Deliberately NOT folded into useDocumentHistory, even though both feed the
@@ -9,7 +9,7 @@
 //     the cockpit is open, so this fetches once per (kind, key) and subscribes
 //     to nothing. Giving it a slot in the history hook would put it behind that
 //     hook's SSE refetch for no reason.
-//   * the two failures must stay independent. 初始版本 is the only reset the
+//   * the two failures must stay independent. 預設內容 is the only reset the
 //     cockpit has left, and T-1f39 already had to un-couple it from the history
 //     GET once (rendering it inside the success branch made 重置 the hostage of
 //     an unrelated request). `error` here therefore means "cannot show or
@@ -30,7 +30,7 @@ interface UseDocumentSeed {
   loading: boolean;
   /** True when the load REJECTED. A 404 is NOT an error — it is the honest
    * answer "this document ships no default", and the surfaces that render a
-   * 初始版本 row only render one where a reset exists anyway. */
+   * 預設內容 row only render one where a reset exists anyway. */
   error: boolean;
 }
 

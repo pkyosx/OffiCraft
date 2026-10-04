@@ -766,9 +766,24 @@ func (d *DAL) ListDocumentHistory(kind, key string) ([]DocumentHistory, error) {
 		if err := rows.Scan(&h.ID, &h.DocumentKind, &h.DocumentKey, &h.ContentJSON, &h.CreatedTS, &h.ActorID); err != nil {
 			return nil, err
 		}
+		if documentHistoryIsTombstone(h.ContentJSON) {
+			continue
+		}
 		out = append(out, h)
 	}
 	return out, rows.Err()
+}
+
+// Rows retained before tombstones stopped being snapshotted are hidden from
+// every read (list, get, restore, diff) rather than deleted: restoring one
+// would only re-sync the document to its default, which the 預設內容 row does.
+// They still occupy retention slots until newer revisions push them out.
+func documentHistoryIsTombstone(contentJSON string) bool {
+	content := map[string]string{}
+	if err := json.Unmarshal([]byte(contentJSON), &content); err != nil {
+		return false
+	}
+	return historyTombstoned(content)
 }
 
 func (d *DAL) GetDocumentHistory(kind, key string, id int64) (*DocumentHistory, error) {
@@ -781,6 +796,9 @@ func (d *DAL) GetDocumentHistory(kind, key string, id int64) (*DocumentHistory, 
 	}
 	if err != nil {
 		return nil, err
+	}
+	if documentHistoryIsTombstone(h.ContentJSON) {
+		return nil, nil
 	}
 	return &h, nil
 }

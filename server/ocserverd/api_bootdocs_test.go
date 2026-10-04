@@ -747,7 +747,7 @@ func TestBootDocSnapshotIn(t *testing.T) {
 		}
 	})
 
-	t.Run("a reset row is retained as the tombstone it is, not as the seed it now reads back as", func(t *testing.T) {
+	t.Run("a reset row follows the default and snapshots to the empty object, which retains no revision", func(t *testing.T) {
 		_, h, d, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/offboard", owner, `{"body":"O1"}`)
 		apiJSON(t, h, "POST", "/api/offboard/reset", owner, "")
@@ -757,7 +757,7 @@ func TestBootDocSnapshotIn(t *testing.T) {
 		if err != nil {
 			t.Fatalf("snapshot: %v", err)
 		}
-		if want := `{"text":"","tombstoned":"true"}`; got != want {
+		if want := `{}`; got != want {
 			t.Fatalf("snapshot = %q, want %q", got, want)
 		}
 	})
@@ -777,7 +777,7 @@ func TestBootDocSnapshotIn(t *testing.T) {
 }
 
 func TestBootDocHistorySnapshot(t *testing.T) {
-	t.Run("a row is retained as its text and its tombstone flag, and no row at all as the empty object", func(t *testing.T) {
+	t.Run("an overlay row is retained as its text, and a tombstoned row or no row at all as the empty object", func(t *testing.T) {
 		for name, c := range map[string]struct {
 			row  *BootDocument
 			want string
@@ -787,7 +787,7 @@ func TestBootDocHistorySnapshot(t *testing.T) {
 				`{"text":"O1","tombstoned":"false"}`},
 			"a tombstoned row": {
 				&BootDocument{Kind: "offboard", Key: "global", Text: "O1", Tombstoned: true},
-				`{"text":"O1","tombstoned":"true"}`},
+				"{}"},
 			"a row holding an empty document": {
 				&BootDocument{Kind: "offboard", Key: "global"},
 				`{"text":"","tombstoned":"false"}`},

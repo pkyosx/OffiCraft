@@ -1050,7 +1050,7 @@ export function SettingsPage({
         // 重置 = "restore the FILE SEED" — only a seed role has one. A custom
         // role's doc IS its only truth (the server refuses its reset as not
         // applicable), so the affordance is omitted rather than left half-dead: on a
-        // seed role it becomes the list's 初始版本 row, on a custom one there
+        // seed role it becomes the list's 預設內容 row, on a custom one there
         // is no such row at all.
         onReset={
           role?.isSeed

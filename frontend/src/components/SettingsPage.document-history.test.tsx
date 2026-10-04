@@ -11,11 +11,11 @@
 // T-1f39 moved restore off the row and into the modal the row opens. The owner's
 // 2026-07-31 ruling then moved the history ITSELF: it is no longer a card under
 // the editor but a 版本紀錄 button standing where 重置 stood, in the EDIT
-// toolbar, and 重置 survives as the 初始版本 row at the bottom of the list it
+// toolbar, and 重置 survives as the 預設內容 row at the bottom of the list it
 // opens. Three consequences are pinned here on top of everything above:
 //   - the history is not fetched until that button is clicked (「有點選的時候再
 //     打 API 就可以」);
-//   - 初始版本 appears exactly where a file seed exists and nowhere else;
+//   - 預設內容 appears exactly where a file seed exists and nowhere else;
 //   - resetting now goes through that row, and through the same destructive
 //     confirmation the restore uses — it has no button of its own left.
 
@@ -112,7 +112,7 @@ describe("SettingsPage · 版本紀錄", () => {
     await openHistory(utils, "global_context");
     expect(utils.getByText(s.historyGlobalTitle)).toBeTruthy();
     // The global block HAS a seed, so its list is never truly empty — it holds
-    // the 初始版本 row and nothing else.
+    // the 預設內容 row and nothing else.
     expect(utils.container.querySelectorAll(".doc-hist__item")).toHaveLength(1);
     expect(utils.getByTestId("doc-history-seed")).toBeTruthy();
     // The global-context block cannot be deleted, so the delete-scope footnote
@@ -139,9 +139,12 @@ describe("SettingsPage · 版本紀錄", () => {
       return found;
     });
 
-    // Newest first: the top row is what the LAST write replaced — the state the
-    // reset left behind, so the seed-state badge says so.
-    expect(within(rows[0] as HTMLElement).getByText(s.historyDefaultBadge)).toBeTruthy();
+    // Newest first. The reset left the block on its default, so the write
+    // after it retained nothing: the top row is what the reset replaced, and
+    // no row carries a badge.
+    for (const row of rows) {
+      expect((row as HTMLElement).querySelector(".set-badge")).toBeNull();
+    }
     // Who wrote it, through the dictionary label (never a bare id on its own).
     expect((rows[1] as HTMLElement).textContent).toContain(s.historyByLabel);
     // The list is a PICKER (owner 2026-07-31): NO revision's content is on it,
@@ -154,7 +157,7 @@ describe("SettingsPage · 版本紀錄", () => {
     // Distinguishable all the same — one click deeper, the row opens ITS OWN
     // revision, which is what the on-list preview used to prove.
     fireEvent.click(
-      (rows[1] as HTMLElement).querySelector(".doc-hist__row") as HTMLElement
+      (rows[0] as HTMLElement).querySelector(".doc-hist__row") as HTMLElement
     );
     // …and it FETCHES that revision (T-1170) rather than showing something the
     // list already had — the await is the round trip, and the pane says
@@ -167,6 +170,24 @@ describe("SettingsPage · 版本紀錄", () => {
         "第二版：少用 emoji"
       )
     );
+  });
+
+  it("marks a revision that really stored an empty block as blank", async () => {
+    await mockApi.saveGlobalContext("");
+    await mockApi.saveGlobalContext("後來寫的區塊");
+
+    const utils = await openUserCustomDoc();
+    await openHistory(utils, "global_context");
+    const rows = await waitFor(() => {
+      const found = utils.container.querySelectorAll(
+        ".doc-hist__item:not(.doc-hist__item--seed)"
+      );
+      expect(found).toHaveLength(1);
+      return found;
+    });
+    expect(
+      (rows[0] as HTMLElement).querySelector(".doc-hist__empty")?.textContent
+    ).toBe("（當時是空白內容）");
   });
 
   it("restore asks first, then rides the adapter and refreshes doc and list", async () => {
@@ -433,7 +454,7 @@ describe("SettingsPage · 版本紀錄", () => {
     restore.mockRestore();
   });
 
-  // ── 初始版本 (owner 2026-07-31, reshaped by T-40f0 rc-28885813e065 ①) ─────
+  // ── 預設內容 (owner 2026-07-31, reshaped by T-40f0 rc-28885813e065 ①) ─────
   // 重置 lost its button; the seed became the list's last row. Two halves have
   // to hold at once, and a test that only checked one would let the other rot:
   // the row must BE there where a seed exists, and must NOT be there where the
@@ -448,7 +469,7 @@ describe("SettingsPage · 版本紀錄", () => {
   // 🔴 RED LINE. Looking is not restoring. Opening the row, reading its content
   // and comparing it against the live document must not write anything — a
   // reset replaces every word the owner has ever written into that block.
-  it("opens 初始版本 for READING, and looking at it restores nothing", async () => {
+  it("opens 預設內容 for READING, and looking at it restores nothing", async () => {
     await mockApi.saveGlobalContext("寫壞的內容");
     const reset = vi.spyOn(mockApi, "resetGlobalContext");
 
@@ -457,7 +478,7 @@ describe("SettingsPage · 版本紀錄", () => {
     await openHistory(utils, "global_context");
     fireEvent.click(await utils.findByTestId("doc-history-seed-open"));
 
-    // The SAME reader every other version opens, named 初始版本 rather than
+    // The SAME reader every other version opens, named 預設內容 rather than
     // given a fabricated timestamp and 修改者.
     const modal = await utils.findByTestId("doc-history-modal");
     expect(within(modal).getByText(s.historySeedTitle)).toBeTruthy();
@@ -481,7 +502,7 @@ describe("SettingsPage · 版本紀錄", () => {
     reset.mockRestore();
   });
 
-  it("resets through the 初始版本 row, and only after the same confirmation", async () => {
+  it("resets through the 預設內容 row, and only after the same confirmation", async () => {
     await mockApi.saveGlobalContext("寫壞的內容");
     const reset = vi.spyOn(mockApi, "resetGlobalContext");
 
@@ -515,11 +536,11 @@ describe("SettingsPage · 版本紀錄", () => {
     reset.mockRestore();
   });
 
-  // 初始版本 is now the ONLY way to reset, and it needs nothing from the
+  // 預設內容 is now the ONLY way to reset, and it needs nothing from the
   // server. Rendering it only in the success branch of the list load made 重置
   // the hostage of an unrelated GET: one failed request and a seeded document
   // could not be put back on its default at all.
-  it("keeps 初始版本 reachable when the version list fails to load", async () => {
+  it("keeps 預設內容 reachable when the version list fails to load", async () => {
     await mockApi.saveGlobalContext("寫壞的內容");
     const list = vi
       .spyOn(mockApi, "listDocumentHistory")
@@ -546,7 +567,7 @@ describe("SettingsPage · 版本紀錄", () => {
   // own. If that request fails, the reader must say so — never claim the
   // default is empty — and the restore must STILL be reachable, because putting
   // the document back on its default needs nothing from this client.
-  it("keeps 初始版本 restorable when its own content cannot be read", async () => {
+  it("keeps 預設內容 restorable when its own content cannot be read", async () => {
     await mockApi.saveGlobalContext("寫壞的內容");
     const seed = vi
       .spyOn(mockApi, "getDocumentSeed")
@@ -571,7 +592,7 @@ describe("SettingsPage · 版本紀錄", () => {
     reset.mockRestore();
   });
 
-  it("cancelling the 初始版本 confirmation resets nothing", async () => {
+  it("cancelling the 預設內容 confirmation resets nothing", async () => {
     await mockApi.saveGlobalContext("寫壞的內容");
     const reset = vi.spyOn(mockApi, "resetGlobalContext");
 
@@ -593,12 +614,12 @@ describe("SettingsPage · 版本紀錄", () => {
     reset.mockRestore();
   });
 
-  // The equivalence, across every surface at once: 初始版本 exists exactly
+  // The equivalence, across every surface at once: 預設內容 exists exactly
   // where a file seed does. Pinning only the positive side would let the row
   // appear on a custom role, where clicking it produces a 404 nobody expects;
   // pinning only the negative side would let it quietly vanish from the two
   // documents whose reset it now IS.
-  it("carries 初始版本 exactly where the document has a file seed", async () => {
+  it("carries 預設內容 exactly where the document has a file seed", async () => {
     const { roleKey: customKey } = await mockApi.createRole({
       name: "臨時角色",
     });

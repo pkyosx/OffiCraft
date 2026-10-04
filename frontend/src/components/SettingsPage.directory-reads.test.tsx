@@ -170,7 +170,7 @@ describe("設定 › 角色誌 · the roster is a directory (T-1170)", () => {
 
     await utils.findByTestId("role-doc-loading");
     expect((await utils.findByTestId("doc-card-status-badge")).textContent).toBe(
-      "與出廠預設同步"
+      "與預設內容同步"
     );
     release(undefined);
   });
@@ -309,7 +309,7 @@ describe("版本紀錄 · the list is a picker, the reader fetches (T-1170)", ()
     // 「這個版本沒有內容」 would be a different, and false, statement — and it
     // would be made next to a button that overwrites the live document.
     const modal = await utils.findByTestId("doc-history-modal");
-    await utils.findByTestId("doc-history-default-unreadable");
+    await utils.findByTestId("doc-history-version-unreadable");
     expect(modal.textContent).not.toContain(s.historyModalEmpty);
     // The restore itself stays live: putting the document back on that
     // revision needs nothing from this client.

@@ -32,11 +32,11 @@ function renderManual(manual: TaskManualView) {
   );
 }
 
-describe("任務手冊出廠狀態", () => {
+describe("任務手冊預設內容狀態", () => {
   it("marks a built-in manual with no overlay as synced", () => {
     const { getByTestId } = renderManual(mkManual(true, true));
     expect(getByTestId("manual-document-status").textContent).toBe(
-      "與出廠預設同步"
+      "與預設內容同步"
     );
   });
 

@@ -924,7 +924,7 @@ function DefinitionCard({
           />
           {/* 版本紀錄 — the ONLY place it appears on this page: only the SOP is
             * versioned, and this is the SOP's own edit row. Only a built-in
-            * manual has a 初始版本 row, and going back to it rewrites the whole
+            * manual has a 預設內容 row, and going back to it rewrites the whole
             * manual, not just the SOP — hence its own confirmation. */}
           {switchFor(
             3,

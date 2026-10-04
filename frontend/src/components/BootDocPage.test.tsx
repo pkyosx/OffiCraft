@@ -277,7 +277,7 @@ describe("BootDocPage", () => {
     );
     // The list is a PICKER (owner 2026-07-31: no content preview on the rows),
     // so "lists the versions" is a claim about ROWS: the revision the second
-    // write retained, plus the 初始版本 row that is always there.
+    // write retained, plus the 預設內容 row that is always there.
     const rows = within(list).getAllByTestId(/^doc-history-open-\d+$/);
     expect(rows.length).toBe(1);
     expect(within(list).getByTestId("doc-history-seed")).toBeTruthy();
@@ -318,7 +318,7 @@ describe("BootDocPage", () => {
 
     // Back on the factory version, and the page says so.
     expect((await utils.findByTestId("doc-card-status-badge")).textContent).toBe(
-      "與出廠預設同步"
+      "與預設內容同步"
     );
   });
 
@@ -552,7 +552,7 @@ describe("BootDocPage", () => {
       "已修改"
     );
 
-    // The seed did not stop existing — 同步出廠預設 restores it.
+    // The seed did not stop existing — 同步預設內容 restores it.
     expect(
       await api.getDocumentSeed("system_interaction", "global")
     ).toMatchObject({ content: { text: SEED_SYSTEM_INTERACTION_MD.trim() } });

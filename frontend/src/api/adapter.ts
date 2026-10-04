@@ -2968,14 +2968,14 @@ export interface Api {
     id: number,
   ): Promise<DocumentRevisionView>;
   /**
-   * The document's SHIPPED DEFAULT — the version list's 初始版本 row
+   * The document's SHIPPED DEFAULT — the version list's 預設內容 row
    * (`GET /api/document-history/{kind}/{key}/seed`, T-40f0).
    *
-   * READ-ONLY: this is what makes 初始版本 comparable BEFORE its restore, which
+   * READ-ONLY: this is what makes 預設內容 comparable BEFORE its restore, which
    * is the one restore in the list that throws away everything the owner ever
    * wrote. Rejects with a 404 `ApiError` for a document that has no default
    * (a custom role, a custom task manual) — the same documents whose reset
-   * the server refuses as not applicable, and whose 初始版本 row is not drawn.
+   * the server refuses as not applicable, and whose 預設內容 row is not drawn.
    */
   getDocumentSeed(kind: DocumentKind, key: string): Promise<DocumentSeedView>;
   /**

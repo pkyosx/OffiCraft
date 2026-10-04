@@ -90,7 +90,7 @@ export interface DocCardProps {
   onSave?: (text: string) => Promise<void> | void;
   onReset?: () => Promise<void> | void;
   /** The document's 版本紀錄 (T-1f39). Rendered in the EDIT toolbar, in the
-   * slot 重置 used to hold; the reset itself survives as the list's 初始版本
+   * slot 重置 used to hold; the reset itself survives as the list's 預設內容
    * row and is wired from `onReset` here, so a document without a seed simply
    * does not grow that row. */
   history?: Omit<DocumentHistoryEntryProps, "onReset" | "disabled">;
@@ -185,7 +185,7 @@ export interface DocCardProps {
 }
 
 /** Which confirmation is open. Saving is the only one this card raises: the
- * factory restore lives in the history list's 初始版本 row (owner 2026-08-14,
+ * factory restore lives in the history list's 預設內容 row (owner 2026-08-14,
  * card rc-f1950f4d286e — "完全照 insight"), and that row carries its own. */
 type Pending = { kind: "save" } | null;
 
@@ -227,7 +227,7 @@ export function DocCard({
   // 🔴 A null doc means the body has NOT been read (loading, or the read
   // failed) — it does not mean the document is untouched. The old fallback
   // here was `true`, which turned "I do not know" into the positive claim
-  // 「與出廠預設同步」 beside an empty body. Keep the status unknown unless
+  // 「與預設內容同步」 beside an empty body. Keep the status unknown unless
   // either the loaded doc or the caller's independent roster read supplies it.
   //
   // `isDefaultOverride` exists because a caller can often know this WITHOUT
@@ -330,7 +330,7 @@ export function DocCard({
     void run(() => onSave(draft));
   }
 
-  // No requestReset here any more: the only reset affordance is the 初始版本
+  // No requestReset here any more: the only reset affordance is the 預設內容
   // row inside DocumentHistoryEntry (edit mode), which runs its OWN confirm.
   // Removed with the top-level button rather than left dangling — a dead
   // private function reads like a path something still takes.
@@ -433,7 +433,7 @@ export function DocCard({
         * that on 2026-08-14 (card rc-f1950f4d286e, option 2: "完全照 insight")
         * with the trade-off spelled out to him — insight keeps its reset inside
         * edit mode, and he wants these blocks to look the same. The reset is
-        * therefore reached exactly as insight's is: the 初始版本 row inside
+        * therefore reached exactly as insight's is: the 預設內容 row inside
         * DocumentHistoryEntry, in edit mode. Do not restore this button as a
         * bug fix; T-791e's ticket carries the superseded red line and says so. */}
 
@@ -479,7 +479,7 @@ export function DocCard({
           {readOnly ? null : editing ? (
             <div className="doc-card__actions">
               {/* 版本紀錄 stands where 重置 stood (owner 2026-07-31). The reset
-               * did not disappear — it is the 初始版本 row inside, and only
+               * did not disappear — it is the 預設內容 row inside, and only
                * where a seed exists (onReset omitted ⇒ no such row, e.g. a
                * custom role whose reset the server refuses as not applicable). */}
               {history && (

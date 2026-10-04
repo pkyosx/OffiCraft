@@ -266,7 +266,7 @@ export interface InsightView {
   capChars: number;
   /**
    * True when a FACTORY version of this role's insight exists to fall back to
-   * (`seeds/insight_<role_key>.md` ships). Gate the 初始版本 reset row on THIS,
+   * (`seeds/insight_<role_key>.md` ships). Gate the 預設內容 reset row on THIS,
    * never on `isDefault`: that one says whether the role has written yet, and a
    * seeded role that HAS written reads hasSeed=true / isDefault=false — exactly
    * when the reset is worth offering. `resetInsight` is refused (409) when it is false.
@@ -884,7 +884,7 @@ export interface DocumentHistoryView {
  *
  * `label` is the heading for that side's column WHEN THE LINK CARRIED ONE.
  * Absent is the normal case for a document side, and deliberately so: 「目前存檔
- * 內容」/「初始版本」/「版本 #12」 belong in the reader's own language, and a
+ * 內容」/「預設內容」/「版本 #12」 belong in the reader's own language, and a
  * label written once at mint time would impose one language on everyone. The
  * reader writes those from the address; a blob side with no label falls back to
  * the diff's own 先前版本／目前內容 words.
@@ -912,17 +912,17 @@ export interface DiffPairView {
 }
 
 /**
- * The document's SHIPPED DEFAULT — the 初始版本 row of the version list
+ * The document's SHIPPED DEFAULT — the 預設內容 row of the version list
  * (`GET /api/document-history/{kind}/{key}/seed`, T-40f0).
  *
  * `content` uses the SAME field names a retained revision does, which is the
  * whole point: the reader and the diff that serve every other row serve this
- * one unchanged, so 初始版本 can be COMPARED before anyone decides to go back
+ * one unchanged, so 預設內容 can be COMPARED before anyone decides to go back
  * to it. Reading it writes nothing.
  *
  * Only a document that ships a default has one (the global block's default is
  * the empty document, a seed role's is its file seed, a built-in manual's is
- * its shipped SOP); everywhere else the route 404s, exactly where the 初始版本
+ * its shipped SOP); everywhere else the route 404s, exactly where the 預設內容
  * row is not rendered either.
  */
 export interface DocumentSeedView {

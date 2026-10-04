@@ -15,7 +15,7 @@
 //     Guessing TRUE means "assume this is a built-in, do NOT offer delete" —
 //     the cautious answer. Guessing FALSE would offer a destructive button on a
 //     role the server refuses to delete.
-//   * `has_seed` gates the 初始版本 RESET row (T-6501). Guessing FALSE means
+//   * `has_seed` gates the 預設內容 RESET row (T-6501). Guessing FALSE means
 //     "cannot prove a factory version exists, so offer nothing" — the cautious
 //     answer. Guessing TRUE would draw a row that 404s on every role with no
 //     seeds/insight_<role_key>.md, which is every role but `assistant`.

@@ -1812,7 +1812,7 @@
   color: var(--color-text);
 }
 
-/* 初始版本 — the file seed as the list's LAST entry (T-1f39, owner
+/* 預設內容 — the file seed as the list's LAST entry (T-1f39, owner
  * 2026-07-31). It is a real row, not a footer button: it is one of the states
  * this document has been, and it is the only remaining way to reset. */
 .doc-hist__item--seed {

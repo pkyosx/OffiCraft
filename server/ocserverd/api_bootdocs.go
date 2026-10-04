@@ -407,8 +407,9 @@ func bootDocSnapshotIn(kind, key string) func(sqlRowQuerier) (string, error) {
 	}
 }
 
+// Following the default retains nothing; see userContextHistorySnapshot.
 func bootDocHistorySnapshot(current *BootDocument) (string, error) {
-	if current == nil {
+	if current == nil || current.Tombstoned {
 		return "{}", nil
 	}
 	return historyJSON(map[string]string{

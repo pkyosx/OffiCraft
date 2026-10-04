@@ -2901,7 +2901,7 @@ export const httpApi: Api = {
     key: string,
   ): Promise<DocumentSeedView> {
     // GET /api/document-history/{kind}/{key}/seed -> DocumentSeedDTO. Reading
-    // only — it is what lets 初始版本 be compared before it is restored. A
+    // only — it is what lets 預設內容 be compared before it is restored. A
     // document with no shipped default rejects with a 404 ApiError; the caller
     // treats that as "there is nothing to compare", never as "the default is
     // empty" (for the global block, empty IS the default and comes back 200).

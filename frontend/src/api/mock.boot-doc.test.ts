@@ -280,7 +280,7 @@ describe("mockApi · boot-context blocks", () => {
   });
 
   it("serves the shipped default through the document-seed route", async () => {
-    // What makes 初始版本 readable and diffable before anyone goes back to it.
+    // What makes 預設內容 readable and diffable before anyone goes back to it.
     expect(
       await mockApi.getDocumentSeed("boot_sequence", "codex")
     ).toMatchObject({
@@ -304,7 +304,7 @@ describe("mockApi · boot-context blocks", () => {
       isDefault: false,
     });
 
-    // And restoring the tombstoned 初始版本 row puts it back ON the seed rather
+    // And restoring the tombstoned 預設內容 row puts it back ON the seed rather
     // than writing the seed text in as an edit.
     const seedRow = (
       await documentRevisions(mockApi, "boot_sequence", "claude")

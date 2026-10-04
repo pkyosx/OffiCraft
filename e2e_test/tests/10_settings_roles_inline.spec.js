@@ -47,10 +47,10 @@
 //     ids; Esc collapses without creating.
 //   • CUSTOM role detail: the 角色名 gets the pencil InlineEdit (rename rides
 //     the role PATCH choke and the roster follows); the 版本紀錄 list carries NO
-//     初始版本 row (the server refuses a custom reset as not applicable — the affordance is honestly
+//     預設內容 row (the server refuses a custom reset as not applicable — the affordance is honestly
 //     omitted); NO internal `role-….md` filename chip.
 //   • SEED role detail: name LOCKED (no pencil), the 版本紀錄 list DOES carry
-//     初始版本 (a file seed exists to restore).
+//     預設內容 (a file seed exists to restore).
 //
 // The reset affordance moved at d0c2ea3 (T-1f39): the doc card's standalone
 // 重置 became 版本紀錄, and the reset is that list's last row.
@@ -143,17 +143,17 @@ test.describe('B10 · settings roles + monitor — inline create rows & gating',
     await roleDocCard.locator('.doc-btn--edit').click();
     // d0c2ea3 (T-1f39) removed the standalone 重置 button from the doc card and
     // put 版本紀錄 in its place; the reset became the version list's LAST row,
-    // 初始版本 (`doc-history-seed`), rendered only where `onReset` is wired.
+    // 預設內容 (`doc-history-seed`), rendered only where `onReset` is wired.
     // ⚠ So asserting a MISSING 重置 button here is now vacuously green — that
     // node no longer exists for ANY document. The seed-only gating is asserted
-    // where it actually lives: open the list and demand the 初始版本 row be
+    // where it actually lives: open the list and demand the 預設內容 row be
     // absent for a custom role (SettingsPage passes onReset only when isSeed).
     await roleDocCard.getByTestId('doc-history-entry-role_definition').click();
     const customHistory = roleDocCard.getByTestId('doc-history-list');
     await expect(customHistory, 'the 版本紀錄 list must open').toBeVisible();
     await expect(
       customHistory.getByTestId('doc-history-seed'),
-      'a custom role has no file seed to restore — the 初始版本 row must be absent',
+      'a custom role has no file seed to restore — the 預設內容 row must be absent',
     ).toHaveCount(0);
     await customHistory.getByTestId('doc-history-list-close').click();
     await expect(customHistory).toHaveCount(0);
@@ -202,7 +202,7 @@ test.describe('B10 · settings roles + monitor — inline create rows & gating',
     await expect(seedHistory, 'the 版本紀錄 list must open').toBeVisible();
     await expect(
       seedHistory.getByTestId('doc-history-seed'),
-      'a seed role has a file seed to restore — the 初始版本 row must be offered',
+      'a seed role has a file seed to restore — the 預設內容 row must be offered',
     ).toBeVisible();
   });
 

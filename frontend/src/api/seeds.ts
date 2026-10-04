@@ -87,5 +87,5 @@ export const SEED_TASK_READY_FOR_DONE_MD = foldOwnerId(SEED_TASK_READY_FOR_DONE_
  * for every role would ship the assistant's judgement calls to every role out
  * of the box. Every OTHER role has no insight seed and reads "" until it
  * writes. is_default=true → the folded GET returns exactly this, and the card
- * labels it 「與出廠預設同步」 rather than 「已修改」. */
+ * labels it 「與預設內容同步」 rather than 「已修改」. */
 export const SEED_INSIGHT_ASSISTANT_MD = foldOwnerId(SEED_INSIGHT_ASSISTANT_RAW);

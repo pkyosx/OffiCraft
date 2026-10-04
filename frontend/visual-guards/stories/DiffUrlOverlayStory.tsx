@@ -31,7 +31,7 @@ export function DiffUrlOverlayStory({
 }) {
   const labelled = variant === "labelled";
   // Labels are ECHOED, exactly as the route answers them: a side the url gave
-  // no heading comes back with none, and the READER writes 「初始版本」/「目前存檔
+  // no heading comes back with none, and the READER writes 「預設內容」/「目前存檔
   // 內容（讀取於 …）」 from the address. That reader-written heading is much
   // longer than anything a caller types by hand and one of them carries a
   // timestamp — which is the input the second geometry guard actually needs:

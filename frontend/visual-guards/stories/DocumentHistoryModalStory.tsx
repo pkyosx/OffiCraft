@@ -67,7 +67,6 @@ export function DocumentHistoryModalStory({
         <DocumentHistoryModal
           kind="insight"
           createdTs={1753776180}
-          tombstoned={false}
           sizes={contentSizes(VERSION_CONTENT)}
           content={VERSION_CONTENT}
           actorLine="Mira（owner-1）"

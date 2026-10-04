@@ -156,7 +156,7 @@ describe("httpApi · document-history wire methods", () => {
     );
   });
 
-  // T-40f0: the 初始版本 read. The METHOD is the contract here — this is the one
+  // T-40f0: the 預設內容 read. The METHOD is the contract here — this is the one
   // seam on which "look at the shipped default" must not be able to become
   // "write the shipped default", so a GET is asserted, not just the path.
   it("getDocumentSeed GETs the /seed sub-path and sends no body", async () => {

@@ -120,7 +120,7 @@ export function DiffScreen({ params }: { params: DiffParams }) {
    *
    * A label the LINK carried wins — someone chose those words for this
    * comparison. With none, a DOCUMENT side names itself: 「目前存檔內容」/
-   * 「初始版本」/「版本 #12」 in the READER's language, which is exactly why the
+   * 「預設內容」/「版本 #12」 in the READER's language, which is exactly why the
    * server sends no label for one (baking one in at mint time would impose one
    * language on every later reader). A blob side with no label falls back to
    * the diff's own two words — a blob id is not a heading.

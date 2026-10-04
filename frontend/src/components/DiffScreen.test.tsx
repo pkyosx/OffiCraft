@@ -94,7 +94,7 @@ describe("DiffScreen", () => {
   });
 
   it("names an unlabelled DOCUMENT side in the reader's own language", async () => {
-    // The server deliberately sends no label for these: 「初始版本」 written once
+    // The server deliberately sends no label for these: 「預設內容」 written once
     // at mint time would be that language for every later reader.
     open({
       before: { address: "doc:global_context/global/seed/text", text: "alpha", gone: false },
@@ -103,10 +103,10 @@ describe("DiffScreen", () => {
     await waitFor(() => expect(screen.getByTestId("diff-screen")).toBeTruthy());
     const diff = screen.getByTestId("diff-screen");
     expect(diff.querySelector(".diff-view__label--before")?.textContent).toBe(
-      `-${zh.chat.mdPreview.diffSideSeed}`,
+      "-預設內容",
     );
     expect(diff.querySelector(".diff-view__label--after")?.textContent).toBe(
-      `+${zh.chat.mdPreview.diffSideRevision("12")}`,
+      "+版本 #12",
     );
   });
 

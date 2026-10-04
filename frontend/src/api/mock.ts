@@ -1645,9 +1645,8 @@ function foldRole(key: string): WireRoleDef {
 // Mirrors server/ocserverd/api_document_history.go: every write to an editable
 // long-form doc first RETAINS the state it replaced, newest first, capped at
 // DOCUMENT_HISTORY_CAP. The retained `content` uses the kind's OWN field names
-// (the wire contract), including the `tombstoned` flag the overlay kinds carry
-// — restoring a tombstoned revision must put the doc back on the seed, not
-// write the folded seed text back as an owner edit.
+// (the wire contract). A document following its default retains nothing: the
+// 預設內容 row already stands for that state.
 const DOCUMENT_HISTORY_CAP = 3;
 
 /** T-791e: the three boot-context blocks keep TEN revisions, not three.
@@ -1728,8 +1727,8 @@ function refuseRetiredDocumentKind(kind: DocumentKind, call: string): void {
 // in-transaction snapshot is non-empty, and the snapshot readers return "{}"
 // when the row is absent. So the FIRST customization of a seed/default document
 // replaces nothing and retains NOTHING — history starts at the second write.
-// (A reset is a write too: it persists a tombstoned row, which the next write
-// then retains.) task_manual is not tracked here — its row is the manual
+// A reset puts the document back on its default, so the next write retains
+// nothing either. task_manual is not tracked here — its row is the manual
 // itself, created by createTaskManual.
 const documentRows = new Set<string>();
 
@@ -1778,7 +1777,8 @@ function dropRoleInsightHistory(roleKey: string): void {
 }
 
 /** The document's CURRENT persisted state as a history content map, or null
- * when there is no such document (the server 404s / no-ops there). */
+ * when there is no such document or it is following its default (the server's
+ * snapshot answers "{}" there and retains nothing). */
 function snapshotDocument(
   kind: DocumentKind,
   key: string
@@ -1786,10 +1786,8 @@ function snapshotDocument(
   switch (kind) {
     case "global_context": {
       const overlay = globalContextOverlay;
-      return {
-        text: overlay?.text ?? "",
-        tombstoned: String(overlay === null),
-      };
+      if (!overlay) return null;
+      return { text: overlay.text, tombstoned: "false" };
     }
     case "role_definition": {
       const overlay = roleOverlays.get(key) ?? customRoles.get(key);
@@ -1800,30 +1798,12 @@ function snapshotDocument(
           tombstoned: "false",
         };
       }
-      const seed = MOCK_WIRE_ROLES_SEED.find((r) => r.key === key);
-      if (!seed) return null;
-      // 🔴 EMPTY, not the seed text (T-40f0 node 11). A tombstone means "this
-      // document is following its shipped default"; the server's reset writes
-      // `RoleDef{RoleKey: role, Tombstoned: true}` (api_roles.go), so the
-      // retained snapshot's text column holds the ZERO VALUE. Filling in the
-      // seed here made the mock more generous than the server, and the cost was
-      // not academic: the display-layer defect this node fixes was structurally
-      // ABSENT from every mock-built fixture, so anyone writing a test off the
-      // mock would have written a permanently-green assertion. The name goes
-      // `name` is OMITTED rather than blanked: roleDefHistorySnapshot leaves it
-      // out entirely, and `applyDocumentHistory`'s `content.name ?? current.name`
-      // then leaves the live name standing — which is the server's own rule
-      // (a restore puts the TEXT back, it does not rename the role).
-      return { definition_md: "", tombstoned: "true" };
+      return null;
     }
     case "insight": {
-      // No seed to fall back to, so an absent overlay snapshots as the honest
-      // empty doc rather than as seed text.
       const overlay = insightOverlays.get(key);
-      return {
-        text: overlay?.text ?? "",
-        tombstoned: String(overlay === undefined),
-      };
+      if (overlay === undefined) return null;
+      return { text: overlay.text, tombstoned: "false" };
     }
     case "task_manual": {
       const manual = taskManuals.find((m) => m.typeKey === key);
@@ -1863,11 +1843,6 @@ function snapshotDocument(
       if (!task) return null;
       return { title: task.title };
     }
-    // T-791e. Same overlay shape as global_context: a tombstoned row stores the
-    // ZERO VALUE, never the seed text — restoring it must put the block back
-    // ON the factory version rather than write the factory text in as an owner
-    // edit (they read identically today and diverge the moment the seed file
-    // changes under a restore).
     case "system_interaction":
     case "boot_sequence":
     case "offboard":
@@ -1885,10 +1860,8 @@ function snapshotDocument(
     case "task_ready_for_done": {
       if (bootDocSeed(kind, key) === null) return null;
       const overlay = bootDocOverlays.get(`${kind}/${key}`);
-      return {
-        text: overlay ?? "",
-        tombstoned: String(overlay === undefined),
-      };
+      if (overlay === undefined) return null;
+      return { text: overlay, tombstoned: "false" };
     }
   }
 }
@@ -1921,51 +1894,39 @@ function applyDocumentHistory(
   key: string,
   content: Record<string, string>
 ): void {
-  const tombstoned = content.tombstoned === "true";
   switch (kind) {
     case "global_context":
-      globalContextOverlay = tombstoned
-        ? null
-        : {
-            text: content.text ?? "",
-            owner_id: MOCK_OWNER_ID,
-            schema_version: 3,
-            is_default: false,
-            org_name: "",
-          };
+      globalContextOverlay = {
+        text: content.text ?? "",
+        owner_id: MOCK_OWNER_ID,
+        schema_version: 3,
+        is_default: false,
+        org_name: "",
+      };
       emitTopic("global_context");
       return;
     case "role_definition": {
-      const isSeed = MOCK_WIRE_ROLES_SEED.some((r) => r.key === key);
-      if (tombstoned && isSeed) {
-        roleOverlays.delete(key);
-      } else {
-        const current = foldRole(key);
-        roleOverlays.set(key, {
-          ...current,
-          name: content.name ?? current.name,
-          definition_md: content.definition_md ?? current.definition_md,
-          is_default: false,
-        });
-      }
+      const current = foldRole(key);
+      roleOverlays.set(key, {
+        ...current,
+        name: content.name ?? current.name,
+        definition_md: content.definition_md ?? current.definition_md,
+        is_default: false,
+      });
       emitTopic("role_def");
       return;
     }
     case "insight": {
       // The key IS the role_key — nothing to split out of it.
-      if (tombstoned) {
-        insightOverlays.delete(key);
-      } else {
-        insightOverlays.set(key, {
-          ...docSizeFields(content.text ?? "", "insight"),
-          role_key: key,
-          text: content.text ?? "",
-          has_seed: key in INSIGHT_SEEDS,
-          owner_id: MOCK_OWNER_ID,
-          schema_version: 3,
-          is_default: false,
-        });
-      }
+      insightOverlays.set(key, {
+        ...docSizeFields(content.text ?? "", "insight"),
+        role_key: key,
+        text: content.text ?? "",
+        has_seed: key in INSIGHT_SEEDS,
+        owner_id: MOCK_OWNER_ID,
+        schema_version: 3,
+        is_default: false,
+      });
       // 🔴 The topic the server's publishDocumentHistoryRestore fans for this
       // kind. Getting it wrong here is silent in exactly the way it is silent
       // there: the restore still lands, and every other open surface just never
@@ -2024,17 +1985,11 @@ function applyDocumentHistory(
       emitTopic("task");
       return;
     }
-    // T-791e. The tombstoned arm drops the overlay so the block goes back to
-    // following its factory seed — writing the seed text in as an owner edit
-    // would leave `is_default` false and label it 「已修改」 even though its
-    // content matches the seed. Reset means removing the overlay, not copying
-    // seed text into one.
     case "system_interaction":
     case "boot_sequence":
     case "offboard": {
       if (bootDocSeed(kind, key) === null) return;
-      if (tombstoned) bootDocOverlays.delete(`${kind}/${key}`);
-      else bootDocOverlays.set(`${kind}/${key}`, content.text ?? "");
+      bootDocOverlays.set(`${kind}/${key}`, content.text ?? "");
       emitTopic(BOOT_DOC_TOPIC);
       return;
     }
@@ -7105,7 +7060,7 @@ const mockApiImpl = {
     //
     // The labels are ECHOED, never invented: a side the url gave no heading
     // comes back with none, exactly as the server answers it, so the reader's
-    // own 「目前存檔內容」/「初始版本」/「版本 #12」 path is reachable offline too.
+    // own 「目前存檔內容」/「預設內容」/「版本 #12」 path is reachable offline too.
     const side = (address: string, label: string | undefined, text: string) =>
       address === "att-000000000000"
         ? { address, text: "", label, gone: true, goneReason: "mock: reserved gone address" }
@@ -7150,7 +7105,7 @@ const mockApiImpl = {
     // /api/insight/{role_key}/reset` sits right there in the route table, so
     // 404ing here was the mock being STINGIER than the server — the direction
     // frontend/AGENTS.md warns about, just less famous than the generous one.
-    // Its cost was concrete: the InsightCard's 初始版本 row could not be read
+    // Its cost was concrete: the InsightCard's 預設內容 row could not be read
     // offline, and a tombstoned insight revision could only ever swap one wrong
     // screen for a differently wrong one. 🔴 The roster is INSIGHT_SEEDS (the
     // set of seeds/insight_<role_key>.md files), never the seed-ROLE roster —
@@ -7168,7 +7123,7 @@ const mockApiImpl = {
             ? { sop_md: taskManualSeed(key)!.sopMd, tombstoned: "true" }
             : // T-791e: all three boot-context blocks ship a factory version,
               // and it is the SEED TEXT (unlike global_context, whose default
-              // is the empty document) — so 初始版本 can be read and diffed
+              // is the empty document) — so 預設內容 can be read and diffed
               // before anyone decides to go back to it. `tombstoned` marks it
               // as "follow the seed", which is what restoring it must do.
               (kind === "system_interaction" || kind === "boot_sequence") &&

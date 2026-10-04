@@ -63,8 +63,9 @@ func (s *apiServer) insightWriteAuthz(w http.ResponseWriter, r *http.Request, ro
 	return true
 }
 
+// Following the default retains nothing; see userContextHistorySnapshot.
 func insightHistorySnapshot(current *Insight) (string, error) {
-	if current == nil {
+	if current == nil || current.Tombstoned {
 		return "{}", nil
 	}
 	return historyJSON(map[string]string{

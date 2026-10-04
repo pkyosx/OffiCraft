@@ -42,7 +42,7 @@
 // that a recovery path may not have prerequisites. The owner OVERRODE that on
 // 2026-08-14 (card rc-f1950f4d286e, option 2: "完全照 insight") with the cost
 // spelled out on the card — the restore now lives only inside edit mode, in the
-// history list's 初始版本 row, exactly like every other editable document.
+// history list's 預設內容 row, exactly like every other editable document.
 // Do not "restore" it here; that decision was made with the trade-off in view.
 //
 // 🔴 SAVING REPLACES THE WHOLE EDITABLE HALF, and this page says so on screen

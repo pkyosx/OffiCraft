@@ -135,7 +135,7 @@ export function InsightCard({ roleKey }: InsightCardProps) {
           <div className="mp-lessons__actions">
             {/* 版本紀錄 (T-1f39). docKey is the BARE role_key.
               *
-              * 🔴 THE 初始版本 ROW IS GATED ON hasSeed, NEVER ON isDefault
+              * 🔴 THE 預設內容 ROW IS GATED ON hasSeed, NEVER ON isDefault
               * (T-6501). DocumentHistoryEntry's own rule is that the row may
               * only appear where a seed PROVABLY exists — a row that 404s is a
               * dead affordance. `isDefault` answers a DIFFERENT question ("has

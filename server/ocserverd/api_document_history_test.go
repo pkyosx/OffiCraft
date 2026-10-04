@@ -145,7 +145,7 @@ func TestUserContextHistorySnapshot(t *testing.T) {
 	}{
 		"no row":           {current: nil, want: `{}`},
 		"a live empty row": {current: &UserContext{Text: "", Tombstoned: false}, want: `{"text":"","tombstoned":"false"}`},
-		"a tombstoned row": {current: &UserContext{Text: "全域規則", Tombstoned: true}, want: `{"text":"全域規則","tombstoned":"true"}`},
+		"a tombstoned row": {current: &UserContext{Text: "全域規則", Tombstoned: true}, want: `{}`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			got, err := userContextHistorySnapshot(tc.current)
@@ -165,9 +165,13 @@ func TestRoleDefHistorySnapshot(t *testing.T) {
 		want    string
 	}{
 		"no row": {current: nil, want: `{}`},
-		"a definition keeps text and tombstone but not the current display name": {
+		"a definition keeps text but not the current display name": {
+			current: &RoleDef{RoleKey: "r-design", Name: "目前名稱", DefinitionMD: "# 職責"},
+			want:    `{"definition_md":"# 職責","tombstoned":"false"}`,
+		},
+		"a tombstoned row": {
 			current: &RoleDef{RoleKey: "r-design", Name: "目前名稱", DefinitionMD: "# 職責", Tombstoned: true},
-			want:    `{"definition_md":"# 職責","tombstoned":"true"}`,
+			want:    `{}`,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -211,6 +215,22 @@ func TestRoleDefSnapshotIn(t *testing.T) {
 	t.Run("the transaction reader returns the addressed role definition", func(t *testing.T) {
 		_, _, d, _ := newAPITestServer(t)
 		if err := d.PutRoleDef(RoleDef{
+			RoleKey: "r-design", Name: "Design", DefinitionMD: "# Duty",
+		}); err != nil {
+			t.Fatalf("PutRoleDef: %v", err)
+		}
+		got, err := roleDefSnapshotIn("r-design")(d.rdb)
+		if err != nil {
+			t.Fatalf("roleDefSnapshotIn: %v", err)
+		}
+		if got != `{"definition_md":"# Duty","tombstoned":"false"}` {
+			t.Fatalf("snapshot = %q, want %q", got, `{"definition_md":"# Duty","tombstoned":"false"}`)
+		}
+	})
+
+	t.Run("the transaction reader represents a reset role definition as the empty object", func(t *testing.T) {
+		_, _, d, _ := newAPITestServer(t)
+		if err := d.PutRoleDef(RoleDef{
 			RoleKey: "r-design", Name: "Design", DefinitionMD: "# Duty", Tombstoned: true,
 		}); err != nil {
 			t.Fatalf("PutRoleDef: %v", err)
@@ -219,8 +239,8 @@ func TestRoleDefSnapshotIn(t *testing.T) {
 		if err != nil {
 			t.Fatalf("roleDefSnapshotIn: %v", err)
 		}
-		if got != `{"definition_md":"# Duty","tombstoned":"true"}` {
-			t.Fatalf("snapshot = %q, want %q", got, `{"definition_md":"# Duty","tombstoned":"true"}`)
+		if got != `{}` {
+			t.Fatalf("snapshot = %q, want %q", got, `{}`)
 		}
 	})
 
@@ -452,6 +472,52 @@ func TestDocumentHistoryAllowed(t *testing.T) {
 }
 
 func TestHandleListDocumentHistoryApiDocumentHistoryKindKeyGet(t *testing.T) {
+	t.Run("a write, a reset and another write list only the revision that carried text", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/global-context", owner, `{"text":"v1"}`)
+		apiJSON(t, h, "POST", "/api/global-context/reset", owner, "")
+		apiJSON(t, h, "POST", "/api/global-context", owner, `{"text":"v2"}`)
+
+		rec := apiRequest(t, h, "GET", "/api/document-history/global_context/global", owner, "")
+		if rec.Code != 200 {
+			t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		var got any
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("non-JSON body: %s", rec.Body.String())
+		}
+		apiWantValue(t, "body", got, []any{map[string]any{
+			"id":          1,
+			"created_ts":  apiAnyNumber,
+			"actor_id":    "owner",
+			"tombstoned":  false,
+			"field_chars": map[string]any{"text": 2},
+		}})
+	})
+
+	t.Run("a tombstone revision retained by an older server is not listed", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		seedLegacyTombstoneRevision(t, d)
+		apiJSON(t, h, "POST", "/api/global-context", owner, `{"text":"v1"}`)
+		apiJSON(t, h, "POST", "/api/global-context", owner, `{"text":"v2"}`)
+
+		rec := apiRequest(t, h, "GET", "/api/document-history/global_context/global", owner, "")
+		if rec.Code != 200 {
+			t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		var got any
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("non-JSON body: %s", rec.Body.String())
+		}
+		apiWantValue(t, "body", got, []any{map[string]any{
+			"id":          2,
+			"created_ts":  apiAnyNumber,
+			"actor_id":    "owner",
+			"tombstoned":  false,
+			"field_chars": map[string]any{"text": 2},
+		}})
+	})
+
 	t.Run("a document written twice answers one catalogue row sized by field, newest first", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/global-context", owner, `{"text":"v1"}`)
@@ -541,6 +607,17 @@ func TestHandleListDocumentHistoryApiDocumentHistoryKindKeyGet(t *testing.T) {
 }
 
 func TestHandleGetDocumentVersionApiDocumentHistoryKindKeyIdGet(t *testing.T) {
+	t.Run("a tombstone revision retained by an older server answers 404 like a pruned one", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		seedLegacyTombstoneRevision(t, d)
+
+		status, data := apiJSON(t, h, "GET", "/api/document-history/global_context/global/1", owner, "")
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "document history version not found")
+	})
+
 	t.Run("a named revision answers the content map it was stored with beside the address asked for", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/global-context", owner, `{"text":"v1"}`)
@@ -790,6 +867,51 @@ func TestHandleGetDocumentSeedApiDocumentHistoryKindKeySeedGet(t *testing.T) {
 }
 
 func TestHandleRestoreDocumentHistoryApiDocumentHistoryKindKeyIdRestorePost(t *testing.T) {
+	t.Run("restoring the revision a reset retained writes its text back as an edit, not as the default", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/global-context", owner, `{"text":"v1"}`)
+		apiJSON(t, h, "POST", "/api/global-context/reset", owner, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/document-history/global_context/global/1/restore", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		status, data = apiJSON(t, h, "GET", "/api/global-context", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"text":           "v1",
+			"owner_id":       "owner",
+			"schema_version": 3,
+			"is_default":     false,
+			"org_name":       "",
+		})
+	})
+
+	t.Run("restoring a tombstone revision retained by an older server answers 404 and leaves the document alone", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		seedLegacyTombstoneRevision(t, d)
+		apiJSON(t, h, "POST", "/api/global-context", owner, `{"text":"live"}`)
+
+		status, data := apiJSON(t, h, "POST", "/api/document-history/global_context/global/1/restore", owner, "")
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "document history version not found")
+		status, data = apiJSON(t, h, "GET", "/api/global-context", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"text":           "live",
+			"owner_id":       "owner",
+			"schema_version": 3,
+			"is_default":     false,
+			"org_name":       "",
+		})
+	})
+
 	t.Run("restoring a user-custom block revision answers the revision and fans the owner-only global_context delta", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/global-context", owner, `{"text":"v1"}`)
@@ -1290,4 +1412,16 @@ func TestRestoreTaskManualField(t *testing.T) {
 			"updated_ts": apiAnyNumber, "is_seed": true, "is_default": false,
 		})
 	})
+}
+
+// seedLegacyTombstoneRevision writes the row a reset used to leave behind
+// before following-the-default stopped being retained.
+func seedLegacyTombstoneRevision(t *testing.T, d *DAL) {
+	t.Helper()
+	if _, err := d.wdb.Exec(`INSERT INTO document_history
+		(document_kind, document_key, content_json, created_ts, actor_id)
+		VALUES (?, ?, ?, ?, ?)`,
+		"global_context", "global", `{"text":"","tombstoned":"true"}`, 1700000001.0, "owner"); err != nil {
+		t.Fatalf("seed a legacy tombstone revision: %v", err)
+	}
 }
