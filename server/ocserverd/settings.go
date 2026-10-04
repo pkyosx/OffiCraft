@@ -59,6 +59,7 @@ const (
 	settingCodexCompactionThreshold = "codex.compaction_threshold"
 	settingCodexNoticeRound         = "codex.notice_round"
 	settingMonitoringRefreshSeconds = "monitoring.refresh_seconds"
+	settingDiskUsageIntervalSecs    = "monitoring.disk_usage_interval_secs"
 	// settingAcceleratedGraceSecs is the grace a CLOCKED wind-down gets.
 	// 🔴 Deliberately ONE key for BOTH clocked causes: the clock
 	// (recycleGraceFor) and the sentence (offboardNoticeFor) read a single
@@ -178,6 +179,14 @@ const (
 	maxRuntimeLoginCheckIntervalSecs       = 3600
 )
 
+// One measurement walks the whole OffiCraft directory for tens of seconds,
+// hence the ten-minute floor.
+const (
+	diskUsageIntervalSecsDefault = 3600
+	minDiskUsageIntervalSecs     = 600
+	maxDiskUsageIntervalSecs     = 86400
+)
+
 // THE DEFAULT IS 30 DAYS (owner rc-f2b96594c621): the production station has
 // no row for this setting, so moving the default moves production.
 //
@@ -216,6 +225,7 @@ type authSettings struct {
 	reassignHandoverTimeoutSecs     int
 	runtimeLoginCheckIntervalSecs   int
 	runtimeLoginRecheckIntervalSecs int
+	diskUsageIntervalSecs           int
 	docCapCharsDuty                 int
 	docCapCharsInsight              int
 	docCapCharsManualSop            int
@@ -311,6 +321,7 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 		reassignHandoverTimeoutSecs:     reassignHandoverTimeoutSecsDefault,
 		runtimeLoginCheckIntervalSecs:   runtimeLoginCheckIntervalSecsDefault,
 		runtimeLoginRecheckIntervalSecs: runtimeLoginRecheckIntervalSecsDefault,
+		diskUsageIntervalSecs:           diskUsageIntervalSecsDefault,
 	}
 
 	stored, err := d.GetSetting(settingJWTSecret)
@@ -518,6 +529,16 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 				settingRuntimeLoginRecheckIntervalSecs, runtimeLoginCheckIntervalRangeMsg, *v)
 		}
 		out.runtimeLoginRecheckIntervalSecs = n
+	}
+	if v, err := d.GetSetting(settingDiskUsageIntervalSecs); err != nil {
+		return out, err
+	} else if v != nil {
+		n, err := strconv.Atoi(*v)
+		if err != nil || !diskUsageIntervalInRange(n) {
+			return out, fmt.Errorf("settings %s: %s: %q",
+				settingDiskUsageIntervalSecs, diskUsageIntervalRangeMsg, *v)
+		}
+		out.diskUsageIntervalSecs = n
 	}
 
 	if v, err := d.GetSetting(settingWardenCredLifetimeSecs); err != nil {

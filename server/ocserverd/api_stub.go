@@ -24,6 +24,9 @@ type apiServer struct {
 	hub         *Hub
 	telemetry   *memStore
 	gauge       *memStore
+	// serverDisk is the server's own database/backup measurement; nil until the
+	// first one finishes.
+	serverDisk atomic.Pointer[serverDiskSample]
 
 	machineClaims   *machineClaimStore
 	runtimeLogins   *runtimeLoginStore
@@ -156,6 +159,7 @@ type apiServer struct {
 	reassignHandoverTimeoutSecs     int
 	runtimeLoginCheckIntervalSecs   int
 	runtimeLoginRecheckIntervalSecs int
+	diskUsageIntervalSecs           int
 	// wardenCredLifetimeSecs: mintWardenToken stamps exp = iat + this. An exp is
 	// fixed at mint time, so lowering it shortens only future credentials.
 	wardenCredLifetimeSecs int
@@ -384,6 +388,12 @@ func (s *apiServer) runtimeLoginRecheckInterval() int {
 	s.settingsMu.RLock()
 	defer s.settingsMu.RUnlock()
 	return s.runtimeLoginRecheckIntervalSecs
+}
+
+func (s *apiServer) diskUsageInterval() int {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.diskUsageIntervalSecs
 }
 
 func (s *apiServer) outsourceParallelCap() int {

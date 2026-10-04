@@ -73,6 +73,14 @@ var runtimeLoginCheckIntervalRangeMsg = fmt.Sprintf(
 	"must be between %d and %d seconds",
 	minRuntimeLoginCheckIntervalSecs, maxRuntimeLoginCheckIntervalSecs)
 
+func diskUsageIntervalInRange(n int) bool {
+	return n >= minDiskUsageIntervalSecs && n <= maxDiskUsageIntervalSecs
+}
+
+var diskUsageIntervalRangeMsg = fmt.Sprintf(
+	"must be between %d and %d seconds",
+	minDiskUsageIntervalSecs, maxDiskUsageIntervalSecs)
+
 var acceleratedGraceRangeMsg = fmt.Sprintf(
 	"must be between %d and %d seconds",
 	minAcceleratedGraceSecs, maxAcceleratedGraceSecs)
@@ -394,6 +402,12 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 			"runtime_login_recheck_interval_secs "+runtimeLoginCheckIntervalRangeMsg)
 		return
 	}
+	if body.DiskUsageIntervalSecs != nil &&
+		!diskUsageIntervalInRange(*body.DiskUsageIntervalSecs) {
+		writeError(w, http.StatusUnprocessableEntity,
+			"disk_usage_interval_secs "+diskUsageIntervalRangeMsg)
+		return
+	}
 	if body.OutsourceMaxParallel != nil &&
 		!outsourceParallelInRange(*body.OutsourceMaxParallel) {
 		writeError(w, http.StatusUnprocessableEntity,
@@ -609,6 +623,10 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		v := *body.RuntimeLoginRecheckIntervalSecs
 		put(settingRuntimeLoginRecheckIntervalSecs, strconv.Itoa(v), func() { s.runtimeLoginRecheckIntervalSecs = v })
 	}
+	if body.DiskUsageIntervalSecs != nil {
+		v := *body.DiskUsageIntervalSecs
+		put(settingDiskUsageIntervalSecs, strconv.Itoa(v), func() { s.diskUsageIntervalSecs = v })
+	}
 	if body.WardenCredentialLifetimeSecs != nil {
 		v := *body.WardenCredentialLifetimeSecs
 		put(settingWardenCredLifetimeSecs, strconv.Itoa(v), func() { s.wardenCredLifetimeSecs = v })
@@ -749,6 +767,7 @@ func (s *apiServer) settingsView() settingsDTO {
 		ReassignHandoverTimeoutSecs:     s.reassignHandoverTimeoutSecs,
 		RuntimeLoginCheckIntervalSecs:   s.runtimeLoginCheckIntervalSecs,
 		RuntimeLoginRecheckIntervalSecs: s.runtimeLoginRecheckIntervalSecs,
+		DiskUsageIntervalSecs:           s.diskUsageIntervalSecs,
 		WardenCredentialLifetimeSecs:    s.wardenCredLifetimeSecs,
 		OutsourceMaxParallel:            s.outsourceMaxParallel,
 		DocCapCharsDuty:                 s.docCapCharsDuty,

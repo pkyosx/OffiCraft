@@ -440,10 +440,10 @@ func (s *apiServer) HandleIngestTelemetryApiMonitoringTelemetryPost(w http.Respo
 		body.Binaries == nil && body.Claude == nil && body.Cost == nil &&
 		body.Effort == nil && body.Runtime == nil && body.Runtimes == nil &&
 		body.SelfUpdate == nil && body.CommandResult == nil && body.WardenShape == nil &&
-		body.CutoverEffect == nil && body.ModelCall == nil {
+		body.CutoverEffect == nil && body.ModelCall == nil && body.DiskUsage == nil {
 		writeError(w, http.StatusBadRequest,
 			"rate_limits, tokens, hardware, binaries, claude, cost, effort, runtime, runtimes, "+
-				"self_update, command_result, warden_shape, cutover_effect or model_call is required")
+				"self_update, command_result, warden_shape, cutover_effect, model_call or disk_usage is required")
 		return
 	}
 	if body.ModelCall != nil && !validModelCallReport(body.ModelCall) {
@@ -480,6 +480,7 @@ func (s *apiServer) HandleIngestTelemetryApiMonitoringTelemetryPost(w http.Respo
 		return
 	}
 	hardware := declaredObject(body.Hardware)
+	diskUsage := declaredObject(body.DiskUsage)
 	binaries, ok := asObject(body.Binaries, "binaries")
 	if !ok {
 		return
@@ -609,6 +610,9 @@ func (s *apiServer) HandleIngestTelemetryApiMonitoringTelemetryPost(w http.Respo
 	if body.Binaries != nil {
 		entry["binaries"] = binaries
 	}
+	if body.DiskUsage != nil {
+		entry["disk_usage"] = diskUsage
+	}
 	// Partial-merge: a report with no warden_shape must not clear the stored
 	// verdict into the absent case, which means something else.
 	if wardenShape != nil {
@@ -715,6 +719,8 @@ func (s *apiServer) HandleIngestTelemetryApiMonitoringTelemetryPost(w http.Respo
 		receipt.LoginCheckIntervalSecs = &interval
 		recheck := s.runtimeLoginRecheckInterval()
 		receipt.LoginRecheckIntervalSecs = &recheck
+		diskInterval := s.diskUsageInterval()
+		receipt.DiskUsageIntervalSecs = &diskInterval
 	}
 	writeJSON(w, http.StatusOK, receipt)
 }
@@ -1102,6 +1108,11 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 		}
 	}
 	sort.Strings(hosts)
+	roster := make(map[string]Member, len(all))
+	for _, m := range all {
+		roster[m.ID] = m
+	}
+	selfDisk := s.serverDisk.Load()
 	machines := []monitoringMachineDTO{}
 	for _, host := range hosts {
 		hw := hwByHost[host]
@@ -1125,6 +1136,8 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 			CutoverEffect:       s.machineCutoverEffect(host),
 			// Honest-empty, never null: the spec types this as a plain array.
 			HardwareInvalid: []string{},
+			DiskUsage: machineDiskUsage(entryObj(telemetry[host], "disk_usage"),
+				selfDisk, host == ServerSelfHost, roster),
 		}
 		// A hardware sample is served only while fresh: telemetry is never cleared
 		// on disconnect, so an old reading would sit beside an "offline" badge.

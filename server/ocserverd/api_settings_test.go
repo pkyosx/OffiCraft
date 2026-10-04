@@ -57,6 +57,7 @@ func apiTestShippedSettings() map[string]any {
 		"reassign_handover_timeout_secs":      1800,
 		"runtime_login_check_interval_secs":   300,
 		"runtime_login_recheck_interval_secs": 30,
+		"disk_usage_interval_secs":            3600,
 		"warden_credential_lifetime_secs":     2592000,
 		"doc_cap_chars_duty":                  1000,
 		"doc_cap_chars_insight":               15000,
@@ -589,6 +590,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 			"reassign_handover_timeout_secs":600,
 			"runtime_login_check_interval_secs":60,
 			"runtime_login_recheck_interval_secs":120,
+			"disk_usage_interval_secs":86400,
 			"warden_credential_lifetime_secs":864000,
 			"outsource_max_parallel":-1,
 			"doc_cap_chars_duty":2000,
@@ -616,6 +618,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		want["reassign_handover_timeout_secs"] = 600
 		want["runtime_login_check_interval_secs"] = 60
 		want["runtime_login_recheck_interval_secs"] = 120
+		want["disk_usage_interval_secs"] = 86400
 		want["warden_credential_lifetime_secs"] = 864000
 		want["outsource_max_parallel"] = -1
 		want["doc_cap_chars_duty"] = 2000
@@ -630,10 +633,10 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		apiWantBody(t, data, want)
 	})
 
-	t.Run("under a restart on the same database, the patched login intervals are still reported", func(t *testing.T) {
+	t.Run("under a restart on the same database, the patched login and disk-usage intervals are still reported", func(t *testing.T) {
 		_, h, d, owner := newAPITestServer(t)
 		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner,
-			`{"runtime_login_check_interval_secs":600,"runtime_login_recheck_interval_secs":45}`)
+			`{"runtime_login_check_interval_secs":600,"runtime_login_recheck_interval_secs":45,"disk_usage_interval_secs":600}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -643,10 +646,11 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		if status != 200 {
 			t.Fatalf("want 200 after the restart, got %d (%v)", status, data)
 		}
-		if data["runtime_login_check_interval_secs"] != float64(600) || data["runtime_login_recheck_interval_secs"] != float64(45) {
-			t.Fatalf("after the restart: check=%v recheck=%v, want 600 and 45",
-				data["runtime_login_check_interval_secs"], data["runtime_login_recheck_interval_secs"])
-		}
+		want := apiTestShippedSettings()
+		want["runtime_login_check_interval_secs"] = 600
+		want["runtime_login_recheck_interval_secs"] = 45
+		want["disk_usage_interval_secs"] = 600
+		apiWantBody(t, data, want)
 	})
 
 	t.Run("a patch of every text and toggle knob answers 200 with the new values", func(t *testing.T) {
@@ -851,6 +855,24 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 			if stored, err := d.GetSetting(key); err != nil || stored != nil {
 				t.Fatalf("%s: a refused value must not be stored, got %v %v", key, stored, err)
 			}
+		}
+		_, served := apiJSON(t, h, "GET", "/api/settings", owner, "")
+		apiWantBody(t, served, apiTestShippedSettings())
+	})
+
+	t.Run("a disk_usage_interval_secs outside 600..86400 answers 422 and writes nothing", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+
+		for _, value := range []string{"599", "86401"} {
+			body := `{"disk_usage_interval_secs":` + value + `}`
+			status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, body)
+			if status != 422 {
+				t.Fatalf("%s: want 422, got %d (%v)", body, status, data)
+			}
+			apiWantError(t, data, "validation_error", "disk_usage_interval_secs must be between 600 and 86400 seconds")
+		}
+		if stored, err := d.GetSetting(settingDiskUsageIntervalSecs); err != nil || stored != nil {
+			t.Fatalf("a refused value must not be stored, got %v %v", stored, err)
 		}
 		_, served := apiJSON(t, h, "GET", "/api/settings", owner, "")
 		apiWantBody(t, served, apiTestShippedSettings())
@@ -1120,6 +1142,7 @@ func TestSettingsView(t *testing.T) {
 		ReassignHandoverTimeoutSecs:     1800,
 		RuntimeLoginCheckIntervalSecs:   300,
 		RuntimeLoginRecheckIntervalSecs: 30,
+		DiskUsageIntervalSecs:           3600,
 		WardenCredentialLifetimeSecs:    2592000,
 		DocCapCharsDuty:                 1000,
 		DocCapCharsInsight:              15000,
