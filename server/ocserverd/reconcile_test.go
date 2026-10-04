@@ -2512,7 +2512,7 @@ func TestReconcileOne(t *testing.T) {
 		}), any(map[string]any{
 			"last_op": "stop",
 			"reason": "receipt_missing: the stop was handed to machine \"m-away\" but no " +
-				"receipt came back within 90s — the op may or may not have run; this row's " +
+				"receipt came back within 150s — the op may or may not have run; this row's " +
 				"last state is UNKNOWN, not failed. Suspect the machine's link to the server " +
 				"(the receipt POST) before suspecting the op itself",
 		}))

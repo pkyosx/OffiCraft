@@ -11,13 +11,13 @@ func TestArmReceiptWatch(t *testing.T) {
 
 		api.armReceiptWatch("member-1", "start", "machine-a", 100)
 		got := api.receiptPending["member-1"]
-		if want := (pendingReceipt{RPC: "start", Warden: "machine-a", Deadline: 190}); got != want {
+		if want := (pendingReceipt{RPC: "start", Warden: "machine-a", Deadline: 250}); got != want {
 			t.Fatalf("first watch = %+v, want %+v", got, want)
 		}
 
 		api.armReceiptWatch("member-1", "stop", "machine-b", 200)
 		got = api.receiptPending["member-1"]
-		if want := (pendingReceipt{RPC: "stop", Warden: "machine-b", Deadline: 290}); got != want {
+		if want := (pendingReceipt{RPC: "stop", Warden: "machine-b", Deadline: 350}); got != want {
 			t.Fatalf("replaced watch = %+v, want %+v", got, want)
 		}
 	})
@@ -157,12 +157,12 @@ func TestReceiptMissingReason(t *testing.T) {
 		{
 			name:  "names the operation and known machine",
 			watch: pendingReceipt{RPC: "stop", Warden: "machine-a"},
-			want:  "receipt_missing: the stop was handed to machine \"machine-a\" but no receipt came back within 90s — the op may or may not have run; this row's last state is UNKNOWN, not failed. Suspect the machine's link to the server (the receipt POST) before suspecting the op itself",
+			want:  "receipt_missing: the stop was handed to machine \"machine-a\" but no receipt came back within 150s — the op may or may not have run; this row's last state is UNKNOWN, not failed. Suspect the machine's link to the server (the receipt POST) before suspecting the op itself",
 		},
 		{
 			name:  "uses target machine when dispatch did not resolve one",
 			watch: pendingReceipt{RPC: "start"},
-			want:  "receipt_missing: the start was handed to the target machine but no receipt came back within 90s — the op may or may not have run; this row's last state is UNKNOWN, not failed. Suspect the machine's link to the server (the receipt POST) before suspecting the op itself",
+			want:  "receipt_missing: the start was handed to the target machine but no receipt came back within 150s — the op may or may not have run; this row's last state is UNKNOWN, not failed. Suspect the machine's link to the server (the receipt POST) before suspecting the op itself",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -197,7 +197,7 @@ func TestSweepLapsedReceipts(t *testing.T) {
 		if got.LastOpLog != "" {
 			t.Fatalf("expired member last_op_log = %q, want empty", got.LastOpLog)
 		}
-		if got.LastOpReason != "receipt_missing: the stop was handed to machine \"machine-a\" but no receipt came back within 90s — the op may or may not have run; this row's last state is UNKNOWN, not failed. Suspect the machine's link to the server (the receipt POST) before suspecting the op itself" {
+		if got.LastOpReason != "receipt_missing: the stop was handed to machine \"machine-a\" but no receipt came back within 150s — the op may or may not have run; this row's last state is UNKNOWN, not failed. Suspect the machine's link to the server (the receipt POST) before suspecting the op itself" {
 			t.Fatalf("expired member last_op_reason = %q", got.LastOpReason)
 		}
 		if got.LastOpAt != 100 {
@@ -236,7 +236,7 @@ func TestStampReceiptMissing(t *testing.T) {
 		if got.LastOpLog != "" {
 			t.Fatalf("member last_op_log = %q, want empty", got.LastOpLog)
 		}
-		if got.LastOpReason != "receipt_missing: the stop was handed to machine \"machine-a\" but no receipt came back within 90s — the op may or may not have run; this row's last state is UNKNOWN, not failed. Suspect the machine's link to the server (the receipt POST) before suspecting the op itself" {
+		if got.LastOpReason != "receipt_missing: the stop was handed to machine \"machine-a\" but no receipt came back within 150s — the op may or may not have run; this row's last state is UNKNOWN, not failed. Suspect the machine's link to the server (the receipt POST) before suspecting the op itself" {
 			t.Fatalf("member last_op_reason = %q", got.LastOpReason)
 		}
 		if got.LastOpAt != 1234 {
@@ -256,7 +256,7 @@ func TestStampReceiptMissing(t *testing.T) {
 			"last_op":        "start",
 			"last_op_ok":     false,
 			"last_op_log":    "",
-			"last_op_reason": "receipt_missing: the start was handed to machine \"m-server-self\" but no receipt came back within 90s — the op may or may not have run; this row's last state is UNKNOWN, not failed. Suspect the machine's link to the server (the receipt POST) before suspecting the op itself",
+			"last_op_reason": "receipt_missing: the start was handed to machine \"m-server-self\" but no receipt came back within 150s — the op may or may not have run; this row's last state is UNKNOWN, not failed. Suspect the machine's link to the server (the receipt POST) before suspecting the op itself",
 			"last_op_at":     1234,
 		}))
 		if row, err := d.GetOutsourceWorker("ow-abc123"); err != nil || row == nil || row.LastOp != "start" {

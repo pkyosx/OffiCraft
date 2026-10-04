@@ -427,6 +427,16 @@ func buildSpawnDeps(cfg Config, env func(string) string, runner CmdRunner, socke
 			pids := ocagentPIDsByCwd(runner, workdir)
 			return len(pids), sweepPIDs(pids, realKill, time.Sleep)
 		},
+		// The same ladder as the Stop verb, minus the trash purge.
+		StopAttempt: func(socket, session, workdir string) bool {
+			stopped, _ := stop(runner, socket, session, realKill, realGetpgid, sweepSeams{
+				listenPIDs: func(wd string) []int { return ocagentPIDsByCwd(runner, wd) },
+				workdir:    workdir,
+				sleep:      time.Sleep,
+			})
+			return stopped
+		},
+		ReadFile: os.ReadFile,
 		Sleep:    time.Sleep,
 		Pretrust: nil,
 	}

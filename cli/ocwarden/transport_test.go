@@ -896,10 +896,21 @@ func TestBuildCommandDeps(t *testing.T) {
 		if !reflect.DeepEqual(entry["mcpServers"], servers) || entry["hasTrustDialogAccepted"] != true {
 			t.Fatalf("startup changed user MCP settings or failed to trust workdir: %s", raw)
 		}
-		// No member really ran, so the notification mod never wrote its marker:
-		// that advisory is the only one this spawn may carry.
-		if got.Note != goldenNotifyModNotLoadedNote {
-			t.Fatalf("startup note = %q, want only the mod fallback", got.Note)
+		// No member really ran, so the notification mod never wrote its marker,
+		// not after the one restart either: that advisory is the only one this
+		// spawn may carry. The seed has no feature cache, so both reads say absent.
+		wantNote := goldenNotifyModNotLoadedNote + "warden 已自動重啟 Claude Code 再試一次，仍沒有載入（啟動前 Claude Code 快取的 " +
+			"tengu_plugin_hooks_modules：第 1 次 absent，第 2 次 absent）。"
+		if got.Note != wantNote {
+			t.Fatalf("startup note = %q, want only the mod fallback after one restart", got.Note)
+		}
+		// The restart went through the production teardown (stop()'s ladder) and
+		// launched the member a second time.
+		if n := countCalls(runner.calls, "tmux -L officraft kill-session -t member-m1"); n != 1 {
+			t.Errorf("the first attempt was killed %d times, want once:\n%v", n, runner.calls)
+		}
+		if n := countCalls(runner.calls, "new-session -d -s member-m1"); n != 2 {
+			t.Errorf("the member was launched %d times, want twice", n)
 		}
 		var launch string
 		for _, call := range runner.calls {

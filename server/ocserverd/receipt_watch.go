@@ -43,14 +43,22 @@ const receiptMissingReasonCode = "receipt_missing"
 //     adds fallbackNudgeAttempts × nudgeSettle = 3s, and before that its capture of
 //     the member pane for the warden log, notifyModCaptureBudget 2s +
 //     subprocessWaitDelay 2s (cli/ocwarden/notifymod.go);
+//   - Claude only, when the first launch never ran the mod, ONE restart before
+//     that fallback (retryNotifyMod, cli/ocwarden/notifymod_retry.go): a capture
+//     of the first pane (4s), its teardown — stop()'s ladder, a handful of tmux /
+//     ps / lsof calls and up to 25 × 200ms = 5s of sweep — and a second wait of
+//     the same 30s + 17s.
 //
 // After those, commandReportTimeout 5s, plus up to one 30s lifecycle cadence
-// before the deadline is read. Worst case ≈ 129s for a Claude whose mod did not load and ≈ 97s for a Codex family
-// word — PAST this 90s deadline, so a start that is merely slow at every step
-// can be stamped receipt_missing with nothing wrong. Known and left as is here.
+// before the deadline is read. The usual path of a restart whose mod does not
+// load either is ≈ 110s (two 30s waits, the captures, the paste, the report and
+// the cadence), which is why this is 150s and not the 90s it was before the
+// restart. Worst case ≈ 185s for that Claude and ≈ 97s for a Codex family word —
+// still PAST this deadline, so a start that is merely slow at every step can be
+// stamped receipt_missing with nothing wrong. Known and left as is here.
 // 🔴 Those warden constants live in another Go module and nothing links them;
 // raising any of them widens that gap. Erring long is the safe direction.
-const receiptDeadlineSecs = 90.0
+const receiptDeadlineSecs = 150.0
 
 type pendingReceipt struct {
 	RPC      string

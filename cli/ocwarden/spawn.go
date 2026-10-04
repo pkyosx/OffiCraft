@@ -17,9 +17,9 @@ const (
 	defaultNudge = "開始。"
 	// The Enter loop is UNCONDITIONAL: every claude spawn spends 30×1s here (the
 	// mod route polls within the same 30 s, see waitForNotifyMod), out of the
-	// 90s receiptDeadlineSecs in server/ocserverd/receipt_watch.go (the START receipt
+	// 150s receiptDeadlineSecs in server/ocserverd/receipt_watch.go (the START receipt
 	// is POSTed only after Spawn returns); that comment lists the rest of the spawn
-	// path's budgets, and their worst case already runs past 90s. NEITHER NUMBER
+	// path's budgets, and their worst case already runs past it. NEITHER NUMBER
 	// HAS EVER BEEN MEASURED, and nothing mechanical links them: cli/ocwarden and
 	// server/ocserverd are separate Go modules.
 	nudgeMaxAttempts = 30
@@ -677,9 +677,15 @@ type SpawnDeps struct {
 	Now     func() time.Time
 	// nil skips the reap.
 	ReapWorkdirListeners func(workdir string) (found int, cleared bool)
-	Nudge                string
-	Pretrust             func() error
-	PurgeTrash           func()
+	// Tears down a launch whose notification mod did not load, before the one
+	// restart (retryNotifyMod): stop()'s whole ladder, workdir sweep included.
+	// nil means no restart: the spawn falls back to pasting at once, as before.
+	StopAttempt func(socket, session, workdir string) (stopped bool)
+	// Diagnostics only (readHooksModulesFlag): nil reads with os.ReadFile.
+	ReadFile   func(path string) ([]byte, error)
+	Nudge      string
+	Pretrust   func() error
+	PurgeTrash func()
 	// nil means REAL time.Sleep (see nudgeClock): tests wanting speed pass a no-op
 	// explicitly.
 	Sleep func(time.Duration)
@@ -915,6 +921,10 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 		// (nil) lets this reap hit a live member's listener.
 		d.reapWorkdirListeners(p.MemberID, workdir)
 	}
+	var attemptFlags []hooksModulesFlag
+	if runtimeName == "claude" && !notifyByPaste {
+		attemptFlags = append(attemptFlags, d.logHooksModulesFlag(p.MemberID, "attempt 1/2"))
+	}
 	if err := tmuxNewSession(d.Runner, socket, session, command); err != nil {
 		return SpawnOutcome{OK: false, Reason: fmt.Sprintf(
 			"spawn_exec_failed: tmux new-session: %v", err)}
@@ -923,12 +933,25 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 	if runtimeName == "claude" {
 		// Claude only: codex's sidecar starts the boot turn through App Server; keystrokes
 		// would target a non-interactive pane.
+		disabled, modLoaded := false, false
 		if notifyByPaste {
 			tmuxDeliverNudge(d.Runner, d.Sleep, socket, session, nudge)
 		} else {
 			// The mod submits the boot prompt itself; nothing is pasted. The wait is
 			// bounded by the nudge loop's own 30 s, so the spawn budget barely moves.
 			d.waitForNotifyMod(p.MemberID, workdir, socket, session)
+			if modLoaded = d.notifyModLoaded(workdir); !modLoaded {
+				r := d.retryNotifyMod(p.MemberID, workdir, socket, session, command, launchedAt)
+				if r.failReason != "" {
+					return SpawnOutcome{OK: false, Reason: r.failReason}
+				}
+				disabled = r.disabled
+				if r.relaunched {
+					launchedAt = r.launchedAt
+					attemptFlags = append(attemptFlags, r.flag)
+					modLoaded = d.notifyModLoaded(workdir)
+				}
+			}
 		}
 
 		// 🔴 Not atomic: a mod that loads between this read and the disabled-marker
@@ -938,10 +961,16 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 		// load) enters the mod's pending boot submit AFTER the boot prompt pasted
 		// below, so the member boots twice (the mod's listener still stops on the
 		// disabled marker): a pending submit cannot be cancelled.
-		if !notifyByPaste && !d.notifyModLoaded(workdir) {
+		if !notifyByPaste && !modLoaded {
 			notifyByPaste, notifyNote = true, notifyModNotLoadedNote
-			d.disableNotifyMod(workdir)
+			if len(attemptFlags) == notifyModAttempts {
+				notifyNote += notifyModRetriedNote(attemptFlags[0], attemptFlags[1])
+			}
+			if !disabled {
+				d.disableNotifyMod(workdir)
+			}
 			d.logf("%s: the notification mod did not load; notifications go by tmux paste", p.MemberID)
+			d.logHooksModulesFlag(p.MemberID, "at fallback")
 			// Before the paste below, so the capture shows what the wait left on screen.
 			d.logNotifyModFallback(p.MemberID, workdir, socket, session, launchedAt)
 			if !d.notifyModBooted(workdir) {

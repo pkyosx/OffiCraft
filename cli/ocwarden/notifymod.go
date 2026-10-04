@@ -155,10 +155,8 @@ func parseDottedVersion(v string) ([]int, bool) {
 // booted one would keep a fallback from pasting the boot prompt nobody submitted,
 // and a started one would date a fallback's diagnosis to the previous session.
 func (d SpawnDeps) installNotifyMod(workdir, bootPrompt string) string {
-	for _, marker := range []string{notifyModStartedMarker, notifyModLoadedMarker, notifyModDisabledMarker, notifyModBootedMarker} {
-		if err := d.Remove(filepath.Join(workdir, marker)); err != nil && !os.IsNotExist(err) {
-			return fmt.Sprintf("write_file_failed: clearing stale %s: %v", marker, err)
-		}
+	if refusal := d.clearNotifyModMarkers(workdir); refusal != "" {
+		return refusal
 	}
 	dir := filepath.Join(workdir, notifyModDirName)
 	for _, name := range notifyModFiles {
@@ -176,6 +174,15 @@ func (d SpawnDeps) installNotifyMod(workdir, bootPrompt string) string {
 	}
 	if err := d.WriteFile(filepath.Join(dir, notifyModConfigFile), buildNotifyModConfig(workdir, bootPrompt), 0o600); err != nil {
 		return fmt.Sprintf("write_file_failed: %s/%s: %v", notifyModDirName, notifyModConfigFile, err)
+	}
+	return ""
+}
+
+func (d SpawnDeps) clearNotifyModMarkers(workdir string) string {
+	for _, marker := range []string{notifyModStartedMarker, notifyModLoadedMarker, notifyModDisabledMarker, notifyModBootedMarker} {
+		if err := d.Remove(filepath.Join(workdir, marker)); err != nil && !os.IsNotExist(err) {
+			return fmt.Sprintf("write_file_failed: clearing stale %s: %v", marker, err)
+		}
 	}
 	return ""
 }

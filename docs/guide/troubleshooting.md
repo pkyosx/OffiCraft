@@ -76,6 +76,8 @@ pgrep -fl 'ocagent listen --deliver-mod'                 # 那個 listener 現�
 
 標記在、listener 卻不在，表示它後來退了；它印的話只進成員 Claude Code 的 debug log（以 `claude --debug` 啟動時才看得到）。
 
+**模組第一次沒跑、warden 自己重啟了一次**：模組在第一次啟動完全沒跑到（`.officraft-mod-started` 不在）時，warden 不會馬上退回貼上，而是把那個 Claude Code 收掉、原樣再起一次，再等 30 秒；常見原因是同一台機器上長跑的舊 Claude Code session 把共用 `~/.claude.json` 裡 Claude Code 自己的快取旗標 `tengu_plugin_hooks_modules` 寫回了 false，新啟動的 Claude Code 先讀到 false 就不跑模組，等它拿到遠端的 true 寫回去，下一次啟動就正常。warden 紀錄每次啟動前都有一行 `notify-mod: attempt 1/2:`／`attempt 2/2:`，退回時一行 `at fallback:`，寫著那個檔裡的旗標值與 `cachedGrowthBookFeaturesAt` 時間（只讀、不改）。重啟後還是沒載入，最近操作的 `notify_mod_not_loaded` 提醒後面會多一句「已自動重啟 Claude Code 再試一次」和兩次讀到的值。
+
 **最近操作出現 `notify_mod_not_loaded`、想知道模組為什麼沒載入**：到那台機器看 warden 的紀錄，退回貼上那一刻它寫了幾行以 `notify-mod-fallback` 開頭的診斷：
 
 ```bash
