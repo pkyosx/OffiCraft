@@ -750,7 +750,7 @@ export const en: Dict = {
       pageTail: " → ",
       sectionTail: ", ",
       columnTail: " column, ⋯ → ",
-      tail: "",
+      tail: ".",
     },
   },
   login: {
