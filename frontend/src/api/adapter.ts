@@ -2200,6 +2200,12 @@ export interface Api {
    * state, which is why the two halves live apart.) Together they are what stands
    * between this and the thing it replaced. */
   getChatMessage(id: string): Promise<ChatMessage>;
+  /** The OLDEST message `withId` sent the owner that is still above the owner's
+   * read watermark for that conversation (`GET /api/chat?unread=true&with=<id>
+   * &limit=1`), or `null` when nothing is unread. Read-only like every other
+   * read door here. Messages between `withId` and other members never count,
+   * so this is the answer a loaded page cannot give once they fill it. */
+  getFirstUnreadChat(withId: string): Promise<ChatMessage | null>;
   /** The M2 gallery query (`GET /api/chat/attachments?with=<memberId>`): every
    * attachment of the member's conversations, flattened newest→oldest —
    * owner↔member BOTH directions AND the member's inter-agent threads — each

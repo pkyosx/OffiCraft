@@ -12,11 +12,11 @@
 //      existing auto-follow stays: new message → follow, no strip, no arrow.
 //   ② ENTRY POSITIONING: entering a conversation whose roster badge carried
 //      unreadCount > 0 lands on the FIRST unread message (an "以下是未讀訊息"
-//      divider pinned to the top of the viewport), derived from the
-//      unreadCount SNAPSHOT taken at entry — race-free against ChatArea's own
-//      mark-read, which fires as soon as the first page lands on a focused
-//      window and drives the badge to 0. No unread → the existing
-//      land-at-bottom.
+//      divider pinned to the top of the viewport). Which message that is comes
+//      from the server through useChat's `entryUnreadId`, which this file's
+//      useChat mock hands over directly; the lookup itself is exercised with
+//      the real hook in ChatArea.anchor-entry.test.tsx. No unread → the
+//      existing land-at-bottom.
 //
 //   ③ B3 跳到原訊息 (jumpToMsgId): entering with a message target locates it
 //      (center scroll + transient highlight) and OWNS the entry positioning
@@ -52,7 +52,10 @@ let loadAroundResult: JumpOutcome = "found";
 // `hasNewer`), and the way back to the tail.
 let hasNewer = false;
 const resetToLatest = vi.fn(async () => {});
-vi.mock("../hooks/useChat", () => ({
+// The first unread the server named for this entry (useChat's `entryUnreadId`).
+let entryUnreadId: string | null = null;
+vi.mock("../hooks/useChat", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../hooks/useChat")>()),
   useChat: () => ({
     messages,
     peerLastReadTs: 0,
@@ -61,6 +64,7 @@ vi.mock("../hooks/useChat", () => ({
     loadAround,
     hasNewer,
     resetToLatest,
+    entryUnreadId,
   }),
 }));
 
@@ -198,6 +202,7 @@ beforeEach(() => {
   loadAroundResult = "found";
   resetToLatest.mockClear();
   hasNewer = false;
+  entryUnreadId = null;
   scrollCalls = [];
   rowTrailingGap = TRAILING_LAYOUT_PX;
   stubLayout();
@@ -226,8 +231,8 @@ beforeEach(() => {
 
 describe("② entry positioning (first unread)", () => {
   it("entering with unread lands on the first unread message with a divider", () => {
-    // 4 inbound (b→owner) + 1 outgoing; unreadCount=2 → first unread is the
-    // 2nd-from-last INBOUND message (c4) — the outgoing c2 never counts.
+    // The server named c4 as the first unread.
+    entryUnreadId = "c4";
     messages = [
       mkMsg("c1", "b", "owner", 1000),
       mkMsg("c2", "owner", "b", 1001),
@@ -295,7 +300,8 @@ describe("② entry positioning (first unread)", () => {
       </I18nProvider>,
     );
 
-    // ③ b's thread loads: 3 inbound, entry snapshot said 2 unread.
+    // ③ b's thread loads, entered at the first unread the server named (b2).
+    entryUnreadId = "b2";
     messages = [
       mkMsg("b1", "b", "owner", 1000),
       mkMsg("b2", "b", "owner", 1001),
@@ -307,8 +313,7 @@ describe("② entry positioning (first unread)", () => {
       </I18nProvider>,
     );
 
-    // The divider MUST render, anchored at the first unread (b2 — the
-    // 2nd-from-last inbound).
+    // The divider MUST render, anchored at the first unread (b2).
     const divider = container.querySelector(".chat__unread-divider");
     expect(divider).not.toBeNull();
     expect(divider!.nextElementSibling?.getAttribute("data-msg-id")).toBe(
@@ -679,9 +684,10 @@ describe("① 回到最新箭頭 + ② 新訊息預覽列", () => {
   });
 
   it("an arrival while the ENTRY unread run is still open keeps the divider at the entry anchor", () => {
-    // Entered with unreadCount=2 → divider at c2. The owner never reads down
-    // to the bottom; a further inbound EXTENDS the same unread run — the
-    // divider must stay at the run's start, not jump to the newest arrival.
+    // Entered at the first unread c2. The owner never reads down to the
+    // bottom; a further inbound EXTENDS the same unread run — the divider must
+    // stay at the run's start, not jump to the newest arrival.
+    entryUnreadId = "c2";
     messages = [
       mkMsg("c1", "b", "owner", 1000),
       mkMsg("c2", "b", "owner", 1001),

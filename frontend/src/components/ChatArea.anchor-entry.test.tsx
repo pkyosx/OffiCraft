@@ -14,6 +14,9 @@
 //
 // 第二件(R3-1)只有把兩者接在一起才量得到:切換對話是 ChatArea 換 `member` prop,
 // 而被上一條對話的錨點鎖住的是 useChat 的閂。
+//
+// 第三件是帶著未讀進房:錨點是伺服器說的第一則未讀(`getFirstUnreadChat`),
+// 什麼時候標已讀取決於落點與版面,所以那一組自己架了一個最小版面(見該組開頭)。
 
 import { StrictMode } from "react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
@@ -21,7 +24,7 @@ import { render, act, waitFor, fireEvent } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { ChatArea } from "./ChatArea";
 import type { Member } from "../types";
-import type { ChatMessage, ReplyCard } from "../api/adapter";
+import type { ChatMessage, ReplyCard, SseDelta } from "../api/adapter";
 
 const OWNER = "owner";
 const A = "m-aaaaaaaaaaaa";
@@ -50,6 +53,29 @@ let windowFailAfter = 0;
  * 但一列都沒有新的)。這就是重複錨點請求真的會拿回來的東西,也是自動連鎖唯一
  * 可能空轉的形狀。 */
 let windowStale = false;
+/** What `getFirstUnreadChat` answers for this room: the id of the first unread
+ * message, `null` (nothing unread), or an Error to throw (the lookup failed). */
+let firstUnreadAnswer: string | null | Error = null;
+/** Every `getFirstUnreadChat` this room made, by peer. */
+let firstUnreadAsks: string[] = [];
+/** Holds `getFirstUnreadChat` in flight, so the room can be left mid-lookup. */
+let holdFirst: null | (() => void) = null;
+/** Makes the window pair read the log when it is ASKED, not when it is let go —
+ * i.e. the server has already answered and only the commit is still pending, so
+ * a message posted while the pair is held is not in it. */
+let windowsSnapshotAtCall = false;
+/** The next N plain newest-page reads fail (a dropped connection). */
+let plainFailures = 0;
+/** Every live `subscribeEvents` subscriber; `sse()` fans one delta to all. */
+let sinks: ((topic: string, delta?: SseDelta) => void)[] = [];
+function sse(topic: string, names: { from?: string; to?: string }) {
+  const delta: SseDelta = {
+    topic,
+    names,
+    ids: [names.from, names.to].filter((v): v is string => v !== undefined),
+  };
+  for (const s of [...sinks]) s(topic, delta);
+}
 /** Same, for the plain newest page — so 回到最新's own fetch can be left in the
  * air across a conversation switch. */
 let holdPlain: null | (() => void) = null;
@@ -121,6 +147,10 @@ vi.mock("../api", () => ({
           };
         });
       }
+      if (!cursor && plainFailures > 0) {
+        plainFailures -= 1;
+        throw new Error("listChat: 502");
+      }
       const all = threadOf(withId);
       const size = limit ?? 30;
       if (cursor) {
@@ -140,6 +170,7 @@ vi.mock("../api", () => ({
       limit: number,
     ) => {
       windowCalls.push({ withId, anchor });
+      const asked = threadOf(withId);
       if (holdWindows) {
         await new Promise<void>((r) => {
           const prev = holdWindows;
@@ -153,7 +184,7 @@ vi.mock("../api", () => ({
       if (windowFailAfter > 0 && windowCalls.length > windowFailAfter) {
         throw new Error("listChatWindow: 502 (walk page)");
       }
-      const all = threadOf(withId);
+      const all = windowsSnapshotAtCall ? asked : threadOf(withId);
       const at = all.findIndex(
         (m) => m.id === (anchor.endId ?? anchor.startId),
       );
@@ -192,6 +223,33 @@ vi.mock("../api", () => ({
       await new Promise((r) => setTimeout(r, 0));
       return { ...CARD, id };
     },
+    getFirstUnreadChat: async (withId: string) => {
+      firstUnreadAsks.push(withId);
+      if (holdFirst) {
+        await new Promise<void>((r) => {
+          const prev = holdFirst;
+          holdFirst = () => {
+            prev?.();
+            r();
+          };
+        });
+      }
+      if (firstUnreadAnswer instanceof Error) throw firstUnreadAnswer;
+      if (firstUnreadAnswer === null) return null;
+      // An id the log does not carry stands for a message deleted after the
+      // server named it: the lookup answers it, the window pair cannot serve it.
+      return (
+        log.find((m) => m.id === firstUnreadAnswer) ?? {
+          id: firstUnreadAnswer,
+          from: withId,
+          to: OWNER,
+          body: "",
+          ts: 1,
+          attachments: [],
+          replyCardId: null,
+        }
+      );
+    },
     listChatReads: async () => [],
     /** Every mark-read this room sent, with the watermark it claimed. This is
      * the ONE thing a front-end flag cannot fake: the server's unread count is
@@ -200,7 +258,12 @@ vi.mock("../api", () => ({
       markReads.push(b.lastReadTs);
     },
     postChat: async () => ({}),
-    subscribeEvents: () => () => {},
+    subscribeEvents: (fn: (topic: string, delta?: SseDelta) => void) => {
+      sinks.push(fn);
+      return () => {
+        sinks = sinks.filter((s) => s !== fn);
+      };
+    },
     getOutsourceWorker: async () => ({}),
   },
 }));
@@ -282,6 +345,12 @@ beforeEach(() => {
   windowsFail = false;
   windowFailAfter = 0;
   markReads = [];
+  firstUnreadAnswer = null;
+  firstUnreadAsks = [];
+  holdFirst = null;
+  windowsSnapshotAtCall = false;
+  plainFailures = 0;
+  sinks = [];
   windowStale = false;
   scrolls = [];
   cardReads = [];
@@ -924,5 +993,525 @@ describe("ChatArea 進房錨點優先(useChat 的 anchor 參數)", () => {
       plainCalls,
       "錨點落地之後這間房必須回到一般的刷新 —— 空的就是 anchorPending 被留在 true",
     ).toEqual([A]);
+  });
+});
+
+// ── 帶著未讀進房:停在伺服器說的第一則未讀 ────────────────────────────────────
+//
+// jsdom 沒有版面:每個 rect 都是 0,於是「最新那一列在視窗內」恆為真,進房就會
+// 標已讀,「捲到底之前不准標」這類斷言會綠在錯的理由上。這一組自己架一個最
+// 小的版面:訊息列與收合的成員間往來各佔 ROW_PX 高,依文件順序往下排;未讀分隔線
+// 不佔高度、貼在它下一列的頂端;捲動容器的可視高度是 viewportPx。
+// scrollIntoView 照 block 參數真的移動 scrollTop,讓之後的量測量到落點。
+const ROW_PX = 40;
+let viewportPx = 400;
+const scrollTops = new WeakMap<Element, number>();
+const savedLayout: [object, string, PropertyDescriptor | undefined][] = [];
+
+function layoutItems(box: Element): Element[] {
+  return Array.from(
+    box.querySelectorAll("[data-msg-id], .chat__inter-toggle"),
+  );
+}
+function contentPx(box: Element): number {
+  return layoutItems(box).length * ROW_PX;
+}
+/** An element's top inside the scrolled content; anything that is not a row
+ * (the bottom sentinel) sits at the very end. */
+function topOf(box: Element, el: Element): number {
+  const target = el.classList.contains("chat__unread-divider")
+    ? el.nextElementSibling
+    : el;
+  const i = target ? layoutItems(box).indexOf(target) : -1;
+  return i < 0 ? contentPx(box) : i * ROW_PX;
+}
+function isBox(el: Element): boolean {
+  return el.classList.contains("chat__messages");
+}
+function override(proto: object, key: string, desc: PropertyDescriptor) {
+  savedLayout.push([proto, key, Object.getOwnPropertyDescriptor(proto, key)]);
+  Object.defineProperty(proto, key, { configurable: true, ...desc });
+}
+
+function installLayout() {
+  viewportPx = 400;
+  override(HTMLElement.prototype, "scrollHeight", {
+    get(this: HTMLElement) {
+      return isBox(this) ? contentPx(this) : 0;
+    },
+  });
+  override(HTMLElement.prototype, "clientHeight", {
+    get(this: HTMLElement) {
+      return isBox(this) ? viewportPx : 0;
+    },
+  });
+  override(Element.prototype, "scrollTop", {
+    get(this: Element) {
+      return scrollTops.get(this) ?? 0;
+    },
+    set(this: Element, v: number) {
+      scrollTops.set(this, v);
+    },
+  });
+  override(Element.prototype, "getBoundingClientRect", {
+    value(this: Element) {
+      const rect = (top: number, height: number) =>
+        ({
+          x: 0,
+          y: top,
+          top,
+          left: 0,
+          right: 0,
+          width: 0,
+          height,
+          bottom: top + height,
+          toJSON: () => ({}),
+        }) as DOMRect;
+      if (isBox(this)) return rect(0, viewportPx);
+      const box = this.closest(".chat__messages");
+      if (!box) return rect(0, 0);
+      const h = this.classList.contains("chat__unread-divider") ? 0 : ROW_PX;
+      return rect(topOf(box, this) - (scrollTops.get(box) ?? 0), h);
+    },
+  });
+  const record = Element.prototype.scrollIntoView;
+  override(Element.prototype, "scrollIntoView", {
+    value(this: Element, opt?: boolean | ScrollIntoViewOptions) {
+      record.call(this, opt);
+      const box = this.closest(".chat__messages");
+      if (!box) return;
+      const top = topOf(box, this);
+      const block = typeof opt === "object" ? opt.block : "start";
+      const want =
+        block === "end"
+          ? top + ROW_PX - viewportPx
+          : block === "center"
+            ? top - (viewportPx - ROW_PX) / 2
+            : top;
+      const max = Math.max(0, contentPx(box) - viewportPx);
+      scrollTops.set(box, Math.min(max, Math.max(0, want)));
+    },
+  });
+}
+
+function uninstallLayout() {
+  while (savedLayout.length > 0) {
+    const [proto, key, desc] = savedLayout.pop()!;
+    if (desc) Object.defineProperty(proto, key, desc);
+    else delete (proto as Record<string, unknown>)[key];
+  }
+}
+
+function withUnread(m: Member, unreadCount: number): Member {
+  return { ...m, unreadCount };
+}
+
+/** The row right below the unread divider, or null when there is no divider. */
+function dividerRow(container: HTMLElement): string | null {
+  const d = container.querySelector(".chat__unread-divider");
+  if (!d) return null;
+  return d.nextElementSibling?.getAttribute("data-msg-id") ?? "(not a row)";
+}
+
+function scrollBox(container: HTMLElement, top: number) {
+  const box = container.querySelector(".chat__messages")!;
+  box.scrollTop = top;
+  fireEvent.scroll(box);
+}
+
+/** Lets every fire-and-forget mark-read land before anything is asserted. */
+async function settle() {
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 60));
+  });
+}
+
+describe("ChatArea 帶著未讀進房,停在伺服器說的第一則未讀", () => {
+  beforeEach(installLayout);
+  afterEach(uninstallLayout);
+
+  it("未讀 40 則(超過一頁)時,停在最舊那一則未讀、分隔線在它上方,捲到底之前不標已讀", async () => {
+    seed(A, "a", 40, 100);
+    firstUnreadAnswer = "a0";
+
+    const { container } = render(view(withUnread(alice, 40)));
+    await waitFor(() => expect(dividerRow(container)).toBe("a0"));
+    await settle();
+
+    expect(firstUnreadAsks).toEqual([A]);
+    expect(bubbles(container)).toEqual(
+      Array.from({ length: 40 }, (_, i) => `a${i}`),
+    );
+    expect(scrolls).toContainEqual({ on: "chat__unread-divider", block: "start" });
+    expect(markReads).toEqual([]);
+    expect(
+      container.querySelector('[data-testid="chat-jump-latest"]'),
+    ).not.toBeNull();
+  });
+
+  it("該成員跟其他成員的往來塞滿最新一頁時,照樣停在更早的那幾則未讀上", async () => {
+    // 5 則未讀在前,後面 35 則是 A 與 B 之間的往來(不算未讀、也不是給 owner 的)。
+    seed(A, "a", 5, 100);
+    for (let i = 0; i < 35; i++) {
+      const toB = i % 2 === 0;
+      log.push({
+        id: `x${i}`,
+        from: toB ? A : B,
+        to: toB ? B : A,
+        body: `x${i}`,
+        ts: 200 + i,
+        attachments: [],
+        replyCardId: null,
+      });
+    }
+    firstUnreadAnswer = "a0";
+
+    const { container } = render(view(withUnread(alice, 5)));
+    await waitFor(() => expect(dividerRow(container)).toBe("a0"));
+    await settle();
+
+    expect(bubbles(container)).toEqual(["a0", "a1", "a2", "a3", "a4"]);
+    expect(
+      container.querySelector(".chat__inter-toggle")?.textContent,
+    ).toBe("35 則成員間對話 · 展開");
+    expect(scrolls).toContainEqual({ on: "chat__unread-divider", block: "start" });
+    // 成員間往來收合成一列,5 則未讀加這一列整段在畫面內,所以落地即看到最新,
+    // 以最新那一則(x34)的 ts 標已讀。
+    expect(markReads).toEqual([234]);
+  });
+
+  it("未讀超過一頁時,捲到中段不標已讀,捲到底才以最新那一則的 ts 標已讀", async () => {
+    seed(A, "a", 40, 100);
+    firstUnreadAnswer = "a0";
+
+    const { container } = render(view(withUnread(alice, 40)));
+    await waitFor(() => expect(dividerRow(container)).toBe("a0"));
+    await settle();
+    expect(markReads, "剛落地").toEqual([]);
+
+    // 40 列 × 40px = 1600px,視窗 400px:捲到 600 還在中段。
+    await act(async () => scrollBox(container, 600));
+    await settle();
+    expect(markReads, "捲到中段").toEqual([]);
+
+    await act(async () => scrollBox(container, 1200));
+    await settle();
+    expect(markReads, "捲到底").toEqual([139]);
+  });
+
+  it("一頁內的少量未讀、整段都在畫面內時,進房即以最新 ts 標已讀", async () => {
+    seed(A, "a", 6, 100);
+    firstUnreadAnswer = "a3";
+
+    const { container } = render(view(withUnread(alice, 3)));
+    await waitFor(() => expect(dividerRow(container)).toBe("a3"));
+    await settle();
+
+    expect(markReads).toEqual([105]);
+    expect(
+      container.querySelector('[data-testid="chat-jump-latest"]'),
+    ).toBeNull();
+  });
+
+  it("一頁內但最新一則在畫面外時,進房即以最新 ts 標已讀(不等捲到底)", async () => {
+    // 20 列 × 40px = 800px > 視窗 400px;落在 a5 上方,a19 在畫面外。
+    seed(A, "a", 20, 100);
+    firstUnreadAnswer = "a5";
+
+    const { container } = render(view(withUnread(alice, 15)));
+    await waitFor(() => expect(dividerRow(container)).toBe("a5"));
+    await settle();
+
+    expect(markReads).toEqual([119]);
+    // 落點真的在最新一則上方:回到最新的箭頭在。
+    expect(
+      container.querySelector('[data-testid="chat-jump-latest"]'),
+    ).not.toBeNull();
+  });
+
+  it("從第一則未讀到最新剛好一頁(30 列)時,進房即標已讀", async () => {
+    seed(A, "a", 40, 100);
+    firstUnreadAnswer = "a10";
+
+    const { container } = render(view(withUnread(alice, 30)));
+    await waitFor(() => expect(dividerRow(container)).toBe("a10"));
+    await settle();
+
+    expect(markReads).toEqual([139]);
+  });
+
+  it("從第一則未讀到最新多一頁一列(31 列)時,進房不標已讀", async () => {
+    seed(A, "a", 40, 100);
+    firstUnreadAnswer = "a9";
+
+    const { container } = render(view(withUnread(alice, 31)));
+    await waitFor(() => expect(dividerRow(container)).toBe("a9"));
+    await settle();
+
+    expect(markReads).toEqual([]);
+  });
+
+  it("未讀超過一頁但視窗高到落地就看得到最新一則時,進房即標已讀", async () => {
+    // 31 列 × 40px = 1240px,視窗 2000px:整段放得下,也捲不動。
+    viewportPx = 2000;
+    seed(A, "a", 31, 100);
+    firstUnreadAnswer = "a0";
+
+    const { container } = render(view(withUnread(alice, 31)));
+    await waitFor(() => expect(dividerRow(container)).toBe("a0"));
+    await settle();
+
+    expect(markReads).toEqual([130]);
+  });
+
+  it("StrictMode 的 setup→cleanup→setup 之後,帶未讀進房照樣停在第一則未讀、只問一次", async () => {
+    seed(A, "a", 40, 100);
+    firstUnreadAnswer = "a0";
+
+    const { container } = render(
+      <StrictMode>{view(withUnread(alice, 40))}</StrictMode>,
+    );
+    await waitFor(() => expect(dividerRow(container)).toBe("a0"));
+    await settle();
+
+    expect(firstUnreadAsks).toEqual([A]);
+    expect(bubbles(container)).toHaveLength(40);
+    expect(markReads).toEqual([]);
+
+    // 落地之後這間房回到一般的刷新:focus 會打一頁最新的。
+    plainCalls = [];
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    expect(plainCalls).toEqual([A]);
+  });
+
+  it("徽章數比伺服器的未讀少時,照伺服器說的第一則未讀停", async () => {
+    seed(A, "a", 40, 100);
+    firstUnreadAnswer = "a0";
+
+    const { container } = render(view(withUnread(alice, 3)));
+    await waitFor(() => expect(dividerRow(container)).toBe("a0"));
+    await settle();
+
+    expect(markReads).toEqual([]);
+  });
+
+  it("伺服器說沒有未讀時,退回最新一頁、落在最底、不畫分隔線,照常標已讀", async () => {
+    seed(A, "a", 10, 100);
+    firstUnreadAnswer = null;
+
+    const { container } = render(view(withUnread(alice, 2)));
+    await waitFor(() => expect(bubbles(container)).toHaveLength(10));
+    await settle();
+
+    expect(dividerRow(container)).toBeNull();
+    expect(container.querySelector(".chat__loading")).toBeNull();
+    expect(scrolls).toContainEqual({ on: "chat__scroll-anchor", block: undefined });
+    expect(markReads).toEqual([109]);
+    expect(plainCalls).toEqual([A]);
+  });
+
+  it("查第一則未讀失敗時,退回最新一頁、落在最底、不畫分隔線,照常標已讀", async () => {
+    seed(A, "a", 10, 100);
+    firstUnreadAnswer = new Error("getFirstUnreadChat: 502");
+
+    const { container } = render(view(withUnread(alice, 2)));
+    await waitFor(() => expect(bubbles(container)).toHaveLength(10));
+    await settle();
+
+    expect(dividerRow(container)).toBeNull();
+    expect(container.querySelector(".chat__loading")).toBeNull();
+    expect(scrolls).toContainEqual({ on: "chat__scroll-anchor", block: undefined });
+    expect(markReads).toEqual([109]);
+    expect(plainCalls).toEqual([A]);
+  });
+
+  it("第一則未讀那一段讀不到(502)時,退回最新一頁、落在最底、不畫分隔線,照常標已讀", async () => {
+    seed(A, "a", 10, 100);
+    firstUnreadAnswer = "a5";
+    windowsFail = true;
+
+    const { container } = render(view(withUnread(alice, 5)));
+    await waitFor(() => expect(bubbles(container)).toHaveLength(10));
+    await settle();
+
+    expect(dividerRow(container)).toBeNull();
+    expect(scrolls).toContainEqual({ on: "chat__scroll-anchor", block: undefined });
+    expect(markReads).toEqual([109]);
+    expect(plainCalls).toEqual([A]);
+  });
+
+  it("伺服器說沒有未讀而房間是空的時,轉圈收掉、顯示空房間", async () => {
+    firstUnreadAnswer = null;
+
+    const { container } = render(view(withUnread(alice, 2)));
+    await waitFor(() => expect(firstUnreadAsks).toEqual([A]));
+    // 轉圈要等 CHAT_LOADING_DELAY_MS(150ms)才畫,沒等過它的「沒有轉圈」不算數。
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 300));
+    });
+
+    expect(container.querySelector(".chat__loading")).toBeNull();
+    expect(container.querySelector(".chat__empty")?.textContent).toBe(
+      "這個範圍還沒有訊息",
+    );
+    expect(bubbles(container)).toEqual([]);
+  });
+});
+
+// ── 進房還在等錨點時發生的事 ─────────────────────────────────────────────────
+describe("ChatArea 進房等錨點期間的新訊息、退回與離房", () => {
+  beforeEach(installLayout);
+  afterEach(uninstallLayout);
+
+  const LATE: ChatMessage = {
+    id: "late",
+    from: A,
+    to: OWNER,
+    body: "late",
+    ts: 500,
+    attachments: [],
+    replyCardId: null,
+  };
+
+  it("帶未讀進房、錨點那一段已讀回還沒落地時對方又送一則,落地後那一則照樣出現", async () => {
+    seed(A, "a", 40, 100);
+    firstUnreadAnswer = "a0";
+    windowsSnapshotAtCall = true;
+    holdWindows = () => {};
+
+    const { container } = render(view(withUnread(alice, 40)));
+    await waitFor(() => expect(windowCalls).toHaveLength(2));
+    await act(async () => {
+      log.push(LATE);
+      const release = holdWindows;
+      holdWindows = null;
+      release?.();
+      sse("chat", { from: A, to: OWNER });
+      await new Promise((r) => setTimeout(r, 60));
+    });
+
+    await waitFor(() =>
+      expect(bubbles(container)).toEqual([
+        ...Array.from({ length: 40 }, (_, i) => `a${i}`),
+        "late",
+      ]),
+    );
+    expect(dividerRow(container)).toBe("a0");
+    expect(markReads).toEqual([]);
+  });
+
+  it("帶著跳轉目標進房、錨點那一段已讀回還沒落地時對方又送一則,落地後那一則照樣出現", async () => {
+    seed(A, "a", 40, 100);
+    windowsSnapshotAtCall = true;
+    holdWindows = () => {};
+
+    const { container } = render(view(alice, "a3"));
+    await waitFor(() => expect(windowCalls).toHaveLength(2));
+    await act(async () => {
+      log.push(LATE);
+      const release = holdWindows;
+      holdWindows = null;
+      release?.();
+      sse("chat", { from: A, to: OWNER });
+      await new Promise((r) => setTimeout(r, 60));
+    });
+
+    await waitFor(() =>
+      expect(bubbles(container)).toEqual([
+        ...Array.from({ length: 40 }, (_, i) => `a${i}`),
+        "late",
+      ]),
+    );
+  });
+
+  it("第一則未讀那一段讀不到(已被刪掉)而退回最新頁時,等最新頁的期間顯示轉圈,不顯示空房間", async () => {
+    seed(A, "a", 10, 100);
+    firstUnreadAnswer = "gone";
+    holdPlain = () => {};
+
+    const { container } = render(view(withUnread(alice, 2)));
+    await waitFor(() => expect(plainCalls).toEqual([A]));
+    // 轉圈要等 CHAT_LOADING_DELAY_MS(150ms)才畫。
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 300));
+    });
+    expect(windowCalls).toEqual([
+      { withId: A, anchor: { endId: "gone" } },
+      { withId: A, anchor: { startId: "gone" } },
+    ]);
+    expect(container.querySelector(".chat__empty")).toBeNull();
+    expect(container.querySelector(".chat__loading")?.textContent).toBe(
+      "正在載入對話…",
+    );
+
+    await act(async () => {
+      const release = holdPlain;
+      holdPlain = null;
+      release?.();
+      await new Promise((r) => setTimeout(r, 60));
+    });
+    expect(bubbles(container)).toEqual(
+      Array.from({ length: 10 }, (_, i) => `a${i}`),
+    );
+    expect(container.querySelector(".chat__loading")).toBeNull();
+    expect(dividerRow(container)).toBeNull();
+    expect(markReads).toEqual([109]);
+  });
+
+  it("退回最新頁那一次也讀失敗時,下一個聊天事件(即使是別間房的)會把最新頁補抓回來", async () => {
+    seed(A, "a", 10, 100);
+    firstUnreadAnswer = null;
+    plainFailures = 1;
+
+    const { container } = render(view(withUnread(alice, 2)));
+    await waitFor(() => expect(plainCalls).toEqual([A]));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 300));
+    });
+    expect(bubbles(container)).toEqual([]);
+    expect(container.querySelector(".chat__empty")?.textContent).toBe(
+      "這個範圍還沒有訊息",
+    );
+
+    await act(async () => {
+      sse("chat", { from: B, to: OWNER });
+      await new Promise((r) => setTimeout(r, 60));
+    });
+    expect(plainCalls).toEqual([A, A]);
+    expect(bubbles(container)).toEqual(
+      Array.from({ length: 10 }, (_, i) => `a${i}`),
+    );
+    expect(markReads).toEqual([109]);
+  });
+
+  it("查第一則未讀還在路上就切到別人,舊房的答案落地後不再替舊房發任何請求", async () => {
+    seed(A, "a", 40, 100);
+    seed(B, "b", 5, 500);
+    firstUnreadAnswer = "a0";
+    holdFirst = () => {};
+
+    const { container, rerender } = render(view(withUnread(alice, 40)));
+    await waitFor(() => expect(firstUnreadAsks).toEqual([A]));
+    await act(async () => {
+      rerender(view(bruno));
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    await waitFor(() =>
+      expect(bubbles(container)).toEqual(["b0", "b1", "b2", "b3", "b4"]),
+    );
+
+    await act(async () => {
+      const release = holdFirst;
+      holdFirst = null;
+      release?.();
+      await new Promise((r) => setTimeout(r, 60));
+    });
+    expect(windowCalls).toEqual([]);
+    expect(plainCalls).toEqual([B]);
+    expect(bubbles(container)).toEqual(["b0", "b1", "b2", "b3", "b4"]);
+    expect(dividerRow(container)).toBeNull();
   });
 });
