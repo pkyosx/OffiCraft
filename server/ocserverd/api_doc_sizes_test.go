@@ -23,8 +23,8 @@ func apiDocSizes(t *testing.T, h http.Handler, credential string) map[string]any
 func apiSeededAssistantRow() map[string]any {
 	return map[string]any{
 		"role_key": "assistant",
-		"duty":     map[string]any{"size_chars": 169, "cap_chars": 1000},
-		"insight":  map[string]any{"size_chars": 1089, "cap_chars": 15000},
+		"duty":     map[string]any{"size_chars": 184, "cap_chars": 1000},
+		"insight":  map[string]any{"size_chars": 1351, "cap_chars": 15000},
 	}
 }
 
@@ -98,7 +98,7 @@ func TestHandlePeekDocSizesApiDocSizesGet(t *testing.T) {
 		apiWantBody(t, apiDocSizes(t, h, owner), map[string]any{
 			"roles": []any{map[string]any{
 				"role_key": "assistant",
-				"duty":     map[string]any{"size_chars": 169, "cap_chars": 1000},
+				"duty":     map[string]any{"size_chars": 184, "cap_chars": 1000},
 				"insight":  map[string]any{"size_chars": 13, "cap_chars": 15000},
 			}},
 			"task_manuals": apiBuiltinManualSizeRows(15000),
@@ -120,8 +120,8 @@ func TestHandlePeekDocSizesApiDocSizesGet(t *testing.T) {
 		apiWantBody(t, apiDocSizes(t, h, owner), map[string]any{
 			"roles": []any{map[string]any{
 				"role_key": "assistant",
-				"duty":     map[string]any{"size_chars": 169, "cap_chars": 1000},
-				"insight":  map[string]any{"size_chars": 1089, "cap_chars": 20000},
+				"duty":     map[string]any{"size_chars": 184, "cap_chars": 1000},
+				"insight":  map[string]any{"size_chars": 1351, "cap_chars": 20000},
 			}},
 			"task_manuals": append(apiBuiltinManualSizeRows(30000), map[string]any{
 				"type_key": "crate",

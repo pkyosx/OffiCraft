@@ -25,15 +25,16 @@
 // saw it; the wide one is the control that says the fix did not simply move the
 // breakage somewhere else.
 //
-// MUTANT (re-measured by an independent reviewer, superseding this comment's
-// first version — it said 375/390 and that undercounted):
-//   · delete `white-space: nowrap` from `.set-badge` → assertion (1) for the
-//     badge reddens at 320 AND 375 AND 390 (3 widths, `expected 1, received 2`).
-//   · delete it from `.doc-btn` → the 編輯 assertions redden at 375/390 only.
-//     320 stays green there, because the <360px wrap valve puts the button on a
-//     line of its own where it has room — the valve MASKS that one width.
-//   · delete the wrap valve → the header-overflow assertion reddens at 320 with
-//     `received 23`.
+// MUTANTS, measured with the header's ≤720px wrap in place:
+//   · delete `white-space: nowrap` from `.set-badge` or from `.doc-btn` → every
+//     test here stays GREEN. The wrap gives the badge and the 編輯 button room
+//     of their own at every width tested, so these width tests no longer prove
+//     the nowrap rules; they still matter wherever the pill or button sits in a
+//     row that does not wrap.
+//   · delete the ≤720px wrap rule → both edit-mode tests redden (title 3 line
+//     boxes).
+//   · let only the header wrap, not the title group → the en edit-mode test
+//     reddens (title 3 line boxes).
 //
 // ⚠️ THREE ASSERTIONS HERE CAN NEVER RUN WHILE THE DEFECT IS PRESENT, and that
 // is worth knowing before you trust them: the spill checks and the 編輯
@@ -55,7 +56,9 @@ import type { Locator } from "@playwright/test";
 import { InsightBadgeNarrowStory } from "./stories/InsightBadgeNarrowStory";
 
 /** Line boxes + vertical spill of an element's own text, measured with a Range
- * (one client rect per line box) against the element's border box. */
+ * against the element's border box. Lines are counted by distinct rect tops:
+ * a label React renders as several text nodes yields one rect per node on the
+ * same line. */
 async function textGeometry(el: Locator) {
   return await el.evaluate((node) => {
     const box = node.getBoundingClientRect();
@@ -63,7 +66,7 @@ async function textGeometry(el: Locator) {
     range.selectNodeContents(node);
     const rects = Array.from(range.getClientRects());
     return {
-      lines: rects.length,
+      lines: new Set(rects.filter((r) => r.width > 0).map((r) => Math.round(r.top))).size,
       spillAbove: box.top - Math.min(...rects.map((r) => r.top)),
       spillBelow: Math.max(...rects.map((r) => r.bottom)) - box.bottom,
     };
@@ -72,8 +75,7 @@ async function textGeometry(el: Locator) {
 
 // 375 / 390 = the phone widths the rest of this suite treats as the owner's
 // (nav-tabs-narrow, worker-detail-header-label, …) and where the defect was
-// measured. 320 = the narrowest phone still in use, and the only width where
-// the fix needed member-detail.css's ≤359px wrap valve to stay inside the card.
+// measured. 320 = the narrowest phone still in use.
 // 1040 = the desktop content column's max width — the control that says the
 // fix did not move the breakage somewhere else.
 for (const width of [320, 375, 390, 1040]) {
@@ -125,5 +127,77 @@ for (const width of [320, 375, 390, 1040]) {
     expect(spill.head, "header row horizontal overflow").toBeLessThanOrEqual(1);
     expect(spill.card, "insight card horizontal overflow").toBeLessThanOrEqual(1);
     expect(spill.page, "page horizontal overflow").toBeLessThanOrEqual(1);
+  });
+}
+
+// Edit mode adds 版本紀錄 / 取消 / 完成編輯, which never fit on the title's line at
+// a phone width. If the header stops wrapping, the title group is squeezed to
+// zero width: the title stacks one glyph per line, the count folds, and the
+// badge and count paint over 版本紀錄 — overlap that no overflow check sees,
+// because nothing leaves the card. en is here because its longer title, badge
+// and count only stay apart when the title group wraps as well.
+const EDIT_LABELS = {
+  zh: { title: "判準(Insight)", modified: "已修改", history: "版本紀錄", cancel: "取消", done: "完成編輯" },
+  en: { title: "Insight (judgement calls)", modified: "Modified", history: "Version history", cancel: "Cancel", done: "Done" },
+};
+for (const [language, label] of Object.entries(EDIT_LABELS)) {
+  test(`${language}, 390px, editing an edited seeded insight: title, count, badge and buttons each keep one line and none overlap`, async ({
+    mount,
+    page,
+  }) => {
+    await page.evaluate((l) => localStorage.setItem("oc.language", l), language);
+    await page.setViewportSize({ width: 390, height: 900 });
+    const cmp = await mount(<InsightBadgeNarrowStory />);
+
+    const edit = cmp.locator(".doc-btn--edit");
+    const editor = cmp.locator("textarea.doc-editor");
+    const done = cmp.getByRole("button", { name: label.done, exact: true });
+    await edit.click();
+    await editor.fill(`${await editor.inputValue()}\n多一行`);
+    await done.click();
+    await edit.click();
+    const badge = cmp.getByTestId("insight-status-badge");
+    await expect(badge).toHaveText(label.modified);
+    await expect(done).toBeVisible();
+
+    const title = cmp.locator(".mp-lessons__title-label");
+    const count = cmp.locator(".mp-insight__size");
+    await expect(title).toHaveText(label.title);
+    expect((await textGeometry(title)).lines, "title line boxes").toBe(1);
+    expect((await textGeometry(count)).lines, "count line boxes").toBe(1);
+
+    const parts: Record<string, Locator> = {
+      title,
+      count,
+      badge,
+      history: cmp.getByRole("button", { name: label.history, exact: true }),
+      cancel: cmp.getByRole("button", { name: label.cancel, exact: true }),
+      done,
+    };
+    const boxes = await Promise.all(
+      Object.entries(parts).map(async ([name, el]) => ({ name, box: (await el.boundingBox())! }))
+    );
+    const overlaps: string[] = [];
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        const a = boxes[i].box;
+        const b = boxes[j].box;
+        const ox = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
+        const oy = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
+        if (ox > 0.5 && oy > 0.5) overlaps.push(`${boxes[i].name} × ${boxes[j].name}`);
+      }
+    }
+    expect(overlaps, "header parts painting over each other").toEqual([]);
+
+    const spill = await page.evaluate(() => {
+      const head = document.querySelector(".mp-lessons__head")!;
+      const card = document.querySelector(".mp-insight")!;
+      return {
+        head: head.scrollWidth - head.clientWidth,
+        card: card.scrollWidth - card.clientWidth,
+      };
+    });
+    expect(spill.head, "header row horizontal overflow").toBeLessThanOrEqual(1);
+    expect(spill.card, "insight card horizontal overflow").toBeLessThanOrEqual(1);
   });
 }

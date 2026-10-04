@@ -605,14 +605,6 @@
   justify-content: space-between;
   gap: 10px;
 }
-/* Keep the status badge and edit action on one line. At phone widths, the
- * title group can shrink and its text can wrap before either fixed-height
- * control wraps or escapes the card. */
-@media (max-width: 359px) {
-  .mp-lessons__head {
-    flex-wrap: wrap;
-  }
-}
 .mp-lessons__title {
   display: flex;
   align-items: center;
@@ -632,6 +624,17 @@
 .mp-lessons__actions {
   display: flex;
   gap: 8px;
+}
+/* Same phone shape as the Duty card head (`.doc-card__head`, settings.css):
+ * the row wraps instead of shrinking. Without it the edit row's three buttons
+ * squeeze the title group to zero width, the title stacks one glyph per line,
+ * and the badge and count paint over 版本紀錄. The title group wraps too, so a
+ * long label, badge and count fall to their own lines rather than overflow. */
+@media (max-width: 720px) {
+  .mp-lessons__head,
+  .mp-lessons__title {
+    flex-wrap: wrap;
+  }
 }
 .mp-lessons__note {
   margin-top: 4px;
@@ -662,6 +665,9 @@
   font-weight: 500;
   font-variant-numeric: tabular-nums;
   color: var(--color-text-muted);
+  /* Same rule as `.doc-card__usage`: if the title group is ever squeezed, the
+   * number must not fold across lines. */
+  white-space: nowrap;
 }
 
 @media (max-width: 720px) {

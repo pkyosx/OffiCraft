@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-const apiTestAssistantSeedDefinitionMD = "# 助理\n\nOwner 的助理，工作室的預設對口。\n\n- **不知道該找誰**：先找我，我會判斷並安排後續。\n- **OffiCraft 怎麼運作**：怎麼使用、規則是什麼、某個操作在哪裡，都可以問我。\n- **你做不到的操作**：我的權限比一般成員大，權限之內的我可以代你執行；只有 Owner 能決定的，我整理好開一張卡送到他面前。\n"
+const apiTestAssistantSeedDefinitionMD = "# 助理\n\nOwner 的助理，工作室的預設對口。\n\n- **不知道該找誰**：先找我，我會判斷並安排後續。\n- **OffiCraft 怎麼運作**：怎麼使用、規則是什麼、某個操作在哪裡，都可以問我。\n- **你做不到的操作**：我的權限比一般成員大，權限之內的我可以代你執行；只有 Owner 能決定的，我整理好開一張卡送到他面前。\n- 系統升級後需要的後續協助\n"
 
 const apiTestCustomRoleTemplateMD = "# 角色定義\n\n## 你是誰\n\n（待填：這個角色的身分與定位——用一兩句話說明「你是誰」、在辦公室裡站什麼位置、面對 owner 與其他成員時以什麼視角說話。）\n\n## 你做什麼\n\n（待填：這個角色的職責與工作方式——負責哪些事、怎麼做事、輸出長什麼樣、與 owner 及其他成員怎麼協作、什麼事不歸你管。）\n"
 
@@ -359,7 +359,7 @@ func TestHandleListRolesApiRolesGet(t *testing.T) {
 		}
 		apiWantValue(t, "body", got, []any{
 			map[string]any{
-				"size_chars":     169,
+				"size_chars":     184,
 				"cap_chars":      1000,
 				"key":            "assistant",
 				"name":           "Assistant",
@@ -469,7 +469,7 @@ func TestHandleGetRoleApiRolesRoleGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"size_chars":     169,
+			"size_chars":     184,
 			"cap_chars":      1000,
 			"key":            "assistant",
 			"name":           "Assistant",
@@ -752,9 +752,9 @@ func TestHandleUpdateRoleApiRolesRolePost(t *testing.T) {
 			"name":       "Assistant",
 			"is_default": false,
 			"is_seed":    true,
-			"size_chars": 169,
+			"size_chars": 184,
 			"cap_chars":  1000,
-			"sha256":     "8e4957c5da2787a69e5d3470fafcc3badbf5b6e2f863d3eb0cfb29a8988c2425",
+			"sha256":     "4a7e62832201a34c21bd26ec8b6c096442bced1a396a62f0903d8b0054087c67",
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   1,
@@ -891,9 +891,9 @@ func TestHandleResetRoleApiRolesRoleResetPost(t *testing.T) {
 			"name":       "Assistant",
 			"is_default": true,
 			"is_seed":    true,
-			"size_chars": 169,
+			"size_chars": 184,
 			"cap_chars":  1000,
-			"sha256":     "8e4957c5da2787a69e5d3470fafcc3badbf5b6e2f863d3eb0cfb29a8988c2425",
+			"sha256":     "4a7e62832201a34c21bd26ec8b6c096442bced1a396a62f0903d8b0054087c67",
 		})
 		dashboard.wantFrames(map[string]any{
 			"seq":   2,
@@ -924,9 +924,9 @@ func TestHandleResetRoleApiRolesRoleResetPost(t *testing.T) {
 			"name":       "Assistant",
 			"is_default": true,
 			"is_seed":    true,
-			"size_chars": 169,
+			"size_chars": 184,
 			"cap_chars":  1000,
-			"sha256":     "8e4957c5da2787a69e5d3470fafcc3badbf5b6e2f863d3eb0cfb29a8988c2425",
+			"sha256":     "4a7e62832201a34c21bd26ec8b6c096442bced1a396a62f0903d8b0054087c67",
 		})
 	})
 
