@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { Children, type ReactNode, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
 import { api } from "../api";
@@ -35,9 +35,19 @@ import { avatarKindForMember } from "../lib/avatarKind";
 import { InlineEdit } from "./InlineEdit";
 import { MemberDetailPanel } from "./MemberDetailPanel";
 import { PresenceBadge } from "./PresenceBadge";
-import { CopyIcon, CheckIcon, CloseIcon, KeyIcon } from "./icons";
+import {
+  CopyIcon,
+  CheckIcon,
+  CloseIcon,
+  DownloadIcon,
+  GearIcon,
+  KeyIcon,
+  LogOutIcon,
+  TrashIcon,
+} from "./icons";
 import { RuntimeActionMenu } from "./RuntimeActionMenu";
 import { RuntimeLoginDialog } from "./RuntimeLoginDialog";
+import { RuntimeUpgradeDialog } from "./RuntimeUpgradeDialog";
 // The 歸零 pill on the account card is the SAME control as the one on the member
 // panel — same look, same danger colour, same size — so it wears the `mp` block's
 // class rather than a second copy of those rules under `mon`. Importing the
@@ -159,6 +169,7 @@ export function MonitorPage() {
     runtime: RuntimeLoginRuntime;
     loggedIn: boolean;
   } | null>(null);
+  const [upgradeTarget, setUpgradeTarget] = useState<MachineView | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -667,307 +678,54 @@ export function MonitorPage() {
             onClose={() => setLoginTarget(null)}
           />
         )}
+        {upgradeTarget && (
+          <RuntimeUpgradeDialog
+            machineId={upgradeTarget.machineId}
+            machineName={upgradeTarget.displayName}
+            onClose={() => setUpgradeTarget(null)}
+          />
+        )}
         <div className="mon-section__head">
           <div className="mon-section__title">{t.monitor.machinesTitle}</div>
         </div>
 
         {onboardError && <div className="mon-error">{onboardError}</div>}
 
-        <div className="mon-table-wrap">
-          <table className="mon-table">
-            <thead>
-              <tr>
-                {/* 機器 + 狀態 are ONE column (T-674d): they were split, and the
-                 * name cell was narrow enough that the machine-id chip wrapped
-                 * to a second line on every row. Merging is not decoration —
-                 * the id is the machine's identity and belongs beside its name,
-                 * and the online badge is the same row's other identity fact.
-                 * The removed 狀態 header is a header only; the badge itself is
-                 * unchanged and still an honest passthrough of `online`. */}
-                <th className="mon-table__left">{t.monitor.machineCol.machine}</th>
-                <th className="mon-table__left">{t.monitor.machineCol.claude}</th>
-                <th className="mon-table__left">{t.monitor.machineCol.codex}</th>
-                <th>{t.monitor.machineCol.cpu}</th>
-                <th>{t.monitor.machineCol.ram}</th>
-                <th>{t.monitor.machineCol.power}</th>
-                <th className="mon-table__right">
-                  {t.monitor.machine.actionsCol}
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {machines.length === 0 ? (
-                <tr>
-                  <td className="mon-table__left mon-muted" colSpan={7}>
-                    {t.monitor.machine.machinesEmpty}
-                  </td>
-                </tr>
-              ) : (
-                machines.map((m) => {
-                  // Join hardware telemetry by this machine's own id (see
-                  // hwByHost above — its key IS the host machine-id). Undefined
-                  // when the machine reported no telemetry → hardware cells fall
-                  // back to dash, row stays.
-                  const hw = hwByHost.get(m.machineId);
-                  return (
-                  <tr key={m.machineId}>
-                    {/* display_name is the editable label; the PATCH target is the
-                     * stable machineId, NOT the label. */}
-                    <td
-                      className="mon-table__left"
-                      data-label={t.monitor.machineCol.machine}
-                    >
-                      <div className="mon-machine-name">
-                        <InlineEdit
-                          value={m.displayName}
-                          onCommit={(next) => renameMachine(m.machineId, next)}
-                          ariaLabel={t.monitor.renameMachine}
-                          placeholder={t.monitor.renamePlaceholder}
-                          displayClassName={`mon-table__strong${
-                            m.isSelf ? " mon-self-name" : ""
-                          }`}
-                        />
-                        {/* Stable machine id (the warden member's own id / token
-                            sub) — the machine's identity, never editable. Mirrors
-                            the member detail panel's id badge. */}
-                        <span
-                          className="mon-machine-id"
-                          data-testid="mon-machine-id"
-                          title={m.machineId}
-                        >
-                          {m.machineId}
-                        </span>
-                        {/* online badge — honest passthrough of the registry's
-                         * online, now living in the merged 機器 cell (T-674d).
-                         * Same markup, same source; only its column moved. */}
-                        <span
-                          className={`mon-online${
-                            m.online ? " mon-online--on" : " mon-online--off"
-                          }`}
-                        >
-                          <span
-                            className={`status-dot ${
-                              m.online
-                                ? "status-dot--online"
-                                : "status-dot--offline"
-                            }`}
-                            aria-hidden
-                          />
-                          {m.online
-                            ? t.monitor.machine.online
-                            : t.monitor.machine.offline}
-                        </span>
-                        {/* Nothing is rendered here for a machine whose
-                         * cutover is PROVEN in effect — and that silence is
-                         * now the point: a blank means "measured, fine", and
-                         * the two states that used to share that blank say so
-                         * for themselves below. The badge that used to live
-                         * here named an internal shape vocabulary nobody
-                         * outside this codebase can read, and its green face
-                         * asserted a cutover had taken effect when it only
-                         * ever observed warden's own parent. */}
-                        <CutoverEffectLine effect={m.cutoverEffect} />
-                      </div>
-                    </td>
-                    {/* Per-runtime version columns (T-674d), replacing the old
-                     * ✓/✗ Runtimes digest. Both cells read the SAME capability
-                     * map the digest read — nothing new is collected, and no
-                     * version is ever synthesized.
-                     *
-                     * Claude additionally falls back to the registry's own
-                     * `claude_version` (its long-standing source, T-97ee/T-7c5b)
-                     * when the machine has no capability entry — that keeps the
-                     * column's meaning exactly as it was for older wardens.
-                     * Codex has no such registry field, so its ONLY source is
-                     * the capability map; absent means unknown, and the cell
-                     * says so rather than inventing a number.
-                     *
-                     * The digest's ✗ states stay words, because for Codex they
-                     * are the only on-screen explanation for a worker parked
-                     * on machine_unavailable: "not installed" always (MARKED
-                     * when the probe is not fresh, since telemetry is never
-                     * cleared on disconnect); "signed out" only on fresh
-                     * telemetry — stale telemetry carries no login state
-                     * (owner ruling). */}
-                    <td
-                      className="mon-table__left"
-                      data-label={t.monitor.machineCol.claude}
-                      data-testid="mon-claude-version"
-                    >
-                      <RuntimeVersionTrigger
-                        runtime="claude"
-                        capability={hw?.runtimeCapabilities?.claude}
-                        fallbackVersion={m.claudeVersion}
-                        stale={hw?.runtimeCapabilitiesStale}
-                        onLogin={() =>
-                          setLoginTarget({
-                            machine: m,
-                            runtime: "claude",
-                            loggedIn: hw?.runtimeCapabilities?.claude?.loggedIn === true,
-                          })
-                        }
-                      />
-                    </td>
-                    <td
-                      className="mon-table__left"
-                      data-label={t.monitor.machineCol.codex}
-                      data-testid="mon-codex-version"
-                    >
-                      <RuntimeVersionTrigger
-                        runtime="codex"
-                        capability={hw?.runtimeCapabilities?.codex}
-                        fallbackVersion={null}
-                        stale={hw?.runtimeCapabilitiesStale}
-                        onLogin={() =>
-                          setLoginTarget({
-                            machine: m,
-                            runtime: "codex",
-                            loggedIn: hw?.runtimeCapabilities?.codex?.loggedIn === true,
-                          })
-                        }
-                      />
-                    </td>
-                    {/* Hardware telemetry (joined by host). Honest dash when the
-                     * host reported no telemetry — never a fabricated number.
-                     *
-                     * The dash alone is NOT enough (T-b36a): the server also
-                     * withholds the numbers of an EXPIRED sample, so "this box
-                     * has never reported hardware" and "it reported, then went
-                     * dark an hour ago" both land here as three dashes — and
-                     * only the second is something an operator can act on. When
-                     * the server says the sample is stale, the dash is marked
-                     * with its reason (same mon-stale marker the runtime
-                     * readiness cell uses; one visual vocabulary for one
-                     * freshness rule). `hardwareStale === true` and nothing
-                     * else: false is a live sample whose probe simply had no
-                     * answer, null is a box that never measured.
-                     *
-                     * And a THIRD blank (T-aad2), which the two above cannot
-                     * describe: the probe DID report, with a value the server
-                     * cannot read. That used to be pixel-identical to "never
-                     * measured", so a warden whose CPU reading turned into a
-                     * string looked exactly like a machine with no such probe.
-                     * `hardwareInvalid` names the keys per cell, so one broken
-                     * probe marks its own cell and leaves its siblings alone.
-                     * Separate mark from stale on purpose: "nobody has looked
-                     * lately" and "the reporter is broken" are different jobs
-                     * for whoever is reading this screen. */}
-                    <td data-label={t.monitor.machineCol.cpu} data-testid="mon-cpu">
-                      {pctText(hw?.cpuPct ?? null, dash)}
-                      {hw?.hardwareStale === true && <HardwareStaleMark />}
-                      {badHardware(hw, "cpu_pct") && <HardwareBadMark />}
-                    </td>
-                    <td data-label={t.monitor.machineCol.ram} data-testid="mon-ram">
-                      {pctText(hw?.ramPct ?? null, dash)}
-                      {hw?.hardwareStale === true && <HardwareStaleMark />}
-                      {badHardware(hw, "ram_pct") && <HardwareBadMark />}
-                    </td>
-                    <td data-label={t.monitor.machineCol.power} data-testid="mon-power">
-                      {powerText(hw ? hw.acPower : null, hw?.batteryPct ?? null, dash)}
-                      {hw?.hardwareStale === true && <HardwareStaleMark />}
-                      {(badHardware(hw, "ac_power") || badHardware(hw, "battery_pct")) && (
-                        <HardwareBadMark />
-                      )}
-                    </td>
-                    {/* Actions — the machine-lifecycle verbs (T-IUD):
-                     *   install   → server-self: in-place bootstrap-on-server —
-                     *               run directly while offline, but confirm first
-                     *               while ONLINE (it overwrites the live warden);
-                     *               other machines: a single copy-command dialog.
-                     *   uninstall → POST /uninstall (drive the uninstall RPC to the
-                     *               warden). ONLINE-ONLY — an offline machine has
-                     *               nothing to uninstall (disabled + reason tooltip).
-                     *   delete    → DELETE /machines/{id} (PURE roster soft-delete);
-                     *               NOT offered for the server-self row (undeletable).
-                     */}
-                    <td
-                      className="mon-table__right"
-                      data-label={t.monitor.machine.actionsCol}
-                    >
-                      <div className="mon-actions">
-                        <button
-                          type="button"
-                          className="btn btn--accent-ghost"
-                          data-testid="mon-install-btn"
-                          disabled={m.isSelf && bootstrapBusy}
-                          onClick={() => {
-                            if (!m.isSelf) {
-                              // Remote machine: shows a command to copy. No
-                              // request, online or not.
-                              openInstall(m);
-                              return;
-                            }
-                            if (m.online) {
-                              // Reinstalling over a LIVE warden — confirm first.
-                              setBootstrapConfirmTarget(m);
-                              return;
-                            }
-                            void installSelf(m);
-                          }}
-                        >
-                          {m.isSelf && bootstrapBusy
-                            ? t.monitor.machine.bootstrapBusy
-                            : m.online
-                              ? // Online ⇒ this machine HAS a warden talking to the
-                                // station, so this click reinstalls over it. Offline
-                                // is NOT the negation: the server keeps no "was this
-                                // ever installed" field, so an installed-but-powered-off
-                                // machine is indistinguishable from one that never was
-                                // (T-ce3d). Owner ruled 2026-08-20 to use online as the
-                                // proxy anyway — the ACTION is identical either way
-                                // (`install --force`), only the word differs.
-                                t.monitor.machine.reinstall
-                              : t.monitor.machine.install}
-                        </button>
-                        {/* Mid-uninstall (intent still pending on the warden) the
-                         * button wears the SAME in-progress treatment as install:
-                         * transitional label + disabled, until the server consumes
-                         * the one-shot intent on the warden's disconnect. */}
-                        <button
-                          type="button"
-                          className="btn btn--accent-ghost"
-                          data-testid="mon-uninstall-btn"
-                          disabled={!m.online || uninstalling(m.machineId)}
-                          {...(!m.online
-                            ? { title: t.monitor.machine.uninstallOfflineHint }
-                            : {})}
-                          onClick={() => {
-                            setUninstallError(null);
-                            if (membersOnMachine(m.machineId).length > 0) {
-                              setUninstallWarnTarget(m);
-                            } else {
-                              setUninstallTarget(m);
-                            }
-                          }}
-                        >
-                          {uninstalling(m.machineId)
-                            ? t.monitor.machine.uninstallInProgress
-                            : t.monitor.machine.uninstall}
-                        </button>
-                        {/* The server-self row is NOT deletable — the button stays
-                         * (disabled) so every row's columns line up. */}
-                        <button
-                          type="button"
-                          className="btn btn--danger-ghost"
-                          data-testid="mon-delete-btn"
-                          disabled={m.isSelf}
-                          onClick={() => {
-                            if (m.isSelf) return;
-                            setDeleteError(null);
-                            setDeleteTarget(m);
-                          }}
-                        >
-                          {t.monitor.machine.deleteMachine}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+        <MachinesTable
+          machines={machines}
+          hwByHost={hwByHost}
+          bootstrapBusy={bootstrapBusy}
+          uninstalling={uninstalling}
+          onRename={renameMachine}
+          onLogin={(machine, runtime, loggedIn) => setLoginTarget({ machine, runtime, loggedIn })}
+          onUpgrade={setUpgradeTarget}
+          onInstall={(m) => {
+            if (!m.isSelf) {
+              // Remote machine: shows a command to copy. No
+              // request, online or not.
+              openInstall(m);
+              return;
+            }
+            if (m.online) {
+              // Reinstalling over a LIVE warden — confirm first.
+              setBootstrapConfirmTarget(m);
+              return;
+            }
+            void installSelf(m);
+          }}
+          onUninstall={(m) => {
+            setUninstallError(null);
+            if (membersOnMachine(m.machineId).length > 0) {
+              setUninstallWarnTarget(m);
+            } else {
+              setUninstallTarget(m);
+            }
+          }}
+          onDelete={(m) => {
+            setDeleteError(null);
+            setDeleteTarget(m);
+          }}
+        />
 
         {/* "+新增機器 / 上線" — a standalone add entry BELOW the machine
          * table card. Owner feedback (M2 acceptance): the entry must be the
@@ -1399,6 +1157,321 @@ export function MonitorPage() {
   );
 }
 
+/** The 機器資訊 table. Exported so the layout guard can mount it with
+ * hand-built rows (visual-guards/monitor-machines-layout.ct.spec.tsx). */
+export function MachinesTable({
+  machines,
+  hwByHost,
+  bootstrapBusy,
+  uninstalling,
+  onRename,
+  onLogin,
+  onUpgrade,
+  onInstall,
+  onUninstall,
+  onDelete,
+}: {
+  machines: MachineView[];
+  hwByHost: Map<string, MonMachineView>;
+  bootstrapBusy: boolean;
+  uninstalling: (machineId: string) => boolean;
+  onRename: (machineId: string, next: string) => void | Promise<void>;
+  onLogin: (machine: MachineView, runtime: RuntimeLoginRuntime, loggedIn: boolean) => void;
+  onUpgrade: (machine: MachineView) => void;
+  onInstall: (machine: MachineView) => void;
+  onUninstall: (machine: MachineView) => void;
+  onDelete: (machine: MachineView) => void;
+}) {
+  const { t } = useI18n();
+  const dash = t.monitor.dash;
+  return (
+    <div className="mon-table-wrap">
+      <table className="mon-table mon-table--machines">
+        {/* Fixed widths for every column but 機器 (monitor.css), so a mark in
+         * one cell never moves the others. */}
+        <colgroup>
+          <col />
+          <col className="mon-col--claude" />
+          <col className="mon-col--codex" />
+          <col className="mon-col--pct" />
+          <col className="mon-col--pct" />
+          <col className="mon-col--power" />
+          <col className="mon-col--actions" />
+        </colgroup>
+        <thead>
+          <tr>
+            {/* 機器 + 狀態 are ONE column (T-674d): they were split, and the
+             * name cell was narrow enough that the machine-id chip wrapped
+             * to a second line on every row. Merging is not decoration —
+             * the id is the machine's identity and belongs beside its name,
+             * and the online badge is the same row's other identity fact.
+             * The removed 狀態 header is a header only; the badge itself is
+             * unchanged and still an honest passthrough of `online`. */}
+            <th className="mon-table__left">{t.monitor.machineCol.machine}</th>
+            <th className="mon-table__left">{t.monitor.machineCol.claude}</th>
+            <th className="mon-table__left">{t.monitor.machineCol.codex}</th>
+            <th>{t.monitor.machineCol.cpu}</th>
+            <th>{t.monitor.machineCol.ram}</th>
+            <th>{t.monitor.machineCol.power}</th>
+            <th className="mon-table__right">
+              {t.monitor.machine.actionsCol}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {machines.length === 0 ? (
+            <tr>
+              <td className="mon-table__left mon-muted" colSpan={7}>
+                {t.monitor.machine.machinesEmpty}
+              </td>
+            </tr>
+          ) : (
+            machines.map((m) => {
+              // Join hardware telemetry by this machine's own id (see
+              // hwByHost above — its key IS the host machine-id). Undefined
+              // when the machine reported no telemetry → hardware cells fall
+              // back to dash, row stays.
+              const hw = hwByHost.get(m.machineId);
+              return (
+              <tr key={m.machineId}>
+                {/* display_name is the editable label; the PATCH target is the
+                 * stable machineId, NOT the label. */}
+                <td
+                  className="mon-table__left"
+                  data-label={t.monitor.machineCol.machine}
+                >
+                  <div className="mon-machine-name">
+                    <InlineEdit
+                      value={m.displayName}
+                      onCommit={(next) => onRename(m.machineId, next)}
+                      ariaLabel={t.monitor.renameMachine}
+                      placeholder={t.monitor.renamePlaceholder}
+                      displayClassName={`mon-table__strong${
+                        m.isSelf ? " mon-self-name" : ""
+                      }`}
+                    />
+                    {/* Stable machine id (the warden member's own id / token
+                        sub) — the machine's identity, never editable. Mirrors
+                        the member detail panel's id badge. */}
+                    <span
+                      className="mon-machine-id"
+                      data-testid="mon-machine-id"
+                      title={m.machineId}
+                    >
+                      {m.machineId}
+                    </span>
+                    {/* online badge — honest passthrough of the registry's
+                     * online, now living in the merged 機器 cell (T-674d).
+                     * Same markup, same source; only its column moved. */}
+                    <span
+                      className={`mon-online${
+                        m.online ? " mon-online--on" : " mon-online--off"
+                      }`}
+                    >
+                      <span
+                        className={`status-dot ${
+                          m.online
+                            ? "status-dot--online"
+                            : "status-dot--offline"
+                        }`}
+                        aria-hidden
+                      />
+                      {m.online
+                        ? t.monitor.machine.online
+                        : t.monitor.machine.offline}
+                    </span>
+                    {/* Nothing is rendered here for a machine whose
+                     * cutover is PROVEN in effect — and that silence is
+                     * now the point: a blank means "measured, fine", and
+                     * the two states that used to share that blank say so
+                     * for themselves below. The badge that used to live
+                     * here named an internal shape vocabulary nobody
+                     * outside this codebase can read, and its green face
+                     * asserted a cutover had taken effect when it only
+                     * ever observed warden's own parent. */}
+                    <CutoverEffectLine effect={m.cutoverEffect} />
+                  </div>
+                </td>
+                {/* Per-runtime version columns (T-674d), replacing the old
+                 * ✓/✗ Runtimes digest. Both cells read the SAME capability
+                 * map the digest read — nothing new is collected, and no
+                 * version is ever synthesized.
+                 *
+                 * Claude additionally falls back to the registry's own
+                 * `claude_version` (its long-standing source, T-97ee/T-7c5b)
+                 * when the machine has no capability entry — that keeps the
+                 * column's meaning exactly as it was for older wardens.
+                 * Codex has no such registry field, so its ONLY source is
+                 * the capability map; absent means unknown, and the cell
+                 * says so rather than inventing a number.
+                 *
+                 * The digest's ✗ states stay words, because for Codex they
+                 * are the only on-screen explanation for a worker parked
+                 * on machine_unavailable: "not installed" always (MARKED
+                 * when the probe is not fresh, since telemetry is never
+                 * cleared on disconnect); "signed out" only on fresh
+                 * telemetry — stale telemetry carries no login state
+                 * (owner ruling). */}
+                <td
+                  className="mon-table__left"
+                  data-label={t.monitor.machineCol.claude}
+                  data-testid="mon-claude-version"
+                >
+                  <RuntimeVersionTrigger
+                    runtime="claude"
+                    capability={hw?.runtimeCapabilities?.claude}
+                    fallbackVersion={m.claudeVersion}
+                    stale={hw?.runtimeCapabilitiesStale}
+                    onLogin={() =>
+                      onLogin(m, "claude", hw?.runtimeCapabilities?.claude?.loggedIn === true)
+                    }
+                    onUpgrade={() => onUpgrade(m)}
+                  />
+                </td>
+                <td
+                  className="mon-table__left"
+                  data-label={t.monitor.machineCol.codex}
+                  data-testid="mon-codex-version"
+                >
+                  <RuntimeVersionTrigger
+                    runtime="codex"
+                    capability={hw?.runtimeCapabilities?.codex}
+                    fallbackVersion={null}
+                    stale={hw?.runtimeCapabilitiesStale}
+                    onLogin={() =>
+                      onLogin(m, "codex", hw?.runtimeCapabilities?.codex?.loggedIn === true)
+                    }
+                  />
+                </td>
+                {/* Hardware telemetry (joined by host). Honest dash when the
+                 * host reported no telemetry — never a fabricated number.
+                 *
+                 * The dash alone is NOT enough (T-b36a): the server also
+                 * withholds the numbers of an EXPIRED sample, so "this box
+                 * has never reported hardware" and "it reported, then went
+                 * dark an hour ago" both land here as three dashes — and
+                 * only the second is something an operator can act on. When
+                 * the server says the sample is stale, the dash is marked
+                 * with its reason (same mon-stale marker the runtime
+                 * readiness cell uses; one visual vocabulary for one
+                 * freshness rule). `hardwareStale === true` and nothing
+                 * else: false is a live sample whose probe simply had no
+                 * answer, null is a box that never measured.
+                 *
+                 * And a THIRD blank (T-aad2), which the two above cannot
+                 * describe: the probe DID report, with a value the server
+                 * cannot read. That used to be pixel-identical to "never
+                 * measured", so a warden whose CPU reading turned into a
+                 * string looked exactly like a machine with no such probe.
+                 * `hardwareInvalid` names the keys per cell, so one broken
+                 * probe marks its own cell and leaves its siblings alone.
+                 * Separate mark from stale on purpose: "nobody has looked
+                 * lately" and "the reporter is broken" are different jobs
+                 * for whoever is reading this screen. */}
+                <td data-label={t.monitor.machineCol.cpu} data-testid="mon-cpu">
+                  <CellLine value={<span>{pctText(hw?.cpuPct ?? null, dash)}</span>}>
+                    {hw?.hardwareStale === true && <HardwareStaleMark />}
+                    {badHardware(hw, "cpu_pct") && <HardwareBadMark />}
+                  </CellLine>
+                </td>
+                <td data-label={t.monitor.machineCol.ram} data-testid="mon-ram">
+                  <CellLine value={<span>{pctText(hw?.ramPct ?? null, dash)}</span>}>
+                    {hw?.hardwareStale === true && <HardwareStaleMark />}
+                    {badHardware(hw, "ram_pct") && <HardwareBadMark />}
+                  </CellLine>
+                </td>
+                <td data-label={t.monitor.machineCol.power} data-testid="mon-power">
+                  <CellLine
+                    value={<span>{powerText(hw ? hw.acPower : null, hw?.batteryPct ?? null, dash)}</span>}
+                  >
+                    {hw?.hardwareStale === true && <HardwareStaleMark />}
+                    {(badHardware(hw, "ac_power") || badHardware(hw, "battery_pct")) && (
+                      <HardwareBadMark />
+                    )}
+                  </CellLine>
+                </td>
+                {/* Actions — the machine-lifecycle verbs (T-IUD):
+                 *   install   → server-self: in-place bootstrap-on-server —
+                 *               run directly while offline, but confirm first
+                 *               while ONLINE (it overwrites the live warden);
+                 *               other machines: a single copy-command dialog.
+                 *   uninstall → POST /uninstall (drive the uninstall RPC to the
+                 *               warden). ONLINE-ONLY — an offline machine has
+                 *               nothing to uninstall (disabled + reason tooltip).
+                 *   delete    → DELETE /machines/{id} (PURE roster soft-delete);
+                 *               NOT offered for the server-self row (undeletable).
+                 */}
+                <td
+                  className="mon-table__right"
+                  data-label={t.monitor.machine.actionsCol}
+                >
+                  <RuntimeActionMenu
+                    label={t.monitor.machine.actionsMenu(m.displayName)}
+                    testIdPrefix="mon-actions"
+                    iconOnly
+                    align="end"
+                    items={[
+                      {
+                        key: "install",
+                        testId: "mon-install-btn",
+                        // Online ⇒ this machine HAS a warden talking to the station, so this
+                        // reinstalls over it. Offline is NOT the negation: the server keeps no
+                        // "was this ever installed" field, so an installed-but-powered-off
+                        // machine is indistinguishable from one that never was (T-ce3d). Owner
+                        // ruled 2026-08-20 to use online as the proxy anyway — the ACTION is
+                        // identical either way (`install --force`), only the word differs.
+                        label:
+                          m.isSelf && bootstrapBusy
+                            ? t.monitor.machine.bootstrapBusy
+                            : m.online
+                              ? t.monitor.machine.reinstall
+                              : t.monitor.machine.install,
+                        icon: <DownloadIcon size={14} />,
+                        disabled: m.isSelf && bootstrapBusy,
+                        onSelect: () => onInstall(m),
+                      },
+                      {
+                        // Mid-uninstall (intent still pending on the warden) the item wears the
+                        // same in-progress treatment as install, until the server consumes the
+                        // one-shot intent on the warden's disconnect.
+                        key: "uninstall",
+                        testId: "mon-uninstall-btn",
+                        label: uninstalling(m.machineId)
+                          ? t.monitor.machine.uninstallInProgress
+                          : t.monitor.machine.uninstall,
+                        icon: <LogOutIcon size={14} />,
+                        disabled: !m.online || uninstalling(m.machineId),
+                        title: !m.online ? t.monitor.machine.uninstallOfflineHint : undefined,
+                        onSelect: () => onUninstall(m),
+                      },
+                      {
+                        // The server-self row is not deletable; the item stays, disabled, so
+                        // every row's menu reads the same.
+                        key: "delete",
+                        testId: "mon-delete-btn",
+                        label: t.monitor.machine.deleteMachine,
+                        icon: <TrashIcon size={14} />,
+                        danger: true,
+                        disabled: m.isSelf,
+                        onSelect: () => {
+                          if (!m.isSelf) onDelete(m);
+                        },
+                      },
+                    ]}
+                  >
+                    <GearIcon size={16} />
+                  </RuntimeActionMenu>
+                </td>
+              </tr>
+              );
+            })
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 /** What this row says about the cutover — which for THREE of the four states is
  * NOTHING, and that is the contract:
  *
@@ -1502,6 +1575,7 @@ type RuntimeCapability = {
   installed: boolean | null;
   loggedIn: boolean | null;
   version: string | null;
+  belowNotifyMinimum?: boolean | null;
 };
 
 /** A runtime's cell content, made the trigger of its action menu only when the
@@ -1513,12 +1587,15 @@ function RuntimeVersionTrigger({
   fallbackVersion,
   stale,
   onLogin,
+  onUpgrade,
 }: {
   runtime: "claude" | "codex";
   capability?: RuntimeCapability;
   fallbackVersion: string | null;
   stale: boolean | null | undefined;
   onLogin: () => void;
+  /** Claude only: runs `claude update` on the machine. */
+  onUpgrade?: () => void;
 }) {
   const { t } = useI18n();
   const testIdPrefix = `mon-${runtime}`;
@@ -1546,6 +1623,16 @@ function RuntimeVersionTrigger({
           icon: <KeyIcon size={14} />,
           onSelect: onLogin,
         },
+        ...(onUpgrade
+          ? [
+              {
+                key: "upgrade",
+                label: t.monitor.runtimeUpgrade.upgrade,
+                icon: <DownloadIcon size={14} />,
+                onSelect: onUpgrade,
+              },
+            ]
+          : []),
       ]}
     >
       {cell}
@@ -1573,6 +1660,12 @@ function RuntimeVersionTrigger({
  * followed by a 未登入 chip whenever the cell shows a version or "installed"
  * and fresh telemetry reports signed out — an installed, up-to-date,
  * logged-out runtime is exactly the case the operator needs to see.
+ * A 版本太舊 chip follows a version the warden reports as older than the
+ * notification mod needs; unlike 未登入 it also shows on stale telemetry,
+ * because it qualifies the version printed beside it, which stays on screen.
+ * Only Claude reports it today (the server keeps `below_notify_minimum` for
+ * claude alone); the cell does not check the runtime, so the Claude and Codex
+ * columns render the same capability fields the same way.
  * ⚠️ Signed in and unknown (no login state reported) both show nothing after
  * the version: owner ruling, do not re-add a mark for either.
  * ⚠️ Owner ruling: stale telemetry carries no login state, so no 未登入 then.
@@ -1627,12 +1720,15 @@ function RuntimeVersionCell({
   // A reported false is an ANSWER: say it, do not leave the cell blank.
   if (capability.installed === false) {
     return (
-      <>
-        <span className="mon-muted" title={m.runtimeNotInstalledHint}>
-          {m.runtimeNotInstalled}
-        </span>
+      <CellLine
+        value={
+          <span className="mon-muted" title={m.runtimeNotInstalledHint}>
+            {m.runtimeNotInstalled}
+          </span>
+        }
+      >
         {staleMark}
-      </>
+      </CellLine>
     );
   }
 
@@ -1642,12 +1738,20 @@ function RuntimeVersionCell({
   }
 
   return (
-    <>
-      {capability.version != null ? (
-        <span>{capability.version}</span>
-      ) : (
-        <span className="mon-muted" title={m.runtimeNoVersionHint}>
-          {m.runtimeNoVersion}
+    <CellLine
+      value={
+        capability.version != null ? (
+          <span>{capability.version}</span>
+        ) : (
+          <span className="mon-muted" title={m.runtimeNoVersionHint}>
+            {m.runtimeNoVersion}
+          </span>
+        )
+      }
+    >
+      {capability.version != null && capability.belowNotifyMinimum === true && (
+        <span className="mon-stale mon-bad" data-testid={`${testIdPrefix}-too-old`}>
+          {m.runtimeTooOld}
         </span>
       )}
       {capability.loggedIn === false && stale === false && (
@@ -1656,7 +1760,20 @@ function RuntimeVersionCell({
         </span>
       )}
       {staleMark}
-    </>
+    </CellLine>
+  );
+}
+
+/** A machine-table value with its marks (版本太舊, 未登入, 過期, …) on the same
+ * line after it. The columns are wide enough for the most a cell can carry
+ * (monitor.css), so a mark never moves the columns beside it. */
+function CellLine({ value, children }: { value: ReactNode; children?: ReactNode }) {
+  const marks = Children.toArray(children);
+  return (
+    <span className="mon-cell-line">
+      {value}
+      {marks.length > 0 && <span className="mon-cell-marks">{marks}</span>}
+    </span>
   );
 }
 

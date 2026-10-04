@@ -11,7 +11,7 @@ func TestArmReceiptWatch(t *testing.T) {
 
 		api.armReceiptWatch("member-1", "start", "machine-a", 100)
 		got := api.receiptPending["member-1"]
-		if want := (pendingReceipt{RPC: "start", Warden: "machine-a", Deadline: 190}); got != want {
+		if want := (pendingReceipt{RPC: "start", Warden: "machine-a", Deadline: 250}); got != want {
 			t.Fatalf("first watch = %+v, want %+v", got, want)
 		}
 
@@ -148,6 +148,32 @@ func TestTakeLapsedReceipts(t *testing.T) {
 	})
 }
 
+func TestReceiptDeadlineByCommand(t *testing.T) {
+	t.Run("only start waits 150s: a start unanswered at 120s is still pending while a stop is stamped", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestPut(t, d, Member{ID: "member-start", Name: "Start", Kind: KindStaff})
+		reconcileTestPut(t, d, Member{ID: "member-stop", Name: "Stop", Kind: KindStaff})
+		api.armReceiptWatch("member-start", reconcileCmdStart, "machine-a", 1000)
+		api.armReceiptWatch("member-stop", reconcileCmdStop, "machine-a", 1000)
+
+		api.sweepLapsedReceipts(1120)
+
+		started := reconcileTestRow(t, d, "member-start")
+		if started.LastOp != "" || started.LastOpOK != nil || started.LastOpReason != "" {
+			t.Fatalf("start row at 120s = %+v, want no receipt", started)
+		}
+		if got, want := api.receiptPending, map[string]pendingReceipt{
+			"member-start": {RPC: "start", Warden: "machine-a", Deadline: 1150},
+		}; !reflect.DeepEqual(got, want) {
+			t.Fatalf("pending watches at 120s = %+v, want %+v", got, want)
+		}
+		stopped := reconcileTestRow(t, d, "member-stop")
+		if stopped.LastOp != "stop" || stopped.LastOpReason != "receipt_missing: the stop was handed to machine \"machine-a\" but no receipt came back within 90s — the op may or may not have run; this row's last state is UNKNOWN, not failed. Suspect the machine's link to the server (the receipt POST) before suspecting the op itself" {
+			t.Fatalf("stop row at 120s: last_op %q reason %q", stopped.LastOp, stopped.LastOpReason)
+		}
+	})
+}
+
 func TestReceiptMissingReason(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -162,7 +188,7 @@ func TestReceiptMissingReason(t *testing.T) {
 		{
 			name:  "uses target machine when dispatch did not resolve one",
 			watch: pendingReceipt{RPC: "start"},
-			want:  "receipt_missing: the start was handed to the target machine but no receipt came back within 90s — the op may or may not have run; this row's last state is UNKNOWN, not failed. Suspect the machine's link to the server (the receipt POST) before suspecting the op itself",
+			want:  "receipt_missing: the start was handed to the target machine but no receipt came back within 150s — the op may or may not have run; this row's last state is UNKNOWN, not failed. Suspect the machine's link to the server (the receipt POST) before suspecting the op itself",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -256,7 +282,7 @@ func TestStampReceiptMissing(t *testing.T) {
 			"last_op":        "start",
 			"last_op_ok":     false,
 			"last_op_log":    "",
-			"last_op_reason": "receipt_missing: the start was handed to machine \"m-server-self\" but no receipt came back within 90s — the op may or may not have run; this row's last state is UNKNOWN, not failed. Suspect the machine's link to the server (the receipt POST) before suspecting the op itself",
+			"last_op_reason": "receipt_missing: the start was handed to machine \"m-server-self\" but no receipt came back within 150s — the op may or may not have run; this row's last state is UNKNOWN, not failed. Suspect the machine's link to the server (the receipt POST) before suspecting the op itself",
 			"last_op_at":     1234,
 		}))
 		if row, err := d.GetOutsourceWorker("ow-abc123"); err != nil || row == nil || row.LastOp != "start" {

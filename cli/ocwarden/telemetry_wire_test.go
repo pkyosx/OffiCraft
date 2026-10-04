@@ -28,7 +28,7 @@ func realHeartbeat(t *testing.T) map[string]any {
 			func() string { return string(effectUnproven) },
 			func() map[string]any {
 				return map[string]any{
-					"claude": map[string]any{"installed": true, "logged_in": true, "version": "2.1.211"},
+					"claude": map[string]any{"installed": true, "logged_in": true, "version": "2.1.211", "below_notify_minimum": true},
 					"codex":  map[string]any{"installed": true, "logged_in": true, "version": "0.52.0"},
 				}
 			})
@@ -199,7 +199,7 @@ func TestWardenTelemetryUplinkBodies(t *testing.T) {
 		"hardware": map[string]any{"battery_pct": float64(87), "ac_power": true, "cpu_pct": float64(20), "ram_pct": 63.6},
 		"claude":   map[string]any{"version": "2.1.211", "cred_file": true, "sub_readable": true, "keychain": false},
 		"runtimes": map[string]any{
-			"claude": map[string]any{"installed": true, "logged_in": true, "version": "2.1.211"},
+			"claude": map[string]any{"installed": true, "logged_in": true, "version": "2.1.211", "below_notify_minimum": true},
 			"codex":  map[string]any{"installed": true, "logged_in": true, "version": "0.52.0"},
 		},
 		"warden_shape":   "anchor",

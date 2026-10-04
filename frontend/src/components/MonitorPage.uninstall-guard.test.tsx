@@ -14,6 +14,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { MonitorPage } from "./MonitorPage";
 import type { Member, MachineView } from "../types";
+import { machineAction } from "./machineActions.testHelper";
 
 const uninstallMachine = vi.fn((_id: string) =>
   Promise.resolve({ memberId: "w-1", host: "m-1", dispatched: true })
@@ -133,7 +134,7 @@ describe("MonitorPage uninstall members guard", () => {
 
   it("warns and lists the bound member when the machine still has members", async () => {
     renderMonitor();
-    const btn = (await screen.findAllByTestId("mon-uninstall-btn"))[0];
+    const btn = await machineAction("mon-uninstall-btn", 0);
     fireEvent.click(btn);
 
     const warn = await screen.findByTestId("mon-uninstall-warn");
@@ -152,7 +153,7 @@ describe("MonitorPage uninstall members guard", () => {
     // m-2 still has Bob BOUND to it (desiredMachineId) — but he is offline, so
     // the new actual-online criterion must not warn.
     renderMonitor();
-    const btn = (await screen.findAllByTestId("mon-uninstall-btn"))[1];
+    const btn = await machineAction("mon-uninstall-btn", 1);
     fireEvent.click(btn);
 
     expect(await screen.findByTestId("mon-uninstall-confirm")).toBeTruthy();
@@ -174,21 +175,21 @@ describe("MonitorPage uninstall members guard", () => {
     ]);
     renderMonitor();
 
-    await waitFor(() => {
-      const btns = screen.getAllByTestId("mon-uninstall-btn");
-      expect((btns[0] as HTMLButtonElement).disabled).toBe(true);
-      expect(btns[0].textContent).toContain("解除安裝中");
+    await waitFor(async () => {
+      const first = await machineAction("mon-uninstall-btn", 0);
+      expect(first.getAttribute("aria-disabled")).toBe("true");
+      expect(first.textContent).toContain("解除安裝中");
     });
     // The sibling machine's verb stays the plain enabled label.
-    const btns = screen.getAllByTestId("mon-uninstall-btn");
-    expect((btns[1] as HTMLButtonElement).disabled).toBe(false);
-    expect(btns[1].textContent).toContain("解除安裝");
-    expect(btns[1].textContent).not.toContain("解除安裝中");
+    const second = await machineAction("mon-uninstall-btn", 1);
+    expect(second.getAttribute("aria-disabled")).toBeNull();
+    expect(second.textContent).toContain("解除安裝");
+    expect(second.textContent).not.toContain("解除安裝中");
   });
 
   it("proceed on the warning runs the uninstall for that machine", async () => {
     renderMonitor();
-    const btn = (await screen.findAllByTestId("mon-uninstall-btn"))[0];
+    const btn = await machineAction("mon-uninstall-btn", 0);
     fireEvent.click(btn);
     await screen.findByTestId("mon-uninstall-warn");
 
@@ -198,7 +199,7 @@ describe("MonitorPage uninstall members guard", () => {
 
   it("cancel on the warning closes it without uninstalling", async () => {
     renderMonitor();
-    const btn = (await screen.findAllByTestId("mon-uninstall-btn"))[0];
+    const btn = await machineAction("mon-uninstall-btn", 0);
     fireEvent.click(btn);
     const warn = await screen.findByTestId("mon-uninstall-warn");
 

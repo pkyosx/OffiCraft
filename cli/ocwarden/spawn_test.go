@@ -40,11 +40,87 @@ type spawnHarness struct {
 	purges    int
 	// promptProbes records every "does this claude take a prompt file" question.
 	promptProbes []string
+	// present answers the Exists seam; every path asked is recorded.
+	present map[string]bool
+	asked   []string
+	// modTimes answers the ModTime seam; a path not in it is absent.
+	modTimes map[string]time.Time
+	// presentAt makes a path present from that much time after the launch on.
+	presentAt map[string]time.Duration
+	// The harness clock runs on what the spawn slept plus captureCost per pane
+	// capture; paneAt, when set, answers every capture by that clock.
+	captureCost  time.Duration
+	paneAt       func(elapsed time.Duration) string
+	paneTimeouts []time.Duration
+	// reaped answers the leftover-listener reap, which is recorded in the runner's
+	// call list so its order against the launch shows.
+	reaped    int
+	reapStuck bool
+	// stopStuck makes the teardown before the notify-mod restart fail; the
+	// teardown is recorded in the runner's call list as "stop-attempt …".
+	stopStuck bool
+	// onStop runs inside that teardown (a test moving markers with the restart).
+	onStop func()
+	// claudeJSON answers the ReadFile seam for the warden owner's .claude.json;
+	// nil is a missing file. claudeJSONReads counts the reads.
+	claudeJSON      []byte
+	claudeJSONErr   error
+	claudeJSONReads []string
+}
+
+func (h *spawnHarness) elapsed() time.Duration {
+	var total time.Duration
+	for _, d := range h.slept {
+		total += d
+	}
+	for _, c := range h.runner.calls {
+		if strings.Contains(c, " capture-pane ") {
+			total += h.captureCost
+		}
+	}
+	return total
+}
+
+// paneRunner answers pane captures from the harness clock; every call still
+// lands in the wardenRunner's call list.
+type paneRunner struct{ h *spawnHarness }
+
+// Its withTimeout records each budget a call runs under in h.paneTimeouts.
+func (r paneRunner) withTimeout(timeout time.Duration) CmdRunner {
+	return timedPaneRunner{r, timeout}
+}
+
+type timedPaneRunner struct {
+	paneRunner
+	timeout time.Duration
+}
+
+func (t timedPaneRunner) withTimeout(timeout time.Duration) CmdRunner {
+	t.timeout = timeout
+	return t
+}
+
+func (t timedPaneRunner) Run(name string, args ...string) (string, error) {
+	t.h.paneTimeouts = append(t.h.paneTimeouts, t.timeout)
+	return t.paneRunner.Run(name, args...)
+}
+
+func (r paneRunner) Run(name string, args ...string) (string, error) {
+	out, err := r.h.runner.Run(name, args...)
+	if slices.Contains(args, "capture-pane") {
+		// Read after the call is recorded: a capture sees the time it took.
+		return r.h.paneAt(r.h.elapsed()), nil
+	}
+	return out, err
 }
 
 func (h *spawnHarness) deps() SpawnDeps {
+	var runner CmdRunner = h.runner
+	if h.paneAt != nil {
+		runner = paneRunner{h}
+	}
 	return SpawnDeps{
-		Runner: h.runner,
+		Runner: runner,
 		Base:   "http://127.0.0.1:7755/",
 		Socket: "officraft",
 		Home:   "/w",
@@ -83,12 +159,55 @@ func (h *spawnHarness) deps() SpawnDeps {
 			}
 			return os.ErrNotExist
 		},
+		Exists: func(path string) bool {
+			h.asked = append(h.asked, path)
+			if at, ok := h.presentAt[path]; ok && h.elapsed() >= at {
+				return true
+			}
+			return h.present[path]
+		},
+		ModTime: func(path string) (time.Time, error) {
+			if mt, ok := h.modTimes[path]; ok {
+				return mt, nil
+			}
+			return time.Time{}, os.ErrNotExist
+		},
+		Now: func() time.Time { return spawnLaunchedAt.Add(h.elapsed()) },
+		ReapWorkdirListeners: func(workdir string) (int, bool) {
+			h.runner.calls = append(h.runner.calls, "reap "+workdir)
+			return h.reaped, !h.reapStuck
+		},
+		StopAttempt: func(socket, session, workdir string) bool {
+			h.runner.calls = append(h.runner.calls, "stop-attempt "+socket+" "+session+" "+workdir)
+			if h.onStop != nil {
+				h.onStop()
+			}
+			return !h.stopStuck
+		},
+		ReadFile: func(path string) ([]byte, error) {
+			h.claudeJSONReads = append(h.claudeJSONReads, path)
+			if h.claudeJSONErr != nil {
+				return nil, h.claudeJSONErr
+			}
+			if h.claudeJSON == nil {
+				return nil, os.ErrNotExist
+			}
+			return h.claudeJSON, nil
+		},
 		Logf:       func(format string, a ...any) { h.logs = append(h.logs, fmt.Sprintf(format, a...)) },
 		Pretrust:   func() error { h.pretrusts++; return h.pretrustE },
 		PurgeTrash: func() { h.purges++ },
 		Sleep:      func(d time.Duration) { h.slept = append(h.slept, d) },
 	}
 }
+
+// A wait in which the mod never even starts: each of its 15 polls (every 2 s of
+// the 30 s) asks for both markers and captures the pane.
+var notifyModPollCaptures = slices.Repeat([]string{"tmux -L officraft capture-pane -p -t member-m1"}, 15)
+var notifyModPollAsks = slices.Repeat([]string{"/w/m1/.officraft-mod-loaded", "/w/m1/.officraft-mod-started"}, 15)
+
+// The harness's clock: every spawn launches at this instant.
+var spawnLaunchedAt = time.Date(2026, 10, 2, 3, 4, 0, 0, time.UTC)
 
 func newSpawnHarness() *spawnHarness {
 	return &spawnHarness{
@@ -98,6 +217,8 @@ func newSpawnHarness() *spawnHarness {
 		}},
 		writeErr:  map[string]error{},
 		removeErr: map[string]error{},
+		// The mod loaded: the route every claude spawn takes unless a case says otherwise.
+		present: map[string]bool{"/w/m1/.officraft-mod-loaded": true},
 	}
 }
 
@@ -113,13 +234,97 @@ const goldenClaudePurge = `for __oc_e in $(/usr/bin/env); do case $__oc_e in CLA
 
 const goldenInlineSettings = `{"skipDangerousModePermissionPrompt":true,"tui":"fullscreen","statusLine":{"type":"command","command":"ocagent context-report"},"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"ocagent guard-bash"}]}],"PermissionRequest":[{"hooks":[{"type":"command","command":"ocagent guard-permission"}]}],"Stop":[{"hooks":[{"type":"command","command":"ocagent model-call-report"}]}],"StopFailure":[{"hooks":[{"type":"command","command":"ocagent model-call-report"}]}]}}`
 
-var goldenLaunchM1 = `cd /w/m1; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
+// goldenLaunchM1Paste is the launch line of a member that hears through the
+// paste listener: no notification mod is loaded.
+var goldenLaunchM1Paste = `cd /w/m1; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
 	`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft ` +
 	`HOME=/Users/wardenowner; ` +
 	`export PATH=/w/m1:"$PATH"; ` +
 	`exec /usr/local/bin/claude --dangerously-skip-permissions ` +
 	`--disallowedTools AskUserQuestion --mcp-config /w/m1/.mcp.json --effort medium ` +
 	`--append-system-prompt-file /w/m1/system-prompt.md --settings ` + shellQuote(goldenInlineSettings)
+
+var goldenLaunchM1 = goldenLaunchM1Paste + ` --plugin-dir /w/m1/.officraft-mod`
+
+// notifyModFile is one file of the notification mod as it ships (mod/ beside
+// this package): the warden must lay it down byte for byte.
+func notifyModFile(t *testing.T, name string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("mod", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func notifyModWrites(t *testing.T) []writtenFile {
+	return []writtenFile{
+		{"/w/m1/.officraft-mod/.claude-plugin/plugin.json", notifyModFile(t, ".claude-plugin/plugin.json"), 0o600},
+		{"/w/m1/.officraft-mod/hooks/hooks.json", notifyModFile(t, "hooks/hooks.json"), 0o600},
+		{"/w/m1/.officraft-mod/hooks/register.ts", notifyModFile(t, "hooks/register.ts"), 0o600},
+		// Every name the mod uses comes from here; it spells none of them itself.
+		{"/w/m1/.officraft-mod/officraft.json",
+			`{"boot_prompt":"開始。","started_marker":"/w/m1/.officraft-mod-started","loaded_marker":"/w/m1/.officraft-mod-loaded",` +
+				`"disabled_marker":"/w/m1/.officraft-mod-disabled","booted_marker":"/w/m1/.officraft-mod-booted",` +
+				`"ack_file":"/w/m1/.officraft-listen-ack",` +
+				`"ready_prefixes":["[ocagent] listen: connected","[ocagent] listen: disconnected"],` +
+				`"listener":{"argv":["/w/m1/ocagent","listen","--deliver-mod"],"cwd":"/w/m1",` +
+				`"env":{"OC_LISTEN_ACK":"1","OC_LISTEN_ACK_FILE":"/w/m1/.officraft-listen-ack"}}}` + "\n",
+			0o600},
+	}
+}
+
+const goldenNotifyLegacyPasteNote = "notify_legacy_paste: 這台機器的 Claude Code 是 2.1.286，比通知模組需要的 2.1.287 舊，" +
+	"這位成員的通知改用貼進 tmux 視窗送達，視窗切到子代理（sub-agent）畫面時可能漏掉。" +
+	"請到調度台升級這台機器的 Claude Code。"
+
+const goldenNotifyModNotLoadedNote = "notify_mod_not_loaded: 通知模組沒有載入，" +
+	"這位成員的通知改用貼進 tmux 視窗送達，視窗切到子代理（sub-agent）畫面時可能漏掉。" +
+	"常見原因：工作目錄未信任、disableAllHooks、--safe-mode、受管設定擋掉 --plugin-dir。"
+
+// After the one restart, with no ~/.claude.json (the harness default) before either launch.
+const goldenNotifyModRetriedNote = "notify_mod_not_loaded: 通知模組沒有載入，" +
+	"這位成員的通知改用貼進 tmux 視窗送達，視窗切到子代理（sub-agent）畫面時可能漏掉。" +
+	"已自動重啟 Claude Code 一次仍沒載入；啟動前快取的開關：第 1 次 absent、第 2 次 absent。" +
+	"常見原因：工作目錄未信任、disableAllHooks、--safe-mode、受管設定擋掉 --plugin-dir。"
+
+// The read-only log of Claude Code's cached hook-modules flag, for a warden
+// owner with no ~/.claude.json (the harness default).
+const (
+	flagAbsentAttempt1   = "m1: notify-mod: attempt 1/2: /Users/wardenowner/.claude.json tengu_plugin_hooks_modules=absent (no such file)"
+	flagAbsentAttempt2   = "m1: notify-mod: attempt 2/2: /Users/wardenowner/.claude.json tengu_plugin_hooks_modules=absent (no such file)"
+	flagAbsentAtFallback = "m1: notify-mod: at fallback: /Users/wardenowner/.claude.json tengu_plugin_hooks_modules=absent (no such file)"
+)
+
+func countCalls(calls []string, part string) int {
+	n := 0
+	for _, c := range calls {
+		if strings.Contains(c, part) {
+			n++
+		}
+	}
+	return n
+}
+
+type funcRunner func(name string, args ...string) (string, error)
+
+func (f funcRunner) Run(name string, args ...string) (string, error) { return f(name, args...) }
+
+// nudgeCalls is the boot nudge into member-m1: one paste, then 30 paced Enters.
+func nudgeCalls() []string { return nudgeCallsWithEnters(30) }
+
+func nudgeCallsWithEnters(enters int) []string {
+	calls := []string{
+		"tmux -L officraft set-buffer -b oc-spawn-nudge 開始。",
+		"tmux -L officraft paste-buffer -t member-m1 -b oc-spawn-nudge -d -p",
+	}
+	for i := 0; i < enters; i++ {
+		calls = append(calls,
+			"tmux -L officraft copy-mode -q -t member-m1",
+			"tmux -L officraft send-keys -t member-m1 Enter")
+	}
+	return calls
+}
 
 // goldenSystemPromptM1 is what the member reads as its appended system prompt:
 // the header, then the persona verbatim.
@@ -436,13 +641,13 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 		`--settings '{"hooks":{}}'`
 	got := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
 		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft-lab", "", "medium",
-		`{"hooks":{}}`, [][2]string{{"OC_AGENT_HOME", "/w"}}, "/w/m1/.oc-env", home)
+		`{"hooks":{}}`, [][2]string{{"OC_AGENT_HOME", "/w"}}, "/w/m1/.oc-env", home, "")
 	if got != want {
 		t.Errorf("launch line =\n%s\nwant\n%s", got, want)
 	}
 
 	plain := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
-		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "", home)
+		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "", home, "")
 	if plain != buildLaunchCommand("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
 		"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", home) {
 		t.Errorf("no extra env must be byte-identical to the plain line, got\n%s", plain)
@@ -450,7 +655,7 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 
 	spaced := buildLaunchCommandWithEnv("/opt/my claude/claude", "/w/a b", "/w/a b/.mcp.json", claudeSystemPromptInline("it's me"),
 		"/w/a b/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/a b/.oc-env",
-		claudeHome{Home: "/Users/warden owner"})
+		claudeHome{Home: "/Users/warden owner"}, "")
 	wantSpaced := `cd '/w/a b'; [ -f '/w/a b/.oc-env' ] && . '/w/a b/.oc-env'; ` + goldenClaudePurge + `unset CLAUDE_CONFIG_DIR; ` +
 		`export OC_TOKEN="$(/bin/cat '/w/a b/.oc-token')" ` +
 		`OC_BASE=http://127.0.0.1:7755 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft ` +
@@ -465,7 +670,7 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 	t.Run("a redirected config home is exported instead of unset", func(t *testing.T) {
 		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
 			"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/m1/.oc-env",
-			claudeHome{Home: "/Users/wardenowner", ConfigDir: "/tmp/box"})
+			claudeHome{Home: "/Users/wardenowner", ConfigDir: "/tmp/box"}, "")
 		if !strings.Contains(line, "CLAUDE_CONFIG_DIR=/tmp/box") {
 			t.Errorf("a stated config dir must be exported:\n%s", line)
 		}
@@ -480,7 +685,7 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 		// silently erased by it, and every other assertion here still passes.
 		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
 			"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/m1/.oc-env",
-			claudeHome{Home: "/Users/wardenowner", ConfigDir: "/tmp/box"})
+			claudeHome{Home: "/Users/wardenowner", ConfigDir: "/tmp/box"}, "")
 		source := strings.Index(line, ". /w/m1/.oc-env")
 		pinHome := strings.Index(line, "HOME=/Users/wardenowner")
 		pinDir := strings.Index(line, "CLAUDE_CONFIG_DIR=/tmp/box")
@@ -492,7 +697,7 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 		}
 		unsetLine := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
 			"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, "/w/m1/.oc-env",
-			claudeHome{Home: "/Users/wardenowner"})
+			claudeHome{Home: "/Users/wardenowner"}, "")
 		if src, un := strings.Index(unsetLine, ". /w/m1/.oc-env"), strings.Index(unsetLine, "unset CLAUDE_CONFIG_DIR"); src < 0 || un < 0 || src > un {
 			t.Errorf("the unset must follow the source (source=%d unset=%d):\n%s", src, un, unsetLine)
 		}
@@ -523,7 +728,7 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 		}
 		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", workdir, "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
 			"/dev/null", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "", nil, render,
-			claudeHome{Home: "/Users/wardenowner"})
+			claudeHome{Home: "/Users/wardenowner"}, "")
 		execAt := strings.Index(line, "; exec ")
 		if execAt < 0 {
 			t.Fatalf("launch line has no exec clause:\n%s", line)
@@ -541,7 +746,7 @@ func TestBuildLaunchCommandWithEnv(t *testing.T) {
 	t.Run("a pin cannot be overridden by an extra env pair of the same name", func(t *testing.T) {
 		line := buildLaunchCommandWithEnv("/usr/local/bin/claude", "/w/m1", "/w/m1/.mcp.json", claudeSystemPromptInline("APPEND"),
 			"/w/m1/.oc-token", "m1", "http://127.0.0.1:7755", "member-m1", "officraft", "", "", "",
-			[][2]string{{"HOME", "/Volumes/scratch/home"}}, "", claudeHome{Home: "/Users/wardenowner"})
+			[][2]string{{"HOME", "/Volumes/scratch/home"}}, "", claudeHome{Home: "/Users/wardenowner"}, "")
 		early := strings.Index(line, "HOME=/Volumes/scratch/home")
 		late := strings.Index(line, "HOME=/Users/wardenowner")
 		if late < 0 || (early >= 0 && early > late) {
@@ -1165,11 +1370,84 @@ func TestWithPerSpawn(t *testing.T) {
 }
 
 func TestStart(t *testing.T) {
-	t.Run("a claude spawn writes the workdir, publishes ocagent, launches and nudges", func(t *testing.T) {
+	t.Run("a claude spawn writes the workdir and the notification mod, launches with the mod and nudges", func(t *testing.T) {
 		h := newSpawnHarness()
 		got := h.deps().start(startParamsM1())
 
 		if want := (SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500"}); got != want {
+			t.Errorf("outcome = %+v, want %+v", got, want)
+		}
+		wantMkdirs := []string{"/w/m1", "/w/m1/.officraft-mod/.claude-plugin", "/w/m1/.officraft-mod/hooks",
+			"/w/m1/.officraft-mod/hooks"}
+		if !reflect.DeepEqual(h.mkdirs, wantMkdirs) {
+			t.Errorf("mkdirs = %v, want %v", h.mkdirs, wantMkdirs)
+		}
+		wantWrites := append([]writtenFile{
+			{"/w/m1/persona.md", "you are m1", 0o600},
+			{"/w/m1/.mcp.json", buildMCPConfig("http://127.0.0.1:7755", "jwt-m1"), 0o600},
+			{"/w/m1/settings.json", buildStatuslineSettings(), 0o600},
+			{"/w/m1/.oc-token", "jwt-m1", 0o600},
+			{"/w/m1/system-prompt.md", goldenSystemPromptM1, 0o600},
+		}, notifyModWrites(t)...)
+		if !reflect.DeepEqual(h.writes, wantWrites) {
+			t.Errorf("writes =\n%+v\nwant\n%+v", h.writes, wantWrites)
+		}
+		// Every marker goes before the launch: a stale loaded marker would pass the
+		// check for a mod that never loaded, a stale disabled one would mute it, a
+		// stale started one would date a fallback to the previous session.
+		wantRemoves := []string{"/w/m1/ocagent", "/w/m1/.oc-env", "/w/m1/.officraft-mod-started", "/w/m1/.officraft-mod-loaded",
+			"/w/m1/.officraft-mod-disabled", "/w/m1/.officraft-mod-booted"}
+		if !reflect.DeepEqual(h.removes, wantRemoves) {
+			t.Errorf("removes = %v, want %v", h.removes, wantRemoves)
+		}
+		wantLink := [][2]string{{"/Users/eva/.officraft/warden/ocagent", "/w/m1/ocagent"}}
+		if !reflect.DeepEqual(h.symlinks, wantLink) {
+			t.Errorf("symlinks = %v, want %v", h.symlinks, wantLink)
+		}
+		if h.pretrusts != 1 || h.purges != 1 {
+			t.Errorf("pretrusts=%d purges=%d, want 1/1", h.pretrusts, h.purges)
+		}
+		// The paste listener a previous warden may have left is killed; none is started.
+		wantCalls := []string{
+			"tmux -L officraft has-session -t member-m1",
+			"/usr/local/bin/claude --version",
+			"tmux -L officraft kill-session -t listen-m1",
+			"reap /w/m1",
+			"tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 " + goldenLaunchM1,
+			"tmux -L officraft set-option -t member-m1 window-size manual",
+			"tmux -L officraft resize-window -t member-m1 -x 160 -y 50",
+			// Nothing is pasted: the mod submits the boot prompt itself.
+			"tmux -L officraft display-message -p -t member-m1 #{pane_pid}",
+		}
+		if !reflect.DeepEqual(h.runner.calls, wantCalls) {
+			t.Errorf("calls =\n%v\nwant\n%v", h.runner.calls, wantCalls)
+		}
+		// The wait's first poll finds the mod loaded, and the route check reads it again.
+		if want := []string{"/w/m1/.officraft-mod-loaded", "/w/m1/.officraft-mod-loaded"}; !reflect.DeepEqual(h.asked, want) {
+			t.Errorf("exists asked = %v, want %v", h.asked, want)
+		}
+		if strings.Contains(h.runner.calls[4], "--settings /w/m1/settings.json") {
+			t.Fatal("the launch still reads a workdir settings file that can be changed after the pre-trust gate")
+		}
+		if !strings.Contains(h.runner.calls[4], "--settings "+shellQuote(goldenInlineSettings)) {
+			t.Fatal("the generated settings must ride the launch argv as inline JSON")
+		}
+		// The wait polls every 2 s and ends at the first poll that finds the mod loaded.
+		if want := []time.Duration{time.Second, time.Second}; !reflect.DeepEqual(h.slept, want) {
+			t.Errorf("slept %v, want %v", h.slept, want)
+		}
+		if want := []string{flagAbsentAttempt1}; !reflect.DeepEqual(h.logs, want) {
+			t.Errorf("logs = %q, want %q", h.logs, want)
+		}
+	})
+
+	t.Run("under a Claude Code older than mods, the member hears through the paste listener and the owner is told", func(t *testing.T) {
+		h := newSpawnHarness()
+		h.runner.script["/usr/local/bin/claude --version"] = wardenRun{out: "2.1.286 (Claude Code)\n"}
+		got := h.deps().start(startParamsM1())
+
+		want := SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500", Note: goldenNotifyLegacyPasteNote}
+		if got != want {
 			t.Errorf("outcome = %+v, want %+v", got, want)
 		}
 		if want := []string{"/w/m1"}; !reflect.DeepEqual(h.mkdirs, want) {
@@ -1188,28 +1466,16 @@ func TestStart(t *testing.T) {
 		if want := []string{"/w/m1/ocagent", "/w/m1/.oc-env"}; !reflect.DeepEqual(h.removes, want) {
 			t.Errorf("removes = %v, want %v", h.removes, want)
 		}
-		wantLink := [][2]string{{"/Users/eva/.officraft/warden/ocagent", "/w/m1/ocagent"}}
-		if !reflect.DeepEqual(h.symlinks, wantLink) {
-			t.Errorf("symlinks = %v, want %v", h.symlinks, wantLink)
-		}
-		if h.pretrusts != 1 || h.purges != 1 {
-			t.Errorf("pretrusts=%d purges=%d, want 1/1", h.pretrusts, h.purges)
-		}
-		wantCalls := []string{
+		wantCalls := append([]string{
 			"tmux -L officraft has-session -t member-m1",
-			"tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 " + goldenLaunchM1,
+			"/usr/local/bin/claude --version",
+			"tmux -L officraft kill-session -t listen-m1",
+			"reap /w/m1",
+			"tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 " + goldenLaunchM1Paste,
 			"tmux -L officraft set-option -t member-m1 window-size manual",
 			"tmux -L officraft resize-window -t member-m1 -x 160 -y 50",
-			"tmux -L officraft set-buffer -b oc-spawn-nudge 開始。",
-			"tmux -L officraft paste-buffer -t member-m1 -b oc-spawn-nudge -d -p",
-		}
-		for i := 0; i < 30; i++ {
-			wantCalls = append(wantCalls,
-				"tmux -L officraft copy-mode -q -t member-m1",
-				"tmux -L officraft send-keys -t member-m1 Enter")
-		}
+		}, nudgeCalls()...)
 		wantCalls = append(wantCalls,
-			"tmux -L officraft kill-session -t listen-m1",
 			"tmux -L officraft new-session -d -s listen-m1 -x 160 -y 50 "+goldenListenerM1,
 			"tmux -L officraft set-option -t listen-m1 window-size manual",
 			"tmux -L officraft resize-window -t listen-m1 -x 160 -y 50",
@@ -1217,14 +1483,759 @@ func TestStart(t *testing.T) {
 		if !reflect.DeepEqual(h.runner.calls, wantCalls) {
 			t.Errorf("calls =\n%v\nwant\n%v", h.runner.calls, wantCalls)
 		}
-		if strings.Contains(h.runner.calls[1], "--settings /w/m1/settings.json") {
-			t.Fatal("the launch still reads a workdir settings file that can be changed after the pre-trust gate")
+		if len(h.asked) != 0 {
+			t.Errorf("exists asked = %v, want nothing: no mod was launched", h.asked)
 		}
-		if !strings.Contains(h.runner.calls[1], "--settings "+shellQuote(goldenInlineSettings)) {
-			t.Fatal("the generated settings must ride the launch argv as inline JSON")
+		if want := []string{"m1: Claude Code 2.1.286 is older than 2.1.287; notifications go by tmux paste"}; !reflect.DeepEqual(h.logs, want) {
+			t.Errorf("logs = %v, want %v", h.logs, want)
 		}
-		if len(h.slept) != 30 {
-			t.Errorf("slept %d times, want 30", len(h.slept))
+	})
+
+	t.Run("under a mod that did not load, the member falls back to the paste listener and the mod is told to stand down", func(t *testing.T) {
+		baseWrites := func() []writtenFile {
+			return append([]writtenFile{
+				{"/w/m1/persona.md", "you are m1", 0o600},
+				{"/w/m1/.mcp.json", buildMCPConfig("http://127.0.0.1:7755", "jwt-m1"), 0o600},
+				{"/w/m1/settings.json", buildStatuslineSettings(), 0o600},
+				{"/w/m1/.oc-token", "jwt-m1", 0o600},
+				{"/w/m1/system-prompt.md", goldenSystemPromptM1, 0o600},
+			}, notifyModWrites(t)...)
+		}
+		disabledWrite := writtenFile{"/w/m1/.officraft-mod-disabled", "the warden fell back to the tmux paste listener\n", 0o600}
+		launch := []string{
+			"tmux -L officraft has-session -t member-m1",
+			"/usr/local/bin/claude --version",
+			"tmux -L officraft kill-session -t listen-m1",
+			"reap /w/m1",
+			"tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 " + goldenLaunchM1,
+			"tmux -L officraft set-option -t member-m1 window-size manual",
+			"tmux -L officraft resize-window -t member-m1 -x 160 -y 50",
+		}
+		const capture = "tmux -L officraft capture-pane -p -t member-m1"
+		listener := []string{
+			"tmux -L officraft new-session -d -s listen-m1 -x 160 -y 50 " + goldenListenerM1,
+			"tmux -L officraft set-option -t listen-m1 window-size manual",
+			"tmux -L officraft resize-window -t listen-m1 -x 160 -y 50",
+		}
+		const pid = "tmux -L officraft display-message -p -t member-m1 #{pane_pid}"
+		emptyPaneDiag := []string{
+			"m1: notify-mod-fallback: .officraft-mod-started absent: the mod's session.start never ran with its config",
+			"m1: notify-mod-fallback: pane member-m1, last 40 lines:",
+			"m1: notify-mod-fallback pane| ",
+		}
+
+		t.Run("a mod that never ran gets one restart, and when that one does not run it either the boot prompt is pasted once", func(t *testing.T) {
+			h := newSpawnHarness()
+			h.present = map[string]bool{}
+			got := h.deps().start(startParamsM1())
+
+			want := SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500",
+				Note: goldenNotifyModRetriedNote}
+			if got != want {
+				t.Errorf("outcome = %+v, want %+v", got, want)
+			}
+			// Disabled before the restart (a late session.start stands down), cleared
+			// with the other markers once attempt 1 is gone, written again at the fallback.
+			wantWrites := append(baseWrites(), disabledWrite, disabledWrite)
+			if !reflect.DeepEqual(h.writes, wantWrites) {
+				t.Errorf("writes =\n%+v\nwant\n%+v", h.writes, wantWrites)
+			}
+			wantRemoves := []string{"/w/m1/ocagent", "/w/m1/.oc-env",
+				"/w/m1/.officraft-mod-started", "/w/m1/.officraft-mod-loaded", "/w/m1/.officraft-mod-disabled", "/w/m1/.officraft-mod-booted",
+				"/w/m1/.officraft-mod-started", "/w/m1/.officraft-mod-loaded", "/w/m1/.officraft-mod-disabled", "/w/m1/.officraft-mod-booted"}
+			if !reflect.DeepEqual(h.removes, wantRemoves) {
+				t.Errorf("removes = %v, want %v", h.removes, wantRemoves)
+			}
+			wantCalls := append(slices.Clone(launch), notifyModPollCaptures...)
+			wantCalls = append(wantCalls,
+				capture, // attempt 1's screen, before it is torn down
+				"stop-attempt officraft member-m1 /w/m1",
+				// The same launch line again.
+				launch[4], launch[5], launch[6])
+			wantCalls = append(wantCalls, notifyModPollCaptures...)
+			wantCalls = append(wantCalls, capture)
+			// The REPL has been up for the whole wait: three Enters, not thirty.
+			wantCalls = append(wantCalls, nudgeCallsWithEnters(3)...)
+			wantCalls = append(wantCalls, listener...)
+			wantCalls = append(wantCalls, pid)
+			if !reflect.DeepEqual(h.runner.calls, wantCalls) {
+				t.Errorf("calls =\n%v\nwant\n%v", h.runner.calls, wantCalls)
+			}
+			wantAsked := append(slices.Clone(notifyModPollAsks),
+				"/w/m1/.officraft-mod-loaded", "/w/m1/.officraft-mod-started", "/w/m1/.officraft-mod-booted")
+			wantAsked = append(wantAsked, notifyModPollAsks...)
+			wantAsked = append(wantAsked, "/w/m1/.officraft-mod-loaded", "/w/m1/.officraft-mod-booted")
+			if !reflect.DeepEqual(h.asked, wantAsked) {
+				t.Errorf("exists asked = %v, want %v", h.asked, wantAsked)
+			}
+			// Two 30 s waits and the three Enters: the restart costs one more wait.
+			if want := slices.Repeat([]time.Duration{time.Second}, 63); !reflect.DeepEqual(h.slept, want) {
+				t.Errorf("slept %v, want %v", h.slept, want)
+			}
+			wantLogs := []string{flagAbsentAttempt1, "m1: notify-mod: attempt 1 did not run the mod; restarting Claude Code once"}
+			wantLogs = append(wantLogs, emptyPaneDiag...)
+			wantLogs = append(wantLogs, flagAbsentAttempt2,
+				"m1: the notification mod did not load; notifications go by tmux paste", flagAbsentAtFallback)
+			wantLogs = append(wantLogs, emptyPaneDiag...)
+			if !reflect.DeepEqual(h.logs, wantLogs) {
+				t.Errorf("logs =\n%q\nwant\n%q", h.logs, wantLogs)
+			}
+			if n := countCalls(h.runner.calls, "paste-buffer"); n != 1 {
+				t.Errorf("the boot prompt was pasted %d times, want once", n)
+			}
+			// One read before each launch and one at the fallback, all of the file
+			// the launch line pins.
+			wantReads := slices.Repeat([]string{"/Users/wardenowner/.claude.json"}, 3)
+			if !reflect.DeepEqual(h.claudeJSONReads, wantReads) {
+				t.Errorf("claude.json reads = %v, want %v", h.claudeJSONReads, wantReads)
+			}
+		})
+
+		t.Run("a mod that never ran gets one restart, and a restart that runs it stays on the mod route with nothing pasted", func(t *testing.T) {
+			h := newSpawnHarness()
+			h.present = map[string]bool{}
+			// Attempt 1 is dead by 30 s; the restart's first poll (32 s) finds the mod loaded.
+			h.presentAt = map[string]time.Duration{"/w/m1/.officraft-mod-loaded": 31 * time.Second}
+			h.claudeJSON = []byte(`{"cachedGrowthBookFeatures":{"tengu_plugin_hooks_modules":false},"cachedGrowthBookFeaturesAt":1790909940000}`)
+			h.onStop = func() {
+				// What attempt 1 wrote back once it fetched the remote value.
+				h.claudeJSON = []byte(`{"cachedGrowthBookFeatures":{"tengu_plugin_hooks_modules":true},"cachedGrowthBookFeaturesAt":1790910269000}`)
+			}
+			got := h.deps().start(startParamsM1())
+
+			if want := (SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500"}); got != want {
+				t.Errorf("outcome = %+v, want %+v", got, want)
+			}
+			wantCalls := append(slices.Clone(launch), notifyModPollCaptures...)
+			wantCalls = append(wantCalls, capture, "stop-attempt officraft member-m1 /w/m1", launch[4], launch[5], launch[6], pid)
+			if !reflect.DeepEqual(h.runner.calls, wantCalls) {
+				t.Errorf("calls =\n%v\nwant\n%v", h.runner.calls, wantCalls)
+			}
+			// The disabled marker attempt 1 got is cleared before the restart, and no
+			// fallback writes it again: the restarted mod must not stand down.
+			wantWrites := append(baseWrites(), disabledWrite)
+			if !reflect.DeepEqual(h.writes, wantWrites) {
+				t.Errorf("writes =\n%+v\nwant\n%+v", h.writes, wantWrites)
+			}
+			if last := h.removes[len(h.removes)-2]; last != "/w/m1/.officraft-mod-disabled" {
+				t.Errorf("removes = %v, want the disabled marker cleared after the teardown", h.removes)
+			}
+			if n := countCalls(h.runner.calls, "paste-buffer") + countCalls(h.runner.calls, "new-session -d -s listen-m1"); n != 0 {
+				t.Errorf("calls = %v, want no paste and no paste listener", h.runner.calls)
+			}
+			wantLogs := []string{
+				"m1: notify-mod: attempt 1/2: /Users/wardenowner/.claude.json tengu_plugin_hooks_modules=false " +
+					"cachedGrowthBookFeaturesAt=2026-10-02T02:59:00Z (5m0s before this read)",
+				"m1: notify-mod: attempt 1 did not run the mod; restarting Claude Code once",
+			}
+			wantLogs = append(wantLogs, emptyPaneDiag...)
+			wantLogs = append(wantLogs, "m1: notify-mod: attempt 2/2: /Users/wardenowner/.claude.json tengu_plugin_hooks_modules=true "+
+				"cachedGrowthBookFeaturesAt=2026-10-02T03:04:29Z (1s before this read)")
+			if !reflect.DeepEqual(h.logs, wantLogs) {
+				t.Errorf("logs =\n%q\nwant\n%q", h.logs, wantLogs)
+			}
+			if want := slices.Repeat([]time.Duration{time.Second}, 32); !reflect.DeepEqual(h.slept, want) {
+				t.Errorf("slept %v, want %v", h.slept, want)
+			}
+		})
+
+		const hasSession = "tmux -L officraft has-session -t member-m1"
+		t.Run("a teardown that fails gets no restart, and the first attempt falls back as before", func(t *testing.T) {
+			h := newSpawnHarness()
+			h.present = map[string]bool{}
+			h.stopStuck = true
+			// The kill did not take: attempt 1's session is still there.
+			h.onStop = func() { h.runner.script[hasSession] = wardenRun{} }
+			got := h.deps().start(startParamsM1())
+
+			if want := (SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500", Note: goldenNotifyModNotLoadedNote}); got != want {
+				t.Errorf("outcome = %+v, want %+v", got, want)
+			}
+			wantCalls := append(slices.Clone(launch), notifyModPollCaptures...)
+			wantCalls = append(wantCalls, capture, "stop-attempt officraft member-m1 /w/m1", hasSession, capture)
+			wantCalls = append(wantCalls, nudgeCallsWithEnters(3)...)
+			wantCalls = append(wantCalls, listener...)
+			wantCalls = append(wantCalls, pid)
+			if !reflect.DeepEqual(h.runner.calls, wantCalls) {
+				t.Errorf("calls =\n%v\nwant\n%v", h.runner.calls, wantCalls)
+			}
+			// Written once: the marker the restart check put down still stands.
+			if want := append(baseWrites(), disabledWrite); !reflect.DeepEqual(h.writes, want) {
+				t.Errorf("writes =\n%+v\nwant\n%+v", h.writes, want)
+			}
+			if !slices.Contains(h.logs, "m1: notify-mod: attempt 1 could not be torn down; no restart") {
+				t.Errorf("logs = %q, want the failed teardown", h.logs)
+			}
+		})
+
+		t.Run("a teardown that fails with has-session unknown counts the session alive and falls back", func(t *testing.T) {
+			h := newSpawnHarness()
+			h.present = map[string]bool{}
+			h.stopStuck = true
+			// The probe itself broke (nil): not proof the session is gone.
+			h.onStop = func() { h.runner.script[hasSession] = wardenRun{err: errors.New("permission denied")} }
+			got := h.deps().start(startParamsM1())
+
+			if want := (SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500", Note: goldenNotifyModNotLoadedNote}); got != want {
+				t.Errorf("outcome = %+v, want %+v", got, want)
+			}
+			wantCalls := append(slices.Clone(launch), notifyModPollCaptures...)
+			wantCalls = append(wantCalls, capture, "stop-attempt officraft member-m1 /w/m1", hasSession, capture)
+			wantCalls = append(wantCalls, nudgeCallsWithEnters(3)...)
+			wantCalls = append(wantCalls, listener...)
+			wantCalls = append(wantCalls, pid)
+			if !reflect.DeepEqual(h.runner.calls, wantCalls) {
+				t.Errorf("calls =\n%v\nwant\n%v", h.runner.calls, wantCalls)
+			}
+		})
+
+		t.Run("a teardown that killed the session but left a sweep survivor reports the spawn failed", func(t *testing.T) {
+			h := newSpawnHarness()
+			h.present = map[string]bool{}
+			// stop() reports false (a pid still answers after SIGKILL) though the
+			// session is gone: the harness's has-session keeps answering absent.
+			h.stopStuck = true
+			got := h.deps().start(startParamsM1())
+
+			want := SpawnOutcome{OK: false, Reason: "spawn_exec_failed: restarting after the notification mod did not load: " +
+				"attempt 1's tmux session is gone but its teardown did not finish (a process survived the sweep); no restart"}
+			if got != want {
+				t.Errorf("outcome = %+v, want %+v", got, want)
+			}
+			wantCalls := append(slices.Clone(launch), notifyModPollCaptures...)
+			wantCalls = append(wantCalls, capture, "stop-attempt officraft member-m1 /w/m1", hasSession)
+			if !reflect.DeepEqual(h.runner.calls, wantCalls) {
+				t.Errorf("calls =\n%v\nwant\n%v", h.runner.calls, wantCalls)
+			}
+			if n := countCalls(h.runner.calls, "paste-buffer") + countCalls(h.runner.calls, "new-session -d -s listen-m1"); n != 0 {
+				t.Errorf("calls = %v, want no paste and no paste listener into a member that is not there", h.runner.calls)
+			}
+		})
+
+		t.Run("a restart whose launch fails reports the spawn failed", func(t *testing.T) {
+			h := newSpawnHarness()
+			h.present = map[string]bool{}
+			launches := 0
+			d := h.deps()
+			d.Runner = funcRunner(func(name string, args ...string) (string, error) {
+				out, err := h.runner.Run(name, args...)
+				if slices.Contains(args, "new-session") {
+					if launches++; launches == 2 {
+						return "", errors.New("server exited unexpectedly")
+					}
+				}
+				return out, err
+			})
+			got := d.start(startParamsM1())
+
+			want := SpawnOutcome{OK: false, Reason: "spawn_exec_failed: tmux new-session (restarting after the notification mod did not load): server exited unexpectedly"}
+			if got != want {
+				t.Errorf("outcome = %+v, want %+v", got, want)
+			}
+			if n := countCalls(h.runner.calls, "paste-buffer"); n != 0 {
+				t.Errorf("pasted %d boot prompts into a member that is not there", n)
+			}
+		})
+
+		t.Run("a mod that booted the member is not restarted, and no second boot prompt is pasted", func(t *testing.T) {
+			h := newSpawnHarness()
+			h.present = map[string]bool{"/w/m1/.officraft-mod-booted": true}
+			got := h.deps().start(startParamsM1())
+
+			if want := (SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500", Note: goldenNotifyModNotLoadedNote}); got != want {
+				t.Errorf("outcome = %+v, want %+v", got, want)
+			}
+			if want := append(baseWrites(), disabledWrite); !reflect.DeepEqual(h.writes, want) {
+				t.Errorf("writes =\n%+v\nwant\n%+v", h.writes, want)
+			}
+			wantCalls := append(slices.Clone(launch), notifyModPollCaptures...)
+			wantCalls = append(wantCalls, capture)
+			wantCalls = append(wantCalls, listener...)
+			wantCalls = append(wantCalls, pid)
+			if !reflect.DeepEqual(h.runner.calls, wantCalls) {
+				t.Errorf("calls =\n%v\nwant\n%v", h.runner.calls, wantCalls)
+			}
+			wantAsked := append(slices.Clone(notifyModPollAsks),
+				"/w/m1/.officraft-mod-loaded", "/w/m1/.officraft-mod-started", "/w/m1/.officraft-mod-booted",
+				"/w/m1/.officraft-mod-booted")
+			if !reflect.DeepEqual(h.asked, wantAsked) {
+				t.Errorf("exists asked = %v, want %v", h.asked, wantAsked)
+			}
+			if want := slices.Repeat([]time.Duration{time.Second}, 30); !reflect.DeepEqual(h.slept, want) {
+				t.Errorf("slept %v, want %v", h.slept, want)
+			}
+			wantLogs := []string{flagAbsentAttempt1,
+				"m1: notify-mod: the mod ran in attempt 1 but did not load; no restart (it may have booted the member)",
+				"m1: the notification mod did not load; notifications go by tmux paste", flagAbsentAtFallback}
+			wantLogs = append(wantLogs, emptyPaneDiag...)
+			if !reflect.DeepEqual(h.logs, wantLogs) {
+				t.Errorf("logs =\n%q\nwant\n%q", h.logs, wantLogs)
+			}
+		})
+
+		t.Run("a mod whose session.start lands just after the restart check finds the disabled marker and does not boot", func(t *testing.T) {
+			h := newSpawnHarness()
+			h.present = map[string]bool{}
+			d := h.deps()
+			// The mod writes its started marker, then reads the disabled one. Here it
+			// writes started right after the warden's post-wait started check (the
+			// 16th ask, after the 15 polls), so only a disabled marker already on
+			// disk can stop it booting a member the warden is about to kill.
+			exists, startedAsks, modBooted := d.Exists, 0, false
+			d.Exists = func(path string) bool {
+				got := exists(path)
+				if path == "/w/m1/.officraft-mod-started" {
+					if startedAsks++; startedAsks == 16 {
+						modBooted = !slices.Contains(h.writes, disabledWrite)
+					}
+				}
+				return got
+			}
+			d.start(startParamsM1())
+
+			if startedAsks < 16 {
+				t.Fatalf("the started marker was asked %d times, want the post-wait check too", startedAsks)
+			}
+			if modBooted {
+				t.Error("the disabled marker was written after the started check: a session.start in between boots the member the restart kills")
+			}
+		})
+
+		t.Run("a mod that started late in attempt 1 is not restarted either", func(t *testing.T) {
+			h := newSpawnHarness()
+			h.present = map[string]bool{"/w/m1/.officraft-mod-started": true}
+			got := h.deps().start(startParamsM1())
+
+			if got.Note != goldenNotifyModNotLoadedNote {
+				t.Errorf("outcome = %+v, want the plain not-loaded note", got)
+			}
+			if n := countCalls(h.runner.calls, "stop-attempt"); n != 0 {
+				t.Errorf("calls = %v, want no teardown", h.runner.calls)
+			}
+		})
+
+		t.Run("with no teardown wired, the first attempt falls back at once", func(t *testing.T) {
+			h := newSpawnHarness()
+			h.present = map[string]bool{}
+			d := h.deps()
+			d.StopAttempt = nil
+			if got := d.start(startParamsM1()); got.Note != goldenNotifyModNotLoadedNote {
+				t.Errorf("outcome = %+v, want the plain not-loaded note", got)
+			}
+			if n := countCalls(h.runner.calls, "new-session -d -s member-m1"); n != 1 {
+				t.Errorf("launched %d times, want once", n)
+			}
+		})
+	})
+
+	t.Run("under a mod that did not load, the warden log carries the started marker and the member's pane", func(t *testing.T) {
+		const capture = "tmux -L officraft capture-pane -p -t member-m1"
+		// 45 lines: the first five fall outside the last 40.
+		var pane45 strings.Builder
+		for i := 1; i <= 45; i++ {
+			fmt.Fprintf(&pane45, "line %02d\n", i)
+		}
+		wantLast40 := []string{}
+		for i := 6; i <= 45; i++ {
+			wantLast40 = append(wantLast40, fmt.Sprintf("m1: notify-mod-fallback pane| line %02d", i))
+		}
+		// A 5001-byte line, 2500 "é" (2 bytes each) then "z": its last 4096 bytes
+		// would start mid-rune, so the cut keeps 4095, 2047 "é" and the "z".
+		wide := strings.Repeat("é", 2500) + "z"
+		for _, tc := range []struct {
+			name     string
+			modTimes map[string]time.Time
+			run      wardenRun
+			want     []string
+		}{
+			{"a session.start 12.3 s late and a pane of what the member saw",
+				map[string]time.Time{"/w/m1/.officraft-mod-started": spawnLaunchedAt.Add(12340 * time.Millisecond)},
+				wardenRun{out: "╭ Claude Code ╮\n> 開始。\n\n\n"},
+				[]string{
+					"m1: notify-mod-fallback: .officraft-mod-started written 12.3s after launch",
+					"m1: notify-mod-fallback: pane member-m1, last 40 lines:",
+					"m1: notify-mod-fallback pane| ╭ Claude Code ╮",
+					"m1: notify-mod-fallback pane| > 開始。",
+				}},
+			{"a pane taller than 40 lines keeps its last 40",
+				nil,
+				wardenRun{out: pane45.String()},
+				append([]string{
+					"m1: notify-mod-fallback: .officraft-mod-started absent: the mod's session.start never ran with its config",
+					"m1: notify-mod-fallback: pane member-m1, last 40 lines:",
+				}, wantLast40...)},
+			{"a pane over 4 KiB keeps its last 4096 bytes, cut on a rune",
+				nil,
+				wardenRun{out: wide},
+				[]string{
+					"m1: notify-mod-fallback: .officraft-mod-started absent: the mod's session.start never ran with its config",
+					"m1: notify-mod-fallback: pane member-m1, last 40 lines, cut to its last 4096 bytes:",
+					"m1: notify-mod-fallback pane| " + strings.Repeat("é", 2047) + "z",
+				}},
+			{"a capture that fails is logged and the fallback goes on",
+				nil,
+				wardenRun{err: errors.New("can't find pane: member-m1")},
+				[]string{
+					"m1: notify-mod-fallback: .officraft-mod-started absent: the mod's session.start never ran with its config",
+					"m1: notify-mod-fallback: capture-pane of member-m1 failed: can't find pane: member-m1",
+				}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				h := newSpawnHarness()
+				h.present = map[string]bool{"/w/m1/.officraft-mod-booted": true}
+				h.modTimes = tc.modTimes
+				h.runner.script[capture] = tc.run
+				d := h.deps()
+				rec := &timeoutRecordingRunner{wardenRunner: h.runner}
+				d.Runner = rec
+				got := d.start(startParamsM1())
+
+				// The pane stays out of the owner-facing Note.
+				want := SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500", Note: goldenNotifyModNotLoadedNote}
+				if got != want {
+					t.Errorf("outcome = %+v, want %+v", got, want)
+				}
+				wantLogs := append([]string{flagAbsentAttempt1,
+					"m1: notify-mod: the mod ran in attempt 1 but did not load; no restart (it may have booted the member)",
+					"m1: the notification mod did not load; notifications go by tmux paste",
+					flagAbsentAtFallback}, tc.want...)
+				if !reflect.DeepEqual(h.logs, wantLogs) {
+					t.Errorf("logs =\n%q\nwant\n%q", h.logs, wantLogs)
+				}
+				wantCalls := append([]string{
+					"tmux -L officraft has-session -t member-m1",
+					"/usr/local/bin/claude --version",
+					"tmux -L officraft kill-session -t listen-m1",
+					"reap /w/m1",
+					"tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 " + goldenLaunchM1,
+					"tmux -L officraft set-option -t member-m1 window-size manual",
+					"tmux -L officraft resize-window -t member-m1 -x 160 -y 50",
+				}, notifyModPollCaptures...)
+				wantCalls = append(wantCalls,
+					capture,
+					"tmux -L officraft new-session -d -s listen-m1 -x 160 -y 50 "+goldenListenerM1,
+					"tmux -L officraft set-option -t listen-m1 window-size manual",
+					"tmux -L officraft resize-window -t listen-m1 -x 160 -y 50",
+					"tmux -L officraft display-message -p -t member-m1 #{pane_pid}")
+				if !reflect.DeepEqual(h.runner.calls, wantCalls) {
+					t.Errorf("calls =\n%v\nwant\n%v", h.runner.calls, wantCalls)
+				}
+				// The version probe's 2s, then each capture's (15 polls, the fallback's):
+				// a hung tmux must not stall the spawn past its line in
+				// startReceiptDeadlineSecs (server/ocserverd/receipt_watch.go).
+				if want := slices.Repeat([]time.Duration{2 * time.Second}, 17); !reflect.DeepEqual(rec.timeouts, want) {
+					t.Errorf("timeouts = %v, want %v", rec.timeouts, want)
+				}
+			})
+		}
+	})
+
+	t.Run("under Claude Code holding its plugins after a startup sync, the wait answers its banner with /reload-plugins once", func(t *testing.T) {
+		// Claude Code's own words, typed out: the warden matches this banner.
+		const banner = "  ⎿  Plugins changed. Run /reload-plugins to activate.\n"
+		launch := []string{
+			"tmux -L officraft has-session -t member-m1",
+			"/usr/local/bin/claude --version",
+			"tmux -L officraft kill-session -t listen-m1",
+			"reap /w/m1",
+			"tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 " + goldenLaunchM1,
+			"tmux -L officraft set-option -t member-m1 window-size manual",
+			"tmux -L officraft resize-window -t member-m1 -x 160 -y 50",
+		}
+		const capture = "tmux -L officraft capture-pane -p -t member-m1"
+		reload := []string{
+			"tmux -L officraft copy-mode -q -t member-m1",
+			"tmux -L officraft send-keys -t member-m1 -l /reload-plugins",
+			"tmux -L officraft send-keys -t member-m1 Enter",
+		}
+		const reloadLog = "m1: notify-mod: plugins changed during startup; sent /reload-plugins"
+
+		t.Run("a banner at 4 s gets one /reload-plugins, the mod then loads and the member stays on the mod route", func(t *testing.T) {
+			h := newSpawnHarness()
+			h.present = map[string]bool{}
+			h.presentAt = map[string]time.Duration{
+				"/w/m1/.officraft-mod-started": 5 * time.Second,
+				"/w/m1/.officraft-mod-loaded":  7 * time.Second,
+			}
+			h.paneAt = func(elapsed time.Duration) string {
+				if elapsed >= 4*time.Second {
+					return banner
+				}
+				return "╭ Claude Code ╮\n"
+			}
+			got := h.deps().start(startParamsM1())
+
+			if want := (SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500"}); got != want {
+				t.Errorf("outcome = %+v, want %+v", got, want)
+			}
+			// 2 s: no banner yet; 4 s: the banner, answered; 6 s: started, no
+			// capture; 8 s: loaded, the wait ends. No paste, no listener session.
+			wantCalls := append(slices.Clone(launch), capture, capture)
+			wantCalls = append(wantCalls, reload...)
+			wantCalls = append(wantCalls, "tmux -L officraft display-message -p -t member-m1 #{pane_pid}")
+			if !reflect.DeepEqual(h.runner.calls, wantCalls) {
+				t.Errorf("calls =\n%v\nwant\n%v", h.runner.calls, wantCalls)
+			}
+			// Once the reload is sent, polls only look for the load marker.
+			wantAsked := []string{
+				"/w/m1/.officraft-mod-loaded", "/w/m1/.officraft-mod-started",
+				"/w/m1/.officraft-mod-loaded", "/w/m1/.officraft-mod-started",
+				"/w/m1/.officraft-mod-loaded",
+				"/w/m1/.officraft-mod-loaded",
+				"/w/m1/.officraft-mod-loaded",
+			}
+			if !reflect.DeepEqual(h.asked, wantAsked) {
+				t.Errorf("exists asked = %v, want %v", h.asked, wantAsked)
+			}
+			if want := slices.Repeat([]time.Duration{time.Second}, 8); !reflect.DeepEqual(h.slept, want) {
+				t.Errorf("slept %v, want %v", h.slept, want)
+			}
+			if want := []string{flagAbsentAttempt1, reloadLog}; !reflect.DeepEqual(h.logs, want) {
+				t.Errorf("logs = %q, want %q", h.logs, want)
+			}
+			// The version probe, two captures and the three send calls, each under
+			// its 2 s: the wait's overrun in startReceiptDeadlineSecs counts on it.
+			if want := slices.Repeat([]time.Duration{2 * time.Second}, 6); !reflect.DeepEqual(h.paneTimeouts, want) {
+				t.Errorf("timeouts = %v, want %v", h.paneTimeouts, want)
+			}
+			for _, w := range h.writes {
+				if w.path == "/w/m1/.officraft-mod-disabled" {
+					t.Errorf("the mod was told to stand down: %+v", w)
+				}
+			}
+		})
+
+		t.Run("a banner still on screen after the reload gets no second one in that attempt, the restart gets its own, and a mod that never starts falls back", func(t *testing.T) {
+			h := newSpawnHarness()
+			h.present = map[string]bool{}
+			h.paneAt = func(time.Duration) string { return banner }
+			got := h.deps().start(startParamsM1())
+
+			want := SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500",
+				Note: goldenNotifyModRetriedNote}
+			if got != want {
+				t.Errorf("outcome = %+v, want %+v", got, want)
+			}
+			// Per attempt: one capture at 2 s, answered; the next 14 polls capture nothing.
+			wantCalls := append(slices.Clone(launch), capture)
+			wantCalls = append(wantCalls, reload...)
+			wantCalls = append(wantCalls, capture, "stop-attempt officraft member-m1 /w/m1", launch[4], launch[5], launch[6], capture)
+			wantCalls = append(wantCalls, reload...)
+			wantCalls = append(wantCalls, capture)
+			wantCalls = append(wantCalls, nudgeCallsWithEnters(3)...)
+			wantCalls = append(wantCalls,
+				"tmux -L officraft new-session -d -s listen-m1 -x 160 -y 50 "+goldenListenerM1,
+				"tmux -L officraft set-option -t listen-m1 window-size manual",
+				"tmux -L officraft resize-window -t listen-m1 -x 160 -y 50",
+				"tmux -L officraft display-message -p -t member-m1 #{pane_pid}")
+			if !reflect.DeepEqual(h.runner.calls, wantCalls) {
+				t.Errorf("calls =\n%v\nwant\n%v", h.runner.calls, wantCalls)
+			}
+			wait := append([]string{"/w/m1/.officraft-mod-loaded", "/w/m1/.officraft-mod-started"},
+				slices.Repeat([]string{"/w/m1/.officraft-mod-loaded"}, 14)...)
+			wantAsked := append(slices.Clone(wait), "/w/m1/.officraft-mod-loaded", "/w/m1/.officraft-mod-started", "/w/m1/.officraft-mod-booted")
+			wantAsked = append(wantAsked, wait...)
+			wantAsked = append(wantAsked, "/w/m1/.officraft-mod-loaded", "/w/m1/.officraft-mod-booted")
+			if !reflect.DeepEqual(h.asked, wantAsked) {
+				t.Errorf("exists asked = %v, want %v", h.asked, wantAsked)
+			}
+			if want := slices.Repeat([]time.Duration{time.Second}, 63); !reflect.DeepEqual(h.slept, want) {
+				t.Errorf("slept %v, want %v", h.slept, want)
+			}
+			diag := []string{
+				"m1: notify-mod-fallback: .officraft-mod-started absent: the mod's session.start never ran with its config",
+				"m1: notify-mod-fallback: pane member-m1, last 40 lines:",
+				"m1: notify-mod-fallback pane|   ⎿  Plugins changed. Run /reload-plugins to activate.",
+			}
+			wantLogs := []string{flagAbsentAttempt1, reloadLog, "m1: notify-mod: attempt 1 did not run the mod; restarting Claude Code once"}
+			wantLogs = append(wantLogs, diag...)
+			wantLogs = append(wantLogs, flagAbsentAttempt2, reloadLog,
+				"m1: the notification mod did not load; notifications go by tmux paste", flagAbsentAtFallback)
+			wantLogs = append(wantLogs, diag...)
+			if !reflect.DeepEqual(h.logs, wantLogs) {
+				t.Errorf("logs =\n%q\nwant\n%q", h.logs, wantLogs)
+			}
+		})
+
+		t.Run("a banner that holds the mod through attempt 1 is answered again after the restart, which then loads", func(t *testing.T) {
+			h := newSpawnHarness()
+			h.present = map[string]bool{}
+			restarted := false
+			h.onStop = func() { restarted = true }
+			// The restart's own banner at 32 s, answered; the mod loads at 35 s.
+			h.presentAt = map[string]time.Duration{"/w/m1/.officraft-mod-loaded": 35 * time.Second}
+			h.paneAt = func(time.Duration) string { return banner }
+			got := h.deps().start(startParamsM1())
+
+			if want := (SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500"}); got != want {
+				t.Errorf("outcome = %+v, want %+v", got, want)
+			}
+			if !restarted {
+				t.Fatal("attempt 1 was not torn down")
+			}
+			if n := countCalls(h.runner.calls, "-l /reload-plugins"); n != 2 {
+				t.Errorf("/reload-plugins sent %d times, want once per attempt", n)
+			}
+			if n := countCalls(h.runner.calls, "paste-buffer") + countCalls(h.runner.calls, "new-session -d -s listen-m1"); n != 0 {
+				t.Errorf("calls = %v, want no paste and no paste listener", h.runner.calls)
+			}
+		})
+
+		t.Run("a mod that started captures nothing, and the wait ends at the first poll that finds it loaded", func(t *testing.T) {
+			h := newSpawnHarness()
+			h.present = map[string]bool{}
+			h.presentAt = map[string]time.Duration{
+				"/w/m1/.officraft-mod-started": time.Second,
+				"/w/m1/.officraft-mod-loaded":  4 * time.Second,
+			}
+			h.paneAt = func(time.Duration) string { return banner }
+			got := h.deps().start(startParamsM1())
+
+			if want := (SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500"}); got != want {
+				t.Errorf("outcome = %+v, want %+v", got, want)
+			}
+			wantCalls := append(slices.Clone(launch), "tmux -L officraft display-message -p -t member-m1 #{pane_pid}")
+			if !reflect.DeepEqual(h.runner.calls, wantCalls) {
+				t.Errorf("calls =\n%v\nwant\n%v", h.runner.calls, wantCalls)
+			}
+			if want := slices.Repeat([]time.Duration{time.Second}, 4); !reflect.DeepEqual(h.slept, want) {
+				t.Errorf("slept %v, want %v", h.slept, want)
+			}
+			if want := []string{flagAbsentAttempt1}; !reflect.DeepEqual(h.logs, want) {
+				t.Errorf("logs = %q, want %q", h.logs, want)
+			}
+		})
+
+		t.Run("under a clock that does not move, the wait still ends after 30 sleeps", func(t *testing.T) {
+			h := newSpawnHarness()
+			h.present = map[string]bool{"/w/m1/.officraft-mod-booted": true}
+			h.paneAt = func(time.Duration) string { return "╭ Claude Code ╮\n" }
+			d := h.deps()
+			d.Now = func() time.Time { return spawnLaunchedAt }
+			d.start(startParamsM1())
+
+			if want := slices.Repeat([]time.Duration{time.Second}, 30); !reflect.DeepEqual(h.slept, want) {
+				t.Errorf("slept %d times, want 30", len(h.slept))
+			}
+		})
+
+		t.Run("under a nil Sleep, the wait paces on real time (nudgeClock), not a no-op", func(t *testing.T) {
+			h := newSpawnHarness() // the mod is loaded: the first poll, 2 real seconds in, ends the wait
+			d := h.deps()
+			d.Sleep = nil
+			began := time.Now()
+			if got := d.start(startParamsM1()); got.Note != "" {
+				t.Errorf("outcome = %+v, want the mod route", got)
+			}
+			if took := time.Since(began); took < 2*time.Second {
+				t.Errorf("the wait took %v, want at least 2 s of real time", took)
+			}
+		})
+
+		t.Run("captures that take 3 s each end the wait at its 30 s deadline, not after 30 sleeps", func(t *testing.T) {
+			h := newSpawnHarness()
+			h.present = map[string]bool{"/w/m1/.officraft-mod-booted": true}
+			h.captureCost = 3 * time.Second
+			h.paneAt = func(time.Duration) string { return "╭ Claude Code ╮\n" }
+			got := h.deps().start(startParamsM1())
+
+			want := SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500", Note: goldenNotifyModNotLoadedNote}
+			if got != want {
+				t.Errorf("outcome = %+v, want %+v", got, want)
+			}
+			// Polls at 2, 7, 12, 17, 22 and 27 s of the harness clock, each capture
+			// adding 3 s: the poll ending at 30 s is the last.
+			if want := slices.Repeat([]time.Duration{time.Second}, 12); !reflect.DeepEqual(h.slept, want) {
+				t.Errorf("slept %v, want %v", h.slept, want)
+			}
+			wantCalls := append(slices.Clone(launch), slices.Repeat([]string{capture}, 7)...)
+			wantCalls = append(wantCalls,
+				"tmux -L officraft new-session -d -s listen-m1 -x 160 -y 50 "+goldenListenerM1,
+				"tmux -L officraft set-option -t listen-m1 window-size manual",
+				"tmux -L officraft resize-window -t listen-m1 -x 160 -y 50",
+				"tmux -L officraft display-message -p -t member-m1 #{pane_pid}")
+			if !reflect.DeepEqual(h.runner.calls, wantCalls) {
+				t.Errorf("calls =\n%v\nwant\n%v", h.runner.calls, wantCalls)
+			}
+		})
+	})
+
+	t.Run("under a configured nudge, that text is the boot prompt the mod submits", func(t *testing.T) {
+		h := newSpawnHarness()
+		d := h.deps()
+		d.Nudge = "請開機。"
+		if got := d.start(startParamsM1()); !got.OK {
+			t.Fatalf("outcome = %+v, want OK", got)
+		}
+		want := `{"boot_prompt":"請開機。","started_marker":"/w/m1/.officraft-mod-started","loaded_marker":"/w/m1/.officraft-mod-loaded",` +
+			`"disabled_marker":"/w/m1/.officraft-mod-disabled","booted_marker":"/w/m1/.officraft-mod-booted",` +
+			`"ack_file":"/w/m1/.officraft-listen-ack",` +
+			`"ready_prefixes":["[ocagent] listen: connected","[ocagent] listen: disconnected"],` +
+			`"listener":{"argv":["/w/m1/ocagent","listen","--deliver-mod"],"cwd":"/w/m1",` +
+			`"env":{"OC_LISTEN_ACK":"1","OC_LISTEN_ACK_FILE":"/w/m1/.officraft-listen-ack"}}}` + "\n"
+		var got string
+		for _, w := range h.writes {
+			if w.path == "/w/m1/.officraft-mod/officraft.json" {
+				got = w.content
+			}
+		}
+		if got != want {
+			t.Errorf("officraft.json =\n%s\nwant\n%s", got, want)
+		}
+	})
+
+	t.Run("under leftover ocagent processes in the workdir, they are reaped before the launch and logged", func(t *testing.T) {
+		for _, tc := range []struct {
+			name  string
+			stuck bool
+			log   string
+		}{
+			{"reaped", false, "m1: reaped 2 leftover ocagent process(es) in /w/m1"},
+			{"still alive", true, "m1: 2 leftover ocagent process(es) in /w/m1 did not exit; spawning anyway"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				h := newSpawnHarness()
+				h.reaped, h.reapStuck = 2, tc.stuck
+				got := h.deps().start(startParamsM1())
+
+				if want := (SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500"}); got != want {
+					t.Errorf("outcome = %+v, want %+v", got, want)
+				}
+				if want := []string{tc.log, flagAbsentAttempt1}; !reflect.DeepEqual(h.logs, want) {
+					t.Errorf("logs = %v, want %v", h.logs, want)
+				}
+			})
+		}
+	})
+
+	t.Run("under a Claude Code at or past the minimum, or one whose version cannot be read, the mod route is taken", func(t *testing.T) {
+		for _, tc := range []struct {
+			name    string
+			version wardenRun
+		}{
+			{"exactly the minimum", wardenRun{out: "2.1.287 (Claude Code)\n"}},
+			{"a later major", wardenRun{out: "3.0.0 (Claude Code)\n"}},
+			{"a version that is no version", wardenRun{out: "Claude Code nightly\n"}},
+			{"a probe that failed", wardenRun{err: errors.New("timeout after 2s")}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				h := newSpawnHarness()
+				h.runner.script["/usr/local/bin/claude --version"] = tc.version
+				got := h.deps().start(startParamsM1())
+
+				if want := (SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500"}); got != want {
+					t.Errorf("outcome = %+v, want %+v", got, want)
+				}
+				launch := "tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 " + goldenLaunchM1
+				if !slices.Contains(h.runner.calls, launch) {
+					t.Errorf("calls = %v, want the launch with the mod", h.runner.calls)
+				}
+				for _, call := range h.runner.calls {
+					if strings.Contains(call, "new-session -d -s listen-m1") {
+						t.Errorf("a paste listener was started beside a loaded mod: %v", call)
+					}
+				}
+			})
 		}
 	})
 
@@ -1248,7 +2259,7 @@ func TestStart(t *testing.T) {
 			`exec /usr/local/bin/claude --dangerously-skip-permissions ` +
 			`--disallowedTools AskUserQuestion --mcp-config /w/m1/.mcp.json --effort medium ` +
 			`--append-system-prompt ` + shellQuote(goldenFallbackPromptM1) +
-			` --settings ` + shellQuote(goldenInlineSettings)
+			` --settings ` + shellQuote(goldenInlineSettings) + ` --plugin-dir /w/m1/.officraft-mod`
 		for _, tc := range []struct {
 			name    string
 			probe   func(string) (bool, string)
@@ -1267,8 +2278,8 @@ func TestStart(t *testing.T) {
 				if got := d.start(startParamsM1()); !got.OK {
 					t.Fatalf("outcome = %+v, want OK", got)
 				}
-				if h.runner.calls[1] != wantLaunch {
-					t.Errorf("launch call =\n%s\nwant\n%s", h.runner.calls[1], wantLaunch)
+				if h.runner.calls[4] != wantLaunch {
+					t.Errorf("launch call =\n%s\nwant\n%s", h.runner.calls[4], wantLaunch)
 				}
 				for _, w := range h.writes {
 					if w.path == "/w/m1/system-prompt.md" {
@@ -1360,9 +2371,10 @@ func TestStart(t *testing.T) {
 			`export PATH=/w/m1:"$PATH"; ` +
 			`exec /usr/local/bin/claude --dangerously-skip-permissions --disallowedTools AskUserQuestion ` +
 			`--mcp-config /w/m1/.mcp.json --effort high ` +
-			`--append-system-prompt-file /w/m1/system-prompt.md --model opus --settings ` + shellQuote(goldenInlineSettings)
-		if h.runner.calls[1] != wantLaunch {
-			t.Errorf("launch call =\n%s\nwant\n%s", h.runner.calls[1], wantLaunch)
+			`--append-system-prompt-file /w/m1/system-prompt.md --model opus --settings ` + shellQuote(goldenInlineSettings) +
+			` --plugin-dir /w/m1/.officraft-mod`
+		if h.runner.calls[4] != wantLaunch {
+			t.Errorf("launch call =\n%s\nwant\n%s", h.runner.calls[4], wantLaunch)
 		}
 		for _, line := range h.logs {
 			if strings.Contains(line, "ghp_abc") {
@@ -1625,6 +2637,15 @@ func TestStart(t *testing.T) {
 			{"an ocagent link that cannot be published", func(h *spawnHarness, _ *SpawnDeps, _ *StartParams) {
 				h.symlinkEr = errors.New("read-only file system")
 			}, "symlink_failed: publishing workdir ocagent link: read-only file system"},
+			{"a stale mod-loaded marker that cannot be cleared", func(h *spawnHarness, _ *SpawnDeps, _ *StartParams) {
+				h.removeErr["/w/m1/.officraft-mod-loaded"] = errors.New("permission denied")
+			}, "write_file_failed: clearing stale .officraft-mod-loaded: permission denied"},
+			{"a notification mod that cannot be written", func(h *spawnHarness, _ *SpawnDeps, _ *StartParams) {
+				h.writeErr["/w/m1/.officraft-mod/hooks/register.ts"] = errors.New("no space left on device")
+			}, "write_file_failed: .officraft-mod/hooks/register.ts: no space left on device"},
+			{"a notification mod config that cannot be written", func(h *spawnHarness, _ *SpawnDeps, _ *StartParams) {
+				h.writeErr["/w/m1/.officraft-mod/officraft.json"] = errors.New("no space left on device")
+			}, "write_file_failed: .officraft-mod/officraft.json: no space left on device"},
 			{"a pretrust that failed", func(h *spawnHarness, _ *SpawnDeps, _ *StartParams) {
 				h.pretrustE = errors.New("permission denied")
 			}, "pretrust_failed: marking workdir trusted in claude.json: permission denied"},
@@ -1700,9 +2721,12 @@ func TestStart(t *testing.T) {
 			}
 		}
 		for _, w := range h.writes {
-			if w.path == "/w/m1/system-prompt.md" {
+			if w.path == "/w/m1/system-prompt.md" || strings.Contains(w.path, ".officraft-mod") {
 				t.Errorf("a codex spawn wrote %s", w.path)
 			}
+		}
+		if want := []string{"/w/m1"}; !reflect.DeepEqual(h.mkdirs, want) {
+			t.Errorf("mkdirs = %v, want %v: a codex spawn gets no notification mod", h.mkdirs, want)
 		}
 		if len(h.slept) != 0 {
 			t.Errorf("slept %v, want none", h.slept)
@@ -1815,8 +2839,8 @@ func TestStart(t *testing.T) {
 		if want := (SpawnOutcome{OK: true, SessionID: "custom-session", PID: "700"}); got != want {
 			t.Errorf("outcome = %+v, want %+v", got, want)
 		}
-		if !strings.Contains(h.runner.calls[1], "OC_SESSION=custom-session") {
-			t.Errorf("launch call =\n%s\nwant the custom session", h.runner.calls[1])
+		if !strings.Contains(h.runner.calls[4], "OC_SESSION=custom-session") {
+			t.Errorf("launch call =\n%s\nwant the custom session", h.runner.calls[4])
 		}
 		prompt := ""
 		for _, w := range h.writes {

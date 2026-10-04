@@ -967,6 +967,14 @@ var machineFloorWriteRulings = map[string]machineFloorRuling{
 			"the login's machine_id); every other caller reads the same 404 as an " +
 			"unknown login, so the floor grants 'report your own login', never anyone's.",
 	},
+	"POST /api/monitoring/runtime-upgrade": {
+		Ruling: "T-338 · owner 2026-10-02 rc-e593c6de5f45 approved spec (precedent: runtime-login)",
+		Why: "the floor is FORCED for the same reason as runtime-login: the warden is the " +
+			"only intended caller and ranks machine. The handler admits only the upgrade's " +
+			"own machine (the verified sub must be an active machine AND equal the upgrade's " +
+			"machine_id); every other caller reads the same 404 as an unknown upgrade, so the " +
+			"floor grants 'report your own upgrade', never anyone's.",
+	},
 	"POST /api/self/waking":   selfOpRuling,
 	"POST /api/self/stopping": selfOpRuling,
 	"POST /api/self/stopped":  selfOpRuling,

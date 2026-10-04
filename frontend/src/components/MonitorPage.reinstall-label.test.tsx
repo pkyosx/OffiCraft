@@ -18,10 +18,11 @@
 // delete this comment — not delete the test.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { MonitorPage } from "./MonitorPage";
 import type { Member, MachineView, MonMachineView } from "../types";
+import { machineAction } from "./machineActions.testHelper";
 
 const listMembers = vi.fn(async (): Promise<Member[]> => []);
 const listMachines = vi.fn(async (): Promise<MachineView[]> => []);
@@ -95,14 +96,14 @@ describe("install button label follows the machine's online state", () => {
   it("says 重新安裝 on an ONLINE machine (a warden is live there)", async () => {
     listMachines.mockResolvedValue([machine({ online: true })]);
     renderMonitor();
-    const btn = await screen.findByTestId("mon-install-btn");
+    const btn = await machineAction("mon-install-btn");
     expect(btn.textContent).toContain("重新安裝");
   });
 
   it("says 安裝 on an OFFLINE machine (nothing is talking to us)", async () => {
     listMachines.mockResolvedValue([machine({ online: false })]);
     renderMonitor();
-    const btn = await screen.findByTestId("mon-install-btn");
+    const btn = await machineAction("mon-install-btn");
     expect(btn.textContent).toContain("安裝");
     // Not merely "contains 安裝" — 重新安裝 contains that substring too, so the
     // offline arm has to be pinned by the ABSENCE of the prefix or this test
@@ -115,7 +116,7 @@ describe("install button label follows the machine's online state", () => {
       machine({ machineId: "m-server-self", displayName: "本機", online: true, isSelf: true }),
     ]);
     renderMonitor();
-    const btn = await screen.findByTestId("mon-install-btn");
+    const btn = await machineAction("mon-install-btn");
     expect(btn.textContent).toContain("重新安裝");
   });
 });

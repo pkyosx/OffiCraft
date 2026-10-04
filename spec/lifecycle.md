@@ -329,12 +329,16 @@ ceiling of the warden lifetime setting (§1.6).
 
      - Both boot sequences begin `1. report_waking` → `2. resume_summary`, and both state
        不可更改順序 in those words (`seeds/boot_sequence.md`, `seeds/boot_sequence_codex.md`).
-     - NEITHER MODEL attaches its own listener. On the claude path warden starts
-       `ocagent listen --deliver-tmux` in its own tmux session AFTER launching `claude` and
-       delivering the boot nudge, so the stream comes up alongside the boot turn rather
-       than at the end of it. On the codex path `cli/ocwarden/codex_session.go` execs the
-       listener only on the FIRST `turn/completed` — i.e. AFTER the turn in which the model
-       has already called `report_waking`.
+     - NEITHER MODEL attaches its own listener. On the claude path the listener starts
+       right after the boot prompt is submitted: on the main route the notification mod
+       submits the boot prompt itself and then runs `ocagent listen --deliver-mod` as a
+       child of the member's Claude Code; on the paste fallback warden starts
+       `ocagent listen --deliver-tmux` in its own `listen-<id>` tmux session AFTER
+       launching `claude` and delivering the boot nudge. Either way the stream comes up
+       alongside the boot turn rather than at the end of it. On the codex path
+       `cli/ocwarden/codex_session.go` execs the listener only on the FIRST
+       `turn/completed` — i.e. AFTER the turn in which the model has already called
+       `report_waking`.
      - Step 2 is not instant: `resume_summary` can be big enough that the seed tells the
        model to spend a whole sub-agent on it rather than burn its own context.
 
@@ -717,6 +721,7 @@ in this section may be persisted, and the mirror stores an ORDER, not observed s
 | warden telemetry (inventory #5) | verified caller `sub` | `POST /api/monitoring/telemetry` — partial-report MERGE: only supplied fields (`rate_limits`/`tokens`/`hardware`/`cost`/`effort`/`runtime`/`runtimes`/`self_update`/`command_result`, `machine`/`account` tags) overwrite; `model_call` is the one block that does not overwrite: its success time and its failure are each merged with the stored one by keeping the LARGER time, so a repeated, reordered or lost report changes nothing; a merge that changes a member's `model_call_warnings` sends that member's patch, and a stored `rate_limit` failure carrying `resets_at` pushes once more when that time passes; `runtimes` is a value-free provider readiness map and MUST NOT contain credential material; an all-absent body is 400 | monitoring fold; disconnect-edge bank and runtime-capable placement; `model_call_warnings` / `model_call_last_success_ts` and the account card's `limit_reached` | empty on restart; a purely-banked account disappears from the monitoring fold until re-reported (honest-empty by design); both model-call times are forgotten, so `model_call_last_success_ts` reads 0 and no model-call warning shows until the next report |
 | reconcile store (inventory #7) | member id | producer tick (per-member reconcile state: `last_command`, `last_command_at`, `stop_deadline`, attempts/backoff/circuit) | producer tick | forgotten on restart → the "awaiting presence"/dedupe windows reset; the next tick re-decides from presence (self-healing) |
 | runtime-login relay | login id (one in flight per machine + runtime) | owner/admin start, code, cancel; the machine's own warden report (`POST /api/monitoring/runtime-login`) | `GET /api/machines/{machine_id}/runtime-login/{login_id}`; `runtime_login` signal | empty on restart (every login reads 404); the auth URL, the pasted code and codex's one-time `user_code` are never written anywhere, and `login_*` frames are never mirrored to `warden_command_queue`. The relay is NOT gated by `--no-reconcile` (§4.1): it is an owner action, not this producer's dispatch |
+| runtime-upgrade relay | upgrade id (one in flight per machine + runtime) | owner/admin start; the machine's own warden report (`POST /api/monitoring/runtime-upgrade`) | `GET /api/machines/{machine_id}/runtime-upgrade/{upgrade_id}`; `runtime_upgrade` signal | empty on restart (every upgrade reads 404); `runtime_upgrade` frames are never mirrored to `warden_command_queue`. NOT gated by `--no-reconcile` (§4.1), for the same reason as the runtime-login relay |
 | warden-command FIFO (inventory #6) | warden member id | producer dispatch | SSE warden band | pending frames dropped **for every verb except `update`**, and re-folded next tick from observed presence; `update` alone has a durable mirror (`warden_command_queue`) and is restored into the FIFO on restart, because nothing re-derives "the owner asked this machine to upgrade". START is excluded on top of that — its `args` carry a live `member_token` (spec/sse.md §7) |
 
 **Cost is a dual-state field**: `cost` lives live in telemetry (memory) and is folded into

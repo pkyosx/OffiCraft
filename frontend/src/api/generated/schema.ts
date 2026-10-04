@@ -1491,6 +1491,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/machines/{machine_id}/runtime-upgrade": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start a Claude Code upgrade on a machine: its warden runs `claude update` and reports the version before and after.
+         * @description - Pushes the `runtime_upgrade` warden command; the warden runs the machine's own `claude update` with the claude binary and environment it launches members with, reads `claude --version` again, and reports through `POST /api/monitoring/runtime-upgrade`.
+         *     - `succeeded` only when the version read back is newer than `from_version`; an unchanged version is `failed` with a reason.
+         *     - Members already running keep their running process; a member started afterwards runs the new version.
+         *     - Held in server memory only, never persisted; a server restart forgets the upgrade.
+         *     - An upgrade with no warden report for 20 minutes becomes `expired`, then is dropped about 10 minutes later.
+         *     - A warden build that predates the verb ignores it and the upgrade stays `starting`; the UI gives up after 30s.
+         *     - While an upgrade for this machine and runtime is not yet terminal, a repeat returns that upgrade instead of starting another. A repeat that finds it still `starting` sends the command to the warden again under the same id, so an owner who has since updated an old warden can retry; it answers with that upgrade even when the warden is offline, and nothing is sent then. A repeat that finds it `running` sends nothing.
+         *     - No cancel.
+         *     - Admin agent only (403); an unknown, removed or non-machine id is a 404; an offline warden is a 409; a runtime other than `claude` is a 422.
+         */
+        post: operations["handle_start_runtime_upgrade_api_machines__machine_id__runtime_upgrade_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/machines/{machine_id}/runtime-upgrade/{upgrade_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a runtime upgrade's current state.
+         * @description - Memory only: an unknown id, one from before a server restart, or one dropped about 10 minutes after reaching a terminal state is a 404.
+         *     - Admin agent only (403).
+         */
+        get: operations["handle_get_runtime_upgrade_api_machines__machine_id__runtime_upgrade__upgrade_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/machines/{machine_id}/teardown-here": {
         parameters: {
             query?: never;
@@ -2195,6 +2244,28 @@ export interface paths {
          *     - Held in server memory only, never persisted.
          */
         post: operations["handle_report_runtime_login_api_monitoring_runtime_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/monitoring/runtime-upgrade": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Report a runtime upgrade's progress (warden only). Answers the upgrade as the server now holds it.
+         * @description - Warden only, and only for an upgrade on its own machine; any other caller, or an unknown or dropped `upgrade_id`, is a 404.
+         *     - A terminal state is sticky: a later report leaves it unchanged.
+         *     - Held in server memory only, never persisted.
+         */
+        post: operations["handle_report_runtime_upgrade_api_monitoring_runtime_upgrade_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4260,7 +4331,7 @@ export interface components {
             runtime?: unknown;
             /**
              * Runtimes
-             * @description Warden heartbeats only — provider-neutral runtime capability map. Each ``claude``/``codex`` entry may report ``installed`` bool, ``logged_in`` bool/null, and ``version`` string/null, and ``codex`` also ``model_families`` bool; values are readiness metadata only, never credentials. The shape is DECLARED (T-90be) and this is the block where a silent rename costs the most: ``runtimePlacementRefusal`` (api_machines.go) fail-closes when it cannot read codex ``installed``, so the machine becomes permanently unsupported for codex and its workers sit stamped ``machine_unavailable`` — with nothing on screen saying why. NOT closed (see ``hardware``): an unknown runtime name or a new readiness key must not 422 the whole heartbeat.
+             * @description Warden heartbeats only — provider-neutral runtime capability map. Each ``claude``/``codex`` entry may report ``installed`` bool, ``logged_in`` bool/null, and ``version`` string/null, ``claude`` also ``below_notify_minimum`` bool/null, and ``codex`` also ``model_families`` bool; values are readiness metadata only, never credentials. The shape is DECLARED (T-90be) and this is the block where a silent rename costs the most: ``runtimePlacementRefusal`` (api_machines.go) fail-closes when it cannot read codex ``installed``, so the machine becomes permanently unsupported for codex and its workers sit stamped ``machine_unavailable`` — with nothing on screen saying why. NOT closed (see ``hardware``): an unknown runtime name or a new readiness key must not 422 the whole heartbeat.
              */
             runtimes?: {
                 /**
@@ -4268,6 +4339,11 @@ export interface components {
                  * @description Claude readiness. ``installed`` and ``version`` are transcribed from the ``claude`` probe (runtimeprobe.go); ``logged_in`` comes from ``claude auth status``.
                  */
                 claude?: {
+                    /**
+                     * Below Notify Minimum
+                     * @description The warden compares the version it read against the minimum Claude Code version the notification mod needs, which only the warden holds: true when older, false when at or above it; absent when the version is unknown. Transcribed to `RuntimeCapabilityDTO.below_notify_minimum`.
+                     */
+                    below_notify_minimum?: boolean | null;
                     /**
                      * Installed
                      * @description The runtime binary resolves on this host.
@@ -7812,6 +7888,11 @@ export interface components {
          */
         RuntimeCapabilityDTO: {
             /**
+             * Below Notify Minimum
+             * @description Claude only. true when the version the warden read from the claude binary members launch with is older than the minimum Claude Code version the notification mod needs; false when it is at or above it. The minimum is held by the warden, not the server. Absent or null when the version is unknown, when the warden predates this field, and for every runtime other than claude. While true the UI shows a 版本太舊 marker on the machine's Claude runtime with the upgrade action (`POST /api/machines/{machine_id}/runtime-upgrade`).
+             */
+            below_notify_minimum?: boolean | null;
+            /**
              * Installed
              * @default false
              */
@@ -7972,6 +8053,91 @@ export interface components {
              * @enum {string}
              */
             runtime: "claude" | "codex";
+        };
+        /**
+         * RuntimeUpgradeDTO
+         * @description One Claude Code upgrade the server relays to a machine's warden. The warden runs `claude update` with the same claude binary and environment it launches members with, then reads `claude --version` again. `succeeded` means the version read back is newer than `from_version`. Members already running keep the process they were started with; a member started after the upgrade runs the new version. Held in server memory only and never persisted: a server restart forgets every upgrade, and an upgrade is dropped about 10 minutes after it reaches a terminal state (`succeeded`, `failed`, `expired`), after which it reads as 404. A non-terminal upgrade with no warden report for 20 minutes becomes `expired`; that is longer than the warden lets `claude update` run, so a live upgrade always gets to report its own end first. There is no cancel.
+         */
+        RuntimeUpgradeDTO: {
+            /**
+             * From Version
+             * @description The `claude --version` the warden read before running `claude update`; set from the warden's first report that carries it.
+             */
+            from_version?: string | null;
+            /** Machine Id */
+            machine_id: string;
+            /**
+             * Reason
+             * @description Human-readable cause on `failed` or `expired`. When the version read back equals `from_version` the upgrade is `failed` and the reason says the version did not change: either it was already the latest release, or `claude update` changed a different install than the claude binary members launch with. When `claude update` said Homebrew manages the install (it then exits 0 without upgrading), the reason says so instead and names what to run on that machine: the `brew upgrade` command and its target, switching to the `claude-code@latest` cask when Homebrew's newest is below the notify-mod minimum, or that it is already Homebrew's newest.
+             */
+            reason?: string | null;
+            /**
+             * Runtime
+             * @enum {string}
+             */
+            runtime: "claude";
+            /**
+             * Started Ts
+             * @description Epoch seconds the server accepted the start, server-stamped.
+             */
+            started_ts: number;
+            /**
+             * State
+             * @description `starting` until the warden's first report; the warden reports `running` as soon as it starts `claude update`. A warden build that predates the `runtime_upgrade` verb ignores it, so `starting` never advances and the upgrade becomes `expired` like any other silent one; the UI gives up on it after 30s and shows that the machine's warden must be updated first. A reader that does not know a value must treat it as non-terminal.
+             * @enum {string}
+             */
+            state: "starting" | "running" | "succeeded" | "failed" | "expired";
+            /**
+             * To Version
+             * @description The `claude --version` the warden read after `claude update` finished; set on `succeeded`, and on `failed` when the warden could read it.
+             */
+            to_version?: string | null;
+            /**
+             * Updated Ts
+             * @description Epoch seconds of the last state change, server-stamped.
+             */
+            updated_ts: number;
+            /** Upgrade Id */
+            upgrade_id: string;
+        };
+        /**
+         * RuntimeUpgradeReportDTO
+         * @description A warden's progress report for one runtime upgrade. The warden decides `succeeded` or `failed` by comparing the version it read back with the one it read before, as dotted numbers. Held in server memory only, like the upgrade itself.
+         */
+        RuntimeUpgradeReportDTO: {
+            /**
+             * From Version
+             * @description Send with `running` and every later report once read.
+             */
+            from_version?: string | null;
+            /**
+             * Reason
+             * @description Send with `failed`.
+             */
+            reason?: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "running" | "succeeded" | "failed";
+            /**
+             * To Version
+             * @description Send with `succeeded`, and with `failed` when the version could be read back.
+             */
+            to_version?: string | null;
+            /** Upgrade Id */
+            upgrade_id: string;
+        };
+        /**
+         * RuntimeUpgradeStartDTO
+         * @description Which runtime to upgrade on the machine. Only `claude` is supported; any other value is a 422.
+         */
+        RuntimeUpgradeStartDTO: {
+            /**
+             * Runtime
+             * @enum {string}
+             */
+            runtime: "claude";
         };
         /**
          * ScheduledMessageCreateDTO
@@ -14074,6 +14240,109 @@ export interface operations {
             };
         };
     };
+    handle_start_runtime_upgrade_api_machines__machine_id__runtime_upgrade_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                machine_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RuntimeUpgradeStartDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeUpgradeDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_get_runtime_upgrade_api_machines__machine_id__runtime_upgrade__upgrade_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                machine_id: string;
+                upgrade_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeUpgradeDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
     handle_teardown_here_api_machines__machine_id__teardown_here_post: {
         parameters: {
             query?: never;
@@ -15711,6 +15980,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RuntimeLoginDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_report_runtime_upgrade_api_monitoring_runtime_upgrade_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RuntimeUpgradeReportDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeUpgradeDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */

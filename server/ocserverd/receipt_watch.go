@@ -18,9 +18,11 @@ import (
 // previous one went unanswered.
 const receiptMissingReasonCode = "receipt_missing"
 
-// receiptDeadlineSecs is derived from the warden's own budgets, not measured.
-// The START receipt is POSTed only after Spawn returns, and the spawn path can
-// spend, in order:
+// receiptDeadlineSecs is every command's deadline but start's.
+const receiptDeadlineSecs = 90.0
+
+// startReceiptDeadlineSecs: the START receipt is POSTed only after Spawn
+// returns, and the spawn path can spend, in order (the warden's own budgets):
 //   - the login check, spawnCheckBudget 15s (its wait for a running periodic
 //     check included; cli/ocwarden/loginprobe.go);
 //   - the interactive shell env capture, interactiveEnvTimeout 10s +
@@ -29,16 +31,46 @@ const receiptMissingReasonCode = "receipt_missing"
 //     model list, codexAppResponseTimeout 30s;
 //   - Claude only, the prompt-file probe, claudePromptFileProbeBudget 2s +
 //     subprocessWaitDelay 2s;
+//   - Claude only, the version probe that picks the notification route,
+//     claudeVersionProbeBudget 2s + subprocessWaitDelay 2s;
+//   - Claude only, reaping leftover ocagent processes in the workdir, up to
+//     (sweepTermPolls + sweepKillPolls) × sweepPollInterval = 25 × 200ms = 5s;
 //   - Claude only, the boot-nudge loop, which always runs all nudgeMaxAttempts ×
-//     nudgeSettle = 30s;
+//     nudgeSettle = 30s. On the notification-mod route the same 30s polls the
+//     mod's markers instead (waitForNotifyMod), ending early once the mod loads;
+//     no poll starts past the 30s, but the last one can run up to 17s over: a
+//     nudgeSettle sleep 1s, a pane capture and the one-time /reload-plugins send
+//     (copy-mode, two send-keys), each tmux call notifyModCaptureBudget 2s +
+//     subprocessWaitDelay 2s. When the mod did not load, the warden's paste fallback
+//     adds fallbackNudgeAttempts × nudgeSettle = 3s, and before that its capture of
+//     the member pane for the warden log, notifyModCaptureBudget 2s +
+//     subprocessWaitDelay 2s (cli/ocwarden/notifymod.go);
+//   - Claude only, when the first launch never ran the mod, ONE restart before
+//     that fallback (retryNotifyMod, cli/ocwarden/notifymod_retry.go): a capture
+//     of the first pane (4s), its teardown — stop()'s ladder, a handful of tmux /
+//     ps / lsof calls and up to 25 × 200ms = 5s of sweep — and a second wait of
+//     the same 30s + 17s.
 //
 // After those, commandReportTimeout 5s, plus up to one 30s lifecycle cadence
-// before the deadline is read. Worst case ≈ 96s for Claude and ≈ 97s for a Codex family
-// word — PAST this 90s deadline, so a start that is merely slow at every step
-// can be stamped receipt_missing with nothing wrong. Known and left as is here.
+// before the deadline is read.
+//
+// 150s because, measured on a station (warden log "received start frame" to
+// "dispatched start OK"), a normal start takes 3s, a restart whose mod then
+// loads 34s, and a restart whose mod still does not load, with its paste
+// fallback, 69s; by the budgets above a Claude start whose mod did not load is
+// ≈ 129s at worst without the restart. The restart path's own budget worst
+// case, ≈ 185s, is PAST 150s, so a restart that is slow at every step can be
+// stamped receipt_missing with nothing wrong: known, and left as is.
 // 🔴 Those warden constants live in another Go module and nothing links them;
 // raising any of them widens that gap. Erring long is the safe direction.
-const receiptDeadlineSecs = 90.0
+const startReceiptDeadlineSecs = 150.0
+
+func receiptDeadlineFor(rpc string) float64 {
+	if rpc == reconcileCmdStart {
+		return startReceiptDeadlineSecs
+	}
+	return receiptDeadlineSecs
+}
 
 type pendingReceipt struct {
 	RPC      string
@@ -57,7 +89,7 @@ func (s *apiServer) armReceiptWatch(targetID, rpc, warden string, now float64) {
 	s.receiptPending[targetID] = pendingReceipt{
 		RPC:      rpc,
 		Warden:   warden,
-		Deadline: now + receiptDeadlineSecs,
+		Deadline: now + receiptDeadlineFor(rpc),
 	}
 }
 
@@ -117,7 +149,7 @@ func receiptMissingReason(p pendingReceipt) string {
 			"the op may or may not have run; this row's last state is UNKNOWN, not "+
 			"failed. Suspect the machine's link to the server (the receipt POST) "+
 			"before suspecting the op itself",
-		receiptMissingReasonCode, p.RPC, where, receiptDeadlineSecs)
+		receiptMissingReasonCode, p.RPC, where, receiptDeadlineFor(p.RPC))
 }
 
 func (s *apiServer) sweepLapsedReceipts(now float64) {

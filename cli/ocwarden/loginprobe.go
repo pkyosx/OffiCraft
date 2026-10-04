@@ -26,7 +26,7 @@ const loginCheckEnvName = ".oc-login-check-env"
 // check included: past it the verdict is unknown and the spawn launches. The
 // periodic check can hold the prober for ~25 s (shell capture, auth status and
 // keychain on claude, then codex), and the START receipt has to reach the
-// server inside its receiptDeadlineSecs (server/ocserverd/receipt_watch.go),
+// server inside its startReceiptDeadlineSecs (server/ocserverd/receipt_watch.go),
 // whose derivation counts this budget. 🔴 Raising it eats into that deadline;
 // nothing links the two modules.
 const spawnCheckBudget = 15 * time.Second
@@ -202,11 +202,16 @@ func (p *loginProber) checkNow(runtime string) *bool {
 		return nil
 	}
 	p.mu.Unlock()
+	p.kickTelemetry()
+	return verdict
+}
+
+// kickTelemetry asks the telemetry loop to send its next heartbeat now.
+func (p *loginProber) kickTelemetry() {
 	select {
 	case p.kick <- struct{}{}:
 	default:
 	}
-	return verdict
 }
 
 // checkForSpawn is checkNow within spawnBudget. A check that overruns keeps
@@ -239,7 +244,8 @@ func (p *loginProber) checkForSpawn(runtime string) *bool {
 	}
 }
 
-// kicked fires once after any checkNow the telemetry loop has not yet reported.
+// kicked fires once after any kickTelemetry the telemetry loop has not yet
+// acted on.
 func (p *loginProber) kicked() <-chan struct{} {
 	return p.kick
 }

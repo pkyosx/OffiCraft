@@ -1712,6 +1712,29 @@ export const en: Dict = {
       noResponseCauses: "Possible causes: the machine is offline, or its warden is too old to sign in from here.",
       close: "Close",
     },
+    runtimeUpgrade: {
+      upgrade: "Upgrade Claude Code",
+      title: "Upgrade Claude Code",
+      subtitleLead: "Runs claude update on ",
+      subtitleTail: " for the Claude Code members launch with",
+      preparingLead: "Asking ",
+      preparingTail: " to start the upgrade…",
+      running: "Upgrading…",
+      fromLead: "Current version: ",
+      succeededLead: "Upgraded: ",
+      arrow: " → ",
+      runningMembersHint: "Members already running keep their version; members started from now on run the new one",
+      failedHeading: "Upgrade failed",
+      failedLead: "Upgrade failed: ",
+      reasonLead: "Reason: ",
+      expired: "The machine stopped reporting, so the result is unknown. Upgrade again",
+      startRefused: "The upgrade could not start",
+      offlineTail: " is offline and cannot upgrade",
+      noResponseTail: " did not answer the upgrade request",
+      noResponseCauses: "This machine's warden is too old to upgrade Claude Code from here; update its warden first.",
+      restart: "Upgrade again",
+      close: "Close",
+    },
     sessionCol: {
       member: "Member",
       machine: "Machine",
@@ -1722,6 +1745,7 @@ export const en: Dict = {
     },
     machine: {
       actionsCol: "Actions",
+      actionsMenu: (name: string) => `Machine actions (${name})`,
       copy: "Copy",
       copied: "Copied",
       close: "Close",
@@ -1837,6 +1861,7 @@ export const en: Dict = {
       runtimeNoVersionHint:
         "Installed, but its version could not be read.",
       runtimeLoggedOut: "signed out",
+      runtimeTooOld: "too old",
       // ── hardware sample age (T-b36a). The server WITHHOLDS the numbers of an
       // expired sample, so cpu/ram/power fall back to a dash — the same dash a
       // machine that has never reported hardware shows. These two labels are

@@ -56,8 +56,8 @@ func TestRunLifecycleTick(t *testing.T) {
 			t.Fatalf("warden command count = %d, want 1", len(commands))
 		}
 		pending, ok := api.receiptPending[seedMiraID]
-		if !ok || pending.RPC != reconcileCmdStart || pending.Deadline != 1700000190 {
-			t.Fatalf("receipt watch = %+v, want start deadline 1700000190", pending)
+		if !ok || pending.RPC != reconcileCmdStart || pending.Deadline != 1700000250 {
+			t.Fatalf("receipt watch = %+v, want start deadline 1700000250", pending)
 		}
 		workers, err := d.ListOutsourceWorkers()
 		if err != nil {

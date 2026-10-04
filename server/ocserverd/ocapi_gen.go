@@ -334,6 +334,84 @@ func (e RuntimeLoginWarningDTORuntime) Valid() bool {
 	}
 }
 
+// Defines values for RuntimeUpgradeDTORuntime.
+const (
+	RuntimeUpgradeDTORuntimeClaude RuntimeUpgradeDTORuntime = "claude"
+)
+
+// Valid indicates whether the value is a known member of the RuntimeUpgradeDTORuntime enum.
+func (e RuntimeUpgradeDTORuntime) Valid() bool {
+	switch e {
+	case RuntimeUpgradeDTORuntimeClaude:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RuntimeUpgradeDTOState.
+const (
+	RuntimeUpgradeDTOStateExpired   RuntimeUpgradeDTOState = "expired"
+	RuntimeUpgradeDTOStateFailed    RuntimeUpgradeDTOState = "failed"
+	RuntimeUpgradeDTOStateRunning   RuntimeUpgradeDTOState = "running"
+	RuntimeUpgradeDTOStateStarting  RuntimeUpgradeDTOState = "starting"
+	RuntimeUpgradeDTOStateSucceeded RuntimeUpgradeDTOState = "succeeded"
+)
+
+// Valid indicates whether the value is a known member of the RuntimeUpgradeDTOState enum.
+func (e RuntimeUpgradeDTOState) Valid() bool {
+	switch e {
+	case RuntimeUpgradeDTOStateExpired:
+		return true
+	case RuntimeUpgradeDTOStateFailed:
+		return true
+	case RuntimeUpgradeDTOStateRunning:
+		return true
+	case RuntimeUpgradeDTOStateStarting:
+		return true
+	case RuntimeUpgradeDTOStateSucceeded:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RuntimeUpgradeReportDTOState.
+const (
+	RuntimeUpgradeReportDTOStateFailed    RuntimeUpgradeReportDTOState = "failed"
+	RuntimeUpgradeReportDTOStateRunning   RuntimeUpgradeReportDTOState = "running"
+	RuntimeUpgradeReportDTOStateSucceeded RuntimeUpgradeReportDTOState = "succeeded"
+)
+
+// Valid indicates whether the value is a known member of the RuntimeUpgradeReportDTOState enum.
+func (e RuntimeUpgradeReportDTOState) Valid() bool {
+	switch e {
+	case RuntimeUpgradeReportDTOStateFailed:
+		return true
+	case RuntimeUpgradeReportDTOStateRunning:
+		return true
+	case RuntimeUpgradeReportDTOStateSucceeded:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RuntimeUpgradeStartDTORuntime.
+const (
+	RuntimeUpgradeStartDTORuntimeClaude RuntimeUpgradeStartDTORuntime = "claude"
+)
+
+// Valid indicates whether the value is a known member of the RuntimeUpgradeStartDTORuntime enum.
+func (e RuntimeUpgradeStartDTORuntime) Valid() bool {
+	switch e {
+	case RuntimeUpgradeStartDTORuntimeClaude:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ScheduledMessageCreateDTOCadence.
 const (
 	ScheduledMessageCreateDTOCadenceCustom  ScheduledMessageCreateDTOCadence = "custom"
@@ -667,7 +745,7 @@ type AgentTelemetryIngestDTO struct {
 	// Runtime Optional session runtime: ``claude`` or ``codex``. Omitted leaves previously stored telemetry untouched.
 	Runtime interface{} `json:"runtime,omitempty"`
 
-	// Runtimes Warden heartbeats only — provider-neutral runtime capability map. Each ``claude``/``codex`` entry may report ``installed`` bool, ``logged_in`` bool/null, and ``version`` string/null, and ``codex`` also ``model_families`` bool; values are readiness metadata only, never credentials. The shape is DECLARED (T-90be) and this is the block where a silent rename costs the most: ``runtimePlacementRefusal`` (api_machines.go) fail-closes when it cannot read codex ``installed``, so the machine becomes permanently unsupported for codex and its workers sit stamped ``machine_unavailable`` — with nothing on screen saying why. NOT closed (see ``hardware``): an unknown runtime name or a new readiness key must not 422 the whole heartbeat.
+	// Runtimes Warden heartbeats only — provider-neutral runtime capability map. Each ``claude``/``codex`` entry may report ``installed`` bool, ``logged_in`` bool/null, and ``version`` string/null, ``claude`` also ``below_notify_minimum`` bool/null, and ``codex`` also ``model_families`` bool; values are readiness metadata only, never credentials. The shape is DECLARED (T-90be) and this is the block where a silent rename costs the most: ``runtimePlacementRefusal`` (api_machines.go) fail-closes when it cannot read codex ``installed``, so the machine becomes permanently unsupported for codex and its workers sit stamped ``machine_unavailable`` — with nothing on screen saying why. NOT closed (see ``hardware``): an unknown runtime name or a new readiness key must not 422 the whole heartbeat.
 	Runtimes   *map[string]interface{} `json:"runtimes,omitempty"`
 	SelfUpdate interface{}             `json:"self_update,omitempty"`
 	Tokens     interface{}             `json:"tokens,omitempty"`
@@ -2944,9 +3022,11 @@ type RoleDocSizesDTO struct {
 
 // RuntimeCapabilityDTO Value-free readiness of one AI CLI runtime on a machine. “installed“ means the exact binary the warden would launch resolved and passed its version probe. “logged_in“ is the warden's latest provider login check, re-run every “runtime_login_check_interval_secs“ while it is true and every “runtime_login_recheck_interval_secs“ while it is false or null: for Claude, “claude auth status“ in the environment members launch with — true when it reports logged in, false only when it reports logged out and (on macOS) the login keychain is readable by the warden, null on timeout, unparseable output or an unreadable keychain; for Codex, “codex login status“ — true on exit 0, false on a non-zero exit, null when it timed out or would not start. Null means unknown, never logged out. A start runs the same check on the spot first, and its verdict replaces this one at once. “version“ is null when unresolved or probing failed. No credential value or path is exposed.
 type RuntimeCapabilityDTO struct {
-	Installed *bool   `json:"installed,omitempty"`
-	LoggedIn  *bool   `json:"logged_in,omitempty"`
-	Version   *string `json:"version,omitempty"`
+	// BelowNotifyMinimum Claude only. true when the version the warden read from the claude binary members launch with is older than the minimum Claude Code version the notification mod needs; false when it is at or above it. The minimum is held by the warden, not the server. Absent or null when the version is unknown, when the warden predates this field, and for every runtime other than claude. While true the UI shows a 版本太舊 marker on the machine's Claude runtime with the upgrade action (`POST /api/machines/{machine_id}/runtime-upgrade`).
+	BelowNotifyMinimum *bool   `json:"below_notify_minimum,omitempty"`
+	Installed          *bool   `json:"installed,omitempty"`
+	LoggedIn           *bool   `json:"logged_in,omitempty"`
+	Version            *string `json:"version,omitempty"`
 }
 
 // RuntimeLoginAccountDTO Who the runtime CLI says it is now logged in as. Display values only; no token or credential. For `claude`, all three come from `claude auth status`. For `codex`, `email` and `plan` are claims of the ID token codex keeps after login, decoded on the machine (the token itself never leaves it), and `org_name` is unset.
@@ -3046,6 +3126,61 @@ type RuntimeLoginWarningDTO struct {
 
 // RuntimeLoginWarningDTORuntime defines model for RuntimeLoginWarningDTO.Runtime.
 type RuntimeLoginWarningDTORuntime string
+
+// RuntimeUpgradeDTO One Claude Code upgrade the server relays to a machine's warden. The warden runs `claude update` with the same claude binary and environment it launches members with, then reads `claude --version` again. `succeeded` means the version read back is newer than `from_version`. Members already running keep the process they were started with; a member started after the upgrade runs the new version. Held in server memory only and never persisted: a server restart forgets every upgrade, and an upgrade is dropped about 10 minutes after it reaches a terminal state (`succeeded`, `failed`, `expired`), after which it reads as 404. A non-terminal upgrade with no warden report for 20 minutes becomes `expired`; that is longer than the warden lets `claude update` run, so a live upgrade always gets to report its own end first. There is no cancel.
+type RuntimeUpgradeDTO struct {
+	// FromVersion The `claude --version` the warden read before running `claude update`; set from the warden's first report that carries it.
+	FromVersion *string `json:"from_version,omitempty"`
+	MachineId   string  `json:"machine_id"`
+
+	// Reason Human-readable cause on `failed` or `expired`. When the version read back equals `from_version` the upgrade is `failed` and the reason says the version did not change: either it was already the latest release, or `claude update` changed a different install than the claude binary members launch with. When `claude update` said Homebrew manages the install (it then exits 0 without upgrading), the reason says so instead and names what to run on that machine: the `brew upgrade` command and its target, switching to the `claude-code@latest` cask when Homebrew's newest is below the notify-mod minimum, or that it is already Homebrew's newest.
+	Reason  *string                  `json:"reason,omitempty"`
+	Runtime RuntimeUpgradeDTORuntime `json:"runtime"`
+
+	// StartedTs Epoch seconds the server accepted the start, server-stamped.
+	StartedTs float64 `json:"started_ts"`
+
+	// State `starting` until the warden's first report; the warden reports `running` as soon as it starts `claude update`. A warden build that predates the `runtime_upgrade` verb ignores it, so `starting` never advances and the upgrade becomes `expired` like any other silent one; the UI gives up on it after 30s and shows that the machine's warden must be updated first. A reader that does not know a value must treat it as non-terminal.
+	State RuntimeUpgradeDTOState `json:"state"`
+
+	// ToVersion The `claude --version` the warden read after `claude update` finished; set on `succeeded`, and on `failed` when the warden could read it.
+	ToVersion *string `json:"to_version,omitempty"`
+
+	// UpdatedTs Epoch seconds of the last state change, server-stamped.
+	UpdatedTs float64 `json:"updated_ts"`
+	UpgradeId string  `json:"upgrade_id"`
+}
+
+// RuntimeUpgradeDTORuntime defines model for RuntimeUpgradeDTO.Runtime.
+type RuntimeUpgradeDTORuntime string
+
+// RuntimeUpgradeDTOState `starting` until the warden's first report; the warden reports `running` as soon as it starts `claude update`. A warden build that predates the `runtime_upgrade` verb ignores it, so `starting` never advances and the upgrade becomes `expired` like any other silent one; the UI gives up on it after 30s and shows that the machine's warden must be updated first. A reader that does not know a value must treat it as non-terminal.
+type RuntimeUpgradeDTOState string
+
+// RuntimeUpgradeReportDTO A warden's progress report for one runtime upgrade. The warden decides `succeeded` or `failed` by comparing the version it read back with the one it read before, as dotted numbers. Held in server memory only, like the upgrade itself.
+type RuntimeUpgradeReportDTO struct {
+	// FromVersion Send with `running` and every later report once read.
+	FromVersion *string `json:"from_version,omitempty"`
+
+	// Reason Send with `failed`.
+	Reason *string                      `json:"reason,omitempty"`
+	State  RuntimeUpgradeReportDTOState `json:"state"`
+
+	// ToVersion Send with `succeeded`, and with `failed` when the version could be read back.
+	ToVersion *string `json:"to_version,omitempty"`
+	UpgradeId string  `json:"upgrade_id"`
+}
+
+// RuntimeUpgradeReportDTOState defines model for RuntimeUpgradeReportDTO.State.
+type RuntimeUpgradeReportDTOState string
+
+// RuntimeUpgradeStartDTO Which runtime to upgrade on the machine. Only `claude` is supported; any other value is a 422.
+type RuntimeUpgradeStartDTO struct {
+	Runtime RuntimeUpgradeStartDTORuntime `json:"runtime"`
+}
+
+// RuntimeUpgradeStartDTORuntime defines model for RuntimeUpgradeStartDTO.Runtime.
+type RuntimeUpgradeStartDTORuntime string
 
 // ScheduledMessageCreateDTO Create one scheduled message on a member (T-f059 定期訊息; `custom` cadence added by T-49e7). `body`, `cadence` and `timezone` are REQUIRED unconditionally; the remaining fields are required or ignored ACCORDING TO `cadence`, and each states its own behaviour. `daily`/`weekly`/`monthly` fire once a day at the single wall-clock reading `hour`/`minute` names, so those two are required for them (omitting either is a 422, never a silent midnight) and `weekly` additionally reads `day_of_week`, `monthly` `day_of_month`. `custom` fires at every reading where `custom_months`, `custom_days`, `custom_hours` and `custom_minutes` all hold, so `custom_days`/`custom_hours`/`custom_minutes` are required for it and `hour`/`minute`/`day_of_week`/`day_of_month` are ignored. `custom_months` is the one set of the four that may be omitted — an omitted `custom_months` means all twelve months, which is what keeps a client written before that field working unchanged; an explicit empty array is still a 422. `hour` and `minute` left the unconditional required list in T-49e7 precisely so that a `custom` schedule does not have to send two values it never reads — a required-but-ignored field is the ambiguity this table was warned about — and the conditional 422 keeps the calendar cadences exactly as strict as before. `timezone` is required for every cadence and deliberately not defaulted: a defaulted zone would sooner or later be read as "wherever the server happens to run". The delivery cursor is initialised to the slot most recently elapsed at creation time, so a schedule created at 10:00 for `daily` 09:00 does not fire today. The recipient may be an assistant OR an `ow-` outsource worker — the same recipient rule ordinary chat uses.
 type ScheduledMessageCreateDTO struct {
@@ -4702,6 +4837,9 @@ type HandleStartRuntimeLoginApiMachinesMachineIdRuntimeLoginPostJSONRequestBody 
 // HandleSubmitRuntimeLoginCodeApiMachinesMachineIdRuntimeLoginLoginIdCodePostJSONRequestBody defines body for HandleSubmitRuntimeLoginCodeApiMachinesMachineIdRuntimeLoginLoginIdCodePost for application/json ContentType.
 type HandleSubmitRuntimeLoginCodeApiMachinesMachineIdRuntimeLoginLoginIdCodePostJSONRequestBody = RuntimeLoginCodeDTO
 
+// HandleStartRuntimeUpgradeApiMachinesMachineIdRuntimeUpgradePostJSONRequestBody defines body for HandleStartRuntimeUpgradeApiMachinesMachineIdRuntimeUpgradePost for application/json ContentType.
+type HandleStartRuntimeUpgradeApiMachinesMachineIdRuntimeUpgradePostJSONRequestBody = RuntimeUpgradeStartDTO
+
 // HandleHireMemberApiMembersPostJSONRequestBody defines body for HandleHireMemberApiMembersPost for application/json ContentType.
 type HandleHireMemberApiMembersPostJSONRequestBody = MemberHireDTO
 
@@ -4731,6 +4869,9 @@ type HandleMintApiMintPostJSONRequestBody = MintRequestDTO
 
 // HandleReportRuntimeLoginApiMonitoringRuntimeLoginPostJSONRequestBody defines body for HandleReportRuntimeLoginApiMonitoringRuntimeLoginPost for application/json ContentType.
 type HandleReportRuntimeLoginApiMonitoringRuntimeLoginPostJSONRequestBody = RuntimeLoginReportDTO
+
+// HandleReportRuntimeUpgradeApiMonitoringRuntimeUpgradePostJSONRequestBody defines body for HandleReportRuntimeUpgradeApiMonitoringRuntimeUpgradePost for application/json ContentType.
+type HandleReportRuntimeUpgradeApiMonitoringRuntimeUpgradePostJSONRequestBody = RuntimeUpgradeReportDTO
 
 // HandleIngestTelemetryApiMonitoringTelemetryPostJSONRequestBody defines body for HandleIngestTelemetryApiMonitoringTelemetryPost for application/json ContentType.
 type HandleIngestTelemetryApiMonitoringTelemetryPostJSONRequestBody = AgentTelemetryIngestDTO
@@ -5103,6 +5244,12 @@ type ServerInterface interface {
 	// Submit the sign-in code for a runtime login.
 	// (POST /api/machines/{machine_id}/runtime-login/{login_id}/code)
 	HandleSubmitRuntimeLoginCodeApiMachinesMachineIdRuntimeLoginLoginIdCodePost(w http.ResponseWriter, r *http.Request, machineId string, loginId string)
+	// Start a Claude Code upgrade on a machine: its warden runs `claude update` and reports the version before and after.
+	// (POST /api/machines/{machine_id}/runtime-upgrade)
+	HandleStartRuntimeUpgradeApiMachinesMachineIdRuntimeUpgradePost(w http.ResponseWriter, r *http.Request, machineId string)
+	// Read a runtime upgrade's current state.
+	// (GET /api/machines/{machine_id}/runtime-upgrade/{upgrade_id})
+	HandleGetRuntimeUpgradeApiMachinesMachineIdRuntimeUpgradeUpgradeIdGet(w http.ResponseWriter, r *http.Request, machineId string, upgradeId string)
 	// Teardown on server: runs `ocwarden teardown` on the SERVER's own host. machine_id is NOT a target — this verb has no way to reach another machine, and naming one is refused (409). The server-local machine is refused too (retiring it revokes credentials fleet-wide). To retire another machine use uninstall_machine then delete_machine; to repair the server host's own warden use install_warden_on_server_host, which runs `install --force` over the existing install.
 	// (POST /api/machines/{machine_id}/teardown-here)
 	HandleTeardownHereApiMachinesMachineIdTeardownHerePost(w http.ResponseWriter, r *http.Request, machineId string)
@@ -5215,6 +5362,9 @@ type ServerInterface interface {
 	// Report a runtime login's progress (warden only). Answers the login as the server now holds it.
 	// (POST /api/monitoring/runtime-login)
 	HandleReportRuntimeLoginApiMonitoringRuntimeLoginPost(w http.ResponseWriter, r *http.Request)
+	// Report a runtime upgrade's progress (warden only). Answers the upgrade as the server now holds it.
+	// (POST /api/monitoring/runtime-upgrade)
+	HandleReportRuntimeUpgradeApiMonitoringRuntimeUpgradePost(w http.ResponseWriter, r *http.Request)
 	// Ingest warden telemetry (hardware/limits/tokens/cost/self_update). Answers with a bounded receipt (“agent_id“, “machine“, “ts“), not the stored entry echoed back — call “get_monitoring“ when you need the rest.
 	//
 	// PARAMETER NOTES. In the input schema the parameters below carry only a short summary; these are their full rules.
@@ -7503,6 +7653,67 @@ func (siw *ServerInterfaceWrapper) HandleSubmitRuntimeLoginCodeApiMachinesMachin
 	handler.ServeHTTP(w, r)
 }
 
+// HandleStartRuntimeUpgradeApiMachinesMachineIdRuntimeUpgradePost operation middleware
+func (siw *ServerInterfaceWrapper) HandleStartRuntimeUpgradeApiMachinesMachineIdRuntimeUpgradePost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "machine_id" -------------
+	var machineId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "machine_id", r.PathValue("machine_id"), &machineId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "machine_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleStartRuntimeUpgradeApiMachinesMachineIdRuntimeUpgradePost(w, r, machineId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleGetRuntimeUpgradeApiMachinesMachineIdRuntimeUpgradeUpgradeIdGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleGetRuntimeUpgradeApiMachinesMachineIdRuntimeUpgradeUpgradeIdGet(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "machine_id" -------------
+	var machineId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "machine_id", r.PathValue("machine_id"), &machineId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "machine_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "upgrade_id" -------------
+	var upgradeId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "upgrade_id", r.PathValue("upgrade_id"), &upgradeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "upgrade_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleGetRuntimeUpgradeApiMachinesMachineIdRuntimeUpgradeUpgradeIdGet(w, r, machineId, upgradeId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // HandleTeardownHereApiMachinesMachineIdTeardownHerePost operation middleware
 func (siw *ServerInterfaceWrapper) HandleTeardownHereApiMachinesMachineIdTeardownHerePost(w http.ResponseWriter, r *http.Request) {
 
@@ -8373,6 +8584,20 @@ func (siw *ServerInterfaceWrapper) HandleReportRuntimeLoginApiMonitoringRuntimeL
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleReportRuntimeLoginApiMonitoringRuntimeLoginPost(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleReportRuntimeUpgradeApiMonitoringRuntimeUpgradePost operation middleware
+func (siw *ServerInterfaceWrapper) HandleReportRuntimeUpgradeApiMonitoringRuntimeUpgradePost(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleReportRuntimeUpgradeApiMonitoringRuntimeUpgradePost(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -10631,6 +10856,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/machines/{machine_id}/runtime-login/{login_id}", wrapper.HandleGetRuntimeLoginApiMachinesMachineIdRuntimeLoginLoginIdGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/machines/{machine_id}/runtime-login/{login_id}/cancel", wrapper.HandleCancelRuntimeLoginApiMachinesMachineIdRuntimeLoginLoginIdCancelPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/machines/{machine_id}/runtime-login/{login_id}/code", wrapper.HandleSubmitRuntimeLoginCodeApiMachinesMachineIdRuntimeLoginLoginIdCodePost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/machines/{machine_id}/runtime-upgrade", wrapper.HandleStartRuntimeUpgradeApiMachinesMachineIdRuntimeUpgradePost)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/machines/{machine_id}/runtime-upgrade/{upgrade_id}", wrapper.HandleGetRuntimeUpgradeApiMachinesMachineIdRuntimeUpgradeUpgradeIdGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/machines/{machine_id}/teardown-here", wrapper.HandleTeardownHereApiMachinesMachineIdTeardownHerePost)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/machines/{member_id}", wrapper.HandleDeleteMachineApiMachinesMemberIdDelete)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/machines/{member_id}/uninstall", wrapper.HandleUninstallMachineApiMachinesMemberIdUninstallPost)
@@ -10664,6 +10891,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/mint", wrapper.HandleMintApiMintPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/monitoring", wrapper.HandleGetMonitoringApiMonitoringGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/monitoring/runtime-login", wrapper.HandleReportRuntimeLoginApiMonitoringRuntimeLoginPost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/monitoring/runtime-upgrade", wrapper.HandleReportRuntimeUpgradeApiMonitoringRuntimeUpgradePost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/monitoring/telemetry", wrapper.HandleIngestTelemetryApiMonitoringTelemetryPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/offboard", wrapper.HandleGetOffboardApiOffboardGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/offboard", wrapper.HandleReplaceOffboardApiOffboardPost)

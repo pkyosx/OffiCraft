@@ -399,6 +399,32 @@
       "wire_case": "runtime-login"
     },
     {
+      "id": "warden-upgrade-reporter-wired",
+      "source": "cli/ocwarden/main.go",
+      "callsite": "deps.Upgrade = newUpgradeRelay(login, newUpgradeReporter(cfg), func() {",
+      "kind": "seam",
+      "seam_reason": "builds the runtime-upgrade reporter closure and hands it to the upgrade relay; the POST inside it is declared by warden-runtime-upgrade-report"
+    },
+    {
+      "id": "warden-upgrade-poster-built",
+      "source": "cli/ocwarden/runtimeupgrade.go",
+      "callsite": "post := httpPoster(&http.Client{Timeout: commandReportTimeout}, cfg.Base, cfg.Token)\n\treturn func(rep upgradeReport) string {",
+      "kind": "seam",
+      "seam_reason": "Construction of the poster seam for runtime-upgrade reports. The send through it is warden-runtime-upgrade-report, compared there."
+    },
+    {
+      "id": "warden-runtime-upgrade-report",
+      "source": "cli/ocwarden/runtimeupgrade.go",
+      "callsite": "_, body := post(runtimeUpgradePath, upgradeReportPayload(rep))",
+      "kind": "json",
+      "method": "post",
+      "path": "/api/monitoring/runtime-upgrade",
+      "request_schema": "#/components/schemas/RuntimeUpgradeReportDTO",
+      "wire_test": "cli/ocwarden/runtimeupgrade_wire_test.go",
+      "wire_needle": "newUpgradeReporter(Config{Base: base, Token: \"tok\", ID: \"m-1\"})(rep)",
+      "wire_case": "runtime-upgrade"
+    },
+    {
       "id": "ocagent-reportpost-seam",
       "source": "cli/ocagent/contextreport.go",
       "callsite": "status, detail := httpRequest(client, http.MethodPost, cfg.Base+path, cfg.Token, body)",
@@ -599,7 +625,7 @@
     {
       "id": "ocagent-cmd-2",
       "source": "cli/ocagent/main.go",
-      "callsite": "return cmdListen(rest, cfg, env, out, runListen, nil)",
+      "callsite": "return cmdListen(rest, cfg, env, out, os.Stderr, runListen, nil)",
       "kind": "seam",
       "seam_reason": "hop: the listen command reaches the SSE stream and every send the listener makes, each declared on its own callsite"
     },
@@ -724,7 +750,7 @@
     {
       "id": "warden-hop-2",
       "source": "cli/ocwarden/main.go",
-      "callsite": "commandDeps, login, setLoginIntervals := wireLoginCheck(cfg, env, runner, runtime.GOOS, logf)",
+      "callsite": "commandDeps, login, setLoginIntervals := wireLoginCheck(cfg, env, runner, runtime.GOOS, logf,",
       "kind": "seam",
       "seam_reason": "builds the login prober and CommandDeps, whose Report field is the command_result reporter; the POST is declared by warden-command-result"
     },
@@ -822,9 +848,9 @@
     {
       "id": "warden-handlepayload-value",
       "source": "cli/ocwarden/transport.go",
-      "callsite": "return true, scanSSEWithActivity(resp.Body, t.handlePayload, onActivity)",
+      "callsite": "t.handlePayload(payload)",
       "kind": "seam",
-      "seam_reason": "the command-frame handler handed to the SSE scanner as a VALUE: the loop calls it per frame and it reaches the command_result receipts, each declared on its own callsite in command.go."
+      "seam_reason": "the command-frame handler, called per frame from the closure the SSE scanner is handed (which pauses and re-arms the idle-read watchdog around it); it reaches the command_result receipts, each declared on its own callsite in command.go."
     },
     {
       "id": "warden-renew-request",

@@ -182,7 +182,14 @@ func (t *sseTransport) connectOnce(ctx context.Context) (opened bool, err error)
 	if t.onConnect != nil {
 		t.onConnect()
 	}
-	var onActivity func()
+	// Every command runs synchronously inside this read loop, and a start can
+	// outlast the idle deadline (the notify-mod restart takes ~45-80 s). The
+	// deadline measures the SERVER's silence, not ours, so it is re-armed once
+	// the command returns: a deadline that expired meanwhile fails the next Read
+	// even with frames already buffered, dropping the connection and every frame
+	// sent during the command. The AfterFunc watchdog would cancel the request
+	// MID-command, so it is also stopped before the command runs.
+	var onActivity, beforeCmd func()
 	if t.idleReadTimeout > 0 {
 		connMu.Lock()
 		conn := httpConn
@@ -195,9 +202,19 @@ func (t *sseTransport) connectOnce(ctx context.Context) (opened bool, err error)
 			watchdog := time.AfterFunc(t.idleReadTimeout, cancelConn)
 			defer watchdog.Stop()
 			onActivity = func() { watchdog.Reset(t.idleReadTimeout) }
+			beforeCmd = func() { watchdog.Stop() }
 		}
 	}
-	return true, scanSSEWithActivity(resp.Body, t.handlePayload, onActivity)
+	handle := func(payload []byte) {
+		if beforeCmd != nil {
+			beforeCmd()
+		}
+		t.handlePayload(payload)
+		if onActivity != nil {
+			onActivity()
+		}
+	}
+	return true, scanSSEWithActivity(resp.Body, handle, onActivity)
 }
 
 func (t *sseTransport) handlePayload(payload []byte) {
@@ -335,6 +352,14 @@ func resolveRepoRoot(executable func() (string, error)) string {
 // binary that was never downloaded.
 func pathStatable(p string) bool { _, err := os.Stat(p); return err == nil }
 
+func fileModTime(p string) (time.Time, error) {
+	fi, err := os.Stat(p)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return fi.ModTime(), nil
+}
+
 func newOcAgentResolver(executable func() (string, error), exists func(string) bool) func() (string, bool) {
 	return func() (string, bool) {
 		return resolveOcAgentBin(executable, exists, resolveRepoRoot(executable))
@@ -372,6 +397,12 @@ func buildLoginGate(env func(string) string, login *loginProber) func(runtime st
 		return login.checkForSpawn(runtime)
 	}
 }
+
+// spawnSleep is every wait the spawn and stop seams below make (the notify-mod
+// waits, the nudge pacing, the sweep polls). A var only so TestBuildCommandDeps
+// can run the production wiring, notify-mod restart included, without ~60 s of
+// real sleep.
+var spawnSleep = time.Sleep
 
 // buildSpawnDeps is separate so tests can inspect the production literal:
 // setting ResolveOcAgentBin to nil once reinstated the dangling-ocagent defect
@@ -412,8 +443,25 @@ func buildSpawnDeps(cfg Config, env func(string) string, runner CmdRunner, socke
 		MkdirAll:          os.MkdirAll,
 		Symlink:           os.Symlink,
 		Remove:            os.Remove,
-		Sleep:             time.Sleep,
-		Pretrust:          nil,
+		Exists:            pathStatable,
+		ModTime:           fileModTime,
+		Now:               time.Now,
+		ReapWorkdirListeners: func(workdir string) (int, bool) {
+			pids := ocagentPIDsByCwd(runner, workdir)
+			return len(pids), sweepPIDs(pids, realKill, spawnSleep)
+		},
+		// The same ladder as the Stop verb, minus the trash purge.
+		StopAttempt: func(socket, session, workdir string) bool {
+			stopped, _ := stop(runner, socket, session, realKill, realGetpgid, sweepSeams{
+				listenPIDs: func(wd string) []int { return ocagentPIDsByCwd(runner, wd) },
+				workdir:    workdir,
+				sleep:      spawnSleep,
+			})
+			return stopped
+		},
+		ReadFile: os.ReadFile,
+		Sleep:    spawnSleep,
+		Pretrust: nil,
 	}
 }
 
@@ -436,8 +484,9 @@ func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner, lau
 			).start(p)
 		},
 		Stop: func(session string) (bool, bool) {
-			// The detached `ocagent listen` never receives the session's SIGHUP, so the
-			// sweep finds it by workdir (lsof) and reaps it by pid. A legacy
+			// A paste-route `ocagent listen` is detached and never receives the
+			// session's SIGHUP, so the sweep finds it by workdir (lsof) and reaps it
+			// by pid. A legacy
 			// worker-<ow-id> session resolves the retired workers/ root; an unresolvable
 			// session keeps root "", which makes purgeTrash refuse.
 			root := defaultAgentHome(env)
@@ -452,7 +501,7 @@ func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner, lau
 			return stop(runner, socket, session, realKill, realGetpgid, sweepSeams{
 				listenPIDs: func(wd string) []int { return ocagentPIDsByCwd(runner, wd) },
 				workdir:    workdir,
-				sleep:      time.Sleep,
+				sleep:      spawnSleep,
 				purgeTrash: func() { purgeTrash(root, workdir, stderrLogf) },
 			})
 		},

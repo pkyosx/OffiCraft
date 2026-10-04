@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -26,6 +29,11 @@ type sseStream struct {
 }
 
 func (s *sseStream) Read(p []byte) (int, error) {
+	// A cancelled request is a closed socket: no read succeeds after it, even
+	// with lines queued (a select would pick between the two at random).
+	if ctx := s.ctxOf(); ctx != nil && ctx.Err() != nil && s.pending == "" {
+		return 0, errors.New("read tcp: i/o timeout")
+	}
 	for s.pending == "" {
 		select {
 		case line, ok := <-s.lines:
@@ -290,6 +298,156 @@ func TestConnectOnce(t *testing.T) {
 		opened, err := h.transport.connectOnce(context.Background())
 		if !opened || err != nil {
 			t.Errorf("connectOnce = (%v, %v), want (true, nil) — a heartbeat-only stream is alive", opened, err)
+		}
+	})
+}
+
+// A start runs inside the read loop and can take longer than the idle-read
+// deadline (the notify-mod restart: ~45-80 s against 45 s). The frames the
+// server sends meanwhile must still be read once it returns, on both watchdog
+// branches; before the fix the next read failed with i/o timeout and they were
+// lost with the connection.
+func TestConnectOnceCommandLongerThanReadDeadline(t *testing.T) {
+	const (
+		deadline = 100 * time.Millisecond
+		busy     = 4 * deadline
+	)
+	frame := func(member string) string {
+		return `data: {"topic":"warden-command","data":{"rpc":"stop","args":{"member_id":"` + member + `"}}}` + "\n\n"
+	}
+	// slowStop takes longer than the deadline for m-1 and signals when it starts.
+	slowStop := func(mu *sync.Mutex, stops *[]string, started chan<- struct{}) func(string) (bool, bool) {
+		return func(session string) (bool, bool) {
+			if session == "member-m-1" {
+				close(started)
+				time.Sleep(busy)
+			}
+			mu.Lock()
+			*stops = append(*stops, session)
+			mu.Unlock()
+			return true, false
+		}
+	}
+	want := []string{"member-m-1", "member-m-2", "member-m-3"}
+
+	t.Run("socket read deadline", func(t *testing.T) {
+		var (
+			mu    sync.Mutex
+			stops []string
+		)
+		started := make(chan struct{})
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			fl := w.(http.Flusher)
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = io.WriteString(w, frame("m-1"))
+			fl.Flush()
+			<-started
+			// Sent while the first command is still running.
+			_, _ = io.WriteString(w, frame("m-2")+frame("m-3"))
+			fl.Flush()
+		}))
+		defer srv.Close()
+		tr := &sseTransport{
+			base:            srv.URL,
+			client:          srv.Client(),
+			idleReadTimeout: deadline,
+			logf:            func(string, ...any) {},
+			deps:            CommandDeps{Stop: slowStop(&mu, &stops, started)},
+		}
+		opened, err := tr.connectOnce(context.Background())
+		if !opened || err != nil {
+			t.Errorf("connectOnce = (%v, %v), want (true, nil): a slow command must not time out the next read", opened, err)
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if !reflect.DeepEqual(stops, want) {
+			t.Errorf("ran %v, want %v: frames sent during the slow command were lost", stops, want)
+		}
+	})
+
+	t.Run("AfterFunc watchdog", func(t *testing.T) {
+		h := newSSEHarness(t, http.StatusOK, nil)
+		h.transport.idleReadTimeout = deadline
+		var mu sync.Mutex
+		started := make(chan struct{})
+		h.transport.deps.Stop = slowStop(&mu, &h.stops, started)
+		go func() {
+			h.stream.lines <- frame("m-1")
+			<-started
+			h.stream.lines <- frame("m-2")
+			h.stream.lines <- frame("m-3")
+			close(h.stream.lines)
+		}()
+		opened, err := h.transport.connectOnce(context.Background())
+		if !opened || err != nil {
+			t.Errorf("connectOnce = (%v, %v), want (true, nil): the watchdog must not fire during a command", opened, err)
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if !reflect.DeepEqual(h.stops, want) {
+			t.Errorf("ran %v, want %v: frames sent during the slow command were lost", h.stops, want)
+		}
+	})
+
+	t.Run("socket read deadline is re-armed after the command", func(t *testing.T) {
+		// Reset, not cleared: a stream that goes silent after the command is
+		// still dropped by the read deadline.
+		release := make(chan struct{})
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = io.WriteString(w, frame("m-1"))
+			w.(http.Flusher).Flush()
+			select { // silent, connection held open
+			case <-r.Context().Done():
+			case <-release:
+			}
+		}))
+		defer srv.Close()
+		defer close(release)
+		var mu sync.Mutex
+		var stops []string
+		tr := &sseTransport{
+			base:            srv.URL,
+			client:          srv.Client(),
+			idleReadTimeout: deadline,
+			logf:            func(string, ...any) {},
+			deps:            CommandDeps{Stop: slowStop(&mu, &stops, make(chan struct{}))},
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		done := make(chan error, 1)
+		go func() { _, err := tr.connectOnce(ctx); done <- err }()
+		select {
+		case err := <-done:
+			if !errors.Is(err, os.ErrDeadlineExceeded) {
+				t.Errorf("connectOnce err = %v, want the read deadline's i/o timeout", err)
+			}
+		case <-time.After(busy + 20*deadline):
+			cancel()
+			<-done
+			t.Error("a silent stream after the command was never dropped: the read deadline was cleared")
+		}
+	})
+
+	t.Run("AfterFunc watchdog is re-armed after the command", func(t *testing.T) {
+		// Stopped for the command, it must come back: a stream that then goes
+		// silent is still dropped.
+		h := newSSEHarness(t, http.StatusOK, nil)
+		h.transport.idleReadTimeout = deadline
+		var mu sync.Mutex
+		h.transport.deps.Stop = slowStop(&mu, &h.stops, make(chan struct{}))
+		h.stream.lines <- frame("m-1")
+		done := make(chan error, 1)
+		go func() { _, err := h.transport.connectOnce(context.Background()); done <- err }()
+		select {
+		case err := <-done:
+			if err == nil {
+				t.Error("connectOnce ended cleanly, want the idle watchdog's read timeout")
+			}
+		case <-time.After(busy + 20*deadline):
+			close(h.stream.lines)
+			<-done
+			t.Error("a silent stream after the command was never dropped: the watchdog stayed stopped")
 		}
 	})
 }
@@ -766,7 +924,7 @@ func TestBuildSpawnDeps(t *testing.T) {
 	if ok, _ := deps.ClaudeTakesPromptFile("/a/system-prompt.md"); ok {
 		t.Error("a claude that rejects --append-system-prompt-file was reported as taking it")
 	}
-	// 2s is a line of the receiptDeadlineSecs budget (server/ocserverd/receipt_watch.go).
+	// 2s is a line of the startReceiptDeadlineSecs budget (server/ocserverd/receipt_watch.go).
 	if want := []time.Duration{2 * time.Second, 2 * time.Second}; !reflect.DeepEqual(runner.timeouts, want) {
 		t.Errorf("timeouts the probe ran under = %v, want %v", runner.timeouts, want)
 	}
@@ -792,7 +950,35 @@ func TestBuildSpawnDeps(t *testing.T) {
 	}
 }
 
+// pidGuardRunner keeps a test that runs the production stop() (realKill,
+// realGetpgid) from ever signalling a real process: every command whose output
+// stop() turns into kill targets must come back empty from the fake. A script
+// that answered one with a pid fails the test and is blanked before stop() sees it.
+type pidGuardRunner struct {
+	t     *testing.T
+	inner CmdRunner
+}
+
+func (g pidGuardRunner) Run(name string, args ...string) (string, error) {
+	out, err := g.inner.Run(name, args...)
+	call := strings.Join(append([]string{name}, args...), " ")
+	yieldsPIDs := name == "ps" || name == "lsof" || name == "pgrep" ||
+		strings.Contains(call, "#{pane_pid}") || strings.Contains(call, "list-panes")
+	if yieldsPIDs && strings.TrimSpace(out) != "" {
+		g.t.Errorf("the fake runner answered %q with %q: the real stop() would signal those pids", call, out)
+		return "", err
+	}
+	return out, err
+}
+
 func TestBuildCommandDeps(t *testing.T) {
+	// The production wiring waits two 30 s notify-mod waits plus nudge pacing;
+	// recorded instead of slept, and summed below so the waits still happen.
+	var slept time.Duration
+	restoreSleep := spawnSleep
+	spawnSleep = func(d time.Duration) { slept += d }
+	t.Cleanup(func() { spawnSleep = restoreSleep })
+
 	root := t.TempDir()
 	t.Setenv("PATH", filepath.Join(root, "nothing-here"))
 	t.Setenv("HOME", root)
@@ -872,8 +1058,9 @@ func TestBuildCommandDeps(t *testing.T) {
 		runner := &wardenRunner{shellPassthrough: true, script: map[string]wardenRun{
 			"tmux -L officraft has-session -t member-m1": {err: errors.New("can't find session: member-m1")},
 		}}
-		d := buildCommandDeps(Config{Base: "https://station.example"}, spawnEnv, runner, nil, nil)
+		d := buildCommandDeps(Config{Base: "https://station.example"}, spawnEnv, pidGuardRunner{t, runner}, nil, nil)
 
+		slept = 0
 		got := d.Spawn(StartParams{MemberID: "m1", PersonaContext: "p", MemberToken: "jwt", Role: "builder"})
 		if !got.OK {
 			t.Fatalf("outcome = %+v, want OK", got)
@@ -896,8 +1083,33 @@ func TestBuildCommandDeps(t *testing.T) {
 		if !reflect.DeepEqual(entry["mcpServers"], servers) || entry["hasTrustDialogAccepted"] != true {
 			t.Fatalf("startup changed user MCP settings or failed to trust workdir: %s", raw)
 		}
-		if got.Note != "" {
-			t.Fatalf("unexpected startup warning: %s", got.Note)
+		// No member really ran, so the notification mod never wrote its marker,
+		// not after the one restart either: that advisory is the only one this
+		// spawn may carry. The seed has no feature cache, so both reads say absent.
+		wantNote := goldenNotifyModRetriedNote
+		if got.Note != wantNote {
+			t.Fatalf("startup note = %q, want only the mod fallback after one restart", got.Note)
+		}
+		// The restart went through the production teardown (stop()'s ladder) and
+		// launched the member a second time.
+		if n := countCalls(runner.calls, "tmux -L officraft kill-session -t member-m1"); n != 1 {
+			t.Errorf("the first attempt was killed %d times, want once:\n%v", n, runner.calls)
+		}
+		if n := countCalls(runner.calls, "new-session -d -s member-m1"); n != 2 {
+			t.Errorf("the member was launched %d times, want twice", n)
+		}
+		// The teardown's snapshot includes the workdir's leftover ocagent (lsof
+		// by cwd), between the first launch and its kill: the mod's listener is
+		// not a descendant of the pane once Claude Code is gone.
+		firstLaunch := slices.IndexFunc(runner.calls, func(c string) bool { return strings.Contains(c, "new-session -d -s member-m1") })
+		kill := slices.Index(runner.calls, "tmux -L officraft kill-session -t member-m1")
+		if firstLaunch < 0 || kill < 0 ||
+			!slices.Contains(runner.calls[firstLaunch:kill], "lsof -a -c ocagent -d cwd -F pn") {
+			t.Errorf("the restart's teardown did not sweep the workdir's ocagent before the kill:\n%v", runner.calls)
+		}
+		// Both 30 s waits ran (recorded, not slept).
+		if slept < 2*nudgeMaxAttempts*nudgeSettle {
+			t.Errorf("waited %s, want at least the two notify-mod waits (%s)", slept, 2*nudgeMaxAttempts*nudgeSettle)
 		}
 		var launch string
 		for _, call := range runner.calls {
@@ -949,7 +1161,7 @@ func TestBuildCommandDeps(t *testing.T) {
 		runner := &wardenRunner{shellPassthrough: true, script: map[string]wardenRun{
 			"tmux -L officraft has-session -t member-m1": {err: errors.New("can't find session: member-m1")},
 		}}
-		d := buildCommandDeps(Config{Base: "https://station.example"}, spawnEnv, runner, nil, nil)
+		d := buildCommandDeps(Config{Base: "https://station.example"}, spawnEnv, pidGuardRunner{t, runner}, nil, nil)
 
 		if got := d.Spawn(StartParams{MemberID: "m1", PersonaContext: "p", MemberToken: "jwt", Role: "builder"}); !got.OK {
 			t.Fatalf("outcome = %+v, want OK", got)

@@ -45,6 +45,16 @@ const (
 	loginRenderPrefix = ".oc-login-env-"
 )
 
+// After the process ended, its output pipes are closed once every reader has
+// sat waiting with nothing to read for pipeDrainGrace, or pipeDrainCap after
+// the exit whatever the readers are doing. Vars only so tests can shorten them.
+var (
+	pipeDrainGrace = 2 * time.Second
+	// An escaped descendant that never stops writing keeps the readers busy, so
+	// quiet alone could hold the login or upgrade open for as long as it lives.
+	pipeDrainCap = 30 * time.Second
+)
+
 // refuseRealLoginInTest is the test-binary tripwire for the one process this
 // file starts: a real `codex login --device-auth` asks OpenAI for a device
 // code, and a real `claude auth login` opens a sign-in. Under `go test` only a
@@ -54,8 +64,8 @@ func refuseRealLoginInTest(bin string) {
 }
 
 // refuseRealPathInTest exits a test binary handed a path outside the temp dir:
-// a login binary that would really sign in, or a codex home whose auth.json a
-// test would overwrite.
+// a login binary that would really sign in, a claude that would really update
+// itself, or a codex home whose auth.json a test would overwrite.
 func refuseRealPathInTest(what, path string) {
 	if !testing.Testing() {
 		return
@@ -67,10 +77,14 @@ func refuseRealPathInTest(what, path string) {
 	if strings.HasPrefix(resolveExisting(path), tmp+string(filepath.Separator)) {
 		return
 	}
-	if what == "login" {
+	switch what {
+	case "login":
 		fmt.Fprintf(os.Stderr, "\nFATAL: refusing to run a real %s login inside a test binary.\n"+
 			"Login tests must stage a fake CLI in a temp dir and inject it.\n", path)
-	} else {
+	case "upgrade":
+		fmt.Fprintf(os.Stderr, "\nFATAL: refusing to run a real %s update inside a test binary.\n"+
+			"Upgrade tests must stage a fake CLI in a temp dir and inject it.\n", path)
+	default:
 		fmt.Fprintf(os.Stderr, "\nFATAL: refusing to write a real %s (%s) inside a test binary.\n", what, path)
 	}
 	os.Exit(1)
@@ -162,38 +176,121 @@ type loginProc struct {
 
 type loginStarter func(shell, script, bin string) (*loginProc, error)
 
-// startLoginProcess puts the login in its own process group so a kill reaches
-// whatever claude itself started.
 func startLoginProcess(shell, script, bin string) (*loginProc, error) {
 	refuseRealLoginInTest(bin)
+	return startGroupProcess(shell, script)
+}
+
+// startGroupProcess puts the process in its own process group so a kill
+// reaches whatever claude itself started.
+//
+// 🔴 Its output pipes are closed by this helper after the process ended (see
+// pipeDrainGrace), not left to EOF: a descendant that escaped the group (its
+// own session, or forked as the kill went out) can hold them open for as long
+// as it lives, and a reader waiting on EOF would then keep the login or
+// upgrade "running" forever, cap included. Quiet is judged by readers blocked
+// in Read, not by time since the last byte: a reader busy with an earlier line
+// (a progress POST) has not read what is still in the pipe yet.
+func startGroupProcess(shell, script string) (*loginProc, error) {
 	cmd := exec.Command(shell, "-c", script)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
 	}
-	stdout, err := cmd.StdoutPipe()
+	outR, outW, err := os.Pipe()
 	if err != nil {
 		return nil, err
 	}
-	stderr, err := cmd.StderrPipe()
+	errR, errW, err := os.Pipe()
 	if err != nil {
+		outR.Close()
+		outW.Close()
 		return nil, err
 	}
-	if err := cmd.Start(); err != nil {
-		return nil, err
+	cmd.Stdout, cmd.Stderr = outW, errW
+	startErr := cmd.Start()
+	outW.Close()
+	errW.Close()
+	if startErr != nil {
+		outR.Close()
+		errR.Close()
+		return nil, startErr
 	}
+	stdout, stderr := &drainReader{f: outR}, &drainReader{f: errR}
+	exited := make(chan struct{})
+	var waitErr error
+	go func() {
+		waitErr = cmd.Wait()
+		close(exited)
+		closeWhenDrained(stdout, stderr)
+	}()
 	return &loginProc{
 		stdin:  stdin,
 		stdout: stdout,
 		stderr: stderr,
-		wait:   cmd.Wait,
+		wait: func() error {
+			<-exited
+			return waitErr
+		},
 		kill: func() {
 			if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil {
 				_ = cmd.Process.Kill()
 			}
 		},
 	}, nil
+}
+
+// drainReader records whether its reader is blocked waiting for output, and
+// since when.
+type drainReader struct {
+	f *os.File
+
+	mu      sync.Mutex
+	waiting time.Time
+	done    bool
+}
+
+func (d *drainReader) Read(p []byte) (int, error) {
+	d.mu.Lock()
+	d.waiting = time.Now()
+	d.mu.Unlock()
+	n, err := d.f.Read(p)
+	d.mu.Lock()
+	d.waiting = time.Time{}
+	if err != nil {
+		d.done = true
+	}
+	d.mu.Unlock()
+	return n, err
+}
+
+func (d *drainReader) quiet(now time.Time) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.done || (!d.waiting.IsZero() && now.Sub(d.waiting) >= pipeDrainGrace)
+}
+
+func closeWhenDrained(readers ...*drainReader) {
+	deadline := time.Now().Add(pipeDrainCap)
+	tick := pipeDrainGrace / 10
+	if tick <= 0 {
+		tick = time.Millisecond
+	}
+	for {
+		now := time.Now()
+		all := true
+		for _, r := range readers {
+			all = all && r.quiet(now)
+		}
+		if all || !now.Before(deadline) {
+			break
+		}
+		time.Sleep(tick)
+	}
+	for _, r := range readers {
+		_ = r.f.Close()
+	}
 }
 
 type loginRelay struct {

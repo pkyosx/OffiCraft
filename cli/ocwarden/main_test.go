@@ -919,7 +919,7 @@ func TestWireLoginCheck(t *testing.T) {
 		codexArgv := codexBin + " login status"
 		runner := &wardenRunner{script: map[string]wardenRun{codexArgv: {out: "Logged in"}}}
 		env := envMap(map[string]string{"HOME": root, "OC_CODEX_BIN": codexBin, "OC_CLAUDE_CRED_CHECK": "0"})
-		_, login, setIntervals := wireLoginCheck(Config{}, env, runner, "linux", nil)
+		_, login, setIntervals := wireLoginCheck(Config{}, env, runner, "linux", nil, nil)
 		clock := time.Unix(1_000_000, 0)
 		login.now = func() time.Time { return clock }
 
@@ -1001,7 +1001,7 @@ func TestWireLoginCheck(t *testing.T) {
 					},
 					keepShellRunner: &keepShellRunner{},
 				}
-				deps, login, _ := wireLoginCheck(Config{Base: "https://station.example"}, envMap(vars), runner, "linux", nil)
+				deps, login, _ := wireLoginCheck(Config{Base: "https://station.example"}, envMap(vars), runner, "linux", nil, nil)
 
 				got := deps.Spawn(StartParams{MemberID: "m1", PersonaContext: "p", MemberToken: "jwt",
 					Role: "builder", Runtime: c.runtime, Model: "gpt-5"})
@@ -1077,7 +1077,7 @@ func TestWireLoginCheck(t *testing.T) {
 			},
 			keepShellRunner: &keepShellRunner{},
 		}
-		deps, login, _ := wireLoginCheck(Config{Base: "https://station.example"}, env, runner, "linux", nil)
+		deps, login, _ := wireLoginCheck(Config{Base: "https://station.example"}, env, runner, "linux", nil, nil)
 
 		got := deps.Spawn(StartParams{MemberID: "m1", PersonaContext: "p", MemberToken: "jwt", Role: "builder"})
 		if want := (SpawnOutcome{Reason: "spawn_exec_failed: tmux new-session: no tmux in this test"}); !reflect.DeepEqual(got, want) {

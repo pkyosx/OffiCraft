@@ -585,6 +585,13 @@ func wireUpdaterSeams(transport *sseTransport, up *updater) {
 			return exec()
 		}
 	}
+	// Likewise a running `claude update`, which nobody would then report.
+	if upgrade, exec := transport.deps.Upgrade, up.execSelf; upgrade != nil && exec != nil {
+		up.execSelf = func() error {
+			upgrade.Abandon()
+			return exec()
+		}
+	}
 }
 
 func realMain(argv []string, env func(string) string, out io.Writer) int {
@@ -700,7 +707,8 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 		maybeStartAnchorCutover(*wardenPathsOrNil, os.Getppid(), logf)
 	}
 
-	commandDeps, login, setLoginIntervals := wireLoginCheck(cfg, env, runner, runtime.GOOS, logf)
+	commandDeps, login, setLoginIntervals := wireLoginCheck(cfg, env, runner, runtime.GOOS, logf,
+		claudeProbe.invalidate)
 	if cfg.Token != "" && cfg.ID != "" && iters == 0 {
 		transport := newCommandTransport(cfg, commandDeps, logf)
 
@@ -748,8 +756,12 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 // the login check reads the shell env the last spawn captured. setIntervals is
 // what the heartbeat receipt's login_check_interval_secs and
 // login_recheck_interval_secs must reach.
+//
+// invalidateClaudeProbe is how a finished `claude update` makes the next
+// heartbeat read the new version (and below_notify_minimum) instead of the
+// cached one; that heartbeat is sent at once.
 func wireLoginCheck(cfg Config, env func(string) string, runner CmdRunner, goos string,
-	logf func(string, ...any)) (deps CommandDeps, login *loginProber, setIntervals func(check, recheck time.Duration)) {
+	logf func(string, ...any), invalidateClaudeProbe func()) (deps CommandDeps, login *loginProber, setIntervals func(check, recheck time.Duration)) {
 	launchEnv := &launchEnvCache{}
 	var keep stdoutRunner
 	if k, ok := runner.(stdoutRunner); ok {
@@ -760,6 +772,12 @@ func wireLoginCheck(cfg Config, env func(string) string, runner CmdRunner, goos 
 	relay := newLoginRelay(login, newLoginReporter(cfg), logf)
 	relay.sweepStaleLoginFiles()
 	deps.Login = relay
+	deps.Upgrade = newUpgradeRelay(login, newUpgradeReporter(cfg), func() {
+		if invalidateClaudeProbe != nil {
+			invalidateClaudeProbe()
+		}
+		login.kickTelemetry()
+	}, logf)
 	return deps, login, login.setIntervals
 }
 
