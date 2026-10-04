@@ -254,3 +254,29 @@ func TestAWorkerBackOnAnotherMachineRetiresTheStopAimedAtTheOldOne(t *testing.T)
 	wsWantWardenFrames(t, api, ServerSelfHost)
 	wsWantWardenFrames(t, api, "m-elsewhere")
 }
+
+func TestAStaffWakeStartRetiresTheStopItSentAheadOfIt(t *testing.T) {
+	api, h, d, owner := newAPITestServer(t)
+	reconcileTestPut(t, d, Member{ID: "m-box", Name: "Box", Kind: KindWarden})
+	api.telemetry.Set("m-box", map[string]any{"runtimes": map[string]any{
+		"claude": map[string]any{"installed": true, "logged_in": true},
+	}})
+	reconcileTestPut(t, d, Member{
+		ID: "sleeper", Name: "Sleeper", Kind: KindStaff, RoleKey: "assistant",
+		DesiredState: DesiredStateOffline, DesiredMachineID: "m-box", LastMachineID: "m-box",
+	})
+	shutdownBootable(t, d, "sleeper", "m-box")
+	reconcileTestOnline(t, api, "m-box", "")
+
+	// 喚醒 clears whatever the last landing may still hold, then starts.
+	if status, data := apiJSON(t, h, "POST", "/api/members/sleeper/activate", owner, `{}`); status != 200 {
+		t.Fatalf("activate: %d %v", status, data)
+	}
+	apiWantValue(t, "the warden's queue", any(wsVerbs(t, api, "m-box")), any([]any{"stop", "start"}))
+
+	// The new session comes up on that machine and lives past stop_retry: the stop
+	// that went ahead of its START is not owed against it.
+	reconcileTestOnline(t, api, "sleeper", "m-box")
+	api.runReconcileTick(nowSecs() + api.reconcileConfigLive().StopRetry + 1)
+	apiWantValue(t, "later frames", any(wsVerbs(t, api, "m-box")), any([]any{}))
+}
