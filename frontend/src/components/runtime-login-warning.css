@@ -11,12 +11,14 @@
   color: var(--color-danger);
 }
 /* A touch screen has no hover, so tapping this 14px icon is the only way to
- * read it. Padding grows the tap area to 44px and the equal negative margin
- * keeps the row's layout as it was; later siblings (the role text, the task
- * chip) still paint over the padding and keep their own taps. */
+ * read it. Padding grows the tap area and the equal negative margin keeps the
+ * row's layout as it was. It grows mostly down and only a little sideways: an
+ * area reaching the name line above, or over the dot and role text beside it,
+ * makes the browser's tap adjustment pull taps on those onto this icon, so they
+ * stop opening the chat. */
 @media (hover: none) {
   .runtime-login-warning {
-    padding: 15px;
-    margin: -15px;
+    padding: 3px 6px 14px 4px;
+    margin: -3px -6px -14px -4px;
   }
 }
