@@ -234,6 +234,62 @@ describe("httpApi · perf-light query contracts (T-2b9d/cf91/ec2c)", () => {
     expect(q.get("limit")).toBe("-1");
   });
 
+  it("getFirstUnreadChat 問的是那位成員的第一則未讀:GET /api/chat?unread=true&with=<id>&limit=1,回那一則", async () => {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({
+        messages: [
+          {
+            id: "c-3",
+            from: "m-1",
+            from_name: "Mira",
+            to: "owner",
+            to_name: "",
+            body: "第一則未讀",
+            ts: 1003,
+            ts_display: "",
+            meta: {},
+            reply_card_id: "",
+            reply_card_status: "",
+            reply_to: "",
+            body_omitted_chars: 0,
+          },
+        ],
+        next_cursor: "b3wAMQBjLTM",
+      }),
+    );
+    const got = await httpApi.getFirstUnreadChat("m-1");
+    const { url, method, body } = await lastRequest();
+    expect(method).toBe("GET");
+    expect(url.split("?")[0]).toBe("/api/chat");
+    expect(
+      Object.fromEntries(new URLSearchParams(url.split("?")[1] ?? "")),
+    ).toEqual({ unread: "true", with: "m-1", limit: "1" });
+    expect(body).toBeUndefined();
+    expect(got).toEqual({
+      id: "c-3",
+      from: "m-1",
+      fromName: "Mira",
+      to: "owner",
+      toName: "",
+      body: "第一則未讀",
+      bodyOmittedChars: 0,
+      ts: 1003,
+      tsDisplay: "",
+      attachments: [],
+      card: null,
+      replyCardId: null,
+      replyCardStatus: null,
+      replyTo: null,
+      replyToChat: null,
+    });
+  });
+
+  it("getFirstUnreadChat 在伺服器回空頁(沒有未讀)時回 null", async () => {
+    fetchMock.mockImplementation(async () => jsonResponse({ messages: [] }));
+    expect(await httpApi.getFirstUnreadChat("m-1")).toBeNull();
+    // 有一則時回的是那一則(上一支),所以這裡的 null 來自空頁。
+  });
+
   it("listMembers({light}) sends fields=light; default omits it", async () => {
     fetchMock.mockImplementation(async () => jsonResponse([]));
     await httpApi.listMembers({ light: true });

@@ -2,12 +2,13 @@
 // B9 · unread badge → 進房 divider 錨定 → 進房 mark-read 歸零 → SSE 新訊息浮條
 // (M2 batch 19, 31e4e96 + 1473ff1).
 //
-// The race this spec exists to cover (vitest can't): the FE snapshots
-// `member.unreadCount` at conversation entry STRICTLY BEFORE the entry read
-// receipt goes out — since 8cd4fff9 the LISTING marks nothing, but ChatArea
-// fires POST /api/chat/mark-read as soon as the newest page lands on a focused
-// window, and the roster refetches to 0 right after. The clearer changed; the
-// ordering hazard did not. Only a real server + real HTTP ordering exercises it.
+// The race this spec exists to cover (vitest can't): whether the room is
+// entered AT the first unread is decided from `member.unreadCount` at entry,
+// and the first unread itself is asked of the server
+// (GET /api/chat?unread=true&with=<id>&limit=1) — both strictly before the entry
+// read receipt goes out. A run that fits in one page (this one does) is marked
+// read as soon as the room lands on it, and the roster refetches to 0 right
+// after. Only a real server + real HTTP ordering exercises it.
 //
 // ⚠ ordering is load-bearing throughout: every unread_count sample happens
 // BEFORE anything lists M's thread. The spec hires its OWN member (M is never
@@ -117,8 +118,8 @@ test.describe('B9 · unread — badge, entry divider anchor, 進房 mark-read, f
     await expect(divider, 'the unread divider must render').toBeVisible();
     await expect(divider).toContainText('以下為尚未閱讀的訊息');
 
-    // The divider sits immediately ABOVE the FIRST unread message (the 5th-
-    // from-last peer message — id known from the API fixture).
+    // The divider sits immediately ABOVE the FIRST unread message — the oldest
+    // one above the watermark, id known from the API fixture.
     const anchorId = await divider.evaluate(
       (el) => el.nextElementSibling?.getAttribute('data-msg-id') ?? '',
     );
@@ -161,8 +162,9 @@ test.describe('B9 · unread — badge, entry divider anchor, 進房 mark-read, f
       `the divider's top must sit flush with the thread's top, got ${dividerOffset}px off`,
     ).toBeLessThanOrEqual(2);
 
-    // ── read convergence: entering the room IS reading. It is the COCKPIT
-    // that reports it now (ChatArea's entry read receipt → POST
+    // ── read convergence: an unread run that fits in one page is read by
+    // entering the room, even when its newest message is below the fold.
+    // It is the COCKPIT that reports it (ChatArea's entry read receipt → POST
     // /api/chat/mark-read), not the listing — see the fixture note above. ──
     await expect
       .poll(async () => unreadCountOf(request, token, M.id), {
