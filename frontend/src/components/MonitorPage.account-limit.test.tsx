@@ -101,7 +101,7 @@ describe("MonitorPage account card limit line", () => {
 
   it("under nothing else re-rendering, the reset day rolls over at local midnight", async () => {
     vi.useRealTimers();
-    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
     vi.setSystemTime(new Date(2026, 9, 2, 23, 50, 0, 0));
     getMonitoring.mockResolvedValue({
       accounts: [acct("limited", { code: "rate_limit", resetsAt: localTs(4, 30, 1), ts: localTs(9, 0) })],
@@ -113,13 +113,12 @@ describe("MonitorPage account card limit line", () => {
         <MonitorPage />
       </I18nProvider>,
     );
-    const line = await screen.findByTestId("mon-acct-limit-reached");
-    expect(line.textContent).toBe("已達上限 · 明天 04:30 重置");
-    const fetches = getMonitoring.mock.calls.length;
-    // findByTestId resolves on the DOM commit, which can land before React runs
-    // the card's effects; jumping the clock first would arm the midnight timer
-    // after midnight, and the line would never roll over.
+    // The clock only moves when the test moves it, so findBy* (which polls on
+    // setTimeout) would never resolve; let the mocked fetch land and React finish
+    // its effects instead, so the midnight timer is armed before the jump.
     await act(async () => {});
+    expect(screen.getByTestId("mon-acct-limit-reached").textContent).toBe("已達上限 · 明天 04:30 重置");
+    const fetches = getMonitoring.mock.calls.length;
 
     act(() => {
       vi.advanceTimersByTime(11 * 60 * 1000);
