@@ -443,9 +443,8 @@ test.describe('T-4e95 · reply-to — banner, wire, quote row, jump', () => {
     // in the table below comparable across the change.
     //
     // What this test is about is the BREAKPOINT'S AXIS, so the name is kept SHORT
-    // (5 chars) and the jump label's width is the only variable left. Still
-    // unique — `uniqueName` produces a 20-character name, which is exactly the
-    // pressure this test must not measure, so it is built here instead of reused.
+    // (5 chars) and the jump label's width is the only variable left. Exact text
+    // matching below keeps longer names from matching this member by containment.
     const NAME_W = 'A' + Date.now().toString(36).slice(-4);
     const M = await hireMember(request, token, NAME_W);
     const tokM = await mintMemberToken(request, token, M.id, 1);
@@ -482,7 +481,10 @@ test.describe('T-4e95 · reply-to — banner, wire, quote row, jump', () => {
       localStorage.setItem('oc.language', 'en');
     }, token);
     await page.reload();
-    await page.locator('.member-card', { hasText: NAME_W }).click();
+    await page
+      .locator('.member-card')
+      .filter({ has: page.getByText(NAME_W, { exact: true }) })
+      .click();
 
     const quote = page.locator('.chat__messages').getByTestId('msg-quote');
     await expect(quote).toBeVisible();
