@@ -639,3 +639,109 @@ func TestStartUpgradeProcessRefusesARealBinaryInATestBinary(t *testing.T) {
 		t.Fatalf("control: the fake did not exit 0: %v", err)
 	}
 }
+
+// The three notices below are `claude update`'s output under Homebrew as
+// measured on a real machine (2.1.288 from claude-code@latest; 2.1.285 and
+// 2.1.280 from claude-code); it exits 0 in all three without upgrading.
+const (
+	brewLatestUpToDate = "Current version: 2.1.288\nChecking for updates to latest version...\n\n" +
+		"Claude is managed by Homebrew.\nClaude is up to date!\n"
+	brewStableUpToDate = "Current version: 2.1.285\nChecking for updates to stable version...\n\n" +
+		"Claude is managed by Homebrew.\nClaude is up to date!\n\n" +
+		"Tip: For more frequent updates, use the claude-code@latest cask:\n" +
+		"  brew uninstall --cask claude-code && brew install --cask claude-code@latest\n"
+	brewStableBehind = "Current version: 2.1.280\nChecking for updates to stable version...\n\n" +
+		"Claude is managed by Homebrew.\nUpdate available: 2.1.280 → 2.1.285\n\n" +
+		"To update, run:\n  brew upgrade claude-code\n\n" +
+		"Tip: For more frequent updates, use the claude-code@latest cask:\n" +
+		"  brew uninstall --cask claude-code && brew install --cask claude-code@latest\n"
+
+	brewLaggingReason = "這台的 Claude Code 由 Homebrew 的一般版管理，目前最新只到 2.1.285，低於收通知需要的 2.1.287；" +
+		"請在這台機器改裝 latest 版：`brew uninstall --cask claude-code && brew install --cask claude-code@latest`"
+	brewFallbackReason = "這台的 Claude Code 由 Homebrew 管理，調度台無法直接升級；請在這台機器用 Homebrew 升級"
+)
+
+func TestUpgradeRelayUnderHomebrew(t *testing.T) {
+	cases := []struct {
+		name, version, out, rc, want string
+	}{
+		{"an up-to-date latest cask at or above the notify minimum says it is Homebrew's newest",
+			"2.1.288", brewLatestUpToDate, "0", "這台的 Claude Code 由 Homebrew 管理，已是 Homebrew 上的最新版（2.1.288）"},
+		{"an up-to-date stable cask below the notify minimum says to switch to the latest cask, echoing the tip",
+			"2.1.285", brewStableUpToDate, "0", brewLaggingReason},
+		{"a stable cask whose available update is still below the notify minimum says to switch to the latest cask",
+			"2.1.280", brewStableBehind, "0", brewLaggingReason},
+		{"an available update at or above the notify minimum names the brew upgrade command and the target, under color codes, CRLF and ->",
+			"2.1.280", "\x1b[1mClaude is managed by Homebrew.\x1b[0m\r\nUpdate available: 2.1.280 -> 2.1.290\r\n" +
+				"To update, run:\r\n  \x1b[36mbrew upgrade claude-code@latest\x1b[0m\r\n", "0",
+			"這台的 Claude Code 由 Homebrew 管理，調度台無法直接升級；請在這台機器執行 `brew upgrade claude-code@latest`（可升到 2.1.290）"},
+		{"Homebrew output of no known shape falls back to the generic Homebrew reason",
+			"2.1.280", "Claude is managed by Homebrew.\nSomething new happened.\n", "0", brewFallbackReason},
+		{"output that does not mention Homebrew keeps the generic unchanged reason",
+			"2.1.200", "Claude is up to date!\nUpdate available: 2.1.200 → 2.1.290\n", "0", upgradeUnchangedReason},
+		{"a non-zero exit still reports the exit and the last line, even under Homebrew",
+			"2.1.280", brewStableBehind, "1",
+			"claude update 執行失敗（exit status 1）：brew uninstall --cask claude-code && brew install --cask claude-code@latest"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newUpgradeHarness(t)
+			h.fake.write(t, h.fake.version, tc.version)
+			h.fake.write(t, h.fake.out, tc.out)
+			h.fake.write(t, h.fake.rc, tc.rc)
+			h.relay.Start("ru-h", "claude")
+			h.next(t)
+			if got, want := h.next(t), (upgradeReport{UpgradeID: "ru-h", State: "failed",
+				FromVersion: tc.version, ToVersion: tc.version, Reason: tc.want}); got != want {
+				t.Fatalf("final report = %+v, want %+v", got, want)
+			}
+		})
+	}
+
+	t.Run("under output far longer than the kept tail, with a line past the scanner's limit, the Homebrew notice at the end is still read and the update is not stalled", func(t *testing.T) {
+		h := newUpgradeHarness(t)
+		h.fake.write(t, h.fake.version, "2.1.285")
+		noise := strings.Repeat("progress line\n", 5000) + strings.Repeat("x", 200000) + "\n"
+		h.fake.write(t, h.fake.out, noise+brewStableUpToDate)
+		h.relay.Start("ru-big", "claude")
+		h.next(t)
+		if got, want := h.next(t), (upgradeReport{UpgradeID: "ru-big", State: "failed",
+			FromVersion: "2.1.285", ToVersion: "2.1.285", Reason: brewLaggingReason}); got != want {
+			t.Fatalf("final report = %+v, want %+v", got, want)
+		}
+	})
+}
+
+func TestHomebrewUnchangedReason(t *testing.T) {
+	t.Run("without the Homebrew line it does not answer", func(t *testing.T) {
+		if reason, ok := homebrewUnchangedReason([]string{"Claude is up to date!"}, "2.1.288"); ok {
+			t.Fatalf("answered %q for output that never mentions Homebrew", reason)
+		}
+	})
+	t.Run("an unparseable current version under an up-to-date notice falls back", func(t *testing.T) {
+		if reason, _ := homebrewUnchangedReason([]string{"Claude is managed by Homebrew.", "Claude is up to date!"}, "weird"); reason != brewFallbackReason {
+			t.Fatalf("reason = %q, want the fallback", reason)
+		}
+	})
+	t.Run("without the tip line the lagging reason uses the default latest-cask command", func(t *testing.T) {
+		got, _ := homebrewUnchangedReason([]string{"Claude is managed by Homebrew.", "Claude is up to date!"}, "2.1.285")
+		if got != brewLaggingReason {
+			t.Fatalf("reason = %q, want %q", got, brewLaggingReason)
+		}
+	})
+	t.Run("the lagging reason echoes the tip's command when Homebrew gives one", func(t *testing.T) {
+		tip := "brew uninstall --cask claude-code@beta && brew install --cask claude-code@latest"
+		got, _ := homebrewUnchangedReason([]string{"Claude is managed by Homebrew.", "Claude is up to date!", tip}, "2.1.285")
+		if want := strings.Replace(brewLaggingReason, brewDefaultLatestCmd, tip, 1); got != want {
+			t.Fatalf("reason = %q, want %q", got, want)
+		}
+	})
+	t.Run("every reason fits the reason cap", func(t *testing.T) {
+		for _, out := range []string{brewLatestUpToDate, brewStableUpToDate, brewStableBehind} {
+			got, _ := homebrewUnchangedReason(strings.Split(out, "\n"), "2.1.288")
+			if n := len([]rune(got)); n > upgradeReasonMaxRunes {
+				t.Errorf("reason is %d runes, over the %d cap: %q", n, upgradeReasonMaxRunes, got)
+			}
+		}
+	})
+}
