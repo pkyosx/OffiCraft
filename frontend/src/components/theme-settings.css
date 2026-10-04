@@ -378,6 +378,12 @@
   flex-direction: column;
   min-width: 0;
 }
+/* An empty original or current value (a lead/tail fragment) still takes a
+   line, so every row keeps the same height. */
+.ts-wording-en,
+.ts-wording-cur {
+  min-height: 1lh;
+}
 .ts-wording-en {
   font-size: 13px;
   color: var(--color-text);

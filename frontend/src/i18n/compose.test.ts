@@ -28,6 +28,12 @@ const ALL_MINUTES = Array.from({ length: 60 }, (_, i) => i);
 /** What the minute group's 全選 now hands over: the twelve cells it offers. */
 const EVERY_FIVE = Array.from({ length: 12 }, (_, i) => i * 5);
 
+/** Local-time epoch seconds (month 1-based), so the pins hold in any timezone. */
+const at = (y: number, mo: number, d: number, h: number, mi: number): number =>
+  new Date(y, mo - 1, d, h, mi, 0, 0).getTime() / 1000;
+/** The reader's clock for the reset-time rows: 2026-10-04 10:00. */
+const NOW = at(2026, 10, 4, 10, 0);
+
 /** [language, message, arguments, the text that must appear on screen]. */
 const EXPECTED: [Lang, string, (string | number | string[] | number[] | null)[], string][] = [
     // The 429 credential brake. Pinned in BOTH languages because the space
@@ -93,13 +99,23 @@ const EXPECTED: [Lang, string, (string | number | string[] | number[] | null)[],
     ["zh", "modelCallAuthWarning", ["claude"], "Claude 登入失效"],
     ["zh", "modelCallAuthWarning", ["codex"], "Codex 登入失效"],
     ["zh", "modelCallOtherWarning", ["claude", "invalid_request"], "Claude 模型呼叫失敗（invalid_request）"],
-    ["zh", "modelCallRateLimitWarning", ["14:32"], "已達用量上限 · 14:32 重置"],
-    ["zh", "modelCallRateLimitWarning", [null], "已達用量上限"],
+    ["zh", "modelCallRateLimitWarning", ["claude", at(2026, 10, 4, 16, 39), NOW], "Claude 已達用量上限 · 今天 16:39 重置"],
+    ["zh", "modelCallRateLimitWarning", ["claude", at(2026, 10, 5, 16, 39), NOW], "Claude 已達用量上限 · 明天 16:39 重置"],
+    ["zh", "modelCallRateLimitWarning", ["claude", at(2026, 10, 7, 16, 39), NOW], "Claude 已達用量上限 · 10/7 16:39 重置"],
+    ["zh", "modelCallRateLimitWarning", ["claude", at(2027, 1, 2, 16, 39), NOW], "Claude 已達用量上限 · 2027/1/2 16:39 重置"],
+    ["zh", "modelCallRateLimitWarning", ["claude", null, NOW], "Claude 已達用量上限"],
+    ["zh", "modelCallRateLimitWarning", ["codex", at(2026, 10, 4, 16, 39), NOW], "Codex 已達用量上限 · 今天 16:39 重置"],
+    ["zh", "modelCallRateLimitWarning", ["codex", null, NOW], "Codex 已達用量上限"],
+    ["zh", "runtimeSignInHint", ["claude"], "可到「監控」頁的機器資訊，在 Claude 欄按版本號 →「登入」"],
+    ["zh", "runtimeSignInHint", ["codex"], "可到「監控」頁的機器資訊，在 Codex 欄按版本號 →「登入」"],
     ["zh", "modelCallServerWarning", ["claude"], "Claude 伺服器異常"],
     ["zh", "modelCallServerWarning", ["codex"], "Codex 伺服器異常"],
     ["zh", "memberModelCallLastSuccess", ["3m"], "3m 前"],
-    ["zh", "monitorLimitReached", ["14:32"], "已達上限 · 14:32 重置"],
-    ["zh", "monitorLimitReached", [null], "已達上限"],
+    ["zh", "monitorLimitReached", [at(2026, 10, 4, 16, 39), NOW], "已達上限 · 今天 16:39 重置"],
+    ["zh", "monitorLimitReached", [at(2026, 10, 5, 16, 39), NOW], "已達上限 · 明天 16:39 重置"],
+    ["zh", "monitorLimitReached", [at(2026, 10, 7, 16, 39), NOW], "已達上限 · 10/7 16:39 重置"],
+    ["zh", "monitorLimitReached", [at(2027, 1, 2, 16, 39), NOW], "已達上限 · 2027/1/2 16:39 重置"],
+    ["zh", "monitorLimitReached", [null, NOW], "已達上限"],
     ["zh", "agentPendingChange", ["Codex"], "→ 要換成 Codex"],
     [
       "zh",
@@ -233,13 +249,22 @@ const EXPECTED: [Lang, string, (string | number | string[] | number[] | null)[],
     ["en", "modelCallAuthWarning", ["claude"], "Claude sign-in expired"],
     ["en", "modelCallAuthWarning", ["codex"], "Codex sign-in expired"],
     ["en", "modelCallOtherWarning", ["codex", "contextWindowExceeded"], "Codex model call failed (contextWindowExceeded)"],
-    ["en", "modelCallRateLimitWarning", ["14:32"], "Usage limit reached · resets 14:32"],
-    ["en", "modelCallRateLimitWarning", [null], "Usage limit reached"],
+    ["en", "modelCallRateLimitWarning", ["claude", at(2026, 10, 4, 16, 39), NOW], "Claude usage limit reached · resets today 16:39"],
+    ["en", "modelCallRateLimitWarning", ["claude", at(2026, 10, 5, 16, 39), NOW], "Claude usage limit reached · resets tomorrow 16:39"],
+    ["en", "modelCallRateLimitWarning", ["claude", at(2026, 10, 7, 16, 39), NOW], "Claude usage limit reached · resets 10/7 16:39"],
+    ["en", "modelCallRateLimitWarning", ["claude", at(2027, 1, 2, 16, 39), NOW], "Claude usage limit reached · resets 2027/1/2 16:39"],
+    ["en", "modelCallRateLimitWarning", ["claude", null, NOW], "Claude usage limit reached"],
+    ["en", "modelCallRateLimitWarning", ["codex", at(2026, 10, 4, 16, 39), NOW], "Codex usage limit reached · resets today 16:39"],
+    ["en", "modelCallRateLimitWarning", ["codex", null, NOW], "Codex usage limit reached"],
+    ["en", "runtimeSignInHint", ["claude"], "To sign in: Monitor → Machines, click the version in the Claude column → Sign in"],
+    ["en", "runtimeSignInHint", ["codex"], "To sign in: Monitor → Machines, click the version in the Codex column → Sign in"],
     ["en", "modelCallServerWarning", ["claude"], "Claude server error"],
     ["en", "modelCallServerWarning", ["codex"], "Codex server error"],
     ["en", "memberModelCallLastSuccess", ["2h 15m"], "2h 15m ago"],
-    ["en", "monitorLimitReached", ["14:32"], "Limit reached · resets 14:32"],
-    ["en", "monitorLimitReached", [null], "Limit reached"],
+    ["en", "monitorLimitReached", [at(2026, 10, 4, 16, 39), NOW], "Limit reached · resets today 16:39"],
+    ["en", "monitorLimitReached", [at(2026, 10, 5, 16, 39), NOW], "Limit reached · resets tomorrow 16:39"],
+    ["en", "monitorLimitReached", [at(2027, 1, 2, 16, 39), NOW], "Limit reached · resets 2027/1/2 16:39"],
+    ["en", "monitorLimitReached", [null, NOW], "Limit reached"],
     ["en", "agentPendingChange", ["Codex"], "→ Changing to Codex"],
     [
       "en",
@@ -364,6 +389,17 @@ describe("makeMessages", () => {
     );
   });
 
+  it("names the monitor's own labels in the sign-in hint, so re-wording them reaches it", () => {
+    const themed = applyWording(zh, {
+      "nav.monitor": "瞭望台",
+      "monitor.machinesTitle": "機房",
+      "monitor.runtimeLogin.login": "簽到",
+    });
+    expect(makeMessages(themed, "zh").runtimeSignInHint("claude")).toBe(
+      "可到「瞭望台」頁的機房，在 Claude 欄按版本號 →「簽到」"
+    );
+  });
+
   it("exposes every fragment it composes from as an overridable message key", () => {
     // A fragment missing from the whitelist is a word no theme can reach — the
     // exact defect this ticket removed, so it must not creep back in.
@@ -451,6 +487,13 @@ describe("makeMessages", () => {
       "mp.schedmsg.customNone",
       "mp.schedmsg.customStepLead",
       "mp.schedmsg.customStepTail",
+      "lifecycle.modelCallWarning.resetsToday",
+      "lifecycle.modelCallWarning.resetsTomorrow",
+      "lifecycle.signInHint.lead",
+      "lifecycle.signInHint.pageTail",
+      "lifecycle.signInHint.sectionTail",
+      "lifecycle.signInHint.columnTail",
+      "lifecycle.signInHint.tail",
     ]) {
       expect(keys.has(code), `${code} must be overridable`).toBe(true);
     }

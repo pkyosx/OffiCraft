@@ -738,10 +738,21 @@ export const en: Dict = {
       auth: "sign-in expired",
       otherLead: "model call failed (",
       otherTail: ")",
-      rateLimit: "Usage limit reached",
+      rateLimit: "usage limit reached",
       resetsLead: "resets",
       resetsTail: "",
+      resetsToday: "today",
+      resetsTomorrow: "tomorrow",
       server: "server error",
+    },
+    // "To sign in: Monitor → Machines, click the version in the Claude column → Sign in";
+    // the names in between come from the monitor's own leaves.
+    signInHint: {
+      lead: "To sign in: ",
+      pageTail: " → ",
+      sectionTail: ", click the version in the ",
+      columnTail: " column → ",
+      tail: "",
     },
   },
   login: {
