@@ -1020,29 +1020,35 @@ func (s *apiServer) dispatchStop(
 	return decision
 }
 
-// collectMemberStop is the staff twin of collectWorkerStop: latch stopped_since, then stop
-// whatever the dropped connection left behind. The tick holds reconcileMu, which
-// dispatchShutdown takes, so this resolves the same kill chain and sends through the same
-// sender itself. The judgement is re-made on the row inside the transaction because the HTTP
-// faces write member rows without reconcileMu: a 喚醒 that landed mid-tick must not be
-// collected.
+// latchSessionGoneCollectOn latches stopped_since for a session-gone collect, staff and workers
+// alike, and answers nil when the row no longer awaits it. The judgement is re-made on the row
+// inside the transaction because the HTTP faces write member rows outside either tick's lock: a
+// 喚醒 that landed between the tick's read and this write must not be collected.
+func latchSessionGoneCollectOn(tx *writeTx, memberID string, now float64) (*Member, error) {
+	cur, err := getMemberOn(tx, memberID)
+	if err != nil || cur == nil {
+		return nil, err
+	}
+	if cur.RosterStatus != RosterStatusActive ||
+		parseDesired(cur.DesiredState) != DesiredStateOffline || !stopAwaitsCollect(*cur) {
+		return nil, nil
+	}
+	collectWindDownRow(windDownAnchorRowOfMember(cur), now)
+	if err := setMemberStoppedSinceOn(tx, cur.ID, cur.StoppedSince); err != nil {
+		return nil, err
+	}
+	return cur, nil
+}
+
+// collectMemberStop latches the collect, then stops whatever the dropped connection left
+// behind. The tick holds reconcileMu, which dispatchShutdown takes, so this resolves the same
+// kill chain and sends through the same sender itself.
 func (s *apiServer) collectMemberStop(memberID string, decision reconcileDecision, prior reconcileState, now float64) reconcileDecision {
 	var collected *Member
 	err := s.dal.inTx(func(tx *writeTx) error {
-		cur, err := getMemberOn(tx, memberID)
-		if err != nil || cur == nil {
-			return err
-		}
-		if cur.RosterStatus != RosterStatusActive ||
-			parseDesired(cur.DesiredState) != DesiredStateOffline || !stopAwaitsCollect(*cur) {
-			return nil
-		}
-		collectWindDownRow(windDownAnchorRowOfMember(cur), now)
-		if err := setMemberStoppedSinceOn(tx, cur.ID, cur.StoppedSince); err != nil {
-			return err
-		}
-		collected = cur
-		return nil
+		var err error
+		collected, err = latchSessionGoneCollectOn(tx, memberID, now)
+		return err
 	})
 	if err != nil || collected == nil {
 		if err != nil {

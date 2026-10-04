@@ -559,7 +559,7 @@ func (s *apiServer) reconcileWorkerLiveness(w OutsourceWorker, now float64) bool
 	case reconcileCmdStop:
 		switch decision.StopKind {
 		case stopKindSessionGone:
-			if err := s.collectWorkerStop(w, "stop-session-gone", triggerServer); err != nil {
+			if !s.collectWorkerSessionGone(w, now) {
 				s.setReconcileState(w.ID, st)
 				return false
 			}
@@ -1206,6 +1206,31 @@ func (s *apiServer) restoreWorkerStoppedLatch(w *OutsourceWorker, prior float64,
 // collectWorkerStop is the 收口 of a 停止 epoch: kill via stopWorkerNow, never the
 // handover funnel, which would let the FSM restart a worker the owner stopped.
 // Callers hold s.outsourceMu.
+// collectWorkerSessionGone is collectMemberStop for a worker: the same latch, then the worker's
+// own kill send. Callers hold s.outsourceMu.
+func (s *apiServer) collectWorkerSessionGone(w OutsourceWorker, now float64) bool {
+	var fresh *OutsourceWorker
+	err := s.dal.inTx(func(tx *writeTx) error {
+		collected, err := latchSessionGoneCollectOn(tx, w.ID, now)
+		if err != nil || collected == nil {
+			return err
+		}
+		fresh, err = getOutsourceWorkerOn(tx, w.ID)
+		return err
+	})
+	if err != nil || fresh == nil {
+		if err != nil {
+			outsourceLog("collect %s: session-gone latch failed, nothing landed: %v", w.ID, err)
+		}
+		return false
+	}
+	s.publishMemberPatch(memberFromWorker(*fresh), triggerServer)
+	s.stopWorkerNow(*fresh)
+	outsourceLog("stop collect %s (stop-session-gone): close-out collected — session killed, "+
+		"held down", w.ID)
+	return true
+}
+
 func (s *apiServer) collectWorkerStop(w OutsourceWorker, reason, trigger string) error {
 	_, prior := collectWindDownRow(windDownAnchorRowOfWorker(&w), nowSecs())
 	if err := s.latchWorkerStopped(&w, prior, reason, trigger); err != nil {

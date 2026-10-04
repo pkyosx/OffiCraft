@@ -313,12 +313,13 @@ func windowTickWorker(t *testing.T, d *DAL, set string) (*apiServer, http.Handle
 }
 
 // A 停止 whose session is confirmed gone is collected by the tick from its list
-// read of the worker. An owner 喚醒 that lands after that read stands: the
-// collect writes its latch and nothing else.
-func TestAnOwnerWakeAfterTheTickReadAStoppedWorkerIsNotUndoneByTheCollect(t *testing.T) {
+// read of the worker. An owner 喚醒 that lands after that read is neither
+// collected nor sent a STOP, the same as the staff twin below.
+func TestAnOwnerWakeAfterTheTickReadAStoppedWorkerIsNotCollected(t *testing.T) {
 	d, hook, path := windowDAL(t, "split pools")
 	api, _, _ := windowTickWorker(t, d,
 		`desired_state = 'offline', stopping_since = 1700000000, stopped_since = 0, last_machine_id = 'm-old'`)
+	apiTestListen(t, api, ServerSelfHost)
 	api.offlineConfirmSince.Store("ow-abc123", 1700000000.0)
 	behind := windowWriteBehind(t, hook, path, "FROM member WHERE kind = 'outsource'",
 		`UPDATE member SET desired_state = 'online', stopping_since = 0, last_machine_id = 'm-new'
@@ -331,13 +332,11 @@ func TestAnOwnerWakeAfterTheTickReadAStoppedWorkerIsNotUndoneByTheCollect(t *tes
 		t.Fatalf("premise: the owner's wake did not land inside the tick's gap")
 	}
 	got := apiTestMemberRow(t, d, "ow-abc123")
-	if got.StoppedSince <= 0 {
-		t.Fatalf("premise: the tick did not collect the stop (stopped_since %v)", got.StoppedSince)
-	}
-	if got.DesiredState != DesiredStateOnline || got.StoppingSince != 0 || got.LastMachineID != "m-new" {
-		t.Fatalf("after the collect: desired_state %q stopping_since %v last_machine_id %q; "+
-			"want online, 0, m-new (the owner's wake)", got.DesiredState, got.StoppingSince, got.LastMachineID)
-	}
+	apiWantValue(t, "desired_state", any(got.DesiredState), any(DesiredStateOnline))
+	apiWantValue(t, "stopping_since", any(got.StoppingSince), any(0.0))
+	apiWantValue(t, "stopped_since", any(got.StoppedSince), any(0.0))
+	apiWantValue(t, "last_machine_id", any(got.LastMachineID), any("m-new"))
+	wsWantWardenFrames(t, api, ServerSelfHost)
 }
 
 // The staff twin: a 停止 whose session is confirmed gone is collected by the
