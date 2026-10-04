@@ -3,8 +3,10 @@
 #
 # ── WHAT THIS IS, AND WHAT IT IS NOT ─────────────────────────────────────────
 # This is NOT a replacement for bin/ci.sh and NOT a rename of it. bin/ci.sh is
-# unchanged, still self-contained, still the thing you run before a push, and
-# nothing about which round decides a land moved here. This script CALLS it and
+# unchanged and still self-contained, and nothing about which round decides a
+# land moved here: the merge verdict is the pull request's cloud checks, and day
+# to day you run only the checks related to your change (bin/ci.sh's header has
+# the owner's words). This script CALLS bin/ci.sh and
 # then does the one thing it deliberately does not do: run the playwright specs
 # in e2e_test/ (bin/ci.sh only exercises their wiring, via tests_guard — a green
 # there means zero specs ran).
@@ -19,8 +21,11 @@
 #   * before cutting a GA release;
 #   * when you changed something in the LIVE-AGENT path and want to see that
 #     class actually exercised.
-# The everyday round stays `bash bin/ci.sh`. This one stands a whole station up
-# and drives a browser, so it costs minutes; with --live-agent it costs money.
+# It is not an everyday step, and neither is a full `bash bin/ci.sh`: day to day,
+# run the checks related to your change (`bash bin/run-checks.sh <target>...`)
+# and let the PR's cloud checks rule on the whole round. This one stands a whole
+# station up and drives a browser, so it costs minutes; with --live-agent it
+# costs money.
 #
 # ── THE LIVE-AGENT CLASS: DEFAULT OFF, AND A TYPO MUST NOT SPEND ─────────────
 # Specs that need a live agent process spawn a real `claude` and BURN REAL API
@@ -66,7 +71,8 @@ usage: bash bin/local-ci.sh [--live-agent | --no-live-agent] [--dry-run]
   --dry-run          Print what this round WOULD do, run nothing, spend nothing.
 
 Run this before a GA release, or when you changed live-agent behaviour.
-The everyday round is `bash bin/ci.sh`.
+Day to day, run only the checks related to your change
+(`bash bin/run-checks.sh <target>...`); the PR's cloud checks decide the merge.
 USAGE
 }
 

@@ -3,6 +3,7 @@ import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { build as esbuild } from "esbuild";
 import { fileURLToPath } from "node:url";
+import { localTestWorkers } from "./local-test-workers";
 
 // [T-1500] Inline the pre-React theme applier into index.html.
 // It is bundled FROM src/paint/prePaint.ts — i.e. it imports the real
@@ -41,6 +42,8 @@ function inlinePrePaint(): Plugin {
   };
 }
 
+const testWorkers = localTestWorkers();
+
 export default defineConfig({
   plugins: [inlinePrePaint(), react()],
   server: {
@@ -54,6 +57,10 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
+    // minWorkers must come down with it: in run mode vitest's default minimum is
+    // the full core count, and a maxWorkers below that aborts the run with
+    // "minThreads and maxThreads must not conflict".
+    ...(testWorkers === undefined ? {} : { maxWorkers: testWorkers, minWorkers: 1 }),
     // T-187c: the Playwright Component-Testing visual guards live in
     // visual-guards/*.ct.spec.tsx and run in a REAL browser (see
     // playwright-ct.config.ts). Vitest's default include glob

@@ -632,9 +632,27 @@ test-bin-guards:
 GO_TEST_TIMEOUT := 15m
 GO_TEST_TOTAL_WARN := 5m
 
+# ── LOCAL RUNS ARE LIMITED BY OC_LOCAL_TEST_WORKERS (default 4) ────────────
+# Several agents share one dev machine, and an uncapped `go test` takes every
+# core. GOMAXPROCS is the one knob that reaches both halves: the go command
+# derives its default -p (how many packages build and test at once) from it,
+# and every test binary inherits it as its own thread limit and -parallel
+# default. frontend/local-test-workers.ts reads the same variable.
+# On CI (`CI` non-empty — GitHub Actions always sets it) nothing is exported:
+# cloud parallelism stays exactly what it was, by owner ruling.
+# A malformed value fails the recipe rather than silently running uncapped.
 test-go: build-embed-assets
 	@$(P) \
 	GO="$$(oc_go)"; \
+	if [[ -z "$${CI:-}" ]]; then \
+	  workers="$${OC_LOCAL_TEST_WORKERS:-4}"; \
+	  if [[ ! "$$workers" =~ ^[1-9][0-9]*$$ ]]; then \
+	    echo "FAIL — OC_LOCAL_TEST_WORKERS must be a positive integer, got '$$workers'." >&2; \
+	    exit 1; \
+	  fi; \
+	  export GOMAXPROCS="$$workers"; \
+	  echo "[test-go] local run: GOMAXPROCS=$$workers (OC_LOCAL_TEST_WORKERS; unset CI)"; \
+	fi; \
 	dur_s() { \
 	  local v="$$1" n="$$2"; \
 	  if [[ "$$v" =~ ^(0|[1-9][0-9]*)m$$ ]]; then echo $$(( $${BASH_REMATCH[1]} * 60 )); \

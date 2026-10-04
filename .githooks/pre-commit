@@ -7,14 +7,11 @@
 #     non-Go commits stay instant). This catches the "改了 golang 卻沒重編" 漏編
 #     event at commit time instead of at autodeploy.
 #
-# It is a convenience first line of defence, NOT the authority — bin/ci.sh is
-# the canonical hard gate. ⚠️ This used to say "(run by autodeploy)", and that is
-# false: bin/autodeploy never invokes it (`grep -n ci.sh bin/autodeploy` → no
-# hits; its pipeline is ff-pull -> bin/build -> bin/migrate -> kickstart serve ->
-# health). Nothing runs bin/ci.sh on your behalf. The two things that do run it
-# are a person before pushing, and `bin/release publish`, which runs it inside a
-# staging worktree of the commit it is about to ship and refuses to build if it
-# is not green. Enable this hook once per clone:
+# It is a convenience first line of defence, NOT the authority — the merge
+# verdict is the pull request's cloud checks, and `bin/release publish` reads
+# that same round's verdict. Nothing runs bin/ci.sh on your behalf, and nobody is
+# expected to run all of it before pushing: locally you run the checks related
+# to your change (see bin/ci.sh's header). Enable this hook once per clone:
 #
 #     git config core.hooksPath .githooks
 #
