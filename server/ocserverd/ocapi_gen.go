@@ -3133,7 +3133,7 @@ type RuntimeUpgradeDTO struct {
 	FromVersion *string `json:"from_version,omitempty"`
 	MachineId   string  `json:"machine_id"`
 
-	// Reason Human-readable cause on `failed` or `expired`. When the version read back equals `from_version` the upgrade is `failed` and the reason says the version did not change: either it was already the latest release, or `claude update` changed a different install than the claude binary members launch with.
+	// Reason Human-readable cause on `failed` or `expired`. When the version read back equals `from_version` the upgrade is `failed` and the reason says the version did not change: either it was already the latest release, or `claude update` changed a different install than the claude binary members launch with. When `claude update` said Homebrew manages the install (it then exits 0 without upgrading), the reason says so instead and names what to run on that machine: the `brew upgrade` command and its target, switching to the `claude-code@latest` cask when Homebrew's newest is below the notify-mod minimum, or that it is already Homebrew's newest.
 	Reason  *string                  `json:"reason,omitempty"`
 	Runtime RuntimeUpgradeDTORuntime `json:"runtime"`
 
