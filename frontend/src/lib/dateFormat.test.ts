@@ -10,6 +10,7 @@ import {
   formatDayLabel,
   formatAbsolute,
   formatClock,
+  formatResetTime,
   type DayLabelDict,
 } from "./dateFormat";
 
@@ -157,5 +158,59 @@ describe("formatClock", () => {
     expect(formatClock(ts(2026, 7, 13, 9, 5))).toBe("09:05");
     expect(formatClock(ts(2025, 12, 31, 23, 59))).toBe("23:59");
     expect(formatClock(ts(2026, 1, 1, 0, 0))).toBe("00:00");
+  });
+});
+
+describe("formatResetTime", () => {
+  const words = { today: "TODAY", tomorrow: "TOMORROW" };
+  // Fixed clock: 2026-10-04 at 10:00 local.
+  const now = ts(2026, 10, 4, 10, 0);
+
+  it("later today → the today word and HH:mm", () => {
+    expect(formatResetTime(ts(2026, 10, 4, 16, 39), now, words)).toBe("TODAY 16:39");
+    expect(formatResetTime(ts(2026, 10, 4, 23, 59), now, words)).toBe("TODAY 23:59");
+  });
+
+  it("tomorrow → the tomorrow word, from its 00:00 to its 23:59", () => {
+    expect(formatResetTime(ts(2026, 10, 5, 0, 0), now, words)).toBe("TOMORROW 00:00");
+    expect(formatResetTime(ts(2026, 10, 5, 23, 59), now, words)).toBe("TOMORROW 23:59");
+  });
+
+  it("late at night, an early-morning reset reads as tomorrow, not today", () => {
+    expect(
+      formatResetTime(ts(2026, 10, 5, 4, 30), ts(2026, 10, 4, 23, 50), words),
+    ).toBe("TOMORROW 04:30");
+  });
+
+  it("the day after tomorrow or later → numeric M/D HH:mm", () => {
+    expect(formatResetTime(ts(2026, 10, 6, 0, 0), now, words)).toBe("10/6 00:00");
+    expect(formatResetTime(ts(2026, 10, 7, 16, 39), now, words)).toBe("10/7 16:39");
+  });
+
+  it("a different year → the year-prefixed date", () => {
+    expect(
+      formatResetTime(ts(2027, 1, 2, 16, 39), ts(2026, 12, 31, 10, 0), words),
+    ).toBe("2027/1/2 16:39");
+  });
+
+  it("a time before today → the date form", () => {
+    expect(formatResetTime(ts(2026, 10, 3, 16, 39), now, words)).toBe("10/3 16:39");
+  });
+
+  it("across a 23h and a 25h DST day, tomorrow is still the next calendar day", () => {
+    const prevTz = process.env.TZ;
+    process.env.TZ = "America/New_York";
+    try {
+      // 2026-03-08 is 23h long (spring forward), 2026-11-01 is 25h (fall back).
+      expect(
+        formatResetTime(ts(2026, 3, 9, 9, 0), ts(2026, 3, 8, 12, 0), words),
+      ).toBe("TOMORROW 09:00");
+      expect(
+        formatResetTime(ts(2026, 11, 2, 9, 0), ts(2026, 11, 1, 12, 0), words),
+      ).toBe("TOMORROW 09:00");
+    } finally {
+      if (prevTz === undefined) delete process.env.TZ;
+      else process.env.TZ = prevTz;
+    }
   });
 });

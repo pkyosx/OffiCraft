@@ -796,7 +796,17 @@ export const zh = {
       // 「14:32 重置」;空字串的那一片在組句時略過。
       resetsLead: "",
       resetsTail: "重置",
+      resetsToday: "今天",
+      resetsTomorrow: "明天",
       server: "伺服器異常",
+    },
+    // 「可到「監控」頁的機器資訊，在 Claude 欄按「⋯」→「登入」」;中間的名稱取自監控頁自己的葉子。
+    signInHint: {
+      lead: "可到「",
+      pageTail: "」頁的",
+      sectionTail: "，在 ",
+      columnTail: " 欄按「⋯」→「",
+      tail: "」",
     },
   },
   login: {

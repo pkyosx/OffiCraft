@@ -6,7 +6,6 @@ import { ApiError } from "../api/errors";
 import { formatCost } from "../lib/cost";
 import { ConfirmModal } from "./ConfirmModal";
 import { formatDuration } from "../lib/duration";
-import { formatClock } from "../lib/dateFormat";
 import { useMembers } from "../hooks/useMembers";
 import { useMonitoring } from "../hooks/useMonitoring";
 import { useMachines } from "../hooks/useMachines";
@@ -2324,11 +2323,7 @@ export function AccountCard({
 
       {account.limitReached && (
         <div className="mon-acct__limit" data-testid="mon-acct-limit-reached">
-          {msg.monitorLimitReached(
-            account.limitReached.resetsAt === null
-              ? null
-              : formatClock(account.limitReached.resetsAt),
-          )}
+          {msg.monitorLimitReached(account.limitReached.resetsAt, Date.now() / 1000)}
         </div>
       )}
 

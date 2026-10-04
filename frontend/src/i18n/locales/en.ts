@@ -741,7 +741,16 @@ export const en: Dict = {
       rateLimit: "Usage limit reached",
       resetsLead: "resets",
       resetsTail: "",
+      resetsToday: "today",
+      resetsTomorrow: "tomorrow",
       server: "server error",
+    },
+    signInHint: {
+      lead: "To sign in: ",
+      pageTail: " → ",
+      sectionTail: ", ",
+      columnTail: " column, ⋯ → ",
+      tail: "",
     },
   },
   login: {

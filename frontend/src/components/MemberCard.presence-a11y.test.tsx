@@ -132,20 +132,20 @@ describe("MemberCard presence — the dot carries it", () => {
     );
     const marks = getAllByTestId("runtime-login-warning");
     expect(marks).toHaveLength(1);
-    expect(marks[0].getAttribute("aria-label")).toBe("mac-1 未登入 Codex");
+    expect(marks[0].getAttribute("aria-label")).toBe("mac-1 未登入 Codex\n可到「監控」頁的機器資訊，在 Codex 欄按「⋯」→「登入」");
     expect(marks[0].hasAttribute("title")).toBe(false);
     expect(marks[0].previousElementSibling).toBe(container.querySelector(".lifecycle-dot"));
     expect(screen.queryByRole("tooltip")).toBeNull();
 
     fireEvent.mouseOver(marks[0]);
     fireEvent.mouseEnter(marks[0]);
-    expect(screen.getByRole("tooltip").textContent).toBe("mac-1 未登入 Codex");
+    expect(Array.from(screen.getByRole("tooltip").children).map((l) => l.textContent)).toEqual(["mac-1 未登入 Codex", "可到「監控」頁的機器資訊，在 Codex 欄按「⋯」→「登入」"]);
     fireEvent.mouseLeave(marks[0]);
     expect(screen.queryByRole("tooltip")).toBeNull();
 
     act(() => marks[0].focus());
     expect(document.activeElement).toBe(marks[0]);
-    expect(screen.getByRole("tooltip").textContent).toBe("mac-1 未登入 Codex");
+    expect(Array.from(screen.getByRole("tooltip").children).map((l) => l.textContent)).toEqual(["mac-1 未登入 Codex", "可到「監控」頁的機器資訊，在 Codex 欄按「⋯」→「登入」"]);
     fireEvent.keyDown(marks[0], { key: "Enter" });
     fireEvent.keyDown(marks[0], { key: " " });
     expect(onChat).not.toHaveBeenCalled();

@@ -137,7 +137,12 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
     fireEvent.mouseEnter(marks[0]);
     expect(
       Array.from(screen.getByRole("tooltip").children).map((line) => line.textContent),
-    ).toEqual(["seth-m5 未登入 Claude", "Studio B 未登入 Codex"]);
+    ).toEqual([
+      "seth-m5 未登入 Claude",
+      "Studio B 未登入 Codex",
+      "可到「監控」頁的機器資訊，在 Claude 欄按「⋯」→「登入」",
+      "可到「監控」頁的機器資訊，在 Codex 欄按「⋯」→「登入」",
+    ]);
   });
 
   it("under only a model-call warning, the presence line carries the exclamation with that reason", async () => {
