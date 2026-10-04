@@ -870,7 +870,10 @@ runtime capability report.
   apply), and 喚醒 answers no `activation_pending`. A stop parked on that machine (re-fired by
   the tick) counts as reaching it. A stop that does not reach it ends nothing, and
   the START is waited on as above; 喚醒 then answers `activation_pending` with a
-  `warden_unreachable` reason naming the machine the START is still booting on.
+  `warden_unreachable` reason naming the machine the START is still booting on. Every other
+  staff out-of-band robust STOP (取消喚醒, 強制停止, report_stopped, dismissal) also reaches the
+  machine a START is still booting on, as a worker's does through its spawn target; 取消喚醒
+  ends that START the same way 喚醒 does.
 - ¬online ∧ START timed out → register a failure that arms exponential backoff
   (`min(base·2^(attempts−1), cap)`) but MUST NOT count toward the sticky circuit breaker
   (a silent timeout is indistinguishable from an at-most-once delivery miss). Circuit-open → no respawn until cooldown; cooldown lapse
