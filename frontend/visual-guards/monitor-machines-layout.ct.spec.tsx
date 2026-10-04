@@ -45,8 +45,9 @@
 //                                           → overscroll test
 //   `overscroll-behavior: none` on both axes → overscroll test (y), mouse wheel test
 //   a line on 機器's edge at rest, on every cell or on the header alone
-//                                           → line test (at rest)
-//   scrolled, the shade drawn without its 1px line → line test (scrolled)
+//                                           → line test (cell box-shadow at rest)
+//   the line's shade on at rest              → line test (shade opacity at rest)
+//   scrolled, the shade drawn without its 1px line → line test (shade box-shadow)
 import { test, expect } from "@playwright/experimental-ct-react";
 import type { Page } from "@playwright/test";
 import { MonitorMachinesLayoutStory } from "./stories/MonitorMachinesLayoutStory";
@@ -721,48 +722,23 @@ test("a mouse wheel over the table still scrolls the monitor page vertically", a
   await expect.poll(() => monitor.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
 });
 
-/** Pixel columns at 機器's right edge in the header and the first row: 機器's
- * last px, the first two px past it, and one deep in Claude's left padding. */
-async function edgeColumns(page: Page) {
-  const out: Record<string, { inside: string; outside: string; card: string; step: number }> = {};
-  for (const [key, sel] of [
-    ["head", ".mon-table--machines thead th:first-child"],
-    ["row", ".mon-table--machines tbody td:first-child"],
-  ] as const) {
-    const cell = (await page.locator(sel).boundingBox())!;
-    // Whole-px clip: a fractional x of .5 or more shifts the shot a px right,
-    // so column 1 lands on the shade and the line is never seen. The rows sit
-    // at half-px y (45.5 here) and the edge's x moves with the runner's layout.
-    const edge = Math.round(cell.x + cell.width);
-    const top = Math.ceil(cell.y) + 4;
-    const bottom = Math.floor(cell.y + cell.height) - 4;
-    // `disabled` finishes the shade's opacity transition before the capture,
-    // so a slow runner cannot hand back a frame painted mid-fade.
-    const shot = await page.screenshot({
-      clip: { x: edge - 1, y: top, width: 12, height: bottom - top },
-      animations: "disabled",
-    });
-    out[key] = await page.evaluate(async (b64) => {
-      const img = new Image();
-      img.src = "data:image/png;base64," + b64;
-      await img.decode();
-      const c = document.createElement("canvas");
-      c.width = img.naturalWidth;
-      c.height = img.naturalHeight;
-      const g = c.getContext("2d")!;
-      g.drawImage(img, 0, 0);
-      const col = (x: number) => Array.from(g.getImageData(x, 0, 1, c.height).data);
-      const [outside, next] = [col(1), col(2)];
-      return {
-        inside: col(0).join(","),
-        outside: outside.join(","),
-        card: col(c.width - 1).join(","),
-        // The sharpest jump between the first and second px past the edge.
-        step: Math.max(...outside.map((v, i) => Math.abs(v - next[i]))),
-      };
-    }, shot.toString("base64"));
-  }
-  return out;
+/** 機器's edge in the header and the first row: the cell's own box-shadow (a
+ * line drawn at rest would sit there), and its shade's opacity and box-shadow,
+ * whose first layer is the 1px line. Computed values, like `shades`: sampled
+ * pixels on the CI runner miss even the shade, though it paints locally and on
+ * the real site. */
+async function edgeLine(page: Page) {
+  return page.evaluate(() => {
+    const read = (sel: string) => {
+      const cell = document.querySelector(sel)!;
+      const after = getComputedStyle(cell, "::after");
+      return { own: getComputedStyle(cell).boxShadow, opacity: after.opacity, shade: after.boxShadow };
+    };
+    return {
+      head: read(".mon-table--machines thead th:first-child"),
+      row: read(".mon-table--machines tbody td:first-child"),
+    };
+  });
 }
 
 test("at rest no line is drawn at 機器's edge in the header or the rows; scrolled, both carry the line", async ({
@@ -771,47 +747,27 @@ test("at rest no line is drawn at 機器's edge in the header or the rows; scrol
 }) => {
   await page.setViewportSize({ width: 1016, height: 500 });
   await mount(<MonitorMachinesLayoutStory width={996} states={["normal"]} />);
-  const rest = await edgeColumns(page);
-  const plain = (c: { inside: string; outside: string; card: string }) => ({
-    inside: c.inside === c.card,
-    outside: c.outside === c.card,
-  });
-  expect({ head: plain(rest.head), row: plain(rest.row) }, "at rest 機器's edge is plain card").toEqual({
-    head: { inside: true, outside: true },
-    row: { inside: true, outside: true },
-  });
+  const wrap = page.locator(".mon-table-wrap");
+  expect(
+    await wrap.evaluate((el) => ({ scrollLeft: el.scrollLeft, scrollable: el.scrollWidth - el.clientWidth > 20 })),
+    "control: the frame sits at its left end and can scroll past 20px"
+  ).toEqual({ scrollLeft: 0, scrollable: true });
+  const rest = await edgeLine(page);
+  expect(
+    { head: { own: rest.head.own, opacity: rest.head.opacity }, row: { own: rest.row.own, opacity: rest.row.opacity } },
+    "at rest neither 機器 cell draws a line and the shade carrying it is off"
+  ).toEqual({ head: { own: "none", opacity: "0" }, row: { own: "none", opacity: "0" } });
 
-  await page.locator(".mon-table-wrap").evaluate((el) => (el.scrollLeft = 20));
-  // What scrolls under 機器's edge would paint over the columns measured.
-  await page.evaluate(() =>
-    document
-      .querySelectorAll(".mon-table--machines th:not(:first-child), .mon-table--machines td:not(:first-child)")
-      .forEach((el) => ((el as HTMLElement).style.visibility = "hidden"))
-  );
+  await wrap.evaluate((el) => (el.scrollLeft = 20));
+  expect(await wrap.evaluate((el) => el.scrollLeft), "control: the frame scrolled 20px").toBe(20);
+  // The 1px line (overlay at 14%), then the shade (shadow at 30%).
+  const lit = {
+    own: "none",
+    opacity: "1",
+    shade:
+      "color(srgb 1 1 1 / 0.14) 1px 0px 0px 0px inset, color(srgb 0 0 0 / 0.3) 20px 0px 16px -14px inset",
+  };
   await expect
-    .poll(
-      () =>
-        page.evaluate(() => {
-          const op = (sel: string) => getComputedStyle(document.querySelector(sel)!, "::after").opacity;
-          return {
-            head: op(".mon-table--machines thead th:first-child"),
-            row: op(".mon-table--machines tbody td:first-child"),
-          };
-        }),
-      "control: scrolled, the header's and the row's shade are both switched on"
-    )
-    .toEqual({ head: "1", row: "1" });
-  // The steps go out with a red run: CI is the only place this has failed.
-  const seen: string[] = [];
-  await expect
-    .poll(async () => {
-      const s = await edgeColumns(page);
-      seen.push(`head ${s.head.step}, row ${s.row.step}`);
-      return { head: s.head.step >= 10, row: s.row.step >= 10 };
-    }, "scrolled, a 1px line sits on 機器's edge, sharper than the shade beside it")
-    .toEqual({ head: true, row: true })
-    .catch(async (e) => {
-      await test.info().attach("edge steps per sample", { body: seen.join("\n"), contentType: "text/plain" });
-      throw e;
-    });
+    .poll(() => edgeLine(page), "scrolled, the header's and the row's shade are on and open with the 1px line")
+    .toEqual({ head: lit, row: lit });
 });
