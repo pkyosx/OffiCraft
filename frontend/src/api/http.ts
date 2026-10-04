@@ -1473,6 +1473,18 @@ export const httpApi: Api = {
     return toChatMessage(first);
   },
 
+  async getFirstUnreadChat(withId: string): Promise<ChatMessage | null> {
+    // `unread` is the STRING "true" on the wire; the unread path answers
+    // oldest-first, so `limit: 1` is the first unread rather than the newest.
+    const wire = unwrap(
+      await client.GET("/api/chat", {
+        params: { query: { unread: "true", with: withId, limit: 1 } },
+      }),
+    );
+    const first = wire.messages[0];
+    return first ? toChatMessage(first) : null;
+  },
+
   async listChatAttachments(withId: string): Promise<GalleryAttachment[]> {
     // GET /api/chat/attachments?with=<memberId> -> ChatGalleryEntryDTO[]. The
     // M2 gallery query: the member's WHOLE attachment perspective (owner↔member

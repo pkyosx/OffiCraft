@@ -15,8 +15,7 @@
 // anchor the chip jumps to.
 //
 // Root cause: the divider (`firstUnreadId`) was only ever set by the one-shot
-// ENTRY positioning (snapshot of member.unreadCount at conversation entry);
-// messages arriving while ALREADY in the conversation had no divider-anchoring
+// ENTRY positioning; messages arriving while ALREADY in the conversation had no divider-anchoring
 // path at all — only the chip's client-side id-diff saw them. This spec pins
 // the aligned behavior end-to-end over the real server + SSE.
 const { test, expect } = require('@playwright/test');

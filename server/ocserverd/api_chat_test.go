@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -1956,6 +1957,51 @@ func TestServeChatUnread(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{"messages": []any{}})
+	})
+
+	t.Run("with a peer and limit 1 it answers that peer's oldest unread message to the caller, skipping its traffic with other members, and writes nothing", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		kip := apiTestAgentToken(t, api, "kip", "")
+		mira := apiTestAgentToken(t, api, "mira", "")
+		apiJSON(t, h, "POST", "/api/chat", mira, `{"to":"kip","body":"mira to kip"}`)
+		apiJSON(t, h, "POST", "/api/chat", kip, `{"to":"mira","body":"kip to mira"}`)
+		apiJSON(t, h, "POST", "/api/chat", mira, `{"to":"owner","body":"mira to owner"}`)
+		_, first := apiJSON(t, h, "POST", "/api/chat", kip, `{"to":"owner","body":"first unread"}`)
+		apiJSON(t, h, "POST", "/api/chat", kip, `{"to":"mira","body":"kip to mira again"}`)
+		apiJSON(t, h, "POST", "/api/chat", kip, `{"to":"owner","body":"second unread"}`)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "GET", "/api/chat?unread=true&with=kip&limit=1", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		row := apiTestChatRow(apiAnyString, "kip", "owner", "first unread")
+		apiWantBody(t, data, map[string]any{
+			"messages":    []any{row},
+			"next_cursor": apiAnyString,
+		})
+		id := data["messages"].([]any)[0].(map[string]any)["id"].(string)
+		if !regexp.MustCompile(`^c-[0-9a-f]{12}$`).MatchString(id) {
+			t.Fatalf("message id %q is not a chat message id", id)
+		}
+		apiWantChatReads(t, h, owner)
+		dashboard.wantFrames()
+
+		// The contrast for both empties above: once that message is marked read,
+		// the receipt exists and the same query moves on to the next unread.
+		apiJSON(t, h, "POST", "/api/chat/mark-read", owner,
+			`{"peer":"kip","last_read_ts":`+
+				strconv.FormatFloat(first["ts"].(float64), 'f', -1, 64)+`}`)
+		apiWantChatReads(t, h, owner, map[string]any{
+			"reader_id": "owner", "peer_id": "kip", "last_read_ts": apiAnyNumber,
+		})
+		status, data = apiJSON(t, h, "GET", "/api/chat?unread=true&with=kip&limit=1", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"messages": []any{
+			apiTestChatRow(apiAnyString, "kip", "owner", "second unread"),
+		}})
 	})
 
 	t.Run("this route keeps the legacy limit semantics: zero is an empty page and a negative one is uncapped", func(t *testing.T) {
