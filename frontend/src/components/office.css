@@ -44,10 +44,28 @@
  * states (waking / stopping) share the same pulse language so a wind-down is
  * as visibly "in motion" as a wake-up. */
 .lifecycle-dot {
+  position: relative;
   display: inline-block;
   width: 9px;
   height: 9px;
   border-radius: 50%;
+}
+/* A touch screen has no hover, so tapping the 9px dot is the only way to read
+ * its state. The tap area grows from a pseudo-element rather than padding, so
+ * the coloured circle and the hint's anchor stay where they are. It grows only
+ * left and down: rightward it would meet the warning mark's own tap area (the
+ * gap between them must open neither), and upward it would reach the name line,
+ * where the browser's tap adjustment would pull taps meant for the name (which
+ * opens the chat) onto the dot. Left stops short of the roster avatar beside it. */
+@media (hover: none) {
+  .lifecycle-dot::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: -14px;
+    left: -8px;
+  }
 }
 .lifecycle-dot--offline {
   background: var(--color-dot-offline);

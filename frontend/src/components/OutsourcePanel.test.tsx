@@ -359,6 +359,28 @@ describe("OutsourcePanel", () => {
     expect(window.location.hash).toBe("#office/chat/ow-keys");
   });
 
+  it("under a click on the row's presence dot, its state shows and the row does not open; a click on the row itself still does", async () => {
+    const task = mkTask({ id: "t-dot", taskNo: "T-dot" });
+    __injectMockTask(task);
+    __injectMockOutsourceWorker(
+      mkWorker({ id: "ow-dot", taskId: task.id, presence: "waking" }),
+    );
+
+    const { findByTestId } = renderOutsource();
+    const row = await findByTestId("outsource-row-ow-dot");
+    const dot = within(row).getByTestId("outsource-presence-ow-dot");
+    const before = window.location.hash;
+
+    fireEvent.click(dot);
+    expect(
+      screen.getAllByRole("tooltip").map((h) => h.textContent),
+    ).toEqual(["喚醒中"]);
+    expect(window.location.hash).toBe(before);
+
+    fireEvent.click(row);
+    expect(window.location.hash).toBe("#office/chat/ow-dot");
+  });
+
   it("the type line shows the manual's DISPLAY name — the raw key stays out of the UI (T-fa76)", async () => {
     __injectMockTaskType({
       typeKey: "tm-aaaabbbbcccc",

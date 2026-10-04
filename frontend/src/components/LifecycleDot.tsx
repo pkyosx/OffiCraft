@@ -22,6 +22,7 @@
  * all), which is exactly the bug this replaces.
  */
 import { useI18n } from "../i18n";
+import { InstantHint } from "./InstantHint";
 import type { MemberLifecycle } from "../types";
 
 /** UI-only lifecycle visual states — one per real backend presence state
@@ -81,12 +82,16 @@ export function LifecycleDot({
   // a label and this line stops compiling; drop a label from one locale and
   // that locale stops satisfying `Dict`. The a11y channel cannot silently
   // fall behind the colour channel.
+  const label = t.office.presence[status];
+  // The dot itself is the hint trigger (not a wrapper around it), so a screen
+  // reader meets one focusable element that names the state. A click on it
+  // only toggles the hint; it never reaches the row that opens chat or detail.
   return (
-    <span
+    <InstantHint
+      hint={label}
       className={`lifecycle-dot lifecycle-dot--${status}`}
       role="img"
-      aria-label={t.office.presence[status]}
-      title={t.office.presence[status]}
+      aria-label={label}
       data-testid={testId}
     />
   );

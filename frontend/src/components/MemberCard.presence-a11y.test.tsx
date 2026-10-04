@@ -229,3 +229,124 @@ describe("MemberCard presence — the dot carries it", () => {
     expect(new Set(labels).size).toBe(ALL.length);
   });
 });
+
+describe("MemberCard presence dot hint", () => {
+  const tooltipLines = () =>
+    screen.queryAllByRole("tooltip").map((h) => Array.from(h.children).map((l) => l.textContent));
+
+  function renderRow(over: Partial<Member> = {}) {
+    const onChat = vi.fn();
+    const onOpenDetail = vi.fn();
+    const utils = render(
+      <I18nProvider>
+        <MemberCard
+          member={mkMember(over)}
+          selected={false}
+          onOpenDetail={onOpenDetail}
+          onChat={onChat}
+        />
+      </I18nProvider>,
+    );
+    const dot = utils.container.querySelector(".lifecycle-dot") as HTMLElement;
+    return { ...utils, dot, onChat, onOpenDetail };
+  }
+
+  it.each(ALL)("under a hover on the %s dot, its state shows at once and leaves with the pointer", (lifecycle) => {
+    const { dot } = renderRow({ lifecycle });
+    expect(dot.hasAttribute("title")).toBe(false);
+    expect(tooltipLines()).toEqual([]);
+    fireEvent.mouseEnter(dot);
+    expect(tooltipLines()).toEqual([[ZH_PRESENCE[lifecycle]]]);
+    fireEvent.mouseLeave(dot);
+    expect(tooltipLines()).toEqual([]);
+  });
+
+  it("under English, the hovered dot reads its state in English", () => {
+    window.localStorage.setItem("oc.language", "en");
+    try {
+      const { dot } = renderRow({ lifecycle: "stopping" });
+      fireEvent.mouseEnter(dot);
+      expect(tooltipLines()).toEqual([["Stopping"]]);
+    } finally {
+      window.localStorage.removeItem("oc.language");
+    }
+  });
+
+  it("under a click or tap on the dot, the state shows pinned and neither the chat nor the detail opens; a second click closes it", () => {
+    const { dot, onChat, onOpenDetail } = renderRow({ lifecycle: "online" });
+    fireEvent.mouseEnter(dot);
+    fireEvent.focus(dot);
+    fireEvent.click(dot);
+    expect(tooltipLines()).toEqual([["線上"]]);
+    expect(screen.getByRole("tooltip").className).toBe("instant-hint instant-hint--pinned");
+    fireEvent.mouseLeave(dot);
+    fireEvent.blur(dot);
+    expect(tooltipLines()).toEqual([["線上"]]);
+    expect(onChat).not.toHaveBeenCalled();
+    expect(onOpenDetail).not.toHaveBeenCalled();
+
+    fireEvent.click(dot);
+    expect(tooltipLines()).toEqual([]);
+    expect(onChat).not.toHaveBeenCalled();
+    expect(onOpenDetail).not.toHaveBeenCalled();
+  });
+
+  it("under Enter or Space on the focused dot, the chat does not open", () => {
+    const { dot, onChat } = renderRow({ lifecycle: "waking" });
+    act(() => dot.focus());
+    expect(document.activeElement).toBe(dot);
+    expect(tooltipLines()).toEqual([["喚醒中"]]);
+    fireEvent.keyDown(dot, { key: "Enter" });
+    fireEvent.keyDown(dot, { key: " " });
+    expect(onChat).not.toHaveBeenCalled();
+  });
+
+  it("under a click on the name or the role text, the chat still opens, and an open dot hint closes", () => {
+    const { dot, onChat, onOpenDetail, getByText } = renderRow({ lifecycle: "stopped" });
+    fireEvent.click(dot);
+    expect(tooltipLines()).toEqual([["已停止"]]);
+
+    fireEvent.click(getByText("Mira"));
+    expect(onChat).toHaveBeenCalledTimes(1);
+    expect(tooltipLines()).toEqual([]);
+
+    fireEvent.click(getByText("特助"));
+    expect(onChat).toHaveBeenCalledTimes(2);
+    expect(onOpenDetail).not.toHaveBeenCalled();
+  });
+
+  const WARNED: Partial<Member> = {
+    lifecycle: "offline",
+    runtimeLoginWarnings: [
+      { machineId: "mac-1", machineName: "mac-1", runtime: "codex", pending: false },
+    ],
+  };
+  const MARK_LINES = ["mac-1 未登入 Codex", "可到「監控」頁的機器資訊，在 Codex 欄按版本號 →「登入」"];
+
+  it("under a click on the dot while the warning hint is pinned, only the dot's hint stays open", () => {
+    const { dot, getByTestId, onChat, onOpenDetail } = renderRow(WARNED);
+    fireEvent.click(getByTestId("runtime-login-warning"));
+    expect(tooltipLines()).toEqual([MARK_LINES]);
+    fireEvent.click(dot);
+    expect(tooltipLines()).toEqual([["離線"]]);
+    expect(onChat).not.toHaveBeenCalled();
+    expect(onOpenDetail).not.toHaveBeenCalled();
+  });
+
+  it("under a click on the warning mark while the dot hint is pinned, only the warning hint stays open", () => {
+    const { dot, getByTestId, onChat, onOpenDetail } = renderRow(WARNED);
+    fireEvent.click(dot);
+    expect(tooltipLines()).toEqual([["離線"]]);
+    fireEvent.click(getByTestId("runtime-login-warning"));
+    expect(tooltipLines()).toEqual([MARK_LINES]);
+    expect(onChat).not.toHaveBeenCalled();
+    expect(onOpenDetail).not.toHaveBeenCalled();
+  });
+
+  it("keeps the state as the dot's own accessible name on the one focusable element, with no focusable layer inside it", () => {
+    const { dot, getByRole } = renderRow({ lifecycle: "offline" });
+    expect(getByRole("img", { name: "離線" })).toBe(dot);
+    expect(dot.tabIndex).toBe(0);
+    expect(dot.querySelectorAll("*")).toHaveLength(0);
+  });
+});

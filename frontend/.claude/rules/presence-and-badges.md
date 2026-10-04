@@ -26,6 +26,8 @@ paths:
 
 圓點旁的驚嘆號（RuntimeLoginWarningMark）合併兩種來源：runtime_login_warnings（機器回報未登入）與 model_call_warnings（模型呼叫失敗），一個原因一行；兩者都空才不畫。rate_limit 不論幾筆都只畫一行（server 刻意會送成員自己無重置時間的一筆加帳號共用有重置時間的一筆），有重置時間就取最晚的；有未登入或登入失效時，最後按 runtime 各加一行「到監控頁登入」的指引。點驚嘆號會釘住提示（再點、點外面——包括點另一個驚嘆號——、Esc、捲動或 resize 才收；hover 不會解除釘住），點擊不往上冒泡，不會打開所在的列；手機沒有 hover，這是唯一看得到原因的方法（owner 要求），別恢復成讓點擊穿到列上。
 
+圓點（LifecycleDot）本身就是同一種 InstantHint 觸發點：hover 立刻顯示狀態字、點擊釘住且不冒泡（不進聊天或詳情），別改回原生 title（電腦要等一秒、手機根本看不到）。狀態字同時是圓點的 aria-label，圓點是唯一一層可聚焦元素，不要再包一層可聚焦的 wrapper。手機觸控範圍（hover: none）：圓點只往左、往下擴（用 ::after，不用 padding，免得色點變大、提示位置偏掉）；驚嘆號不往左擴。兩者範圍不可重疊，中間空隙兩者都不算——往右或往上擴會讓瀏覽器的觸控修正把點名字或點驚嘆號的手指吸到圓點上。
+
 presenceVisual 是唯一視覺映射，顏色只來自 CSS token，不准在元件裡塞色值；inline 色值會繞過 token guard，讓不同 lifecycle 共用錯誤顏色。toPresence 是 member 與 worker 共用的唯一 wire seam：未知 member wire 值落到 offline；未知 worker 值保持 undefined 並誠實畫 offline。不要加 default 把未知值偽裝成線上；否則會繞過 no-default 的錯誤訊號，畫面可能只剩沒有顏色或可及性名稱的假元件。
 
 badge 的三個色槽要分清 danger badge、on-danger 文字與 ring；ring 預設沿用 var(--color-bg)。不要重新加已撤回的 ring 對比下限；只有文字對填色的可讀性契約仍有效。視覺守衛要讀 computed color 並掃 source，不能只看 class。
