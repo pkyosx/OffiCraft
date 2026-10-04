@@ -116,6 +116,10 @@ describe("MonitorPage account card limit line", () => {
     const line = await screen.findByTestId("mon-acct-limit-reached");
     expect(line.textContent).toBe("已達上限 · 明天 04:30 重置");
     const fetches = getMonitoring.mock.calls.length;
+    // findByTestId resolves on the DOM commit, which can land before React runs
+    // the card's effects; jumping the clock first would arm the midnight timer
+    // after midnight, and the line would never roll over.
+    await act(async () => {});
 
     act(() => {
       vi.advanceTimersByTime(11 * 60 * 1000);
