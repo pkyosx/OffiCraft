@@ -1203,9 +1203,6 @@ func (s *apiServer) restoreWorkerStoppedLatch(w *OutsourceWorker, prior float64,
 	}
 }
 
-// collectWorkerStop is the 收口 of a 停止 epoch: kill via stopWorkerNow, never the
-// handover funnel, which would let the FSM restart a worker the owner stopped.
-// Callers hold s.outsourceMu.
 // collectWorkerSessionGone is collectMemberStop for a worker: the same latch, then the worker's
 // own kill send. Callers hold s.outsourceMu.
 func (s *apiServer) collectWorkerSessionGone(w OutsourceWorker, now float64) bool {
@@ -1231,6 +1228,9 @@ func (s *apiServer) collectWorkerSessionGone(w OutsourceWorker, now float64) boo
 	return true
 }
 
+// collectWorkerStop is the 收口 of a 停止 epoch: kill via stopWorkerNow, never the
+// handover funnel, which would let the FSM restart a worker the owner stopped.
+// Callers hold s.outsourceMu.
 func (s *apiServer) collectWorkerStop(w OutsourceWorker, reason, trigger string) error {
 	_, prior := collectWindDownRow(windDownAnchorRowOfWorker(&w), nowSecs())
 	if err := s.latchWorkerStopped(&w, prior, reason, trigger); err != nil {
