@@ -15,12 +15,21 @@ import "./runtime-login.css";
  * attached control with a single hairline between them. */
 const OVERLAP = 1;
 const EDGE = 8;
+const ITEM = "[role='menuitem']";
+const MODAL = "[aria-modal='true']";
 
 export interface RuntimeActionItem {
   key: string;
   label: string;
   icon?: ReactNode;
   onSelect: () => void;
+  /** Still focusable (aria-disabled), so a keyboard user hears `title`. */
+  disabled?: boolean;
+  /** The reason a disabled item is disabled. */
+  title?: string;
+  danger?: boolean;
+  /** Overrides the default `${testIdPrefix}-menu-${key}`. */
+  testId?: string;
 }
 
 /** One runtime's version on a machine row, made into the trigger of that
@@ -36,11 +45,17 @@ export function RuntimeActionMenu({
   items,
   testIdPrefix,
   children,
+  iconOnly = false,
+  align = "start",
 }: {
   label: string;
   items: RuntimeActionItem[];
   testIdPrefix: string;
   children: ReactNode;
+  /** The trigger is a bare icon (no chevron), e.g. a row's ⚙ operations menu. */
+  iconOnly?: boolean;
+  /** Which trigger edge the menu lines up with. */
+  align?: "start" | "end";
 }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<CSSProperties | null>(null);
@@ -52,6 +67,31 @@ export function RuntimeActionMenu({
     if (refocus) triggerRef.current?.focus();
   };
   useEscapeLayer(() => close(true), popRef, open);
+
+  // Focus goes back to the trigger as soon as an item is chosen. When the
+  // action opened a dialog, focus goes back there again once that dialog is
+  // gone, unless something else on the page holds it by then: closing a dialog
+  // with a click leaves focus nowhere, and a keyboard user would start over
+  // from the top of the page.
+  const stopWatching = useRef<(() => void) | null>(null);
+  useEffect(() => () => stopWatching.current?.(), []);
+  const returnFocusAfterDialog = (before: Set<Element>) => {
+    stopWatching.current?.();
+    const timer = window.setTimeout(() => {
+      const opened = Array.from(document.querySelectorAll(MODAL)).find((el) => !before.has(el));
+      if (!opened) return;
+      const observer = new MutationObserver(() => {
+        if (opened.isConnected) return;
+        observer.disconnect();
+        stopWatching.current = null;
+        const at = document.activeElement;
+        if (!at || at === document.body) triggerRef.current?.focus();
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+      stopWatching.current = () => observer.disconnect();
+    });
+    stopWatching.current = () => window.clearTimeout(timer);
+  };
 
   useLayoutEffect(() => {
     if (!open) {
@@ -67,10 +107,11 @@ export function RuntimeActionMenu({
     const fitsBelow = below + box.height <= window.innerHeight - EDGE;
     const goBelow = fitsBelow || above < EDGE;
     const maxLeft = Math.max(EDGE, window.innerWidth - EDGE - width);
-    const left = Math.min(Math.max(EDGE, trigger.left), maxLeft);
+    const wanted = align === "end" ? trigger.right - width : trigger.left;
+    const left = Math.min(Math.max(EDGE, wanted), maxLeft);
     setPlacement(goBelow ? "below" : "above");
     setPos({ top: goBelow ? below : above, left, minWidth: trigger.width });
-  }, [open]);
+  }, [open, align]);
 
   useEffect(() => {
     if (!open) return;
@@ -92,7 +133,7 @@ export function RuntimeActionMenu({
   }, [open]);
 
   useEffect(() => {
-    if (open && pos) popRef.current?.querySelector<HTMLElement>("[role='menuitem']")?.focus();
+    if (open && pos) popRef.current?.querySelector<HTMLElement>(ITEM)?.focus();
   }, [open, pos]);
 
   if (items.length === 0) return <>{children}</>;
@@ -101,7 +142,7 @@ export function RuntimeActionMenu({
       <button
         ref={triggerRef}
         type="button"
-        className="runtime-menu__trigger"
+        className={`runtime-menu__trigger${iconOnly ? " runtime-menu__trigger--icon" : ""}`}
         aria-label={label}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -115,9 +156,11 @@ export function RuntimeActionMenu({
         }}
       >
         {children}
-        <span className="runtime-menu__chevron" aria-hidden="true">
-          <ChevronDownIcon size={12} />
-        </span>
+        {!iconOnly && (
+          <span className="runtime-menu__chevron" aria-hidden="true">
+            <ChevronDownIcon size={12} />
+          </span>
+        )}
       </button>
       {open &&
         createPortal(
@@ -127,13 +170,14 @@ export function RuntimeActionMenu({
             role="menu"
             aria-label={label}
             data-placement={placement}
+            data-align={align}
             data-testid={`${testIdPrefix}-menu-pop`}
             style={pos ?? { top: 0, left: 0, visibility: "hidden" }}
             onKeyDown={(e) => {
               if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
               e.preventDefault();
               const all = Array.from(
-                popRef.current?.querySelectorAll<HTMLElement>("[role='menuitem']") ?? []
+                popRef.current?.querySelectorAll<HTMLElement>(ITEM) ?? []
               );
               const at = all.indexOf(document.activeElement as HTMLElement);
               const step = e.key === "ArrowDown" ? 1 : -1;
@@ -145,11 +189,16 @@ export function RuntimeActionMenu({
                 key={item.key}
                 type="button"
                 role="menuitem"
-                className="runtime-menu__item"
-                data-testid={`${testIdPrefix}-menu-${item.key}`}
+                className={`runtime-menu__item${item.danger ? " runtime-menu__item--danger" : ""}`}
+                data-testid={item.testId ?? `${testIdPrefix}-menu-${item.key}`}
+                aria-disabled={item.disabled || undefined}
+                title={item.title}
                 onClick={() => {
-                  close(false);
+                  if (item.disabled) return;
+                  const before = new Set(document.querySelectorAll(MODAL));
+                  close(true);
                   item.onSelect();
+                  returnFocusAfterDialog(before);
                 }}
               >
                 {item.icon && (

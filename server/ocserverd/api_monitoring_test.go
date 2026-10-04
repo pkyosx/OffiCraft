@@ -1150,6 +1150,7 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			{`{"runtimes":{"claude":{"installed":"yes"}}}`, "runtimes.claude.installed must be a boolean"},
 			{`{"runtimes":{"claude":{"logged_in":"yes"}}}`, "runtimes.claude.logged_in must be a boolean or null"},
 			{`{"runtimes":{"claude":{"version":1}}}`, "runtimes.claude.version must be a string or null"},
+			{`{"runtimes":{"claude":{"below_notify_minimum":"yes"}}}`, "runtimes.claude.below_notify_minimum must be a boolean or null"},
 		} {
 			status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", agent, c.body)
 			if status != 400 {
@@ -1157,6 +1158,35 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			}
 			apiWantError(t, data, "validation_error", c.message)
 		}
+	})
+
+	t.Run("under a claude below_notify_minimum, the monitoring view carries it on claude only and drops it from codex", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+
+		status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden,
+			`{"runtimes":{"claude":{"installed":true,"version":"2.1.200","below_notify_minimum":true},`+
+				`"codex":{"installed":true,"below_notify_minimum":false}}}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+
+		status, view := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
+		if status != 200 {
+			t.Fatalf("monitoring: want 200, got %d (%v)", status, view)
+		}
+		wantMachine := apiTestMonitoringMachine()
+		wantMachine["runtime_capabilities"] = map[string]any{
+			"claude": map[string]any{"installed": true, "version": "2.1.200", "below_notify_minimum": true},
+			"codex":  map[string]any{"installed": true},
+		}
+		wantMachine["runtime_capabilities_ts"] = apiAnyNumber
+		wantMachine["runtime_capabilities_stale"] = false
+		apiWantBody(t, view, map[string]any{
+			"sessions": view["sessions"],
+			"machines": []any{wantMachine},
+			"accounts": view["accounts"],
+		})
 	})
 
 	t.Run("a runtimes block carrying explicit nulls is accepted, and the monitoring view reports only the fields that were not null", func(t *testing.T) {

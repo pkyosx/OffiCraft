@@ -217,7 +217,10 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--color-text-muted);
-  border: 1px solid var(--color-border);
+  /* Drawn in the muted text colour, not --color-border: that token is nearly
+   * the card's own colour, so the chip read as frameless next to the amber
+   * .mon-bad ones. Grey on purpose — old is not broken. */
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 55%, transparent);
 }
 
 /* A value that was REPORTED but is UNREADABLE (T-aad2) — same chip geometry as
@@ -485,20 +488,60 @@
 .mon-table__right {
   text-align: right !important;
 }
-/* per-machine action button group (copy boot cmd · bootstrap · teardown) */
-.mon-actions {
+/* 機器資訊: every column but 機器 has a fixed width, so a mark in one cell
+ * (版本太舊, 未登入, 過期) never shifts its neighbours, and the rows look the same
+ * in every state. Desktop only: the ≤720px card mode does not lay out columns.
+ * The min-width is what 機器 needs on top of the fixed columns; below it the
+ * wrap's own horizontal scroll takes over, as it always has. The narrower
+ * cell padding is what lets the columns hold their marks on one line and
+ * still fit the 1000px desktop content width without scrolling. */
+@media (min-width: 721px) {
+  .mon-table--machines {
+    table-layout: fixed;
+    min-width: 960px;
+  }
+  .mon-table--machines th,
+  .mon-table--machines td {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  /* Claude and Codex are one width: both cells can carry a version, 版本太舊
+   * and 未登入 or 過期, and the trigger's chevron, all on one line. */
+  .mon-col--claude,
+  .mon-col--codex {
+    width: 184px;
+  }
+  .mon-col--pct {
+    width: 72px;
+  }
+  .mon-col--power {
+    width: 88px;
+  }
+  .mon-col--actions {
+    width: 56px;
+  }
+  /* The ⚙ is the row's only way to its operations, so when the frame scrolls
+   * it stays pinned to the frame's right edge; the opaque card colour keeps
+   * the scrolled cells from showing through. */
+  .mon-table--machines th:last-child,
+  .mon-table--machines td:last-child {
+    position: sticky;
+    right: 0;
+    background: var(--color-card);
+  }
+}
+/* A value with its marks on the same line after it (CellLine). */
+.mon-cell-line {
   display: inline-flex;
-  flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
+  gap: 4px;
 }
-.mon-actions .btn {
-  cursor: pointer;
+.mon-cell-marks {
+  display: inline-flex;
+  gap: 4px;
 }
-.mon-actions .btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.mon-cell-marks .mon-stale {
+  margin-left: 0;
 }
 
 /* machine identity cell — display name + id chip + online badge, ONE column

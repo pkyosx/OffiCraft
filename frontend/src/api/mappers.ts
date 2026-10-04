@@ -48,6 +48,7 @@ import type {
   DeleteResultView,
   UninstallResultView,
   RuntimeLoginView,
+  RuntimeUpgradeView,
   TeardownHereResultView,
   BootstrapResultView,
   MachineView,
@@ -81,6 +82,7 @@ import type {
   WireDeleteResult,
   WireUninstallResult,
   WireRuntimeLogin,
+  WireRuntimeUpgrade,
   WireTeardownHereResult,
   WireBootstrapResult,
   WireChatRead,
@@ -1175,6 +1177,7 @@ function toMonMachine(w: WireMonMachine): MonMachineView {
           installed: capability.installed ?? null,
           loggedIn: capability.logged_in ?? null,
           version: capability.version ?? null,
+          belowNotifyMinimum: capability.below_notify_minimum ?? null,
         },
       ])
     ),
@@ -1723,6 +1726,7 @@ export function toMachine(w: WireMachine): MachineView {
           installed: capability.installed ?? null,
           loggedIn: capability.logged_in ?? null,
           version: capability.version ?? null,
+          belowNotifyMinimum: capability.below_notify_minimum ?? null,
         },
       ])
     ),
@@ -1818,6 +1822,20 @@ export function toRuntimeLogin(w: WireRuntimeLogin): RuntimeLoginView {
         }
       : null,
     reason: w.reason ?? null,
+    updatedTs: w.updated_ts,
+  };
+}
+
+export function toRuntimeUpgrade(w: WireRuntimeUpgrade): RuntimeUpgradeView {
+  return {
+    upgradeId: w.upgrade_id,
+    machineId: w.machine_id,
+    runtime: w.runtime,
+    state: w.state,
+    fromVersion: w.from_version ?? null,
+    toVersion: w.to_version ?? null,
+    reason: w.reason ?? null,
+    startedTs: w.started_ts,
     updatedTs: w.updated_ts,
   };
 }

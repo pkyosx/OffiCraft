@@ -1148,6 +1148,19 @@ MATRIX: dict[str, Route] = {
         },
         body={"login_id": "rl-conf-missing", "state": "verifying"},
     ),
+    # The warden's runtime-upgrade report: the same floor and the same 404 to
+    # every caller that is not the upgrade's own machine.
+    "POST /api/monitoring/runtime-upgrade": Route(
+        requires="machine",
+        overrides={
+            "owner": 404,
+            "admin_agent": 404,
+            "warden": 404,
+            "agent_self": 404,
+            "agent_other": 404,
+        },
+        body={"upgrade_id": "ru-conf-missing", "state": "running"},
+    ),
     # T-da06: the cockpit's backup-health read. admin_agent floor — it is an
     # operational verdict about the studio's own retreat points, not something
     # an ordinary worker agent needs.
@@ -1259,6 +1272,19 @@ MATRIX: dict[str, Route] = {
         requires="admin_agent",
         overrides={"owner": 404, "admin_agent": 404},
         path=lambda ctx, _i: f"/api/machines/{ctx.machine_id}/runtime-login/rl-conf-missing/cancel",
+    ),
+    # Runtime upgrade: the same offline-warden 409 on start, and a read of an
+    # upgrade that does not exist is 404.
+    "POST /api/machines/{machine_id}/runtime-upgrade": Route(
+        requires="admin_agent",
+        overrides={"owner": 409, "admin_agent": 409},
+        path=lambda ctx, _i: f"/api/machines/{ctx.machine_id}/runtime-upgrade",
+        body={"runtime": "claude"},
+    ),
+    "GET /api/machines/{machine_id}/runtime-upgrade/{upgrade_id}": Route(
+        requires="admin_agent",
+        overrides={"owner": 404, "admin_agent": 404},
+        path=lambda ctx, _i: f"/api/machines/{ctx.machine_id}/runtime-upgrade/ru-conf-missing",
     ),
     "DELETE /api/machines/{member_id}": Route(
         requires="admin_agent",

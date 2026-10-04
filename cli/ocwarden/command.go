@@ -68,7 +68,7 @@ func parseCommandFrame(payload []byte) (*Command, error) {
 	}
 	switch body.RPC {
 	case rpcStart, rpcStop, rpcUninstall, rpcUpdate, rpcRenew, rpcWorkerStop,
-		rpcLoginStart, rpcLoginCode, rpcLoginCancel:
+		rpcLoginStart, rpcLoginCode, rpcLoginCancel, rpcRuntimeUpgrade:
 	default:
 		return nil, fmt.Errorf("command: unknown or missing rpc %q", body.RPC)
 	}
@@ -97,8 +97,11 @@ type CommandDeps struct {
 	// No receipt either: a login reports its own progress through
 	// runtimeLoginPath, and a command_result would land on member.last_op*,
 	// which the login must never touch.
-	Login  LoginSeam
-	Report func(CommandResult) error
+	Login LoginSeam
+	// No receipt for the same reason: an upgrade reports through
+	// runtimeUpgradePath.
+	Upgrade UpgradeSeam
+	Report  func(CommandResult) error
 }
 
 type CommandResult struct {
@@ -229,6 +232,8 @@ func dispatchCommand(cmd *Command, deps CommandDeps) error {
 		return nil
 	case rpcLoginStart, rpcLoginCode, rpcLoginCancel:
 		return dispatchLogin(cmd, deps.Login)
+	case rpcRuntimeUpgrade:
+		return dispatchUpgrade(cmd, deps.Upgrade)
 	case rpcStop:
 		session, err := stopSessionFromArgs(cmd.Args)
 		if err != nil {

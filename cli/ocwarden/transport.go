@@ -335,6 +335,14 @@ func resolveRepoRoot(executable func() (string, error)) string {
 // binary that was never downloaded.
 func pathStatable(p string) bool { _, err := os.Stat(p); return err == nil }
 
+func fileModTime(p string) (time.Time, error) {
+	fi, err := os.Stat(p)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return fi.ModTime(), nil
+}
+
 func newOcAgentResolver(executable func() (string, error), exists func(string) bool) func() (string, bool) {
 	return func() (string, bool) {
 		return resolveOcAgentBin(executable, exists, resolveRepoRoot(executable))
@@ -412,8 +420,15 @@ func buildSpawnDeps(cfg Config, env func(string) string, runner CmdRunner, socke
 		MkdirAll:          os.MkdirAll,
 		Symlink:           os.Symlink,
 		Remove:            os.Remove,
-		Sleep:             time.Sleep,
-		Pretrust:          nil,
+		Exists:            pathStatable,
+		ModTime:           fileModTime,
+		Now:               time.Now,
+		ReapWorkdirListeners: func(workdir string) (int, bool) {
+			pids := ocagentPIDsByCwd(runner, workdir)
+			return len(pids), sweepPIDs(pids, realKill, time.Sleep)
+		},
+		Sleep:    time.Sleep,
+		Pretrust: nil,
 	}
 }
 
@@ -436,8 +451,9 @@ func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner, lau
 			).start(p)
 		},
 		Stop: func(session string) (bool, bool) {
-			// The detached `ocagent listen` never receives the session's SIGHUP, so the
-			// sweep finds it by workdir (lsof) and reaps it by pid. A legacy
+			// A paste-route `ocagent listen` is detached and never receives the
+			// session's SIGHUP, so the sweep finds it by workdir (lsof) and reaps it
+			// by pid. A legacy
 			// worker-<ow-id> session resolves the retired workers/ root; an unresolvable
 			// session keeps root "", which makes purgeTrash refuse.
 			root := defaultAgentHome(env)

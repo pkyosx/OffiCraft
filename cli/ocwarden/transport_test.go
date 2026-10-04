@@ -896,8 +896,10 @@ func TestBuildCommandDeps(t *testing.T) {
 		if !reflect.DeepEqual(entry["mcpServers"], servers) || entry["hasTrustDialogAccepted"] != true {
 			t.Fatalf("startup changed user MCP settings or failed to trust workdir: %s", raw)
 		}
-		if got.Note != "" {
-			t.Fatalf("unexpected startup warning: %s", got.Note)
+		// No member really ran, so the notification mod never wrote its marker:
+		// that advisory is the only one this spawn may carry.
+		if got.Note != goldenNotifyModNotLoadedNote {
+			t.Fatalf("startup note = %q, want only the mod fallback", got.Note)
 		}
 		var launch string
 		for _, call := range runner.calls {

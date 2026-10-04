@@ -540,6 +540,13 @@
   },
   {
     "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/monitoring/runtime-upgrade",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
     "mcp_tool": "get_monitoring",
     "method": "GET",
     "path": "/api/monitoring",
@@ -669,6 +676,20 @@
     "mcp_tool": null,
     "method": "POST",
     "path": "/api/machines/{machine_id}/runtime-login/{login_id}/cancel",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/machines/{machine_id}/runtime-upgrade",
+    "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/api/machines/{machine_id}/runtime-upgrade/{upgrade_id}",
     "requires": "admin_agent"
   },
   {

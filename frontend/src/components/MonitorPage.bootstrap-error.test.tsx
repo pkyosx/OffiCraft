@@ -11,6 +11,7 @@ import { I18nProvider } from "../i18n";
 import { MonitorPage } from "./MonitorPage";
 import { ApiError } from "../api/errors";
 import type { Member, MachineView, MonMachineView } from "../types";
+import { machineAction } from "./machineActions.testHelper";
 
 const listMembers = vi.fn(async (): Promise<Member[]> => []);
 const listMachines = vi.fn(async (): Promise<MachineView[]> => []);
@@ -85,7 +86,7 @@ describe("MonitorPage bootstrap-on-server error surface", () => {
       )
     );
     renderMonitor();
-    fireEvent.click(await screen.findByTestId("mon-install-btn"));
+    fireEvent.click(await machineAction("mon-install-btn"));
 
     const banner = await screen.findByText(new RegExp(detail.replace(/[()]/g, "\\$&")));
     expect(banner.textContent).toContain("安裝請求失敗");
@@ -95,7 +96,7 @@ describe("MonitorPage bootstrap-on-server error surface", () => {
   it("keeps the generic message when the rejection carries no envelope detail", async () => {
     bootstrapOnServer.mockRejectedValue(new Error("network down"));
     renderMonitor();
-    fireEvent.click(await screen.findByTestId("mon-install-btn"));
+    fireEvent.click(await machineAction("mon-install-btn"));
 
     expect((await screen.findByText("安裝請求失敗")).textContent).toBe("安裝請求失敗");
   });

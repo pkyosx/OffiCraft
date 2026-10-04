@@ -29,11 +29,23 @@ const receiptMissingReasonCode = "receipt_missing"
 //     model list, codexAppResponseTimeout 30s;
 //   - Claude only, the prompt-file probe, claudePromptFileProbeBudget 2s +
 //     subprocessWaitDelay 2s;
+//   - Claude only, the version probe that picks the notification route,
+//     claudeVersionProbeBudget 2s + subprocessWaitDelay 2s;
+//   - Claude only, reaping leftover ocagent processes in the workdir, up to
+//     (sweepTermPolls + sweepKillPolls) × sweepPollInterval = 25 × 200ms = 5s;
 //   - Claude only, the boot-nudge loop, which always runs all nudgeMaxAttempts ×
-//     nudgeSettle = 30s;
+//     nudgeSettle = 30s. On the notification-mod route the same 30s polls the
+//     mod's markers instead (waitForNotifyMod), ending early once the mod loads;
+//     no poll starts past the 30s, but the last one can run up to 17s over: a
+//     nudgeSettle sleep 1s, a pane capture and the one-time /reload-plugins send
+//     (copy-mode, two send-keys), each tmux call notifyModCaptureBudget 2s +
+//     subprocessWaitDelay 2s. When the mod did not load, the warden's paste fallback
+//     adds fallbackNudgeAttempts × nudgeSettle = 3s, and before that its capture of
+//     the member pane for the warden log, notifyModCaptureBudget 2s +
+//     subprocessWaitDelay 2s (cli/ocwarden/notifymod.go);
 //
 // After those, commandReportTimeout 5s, plus up to one 30s lifecycle cadence
-// before the deadline is read. Worst case ≈ 96s for Claude and ≈ 97s for a Codex family
+// before the deadline is read. Worst case ≈ 129s for a Claude whose mod did not load and ≈ 97s for a Codex family
 // word — PAST this 90s deadline, so a start that is merely slow at every step
 // can be stamped receipt_missing with nothing wrong. Known and left as is here.
 // 🔴 Those warden constants live in another Go module and nothing links them;

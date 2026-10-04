@@ -34,7 +34,7 @@ func TestCollectRuntimeCapabilities(t *testing.T) {
 			wantRuns: nil,
 		},
 		{
-			name:   "under an absent claude, the probed version is still reported and no login verdict",
+			name:   "under an absent claude, the probed version is still reported, with no login verdict and no below_notify_minimum",
 			env:    map[string]string{"HOME": root},
 			claude: map[string]any{"version": "2.1.211", "cred_file": true},
 			login:  loginState{Claude: &yes},
@@ -49,7 +49,37 @@ func TestCollectRuntimeCapabilities(t *testing.T) {
 			claude: map[string]any{"version": "2.1.211", "cred_file": false, "keychain": false},
 			login:  loginState{Claude: &yes},
 			want: map[string]any{
-				"claude": map[string]any{"installed": true, "version": "2.1.211", "logged_in": true},
+				"claude": map[string]any{"installed": true, "version": "2.1.211", "logged_in": true, "below_notify_minimum": true},
+				"codex":  map[string]any{"installed": false},
+			},
+		},
+		{
+			name:   "under a claude exactly at the notification mod's minimum, below_notify_minimum is false",
+			env:    map[string]string{"HOME": root, "OC_CLAUDE_BIN": claudeBin},
+			claude: map[string]any{"version": "2.1.287"},
+			login:  loginState{Claude: &yes},
+			want: map[string]any{
+				"claude": map[string]any{"installed": true, "version": "2.1.287", "logged_in": true, "below_notify_minimum": false},
+				"codex":  map[string]any{"installed": false},
+			},
+		},
+		{
+			name:   "under a claude newer than the minimum in an earlier component, below_notify_minimum is false",
+			env:    map[string]string{"HOME": root, "OC_CLAUDE_BIN": claudeBin},
+			claude: map[string]any{"version": "2.2.0"},
+			login:  loginState{Claude: &yes},
+			want: map[string]any{
+				"claude": map[string]any{"installed": true, "version": "2.2.0", "logged_in": true, "below_notify_minimum": false},
+				"codex":  map[string]any{"installed": false},
+			},
+		},
+		{
+			name:   "under a claude version that is not dotted numbers, below_notify_minimum is absent",
+			env:    map[string]string{"HOME": root, "OC_CLAUDE_BIN": claudeBin},
+			claude: map[string]any{"version": "2.1.290-beta"},
+			login:  loginState{Claude: &yes},
+			want: map[string]any{
+				"claude": map[string]any{"installed": true, "version": "2.1.290-beta", "logged_in": true},
 				"codex":  map[string]any{"installed": false},
 			},
 		},

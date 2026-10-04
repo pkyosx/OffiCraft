@@ -71,7 +71,7 @@ presence 是 **server 端算出來的**，不是 agent 自報的心跳狀態。�
 離線(offline) ──(你按喚醒：寫下意圖 desired_state=online；面板先樂觀翻成喚醒中)──►
    ──(server 同一次請求內重決、START 被 warden 接走：蓋上錨點)──► 喚醒中(waking)
    ──(`WakingTTLSecs` 內沒連上 SSE)──► 回到 離線(offline)
-   ──(成員旁邊的連線程序接上、server 見 SSE 連上)──► 線上(online == connected)
+   ──(成員的連線程序接上〔通知模組的子程序，或備援時 warden 在旁邊起的〕、server 見 SSE 連上)──► 線上(online == connected)
    ──(收 stopping 訊號、SSE 仍在)──► stopping ──(SSE 斷)──► stopped/offline
 ```
 - **離線 / stopped**：灰點
@@ -399,8 +399,9 @@ epoch 再當場砍，**沒有重生**，所以存下的新值要等之後某一�
 帳號那一欄早就拆成 Claude／Codex 兩欄，而且多了一整欄**操作**。
 
 - 機器名可就地改名；列上帶線上／離線。
-- **操作**欄的三件事：**安裝／重新安裝 warden**、**拆除（uninstall）**、**刪除機器**，
+- **操作**欄是一顆 ⚙ 按鈕，選單裡三件事：**安裝／重新安裝 warden**、**拆除（uninstall）**、**刪除機器**，
   各自有自己的確認與結果 modal（拆除是 danger 兩段確認）。
+- Claude／Codex／CPU／RAM／電源 欄寬固定；版本太舊、未登入、過期這類標記排在值的下一行，不會把欄位撐寬。
 - 表格下方是 **`+ 新增機器 / 上線`** 入口（填機器名 → 建立）。空狀態：「尚無機器,請先新增機器 / 上線」。
 
 ### 4.3 AI 會話（AI Sessions）

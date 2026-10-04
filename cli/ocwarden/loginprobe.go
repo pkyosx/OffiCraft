@@ -202,11 +202,16 @@ func (p *loginProber) checkNow(runtime string) *bool {
 		return nil
 	}
 	p.mu.Unlock()
+	p.kickTelemetry()
+	return verdict
+}
+
+// kickTelemetry asks the telemetry loop to send its next heartbeat now.
+func (p *loginProber) kickTelemetry() {
 	select {
 	case p.kick <- struct{}{}:
 	default:
 	}
-	return verdict
 }
 
 // checkForSpawn is checkNow within spawnBudget. A check that overruns keeps
@@ -239,7 +244,8 @@ func (p *loginProber) checkForSpawn(runtime string) *bool {
 	}
 }
 
-// kicked fires once after any checkNow the telemetry loop has not yet reported.
+// kicked fires once after any kickTelemetry the telemetry loop has not yet
+// acted on.
 func (p *loginProber) kicked() <-chan struct{} {
 	return p.kick
 }

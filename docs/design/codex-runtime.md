@@ -75,7 +75,8 @@ This is composition across two independent axes, not four persona copies:
 
 The Claude member boot sequence preserved current behavior byte-for-behavior at the time
 this document was written: after boot readiness the agent started bare `ocagent listen`
-with its Monitor tool. Since T-259 warden starts that listener beside the member instead;
+with its Monitor tool. Today the agent never starts it: the notification mod runs it as a child
+of the member's Claude Code, or, on the paste fallback, warden starts it beside the member;
 Claude `statusLine` still feeds context telemetry and `AskUserQuestion` stays disabled.
 
 The Codex member boot sequence changes only execution ownership:

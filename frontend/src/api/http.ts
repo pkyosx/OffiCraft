@@ -51,6 +51,8 @@ import type {
   UninstallResultView,
   RuntimeLoginView,
   RuntimeLoginRuntime,
+  RuntimeUpgradeView,
+  RuntimeUpgradeRuntime,
   BootstrapResultView,
   TeardownHereResultView,
   MachineView,
@@ -145,6 +147,7 @@ import {
   toDeleteResult,
   toUninstallResult,
   toRuntimeLogin,
+  toRuntimeUpgrade,
   toBootstrapResult,
   toTeardownHereResult,
   toMachine,
@@ -427,6 +430,7 @@ export const SSE_RESYNC_TOPICS = [
   "context",
   "monitoring",
   "runtime_login",
+  "runtime_upgrade",
 ] as const;
 
 // The payload fields that name an ENTITY rather than describe one (spec/sse.md
@@ -2328,6 +2332,25 @@ export const httpApi: Api = {
       }),
     );
     return toRuntimeLogin(wire);
+  },
+
+  async startRuntimeUpgrade(machineId: string, runtime: RuntimeUpgradeRuntime): Promise<RuntimeUpgradeView> {
+    const wire = unwrap(
+      await client.POST("/api/machines/{machine_id}/runtime-upgrade", {
+        params: { path: { machine_id: machineId } },
+        body: { runtime },
+      }),
+    );
+    return toRuntimeUpgrade(wire);
+  },
+
+  async getRuntimeUpgrade(machineId: string, upgradeId: string): Promise<RuntimeUpgradeView> {
+    const wire = unwrap(
+      await client.GET("/api/machines/{machine_id}/runtime-upgrade/{upgrade_id}", {
+        params: { path: { machine_id: machineId, upgrade_id: upgradeId } },
+      }),
+    );
+    return toRuntimeUpgrade(wire);
   },
 
   async getMachineBootCommand(machineId: string): Promise<string> {

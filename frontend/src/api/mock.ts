@@ -32,6 +32,8 @@ import type {
   UninstallResultView,
   RuntimeLoginView,
   RuntimeLoginRuntime,
+  RuntimeUpgradeView,
+  RuntimeUpgradeRuntime,
   BootstrapResultView,
   TeardownHereResultView,
   MachineView,
@@ -120,6 +122,7 @@ import type {
   WireDeleteResult,
   WireUninstallResult,
   WireRuntimeLogin,
+  WireRuntimeUpgrade,
   WireMachine,
   WireServerSettings,
 } from "./wire";
@@ -143,6 +146,7 @@ import {
   toDeleteResult,
   toUninstallResult,
   toRuntimeLogin,
+  toRuntimeUpgrade,
   toMachine,
   toServerSettings,
 } from "./mappers";
@@ -1298,6 +1302,17 @@ function mockRuntimeLoginUpdate(id: string, patch: Partial<WireRuntimeLogin>): v
   if (!cur || ["succeeded", "failed", "expired", "cancelled"].includes(cur.state)) return;
   mockRuntimeLogins.set(id, { ...cur, ...patch, updated_ts: Date.now() / 1000 });
   emitTopic("runtime_login");
+}
+
+// Stands in for the server and the warden: a start reports running shortly
+// after, then succeeded with the version before and after.
+const mockRuntimeUpgrades = new Map<string, WireRuntimeUpgrade>();
+
+function mockRuntimeUpgradeUpdate(id: string, patch: Partial<WireRuntimeUpgrade>): void {
+  const cur = mockRuntimeUpgrades.get(id);
+  if (!cur || ["succeeded", "failed", "expired"].includes(cur.state)) return;
+  mockRuntimeUpgrades.set(id, { ...cur, ...patch, updated_ts: Date.now() / 1000 });
+  emitTopic("runtime_upgrade");
 }
 
 /** The circled indices as the SERVER stores them: deduped + ascending, so
@@ -5672,6 +5687,55 @@ const mockApiImpl = {
     }
     mockRuntimeLoginUpdate(loginId, { state: "cancelled", reason: "cancelled by the owner" });
     return toRuntimeLogin(mockRuntimeLogins.get(loginId)!);
+  },
+
+  async startRuntimeUpgrade(machineId: string, runtime: RuntimeUpgradeRuntime): Promise<RuntimeUpgradeView> {
+    const path = `POST /api/machines/${machineId}/runtime-upgrade`;
+    for (const upgrade of mockRuntimeUpgrades.values()) {
+      if (
+        upgrade.machine_id === machineId &&
+        upgrade.runtime === runtime &&
+        !["succeeded", "failed", "expired"].includes(upgrade.state)
+      ) {
+        return toRuntimeUpgrade(upgrade);
+      }
+    }
+    const warden = wireMembers.find((m) => m.id === machineId && m.kind === "warden");
+    if (!warden) {
+      throw mockApiError(`http 404 for ${path}`, 404, `machine '${machineId}' not found`);
+    }
+    if (warden.presence !== "online") {
+      throw mockApiError(`http 409 for ${path}`, 409, "machine is offline; its warden cannot run an upgrade");
+    }
+    const now = Date.now() / 1000;
+    const id = `ru-mock-${Math.random().toString(36).slice(2, 10)}`;
+    const upgrade: WireRuntimeUpgrade = {
+      upgrade_id: id,
+      machine_id: machineId,
+      runtime,
+      state: "starting",
+      from_version: null,
+      to_version: null,
+      reason: null,
+      started_ts: now,
+      updated_ts: now,
+    };
+    mockRuntimeUpgrades.set(id, upgrade);
+    setTimeout(() => mockRuntimeUpgradeUpdate(id, { state: "running", from_version: "2.1.200" }), 800);
+    setTimeout(() => mockRuntimeUpgradeUpdate(id, { state: "succeeded", to_version: "2.1.300" }), 4000);
+    return toRuntimeUpgrade(upgrade);
+  },
+
+  async getRuntimeUpgrade(machineId: string, upgradeId: string): Promise<RuntimeUpgradeView> {
+    const upgrade = mockRuntimeUpgrades.get(upgradeId);
+    if (!upgrade || upgrade.machine_id !== machineId) {
+      throw mockApiError(
+        `http 404 for GET /api/machines/${machineId}/runtime-upgrade/${upgradeId}`,
+        404,
+        `runtime upgrade '${upgradeId}' not found`
+      );
+    }
+    return toRuntimeUpgrade(upgrade);
   },
 
   async getMachineBootCommand(_machineId: string): Promise<string> {

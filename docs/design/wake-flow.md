@@ -40,7 +40,7 @@ sequenceDiagram
     participant rec as server（reconcile 迴圈）
     participant w as warden（目標機器上）
     participant agent as agent（新 session）
-    participant listener as 連線程序（成員旁邊）
+    participant listener as 連線程序（不是成員的對話）
     participant w2 as warden（其他機器上）
 
     owner->>srv: 按上線（或換手把舊的收掉之後，由 rec 自己續上）
@@ -57,7 +57,7 @@ sequenceDiagram
     alt warden 起得起來
         w->>w: 落檔、建工作目錄、把 runtime 拉起來
         w->>agent: 起 session，戳它開始
-        w->>listener: 在成員旁邊起連線程序
+        w->>listener: 讓連線程序起起來（誰起它因 runtime 而異，見第六節）
         agent->>agent: 照固定指示裡的身分與開機程序走
         agent->>srv: 報「我醒了」（這還不算上線）
         listener->>srv: 掛上長連線
@@ -217,7 +217,7 @@ warden 的拒絕理由**原本被宣告為一個閉集合**，其中「**session
 
 **不重試的是**：START 這道命令本身、檔案寫入、CLI 連結、回執的回傳。**這些失敗就是失敗，重試是 server 的事。**（**為什麼要單邊重試**：兩邊都重試會讓同一個動作被做兩次而沒人知道總共幾次——**這句是我的解讀**，碼上只有「warden 不重試」這個事實。）
 
-**但開機那一戳有自己的重試**：warden 會對著新起的 session 按 Enter，按滿上限次為止。⇒ **「warden 端零重試」是假的**，正確說法是上面那四樣不重試。
+**但開機那一戳有自己的重試**：走貼上路的 claude 成員，warden 會對著新起的 session 按 Enter，按滿上限次為止（走通知模組時開機指令由模組自己送出，warden 不按，只照同樣的節奏等模組載入）。⇒ **「warden 端零重試」是假的**，正確說法是上面那四樣不重試。
 
 🔴 **不要把它讀成「按不動就再按」**（T-82 前這份文件就是這樣寫的，而那句話從來沒有成立過）。那個迴圈**分辨不出 Enter 有沒有被接受**，它只是無條件按滿上限——上限是 30 次、每次隔 1 秒，所以**每一次 spawn 都固定花掉 30 秒**，不論第一下有沒有成功。曾經有一個「送出了沒有」的判定，讀的是成員狀態列上的字樣，而它恆為 false（機制見 `cli/AGENTS.md` §5）。⇒ **這一戳成功與否的唯一權威在 server**：有沒有在 `StartTimeout` 內看到那顆成員的 id 出現在事件連線集合裡（見 §7），不是收到 `report_waking`。
 
@@ -225,9 +225,9 @@ warden 的拒絕理由**原本被宣告為一個閉集合**，其中「**session
 
 ## 六、🔴 最後一哩：那條長連線不是成員自己掛的
 
-**兩種 runtime 都一樣：成員本身不持有那條長連線，旁邊另一個程序才是持有者。**
+**兩種 runtime 都一樣：成員本身不持有那條長連線，持有者是另一個程序；成員自己從來不跑 `ocagent listen`。**
 
-- **claude**：warden 起完成員的工作階段、戳它「開始。」之後，再在旁邊另開一個工作階段跑連線程序；事件由那個程序貼回成員的畫面。
+- **claude**：warden 每次 spawn 選一條路。主路是通知模組：warden 讓成員的 Claude Code 載入模組，模組送出開機指令之後，把連線程序當成自己的子程序起起來，事件直接送進成員的主對話——連線活在成員的 Claude Code 程序樹裡，但持有它的仍是那個子程序，不是模型。備援是貼上：Claude Code 比模組需要的最低版本舊，或模組在開機等待內沒載入，warden 才自己貼開機指令（模組還沒送過的話）、在旁邊另開一個 `listen-<id>` 工作階段跑連線程序，事件由那個程序貼回成員的畫面（機制見 `cli/AGENTS.md` §5）。
 - **codex**：連線程序由 sidecar 以無終端機的方式起起來，掛好之後才會再叫成員一次。
 
 ⇒ **改壞成員的開機程序不會讓整個機隊叫不醒**，因為那份文件裡已經沒有「去掛連線」這一步。**但這一哩仍然沒有人在事後檢查**：連線程序起不來時，server 說我派出去了、warden 說我起起來了、runtime 說 session 在跑，沒有任何一層在說謊——成員只是聽不到任何事件，直到死線到了被回收重開。

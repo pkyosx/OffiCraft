@@ -127,6 +127,8 @@ export type WireUninstallResult =
 
 export type WireRuntimeLogin = components["schemas"]["RuntimeLoginDTO"];
 
+export type WireRuntimeUpgrade = components["schemas"]["RuntimeUpgradeDTO"];
+
 /** Mirrors `POST /api/machines/{machine_id}/teardown-here`
  * (`MachineTeardownHereResultDTO`) — the symmetric inverse of
  * WireBootstrapResult. */

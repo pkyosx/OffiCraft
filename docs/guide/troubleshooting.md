@@ -60,7 +60,36 @@ server 的標準埠是 **7755**。被別的程式占用時，安裝會**當場�
 
 先確認**那位成員被指派到的機器上**有 `tmux`，以及那位成員的 runtime 所需的 `claude` 或 `codex`（已登入）——warden 靠它們把成員 spawn 起來。缺了，成員就起不來。
 
-成員到 server 的 SSE 長連線是 warden 在成員旁邊另外起的一個程序持住的（成員自己不掛、也不維護它）——**持著連線才算 online**。所以 Waking 卡住或一直 Offline，多半是那個程序沒起來或起來就退了。到那位成員被指派到的機器上看：
+成員到 server 的 SSE 長連線由一個 `ocagent listen` 程序持住（成員自己不掛、也不維護它）——**持著連線才算 online**。所以 Waking 卡住或一直 Offline，多半是那個程序沒起來或起來就退了。Claude Code 成員的這個程序有兩種起法，warden 每次喚醒時選一種：
+
+- **通知模組（平常走這條）**：warden 讓成員的 Claude Code 載入 OffiCraft 通知模組，由模組把 `ocagent listen` 當成自己的子程序起起來，通知直接送進成員的主對話。這時機器上**沒有** `listen-<成員 id>` 這個 tmux session，看不到它是正常的。
+- **貼上（備援）**：那台機器的 Claude Code 版本比通知模組需要的舊，或模組這次沒有載入，warden 才改在成員旁邊另起一個 `listen-<成員 id>` tmux session，把通知貼進成員的視窗。這條路在有人把成員畫面切到子代理時會漏通知。
+
+**分辨成員走哪一條**：看成員面板的「最近操作」。喚醒那一行帶著「通知改用貼進 tmux 視窗的舊方式送達」的提醒（`notify_legacy_paste` 是版本太舊，`notify_mod_not_loaded` 是模組沒載入，提醒裡寫了常見原因），就是貼上；沒有這段提醒就是通知模組。
+
+走通知模組的成員，到那位成員被指派到的機器上看：
+
+```bash
+ls ~/.officraft/agents/<成員 id>/.officraft-mod-loaded   # 在＝模組有載入，而且它起的 listener 開始連線過
+pgrep -fl 'ocagent listen --deliver-mod'                 # 那個 listener 現在還活著嗎
+```
+
+標記在、listener 卻不在，表示它後來退了；它印的話只進成員 Claude Code 的 debug log（以 `claude --debug` 啟動時才看得到）。
+
+**最近操作出現 `notify_mod_not_loaded`、想知道模組為什麼沒載入**：到那台機器看 warden 的紀錄，退回貼上那一刻它寫了幾行以 `notify-mod-fallback` 開頭的診斷：
+
+```bash
+grep 'notify-mod' ~/.officraft/warden/log/ocwarden.err.log   # 每次退回貼上都有一組 notify-mod-fallback，最後一組是最近這次；也看得到 warden 送過的 /reload-plugins
+ls -l ~/.officraft/agents/<成員 id>/.officraft-mod-started          # 模組開始跑的時間（內容是 UTC 時間戳）
+```
+
+- `.officraft-mod-started written 12.3s after launch`：模組有跑，只是 Claude Code 的啟動慢到快 30 秒才輪到它（常見是開機時的對話框或 MCP 載入卡住）——看下面 pane 那幾行就知道卡在哪。
+- `.officraft-mod-started absent`：模組根本沒跑到。最常見的是 Claude Code 啟動時同步了組織的 plugin、剛好有變動，它就把所有 plugin（包括通知模組）扣住、畫面上顯示 `Plugins changed. Run /reload-plugins to activate.`——下面 pane 那幾行會看得到這句。warden 等待時看到這句會自己送一次 `/reload-plugins`（紀錄裡有一行 `notify-mod: plugins changed during startup; sent /reload-plugins`），通常模組就接著載入、不會退回貼上；送了還是退回，才往下看其他原因（工作目錄沒被信任、`disableAllHooks`、`--safe-mode`、受管設定擋掉 `--plugin-dir`，或讀不到 `officraft.json`）。
+- `pane| ` 開頭的那幾行：等滿 30 秒時成員視窗最後 40 行的原樣（最多 4 KiB），看得出當時畫面停在什麼對話框或錯誤。
+
+這份診斷只在 warden 的紀錄裡，不會出現在最近操作。
+
+走貼上的成員：
 
 ```bash
 tmux -L officraft ls          # 應該看得到 listen-<成員 id>
