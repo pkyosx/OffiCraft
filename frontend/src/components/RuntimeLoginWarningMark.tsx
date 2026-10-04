@@ -24,7 +24,7 @@ function modelCallLine(w: ModelCallWarning, msg: Messages, now: number): string 
     case "other":
       return msg.modelCallOtherWarning(w.runtime, w.code);
     case "rate_limit":
-      return msg.modelCallRateLimitWarning(w.resetsAt, now);
+      return msg.modelCallRateLimitWarning(w.runtime, w.resetsAt, now);
     case "server":
       return msg.modelCallServerWarning(w.runtime);
   }

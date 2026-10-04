@@ -738,7 +738,7 @@ export const en: Dict = {
       auth: "sign-in expired",
       otherLead: "model call failed (",
       otherTail: ")",
-      rateLimit: "Usage limit reached",
+      rateLimit: "usage limit reached",
       resetsLead: "resets",
       resetsTail: "",
       resetsToday: "today",

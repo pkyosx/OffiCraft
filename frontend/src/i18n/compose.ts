@@ -89,7 +89,11 @@ export interface Messages {
   modelCallOtherWarning: (runtime: "claude" | "codex", code: string) => string;
   /** `resetsAt` is epoch seconds, or null when the runtime gave none — that
    * sentence then says nothing about a reset. `now` picks 今天/明天/a date. */
-  modelCallRateLimitWarning: (resetsAt: number | null, now: number) => string;
+  modelCallRateLimitWarning: (
+    runtime: "claude" | "codex",
+    resetsAt: number | null,
+    now: number,
+  ) => string;
   runtimeSignInHint: (runtime: "claude" | "codex") => string;
   modelCallServerWarning: (runtime: "claude" | "codex") => string;
   memberModelCallLastSuccess: (age: string) => string;
@@ -342,8 +346,10 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     modelCallAuthWarning: (runtime) => `${mcw.runtime[runtime]} ${mcw.auth}`,
     modelCallOtherWarning: (runtime, code) =>
       `${mcw.runtime[runtime]} ${mcw.otherLead}${code}${mcw.otherTail}`,
-    modelCallRateLimitWarning: (resetsAt, now) =>
-      resetsAt === null ? mcw.rateLimit : `${mcw.rateLimit} · ${resetsAtText(resetsAt, now)}`,
+    modelCallRateLimitWarning: (runtime, resetsAt, now) => {
+      const limit = `${mcw.runtime[runtime]} ${mcw.rateLimit}`;
+      return resetsAt === null ? limit : `${limit} · ${resetsAtText(resetsAt, now)}`;
+    },
     // Built from the monitor's own labels so the directions name what is on screen.
     runtimeSignInHint: (runtime) => {
       const h = t.lifecycle.signInHint;

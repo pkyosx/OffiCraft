@@ -121,12 +121,12 @@ describe("RuntimeLoginWarningMark", () => {
         "seth-m1 未登入 Codex",
         "Claude 登入失效",
         "Claude 模型呼叫失敗（invalid_request）",
-        "已達用量上限 · 今天 14:05 重置",
+        "Claude 已達用量上限 · 今天 14:05 重置",
         "Claude 伺服器異常",
         SIGN_IN_CODEX,
         SIGN_IN_CLAUDE,
       ],
-      label: `seth-m1 未登入 Codex\nClaude 登入失效\nClaude 模型呼叫失敗（invalid_request）\n已達用量上限 · 今天 14:05 重置\nClaude 伺服器異常\n${SIGN_IN_CODEX}\n${SIGN_IN_CLAUDE}`,
+      label: `seth-m1 未登入 Codex\nClaude 登入失效\nClaude 模型呼叫失敗（invalid_request）\nClaude 已達用量上限 · 今天 14:05 重置\nClaude 伺服器異常\n${SIGN_IN_CODEX}\n${SIGN_IN_CLAUDE}`,
       className: "runtime-login-warning runtime-login-warning--danger",
     });
   });
@@ -136,8 +136,8 @@ describe("RuntimeLoginWarningMark", () => {
       hoverLines([], [call({ kind: "rate_limit", code: "usageLimitExceeded", runtime: "codex", accountWide: true })]),
     ).toEqual({
       marks: 1,
-      lines: ["已達用量上限"],
-      label: "已達用量上限",
+      lines: ["Codex 已達用量上限"],
+      label: "Codex 已達用量上限",
       className: "runtime-login-warning runtime-login-warning--danger",
     });
   });
@@ -177,12 +177,12 @@ describe("RuntimeLoginWarningMark", () => {
         lines: [
           "Codex sign-in expired",
           "Claude model call failed (max_output_tokens)",
-          "Usage limit reached · resets today 09:30",
+          "Claude usage limit reached · resets today 09:30",
           "Claude server error",
           "To sign in: Monitor → Machines, click the version in the Codex column → Sign in",
         ],
         label:
-          "Codex sign-in expired\nClaude model call failed (max_output_tokens)\nUsage limit reached · resets today 09:30\nClaude server error\nTo sign in: Monitor → Machines, click the version in the Codex column → Sign in",
+          "Codex sign-in expired\nClaude model call failed (max_output_tokens)\nClaude usage limit reached · resets today 09:30\nClaude server error\nTo sign in: Monitor → Machines, click the version in the Codex column → Sign in",
         className: "runtime-login-warning runtime-login-warning--danger",
       });
     } finally {
@@ -201,8 +201,8 @@ describe("RuntimeLoginWarningMark", () => {
       ),
     ).toEqual({
       marks: 1,
-      lines: ["已達用量上限 · 今天 16:39 重置"],
-      label: "已達用量上限 · 今天 16:39 重置",
+      lines: ["Codex 已達用量上限 · 今天 16:39 重置"],
+      label: "Codex 已達用量上限 · 今天 16:39 重置",
       className: "runtime-login-warning runtime-login-warning--danger",
     });
   });
@@ -217,7 +217,7 @@ describe("RuntimeLoginWarningMark", () => {
           call({ kind: "rate_limit", code: "usageLimitExceeded" }),
         ],
       ).lines,
-    ).toEqual(["已達用量上限 · 明天 04:30 重置"]);
+    ).toEqual(["Claude 已達用量上限 · 明天 04:30 重置"]);
   });
 
   it("under an expired sign-in alone, the hint says where to sign in again", () => {
@@ -273,16 +273,16 @@ describe("RuntimeLoginWarningMark across local midnight", () => {
       </I18nProvider>,
     );
     const label = () => screen.getByTestId("runtime-login-warning").getAttribute("aria-label");
-    expect(label()).toBe("已達用量上限 · 10/4 04:30 重置");
+    expect(label()).toBe("Claude 已達用量上限 · 10/4 04:30 重置");
 
     act(() => {
       vi.advanceTimersByTime(11 * 60 * 1000);
     });
-    expect(label()).toBe("已達用量上限 · 明天 04:30 重置");
+    expect(label()).toBe("Claude 已達用量上限 · 明天 04:30 重置");
 
     act(() => {
       vi.advanceTimersByTime(24 * 60 * 60 * 1000);
     });
-    expect(label()).toBe("已達用量上限 · 今天 04:30 重置");
+    expect(label()).toBe("Claude 已達用量上限 · 今天 04:30 重置");
   });
 });

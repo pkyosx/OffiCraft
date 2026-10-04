@@ -186,7 +186,7 @@ describe("MemberCard presence — the dot carries it", () => {
     );
     const marks = getAllByTestId("runtime-login-warning");
     expect(marks).toHaveLength(1);
-    expect(marks[0].getAttribute("aria-label")).toBe("已達用量上限");
+    expect(marks[0].getAttribute("aria-label")).toBe("Claude 已達用量上限");
     expect(marks[0].previousElementSibling).toBe(container.querySelector(".lifecycle-dot"));
   });
 
