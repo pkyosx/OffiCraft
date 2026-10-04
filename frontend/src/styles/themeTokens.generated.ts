@@ -45,7 +45,6 @@ export const THEME_COLOR_TOKENS: readonly string[] = [
   "--color-lock-reassigning",
   "--color-logo-grad-from",
   "--color-logo-grad-to",
-  "--color-lore-type-owner",
   "--color-main-bg",
   "--color-nav-bg",
   "--color-on-accent",

@@ -1207,7 +1207,7 @@ function LoreRow({
             shows it before anything else. No tag, no capsule. */}
         {entry.loreType !== "" && (
           <span
-            className={`lore-badge lore-badge--lore-type lore-badge--lore-type-${entry.loreType}`}
+            className="lore-badge lore-badge--lore-type"
             data-testid="lore-type"
             data-lore-type={entry.loreType}
           >

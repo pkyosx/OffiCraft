@@ -145,7 +145,7 @@
 
 自己的分頁。**整套照任務卡的設計語言**（去讀 `TaskCard.tsx` / `tasks.css` 實際的樣子，不要照轉述）：
 
-- **類型標籤在列的最前面**：一顆膠囊，排在條目編號之前、標題之前，收合狀態也看得到；五種各自顯示中文（英文介面顯示 Instruction conflict / Instruction supplement / Owner decision / Owner preference / Other），`other` 在這裡照樣顯示「其他」；無標籤不顯示
+- **類型標籤在列的最前面**：一顆膠囊，排在條目編號之前、標題之前，收合狀態也看得到；五種各自顯示中文（英文介面顯示 Instruction conflict / Instruction supplement / Owner decision / Owner preference / Other），`other` 在這裡照樣顯示「其他」；無標籤不顯示。五種用**同一個顏色**，不依類型分色（owner `rc-f15bc5f4013d`：「標籤應該不需要每個有不同的顏色」）
 - 整列可點展開／收合，內容預設一行截斷
 - 右上角一顆 chevron 指示器（inline SVG，無邊框無背景，展開是換一顆圖不是旋轉）
 - **一顆狀態徽章**，點了在徽章左緣下方開小選單選 `失效 / 生效 / 置頂`，當前值用強調色＋700

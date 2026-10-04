@@ -47,7 +47,6 @@ var themeColorTokens = map[string]bool{
 	"--color-lock-reassigning":    true,
 	"--color-logo-grad-from":      true,
 	"--color-logo-grad-to":        true,
-	"--color-lore-type-owner":     true,
 	"--color-main-bg":             true,
 	"--color-nav-bg":              true,
 	"--color-on-accent":           true,
