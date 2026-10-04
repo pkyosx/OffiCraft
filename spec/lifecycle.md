@@ -837,8 +837,9 @@ The server owns desired-state reconciliation; the warden is a stateless executor
   reconciles another warden). A dismissed staff member is not a candidate, but the tick still
   steps the robust-stop ledger for it, so the STOP its dismissal sent keeps being re-sent while
   it is owed. Nothing else is computed for it (no decision, no session-gone collect of §4.3), so
-  the only STOP it is sent is that one and its re-sends. The ledger drops it on the first
-  offline sample; a session that comes back after that is not stopped
+  the only STOP it is sent is that one and its re-sends. The ledger drops a landed STOP on the
+  first offline sample (a parked one keeps being re-fired until a warden takes it, §4.3); a
+  session that comes back after that is not stopped
   by the tick but by the SSE stop gate, which refuses a removed member's handshake with a
   409 (every other request of its is refused 401 by §1.3 cut 5), and the agent's listener
   ends its own session after a run of 409s.
