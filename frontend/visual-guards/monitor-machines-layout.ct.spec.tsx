@@ -38,9 +38,15 @@
 //   menu aligned to the gear's left edge     → menu right edge test
 //   ⚙ border back at rest, on hover or open  → frameless ⚙ test
 //   ⚙ focus ring removed (`outline: none`)   → keyboard focus ring test
-//   frame without `overscroll-behavior-x: none` (or `contain`)
-//                                           → swipe-past-the-end test (pinned columns rubber-band)
-//   a line on 機器's edge at rest            → rest line test
+//   frame's `overscroll-behavior-x` left `auto`, or set to `contain`
+//   (`contain` still rubber-bands; only `none` holds the pinned columns)
+//                                           → overscroll test
+//   `overscroll-behavior-x: none` on `.mon-table` instead of the frame
+//                                           → overscroll test
+//   `overscroll-behavior: none` on both axes → overscroll test (y), mouse wheel test
+//   a line on 機器's edge at rest, on every cell or on the header alone
+//                                           → line test (at rest)
+//   scrolled, the shade drawn without its 1px line → line test (scrolled)
 import { test, expect } from "@playwright/experimental-ct-react";
 import type { Page } from "@playwright/test";
 import { MonitorMachinesLayoutStory } from "./stories/MonitorMachinesLayoutStory";
@@ -668,95 +674,64 @@ test("phone: the card mode does not scroll the page", async ({ mount, page }) =>
   expect(await overflow(page)).toEqual({ page: 0, monitor: 0, frame: 0 });
 });
 
-/** Paints a frame (PNG, base64) and returns, for each box, whether its pixels
- * match the same box in the first frame. Boxes are in CSS px; frames may be
- * scaled. */
-async function boxesMatchFirst(page: Page, frames: string[], boxes: { x: number; y: number; width: number; height: number }[]) {
-  return page.evaluate(
-    async ({ frames, boxes }) => {
-      const vw = window.innerWidth;
-      const read = async (b64: string) => {
-        const img = new Image();
-        img.src = "data:image/png;base64," + b64;
-        await img.decode();
-        const k = img.naturalWidth / vw;
-        const c = document.createElement("canvas");
-        c.width = img.naturalWidth;
-        c.height = img.naturalHeight;
-        const g = c.getContext("2d")!;
-        g.drawImage(img, 0, 0);
-        return boxes.map((b) =>
-          Array.from(
-            g.getImageData(Math.round(b.x * k), Math.round(b.y * k), Math.round(b.width * k), Math.round(b.height * k)).data
-          ).join(",")
-        );
-      };
-      const first = await read(frames[0]);
-      const out: boolean[][] = [];
-      for (const f of frames) out.push((await read(f)).map((px, i) => px === first[i]));
-      return out;
-    },
-    { frames, boxes }
-  );
-}
-
-test("swiping past either end of the frame leaves 機器 and 操作 where they are", async ({ mount, page }) => {
+test("at 996px the frame that scrolls sideways holds its sideways overscroll and passes vertical overscroll on", async ({
+  mount,
+  page,
+}) => {
   await page.setViewportSize({ width: 1016, height: 500 });
   await mount(<MonitorMachinesLayoutStory width={996} states={["normal"]} />);
-  const wrap = page.locator(".mon-table-wrap");
-  const frame = (await wrap.boundingBox())!;
-  const inset = async (sel: string) => {
-    const b = (await page.locator(sel).boundingBox())!;
-    return { x: b.x + 2, y: b.y + 2, width: b.width - 4, height: b.height - 4 };
-  };
-  const pinned = [
-    await inset(".mon-table--machines tbody td:first-child"),
-    await inset(".mon-table--machines tbody td:last-child"),
-  ];
-  await wrap.evaluate((el) => {
-    (window as unknown as { maxLeft: number }).maxLeft = 0;
-    el.addEventListener("scroll", () => {
-      const w = window as unknown as { maxLeft: number };
-      w.maxLeft = Math.max(w.maxLeft, el.scrollLeft);
-    });
+  const scroller = await page.locator(".mon-table--machines tbody td:first-child").evaluate((td) => {
+    let el = td.parentElement;
+    while (el && getComputedStyle(el).overflowX === "visible") el = el.parentElement;
+    if (!el) return null;
+    const scrolls = el.scrollWidth > el.clientWidth;
+    el.scrollLeft = 40;
+    const cs = getComputedStyle(el);
+    return { scrolls, scrolled: el.scrollLeft, overscroll: { x: cs.overscrollBehaviorX, y: cs.overscrollBehaviorY } };
   });
-
-  // A synthesized wheel gesture carries the begin/update/end phases a Mac
-  // trackpad sends, which is what makes Chromium rubber-band the scroller.
-  const cdp = await page.context().newCDPSession(page);
-  const frames: string[] = [];
-  cdp.on("Page.screencastFrame", (f) => {
-    frames.push(f.data);
-    void cdp.send("Page.screencastFrameAck", { sessionId: f.sessionId }).catch(() => {});
+  expect(scroller, "control: the table sits in a sideways scroll container").not.toBeNull();
+  expect({ scrolls: scroller!.scrolls, scrolled: scroller!.scrolled }, "control: it really scrolls").toEqual({
+    scrolls: true,
+    scrolled: 40,
   });
-  await cdp.send("Page.startScreencast", { format: "png", everyNthFrame: 1 });
-  await page.waitForTimeout(200);
-  const at = { x: frame.x + 600, y: frame.y + frame.height / 2, yDistance: 0, gestureSourceType: "mouse" as const, speed: 1200 };
-  await cdp.send("Input.synthesizeScrollGesture", { ...at, xDistance: -400 });
-  await page.waitForTimeout(800);
-  await cdp.send("Input.synthesizeScrollGesture", { ...at, xDistance: 400 });
-  await page.waitForTimeout(800);
-  await cdp.send("Page.stopScreencast");
-
-  const max = await wrap.evaluate((el) => el.scrollWidth - el.clientWidth);
-  expect(await page.evaluate(() => (window as unknown as { maxLeft: number }).maxLeft), "control: the swipe reached the right end").toBe(max);
-  expect(await wrap.evaluate((el) => el.scrollLeft), "control: and came back to the left end").toBe(0);
-  expect(frames.length, "control: the swipe painted frames").toBeGreaterThan(3);
-  const matched = await boxesMatchFirst(page, frames, pinned);
-  const moved = matched.map((m, i) => [i, m] as const).filter(([, m]) => !m.every(Boolean));
-  expect(moved, "frames where a pinned column's pixels differ from rest ([frame, [機器, 操作]])").toEqual([]);
+  // Read off the computed style because the rubber band itself cannot be
+  // observed here: headless Chromium never bounces, and a synthesized trackpad
+  // gesture does not scroll at all on CI; only a real trackpad shows it.
+  expect(scroller!.overscroll).toEqual({ x: "none", y: "auto" });
 });
 
-test("at rest no line is drawn at 機器's edge; scrolled, the edge is marked", async ({ mount, page }) => {
-  await page.setViewportSize({ width: 1016, height: 500 });
-  await mount(<MonitorMachinesLayoutStory width={996} states={["normal"]} />);
-  const wrap = page.locator(".mon-table-wrap");
-  const cell = (await page.locator(".mon-table--machines tbody td:first-child").boundingBox())!;
-  // Pixel columns at 機器's last px, the first px past it, and one deep in
-  // Claude's left padding (plain card colour at rest).
-  const columns = async () => {
+test("a mouse wheel over the table still scrolls the monitor page vertically", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1016, height: 200 });
+  // The app shell gives .monitor the window's height, which makes it, not the
+  // window, the page's vertical scroller.
+  await page.addStyleTag({ content: "html, body, #root { height: 100%; margin: 0; }" });
+  await mount(<MonitorMachinesLayoutStory width={996} />);
+  const monitor = page.locator(".monitor");
+  const room = await monitor.evaluate((el) => el.scrollHeight - el.clientHeight);
+  expect(room, "control: the page is taller than the window").toBeGreaterThan(100);
+  expect(await monitor.evaluate((el) => el.scrollTop), "control: the page starts at the top").toBe(0);
+  const cell = (await page.locator(".mon-table--machines tbody td:nth-child(3)").first().boundingBox())!;
+  const at = { x: cell.x + cell.width / 2, y: cell.y + cell.height / 2 };
+  expect(
+    await page.evaluate(({ x, y }) => !!document.elementFromPoint(x, y)?.closest(".mon-table-wrap"), at),
+    "control: the pointer is over the sideways-scrolling frame"
+  ).toBe(true);
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.wheel(0, 100);
+  await expect.poll(() => monitor.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+});
+
+/** Pixel columns at 機器's right edge in the header and the first row: 機器's
+ * last px, the first two px past it, and one deep in Claude's left padding. */
+async function edgeColumns(page: Page) {
+  const out: Record<string, { inside: string; outside: string; card: string; step: number }> = {};
+  for (const [key, sel] of [
+    ["head", ".mon-table--machines thead th:first-child"],
+    ["row", ".mon-table--machines tbody td:first-child"],
+  ] as const) {
+    const cell = (await page.locator(sel).boundingBox())!;
     const shot = await page.screenshot({ clip: { x: cell.x + cell.width - 1, y: cell.y + 4, width: 12, height: cell.height - 8 } });
-    return page.evaluate(async (b64) => {
+    out[key] = await page.evaluate(async (b64) => {
       const img = new Image();
       img.src = "data:image/png;base64," + b64;
       await img.decode();
@@ -765,15 +740,45 @@ test("at rest no line is drawn at 機器's edge; scrolled, the edge is marked", 
       c.height = img.naturalHeight;
       const g = c.getContext("2d")!;
       g.drawImage(img, 0, 0);
-      const col = (x: number) => Array.from(g.getImageData(x, 0, 1, c.height).data).join(",");
-      return { inside: col(0), outside: col(1), card: col(c.width - 1) };
+      const col = (x: number) => Array.from(g.getImageData(x, 0, 1, c.height).data);
+      const [outside, next] = [col(1), col(2)];
+      return {
+        inside: col(0).join(","),
+        outside: outside.join(","),
+        card: col(c.width - 1).join(","),
+        // The sharpest jump between the first and second px past the edge.
+        step: Math.max(...outside.map((v, i) => Math.abs(v - next[i]))),
+      };
     }, shot.toString("base64"));
-  };
-  const rest = await columns();
-  expect({ inside: rest.inside === rest.card, outside: rest.outside === rest.card }, "at rest 機器's edge is plain card").toEqual({
-    inside: true,
-    outside: true,
+  }
+  return out;
+}
+
+test("at rest no line is drawn at 機器's edge in the header or the rows; scrolled, both carry the line", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 1016, height: 500 });
+  await mount(<MonitorMachinesLayoutStory width={996} states={["normal"]} />);
+  const rest = await edgeColumns(page);
+  const plain = (c: { inside: string; outside: string; card: string }) => ({
+    inside: c.inside === c.card,
+    outside: c.outside === c.card,
   });
-  await wrap.evaluate((el) => (el.scrollLeft = 20));
-  await expect.poll(async () => (await columns()).outside !== rest.card, "scrolled, 機器's edge is marked").toBe(true);
+  expect({ head: plain(rest.head), row: plain(rest.row) }, "at rest 機器's edge is plain card").toEqual({
+    head: { inside: true, outside: true },
+    row: { inside: true, outside: true },
+  });
+
+  await page.locator(".mon-table-wrap").evaluate((el) => (el.scrollLeft = 20));
+  // What scrolls under 機器's edge would paint over the columns measured.
+  await page.evaluate(() =>
+    document
+      .querySelectorAll(".mon-table--machines th:not(:first-child), .mon-table--machines td:not(:first-child)")
+      .forEach((el) => ((el as HTMLElement).style.visibility = "hidden"))
+  );
+  await expect.poll(async () => {
+    const s = await edgeColumns(page);
+    return { head: s.head.step >= 10, row: s.row.step >= 10 };
+  }, "scrolled, a 1px line sits on 機器's edge, sharper than the shade beside it").toEqual({ head: true, row: true });
 });
