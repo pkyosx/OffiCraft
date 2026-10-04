@@ -555,6 +555,7 @@ func (s *apiServer) reconcileWorkerLiveness(w OutsourceWorker, now float64) bool
 			return false
 		case stopKindWinddown:
 			decision = s.dispatchStop(w.ID, s.workerKillTargets(w.ID, w.LastMachineID), decision, st, now)
+			logReconcileDecision(w.ID, w.DesiredState, decision)
 			s.setReconcileState(w.ID, decision.State)
 			return false
 		}

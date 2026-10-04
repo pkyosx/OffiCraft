@@ -387,6 +387,59 @@ func TestAParkedStopIsLoggedOnParkAndThenAtMostOncePerMinute(t *testing.T) {
 	}), any(map[string]any{"park": 2, "fail-closed": 1}))
 }
 
+// The 加速停止 deadline's STOP is the decider's, not a ledger record: the tick
+// decides it again every pass while no warden takes it.
+func TestADecidedStopNoWardenTakesIsLoggedOnParkAndThenAtMostOncePerMinute(t *testing.T) {
+	for _, tc := range []struct {
+		name, id string
+		tick     func(api *apiServer, now float64)
+	}{
+		{"staff", "stranded", func(api *apiServer, now float64) { api.runReconcileTick(now) }},
+		{"outsource", "ow-abc123", func(api *apiServer, now float64) { api.runOutsourceTick(now) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			api, h, d, owner := newAPITestServer(t)
+			reconcileTestPut(t, d, Member{ID: "m-box", Name: "Box", Kind: KindWarden})
+			if tc.name == "staff" {
+				reconcileTestPut(t, d, Member{
+					ID: "stranded", Name: "Stranded", Kind: KindStaff, RoleKey: "assistant",
+					DesiredState: DesiredStateOnline, DesiredMachineID: "m-box",
+				})
+			} else {
+				apiTestWorkerFixture(t, h, d, owner, tc.id, WorkerStatusActive)
+			}
+			// The session still runs on m-box, whose warden has lost its downstream.
+			reconcileTestOnline(t, api, tc.id, "m-box")
+			for _, verb := range []string{"deactivate", "accelerated-stop"} {
+				if status, data := apiJSON(t, h, "POST", "/api/members/"+tc.id+"/"+verb, owner, `{}`); status != 200 {
+					t.Fatalf("%s: %d %v", verb, status, data)
+				}
+			}
+			// 3601: past the longest 加速停止 grace the setting accepts (3600).
+			due := nowSecs() + 3601
+
+			logged := captureStderr(t, func() {
+				for _, at := range []float64{0, 10, 30, 59, 61, 70} {
+					tc.tick(api, due+at)
+				}
+			})
+			apiWantValue(t, "log lines while no warden takes it", any(map[string]any{
+				"park": float64(strings.Count(logged,
+					"robust stop "+tc.id+": no target warden reachable (targets [m-box]) — not sent, the tick re-decides it")),
+				"fail-closed": float64(strings.Count(logged, `target warden "m-box" NOT reachable`)),
+				"decision": float64(strings.Count(logged,
+					tc.id+": desired=offline command=none — robust stop: 加速停止 grace elapsed, still online")),
+			}), any(map[string]any{"park": 2, "fail-closed": 0, "decision": 6}))
+
+			reconcileTestOnline(t, api, "m-box", "")
+			logged = captureStderr(t, func() { tc.tick(api, due+71) })
+			wsWantWardenFrames(t, api, "m-box", wsStopFrame(tc.id))
+			apiWantValue(t, "the decision once the warden is back", any(float64(strings.Count(logged,
+				tc.id+": desired=offline command=stop — robust stop: 加速停止 grace elapsed, still online"))), any(1.0))
+		})
+	}
+}
+
 func TestAnAimedStopAgainstAClaimLessConnectionIsStillOwed(t *testing.T) {
 	// The connection names no machine, so nothing proves the aimed session gone.
 	api, h, d, owner := newAPITestServer(t)

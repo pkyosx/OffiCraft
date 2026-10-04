@@ -2644,8 +2644,8 @@ func TestReconcileOne(t *testing.T) {
 				StopKind: stopKindWinddown,
 			})
 		})
-		want := "[reconcile] leaving: target warden \"m-away\" NOT reachable (no live SSE downstream) — " +
-			"fail-closed, not dispatching, will retry when the warden connects\n"
+		want := "[reconcile] robust stop leaving: no target warden reachable (targets [m-away]) — not sent, " +
+			"the tick re-decides it\n"
 		if out != want {
 			t.Fatalf("stderr:\n got %q\nwant %q", out, want)
 		}

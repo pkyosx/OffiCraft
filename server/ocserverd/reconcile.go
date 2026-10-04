@@ -967,17 +967,40 @@ func (s *apiServer) observeStopCollect(obs *memberObservation, m Member, now flo
 // dispatchStop sends a decided STOP for staff and workers alike; an unlanded one keeps the prior
 // state so the next tick decides it again. sendStopFrames (shutdown.go) takes no scheduler lock,
 // so either tick may call this with its own lock held.
+//
+// The decider re-decides an unlanded STOP every tick, so it is only aimed at online wardens (the
+// fail-closed gate would log every refusal) and its park is logged at the ledger's rate.
 func (s *apiServer) dispatchStop(
 	memberID string, targets []string, decision reconcileDecision, prior reconcileState, now float64,
 ) reconcileDecision {
-	if len(s.sendStopFrames(memberID, targets, now)) == 0 {
+	if len(s.sendStopFrames(memberID, s.onlineOnly(targets), now)) == 0 {
+		if s.decidedStopParkLogDue(memberID, now) {
+			reconcileLog("robust stop %s: no target warden reachable (targets %v) — not sent, "+
+				"the tick re-decides it", memberID, targets)
+		}
 		decision.Command = reconcileCmdNone
 		decision.State = prior
 		decision.DispatchUnlanded = true
 		return decision
 	}
+	s.robustStopMu.Lock()
+	delete(s.decidedStopParkLoggedAt, memberID)
+	s.robustStopMu.Unlock()
 	s.clearSessionBootTS(memberID)
 	return decision
+}
+
+func (s *apiServer) decidedStopParkLogDue(memberID string, now float64) bool {
+	s.robustStopMu.Lock()
+	defer s.robustStopMu.Unlock()
+	if at, ok := s.decidedStopParkLoggedAt[memberID]; ok && now-at < robustStopParkLogSecs {
+		return false
+	}
+	if s.decidedStopParkLoggedAt == nil {
+		s.decidedStopParkLoggedAt = map[string]float64{}
+	}
+	s.decidedStopParkLoggedAt[memberID] = now
+	return true
 }
 
 // latchSessionGoneCollectOn latches stopped_since for a session-gone collect, staff and workers
@@ -1037,12 +1060,17 @@ func (s *apiServer) collectMemberStop(memberID string, decision reconcileDecisio
 	return decision
 }
 
+// logReconcileDecision is the one decision line of both ticks.
+func logReconcileDecision(id, desired string, decision reconcileDecision) {
+	reconcileLog("%s: desired=%s command=%s — %s",
+		id, parseDesired(desired), decision.Command, decision.Reason)
+}
+
 func (s *apiServer) reconcileTickMemberLocked(m Member, now float64) reconcileDecision {
 	st := s.reconcileStateOf(m.ID)
 	decision := s.reconcileOne(m, st, now)
 	s.setReconcileState(m.ID, decision.State)
-	reconcileLog("%s: desired=%s command=%s — %s",
-		m.ID, parseDesired(m.DesiredState), decision.Command, decision.Reason)
+	logReconcileDecision(m.ID, m.DesiredState, decision)
 	s.armDecidedHandover(m.ID, decision)
 	s.stampWakeObservability(&m, decision, now)
 	// Yields to the wake receipt: the single last_op_reason slot holds one, and "the agent never came

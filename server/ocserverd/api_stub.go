@@ -203,6 +203,9 @@ type apiServer struct {
 	// call out.
 	robustStopMu txguard.Mutex
 	robustStops  map[string]robustStop
+	// decidedStopParkLoggedAt: id → when an unlanded decider STOP (dispatchStop)
+	// was last logged. Guarded by robustStopMu.
+	decidedStopParkLoggedAt map[string]float64
 
 	outsourceMu txguard.Mutex
 	// noOutsource is read at the call site (runLifecycleTick) and in
