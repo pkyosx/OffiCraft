@@ -1593,11 +1593,19 @@ function markRead(reader: string, peer: string, lastReadTs: number): ChatReadRec
  * when a member→owner message really lands in the log (tests inject one via
  * __injectMockChat). */
 function unreadCountOf(peer: string): number {
+  return unreadFrom(peer).length;
+}
+
+/** The messages behind {@link unreadCountOf}, oldest first in the server's
+ * (ts, id) order — what `GET /api/chat?unread=true&with=<peer>` pages through. */
+function unreadFrom(peer: string): ChatMessage[] {
   const watermark =
     chatReads.get(`${MOCK_OWNER_ID}::${peer}`)?.lastReadTs ?? 0;
-  return chatLog.filter(
-    (m) => m.to === MOCK_OWNER_ID && m.from === peer && m.ts > watermark
-  ).length;
+  return chatLog
+    .filter(
+      (m) => m.to === MOCK_OWNER_ID && m.from === peer && m.ts > watermark
+    )
+    .sort((a, b) => a.ts - b.ts || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
 /** Fold the user-custom block: overlay ⊕ the EMPTY seed (a structuredClone so
@@ -3704,6 +3712,11 @@ const mockApiImpl = {
     const found = chatLog.find((m) => m.id === id);
     if (!found) throw new Error(`no message carries id ${id}`);
     return mockServedChatMessage(found);
+  },
+
+  async getFirstUnreadChat(withId: string): Promise<ChatMessage | null> {
+    const first = unreadFrom(withId)[0];
+    return first ? mockServedChatMessage(first) : null;
   },
 
   async listChatAttachments(withId: string): Promise<GalleryAttachment[]> {

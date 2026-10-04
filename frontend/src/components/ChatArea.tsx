@@ -21,7 +21,7 @@ import {
   subscribeChatDraft,
   updateChatDraftAttachments,
 } from "../lib/chatDraftStore";
-import { useChat } from "../hooks/useChat";
+import { useChat, CHAT_PAGE_SIZE } from "../hooks/useChat";
 import { useWorkerCodenames } from "../hooks/useWorkerCodenames";
 import { useOwnerDisplayName } from "../hooks/useOwnerName";
 import { formatDayLabel, splitByDay } from "../lib/dateFormat";
@@ -158,18 +158,15 @@ function formatTime(ts: number): string {
  * anything mirroring live browser state (`isComposingRef`). Each of those is
  * annotated where it is declared. */
 type ChatSession = {
-  /** ② ENTRY POSITIONING: entering a conversation with unread messages must
-   * land on the FIRST unread message, not the bottom. The anchor is derived
-   * from `member.unreadCount` (the roster badge count) SNAPSHOT at
-   * conversation entry — the race-free source. Since T-48 the LISTING no
-   * longer writes a watermark, but the window that opens on it does: the
-   * read-receipt effect fires the moment the first page lands and the roster's
-   * unreadCount refetches to 0 right after. The clearer moved from the
-   * server's side effect to this component's own explicit write; the race did
-   * not go away, so neither does the snapshot. unreadCount counts exactly the
-   * peer→owner messages above the watermark, so the first unread = the
-   * earliest of the LAST `unreadCount` peer→owner messages in the thread. */
-  initialUnread: number;
+  /** ② ENTRY POSITIONING: was this room entered with a roster badge (and no
+   * jump target)? Then it is entered AT the first unread message, which the
+   * server names (`useChat`'s `entryUnreadId`). Snapshotted at the first render
+   * because the read receipt drives `member.unreadCount` to 0 soon after.
+   *
+   * ⚠️ The first unread cannot be counted back from the newest page: more
+   * unread than a page holds — or this member's traffic with other members —
+   * pushes it out of that page. */
+  enterAtUnread: boolean;
   /** Is the scroll viewport near its bottom? A new incoming message may only
    * pull the view down when it is — if the owner scrolled UP to read history,
    * an arrival must NOT yank them back. */
@@ -251,9 +248,9 @@ type ChatSession = {
   touchSpent: boolean;
 };
 
-function freshChatSession(unreadCount: number): ChatSession {
+function freshChatSession(enterAtUnread: boolean): ChatSession {
   return {
-    initialUnread: unreadCount,
+    enterAtUnread,
     nearBottom: true,
     prevIds: new Set(),
     prependAnchor: null,
@@ -373,7 +370,9 @@ export function ChatArea({
   // render, strictly before any effect runs.
   const sessionRef = useRef<ChatSession | null>(null);
   if (sessionRef.current === null) {
-    sessionRef.current = freshChatSession(member.unreadCount);
+    sessionRef.current = freshChatSession(
+      member.unreadCount > 0 && jumpToMsgId === undefined,
+    );
   }
   const session = sessionRef.current;
 
@@ -442,7 +441,9 @@ export function ChatArea({
   // state rather than a `session` field on purpose: `mayMarkRead` is computed
   // during render and the read-receipt effect depends on it, so a change has to
   // re-render to be seen.
-  const [tailSeen, setTailSeen] = useState(true);
+  // An unread entry starts it FALSE; entry positioning sets it back to TRUE when
+  // the run fits in one page (see there).
+  const [tailSeen, setTailSeen] = useState(() => !session.enterAtUnread);
 
   // The scroll viewport.
   const messagesRef = useRef<HTMLDivElement>(null);
@@ -459,12 +460,13 @@ export function ChatArea({
     hasNewer,
     loadAround,
     resetToLatest,
+    entryUnreadId,
     // 🔴 ANCHOR-FIRST ENTRY (T-48, owner ruling). The target is named at
     // SUBSCRIPTION time, so a room entered through 跳到原訊息 / a kept link never
     // loads the live tail first and then throws it away — see useChat's note.
     // The fetch itself still happens below, in the jump reactor, because the
     // viewport, the highlight and the miss notice are this component's business.
-  } = useChat(member.id, jumpToMsgId);
+  } = useChat(member.id, jumpToMsgId, session.enterAtUnread);
 
 
   // A participant in neither `members` nor the live `workers` — a released
@@ -1110,11 +1112,13 @@ export function ChatArea({
   //     So the guard asks the honest question directly instead of through a
   //     proxy that used to correlate with it: has the reader been at the bottom
   //     of this thread at all? It starts TRUE (an ordinary entry lands at the
-  //     tail and the existing behaviour is unchanged), goes FALSE when a jump
-  //     starts fetching, and comes back TRUE on each of the three things that
+  //     tail and the existing behaviour is unchanged) — FALSE on an entry at
+  //     the first unread, unless that run fits in one page —, goes FALSE when a
+  //     jump starts fetching, and comes back TRUE on each of the things that
   //     mean the reader really is at the latest — crossing into the bottom
-  //     band, pressing 回到最新 / the preview strip, and a jump that MISSED and
-  //     fell back to the tail.
+  //     band, pressing 回到最新 / the preview strip, a jump that MISSED and fell
+  //     back to the tail, and an entry landing that already shows the newest
+  //     row.
   //   • a jump still PENDING — arriving through 跳到原訊息 / a kept link mounts
   //     the thread on the NEWEST window first, and the anchor fetch replaces it
   //     a moment later. That first window is on screen for no time at all and
@@ -1397,14 +1401,10 @@ export function ChatArea({
     if (!session.initialPositioned) {
       session.initialPositioned = true;
       session.prevIds = new Set(messages.map((m) => m.id));
-      const count = session.initialUnread;
-      // Unread = peer→owner only (matches the server's unread_counts rule:
-      // recipient == reader; inter-agent traffic never counts).
-      const inbound =
-        count > 0
-          ? messages.filter((m) => m.from === member.id && m.to === OWNER_ID)
-          : [];
-      const first = inbound.slice(-count)[0];
+      const first =
+        entryUnreadId !== null && messages.some((m) => m.id === entryUnreadId)
+          ? entryUnreadId
+          : null;
       if (first) {
         // Positioning happens in the firstUnreadId effect below, AFTER the
         // divider renders (it is the scroll target). Until the measurement
@@ -1412,9 +1412,18 @@ export function ChatArea({
         session.nearBottom = false;
         session.unreadRunOpen = true;
         session.entryScrollPending = true;
-        setFirstUnreadId(first.id);
+        setFirstUnreadId(first);
+        // ⚠️ Owner ruling (rc-dfa1c7bb3f4c): an unread run no longer than one
+        // page is marked read on entry, even when its newest row is below the
+        // fold. Only a longer run waits for the reader to reach the bottom.
+        const span =
+          messages.length - messages.findIndex((m) => m.id === first);
+        if (!hasNewer && span <= CHAT_PAGE_SIZE) setTailSeen(true);
       } else {
         endRef.current?.scrollIntoView();
+        // Landed on the newest row: an unread entry whose lookup fell back to
+        // the latest page has seen the tail.
+        setTailSeen(true);
       }
       return;
     }
@@ -1502,7 +1511,12 @@ export function ChatArea({
     // Landing on the divider usually leaves the newest message below the fold —
     // that is the whole point of landing there — so the arrow must be able to
     // come up immediately, without waiting for the owner to scroll first.
-    setLatestInView(isLatestRowInView(box));
+    const latestVisible = isLatestRowInView(box);
+    setLatestInView(latestVisible);
+    // A run longer than a page that still shows down to the newest row on
+    // landing has been seen; a thread that cannot scroll emits no scroll event
+    // to mark it otherwise.
+    if (latestVisible) setTailSeen(true);
     // NOTE: the run deliberately stays OPEN even when a short thread lands at
     // the bottom here — every real "the owner saw it" path (a bottom-crossing
     // scroll, or an at-bottom auto-follow) closes it; closing on this
@@ -1624,11 +1638,12 @@ export function ChatArea({
     windowHasNewer: hasNewer,
   });
 
-  // OWNER read receipt: entering the conversation (or a new message landing while
-  // the owner is at the bottom) means the owner has SEEN up to the newest message
-  // → mark it read. markRead is monotonic server-side (a stale ts is a no-op), so
-  // firing on every settle is safe. If the owner has scrolled UP to read history
-  // we still mark read: the newest message is loaded and being viewed on entry.
+  // OWNER read receipt: entering the conversation at its tail (or a new message
+  // landing while the owner is at the bottom) means the owner has SEEN up to the
+  // newest message → mark it read. markRead is monotonic server-side (a stale ts
+  // is a no-op), so firing on every settle is safe. Scrolling UP afterwards does
+  // not stop it: the tail was seen. An entry at the first unread of a run longer
+  // than one page has NOT — `tailSeen` holds it until the reader gets there.
   //
   // Gated THREE ways:
   //   • `windowActive` — "seen" requires the owner to actually be looking. A

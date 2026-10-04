@@ -230,3 +230,56 @@ describe("mock adapter scrollback cursor parity (T-bf82)", () => {
     ).rejects.toThrow();
   });
 });
+
+describe("mock adapter getFirstUnreadChat (進房的第一則未讀)", () => {
+  beforeEach(() => {
+    __resetMock();
+  });
+
+  it("有幾則未讀時回最舊那一則,不論注入順序", async () => {
+    inbound("mira", MOCK_OWNER_ID, 3000);
+    inbound("mira", MOCK_OWNER_ID, 1000);
+    inbound("mira", MOCK_OWNER_ID, 2000);
+    expect(await mockApi.getFirstUnreadChat("mira")).toEqual({
+      id: "t-mira-1000",
+      from: "mira",
+      to: "owner",
+      body: "hi",
+      ts: 1000,
+      attachments: [],
+      replyCardId: null,
+      replyCardStatus: null,
+      replyToChat: null,
+    });
+  });
+
+  it("該成員跟其他成員的往來、owner 自己送出的都不算,只看對方送給 owner 的", async () => {
+    inbound("mira", "joey", 1000);
+    inbound("joey", "mira", 1001);
+    inbound(MOCK_OWNER_ID, "mira", 1002);
+    expect(await mockApi.getFirstUnreadChat("mira")).toBeNull();
+    // 對照:同一串再多一則 mira→owner,答案就是那一則。
+    inbound("mira", MOCK_OWNER_ID, 1003);
+    expect((await mockApi.getFirstUnreadChat("mira"))?.id).toBe(
+      "t-mira-1003",
+    );
+  });
+
+  it("已讀水位以下的不算:標到 2000 之後,第一則未讀是 3000 那一則;全標完回 null", async () => {
+    for (const ts of [1000, 2000, 3000])
+      inbound("mira", MOCK_OWNER_ID, ts);
+    await mockApi.markChatRead({ peer: "mira", lastReadTs: 2000 });
+    expect((await mockApi.getFirstUnreadChat("mira"))?.id).toBe(
+      "t-mira-3000",
+    );
+    await mockApi.markChatRead({ peer: "mira", lastReadTs: 3000 });
+    expect(await mockApi.getFirstUnreadChat("mira")).toBeNull();
+  });
+
+  it("查詢本身不動水位:查完未讀數不變", async () => {
+    inbound("mira", MOCK_OWNER_ID, 1000);
+    inbound("mira", MOCK_OWNER_ID, 2000);
+    await mockApi.getFirstUnreadChat("mira");
+    expect((await miraUnread()).unreadCount).toBe(2);
+  });
+});

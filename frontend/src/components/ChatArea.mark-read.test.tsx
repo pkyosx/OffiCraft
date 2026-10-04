@@ -26,7 +26,18 @@ vi.mock("../api", () => ({
   api: {
     listChat: async (withId: string) =>
       log.filter((m) => m.from === withId || m.to === withId),
-    listChatWindow: async () => [],
+    listChatWindow: async (
+      withId: string,
+      anchor: { startId?: string; endId?: string },
+    ) => {
+      const all = log.filter((m) => m.from === withId || m.to === withId);
+      const at = all.findIndex((m) => m.id === (anchor.endId ?? anchor.startId));
+      if (at < 0) return [];
+      return anchor.endId ? all.slice(0, at + 1) : all.slice(at);
+    },
+    // The member enters with a badge of 1, so the room asks for its first unread.
+    getFirstUnreadChat: async (withId: string) =>
+      log.find((m) => m.from === withId && m.to === OWNER) ?? null,
     listChatReads: async () => [],
     markChatRead: (...args: unknown[]) =>
       (markChatRead as unknown as (...a: unknown[]) => Promise<unknown>)(

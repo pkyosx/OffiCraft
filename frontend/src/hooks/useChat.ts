@@ -107,7 +107,9 @@ import type { Thread } from "../lib/threadCommit";
 
 // One scrollback page — mirrors the server's default recent window. A page
 // returning fewer than this means the history is exhausted (hasMore=false).
-const CHAT_PAGE_SIZE = 30;
+// ChatArea also reads it: an unread run no longer than one page is marked read
+// on entry.
+export const CHAT_PAGE_SIZE = 30;
 
 // 🔴 ONE PAGE OF THE FETCH-TO-THE-LIVE-TAIL (T-48 fix12, owner rc-e1fb80065f8f:
 // 「一次撈100則撈完」). The window path (`?start_id=` / `?end_id=`) has always
@@ -265,6 +267,11 @@ interface UseChat {
   // the range between them is genuinely unloaded, and pretending otherwise is
   // the T-b0bb hole with a friendlier name.
   resetToLatest: () => Promise<void>;
+  // The first unread message this room was entered at, once the server has
+  // named it (`enterAtFirstUnread`); null on every other entry, and on that one
+  // until the answer is in. It is set no later than the commit that brings the
+  // row in, so the view can place the unread divider on that first commit.
+  entryUnreadId: string | null;
 }
 
 /** The one rule for writing a watermark, so no caller carries it.
@@ -494,7 +501,18 @@ type ConversationSlot = {
   dropDebt: LatchRelease | null;
 };
 
-export function useChat(withId: string, entryAnchorMsgId?: string): UseChat {
+// `enterAtFirstUnread` — the other anchor-first entry: the anchor is the first
+// unread message, and the server is asked for it, because the newest page
+// cannot answer once more than a page of rows — unread, or this member's
+// traffic with other members — lies between that message and the newest one.
+// The room is held exactly as for a named anchor until `loadAround` lands
+// there; a lookup that fails or finds nothing falls back to the newest page.
+// Ignored when `entryAnchorMsgId` is given.
+export function useChat(
+  withId: string,
+  entryAnchorMsgId?: string,
+  enterAtFirstUnread = false,
+): UseChat {
   // The thread, its mirror and its generation clock — all three behind
   // `lib/threadCommit`, which is the only thing that can write them.
   const view = useThreadCommit();
@@ -570,6 +588,12 @@ export function useChat(withId: string, entryAnchorMsgId?: string): UseChat {
   // msgId in the hash (it does) would re-subscribe the whole SSE sink.
   const entryAnchorRef = useRef(entryAnchorMsgId);
   entryAnchorRef.current = entryAnchorMsgId;
+  // Decided once, at mount: a later jump in the same room must not re-run it.
+  const unreadEntryRef = useRef(
+    enterAtFirstUnread && entryAnchorMsgId === undefined,
+  );
+  const unreadEntryStartedRef = useRef(false);
+  const [entryUnreadId, setEntryUnreadId] = useState<string | null>(null);
   // 🔴 EVERY LATCH IN THIS HOOK IS A LEASE ON ONE CONVERSATION, AND THAT IS
   // NOW SAID IN THE TYPE RATHER THAN IN A COMMENT (T-48, fourth-review
   // rebuild).
@@ -638,7 +662,9 @@ export function useChat(withId: string, entryAnchorMsgId?: string): UseChat {
   const convRef = useRef<ConversationSlot | null>(null);
   if (convRef.current === null) {
     convRef.current = {
-      latches: openLatches(entryAnchorRef.current !== undefined),
+      latches: openLatches(
+        entryAnchorRef.current !== undefined || unreadEntryRef.current,
+      ),
       dropDebt: null,
     };
   }
@@ -1498,6 +1524,34 @@ export function useChat(withId: string, entryAnchorMsgId?: string): UseChat {
     [withId, withAnchorFetch, view, fetchToLatest, settleFirstLoad],
   );
 
+  // ⚠️ THIS IS THE FETCHER FOR THE UNREAD ENTRY. The room was opened held
+  // (`entryAnchor`), so every ending below must reach `loadAround` or
+  // `resetToLatest` — either one drops the hold — or the room stays blank.
+  useEffect(() => {
+    if (!unreadEntryRef.current || unreadEntryStartedRef.current) return;
+    unreadEntryStartedRef.current = true;
+    void (async () => {
+      let first: ChatMessage | null = null;
+      try {
+        first = await api.getFirstUnreadChat(withId);
+      } catch (e) {
+        console.warn("useChat: first-unread lookup failed", e);
+      }
+      if (first) {
+        setEntryUnreadId(first.id);
+        const outcome = await loadAround(first.id);
+        // Found, or overtaken / called off by a newer load: nothing to fall
+        // back from. Only a target the server cannot serve falls back.
+        if (outcome !== "missing" && outcome !== "unreachable") return;
+        setEntryUnreadId(null);
+      }
+      await resetToLatest();
+      // resetToLatest does not settle the first load; an empty room would
+      // otherwise keep the spinner up forever.
+      settleFirstLoad();
+    })();
+  }, [withId, loadAround, resetToLatest, settleFirstLoad]);
+
   const markRead = useCallback(
     async (lastReadTs: number) => {
       if (lastReadTs <= 0) return;
@@ -1531,5 +1585,6 @@ export function useChat(withId: string, entryAnchorMsgId?: string): UseChat {
     hasNewer: thread.hasNewer,
     loadAround,
     resetToLatest,
+    entryUnreadId,
   };
 }
