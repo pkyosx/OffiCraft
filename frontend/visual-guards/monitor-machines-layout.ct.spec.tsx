@@ -730,7 +730,18 @@ async function edgeColumns(page: Page) {
     ["row", ".mon-table--machines tbody td:first-child"],
   ] as const) {
     const cell = (await page.locator(sel).boundingBox())!;
-    const shot = await page.screenshot({ clip: { x: cell.x + cell.width - 1, y: cell.y + 4, width: 12, height: cell.height - 8 } });
+    // Whole-px clip: a fractional x of .5 or more shifts the shot a px right,
+    // so column 1 lands on the shade and the line is never seen. The rows sit
+    // at half-px y (45.5 here) and the edge's x moves with the runner's layout.
+    const edge = Math.round(cell.x + cell.width);
+    const top = Math.ceil(cell.y) + 4;
+    const bottom = Math.floor(cell.y + cell.height) - 4;
+    // `disabled` finishes the shade's opacity transition before the capture,
+    // so a slow runner cannot hand back a frame painted mid-fade.
+    const shot = await page.screenshot({
+      clip: { x: edge - 1, y: top, width: 12, height: bottom - top },
+      animations: "disabled",
+    });
     out[key] = await page.evaluate(async (b64) => {
       const img = new Image();
       img.src = "data:image/png;base64," + b64;
@@ -777,8 +788,30 @@ test("at rest no line is drawn at 機器's edge in the header or the rows; scrol
       .querySelectorAll(".mon-table--machines th:not(:first-child), .mon-table--machines td:not(:first-child)")
       .forEach((el) => ((el as HTMLElement).style.visibility = "hidden"))
   );
-  await expect.poll(async () => {
-    const s = await edgeColumns(page);
-    return { head: s.head.step >= 10, row: s.row.step >= 10 };
-  }, "scrolled, a 1px line sits on 機器's edge, sharper than the shade beside it").toEqual({ head: true, row: true });
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const op = (sel: string) => getComputedStyle(document.querySelector(sel)!, "::after").opacity;
+          return {
+            head: op(".mon-table--machines thead th:first-child"),
+            row: op(".mon-table--machines tbody td:first-child"),
+          };
+        }),
+      "control: scrolled, the header's and the row's shade are both switched on"
+    )
+    .toEqual({ head: "1", row: "1" });
+  // The steps go out with a red run: CI is the only place this has failed.
+  const seen: string[] = [];
+  await expect
+    .poll(async () => {
+      const s = await edgeColumns(page);
+      seen.push(`head ${s.head.step}, row ${s.row.step}`);
+      return { head: s.head.step >= 10, row: s.row.step >= 10 };
+    }, "scrolled, a 1px line sits on 機器's edge, sharper than the shade beside it")
+    .toEqual({ head: true, row: true })
+    .catch(async (e) => {
+      await test.info().attach("edge steps per sample", { body: seen.join("\n"), contentType: "text/plain" });
+      throw e;
+    });
 });
