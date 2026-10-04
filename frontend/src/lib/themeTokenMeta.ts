@@ -198,6 +198,10 @@ const TOKEN_META: Record<string, TokenMeta> = {
     group: "text",
     label: { zh: "任務類型", en: "Task type" },
   },
+  "--color-lore-type-owner": {
+    group: "text",
+    label: { zh: "傳承類型（Owner）", en: "Lore type (Owner)" },
+  },
 
   "--color-success": { group: "status", label: { zh: "成功", en: "Success" } },
   "--color-danger": { group: "status", label: { zh: "危險", en: "Danger" } },

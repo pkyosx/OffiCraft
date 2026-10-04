@@ -56,6 +56,9 @@
    * which the in_progress status badge already owns; two accent-green badges
    * side by side on the badge row read as one status pair. */
   --color-task-type: #7fd0c4;
+  /* 傳承類型標籤「Owner 決策／Owner 偏好」的字色。--color-indigo 是填色，當字色在
+   * 卡片底上幾乎看不見。 */
+  --color-lore-type-owner: #c792ea;
   --color-dot-offline: #4a5060;
   --color-dot-waking: #e0b341;
   --color-dot-online: #6fd6b0;
