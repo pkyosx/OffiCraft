@@ -198,7 +198,7 @@ describe("MonitorPage per-runtime version columns", () => {
     fireEvent.mouseEnter(screen.getByTestId("runtime-login-warning"));
     expect(Array.from(screen.getByRole("tooltip").children).map((l) => l.textContent)).toEqual([
       "seth-m5 未登入 Claude",
-      "可到「監控」頁的機器資訊，在 Claude 欄按「⋯」→「登入」",
+      "可到「監控」頁的機器資訊，在 Claude 欄按版本號 →「登入」",
     ]);
   });
 

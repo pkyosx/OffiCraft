@@ -590,7 +590,7 @@ describe("MonitorPage AI Sessions — column sort", () => {
         m.getAttribute("aria-label")
       )
     );
-    expect(marks).toEqual([["beta 未登入 Claude\n可到「監控」頁的機器資訊，在 Claude 欄按「⋯」→「登入」"], []]);
+    expect(marks).toEqual([["beta 未登入 Claude\n可到「監控」頁的機器資訊，在 Claude 欄按版本號 →「登入」"], []]);
   });
 
   it("under a roster member with only a model-call warning, its row shows the mark named after that reason and the other row shows none", async () => {

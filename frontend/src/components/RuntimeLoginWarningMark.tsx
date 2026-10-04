@@ -1,5 +1,6 @@
 import type { Messages } from "../i18n/compose";
 import { useI18n } from "../i18n";
+import { useNowSeconds } from "../hooks/useNowSeconds";
 import type { ModelCallFailureKind, ModelCallWarning, RuntimeLoginWarning } from "../types";
 import { AlertTriangleIcon } from "./icons";
 import { InstantHint } from "./InstantHint";
@@ -54,7 +55,7 @@ export function RuntimeLoginWarningMark({
   modelCallWarnings: ModelCallWarning[] | undefined;
 }) {
   const { msg } = useI18n();
-  const now = Date.now() / 1000;
+  const now = useNowSeconds();
   const entries: { reason: Reason; line: string; runtime: Runtime }[] = [
     ...(warnings ?? []).map((w) => ({
       reason: "login" as const,

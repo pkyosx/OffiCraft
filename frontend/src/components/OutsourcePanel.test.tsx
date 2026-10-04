@@ -285,8 +285,8 @@ describe("OutsourcePanel", () => {
     ).toEqual([
       "Mac Studio 未登入 Codex",
       "Mac Mini 未登入 Claude",
-      "可到「監控」頁的機器資訊，在 Codex 欄按「⋯」→「登入」",
-      "可到「監控」頁的機器資訊，在 Claude 欄按「⋯」→「登入」",
+      "可到「監控」頁的機器資訊，在 Codex 欄按版本號 →「登入」",
+      "可到「監控」頁的機器資訊，在 Claude 欄按版本號 →「登入」",
     ]);
     expect(marks[0].previousElementSibling?.getAttribute("data-testid")).toBe("outsource-presence-ow-warned");
     expect(within(cleanLine).queryByTestId("runtime-login-warning")).toBeNull();

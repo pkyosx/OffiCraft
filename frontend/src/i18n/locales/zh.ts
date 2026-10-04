@@ -800,12 +800,12 @@ export const zh = {
       resetsTomorrow: "明天",
       server: "伺服器異常",
     },
-    // 「可到「監控」頁的機器資訊，在 Claude 欄按「⋯」→「登入」」;中間的名稱取自監控頁自己的葉子。
+    // 「可到「監控」頁的機器資訊，在 Claude 欄按版本號 →「登入」」;中間的名稱取自監控頁自己的葉子。
     signInHint: {
       lead: "可到「",
       pageTail: "」頁的",
       sectionTail: "，在 ",
-      columnTail: " 欄按「⋯」→「",
+      columnTail: " 欄按版本號 →「",
       tail: "」",
     },
   },
@@ -1677,7 +1677,7 @@ export const zh = {
       power: "電源",
       codex: "Codex",
     },
-    // 監控頁 Claude 欄的「⋯」操作選單與登入對話框。帶參數的句子拆成
+    // 監控頁 Claude、Codex 欄按版本號開的操作選單與登入對話框。帶參數的句子拆成
     // lead/tail 靜態葉子,由元件串接。
     runtimeLogin: {
       menuLabel: "操作",

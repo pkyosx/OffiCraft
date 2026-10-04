@@ -7,6 +7,7 @@ import { formatCost } from "../lib/cost";
 import { ConfirmModal } from "./ConfirmModal";
 import { formatDuration } from "../lib/duration";
 import { useMembers } from "../hooks/useMembers";
+import { useNowSeconds } from "../hooks/useNowSeconds";
 import { useMonitoring } from "../hooks/useMonitoring";
 import { useMachines } from "../hooks/useMachines";
 import { useOutsourceWorkers } from "../hooks/useOutsourceWorkers";
@@ -2227,6 +2228,7 @@ export function AccountCard({
   onResetCost: () => Promise<void>;
 }) {
   const { t, msg } = useI18n();
+  const now = useNowSeconds();
   const dash = t.monitor.dash;
   const overheated = account.sevenDay?.overheated === true;
   const costText = account.cost != null ? formatCost(account.cost) : dash;
@@ -2323,7 +2325,7 @@ export function AccountCard({
 
       {account.limitReached && (
         <div className="mon-acct__limit" data-testid="mon-acct-limit-reached">
-          {msg.monitorLimitReached(account.limitReached.resetsAt, Date.now() / 1000)}
+          {msg.monitorLimitReached(account.limitReached.resetsAt, now)}
         </div>
       )}
 

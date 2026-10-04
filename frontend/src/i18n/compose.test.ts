@@ -104,14 +104,15 @@ const EXPECTED: [Lang, string, (string | number | string[] | number[] | null)[],
     ["zh", "modelCallRateLimitWarning", [at(2026, 10, 7, 16, 39), NOW], "已達用量上限 · 10/7 16:39 重置"],
     ["zh", "modelCallRateLimitWarning", [at(2027, 1, 2, 16, 39), NOW], "已達用量上限 · 2027/1/2 16:39 重置"],
     ["zh", "modelCallRateLimitWarning", [null, NOW], "已達用量上限"],
-    ["zh", "runtimeSignInHint", ["claude"], "可到「監控」頁的機器資訊，在 Claude 欄按「⋯」→「登入」"],
-    ["zh", "runtimeSignInHint", ["codex"], "可到「監控」頁的機器資訊，在 Codex 欄按「⋯」→「登入」"],
+    ["zh", "runtimeSignInHint", ["claude"], "可到「監控」頁的機器資訊，在 Claude 欄按版本號 →「登入」"],
+    ["zh", "runtimeSignInHint", ["codex"], "可到「監控」頁的機器資訊，在 Codex 欄按版本號 →「登入」"],
     ["zh", "modelCallServerWarning", ["claude"], "Claude 伺服器異常"],
     ["zh", "modelCallServerWarning", ["codex"], "Codex 伺服器異常"],
     ["zh", "memberModelCallLastSuccess", ["3m"], "3m 前"],
     ["zh", "monitorLimitReached", [at(2026, 10, 4, 16, 39), NOW], "已達上限 · 今天 16:39 重置"],
     ["zh", "monitorLimitReached", [at(2026, 10, 5, 16, 39), NOW], "已達上限 · 明天 16:39 重置"],
     ["zh", "monitorLimitReached", [at(2026, 10, 7, 16, 39), NOW], "已達上限 · 10/7 16:39 重置"],
+    ["zh", "monitorLimitReached", [at(2027, 1, 2, 16, 39), NOW], "已達上限 · 2027/1/2 16:39 重置"],
     ["zh", "monitorLimitReached", [null, NOW], "已達上限"],
     ["zh", "agentPendingChange", ["Codex"], "→ 要換成 Codex"],
     [
@@ -251,8 +252,8 @@ const EXPECTED: [Lang, string, (string | number | string[] | number[] | null)[],
     ["en", "modelCallRateLimitWarning", [at(2026, 10, 7, 16, 39), NOW], "Usage limit reached · resets 10/7 16:39"],
     ["en", "modelCallRateLimitWarning", [at(2027, 1, 2, 16, 39), NOW], "Usage limit reached · resets 2027/1/2 16:39"],
     ["en", "modelCallRateLimitWarning", [null, NOW], "Usage limit reached"],
-    ["en", "runtimeSignInHint", ["claude"], "To sign in: Monitor → Machines, Claude column, ⋯ → Sign in"],
-    ["en", "runtimeSignInHint", ["codex"], "To sign in: Monitor → Machines, Codex column, ⋯ → Sign in"],
+    ["en", "runtimeSignInHint", ["claude"], "To sign in: Monitor → Machines, click the version in the Claude column → Sign in"],
+    ["en", "runtimeSignInHint", ["codex"], "To sign in: Monitor → Machines, click the version in the Codex column → Sign in"],
     ["en", "modelCallServerWarning", ["claude"], "Claude server error"],
     ["en", "modelCallServerWarning", ["codex"], "Codex server error"],
     ["en", "memberModelCallLastSuccess", ["2h 15m"], "2h 15m ago"],
@@ -391,7 +392,7 @@ describe("makeMessages", () => {
       "monitor.runtimeLogin.login": "簽到",
     });
     expect(makeMessages(themed, "zh").runtimeSignInHint("claude")).toBe(
-      "可到「瞭望台」頁的機房，在 Claude 欄按「⋯」→「簽到」"
+      "可到「瞭望台」頁的機房，在 Claude 欄按版本號 →「簽到」"
     );
   });
 

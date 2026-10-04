@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { RuntimeLoginWarningMark } from "./RuntimeLoginWarningMark";
 import type { ModelCallWarning, RuntimeLoginWarning } from "../types";
@@ -27,8 +27,8 @@ function localTs(h: number, mi: number, days = 0): number {
   return new Date(2026, 9, 2 + days, h, mi, 0, 0).getTime() / 1000;
 }
 
-const SIGN_IN_CLAUDE = "可到「監控」頁的機器資訊，在 Claude 欄按「⋯」→「登入」";
-const SIGN_IN_CODEX = "可到「監控」頁的機器資訊，在 Codex 欄按「⋯」→「登入」";
+const SIGN_IN_CLAUDE = "可到「監控」頁的機器資訊，在 Claude 欄按版本號 →「登入」";
+const SIGN_IN_CODEX = "可到「監控」頁的機器資訊，在 Codex 欄按版本號 →「登入」";
 
 const call = (over: Partial<ModelCallWarning>): ModelCallWarning => ({
   runtime: "claude",
@@ -95,8 +95,8 @@ describe("RuntimeLoginWarningMark", () => {
         hoverLines([{ machineId: "m1", machineName: "seth-m1", runtime: "codex", pending: true }]),
       ).toEqual({
         marks: 1,
-        lines: ["seth-m1 signed out of Codex", "To sign in: Monitor → Machines, Codex column, ⋯ → Sign in"],
-        label: "seth-m1 signed out of Codex\nTo sign in: Monitor → Machines, Codex column, ⋯ → Sign in",
+        lines: ["seth-m1 signed out of Codex", "To sign in: Monitor → Machines, click the version in the Codex column → Sign in"],
+        label: "seth-m1 signed out of Codex\nTo sign in: Monitor → Machines, click the version in the Codex column → Sign in",
         className: "runtime-login-warning runtime-login-warning--danger",
       });
     } finally {
@@ -179,10 +179,10 @@ describe("RuntimeLoginWarningMark", () => {
           "Claude model call failed (max_output_tokens)",
           "Usage limit reached · resets today 09:30",
           "Claude server error",
-          "To sign in: Monitor → Machines, Codex column, ⋯ → Sign in",
+          "To sign in: Monitor → Machines, click the version in the Codex column → Sign in",
         ],
         label:
-          "Codex sign-in expired\nClaude model call failed (max_output_tokens)\nUsage limit reached · resets today 09:30\nClaude server error\nTo sign in: Monitor → Machines, Codex column, ⋯ → Sign in",
+          "Codex sign-in expired\nClaude model call failed (max_output_tokens)\nUsage limit reached · resets today 09:30\nClaude server error\nTo sign in: Monitor → Machines, click the version in the Codex column → Sign in",
         className: "runtime-login-warning runtime-login-warning--danger",
       });
     } finally {
@@ -253,5 +253,36 @@ describe("RuntimeLoginWarningMark", () => {
       </I18nProvider>,
     );
     expect(one.container.querySelectorAll('[data-testid="runtime-login-warning"]')).toHaveLength(1);
+  });
+});
+
+describe("RuntimeLoginWarningMark across local midnight", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("under nothing else re-rendering, the reset day rolls over at each local midnight", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 9, 2, 23, 50, 0, 0));
+    render(
+      <I18nProvider>
+        <RuntimeLoginWarningMark
+          warnings={[]}
+          modelCallWarnings={[call({ kind: "rate_limit", code: "rate_limit", resetsAt: localTs(4, 30, 2) })]}
+        />
+      </I18nProvider>,
+    );
+    const label = () => screen.getByTestId("runtime-login-warning").getAttribute("aria-label");
+    expect(label()).toBe("已達用量上限 · 10/4 04:30 重置");
+
+    act(() => {
+      vi.advanceTimersByTime(11 * 60 * 1000);
+    });
+    expect(label()).toBe("已達用量上限 · 明天 04:30 重置");
+
+    act(() => {
+      vi.advanceTimersByTime(24 * 60 * 60 * 1000);
+    });
+    expect(label()).toBe("已達用量上限 · 今天 04:30 重置");
   });
 });
