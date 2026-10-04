@@ -5,10 +5,9 @@
 // and the three action buttons stacked into two or three rows. jsdom has no
 // layout, so this is measured in a real browser on the real MachinesTable.
 // The owner then picked the marks on the SAME line as the value, in fixed
-// columns, Claude and Codex one width, and a ⚙ with no frame. Later
-// (rc-983ebe0ebc9a) the owner added 磁碟 between 電源 and 操作 and ruled that a
-// table too wide for its frame scrolls inside it with 機器 fixed on the left —
-// replacing "fits the desktop content width without scrolling".
+// columns, Claude and Codex one width, and a ⚙ with no frame. A table wider
+// than its frame scrolls inside it with 機器 fixed on the left, so every row
+// still names its machine, and 操作 fixed on the right.
 //
 // MUTANTS (each verified red):
 //   marks inline AND auto table layout (the layout before the fix)
@@ -29,6 +28,9 @@
 //   磁碟 column narrowed                      → 磁碟 value test
 //   機器 column not sticky                    → 機器 left edge moves on scroll
 //   機器 cells transparent                    → a scrolled cell shows through
+//   frame does not reveal a focused control  → keyboard focus hidden under ⚙ / 機器
+//   panel without max-height                 → short-window test
+//   panel scroll closes it                   → short-window test
 //   menu focus counting disabled items       → keyboard test
 //   menu aligned to the gear's left edge     → menu right edge test
 //   ⚙ border back at rest, on hover or open  → frameless ⚙ test
@@ -470,6 +472,73 @@ for (const width of [760, 900, 996]) {
     expect(covered.equals(bare), "a scrolled cell shows through the 機器 cell").toBe(true);
   });
 }
+
+/** Whether the focused control is the topmost thing at its own centre. */
+async function focusedOnTop(page: Page) {
+  return page.evaluate(() => {
+    const el = document.activeElement as HTMLElement;
+    const r = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return !!hit && (hit === el || el.contains(hit));
+  });
+}
+
+test("at 996px a control reached by keyboard is scrolled out from under the pinned 操作 and 機器 columns", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 1016, height: 900 });
+  await mount(<MonitorMachinesLayoutStory width={996} states={["normal"]} />);
+  const wrap = page.locator(".mon-table-wrap");
+  const disk = page.getByTestId("disk-usage-trigger");
+  // Control: at rest the 磁碟 value sits under the pinned ⚙ column.
+  const covered = await disk.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return !(hit === el || el.contains(hit));
+  });
+  expect(covered, "control: the 磁碟 value starts under the ⚙ column").toBe(true);
+
+  for (let i = 0; i < 30 && !(await disk.evaluate((el) => el === document.activeElement)); i++) {
+    await page.keyboard.press("Tab");
+  }
+  await expect(disk).toBeFocused();
+  expect(await wrap.evaluate((el) => el.scrollLeft), "the frame scrolled to the focused control").toBeGreaterThan(0);
+  expect(await focusedOnTop(page), "the focused 磁碟 value is not hidden under ⚙").toBe(true);
+
+  const claude = page.getByTestId("mon-claude-version").getByRole("button");
+  for (let i = 0; i < 10 && !(await claude.evaluate((el) => el === document.activeElement)); i++) {
+    await page.keyboard.press("Shift+Tab");
+  }
+  await expect(claude).toBeFocused();
+  expect(await focusedOnTop(page), "the focused Claude version is not hidden under 機器").toBe(true);
+});
+
+test("on a short window the 磁碟 breakdown stays inside the window and scrolls inside itself", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 1500, height: 220 });
+  await mount(<MonitorMachinesLayoutStory width={1200} states={["normal"]} />);
+  await page.getByTestId("disk-usage-trigger").click();
+  const panel = page.getByTestId("disk-usage-panel");
+  await expect(panel).toBeVisible();
+  const box = await panel.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return { top: r.top, bottom: r.bottom, scrolls: el.scrollHeight > el.clientHeight };
+  });
+  expect(box.scrolls, "control: the breakdown is taller than the window allows").toBe(true);
+  expect(box.top).toBeGreaterThanOrEqual(8);
+  expect(box.bottom).toBeLessThanOrEqual(220 - 8);
+  const scrolled = await panel.evaluate(async (el) => {
+    el.scrollTop = el.scrollHeight;
+    // The scroll event is dispatched on the next frame.
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    return el.scrollTop;
+  });
+  expect(scrolled, "control: the breakdown did scroll").toBeGreaterThan(0);
+  await expect(panel, "scrolling the breakdown itself does not close it").toBeVisible();
+});
 
 test("narrower desktop: the table scrolls inside its own frame, the page does not", async ({ mount, page }) => {
   await page.setViewportSize({ width: 820, height: 900 });

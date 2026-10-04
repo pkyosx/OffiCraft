@@ -2283,7 +2283,7 @@ export const en: Dict = {
       "While Claude or Codex reads as logged out (or its check failed), how often each machine checks it again; 30 means at every report. A change reaches each machine at its next report (30–3600 seconds)",
     diskUsageInterval: "Disk usage interval",
     diskUsageIntervalSub:
-      "How often the warden measures the disk space OffiCraft takes on each machine. A change reaches each machine at its next report (600–86400 seconds, 10 minutes to 1 day)",
+      "How often the warden measures the disk space OffiCraft takes on each machine. A change takes effect within two minutes (600–86400 seconds, 10 minutes to 1 day)",
     rounds: "rounds",
     // T-ae38 (split again by T-30f1): one cap became many. Deleting from these
     // documents costs wildly different amounts — a role definition is a

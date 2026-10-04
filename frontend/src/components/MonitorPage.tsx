@@ -1,4 +1,4 @@
-import { Children, type ReactNode, useRef, useState } from "react";
+import { Children, type FocusEvent, type ReactNode, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
 import { api } from "../api";
@@ -1158,6 +1158,24 @@ export function MonitorPage() {
   );
 }
 
+/** Scrolls the machine table's frame so a focused control is not left under
+ * the pinned 機器 or 操作 column, which the browser treats as already in view.
+ * CSS scroll-padding cannot do this: the pinned ⚙ never leaves the padded
+ * edge, so focusing it scrolls the frame, and that scroll closes its menu. */
+function revealUnderPinnedColumns(e: FocusEvent<HTMLDivElement>) {
+  const wrap = e.currentTarget;
+  if (wrap.scrollWidth <= wrap.clientWidth || !(e.target instanceof HTMLElement)) return;
+  const cell = e.target.closest("td, th");
+  const row = cell?.parentElement;
+  if (!cell || !row || !wrap.contains(cell)) return;
+  if (cell === row.firstElementChild || cell === row.lastElementChild) return;
+  const left = row.firstElementChild!.getBoundingClientRect().right;
+  const right = row.lastElementChild!.getBoundingClientRect().left;
+  const box = e.target.getBoundingClientRect();
+  if (box.left < left) wrap.scrollLeft -= left - box.left;
+  else if (box.right > right) wrap.scrollLeft += box.right - right;
+}
+
 /** The 機器資訊 table. Exported so the layout guard can mount it with
  * hand-built rows (visual-guards/monitor-machines-layout.ct.spec.tsx). */
 export function MachinesTable({
@@ -1186,7 +1204,7 @@ export function MachinesTable({
   const { t } = useI18n();
   const dash = t.monitor.dash;
   return (
-    <div className="mon-table-wrap">
+    <div className="mon-table-wrap" onFocus={revealUnderPinnedColumns}>
       <table className="mon-table mon-table--machines">
         {/* Fixed widths for every column but 機器 (monitor.css), so a mark in
          * one cell never moves the others. */}

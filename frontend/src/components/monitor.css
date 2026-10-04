@@ -493,8 +493,8 @@
  * in every state. Desktop only: the ≤720px card mode does not lay out columns.
  * The min-width is what 機器 needs on top of the fixed columns, so its name,
  * id and badges are never cut; when the frame is narrower the table scrolls
- * inside it, with 機器 pinned left and 操作 pinned right (owner ruling
- * rc-983ebe0ebc9a). The narrower cell padding lets the columns hold their
+ * inside it, with 機器 pinned left so each row still says which machine it is
+ * and 操作 pinned right. The narrower cell padding lets the columns hold their
  * marks on one line. */
 @media (min-width: 721px) {
   .mon-table--machines {

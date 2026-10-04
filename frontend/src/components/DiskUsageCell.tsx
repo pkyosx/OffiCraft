@@ -64,7 +64,13 @@ export function DiskUsageCell({ usage }: DiskUsageCellProps) {
     const below = trigger.bottom + GAP;
     const above = trigger.top - GAP - box.height;
     const fitsBelow = below + box.height <= window.innerHeight - EDGE;
-    const top = fitsBelow || above < EDGE ? below : above;
+    // Neither side fits on a short window: pin it inside the window instead,
+    // where its own scroll (max-height) shows the rest.
+    const top = fitsBelow
+      ? below
+      : above >= EDGE
+        ? above
+        : Math.max(EDGE, window.innerHeight - EDGE - box.height);
     const maxLeft = Math.max(EDGE, window.innerWidth - EDGE - box.width);
     const left = Math.min(Math.max(EDGE, trigger.left), maxLeft);
     setPos({ top, left });
@@ -77,13 +83,19 @@ export function DiskUsageCell({ usage }: DiskUsageCellProps) {
       if (triggerRef.current?.contains(target) || panelRef.current?.contains(target)) return;
       setOpen(false);
     }
+    // A fixed panel does not follow its trigger when something else scrolls;
+    // scrolling the panel's own rows is not that.
+    function onScroll(e: Event) {
+      if (e.target instanceof Node && panelRef.current?.contains(e.target)) return;
+      setOpen(false);
+    }
     const dismiss = () => setOpen(false);
     document.addEventListener("mousedown", onDown);
-    window.addEventListener("scroll", dismiss, true);
+    window.addEventListener("scroll", onScroll, true);
     window.addEventListener("resize", dismiss);
     return () => {
       document.removeEventListener("mousedown", onDown);
-      window.removeEventListener("scroll", dismiss, true);
+      window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", dismiss);
     };
   }, [open]);

@@ -228,6 +228,25 @@ describe("DiskUsageCell", () => {
     expect(screen.queryByTestId("disk-usage-panel")).toBeNull();
   });
 
+  it("stays open while its own rows scroll and closes when the page or the table frame scrolls", () => {
+    mount(FULL);
+    const trigger = screen.getByTestId("disk-usage-trigger");
+
+    fireEvent.click(trigger);
+    expect(screen.getByTestId("disk-usage-panel")).toBeTruthy();
+    fireEvent.scroll(screen.getByTestId("disk-usage-panel"));
+    fireEvent.scroll(screen.getByTestId("disk-usage-panel").querySelector("ul")!);
+    expect(screen.getByTestId("disk-usage-panel")).toBeTruthy();
+
+    fireEvent.scroll(screen.getByTestId("host"));
+    expect(screen.queryByTestId("disk-usage-panel")).toBeNull();
+
+    fireEvent.click(trigger);
+    expect(screen.getByTestId("disk-usage-panel")).toBeTruthy();
+    fireEvent.scroll(window);
+    expect(screen.queryByTestId("disk-usage-panel")).toBeNull();
+  });
+
   it("clicks on the cell or inside its panel do not reach the host row", () => {
     const host = mount(FULL);
     fireEvent.click(screen.getByTestId("disk-usage-trigger"));
