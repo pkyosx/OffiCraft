@@ -62,7 +62,7 @@ type diskUsageFixture struct {
 }
 
 // newDiskUsageFixture lays out one station: workspaces m-1, m-12, ow and ow-3;
-// Claude projects for m-1 (two), ow, ow-3, a departed member, a sibling
+// Claude projects for m-1 (two), ow, ow-3, a departed m-19, a sibling
 // station, a station namespaced "agents" and an unrelated directory; Codex rollouts for m-12, m-1, a departed
 // member, a sibling station, a non-meta first line and the agents dir itself.
 func newDiskUsageFixture(t *testing.T) *diskUsageFixture {
@@ -87,7 +87,7 @@ func newDiskUsageFixture(t *testing.T) *diskUsageFixture {
 		enc(filepath.Join(agents, "m-1")) + "-work-y":                         "20",
 		enc(filepath.Join(agents, "ow-3")) + "-work-x":                        "40",
 		enc(filepath.Join(agents, "ow")) + "-scratch":                         "2",
-		enc(filepath.Join(agents, "gone")):                                    "80",
+		enc(filepath.Join(agents, "m-19")):                                    "80",
 		enc(filepath.Join(home, ".officraft-dev", "agents", "m-1")):           "1000",
 		enc(filepath.Join(home, ".officraft-agents", "agents", "m-1")) + "-w": "500",
 		enc(home) + "-elsewhere":                                              "3000",
@@ -183,7 +183,7 @@ func (f *diskUsageFixture) probe(t *testing.T, goos string) diskUsageProbe {
 
 func (f *diskUsageFixture) projectsCall(prefix string) string {
 	agents := claudeProjectName(filepath.Join(f.root, "agents"))
-	dirs := []string{agents + "-gone", agents + "-m-1", agents + "-m-1-work-y", agents + "-ow-3-work-x", agents + "-ow-scratch"}
+	dirs := []string{agents + "-m-1", agents + "-m-1-work-y", agents + "-m-19", agents + "-ow-3-work-x", agents + "-ow-scratch"}
 	for i, d := range dirs {
 		dirs[i] = filepath.Join(f.projects, d)
 	}
@@ -280,6 +280,33 @@ func TestDiskUsageProbeMeasure(t *testing.T) {
 		wantOw := map[string]any{"member_id": "ow", "conversation_bytes": int64(2048)}
 		if !reflect.DeepEqual(members[1], wantM1) || !reflect.DeepEqual(members[3], wantOw) {
 			t.Errorf("members[1], members[3] = %#v, %#v, want %#v, %#v", members[1], members[3], wantM1, wantOw)
+		}
+	})
+
+	t.Run("under an agents directory that cannot be listed, members carry neither a workspace size of 0 nor a Codex-only conversation size", func(t *testing.T) {
+		f := newDiskUsageFixture(t)
+		agents := filepath.Join(f.root, "agents")
+		if err := os.Chmod(agents, 0); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(agents, 0o755) })
+		got := f.probe(t, "darwin").measure()
+		want := map[string]any{
+			"measured_at": float64(1790000107),
+			"took_secs":   107.3,
+			"root_bytes":  int64(35840000),
+			"members": []any{
+				map[string]any{"member_id": "left-9"},
+				map[string]any{"member_id": "m-1"},
+				map[string]any{"member_id": "m-12"},
+			},
+			"claude_conversation_bytes": int64(155648),
+			"codex_conversation_bytes":  int64(16384),
+			"disk_free_bytes":           int64(250_000_000_000),
+			"disk_total_bytes":          int64(994_662_584_320),
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("measure() =\n  %#v\nwant\n  %#v", got, want)
 		}
 	})
 

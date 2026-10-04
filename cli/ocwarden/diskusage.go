@@ -141,6 +141,7 @@ func (p diskUsageProbe) measure() map[string]any {
 
 	var ids []string
 	entries, listErr := os.ReadDir(agentsDir)
+	agentsListed := listErr == nil || errors.Is(listErr, fs.ErrNotExist)
 	for _, e := range entries {
 		if e.IsDir() {
 			ids = append(ids, e.Name())
@@ -151,7 +152,7 @@ func (p diskUsageProbe) measure() map[string]any {
 	if sizes := p.du("-k", "-d", "2", p.root); sizes != nil {
 		if total, ok := sizes[p.root]; ok {
 			usage["root_bytes"] = total
-			rootMeasured = listErr == nil || errors.Is(listErr, fs.ErrNotExist)
+			rootMeasured = agentsListed
 			for _, id := range ids {
 				if n, ok := sizes[filepath.Join(agentsDir, id)]; ok {
 					workspace[id] = n
@@ -196,8 +197,10 @@ func (p diskUsageProbe) measure() map[string]any {
 			// it from a workspace du could not size.
 			m["workspace_bytes"] = int64(0)
 		}
-		// A share from only one runtime would read as the member's whole history.
-		if claudeOK && codexOK {
+		// A share from only one runtime would read as the member's whole history;
+		// Claude dirs are attributed through the listed ids, so an unlisted
+		// agents directory leaves every member with Codex logs only.
+		if claudeOK && codexOK && agentsListed {
 			m["conversation_bytes"] = conversation[id]
 		}
 		members = append(members, m)
