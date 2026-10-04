@@ -816,7 +816,7 @@ func TestNotifyWorkerSpawn(t *testing.T) {
 		api.receiptMu.Unlock()
 		apiWantValue(t, "owed receipt", any(map[string]any{
 			"rpc": owed.RPC, "warden": owed.Warden, "deadline": owed.Deadline,
-		}), any(map[string]any{"rpc": "start", "warden": "m-server-self", "deadline": 1090.0}))
+		}), any(map[string]any{"rpc": "start", "warden": "m-server-self", "deadline": 1150.0}))
 	})
 
 	t.Run("the token in the frame is this worker's own session credential, and it is the only place the token rides", func(t *testing.T) {
