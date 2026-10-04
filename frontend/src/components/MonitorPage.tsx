@@ -1,4 +1,12 @@
-import { Children, type FocusEvent, type ReactNode, useRef, useState } from "react";
+import {
+  Children,
+  type FocusEvent,
+  type ReactNode,
+  type RefObject,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { useI18n } from "../i18n";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
 import { api } from "../api";
@@ -1176,6 +1184,32 @@ function revealUnderPinnedColumns(e: FocusEvent<HTMLDivElement>) {
   else if (box.right > right) wrap.scrollLeft += box.right - right;
 }
 
+/** Whether a horizontally scrolling frame has content scrolled away on its
+ * left and hidden on its right, kept current through scrolling, resizing and
+ * content changes. */
+function useScrollEdges(ref: RefObject<HTMLElement>, content: unknown) {
+  const [edges, setEdges] = useState({ left: false, right: false });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => {
+      const left = el.scrollLeft > 0;
+      const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
+      setEdges((prev) => (prev.left === left && prev.right === right ? prev : { left, right }));
+    };
+    measure();
+    el.addEventListener("scroll", measure, { passive: true });
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    ro?.observe(el);
+    if (el.firstElementChild) ro?.observe(el.firstElementChild);
+    return () => {
+      el.removeEventListener("scroll", measure);
+      ro?.disconnect();
+    };
+  }, [ref, content]);
+  return edges;
+}
+
 /** The 機器資訊 table. Exported so the layout guard can mount it with
  * hand-built rows (visual-guards/monitor-machines-layout.ct.spec.tsx). */
 export function MachinesTable({
@@ -1203,8 +1237,18 @@ export function MachinesTable({
 }) {
   const { t } = useI18n();
   const dash = t.monitor.dash;
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const edges = useScrollEdges(wrapRef, machines);
   return (
-    <div className="mon-table-wrap" onFocus={revealUnderPinnedColumns}>
+    <div
+      ref={wrapRef}
+      className={
+        "mon-table-wrap" +
+        (edges.left ? " mon-table-wrap--more-left" : "") +
+        (edges.right ? " mon-table-wrap--more-right" : "")
+      }
+      onFocus={revealUnderPinnedColumns}
+    >
       <table className="mon-table mon-table--machines">
         {/* Fixed widths for every column but 機器 (monitor.css), so a mark in
          * one cell never moves the others. */}

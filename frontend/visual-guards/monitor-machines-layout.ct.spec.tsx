@@ -31,6 +31,8 @@
 //   frame does not reveal a focused control  → keyboard focus hidden under ⚙ / 機器
 //   panel without max-height                 → short-window test
 //   panel scroll closes it                   → short-window test
+//   scroll shades measured only on scroll    → shade test (no cue at rest)
+//   scroll shades on the wrong side          → shade test
 //   menu focus counting disabled items       → keyboard test
 //   menu aligned to the gear's left edge     → menu right edge test
 //   ⚙ border back at rest, on hover or open  → frameless ⚙ test
@@ -472,6 +474,46 @@ for (const width of [760, 900, 996]) {
     expect(covered.equals(bare), "a scrolled cell shows through the 機器 cell").toBe(true);
   });
 }
+
+/** The painted opacity of the two "more under here" shades on the first row. */
+async function shades(page: Page) {
+  return page.evaluate(() => {
+    const row = document.querySelector(".mon-table--machines tbody tr")!;
+    const op = (el: Element, pseudo: string) => Number(getComputedStyle(el, pseudo).opacity);
+    return { left: op(row.firstElementChild!, "::after"), right: op(row.lastElementChild!, "::before") };
+  });
+}
+
+test("at 996px a shade marks the side where more of the table is scrolled away, and neither shows when it fits", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 996, height: 900 });
+  // Capped to the viewport, so widening the window alone lets it fit.
+  await mount(<MonitorMachinesLayoutStory width={1200} states={["normal"]} />);
+  const frameWidth = await page.locator(".mon-table-wrap").evaluate((el) => Math.round(el.getBoundingClientRect().width));
+  expect(frameWidth, "control: the frame is the 1280px desktop's 996px").toBe(996);
+  await expect.poll(() => shades(page), "at rest the 磁碟 column is under 操作").toEqual({ left: 0, right: 1 });
+
+  // Widening the window, with no scroll and no new data, is what changes it.
+  await page.setViewportSize({ width: 1300, height: 900 });
+  expect(await page.locator(".mon-table-wrap").evaluate((el) => el.scrollWidth - el.clientWidth), "control: it fits").toBe(0);
+  await expect.poll(() => shades(page), "a table that fits has nothing under its pinned columns").toEqual({
+    left: 0,
+    right: 0,
+  });
+
+  await page.setViewportSize({ width: 996, height: 900 });
+  await expect.poll(() => shades(page), "narrowed again, the 磁碟 column is back under 操作").toEqual({
+    left: 0,
+    right: 1,
+  });
+  await page.locator(".mon-table-wrap").evaluate((el) => (el.scrollLeft = 10_000));
+  await expect.poll(() => shades(page), "scrolled to the end, 機器 covers what scrolled away").toEqual({
+    left: 1,
+    right: 0,
+  });
+});
 
 /** Whether the focused control is the topmost thing at its own centre. */
 async function focusedOnTop(page: Page) {

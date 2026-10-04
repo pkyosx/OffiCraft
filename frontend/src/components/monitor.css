@@ -542,6 +542,37 @@
     right: 0;
     background: var(--color-card);
   }
+  /* A shade on the pinned column's inner edge says more of the table lies
+   * under it; without it a wide table reads as complete at 電源 | 操作. */
+  .mon-table--machines th:first-child::after,
+  .mon-table--machines td:first-child::after,
+  .mon-table--machines th:last-child::before,
+  .mon-table--machines td:last-child::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 12px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .mon-table--machines th:first-child::after,
+  .mon-table--machines td:first-child::after {
+    left: 100%;
+    box-shadow: inset 10px 0 10px -10px color-mix(in srgb, var(--color-shadow) 75%, transparent);
+  }
+  .mon-table--machines th:last-child::before,
+  .mon-table--machines td:last-child::before {
+    right: 100%;
+    box-shadow: inset -10px 0 10px -10px color-mix(in srgb, var(--color-shadow) 75%, transparent);
+  }
+  .mon-table-wrap--more-left .mon-table--machines th:first-child::after,
+  .mon-table-wrap--more-left .mon-table--machines td:first-child::after,
+  .mon-table-wrap--more-right .mon-table--machines th:last-child::before,
+  .mon-table-wrap--more-right .mon-table--machines td:last-child::before {
+    opacity: 1;
+  }
 }
 /* A value with its marks on the same line after it (CellLine). */
 .mon-cell-line {
