@@ -1635,17 +1635,20 @@ func TestStart(t *testing.T) {
 			}
 		})
 
+		const hasSession = "tmux -L officraft has-session -t member-m1"
 		t.Run("a teardown that fails gets no restart, and the first attempt falls back as before", func(t *testing.T) {
 			h := newSpawnHarness()
 			h.present = map[string]bool{}
 			h.stopStuck = true
+			// The kill did not take: attempt 1's session is still there.
+			h.onStop = func() { h.runner.script[hasSession] = wardenRun{} }
 			got := h.deps().start(startParamsM1())
 
 			if want := (SpawnOutcome{OK: true, SessionID: "member-m1", PID: "500", Note: goldenNotifyModNotLoadedNote}); got != want {
 				t.Errorf("outcome = %+v, want %+v", got, want)
 			}
 			wantCalls := append(slices.Clone(launch), notifyModPollCaptures...)
-			wantCalls = append(wantCalls, capture, "stop-attempt officraft member-m1 /w/m1", capture)
+			wantCalls = append(wantCalls, capture, "stop-attempt officraft member-m1 /w/m1", hasSession, capture)
 			wantCalls = append(wantCalls, nudgeCallsWithEnters(3)...)
 			wantCalls = append(wantCalls, listener...)
 			wantCalls = append(wantCalls, pid)
@@ -1658,6 +1661,29 @@ func TestStart(t *testing.T) {
 			}
 			if !slices.Contains(h.logs, "m1: notify-mod: attempt 1 could not be torn down; no restart") {
 				t.Errorf("logs = %q, want the failed teardown", h.logs)
+			}
+		})
+
+		t.Run("a teardown that killed the session but left a sweep survivor reports the spawn failed", func(t *testing.T) {
+			h := newSpawnHarness()
+			h.present = map[string]bool{}
+			// stop() reports false (a pid still answers after SIGKILL) though the
+			// session is gone: the harness's has-session keeps answering absent.
+			h.stopStuck = true
+			got := h.deps().start(startParamsM1())
+
+			want := SpawnOutcome{OK: false, Reason: "spawn_exec_failed: restarting after the notification mod did not load: " +
+				"attempt 1's tmux session is gone but its teardown did not finish (a process survived the sweep); no restart"}
+			if got != want {
+				t.Errorf("outcome = %+v, want %+v", got, want)
+			}
+			wantCalls := append(slices.Clone(launch), notifyModPollCaptures...)
+			wantCalls = append(wantCalls, capture, "stop-attempt officraft member-m1 /w/m1", hasSession)
+			if !reflect.DeepEqual(h.runner.calls, wantCalls) {
+				t.Errorf("calls =\n%v\nwant\n%v", h.runner.calls, wantCalls)
+			}
+			if n := countCalls(h.runner.calls, "paste-buffer") + countCalls(h.runner.calls, "new-session -d -s listen-m1"); n != 0 {
+				t.Errorf("calls = %v, want no paste and no paste listener into a member that is not there", h.runner.calls)
 			}
 		})
 
@@ -1719,6 +1745,34 @@ func TestStart(t *testing.T) {
 			wantLogs = append(wantLogs, emptyPaneDiag...)
 			if !reflect.DeepEqual(h.logs, wantLogs) {
 				t.Errorf("logs =\n%q\nwant\n%q", h.logs, wantLogs)
+			}
+		})
+
+		t.Run("a mod whose session.start lands just after the restart check finds the disabled marker and does not boot", func(t *testing.T) {
+			h := newSpawnHarness()
+			h.present = map[string]bool{}
+			d := h.deps()
+			// The mod writes its started marker, then reads the disabled one. Here it
+			// writes started right after the warden's post-wait started check (the
+			// 16th ask, after the 15 polls), so only a disabled marker already on
+			// disk can stop it booting a member the warden is about to kill.
+			exists, startedAsks, modBooted := d.Exists, 0, false
+			d.Exists = func(path string) bool {
+				got := exists(path)
+				if path == "/w/m1/.officraft-mod-started" {
+					if startedAsks++; startedAsks == 16 {
+						modBooted = !slices.Contains(h.writes, disabledWrite)
+					}
+				}
+				return got
+			}
+			d.start(startParamsM1())
+
+			if startedAsks < 16 {
+				t.Fatalf("the started marker was asked %d times, want the post-wait check too", startedAsks)
+			}
+			if modBooted {
+				t.Error("the disabled marker was written after the started check: a session.start in between boots the member the restart kills")
 			}
 		})
 

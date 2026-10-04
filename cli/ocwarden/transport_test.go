@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -26,6 +29,11 @@ type sseStream struct {
 }
 
 func (s *sseStream) Read(p []byte) (int, error) {
+	// A cancelled request is a closed socket: no read succeeds after it, even
+	// with lines queued (a select would pick between the two at random).
+	if ctx := s.ctxOf(); ctx != nil && ctx.Err() != nil && s.pending == "" {
+		return 0, errors.New("read tcp: i/o timeout")
+	}
 	for s.pending == "" {
 		select {
 		case line, ok := <-s.lines:
@@ -290,6 +298,94 @@ func TestConnectOnce(t *testing.T) {
 		opened, err := h.transport.connectOnce(context.Background())
 		if !opened || err != nil {
 			t.Errorf("connectOnce = (%v, %v), want (true, nil) — a heartbeat-only stream is alive", opened, err)
+		}
+	})
+}
+
+// A start runs inside the read loop and can take longer than the idle-read
+// deadline (the notify-mod restart: ~45-80 s against 45 s). The frames the
+// server sends meanwhile must still be read once it returns, on both watchdog
+// branches; before the fix the next read failed with i/o timeout and they were
+// lost with the connection.
+func TestConnectOnceCommandLongerThanReadDeadline(t *testing.T) {
+	const (
+		deadline = 100 * time.Millisecond
+		busy     = 4 * deadline
+	)
+	frame := func(member string) string {
+		return `data: {"topic":"warden-command","data":{"rpc":"stop","args":{"member_id":"` + member + `"}}}` + "\n\n"
+	}
+	// slowStop takes longer than the deadline for m-1 and signals when it starts.
+	slowStop := func(mu *sync.Mutex, stops *[]string, started chan<- struct{}) func(string) (bool, bool) {
+		return func(session string) (bool, bool) {
+			if session == "member-m-1" {
+				close(started)
+				time.Sleep(busy)
+			}
+			mu.Lock()
+			*stops = append(*stops, session)
+			mu.Unlock()
+			return true, false
+		}
+	}
+	want := []string{"member-m-1", "member-m-2", "member-m-3"}
+
+	t.Run("socket read deadline", func(t *testing.T) {
+		var (
+			mu    sync.Mutex
+			stops []string
+		)
+		started := make(chan struct{})
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			fl := w.(http.Flusher)
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = io.WriteString(w, frame("m-1"))
+			fl.Flush()
+			<-started
+			// Sent while the first command is still running.
+			_, _ = io.WriteString(w, frame("m-2")+frame("m-3"))
+			fl.Flush()
+		}))
+		defer srv.Close()
+		tr := &sseTransport{
+			base:            srv.URL,
+			client:          srv.Client(),
+			idleReadTimeout: deadline,
+			logf:            func(string, ...any) {},
+			deps:            CommandDeps{Stop: slowStop(&mu, &stops, started)},
+		}
+		opened, err := tr.connectOnce(context.Background())
+		if !opened || err != nil {
+			t.Errorf("connectOnce = (%v, %v), want (true, nil): a slow command must not time out the next read", opened, err)
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if !reflect.DeepEqual(stops, want) {
+			t.Errorf("ran %v, want %v: frames sent during the slow command were lost", stops, want)
+		}
+	})
+
+	t.Run("AfterFunc watchdog", func(t *testing.T) {
+		h := newSSEHarness(t, http.StatusOK, nil)
+		h.transport.idleReadTimeout = deadline
+		var mu sync.Mutex
+		started := make(chan struct{})
+		h.transport.deps.Stop = slowStop(&mu, &h.stops, started)
+		go func() {
+			h.stream.lines <- frame("m-1")
+			<-started
+			h.stream.lines <- frame("m-2")
+			h.stream.lines <- frame("m-3")
+			close(h.stream.lines)
+		}()
+		opened, err := h.transport.connectOnce(context.Background())
+		if !opened || err != nil {
+			t.Errorf("connectOnce = (%v, %v), want (true, nil): the watchdog must not fire during a command", opened, err)
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if !reflect.DeepEqual(h.stops, want) {
+			t.Errorf("ran %v, want %v: frames sent during the slow command were lost", h.stops, want)
 		}
 	})
 }
@@ -792,7 +888,35 @@ func TestBuildSpawnDeps(t *testing.T) {
 	}
 }
 
+// pidGuardRunner keeps a test that runs the production stop() (realKill,
+// realGetpgid) from ever signalling a real process: every command whose output
+// stop() turns into kill targets must come back empty from the fake. A script
+// that answered one with a pid fails the test and is blanked before stop() sees it.
+type pidGuardRunner struct {
+	t     *testing.T
+	inner CmdRunner
+}
+
+func (g pidGuardRunner) Run(name string, args ...string) (string, error) {
+	out, err := g.inner.Run(name, args...)
+	call := strings.Join(append([]string{name}, args...), " ")
+	yieldsPIDs := name == "ps" || name == "lsof" || name == "pgrep" ||
+		strings.Contains(call, "#{pane_pid}") || strings.Contains(call, "list-panes")
+	if yieldsPIDs && strings.TrimSpace(out) != "" {
+		g.t.Errorf("the fake runner answered %q with %q: the real stop() would signal those pids", call, out)
+		return "", err
+	}
+	return out, err
+}
+
 func TestBuildCommandDeps(t *testing.T) {
+	// The production wiring waits two 30 s notify-mod waits plus nudge pacing;
+	// recorded instead of slept, and summed below so the waits still happen.
+	var slept time.Duration
+	restoreSleep := spawnSleep
+	spawnSleep = func(d time.Duration) { slept += d }
+	t.Cleanup(func() { spawnSleep = restoreSleep })
+
 	root := t.TempDir()
 	t.Setenv("PATH", filepath.Join(root, "nothing-here"))
 	t.Setenv("HOME", root)
@@ -872,8 +996,9 @@ func TestBuildCommandDeps(t *testing.T) {
 		runner := &wardenRunner{shellPassthrough: true, script: map[string]wardenRun{
 			"tmux -L officraft has-session -t member-m1": {err: errors.New("can't find session: member-m1")},
 		}}
-		d := buildCommandDeps(Config{Base: "https://station.example"}, spawnEnv, runner, nil, nil)
+		d := buildCommandDeps(Config{Base: "https://station.example"}, spawnEnv, pidGuardRunner{t, runner}, nil, nil)
 
+		slept = 0
 		got := d.Spawn(StartParams{MemberID: "m1", PersonaContext: "p", MemberToken: "jwt", Role: "builder"})
 		if !got.OK {
 			t.Fatalf("outcome = %+v, want OK", got)
@@ -911,6 +1036,19 @@ func TestBuildCommandDeps(t *testing.T) {
 		}
 		if n := countCalls(runner.calls, "new-session -d -s member-m1"); n != 2 {
 			t.Errorf("the member was launched %d times, want twice", n)
+		}
+		// The teardown's snapshot includes the workdir's leftover ocagent (lsof
+		// by cwd), between the first launch and its kill: the mod's listener is
+		// not a descendant of the pane once Claude Code is gone.
+		firstLaunch := slices.IndexFunc(runner.calls, func(c string) bool { return strings.Contains(c, "new-session -d -s member-m1") })
+		kill := slices.Index(runner.calls, "tmux -L officraft kill-session -t member-m1")
+		if firstLaunch < 0 || kill < 0 ||
+			!slices.Contains(runner.calls[firstLaunch:kill], "lsof -a -c ocagent -d cwd -F pn") {
+			t.Errorf("the restart's teardown did not sweep the workdir's ocagent before the kill:\n%v", runner.calls)
+		}
+		// Both 30 s waits ran (recorded, not slept).
+		if slept < 2*nudgeMaxAttempts*nudgeSettle {
+			t.Errorf("waited %s, want at least the two notify-mod waits (%s)", slept, 2*nudgeMaxAttempts*nudgeSettle)
 		}
 		var launch string
 		for _, call := range runner.calls {
@@ -962,7 +1100,7 @@ func TestBuildCommandDeps(t *testing.T) {
 		runner := &wardenRunner{shellPassthrough: true, script: map[string]wardenRun{
 			"tmux -L officraft has-session -t member-m1": {err: errors.New("can't find session: member-m1")},
 		}}
-		d := buildCommandDeps(Config{Base: "https://station.example"}, spawnEnv, runner, nil, nil)
+		d := buildCommandDeps(Config{Base: "https://station.example"}, spawnEnv, pidGuardRunner{t, runner}, nil, nil)
 
 		if got := d.Spawn(StartParams{MemberID: "m1", PersonaContext: "p", MemberToken: "jwt", Role: "builder"}); !got.OK {
 			t.Fatalf("outcome = %+v, want OK", got)

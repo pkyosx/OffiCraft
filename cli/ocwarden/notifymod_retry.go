@@ -153,6 +153,13 @@ type notifyModRetry struct {
 // with the same line too (no --resume), and this first one never had a turn.
 // Its budget, one teardown and one more 30 s wait, is a line of
 // startReceiptDeadlineSecs (server/ocserverd/receipt_watch.go).
+// ⚠️ Its worst case also passes WakingTTLSecs (120 s, server/ocserverd/domain.go):
+// the server may stamp wake_timeout and resend START, which meets
+// session_already_exists and takes over the "zombie", stopping the second attempt.
+// ⚠️ A self-update's exec-in-place does not wait for an in-flight start, so it
+// can cut this one short anywhere in its ~80 s: left with no member and no
+// receipt, or a restarted member with no listener. Neither boots twice; both
+// recover through wake_timeout / zombie takeover.
 func (d SpawnDeps) retryNotifyMod(memberID, workdir, socket, session, command string, launchedAt time.Time) notifyModRetry {
 	// 🔴 BEFORE the started check: the mod writes its started marker before it
 	// reads this one, so a session.start racing this check either shows below or
@@ -171,6 +178,14 @@ func (d SpawnDeps) retryNotifyMod(memberID, workdir, socket, session, command st
 	// The first attempt's screen, before it is gone.
 	d.logNotifyModFallback(memberID, workdir, socket, session, launchedAt)
 	if !d.StopAttempt(socket, session, workdir) {
+		// stop() is killed && swept: a session already gone with a sweep survivor
+		// is false too, and pasting into that missing pane would report a member
+		// that is not there as started. An unknown probe (nil) counts as alive.
+		if has := tmuxHasSession(d.Runner, socket, session); has != nil && !*has {
+			out.failReason = "spawn_exec_failed: restarting after the notification mod did not load: " +
+				"attempt 1's tmux session is gone but its teardown did not finish (a process survived the sweep); no restart"
+			return out
+		}
 		d.logf("%s: notify-mod: attempt 1 could not be torn down; no restart", memberID)
 		return out
 	}
