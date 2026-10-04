@@ -81,8 +81,10 @@ import type {
   LoreEntryView,
   LoreListOptions,
   LoreScopeKind,
+  LoreType,
 } from "../api/adapter";
 import { isHttpStatus, serverMessageOf } from "../api/errors";
+import { LORE_TYPES } from "../api/loreType";
 import { useMembers } from "../hooks/useMembers";
 import { useOutsourceWorkers } from "../hooks/useOutsourceWorkers";
 import { useIsMobile } from "../hooks/useIsMobile";
@@ -269,6 +271,7 @@ export function LorePage({
   const [belongs, setBelongs] = useState<Set<string>>(new Set());
   const [states, setStates] = useState<Set<LoreEntryState>>(new Set());
   const [authors, setAuthors] = useState<Set<string>>(new Set());
+  const [loreTypes, setLoreTypes] = useState<Set<LoreType>>(new Set());
 
   // 🔴 THE KIND SET IS DERIVED FROM WHAT IS TICKED, NEVER SENT WHOLE. Ticking
   // only members sends `scope_kinds=[agent]`; only manuals sends `[manual]`;
@@ -297,19 +300,22 @@ export function LorePage({
     if (keys.length > 0) next.scopeKeys = keys;
     if (states.size > 0) next.states = [...states];
     if (authors.size > 0) next.authorIds = [...authors];
+    if (loreTypes.size > 0) next.loreTypes = [...loreTypes];
     return next;
-  }, [belongs, states, authors]);
+  }, [belongs, states, authors, loreTypes]);
 
   // What 清除篩選 keys on: whether anything the reader can SEE is narrowing the
   // page. With one control per axis this is now exactly "is any set non-empty",
   // and there is no longer a way for a tick to be held in state while not being
   // in force — which is what the old four-control version had to reason about.
-  const anyFilter = belongs.size > 0 || states.size > 0 || authors.size > 0;
+  const anyFilter =
+    belongs.size > 0 || states.size > 0 || authors.size > 0 || loreTypes.size > 0;
 
   function clearFilters() {
     setBelongs(new Set());
     setStates(new Set());
     setAuthors(new Set());
+    setLoreTypes(new Set());
   }
 
   // ONE state set, TWO controls. Each scope control sees only the ticks whose
@@ -885,7 +891,8 @@ export function LorePage({
         onClear={anyFilter ? clearFilters : undefined}
       >
         {/* 🔴 THE ORDER IS THE OWNER'S, VERBATIM (2026-09-08):
-            所有撰寫人 → 所有成員傳承 → 所有任務傳承 → 所有狀態 → 清除篩選.
+            所有撰寫人 → 所有成員傳承 → 所有任務傳承 → 所有狀態 → 清除篩選,
+            with 所有類型 placed by the owner right before 所有狀態.
             WHO WROTE IT, then WHICH MEMBER it belongs to, then WHICH MANUAL,
             then WHAT STATE. It is still the 任務頁's order (負責人 → 類型 →
             狀態) with the scope half split in two, because a reader who has
@@ -936,6 +943,14 @@ export function LorePage({
           options={belongsOptions}
           selected={ticksOfKind("manual")}
           onChange={(next) => setTicksOfKind("manual", next)}
+        />
+        <MultiSelectFilter
+          noun={t.lore.filterTypeNoun}
+          allLabel={t.lore.filterTypeAll}
+          testId="lore-filter-type"
+          options={LORE_TYPES.map((lt) => ({ value: lt, label: loreTypeLabel(t, lt) }))}
+          selected={loreTypes}
+          onChange={(next) => setLoreTypes(next as Set<LoreType>)}
         />
         <MultiSelectFilter
           noun={t.lore.filterStateNoun}
@@ -1019,6 +1034,21 @@ export function LorePage({
   );
 }
 
+
+function loreTypeLabel(t: ReturnType<typeof useI18n>["t"], lt: LoreType): string {
+  switch (lt) {
+    case "instruction_conflict":
+      return t.lore.loreTypeInstructionConflict;
+    case "instruction_supplement":
+      return t.lore.loreTypeInstructionSupplement;
+    case "owner_decision":
+      return t.lore.loreTypeOwnerDecision;
+    case "owner_preference":
+      return t.lore.loreTypeOwnerPreference;
+    case "other":
+      return t.lore.loreTypeOther;
+  }
+}
 
 /** ONE 傳承 row. Collapsed by default; the whole row is the toggle surface. */
 function LoreRow({
@@ -1173,10 +1203,20 @@ function LoreRow({
       onKeyDown={onRowToggleKeyDown}
     >
       <div className="lore-row__head">
+        {/* The type tag leads the row, ahead of the id, so a collapsed row
+            shows it before anything else. */}
+        <span
+          className="lore-badge lore-badge--lore-type"
+          data-testid="lore-type"
+          data-lore-type={entry.loreType}
+        >
+          {loreTypeLabel(t, entry.loreType)}
+        </span>
         {/* 🔴 THE BADGE ORDER IS 任務卡'S ORDER (owner, 2026-09-07: 「The order
             of buttons / filters matters」「make them consistent with task」).
             That card reads 編號 → 優先權 → 狀態 → 類型, so this row reads
-            編號 → 狀態 → 屬於. The id comes FIRST on both because it is what you
+            編號 → 狀態 → 屬於, behind the type tag the owner put at the very
+            front. The id leads the card's order on both because it is what you
             quote to somebody else; it used to sit second here, behind the state,
             and the two pages disagreed about where a reader's eye should land.
             傳承 has no 優先權 — there is nothing to put in that slot, and

@@ -37,6 +37,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -339,7 +340,7 @@ func TestCapLineAnswersForOneScopeAndGoesQuietForSeveral(t *testing.T) {
 	for i, ti := range []string{"壬一一", "壬二二", "壬三三", "壬四四", "壬五五"} {
 		e, err := s.dal.CreateLoreEntryMintingID(LoreEntry{
 			ScopeKind: LoreScopeEveryone, ScopeKey: "", Title: ti, Body: "內容",
-			AuthorID: me, State: LoreStateActive,
+			AuthorID: me, State: LoreStateActive, LoreType: LoreTypeOther,
 			EffectiveTS: float64(200 + i), CreatedTS: float64(200 + i), UpdatedTS: float64(200 + i),
 		})
 		if err != nil {
@@ -353,7 +354,7 @@ func TestCapLineAnswersForOneScopeAndGoesQuietForSeveral(t *testing.T) {
 			"title": ti, "body": "內容", "author_id": me, "source_task_id": "",
 			"state": "active", "retire_reason": "", "effective_ts": 200 + i,
 			"created_ts": 200 + i, "updated_ts": 200 + i, "task_type_key": "",
-			"scope_options": []any{"agent", "everyone"},
+			"scope_options": []any{"agent", "everyone"}, "lore_type": "other",
 		}}, everyoneRows...)
 	}
 	status, data := apiJSON(t, h, "GET", "/api/lore?scope_kinds=everyone", token, "")
@@ -416,6 +417,7 @@ func TestEachAxisFiltersOnItsOwnColumn(t *testing.T) {
 			EffectiveTS: 100,
 			CreatedTS:   100,
 			UpdatedTS:   100,
+			LoreType:    LoreTypeOther,
 		})
 		if err != nil {
 			t.Fatalf("seed %s: %v", title, err)
@@ -524,4 +526,92 @@ func TestEachSingularFilterNarrowsOnItsOwn(t *testing.T) {
 				len(page.Entries), loreIdsOf(page))
 		}
 	})
+}
+
+func TestLoreTypesFilter(t *testing.T) {
+	st := newLoreScopeStack(t)
+	const me = "m-scope-user"
+	seeded := map[string]LoreEntry{}
+	for i, w := range []struct{ name, author, loreType string }{
+		{"conflict", me, "instruction_conflict"},
+		{"supplement", me, "instruction_supplement"},
+		{"decision", me, "owner_decision"},
+		{"preference", me, "owner_preference"},
+		{"other", me, "other"},
+		{"other-plain", me, "other"},
+		{"decision-by-admin", "m-scope-admin", "owner_decision"},
+	} {
+		e, err := st.api.dal.CreateLoreEntryMintingID(LoreEntry{
+			ScopeKind: LoreScopeAgent, ScopeKey: w.author, Title: w.name, Body: "內容",
+			AuthorID: w.author, State: LoreStateActive, LoreType: w.loreType,
+			EffectiveTS: float64(100 + i), CreatedTS: float64(100 + i), UpdatedTS: float64(100 + i),
+		})
+		if err != nil {
+			t.Fatalf("seed %s: %v", w.name, err)
+		}
+		seeded[w.name] = e
+	}
+	row := func(name string) map[string]any {
+		e := seeded[name]
+		return map[string]any{
+			"id": e.ID, "seq": e.Seq, "scope_kind": "agent", "scope_key": e.AuthorID,
+			"title": name, "body": "內容", "author_id": e.AuthorID, "source_task_id": "",
+			"state": "active", "retire_reason": "", "effective_ts": e.EffectiveTS,
+			"created_ts": e.CreatedTS, "updated_ts": e.UpdatedTS, "task_type_key": "",
+			"scope_options": []any{"agent", "everyone"}, "lore_type": e.LoreType,
+		}
+	}
+	page := func(rows ...string) map[string]any {
+		entries := []any{}
+		for _, r := range rows {
+			entries = append(entries, row(r))
+		}
+		return map[string]any{"entries": entries, "limit": 30, "offset": 0,
+			"cap_chars": 0, "first_dropped_id": ""}
+	}
+
+	for _, tc := range []struct {
+		name, query string
+		want        map[string]any
+	}{
+		{"no filter carries every entry with its lore_type", "",
+			page("decision-by-admin", "other-plain", "other", "preference", "decision", "supplement", "conflict")},
+		{"one type", "?lore_types=owner_decision",
+			page("decision-by-admin", "decision")},
+		{"two types", "?lore_types=owner_preference&lore_types=other",
+			page("other-plain", "other", "preference")},
+		{"other alone", "?lore_types=other",
+			page("other-plain", "other")},
+		{"every type is every entry",
+			"?lore_types=instruction_conflict&lore_types=instruction_supplement&lore_types=owner_decision&lore_types=owner_preference&lore_types=other",
+			page("decision-by-admin", "other-plain", "other", "preference", "decision", "supplement", "conflict")},
+		{"ANDed with another axis", "?lore_types=owner_decision&author_ids=" + me,
+			page("decision")},
+		{"all-blank is no constraint", "?lore_types=",
+			page("decision-by-admin", "other-plain", "other", "preference", "decision", "supplement", "conflict")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			status, data := apiJSON(t, st.h, "GET", "/api/lore"+tc.query, st.user, "")
+			if status != http.StatusOK {
+				t.Fatalf("%s: %d %v", tc.query, status, data)
+			}
+			apiWantBody(t, data, tc.want)
+		})
+	}
+
+	for _, tc := range []struct{ query, bad string }{
+		{"?lore_types=owner_decision&lore_types=bogus", "bogus"},
+		{"?lore_types=Owner%20%E6%B1%BA%E7%AD%96", "Owner 決策"},
+		{"?lore_types=OTHER", "OTHER"},
+	} {
+		t.Run("refuses "+tc.bad, func(t *testing.T) {
+			status, data := apiJSON(t, st.h, "GET", "/api/lore"+tc.query, st.user, "")
+			if status != http.StatusBadRequest {
+				t.Fatalf("%s: %d %v, want 400", tc.query, status, data)
+			}
+			apiWantError(t, data, "validation_error",
+				"lore_types must be one of instruction_conflict, instruction_supplement, "+
+					"owner_decision, owner_preference or other — got "+strconv.Quote(tc.bad))
+		})
+	}
 }

@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -42,8 +43,19 @@ func hireLoreStaff(t *testing.T, s *apiServer, id, roleKey string) string {
 	return id
 }
 
+// postLore fills in lore_type when a fixture leaves it out: the write face
+// refuses a missing type, and these tests are about everything else.
 func postLore(t *testing.T, s *apiServer, sub string, body any) *httptest.ResponseRecorder {
 	t.Helper()
+	if m, ok := body.(map[string]any); ok {
+		if _, has := m["lore_type"]; !has {
+			withType := map[string]any{"lore_type": LoreTypeOther}
+			for k, v := range m {
+				withType[k] = v
+			}
+			body = withType
+		}
+	}
 	rec := httptest.NewRecorder()
 	s.HandleWriteLoreEntryApiLorePost(rec,
 		taskReq(t, "POST", "/api/lore", body, sub, "agent"))
@@ -953,7 +965,7 @@ func seedScopedLore(t *testing.T, api *apiServer, author, sourceTaskID, title st
 	e, err := api.dal.CreateLoreEntryMintingID(LoreEntry{
 		ScopeKind: LoreScopeAgent, ScopeKey: author, Title: title, Body: "內容",
 		AuthorID: author, SourceTaskID: sourceTaskID, State: LoreStateActive,
-		EffectiveTS: 100, CreatedTS: 100, UpdatedTS: 100,
+		EffectiveTS: 100, CreatedTS: 100, UpdatedTS: 100, LoreType: LoreTypeOther,
 	})
 	if err != nil {
 		t.Fatalf("CreateLoreEntryMintingID: %v", err)
@@ -996,6 +1008,7 @@ func (w loreEntryWant) body() map[string]any {
 		"source_task_id": w.e.SourceTaskID, "state": w.state, "retire_reason": "",
 		"effective_ts": w.e.EffectiveTS, "created_ts": w.e.CreatedTS,
 		"updated_ts": w.updated, "task_type_key": w.typeKey, "scope_options": w.options,
+		"lore_type": "other",
 	}
 }
 
@@ -1210,7 +1223,7 @@ func TestSetLoreEntryScope(t *testing.T) {
 		e, err := st.api.dal.CreateLoreEntryMintingID(LoreEntry{
 			ScopeKind: "role", ScopeKey: "researcher", Title: "孤兒", Body: "內容",
 			AuthorID: staff, State: LoreStatePinned,
-			EffectiveTS: 100, CreatedTS: 100, UpdatedTS: 100,
+			EffectiveTS: 100, CreatedTS: 100, UpdatedTS: 100, LoreType: LoreTypeOther,
 		})
 		if err != nil {
 			t.Fatalf("seed role orphan: %v", err)
@@ -1263,5 +1276,208 @@ func TestListLoreEntriesServesEachEntrysTaskTypeAndScopeOptions(t *testing.T) {
 			st.wantLoreRow(t, loreEntryWant{e: e, kind: "agent", key: tc.author, state: "active",
 				updated: 100, typeKey: tc.typeKey, options: tc.options})
 		})
+	}
+}
+
+// ── lore_type ───────────────────────────────────────────────────────────────
+
+func TestWriteLoreTypeTag(t *testing.T) {
+	st := newLoreScopeStack(t)
+	const me = "m-scope-user"
+	for _, tc := range []struct {
+		name, field, want string
+	}{
+		{"instruction_conflict", `,"lore_type":"instruction_conflict"`, "instruction_conflict"},
+		{"instruction_supplement", `,"lore_type":"instruction_supplement"`, "instruction_supplement"},
+		{"owner_decision", `,"lore_type":"owner_decision"`, "owner_decision"},
+		{"owner_preference", `,"lore_type":"owner_preference"`, "owner_preference"},
+		{"other", `,"lore_type":"other"`, "other"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			title := "標題 " + tc.name
+			status, data := apiJSON(t, st.h, "POST", "/api/lore", st.user,
+				`{"title":"`+title+`","body":"內容"`+tc.field+`}`)
+			if status != http.StatusOK {
+				t.Fatalf("write: %d %v", status, data)
+			}
+			apiWantBody(t, data, map[string]any{
+				"id": apiAnyString, "seq": apiAnyNumber, "scope_kind": "agent",
+				"scope_key": me, "created_ts": apiAnyNumber, "scope_note": "",
+			})
+			id := data["id"].(string)
+			status, page := apiJSON(t, st.h, "GET", "/api/lore?entry_id="+id, st.user, "")
+			if status != http.StatusOK {
+				t.Fatalf("read back: %d %v", status, page)
+			}
+			apiWantBody(t, page, map[string]any{
+				"entries": []any{map[string]any{
+					"id": id, "seq": data["seq"], "scope_kind": "agent", "scope_key": me,
+					"title": title, "body": "內容", "author_id": me, "source_task_id": "",
+					"state": "active", "retire_reason": "", "effective_ts": apiAnyNumber,
+					"created_ts": apiAnyNumber, "updated_ts": apiAnyNumber, "task_type_key": "",
+					"scope_options": []any{"agent", "everyone"}, "lore_type": tc.want,
+				}},
+				"limit": 30, "offset": 0, "cap_chars": 0, "first_dropped_id": "",
+			})
+		})
+	}
+
+	for _, missing := range []struct{ name, field string }{
+		{"omitted", ``},
+		{"null", `,"lore_type":null`},
+		{"empty", `,"lore_type":""`},
+		{"blank", `,"lore_type":"  "`},
+	} {
+		t.Run("refuses a "+missing.name+" type with the five values and writes nothing", func(t *testing.T) {
+			status, data := apiJSON(t, st.h, "POST", "/api/lore", st.admin,
+				`{"title":"不該寫進去","body":"內容"`+missing.field+`}`)
+			if status != http.StatusBadRequest {
+				t.Fatalf("write with %s lore_type: %d %v, want 400", missing.name, status, data)
+			}
+			apiWantError(t, data, "validation_error",
+				"lore_type is required — nothing was written. Set it to the entry's type: "+
+					"instruction_conflict (指示衝突), instruction_supplement (指示補充), "+
+					"owner_decision (Owner 決策), owner_preference (Owner 偏好) or other (其他). "+
+					"Put the type in lore_type, not as a prefix in the title.")
+			status, page := apiJSON(t, st.h, "GET", "/api/lore?author_ids=m-scope-admin", st.user, "")
+			if status != http.StatusOK {
+				t.Fatalf("list: %d %v", status, page)
+			}
+			apiWantBody(t, page, map[string]any{
+				"entries": []any{}, "limit": 30, "offset": 0, "cap_chars": 0, "first_dropped_id": "",
+			})
+		})
+	}
+
+	for _, bad := range []string{"owner-decision", "Owner 決策", "OTHER", "instruction_conflict,other"} {
+		t.Run("refuses "+bad+" and writes nothing", func(t *testing.T) {
+			status, data := apiJSON(t, st.h, "POST", "/api/lore", st.admin,
+				`{"title":"不該寫進去","body":"內容","lore_type":"`+bad+`"}`)
+			if status != http.StatusBadRequest {
+				t.Fatalf("write with lore_type %q: %d %v, want 400", bad, status, data)
+			}
+			apiWantError(t, data, "validation_error",
+				"lore_type must be one of instruction_conflict, instruction_supplement, "+
+					"owner_decision, owner_preference or other — got "+
+					strconv.Quote(bad)+"; nothing was written")
+			status, page := apiJSON(t, st.h, "GET", "/api/lore?author_ids=m-scope-admin", st.user, "")
+			if status != http.StatusOK {
+				t.Fatalf("list: %d %v", status, page)
+			}
+			apiWantBody(t, page, map[string]any{
+				"entries": []any{}, "limit": 30, "offset": 0, "cap_chars": 0, "first_dropped_id": "",
+			})
+		})
+	}
+}
+
+// The manual exit's `lore` field is renderLoreBlock's output verbatim, so the
+// label rule is asserted on the whole served block. The cap is set to exactly
+// the six entries' title+body: a label counted against it would drop the oldest.
+func TestTaskManualLoreShowsTheTypeLabelAheadOfTheTitle(t *testing.T) {
+	st := newLoreScopeStack(t)
+	if err := st.api.dal.PutTaskManual(TaskManual{
+		TypeKey: "tm-typed-lore", DisplayName: "Typed", SopMD: "SOP", UpdatedTS: 1,
+	}); err != nil {
+		t.Fatalf("PutTaskManual: %v", err)
+	}
+	task := seedScopeTask(t, st.api, "tm-typed-lore")
+	var used int
+	for _, w := range []struct{ title, loreType string }{
+		{"甲一", "instruction_conflict"},
+		{"乙二", "instruction_supplement"},
+		{"丙三", "owner_decision"},
+		{"丁四", "owner_preference"},
+		{"[工作原則] 戊五", "other"},
+		{"己六", "other"},
+	} {
+		if _, err := st.api.dal.CreateLoreEntryMintingID(LoreEntry{
+			ScopeKind: LoreScopeManual, ScopeKey: "tm-typed-lore", Title: w.title, Body: "內容",
+			AuthorID: "m-scope-user", SourceTaskID: task, State: LoreStateActive,
+			EffectiveTS: 100, CreatedTS: 100, UpdatedTS: 100, LoreType: w.loreType,
+		}); err != nil {
+			t.Fatalf("seed %s: %v", w.title, err)
+		}
+		used += len([]rune(w.title)) + len([]rune("內容"))
+	}
+	st.api.loreCapCharsManual = used
+
+	status, data := apiJSON(t, st.h, "GET", "/api/task-manuals/tm-typed-lore", st.user, "")
+	if status != http.StatusOK {
+		t.Fatalf("manual read: %d %v", status, data)
+	}
+	wantLore := "# 傳承" +
+		"\n\n## L-6 己六\n\n內容" +
+		"\n\n## L-5 [工作原則] 戊五\n\n內容" +
+		"\n\n## L-4 [Owner 偏好] 丁四\n\n內容" +
+		"\n\n## L-3 [Owner 決策] 丙三\n\n內容" +
+		"\n\n## L-2 [指示補充] 乙二\n\n內容" +
+		"\n\n## L-1 [指示衝突] 甲一\n\n內容"
+	if data["lore"] != wantLore {
+		t.Fatalf("lore =\n%v\nwant\n%s", data["lore"], wantLore)
+	}
+}
+
+func TestStaffBootDocumentShowsTheTypeLabelAheadOfTheTitle(t *testing.T) {
+	st := newLoreScopeStack(t)
+	me := hireLoreStaff(t, st.api, "m-lore-boot", defaultBootRole)
+	for _, w := range []struct{ title, loreType string }{
+		{"庚七", "owner_decision"},
+		{"[工作原則] 辛八", "other"},
+		{"壬九", "other"},
+		{"癸十", "instruction_conflict"},
+	} {
+		if _, err := st.api.dal.CreateLoreEntryMintingID(LoreEntry{
+			ScopeKind: LoreScopeAgent, ScopeKey: me, Title: w.title, Body: "內容",
+			AuthorID: me, State: LoreStateActive,
+			EffectiveTS: 100, CreatedTS: 100, UpdatedTS: 100, LoreType: w.loreType,
+		}); err != nil {
+			t.Fatalf("seed %s: %v", w.title, err)
+		}
+	}
+	status, data := apiJSON(t, st.h, "GET", "/api/members/"+me+"/boot-context", st.owner, "")
+	if status != http.StatusOK {
+		t.Fatalf("boot-context: %d %v", status, data)
+	}
+	const wantBlock = "\n\n# 傳承" +
+		"\n\n## L-4 [指示衝突] 癸十\n\n內容" +
+		"\n\n## L-3 壬九\n\n內容" +
+		"\n\n## L-2 [工作原則] 辛八\n\n內容" +
+		"\n\n## L-1 [Owner 決策] 庚七\n\n內容\n\n"
+	doc, _ := data["context"].(string)
+	if strings.Count(doc, "# 傳承") != 1 || !strings.Contains(doc, wantBlock) {
+		t.Fatalf("boot document does not carry exactly this 傳承 block:\n%s\n--- doc ---\n%s", wantBlock, doc)
+	}
+}
+
+// The 400 is the only place a member that booted before the type existed
+// learns the field, so its full text has to reach the agent through the tool.
+func TestWriteLoreToolCallWithoutATypeHandsTheAgentTheFiveValues(t *testing.T) {
+	api, h, d, owner := newAPITestServer(t)
+	api.loopback = h
+	token := apiTestPrincipalToken(t, api, d, principalAgent, "m-lore-mcp")
+
+	status, data := apiMCP(t, h, token,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"write_lore_entry","arguments":{"title":"一件事","body":"內容"}}}`)
+
+	if status != 200 {
+		t.Fatalf("want 200, got %d (%v)", status, data)
+	}
+	result, _ := data["result"].(map[string]any)
+	if result == nil || result["isError"] != true {
+		t.Fatalf("want a tool error, got %v", data)
+	}
+	content, _ := result["content"].([]any)
+	first, _ := content[0].(map[string]any)
+	want := `{"error":{"code":"validation_error","message":"lore_type is required — nothing was written. ` +
+		`Set it to the entry's type: instruction_conflict (指示衝突), instruction_supplement (指示補充), ` +
+		`owner_decision (Owner 決策), owner_preference (Owner 偏好) or other (其他). ` +
+		`Put the type in lore_type, not as a prefix in the title."}}`
+	if len(content) != 1 || first["type"] != "text" || first["text"] != want {
+		t.Fatalf("the agent must receive the whole refusal, got %v", content)
+	}
+	if status, page := apiJSON(t, h, "GET", "/api/lore", owner, ""); status != 200 ||
+		len(page["entries"].([]any)) != 0 {
+		t.Fatalf("a refused write must leave no entry, got %d %v", status, page)
 	}
 }

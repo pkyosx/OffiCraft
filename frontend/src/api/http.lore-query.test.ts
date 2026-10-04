@@ -185,3 +185,40 @@ describe("httpApi.setLoreEntryScope", () => {
     });
   });
 });
+
+describe("httpApi lore_type on the wire", () => {
+  it("sends one repeated lore_types parameter per ticked type and omits an empty set", async () => {
+    await httpApi.listLoreEntries({ loreTypes: ["owner_decision", "other"] });
+    expect(lastUrl().search).toBe("?lore_types=owner_decision&lore_types=other");
+
+    await httpApi.listLoreEntries({ loreTypes: [] });
+    expect(lastUrl().search).toBe("");
+  });
+
+  it("writes lore_type in the body", async () => {
+    const receipt = {
+      id: "L-9",
+      seq: 9,
+      scope_kind: "agent",
+      scope_key: "mira",
+      created_ts: 1,
+      scope_note: "",
+    };
+    fetchMock.mockImplementation(async () => jsonResponse(receipt));
+    const bodies: unknown[] = [];
+    for (const entry of [
+      { title: "t", body: "b", loreType: "owner_preference" as const },
+      { title: "t", body: "b", loreType: "other" as const },
+    ]) {
+      await httpApi.writeLoreEntry(entry);
+      const calls = fetchMock.mock.calls as unknown as [Request][];
+      const req = calls[calls.length - 1][0];
+      expect([req.method, new URL(req.url).pathname]).toEqual(["POST", "/api/lore"]);
+      bodies.push(await req.json());
+    }
+    expect(bodies).toEqual([
+      { title: "t", body: "b", lore_type: "owner_preference" },
+      { title: "t", body: "b", lore_type: "other" },
+    ]);
+  });
+});

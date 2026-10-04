@@ -49,6 +49,20 @@ func (s *apiServer) HandleWriteLoreEntryApiLorePost(w http.ResponseWriter, r *ht
 		return
 	}
 
+	// A missing type is refused rather than defaulted (owner rc-714fa3879796): the
+	// message is how an agent that never read the new boot document learns the field.
+	loreType := strings.TrimSpace(body.LoreType)
+	if loreType == "" {
+		writeError(w, http.StatusBadRequest, loreTypeMissingMsg)
+		return
+	}
+	if !ValidLoreType(loreType) {
+		writeError(w, http.StatusBadRequest,
+			"lore_type must be one of "+loreTypeList+" — got "+
+				strconv.Quote(loreType)+"; nothing was written")
+		return
+	}
+
 	taskID := ""
 	if body.TaskId != nil {
 		taskID = strings.TrimSpace(*body.TaskId)
@@ -115,6 +129,7 @@ func (s *apiServer) HandleWriteLoreEntryApiLorePost(w http.ResponseWriter, r *ht
 		EffectiveTS: now,
 		CreatedTS:   now,
 		UpdatedTS:   now,
+		LoreType:    loreType,
 	})
 	if err != nil {
 		internalError(w, err)
@@ -135,6 +150,10 @@ func (s *apiServer) HandleWriteLoreEntryApiLorePost(w http.ResponseWriter, r *ht
 	}
 	writeJSON(w, http.StatusOK, dto)
 }
+
+const loreTypeMissingMsg = "lore_type is required — nothing was written. Set it to the entry's type: " +
+	"instruction_conflict (指示衝突), instruction_supplement (指示補充), owner_decision (Owner 決策), " +
+	"owner_preference (Owner 偏好) or other (其他). Put the type in lore_type, not as a prefix in the title."
 
 func loreOverCapMsg(field string, got, capChars int) string {
 	return field + " is " + strconv.Itoa(got) + " characters, over the " + strconv.Itoa(capChars) +
@@ -273,9 +292,10 @@ func (s *apiServer) HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *ht
 	states, statesPlural := loreFilterValues(params.States, params.State)
 	authors, _ := loreFilterValues(params.AuthorIds, params.AuthorId)
 	entryIDs, _ := loreFilterValues(params.EntryIds, params.EntryId)
+	loreTypes, _ := loreFilterValues(params.LoreTypes, nil)
 	f := loreListFilter{
 		ScopeKinds: kinds, ScopeKeys: keys, States: states, AuthorIDs: authors,
-		EntryIDs: entryIDs,
+		EntryIDs: entryIDs, LoreTypes: loreTypes,
 	}
 	// 'role' was collapsed into agent (rc-a43100fd0486) and is refused; the orphan
 	// rows migrations/00100 left at scope_kind='role' still come back on any page
@@ -294,6 +314,13 @@ func (s *apiServer) HandleListLoreEntriesApiLoreGet(w http.ResponseWriter, r *ht
 				loreFilterParamName("state", statesPlural)+" must be one of "+
 					LoreStateActive+", "+LoreStatePinned+", "+LoreStateRetired+
 					" — got "+strconv.Quote(st))
+			return
+		}
+	}
+	for _, lt := range loreTypes {
+		if !ValidLoreType(lt) {
+			writeError(w, http.StatusBadRequest,
+				"lore_types must be one of "+loreTypeList+" — got "+strconv.Quote(lt))
 			return
 		}
 	}
@@ -498,6 +525,7 @@ func loreFilterParamName(singular string, fromPlural bool) string {
 func newLoreEntryDTO(e LoreEntry, facts loreScopeFacts) LoreEntryDTO {
 	taskTypeKey := facts.TaskTypeKey
 	options := loreScopeOptions(facts)
+	loreType := e.LoreType
 	return LoreEntryDTO{
 		Id:           e.ID,
 		Seq:          e.Seq,
@@ -512,6 +540,7 @@ func newLoreEntryDTO(e LoreEntry, facts loreScopeFacts) LoreEntryDTO {
 		EffectiveTs:  e.EffectiveTS,
 		CreatedTs:    e.CreatedTS,
 		UpdatedTs:    e.UpdatedTS,
+		LoreType:     &loreType,
 		TaskTypeKey:  &taskTypeKey,
 		ScopeOptions: &options,
 	}

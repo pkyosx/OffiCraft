@@ -39,17 +39,20 @@ type LoreEntry struct {
 
 	CreatedTS float64
 	UpdatedTS float64
+
+	// LoreType is one of the five Valid ones; the DB CHECK refuses "".
+	LoreType string
 }
 
 const loreEntryColumns = `id, seq, scope_kind, scope_key, title, body,
 	author_id, source_task_id, state, retire_reason,
-	effective_ts, created_ts, updated_ts`
+	effective_ts, created_ts, updated_ts, lore_type`
 
 func scanLoreEntry(row interface{ Scan(...any) error }) (LoreEntry, error) {
 	var e LoreEntry
 	err := row.Scan(&e.ID, &e.Seq, &e.ScopeKind, &e.ScopeKey, &e.Title, &e.Body,
 		&e.AuthorID, &e.SourceTaskID, &e.State, &e.RetireReason,
-		&e.EffectiveTS, &e.CreatedTS, &e.UpdatedTS)
+		&e.EffectiveTS, &e.CreatedTS, &e.UpdatedTS, &e.LoreType)
 	return e, err
 }
 
@@ -80,10 +83,10 @@ func (d *DAL) CreateLoreEntryMintingID(e LoreEntry) (LoreEntry, error) {
 
 	if _, err := tx.Exec(
 		`INSERT INTO lore_entry (`+loreEntryColumns+`)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		e.ID, e.Seq, e.ScopeKind, e.ScopeKey, e.Title, e.Body,
 		e.AuthorID, e.SourceTaskID, e.State, e.RetireReason,
-		e.EffectiveTS, e.CreatedTS, e.UpdatedTS); err != nil {
+		e.EffectiveTS, e.CreatedTS, e.UpdatedTS, e.LoreType); err != nil {
 		return e, err
 	}
 	return e, tx.Commit()
@@ -155,6 +158,7 @@ type loreListFilter struct {
 	States     []string
 	AuthorIDs  []string
 	EntryIDs   []string
+	LoreTypes  []string
 }
 
 func loreInClause(column string, vals []string) (string, []any) {
@@ -181,6 +185,7 @@ func (d *DAL) ListLoreEntriesPage(f loreListFilter, limit, offset int) ([]LoreEn
 		{"state", f.States},
 		{"author_id", f.AuthorIDs},
 		{"id", f.EntryIDs},
+		{"lore_type", f.LoreTypes},
 	} {
 		clause, clauseArgs := loreInClause(axis.column, axis.vals)
 		query += clause

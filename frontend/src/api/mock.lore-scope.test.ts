@@ -23,6 +23,7 @@ const L2 = {
   effectiveTs: 1788400000,
   createdTs: 1788400000,
   updatedTs: 1788400000,
+  loreType: "instruction_supplement",
 };
 const L4 = {
   id: "L-4",
@@ -40,6 +41,7 @@ const L4 = {
   effectiveTs: 1788450000,
   createdTs: 1788450000,
   updatedTs: 1788450000,
+  loreType: "owner_preference",
 };
 const L5 = {
   id: "L-5",
@@ -57,6 +59,7 @@ const L5 = {
   effectiveTs: 1788460000,
   createdTs: 1788460000,
   updatedTs: 1788460000,
+  loreType: "other",
 };
 const L7 = {
   id: "L-7",
@@ -74,6 +77,7 @@ const L7 = {
   effectiveTs: 1788470000,
   createdTs: 1788470000,
   updatedTs: 1788470000,
+  loreType: "other",
 };
 
 async function entry(api: Awaited<ReturnType<typeof freshMock>>, id: string) {
@@ -201,5 +205,102 @@ describe("mock setLoreEntryScope", () => {
       capChars: 195,
       firstDroppedId: "",
     });
+  });
+});
+
+describe("mock lore_type", () => {
+  beforeEach(() => {
+    vi.spyOn(Date, "now").mockReturnValue(1790000000000);
+  });
+
+  it("filters on loreTypes like the server: one type, two types, every type", async () => {
+    const api = await freshMock();
+    const ids = async (loreTypes: Parameters<typeof api.listLoreEntries>[0]) =>
+      (await api.listLoreEntries(loreTypes)).entries.map((e) => [e.id, e.loreType]);
+    const everyEntry = [
+      ["L-1", "owner_decision"],
+      ["L-7", "other"],
+      ["L-5", "other"],
+      ["L-4", "owner_preference"],
+      ["L-6", "other"],
+      ["L-2", "instruction_supplement"],
+      ["L-3", "instruction_conflict"],
+    ];
+    expect(await ids({})).toEqual(everyEntry);
+    expect(await ids({ loreTypes: ["owner_preference"] })).toEqual([["L-4", "owner_preference"]]);
+    expect(await ids({ loreTypes: ["other", "instruction_conflict"] })).toEqual([
+      ["L-7", "other"],
+      ["L-5", "other"],
+      ["L-6", "other"],
+      ["L-3", "instruction_conflict"],
+    ]);
+    expect(
+      await ids({
+        loreTypes: [
+          "instruction_conflict",
+          "instruction_supplement",
+          "owner_decision",
+          "owner_preference",
+          "other",
+        ],
+      }),
+    ).toEqual(everyEntry);
+  });
+
+  it("an unknown lore type is a 400 on the list and on the write, and the write stores nothing", async () => {
+    const api = await freshMock();
+    expect(
+      await refusal(api.listLoreEntries({ loreTypes: ["owner_whim" as never] })),
+    ).toEqual({
+      name: "ApiError",
+      message: "http 400 for GET /api/lore",
+      status: 400,
+      code: "validation_error",
+      serverMessage:
+        'lore_types must be one of instruction_conflict, instruction_supplement, owner_decision, owner_preference or other — got "owner_whim"',
+      retryAfter: null,
+    });
+    expect(
+      await refusal(
+        api.writeLoreEntry({ title: "t", body: "b", loreType: "owner_whim" as never }),
+      ),
+    ).toEqual({
+      name: "ApiError",
+      message: "http 400 for POST /api/lore",
+      status: 400,
+      code: "validation_error",
+      serverMessage:
+        'lore_type must be one of instruction_conflict, instruction_supplement, owner_decision, owner_preference or other — got "owner_whim"; nothing was written',
+      retryAfter: null,
+    });
+    expect((await api.listLoreEntries()).entries).toHaveLength(7);
+  });
+
+  it("a write stores its lore type, and one without a type is refused with the five values", async () => {
+    const api = await freshMock();
+    await api.writeLoreEntry({ title: "有標籤", body: "b", loreType: "owner_decision" });
+    expect(
+      await refusal(api.writeLoreEntry({ title: "沒標籤", body: "b", loreType: "" as never })),
+    ).toEqual({
+      name: "ApiError",
+      message: "http 400 for POST /api/lore",
+      status: 400,
+      code: "validation_error",
+      serverMessage:
+        "lore_type is required — nothing was written. Set it to the entry's type: " +
+        "instruction_conflict (指示衝突), instruction_supplement (指示補充), owner_decision (Owner 決策), " +
+        "owner_preference (Owner 偏好) or other (其他). Put the type in lore_type, not as a prefix in the title.",
+      retryAfter: null,
+    });
+    expect(
+      (await refusal(api.writeLoreEntry({ title: "空白", body: "b", loreType: "  " as never })))
+        .serverMessage,
+    ).toBe(
+      "lore_type is required — nothing was written. Set it to the entry's type: " +
+        "instruction_conflict (指示衝突), instruction_supplement (指示補充), owner_decision (Owner 決策), " +
+        "owner_preference (Owner 偏好) or other (其他). Put the type in lore_type, not as a prefix in the title.",
+    );
+    const written = (await api.listLoreEntries()).entries.filter((e) => e.seq > 7);
+    expect(written.map((e) => [e.id, e.title, e.loreType])).toEqual([["L-8", "有標籤", "owner_decision"]]);
   });
 });

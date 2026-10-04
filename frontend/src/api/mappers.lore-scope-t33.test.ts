@@ -151,6 +151,7 @@ const VIEW = {
   effectiveTs: 1788460000,
   createdTs: 1788460000,
   updatedTs: 1788460000,
+  loreType: "other",
 };
 
 describe("toLoreEntry scope switching fields", () => {
@@ -181,5 +182,39 @@ describe("toLoreEntry scope switching fields", () => {
         }),
       ),
     ).toEqual({ ...VIEW, taskTypeKey: "", scopeOptions: ["agent", "everyone"] });
+  });
+});
+
+const OTHER_VIEW = { ...VIEW, taskTypeKey: "", scopeOptions: [] };
+
+describe("toLoreEntry lore_type", () => {
+  it("each of the five type tags comes through as loreType", () => {
+    expect(
+      [
+        "instruction_conflict",
+        "instruction_supplement",
+        "owner_decision",
+        "owner_preference",
+        "other",
+      ].map((lt) => toLoreEntry(wireEntry("agent", "ow-7d8ad859dd9b", { lore_type: lt }))),
+    ).toEqual([
+      { ...OTHER_VIEW, loreType: "instruction_conflict" },
+      { ...OTHER_VIEW, loreType: "instruction_supplement" },
+      { ...OTHER_VIEW, loreType: "owner_decision" },
+      { ...OTHER_VIEW, loreType: "owner_preference" },
+      { ...OTHER_VIEW, loreType: "other" },
+    ]);
+  });
+
+  it("an empty value, an older server without the field, and a value this build does not know all read as other", () => {
+    expect(
+      [{ lore_type: "" }, {}, { lore_type: "owner_whim" }].map((extra) =>
+        toLoreEntry(wireEntry("agent", "ow-7d8ad859dd9b", extra)),
+      ),
+    ).toEqual([
+      { ...VIEW, taskTypeKey: "", scopeOptions: [], loreType: "other" },
+      { ...VIEW, taskTypeKey: "", scopeOptions: [], loreType: "other" },
+      { ...VIEW, taskTypeKey: "", scopeOptions: [], loreType: "other" },
+    ]);
   });
 });

@@ -10746,6 +10746,11 @@ export interface components {
              */
             state: string;
             /**
+             * Lore Type
+             * @description The entry's type tag: ``instruction_conflict`` (指示衝突), ``instruction_supplement`` (指示補充), ``owner_decision`` (Owner 決策), ``owner_preference`` (Owner 偏好) or ``other`` (其他); every entry carries exactly one. A write must name it; entries written before the tag existed whose title carried no type prefix are ``other``. The cockpit shows it ahead of the title and the boot document renders it ahead of the title (except ``other``, which the boot document does not show), so the title itself carries no type prefix.
+             */
+            lore_type?: string;
+            /**
              * Retire Reason
              * @description Why it was retired, or "". Meaningful only while ``state`` is ``retired``, and cleared when the entry is moved back.
              */
@@ -10784,9 +10789,14 @@ export interface components {
         LoreEntryWriteDTO: {
             /**
              * Title
-             * @description The entry's one-line heading, at most ``lore_cap_chars_title`` characters.
+             * @description The entry's one-line heading, at most ``lore_cap_chars_title`` characters. Do not put the type in the title — it goes in ``lore_type``.
              */
             title: string;
+            /**
+             * Lore Type
+             * @description REQUIRED. The entry's type tag, one of ``instruction_conflict`` (指示衝突), ``instruction_supplement`` (指示補充), ``owner_decision`` (Owner 決策), ``owner_preference`` (Owner 偏好) or ``other`` (其他). Missing or blank is a 400 whose message names the field and lists these five values; any other value is a 400 that names it. Either way nothing is written.
+             */
+            lore_type: string;
             /**
              * Body
              * @description The entry itself, at most ``lore_cap_chars_body`` characters.
@@ -19892,6 +19902,8 @@ export interface operations {
                 /** @description REPEATABLE state set (``?states=active&states=pinned``) — the multi-select twin of ``state``, so the 狀態 filter can tick more than one row. Accepted values: ``active``, ``pinned``, ``retired``; ANY other element is a 400 that NAMES the offending value rather than being dropped, for the same reason the singular does it — an ignored typo returns an empty page that reads exactly like a real "there are none". 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. additive-optional. */
                 states?: string[];
                 state?: string | null;
+                /** @description REPEATABLE type-tag set (``?lore_types=owner_decision&lore_types=owner_preference``), matched against ``lore_type``. Accepted values: ``instruction_conflict``, ``instruction_supplement``, ``owner_decision``, ``owner_preference``, ``other``; ANY other element is a 400 that NAMES it, because an ignored typo returns an empty page that reads exactly like a real "there are none". Absent or all-blank means no constraint on this axis. additive-optional. */
+                lore_types?: string[];
                 /** @description REPEATABLE author set (``?author_ids=mira&author_ids=nova``) — the multi-select twin of ``author_id``. Member ids are free-form and are matched literally against the author PINNED at write time, so there is no closed set and no 400; an id nobody carries simply contributes no rows. 🔴 PLURAL WINS. When this and its singular twin are BOTH sent, this one is the filter and the singular is ignored — they are neither ANDed nor unioned. Absent, or present but all-blank, falls back to the singular; both empty means no constraint on this axis. additive-optional. */
                 author_ids?: string[];
                 author_id?: string | null;

@@ -353,3 +353,24 @@ func TestSelectLoreForScopeWithAnEmptyKeySelectsOnlyEveryone(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderLoreBlockShowsTheTypeLabelAheadOfTheTitle(t *testing.T) {
+	got := renderLoreBlock(loreSelection{Entries: []LoreEntry{
+		{ID: "L-1", Title: "甲", Body: "一", State: LoreStateActive, LoreType: LoreTypeInstructionConflict},
+		{ID: "L-2", Title: "乙", Body: "二", State: LoreStatePinned, LoreType: LoreTypeInstructionSupplement},
+		{ID: "L-3", Title: "丙", Body: "三", State: LoreStateActive, LoreType: LoreTypeOwnerDecision},
+		{ID: "L-4", Title: "丁", Body: "四", State: LoreStateActive, LoreType: LoreTypeOwnerPreference},
+		{ID: "L-5", Title: "[工作原則] 戊", Body: "五", State: LoreStateActive, LoreType: LoreTypeOther},
+		{ID: "L-6", Title: "己", Body: "六", State: LoreStateActive, LoreType: LoreTypeOther},
+	}})
+	const want = "# 傳承" +
+		"\n\n## L-1 [指示衝突] 甲\n\n一" +
+		"\n\n## L-2 [指示補充] 乙（置頂）\n\n二" +
+		"\n\n## L-3 [Owner 決策] 丙\n\n三" +
+		"\n\n## L-4 [Owner 偏好] 丁\n\n四" +
+		"\n\n## L-5 [工作原則] 戊\n\n五" +
+		"\n\n## L-6 己\n\n六"
+	if got != want {
+		t.Fatalf("renderLoreBlock =\n%s\nwant\n%s", got, want)
+	}
+}

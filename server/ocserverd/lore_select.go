@@ -102,6 +102,15 @@ func selectLoreEntries(entries []LoreEntry, capChars int) loreSelection {
 
 const loreBlockHeading = "# 傳承"
 
+// 🔴 other has no label on purpose (owner ruling: the boot document does not say
+// 其他), and its [工作原則] entries still carry that prefix in the title.
+var loreTypeBootLabels = map[string]string{
+	LoreTypeInstructionConflict:   "指示衝突",
+	LoreTypeInstructionSupplement: "指示補充",
+	LoreTypeOwnerDecision:         "Owner 決策",
+	LoreTypeOwnerPreference:       "Owner 偏好",
+}
+
 // "" for an empty selection is load-bearing: both exits append this
 // unconditionally, and an empty heading would claim there is no lore.
 //
@@ -117,6 +126,9 @@ func renderLoreBlock(sel loreSelection) string {
 		b.WriteString("\n\n## ")
 		b.WriteString(e.ID)
 		b.WriteString(" ")
+		if label, ok := loreTypeBootLabels[e.LoreType]; ok {
+			b.WriteString("[" + label + "] ")
+		}
 		b.WriteString(strings.TrimSpace(e.Title))
 		if e.State == LoreStatePinned {
 			b.WriteString("（置頂）")

@@ -2005,7 +2005,7 @@ def _happy_lore_entry(ctx: HCtx) -> str:
     """
     r = ctx.client.post(
         "/api/lore",
-        json={"title": _HAPPY_LORE_TITLE, "body": _HAPPY_LORE_BODY},
+        json={"title": _HAPPY_LORE_TITLE, "body": _HAPPY_LORE_BODY, "lore_type": "owner_decision"},
         headers=_auth(ctx.agent.token),
     )
     assert r.status_code == 200, f"happy lore failed: {r.status_code} {r.text}"
@@ -3528,7 +3528,7 @@ HAPPY: dict[str, Happy] = {
     # ── 傳承 (T-33) ─────────────────────────────────────────────────────────
     "POST /api/lore": Happy(
         identity="agent",
-        body={"title": _HAPPY_LORE_TITLE, "body": _HAPPY_LORE_BODY},
+        body={"title": _HAPPY_LORE_TITLE, "body": _HAPPY_LORE_BODY, "lore_type": "owner_decision"},
         check=_check_lore_written,
     ),
     "GET /api/lore": Happy(identity="agent", check=_check_lore_list),
