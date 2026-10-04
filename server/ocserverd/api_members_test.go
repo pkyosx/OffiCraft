@@ -4728,12 +4728,9 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 	}
 
 	t.Run("a HELD-DOWN worker's report on a dark fleet stays collected, with no rollback and no promise of a retry", func(t *testing.T) {
-		// 🔴 THE TWO ARMS DIVERGE HERE ON PURPOSE. A worker that is coming back has
-		// an unkilled session and must report again (above). A worker the owner is
-		// holding down has nothing coming: rolling the latch back would un-collect
-		// a close-out that IS complete, and the receipt would tell the cockpit
-		// 「retrying」 about a worker nothing intends to retry — while this very
-		// response says 「collected」.
+		// Collected like the wanted-online report above: the STOP that reached no
+		// machine waits in the ledger, so nothing is rolled back and the receipt
+		// promises no retry.
 		api, h, d, owner, contractor := apiTestDarkWorker(t, DesiredStateOffline)
 
 		status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`)
