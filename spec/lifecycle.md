@@ -917,8 +917,11 @@ decides that time is up.
      **STOP**, event-driven, not on the next tick;
   2. **the owner pressing 加速停止** (T-ed79) — `POST /api/members/{id}/accelerated-stop`
      re-stamps `stopping_since` and writes `refocus_op = accelerated_stop`, so `decideDown`
-     collects at `stopping_since + stop.accelerated_grace_secs` and `offboardKindOf`
-     quotes that same instant to the agent. This does NOT reopen `rc-27d1710174dd`: the
+     sends the robust **STOP** at `stopping_since + stop.accelerated_grace_secs` (and every
+     `stop_retry` after while the session stays connected) and `offboardKindOf` quotes that
+     same instant to the agent. The member is collected, as on the offline arm, once the
+     session has been offline for the whole confirm window; staff and outsource workers run
+     this same `decideDown` (owner 2026-10-04 `rc-0e0ee29bc6e6`). This does NOT reopen `rc-27d1710174dd`: the
      ruling is about the SERVER deciding time is up, and nothing here arms without the
      owner's press; and
   3. **the owner pressing 強制下線** — the SAME command, it only skips the waiting.
@@ -1179,8 +1182,8 @@ ONE-SHOT, never a standing order):
   declares its own `AppliesTo`, so a formality added to the list reaches BOTH sides
   by construction and one that must not has to write the restriction down where a
   reader — and `lifecycle_roster_parity_t170e_test.go` — sees it by name. Exactly
-  one pass is restricted today: `recycle_loop_break` is staff-only, because a worker's
-  loop-break asks a different question (`boot_ts > refocus_since`). A wind-down rule that goes ON this list and is then
+  one pass is restricted today: `uninstall_intent_consume` applies to wardens only. A wind-down
+  rule that goes ON this list and is then
   quietly narrowed to one side fails by name in that test.
   - 🔴 **KNOWN GAP — `LIFECYCLE-LIST-IS-OPT-IN-T170E`.** An earlier draft of this
     bullet claimed "a wind-down rule that is not on this list does not apply to

@@ -531,8 +531,8 @@ func (s *apiServer) workerSpawnObs(workerID string) (target string, at float64) 
 	return s.workerSpawnTarget[workerID], s.workerSpawnAt[workerID]
 }
 
-// reconcileWorkerLiveness runs one non-stopped worker through the shared member
-// FSM (reconcileDecide). Relocation stays masked: its event-driven handler owns
+// reconcileWorkerLiveness runs one assigned or active worker through the shared
+// member FSM (reconcileDecide), whatever its desired_state. Relocation stays masked: its event-driven handler owns
 // the placement change. Returns whether a START was dispatched. Callers hold
 // s.outsourceMu.
 func (s *apiServer) reconcileWorkerLiveness(w OutsourceWorker, now float64) bool {
@@ -660,10 +660,9 @@ func undeliveredWorkerStart(h *Hub, workerID string, spawnAt float64) bool {
 	return lost && note.Verb == reconcileCmdStart
 }
 
-// workerObservation masks, on purpose: TargetMachine/RunningMachine (the
-// relocation arm — 改機器 is collected by the owner-op refocus epoch; feeding the
-// pair would race two collectors) and StoppingSince (decideDown's 加速停止 arm —
-// would open a kill path).
+// workerObservation masks TargetMachine/RunningMachine on purpose: the relocation
+// arm — 改機器 is collected by the owner-op refocus epoch, and feeding the pair
+// would race two collectors.
 func workerObservation(w OutsourceWorker, online bool) memberObservation {
 	return memberObservation{
 		MemberID: w.ID,

@@ -261,10 +261,8 @@ func (s *apiServer) runOutsourceTick(now float64) {
 	s.runWorkerLifecyclePasses(workers, now)
 
 	for _, w := range workers {
-		// 🔴 Must stay ABOVE the switch: the owner's queued 起來 is spent at the
-		// converged-offline edge, and both branches below filter out
-		// desired-offline workers, so consuming it behind either filter would
-		// leave the button answering 200 and doing nothing forever.
+		// Runs before the FSM below, so a queued 起來 spent at the converged-offline
+		// edge is started in the same tick.
 		s.consumeWorkerRestartAfterStop(&w, now)
 		// Re-fire a parked refused kill FIRST, before any branch below can
 		// re-spawn onto the same machine.

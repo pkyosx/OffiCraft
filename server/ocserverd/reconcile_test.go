@@ -1109,6 +1109,19 @@ func TestDecideDown(t *testing.T) {
 		reconcileTestWantDecision(t, decideDown(online, aged, cfg, now+100000), want)
 	})
 
+	t.Run("a member whose stopped report is collected is sent nothing more by the 加速停止 clock while its session lingers", func(t *testing.T) {
+		reported := obs
+		reported.Online = true
+		reported.AgentStopped = true
+		reported.RefocusOp = refocusOpAcceleratedStop
+		reported.StoppingSince = now - 500
+		reconcileTestWantDecision(t, decideDown(reported, newReconcileState(), cfg, now), reconcileDecision{
+			Command: reconcileCmdNone, MemberID: "kip",
+			Reason: "stopping: stopped report collected — its robust stop owns the kill",
+			State:  reconcileState{Phase: reconcilePhaseStopping, LastCommand: reconcileCmdNone},
+		})
+	})
+
 	t.Run("an owner-pressed 加速停止 waits out the grace it opened, then falls through to the single robust stop", func(t *testing.T) {
 		inside := obs
 		inside.Online = true
@@ -1351,38 +1364,6 @@ func TestWardenTargetOf(t *testing.T) {
 		}
 		if got := api.wardenTargetOf("via-pin"); got != "" {
 			t.Fatalf("wardenTargetOf(via-pin) = %q, want the blank destination", got)
-		}
-	})
-}
-
-func TestMemberKillTargetWarden(t *testing.T) {
-	t.Run("a kill is addressed to the machine the session actually claims, not the machine it is pinned to", func(t *testing.T) {
-		api, d := reconcileTestServer(t)
-		reconcileTestPut(t, d, Member{ID: "pinned", Name: "Pinned", Kind: KindStaff, RoleKey: "engineer", DesiredMachineID: "m-box"})
-		reconcileTestOnline(t, api, "pinned", "m-old")
-		if got := api.memberKillTargetWarden("pinned"); got != "m-old" {
-			t.Fatalf("memberKillTargetWarden(pinned) = %q, want the running machine m-old", got)
-		}
-	})
-
-	t.Run("with no live claim it falls back to the pin, and with neither there is nowhere to address the kill", func(t *testing.T) {
-		api, d := reconcileTestServer(t)
-		reconcileTestPut(t, d, Member{ID: "pinned", Name: "Pinned", Kind: KindStaff, RoleKey: "engineer", DesiredMachineID: "m-box"})
-		reconcileTestPut(t, d, Member{ID: "unpinned", Name: "U", Kind: KindStaff, RoleKey: "engineer"})
-		if got := api.memberKillTargetWarden("pinned"); got != "m-box" {
-			t.Fatalf("memberKillTargetWarden(pinned) = %q, want the pin m-box", got)
-		}
-		if got := api.memberKillTargetWarden("unpinned"); got != "" {
-			t.Fatalf("memberKillTargetWarden(unpinned) = %q, want the blank destination", got)
-		}
-	})
-
-	t.Run("a claim-less connection does not shadow the pin — the blank claim is not an address", func(t *testing.T) {
-		api, d := reconcileTestServer(t)
-		reconcileTestPut(t, d, Member{ID: "pinned", Name: "Pinned", Kind: KindStaff, RoleKey: "engineer", DesiredMachineID: "m-box"})
-		reconcileTestOnline(t, api, "pinned", "")
-		if got := api.memberKillTargetWarden("pinned"); got != "m-box" {
-			t.Fatalf("memberKillTargetWarden(pinned) = %q, want the pin m-box", got)
 		}
 	})
 }
@@ -2569,6 +2550,30 @@ func TestReconcileOne(t *testing.T) {
 		}
 		if queued := api.hub.DrainWardenCommands("m-box"); len(queued) != 0 {
 			t.Fatalf("the pin holds no session and must get no STOP: %+v", queued)
+		}
+	})
+
+	t.Run("a wind-down STOP with no machine to name is broadcast to every online warden", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestOnline(t, api, "m-box", "")
+		reconcileTestPut(t, d, Member{
+			ID: "nowhere", Name: "Nowhere", Kind: KindStaff, RoleKey: "assistant",
+			DesiredState: DesiredStateOffline,
+		})
+		reconcileTestOnline(t, api, "nowhere", "")
+		prior := reconcileState{Phase: reconcilePhaseStopping, LastCommand: reconcileCmdNone, StopDeadline: reconcileTestNow - 1}
+		timed := api.reconcileCfg
+		timed.SoftOffboardGrace = 0
+		api.reconcileCfg = timed
+
+		got := api.reconcileOne(reconcileTestRow(t, d, "nowhere"), prior, reconcileTestNow)
+
+		if got.Command != reconcileCmdStop || got.DispatchUnlanded {
+			t.Fatalf("premise: a landed wind-down STOP, got %+v", got)
+		}
+		frame, _ := buildTargetFrame(reconcileCmdStop, "nowhere")
+		if queued := api.hub.DrainWardenCommands("m-box"); !reflect.DeepEqual(queued, []wardenCmd{{Subject: "nowhere", Frame: frame}}) {
+			t.Fatalf("m-box queued = %+v, want the broadcast STOP", queued)
 		}
 	})
 

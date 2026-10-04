@@ -526,6 +526,11 @@ func decideDown(
 		st.StopDeadline = 0.0
 		return decisionNone(obs, st, "offline: converged")
 	}
+	if obs.AgentStopped {
+		st.Phase = reconcilePhaseStopping
+		return decisionNone(obs, st,
+			"stopping: stopped report collected — its robust stop owns the kill")
+	}
 	// 🔴 下線 runs no server clock (owner ruling rc-27d1710174dd): collection is the agent's stopped
 	// report (HandleReportStopped dispatches the robust STOP) or the owner's force-stop.
 	// Exception: 加速停止, which the owner started and the agent was told about (offboardKindOf quotes
@@ -658,14 +663,6 @@ func (s *apiServer) wardenTargetOf(memberID string) string {
 
 func (s *apiServer) enqueueWardenFrame(memberID string, frame []byte) bool {
 	return s.enqueueToWarden(memberID, s.wardenTargetOf(memberID), frame)
-}
-
-func (s *apiServer) memberKillTargetWarden(memberID string) string {
-	last := ""
-	if m, err := s.dal.GetMember(memberID); err == nil && m != nil {
-		last = m.LastMachineID
-	}
-	return s.namedKillTarget(memberID, killTargetSources{LastMachineID: last})
 }
 
 func (s *apiServer) enqueueToWarden(memberID, warden string, frame []byte) bool {

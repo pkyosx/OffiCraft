@@ -3557,6 +3557,8 @@ func TestReconcileWorkerLiveness(t *testing.T) {
 		}
 		api.reconcileWorkerLiveness(w, 330)
 		apiWantValue(t, "inside stop_retry after the deadline", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+		api.reconcileWorkerLiveness(w, 410)
+		apiWantValue(t, "still connected at stop_retry", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop"}))
 
 		api.hub.Disconnect(session)
 		api.reconcileWorkerLiveness(w, 400)
@@ -3570,6 +3572,18 @@ func TestReconcileWorkerLiveness(t *testing.T) {
 		if got := stoppedSince(); got <= 0 {
 			t.Fatalf("a session confirmed gone is collected; stopped_since = %v", got)
 		}
+	})
+
+	t.Run("a worker whose stopped report is collected is sent no second STOP by the 加速停止 clock while its session lingers", func(t *testing.T) {
+		api, _, _, _, w := wsWindDown(t, WorkerStatusActive, DesiredStateOffline, "accelerated_stop", 0, 200, 300, true)
+		apiTestListen(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		defer api.outsourceMu.Unlock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.reconcileWorkerLiveness(w, 340)
+		api.reconcileWorkerLiveness(w, 430)
+		apiWantValue(t, "past the deadline, after the stopped report", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
 	})
 
 	t.Run("a plain 停止 runs no clock at all, so a live worker is waited on indefinitely", func(t *testing.T) {
