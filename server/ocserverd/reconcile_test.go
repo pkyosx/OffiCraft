@@ -388,7 +388,7 @@ func TestIsPlacementBlockedReason(t *testing.T) {
 				t.Fatalf("%q with no separator must not match", code)
 			}
 		}
-		if len(spawnBlockedReasonCodes) != 13 {
+		if len(spawnBlockedReasonCodes) != 12 {
 			t.Fatalf("the closed set has %d codes: %v", len(spawnBlockedReasonCodes), spawnBlockedReasonCodes)
 		}
 	})
