@@ -731,7 +731,7 @@ test("swiping past either end of the frame leaves 機器 and 操作 where they a
   });
   await cdp.send("Page.startScreencast", { format: "png", everyNthFrame: 1 });
   await page.waitForTimeout(200);
-  const at = { x: frame.x + 600, y: frame.y + frame.height / 2, yDistance: 0, gestureSourceType: "mouse", speed: 1200 };
+  const at = { x: frame.x + 600, y: frame.y + frame.height / 2, yDistance: 0, gestureSourceType: "mouse" as const, speed: 1200 };
   await cdp.send("Input.synthesizeScrollGesture", { ...at, xDistance: -400 });
   await page.waitForTimeout(800);
   await cdp.send("Input.synthesizeScrollGesture", { ...at, xDistance: 400 });
