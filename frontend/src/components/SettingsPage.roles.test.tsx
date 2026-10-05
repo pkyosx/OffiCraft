@@ -39,12 +39,10 @@ async function openRolesLog() {
   return utils;
 }
 
-function displayedRoleNames(container: HTMLElement) {
-  return Array.from(container.querySelectorAll(".set-entry__name")).map((node) => {
-    const name = node.cloneNode(true) as HTMLElement;
-    name.querySelectorAll(".set-badge").forEach((badge) => badge.remove());
-    return name.textContent?.trim() ?? "";
-  });
+function displayedRoleRowText(container: HTMLElement) {
+  return Array.from(container.querySelectorAll(".set-entry__name")).map(
+    (row) => row.textContent?.trim() ?? ""
+  );
 }
 
 /** Create through the INLINE row: open, type the 角色名, press Enter. */
@@ -72,9 +70,6 @@ beforeEach(() => {
 
 describe("SettingsPage · #settings/roles deep-link (T-f074 正職 ➕👤)", () => {
   it("opens straight on the 角色誌 list when initialRoles is set", async () => {
-    const expectedOrder = (await api.listRoles()).map(
-      (role) => (zh.office.role as Record<string, string>)[role.key] ?? role.name
-    );
     const utils = render(
       <I18nProvider>
         <SettingsPage initialRoles />
@@ -85,8 +80,7 @@ describe("SettingsPage · #settings/roles deep-link (T-f074 正職 ➕👤)", ()
     // block is not on this page any more — 全域情境 holds it.
     await utils.findByText(s.roleDefsSection);
     expect(utils.getByText(`+ ${s.addRole}`)).toBeTruthy();
-    expect(utils.queryByTestId("role-status-badge-assistant")).toBeNull();
-    expect(displayedRoleNames(utils.container)).toEqual(expectedOrder);
+    expect(displayedRoleRowText(utils.container)).toEqual(["特助"]);
   });
 
   it("opens the 角色誌 list already in CREATE mode when initialRolesCreate is set (T-25b7 #settings/roles/new)", async () => {
@@ -138,7 +132,7 @@ describe("SettingsPage · #settings/roles deep-link (T-f074 正職 ➕👤)", ()
       </I18nProvider>
     );
     await utils.findByText(s.roleDefsSection);
-    expect(utils.queryByTestId("role-status-badge-assistant")).toBeNull();
+    expect(displayedRoleRowText(utils.container)).toEqual(["特助"]);
     fireEvent.click(utils.getByText(zh.office.role.assistant));
     expect((await utils.findByTestId("doc-card-status-badge")).textContent).toBe(
       "已修改"
@@ -148,13 +142,10 @@ describe("SettingsPage · #settings/roles deep-link (T-f074 正職 ➕👤)", ()
   it("shows no factory-status label on a custom role in the role list", async () => {
     const utils = await openRolesLog();
     await createViaRow(utils);
-
-    const custom = (await api.listRoles()).find((r) => r.name === "研究員")!;
-    expect(utils.getByText(s.customBadge)).toBeTruthy();
-    expect(
-      utils.queryByTestId(`role-status-badge-${custom.key}`)
-    ).toBeNull();
-    expect(utils.queryByTestId("role-status-badge-assistant")).toBeNull();
+    expect(displayedRoleRowText(utils.container)).toEqual([
+      "特助",
+      "研究員自訂",
+    ]);
   });
 });
 
