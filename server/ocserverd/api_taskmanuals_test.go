@@ -332,7 +332,7 @@ func apiTestBuiltinTaskManualRows(capChars int) []any {
 			"display_name":     "建立／修改任務手冊",
 			"purpose":          "建立新的任務手冊，或調整既有任務手冊的內容與負責成員。",
 			"fields":           []any{map[string]any{"name": "manual_name", "required": true, "is_key": true}},
-			"assignee":         map[string]any{"kind": "staff", "member_id": "mira"},
+			"assignee":         map[string]any{},
 			"sop_md_chars":     3872,
 			"sop_md_cap_chars": capChars,
 			"updated_ts":       0,
@@ -798,6 +798,32 @@ func TestHandleGetTaskManualApiTaskManualsTypeKeyGet(t *testing.T) {
 		want := apiTestShippedRoleDesignManual()
 		want["updated_ts"] = 0
 		apiTestWantRoleDesignManual(t, h, agent, want)
+	})
+
+	t.Run("the built-in task manual is served with no default executor", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "GET", "/api/task-manuals/builtin-task-manual-design", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"type_key":     "builtin-task-manual-design",
+			"display_name": "建立／修改任務手冊",
+			"purpose":      "建立新的任務手冊，或調整既有任務手冊的內容與負責成員。",
+			"fields": []any{
+				map[string]any{"name": "manual_name", "required": true, "is_key": true},
+			},
+			"sop_md":           apiAnyString,
+			"assignee":         map[string]any{},
+			"lore":             "",
+			"lore_chars":       0,
+			"sop_md_chars":     3872,
+			"sop_md_cap_chars": 15000,
+			"updated_ts":       0,
+			"is_seed":          true,
+			"is_default":       true,
+		})
 	})
 
 	t.Run("a type is served in full with its document and its cap", func(t *testing.T) {

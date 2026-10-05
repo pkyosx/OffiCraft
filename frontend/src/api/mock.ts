@@ -1009,7 +1009,7 @@ const MOCK_TASK_MANUAL_SEEDS: readonly StoredTaskManual[] = [
     purpose: "建立新的任務手冊，或調整既有任務手冊的內容與負責成員。",
     fields: [{ name: "manual_name", required: true, isKey: true }],
     sopMd: "# 任務手冊基本定義\n\n（mock 內建手冊）\n",
-    assignee: { kind: "staff", memberId: "mira" },
+    assignee: null,
     updatedTs: 0,
     isSeed: true,
     isDefault: true,

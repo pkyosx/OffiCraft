@@ -439,6 +439,10 @@ describe("mockApi · document history", () => {
     const shipped = await mockApi.getTaskManual("builtin-task-manual-design");
     expect(shipped.isSeed).toBe(true);
     expect(shipped.isDefault).toBe(true);
+    expect(shipped.assignee).toBeNull();
+    expect(
+      (await mockApi.getTaskManual("builtin-role-design")).assignee
+    ).toEqual({ kind: "staff", memberId: "mira" });
 
     await mockApi.updateTaskManual("builtin-task-manual-design", {
       sopMd: "改過的 SOP",
