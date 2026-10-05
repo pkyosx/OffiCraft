@@ -501,6 +501,7 @@ func (s *apiServer) notifyWorkerSpawn(w OutsourceWorker, now float64) bool {
 	st.Phase = reconcilePhaseStarting
 	st.LastCommand = reconcileCmdStart
 	st.LastCommandAt = now
+	st.StartTarget = warden
 	s.setReconcileState(w.ID, st)
 	s.clearWorkerPlacementBlock(w.ID)
 	s.publishOutsourceWorker(w, triggerServer)

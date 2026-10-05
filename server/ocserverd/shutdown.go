@@ -128,7 +128,11 @@ func (s *apiServer) onlineWardens() []string {
 
 // Dropping workerSpawnAt here: a killed session must never leave a throttle
 // stamp that delays its replacement's START.
-func (s *apiServer) resolveShutdownTargets(id string) (targets []string, broadcast, outsource bool) {
+//
+// alsoTo, when set, is a START still booting: it counts as a named target, and a
+// worker's spawn memory naming that same START is dropped from the chain so it
+// cannot hide where an earlier session last landed.
+func (s *apiServer) resolveShutdownTargets(id, alsoTo string) (targets []string, broadcast, outsource bool) {
 	m, err := s.dal.GetMember(id)
 	// The kind only picks the chain. With the roster unreadable the worker chain
 	// is the wider one: it still reads the in-memory spawn target, while the
@@ -142,8 +146,18 @@ func (s *apiServer) resolveShutdownTargets(id string) (targets []string, broadca
 	src.SpawnTarget = s.workerSpawnTarget[id]
 	delete(s.workerSpawnAt, id)
 	s.outsourceMu.Unlock()
-	targets, broadcast = s.killTargetChain(id, src)
-	return targets, broadcast, src.Outsource
+	if src.SpawnTarget == alsoTo {
+		src.SpawnTarget = ""
+	}
+	if named := s.namedKillTarget(id, src); named != "" {
+		targets = []string{named}
+	} else if alsoTo == "" {
+		return s.onlineWardens(), true, src.Outsource
+	}
+	if alsoTo != "" && !slices.Contains(targets, alsoTo) {
+		targets = append(targets, alsoTo)
+	}
+	return targets, false, src.Outsource
 }
 
 // enqueueStopFrames is THE place in this package that builds a `stop` frame and
@@ -189,10 +203,7 @@ func (s *apiServer) dispatchShutdown(id, reason string) shutdownDispatch {
 // machine the caller knows holds a session the chain cannot name, such as a still-booting START.
 // It goes last, so when it lands the receipt watch's single slot waits on it.
 func (s *apiServer) dispatchShutdownAlsoTo(id, reason, alsoTo string) shutdownDispatch {
-	targets, broadcast, outsource := s.resolveShutdownTargets(id)
-	if alsoTo != "" && !slices.Contains(targets, alsoTo) {
-		targets = append(targets, alsoTo)
-	}
+	targets, broadcast, outsource := s.resolveShutdownTargets(id, alsoTo)
 	out := shutdownDispatch{
 		Broadcast: broadcast, Outsource: outsource,
 	}
