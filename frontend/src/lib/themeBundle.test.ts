@@ -170,9 +170,11 @@ describe("validateThemeBundle", () => {
     for (const name of ["辦公室", "Office", "office", "  OFFICE  ", " 辦公室 "]) {
       expect(validateThemeBundle({ ...ok, name }), name).toBeNull();
     }
-    expect(validateThemeBundle({ ...ok, id: "office", name: "Whatever" })).toMatch(
-      /is reserved for a built-in theme/
-    );
+    for (const id of ["office", "office-light"]) {
+      expect(validateThemeBundle({ ...ok, id, name: "Whatever" }), id).toMatch(
+        /is reserved for a built-in theme/
+      );
+    }
   });
 
   it("accepts every legitimate name shape, including the new-theme default", () => {
@@ -712,10 +714,11 @@ describe("trimThemeName", () => {
 });
 
 describe("isValidDisplayTheme", () => {
-  it("admits \"\", the office built-in, and an existing custom id only", () => {
+  it("admits \"\", a built-in, and an existing custom id only", () => {
     const ids = new Set(["midnight"]);
     expect(isValidDisplayTheme("", ids)).toBe(true);
     expect(isValidDisplayTheme("office", ids)).toBe(true);
+    expect(isValidDisplayTheme("office-light", ids)).toBe(true);
     expect(isValidDisplayTheme("midnight", ids)).toBe(true);
     // "xian" is no longer a built-in — it is only admissible as a custom id.
     expect(isValidDisplayTheme("xian", ids)).toBe(false);

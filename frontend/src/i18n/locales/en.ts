@@ -877,7 +877,8 @@ export const en: Dict = {
   // ⚠️ The place name is NOT here: the nav tab's 「辦公室」 is nav.office and
   // stays overridable — a theme pack may rename the PLACE, never a THEME.
   themeIdentity: {
-    office: "Office",
+    office: "Office (Dark)",
+    officeLight: "Office (Light)",
     newTheme: "New theme",
   },
   // ── The 內建 / 自訂 labels ─────────────────────────────────────────────────

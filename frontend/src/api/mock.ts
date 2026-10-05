@@ -6443,7 +6443,7 @@ const mockApiImpl = {
       throw mockApiError(
         "http 422 for PATCH /api/settings",
         422,
-        'display_theme must be "", office, or an existing custom theme id'
+        'display_theme must be "", office, office-light, or an existing custom theme id'
       );
     }
     if (

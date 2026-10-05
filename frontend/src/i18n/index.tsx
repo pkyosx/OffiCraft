@@ -18,7 +18,9 @@ import {
   loadServerSettings,
 } from "../hooks/sharedServerSettings";
 import {
+  isBuiltinTheme,
   isValidDisplayTheme,
+  type BuiltinThemeId,
   type ThemeBundle,
   type AvatarKind,
   type NavIconKey,
@@ -36,16 +38,16 @@ import { makeMessages, type Messages } from "./compose";
 export type Locale = "zh" | "en";
 /** User-selectable language (mockup 語言 toggle offers only 中文 / English). */
 export type Language = "zh" | "en";
-/** Built-in visual theme (辦公室). office is the ONLY built-in — every other
- * theme (e.g. 修仙) is now an importable custom bundle. The ACTIVE selector is
- * a plain string (T-16a1 P2): the built-in name here, or a custom bundle's id. */
-export type Theme = "office";
+/** A built-in visual theme id. Every other theme (e.g. 修仙) is an importable
+ * custom bundle; the ACTIVE selector is a plain string (T-16a1 P2): a built-in
+ * id, or a custom bundle's id. */
+export type Theme = BuiltinThemeId;
 
 /** Matches a custom bundle id (mirrors THEME_ID_RE in lib/themeBundle). */
 const THEME_ID_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
 
 function isSelectableTheme(v: string): boolean {
-  return v === "office" || THEME_ID_RE.test(v);
+  return isBuiltinTheme(v) || THEME_ID_RE.test(v);
 }
 
 const DICTS: Record<Locale, Dict> = { zh, en };
@@ -123,7 +125,7 @@ interface I18nContextValue {
   msg: Messages;
   language: Language;
   setLanguage: (next: Language) => void;
-  /** Active theme: the built-in name ("office") or a custom bundle id. */
+  /** Active theme: a built-in id ("office" / "office-light") or a custom bundle id. */
   theme: string;
   setTheme: (next: string) => void;
   /** Whether the cockpit uses the WIDE layout (T-756f): the centred ~1040px
@@ -263,18 +265,19 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   // [T-1500] seeded from the pre-React applier: ONE ledger, two writers.
   const appliedTokensRef = useRef<string[]>(window.__ocPaintTokens ?? []);
 
-  // Apply the active theme. The office built-in rides <html data-theme> and any
-  // leftover inline vars from a previous custom theme are cleared. A custom id
-  // resolves to its bundle: take the neutral office base via data-theme, then
-  // push each colour onto documentElement via setProperty (the value is NEVER
-  // concatenated into a stylesheet — the security boundary). A dangling id
-  // (bundle not yet reconciled / deleted) falls back to the office base.
+  // Apply the active theme. A built-in rides <html data-theme> (theme.css keys
+  // each built-in's block off it) and any leftover inline vars from a previous
+  // custom theme are cleared. A custom id resolves to its bundle: take the
+  // neutral office base via data-theme, then push each colour onto
+  // documentElement via setProperty (the value is NEVER concatenated into a
+  // stylesheet — the security boundary). A dangling id (bundle not yet
+  // reconciled / deleted) falls back to the office base.
   useEffect(() => {
     const root = document.documentElement;
     for (const tok of appliedTokensRef.current) root.style.removeProperty(tok);
     appliedTokensRef.current = [];
 
-    if (theme === "office") {
+    if (isBuiltinTheme(theme)) {
       root.dataset.theme = theme;
       return;
     }
@@ -422,7 +425,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const setTheme = useCallback(
     (next: string) => {
       cacheTheme(next);
-      if (next === "office") {
+      if (isBuiltinTheme(next)) {
         setActiveThemeBundle(null);
         writePaint(null);
       }
@@ -431,7 +434,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
           .patchServerSettings({ displayTheme: next })
           .then(adoptServerSettings) // shared snapshot (T-8115)
           .catch((e) => console.warn("setTheme: server sync failed", e));
-        if (next !== "office") {
+        if (!isBuiltinTheme(next)) {
           api
             .getTheme(next)
             .then((b) => {
@@ -559,7 +562,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         // No ref fix-up needed here: whichever branch above settled `active`
         // either called cacheTheme (which moves the ref with the decision) or
         // kept themeRef.current itself.
-        if (active === "office" || !ids.has(active)) {
+        if (isBuiltinTheme(active) || !ids.has(active)) {
           setActiveThemeBundle(null);
           writePaint(null);
           setThemesLoaded(true);

@@ -313,6 +313,7 @@ describe("ThemeSettings · import", () => {
         zh: {
           ...Object.fromEntries(MESSAGE_KEYS.map((k) => [k, SENTINEL])),
           "themeIdentity.office": SENTINEL,
+          "themeIdentity.officeLight": SENTINEL,
         },
       },
     });
@@ -335,9 +336,11 @@ describe("ThemeSettings · import", () => {
     // selectable, which is the whole of the guarantee that remains.
     const builtinList = utils.getByTestId("ts-group-builtin").closest(".ts-list");
     const builtinRows = Array.from(builtinList?.querySelectorAll(".ts-row") ?? []);
-    expect(builtinRows.length).toBe(1);
-    expect(builtinRows[0].textContent).toContain(zh.themeIdentity.office);
-    expect(builtinRows[0].textContent).not.toContain(SENTINEL);
+    expect(builtinRows.map((r) => r.querySelector("button.ts-pick")?.textContent)).toEqual([
+      zh.themeIdentity.office,
+      zh.themeIdentity.officeLight,
+    ]);
+    for (const row of builtinRows) expect(row.textContent).not.toContain(SENTINEL);
   });
 
   it("paints the group headings with a pack-settable colour token", async () => {
@@ -970,48 +973,63 @@ describe("ThemeSettings · export", () => {
     expect(utils.getByText(p.themeImport)).toBeTruthy();
   });
 
-  it("office 列下載鈕可用,下載一個非保留 id 的 office 包(可再匯入)", async () => {
-    const utils = await renderManage();
-    const btn = utils.getByLabelText(
-      `${p.themeExport} ${zh.themeIdentity.office}`
-    ) as HTMLButtonElement;
-    expect(btn.disabled).toBe(false);
+  for (const [builtin, nameKey, applied, accent] of [
+    ["office", "office", "office-light", "#111111"],
+    ["office-light", "officeLight", "office", "#222222"],
+  ] as const) {
+    it(`${builtin} 列下載鈕可用,在 ${applied} 套用中仍下載自己的色票,id 非保留(可再匯入)`, async () => {
+      const sheet = document.createElement("style");
+      sheet.textContent =
+        ":root { --color-accent: #111111; }\n" +
+        ':root[data-theme="office-light"] { --color-accent: #222222; }\n';
+      document.head.appendChild(sheet);
+      try {
+        const utils = await renderManage();
+        document.documentElement.dataset.theme = applied;
+        const btn = utils.getByLabelText(
+          `${p.themeExport} ${zh.themeIdentity[nameKey]}`
+        ) as HTMLButtonElement;
+        expect(btn.disabled).toBe(false);
 
-    const createFn = vi.fn().mockReturnValue("blob:office");
-    (URL as { createObjectURL: unknown }).createObjectURL = createFn;
-    (URL as { revokeObjectURL: unknown }).revokeObjectURL = vi.fn();
-    let downloadName = "";
-    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
-      this: HTMLAnchorElement
-    ) {
-      downloadName = this.download;
+        const createFn = vi.fn().mockReturnValue("blob:office");
+        (URL as { createObjectURL: unknown }).createObjectURL = createFn;
+        (URL as { revokeObjectURL: unknown }).revokeObjectURL = vi.fn();
+        let downloadName = "";
+        vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+          this: HTMLAnchorElement
+        ) {
+          downloadName = this.download;
+        });
+
+        fireEvent.click(btn);
+
+        expect(createFn).toHaveBeenCalledTimes(1);
+        // The download uses id "<built-in>-base", NOT the reserved built-in id
+        // (which validateThemeBundle rejects), so the bundle re-imports.
+        expect(downloadName).toBe(`officraft-theme-${builtin}-base.json`);
+        const text = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.readAsText(createFn.mock.calls[0][0] as Blob);
+        });
+        const payload = JSON.parse(text);
+        expect(payload.id).toBe(`${builtin}-base`);
+        // …under the BUILT-IN's own name, with nothing appended. Round 10 removed
+        // the 「(副本)」 tag (owner: 「我覺得檔名不用附註副本」), and with it the only
+        // pack-settable string that reached this name: themeMarkers.copyTag was
+        // ordinary overridable wording, so a pack could stretch it until this very
+        // download produced a file the product refused to import back (review round
+        // 9, SHOULD-2). The name now comes wholly from themeIdentity, which the
+        // wording whitelist excludes — pinned from the pack's side by
+        // 「keeps the built-in row's own name when a pack forges everything else」.
+        expect(payload.name).toBe(zh.themeIdentity[nameKey]);
+        expect(payload.colors["--color-accent"]).toBe(accent);
+        expect(document.documentElement.dataset.theme).toBe(applied);
+      } finally {
+        sheet.remove();
+      }
     });
-
-    fireEvent.click(btn);
-
-    expect(createFn).toHaveBeenCalledTimes(1);
-    // The download uses id "office-base", NOT the reserved built-in "office"
-    // (which validateThemeBundle rejects), so the bundle re-imports.
-    expect(downloadName).toBe("officraft-theme-office-base.json");
-    const text = await new Promise<string>((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result));
-      reader.readAsText(createFn.mock.calls[0][0] as Blob);
-    });
-    const payload = JSON.parse(text);
-    expect(payload.id).toBe("office-base");
-    // …under the BUILT-IN's own name, with nothing appended. Round 10 removed
-    // the 「(副本)」 tag (owner: 「我覺得檔名不用附註副本」), and with it the only
-    // pack-settable string that reached this name: themeMarkers.copyTag was
-    // ordinary overridable wording, so a pack could stretch it until this very
-    // download produced a file the product refused to import back (review round
-    // 9, SHOULD-2). The name now comes wholly from themeIdentity, which the
-    // wording whitelist excludes — pinned from the pack's side by
-    // 「keeps the built-in row's own name when a pack forges everything else」.
-    expect(payload.name).toBe(zh.themeIdentity.office);
-    // (that this name actually re-imports is pinned in themeExport.test.ts —
-    // jsdom has no stylesheet, so the payload here carries no colours to import)
-  });
+  }
 });
 
 // ── The list is id + name; the bundle is a REQUEST (T-83ef) ─────────────────

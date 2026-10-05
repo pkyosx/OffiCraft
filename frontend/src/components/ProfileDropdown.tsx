@@ -17,6 +17,7 @@ import {
 } from "./icons";
 import { InlineEdit } from "./InlineEdit";
 import { qrSvg } from "../lib/qrSvg";
+import { BUILTIN_THEMES } from "../lib/themeBundle";
 import "./profile-dropdown.css";
 
 interface ProfileDropdownProps {
@@ -517,7 +518,9 @@ export function ProfileDropdown({
               * out first, the packs follow — so no field of a bundle can move a
               * row ahead of the built-in. */}
             <select className="profile-dd__input" aria-label={t.profile.theme} value={theme} onChange={(e) => setTheme(e.target.value)}>
-              <option value="office">{t.themeIdentity.office}</option>
+              {BUILTIN_THEMES.map((b) => (
+                <option key={b.id} value={b.id}>{t.themeIdentity[b.nameKey]}</option>
+              ))}
               {themeList.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </div>

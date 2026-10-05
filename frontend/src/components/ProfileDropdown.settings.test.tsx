@@ -77,6 +77,10 @@ describe("ProfileDropdown · preferences scope", () => {
       (o) => o.value === "office"
     )!;
     expect(builtin.textContent).toBe(zh.themeIdentity.office);
+    const builtinLight = Array.from(select.querySelectorAll("option")).find(
+      (o) => o.value === "office-light"
+    )!;
+    expect(builtinLight.textContent).toBe(zh.themeIdentity.officeLight);
     expect(custom.textContent).toBe("午夜藍");
     // A hint points the owner to the settings page instead.
     expect(utils.getByText(p.themeManageHint)).toBeTruthy();
@@ -120,7 +124,7 @@ describe("ProfileDropdown · preferences scope", () => {
     expect(options.indexOf(builtin)).toBe(0);
   });
 
-  it("keeps the built-in first and the packs after, whatever they are named", async () => {
+  it("keeps the built-ins first and the packs after, whatever they are named", async () => {
     // The one thing the flat picker still asserts is ORDER (owner 2026-07-27).
     // It has to come from the rendering, not from the data: neither a name that
     // sorts first nor the order the packs were imported in may push a pack
@@ -143,15 +147,17 @@ describe("ProfileDropdown · preferences scope", () => {
     const utils = await openPreferences();
     const select = utils.getByLabelText(p.theme);
     await waitFor(() => {
-      expect(select.querySelectorAll("option").length).toBe(3);
+      expect(select.querySelectorAll("option").length).toBe(4);
     });
     expect(
       Array.from(select.querySelectorAll("option")).map((o) => o.value)
-    ).toEqual(["office", "aaa", "zzz"]);
+    ).toEqual(["office", "office-light", "aaa", "zzz"]);
   });
 
-  it("selects the built-in office theme from the quick picker", async () => {
+  it("applies whichever built-in the quick picker selects as <html data-theme>", async () => {
     const utils = await openPreferences();
+    fireEvent.change(utils.getByLabelText(p.theme), { target: { value: "office-light" } });
+    expect(document.documentElement.dataset.theme).toBe("office-light");
     fireEvent.change(utils.getByLabelText(p.theme), { target: { value: "office" } });
     expect(document.documentElement.dataset.theme).toBe("office");
   });

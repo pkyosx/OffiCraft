@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   bundleFilename,
   exportComputedTheme,
-  exportOfficeBaseTheme,
+  exportBuiltinTheme,
   nextCustomThemeId,
   parseImportedBundle,
   serializeBundle,
@@ -113,16 +113,16 @@ describe("exportComputedTheme", () => {
   });
 });
 
-describe("exportOfficeBaseTheme", () => {
+describe("exportBuiltinTheme", () => {
   it("reads through an active theme's inline overrides and restores them", () => {
     const el = freshRoot();
     el.style.setProperty("--color-accent", "#111111"); // theme.css :root default stand-in
     // an "active custom theme" override is layered on top
     el.style.setProperty("--color-accent", "#abcdef");
 
-    const bundle = exportOfficeBaseTheme("custom-1", "New theme", el);
+    const bundle = exportBuiltinTheme("office", "custom-1", "New theme", el);
 
-    // exportOfficeBaseTheme strips the inline override to read the base; in jsdom
+    // exportBuiltinTheme strips the inline override to read the base; in jsdom
     // there is no stylesheet base, so the stripped token drops out entirely —
     // the point under test is that the override is gone during the read and put
     // BACK afterwards (no permanent mutation of the live element).
@@ -131,7 +131,34 @@ describe("exportOfficeBaseTheme", () => {
     expect(el.style.getPropertyValue("--color-accent")).toBe("#abcdef");
   });
 
-  it("uses a non-reserved id ('office-base') so its download re-imports — unlike 'office'", () => {
+  it("exports each built-in's own block whichever built-in is applied, then restores data-theme", () => {
+    const root = document.documentElement;
+    const sheet = document.createElement("style");
+    sheet.textContent =
+      ":root { --color-accent: #111111; }\n" +
+      ':root[data-theme="office-light"] { --color-accent: #222222; }\n';
+    document.head.appendChild(sheet);
+    try {
+      root.dataset.theme = "office-light";
+      expect(exportBuiltinTheme("office", "office-base", "o").colors["--color-accent"]).toBe("#111111");
+      expect(root.dataset.theme).toBe("office-light");
+
+      root.dataset.theme = "office";
+      expect(
+        exportBuiltinTheme("office-light", "office-light-base", "l").colors["--color-accent"]
+      ).toBe("#222222");
+      expect(root.dataset.theme).toBe("office");
+
+      delete root.dataset.theme;
+      exportBuiltinTheme("office-light", "office-light-base", "l");
+      expect(root.hasAttribute("data-theme")).toBe(false);
+    } finally {
+      sheet.remove();
+      delete root.dataset.theme;
+    }
+  });
+
+  it("uses a non-reserved id ('<built-in>-base') so its download re-imports — unlike the built-in id", () => {
     const el = freshRoot();
     el.style.setProperty("--color-accent", "#0af");
     // The office 列下載 path exports under id "office-base"; the base read is
@@ -143,6 +170,14 @@ describe("exportOfficeBaseTheme", () => {
     // The reserved built-in id would be rejected on re-import.
     expect("error" in parseImportedBundle(
       serializeBundle(exportComputedTheme("office", "我的辦公室", el))
+    )).toBe(true);
+    expect(
+      "bundle" in parseImportedBundle(
+        serializeBundle(exportComputedTheme("office-light-base", "我的辦公室", el))
+      )
+    ).toBe(true);
+    expect("error" in parseImportedBundle(
+      serializeBundle(exportComputedTheme("office-light", "我的辦公室", el))
     )).toBe(true);
   });
 

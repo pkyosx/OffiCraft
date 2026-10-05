@@ -1389,8 +1389,8 @@ export interface ServerSettingsPatch {
   suggestedRepliesLoreMessage?: string[];
   /** Web Push VAPID contact email; empty clears it and disables delivery. */
   pushContactEmail?: string;
-  /** The owner's cockpit visual theme (T-0b41-p2); "" (unset) | "office" (the
-   * built-in) | an existing custom theme id. The server 422s anything else. */
+  /** The owner's cockpit visual theme (T-0b41-p2); "" (unset) | a built-in id
+   * ("office" / "office-light") | an existing custom theme id. The server 422s anything else. */
   displayTheme?: string;
   /** The owner's cockpit language (T-0b41-p2); "zh" | "en" (or "" to clear).
    * The server 422s anything else. */
