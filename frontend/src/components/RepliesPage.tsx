@@ -292,6 +292,10 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // collapsed — expanding pulls them (loadHandled); the header 「· N」 comes
   // from the counts.
   const [handledOpen, setHandledOpen] = useState(false);
+  const [handledLoadError, setHandledLoadError] = useState(false);
+  const [settledRows, setSettledRows] = useState<Map<string, ReplyCardRow>>(
+    () => new Map()
+  );
 
   // Round 1 had a latched auto-load here: with a filter on, the collapsed
   // 近期已處理 pane had to be FETCHED before the filter could find a card in
@@ -310,10 +314,20 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     card.focus({ preventScroll: true });
   }, [replyCardId, waiting, handled, handledOpen]);
 
+  const loadHandledForPage = useCallback(async () => {
+    setHandledLoadError(false);
+    try {
+      await loadHandled();
+    } catch (e) {
+      console.warn("RepliesPage: handled-list load failed", e);
+      setHandledLoadError(true);
+    }
+  }, [loadHandled]);
+
   function toggleHandled() {
     setHandledOpen((wasOpen) => {
       const open = !wasOpen;
-      if (open && !handledLoaded) loadHandled();
+      if (open && !handledLoaded) void loadHandledForPage();
       return open;
     });
   }
@@ -325,20 +339,31 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // With a filter applied the two panes hold exactly what the SERVER returned
   // for that id — one card, in whichever pane its status belongs to — not a
   // narrowing of the loaded rows.
-  // The 24h window, in ONE place. It decides two things that must never drift
-  // apart: which handled cards are VISIBLE, and which ones the 開卡人 counts are
-  // computed over. Two copies of this predicate would let a future edit narrow
-  // one and not the other, and the symptom — a name offered with a count no
-  // list can produce — would look like a counting bug rather than a window one.
+  // The 24h window applies to fetched handled rows. A row just settled by a card
+  // read stays visible for this page visit even when its terminal timestamp is
+  // older; use the same predicate for pane visibility and 開卡人 counts.
   const withinHandledWindow = (c: ReplyCardRow) => {
     const ts = handledTsOf(c);
     return ts !== null && nowTs - ts < HANDLED_WINDOW_SECONDS;
   };
+  const isVisibleHandled = (c: ReplyCardRow) =>
+    settledRows.has(c.id) || withinHandledWindow(c);
 
   // 開卡人 predicate. An empty set is "no constraint", so an unticked axis is
   // free rather than exclusive — same convention as 任務頁's three dropdowns.
   const passesOpener = (c: ReplyCardRow) =>
     openerFilter.size === 0 || openerFilter.has(c.from);
+
+  const displayedWaiting = waiting.filter((row) => !settledRows.has(row.id));
+  const handledById = new Map<string, ReplyCardRow>();
+  for (const row of handled) handledById.set(row.id, row);
+  for (const row of settledRows.values()) {
+    const current = handledById.get(row.id);
+    if (!current || (handledTsOf(row) ?? 0) > (handledTsOf(current) ?? 0)) {
+      handledById.set(row.id, row);
+    }
+  }
+  const displayedHandled = [...handledById.values()];
 
   // 🔴 THE 開卡人 AXIS ANDs WITH THE ID, IT DOES NOT REPLACE IT. An id names ONE
   // card and is answered by the SERVER; if that card's opener fails this axis,
@@ -349,7 +374,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     ? foundCard && foundCard.status === "waiting" && passesOpener(foundCard)
       ? [foundCard]
       : []
-    : [...waiting]
+    : displayedWaiting
         .filter(passesOpener)
         .sort((a, b) => b.createdTs - a.createdTs);
 
@@ -362,7 +387,9 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
       foundCard && foundCard.status !== "waiting" && passesOpener(foundCard)
       ? [foundCard]
       : []
-    : handled.filter((c) => passesOpener(c) && withinHandledWindow(c));
+    : displayedHandled
+        .filter((c) => passesOpener(c) && isVisibleHandled(c))
+        .sort((a, b) => (handledTsOf(b) ?? 0) - (handledTsOf(a) ?? 0));
   // ── 開卡了哪一張 (owner 2026-09-07) ─────────────────────────────────────────
   // A row is a TITLE, not a card: since `?view=full` left the wire the panes
   // carry `ReplyCardRow`s, so the only thing this page can draw without asking
@@ -442,7 +469,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     `${row.status}:${row.answeredTs ?? 0}:${row.expiredTs ?? 0}`;
 
   const rowsById = new Map<string, ReplyCardRow>();
-  for (const row of [...waiting, ...handled]) rowsById.set(row.id, row);
+  for (const row of [...displayedWaiting, ...displayedHandled]) rowsById.set(row.id, row);
   if (foundCard) rowsById.set(foundCard.id, foundCard);
 
   // Which version of each open id has been READ (or is being read). One entry
@@ -450,21 +477,44 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // that HAS moved is fetched exactly once per move, which is what keeps this
   // from looping against a server that disagrees with the row.
   const readVersionsRef = useRef<Map<string, string>>(new Map());
-  const readCard = useCallback(async (id: string) => {
-    try {
-      const card = await api.getReplyCard(id);
-      setOpenCards((prev) => new Map(prev).set(id, card));
-      setOpenErrors((prev) => {
-        if (!prev.has(id)) return prev;
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
-    } catch (e) {
-      console.warn("RepliesPage: card read failed", e);
-      setOpenErrors((prev) => new Set(prev).add(id));
-    }
-  }, []);
+  const readCard = useCallback(
+    async (row: ReplyCardRow) => {
+      const { id } = row;
+      try {
+        const card = await api.getReplyCard(id);
+        setOpenCards((prev) => new Map(prev).set(id, card));
+        setOpenErrors((prev) => {
+          if (!prev.has(id)) return prev;
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+        if (row.status === "waiting" && card.status !== "waiting") {
+          setSettledRows((prev) =>
+            new Map(prev).set(id, {
+              ...row,
+              status: card.status,
+              answeredTs: card.answeredTs,
+              expiredTs: card.expiredTs ?? null,
+            })
+          );
+          setHandledOpen(true);
+          if (!handledLoaded) void loadHandledForPage();
+          try {
+            await refresh();
+            if (handledLoaded) setHandledLoadError(false);
+          } catch (err) {
+            console.warn("RepliesPage: settled-card refresh failed", err);
+            if (handledLoaded) setHandledLoadError(true);
+          }
+        }
+      } catch (e) {
+        console.warn("RepliesPage: card read failed", e);
+        setOpenErrors((prev) => new Set(prev).add(id));
+      }
+    },
+    [handledLoaded, loadHandledForPage, refresh]
+  );
 
   // 🔴 THE ONLY PLACE A CARD IS READ. Opening a row does not fetch by itself —
   // it flips `expandedIds`, and this effect notices. That keeps "which cards are
@@ -483,7 +533,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
       const version = rowVersion(row);
       if (seen.get(id) === version) continue;
       seen.set(id, version);
-      void readCard(id);
+      void readCard(row);
     }
     for (const id of [...seen.keys()]) {
       if (!expandedIds.has(id)) {
@@ -513,11 +563,10 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // name disappears and the owner cannot switch or untick. 任務頁 has the same
   // shape for the same reason (`inCountScope` there).
   //
-  // The basis is 待回覆 ∪ 近期已處理-within-24h — i.e. what this page actually
-  // holds. It deliberately does NOT include a card fetched by id: that card can
-  // be older than the window, so counting it would make one person's number
-  // jump by one for as long as an unrelated id is applied.
-  const openerBasis = [...waiting, ...handled.filter(withinHandledWindow)];
+  const openerBasis = [
+    ...displayedWaiting,
+    ...displayedHandled.filter(isVisibleHandled),
+  ];
   const openerCounts = new Map<string, number>();
   for (const c of openerBasis) {
     openerCounts.set(c.from, (openerCounts.get(c.from) ?? 0) + 1);
@@ -548,7 +597,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     ? visibleHandled.length
     : handledLoaded
       ? visibleHandled.length
-      : handledCount;
+      : Math.max(handledCount, visibleHandled.length);
   // 🔴 A card the server returned must be ON SCREEN, not behind a collapsed
   // pane: 「找到了但畫面上沒有」 is the same silent nothing as a false empty.
   // While a filter is applied the handled pane is open and renders the fetched
@@ -560,7 +609,10 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // while loadHandled is still in flight — and folding them together would make
   // the caret lie for the length of that request.
   const handledExpanded = filtering || handledOpen;
-  const handledListShown = filtering || (handledOpen && handledLoaded);
+  const handledListShown =
+    filtering ||
+    (handledOpen &&
+      (handledLoaded || displayedHandled.length > 0 || handledLoadError));
 
   // Outsource askers (ow- ids) get their codename from the lazy per-id read
   // rather than from `members`. Not because they are missing from it — GET
@@ -572,7 +624,11 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // so a live worker that IS in `members` takes this path as well.
   // A card reached by its id may sit in neither pane (a deep link to a handled
   // card whose pane was never fetched), so its asker is named here too.
-  const askerIds = [...waiting, ...handled, ...(foundCard ? [foundCard] : [])].map(
+  const askerIds = [
+    ...displayedWaiting,
+    ...displayedHandled,
+    ...(foundCard ? [foundCard] : []),
+  ].map(
     (c) => c.from,
   );
   const workerIds = askerIds.filter((id) => id.startsWith("ow-"));
@@ -987,6 +1043,15 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   }
 
   function renderWaitingCard(row: ReplyCardRow) {
+    const opened = openCards.get(row.id);
+    if (opened && opened.status !== "waiting") {
+      return renderHandledCard({
+        ...row,
+        status: opened.status,
+        answeredTs: opened.answeredTs,
+        expiredTs: opened.expiredTs ?? null,
+      });
+    }
     return renderCard(row, {
       testId: "waiting-card",
       className: "reply-card",
@@ -1041,6 +1106,9 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
         ) : undefined,
       body: (card) => (
         <>
+          {card.body && (
+            <Markdown source={card.body} className="reply-card__body doc-md" />
+          )}
           {/* The question's attachments outlive its settling — same strip on a
            * handled card (answered/expired). */}
           <ReplyCardQuestionAttachments card={card} />
@@ -1201,6 +1269,11 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
               {t.replies.handledHint}
             </span>
           </button>
+          {handledLoadError && (
+            <div className="replies__error" data-testid="handled-load-error">
+              {t.replies.loadError}
+            </div>
+          )}
           {handledListShown && (
             <div className="replies__list">
               {visibleHandled.map((card) => renderHandledCard(card))}

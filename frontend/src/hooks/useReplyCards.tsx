@@ -140,7 +140,7 @@ interface UseReplyCards {
   error: boolean;
   /** Pull the handled lists on demand (the owner expanded the pane). Idempotent
    * and safe to call repeatedly; a repeat just refreshes them. */
-  loadHandled: () => void;
+  loadHandled: () => Promise<void>;
   /** Re-pull the panes on demand — the caller learned the local snapshot is
    * stale (T-4166: a 409 answer means the card is already handled or orphaned,
    * so it must stop rendering as if it still waits). */
@@ -313,11 +313,7 @@ function useReplyCardsState(): UseReplyCards {
     handledLoadedRef.current = true;
   }, []);
 
-  const loadHandled = useCallback(() => {
-    refetchHandled().catch((e) =>
-      console.warn("useReplyCards: handled load failed", e)
-    );
-  }, [refetchHandled]);
+  const loadHandled = useCallback(() => refetchHandled(), [refetchHandled]);
 
   useEffect(() => {
     let alive = true;
