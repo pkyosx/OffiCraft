@@ -37,6 +37,12 @@
 //   no measured min-width (MachinesTable)    → 機器 cut short (sticky, 800px and
 //                                              minimum tests), 1280px fit test
 //   min-width below 機器's widest row         → 機器 cell cut short (sticky test)
+//   min-width measured only on render (no ResizeObserver, no fonts.ready)
+//                                           → phone-then-desktop test, name-in-place test
+//   names not observed (only the frame)      → name-in-place test
+//   measured while the rename field is open  → rename field test
+//   no machine: the last minimum kept         → last machine test
+//   the 無機器 cell keeps 機器's shade         → last machine test (frame scrolls 24px)
 //   machine state word back beside the dot   → dot tests (desktop, phone), 機器 cut
 //   dot click no longer pins its hint         → desktop dot test
 //   dot without its aria-label               → desktop dot test
@@ -965,6 +971,88 @@ test("at 996px a very long machine name widens the table, which scrolls, rather 
     return { clipped: el.scrollWidth > el.clientWidth + 1, dotInside: dot.right <= right + 0.5 };
   });
   expect(cut).toEqual({ clipped: false, dotInside: true });
+});
+
+/** The measured minimum as MachinesTable set it, and what it does to the
+ * table and its frame. */
+async function measured(page: Page) {
+  return page.evaluate(() => {
+    const wrap = document.querySelector(".mon-table-wrap") as HTMLElement;
+    const table = wrap.querySelector("table") as HTMLElement;
+    return {
+      variable: table.style.getPropertyValue("--mon-machines-min-width"),
+      table: Math.round(table.getBoundingClientRect().width),
+      overflow: wrap.scrollWidth - wrap.clientWidth,
+    };
+  });
+}
+
+// The phone card mode hides the header, so nothing can be measured there; the
+// table must measure again once the window is wide enough for columns, though
+// nothing in it re-renders.
+test("mounted on a phone, then widened to the 1280px desktop, the table measures its minimum", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await mount(<MonitorMachinesLayoutStory width={996} states={["normal"]} />);
+  await page.evaluate(() => document.fonts.ready);
+  expect(
+    await page.locator("tbody tr").first().evaluate((tr) => getComputedStyle(tr).display),
+    "control: rows are cards"
+  ).toBe("block");
+  expect(await measured(page), "control: nothing measured in card mode").toEqual({ variable: "", table: 390, overflow: 0 });
+  await page.setViewportSize({ width: 1016, height: 900 });
+  await expect.poll(() => measured(page)).toEqual({ variable: "936px", table: 994, overflow: 0 });
+});
+
+// A rename lands as new text in the name without this table re-rendering (and
+// so does a web font arriving); the minimum follows the name both ways.
+test("a machine name that changes in place is measured again, longer and shorter", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1016, height: 900 });
+  await mount(<MonitorMachinesLayoutStory width={996} states={["normal"]} />);
+  await expect.poll(() => measured(page), "control: the default name's minimum").toEqual({ variable: "936px", table: 994, overflow: 0 });
+  const name = page.locator(".mon-machine-name .mon-table__strong");
+  await name.evaluate((el) => (el.textContent = "Seth 的 Mac Studio（辦公室三樓靠窗）"));
+  await expect.poll(() => measured(page)).toEqual({ variable: "1093px", table: 1093, overflow: 99 });
+  await name.evaluate((el) => (el.textContent = "m5"));
+  await expect.poll(() => measured(page)).toEqual({ variable: "881px", table: 994, overflow: 0 });
+});
+
+// An open rename field stretches over the 機器 cell's slack (flex: 1), so a
+// measurement taken while it is open would pin the table at whatever width it
+// had: the frame's, here. Narrowing the window with the field still open shows
+// that in the table's width as well.
+test("an open rename field leaves the table's minimum as it was, and the table still narrows to it", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 1016, height: 900 });
+  await mount(<MonitorMachinesLayoutStory width={996} states={["normal"]} />);
+  await expect.poll(() => measured(page), "control: the default name's minimum").toEqual({ variable: "936px", table: 994, overflow: 0 });
+  const before = (await page.locator(".mon-machine-name > .inline-edit").boundingBox())!.width;
+  await page.getByRole("button", { name: "機器改名" }).click();
+  await expect(page.getByRole("textbox", { name: "機器改名" }), "control: the field is open").toBeFocused();
+  await expect
+    .poll(async () => (await page.locator(".mon-machine-name > .inline-edit--editing").boundingBox())!.width > before + 20, "control: the field fills the cell's slack")
+    .toBe(true);
+  // Two frames for the size observers to have run.
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  expect(await measured(page)).toEqual({ variable: "936px", table: 994, overflow: 0 });
+  await page.setViewportSize({ width: 780, height: 900 });
+  await expect.poll(() => measured(page)).toEqual({ variable: "936px", table: 936, overflow: 158 });
+  await expect(page.getByRole("textbox", { name: "機器改名" }), "control: the field is still open").toBeVisible();
+});
+
+test("when the last machine goes, its minimum goes with it and the 無機器 row does not scroll", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1016, height: 900 });
+  const table = await mount(<MonitorMachinesLayoutStory width={996} states={["long"]} />);
+  await expect.poll(() => measured(page), "control: a long name's minimum scrolls the frame").toEqual({
+    variable: "1100px",
+    table: 1100,
+    overflow: 106,
+  });
+  await table.update(<MonitorMachinesLayoutStory width={996} states={["long"]} empty />);
+  await expect(page.locator("tbody td"), "control: the 無機器 row").toHaveText("尚無機器,請先新增機器 / 上線");
+  await expect.poll(() => measured(page)).toEqual({ variable: "", table: 994, overflow: 0 });
+  await expect.poll(() => shades(page)).toEqual({ left: 0, right: 0 });
 });
 
 // The 機器 cell shows the online state as a dot only; the word is the dot's

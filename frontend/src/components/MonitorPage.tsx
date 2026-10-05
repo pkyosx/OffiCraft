@@ -1234,11 +1234,18 @@ function useMachineColumnMinWidth(
       // 0), but reports its default input size; measuring it would widen the
       // table for as long as the field is open. Keep the last width instead.
       if (table.querySelector(".inline-edit--editing")) return;
+      const names = Array.from(table.querySelectorAll<HTMLElement>(".mon-machine-name"));
+      // With no machine left, a minimum kept from the last one would make the
+      // empty-state row scroll sideways for nothing.
+      if (names.length === 0) {
+        table.style.removeProperty("--mon-machines-min-width");
+        return;
+      }
       const heads = Array.from(table.tHead?.rows[0]?.cells ?? []);
       if (heads.length < 2) return;
       const fixed = heads.slice(1).reduce((sum, th) => sum + th.getBoundingClientRect().width, 0);
       let machine = 0;
-      for (const name of Array.from(table.querySelectorAll<HTMLElement>(".mon-machine-name"))) {
+      for (const name of names) {
         const td = name.closest("td");
         if (!td) continue;
         const cs = getComputedStyle(td);
@@ -1257,7 +1264,8 @@ function useMachineColumnMinWidth(
         const need = used + parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
         machine = Math.max(machine, need);
       }
-      // jsdom (no layout) measures 0; leave the CSS without a minimum.
+      // jsdom (no layout) and the phone card mode (header hidden) measure 0;
+      // keep whatever is set, which the card mode's CSS does not apply.
       if (fixed === 0 || machine === 0) return;
       const next = `${Math.ceil(fixed + machine)}px`;
       if (table.style.getPropertyValue("--mon-machines-min-width") !== next) {

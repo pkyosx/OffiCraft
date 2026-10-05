@@ -620,6 +620,12 @@
       inset -1px 0 0 color-mix(in srgb, var(--color-overlay) 14%, transparent),
       inset -20px 0 16px -14px color-mix(in srgb, var(--color-shadow) 30%, transparent);
   }
+  /* The 無機器 row's one cell spans the whole table, so as 機器 its shade
+   * would hang past the table's right edge and scroll the frame. */
+  .mon-table--machines td:only-child::after,
+  .mon-table--machines td:only-child::before {
+    content: none;
+  }
   .mon-table-wrap--more-left .mon-table--machines th:first-child::after,
   .mon-table-wrap--more-left .mon-table--machines td:first-child::after,
   .mon-table-wrap--more-right .mon-table--machines th:last-child::before,
