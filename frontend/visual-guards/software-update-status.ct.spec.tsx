@@ -48,7 +48,7 @@
 //      chip" red.
 //   M2 delete `.sw-badge a { color: inherit }` → link falls back to the UA
 //      #0000EE; "link colour inherits" red, and with that relaxed the 4.5:1
-//      assertion reds on its own at 1.32:1 (office) / 1.28:1 (xian).
+//      assertion reds on its own at 1.32:1 (office).
 //   M5 `text-decoration: none` → "the link must stay underlined" red.
 //   Overflow assertions are regression nets rather than fix-carriers (nothing
 //   overflows today, long tag included). Their liveness is only HALF proven:
@@ -62,6 +62,7 @@ import { test, expect } from "@playwright/experimental-ct-react";
 import type { Page } from "@playwright/test";
 import { SoftwareUpdateStory } from "./stories/SoftwareUpdateStory";
 import type { SwVerdict } from "./stories/SoftwareUpdateStory";
+import { expectBuiltinApplied } from "./builtinThemes";
 
 const VIEWPORTS = [
   { name: "375px phone", width: 375, height: 812 },
@@ -242,7 +243,7 @@ const CONTRAST_PROBE = `(() => {
   };
 })()`;
 
-for (const theme of ["office", "xian"] as const) {
+for (const theme of ["office", "office-light"] as const) {
   test(`${theme} theme: 查看 release link is card-styled and clears 4.5:1`, async ({
     mount,
     page,
@@ -253,6 +254,7 @@ for (const theme of ["office", "xian"] as const) {
     );
     await openAndCheck(page);
     await expect(page.getByText("查看 release")).toBeVisible();
+    await expectBuiltinApplied(page, theme);
 
     const m = await page.evaluate<ContrastProbeResult | null>(
       CONTRAST_PROBE

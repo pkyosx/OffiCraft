@@ -1,5 +1,5 @@
 /* Owner login wall — centered card over the app background. Theme-aware via
- * the same CSS vars as the rest of the app (office + xian). */
+ * the same CSS vars as the rest of the app. */
 .login {
   display: grid;
   place-items: center;

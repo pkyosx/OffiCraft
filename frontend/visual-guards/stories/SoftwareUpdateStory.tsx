@@ -60,7 +60,7 @@ export function SoftwareUpdateStory({
   theme = "office",
 }: {
   verdict: SwVerdict;
-  theme?: "office" | "xian";
+  theme?: "office" | "office-light";
 }) {
   // Patch BEFORE the first render commits so the click in the spec always
   // resolves to the requested verdict.
@@ -68,7 +68,7 @@ export function SoftwareUpdateStory({
 
   useEffect(() => {
     const root = document.documentElement;
-    if (theme === "xian") root.setAttribute("data-theme", "xian");
+    if (theme === "office-light") root.setAttribute("data-theme", "office-light");
     else root.removeAttribute("data-theme");
     // The card sits on the app background in production; CT's harness page has
     // none, so paint it here — otherwise a translucent pill would composite
