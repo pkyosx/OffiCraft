@@ -618,22 +618,27 @@ export interface MonMachineView {
 }
 
 /** OffiCraft's disk usage on one machine. Sizes are bytes; a null field was not
- * measured (database/backups exist only on the server's own machine). */
+ * measured. */
 export interface MachineDiskUsageView {
   measuredAt: number | null;
   totalBytes: number | null;
-  databaseBytes: number | null;
-  backupsBytes: number | null;
   databaseMeasuredAt: number | null;
-  workspaceBytes: number | null;
-  conversationBytes: number | null;
-  claudeConversationBytes: number | null;
-  codexConversationBytes: number | null;
-  otherBytes: number | null;
-  /** Largest `totalBytes` first, as the server sorts it. */
+  /** The breakdown in display order, as the server sends it: a part right
+   * after its parent, `other` last. */
+  categories: MachineDiskUsageCategoryView[];
+  /** Largest `workspaceBytes` first, as the server sorts it. */
   members: MachineDiskUsageMemberView[];
   diskFreeBytes: number | null;
   diskTotalBytes: number | null;
+}
+
+export interface MachineDiskUsageCategoryView {
+  /** An open string: the page knows some keys and shows any other as is. */
+  key: string;
+  parentKey: string | null;
+  /** null: measured but the probe failed. */
+  bytes: number | null;
+  inRoot: boolean;
 }
 
 export interface MachineDiskUsageMemberView {
@@ -642,8 +647,6 @@ export interface MachineDiskUsageMemberView {
   name: string | null;
   rosterStatus: "active" | "removed" | "unknown";
   workspaceBytes: number | null;
-  conversationBytes: number | null;
-  totalBytes: number;
 }
 
 /** One account usage card (Monitor §1 "帳號資訊"). Empty in M1; shape is ready

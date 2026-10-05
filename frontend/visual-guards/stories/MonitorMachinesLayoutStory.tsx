@@ -35,21 +35,25 @@ const machine: MachineView = {
 
 const GIB = 1024 ** 3;
 
+const cat = (key: string, bytes: number) => ({ key, parentKey: null, bytes, inRoot: true });
+
 /** The widest total the 磁碟 column has to hold: "1023.9 GB". */
 const diskUsage: MachineDiskUsageView = {
   measuredAt: Math.floor(Date.now() / 1000) - 12 * 60,
   totalBytes: Math.round(1023.9 * GIB),
-  databaseBytes: Math.round(2.3 * GIB),
-  backupsBytes: Math.round(12.7 * GIB),
   databaseMeasuredAt: Math.floor(Date.now() / 1000) - 5 * 60,
-  workspaceBytes: Math.round(15.6 * GIB),
-  conversationBytes: Math.round(7.7 * GIB),
-  claudeConversationBytes: Math.round(3.5 * GIB),
-  codexConversationBytes: Math.round(4.2 * GIB),
-  otherBytes: Math.round(985.6 * GIB),
+  categories: [
+    // Each category a share the bar draws as more than a sliver.
+    cat("database", Math.round(20 * GIB)),
+    cat("backups", Math.round(100 * GIB)),
+    cat("workspaces", Math.round(300 * GIB)),
+    cat("logs", Math.round(50 * GIB)),
+    cat("old_version_backups", Math.round(150 * GIB)),
+    cat("other", Math.round(403.9 * GIB)),
+  ],
   members: [
-    { memberId: "mira", name: "Mira", rosterStatus: "active", workspaceBytes: null, conversationBytes: null, totalBytes: Math.round(7.9 * GIB) },
-    { memberId: "ow-151", name: "O-151", rosterStatus: "removed", workspaceBytes: null, conversationBytes: null, totalBytes: Math.round(3.9 * GIB) },
+    { memberId: "mira", name: "Mira", rosterStatus: "active", workspaceBytes: Math.round(7.9 * GIB) },
+    { memberId: "ow-151", name: "O-151", rosterStatus: "removed", workspaceBytes: Math.round(3.9 * GIB) },
   ],
   diskFreeBytes: Math.round(384 * GIB),
   diskTotalBytes: Math.round(931.5 * GIB),
@@ -94,21 +98,20 @@ export type MachinesLayoutState =
   | "codex2"
   | "nocodex"
   | "tiny"
-  | "zeroconv";
+  | "zerologs";
 
 const rows: Record<MachinesLayoutState, { machine: MachineView; hw: MonMachineView }> = {
   normal: { machine, hw: hardware },
-  // No conversations at all: a top-level row with nothing to colour.
-  zeroconv: {
+  // No logs at all: a top-level row with nothing to colour.
+  zerologs: {
     machine,
     hw: {
       ...hardware,
       diskUsage: {
         ...diskUsage,
-        conversationBytes: 0,
-        claudeConversationBytes: 0,
-        codexConversationBytes: 0,
-        otherBytes: Math.round(993.3 * GIB),
+        categories: diskUsage.categories.map((c) =>
+          c.key === "logs" ? { ...c, bytes: 0 } : c.key === "other" ? { ...c, bytes: Math.round(453.9 * GIB) } : c,
+        ),
         // Long enough to wrap on a phone.
         members: [
           ...diskUsage.members,
@@ -116,9 +119,7 @@ const rows: Record<MachinesLayoutState, { machine: MachineView; hw: MonMachineVi
             memberId: "ow-long",
             name: "Seth 的 Mac Studio 上試用中的外包成員（夜間建置與發版測試）",
             rosterStatus: "active",
-            workspaceBytes: null,
-            conversationBytes: null,
-            totalBytes: Math.round(1.2 * GIB),
+            workspaceBytes: Math.round(1.2 * GIB),
           },
         ],
       },
@@ -132,9 +133,15 @@ const rows: Record<MachinesLayoutState, { machine: MachineView; hw: MonMachineVi
       ...hardware,
       diskUsage: {
         ...diskUsage,
-        databaseBytes: 424 * 1024,
-        backupsBytes: Math.round(0.5 * GIB),
-        otherBytes: Math.round(1023.9 * GIB) - 424 * 1024 - Math.round(0.5 * GIB) - Math.round(15.6 * GIB) - Math.round(7.7 * GIB),
+        categories: diskUsage.categories.map((c) =>
+          c.key === "database"
+            ? { ...c, bytes: 424 * 1024 }
+            : c.key === "backups"
+              ? { ...c, bytes: Math.round(0.5 * GIB) }
+              : c.key === "other"
+                ? { ...c, bytes: Math.round(1023.9 * GIB) - 424 * 1024 - Math.round(0.5 * GIB) - Math.round(500 * GIB) }
+                : c,
+        ),
       },
     },
   },

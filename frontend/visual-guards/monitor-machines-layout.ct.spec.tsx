@@ -118,6 +118,9 @@
 //                                           → phone detail tests
 //   bar segments not at their share, two categories one colour, a swatch
 //   not its segment's colour                → detail bar test
+//   logs and upgrade leftovers one colour     → detail bar test
+//   a category's grey description indented past its name
+//                                           → breakdown label tests
 //   a top-level row without its swatch slot, a sub row indented no further
 //   than its parent's label, the swatch back inline in the label (a wrapped
 //   line starts under the slot)         → breakdown label tests
@@ -1077,13 +1080,13 @@ test("the machine detail's bar draws each category at its share, one colour per 
   await mount(<MonitorMachinesLayoutStory width={996} states={["normal"]} />);
   await page.getByTestId("disk-usage-trigger").click();
   const segs = await barGeometry(page);
-  expect(segs.map((s) => s.key)).toEqual(["database", "backups", "workspaces", "conversations", "other"]);
+  expect(segs.map((s) => s.key)).toEqual(["database", "backups", "workspaces", "logs", "old_version_backups", "other"]);
   for (const s of segs) {
     // Within half a point, or a sliver's minimum width.
     expect(Math.abs(s.drawn - s.given), `${s.key} drawn at its share`).toBeLessThanOrEqual(Math.max(0.5, s.minShare));
     expect(s.swatch, `${s.key} swatch matches its segment`).toBe(s.colour);
   }
-  expect(new Set(segs.map((s) => s.colour)).size, "five categories, five colours").toBe(5);
+  expect(new Set(segs.map((s) => s.colour)).size, "six categories, six colours").toBe(6);
   // A theme that re-values the tokens (a light one does) re-colours the bar.
   await page.evaluate(() => document.documentElement.style.setProperty("--color-icon-blue", "rgb(1, 2, 3)"));
   expect((await barGeometry(page))[0].colour).toBe("rgb(1, 2, 3)");
@@ -1147,7 +1150,8 @@ test("a category that is a sliver of the total, at the bar's rounded start or in
     "database",
     "backups",
     "workspaces",
-    "conversations",
+    "logs",
+    "old_version_backups",
     "other",
   ]);
   expect(geo.shares[0], "control: the database is well under one pixel's share").toBeLessThan(0.1);
@@ -1182,7 +1186,7 @@ for (const { width, language, squeezed } of LABEL_CASES) {
     await page.evaluate((l) => localStorage.setItem("oc.language", l), language);
     await page.setViewportSize({ width, height: 900 });
     await loadProductionFonts(page);
-    await mount(<MonitorMachinesLayoutStory width={Math.min(width, 996)} states={["zeroconv"]} />);
+    await mount(<MonitorMachinesLayoutStory width={Math.min(width, 996)} states={["zerologs"]} />);
     await page.getByTestId("disk-usage-trigger").click();
     if (squeezed) {
       await page.locator(".mon-detailbox").evaluate((el) => ((el as HTMLElement).style.maxWidth = "190px"));
@@ -1207,7 +1211,16 @@ for (const { width, language, squeezed } of LABEL_CASES) {
         }
         const value = row.querySelector(".disk-usage__value")!.getBoundingClientRect();
         const label = row.querySelector(".disk-usage__label")!.getBoundingClientRect();
+        // The grey description: each of its lines starts where the name does.
+        const desc = row.querySelector(".disk-usage__desc");
+        const descXs = (() => {
+          if (!desc) return [];
+          const r = document.createRange();
+          r.selectNodeContents(desc);
+          return Array.from(r.getClientRects()).filter((x) => x.width > 0).map((x) => x.left);
+        })();
         return {
+          descXs,
           text: name.textContent,
           sub: row.classList.contains("disk-usage__row--sub"),
           x: lines[0].left,
@@ -1227,9 +1240,10 @@ for (const { width, language, squeezed } of LABEL_CASES) {
     });
     const top = rows.filter((r) => !r.sub);
     expect(top.map((r) => r.text), "control: a zero row and the disk row are top level").toEqual(
-      expect.arrayContaining([language === "zh" ? "對話紀錄" : "Conversation logs", language === "zh" ? "硬碟剩餘／總容量" : "Disk free / total"])
+      expect.arrayContaining([language === "zh" ? "日誌" : "Logs", language === "zh" ? "硬碟剩餘／總容量" : "Disk free / total"])
     );
-    expect(rows.filter((r) => r.sub).length, "control: members and Claude/Codex are sub rows").toBeGreaterThanOrEqual(4);
+    expect(rows.filter((r) => r.sub).length, "control: the members are sub rows").toBeGreaterThanOrEqual(3);
+    expect(rows.filter((r) => r.descXs.length > 0).length, "control: the categories carry descriptions").toBeGreaterThanOrEqual(6);
     if (squeezed || width <= 390) {
       expect(rows.some((r) => r.sub && r.lineXs.length > 1), "control: a sub row wraps").toBe(true);
     }
@@ -1250,6 +1264,9 @@ for (const { width, language, squeezed } of LABEL_CASES) {
       }
       if (!r.valueFits) bad.push(`${r.text}: value outside the box or over its label`);
       if (!r.slotBeside) bad.push(`${r.text}: swatch slot not before the text on its first line`);
+      for (const dx of r.descXs) {
+        if (Math.abs(dx - r.lineXs[0]) > 0.5) bad.push(`${r.text}: a description line at ${dx}, the name at ${r.lineXs[0]}`);
+      }
     }
     expect(bad).toEqual([]);
   });

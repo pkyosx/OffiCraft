@@ -501,25 +501,27 @@ type MockMonitoring = Required<WireMonitoring>;
 function mockServerSelfDiskUsage(): WireMachineDiskUsage {
   const kib = (n: number) => n * 1024;
   const now = Math.floor(Date.now() / 1000);
+  const cat = (key: string, bytes: number) => ({ key, parent_key: null, bytes, in_root: true });
   return {
     measured_at: now - 12 * 60,
-    total_bytes: kib(43748512),
-    database_bytes: kib(2417536),
-    backups_bytes: kib(13349048),
+    total_bytes: kib(23980392),
     database_measured_at: now - 5 * 60,
-    workspace_bytes: kib(16306716),
-    conversation_bytes: kib(8116668),
-    claude_conversation_bytes: kib(3663836),
-    codex_conversation_bytes: kib(4452832),
-    other_bytes: kib(3558544),
+    categories: [
+      cat("database", kib(1462748)),
+      cat("backups", kib(13679296)),
+      cat("workspaces", kib(4192256)),
+      cat("logs", kib(360532)),
+      cat("old_version_backups", kib(4199656)),
+      cat("other", kib(85904)),
+    ],
     members: [
-      { member_id: "mira", name: "Mira", roster_status: "active", workspace_bytes: kib(6200000), conversation_bytes: kib(2100000), total_bytes: kib(8300000) },
-      { member_id: "ow-7d8ad859dd9b", name: "O-179", roster_status: "active", workspace_bytes: kib(4100000), conversation_bytes: kib(1900000), total_bytes: kib(6000000) },
-      { member_id: "ow-2f0c1a9e44b1", name: "O-151", roster_status: "removed", workspace_bytes: kib(2600000), conversation_bytes: kib(1500000), total_bytes: kib(4100000) },
-      { member_id: "ow-91c4e2b07a3d", name: null, roster_status: "unknown", workspace_bytes: kib(1500000), conversation_bytes: kib(1000000), total_bytes: kib(2500000) },
-      { member_id: "ow-5be03d7a10c2", name: "O-163", roster_status: "removed", workspace_bytes: kib(1100000), conversation_bytes: kib(800000), total_bytes: kib(1900000) },
-      { member_id: "ow-0a6e1f3c9d27", name: "O-170", roster_status: "removed", workspace_bytes: kib(506716), conversation_bytes: kib(516668), total_bytes: kib(1023384) },
-      { member_id: "ow-c3d2b1a09f88", name: "O-172", roster_status: "removed", workspace_bytes: kib(300000), conversation_bytes: kib(300000), total_bytes: kib(600000) },
+      { member_id: "mira", name: "Mira", roster_status: "active", workspace_bytes: kib(1600000) },
+      { member_id: "ow-7d8ad859dd9b", name: "O-179", roster_status: "active", workspace_bytes: kib(1000000) },
+      { member_id: "ow-2f0c1a9e44b1", name: "O-151", roster_status: "removed", workspace_bytes: kib(700000) },
+      { member_id: "ow-91c4e2b07a3d", name: null, roster_status: "unknown", workspace_bytes: kib(400000) },
+      { member_id: "ow-5be03d7a10c2", name: "O-163", roster_status: "removed", workspace_bytes: kib(250000) },
+      { member_id: "ow-0a6e1f3c9d27", name: "O-170", roster_status: "removed", workspace_bytes: kib(142256) },
+      { member_id: "ow-c3d2b1a09f88", name: "O-172", roster_status: "removed", workspace_bytes: kib(100000) },
     ],
     disk_free_bytes: 412316860416,
     disk_total_bytes: 1000240963584,

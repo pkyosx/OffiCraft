@@ -45,8 +45,12 @@
   --disk-seg-database: var(--color-icon-blue);
   --disk-seg-backups: var(--color-icon-amber);
   --disk-seg-workspaces: var(--color-accent);
-  --disk-seg-conversations: var(--color-artifacts);
+  --disk-seg-logs: var(--color-icon-violet);
+  --disk-seg-old_version_backups: var(--color-artifacts);
+  --disk-seg-old_database_copies: var(--color-dot-stopping);
   --disk-seg-other: var(--color-text-muted);
+  /* A key the page does not know: neutral, apart from other's grey. */
+  --disk-seg-unknown: color-mix(in srgb, var(--color-text-muted) 45%, transparent);
   /* The swatch slot (8px + 6px) and then a clear step in. */
   --disk-sub-indent: 26px;
   display: flex;
@@ -85,8 +89,17 @@
 .disk-usage__seg--workspaces {
   background: var(--disk-seg-workspaces);
 }
-.disk-usage__seg--conversations {
-  background: var(--disk-seg-conversations);
+.disk-usage__seg--logs {
+  background: var(--disk-seg-logs);
+}
+.disk-usage__seg--old_version_backups {
+  background: var(--disk-seg-old_version_backups);
+}
+.disk-usage__seg--old_database_copies {
+  background: var(--disk-seg-old_database_copies);
+}
+.disk-usage__seg--unknown {
+  background: var(--disk-seg-unknown);
 }
 .disk-usage__seg--other {
   background: var(--disk-seg-other);
@@ -130,6 +143,16 @@
 }
 .disk-usage__swatch {
   flex: none;
+}
+/* The name over its grey description, both wrapping in the label's column. */
+.disk-usage__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.disk-usage__desc {
+  color: var(--color-text-muted);
+  font-size: 0.92em;
 }
 /* Also a flex row, for the 已離開 pill: a margin would indent it when it
  * wraps to a line of its own; a gap only shows between items on one line. */

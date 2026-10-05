@@ -54,28 +54,21 @@ const machine = (id: string, displayName: string): MachineView => ({
   claudeSubReadable: null,
 });
 
-/** 40 GiB in all: 4 database, 10 backups, 16 workspaces, 8 conversations, 2 other. */
+/** 40 GiB in all: 4 database, 10 backups, 16 workspaces, 6 logs, 2 upgrade leftovers, 2 other. */
+const cat = (key: string, gib: number) => ({ key, parentKey: null, bytes: gib * GIB, inRoot: true });
 const usage = (): MachineDiskUsageView => ({
   measuredAt: Math.floor(Date.now() / 1000) - 12 * 60,
   totalBytes: 40 * GIB,
-  databaseBytes: 4 * GIB,
-  backupsBytes: 10 * GIB,
   databaseMeasuredAt: null,
-  workspaceBytes: 16 * GIB,
-  conversationBytes: 8 * GIB,
-  claudeConversationBytes: 3 * GIB,
-  codexConversationBytes: 5 * GIB,
-  otherBytes: 2 * GIB,
-  members: [
-    {
-      memberId: "mira",
-      name: "Mira",
-      rosterStatus: "active",
-      workspaceBytes: null,
-      conversationBytes: null,
-      totalBytes: 9 * GIB,
-    },
+  categories: [
+    cat("database", 4),
+    cat("backups", 10),
+    cat("workspaces", 16),
+    cat("logs", 6),
+    cat("old_version_backups", 2),
+    cat("other", 2),
   ],
+  members: [{ memberId: "mira", name: "Mira", rosterStatus: "active", workspaceBytes: 9 * GIB }],
   diskFreeBytes: 384 * GIB,
   diskTotalBytes: 931 * GIB,
 });
@@ -137,18 +130,18 @@ const MEASURED = {
     ["database", "10%"],
     ["backups", "25%"],
     ["workspaces", "40%"],
-    ["conversations", "20%"],
+    ["logs", "15%"],
+    ["old_version_backups", "5%"],
     ["other", "5%"],
   ],
   rows: [
-    "資料庫4.0 GB",
-    "備份10.0 GB",
-    "成員 workspace 合計16.0 GB",
+    "資料庫成員、任務、聊天等所有資料4.0 GB",
+    "資料庫自動備份定期自動備份，保留最近幾份10.0 GB",
+    "成員 workspace各成員的工作目錄16.0 GB",
     "Mira9.0 GB",
-    "對話紀錄8.0 GB",
-    "Claude3.0 GB",
-    "Codex5.0 GB",
-    "其他2.0 GB",
+    "日誌OffiCraft 程式的執行紀錄6.0 GB",
+    "升級殘留升級時留下的舊版程式與舊資料庫副本，不會自動刪除2.0 GB",
+    "其他目前版本的程式、設定檔，以及手動放進來的檔案2.0 GB",
     "硬碟剩餘／總容量384.0 GB / 931.0 GB",
   ],
   measured: "量於 12m 前",
@@ -178,7 +171,7 @@ describe("MonitorPage 機器詳情 dialog", () => {
     expect(d.getAttribute("aria-modal")).toBe("true");
     expect(readDialog(d)).toEqual(MEASURED);
     expect(within(d).getByRole("img").getAttribute("aria-label")).toBe(
-      "OffiCraft 磁碟用量組成：資料庫 4.0 GB (10%)、備份 10.0 GB (25%)、成員 workspace 合計 16.0 GB (40%)、對話紀錄 8.0 GB (20%)、其他 2.0 GB (5%)"
+      "OffiCraft 磁碟用量組成：資料庫 4.0 GB (10%)、資料庫自動備份 10.0 GB (25%)、成員 workspace 16.0 GB (40%)、日誌 6.0 GB (15%)、升級殘留 2.0 GB (5%)、其他 2.0 GB (5%)"
     );
     expect(screen.queryByRole("menu"), "choosing the item closes the menu").toBeNull();
   });
