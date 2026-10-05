@@ -4281,7 +4281,7 @@ export interface components {
             cutover_effect?: unknown;
             /**
              * Disk Usage
-             * @description Warden heartbeats only — the latest OffiCraft disk-usage measurement of THIS station on this host. Measured in the background at the org's ``disk_usage_interval_secs`` (it takes tens of seconds, so it never runs on the 30-second heartbeat), then repeated verbatim on every heartbeat until the next measurement replaces it, so a restarted server has it again within one heartbeat. ``measured_at`` is when the measurement finished, not when this heartbeat was sent. Sizes are bytes of allocated disk blocks, the same quantity ``du`` reports. Each field is omitted when its probe failed. NOT closed, for the same reason as ``hardware``: one undeclared nested key must not 422 the whole heartbeat. Database and backup sizes are not here: only the server knows its database path, and it measures them itself.
+             * @description Warden heartbeats only — the latest OffiCraft disk-usage measurement of THIS station on this host. Measured in the background at the org's ``disk_usage_interval_secs`` (it takes tens of seconds, so it never runs on the 30-second heartbeat), then repeated verbatim on every heartbeat until the next measurement replaces it, so a restarted server has it again within one heartbeat. ``measured_at`` is when the measurement finished, not when this heartbeat was sent. Sizes are bytes of allocated disk blocks, the same quantity ``du`` reports. Each field is omitted when its probe failed. NOT closed, for the same reason as ``hardware``: one undeclared nested key must not 422 the whole heartbeat. Database, backup and old database copy sizes are not here: only the server knows its database path, and it measures them itself.
              */
             disk_usage?: {
                 /**
@@ -4301,19 +4301,14 @@ export interface components {
                 root_bytes?: number | null;
                 /**
                  * Members
-                 * @description One entry per member id that owns a workspace under ``<root>/agents/`` or conversation logs whose working directory is one, including members that have since left the roster.
+                 * @description One entry per directory under ``<root>/agents/`` (the member id), including members that have since left the roster.
                  */
                 members?: components["schemas"]["DiskUsageMemberReportDTO"][] | null;
                 /**
-                 * Claude Conversation Bytes
-                 * @description Claude conversation logs of this station's members: the ``~/.claude/projects`` directories whose name encodes a working directory under ``<root>/agents/``.
+                 * Categories
+                 * @description What this measurement sized besides the OffiCraft directory as a whole and the members: one entry per category, each saying whether its bytes lie inside the directory.
                  */
-                claude_conversation_bytes?: number | null;
-                /**
-                 * Codex Conversation Bytes
-                 * @description Codex conversation logs of this station's members: the ``~/.codex/sessions`` files whose recorded working directory is under ``<root>/agents/``.
-                 */
-                codex_conversation_bytes?: number | null;
+                categories?: components["schemas"]["DiskUsageCategoryReportDTO"][] | null;
                 /**
                  * Disk Free Bytes
                  * @description Free space available to this user on the volume holding the OffiCraft directory.
@@ -5384,6 +5379,34 @@ export interface components {
             text?: string;
         };
         /**
+         * DiskUsageCategoryReportDTO
+         * @description One measured category of a warden's disk-usage measurement. Sizes are bytes of allocated disk blocks, as ``du`` reports them. NOT closed, like the rest of the heartbeat: an undeclared key must not 422 it.
+         */
+        DiskUsageCategoryReportDTO: {
+            /**
+             * Key
+             * @description What was measured, an open string so a warden can report a category the server does not know yet (the server passes it on and the page shows the key itself as its label). Known keys a warden sends: ``logs`` and ``old_version_backups``, both inside the OffiCraft directory; the server's MachineDiskUsageDTO.categories says what each covers.
+             */
+            key: string;
+            /**
+             * Parent Key
+             * @description The category this one is a part of, for a category shown as a sub row under another. No known key has one today; it is there so a category can later be split into parts without a new field. The server adds the parent itself; a warden never sends it. Null or omitted for a top-level category.
+             */
+            parent_key?: string | null;
+            /**
+             * Bytes
+             * @description Its size. Null when the warden tried and its probe failed; a category a warden does not measure is left out of the list instead.
+             */
+            bytes: number | null;
+            /**
+             * In Root
+             * @description Whether these bytes lie inside the OffiCraft directory, and so are already part of ``root_bytes``. The server takes in-root categories out of ``other`` and adds the rest to the total.
+             */
+            in_root: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * DiskUsageMemberReportDTO
          * @description One member's share of a warden's disk-usage measurement. Sizes are bytes of allocated disk blocks, as ``du`` reports them; a field is omitted when it was not measured.
          */
@@ -5398,11 +5421,6 @@ export interface components {
              * @description ``<root>/agents/<member_id>``.
              */
             workspace_bytes?: number | null;
-            /**
-             * Conversation Bytes
-             * @description Claude and Codex conversation logs whose working directory is under this member's workspace.
-             */
-            conversation_bytes?: number | null;
         } & {
             [key: string]: unknown;
         };
@@ -6006,8 +6024,34 @@ export interface components {
             removed: boolean;
         };
         /**
+         * MachineDiskUsageCategoryDTO
+         * @description One row of a machine's disk-usage breakdown. The list is in display order: ``database``, ``backups``, ``workspaces``, ``logs``, ``old_version_backups``, ``old_database_copies``, any key the server does not know, then ``other``; a part comes right after its parent.
+         */
+        MachineDiskUsageCategoryDTO: {
+            /**
+             * Key
+             * @description What the row is. Known keys: ``database`` (server's own machine: the database file with its write-ahead log and shared-memory files); ``backups`` (server's own machine: the automatic backup directory, which the server rotates); ``workspaces`` (the members' workspaces, ``<root>/agents``; per member in ``members``); ``logs`` (``<root>/warden/log`` on every machine, plus ``<root>/server/log`` on the server's own machine); ``old_version_backups`` (``<root>/release-backups/``, the previous and hand-kept binaries in ``<root>/bin/`` and ``<root>/warden/`` named after an OffiCraft binary plus a dot and a suffix, not ``officraft.probe``, and on the server's own machine the old database copies beside the database: entries named after the database file plus a dot and a suffix, and ``retreat-*`` directories); ``old_database_copies`` (those copies instead, only when the database lives outside the OffiCraft directory); ``other`` (the rest of the OffiCraft directory). Any other key comes from a warden and is passed on as it reported it; the page labels it with the key itself.
+             */
+            key: string;
+            /**
+             * Parent Key
+             * @description The row this one is a part of; null for a top-level row. No known key has a parent today; it is there so a category can later be split into sub rows without a new field. A parent's ``bytes`` is the sum of its parts, null when any part is null.
+             */
+            parent_key: string | null;
+            /**
+             * Bytes
+             * @description Its size; null when it could not be measured. A row a machine has nothing to measure for is left out instead (``database`` on a machine that is not the server's).
+             */
+            bytes: number | null;
+            /**
+             * In Root
+             * @description Whether these bytes lie inside the OffiCraft directory. ``other`` is the directory less every top-level in-root row; ``total_bytes`` is the directory plus every top-level row that is not in it.
+             */
+            in_root: boolean;
+        };
+        /**
          * MachineDiskUsageDTO
-         * @description How much disk OffiCraft uses on one machine. The warden measures this station's OffiCraft directory and its members' conversation logs at the org's ``disk_usage_interval_secs``; on the server's own machine the server adds its database and backups. A field is null when it has not been measured; the whole object is null on a machine that has reported no measurement since the server started and is not the server's own machine. Sizes are bytes of allocated disk blocks, the quantity ``du`` reports. Measuring only: nothing here deletes anything.
+         * @description How much disk OffiCraft uses on one machine. The warden measures this station's OffiCraft directory and its categories at the org's ``disk_usage_interval_secs``; on the server's own machine the server adds its database, backups and old database copies. The breakdown is ``categories``. Claude and Codex conversation logs are not measured. A field is null when it has not been measured; the whole object is null on a machine that has reported no measurement since the server started and is not the server's own machine. Sizes are bytes of allocated disk blocks, the quantity ``du`` reports. Measuring only: nothing here deletes anything.
          */
         MachineDiskUsageDTO: {
             /**
@@ -6017,46 +6061,22 @@ export interface components {
             measured_at?: number | null;
             /**
              * Total Bytes
-             * @description Everything OffiCraft uses on this machine for this station: the OffiCraft directory plus the members' conversation logs, plus the database and backups when they live outside that directory. Null until the warden has measured.
+             * @description Everything OffiCraft uses on this machine for this station: the OffiCraft directory (the warden's ``root_bytes``) plus every top-level row of ``categories`` that is not inside it (the database, backups and old database copies when the database lives elsewhere). Claude and Codex conversation logs are not counted. Null until the warden has measured, or when one of those rows is null.
              */
             total_bytes?: number | null;
             /**
-             * Database Bytes
-             * @description Server's own machine only: the database file with its write-ahead log and shared-memory files.
-             */
-            database_bytes?: number | null;
-            /**
-             * Backups Bytes
-             * @description Server's own machine only: the database backup directory.
-             */
-            backups_bytes?: number | null;
-            /**
              * Database Measured At
-             * @description Epoch seconds when the server last measured ``database_bytes`` and ``backups_bytes``.
+             * @description Epoch seconds when the server last measured its rows: ``database``, ``backups`` and its old database copies.
              */
             database_measured_at?: number | null;
             /**
-             * Workspace Bytes
-             * @description Sum of the members' workspaces (``<root>/agents``).
+             * Categories
+             * @description The breakdown, in display order: the warden's categories, plus on the server's own machine the server's (database, backups and its old database copies, which it adds to ``old_version_backups``), plus ``workspaces`` from ``members``, the parent of any parts, and last ``other``: the OffiCraft directory (the warden's ``root_bytes``) less every top-level row inside it, never below 0, null when the directory or one of those rows was not measured. A category the warden did not report (one that predates it) is not split out and stays in ``other``. Empty until measured.
              */
-            workspace_bytes?: number | null;
-            /**
-             * Conversation Bytes
-             * @description Claude plus Codex conversation logs of this station's members.
-             */
-            conversation_bytes?: number | null;
-            /** Claude Conversation Bytes */
-            claude_conversation_bytes?: number | null;
-            /** Codex Conversation Bytes */
-            codex_conversation_bytes?: number | null;
-            /**
-             * Other Bytes
-             * @description The rest of the OffiCraft directory: binaries, logs, release backups and anything else that is not the database, backups or a member workspace. Null when a part it is computed from is missing.
-             */
-            other_bytes?: number | null;
+            categories: components["schemas"]["MachineDiskUsageCategoryDTO"][];
             /**
              * Members
-             * @description Every member with a workspace or conversation logs on this machine, largest ``total_bytes`` first; empty until measured.
+             * @description Every member with a workspace on this machine, largest ``workspace_bytes`` first (a workspace that could not be sized last); empty until measured.
              */
             members: components["schemas"]["MachineDiskUsageMemberDTO"][];
             /**
@@ -6088,15 +6108,11 @@ export interface components {
              * @enum {string}
              */
             roster_status: "active" | "removed" | "unknown";
-            /** Workspace Bytes */
-            workspace_bytes?: number | null;
-            /** Conversation Bytes */
-            conversation_bytes?: number | null;
             /**
-             * Total Bytes
-             * @description ``workspace_bytes`` + ``conversation_bytes``, a missing side counted as 0. The list is sorted by this, largest first.
+             * Workspace Bytes
+             * @description ``<root>/agents/<member_id>``; null when it could not be sized.
              */
-            total_bytes: number;
+            workspace_bytes?: number | null;
         };
         /**
          * MachineOnboardDTO
@@ -8736,7 +8752,7 @@ export interface components {
             runtime_login_recheck_interval_secs: number;
             /**
              * Disk Usage Interval Secs
-             * @description How often, in seconds (600 through 86400), each warden measures how much disk OffiCraft uses on its machine, and the server measures its database and backups. One measurement walks the whole OffiCraft directory and takes tens of seconds of disk reads, hence the 10-minute floor. Wardens learn the value from their heartbeat reply.
+             * @description How often, in seconds (600 through 86400), each warden measures how much disk OffiCraft uses on its machine, and the server measures its database, backups and old database copies. One measurement walks the whole OffiCraft directory and takes tens of seconds of disk reads, hence the 10-minute floor. Wardens learn the value from their heartbeat reply.
              * @default 3600
              */
             disk_usage_interval_secs: number;
