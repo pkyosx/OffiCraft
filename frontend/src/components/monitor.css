@@ -500,8 +500,10 @@
   }
   .mon-table--machines {
     --mon-machine-max: 320px;
-    /* 機器's width while a rename field is open, if its name needs less. */
-    --mon-rename-min: 200px;
+    /* 機器's width while a rename field is open, if its name needs less:
+     * an input of ~210px beside the dot and the ✓/✗ buttons, which at
+     * 1280px still fits beside the other columns' base widths. */
+    --mon-rename-min: 300px;
     /* Six: the columns after 機器. Without a measured minimum (no machine,
      * or not measured yet) there is nothing to share out. */
     --mon-spare: max(0px, (100cqw - var(--mon-machines-min-width, 100cqw)) / 6);
@@ -726,6 +728,12 @@
  * there. */
 .mon-machine-name__menu {
   max-width: calc(100% - var(--mon-dot-size) - var(--mon-name-gap));
+}
+/* An open rename field takes all of 機器 beside the dot, not just its
+ * input's default size. */
+.mon-machine-name__menu:has(> .inline-edit--editing),
+.mon-machine-name__menu > .inline-edit--editing {
+  flex: 1;
 }
 /* On desktop the dot, the name and the exclamation stay side by side; a name
    past the 機器 column's cap wraps inside its own item. Not in the ≤720px

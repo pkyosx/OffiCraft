@@ -90,6 +90,9 @@
 //   no rename floor (`--mon-rename-min` unset) → rename field tests (field at
 //                                              the name's width)
 //   rename floor kept after the field closes → rename field tests
+//   open field not stretched over the cell   → rename field tests (field short of
+//                                              the dot's line end)
+//   floor back to 200px (input ~110px)       → rename field tests (input control)
 //   no machine: the last minimum kept         → last machine test
 //   the 尚無機器 cell keeps 機器's shade       → last machine test (frame scrolls 24px)
 //   machine state word back beside the dot   → dot tests (desktop, phone), 機器 cut
@@ -1953,10 +1956,21 @@ for (const state of ["named", "normal"] as const) {
       return ed.getBoundingClientRect().width - others - parseFloat(getComputedStyle(ed).columnGap) * (kids.length - 1);
     });
     expect(open.field!, "the input takes the field's room").toBeGreaterThanOrEqual(inputShare - 1);
+    // So the input is the floor less the cell's padding, the dot, the gap
+    // and its own buttons: at the 1280px desktop, room for a whole name.
+    const td = await page.locator("tbody td").first().evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+    });
+    const buttons = open.editor! - open.field!;
+    expect(
+      Math.abs(open.field! - (before.floor - td - (open.cell - td - open.room) - buttons)),
+      `the input is the floor less padding, dot, gap and buttons (${open.field}px)`
+    ).toBeLessThanOrEqual(1);
+    expect(open.field!, "control: the floor leaves the input more than its buttons").toBeGreaterThan(buttons * 2);
     expect(Math.abs(open.cell - before.floor), `機器 is the floor wide (${open.cell})`).toBeLessThanOrEqual(1);
     // What the input would have had in the name's own cell, its buttons and
     // gaps taken out, plus the floor's difference.
-    const buttons = open.editor! - open.field!;
     expect(open.field!, "the input has the floor's extra room").toBeGreaterThanOrEqual(
       before.room - buttons + (before.floor - px(before.variable)) - 1
     );
