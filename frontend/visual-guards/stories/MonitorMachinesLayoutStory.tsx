@@ -5,10 +5,14 @@
 // dot) — the widest 機器 cell of those three. Codex's 版本太舊 is not something
 // the server sends today (below_notify_minimum is Claude's alone); it is here
 // because both columns render the same fields the same way and must fit them.
-// More on request: a row whose Claude carries 版本太舊 alone, a remote machine
+// More on request: a row whose Claude carries 版本太舊 alone, rows where only
+// Claude or only Codex carries both chips, one whose Codex was never probed,
+// a remote machine
 // with a real-length name and id, and one with a very long name. Mounted through the real MachinesTable with
-// hand-built rows (no api), inside a 1000px box (the monitor page content is 996px at any desktop
+// hand-built rows (no api), each state its own table unless `together` puts
+// them in one, inside a 1000px box (the monitor page content is 996px at any desktop
 // viewport from 1100px up).
+import { useMemo } from "react";
 import { I18nProvider } from "../../src/i18n";
 import { MachinesTable } from "../../src/components/MonitorPage";
 import type { MachineDiskUsageView, MachineView, MonMachineView } from "../../src/types";
@@ -76,7 +80,7 @@ const hardware: MonMachineView = {
   diskUsage,
 };
 
-export type MachinesLayoutState = "normal" | "old" | "chips" | "stale" | "named" | "long";
+export type MachinesLayoutState = "normal" | "old" | "chips" | "stale" | "named" | "long" | "claude2" | "codex2" | "nocodex";
 
 const rows: Record<MachinesLayoutState, { machine: MachineView; hw: MonMachineView }> = {
   normal: { machine, hw: hardware },
@@ -113,6 +117,31 @@ const rows: Record<MachinesLayoutState, { machine: MachineView; hw: MonMachineVi
       },
     },
   },
+  claude2: {
+    machine: { ...machine, claudeVersion: "2.1.286" },
+    hw: {
+      ...hardware,
+      runtimeCapabilities: {
+        ...hardware.runtimeCapabilities,
+        claude: { installed: true, loggedIn: false, version: "2.1.286", belowNotifyMinimum: true },
+      },
+    },
+  },
+  codex2: {
+    machine,
+    hw: {
+      ...hardware,
+      runtimeCapabilities: {
+        ...hardware.runtimeCapabilities,
+        codex: { installed: true, loggedIn: false, version: "0.159.2", belowNotifyMinimum: true },
+      },
+    },
+  },
+  // Codex never probed: its cell is a plain dash, not the menu's trigger.
+  nocodex: {
+    machine,
+    hw: { ...hardware, runtimeCapabilities: { claude: hardware.runtimeCapabilities!.claude } },
+  },
   stale: {
     machine: { ...machine, online: false, claudeVersion: "2.1.286", cutoverEffect: "not_effective" },
     hw: {
@@ -138,6 +167,7 @@ export function MonitorMachinesLayoutStory({
   width = 1000,
   empty = false,
   name,
+  together = false,
 }: {
   states?: MachinesLayoutState[];
   width?: number;
@@ -146,26 +176,42 @@ export function MonitorMachinesLayoutStory({
   empty?: boolean;
   /** Every machine renamed to this, as a server-sent name (not an edit). */
   name?: string;
+  /** One table holding a row per state, in order, the n-th row with machine id
+   * `m-<n>` so each joins its own telemetry. The machine list keeps its
+   * identity while its contents are equal, as the page's does, so a state
+   * change that is telemetry alone (normal → codex2) re-renders with the same
+   * `machines`. */
+  together?: boolean;
 }) {
+  const machineOf = (state: MachinesLayoutState, id: string) => {
+    const m = { ...rows[state].machine, machineId: id };
+    return name === undefined ? m : { ...m, displayName: name };
+  };
+  const togetherMachines = empty ? [] : states.map((s, i) => machineOf(s, `m-${i}`));
+  const togetherKey = JSON.stringify(togetherMachines);
+  const stableTogether = useMemo(() => togetherMachines, [togetherKey]);
+  const table = (key: string, list: MachinesLayoutState[], ids: (s: MachinesLayoutState, i: number) => string) => (
+    <section className="mon-section" key={key} data-state={key}>
+      <MachinesTable
+        machines={empty ? [] : together ? stableTogether : list.map((s, i) => machineOf(s, ids(s, i)))}
+        hwByHost={new Map(list.map((s, i) => [ids(s, i), { ...rows[s].hw, machine: ids(s, i) }]))}
+        bootstrapBusy={false}
+        uninstalling={() => false}
+        onRename={noop}
+        onLogin={noop}
+        onUpgrade={noop}
+        onInstall={noop}
+        onUninstall={noop}
+        onDelete={noop}
+      />
+    </section>
+  );
   return (
     <I18nProvider>
       <div className="monitor" style={{ width, maxWidth: "100%", margin: "0 auto" }}>
-        {states.map((state) => (
-          <section className="mon-section" key={state} data-state={state}>
-            <MachinesTable
-              machines={empty ? [] : [name === undefined ? rows[state].machine : { ...rows[state].machine, displayName: name }]}
-              hwByHost={new Map([[rows[state].hw.machine, rows[state].hw]])}
-              bootstrapBusy={false}
-              uninstalling={() => false}
-              onRename={noop}
-              onLogin={noop}
-              onUpgrade={noop}
-              onInstall={noop}
-              onUninstall={noop}
-              onDelete={noop}
-            />
-          </section>
-        ))}
+        {together
+          ? table("together", states, (_, i) => `m-${i}`)
+          : states.map((state) => table(state, [state], (s) => rows[s].machine.machineId))}
       </div>
     </I18nProvider>
   );

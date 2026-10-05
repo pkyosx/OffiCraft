@@ -1215,41 +1215,77 @@ function useScrollEdges(ref: RefObject<HTMLElement>, content: unknown) {
   return edges;
 }
 
-/** Sets `--mon-machines-min-width` on the 機器資訊 table: the fixed columns'
- * widths plus the widest 機器 cell's content, which monitor.css applies as the
- * table's min-width on desktop. Measured rather than written into the CSS
- * because the 機器 cell holds a user-chosen name. With `table-layout: fixed`
- * the 機器 column is the only one without a width, so the other columns'
- * widths do not depend on the value set here, and the measurement cannot feed
+/** Sizes the 機器資訊 table's content-dependent columns on desktop, as CSS
+ * variables monitor.css reads:
+ * - `--mon-claude-width` / `--mon-codex-width`: what the widest cell of that
+ *   column needs to hold its version, marks and chevron on one line (the CSS
+ *   never goes below 150px). Each column is measured on its own.
+ * - `--mon-machines-min-width`: the fixed columns' widths plus the widest 機器
+ *   cell's content, applied as the table's min-width.
+ * Measured rather than written into the CSS because the 機器 cell holds a
+ * user-chosen name and the runtime cells carry however many marks the
+ * machines report. With `table-layout: fixed` the 機器 column is the only one
+ * without a width, and the runtime cells do not wrap (nowrap), so no width
+ * measured here depends on a value set here, and the measurement cannot feed
  * back into itself. */
-function useMachineColumnMinWidth(
+function useMachineColumnWidths(
   tableRef: RefObject<HTMLTableElement>,
   wrapRef: RefObject<HTMLElement>,
-  content: unknown,
+  machines: unknown,
+  // The runtime marks come from telemetry, which changes without `machines`.
+  telemetry: string,
 ) {
   useLayoutEffect(() => {
     const table = tableRef.current;
     if (!table) return;
+    const setVar = (name: string, value: string) => {
+      if (table.style.getPropertyValue(name) !== value) table.style.setProperty(name, value);
+    };
+    const padding = (td: Element) => {
+      const cs = getComputedStyle(td);
+      return parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+    };
+    // The widest cell of a runtime column. The menu's trigger sits in a
+    // `.runtime-menu` box whose width already nets out the trigger's negative
+    // margins, so the cell's one child's box is what the content takes.
+    const runtimeNeed = (selector: string) => {
+      let need = 0;
+      for (const td of Array.from(table.querySelectorAll<HTMLElement>(selector))) {
+        const child = td.firstElementChild;
+        if (!child) continue;
+        need = Math.max(need, child.getBoundingClientRect().width + padding(td));
+      }
+      return need;
+    };
     const measure = () => {
       // A rename field fits whatever width the cell has (flex: 1, min-width:
       // 0), but reports its default input size; measuring it would widen the
       // table for as long as the field is open. Keep the last width instead.
       if (table.querySelector(".inline-edit--editing")) return;
       const names = Array.from(table.querySelectorAll<HTMLElement>(".mon-machine-name"));
-      // With no machine left, a minimum kept from the last one would make the
+      // With no machine left, a width kept from the last one would make the
       // empty-state row scroll sideways for nothing.
       if (names.length === 0) {
-        table.style.removeProperty("--mon-machines-min-width");
+        for (const v of ["--mon-machines-min-width", "--mon-claude-width", "--mon-codex-width"]) {
+          table.style.removeProperty(v);
+        }
         return;
       }
       const heads = Array.from(table.tHead?.rows[0]?.cells ?? []);
       if (heads.length < 2) return;
+      // jsdom (no layout) and the phone card mode (header hidden) measure 0;
+      // keep whatever is set, which the card mode's CSS does not apply.
+      if (heads[1].getBoundingClientRect().width === 0) return;
+      const claude = runtimeNeed(".mon-runtime-cell--claude");
+      const codex = runtimeNeed(".mon-runtime-cell--codex");
+      if (claude > 0) setVar("--mon-claude-width", `${Math.ceil(claude)}px`);
+      if (codex > 0) setVar("--mon-codex-width", `${Math.ceil(codex)}px`);
+      // Read after the runtime widths are set, so the sum includes them.
       const fixed = heads.slice(1).reduce((sum, th) => sum + th.getBoundingClientRect().width, 0);
       let machine = 0;
       for (const name of names) {
         const td = name.closest("td");
         if (!td) continue;
-        const cs = getComputedStyle(td);
         // Summed per item, not read off the row: the row is as wide as the
         // cell, and in a cell narrower than the content the name's flex item
         // (min-width: 0) shrinks while its text overflows it, so only each
@@ -1262,31 +1298,26 @@ function useMachineColumnMinWidth(
           el.scrollWidth > el.clientWidth ? el.scrollWidth + 1 : el.getBoundingClientRect().width;
         const used =
           items.reduce((sum, el) => sum + width(el), 0) + gap * Math.max(0, items.length - 1);
-        const need = used + parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
-        machine = Math.max(machine, need);
+        machine = Math.max(machine, used + padding(td));
       }
-      // jsdom (no layout) and the phone card mode (header hidden) measure 0;
-      // keep whatever is set, which the card mode's CSS does not apply.
       if (fixed === 0 || machine === 0) return;
-      const next = `${Math.ceil(fixed + machine)}px`;
-      if (table.style.getPropertyValue("--mon-machines-min-width") !== next) {
-        table.style.setProperty("--mon-machines-min-width", next);
-      }
+      setVar("--mon-machines-min-width", `${Math.ceil(fixed + machine)}px`);
     };
     measure();
-    // A rename, a web font arriving, or the window crossing the phone
-    // breakpoint (card mode lays the cell out differently) changes a width
-    // without re-rendering this table.
+    // A rename, a web font arriving, a language switch, or the window crossing
+    // the phone breakpoint (card mode lays the cells out differently) changes a
+    // width without re-rendering this table.
     const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
     if (wrapRef.current) ro?.observe(wrapRef.current);
-    for (const el of Array.from(table.querySelectorAll(".mon-machine-name > *"))) ro?.observe(el);
+    const watched = table.querySelectorAll(".mon-machine-name > *, .mon-runtime-cell > *");
+    for (const el of Array.from(watched)) ro?.observe(el);
     let live = true;
     document.fonts?.ready.then(() => live && measure());
     return () => {
       live = false;
       ro?.disconnect();
     };
-  }, [tableRef, wrapRef, content]);
+  }, [tableRef, wrapRef, machines, telemetry]);
 }
 
 /** The 機器資訊 table. Exported so the layout guard can mount it with
@@ -1319,7 +1350,15 @@ export function MachinesTable({
   const wrapRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<HTMLTableElement>(null);
   const edges = useScrollEdges(wrapRef, machines);
-  useMachineColumnMinWidth(tableRef, wrapRef, machines);
+  // What the runtime cells print, as a string: the page rebuilds hwByHost on
+  // every render, and re-measuring for an equal map would be wasted layout.
+  const runtimeContent = JSON.stringify(
+    machines.map((m) => {
+      const hw = hwByHost.get(m.machineId);
+      return [hw?.runtimeCapabilities ?? null, hw?.runtimeCapabilitiesStale ?? null];
+    })
+  );
+  useMachineColumnWidths(tableRef, wrapRef, machines, runtimeContent);
   return (
     <div
       ref={wrapRef}
@@ -1430,7 +1469,7 @@ export function MachinesTable({
                  * telemetry — stale telemetry carries no login state
                  * (owner ruling). */}
                 <td
-                  className="mon-table__left mon-runtime-cell"
+                  className="mon-table__left mon-runtime-cell mon-runtime-cell--claude"
                   data-label={t.monitor.machineCol.claude}
                   data-testid="mon-claude-version"
                 >
@@ -1446,7 +1485,7 @@ export function MachinesTable({
                   />
                 </td>
                 <td
-                  className="mon-table__left mon-runtime-cell"
+                  className="mon-table__left mon-runtime-cell mon-runtime-cell--codex"
                   data-label={t.monitor.machineCol.codex}
                   data-testid="mon-codex-version"
                 >
@@ -1885,8 +1924,9 @@ function RuntimeVersionCell({
 }
 
 /** A machine-table value with its marks (版本太舊, 未登入, 過期, …) on the same
- * line after it. The columns are wide enough for the most a cell can carry
- * (monitor.css), so a mark never moves the columns beside it. */
+ * line after it. The hardware columns are wide enough for the most their cells
+ * carry; the Claude and Codex columns grow to their widest line
+ * (useMachineColumnWidths). */
 function CellLine({ value, children }: { value: ReactNode; children?: ReactNode }) {
   const marks = Children.toArray(children);
   return (

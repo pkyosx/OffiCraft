@@ -484,19 +484,20 @@
 .mon-table__right {
   text-align: right !important;
 }
-/* 機器資訊: every column but 機器 has a fixed width, so a mark in one cell
- * (版本太舊, 未登入, 過期) never shifts its neighbours, and the rows look the same
- * in every state. Desktop only: the ≤720px card mode does not lay out columns.
+/* 機器資訊: every column but 機器 has a set width, so a mark in one cell
+ * (版本太舊, 未登入, 過期) never shifts its neighbours within a row, and every row
+ * of the table lines up. Claude and Codex grow past theirs only to fit the
+ * widest cell of the whole table (below). Desktop only: the ≤720px card mode does not lay out columns.
  * The min-width is the fixed columns plus the widest 機器 cell's content,
- * measured by MachinesTable (useMachineColumnMinWidth), so short names leave
+ * measured by MachinesTable (useMachineColumnWidths), so short names leave
  * room for the other columns and a long name is never cut. A fixed number here
  * was either too wide for short names (the table scrolled at 1280px for no
  * reason) or too narrow for a long one; the automatic table layout is no way
  * out either, since it squeezes the fixed columns as soon as the frame is
  * narrow. When the frame is narrower the table scrolls inside it, with 機器
  * pinned left so each row still says which machine it is and 操作 pinned
- * right. The narrower cell padding lets the columns hold a value and its first
- * mark on one line. */
+ * right. The narrower cell padding lets the 150px columns hold a value and its
+ * first mark on one line. */
 @media (min-width: 721px) {
   .mon-table--machines {
     table-layout: fixed;
@@ -521,29 +522,25 @@
   .mon-table--machines th:last-child {
     padding-left: 0;
   }
-  /* Claude and Codex are one width, enough for a version, one mark (版本太舊,
-   * 過期, en "too old") and the trigger's chevron on one line. A second mark
-   * wraps to a line of its own inside the cell: sized for two marks on one
-   * line, the two columns took the width the 1280px desktop needs to show 磁碟
-   * beside the default 伺服器這一台 row, and en "too old signed out" ran into
-   * the next column even then. The marks wrap one by one (their group box is
-   * dropped), so the first still sits beside the value. */
-  .mon-col--claude,
+  /* Claude and Codex are 150px, enough for a version, one mark (版本太舊, 過期,
+   * en "too old") and the trigger's chevron on one line. A cell never wraps:
+   * when a row carries more (版本太舊 and 未登入), MachinesTable measures the
+   * column's widest cell and the column grows to it, in every row alike, and
+   * the table scrolls in its frame if it no longer fits. Each column has its
+   * own measure. */
+  .mon-col--claude {
+    width: max(150px, var(--mon-claude-width, 0px));
+  }
   .mon-col--codex {
-    width: 150px;
+    width: max(150px, var(--mon-codex-width, 0px));
   }
-  .mon-runtime-cell .mon-cell-line {
-    flex-wrap: wrap;
-    row-gap: 2px;
-  }
-  .mon-runtime-cell .mon-cell-marks {
-    display: contents;
+  .mon-runtime-cell {
+    white-space: nowrap;
   }
   /* The trigger already reaches 8px into the left padding to line its text up
    * with the header. On the right its own padding and border (6px + 1px) may
-   * sit in the cell's right padding too, instead of pushing a mark onto the
-   * next line; no further, or a wrapped trigger, which takes the whole width,
-   * puts its chevron past the column's content edge. */
+   * sit in the cell's right padding too; that is what lets en "too old" fit
+   * the 150px column, and the chevron still ends on the content edge. */
   .mon-runtime-cell .runtime-menu__trigger {
     margin-right: -7px;
   }

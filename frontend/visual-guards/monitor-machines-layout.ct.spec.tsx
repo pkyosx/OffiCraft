@@ -5,10 +5,12 @@
 // and the three action buttons stacked into two or three rows. jsdom has no
 // layout, so this is measured in a real browser on the real MachinesTable.
 // The owner then picked the marks on the SAME line as the value, in fixed
-// columns, Claude and Codex one width, and a ⚙ with no frame. Claude and Codex
-// are sized for a version, one mark and the chevron; a second mark wraps under
-// the value inside the cell, because columns wide enough for two marks on one
-// line left the default 伺服器這一台 row scrolling at the 1280px desktop. A table wider
+// columns, and a ⚙ with no frame. Claude and Codex are 150px, enough for a
+// version, one mark and the chevron. A cell never wraps: when any row carries
+// two marks (版本太舊 and 未登入), that column grows to its widest cell, in every
+// row of the table alike, each column on its own, and the table scrolls if it no
+// longer fits; columns wide enough for two marks all the time left the default
+// 伺服器這一台 row scrolling at the 1280px desktop. A table wider
 // than its frame scrolls inside it with 機器 fixed on the left, so every row
 // still names its machine, and 操作 fixed on the right. 機器 is only as wide as
 // its widest row's name, id, online dot and not-in-effect exclamation need
@@ -20,13 +22,19 @@
 //   marks inline AND auto table layout (the layout before the fix)
 //                                           → column x differs between states
 //   marks back on a line of their own       → placement test, row height test
-//   Claude / Codex column narrowed           → a single mark wraps (placement test)
-//   Claude / Codex column back to 184px      → default-name 1280px fit test
-//   a second mark no longer wraps            → placement test (spills), row height test
-//   marks wrap as one group                  → placement test (first mark leaves the value's line)
-//   trigger's right margin dropped           → en placement test ("too old" wraps)
+//   Claude / Codex column back to 184px      → default-name 1280px fit test, 150px test
+//   the runtime cells wrap again (marks one by one, or as a group)
+//                                           → placement test, row height test
+//   column fixed at 150px, not grown to its content
+//                                           → placement test (spills), two-mark 1280px test
+//   grown from the first row only, not the widest
+//                                           → one-table placement test, one-table width test
+//   one width for both (Claude's, or the wider of the two)
+//                                           → own-measure test (claude2 / codex2)
+//   not measured again when only the telemetry changes
+//                                           → telemetry-change test
+//   trigger's right margin dropped           → own-measure test (chevron short of the edge)
 //   操作 header's left padding back          → en default-name fit test (1px scroll)
-//   Codex column a different width           → equal-width test
 //   drop `table-layout: fixed` or the column widths → 800px test
 //   操作 column not sticky                  → gear off-screen at 760/900px
 //   操作 cells transparent                  → a scrolled cell shows through
@@ -81,7 +89,7 @@ import { test, expect } from "@playwright/experimental-ct-react";
 import type { Page } from "@playwright/test";
 import { MonitorMachinesLayoutStory } from "./stories/MonitorMachinesLayoutStory";
 
-const STATES = ["normal", "chips", "stale"] as const;
+const STATES = ["normal", "old"] as const;
 
 async function columnEdges(page: Page) {
   return page.evaluate((states) => {
@@ -98,38 +106,36 @@ async function columnEdges(page: Page) {
   }, [...STATES]);
 }
 
-// Wide enough for every row's 機器 cell: each state is its own table here, and
-// each table is as wide as its own widest 機器 cell needs, so below this width
-// the stale row's longer 機器 cell would move its columns for a reason that has
-// nothing to do with the marks (one real table holds every row and has one
-// 機器 width).
-test("at a 1400px frame, every column starts at the same x in the plain, chipped and stale rows", async ({
+// Each state is its own table here: a one-mark row in a table of its own puts
+// every column where a plain one does. (Two marks widen their column, which in
+// one real table moves every row alike; the one-table tests cover that.)
+test("at a 1400px frame, every column starts at the same x in the plain and one-mark tables", async ({
   mount,
   page,
 }) => {
   await page.setViewportSize({ width: 1500, height: 900 });
-  await mount(<MonitorMachinesLayoutStory width={1400} />);
+  await mount(<MonitorMachinesLayoutStory width={1400} states={[...STATES]} />);
   const edges = await columnEdges(page);
   expect(edges.normal.th).toHaveLength(8);
   expect(edges.normal.td).toHaveLength(8);
-  for (const state of ["chips", "stale"] as const) {
-    expect(edges[state].th, `${state} header x`).toEqual(edges.normal.th);
-    expect(edges[state].td, `${state} cell x`).toEqual(edges.normal.td);
-  }
+  expect(edges.old.th, "old header x").toEqual(edges.normal.th);
+  expect(edges.old.td, "old cell x").toEqual(edges.normal.td);
 });
 
 const MARKED_CELLS = ["mon-claude-version", "mon-codex-version", "mon-cpu", "mon-ram", "mon-power"] as const;
 
-/** For every marked cell of the mounted rows: where each mark sits relative to
- * the value ("same" line or a line "below" it), and whether value, marks and
- * chevron all stay inside the cell without overlapping. */
-async function markPlacement(page: Page, ids: readonly string[]) {
-  return page.evaluate((ids) => {
+/** For every marked cell of the mounted rows, labelled in order by `states`
+ * (one table per state or one table of them all): where each mark sits
+ * relative to the value ("same" line or a line "below" it), and whether value,
+ * marks and chevron all stay inside the cell without overlapping. */
+async function markPlacement(page: Page, ids: readonly string[], states: readonly string[]) {
+  return page.evaluate(([ids, states]) => {
     const box = (el: Element) => el.getBoundingClientRect();
     const out = [];
-    for (const section of Array.from(document.querySelectorAll("[data-state]"))) {
+    const rows = Array.from(document.querySelectorAll("[data-state] tbody tr"));
+    for (const [r, row] of rows.entries()) {
       for (const id of ids) {
-        const cell = section.querySelector(`[data-testid="${id}"]`)!;
+        const cell = row.querySelector(`[data-testid="${id}"]`)!;
         const line = cell.querySelector(".mon-cell-line")!;
         const value = box(line.firstElementChild!);
         const parts = [
@@ -149,7 +155,7 @@ async function markPlacement(page: Page, ids: readonly string[]) {
           all.some((b, j) => j > i && a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5)
         );
         out.push({
-          id: `${section.getAttribute("data-state")} ${id}`,
+          id: `${states[r]} ${id}`,
           placement,
           inside: all.every((r) => r.left >= c.left && r.right <= right + 0.5 && r.top >= c.top && r.bottom <= c.bottom),
           overlap,
@@ -157,7 +163,7 @@ async function markPlacement(page: Page, ids: readonly string[]) {
       }
     }
     return out;
-  }, ids);
+  }, [ids, states] as const);
 }
 
 const PLACED = [
@@ -166,9 +172,8 @@ const PLACED = [
   ["chips", 2, 2, 0, 0, 0],
   ["stale", 2, 2, 1, 1, 1],
 ] as const;
-// The first mark shares the value's line; in the Claude and Codex cells a
-// second one goes on the line below. CPU, RAM and 電源 carry at most one.
-const PLACEMENT = { 0: [], 1: ["same"], 2: ["same", "below"] } as const;
+// Every mark shares the value's line. CPU, RAM and 電源 carry at most one.
+const PLACEMENT = { 0: [], 1: ["same"], 2: ["same", "same"] } as const;
 const expectedPlacement = (ids: readonly string[]) =>
   PLACED.flatMap(([state, ...counts]) =>
     MARKED_CELLS.flatMap((id, i) =>
@@ -178,20 +183,25 @@ const expectedPlacement = (ids: readonly string[]) =>
 
 // en runs the Claude and Codex cells only: its "stale" chip does not fit the
 // 72px CPU and RAM columns beside a dash, which these columns never claimed.
-for (const [language, width, ids] of [
-  ["zh", 1000, MARKED_CELLS],
-  ["zh", 900, MARKED_CELLS],
-  ["en", 1000, MARKED_CELLS.slice(0, 2)],
-] as const) {
-  test(`${language}, ${width}px: one mark sits on the value's line, a second wraps under it, and the most a cell carries stays inside its column`, async ({
-    mount,
-    page,
-  }) => {
-    await page.evaluate((l) => localStorage.setItem("oc.language", l), language);
-    await page.setViewportSize({ width: width + 500, height: 900 });
-    await mount(<MonitorMachinesLayoutStory width={width} states={["normal", "old", "chips", "stale"]} />);
-    expect(await markPlacement(page, ids)).toEqual(expectedPlacement(ids));
-  });
+// In one table the plain row comes first, so a column grown from its first row
+// alone leaves the two-mark rows spilling.
+for (const together of [false, true]) {
+  for (const [language, width, ids] of [
+    ["zh", 1000, MARKED_CELLS],
+    ["zh", 900, MARKED_CELLS],
+    ["en", 1000, MARKED_CELLS.slice(0, 2)],
+  ] as const) {
+    test(`${language}, ${width}px, ${together ? "one table" : "a table per row"}: every mark sits on the value's line and the most a cell carries stays inside its column`, async ({
+      mount,
+      page,
+    }) => {
+      const states = ["normal", "old", "chips", "stale"] as const;
+      await page.evaluate((l) => localStorage.setItem("oc.language", l), language);
+      await page.setViewportSize({ width: width + 500, height: 900 });
+      await mount(<MonitorMachinesLayoutStory width={width} states={[...states]} together={together} />);
+      expect(await markPlacement(page, ids, states)).toEqual(expectedPlacement(ids));
+    });
+  }
 }
 
 test("the columns run 機器, Claude, Codex, CPU, RAM, 電源, 磁碟, 操作 at their fixed widths", async ({ mount, page }) => {
@@ -242,49 +252,167 @@ test("the 磁碟 total and 尚未量測 each sit on one line inside the column",
   ]);
 });
 
-test("a row with one mark per cell is no taller than a plain one; a second mark adds no more than its own line", async ({
+for (const [language, together] of [
+  ["zh", false],
+  ["zh", true],
+  ["en", true],
+] as const) {
+  test(`${language}, ${together ? "one table" : "a table per row"}: a row with one or two marks per cell is no taller than a plain one`, async ({
+    mount,
+    page,
+  }) => {
+    await page.evaluate((l) => localStorage.setItem("oc.language", l), language);
+    await page.setViewportSize({ width: 1500, height: 900 });
+    // A plain row both first and last: a table's last row draws no bottom
+    // border, so each row is held to the plain row in the same position.
+    await mount(
+      <MonitorMachinesLayoutStory states={["normal", "old", "chips", "stale", "claude2", "codex2", "normal"]} together={together} />
+    );
+    const rows = await page.evaluate(() =>
+      Array.from(document.querySelectorAll("[data-state] tbody tr")).map((tr) => ({
+        last: tr === tr.parentElement!.lastElementChild,
+        height: tr.getBoundingClientRect().height,
+      }))
+    );
+    expect(rows).toHaveLength(7);
+    const plain = (last: boolean) => (last ? rows[6] : rows[0]).height;
+    expect(rows.map((r) => r.height), "every row as tall as a plain one").toEqual(rows.map((r) => plain(r.last)));
+  });
+}
+
+/** Per table: the Claude and Codex widths of its header and of every row. */
+async function runtimeWidths(page: Page) {
+  return page.evaluate(() =>
+    Array.from(document.querySelectorAll("[data-state]")).map((section) => {
+      const w = (el: Element) => Math.round(el.getBoundingClientRect().width * 100) / 100;
+      const all = (sel: string) => Array.from(section.querySelectorAll(sel)).map(w);
+      return {
+        state: section.getAttribute("data-state")!,
+        claude: [w(section.querySelector("thead th:nth-child(2)")!), ...all('[data-testid="mon-claude-version"]')],
+        codex: [w(section.querySelector("thead th:nth-child(3)")!), ...all('[data-testid="mon-codex-version"]')],
+      };
+    })
+  );
+}
+
+// 150 is the CSS's own number. The rows are ones whose content is well inside
+// it on any font: en "2.1.286 too old" fills all but ~2px of the column here,
+// so a font a few px wider grows that column (on one line, as it should) and
+// it is left to the placement tests.
+for (const [language, states] of [
+  ["zh", ["normal", "old", "named", "long"]],
+  ["en", ["normal", "named", "long"]],
+] as const) {
+  for (const width of [1000, 800]) {
+    test(`${language}, ${width}px: with no cell carrying two marks, Claude and Codex are 150px`, async ({ mount, page }) => {
+      await page.evaluate((l) => localStorage.setItem("oc.language", l), language);
+      await page.setViewportSize({ width: width + 500, height: 900 });
+      await mount(<MonitorMachinesLayoutStory width={width} states={[...states]} />);
+      for (const t of await runtimeWidths(page)) {
+        expect(t, t.state).toEqual({ state: t.state, claude: [150, 150], codex: [150, 150] });
+      }
+    });
+  }
+}
+
+/** The 機器資訊 table of each mounted section, measured once settled. */
+async function settledWidths(page: Page) {
+  await page.evaluate(() => document.fonts.ready);
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  return runtimeWidths(page);
+}
+
+// The expected widths come from mounts of a single row each, not numbers.
+test("each column grows to its own widest cell: two marks in Claude alone leave Codex at 150px, and the other way round", async ({
   mount,
   page,
 }) => {
   await page.setViewportSize({ width: 1500, height: 900 });
-  await mount(<MonitorMachinesLayoutStory states={["normal", "old", "chips", "stale"]} />);
-  const rows = await page.evaluate(() => ({
-    heights: Array.from(document.querySelectorAll("[data-state] tbody tr")).map((tr) =>
-      Math.round(tr.getBoundingClientRect().height)
-    ),
-    mark: document.querySelector('[data-state="chips"] [data-testid="mon-claude-too-old"]')!.getBoundingClientRect().height,
-  }));
-  const [normal, old, chips, stale] = rows.heights;
-  expect(rows.heights).toHaveLength(4);
-  expect(old, "one mark").toBe(normal);
-  expect(stale, "stale row").toBe(chips);
-  expect(chips - normal, "a second mark wraps under the value").toBeGreaterThan(0);
-  expect(chips - normal, "by one line of chips at most").toBeLessThanOrEqual(Math.ceil(rows.mark) + 2);
+  await mount(<MonitorMachinesLayoutStory width={1400} states={["chips", "claude2", "codex2"]} />);
+  const [chips, claude2, codex2] = await settledWidths(page);
+  const grown = chips.claude[0];
+  expect(grown, "control: two marks need more than 150px").toBeGreaterThan(150);
+  expect(chips.codex[0], "control: two marks need more than 150px").toBeGreaterThan(150);
+  expect(claude2, "Claude carries two marks").toEqual({ state: "claude2", claude: [grown, grown], codex: [150, 150] });
+  expect(codex2, "Codex carries two marks").toEqual({ state: "codex2", claude: [150, 150], codex: chips.codex });
+  // Grown to fit, not past it: the widest cell's chevron ends on the column's
+  // content edge (the trigger's own right padding sits in the cell's).
+  const ends = await page.evaluate(() =>
+    ["mon-claude-version", "mon-codex-version"].map((id) => {
+      const cell = document.querySelector(`[data-state="chips"] [data-testid="${id}"]`)!;
+      const edge = cell.getBoundingClientRect().right - parseFloat(getComputedStyle(cell).paddingRight);
+      return Math.abs(cell.querySelector(".runtime-menu__chevron")!.getBoundingClientRect().right - edge) <= 1;
+    })
+  );
+  expect(ends, "the chevron ends on the content edge").toEqual([true, true]);
 });
 
-for (const width of [1000, 900, 800]) {
-  test(`at ${width}px the Claude and Codex columns are one width in every state`, async ({ mount, page }) => {
-    await page.setViewportSize({ width: width + 500, height: 900 });
-    await mount(<MonitorMachinesLayoutStory width={width} />);
-    const widths = await page.evaluate(() =>
-      Array.from(document.querySelectorAll("[data-state]")).map((section) => {
-        const w = (sel: string) => Math.round(section.querySelector(sel)!.getBoundingClientRect().width);
-        return {
-          state: section.getAttribute("data-state"),
-          claude: w('[data-testid="mon-claude-version"]'),
-          codex: w('[data-testid="mon-codex-version"]'),
-          claudeHead: w("thead th:nth-child(2)"),
-          codexHead: w("thead th:nth-child(3)"),
-        };
-      })
-    );
-    const first = widths[0].claude;
-    expect(first, "the column has a real width").toBeGreaterThan(100);
-    for (const row of widths) {
-      expect(row, row.state!).toEqual({ state: row.state, claude: first, codex: first, claudeHead: first, codexHead: first });
-    }
-  });
-}
+test("in one table every row's Claude and Codex cells take the widest cell's width, wherever that row sits", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 1500, height: 900 });
+  const alone = await mount(<MonitorMachinesLayoutStory width={1400} states={["chips"]} />);
+  const [chips] = await settledWidths(page);
+  await alone.unmount();
+  for (const order of [
+    ["normal", "chips", "old"],
+    ["chips", "normal", "old"],
+    ["normal", "old", "chips"],
+  ] as const) {
+    const c = await mount(<MonitorMachinesLayoutStory width={1400} states={[...order]} together />);
+    const [t] = await settledWidths(page);
+    const col = (w: number) => [w, w, w, w];
+    expect(t, order.join(", ")).toEqual({ state: "together", claude: col(chips.claude[0]), codex: col(chips.codex[0]) });
+    await c.unmount();
+  }
+});
+
+// The page's machine list stays the same object while only the telemetry
+// changes, so the table re-renders without new rows. Codex going from never
+// probed (a plain dash) to installed with two marks swaps the cell's element
+// for the menu's trigger, which no size observer was watching.
+test("when a machine's runtime state changes, the column follows it both ways", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1500, height: 900 });
+  const alone = await mount(<MonitorMachinesLayoutStory width={1400} states={["codex2"]} together />);
+  const [codex2] = await settledWidths(page);
+  await alone.unmount();
+  expect(codex2.codex[0], "control: two marks need more than 150px").toBeGreaterThan(150);
+
+  const story = await mount(<MonitorMachinesLayoutStory width={1400} states={["nocodex"]} together />);
+  expect((await settledWidths(page))[0].codex).toEqual([150, 150]);
+  await expect(page.getByTestId("mon-codex-version")).toHaveText("—");
+  await story.update(<MonitorMachinesLayoutStory width={1400} states={["codex2"]} together />);
+  await expect.poll(async () => (await runtimeWidths(page))[0].codex).toEqual(codex2.codex);
+  await story.update(<MonitorMachinesLayoutStory width={1400} states={["nocodex"]} together />);
+  await expect.poll(async () => (await runtimeWidths(page))[0].codex).toEqual([150, 150]);
+});
+
+test("opening a grown column's version menu keeps every column where it was and opens under the trigger", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 1016, height: 900 });
+  await mount(<MonitorMachinesLayoutStory width={996} states={["normal", "chips"]} together />);
+  const before = await settledWidths(page);
+  const edges = () =>
+    page.evaluate(() => Array.from(document.querySelectorAll("thead th")).map((th) => th.getBoundingClientRect().left));
+  const x = await edges();
+  const trigger = page.getByTestId("mon-claude-version").nth(1).getByRole("button");
+  await trigger.click();
+  const pop = page.getByRole("menu");
+  await expect(pop).toBeVisible();
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  expect(await runtimeWidths(page), "widths with the menu open").toEqual(before);
+  expect(await edges(), "columns with the menu open").toEqual(x);
+  const t = (await trigger.boundingBox())!;
+  const p = (await pop.boundingBox())!;
+  expect({
+    left: Math.round(p.x) === Math.round(t.x),
+    below: Math.abs(p.y - (t.y + t.height - 1)) <= 1,
+    wide: p.width >= t.width - 0.5,
+  }).toEqual({ left: true, below: true, wide: true });
+});
 
 test("the ⚙ draws no frame at rest, on hover or with its menu open", async ({ mount, page }) => {
   await page.setViewportSize({ width: 1500, height: 900 });
@@ -716,7 +844,7 @@ test("on a short window the 磁碟 breakdown stays inside the window and scrolls
 
 test("narrower desktop: the table scrolls inside its own frame, the page does not", async ({ mount, page }) => {
   await page.setViewportSize({ width: 820, height: 900 });
-  await mount(<MonitorMachinesLayoutStory width={800} />);
+  await mount(<MonitorMachinesLayoutStory width={800} states={["normal", "old", "chips"]} />);
   const over = await overflow(page);
   expect(over.page).toBeLessThanOrEqual(1);
   expect(over.monitor, ".monitor scrolls vertically and would swallow a sideways spill").toBeLessThanOrEqual(1);
@@ -729,10 +857,15 @@ test("narrower desktop: the table scrolls inside its own frame, the page does no
         .map((td) => Math.round(td.getBoundingClientRect().width))
     )
   );
-  expect(widths).toEqual([
-    [150, 150, 72, 72, 88, 96, 56],
-    [150, 150, 72, 72, 88, 96, 56],
-    [150, 150, 72, 72, 88, 96, 56],
+  expect(widths.map((w) => w.slice(2))).toEqual([
+    [72, 72, 88, 96, 56],
+    [72, 72, 88, 96, 56],
+    [72, 72, 88, 96, 56],
+  ]);
+  expect(widths.map((w) => w.slice(0, 2).map((x) => (x === 150 ? 150 : x > 150 ? "grown" : x)))).toEqual([
+    [150, 150],
+    [150, 150],
+    ["grown", "grown"],
   ]);
   const spill = await page.evaluate(() => {
     const parts = Array.from(document.querySelector(".mon-machine-name")!.children);
@@ -888,15 +1021,13 @@ test("at 996px (the 1280px desktop) a table of real-length machine names fits it
 });
 
 // Every new site's own machine is named 伺服器這一台, so this is the row most
-// tables have. It has to fit the 1280px desktop with room to spare: fonts on a
-// real machine measure a few pixels wider than here. The offline not-in-effect
-// row has the widest 機器 cell of the plain states; it fits too, in both
-// languages, now that its mark is an icon.
+// tables have. With no mark or one, it has to fit the 1280px desktop with room
+// to spare: fonts on a real machine measure a few pixels wider than here.
 for (const [language, state] of [
   ["zh", "normal"],
   ["en", "normal"],
-  ["zh", "stale"],
-  ["en", "stale"],
+  ["zh", "old"],
+  ["en", "old"],
 ] as const) {
   test(`${language}, at 996px (the 1280px desktop) the ${state} 伺服器這一台 row fits with 24px to spare and 磁碟 clear of ⚙`, async ({
     mount,
@@ -910,7 +1041,7 @@ for (const [language, state] of [
     expect(fit.frame, "control: the frame is the 1280px desktop's (996px less its border)").toBe(994);
     expect(fit.minWidth, "control: the table has a measured minimum").toBeGreaterThan(800);
     expect(fit.overflow).toBe(0);
-    if (state === "normal") expect(fit.frame - fit.minWidth, "room to spare").toBeGreaterThanOrEqual(24);
+    expect(fit.frame - fit.minWidth, "room to spare").toBeGreaterThanOrEqual(24);
     const box = async (sel: string) => (await page.locator(sel).boundingBox())!;
     const [diskHead, gearHead, diskCell, gearCell, diskValue, frame] = await Promise.all([
       box(".mon-table--machines thead th:nth-child(7)"),
@@ -927,6 +1058,60 @@ for (const [language, state] of [
       value: right(diskValue) <= gearCell.x + 0.5,
       gearInFrame: right(gearCell) <= right(frame) + 0.5,
     }).toEqual({ head: true, cell: true, value: true, gearInFrame: true });
+  });
+}
+
+// The owner's case: Claude and Codex both carrying 版本太舊 and 未登入. Nothing
+// wraps; the two columns grow, the table no longer fits 994px and scrolls, with
+// 機器 and ⚙ pinned, the shades on the right side and the sideways overscroll
+// held. A plain row keeps its height.
+for (const language of ["zh", "en"] as const) {
+  test(`${language}, at 996px (the 1280px desktop) two marks in Claude and Codex grow both columns, nothing wraps, and the table scrolls`, async ({
+    mount,
+    page,
+  }) => {
+    await page.evaluate((l) => localStorage.setItem("oc.language", l), language);
+    await page.setViewportSize({ width: 1016, height: 900 });
+    // The chipped row in a table of its own: one table of both rows would
+    // need distinct ids, and the real 伺服器這一台 row's id is what decides the fit.
+    const states = ["chips", "normal"] as const;
+    await mount(<MonitorMachinesLayoutStory width={996} states={[...states]} />);
+    const [t] = await settledWidths(page);
+    const fit = await fitAt(page);
+    expect(fit.frame, "control: the frame is the 1280px desktop's (996px less its border)").toBe(994);
+    expect(t.claude[0], "Claude grew").toBeGreaterThan(150);
+    expect(t.codex[0], "Codex grew").toBeGreaterThan(150);
+    expect(fit.overflow, "the table scrolls").toBeGreaterThan(0);
+    expect(await markPlacement(page, MARKED_CELLS.slice(0, 2), states)).toEqual(
+      states.flatMap((state) =>
+        MARKED_CELLS.slice(0, 2).map((id) => ({
+          id: `${state} ${id}`,
+          placement: state === "chips" ? ["same", "same"] : [],
+          inside: true,
+          overlap: false,
+        }))
+      )
+    );
+    const heights = await page.evaluate(() =>
+      Array.from(document.querySelectorAll("tbody tr")).map((tr) => tr.getBoundingClientRect().height)
+    );
+    expect(heights[0], "the two-mark row is as tall as the plain one").toBe(heights[1]);
+
+    const wrap = page.locator(".mon-table-wrap").first();
+    const machine = page.locator("tbody tr").first().locator("td").first();
+    const gearCell = page.locator("tbody tr").first().locator("td").last();
+    const start = (await machine.boundingBox())!.x;
+    await expect.poll(() => shades(page), "at rest the far columns are under ⚙").toEqual({ left: 0, right: 1 });
+    await wrap.evaluate((el) => (el.scrollLeft = 10_000));
+    expect(await wrap.evaluate((el) => el.scrollLeft), "control: the frame scrolled").toBe(fit.overflow);
+    await expect.poll(() => shades(page), "scrolled to the end, 機器 covers what scrolled away").toEqual({ left: 1, right: 0 });
+    const frame = (await wrap.boundingBox())!;
+    const g = (await gearCell.boundingBox())!;
+    expect({
+      machine: Math.round((await machine.boundingBox())!.x) === Math.round(start),
+      gear: Math.round(g.x + g.width) === Math.round(frame.x + frame.width - 1),
+      overscroll: await wrap.evaluate((el) => getComputedStyle(el).overscrollBehaviorX),
+    }).toEqual({ machine: true, gear: true, overscroll: "none" });
   });
 }
 
