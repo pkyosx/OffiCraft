@@ -612,28 +612,27 @@ type monitoringMachineDTO struct {
 // Hand-written instead of the generated MachineDiskUsageDTO: that one drops
 // unmeasured fields (omitempty), and the spec serves them as null.
 type machineDiskUsageDTO struct {
-	MeasuredAt              *float64                    `json:"measured_at"`
-	TotalBytes              *int                        `json:"total_bytes"`
-	DatabaseBytes           *int                        `json:"database_bytes"`
-	BackupsBytes            *int                        `json:"backups_bytes"`
-	DatabaseMeasuredAt      *float64                    `json:"database_measured_at"`
-	WorkspaceBytes          *int                        `json:"workspace_bytes"`
-	ConversationBytes       *int                        `json:"conversation_bytes"`
-	ClaudeConversationBytes *int                        `json:"claude_conversation_bytes"`
-	CodexConversationBytes  *int                        `json:"codex_conversation_bytes"`
-	OtherBytes              *int                        `json:"other_bytes"`
-	Members                 []machineDiskUsageMemberDTO `json:"members"`
-	DiskFreeBytes           *int                        `json:"disk_free_bytes"`
-	DiskTotalBytes          *int                        `json:"disk_total_bytes"`
+	MeasuredAt         *float64                      `json:"measured_at"`
+	TotalBytes         *int                          `json:"total_bytes"`
+	DatabaseMeasuredAt *float64                      `json:"database_measured_at"`
+	Categories         []machineDiskUsageCategoryDTO `json:"categories"`
+	Members            []machineDiskUsageMemberDTO   `json:"members"`
+	DiskFreeBytes      *int                          `json:"disk_free_bytes"`
+	DiskTotalBytes     *int                          `json:"disk_total_bytes"`
+}
+
+type machineDiskUsageCategoryDTO struct {
+	Key       string  `json:"key"`
+	ParentKey *string `json:"parent_key"`
+	Bytes     *int    `json:"bytes"`
+	InRoot    bool    `json:"in_root"`
 }
 
 type machineDiskUsageMemberDTO struct {
-	MemberID          string  `json:"member_id"`
-	Name              *string `json:"name"`
-	RosterStatus      string  `json:"roster_status"`
-	WorkspaceBytes    *int    `json:"workspace_bytes"`
-	ConversationBytes *int    `json:"conversation_bytes"`
-	TotalBytes        int     `json:"total_bytes"`
+	MemberID       string  `json:"member_id"`
+	Name           *string `json:"name"`
+	RosterStatus   string  `json:"roster_status"`
+	WorkspaceBytes *int    `json:"workspace_bytes"`
 }
 
 type monitoringAccountDTO struct {

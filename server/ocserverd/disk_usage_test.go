@@ -44,6 +44,23 @@ func diskTestWrite(t *testing.T, path string, size int) {
 
 func diskTestInt(n int) *int { return &n }
 
+// diskTestOldCopies puts two old database copies beside the database, one a
+// file named after it and one a retreat-* directory, plus a file that is
+// neither; diskTestOldCopiesBytes is what the two take.
+//
+//	officraft.db.bak-pre-v0.5.28   4096 B -> 4096
+//	retreat-t-dd7a/RETREAT.dbfile  8000 B -> 8192
+//	notes.txt                      4096 B (not a copy)
+func diskTestOldCopies(t *testing.T, dbPath string) {
+	t.Helper()
+	dir := filepath.Dir(dbPath)
+	diskTestWrite(t, dbPath+".bak-pre-v0.5.28", 4096)
+	diskTestWrite(t, filepath.Join(dir, "retreat-t-dd7a", "RETREAT.dbfile"), 8000)
+	diskTestWrite(t, filepath.Join(dir, "notes.txt"), 4096)
+}
+
+const diskTestOldCopiesBytes = 12288
+
 func TestMeasureServerDisk(t *testing.T) {
 	at := time.Unix(1759500000, 500_000_000)
 
@@ -53,6 +70,19 @@ func TestMeasureServerDisk(t *testing.T) {
 		apiWantValue(t, "sample", any(measureServerDisk(dbPath, root, at)), any(serverDiskSample{
 			DatabaseBytes:   diskTestInt(16384),
 			BackupsBytes:    diskTestInt(20480),
+			OldCopiesBytes:  diskTestInt(0),
+			MeasuredAt:      1759500000.5,
+			DBInStationRoot: true,
+		}))
+	})
+
+	t.Run("under old database copies beside the database, a file named after it and a retreat-* directory count and nothing else does", func(t *testing.T) {
+		root, dbPath := diskTestStation(t)
+		diskTestOldCopies(t, dbPath)
+		apiWantValue(t, "sample", any(measureServerDisk(dbPath, root, at)), any(serverDiskSample{
+			DatabaseBytes:   diskTestInt(16384),
+			BackupsBytes:    diskTestInt(20480),
+			OldCopiesBytes:  diskTestInt(diskTestOldCopiesBytes),
 			MeasuredAt:      1759500000.5,
 			DBInStationRoot: true,
 		}))
@@ -65,6 +95,7 @@ func TestMeasureServerDisk(t *testing.T) {
 		apiWantValue(t, "sample", any(measureServerDisk(dbPath, root, at)), any(serverDiskSample{
 			DatabaseBytes:   diskTestInt(20480),
 			BackupsBytes:    diskTestInt(20480),
+			OldCopiesBytes:  diskTestInt(0),
 			MeasuredAt:      1759500000.5,
 			DBInStationRoot: true,
 		}))
@@ -74,9 +105,10 @@ func TestMeasureServerDisk(t *testing.T) {
 		_, dbPath := diskTestStation(t)
 		for name, stationRoot := range map[string]string{"elsewhere": t.TempDir(), "unknown": ""} {
 			apiWantValue(t, name, any(measureServerDisk(dbPath, stationRoot, at)), any(serverDiskSample{
-				DatabaseBytes: diskTestInt(16384),
-				BackupsBytes:  diskTestInt(20480),
-				MeasuredAt:    1759500000.5,
+				DatabaseBytes:  diskTestInt(16384),
+				BackupsBytes:   diskTestInt(20480),
+				OldCopiesBytes: diskTestInt(0),
+				MeasuredAt:     1759500000.5,
 			}))
 		}
 	})
@@ -91,6 +123,7 @@ func TestMeasureServerDisk(t *testing.T) {
 		apiWantValue(t, "sample", any(measureServerDisk(dbPath, link, at)), any(serverDiskSample{
 			DatabaseBytes:   diskTestInt(16384),
 			BackupsBytes:    diskTestInt(20480),
+			OldCopiesBytes:  diskTestInt(0),
 			MeasuredAt:      1759500000.5,
 			DBInStationRoot: true,
 		}))
@@ -104,6 +137,7 @@ func TestMeasureServerDisk(t *testing.T) {
 		apiWantValue(t, "no backups", any(measureServerDisk(dbPath, root, at)), any(serverDiskSample{
 			DatabaseBytes:   diskTestInt(16384),
 			BackupsBytes:    diskTestInt(0),
+			OldCopiesBytes:  diskTestInt(0),
 			MeasuredAt:      1759500000.5,
 			DBInStationRoot: true,
 		}))
@@ -114,6 +148,7 @@ func TestMeasureServerDisk(t *testing.T) {
 		}
 		apiWantValue(t, "no database", any(measureServerDisk(dbPath, root, at)), any(serverDiskSample{
 			BackupsBytes:    diskTestInt(20480),
+			OldCopiesBytes:  diskTestInt(0),
 			MeasuredAt:      1759500000.5,
 			DBInStationRoot: true,
 		}))
@@ -177,6 +212,7 @@ func TestRunServerDiskUsage(t *testing.T) {
 		apiWantValue(t, "sample at the first wait", any(*seenAtFirstWait), any(serverDiskSample{
 			DatabaseBytes:   diskTestInt(16384),
 			BackupsBytes:    diskTestInt(20480),
+			OldCopiesBytes:  diskTestInt(0),
 			MeasuredAt:      1759500000,
 			DBInStationRoot: true,
 		}))

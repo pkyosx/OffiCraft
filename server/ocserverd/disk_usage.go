@@ -13,7 +13,11 @@ import (
 type serverDiskSample struct {
 	DatabaseBytes *int
 	BackupsBytes  *int
-	MeasuredAt    float64
+	// OldCopiesBytes: database copies kept beside the database by hand or by
+	// an old release (officraft.db.bak-pre-v…, retreat-*/), which nothing
+	// rotates or deletes.
+	OldCopiesBytes *int
+	MeasuredAt     float64
 	// DBInStationRoot: the station root's own measurement (the warden's
 	// root_bytes) already counts the database and backups.
 	DBInStationRoot bool
@@ -97,6 +101,10 @@ func measureServerDisk(dbPath, stationRoot string, now time.Time) serverDiskSamp
 			sample.DatabaseBytes = &v
 		}
 	}
+	if copies, err := oldDatabaseCopiesBytes(dbPath); err == nil {
+		v := int(copies)
+		sample.OldCopiesBytes = &v
+	}
 	backups, err := treeAllocatedBytes(backupDirFor(dbPath))
 	if err == nil || os.IsNotExist(err) {
 		if err != nil {
@@ -106,6 +114,30 @@ func measureServerDisk(dbPath, stationRoot string, now time.Time) serverDiskSamp
 		sample.BackupsBytes = &v
 	}
 	return sample
+}
+
+// oldDatabaseCopiesBytes sizes the entries beside the database named after it
+// plus a dot and a suffix (its -wal and -shm use a dash), and the retreat-*
+// directories there.
+func oldDatabaseCopiesBytes(dbPath string) (int64, error) {
+	dir, base := filepath.Dir(dbPath), filepath.Base(dbPath)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0, err
+	}
+	var total int64
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasPrefix(name, base+".") && !(e.IsDir() && strings.HasPrefix(name, "retreat-")) {
+			continue
+		}
+		n, err := treeAllocatedBytes(filepath.Join(dir, name))
+		if err != nil {
+			return 0, err
+		}
+		total += n
+	}
+	return total, nil
 }
 
 func (s *apiServer) recordServerDisk(dbPath, stationRoot string, now time.Time) {
@@ -180,11 +212,102 @@ func addBytes(parts ...*int) *int {
 	return &total
 }
 
-func orZero(p *int) int {
-	if p == nil {
-		return 0
+// Display order of the categories the server knows; any other key a warden
+// sends follows them by key, and other comes last.
+var diskCategoryOrder = []string{"database", "backups", "workspaces", "logs", "old_version_backups", "old_database_copies"}
+
+const (
+	diskCategoryOldVersions = "old_version_backups"
+	diskCategoryOldCopies   = "old_database_copies"
+	diskCategoryOther       = "other"
+)
+
+// The rows only the server fills; a warden entry with one of these keys is
+// dropped.
+var serverDiskCategories = map[string]bool{
+	"database": true, "backups": true, "workspaces": true, diskCategoryOldCopies: true, diskCategoryOther: true,
+}
+
+// wardenDiskCategories reads the report's categories. An entry without a key
+// or an in_root flag is dropped (its bytes stay in other); bytes that are not
+// a whole non-negative number read as a failed probe. The first entry of a
+// key wins.
+func wardenDiskCategories(report map[string]any) []machineDiskUsageCategoryDTO {
+	list, _ := report["categories"].([]any)
+	seen := map[string]bool{}
+	var out []machineDiskUsageCategoryDTO
+	for _, raw := range list {
+		entry, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		key, _ := entry["key"].(string)
+		inRoot, flagged := entry["in_root"].(bool)
+		if key == "" || !flagged || seen[key] || serverDiskCategories[key] {
+			continue
+		}
+		seen[key] = true
+		c := machineDiskUsageCategoryDTO{Key: key, Bytes: diskByteCount(entry["bytes"]), InRoot: inRoot}
+		if parent, ok := entry["parent_key"].(string); ok && parent != "" && parent != key {
+			c.ParentKey = &parent
+		}
+		out = append(out, c)
 	}
-	return *p
+	return out
+}
+
+// orderDiskCategories adds a row for every parent named by a part (the sum of
+// its parts, null when one is null) and puts the rows in display order, each
+// part right after its parent.
+func orderDiskCategories(rows []machineDiskUsageCategoryDTO) []machineDiskUsageCategoryDTO {
+	top := map[string]*machineDiskUsageCategoryDTO{}
+	parts := map[string][]machineDiskUsageCategoryDTO{}
+	for i := range rows {
+		r := rows[i]
+		if r.ParentKey == nil {
+			if _, dup := top[r.Key]; !dup {
+				top[r.Key] = &r
+			}
+			continue
+		}
+		parts[*r.ParentKey] = append(parts[*r.ParentKey], r)
+	}
+	for parent, list := range parts {
+		var sum *int
+		zero := 0
+		sum = &zero
+		for _, p := range list {
+			sum = addBytes(sum, p.Bytes)
+		}
+		// A reported row with the parent's own key is replaced: the parent is
+		// what its parts add up to.
+		top[parent] = &machineDiskUsageCategoryDTO{Key: parent, Bytes: sum, InRoot: list[0].InRoot}
+		sort.Slice(list, func(i, j int) bool { return list[i].Key < list[j].Key })
+	}
+	rank := func(key string) int {
+		for i, k := range diskCategoryOrder {
+			if k == key {
+				return i
+			}
+		}
+		return len(diskCategoryOrder)
+	}
+	keys := make([]string, 0, len(top))
+	for k := range top {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if ri, rj := rank(keys[i]), rank(keys[j]); ri != rj {
+			return ri < rj
+		}
+		return keys[i] < keys[j]
+	})
+	out := make([]machineDiskUsageCategoryDTO, 0, len(rows)+len(parts))
+	for _, k := range keys {
+		out = append(out, *top[k])
+		out = append(out, parts[k]...)
+	}
+	return out
 }
 
 // machineDiskUsage folds the warden's stored report (nil when none) and, on the
@@ -196,104 +319,134 @@ func machineDiskUsage(report map[string]any, self *serverDiskSample, isSelf bool
 	if report == nil && self == nil {
 		return nil
 	}
-	out := &machineDiskUsageDTO{Members: []machineDiskUsageMemberDTO{}}
+	out := &machineDiskUsageDTO{
+		Categories: []machineDiskUsageCategoryDTO{},
+		Members:    []machineDiskUsageMemberDTO{},
+	}
+	var rows []machineDiskUsageCategoryDTO
 	if self != nil {
-		out.DatabaseBytes = self.DatabaseBytes
-		out.BackupsBytes = self.BackupsBytes
 		stamp := self.MeasuredAt
 		out.DatabaseMeasuredAt = &stamp
+		rows = append(rows,
+			machineDiskUsageCategoryDTO{Key: "database", Bytes: self.DatabaseBytes, InRoot: self.DBInStationRoot},
+			machineDiskUsageCategoryDTO{Key: "backups", Bytes: self.BackupsBytes, InRoot: self.DBInStationRoot})
 	}
+	var root *int
+	if report != nil {
+		out.MeasuredAt = diskStamp(report["measured_at"])
+		out.DiskFreeBytes = diskByteCount(report["disk_free_bytes"])
+		out.DiskTotalBytes = diskByteCount(report["disk_total_bytes"])
+		root = diskByteCount(report["root_bytes"])
+		rows = append(rows, machineDiskUsageCategoryDTO{Key: "workspaces", Bytes: diskMembers(report, out, roster), InRoot: true})
+		rows = append(rows, wardenDiskCategories(report)...)
+	}
+	if self != nil {
+		// Copies inside the root are what old_version_backups names; outside it
+		// they are a row of their own, added to the total like the database.
+		if self.DBInStationRoot {
+			merged := false
+			for i := range rows {
+				if rows[i].Key == diskCategoryOldVersions && rows[i].ParentKey == nil {
+					rows[i].Bytes = addBytes(rows[i].Bytes, self.OldCopiesBytes)
+					merged = true
+				}
+			}
+			if !merged {
+				rows = append(rows, machineDiskUsageCategoryDTO{Key: diskCategoryOldVersions, Bytes: self.OldCopiesBytes, InRoot: true})
+			}
+		} else {
+			rows = append(rows, machineDiskUsageCategoryDTO{Key: diskCategoryOldCopies, Bytes: self.OldCopiesBytes})
+		}
+	}
+	out.Categories = orderDiskCategories(rows)
+
 	if report == nil {
 		return out
 	}
-	out.MeasuredAt = diskStamp(report["measured_at"])
-	out.DiskFreeBytes = diskByteCount(report["disk_free_bytes"])
-	out.DiskTotalBytes = diskByteCount(report["disk_total_bytes"])
-	root := diskByteCount(report["root_bytes"])
-	claude := diskByteCount(report["claude_conversation_bytes"])
-	codex := diskByteCount(report["codex_conversation_bytes"])
-	out.ClaudeConversationBytes = claude
-	out.CodexConversationBytes = codex
-	out.ConversationBytes = addBytes(claude, codex)
-
-	if list, ok := report["members"].([]any); ok {
-		workspace := 0
-		allSized := true
-		for _, raw := range list {
-			entry, ok := raw.(map[string]any)
-			if !ok {
-				continue
-			}
-			id, _ := entry["member_id"].(string)
-			if id == "" {
-				continue
-			}
-			row := machineDiskUsageMemberDTO{
-				MemberID:          id,
-				WorkspaceBytes:    diskByteCount(entry["workspace_bytes"]),
-				ConversationBytes: diskByteCount(entry["conversation_bytes"]),
-				RosterStatus:      string(Unknown),
-			}
-			row.TotalBytes = orZero(row.WorkspaceBytes) + orZero(row.ConversationBytes)
-			if row.WorkspaceBytes == nil {
-				allSized = false
-			} else {
-				workspace += *row.WorkspaceBytes
-			}
-			if m, known := roster[id]; known {
-				name := m.Name
-				row.Name = &name
-				row.RosterStatus = string(Active)
-				if m.RosterStatus != RosterStatusActive {
-					row.RosterStatus = string(Removed)
-				}
-			}
-			out.Members = append(out.Members, row)
+	// A total or other missing any part would read as a smaller station, or a
+	// larger other, than it is; either is null instead.
+	total, other := root, root
+	for _, c := range out.Categories {
+		if c.ParentKey != nil {
+			continue
 		}
-		sort.SliceStable(out.Members, func(i, j int) bool {
-			a, b := out.Members[i], out.Members[j]
-			if a.TotalBytes != b.TotalBytes {
-				return a.TotalBytes > b.TotalBytes
-			}
-			return a.MemberID < b.MemberID
-		})
-		if allSized {
-			out.WorkspaceBytes = &workspace
+		if c.InRoot {
+			other = subBytes(other, c.Bytes)
+		} else {
+			total = addBytes(total, c.Bytes)
 		}
 	}
-
-	// A total missing any part would read as a smaller station, not an unknown one.
-	out.TotalBytes = addBytes(root, claude, codex)
-	if out.TotalBytes != nil && self != nil && !self.DBInStationRoot {
-		out.TotalBytes = addBytes(out.TotalBytes, self.DatabaseBytes, self.BackupsBytes)
-	}
-
-	other := addBytes(root)
-	if other != nil && out.WorkspaceBytes == nil {
+	// Not measured yet, the database may still be in the root.
+	if isSelf && self == nil {
 		other = nil
 	}
-	if other != nil {
-		v := *other - *out.WorkspaceBytes
-		if isSelf {
-			switch {
-			case self == nil:
-				// Not measured yet: the root may still hold the database.
-				other = nil
-			case self.DBInStationRoot:
-				if inner := addBytes(self.DatabaseBytes, self.BackupsBytes); inner != nil {
-					v -= *inner
-				} else {
-					other = nil
-				}
-			}
-		}
-		if other != nil {
-			if v < 0 {
-				v = 0
-			}
-			other = &v
-		}
+	if other != nil && *other < 0 {
+		zero := 0
+		other = &zero
 	}
-	out.OtherBytes = other
+	out.TotalBytes = total
+	out.Categories = append(out.Categories, machineDiskUsageCategoryDTO{Key: diskCategoryOther, Bytes: other, InRoot: true})
 	return out
+}
+
+func subBytes(from, part *int) *int {
+	if from == nil || part == nil {
+		return nil
+	}
+	v := *from - *part
+	return &v
+}
+
+// diskMembers fills out.Members from the report and returns their workspaces'
+// sum, null when the list is missing or a workspace was not sized.
+func diskMembers(report map[string]any, out *machineDiskUsageDTO, roster map[string]Member) *int {
+	list, ok := report["members"].([]any)
+	if !ok {
+		return nil
+	}
+	workspace := 0
+	allSized := true
+	for _, raw := range list {
+		entry, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		id, _ := entry["member_id"].(string)
+		if id == "" {
+			continue
+		}
+		row := machineDiskUsageMemberDTO{
+			MemberID:       id,
+			WorkspaceBytes: diskByteCount(entry["workspace_bytes"]),
+			RosterStatus:   string(Unknown),
+		}
+		if row.WorkspaceBytes == nil {
+			allSized = false
+		} else {
+			workspace += *row.WorkspaceBytes
+		}
+		if m, known := roster[id]; known {
+			name := m.Name
+			row.Name = &name
+			row.RosterStatus = string(Active)
+			if m.RosterStatus != RosterStatusActive {
+				row.RosterStatus = string(Removed)
+			}
+		}
+		out.Members = append(out.Members, row)
+	}
+	sort.SliceStable(out.Members, func(i, j int) bool {
+		a, b := out.Members[i].WorkspaceBytes, out.Members[j].WorkspaceBytes
+		if (a == nil) != (b == nil) {
+			return b == nil
+		}
+		if a != nil && *a != *b {
+			return *a > *b
+		}
+		return out.Members[i].MemberID < out.Members[j].MemberID
+	})
+	if !allSized {
+		return nil
+	}
+	return &workspace
 }

@@ -1058,21 +1058,7 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			return row["disk_usage"]
 		}
 		wantDisk := func(measuredAt float64, root int) map[string]any {
-			return map[string]any{
-				"measured_at":               measuredAt,
-				"total_bytes":               nil,
-				"database_bytes":            nil,
-				"backups_bytes":             nil,
-				"database_measured_at":      nil,
-				"workspace_bytes":           0,
-				"conversation_bytes":        nil,
-				"claude_conversation_bytes": nil,
-				"codex_conversation_bytes":  nil,
-				"other_bytes":               root,
-				"disk_free_bytes":           nil,
-				"disk_total_bytes":          nil,
-				"members":                   []any{},
-			}
+			return diskWant(measuredAt, root, nil, []any{diskCat("workspaces", 0, true), diskCat("other", root, true)}, []any{}, nil, nil)
 		}
 
 		status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", box,
@@ -1897,6 +1883,28 @@ func apiTestDiskBox(t *testing.T, api *apiServer, d *DAL) string {
 	return apiTestAgentToken(t, api, "m-box", "m-box")
 }
 
+// diskCat is one top-level row of a disk_usage breakdown as served.
+func diskCat(key string, bytes any, inRoot bool) map[string]any {
+	return map[string]any{"key": key, "parent_key": nil, "bytes": bytes, "in_root": inRoot}
+}
+
+func diskMember(id string, name any, status string, workspace any) map[string]any {
+	return map[string]any{"member_id": id, "name": name, "roster_status": status, "workspace_bytes": workspace}
+}
+
+// diskWant is a served disk_usage object.
+func diskWant(measuredAt, total, dbAt any, categories, members []any, free, diskTotal any) map[string]any {
+	return map[string]any{
+		"measured_at":          measuredAt,
+		"total_bytes":          total,
+		"database_measured_at": dbAt,
+		"categories":           categories,
+		"members":              members,
+		"disk_free_bytes":      free,
+		"disk_total_bytes":     diskTotal,
+	}
+}
+
 // apiTestDiskBoxMachine is m-box's row with nothing but its disk usage set by
 // the caller.
 func apiTestDiskBoxMachine() map[string]any {
@@ -2429,437 +2437,273 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		})
 	})
 
-	t.Run("under a warden's disk measurement on another machine, that row folds it into totals and members while the unmeasured server row stays null", func(t *testing.T) {
+	// diskView ingests one warden report as tok (when body is not empty) and
+	// answers the disk_usage of the monitoring row for host.
+	diskView := func(t *testing.T, h http.Handler, owner, tok, host, body string) any {
+		t.Helper()
+		if body != "" {
+			if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", tok, `{"disk_usage":`+body+`}`); status != 200 {
+				t.Fatalf("ingest: want 200, got %d (%v)", status, data)
+			}
+		}
+		status, view := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, view)
+		}
+		for _, raw := range view["machines"].([]any) {
+			if row := raw.(map[string]any); row["machine"] == host {
+				return row["disk_usage"]
+			}
+		}
+		t.Fatalf("no machine row %s", host)
+		return nil
+	}
+
+	t.Run("under a warden's disk measurement on another machine, its row lists workspaces, the warden's categories and other, and the total is the root", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		box := apiTestDiskBox(t, api, d)
-		status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", box, `{"disk_usage":{
+		got := diskView(t, h, owner, box, "m-box", `{
 			"measured_at":1759500000.5,"took_secs":12.3,"root_bytes":10000,
-			"claude_conversation_bytes":700,"codex_conversation_bytes":300,
 			"disk_free_bytes":500000,"disk_total_bytes":900000,
+			"categories":[
+				{"key":"old_version_backups","bytes":2000,"in_root":true},
+				{"key":"logs","bytes":1000,"in_root":true}
+			],
 			"members":[
-				{"member_id":"kip","workspace_bytes":2000,"conversation_bytes":500},
-				{"member_id":"mira","workspace_bytes":3000,"conversation_bytes":500}
-			]}}`)
-		if status != 200 {
-			t.Fatalf("ingest: want 200, got %d (%v)", status, data)
-		}
-
-		status, view := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, view)
-		}
-		wantBox := apiTestDiskBoxMachine()
-		wantBox["disk_usage"] = map[string]any{
-			"measured_at":               1759500000.5,
-			"total_bytes":               11000,
-			"database_bytes":            nil,
-			"backups_bytes":             nil,
-			"database_measured_at":      nil,
-			"workspace_bytes":           5000,
-			"conversation_bytes":        1000,
-			"claude_conversation_bytes": 700,
-			"codex_conversation_bytes":  300,
-			"other_bytes":               5000,
-			"disk_free_bytes":           500000,
-			"disk_total_bytes":          900000,
-			"members": []any{
-				map[string]any{"member_id": "mira", "name": "Mira", "roster_status": "active",
-					"workspace_bytes": 3000, "conversation_bytes": 500, "total_bytes": 3500},
-				map[string]any{"member_id": "kip", "name": "Kip", "roster_status": "active",
-					"workspace_bytes": 2000, "conversation_bytes": 500, "total_bytes": 2500},
-			},
-		}
-		apiWantBody(t, view, map[string]any{
-			"sessions": view["sessions"],
-			"machines": []any{wantBox, apiTestMonitoringMachine()},
-			"accounts": []any{},
-		})
+				{"member_id":"kip","workspace_bytes":2000},
+				{"member_id":"mira","workspace_bytes":3000}
+			]}`)
+		apiWantValue(t, "disk_usage", got, diskWant(1759500000.5, 10000, nil, []any{
+			diskCat("workspaces", 5000, true),
+			diskCat("logs", 1000, true),
+			diskCat("old_version_backups", 2000, true),
+			diskCat("other", 2000, true),
+		}, []any{
+			diskMember("mira", "Mira", "active", 3000),
+			diskMember("kip", "Kip", "active", 2000),
+		}, 500000, 900000))
+		apiWantValue(t, "the server row, not measured", diskView(t, h, owner, "", "m-server-self", ""), nil)
 	})
 
-	t.Run("under the server's database and backups inside the station root, the server row adds them and takes them out of other", func(t *testing.T) {
+	t.Run("under the server's database inside the station root, its database, backups and old copies are rows inside the root, the copies added to old_version_backups", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		root, dbPath := diskTestStation(t)
+		diskTestOldCopies(t, dbPath)
 		api.recordServerDisk(dbPath, root, time.Unix(1759500100, 0))
 		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
-		apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden, `{"disk_usage":{
-			"measured_at":1759500000,"root_bytes":100000,"claude_conversation_bytes":1000,"codex_conversation_bytes":0,
-			"members":[{"member_id":"mira","workspace_bytes":30000,"conversation_bytes":1000}]}}`)
-
-		status, view := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, view)
-		}
-		want := apiTestMonitoringMachine()
-		want["disk_usage"] = map[string]any{
-			"measured_at":               1759500000,
-			"total_bytes":               101000,
-			"database_bytes":            16384,
-			"backups_bytes":             20480,
-			"database_measured_at":      1759500100,
-			"workspace_bytes":           30000,
-			"conversation_bytes":        1000,
-			"claude_conversation_bytes": 1000,
-			"codex_conversation_bytes":  0,
-			"other_bytes":               33136,
-			"disk_free_bytes":           nil,
-			"disk_total_bytes":          nil,
-			"members": []any{
-				map[string]any{"member_id": "mira", "name": "Mira", "roster_status": "active",
-					"workspace_bytes": 30000, "conversation_bytes": 1000, "total_bytes": 31000},
-			},
-		}
-		apiWantBody(t, view, map[string]any{
-			"sessions": view["sessions"],
-			"machines": []any{want},
-			"accounts": []any{},
-		})
+		got := diskView(t, h, owner, warden, "m-server-self", `{
+			"measured_at":1759500000,"root_bytes":100000,
+			"categories":[{"key":"logs","bytes":1000,"in_root":true},{"key":"old_version_backups","bytes":2000,"in_root":true}],
+			"members":[{"member_id":"mira","workspace_bytes":30000}]}`)
+		apiWantValue(t, "disk_usage", got, diskWant(1759500000, 100000, 1759500100, []any{
+			diskCat("database", 16384, true),
+			diskCat("backups", 20480, true),
+			diskCat("workspaces", 30000, true),
+			diskCat("logs", 1000, true),
+			diskCat("old_version_backups", 2000+diskTestOldCopiesBytes, true),
+			diskCat("other", 100000-16384-20480-30000-1000-2000-diskTestOldCopiesBytes, true),
+		}, []any{diskMember("mira", "Mira", "active", 30000)}, nil, nil))
 	})
 
-	t.Run("under the server's database outside the station root, the server row adds database and backups to the total and leaves other as root minus workspaces", func(t *testing.T) {
+	t.Run("under a warden that sends no old_version_backups, the server's old copies inside the root are that row on their own and logs stay in other", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		root, dbPath := diskTestStation(t)
+		diskTestOldCopies(t, dbPath)
+		api.recordServerDisk(dbPath, root, time.Unix(1759500100, 0))
+		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+		got := diskView(t, h, owner, warden, "m-server-self", `{"measured_at":1759500000,"root_bytes":100000,"members":[]}`)
+		apiWantValue(t, "disk_usage", got, diskWant(1759500000, 100000, 1759500100, []any{
+			diskCat("database", 16384, true),
+			diskCat("backups", 20480, true),
+			diskCat("workspaces", 0, true),
+			diskCat("old_version_backups", diskTestOldCopiesBytes, true),
+			diskCat("other", 100000-16384-20480-diskTestOldCopiesBytes, true),
+		}, []any{}, nil, nil))
+	})
+
+	t.Run("under the server's database outside the station root, database, backups and old_database_copies are rows outside it, added to the total and not taken from other", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		_, dbPath := diskTestStation(t)
+		diskTestOldCopies(t, dbPath)
 		api.recordServerDisk(dbPath, t.TempDir(), time.Unix(1759500100, 0))
 		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
-		apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden, `{"disk_usage":{
-			"measured_at":1759500000,"root_bytes":100000,"claude_conversation_bytes":1000,"codex_conversation_bytes":0,
-			"members":[{"member_id":"mira","workspace_bytes":30000,"conversation_bytes":1000}]}}`)
-
-		status, view := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, view)
-		}
-		want := apiTestMonitoringMachine()
-		want["disk_usage"] = map[string]any{
-			"measured_at":               1759500000,
-			"total_bytes":               137864,
-			"database_bytes":            16384,
-			"backups_bytes":             20480,
-			"database_measured_at":      1759500100,
-			"workspace_bytes":           30000,
-			"conversation_bytes":        1000,
-			"claude_conversation_bytes": 1000,
-			"codex_conversation_bytes":  0,
-			"other_bytes":               70000,
-			"disk_free_bytes":           nil,
-			"disk_total_bytes":          nil,
-			"members": []any{
-				map[string]any{"member_id": "mira", "name": "Mira", "roster_status": "active",
-					"workspace_bytes": 30000, "conversation_bytes": 1000, "total_bytes": 31000},
-			},
-		}
-		apiWantBody(t, view, map[string]any{
-			"sessions": view["sessions"],
-			"machines": []any{want},
-			"accounts": []any{},
-		})
+		got := diskView(t, h, owner, warden, "m-server-self", `{
+			"measured_at":1759500000,"root_bytes":100000,
+			"categories":[{"key":"logs","bytes":1000,"in_root":true},{"key":"old_version_backups","bytes":2000,"in_root":true}],
+			"members":[{"member_id":"mira","workspace_bytes":30000}]}`)
+		apiWantValue(t, "disk_usage", got, diskWant(1759500000, 100000+16384+20480+diskTestOldCopiesBytes, 1759500100, []any{
+			diskCat("database", 16384, false),
+			diskCat("backups", 20480, false),
+			diskCat("workspaces", 30000, true),
+			diskCat("logs", 1000, true),
+			diskCat("old_version_backups", 2000, true),
+			diskCat("old_database_copies", diskTestOldCopiesBytes, false),
+			diskCat("other", 100000-30000-1000-2000, true),
+		}, []any{diskMember("mira", "Mira", "active", 30000)}, nil, nil))
 	})
 
-	t.Run("under only the server's own database measurement, the server row is an object carrying the database fields with everything else null", func(t *testing.T) {
+	t.Run("under the server's database outside the station root with its backups unmeasured, the total is null and other is not", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		api.serverDisk.Store(&serverDiskSample{DatabaseBytes: diskTestInt(16384), OldCopiesBytes: diskTestInt(0), MeasuredAt: 1759500100})
+		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+		got := diskView(t, h, owner, warden, "m-server-self", `{"measured_at":1759500000,"root_bytes":100000,"members":[{"member_id":"mira","workspace_bytes":30000}]}`)
+		apiWantValue(t, "disk_usage", got, diskWant(1759500000, nil, 1759500100, []any{
+			diskCat("database", 16384, false),
+			diskCat("backups", nil, false),
+			diskCat("workspaces", 30000, true),
+			diskCat("old_database_copies", 0, false),
+			diskCat("other", 70000, true),
+		}, []any{diskMember("mira", "Mira", "active", 30000)}, nil, nil))
+	})
+
+	t.Run("under only the server's own measurement, the server row lists its rows with no other and no total", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		root, dbPath := diskTestStation(t)
 		api.recordServerDisk(dbPath, root, time.Unix(1759500100, 0))
-
-		status, view := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, view)
-		}
-		want := apiTestMonitoringMachine()
-		want["disk_usage"] = map[string]any{
-			"measured_at":               nil,
-			"total_bytes":               nil,
-			"database_bytes":            16384,
-			"backups_bytes":             20480,
-			"database_measured_at":      1759500100,
-			"workspace_bytes":           nil,
-			"conversation_bytes":        nil,
-			"claude_conversation_bytes": nil,
-			"codex_conversation_bytes":  nil,
-			"other_bytes":               nil,
-			"disk_free_bytes":           nil,
-			"disk_total_bytes":          nil,
-			"members":                   []any{},
-		}
-		apiWantBody(t, view, map[string]any{
-			"sessions": view["sessions"],
-			"machines": []any{want},
-			"accounts": []any{},
-		})
+		apiWantValue(t, "disk_usage", diskView(t, h, owner, "", "m-server-self", ""), diskWant(nil, nil, 1759500100, []any{
+			diskCat("database", 16384, true),
+			diskCat("backups", 20480, true),
+			diskCat("old_version_backups", 0, true),
+		}, []any{}, nil, nil))
 	})
 
 	t.Run("under the server row's warden measurement arriving before the server measured its database, other is null because the root may still hold the database", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
-		apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden, `{"disk_usage":{
-			"measured_at":1759500000,"root_bytes":100000,
-			"claude_conversation_bytes":0,"codex_conversation_bytes":0,"members":[]}}`)
-
-		status, view := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, view)
-		}
-		want := apiTestMonitoringMachine()
-		want["disk_usage"] = map[string]any{
-			"measured_at":               1759500000,
-			"total_bytes":               100000,
-			"database_bytes":            nil,
-			"backups_bytes":             nil,
-			"database_measured_at":      nil,
-			"workspace_bytes":           0,
-			"conversation_bytes":        0,
-			"claude_conversation_bytes": 0,
-			"codex_conversation_bytes":  0,
-			"other_bytes":               nil,
-			"disk_free_bytes":           nil,
-			"disk_total_bytes":          nil,
-			"members":                   []any{},
-		}
-		apiWantBody(t, view, map[string]any{
-			"sessions": view["sessions"],
-			"machines": []any{want},
-			"accounts": []any{},
-		})
+		got := diskView(t, h, owner, warden, "m-server-self", `{"measured_at":1759500000,"root_bytes":100000,"members":[],
+			"categories":[{"key":"logs","bytes":10,"in_root":true}]}`)
+		apiWantValue(t, "disk_usage", got, diskWant(1759500000, 100000, nil, []any{
+			diskCat("workspaces", 0, true),
+			diskCat("logs", 10, true),
+			diskCat("other", nil, true),
+		}, []any{}, nil, nil))
 	})
 
-	t.Run("under workspaces of an active, a removed and an unknown member, each row carries its roster name and status, largest total first and ties by member id", func(t *testing.T) {
+	t.Run("under workspaces of an active, a removed and an unknown member and one not sized, members sort by workspace with the unsized last, and workspaces and other are null", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		if err := d.putMemberWholeRowForTest(Member{ID: "dev-gone", Name: "Gone Dev", Codename: "gone-dev",
 			Kind: KindStaff, RosterStatus: RosterStatusRemoved}); err != nil {
 			t.Fatalf("PutMember: %v", err)
 		}
 		box := apiTestDiskBox(t, api, d)
-		apiJSON(t, h, "POST", "/api/monitoring/telemetry", box, `{"disk_usage":{
-			"measured_at":1759500000,"root_bytes":1000,
+		got := diskView(t, h, owner, box, "m-box", `{"measured_at":1759500000,"root_bytes":1000,
 			"members":[
+				{"member_id":"kip"},
 				{"member_id":"mira","workspace_bytes":100},
-				{"member_id":"ow-ghost","workspace_bytes":0,"conversation_bytes":400},
+				{"member_id":"ow-ghost","workspace_bytes":0},
 				{"member_id":"dev-gone","workspace_bytes":100}
-			]}}`)
-
-		status, view := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, view)
-		}
-		wantBox := apiTestDiskBoxMachine()
-		wantBox["disk_usage"] = map[string]any{
-			"measured_at":               1759500000,
-			"total_bytes":               nil,
-			"database_bytes":            nil,
-			"backups_bytes":             nil,
-			"database_measured_at":      nil,
-			"workspace_bytes":           200,
-			"conversation_bytes":        nil,
-			"claude_conversation_bytes": nil,
-			"codex_conversation_bytes":  nil,
-			"other_bytes":               800,
-			"disk_free_bytes":           nil,
-			"disk_total_bytes":          nil,
-			"members": []any{
-				map[string]any{"member_id": "ow-ghost", "name": nil, "roster_status": "unknown",
-					"workspace_bytes": 0, "conversation_bytes": 400, "total_bytes": 400},
-				map[string]any{"member_id": "dev-gone", "name": "Gone Dev", "roster_status": "removed",
-					"workspace_bytes": 100, "conversation_bytes": nil, "total_bytes": 100},
-				map[string]any{"member_id": "mira", "name": "Mira", "roster_status": "active",
-					"workspace_bytes": 100, "conversation_bytes": nil, "total_bytes": 100},
-			},
-		}
-		apiWantBody(t, view, map[string]any{
-			"sessions": view["sessions"],
-			"machines": []any{wantBox, apiTestMonitoringMachine()},
-			"accounts": []any{},
-		})
+			]}`)
+		apiWantValue(t, "disk_usage", got, diskWant(1759500000, 1000, nil, []any{
+			diskCat("workspaces", nil, true),
+			diskCat("other", nil, true),
+		}, []any{
+			diskMember("dev-gone", "Gone Dev", "removed", 100),
+			diskMember("mira", "Mira", "active", 100),
+			diskMember("ow-ghost", nil, "unknown", 0),
+			diskMember("kip", "Kip", "active", nil),
+		}, nil, nil))
 	})
 
-	t.Run("under a measurement whose fields carry the wrong types, the heartbeat is accepted, each such field reads as not measured and every sum built on one is null", func(t *testing.T) {
+	t.Run("under fields and categories of the wrong shape, the heartbeat is accepted, a bad size reads as a failed probe, an entry without a key or in_root, a duplicate and a server-owned key are dropped", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		box := apiTestDiskBox(t, api, d)
-		status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", box, `{"disk_usage":{
-			"measured_at":"yesterday","root_bytes":"lots",
-			"claude_conversation_bytes":-5,"codex_conversation_bytes":12.5,
-			"disk_free_bytes":true,"disk_total_bytes":null,
-			"members":[7,{"workspace_bytes":5},{"member_id":"kip","workspace_bytes":"x","conversation_bytes":40}]}}`)
-		if status != 200 {
-			t.Fatalf("ingest: want 200, got %d (%v)", status, data)
-		}
-
-		status, view := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, view)
-		}
-		wantBox := apiTestDiskBoxMachine()
-		wantBox["disk_usage"] = map[string]any{
-			"measured_at":               nil,
-			"total_bytes":               nil,
-			"database_bytes":            nil,
-			"backups_bytes":             nil,
-			"database_measured_at":      nil,
-			"workspace_bytes":           nil,
-			"conversation_bytes":        nil,
-			"claude_conversation_bytes": nil,
-			"codex_conversation_bytes":  nil,
-			"other_bytes":               nil,
-			"disk_free_bytes":           nil,
-			"disk_total_bytes":          nil,
-			"members": []any{
-				map[string]any{"member_id": "kip", "name": "Kip", "roster_status": "active",
-					"workspace_bytes": nil, "conversation_bytes": 40, "total_bytes": 40},
-			},
-		}
-		apiWantBody(t, view, map[string]any{
-			"sessions": view["sessions"],
-			"machines": []any{wantBox, apiTestMonitoringMachine()},
-			"accounts": []any{},
-		})
+		got := diskView(t, h, owner, box, "m-box", `{
+			"measured_at":"yesterday","root_bytes":"lots","disk_free_bytes":true,"disk_total_bytes":null,
+			"categories":[
+				{"key":"logs","bytes":-5,"in_root":true},
+				{"key":"old_version_backups","bytes":12.5,"in_root":true},
+				{"key":7,"bytes":1,"in_root":true},
+				{"key":"cache","bytes":1},
+				{"key":"database","bytes":1,"in_root":true},
+				{"key":"other","bytes":1,"in_root":true},
+				{"key":"logs","bytes":3,"in_root":true},
+				"x"
+			],
+			"members":[7,{"workspace_bytes":5},{"member_id":"kip","workspace_bytes":"x"}]}`)
+		apiWantValue(t, "disk_usage", got, diskWant(nil, nil, nil, []any{
+			diskCat("workspaces", nil, true),
+			diskCat("logs", nil, true),
+			diskCat("old_version_backups", nil, true),
+			diskCat("other", nil, true),
+		}, []any{diskMember("kip", "Kip", "active", nil)}, nil, nil))
 	})
 
-	t.Run("under a members field that is not a list, workspaces and other are null, members is empty and the total still adds root and both logs", func(t *testing.T) {
+	t.Run("under a members field that is not a list, workspaces and other are null, members is empty and the total is still the root", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		box := apiTestDiskBox(t, api, d)
-		apiJSON(t, h, "POST", "/api/monitoring/telemetry", box, `{"disk_usage":{
-			"measured_at":1759500000,"root_bytes":500,"claude_conversation_bytes":30,"codex_conversation_bytes":20,"members":"many"}}`)
-
-		status, view := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, view)
-		}
-		wantBox := apiTestDiskBoxMachine()
-		wantBox["disk_usage"] = map[string]any{
-			"measured_at":               1759500000,
-			"total_bytes":               550,
-			"database_bytes":            nil,
-			"backups_bytes":             nil,
-			"database_measured_at":      nil,
-			"workspace_bytes":           nil,
-			"conversation_bytes":        50,
-			"claude_conversation_bytes": 30,
-			"codex_conversation_bytes":  20,
-			"other_bytes":               nil,
-			"disk_free_bytes":           nil,
-			"disk_total_bytes":          nil,
-			"members":                   []any{},
-		}
-		apiWantBody(t, view, map[string]any{
-			"sessions": view["sessions"],
-			"machines": []any{wantBox, apiTestMonitoringMachine()},
-			"accounts": []any{},
-		})
+		got := diskView(t, h, owner, box, "m-box", `{"measured_at":1759500000,"root_bytes":500,"members":"many"}`)
+		apiWantValue(t, "disk_usage", got, diskWant(1759500000, 500, nil, []any{
+			diskCat("workspaces", nil, true),
+			diskCat("other", nil, true),
+		}, []any{}, nil, nil))
 	})
 
-	t.Run("under workspaces reported larger than the root, other is 0 rather than negative; with neither runtime's logs measured, the total is null", func(t *testing.T) {
+	t.Run("under rows inside the root that add up past it, other is 0 rather than negative", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		box := apiTestDiskBox(t, api, d)
-		apiJSON(t, h, "POST", "/api/monitoring/telemetry", box, `{"disk_usage":{
-			"measured_at":1759500000,"root_bytes":100,"members":[{"member_id":"kip","workspace_bytes":300}]}}`)
-
-		status, view := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, view)
-		}
-		wantBox := apiTestDiskBoxMachine()
-		wantBox["disk_usage"] = map[string]any{
-			"measured_at":               1759500000,
-			"total_bytes":               nil,
-			"database_bytes":            nil,
-			"backups_bytes":             nil,
-			"database_measured_at":      nil,
-			"workspace_bytes":           300,
-			"conversation_bytes":        nil,
-			"claude_conversation_bytes": nil,
-			"codex_conversation_bytes":  nil,
-			"other_bytes":               0,
-			"disk_free_bytes":           nil,
-			"disk_total_bytes":          nil,
-			"members": []any{
-				map[string]any{"member_id": "kip", "name": "Kip", "roster_status": "active",
-					"workspace_bytes": 300, "conversation_bytes": nil, "total_bytes": 300},
-			},
-		}
-		apiWantBody(t, view, map[string]any{
-			"sessions": view["sessions"],
-			"machines": []any{wantBox, apiTestMonitoringMachine()},
-			"accounts": []any{},
-		})
+		got := diskView(t, h, owner, box, "m-box", `{"measured_at":1759500000,"root_bytes":100,
+			"categories":[{"key":"logs","bytes":50,"in_root":true}],
+			"members":[{"member_id":"kip","workspace_bytes":300}]}`)
+		apiWantValue(t, "disk_usage", got, diskWant(1759500000, 100, nil, []any{
+			diskCat("workspaces", 300, true),
+			diskCat("logs", 50, true),
+			diskCat("other", 0, true),
+		}, []any{diskMember("kip", "Kip", "active", 300)}, nil, nil))
 	})
 
-	t.Run("under the shape a warden sends when the whole-root du timed out and Codex failed, workspaces, conversations, total and other are null and members carry no sizes", func(t *testing.T) {
+	t.Run("a category the warden does not report stays in other; one it reports as failed makes other null but not the total", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		box := apiTestDiskBox(t, api, d)
-		status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", box, `{"disk_usage":{
-			"measured_at":1790000107,"took_secs":900.4,
-			"claude_conversation_bytes":155648,
-			"disk_free_bytes":250000000000,"disk_total_bytes":994662584320,
-			"members":[{"member_id":"kip"},{"member_id":"mira"}]}}`)
-		if status != 200 {
-			t.Fatalf("ingest: want 200, got %d (%v)", status, data)
-		}
-
-		status, view := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, view)
-		}
-		wantBox := apiTestDiskBoxMachine()
-		wantBox["disk_usage"] = map[string]any{
-			"measured_at":               1790000107,
-			"total_bytes":               nil,
-			"database_bytes":            nil,
-			"backups_bytes":             nil,
-			"database_measured_at":      nil,
-			"workspace_bytes":           nil,
-			"conversation_bytes":        nil,
-			"claude_conversation_bytes": 155648,
-			"codex_conversation_bytes":  nil,
-			"other_bytes":               nil,
-			"disk_free_bytes":           250000000000,
-			"disk_total_bytes":          994662584320,
-			"members": []any{
-				map[string]any{"member_id": "kip", "name": "Kip", "roster_status": "active",
-					"workspace_bytes": nil, "conversation_bytes": nil, "total_bytes": 0},
-				map[string]any{"member_id": "mira", "name": "Mira", "roster_status": "active",
-					"workspace_bytes": nil, "conversation_bytes": nil, "total_bytes": 0},
-			},
-		}
-		apiWantBody(t, view, map[string]any{
-			"sessions": view["sessions"],
-			"machines": []any{wantBox, apiTestMonitoringMachine()},
-			"accounts": []any{},
-		})
+		absent := diskView(t, h, owner, box, "m-box", `{"measured_at":1759500000,"root_bytes":1000,"members":[],
+			"categories":[{"key":"logs","bytes":100,"in_root":true}]}`)
+		apiWantValue(t, "old_version_backups absent", absent, diskWant(1759500000, 1000, nil, []any{
+			diskCat("workspaces", 0, true),
+			diskCat("logs", 100, true),
+			diskCat("other", 900, true),
+		}, []any{}, nil, nil))
+		failed := diskView(t, h, owner, box, "m-box", `{"measured_at":1759500001,"root_bytes":1000,"members":[],
+			"categories":[{"key":"logs","bytes":100,"in_root":true},{"key":"old_version_backups","bytes":null,"in_root":true}]}`)
+		apiWantValue(t, "old_version_backups failed", failed, diskWant(1759500001, 1000, nil, []any{
+			diskCat("workspaces", 0, true),
+			diskCat("logs", 100, true),
+			diskCat("old_version_backups", nil, true),
+			diskCat("other", nil, true),
+		}, []any{}, nil, nil))
 	})
 
-	t.Run("under the server's database outside the station root with its backups unmeasured, the server row's total is null", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		api.serverDisk.Store(&serverDiskSample{DatabaseBytes: diskTestInt(16384), MeasuredAt: 1759500100})
-		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
-		apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden, `{"disk_usage":{
-			"measured_at":1759500000,"root_bytes":100000,"claude_conversation_bytes":1000,"codex_conversation_bytes":0,
-			"members":[{"member_id":"mira","workspace_bytes":30000,"conversation_bytes":1000}]}}`)
-
-		status, view := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, view)
+	t.Run("an unknown key is passed on after the known ones; parts follow a parent the server adds as their sum, outside the root counted in the total, and a failed part makes the parent and the total null", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		box := apiTestDiskBox(t, api, d)
+		got := diskView(t, h, owner, box, "m-box", `{"measured_at":1759500000,"root_bytes":1000,"members":[],
+			"categories":[
+				{"key":"zeta-b","parent_key":"zeta","bytes":5,"in_root":false},
+				{"key":"cache","bytes":50,"in_root":true},
+				{"key":"zeta-a","parent_key":"zeta","bytes":10,"in_root":false},
+				{"key":"logs","bytes":100,"in_root":true}
+			]}`)
+		part := func(key string, bytes any) map[string]any {
+			c := diskCat(key, bytes, false)
+			c["parent_key"] = "zeta"
+			return c
 		}
-		want := apiTestMonitoringMachine()
-		want["disk_usage"] = map[string]any{
-			"measured_at":               1759500000,
-			"total_bytes":               nil,
-			"database_bytes":            16384,
-			"backups_bytes":             nil,
-			"database_measured_at":      1759500100,
-			"workspace_bytes":           30000,
-			"conversation_bytes":        1000,
-			"claude_conversation_bytes": 1000,
-			"codex_conversation_bytes":  0,
-			"other_bytes":               70000,
-			"disk_free_bytes":           nil,
-			"disk_total_bytes":          nil,
-			"members": []any{
-				map[string]any{"member_id": "mira", "name": "Mira", "roster_status": "active",
-					"workspace_bytes": 30000, "conversation_bytes": 1000, "total_bytes": 31000},
-			},
-		}
-		apiWantBody(t, view, map[string]any{
-			"sessions": view["sessions"],
-			"machines": []any{want},
-			"accounts": []any{},
-		})
+		apiWantValue(t, "disk_usage", got, diskWant(1759500000, 1015, nil, []any{
+			diskCat("workspaces", 0, true),
+			diskCat("logs", 100, true),
+			diskCat("cache", 50, true),
+			diskCat("zeta", 15, false),
+			part("zeta-a", 10),
+			part("zeta-b", 5),
+			diskCat("other", 850, true),
+		}, []any{}, nil, nil))
+		failed := diskView(t, h, owner, box, "m-box", `{"measured_at":1759500001,"root_bytes":1000,"members":[],
+			"categories":[{"key":"zeta-a","parent_key":"zeta","bytes":null,"in_root":false},{"key":"zeta-b","parent_key":"zeta","bytes":5,"in_root":false}]}`)
+		apiWantValue(t, "a failed part", failed, diskWant(1759500001, nil, nil, []any{
+			diskCat("workspaces", 0, true),
+			diskCat("zeta", nil, false),
+			part("zeta-a", nil),
+			part("zeta-b", 5),
+			diskCat("other", 1000, true),
+		}, []any{}, nil, nil))
 	})
 
 	t.Run("a machine alias answers 200 with the alias on the machine and account rows", func(t *testing.T) {
