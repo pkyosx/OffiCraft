@@ -420,41 +420,6 @@
   .mon-table td {
     overflow-wrap: anywhere;
   }
-
-  /* Same reason for the name: the menu trigger's `nowrap` (shared with the
-   * version pills) would keep a long name on one line past the card's edge.
-   * It wraps like the plain name did; a button centres its lines unless told
-   * otherwise.
-   * Block, not the trigger's inline-flex: as a flex item the wrapped name
-   * takes the whole width and the chevron lands at the card's right edge;
-   * in text flow the chevron follows the name's last word. The padding keeps
-   * a one-line name 24px tall with its line centred, as the flex trigger had
-   * it, which the dot's offset below relies on. */
-  .mon-machine-name .runtime-menu__trigger {
-    display: block;
-    min-height: var(--mon-name-row);
-    /* -1px: the trigger's border, inside its border-box min-height.
-     * 1.5em: the inherited line-height, for a browser without `lh`. */
-    padding-block: max(0px, (var(--mon-name-row) - 1.5em) / 2 - 1px);
-    padding-block: max(0px, (var(--mon-name-row) - 1lh) / 2 - 1px);
-    white-space: normal;
-    text-align: start;
-  }
-  /* Centred on the whole cell line, a dot beside a two-line name sat between
-   * its lines. Top-aligned and pushed down to the middle of the trigger's
-   * first line (centred in --mon-name-row, see above), it stays on line one;
-   * for a one-line name that is where centring put it. */
-  .mon-machine-name .mon-online-dot {
-    align-self: flex-start;
-    margin-top: calc((var(--mon-name-row) - var(--mon-dot-size)) / 2);
-  }
-  /* The cell wraps its items by their one-line width, so a long name would
-   * start a line of its own and leave the online dot alone above it. Capped
-   * at what is left beside the dot, it stays on the dot's line and wraps
-   * there. */
-  .mon-machine-name__menu {
-    max-width: calc(100% - var(--mon-dot-size) - var(--mon-name-gap));
-  }
 }
 
 /* ── machine lifecycle: onboard (新增機器 / 上線) + teardown (拆除) ──────────── */
@@ -505,24 +470,52 @@
   color: var(--color-text);
 }
 
-/* 機器資訊: every column but 機器 has a set width, so a mark in one cell
+/* 機器資訊: every column after 機器 has a set width, so a mark in one cell
  * (版本太舊, 未登入, 過期) never shifts its neighbours within a row, and every row
  * of the table lines up. Claude and Codex grow past theirs only to fit the
- * widest cell of the whole table (below). Desktop only: the ≤720px card mode does not lay out columns.
- * The min-width is the fixed columns plus the widest 機器 cell's content,
- * measured by MachinesTable (useMachineColumnWidths), so short names leave
- * room for the other columns and a long name is never cut. A fixed number here
- * was either too wide for short names (the table scrolled at 1280px for no
- * reason) or too narrow for a long one; the automatic table layout is no way
- * out either, since it squeezes the fixed columns as soon as the frame is
- * narrow. When the frame is narrower the table scrolls inside it, with 機器
- * (the name is also the row's operations menu) pinned left so each row still
- * says which machine it is. The narrower cell padding lets the 150px columns hold a value and its
+ * widest cell of the whole table (below). Desktop only: the ≤720px card mode
+ * does not lay out columns.
+ * 機器 is as wide as its widest cell's content, up to --mon-machine-max; a
+ * longer name wraps inside it. Both are measured by MachinesTable
+ * (useMachineColumnWidths), which sets --mon-machine-width and the table's
+ * min-width: the six set widths plus 機器's. A frame wider than that minimum
+ * gives the difference to the six columns after 機器 in equal shares
+ * (--mon-spare; 100cqw is the frame's inner width), so the table fills the
+ * frame without a blank stretch after the names. The browser's own share-out
+ * of a fixed table's spare width is proportional to the set widths, and the
+ * automatic table layout squeezes the set widths as soon as the frame is
+ * narrow, so neither is used. When the frame is narrower than the minimum
+ * the table scrolls inside it, with 機器 (the name is also the row's
+ * operations menu) pinned left so each row still says which machine it is.
+ * The narrower cell padding lets the 150px columns hold a value and its
  * first mark on one line. */
+@property --mon-col-base {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
 @media (min-width: 721px) {
+  .mon-table-wrap--machines {
+    container-type: inline-size;
+  }
   .mon-table--machines {
+    --mon-machine-max: 320px;
+    /* Six: the columns after 機器. Without a measured minimum (no machine,
+     * or not measured yet) there is nothing to share out. */
+    --mon-spare: max(0px, (100cqw - var(--mon-machines-min-width, 100cqw)) / 6);
     table-layout: fixed;
     min-width: var(--mon-machines-min-width);
+  }
+  /* Unmeasured, 機器 takes what the others leave, as any column without a
+   * width does. */
+  .mon-col--machine {
+    width: var(--mon-machine-width, auto);
+  }
+  /* --mon-col-base is each column's own width before the share of spare
+   * width; registered as a length, so MachinesTable reads it back resolved
+   * to pixels when it adds up the minimum. */
+  .mon-table--machines col:not(.mon-col--machine) {
+    width: calc(var(--mon-col-base) + var(--mon-spare));
   }
   .mon-table--machines th,
   .mon-table--machines td {
@@ -542,10 +535,10 @@
    * the table scrolls in its frame if it no longer fits. Each column has its
    * own measure. */
   .mon-col--claude {
-    width: max(150px, var(--mon-claude-width, 0px));
+    --mon-col-base: max(150px, var(--mon-claude-width, 0px));
   }
   .mon-col--codex {
-    width: max(150px, var(--mon-codex-width, 0px));
+    --mon-col-base: max(150px, var(--mon-codex-width, 0px));
   }
   .mon-runtime-cell {
     white-space: nowrap;
@@ -558,15 +551,15 @@
     margin-right: -7px;
   }
   .mon-col--pct {
-    width: 72px;
+    --mon-col-base: 72px;
   }
   /* Holds the widest total, "1023.9 GB", and its chevron under the
    * production font with room to spare. */
   .mon-col--disk {
-    width: 112px;
+    --mon-col-base: 112px;
   }
   .mon-col--power {
-    width: 88px;
+    --mon-col-base: 88px;
   }
   /* When the frame scrolls, 機器 stays on its left edge (its name is the
    * row's way to its operations); the opaque card colour keeps the scrolled
@@ -672,7 +665,7 @@
   min-width: 0;
 }
 /* The chevron sits inside the name, in one unbreakable run with its last
- * character, so a wrapped name (phone cards) never leaves it alone on a line;
+ * character, so a wrapped name never leaves it alone on a line;
  * an inline box of its own after the name could move to the next line by
  * itself, and how close the browser lets a line run (a full-width ） at the
  * end may be set half-width to fit) is not something padding can reserve. */
@@ -695,11 +688,46 @@
 .mon-machine-name .runtime-menu__trigger {
   margin-left: -4px;
 }
-/* On desktop the cell's items stay on one line; the 機器 column is measured
-   to fit them and the wrap's own scroller absorbs a long name. Not in the
-   ≤720px card mode: that mode drops `.mon-table-wrap`'s `overflow-x: auto`
-   (see monitor-table-longtoken.ct.spec.tsx), so a line that cannot wrap
-   pushes the PAGE sideways. */
+/* The name wraps when the 機器 cell is narrower than it: a phone card, or
+ * on desktop a name past the column's cap (--mon-machine-max). The menu
+ * trigger's `nowrap` (shared with the version pills) would keep it on one line
+ * past the cell's edge; `anywhere` lets a long token without a break wrap too
+ * (on a phone the card cell already gives it that). A button centres its
+ * lines unless told otherwise.
+ * Block, not the trigger's inline-flex: as a flex item the wrapped name
+ * takes the whole width and the chevron lands at the cell's right edge;
+ * in text flow the chevron follows the name's last word. The padding keeps
+ * a one-line name 24px tall with its line centred, as the flex trigger had
+ * it, which the dot's offset below relies on. */
+.mon-machine-name .runtime-menu__trigger {
+  display: block;
+  min-height: var(--mon-name-row);
+  /* -1px: the trigger's border, inside its border-box min-height.
+   * 1.5em: the inherited line-height, for a browser without `lh`. */
+  padding-block: max(0px, (var(--mon-name-row) - 1.5em) / 2 - 1px);
+  padding-block: max(0px, (var(--mon-name-row) - 1lh) / 2 - 1px);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: start;
+}
+/* Centred on the whole cell line, a dot beside a two-line name sat between
+ * its lines. Top-aligned and pushed down to the middle of the trigger's
+ * first line (centred in --mon-name-row, see above), it stays on line one;
+ * for a one-line name that is where centring put it. */
+.mon-machine-name .mon-online-dot {
+  align-self: flex-start;
+  margin-top: calc((var(--mon-name-row) - var(--mon-dot-size)) / 2);
+}
+/* The cell wraps its items by their one-line width, so a long name would
+ * start a line of its own and leave the online dot alone above it. Capped
+ * at what is left beside the dot, it stays on the dot's line and wraps
+ * there. */
+.mon-machine-name__menu {
+  max-width: calc(100% - var(--mon-dot-size) - var(--mon-name-gap));
+}
+/* On desktop the dot, the name and the exclamation stay side by side; a name
+   past the 機器 column's cap wraps inside its own item. Not in the ≤720px
+   card mode: there the items themselves wrap (see the max-width above). */
 @media (min-width: 721px) {
   .mon-machine-name {
     flex-wrap: nowrap;

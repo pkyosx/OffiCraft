@@ -1225,15 +1225,19 @@ function useScrollEdges(ref: RefObject<HTMLElement>, content: unknown) {
  * - `--mon-claude-width` / `--mon-codex-width`: what the widest cell of that
  *   column needs to hold its version, marks and chevron on one line (the CSS
  *   never goes below 150px). Each column is measured on its own.
- * - `--mon-machines-min-width`: the fixed columns' widths plus the widest 機器
- *   cell's content, applied as the table's min-width.
+ * - `--mon-machine-width`: what the widest 機器 cell needs to hold its items
+ *   on one line, capped at the CSS's `--mon-machine-max` (a longer name
+ *   wraps).
+ * - `--mon-machines-min-width`: the other columns' own widths
+ *   (`--mon-col-base`, before their share of a wider frame) plus 機器's,
+ *   applied as the table's min-width.
  * Measured rather than written into the CSS because the 機器 cell holds a
  * user-chosen name and the runtime cells carry however many marks the
  * machines report. While a rename field is open, the 機器 cell's content is
  * not measured (the last value stands) but the runtime columns still are.
- * With `table-layout: fixed` the 機器 column is the only one without a width, and the runtime cells do not wrap (nowrap), so no width
- * measured here depends on a value set here, and the measurement cannot feed
- * back into itself. */
+ * The runtime cells do not wrap (nowrap) and the names are measured at their
+ * max-content width, so no width measured here depends on a column width set
+ * here, and the measurement cannot feed back into itself. */
 function useMachineColumnWidths(
   tableRef: RefObject<HTMLTableElement>,
   wrapRef: RefObject<HTMLElement>,
@@ -1271,7 +1275,7 @@ function useMachineColumnWidths(
       // With no machine left, a width kept from the last one would make the
       // empty-state row scroll sideways for nothing.
       if (names.length === 0) {
-        for (const v of ["--mon-machines-min-width", "--mon-claude-width", "--mon-codex-width"]) {
+        for (const v of ["--mon-machines-min-width", "--mon-machine-width", "--mon-claude-width", "--mon-codex-width"]) {
           table.style.removeProperty(v);
         }
         return;
@@ -1286,7 +1290,10 @@ function useMachineColumnWidths(
       if (claude > 0) setVar("--mon-claude-width", `${Math.ceil(claude)}px`);
       if (codex > 0) setVar("--mon-codex-width", `${Math.ceil(codex)}px`);
       // Read after the runtime widths are set, so the sum includes them.
-      const fixed = heads.slice(1).reduce((sum, th) => sum + th.getBoundingClientRect().width, 0);
+      const fixed = Array.from(table.querySelectorAll("col:not(.mon-col--machine)")).reduce(
+        (sum, col) => sum + (parseFloat(getComputedStyle(col).getPropertyValue("--mon-col-base")) || 0),
+        0
+      );
       // A rename field fits whatever width the cell has (flex: 1, min-width:
       // 0), but reports its default input size; measuring it would widen the
       // table for as long as the field is open. Keep the last width instead.
@@ -1295,23 +1302,25 @@ function useMachineColumnWidths(
       for (const name of renaming ? [] : names) {
         const td = name.closest("td");
         if (!td) continue;
-        // Summed per item, not read off the row: the row is as wide as the
-        // cell, and in a cell narrower than the content an item may shrink
-        // while its text overflows it, so only each item's own scrollWidth
-        // still reports what it needs.
+        // At max-content the items lay out as on one line whatever the
+        // column's width, so a name wrapped under the cap still reports its
+        // one-line need. Summed per item, not read off the row, which is as
+        // wide as the cell.
+        name.style.setProperty("width", "max-content");
         const items = Array.from(name.children) as HTMLElement[];
         const gap = parseFloat(getComputedStyle(name).columnGap) || 0;
-        // scrollWidth is a whole number rounded down, so an overflowing item
-        // gets the pixel it may have lost.
-        const width = (el: HTMLElement) =>
-          el.scrollWidth > el.clientWidth ? el.scrollWidth + 1 : el.getBoundingClientRect().width;
         const used =
-          items.reduce((sum, el) => sum + width(el), 0) + gap * Math.max(0, items.length - 1);
+          items.reduce((sum, el) => sum + el.getBoundingClientRect().width, 0) +
+          gap * Math.max(0, items.length - 1);
+        name.style.removeProperty("width");
         machine = Math.max(machine, used + padding(td));
       }
       if (fixed === 0 || machine === 0) return;
       machineNeed.current = machine;
-      setVar("--mon-machines-min-width", `${Math.ceil(fixed + machine)}px`);
+      const cap = parseFloat(getComputedStyle(table).getPropertyValue("--mon-machine-max")) || Infinity;
+      const machineWidth = Math.ceil(Math.min(machine, cap));
+      setVar("--mon-machine-width", `${machineWidth}px`);
+      setVar("--mon-machines-min-width", `${Math.ceil(fixed) + machineWidth}px`);
     };
     measure();
     // A rename, a web font arriving, a language switch, or the window crossing
@@ -1380,12 +1389,12 @@ export function MachinesTable({
         (edges.right ? " mon-table-frame--more-right" : "")
       }
     >
-    <div ref={wrapRef} className="mon-table-wrap" onFocus={revealUnderPinnedColumns}>
+    <div ref={wrapRef} className="mon-table-wrap mon-table-wrap--machines" onFocus={revealUnderPinnedColumns}>
       <table ref={tableRef} className="mon-table mon-table--machines">
-        {/* Fixed widths for every column but 機器 (monitor.css), so a mark in
+        {/* Set widths for every column after 機器 (monitor.css), so a mark in
          * one cell never moves the others. */}
         <colgroup>
-          <col />
+          <col className="mon-col--machine" />
           <col className="mon-col--claude" />
           <col className="mon-col--codex" />
           <col className="mon-col--pct" />

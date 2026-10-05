@@ -8,7 +8,8 @@
 // More on request: a row whose Claude carries 版本太舊 alone, rows where only
 // Claude or only Codex carries both chips, one whose Codex was never probed,
 // a remote machine
-// with a real-length name and id, and one with a very long name. Mounted through the real MachinesTable with
+// with a real-length name and id, and one with a name longer than 機器's cap,
+// alone or with two marks in Claude and Codex. Mounted through the real MachinesTable with
 // hand-built rows (no api), each state its own table unless `together` puts
 // them in one, inside a 1000px box (the monitor page content is 996px at any desktop
 // viewport from 1100px up).
@@ -88,6 +89,7 @@ export type MachinesLayoutState =
   | "stale"
   | "named"
   | "long"
+  | "longmarks"
   | "claude2"
   | "codex2"
   | "nocodex"
@@ -142,10 +144,24 @@ const rows: Record<MachinesLayoutState, { machine: MachineView; hw: MonMachineVi
     machine: { ...machine, machineId: "m-11b2e651011e", displayName: "eva-m5", isSelf: false },
     hw: { ...hardware, machine: "m-11b2e651011e", displayName: "eva-m5" },
   },
-  // A name far longer than the frame leaves 機器 at 1280px.
+  // A name longer than 機器's cap: it wraps inside the column.
   long: {
     machine: { ...machine, machineId: "m-c9479bc2d696", displayName: LONG_NAME, isSelf: false },
     hw: { ...hardware, machine: "m-c9479bc2d696", displayName: LONG_NAME },
+  },
+  // The same name with two marks in Claude and in Codex: the row that still
+  // scrolls at 1280px.
+  longmarks: {
+    machine: { ...machine, machineId: "m-c9479bc2d696", displayName: LONG_NAME, isSelf: false, claudeVersion: "2.1.286" },
+    hw: {
+      ...hardware,
+      machine: "m-c9479bc2d696",
+      displayName: LONG_NAME,
+      runtimeCapabilities: {
+        claude: { installed: true, loggedIn: false, version: "2.1.286", belowNotifyMinimum: true },
+        codex: { installed: true, loggedIn: false, version: "0.159.2", belowNotifyMinimum: true },
+      },
+    },
   },
   old: {
     machine: { ...machine, claudeVersion: "2.1.286" },

@@ -16,9 +16,12 @@
 // trigger of the row's operations menu (詳情, 改名稱, install, uninstall, delete), the
 // same menu as the Claude and Codex versions, and the 機器 cell reads online
 // dot, name, not-in-effect exclamation. 機器 is only as wide as its widest
-// row's items need (the words live in their hints), so at the 1280px desktop
-// the default name, real machine names and the offline not-in-effect row leave
-// 磁碟 in view; a very long name still widens the table, which scrolls.
+// row's items need (the words live in their hints), up to a cap past which the
+// name wraps inside the column, so at the 1280px desktop the default name,
+// real machine names, the offline not-in-effect row and a very long name leave
+// 磁碟 in view. A frame wider than the table's minimum gives the difference to
+// the six columns after 機器 in equal shares, so no blank stretch follows the
+// names.
 //
 // MUTANTS (each verified red):
 //   marks inline AND auto table layout (the layout before the fix)
@@ -68,6 +71,16 @@
 //   (in the built-in palette --color-border IS --color-card)
 //   no measured min-width (MachinesTable)    → 機器 cut short (sticky, 800px and
 //                                              minimum tests), 1280px fit test
+//   no share of the spare width (`--mon-spare` dropped from the columns)
+//                                           → 1280px share test (機器 padded out,
+//                                              shares unequal), long-name test
+//   spare shared by five, not six            → 1280px share tests, long-name test
+//   no cap on 機器 (`--mon-machine-max` unset) → long-name test (column past the
+//                                              cap), long 1280px share test
+//   desktop name trigger left `nowrap`       → long-name test
+//   name measured at its cell's width, not at max-content (the column shrinks
+//   onto its names)                         → name-in-place test, 1280px share
+//                                              tests, minimum test
 //   min-width below 機器's widest row         → 機器 cell cut short (sticky test)
 //   min-width measured only on render (no ResizeObserver, no fonts.ready)
 //                                           → phone-then-desktop test, name-in-place test
@@ -242,9 +255,12 @@ for (const together of [false, true]) {
   }
 }
 
-test("the columns run 機器, Claude, Codex, CPU, RAM, 電源, 磁碟 at their fixed widths", async ({ mount, page }) => {
+// In a frame narrower than the table, where no column gets a share of spare
+// width, each column is at its own width.
+test("the columns run 機器, Claude, Codex, CPU, RAM, 電源, 磁碟 at their own widths", async ({ mount, page }) => {
   await page.setViewportSize({ width: 1500, height: 900 });
-  await mount(<MonitorMachinesLayoutStory states={["normal"]} />);
+  await mount(<MonitorMachinesLayoutStory width={720} states={["normal"]} />);
+  expect((await overflow(page)).frame, "control: the table is wider than its frame").toBeGreaterThan(0);
   const heads = await page.evaluate(() =>
     Array.from(document.querySelectorAll("thead th")).map((th) => [
       th.textContent!.trim(),
@@ -324,11 +340,14 @@ for (const [language, together] of [
   });
 }
 
-/** Per table: the Claude and Codex widths of its header and of every row. */
+/** Per table: the Claude and Codex widths of its header and of every row,
+ * each less the column's share of a frame wider than the table's minimum.
+ * CPU's own width is the CSS's 72px, so what it has past that is the share. */
 async function runtimeWidths(page: Page) {
   return page.evaluate(() =>
     Array.from(document.querySelectorAll("[data-state]")).map((section) => {
-      const w = (el: Element) => Math.round(el.getBoundingClientRect().width * 100) / 100;
+      const share = section.querySelector("thead th:nth-child(4)")!.getBoundingClientRect().width - 72;
+      const w = (el: Element) => Math.round((el.getBoundingClientRect().width - share) * 100) / 100;
       const all = (sel: string) => Array.from(section.querySelectorAll(sel)).map(w);
       return {
         state: section.getAttribute("data-state")!,
@@ -380,11 +399,13 @@ test("each column grows to its own widest cell: two marks in Claude alone leave 
   expect(claude2, "Claude carries two marks").toEqual({ state: "claude2", claude: [grown, grown], codex: [150, 150] });
   expect(codex2, "Codex carries two marks").toEqual({ state: "codex2", claude: [150, 150], codex: chips.codex });
   // Grown to fit, not past it: the widest cell's chevron ends on the column's
-  // content edge (the trigger's own right padding sits in the cell's).
+  // content edge (the trigger's own right padding sits in the cell's), less
+  // the column's share of the frame's spare width (see runtimeWidths).
   const ends = await page.evaluate(() =>
     ["mon-claude-version", "mon-codex-version"].map((id) => {
       const cell = document.querySelector(`[data-state="chips"] [data-testid="${id}"]`)!;
-      const edge = cell.getBoundingClientRect().right - parseFloat(getComputedStyle(cell).paddingRight);
+      const share = document.querySelector('[data-state="chips"] thead th:nth-child(4)')!.getBoundingClientRect().width - 72;
+      const edge = cell.getBoundingClientRect().right - parseFloat(getComputedStyle(cell).paddingRight) - share;
       return Math.abs(cell.querySelector(".runtime-menu__chevron")!.getBoundingClientRect().right - edge) <= 1;
     })
   );
@@ -713,7 +734,8 @@ async function overflow(page: Page) {
 }
 
 // 996px is the monitor page's content width at a 1280px (or any wider) desktop.
-// The very long name is the row that still scrolls there.
+// The very long name with two marks in Claude and Codex is the row that still
+// scrolls there.
 const LONG_MENU = `機器操作（${LONG_NAME}）`;
 
 /** Whether every item of the open menu is inside the window and is what a
@@ -737,7 +759,7 @@ for (const width of [760, 900, 996]) {
     page,
   }) => {
     await page.setViewportSize({ width: width + 20, height: 900 });
-    await mount(<MonitorMachinesLayoutStory width={width} states={["long"]} />);
+    await mount(<MonitorMachinesLayoutStory width={width} states={["longmarks"]} />);
     expect((await overflow(page)).frame, "control: the frame does scroll at this width").toBeGreaterThan(0);
     const wrap = page.locator(".mon-table-wrap");
     const trigger = page.getByRole("button", { name: LONG_MENU });
@@ -769,15 +791,15 @@ for (const width of [760, 900, 996]) {
     page,
   }) => {
     await page.setViewportSize({ width: width + 20, height: 900 });
-    await mount(<MonitorMachinesLayoutStory width={width} states={["normal", "chips", "stale", "long"]} />);
+    await mount(<MonitorMachinesLayoutStory width={width} states={["normal", "chips", "stale", "longmarks"]} />);
     const over = await overflow(page);
     expect(over.page, "the page itself does not scroll sideways").toBeLessThanOrEqual(0);
     expect(over.monitor).toBeLessThanOrEqual(0);
     expect(over.frame, "control: the frame does scroll at this width").toBeGreaterThan(0);
 
     const wraps = page.locator(".mon-table-wrap");
-    const machineCells = page.locator('[data-state="long"] tbody td:first-child');
-    const machineHead = page.locator('[data-state="long"] thead th:first-child');
+    const machineCells = page.locator('[data-state="longmarks"] tbody td:first-child');
+    const machineHead = page.locator('[data-state="longmarks"] thead th:first-child');
     const frame = (await wraps.last().boundingBox())!;
     const startCell = (await machineCells.boundingBox())!;
     const startHead = (await machineHead.boundingBox())!;
@@ -819,7 +841,7 @@ for (const width of [760, 900, 996]) {
     const hide = (v: string) =>
       page.evaluate((v) => {
         document
-          .querySelectorAll('[data-state="long"] tbody td:not(:first-child)')
+          .querySelectorAll('[data-state="longmarks"] tbody td:not(:first-child)')
           .forEach((el) => ((el as HTMLElement).style.visibility = v));
       }, v);
     await hide("hidden");
@@ -846,7 +868,7 @@ test("at 996px a shade marks the side where more of the table is scrolled away, 
 }) => {
   await page.setViewportSize({ width: 996, height: 900 });
   // Capped to the viewport, so widening the window alone lets it fit.
-  await mount(<MonitorMachinesLayoutStory width={1200} states={["long"]} />);
+  await mount(<MonitorMachinesLayoutStory width={1200} states={["longmarks"]} />);
   const frameWidth = await page.locator(".mon-table-wrap").evaluate((el) => Math.round(el.getBoundingClientRect().width));
   expect(frameWidth, "control: the frame is the 1280px desktop's 996px").toBe(996);
   await expect.poll(() => shades(page), "at rest the 磁碟 column is past the right edge").toEqual({ left: 0, right: 1 });
@@ -881,7 +903,7 @@ test("at 996px a shade marks the side where more of the table is scrolled away, 
       };
     });
   expect(await shadeBox()).toEqual({ right: 1, top: 1, bottom: 1, width: 24, frameIsWrap: true, events: "none" });
-  await page.locator(".mon-table-wrap").evaluate((el) => (el.scrollLeft = 40));
+  await page.locator(".mon-table-wrap").evaluate((el) => (el.scrollLeft = 10));
   await expect.poll(() => shades(page), "part way, both edges have more beyond them").toEqual({ left: 1, right: 1 });
   await page.locator(".mon-table-wrap").evaluate((el) => (el.scrollLeft = 10_000));
   await expect.poll(() => shades(page), "scrolled to the end, 機器 covers what scrolled away").toEqual({
@@ -905,8 +927,8 @@ test("at 996px a control reached by keyboard is scrolled fully into the frame an
   page,
 }) => {
   await page.setViewportSize({ width: 1016, height: 900 });
-  // The very long name: the row that still scrolls at 996px.
-  await mount(<MonitorMachinesLayoutStory width={996} states={["long"]} />);
+  // The very long name with two marks: the row that still scrolls at 996px.
+  await mount(<MonitorMachinesLayoutStory width={996} states={["longmarks"]} />);
   const wrap = page.locator(".mon-table-wrap");
   const disk = page.getByTestId("disk-usage-trigger");
   // Control: at rest the 磁碟 value lies past the frame's right edge.
@@ -951,7 +973,7 @@ test("clicking the uncovered part of a control half under a pinned column opens 
 }) => {
   // 磁碟 value half past the frame's right edge (996px frame).
   await page.setViewportSize({ width: 996, height: 900 });
-  const story = await mount(<MonitorMachinesLayoutStory width={1200} states={["long"]} />);
+  const story = await mount(<MonitorMachinesLayoutStory width={1200} states={["longmarks"]} />);
   const wrap = page.locator(".mon-table-wrap");
   const diskAt = await page.evaluate(() => {
     const wrap = document.querySelector(".mon-table-wrap")!;
@@ -1287,13 +1309,14 @@ test("narrower desktop: the table scrolls inside its own frame, the page does no
   expect(over.page).toBeLessThanOrEqual(1);
   expect(over.monitor, ".monitor scrolls vertically and would swallow a sideways spill").toBeLessThanOrEqual(1);
   // Each state is its own table with its own 機器 width, so the fixed columns
-  // are compared by width, not by x.
+  // are compared by width, not by x; a frame a little wider than a table gives
+  // each column the same share, which CPU's width past its CSS 72px shows.
   const widths = await page.evaluate(() =>
-    Array.from(document.querySelectorAll("[data-state]")).map((section) =>
-      Array.from(section.querySelectorAll("tbody td"))
-        .slice(1)
-        .map((td) => Math.round(td.getBoundingClientRect().width))
-    )
+    Array.from(document.querySelectorAll("[data-state]")).map((section) => {
+      const cells = Array.from(section.querySelectorAll("tbody td")).slice(1);
+      const share = cells[2].getBoundingClientRect().width - 72;
+      return cells.map((td) => Math.round(td.getBoundingClientRect().width - share));
+    })
   );
   expect(widths.map((w) => w.slice(2))).toEqual([
     [72, 72, 88, 112],
@@ -1331,20 +1354,20 @@ test("at 996px the frame that scrolls sideways holds its sideways overscroll and
   page,
 }) => {
   await page.setViewportSize({ width: 1016, height: 500 });
-  await mount(<MonitorMachinesLayoutStory width={996} states={["long"]} />);
+  await mount(<MonitorMachinesLayoutStory width={996} states={["longmarks"]} />);
   const scroller = await page.locator(".mon-table--machines tbody td:first-child").evaluate((td) => {
     let el = td.parentElement;
     while (el && getComputedStyle(el).overflowX === "visible") el = el.parentElement;
     if (!el) return null;
     const scrolls = el.scrollWidth > el.clientWidth;
-    el.scrollLeft = 40;
+    el.scrollLeft = 10;
     const cs = getComputedStyle(el);
     return { scrolls, scrolled: el.scrollLeft, overscroll: { x: cs.overscrollBehaviorX, y: cs.overscrollBehaviorY } };
   });
   expect(scroller, "control: the table sits in a sideways scroll container").not.toBeNull();
   expect({ scrolls: scroller!.scrolls, scrolled: scroller!.scrolled }, "control: it really scrolls").toEqual({
     scrolls: true,
-    scrolled: 40,
+    scrolled: 10,
   });
   // Read off the computed style because the rubber band itself cannot be
   // observed here: headless Chromium never bounces, and a synthesized trackpad
@@ -1397,7 +1420,7 @@ test("at rest no line is drawn at 機器's edge in the header or the rows; scrol
   page,
 }) => {
   await page.setViewportSize({ width: 1016, height: 500 });
-  await mount(<MonitorMachinesLayoutStory width={996} states={["long"]} />);
+  await mount(<MonitorMachinesLayoutStory width={996} states={["longmarks"]} />);
   const wrap = page.locator(".mon-table-wrap");
   expect(
     await wrap.evaluate((el) => ({ scrollLeft: el.scrollLeft, scrollable: el.scrollWidth - el.clientWidth > 20 })),
@@ -1604,20 +1627,144 @@ test("the table's minimum is the fixed columns plus the widest 機器 cell's con
   ]);
 });
 
-test("at 996px a very long machine name widens the table, which scrolls, rather than being cut", async ({ mount, page }) => {
+/** Each column's width, header first to last, and the frame's. */
+async function columnWidths(page: Page) {
+  return page.evaluate(() => {
+    const wrap = document.querySelector(".mon-table-wrap") as HTMLElement;
+    return {
+      cols: Array.from(wrap.querySelectorAll("thead th")).map((th) => th.getBoundingClientRect().width),
+      frame: wrap.clientWidth,
+    };
+  });
+}
+
+/** What each row's 機器 items take on one line, and how much more its cell
+ * has inside its padding. */
+async function machineSlack(page: Page) {
+  return page.evaluate(() =>
+    Array.from(document.querySelectorAll(".mon-table--machines tbody td:first-child")).map((td) => {
+      const name = td.querySelector(".mon-machine-name") as HTMLElement;
+      const cs = getComputedStyle(td);
+      const inner = td.getBoundingClientRect().width - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      const items = Array.from(name.children).map((el) => el.getBoundingClientRect().width);
+      const content = items.reduce((a, b) => a + b, 0) + parseFloat(getComputedStyle(name).columnGap) * (items.length - 1);
+      return inner - content;
+    })
+  );
+}
+
+// The owner's report: at 1280px all the width the table did not need piled up
+// after the names, a blank stretch in 機器. Each column's own width comes from
+// the same rows mounted in a frame narrower than the table, where no column
+// gets a share; at the 1280px desktop 機器 keeps its own and the other six
+// each gain the same amount, filling the frame.
+for (const states of [["normal"], ["named"], ["chips"], ["long"], ["normal", "named", "stale"]] as MachinesLayoutState[][]) {
+  test(`production fonts, ${states.join(" + ")}: at 996px (the 1280px desktop) 機器 is as wide as its widest name, and the other six columns share the rest of the frame equally`, async ({
+    mount,
+    page,
+  }) => {
+    await loadProductionFonts(page);
+    await page.setViewportSize({ width: 1016, height: 900 });
+    const narrow = await mount(<MonitorMachinesLayoutStory width={720} states={states} together />);
+    await settled(page);
+    const own = await columnWidths(page);
+    expect(own.cols.reduce((a, b) => a + b, 0), "control: at 720px the table is wider than its frame").toBeGreaterThan(own.frame);
+    await narrow.unmount();
+
+    await mount(<MonitorMachinesLayoutStory width={996} states={states} together />);
+    await settled(page);
+    const wide = await columnWidths(page);
+    expect(wide.frame, "control: the frame is the 1280px desktop's (996px less its border)").toBe(FRAME);
+    expect(Math.abs(wide.cols[0] - own.cols[0]), "機器 keeps its own width").toBeLessThanOrEqual(1);
+    const slacks = await machineSlack(page);
+    expect(
+      { widest: Math.min(...slacks) <= 1, noneCut: Math.min(...slacks) >= -0.5 },
+      `機器 holds its widest name with at most a pixel of rounding to spare (${slacks.join(", ")})`
+    ).toEqual({ widest: true, noneCut: true });
+    const gains = wide.cols.slice(1).map((w, i) => w - own.cols[i + 1]);
+    const spare = wide.frame - own.cols.reduce((a, b) => a + b, 0);
+    expect(spare, "control: the frame is wider than the table needs").toBeGreaterThan(6);
+    for (const gain of gains) {
+      expect(Math.abs(gain - spare / 6), `each of the six gains a sixth of ${spare}px: ${gains.join(", ")}`).toBeLessThanOrEqual(1);
+    }
+    expect(Math.abs(wide.cols.reduce((a, b) => a + b, 0) - wide.frame), "the columns fill the frame").toBeLessThanOrEqual(1);
+    expect(await overflow(page), "nothing scrolls sideways").toEqual({ page: 0, monitor: 0, frame: 0 });
+  });
+}
+
+/** The 機器 name's text lines (one rect per line), the chevron, and the dot. */
+async function nameLines(page: Page) {
+  return page.evaluate(() => {
+    const strong = document.querySelector(".mon-machine-name .mon-table__strong")!;
+    const range = document.createRange();
+    range.selectNodeContents(strong);
+    const lines: { top: number; bottom: number; right: number }[] = [];
+    for (const r of Array.from(range.getClientRects())) {
+      if (r.width === 0) continue;
+      const line = lines.find((l) => Math.abs(l.top - r.top) < 4);
+      if (line) line.right = Math.max(line.right, r.right);
+      else lines.push({ top: r.top, bottom: r.bottom, right: r.right });
+    }
+    const text = document.createRange();
+    const tail = strong.querySelector(".mon-machine-name__tail")!;
+    text.selectNodeContents(tail.firstChild!);
+    const last = text.getBoundingClientRect();
+    const chevron = strong.querySelector(".runtime-menu__chevron")!.getBoundingClientRect();
+    const dot = document.querySelector('.mon-machine-name [data-testid="mon-machine-online"]')!.getBoundingClientRect();
+    return {
+      lines,
+      lastChar: { top: last.top, right: last.right },
+      chevron: { left: chevron.left, mid: chevron.top + chevron.height / 2 },
+      dotMid: dot.top + dot.height / 2,
+    };
+  });
+}
+
+// A name longer than 機器's cap wraps inside the column instead of widening
+// the table: at the 1280px desktop it fits with 磁碟 in view, the dot on its
+// first line and the chevron right after its last character.
+test("production fonts, at 996px (the 1280px desktop) a name longer than 機器's cap wraps inside the column and the table fits its frame", async ({
+  mount,
+  page,
+}) => {
+  await loadProductionFonts(page);
   await page.setViewportSize({ width: 1016, height: 900 });
   await mount(<MonitorMachinesLayoutStory width={996} states={["long"]} />);
-  const fit = await fitAt(page);
-  expect(fit.overflow, "control: the long name does not fit 996px").toBeGreaterThan(0);
-  const name = page.locator(".mon-machine-name .mon-table__strong");
-  await expect(name).toHaveText(LONG_NAME);
-  const cut = await name.evaluate((el) => {
-    const td = el.closest("td")!;
+  await settled(page);
+  await expect(page.locator(".mon-machine-name .mon-table__strong")).toHaveText(LONG_NAME);
+  const cap = await page
+    .locator(".mon-table--machines")
+    .evaluate((el) => parseFloat(getComputedStyle(el).getPropertyValue("--mon-machine-max")));
+  expect(cap, "control: the CSS sets a cap").toBeGreaterThan(0);
+  const { cols, frame } = await columnWidths(page);
+  expect(Math.abs(cols[0] - cap), `機器 is at its cap (${cols[0]} vs ${cap})`).toBeLessThanOrEqual(1);
+  expect(Math.abs(cols.reduce((a, b) => a + b, 0) - frame), "the columns fill the frame").toBeLessThanOrEqual(1);
+  expect(await overflow(page), "nothing scrolls sideways").toEqual({ page: 0, monitor: 0, frame: 0 });
+
+  const n = await nameLines(page);
+  expect(n.lines.length, "the name wraps").toBeGreaterThanOrEqual(2);
+  const first = n.lines[0];
+  const last = n.lines[n.lines.length - 1];
+  expect(n.dotMid > first.top && n.dotMid < first.bottom, "the dot sits on the name's first line").toBe(true);
+  const gap = n.chevron.left - n.lastChar.right;
+  expect(
+    {
+      onLastLine: n.chevron.mid > last.top && n.chevron.mid < last.bottom,
+      lastCharOnLastLine: Math.abs(n.lastChar.top - last.top) < 4,
+      closeAfter: gap >= 0 && gap <= 10,
+    },
+    `the chevron follows the last character on the last line (gap ${gap})`
+  ).toEqual({ onLastLine: true, lastCharOnLastLine: true, closeAfter: true });
+
+  const cut = await page.locator("tbody td").first().evaluate((td) => {
+    const name = td.querySelector(".mon-machine-name")!;
     const right = td.getBoundingClientRect().right - parseFloat(getComputedStyle(td).paddingRight);
-    const dot = td.querySelector('[data-testid="mon-machine-online"]')!.getBoundingClientRect();
-    return { clipped: el.scrollWidth > el.clientWidth + 1, dotInside: dot.right <= right + 0.5 };
+    return {
+      spill: Math.max(...Array.from(name.querySelectorAll("*")).map((el) => el.getBoundingClientRect().right)) - right > 0.5,
+      clipped: Array.from(name.querySelectorAll("*")).some((el) => el.scrollWidth > el.clientWidth + 1),
+    };
   });
-  expect(cut).toEqual({ clipped: false, dotInside: true });
+  expect(cut, "nothing in the 機器 cell runs out of it or is cut short").toEqual({ spill: false, clipped: false });
 });
 
 /** The measured minimum as MachinesTable set it, and what it does to the
@@ -1724,8 +1871,7 @@ test("a machine name that changes in place is measured again, longer and shorter
 
   await mount(<MonitorMachinesLayoutStory width={996} states={["normal"]} />);
   const before = await settled(page);
-  expect(px(long.variable), "control: the long name's minimum is wider than the frame").toBeGreaterThan(FRAME);
-  expect(long.overflow, "control: the long name scrolls the frame").toBeGreaterThan(0);
+  expect(px(long.variable), "control: the long name needs more than the default one").toBeGreaterThan(px(before.variable));
   expect(px(short.variable), "control: the short name needs less than the default one").toBeLessThan(px(before.variable));
 
   // The name's last character shares an element with the chevron; both text
@@ -1748,10 +1894,10 @@ async function openRename(page: Page) {
   await page.getByRole("menuitem", { name: "改名稱" }).click();
 }
 
-// An open rename field stretches over the 機器 cell's slack (flex: 1), so a
-// measurement taken while it is open would pin the table at whatever width it
-// had: the frame's, here. Narrowing the window with the field still open shows
-// that in the table's width as well.
+// An open rename field stretches over whatever width the 機器 cell has
+// (flex: 1) and reports its default input size, so a measurement taken while it
+// is open would size 機器 by the field rather than by the name. Narrowing the
+// window with the field still open shows that in the table's width as well.
 test("an open rename field leaves the table's minimum as it was, and the table still narrows to it", async ({
   mount,
   page,
@@ -1761,12 +1907,8 @@ test("an open rename field leaves the table's minimum as it was, and the table s
   const closed = await settled(page);
   expect(closed.table, "control: the table fills the frame").toBe(FRAME);
   expect(px(closed.variable), "control: the minimum leaves 機器 some slack").toBeLessThan(FRAME);
-  const before = (await page.locator(".mon-machine-name__menu").boundingBox())!.width;
   await openRename(page);
   await expect(page.getByRole("textbox", { name: "機器改名" }), "control: the field is open").toBeFocused();
-  await expect
-    .poll(async () => (await page.locator(".mon-machine-name .inline-edit--editing").boundingBox())!.width > before + 20, "control: the field fills the cell's slack")
-    .toBe(true);
   // Two frames for the size observers to have run.
   await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
   expect(await measured(page)).toEqual(closed);
@@ -1834,7 +1976,7 @@ test("switching the language without remounting measures the Claude and Codex co
 
 test("when the last machine goes, its minimum goes with it and the 尚無機器 row does not scroll", async ({ mount, page }) => {
   await page.setViewportSize({ width: 1016, height: 900 });
-  const table = await mount(<MonitorMachinesLayoutStory width={996} states={["long"]} />);
+  const table = await mount(<MonitorMachinesLayoutStory width={996} states={["longmarks"]} />);
   const long = await settled(page);
   expect(long, "control: a long name's minimum scrolls the frame").toEqual({
     variable: long.variable,
@@ -1842,7 +1984,7 @@ test("when the last machine goes, its minimum goes with it and the 尚無機器 
     overflow: px(long.variable) - FRAME,
   });
   expect(long.overflow, "control: a long name's minimum scrolls the frame").toBeGreaterThan(0);
-  await table.update(<MonitorMachinesLayoutStory width={996} states={["long"]} empty />);
+  await table.update(<MonitorMachinesLayoutStory width={996} states={["longmarks"]} empty />);
   await expect(page.locator("tbody td"), "control: the 尚無機器 row").toHaveText("尚無機器,請先新增機器 / 上線");
   await expect.poll(() => measured(page)).toEqual({ variable: "", table: FRAME, overflow: 0 });
   await expect.poll(() => shades(page)).toEqual({ left: 0, right: 0 });
