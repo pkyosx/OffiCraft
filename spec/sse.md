@@ -87,14 +87,10 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
     the deltas that carry a collection order (T-c9c0). That field is the sentence telling
     the agent it is being collected, `\n`-joined with the WHOLE 〈停止〉 document as the
     server holds it — the server PUSHES the checklist; the agent never fetches it back.
-    For an **outsource worker on a TYPED task** one more paragraph follows the document
-    (T-ed79): the 〈任務結案〉 body, delivered server-side because a worker lives one task
-    and has no role to fall back on. An **ad-hoc** (typeless) task carries NO such
-    paragraph — no type, no manual behind it. ⚠️ This used to cite the task-close nudge (§8) as the same criterion;
-    it no longer is. T-91 removed that criterion from the close notice, which now goes
-    out for a typeless task too, because its subject is 「你的票關掉了」 rather than
-    「去回寫手冊」. The rule HERE is unchanged and the shared-criterion claim is what was
-    withdrawn.
+    Staff and outsource members get the same text: nothing follows the document. 🔴 The
+    〈任務結案〉 body is not appended for an outsource worker — a stop is a hand-off, and
+    that body tells a worker to remove its external resources and stop updating the
+    task, which is only right once the ticket has closed (the close notice, §8).
     Present ONLY while `offboardKindOf` says this member is being collected, and inside
     those states it rides **every** write to that row, not just the first — **the client is
     what de-duplicates**, by keying on the sentence it last printed (a server-side "only
