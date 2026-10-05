@@ -24,6 +24,7 @@ import {
   NewMsgPreviewHeightStory,
 } from "./stories/ChatBottomAffordanceStory";
 import { LIGHT_PACK } from "./stories/chatBottomAffordanceFixtures";
+import { expectBuiltinApplied, selectBuiltinTheme } from "./builtinThemes";
 
 type Rgba = { r: number; g: number; b: number; a: number };
 
@@ -300,7 +301,7 @@ for (const width of WIDTHS) {
 
 // ④ 顏色全部走 token：兩個 theme 都量，而且量的是「換 theme 之後顏色真的變了」。
 // 寫死一個 #fff 在內建 theme 下看起來完全正常 —— 只有這一條會紅。
-test("④ 箭頭與預覽列的顏色全部跟著 theme 走，兩個 theme 下字都看得見", async ({
+test("④ 箭頭與預覽列的顏色全部跟著 theme 走，每個 theme 下字都看得見", async ({
   mount,
   page,
 }) => {
@@ -341,6 +342,10 @@ test("④ 箭頭與預覽列的顏色全部跟著 theme 走，兩個 theme 下�
     });
 
   const dark = await sample();
+  await selectBuiltinTheme(page, "office-light");
+  const builtinLight = await sample();
+  await expectBuiltinApplied(page, "office-light");
+  await selectBuiltinTheme(page, "office");
   await page.evaluate((pack) => {
     for (const [k, v] of Object.entries(pack))
       document.documentElement.style.setProperty(k, v);
@@ -363,6 +368,7 @@ test("④ 箭頭與預覽列的顏色全部跟著 theme 走，兩個 theme 下�
   await expect(cmp.getByTestId("chat-jump-latest")).toBeVisible();
   for (const [label, s] of [
     ["built-in", dark],
+    ["built-in office-light", builtinLight],
     ["light pack", light],
   ] as const) {
     expect(

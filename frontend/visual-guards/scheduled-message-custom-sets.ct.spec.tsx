@@ -56,6 +56,7 @@
 // measurement of these.
 import { test, expect } from "@playwright/experimental-ct-react";
 import { ScheduledMessagesCustomStory } from "./stories/ScheduledMessagesCustomStory";
+import { BUILTIN_THEME_IDS, expectBuiltinApplied, selectBuiltinTheme } from "./builtinThemes";
 
 // Spelled out rather than imported from the story: the CT bundler rewrites a
 // spec's imports into component handles, so a value import sharing that module
@@ -447,7 +448,7 @@ function contrast(a: Rgb, b: Rgb): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-for (const theme of ["built-in dark", "light pack"] as const) {
+for (const theme of [...BUILTIN_THEME_IDS, "light pack"] as const) {
   // Both the oldest group and the NEWEST one: the months grid is new markup,
   // and "the sheet already handles the others" is exactly the assumption that
   // ships a group nobody can read.
@@ -460,6 +461,7 @@ for (const theme of ["built-in dark", "light pack"] as const) {
       page,
     }) => {
       await page.setViewportSize({ width: 1280, height: 900 });
+      if (theme !== "light pack") await selectBuiltinTheme(page, theme);
       const cmp = await mount(<ScheduledMessagesCustomStory width={900} />);
       if (theme === "light pack") {
         await page.evaluate((pack: Record<string, string>) => {
@@ -483,6 +485,7 @@ for (const theme of ["built-in dark", "light pack"] as const) {
         }
         return { accent: getComputedStyle(el).accentColor, layers };
       });
+      if (theme !== "light pack") await expectBuiltinApplied(page, theme);
 
       let bg: Rgb = { r: 255, g: 255, b: 255, a: 1 };
       for (let i = read.layers.length - 1; i >= 0; i--) {

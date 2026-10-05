@@ -45,6 +45,9 @@
 //                   display_theme is "", and GET /api/themes/{id} is a 404. The
 //                   cached picture is legitimately stale and MUST be dropped.
 //                   Not a failure mode — documented behaviour, asserted separately.
+//   builtin-light — the owner's active theme is the built-in office-light: the
+//                   server knows NO custom themes and display_theme names the
+//                   built-in, whose picture is theme.css itself (no bundle).
 //
 // --delay applies to EVERY endpoint the reconcile touches (settings, the theme
 // list AND the single-bundle read), not just settings. Delaying only settings
@@ -80,7 +83,7 @@ const SERVER_THEME = JSON.parse(
 /** Whether this server KNOWS the owner's theme. The ONE switch both faces read,
  * so `/api/themes` and `display_theme` can never disagree about which mode this
  * process is in. */
-const KNOWS_THEME = MODE !== "unknown-theme";
+const KNOWS_THEME = MODE === "ok";
 
 /** GET /api/settings → SettingsDTO. Only the fields the cockpit reads are set to
  * anything interesting; the rest are the shipped defaults so no other panel
@@ -107,7 +110,7 @@ function settingsDTO() {
     org_name: "",
     owner_name: "",
     push_contact_email: "",
-    display_theme: known ? SERVER_THEME.id : "",
+    display_theme: MODE === "builtin-light" ? "office-light" : known ? SERVER_THEME.id : "",
     display_language: "zh",
     display_wide: false,
     // The real settingsDTO carries no `omitempty`, so this key is ALWAYS on the

@@ -1,6 +1,6 @@
 // CT story: the dual-layer theme reconcile (T-0b41-p2) in a REAL browser, now
-// driven by an IMPORTED CUSTOM BUNDLE (office is the only built-in — 修仙 and
-// every other theme is a user-imported bundle, T-16a1 P35).
+// driven by an IMPORTED CUSTOM BUNDLE (修仙 and every other non-built-in theme
+// is a user-imported bundle, T-16a1 P35).
 //
 // A custom theme paints by pushing its `colors` onto document.documentElement
 // via setProperty — a COMPUTED STYLE change jsdom's unit suite cannot resolve

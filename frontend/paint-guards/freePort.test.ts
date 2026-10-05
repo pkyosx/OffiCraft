@@ -11,7 +11,11 @@ import { createServer, type AddressInfo, type Server } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { allocateFreePorts } from "./freePort";
 
-const URL_VARS = ["PAINT_GUARD_OK_URL", "PAINT_GUARD_UNKNOWN_URL"] as const;
+const URL_VARS = [
+  "PAINT_GUARD_OK_URL",
+  "PAINT_GUARD_UNKNOWN_URL",
+  "PAINT_GUARD_BUILTIN_URL",
+] as const;
 
 /** Every listen()/close() any net server in this file makes, in order. */
 const probeCalls = vi.hoisted(
@@ -135,8 +139,9 @@ describe("playwright-paint.config.ts", () => {
     vi.resetModules();
     const { default: config } = await import("../playwright-paint.config");
     const servers = [config.webServer ?? []].flat();
-    expect(servers).toHaveLength(1);
-    expect(servers[0].command).toContain("--mode unknown-theme");
+    expect(servers).toHaveLength(URL_VARS.length - 1);
+    expect(servers.some((s) => s.command.includes("--mode ok"))).toBe(false);
+    expect(servers.some((s) => s.command.includes("--mode unknown-theme"))).toBe(true);
     expect(process.env.PAINT_GUARD_OK_URL).toBe("http://localhost:9999");
   });
 });

@@ -167,7 +167,7 @@ for (const pageName of ["tasks", "replies"] as const) {
       const cmp = await mount(
         <AppPageStory
           page={pageName}
-          theme="dark"
+          theme="office"
           wide={width >= 1040}
         />
       );

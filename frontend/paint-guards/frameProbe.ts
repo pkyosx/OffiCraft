@@ -103,14 +103,14 @@ export async function installFrameSampler(page: Page): Promise<void> {
  * measurement needs one. */
 export async function seedSession(
   page: Page,
-  opts: { token: string | null; themeId: string; paintRecord: string }
+  opts: { token: string | null; themeId: string; paintRecord: string | null }
 ): Promise<void> {
   await page.evaluate(
     ([tokenKey, themeKey, paintKey, token, themeId, record]) => {
       localStorage.clear();
       if (token !== null) localStorage.setItem(tokenKey as string, token as string);
       localStorage.setItem(themeKey as string, themeId as string);
-      localStorage.setItem(paintKey as string, record as string);
+      if (record !== null) localStorage.setItem(paintKey as string, record as string);
     },
     [TOKEN_KEY, LS_THEME, LS_THEME_PAINT, opts.token, opts.themeId, opts.paintRecord] as const
   );
@@ -221,13 +221,15 @@ export function summarize(samples: FrameSample[]): string {
   return seen.slice(0, 25).join("\n");
 }
 
-/** The base URL of one of the two stub servers, from the environment.
+/** The base URL of one of the stub servers, from the environment.
  *
  * There is deliberately NO default. A default would be a pinned port, which is
  * exactly what used to make two working copies running these guards at the same
- * time fight over 4318/4319; playwright-paint.config.ts allocates a free pair
+ * time fight over 4318/4319; playwright-paint.config.ts allocates free ports
  * per run and puts them here. */
-export function stubURL(name: "PAINT_GUARD_OK_URL" | "PAINT_GUARD_UNKNOWN_URL"): string {
+export function stubURL(
+  name: "PAINT_GUARD_OK_URL" | "PAINT_GUARD_UNKNOWN_URL" | "PAINT_GUARD_BUILTIN_URL"
+): string {
   const url = process.env[name];
   if (!url) {
     throw new Error(

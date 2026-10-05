@@ -24,6 +24,7 @@
 // 的那一段。
 import { test, expect } from "@playwright/experimental-ct-react";
 import { ChatReplyToStory } from "./stories/ChatReplyToStory";
+import { BUILTIN_THEME_IDS, expectBuiltinApplied, selectBuiltinTheme } from "./builtinThemes";
 
 /** Parse what getComputedStyle hands back for a colour — `rgb()`, `rgba()` or
  * the `color(srgb r g b / a)` form a `color-mix()` resolves to — into 0..255
@@ -251,12 +252,15 @@ for (const width of [375, 390, 720, 1280]) {
     expect((await who.textContent())?.trim()).toBe("ow-8808ccf51794 → 韓立");
   });
 
-  test(`width ${width}: the corner buttons take their ink from the bubble they sit on`, async ({
+  for (const theme of BUILTIN_THEME_IDS) {
+  test(`width ${width} ${theme}: the corner buttons take their ink from the bubble they sit on`, async ({
     mount,
     page,
   }) => {
     await page.setViewportSize({ width, height: 800 });
+    await selectBuiltinTheme(page, theme);
     const cmp = await mount(<ChatReplyToStory />);
+    await expectBuiltinApplied(page, theme);
 
     // owner 2026-08-20 (rc-8056a06aa2b8): the entry used to be a chip in
     // --color-card, which is the same surface as an incoming bubble and a
@@ -331,6 +335,7 @@ for (const width of [375, 390, 720, 1280]) {
     expect(ink[3]).toBeGreaterThan(0.95);
     expect(parseColour(hovered.wash)[3]).toBeGreaterThan(0);
   });
+  }
 
   test(`width ${width}: the 正在回覆 banner is two clipped lines and its x stays reachable`, async ({
     mount,
@@ -838,12 +843,15 @@ test.describe("coarse pointer", () => {
   test.use({ hasTouch: true });
 
   for (const width of [390, 1280]) {
-  test(`width ${width}: on a touch device the entry is readable without hover`, async ({
+  for (const theme of BUILTIN_THEME_IDS) {
+  test(`width ${width} ${theme}: on a touch device the entry is readable without hover`, async ({
     mount,
     page,
   }) => {
     await page.setViewportSize({ width, height: 800 });
+    await selectBuiltinTheme(page, theme);
     const cmp = await mount(<ChatReplyToStory />);
+    await expectBuiltinApplied(page, theme);
 
     // Sanity FIRST: if the coarse branch is not actually active, the buttons sit
     // at the fine-pointer resting opacity of 0 and every contrast below comes
@@ -882,6 +890,7 @@ test.describe("coarse pointer", () => {
       ).toBeGreaterThanOrEqual(3);
     }
   });
+  }
 
   }
 });

@@ -31,9 +31,10 @@
 // overflow it and the whole guard goes green-by-construction. `.app > .app__main`
 // with chrome.css loaded is where the 1040px cap and the 22px gutters live.
 //
-// `theme` is applied the way the app applies it — `data-theme` on the root
-// element — so the guard can ask the same question twice under the two theme
-// families without the story re-implementing theming.
+// `theme` is a built-in, selected the way the app selects one — the stored
+// theme id I18nProvider reads, which it applies as `data-theme` on the root —
+// so the guard can ask the same question under each built-in without the story
+// re-implementing theming.
 import { I18nProvider } from "../../src/i18n";
 import { zh } from "../../src/i18n/locales/zh";
 import { RepliesPage } from "../../src/components/RepliesPage";
@@ -42,6 +43,8 @@ import { ReplyCardsProvider } from "../../src/hooks/useReplyCards";
 import { FilterPanel } from "../../src/components/FilterPanel";
 import { IdFilterInput } from "../../src/components/IdFilterInput";
 import { MultiSelectFilter } from "../../src/components/MultiSelectFilter";
+import { LS_THEME } from "../../src/lib/themePaint";
+import type { BuiltinThemeId } from "../../src/lib/themeBundleCore";
 import "../../src/components/chrome.css"; // .app / .app__main — the real width cap
 // ⚠️ `MultiSelectFilter` wears `.tasks__filter` / `.tasks__ms-*` but imports NO
 // stylesheet of its own — it relies on its host (`TasksPage`) having imported
@@ -56,7 +59,8 @@ import "../../src/components/tasks.css";
 
 /** The 請示 page itself, in the app's content column. The panel, its field and
  * every label the guard measures come from the shipped page. */
-export function RepliesPageStory({ theme }: { theme: "light" | "dark" }) {
+export function RepliesPageStory({ theme }: { theme: BuiltinThemeId }) {
+  window.localStorage.setItem(LS_THEME, theme);
   document.documentElement.setAttribute("data-theme", theme);
   return (
     <I18nProvider>
@@ -81,9 +85,10 @@ export function AppPageStory({
   wide = false,
 }: {
   page: "tasks" | "replies";
-  theme: "light" | "dark";
+  theme: BuiltinThemeId;
   wide?: boolean;
 }) {
+  window.localStorage.setItem(LS_THEME, theme);
   document.documentElement.setAttribute("data-theme", theme);
   window.localStorage.setItem("oc.wide", wide ? "true" : "false");
   window.location.hash = `#${page}`;
@@ -110,7 +115,8 @@ export function AppPageStory({
  * and wears this same `FilterPanel` — but driving four dropdowns through the
  * real 任務頁 would make a wrapping guard depend on that page's data. Both
  * components are the shipped ones; only the option lists are dictated. */
-export function FilterFieldsStory({ theme }: { theme: "light" | "dark" }) {
+export function FilterFieldsStory({ theme }: { theme: BuiltinThemeId }) {
+  window.localStorage.setItem(LS_THEME, theme);
   document.documentElement.setAttribute("data-theme", theme);
   const noop = () => undefined;
   return (

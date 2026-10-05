@@ -13,19 +13,20 @@
 //   * zero flash + injection     → here, inside step 4c.
 // so no single gate being dropped for cost can take all three with it.
 //
-// Two servers, because the two scenarios differ only in what the SERVER knows:
+// One server per scenario, because they differ only in what the SERVER knows:
 //   mode=ok            — the server recognises the owner's theme (happy path)
 //   mode=unknown-theme — it does not, so the stale picture must be dropped
+//   mode=builtin-light — the active theme is the built-in office-light
 // The 400 ms settings delay is not padding: the flash this ticket fixes IS the
 // wait for /api/settings, and a zero-latency answer would remove the very window
 // under test.
 //
-// The two ports are NOT pinned. They used to be 4318 and 4319, which meant two
+// The ports are NOT pinned. They used to be 4318 and 4319, which meant two
 // working copies running the guards at once fought over the same pair and the
 // loser died on a bind it could never win. allocateFreePorts() asks the kernel
-// for a pair nobody is using, and the specs read the resulting URLs out of
-// PAINT_GUARD_OK_URL / PAINT_GUARD_UNKNOWN_URL rather than knowing a number.
-// Set either variable yourself and this config leaves that server to you.
+// for ports nobody is using, and the specs read the resulting URLs out of the
+// PAINT_GUARD_*_URL variables below rather than knowing a number.
+// Set any of them yourself and this config leaves that server to you.
 import { defineConfig, devices } from "@playwright/test";
 import { allocateFreePorts } from "./paint-guards/freePort";
 
@@ -33,13 +34,14 @@ const DIST = process.env.PAINT_GUARD_DIST ?? "dist";
 
 interface StubSpec {
   /** The env var the specs read this server's base URL from. */
-  urlVar: "PAINT_GUARD_OK_URL" | "PAINT_GUARD_UNKNOWN_URL";
-  mode: "ok" | "unknown-theme";
+  urlVar: "PAINT_GUARD_OK_URL" | "PAINT_GUARD_UNKNOWN_URL" | "PAINT_GUARD_BUILTIN_URL";
+  mode: "ok" | "unknown-theme" | "builtin-light";
 }
 
 const STUBS: StubSpec[] = [
   { urlVar: "PAINT_GUARD_OK_URL", mode: "ok" },
   { urlVar: "PAINT_GUARD_UNKNOWN_URL", mode: "unknown-theme" },
+  { urlVar: "PAINT_GUARD_BUILTIN_URL", mode: "builtin-light" },
 ];
 
 // Only the stubs this config still has to start need a port, so an operator who
