@@ -317,6 +317,37 @@ func TestHandleDeactivateMember_CancellingAWakeReachesTheMachineTheStartIsBootin
 		any(map[string]any{"mach-old": true, "mach-boot": true}))
 }
 
+func TestHandleDeactivateMember_AStaffCancelsKillGoesOutWhileTheReconcileTickHoldsItsLock(t *testing.T) {
+	s, id, stops := wakingElsewhere(t)
+
+	s.reconcileMu.Lock()
+	answered := make(chan int, 1)
+	go func() {
+		rec := httptest.NewRecorder()
+		s.HandleDeactivateMemberApiMembersMemberIdDeactivatePost(rec,
+			taskReq(t, "POST", "/api/members/"+id+"/deactivate", map[string]any{},
+				wireOwnerID, "owner"), id)
+		answered <- rec.Code
+	}()
+	reached := map[string]any{}
+	deadline := time.Now().Add(5 * time.Second)
+	for len(reached) < 2 && time.Now().Before(deadline) {
+		for machine := range stops() {
+			reached[machine] = true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	s.reconcileMu.Unlock()
+	apiWantValue(t, "machines the cancel's STOP reached while the tick held its lock", any(reached),
+		any(map[string]any{"mach-old": true, "mach-boot": true}))
+	select {
+	case code := <-answered:
+		apiWantValue(t, "status", any(float64(code)), any(http.StatusOK))
+	case <-time.After(5 * time.Second):
+		t.Fatal("the cancel never answered after the tick let go of its lock")
+	}
+}
+
 func TestHandleForceStopMember_ReachesTheMachineAStartIsBootingOn(t *testing.T) {
 	s, id, stops := wakingElsewhere(t)
 

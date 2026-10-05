@@ -1859,10 +1859,10 @@ func (s *apiServer) dispatchRobustStopNow(pop stopPopulation, memberID string) s
 // dispatchRobustStopPastBootingStart is dispatchRobustStopNow for a press that
 // then reconciles at once (喚醒, 取消喚醒): only a stop that reached the booting
 // START supersedes it, otherwise that reconcile must keep waiting on it. Answers
-// the START still owed that wait. Takes the population's scheduler lock twice,
-// never across the send.
+// the START still owed that wait. The START is read without the scheduler lock so
+// the kill never waits on a tick; the supersede write re-checks it under the lock.
 func (s *apiServer) dispatchRobustStopPastBootingStart(pop stopPopulation, memberID string) inFlightStart {
-	booting := s.inFlightStartOfMember(pop, memberID)
+	booting := inFlightStartOf(s.reconcileStateOf(memberID))
 	stop := s.dispatchRobustStopAlsoTo(pop, memberID, booting.Target)
 	if s.noteStartSupersededByStop(pop, memberID, booting, stop, nowSecs()) {
 		return inFlightStart{}
@@ -1875,12 +1875,6 @@ func (s *apiServer) dispatchRobustStopAlsoTo(pop stopPopulation, memberID, alsoT
 		return shutdownDispatch{}
 	}
 	return s.dispatchShutdownAlsoTo(memberID, "robust-stop", alsoTo)
-}
-
-func (s *apiServer) inFlightStartOfMember(pop stopPopulation, memberID string) inFlightStart {
-	unlock := pop.lockScheduler()
-	defer unlock()
-	return inFlightStartOf(s.reconcileStateOf(memberID))
 }
 
 // noteStartSupersededByStop takes the population's scheduler lock itself: its caller
