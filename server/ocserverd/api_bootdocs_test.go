@@ -519,40 +519,6 @@ func TestWinddownNoticeText(t *testing.T) {
 	})
 }
 
-func TestTaskEventBodyText(t *testing.T) {
-	t.Run("it answers the instructions alone, with neither the head's claim nor the document's trailing newline", func(t *testing.T) {
-		api, _, _, _ := newAPITestServer(t)
-
-		got := api.taskEventBodyText("task_reassign_predecessor")
-
-		if want := strings.TrimSuffix(apiTestReassignPredecessorBody, "\n"); got != want {
-			t.Fatalf("body = %q, want %q", got, want)
-		}
-	})
-
-	t.Run("an owner edit is the half this caller reads, and the shipped head is still not in it", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		apiJSON(t, h, "POST", "/api/boot-docs/task_closeout/global", owner, `{"body":"C1"}`)
-
-		if got := api.taskEventBodyText("task_closeout"); got != "C1" {
-			t.Fatalf("body = %q, want %q", got, "C1")
-		}
-	})
-
-	t.Run("a stored row from before the marker existed answers nothing rather than a document whose head cannot be told from its body", func(t *testing.T) {
-		api, _, d, _ := newAPITestServer(t)
-		if err := d.PutBootDocument(BootDocument{
-			Kind: "task_closeout", Key: "global", Text: "written before the marker existed",
-		}); err != nil {
-			t.Fatalf("PutBootDocument: %v", err)
-		}
-
-		if got := api.taskEventBodyText("task_closeout"); got != "" {
-			t.Fatalf("body = %q, want the empty string", got)
-		}
-	})
-}
-
 func TestTaskNoticeText(t *testing.T) {
 	t.Run("the shipped 〈轉派程序（前任）〉 notice puts a blank line between its filled head and its body, trimmed to a single chat row", func(t *testing.T) {
 		api, _, _, _ := newAPITestServer(t)

@@ -668,6 +668,20 @@ func TestOffboardNoticeFor(t *testing.T) {
 		}
 	})
 
+	t.Run("an outsource member bound to a typed task answers the 加速停止 document alone", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		w := apiTestTypedTaskWorker(t, api, h, d, owner, "delivery")
+		w.DesiredState = DesiredStateOffline
+		w.StoppingSince = 1000
+		w.RefocusOp = refocusOpAcceleratedStop
+
+		apiTestSentinelWindDownDocs(t, api)
+
+		if got := api.offboardNoticeFor(w, offboardKindFinal); got != apiTestAcceleratedNotice {
+			t.Fatalf("outsource final notice: %q, want %q", got, apiTestAcceleratedNotice)
+		}
+	})
+
 	t.Run("a staff member answers the 停止 document verbatim", func(t *testing.T) {
 		api, _, d, _ := newAPITestServer(t)
 

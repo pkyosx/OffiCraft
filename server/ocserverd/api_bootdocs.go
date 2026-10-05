@@ -310,21 +310,6 @@ func (s *apiServer) winddownNoticeText(kind string, deadline float64) string {
 	return s.eventNoticeText(spec, values)
 }
 
-// 🔴 Exists because the head makes a claim the body does not: 〈任務結案〉 opens
-// 「任務 {task_no} 已結束。」, which is FALSE for an outsource worker wound down
-// mid-task that still needs the instructions.
-func (s *apiServer) taskEventBodyText(kind string) string {
-	spec := s.mustBootDocSpec(kind, bootDocSingletonKey)
-	dto, err := s.foldBootDocDTO(spec)
-	if err != nil || dto == nil {
-		return ""
-	}
-	if _, _, split := DocSplitHeadBody(dto.Text); spec.Split && !split {
-		return ""
-	}
-	return strings.TrimSpace(bootDocBodyOf(spec, dto.Text))
-}
-
 // 🔴 The kind is the whole of which words go out, and a wrong one reads as a
 // coherent notice, so send-site tests compare the whole posted body.
 //

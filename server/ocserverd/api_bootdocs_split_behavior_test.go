@@ -788,10 +788,8 @@ func TestTaskCloseoutDoc_IsTheApprovedRewriteWithBothNamesMovedIntoTheHead(t *te
 	// there — no test would have noticed, which is why it is one here.
 	// ⚠️ T-a36c WIDENED THIS LIST, AND THE MISS IS THE POINT: the body also said
 	// 「餵**上面那個票號**會 404」 — a fourth pointer at the head, one word away
-	// from 「上面那一行」 and therefore invisible to a list of EXACT strings. The
-	// head-bearing path delivers that line fine; the WIND-DOWN path
-	// (taskEventBodyText — body only) does not, and there the sentence points at
-	// nothing. Matching the prefix 「上面」 is what the exact list could not do.
+	// from 「上面那一行」 and therefore invisible to a list of EXACT strings.
+	// Matching the prefix 「上面」 is what the exact list could not do.
 	for _, dangling := range []string{"上面", "{type_key}", "{manual_label}"} {
 		if strings.Contains(body, dangling) {
 			t.Errorf("the body still says %q, but the head no longer carries it", dangling)
