@@ -85,11 +85,15 @@ The Codex member boot sequence changes only execution ownership:
    `report_waking` + resume recovery (T-4595: a worker walks the SAME sequence — its
    `report_waking` is also the assigned → active claim), then completes
    that turn.
-2. `turn/completed` is the readiness boundary. Only then does the sidecar launch the same
-   bare `ocagent listen` child and consume its stdout; the model must not launch a second
-   listener.
+2. `turn/completed` is the readiness boundary. Only then does the sidecar launch
+   `ocagent listen --deliver-codex` and consume its JSON-framed stdout; the model must
+   not launch a second listener.
    Every `turn/completed`, this one included, also records the turn's model-call outcome:
    `completed` is a success, `failed` is a failure, `interrupted` counts as neither.
+   A rejected steer retries the same complete input once as `turn/start`, waiting in
+   the queue if another start is pending. Only a rejected start nacks its batch.
+   The known turn identity is retained until new turn evidence or `turn/completed`;
+   while starting, subsequent inputs wait rather than steer the previous turn.
 3. The sidecar converts listener events into the established idle `turn/start` / active
    `turn/steer` policy. Thus SSE presence still means ready/online and false-online during
    boot remains impossible.
@@ -140,7 +144,14 @@ OffiCraft events are typed wake signals, not prompt text supplied by an external
 The adapter renders its own fixed instruction from validated event metadata and makes the
 agent re-read authoritative state through MCP.
 
-- Idle thread: a durable pending wake starts a new turn.
+- Each Codex listener frame carries one complete notice in its `text` field, including
+  all continuation lines. A chat drain can contain several notices; its batch marker
+  closes the delivery acknowledgment window, not an individual message. Offboard and
+  recycle notices retain their existing text and timestamps inside a single frame.
+  Claude delivery routes keep their existing output.
+- Idle thread: a complete notice starts a new turn. Events arriving before the
+  start is confirmed wait in order; once the turn id is known, they steer that turn.
+  A batch is acknowledged only after every queued or in-flight delivery is accepted.
 - Active thread: steer the active turn, matching Claude's Monitor delivery semantics.
 - Listener transport, per the owner's disconnect-notice policy: an outage interrupts the
   agent exactly twice — once when it starts and once when it ends — and every retry in

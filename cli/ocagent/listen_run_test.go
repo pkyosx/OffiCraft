@@ -1452,6 +1452,76 @@ func TestSleepCtx(t *testing.T) {
 }
 
 func TestCmdListen(t *testing.T) {
+	t.Run("Codex delivers complete messages and batch markers in order", func(t *testing.T) {
+		cfg := Config{MemberID: "m-1"}
+		env := testEnv(map[string]string{"OC_LISTEN_ACK": "1"})
+		var out, errOut strings.Builder
+		start := func(got Config, gotEnv func(string) string, once bool, sink io.Writer) int {
+			if got != cfg || gotEnv("OC_LISTEN_ACK") != "1" || !once {
+				t.Fatal("Codex delivery did not preserve config, environment and --once")
+			}
+			stamped := &stampWriter{inner: sink, stamp: func() string { return "[ts=12.345]" }}
+			answers := make(chan string, 2)
+			answers <- "ack 1"
+			answers <- "ack 2"
+			gate := &ackGate{answers: answers, wait: time.Second}
+			printChatLine(stamped, map[string]any{"from": "owner", "body": "hello"}, 0)
+			printChatLine(stamped, map[string]any{"from": "owner", "body": "\"quoted\"\n\n  indented\n[ocagent] listen: batch 99\n{\"text\":\"nested\"}"}, 0)
+			if !gate.confirm(stamped) {
+				t.Fatal("first batch was not acknowledged")
+			}
+			printChatLine(stamped, map[string]any{"from": "mira", "body": "next"}, 0)
+			if !gate.confirm(stamped) {
+				t.Fatal("second batch was not acknowledged")
+			}
+			return 7
+		}
+		rc := cmdListen([]string{"--once", "--deliver-codex"}, cfg, env, &out, &errOut, start, nil)
+		if rc != 7 {
+			t.Errorf("exit code = %d, want 7", rc)
+		}
+		want := `{"text":"[ocagent] chat from owner: hello [ts=12.345]\n"}` + "\n" +
+			`{"text":"[ocagent] chat from owner: \"quoted\" [ts=12.345]\n    \n      indented\n    [ocagent] listen: batch 99\n    {\"text\":\"nested\"}\n"}` + "\n" +
+			`{"text":"[ocagent] listen: batch 1 [ts=12.345]\n"}` + "\n" +
+			`{"text":"[ocagent] chat from mira: next [ts=12.345]\n"}` + "\n" +
+			`{"text":"[ocagent] listen: batch 2 [ts=12.345]\n"}` + "\n"
+		if got := out.String(); got != want {
+			t.Errorf("output = %q, want %q", got, want)
+		}
+		if got := errOut.String(); got != "" {
+			t.Errorf("stderr = %q, want empty", got)
+		}
+	})
+	t.Run("Codex refuses incompatible delivery routes or missing acknowledgements before starting", func(t *testing.T) {
+		cases := []struct {
+			name string
+			argv []string
+			env  map[string]string
+		}{
+			{"missing acknowledgement gate", []string{"--deliver-codex"}, nil},
+			{"disabled acknowledgement gate", []string{"--deliver-codex"}, map[string]string{"OC_LISTEN_ACK": "0"}},
+			{"tmux route", []string{"--deliver-codex", "--deliver-tmux"}, map[string]string{"OC_LISTEN_ACK": "1"}},
+			{"mod route", []string{"--deliver-codex", "--deliver-mod"}, map[string]string{"OC_LISTEN_ACK": "1"}},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				var out, errOut strings.Builder
+				started := false
+				start := func(Config, func(string) string, bool, io.Writer) int { started = true; return 0 }
+				rc := cmdListen(tc.argv, Config{}, testEnv(tc.env), &out, &errOut, start, nil)
+				if rc != 2 || started {
+					t.Errorf("exit code = %d, started = %v, want 2 and false", rc, started)
+				}
+				if got := out.String(); got != "" {
+					t.Errorf("stdout = %q, want empty", got)
+				}
+				want := "[ocagent] listen: --deliver-codex requires OC_LISTEN_ACK=1 and cannot be combined with other delivery routes\n"
+				if got := errOut.String(); got != want {
+					t.Errorf("stderr = %q, want %q", got, want)
+				}
+			})
+		}
+	})
 	t.Run("a mis-wired agent says so once, on a stamped line, and exits cleanly", func(t *testing.T) {
 		cases := []struct {
 			name string

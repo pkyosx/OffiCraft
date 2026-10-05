@@ -736,7 +736,7 @@ func TestCodexSessionSteerOrStart(t *testing.T) {
 			"id": float64(1), "method": "turn/steer",
 			"params": map[string]any{
 				"threadId": "th_1", "expectedTurnId": "t_9",
-				"input": []any{map[string]any{"type": "text", "text": "[chat] owner: 早安"}},
+				"input": []any{map[string]any{"type": "text", "text": "  [chat] owner: 早安  "}},
 			},
 		}}
 		if got := s.sent(t); !reflect.DeepEqual(got, want) {
@@ -745,8 +745,8 @@ func TestCodexSessionSteerOrStart(t *testing.T) {
 		if got, want := s.paneLines(t), []string{"turn steered by OffiCraft event"}; !reflect.DeepEqual(got, want) {
 			t.Errorf("the pane shows %q, want %q", got, want)
 		}
-		if d := s.pending[1]; d == nil || d.method != "turn/steer" || d.text != "[chat] owner: 早安" {
-			t.Errorf("steerOrStart registered %+v, want a turn/steer carrying the trimmed text", d)
+		if d := s.pending[1]; d == nil || d.method != "turn/steer" || d.text != "  [chat] owner: 早安  " {
+			t.Errorf("steerOrStart registered %+v, want a turn/steer carrying the exact text", d)
 		}
 		if batch.outstanding != 1 {
 			t.Errorf("the batch counts %d outstanding deliveries, want 1", batch.outstanding)
@@ -795,6 +795,39 @@ func TestCodexSessionSteerOrStart(t *testing.T) {
 				len(s.pending), batch.outstanding)
 		}
 	})
+	t.Run("messages arriving before turn started are delivered in order and acknowledged only after every delivery", func(t *testing.T) {
+		s := newCodexTestSession()
+		batch := s.currentBatch()
+		s.steerOrStart("first\n  last", batch)
+		s.steerOrStart("second", batch)
+		s.steerOrStart("third", batch)
+		s.closeBatch("b-1")
+		if got := s.sent(t); len(got) != 1 || got[0]["method"] != "turn/start" {
+			t.Fatalf("before started: %v", got)
+		}
+		if s.acks.Len() != 0 {
+			t.Fatalf("premature ack: %q", s.acks.String())
+		}
+		s.active, s.turnID = true, "live"
+		s.confirmStartedTurn()
+		want := []map[string]any{
+			{"id": float64(1), "method": "turn/start", "params": map[string]any{"threadId": "th_1", "effort": "medium", "input": []any{map[string]any{"type": "text", "text": "first\n  last"}}}},
+			{"id": float64(2), "method": "turn/steer", "params": map[string]any{"threadId": "th_1", "expectedTurnId": "live", "input": []any{map[string]any{"type": "text", "text": "second"}}}},
+			{"id": float64(3), "method": "turn/steer", "params": map[string]any{"threadId": "th_1", "expectedTurnId": "live", "input": []any{map[string]any{"type": "text", "text": "third"}}}},
+		}
+		if got := s.sent(t); !reflect.DeepEqual(got, want) {
+			t.Fatalf("sent = %v, want %v", got, want)
+		}
+		s.resolveResponse(2, appServerMessage{"result": map[string]any{}})
+		if s.acks.Len() != 0 {
+			t.Fatalf("premature ack: %q", s.acks.String())
+		}
+		s.resolveResponse(3, appServerMessage{"result": map[string]any{}})
+		if s.acks.String() != "ack b-1\n" {
+			t.Fatalf("acks = %q", s.acks.String())
+		}
+	})
+
 }
 
 func TestCodexSessionTrack(t *testing.T) {
@@ -836,46 +869,72 @@ func TestCodexSessionResolveResponse(t *testing.T) {
 		}
 	})
 
-	t.Run("a refused turn/steer is re-sent as a fresh turn", func(t *testing.T) {
+	t.Run("a rejected steer retries the complete text once as a new turn", func(t *testing.T) {
 		s := newCodexTestSession()
-		s.active, s.turnID = true, "t_9"
-		batch := s.currentBatch()
-		s.steerOrStart("[chat] owner: 早安", batch)
+		s.active, s.turnID = true, "live"
+		s.steerOrStart("first\n  last", s.currentBatch())
 		s.closeBatch("b-1")
-		s.in.Reset()
-		s.pane.Reset()
-
-		s.resolveResponse(1, appServerMessage{"id": float64(1),
-			"error": map[string]any{"message": "expectedTurnId is stale"}})
-
-		want := []map[string]any{{
-			"id": float64(2), "method": "turn/start",
-			"params": map[string]any{
-				"threadId": "th_1", "effort": "medium",
-				"input": []any{map[string]any{"type": "text", "text": "[chat] owner: 早安"}},
-			},
-		}}
+		s.resolveResponse(1, appServerMessage{"error": map[string]any{"message": "expectedTurnId is stale"}})
+		want := []map[string]any{
+			{"id": float64(1), "method": "turn/steer", "params": map[string]any{"threadId": "th_1", "expectedTurnId": "live", "input": []any{map[string]any{"type": "text", "text": "first\n  last"}}}},
+			{"id": float64(2), "method": "turn/start", "params": map[string]any{"threadId": "th_1", "effort": "medium", "input": []any{map[string]any{"type": "text", "text": "first\n  last"}}}},
+		}
 		if got := s.sent(t); !reflect.DeepEqual(got, want) {
-			t.Errorf("the retry sent %v, want %v", got, want)
-		}
-		wantPane := []string{
-			"turn/steer 被拒（expectedTurnId is stale）— 改開新的一輪重送同一段內容",
-			"turn started",
-		}
-		if got := s.paneLines(t); !reflect.DeepEqual(got, wantPane) {
-			t.Errorf("the pane shows %q, want %q", got, wantPane)
+			t.Fatalf("sent=%v, want=%v", got, want)
 		}
 		if s.acks.Len() != 0 {
-			t.Errorf("the listener was told %q while the retry is still in flight, want nothing",
-				s.acks.String())
+			t.Fatalf("premature ack: %q", s.acks.String())
 		}
-		if batch.outstanding != 1 || batch.failed {
-			t.Errorf("the batch is %+v, want one outstanding delivery and no failure yet", *batch)
+		s.resolveResponse(2, appServerMessage{"error": map[string]any{"message": "thread is busy"}})
+		if got := s.sent(t); !reflect.DeepEqual(got, want) {
+			t.Fatalf("retried more than once: %v", got)
 		}
+		if got := s.acks.String(); got != "nack b-1\n" {
+			t.Fatalf("acks=%q", got)
+		}
+		s.steerOrStart("next", s.currentBatch())
+		if got := s.sent(t); len(got) != 3 || got[2]["method"] != "turn/steer" || got[2]["params"].(map[string]any)["expectedTurnId"] != "live" {
+			t.Fatalf("after rejected retry: %v", got)
+		}
+	})
 
-		s.resolveResponse(2, appServerMessage{"id": float64(2), "result": map[string]any{}})
-		if got, want := s.acks.String(), "ack b-1\n"; got != want {
-			t.Errorf("the listener was told %q, want %q", got, want)
+	t.Run("rejected steers wait behind the starting turn and each retry is delivered once", func(t *testing.T) {
+		s := newCodexTestSession()
+		s.active, s.turnID = true, "old"
+		batch := s.currentBatch()
+		s.steerOrStart("first", batch)
+		s.steerOrStart("second\n  last", batch)
+		s.closeBatch("b-2")
+		s.resolveResponse(1, appServerMessage{"error": map[string]any{"message": "stale"}})
+		s.resolveResponse(2, appServerMessage{"error": map[string]any{"message": "stale"}})
+		if got := s.sent(t); len(got) != 3 || got[2]["method"] != "turn/start" {
+			t.Fatalf("before retry lands: %v", got)
+		}
+		if s.acks.Len() != 0 {
+			t.Fatalf("premature ack: %q", s.acks.String())
+		}
+		s.steerOrStart("third", batch)
+		s.resolveResponse(3, appServerMessage{"result": map[string]any{"turn": map[string]any{"id": "new"}}})
+		want := []map[string]any{
+			{"id": float64(1), "method": "turn/steer", "params": map[string]any{"threadId": "th_1", "expectedTurnId": "old", "input": []any{map[string]any{"type": "text", "text": "first"}}}},
+			{"id": float64(2), "method": "turn/steer", "params": map[string]any{"threadId": "th_1", "expectedTurnId": "old", "input": []any{map[string]any{"type": "text", "text": "second\n  last"}}}},
+			{"id": float64(3), "method": "turn/start", "params": map[string]any{"threadId": "th_1", "effort": "medium", "input": []any{map[string]any{"type": "text", "text": "first"}}}},
+			{"id": float64(4), "method": "turn/start", "params": map[string]any{"threadId": "th_1", "effort": "medium", "input": []any{map[string]any{"type": "text", "text": "second\n  last"}}}},
+		}
+		if got := s.sent(t); !reflect.DeepEqual(got, want) {
+			t.Fatalf("sent=%v, want=%v", got, want)
+		}
+		s.resolveResponse(4, appServerMessage{"error": map[string]any{"message": "busy"}})
+		want = append(want, map[string]any{"id": float64(5), "method": "turn/steer", "params": map[string]any{"threadId": "th_1", "expectedTurnId": "new", "input": []any{map[string]any{"type": "text", "text": "third"}}}})
+		if got := s.sent(t); !reflect.DeepEqual(got, want) {
+			t.Fatalf("sent=%v, want=%v", got, want)
+		}
+		if s.acks.Len() != 0 {
+			t.Fatalf("premature ack: %q", s.acks.String())
+		}
+		s.resolveResponse(5, appServerMessage{"result": map[string]any{}})
+		if got := s.acks.String(); got != "nack b-2\n" {
+			t.Fatalf("acks=%q", got)
 		}
 	})
 
@@ -913,12 +972,20 @@ func TestCodexSessionResolveResponse(t *testing.T) {
 		s.startTurn("second", batch)
 		s.closeBatch("b-2")
 
-		s.resolveResponse(1, appServerMessage{"id": float64(1), "result": map[string]any{}})
+		s.resolveResponse(1, appServerMessage{"id": float64(1), "result": map[string]any{"turn": map[string]any{"id": "live"}}})
+		want := []map[string]any{
+			{"id": float64(1), "method": "turn/start", "params": map[string]any{"threadId": "th_1", "effort": "medium", "input": []any{map[string]any{"type": "text", "text": "first"}}}},
+			{"id": float64(2), "method": "turn/steer", "params": map[string]any{"threadId": "th_1", "expectedTurnId": "live", "input": []any{map[string]any{"type": "text", "text": "second"}}}},
+		}
+		if got := s.sent(t); !reflect.DeepEqual(got, want) {
+			t.Fatalf("sent=%v, want=%v", got, want)
+		}
 		if s.acks.Len() != 0 {
 			t.Errorf("the listener was told %q with a delivery still open, want nothing", s.acks.String())
 		}
 		s.resolveResponse(2, appServerMessage{"id": float64(2),
 			"error": map[string]any{"message": "thread is busy"}})
+		s.resolveResponse(3, appServerMessage{"error": map[string]any{"message": "thread is busy"}})
 
 		if got, want := s.acks.String(), "nack b-2\n"; got != want {
 			t.Errorf("the listener was told %q, want %q", got, want)
@@ -944,10 +1011,33 @@ func TestCodexSessionResolveResponse(t *testing.T) {
 			t.Errorf("pending=%d batch.outstanding=%d, want 1 and 1", len(s.pending), batch.outstanding)
 		}
 	})
+	t.Run("a rejected start releases the next complete message and keeps batch verdicts separate", func(t *testing.T) {
+		s := newCodexTestSession()
+		s.steerOrStart("first", s.currentBatch())
+		s.closeBatch("first-batch")
+		s.steerOrStart("second\n  last", s.currentBatch())
+		s.closeBatch("second-batch")
+		s.resolveResponse(1, appServerMessage{"error": map[string]any{"message": "refused"}})
+		if got := s.acks.String(); got != "nack first-batch\n" {
+			t.Fatalf("acks=%q", got)
+		}
+		want := []map[string]any{
+			{"id": float64(1), "method": "turn/start", "params": map[string]any{"threadId": "th_1", "effort": "medium", "input": []any{map[string]any{"type": "text", "text": "first"}}}},
+			{"id": float64(2), "method": "turn/start", "params": map[string]any{"threadId": "th_1", "effort": "medium", "input": []any{map[string]any{"type": "text", "text": "second\n  last"}}}},
+		}
+		if got := s.sent(t); !reflect.DeepEqual(got, want) {
+			t.Fatalf("sent=%v, want=%v", got, want)
+		}
+		s.resolveResponse(2, appServerMessage{"result": map[string]any{"turn": map[string]any{"id": "live"}}})
+		if got := s.acks.String(); got != "nack first-batch\nack second-batch\n" {
+			t.Fatalf("acks=%q", got)
+		}
+	})
+
 }
 
 func TestCodexSessionConfirmStartedTurn(t *testing.T) {
-	t.Run("the oldest unanswered turn/start is the one that started", func(t *testing.T) {
+	t.Run("the started delivery is confirmed and waiting messages steer the known turn", func(t *testing.T) {
 		s := newCodexTestSession()
 		batch := s.currentBatch()
 		s.active, s.turnID = true, "t_9"
@@ -958,16 +1048,17 @@ func TestCodexSessionConfirmStartedTurn(t *testing.T) {
 		s.closeBatch("b-1")
 		s.pane.Reset()
 
+		s.active, s.turnID = true, "t_new"
 		s.confirmStartedTurn()
 
-		if got, want := s.paneLines(t), []string{"已送進對話：older"}; !reflect.DeepEqual(got, want) {
+		if got, want := s.paneLines(t), []string{"已送進對話：older", "turn steered by OffiCraft event"}; !reflect.DeepEqual(got, want) {
 			t.Errorf("the pane shows %q, want %q", got, want)
 		}
 		if _, still := s.pending[2]; still {
 			t.Error("the confirmed turn/start is still pending")
 		}
-		if len(s.pending) != 2 || s.pending[1].method != "turn/steer" || s.pending[3].text != "newer" {
-			t.Errorf("pending = %v, want the turn/steer and the newer turn/start left", s.pending)
+		if len(s.pending) != 2 || s.pending[1].method != "turn/steer" || s.pending[3].method != "turn/steer" || s.pending[3].text != "newer" {
+			t.Errorf("pending = %v, want the earlier turn/steer and the newly steered waiting message", s.pending)
 		}
 		if batch.outstanding != 2 {
 			t.Errorf("the batch counts %d outstanding deliveries, want 2", batch.outstanding)
@@ -1148,7 +1239,7 @@ func TestCodexSessionOpenListenerTurn(t *testing.T) {
 		}
 	})
 
-	t.Run("every line since the last marker joins one group", func(t *testing.T) {
+	t.Run("every message since the last marker joins one group", func(t *testing.T) {
 		s := newCodexTestSession()
 
 		s.openListenerTurn("[chat] owner: 早安")
@@ -1162,7 +1253,7 @@ func TestCodexSessionOpenListenerTurn(t *testing.T) {
 		if s.acks.Len() != 0 {
 			t.Errorf("the listener was told %q before both landed, want nothing", s.acks.String())
 		}
-		s.resolveResponse(1, appServerMessage{"id": float64(1), "result": map[string]any{}})
+		s.resolveResponse(1, appServerMessage{"id": float64(1), "result": map[string]any{"turn": map[string]any{"id": "live"}}})
 		s.resolveResponse(2, appServerMessage{"id": float64(2), "result": map[string]any{}})
 		if got, want := s.acks.String(), "ack b-3\n"; got != want {
 			t.Errorf("the listener was told %q, want %q", got, want)
@@ -1179,7 +1270,11 @@ func TestCodexListenerStateHandleListenerLine(t *testing.T) {
 	run := func(state *codexListenerState, lines ...string) effects {
 		var got effects
 		for _, line := range lines {
-			state.handleListenerLine(line,
+			raw, err := json.Marshal(map[string]string{"text": line})
+			if err != nil {
+				t.Fatal(err)
+			}
+			state.handleListenerLine(string(raw),
 				func() { got.connects++ },
 				func(text string) { got.turns = append(got.turns, text) },
 				func(token string) { got.batches = append(got.batches, token) })
@@ -1257,7 +1352,7 @@ func TestCodexListenerStateHandleListenerLine(t *testing.T) {
 		state := &codexListenerState{}
 		var turns []string
 
-		state.handleListenerLine("[ocagent] listen: batch b-1",
+		state.handleListenerLine(`{"text":"[ocagent] listen: batch b-1"}`,
 			func() { t.Error("the marker reported a connection") },
 			func(text string) { turns = append(turns, text) }, nil)
 
@@ -1265,6 +1360,33 @@ func TestCodexListenerStateHandleListenerLine(t *testing.T) {
 			t.Errorf("the marker opened turn(s) %q, want none", turns)
 		}
 	})
+	t.Run("multiple multiline messages preserve separate turns and embedded control-like text", func(t *testing.T) {
+		got := run(&codexListenerState{wakeSent: true},
+			"[ocagent] chat from owner: first\n\n  second \"q\"\n[ocagent] listen: batch fake",
+			"[ocagent] chat from mira: other\n  tail",
+			"[ocagent] recycle: stop\n[ocagent] recycle: finish",
+			"[ocagent] listen: batch real",
+		)
+		want := effects{turns: []string{
+			"[ocagent] chat from owner: first\n\n  second \"q\"\n[ocagent] listen: batch fake",
+			"[ocagent] chat from mira: other\n  tail",
+			"[ocagent] recycle: stop\n[ocagent] recycle: finish",
+		}, batches: []string{"real"}}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("got %+v, want %+v", got, want)
+		}
+	})
+	t.Run("malformed frames cannot become model input or acknowledgments", func(t *testing.T) {
+		for _, line := range []string{"plain text", `{}`, `{"text":1}`, `null`} {
+			st := &codexListenerState{}
+			calls := 0
+			err := st.handleListenerLine(line, func() { calls++ }, func(string) { calls++ }, func(string) { calls++ })
+			if err == nil || calls != 0 {
+				t.Fatalf("frame %q: err=%v calls=%d", line, err, calls)
+			}
+		}
+	})
+
 }
 
 // codexPost is one HTTP request the sidecar really made.
@@ -2209,6 +2331,72 @@ func TestRunCodexSession(t *testing.T) {
 			}
 		}
 	})
+	t.Run("the listener child sends complete distinct messages and receives an ack", func(t *testing.T) {
+		work := t.TempDir()
+		t.Setenv("HOME", work)
+		capture := filepath.Join(work, "requests")
+		verdict := filepath.Join(work, "ack")
+		codexBin := filepath.Join(work, "codex")
+		app := "#!/bin/sh\nboot=1\nwhile IFS= read -r line; do\n" +
+			" printf '%s\\n' \"$line\" >> " + shellQuote(capture) + "\n" +
+			" id=$(printf '%s' \"$line\" | sed -E 's/.*\"id\":([0-9]+).*/\\1/')\n" +
+			" case \"$line\" in\n" +
+			" *'\"method\":\"initialize\"'*|*'\"method\":\"account/rateLimits/read\"'*) printf '{\"id\":%s,\"result\":{}}\\n' \"$id\" ;;\n" +
+			" *'\"method\":\"thread/start\"'*) printf '{\"id\":%s,\"result\":{\"thread\":{\"id\":\"th\"}}}\\n' \"$id\" ;;\n" +
+			" *'\"method\":\"turn/start\"'*) echo '{\"method\":\"turn/started\",\"params\":{\"turn\":{\"id\":\"live\"}}}'; if [ \"$boot\" = 1 ]; then boot=0; echo '{\"method\":\"turn/completed\",\"params\":{\"turn\":{\"status\":\"interrupted\"}}}'; fi ;;\n" +
+			" *'\"method\":\"turn/steer\"'*) printf '{\"id\":%s,\"result\":{}}\\n' \"$id\" ;;\n" +
+			" esac\ndone\n"
+		listener := "#!/bin/bash\n[ \"$1\" = listen ] && [ \"$2\" = --deliver-codex ] && [ \"$OC_LISTEN_ACK\" = 1 ] || exit 2\n" +
+			"printf '%s\\n' " +
+			shellQuote(`{"text":"[ocagent] listen: connected\n"}`) + " " +
+			shellQuote(`{"text":"[ocagent] chat from owner: single\n"}`) + " " +
+			shellQuote(`{"text":"[ocagent] chat from mira: first\n\n    last \"q\"\n"}`) + " " +
+			shellQuote(`{"text":"[ocagent] recycle: stop\n[ocagent] recycle: finish\n"}`) + " " +
+			shellQuote(`{"text":"[ocagent] listen: batch b-1\n"}`) + "\n" +
+			"IFS= read -r -t 3 ack || exit 3\nprintf '%s\\n' \"$ack\" > " + shellQuote(verdict) + "\n"
+		for name, body := range map[string]string{codexBin: app, filepath.Join(work, "ocagent"): listener} {
+			if err := os.WriteFile(name, []byte(body), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		out := &lockedBuffer{}
+		code := runCodexSession([]string{"--codex-bin", codexBin, "--workdir", work, "--persona", stagePersona(t, work)}, envMap(map[string]string{"OC_BASE": "://invalid", "OC_TOKEN": "tok"}), out)
+		if code != 1 {
+			t.Fatalf("code=%d, out=%q", code, out.String())
+		}
+		raw, err := os.ReadFile(capture)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var texts []string
+		for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+			var msg appServerMessage
+			if err := json.Unmarshal([]byte(line), &msg); err != nil {
+				t.Fatal(err)
+			}
+			if msg["method"] != "turn/start" && msg["method"] != "turn/steer" {
+				continue
+			}
+			params := msg["params"].(map[string]any)
+			input := params["input"].([]any)
+			if len(input) != 1 {
+				t.Fatalf("input=%v", input)
+			}
+			texts = append(texts, input[0].(map[string]any)["text"].(string))
+		}
+		want := []string{"開始。", "[OffiCraft sidecar] 你的事件流（SSE）已經接上了。請接著做開機說明裡「接上 SSE 之後」的那些步驟（盤點你手上還沒結束的任務並開始推進）。", "[ocagent] chat from owner: single", "[ocagent] chat from mira: first\n\n    last \"q\"", "[ocagent] recycle: stop\n[ocagent] recycle: finish"}
+		if !reflect.DeepEqual(texts, want) {
+			t.Fatalf("texts=%q, want=%q; out=%q", texts, want, out.String())
+		}
+		ack, err := os.ReadFile(verdict)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(ack) != "ack b-1\n" {
+			t.Fatalf("ack=%q", ack)
+		}
+	})
+
 }
 
 func stagePersona(t *testing.T, dir string) string {

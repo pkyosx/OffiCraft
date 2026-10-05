@@ -28,6 +28,7 @@ GUARD = ROOT / "bin" / "listen-notice-mirror-guard.py"
 
 RUN = "cli/ocagent/listen_run.go"
 ACK = "cli/ocagent/listen.go"
+DELIVER = "cli/ocagent/listen_deliver.go"
 SIDECAR = "cli/ocwarden/codex_session.go"
 SPAWNER = "cli/ocwarden/spawn.go"
 TMUX = "cli/ocwarden/tmux.go"
@@ -37,6 +38,26 @@ NOTIFY_MOD = "cli/ocwarden/notifymod.go"
 # Each is a ONE-SIDED change: the point is that one side moving must redden, and
 # only a matching change on BOTH sides is allowed through.
 MUTANTS: Tuple[Tuple[str, str, str, str], ...] = (
+    (
+        "the listener renames the Codex delivery flag",
+        DELIVER, 'const listenCodexFlag = "deliver-codex"',
+        'const listenCodexFlag = "deliver-codex-listener"',
+    ),
+    (
+        "the sidecar renames the Codex delivery flag",
+        SIDECAR, 'const listenCodexFlag = "deliver-codex"',
+        'const listenCodexFlag = "deliver-codex-sidecar"',
+    ),
+    (
+        "the listener's Codex delivery flag declaration disappears",
+        DELIVER, 'const listenCodexFlag = "deliver-codex"',
+        '',
+    ),
+    (
+        "the sidecar's Codex delivery flag declaration disappears",
+        SIDECAR, 'const listenCodexFlag = "deliver-codex"',
+        '',
+    ),
     (
         # The drift that really happened: independent review moved this head
         # rightward and both module suites stayed green.
@@ -217,6 +238,10 @@ FIFTH_PAIR = (
 # the contract HOLDING, not drifting, and a guard that reddens on it would push
 # people to stop touching these names at all.
 CONSISTENT = (
+    (DELIVER, 'const listenCodexFlag = "deliver-codex"',
+     'const listenCodexFlag = "deliver-codex-renamed"'),
+    (SIDECAR, 'const listenCodexFlag = "deliver-codex"',
+     'const listenCodexFlag = "deliver-codex-renamed"'),
     (RUN, '\tnoticeGivingUp     = "listen: giving up"',
      '\tnoticeGivingUp     = "listen: stopped retrying"'),
     (SIDECAR, '\tnoticeGivingUpPrefix     = "[ocagent] listen: giving up"',
@@ -250,7 +275,7 @@ RESPELLINGS = (
 
 def stage() -> Path:
     tmp = Path(tempfile.mkdtemp(prefix="listen-notice-mirror-selftest-"))
-    for rel in (RUN, ACK, SIDECAR, SPAWNER, TMUX, NOTIFY_MOD):
+    for rel in (RUN, ACK, DELIVER, SIDECAR, SPAWNER, TMUX, NOTIFY_MOD):
         dst = tmp / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / rel, dst)

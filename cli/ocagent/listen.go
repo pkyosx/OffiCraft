@@ -594,8 +594,8 @@ func attachmentSummary(m map[string]any) string {
 }
 
 // listenAckEnv="1" is set by whoever consumes stdout when printing proves
-// nothing: the codex sidecar (cli/ocwarden/codex_session.go), where each line must
-// become an App Server turn, and the claude notification mod (cli/ocwarden/mod),
+// nothing: the codex sidecar (cli/ocwarden/codex_session.go), where each complete notice must
+// become an App Server input, and the claude notification mod (cli/ocwarden/mod),
 // where each payload is a prompt submit; both can be refused. Only the parent
 // knows — never infer it from a tty, the parent process or the member id: a wrong
 // guess (ack mode with nobody answering) hangs the drain.

@@ -73,7 +73,7 @@ the gaps off the pipeline instead:
     Every transformation the input goes through discards a class of thing, and
     the class it discards is what this check cannot see.
 
-  1. READ FIVE NAMED FILES ⇒ discards every other file. A third copy of one of
+  1. READ NAMED FILES ⇒ discards every other file. A third copy of one of
      these strings in server/ocserverd or cli/officraft is invisible, and the
      green says nothing about it. For the spawn environment that includes a site
      that bypasses the constant: `env("OC_SESSION_X")` written inline in
@@ -118,6 +118,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 PRODUCER_RUN = "cli/ocagent/listen_run.go"
 PRODUCER_ACK = "cli/ocagent/listen.go"
+PRODUCER_DELIVER = "cli/ocagent/listen_deliver.go"
 CONSUMER = "cli/ocwarden/codex_session.go"
 SPAWNER = "cli/ocwarden/spawn.go"
 TMUX = "cli/ocwarden/tmux.go"
@@ -145,6 +146,8 @@ WANTED: Tuple[Tuple[str, str], ...] = (
     (CONSUMER, "listenAckEnv"),
     (PRODUCER_ACK, "listenAckFileEnv"),
     (NOTIFY_MOD, "listenAckFileEnv"),
+    (PRODUCER_DELIVER, "listenCodexFlag"),
+    (CONSUMER, "listenCodexFlag"),
 ) + tuple((side, name) for name in SPAWN_ENV for side in (SPAWNER, PRODUCER_ACK)) + (
     (TMUX, "tmuxSocket"),
     (PRODUCER_ACK, "defaultTmuxSocket"),
@@ -437,6 +440,13 @@ def compare(values: Dict[Tuple[str, str], str]) -> List[str]:
             f"the listener reads its ack file from {file_a!r} but the warden hands the "
             f"notification mod {file_b!r} — the listener refuses --deliver-mod and the "
             "member falls back to the tmux paste route"
+        )
+
+    flag_a, flag_b = values.get((PRODUCER_DELIVER, "listenCodexFlag")), values.get((CONSUMER, "listenCodexFlag"))
+    if flag_a is not None and flag_b is not None and flag_a != flag_b:
+        rows.append(
+            f"the listener accepts --{flag_a} but the Codex sidecar passes --{flag_b} "
+            "— the listener rejects the delivery route and no framed notices reach Codex"
         )
 
     for name in SPAWN_ENV:
