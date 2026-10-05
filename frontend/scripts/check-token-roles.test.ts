@@ -69,6 +69,34 @@ describe("check-token-roles", () => {
     // --color-bg would be describing a measurement the script no longer makes.
     expect(out).toContain("--color-on-danger");
     expect(out).toContain("--color-danger-badge-ring");
+    expect(out).toMatch(/office \d+\.\d\d:1 vs --color-on-danger/);
+    expect(out).toMatch(/office-light \d+\.\d\d:1 vs --color-on-danger/);
+  });
+
+  it("fails when the office-light block's badge fill drops below AA", () => {
+    const { code, out } = run((edit) =>
+      edit(THEME, (css) => {
+        const LIGHT_FILL = "  --color-danger-badge: #b63e35;\n";
+        if (!css.includes(LIGHT_FILL)) throw new Error(`fixture is stale: ${THEME} has no ${LIGHT_FILL.trim()}`);
+        return css.replace(LIGHT_FILL, "  --color-danger-badge: #f0736b;\n");
+      })
+    );
+    expect(out, out).toMatch(/\[office-light\] --color-danger-badge vs --color-on-danger is 2\.85:1/);
+    expect(code).toBe(1);
+  });
+
+  it("fails when the office-light block drops on-danger and inherits the dark alias", () => {
+    // Without its own value, --color-on-danger falls back to :root's
+    // var(--color-overlay), which the light block re-values to a dark ink.
+    const { code, out } = run((edit) =>
+      edit(THEME, (css) => {
+        const LIGHT_TEXT = "  --color-on-danger: #ffffff;\n";
+        if (!css.includes(LIGHT_TEXT)) throw new Error(`fixture is stale: ${THEME} has no ${LIGHT_TEXT.trim()}`);
+        return css.replace(LIGHT_TEXT, "");
+      })
+    );
+    expect(out, out).toMatch(/\[office-light\] --color-danger-badge vs --color-on-danger is \d/);
+    expect(code).toBe(1);
   });
 
   it("fails when a badge's text colour stops using the measured token", () => {

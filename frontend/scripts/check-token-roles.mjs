@@ -498,20 +498,43 @@ const atRuleFree = (prelude) => !/(^|\s)@/.test(prelude);
 const rootDefDecls = decls.filter(
   (d) => isDef(d) && atRuleFree(d.selector) && targets(d.selector, ":root")
 );
-const rootDefs = new Map();
-for (const d of rootDefDecls) {
-  if (!rootDefs.has(d.prop)) rootDefs.set(d.prop, []);
-  rootDefs.get(d.prop).push(d.value);
+
+// Built-in themes are theme.css blocks: office is the bare `:root`, and each
+// other built-in is a `:root[data-theme="<id>"]` block layered over it, which is
+// how i18n/index.tsx and prePaint.ts select one. Every block is measured on its
+// own. A :root-targeting selector of any other shape (`:root:root`, a `:root` in
+// another file's rule with a class, …) belongs to no theme and may win under all
+// of them, so it counts as a candidate in every theme's tally below.
+const THEME_BLOCK_RE = /^:root\[data-theme=["']([a-z0-9][a-z0-9-]*)["']\]$/;
+const BASE_THEME = "office";
+const scopeOf = (d) => {
+  if (d.selector === ":root") return BASE_THEME;
+  const m = d.rel === THEME ? THEME_BLOCK_RE.exec(d.selector) : null;
+  return m ? m[1] : "*";
+};
+const BUILTIN_THEMES = [
+  BASE_THEME,
+  ...new Set(rootDefDecls.map(scopeOf).filter((s) => s !== BASE_THEME && s !== "*")),
+];
+
+/** The candidate definitions of `token` under built-in `theme`. A non-base block
+ *  that leaves a token out inherits the base `:root` definition, exactly as the
+ *  cascade does on screen. */
+function candidates(token, theme) {
+  const of = (scope) => rootDefDecls.filter((d) => d.prop === token && scopeOf(d) === scope);
+  const own = theme === BASE_THEME ? of(BASE_THEME) : of(theme);
+  const picked = own.length || theme === BASE_THEME ? own : of(BASE_THEME);
+  return [...picked, ...of("*")];
 }
 
-/** Follow a token's :root definition through any var() alias hops to a literal
- *  value. Exactly one definition per measured token is what
- *  requireSingleRootDefinition below enforces, so there is no winner to pick. */
-function concreteValue(token, hops = 0) {
-  const value = (rootDefs.get(token) ?? []).at(-1);
+/** Follow a token's definition under `theme` through any var() alias hops to a
+ *  literal value. A var() resolves against the same theme, because the alias and
+ *  its target are both custom properties on the one root element. */
+function concreteValue(token, theme, hops = 0) {
+  const value = candidates(token, theme).at(-1)?.value;
   if (value === undefined || hops > 8) return null;
   const alias = /^var\(\s*(--[\w-]+)\s*\)$/.exec(value.trim());
-  return alias ? concreteValue(alias[1], hops + 1) : value.trim();
+  return alias ? concreteValue(alias[1], theme, hops + 1) : value.trim();
 }
 
 // ── One candidate, so there is nothing to guess ──────────────────────────────
@@ -525,54 +548,58 @@ function concreteValue(token, hops = 0) {
 //
 // So it stops guessing. For every token the contrast floors are measured on
 // (and every token those reach through an alias hop) there must be EXACTLY ONE
-// at-rule-free `:root` definition in the whole tree, and it must not carry
-// `!important`. Then no cascade question exists: one candidate cannot lose to
-// another, whatever the specificity, the file or the import order. The shipped
-// tree already satisfies this — one definition per token in theme.css's `:root`
-// is the baseline — so the cost is nil and the whole class is closed at once.
+// at-rule-free candidate per built-in theme, and it must not carry `!important`.
+// Then no cascade question exists inside a theme: one candidate cannot lose to
+// another, whatever the specificity, the file or the import order.
 const IMPORTANT_RE = /!\s*important\b/i;
 const MEASURED_TOKENS = [BADGE_FILL, BADGE_TEXT, BADGE_RING];
 
-/** The measured tokens plus everything their :root values alias through — an
- *  ambiguous definition one hop down decides the colour just as completely. */
-function aliasClosure(seeds) {
+/** The measured tokens plus everything their values alias through under
+ *  `theme` — an ambiguous definition one hop down decides the colour just as
+ *  completely. */
+function aliasClosure(seeds, theme) {
   const out = new Set();
   const queue = [...seeds];
   while (queue.length) {
     const token = queue.shift();
     if (out.has(token)) continue;
     out.add(token);
-    for (const value of rootDefs.get(token) ?? []) queue.push(...refsOf(value));
+    for (const d of candidates(token, theme)) queue.push(...refsOf(d.value));
   }
   return [...out];
 }
 
-for (const token of aliasClosure(MEASURED_TOKENS)) {
-  const defs = rootDefDecls.filter((d) => d.prop === token);
-  if (defs.length > 1) {
-    violations.push({
-      ...defs[0],
-      why:
-        `${token} has ${defs.length} :root definitions (` +
-        defs.map((d) => `${d.rel}:${d.lineNo} { ${d.selector}`).join(", ") +
-        `) — the unread badge's contrast floor is measured on this token, so ` +
-        `exactly ONE may exist outside an at-rule. Which of several wins depends ` +
-        `on specificity, !important and stylesheet load order; this guard ` +
-        `deliberately models none of them, because every attempt to has been ` +
-        `walked past. Delete all but one.`,
-    });
-  }
-  for (const d of defs.filter((d) => IMPORTANT_RE.test(d.value))) {
-    violations.push({
-      ...d,
-      why:
-        `${token}'s :root definition carries !important — the contrast floor is ` +
-        `measured on this token and !important changes which declaration wins ` +
-        `without changing anything this guard can see. Remove it.`,
-    });
+const reported = new Set();
+for (const theme of BUILTIN_THEMES) {
+  for (const token of aliasClosure(MEASURED_TOKENS, theme)) {
+    const defs = candidates(token, theme);
+    const key = `${token} ${defs.map((d) => `${d.rel}:${d.lineNo}`).join(",")}`;
+    if (reported.has(key)) continue;
+    reported.add(key);
+    if (defs.length > 1) {
+      violations.push({
+        ...defs[0],
+        why:
+          `${token} has ${defs.length} :root definitions under the ${theme} theme (` +
+          defs.map((d) => `${d.rel}:${d.lineNo} { ${d.selector}`).join(", ") +
+          `) — the unread badge's contrast floor is measured on this token, so ` +
+          `exactly ONE may exist outside an at-rule. Which of several wins depends ` +
+          `on specificity, !important and stylesheet load order; this guard ` +
+          `deliberately models none of them, because every attempt to has been ` +
+          `walked past. Delete all but one.`,
+      });
+    }
+    for (const d of defs.filter((d) => IMPORTANT_RE.test(d.value))) {
+      violations.push({
+        ...d,
+        why:
+          `${token}'s :root definition carries !important — the contrast floor is ` +
+          `measured on this token and !important changes which declaration wins ` +
+          `without changing anything this guard can see. Remove it.`,
+      });
+    }
   }
 }
-
 function relativeLuminance(hex) {
   const m = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.exec(hex);
   if (!m) return null;
@@ -614,34 +641,40 @@ for (const [token, def] of badgeDefs) {
 }
 
 const badgeDef = badgeDefs.get(BADGE_FILL);
-const checkRatio = (againstToken, floor, what) => {
-  const ratio = contrastRatio(concreteValue(BADGE_FILL), concreteValue(againstToken));
+const checkRatio = (theme, againstToken, floor, what) => {
+  const ratio = contrastRatio(concreteValue(BADGE_FILL, theme), concreteValue(againstToken, theme));
+  const at = candidates(BADGE_FILL, theme)[0] ?? badgeDef ?? {
+    rel: THEME, lineNo: 0, prop: BADGE_FILL, value: "(missing)",
+  };
   if (ratio === null) {
     violations.push({
-      ...(badgeDef ?? { rel: THEME, lineNo: 0, prop: BADGE_FILL, value: "(missing)" }),
+      ...at,
       why:
-        `${BADGE_FILL} vs ${againstToken} cannot be measured — both must resolve to a ` +
-        `plain #rgb/#rrggbb in the :root block of ${THEME} for the contrast floor to ` +
-        `mean anything.`,
+        `[${theme}] ${BADGE_FILL} vs ${againstToken} cannot be measured — both must ` +
+        `resolve to a plain #rgb/#rrggbb in ${THEME} for the contrast floor to mean ` +
+        `anything.`,
     });
     return;
   }
   if (ratio < floor) {
     violations.push({
-      ...(badgeDef ?? { rel: THEME, lineNo: 0, prop: BADGE_FILL, value: "(missing)" }),
+      ...at,
       why:
-        `${BADGE_FILL} vs ${againstToken} is ${ratio.toFixed(2)}:1, below the ${floor}:1 ` +
-        `floor — ${what}`,
+        `[${theme}] ${BADGE_FILL} vs ${againstToken} is ${ratio.toFixed(2)}:1, below the ` +
+        `${floor}:1 floor — ${what}`,
     });
   }
 };
-checkRatio(
-  BADGE_TEXT,
-  AA_CONTRAST,
-  `the unread count on the pill fails WCAG AA. Measured against ${BADGE_TEXT}, the ` +
-    `colour the pill's own text is painted with (every ${BADGE_SELECTORS.length} pill ` +
-    `selectors are checked below for actually using it).`
-);
+for (const theme of BUILTIN_THEMES) {
+  checkRatio(
+    theme,
+    BADGE_TEXT,
+    AA_CONTRAST,
+    `the unread count on the pill fails WCAG AA. Measured against ${BADGE_TEXT}, the ` +
+      `colour the pill's own text is painted with (every ${BADGE_SELECTORS.length} pill ` +
+      `selectors are checked below for actually using it).`
+  );
+}
 // NOTE (T-d593): there used to be a second checkRatio() here asserting
 // BADGE_FILL vs BADGE_RING >= 3:1 ("the pill still reads as a pill"). The owner
 // removed that floor deliberately — see the BADGE_RING comment above. Do not add
@@ -710,16 +743,20 @@ if (violations.length) {
   process.exit(1);
 }
 
+const ratioOf = (theme, token) =>
+  contrastRatio(concreteValue(BADGE_FILL, theme), concreteValue(token, theme))?.toFixed(2);
 console.log(
   `[token-roles] ok — 3 split tokens keep to one role each; ` +
     `${Object.keys(SPLIT_FROM).length} carved-out tokens defined independently and in use; ` +
-    `BUILT-IN theme's unread badge ` +
-    `${contrastRatio(concreteValue(BADGE_FILL), concreteValue(BADGE_TEXT)).toFixed(2)}:1 vs ` +
-    `${BADGE_TEXT} / ` +
-    `${contrastRatio(concreteValue(BADGE_FILL), concreteValue(BADGE_RING)).toFixed(2)}:1 vs ` +
-    `${BADGE_RING} (its 1px ring). ONLY THE FIRST RATIO IS PINNED — the ring's is ` +
+    `BUILT-IN themes' unread badge: ` +
+    BUILTIN_THEMES.map(
+      (theme) =>
+        `${theme} ${ratioOf(theme, BADGE_TEXT)}:1 vs ${BADGE_TEXT} / ` +
+        `${ratioOf(theme, BADGE_RING)}:1 vs ${BADGE_RING} (its 1px ring)`
+    ).join("; ") +
+    `. ONLY THE FIRST RATIO IS PINNED — the ring's is ` +
     `printed for information since T-d593 (owner: 外框完全自由,不留下限), so a theme ` +
     `may drive it to 1:1. Both tokens are still pinned as the ring/text SLOTS at the ` +
     `${BADGE_SELECTORS.length} pill call sites. ` +
-    `A theme pack may re-value ${BADGE_FILL}, so these numbers describe the built-in theme only.`
+    `A theme pack may re-value ${BADGE_FILL}, so these numbers describe the built-in themes only.`
 );
