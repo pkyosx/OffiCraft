@@ -86,7 +86,10 @@
 //                                           → phone-then-desktop test, name-in-place test
 //   names not observed (only the frame)      → name-in-place test
 //   frame not observed (only the names)      → phone-then-desktop same-size test
-//   measured while the rename field is open  → rename field test
+//   measured while the rename field is open  → rename field tests
+//   no rename floor (`--mon-rename-min` unset) → rename field tests (field at
+//                                              the name's width)
+//   rename floor kept after the field closes → rename field tests
 //   no machine: the last minimum kept         → last machine test
 //   the 尚無機器 cell keeps 機器's shade       → last machine test (frame scrolls 24px)
 //   machine state word back beside the dot   → dot tests (desktop, phone), 機器 cut
@@ -1894,32 +1897,84 @@ async function openRename(page: Page) {
   await page.getByRole("menuitem", { name: "改名稱" }).click();
 }
 
-// An open rename field stretches over whatever width the 機器 cell has
-// (flex: 1) and reports its default input size, so a measurement taken while it
-// is open would size 機器 by the field rather than by the name. Narrowing the
-// window with the field still open shows that in the table's width as well.
-test("an open rename field leaves the table's minimum as it was, and the table still narrows to it", async ({
-  mount,
-  page,
-}) => {
-  await page.setViewportSize({ width: 1016, height: 900 });
-  await mount(<MonitorMachinesLayoutStory width={996} states={["normal"]} />);
-  const closed = await settled(page);
-  expect(closed.table, "control: the table fills the frame").toBe(FRAME);
-  expect(px(closed.variable), "control: the minimum leaves 機器 some slack").toBeLessThan(FRAME);
-  await openRename(page);
-  await expect(page.getByRole("textbox", { name: "機器改名" }), "control: the field is open").toBeFocused();
-  // Two frames for the size observers to have run.
-  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
-  expect(await measured(page)).toEqual(closed);
-  await page.setViewportSize({ width: 780, height: 900 });
-  const frame = await page.locator(".mon-table-wrap").evaluate((el) => el.clientWidth);
-  expect(frame, "control: the narrowed frame is below the minimum").toBeLessThan(px(closed.variable));
-  await expect
-    .poll(() => measured(page))
-    .toEqual({ variable: closed.variable, table: px(closed.variable), overflow: px(closed.variable) - frame });
-  await expect(page.getByRole("textbox", { name: "機器改名" }), "control: the field is still open").toBeVisible();
-});
+/** 機器's width as MachinesTable set it, the CSS's floor for it while a
+ * rename field is open, and the room the field has inside the 機器 cell:
+ * the cell less its padding, the dot and the gap after it. */
+async function renameRoom(page: Page) {
+  return page.evaluate(() => {
+    const table = document.querySelector(".mon-table--machines") as HTMLElement;
+    const td = table.querySelector("tbody td") as HTMLElement;
+    const name = td.querySelector(".mon-machine-name") as HTMLElement;
+    const cs = getComputedStyle(td);
+    const dot = name.querySelector('[data-testid="mon-machine-online"]')!.getBoundingClientRect().width;
+    const field = name.querySelector("input");
+    const editor = name.querySelector(".inline-edit--editing");
+    return {
+      variable: table.style.getPropertyValue("--mon-machine-width"),
+      cell: td.getBoundingClientRect().width,
+      floor: parseFloat(getComputedStyle(table).getPropertyValue("--mon-rename-min")),
+      room:
+        td.getBoundingClientRect().width - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - dot - parseFloat(getComputedStyle(name).columnGap),
+      field: field ? field.getBoundingClientRect().width : null,
+      editor: editor ? editor.getBoundingClientRect().width : null,
+    };
+  });
+}
+
+// 機器 is only as wide as its name, so an open rename field would get a few
+// characters' room. While it is open the column takes at least the CSS's
+// --mon-rename-min from the six others, and gives it back when it closes. The
+// name is not measured while the field is open (the field reports its default
+// input size), so the table's minimum is the closed one plus that difference,
+// and narrowing the window with the field still open scrolls by it.
+for (const state of ["named", "normal"] as const) {
+  test(`production fonts, ${state}: an open rename field gets room to type, the other columns give it up, and get it back when it closes`, async ({
+    mount,
+    page,
+  }) => {
+    await loadProductionFonts(page);
+    await page.setViewportSize({ width: 1016, height: 900 });
+    await mount(<MonitorMachinesLayoutStory width={996} states={[state]} />);
+    const closed = await settled(page);
+    const before = await renameRoom(page);
+    expect(closed.table, "control: the table fills the frame").toBe(FRAME);
+    expect(px(before.variable), "control: the name alone needs less than the floor").toBeLessThan(before.floor);
+
+    await openRename(page);
+    const field = page.getByRole("textbox", { name: "機器改名" });
+    await expect(field, "control: the field is open").toBeFocused();
+    await expect.poll(async () => (await renameRoom(page)).variable).toBe(`${before.floor}px`);
+    const open = await renameRoom(page);
+    expect(open.editor!, `the field and its buttons fill the cell beside the dot (${open.editor} of ${open.room})`).toBeGreaterThanOrEqual(open.room - 1);
+    // The input takes all of that but its two buttons and the gaps.
+    const inputShare = await page.locator(".mon-machine-name .inline-edit--editing").evaluate((ed) => {
+      const kids = Array.from(ed.children) as HTMLElement[];
+      const others = kids.filter((k) => k.tagName !== "INPUT").reduce((sum, k) => sum + k.getBoundingClientRect().width, 0);
+      return ed.getBoundingClientRect().width - others - parseFloat(getComputedStyle(ed).columnGap) * (kids.length - 1);
+    });
+    expect(open.field!, "the input takes the field's room").toBeGreaterThanOrEqual(inputShare - 1);
+    expect(Math.abs(open.cell - before.floor), `機器 is the floor wide (${open.cell})`).toBeLessThanOrEqual(1);
+    // What the input would have had in the name's own cell, its buttons and
+    // gaps taken out, plus the floor's difference.
+    const buttons = open.editor! - open.field!;
+    expect(open.field!, "the input has the floor's extra room").toBeGreaterThanOrEqual(
+      before.room - buttons + (before.floor - px(before.variable)) - 1
+    );
+    const grown = px(closed.variable) + before.floor - px(before.variable);
+    expect(await measured(page), "the table still fills the frame").toEqual({ variable: `${grown}px`, table: FRAME, overflow: 0 });
+
+    await page.setViewportSize({ width: 780, height: 900 });
+    const frame = await page.locator(".mon-table-wrap").evaluate((el) => el.clientWidth);
+    expect(frame, "control: the narrowed frame is below the minimum").toBeLessThan(grown);
+    await expect.poll(() => measured(page)).toEqual({ variable: `${grown}px`, table: grown, overflow: grown - frame });
+    await expect(field, "control: the field is still open").toBeVisible();
+
+    await page.setViewportSize({ width: 1016, height: 900 });
+    await field.press("Escape");
+    await expect(field, "control: the field closed").toHaveCount(0);
+    await expect.poll(() => measured(page), "closed, 機器 is back to the name's width").toEqual(closed);
+  });
+}
 
 // Only the 機器 cell's measurement waits for the field to close: a runtime
 // column that grows meanwhile still grows, and the table's minimum follows it
@@ -1935,16 +1990,20 @@ test("with a rename field open, two marks arriving in Claude still widen Claude,
   expect(claude2.claude[0], "control: two marks need more than 150px").toBeGreaterThan(150);
 
   const story = await mount(<MonitorMachinesLayoutStory width={996} states={["normal"]} together />);
-  const closed = await settled(page);
+  await settled(page);
   const [plain] = await runtimeWidths(page);
   await openRename(page);
   await expect(page.getByRole("textbox", { name: "機器改名" }), "control: the field is open").toBeFocused();
+  const floor = await page.locator(".mon-table--machines").evaluate((el) => getComputedStyle(el).getPropertyValue("--mon-rename-min").trim());
+  await expect.poll(async () => (await renameRoom(page)).variable, "control: 機器 took its rename width").toBe(floor);
+  const opened = await measured(page);
   await story.update(<MonitorMachinesLayoutStory width={996} states={["claude2"]} together />);
   await expect.poll(async () => (await runtimeWidths(page))[0].claude).toEqual(claude2.claude);
   const grown = claude2.claude[0] - plain.claude[0];
   await expect
     .poll(async () => px((await measured(page)).variable), "the minimum grows by Claude's growth alone")
-    .toBeCloseTo(px(closed.variable) + grown, 0);
+    .toBeCloseTo(px(opened.variable) + grown, 0);
+  expect((await renameRoom(page)).variable, "機器 keeps its rename width").toBe(floor);
   await expect(page.getByRole("textbox", { name: "機器改名" }), "control: the field is still open").toBeVisible();
 });
 

@@ -1227,7 +1227,7 @@ function useScrollEdges(ref: RefObject<HTMLElement>, content: unknown) {
  *   never goes below 150px). Each column is measured on its own.
  * - `--mon-machine-width`: what the widest 機器 cell needs to hold its items
  *   on one line, capped at the CSS's `--mon-machine-max` (a longer name
- *   wraps).
+ *   wraps); at least `--mon-rename-min` while a rename field is open.
  * - `--mon-machines-min-width`: the other columns' own widths
  *   (`--mon-col-base`, before their share of a wider frame) plus 機器's,
  *   applied as the table's min-width.
@@ -1290,10 +1290,18 @@ function useMachineColumnWidths(
       if (claude > 0) setVar("--mon-claude-width", `${Math.ceil(claude)}px`);
       if (codex > 0) setVar("--mon-codex-width", `${Math.ceil(codex)}px`);
       // Read after the runtime widths are set, so the sum includes them.
-      const fixed = Array.from(table.querySelectorAll("col:not(.mon-col--machine)")).reduce(
-        (sum, col) => sum + (parseFloat(getComputedStyle(col).getPropertyValue("--mon-col-base")) || 0),
-        0
+      const bases = Array.from(table.querySelectorAll("col:not(.mon-col--machine)")).map((col) =>
+        getComputedStyle(col).getPropertyValue("--mon-col-base").trim()
       );
+      // A browser without @property hands the base back unresolved
+      // ("max(150px, 163px)"); the header widths less the share of spare
+      // width the CSS gave each (--mon-spare, from the last minimum) stand in.
+      const lastMin = parseFloat(table.style.getPropertyValue("--mon-machines-min-width"));
+      const frame = wrapRef.current?.clientWidth ?? 0;
+      const lastSpare = lastMin > 0 ? Math.max(0, frame - lastMin) : 0;
+      const fixed = bases.every((b) => /^[\d.]+px$/.test(b))
+        ? bases.reduce((sum, b) => sum + parseFloat(b), 0)
+        : heads.slice(1).reduce((sum, th) => sum + th.getBoundingClientRect().width, 0) - lastSpare;
       // A rename field fits whatever width the cell has (flex: 1, min-width:
       // 0), but reports its default input size; measuring it would widen the
       // table for as long as the field is open. Keep the last width instead.
@@ -1317,8 +1325,13 @@ function useMachineColumnWidths(
       }
       if (fixed === 0 || machine === 0) return;
       machineNeed.current = machine;
-      const cap = parseFloat(getComputedStyle(table).getPropertyValue("--mon-machine-max")) || Infinity;
-      const machineWidth = Math.ceil(Math.min(machine, cap));
+      const cs = getComputedStyle(table);
+      const cap = parseFloat(cs.getPropertyValue("--mon-machine-max")) || Infinity;
+      // 機器 fits its name, so an open rename field would get only the
+      // name's width (a few characters for a short name); while one is open
+      // the column takes at least the CSS's --mon-rename-min from the others.
+      const floor = renaming ? parseFloat(cs.getPropertyValue("--mon-rename-min")) || 0 : 0;
+      const machineWidth = Math.ceil(Math.max(Math.min(machine, cap), floor));
       setVar("--mon-machine-width", `${machineWidth}px`);
       setVar("--mon-machines-min-width", `${Math.ceil(fixed) + machineWidth}px`);
     };

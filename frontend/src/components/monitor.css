@@ -500,6 +500,8 @@
   }
   .mon-table--machines {
     --mon-machine-max: 320px;
+    /* 機器's width while a rename field is open, if its name needs less. */
+    --mon-rename-min: 200px;
     /* Six: the columns after 機器. Without a measured minimum (no machine,
      * or not measured yet) there is nothing to share out. */
     --mon-spare: max(0px, (100cqw - var(--mon-machines-min-width, 100cqw)) / 6);
