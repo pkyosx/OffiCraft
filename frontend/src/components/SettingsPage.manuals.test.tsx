@@ -277,7 +277,7 @@ describe("設定 › 任務手冊 — detail", () => {
     const reset = await api.getTaskManual("builtin-task-manual-design");
     expect(reset).toMatchObject({
       isDefault: true,
-      assignee: { kind: "staff", memberId: "mira" },
+      assignee: null,
     });
     expect(reset.purpose).not.toBe("改過的用途");
     await waitFor(() =>

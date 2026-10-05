@@ -332,7 +332,7 @@ func apiTestBuiltinTaskManualRows(capChars int) []any {
 			"display_name":     "建立／修改任務手冊",
 			"purpose":          "建立新的任務手冊，或調整既有任務手冊的內容與負責成員。",
 			"fields":           []any{map[string]any{"name": "manual_name", "required": true, "is_key": true}},
-			"assignee":         map[string]any{"kind": "staff", "member_id": "mira"},
+			"assignee":         map[string]any{},
 			"sop_md_chars":     3872,
 			"sop_md_cap_chars": capChars,
 			"updated_ts":       0,
@@ -355,8 +355,9 @@ func apiTestBuiltinTaskManualRows(capChars int) []any {
 }
 
 const (
-	apiTestRoleDesignSopChars  = 2803
-	apiTestRoleDesignSopSha256 = "0142aa3cd2d0ea730455350b006a10b35b542eed70b1fd0bd8705e90eb9177de"
+	apiTestRoleDesignSopChars        = 2803
+	apiTestRoleDesignSopSha256       = "0142aa3cd2d0ea730455350b006a10b35b542eed70b1fd0bd8705e90eb9177de"
+	apiTestTaskManualDesignSopSha256 = "bb27fb16377af2f6dc457a06315faff8d12332142dff16a9545d73b1331fc004"
 )
 
 // apiTestWantRoleDesignManual reads builtin-role-design back. The shipped SOP is
@@ -374,6 +375,23 @@ func apiTestWantRoleDesignManual(t *testing.T, h http.Handler, token string, wan
 		}
 		want["sop_md"] = apiAnyString
 	}
+	apiWantBody(t, data, want)
+}
+
+func apiTestWantTaskManualDesign(t *testing.T, h http.Handler, token string, want map[string]any) {
+	t.Helper()
+	status, data := apiJSON(t, h, "GET", "/api/task-manuals/builtin-task-manual-design", token, "")
+	if status != 200 {
+		t.Fatalf("read back builtin-task-manual-design: %d %v", status, data)
+	}
+	sop, ok := data["sop_md"].(string)
+	if !ok {
+		t.Fatalf("builtin-task-manual-design sop_md is %T, want string", data["sop_md"])
+	}
+	if sum := receiptSha256(sop); sum != apiTestTaskManualDesignSopSha256 {
+		t.Fatalf("builtin-task-manual-design sop_md sha256 = %s, want the shipped %s", sum, apiTestTaskManualDesignSopSha256)
+	}
+	want["sop_md"] = apiAnyString
 	apiWantBody(t, data, want)
 }
 
@@ -792,12 +810,29 @@ func TestHandleCreateTaskManualApiTaskManualsPost(t *testing.T) {
 }
 
 func TestHandleGetTaskManualApiTaskManualsTypeKeyGet(t *testing.T) {
-	t.Run("a built-in type nobody has written is served in full as its shipped version", func(t *testing.T) {
+	t.Run("unedited built-in manuals are served in full as their shipped versions", func(t *testing.T) {
 		api, h, _, _ := newAPITestServer(t)
 		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
 		want := apiTestShippedRoleDesignManual()
 		want["updated_ts"] = 0
 		apiTestWantRoleDesignManual(t, h, agent, want)
+
+		apiTestWantTaskManualDesign(t, h, agent, map[string]any{
+			"type_key":     "builtin-task-manual-design",
+			"display_name": "建立／修改任務手冊",
+			"purpose":      "建立新的任務手冊，或調整既有任務手冊的內容與負責成員。",
+			"fields": []any{
+				map[string]any{"name": "manual_name", "required": true, "is_key": true},
+			},
+			"assignee":         map[string]any{},
+			"lore":             "",
+			"lore_chars":       0,
+			"sop_md_chars":     3872,
+			"sop_md_cap_chars": 15000,
+			"updated_ts":       0,
+			"is_seed":          true,
+			"is_default":       true,
+		})
 	})
 
 	t.Run("a type is served in full with its document and its cap", func(t *testing.T) {

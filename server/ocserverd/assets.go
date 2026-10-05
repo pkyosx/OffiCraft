@@ -182,7 +182,7 @@ var builtinTaskManuals = []builtinTaskManual{
 		DisplayName: "建立／修改任務手冊",
 		Purpose:     "建立新的任務手冊，或調整既有任務手冊的內容與負責成員。",
 		Fields:      []ManualField{{Name: "manual_name", Required: true, IsKey: true}},
-		Assignee:    map[string]any{"kind": TaskExecutorStaff, "member_id": seedMiraID},
+		Assignee:    map[string]any{},
 	},
 }
 

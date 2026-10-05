@@ -5150,37 +5150,58 @@ func TestHandleCreateTaskApiTasksPost(t *testing.T) {
 		})
 	})
 
-	t.Run("a task of an unedited built-in type takes the shipped manual's executor and identity field", func(t *testing.T) {
-		api, h, _, _ := newAPITestServer(t)
+	t.Run("a task of an unedited built-in type has no default executor", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
 		if err := seedOutOfBox(api.dal); err != nil {
 			t.Fatal(err)
 		}
-		mira := apiTestAgentToken(t, api, "mira", "")
+		kip := apiTestAgentToken(t, api, "kip", "")
 
-		status, data := apiJSON(t, h, "POST", "/api/tasks", mira,
-			`{"title":"新增報價手冊","type_key":"builtin-task-manual-design","inputs":{"manual_name":"報價"}}`)
+		status, data := apiJSON(t, h, "POST", "/api/tasks", kip,
+			`{"title":"新增報價手冊","type_key":"builtin-task-manual-design","inputs":{"manual_name":"報價"},"executor_member_id":"kip"}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
 			"task_id":       "T-1",
 			"executor_kind": "staff",
-			"executor_id":   "mira",
+			"executor_id":   "kip",
 			"deduped":       false,
 		})
 
-		status, again := apiJSON(t, h, "POST", "/api/tasks", mira,
-			`{"title":"再新增報價手冊","type_key":"builtin-task-manual-design","inputs":{"manual_name":"報價"}}`)
+		status, again := apiJSON(t, h, "POST", "/api/tasks", kip,
+			`{"title":"再新增報價手冊","type_key":"builtin-task-manual-design","inputs":{"manual_name":"報價"},"executor_member_id":"kip"}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, again)
 		}
 		apiWantBody(t, again, map[string]any{
 			"task_id":       "T-1",
 			"executor_kind": "staff",
-			"executor_id":   "mira",
+			"executor_id":   "kip",
 			"deduped":       true,
 			"title":         "新增報價手冊",
 			"status":        "not_started",
+		})
+
+		status, denied := apiJSON(t, h, "POST", "/api/tasks", kip,
+			`{"title":"指派他人","type_key":"builtin-task-manual-design","inputs":{"manual_name":"他人"},"executor_member_id":"mira"}`)
+		if status != 403 {
+			t.Fatalf("want 403, got %d (%v)", status, denied)
+		}
+		apiWantError(t, denied, "forbidden",
+			"an ad-hoc task may only name yourself as executor (or be dispatched to an outsource worker)")
+
+		apiTestAgentToken(t, api, "mira", "")
+		status, ownerAssigned := apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"Owner 指定手冊","type_key":"builtin-task-manual-design","inputs":{"manual_name":"Owner 指定"},"executor_member_id":"mira"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, ownerAssigned)
+		}
+		apiWantBody(t, ownerAssigned, map[string]any{
+			"task_id":       "T-2",
+			"executor_kind": "staff",
+			"executor_id":   "mira",
+			"deduped":       false,
 		})
 	})
 

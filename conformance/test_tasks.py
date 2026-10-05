@@ -1255,6 +1255,7 @@ def test_builtin_manual_is_listed_resettable_and_undeletable(
     listed = client.get("/api/task-manuals", headers=h).json()
     row = next(m for m in listed if m["type_key"] == builtin)
     assert row["is_seed"] is True, row
+    assert row["assignee"] == {}, row
 
     r = client.post(f"/api/task-manuals/{builtin}",
                     json={"purpose": "conf edited built-in",
@@ -1277,7 +1278,40 @@ def test_builtin_manual_is_listed_resettable_and_undeletable(
     assert hashlib.sha256(manual["sop_md"].encode()).hexdigest() == (
         _BUILTIN_TASK_MANUAL_DESIGN_SOP_SHA256), manual["sop_md"][:80]
     assert manual["is_default"] is True, manual
-    assert manual["assignee"] == {"kind": "staff", "member_id": "mira"}, manual
+    assert manual["assignee"] == {}, manual
+    role = client.get("/api/task-manuals/builtin-role-design", headers=h)
+    assert role.status_code == 200, role.text
+    assert role.json()["assignee"] == {"kind": "staff", "member_id": "mira"}
+
+    manual_name = f"self assignment {uuid.uuid4().hex[:8]}"
+    r = client.post(
+        "/api/tasks",
+        json={"title": "self-assigned manual task",
+              "type_key": builtin,
+              "inputs": {"manual_name": manual_name},
+              "executor_member_id": executor.member_id},
+        headers=_auth(executor.token),
+    )
+    assert r.status_code == 200, r.text
+    assert (r.json()["executor_kind"], r.json()["executor_id"]) == (
+        "staff", executor.member_id), r.json()
+    self_task_id = r.json()["task_id"]
+    r = client.post(f"/api/tasks/{self_task_id}/mark-terminated", headers=h)
+    assert r.status_code == 200, r.text
+
+    r = client.post(
+        "/api/tasks",
+        json={"title": "assign another member",
+              "type_key": builtin,
+              "inputs": {"manual_name": f"other {uuid.uuid4().hex[:8]}"},
+              "executor_member_id": "mira"},
+        headers=_auth(executor.token),
+    )
+    assert r.status_code == 403, r.text
+    assert r.json()["error"] == {
+        "code": "forbidden",
+        "message": "an ad-hoc task may only name yourself as executor (or be dispatched to an outsource worker)",
+    }, r.json()
 
     r = client.delete(f"/api/task-manuals/{builtin}", headers=h)
     assert r.status_code == 403, r.text
