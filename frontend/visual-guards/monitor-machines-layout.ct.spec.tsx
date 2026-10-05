@@ -987,10 +987,33 @@ async function measured(page: Page) {
   });
 }
 
+/** `measured` once a minimum is set and fonts and size observers are done. */
+async function settled(page: Page) {
+  await expect.poll(async () => (await measured(page)).variable, "control: a minimum is measured").not.toBe("");
+  await page.evaluate(() => document.fonts.ready);
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  return measured(page);
+}
+
+// The story's 996px box less its 1px border; CSS alone sets it.
+const FRAME = 994;
+const px = (variable: string) => parseFloat(variable);
+
+// The expected minimums below come from a fresh mount of the same data, not
+// from numbers: a name's width differs by a few px between machines' fonts
+// (CI measured 3px wider than a dev Mac), and a fresh mount reaches its value
+// through the render-time measurement, not the re-measure under test.
+
 // The phone card mode hides the header, so nothing can be measured there; the
 // table must measure again once the window is wide enough for columns, though
 // nothing in it re-renders.
 test("mounted on a phone, then widened to the 1280px desktop, the table measures its minimum", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1016, height: 900 });
+  const desktop = await mount(<MonitorMachinesLayoutStory width={996} states={["normal"]} />);
+  const expected = await settled(page);
+  expect(expected.table, "control: mounted on the desktop, the default name fits").toBe(FRAME);
+  await desktop.unmount();
+
   await page.setViewportSize({ width: 390, height: 900 });
   await mount(<MonitorMachinesLayoutStory width={996} states={["normal"]} />);
   await page.evaluate(() => document.fonts.ready);
@@ -1000,20 +1023,35 @@ test("mounted on a phone, then widened to the 1280px desktop, the table measures
   ).toBe("block");
   expect(await measured(page), "control: nothing measured in card mode").toEqual({ variable: "", table: 390, overflow: 0 });
   await page.setViewportSize({ width: 1016, height: 900 });
-  await expect.poll(() => measured(page)).toEqual({ variable: "936px", table: 994, overflow: 0 });
+  await expect.poll(() => measured(page)).toEqual(expected);
 });
 
 // A rename lands as new text in the name without this table re-rendering (and
 // so does a web font arriving); the minimum follows the name both ways.
 test("a machine name that changes in place is measured again, longer and shorter", async ({ mount, page }) => {
+  const LONG = "Seth 的 Mac Studio（辦公室三樓靠窗）";
+  const SHORT = "m5";
   await page.setViewportSize({ width: 1016, height: 900 });
+  const alone = async (name: string) => {
+    const c = await mount(<MonitorMachinesLayoutStory width={996} states={["normal"]} name={name} />);
+    const m = await settled(page);
+    await c.unmount();
+    return m;
+  };
+  const long = await alone(LONG);
+  const short = await alone(SHORT);
+
   await mount(<MonitorMachinesLayoutStory width={996} states={["normal"]} />);
-  await expect.poll(() => measured(page), "control: the default name's minimum").toEqual({ variable: "936px", table: 994, overflow: 0 });
+  const before = await settled(page);
+  expect(px(long.variable), "control: the long name's minimum is wider than the frame").toBeGreaterThan(FRAME);
+  expect(long.overflow, "control: the long name scrolls the frame").toBeGreaterThan(0);
+  expect(px(short.variable), "control: the short name needs less than the default one").toBeLessThan(px(before.variable));
+
   const name = page.locator(".mon-machine-name .mon-table__strong");
-  await name.evaluate((el) => (el.textContent = "Seth 的 Mac Studio（辦公室三樓靠窗）"));
-  await expect.poll(() => measured(page)).toEqual({ variable: "1093px", table: 1093, overflow: 99 });
-  await name.evaluate((el) => (el.textContent = "m5"));
-  await expect.poll(() => measured(page)).toEqual({ variable: "881px", table: 994, overflow: 0 });
+  await name.evaluate((el, text) => (el.textContent = text), LONG);
+  await expect.poll(() => measured(page)).toEqual(long);
+  await name.evaluate((el, text) => (el.textContent = text), SHORT);
+  await expect.poll(() => measured(page)).toEqual(short);
 });
 
 // An open rename field stretches over the 機器 cell's slack (flex: 1), so a
@@ -1026,7 +1064,9 @@ test("an open rename field leaves the table's minimum as it was, and the table s
 }) => {
   await page.setViewportSize({ width: 1016, height: 900 });
   await mount(<MonitorMachinesLayoutStory width={996} states={["normal"]} />);
-  await expect.poll(() => measured(page), "control: the default name's minimum").toEqual({ variable: "936px", table: 994, overflow: 0 });
+  const closed = await settled(page);
+  expect(closed.table, "control: the table fills the frame").toBe(FRAME);
+  expect(px(closed.variable), "control: the minimum leaves 機器 some slack").toBeLessThan(FRAME);
   const before = (await page.locator(".mon-machine-name > .inline-edit").boundingBox())!.width;
   await page.getByRole("button", { name: "機器改名" }).click();
   await expect(page.getByRole("textbox", { name: "機器改名" }), "control: the field is open").toBeFocused();
@@ -1035,23 +1075,29 @@ test("an open rename field leaves the table's minimum as it was, and the table s
     .toBe(true);
   // Two frames for the size observers to have run.
   await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
-  expect(await measured(page)).toEqual({ variable: "936px", table: 994, overflow: 0 });
+  expect(await measured(page)).toEqual(closed);
   await page.setViewportSize({ width: 780, height: 900 });
-  await expect.poll(() => measured(page)).toEqual({ variable: "936px", table: 936, overflow: 158 });
+  const frame = await page.locator(".mon-table-wrap").evaluate((el) => el.clientWidth);
+  expect(frame, "control: the narrowed frame is below the minimum").toBeLessThan(px(closed.variable));
+  await expect
+    .poll(() => measured(page))
+    .toEqual({ variable: closed.variable, table: px(closed.variable), overflow: px(closed.variable) - frame });
   await expect(page.getByRole("textbox", { name: "機器改名" }), "control: the field is still open").toBeVisible();
 });
 
 test("when the last machine goes, its minimum goes with it and the 無機器 row does not scroll", async ({ mount, page }) => {
   await page.setViewportSize({ width: 1016, height: 900 });
   const table = await mount(<MonitorMachinesLayoutStory width={996} states={["long"]} />);
-  await expect.poll(() => measured(page), "control: a long name's minimum scrolls the frame").toEqual({
-    variable: "1100px",
-    table: 1100,
-    overflow: 106,
+  const long = await settled(page);
+  expect(long, "control: a long name's minimum scrolls the frame").toEqual({
+    variable: long.variable,
+    table: px(long.variable),
+    overflow: px(long.variable) - FRAME,
   });
+  expect(long.overflow, "control: a long name's minimum scrolls the frame").toBeGreaterThan(0);
   await table.update(<MonitorMachinesLayoutStory width={996} states={["long"]} empty />);
   await expect(page.locator("tbody td"), "control: the 無機器 row").toHaveText("尚無機器,請先新增機器 / 上線");
-  await expect.poll(() => measured(page)).toEqual({ variable: "", table: 994, overflow: 0 });
+  await expect.poll(() => measured(page)).toEqual({ variable: "", table: FRAME, overflow: 0 });
   await expect.poll(() => shades(page)).toEqual({ left: 0, right: 0 });
 });
 

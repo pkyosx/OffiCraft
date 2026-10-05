@@ -136,12 +136,15 @@ export function MonitorMachinesLayoutStory({
   states = ["normal", "chips", "stale"],
   width = 1000,
   empty = false,
+  name,
 }: {
   states?: MachinesLayoutState[];
   width?: number;
   /** Every table with no machine (the 無機器 row), keeping each section's
    * table mounted so a test can remove the rows of a measured table. */
   empty?: boolean;
+  /** Every machine renamed to this, as a server-sent name (not an edit). */
+  name?: string;
 }) {
   return (
     <I18nProvider>
@@ -149,7 +152,7 @@ export function MonitorMachinesLayoutStory({
         {states.map((state) => (
           <section className="mon-section" key={state} data-state={state}>
             <MachinesTable
-              machines={empty ? [] : [rows[state].machine]}
+              machines={empty ? [] : [name === undefined ? rows[state].machine : { ...rows[state].machine, displayName: name }]}
               hwByHost={new Map([[rows[state].hw.machine, rows[state].hw]])}
               bootstrapBusy={false}
               uninstalling={() => false}
