@@ -450,21 +450,31 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // that HAS moved is fetched exactly once per move, which is what keeps this
   // from looping against a server that disagrees with the row.
   const readVersionsRef = useRef<Map<string, string>>(new Map());
-  const readCard = useCallback(async (id: string) => {
-    try {
-      const card = await api.getReplyCard(id);
-      setOpenCards((prev) => new Map(prev).set(id, card));
-      setOpenErrors((prev) => {
-        if (!prev.has(id)) return prev;
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
-    } catch (e) {
-      console.warn("RepliesPage: card read failed", e);
-      setOpenErrors((prev) => new Set(prev).add(id));
-    }
-  }, []);
+  const readCard = useCallback(
+    async (id: string, rowStatus: ReplyCardRow["status"]) => {
+      try {
+        const card = await api.getReplyCard(id);
+        setOpenCards((prev) => new Map(prev).set(id, card));
+        setOpenErrors((prev) => {
+          if (!prev.has(id)) return prev;
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+        if (rowStatus === "waiting" && card.status !== "waiting") {
+          setHandledOpen(true);
+          if (!handledLoaded) loadHandled();
+          await refresh().catch((err) =>
+            console.warn("RepliesPage: settled-card refresh failed", err)
+          );
+        }
+      } catch (e) {
+        console.warn("RepliesPage: card read failed", e);
+        setOpenErrors((prev) => new Set(prev).add(id));
+      }
+    },
+    [handledLoaded, loadHandled, refresh]
+  );
 
   // 🔴 THE ONLY PLACE A CARD IS READ. Opening a row does not fetch by itself —
   // it flips `expandedIds`, and this effect notices. That keeps "which cards are
@@ -483,7 +493,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
       const version = rowVersion(row);
       if (seen.get(id) === version) continue;
       seen.set(id, version);
-      void readCard(id);
+      void readCard(id, row.status);
     }
     for (const id of [...seen.keys()]) {
       if (!expandedIds.has(id)) {
@@ -987,6 +997,15 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   }
 
   function renderWaitingCard(row: ReplyCardRow) {
+    const opened = openCards.get(row.id);
+    if (opened && opened.status !== "waiting") {
+      return renderHandledCard({
+        ...row,
+        status: opened.status,
+        answeredTs: opened.answeredTs,
+        expiredTs: opened.expiredTs ?? null,
+      });
+    }
     return renderCard(row, {
       testId: "waiting-card",
       className: "reply-card",

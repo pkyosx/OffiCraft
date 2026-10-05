@@ -838,11 +838,10 @@ describe("RepliesPage", () => {
     );
   });
 
-  it("opening a card reads it and shows the question; clicking again closes it", async () => {
-    __injectMockReplyCard(
-      mkCard({ id: "rc-1", body: "寄出後無法撤回" })
-    );
-    const { findAllByTestId } = renderPage();
+  it("shows an answer read from the server and moves the stale waiting row to handled", async () => {
+    const serverCard = mkCard({ id: "rc-1", body: "寄出後無法撤回" });
+    __injectMockReplyCard(serverCard);
+    const { findAllByTestId, findByTestId, queryAllByTestId, container } = renderPage();
     const [card] = await findAllByTestId("waiting-card");
     expect(card.getAttribute("aria-expanded")).toBe("false");
 
@@ -867,6 +866,55 @@ describe("RepliesPage", () => {
     expect(card.getAttribute("aria-expanded")).toBe("false");
     // Still the same card, still naming who asked — closing is not removing.
     expect(card.textContent).toContain("Mira");
+
+    serverCard.status = "answered";
+    serverCard.answeredTs = Date.now() / 1000 - 60;
+    serverCard.answer = { optionIdxs: [1], text: "", attachments: [] };
+    fireEvent.click(card);
+
+    const answered = await findByTestId("answered-card");
+    await waitFor(() =>
+      expect(queryAllByTestId("waiting-card")).toHaveLength(0)
+    );
+    expect(answered.querySelector('[data-testid="final-answer"]')?.textContent).toContain(
+      "先不要"
+    );
+    expect(
+      answered.querySelector(".reply-card__answered-at")?.textContent
+    ).toMatch(/^已回覆 (?:\d{4}\/)?\d{1,2}\/\d{1,2} \d{2}:\d{2}$/);
+    expect(container.querySelector(".replies__section-title")?.textContent).toBe(
+      "請示 · 0"
+    );
+    expect((await findByTestId("answered-toggle")).textContent).toContain(
+      "近期已處理 · 1"
+    );
+  });
+
+  it("shows an expired card read from the server and moves it to handled", async () => {
+    const serverCard = mkCard({ id: "rc-expired" });
+    __injectMockReplyCard(serverCard);
+    const { findAllByTestId, findByTestId, queryAllByTestId, container } = renderPage();
+    const [card] = await findAllByTestId("waiting-card");
+
+    serverCard.status = "expired";
+    serverCard.expiredTs = Date.now() / 1000 - 60;
+    fireEvent.click(card);
+
+    const expired = await findByTestId("expired-card");
+    await waitFor(() =>
+      expect(queryAllByTestId("waiting-card")).toHaveLength(0)
+    );
+    expect(expired.textContent).toContain("已過期");
+    expect(expired.querySelector('[data-testid="expired-note"]')).toBeTruthy();
+    expect(
+      expired.querySelector(".reply-card__answered-at")?.textContent
+    ).toMatch(/^已過期 (?:\d{4}\/)?\d{1,2}\/\d{1,2} \d{2}:\d{2}$/);
+    expect(container.querySelector(".replies__section-title")?.textContent).toBe(
+      "請示 · 0"
+    );
+    expect((await findByTestId("answered-toggle")).textContent).toContain(
+      "近期已處理 · 1"
+    );
   });
 
   it("a click on a header action does its own job instead of toggling the card", async () => {
