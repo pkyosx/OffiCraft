@@ -2886,16 +2886,6 @@ function RolesLog({
                 <span className="set-entry__body">
                   <span className="set-entry__name">
                     {(t.office.role as Record<string, string>)[r.key] ?? r.name}
-                    {r.isSeed && (
-                      <span
-                        className="set-badge"
-                        data-testid={`role-status-badge-${r.key}`}
-                      >
-                        {r.isDefault
-                          ? t.settings.docStatusSyncedBadge
-                          : t.settings.docStatusModifiedBadge}
-                      </span>
-                    )}
                     {!r.isSeed && (
                       <span className="set-badge">{t.settings.customBadge}</span>
                     )}
