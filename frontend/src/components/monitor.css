@@ -427,6 +427,22 @@
   .mon-table .mon-machine-id {
     white-space: normal;
   }
+
+  /* Same reason for the name: the menu trigger's `nowrap` (shared with the
+   * version pills) would keep a long name on one line past the card's edge.
+   * It wraps like the plain name did; a button centres its lines unless told
+   * otherwise. */
+  .mon-machine-name .runtime-menu__trigger {
+    white-space: normal;
+    text-align: start;
+  }
+  /* The cell wraps its items by their one-line width, so a long name would
+   * start a line of its own and leave the online dot alone above it. Capped
+   * at what is left beside the dot (9px + the 6px gap), it stays on the dot's
+   * line and wraps there. */
+  .mon-machine-name__menu {
+    max-width: calc(100% - 15px);
+  }
 }
 
 /* ── machine lifecycle: onboard (新增機器 / 上線) + teardown (拆除) ──────────── */

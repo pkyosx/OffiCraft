@@ -47,6 +47,11 @@
 //   改名稱 not opening the field              → rename field tests
 //   dot back after the name                  → cell order tests (desktop, phone)
 //   phone card mode disabled                → phone test (the frame scrolls)
+//   phone: name trigger left `nowrap`        → long-name card tests (.monitor
+//                                              +71px / +29px at 375px)
+//   phone: wrapped name lines centred        → long-name card tests (lines start)
+//   phone: name menu not capped beside the dot → long-name card tests (dot alone
+//                                              on a line above the name)
 //   `.mon-stale` border back to --color-border → frame contrast below 1.5
 //   (in the built-in palette --color-border IS --color-card)
 //   no measured min-width (MachinesTable)    → 機器 cut short (sticky, 800px and
@@ -1687,3 +1692,54 @@ test.describe("phone card mode on a touch screen: the name's menu", () => {
     await expect(page.getByRole("tooltip"), "the tap was the name's, not the dot's").toHaveCount(0);
   });
 });
+
+// A card has no sideways scroller (see monitor-table-longtoken.ct.spec.tsx),
+// so a name that cannot wrap pushes the page sideways. The name wraps inside
+// its trigger, as it did before it became one; desktop keeps it on one line.
+const PHONE_LONG_NAMES = [
+  "Seth's MacBook Pro M5 Max office desk by the window",
+  "eva-m5-warden-build-farm-node-0001-us-west",
+];
+for (const width of [375, 390]) {
+  for (const longName of PHONE_LONG_NAMES) {
+    test(`${width}px card, name "${longName}": the name wraps inside the card and still opens its menu inside the window`, async ({
+      mount,
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await mount(<MonitorMachinesLayoutStory states={["named"]} name={longName} />);
+      expect(
+        await page.locator("tbody tr").first().evaluate((tr) => getComputedStyle(tr).display),
+        "control: rows are cards"
+      ).toBe("block");
+      expect(await overflow(page)).toEqual({ page: 0, monitor: 0, frame: 0 });
+      const trigger = page.getByRole("button", { name: `機器操作（${longName}）` });
+      const chevron = trigger.locator(".runtime-menu__chevron");
+      await expect(chevron).toBeVisible();
+      const geo = await trigger.evaluate((el) => {
+        const r = (e: Element) => e.getBoundingClientRect();
+        const td = r(el.closest("td")!);
+        const t = r(el);
+        const name = r(el.querySelector(".mon-table__strong")!);
+        const ch = r(el.querySelector(".runtime-menu__chevron")!);
+        const dot = r(el.closest("td")!.querySelector('[data-testid="mon-machine-online"]')!);
+        const range = document.createRange();
+        range.selectNodeContents(el.querySelector(".mon-table__strong")!);
+        const lines = Array.from(range.getClientRects());
+        return {
+          wraps: lines.length > 1,
+          linesStartTogether: lines.every((l) => Math.abs(l.left - lines[0].left) <= 0.5),
+          dotBesideName: dot.right <= name.left && dot.top >= t.top && dot.bottom <= t.bottom,
+          triggerInCard: t.left >= td.left && t.right <= td.right + 0.5,
+          chevronInTrigger: ch.width > 0 && ch.left >= name.right - 0.5 && ch.right <= t.right + 0.5,
+          chevronBesideName: ch.top >= name.top - 0.5 && ch.bottom <= name.bottom + 0.5,
+        };
+      });
+      expect(geo).toEqual({ wraps: true, linesStartTogether: true, dotBesideName: true, triggerInCard: true, chevronInTrigger: true, chevronBesideName: true });
+      await trigger.click();
+      await expect(page.getByRole("menuitem")).toHaveText(["改名稱", "重新安裝", "解除安裝", "刪除"]);
+      expect(await menuOnTop(page)).toEqual(Array(4).fill({ inside: true, onTop: true }));
+      expect(await overflow(page), "the open menu does not scroll the page").toEqual({ page: 0, monitor: 0, frame: 0 });
+    });
+  }
+}

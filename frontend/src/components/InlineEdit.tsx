@@ -15,11 +15,12 @@ interface InlineEditProps {
   className?: string;
   /** Class for the read-only value span (e.g. topbar__org / profile-dd__name). */
   displayClassName?: string;
-  /** Opened and closed by the host instead of the pencil, which is then not
-   * drawn: the host offers its own way in (a menu item) and is told when the
-   * editor closes. */
-  editing?: boolean;
-  onEditingChange?: (editing: boolean) => void;
+  /** Mount already editing, for a host with its own way in (a menu item).
+   * The pencil is still drawn once the field closes, so such a host unmounts
+   * the editor on `onClose`. */
+  openOnMount?: boolean;
+  /** The field closed, by apply or cancel. */
+  onClose?: () => void;
 }
 
 /**
@@ -39,25 +40,12 @@ export function InlineEdit({
   ariaLabel,
   className,
   displayClassName,
-  editing: editingProp,
-  onEditingChange,
+  openOnMount = false,
+  onClose,
 }: InlineEditProps) {
   const { t } = useI18n();
-  const controlled = editingProp !== undefined;
-  const [editingState, setEditingState] = useState(false);
-  const editing = controlled ? editingProp : editingState;
-  const setEditing = (next: boolean) => {
-    if (!controlled) setEditingState(next);
-    onEditingChange?.(next);
-  };
+  const [editing, setEditing] = useState(openOnMount);
   const [draft, setDraft] = useState(value);
-  // A host that opens the editor starts it from the current value, as the
-  // pencil does.
-  const [wasEditing, setWasEditing] = useState(editing);
-  if (editing !== wasEditing) {
-    setWasEditing(editing);
-    if (editing) setDraft(value);
-  }
   // IME composition guard — an Enter that confirms a CJK candidate must NOT
   // commit the edit. Ref (not state) so the keydown handler reads the live value
   // with no stale-closure lag.
@@ -77,28 +65,28 @@ export function InlineEdit({
     }
     onCommit(next);
     setEditing(false);
+    onClose?.();
   }
 
   function cancel() {
     setDraft(value);
     setEditing(false);
+    onClose?.();
   }
 
   if (!editing) {
     return (
       <span className={`inline-edit${className ? ` ${className}` : ""}`}>
         <span className={displayClassName}>{value}</span>
-        {!controlled && (
-          <button
-            type="button"
-            className="inline-edit__iconbtn"
-            aria-label={ariaLabel}
-            title={ariaLabel}
-            onClick={startEdit}
-          >
-            <PencilIcon size={14} />
-          </button>
-        )}
+        <button
+          type="button"
+          className="inline-edit__iconbtn"
+          aria-label={ariaLabel}
+          title={ariaLabel}
+          onClick={startEdit}
+        >
+          <PencilIcon size={14} />
+        </button>
       </span>
     );
   }

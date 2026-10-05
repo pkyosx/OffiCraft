@@ -1609,9 +1609,8 @@ function MachineNameMenu({
           onCommit={(next) => void onRename(next)}
           ariaLabel={t.monitor.renameMachine}
           placeholder={t.monitor.renamePlaceholder}
-          displayClassName={nameClass}
-          editing
-          onEditingChange={setRenaming}
+          openOnMount
+          onClose={() => setRenaming(false)}
         />
       ) : (
         <RuntimeActionMenu

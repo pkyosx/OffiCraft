@@ -159,7 +159,7 @@ describe("the machine name's operations menu", () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", TRIGGER)));
   });
 
-  it("under 改名稱, ✓ saves and ✗ or Esc cancel without a request", async () => {
+  it("under 改名稱, ✓ saves and ✗ or Esc cancel without a request, each giving focus back to the name", async () => {
     listMachines.mockResolvedValue([machine({ online: true })]);
     renderMonitor();
     const open = async () => {
@@ -179,12 +179,14 @@ describe("the machine name's operations menu", () => {
     fireEvent.mouseDown(screen.getByRole("button", { name: "取消" }));
     expect(screen.queryByRole("textbox", { name: "機器改名" })).toBeNull();
     expect(patchMachine).not.toHaveBeenCalled();
+    await waitFor(() => expect(document.activeElement, "✗ gives focus back to the name").toBe(screen.getByRole("button", TRIGGER)));
 
     field = await open();
     fireEvent.change(field, { target: { value: "Delta" } });
     fireEvent.mouseDown(screen.getByRole("button", { name: "套用" }));
     expect(patchMachine).toHaveBeenCalledWith("m-alpha", { displayName: "Delta" });
     expect(screen.queryByRole("textbox", { name: "機器改名" })).toBeNull();
+    await waitFor(() => expect(document.activeElement, "✓ gives focus back to the name").toBe(screen.getByRole("button", TRIGGER)));
   });
 
   it("under a chosen item that opens a dialog, focus is back on the name, and returns there once the dialog is closed with a click", async () => {
