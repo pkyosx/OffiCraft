@@ -1,15 +1,11 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -28,7 +24,6 @@ const (
 	// The reporter re-reads its interval at least this often, so an owner's
 	// change applies within it rather than after the wait already begun.
 	diskUsageWakeEvery = time.Minute
-	codexMetaReadLimit = 4096
 )
 
 func diskUsageIntervalFromReceipt(body map[string]any) time.Duration {
@@ -41,14 +36,14 @@ func diskUsageIntervalFromReceipt(body map[string]any) time.Duration {
 }
 
 type diskUsageProbe struct {
-	home           string
-	root           string
-	claudeProjects string
-	codexSessions  string
-	goos           string
-	run            stdoutRunner
-	statfs         func(path string) (free, total int64, err error)
-	now            func() time.Time
+	root  string
+	goos  string
+	run   stdoutRunner
+	lstat func(path string) (fs.FileInfo, error)
+	// readDir lists a directory for the old-binary scan.
+	readDir func(path string) ([]fs.DirEntry, error)
+	statfs  func(path string) (free, total int64, err error)
+	now     func() time.Time
 }
 
 func newDiskUsageProbe(env func(string) string, runner CmdRunner, goos string) (diskUsageProbe, bool) {
@@ -61,29 +56,14 @@ func newDiskUsageProbe(env func(string) string, runner CmdRunner, goos string) (
 	if !ok {
 		return diskUsageProbe{}, false
 	}
-	// The spawned claude reads CLAUDE_CONFIG_DIR only when the warden exports it
-	// (an OC_CLAUDE_JSON redirect); every other CLAUDE_* is purged from its
-	// launch line, so the warden's own environment does not decide this.
-	projects := filepath.Join(home, ".claude", "projects")
-	if ch, err := resolveClaudeHome(env, os.Getwd); err == nil && ch.ConfigDir != "" {
-		projects = filepath.Join(ch.ConfigDir, "projects")
-	}
-	// The member's env file can also set CODEX_HOME, but reading it takes an
-	// interactive shell per measurement (codexRealHome); a redirect made only
-	// there goes unmeasured.
-	codexHome := strings.TrimSpace(env("CODEX_HOME"))
-	if !filepath.IsAbs(codexHome) {
-		codexHome = filepath.Join(home, ".codex")
-	}
 	return diskUsageProbe{
-		home:           home,
-		root:           officraftRootFor(home, ns),
-		claudeProjects: projects,
-		codexSessions:  filepath.Join(filepath.Clean(codexHome), "sessions"),
-		goos:           goos,
-		run:            keep,
-		statfs:         statfsBytes,
-		now:            time.Now,
+		root:    officraftRootFor(home, ns),
+		goos:    goos,
+		run:     keep,
+		lstat:   os.Lstat,
+		readDir: os.ReadDir,
+		statfs:  statfsBytes,
+		now:     time.Now,
 	}, true
 }
 
@@ -122,16 +102,81 @@ func (p diskUsageProbe) du(args ...string) map[string]int64 {
 	return sizes
 }
 
-// claudeProjectName is Claude Code's directory name for a working directory:
-// every character outside [A-Za-z0-9] becomes '-'.
-func claudeProjectName(path string) string {
-	b := []byte(path)
-	for i, c := range b {
-		if !('a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9') {
-			b[i] = '-'
+// The directories under the root that hold OffiCraft's own logs: the warden's
+// on every machine, the server's (and autodeploy's) where the server runs.
+var diskUsageLogDirs = []string{filepath.Join("warden", "log"), filepath.Join("server", "log")}
+
+// Where an upgrade leaves the binary it replaced (ocserverd.bak,
+// ocwarden.prev) and where older ones were kept by hand.
+var diskUsageBinaryDirs = []string{"bin", "warden"}
+
+var officraftBinaries = []string{"ocserverd", "ocwarden", "ocagent", "officraft"}
+
+// isOldBinary: a binary's name, a dot and a suffix. officraft.probe is the
+// cutover's staging copy of the anchor, not an old version.
+func isOldBinary(name string) bool {
+	for _, b := range officraftBinaries {
+		if suffix, ok := strings.CutPrefix(name, b+"."); ok && suffix != "" {
+			return name != "officraft.probe"
 		}
 	}
-	return string(b)
+	return false
+}
+
+// dirBytes reads one directory's size off the whole-root du. A directory that
+// does not exist is a measured 0; one that exists but du did not size (it
+// could not read it, or the walk failed) is unknown.
+func (p diskUsageProbe) dirBytes(sizes map[string]int64, rel string) (int64, bool) {
+	path := filepath.Join(p.root, rel)
+	if _, err := p.lstat(path); errors.Is(err, fs.ErrNotExist) {
+		return 0, true
+	}
+	if sizes == nil {
+		return 0, false
+	}
+	n, ok := sizes[path]
+	return n, ok
+}
+
+// oldBinaryBytes adds up the allocated blocks of the old binaries in bin/ and
+// warden/; a directory that does not exist holds none.
+func (p diskUsageProbe) oldBinaryBytes() (int64, bool) {
+	var total int64
+	for _, rel := range diskUsageBinaryDirs {
+		entries, err := p.readDir(filepath.Join(p.root, rel))
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return 0, false
+		}
+		for _, e := range entries {
+			if !e.Type().IsRegular() || !isOldBinary(e.Name()) {
+				continue
+			}
+			info, err := p.lstat(filepath.Join(p.root, rel, e.Name()))
+			if err != nil {
+				return 0, false
+			}
+			st, ok := info.Sys().(*syscall.Stat_t)
+			if !ok {
+				return 0, false
+			}
+			total += int64(st.Blocks) * 512
+		}
+	}
+	return total, true
+}
+
+// category is one entry of the report's categories; a failed probe reports
+// null bytes rather than leaving the category out, so the server can tell it
+// from a warden that does not measure it.
+func category(key string, bytes int64, ok bool) map[string]any {
+	c := map[string]any{"key": key, "bytes": nil, "in_root": true}
+	if ok {
+		c["bytes"] = bytes
+	}
+	return c
 }
 
 func (p diskUsageProbe) measure() map[string]any {
@@ -139,73 +184,41 @@ func (p diskUsageProbe) measure() map[string]any {
 	usage := map[string]any{}
 	agentsDir := filepath.Join(p.root, "agents")
 
-	var ids []string
-	entries, listErr := os.ReadDir(agentsDir)
-	agentsListed := listErr == nil || errors.Is(listErr, fs.ErrNotExist)
-	for _, e := range entries {
-		if e.IsDir() {
-			ids = append(ids, e.Name())
-		}
-	}
-	workspace := map[string]int64{}
-	rootMeasured := false
-	if sizes := p.du("-k", "-d", "2", p.root); sizes != nil {
-		if total, ok := sizes[p.root]; ok {
-			usage["root_bytes"] = total
-			rootMeasured = agentsListed
-			for _, id := range ids {
-				if n, ok := sizes[filepath.Join(agentsDir, id)]; ok {
-					workspace[id] = n
-				}
+	sizes := p.du("-k", "-d", "2", p.root)
+	// An agents directory that cannot be listed leaves members out: an empty
+	// list would read as workspaces of 0.
+	entries, listErr := p.readDir(agentsDir)
+	if listErr == nil || errors.Is(listErr, fs.ErrNotExist) {
+		members := []any{}
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
 			}
+			m := map[string]any{"member_id": e.Name()}
+			if n, ok := sizes[filepath.Join(agentsDir, e.Name())]; ok {
+				m["workspace_bytes"] = n
+			}
+			members = append(members, m)
 		}
+		usage["members"] = members
+	}
+	if total, ok := sizes[p.root]; ok {
+		usage["root_bytes"] = total
 	}
 
-	conversation := map[string]int64{}
-	claudeTotal, claudeOK := p.claudeConversations(agentsDir, ids, conversation)
-	codexTotal, codexOK := p.codexConversations(agentsDir, conversation)
-	if claudeOK {
-		usage["claude_conversation_bytes"] = claudeTotal
+	var logs int64
+	logsOK := true
+	for _, rel := range diskUsageLogDirs {
+		n, ok := p.dirBytes(sizes, rel)
+		logs += n
+		logsOK = logsOK && ok
 	}
-	if codexOK {
-		usage["codex_conversation_bytes"] = codexTotal
+	releases, releasesOK := p.dirBytes(sizes, "release-backups")
+	binaries, binariesOK := p.oldBinaryBytes()
+	usage["categories"] = []any{
+		category("logs", logs, logsOK),
+		category("old_version_backups", releases+binaries, releasesOK && binariesOK),
 	}
-
-	set := map[string]bool{}
-	for _, id := range ids {
-		set[id] = true
-	}
-	for id := range conversation {
-		set[id] = true
-	}
-	ordered := make([]string, 0, len(set))
-	for id := range set {
-		ordered = append(ordered, id)
-	}
-	sort.Strings(ordered)
-	listed := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		listed[id] = true
-	}
-	members := make([]any, 0, len(ordered))
-	for _, id := range ordered {
-		m := map[string]any{"member_id": id}
-		if n, ok := workspace[id]; ok {
-			m["workspace_bytes"] = n
-		} else if rootMeasured && !listed[id] {
-			// Logs only, no workspace left: a measured 0, so the server can tell
-			// it from a workspace du could not size.
-			m["workspace_bytes"] = int64(0)
-		}
-		// A share from only one runtime would read as the member's whole history;
-		// Claude dirs are attributed through the listed ids, so an unlisted
-		// agents directory leaves every member with Codex logs only.
-		if claudeOK && codexOK && agentsListed {
-			m["conversation_bytes"] = conversation[id]
-		}
-		members = append(members, m)
-	}
-	usage["members"] = members
 
 	if free, total, err := p.statfs(p.root); err == nil {
 		usage["disk_free_bytes"] = free
@@ -215,162 +228,6 @@ func (p diskUsageProbe) measure() map[string]any {
 	usage["measured_at"] = float64(end.Unix())
 	usage["took_secs"] = round1(end.Sub(start).Seconds())
 	return usage
-}
-
-func (p diskUsageProbe) claudeConversations(agentsDir string, ids []string, share map[string]int64) (int64, bool) {
-	entries, err := os.ReadDir(p.claudeProjects)
-	if errors.Is(err, fs.ErrNotExist) {
-		return 0, true
-	}
-	if err != nil {
-		return 0, false
-	}
-	prefix := claudeProjectName(agentsDir) + "-"
-	// Another station's prefix can extend this one (namespace "agents":
-	// .officraft-agents/agents vs .officraft/agents); its directories are its own.
-	var longer []string
-	for _, other := range p.stationClaudePrefixes() {
-		if len(other) > len(prefix) && strings.HasPrefix(other, prefix) {
-			longer = append(longer, other)
-		}
-	}
-	var dirs []string
-	for _, e := range entries {
-		if e.IsDir() && strings.HasPrefix(e.Name(), prefix) && !hasAnyPrefix(e.Name(), longer) {
-			dirs = append(dirs, filepath.Join(p.claudeProjects, e.Name()))
-		}
-	}
-	if len(dirs) == 0 {
-		return 0, true
-	}
-	sizes := p.du(append([]string{"-sk"}, dirs...)...)
-	if sizes == nil {
-		return 0, false
-	}
-	type candidate struct{ id, enc string }
-	owners := make([]candidate, 0, len(ids))
-	for _, id := range ids {
-		owners = append(owners, candidate{id, claudeProjectName(filepath.Join(agentsDir, id))})
-	}
-	// An id can be another id plus '-' and more (ow, ow-3), so the longest
-	// encoding is tried first.
-	sort.Slice(owners, func(i, j int) bool {
-		if len(owners[i].enc) != len(owners[j].enc) {
-			return len(owners[i].enc) > len(owners[j].enc)
-		}
-		return owners[i].id < owners[j].id
-	})
-	var total int64
-	for _, dir := range dirs {
-		n, ok := sizes[dir]
-		if !ok {
-			continue
-		}
-		total += n
-		name := filepath.Base(dir)
-		for _, o := range owners {
-			if name == o.enc || strings.HasPrefix(name, o.enc+"-") {
-				share[o.id] += n
-				break
-			}
-		}
-	}
-	return total, true
-}
-
-// stationClaudePrefixes is the Claude project prefix of every OffiCraft station
-// root in HOME (.officraft and .officraft-<namespace>).
-func (p diskUsageProbe) stationClaudePrefixes() []string {
-	entries, err := os.ReadDir(p.home)
-	if err != nil {
-		return nil
-	}
-	var prefixes []string
-	for _, e := range entries {
-		name := e.Name()
-		ns, isNS := strings.CutPrefix(name, ".officraft-")
-		if name != ".officraft" && !(isNS && namespaceShape.MatchString(ns)) {
-			continue
-		}
-		prefixes = append(prefixes, claudeProjectName(filepath.Join(p.home, name, "agents"))+"-")
-	}
-	return prefixes
-}
-
-func hasAnyPrefix(s string, prefixes []string) bool {
-	for _, p := range prefixes {
-		if strings.HasPrefix(s, p) {
-			return true
-		}
-	}
-	return false
-}
-
-func (p diskUsageProbe) codexConversations(agentsDir string, share map[string]int64) (int64, bool) {
-	if _, err := os.Stat(p.codexSessions); errors.Is(err, fs.ErrNotExist) {
-		return 0, true
-	}
-	var total int64
-	err := filepath.WalkDir(p.codexSessions, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if !d.Type().IsRegular() {
-			return nil
-		}
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		st, ok := info.Sys().(*syscall.Stat_t)
-		if !ok {
-			return errors.New("no block count")
-		}
-		cwd := codexSessionCwd(path)
-		rel, err := filepath.Rel(agentsDir, cwd)
-		if cwd == "" || err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return nil
-		}
-		n := int64(st.Blocks) * 512
-		total += n
-		id, _, _ := strings.Cut(rel, string(filepath.Separator))
-		share[id] += n
-		return nil
-	})
-	if err != nil {
-		return 0, false
-	}
-	return total, true
-}
-
-// codexSessionCwd reads the cwd of the session_meta record codex writes as a
-// rollout's first line. That line also carries the full base instructions, so
-// it is far longer than the read and is never decoded whole.
-func codexSessionCwd(path string) string {
-	f, err := os.Open(path)
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
-	head, _ := io.ReadAll(io.LimitReader(f, codexMetaReadLimit))
-	if i := bytes.IndexByte(head, '\n'); i >= 0 {
-		head = head[:i]
-	}
-	if !bytes.Contains(head, []byte(`"type":"session_meta"`)) {
-		return ""
-	}
-	i := bytes.Index(head, []byte(`"cwd":`))
-	if i < 0 {
-		return ""
-	}
-	var cwd string
-	if err := json.NewDecoder(bytes.NewReader(head[i+len(`"cwd":`):])).Decode(&cwd); err != nil {
-		return ""
-	}
-	if !filepath.IsAbs(cwd) {
-		return ""
-	}
-	return filepath.Clean(cwd)
 }
 
 // diskUsageReporter measures in its own goroutine and hands the heartbeat the

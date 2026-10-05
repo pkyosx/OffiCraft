@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -42,81 +44,77 @@ func mkdirs(t *testing.T, paths ...string) {
 	}
 }
 
-// writeCodexRollout writes a rollout whose first line is a record of type typ
-// naming cwd, padded to exactly size bytes so its allocated blocks are known.
-func writeCodexRollout(t *testing.T, path, typ, cwd string, size int) {
+// writeSized writes a file of exactly size bytes and returns the allocated
+// bytes the filesystem gave it, the quantity the probe adds up.
+func writeSized(t *testing.T, path string, size int) int64 {
 	t.Helper()
 	mkdirs(t, filepath.Dir(path))
-	line := `{"timestamp":"2026-09-26T20:32:14.980Z","ordinal":0,"type":"` + typ +
-		`","payload":{"session_id":"s","cwd":"` + cwd + `","originator":"officraft"}}` + "\n"
-	body := line + strings.Repeat(" ", size-len(line))
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+	if err := os.WriteFile(path, make([]byte, size), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return info.Sys().(*syscall.Stat_t).Blocks * 512
 }
 
 type diskUsageFixture struct {
-	home, root, projects, sessions string
-	runner                         *duRunner
-	claudeDirs                     map[string]string
+	home, root string
+	runner     *duRunner
+	// oldBinaries is what the old binaries in bin/ and warden/ take on disk.
+	oldBinaries int64
 }
 
-// newDiskUsageFixture lays out one station: workspaces m-1, m-12, ow and ow-3;
-// Claude projects for m-1 (two), ow, ow-3, a departed m-19, a sibling
-// station, a station namespaced "agents" and an unrelated directory; Codex rollouts for m-12, m-1, a departed
-// member, a sibling station, a non-meta first line and the agents dir itself.
+// newDiskUsageFixture lays out a server machine's station: workspaces m-1,
+// m-12 and ow plus a stray file in agents/; warden/log and server/log;
+// release-backups/; in bin/ the live ocserverd, its .bak, a hand-kept
+// .bak-v… and an unrelated file; in warden/ the live binaries, two .prev
+// copies and the cutover's officraft.probe.
 func newDiskUsageFixture(t *testing.T) *diskUsageFixture {
 	t.Helper()
 	home := t.TempDir()
-	f := &diskUsageFixture{
-		home:     home,
-		root:     filepath.Join(home, ".officraft"),
-		projects: filepath.Join(home, ".claude", "projects"),
-		sessions: filepath.Join(home, ".codex", "sessions"),
-	}
+	f := &diskUsageFixture{home: home, root: filepath.Join(home, ".officraft")}
 	agents := filepath.Join(f.root, "agents")
-	mkdirs(t, filepath.Join(agents, "m-1"), filepath.Join(agents, "m-12"),
-		filepath.Join(agents, "ow"), filepath.Join(agents, "ow-3"))
-	if err := os.WriteFile(filepath.Join(agents, "notes.txt"), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	enc := func(p string) string { return claudeProjectName(p) }
-	f.claudeDirs = map[string]string{
-		enc(filepath.Join(agents, "m-1")):                                     "10",
-		enc(filepath.Join(agents, "m-1")) + "-work-y":                         "20",
-		enc(filepath.Join(agents, "ow-3")) + "-work-x":                        "40",
-		enc(filepath.Join(agents, "ow")) + "-scratch":                         "2",
-		enc(filepath.Join(agents, "m-19")):                                    "80",
-		enc(filepath.Join(home, ".officraft-dev", "agents", "m-1")):           "1000",
-		enc(filepath.Join(home, ".officraft-agents", "agents", "m-1")) + "-w": "500",
-		enc(home) + "-elsewhere":                                              "3000",
-	}
-	for name := range f.claudeDirs {
-		mkdirs(t, filepath.Join(f.projects, name))
-	}
-	mkdirs(t, filepath.Join(home, ".officraft-agents", "agents", "m-1"))
-	if err := os.WriteFile(filepath.Join(f.projects, enc(filepath.Join(agents, "m-1"))+"-file"), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	day := filepath.Join(f.sessions, "2026", "09", "27")
-	writeCodexRollout(t, filepath.Join(day, "a.jsonl"), "session_meta", filepath.Join(agents, "m-12", "work", "z"), 8192)
-	writeCodexRollout(t, filepath.Join(day, "b.jsonl"), "session_meta", filepath.Join(agents, "m-1"), 4096)
-	writeCodexRollout(t, filepath.Join(f.sessions, "c.jsonl"), "session_meta", filepath.Join(agents, "left-9"), 4096)
-	writeCodexRollout(t, filepath.Join(day, "d.jsonl"), "session_meta", filepath.Join(home, ".officraft-dev", "agents", "m-1"), 4096)
-	writeCodexRollout(t, filepath.Join(day, "e.jsonl"), "event_msg", filepath.Join(agents, "m-1"), 4096)
-	writeCodexRollout(t, filepath.Join(day, "f.jsonl"), "session_meta", agents, 4096)
-
-	f.runner = &duRunner{reply: f.duReply(nil, nil)}
+	mkdirs(t, filepath.Join(agents, "m-1"), filepath.Join(agents, "m-12"), filepath.Join(agents, "ow"),
+		filepath.Join(f.root, "warden", "log"), filepath.Join(f.root, "server", "log"),
+		filepath.Join(f.root, "release-backups"))
+	writeSized(t, filepath.Join(agents, "notes.txt"), 1)
+	bin := filepath.Join(f.root, "bin")
+	warden := filepath.Join(f.root, "warden")
+	writeSized(t, filepath.Join(bin, "ocserverd"), 16384)
+	writeSized(t, filepath.Join(bin, "notes.txt"), 4096)
+	writeSized(t, filepath.Join(warden, "ocwarden"), 8192)
+	writeSized(t, filepath.Join(warden, "officraft"), 4096)
+	writeSized(t, filepath.Join(warden, "officraft.probe"), 4096)
+	f.oldBinaries = writeSized(t, filepath.Join(bin, "ocserverd.bak"), 16384) +
+		writeSized(t, filepath.Join(bin, "ocserverd.bak-v0.5.27-9722925"), 12288) +
+		writeSized(t, filepath.Join(warden, "ocwarden.prev"), 8192) +
+		writeSized(t, filepath.Join(warden, "ocagent.prev"), 4096)
+	f.runner = &duRunner{reply: f.duReply(nil)}
 	return f
 }
 
-// duReply answers the whole-root du with a full tree, or with rootErr when one is
-// given, and the projects du with one line per directory asked about, or with
-// sizesErr.
-func (f *diskUsageFixture) duReply(rootErr error, sizesErr error) func(string, []string) (string, error) {
+// duLines is the whole-root du the fixture answers with, in KiB.
+func (f *diskUsageFixture) duLines() []string {
 	agents := filepath.Join(f.root, "agents")
+	return []string{
+		"5000\t" + filepath.Join(agents, "m-1"),
+		"1\t" + filepath.Join(agents, "m-12"),
+		"300\t" + filepath.Join(agents, "ow"),
+		"5305\t" + agents,
+		"30\t" + filepath.Join(f.root, "warden", "log"),
+		"60\t" + filepath.Join(f.root, "warden"),
+		"320\t" + filepath.Join(f.root, "server", "log"),
+		"900\t" + filepath.Join(f.root, "server"),
+		"2000\t" + filepath.Join(f.root, "release-backups"),
+		"60\t" + filepath.Join(f.root, "bin"),
+		"35000\t" + f.root,
+	}
+}
+
+// duReply answers the whole-root du with duLines, or with rootErr when given.
+func (f *diskUsageFixture) duReply(rootErr error) func(string, []string) (string, error) {
 	return func(name string, args []string) (string, error) {
 		if name == "taskpolicy" {
 			args = args[2:]
@@ -125,29 +123,7 @@ func (f *diskUsageFixture) duReply(rootErr error, sizesErr error) func(string, [
 			if rootErr != nil {
 				return "", rootErr
 			}
-			return strings.Join([]string{
-				"5000\t" + filepath.Join(agents, "m-1"),
-				"1\t" + filepath.Join(agents, "m-12"),
-				"300\t" + filepath.Join(agents, "ow"),
-				"7000\t" + filepath.Join(agents, "ow-3"),
-				"12301\t" + agents,
-				"900\t" + filepath.Join(f.root, "server"),
-				"35000\t" + f.root,
-			}, "\n") + "\n", nil
-		}
-		if len(args) > 1 && args[0] == "-sk" {
-			if sizesErr != nil {
-				return "", sizesErr
-			}
-			var lines []string
-			for _, dir := range args[1:] {
-				kb, ok := f.claudeDirs[filepath.Base(dir)]
-				if !ok {
-					return "", errors.New("du asked about an unknown directory " + dir)
-				}
-				lines = append(lines, kb+"\t"+dir)
-			}
-			return strings.Join(lines, "\n") + "\n", nil
+			return strings.Join(f.duLines(), "\n") + "\n", nil
 		}
 		return "", errors.New("unexpected du call")
 	}
@@ -181,17 +157,15 @@ func (f *diskUsageFixture) probe(t *testing.T, goos string) diskUsageProbe {
 	return p
 }
 
-func (f *diskUsageFixture) projectsCall(prefix string) string {
-	agents := claudeProjectName(filepath.Join(f.root, "agents"))
-	dirs := []string{agents + "-m-1", agents + "-m-1-work-y", agents + "-m-19", agents + "-ow-3-work-x", agents + "-ow-scratch"}
-	for i, d := range dirs {
-		dirs[i] = filepath.Join(f.projects, d)
+func categoriesOf(logs, old any) []any {
+	return []any{
+		map[string]any{"key": "logs", "bytes": logs, "in_root": true},
+		map[string]any{"key": "old_version_backups", "bytes": old, "in_root": true},
 	}
-	return prefix + "-sk " + strings.Join(dirs, " ")
 }
 
 func TestDiskUsageProbeMeasure(t *testing.T) {
-	t.Run("under every probe succeeding on macOS, the report sizes the root, each member (0 for logs with no workspace left) and both runtimes' logs, leaving out a station whose Claude prefix extends this one's", func(t *testing.T) {
+	t.Run("under every probe succeeding on macOS, the report sizes the root, each workspace, the logs and the old versions, in one du", func(t *testing.T) {
 		f := newDiskUsageFixture(t)
 		got := f.probe(t, "darwin").measure()
 		want := map[string]any{
@@ -199,23 +173,19 @@ func TestDiskUsageProbeMeasure(t *testing.T) {
 			"took_secs":   107.3,
 			"root_bytes":  int64(35840000),
 			"members": []any{
-				map[string]any{"member_id": "left-9", "workspace_bytes": int64(0), "conversation_bytes": int64(4096)},
-				map[string]any{"member_id": "m-1", "workspace_bytes": int64(5120000), "conversation_bytes": int64(34816)},
-				map[string]any{"member_id": "m-12", "workspace_bytes": int64(1024), "conversation_bytes": int64(8192)},
-				map[string]any{"member_id": "ow", "workspace_bytes": int64(307200), "conversation_bytes": int64(2048)},
-				map[string]any{"member_id": "ow-3", "workspace_bytes": int64(7168000), "conversation_bytes": int64(40960)},
+				map[string]any{"member_id": "m-1", "workspace_bytes": int64(5120000)},
+				map[string]any{"member_id": "m-12", "workspace_bytes": int64(1024)},
+				map[string]any{"member_id": "ow", "workspace_bytes": int64(307200)},
 			},
-			"claude_conversation_bytes": int64(155648),
-			"codex_conversation_bytes":  int64(16384),
-			"disk_free_bytes":           int64(250_000_000_000),
-			"disk_total_bytes":          int64(994_662_584_320),
+			"categories":       categoriesOf(int64(350*1024), int64(2000*1024)+f.oldBinaries),
+			"disk_free_bytes":  int64(250_000_000_000),
+			"disk_total_bytes": int64(994_662_584_320),
 		}
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("measure() =\n  %#v\nwant\n  %#v", got, want)
 		}
-		wantCalls := []string{"taskpolicy -b du -k -d 2 " + f.root, f.projectsCall("taskpolicy -b du ")}
-		if !reflect.DeepEqual(f.runner.calls, wantCalls) {
-			t.Errorf("du calls =\n  %q\nwant\n  %q", f.runner.calls, wantCalls)
+		if want := []string{"taskpolicy -b du -k -d 2 " + f.root}; !reflect.DeepEqual(f.runner.calls, want) {
+			t.Errorf("du calls = %q, want %q", f.runner.calls, want)
 		}
 		if f.runner.timeout != 15*time.Minute {
 			t.Errorf("du timeout = %v, want 15m", f.runner.timeout)
@@ -225,112 +195,114 @@ func TestDiskUsageProbeMeasure(t *testing.T) {
 	t.Run("off macOS, du runs without taskpolicy", func(t *testing.T) {
 		f := newDiskUsageFixture(t)
 		got := f.probe(t, "linux").measure()
-		if got["root_bytes"] != int64(35840000) || got["claude_conversation_bytes"] != int64(155648) {
-			t.Errorf("root_bytes = %v, claude_conversation_bytes = %v, want 35840000 and 155648",
-				got["root_bytes"], got["claude_conversation_bytes"])
+		if got["root_bytes"] != int64(35840000) {
+			t.Errorf("root_bytes = %v, want 35840000", got["root_bytes"])
 		}
-		wantCalls := []string{"du -k -d 2 " + f.root, f.projectsCall("du ")}
-		if !reflect.DeepEqual(f.runner.calls, wantCalls) {
-			t.Errorf("du calls =\n  %q\nwant\n  %q", f.runner.calls, wantCalls)
+		if want := []string{"du -k -d 2 " + f.root}; !reflect.DeepEqual(f.runner.calls, want) {
+			t.Errorf("du calls = %q, want %q", f.runner.calls, want)
 		}
 	})
 
-	t.Run("under a whole-root du that fails with no output, root and workspace sizes are omitted and the rest is sent", func(t *testing.T) {
+	t.Run("on a machine without the server, the absent server/log and release-backups count as 0 and only the warden's binaries are old versions", func(t *testing.T) {
 		f := newDiskUsageFixture(t)
-		f.runner.reply = f.duReply(errors.New("timeout after 15m0s"), nil)
+		for _, rel := range []string{"server", "release-backups", "bin"} {
+			if err := os.RemoveAll(filepath.Join(f.root, rel)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		lines := f.duLines()
+		f.runner.reply = func(string, []string) (string, error) {
+			var keep []string
+			for _, l := range lines {
+				if !strings.Contains(l, "/server") && !strings.Contains(l, "/release-backups") && !strings.Contains(l, "/bin") {
+					keep = append(keep, l)
+				}
+			}
+			return strings.Join(keep, "\n") + "\n", nil
+		}
+		warden := filepath.Join(f.root, "warden")
+		var prev int64
+		for _, name := range []string{"ocwarden.prev", "ocagent.prev"} {
+			info, _ := os.Lstat(filepath.Join(warden, name))
+			prev += info.Sys().(*syscall.Stat_t).Blocks * 512
+		}
+		got := f.probe(t, "darwin").measure()
+		if want := categoriesOf(int64(30*1024), prev); !reflect.DeepEqual(got["categories"], want) {
+			t.Errorf("categories = %#v, want %#v", got["categories"], want)
+		}
+	})
+
+	t.Run("under a whole-root du that fails with no output, root and workspace sizes are omitted and both categories are null", func(t *testing.T) {
+		f := newDiskUsageFixture(t)
+		f.runner.reply = f.duReply(errors.New("timeout after 15m0s"))
 		got := f.probe(t, "darwin").measure()
 		want := map[string]any{
 			"measured_at": float64(1790000107),
 			"took_secs":   107.3,
 			"members": []any{
-				map[string]any{"member_id": "left-9", "conversation_bytes": int64(4096)},
-				map[string]any{"member_id": "m-1", "conversation_bytes": int64(34816)},
-				map[string]any{"member_id": "m-12", "conversation_bytes": int64(8192)},
-				map[string]any{"member_id": "ow", "conversation_bytes": int64(2048)},
-				map[string]any{"member_id": "ow-3", "conversation_bytes": int64(40960)},
+				map[string]any{"member_id": "m-1"},
+				map[string]any{"member_id": "m-12"},
+				map[string]any{"member_id": "ow"},
 			},
-			"claude_conversation_bytes": int64(155648),
-			"codex_conversation_bytes":  int64(16384),
-			"disk_free_bytes":           int64(250_000_000_000),
-			"disk_total_bytes":          int64(994_662_584_320),
+			"categories":       categoriesOf(nil, nil),
+			"disk_free_bytes":  int64(250_000_000_000),
+			"disk_total_bytes": int64(994_662_584_320),
 		}
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("measure() =\n  %#v\nwant\n  %#v", got, want)
 		}
 	})
 
-	t.Run("under a du that exits 1 for an unreadable subdirectory but printed the root line, its sizes are used", func(t *testing.T) {
+	t.Run("under a du that exits 1 but printed the root line, what it sized is used and a log directory it skipped makes logs null", func(t *testing.T) {
 		f := newDiskUsageFixture(t)
 		agents := filepath.Join(f.root, "agents")
-		full := f.duReply(nil, nil)
 		f.runner.reply = func(name string, args []string) (string, error) {
-			if args[len(args)-1] == f.root {
-				return "du: " + agents + "/m-1/locked: Permission denied\n" +
-					"4999\t" + filepath.Join(agents, "m-1") + "\n" +
-					"35001\t" + f.root + "\n", errors.New("exit status 1")
-			}
-			return full(name, args)
+			return "du: " + f.root + "/server/log: Permission denied\n" +
+				"4999\t" + filepath.Join(agents, "m-1") + "\n" +
+				"30\t" + filepath.Join(f.root, "warden", "log") + "\n" +
+				"2000\t" + filepath.Join(f.root, "release-backups") + "\n" +
+				"35001\t" + f.root + "\n", errors.New("exit status 1")
 		}
 		got := f.probe(t, "darwin").measure()
 		members := got["members"].([]any)
-		if got["root_bytes"] != int64(35841024) {
-			t.Errorf("root_bytes = %v, want 35841024", got["root_bytes"])
+		wantM1 := map[string]any{"member_id": "m-1", "workspace_bytes": int64(5118976)}
+		wantOw := map[string]any{"member_id": "ow"}
+		if got["root_bytes"] != int64(35841024) || !reflect.DeepEqual(members[0], wantM1) || !reflect.DeepEqual(members[2], wantOw) {
+			t.Errorf("root_bytes = %v, members = %#v", got["root_bytes"], members)
 		}
-		wantM1 := map[string]any{"member_id": "m-1", "workspace_bytes": int64(5118976), "conversation_bytes": int64(34816)}
-		wantOw := map[string]any{"member_id": "ow", "conversation_bytes": int64(2048)}
-		if !reflect.DeepEqual(members[1], wantM1) || !reflect.DeepEqual(members[3], wantOw) {
-			t.Errorf("members[1], members[3] = %#v, %#v, want %#v, %#v", members[1], members[3], wantM1, wantOw)
+		if want := categoriesOf(nil, int64(2000*1024)+f.oldBinaries); !reflect.DeepEqual(got["categories"], want) {
+			t.Errorf("categories = %#v, want %#v", got["categories"], want)
 		}
 	})
 
-	t.Run("under an agents directory that cannot be listed, members carry neither a workspace size of 0 nor a Codex-only conversation size", func(t *testing.T) {
+	t.Run("under an agents directory that cannot be listed, members are left out rather than sent empty", func(t *testing.T) {
 		f := newDiskUsageFixture(t)
+		p := f.probe(t, "darwin")
 		agents := filepath.Join(f.root, "agents")
-		if err := os.Chmod(agents, 0); err != nil {
-			t.Fatal(err)
+		p.readDir = func(path string) ([]fs.DirEntry, error) {
+			if path == agents {
+				return nil, fs.ErrPermission
+			}
+			return os.ReadDir(path)
 		}
-		t.Cleanup(func() { _ = os.Chmod(agents, 0o755) })
-		got := f.probe(t, "darwin").measure()
-		want := map[string]any{
-			"measured_at": float64(1790000107),
-			"took_secs":   107.3,
-			"root_bytes":  int64(35840000),
-			"members": []any{
-				map[string]any{"member_id": "left-9"},
-				map[string]any{"member_id": "m-1"},
-				map[string]any{"member_id": "m-12"},
-			},
-			"claude_conversation_bytes": int64(155648),
-			"codex_conversation_bytes":  int64(16384),
-			"disk_free_bytes":           int64(250_000_000_000),
-			"disk_total_bytes":          int64(994_662_584_320),
-		}
-		if !reflect.DeepEqual(got, want) {
-			t.Errorf("measure() =\n  %#v\nwant\n  %#v", got, want)
+		got := p.measure()
+		if _, has := got["members"]; has || got["root_bytes"] != int64(35840000) {
+			t.Errorf("members = %v, root_bytes = %v; want no members and the root kept", got["members"], got["root_bytes"])
 		}
 	})
 
-	t.Run("under a failed Claude du, the Claude total and every member's conversation size are omitted", func(t *testing.T) {
+	t.Run("under a bin directory that cannot be listed, old_version_backups is null and logs are kept", func(t *testing.T) {
 		f := newDiskUsageFixture(t)
-		f.runner.reply = f.duReply(nil, errors.New("signal: killed"))
-		got := f.probe(t, "darwin").measure()
-		want := map[string]any{
-			"measured_at": float64(1790000107),
-			"took_secs":   107.3,
-			"root_bytes":  int64(35840000),
-			"members": []any{
-				map[string]any{"member_id": "left-9", "workspace_bytes": int64(0)},
-				map[string]any{"member_id": "m-1", "workspace_bytes": int64(5120000)},
-				map[string]any{"member_id": "m-12", "workspace_bytes": int64(1024)},
-				map[string]any{"member_id": "ow", "workspace_bytes": int64(307200)},
-				map[string]any{"member_id": "ow-3", "workspace_bytes": int64(7168000)},
-			},
-			"codex_conversation_bytes": int64(16384),
-			"disk_free_bytes":          int64(250_000_000_000),
-			"disk_total_bytes":         int64(994_662_584_320),
+		p := f.probe(t, "darwin")
+		bin := filepath.Join(f.root, "bin")
+		p.readDir = func(path string) ([]fs.DirEntry, error) {
+			if path == bin {
+				return nil, fs.ErrPermission
+			}
+			return os.ReadDir(path)
 		}
-		if !reflect.DeepEqual(got, want) {
-			t.Errorf("measure() =\n  %#v\nwant\n  %#v", got, want)
+		if want := categoriesOf(int64(350*1024), nil); !reflect.DeepEqual(p.measure()["categories"], want) {
+			t.Errorf("categories = %#v, want %#v", p.measure()["categories"], want)
 		}
 	})
 
@@ -341,68 +313,42 @@ func TestDiskUsageProbeMeasure(t *testing.T) {
 		got := p.measure()
 		_, hasFree := got["disk_free_bytes"]
 		_, hasTotal := got["disk_total_bytes"]
-		if hasFree || hasTotal || got["root_bytes"] != int64(35840000) || got["codex_conversation_bytes"] != int64(16384) {
+		if hasFree || hasTotal || got["root_bytes"] != int64(35840000) || got["categories"] == nil {
 			t.Errorf("measure() = %#v, want no disk_free/total_bytes and the other fields kept", got)
 		}
 	})
+}
 
-	t.Run("under no Claude projects and no Codex sessions directory, both totals are zero and du runs once", func(t *testing.T) {
-		f := newDiskUsageFixture(t)
-		if err := os.RemoveAll(f.projects); err != nil {
-			t.Fatal(err)
+func TestIsOldBinary(t *testing.T) {
+	for name, want := range map[string]bool{
+		"ocserverd.bak": true, "ocserverd.bak-v0.5.27-9722925": true, "ocserverd.rollback-v055": true,
+		"ocserverd.v040.bak": true, "ocserverd.bak.v010": true, "ocwarden.prev": true, "ocagent.prev": true,
+		"ocwarden.bak-v0.5.27-9722925": true, "officraft.old": true,
+		"ocserverd": false, "ocwarden": false, "officraft": false, "officraft.probe": false,
+		"ocserverd.": false, "exec-warden.tok": false, ".ocserverd-upgrade-1": false, "ocagentx.prev": false,
+	} {
+		if got := isOldBinary(name); got != want {
+			t.Errorf("isOldBinary(%q) = %v, want %v", name, got, want)
 		}
-		if err := os.RemoveAll(f.sessions); err != nil {
-			t.Fatal(err)
-		}
-		got := f.probe(t, "darwin").measure()
-		want := map[string]any{
-			"measured_at": float64(1790000107),
-			"took_secs":   107.3,
-			"root_bytes":  int64(35840000),
-			"members": []any{
-				map[string]any{"member_id": "m-1", "workspace_bytes": int64(5120000), "conversation_bytes": int64(0)},
-				map[string]any{"member_id": "m-12", "workspace_bytes": int64(1024), "conversation_bytes": int64(0)},
-				map[string]any{"member_id": "ow", "workspace_bytes": int64(307200), "conversation_bytes": int64(0)},
-				map[string]any{"member_id": "ow-3", "workspace_bytes": int64(7168000), "conversation_bytes": int64(0)},
-			},
-			"claude_conversation_bytes": int64(0),
-			"codex_conversation_bytes":  int64(0),
-			"disk_free_bytes":           int64(250_000_000_000),
-			"disk_total_bytes":          int64(994_662_584_320),
-		}
-		if !reflect.DeepEqual(got, want) {
-			t.Errorf("measure() =\n  %#v\nwant\n  %#v", got, want)
-		}
-		if want := []string{"taskpolicy -b du -k -d 2 " + f.root}; !reflect.DeepEqual(f.runner.calls, want) {
-			t.Errorf("du calls = %q, want %q", f.runner.calls, want)
-		}
-	})
+	}
 }
 
 func TestNewDiskUsageProbe(t *testing.T) {
 	envOf := func(kv map[string]string) func(string) string {
 		return func(k string) string { return kv[k] }
 	}
-	t.Run("under a canonical station with no redirects, it measures ~/.officraft, ~/.claude/projects and ~/.codex/sessions", func(t *testing.T) {
+	t.Run("under a canonical station, it measures ~/.officraft with the 15-minute du timeout", func(t *testing.T) {
 		runner := &duRunner{}
 		p, ok := newDiskUsageProbe(envOf(map[string]string{"HOME": "/Users/a"}), runner, "darwin")
-		got := []string{p.root, p.claudeProjects, p.codexSessions, p.goos}
-		want := []string{"/Users/a/.officraft", "/Users/a/.claude/projects", "/Users/a/.codex/sessions", "darwin"}
-		if !ok || !reflect.DeepEqual(got, want) || p.run != runner || runner.timeout != 15*time.Minute {
-			t.Errorf("ok = %v, paths = %q, run is the runner = %v, timeout = %v; want true, %q, true, 15m",
-				ok, got, p.run == runner, runner.timeout, want)
+		if !ok || p.root != "/Users/a/.officraft" || p.goos != "darwin" || p.run != runner || runner.timeout != 15*time.Minute {
+			t.Errorf("ok = %v, root = %q, goos = %q, run is the runner = %v, timeout = %v", ok, p.root, p.goos, p.run == runner, runner.timeout)
 		}
 	})
 
-	t.Run("under a namespace, an OC_CLAUDE_JSON redirect and CODEX_HOME, it follows all three", func(t *testing.T) {
-		p, ok := newDiskUsageProbe(envOf(map[string]string{
-			"HOME": "/Users/a", "OC_NAMESPACE": "dev",
-			"OC_CLAUDE_JSON": "/srv/claude/.claude.json", "CODEX_HOME": "/srv/codex/",
-		}), &duRunner{}, "darwin")
-		got := []string{p.root, p.claudeProjects, p.codexSessions}
-		want := []string{"/Users/a/.officraft-dev", "/srv/claude/projects", "/srv/codex/sessions"}
-		if !ok || !reflect.DeepEqual(got, want) {
-			t.Errorf("ok = %v, paths = %q, want true and %q", ok, got, want)
+	t.Run("under a namespace, it measures that station's root", func(t *testing.T) {
+		p, ok := newDiskUsageProbe(envOf(map[string]string{"HOME": "/Users/a", "OC_NAMESPACE": "dev"}), &duRunner{}, "darwin")
+		if !ok || p.root != "/Users/a/.officraft-dev" {
+			t.Errorf("ok = %v, root = %q, want true and /Users/a/.officraft-dev", ok, p.root)
 		}
 	})
 

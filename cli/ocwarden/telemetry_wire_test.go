@@ -213,16 +213,17 @@ func TestWardenTelemetryUplinkBodies(t *testing.T) {
 			"took_secs":   107.3,
 			"root_bytes":  float64(35840000),
 			"members": []any{
-				map[string]any{"member_id": "left-9", "workspace_bytes": float64(0), "conversation_bytes": float64(4096)},
-				map[string]any{"member_id": "m-1", "workspace_bytes": float64(5120000), "conversation_bytes": float64(34816)},
-				map[string]any{"member_id": "m-12", "workspace_bytes": float64(1024), "conversation_bytes": float64(8192)},
-				map[string]any{"member_id": "ow", "workspace_bytes": float64(307200), "conversation_bytes": float64(2048)},
-				map[string]any{"member_id": "ow-3", "workspace_bytes": float64(7168000), "conversation_bytes": float64(40960)},
+				map[string]any{"member_id": "m-1", "workspace_bytes": float64(5120000)},
+				map[string]any{"member_id": "m-12", "workspace_bytes": float64(1024)},
+				map[string]any{"member_id": "ow", "workspace_bytes": float64(307200)},
 			},
-			"claude_conversation_bytes": float64(155648),
-			"codex_conversation_bytes":  float64(16384),
-			"disk_free_bytes":           float64(250_000_000_000),
-			"disk_total_bytes":          float64(994_662_584_320),
+			// The fixture's old binaries are whole 4 KiB blocks: 40960 bytes.
+			"categories": []any{
+				map[string]any{"key": "logs", "bytes": float64(350 * 1024), "in_root": true},
+				map[string]any{"key": "old_version_backups", "bytes": float64(2000*1024 + 40960), "in_root": true},
+			},
+			"disk_free_bytes":  float64(250_000_000_000),
+			"disk_total_bytes": float64(994_662_584_320),
 		},
 	}
 	if !reflect.DeepEqual(heartbeat, wantHeartbeat) {
