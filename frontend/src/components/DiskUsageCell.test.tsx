@@ -345,8 +345,22 @@ describe("DiskUsageBreakdown", () => {
       ["O-151已離開", "3.9 GB"],
       ["ow-91c4已離開", "2.4 GB"],
       ["O-163已離開", "1.8 GB"],
-      ["其餘 3 位合計", "1.5 GB"],
+      ["其餘 3 位合計", "—"],
     ]);
+  });
+
+  it("reads a member whose workspace was not sized as a dash, and the 其餘 sum as a dash when one of the rest was not sized", () => {
+    mountBreakdown({ ...FULL, members: [...SEVEN_MEMBERS.slice(0, 4), member("ow-x", "O-X", "active", null), ...SEVEN_MEMBERS.slice(4)] });
+    expect(rows().slice(3, 9)).toEqual([
+      ["Mira", "7.9 GB"],
+      ["O-179", "5.7 GB"],
+      ["O-151已離開", "3.9 GB"],
+      ["ow-91c4已離開", "2.4 GB"],
+      ["O-163已離開", "1.8 GB"],
+      ["其餘 3 位合計", "—"],
+    ]);
+    mountBreakdown({ ...FULL, members: [member("ow-x", "O-X", "active", null)] });
+    expect(rows().filter(([name]) => name === "O-X")).toEqual([["O-X", "—"]]);
   });
 
   it("under a measurement whose total is null, there is no bar and the server's rows are listed", () => {

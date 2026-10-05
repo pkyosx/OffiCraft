@@ -257,7 +257,10 @@ function memberRows(u: MachineDiskUsageView, d: Dicts, dash: string, otherMember
     rows.push({
       key: "members-rest",
       label: otherMembers(rest.length),
-      value: formatBytes(rest.reduce((sum, m) => sum + (m.workspaceBytes ?? 0), 0)),
+      // One unsized workspace makes the sum unknown, not smaller.
+      value: rest.some((m) => m.workspaceBytes === null)
+        ? dash
+        : formatBytes(rest.reduce((sum, m) => sum + (m.workspaceBytes ?? 0), 0)),
       sub: true,
     });
   }
