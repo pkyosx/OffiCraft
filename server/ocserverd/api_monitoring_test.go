@@ -5,6 +5,7 @@ package main
 
 import (
 	"net/http"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strconv"
@@ -2756,6 +2757,27 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 			part("old_database_copies", diskTestOldCopiesBytes),
 			part("releases", 1000),
 			diskCat("other", 100000-16384-20480-1500-diskTestOldCopiesBytes, true),
+		}, []any{}, nil, nil))
+	})
+
+	t.Run("under an orphaned half-written snapshot, its journal and a file put in backups/ by hand, their bytes are in old_version_backups, not in backups or other", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		root, dbPath := diskTestStation(t)
+		dir := backupDirFor(dbPath)
+		diskTestWrite(t, filepath.Join(dir, "officraft-20260811-012749-premigration.db.partial"), 8000)
+		diskTestWrite(t, filepath.Join(dir, "officraft-20260811-012749-premigration.db.partial-journal"), 100)
+		diskTestWrite(t, filepath.Join(dir, "notes.txt"), 1)
+		const strays = 8192 + 4096 + 4096
+		api.recordServerDisk(dbPath, root, time.Unix(1759500100, 0))
+		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+		got := diskView(t, h, owner, warden, "m-server-self", `{"measured_at":1759500000,"root_bytes":100000,"members":[],
+			"categories":[{"key":"old_version_backups","bytes":2000,"in_root":true}]}`)
+		apiWantValue(t, "disk_usage", got, diskWant(1759500000, 100000, 1759500100, []any{
+			diskCat("database", 16384, true),
+			diskCat("backups", 20480, true),
+			diskCat("workspaces", 0, true),
+			diskCat("old_version_backups", 2000+strays, true),
+			diskCat("other", 100000-16384-20480-2000-strays, true),
 		}, []any{}, nil, nil))
 	})
 
