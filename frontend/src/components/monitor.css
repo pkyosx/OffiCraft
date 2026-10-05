@@ -440,17 +440,27 @@
   .mon-machine-name .runtime-menu__trigger {
     display: block;
     min-height: var(--mon-name-row);
-    /* -1px: the trigger's border, inside its border-box min-height. */
+    /* -1px: the trigger's border, inside its border-box min-height.
+     * 1.5em: the inherited line-height, for a browser without `lh`. */
+    padding-block: max(0px, (var(--mon-name-row) - 1.5em) / 2 - 1px);
     padding-block: max(0px, (var(--mon-name-row) - 1lh) / 2 - 1px);
     white-space: normal;
     text-align: start;
   }
-  /* Centred on its line box, as the flex trigger centred it; the 6px stands
-   * in for the trigger's gap, which text flow ignores. */
+  /* An inline box after the name may move to a line of its own, so a
+   * chevron that just misses the last line went there alone. The name's end
+   * padding cannot be split from its last character: that word and the
+   * chevron's room wrap together. The chevron then pulls back over the
+   * padding, keeping the trigger's gap, and takes no width of its own. */
+  .mon-machine-name .runtime-menu__trigger .mon-table__strong {
+    padding-inline-end: calc(var(--mon-chevron-gap) + var(--mon-chevron-size));
+  }
+  /* Centred on its line box, as the flex trigger centred it. */
   .mon-machine-name .runtime-menu__chevron {
     align-items: center;
+    height: 1.5em;
     height: 1lh;
-    margin-left: 6px;
+    margin-left: calc(-1 * var(--mon-chevron-size));
     vertical-align: top;
   }
   /* Centred on the whole cell line, a dot beside a two-line name sat between
@@ -666,6 +676,10 @@
   --mon-name-gap: 6px;
   /* The name trigger's one-line height (its min-height). */
   --mon-name-row: 24px;
+  /* The menu chevron's width (ChevronDownIcon size) and the trigger's gap
+   * before it; the phone rules reserve both at the name's end. */
+  --mon-chevron-size: 12px;
+  --mon-chevron-gap: 6px;
   display: flex;
   align-items: center;
   gap: var(--mon-name-gap);

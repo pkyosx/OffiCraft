@@ -55,6 +55,11 @@
 //   phone: dot centred on the wrapped name   → long-name card tests (dot on line 1)
 //   phone: trigger back to inline-flex       → long-name card tests (chevron at
 //                                              the card's right edge)
+//   phone: no end padding on the name (chevron margin back to 6px)
+//                                           → card width sweep (chevron alone on a line)
+//   phone: chevron without `height: 1lh` / its 1.5em fallback
+//                                           → long-name card tests (chevron off the last line)
+//   phone: chevron with no gap after the word → long-name card tests
 //   `.mon-stale` border back to --color-border → frame contrast below 1.5
 //   (in the built-in palette --color-border IS --color-card)
 //   no measured min-width (MachinesTable)    → 機器 cut short (sticky, 800px and
@@ -1732,6 +1737,7 @@ for (const { width, name: longName, state } of PHONE_LONG_CASES) {
       const t = r(el);
       const name = r(el.querySelector(".mon-table__strong")!);
       const ch = r(el.querySelector(".runtime-menu__chevron")!);
+      const icon = r(el.querySelector(".runtime-menu__chevron svg")!);
       const dot = r(el.closest("td")!.querySelector('[data-testid="mon-machine-online"]')!);
       const range = document.createRange();
       range.selectNodeContents(el.querySelector(".mon-table__strong")!);
@@ -1748,8 +1754,9 @@ for (const { width, name: longName, state } of PHONE_LONG_CASES) {
         dotOnFirstLine: Math.abs(mid(dot) - mid(first)) <= 2,
         triggerInCard: t.left >= td.left && t.right <= td.right + 0.5,
         chevronInTrigger: ch.width > 0 && ch.right <= t.right + 0.5,
-        chevronAfterLastWord: ch.left >= last.right - 0.5 && ch.left - last.right <= 8,
-        chevronOnLastLine: mid(ch) >= last.top && mid(ch) <= last.bottom,
+        // The gap is 6px; under 3 the chevron touches the word.
+        chevronAfterLastWord: ch.left - last.right >= 3 && ch.left - last.right <= 8,
+        chevronOnLastLine: Math.abs(mid(icon) - mid(last)) <= 1.5,
       };
     });
     expect(geo).toEqual({
@@ -1767,5 +1774,52 @@ for (const { width, name: longName, state } of PHONE_LONG_CASES) {
     await expect(page.getByRole("menuitem")).toHaveText(["改名稱", state === "stale" ? "安裝" : "重新安裝", "解除安裝", "刪除"]);
     expect(await menuOnTop(page)).toEqual(Array(4).fill({ inside: true, onTop: true }));
     expect(await overflow(page), "the open menu does not scroll the page").toEqual({ page: 0, monitor: 0, frame: 0 });
+  });
+}
+
+// The chevron is an inline box of its own after the name, so wherever "name +
+// chevron" just misses the last line it can drop to the next line alone. That
+// happens in an ~18px band of widths (gap + chevron) for every name, at a
+// different place for each, so the fixed widths above can miss it: here each
+// name is swept across the card widths, every 2px, in one mount.
+const SWEEP_NAMES = [
+  "Seth 的 Mac Studio（辦公室三樓靠窗）",
+  "eva-m5-warden-build-farm-node-0001-us-west",
+  "Seth's MacBook Pro M5 Max office desk by the window",
+  "build-farm-node-07 west rack",
+];
+const SWEEP_WIDTHS = Array.from({ length: (720 - 300) / 2 + 1 }, (_, i) => 300 + i * 2);
+for (const sweepName of SWEEP_NAMES) {
+  test(`card widths 300-720px every 2px, name "${sweepName}": the chevron stays after the last word, on its line`, async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: SWEEP_WIDTHS[0], height: 900 });
+    await mount(<MonitorMachinesLayoutStory states={["named"]} name={sweepName} />);
+    const trigger = page.getByRole("button", { name: `機器操作（${sweepName}）` });
+    await expect(trigger).toBeVisible();
+    const bad: string[] = [];
+    for (const width of SWEEP_WIDTHS) {
+      await page.setViewportSize({ width, height: 900 });
+      const g = await trigger.evaluate((el) => {
+        const mid = (b: { top: number; bottom: number }) => (b.top + b.bottom) / 2;
+        const ch = el.querySelector(".runtime-menu__chevron")!.getBoundingClientRect();
+        const icon = el.querySelector(".runtime-menu__chevron svg")!.getBoundingClientRect();
+        const range = document.createRange();
+        range.selectNodeContents(el.querySelector(".mon-table__strong")!);
+        const lines = Array.from(range.getClientRects());
+        const last = lines[lines.length - 1];
+        const se = document.scrollingElement!;
+        return {
+          card: getComputedStyle(el.closest("tr")!).display === "block",
+          gap: Math.round((ch.left - last.right) * 100) / 100,
+          off: Math.round((mid(icon) - mid(last)) * 100) / 100,
+          pageOverflow: se.scrollWidth - se.clientWidth,
+        };
+      });
+      if (!g.card || g.gap < 3 || g.gap > 8 || Math.abs(g.off) > 1.5 || g.pageOverflow > 0)
+        bad.push(`${width}px ${JSON.stringify(g)}`);
+    }
+    expect(bad, "widths where the chevron left the last word, or the page scrolls").toEqual([]);
   });
 }
