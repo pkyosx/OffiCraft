@@ -869,26 +869,71 @@ func TestCodexSessionResolveResponse(t *testing.T) {
 		}
 	})
 
-	t.Run("a rejected steer nacks its batch and the next message still steers the live turn", func(t *testing.T) {
+	t.Run("a rejected steer retries the complete text once as a new turn", func(t *testing.T) {
 		s := newCodexTestSession()
 		s.active, s.turnID = true, "live"
-		s.steerOrStart("first", s.currentBatch())
-		s.closeBatch("first-batch")
-		s.resolveResponse(1, appServerMessage{"error": map[string]any{"message": "steering is temporarily unavailable"}})
-		if got := s.acks.String(); got != "nack first-batch\n" {
-			t.Fatalf("acks=%q", got)
-		}
-		s.steerOrStart("second\n  last", s.currentBatch())
-		s.closeBatch("second-batch")
+		s.steerOrStart("first\n  last", s.currentBatch())
+		s.closeBatch("b-1")
+		s.resolveResponse(1, appServerMessage{"error": map[string]any{"message": "expectedTurnId is stale"}})
 		want := []map[string]any{
-			{"id": float64(1), "method": "turn/steer", "params": map[string]any{"threadId": "th_1", "expectedTurnId": "live", "input": []any{map[string]any{"type": "text", "text": "first"}}}},
-			{"id": float64(2), "method": "turn/steer", "params": map[string]any{"threadId": "th_1", "expectedTurnId": "live", "input": []any{map[string]any{"type": "text", "text": "second\n  last"}}}},
+			{"id": float64(1), "method": "turn/steer", "params": map[string]any{"threadId": "th_1", "expectedTurnId": "live", "input": []any{map[string]any{"type": "text", "text": "first\n  last"}}}},
+			{"id": float64(2), "method": "turn/start", "params": map[string]any{"threadId": "th_1", "effort": "medium", "input": []any{map[string]any{"type": "text", "text": "first\n  last"}}}},
 		}
 		if got := s.sent(t); !reflect.DeepEqual(got, want) {
 			t.Fatalf("sent=%v, want=%v", got, want)
 		}
-		s.resolveResponse(2, appServerMessage{"result": map[string]any{}})
-		if got := s.acks.String(); got != "nack first-batch\nack second-batch\n" {
+		if s.acks.Len() != 0 {
+			t.Fatalf("premature ack: %q", s.acks.String())
+		}
+		s.resolveResponse(2, appServerMessage{"error": map[string]any{"message": "thread is busy"}})
+		if got := s.sent(t); !reflect.DeepEqual(got, want) {
+			t.Fatalf("retried more than once: %v", got)
+		}
+		if got := s.acks.String(); got != "nack b-1\n" {
+			t.Fatalf("acks=%q", got)
+		}
+		s.steerOrStart("next", s.currentBatch())
+		if got := s.sent(t); len(got) != 3 || got[2]["method"] != "turn/steer" || got[2]["params"].(map[string]any)["expectedTurnId"] != "live" {
+			t.Fatalf("after rejected retry: %v", got)
+		}
+	})
+
+	t.Run("rejected steers wait behind the starting turn and each retry is delivered once", func(t *testing.T) {
+		s := newCodexTestSession()
+		s.active, s.turnID = true, "old"
+		batch := s.currentBatch()
+		s.steerOrStart("first", batch)
+		s.steerOrStart("second\n  last", batch)
+		s.closeBatch("b-2")
+		s.resolveResponse(1, appServerMessage{"error": map[string]any{"message": "stale"}})
+		s.resolveResponse(2, appServerMessage{"error": map[string]any{"message": "stale"}})
+		if got := s.sent(t); len(got) != 3 || got[2]["method"] != "turn/start" {
+			t.Fatalf("before retry lands: %v", got)
+		}
+		if s.acks.Len() != 0 {
+			t.Fatalf("premature ack: %q", s.acks.String())
+		}
+		s.steerOrStart("third", batch)
+		s.resolveResponse(3, appServerMessage{"result": map[string]any{"turn": map[string]any{"id": "new"}}})
+		want := []map[string]any{
+			{"id": float64(1), "method": "turn/steer", "params": map[string]any{"threadId": "th_1", "expectedTurnId": "old", "input": []any{map[string]any{"type": "text", "text": "first"}}}},
+			{"id": float64(2), "method": "turn/steer", "params": map[string]any{"threadId": "th_1", "expectedTurnId": "old", "input": []any{map[string]any{"type": "text", "text": "second\n  last"}}}},
+			{"id": float64(3), "method": "turn/start", "params": map[string]any{"threadId": "th_1", "effort": "medium", "input": []any{map[string]any{"type": "text", "text": "first"}}}},
+			{"id": float64(4), "method": "turn/start", "params": map[string]any{"threadId": "th_1", "effort": "medium", "input": []any{map[string]any{"type": "text", "text": "second\n  last"}}}},
+		}
+		if got := s.sent(t); !reflect.DeepEqual(got, want) {
+			t.Fatalf("sent=%v, want=%v", got, want)
+		}
+		s.resolveResponse(4, appServerMessage{"error": map[string]any{"message": "busy"}})
+		want = append(want, map[string]any{"id": float64(5), "method": "turn/steer", "params": map[string]any{"threadId": "th_1", "expectedTurnId": "new", "input": []any{map[string]any{"type": "text", "text": "third"}}}})
+		if got := s.sent(t); !reflect.DeepEqual(got, want) {
+			t.Fatalf("sent=%v, want=%v", got, want)
+		}
+		if s.acks.Len() != 0 {
+			t.Fatalf("premature ack: %q", s.acks.String())
+		}
+		s.resolveResponse(5, appServerMessage{"result": map[string]any{}})
+		if got := s.acks.String(); got != "nack b-2\n" {
 			t.Fatalf("acks=%q", got)
 		}
 	})
@@ -940,6 +985,7 @@ func TestCodexSessionResolveResponse(t *testing.T) {
 		}
 		s.resolveResponse(2, appServerMessage{"id": float64(2),
 			"error": map[string]any{"message": "thread is busy"}})
+		s.resolveResponse(3, appServerMessage{"error": map[string]any{"message": "thread is busy"}})
 
 		if got, want := s.acks.String(), "nack b-2\n"; got != want {
 			t.Errorf("the listener was told %q, want %q", got, want)

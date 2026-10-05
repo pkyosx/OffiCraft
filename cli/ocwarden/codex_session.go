@@ -333,10 +333,7 @@ func (s *codexSession) waitResponse(id int) (appServerMessage, error) {
 
 func (s *codexSession) startTurn(text string, batch *codexBatch) {
 	if s.starting {
-		s.queued = append(s.queued, &codexDelivery{text: text, batch: batch})
-		if batch != nil {
-			batch.outstanding++
-		}
+		s.queueTurn(&codexDelivery{text: text, batch: batch})
 		return
 	}
 	s.starting = true
@@ -355,7 +352,7 @@ func (s *codexSession) steerOrStart(text string, batch *codexBatch) {
 	if strings.TrimSpace(text) == "" {
 		return
 	}
-	if s.active && s.turnID != "" {
+	if s.active && s.turnID != "" && !s.starting {
 		s.activity("turn steered by OffiCraft event")
 		s.track(s.send("turn/steer", map[string]any{
 			"threadId": s.threadID, "expectedTurnId": s.turnID,
@@ -366,6 +363,13 @@ func (s *codexSession) steerOrStart(text string, batch *codexBatch) {
 	s.startTurn(text, batch)
 }
 
+func (s *codexSession) queueTurn(d *codexDelivery) {
+	s.queued = append(s.queued, d)
+	if d.batch != nil {
+		d.batch.outstanding++
+	}
+}
+
 func (s *codexSession) drainQueuedTurns() {
 	for len(s.queued) > 0 && !s.starting {
 		d := s.queued[0]
@@ -373,7 +377,11 @@ func (s *codexSession) drainQueuedTurns() {
 		if d.batch != nil {
 			d.batch.outstanding--
 		}
-		s.steerOrStart(d.text, d.batch)
+		if d.method == "turn/start" {
+			s.startTurn(d.text, d.batch)
+		} else {
+			s.steerOrStart(d.text, d.batch)
+		}
 	}
 }
 
@@ -412,6 +420,16 @@ func (s *codexSession) resolveResponse(id int, msg appServerMessage) {
 		return
 	}
 	detail := strings.TrimSpace(fmt.Sprintf("%v", problem["message"]))
+	if d.method == "turn/steer" {
+		s.activity("turn/steer 被拒（%s）— 改開新的一輪重送同一段內容", detail)
+		d.method = "turn/start"
+		if s.starting {
+			s.queueTurn(d)
+		} else {
+			s.startTurn(d.text, d.batch)
+		}
+		return
+	}
 	s.activity("⚠️ 送不進去（%s）：%s — 這段內容沒有進到 agent 的對話，"+
 		"agent 不會知道有人說過這句話", detail, codexDeliveryLabel(d.text))
 	if d.batch != nil {
