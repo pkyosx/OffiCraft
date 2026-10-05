@@ -2070,6 +2070,77 @@ func TestCodexSessionRecordCompaction(t *testing.T) {
 	})
 }
 
+func TestCodexSessionHandleItemCompleted(t *testing.T) {
+	t.Run("a completed agent message reports its success immediately", func(t *testing.T) {
+		fake := interceptCodexPosts(t, http.StatusOK, nil)
+		s := newCodexTestSession()
+		s.base, s.token, s.account = "https://x.test", "tok", "codex:abc"
+
+		s.handleItemCompleted(map[string]any{
+			"completedAtMs": float64(1720000200123),
+			"item":          map[string]any{"id": "msg_1", "type": "agentMessage", "text": "OK"},
+		})
+
+		want := []codexPost{{
+			method: http.MethodPost, url: "https://x.test/api/monitoring/telemetry",
+			auth: "Bearer tok", ctype: "application/json",
+			body: map[string]any{
+				"runtime": "codex", "account": "codex:abc", "account_label": "ChatGPT",
+				"model_call": map[string]any{"last_success_ts": float64(1720000200123) / 1000},
+			},
+		}}
+		if !reflect.DeepEqual(fake.posts, want) {
+			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
+		}
+		if s.lastSuccessTs != float64(1720000200123)/1000 {
+			t.Errorf("lastSuccessTs = %v, want %v", s.lastSuccessTs, float64(1720000200123)/1000)
+		}
+	})
+
+	t.Run("user and tool items do not report a model success", func(t *testing.T) {
+		fake := interceptCodexPosts(t, http.StatusOK, nil)
+		s := newCodexTestSession()
+		s.base, s.token, s.account = "https://x.test", "tok", "codex:abc"
+		s.lastSuccessTs = 1720000100
+
+		for _, itemType := range []string{"userMessage", "commandExecution", "contextCompaction"} {
+			s.handleItemCompleted(map[string]any{
+				"completedAtMs": float64(1720000200123),
+				"item":          map[string]any{"id": "item_1", "type": itemType},
+			})
+		}
+
+		if s.lastSuccessTs != 1720000100 {
+			t.Errorf("lastSuccessTs = %v, want the prior value 1720000100", s.lastSuccessTs)
+		}
+		if len(fake.posts) != 0 {
+			t.Errorf("non-agent items sent telemetry %+v", fake.posts)
+		}
+		if s.compactions != 1 {
+			t.Errorf("compactions = %d, want context compaction to remain recorded", s.compactions)
+		}
+	})
+
+	t.Run("an older completed agent message never moves success time back", func(t *testing.T) {
+		fake := interceptCodexPosts(t, http.StatusOK, nil)
+		s := newCodexTestSession()
+		s.base, s.token, s.account = "https://x.test", "tok", "codex:abc"
+		s.lastSuccessTs = 1720000300
+
+		s.handleItemCompleted(map[string]any{
+			"completedAtMs": float64(1720000200123),
+			"item":          map[string]any{"id": "msg_1", "type": "agentMessage"},
+		})
+
+		if s.lastSuccessTs != 1720000300 {
+			t.Errorf("lastSuccessTs = %v, want the newer value 1720000300", s.lastSuccessTs)
+		}
+		if len(fake.posts) != 0 {
+			t.Errorf("an older success sent telemetry %+v", fake.posts)
+		}
+	})
+}
+
 func TestCodexSessionHandleServerRequest(t *testing.T) {
 	cases := []struct {
 		name string
@@ -2397,6 +2468,47 @@ func TestRunCodexSession(t *testing.T) {
 		}
 	})
 
+	t.Run("a completed assistant item in the app-server stream reports success immediately", func(t *testing.T) {
+		fake := interceptCodexPosts(t, http.StatusOK, nil)
+		work := t.TempDir()
+		t.Setenv("HOME", work)
+		codexBin := filepath.Join(work, "codex")
+		script := "#!/bin/sh\n" +
+			"while IFS= read -r line; do\n" +
+			"  case \"$line\" in\n" +
+			"    *'\"method\":\"initialize\"'*) echo '{\"id\":1,\"result\":{}}' ;;\n" +
+			"    *'\"method\":\"account/rateLimits/read\"'*) echo '{\"id\":2,\"result\":{}}' ;;\n" +
+			"    *'\"method\":\"thread/start\"'*) echo '{\"id\":3,\"result\":{\"thread\":{\"id\":\"th_1\"}}}' ;;\n" +
+			"    *'\"method\":\"turn/start\"'*) echo '{\"method\":\"item/completed\",\"params\":{\"item\":{\"type\":\"agentMessage\"},\"completedAtMs\":1720000200123}}'; exit 0 ;;\n" +
+			"  esac\n" +
+			"done\n"
+		if err := os.WriteFile(codexBin, []byte(script), 0o755); err != nil {
+			t.Fatalf("stage codex stub: %v", err)
+		}
+		out := &lockedBuffer{}
+
+		code := runCodexSession([]string{
+			"--codex-bin", codexBin, "--workdir", work,
+			"--persona", stagePersona(t, work), "--model", "gpt-6-luna",
+		}, env, out)
+
+		if code != 1 {
+			t.Errorf("runCodexSession returned %d, want 1 after the fake app server exits", code)
+		}
+		var successReports []codexPost
+		for _, post := range fake.posts {
+			modelCall, _ := post.body["model_call"].(map[string]any)
+			if _, ok := modelCall["last_success_ts"]; ok {
+				successReports = append(successReports, post)
+			}
+		}
+		if len(successReports) != 1 {
+			t.Fatalf("the sidecar sent %d success telemetry reports in %+v, want one", len(successReports), fake.posts)
+		}
+		if ts := successReports[0].body["model_call"].(map[string]any)["last_success_ts"]; ts != float64(1720000200123)/1000 {
+			t.Errorf("last_success_ts = %v, want %v", ts, float64(1720000200123)/1000)
+		}
+	})
 }
 
 func stagePersona(t *testing.T, dir string) string {

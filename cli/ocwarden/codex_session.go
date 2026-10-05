@@ -142,7 +142,7 @@ type codexSession struct {
 	// Replayed item/completed notifications must not look like fresh
 	// compactions and recycle a just-booted agent.
 	completedCompactions map[string]struct{}
-	// Rides the identity heartbeat rather than a post of its own.
+	// Also repeated on the identity heartbeat after immediate success reports.
 	lastSuccessTs float64
 	// Merged across sparse account/rateLimits/updated notifications: a turn
 	// error never says when the limit lifts, only the snapshot does.
@@ -636,6 +636,22 @@ func (s *codexSession) recordTurnOutcome(params map[string]any) {
 	}
 }
 
+func (s *codexSession) recordModelCallSuccess(params map[string]any) {
+	item, _ := params["item"].(map[string]any)
+	if item == nil || item["type"] != "agentMessage" {
+		return
+	}
+	ended := jsonNumber(params["completedAtMs"]) / 1000
+	if ended <= 0 {
+		ended = float64(time.Now().UnixNano()) / 1e9
+	}
+	if ended <= s.lastSuccessTs {
+		return
+	}
+	s.lastSuccessTs = ended
+	s.reportIdentity()
+}
+
 // The limit lifts when the LAST exhausted window resets, so the latest one wins.
 // No window at 100% means the snapshot cannot say which limit refused the call.
 func (s *codexSession) exhaustedWindowResetsAt() float64 {
@@ -758,6 +774,11 @@ func (s *codexSession) recordCompaction(params map[string]any) {
 	s.forceUsageReport = true
 	s.telemetryMu.Unlock()
 	s.activity("context compacted · count %d", s.compactions)
+}
+
+func (s *codexSession) handleItemCompleted(params map[string]any) {
+	s.recordModelCallSuccess(params)
+	s.recordCompaction(params)
 }
 
 // 🔴 The secret warning must ride in THIS text: the warden no longer opens the
@@ -1148,7 +1169,7 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 					s.reportRateLimits(snapshot)
 				}
 			case "item/completed":
-				s.recordCompaction(params)
+				s.handleItemCompleted(params)
 			case "item/tool/requestUserInput", "mcpServer/elicitation/request":
 				s.handleServerRequest(msg)
 			}
