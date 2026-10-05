@@ -243,16 +243,17 @@ func (s *apiServer) foldCommandResult(commandResult map[string]any, trigger, rep
 	workerIDRaw, _ := commandResult["worker_id"].(string)
 	// Disarm the receipt deadline (receipt_watch.go) BEFORE any early return: an
 	// arrived receipt answers the deadline even when the fold declines to write it.
-	s.noteReceiptArrived(strings.TrimSpace(workerIDRaw), reporter)
-	s.noteReceiptArrived(strings.TrimSpace(memberIDRawOf(commandResult)), reporter)
+	s.noteReceiptArrived(strings.TrimSpace(workerIDRaw), reporter, stringOf(commandResult["rpc"]))
+	s.noteReceiptArrived(strings.TrimSpace(memberIDRawOf(commandResult)), reporter,
+		stringOf(commandResult["rpc"]))
 	// Also before any early return: a no_such_session stop is dropped by both
-	// folds, but for the worker-stop retry it is the strongest evidence there is.
+	// folds, but for the robust-stop ledger it is the strongest evidence there is.
 	if isStopNoopReceipt(
 		stringOf(commandResult["rpc"]), boolPtrOf(commandResult["ok"]),
 		stringOf(commandResult["reason"]),
 	) {
-		s.noteWorkerStopNoSuchSession(strings.TrimSpace(workerIDRaw), reporter)
-		s.noteWorkerStopNoSuchSession(
+		s.closeRobustStopOnNoSuchSession(strings.TrimSpace(workerIDRaw), reporter)
+		s.closeRobustStopOnNoSuchSession(
 			strings.TrimSpace(memberIDRawOf(commandResult)), reporter)
 	}
 	if isStopRPC(stringOf(commandResult["rpc"])) {

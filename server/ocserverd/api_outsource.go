@@ -214,139 +214,6 @@ func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost
 	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: worker.ID})
 }
 
-// Outsource arm of POST /api/members/{member_id}/accelerated-stop — the middle
-// rung of 停止 → 加速停止 → 強制停止.
-func (s *apiServer) HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost(w http.ResponseWriter, r *http.Request, id string) {
-	unlockMu := s.outsourceMu.Acquire()
-	defer unlockMu()
-	online := s.hub.IsOnline(id)
-	var worker *OutsourceWorker
-	err := s.dal.inTx(func(tx *writeTx) error {
-		var err error
-		if worker, err = resolveLiveWorkerOn(tx, id); err != nil {
-			return err
-		}
-		before := *worker
-		if !online {
-			return refuseInTx(http.StatusConflict, acceleratedStopNeedsALiveSessionMsg)
-		}
-		proj := memberFromWorker(*worker)
-		if err := accelerateMemberStop(&proj, nowSecs()); err != nil {
-			return err
-		}
-		worker.StoppingSince = proj.StoppingSince
-		worker.RefocusSince = proj.RefocusSince
-		worker.RefocusOp = proj.RefocusOp
-		worker.RestartAfterStop = proj.RestartAfterStop
-		return persistWorkerRowOn(tx, before, *worker)
-	})
-	if err != nil {
-		unlockMu()
-		writeResolveTxError(w, err, "member", id)
-		return
-	}
-	// The only fan-out of the final sentence to the worker: publishOutsourceWorker
-	// is the owner-only cockpit patch and never reaches the worker's stream.
-	// Without this, the 加速停止 deadline clock (decideDown) starts while the worker
-	// last heard the 停止 SOFT sentence.
-	s.openWorkerHandoverGrace(*worker, requestTrigger(r))
-	if fresh, ferr := s.dal.GetOutsourceWorker(id); ferr == nil && fresh != nil {
-		worker = fresh
-	}
-	s.publishOutsourceWorker(*worker, requestTrigger(r))
-	unlockMu()
-
-	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: worker.ID})
-}
-
-// Outsource arm of POST /api/members/{member_id}/deactivate — the cockpit's 停止,
-// a graceful close-out rather than a kill (owner 2026-08-21).
-//   - NO forced_stop_at: that anchor keeps the notice silent, and this verb
-//     needs offboardKindOf's SOFT 〈停止〉 notice (read off stopping_since) to
-//     arrive.
-//   - NO kill: the 收口 is the worker's own report_stopped. No deadline unless
-//     the owner presses 加速停止 (rc-27d1710174dd 「不要兜底」).
-//   - Refocus is cleared for a mechanical reason: the FSM's recycle arm collects
-//     a refocus epoch by kill+RESPAWN, which would revive a worker the owner just
-//     held down.
-//
-// The bound task stays in its own status.
-func (s *apiServer) HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(w http.ResponseWriter, r *http.Request, id string) {
-	unlockMu := s.outsourceMu.Acquire()
-	defer unlockMu()
-	var worker *OutsourceWorker
-	err := s.dal.inTx(func(tx *writeTx) error {
-		var err error
-		if worker, err = resolveLiveWorkerOn(tx, id); err != nil {
-			return err
-		}
-		before := *worker
-		// The row writes are applyStopVerbRow's (shared with the staff deactivate).
-		// memberFromWorker only supplies the PRE-stop anchors; the result lands on the
-		// WORKER row through stopVerbRowOfWorker's pointers, not on the projection.
-		applyStopVerbRow(stopVerbRowOfWorker(worker), memberFromWorker(*worker), nowSecs())
-		return persistWorkerRowOn(tx, before, *worker)
-	})
-	if err != nil {
-		unlockMu()
-		writeResolveTxError(w, err, "member", id)
-		return
-	}
-	// Online: 預告 + wait. Offline: immediate kill (nothing can hear it).
-	// openWorkerHandoverGrace re-reads liveness itself, so a disconnect racing
-	// this handler cannot end in a respawn.
-	s.openWorkerHandoverGrace(*worker, requestTrigger(r))
-	if fresh, ferr := s.dal.GetOutsourceWorker(id); ferr == nil && fresh != nil {
-		worker = fresh
-	}
-	s.publishOutsourceWorker(*worker, requestTrigger(r))
-	unlockMu()
-
-	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: worker.ID})
-}
-
-// Outsource arm of POST /api/members/{member_id}/force-stop — the third rung.
-// Stamps forced_stop_at AND stopping_since: forcedEpochLive requires
-// forced_stop_at >= stopping_since, so stamping one alone leaves a worker that
-// announced its own wind-down reading as "working its close-out", the arm that
-// speaks. It sends NOTHING; forced_stop_at is what keeps it silent. No online
-// gate: a worker whose session is gone still needs its intent held down.
-func (s *apiServer) HandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost(w http.ResponseWriter, r *http.Request, id string) {
-	unlockMu := s.outsourceMu.Acquire()
-	defer unlockMu()
-	var worker *OutsourceWorker
-	err := s.dal.inTx(func(tx *writeTx) error {
-		var err error
-		if worker, err = resolveLiveWorkerOn(tx, id); err != nil {
-			return err
-		}
-		before := *worker
-		worker.DesiredState = DesiredStateOffline
-		worker.RefocusSince = 0.0
-		worker.RefocusOp = ""
-		clearWorkerRestartIntent(worker)
-		forcedAt := nowSecs()
-		worker.ForcedStopAt = forcedAt
-		if worker.StoppingSince <= 0.0 || worker.StoppingSince > forcedAt {
-			worker.StoppingSince = forcedAt
-		}
-		return persistWorkerRowOn(tx, before, *worker)
-	})
-	if err != nil {
-		unlockMu()
-		writeResolveTxError(w, err, "member", id)
-		return
-	}
-	s.stopWorkerNow(*worker)
-	if fresh, ferr := s.dal.GetOutsourceWorker(id); ferr == nil && fresh != nil {
-		worker = fresh
-	}
-	s.publishOutsourceWorker(*worker, requestTrigger(r))
-	unlockMu()
-
-	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: worker.ID})
-}
-
 // Outsource arm of POST /api/members/{member_id}/activate — the cockpit's 喚醒
 // (owner rc-1f591528a6d0 圈 [0]: 正在跑就不動它):
 //   - session ALREADY RUNNING → record the intent, dispatch NOTHING, kill
@@ -423,7 +290,7 @@ func (s *apiServer) handleRestartOutsourceWorker(w http.ResponseWriter, r *http.
 			return err
 		}
 		// BEFORE the respawn: respawnWorkerForOwnerOp writes receipts of its own
-		// (stampWorkerPlacementBlocked, stopWorkerSessionForHandover), and this
+		// (stampWorkerPlacementBlocked), and this
 		// request-start snapshot written after it would bury the newer sentence on a
 		// 200. ⚠️ No test holds this order — an independent review moved it and the
 		// suite stayed green.

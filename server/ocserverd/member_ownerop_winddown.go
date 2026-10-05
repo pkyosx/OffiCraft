@@ -626,9 +626,9 @@ func (s *apiServer) consumeWorkerRestartAfterStop(w *OutsourceWorker, now float6
 // both populations (both report_stopped faces via decideStoppedReport,
 // collectWorkerHandover, collectWorkerStop).
 //
-//   - `prior` is what collectWorkerHandover rolls the latch back to when the stop
-//     finds no kill target. 🔴 IT MUST BE READ BEFORE THE STAMP: move the read
-//     after it and the rollback silently "restores" the latch it should undo.
+//   - `prior` is what latchWorkerStopped puts the in-memory latch back to when
+//     its write fails. 🔴 IT MUST BE READ BEFORE THE STAMP: move the read after it
+//     and the rollback silently "restores" the latch it should undo.
 //   - 🔴 THE `<= 0` GUARD IS THE ONCE-ONLY: a stopped-report racing the grace
 //     timeout can never double-collect (D4), and a repeat report never MOVES the
 //     anchor.
@@ -673,6 +673,16 @@ func (s *apiServer) sessionConfirmedGone(memberID string, now float64) bool {
 		return false
 	}
 	return now-since.(float64) >= offlineConfirmGraceSecs
+}
+
+// restartConfirmWindowOnStart: a START dispatch begins a new session, so an
+// offline run anchored before it belongs to the previous one. Without this, a
+// boot cancelled before it ever connects (onFirstConnect never fires) keeps the
+// earlier stop's anchor, and the cancel's stop reads as already past the window
+// and is collected on its first sample. Not cleared when a stop arms instead: a
+// repeated 停止 press would restart a window the current session is already in.
+func (s *apiServer) restartConfirmWindowOnStart(id string) {
+	s.offlineConfirmSince.Delete(id)
 }
 
 // 🔴 外包 force-stop (api_outsource.go) deliberately does NOT use this: it adds a

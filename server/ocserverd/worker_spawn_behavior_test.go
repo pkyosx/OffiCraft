@@ -1052,37 +1052,6 @@ func TestNotifyWorkerSpawn_BlockRestampedAfterDispatch(t *testing.T) {
 	}
 }
 
-// A案 P5a: worker_stop rides the same fail-closed reachability gate as member
-// dispatch — an offline target warden gets nothing in its FIFO.
-func TestEnqueueWorkerStop_OfflineTarget_FailClosed(t *testing.T) {
-	s := newWorkerTestServer(t)
-	s.outsourceMu.Lock()
-	accepted := s.enqueueWorkerStop(ServerSelfHost, "ow-1")
-	s.outsourceMu.Unlock()
-	if accepted {
-		t.Error("worker_stop toward an offline warden must report not enqueued")
-	}
-	if got := s.hub.DrainWardenCommands(ServerSelfHost); len(got) != 0 {
-		t.Errorf("nothing may land in a dead warden's FIFO, got %d frames", len(got))
-	}
-
-	connectWarden(t, s, ServerSelfHost)
-	s.outsourceMu.Lock()
-	accepted = s.enqueueWorkerStop(ServerSelfHost, "ow-1")
-	s.outsourceMu.Unlock()
-	if !accepted {
-		t.Fatal("worker_stop toward an online warden must enqueue")
-	}
-	frames := s.hub.DrainWardenCommands(ServerSelfHost)
-	if len(frames) != 1 {
-		t.Fatalf("want 1 worker_stop frame, got %d", len(frames))
-	}
-	if rpc, args := decodeWardenFrame(t, frames[0].Frame); rpc != reconcileCmdStop ||
-		args["member_id"] != "ow-1" {
-		t.Errorf("rpc = %q args = %v", rpc, args)
-	}
-}
-
 // A案 P5a rework: an owner stop whose kill the gate refused (target warden
 // unreachable) is PARKED and re-fired by the tick once the target reconnects —
 // never silently lost (殘活 session 零容忍).
@@ -1115,12 +1084,6 @@ func TestStopWorkerNow_OfflineTarget_ParksKillAndTickRefires(t *testing.T) {
 	if rpc, args := decodeWardenFrame(t, frames[0].Frame); rpc != reconcileCmdStop ||
 		args["member_id"] != "ow-s" {
 		t.Errorf("rpc = %q args = %v", rpc, args)
-	}
-	s.outsourceMu.Lock()
-	pending := s.workerStopPending[w.ID]
-	s.outsourceMu.Unlock()
-	if pending != "" {
-		t.Errorf("parking must clear once the kill went out, still %q", pending)
 	}
 	// Once drained, later ticks owe nothing (one kill, no stop-spam).
 	s.runOutsourceTick(nowSecs())

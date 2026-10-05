@@ -645,8 +645,10 @@ func TestRelocateActiveWorker(t *testing.T) {
 		wantDrained(t, api, "m-old")
 		wantDrained(t, api, "m-new")
 
+		// One re-send: the robust-stop ledger is the only re-sender, so the
+		// relocate epoch's own recycle arm holds its fire while the stop is owed.
 		api.runOutsourceTick(now + stopRetry)
-		wantDrained(t, api, "m-old", stopFrameFor(workerID), stopFrameFor(workerID))
+		wantDrained(t, api, "m-old", stopFrameFor(workerID))
 		wantDrained(t, api, "m-new")
 
 		api.hub.Disconnect(session)
@@ -698,9 +700,6 @@ func TestRelocateActiveWorker(t *testing.T) {
 		for _, at := range []float64{now, now + 30, now + 120} {
 			api.runOutsourceTick(at)
 			wantDrained(t, api, "m-new")
-			if got := api.workerStopPending[workerID]; got != "m-old" {
-				t.Fatalf("tick at +%.0f: parked kill = %q, want m-old", at-now, got)
-			}
 		}
 
 		api.hub.Disconnect(session)

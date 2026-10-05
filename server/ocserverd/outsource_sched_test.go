@@ -456,7 +456,7 @@ func TestRunOutsourceTick(t *testing.T) {
 					"status": status, "presence": "stopped", "desired_state": "offline",
 					"desired_machine_id": ServerSelfHost, "machine": "",
 				}))
-				dashboard.wantFrames(apiTestHandoverDelta(4, "offline", apiAnyString, "server"))
+				dashboard.wantFrames(apiTestHandoverDelta(3, "offline", apiAnyString, "server"))
 			})
 		}
 	})

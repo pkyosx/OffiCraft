@@ -25,7 +25,6 @@ package main
 
 import (
 	"net/http"
-	"slices"
 	"strings"
 )
 
@@ -175,7 +174,6 @@ const (
 	spawnReasonTokenMint       = "token_mint_failed"
 	spawnReasonFrameBuild      = "frame_build_failed"
 	spawnReasonWardenLost      = "warden_unreachable"
-	spawnReasonRespawnDeferred = "respawn_deferred"
 	spawnReasonWakeTimeout     = "wake_timeout"
 	spawnReasonNeverCollected  = "never_collected"
 	// The three notes an owner verb leaves on a member wanted offline
@@ -208,7 +206,6 @@ var spawnBlockedReasonCodes = []string{
 	placementReasonNoMachine, placementReasonUnavailable,
 	spawnReasonNoLiveTask, spawnReasonBootContext, spawnReasonNoSecret,
 	spawnReasonTokenMint, spawnReasonFrameBuild, spawnReasonWardenLost,
-	spawnReasonRespawnDeferred,
 	spawnReasonCircuitOpen, spawnReasonBackoff, spawnReasonZombieSuspect,
 	spawnReasonSessionAlive,
 }
@@ -473,25 +470,14 @@ func (s *apiServer) notifyWorkerSpawn(w OutsourceWorker, now float64) bool {
 			": could not build this worker's start frame: "+err.Error(), now)
 		return false
 	}
+	s.flushParkedStopBeforeStart(w.ID, now, s.workerFanout(w))
 	if !s.enqueueToWarden(w.ID, warden, frame) {
 		s.stampWorkerPlacementBlocked(&w, spawnReasonWardenLost+": machine '"+warden+
 			"' went offline between the placement decision and the dispatch", now)
 		return false
 	}
-	if s.workerStopPending[w.ID] == warden {
-		// Drop the parked kill so a late re-fire cannot shoot the NEW session.
-		delete(s.workerStopPending, w.ID)
-	}
-	if armed, ok := s.workerStopLanded[w.ID]; ok && (!armed.aimed() || armed.Target == warden) {
-		// An aimed kill toward another machine stays armed (改機器: the old box still
-		// owes a dead session); a fan-out is disarmed by ANY landed START. Keying the
-		// fan-out on its member list was measured to kill the replacement: the
-		// re-send re-resolves the chain to the new session's machine.
-		// Rests on: a worker session is created ONLY through this function. If any
-		// boot path bypasses it (e.g. warden auto-revive), redesign — tie the arm to
-		// a session generation — no test in this package would go red.
-		delete(s.workerStopLanded, w.ID)
-	}
+	s.disarmRobustStopOnStart(w.ID, warden)
+	s.restartConfirmWindowOnStart(w.ID)
 	// A landed START begins a new session: drop the old boot_ts anchor here (as
 	// the member producer does). It is durable, so a leftover would be adopted by
 	// the fresh session and wave through the respawn-storm floor. Also needed for
@@ -515,6 +501,7 @@ func (s *apiServer) notifyWorkerSpawn(w OutsourceWorker, now float64) bool {
 	st.Phase = reconcilePhaseStarting
 	st.LastCommand = reconcileCmdStart
 	st.LastCommandAt = now
+	st.StartTarget = warden
 	s.setReconcileState(w.ID, st)
 	s.clearWorkerPlacementBlock(w.ID)
 	s.publishOutsourceWorker(w, triggerServer)
@@ -545,6 +532,7 @@ func (s *apiServer) reconcileWorkerLiveness(w OutsourceWorker, now float64) bool
 		st.LastCommandAt = 0.0
 	}
 	obs := workerObservation(w, s.hub.IsOnline(w.ID))
+	obs.RobustStopOwed = s.robustStopOwed(w.ID)
 	s.observeStopCollect(&obs, memberFromWorker(w), now)
 	decision := reconcileDecide(obs, st, s.reconcileConfigLive(), now)
 	started := false
@@ -559,7 +547,7 @@ func (s *apiServer) reconcileWorkerLiveness(w OutsourceWorker, now float64) bool
 	case reconcileCmdStop:
 		switch decision.StopKind {
 		case stopKindSessionGone:
-			if err := s.collectWorkerStop(w, "stop-session-gone", triggerServer); err != nil {
+			if !s.collectWorkerSessionGone(w, now) {
 				s.setReconcileState(w.ID, st)
 				return false
 			}
@@ -567,6 +555,7 @@ func (s *apiServer) reconcileWorkerLiveness(w OutsourceWorker, now float64) bool
 			return false
 		case stopKindWinddown:
 			decision = s.dispatchStop(w.ID, s.workerKillTargets(w.ID, w.LastMachineID), decision, st, now)
+			logReconcileDecision(w.ID, w.DesiredState, decision)
 			s.setReconcileState(w.ID, decision.State)
 			return false
 		}
@@ -581,12 +570,12 @@ func (s *apiServer) reconcileWorkerLiveness(w OutsourceWorker, now float64) bool
 			return false
 		}
 		s.setReconcileState(w.ID, decision.State)
-		s.stopWorkerSessionOrPark([]string{target}, w.ID, now)
+		s.sendRobustStop(w.ID, []string{target}, false, now)
 		delete(s.workerSpawnAt, w.ID)
-		// Bench only on a zombie takeover. Keep this guard even if other stop kinds
-		// look unreachable: reconcileStates is shared with staff, and a robust_resend
-		// reaching here was measured benching the machine. relocate is masked
-		// (workerObservation leaves the machine pair empty).
+		// Bench only on a zombie takeover. No other stop kind reaches here today (the
+		// robust-stop ledger re-sends outside the decider; relocate is masked by
+		// workerObservation), but reconcileDecide is shared with staff: a new stop
+		// kind would otherwise bench a healthy machine.
 		if decision.StopKind != stopKindZombieTakeover {
 			outsourceLog("rescue %s (%s): %s — robust stop → %s, NOT benched "+
 				"(stop kind %q is not a zombie takeover)",
@@ -685,70 +674,6 @@ func canonicalWorkerLastOp(op string) string {
 	return op
 }
 
-// Callers hold s.outsourceMu; sendStopFrames takes no scheduler lock.
-func (s *apiServer) enqueueWorkerStop(target, workerID string) bool {
-	if len(s.sendStopFrames(workerID, []string{target}, nowSecs())) == 0 {
-		return false
-	}
-	if s.workerStopPending[workerID] == target {
-		delete(s.workerStopPending, workerID)
-	}
-	return true
-}
-
-// stopWorkerSessionOrPark covers both ways a kill can fail (owner ruling: 殘活
-// session 零容忍): refused → parked in workerStopPending and re-fired by the
-// tick; accepted but the session outlives it → armed in workerStopLanded and
-// re-sent past stop_retry (landing on a FIFO is not delivery). Only a single
-// named target can be parked; a refused fan-out returns an empty outcome and the
-// caller must defer. Callers hold s.outsourceMu.
-func (s *apiServer) stopWorkerSessionOrPark(targets []string, workerID string, now float64) workerStopOutcome {
-	if len(targets) == 0 {
-		return workerStopOutcome{}
-	}
-	landed := []string{}
-	for _, target := range targets {
-		if s.enqueueWorkerStop(target, workerID) {
-			landed = append(landed, target)
-		}
-	}
-	if len(landed) > 0 {
-		aimedAt := ""
-		if len(targets) == 1 {
-			aimedAt = targets[0]
-		}
-		s.armWorkerStopRetry(workerID, aimedAt, now)
-		return workerStopOutcome{Landed: landed}
-	}
-	delete(s.workerStopLanded, workerID)
-	if len(targets) != 1 {
-		outsourceLog("worker_stop %s: every warden in the fan-out refused (%v) — "+
-			"nothing sent and nothing parked; the caller must defer", workerID, targets)
-		return workerStopOutcome{}
-	}
-	s.workerStopPending[workerID] = targets[0]
-	outsourceLog("worker_stop %s: target %s unreachable — parked, tick will re-fire",
-		workerID, targets[0])
-	return workerStopOutcome{Parked: targets[0]}
-}
-
-type workerStopOutcome struct {
-	Landed []string
-	Parked string
-}
-
-func (o workerStopOutcome) recorded() bool {
-	return len(o.Landed) > 0 || o.Parked != ""
-}
-
-// A parked stop counts: the tick re-fires it there.
-func (o workerStopOutcome) reached() []string {
-	if o.Parked == "" {
-		return o.Landed
-	}
-	return append(slices.Clone(o.Landed), o.Parked)
-}
-
 type takeoverBench struct {
 	Machine string
 	At      float64
@@ -776,92 +701,6 @@ func (s *apiServer) noteWorkerStopSucceeded(workerID, reporter string) {
 	s.workerTakeoverLiftedAt[workerID] = tb.At
 	outsourceLog("worker_stop %s: %s confirmed the takeover stop — bench lifted, "+
 		"restart proceeds on the same machine", workerID, reporter)
-}
-
-type workerStopDispatch struct {
-	// Target is "" for a broadcast. A fan-out deliberately records no machine
-	// list: nothing reads it (the re-send re-resolves the chain).
-	Target string
-
-	At float64
-}
-
-func (d workerStopDispatch) aimed() bool { return d.Target != "" }
-
-// Callers hold s.outsourceMu.
-func (s *apiServer) armWorkerStopRetry(workerID, aimedAt string, now float64) {
-	delete(s.workerStopPending, workerID)
-	s.workerStopLanded[workerID] = workerStopDispatch{Target: aimedAt, At: now}
-}
-
-// noteWorkerStopNoSuchSession disarms the retry on a no_such_session receipt
-// FROM THE AIMED TARGET: it proves the kill arrived and found nothing, which
-// presence cannot (a stale SSE claim can keep the id looking alive). The machine
-// match is load-bearing: an identity sweep broadcasts stop to every warden and
-// uninvolved ones answer no_such_session routinely. reporter "" means unknown
-// (receiptReporterMachine). The receipt path holds no scheduler lock.
-func (s *apiServer) noteWorkerStopNoSuchSession(workerID, reporter string) {
-	if workerID == "" || reporter == "" {
-		return
-	}
-	s.outsourceMu.Lock()
-	defer s.outsourceMu.Unlock()
-	armed, ok := s.workerStopLanded[workerID]
-	if !ok || armed.Target != reporter {
-		return
-	}
-	delete(s.workerStopLanded, workerID)
-	outsourceLog("worker_stop %s: %s reported no_such_session — the kill reached the "+
-		"machine it was aimed at and found nothing to kill; retry disarmed",
-		workerID, reporter)
-}
-
-// Callers hold s.outsourceMu.
-func (s *apiServer) retryPendingWorkerStop(workerID string, now float64) {
-	target := s.workerStopPending[workerID]
-	if target == "" {
-		s.retryUnlandedWorkerStop(workerID, now)
-		return
-	}
-	if s.enqueueWorkerStop(target, workerID) {
-		s.armWorkerStopRetry(workerID, target, now)
-		outsourceLog("worker_stop %s: parked kill re-fired → %s", workerID, target)
-	}
-}
-
-// retryUnlandedWorkerStop re-sends an accepted kill whose session is still
-// running past stop_retry. An aimed kill counts "still running" only on the aimed
-// machine: hub.IsOnline keys on the worker id, which is online again elsewhere
-// after a restart or 改機器. Callers hold s.outsourceMu.
-func (s *apiServer) retryUnlandedWorkerStop(workerID string, now float64) {
-	armed, ok := s.workerStopLanded[workerID]
-	if !ok {
-		return
-	}
-	alive := s.hub.IsOnline(workerID)
-	if armed.aimed() {
-		alive = alive && s.hub.MachineOf(workerID) == armed.Target
-	}
-	switch robustStopRetryStep(armed.At, alive, s.reconcileConfigLive().StopRetry, now) {
-	case robustStopDone:
-		delete(s.workerStopLanded, workerID)
-	case robustStopResend:
-		outsourceLog("worker_stop %s: session still live past stop_retry (aimed at %q) — "+
-			"the kill did not take, re-dispatching", workerID, armed.Target)
-		s.stopWorkerSessionOrPark(s.resendKillTargets(workerID, armed), workerID, now)
-	}
-}
-
-// Callers hold s.outsourceMu.
-func (s *apiServer) resendKillTargets(workerID string, armed workerStopDispatch) []string {
-	if armed.aimed() {
-		return []string{armed.Target}
-	}
-	last := ""
-	if w, err := s.dal.GetOutsourceWorker(workerID); err == nil && w != nil {
-		last = w.LastMachineID
-	}
-	return s.workerKillTargets(workerID, last)
 }
 
 // relocateWorkerNow moves a worker to its freshly pinned desired_machine_id
@@ -1033,12 +872,22 @@ func (s *apiServer) resolveWorkerKillTarget(workerID, lastMachine string) string
 
 // Callers hold s.outsourceMu.
 func (s *apiServer) workerKillTargets(workerID, lastMachine string) []string {
-	targets, _ := s.killTargetChain(workerID, killTargetSources{
+	targets, _ := s.workerKillChain(workerID, lastMachine)
+	return targets
+}
+
+// workerFanout re-resolves a parked fan-out's targets. Callers hold s.outsourceMu.
+func (s *apiServer) workerFanout(w OutsourceWorker) func() []string {
+	return func() []string { return s.workerKillTargets(w.ID, w.LastMachineID) }
+}
+
+// Callers hold s.outsourceMu.
+func (s *apiServer) workerKillChain(workerID, lastMachine string) (targets []string, broadcast bool) {
+	return s.killTargetChain(workerID, killTargetSources{
 		SpawnTarget:   s.workerSpawnTarget[workerID],
 		LastMachineID: lastMachine,
 		Outsource:     true,
 	})
-	return targets
 }
 
 // observedWorkerHost is the cockpit machine cell's fallback when in-memory spawn
@@ -1055,29 +904,26 @@ func (s *apiServer) observedWorkerHost(workerID string, tele map[string]any) str
 }
 
 // Callers hold s.outsourceMu.
-func (s *apiServer) stopWorkerSessionForHandover(w OutsourceWorker, reason string, now float64) bool {
+func (s *apiServer) stopWorkerSessionForHandover(w OutsourceWorker, reason string, now float64) {
 	spawnTarget := s.workerSpawnTarget[w.ID]
-	targets := s.workerKillTargets(w.ID, w.LastMachineID)
-	out := s.stopWorkerSessionOrPark(targets, w.ID, now)
-	if !stopReachedStart(spawnTarget, out.reached()) && w.Status == WorkerStatusActive {
-		outsourceLog("%s deferred %s (%s): the kill is on no warden's FIFO and parked "+
-			"nowhere (targets %v); nothing stopped — tick retries",
-			reason, w.ID, w.Codename, targets)
-		s.stampWorkerPlacementBlocked(&w, spawnReasonRespawnDeferred+": the "+reason+
-			" could not clear this worker's previous session — it is marked active, but "+
-			"the stop reached no machine: either nothing the server knows names one "+
-			"(its spawn memory, a live connection, the worker's last landing) and no "+
-			"warden is online, or every warden it was aimed at refused it; retrying", now)
-		return false
-	}
-	outsourceLog("handover %s (%s): reason=%s — stopping session on %v (task %s); "+
-		"the replacement starts once the worker reads offline",
-		w.ID, w.Codename, reason, targets, w.TaskID)
+	targets, broadcast := s.workerKillChain(w.ID, w.LastMachineID)
+	out := s.sendRobustStop(w.ID, targets, broadcast, now)
+	effect := robustStopEffectOf(out, spawnTarget)
 	s.bankLiveCost(w.ID)
-	s.clearSessionBootTS(w.ID)
 	delete(s.workerSpawnAt, w.ID)
-	s.setReconcileState(w.ID, startSupersededByStop(s.reconcileStateOf(w.ID), now))
-	return true
+	if effect.ClearBootTS {
+		outsourceLog("handover %s (%s): reason=%s — stopping session on %v (task %s); "+
+			"the replacement starts once the worker reads offline",
+			w.ID, w.Codename, reason, out.reached(), w.TaskID)
+		s.clearSessionBootTS(w.ID)
+	} else {
+		outsourceLog("handover %s (%s): reason=%s — the kill reached no machine (targets %v) "+
+			"and waits in the ledger as a fan-out; collected anyway, the ledger stops the old "+
+			"session before the replacement's START", w.ID, w.Codename, reason, targets)
+	}
+	if effect.SupersedeStart {
+		s.setReconcileState(w.ID, startSupersededByStop(s.reconcileStateOf(w.ID), now))
+	}
 }
 
 // reconcileWorkerNow uses the caller's w, which may carry intent not yet on the
@@ -1095,24 +941,24 @@ func (s *apiServer) reconcileWorkerNow(w OutsourceWorker, now float64) ownerOpOu
 	return ownerOpOutcome{}
 }
 
-// stopWorkerNow is the owner's 停止: the caller has already set
-// desired_state=offline, so this only kills. Callers hold s.outsourceMu.
+// stopWorkerNow kills a worker whose close-out the caller has just collected
+// (desired_state is already offline). Callers hold s.outsourceMu.
 func (s *apiServer) stopWorkerNow(w OutsourceWorker) {
-	targets := s.workerKillTargets(w.ID, w.LastMachineID)
+	targets, broadcast := s.workerKillChain(w.ID, w.LastMachineID)
 	s.bankLiveCost(w.ID)
-	out := s.stopWorkerSessionOrPark(targets, w.ID, nowSecs())
-	if !out.recorded() {
-		outsourceLog("stop %s (%s): the kill is on no warden's FIFO and parked "+
-			"nowhere (targets %v) — held down anyway", w.ID, w.Codename, targets)
-		// Returning here keeps boot_ts: no kill is on any FIFO, so no session
-		// ended. (dispatchShutdown uses a weaker test and still clears it.)
-		delete(s.workerSpawnAt, w.ID)
+	out := s.stopResidualSession(w.ID, targets, broadcast, nowSecs())
+	delete(s.workerSpawnAt, w.ID)
+	if !robustStopEffectOf(out, "").ClearBootTS {
+		outsourceLog("stop %s (%s): the kill reached no machine (targets %v) and waits "+
+			"in the ledger as a fan-out — held down anyway", w.ID, w.Codename, targets)
 		return
 	}
-	s.clearSessionBootTS(w.ID)
-	delete(s.workerSpawnAt, w.ID)
-	outsourceLog("stop %s (%s): session killed on %v, held down (no re-spawn)",
-		w.ID, w.Codename, targets)
+	if out.Parked != "" {
+		outsourceLog("stop %s (%s): stop parked on [%s] — not landed, the ledger re-sends it; "+
+			"held down (no re-spawn)", w.ID, w.Codename, out.Parked)
+		return
+	}
+	outsourceLog("stop %s (%s): stop sent to %v, held down (no re-spawn)", w.ID, w.Codename, out.Landed)
 }
 
 // openWorkerHandoverGrace fans the member-topic 預告 at the worker's own session
@@ -1145,25 +991,15 @@ func (s *apiServer) openWorkerHandoverGrace(w OutsourceWorker, trigger string) {
 }
 
 // collectWorkerHandover latches stopped_since (the durable dump-done marker every
-// collect driver keys its once-only check on) then stops the session; a deferred
-// stop rolls the latch back. Callers hold s.outsourceMu and pass a freshly read
-// row with refocus_since>0.
-func (s *apiServer) collectWorkerHandover(w *OutsourceWorker, reason, trigger string, now float64) bool {
+// collect driver keys its once-only check on) then stops the session. The collect
+// stands even when the stop reaches no machine, as a staff one does. Callers hold
+// s.outsourceMu and pass a freshly read row with refocus_since>0.
+func (s *apiServer) collectWorkerHandover(w *OutsourceWorker, reason, trigger string, now float64) {
 	_, prior := collectWindDownRow(windDownAnchorRowOfWorker(w), now)
-	stopped, _ := s.stopCollectedWorkerForHandover(w, prior, reason, trigger, now)
-	return stopped
-}
-
-// Callers hold s.outsourceMu.
-func (s *apiServer) stopCollectedWorkerForHandover(w *OutsourceWorker, prior float64, reason, trigger string, now float64) (bool, error) {
 	if err := s.latchWorkerStopped(w, prior, reason, trigger); err != nil {
-		return false, err
+		return
 	}
-	if !s.stopWorkerSessionForHandover(*w, reason, now) {
-		s.restoreWorkerStoppedLatch(w, prior, reason)
-		return false, nil
-	}
-	return true, nil
+	s.stopWorkerSessionForHandover(*w, reason, now)
 }
 
 // latchWorkerStopped writes stopped_since — the one column the collect
@@ -1192,15 +1028,28 @@ func (s *apiServer) latchWorkerStopped(w *OutsourceWorker, prior float64, reason
 	return nil
 }
 
-// restoreWorkerStoppedLatch writes the latch column only: the stopped-report
-// path drops outsourceMu across the kill, so any wider write would revert
-// concurrent changes. Callers hold s.outsourceMu.
-func (s *apiServer) restoreWorkerStoppedLatch(w *OutsourceWorker, prior float64, reason string) {
-	w.StoppedSince = prior
-	if err := setMemberStoppedSinceOn(s.dal.wdb, w.ID, prior); err != nil {
-		outsourceLog("collect %s (%s): latch-rollback ANCHOR write failed: %v",
-			w.ID, reason, err)
+// collectWorkerSessionGone is collectMemberStop for a worker: the same latch and the same
+// stopResidualSession, through stopWorkerNow. Callers hold s.outsourceMu.
+func (s *apiServer) collectWorkerSessionGone(w OutsourceWorker, now float64) bool {
+	var fresh *OutsourceWorker
+	err := s.dal.inTx(func(tx *writeTx) error {
+		collected, err := latchSessionGoneCollectOn(tx, w.ID, now)
+		if err != nil || collected == nil {
+			return err
+		}
+		fresh, err = getOutsourceWorkerOn(tx, w.ID)
+		return err
+	})
+	if err != nil || fresh == nil {
+		if err != nil {
+			outsourceLog("collect %s: session-gone latch failed, nothing landed: %v", w.ID, err)
+		}
+		return false
 	}
+	s.publishMemberPatch(memberFromWorker(*fresh), triggerServer)
+	s.stopWorkerNow(*fresh)
+	outsourceLog("stop collect %s (stop-session-gone): close-out collected, held down", w.ID)
+	return true
 }
 
 // collectWorkerStop is the 收口 of a 停止 epoch: kill via stopWorkerNow, never the
@@ -1212,8 +1061,7 @@ func (s *apiServer) collectWorkerStop(w OutsourceWorker, reason, trigger string)
 		return err
 	}
 	s.stopWorkerNow(w)
-	outsourceLog("stop collect %s (%s): close-out collected — session killed, held down",
-		w.ID, reason)
+	outsourceLog("stop collect %s (%s): close-out collected, held down", w.ID, reason)
 	return nil
 }
 
@@ -1295,124 +1143,17 @@ func (s *apiServer) workerReportStopping(id, trigger string) (*Member, error) {
 	return &m, nil
 }
 
-func (s *apiServer) workerReportStopped(id, trigger string) (*Member, string, error) {
-	unlockMu := s.outsourceMu.Acquire()
-	defer unlockMu()
-	now := nowSecs()
-	var w *OutsourceWorker
-	collect, stopEffect, prior := false, "", 0.0
-	err := s.dal.inTx(func(tx *writeTx) error {
-		var err error
-		if w, err = resolveLiveWorkerOn(tx, id); err != nil {
-			return err
-		}
-		before := memberFromWorker(*w)
-		collect, stopEffect, prior = decideStoppedReport(windDownAnchorRowOfWorker(w), now)
-		if !collect {
-			return nil
-		}
-		// The latch lands with the row or not at all: a latch left behind a failed
-		// write would make every retry read "already reported" and send no kill.
-		return persistMemberRowOn(tx, before, memberFromWorker(*w))
-	})
-	if err != nil {
-		unlockMu()
-		outsourceLog("collect %s (stopped-report): stopped latch failed, nothing landed: %v", id, err)
-		return nil, "", err
-	}
-	if !collect {
-		unlockMu()
-		m := memberFromWorker(*w)
-		return &m, stopEffect, nil
-	}
-	s.publishMemberPatch(memberFromWorker(*w), trigger)
-	s.bankLiveCost(w.ID)
-	row := *w
-	unlockMu()
-
-	// Drop the lock BEFORE the kill (owner ruling T-14): dispatchShutdown re-takes
-	// outsourceMu (self-deadlock) and, on the staff arm, reconcileMu.
-	out := s.dispatchShutdown(id, "stopped-report")
-
-	fresh := s.concludeWorkerStoppedReport(id, prior, out, now)
-	if fresh == nil {
-		m := memberFromWorker(row)
-		return &m, stopEffect, nil
-	}
-	m := memberFromWorker(*fresh)
-	return &m, stopEffect, nil
-}
-
-// concludeWorkerStoppedReport takes an id, not a row: outsourceMu was open across
-// the kill, so the caller's row is stale and must not be decided on or written
-// back. Takes s.outsourceMu itself.
-func (s *apiServer) concludeWorkerStoppedReport(
-	id string, prior float64, out shutdownDispatch, now float64,
-) *OutsourceWorker {
-	s.outsourceMu.Lock()
-	defer s.outsourceMu.Unlock()
-	fresh, err := s.resolveLiveWorker(id)
-	if err != nil {
-		return nil
-	}
-	rec := s.noteWorkerShutdownDispatched(*fresh, out, now)
-	// recorded(), not out.Addressed: a fan-out every warden refused is addressed
-	// but recorded nowhere.
-	if rec.recorded() || fresh.Status != WorkerStatusActive {
-		return s.rereadWorker(id, fresh)
-	}
-	// Only a worker coming back is deferred. A held-down worker keeps its collect:
-	// rolling back would make the row read 「retrying」 while the wire said 「collected」.
-	if fresh.DesiredState == DesiredStateOffline {
-		outsourceLog("stop collect %s (%s): the kill is on no warden's FIFO and parked "+
-			"nowhere — kill skipped, held down", fresh.ID, fresh.Codename)
-		return s.rereadWorker(id, fresh)
-	}
-	s.stampWorkerPlacementBlocked(fresh, spawnReasonRespawnDeferred+": the "+
-		"stopped-report could not clear this worker's previous session — it is "+
-		"marked active but neither the server's spawn memory, a live connection, "+
-		"its last landing nor any online warden knows which machine it is on; "+
-		"retrying", now)
-	s.restoreWorkerStoppedLatch(fresh, prior, "stopped-report")
-	return s.rereadWorker(id, fresh)
-}
-
-// Callers hold s.outsourceMu.
-func (s *apiServer) rereadWorker(id string, fallback *OutsourceWorker) *OutsourceWorker {
-	if reread, err := s.resolveLiveWorker(id); err == nil {
-		return reread
-	}
-	return fallback
-}
-
-// noteWorkerShutdownDispatched records the kill in the worker's retry ledger
-// (staff use RobustStopPendingAt, armed inside dispatchShutdown). Callers hold
-// s.outsourceMu.
-func (s *apiServer) noteWorkerShutdownDispatched(
-	w OutsourceWorker, out shutdownDispatch, now float64,
-) workerStopOutcome {
-	rec := workerStopOutcome{}
-	switch {
-	case out.Sent:
-		// out.Target is "" for a fan-out.
-		s.armWorkerStopRetry(w.ID, out.Target, now)
-		rec.Landed = out.Landed
-	case out.Target != "":
-		delete(s.workerStopLanded, w.ID)
-		s.workerStopPending[w.ID] = out.Target
-		rec.Parked = out.Target
-		outsourceLog("worker_stop %s: target %s unreachable — parked, tick will re-fire",
-			w.ID, out.Target)
-	}
+// noteWorkerShutdownDispatched marks the stop in flight for the shared FSM; the
+// kill itself is already in the robust-stop ledger. Callers hold s.outsourceMu.
+func (s *apiServer) noteWorkerShutdownDispatched(w OutsourceWorker, now float64) {
 	if w.DesiredState == DesiredStateOffline {
-		return rec
+		return
 	}
 	st := s.reconcileStateOf(w.ID)
 	st.Phase = reconcilePhaseStopping
 	st.LastCommand = reconcileCmdStop
 	st.LastCommandAt = now
 	s.setReconcileState(w.ID, st)
-	return rec
 }
 
 // workerRestartSelf: the caller's online/min-liveness gates have already passed.
@@ -1458,13 +1199,7 @@ func (s *apiServer) reclaimWorkerSession(w OutsourceWorker) {
 		outsourceLog("reclaim %s (%s): no online warden — will retry", w.ID, w.Codename)
 		return
 	}
-	enqueued := false
-	for _, warden := range targets {
-		if s.enqueueWorkerStop(warden, w.ID) {
-			enqueued = true
-		}
-	}
-	if !enqueued {
+	if len(s.sendStopFrames(w.ID, targets, nowSecs())) == 0 {
 		return
 	}
 	s.workerReclaimed[w.ID] = true

@@ -99,7 +99,7 @@ presence 是 **server 端算出來的**，不是 agent 自報的心跳狀態。�
 （但會朝它扇出一則收尾預告），直到它自己回報停止或 owner 按**加速停止**——之後才停掉舊的一手，讀到離線才起新的一手，
 新值跟著新的一手起來。**強制停止不在這條路上**：它把 `desired_state` 壓成 `offline`、清掉 refocus
 epoch 再當場砍，**沒有重生**，所以存下的新值要等之後某一次**喚醒**才生效
-（`HandleForceStopMemberApiMembersMemberIdForceStopPost` / `HandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost`）。
+（`HandleForceStopMemberApiMembersMemberIdForceStopPost` → `forceStopMember`，正職外包同一個函式）。
 碼上是**兩個對稱的決策點**，不是一個：正職走
 `memberHasStateToFlush` / `armMemberOwnerOpHandover`（`server/ocserverd/member_ownerop_winddown.go`），
 外包走 `respawnWorkerForOwnerOp` / `openOwnerOpHandover`（`server/ocserverd/worker_spawn.go`）；

@@ -495,6 +495,41 @@ func TestActivateMember_UnderAPressWhileWakingWhoseStopCannotReachTheBootingMach
 	}))
 }
 
+func TestActivateMember_UnderAPressWhileWakingWhoseStopIsParkedOnTheBootingMachineTheStartIsSuperseded(t *testing.T) {
+	api, h, _, owner := newAPITestServer(t)
+	booting, err := api.hub.Connect(ServerSelfHost, "")
+	if err != nil {
+		t.Fatalf("hub connect %s: %v", ServerSelfHost, err)
+	}
+	if status, data := apiJSON(t, h, "POST", "/api/members/"+seedMiraID+"/activate", owner,
+		`{"machine_id":"`+ServerSelfHost+`"}`); status != 200 {
+		t.Fatalf("first activate: %d %v", status, data)
+	}
+	if starts := countRPC(memberRPCsOn(t, api, ServerSelfHost, seedMiraID), "start"); starts != 1 {
+		t.Fatalf("premise: the first press queued %d START(s) on %s, want 1", starts, ServerSelfHost)
+	}
+	api.hub.Disconnect(booting)
+
+	status, receipt := apiJSON(t, h, "POST", "/api/members/"+seedMiraID+"/activate", owner, `{}`)
+
+	if status != 200 {
+		t.Fatalf("second activate: %d %v", status, receipt)
+	}
+	// The STOP is owed on the booting machine by name, so the reconcile no longer waits on that
+	// START: the reason is the plain undelivered one, not "an earlier start is still booting".
+	reason := "warden_unreachable: 喚醒 was recorded, but nothing has been dispatched yet — the " +
+		"machine's warden did not take the start. It will be retried; if it stays here, check " +
+		"that machine"
+	apiWantValue(t, "receipt", any(receipt), any(map[string]any{
+		"id": seedMiraID, "activation_pending": true, "last_op_reason": reason,
+	}))
+
+	connectWarden(t, api, ServerSelfHost)
+	api.runReconcileTick(nowSecs())
+	apiWantValue(t, "frames once the machine is back", any(memberRPCsOn(t, api, ServerSelfHost, seedMiraID)),
+		any([]string{"stop", "start"}))
+}
+
 func memberRPCsOn(t *testing.T, api *apiServer, warden, memberID string) []string {
 	t.Helper()
 	rpcs := []string{}

@@ -45,11 +45,18 @@ func openTestEventStream(t *testing.T, api *apiServer, id string) func() {
 // was asked to 停止 while connected and has just dropped off without reporting.
 func stoppedStaffAfterDisconnect(t *testing.T) (*apiServer, http.Handler, *DAL, string) {
 	t.Helper()
+	api, h, d, owner, _ := stoppedStaffAfterDisconnectWithWarden(t)
+	return api, h, d, owner
+}
+
+// stoppedStaffAfterDisconnectWithWarden also answers the warden's connection.
+func stoppedStaffAfterDisconnectWithWarden(t *testing.T) (*apiServer, http.Handler, *DAL, string, *apiTestListener) {
+	t.Helper()
 	api, h, d, owner := newAPITestServer(t)
 	if err := d.SetMemberDesiredMachineID("kip", ServerSelfHost); err != nil {
 		t.Fatalf("SetMemberDesiredMachineID: %v", err)
 	}
-	apiTestListen(t, api, ServerSelfHost)
+	warden := apiTestListen(t, api, ServerSelfHost)
 	session, err := api.hub.Connect("kip", ServerSelfHost)
 	if err != nil {
 		t.Fatalf("hub.Connect: %v", err)
@@ -59,7 +66,16 @@ func stoppedStaffAfterDisconnect(t *testing.T) (*apiServer, http.Handler, *DAL, 
 	}
 	api.hub.Disconnect(session)
 	wsWantWardenFrames(t, api, ServerSelfHost)
-	return api, h, d, owner
+	return api, h, d, owner, warden
+}
+
+// wardenRPCs is the rpc of each drained warden frame, in order.
+func wardenRPCs(frames []map[string]any) []any {
+	out := []any{}
+	for _, f := range frames {
+		out = append(out, f["data"].(map[string]any)["rpc"])
+	}
+	return out
 }
 
 func wantStaffStop(t *testing.T, d *DAL, label string, stoppedSince float64) {
@@ -182,17 +198,56 @@ func TestAStoppedStaffMemberWhoseSessionDroppedIsCollectedAfterTheConfirmWindow(
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("kip"))
 		wantStaffStop(t, d, "a window from the new disconnect", t0+250)
 	})
+
+	t.Run("an anchor from an earlier stop does not survive a new START that never connects: a stop while booting waits a full window from the stop", func(t *testing.T) {
+		api, h, d, owner := stoppedStaffAfterDisconnect(t)
+		bootable := reconcileTestRow(t, d, "kip")
+		bootable.RoleKey = defaultBootRole
+		putTestMember(t, api, bootable)
+		t0 := nowSecs() - 1000
+		api.runReconcileTick(t0)
+		api.runReconcileTick(t0 + 120)
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("kip"))
+		wantStaffStop(t, d, "the earlier stop", t0+120)
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
+			t.Fatalf("activate: %d %v", status, data)
+		}
+		apiWantValue(t, "frames of the wake", any(wardenRPCs(wsDrainWardenFrames(t, api, ServerSelfHost))),
+			any([]any{"stop", "start"}))
+
+		pressed := nowSecs()
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/deactivate", owner, `{}`); status != 200 {
+			t.Fatalf("deactivate while booting: %d %v", status, data)
+		}
+		returned := nowSecs()
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("kip"))
+		wantStaffStop(t, d, "right after the stop", 0)
+
+		api.runReconcileTick(pressed + 119)
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		wantStaffStop(t, d, "one second short of a window from the stop", 0)
+
+		api.runReconcileTick(returned + 120)
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("kip"))
+		wantStaffStop(t, d, "a window from the stop", returned+120)
+	})
 }
 
 // stoppedWorkerAfterDisconnect is the outsource twin of stoppedStaffAfterDisconnect.
 func stoppedWorkerAfterDisconnect(t *testing.T) (*apiServer, http.Handler, *DAL, string) {
+	t.Helper()
+	api, h, d, owner, _ := stoppedWorkerAfterDisconnectWithWarden(t)
+	return api, h, d, owner
+}
+
+func stoppedWorkerAfterDisconnectWithWarden(t *testing.T) (*apiServer, http.Handler, *DAL, string, *apiTestListener) {
 	t.Helper()
 	api, h, d, owner := newAPITestServer(t)
 	apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
 	if err := d.SetMemberDesiredMachineID("ow-abc123", ServerSelfHost); err != nil {
 		t.Fatalf("SetMemberDesiredMachineID: %v", err)
 	}
-	apiTestListen(t, api, ServerSelfHost)
+	warden := apiTestListen(t, api, ServerSelfHost)
 	session, err := api.hub.Connect("ow-abc123", ServerSelfHost)
 	if err != nil {
 		t.Fatalf("hub.Connect: %v", err)
@@ -202,7 +257,7 @@ func stoppedWorkerAfterDisconnect(t *testing.T) (*apiServer, http.Handler, *DAL,
 	}
 	api.hub.Disconnect(session)
 	wsWantWardenFrames(t, api, ServerSelfHost)
-	return api, h, d, owner
+	return api, h, d, owner, warden
 }
 
 func wantWorkerStop(t *testing.T, d *DAL, label string, collected bool) {
@@ -268,4 +323,71 @@ func TestAStoppedWorkerWhoseSessionDroppedIsCollectedAfterTheConfirmWindow(t *te
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
 		wantWorkerStop(t, d, "a window from the new disconnect", true)
 	})
+
+	t.Run("an anchor from an earlier stop does not survive a new START that never connects: a stop while booting waits a full window from the stop", func(t *testing.T) {
+		api, h, d, owner := stoppedWorkerAfterDisconnect(t)
+		t0 := nowSecs() - 1000
+		api.runOutsourceTick(t0)
+		api.runOutsourceTick(t0 + 120)
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		wantWorkerStop(t, d, "the earlier stop", true)
+		if status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/activate", owner, `{}`); status != 200 {
+			t.Fatalf("activate: %d %v", status, data)
+		}
+		api.runOutsourceTick(nowSecs())
+		apiWantValue(t, "frames of the wake", any(wardenRPCs(wsDrainWardenFrames(t, api, ServerSelfHost))),
+			any([]any{"stop", "start"}))
+
+		if status, data := apiJSON(t, h, "POST", "/api/members/ow-abc123/deactivate", owner, ""); status != 200 {
+			t.Fatalf("deactivate while booting: %d %v", status, data)
+		}
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		firstTick := nowSecs() + 11
+		api.runOutsourceTick(firstTick)
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		wantWorkerStop(t, d, "the first tick after the stop", false)
+
+		api.runOutsourceTick(firstTick + 119)
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		wantWorkerStop(t, d, "one second short of a window from the first offline sample", false)
+
+		api.runOutsourceTick(firstTick + 120)
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		wantWorkerStop(t, d, "a window from the first offline sample", true)
+	})
+}
+
+func TestTheResidualSessionStopOfASessionGoneCollectIsOwedUntilAWardenTakesIt(t *testing.T) {
+	for _, tc := range []struct {
+		who     string
+		id      string
+		fixture func(t *testing.T) (*apiServer, http.Handler, *DAL, string, *apiTestListener)
+		tick    func(api *apiServer, now float64)
+		// bootTS: the staff chain names the pin, so its STOP is parked there and a session
+		// boundary may be recorded; the worker chain has no pin and its fan-out reached no one.
+		bootTS any
+	}{
+		{"staff", "kip", stoppedStaffAfterDisconnectWithWarden, (*apiServer).runReconcileTick, nil},
+		{"worker", "ow-abc123", stoppedWorkerAfterDisconnectWithWarden, (*apiServer).runOutsourceTick, 1700000000.0},
+	} {
+		t.Run("a "+tc.who+" collected while its warden is dark gets the STOP once the warden is back, once", func(t *testing.T) {
+			api, _, d, _, warden := tc.fixture(t)
+			api.gauge.Set(tc.id, map[string]any{"boot_ts": 1700000000.0})
+			api.hub.Disconnect(warden.l)
+			t0 := nowSecs()
+
+			tc.tick(api, t0)
+			tc.tick(api, t0+120)
+			apiWantValue(t, "collected", any(apiTestMemberRow(t, d, tc.id).StoppedSince > 0), any(true))
+			wsWantWardenFrames(t, api, ServerSelfHost)
+			apiWantValue(t, "boot_ts after the collect", api.gauge.Get(tc.id)["boot_ts"], tc.bootTS)
+
+			apiTestListen(t, api, ServerSelfHost)
+			tc.tick(api, t0+121)
+			wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame(tc.id))
+
+			tc.tick(api, t0+122)
+			wsWantWardenFrames(t, api, ServerSelfHost)
+		})
+	}
 }

@@ -1,0 +1,549 @@
+package main
+
+import (
+	"net/http"
+	"strings"
+	"testing"
+)
+
+// The robust-stop ledger is one record for both populations: these tests drive
+// it only through the handlers that arm it, the receipt ingest that closes it
+// and the two ticks that re-send it, and read only warden frames and rows.
+
+// slLiveStaff is kip wanted online, pinned to the server's own warden, with
+// that warden reachable and a live session there. Answers the session, the
+// session's own credential and the owner's.
+func slLiveStaff(t *testing.T) (*apiServer, http.Handler, *DAL, string, *hubListener, string) {
+	t.Helper()
+	api, h, d, owner := newAPITestServer(t)
+	if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
+		t.Fatalf("activate: %d %v", status, data)
+	}
+	if err := d.SetMemberDesiredMachineID("kip", ServerSelfHost); err != nil {
+		t.Fatalf("SetMemberDesiredMachineID: %v", err)
+	}
+	apiTestListen(t, api, ServerSelfHost)
+	session, err := api.hub.Connect("kip", ServerSelfHost)
+	if err != nil {
+		t.Fatalf("hub.Connect: %v", err)
+	}
+	t.Cleanup(func() { api.hub.Disconnect(session) })
+	api.hub.DrainWardenCommands(ServerSelfHost)
+	return api, h, d, owner, session, apiTestAgentToken(t, api, "kip", ServerSelfHost)
+}
+
+func slNoSuchSession(t *testing.T, api *apiServer, h http.Handler, reporter, id string) {
+	t.Helper()
+	status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry",
+		apiTestAgentToken(t, api, reporter, ""),
+		`{"command_result":{"rpc":"stop","member_id":"`+id+`","ok":true,`+
+			`"reason":"no_such_session: stop was a no-op","log":"no session"}}`)
+	if status != 200 {
+		t.Fatalf("receipt: %d %v", status, data)
+	}
+}
+
+func TestAStaffStopAimedAtAnUnreachableWardenIsParkedAndFiredWhenThatWardenConnects(t *testing.T) {
+	api, h, d, owner := newAPITestServer(t)
+	reconcileTestPut(t, d, Member{ID: "m-box", Name: "Box", Kind: KindWarden})
+	reconcileTestPut(t, d, Member{
+		ID: "stranded", Name: "Stranded", Kind: KindStaff, RoleKey: "assistant",
+		DesiredState: DesiredStateOnline, DesiredMachineID: "m-box",
+	})
+	// The session still runs on m-box, whose warden has lost its downstream.
+	reconcileTestOnline(t, api, "stranded", "m-box")
+
+	if status, data := apiJSON(t, h, "POST", "/api/members/stranded/force-stop", owner, `{}`); status != 200 {
+		t.Fatalf("force-stop: %d %v", status, data)
+	}
+	now := nowSecs()
+	api.runReconcileTick(now + 1)
+	if n := api.hub.PendingWardenCommands("m-box"); n != 0 {
+		t.Fatalf("nothing can land on a dark warden, it holds %d frame(s)", n)
+	}
+
+	reconcileTestOnline(t, api, "m-box", "")
+	api.runReconcileTick(now + 2)
+	wsWantWardenFrames(t, api, "m-box", wsStopFrame("stranded"))
+
+	// Fired once it landed; inside stop_retry the next tick owes nothing more.
+	api.runReconcileTick(now + 3)
+	wsWantWardenFrames(t, api, "m-box")
+}
+
+func TestANoSuchSessionReceiptFromTheAimedWardenEndsAStaffStopsResends(t *testing.T) {
+	t.Run("the aimed warden answering no_such_session ends the re-sends even while the connection lingers", func(t *testing.T) {
+		api, h, _, owner, _, _ := slLiveStaff(t)
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/force-stop", owner, `{}`); status != 200 {
+			t.Fatalf("force-stop: %d %v", status, data)
+		}
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("kip"))
+		slNoSuchSession(t, api, h, ServerSelfHost, "kip")
+
+		api.runReconcileTick(nowSecs() + api.reconcileConfigLive().StopRetry + 1)
+		wsWantWardenFrames(t, api, ServerSelfHost)
+	})
+
+	t.Run("CONTROL: a bystander's no_such_session does not, and past stop_retry the stop goes out again", func(t *testing.T) {
+		api, h, d, owner, _, _ := slLiveStaff(t)
+		shutdownWarden(t, api, d, "m-bystander")
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/force-stop", owner, `{}`); status != 200 {
+			t.Fatalf("force-stop: %d %v", status, data)
+		}
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("kip"))
+		slNoSuchSession(t, api, h, "m-bystander", "kip")
+
+		api.runReconcileTick(nowSecs() + api.reconcileConfigLive().StopRetry + 1)
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("kip"))
+		wsWantWardenFrames(t, api, "m-bystander")
+	})
+}
+
+func TestAWorkerOwingARobustStopIsResentButNeverBenchedWhileItsSessionLingersOnTheAimedMachine(t *testing.T) {
+	api, h, d, owner, session, contractor := apiTestLiveWorker(t)
+	if status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`); status != 200 {
+		t.Fatalf("stopped: %d %v", status, data)
+	}
+	wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+	now := nowSecs()
+	retry := api.reconcileConfigLive().StopRetry
+
+	api.runOutsourceTick(now + 1)
+	wsWantWardenFrames(t, api, ServerSelfHost)
+
+	api.runOutsourceTick(now + retry + 1)
+	wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+	row := apiTestWorkerRecord(t, d, "ow-abc123")
+	apiWantValue(t, "the worker row", any(map[string]any{
+		"status": row.Status, "desired_state": row.DesiredState, "last_op_reason": row.LastOpReason,
+	}), any(map[string]any{"status": "active", "desired_state": "online", "last_op_reason": ""}))
+
+	// The session finally goes: the same machine is started at once, so nothing
+	// was benched and nothing is owed any more.
+	api.hub.Disconnect(session)
+	api.runOutsourceTick(now + retry + 2)
+	wsWantWardenFrames(t, api, ServerSelfHost,
+		wsStartFrame("ow-abc123", apiTestWorkerBootContext(t, h, owner), "claude", "sonnet", "medium"))
+}
+
+func TestStaffAndWorkerGetTheSameFramesWhenTheSessionLingersPastStopRetryAfterAStoppedReport(t *testing.T) {
+	type tick func(now float64)
+	run := func(t *testing.T, id, token string, h http.Handler, api *apiServer, tk tick) [][]map[string]any {
+		t.Helper()
+		if status, data := apiJSON(t, h, "POST", "/api/self/stopped", token, `{}`); status != 200 {
+			t.Fatalf("stopped: %d %v", status, data)
+		}
+		now := nowSecs()
+		retry := api.reconcileConfigLive().StopRetry
+		out := [][]map[string]any{wsDrainWardenFrames(t, api, ServerSelfHost)}
+		for _, at := range []float64{now + 1, now + retry + 1, now + retry + 2, now + 2*retry + 2} {
+			tk(at)
+			out = append(out, wsDrainWardenFrames(t, api, ServerSelfHost))
+		}
+		for _, frames := range out {
+			for _, f := range frames {
+				f["subject"] = "<subject>"
+				f["data"].(map[string]any)["args"].(map[string]any)["member_id"] = "<subject>"
+			}
+		}
+		return out
+	}
+	staffAPI, staffH, _, _, _, staffToken := slLiveStaff(t)
+	staff := run(t, "kip", staffToken, staffH, staffAPI, staffAPI.runReconcileTick)
+	workerAPI, workerH, _, _, _, workerToken := apiTestLiveWorker(t)
+	worker := run(t, "ow-abc123", workerToken, workerH, workerAPI, workerAPI.runOutsourceTick)
+
+	stop := wsStopFrame("<subject>")
+	want := []any{
+		[]any{stop},
+		[]any{},
+		[]any{stop},
+		[]any{},
+		[]any{stop},
+	}
+	toAny := func(in [][]map[string]any) []any {
+		out := []any{}
+		for _, frames := range in {
+			row := []any{}
+			for _, f := range frames {
+				row = append(row, f)
+			}
+			out = append(out, row)
+		}
+		return out
+	}
+	apiWantValue(t, "staff frames", any(toAny(staff)), any(want))
+	apiWantValue(t, "worker frames", any(toAny(worker)), any(want))
+}
+
+func TestAWorkersOwedStopIsClosedOnlyByTheAimedMachinesNoSuchSession(t *testing.T) {
+	// slReported is the live worker after its stopped report: a STOP aimed at the
+	// server's own warden, the session still connected there.
+	slReported := func(t *testing.T) (*apiServer, http.Handler, *DAL, float64) {
+		t.Helper()
+		api, h, d, _, _, contractor := apiTestLiveWorker(t)
+		if status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`); status != 200 {
+			t.Fatalf("stopped: %d %v", status, data)
+		}
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		return api, h, d, nowSecs() + api.reconcileConfigLive().StopRetry + 1
+	}
+
+	t.Run("the aimed machine's no_such_session ends the re-sends", func(t *testing.T) {
+		api, h, _, late := slReported(t)
+		slNoSuchSession(t, api, h, ServerSelfHost, "ow-abc123")
+		api.runOutsourceTick(late)
+		wsWantWardenFrames(t, api, ServerSelfHost)
+	})
+
+	t.Run("CONTROL: a bystander's no_such_session, or one from an unidentified reporter, ends nothing", func(t *testing.T) {
+		api, h, d, late := slReported(t)
+		shutdownWarden(t, api, d, "m-bystander")
+		slNoSuchSession(t, api, h, "m-bystander", "ow-abc123")
+		api.foldCommandResult(map[string]any{
+			"member_id": "ow-abc123", "rpc": "stop", "ok": true,
+			"reason": "no_such_session: stop was a no-op",
+		}, "telemetry", "")
+		api.runOutsourceTick(late)
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		wsWantWardenFrames(t, api, "m-bystander")
+	})
+
+	t.Run("a broadcast is closed by no receipt at all: every machine it reached is a bystander", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+		apiTestWorkerWantedOnline(t, d, "ow-abc123")
+		shutdownWarden(t, api, d, "m-one")
+		shutdownWarden(t, api, d, "m-two")
+		contractor := apiTestAgentToken(t, api, "ow-abc123", "")
+		if status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`); status != 200 {
+			t.Fatalf("stopped: %d %v", status, data)
+		}
+		late := nowSecs() + api.reconcileConfigLive().StopRetry + 1
+		wsVerbs(t, api, "m-one")
+		wsVerbs(t, api, "m-two")
+		slNoSuchSession(t, api, h, "m-one", "ow-abc123")
+		slNoSuchSession(t, api, h, "m-two", "ow-abc123")
+
+		if _, err := api.hub.Connect("ow-abc123", ""); err != nil {
+			t.Fatalf("hub.Connect: %v", err)
+		}
+		api.runOutsourceTick(late)
+		wsWantWardenFrames(t, api, "m-one", wsStopFrame("ow-abc123"))
+		wsWantWardenFrames(t, api, "m-two", wsStopFrame("ow-abc123"))
+	})
+}
+
+func TestAWorkerBackOnAnotherMachineRetiresTheStopAimedAtTheOldOne(t *testing.T) {
+	api, h, d, _, session, contractor := apiTestLiveWorker(t)
+	shutdownWarden(t, api, d, "m-elsewhere")
+	if status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`); status != 200 {
+		t.Fatalf("stopped: %d %v", status, data)
+	}
+	wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+	late := nowSecs() + api.reconcileConfigLive().StopRetry + 1
+
+	// The id is online again, but on another machine: the session the STOP was
+	// aimed at is gone.
+	api.hub.Disconnect(session)
+	moved, err := api.hub.Connect("ow-abc123", "m-elsewhere")
+	if err != nil {
+		t.Fatalf("hub.Connect: %v", err)
+	}
+	t.Cleanup(func() { api.hub.Disconnect(moved) })
+	api.runOutsourceTick(late)
+	wsWantWardenFrames(t, api, ServerSelfHost)
+	wsWantWardenFrames(t, api, "m-elsewhere")
+}
+
+func TestAStaffWakeStartRetiresTheStopItSentAheadOfIt(t *testing.T) {
+	api, h, d, owner := newAPITestServer(t)
+	reconcileTestPut(t, d, Member{ID: "m-box", Name: "Box", Kind: KindWarden})
+	api.telemetry.Set("m-box", map[string]any{"runtimes": map[string]any{
+		"claude": map[string]any{"installed": true, "logged_in": true},
+	}})
+	reconcileTestPut(t, d, Member{
+		ID: "sleeper", Name: "Sleeper", Kind: KindStaff, RoleKey: "assistant",
+		DesiredState: DesiredStateOffline, DesiredMachineID: "m-box", LastMachineID: "m-box",
+	})
+	shutdownBootable(t, d, "sleeper", "m-box")
+	reconcileTestOnline(t, api, "m-box", "")
+
+	// 喚醒 clears whatever the last landing may still hold, then starts.
+	if status, data := apiJSON(t, h, "POST", "/api/members/sleeper/activate", owner, `{}`); status != 200 {
+		t.Fatalf("activate: %d %v", status, data)
+	}
+	apiWantValue(t, "the warden's queue", any(wsVerbs(t, api, "m-box")), any([]any{"stop", "start"}))
+
+	// The new session comes up on that machine and lives past stop_retry: the stop
+	// that went ahead of its START is not owed against it.
+	reconcileTestOnline(t, api, "sleeper", "m-box")
+	api.runReconcileTick(nowSecs() + api.reconcileConfigLive().StopRetry + 1)
+	apiWantValue(t, "later frames", any(wsVerbs(t, api, "m-box")), any([]any{}))
+}
+
+func TestAStopNoWardenCouldTakeIsFiredWhenOneConnects(t *testing.T) {
+	// The dark fleet is the only way to make every warden refuse from an
+	// endpoint: onlineWardens and the enqueue gate read the same presence.
+	t.Run("staff force-stop of a claim-less session with nothing named", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		reconcileTestPut(t, d, Member{
+			ID: "loose", Name: "Loose", Kind: KindStaff, RoleKey: "assistant",
+			DesiredState: DesiredStateOnline,
+		})
+		reconcileTestOnline(t, api, "loose", "")
+		if status, data := apiJSON(t, h, "POST", "/api/members/loose/force-stop", owner, `{}`); status != 200 {
+			t.Fatalf("force-stop: %d %v", status, data)
+		}
+		now := nowSecs()
+		api.runReconcileTick(now + 1)
+
+		apiTestListen(t, api, ServerSelfHost)
+		api.runReconcileTick(now + 2)
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("loose"))
+	})
+
+	t.Run("worker stopped-report of a claim-less session with nothing named", func(t *testing.T) {
+		api, h, _, _, contractor := apiTestDarkWorker(t, DesiredStateOffline)
+		session, err := api.hub.Connect("ow-abc123", "")
+		if err != nil {
+			t.Fatalf("hub.Connect: %v", err)
+		}
+		t.Cleanup(func() { api.hub.Disconnect(session) })
+		if status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`); status != 200 {
+			t.Fatalf("stopped: %d %v", status, data)
+		}
+		now := nowSecs()
+		api.runOutsourceTick(now + 1)
+
+		apiTestListen(t, api, ServerSelfHost)
+		api.runOutsourceTick(now + 2)
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+	})
+}
+
+func TestABroadcastThatReachedTheOnlyOnlineWardenIsStillAFanOut(t *testing.T) {
+	// One online warden makes the broadcast a one-element list; it must still
+	// re-resolve, not be pinned to that warden as if the chain had named it.
+	api, h, d, owner := newAPITestServer(t)
+	reconcileTestPut(t, d, Member{
+		ID: "loose", Name: "Loose", Kind: KindStaff, RoleKey: "assistant",
+		DesiredState: DesiredStateOnline,
+	})
+	shutdownWarden(t, api, d, "m-one")
+	claimless := reconcileTestOnline(t, api, "loose", "")
+	if status, data := apiJSON(t, h, "POST", "/api/members/loose/force-stop", owner, `{}`); status != 200 {
+		t.Fatalf("force-stop: %d %v", status, data)
+	}
+	wsWantWardenFrames(t, api, "m-one", wsStopFrame("loose"))
+
+	// The connection now names the machine the session is really on.
+	api.hub.Disconnect(claimless)
+	shutdownWarden(t, api, d, "m-two")
+	reconcileTestOnline(t, api, "loose", "m-two")
+	api.runReconcileTick(nowSecs() + api.reconcileConfigLive().StopRetry + 1)
+	wsWantWardenFrames(t, api, "m-two", wsStopFrame("loose"))
+}
+
+func TestAStopRecordedWhileTheTickResendsIsNotOverwritten(t *testing.T) {
+	api, _, d, _ := newAPITestServer(t)
+	reconcileTestPut(t, d, Member{
+		ID: "loose", Name: "Loose", Kind: KindStaff, RoleKey: "assistant",
+		DesiredState: DesiredStateOffline,
+	})
+	shutdownWarden(t, api, d, "m-newer")
+	shutdownWarden(t, api, d, "m-chain")
+	api.robustStopMu.Lock()
+	api.robustStops["loose"] = robustStop{At: 1000}
+	api.robustStopMu.Unlock()
+
+	// A handler records its own STOP between the tick's read and its re-send.
+	api.stepRobustStop("loose", 1001, func() []string {
+		api.sendRobustStop("loose", []string{"m-newer"}, false, 1000.5)
+		return []string{"m-chain"}
+	})
+
+	rs, _ := api.robustStopOf("loose")
+	apiWantValue(t, "the record", any(map[string]any{"target": rs.Target, "at": rs.At}),
+		any(map[string]any{"target": "m-newer", "at": 1000.5}))
+}
+
+func TestAParkedStopIsLoggedOnParkAndThenAtMostOncePerMinute(t *testing.T) {
+	api, _, d, _ := newAPITestServer(t)
+	reconcileTestPut(t, d, Member{
+		ID: "loose", Name: "Loose", Kind: KindStaff, RoleKey: "assistant",
+		DesiredState: DesiredStateOffline,
+	})
+	seedMachine(t, api, "m-dark")
+	logged := captureStderr(t, func() {
+		api.sendRobustStop("loose", []string{"m-dark"}, false, 1000)
+		for _, at := range []float64{1001, 1010, 1030, 1059, 1061, 1070} {
+			api.stepRobustStop("loose", at, func() []string { return nil })
+		}
+	})
+	apiWantValue(t, "log lines", any(map[string]any{
+		"park":        float64(strings.Count(logged, "robust stop loose: target m-dark unreachable")),
+		"fail-closed": float64(strings.Count(logged, `target warden "m-dark" NOT reachable`)),
+	}), any(map[string]any{"park": 2, "fail-closed": 1}))
+}
+
+// The 加速停止 deadline's STOP is the decider's, not a ledger record: the tick
+// decides it again every pass while no warden takes it.
+func TestADecidedStopNoWardenTakesIsLoggedOnParkAndThenAtMostOncePerMinute(t *testing.T) {
+	for _, tc := range []struct {
+		name, id string
+		tick     func(api *apiServer, now float64)
+	}{
+		{"staff", "stranded", func(api *apiServer, now float64) { api.runReconcileTick(now) }},
+		{"outsource", "ow-abc123", func(api *apiServer, now float64) { api.runOutsourceTick(now) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			api, h, d, owner := newAPITestServer(t)
+			reconcileTestPut(t, d, Member{ID: "m-box", Name: "Box", Kind: KindWarden})
+			if tc.name == "staff" {
+				reconcileTestPut(t, d, Member{
+					ID: "stranded", Name: "Stranded", Kind: KindStaff, RoleKey: "assistant",
+					DesiredState: DesiredStateOnline, DesiredMachineID: "m-box",
+				})
+			} else {
+				apiTestWorkerFixture(t, h, d, owner, tc.id, WorkerStatusActive)
+			}
+			// The session still runs on m-box, whose warden has lost its downstream.
+			reconcileTestOnline(t, api, tc.id, "m-box")
+			for _, verb := range []string{"deactivate", "accelerated-stop"} {
+				if status, data := apiJSON(t, h, "POST", "/api/members/"+tc.id+"/"+verb, owner, `{}`); status != 200 {
+					t.Fatalf("%s: %d %v", verb, status, data)
+				}
+			}
+			// 3601: past the longest 加速停止 grace the setting accepts (3600).
+			due := nowSecs() + 3601
+
+			logged := captureStderr(t, func() {
+				for _, at := range []float64{0, 10, 30, 59, 61, 70} {
+					tc.tick(api, due+at)
+				}
+			})
+			apiWantValue(t, "log lines while no warden takes it", any(map[string]any{
+				"park": float64(strings.Count(logged,
+					"robust stop "+tc.id+": no target warden reachable (targets [m-box]) — not sent, the tick re-decides it")),
+				"fail-closed": float64(strings.Count(logged, `target warden "m-box" NOT reachable`)),
+				"decision": float64(strings.Count(logged,
+					tc.id+": desired=offline command=none — robust stop: 加速停止 grace elapsed, still online")),
+			}), any(map[string]any{"park": 2, "fail-closed": 0, "decision": 6}))
+
+			reconcileTestOnline(t, api, "m-box", "")
+			logged = captureStderr(t, func() { tc.tick(api, due+71) })
+			wsWantWardenFrames(t, api, "m-box", wsStopFrame(tc.id))
+			apiWantValue(t, "the decision once the warden is back", any(float64(strings.Count(logged,
+				tc.id+": desired=offline command=stop — robust stop: 加速停止 grace elapsed, still online"))), any(1.0))
+		})
+	}
+}
+
+func TestAnAimedStopAgainstAClaimLessConnectionIsStillOwed(t *testing.T) {
+	// The connection names no machine, so nothing proves the aimed session gone.
+	api, h, d, owner := newAPITestServer(t)
+	reconcileTestPut(t, d, Member{
+		ID: "pinned", Name: "Pinned", Kind: KindStaff, RoleKey: "assistant",
+		DesiredState: DesiredStateOnline, DesiredMachineID: ServerSelfHost,
+	})
+	apiTestListen(t, api, ServerSelfHost)
+	reconcileTestOnline(t, api, "pinned", "")
+	if status, data := apiJSON(t, h, "POST", "/api/members/pinned/force-stop", owner, `{}`); status != 200 {
+		t.Fatalf("force-stop: %d %v", status, data)
+	}
+	wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("pinned"))
+
+	api.runReconcileTick(nowSecs() + api.reconcileConfigLive().StopRetry + 1)
+	wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("pinned"))
+}
+
+// A handler's reconcile decides without stepping the ledger, so a warden that
+// came back between two ticks can be handed a START before the tick re-fires the
+// STOP owed on it — and the START's landing would retire that STOP unsent,
+// leaving the old session running beside the new one.
+func TestAWardenThatReturnsGetsTheOwedStopAheadOfAHandlersStart(t *testing.T) {
+	for _, tc := range []struct {
+		who string
+		// darkReport: the member's own stopped-report while no warden is online,
+		// so its STOP is parked as a fan-out. Answers the member's id.
+		darkReport func(t *testing.T) (*apiServer, http.Handler, *DAL, string)
+		// pin gives the member a machine its START can go to.
+		pin   func(t *testing.T, d *DAL, id string)
+		start func(api *apiServer, d *DAL, id string)
+	}{
+		{
+			who: "staff",
+			darkReport: func(t *testing.T) (*apiServer, http.Handler, *DAL, string) {
+				t.Helper()
+				api, h, d, owner := newAPITestServer(t)
+				if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
+					t.Fatalf("activate: %d %v", status, data)
+				}
+				if status, data := apiJSON(t, h, "POST", "/api/self/stopped",
+					apiTestAgentToken(t, api, "kip", ""), `{}`); status != 200 {
+					t.Fatalf("stopped: %d %v", status, data)
+				}
+				return api, h, d, "kip"
+			},
+			pin:   func(t *testing.T, d *DAL, id string) { shutdownBootable(t, d, id, ServerSelfHost) },
+			start: func(api *apiServer, _ *DAL, id string) { api.reconcileMemberNow(id) },
+		},
+		{
+			who: "worker",
+			darkReport: func(t *testing.T) (*apiServer, http.Handler, *DAL, string) {
+				t.Helper()
+				api, h, d, _, contractor := apiTestDarkWorker(t, DesiredStateOnline)
+				if status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`); status != 200 {
+					t.Fatalf("stopped: %d %v", status, data)
+				}
+				return api, h, d, "ow-abc123"
+			},
+			pin: func(t *testing.T, d *DAL, id string) {
+				if err := d.SetMemberDesiredMachineID(id, ServerSelfHost); err != nil {
+					t.Fatalf("SetMemberDesiredMachineID: %v", err)
+				}
+			},
+			start: func(api *apiServer, d *DAL, id string) {
+				w, err := d.GetOutsourceWorker(id)
+				if err != nil || w == nil {
+					t.Fatalf("GetOutsourceWorker: %v (%v)", w, err)
+				}
+				api.outsourceMu.Lock()
+				defer api.outsourceMu.Unlock()
+				api.reconcileWorkerNow(*w, nowSecs())
+			},
+		},
+	} {
+		t.Run("a "+tc.who+" START sent by a handler", func(t *testing.T) {
+			api, _, d, id := tc.darkReport(t)
+			// The STOP was parked before the pin existed, so it stays a fan-out.
+			tc.pin(t, d, id)
+			apiTestListen(t, api, ServerSelfHost)
+
+			tc.start(api, d, id)
+
+			apiWantValue(t, "the returning warden's queue", any(wsVerbs(t, api, ServerSelfHost)),
+				any([]any{"stop", "start"}))
+		})
+
+		t.Run("a "+tc.who+" START whose warden answers only the STOP ahead of it is still stamped receipt_missing", func(t *testing.T) {
+			api, h, d, id := tc.darkReport(t)
+			tc.pin(t, d, id)
+			apiTestListen(t, api, ServerSelfHost)
+			tc.start(api, d, id)
+			wsVerbs(t, api, ServerSelfHost)
+
+			slNoSuchSession(t, api, h, ServerSelfHost, id)
+			api.sweepLapsedReceipts(nowSecs() + startReceiptDeadlineSecs)
+
+			m := apiTestMemberRow(t, d, id)
+			apiWantValue(t, "last_op", any(m.LastOp), any("start"))
+			apiWantValue(t, "last_op_reason", any(m.LastOpReason), any(
+				"receipt_missing: the start was handed to machine \"m-server-self\" but no receipt "+
+					"came back within 150s — the op may or may not have run; this row's last state is "+
+					"UNKNOWN, not failed. Suspect the machine's link to the server (the receipt POST) "+
+					"before suspecting the op itself"))
+		})
+	}
+}

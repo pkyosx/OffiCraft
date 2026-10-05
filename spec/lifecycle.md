@@ -808,7 +808,7 @@ The server owns desired-state reconciliation; the warden is a stateless executor
   (b) **Outsource workers.** Worker spawn and stop dispatch (`worker_spawn.go`) never consults
   `--no-reconcile`; the mirror flag `--no-outsource` gates only the assignment PRODUCER
   (`outsourceTickNow`, plus that producer's half of the cadence tick). Everything else that reaches
-  `respawnWorkerForOwnerOp` / `enqueueWorkerStop` consults **neither** flag — the owner verbs
+  `respawnWorkerForOwnerOp` / `sendRobustStop` consults **neither** flag — the owner verbs
   (restart, model change, relocate, stop, refocus), a task terminate that dismisses its
   workers, and the worker's own `report_stopped` — so a shadow server with both flags set
   still spawns and kills real worker sessions. This list is not exhaustive; the invariant to
@@ -834,10 +834,12 @@ The server owns desired-state reconciliation; the warden is a stateless executor
   instant tick makes the next cadence tick a no-op (idempotent, no double spawn).
 - Candidate set per cadence tick: every ACTIVE non-warden member, plus any ACTIVE warden
   whose `desired_state == "uninstall"` (wardens are never spawn/stop candidates — no warden
-  reconciles another warden), plus a dismissed staff member only while the robust STOP its
-  dismissal sent is still owed (`RobustStopPendingAt`). The session-gone collect of §4.3 is
-  never computed for it, so the only STOP it is sent is that one and its re-sends. It leaves
-  the set on the first offline sample; a session that comes back after that is not stopped
+  reconciles another warden). A dismissed staff member is not a candidate, but the tick still
+  steps the robust-stop ledger for it, so the STOP its dismissal sent keeps being re-sent while
+  it is owed. Nothing else is computed for it (no decision, no session-gone collect of §4.3), so
+  the only STOP it is sent is that one and its re-sends. The ledger drops a landed STOP on the
+  first offline sample (a parked one keeps being re-fired until a warden takes it, §4.3); a
+  session that comes back after that is not stopped
   by the tick but by the SSE stop gate, which refuses a removed member's handshake with a
   409 (every other request of its is refused 401 by §1.3 cut 5), and the agent's listener
   ends its own session after a run of 409s.
@@ -865,10 +867,13 @@ runtime capability report.
   stop to the machine that START was sent to as well as wherever the kill chain points; a stop
   that reaches that machine ends the START: `last_command` becomes STOP, so the same tick
   dispatches a fresh START instead of waiting (backoff and the circuit breaker below still
-  apply), and 喚醒 answers no `activation_pending`. For a worker, a stop parked on that machine
-  (re-fired by the tick) counts as reaching it. A stop that does not reach it ends nothing, and
+  apply), and 喚醒 answers no `activation_pending`. A stop parked on that machine (re-fired by
+  the tick) counts as reaching it. A stop that does not reach it ends nothing, and
   the START is waited on as above; 喚醒 then answers `activation_pending` with a
-  `warden_unreachable` reason naming the machine the START is still booting on.
+  `warden_unreachable` reason naming the machine the START is still booting on. Every other
+  staff out-of-band robust STOP (取消喚醒, 強制停止, report_stopped, dismissal) also reaches the
+  machine a START is still booting on, as a worker's does through its spawn target; 取消喚醒
+  goes through the same call as 喚醒 (the reconcile right after it clears that START either way).
 - ¬online ∧ START timed out → register a failure that arms exponential backoff
   (`min(base·2^(attempts−1), cap)`) but MUST NOT count toward the sticky circuit breaker
   (a silent timeout is indistinguishable from an at-most-once delivery miss). Circuit-open → no respawn until cooldown; cooldown lapse
@@ -891,8 +896,11 @@ decides that time is up.
   force-stopped) → the session dropped without reporting. It is **not** converged yet: the
   member stays `stopping` and nothing is sent until it has been offline **continuously for
   120 s** (owner ruling `rc-dbee69264859`, anti network blip; a reconnect restarts the
-  window). Then the tick latches `stopped_since` and sends one STOP down the kill chain to
-  clear any residual session. This is the same judgement, from the same code, the outsource
+  window, and so does a START dispatch — a boot cancelled before it ever connects must
+  not inherit the previous stop's offline run). Then the tick latches `stopped_since` and sends one STOP down the kill chain to
+  clear any residual session — a robust STOP recorded in the robust-stop ledger (below: re-fired until a
+  warden takes it), with `boot_ts` cleared only as `robustStopEffectOf` allows. This is the
+  same judgement and the same send (`stopResidualSession`), from the same code, the outsource
   tick makes for a stopped worker. It is a confirmation window on an observed disconnect, not
   a deadline on the close-out: a member that stays connected is still never collected by
   time.
@@ -941,10 +949,11 @@ decides that time is up.
   ⚠️ **T-197 folded the worker-namespaced routes away — the VERBS are unchanged, only the
   paths are.** A worker is reached through the member route for the same verb
   (`/deactivate` for 停止, `/force-stop`, `/accelerated-stop`, `/refocus`, `/relocate`,
-  `/activate` for 喚醒, `PATCH /api/members/{member_id}` for 換 model); the member handler
-  dispatches on `kind == outsource` into the worker body. The paragraphs below describe
-  those bodies, so read every old `/api/outsource-workers/{id}/…` path in them as the
-  member route named next to it.
+  `/activate` for 喚醒, `PATCH /api/members/{member_id}` for 換 model). The stop verbs
+  (`/deactivate`, `/accelerated-stop`, `/force-stop`, `/api/self/stopped`) are ONE function
+  each for both kinds (`member_stop.go`); the other verbs still dispatch on
+  `kind == outsource` into a worker body. Read every old `/api/outsource-workers/{id}/…`
+  path below as the member route named next to it.
   `POST /api/members/{member_id}/deactivate` on a worker is a GRACEFUL close-out: it sets
   `desired_state=offline`, stamps `stopping_since`, clears any in-flight refocus epoch,
   fans the 〈停止〉 notice at the worker's own session and **returns**. It does **not**
@@ -988,10 +997,31 @@ decides that time is up.
 - 🔴 **Neither of those two paths goes through the producer's own discipline.** Both go
   through `dispatchRobustStopNow`, which does NOT write `last_command` /
   `last_command_at` — so the producer's de-dupe/re-dispatch discipline below never engages
-  for them. **It is no longer one-shot, though (T-ed79):** every dispatch from there arms an
-  at-least-once marker (`reconcileState.RobustStopPendingAt`, armed UNCONDITIONALLY —
-  including when the fail-closed enqueue gate refused the frame), and the cadence re-sends
-  the STOP once the member is STILL online past `stop_retry`. Since T-253 the same dispatch
+  for them. **It is not one-shot, though:** every dispatch from there is recorded in the
+  robust-stop ledger (`stop_ledger.go`, one record per id, shared by staff and outsource
+  workers). A STOP that landed is re-sent by the cadence once the session it aimed at is STILL
+  alive past `stop_retry` ("alive": connected, and either the STOP was a broadcast, the
+  connection names no machine, or it names the machine the STOP was aimed at). A STOP no
+  warden took is never dropped: one aimed at the machine the kill chain named is parked there
+  and re-fired every tick until that warden takes it; a broadcast every warden refused, or a
+  STOP with no target at all (no source names a machine and no warden is online), is parked
+  as a broadcast and re-resolved through the kill chain every tick, so it goes out the moment
+  a warden can take it. A broadcast stays a broadcast even when it listed a single online
+  warden. Whether a caller counts the session stopped is separate: only a STOP that landed,
+  or is parked on a named machine, reached anything (`robustStopEffectOf`, one judgement for
+  both populations: only then is `boot_ts` cleared, and only a STOP that reached the booting
+  START's machine supersedes it). A collect stands either way — staff and worker,
+  stopped-report, handover and session-gone collect alike (owner rulings `rc-b08d49dc3b03`, `rc-ae3f9765a6f5`):
+  the row reads stopped at once and the ledger keeps re-firing the STOP. **A parked STOP goes
+  out before any START:** both START queue sites re-fire a parked record immediately before
+  queueing the START (`flushParkedStopBeforeStart`), because a handler's reconcile does not
+  step the ledger and a landed START retires the record — without the flush a warden that came
+  back between ticks would get the START alone and the old session would run beside the new
+  one. A
+  `no_such_session` receipt from the machine
+  the STOP was aimed at, or a START landing there (any START, for a broadcast), retires the
+  record. While a record is owed against a live session the decider holds every arm
+  (`none`, phase `stopping`): the ledger is the only re-sender of an out-of-band robust STOP. Since T-253 the same dispatch
   also addresses a wider target chain, ending in a broadcast to every online warden, so
   "nobody knew which machine to aim at" is no longer a way for the collect to go missing
   either. What is still NOT automatic is escalation beyond re-sending the same STOP: if the
@@ -1250,7 +1280,7 @@ ONE-SHOT, never a standing order):
   | `openOwnerOpHandover` (`worker_spawn.go`) | 改機器 / 換 model | the change is SAVED, the stage does not move; the existing wind-down keeps its own deadline and owns the move |
   | `applyRefocusVerb` (`member_ownerop_winddown.go`), called by both `HandleRefocusOutsourceWorker…` and `HandleRefocusMember` | 重新聚焦 | **409** — the owner pressed a button, so he gets an answer; one rule for staff and workers, and the sentence (`refocusLadderRefusalMsg`) differs in exactly one noun, `this worker` vs `this member` |
   | `workerRestartSelf` (`worker_spawn.go`) | `restart_self` | **409** — the refusal is written by `HandleRestartSelfApiSelfRefocusPost` itself, VERBATIM the sentence its own staff arm writes further down in the same function (`m.Kind == KindOutsource` arm vs the fall-through `armRefocusEpoch` arm); the two arms are one rule |
-  | `HandleAcceleratedStopOutsourceWorker…` | 加速停止 | n/a — it ADVANCES the ladder, and it deliberately does not zero the anchors (the twin of the staff 加速停止 arm) |
+  | `accelerateMemberStop` (`member_stop.go`), called by `accelerateStopMember` for both populations | 加速停止 | n/a — it ADVANCES the ladder, and it deliberately does not zero the anchors |
   | `stampContextHighRecycle` promotion arm (`reconcile.go`, the `if promoting` branch) | none — the reconcile tick's own context pass, projected onto workers by `runWorkerLifecyclePasses` (`lifecycle_roster.go`), which `runOutsourceTick` calls | n/a — it also ADVANCES, and only forwards: `canPromoteToAcceleratedStop` lets it move `context_notice` → `context_high` and nothing else. It hand-writes `refocus_since` / `refocus_op` INSTEAD of calling `armRefocusEpoch` on purpose — that helper zeroes the wind-down anchors, and here they belong to a close-out already in flight (see the `armRefocusEpoch is deliberately NOT used` note directly above that assignment) |
   ⚠️ **`喚醒` (restart) HAS TWO ARMS, and only one of them can reach this table.**
   Owner ruling 2026-09-06 (`rc-1f591528a6d0` 圈 [0]): 「收斂成『正在跑就不動它』；真的要
@@ -1271,7 +1301,7 @@ ONE-SHOT, never a standing order):
   family still green. A guard whose removal changes nothing is not a guard.
 
   ⚠️ **WHAT THIS COST, stated plainly:** there is no longer a ONE-PRESS way to
-  end a wedged session. 強制停止 still calls `stopWorkerNow` with no liveness
+  end a wedged session. 強制停止 (`forceStopMember`) still kills with no liveness
   gate, so the escape hatch survives as two presses — 強制停止, then 喚醒. The
   one-press 「強制重來」 the owner named is a SEPARATE action he deferred; it does
   not exist anywhere in this repo.

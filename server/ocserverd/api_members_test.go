@@ -2542,47 +2542,6 @@ func TestStopVerbRowOfMember(t *testing.T) {
 	})
 }
 
-func TestStopVerbRowOfWorker(t *testing.T) {
-	t.Run("the five pointers name the worker's own 停止 columns", func(t *testing.T) {
-		w := OutsourceWorker{ID: "ow-abc123", Codename: "Contractor",
-			DesiredState: DesiredStateOnline, RefocusSince: 3, RefocusOp: refocusOpRefocus,
-			RestartAfterStop: true, StoppingSince: 1}
-		row := stopVerbRowOfWorker(&w)
-
-		if *row.DesiredState != DesiredStateOnline || *row.RefocusSince != 3 ||
-			*row.RefocusOp != refocusOpRefocus || !*row.RestartAfterStop ||
-			*row.StoppingSince != 1 {
-			t.Fatalf("row reads %q %v %q %v %v", *row.DesiredState, *row.RefocusSince,
-				*row.RefocusOp, *row.RestartAfterStop, *row.StoppingSince)
-		}
-
-		*row.DesiredState = DesiredStateOffline
-		*row.RefocusSince = 30
-		*row.RefocusOp = refocusOpAcceleratedStop
-		*row.RestartAfterStop = false
-		*row.StoppingSince = 10
-		apiTestWantEqual(t, "worker", w, OutsourceWorker{ID: "ow-abc123",
-			Codename: "Contractor", DesiredState: DesiredStateOffline, RefocusSince: 30,
-			RefocusOp: refocusOpAcceleratedStop, RestartAfterStop: false,
-			StoppingSince: 10})
-	})
-
-	t.Run("a row taken over a copy leaves the original worker untouched", func(t *testing.T) {
-		original := OutsourceWorker{ID: "ow-abc123", DesiredState: DesiredStateOnline,
-			RestartAfterStop: true, StoppingSince: 1}
-		copied := original
-		row := stopVerbRowOfWorker(&copied)
-		*row.StoppingSince = 10
-		*row.RefocusOp = refocusOpRefocus
-
-		apiTestWantEqual(t, "the original", original, OutsourceWorker{ID: "ow-abc123",
-			DesiredState: DesiredStateOnline, RestartAfterStop: true, StoppingSince: 1})
-		apiTestWantEqual(t, "the copy", copied, OutsourceWorker{ID: "ow-abc123",
-			DesiredState: DesiredStateOnline, RestartAfterStop: true, StoppingSince: 10,
-			RefocusOp: refocusOpRefocus})
-	})
-}
-
 func TestApplyStopVerbRow(t *testing.T) {
 	t.Run("a 停止 on a running member writes offline, clears the 換手 epoch and the queued restart, and anchors at now", func(t *testing.T) {
 		m := Member{ID: "kip", Name: "Kip", Kind: KindStaff, RosterStatus: RosterStatusActive,
@@ -2618,16 +2577,19 @@ func TestApplyStopVerbRow(t *testing.T) {
 			DesiredState: DesiredStateOffline, StoppingSince: 1000})
 	})
 
-	t.Run("the worker face writes the same five columns", func(t *testing.T) {
-		w := OutsourceWorker{ID: "ow-abc123", Codename: "Contractor",
-			Status: WorkerStatusActive, DesiredState: DesiredStateOnline,
+	t.Run("a worker written through its member projection gets the same five columns", func(t *testing.T) {
+		w := OutsourceWorker{ID: "ow-abc123", Codename: "Contractor", TaskID: "t-1",
+			Status: WorkerStatusActive, ActivatedTS: 600, DesiredState: DesiredStateOnline,
 			RefocusSince: 900, RefocusOp: refocusOpRefocus, RestartAfterStop: true,
 			StoppedSince: 800}
+		m := memberFromWorker(w)
 
-		applyStopVerbRow(stopVerbRowOfWorker(&w), memberFromWorker(w), 2000)
+		applyStopVerbRow(stopVerbRowOfMember(&m), m, 2000)
 
-		apiTestWantEqual(t, "worker", w, OutsourceWorker{ID: "ow-abc123",
-			Codename: "Contractor", Status: WorkerStatusActive,
+		task := "t-1"
+		apiTestWantEqual(t, "worker", m, Member{ID: "ow-abc123", Name: "Contractor",
+			Codename: "Contractor", Kind: KindOutsource, Runtime: RuntimeClaude,
+			RosterStatus: RosterStatusActive, ActivatedTS: 600, LinkedTaskID: &task,
 			DesiredState: DesiredStateOffline, RefocusSince: 0, RefocusOp: "",
 			RestartAfterStop: false, StoppingSince: 2000, StoppedSince: 800})
 	})
@@ -4179,6 +4141,7 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetMember: %v", err)
 		}
+		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/self/stopped", agent, `{}`)
 		if status != 200 {
@@ -4191,6 +4154,7 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 			"refocus_deadline": 0,
 			"stop_effect":      "already_reported",
 		})
+		dashboard.wantFrames()
 		wsWantWardenFrames(t, api, ServerSelfHost)
 		again, err := d.GetMember("kip")
 		if err != nil {
@@ -4326,7 +4290,7 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 		forcedStopAt   any
 		forcedStopLive bool
 	}{
-		{"deactivate", apiTestHandoverDelta(4, "offline", apiTestOffboardNotice, "ow-abc123"), 0, false},
+		{"deactivate", apiTestHandoverDelta(3, "offline", apiTestOffboardNotice, "ow-abc123"), 0, false},
 		{"force-stop", apiTestWorkerStateDelta(3, "active", "offline", "ow-abc123"), apiAnyNumber, true},
 	} {
 		t.Run("a worker's first report after "+stop.path+" is collected and the worker is held down", func(t *testing.T) {
@@ -4422,7 +4386,7 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 			"refocus_deadline": 0,
 			"stop_effect":      "collected",
 		})
-		dashboard.wantFrames(apiTestHandoverDelta(4, "offline", apiTestOffboardNotice, "ow-abc123"))
+		dashboard.wantFrames(apiTestHandoverDelta(3, "offline", apiTestOffboardNotice, "ow-abc123"))
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
 		apiTestWantStoppedSince(t, d, "ow-abc123")
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
@@ -4494,7 +4458,7 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 		frame   map[string]any
 	}{
 		{"online", apiTestWorkerStateDelta(2, "active", "online", "ow-abc123")},
-		{"offline", apiTestHandoverDelta(4, "offline", apiTestOffboardNotice, "ow-abc123")},
+		{"offline", apiTestHandoverDelta(3, "offline", apiTestOffboardNotice, "ow-abc123")},
 	} {
 		desired := tc.desired
 		t.Run("a desired-"+desired+" worker's report whose close-out anchor cannot be written answers 500 and sends no stop", func(t *testing.T) {
@@ -4665,52 +4629,72 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 
 	// ── the fleet is dark: nothing names a machine and no warden is online ───
 
-	t.Run("a wanted-online worker's report on a dark fleet is rolled back and says why", func(t *testing.T) {
-		api, h, d, owner, contractor := apiTestDarkWorker(t, DesiredStateOnline)
-		infraSeedAnchoredSession(t, api, d, "ow-abc123")
+	// One judgement for both populations: the report is collected at once even
+	// though no machine has the stop, and the session anchor stays because nothing
+	// was killed yet — dropping boot_ts would make restart_self's minimum-liveness
+	// gate and the boot-storm guard fail OPEN on a session that may still run.
+	for _, tc := range []struct {
+		who     string
+		dark    func(t *testing.T) (*apiServer, http.Handler, *DAL, string, string)
+		receipt map[string]any
+	}{
+		{
+			who: "staff",
+			dark: func(t *testing.T) (*apiServer, http.Handler, *DAL, string, string) {
+				t.Helper()
+				api, h, d, owner := newAPITestServer(t)
+				if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
+					t.Fatalf("activate: %d %v", status, data)
+				}
+				return api, h, d, "kip", apiTestAgentToken(t, api, "kip", "")
+			},
+			receipt: map[string]any{
+				"last_op": "start", "at": apiAnyNumber,
+				"reason": "warden_unreachable: 喚醒 was recorded, but nothing has been " +
+					"dispatched yet — the machine's warden did not take the start. It will " +
+					"be retried; if it stays here, check that machine",
+			},
+		},
+		{
+			who: "worker",
+			dark: func(t *testing.T) (*apiServer, http.Handler, *DAL, string, string) {
+				t.Helper()
+				api, h, d, _, contractor := apiTestDarkWorker(t, DesiredStateOnline)
+				return api, h, d, "ow-abc123", contractor
+			},
+			receipt: map[string]any{"last_op": "", "reason": "", "at": float64(0)},
+		},
+	} {
+		t.Run("a wanted-online "+tc.who+" report on a dark fleet is collected at once and keeps the session anchor", func(t *testing.T) {
+			api, h, d, id, token := tc.dark(t)
+			infraSeedAnchoredSession(t, api, d, id)
 
-		status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`)
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, map[string]any{
-			"id":               "ow-abc123",
-			"desired_state":    "online",
-			"refocus_op":       "",
-			"refocus_deadline": 0,
-			"stop_effect":      "collected",
+			status, data := apiJSON(t, h, "POST", "/api/self/stopped", token, `{}`)
+			if status != 200 {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			apiWantBody(t, data, map[string]any{
+				"id":               id,
+				"desired_state":    "online",
+				"refocus_op":       "",
+				"refocus_deadline": 0,
+				"stop_effect":      "collected",
+			})
+			wsWantWardenFrames(t, api, ServerSelfHost)
+			row, err := d.GetMember(id)
+			if err != nil || row == nil {
+				t.Fatalf("GetMember(%q): %v (%v)", id, row, err)
+			}
+			apiWantValue(t, "the close-out anchor is latched", any(row.StoppedSince > 0), any(true))
+			apiWantValue(t, "the receipt", any(apiTestReceiptOf(t, d, id)), any(tc.receipt))
+			infraWantSession(t, api, d, id, 1700000000, 1700000000, infraSeededGauge())
 		})
-		wsWantWardenFrames(t, api, ServerSelfHost)
-		row, err := d.GetMember("ow-abc123")
-		if err != nil || row == nil {
-			t.Fatalf("GetMember: %v (%v)", row, err)
-		}
-		apiWantValue(t, "the close-out anchor after the rollback",
-			any(row.StoppedSince), any(float64(0)))
-		// 🔴 AND THE SESSION ANCHOR SURVIVES. Nothing was sent, so nothing died:
-		// dropping boot_ts here would make restart_self's minimum-liveness gate and
-		// the boot-storm guard fail OPEN on a session that is still running.
-		infraWantSession(t, api, d, "ow-abc123", 1700000000, 1700000000, infraSeededGauge())
-		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-			"status": "active", "desired_state": "online",
-			// The seeded session gauge surfaces on this projection; naming it keeps
-			// the comparison whole instead of dropping to a field subset.
-			"compaction_count": 3, "context_pct": 45,
-			"last_op": "start", "last_op_ok": false, "last_op_at": apiAnyNumber,
-			"last_op_reason": "respawn_deferred: the stopped-report could not clear this " +
-				"worker's previous session — it is marked active but neither the server's " +
-				"spawn memory, a live connection, its last landing nor any online warden " +
-				"knows which machine it is on; retrying",
-		}))
-	})
+	}
 
 	t.Run("a HELD-DOWN worker's report on a dark fleet stays collected, with no rollback and no promise of a retry", func(t *testing.T) {
-		// 🔴 THE TWO ARMS DIVERGE HERE ON PURPOSE. A worker that is coming back has
-		// an unkilled session and must report again (above). A worker the owner is
-		// holding down has nothing coming: rolling the latch back would un-collect
-		// a close-out that IS complete, and the receipt would tell the cockpit
-		// 「retrying」 about a worker nothing intends to retry — while this very
-		// response says 「collected」.
+		// Collected like the wanted-online report above: the STOP that reached no
+		// machine waits in the ledger, so nothing is rolled back and the receipt
+		// promises no retry.
 		api, h, d, owner, contractor := apiTestDarkWorker(t, DesiredStateOffline)
 
 		status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`)
@@ -4746,33 +4730,23 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 		})
 	})
 
-	// ── the two populations' retry ledgers stay their own (T-253 F1) ─────────
+	// ── the owed stop holds only while the session lives ────────────────────
 
-	t.Run("a worker's stop arms the worker ledger and NOT the member producer's marker", func(t *testing.T) {
-		// 🔴 reconcileStates IS ONE STORE FOR BOTH POPULATIONS. RobustStopPendingAt
-		// is the MEMBER producer's at-least-once arm; writing it for a worker hands
-		// the worker tick a marker its own decider acts on — suppressing the START
-		// that is due, then returning a STOP the worker path reads as a zombie
-		// takeover and benches the machine for.
+	t.Run("a worker's stop is owed only while its session lives: once it goes the next tick starts the replacement", func(t *testing.T) {
 		api, h, _, owner, session, contractor := apiTestLiveWorker(t)
 
 		if status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`); status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
-		apiWantValue(t, "the member producer's marker",
-			any(api.reconcileStateOf("ow-abc123").RobustStopPendingAt), any(float64(0)))
 
-		// The consequence, not just the field: the session goes away and the very
-		// next tick starts the replacement instead of waiting on a kill that was
-		// never the member producer's to re-send.
 		api.hub.Disconnect(session)
 		api.runOutsourceTick(nowSecs())
 		wsWantWardenFrames(t, api, ServerSelfHost,
 			wsStartFrame("ow-abc123", apiTestWorkerBootContext(t, h, owner), "claude", "sonnet", "medium"))
 	})
 
-	t.Run("POSITIVE CONTROL: a staff stop does arm the member producer's marker", func(t *testing.T) {
+	t.Run("a staff stop holds the next member tick's fire while the session lingers", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
 			t.Fatalf("activate: %d %v", status, data)
@@ -4787,14 +4761,9 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("kip"))
-		if got := api.reconcileStateOf("kip").RobustStopPendingAt; got <= 0 {
-			t.Fatalf("the member producer's marker must be armed, got %v", got)
-		}
-		// The consequence, at the same level as the worker arm's: the session is
-		// still up (the warden has not drained the kill yet — the real ordering),
-		// and the very next member tick therefore holds its fire instead of
-		// deciding anything, because a kill this producer owns is already out and
-		// inside stop_retry.
+		// The session is still up (the warden has not drained the kill yet — the
+		// real ordering), so the very next member tick holds its fire instead of
+		// deciding anything: a kill is already out and owed.
 		apiTestListen(t, api, "kip")
 		row, err := d.GetMember("kip")
 		if err != nil || row == nil {
@@ -4805,15 +4774,14 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 			"command": next.Command, "reason": next.Reason,
 		}), any(map[string]any{
 			"command": "none",
-			"reason": "robust stop dispatched out-of-band — awaiting warden kill " +
-				"(within stop_retry)",
+			"reason":  "robust stop dispatched out-of-band — awaiting warden kill",
 		}))
 		wsWantWardenFrames(t, api, ServerSelfHost)
 	})
 
 	// ── a report that had to broadcast leaves a usable retry record (F3) ─────
 
-	t.Run("a report that had to broadcast is armed AT NOBODY, and the retry can still act on that", func(t *testing.T) {
+	t.Run("a report that had to broadcast is re-sent as a broadcast while the session lives on without naming a machine", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
 		apiTestWorkerWantedOnline(t, d, "ow-abc123")
@@ -4821,6 +4789,7 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 		shutdownWarden(t, api, d, "m-two")
 		// The worker never connected, so nothing names a machine — the fan-out case.
 		contractor := apiTestAgentToken(t, api, "ow-abc123", "")
+		reported := nowSecs()
 
 		if status, data := apiJSON(t, h, "POST", "/api/self/stopped", contractor, `{}`); status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
@@ -4828,27 +4797,14 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 		wsWantWardenFrames(t, api, "m-one", wsStopFrame("ow-abc123"))
 		wsWantWardenFrames(t, api, "m-two", wsStopFrame("ow-abc123"))
 
-		api.outsourceMu.Lock()
-		armed := api.workerStopLanded["ow-abc123"]
-		api.outsourceMu.Unlock()
-		// AIMED AT NOBODY, and that is the record: a fan-out cannot name the
-		// machine that owes it a dead session, so the retry judges it by presence
-		// instead of by a machine comparison.
-		apiWantValue(t, "the armed kill", any(map[string]any{
-			"target": armed.Target, "at": armed.At,
-		}), any(map[string]any{"target": "", "at": apiAnyNumber}))
-
-		// …and it is a record the retry can act on: the session turns out to be
-		// alive after all, so past stop_retry the kill goes out again. This worker
-		// reconnects without naming a machine, so what the presence-only reading
-		// buys over a machine comparison is NOT measured here — the case that
-		// discriminates the two is TestRetryUnlandedWorkerStop's broadcast arm.
+		// A fan-out cannot name the machine that owes it a dead session, so the
+		// retry judges it by presence and re-resolves the chain to re-send: the
+		// session turns out to be alive after all, still naming no machine, so past
+		// stop_retry the kill fans out again.
 		if _, err := api.hub.Connect("ow-abc123", ""); err != nil {
 			t.Fatalf("hub.Connect: %v", err)
 		}
-		api.outsourceMu.Lock()
-		api.retryUnlandedWorkerStop("ow-abc123", armed.At+api.reconcileConfigLive().StopRetry+1)
-		api.outsourceMu.Unlock()
+		api.runOutsourceTick(reported + api.reconcileConfigLive().StopRetry + 1)
 		wsWantWardenFrames(t, api, "m-one", wsStopFrame("ow-abc123"))
 		wsWantWardenFrames(t, api, "m-two", wsStopFrame("ow-abc123"))
 	})

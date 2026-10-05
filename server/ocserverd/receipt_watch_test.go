@@ -62,7 +62,7 @@ func TestNoteReceiptArrived(t *testing.T) {
 			"member-1": {RPC: "start", Warden: "machine-a", Deadline: 190},
 		}}
 
-		api.noteReceiptArrived("member-1", "machine-a")
+		api.noteReceiptArrived("member-1", "machine-a", "start")
 
 		if _, ok := api.receiptPending["member-1"]; ok {
 			t.Fatal("the matching receipt must disarm the watch")
@@ -77,10 +77,48 @@ func TestNoteReceiptArrived(t *testing.T) {
 			"member-1": {RPC: "stop", Warden: "machine-a", Deadline: 290},
 		}}
 
-		api.noteReceiptArrived("member-1", "machine-b")
+		api.noteReceiptArrived("member-1", "machine-b", "stop")
 
 		if got := api.receiptPending; !reflect.DeepEqual(got, want) {
 			t.Fatalf("watches after a mismatched receipt = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("a receipt for another verb from the watched machine leaves the watch armed", func(t *testing.T) {
+		want := map[string]pendingReceipt{
+			"member-1": {RPC: "start", Warden: "machine-a", Deadline: 190},
+		}
+		api := &apiServer{receiptPending: map[string]pendingReceipt{
+			"member-1": {RPC: "start", Warden: "machine-a", Deadline: 190},
+		}}
+
+		api.noteReceiptArrived("member-1", "machine-a", "stop")
+		api.noteReceiptArrived("member-1", "machine-a", "worker_stop")
+
+		if got := api.receiptPending; !reflect.DeepEqual(got, want) {
+			t.Fatalf("watches after another verb's receipt = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("a legacy or unnamed rpc for the watched verb still disarms", func(t *testing.T) {
+		for _, tc := range []struct {
+			name  string
+			watch pendingReceipt
+			rpc   string
+		}{
+			{name: "legacy worker_start", watch: pendingReceipt{RPC: "start", Warden: "machine-a", Deadline: 190}, rpc: "worker_start"},
+			{name: "legacy worker_stop", watch: pendingReceipt{RPC: "stop", Warden: "machine-a", Deadline: 290}, rpc: "worker_stop"},
+			{name: "no rpc on the receipt", watch: pendingReceipt{RPC: "start", Warden: "machine-a", Deadline: 190}, rpc: ""},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				api := &apiServer{receiptPending: map[string]pendingReceipt{"member-1": tc.watch}}
+
+				api.noteReceiptArrived("member-1", "machine-a", tc.rpc)
+
+				if _, ok := api.receiptPending["member-1"]; ok {
+					t.Fatal("the receipt must disarm the watch")
+				}
+			})
 		}
 	})
 
@@ -96,7 +134,7 @@ func TestNoteReceiptArrived(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				api := &apiServer{receiptPending: map[string]pendingReceipt{"member-1": tc.watch}}
 
-				api.noteReceiptArrived("member-1", tc.reporter)
+				api.noteReceiptArrived("member-1", tc.reporter, tc.watch.RPC)
 
 				if _, ok := api.receiptPending["member-1"]; ok {
 					t.Fatal("the receipt must disarm a watch when identity comparison is unavailable")
@@ -113,8 +151,8 @@ func TestNoteReceiptArrived(t *testing.T) {
 			"member-1": {RPC: "start", Warden: "machine-a", Deadline: 190},
 		}}
 
-		api.noteReceiptArrived("", "machine-a")
-		api.noteReceiptArrived("ghost", "machine-a")
+		api.noteReceiptArrived("", "machine-a", "start")
+		api.noteReceiptArrived("ghost", "machine-a", "start")
 
 		if got := api.receiptPending; !reflect.DeepEqual(got, want) {
 			t.Fatalf("watches after irrelevant receipts = %+v, want %+v", got, want)

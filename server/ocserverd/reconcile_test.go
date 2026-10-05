@@ -181,25 +181,26 @@ func TestDecisionNone(t *testing.T) {
 	})
 }
 
-func TestRobustStopRetryStep(t *testing.T) {
-	t.Run("an unarmed marker and a session that is no longer alive both answer done, so the marker is disarmed", func(t *testing.T) {
-		for _, c := range []struct {
-			name         string
-			dispatchedAt float64
-			alive        bool
-		}{
-			{"never dispatched", 0, true},
-			{"a negative stamp", -1, true},
-			{"dispatched but the session is gone", 1000, false},
-			{"neither", 0, false},
-		} {
-			if got := robustStopRetryStep(c.dispatchedAt, c.alive, 90, 2000); got != robustStopDone {
-				t.Fatalf("%s: step = %v, want robustStopDone", c.name, got)
+func TestRobustStopStepOf(t *testing.T) {
+	t.Run("a parked stop is re-fired on every call, whatever the session is doing", func(t *testing.T) {
+		for _, alive := range []bool{true, false} {
+			for _, now := range []float64{1000, 1001, 5000} {
+				if got := robustStopStepOf(robustStop{Target: "m-a", At: 1000}, alive, 90, now); got != robustStopResend {
+					t.Fatalf("alive=%v now=%v: step = %v, want robustStopResend", alive, now, got)
+				}
 			}
 		}
 	})
 
-	t.Run("a live session inside the retry window waits, and one at or past the window is re-sent", func(t *testing.T) {
+	t.Run("a landed stop whose session is gone is done, inside the window or past it", func(t *testing.T) {
+		for _, now := range []float64{1000, 1089, 1090, 5000} {
+			if got := robustStopStepOf(robustStop{Target: "m-a", At: 1000, Landed: true}, false, 90, now); got != robustStopDone {
+				t.Fatalf("now=%v: step = %v, want robustStopDone", now, got)
+			}
+		}
+	})
+
+	t.Run("a landed stop whose session lives waits inside the retry window and is re-sent at or past it", func(t *testing.T) {
 		for _, c := range []struct {
 			now  float64
 			want robustStopStep
@@ -209,11 +210,39 @@ func TestRobustStopRetryStep(t *testing.T) {
 			{1090, robustStopResend},
 			{1091, robustStopResend},
 		} {
-			if got := robustStopRetryStep(1000, true, 90, c.now); got != c.want {
+			if got := robustStopStepOf(robustStop{At: 1000, Landed: true}, true, 90, c.now); got != c.want {
 				t.Fatalf("now=%v: step = %v, want %v", c.now, got, c.want)
 			}
 		}
 	})
+}
+
+func TestRobustStopEffectOf(t *testing.T) {
+	for _, c := range []struct {
+		name        string
+		out         robustStopOutcome
+		startTarget string
+		want        robustStopEffect
+	}{
+		{"landed on the booting START's machine: a session boundary, and that START is over",
+			robustStopOutcome{Landed: []string{"m-b"}}, "m-b", robustStopEffect{ClearBootTS: true, SupersedeStart: true}},
+		{"parked by name on the booting START's machine counts the same: that machine owes the kill",
+			robustStopOutcome{Parked: "m-b"}, "m-b", robustStopEffect{ClearBootTS: true, SupersedeStart: true}},
+		{"landed only elsewhere: a session boundary, but the booting START may still come up",
+			robustStopOutcome{Landed: []string{"m-a"}}, "m-b", robustStopEffect{ClearBootTS: true}},
+		{"landed anywhere with no START in flight ends the wait",
+			robustStopOutcome{Landed: []string{"m-a"}}, "", robustStopEffect{ClearBootTS: true, SupersedeStart: true}},
+		{"a fan-out no machine took: nothing ended, nothing is superseded",
+			robustStopOutcome{}, "", robustStopEffect{}},
+		{"a fan-out no machine took under a booting START: nothing ended, nothing is superseded",
+			robustStopOutcome{}, "m-b", robustStopEffect{}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := robustStopEffectOf(c.out, c.startTarget); got != c.want {
+				t.Fatalf("effect = %+v, want %+v", got, c.want)
+			}
+		})
+	}
 }
 
 func TestRecycleGraceFor(t *testing.T) {
@@ -359,7 +388,7 @@ func TestIsPlacementBlockedReason(t *testing.T) {
 				t.Fatalf("%q with no separator must not match", code)
 			}
 		}
-		if len(spawnBlockedReasonCodes) != 13 {
+		if len(spawnBlockedReasonCodes) != 12 {
 			t.Fatalf("the closed set has %d codes: %v", len(spawnBlockedReasonCodes), spawnBlockedReasonCodes)
 		}
 	})
@@ -1292,33 +1321,21 @@ func TestReconcileDecide(t *testing.T) {
 		})
 	})
 
-	t.Run("an armed out-of-band robust STOP is judged before the intent switch: wait, re-send, or disarm on the first offline observation", func(t *testing.T) {
-		online := reconcileTestUpObs()
-		online.Online = true
-		online.RunningMachine = "m-old"
+	t.Run("an owed out-of-band robust STOP holds every arm before the intent switch, and the decider never sends it itself", func(t *testing.T) {
+		owed := reconcileTestUpObs()
+		owed.Online = true
+		owed.RunningMachine = "m-old"
+		owed.RobustStopOwed = true
 
-		waiting := reconcileState{Phase: reconcilePhaseOffline, LastCommand: reconcileCmdNone, RobustStopPendingAt: now - 89}
-		reconcileTestWantDecision(t, reconcileDecide(online, waiting, cfg, now), reconcileDecision{
+		prior := reconcileState{Phase: reconcilePhaseOffline, LastCommand: reconcileCmdNone}
+		reconcileTestWantDecision(t, reconcileDecide(owed, prior, cfg, now), reconcileDecision{
 			Command: reconcileCmdNone, MemberID: "kip",
-			Reason: "robust stop dispatched out-of-band — awaiting warden kill (within stop_retry)",
-			State: reconcileState{
-				Phase: reconcilePhaseStopping, LastCommand: reconcileCmdNone, RobustStopPendingAt: now - 89,
-			},
+			Reason: "robust stop dispatched out-of-band — awaiting warden kill",
+			State:  reconcileState{Phase: reconcilePhaseStopping, LastCommand: reconcileCmdNone},
 		})
 
-		stale := reconcileState{Phase: reconcilePhaseOffline, LastCommand: reconcileCmdNone, RobustStopPendingAt: now - 90}
-		reconcileTestWantDecision(t, reconcileDecide(online, stale, cfg, now), reconcileDecision{
-			Command: reconcileCmdStop, MemberID: "kip", StopKind: stopKindRobustResend,
-			Reason: "robust stop: re-dispatch (out-of-band STOP unlanded — still online past stop_retry)",
-			State: reconcileState{
-				Phase: reconcilePhaseStopping, LastCommand: reconcileCmdStop,
-				LastCommandAt: now, RobustStopPendingAt: now,
-			},
-			DispatchWarden: "m-old",
-		})
-
-		offline := reconcileTestUpObs()
-		reconcileTestWantDecision(t, reconcileDecide(offline, waiting, cfg, now), reconcileDecision{
+		// CONTROL: the same member owing nothing and offline is started.
+		reconcileTestWantDecision(t, reconcileDecide(reconcileTestUpObs(), prior, cfg, now), reconcileDecision{
 			Command: reconcileCmdStart, MemberID: "kip",
 			Reason: "spawn: desired_state online, no live session",
 			State: reconcileState{
@@ -2655,8 +2672,8 @@ func TestReconcileOne(t *testing.T) {
 				StopKind: stopKindWinddown,
 			})
 		})
-		want := "[reconcile] leaving: target warden \"m-away\" NOT reachable (no live SSE downstream) — " +
-			"fail-closed, not dispatching, will retry when the warden connects\n"
+		want := "[reconcile] robust stop leaving: no target warden reachable (targets [m-away]) — not sent, " +
+			"the tick re-decides it\n"
 		if out != want {
 			t.Fatalf("stderr:\n got %q\nwant %q", out, want)
 		}
@@ -2808,13 +2825,9 @@ func TestReconcileTickMemberLocked(t *testing.T) {
 	// ── can a broadcast kill hit the REPLACEMENT? (T-253 乙, staff half) ─────
 	//
 	// The outsource half of this question is measured in
-	// TestStopWorkerSessionForHandover. The two populations now share the kill
-	// chain and the send, but NOT their retry arms — the worker's
-	// retryUnlandedWorkerStop compares machines, while the member's
-	// RobustStopPendingAt arm keys on plain presence (reconcileDecide) — so
-	// "the same reasoning applies" is an inference, and this is the measurement.
+	// TestStopWorkerSessionForHandover; this is the staff measurement.
 
-	t.Run("a staff broadcast kill cannot reach the replacement: the retry marker is cleared by the very offline tick that decides the start", func(t *testing.T) {
+	t.Run("a staff broadcast kill cannot reach the replacement: the owed stop is retired by the very offline tick that decides the start", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		shutdownWarden(t, api, d, "m-one")
 		shutdownWarden(t, api, d, "m-two")
@@ -2830,14 +2843,7 @@ func TestReconcileTickMemberLocked(t *testing.T) {
 		// The owner now places the replacement on m-one, and the tick that reads
 		// this member offline decides its START.
 		shutdownBootable(t, d, "kip", "m-one")
-		row, err := d.GetMember("kip")
-		if err != nil || row == nil {
-			t.Fatalf("GetMember: %v (%v)", row, err)
-		}
-		started := api.reconcileTickMemberLocked(*row, nowSecs()+10000)
-		apiWantValue(t, "the tick that saw it offline", any(map[string]any{
-			"command": started.Command, "robust_stop_pending": started.State.RobustStopPendingAt,
-		}), any(map[string]any{"command": "start", "robust_stop_pending": 0}))
+		api.runReconcileTick(nowSecs() + 10000)
 		apiWantValue(t, "what the replacement's machine was told",
 			any(wsVerbs(t, api, "m-one")), any([]any{"start"}))
 
@@ -2846,13 +2852,8 @@ func TestReconcileTickMemberLocked(t *testing.T) {
 		if _, err := api.hub.Connect("kip", "m-one"); err != nil {
 			t.Fatalf("hub.Connect: %v", err)
 		}
-		fresh, err := d.GetMember("kip")
-		if err != nil || fresh == nil {
-			t.Fatalf("GetMember: %v (%v)", fresh, err)
-		}
-		late := api.reconcileTickMemberLocked(*fresh, nowSecs()+20000)
+		api.runReconcileTick(nowSecs() + 20000)
 
-		apiWantValue(t, "the late tick", any(late.Command), any("none"))
 		apiWantValue(t, "late kills at the replacement's machine",
 			any(wsVerbs(t, api, "m-one")), any([]any{}))
 		apiWantValue(t, "late kills elsewhere", any(wsVerbs(t, api, "m-two")), any([]any{}))
@@ -2875,13 +2876,8 @@ func TestReconcileTickMemberLocked(t *testing.T) {
 		if _, err := api.hub.Connect("kip", "m-one"); err != nil {
 			t.Fatalf("hub.Connect: %v", err)
 		}
-		row, err := d.GetMember("kip")
-		if err != nil || row == nil {
-			t.Fatalf("GetMember: %v (%v)", row, err)
-		}
-		late := api.reconcileTickMemberLocked(*row, nowSecs()+10000)
+		api.runReconcileTick(nowSecs() + 10000)
 
-		apiWantValue(t, "the late tick", any(late.Command), any("stop"))
 		apiWantValue(t, "the re-fired kill", any(wsVerbs(t, api, "m-one")), any([]any{"stop"}))
 		apiWantValue(t, "and nowhere else", any(wsVerbs(t, api, "m-two")), any([]any{}))
 	})
@@ -3470,32 +3466,36 @@ func TestRunReconcileTick(t *testing.T) {
 			StoppingSince: reconcileTestNow - 100,
 		})
 		session := reconcileTestOnline(t, api, "left", "m-box")
-		api.noteRobustStopDispatched("left", reconcileTestNow-100)
+		api.dispatchRobustStopNow(api.staffStopPopulation(), "left")
+		wsWantWardenFrames(t, api, "m-box", wsStopFrame("left"))
+		base := nowSecs()
+		retry := api.reconcileConfigLive().StopRetry
 
-		out := hubTestStderr(t, func() { api.runReconcileTick(reconcileTestNow) })
+		out := hubTestStderr(t, func() { api.runReconcileTick(base + retry + 1) })
 		want := "[reconcile] recycle: gate skip kip gate=no-actionable-pct pct=- pct_ts=- boot_ts=- boot_secs=- online=false\n" +
 			"[reconcile] recycle: gate skip mira gate=no-actionable-pct pct=- pct_ts=- boot_ts=- boot_secs=- online=false\n" +
 			"[reconcile] tick: 2 candidate(s)\n" +
 			"[reconcile] kip: desired=offline command=none — offline: converged\n" +
 			"[reconcile] mira: desired=offline command=none — offline: converged\n" +
-			"[reconcile] left: desired=offline command=stop — robust stop: re-dispatch (out-of-band STOP unlanded — still online past stop_retry)\n"
+			"[reconcile] robust stop left: session still live past stop_retry (aimed at \"m-box\") — the kill did not take, re-dispatching\n"
 		if out != want {
 			t.Fatalf("resend tick stderr:\n got %q\nwant %q", out, want)
 		}
 		wsWantWardenFrames(t, api, "m-box", wsStopFrame("left"))
 
 		api.hub.Disconnect(session)
-		out = hubTestStderr(t, func() { api.runReconcileTick(reconcileTestNow + 1) })
+		out = hubTestStderr(t, func() { api.runReconcileTick(base + 2*retry + 2) })
 		want = "[reconcile] tick: 2 candidate(s)\n" +
 			"[reconcile] kip: desired=offline command=none — offline: converged\n" +
-			"[reconcile] mira: desired=offline command=none — offline: converged\n" +
-			"[reconcile] left: desired=offline command=none — offline: converged\n"
+			"[reconcile] mira: desired=offline command=none — offline: converged\n"
 		if out != want {
 			t.Fatalf("offline tick stderr:\n got %q\nwant %q", out, want)
 		}
-		apiWantValue(t, "the owed stop", any(reconcileTestState(api, "left").RobustStopPendingAt), any(float64(0)))
+		wsWantWardenFrames(t, api, "m-box")
 
-		out = hubTestStderr(t, func() { api.runReconcileTick(reconcileTestNow + 1 + offlineConfirmGraceSecs + 1) })
+		// The session reconnecting later is not the stop's business any more.
+		reconcileTestOnline(t, api, "left", "m-box")
+		out = hubTestStderr(t, func() { api.runReconcileTick(base + 3*retry + offlineConfirmGraceSecs) })
 		want = "[reconcile] tick: 2 candidate(s)\n" +
 			"[reconcile] kip: desired=offline command=none — offline: converged\n" +
 			"[reconcile] mira: desired=offline command=none — offline: converged\n"
@@ -3533,13 +3533,13 @@ func TestRunReconcileTick(t *testing.T) {
 		if err := d.SetMemberWindDownAnchors("idle", reconcileTestNow-1, 0, 0, ""); err != nil {
 			t.Fatalf("SetMemberWindDownAnchors: %v", err)
 		}
-		api.noteRobustStopDispatched("idle", reconcileTestNow-1)
+		api.dispatchRobustStopNow(api.staffStopPopulation(), "idle")
+		wsWantWardenFrames(t, api, "m-box", wsStopFrame("idle"))
 
 		out = hubTestStderr(t, func() { api.runReconcileTick(reconcileTestNow) })
 		want = "[reconcile] tick: 2 candidate(s)\n" +
 			"[reconcile] kip: desired=offline command=none — offline: converged\n" +
-			"[reconcile] mira: desired=offline command=none — offline: converged\n" +
-			"[reconcile] idle: desired=offline command=none — offline: converged\n"
+			"[reconcile] mira: desired=offline command=none — offline: converged\n"
 		if out != want {
 			t.Fatalf("landed tick stderr:\n got %q\nwant %q", out, want)
 		}
@@ -3647,36 +3647,8 @@ func TestReconcileMemberNow(t *testing.T) {
 	})
 }
 
-func TestNoteRobustStopDispatched(t *testing.T) {
-	t.Run("the marker is armed on a member with no store entry yet, leaving the rest of a fresh state untouched", func(t *testing.T) {
-		api, _ := reconcileTestServer(t)
-		api.noteRobustStopDispatched("kip", reconcileTestNow)
-		want := newReconcileState()
-		want.RobustStopPendingAt = reconcileTestNow
-		if got := reconcileTestState(api, "kip"); got != want {
-			t.Fatalf("state:\n got %+v\nwant %+v", got, want)
-		}
-	})
-
-	t.Run("an existing entry keeps everything else and only the marker moves to the newest dispatch", func(t *testing.T) {
-		api, _ := reconcileTestServer(t)
-		existing := reconcileState{
-			Phase: reconcilePhaseOnline, Attempts: 2, BackoffUntil: 5, CircuitOpen: true,
-			CircuitCooldownUntil: 9, LastCommand: reconcileCmdStart, LastCommandAt: 3,
-			StopDeadline: 4, RobustStopPendingAt: 1, OfflineSince: 2,
-		}
-		api.setReconcileState("kip", existing)
-		api.noteRobustStopDispatched("kip", reconcileTestNow)
-		want := existing
-		want.RobustStopPendingAt = reconcileTestNow
-		if got := reconcileTestState(api, "kip"); got != want {
-			t.Fatalf("state:\n got %+v\nwant %+v", got, want)
-		}
-	})
-}
-
 func TestDispatchRobustStopNow(t *testing.T) {
-	t.Run("the STOP goes to the warden of the machine the session is on, the retry is armed and the boot anchor is dropped", func(t *testing.T) {
+	t.Run("the STOP goes to the warden of the machine the session is on, is re-sent there past stop_retry, and the boot anchor is dropped", func(t *testing.T) {
 		api, d := reconcileTestServer(t)
 		reconcileTestPut(t, d, Member{ID: "m-old", Name: "Old", Kind: KindWarden})
 		reconcileTestOnline(t, api, "m-old", "")
@@ -3686,7 +3658,7 @@ func TestDispatchRobustStopNow(t *testing.T) {
 		})
 		reconcileTestOnline(t, api, "collect", "m-old")
 		before := reconcileTestRow(t, d, "collect")
-		out := hubTestStderr(t, func() { api.dispatchRobustStopNow("collect") })
+		out := hubTestStderr(t, func() { api.dispatchRobustStopNow(api.staffStopPopulation(), "collect") })
 		if out != "" {
 			t.Fatalf("a landed dispatch logs nothing, got %q", out)
 		}
@@ -3697,32 +3669,37 @@ func TestDispatchRobustStopNow(t *testing.T) {
 		if n := api.hub.PendingWardenCommands("m-box"); n != 0 {
 			t.Fatalf("the pinned machine must not be addressed, it holds %d frame(s)", n)
 		}
-		if got := reconcileTestState(api, "collect").RobustStopPendingAt; got <= 0 {
-			t.Fatalf("the at-least-once retry was not armed: %v", got)
-		}
 		wantRow := before
 		wantRow.SessionBootTS = 0
 		reconcileTestWantRow(t, d, "collect", wantRow)
+		api.runReconcileTick(nowSecs() + api.reconcileConfigLive().StopRetry + 1)
+		wsWantWardenFrames(t, api, "m-old", wsStopFrame("collect"))
+		wsWantWardenFrames(t, api, "m-box")
 	})
 
-	t.Run("an unreachable warden still arms the retry — that is the case the backstop exists for", func(t *testing.T) {
+	t.Run("an unreachable warden parks the stop, and the tick fires it once the warden connects", func(t *testing.T) {
 		api, d := reconcileTestServer(t)
 		reconcileTestPut(t, d, Member{
 			ID: "stranded", Name: "Stranded", Kind: KindStaff, RoleKey: "assistant",
 			DesiredState: DesiredStateOnline, DesiredMachineID: "m-box",
 		})
-		out := hubTestStderr(t, func() { api.dispatchRobustStopNow("stranded") })
+		out := hubTestStderr(t, func() { api.dispatchRobustStopNow(api.staffStopPopulation(), "stranded") })
 		want := "[reconcile] stranded: target warden \"m-box\" NOT reachable (no live SSE downstream) — " +
-			"fail-closed, not dispatching, will retry when the warden connects\n"
+			"fail-closed, not dispatching, will retry when the warden connects\n" +
+			"[reconcile] robust stop stranded: target m-box unreachable — parked, the tick re-fires it\n"
 		if out != want {
 			t.Fatalf("stderr:\n got %q\nwant %q", out, want)
 		}
 		if n := api.hub.PendingWardenCommands("m-box"); n != 0 {
 			t.Fatalf("nothing may be queued, got %d frame(s)", n)
 		}
-		if got := reconcileTestState(api, "stranded").RobustStopPendingAt; got <= 0 {
-			t.Fatalf("the retry must be armed anyway: %v", got)
-		}
+		// The member is wanted online, so the same tick starts it — behind the stop
+		// on the same FIFO, and the start retires the stop it would otherwise meet.
+		reconcileTestOnline(t, api, "m-box", "")
+		api.runReconcileTick(nowSecs() + 1)
+		apiWantValue(t, "the warden's queue", any(wsVerbs(t, api, "m-box")), any([]any{"stop", "start"}))
+		api.runReconcileTick(nowSecs() + 2)
+		apiWantValue(t, "the next tick", any(wsVerbs(t, api, "m-box")), any([]any{}))
 	})
 
 	t.Run("with the producer disabled nothing is dispatched and no retry is armed", func(t *testing.T) {
@@ -3734,17 +3711,18 @@ func TestDispatchRobustStopNow(t *testing.T) {
 			DesiredState: DesiredStateOnline, DesiredMachineID: "m-box", SessionBootTS: reconcileTestNow,
 		})
 		before := reconcileTestRow(t, d, "kept")
-		out := hubTestStderr(t, func() { api.dispatchRobustStopNow("kept") })
+		out := hubTestStderr(t, func() { api.dispatchRobustStopNow(api.staffStopPopulation(), "kept") })
 		if out != "" {
 			t.Fatalf("stderr = %q, want nothing", out)
 		}
 		if n := api.hub.PendingWardenCommands("m-box"); n != 0 {
 			t.Fatalf("the warden queue holds %d frame(s)", n)
 		}
-		if _, seen := reconcileTestStored(api, "kept"); seen {
-			t.Fatalf("no retry may be armed")
-		}
 		reconcileTestWantRow(t, d, "kept", before)
+		// Nothing is owed either: the session lingering past stop_retry draws no stop.
+		reconcileTestOnline(t, api, "kept", "m-box")
+		api.runReconcileTick(nowSecs() + api.reconcileConfigLive().StopRetry + 1)
+		wsWantWardenFrames(t, api, "m-box")
 	})
 }
 
@@ -3997,8 +3975,8 @@ func TestNoteStartSupersededByStop(t *testing.T) {
 			s := newReconcileTestServer(t)
 			s.setReconcileState("m-x", c.stored)
 
-			ok := s.noteStartSupersededByStop("m-x", inFlightStart{Target: "m-b", At: 100},
-				shutdownDispatch{Landed: []string{"m-b"}}, 300)
+			ok := s.noteStartSupersededByStop(s.staffStopPopulation(), "m-x", inFlightStart{Target: "m-b", At: 100},
+				shutdownDispatch{Landed: []string{"m-b"}, Recorded: robustStopOutcome{Landed: []string{"m-b"}}}, 300)
 
 			if ok != c.wantOK {
 				t.Fatalf("superseded = %v, want %v", ok, c.wantOK)

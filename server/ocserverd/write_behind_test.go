@@ -313,12 +313,13 @@ func windowTickWorker(t *testing.T, d *DAL, set string) (*apiServer, http.Handle
 }
 
 // A 停止 whose session is confirmed gone is collected by the tick from its list
-// read of the worker. An owner 喚醒 that lands after that read stands: the
-// collect writes its latch and nothing else.
-func TestAnOwnerWakeAfterTheTickReadAStoppedWorkerIsNotUndoneByTheCollect(t *testing.T) {
+// read of the worker. An owner 喚醒 that lands after that read is neither
+// collected nor sent a STOP, the same as the staff twin below.
+func TestAnOwnerWakeAfterTheTickReadAStoppedWorkerIsNotCollected(t *testing.T) {
 	d, hook, path := windowDAL(t, "split pools")
 	api, _, _ := windowTickWorker(t, d,
 		`desired_state = 'offline', stopping_since = 1700000000, stopped_since = 0, last_machine_id = 'm-old'`)
+	apiTestListen(t, api, ServerSelfHost)
 	api.offlineConfirmSince.Store("ow-abc123", 1700000000.0)
 	behind := windowWriteBehind(t, hook, path, "FROM member WHERE kind = 'outsource'",
 		`UPDATE member SET desired_state = 'online', stopping_since = 0, last_machine_id = 'm-new'
@@ -331,13 +332,11 @@ func TestAnOwnerWakeAfterTheTickReadAStoppedWorkerIsNotUndoneByTheCollect(t *tes
 		t.Fatalf("premise: the owner's wake did not land inside the tick's gap")
 	}
 	got := apiTestMemberRow(t, d, "ow-abc123")
-	if got.StoppedSince <= 0 {
-		t.Fatalf("premise: the tick did not collect the stop (stopped_since %v)", got.StoppedSince)
-	}
-	if got.DesiredState != DesiredStateOnline || got.StoppingSince != 0 || got.LastMachineID != "m-new" {
-		t.Fatalf("after the collect: desired_state %q stopping_since %v last_machine_id %q; "+
-			"want online, 0, m-new (the owner's wake)", got.DesiredState, got.StoppingSince, got.LastMachineID)
-	}
+	apiWantValue(t, "desired_state", any(got.DesiredState), any(DesiredStateOnline))
+	apiWantValue(t, "stopping_since", any(got.StoppingSince), any(0.0))
+	apiWantValue(t, "stopped_since", any(got.StoppedSince), any(0.0))
+	apiWantValue(t, "last_machine_id", any(got.LastMachineID), any("m-new"))
+	wsWantWardenFrames(t, api, ServerSelfHost)
 }
 
 // The staff twin: a 停止 whose session is confirmed gone is collected by the
@@ -531,7 +530,7 @@ func TestConnectEdgeWritesDoNotUndoAnOwnerStopThatLandedAfterTheirRead(t *testin
 // decided on an older receipt goes first, the newer one stays.
 func TestAReceiptLandedAfterTheWorkerReceiptWriterReadIsNotOverwritten(t *testing.T) {
 	const newer = `UPDATE member SET last_op = 'start', last_op_ok = 0, last_op_log = '',
-		last_op_reason = 'respawn_deferred: a newer attempt', last_op_at = 1800000000 WHERE id = 'ow-abc123'`
+		last_op_reason = 'warden_unreachable: a newer attempt', last_op_at = 1800000000 WHERE id = 'ow-abc123'`
 	for _, tc := range []struct {
 		name  string
 		prior string
@@ -541,7 +540,7 @@ func TestAReceiptLandedAfterTheWorkerReceiptWriterReadIsNotOverwritten(t *testin
 			w := OutsourceWorker{ID: "ow-abc123", Codename: "Contractor"}
 			api.stampWorkerPlacementBlocked(&w, "held_down: nothing was started", 1700000000)
 		}},
-		{"placement-block clear", `last_op = 'start', last_op_ok = 0, last_op_reason = 'respawn_deferred: old',
+		{"placement-block clear", `last_op = 'start', last_op_ok = 0, last_op_reason = 'warden_unreachable: old',
 			last_op_at = 1700000000`, func(api *apiServer) { api.clearWorkerPlacementBlock("ow-abc123") }},
 		{"converged-failure clear", `last_op = 'start', last_op_ok = 0, last_op_reason = 'wake_timeout: old',
 			last_op_at = 1700000000`, func(api *apiServer) {
@@ -563,36 +562,11 @@ func TestAReceiptLandedAfterTheWorkerReceiptWriterReadIsNotOverwritten(t *testin
 			hook.wantFiredOnce(t)
 			behind.landed(t)
 			got := apiTestMemberRow(t, d, "ow-abc123")
-			if got.LastOpReason != "respawn_deferred: a newer attempt" || got.LastOpAt != 1800000000 {
+			if got.LastOpReason != "warden_unreachable: a newer attempt" || got.LastOpAt != 1800000000 {
 				t.Fatalf("receipt after the writer: reason %q at %v; want the newer attempt at 1800000000",
 					got.LastOpReason, got.LastOpAt)
 			}
 		})
-	}
-}
-
-// Taking back a close-out latch whose kill went nowhere moves the latch alone:
-// anchors another writer set since the collect read the worker stay.
-func TestTakingBackACloseOutLatchLeavesTheOtherAnchorsAsTheRowHasThem(t *testing.T) {
-	d, _, _ := windowDAL(t, "split pools")
-	api, _, _ := windowTickWorker(t, d, `desired_state = 'offline', stopping_since = 1700000000, stopped_since = 1700000300`)
-	read, err := d.GetOutsourceWorker("ow-abc123")
-	if err != nil || read == nil {
-		t.Fatalf("GetOutsourceWorker: %v (%v)", read, err)
-	}
-	if _, err := d.wdb.Exec(`UPDATE member SET stopping_since = 1800000000, refocus_op = 'accelerated_stop'
-		WHERE id = 'ow-abc123'`); err != nil {
-		t.Fatalf("the later write: %v", err)
-	}
-
-	api.outsourceMu.Lock()
-	api.restoreWorkerStoppedLatch(read, 0, "stop-offline")
-	api.outsourceMu.Unlock()
-
-	got := apiTestMemberRow(t, d, "ow-abc123")
-	if got.StoppedSince != 0 || got.StoppingSince != 1800000000 || got.RefocusOp != "accelerated_stop" {
-		t.Fatalf("stopped_since %v stopping_since %v refocus_op %q; want 0, 1800000000, accelerated_stop",
-			got.StoppedSince, got.StoppingSince, got.RefocusOp)
 	}
 }
 

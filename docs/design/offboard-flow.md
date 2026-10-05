@@ -122,7 +122,7 @@ warden **不輪詢** server。它掛著一條長連 SSE，server 把命令直接
 
 server 的處理方式是**每一輪重新推導**——還活著就再送一次（間隔至少 `stop_retry`）。命令因此必須是**重複執行無害**的：warden 收到第二道 stop 而目標早就死了，那是一個乾淨的 no-op。
 
-⚠️ **這個「再送一次」今天也涵蓋下線那條（T-ed79 起）。** 決策迴圈那一臂確實不派——下線那一臂在成員還線上的整段期間**什麼都不派**（見第三節）。但它的兩個收口——成員自報收完、owner 按強制下線——送出的同時都會**把這一刀記下來**，排程迴圈看到成員過了 `stop_retry` 還在線就再送一次。⚠️ **記在哪裡依身分而不同，不要只記結論**：正職記的是 `reconcileState.RobustStopPendingAt`（連 fail-closed 的閘當場擋掉那一幀時也照記），由排程迴圈重送；外包記的是它自己那本 `workerStopLanded`（具名目標當下不可達時改停在 `workerStopPending`），由外包的 tick 重送；唯一記不到的是整隊 warden 都連不上、或鏈尾廣播被每一台拒絕那一格——那一格沒有任何人記得，而且失敗時完全無聲（見第八節）——正職那道標記**刻意不裝在外包身上**，裝上去會壓住它該拿到的重新開機、再把它的機器暫停派工。T-253 之後這道 stop 還多了一條有序的目標鏈、鏈尾是廣播（見第五節），所以「沒有任何來源叫得出機器名字」也不再是它掉單的方式。⇒ **frame 掉了不再只剩 owner 的手。**
+⚠️ **這個「再送一次」今天也涵蓋下線那條（T-ed79 起）。** 決策迴圈那一臂確實不派——下線那一臂在成員還線上的整段期間**什麼都不派**（見第三節）。但它的兩個收口——成員自報收完、owner 按強制下線——送出的同時都會**把這一刀記下來**，排程迴圈看到成員過了 `stop_retry` 還在線就再送一次。兩種身分記在**同一本帳**（`stop_ledger.go` 的 robust-stop ledger），由兩邊各自的 tick 用同一個判斷重送：送到了的，過了 `stop_retry` session 還活著就再送；瞄準的那台當下不可達（fail-closed 的閘擋掉那一幀）就停在帳上，tick 每一輪重打，直到有 warden 收下。整隊 warden 都連不上、或鏈尾廣播被每一台拒絕那一格也一樣記在帳上：它以廣播的身分停著，tick 每一輪重新解一次目標鏈再打，有 warden 收得下的那一刻就送出去。這一刀沒送到任何一台時，正職與外包的收口都照樣成立、馬上顯示已停止（owner 裁示 `rc-ae3f9765a6f5`）；機器回來時，帳上那一刀一定排在新 session 的 START 前面——先停舊的、再開新的。帳上還欠、session 還活著的期間，決策迴圈對這個成員什麼都不派（不開機、不判收斂）；重送只有那本帳會做，決策迴圈自己不再送這一刀，所以它也不可能被外包那條路讀成殭屍接管。T-253 之後這道 stop 還多了一條有序的目標鏈、鏈尾是廣播（見第五節），所以「沒有任何來源叫得出機器名字」也不再是它掉單的方式。⇒ **frame 掉了不再只剩 owner 的手。**
 
 這是一個「至少一次」的設計蓋在一條「至多一次」的通道上，而讓它成立的是 idempotent 而不是可靠投遞。
 
@@ -172,21 +172,20 @@ server 的處理方式是**每一輪重新推導**——還活著就再送一次
 ⚠️ **這一段推翻了它上一版寫的話**——上一版寫「外包那邊只加了對稱的 endpoint，
 `/stop` 的語意一個字都沒動」。那句在 owner 裁定的當下就過期了。
 
-`HandleStopOutsourceWorker…`（T-197 之後它不再自己掛一條路由，而是
-`POST /api/members/{member_id}/deactivate` 在 `kind == outsource` 時分流進來的那段
-body）現在做的是：翻 `desired_state=offline`（保持「停止壓過
-一切自動復活」）、蓋 `stopping_since`、清掉 in-flight 的 refocus epoch、走
-`openWorkerHandoverGrace` 朝 worker 自己的 session 發那份 member-topic 的下線預告，然
-後**回傳**。它**不殺**、也**不蓋 `forced_stop_at`**。
+`POST /api/members/{member_id}/deactivate` 對外包與正職呼叫同一個 `stopMember`
+（`member_stop.go`；外包專用的 stop handler 已刪），對一個還在線的 worker 做的是：翻
+`desired_state=offline`（保持「停止壓過一切自動復活」）、蓋 `stopping_since`、清掉
+in-flight 的 refocus epoch、發一則帶下線預告的 member delta 到 worker 自己的 session，
+然後**回傳**。它**不殺**、也**不蓋 `forced_stop_at`**。
 
 - **為什麼不蓋 `forced_stop_at`**：那個 anchor 存在的兩個理由，對優雅停止都反過來。
   它是用來讓通知**沉默**的（`forcedEpochLive` → `offboardKindOf` 不掛 notice），可是
   優雅停止的重點就是那則通知要送到；它也是「這個 session 是被切斷的」憑據，而這個
   session 是被**請它自己收尾**的。那個 anchor 連同當場的 kill 一起搬到第三顆按鈕
   `POST /api/members/{member_id}/force-stop`（T-197 之前那顆按鈕打的是
-  `POST /api/outsource-workers/{id}/force-stop`；**動的只有路徑，語意一個字沒變**——
-  member handler 看 `kind == outsource` 就分流進同一個 worker body）。
-- **收口是 `workerReportStopped`**，而它需要一條新的臂。原本的收口閘是
+  `POST /api/outsource-workers/{id}/force-stop`；今天兩種成員都走同一個
+  `forceStopMember`）。
+- **收口是 worker 自己的 report_stopped**（今天是兩種成員共用的 `reportMemberStopped`），而它需要一條新的臂。原本的收口閘是
   `desired online ∧ refocus_since > 0`，而一個停止 epoch **兩個都不是**。少了那條臂，
   外包按了停止之後會**永遠不被收掉**——比原本當場殺掉更糟。護欄：
   `TestWorkerStop_ReportStoppedCollectsTheStopEpoch`。
@@ -349,7 +348,7 @@ warden 收到一道 stop，內部是一段**自我升級的階梯**，不是單�
 
 ## 七、正職成員與外包 worker 是刻意不對稱的
 
-同一支 `report_stopped`，**兩種身分走同一個判斷**（T-251，owner `rc-b08d49dc3b03`）：第一次報停一律收，在同一支呼叫裡就把停止送出去；要不要重生由 desired_state 單獨決定。重複呼叫回 `already_reported`，什麼都不做。**那一刀怎麼砍，從 T-253 起也不再不對稱**：兩種身分走同一支 `dispatchShutdown`（解析目標機器 → 送出 → 追回執 → 清開機節流 → 清 session 開機錨），連建 stop frame 的地方全 package 都只剩一個。還分岔的有兩件：**解析目標機器時可用的來源**（外包多一個「server 這一輪記得把開機派到哪」，正職多一個 pin；見第五節那條鏈），以及**重送記在哪本帳上**（正職 `RobustStopPendingAt` 由排程重送，外包 `workerStopLanded`／`workerStopPending` 由外包 tick 重送——與第二節同一件事）。正職那道標記刻意不裝在外包身上：裝上去會壓住它該拿到的重新開機，再讓決策器把那道停止讀成殭屍接管、把機器暫停派工。收完之後的記帳仍各自為政——worker 有任務綁定、代號與結案那一整套正職沒有的生命週期。
+同一支 `report_stopped`，**兩種身分走同一個判斷**（T-251，owner `rc-b08d49dc3b03`）：第一次報停一律收，在同一支呼叫裡就把停止送出去；要不要重生由 desired_state 單獨決定。重複呼叫回 `already_reported`，什麼都不做。**那一刀怎麼砍，從 T-253 起也不再不對稱**：兩種身分走同一支 `dispatchShutdown`（解析目標機器 → 送出 → 追回執 → 清開機節流 → 清 session 開機錨），連建 stop frame 的地方全 package 都只剩一個。還分岔的只剩**解析目標機器時可用的來源**（外包多一個「server 這一輪記得把開機派到哪」，正職多一個 pin；見第五節那條鏈）；重送記在同一本 robust-stop ledger 上、用同一個判斷（與第二節同一件事）。收完之後的記帳仍各自為政——worker 有任務綁定、代號與結案那一整套正職沒有的生命週期。
 
 **離開名冊之後，兩種身分一樣被擋**：已離開正職（被遣散）與已釋放外包（任務結案、換手時的釋放）的 token，從下一個請求起，REST 與 MCP 工具呼叫在 auth 那一關回 401；SSE 重連則由擋回連線的那道 gate 回 409，殘留的連線程式（不論哪一版）收到一串 409 後自己結束 session（`spec/lifecycle.md` §1.3 第 5 刀）。外包的收尾（步驟筆記、附件、回覆卡、lore）都發生在任務 `ready_for_done`、worker 還在冊上的時候；它自己那一呼 `mark_task_done` 進門時還在冊上，照樣回 200，結案時的釋放才讓它的憑證失效。還在冊上的成員被停止後，正職與外包走同一道 SSE 判斷——收尾中放行，收完或被強制停止就回 409，殘留的連線程式收到後自己結束。
 
