@@ -77,7 +77,7 @@ func pathWithin(path, root string) bool {
 
 // measureServerDisk reads sizes only; it never removes anything. A missing
 // -wal/-shm or backups directory counts as 0; a database file that cannot be
-// read leaves database_bytes null.
+// read leaves the database size null.
 func measureServerDisk(dbPath, stationRoot string, now time.Time) serverDiskSample {
 	sample := serverDiskSample{
 		MeasuredAt: float64(now.UnixNano()) / 1e9,
