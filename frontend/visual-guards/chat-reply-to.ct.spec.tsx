@@ -483,70 +483,8 @@ for (const width of [390, 1200, 1250, 1280]) {
   });
 }
 
-// Native keyboard semantics, one width. jsdom proved the click handler; this
-// proves both controls really are <button> elements — a <div onClick> mutant
-// takes the reply entry and the x out of reach for anyone not using a mouse.
-// 🔴 THE ENGLISH LABEL IS A DIFFERENT LAYOUT PROBLEM, not the same one in another
-// font. The whole control runs ~154px in English against ~69px in Chinese
-// (measured in this harness: the label alone is 140px vs 55px, and the button
-// adds a 12px chevron plus a 2px gap), and the control it lives in used to
-// refuse to shrink, so it ran out of the bubble and under
-// `.chat__msg-actions`, which is absolutely positioned and paints on top of it.
-// Nothing in the suite could see that: every fixture was Chinese.
-//
-// ⚠️ THE STRING THIS LOOP MOUNTS IS THE RETIRED LABEL, DELIBERATELY. The product
-// has said "View the original message" (`en.ts`, `chat.replyQuoteJump`) since
-// `d7752781` renamed it with the behaviour; "Go to the original message" is the
-// older and WIDER string, kept here because width is the whole mechanism and the
-// wider one is the worst case. Do not read a current product label off this
-// fixture, and do not "correct" it to the current one — that would loosen the
-// guard. The threshold loop further down mounts the CURRENT string on purpose,
-// because there the question is where the flip lands, not how wide the label is.
-//
-// Be exact about ONE thing and vague about another. Exact: the English string
-// reaches the failure first, and it is the fixture this loop needs. Vague: WHERE
-// it fails. Three reviews put three different ranges in this file and all three
-// were withdrawn — the band moves with the bubble kind, the display name and the
-// language, and one of the three was measured on a hand-built copy of the layout
-// rather than the layout. Chinese is NOT exempt; it fails at the narrow end too.
-//
-// ⚠️ THESE WIDTHS ARE THE HARNESS'S, AND THEY DO NOT MAP ONTO PRODUCTION. The
-// harness has no app shell — no 1040px cap, no 22px page padding, no 264px
-// roster column — so the message pane it hands these rows is a different size at
-// the same number. Measured `.chat__messages` clientWidth here: 300→252,
-// 336→288, 390→342, 560→512, 620→572, 720→672, 1280→1232. Production reaches
-// 288 at a viewport of about 380.
-//
-// 🔴 THE WIDTH LIST GREW ON 2026-08-21, AND THE REASON IS THAT THIS TEST HAD
-// STOPPED TESTING ITS OWN NAME. It is called "the English jump label never
-// reaches the corner controls", and while the collapse rule was
-// `@media (max-width: 560px)` every width in the list was under 560 — so the
-// English label was `display: none` in all five and the loop measured a 14px
-// arrow. r18-F3's whole mechanism (a 154px label that will not give way ends up
-// under the absolutely-positioned corner buttons) had no witness at any width
-// where the label EXISTS. Measured at the time: mutating `flex: 0 10 auto` to
-// `flex: none`, and separately deleting `min-width: 0` from the label, each left
-// all 27 tests green. (⚠️ Not repeatable either: all three declarations are
-// gone, and 27 is not this file's count today — see the caveat inside the loop.)
-//
-// The last three widths are the fix: the collapse is now a `@container` query on
-// the PANE (520px), and at viewport 600 / 640 / 760 this harness gives the pane
-// 552 / 592 / 712 — above the threshold, so the label renders at its full width
-// and the geometry below is measured with a 154px label actually present.
-//
-// ⚠️ WHAT THOSE THREE WIDTHS DO NOT RESTORE: the shrink and the floor. They are
-// gone (r22fix deleted `flex: 0 10 auto`, the button's `min-width: 14px` and the
-// label's `min-width: 0` together) and no width brings them back — above the
-// threshold the label is whole, below it it is `display: none`, and there is no
-// state in between for a shrink to happen in. See the mutant table inside the
-// loop, which was run against THIS file, not inherited.
-//
-// Still NOT covered here: production's own discontinuity (the shell's 264px
-// roster column arrives at vw 721 and drops the pane from 628 to 347), which no
-// viewport in this harness reproduces because this harness has no shell. That is
-// exactly why the pane — not the viewport — is what the CSS now asks about, and
-// why `e2e_test/tests/17_chat_reply_to.spec.js` carries the production-shell
-// witness at vw 721 / 800 / 880.
+// The longer English label is the limiting case for the jump control's width.
+// Pane width can drop when shell chrome appears at a larger viewport.
 for (const width of [300, 320, 336, 360, 390, 600, 640, 760]) {
   test(`width ${width}: the English jump label never reaches the corner controls`, async ({
     mount,
@@ -699,29 +637,8 @@ for (const width of [300, 320, 336, 360, 390, 600, 640, 760]) {
 }
 
 // ── the collapse threshold, in both directions ───────────────────────────────
-//
-// 🔴 THE OLD VIEWPORT RULE HAD ZERO DISCRIMINATION AND THIS IS THE REPAIR. While
-// the collapse was `@media (max-width: 560px)`, a reviewer mutated that number
-// to 400 (weaker) and to 900 (stronger) and BOTH left all 27 tests green: the
-// suite witnessed that a media query existed, and nothing about which one.
-// (⚠️ Not repeatable — that rule is gone, and 27 was this file's count then; it
-// is 32 now. The repaired version IS repeatable and is in the table above.) The
-// rule is now `@container chat-pane (max-width: 520px)` on the PANE, and this
-// test reads the pane and asserts the flip lands where the stylesheet says.
-//
-// ⚠️ BE EXACT ABOUT WHAT THIS IS AND IS NOT. It pins the NUMBER — move it in
-// either direction and one of these rows goes red, which is precisely what the
-// old guard could not do. It does NOT justify the number: this harness has no
-// app shell, and measured here, the row only physically collides with the corner
-// controls at a pane of about 288px or less, so every value between roughly 300
-// and 520 is geometrically indistinguishable in this file. What justifies 520 is
-// production, where the excerpt measured ZERO visible characters from vw 721 to
-// about 880 with the label present — and that measurement lives in
-// `e2e_test/tests/17_chat_reply_to.spec.js`, at vw 721 / 800 / 880.
-//
-// The pane widths this harness produces (viewport → `.chat__messages`
-// clientWidth): 560 → 512, 600 → 552, 620 → 572. So 560 sits just under the
-// threshold and 620 just over it, which is why those two are the pair.
+// The label hides at a pane width of 520px. Pane width matters because shell
+// chrome can narrow the pane even when viewport width grows.
 for (const width of [560, 620]) {
   test(`width ${width}: the jump label collapses on the PANE's width, at 520`, async ({
     mount,
@@ -839,31 +756,10 @@ for (const width of [320, 360, 390]) {
   });
 }
 
-// ── 🔴 PANE 347px — THE CT HOLE THIS PACKAGE LEFT, NOW PLUGGED ──────────────
-//
-// The regression this test would have caught reached the PR and was found by
-// `e2e_test/tests/17_chat_reply_to.spec.js` alone: T-4e95 put the recipient on
-// the quote row (「寄件者 → 收件者」), the row was one line, and the two halves
-// competed for it. At the pane the production shell hands the thread just past
-// its two-column breakpoint — 347px at vw 721 — the name pair took 101px and the
-// quoted sentence was left with 18px: 3 of 61 characters here, 0 on the CI
-// runner's fonts.
-//
-// ⚠️ WHY THE CT FILE COULD NOT SEE IT BEFORE, AND WHAT CHANGED. The reason this
-// file gives for the miss elsewhere is that this harness has NO APP SHELL — no
-// 1040px cap, no page padding, no 264px roster column — so production's 281px
-// discontinuity at vw 721 does not exist here at any viewport. That is still
-// true and it is still why the e2e spec exists. But the discontinuity was only
-// ever how production ARRIVES at a 347px pane; the defect is a property OF that
-// pane width, and this harness can be driven to it directly: measured, the
-// viewport→pane mapping here is `vw − 48`, so viewport 395 gives the pane
-// exactly 347px. What could not be reproduced was the shell; the number can be.
-//
-// The row it measures is `row-mine-pane347`, whose sender name, addressee and
-// 61-character English sentence are copied field for field from that spec's
-// fixture (see the story). The measurement is that spec's too — per-character
-// rects against the element's own clip box, because `overflow: hidden` is PAINT
-// and `clientWidth` stays healthy over an empty row.
+// ── PANE 347px — NARROW SHELL GEOMETRY ──────────────────────────────────────
+// At vw 721, the shell's 264px roster reduces the pane from 628px to 347px.
+// overflow:hidden can clip every character while leaving the element box intact.
+
 test("pane 347px: the quoted sentence still has characters (the width the shell hands the thread at vw 721)", async ({
   mount,
   page,
@@ -893,32 +789,13 @@ test("pane 347px: the quoted sentence still has characters (the width the shell 
       return { chars, total: (el.textContent ?? "").length, paneW: pane.clientWidth };
     });
 
-  // PRECONDITION, asserted rather than assumed: this really is the pane width
-  // the production shell produces at vw 721. If the harness's own geometry ever
-  // moves, this says so instead of quietly measuring some other pane.
   expect(seen.paneW, "the viewport must put the pane at 347px").toBe(347);
 
-  // The same claim the e2e spec makes, at the same pane width. Measured after
-  // the two-line split: 47 of 66 characters.
-  //
-  // ⚠️ AND ON ITS OWN IT WOULD GUARD NOTHING HERE — say so rather than let a
-  // green run imply otherwise. MUTANT (run against this file): revert the row to
-  // one line (`.chat__msg-quote` back to a row, `__head` to `display: contents`,
-  // `__body` back to `flex: 1 10000 auto`) and this line still PASSES, with 20
-  // of 66 characters. The same pane width in the production shell leaves 3 of 61
-  // (0 on the CI runner) because the shell's bubble is ~96px narrower than this
-  // harness's at the same pane. So the character count is a knife edge that
-  // production falls off and this harness does not, and the assertion that
-  // actually discriminates is the geometric one below.
   expect(
     seen.chars,
     `pane ${seen.paneW}px: the quoted sentence must not be squeezed to nothing`,
   ).toBeGreaterThan(0);
 
-  // 🔴 THE ONE THAT CARRIES THE WEIGHT: the excerpt owns the whole row. That is
-  // the mechanism rather than the symptom — on a line of its own there is
-  // nothing beside it to lose width to, at ANY pane width and in any font. Under
-  // the one-line mutant above this reports 114px of a 255px row and goes red.
   const geom = await cmp.getByTestId("quote-row-pane347").evaluate((row) => {
     const b = row.querySelector(".chat__msg-quote__body") as HTMLElement;
     const h = row.querySelector(".chat__msg-quote__head") as HTMLElement;
@@ -1008,4 +885,3 @@ test.describe("coarse pointer", () => {
 
   }
 });
-
