@@ -825,11 +825,6 @@ var identityGateLedger = map[string]string{
 		"are refused by staffOnly and read their own preview route.",
 
 	// ── offboard / wind-down ────────────────────────────────────────────────
-	"api_members.go :: offboardManualWriteBackFor :: m.Kind != KindOutsource": "" +
-		"the offboard 預告's task-manual clause is derived from the worker's LINKED " +
-		"TASK, which only an outsource row has (LinkedTaskID). A staff member has no " +
-		"such link, so there is nothing to write back — an absence of data, not a " +
-		"withheld formality.",
 	"member_ownerop_winddown.go :: memberHasStateToFlushGiven :: m.Kind != KindStaff": "" +
 		"staff-only by construction, and the function's own comment says why for both " +
 		"excluded kinds: a warden runs no ocagent and would never read the marker, and " +

@@ -233,36 +233,10 @@ func stopEpochAnchor(m Member, now float64) float64 {
 
 // No {where}/position clause (owner decision, T-6f44 #4): an agent that received
 // one closed out no differently.
+// 🔴 A stop is a hand-off, not a closeout: appending 〈任務結案〉 here makes a replaced
+// outsource worker close its PR and stop updating the task.
 func (s *apiServer) offboardNoticeFor(m Member, kind string) string {
-	notice := s.winddownNoticeText(kind, winddownDeadlineOf(m, s.reconcileConfigLive()))
-	if notice == "" {
-		return ""
-	}
-	if clause := s.offboardManualWriteBackFor(m); clause != "" {
-		notice += "\n\n" + clause
-	}
-	return notice
-}
-
-// OUTSOURCE ONLY, per the owner's ruling: a 正職 outlives any one task, so naming
-// one task's manual would be the wrong address.
-func (s *apiServer) offboardManualWriteBackFor(m Member) string {
-	if m.Kind != KindOutsource || m.LinkedTaskID == nil || *m.LinkedTaskID == "" {
-		return ""
-	}
-	t, err := s.dal.GetTask(*m.LinkedTaskID)
-	if err != nil || t == nil {
-		return ""
-	}
-	// An ad-hoc task (no type) has no manual — the same criterion
-	// decideTaskCloseNudge uses.
-	if t.TypeKey == "" {
-		return ""
-	}
-	// The document, not a Go copy (owner decision, T-6f44 #6). BODY only: the worker's
-	// ticket has not necessarily ended, so the opening 「任務 {task_no} 已結束。」 would
-	// be a false claim here.
-	return s.taskEventBodyText(docKindTaskCloseout)
+	return s.winddownNoticeText(kind, winddownDeadlineOf(m, s.reconcileConfigLive()))
 }
 
 func (s *apiServer) resolveAvatarMember(memberID string) (*Member, error) {
