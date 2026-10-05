@@ -1430,7 +1430,7 @@ export function MachinesTable({
                  * telemetry — stale telemetry carries no login state
                  * (owner ruling). */}
                 <td
-                  className="mon-table__left"
+                  className="mon-table__left mon-runtime-cell"
                   data-label={t.monitor.machineCol.claude}
                   data-testid="mon-claude-version"
                 >
@@ -1446,7 +1446,7 @@ export function MachinesTable({
                   />
                 </td>
                 <td
-                  className="mon-table__left"
+                  className="mon-table__left mon-runtime-cell"
                   data-label={t.monitor.machineCol.codex}
                   data-testid="mon-codex-version"
                 >

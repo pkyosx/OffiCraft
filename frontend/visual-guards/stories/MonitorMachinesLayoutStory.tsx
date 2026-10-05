@@ -4,8 +4,8 @@
 // an offline machine whose cutover is 未生效 — the widest 機器 cell of those three. Codex's 版本太舊 is not something
 // the server sends today (below_notify_minimum is Claude's alone); it is here
 // because both columns render the same fields the same way and must fit them.
-// Two more on request: a remote machine with a real-length name and id, and one
-// with a very long name. Mounted through the real MachinesTable with
+// More on request: a row whose Claude carries 版本太舊 alone, a remote machine
+// with a real-length name and id, and one with a very long name. Mounted through the real MachinesTable with
 // hand-built rows (no api), inside a 1000px box (the monitor page content is 996px at any desktop
 // viewport from 1100px up).
 import { I18nProvider } from "../../src/i18n";
@@ -75,7 +75,7 @@ const hardware: MonMachineView = {
   diskUsage,
 };
 
-export type MachinesLayoutState = "normal" | "chips" | "stale" | "named" | "long";
+export type MachinesLayoutState = "normal" | "old" | "chips" | "stale" | "named" | "long";
 
 const rows: Record<MachinesLayoutState, { machine: MachineView; hw: MonMachineView }> = {
   normal: { machine, hw: hardware },
@@ -89,6 +89,16 @@ const rows: Record<MachinesLayoutState, { machine: MachineView; hw: MonMachineVi
   long: {
     machine: { ...machine, machineId: "m-c9479bc2d696", displayName: "Seth 的 Mac Studio（辦公室三樓靠窗）", isSelf: false },
     hw: { ...hardware, machine: "m-c9479bc2d696", displayName: "Seth 的 Mac Studio（辦公室三樓靠窗）" },
+  },
+  old: {
+    machine: { ...machine, claudeVersion: "2.1.286" },
+    hw: {
+      ...hardware,
+      runtimeCapabilities: {
+        ...hardware.runtimeCapabilities,
+        claude: { installed: true, loggedIn: true, version: "2.1.286", belowNotifyMinimum: true },
+      },
+    },
   },
   chips: {
     machine: { ...machine, claudeVersion: "2.1.286" },

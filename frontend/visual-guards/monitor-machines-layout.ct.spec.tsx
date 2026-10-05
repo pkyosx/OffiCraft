@@ -5,17 +5,27 @@
 // and the three action buttons stacked into two or three rows. jsdom has no
 // layout, so this is measured in a real browser on the real MachinesTable.
 // The owner then picked the marks on the SAME line as the value, in fixed
-// columns, Claude and Codex one width, and a ⚙ with no frame. A table wider
+// columns, Claude and Codex one width, and a ⚙ with no frame. Claude and Codex
+// are sized for a version, one mark and the chevron; a second mark wraps under
+// the value inside the cell, because columns wide enough for two marks on one
+// line left the default 伺服器這一台 row scrolling at the 1280px desktop. A table wider
 // than its frame scrolls inside it with 機器 fixed on the left, so every row
 // still names its machine, and 操作 fixed on the right. 機器 is only as wide as
 // its widest row's name, id and online dot need (the state word moved into the
-// dot's hint), so at the 1280px desktop real machine names leave 磁碟 in view.
+// dot's hint), so at the 1280px desktop the default name, real machine names
+// and the offline 未生效 row leave 磁碟 in view; a very long name still widens
+// the table, which scrolls.
 //
 // MUTANTS (each verified red):
 //   marks inline AND auto table layout (the layout before the fix)
 //                                           → column x differs between states
-//   marks back on a line of their own       → same-line test, row height test
-//   Claude / Codex column narrowed           → a mark spills out of its cell
+//   marks back on a line of their own       → placement test, row height test
+//   Claude / Codex column narrowed           → a single mark wraps (placement test)
+//   Claude / Codex column back to 184px      → default-name 1280px fit test
+//   a second mark no longer wraps            → placement test (spills), row height test
+//   marks wrap as one group                  → placement test (first mark leaves the value's line)
+//   trigger's right margin dropped           → en placement test ("too old" wraps)
+//   操作 header's left padding back          → en default-name fit test (1px scroll)
 //   Codex column a different width           → equal-width test
 //   drop `table-layout: fixed` or the column widths → 800px test
 //   操作 column not sticky                  → gear off-screen at 760/900px
@@ -96,11 +106,12 @@ test("at a 1400px frame, every column starts at the same x in the plain, chipped
   }
 });
 
-const MARKED_CELLS = ["mon-claude-version", "mon-codex-version", "mon-cpu", "mon-ram", "mon-power"];
+const MARKED_CELLS = ["mon-claude-version", "mon-codex-version", "mon-cpu", "mon-ram", "mon-power"] as const;
 
-/** For every marked cell of the mounted rows: whether each mark shares the
- * value's line, and whether value, marks and chevron all stay inside the cell. */
-async function markPlacement(page: Page) {
+/** For every marked cell of the mounted rows: where each mark sits relative to
+ * the value ("same" line or a line "below" it), and whether value, marks and
+ * chevron all stay inside the cell without overlapping. */
+async function markPlacement(page: Page, ids: readonly string[]) {
   return page.evaluate((ids) => {
     const box = (el: Element) => el.getBoundingClientRect();
     const out = [];
@@ -117,36 +128,57 @@ async function markPlacement(page: Page) {
         // The right padding is the gap to the next column; nothing runs into it.
         const right = c.right - parseFloat(getComputedStyle(cell).paddingRight);
         const mid = (r: DOMRect) => (r.top + r.bottom) / 2;
+        const marks = Array.from(line.querySelectorAll(".mon-cell-marks > *")).map(box);
+        const placement = marks.map((r) =>
+          Math.abs(mid(r) - mid(value)) <= 2 ? "same" : r.top >= value.bottom - 0.5 ? "below" : "mixed"
+        );
+        const all = [value, ...parts.map(box)];
+        const overlap = all.some((a, i) =>
+          all.some((b, j) => j > i && a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5)
+        );
         out.push({
           id: `${section.getAttribute("data-state")} ${id}`,
-          marks: line.querySelectorAll(".mon-cell-marks > *").length,
-          sameLine: parts.every((el) => Math.abs(mid(box(el)) - mid(value)) <= 2),
-          inside: [value, ...parts.map(box)].every((r) => r.left >= c.left && r.right <= right + 0.5),
+          placement,
+          inside: all.every((r) => r.left >= c.left && r.right <= right + 0.5 && r.top >= c.top && r.bottom <= c.bottom),
+          overlap,
         });
       }
     }
     return out;
-  }, MARKED_CELLS);
+  }, ids);
 }
 
-for (const width of [1000, 900]) {
-  test(`at ${width}px a mark sits on the value's line, and the most a cell carries fits its column`, async ({
+const PLACED = [
+  ["normal", 0, 0, 0, 0, 0],
+  ["old", 1, 0, 0, 0, 0],
+  ["chips", 2, 2, 0, 0, 0],
+  ["stale", 2, 2, 1, 1, 1],
+] as const;
+// The first mark shares the value's line; in the Claude and Codex cells a
+// second one goes on the line below. CPU, RAM and 電源 carry at most one.
+const PLACEMENT = { 0: [], 1: ["same"], 2: ["same", "below"] } as const;
+const expectedPlacement = (ids: readonly string[]) =>
+  PLACED.flatMap(([state, ...counts]) =>
+    MARKED_CELLS.flatMap((id, i) =>
+      ids.includes(id) ? [{ id: `${state} ${id}`, placement: PLACEMENT[counts[i]], inside: true, overlap: false }] : []
+    )
+  );
+
+// en runs the Claude and Codex cells only: its "stale" chip does not fit the
+// 72px CPU and RAM columns beside a dash, which these columns never claimed.
+for (const [language, width, ids] of [
+  ["zh", 1000, MARKED_CELLS],
+  ["zh", 900, MARKED_CELLS],
+  ["en", 1000, MARKED_CELLS.slice(0, 2)],
+] as const) {
+  test(`${language}, ${width}px: one mark sits on the value's line, a second wraps under it, and the most a cell carries stays inside its column`, async ({
     mount,
     page,
   }) => {
+    await page.evaluate((l) => localStorage.setItem("oc.language", l), language);
     await page.setViewportSize({ width: width + 500, height: 900 });
-    await mount(<MonitorMachinesLayoutStory width={width} />);
-    const placed = await markPlacement(page);
-    const marked = Object.fromEntries(placed.map((p) => [p.id, p.marks]));
-    // Control: the worst cells really are carrying two marks each.
-    expect(marked["chips mon-claude-version"]).toBe(2);
-    expect(marked["chips mon-codex-version"]).toBe(2);
-    expect(marked["stale mon-claude-version"]).toBe(2);
-    expect(marked["stale mon-codex-version"]).toBe(2);
-    expect(marked["stale mon-cpu"]).toBe(1);
-    for (const p of placed) {
-      expect(p, p.id).toEqual({ ...p, sameLine: true, inside: true });
-    }
+    await mount(<MonitorMachinesLayoutStory width={width} states={["normal", "old", "chips", "stale"]} />);
+    expect(await markPlacement(page, ids)).toEqual(expectedPlacement(ids));
   });
 }
 
@@ -160,8 +192,8 @@ test("the columns run 機器, Claude, Codex, CPU, RAM, 電源, 磁碟, 操作 at
     ])
   );
   expect(heads.slice(1)).toEqual([
-    ["Claude", 184],
-    ["Codex", 184],
+    ["Claude", 150],
+    ["Codex", 150],
     ["CPU", 72],
     ["RAM", 72],
     ["電源", 88],
@@ -198,17 +230,24 @@ test("the 磁碟 total and 尚未量測 each sit on one line inside the column",
   ]);
 });
 
-test("a marked row is no taller than a plain one", async ({ mount, page }) => {
+test("a row with one mark per cell is no taller than a plain one; a second mark adds no more than its own line", async ({
+  mount,
+  page,
+}) => {
   await page.setViewportSize({ width: 1500, height: 900 });
-  await mount(<MonitorMachinesLayoutStory />);
-  const heights = await page.evaluate(() =>
-    Array.from(document.querySelectorAll("[data-state] tbody tr")).map((tr) =>
+  await mount(<MonitorMachinesLayoutStory states={["normal", "old", "chips", "stale"]} />);
+  const rows = await page.evaluate(() => ({
+    heights: Array.from(document.querySelectorAll("[data-state] tbody tr")).map((tr) =>
       Math.round(tr.getBoundingClientRect().height)
-    )
-  );
-  expect(heights).toHaveLength(3);
-  expect(heights[1], "chips row").toBe(heights[0]);
-  expect(heights[2], "stale row").toBe(heights[0]);
+    ),
+    mark: document.querySelector('[data-state="chips"] [data-testid="mon-claude-too-old"]')!.getBoundingClientRect().height,
+  }));
+  const [normal, old, chips, stale] = rows.heights;
+  expect(rows.heights).toHaveLength(4);
+  expect(old, "one mark").toBe(normal);
+  expect(stale, "stale row").toBe(chips);
+  expect(chips - normal, "a second mark wraps under the value").toBeGreaterThan(0);
+  expect(chips - normal, "by one line of chips at most").toBeLessThanOrEqual(Math.ceil(rows.mark) + 2);
 });
 
 for (const width of [1000, 900, 800]) {
@@ -376,18 +415,21 @@ async function overflow(page: Page) {
 }
 
 // 996px is the monitor page's content width at a 1280px (or any wider) desktop.
+// The very long name is the row that still scrolls there.
+const LONG_GEAR = "機器操作（Seth 的 Mac Studio（辦公室三樓靠窗））";
+
 for (const width of [760, 900, 996]) {
   test(`at ${width}px the ⚙ stays inside the scrolled frame and opens its menu`, async ({ mount, page }) => {
     await page.setViewportSize({ width: width + 20, height: 900 });
-    await mount(<MonitorMachinesLayoutStory width={width} states={["stale"]} />);
+    await mount(<MonitorMachinesLayoutStory width={width} states={["long"]} />);
     expect((await overflow(page)).frame, "control: the frame does scroll at this width").toBeGreaterThan(0);
     const frame = (await page.locator(".mon-table-wrap").boundingBox())!;
-    const gear = page.getByRole("button", { name: "機器操作（伺服器這一台）" });
+    const gear = page.getByRole("button", { name: LONG_GEAR });
     const g = (await gear.boundingBox())!;
     expect(g.x).toBeGreaterThanOrEqual(frame.x);
     expect(g.x + g.width).toBeLessThanOrEqual(frame.x + frame.width);
     await gear.click();
-    await expect(page.getByRole("menuitem")).toHaveText(["安裝", "解除安裝", "刪除"]);
+    await expect(page.getByRole("menuitem")).toHaveText(["重新安裝", "解除安裝", "刪除"]);
   });
 
   test(`at ${width}px the 操作 column covers what scrolls under it and stays on the frame's right edge`, async ({
@@ -395,7 +437,7 @@ for (const width of [760, 900, 996]) {
     page,
   }) => {
     await page.setViewportSize({ width: width + 20, height: 900 });
-    await mount(<MonitorMachinesLayoutStory width={width} states={["stale"]} />);
+    await mount(<MonitorMachinesLayoutStory width={width} states={["long"]} />);
     const wrap = page.locator(".mon-table-wrap");
     const lastCell = page.locator("tbody td").last();
     const lastHead = page.locator("thead th").last();
@@ -439,15 +481,15 @@ for (const width of [760, 900, 996]) {
     page,
   }) => {
     await page.setViewportSize({ width: width + 20, height: 900 });
-    await mount(<MonitorMachinesLayoutStory width={width} />);
+    await mount(<MonitorMachinesLayoutStory width={width} states={["normal", "chips", "stale", "long"]} />);
     const over = await overflow(page);
     expect(over.page, "the page itself does not scroll sideways").toBeLessThanOrEqual(0);
     expect(over.monitor).toBeLessThanOrEqual(0);
     expect(over.frame, "control: the frame does scroll at this width").toBeGreaterThan(0);
 
     const wraps = page.locator(".mon-table-wrap");
-    const machineCells = page.locator('[data-state="stale"] tbody td:first-child');
-    const machineHead = page.locator('[data-state="stale"] thead th:first-child');
+    const machineCells = page.locator('[data-state="long"] tbody td:first-child');
+    const machineHead = page.locator('[data-state="long"] thead th:first-child');
     const frame = (await wraps.last().boundingBox())!;
     const startCell = (await machineCells.boundingBox())!;
     const startHead = (await machineHead.boundingBox())!;
@@ -462,7 +504,7 @@ for (const width of [760, 900, 996]) {
       cell: Math.round(startCell.x),
       head: Math.round(startHead.x),
     });
-    const gear = (await page.getByRole("button", { name: "機器操作（伺服器這一台）" }).last().boundingBox())!;
+    const gear = (await page.getByRole("button", { name: LONG_GEAR }).boundingBox())!;
     expect(gear.x + gear.width).toBeLessThanOrEqual(frame.x + frame.width);
 
     const fit = await page.evaluate(() =>
@@ -479,6 +521,7 @@ for (const width of [760, 900, 996]) {
       { spill: false, clipped: false },
       { spill: false, clipped: false },
       { spill: false, clipped: false },
+      { spill: false, clipped: false },
     ]);
 
     // Scrolled all the way, the cells to the right of 機器 run under it. Painted
@@ -488,7 +531,7 @@ for (const width of [760, 900, 996]) {
     const hide = (v: string) =>
       page.evaluate((v) => {
         document
-          .querySelectorAll('[data-state="stale"] tbody td:not(:first-child)')
+          .querySelectorAll('[data-state="long"] tbody td:not(:first-child)')
           .forEach((el) => ((el as HTMLElement).style.visibility = v));
       }, v);
     await hide("hidden");
@@ -513,7 +556,7 @@ test("at 996px a shade marks the side where more of the table is scrolled away, 
 }) => {
   await page.setViewportSize({ width: 996, height: 900 });
   // Capped to the viewport, so widening the window alone lets it fit.
-  await mount(<MonitorMachinesLayoutStory width={1200} states={["normal"]} />);
+  await mount(<MonitorMachinesLayoutStory width={1200} states={["long"]} />);
   const frameWidth = await page.locator(".mon-table-wrap").evaluate((el) => Math.round(el.getBoundingClientRect().width));
   expect(frameWidth, "control: the frame is the 1280px desktop's 996px").toBe(996);
   await expect.poll(() => shades(page), "at rest the 磁碟 column is under 操作").toEqual({ left: 0, right: 1 });
@@ -553,9 +596,8 @@ test("at 996px a control reached by keyboard is scrolled out from under the pinn
   page,
 }) => {
   await page.setViewportSize({ width: 1016, height: 900 });
-  // The stale row: its 未生效 makes 機器 wide enough that the table still
-  // scrolls at 996px.
-  await mount(<MonitorMachinesLayoutStory width={996} states={["stale"]} />);
+  // The very long name: the row that still scrolls at 996px.
+  await mount(<MonitorMachinesLayoutStory width={996} states={["long"]} />);
   const wrap = page.locator(".mon-table-wrap");
   const disk = page.getByTestId("disk-usage-trigger");
   // Control: at rest the 磁碟 value sits under the pinned ⚙ column.
@@ -592,7 +634,7 @@ test("clicking the uncovered part of a control half under a pinned column opens 
 }) => {
   // 磁碟 value half under the ⚙ column (996px frame).
   await page.setViewportSize({ width: 996, height: 900 });
-  const story = await mount(<MonitorMachinesLayoutStory width={1200} states={["normal"]} />);
+  const story = await mount(<MonitorMachinesLayoutStory width={1200} states={["long"]} />);
   const wrap = page.locator(".mon-table-wrap");
   const disk = page.getByTestId("disk-usage-trigger");
   const diskAt = await page.evaluate(() => {
@@ -676,9 +718,9 @@ test("narrower desktop: the table scrolls inside its own frame, the page does no
     )
   );
   expect(widths).toEqual([
-    [184, 184, 72, 72, 88, 96, 56],
-    [184, 184, 72, 72, 88, 96, 56],
-    [184, 184, 72, 72, 88, 96, 56],
+    [150, 150, 72, 72, 88, 96, 56],
+    [150, 150, 72, 72, 88, 96, 56],
+    [150, 150, 72, 72, 88, 96, 56],
   ]);
   const spill = await page.evaluate(() => {
     const parts = Array.from(document.querySelector(".mon-machine-name")!.children);
@@ -706,7 +748,7 @@ test("at 996px the frame that scrolls sideways holds its sideways overscroll and
   page,
 }) => {
   await page.setViewportSize({ width: 1016, height: 500 });
-  await mount(<MonitorMachinesLayoutStory width={996} states={["stale"]} />);
+  await mount(<MonitorMachinesLayoutStory width={996} states={["long"]} />);
   const scroller = await page.locator(".mon-table--machines tbody td:first-child").evaluate((td) => {
     let el = td.parentElement;
     while (el && getComputedStyle(el).overflowX === "visible") el = el.parentElement;
@@ -772,7 +814,7 @@ test("at rest no line is drawn at 機器's edge in the header or the rows; scrol
   page,
 }) => {
   await page.setViewportSize({ width: 1016, height: 500 });
-  await mount(<MonitorMachinesLayoutStory width={996} states={["stale"]} />);
+  await mount(<MonitorMachinesLayoutStory width={996} states={["long"]} />);
   const wrap = page.locator(".mon-table-wrap");
   expect(
     await wrap.evaluate((el) => ({ scrollLeft: el.scrollLeft, scrollable: el.scrollWidth - el.clientWidth > 20 })),
@@ -832,6 +874,48 @@ test("at 996px (the 1280px desktop) a table of real-length machine names fits it
   });
   expect(disk).toEqual({ onTop: true, leftOfGear: true });
 });
+
+// Every new site's own machine is named 伺服器這一台, so this is the row most
+// tables have. It has to fit the 1280px desktop with room to spare: fonts on a
+// real machine measure a few pixels wider than here. The offline 未生效 row has
+// the widest 機器 cell of the plain states; it fits too in zh (en's longer
+// "not effective" still scrolls it by about 10px).
+for (const [language, state] of [
+  ["zh", "normal"],
+  ["en", "normal"],
+  ["zh", "stale"],
+] as const) {
+  test(`${language}, at 996px (the 1280px desktop) the ${state} 伺服器這一台 row fits with 24px to spare and 磁碟 clear of ⚙`, async ({
+    mount,
+    page,
+  }) => {
+    await page.evaluate((l) => localStorage.setItem("oc.language", l), language);
+    await page.setViewportSize({ width: 1016, height: 900 });
+    await mount(<MonitorMachinesLayoutStory width={996} states={[state]} />);
+    await expect(page.locator(".mon-machine-name .mon-table__strong")).toHaveText("伺服器這一台");
+    const fit = await fitAt(page);
+    expect(fit.frame, "control: the frame is the 1280px desktop's (996px less its border)").toBe(994);
+    expect(fit.minWidth, "control: the table has a measured minimum").toBeGreaterThan(800);
+    expect(fit.overflow).toBe(0);
+    if (state === "normal") expect(fit.frame - fit.minWidth, "room to spare").toBeGreaterThanOrEqual(24);
+    const box = async (sel: string) => (await page.locator(sel).boundingBox())!;
+    const [diskHead, gearHead, diskCell, gearCell, diskValue, frame] = await Promise.all([
+      box(".mon-table--machines thead th:nth-child(7)"),
+      box(".mon-table--machines thead th:nth-child(8)"),
+      box('[data-testid="mon-disk"]'),
+      box(".mon-table--machines tbody td:last-child"),
+      box('[data-testid="disk-usage-trigger"]'),
+      box(".mon-table-wrap"),
+    ]);
+    const right = (b: { x: number; width: number }) => b.x + b.width;
+    expect({
+      head: right(diskHead) <= gearHead.x + 0.5,
+      cell: right(diskCell) <= gearCell.x + 0.5,
+      value: right(diskValue) <= gearCell.x + 0.5,
+      gearInFrame: right(gearCell) <= right(frame) + 0.5,
+    }).toEqual({ head: true, cell: true, value: true, gearInFrame: true });
+  });
+}
 
 test("the table's minimum is the fixed columns plus the widest 機器 cell's content, so 機器 is never cut and never padded out", async ({
   mount,

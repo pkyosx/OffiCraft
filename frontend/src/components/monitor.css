@@ -509,8 +509,8 @@
  * out either, since it squeezes the fixed columns as soon as the frame is
  * narrow. When the frame is narrower the table scrolls inside it, with 機器
  * pinned left so each row still says which machine it is and 操作 pinned
- * right. The narrower cell padding lets the columns hold their marks on one
- * line. */
+ * right. The narrower cell padding lets the columns hold a value and its first
+ * mark on one line. */
 @media (min-width: 721px) {
   .mon-table--machines {
     table-layout: fixed;
@@ -528,11 +528,38 @@
   .mon-table--machines td:first-child {
     padding-right: 4px;
   }
-  /* Claude and Codex are one width: both cells can carry a version, 版本太舊
-   * and 未登入 or 過期, and the trigger's chevron, all on one line. */
+  /* en "Actions" is wider than the 56px column's content box. Right-aligned
+   * text that does not fit still overflows to the right, past the cell's edge,
+   * and that pixel alone made the whole frame scroll; without the left padding
+   * the word ends inside the cell. */
+  .mon-table--machines th:last-child {
+    padding-left: 0;
+  }
+  /* Claude and Codex are one width, enough for a version, one mark (版本太舊,
+   * 過期, en "too old") and the trigger's chevron on one line. A second mark
+   * wraps to a line of its own inside the cell: sized for two marks on one
+   * line, the two columns took the width the 1280px desktop needs to show 磁碟
+   * beside the default 伺服器這一台 row, and en "too old signed out" ran into
+   * the next column even then. The marks wrap one by one (their group box is
+   * dropped), so the first still sits beside the value. */
   .mon-col--claude,
   .mon-col--codex {
-    width: 184px;
+    width: 150px;
+  }
+  .mon-runtime-cell .mon-cell-line {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+  .mon-runtime-cell .mon-cell-marks {
+    display: contents;
+  }
+  /* The trigger already reaches 8px into the left padding to line its text up
+   * with the header. On the right its own padding and border (6px + 1px) may
+   * sit in the cell's right padding too, instead of pushing a mark onto the
+   * next line; no further, or a wrapped trigger, which takes the whole width,
+   * puts its chevron past the column's content edge. */
+  .mon-runtime-cell .runtime-menu__trigger {
+    margin-right: -7px;
   }
   .mon-col--pct {
     width: 72px;
