@@ -421,13 +421,6 @@
     overflow-wrap: anywhere;
   }
 
-  /* the id chip's desktop `nowrap` (monitor.css:396) is what makes it
-   * unbreakable; inside a card there is no horizontal scroller to reach the
-   * clipped tail, so wrapping is the honest behaviour. */
-  .mon-table .mon-machine-id {
-    white-space: normal;
-  }
-
   /* Same reason for the name: the menu trigger's `nowrap` (shared with the
    * version pills) would keep a long name on one line past the card's edge.
    * It wraps like the plain name did; a button centres its lines unless told
@@ -567,8 +560,10 @@
   .mon-col--pct {
     width: 72px;
   }
+  /* Holds the widest total, "1023.9 GB", and its chevron under the
+   * production font with room to spare. */
   .mon-col--disk {
-    width: 96px;
+    width: 112px;
   }
   .mon-col--power {
     width: 88px;
@@ -652,7 +647,8 @@
 }
 
 /* machine identity cell — online dot, name (the trigger of the row's
-   operations menu), id chip and the not-in-effect mark, ONE column. */
+   operations menu) and the not-in-effect mark, ONE column. The machine id
+   lives in the 詳情 dialog. */
 .mon-machine-name {
   /* Shared by the dot, the gap after it and the phone card rules that place
    * the name beside the dot (max-width, the dot's offset): one value each. */
@@ -699,13 +695,11 @@
 .mon-machine-name .runtime-menu__trigger {
   margin-left: -4px;
 }
-/* On desktop the chip must NOT wrap to a second line — that wrapping is the
-   whole reason the two columns were merged. Only here, and deliberately not in
-   the ≤720px card mode below: that mode drops `.mon-table-wrap`'s
-   `overflow-x: auto` (see monitor-table-longtoken.ct.spec.tsx), so an
-   unbreakable long machine id with nowhere to wrap pushes the PAGE sideways.
-   On desktop the wrap's own scroller absorbs it, which is what makes nowrap
-   safe here and unsafe there. */
+/* On desktop the cell's items stay on one line; the 機器 column is measured
+   to fit them and the wrap's own scroller absorbs a long name. Not in the
+   ≤720px card mode: that mode drops `.mon-table-wrap`'s `overflow-x: auto`
+   (see monitor-table-longtoken.ct.spec.tsx), so a line that cannot wrap
+   pushes the PAGE sideways. */
 @media (min-width: 721px) {
   .mon-machine-name {
     flex-wrap: nowrap;
@@ -715,22 +709,6 @@
 .mon-self-name {
   color: var(--color-text-muted);
 }
-/* stable machine id badge — mono, GREY (a label, not a status: the green
- * accent read as "online-ish"; the id chip carries identity only, and it
- * already says self-ness — m-server-self — so no separate self tag). */
-.mon-machine-id {
-  font-family: "SFMono-Regular", ui-monospace, Menlo, monospace;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--color-text-muted);
-  background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-overlay) 14%, transparent);
-  border-radius: 999px;
-  padding: 2px 8px;
-  white-space: nowrap;
-}
-
 /* "+新增機器" — a standalone add entry BELOW the machine table card (the
  * entry is the ONLY frame — owner feedback: no frame-in-frame with the card
  * border). The entry itself wears the SHARED `.add-entry` row
@@ -962,6 +940,13 @@
   font-size: 13px;
   font-weight: 600;
   color: var(--color-text-strong);
+}
+/* A machine's name as the dialog's title: a long one wraps rather than
+ * pushing the close button out of the box. */
+.mon-detailtitle--name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .mon-detailchip {
   padding: 1px 7px;

@@ -11,9 +11,10 @@
 .disk-usage__trigger {
   display: inline-flex;
   align-items: center;
+  gap: 4px;
   min-height: 24px;
   margin-right: -6px;
-  padding: 0 6px;
+  padding: 0 4px 0 6px;
   border: 1px solid transparent;
   border-radius: 7px;
   background: transparent;
@@ -24,8 +25,7 @@
   cursor: pointer;
 }
 .disk-usage__trigger:hover,
-.disk-usage__trigger:focus-visible,
-.disk-usage__trigger[aria-expanded="true"] {
+.disk-usage__trigger:focus-visible {
   border-color: color-mix(in srgb, var(--color-overlay) 14%, transparent);
   background: color-mix(in srgb, var(--color-overlay) 5%, transparent);
 }
@@ -33,25 +33,64 @@
   outline: 2px solid var(--color-accent);
   outline-offset: 1px;
 }
-/* Above the 1100 modal layer, like .instant-hint: the table can sit under an
- * open detail panel. */
-.disk-usage__panel {
-  position: fixed;
-  z-index: 1200;
-  box-sizing: border-box;
-  min-width: 240px;
-  max-width: min(360px, calc(100vw - 16px));
-  max-height: calc(100dvh - 16px);
-  overflow-y: auto;
-  padding: 8px 12px;
-  border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
-  background: var(--color-card);
-  box-shadow: 0 8px 24px color-mix(in srgb, var(--color-shadow) 35%, transparent);
-  color: var(--color-text);
-  font-size: 12px;
+/* The same chevron the name and version triggers on this row carry. */
+.disk-usage__chevron {
+  display: inline-flex;
+  color: var(--color-text-muted);
+}
+/* One colour per top-level category, shared by the bar and the list's
+ * swatches. Each borrows a theme token of its own hue, so a theme that
+ * re-values those tokens for a light background re-colours the bar too. */
+.disk-usage-breakdown {
+  --disk-seg-database: var(--color-icon-blue);
+  --disk-seg-backups: var(--color-icon-amber);
+  --disk-seg-workspaces: var(--color-accent);
+  --disk-seg-conversations: var(--color-artifacts);
+  --disk-seg-other: var(--color-text-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  font-size: 12.5px;
   line-height: 1.5;
-  text-align: left;
+}
+.disk-usage__bar {
+  display: flex;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
+}
+.disk-usage__seg {
+  flex: none;
+  min-width: 2px;
+}
+/* A hairline of the card between neighbours, so two segments never read as
+ * one. */
+.disk-usage__seg + .disk-usage__seg {
+  box-shadow: inset 2px 0 0 var(--color-card);
+}
+.disk-usage__seg--database {
+  background: var(--disk-seg-database);
+}
+.disk-usage__seg--backups {
+  background: var(--disk-seg-backups);
+}
+.disk-usage__seg--workspaces {
+  background: var(--disk-seg-workspaces);
+}
+.disk-usage__seg--conversations {
+  background: var(--disk-seg-conversations);
+}
+.disk-usage__seg--other {
+  background: var(--disk-seg-other);
+}
+.disk-usage__swatch {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 2px;
 }
 .disk-usage__rows {
   margin: 0;
@@ -92,6 +131,5 @@
   white-space: nowrap;
 }
 .disk-usage__measured {
-  margin-top: 6px;
   color: var(--color-text-muted);
 }

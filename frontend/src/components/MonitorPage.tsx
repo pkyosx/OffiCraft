@@ -12,6 +12,7 @@ import { useI18n } from "../i18n";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
 import { api } from "../api";
 import { ApiError } from "../api/errors";
+import { formatBytes } from "../lib/bytes";
 import { formatCost } from "../lib/cost";
 import { ConfirmModal } from "./ConfirmModal";
 import { formatDuration } from "../lib/duration";
@@ -30,6 +31,7 @@ import type {
   UninstallResultView,
   BootstrapResultView,
   CutoverEffect,
+  MachineDiskUsageView,
   RuntimeLoginRuntime,
 } from "../types";
 import type { OutsourceWorkerView } from "../api/adapter";
@@ -41,7 +43,7 @@ import {
 import { useHashRoute } from "../lib/hashRoute";
 import { Avatar } from "./Avatar";
 import { avatarKindForMember } from "../lib/avatarKind";
-import { DiskUsageCell } from "./DiskUsageCell";
+import { DiskUsageBreakdown, DiskUsageCell } from "./DiskUsageCell";
 import { InlineEdit } from "./InlineEdit";
 import { InstantHint } from "./InstantHint";
 import { MemberDetailPanel } from "./MemberDetailPanel";
@@ -51,6 +53,7 @@ import {
   CheckIcon,
   CloseIcon,
   DownloadIcon,
+  FileTextIcon,
   KeyIcon,
   LogOutIcon,
   PencilIcon,
@@ -1366,7 +1369,10 @@ export function MachinesTable({
     })
   );
   useMachineColumnWidths(tableRef, wrapRef, machines, runtimeContent);
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const detailMachine = machines.find((m) => m.machineId === detailId);
   return (
+    <>
     <div
       className={
         "mon-table-frame" +
@@ -1389,12 +1395,8 @@ export function MachinesTable({
         </colgroup>
         <thead>
           <tr>
-            {/* 機器 + 狀態 are ONE column (T-674d): they were split, and the
-             * name cell was narrow enough that the machine-id chip wrapped
-             * to a second line on every row. Merging is not decoration —
-             * the id is the machine's identity and belongs beside its name,
-             * and the online dot is the same row's other identity fact,
-             * still an honest passthrough of `online`. */}
+            {/* 機器 + 狀態 are ONE column: the online dot is the row's
+             * other identity fact, an honest passthrough of `online`. */}
             <th className="mon-table__left">{t.monitor.machineCol.machine}</th>
             <th className="mon-table__left">{t.monitor.machineCol.claude}</th>
             <th className="mon-table__left">{t.monitor.machineCol.codex}</th>
@@ -1430,21 +1432,12 @@ export function MachinesTable({
                       machine={m}
                       bootstrapBusy={bootstrapBusy}
                       uninstalling={uninstalling(m.machineId)}
+                      onDetail={() => setDetailId(m.machineId)}
                       onRename={(next) => onRename(m.machineId, next)}
                       onInstall={() => onInstall(m)}
                       onUninstall={() => onUninstall(m)}
                       onDelete={() => onDelete(m)}
                     />
-                    {/* Stable machine id (the warden member's own id / token
-                        sub) — the machine's identity, never editable. Mirrors
-                        the member detail panel's id badge. */}
-                    <span
-                      className="mon-machine-id"
-                      data-testid="mon-machine-id"
-                      title={m.machineId}
-                    >
-                      {m.machineId}
-                    </span>
                     <CutoverEffectMark effect={m.cutoverEffect} />
                   </div>
                 </td>
@@ -1547,7 +1540,7 @@ export function MachinesTable({
                   </CellLine>
                 </td>
                 <td data-label={t.monitor.diskUsage.column} data-testid="mon-disk">
-                  <DiskUsageCell usage={hw?.diskUsage} />
+                  <DiskUsageCell usage={hw?.diskUsage} onOpen={() => setDetailId(m.machineId)} />
                 </td>
               </tr>
               );
@@ -1557,13 +1550,21 @@ export function MachinesTable({
       </table>
     </div>
     </div>
+    {detailMachine && (
+      <MachineDetailModal
+        machine={detailMachine}
+        usage={hwByHost.get(detailMachine.machineId)?.diskUsage}
+        onClose={() => setDetailId(null)}
+      />
+    )}
+    </>
   );
 }
 
 /** The machine's name as the trigger of its operations menu, the same menu
- * the Claude and Codex versions open. 改名稱 turns the name into the rename
- * field in place; the other verbs keep their own confirm dialogs, opened by
- * the page:
+ * the Claude and Codex versions open. 詳情 opens the machine's detail dialog;
+ * 改名稱 turns the name into the rename field in place; the other verbs keep
+ * their own confirm dialogs, opened by the page:
  *   install   → server-self: in-place bootstrap-on-server — run directly
  *               while offline, but confirm first while ONLINE (it overwrites
  *               the live warden); other machines: a copy-command dialog.
@@ -1575,6 +1576,7 @@ function MachineNameMenu({
   machine: m,
   bootstrapBusy,
   uninstalling,
+  onDetail,
   onRename,
   onInstall,
   onUninstall,
@@ -1583,6 +1585,7 @@ function MachineNameMenu({
   machine: MachineView;
   bootstrapBusy: boolean;
   uninstalling: boolean;
+  onDetail: () => void;
   onRename: (next: string) => void | Promise<void>;
   onInstall: () => void;
   onUninstall: () => void;
@@ -1617,6 +1620,13 @@ function MachineNameMenu({
           label={t.monitor.machine.actionsMenu(m.displayName)}
           testIdPrefix="mon-machine"
           items={[
+            {
+              key: "detail",
+              testId: "mon-detail-btn",
+              label: t.monitor.machine.detail,
+              icon: <FileTextIcon size={14} />,
+              onSelect: onDetail,
+            },
             {
               key: "rename",
               testId: "mon-rename-btn",
@@ -2829,6 +2839,71 @@ function AccountDetailModal({
             </div>
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** 機器詳情: the machine's name, its full id and its OffiCraft disk usage with
+ * the breakdown. The same shell as the account detail, closing the same ways. */
+function MachineDetailModal({
+  machine: m,
+  usage,
+  onClose,
+}: {
+  machine: MachineView;
+  usage: MachineDiskUsageView | null | undefined;
+  onClose: () => void;
+}) {
+  const { t } = useI18n();
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEscapeLayer(onClose, rootRef);
+  const total = !usage
+    ? t.monitor.diskUsage.notMeasured
+    : usage.totalBytes === null
+      ? t.monitor.dash
+      : formatBytes(usage.totalBytes);
+
+  return (
+    <div
+      ref={rootRef}
+      className="mon-detailmodal"
+      role="dialog"
+      aria-modal="true"
+      aria-label={t.monitor.machine.detailTitle}
+      data-testid="mon-machine-detail-modal"
+      onClick={onClose}
+    >
+      <div className="mon-detailbox" onClick={(e) => e.stopPropagation()}>
+        <div className="mon-detailhead">
+          <span className="mon-detailtitle mon-detailtitle--name" data-testid="mon-machine-detail-name">
+            {m.displayName}
+          </span>
+          <button
+            type="button"
+            className="mon-detailclose"
+            aria-label={t.monitor.detail.close}
+            onClick={onClose}
+            data-testid="mon-machine-detail-close"
+          >
+            <CloseIcon size={15} />
+          </button>
+        </div>
+        <div className="mon-detailgrid">
+          <div className="mon-detailrow">
+            <span className="mon-detaillabel">{t.monitor.machine.machineId}</span>
+            <code className="mon-detailvalue mon-detailvalue--code" data-testid="mon-machine-detail-id">
+              {m.machineId}
+            </code>
+          </div>
+          <div className="mon-detailrow">
+            <span className="mon-detaillabel">{t.monitor.diskUsage.total}</span>
+            <span className="mon-detailvalue" data-testid="mon-machine-detail-total">
+              {total}
+            </span>
+          </div>
+        </div>
+        {usage && <DiskUsageBreakdown usage={usage} />}
       </div>
     </div>
   );

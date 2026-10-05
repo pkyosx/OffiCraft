@@ -13,9 +13,9 @@
 // 伺服器這一台 row scrolling at the 1280px desktop. A table wider
 // than its frame scrolls inside it with 機器 fixed on the left, so every row
 // still names its machine. There is no 操作 column: the machine's name is the
-// trigger of the row's operations menu (改名稱, install, uninstall, delete), the
+// trigger of the row's operations menu (詳情, 改名稱, install, uninstall, delete), the
 // same menu as the Claude and Codex versions, and the 機器 cell reads online
-// dot, name, id, not-in-effect exclamation. 機器 is only as wide as its widest
+// dot, name, not-in-effect exclamation. 機器 is only as wide as its widest
 // row's items need (the words live in their hints), so at the 1280px desktop
 // the default name, real machine names and the offline not-in-effect row leave
 // 磁碟 in view; a very long name still widens the table, which scrolls.
@@ -86,15 +86,19 @@
 //   exclamation click no longer pins         → desktop mark test
 //   dot's tap area over the exclamation      → phone mark test
 //   磁碟 column removed or moved              → column order test
-//   磁碟 column narrowed                      → 磁碟 value test
+//   磁碟 column narrowed (back to 96px)       → 磁碟 value tests (both fonts), column width test
+//   磁碟 total without its chevron            → 磁碟 value tests
 //   機器 column not sticky                    → 機器 left edge moves on scroll
 //   機器 cells transparent                    → a scrolled cell shows through
 //   frame does not reveal a focused control  → keyboard focus past the right edge / under 機器
-//   reveal also runs on a mouse click        → half-covered click test (panel / menu closes)
+//   reveal also runs on a mouse click        → half-covered click test (dialog / menu closes)
 //   right shade still on the last cell, not the frame
 //                                           → shade test
-//   panel without max-height                 → short-window test
-//   panel scroll closes it                   → short-window test
+//   detail box without max-height            → short-window test
+//   detail title not allowed to wrap, or the bar a fixed width
+//                                           → phone detail tests
+//   bar segments not at their share, two categories one colour, a swatch
+//   not its segment's colour                → detail bar test
 //   scroll shades measured only on scroll    → shade test (no cue at rest)
 //   scroll shades on the wrong side          → shade test
 //   menu focus counting disabled items       → name menu test
@@ -116,6 +120,7 @@ import { fileURLToPath } from "node:url";
 import { test, expect } from "@playwright/experimental-ct-react";
 import type { Page } from "@playwright/test";
 import { MonitorMachinesLayoutStory, type MachinesLayoutState } from "./stories/MonitorMachinesLayoutStory";
+import { LONG_NAME } from "./stories/monitorMachinesLayoutNames";
 
 const STATES = ["normal", "old"] as const;
 
@@ -247,7 +252,7 @@ test("the columns run 機器, Claude, Codex, CPU, RAM, 電源, 磁碟 at their f
     ["CPU", 72],
     ["RAM", 72],
     ["電源", 88],
-    ["磁碟", 96],
+    ["磁碟", 112],
   ]);
   expect(heads[0][0]).toBe("機器");
   const order = await page.evaluate(() =>
@@ -256,8 +261,10 @@ test("the columns run 機器, Claude, Codex, CPU, RAM, 電源, 磁碟 at their f
   expect(order.slice(5, 7)).toEqual(["mon-power", "mon-disk"]);
 });
 
-test("the 磁碟 total and 尚未量測 each sit on one line inside the column", async ({ mount, page }) => {
+for (const fonts of ["harness", "production"] as const) {
+test(`${fonts} fonts: the 磁碟 total with its chevron, and 尚未量測, each sit on one line inside the column`, async ({ mount, page }) => {
   await page.setViewportSize({ width: 1500, height: 900 });
+  if (fonts === "production") await loadProductionFonts(page);
   await mount(<MonitorMachinesLayoutStory states={["normal", "chips"]} />);
   const cells = await page.evaluate(() =>
     Array.from(document.querySelectorAll('[data-testid="mon-disk"]')).map((cell) => {
@@ -277,7 +284,12 @@ test("the 磁碟 total and 尚未量測 each sit on one line inside the column",
     { text: "1023.9 GB", inside: true, oneLine: true, unclipped: true },
     { text: "尚未量測", inside: true, oneLine: true, unclipped: true },
   ]);
+  expect(
+    await page.locator('[data-testid="disk-usage-trigger"] .disk-usage__chevron svg').count(),
+    "the total carries the chevron the row's other triggers carry"
+  ).toBe(1);
 });
+}
 
 for (const [language, together] of [
   ["zh", false],
@@ -488,7 +500,7 @@ test("the machine's name is the trigger of the row's operations menu, the same c
 
   await trigger.click();
   const items = page.getByRole("menuitem");
-  await expect(items).toHaveText(["改名稱", "重新安裝", "解除安裝", "刪除"]);
+  await expect(items).toHaveText(["詳情", "改名稱", "重新安裝", "解除安裝", "刪除"]);
   const t = (await trigger.boundingBox())!;
   const pop = (await page.getByRole("menu").boundingBox())!;
   expect({
@@ -496,8 +508,8 @@ test("the machine's name is the trigger of the row's operations menu, the same c
     below: Math.abs(pop.y - (t.y + t.height - 1)) <= 1,
   }, "the menu opens under the name, on its left edge").toEqual({ left: true, below: true });
   await expect(page.getByTestId("mon-delete-btn"), "the server-self row cannot be deleted").toBeDisabled();
-  await expect(page.getByTestId("mon-rename-btn")).toBeFocused();
-  for (const id of ["mon-install-btn", "mon-uninstall-btn", "mon-delete-btn", "mon-rename-btn"]) {
+  await expect(page.getByTestId("mon-detail-btn")).toBeFocused();
+  for (const id of ["mon-rename-btn", "mon-install-btn", "mon-uninstall-btn", "mon-delete-btn", "mon-detail-btn"]) {
     await page.keyboard.press("ArrowDown");
     await expect(page.getByTestId(id)).toBeFocused();
   }
@@ -516,18 +528,17 @@ async function cellItems(page: Page, state: string) {
     return {
       dot: at('[data-testid="mon-machine-online"]'),
       name: at(".mon-table__strong"),
-      id: at('[data-testid="mon-machine-id"]'),
       mark: at('[data-testid="mon-cutover-warning"]'),
     };
   }, state);
 }
 
 const inOrder = (c: Awaited<ReturnType<typeof cellItems>>) => ({
-  order: c.dot.right <= c.name.x && c.name.right <= c.id.x && c.id.right <= c.mark.x,
-  oneLine: [c.name, c.id, c.mark].every((b) => Math.abs(b.mid - c.dot.mid) <= 2),
+  order: c.dot.right <= c.name.x && c.name.right <= c.mark.x,
+  oneLine: [c.name, c.mark].every((b) => Math.abs(b.mid - c.dot.mid) <= 2),
 });
 
-test("desktop: the 機器 cell reads online dot, name, id, then the exclamation, on one line", async ({ mount, page }) => {
+test("desktop: the 機器 cell reads online dot, name, then the exclamation, on one line", async ({ mount, page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await mount(<MonitorMachinesLayoutStory width={996} states={["stale"]} />);
   expect(inOrder(await cellItems(page, "stale"))).toEqual({ order: true, oneLine: true });
@@ -551,10 +562,10 @@ test("a rename chosen from the menu opens the field in place of the name, and cl
     const x = (sel: string) => td.querySelector(sel)!.getBoundingClientRect();
     const dot = x('[data-testid="mon-machine-online"]');
     const edit = x(".inline-edit--editing");
-    const id = x('[data-testid="mon-machine-id"]');
-    return dot.right <= edit.left && edit.right <= id.left;
+    const mark = x('[data-testid="mon-cutover-warning"]');
+    return dot.right <= edit.left && edit.right <= mark.left;
   });
-  expect(order, "the field takes the name's place between the dot and the id").toBe(true);
+  expect(order, "the field takes the name's place between the dot and the exclamation").toBe(true);
   await page.keyboard.press("Escape");
   await expect(field).toHaveCount(0);
   await expect(trigger).toBeFocused();
@@ -698,7 +709,7 @@ async function overflow(page: Page) {
 
 // 996px is the monitor page's content width at a 1280px (or any wider) desktop.
 // The very long name is the row that still scrolls there.
-const LONG_MENU = "機器操作（Seth 的 Mac Studio（辦公室三樓靠窗））";
+const LONG_MENU = `機器操作（${LONG_NAME}）`;
 
 /** Whether every item of the open menu is inside the window and is what a
  * click at its centre would hit (nothing pinned or shaded lies over it). */
@@ -736,9 +747,9 @@ for (const width of [760, 900, 996]) {
         inFrame: true,
       });
       await trigger.click();
-      await expect(page.getByRole("menuitem")).toHaveText(["改名稱", "重新安裝", "解除安裝", "刪除"]);
+      await expect(page.getByRole("menuitem")).toHaveText(["詳情", "改名稱", "重新安裝", "解除安裝", "刪除"]);
       expect(await menuOnTop(page), `menu at scrollLeft ${scroll}`).toEqual(
-        Array(4).fill({ inside: true, onTop: true })
+        Array(5).fill({ inside: true, onTop: true })
       );
       // A fixed menu does not follow the frame, so a scroll closes it.
       await wrap.evaluate((el) => (el.scrollLeft = el.scrollLeft === 0 ? 40 : 0));
@@ -937,7 +948,6 @@ test("clicking the uncovered part of a control half under a pinned column opens 
   await page.setViewportSize({ width: 996, height: 900 });
   const story = await mount(<MonitorMachinesLayoutStory width={1200} states={["long"]} />);
   const wrap = page.locator(".mon-table-wrap");
-  const disk = page.getByTestId("disk-usage-trigger");
   const diskAt = await page.evaluate(() => {
     const wrap = document.querySelector(".mon-table-wrap")!;
     const inner = () => wrap.getBoundingClientRect().left + wrap.clientLeft + wrap.clientWidth;
@@ -950,12 +960,12 @@ test("clicking the uncovered part of a control half under a pinned column opens 
   await nextFrames(page);
   await page.mouse.click(diskAt.x, diskAt.y);
   await nextFrames(page);
-  await expect(disk).toHaveAttribute("aria-expanded", "true");
-  await expect(page.getByTestId("disk-usage-panel")).toHaveCount(1);
+  await expect(page.getByTestId("mon-machine-detail-modal")).toHaveCount(1);
   expect(await wrap.evaluate((el) => el.scrollLeft)).toBe(diskAt.scrollLeft);
 
   // Claude version half under the 機器 column (760px frame).
-  await page.mouse.click(1, 1);
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("mon-machine-detail-modal")).toHaveCount(0);
   await page.setViewportSize({ width: 760, height: 900 });
   await story.update(<MonitorMachinesLayoutStory width={760} states={["normal"]} />);
   const claudeAt = await page.evaluate(() => {
@@ -976,31 +986,120 @@ test("clicking the uncovered part of a control half under a pinned column opens 
   expect(await wrap.evaluate((el) => el.scrollLeft)).toBe(claudeAt.scrollLeft);
 });
 
-test("on a short window the 磁碟 breakdown stays inside the window and scrolls inside itself", async ({
+test("on a short window the machine detail stays inside the window and scrolls inside itself", async ({
   mount,
   page,
 }) => {
   await page.setViewportSize({ width: 1500, height: 220 });
   await mount(<MonitorMachinesLayoutStory width={1200} states={["normal"]} />);
   await page.getByTestId("disk-usage-trigger").click();
-  const panel = page.getByTestId("disk-usage-panel");
-  await expect(panel).toBeVisible();
-  const box = await panel.evaluate((el) => {
+  const box = page.locator(".mon-detailbox");
+  await expect(box).toBeVisible();
+  const at = await box.evaluate((el) => {
     const r = el.getBoundingClientRect();
     return { top: r.top, bottom: r.bottom, scrolls: el.scrollHeight > el.clientHeight };
   });
-  expect(box.scrolls, "control: the breakdown is taller than the window allows").toBe(true);
-  expect(box.top).toBeGreaterThanOrEqual(8);
-  expect(box.bottom).toBeLessThanOrEqual(220 - 8);
-  const scrolled = await panel.evaluate(async (el) => {
+  expect(at.scrolls, "control: the detail is taller than the window allows").toBe(true);
+  expect(at.top).toBeGreaterThanOrEqual(0);
+  expect(at.bottom).toBeLessThanOrEqual(220);
+  const scrolled = await box.evaluate(async (el) => {
     el.scrollTop = el.scrollHeight;
-    // The scroll event is dispatched on the next frame.
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     return el.scrollTop;
   });
-  expect(scrolled, "control: the breakdown did scroll").toBeGreaterThan(0);
-  await expect(panel, "scrolling the breakdown itself does not close it").toBeVisible();
+  expect(scrolled, "control: the detail did scroll").toBeGreaterThan(0);
+  await expect(box, "scrolling the detail itself does not close it").toBeVisible();
 });
+
+/** The open machine detail's bar: each segment's share of the bar's width as
+ * drawn, next to the share it was given, and each segment's colour next to its
+ * list row's swatch. */
+async function barGeometry(page: Page) {
+  return page.evaluate(() => {
+    const bar = document.querySelector('[data-testid="disk-usage-bar"]')!;
+    const width = bar.getBoundingClientRect().width;
+    return Array.from(bar.querySelectorAll<HTMLElement>('[data-testid="disk-usage-seg"]')).map((seg) => {
+      const key = seg.getAttribute("data-segment")!;
+      const swatch = document.querySelector(`.disk-usage__swatch[data-segment="${key}"]`)!;
+      return {
+        key,
+        drawn: Math.round((seg.getBoundingClientRect().width / width) * 1000) / 10,
+        given: Math.round(parseFloat(seg.style.width) * 10) / 10,
+        colour: getComputedStyle(seg).backgroundColor,
+        swatch: getComputedStyle(swatch).backgroundColor,
+      };
+    });
+  });
+}
+
+test("the machine detail's bar draws each category at its share, one colour per category that its list row's swatch repeats, taken from the theme", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await mount(<MonitorMachinesLayoutStory width={996} states={["normal"]} />);
+  await page.getByTestId("disk-usage-trigger").click();
+  const segs = await barGeometry(page);
+  expect(segs.map((s) => s.key)).toEqual(["database", "backups", "workspaces", "conversations", "other"]);
+  for (const s of segs) {
+    // Within half a point: a sliver is drawn at least 2px wide.
+    expect(Math.abs(s.drawn - s.given), `${s.key} drawn at its share`).toBeLessThanOrEqual(0.5);
+    expect(s.swatch, `${s.key} swatch matches its segment`).toBe(s.colour);
+  }
+  expect(new Set(segs.map((s) => s.colour)).size, "five categories, five colours").toBe(5);
+  // A theme that re-values the tokens (a light one does) re-colours the bar.
+  await page.evaluate(() => document.documentElement.style.setProperty("--color-icon-blue", "rgb(1, 2, 3)"));
+  expect((await barGeometry(page))[0].colour).toBe("rgb(1, 2, 3)");
+});
+
+// The detail on a phone: the box fits the window, the bar shrinks with it, and
+// a long name and the id wrap instead of pushing the page sideways. Measured
+// under the fonts production loads.
+const DETAIL_LONG_NAME = "Seth 的 Mac Studio（辦公室三樓靠窗）eva-m5-warden-build-farm-node-0001-us-west";
+for (const width of [320, 375, 390, 414]) {
+  test(`${width}px phone: the machine detail fits the window, the bar shrinks and a long name wraps`, async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 800 });
+    await loadProductionFonts(page);
+    await mount(<MonitorMachinesLayoutStory states={["named"]} name={DETAIL_LONG_NAME} />);
+    await page.getByTestId("disk-usage-trigger").click();
+    await expect(page.getByTestId("mon-machine-detail-modal")).toBeVisible();
+    const geo = await page.evaluate(() => {
+      const r = (sel: string) => document.querySelector(sel)!.getBoundingClientRect();
+      const box = document.querySelector(".mon-detailbox")!;
+      const b = box.getBoundingClientRect();
+      const inner = box.clientWidth - parseFloat(getComputedStyle(box).paddingLeft) - parseFloat(getComputedStyle(box).paddingRight);
+      const title = r('[data-testid="mon-machine-detail-name"]');
+      const close = r('[data-testid="mon-machine-detail-close"]');
+      const bar = r('[data-testid="disk-usage-bar"]');
+      const lineHeight = parseFloat(getComputedStyle(document.querySelector('[data-testid="mon-machine-detail-name"]')!).lineHeight) || 20;
+      const inBox = (x: DOMRect) => x.left >= b.left - 0.5 && x.right <= b.right + 0.5;
+      const se = document.scrollingElement!;
+      return {
+        pageOverflow: se.scrollWidth - se.clientWidth,
+        boxInWindow: b.left >= 0 && b.right <= window.innerWidth,
+        boxScrollsSideways: box.scrollWidth > box.clientWidth + 1,
+        barFillsBox: Math.abs(bar.width - inner) <= 1,
+        titleWraps: title.height > lineHeight * 1.5,
+        titleAndCloseInBox: inBox(title) && inBox(close) && title.right <= close.left + 0.5,
+        rowsInBox: Array.from(box.querySelectorAll(".mon-detailrow, .disk-usage__row")).every((el) =>
+          inBox(el.getBoundingClientRect())
+        ),
+      };
+    });
+    expect(geo).toEqual({
+      pageOverflow: 0,
+      boxInWindow: true,
+      boxScrollsSideways: false,
+      barFillsBox: true,
+      titleWraps: true,
+      titleAndCloseInBox: true,
+      rowsInBox: true,
+    });
+  });
+}
 
 test("narrower desktop: the table scrolls inside its own frame, the page does not", async ({ mount, page }) => {
   await page.setViewportSize({ width: 820, height: 900 });
@@ -1018,9 +1117,9 @@ test("narrower desktop: the table scrolls inside its own frame, the page does no
     )
   );
   expect(widths.map((w) => w.slice(2))).toEqual([
-    [72, 72, 88, 96],
-    [72, 72, 88, 96],
-    [72, 72, 88, 96],
+    [72, 72, 88, 112],
+    [72, 72, 88, 112],
+    [72, 72, 88, 112],
   ]);
   expect(widths.map((w) => w.slice(0, 2).map((x) => (x === 150 ? 150 : x > 150 ? "grown" : x)))).toEqual([
     [150, 150],
@@ -1033,7 +1132,7 @@ test("narrower desktop: the table scrolls inside its own frame, the page does no
     const cell = document.querySelector("tbody td")!.getBoundingClientRect();
     return Math.round(right - cell.right);
   });
-  expect(spill, "the 機器 cell's name, id and badge stay inside their column").toBeLessThanOrEqual(0);
+  expect(spill, "the 機器 cell's name and badge stay inside their column").toBeLessThanOrEqual(0);
   const clipped = await page.evaluate(() =>
     Array.from(document.querySelectorAll(".mon-machine-name *"))
       .filter((el) => el.scrollWidth > el.clientWidth + 1)
@@ -1167,7 +1266,7 @@ test("at 996px (the 1280px desktop) a table of real-length machine names fits it
   await mount(<MonitorMachinesLayoutStory width={996} states={["named"]} />);
   const fit = await fitAt(page);
   expect(fit.frame, "control: the frame is the 1280px desktop's (996px less its border)").toBe(994);
-  expect(fit.minWidth, "control: the table has a measured minimum").toBeGreaterThan(800);
+  expect(fit.minWidth, "control: the table has a measured minimum, past its fixed columns").toBeGreaterThan(700);
   expect(fit.minWidth).toBeLessThanOrEqual(fit.frame);
   expect(fit.overflow).toBe(0);
   await expect.poll(() => shades(page)).toEqual({ left: 0, right: 0 });
@@ -1202,7 +1301,7 @@ for (const [language, state] of [
     await expect(page.locator(".mon-machine-name .mon-table__strong")).toHaveText("伺服器這一台");
     const fit = await fitAt(page);
     expect(fit.frame, "control: the frame is the 1280px desktop's (996px less its border)").toBe(994);
-    expect(fit.minWidth, "control: the table has a measured minimum").toBeGreaterThan(800);
+    expect(fit.minWidth, "control: the table has a measured minimum, past its fixed columns").toBeGreaterThan(700);
     expect(fit.overflow).toBe(0);
     expect(fit.frame - fit.minWidth, "room to spare").toBeGreaterThanOrEqual(48);
     const box = async (sel: string) => (await page.locator(sel).boundingBox())!;
@@ -1292,8 +1391,9 @@ test("the table's minimum is the fixed columns plus the widest 機器 cell's con
   mount,
   page,
 }) => {
-  await page.setViewportSize({ width: 780, height: 900 });
-  await mount(<MonitorMachinesLayoutStory width={760} states={["normal", "stale", "named", "long"]} />);
+  // Just above the phone breakpoint: the narrowest frame a table keeps.
+  await page.setViewportSize({ width: 740, height: 900 });
+  await mount(<MonitorMachinesLayoutStory width={720} states={["normal", "stale", "named", "long"]} />);
   const rows = await page.evaluate(() =>
     Array.from(document.querySelectorAll("[data-state]")).map((section) => {
       const td = section.querySelector("tbody td") as HTMLElement;
@@ -1308,7 +1408,10 @@ test("the table's minimum is the fixed columns plus the widest 機器 cell's con
         slack: Math.round(td.getBoundingClientRect().width - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - content),
         spill: Math.max(...items.map((r) => r.right)) - right > 0.5,
         clipped: Array.from(name.querySelectorAll("*")).some((el) => el.scrollWidth > el.clientWidth + 1),
-        scrolls: (section.querySelector(".mon-table-wrap") as HTMLElement).scrollWidth > 760,
+        scrolls: (() => {
+          const wrap = section.querySelector(".mon-table-wrap") as HTMLElement;
+          return wrap.scrollWidth > wrap.clientWidth;
+        })(),
       };
     })
   );
@@ -1328,7 +1431,7 @@ test("at 996px a very long machine name widens the table, which scrolls, rather 
   const fit = await fitAt(page);
   expect(fit.overflow, "control: the long name does not fit 996px").toBeGreaterThan(0);
   const name = page.locator(".mon-machine-name .mon-table__strong");
-  await expect(name).toHaveText("Seth 的 Mac Studio（辦公室三樓靠窗）");
+  await expect(name).toHaveText(LONG_NAME);
   const cut = await name.evaluate((el) => {
     const td = el.closest("td")!;
     const right = td.getBoundingClientRect().right - parseFloat(getComputedStyle(td).paddingRight);
@@ -1428,7 +1531,7 @@ test("mounted on a phone, then widened, the table measures its minimum even when
 // A rename lands as new text in the name without this table re-rendering (and
 // so does a web font arriving); the minimum follows the name both ways.
 test("a machine name that changes in place is measured again, longer and shorter", async ({ mount, page }) => {
-  const LONG = "Seth 的 Mac Studio（辦公室三樓靠窗）";
+  const LONG = LONG_NAME;
   const SHORT = "m5";
   await page.setViewportSize({ width: 1016, height: 900 });
   const alone = async (name: string) => {
@@ -1579,7 +1682,7 @@ test("desktop: the 機器 cell shows the online dot without its word; hover show
 }) => {
   await page.setViewportSize({ width: 1500, height: 900 });
   await mount(<MonitorMachinesLayoutStory width={1400} states={["normal", "stale"]} />);
-  expect(await machineText(page)).toEqual(["伺服器這一台 m-server-self", "伺服器這一台 m-server-self"]);
+  expect(await machineText(page)).toEqual(["伺服器這一台", "伺服器這一台"]);
   const dots = page.getByTestId("mon-machine-online");
   await expect(dots).toHaveCount(2);
   expect(await dots.evaluateAll((els) => els.map((el) => [el.getAttribute("role"), el.getAttribute("aria-label")]))).toEqual([
@@ -1622,7 +1725,7 @@ test.describe("phone card mode on a touch screen", () => {
       await page.locator("tbody tr").first().evaluate((tr) => getComputedStyle(tr).display),
       "control: rows are cards"
     ).toBe("block");
-    expect(await machineText(page)).toEqual(["伺服器這一台 m-server-self", "伺服器這一台 m-server-self"]);
+    expect(await machineText(page)).toEqual(["伺服器這一台", "伺服器這一台"]);
     const dots = page.getByTestId("mon-machine-online");
     const tip = page.getByRole("tooltip");
     await dots.first().tap();
@@ -1644,7 +1747,7 @@ test.describe("phone card mode on a touch screen", () => {
 });
 
 // A proven not-in-effect cutover shows the members' warning exclamation at the
-// end of the 機器 cell, after the id; its sentence is the hint and the
+// end of the 機器 cell, after the name; its sentence is the hint and the
 // accessible name.
 const NOT_IN_EFFECT =
   "未生效：這台機器上的成員還在更新前啟動的環境裡執行。先把這台機器上的成員全部停止，再把這些成員喚醒，就會生效，機器本身不用動。";
@@ -1653,12 +1756,12 @@ type Box = { x: number; y: number; width: number; height: number };
 const overlaps = (a: Box, b: Box) =>
   a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
 
-/** The stale row's id chip, dot and exclamation, and the open hint if any. */
+/** The stale row's name, dot and exclamation. */
 async function markBoxes(page: Page) {
   const row = page.locator('[data-state="stale"] tbody td:first-child');
   const box = async (sel: string) => (await row.locator(sel).boundingBox())!;
   return {
-    id: await box('[data-testid="mon-machine-id"]'),
+    name: await box(".mon-table__strong"),
     dot: await box('[data-testid="mon-machine-online"]'),
     mark: await box('[data-testid="mon-cutover-warning"]'),
   };
@@ -1668,7 +1771,7 @@ function inViewport(b: Box, vw: number, vh: number) {
   return b.x >= 0 && b.y >= 0 && b.x + b.width <= vw && b.y + b.height <= vh;
 }
 
-test("desktop: only the not-in-effect row has the exclamation; hover shows the sentence, a click pins it, and neither covers the id or the dot", async ({
+test("desktop: only the not-in-effect row has the exclamation; hover shows the sentence, a click pins it, and neither covers the name or the dot", async ({
   mount,
   page,
 }) => {
@@ -1681,9 +1784,9 @@ test("desktop: only the not-in-effect row has the exclamation; hover shows the s
 
   const b = await markBoxes(page);
   expect(
-    { dotFirst: b.dot.x + b.dot.width <= b.id.x, afterId: b.mark.x >= b.id.x + b.id.width, sameLine: overlaps({ ...b.mark, x: b.dot.x }, b.dot) },
+    { dotFirst: b.dot.x + b.dot.width <= b.name.x, afterName: b.mark.x >= b.name.x + b.name.width, sameLine: overlaps({ ...b.mark, x: b.dot.x }, b.dot) },
     "the exclamation ends the line the dot starts"
-  ).toEqual({ dotFirst: true, afterId: true, sameLine: true });
+  ).toEqual({ dotFirst: true, afterName: true, sameLine: true });
 
   const tip = page.getByRole("tooltip");
   await expect(tip).toHaveCount(0);
@@ -1698,10 +1801,10 @@ test("desktop: only the not-in-effect row has the exclamation; hover shows the s
   const t = (await tip.boundingBox())!;
   expect({
     inside: inViewport(t, 1280, 900),
-    coversId: overlaps(t, b.id),
+    coversName: overlaps(t, b.name),
     coversDot: overlaps(t, b.dot),
     belowMark: t.y >= b.mark.y + b.mark.height,
-  }).toEqual({ inside: true, coversId: false, coversDot: false, belowMark: true });
+  }).toEqual({ inside: true, coversName: false, coversDot: false, belowMark: true });
   await page.mouse.click(5, 5);
   await expect(tip).toHaveCount(0);
 });
@@ -1723,10 +1826,10 @@ test.describe("phone card mode on a touch screen: the exclamation", () => {
     await expect(page.getByTestId("mon-cutover-warning")).toHaveCount(1);
     const b = await markBoxes(page);
     expect({
-      markOnId: overlaps(b.mark, b.id),
+      markOnName: overlaps(b.mark, b.name),
       markOnDot: overlaps(b.mark, b.dot),
       afterDot: b.mark.x >= b.dot.x + b.dot.width,
-    }).toEqual({ markOnId: false, markOnDot: false, afterDot: true });
+    }).toEqual({ markOnName: false, markOnDot: false, afterDot: true });
 
     // Who takes a tap: 1px inside the exclamation's left edge, and 1px either
     // side of the dot's circle. Right of the dot is the gap before the name,
@@ -1747,9 +1850,9 @@ test.describe("phone card mode on a touch screen: the exclamation", () => {
     const t = (await tip.boundingBox())!;
     expect({
       inside: inViewport(t, 390, 900),
-      coversId: overlaps(t, b.id),
+      coversName: overlaps(t, b.name),
       coversDot: overlaps(t, b.dot),
-    }).toEqual({ inside: true, coversId: false, coversDot: false });
+    }).toEqual({ inside: true, coversName: false, coversDot: false });
     expect(await overflow(page), "the open hint does not scroll the page").toEqual({ page: 0, monitor: 0, frame: 0 });
     await page.touchscreen.tap(5, 5);
     await expect(tip).toHaveCount(0);
@@ -1759,7 +1862,7 @@ test.describe("phone card mode on a touch screen: the exclamation", () => {
 test.describe("phone card mode on a touch screen: the name's menu", () => {
   test.use({ hasTouch: true });
 
-  test("390px: the 機器 line reads dot, name, id, exclamation, and a tap on the name opens its menu inside the window", async ({
+  test("390px: the 機器 line reads dot, name, exclamation, and a tap on the name opens its menu inside the window", async ({
     mount,
     page,
   }) => {
@@ -1771,11 +1874,11 @@ test.describe("phone card mode on a touch screen: the name's menu", () => {
     ).toBe("block");
     // A card may wrap the line; the items still read in this order.
     const c = await cellItems(page, "stale");
-    const seq = [c.dot, c.name, c.id, c.mark];
+    const seq = [c.dot, c.name, c.mark];
     expect(
       seq.slice(1).map((b, i) => b.mid > seq[i].mid + 2 || (Math.abs(b.mid - seq[i].mid) <= 2 && b.x >= seq[i].right)),
-      "dot, name, id, exclamation in reading order"
-    ).toEqual([true, true, true]);
+      "dot, name, exclamation in reading order"
+    ).toEqual([true, true]);
     expect(Math.abs(c.name.mid - c.dot.mid) <= 2, "the dot sits on the name's line").toBe(true);
     const labels = await page.evaluate(() =>
       Array.from(document.querySelectorAll('[data-state="stale"] tbody td')).map((td) => td.getAttribute("data-label"))
@@ -1784,8 +1887,8 @@ test.describe("phone card mode on a touch screen: the name's menu", () => {
     const name = page.locator('[data-state="stale"] .mon-table__strong');
     const n = (await name.boundingBox())!;
     await page.touchscreen.tap(n.x + n.width / 2, n.y + n.height / 2);
-    await expect(page.getByRole("menuitem")).toHaveText(["改名稱", "安裝", "解除安裝", "刪除"]);
-    expect(await menuOnTop(page)).toEqual(Array(4).fill({ inside: true, onTop: true }));
+    await expect(page.getByRole("menuitem")).toHaveText(["詳情", "改名稱", "安裝", "解除安裝", "刪除"]);
+    expect(await menuOnTop(page)).toEqual(Array(5).fill({ inside: true, onTop: true }));
     expect(await overflow(page), "the open menu does not scroll the page").toEqual({ page: 0, monitor: 0, frame: 0 });
     await expect(page.getByRole("tooltip"), "the tap was the name's, not the dot's").toHaveCount(0);
   });
@@ -1858,8 +1961,8 @@ for (const { width, name: longName, state } of PHONE_LONG_CASES) {
     });
     await trigger.click();
     // The stale row is offline: its machine is installed, not reinstalled.
-    await expect(page.getByRole("menuitem")).toHaveText(["改名稱", state === "stale" ? "安裝" : "重新安裝", "解除安裝", "刪除"]);
-    expect(await menuOnTop(page)).toEqual(Array(4).fill({ inside: true, onTop: true }));
+    await expect(page.getByRole("menuitem")).toHaveText(["詳情", "改名稱", state === "stale" ? "安裝" : "重新安裝", "解除安裝", "刪除"]);
+    expect(await menuOnTop(page)).toEqual(Array(5).fill({ inside: true, onTop: true }));
     expect(await overflow(page), "the open menu does not scroll the page").toEqual({ page: 0, monitor: 0, frame: 0 });
   });
 }

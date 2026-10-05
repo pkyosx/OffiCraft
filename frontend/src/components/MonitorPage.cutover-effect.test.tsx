@@ -80,9 +80,9 @@ async function renderCell(effect: CutoverEffect) {
       <MonitorPage />
     </I18nProvider>
   );
-  const idBadge = await screen.findByTestId("mon-machine-id");
-  const cell = idBadge.closest("td");
-  if (cell === null) throw new Error("the machine id badge is not inside a cell");
+  const name = await screen.findByTestId("mon-machine-menu");
+  const cell = name.closest("td");
+  if (cell === null) throw new Error("the machine name is not inside a cell");
   return cell;
 }
 
@@ -114,14 +114,12 @@ describe("MonitorPage cutover-effect mark", () => {
       unproven: await cellFor("unproven"),
       null: await cellFor(null),
     };
-    expect(cells.effective.text, "control: the cell shows the name and id").toBe(
-      "m-under-testm-under-test"
-    );
+    expect(cells.effective.text, "control: the cell shows the name").toBe("m-under-test");
     expect(cells).toEqual({
-      not_effective: { text: "m-under-testm-under-test", marks: 1 },
-      effective: { text: "m-under-testm-under-test", marks: 0 },
-      unproven: { text: "m-under-testm-under-test", marks: 0 },
-      null: { text: "m-under-testm-under-test", marks: 0 },
+      not_effective: { text: "m-under-test", marks: 1 },
+      effective: { text: "m-under-test", marks: 0 },
+      unproven: { text: "m-under-test", marks: 0 },
+      null: { text: "m-under-test", marks: 0 },
     });
   });
 
@@ -182,14 +180,14 @@ describe("MonitorPage cutover-effect mark", () => {
     });
   });
 
-  it("ends the 機器 cell: online dot, name, id, then the exclamation", async () => {
+  it("ends the 機器 cell: online dot, name, then the exclamation", async () => {
     await renderCell("not_effective");
     const cell = screen.getByTestId("mon-cutover-warning").parentElement!;
     expect(
       Array.from(cell.children).map(
         (el) => el.getAttribute("data-testid") ?? el.querySelector("[data-testid]")?.getAttribute("data-testid")
       )
-    ).toEqual(["mon-machine-online", "mon-machine-menu", "mon-machine-id", "mon-cutover-warning"]);
+    ).toEqual(["mon-machine-online", "mon-machine-menu", "mon-cutover-warning"]);
   });
 });
 

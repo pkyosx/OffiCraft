@@ -1,27 +1,21 @@
-import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type ReactNode,
-} from "react";
-import { createPortal } from "react-dom";
+import type { ReactNode } from "react";
 import { useI18n } from "../i18n";
 import type { Dict } from "../i18n/locales/zh";
 import { formatBytes } from "../lib/bytes";
 import { formatDuration } from "../lib/duration";
-import { useEscapeLayer } from "../lib/useEscapeLayer";
 import type { MachineDiskUsageView } from "../types";
+import { ChevronDownIcon } from "./icons";
 import "./disk-usage.css";
 
 const TOP_MEMBERS = 5;
-const GAP = 4;
-const EDGE = 8;
+
+type Segment = "database" | "backups" | "workspaces" | "conversations" | "other";
 
 export interface DiskUsageCellProps {
   /** The machine's `diskUsage`; null or undefined reads as never measured. */
   usage: MachineDiskUsageView | null | undefined;
+  /** Opens the machine's detail dialog, where the breakdown lives. */
+  onOpen: () => void;
 }
 
 interface Row {
@@ -30,75 +24,14 @@ interface Row {
   value: string;
   sub?: boolean;
   section?: boolean;
+  segment?: Segment;
 }
 
-/** A machine's OffiCraft disk total. Clicking it (not hovering, so it works on
- * a phone) opens the breakdown; a second click, Esc, scrolling or a click
- * elsewhere closes it. The panel is portalled to <body> with fixed positioning
- * because the machine table's `overflow: auto` wrapper would clip it. */
-export function DiskUsageCell({ usage }: DiskUsageCellProps) {
-  const { t, msg } = useI18n();
+/** A machine's OffiCraft disk total in the 磁碟 column. Clicking it opens the
+ * machine's detail dialog; never measured reads 尚未量測 and opens nothing. */
+export function DiskUsageCell({ usage, onOpen }: DiskUsageCellProps) {
+  const { t } = useI18n();
   const d = t.monitor.diskUsage;
-  const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState<CSSProperties | null>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
-
-  useEscapeLayer(
-    () => {
-      setOpen(false);
-      triggerRef.current?.focus();
-    },
-    panelRef,
-    open,
-  );
-
-  useLayoutEffect(() => {
-    if (!open) {
-      setPos(null);
-      return;
-    }
-    const trigger = triggerRef.current?.getBoundingClientRect();
-    const box = panelRef.current?.getBoundingClientRect();
-    if (!trigger || !box) return;
-    const below = trigger.bottom + GAP;
-    const above = trigger.top - GAP - box.height;
-    const fitsBelow = below + box.height <= window.innerHeight - EDGE;
-    // Neither side fits on a short window: pin it inside the window instead,
-    // where its own scroll (max-height) shows the rest.
-    const top = fitsBelow
-      ? below
-      : above >= EDGE
-        ? above
-        : Math.max(EDGE, window.innerHeight - EDGE - box.height);
-    const maxLeft = Math.max(EDGE, window.innerWidth - EDGE - box.width);
-    const left = Math.min(Math.max(EDGE, trigger.left), maxLeft);
-    setPos({ top, left });
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    function onDown(e: MouseEvent) {
-      const target = e.target as Node;
-      if (triggerRef.current?.contains(target) || panelRef.current?.contains(target)) return;
-      setOpen(false);
-    }
-    // A fixed panel does not follow its trigger when something else scrolls;
-    // scrolling the panel's own rows is not that.
-    function onScroll(e: Event) {
-      if (e.target instanceof Node && panelRef.current?.contains(e.target)) return;
-      setOpen(false);
-    }
-    const dismiss = () => setOpen(false);
-    document.addEventListener("mousedown", onDown);
-    window.addEventListener("scroll", onScroll, true);
-    window.addEventListener("resize", dismiss);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      window.removeEventListener("scroll", onScroll, true);
-      window.removeEventListener("resize", dismiss);
-    };
-  }, [open]);
 
   if (!usage) {
     return (
@@ -109,71 +42,126 @@ export function DiskUsageCell({ usage }: DiskUsageCellProps) {
   }
 
   const totalText = usage.totalBytes === null ? t.monitor.dash : formatBytes(usage.totalBytes);
+  return (
+    <span className="disk-usage">
+      <button
+        type="button"
+        className="disk-usage__trigger"
+        aria-label={`${d.open} ${totalText}`}
+        aria-haspopup="dialog"
+        data-testid="disk-usage-trigger"
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpen();
+        }}
+      >
+        {totalText}
+        <span className="disk-usage__chevron" aria-hidden="true">
+          <ChevronDownIcon size={12} />
+        </span>
+      </button>
+    </span>
+  );
+}
+
+/** The breakdown of one measurement: a bar of the top-level categories, each
+ * segment as wide as its share of the OffiCraft total, then every row with its
+ * number and when it was measured. */
+export function DiskUsageBreakdown({ usage }: { usage: MachineDiskUsageView }) {
+  const { t, msg } = useI18n();
+  const d = t.monitor.diskUsage;
   const rows = breakdownRows(usage, d, t.monitor.machineCol, msg.monitorDiskOtherMembers);
+  const segments = barSegments(usage, d);
   const measuredAt = usage.measuredAt ?? usage.databaseMeasuredAt;
   const measuredText =
     measuredAt === null
       ? null
       : msg.monitorMeasuredAgo(formatDuration(Math.max(0, Date.now() / 1000 - measuredAt)));
+  const shown = new Set(segments.map((s) => s.segment));
 
   return (
-    <span className="disk-usage">
-      <button
-        ref={triggerRef}
-        type="button"
-        className="disk-usage__trigger"
-        aria-label={`${d.open} ${totalText}`}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        data-testid="disk-usage-trigger"
-        // The cell sits in table rows that may act on a click; this click is
-        // only about the panel.
-        onClick={(e) => {
-          e.stopPropagation();
-          setOpen((o) => !o);
-        }}
-      >
-        {totalText}
-      </button>
-      {open &&
-        createPortal(
-          <div
-            ref={panelRef}
-            className="disk-usage__panel"
-            role="dialog"
-            aria-label={d.open}
-            data-testid="disk-usage-panel"
-            style={pos ?? { top: 0, left: 0, visibility: "hidden" }}
-            // React bubbles portal events through the component tree, so a
-            // click in here would otherwise reach the host row.
-            onClick={(e) => e.stopPropagation()}
+    <div className="disk-usage-breakdown" data-testid="disk-usage-breakdown">
+      {segments.length > 0 && (
+        <div
+          className="disk-usage__bar"
+          role="img"
+          aria-label={
+            d.barLabel +
+            segments.map((s) => `${s.label} ${formatBytes(s.bytes)} (${percentText(s.share)})`).join(d.listSep)
+          }
+          data-testid="disk-usage-bar"
+        >
+          {segments.map((s) => (
+            <span
+              key={s.segment}
+              className={`disk-usage__seg disk-usage__seg--${s.segment}`}
+              data-segment={s.segment}
+              data-testid="disk-usage-seg"
+              style={{ width: `${s.share}%` }}
+            />
+          ))}
+        </div>
+      )}
+      <ul className="disk-usage__rows">
+        {rows.map((r) => (
+          <li
+            key={r.key}
+            className={
+              "disk-usage__row" +
+              (r.sub ? " disk-usage__row--sub" : "") +
+              (r.section ? " disk-usage__row--section" : "")
+            }
+            data-testid="disk-usage-row"
           >
-            <ul className="disk-usage__rows">
-              {rows.map((r) => (
-                <li
-                  key={r.key}
-                  className={
-                    "disk-usage__row" +
-                    (r.sub ? " disk-usage__row--sub" : "") +
-                    (r.section ? " disk-usage__row--section" : "")
-                  }
-                  data-testid="disk-usage-row"
-                >
-                  <span className="disk-usage__label">{r.label}</span>
-                  <span className="disk-usage__value">{r.value}</span>
-                </li>
-              ))}
-            </ul>
-            {measuredText && (
-              <div className="disk-usage__measured" data-testid="disk-usage-measured">
-                {measuredText}
-              </div>
-            )}
-          </div>,
-          document.body,
-        )}
-    </span>
+            <span className="disk-usage__label">
+              {r.segment && shown.has(r.segment) && (
+                <span
+                  className={`disk-usage__swatch disk-usage__seg--${r.segment}`}
+                  data-segment={r.segment}
+                  aria-hidden="true"
+                />
+              )}
+              {r.label}
+            </span>
+            <span className="disk-usage__value">{r.value}</span>
+          </li>
+        ))}
+      </ul>
+      {measuredText && (
+        <div className="disk-usage__measured" data-testid="disk-usage-measured">
+          {measuredText}
+        </div>
+      )}
+    </div>
   );
+}
+
+function percentText(share: number): string {
+  return share > 0 && share < 1 ? "<1%" : `${Math.round(share)}%`;
+}
+
+/** The bar's segments with their share of the total, in percent. Members and
+ * the Claude/Codex split are parts of a category, so they are not segments.
+ * No total, no bar: a share of an unknown whole would be invented. The
+ * categories are measured separately and can add up to a little more than the
+ * total; the larger of the two is the whole then, so the bar never overflows. */
+function barSegments(u: MachineDiskUsageView, d: Dict["monitor"]["diskUsage"]) {
+  if (u.totalBytes === null) return [];
+  const parts = (
+    [
+      ["database", d.database, u.databaseBytes],
+      ["backups", d.backups, u.backupsBytes],
+      ["workspaces", d.workspaces, u.workspaceBytes],
+      ["conversations", d.conversations, u.conversationBytes],
+      ["other", d.other, u.otherBytes],
+    ] as [Segment, string, number | null][]
+  ).filter((p): p is [Segment, string, number] => p[2] !== null && p[2] > 0);
+  const whole = Math.max(
+    u.totalBytes,
+    parts.reduce((sum, [, , bytes]) => sum + bytes, 0),
+  );
+  if (whole <= 0) return [];
+  return parts.map(([segment, label, bytes]) => ({ segment, label, bytes, share: (bytes / whole) * 100 }));
 }
 
 function breakdownRows(
@@ -186,9 +174,9 @@ function breakdownRows(
   const push = (key: string, label: ReactNode, bytes: number | null, extra?: Partial<Row>) => {
     if (bytes !== null) rows.push({ key, label, value: formatBytes(bytes), ...extra });
   };
-  push("database", d.database, u.databaseBytes);
-  push("backups", d.backups, u.backupsBytes);
-  push("workspaces", d.workspaces, u.workspaceBytes);
+  push("database", d.database, u.databaseBytes, { segment: "database" });
+  push("backups", d.backups, u.backupsBytes, { segment: "backups" });
+  push("workspaces", d.workspaces, u.workspaceBytes, { segment: "workspaces" });
 
   const members = [...u.members].sort((a, b) => b.totalBytes - a.totalBytes);
   members.slice(0, TOP_MEMBERS).forEach((m, i) => {
@@ -210,12 +198,12 @@ function breakdownRows(
   }
 
   const conversationAt = rows.length;
-  push("conversations", d.conversations, u.conversationBytes);
+  push("conversations", d.conversations, u.conversationBytes, { segment: "conversations" });
   push("claude", col.claude, u.claudeConversationBytes, { sub: true });
   push("codex", col.codex, u.codexConversationBytes, { sub: true });
   if (rows[conversationAt]) rows[conversationAt].section = true;
 
-  push("other", d.other, u.otherBytes);
+  push("other", d.other, u.otherBytes, { segment: "other" });
   if (u.diskFreeBytes !== null && u.diskTotalBytes !== null) {
     rows.push({
       key: "disk",

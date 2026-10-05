@@ -1645,6 +1645,9 @@ export const en: Dict = {
       conversations: "Conversation logs",
       other: "Other",
       disk: "Disk free / total",
+      total: "OffiCraft disk usage",
+      barLabel: "OffiCraft disk usage by category: ",
+      listSep: ", ",
     },
     detail: {
       open: "Account details",
@@ -1775,6 +1778,9 @@ export const en: Dict = {
       onboardError: "Failed to add machine",
       // ── the machine name menu: rename, then the three verbs install /
       // uninstall / delete ──
+      detail: "Details",
+      detailTitle: "Machine details",
+      machineId: "Machine ID",
       rename: "Rename",
       install: "Install",
       reinstall: "Reinstall",

@@ -121,7 +121,7 @@ describe("MonitorPage 磁碟 column", () => {
       machines: [card("m-beta", usage(7.5)), card("m-gamma", null), card("m-alpha", usage(41.7))],
     });
     renderMonitor();
-    await screen.findByText("m-delta");
+    await screen.findByRole("button", { name: "機器操作（delta）" });
     await screen.findByText("41.7 GB");
 
     const table = machinesTable();
@@ -137,17 +137,17 @@ describe("MonitorPage 磁碟 column", () => {
     const rows = Array.from(table.querySelectorAll("tbody tr")).map((tr) => {
       const disk = within(tr as HTMLElement).getByTestId("mon-disk");
       return [
-        within(tr as HTMLElement).getByTestId("mon-machine-id").textContent,
+        within(tr as HTMLElement).getByTestId("mon-machine-menu").textContent,
         disk.textContent,
         disk.getAttribute("data-label"),
         Array.from(tr.children).indexOf(disk),
       ];
     });
     expect(rows).toEqual([
-      ["m-alpha", "41.7 GB", "磁碟", 6],
-      ["m-beta", "7.5 GB", "磁碟", 6],
-      ["m-gamma", "尚未量測", "磁碟", 6],
-      ["m-delta", "尚未量測", "磁碟", 6],
+      ["alpha", "41.7 GB", "磁碟", 6],
+      ["beta", "7.5 GB", "磁碟", 6],
+      ["gamma", "尚未量測", "磁碟", 6],
+      ["delta", "尚未量測", "磁碟", 6],
     ]);
   });
 

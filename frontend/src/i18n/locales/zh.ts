@@ -1672,6 +1672,9 @@ export const zh = {
       conversations: "對話紀錄",
       other: "其他",
       disk: "硬碟剩餘／總容量",
+      total: "OffiCraft 磁碟用量",
+      barLabel: "OffiCraft 磁碟用量組成：",
+      listSep: "、",
     },
     // 帳號詳情 modal(T-a9a7):該 claude 帳號背後的真實識別。email/org 來自
     // owner-only 的 account_label;任何缺值一律誠實顯示 "—",絕不猜。
@@ -1810,6 +1813,9 @@ export const zh = {
       onboardError: "新增機器失敗",
       // ── 三動詞:安裝 / 解除安裝 / 刪除 (install / uninstall / delete) ──
       // 機器名稱選單的項目
+      detail: "詳情",
+      detailTitle: "機器詳情",
+      machineId: "機器 ID",
       rename: "改名稱",
       install: "安裝",
       reinstall: "重新安裝",

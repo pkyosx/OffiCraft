@@ -1,5 +1,5 @@
-// The machine's name is the trigger of the row's operations menu: 改名稱, then
-// install / uninstall / delete with their enable rules. There is no pencil
+// The machine's name is the trigger of the row's operations menu: 詳情, 改名稱,
+// then install / uninstall / delete with their enable rules. There is no pencil
 // beside the name and no 操作 column.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -86,7 +86,7 @@ describe("the machine name's operations menu", () => {
     getMonitoring.mockResolvedValue({ accounts: [], sessions: [], machines: [] });
   });
 
-  it("under an online remote machine, the name opens 改名稱, 重新安裝, 解除安裝 and 刪除, all enabled", async () => {
+  it("under an online remote machine, the name opens 詳情, 改名稱, 重新安裝, 解除安裝 and 刪除, all enabled", async () => {
     listMachines.mockResolvedValue([machine({ online: true })]);
     renderMonitor();
     const trigger = await screen.findByRole("button", TRIGGER);
@@ -95,6 +95,7 @@ describe("the machine name's operations menu", () => {
     expect(screen.queryByRole("menu")).toBeNull();
     fireEvent.click(trigger);
     expect(itemsOf()).toEqual([
+      ["詳情", false, ""],
       ["改名稱", false, ""],
       ["重新安裝", false, ""],
       ["解除安裝", false, ""],
@@ -107,6 +108,7 @@ describe("the machine name's operations menu", () => {
     renderMonitor();
     fireEvent.click(await screen.findByRole("button", TRIGGER));
     expect(itemsOf()).toEqual([
+      ["詳情", false, ""],
       ["改名稱", false, ""],
       ["安裝", false, ""],
       ["解除安裝", true, "機器離線，無法解除安裝"],
@@ -121,6 +123,7 @@ describe("the machine name's operations menu", () => {
     renderMonitor();
     fireEvent.click(await screen.findByRole("button", { name: "機器操作（本機）" }));
     expect(itemsOf()).toEqual([
+      ["詳情", false, ""],
       ["改名稱", false, ""],
       ["重新安裝", false, ""],
       ["解除安裝", false, ""],
@@ -226,10 +229,13 @@ describe("the machine name's operations menu", () => {
     renderMonitor();
     fireEvent.keyDown(await screen.findByRole("button", TRIGGER), { key: "ArrowDown" });
     const menu = screen.getByRole("menu");
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId("mon-rename-btn")));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId("mon-detail-btn")));
     fireEvent.keyDown(menu, { key: "ArrowUp" });
     expect(document.activeElement, "wraps to the last").toBe(screen.getByTestId("mon-delete-btn"));
     fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(document.activeElement, "wraps to the first").toBe(screen.getByTestId("mon-detail-btn"));
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(screen.getByTestId("mon-rename-btn"));
     fireEvent.keyDown(menu, { key: "ArrowDown" });
     expect(document.activeElement).toBe(screen.getByTestId("mon-install-btn"));
     fireEvent.keyDown(menu, { key: "ArrowDown" });

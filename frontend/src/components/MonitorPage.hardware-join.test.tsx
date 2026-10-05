@@ -113,8 +113,8 @@ describe("MonitorPage hardware telemetry join", () => {
 
   it("renders the machine's cpu/ram/power from the matching telemetry card, not a dash", async () => {
     renderMonitor();
-    // Wait for the row to mount by its stable id badge.
-    await screen.findByText("m-server-self");
+    // Wait for the row to mount by its name.
+    await screen.findByRole("button", { name: "機器操作（seth-m5）" });
     // The hardware cells carry the real numbers keyed by machine-id.
     // MonitorPage intentionally renders percentages as whole numbers.
     expect(await screen.findByText("17%")).toBeTruthy();

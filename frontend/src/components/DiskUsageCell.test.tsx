@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
-import { DiskUsageCell } from "./DiskUsageCell";
+import { DiskUsageBreakdown, DiskUsageCell } from "./DiskUsageCell";
 import type { MachineDiskUsageMemberView, MachineDiskUsageView } from "../types";
 
 const NOW = new Date(2026, 9, 4, 10, 0, 0, 0);
@@ -64,23 +64,46 @@ const EMPTY: MachineDiskUsageView = {
   diskTotalBytes: null,
 };
 
-function mount(usage: MachineDiskUsageView | null | undefined, onHostClick = vi.fn()) {
+function mountCell(usage: MachineDiskUsageView | null | undefined) {
+  const onOpen = vi.fn();
+  const onHostClick = vi.fn();
   render(
     <I18nProvider>
       <div data-testid="host" onClick={onHostClick}>
-        <DiskUsageCell usage={usage} />
+        <DiskUsageCell usage={usage} onOpen={onOpen} />
       </div>
-      <button type="button" data-testid="elsewhere">elsewhere</button>
     </I18nProvider>,
   );
-  return onHostClick;
+  return { onOpen, onHostClick };
 }
 
-function panelRows(): [string, string][] {
+function mountBreakdown(usage: MachineDiskUsageView) {
+  render(
+    <I18nProvider>
+      <DiskUsageBreakdown usage={usage} />
+    </I18nProvider>,
+  );
+}
+
+function rows(): [string, string][] {
   return screen.getAllByTestId("disk-usage-row").map((row) => [
     row.querySelector(".disk-usage__label")?.textContent ?? "",
     row.querySelector(".disk-usage__value")?.textContent ?? "",
   ]);
+}
+
+/** Each bar segment's category and width in percent. */
+function segments(): [string, number][] {
+  return screen
+    .queryAllByTestId("disk-usage-seg")
+    .map((seg) => [seg.getAttribute("data-segment") ?? "", parseFloat(seg.style.width)]);
+}
+
+/** The categories whose list row carries a colour swatch. */
+function swatches(): string[] {
+  return Array.from(document.querySelectorAll(".disk-usage__swatch")).map(
+    (el) => el.getAttribute("data-segment") ?? "",
+  );
 }
 
 beforeEach(() => {
@@ -97,7 +120,7 @@ describe("DiskUsageCell", () => {
     for (const usage of [null, undefined]) {
       const { unmount } = render(
         <I18nProvider>
-          <DiskUsageCell usage={usage} />
+          <DiskUsageCell usage={usage} onOpen={vi.fn()} />
         </I18nProvider>,
       );
       const cell = screen.getByTestId("disk-usage-unmeasured");
@@ -106,24 +129,34 @@ describe("DiskUsageCell", () => {
       expect(screen.queryByRole("button")).toBeNull();
       unmount();
     }
-    mount(FULL);
-    expect(screen.queryByTestId("disk-usage-unmeasured")).toBeNull();
-    expect(screen.getByTestId("disk-usage-trigger").textContent).toBe("41.7 GB");
   });
 
-  it("under a full measurement a click opens the whole breakdown in order, top five members with 已離開 marks and the rest summed", () => {
-    mount(FULL);
+  it("shows only the total, with a chevron, as a button that opens the dialog and does not reach the host row", () => {
+    const { onOpen, onHostClick } = mountCell(FULL);
     const trigger = screen.getByTestId("disk-usage-trigger");
-    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(trigger.textContent).toBe("41.7 GB");
+    expect(trigger.querySelector(".disk-usage__chevron svg")).toBeTruthy();
     expect(trigger.getAttribute("aria-label")).toBe("磁碟用量明細 41.7 GB");
-    expect(screen.queryByTestId("disk-usage-panel")).toBeNull();
-
+    expect(trigger.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(screen.queryByTestId("disk-usage-row")).toBeNull();
     fireEvent.click(trigger);
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(onHostClick).not.toHaveBeenCalled();
+  });
 
-    expect(trigger.getAttribute("aria-expanded")).toBe("true");
-    const panel = screen.getByRole("dialog", { name: "磁碟用量明細" });
-    expect(panel.getAttribute("data-testid")).toBe("disk-usage-panel");
-    expect(panelRows()).toEqual([
+  it("under a measurement whose total is null it reads a dash and still opens", () => {
+    const { onOpen } = mountCell({ ...EMPTY, databaseBytes: kib(2417536) });
+    const trigger = screen.getByTestId("disk-usage-trigger");
+    expect(trigger.textContent).toBe("—");
+    fireEvent.click(trigger);
+    expect(onOpen).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("DiskUsageBreakdown", () => {
+  it("lists the whole breakdown in order, top five members with 已離開 marks and the rest summed, then when it was measured", () => {
+    mountBreakdown(FULL);
+    expect(rows()).toEqual([
       ["資料庫", "2.3 GB"],
       ["備份", "12.7 GB"],
       ["成員 workspace 合計", "15.6 GB"],
@@ -147,10 +180,60 @@ describe("DiskUsageCell", () => {
     expect(screen.getByTestId("disk-usage-measured").textContent).toBe("量於 12m 前");
   });
 
+  it("draws one bar of the five top-level categories, each as wide as its share of the total, with a matching swatch on its row", () => {
+    mountBreakdown(FULL);
+    const total = 43748512;
+    const expected: [string, number][] = [
+      ["database", (2417536 / total) * 100],
+      ["backups", (13349048 / total) * 100],
+      ["workspaces", (16306716 / total) * 100],
+      ["conversations", (8116668 / total) * 100],
+      ["other", (3558544 / total) * 100],
+    ];
+    const got = segments();
+    expect(got.map(([key]) => key)).toEqual(expected.map(([key]) => key));
+    got.forEach(([, width], i) => expect(width).toBeCloseTo(expected[i][1], 2));
+    // Members and the Claude/Codex split are inside their category, not segments of their own.
+    expect(swatches()).toEqual(["database", "backups", "workspaces", "conversations", "other"]);
+    const bar = screen.getByRole("img");
+    expect(bar.getAttribute("data-testid")).toBe("disk-usage-bar");
+    expect(bar.getAttribute("aria-label")).toBe(
+      "OffiCraft 磁碟用量組成：資料庫 2.3 GB (6%)、備份 12.7 GB (31%)、成員 workspace 合計 15.6 GB (37%)、對話紀錄 7.7 GB (19%)、其他 3.4 GB (8%)",
+    );
+  });
+
+  it("leaves a category of zero or unmeasured bytes out of the bar and its swatch off the row", () => {
+    mountBreakdown({ ...FULL, backupsBytes: 0, otherBytes: null });
+    expect(segments().map(([key]) => key)).toEqual(["database", "workspaces", "conversations"]);
+    expect(swatches()).toEqual(["database", "workspaces", "conversations"]);
+    expect(rows().map(([label]) => label)).toContain("備份");
+    expect(rows().map(([label]) => label)).not.toContain("其他");
+  });
+
+  it("under categories adding up to less than the total, each is a share of the total and the rest of the bar stays empty", () => {
+    mountBreakdown({ ...EMPTY, totalBytes: 100, databaseBytes: 25, otherBytes: 25 });
+    expect(segments()).toEqual([
+      ["database", 25],
+      ["other", 25],
+    ]);
+  });
+
+  it("under categories adding up to more than the total, the bar is shared out of their sum and never overflows", () => {
+    mountBreakdown({
+      ...EMPTY,
+      totalBytes: 100,
+      databaseBytes: 60,
+      workspaceBytes: 90,
+    });
+    const got = segments();
+    expect(got.map(([key]) => key)).toEqual(["database", "workspaces"]);
+    expect(got[0][1]).toBeCloseTo(40, 5);
+    expect(got[1][1]).toBeCloseTo(60, 5);
+  });
+
   it("under exactly five members there is no 其餘 row", () => {
-    mount({ ...FULL, members: SEVEN_MEMBERS.slice(0, 5) });
-    fireEvent.click(screen.getByTestId("disk-usage-trigger"));
-    expect(panelRows().map(([label]) => label)).toEqual([
+    mountBreakdown({ ...FULL, members: SEVEN_MEMBERS.slice(0, 5) });
+    expect(rows().map(([label]) => label)).toEqual([
       "資料庫",
       "備份",
       "成員 workspace 合計",
@@ -168,9 +251,8 @@ describe("DiskUsageCell", () => {
   });
 
   it("under a member list the server did not sort, the five largest are shown largest first", () => {
-    mount({ ...FULL, members: [...SEVEN_MEMBERS].reverse() });
-    fireEvent.click(screen.getByTestId("disk-usage-trigger"));
-    expect(panelRows().slice(3, 9)).toEqual([
+    mountBreakdown({ ...FULL, members: [...SEVEN_MEMBERS].reverse() });
+    expect(rows().slice(3, 9)).toEqual([
       ["Mira", "7.9 GB"],
       ["O-179", "5.7 GB"],
       ["O-151已離開", "3.9 GB"],
@@ -180,79 +262,39 @@ describe("DiskUsageCell", () => {
     ]);
   });
 
-  it("under a measurement object whose total is null the cell reads a dash and the panel shows only the measured rows", () => {
-    mount({
+  it("under a measurement whose total is null, there is no bar and only the measured rows", () => {
+    mountBreakdown({
       ...EMPTY,
       databaseBytes: kib(2417536),
       backupsBytes: kib(13349048),
       databaseMeasuredAt: NOW_S - 3 * 3600,
       diskFreeBytes: 412316860416,
     });
-    const trigger = screen.getByTestId("disk-usage-trigger");
-    expect(trigger.textContent).toBe("—");
-    fireEvent.click(trigger);
-    expect(panelRows()).toEqual([
+    expect(screen.queryByTestId("disk-usage-bar")).toBeNull();
+    expect(swatches()).toEqual([]);
+    expect(rows()).toEqual([
       ["資料庫", "2.3 GB"],
       ["備份", "12.7 GB"],
     ]);
     expect(screen.getByTestId("disk-usage-measured").textContent).toBe("量於 3h 前");
   });
 
-  it("under an object with nothing measured the panel has no rows and no measured line", () => {
-    mount(EMPTY);
-    fireEvent.click(screen.getByTestId("disk-usage-trigger"));
-    expect(screen.getByTestId("disk-usage-panel")).toBeTruthy();
+  it("under an object with nothing measured there is no bar, no row and no measured line", () => {
+    mountBreakdown(EMPTY);
+    expect(screen.queryByTestId("disk-usage-bar")).toBeNull();
     expect(screen.queryAllByTestId("disk-usage-row")).toEqual([]);
     expect(screen.queryByTestId("disk-usage-measured")).toBeNull();
   });
 
-  it("closes on a second click, on Esc and on a press elsewhere, but not on a press inside the panel", () => {
-    mount(FULL);
-    const trigger = screen.getByTestId("disk-usage-trigger");
-
-    fireEvent.click(trigger);
-    expect(screen.getByTestId("disk-usage-panel")).toBeTruthy();
-    fireEvent.click(trigger);
-    expect(screen.queryByTestId("disk-usage-panel")).toBeNull();
-    expect(trigger.getAttribute("aria-expanded")).toBe("false");
-
-    fireEvent.click(trigger);
-    fireEvent.keyDown(window, { key: "Escape" });
-    expect(screen.queryByTestId("disk-usage-panel")).toBeNull();
-    expect(document.activeElement).toBe(trigger);
-
-    fireEvent.click(trigger);
-    fireEvent.mouseDown(screen.getAllByTestId("disk-usage-row")[0]);
-    expect(screen.getByTestId("disk-usage-panel")).toBeTruthy();
-    fireEvent.mouseDown(screen.getByTestId("elsewhere"));
-    expect(screen.queryByTestId("disk-usage-panel")).toBeNull();
-  });
-
-  it("stays open while its own rows scroll and closes when the page or the table frame scrolls", () => {
-    mount(FULL);
-    const trigger = screen.getByTestId("disk-usage-trigger");
-
-    fireEvent.click(trigger);
-    expect(screen.getByTestId("disk-usage-panel")).toBeTruthy();
-    fireEvent.scroll(screen.getByTestId("disk-usage-panel"));
-    fireEvent.scroll(screen.getByTestId("disk-usage-panel").querySelector("ul")!);
-    expect(screen.getByTestId("disk-usage-panel")).toBeTruthy();
-
-    fireEvent.scroll(screen.getByTestId("host"));
-    expect(screen.queryByTestId("disk-usage-panel")).toBeNull();
-
-    fireEvent.click(trigger);
-    expect(screen.getByTestId("disk-usage-panel")).toBeTruthy();
-    fireEvent.scroll(window);
-    expect(screen.queryByTestId("disk-usage-panel")).toBeNull();
-  });
-
-  it("clicks on the cell or inside its panel do not reach the host row", () => {
-    const host = mount(FULL);
-    fireEvent.click(screen.getByTestId("disk-usage-trigger"));
-    fireEvent.click(screen.getAllByTestId("disk-usage-row")[0]);
-    expect(host).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByTestId("host"));
-    expect(host).toHaveBeenCalledTimes(1);
+  it("under English, the bar's summary reads in English", () => {
+    window.localStorage.setItem("oc.language", "en");
+    try {
+      mountBreakdown({ ...EMPTY, totalBytes: kib(4194304), databaseBytes: kib(1048576), otherBytes: kib(3145728) });
+      expect(screen.getByRole("img").getAttribute("aria-label")).toBe(
+        "OffiCraft disk usage by category: Database 1.0 GB (25%), Other 3.0 GB (75%)",
+      );
+    } finally {
+      window.localStorage.removeItem("oc.language");
+    }
   });
 });

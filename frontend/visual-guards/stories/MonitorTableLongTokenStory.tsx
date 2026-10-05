@@ -11,13 +11,14 @@
 //
 // The markup below mirrors MonitorPage.tsx's table structure (`.mon-table-wrap`
 // > `.mon-table` > `thead`/`tbody` > `tr` > `td[data-label]`, machine name cell
-// = `.mon-machine-name` + `.mon-machine-id`). NOTE the honest caveat: this is a
+// = `.mon-machine-name`). NOTE the honest caveat: this is a
 // hand-mirrored chain, not a mounted <MonitorPage/> (that needs the API seam).
 // If MonitorPage grows an ancestor this story lacks, the numbers can drift —
 // the owner's phone acceptance is the backstop.
 import "../../src/components/monitor.css";
 
-/** A realistic warden machine id — no whitespace, no break opportunity. */
+/** A realistic warden machine id — no whitespace, no break opportunity. The
+ * machine row no longer prints it; the sessions table's member cell does. */
 export const LONG_MACHINE_ID = "m-eva-m5-warden-c20ccd2eaed4f663f3c5de9a41625ab02770";
 /** A model name of the kind the sessions table prints verbatim. */
 export const LONG_MODEL = "claude-opus-4-8-20260715-preview-extended-thinking-256k";
@@ -43,9 +44,6 @@ export function MonitorTableLongTokenStory() {
               <td className="mon-table__left" data-label="機器">
                 <div className="mon-machine-name">
                   <span className="mon-table__strong">eva-m5</span>
-                  <span className="mon-machine-id" title={LONG_MACHINE_ID}>
-                    {LONG_MACHINE_ID}
-                  </span>
                 </div>
               </td>
               <td className="mon-table__left" data-label="狀態">

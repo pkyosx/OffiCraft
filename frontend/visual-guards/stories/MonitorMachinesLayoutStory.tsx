@@ -16,6 +16,7 @@ import { useEffect, useMemo } from "react";
 import { I18nProvider, useI18n } from "../../src/i18n";
 import { MachinesTable } from "../../src/components/MonitorPage";
 import type { MachineDiskUsageView, MachineView, MonMachineView } from "../../src/types";
+import { LONG_NAME } from "./monitorMachinesLayoutNames";
 import "../../src/components/monitor.css";
 
 const machine: MachineView = {
@@ -92,8 +93,8 @@ const rows: Record<MachinesLayoutState, { machine: MachineView; hw: MonMachineVi
   },
   // A name far longer than the frame leaves 機器 at 1280px.
   long: {
-    machine: { ...machine, machineId: "m-c9479bc2d696", displayName: "Seth 的 Mac Studio（辦公室三樓靠窗）", isSelf: false },
-    hw: { ...hardware, machine: "m-c9479bc2d696", displayName: "Seth 的 Mac Studio（辦公室三樓靠窗）" },
+    machine: { ...machine, machineId: "m-c9479bc2d696", displayName: LONG_NAME, isSelf: false },
+    hw: { ...hardware, machine: "m-c9479bc2d696", displayName: LONG_NAME },
   },
   old: {
     machine: { ...machine, claudeVersion: "2.1.286" },
