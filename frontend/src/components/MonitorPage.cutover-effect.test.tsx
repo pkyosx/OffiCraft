@@ -26,9 +26,9 @@ import { MonitorPage } from "./MonitorPage";
 import type { Member, MachineView, CutoverEffect } from "../types";
 
 const ZH_HINT =
-  "未生效：這台機器的成員還在更新前啟動的環境裡執行，要先把這台機器的成員全部停止，再喚醒，才會生效。";
+  "未生效：這台機器上的成員還在更新前啟動的環境裡執行。先把這台機器上的成員全部停止，再把這些成員喚醒，就會生效，機器本身不用動。";
 const EN_HINT =
-  "Not in effect: the members on this machine are still running in an environment started before the update. Stop every member on this machine first, then wake them, for it to take effect.";
+  "Not in effect: the members on this machine are still running in an environment started before the update. Stop every member on this machine, then wake those members again; nothing on the machine itself needs to change.";
 
 const listMembers = vi.fn(async (): Promise<Member[]> => []);
 const listMachines = vi.fn(async (): Promise<MachineView[]> => []);

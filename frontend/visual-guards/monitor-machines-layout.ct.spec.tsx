@@ -1222,7 +1222,7 @@ test.describe("phone card mode on a touch screen", () => {
 // A proven not-in-effect cutover shows the members' warning exclamation right
 // after the online dot; its sentence is the hint and the accessible name.
 const NOT_IN_EFFECT =
-  "未生效：這台機器的成員還在更新前啟動的環境裡執行，要先把這台機器的成員全部停止，再喚醒，才會生效。";
+  "未生效：這台機器上的成員還在更新前啟動的環境裡執行。先把這台機器上的成員全部停止，再把這些成員喚醒，就會生效，機器本身不用動。";
 
 type Box = { x: number; y: number; width: number; height: number };
 const overlaps = (a: Box, b: Box) =>

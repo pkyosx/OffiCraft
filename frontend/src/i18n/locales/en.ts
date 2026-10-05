@@ -1898,7 +1898,7 @@ export const en: Dict = {
       // "Stop all, then wake", never "restart": restarting members one at a
       // time keeps the old process that carries them running, so nothing changes.
       cutoverNotInEffectHint:
-        "Not in effect: the members on this machine are still running in an environment started before the update. Stop every member on this machine first, then wake them, for it to take effect.",
+        "Not in effect: the members on this machine are still running in an environment started before the update. Stop every member on this machine, then wake those members again; nothing on the machine itself needs to change.",
     },
   },
   // ── Backup health (T-da06) — is the scheduled backup still producing
