@@ -172,21 +172,20 @@ server 的處理方式是**每一輪重新推導**——還活著就再送一次
 ⚠️ **這一段推翻了它上一版寫的話**——上一版寫「外包那邊只加了對稱的 endpoint，
 `/stop` 的語意一個字都沒動」。那句在 owner 裁定的當下就過期了。
 
-`HandleStopOutsourceWorker…`（T-197 之後它不再自己掛一條路由，而是
-`POST /api/members/{member_id}/deactivate` 在 `kind == outsource` 時分流進來的那段
-body）現在做的是：翻 `desired_state=offline`（保持「停止壓過
-一切自動復活」）、蓋 `stopping_since`、清掉 in-flight 的 refocus epoch、走
-`openWorkerHandoverGrace` 朝 worker 自己的 session 發那份 member-topic 的下線預告，然
-後**回傳**。它**不殺**、也**不蓋 `forced_stop_at`**。
+`POST /api/members/{member_id}/deactivate` 對外包與正職呼叫同一個 `stopMember`
+（`member_stop.go`；外包專用的 stop handler 已刪），對一個還在線的 worker 做的是：翻
+`desired_state=offline`（保持「停止壓過一切自動復活」）、蓋 `stopping_since`、清掉
+in-flight 的 refocus epoch、發一則帶下線預告的 member delta 到 worker 自己的 session，
+然後**回傳**。它**不殺**、也**不蓋 `forced_stop_at`**。
 
 - **為什麼不蓋 `forced_stop_at`**：那個 anchor 存在的兩個理由，對優雅停止都反過來。
   它是用來讓通知**沉默**的（`forcedEpochLive` → `offboardKindOf` 不掛 notice），可是
   優雅停止的重點就是那則通知要送到；它也是「這個 session 是被切斷的」憑據，而這個
   session 是被**請它自己收尾**的。那個 anchor 連同當場的 kill 一起搬到第三顆按鈕
   `POST /api/members/{member_id}/force-stop`（T-197 之前那顆按鈕打的是
-  `POST /api/outsource-workers/{id}/force-stop`；**動的只有路徑，語意一個字沒變**——
-  member handler 看 `kind == outsource` 就分流進同一個 worker body）。
-- **收口是 `workerReportStopped`**，而它需要一條新的臂。原本的收口閘是
+  `POST /api/outsource-workers/{id}/force-stop`；今天兩種成員都走同一個
+  `forceStopMember`）。
+- **收口是 worker 自己的 report_stopped**（今天是兩種成員共用的 `reportMemberStopped`），而它需要一條新的臂。原本的收口閘是
   `desired online ∧ refocus_since > 0`，而一個停止 epoch **兩個都不是**。少了那條臂，
   外包按了停止之後會**永遠不被收掉**——比原本當場殺掉更糟。護欄：
   `TestWorkerStop_ReportStoppedCollectsTheStopEpoch`。

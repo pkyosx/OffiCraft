@@ -40,8 +40,8 @@
 > - **沒有 `/api/outsource-workers/{id}/…` 這一族路由**（list／單筆讀／relocate／refocus／
 >   stop／restart／model／accelerated-stop／force-stop 九條），也**沒有與它們同名的 MCP 工具**。
 >   唯一留著 worker 命名空間的是 `GET /api/outsource-workers/{id}/boot-context`。動作打的是
->   同名的 member 路由，member handler 看 `kind == outsource` 分流進原本的 worker body；
->   **語意未變，變的是路徑**。
+>   同名的 member 路由；停止類（停止／加速停止／強制停止／回報停止）兩種成員已是同一個函式
+>   （`member_stop.go`），其餘動作 member handler 看 `kind == outsource` 分流進 worker body。
 > - **沒有 `outsource_worker` SSE topic**（closed set 從 12 收成 11）；外包的指派／認領／釋出
 >   走 `member` topic。
 >

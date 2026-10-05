@@ -949,10 +949,11 @@ decides that time is up.
   ⚠️ **T-197 folded the worker-namespaced routes away — the VERBS are unchanged, only the
   paths are.** A worker is reached through the member route for the same verb
   (`/deactivate` for 停止, `/force-stop`, `/accelerated-stop`, `/refocus`, `/relocate`,
-  `/activate` for 喚醒, `PATCH /api/members/{member_id}` for 換 model); the member handler
-  dispatches on `kind == outsource` into the worker body. The paragraphs below describe
-  those bodies, so read every old `/api/outsource-workers/{id}/…` path in them as the
-  member route named next to it.
+  `/activate` for 喚醒, `PATCH /api/members/{member_id}` for 換 model). The stop verbs
+  (`/deactivate`, `/accelerated-stop`, `/force-stop`, `/api/self/stopped`) are ONE function
+  each for both kinds (`member_stop.go`); the other verbs still dispatch on
+  `kind == outsource` into a worker body. Read every old `/api/outsource-workers/{id}/…`
+  path below as the member route named next to it.
   `POST /api/members/{member_id}/deactivate` on a worker is a GRACEFUL close-out: it sets
   `desired_state=offline`, stamps `stopping_since`, clears any in-flight refocus epoch,
   fans the 〈停止〉 notice at the worker's own session and **returns**. It does **not**
@@ -1279,7 +1280,7 @@ ONE-SHOT, never a standing order):
   | `openOwnerOpHandover` (`worker_spawn.go`) | 改機器 / 換 model | the change is SAVED, the stage does not move; the existing wind-down keeps its own deadline and owns the move |
   | `applyRefocusVerb` (`member_ownerop_winddown.go`), called by both `HandleRefocusOutsourceWorker…` and `HandleRefocusMember` | 重新聚焦 | **409** — the owner pressed a button, so he gets an answer; one rule for staff and workers, and the sentence (`refocusLadderRefusalMsg`) differs in exactly one noun, `this worker` vs `this member` |
   | `workerRestartSelf` (`worker_spawn.go`) | `restart_self` | **409** — the refusal is written by `HandleRestartSelfApiSelfRefocusPost` itself, VERBATIM the sentence its own staff arm writes further down in the same function (`m.Kind == KindOutsource` arm vs the fall-through `armRefocusEpoch` arm); the two arms are one rule |
-  | `HandleAcceleratedStopOutsourceWorker…` | 加速停止 | n/a — it ADVANCES the ladder, and it deliberately does not zero the anchors (the twin of the staff 加速停止 arm) |
+  | `accelerateMemberStop` (`member_stop.go`), called by `accelerateStopMember` for both populations | 加速停止 | n/a — it ADVANCES the ladder, and it deliberately does not zero the anchors |
   | `stampContextHighRecycle` promotion arm (`reconcile.go`, the `if promoting` branch) | none — the reconcile tick's own context pass, projected onto workers by `runWorkerLifecyclePasses` (`lifecycle_roster.go`), which `runOutsourceTick` calls | n/a — it also ADVANCES, and only forwards: `canPromoteToAcceleratedStop` lets it move `context_notice` → `context_high` and nothing else. It hand-writes `refocus_since` / `refocus_op` INSTEAD of calling `armRefocusEpoch` on purpose — that helper zeroes the wind-down anchors, and here they belong to a close-out already in flight (see the `armRefocusEpoch is deliberately NOT used` note directly above that assignment) |
   ⚠️ **`喚醒` (restart) HAS TWO ARMS, and only one of them can reach this table.**
   Owner ruling 2026-09-06 (`rc-1f591528a6d0` 圈 [0]): 「收斂成『正在跑就不動它』；真的要
@@ -1300,7 +1301,7 @@ ONE-SHOT, never a standing order):
   family still green. A guard whose removal changes nothing is not a guard.
 
   ⚠️ **WHAT THIS COST, stated plainly:** there is no longer a ONE-PRESS way to
-  end a wedged session. 強制停止 still calls `stopWorkerNow` with no liveness
+  end a wedged session. 強制停止 (`forceStopMember`) still kills with no liveness
   gate, so the escape hatch survives as two presses — 強制停止, then 喚醒. The
   one-press 「強制重來」 the owner named is a SEPARATE action he deferred; it does
   not exist anywhere in this repo.
