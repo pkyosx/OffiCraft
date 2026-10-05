@@ -269,3 +269,81 @@ describe("the machine name's operations menu", () => {
     expect(screen.queryByRole("menu")).toBeNull();
   });
 });
+
+// The name's last character and the chevron share an unbreakable element, so a
+// wrapped name never leaves the chevron alone on a line (the layout itself is
+// measured in visual-guards/monitor-machines-layout.ct.spec.tsx).
+describe("the machine name's last character and the chevron", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listMembers.mockResolvedValue([]);
+    getMonitoring.mockResolvedValue({ accounts: [], sessions: [], machines: [] });
+  });
+
+  async function nameParts(displayName: string) {
+    listMachines.mockResolvedValue([machine({ online: true, displayName })]);
+    const view = renderMonitor();
+    const trigger = await screen.findByRole("button", { name: `機器操作（${displayName}）` });
+    const name = trigger.querySelector(".mon-table__strong")!;
+    const tail = name.querySelector(".mon-machine-name__tail")!;
+    const chevron = tail.querySelector(".runtime-menu__chevron")!;
+    const parts = {
+      text: name.textContent,
+      tail: tail.textContent,
+      chevronHidden: chevron.getAttribute("aria-hidden"),
+      chevronText: chevron.textContent,
+      chevronLast: tail.lastElementChild === chevron,
+      triggerText: trigger.textContent,
+    };
+    view.unmount();
+    return parts;
+  }
+
+  it("the button's accessible name is the whole machine name, in one piece, with no chevron text", async () => {
+    listMachines.mockResolvedValue([machine({ online: true, displayName: "Seth 的 Mac Studio（辦公室三樓靠窗）" })]);
+    renderMonitor();
+    const trigger = await screen.findByRole("button", { name: "機器操作（Seth 的 Mac Studio（辦公室三樓靠窗））" });
+    expect(trigger.getAttribute("aria-label")).toBe("機器操作（Seth 的 Mac Studio（辦公室三樓靠窗））");
+    expect(trigger.textContent, "the visible text is the name alone").toBe("Seth 的 Mac Studio（辦公室三樓靠窗）");
+  });
+
+  it.each([
+    ["a word", "Alpha", "a"],
+    ["a full-width ） at the end", "Seth 的 Mac Studio（辦公室三樓靠窗）", "）"],
+    ["one character", "A", "A"],
+    ["one Han character", "機", "機"],
+    ["an emoji made of several code points", "build box 👩‍💻", "👩‍💻"],
+    ["a flag", "Taipei 🇹🇼", "🇹🇼"],
+    ["a letter with a combining accent", "Café", "é"],
+    ["a trailing space", "Alpha ", "a "],
+  ])("with %s, the chevron's run holds exactly the last character", async (_, displayName, tail) => {
+    expect(await nameParts(displayName)).toEqual({
+      text: displayName,
+      tail,
+      chevronHidden: "true",
+      chevronText: "",
+      chevronLast: true,
+      triggerText: displayName,
+    });
+  });
+
+  it("an empty name still renders the chevron, alone in its run", async () => {
+    // An empty name gives an empty accessible name; reach the trigger by test id.
+    listMachines.mockResolvedValue([machine({ online: true, displayName: "" })]);
+    renderMonitor();
+    const trigger = await screen.findByTestId("mon-machine-menu");
+    const tail = trigger.querySelector(".mon-table__strong .mon-machine-name__tail")!;
+    expect(tail.textContent).toBe("");
+    expect(tail.querySelector(".runtime-menu__chevron")).not.toBeNull();
+  });
+
+  it("without Intl.Segmenter the last code point is split off, a surrogate pair whole", async () => {
+    vi.stubGlobal("Intl", { ...Intl, Segmenter: undefined });
+    try {
+      expect((await nameParts("build box 👍")).tail).toBe("👍");
+      expect((await nameParts("Alpha")).tail).toBe("a");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});

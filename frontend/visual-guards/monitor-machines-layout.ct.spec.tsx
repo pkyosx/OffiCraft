@@ -55,11 +55,15 @@
 //   phone: dot centred on the wrapped name   → long-name card tests (dot on line 1)
 //   phone: trigger back to inline-flex       → long-name card tests (chevron at
 //                                              the card's right edge)
-//   phone: no end padding on the name (chevron margin back to 6px)
-//                                           → card width sweep (chevron alone on a line)
-//   phone: chevron without `height: 1lh` / its 1.5em fallback
+//   name's last character and the chevron not kept together (`nowrap` off
+//   `.mon-machine-name__tail`)              → every card width sweep
+//   back to an end padding on the name that the chevron pulls back over
+//                                           → production-font sweeps of the
+//                                              （…） name and the zh names that
+//                                              fill a line (chevron alone on a line)
+//   chevron without `height: 1lh` / its 1.5em fallback
 //                                           → long-name card tests (chevron off the last line)
-//   phone: chevron with no gap after the word → long-name card tests
+//   chevron with no gap after the word       → long-name card tests
 //   `.mon-stale` border back to --color-border → frame contrast below 1.5
 //   (in the built-in palette --color-border IS --color-card)
 //   no measured min-width (MachinesTable)    → 機器 cut short (sticky, 800px and
@@ -106,6 +110,9 @@
 //                                           → line test (cell box-shadow at rest)
 //   the line's shade on at rest              → line test (shade opacity at rest)
 //   scrolled, the shade drawn without its 1px line → line test (shade box-shadow)
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { test, expect } from "@playwright/experimental-ct-react";
 import type { Page } from "@playwright/test";
 import { MonitorMachinesLayoutStory, type MachinesLayoutState } from "./stories/MonitorMachinesLayoutStory";
@@ -599,6 +606,82 @@ for (const theme of ["dark", "light"] as const) {
     await mount(<MonitorMachinesLayoutStory states={["stale"]} />);
     expect(await staleFrameContrast(page)).toBeGreaterThanOrEqual(1.5);
   });
+}
+
+type TextBox = { left: number; right: number; top: number; bottom: number };
+declare global {
+  interface Window {
+    /** The name's text lines (one box per line, whatever elements split the
+     * text) and its last character's box, chevron excluded. */
+    __nameText: (trigger: Element) => { lines: TextBox[]; lastChar: TextBox };
+  }
+}
+
+/** Defines `window.__nameText` for the mounted page. A range over the whole
+ * name would also return the boxes of the elements inside it (the chevron). */
+async function installNameText(page: Page) {
+  await page.evaluate(() => {
+    window.__nameText = (trigger) => {
+      const name = trigger.querySelector(".mon-table__strong")!;
+      const walker = document.createTreeWalker(name, NodeFilter.SHOW_TEXT);
+      const lines: TextBox[] = [];
+      let last: Text | null = null;
+      while (walker.nextNode()) {
+        const node = walker.currentNode as Text;
+        if (!node.data) continue;
+        last = node;
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        for (const r of Array.from(range.getClientRects())) {
+          if (r.width === 0) continue;
+          const line = lines.find((l) => Math.min(l.bottom, r.bottom) - Math.max(l.top, r.top) > (r.bottom - r.top) / 2);
+          if (line) {
+            line.left = Math.min(line.left, r.left);
+            line.right = Math.max(line.right, r.right);
+          } else lines.push({ left: r.left, right: r.right, top: r.top, bottom: r.bottom });
+        }
+      }
+      lines.sort((a, b) => a.top - b.top);
+      const range = document.createRange();
+      const lastCodePoint = Array.from(last!.data).pop()!;
+      range.setStart(last!, last!.data.length - lastCodePoint.length);
+      range.setEnd(last!, last!.data.length);
+      const c = Array.from(range.getClientRects()).filter((r) => r.width > 0).pop()!;
+      return { lines, lastChar: { left: c.left, right: c.right, top: c.top, bottom: c.bottom } };
+    };
+  });
+}
+
+/** The harness page loads no webfonts (see nav-tabs-narrow.ct.spec.tsx), so
+ * text is measured in the runner's fallback font. This loads the ones
+ * index.html ships, with its `lang`, before the story mounts. */
+async function loadProductionFonts(page: Page) {
+  const html = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "../index.html"), "utf8");
+  const href = html.match(/href="(https:\/\/fonts\.googleapis\.com\/css2\?[^"]+)"/)![1].replace(/&amp;/g, "&");
+  const lang = html.match(/<html lang="([^"]+)"/)![1];
+  await page.evaluate(
+    async ([href, lang]) => {
+      document.documentElement.lang = lang;
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = href;
+      const loaded = new Promise((resolve, reject) => {
+        link.onload = resolve;
+        link.onerror = reject;
+      });
+      document.head.appendChild(link);
+      await loaded;
+      await Promise.all([
+        document.fonts.load('600 13.5px "Noto Sans TC"', "辦公室三樓靠窗（）"),
+        document.fonts.load('600 13.5px "Schibsted Grotesk"', "Seth"),
+      ]);
+    },
+    [href, lang] as const
+  );
+  expect(
+    await page.evaluate(() => [document.fonts.check('600 13.5px "Noto Sans TC"', "窗）"), document.fonts.check('600 13.5px "Schibsted Grotesk"', "S")]),
+    "control: the production fonts loaded (they come from Google Fonts)"
+  ).toEqual([true, true]);
 }
 
 async function overflow(page: Page) {
@@ -1363,10 +1446,17 @@ test("a machine name that changes in place is measured again, longer and shorter
   expect(long.overflow, "control: the long name scrolls the frame").toBeGreaterThan(0);
   expect(px(short.variable), "control: the short name needs less than the default one").toBeLessThan(px(before.variable));
 
+  // The name's last character shares an element with the chevron; both text
+  // nodes are rewritten, the chevron stays.
   const name = page.locator(".mon-machine-name .mon-table__strong");
-  await name.evaluate((el, text) => (el.textContent = text), LONG);
+  const setName = (text: string) =>
+    name.evaluate((el, [head, last]) => {
+      el.firstChild!.textContent = head;
+      el.querySelector(".mon-machine-name__tail")!.firstChild!.textContent = last;
+    }, [text.slice(0, -1), text.slice(-1)] as const);
+  await setName(LONG);
   await expect.poll(() => measured(page)).toEqual(long);
-  await name.evaluate((el, text) => (el.textContent = text), SHORT);
+  await setName(SHORT);
   await expect.poll(() => measured(page)).toEqual(short);
 });
 
@@ -1721,6 +1811,7 @@ for (const { width, name: longName, state } of PHONE_LONG_CASES) {
   }) => {
     await page.setViewportSize({ width, height: 900 });
     await mount(<MonitorMachinesLayoutStory states={[state]} name={longName} />);
+    await installNameText(page);
     expect(
       await page.locator("tbody tr").first().evaluate((tr) => getComputedStyle(tr).display),
       "control: rows are cards"
@@ -1739,12 +1830,8 @@ for (const { width, name: longName, state } of PHONE_LONG_CASES) {
       const ch = r(el.querySelector(".runtime-menu__chevron")!);
       const icon = r(el.querySelector(".runtime-menu__chevron svg")!);
       const dot = r(el.closest("td")!.querySelector('[data-testid="mon-machine-online"]')!);
-      const range = document.createRange();
-      range.selectNodeContents(el.querySelector(".mon-table__strong")!);
-      // One rect per line box the text sits on (text nodes only, no element).
-      const lines = Array.from(range.getClientRects());
+      const { lines, lastChar } = window.__nameText(el);
       const first = lines[0];
-      const last = lines[lines.length - 1];
       return {
         wraps: lines.length > 1,
         linesStartTogether: lines.every((l) => Math.abs(l.left - first.left) <= 0.5),
@@ -1755,8 +1842,8 @@ for (const { width, name: longName, state } of PHONE_LONG_CASES) {
         triggerInCard: t.left >= td.left && t.right <= td.right + 0.5,
         chevronInTrigger: ch.width > 0 && ch.right <= t.right + 0.5,
         // The gap is 6px; under 3 the chevron touches the word.
-        chevronAfterLastWord: ch.left - last.right >= 3 && ch.left - last.right <= 8,
-        chevronOnLastLine: Math.abs(mid(icon) - mid(last)) <= 1.5,
+        chevronAfterLastWord: ch.left - lastChar.right >= 3 && ch.left - lastChar.right <= 8,
+        chevronOnLastLine: Math.abs(mid(icon) - mid(lastChar)) <= 1.5,
       };
     });
     expect(geo).toEqual({
@@ -1777,49 +1864,111 @@ for (const { width, name: longName, state } of PHONE_LONG_CASES) {
   });
 }
 
-// The chevron is an inline box of its own after the name, so wherever "name +
-// chevron" just misses the last line it can drop to the next line alone. That
-// happens in an ~18px band of widths (gap + chevron) for every name, at a
-// different place for each, so the fixed widths above can miss it: here each
-// name is swept across the card widths, every 2px, in one mount.
+// The chevron follows the name's last word in text flow, so wherever "name +
+// chevron" just misses the last line it could drop to the next line alone, in
+// a band of widths that sits at a different place for each name. Each name is
+// swept across the card widths, every 1px, in one mount.
+//
+// Under the fonts production loads (Noto Sans TC, see loadProductionFonts) a
+// full-width ） at the end of a line may be set half-width to make the line
+// fit (CSS text-spacing-trim), so a name ending in ） stays on a line its full
+// width overflows; anything hung after it — the end padding the name used to
+// carry — no longer counts, and the chevron dropped to a line of its own over
+// 25px of card widths (the trial site at 382-406px). The harness's fallback
+// font has no such trimming, which is why the sweep runs under both.
 const SWEEP_NAMES = [
   "Seth 的 Mac Studio（辦公室三樓靠窗）",
   "eva-m5-warden-build-farm-node-0001-us-west",
   "Seth's MacBook Pro M5 Max office desk by the window",
   "build-farm-node-07 west rack",
 ];
-const SWEEP_WIDTHS = Array.from({ length: (720 - 300) / 2 + 1 }, (_, i) => 300 + i * 2);
-for (const sweepName of SWEEP_NAMES) {
-  test(`card widths 300-720px every 2px, name "${sweepName}": the chevron stays after the last word, on its line`, async ({
-    mount,
-    page,
-  }) => {
-    await page.setViewportSize({ width: SWEEP_WIDTHS[0], height: 900 });
-    await mount(<MonitorMachinesLayoutStory states={["named"]} name={sweepName} />);
-    const trigger = page.getByRole("button", { name: `機器操作（${sweepName}）` });
-    await expect(trigger).toBeVisible();
-    const bad: string[] = [];
-    for (const width of SWEEP_WIDTHS) {
-      await page.setViewportSize({ width, height: 900 });
-      const g = await trigger.evaluate((el) => {
-        const mid = (b: { top: number; bottom: number }) => (b.top + b.bottom) / 2;
-        const ch = el.querySelector(".runtime-menu__chevron")!.getBoundingClientRect();
-        const icon = el.querySelector(".runtime-menu__chevron svg")!.getBoundingClientRect();
-        const range = document.createRange();
-        range.selectNodeContents(el.querySelector(".mon-table__strong")!);
-        const lines = Array.from(range.getClientRects());
-        const last = lines[lines.length - 1];
-        const se = document.scrollingElement!;
-        return {
-          card: getComputedStyle(el.closest("tr")!).display === "block",
-          gap: Math.round((ch.left - last.right) * 100) / 100,
-          off: Math.round((mid(icon) - mid(last)) * 100) / 100,
-          pageOverflow: se.scrollWidth - se.clientWidth,
-        };
-      });
-      if (!g.card || g.gap < 3 || g.gap > 8 || Math.abs(g.off) > 1.5 || g.pageOverflow > 0)
-        bad.push(`${width}px ${JSON.stringify(g)}`);
-    }
-    expect(bad, "widths where the chevron left the last word, or the page scrolls").toEqual([]);
-  });
+const SWEEP_WIDTHS = Array.from({ length: 720 - 280 + 1 }, (_, i) => 280 + i);
+// Names that just fill one line at common phone widths, found by bisection on
+// their length: the widths where the last word and the chevron are most
+// likely to part.
+const FILL_WIDTHS = [320, 360, 375, 390, 414];
+const FILL_ZH = "辦公室三樓靠窗邊的工作站主機用來編譯與測試的那一台機器";
+const FILL_EN = "build farm node west rack office desk by the window spare unit for nightly release jobs".split(" ");
+const FILL_FAMILIES = [
+  { id: "zh, ending in a full-width ）", max: FILL_ZH.length, name: (n: number) => `Seth 的 Mac Studio（${FILL_ZH.slice(0, n)}）` },
+  { id: "en, whole words", max: FILL_EN.length, name: (n: number) => FILL_EN.slice(0, n).join(" ") },
+];
+
+async function sweepWidths(page: Page) {
+  const trigger = page.getByTestId("mon-machine-menu");
+  const bad: string[] = [];
+  for (const width of SWEEP_WIDTHS) {
+    await page.setViewportSize({ width, height: 900 });
+    const g = await trigger.evaluate((el) => {
+      const mid = (b: { top: number; bottom: number }) => (b.top + b.bottom) / 2;
+      const ch = el.querySelector(".runtime-menu__chevron")!.getBoundingClientRect();
+      const icon = el.querySelector(".runtime-menu__chevron svg")!.getBoundingClientRect();
+      const { lastChar } = window.__nameText(el);
+      const se = document.scrollingElement!;
+      return {
+        card: getComputedStyle(el.closest("tr")!).display === "block",
+        gap: Math.round((ch.left - lastChar.right) * 100) / 100,
+        off: Math.round((mid(icon) - mid(lastChar)) * 100) / 100,
+        pageOverflow: se.scrollWidth - se.clientWidth,
+      };
+    });
+    if (!g.card || g.gap < 3 || g.gap > 8 || Math.abs(g.off) > 1.5 || g.pageOverflow > 0)
+      bad.push(`${width}px ${JSON.stringify(g)}`);
+  }
+  return bad;
+}
+
+for (const fonts of ["harness", "production"] as const) {
+  for (const sweepName of SWEEP_NAMES) {
+    test(`${fonts} fonts, card widths 280-720px every 1px, name "${sweepName}": the chevron stays after the last character, on its line`, async ({
+      mount,
+      page,
+    }) => {
+      await page.setViewportSize({ width: SWEEP_WIDTHS[0], height: 900 });
+      if (fonts === "production") await loadProductionFonts(page);
+      await mount(<MonitorMachinesLayoutStory states={["named"]} name={sweepName} />);
+      await installNameText(page);
+      await expect(page.getByRole("button", { name: `機器操作（${sweepName}）` })).toBeVisible();
+      expect(await sweepWidths(page), "widths where the chevron left the last character, or the page scrolls").toEqual([]);
+    });
+  }
+
+  for (const family of FILL_FAMILIES) {
+    test(`${fonts} fonts, names that just fill one line at ${FILL_WIDTHS.join(", ")}px (${family.id}), swept across 280-720px every 1px: the chevron stays after the last character`, async ({
+      mount,
+      page,
+    }) => {
+      // Up to five names, each swept over 441 widths: ~15s alone, more on a busy machine.
+      test.slow();
+      if (fonts === "production") await loadProductionFonts(page);
+      const story = await mount(<MonitorMachinesLayoutStory states={["named"]} name={family.name(1)} />);
+      await installNameText(page);
+      const trigger = page.getByTestId("mon-machine-menu");
+      const oneLine = async (n: number) => {
+        await story.update(<MonitorMachinesLayoutStory states={["named"]} name={family.name(n)} />);
+        await expect(trigger).toHaveAccessibleName(`機器操作（${family.name(n)}）`);
+        return (await trigger.evaluate((el) => window.__nameText(el).lines.length)) === 1;
+      };
+      const names: string[] = [];
+      for (const width of FILL_WIDTHS) {
+        await page.setViewportSize({ width, height: 900 });
+        let lo = 1;
+        let hi = family.max;
+        while (lo < hi) {
+          const n = Math.ceil((lo + hi) / 2);
+          if (await oneLine(n)) lo = n;
+          else hi = n - 1;
+        }
+        expect(lo, `control: at ${width}px a name of this family fills the line before it runs out`).toBeLessThan(family.max);
+        names.push(family.name(lo));
+      }
+      const bad: string[] = [];
+      for (const name of new Set(names)) {
+        await story.update(<MonitorMachinesLayoutStory states={["named"]} name={name} />);
+        await expect(trigger).toHaveAccessibleName(`機器操作（${name}）`);
+        for (const b of await sweepWidths(page)) bad.push(`"${name}" ${b}`);
+      }
+      expect(bad, "widths where the chevron left the last character, or the page scrolls").toEqual([]);
+    });
+  }
 }

@@ -447,22 +447,6 @@
     white-space: normal;
     text-align: start;
   }
-  /* An inline box after the name may move to a line of its own, so a
-   * chevron that just misses the last line went there alone. The name's end
-   * padding cannot be split from its last character: that word and the
-   * chevron's room wrap together. The chevron then pulls back over the
-   * padding, keeping the trigger's gap, and takes no width of its own. */
-  .mon-machine-name .runtime-menu__trigger .mon-table__strong {
-    padding-inline-end: calc(var(--mon-chevron-gap) + var(--mon-chevron-size));
-  }
-  /* Centred on its line box, as the flex trigger centred it. */
-  .mon-machine-name .runtime-menu__chevron {
-    align-items: center;
-    height: 1.5em;
-    height: 1lh;
-    margin-left: calc(-1 * var(--mon-chevron-size));
-    vertical-align: top;
-  }
   /* Centred on the whole cell line, a dot beside a two-line name sat between
    * its lines. Top-aligned and pushed down to the middle of the trigger's
    * first line (centred in --mon-name-row, see above), it stays on line one;
@@ -676,9 +660,7 @@
   --mon-name-gap: 6px;
   /* The name trigger's one-line height (its min-height). */
   --mon-name-row: 24px;
-  /* The menu chevron's width (ChevronDownIcon size) and the trigger's gap
-   * before it; the phone rules reserve both at the name's end. */
-  --mon-chevron-size: 12px;
+  /* The gap between the name's last character and the menu chevron. */
   --mon-chevron-gap: 6px;
   display: flex;
   align-items: center;
@@ -692,6 +674,24 @@
 .mon-machine-name__menu {
   display: inline-flex;
   min-width: 0;
+}
+/* The chevron sits inside the name, in one unbreakable run with its last
+ * character, so a wrapped name (phone cards) never leaves it alone on a line;
+ * an inline box of its own after the name could move to the next line by
+ * itself, and how close the browser lets a line run (a full-width ） at the
+ * end may be set half-width to fit) is not something padding can reserve. */
+.mon-machine-name__tail {
+  white-space: nowrap;
+}
+/* Inline in the name rather than a flex item of the trigger: as tall as the
+ * line and centred on it, which on one line is where the trigger's centring
+ * put it. 1.5em: the inherited line-height, for a browser without `lh`. */
+.mon-machine-name .runtime-menu__chevron {
+  align-items: center;
+  height: 1.5em;
+  height: 1lh;
+  margin-left: var(--mon-chevron-gap);
+  vertical-align: top;
 }
 /* The trigger's left padding shows only with its hover frame. Reaching all of
    it into the gap, as the version triggers reach into the cell padding, would

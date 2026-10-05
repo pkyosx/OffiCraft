@@ -1672,11 +1672,41 @@ function MachineNameMenu({
             },
           ]}
         >
-          <span className={nameClass}>{m.displayName}</span>
+          {(chevron) => {
+            const [head, tail] = splitLastCharacter(m.displayName);
+            return (
+              <span className={nameClass}>
+                {head}
+                <span className="mon-machine-name__tail">
+                  {tail}
+                  {chevron}
+                </span>
+              </span>
+            );
+          }}
         </RuntimeActionMenu>
       )}
     </span>
   );
+}
+
+type GraphemeSegmenter = new (
+  locales?: string,
+  options?: { granularity: "grapheme" }
+) => { segment: (input: string) => Iterable<{ segment: string }> };
+
+/** The name without its last character, and that character (a grapheme, so
+ * an emoji or a letter with its combining marks stays whole). Trailing
+ * whitespace goes with it. */
+function splitLastCharacter(name: string): [string, string] {
+  const core = name.trimEnd();
+  if (core === "") return ["", name];
+  const Segmenter = (Intl as unknown as { Segmenter?: GraphemeSegmenter }).Segmenter;
+  const last = Segmenter
+    ? Array.from(new Segmenter(undefined, { granularity: "grapheme" }).segment(core)).pop()!.segment
+    : Array.from(core).pop()!;
+  const cut = core.length - last.length;
+  return [name.slice(0, cut), name.slice(cut)];
 }
 
 /** The machine's online state as a dot alone, the way the roster shows a

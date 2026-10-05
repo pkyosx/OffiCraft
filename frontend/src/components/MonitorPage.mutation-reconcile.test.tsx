@@ -160,6 +160,9 @@ function machine(id: string, name: string): MachineView {
 }
 
 const DOOMED = "Doomed";
+// A machine's name is split across elements (its last character sits with the
+// menu chevron), so a row is found by its name menu's accessible name.
+const nameMenu = (name: string) => ({ name: `機器操作（${name}）` });
 const KEPT = "Kept";
 
 beforeEach(() => {
@@ -184,7 +187,7 @@ describe("MonitorPage · a mutation's own member frame must not cancel its recon
         <MonitorPage />
       </I18nProvider>,
     );
-    expect(await screen.findByText(DOOMED)).toBeTruthy();
+    expect(await screen.findByRole("button", nameMenu(DOOMED))).toBeTruthy();
     expect(h.listMachines, "mount load only, so far").toHaveBeenCalledTimes(1);
 
     // Open the confirm dialog and press delete.
@@ -252,11 +255,11 @@ describe("MonitorPage · a mutation's own member frame must not cancel its recon
         "so nothing below can be attributed to one",
     ).toHaveBeenCalledTimes(2);
     expect(
-      screen.queryByText(DOOMED),
+      screen.queryByRole("button", nameMenu(DOOMED)),
       "the deleted row must be gone from the reconcile the delete itself triggered — not from the 5s poll",
     ).toBeNull();
     expect(
-      screen.queryByText(KEPT),
+      screen.queryByRole("button", nameMenu(KEPT)),
       "the surviving machine must still be listed (the reconcile landed, not a wipe)",
     ).toBeTruthy();
   });

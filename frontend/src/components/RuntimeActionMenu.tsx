@@ -34,8 +34,8 @@ export interface RuntimeActionItem {
 
 /** A machine row's value made into the trigger of its action menu: a runtime's
  * version and chips, or the machine's name. `children` sit inside a quiet pill
- * with a chevron. `label` is the trigger's accessible name and must contain
- * the visible text and say what the menu is for, since the text alone does not
+ * with a chevron; given as a function, they place the chevron themselves.
+ * `label` is the trigger's accessible name and must contain the visible text and say what the menu is for, since the text alone does not
  * say which column it is in. The popup is portalled to <body> with fixed positioning (the
  * InstantHint pattern): the machine table sits in an `overflow: auto` wrapper
  * that clips anything rendered in place, and a one-row table leaves no room
@@ -49,7 +49,7 @@ export function RuntimeActionMenu({
   label: string;
   items: RuntimeActionItem[];
   testIdPrefix: string;
-  children: ReactNode;
+  children: ReactNode | ((chevron: ReactNode) => ReactNode);
 }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<CSSProperties | null>(null);
@@ -129,7 +129,12 @@ export function RuntimeActionMenu({
     if (open && pos) popRef.current?.querySelector<HTMLElement>(ITEM)?.focus();
   }, [open, pos]);
 
-  if (items.length === 0) return <>{children}</>;
+  if (items.length === 0) return <>{typeof children === "function" ? children(null) : children}</>;
+  const chevron = (
+    <span className="runtime-menu__chevron" aria-hidden="true">
+      <ChevronDownIcon size={12} />
+    </span>
+  );
   return (
     <span className="runtime-menu">
       <button
@@ -148,10 +153,14 @@ export function RuntimeActionMenu({
           setOpen(true);
         }}
       >
-        {children}
-        <span className="runtime-menu__chevron" aria-hidden="true">
-          <ChevronDownIcon size={12} />
-        </span>
+        {typeof children === "function" ? (
+          children(chevron)
+        ) : (
+          <>
+            {children}
+            {chevron}
+          </>
+        )}
       </button>
       {open &&
         createPortal(
