@@ -99,6 +99,15 @@ function renderPage() {
   );
 }
 
+function failHandledListReads() {
+  const listReplyCards = api.listReplyCards.bind(api);
+  return vi.spyOn(api, "listReplyCards").mockImplementation((status) =>
+    status === "answered" || status === "expired"
+      ? Promise.reject(new Error("handled list unavailable"))
+      : listReplyCards(status)
+  );
+}
+
 /** Open every card the 請示 page is showing. Every card starts COLLAPSED (owner
  * 2026-09-11「預設全部折疊」) and a card's interior is READ when it is opened, so
  * a test that asserts on the interior has to open it first. The whole card is
@@ -838,9 +847,10 @@ describe("RepliesPage", () => {
     );
   });
 
-  it("shows an answer read from the server and moves the stale waiting row to handled", async () => {
+  it("keeps an answer read from the server in handled when its list cannot load", async () => {
     const serverCard = mkCard({ id: "rc-1", body: "寄出後無法撤回" });
     __injectMockReplyCard(serverCard);
+    const listSpy = failHandledListReads();
     const { findAllByTestId, findByTestId, queryAllByTestId, container } = renderPage();
     const [card] = await findAllByTestId("waiting-card");
     expect(card.getAttribute("aria-expanded")).toBe("false");
@@ -876,23 +886,34 @@ describe("RepliesPage", () => {
     await waitFor(() =>
       expect(queryAllByTestId("waiting-card")).toHaveLength(0)
     );
-    expect(answered.querySelector('[data-testid="final-answer"]')?.textContent).toContain(
-      "先不要"
-    );
+    expect(
+      answered.querySelector('[data-testid="final-answer"]')?.textContent
+    ).toContain("先不要");
     expect(
       answered.querySelector(".reply-card__answered-at")?.textContent
     ).toMatch(/^已回覆 (?:\d{4}\/)?\d{1,2}\/\d{1,2} \d{2}:\d{2}$/);
     expect(container.querySelector(".replies__section-title")?.textContent).toBe(
       "請示 · 0"
     );
-    expect((await findByTestId("answered-toggle")).textContent).toContain(
-      "近期已處理 · 1"
-    );
+    const handledToggle = await findByTestId("answered-toggle");
+    expect(handledToggle.textContent).toContain("近期已處理 · 1");
+    expect(
+      handledToggle
+        .closest("section")
+        ?.querySelector('[data-testid="answered-card"]')
+    ).toBe(answered);
+    expect(await findByTestId("handled-load-error")).toBeTruthy();
+    expect(listSpy).toHaveBeenCalledWith("answered");
+    expect(listSpy).toHaveBeenCalledWith("expired");
+    expect(
+      listSpy.mock.calls.filter(([status]) => status === "waiting")
+    ).toHaveLength(2);
   });
 
-  it("shows an expired card read from the server and moves it to handled", async () => {
+  it("keeps an expired card read from the server in handled when its list cannot load", async () => {
     const serverCard = mkCard({ id: "rc-expired" });
     __injectMockReplyCard(serverCard);
+    const listSpy = failHandledListReads();
     const { findAllByTestId, findByTestId, queryAllByTestId, container } = renderPage();
     const [card] = await findAllByTestId("waiting-card");
 
@@ -912,9 +933,19 @@ describe("RepliesPage", () => {
     expect(container.querySelector(".replies__section-title")?.textContent).toBe(
       "請示 · 0"
     );
-    expect((await findByTestId("answered-toggle")).textContent).toContain(
-      "近期已處理 · 1"
-    );
+    const handledToggle = await findByTestId("answered-toggle");
+    expect(handledToggle.textContent).toContain("近期已處理 · 1");
+    expect(
+      handledToggle
+        .closest("section")
+        ?.querySelector('[data-testid="expired-card"]')
+    ).toBe(expired);
+    expect(await findByTestId("handled-load-error")).toBeTruthy();
+    expect(listSpy).toHaveBeenCalledWith("answered");
+    expect(listSpy).toHaveBeenCalledWith("expired");
+    expect(
+      listSpy.mock.calls.filter(([status]) => status === "waiting")
+    ).toHaveLength(2);
   });
 
   it("a click on a header action does its own job instead of toggling the card", async () => {
