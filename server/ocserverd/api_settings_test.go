@@ -662,7 +662,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 			"org_name":"  Studio Nine  ",
 			"owner_name":"  Eva  ",
 			"push_contact_email":"  eva@example.com  ",
-			"display_theme":"office",
+			"display_theme":"office-light",
 			"display_language":"en",
 			"display_wide":true,
 			"suggested_replies_reply_card":["  yes  ","","no"],
@@ -677,7 +677,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		want["org_name"] = "Studio Nine"
 		want["owner_name"] = "Eva"
 		want["push_contact_email"] = "eva@example.com"
-		want["display_theme"] = "office"
+		want["display_theme"] = "office-light"
 		want["display_language"] = "en"
 		want["display_wide"] = true
 		want["suggested_replies_reply_card"] = []any{"yes", "no"}
@@ -983,7 +983,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		if status != 422 {
 			t.Fatalf("want 422, got %d (%v)", status, data)
 		}
-		apiWantError(t, data, "validation_error", `display_theme must be "", office, or an existing custom theme id`)
+		apiWantError(t, data, "validation_error", `display_theme must be "", office, office-light, or an existing custom theme id`)
 	})
 
 	t.Run("a display_language outside the vocabulary answers 422", func(t *testing.T) {
@@ -1100,7 +1100,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 			if status != http.StatusUnprocessableEntity {
 				t.Fatalf("want 422, got %d (%v)", status, data)
 			}
-			apiWantError(t, data, "validation_error", `display_theme must be "", office, or an existing custom theme id`)
+			apiWantError(t, data, "validation_error", `display_theme must be "", office, office-light, or an existing custom theme id`)
 			windowWantSetting(t, d, "display.theme", nil)
 			if got := apiDisplayTheme(t, h, owner); got != "" {
 				t.Fatalf("display_theme: got %q, want \"\"", got)
