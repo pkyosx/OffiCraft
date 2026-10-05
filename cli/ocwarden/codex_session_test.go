@@ -1920,6 +1920,37 @@ func TestCodexSessionRecordTurnOutcome(t *testing.T) {
 		}
 	})
 
+	t.Run("a same-second failure stays newer than its completed agent message", func(t *testing.T) {
+		fake := interceptCodexPosts(t, http.StatusOK, nil)
+		s := newSession()
+
+		s.handleItemCompleted(map[string]any{
+			"completedAtMs": float64(1720000200123),
+			"item":          map[string]any{"id": "msg_1", "type": "agentMessage", "text": "Trying a tool."},
+		})
+		s.recordTurnOutcome(turn("failed", float64(1720000200),
+			map[string]any{"codexErrorInfo": "usageLimitExceeded"}))
+
+		if len(fake.posts) != 2 {
+			t.Fatalf("the sidecar sent %d reports, want one success and one failure", len(fake.posts))
+		}
+		modelCall, _ := fake.posts[1].body["model_call"].(map[string]any)
+		lastSuccessTs, _ := modelCall["last_success_ts"].(float64)
+		failure, _ := modelCall["last_failure"].(map[string]any)
+		failureTs, _ := failure["ts"].(float64)
+		if failureTs <= lastSuccessTs {
+			t.Errorf("failure.ts = %v, want greater than last_success_ts %v", failureTs, lastSuccessTs)
+		}
+
+		s.handleItemCompleted(map[string]any{
+			"completedAtMs": float64(1720000201123),
+			"item":          map[string]any{"id": "msg_2", "type": "agentMessage", "text": "I can continue."},
+		})
+		if len(fake.posts) != 3 {
+			t.Errorf("a success after the newer failure sent %d reports, want an immediate third report", len(fake.posts))
+		}
+	})
+
 	t.Run("a failed turn without completedAt is stamped with the time it was seen", func(t *testing.T) {
 		fake := interceptCodexPosts(t, http.StatusOK, nil)
 		s := newSession()
@@ -2094,6 +2125,50 @@ func TestCodexSessionHandleItemCompleted(t *testing.T) {
 		}
 		if s.lastSuccessTs != float64(1720000200123)/1000 {
 			t.Errorf("lastSuccessTs = %v, want %v", s.lastSuccessTs, float64(1720000200123)/1000)
+		}
+	})
+
+	t.Run("a recent success is carried by the next identity heartbeat", func(t *testing.T) {
+		fake := interceptCodexPosts(t, http.StatusOK, nil)
+		s := newCodexTestSession()
+		s.base, s.token, s.account = "https://x.test", "tok", "codex:abc"
+
+		for _, completedAtMs := range []float64{1720000200123, 1720000201123} {
+			s.handleItemCompleted(map[string]any{
+				"completedAtMs": completedAtMs,
+				"item":          map[string]any{"id": "msg_1", "type": "agentMessage"},
+			})
+		}
+		if len(fake.posts) != 1 {
+			t.Fatalf("two successes inside the throttle window sent %d reports, want one", len(fake.posts))
+		}
+		if s.lastSuccessTs != float64(1720000201123)/1000 {
+			t.Errorf("lastSuccessTs = %v, want the latest item time %v", s.lastSuccessTs, float64(1720000201123)/1000)
+		}
+
+		s.reportIdentity()
+		if len(fake.posts) != 2 {
+			t.Fatalf("the identity heartbeat sent %d reports, want the latest success", len(fake.posts))
+		}
+		modelCall, _ := fake.posts[1].body["model_call"].(map[string]any)
+		if got, want := modelCall["last_success_ts"], float64(1720000201123)/1000; got != want {
+			t.Errorf("heartbeat last_success_ts = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("a success 30 seconds after the last report is sent immediately", func(t *testing.T) {
+		fake := interceptCodexPosts(t, http.StatusOK, nil)
+		s := newCodexTestSession()
+		s.base, s.token, s.account = "https://x.test", "tok", "codex:abc"
+
+		for _, completedAtMs := range []float64{1720000200000, 1720000230000} {
+			s.handleItemCompleted(map[string]any{
+				"completedAtMs": completedAtMs,
+				"item":          map[string]any{"id": "msg_1", "type": "agentMessage"},
+			})
+		}
+		if len(fake.posts) != 2 {
+			t.Errorf("successes spanning 30 seconds sent %d reports, want two", len(fake.posts))
 		}
 	})
 

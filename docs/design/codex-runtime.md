@@ -95,9 +95,12 @@ The Codex member boot sequence changes only execution ownership:
    The known turn identity is retained until new turn evidence or `turn/completed`;
    while starting, subsequent inputs wait rather than steer the previous turn.
    Within an active turn, each completed `agentMessage` item also reports its
-   `completedAtMs` as an immediate success, so a successful reply clears an older
-   warning before the turn ends. User and tool items do not count; the interrupted
-   turn outcome itself remains neither success nor failure.
+   `completedAtMs` as the success time. The sidecar reports it immediately when no
+   success has been reported yet, a newer failure needs clearing, or at least 30
+   seconds have passed; otherwise the next identity heartbeat carries the success.
+   User and tool items do not count. A failed turn's second-resolution end time is
+   advanced by one representable float when needed to keep it newer than the latest
+   success; an interrupted turn remains neither success nor failure.
 3. The sidecar converts listener events into the established idle `turn/start` / active
    `turn/steer` policy. Thus SSE presence still means ready/online and false-online during
    boot remains impossible.

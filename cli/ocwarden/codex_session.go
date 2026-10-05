@@ -15,6 +15,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
@@ -142,8 +143,10 @@ type codexSession struct {
 	// Replayed item/completed notifications must not look like fresh
 	// compactions and recycle a just-booted agent.
 	completedCompactions map[string]struct{}
-	// Also repeated on the identity heartbeat after immediate success reports.
-	lastSuccessTs float64
+	// The heartbeat carries the latest success when an item report is throttled.
+	lastSuccessTs         float64
+	lastReportedSuccessTs float64
+	lastFailureTs         float64
 	// Merged across sparse account/rateLimits/updated notifications: a turn
 	// error never says when the limit lifts, only the snapshot does.
 	rateLimitWindows map[string]map[string]any
@@ -566,6 +569,13 @@ func (s *codexSession) reportIdentity() {
 		identity["model_call"] = map[string]any{"last_success_ts": s.lastSuccessTs}
 	}
 	s.post("/api/monitoring/telemetry", identity)
+	s.recordReportedSuccess()
+}
+
+func (s *codexSession) recordReportedSuccess() {
+	if s.lastSuccessTs > s.lastReportedSuccessTs {
+		s.lastReportedSuccessTs = s.lastSuccessTs
+	}
 }
 
 var codexModelCallKinds = map[string]string{
@@ -612,6 +622,13 @@ func (s *codexSession) recordTurnOutcome(params map[string]any) {
 			s.lastSuccessTs = ended
 		}
 	case "failed":
+		if s.lastSuccessTs > 0 && ended <= s.lastSuccessTs {
+			// Turn timestamps have second precision while item timestamps carry milliseconds.
+			ended = math.Nextafter(s.lastSuccessTs, math.Inf(1))
+		}
+		if ended > s.lastFailureTs {
+			s.lastFailureTs = ended
+		}
 		turnError, _ := turn["error"].(map[string]any)
 		code := codexModelCallCode(turnError)
 		kind, known := codexModelCallKinds[code]
@@ -633,6 +650,7 @@ func (s *codexSession) recordTurnOutcome(params map[string]any) {
 			"runtime": "codex", "account": s.account, "account_label": "ChatGPT", "model_call": modelCall,
 		}
 		s.post("/api/monitoring/telemetry", failureReport)
+		s.recordReportedSuccess()
 	}
 }
 
@@ -649,7 +667,11 @@ func (s *codexSession) recordModelCallSuccess(params map[string]any) {
 		return
 	}
 	s.lastSuccessTs = ended
-	s.reportIdentity()
+	if s.lastReportedSuccessTs <= 0 ||
+		ended-s.lastReportedSuccessTs >= codexTelemetryThrottle.Seconds() ||
+		s.lastFailureTs > s.lastReportedSuccessTs {
+		s.reportIdentity()
+	}
 }
 
 // The limit lifts when the LAST exhausted window resets, so the latest one wins.
