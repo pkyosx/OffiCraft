@@ -442,18 +442,24 @@
   padding: 0;
 }
 
-/* machine online/offline badge (machines panel — sourced from GET /api/machines) */
-.mon-online {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
+/* machine online/offline dot (machines panel — sourced from GET /api/machines).
+ * The word lives in the dot's hint (MachineOnlineDot). On a touch screen the
+ * 9px dot is too small to hit, so a pseudo-element widens the tap area without
+ * moving the circle or the hint's anchor. Leftward it grows only as far as
+ * the 6px gap, so it never covers the id chip. */
+.mon-online-dot {
+  position: relative;
+  flex: none;
 }
-.mon-online--on {
-  color: var(--color-accent);
-}
-.mon-online--off {
-  color: var(--color-text-muted);
+@media (hover: none) {
+  .mon-online-dot::after {
+    content: "";
+    position: absolute;
+    top: -10px;
+    right: -10px;
+    bottom: -10px;
+    left: -6px;
+  }
 }
 
 /* "not in effect" — the ONLY cutover state with a face, and since 2026-08-04 a
@@ -495,20 +501,32 @@
 /* 機器資訊: every column but 機器 has a fixed width, so a mark in one cell
  * (版本太舊, 未登入, 過期) never shifts its neighbours, and the rows look the same
  * in every state. Desktop only: the ≤720px card mode does not lay out columns.
- * The min-width is what 機器 needs on top of the fixed columns, so its name,
- * id and badges are never cut; when the frame is narrower the table scrolls
- * inside it, with 機器 pinned left so each row still says which machine it is
- * and 操作 pinned right. The narrower cell padding lets the columns hold their
- * marks on one line. */
+ * The min-width is the fixed columns plus the widest 機器 cell's content,
+ * measured by MachinesTable (useMachineColumnMinWidth), so short names leave
+ * room for the other columns and a long name is never cut. A fixed number here
+ * was either too wide for short names (the table scrolled at 1280px for no
+ * reason) or too narrow for a long one; the automatic table layout is no way
+ * out either, since it squeezes the fixed columns as soon as the frame is
+ * narrow. When the frame is narrower the table scrolls inside it, with 機器
+ * pinned left so each row still says which machine it is and 操作 pinned
+ * right. The narrower cell padding lets the columns hold their marks on one
+ * line. */
 @media (min-width: 721px) {
   .mon-table--machines {
     table-layout: fixed;
-    min-width: 1092px;
+    min-width: var(--mon-machines-min-width);
   }
   .mon-table--machines th,
   .mon-table--machines td {
     padding-left: 12px;
     padding-right: 12px;
+  }
+  /* 機器 ends in the 9px online dot, and Claude's own 12px left padding
+   * already separates the two; a full 12px more is width the table at 1280px
+   * cannot spare. */
+  .mon-table--machines th:first-child,
+  .mon-table--machines td:first-child {
+    padding-right: 4px;
   }
   /* Claude and Codex are one width: both cells can carry a version, 版本太舊
    * and 未登入 or 過期, and the trigger's chevron, all on one line. */
@@ -601,7 +619,7 @@
 .mon-machine-name {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
 }
 /* On desktop the chip must NOT wrap to a second line — that wrapping is the

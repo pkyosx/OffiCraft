@@ -42,6 +42,7 @@ import { Avatar } from "./Avatar";
 import { avatarKindForMember } from "../lib/avatarKind";
 import { DiskUsageCell } from "./DiskUsageCell";
 import { InlineEdit } from "./InlineEdit";
+import { InstantHint } from "./InstantHint";
 import { MemberDetailPanel } from "./MemberDetailPanel";
 import { PresenceBadge } from "./PresenceBadge";
 import {
@@ -1213,6 +1214,72 @@ function useScrollEdges(ref: RefObject<HTMLElement>, content: unknown) {
   return edges;
 }
 
+/** Sets `--mon-machines-min-width` on the 機器資訊 table: the fixed columns'
+ * widths plus the widest 機器 cell's content, which monitor.css applies as the
+ * table's min-width on desktop. Measured rather than written into the CSS
+ * because the 機器 cell holds a user-chosen name. With `table-layout: fixed`
+ * the 機器 column is the only one without a width, so the other columns'
+ * widths do not depend on the value set here, and the measurement cannot feed
+ * back into itself. */
+function useMachineColumnMinWidth(
+  tableRef: RefObject<HTMLTableElement>,
+  wrapRef: RefObject<HTMLElement>,
+  content: unknown,
+) {
+  useLayoutEffect(() => {
+    const table = tableRef.current;
+    if (!table) return;
+    const measure = () => {
+      // A rename field fits whatever width the cell has (flex: 1, min-width:
+      // 0), but reports its default input size; measuring it would widen the
+      // table for as long as the field is open. Keep the last width instead.
+      if (table.querySelector(".inline-edit--editing")) return;
+      const heads = Array.from(table.tHead?.rows[0]?.cells ?? []);
+      if (heads.length < 2) return;
+      const fixed = heads.slice(1).reduce((sum, th) => sum + th.getBoundingClientRect().width, 0);
+      let machine = 0;
+      for (const name of Array.from(table.querySelectorAll<HTMLElement>(".mon-machine-name"))) {
+        const td = name.closest("td");
+        if (!td) continue;
+        const cs = getComputedStyle(td);
+        // Summed per item, not read off the row: the row is as wide as the
+        // cell, and in a cell narrower than the content the name's flex item
+        // (min-width: 0) shrinks while its text overflows it, so only each
+        // item's own scrollWidth still reports what it needs.
+        const items = Array.from(name.children) as HTMLElement[];
+        const gap = parseFloat(getComputedStyle(name).columnGap) || 0;
+        // scrollWidth is a whole number rounded down, so an overflowing item
+        // gets the pixel it may have lost.
+        const width = (el: HTMLElement) =>
+          el.scrollWidth > el.clientWidth ? el.scrollWidth + 1 : el.getBoundingClientRect().width;
+        const used =
+          items.reduce((sum, el) => sum + width(el), 0) + gap * Math.max(0, items.length - 1);
+        const need = used + parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+        machine = Math.max(machine, need);
+      }
+      // jsdom (no layout) measures 0; leave the CSS without a minimum.
+      if (fixed === 0 || machine === 0) return;
+      const next = `${Math.ceil(fixed + machine)}px`;
+      if (table.style.getPropertyValue("--mon-machines-min-width") !== next) {
+        table.style.setProperty("--mon-machines-min-width", next);
+      }
+    };
+    measure();
+    // A rename, a web font arriving, or the window crossing the phone
+    // breakpoint (card mode lays the cell out differently) changes a width
+    // without re-rendering this table.
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    if (wrapRef.current) ro?.observe(wrapRef.current);
+    for (const el of Array.from(table.querySelectorAll(".mon-machine-name > *"))) ro?.observe(el);
+    let live = true;
+    document.fonts?.ready.then(() => live && measure());
+    return () => {
+      live = false;
+      ro?.disconnect();
+    };
+  }, [tableRef, wrapRef, content]);
+}
+
 /** The 機器資訊 table. Exported so the layout guard can mount it with
  * hand-built rows (visual-guards/monitor-machines-layout.ct.spec.tsx). */
 export function MachinesTable({
@@ -1241,7 +1308,9 @@ export function MachinesTable({
   const { t } = useI18n();
   const dash = t.monitor.dash;
   const wrapRef = useRef<HTMLDivElement>(null);
+  const tableRef = useRef<HTMLTableElement>(null);
   const edges = useScrollEdges(wrapRef, machines);
+  useMachineColumnMinWidth(tableRef, wrapRef, machines);
   return (
     <div
       ref={wrapRef}
@@ -1252,7 +1321,7 @@ export function MachinesTable({
       }
       onFocus={revealUnderPinnedColumns}
     >
-      <table className="mon-table mon-table--machines">
+      <table ref={tableRef} className="mon-table mon-table--machines">
         {/* Fixed widths for every column but 機器 (monitor.css), so a mark in
          * one cell never moves the others. */}
         <colgroup>
@@ -1271,9 +1340,8 @@ export function MachinesTable({
              * name cell was narrow enough that the machine-id chip wrapped
              * to a second line on every row. Merging is not decoration —
              * the id is the machine's identity and belongs beside its name,
-             * and the online badge is the same row's other identity fact.
-             * The removed 狀態 header is a header only; the badge itself is
-             * unchanged and still an honest passthrough of `online`. */}
+             * and the online dot is the same row's other identity fact,
+             * still an honest passthrough of `online`. */}
             <th className="mon-table__left">{t.monitor.machineCol.machine}</th>
             <th className="mon-table__left">{t.monitor.machineCol.claude}</th>
             <th className="mon-table__left">{t.monitor.machineCol.codex}</th>
@@ -1328,26 +1396,7 @@ export function MachinesTable({
                     >
                       {m.machineId}
                     </span>
-                    {/* online badge — honest passthrough of the registry's
-                     * online, now living in the merged 機器 cell (T-674d).
-                     * Same markup, same source; only its column moved. */}
-                    <span
-                      className={`mon-online${
-                        m.online ? " mon-online--on" : " mon-online--off"
-                      }`}
-                    >
-                      <span
-                        className={`status-dot ${
-                          m.online
-                            ? "status-dot--online"
-                            : "status-dot--offline"
-                        }`}
-                        aria-hidden
-                      />
-                      {m.online
-                        ? t.monitor.machine.online
-                        : t.monitor.machine.offline}
-                    </span>
+                    <MachineOnlineDot online={m.online} />
                     {/* Nothing is rendered here for a machine whose
                      * cutover is PROVEN in effect — and that silence is
                      * now the point: a blank means "measured, fine", and
@@ -1540,6 +1589,25 @@ export function MachinesTable({
         </tbody>
       </table>
     </div>
+  );
+}
+
+/** The machine's online state as a dot alone, the way the roster shows a
+ * member's presence: the word appears on hover or focus, and a click or tap
+ * pins it, which is the only way to read it on a phone. The machine table is
+ * not member presence, so it keeps its own two-state colours and labels and
+ * shares only the hint mechanism with LifecycleDot. */
+function MachineOnlineDot({ online }: { online: boolean }) {
+  const { t } = useI18n();
+  const label = online ? t.monitor.machine.online : t.monitor.machine.offline;
+  return (
+    <InstantHint
+      hint={label}
+      className={`status-dot mon-online-dot status-dot--${online ? "online" : "offline"}`}
+      role="img"
+      aria-label={label}
+      data-testid="mon-machine-online"
+    />
   );
 }
 

@@ -1,9 +1,11 @@
-// Story — the 機器資訊 table in its three looks: a plain row, a row whose
+// Story — the 機器資訊 table in its looks: a plain row, a row whose
 // Claude and Codex cells carry the 版本太舊 and 未登入 chips and whose disk was
 // never measured, and a row whose telemetry went stale (過期 on every cell) on
-// an offline machine whose cutover is 未生效 — the widest 機器 cell. Codex's 版本太舊 is not something
+// an offline machine whose cutover is 未生效 — the widest 機器 cell of those three. Codex's 版本太舊 is not something
 // the server sends today (below_notify_minimum is Claude's alone); it is here
-// because both columns render the same fields the same way and must fit them. Mounted through the real MachinesTable with
+// because both columns render the same fields the same way and must fit them.
+// Two more on request: a remote machine with a real-length name and id, and one
+// with a very long name. Mounted through the real MachinesTable with
 // hand-built rows (no api), inside a 1000px box (the monitor page content is 996px at any desktop
 // viewport from 1100px up).
 import { I18nProvider } from "../../src/i18n";
@@ -73,10 +75,21 @@ const hardware: MonMachineView = {
   diskUsage,
 };
 
-export type MachinesLayoutState = "normal" | "chips" | "stale";
+export type MachinesLayoutState = "normal" | "chips" | "stale" | "named" | "long";
 
 const rows: Record<MachinesLayoutState, { machine: MachineView; hw: MonMachineView }> = {
   normal: { machine, hw: hardware },
+  // A remote machine named the way machines are actually named: a short host
+  // name and a full-length 12-hex id.
+  named: {
+    machine: { ...machine, machineId: "m-11b2e651011e", displayName: "eva-m5", isSelf: false },
+    hw: { ...hardware, machine: "m-11b2e651011e", displayName: "eva-m5" },
+  },
+  // A name far longer than the frame leaves 機器 at 1280px.
+  long: {
+    machine: { ...machine, machineId: "m-c9479bc2d696", displayName: "Seth 的 Mac Studio（辦公室三樓靠窗）", isSelf: false },
+    hw: { ...hardware, machine: "m-c9479bc2d696", displayName: "Seth 的 Mac Studio（辦公室三樓靠窗）" },
+  },
   chips: {
     machine: { ...machine, claudeVersion: "2.1.286" },
     hw: {
