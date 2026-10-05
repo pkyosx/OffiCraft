@@ -847,8 +847,13 @@ describe("RepliesPage", () => {
     );
   });
 
-  it("keeps an answer read from the server in handled when its list cannot load", async () => {
-    const serverCard = mkCard({ id: "rc-1", body: "寄出後無法撤回" });
+  it("keeps an answer read from the server visible after 24h when its list cannot load", async () => {
+    const staleTs = Date.now() / 1000 - 25 * 3600;
+    const serverCard = mkCard({
+      id: "rc-1",
+      body: "寄出後無法撤回",
+      createdTs: staleTs,
+    });
     __injectMockReplyCard(serverCard);
     const listSpy = failHandledListReads();
     const { findAllByTestId, findByTestId, queryAllByTestId, container } = renderPage();
@@ -878,7 +883,7 @@ describe("RepliesPage", () => {
     expect(card.textContent).toContain("Mira");
 
     serverCard.status = "answered";
-    serverCard.answeredTs = Date.now() / 1000 - 60;
+    serverCard.answeredTs = staleTs;
     serverCard.answer = { optionIdxs: [1], text: "", attachments: [] };
     fireEvent.click(card);
 
@@ -910,15 +915,16 @@ describe("RepliesPage", () => {
     ).toHaveLength(2);
   });
 
-  it("keeps an expired card read from the server in handled when its list cannot load", async () => {
-    const serverCard = mkCard({ id: "rc-expired" });
+  it("keeps an expired card read from the server visible after 24h when its list cannot load", async () => {
+    const staleTs = Date.now() / 1000 - 25 * 3600;
+    const serverCard = mkCard({ id: "rc-expired", createdTs: staleTs });
     __injectMockReplyCard(serverCard);
     const listSpy = failHandledListReads();
     const { findAllByTestId, findByTestId, queryAllByTestId, container } = renderPage();
     const [card] = await findAllByTestId("waiting-card");
 
     serverCard.status = "expired";
-    serverCard.expiredTs = Date.now() / 1000 - 60;
+    serverCard.expiredTs = staleTs;
     fireEvent.click(card);
 
     const expired = await findByTestId("expired-card");

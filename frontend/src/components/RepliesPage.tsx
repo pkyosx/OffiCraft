@@ -339,15 +339,15 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // With a filter applied the two panes hold exactly what the SERVER returned
   // for that id — one card, in whichever pane its status belongs to — not a
   // narrowing of the loaded rows.
-  // The 24h window, in ONE place. It decides two things that must never drift
-  // apart: which handled cards are VISIBLE, and which ones the 開卡人 counts are
-  // computed over. Two copies of this predicate would let a future edit narrow
-  // one and not the other, and the symptom — a name offered with a count no
-  // list can produce — would look like a counting bug rather than a window one.
+  // The 24h window applies to fetched handled rows. A row just settled by a card
+  // read stays visible for this page visit even when its terminal timestamp is
+  // older; use the same predicate for pane visibility and 開卡人 counts.
   const withinHandledWindow = (c: ReplyCardRow) => {
     const ts = handledTsOf(c);
     return ts !== null && nowTs - ts < HANDLED_WINDOW_SECONDS;
   };
+  const isVisibleHandled = (c: ReplyCardRow) =>
+    settledRows.has(c.id) || withinHandledWindow(c);
 
   // 開卡人 predicate. An empty set is "no constraint", so an unticked axis is
   // free rather than exclusive — same convention as 任務頁's three dropdowns.
@@ -388,7 +388,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
       ? [foundCard]
       : []
     : displayedHandled
-        .filter((c) => passesOpener(c) && withinHandledWindow(c))
+        .filter((c) => passesOpener(c) && isVisibleHandled(c))
         .sort((a, b) => (handledTsOf(b) ?? 0) - (handledTsOf(a) ?? 0));
   // ── 開卡了哪一張 (owner 2026-09-07) ─────────────────────────────────────────
   // A row is a TITLE, not a card: since `?view=full` left the wire the panes
@@ -569,7 +569,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // jump by one for as long as an unrelated id is applied.
   const openerBasis = [
     ...displayedWaiting,
-    ...displayedHandled.filter(withinHandledWindow),
+    ...displayedHandled.filter(isVisibleHandled),
   ];
   const openerCounts = new Map<string, number>();
   for (const c of openerBasis) {
