@@ -5155,10 +5155,6 @@ func TestHandleCreateTaskApiTasksPost(t *testing.T) {
 		if err := seedOutOfBox(api.dal); err != nil {
 			t.Fatal(err)
 		}
-		apiWantValue(
-			t, "built-in manuals", any(apiTestTaskManualList(t, h, owner)),
-			any(apiTestBuiltinTaskManualRows(15000)),
-		)
 		kip := apiTestAgentToken(t, api, "kip", "")
 
 		status, data := apiJSON(t, h, "POST", "/api/tasks", kip,

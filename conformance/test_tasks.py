@@ -1308,7 +1308,10 @@ def test_builtin_manual_is_listed_resettable_and_undeletable(
         headers=_auth(executor.token),
     )
     assert r.status_code == 403, r.text
-    assert "may only name yourself as executor" in r.text, r.text
+    assert r.json()["error"] == {
+        "code": "forbidden",
+        "message": "an ad-hoc task may only name yourself as executor (or be dispatched to an outsource worker)",
+    }, r.json()
 
     r = client.delete(f"/api/task-manuals/{builtin}", headers=h)
     assert r.status_code == 403, r.text
