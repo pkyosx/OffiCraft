@@ -563,10 +563,6 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // name disappears and the owner cannot switch or untick. 任務頁 has the same
   // shape for the same reason (`inCountScope` there).
   //
-  // The basis is 待回覆 ∪ 近期已處理-within-24h — i.e. what this page actually
-  // holds. It deliberately does NOT include a card fetched by id: that card can
-  // be older than the window, so counting it would make one person's number
-  // jump by one for as long as an unrelated id is applied.
   const openerBasis = [
     ...displayedWaiting,
     ...displayedHandled.filter(isVisibleHandled),
@@ -1110,6 +1106,9 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
         ) : undefined,
       body: (card) => (
         <>
+          {card.body && (
+            <Markdown source={card.body} className="reply-card__body doc-md" />
+          )}
           {/* The question's attachments outlive its settling — same strip on a
            * handled card (answered/expired). */}
           <ReplyCardQuestionAttachments card={card} />

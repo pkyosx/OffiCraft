@@ -888,6 +888,7 @@ describe("RepliesPage", () => {
     fireEvent.click(card);
 
     const answered = await findByTestId("answered-card");
+    expect(answered.querySelector(".reply-card__body")?.textContent).toBe("寄出後無法撤回");
     await waitFor(() =>
       expect(queryAllByTestId("waiting-card")).toHaveLength(0)
     );
@@ -917,7 +918,7 @@ describe("RepliesPage", () => {
 
   it("keeps an expired card read from the server visible after 24h when its list cannot load", async () => {
     const staleTs = Date.now() / 1000 - 25 * 3600;
-    const serverCard = mkCard({ id: "rc-expired", createdTs: staleTs });
+    const serverCard = mkCard({ id: "rc-expired", body: "寄出後無法撤回", createdTs: staleTs });
     __injectMockReplyCard(serverCard);
     const listSpy = failHandledListReads();
     const { findAllByTestId, findByTestId, queryAllByTestId, container } = renderPage();
@@ -928,6 +929,7 @@ describe("RepliesPage", () => {
     fireEvent.click(card);
 
     const expired = await findByTestId("expired-card");
+    expect(expired.querySelector(".reply-card__body")?.textContent).toBe("寄出後無法撤回");
     await waitFor(() =>
       expect(queryAllByTestId("waiting-card")).toHaveLength(0)
     );

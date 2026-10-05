@@ -89,6 +89,40 @@ describe("RepliesPage markdown render (T-13af)", () => {
     expect(body.textContent).not.toContain("**注意**");
   });
 
+  it.each(["answered", "expired"] as const)(
+    "shows the complete original question as Markdown when an %s card is opened",
+    async (status) => {
+      __injectMockReplyCard(
+        mkCard({
+          body: "**注意**:\n- 會寄到客戶信箱\n- 無法撤回",
+          status,
+          answeredTs: status === "answered" ? Date.now() / 1000 - 60 : null,
+          expiredTs: status === "expired" ? Date.now() / 1000 - 60 : null,
+          answer: status === "answered"
+            ? { optionIdxs: [0], text: "", attachments: [] }
+            : null,
+        })
+      );
+      const { findByTestId } = renderPage();
+      fireEvent.click(await findByTestId("answered-toggle"));
+      const card = await findByTestId(status + "-card");
+      expect(card.querySelector(".reply-card__body")).toBeNull();
+      await openCards();
+
+      const bodies = card.querySelectorAll(".reply-card__body");
+      expect(bodies).toHaveLength(1);
+      expect(bodies[0].querySelector("strong")?.textContent).toBe("注意");
+      expect([...bodies[0].querySelectorAll("ul > li")].map((li) => li.textContent))
+        .toEqual(["會寄到客戶信箱", "無法撤回"]);
+      expect(bodies[0].textContent).toBe("注意:會寄到客戶信箱無法撤回");
+      expect(card.querySelector('[data-testid="' +
+        (status === "answered" ? "final-answer" : "expired-note") + '"]')).not.toBeNull();
+
+      fireEvent.click(card);
+      await waitFor(() => expect(card.querySelector(".reply-card__body")).toBeNull());
+    }
+  );
+
   // T-a80e — a fenced code block must land as <pre> INSIDE the .doc-md
   // container: the mobile overflow fix (`.doc-md pre { overflow-x: auto }`,
   // settings.css) only applies if that structure holds. jsdom can't measure
