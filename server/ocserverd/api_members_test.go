@@ -2542,47 +2542,6 @@ func TestStopVerbRowOfMember(t *testing.T) {
 	})
 }
 
-func TestStopVerbRowOfWorker(t *testing.T) {
-	t.Run("the five pointers name the worker's own 停止 columns", func(t *testing.T) {
-		w := OutsourceWorker{ID: "ow-abc123", Codename: "Contractor",
-			DesiredState: DesiredStateOnline, RefocusSince: 3, RefocusOp: refocusOpRefocus,
-			RestartAfterStop: true, StoppingSince: 1}
-		row := stopVerbRowOfWorker(&w)
-
-		if *row.DesiredState != DesiredStateOnline || *row.RefocusSince != 3 ||
-			*row.RefocusOp != refocusOpRefocus || !*row.RestartAfterStop ||
-			*row.StoppingSince != 1 {
-			t.Fatalf("row reads %q %v %q %v %v", *row.DesiredState, *row.RefocusSince,
-				*row.RefocusOp, *row.RestartAfterStop, *row.StoppingSince)
-		}
-
-		*row.DesiredState = DesiredStateOffline
-		*row.RefocusSince = 30
-		*row.RefocusOp = refocusOpAcceleratedStop
-		*row.RestartAfterStop = false
-		*row.StoppingSince = 10
-		apiTestWantEqual(t, "worker", w, OutsourceWorker{ID: "ow-abc123",
-			Codename: "Contractor", DesiredState: DesiredStateOffline, RefocusSince: 30,
-			RefocusOp: refocusOpAcceleratedStop, RestartAfterStop: false,
-			StoppingSince: 10})
-	})
-
-	t.Run("a row taken over a copy leaves the original worker untouched", func(t *testing.T) {
-		original := OutsourceWorker{ID: "ow-abc123", DesiredState: DesiredStateOnline,
-			RestartAfterStop: true, StoppingSince: 1}
-		copied := original
-		row := stopVerbRowOfWorker(&copied)
-		*row.StoppingSince = 10
-		*row.RefocusOp = refocusOpRefocus
-
-		apiTestWantEqual(t, "the original", original, OutsourceWorker{ID: "ow-abc123",
-			DesiredState: DesiredStateOnline, RestartAfterStop: true, StoppingSince: 1})
-		apiTestWantEqual(t, "the copy", copied, OutsourceWorker{ID: "ow-abc123",
-			DesiredState: DesiredStateOnline, RestartAfterStop: true, StoppingSince: 10,
-			RefocusOp: refocusOpRefocus})
-	})
-}
-
 func TestApplyStopVerbRow(t *testing.T) {
 	t.Run("a 停止 on a running member writes offline, clears the 換手 epoch and the queued restart, and anchors at now", func(t *testing.T) {
 		m := Member{ID: "kip", Name: "Kip", Kind: KindStaff, RosterStatus: RosterStatusActive,
@@ -2618,16 +2577,19 @@ func TestApplyStopVerbRow(t *testing.T) {
 			DesiredState: DesiredStateOffline, StoppingSince: 1000})
 	})
 
-	t.Run("the worker face writes the same five columns", func(t *testing.T) {
-		w := OutsourceWorker{ID: "ow-abc123", Codename: "Contractor",
-			Status: WorkerStatusActive, DesiredState: DesiredStateOnline,
+	t.Run("a worker written through its member projection gets the same five columns", func(t *testing.T) {
+		w := OutsourceWorker{ID: "ow-abc123", Codename: "Contractor", TaskID: "t-1",
+			Status: WorkerStatusActive, ActivatedTS: 600, DesiredState: DesiredStateOnline,
 			RefocusSince: 900, RefocusOp: refocusOpRefocus, RestartAfterStop: true,
 			StoppedSince: 800}
+		m := memberFromWorker(w)
 
-		applyStopVerbRow(stopVerbRowOfWorker(&w), memberFromWorker(w), 2000)
+		applyStopVerbRow(stopVerbRowOfMember(&m), m, 2000)
 
-		apiTestWantEqual(t, "worker", w, OutsourceWorker{ID: "ow-abc123",
-			Codename: "Contractor", Status: WorkerStatusActive,
+		task := "t-1"
+		apiTestWantEqual(t, "worker", m, Member{ID: "ow-abc123", Name: "Contractor",
+			Codename: "Contractor", Kind: KindOutsource, Runtime: RuntimeClaude,
+			RosterStatus: RosterStatusActive, ActivatedTS: 600, LinkedTaskID: &task,
 			DesiredState: DesiredStateOffline, RefocusSince: 0, RefocusOp: "",
 			RestartAfterStop: false, StoppingSince: 2000, StoppedSince: 800})
 	})
@@ -4326,7 +4288,7 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 		forcedStopAt   any
 		forcedStopLive bool
 	}{
-		{"deactivate", apiTestHandoverDelta(4, "offline", apiTestOffboardNotice, "ow-abc123"), 0, false},
+		{"deactivate", apiTestHandoverDelta(3, "offline", apiTestOffboardNotice, "ow-abc123"), 0, false},
 		{"force-stop", apiTestWorkerStateDelta(3, "active", "offline", "ow-abc123"), apiAnyNumber, true},
 	} {
 		t.Run("a worker's first report after "+stop.path+" is collected and the worker is held down", func(t *testing.T) {
@@ -4422,7 +4384,7 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 			"refocus_deadline": 0,
 			"stop_effect":      "collected",
 		})
-		dashboard.wantFrames(apiTestHandoverDelta(4, "offline", apiTestOffboardNotice, "ow-abc123"))
+		dashboard.wantFrames(apiTestHandoverDelta(3, "offline", apiTestOffboardNotice, "ow-abc123"))
 		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
 		apiTestWantStoppedSince(t, d, "ow-abc123")
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
@@ -4494,7 +4456,7 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 		frame   map[string]any
 	}{
 		{"online", apiTestWorkerStateDelta(2, "active", "online", "ow-abc123")},
-		{"offline", apiTestHandoverDelta(4, "offline", apiTestOffboardNotice, "ow-abc123")},
+		{"offline", apiTestHandoverDelta(3, "offline", apiTestOffboardNotice, "ow-abc123")},
 	} {
 		desired := tc.desired
 		t.Run("a desired-"+desired+" worker's report whose close-out anchor cannot be written answers 500 and sends no stop", func(t *testing.T) {

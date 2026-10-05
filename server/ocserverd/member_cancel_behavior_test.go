@@ -73,7 +73,7 @@ func TestHandleDeactivateMember_CancellingAWakeDispatchesAStop(t *testing.T) {
 	}
 }
 
-func TestStopOutsourceWorker_CancellingAWakeDispatchesAStopAndCollectsNothing(t *testing.T) {
+func TestHandleDeactivateMember_CancellingAWorkerWakeDispatchesAStopAndCollectsNothing(t *testing.T) {
 	api := newTasksTestServer(t)
 	api.noOutsource = true
 	workerID := newActiveWorker(t, api, false)
@@ -86,9 +86,9 @@ func TestStopOutsourceWorker_CancellingAWakeDispatchesAStopAndCollectsNothing(t 
 	}
 	api.hub.DrainWardenCommands(ServerSelfHost)
 
-	if rec := postWorker(t, api, workerID, "stop", nil,
-		api.HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost); rec.Code != http.StatusOK {
-		t.Fatalf("stop: %d %s", rec.Code, rec.Body.String())
+	if code := postMember(t, api, workerID, "deactivate", nil,
+		api.HandleDeactivateMemberApiMembersMemberIdDeactivatePost); code != http.StatusOK {
+		t.Fatalf("deactivate: %d", code)
 	}
 
 	got := []any{}

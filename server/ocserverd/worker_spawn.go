@@ -941,8 +941,8 @@ func (s *apiServer) reconcileWorkerNow(w OutsourceWorker, now float64) ownerOpOu
 	return ownerOpOutcome{}
 }
 
-// stopWorkerNow is the owner's 停止: the caller has already set
-// desired_state=offline, so this only kills. Callers hold s.outsourceMu.
+// stopWorkerNow kills a worker whose close-out the caller has just collected
+// (desired_state is already offline). Callers hold s.outsourceMu.
 func (s *apiServer) stopWorkerNow(w OutsourceWorker) {
 	targets, broadcast := s.workerKillChain(w.ID, w.LastMachineID)
 	s.bankLiveCost(w.ID)
@@ -1141,81 +1141,6 @@ func (s *apiServer) workerReportStopping(id, trigger string) (*Member, error) {
 	}
 	s.publishMemberPatch(m, trigger)
 	return &m, nil
-}
-
-func (s *apiServer) workerReportStopped(id, trigger string) (*Member, string, error) {
-	unlockMu := s.outsourceMu.Acquire()
-	defer unlockMu()
-	now := nowSecs()
-	var w *OutsourceWorker
-	collect, stopEffect := false, ""
-	err := s.dal.inTx(func(tx *writeTx) error {
-		var err error
-		if w, err = resolveLiveWorkerOn(tx, id); err != nil {
-			return err
-		}
-		before := memberFromWorker(*w)
-		collect, stopEffect = decideStoppedReport(windDownAnchorRowOfWorker(w), now)
-		if !collect {
-			return nil
-		}
-		// The latch lands with the row or not at all: a latch left behind a failed
-		// write would make every retry read "already reported" and send no kill.
-		return persistMemberRowOn(tx, before, memberFromWorker(*w))
-	})
-	if err != nil {
-		unlockMu()
-		outsourceLog("collect %s (stopped-report): stopped latch failed, nothing landed: %v", id, err)
-		return nil, "", err
-	}
-	if !collect {
-		unlockMu()
-		m := memberFromWorker(*w)
-		return &m, stopEffect, nil
-	}
-	s.publishMemberPatch(memberFromWorker(*w), trigger)
-	s.bankLiveCost(w.ID)
-	row := *w
-	unlockMu()
-
-	// Drop the lock BEFORE the kill (owner ruling T-14): dispatchShutdown re-takes
-	// outsourceMu (self-deadlock) and, on the staff arm, reconcileMu.
-	out := s.dispatchShutdown(id, "stopped-report")
-
-	fresh := s.concludeWorkerStoppedReport(id, out, now)
-	if fresh == nil {
-		m := memberFromWorker(row)
-		return &m, stopEffect, nil
-	}
-	m := memberFromWorker(*fresh)
-	return &m, stopEffect, nil
-}
-
-// concludeWorkerStoppedReport takes an id, not a row: outsourceMu was open across
-// the kill, so the caller's row is stale and must not be decided on or written
-// back. Takes s.outsourceMu itself.
-func (s *apiServer) concludeWorkerStoppedReport(id string, out shutdownDispatch, now float64) *OutsourceWorker {
-	s.outsourceMu.Lock()
-	defer s.outsourceMu.Unlock()
-	fresh, err := s.resolveLiveWorker(id)
-	if err != nil {
-		return nil
-	}
-	s.noteWorkerShutdownDispatched(*fresh, now)
-	if len(out.Recorded.reached()) == 0 {
-		outsourceLog("stop collect %s (%s): the kill reached no machine and waits in the "+
-			"ledger as a fan-out — collected anyway, the ledger stops the old session before "+
-			"any replacement's START", fresh.ID, fresh.Codename)
-	}
-	return s.rereadWorker(id, fresh)
-}
-
-// Callers hold s.outsourceMu.
-func (s *apiServer) rereadWorker(id string, fallback *OutsourceWorker) *OutsourceWorker {
-	if reread, err := s.resolveLiveWorker(id); err == nil {
-		return reread
-	}
-	return fallback
 }
 
 // noteWorkerShutdownDispatched marks the stop in flight for the shared FSM; the

@@ -33,9 +33,9 @@ func TestWorkerWindDownLadder_AModelChangeMayNotUndoAnAcceleratedStop(t *testing
 		api.HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost); rec.Code != http.StatusOK {
 		t.Fatalf("refocus: %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := postWorker(t, api, workerID, "accelerated-stop", nil,
-		api.HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost); rec.Code != http.StatusOK {
-		t.Fatalf("accelerated-stop: %d %s", rec.Code, rec.Body.String())
+	if code := postMember(t, api, workerID, "accelerated-stop", nil,
+		api.HandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost); code != http.StatusOK {
+		t.Fatalf("accelerated-stop: %d", code)
 	}
 	api.hub.DrainWardenCommands(ServerSelfHost)
 	before, _ := api.dal.GetOutsourceWorker(workerID)
@@ -114,9 +114,9 @@ func TestWorkerWindDownLadder_重新聚焦MayNotUndoAnAcceleratedStopEither(t *t
 		api.HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost); rec.Code != http.StatusOK {
 		t.Fatalf("refocus: %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := postWorker(t, api, workerID, "accelerated-stop", nil,
-		api.HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost); rec.Code != http.StatusOK {
-		t.Fatalf("accelerated-stop: %d %s", rec.Code, rec.Body.String())
+	if code := postMember(t, api, workerID, "accelerated-stop", nil,
+		api.HandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost); code != http.StatusOK {
+		t.Fatalf("accelerated-stop: %d", code)
 	}
 	api.hub.DrainWardenCommands(ServerSelfHost)
 	before, _ := api.dal.GetOutsourceWorker(workerID)
@@ -193,9 +193,9 @@ func TestWorkerWindDownLadder_RestartSelfMayNotUndoAnAcceleratedStopEither(t *te
 		api.HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost); rec.Code != http.StatusOK {
 		t.Fatalf("refocus: %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := postWorker(t, api, workerID, "accelerated-stop", nil,
-		api.HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost); rec.Code != http.StatusOK {
-		t.Fatalf("accelerated-stop: %d %s", rec.Code, rec.Body.String())
+	if code := postMember(t, api, workerID, "accelerated-stop", nil,
+		api.HandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost); code != http.StatusOK {
+		t.Fatalf("accelerated-stop: %d", code)
 	}
 	api.hub.DrainWardenCommands(ServerSelfHost)
 	before, _ := api.dal.GetOutsourceWorker(workerID)
@@ -402,9 +402,9 @@ func TestRelocateWorker_ALadderRefusalIsStillPendingAndDeferred_T170e(t *testing
 		api.HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost); rec.Code != http.StatusOK {
 		t.Fatalf("refocus: %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := postWorker(t, api, workerID, "accelerated-stop", nil,
-		api.HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost); rec.Code != http.StatusOK {
-		t.Fatalf("accelerated-stop: %d %s", rec.Code, rec.Body.String())
+	if code := postMember(t, api, workerID, "accelerated-stop", nil,
+		api.HandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost); code != http.StatusOK {
+		t.Fatalf("accelerated-stop: %d", code)
 	}
 	api.hub.DrainWardenCommands(ServerSelfHost)
 	before, _ := api.dal.GetOutsourceWorker(workerID)
@@ -466,8 +466,8 @@ func TestStoppingWorkerRelocated_TheAcceleratedDeadlineStopsItWhereItRuns(t *tes
 		body map[string]any
 		h    func(http.ResponseWriter, *http.Request, string)
 	}{
-		{"stop", nil, api.HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost},
-		{"accelerated-stop", nil, api.HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost},
+		{"deactivate", nil, api.HandleDeactivateMemberApiMembersMemberIdDeactivatePost},
+		{"accelerated-stop", nil, api.HandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost},
 		{"relocate", map[string]any{"machine_id": "m-elsewhere"}, api.HandleRelocateOutsourceWorkerApiOutsourceWorkersIdRelocatePost},
 	} {
 		if rec := postWorker(t, api, workerID, press.op, press.body, press.h); rec.Code != http.StatusOK {

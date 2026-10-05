@@ -456,10 +456,6 @@ var authzOutsideRouteTable = map[string]string{
 		"faces refuse rather than write presence for a非-roster identity.",
 	"api_members.go :: HandleReportStoppingApiSelfStoppingPost :: m.Kind == KindOutsource": "" +
 		"same outsource self-report refusal, stopping face.",
-	"api_members.go :: HandleReportStoppedApiSelfStoppedPost :: m.Kind == KindOutsource": "" +
-		"the caller's OWN row kind, stopped face: an outsource caller's report goes " +
-		"through the worker kill funnel (workerReportStopped) instead of the staff " +
-		"robust STOP. Both kinds share one collect decision; no principal is on either side.",
 	"api_members.go :: HandleRestartSelfApiSelfRefocusPost :: m.Kind == KindOutsource": "" +
 		"same outsource refusal on the self-refocus face.",
 
@@ -690,14 +686,8 @@ var authzOutsideRouteTable = map[string]string{
 // the fix is the type-aware scan the header names — not a longer map. The
 // reason on each entry says WHAT the kind belongs to and why it is not identity.
 var nonCallerKindPredicates = map[string]string{
-	"api_members.go :: HandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost :: m.Kind == KindOutsource": "" +
-		"the kind of the TARGET member selects the outsource accelerated-stop implementation; the caller's privilege was already decided by the route floor.",
 	"api_members.go :: HandleActivateMemberApiMembersMemberIdActivatePost :: m.Kind == KindOutsource": "" +
 		"the kind of the TARGET member selects the outsource activation implementation; it does not classify the authenticated caller.",
-	"api_members.go :: HandleDeactivateMemberApiMembersMemberIdDeactivatePost :: m.Kind == KindOutsource": "" +
-		"the kind of the TARGET member selects the outsource deactivation implementation; it does not classify the authenticated caller.",
-	"api_members.go :: HandleForceStopMemberApiMembersMemberIdForceStopPost :: m.Kind == KindOutsource": "" +
-		"the kind of the TARGET member selects the outsource force-stop implementation; the caller's privilege comes from the route table.",
 	"api_members.go :: HandleGetMemberApiMembersMemberIdGet :: m.Kind == KindOutsource": "" +
 		"the kind of the member being READ selects the outsource detail projection; it is not an identity or privilege test on the caller.",
 	"api_members.go :: HandleGetMemberBootContextApiMembersMemberIdBootContextGet :: m.Kind == KindWarden": "" +

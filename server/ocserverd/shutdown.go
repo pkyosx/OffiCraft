@@ -6,9 +6,9 @@ import "slices"
 // through sendStopFrames; every out-of-band robust STOP of either population is
 // recorded in the one robust-stop ledger (stop_ledger.go, sendRobustStop) and
 // re-sent only by the ticks. dispatchShutdown (directly or through
-// dispatchShutdownAlsoTo) has exactly TWO callers: the staff out-of-band robust
-// STOP and the worker's stopped-report conclusion. The session-gone collects of
-// both populations and the worker's held-down stop go through stopResidualSession,
+// dispatchShutdownAlsoTo) has exactly ONE caller: dispatchRobustStopNow, the
+// out-of-band robust STOP every stop verb of both populations sends. The
+// session-gone collects of both populations go through stopResidualSession,
 // the worker's handover and takeover through sendRobustStop, all with targets their
 // caller resolved under its own tick lock; reclaim sends unrecorded.
 //

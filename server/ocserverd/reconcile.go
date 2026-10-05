@@ -126,9 +126,10 @@ type reconcileState struct {
 	// OfflineSince feeds the zombie-takeover second-confirmation window ONLY. Restart amnesia
 	// re-arms the window from zero, again the safe direction.
 	OfflineSince float64
-	// StartTarget: the warden the last START was handed to; read only through inFlightStartOf.
-	// The staff kill chain cannot stand in for it: it names a session's last landing before the
-	// pin, so after a 換機器 it points at the old machine while the START boots on the new one.
+	// StartTarget: the warden the last START was handed to, written by both populations' START
+	// dispatch; read only through inFlightStartOf. The kill chain cannot stand in for it: it names
+	// a session's last landing before the pin, so after a 換機器 it points at the old machine while
+	// the START boots on the new one.
 	StartTarget string
 }
 
@@ -1844,53 +1845,53 @@ func (s *apiServer) reconcileMemberNow(memberID string) reconcileDecision {
 	return s.reconcileTickMemberLocked(*m, nowSecs())
 }
 
-// dispatchRobustStopNow is every staff out-of-band robust STOP. It also reaches a
-// START still booting, whose machine the kill chain cannot name (the session has
-// neither connected nor landed, and a last landing outranks the pin) — the
-// worker's chain reaches it by putting its spawn target first.
-// 🔴 Reads the reconcile store WITHOUT reconcileMu: a handler's kill must never
+// dispatchRobustStopNow is every out-of-band robust STOP a handler sends, for both
+// populations. It also reaches a START still booting, whose machine the kill chain
+// may not name (the session has neither connected nor landed, and a last landing
+// outranks the pin).
+// 🔴 Reads the reconcile store WITHOUT a scheduler lock: a handler's kill must never
 // wait on the tick (TestDispatchShutdown).
-func (s *apiServer) dispatchRobustStopNow(memberID string) shutdownDispatch {
+func (s *apiServer) dispatchRobustStopNow(pop stopPopulation, memberID string) shutdownDispatch {
 	booting := inFlightStartOf(s.reconcileStateOf(memberID))
-	return s.dispatchRobustStopAlsoTo(memberID, booting.Target)
+	return s.dispatchRobustStopAlsoTo(pop, memberID, booting.Target)
 }
 
 // dispatchRobustStopPastBootingStart is dispatchRobustStopNow for a press that
 // then reconciles at once (喚醒, 取消喚醒): only a stop that reached the booting
 // START supersedes it, otherwise that reconcile must keep waiting on it. Answers
-// the START still owed that wait. Takes reconcileMu.
-func (s *apiServer) dispatchRobustStopPastBootingStart(memberID string) inFlightStart {
-	booting := s.inFlightStartOfMember(memberID)
-	stop := s.dispatchRobustStopAlsoTo(memberID, booting.Target)
-	if s.noteStartSupersededByStop(memberID, booting, stop, nowSecs()) {
+// the START still owed that wait. Takes the population's scheduler lock twice,
+// never across the send.
+func (s *apiServer) dispatchRobustStopPastBootingStart(pop stopPopulation, memberID string) inFlightStart {
+	booting := s.inFlightStartOfMember(pop, memberID)
+	stop := s.dispatchRobustStopAlsoTo(pop, memberID, booting.Target)
+	if s.noteStartSupersededByStop(pop, memberID, booting, stop, nowSecs()) {
 		return inFlightStart{}
 	}
 	return booting
 }
 
-func (s *apiServer) dispatchRobustStopAlsoTo(memberID, alsoTo string) shutdownDispatch {
-	if s.noReconcile {
+func (s *apiServer) dispatchRobustStopAlsoTo(pop stopPopulation, memberID, alsoTo string) shutdownDispatch {
+	if pop.producerOff {
 		return shutdownDispatch{}
 	}
-	// The --no-reconcile gate stays at THIS caller: it is the producer kill switch, and the outsource
-	// verbs have never consulted it (api_stub.go).
 	return s.dispatchShutdownAlsoTo(memberID, "robust-stop", alsoTo)
 }
 
-func (s *apiServer) inFlightStartOfMember(memberID string) inFlightStart {
-	s.reconcileMu.Lock()
-	defer s.reconcileMu.Unlock()
+func (s *apiServer) inFlightStartOfMember(pop stopPopulation, memberID string) inFlightStart {
+	unlock := pop.lockScheduler()
+	defer unlock()
 	return inFlightStartOf(s.reconcileStateOf(memberID))
 }
 
-// noteStartSupersededByStop takes reconcileMu itself: its caller is an HTTP handler that holds no
-// reconcile lock. `ended` is the START read before the stop went out; a tick may have sent another
-// one since, possibly to a machine the stop also reached, and the stop did not end that one.
+// noteStartSupersededByStop takes the population's scheduler lock itself: its caller
+// is an HTTP handler that holds none. `ended` is the START read before the stop went
+// out; a tick may have sent another one since, possibly to a machine the stop also
+// reached, and the stop did not end that one.
 func (s *apiServer) noteStartSupersededByStop(
-	memberID string, ended inFlightStart, stop shutdownDispatch, now float64,
+	pop stopPopulation, memberID string, ended inFlightStart, stop shutdownDispatch, now float64,
 ) bool {
-	s.reconcileMu.Lock()
-	defer s.reconcileMu.Unlock()
+	unlock := pop.lockScheduler()
+	defer unlock()
 	st := s.reconcileStateOf(memberID)
 	if inFlightStartOf(st) != ended || !robustStopEffectOf(stop.Recorded, ended.Target).SupersedeStart {
 		return false

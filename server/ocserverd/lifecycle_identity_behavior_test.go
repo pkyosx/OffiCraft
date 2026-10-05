@@ -781,18 +781,21 @@ var identityGateLedger = map[string]string{
 	"api_members.go :: HandleActivateMemberApiMembersMemberIdActivatePost :: m.Kind == KindOutsource": "" +
 		"activation enters the worker control funnel because it recreates the disposable " +
 		"executor for its one bound task; this is the declared worker-control difference.",
-	"api_members.go :: HandleDeactivateMemberApiMembersMemberIdDeactivatePost :: m.Kind == KindOutsource": "" +
-		"deactivation enters the worker control funnel so stopping preserves the bound " +
-		"task and release semantics; the route and member event contract remain shared.",
-	"api_members.go :: HandleForceStopMemberApiMembersMemberIdForceStopPost :: m.Kind == KindOutsource": "" +
-		"force-stop uses the worker kill funnel that owns its disposable task executor. " +
-		"This is the declared one-task lifecycle difference behind a shared member route.",
-	"api_members.go :: HandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost :: m.Kind == KindOutsource": "" +
-		"accelerated stop uses the worker handover funnel because its successor is tied " +
-		"to the same task; the public route and resulting member event are shared.",
 	"api_members.go :: HandleRefocusMemberApiMembersMemberIdRefocusPost :: m.Kind == KindOutsource": "" +
 		"refocus uses the worker handover funnel because replacement and release follow " +
 		"the one bound task; the public route and resulting member event are shared.",
+
+	// ── the stop verbs: one body, the population picks storage and lock ──
+	"member_stop.go :: stopPopulationOf :: m.Kind == KindOutsource": "" +
+		"the stop verbs (停止 / 加速停止 / 強制停止 / the stopped report / cancelling a " +
+		"wake) are ONE body each for both kinds (owner, rc-20c71af562e9: 剩餘部分的一樣是" +
+		"程式碼階層的一樣). This picks only the storage and lock half the body runs " +
+		"against: which mutex guards the population (outsourceMu for workers, whose rows " +
+		"and spawn maps the outsource tick read-modify-writes; none or reconcileMu for " +
+		"staff, whose press must never wait on the reconcile tick), how the row is read " +
+		"(the live-worker resolve vs the member resolve), the population's own FSM door, " +
+		"and the --no-reconcile switch the outsource verbs have never consulted. What the " +
+		"verbs write, send and publish does not depend on it.",
 
 	// The self-report handlers make the same task-bound write-funnel choice.
 	"api_members.go :: HandleReportWakingApiSelfWakingPost :: m.Kind == KindOutsource": "" +
@@ -802,12 +805,6 @@ var identityGateLedger = map[string]string{
 	"api_members.go :: HandleReportStoppingApiSelfStoppingPost :: m.Kind == KindOutsource": "" +
 		"same self-report fold, stopping face: workerReportStopping rather than the " +
 		"member path, for the same serialized task-bound write reason.",
-	"api_members.go :: HandleReportStoppedApiSelfStoppedPost :: m.Kind == KindOutsource": "" +
-		"same self-report fold, stopped face — and this one also runs the worker 收口: " +
-		"the first stopped-report is collected on the spot for both kinds " +
-		"(decideStoppedReport), and only the kill is the worker's own — desired offline " +
-		"is held down (collectWorkerStop), desired online goes through the handover " +
-		"funnel and the shared FSM starts the replacement.",
 	"api_members.go :: HandleRestartSelfApiSelfRefocusPost :: m.Kind == KindOutsource": "" +
 		"same fold on the self-refocus face: stamp the epoch and open the graceful " +
 		"window through the worker funnel, the same shape the owner's refocus button " +

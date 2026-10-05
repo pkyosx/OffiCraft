@@ -2,15 +2,13 @@ package main
 
 // verb_population_parity_t65_test.go — T-65 包①: the 動詞 × 人口 matrix.
 //
-// A staff member and an outsource worker live in the SAME member table, but the
-// seven lifecycle verbs are TWO SEPARATE handler families. There is no way to
-// feed one handler both populations — every member-side verb resolves through
-// s.resolveMember(id, staffOnly), and api_helpers.go's
-// `if scope == staffOnly && m.Kind == KindOutsource` 404s an ow- id outright.
-// So the matrix is not "one handler, two inputs": it is
+// A staff member and an outsource worker live in the SAME member table. The stop
+// verbs (停止 / 加速停止 / 強制停止 / 回報停止 / 取消喚醒) are one function each that
+// both populations call through the member route; the other verbs still have an
+// outsource handler of their own. Either way the matrix is
 //
-//	動詞 × 人口 ⇒ each population's OWN handler, same seeded start state,
-//	             then COMPARE THE TERMINAL ROW field by field.
+//	動詞 × 人口 ⇒ the route each population is pressed through, same seeded start
+//	             state, then COMPARE THE TERMINAL ROW field by field.
 //
 // Every field that is expected to end up the same is asserted equal, and every
 // field that ends up DIFFERENT must appear in knownDivergences with a sentence
@@ -20,7 +18,7 @@ package main
 // before trusting a green run here as a behaviour guard:
 //
 //	ONLY block ① of TestVerbPopulationParityMatrix (`gotStaff != c.wantStaff` /
-//	`gotOutsource != c.wantOutsource`, 7 verbs × 2 populations = 14 assertions)
+//	`gotOutsource != c.wantOutsource`, every verb × 2 populations)
 //	calls a handler and compares what came back. That is the mutant killer.
 //
 // Everything else here — the `UNDOCUMENTED DIVERGENCE` and `STALE WHITELIST
@@ -772,6 +770,15 @@ func postMember(t *testing.T, api *apiServer, id, op string, body any,
 	return rec.Code
 }
 
+// seedParityWaking stamps waking_since through its sole writer, the way a START
+// dispatch does for both populations.
+func seedParityWaking(t *testing.T, api *apiServer, id string) {
+	t.Helper()
+	if err := api.dal.SetMemberWakingSince(id, nowSecs()); err != nil {
+		t.Fatalf("SetMemberWakingSince(%s): %v", id, err)
+	}
+}
+
 // ── the cases ────────────────────────────────────────────────────────────────
 
 func parityCases() []verbCase {
@@ -958,9 +965,9 @@ func parityCases() []verbCase {
 		{
 			verb: "停止",
 			note: "seed: desired online, live session, an OPEN 換手 epoch. 正職 → " +
-				"POST /deactivate, 外包 → POST /stop. 🟢 POSITIVE CONTROL ROW: both " +
-				"sides stamp the epoch through the SAME pure function (stopEpochAnchor), " +
-				"so if THIS row goes red the harness is broken, not the subject.",
+				"POST /deactivate, 外包 → the same route. 🟢 POSITIVE CONTROL ROW: both " +
+				"run stopMember, so if THIS row goes red the harness is broken, not the " +
+				"subject.",
 			runStaff: func(t *testing.T) terminalState {
 				api := newParityServer(t)
 				seedParityMember(t, api, "m-parity-stop", func(m *Member) {
@@ -979,57 +986,39 @@ func parityCases() []verbCase {
 					w.RefocusOp = refocusOpRefocus
 				})
 				notices := watchMemberDeltas(t, api)
-				code := postWorker(t, api, id, "stop", nil,
-					api.HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost)
-				return workerTerminal(t, api, id, code.Code, notices)
+				code := postMember(t, api, id, "deactivate", nil,
+					api.HandleDeactivateMemberApiMembersMemberIdDeactivatePost)
+				return workerTerminal(t, api, id, code, notices)
 			},
-			// 正職: desired offline + clearMemberHandoverMarker + clearRestartIntent
-			// + StoppingSince = stopEpochAnchor(...) → now (no forced epoch live).
+			// Both: applyStopVerbRow (desired offline, 換手 epoch and queued restart
+			// cleared, stopping_since = stopEpochAnchor → now). The session is live, so
+			// stopVerbArmOf picks the soft window: no kill, and the soft 〈停止〉 notice
+			// rides the one published delta.
 			wantStaff: terminalState{
 				Status: http.StatusOK, DesiredState: DesiredStateOffline,
 				Stopping: anchorPast, Stopped: anchorZero,
 				Refocus: anchorZero, RefocusOp: "",
 				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
-				// the member is SSE-online ⇒ derivePresence returns online, never waking
-				// (domain.go:194 tests Online BEFORE WakePending at :197) ⇒ cancellingWake
-				// is false ⇒ no dispatchRobustStopNow (api_members.go:1421). The tick then
-				// parks in decideDown's soft-offboard arm (reconcile.go:845).
-				Dispatched: dispatchedNothing,
-				Cost:       costUntouched,
-				// desired offline + stopping_since = stopEpochAnchor -> now, and no forced
-				// epoch, so gracefulStopEpochOpen (api_members.go:412) is true and
-				// offboardKindOf's offline arm hands back soft. The 預告 rides the
-				// putMember at :1416.
-				Noticed: noticedNotice,
+				Dispatched:       dispatchedNothing,
+				Cost:             costUntouched,
+				Noticed:          noticedNotice,
 			},
-			// 外包: desired offline; RefocusSince = 0.0; RefocusOp = "";
-			// StoppingSince = stopEpochAnchor(memberFromWorker(...)) → the same now.
 			wantOutsource: terminalState{
 				Status: http.StatusOK, DesiredState: DesiredStateOffline,
 				Stopping: anchorPast, Stopped: anchorZero,
 				Refocus: anchorZero, RefocusOp: "",
 				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
-				// openWorkerHandoverGrace's "if offline, kill now" arm is unreachable on a live
-				// worker (worker_spawn.go:2245-2258); the online path publishes a 預告 and
-				// dispatches nothing.
-				Dispatched: dispatchedNothing,
-				Cost:       costUntouched,
-				// the same sentence by a different road: the online arm of
-				// openWorkerHandoverGrace (api_outsource.go:736) publishes the member-topic
-				// 預告 itself (worker_spawn.go:2259). The worker's row is the same
-				// graceful shape — stopEpochAnchor, no forced epoch — so the same soft
-				// notice is composed off it.
-				Noticed: noticedNotice,
+				Dispatched:       dispatchedNothing,
+				Cost:             costUntouched,
+				Noticed:          noticedNotice,
 			},
 		},
 		{
 			verb: "停止（離線起點）",
-			note: "the SAME two handlers as 停止 above, on a subject with NO SESSION. " +
-				"包③ converged what the two write to the ROW (applyStopVerbRow); this row " +
-				"exists because that is NOT all a stop does, and liveness is exactly where " +
-				"the two halves that were NOT converged part company. 🔴 A SEPARATE verb " +
+			note: "the SAME route as 停止 above, on a subject with NO SESSION: liveness " +
+				"picks a different arm of stopMember (collect now). 🔴 A SEPARATE verb " +
 				"label on purpose: the whitelist is keyed (verb, field), so folding this " +
 				"into 停止 would make its three rows read as excuses for the ONLINE row " +
 				"too — which has no divergences at all and must keep having none.",
@@ -1049,12 +1038,13 @@ func parityCases() []verbCase {
 					w.RestartAfterStop = true
 				})
 				notices := watchMemberDeltas(t, api)
-				code := postWorker(t, api, id, "stop", nil,
-					api.HandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost)
-				return workerTerminal(t, api, id, code.Code, notices)
+				code := postMember(t, api, id, "deactivate", nil,
+					api.HandleDeactivateMemberApiMembersMemberIdDeactivatePost)
+				return workerTerminal(t, api, id, code, notices)
 			},
-			// 正職: the five row writes are applyStopVerbRow's, same as the online
-			// row. An offline member now takes the same collect funnel as the worker.
+			// Both: applyStopVerbRow, then stopVerbArmOf picks the immediate collect:
+			// stopped_since latches in the same transaction, both rows are published,
+			// the live cost is banked and one STOP goes out.
 			wantStaff: terminalState{
 				Status: http.StatusOK, DesiredState: DesiredStateOffline,
 				Stopping: anchorPast, Stopped: anchorPast,
@@ -1065,11 +1055,6 @@ func parityCases() []verbCase {
 				Cost:             costBanked,
 				Noticed:          noticedNotice,
 			},
-			// 外包: the same five row writes, and then openWorkerHandoverGrace takes
-			// its `!hub.IsOnline` arm. desired_state is already offline (this verb
-			// just wrote it), so that arm routes to collectWorkerStop, which is
-			// THREE more things in one call: it latches stopped_since, it kills the
-			// session (one `stop` frame), and its putMember banks the live cost.
 			wantOutsource: terminalState{
 				Status: http.StatusOK, DesiredState: DesiredStateOffline,
 				Stopping: anchorPast, Stopped: anchorPast,
@@ -1078,13 +1063,7 @@ func parityCases() []verbCase {
 				DesiredMachineID: parityMachineA,
 				Dispatched:       dispatchSet(reconcileCmdStop),
 				Cost:             costBanked,
-				// 🔴 SAME VALUE, DIFFERENT ROAD — and the road matters for whoever
-				// converges this later. On the staff side the notice rides the
-				// handler's own putMember. Here openWorkerHandoverGrace's offline arm
-				// publishes NOTHING (it returns before the hub.Publish); the delta is
-				// fanned by collectWorkerStop's putMember, AFTER stopped_since is
-				// latched. Deleting that collect would take the notice with it.
-				Noticed: noticedNotice,
+				Noticed:          noticedNotice,
 			},
 		},
 		{
@@ -1109,27 +1088,23 @@ func parityCases() []verbCase {
 					w.StoppingSince = parityPast
 				})
 				notices := watchMemberDeltas(t, api)
-				code := postWorker(t, api, id, "accelerated-stop", nil,
-					api.HandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost)
-				return workerTerminal(t, api, id, code.Code, notices)
+				code := postMember(t, api, id, "accelerated-stop", nil,
+					api.HandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost)
+				return workerTerminal(t, api, id, code, notices)
 			},
-			// Both: the desired-offline arm re-stamps its anchor from THIS press and
-			// names the cause accelerated_stop.
+			// Both: accelerateMemberStop's desired-offline arm re-stamps its anchor
+			// from THIS press and names the cause accelerated_stop; the final sentence
+			// rides the published delta, and the deadline is in the future, so the
+			// reconcile it fires dispatches nothing.
 			wantStaff: terminalState{
 				Status: http.StatusOK, DesiredState: DesiredStateOffline,
 				Stopping: anchorPast, Stopped: anchorZero,
 				Refocus: anchorZero, RefocusOp: refocusOpAcceleratedStop,
 				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
-				// the handler 409s an offline member (api_members.go:1540) and its own comment
-				// at :1580-1583 says the reconcile it fires "dispatches nothing on this pass —
-				// the deadline is in the future by construction" (reconcile.go:836-841).
-				Dispatched: dispatchedNothing,
-				Cost:       costUntouched,
-				// the escalation's whole point is that the sentence quotes the clock the
-				// owner just started: refocus_op = 加速停止 makes winddownKindFor answer
-				// final+clocked, so the putMember at :1573 carries a notice.
-				Noticed: noticedNotice,
+				Dispatched:       dispatchedNothing,
+				Cost:             costUntouched,
+				Noticed:          noticedNotice,
 			},
 			wantOutsource: terminalState{
 				Status: http.StatusOK, DesiredState: DesiredStateOffline,
@@ -1137,21 +1112,15 @@ func parityCases() []verbCase {
 				Refocus: anchorZero, RefocusOp: refocusOpAcceleratedStop,
 				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
-				// same shape: 409 unless active+online (api_outsource.go:592), then the same
-				// online arm of openWorkerHandoverGrace.
-				Dispatched: dispatchedNothing,
-				Cost:       costUntouched,
-				// api_outsource.go:643, and its own 🔴 block says why the call is there:
-				// publishOutsourceWorker is owner-only and carries offboard_notice never,
-				// so without this one call the press would start the collect clock while
-				// the last thing the worker heard was the 停止 sentence.
-				Noticed: noticedNotice,
+				Dispatched:       dispatchedNothing,
+				Cost:             costUntouched,
+				Noticed:          noticedNotice,
 			},
 		},
 		{
 			verb: "強制停止",
 			note: "seed: desired online, live session, stopping_since stamped in the " +
-				"FUTURE — the one start state that separates the two force-stop bodies.",
+				"FUTURE — the start state that shows the pull-back.",
 			runStaff: func(t *testing.T) terminalState {
 				api := newParityServer(t)
 				seedParityMember(t, api, "m-parity-force", func(m *Member) {
@@ -1168,50 +1137,126 @@ func parityCases() []verbCase {
 					w.StoppingSince = parityFuture
 				})
 				notices := watchMemberDeltas(t, api)
-				code := postWorker(t, api, id, "force-stop", nil,
-					api.HandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost)
-				return workerTerminal(t, api, id, code.Code, notices)
+				code := postMember(t, api, id, "force-stop", nil,
+					api.HandleForceStopMemberApiMembersMemberIdForceStopPost)
+				return workerTerminal(t, api, id, code, notices)
 			},
-			// 正職 now clamps a future stamp to the force-stop instant.
+			// Both: forceStopMember pulls the future stopping_since back to the
+			// force-stop instant (so forcedEpochLive holds and nothing is said), banks
+			// the live cost and sends one STOP unconditionally.
 			wantStaff: terminalState{
 				Status: http.StatusOK, DesiredState: DesiredStateOffline,
 				Stopping: anchorPast, Stopped: anchorZero,
 				Refocus: anchorZero, RefocusOp: "",
 				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
-				// the ONLY unconditional dispatch on either side: dispatchRobustStopNow
-				// (api_members.go:1487 → reconcile.go:2919-2930) with no state test in front
-				// of it. This handler never calls reconcileMemberNow at all.
-				Dispatched: "stop",
-				// The staff handler banks before dispatching the kill, matching
-				// stopWorkerNow's ordering on the worker side.
-				Cost:    costBanked,
-				Noticed: noticedNothing,
+				Dispatched:       "stop",
+				Cost:             costBanked,
+				Noticed:          noticedNothing,
 			},
-			// 外包: `if worker.StoppingSince <= 0.0 || worker.StoppingSince > forcedAt
-			// { worker.StoppingSince = forcedAt }` — the second arm pulls it back.
 			wantOutsource: terminalState{
 				Status: http.StatusOK, DesiredState: DesiredStateOffline,
 				Stopping: anchorPast, Stopped: anchorZero,
 				Refocus: anchorZero, RefocusOp: "",
 				Waking: anchorZero, RestartAfterStop: false,
 				DesiredMachineID: parityMachineA,
-				// stopWorkerNow → resolveWorkerKillTarget (worker_spawn.go:1979-1992). Same RPC
-				// and same count as 正職, but the FAIL MODE differs: an unresolvable target
-				// here skips the enqueue and only logs (:1988-1991), where 正職 enqueues
-				// anyway and arms a retry. The fixture resolves, so the cells agree.
-				Dispatched: "stop",
-				// stopWorkerNow banks BEFORE the kill (worker_spawn.go:1983).
-				Cost: costBanked,
-				// silent, and by TWO independent guards rather than one. The worker
-				// force-stop reaches no member-topic publisher at all (grep, T-65 包⑤: the
-				// five openWorkerHandoverGrace call sites are api_outsource.go:483/:597/:691
-				// and worker_spawn.go:1845/:2573, none of them on this path, AND
-				// api_outsource.go calls putMember nowhere — the second half is load-bearing
-				// because the grace publisher is not the worker's only one), AND the
-				// stopping_since pull-back keeps forcedEpochLive true, so even a frame
-				// would carry nothing.
-				Noticed: noticedNothing,
+				Dispatched:       "stop",
+				Cost:             costBanked,
+				Noticed:          noticedNothing,
+			},
+		},
+		{
+			verb: "回報停止",
+			note: "seed: an OPEN 停止 epoch (desired offline + stopping_since in the past), " +
+				"live session. Both report through their own token → POST /api/self/stopped.",
+			runStaff: func(t *testing.T) terminalState {
+				api := newParityServer(t)
+				seedParityMember(t, api, "m-parity-reported", func(m *Member) {
+					m.DesiredState = DesiredStateOffline
+					m.StoppingSince = parityPast
+				})
+				notices := watchMemberDeltas(t, api)
+				reportStoppedAs(t, api, "m-parity-reported")
+				return memberTerminal(t, api, "m-parity-reported", http.StatusOK, notices)
+			},
+			runOutsource: func(t *testing.T) terminalState {
+				api := newParityServer(t)
+				id := seedParityWorker(t, api, func(w *OutsourceWorker) {
+					w.DesiredState = DesiredStateOffline
+					w.StoppingSince = parityPast
+				})
+				notices := watchMemberDeltas(t, api)
+				reportStoppedAs(t, api, id)
+				return workerTerminal(t, api, id, http.StatusOK, notices)
+			},
+			// Both: decideStoppedReport latches stopped_since, the row is published
+			// before the kill, the live cost is banked, and dispatchRobustStopNow
+			// sends one STOP.
+			wantStaff: terminalState{
+				Status: http.StatusOK, DesiredState: DesiredStateOffline,
+				Stopping: anchorPast, Stopped: anchorPast,
+				Refocus: anchorZero, RefocusOp: "",
+				Waking: anchorZero, RestartAfterStop: false,
+				DesiredMachineID: parityMachineA,
+				Dispatched:       dispatchSet(reconcileCmdStop),
+				Cost:             costBanked,
+				Noticed:          noticedNotice,
+			},
+			wantOutsource: terminalState{
+				Status: http.StatusOK, DesiredState: DesiredStateOffline,
+				Stopping: anchorPast, Stopped: anchorPast,
+				Refocus: anchorZero, RefocusOp: "",
+				Waking: anchorZero, RestartAfterStop: false,
+				DesiredMachineID: parityMachineA,
+				Dispatched:       dispatchSet(reconcileCmdStop),
+				Cost:             costBanked,
+				Noticed:          noticedNotice,
+			},
+		},
+		{
+			verb: "取消喚醒",
+			note: "seed: desired online, NO session, a START dispatched a moment ago " +
+				"(waking_since now) — the waking projection. Both → POST /deactivate.",
+			runStaff: func(t *testing.T) terminalState {
+				api := newParityServer(t)
+				seedParityMemberOffline(t, api, "m-parity-cancel", nil)
+				seedParityWaking(t, api, "m-parity-cancel")
+				notices := watchMemberDeltas(t, api)
+				code := postMember(t, api, "m-parity-cancel", "deactivate", nil,
+					api.HandleDeactivateMemberApiMembersMemberIdDeactivatePost)
+				return memberTerminal(t, api, "m-parity-cancel", code, notices)
+			},
+			runOutsource: func(t *testing.T) terminalState {
+				api := newParityServer(t)
+				id := seedParityWorkerOffline(t, api, nil)
+				seedParityWaking(t, api, id)
+				notices := watchMemberDeltas(t, api)
+				code := postMember(t, api, id, "deactivate", nil,
+					api.HandleDeactivateMemberApiMembersMemberIdDeactivatePost)
+				return workerTerminal(t, api, id, code, notices)
+			},
+			// Both: applyStopVerbRow, then dispatchRobustStopPastBootingStart sends the
+			// STOP at the booting process and banks first; nothing is collected until
+			// the session is confirmed gone.
+			wantStaff: terminalState{
+				Status: http.StatusOK, DesiredState: DesiredStateOffline,
+				Stopping: anchorPast, Stopped: anchorZero,
+				Refocus: anchorZero, RefocusOp: "",
+				Waking: anchorPast, RestartAfterStop: false,
+				DesiredMachineID: parityMachineA,
+				Dispatched:       dispatchSet(reconcileCmdStop),
+				Cost:             costBanked,
+				Noticed:          noticedNotice,
+			},
+			wantOutsource: terminalState{
+				Status: http.StatusOK, DesiredState: DesiredStateOffline,
+				Stopping: anchorPast, Stopped: anchorZero,
+				Refocus: anchorZero, RefocusOp: "",
+				Waking: anchorPast, RestartAfterStop: false,
+				DesiredMachineID: parityMachineA,
+				Dispatched:       dispatchSet(reconcileCmdStop),
+				Cost:             costBanked,
+				Noticed:          noticedNotice,
 			},
 		},
 		{

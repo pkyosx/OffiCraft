@@ -1249,7 +1249,7 @@ func TestHandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(t *testing
 	})
 }
 
-func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedStopPost(t *testing.T) {
+func TestHandleAcceleratedStopMember_Worker(t *testing.T) {
 	t.Run("escalating an open 換手 re-stamps the epoch under a deadline and fans the final sentence", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
@@ -1284,11 +1284,9 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 		// notice — the second one is not a bare roster patch.
 		dashboard.wantFrames(
 			apiTestHandoverDelta(4, "online", apiAnyString, "owner"),
-			apiTestHandoverDelta(5, "online", apiAnyString, "owner"),
 		)
 		contractor.wantFrames(
 			apiTestHandoverDelta(4, "online", apiAnyString, "owner"),
-			apiTestHandoverDelta(5, "online", apiAnyString, "owner"),
 		)
 		bystander.wantFrames()
 		push()
@@ -1320,12 +1318,10 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 			"refocus_op": "accelerated_stop", "refocus_deadline": pressed.StoppingSince + 120,
 		}))
 		dashboard.wantFrames(
-			apiTestHandoverDelta(4, "offline", apiAnyString, "owner"),
-			apiTestHandoverDelta(5, "offline", apiAnyString, "owner"),
+			apiTestHandoverDelta(3, "offline", apiAnyString, "owner"),
 		)
 		contractor.wantFrames(
-			apiTestHandoverDelta(4, "offline", apiAnyString, "owner"),
-			apiTestHandoverDelta(5, "offline", apiAnyString, "owner"),
+			apiTestHandoverDelta(3, "offline", apiAnyString, "owner"),
 		)
 	})
 
@@ -1350,12 +1346,10 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 			"refocus_op": "accelerated_stop", "refocus_deadline": pressed.StoppingSince + 120,
 		}))
 		dashboard.wantFrames(
-			apiTestHandoverDelta(4, "offline", apiAnyString, "owner"),
-			apiTestHandoverDelta(5, "offline", apiAnyString, "owner"),
+			apiTestHandoverDelta(3, "offline", apiAnyString, "owner"),
 		)
 		contractor.wantFrames(
-			apiTestHandoverDelta(4, "offline", apiAnyString, "owner"),
-			apiTestHandoverDelta(5, "offline", apiAnyString, "owner"),
+			apiTestHandoverDelta(3, "offline", apiAnyString, "owner"),
 		)
 	})
 
@@ -1388,8 +1382,7 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 					"refocus_op": "accelerated_stop", "refocus_deadline": first.StoppingSince + float64(grace),
 				}))
 				contractor.wantFrames(
-					apiTestHandoverDelta(6, "offline", apiAnyString, "owner"),
-					apiTestHandoverDelta(7, "offline", apiAnyString, "owner"),
+					apiTestHandoverDelta(4, "offline", apiAnyString, "owner"),
 				)
 			})
 		}
@@ -1416,7 +1409,6 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 		}))
 		contractor.wantFrames(
 			apiTestHandoverDelta(2, "", apiAnyString, "owner"),
-			apiTestHandoverDelta(3, "", apiAnyString, "owner"),
 		)
 	})
 
@@ -1445,8 +1437,7 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 				pressed.RestartAfterStop, pressed.RefocusOp)
 		}
 		contractor.wantFrames(
-			apiTestHandoverDelta(6, "offline", apiAnyString, "owner"),
-			apiTestHandoverDelta(7, "offline", apiAnyString, "owner"),
+			apiTestHandoverDelta(5, "offline", apiAnyString, "owner"),
 		)
 	})
 
@@ -1610,18 +1601,16 @@ func TestHandleAcceleratedStopOutsourceWorkerApiOutsourceWorkersIdAcceleratedSto
 		// notice — the second one is not a bare roster patch.
 		dashboard.wantFrames(
 			apiTestHandoverDelta(4, "online", apiAnyString, "owner"),
-			apiTestHandoverDelta(5, "online", apiAnyString, "owner"),
 		)
 		contractor.wantFrames(
 			apiTestHandoverDelta(4, "online", apiAnyString, "owner"),
-			apiTestHandoverDelta(5, "online", apiAnyString, "owner"),
 		)
 		bystander.wantFrames()
 		push()
 	})
 }
 
-func TestHandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(t *testing.T) {
+func TestHandleDeactivateMember_Worker(t *testing.T) {
 	t.Run("停止 holds a live worker down and asks it to work its close-out, killing nothing", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
@@ -1640,11 +1629,9 @@ func TestHandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(t *testing.T) {
 		}))
 		dashboard.wantFrames(
 			apiTestHandoverDelta(2, "offline", apiTestOffboardNotice, "owner"),
-			apiTestHandoverDelta(3, "offline", apiTestOffboardNotice, "owner"),
 		)
 		contractor.wantFrames(
 			apiTestHandoverDelta(2, "offline", apiTestOffboardNotice, "owner"),
-			apiTestHandoverDelta(3, "offline", apiTestOffboardNotice, "owner"),
 		)
 		bystander.wantFrames()
 		push()
@@ -1687,8 +1674,7 @@ func TestHandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(t *testing.T) {
 			"status": "active", "presence": "stopping", "desired_state": "offline",
 		}))
 		dashboard.wantFrames(
-			apiTestHandoverDelta(4, "offline", apiTestOffboardNotice, "owner"),
-			apiTestHandoverDelta(5, "offline", apiTestOffboardNotice, "owner"),
+			apiTestHandoverDelta(3, "offline", apiTestOffboardNotice, "owner"),
 		)
 	})
 
@@ -1781,18 +1767,16 @@ func TestHandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(t *testing.T) {
 		}))
 		dashboard.wantFrames(
 			apiTestHandoverDelta(2, "offline", apiTestOffboardNotice, "owner"),
-			apiTestHandoverDelta(3, "offline", apiTestOffboardNotice, "owner"),
 		)
 		contractor.wantFrames(
 			apiTestHandoverDelta(2, "offline", apiTestOffboardNotice, "owner"),
-			apiTestHandoverDelta(3, "offline", apiTestOffboardNotice, "owner"),
 		)
 		bystander.wantFrames()
 		push()
 	})
 
 	for _, shape := range windowDALShapes {
-		t.Run(shape+": a close-out whose latch write fails leaves no stopped latch behind and sends no kill", func(t *testing.T) {
+		t.Run(shape+": a close-out whose latch write fails lands neither the stop nor the latch and sends no kill", func(t *testing.T) {
 			d, _, _ := windowDAL(t, shape)
 			api, h, _, owner := newAPITestServerOn(t, d)
 			apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
@@ -1803,21 +1787,25 @@ func TestHandleStopOutsourceWorkerApiOutsourceWorkersIdStopPost(t *testing.T) {
 			wsWantWardenFrames(t, api, ServerSelfHost)
 			windowRefuse(t, d, "refuse_latch", `BEFORE UPDATE OF stopped_since ON member
 				WHEN NEW.id = 'ow-abc123' AND NEW.stopped_since > 0`, "the latch write fails")
+			before := apiTestMemberRow(t, d, "ow-abc123")
 
 			status, data := windowJSON(t, h, "POST", "/api/members/ow-abc123/deactivate", owner, "")
 
-			if status != http.StatusOK {
-				t.Fatalf("want 200, got %d (%v)", status, data)
+			// The latch lands with the stop or not at all, as for staff: a stop left
+			// behind a failed latch would make the retry read the worker as already
+			// stopped and collect nothing.
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
 			}
-			if got := apiTestMemberRow(t, d, "ow-abc123"); got.StoppedSince != 0 || got.DesiredState != DesiredStateOffline {
-				t.Fatalf("stopped_since=%v desired_state=%q, want 0 / offline", got.StoppedSince, got.DesiredState)
-			}
+			apiWantError(t, data, "internal_error",
+				"internal error: constraint failed: the latch write fails (1811)")
+			apiTestWantEqual(t, "the row after the rollback", apiTestMemberRow(t, d, "ow-abc123"), before)
 			wsWantWardenFrames(t, api, ServerSelfHost)
 		})
 	}
 }
 
-func TestHandleForceStopOutsourceWorkerApiOutsourceWorkersIdForceStopPost(t *testing.T) {
+func TestHandleForceStopMember_Worker(t *testing.T) {
 	t.Run("強制停止 cuts a live session off and publishes the shared offline state without an offboard notice", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)

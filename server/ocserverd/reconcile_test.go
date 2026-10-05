@@ -3466,7 +3466,7 @@ func TestRunReconcileTick(t *testing.T) {
 			StoppingSince: reconcileTestNow - 100,
 		})
 		session := reconcileTestOnline(t, api, "left", "m-box")
-		api.dispatchRobustStopNow("left")
+		api.dispatchRobustStopNow(api.staffStopPopulation(), "left")
 		wsWantWardenFrames(t, api, "m-box", wsStopFrame("left"))
 		base := nowSecs()
 		retry := api.reconcileConfigLive().StopRetry
@@ -3533,7 +3533,7 @@ func TestRunReconcileTick(t *testing.T) {
 		if err := d.SetMemberWindDownAnchors("idle", reconcileTestNow-1, 0, 0, ""); err != nil {
 			t.Fatalf("SetMemberWindDownAnchors: %v", err)
 		}
-		api.dispatchRobustStopNow("idle")
+		api.dispatchRobustStopNow(api.staffStopPopulation(), "idle")
 		wsWantWardenFrames(t, api, "m-box", wsStopFrame("idle"))
 
 		out = hubTestStderr(t, func() { api.runReconcileTick(reconcileTestNow) })
@@ -3658,7 +3658,7 @@ func TestDispatchRobustStopNow(t *testing.T) {
 		})
 		reconcileTestOnline(t, api, "collect", "m-old")
 		before := reconcileTestRow(t, d, "collect")
-		out := hubTestStderr(t, func() { api.dispatchRobustStopNow("collect") })
+		out := hubTestStderr(t, func() { api.dispatchRobustStopNow(api.staffStopPopulation(), "collect") })
 		if out != "" {
 			t.Fatalf("a landed dispatch logs nothing, got %q", out)
 		}
@@ -3683,7 +3683,7 @@ func TestDispatchRobustStopNow(t *testing.T) {
 			ID: "stranded", Name: "Stranded", Kind: KindStaff, RoleKey: "assistant",
 			DesiredState: DesiredStateOnline, DesiredMachineID: "m-box",
 		})
-		out := hubTestStderr(t, func() { api.dispatchRobustStopNow("stranded") })
+		out := hubTestStderr(t, func() { api.dispatchRobustStopNow(api.staffStopPopulation(), "stranded") })
 		want := "[reconcile] stranded: target warden \"m-box\" NOT reachable (no live SSE downstream) — " +
 			"fail-closed, not dispatching, will retry when the warden connects\n" +
 			"[reconcile] robust stop stranded: target m-box unreachable — parked, the tick re-fires it\n"
@@ -3711,7 +3711,7 @@ func TestDispatchRobustStopNow(t *testing.T) {
 			DesiredState: DesiredStateOnline, DesiredMachineID: "m-box", SessionBootTS: reconcileTestNow,
 		})
 		before := reconcileTestRow(t, d, "kept")
-		out := hubTestStderr(t, func() { api.dispatchRobustStopNow("kept") })
+		out := hubTestStderr(t, func() { api.dispatchRobustStopNow(api.staffStopPopulation(), "kept") })
 		if out != "" {
 			t.Fatalf("stderr = %q, want nothing", out)
 		}
@@ -3975,7 +3975,7 @@ func TestNoteStartSupersededByStop(t *testing.T) {
 			s := newReconcileTestServer(t)
 			s.setReconcileState("m-x", c.stored)
 
-			ok := s.noteStartSupersededByStop("m-x", inFlightStart{Target: "m-b", At: 100},
+			ok := s.noteStartSupersededByStop(s.staffStopPopulation(), "m-x", inFlightStart{Target: "m-b", At: 100},
 				shutdownDispatch{Landed: []string{"m-b"}, Recorded: robustStopOutcome{Landed: []string{"m-b"}}}, 300)
 
 			if ok != c.wantOK {
