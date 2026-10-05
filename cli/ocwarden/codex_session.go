@@ -24,6 +24,8 @@ import (
 	"time"
 )
 
+const listenCodexFlag = "deliver-codex"
+
 func (s *codexSession) reportRejectedCodexPost(path string, status int) {
 	if status >= http.StatusBadRequest {
 		s.activity("Codex POST %s rejected with HTTP %d", path, status)
@@ -388,8 +390,6 @@ func (s *codexSession) track(id int, d *codexDelivery) {
 	}
 }
 
-// A refused turn/steer gets ONE second chance as a fresh turn: the common
-// refusal is a stale expectedTurnId (turn/completed is in flight and unread).
 func (s *codexSession) resolveResponse(id int, msg appServerMessage) {
 	d, ok := s.pending[id]
 	if !ok {
@@ -412,18 +412,14 @@ func (s *codexSession) resolveResponse(id int, msg appServerMessage) {
 		return
 	}
 	detail := strings.TrimSpace(fmt.Sprintf("%v", problem["message"]))
-	if d.method == "turn/steer" {
-		s.activity("turn/steer 被拒（%s）— 改開新的一輪重送同一段內容", detail)
-		s.active, s.turnID = false, ""
-		s.startTurn(d.text, d.batch)
-		return
-	}
 	s.activity("⚠️ 送不進去（%s）：%s — 這段內容沒有進到 agent 的對話，"+
 		"agent 不會知道有人說過這句話", detail, codexDeliveryLabel(d.text))
 	if d.batch != nil {
 		d.batch.failed = true
 	}
-	s.starting = false
+	if d.method == "turn/start" {
+		s.starting = false
+	}
 	s.settleBatch(d.batch)
 	s.drainQueuedTurns()
 }
@@ -1091,10 +1087,9 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 				s.turnID = ""
 				s.activity("turn completed")
 				s.recordTurnOutcome(params)
-				s.drainQueuedTurns()
 				if !listenerStarted {
 					listenerStarted = true
-					listenerCmd = exec.Command(filepath.Join(*workdir, "ocagent"), "listen", "--deliver-codex")
+					listenerCmd = exec.Command(filepath.Join(*workdir, "ocagent"), "listen", "--"+listenCodexFlag)
 					listenerCmd.Dir = *workdir
 					listenerCmd.Stderr = out
 					// The one runtime signal that this listener's stdout is not an

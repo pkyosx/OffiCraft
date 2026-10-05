@@ -90,6 +90,8 @@ The Codex member boot sequence changes only execution ownership:
    not launch a second listener.
    Every `turn/completed`, this one included, also records the turn's model-call outcome:
    `completed` is a success, `failed` is a failure, `interrupted` counts as neither.
+   A rejected delivery nacks its batch without changing the known turn identity;
+   `turn/completed` clears that identity when the turn ends.
 3. The sidecar converts listener events into the established idle `turn/start` / active
    `turn/steer` policy. Thus SSE presence still means ready/online and false-online during
    boot remains impossible.

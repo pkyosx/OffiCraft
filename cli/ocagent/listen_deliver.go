@@ -19,6 +19,8 @@ import (
 //     session and pastes into the member's pane. The fallback for a Claude Code
 //     without mods, or one that did not load the mod.
 
+const listenCodexFlag = "deliver-codex"
+
 const (
 	// Owner ruling rc-62ede5d63772: anything bigger reaches the member as an id-only
 	// notice. It counts the bytes actually delivered, header included, and has to
@@ -67,9 +69,7 @@ func listenSink(out, errOut io.Writer, env func(string) string, deliverTmux, del
 	return w, w.start(), true
 }
 
-// ⚠️ Keep the flag switch going through listenSink: handing start the raw out
-// instead leaves every package test of the writers green while the member hears
-// nothing (TestRunListen pins it).
+// Claude delivery must pass through listenSink; raw stdout never reaches its conversation.
 func cmdListen(argv []string, cfg Config, env func(string) string, out, errOut io.Writer,
 	start func(Config, func(string) string, bool, io.Writer) int, run tmuxRun) int {
 	fs := flag.NewFlagSet("ocagent listen", flag.ContinueOnError)
@@ -80,7 +80,7 @@ func cmdListen(argv []string, cfg Config, env func(string) string, out, errOut i
 	deliverMod := fs.Bool("deliver-mod", false,
 		"run under the member's notification mod: print one JSON frame per line on stdout "+
 			"(submit payloads and batch markers), diagnostics on stderr, acks read from OC_LISTEN_ACK_FILE")
-	deliverCodex := fs.Bool("deliver-codex", false, "print each complete notice as one JSON frame for the Codex sidecar")
+	deliverCodex := fs.Bool(listenCodexFlag, false, "print each complete notice as one JSON frame for the Codex sidecar")
 	if err := fs.Parse(argv); err != nil {
 		return 2
 	}

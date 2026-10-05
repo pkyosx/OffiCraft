@@ -869,46 +869,27 @@ func TestCodexSessionResolveResponse(t *testing.T) {
 		}
 	})
 
-	t.Run("a refused turn/steer is re-sent as a fresh turn", func(t *testing.T) {
+	t.Run("a rejected steer nacks its batch and the next message still steers the live turn", func(t *testing.T) {
 		s := newCodexTestSession()
-		s.active, s.turnID = true, "t_9"
-		batch := s.currentBatch()
-		s.steerOrStart("[chat] owner: 早安", batch)
-		s.closeBatch("b-1")
-		s.in.Reset()
-		s.pane.Reset()
-
-		s.resolveResponse(1, appServerMessage{"id": float64(1),
-			"error": map[string]any{"message": "expectedTurnId is stale"}})
-
-		want := []map[string]any{{
-			"id": float64(2), "method": "turn/start",
-			"params": map[string]any{
-				"threadId": "th_1", "effort": "medium",
-				"input": []any{map[string]any{"type": "text", "text": "[chat] owner: 早安"}},
-			},
-		}}
+		s.active, s.turnID = true, "live"
+		s.steerOrStart("first", s.currentBatch())
+		s.closeBatch("first-batch")
+		s.resolveResponse(1, appServerMessage{"error": map[string]any{"message": "steering is temporarily unavailable"}})
+		if got := s.acks.String(); got != "nack first-batch\n" {
+			t.Fatalf("acks=%q", got)
+		}
+		s.steerOrStart("second\n  last", s.currentBatch())
+		s.closeBatch("second-batch")
+		want := []map[string]any{
+			{"id": float64(1), "method": "turn/steer", "params": map[string]any{"threadId": "th_1", "expectedTurnId": "live", "input": []any{map[string]any{"type": "text", "text": "first"}}}},
+			{"id": float64(2), "method": "turn/steer", "params": map[string]any{"threadId": "th_1", "expectedTurnId": "live", "input": []any{map[string]any{"type": "text", "text": "second\n  last"}}}},
+		}
 		if got := s.sent(t); !reflect.DeepEqual(got, want) {
-			t.Errorf("the retry sent %v, want %v", got, want)
+			t.Fatalf("sent=%v, want=%v", got, want)
 		}
-		wantPane := []string{
-			"turn/steer 被拒（expectedTurnId is stale）— 改開新的一輪重送同一段內容",
-			"turn started",
-		}
-		if got := s.paneLines(t); !reflect.DeepEqual(got, wantPane) {
-			t.Errorf("the pane shows %q, want %q", got, wantPane)
-		}
-		if s.acks.Len() != 0 {
-			t.Errorf("the listener was told %q while the retry is still in flight, want nothing",
-				s.acks.String())
-		}
-		if batch.outstanding != 1 || batch.failed {
-			t.Errorf("the batch is %+v, want one outstanding delivery and no failure yet", *batch)
-		}
-
-		s.resolveResponse(2, appServerMessage{"id": float64(2), "result": map[string]any{}})
-		if got, want := s.acks.String(), "ack b-1\n"; got != want {
-			t.Errorf("the listener was told %q, want %q", got, want)
+		s.resolveResponse(2, appServerMessage{"result": map[string]any{}})
+		if got := s.acks.String(); got != "nack first-batch\nack second-batch\n" {
+			t.Fatalf("acks=%q", got)
 		}
 	})
 
@@ -947,13 +928,19 @@ func TestCodexSessionResolveResponse(t *testing.T) {
 		s.closeBatch("b-2")
 
 		s.resolveResponse(1, appServerMessage{"id": float64(1), "result": map[string]any{"turn": map[string]any{"id": "live"}}})
+		want := []map[string]any{
+			{"id": float64(1), "method": "turn/start", "params": map[string]any{"threadId": "th_1", "effort": "medium", "input": []any{map[string]any{"type": "text", "text": "first"}}}},
+			{"id": float64(2), "method": "turn/steer", "params": map[string]any{"threadId": "th_1", "expectedTurnId": "live", "input": []any{map[string]any{"type": "text", "text": "second"}}}},
+		}
+		if got := s.sent(t); !reflect.DeepEqual(got, want) {
+			t.Fatalf("sent=%v, want=%v", got, want)
+		}
 		if s.acks.Len() != 0 {
 			t.Errorf("the listener was told %q with a delivery still open, want nothing", s.acks.String())
 		}
 		s.resolveResponse(2, appServerMessage{"id": float64(2),
 			"error": map[string]any{"message": "thread is busy"}})
 
-		s.resolveResponse(3, appServerMessage{"error": map[string]any{"message": "thread is busy"}})
 		if got, want := s.acks.String(), "nack b-2\n"; got != want {
 			t.Errorf("the listener was told %q, want %q", got, want)
 		}
@@ -2313,14 +2300,14 @@ func TestRunCodexSession(t *testing.T) {
 			" *'\"method\":\"turn/start\"'*) echo '{\"method\":\"turn/started\",\"params\":{\"turn\":{\"id\":\"live\"}}}'; if [ \"$boot\" = 1 ]; then boot=0; echo '{\"method\":\"turn/completed\",\"params\":{\"turn\":{\"status\":\"interrupted\"}}}'; fi ;;\n" +
 			" *'\"method\":\"turn/steer\"'*) printf '{\"id\":%s,\"result\":{}}\\n' \"$id\" ;;\n" +
 			" esac\ndone\n"
-		listener := "#!/bin/sh\n[ \"$1\" = listen ] && [ \"$2\" = --deliver-codex ] && [ \"$OC_LISTEN_ACK\" = 1 ] || exit 2\n" +
+		listener := "#!/bin/bash\n[ \"$1\" = listen ] && [ \"$2\" = --deliver-codex ] && [ \"$OC_LISTEN_ACK\" = 1 ] || exit 2\n" +
 			"printf '%s\\n' " +
 			shellQuote(`{"text":"[ocagent] listen: connected\n"}`) + " " +
 			shellQuote(`{"text":"[ocagent] chat from owner: single\n"}`) + " " +
 			shellQuote(`{"text":"[ocagent] chat from mira: first\n\n    last \"q\"\n"}`) + " " +
 			shellQuote(`{"text":"[ocagent] recycle: stop\n[ocagent] recycle: finish\n"}`) + " " +
 			shellQuote(`{"text":"[ocagent] listen: batch b-1\n"}`) + "\n" +
-			"IFS= read -r ack\nprintf '%s\\n' \"$ack\" > " + shellQuote(verdict) + "\n"
+			"IFS= read -r -t 3 ack || exit 3\nprintf '%s\\n' \"$ack\" > " + shellQuote(verdict) + "\n"
 		for name, body := range map[string]string{codexBin: app, filepath.Join(work, "ocagent"): listener} {
 			if err := os.WriteFile(name, []byte(body), 0o755); err != nil {
 				t.Fatal(err)
