@@ -182,10 +182,14 @@ describe("MonitorPage cutover-effect mark", () => {
     });
   });
 
-  it("sits right after the online dot", async () => {
+  it("ends the 機器 cell: online dot, name, id, then the exclamation", async () => {
     await renderCell("not_effective");
-    const mark = screen.getByTestId("mon-cutover-warning");
-    expect(mark.previousElementSibling?.getAttribute("data-testid")).toBe("mon-machine-online");
+    const cell = screen.getByTestId("mon-cutover-warning").parentElement!;
+    expect(
+      Array.from(cell.children).map(
+        (el) => el.getAttribute("data-testid") ?? el.querySelector("[data-testid]")?.getAttribute("data-testid")
+      )
+    ).toEqual(["mon-machine-online", "mon-machine-menu", "mon-machine-id", "mon-cutover-warning"]);
   });
 });
 

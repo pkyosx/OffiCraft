@@ -107,7 +107,7 @@ describe("MonitorPage 磁碟 column", () => {
     getMonitoring.mockReset();
   });
 
-  it("puts 磁碟 between 電源 and 操作, and each row shows its own machine's total", async () => {
+  it("puts 磁碟 last, after 電源, and each row shows its own machine's total", async () => {
     listMachines.mockResolvedValue([
       machine("m-alpha", "alpha"),
       machine("m-beta", "beta"),
@@ -133,7 +133,6 @@ describe("MonitorPage 磁碟 column", () => {
       "RAM",
       "電源",
       "磁碟",
-      "操作",
     ]);
     const rows = Array.from(table.querySelectorAll("tbody tr")).map((tr) => {
       const disk = within(tr as HTMLElement).getByTestId("mon-disk");
@@ -158,7 +157,7 @@ describe("MonitorPage 磁碟 column", () => {
     renderMonitor();
     const empty = await screen.findByText(/^尚無機器/);
     const table = machinesTable();
-    expect(table.querySelectorAll("thead th")).toHaveLength(8);
-    expect(empty.closest("td")!.getAttribute("colspan")).toBe("8");
+    expect(table.querySelectorAll("thead th")).toHaveLength(7);
+    expect(empty.closest("td")!.getAttribute("colspan")).toBe("7");
   });
 });

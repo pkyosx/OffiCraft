@@ -1793,7 +1793,6 @@ export const zh = {
     },
     // machine lifecycle: onboard (新增機器 / 上線) + teardown (拆除)
     machine: {
-      actionsCol: "操作",
       actionsMenu: (name: string) => `機器操作（${name}）`,
       copy: "複製",
       copied: "已複製",
@@ -1810,7 +1809,8 @@ export const zh = {
       onboardBusy: "新增中…",
       onboardError: "新增機器失敗",
       // ── 三動詞:安裝 / 解除安裝 / 刪除 (install / uninstall / delete) ──
-      // 三顆按鈕標籤
+      // 機器名稱選單的項目
+      rename: "改名稱",
       install: "安裝",
       reinstall: "重新安裝",
       uninstall: "解除安裝",

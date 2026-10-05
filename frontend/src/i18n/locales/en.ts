@@ -1759,7 +1759,6 @@ export const en: Dict = {
       estCost: "est. $",
     },
     machine: {
-      actionsCol: "Actions",
       actionsMenu: (name: string) => `Machine actions (${name})`,
       copy: "Copy",
       copied: "Copied",
@@ -1774,7 +1773,9 @@ export const en: Dict = {
       onboardConfirm: "Create",
       onboardBusy: "Adding…",
       onboardError: "Failed to add machine",
-      // ── three verbs: install / uninstall / delete ──
+      // ── the machine name menu: rename, then the three verbs install /
+      // uninstall / delete ──
+      rename: "Rename",
       install: "Install",
       reinstall: "Reinstall",
       uninstall: "Uninstall",

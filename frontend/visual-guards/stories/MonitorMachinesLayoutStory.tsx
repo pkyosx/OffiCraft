@@ -12,8 +12,8 @@
 // hand-built rows (no api), each state its own table unless `together` puts
 // them in one, inside a 1000px box (the monitor page content is 996px at any desktop
 // viewport from 1100px up).
-import { useMemo } from "react";
-import { I18nProvider } from "../../src/i18n";
+import { useEffect, useMemo } from "react";
+import { I18nProvider, useI18n } from "../../src/i18n";
 import { MachinesTable } from "../../src/components/MonitorPage";
 import type { MachineDiskUsageView, MachineView, MonMachineView } from "../../src/types";
 import "../../src/components/monitor.css";
@@ -162,12 +162,22 @@ const rows: Record<MachinesLayoutState, { machine: MachineView; hw: MonMachineVi
 
 const noop = () => {};
 
+/** Switches the mounted story's language in place, as the profile menu does. */
+function LanguageSwitch({ language }: { language?: "zh" | "en" }) {
+  const { language: current, setLanguage } = useI18n();
+  useEffect(() => {
+    if (language && language !== current) setLanguage(language);
+  }, [language, current, setLanguage]);
+  return null;
+}
+
 export function MonitorMachinesLayoutStory({
   states = ["normal", "chips", "stale"],
   width = 1000,
   empty = false,
   name,
   together = false,
+  language,
 }: {
   states?: MachinesLayoutState[];
   width?: number;
@@ -182,6 +192,8 @@ export function MonitorMachinesLayoutStory({
    * change that is telemetry alone (normal → codex2) re-renders with the same
    * `machines`. */
   together?: boolean;
+  /** Changes the language without remounting anything. */
+  language?: "zh" | "en";
 }) {
   const machineOf = (state: MachinesLayoutState, id: string) => {
     const m = { ...rows[state].machine, machineId: id };
@@ -208,6 +220,7 @@ export function MonitorMachinesLayoutStory({
   );
   return (
     <I18nProvider>
+      <LanguageSwitch language={language} />
       <div className="monitor" style={{ width, maxWidth: "100%", margin: "0 auto" }}>
         {together
           ? table("together", states, (_, i) => `m-${i}`)

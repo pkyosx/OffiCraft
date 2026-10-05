@@ -442,11 +442,12 @@
   padding: 0;
 }
 
-/* machine online/offline dot (machines panel — sourced from GET /api/machines).
- * The word lives in the dot's hint (MachineOnlineDot). On a touch screen the
- * 9px dot is too small to hit, so a pseudo-element widens the tap area without
- * moving the circle or the hint's anchor. Leftward it grows only as far as
- * the 6px gap, so it never covers the id chip. */
+/* machine online/offline dot (machines panel — sourced from GET /api/machines),
+ * first in the 機器 cell. The word lives in the dot's hint (MachineOnlineDot).
+ * On a touch screen the 9px dot is too small to hit, so a pseudo-element widens
+ * the tap area without moving the circle or the hint's anchor. It grows left
+ * and down only: rightward it would reach the name, and the browser's touch
+ * adjustment would hand taps meant for the name's menu to the dot. */
 .mon-online-dot {
   position: relative;
   flex: none;
@@ -455,15 +456,10 @@
   .mon-online-dot::after {
     content: "";
     position: absolute;
-    top: -10px;
-    right: -10px;
+    top: 0;
+    right: 0;
     bottom: -10px;
-    left: -6px;
-  }
-  /* The not-in-effect exclamation sits one 6px gap to the right; past that the
-   * dot's area would take taps meant for it. */
-  .mon-online-dot:has(+ .runtime-login-warning)::after {
-    right: -6px;
+    left: -10px;
   }
 }
 
@@ -481,9 +477,6 @@
   color: var(--color-text);
 }
 
-.mon-table__right {
-  text-align: right !important;
-}
 /* 機器資訊: every column but 機器 has a set width, so a mark in one cell
  * (版本太舊, 未登入, 過期) never shifts its neighbours within a row, and every row
  * of the table lines up. Claude and Codex grow past theirs only to fit the
@@ -495,8 +488,8 @@
  * reason) or too narrow for a long one; the automatic table layout is no way
  * out either, since it squeezes the fixed columns as soon as the frame is
  * narrow. When the frame is narrower the table scrolls inside it, with 機器
- * pinned left so each row still says which machine it is and 操作 pinned
- * right. The narrower cell padding lets the 150px columns hold a value and its
+ * (the name is also the row's operations menu) pinned left so each row still
+ * says which machine it is. The narrower cell padding lets the 150px columns hold a value and its
  * first mark on one line. */
 @media (min-width: 721px) {
   .mon-table--machines {
@@ -508,19 +501,11 @@
     padding-left: 12px;
     padding-right: 12px;
   }
-  /* 機器 ends in the 9px online dot, and Claude's own 12px left padding
-   * already separates the two; a full 12px more is width the table at 1280px
-   * cannot spare. */
+  /* Claude's own 12px left padding already separates 機器's last item from
+   * it; a full 12px more is width the table at 1280px cannot spare. */
   .mon-table--machines th:first-child,
   .mon-table--machines td:first-child {
     padding-right: 4px;
-  }
-  /* en "Actions" is wider than the 56px column's content box. Right-aligned
-   * text that does not fit still overflows to the right, past the cell's edge,
-   * and that pixel alone made the whole frame scroll; without the left padding
-   * the word ends inside the cell. */
-  .mon-table--machines th:last-child {
-    padding-left: 0;
   }
   /* Claude and Codex are 150px, enough for a version, one mark (版本太舊, 過期,
    * en "too old") and the trigger's chevron on one line. A cell never wraps:
@@ -553,12 +538,9 @@
   .mon-col--power {
     width: 88px;
   }
-  .mon-col--actions {
-    width: 56px;
-  }
-  /* When the frame scrolls, 機器 stays on its left edge and the ⚙ (the row's
-   * only way to its operations) on its right; the opaque card colour keeps the
-   * scrolled cells from showing through. */
+  /* When the frame scrolls, 機器 stays on its left edge (its name is the
+   * row's way to its operations); the opaque card colour keeps the scrolled
+   * cells from showing through. */
   .mon-table--machines th:first-child,
   .mon-table--machines td:first-child {
     position: sticky;
@@ -566,20 +548,12 @@
     z-index: 1;
     background: var(--color-card);
   }
-  .mon-table--machines th:last-child,
-  .mon-table--machines td:last-child {
-    position: sticky;
-    right: 0;
-    background: var(--color-card);
-  }
   /* A shade on the pinned column's inner edge says more of the table lies
-   * under it; without it a wide table reads as complete at 電源 | 操作. The
-   * edge line lives in the shade too: a line drawn at rest reads as a stray
-   * divider in the middle of a table that has nothing under 機器. */
+   * under it. The edge line lives in the shade too: a line drawn at rest
+   * reads as a stray divider in the middle of a table that has nothing under
+   * 機器. */
   .mon-table--machines th:first-child::after,
-  .mon-table--machines td:first-child::after,
-  .mon-table--machines th:last-child::before,
-  .mon-table--machines td:last-child::before {
+  .mon-table--machines td:first-child::after {
     content: "";
     position: absolute;
     top: 0;
@@ -596,25 +570,37 @@
       inset 1px 0 0 color-mix(in srgb, var(--color-overlay) 14%, transparent),
       inset 20px 0 16px -14px color-mix(in srgb, var(--color-shadow) 30%, transparent);
   }
-  .mon-table--machines th:last-child::before,
-  .mon-table--machines td:last-child::before {
-    right: 100%;
-    box-shadow:
-      inset -1px 0 0 color-mix(in srgb, var(--color-overlay) 14%, transparent),
-      inset -20px 0 16px -14px color-mix(in srgb, var(--color-shadow) 30%, transparent);
-  }
   /* The 尚無機器 row's one cell spans the whole table, so as 機器 its shade
    * would hang past the table's right edge and scroll the frame. */
-  .mon-table--machines td:only-child::after,
-  .mon-table--machines td:only-child::before {
+  .mon-table--machines td:only-child::after {
     content: none;
   }
-  .mon-table-wrap--more-left .mon-table--machines th:first-child::after,
-  .mon-table-wrap--more-left .mon-table--machines td:first-child::after,
-  .mon-table-wrap--more-right .mon-table--machines th:last-child::before,
-  .mon-table-wrap--more-right .mon-table--machines td:last-child::before {
+  /* Nothing is pinned on the right, so the shade saying more of the table
+   * lies past the frame's right edge hangs on the frame itself, over its
+   * inner edge; inside the scroller it would scroll away with the cells. Its
+   * outer edge is the frame's border, so it needs no line of its own. */
+  .mon-table-frame::after {
+    content: "";
+    position: absolute;
+    top: 1px;
+    right: 1px;
+    bottom: 1px;
+    z-index: 2;
+    width: 24px;
+    border-radius: 0 calc(var(--radius-card) - 1px) calc(var(--radius-card) - 1px) 0;
+    box-shadow: inset -20px 0 16px -14px color-mix(in srgb, var(--color-shadow) 30%, transparent);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .mon-table-frame--more-left .mon-table--machines th:first-child::after,
+  .mon-table-frame--more-left .mon-table--machines td:first-child::after,
+  .mon-table-frame--more-right::after {
     opacity: 1;
   }
+}
+.mon-table-frame {
+  position: relative;
 }
 /* A value with its marks on the same line after it (CellLine). */
 .mon-cell-line {
@@ -630,13 +616,23 @@
   margin-left: 0;
 }
 
-/* machine identity cell — display name + id chip + online badge, ONE column
-   since T-674d (機器 and 狀態 merged). */
+/* machine identity cell — online dot, name (the trigger of the row's
+   operations menu), id chip and the not-in-effect mark, ONE column. */
 .mon-machine-name {
   display: flex;
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+}
+.mon-machine-name__menu {
+  display: inline-flex;
+  min-width: 0;
+}
+/* The trigger's left padding shows only with its hover frame. Reaching all of
+   it into the gap, as the version triggers reach into the cell padding, would
+   lay that frame over the dot; half of it keeps the name close to the dot. */
+.mon-machine-name .runtime-menu__trigger {
+  margin-left: -4px;
 }
 /* On desktop the chip must NOT wrap to a second line — that wrapping is the
    whole reason the two columns were merged. Only here, and deliberately not in

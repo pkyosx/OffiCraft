@@ -15,6 +15,11 @@ interface InlineEditProps {
   className?: string;
   /** Class for the read-only value span (e.g. topbar__org / profile-dd__name). */
   displayClassName?: string;
+  /** Opened and closed by the host instead of the pencil, which is then not
+   * drawn: the host offers its own way in (a menu item) and is told when the
+   * editor closes. */
+  editing?: boolean;
+  onEditingChange?: (editing: boolean) => void;
 }
 
 /**
@@ -34,10 +39,25 @@ export function InlineEdit({
   ariaLabel,
   className,
   displayClassName,
+  editing: editingProp,
+  onEditingChange,
 }: InlineEditProps) {
   const { t } = useI18n();
-  const [editing, setEditing] = useState(false);
+  const controlled = editingProp !== undefined;
+  const [editingState, setEditingState] = useState(false);
+  const editing = controlled ? editingProp : editingState;
+  const setEditing = (next: boolean) => {
+    if (!controlled) setEditingState(next);
+    onEditingChange?.(next);
+  };
   const [draft, setDraft] = useState(value);
+  // A host that opens the editor starts it from the current value, as the
+  // pencil does.
+  const [wasEditing, setWasEditing] = useState(editing);
+  if (editing !== wasEditing) {
+    setWasEditing(editing);
+    if (editing) setDraft(value);
+  }
   // IME composition guard — an Enter that confirms a CJK candidate must NOT
   // commit the edit. Ref (not state) so the keydown handler reads the live value
   // with no stale-closure lag.
@@ -68,15 +88,17 @@ export function InlineEdit({
     return (
       <span className={`inline-edit${className ? ` ${className}` : ""}`}>
         <span className={displayClassName}>{value}</span>
-        <button
-          type="button"
-          className="inline-edit__iconbtn"
-          aria-label={ariaLabel}
-          title={ariaLabel}
-          onClick={startEdit}
-        >
-          <PencilIcon size={14} />
-        </button>
+        {!controlled && (
+          <button
+            type="button"
+            className="inline-edit__iconbtn"
+            aria-label={ariaLabel}
+            title={ariaLabel}
+            onClick={startEdit}
+          >
+            <PencilIcon size={14} />
+          </button>
+        )}
       </span>
     );
   }

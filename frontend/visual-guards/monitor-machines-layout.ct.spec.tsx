@@ -5,18 +5,20 @@
 // and the three action buttons stacked into two or three rows. jsdom has no
 // layout, so this is measured in a real browser on the real MachinesTable.
 // The owner then picked the marks on the SAME line as the value, in fixed
-// columns, and a ⚙ with no frame. Claude and Codex are 150px, enough for a
+// columns. Claude and Codex are 150px, enough for a
 // version, one mark and the chevron. A cell never wraps: when any row carries
 // two marks (版本太舊 and 未登入), that column grows to its widest cell, in every
 // row of the table alike, each column on its own, and the table scrolls if it no
 // longer fits; columns wide enough for two marks all the time left the default
 // 伺服器這一台 row scrolling at the 1280px desktop. A table wider
 // than its frame scrolls inside it with 機器 fixed on the left, so every row
-// still names its machine, and 操作 fixed on the right. 機器 is only as wide as
-// its widest row's name, id, online dot and not-in-effect exclamation need
-// (the words live in their hints), so at the 1280px desktop the default name,
-// real machine names and the offline not-in-effect row leave 磁碟 in view; a
-// very long name still widens the table, which scrolls.
+// still names its machine. There is no 操作 column: the machine's name is the
+// trigger of the row's operations menu (改名稱, install, uninstall, delete), the
+// same menu as the Claude and Codex versions, and the 機器 cell reads online
+// dot, name, id, not-in-effect exclamation. 機器 is only as wide as its widest
+// row's items need (the words live in their hints), so at the 1280px desktop
+// the default name, real machine names and the offline not-in-effect row leave
+// 磁碟 in view; a very long name still widens the table, which scrolls.
 //
 // MUTANTS (each verified red):
 //   marks inline AND auto table layout (the layout before the fix)
@@ -34,11 +36,16 @@
 //   not measured again when only the telemetry changes
 //                                           → telemetry-change test
 //   trigger's right margin dropped           → own-measure test (chevron short of the edge)
-//   操作 header's left padding back          → en default-name fit test (1px scroll)
+//   not measured again on a language switch (runtime cells not observed)
+//                                           → language switch test
+//   the whole measurement skipped while a rename field is open
+//                                           → rename-field-and-two-marks test
 //   drop `table-layout: fixed` or the column widths → 800px test
-//   操作 column not sticky                  → gear off-screen at 760/900px
-//   操作 cells transparent                  → a scrolled cell shows through
-//   操作 header not sticky                  → header leaves the right edge
+//   操作 column or the pencil back           → column order test, name menu test
+//   a menu item missing, 刪除 enabled on the server-self row
+//                                           → name menu test
+//   改名稱 not opening the field              → rename field tests
+//   dot back after the name                  → cell order tests (desktop, phone)
 //   phone card mode disabled                → phone test (the frame scrolls)
 //   `.mon-stale` border back to --color-border → frame contrast below 1.5
 //   (in the built-in palette --color-border IS --color-card)
@@ -65,16 +72,17 @@
 //   磁碟 column narrowed                      → 磁碟 value test
 //   機器 column not sticky                    → 機器 left edge moves on scroll
 //   機器 cells transparent                    → a scrolled cell shows through
-//   frame does not reveal a focused control  → keyboard focus hidden under ⚙ / 機器
+//   frame does not reveal a focused control  → keyboard focus past the right edge / under 機器
 //   reveal also runs on a mouse click        → half-covered click test (panel / menu closes)
+//   right shade still on the last cell, not the frame
+//                                           → shade test
 //   panel without max-height                 → short-window test
 //   panel scroll closes it                   → short-window test
 //   scroll shades measured only on scroll    → shade test (no cue at rest)
 //   scroll shades on the wrong side          → shade test
-//   menu focus counting disabled items       → keyboard test
-//   menu aligned to the gear's left edge     → menu right edge test
-//   ⚙ border back at rest, on hover or open  → frameless ⚙ test
-//   ⚙ focus ring removed (`outline: none`)   → keyboard focus ring test
+//   menu focus counting disabled items       → name menu test
+//   name trigger's focus ring removed (`outline: none`) → keyboard focus ring test
+//   name's tap area reaching right over the gap → phone dot / mark tests
 //   frame's `overscroll-behavior-x` left `auto`, or set to `contain`
 //   (`contain` still rubber-bands; only `none` holds the pinned columns)
 //                                           → overscroll test
@@ -116,8 +124,8 @@ test("at a 1400px frame, every column starts at the same x in the plain and one-
   await page.setViewportSize({ width: 1500, height: 900 });
   await mount(<MonitorMachinesLayoutStory width={1400} states={[...STATES]} />);
   const edges = await columnEdges(page);
-  expect(edges.normal.th).toHaveLength(8);
-  expect(edges.normal.td).toHaveLength(8);
+  expect(edges.normal.th).toHaveLength(7);
+  expect(edges.normal.td).toHaveLength(7);
   expect(edges.old.th, "old header x").toEqual(edges.normal.th);
   expect(edges.old.td, "old cell x").toEqual(edges.normal.td);
 });
@@ -204,7 +212,7 @@ for (const together of [false, true]) {
   }
 }
 
-test("the columns run 機器, Claude, Codex, CPU, RAM, 電源, 磁碟, 操作 at their fixed widths", async ({ mount, page }) => {
+test("the columns run 機器, Claude, Codex, CPU, RAM, 電源, 磁碟 at their fixed widths", async ({ mount, page }) => {
   await page.setViewportSize({ width: 1500, height: 900 });
   await mount(<MonitorMachinesLayoutStory states={["normal"]} />);
   const heads = await page.evaluate(() =>
@@ -220,7 +228,6 @@ test("the columns run 機器, Claude, Codex, CPU, RAM, 電源, 磁碟, 操作 at
     ["RAM", 72],
     ["電源", 88],
     ["磁碟", 96],
-    ["操作", 56],
   ]);
   expect(heads[0][0]).toBe("機器");
   const order = await page.evaluate(() =>
@@ -414,48 +421,18 @@ test("opening a grown column's version menu keeps every column where it was and 
   }).toEqual({ left: true, below: true, wide: true });
 });
 
-test("the ⚙ draws no frame at rest, on hover or with its menu open", async ({ mount, page }) => {
-  await page.setViewportSize({ width: 1500, height: 900 });
-  await mount(<MonitorMachinesLayoutStory states={["normal"]} />);
-  const gear = page.getByRole("button", { name: "機器操作（伺服器這一台）" });
-  const frame = () =>
-    gear.evaluate((el) => {
-      const cs = getComputedStyle(el);
-      const probe = document.createElement("canvas").getContext("2d")!;
-      const alpha = (css: string) => {
-        probe.clearRect(0, 0, 1, 1);
-        probe.fillStyle = "#000";
-        probe.fillStyle = css;
-        probe.fillRect(0, 0, 1, 1);
-        return probe.getImageData(0, 0, 1, 1).data[3];
-      };
-      const sides = ["Top", "Right", "Bottom", "Left"] as const;
-      const border = sides.some(
-        (s) => parseFloat(cs[`border${s}Width`]) > 0 && cs[`border${s}Style`] !== "none" && alpha(cs[`border${s}Color`]) > 0
-      );
-      const outline = cs.outlineStyle !== "none" && parseFloat(cs.outlineWidth) > 0;
-      return { border, outline };
-    });
-  expect(await frame(), "at rest").toEqual({ border: false, outline: false });
-  await gear.hover();
-  expect(await frame(), "hovered").toEqual({ border: false, outline: false });
-  await gear.click();
-  await expect(page.getByRole("menu")).toBeVisible();
-  // Off the gear, so the open state is measured without :hover.
-  await page.mouse.move(0, 0);
-  expect(await frame(), "open").toEqual({ border: false, outline: false });
-});
+const NAME_MENU = "機器操作（伺服器這一台）";
 
-test("the ⚙ shows a focus ring when reached by keyboard", async ({ mount, page }) => {
+test("the machine's name shows a focus ring when reached by keyboard", async ({ mount, page }) => {
   await page.setViewportSize({ width: 1500, height: 900 });
   await mount(<MonitorMachinesLayoutStory states={["normal"]} />);
-  const gear = page.getByRole("button", { name: "機器操作（伺服器這一台）" });
-  // Tab, not gear.focus(): :focus-visible only applies on keyboard-driven focus.
-  for (let i = 0; i < 30 && !(await gear.evaluate((el) => el === document.activeElement)); i++) {
+  const trigger = page.getByRole("button", { name: NAME_MENU });
+  // Tab, not focus(): :focus-visible only applies on keyboard-driven focus.
+  for (let i = 0; i < 30 && !(await trigger.evaluate((el) => el === document.activeElement)); i++) {
     await page.keyboard.press("Tab");
   }
-  await expect(gear).toBeFocused();
-  const ring = await gear.evaluate((el) => {
+  await expect(trigger).toBeFocused();
+  const ring = await trigger.evaluate((el) => {
     const cs = getComputedStyle(el);
     return { focusVisible: el.matches(":focus-visible"), style: cs.outlineStyle, width: parseFloat(cs.outlineWidth) };
   });
@@ -464,34 +441,103 @@ test("the ⚙ shows a focus ring when reached by keyboard", async ({ mount, page
   expect(ring.width).toBeGreaterThan(0);
 });
 
-test("the 操作 column is one ⚙ button whose menu lists the row's operations", async ({ mount, page }) => {
+test("the machine's name is the trigger of the row's operations menu, the same control as the version menus", async ({
+  mount,
+  page,
+}) => {
   await page.setViewportSize({ width: 1500, height: 900 });
   await mount(<MonitorMachinesLayoutStory states={["normal"]} />);
-  const gear = page.getByRole("button", { name: "機器操作（伺服器這一台）" });
-  await expect(gear).toBeVisible();
-  const cell = await page.locator("tbody td").last().boundingBox();
-  const g = await gear.boundingBox();
-  expect(g!.height, "the gear stays one control high").toBeLessThanOrEqual(32);
-  expect(g!.x + g!.width).toBeLessThanOrEqual(cell!.x + cell!.width);
+  const trigger = page.getByRole("button", { name: NAME_MENU });
+  await expect(trigger).toHaveText("伺服器這一台");
+  const version = page.getByTestId("mon-claude-version").getByRole("button");
+  const look = (el: Element) => {
+    const cs = getComputedStyle(el);
+    return { className: el.className, chevron: !!el.querySelector(".runtime-menu__chevron"), radius: cs.borderTopLeftRadius };
+  };
+  expect(await trigger.evaluate(look)).toEqual(await version.evaluate(look));
+  await expect(page.getByRole("button", { name: "機器改名" }), "no pencil beside the name").toHaveCount(0);
 
-  await gear.click();
+  for (const key of ["Enter", " "]) {
+    await trigger.focus();
+    await page.keyboard.press(key);
+    await expect(page.getByRole("menu"), `${JSON.stringify(key)} opens the menu`).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+  }
+
+  await trigger.click();
   const items = page.getByRole("menuitem");
-  await expect(items).toHaveText(["重新安裝", "解除安裝", "刪除"]);
-  const pop = await page.getByRole("menu").boundingBox();
-  expect(Math.round(pop!.x + pop!.width), "the menu lines up with the gear's right edge").toBe(
-    Math.round(g!.x + g!.width)
-  );
-  await expect(page.getByTestId("mon-delete-btn")).toBeDisabled();
-  await expect(page.getByTestId("mon-install-btn")).toBeFocused();
-  await page.keyboard.press("ArrowDown");
-  await expect(page.getByTestId("mon-uninstall-btn")).toBeFocused();
-  await page.keyboard.press("ArrowDown");
-  await expect(page.getByTestId("mon-delete-btn"), "a disabled item is still reachable, to hear why").toBeFocused();
-  await page.keyboard.press("ArrowDown");
-  await expect(page.getByTestId("mon-install-btn")).toBeFocused();
+  await expect(items).toHaveText(["改名稱", "重新安裝", "解除安裝", "刪除"]);
+  const t = (await trigger.boundingBox())!;
+  const pop = (await page.getByRole("menu").boundingBox())!;
+  expect({
+    left: Math.round(pop.x) === Math.round(t.x),
+    below: Math.abs(pop.y - (t.y + t.height - 1)) <= 1,
+  }, "the menu opens under the name, on its left edge").toEqual({ left: true, below: true });
+  await expect(page.getByTestId("mon-delete-btn"), "the server-self row cannot be deleted").toBeDisabled();
+  await expect(page.getByTestId("mon-rename-btn")).toBeFocused();
+  for (const id of ["mon-install-btn", "mon-uninstall-btn", "mon-delete-btn", "mon-rename-btn"]) {
+    await page.keyboard.press("ArrowDown");
+    await expect(page.getByTestId(id)).toBeFocused();
+  }
+  await page.mouse.click(5, 880);
+  await expect(items, "a click outside closes it").toHaveCount(0);
+});
+
+/** Left edge and vertical middle of each item of the first 機器 cell. */
+async function cellItems(page: Page, state: string) {
+  return page.evaluate((state) => {
+    const td = document.querySelector(`[data-state="${state}"] tbody td:first-child`)!;
+    const at = (sel: string) => {
+      const r = td.querySelector(sel)!.getBoundingClientRect();
+      return { x: r.left, right: r.right, mid: (r.top + r.bottom) / 2 };
+    };
+    return {
+      dot: at('[data-testid="mon-machine-online"]'),
+      name: at(".mon-table__strong"),
+      id: at('[data-testid="mon-machine-id"]'),
+      mark: at('[data-testid="mon-cutover-warning"]'),
+    };
+  }, state);
+}
+
+const inOrder = (c: Awaited<ReturnType<typeof cellItems>>) => ({
+  order: c.dot.right <= c.name.x && c.name.right <= c.id.x && c.id.right <= c.mark.x,
+  oneLine: [c.name, c.id, c.mark].every((b) => Math.abs(b.mid - c.dot.mid) <= 2),
+});
+
+test("desktop: the 機器 cell reads online dot, name, id, then the exclamation, on one line", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await mount(<MonitorMachinesLayoutStory width={996} states={["stale"]} />);
+  expect(inOrder(await cellItems(page, "stale"))).toEqual({ order: true, oneLine: true });
+});
+
+test("a rename chosen from the menu opens the field in place of the name, and closing it gives focus back to the name", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await mount(<MonitorMachinesLayoutStory width={996} states={["stale"]} />);
+  const trigger = page.getByRole("button", { name: NAME_MENU });
+  await trigger.click();
+  await page.getByRole("menuitem", { name: "改名稱" }).click();
+  const field = page.getByRole("textbox", { name: "機器改名" });
+  await expect(field).toBeFocused();
+  await expect(field).toHaveValue("伺服器這一台");
+  await expect(trigger).toHaveCount(0);
+  const order = await page.evaluate(() => {
+    const td = document.querySelector("tbody td:first-child")!;
+    const x = (sel: string) => td.querySelector(sel)!.getBoundingClientRect();
+    const dot = x('[data-testid="mon-machine-online"]');
+    const edit = x(".inline-edit--editing");
+    const id = x('[data-testid="mon-machine-id"]');
+    return dot.right <= edit.left && edit.right <= id.left;
+  });
+  expect(order, "the field takes the name's place between the dot and the id").toBe(true);
   await page.keyboard.press("Escape");
-  await expect(items).toHaveCount(0);
-  await expect(gear).toBeFocused();
+  await expect(field).toHaveCount(0);
+  await expect(trigger).toBeFocused();
 });
 
 /** Contrast ratio of the chip's painted frame against the card it sits on. */
@@ -556,61 +602,51 @@ async function overflow(page: Page) {
 
 // 996px is the monitor page's content width at a 1280px (or any wider) desktop.
 // The very long name is the row that still scrolls there.
-const LONG_GEAR = "機器操作（Seth 的 Mac Studio（辦公室三樓靠窗））";
+const LONG_MENU = "機器操作（Seth 的 Mac Studio（辦公室三樓靠窗））";
+
+/** Whether every item of the open menu is inside the window and is what a
+ * click at its centre would hit (nothing pinned or shaded lies over it). */
+async function menuOnTop(page: Page) {
+  return page.evaluate(() =>
+    Array.from(document.querySelectorAll("[role='menuitem']")).map((el) => {
+      const r = el.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return {
+        inside: r.left >= 0 && r.top >= 0 && r.right <= window.innerWidth && r.bottom <= window.innerHeight,
+        onTop: !!hit && (hit === el || el.contains(hit)),
+      };
+    })
+  );
+}
 
 for (const width of [760, 900, 996]) {
-  test(`at ${width}px the ⚙ stays inside the scrolled frame and opens its menu`, async ({ mount, page }) => {
-    await page.setViewportSize({ width: width + 20, height: 900 });
-    await mount(<MonitorMachinesLayoutStory width={width} states={["long"]} />);
-    expect((await overflow(page)).frame, "control: the frame does scroll at this width").toBeGreaterThan(0);
-    const frame = (await page.locator(".mon-table-wrap").boundingBox())!;
-    const gear = page.getByRole("button", { name: LONG_GEAR });
-    const g = (await gear.boundingBox())!;
-    expect(g.x).toBeGreaterThanOrEqual(frame.x);
-    expect(g.x + g.width).toBeLessThanOrEqual(frame.x + frame.width);
-    await gear.click();
-    await expect(page.getByRole("menuitem")).toHaveText(["重新安裝", "解除安裝", "刪除"]);
-  });
-
-  test(`at ${width}px the 操作 column covers what scrolls under it and stays on the frame's right edge`, async ({
+  test(`at ${width}px the name stays on the frame's left edge as the frame scrolls, and its menu opens inside the window, on top`, async ({
     mount,
     page,
   }) => {
     await page.setViewportSize({ width: width + 20, height: 900 });
     await mount(<MonitorMachinesLayoutStory width={width} states={["long"]} />);
+    expect((await overflow(page)).frame, "control: the frame does scroll at this width").toBeGreaterThan(0);
     const wrap = page.locator(".mon-table-wrap");
-    const lastCell = page.locator("tbody td").last();
-    const lastHead = page.locator("thead th").last();
-
-    // At scrollLeft 0 the cells to the left of 操作 run under it. Painted
-    // opaque, hiding them changes no pixel inside the 操作 cell.
-    const box = (await lastCell.boundingBox())!;
-    const clip = { x: box.x, y: box.y, width: box.width, height: box.height };
-    const covered = await page.screenshot({ clip });
-    await page.evaluate(() => {
-      const cells = document.querySelectorAll("tbody td:not(:last-child)");
-      cells.forEach((el) => ((el as HTMLElement).style.visibility = "hidden"));
-    });
-    const bare = await page.screenshot({ clip });
-    await page.evaluate(() => {
-      const cells = document.querySelectorAll("tbody td:not(:last-child)");
-      cells.forEach((el) => ((el as HTMLElement).style.visibility = ""));
-    });
-    expect(covered.equals(bare), "a scrolled cell shows through the 操作 cell").toBe(true);
-
-    for (const scroll of [0, 40, 10_000]) {
+    const trigger = page.getByRole("button", { name: LONG_MENU });
+    const start = (await trigger.boundingBox())!;
+    for (const scroll of [0, 10_000]) {
       await wrap.evaluate((el, x) => (el.scrollLeft = x), scroll);
+      await nextFrames(page);
       const frame = (await wrap.boundingBox())!;
-      const head = (await lastHead.boundingBox())!;
-      const cell = (await lastCell.boundingBox())!;
-      // The frame has a 1px border.
-      expect(Math.round(head.x + head.width), `header at scrollLeft ${scroll}`).toBe(Math.round(frame.x + frame.width - 1));
-      expect(Math.round(cell.x + cell.width), `cell at scrollLeft ${scroll}`).toBe(Math.round(frame.x + frame.width - 1));
-      const hit = await page.evaluate(
-        ([x, y]) => !!document.elementFromPoint(x, y)?.closest("tbody td:last-child"),
-        [cell.x + cell.width / 2, cell.y + cell.height / 2]
+      const t = (await trigger.boundingBox())!;
+      expect({ x: Math.round(t.x), inFrame: t.x >= frame.x && t.x + t.width <= frame.x + frame.width }, `scrollLeft ${scroll}`).toEqual({
+        x: Math.round(start.x),
+        inFrame: true,
+      });
+      await trigger.click();
+      await expect(page.getByRole("menuitem")).toHaveText(["改名稱", "重新安裝", "解除安裝", "刪除"]);
+      expect(await menuOnTop(page), `menu at scrollLeft ${scroll}`).toEqual(
+        Array(4).fill({ inside: true, onTop: true })
       );
-      expect(hit, `the ⚙ cell is on top at scrollLeft ${scroll}`).toBe(true);
+      // A fixed menu does not follow the frame, so a scroll closes it.
+      await wrap.evaluate((el) => (el.scrollLeft = el.scrollLeft === 0 ? 40 : 0));
+      await expect(page.getByRole("menu"), "scrolling the frame closes the menu").toHaveCount(0);
     }
   });
 }
@@ -644,8 +680,8 @@ for (const width of [760, 900, 996]) {
       cell: Math.round(startCell.x),
       head: Math.round(startHead.x),
     });
-    const gear = (await page.getByRole("button", { name: LONG_GEAR }).boundingBox())!;
-    expect(gear.x + gear.width).toBeLessThanOrEqual(frame.x + frame.width);
+    const name = (await page.getByRole("button", { name: LONG_MENU }).boundingBox())!;
+    expect(name.x + name.width, "the name's menu is inside the frame").toBeLessThanOrEqual(frame.x + frame.width);
 
     const fit = await page.evaluate(() =>
       Array.from(document.querySelectorAll("[data-state] tbody td:first-child")).map((td) => {
@@ -681,12 +717,14 @@ for (const width of [760, 900, 996]) {
   });
 }
 
-/** The painted opacity of the two "more under here" shades on the first row. */
+/** The painted opacity of the two "more this way" shades: the left one on
+ * the pinned 機器 cell of the first row, the right one on the frame. */
 async function shades(page: Page) {
   return page.evaluate(() => {
     const row = document.querySelector(".mon-table--machines tbody tr")!;
+    const frame = document.querySelector(".mon-table-frame")!;
     const op = (el: Element, pseudo: string) => Number(getComputedStyle(el, pseudo).opacity);
-    return { left: op(row.firstElementChild!, "::after"), right: op(row.lastElementChild!, "::before") };
+    return { left: op(row.firstElementChild!, "::after"), right: op(frame, "::after") };
   });
 }
 
@@ -699,21 +737,40 @@ test("at 996px a shade marks the side where more of the table is scrolled away, 
   await mount(<MonitorMachinesLayoutStory width={1200} states={["long"]} />);
   const frameWidth = await page.locator(".mon-table-wrap").evaluate((el) => Math.round(el.getBoundingClientRect().width));
   expect(frameWidth, "control: the frame is the 1280px desktop's 996px").toBe(996);
-  await expect.poll(() => shades(page), "at rest the 磁碟 column is under 操作").toEqual({ left: 0, right: 1 });
+  await expect.poll(() => shades(page), "at rest the 磁碟 column is past the right edge").toEqual({ left: 0, right: 1 });
 
   // Widening the window, with no scroll and no new data, is what changes it.
   await page.setViewportSize({ width: 1300, height: 900 });
   expect(await page.locator(".mon-table-wrap").evaluate((el) => el.scrollWidth - el.clientWidth), "control: it fits").toBe(0);
-  await expect.poll(() => shades(page), "a table that fits has nothing under its pinned columns").toEqual({
+  await expect.poll(() => shades(page), "a table that fits has nothing past either edge").toEqual({
     left: 0,
     right: 0,
   });
 
   await page.setViewportSize({ width: 996, height: 900 });
-  await expect.poll(() => shades(page), "narrowed again, the 磁碟 column is back under 操作").toEqual({
+  await expect.poll(() => shades(page), "narrowed again, the 磁碟 column is back past the right edge").toEqual({
     left: 0,
     right: 1,
   });
+  // The right shade hangs on the frame's inner right edge over the full
+  // height, and stays there as the frame scrolls.
+  const shadeBox = () =>
+    page.evaluate(() => {
+      const frame = document.querySelector(".mon-table-frame")!;
+      const wrap = frame.querySelector(".mon-table-wrap")!.getBoundingClientRect();
+      const cs = getComputedStyle(frame, "::after");
+      return {
+        right: parseFloat(cs.right),
+        top: parseFloat(cs.top),
+        bottom: parseFloat(cs.bottom),
+        width: parseFloat(cs.width),
+        frameIsWrap: Math.round(frame.getBoundingClientRect().width) === Math.round(wrap.width),
+        events: cs.pointerEvents,
+      };
+    });
+  expect(await shadeBox()).toEqual({ right: 1, top: 1, bottom: 1, width: 24, frameIsWrap: true, events: "none" });
+  await page.locator(".mon-table-wrap").evaluate((el) => (el.scrollLeft = 40));
+  await expect.poll(() => shades(page), "part way, both edges have more beyond them").toEqual({ left: 1, right: 1 });
   await page.locator(".mon-table-wrap").evaluate((el) => (el.scrollLeft = 10_000));
   await expect.poll(() => shades(page), "scrolled to the end, 機器 covers what scrolled away").toEqual({
     left: 1,
@@ -731,7 +788,7 @@ async function focusedOnTop(page: Page) {
   });
 }
 
-test("at 996px a control reached by keyboard is scrolled out from under the pinned 操作 and 機器 columns", async ({
+test("at 996px a control reached by keyboard is scrolled fully into the frame and out from under the pinned 機器 column", async ({
   mount,
   page,
 }) => {
@@ -740,20 +797,28 @@ test("at 996px a control reached by keyboard is scrolled out from under the pinn
   await mount(<MonitorMachinesLayoutStory width={996} states={["long"]} />);
   const wrap = page.locator(".mon-table-wrap");
   const disk = page.getByTestId("disk-usage-trigger");
-  // Control: at rest the 磁碟 value sits under the pinned ⚙ column.
-  const covered = await disk.evaluate((el) => {
-    const r = el.getBoundingClientRect();
-    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-    return !(hit === el || el.contains(hit));
+  // Control: at rest the 磁碟 value lies past the frame's right edge.
+  const cut = await disk.evaluate((el) => {
+    const wrap = el.closest(".mon-table-wrap")!;
+    const inner = wrap.getBoundingClientRect().left + wrap.clientLeft + wrap.clientWidth;
+    return el.getBoundingClientRect().right > inner;
   });
-  expect(covered, "control: the 磁碟 value starts under the ⚙ column").toBe(true);
+  expect(cut, "control: the 磁碟 value starts past the frame's right edge").toBe(true);
 
   for (let i = 0; i < 30 && !(await disk.evaluate((el) => el === document.activeElement)); i++) {
     await page.keyboard.press("Tab");
   }
   await expect(disk).toBeFocused();
   expect(await wrap.evaluate((el) => el.scrollLeft), "the frame scrolled to the focused control").toBeGreaterThan(0);
-  expect(await focusedOnTop(page), "the focused 磁碟 value is not hidden under ⚙").toBe(true);
+  expect(await focusedOnTop(page), "the focused 磁碟 value is in view").toBe(true);
+  expect(
+    await disk.evaluate((el) => {
+      const wrap = el.closest(".mon-table-wrap")!;
+      const inner = wrap.getBoundingClientRect().left + wrap.clientLeft + wrap.clientWidth;
+      return el.getBoundingClientRect().right <= inner + 0.5;
+    }),
+    "the focused 磁碟 value is whole inside the frame"
+  ).toBe(true);
 
   const claude = page.getByTestId("mon-claude-version").getByRole("button");
   for (let i = 0; i < 10 && !(await claude.evaluate((el) => el === document.activeElement)); i++) {
@@ -772,21 +837,20 @@ test("clicking the uncovered part of a control half under a pinned column opens 
   mount,
   page,
 }) => {
-  // 磁碟 value half under the ⚙ column (996px frame).
+  // 磁碟 value half past the frame's right edge (996px frame).
   await page.setViewportSize({ width: 996, height: 900 });
   const story = await mount(<MonitorMachinesLayoutStory width={1200} states={["long"]} />);
   const wrap = page.locator(".mon-table-wrap");
   const disk = page.getByTestId("disk-usage-trigger");
   const diskAt = await page.evaluate(() => {
     const wrap = document.querySelector(".mon-table-wrap")!;
+    const inner = () => wrap.getBoundingClientRect().left + wrap.clientLeft + wrap.clientWidth;
     const trigger = document.querySelector('[data-testid="disk-usage-trigger"]')!.getBoundingClientRect();
-    const gear = document.querySelector(".mon-table--machines tbody td:last-child")!.getBoundingClientRect();
-    wrap.scrollLeft += trigger.left + 20 - gear.left;
+    wrap.scrollLeft += trigger.left + 20 - inner();
     const t = document.querySelector('[data-testid="disk-usage-trigger"]')!.getBoundingClientRect();
-    const g = document.querySelector(".mon-table--machines tbody td:last-child")!.getBoundingClientRect();
-    return { x: t.left + 10, y: t.top + t.height / 2, covered: t.right > g.left, scrollLeft: wrap.scrollLeft };
+    return { x: t.left + 10, y: t.top + t.height / 2, covered: t.right > inner(), scrollLeft: wrap.scrollLeft };
   });
-  expect(diskAt.covered, "control: the 磁碟 value is partly under ⚙").toBe(true);
+  expect(diskAt.covered, "control: the 磁碟 value is partly past the right edge").toBe(true);
   await nextFrames(page);
   await page.mouse.click(diskAt.x, diskAt.y);
   await nextFrames(page);
@@ -858,9 +922,9 @@ test("narrower desktop: the table scrolls inside its own frame, the page does no
     )
   );
   expect(widths.map((w) => w.slice(2))).toEqual([
-    [72, 72, 88, 96, 56],
-    [72, 72, 88, 96, 56],
-    [72, 72, 88, 96, 56],
+    [72, 72, 88, 96],
+    [72, 72, 88, 96],
+    [72, 72, 88, 96],
   ]);
   expect(widths.map((w) => w.slice(0, 2).map((x) => (x === 150 ? 150 : x > 150 ? "grown" : x)))).toEqual([
     [150, 150],
@@ -1007,29 +1071,32 @@ test("at 996px (the 1280px desktop) a table of real-length machine names fits it
   await mount(<MonitorMachinesLayoutStory width={996} states={["named"]} />);
   const fit = await fitAt(page);
   expect(fit.frame, "control: the frame is the 1280px desktop's (996px less its border)").toBe(994);
-  expect(fit.minWidth, "control: the table has a measured minimum").toBeGreaterThan(900);
+  expect(fit.minWidth, "control: the table has a measured minimum").toBeGreaterThan(800);
   expect(fit.minWidth).toBeLessThanOrEqual(fit.frame);
   expect(fit.overflow).toBe(0);
   await expect.poll(() => shades(page)).toEqual({ left: 0, right: 0 });
   const disk = await page.getByTestId("disk-usage-trigger").evaluate((el) => {
     const r = el.getBoundingClientRect();
-    const gear = document.querySelector(".mon-table--machines tbody td:last-child")!.getBoundingClientRect();
+    const wrap = el.closest(".mon-table-wrap")!;
+    const inner = wrap.getBoundingClientRect().left + wrap.clientLeft + wrap.clientWidth;
     const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-    return { onTop: !!hit && (hit === el || el.contains(hit)), leftOfGear: r.right <= gear.left };
+    return { onTop: !!hit && (hit === el || el.contains(hit)), inFrame: r.right <= inner };
   });
-  expect(disk).toEqual({ onTop: true, leftOfGear: true });
+  expect(disk).toEqual({ onTop: true, inFrame: true });
 });
 
 // Every new site's own machine is named 伺服器這一台, so this is the row most
 // tables have. With no mark or one, it has to fit the 1280px desktop with room
-// to spare: fonts on a real machine measure a few pixels wider than here.
+// to spare: fonts on a real machine measure a few pixels wider than here. The
+// room left is more than the 56px 操作 column took, less what the name's
+// chevron and trigger padding add.
 for (const [language, state] of [
   ["zh", "normal"],
   ["en", "normal"],
   ["zh", "old"],
   ["en", "old"],
 ] as const) {
-  test(`${language}, at 996px (the 1280px desktop) the ${state} 伺服器這一台 row fits with 24px to spare and 磁碟 clear of ⚙`, async ({
+  test(`${language}, at 996px (the 1280px desktop) the ${state} 伺服器這一台 row fits with 48px to spare and 磁碟 inside the frame`, async ({
     mount,
     page,
   }) => {
@@ -1041,32 +1108,33 @@ for (const [language, state] of [
     expect(fit.frame, "control: the frame is the 1280px desktop's (996px less its border)").toBe(994);
     expect(fit.minWidth, "control: the table has a measured minimum").toBeGreaterThan(800);
     expect(fit.overflow).toBe(0);
-    expect(fit.frame - fit.minWidth, "room to spare").toBeGreaterThanOrEqual(24);
+    expect(fit.frame - fit.minWidth, "room to spare").toBeGreaterThanOrEqual(48);
     const box = async (sel: string) => (await page.locator(sel).boundingBox())!;
-    const [diskHead, gearHead, diskCell, gearCell, diskValue, frame] = await Promise.all([
+    const [diskHead, diskCell, diskValue, frame] = await Promise.all([
       box(".mon-table--machines thead th:nth-child(7)"),
-      box(".mon-table--machines thead th:nth-child(8)"),
       box('[data-testid="mon-disk"]'),
-      box(".mon-table--machines tbody td:last-child"),
       box('[data-testid="disk-usage-trigger"]'),
       box(".mon-table-wrap"),
     ]);
     const right = (b: { x: number; width: number }) => b.x + b.width;
+    // The frame has a 1px border.
+    const inner = right(frame) - 1;
     expect({
-      head: right(diskHead) <= gearHead.x + 0.5,
-      cell: right(diskCell) <= gearCell.x + 0.5,
-      value: right(diskValue) <= gearCell.x + 0.5,
-      gearInFrame: right(gearCell) <= right(frame) + 0.5,
-    }).toEqual({ head: true, cell: true, value: true, gearInFrame: true });
+      head: right(diskHead) <= inner + 0.5,
+      cell: right(diskCell) <= inner + 0.5,
+      value: right(diskValue) <= inner + 0.5,
+    }).toEqual({ head: true, cell: true, value: true });
+    await expect.poll(() => shades(page), "nothing lies past either edge").toEqual({ left: 0, right: 0 });
   });
 }
 
 // The owner's case: Claude and Codex both carrying 版本太舊 and 未登入. Nothing
-// wraps; the two columns grow, the table no longer fits 994px and scrolls, with
-// 機器 and ⚙ pinned, the shades on the right side and the sideways overscroll
-// held. A plain row keeps its height.
+// wraps; the two columns grow, and the table scrolls by exactly what its
+// minimum exceeds 994px (zh fits since there is no 操作 column; en still
+// scrolls), with 機器 pinned, the shades on the right side and the sideways
+// overscroll held. A plain row keeps its height.
 for (const language of ["zh", "en"] as const) {
-  test(`${language}, at 996px (the 1280px desktop) two marks in Claude and Codex grow both columns, nothing wraps, and the table scrolls`, async ({
+  test(`${language}, at 996px (the 1280px desktop) two marks in Claude and Codex grow both columns, nothing wraps, and the table scrolls only by what its minimum exceeds the frame`, async ({
     mount,
     page,
   }) => {
@@ -1081,7 +1149,12 @@ for (const language of ["zh", "en"] as const) {
     expect(fit.frame, "control: the frame is the 1280px desktop's (996px less its border)").toBe(994);
     expect(t.claude[0], "Claude grew").toBeGreaterThan(150);
     expect(t.codex[0], "Codex grew").toBeGreaterThan(150);
-    expect(fit.overflow, "the table scrolls").toBeGreaterThan(0);
+    // scrollWidth rounds the table's fractional width, so a pixel either way.
+    const exceeds = Math.max(0, fit.minWidth - fit.frame);
+    expect(
+      exceeds === 0 ? fit.overflow === 0 : Math.abs(fit.overflow - exceeds) <= 1,
+      `the table scrolls by what its minimum exceeds the frame (${fit.overflow} vs ${exceeds})`
+    ).toBe(true);
     expect(await markPlacement(page, MARKED_CELLS.slice(0, 2), states)).toEqual(
       states.flatMap((state) =>
         MARKED_CELLS.slice(0, 2).map((id) => ({
@@ -1098,20 +1171,24 @@ for (const language of ["zh", "en"] as const) {
     expect(heights[0], "the two-mark row is as tall as the plain one").toBe(heights[1]);
 
     const wrap = page.locator(".mon-table-wrap").first();
+    if (fit.overflow === 0) {
+      await expect.poll(() => shades(page), "a table that fits has nothing past either edge").toEqual({ left: 0, right: 0 });
+      return;
+    }
     const machine = page.locator("tbody tr").first().locator("td").first();
-    const gearCell = page.locator("tbody tr").first().locator("td").last();
     const start = (await machine.boundingBox())!.x;
-    await expect.poll(() => shades(page), "at rest the far columns are under ⚙").toEqual({ left: 0, right: 1 });
+    await expect.poll(() => shades(page), "at rest the far columns are past the right edge").toEqual({ left: 0, right: 1 });
     await wrap.evaluate((el) => (el.scrollLeft = 10_000));
     expect(await wrap.evaluate((el) => el.scrollLeft), "control: the frame scrolled").toBe(fit.overflow);
     await expect.poll(() => shades(page), "scrolled to the end, 機器 covers what scrolled away").toEqual({ left: 1, right: 0 });
     const frame = (await wrap.boundingBox())!;
-    const g = (await gearCell.boundingBox())!;
+    const disk = (await page.locator("tbody tr").first().locator("td").last().boundingBox())!;
     expect({
       machine: Math.round((await machine.boundingBox())!.x) === Math.round(start),
-      gear: Math.round(g.x + g.width) === Math.round(frame.x + frame.width - 1),
+      // The frame has a 1px border; the table's width is not a whole pixel.
+      lastColumnAtEdge: Math.abs(disk.x + disk.width - (frame.x + frame.width - 1)) <= 1,
       overscroll: await wrap.evaluate((el) => getComputedStyle(el).overscrollBehaviorX),
-    }).toEqual({ machine: true, gear: true, overscroll: "none" });
+    }).toEqual({ machine: true, lastColumnAtEdge: true, overscroll: "none" });
   });
 }
 
@@ -1280,6 +1357,12 @@ test("a machine name that changes in place is measured again, longer and shorter
   await expect.poll(() => measured(page)).toEqual(short);
 });
 
+/** Opens the first row's rename field from its name menu. */
+async function openRename(page: Page) {
+  await page.getByRole("button", { name: /^機器操作/ }).first().click();
+  await page.getByRole("menuitem", { name: "改名稱" }).click();
+}
+
 // An open rename field stretches over the 機器 cell's slack (flex: 1), so a
 // measurement taken while it is open would pin the table at whatever width it
 // had: the frame's, here. Narrowing the window with the field still open shows
@@ -1293,11 +1376,11 @@ test("an open rename field leaves the table's minimum as it was, and the table s
   const closed = await settled(page);
   expect(closed.table, "control: the table fills the frame").toBe(FRAME);
   expect(px(closed.variable), "control: the minimum leaves 機器 some slack").toBeLessThan(FRAME);
-  const before = (await page.locator(".mon-machine-name > .inline-edit").boundingBox())!.width;
-  await page.getByRole("button", { name: "機器改名" }).click();
+  const before = (await page.locator(".mon-machine-name__menu").boundingBox())!.width;
+  await openRename(page);
   await expect(page.getByRole("textbox", { name: "機器改名" }), "control: the field is open").toBeFocused();
   await expect
-    .poll(async () => (await page.locator(".mon-machine-name > .inline-edit--editing").boundingBox())!.width > before + 20, "control: the field fills the cell's slack")
+    .poll(async () => (await page.locator(".mon-machine-name .inline-edit--editing").boundingBox())!.width > before + 20, "control: the field fills the cell's slack")
     .toBe(true);
   // Two frames for the size observers to have run.
   await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
@@ -1309,6 +1392,59 @@ test("an open rename field leaves the table's minimum as it was, and the table s
     .poll(() => measured(page))
     .toEqual({ variable: closed.variable, table: px(closed.variable), overflow: px(closed.variable) - frame });
   await expect(page.getByRole("textbox", { name: "機器改名" }), "control: the field is still open").toBeVisible();
+});
+
+// Only the 機器 cell's measurement waits for the field to close: a runtime
+// column that grows meanwhile still grows, and the table's minimum follows it
+// by exactly that much, keeping 機器's share as it was.
+test("with a rename field open, two marks arriving in Claude still widen Claude, and 機器's share of the minimum stays", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 1016, height: 900 });
+  const alone = await mount(<MonitorMachinesLayoutStory width={996} states={["claude2"]} together />);
+  const [claude2] = await settledWidths(page);
+  await alone.unmount();
+  expect(claude2.claude[0], "control: two marks need more than 150px").toBeGreaterThan(150);
+
+  const story = await mount(<MonitorMachinesLayoutStory width={996} states={["normal"]} together />);
+  const closed = await settled(page);
+  const [plain] = await runtimeWidths(page);
+  await openRename(page);
+  await expect(page.getByRole("textbox", { name: "機器改名" }), "control: the field is open").toBeFocused();
+  await story.update(<MonitorMachinesLayoutStory width={996} states={["claude2"]} together />);
+  await expect.poll(async () => (await runtimeWidths(page))[0].claude).toEqual(claude2.claude);
+  const grown = claude2.claude[0] - plain.claude[0];
+  await expect
+    .poll(async () => px((await measured(page)).variable), "the minimum grows by Claude's growth alone")
+    .toBeCloseTo(px(closed.variable) + grown, 0);
+  await expect(page.getByRole("textbox", { name: "機器改名" }), "control: the field is still open").toBeVisible();
+});
+
+// A language switch changes the words in the runtime cells (未登入 → signed
+// out) without re-rendering the table's rows or resizing its frame; only the
+// cells' own size observers can notice it.
+test("switching the language without remounting measures the Claude and Codex columns again", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1500, height: 900 });
+  const alone = async (language: "zh" | "en") => {
+    await page.evaluate((l) => localStorage.setItem("oc.language", l), language);
+    const c = await mount(<MonitorMachinesLayoutStory width={1400} states={["chips"]} together />);
+    const [w] = await settledWidths(page);
+    await c.unmount();
+    return w;
+  };
+  const zh = await alone("zh");
+  const en = await alone("en");
+  expect(en.claude[0], "control: the two languages need different widths").not.toBe(zh.claude[0]);
+
+  await page.evaluate(() => localStorage.setItem("oc.language", "zh"));
+  const story = await mount(<MonitorMachinesLayoutStory width={1400} states={["chips"]} together />);
+  expect(await settledWidths(page), "zh, as mounted").toEqual([zh]);
+  await story.update(<MonitorMachinesLayoutStory width={1400} states={["chips"]} together language="en" />);
+  await expect(page.locator("thead th").first(), "control: switched in place").toHaveText("Machine");
+  await expect.poll(() => runtimeWidths(page), "en, switched in place").toEqual([en]);
+  await story.update(<MonitorMachinesLayoutStory width={1400} states={["chips"]} together language="zh" />);
+  await expect.poll(() => runtimeWidths(page), "zh again, switched in place").toEqual([zh]);
 });
 
 test("when the last machine goes, its minimum goes with it and the 尚無機器 row does not scroll", async ({ mount, page }) => {
@@ -1404,8 +1540,9 @@ test.describe("phone card mode on a touch screen", () => {
   });
 });
 
-// A proven not-in-effect cutover shows the members' warning exclamation right
-// after the online dot; its sentence is the hint and the accessible name.
+// A proven not-in-effect cutover shows the members' warning exclamation at the
+// end of the 機器 cell, after the id; its sentence is the hint and the
+// accessible name.
 const NOT_IN_EFFECT =
   "未生效：這台機器上的成員還在更新前啟動的環境裡執行。先把這台機器上的成員全部停止，再把這些成員喚醒，就會生效，機器本身不用動。";
 
@@ -1441,9 +1578,9 @@ test("desktop: only the not-in-effect row has the exclamation; hover shows the s
 
   const b = await markBoxes(page);
   expect(
-    { afterId: b.dot.x >= b.id.x + b.id.width, afterDot: b.mark.x >= b.dot.x + b.dot.width, sameLine: overlaps({ ...b.mark, x: b.dot.x }, b.dot) },
-    "the exclamation sits after the dot on the same line"
-  ).toEqual({ afterId: true, afterDot: true, sameLine: true });
+    { dotFirst: b.dot.x + b.dot.width <= b.id.x, afterId: b.mark.x >= b.id.x + b.id.width, sameLine: overlaps({ ...b.mark, x: b.dot.x }, b.dot) },
+    "the exclamation ends the line the dot starts"
+  ).toEqual({ dotFirst: true, afterId: true, sameLine: true });
 
   const tip = page.getByRole("tooltip");
   await expect(tip).toHaveCount(0);
@@ -1469,7 +1606,7 @@ test("desktop: only the not-in-effect row has the exclamation; hover shows the s
 test.describe("phone card mode on a touch screen: the exclamation", () => {
   test.use({ hasTouch: true });
 
-  test("390px: a tap on the exclamation shows its sentence inside the window; a tap just right of the dot is still the dot's", async ({
+  test("390px: a tap on the exclamation shows its sentence inside the window; a tap just left of the dot is the dot's, just right of it is not", async ({
     mount,
     page,
   }) => {
@@ -1488,15 +1625,18 @@ test.describe("phone card mode on a touch screen: the exclamation", () => {
       afterDot: b.mark.x >= b.dot.x + b.dot.width,
     }).toEqual({ markOnId: false, markOnDot: false, afterDot: true });
 
-    // Who takes a tap: 1px inside the exclamation's left edge, and 1px right of
-    // the dot's circle.
+    // Who takes a tap: 1px inside the exclamation's left edge, and 1px either
+    // side of the dot's circle. Right of the dot is the gap before the name,
+    // which belongs to neither.
     const hit = (x: number, y: number) =>
-      page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest("[data-testid]")?.getAttribute("data-testid"), { x, y });
+      page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest("[data-testid]")?.getAttribute("data-testid") ?? null, { x, y });
     const midY = b.mark.y + b.mark.height / 2;
+    const dotMid = b.dot.y + b.dot.height / 2;
     expect({
       markEdge: await hit(b.mark.x + 1, midY),
-      besideDot: await hit(b.dot.x + b.dot.width + 1, b.dot.y + b.dot.height / 2),
-    }).toEqual({ markEdge: "mon-cutover-warning", besideDot: "mon-machine-online" });
+      leftOfDot: await hit(b.dot.x - 1, dotMid),
+      rightOfDot: (await hit(b.dot.x + b.dot.width + 1, dotMid)) === "mon-machine-online",
+    }).toEqual({ markEdge: "mon-cutover-warning", leftOfDot: "mon-machine-online", rightOfDot: false });
 
     const tip = page.getByRole("tooltip");
     await page.touchscreen.tap(b.mark.x + b.mark.width / 2, midY);
@@ -1510,5 +1650,40 @@ test.describe("phone card mode on a touch screen: the exclamation", () => {
     expect(await overflow(page), "the open hint does not scroll the page").toEqual({ page: 0, monitor: 0, frame: 0 });
     await page.touchscreen.tap(5, 5);
     await expect(tip).toHaveCount(0);
+  });
+});
+
+test.describe("phone card mode on a touch screen: the name's menu", () => {
+  test.use({ hasTouch: true });
+
+  test("390px: the 機器 line reads dot, name, id, exclamation, and a tap on the name opens its menu inside the window", async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 900 });
+    await mount(<MonitorMachinesLayoutStory states={["normal", "stale"]} />);
+    expect(
+      await page.locator("tbody tr").first().evaluate((tr) => getComputedStyle(tr).display),
+      "control: rows are cards"
+    ).toBe("block");
+    // A card may wrap the line; the items still read in this order.
+    const c = await cellItems(page, "stale");
+    const seq = [c.dot, c.name, c.id, c.mark];
+    expect(
+      seq.slice(1).map((b, i) => b.mid > seq[i].mid + 2 || (Math.abs(b.mid - seq[i].mid) <= 2 && b.x >= seq[i].right)),
+      "dot, name, id, exclamation in reading order"
+    ).toEqual([true, true, true]);
+    expect(Math.abs(c.name.mid - c.dot.mid) <= 2, "the dot sits on the name's line").toBe(true);
+    const labels = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('[data-state="stale"] tbody td')).map((td) => td.getAttribute("data-label"))
+    );
+    expect(labels, "no 操作 line in the card").toEqual(["機器", "Claude", "Codex", "CPU", "RAM", "電源", "磁碟"]);
+    const name = page.locator('[data-state="stale"] .mon-table__strong');
+    const n = (await name.boundingBox())!;
+    await page.touchscreen.tap(n.x + n.width / 2, n.y + n.height / 2);
+    await expect(page.getByRole("menuitem")).toHaveText(["改名稱", "安裝", "解除安裝", "刪除"]);
+    expect(await menuOnTop(page)).toEqual(Array(4).fill({ inside: true, onTop: true }));
+    expect(await overflow(page), "the open menu does not scroll the page").toEqual({ page: 0, monitor: 0, frame: 0 });
+    await expect(page.getByRole("tooltip"), "the tap was the name's, not the dot's").toHaveCount(0);
   });
 });
