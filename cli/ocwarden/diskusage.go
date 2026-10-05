@@ -113,7 +113,9 @@ var diskUsageBinaryDirs = []string{"bin", "warden"}
 var officraftBinaries = []string{"ocserverd", "ocwarden", "ocagent", "officraft"}
 
 // isOldBinary: a binary's name, a dot and a suffix. officraft.probe is the
-// cutover's staging copy of the anchor, not an old version.
+// cutover's staging copy of the anchor, not an old version. The name alone
+// also matches the warden's state files (ocwarden.no-base); oldBinaryBytes
+// tells those apart by the executable bit.
 func isOldBinary(name string) bool {
 	for _, b := range officraftBinaries {
 		if suffix, ok := strings.CutPrefix(name, b+"."); ok && suffix != "" {
@@ -139,7 +141,12 @@ func (p diskUsageProbe) dirBytes(sizes map[string]int64, rel string) (int64, boo
 }
 
 // oldBinaryBytes adds up the allocated blocks of the old binaries in bin/ and
-// warden/; a directory that does not exist holds none.
+// warden/; a directory that does not exist holds none. Only executable
+// regular files count: an upgrade renames the binary it replaces and a copy
+// kept by hand keeps its mode, while a state file named after a binary
+// (ocwarden.no-base, or one added later) is never executable, so the bit
+// needs no list of names to keep current. Symlinks and directories are not
+// copies of a binary.
 func (p diskUsageProbe) oldBinaryBytes() (int64, bool) {
 	var total int64
 	for _, rel := range diskUsageBinaryDirs {
@@ -151,12 +158,15 @@ func (p diskUsageProbe) oldBinaryBytes() (int64, bool) {
 			return 0, false
 		}
 		for _, e := range entries {
-			if !e.Type().IsRegular() || !isOldBinary(e.Name()) {
+			if !isOldBinary(e.Name()) {
 				continue
 			}
 			info, err := p.lstat(filepath.Join(p.root, rel, e.Name()))
 			if err != nil {
 				return 0, false
+			}
+			if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+				continue
 			}
 			st, ok := info.Sys().(*syscall.Stat_t)
 			if !ok {

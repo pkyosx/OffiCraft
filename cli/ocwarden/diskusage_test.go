@@ -45,11 +45,19 @@ func mkdirs(t *testing.T, paths ...string) {
 }
 
 // writeSized writes a file of exactly size bytes and returns the allocated
-// bytes the filesystem gave it, the quantity the probe adds up.
+// bytes the filesystem gave it, the quantity the probe adds up. A name with no
+// dot or an OffiCraft binary's prefix is written executable, like a binary.
 func writeSized(t *testing.T, path string, size int) int64 {
 	t.Helper()
 	mkdirs(t, filepath.Dir(path))
-	if err := os.WriteFile(path, make([]byte, size), 0o644); err != nil {
+	mode := os.FileMode(0o644)
+	if isOldBinary(filepath.Base(path)) || isLiveBinary(filepath.Base(path)) {
+		mode = 0o755
+	}
+	if err := os.WriteFile(path, make([]byte, size), mode); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, mode); err != nil {
 		t.Fatal(err)
 	}
 	info, err := os.Lstat(path)
@@ -87,6 +95,10 @@ func newDiskUsageFixture(t *testing.T) *diskUsageFixture {
 	writeSized(t, filepath.Join(warden, "ocwarden"), 8192)
 	writeSized(t, filepath.Join(warden, "officraft"), 4096)
 	writeSized(t, filepath.Join(warden, "officraft.probe"), 4096)
+	// The staging copy is executable like the anchor it becomes.
+	if err := os.Chmod(filepath.Join(warden, "officraft.probe"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	f.oldBinaries = writeSized(t, filepath.Join(bin, "ocserverd.bak"), 16384) +
 		writeSized(t, filepath.Join(bin, "ocserverd.bak-v0.5.27-9722925"), 12288) +
 		writeSized(t, filepath.Join(warden, "ocwarden.prev"), 8192) +
@@ -155,6 +167,15 @@ func (f *diskUsageFixture) probe(t *testing.T, goos string) diskUsageProbe {
 		return next
 	}
 	return p
+}
+
+func isLiveBinary(name string) bool {
+	for _, b := range officraftBinaries {
+		if name == b {
+			return true
+		}
+	}
+	return false
 }
 
 func categoriesOf(logs, old any) []any {
@@ -303,6 +324,36 @@ func TestDiskUsageProbeMeasure(t *testing.T) {
 		}
 		if want := categoriesOf(int64(350*1024), nil); !reflect.DeepEqual(p.measure()["categories"], want) {
 			t.Errorf("categories = %#v, want %#v", p.measure()["categories"], want)
+		}
+	})
+
+	t.Run("only executable regular files count as old binaries: a state file named after a binary, a directory and a symlink do not", func(t *testing.T) {
+		f := newDiskUsageFixture(t)
+		want := f.probe(t, "darwin").measure()["categories"]
+		bin := filepath.Join(f.root, "bin")
+		warden := filepath.Join(f.root, "warden")
+		if err := os.WriteFile(filepath.Join(warden, "ocwarden.no-base"), make([]byte, 8192), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		writeSized(t, filepath.Join(bin, "ocserverd.old-dir", "inside"), 8192)
+		if err := os.Chmod(filepath.Join(bin, "ocserverd.old-dir"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(filepath.Join(bin, "ocserverd"), filepath.Join(warden, "ocwarden.link")); err != nil {
+			t.Fatal(err)
+		}
+		// APFS gives a directory and a symlink no blocks of their own, so they
+		// are made to report some: counted, they would show.
+		p := f.probe(t, "darwin")
+		p.lstat = func(path string) (fs.FileInfo, error) {
+			info, err := os.Lstat(path)
+			if err != nil || info.Mode().IsRegular() {
+				return info, err
+			}
+			return blockyInfo{info}, nil
+		}
+		if got := p.measure()["categories"]; !reflect.DeepEqual(got, want) {
+			t.Errorf("categories = %#v, want %#v as without them", got, want)
 		}
 	})
 
@@ -488,3 +539,8 @@ type fakeClock struct{ at time.Time }
 func newFakeClock(at time.Time) *fakeClock   { return &fakeClock{at: at} }
 func (c *fakeClock) now() time.Time          { return c.at }
 func (c *fakeClock) advance(d time.Duration) { c.at = c.at.Add(d) }
+
+// blockyInfo is a non-regular file that reports 64 blocks of its own.
+type blockyInfo struct{ fs.FileInfo }
+
+func (b blockyInfo) Sys() any { return &syscall.Stat_t{Blocks: 64} }
