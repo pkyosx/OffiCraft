@@ -199,8 +199,21 @@ describe("DiskUsageBreakdown", () => {
       ["對話紀錄", "section"],
       ["Claude", "sub"],
       ["Codex", "sub"],
-      ["其他", ""],
+      ["其他", "section"],
       ["硬碟剩餘／總容量", "section"],
+    ]);
+  });
+
+  it("under no conversations, 其他 right after the members still opens a section of its own", () => {
+    mountBreakdown({ ...FULL, conversationBytes: null, claudeConversationBytes: null, codexConversationBytes: null });
+    const shape = screen.getAllByTestId("disk-usage-row").map((row) => [
+      row.querySelector(".disk-usage__name")?.textContent ?? "",
+      row.classList.contains("disk-usage__row--section"),
+    ]);
+    expect(shape.slice(-3)).toEqual([
+      ["其餘 2 位合計", false],
+      ["其他", true],
+      ["硬碟剩餘／總容量", true],
     ]);
   });
 

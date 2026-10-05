@@ -212,6 +212,11 @@ function breakdownRows(
   if (rows[conversationAt]) rows[conversationAt].section = true;
 
   push("other", d.other, u.otherBytes, { segment: "other" });
+  // A top-level row right after a group's sub rows would read as one more of
+  // them without a divider.
+  rows.forEach((r, i) => {
+    if (i > 0 && !r.sub && rows[i - 1].sub) r.section = true;
+  });
   if (u.diskFreeBytes !== null && u.diskTotalBytes !== null) {
     rows.push({
       key: "disk",

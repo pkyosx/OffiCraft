@@ -107,6 +107,18 @@ const rows: Record<MachinesLayoutState, { machine: MachineView; hw: MonMachineVi
         claudeConversationBytes: 0,
         codexConversationBytes: 0,
         otherBytes: Math.round(993.3 * GIB),
+        // Long enough to wrap on a phone.
+        members: [
+          ...diskUsage.members,
+          {
+            memberId: "ow-long",
+            name: "Seth 的 Mac Studio 上試用中的外包成員（夜間建置與發版測試）",
+            rosterStatus: "active",
+            workspaceBytes: null,
+            conversationBytes: null,
+            totalBytes: Math.round(1.2 * GIB),
+          },
+        ],
       },
     },
   },

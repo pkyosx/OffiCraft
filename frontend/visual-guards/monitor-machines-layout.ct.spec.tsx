@@ -100,7 +100,8 @@
 //   bar segments not at their share, two categories one colour, a swatch
 //   not its segment's colour                → detail bar test
 //   a top-level row without its swatch slot, a sub row indented no further
-//   than its parent's label             → breakdown label tests
+//   than its parent's label, the swatch back inline in the label (a wrapped
+//   line starts under the slot)         → breakdown label tests
 //   a divider painted over each segment's edge, the bar's 5px radius back,
 //   segments that may not shrink           → sliver test
 //   scroll shades measured only on scroll    → shade test (no cue at rest)
@@ -1137,28 +1138,76 @@ test("a category that is a sliver of the total, at the bar's rounded start or in
 });
 
 // The breakdown list: every top-level label starts at one x, swatch or not;
-// every sub row's label starts clearly right of its parent's.
-for (const width of [1280, 390]) {
-  test(`production fonts, ${width}px: the breakdown's top-level labels line up and sub rows sit right of their parent`, async ({
+// every sub row's label starts clearly right of its parent's; a wrapped
+// label's later lines start where its first did; the value stays beside its
+// label, inside the box. "squeezed" narrows the box until labels wrap.
+const LABEL_CASES = [
+  ...[1280, 390, 330, 320].flatMap((width) => (["zh", "en"] as const).map((language) => ({ width, language, squeezed: false }))),
+  { width: 320, language: "zh" as const, squeezed: true },
+  { width: 320, language: "en" as const, squeezed: true },
+];
+for (const { width, language, squeezed } of LABEL_CASES) {
+  test(`production fonts, ${language}, ${width}px${squeezed ? ", box squeezed" : ""}: the breakdown's labels line up, sub rows sit right of their parent, wrapped lines stay under their first`, async ({
     mount,
     page,
   }) => {
+    await page.evaluate((l) => localStorage.setItem("oc.language", l), language);
     await page.setViewportSize({ width, height: 900 });
     await loadProductionFonts(page);
     await mount(<MonitorMachinesLayoutStory width={Math.min(width, 996)} states={["zeroconv"]} />);
     await page.getByTestId("disk-usage-trigger").click();
-    const rows = await page.evaluate(() =>
-      Array.from(document.querySelectorAll('[data-testid="disk-usage-row"]')).map((row) => ({
-        text: row.querySelector(".disk-usage__name")!.textContent,
-        sub: row.classList.contains("disk-usage__row--sub"),
-        x: row.querySelector(".disk-usage__name")!.getBoundingClientRect().left,
-      }))
-    );
+    if (squeezed) {
+      await page.locator(".mon-detailbox").evaluate((el) => ((el as HTMLElement).style.maxWidth = "190px"));
+    }
+    const rows = await page.evaluate(() => {
+      const box = document.querySelector(".mon-detailbox")!;
+      const b = box.getBoundingClientRect();
+      const inner = b.left + box.clientLeft + box.clientWidth - parseFloat(getComputedStyle(box).paddingRight);
+      return Array.from(document.querySelectorAll('[data-testid="disk-usage-row"]')).map((row) => {
+        const name = row.querySelector(".disk-usage__name")!;
+        const range = document.createRange();
+        range.selectNodeContents(name);
+        const lines = Array.from(range.getClientRects()).filter((r) => r.width > 0);
+        // Rects whose middles fall inside one another's height are one line
+        // (the 已離開 pill's box sits a little taller than the text).
+        const groups: DOMRect[][] = [];
+        for (const r of [...lines].sort((p, q) => p.top - q.top)) {
+          const mid = (r.top + r.bottom) / 2;
+          const g = groups.find((g) => g.some((o) => mid >= o.top && mid <= o.bottom));
+          if (g) g.push(r);
+          else groups.push([r]);
+        }
+        const value = row.querySelector(".disk-usage__value")!.getBoundingClientRect();
+        const label = row.querySelector(".disk-usage__label")!.getBoundingClientRect();
+        return {
+          text: name.textContent,
+          sub: row.classList.contains("disk-usage__row--sub"),
+          x: lines[0].left,
+          lineXs: groups.map((g) => Math.min(...g.map((r) => r.left))),
+          valueFits: value.right <= inner + 0.5 && value.left >= label.right - 0.5,
+          // The swatch slot sits before the text, on its first line.
+          slotBeside: (() => {
+            const slot = row.querySelector(".disk-usage__label > .disk-usage__swatch");
+            if (!slot) return true;
+            const r = slot.getBoundingClientRect();
+            const first = groups[0];
+            const mid = (r.top + r.bottom) / 2;
+            return r.right <= lines[0].left + 0.5 && first.some((l) => mid >= l.top && mid <= l.bottom);
+          })(),
+        };
+      });
+    });
     const top = rows.filter((r) => !r.sub);
     expect(top.map((r) => r.text), "control: a zero row and the disk row are top level").toEqual(
-      expect.arrayContaining(["對話紀錄", "硬碟剩餘／總容量"])
+      expect.arrayContaining([language === "zh" ? "對話紀錄" : "Conversation logs", language === "zh" ? "硬碟剩餘／總容量" : "Disk free / total"])
     );
     expect(rows.filter((r) => r.sub).length, "control: members and Claude/Codex are sub rows").toBeGreaterThanOrEqual(4);
+    if (squeezed || width <= 390) {
+      expect(rows.some((r) => r.sub && r.lineXs.length > 1), "control: a sub row wraps").toBe(true);
+    }
+    if (squeezed) {
+      expect(rows.some((r) => !r.sub && r.lineXs.length > 1), "control: a top-level row wraps").toBe(true);
+    }
     const bad: string[] = [];
     let parent = top[0];
     for (const r of rows) {
@@ -1168,6 +1217,11 @@ for (const width of [1280, 390]) {
       } else if (r.x < parent.x + 8) {
         bad.push(`${r.text} at ${r.x}, parent ${parent.text} at ${parent.x}`);
       }
+      for (const lx of r.lineXs.slice(1)) {
+        if (Math.abs(lx - r.lineXs[0]) > 0.5) bad.push(`${r.text}: a wrapped line at ${lx}, its first at ${r.lineXs[0]}`);
+      }
+      if (!r.valueFits) bad.push(`${r.text}: value outside the box or over its label`);
+      if (!r.slotBeside) bad.push(`${r.text}: swatch slot not before the text on its first line`);
     }
     expect(bad).toEqual([]);
   });
