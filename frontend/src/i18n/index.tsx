@@ -167,7 +167,7 @@ interface I18nContextValue {
    * colour. Rejects on a refusal so the caller can say what went wrong. */
   saveTheme: (bundle: ThemeBundle) => Promise<void>;
   /** Delete ONE theme. When it is the ACTIVE one the server resets its stored
-   * display_theme and says so; this switches the cockpit back to the built-in
+   * display_theme and says so; this switches the cockpit back to the default built-in (office)
    * so the owner is never looking at a theme that no longer exists. */
   removeTheme: (id: string) => Promise<void>;
   /** Reset local preferences to initial (used by the honest M1 "logout").
@@ -499,7 +499,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     async (id: string) => {
       const result = await api.deleteTheme(id);
       setThemeList((prev) => prev.filter((x) => x.id !== id));
-      // ⚠️ The server stores "" for the reset and the cockpit shows the built-in.
+      // ⚠️ The server stores "" for the reset and the cockpit shows the default built-in (office).
       // Those are not the same string, and the difference is pre-existing: ""
       // means "never set", which tells ANOTHER device to keep its own cached
       // choice — and that cache may still name the theme just deleted. Not

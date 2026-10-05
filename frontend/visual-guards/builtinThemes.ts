@@ -2,8 +2,6 @@
 // one: the stored theme id that I18nProvider reads, plus <html data-theme> that
 // theme.css keys each built-in's block off (stories without a provider rely on
 // the attribute alone).
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { LS_THEME } from "../src/lib/themePaint";
@@ -11,30 +9,12 @@ import { RESERVED_THEME_IDS, type BuiltinThemeId } from "../src/lib/themeBundleC
 
 export const BUILTIN_THEME_IDS: readonly BuiltinThemeId[] = RESERVED_THEME_IDS;
 
-const THEME_CSS = readFileSync(
-  fileURLToPath(new URL("../src/styles/theme.css", import.meta.url)),
-  "utf8"
-).replace(/\/\*[\s\S]*?\*\//g, "");
-
-function blockOf(theme: BuiltinThemeId): string {
-  const re =
-    theme === "office"
-      ? /(?:^|\n):root\s*\{([^}]*)\}/
-      : new RegExp(`:root\\[data-theme="${theme}"\\]\\s*\\{([^}]*)\\}`);
-  const body = re.exec(THEME_CSS)?.[1];
-  if (body === undefined) throw new Error(`theme.css has no block for built-in ${theme}`);
-  return body;
-}
-
-/** `token`'s declared value in `theme`'s theme.css block; a non-office block
- * that leaves it out inherits the :root declaration. */
-export function builtinToken(theme: BuiltinThemeId, token: string): string {
-  const pick = (body: string) =>
-    new RegExp(`${token}\\s*:\\s*([^;]+);`).exec(body)?.[1].trim();
-  const value = pick(blockOf(theme)) ?? pick(blockOf("office"));
-  if (value === undefined) throw new Error(`${token} is not declared for ${theme}`);
-  return value;
-}
+/** Each built-in's --color-bg, written out by hand so a block that loses its
+ * own declaration cannot pass by inheriting office's. */
+const BUILTIN_BG: Record<BuiltinThemeId, string> = {
+  office: "#191c24",
+  "office-light": "#b8d8e3",
+};
 
 /** Select `theme` before mounting. Call after the CT page has loaded. */
 export async function selectBuiltinTheme(page: Page, theme: BuiltinThemeId): Promise<void> {
@@ -53,7 +33,5 @@ export async function expectBuiltinApplied(page: Page, theme: BuiltinThemeId): P
   const bg = await page.evaluate(() =>
     getComputedStyle(document.documentElement).getPropertyValue("--color-bg").trim()
   );
-  expect(bg, `--color-bg at capture time — is ${theme} really applied?`).toBe(
-    builtinToken(theme, "--color-bg")
-  );
+  expect(bg, `--color-bg at capture time — is ${theme} really applied?`).toBe(BUILTIN_BG[theme]);
 }
