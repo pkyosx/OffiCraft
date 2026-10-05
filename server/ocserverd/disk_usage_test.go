@@ -13,18 +13,18 @@ import (
 //
 //	officraft.db      8192 B  -> 8192
 //	officraft.db-wal  5000 B  -> 8192
-//	backups/a.db      4096 B  -> 4096
-//	backups/b.db         1 B  -> 4096
-//	backups/pre/c.db 10000 B  -> 12288
+//	backups/officraft-20261004-074132-scheduled.db     4096 B  -> 4096
+//	backups/officraft-20261004-135205-manual.db           1 B  -> 4096
+//	backups/officraft-20261005-101345-premigration.db 10000 B  -> 12288
 func diskTestStation(t *testing.T) (root, dbPath string) {
 	t.Helper()
 	root = t.TempDir()
 	data := filepath.Join(root, "server", "data")
 	diskTestWrite(t, filepath.Join(data, "officraft.db"), 8192)
 	diskTestWrite(t, filepath.Join(data, "officraft.db-wal"), 5000)
-	diskTestWrite(t, filepath.Join(data, "backups", "a.db"), 4096)
-	diskTestWrite(t, filepath.Join(data, "backups", "b.db"), 1)
-	diskTestWrite(t, filepath.Join(data, "backups", "pre", "c.db"), 10000)
+	diskTestWrite(t, filepath.Join(data, "backups", "officraft-20261004-074132-scheduled.db"), 4096)
+	diskTestWrite(t, filepath.Join(data, "backups", "officraft-20261004-135205-manual.db"), 1)
+	diskTestWrite(t, filepath.Join(data, "backups", "officraft-20261005-101345-premigration.db"), 10000)
 	return root, filepath.Join(data, "officraft.db")
 }
 
@@ -83,6 +83,22 @@ func TestMeasureServerDisk(t *testing.T) {
 			DatabaseBytes:   diskTestInt(16384),
 			BackupsBytes:    diskTestInt(20480),
 			OldCopiesBytes:  diskTestInt(diskTestOldCopiesBytes),
+			MeasuredAt:      1759500000.5,
+			DBInStationRoot: true,
+		}))
+	})
+
+	t.Run("under files in backups/ the engine does not rotate — a half-written .partial and its journal, a directory, a file by hand — they count as old copies, not backups; the pre-migration pool's snapshots stay backups", func(t *testing.T) {
+		root, dbPath := diskTestStation(t)
+		dir := backupDirFor(dbPath)
+		diskTestWrite(t, filepath.Join(dir, "officraft-20260811-012749-premigration.db.partial"), 8000)
+		diskTestWrite(t, filepath.Join(dir, "officraft-20260811-012749-premigration.db.partial-journal"), 100)
+		diskTestWrite(t, filepath.Join(dir, "old", "officraft-20250101-000000-scheduled.db"), 4096)
+		diskTestWrite(t, filepath.Join(dir, "notes.txt"), 1)
+		apiWantValue(t, "sample", any(measureServerDisk(dbPath, root, at)), any(serverDiskSample{
+			DatabaseBytes:   diskTestInt(16384),
+			BackupsBytes:    diskTestInt(20480),
+			OldCopiesBytes:  diskTestInt(8192 + 4096 + 4096 + 4096),
 			MeasuredAt:      1759500000.5,
 			DBInStationRoot: true,
 		}))
@@ -157,7 +173,7 @@ func TestMeasureServerDisk(t *testing.T) {
 	t.Run("a measurement deletes nothing", func(t *testing.T) {
 		root, dbPath := diskTestStation(t)
 		measureServerDisk(dbPath, root, at)
-		for _, rel := range []string{"officraft.db", "officraft.db-wal", "backups/a.db", "backups/b.db", "backups/pre/c.db"} {
+		for _, rel := range []string{"officraft.db", "officraft.db-wal", "backups/officraft-20261004-074132-scheduled.db", "backups/officraft-20261004-135205-manual.db", "backups/officraft-20261005-101345-premigration.db"} {
 			if _, err := os.Stat(filepath.Join(filepath.Dir(dbPath), rel)); err != nil {
 				t.Fatalf("%s: %v", rel, err)
 			}

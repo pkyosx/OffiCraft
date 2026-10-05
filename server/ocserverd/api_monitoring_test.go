@@ -2706,6 +2706,59 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		}, []any{}, nil, nil))
 	})
 
+	t.Run("a warden part naming a server-owned row as its parent is dropped: the server's database, backups and workspaces keep their numbers and there is one other", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		root, dbPath := diskTestStation(t)
+		api.recordServerDisk(dbPath, root, time.Unix(1759500100, 0))
+		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+		got := diskView(t, h, owner, warden, "m-server-self", `{"measured_at":1759500000,"root_bytes":100000,
+			"members":[{"member_id":"mira","workspace_bytes":30000}],
+			"categories":[
+				{"key":"a","parent_key":"database","bytes":1,"in_root":true},
+				{"key":"b","parent_key":"backups","bytes":1,"in_root":true},
+				{"key":"c","parent_key":"workspaces","bytes":1,"in_root":true},
+				{"key":"d","parent_key":"other","bytes":1,"in_root":true},
+				{"key":"e","parent_key":"old_database_copies","bytes":1,"in_root":false},
+				{"key":"logs","bytes":1000,"in_root":true}
+			]}`)
+		apiWantValue(t, "disk_usage", got, diskWant(1759500000, 100000, 1759500100, []any{
+			diskCat("database", 16384, true),
+			diskCat("backups", 20480, true),
+			diskCat("workspaces", 30000, true),
+			diskCat("logs", 1000, true),
+			diskCat("old_version_backups", 0, true),
+			diskCat("other", 100000-16384-20480-30000-1000, true),
+		}, []any{diskMember("mira", "Mira", "active", 30000)}, nil, nil))
+	})
+
+	t.Run("under a warden that sends old_version_backups as parts, the server's old copies inside the root are one more part and the row is their sum", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		root, dbPath := diskTestStation(t)
+		diskTestOldCopies(t, dbPath)
+		api.recordServerDisk(dbPath, root, time.Unix(1759500100, 0))
+		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+		got := diskView(t, h, owner, warden, "m-server-self", `{"measured_at":1759500000,"root_bytes":100000,"members":[],
+			"categories":[
+				{"key":"releases","parent_key":"old_version_backups","bytes":1000,"in_root":true},
+				{"key":"binaries","parent_key":"old_version_backups","bytes":500,"in_root":true}
+			]}`)
+		part := func(key string, bytes any) map[string]any {
+			c := diskCat(key, bytes, true)
+			c["parent_key"] = "old_version_backups"
+			return c
+		}
+		apiWantValue(t, "disk_usage", got, diskWant(1759500000, 100000, 1759500100, []any{
+			diskCat("database", 16384, true),
+			diskCat("backups", 20480, true),
+			diskCat("workspaces", 0, true),
+			diskCat("old_version_backups", 1500+diskTestOldCopiesBytes, true),
+			part("binaries", 500),
+			part("old_database_copies", diskTestOldCopiesBytes),
+			part("releases", 1000),
+			diskCat("other", 100000-16384-20480-1500-diskTestOldCopiesBytes, true),
+		}, []any{}, nil, nil))
+	})
+
 	t.Run("a machine alias answers 200 with the alias on the machine and account rows", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		if err := d.PutMachineAlias(MachineAlias{MachineID: "m-server-self", DisplayName: "伺服器這一台"}); err != nil {

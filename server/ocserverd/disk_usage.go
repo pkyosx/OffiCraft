@@ -101,19 +101,46 @@ func measureServerDisk(dbPath, stationRoot string, now time.Time) serverDiskSamp
 			sample.DatabaseBytes = &v
 		}
 	}
-	if copies, err := oldDatabaseCopiesBytes(dbPath); err == nil {
-		v := int(copies)
-		sample.OldCopiesBytes = &v
-	}
-	backups, err := treeAllocatedBytes(backupDirFor(dbPath))
-	if err == nil || os.IsNotExist(err) {
-		if err != nil {
-			backups = 0
-		}
+	backups, strays, backupsErr := backupDirBytes(backupDirFor(dbPath))
+	if backupsErr == nil {
 		v := int(backups)
 		sample.BackupsBytes = &v
 	}
+	// Whatever in backups/ the engine does not rotate stays until someone
+	// deletes it, like the copies beside the database.
+	if copies, err := oldDatabaseCopiesBytes(dbPath); err == nil && backupsErr == nil {
+		v := int(copies + strays)
+		sample.OldCopiesBytes = &v
+	}
 	return sample
+}
+
+// backupDirBytes splits the backup directory into what the backup engine
+// rotates (backupFilesIn's files, both pools) and everything else: a
+// .partial (and its -journal) left by a snapshot that died half-written,
+// which no later run removes, and anything put there by hand. A directory
+// that does not exist holds neither. A snapshot being written right now is
+// briefly a .partial too and counts as a stray until it is renamed.
+func backupDirBytes(dir string) (rotated, strays int64, err error) {
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return 0, 0, nil
+	}
+	if err != nil {
+		return 0, 0, err
+	}
+	for _, e := range entries {
+		n, err := treeAllocatedBytes(filepath.Join(dir, e.Name()))
+		if err != nil {
+			return 0, 0, err
+		}
+		if !e.IsDir() && isEngineBackup(e.Name()) {
+			rotated += n
+		} else {
+			strays += n
+		}
+	}
+	return rotated, strays, nil
 }
 
 // oldDatabaseCopiesBytes sizes the entries beside the database named after it
@@ -222,8 +249,9 @@ const (
 	diskCategoryOther       = "other"
 )
 
-// The rows only the server fills; a warden entry with one of these keys is
-// dropped.
+// The rows only the server fills; a warden entry with one of these keys, or
+// one that names one as its parent (a parent's size is the sum of its parts,
+// so a part would replace the server's number), is dropped.
 var serverDiskCategories = map[string]bool{
 	"database": true, "backups": true, "workspaces": true, diskCategoryOldCopies: true, diskCategoryOther: true,
 }
@@ -249,6 +277,9 @@ func wardenDiskCategories(report map[string]any) []machineDiskUsageCategoryDTO {
 		seen[key] = true
 		c := machineDiskUsageCategoryDTO{Key: key, Bytes: diskByteCount(entry["bytes"]), InRoot: inRoot}
 		if parent, ok := entry["parent_key"].(string); ok && parent != "" && parent != key {
+			if serverDiskCategories[parent] {
+				continue
+			}
 			c.ParentKey = &parent
 		}
 		out = append(out, c)
@@ -344,16 +375,7 @@ func machineDiskUsage(report map[string]any, self *serverDiskSample, isSelf bool
 		// Copies inside the root are what old_version_backups names; outside it
 		// they are a row of their own, added to the total like the database.
 		if self.DBInStationRoot {
-			merged := false
-			for i := range rows {
-				if rows[i].Key == diskCategoryOldVersions && rows[i].ParentKey == nil {
-					rows[i].Bytes = addBytes(rows[i].Bytes, self.OldCopiesBytes)
-					merged = true
-				}
-			}
-			if !merged {
-				rows = append(rows, machineDiskUsageCategoryDTO{Key: diskCategoryOldVersions, Bytes: self.OldCopiesBytes, InRoot: true})
-			}
+			rows = mergeOldCopies(rows, self.OldCopiesBytes)
 		} else {
 			rows = append(rows, machineDiskUsageCategoryDTO{Key: diskCategoryOldCopies, Bytes: self.OldCopiesBytes})
 		}
@@ -387,6 +409,27 @@ func machineDiskUsage(report map[string]any, self *serverDiskSample, isSelf bool
 	out.TotalBytes = total
 	out.Categories = append(out.Categories, machineDiskUsageCategoryDTO{Key: diskCategoryOther, Bytes: other, InRoot: true})
 	return out
+}
+
+// mergeOldCopies adds the server's old database copies, inside the root, to
+// old_version_backups: as one more part when the warden sent that row as
+// parts (the parent is their sum, so a number added to it would be lost),
+// added to it when the warden sent it whole, or as the row itself when the
+// warden did not send it.
+func mergeOldCopies(rows []machineDiskUsageCategoryDTO, copies *int) []machineDiskUsageCategoryDTO {
+	for _, r := range rows {
+		if r.ParentKey != nil && *r.ParentKey == diskCategoryOldVersions {
+			parent := diskCategoryOldVersions
+			return append(rows, machineDiskUsageCategoryDTO{Key: diskCategoryOldCopies, ParentKey: &parent, Bytes: copies, InRoot: true})
+		}
+	}
+	for i := range rows {
+		if rows[i].Key == diskCategoryOldVersions && rows[i].ParentKey == nil {
+			rows[i].Bytes = addBytes(rows[i].Bytes, copies)
+			return rows
+		}
+	}
+	return append(rows, machineDiskUsageCategoryDTO{Key: diskCategoryOldVersions, Bytes: copies, InRoot: true})
 }
 
 func subBytes(from, part *int) *int {
