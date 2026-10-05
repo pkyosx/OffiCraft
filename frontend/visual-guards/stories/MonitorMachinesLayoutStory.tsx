@@ -81,10 +81,34 @@ const hardware: MonMachineView = {
   diskUsage,
 };
 
-export type MachinesLayoutState = "normal" | "old" | "chips" | "stale" | "named" | "long" | "claude2" | "codex2" | "nocodex";
+export type MachinesLayoutState =
+  | "normal"
+  | "old"
+  | "chips"
+  | "stale"
+  | "named"
+  | "long"
+  | "claude2"
+  | "codex2"
+  | "nocodex"
+  | "tiny";
 
 const rows: Record<MachinesLayoutState, { machine: MachineView; hw: MonMachineView }> = {
   normal: { machine, hw: hardware },
+  // Slivers of the total at the bar's rounded start (the database, 424 KB as
+  // on a real station) and in its middle (backups).
+  tiny: {
+    machine,
+    hw: {
+      ...hardware,
+      diskUsage: {
+        ...diskUsage,
+        databaseBytes: 424 * 1024,
+        backupsBytes: Math.round(0.5 * GIB),
+        otherBytes: Math.round(1023.9 * GIB) - 424 * 1024 - Math.round(0.5 * GIB) - Math.round(15.6 * GIB) - Math.round(7.7 * GIB),
+      },
+    },
+  },
   // A remote machine named the way machines are actually named: a short host
   // name and a full-length 12-hex id.
   named: {

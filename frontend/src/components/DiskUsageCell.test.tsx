@@ -92,11 +92,11 @@ function rows(): [string, string][] {
   ]);
 }
 
-/** Each bar segment's category and width in percent. */
+/** Each bar segment's category and share in percent. */
 function segments(): [string, number][] {
   return screen
     .queryAllByTestId("disk-usage-seg")
-    .map((seg) => [seg.getAttribute("data-segment") ?? "", parseFloat(seg.style.width)]);
+    .map((seg) => [seg.getAttribute("data-segment") ?? "", parseFloat(seg.style.flexBasis)]);
 }
 
 /** The categories whose list row carries a colour swatch. */
@@ -136,7 +136,7 @@ describe("DiskUsageCell", () => {
     const trigger = screen.getByTestId("disk-usage-trigger");
     expect(trigger.textContent).toBe("41.7 GB");
     expect(trigger.querySelector(".disk-usage__chevron svg")).toBeTruthy();
-    expect(trigger.getAttribute("aria-label")).toBe("磁碟用量明細 41.7 GB");
+    expect(trigger.getAttribute("aria-label")).toBe("機器詳情：磁碟用量 41.7 GB");
     expect(trigger.getAttribute("aria-haspopup")).toBe("dialog");
     expect(screen.queryByTestId("disk-usage-row")).toBeNull();
     fireEvent.click(trigger);
@@ -178,6 +178,30 @@ describe("DiskUsageBreakdown", () => {
       "已離開",
     ]);
     expect(screen.getByTestId("disk-usage-measured").textContent).toBe("量於 12m 前");
+  });
+
+  it("indents the members under 成員 workspace the way Claude and Codex sit under 對話紀錄, each group opening a section", () => {
+    mountBreakdown(FULL);
+    const shape = screen.getAllByTestId("disk-usage-row").map((row) => [
+      row.querySelector(".disk-usage__label")?.textContent ?? "",
+      row.classList.contains("disk-usage__row--sub") ? "sub" : row.classList.contains("disk-usage__row--section") ? "section" : "",
+    ]);
+    expect(shape).toEqual([
+      ["資料庫", ""],
+      ["備份", ""],
+      ["成員 workspace 合計", "section"],
+      ["Mira", "sub"],
+      ["O-179", "sub"],
+      ["O-151已離開", "sub"],
+      ["ow-91c4已離開", "sub"],
+      ["O-163已離開", "sub"],
+      ["其餘 2 位合計", "sub"],
+      ["對話紀錄", "section"],
+      ["Claude", "sub"],
+      ["Codex", "sub"],
+      ["其他", ""],
+      ["硬碟剩餘／總容量", "section"],
+    ]);
   });
 
   it("draws one bar of the five top-level categories, each as wide as its share of the total, with a matching swatch on its row", () => {

@@ -54,21 +54,25 @@
   font-size: 12.5px;
   line-height: 1.5;
 }
+/* The gap between segments is the track showing through, outside every
+ * segment's colour, so even a sliver keeps its colour. Keep the radius well
+ * under a sliver's minimum width: a larger one clips a sliver at either end
+ * down to a "(" curve. */
 .disk-usage__bar {
   display: flex;
+  gap: 2px;
   height: 10px;
   overflow: hidden;
-  border-radius: 5px;
+  border-radius: 2px;
   background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
 }
+/* Sized by its share (flex-basis, set inline); the gaps and the slivers'
+ * minimum come out of the segments in proportion, so the bar always ends on
+ * its own edge. */
 .disk-usage__seg {
-  flex: none;
-  min-width: 2px;
-}
-/* A hairline of the card between neighbours, so two segments never read as
- * one. */
-.disk-usage__seg + .disk-usage__seg {
-  box-shadow: inset 2px 0 0 var(--color-card);
+  flex-grow: 0;
+  flex-shrink: 1;
+  min-width: 4px;
 }
 .disk-usage__seg--database {
   background: var(--disk-seg-database);

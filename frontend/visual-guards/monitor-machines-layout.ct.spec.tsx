@@ -99,6 +99,8 @@
 //                                           → phone detail tests
 //   bar segments not at their share, two categories one colour, a swatch
 //   not its segment's colour                → detail bar test
+//   a divider painted over each segment's edge, the bar's 5px radius back,
+//   segments that may not shrink           → sliver test
 //   scroll shades measured only on scroll    → shade test (no cue at rest)
 //   scroll shades on the wrong side          → shade test
 //   menu focus counting disabled items       → name menu test
@@ -1017,16 +1019,20 @@ test("on a short window the machine detail stays inside the window and scrolls i
 async function barGeometry(page: Page) {
   return page.evaluate(() => {
     const bar = document.querySelector('[data-testid="disk-usage-bar"]')!;
-    const width = bar.getBoundingClientRect().width;
-    return Array.from(bar.querySelectorAll<HTMLElement>('[data-testid="disk-usage-seg"]')).map((seg) => {
+    const segs = Array.from(bar.querySelectorAll<HTMLElement>('[data-testid="disk-usage-seg"]'));
+    // The gaps between segments are not anyone's share.
+    const width = bar.getBoundingClientRect().width - parseFloat(getComputedStyle(bar).columnGap) * (segs.length - 1);
+    const minShare = segs.length ? (parseFloat(getComputedStyle(segs[0]).minWidth) / width) * 100 : 0;
+    return segs.map((seg) => {
       const key = seg.getAttribute("data-segment")!;
       const swatch = document.querySelector(`.disk-usage__swatch[data-segment="${key}"]`)!;
       return {
         key,
         drawn: Math.round((seg.getBoundingClientRect().width / width) * 1000) / 10,
-        given: Math.round(parseFloat(seg.style.width) * 10) / 10,
+        given: Math.round(parseFloat(seg.style.flexBasis) * 10) / 10,
         colour: getComputedStyle(seg).backgroundColor,
         swatch: getComputedStyle(swatch).backgroundColor,
+        minShare,
       };
     });
   });
@@ -1042,8 +1048,8 @@ test("the machine detail's bar draws each category at its share, one colour per 
   const segs = await barGeometry(page);
   expect(segs.map((s) => s.key)).toEqual(["database", "backups", "workspaces", "conversations", "other"]);
   for (const s of segs) {
-    // Within half a point: a sliver is drawn at least 2px wide.
-    expect(Math.abs(s.drawn - s.given), `${s.key} drawn at its share`).toBeLessThanOrEqual(0.5);
+    // Within half a point, or a sliver's minimum width.
+    expect(Math.abs(s.drawn - s.given), `${s.key} drawn at its share`).toBeLessThanOrEqual(Math.max(0.5, s.minShare));
     expect(s.swatch, `${s.key} swatch matches its segment`).toBe(s.colour);
   }
   expect(new Set(segs.map((s) => s.colour)).size, "five categories, five colours").toBe(5);
@@ -1052,12 +1058,92 @@ test("the machine detail's bar draws each category at its share, one colour per 
   expect((await barGeometry(page))[0].colour).toBe("rgb(1, 2, 3)");
 });
 
+/** Decodes a PNG screenshot in the page and returns its pixels' colours. */
+async function screenshotPixels(page: Page, png: Buffer) {
+  return page.evaluate(async (b64) => {
+    const img = new Image();
+    img.src = `data:image/png;base64,${b64}`;
+    await img.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext("2d")!;
+    ctx.drawImage(img, 0, 0);
+    const data = ctx.getImageData(0, 0, img.width, img.height).data;
+    const pixels: number[][] = [];
+    for (let i = 0; i < data.length; i += 4) pixels.push([data[i], data[i + 1], data[i + 2]]);
+    return { pixels, width: img.width, height: img.height };
+  }, png.toString("base64"));
+}
+
+/** Columns of a segment's screenshot that are its own colour from top to
+ * bottom: a block, where a corner-clipped sliver is only a curve. */
+async function solidColumns(page: Page, seg: ReturnType<Page["locator"]>) {
+  const colour = await seg.evaluate((el) => getComputedStyle(el).backgroundColor);
+  const [r, g, b] = colour.match(/\d+/g)!.map(Number);
+  const shot = await seg.screenshot();
+  const { pixels, width: cols, height: rows } = await screenshotPixels(page, shot);
+  let solid = 0;
+  for (let x = 0; x < cols; x++) {
+    let all = true;
+    // The first and last rows may be a partial pixel of whatever is around.
+    for (let y = 1; y < rows - 1; y++) {
+      const [pr, pg, pb] = pixels[y * cols + x];
+      if (Math.abs(pr - r) > 8 || Math.abs(pg - g) > 8 || Math.abs(pb - b) > 8) all = false;
+    }
+    if (all) solid++;
+  }
+  return solid;
+}
+
+test("a category that is a sliver of the total, at the bar's rounded start or in its middle, is still a block of its own colour, and the bar ends on its edge", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await mount(<MonitorMachinesLayoutStory width={996} states={["tiny"]} />);
+  await page.getByTestId("disk-usage-trigger").click();
+  const geo = await page.evaluate(() => {
+    const bar = document.querySelector('[data-testid="disk-usage-bar"]')!;
+    const segs = Array.from(bar.children) as HTMLElement[];
+    return {
+      order: segs.map((s) => s.getAttribute("data-segment")),
+      shares: segs.map((s) => parseFloat(s.style.flexBasis)),
+      lastEndsOnBar: Math.abs(segs[segs.length - 1].getBoundingClientRect().right - bar.getBoundingClientRect().right) <= 0.5,
+    };
+  });
+  expect(geo.order, "control: database first, backups in the middle").toEqual([
+    "database",
+    "backups",
+    "workspaces",
+    "conversations",
+    "other",
+  ]);
+  expect(geo.shares[0], "control: the database is well under one pixel's share").toBeLessThan(0.1);
+  expect(geo.shares[1], "control: so are the backups").toBeLessThan(0.1);
+  expect(geo.lastEndsOnBar, "the last segment ends on the bar's edge, not clipped past it").toBe(true);
+  // A 4px sliver at any x has at least three whole columns of its own colour;
+  // a divider painted over its edge leaves fewer. At the bar's start the
+  // corner takes the ends of one column more; the old 5px radius left none.
+  for (const [key, least] of [
+    ["database", 2],
+    ["backups", 3],
+  ] as const) {
+    const seg = page.locator(`[data-testid="disk-usage-seg"][data-segment="${key}"]`);
+    expect(await solidColumns(page, seg), `${key}: whole columns of its own colour`).toBeGreaterThanOrEqual(least);
+  }
+});
+
 // The detail on a phone: the box fits the window, the bar shrinks with it, and
 // a long name and the id wrap instead of pushing the page sideways. Measured
 // under the fonts production loads.
-const DETAIL_LONG_NAME = "Seth 的 Mac Studio（辦公室三樓靠窗）eva-m5-warden-build-farm-node-0001-us-west";
-for (const width of [320, 375, 390, 414]) {
-  test(`${width}px phone: the machine detail fits the window, the bar shrinks and a long name wraps`, async ({
+// One name with places to break, one with none at all.
+const DETAIL_LONG_NAMES = [
+  "Seth 的 Mac Studio（辦公室三樓靠窗）eva-m5-warden-build-farm-node-0001-us-west",
+  "evam5wardenbuildfarmnode0001uswestrackseven",
+];
+for (const width of [320, 375, 390, 414]) for (const DETAIL_LONG_NAME of DETAIL_LONG_NAMES) {
+  test(`${width}px phone, name "${DETAIL_LONG_NAME}": the machine detail fits the window, the bar shrinks and a long name wraps`, async ({
     mount,
     page,
   }) => {

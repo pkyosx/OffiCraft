@@ -97,7 +97,7 @@ export function DiskUsageBreakdown({ usage }: { usage: MachineDiskUsageView }) {
               className={`disk-usage__seg disk-usage__seg--${s.segment}`}
               data-segment={s.segment}
               data-testid="disk-usage-seg"
-              style={{ width: `${s.share}%` }}
+              style={{ flexBasis: `${s.share}%` }}
             />
           ))}
         </div>
@@ -176,10 +176,10 @@ function breakdownRows(
   };
   push("database", d.database, u.databaseBytes, { segment: "database" });
   push("backups", d.backups, u.backupsBytes, { segment: "backups" });
-  push("workspaces", d.workspaces, u.workspaceBytes, { segment: "workspaces" });
+  push("workspaces", d.workspaces, u.workspaceBytes, { segment: "workspaces", section: true });
 
   const members = [...u.members].sort((a, b) => b.totalBytes - a.totalBytes);
-  members.slice(0, TOP_MEMBERS).forEach((m, i) => {
+  members.slice(0, TOP_MEMBERS).forEach((m) => {
     const label = (
       <>
         {m.name ?? m.memberId}
@@ -190,11 +190,11 @@ function breakdownRows(
         )}
       </>
     );
-    push(`top:${m.memberId}`, label, m.totalBytes, { section: i === 0 });
+    push(`top:${m.memberId}`, label, m.totalBytes, { sub: true });
   });
   const rest = members.slice(TOP_MEMBERS);
   if (rest.length > 0) {
-    push("members-rest", otherMembers(rest.length), rest.reduce((sum, m) => sum + m.totalBytes, 0));
+    push("members-rest", otherMembers(rest.length), rest.reduce((sum, m) => sum + m.totalBytes, 0), { sub: true });
   }
 
   const conversationAt = rows.length;

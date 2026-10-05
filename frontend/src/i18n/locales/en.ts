@@ -1634,7 +1634,7 @@ export const en: Dict = {
     diskUsage: {
       column: "Disk",
       notMeasured: "Not measured",
-      open: "Disk usage breakdown",
+      open: "Machine details: disk usage",
       database: "Database",
       backups: "Backups",
       workspaces: "Member workspaces",
@@ -1776,8 +1776,6 @@ export const en: Dict = {
       onboardConfirm: "Create",
       onboardBusy: "Adding…",
       onboardError: "Failed to add machine",
-      // ── the machine name menu: rename, then the three verbs install /
-      // uninstall / delete ──
       detail: "Details",
       detailTitle: "Machine details",
       machineId: "Machine ID",

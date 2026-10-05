@@ -1661,7 +1661,7 @@ export const zh = {
     diskUsage: {
       column: "磁碟",
       notMeasured: "尚未量測",
-      open: "磁碟用量明細",
+      open: "機器詳情：磁碟用量",
       database: "資料庫",
       backups: "備份",
       workspaces: "成員 workspace 合計",
@@ -1811,7 +1811,6 @@ export const zh = {
       onboardConfirm: "建立",
       onboardBusy: "新增中…",
       onboardError: "新增機器失敗",
-      // ── 三動詞:安裝 / 解除安裝 / 刪除 (install / uninstall / delete) ──
       // 機器名稱選單的項目
       detail: "詳情",
       detailTitle: "機器詳情",

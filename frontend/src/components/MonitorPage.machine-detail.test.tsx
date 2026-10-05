@@ -121,7 +121,7 @@ function readDialog(d: HTMLElement) {
     total: within(d).getByTestId("mon-machine-detail-total").textContent,
     segments: within(d)
       .queryAllByTestId("disk-usage-seg")
-      .map((s) => [s.getAttribute("data-segment"), s.style.width]),
+      .map((s) => [s.getAttribute("data-segment"), s.style.flexBasis]),
     rows: within(d)
       .queryAllByTestId("disk-usage-row")
       .map((r) => r.textContent),
@@ -242,6 +242,9 @@ describe("MonitorPage 機器詳情 dialog", () => {
     try {
       renderMonitor();
       fireEvent.click(await machineAction("mon-detail-btn", 1));
+      expect(screen.getByTestId("disk-usage-trigger").getAttribute("aria-label")).toBe(
+        "Machine details: disk usage 40.0 GB"
+      );
       const d = screen.getByRole("dialog", { name: "Machine details" });
       expect(within(d).getByText("Machine ID")).toBeTruthy();
       expect(within(d).getByText("OffiCraft disk usage")).toBeTruthy();
