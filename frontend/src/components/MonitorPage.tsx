@@ -58,6 +58,7 @@ import {
 import { RuntimeActionMenu } from "./RuntimeActionMenu";
 import { RuntimeLoginDialog } from "./RuntimeLoginDialog";
 import { RuntimeUpgradeDialog } from "./RuntimeUpgradeDialog";
+import { WarningMark } from "./RuntimeLoginWarningMark";
 // The 歸零 pill on the account card is the SAME control as the one on the member
 // panel — same look, same danger colour, same size — so it wears the `mp` block's
 // class rather than a second copy of those rules under `mon`. Importing the
@@ -1405,16 +1406,7 @@ export function MachinesTable({
                       {m.machineId}
                     </span>
                     <MachineOnlineDot online={m.online} />
-                    {/* Nothing is rendered here for a machine whose
-                     * cutover is PROVEN in effect — and that silence is
-                     * now the point: a blank means "measured, fine", and
-                     * the two states that used to share that blank say so
-                     * for themselves below. The badge that used to live
-                     * here named an internal shape vocabulary nobody
-                     * outside this codebase can read, and its green face
-                     * asserted a cutover had taken effect when it only
-                     * ever observed warden's own parent. */}
-                    <CutoverEffectLine effect={m.cutoverEffect} />
+                    <CutoverEffectMark effect={m.cutoverEffect} />
                   </div>
                 </td>
                 {/* Per-runtime version columns (T-674d), replacing the old
@@ -1619,45 +1611,26 @@ function MachineOnlineDot({ online }: { online: boolean }) {
   );
 }
 
-/** What this row says about the cutover — which for THREE of the four states is
- * NOTHING, and that is the contract:
+/** The cutover verdict beside the online dot: the members' warning
+ * exclamation for "not_effective", nothing for the other three states. The dot
+ * stays online/offline only.
  *
- *   "not_effective" proven otherwise → the short amber mark. The only state
- *                   with a face, and the face is deliberately terse.
- *   "effective"     proven in effect → silence.
- *   "unproven"      the machine checked and could not settle it → silence.
- *   null            the machine has never reported → silence.
+ * ⚠️ A proven "not_effective" must always leave a visible mark. When every state
+ * rendered nothing, a machine whose cutover had not taken effect looked healthy
+ * for hours. "unproven" and null are silent on purpose: they are the absence of
+ * a verdict, and the reader can do nothing with them.
  *
- * ⚠️ This used to be three full sentences, and they were added to fix a real
- * incident: before them all four states shared one blank, so a machine whose
- * cutover had NOT taken effect looked healthy for three hours. **That incident
- * is still fenced off** — the proven failure still has a face, it is just very
- * short now (owner 2026-08-04, rc-aaa0e7967f8a: the three sentences were too
- * long, told nobody what to do, and named a concept the reader does not have).
- *
- * What DID fall back to silence are the two "no answer" states, and that is the
- * point rather than a regression: "the box checked and could not tell" and "the
- * box has never checked" are both the ABSENCE of a verdict, and a reader who
- * finishes either sentence cannot do anything with it. A line that costs a row
- * of screen and buys no action is worse than no line. The distinction that the
- * incident was about — measured-and-failed vs everything else — is exactly the
- * one that survives.
- *
- * The mark carries NO internal vocabulary and tells nobody to restart anything:
- * this surface makes the state VISIBLE and stops there. It does not pretend to
- * explain what is wrong either — whoever sees it is meant to come and ask. */
-function CutoverEffectLine({ effect }: { effect: CutoverEffect }) {
+ * The hint says how to make it take effect: the member sessions live in one
+ * tmux server per machine, which only exits once none of them is left, so
+ * restarting members one at a time keeps the old server. */
+function CutoverEffectMark({ effect }: { effect: CutoverEffect }) {
   const { t } = useI18n();
-  const m = t.monitor.machine;
   if (effect !== "not_effective") return null;
   return (
-    <span
-      className="mon-cutover-warn"
-      data-testid="mon-cutover-warning"
-      role="status"
-    >
-      {m.cutoverNotInEffect}
-    </span>
+    <WarningMark
+      hint={t.monitor.machine.cutoverNotInEffectHint}
+      testId="mon-cutover-warning"
+    />
   );
 }
 

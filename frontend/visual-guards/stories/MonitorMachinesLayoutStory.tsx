@@ -1,7 +1,8 @@
 // Story — the 機器資訊 table in its looks: a plain row, a row whose
 // Claude and Codex cells carry the 版本太舊 and 未登入 chips and whose disk was
 // never measured, and a row whose telemetry went stale (過期 on every cell) on
-// an offline machine whose cutover is 未生效 — the widest 機器 cell of those three. Codex's 版本太舊 is not something
+// an offline machine whose cutover is not in effect (the exclamation beside the
+// dot) — the widest 機器 cell of those three. Codex's 版本太舊 is not something
 // the server sends today (below_notify_minimum is Claude's alone); it is here
 // because both columns render the same fields the same way and must fit them.
 // More on request: a row whose Claude carries 版本太舊 alone, a remote machine
@@ -140,7 +141,7 @@ export function MonitorMachinesLayoutStory({
 }: {
   states?: MachinesLayoutState[];
   width?: number;
-  /** Every table with no machine (the 無機器 row), keeping each section's
+  /** Every table with no machine (the 尚無機器 row), keeping each section's
    * table mounted so a test can remove the rows of a measured table. */
   empty?: boolean;
   /** Every machine renamed to this, as a server-sent name (not an edit). */

@@ -460,25 +460,11 @@
     bottom: -10px;
     left: -6px;
   }
-}
-
-/* "not in effect" — the ONLY cutover state with a face, and since 2026-08-04 a
-   very short one (the long sentence became a terse mark; see CutoverEffectLine).
-   There is deliberately no sibling rule for the other three states: they render
-   nothing at all, so there is nothing to style. The badge these replaced had a
-   green face, and a green face is what let a machine whose cutover had not taken
-   effect read as healthy. Amber is the table's existing "look at this" colour.
-   🔴 Kept as `display: block` — a own-line sentence shape, NOT a fixed-height
-   badge/chip. That is not laziness: a fixed height + shrinkable flex item + a
-   CJK label is exactly the combination that folds 未生效 into two stacked lines
-   and bursts the box (frontend/AGENTS.md, T-5e79; the 390–414px band). This
-   shape has no fixed height, so the defect cannot occur here. */
-.mon-cutover-warn {
-  display: block;
-  margin-top: 0.25em;
-  font-size: 0.8em;
-  line-height: 1.35;
-  color: var(--color-warn-fg);
+  /* The not-in-effect exclamation sits one 6px gap to the right; past that the
+   * dot's area would take taps meant for it. */
+  .mon-online-dot:has(+ .runtime-login-warning)::after {
+    right: -6px;
+  }
 }
 
 /* neutral ghost button (cancel / close) — shares the .btn silhouette */
@@ -620,7 +606,7 @@
       inset -1px 0 0 color-mix(in srgb, var(--color-overlay) 14%, transparent),
       inset -20px 0 16px -14px color-mix(in srgb, var(--color-shadow) 30%, transparent);
   }
-  /* The 無機器 row's one cell spans the whole table, so as 機器 its shade
+  /* The 尚無機器 row's one cell spans the whole table, so as 機器 its shade
    * would hang past the table's right edge and scroll the frame. */
   .mon-table--machines td:only-child::after,
   .mon-table--machines td:only-child::before {

@@ -11,10 +11,10 @@
 // line left the default 伺服器這一台 row scrolling at the 1280px desktop. A table wider
 // than its frame scrolls inside it with 機器 fixed on the left, so every row
 // still names its machine, and 操作 fixed on the right. 機器 is only as wide as
-// its widest row's name, id and online dot need (the state word moved into the
-// dot's hint), so at the 1280px desktop the default name, real machine names
-// and the offline 未生效 row leave 磁碟 in view; a very long name still widens
-// the table, which scrolls.
+// its widest row's name, id, online dot and not-in-effect exclamation need
+// (the words live in their hints), so at the 1280px desktop the default name,
+// real machine names and the offline not-in-effect row leave 磁碟 in view; a
+// very long name still widens the table, which scrolls.
 //
 // MUTANTS (each verified red):
 //   marks inline AND auto table layout (the layout before the fix)
@@ -40,13 +40,19 @@
 //   min-width measured only on render (no ResizeObserver, no fonts.ready)
 //                                           → phone-then-desktop test, name-in-place test
 //   names not observed (only the frame)      → name-in-place test
+//   frame not observed (only the names)      → phone-then-desktop same-size test
 //   measured while the rename field is open  → rename field test
 //   no machine: the last minimum kept         → last machine test
-//   the 無機器 cell keeps 機器's shade         → last machine test (frame scrolls 24px)
+//   the 尚無機器 cell keeps 機器's shade       → last machine test (frame scrolls 24px)
 //   machine state word back beside the dot   → dot tests (desktop, phone), 機器 cut
 //   dot click no longer pins its hint         → desktop dot test
 //   dot without its aria-label               → desktop dot test
 //   phone tap area around the dot removed    → phone dot test
+//   未生效 back as text beside the dot        → dot tests (desktop, phone)
+//   exclamation on an effective row too      → mark tests (desktop, phone)
+//   exclamation without its aria-label       → desktop mark test
+//   exclamation click no longer pins         → desktop mark test
+//   dot's tap area over the exclamation      → phone mark test
 //   磁碟 column removed or moved              → column order test
 //   磁碟 column narrowed                      → 磁碟 value test
 //   機器 column not sticky                    → 機器 left edge moves on scroll
@@ -883,13 +889,14 @@ test("at 996px (the 1280px desktop) a table of real-length machine names fits it
 
 // Every new site's own machine is named 伺服器這一台, so this is the row most
 // tables have. It has to fit the 1280px desktop with room to spare: fonts on a
-// real machine measure a few pixels wider than here. The offline 未生效 row has
-// the widest 機器 cell of the plain states; it fits too in zh (en's longer
-// "not effective" still scrolls it by about 10px).
+// real machine measure a few pixels wider than here. The offline not-in-effect
+// row has the widest 機器 cell of the plain states; it fits too, in both
+// languages, now that its mark is an icon.
 for (const [language, state] of [
   ["zh", "normal"],
   ["en", "normal"],
   ["zh", "stale"],
+  ["en", "stale"],
 ] as const) {
   test(`${language}, at 996px (the 1280px desktop) the ${state} 伺服器這一台 row fits with 24px to spare and 磁碟 clear of ⚙`, async ({
     mount,
@@ -995,7 +1002,7 @@ async function settled(page: Page) {
   return measured(page);
 }
 
-// The story's 996px box less its 1px border; CSS alone sets it.
+// The story's 996px box less its border, 1px on each side; CSS alone sets it.
 const FRAME = 994;
 const px = (variable: string) => parseFloat(variable);
 
@@ -1023,6 +1030,40 @@ test("mounted on a phone, then widened to the 1280px desktop, the table measures
   ).toBe("block");
   expect(await measured(page), "control: nothing measured in card mode").toEqual({ variable: "", table: 390, overflow: 0 });
   await page.setViewportSize({ width: 1016, height: 900 });
+  await expect.poll(() => measured(page)).toEqual(expected);
+});
+
+// The same crossing when no name item changes size. Today card mode sets the
+// cell's text a half pixel larger, so the names' own observers notice the
+// crossing too; with that size pinned equal, only the frame's observer can.
+test("mounted on a phone, then widened, the table measures its minimum even when no name item changes size", async ({ mount, page }) => {
+  const SAME_SIZE = ".mon-machine-name > * { font-size: 13px !important; }";
+  const items = () =>
+    page.evaluate(() =>
+      Array.from(document.querySelectorAll(".mon-machine-name > *")).map((el) => {
+        const r = el.getBoundingClientRect();
+        return [r.width, r.height];
+      })
+    );
+  await page.setViewportSize({ width: 1016, height: 900 });
+  const desktop = await mount(<MonitorMachinesLayoutStory width={996} states={["normal"]} />);
+  await page.addStyleTag({ content: SAME_SIZE });
+  await desktop.update(<MonitorMachinesLayoutStory width={996} states={["normal"]} name="m5" />);
+  const expected = await settled(page);
+  const desktopItems = await items();
+  await desktop.unmount();
+
+  await page.setViewportSize({ width: 390, height: 900 });
+  await mount(<MonitorMachinesLayoutStory width={996} states={["normal"]} name="m5" />);
+  await page.evaluate(() => document.fonts.ready);
+  expect(
+    await page.locator("tbody tr").first().evaluate((tr) => getComputedStyle(tr).display),
+    "control: rows are cards"
+  ).toBe("block");
+  expect(await items(), "control: no name item changes size in card mode").toEqual(desktopItems);
+  expect(await measured(page), "control: nothing measured in card mode").toEqual({ variable: "", table: 390, overflow: 0 });
+  await page.setViewportSize({ width: 1016, height: 900 });
+  expect(await items(), "control: no name item changed size on the way back").toEqual(desktopItems);
   await expect.poll(() => measured(page)).toEqual(expected);
 });
 
@@ -1085,7 +1126,7 @@ test("an open rename field leaves the table's minimum as it was, and the table s
   await expect(page.getByRole("textbox", { name: "機器改名" }), "control: the field is still open").toBeVisible();
 });
 
-test("when the last machine goes, its minimum goes with it and the 無機器 row does not scroll", async ({ mount, page }) => {
+test("when the last machine goes, its minimum goes with it and the 尚無機器 row does not scroll", async ({ mount, page }) => {
   await page.setViewportSize({ width: 1016, height: 900 });
   const table = await mount(<MonitorMachinesLayoutStory width={996} states={["long"]} />);
   const long = await settled(page);
@@ -1096,7 +1137,7 @@ test("when the last machine goes, its minimum goes with it and the 無機器 row
   });
   expect(long.overflow, "control: a long name's minimum scrolls the frame").toBeGreaterThan(0);
   await table.update(<MonitorMachinesLayoutStory width={996} states={["long"]} empty />);
-  await expect(page.locator("tbody td"), "control: the 無機器 row").toHaveText("尚無機器,請先新增機器 / 上線");
+  await expect(page.locator("tbody td"), "control: the 尚無機器 row").toHaveText("尚無機器,請先新增機器 / 上線");
   await expect.poll(() => measured(page)).toEqual({ variable: "", table: FRAME, overflow: 0 });
   await expect.poll(() => shades(page)).toEqual({ left: 0, right: 0 });
 });
@@ -1114,7 +1155,7 @@ test("desktop: the 機器 cell shows the online dot without its word; hover show
 }) => {
   await page.setViewportSize({ width: 1500, height: 900 });
   await mount(<MonitorMachinesLayoutStory width={1400} states={["normal", "stale"]} />);
-  expect(await machineText(page)).toEqual(["伺服器這一台 m-server-self", "伺服器這一台 m-server-self 未生效"]);
+  expect(await machineText(page)).toEqual(["伺服器這一台 m-server-self", "伺服器這一台 m-server-self"]);
   const dots = page.getByTestId("mon-machine-online");
   await expect(dots).toHaveCount(2);
   expect(await dots.evaluateAll((els) => els.map((el) => [el.getAttribute("role"), el.getAttribute("aria-label")]))).toEqual([
@@ -1157,7 +1198,7 @@ test.describe("phone card mode on a touch screen", () => {
       await page.locator("tbody tr").first().evaluate((tr) => getComputedStyle(tr).display),
       "control: rows are cards"
     ).toBe("block");
-    expect(await machineText(page)).toEqual(["伺服器這一台 m-server-self", "伺服器這一台 m-server-self 未生效"]);
+    expect(await machineText(page)).toEqual(["伺服器這一台 m-server-self", "伺服器這一台 m-server-self"]);
     const dots = page.getByTestId("mon-machine-online");
     const tip = page.getByRole("tooltip");
     await dots.first().tap();
@@ -1175,5 +1216,114 @@ test.describe("phone card mode on a touch screen", () => {
     await page.touchscreen.tap(at.x, at.y);
     await expect(tip).toHaveText("離線");
     expect(await overflow(page), "the open hint does not scroll the page").toEqual({ page: 0, monitor: 0, frame: 0 });
+  });
+});
+
+// A proven not-in-effect cutover shows the members' warning exclamation right
+// after the online dot; its sentence is the hint and the accessible name.
+const NOT_IN_EFFECT =
+  "未生效：這台機器的成員還在更新前啟動的環境裡執行，要先把這台機器的成員全部停止，再喚醒，才會生效。";
+
+type Box = { x: number; y: number; width: number; height: number };
+const overlaps = (a: Box, b: Box) =>
+  a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+
+/** The stale row's id chip, dot and exclamation, and the open hint if any. */
+async function markBoxes(page: Page) {
+  const row = page.locator('[data-state="stale"] tbody td:first-child');
+  const box = async (sel: string) => (await row.locator(sel).boundingBox())!;
+  return {
+    id: await box('[data-testid="mon-machine-id"]'),
+    dot: await box('[data-testid="mon-machine-online"]'),
+    mark: await box('[data-testid="mon-cutover-warning"]'),
+  };
+}
+
+function inViewport(b: Box, vw: number, vh: number) {
+  return b.x >= 0 && b.y >= 0 && b.x + b.width <= vw && b.y + b.height <= vh;
+}
+
+test("desktop: only the not-in-effect row has the exclamation; hover shows the sentence, a click pins it, and neither covers the id or the dot", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await mount(<MonitorMachinesLayoutStory width={996} states={["normal", "stale"]} />);
+  const marks = page.getByTestId("mon-cutover-warning");
+  await expect(marks).toHaveCount(1);
+  await expect(page.locator('[data-state="stale"] [data-testid="mon-cutover-warning"]')).toHaveCount(1);
+  await expect(page.getByRole("img", { name: NOT_IN_EFFECT })).toHaveCount(1);
+
+  const b = await markBoxes(page);
+  expect(
+    { afterId: b.dot.x >= b.id.x + b.id.width, afterDot: b.mark.x >= b.dot.x + b.dot.width, sameLine: overlaps({ ...b.mark, x: b.dot.x }, b.dot) },
+    "the exclamation sits after the dot on the same line"
+  ).toEqual({ afterId: true, afterDot: true, sameLine: true });
+
+  const tip = page.getByRole("tooltip");
+  await expect(tip).toHaveCount(0);
+  await marks.hover();
+  await expect(tip).toHaveText(NOT_IN_EFFECT);
+  await page.mouse.move(0, 0);
+  await expect(tip).toHaveCount(0);
+
+  await marks.click();
+  await page.mouse.move(0, 0);
+  await expect(tip, "a click keeps it open after the pointer leaves").toHaveText(NOT_IN_EFFECT);
+  const t = (await tip.boundingBox())!;
+  expect({
+    inside: inViewport(t, 1280, 900),
+    coversId: overlaps(t, b.id),
+    coversDot: overlaps(t, b.dot),
+    belowMark: t.y >= b.mark.y + b.mark.height,
+  }).toEqual({ inside: true, coversId: false, coversDot: false, belowMark: true });
+  await page.mouse.click(5, 5);
+  await expect(tip).toHaveCount(0);
+});
+
+test.describe("phone card mode on a touch screen: the exclamation", () => {
+  test.use({ hasTouch: true });
+
+  test("390px: a tap on the exclamation shows its sentence inside the window; a tap just right of the dot is still the dot's", async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 900 });
+    await mount(<MonitorMachinesLayoutStory states={["normal", "stale"]} />);
+    expect(await page.evaluate(() => window.matchMedia("(hover: none)").matches), "control: a touch screen").toBe(true);
+    expect(
+      await page.locator("tbody tr").first().evaluate((tr) => getComputedStyle(tr).display),
+      "control: rows are cards"
+    ).toBe("block");
+    await expect(page.getByTestId("mon-cutover-warning")).toHaveCount(1);
+    const b = await markBoxes(page);
+    expect({
+      markOnId: overlaps(b.mark, b.id),
+      markOnDot: overlaps(b.mark, b.dot),
+      afterDot: b.mark.x >= b.dot.x + b.dot.width,
+    }).toEqual({ markOnId: false, markOnDot: false, afterDot: true });
+
+    // Who takes a tap: 1px inside the exclamation's left edge, and 1px right of
+    // the dot's circle.
+    const hit = (x: number, y: number) =>
+      page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest("[data-testid]")?.getAttribute("data-testid"), { x, y });
+    const midY = b.mark.y + b.mark.height / 2;
+    expect({
+      markEdge: await hit(b.mark.x + 1, midY),
+      besideDot: await hit(b.dot.x + b.dot.width + 1, b.dot.y + b.dot.height / 2),
+    }).toEqual({ markEdge: "mon-cutover-warning", besideDot: "mon-machine-online" });
+
+    const tip = page.getByRole("tooltip");
+    await page.touchscreen.tap(b.mark.x + b.mark.width / 2, midY);
+    await expect(tip).toHaveText(NOT_IN_EFFECT);
+    const t = (await tip.boundingBox())!;
+    expect({
+      inside: inViewport(t, 390, 900),
+      coversId: overlaps(t, b.id),
+      coversDot: overlaps(t, b.dot),
+    }).toEqual({ inside: true, coversId: false, coversDot: false });
+    expect(await overflow(page), "the open hint does not scroll the page").toEqual({ page: 0, monitor: 0, frame: 0 });
+    await page.touchscreen.tap(5, 5);
+    await expect(tip).toHaveCount(0);
   });
 });

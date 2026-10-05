@@ -79,11 +79,27 @@ export function RuntimeLoginWarningMark({
     .map((e) => msg.runtimeSignInHint(e.runtime));
   const hint = [...new Set([...sorted.map((e) => e.line), ...signIn])].join("\n");
   const tone = markTone(new Set(entries.map((e) => e.reason)));
+  return <WarningMark hint={hint} tone={tone} testId="runtime-login-warning" />;
+}
+
+/** The exclamation itself: the hint shows on hover or focus, a click or tap pins
+ * it (the only way to read it on a phone), and the whole hint is its accessible
+ * name. Any other warning beside a status dot uses this rather than a look of
+ * its own. */
+export function WarningMark({
+  hint,
+  tone = "danger",
+  testId,
+}: {
+  hint: string;
+  tone?: "danger" | "server";
+  testId: string;
+}) {
   return (
     <InstantHint
       hint={hint}
       className={`runtime-login-warning runtime-login-warning--${tone}`}
-      data-testid="runtime-login-warning"
+      data-testid={testId}
       role="img"
       aria-label={hint}
     >

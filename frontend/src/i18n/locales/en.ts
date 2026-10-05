@@ -1894,36 +1894,11 @@ export const en: Dict = {
       hardwareBad: "bad value",
       hardwareBadHint:
         "This machine reported values that cannot be shown. Make sure it is running the latest version.",
-      // ── the cutover mark. Of the four states only ONE speaks — the proven
-      // failure; the other three (measured and confirmed in effect / measured
-      // but undecidable / never measured) render nothing at all.
-      //
-      // 🔴 owner 2026-08-04 picked ① on rc-aaa0e7967f8a: drop all three long
-      // sentences, keep one very short mark on the proven failure. Verbatim:
-      // "these three are all too long, and can the people who see them do
-      // anything? do they even understand what happened?" All three complaints
-      // hold:
-      //   1. Too long — each was a full line of prose eating the machine's row.
-      //   2. Not actionable — the old comment itself wrote "a warning nobody
-      //      can act on is not a warning" and then, three lines later, "none of
-      //      them tells anyone to restart anything". **It contradicted itself**,
-      //      and not one of the three told the reader what to do.
-      //   3. Not understandable — the old copy already avoided anchor / legacy,
-      //      but "a change to how it runs its agents" is itself an internal
-      //      concept: the reader does not know what that is or how bad it is.
-      //
-      // ⇒ **The short mark does not pretend to explain; it only says "something
-      // is off here".** Not spelling out what is off is a deliberate trade: the
-      // person who sees it has to come and ask, and that beats a sentence whose
-      // every word is legible but whose point is unusable.
-      //
-      // ⚠️ The three sentences were added to fix a real incident: before them,
-      // three states shared one blank, so a machine whose cutover had NOT taken
-      // effect looked healthy for three hours. **That incident is still fenced
-      // off** — the proven failure still has a face, it is just a short one.
-      // Only the two "no answer" states fall back to silence, and they never
-      // had anything to say (reading them leads to no action).
-      cutoverNotInEffect: "Not in effect",
+      // The machine-cell exclamation's hint, shown only on a proven failure.
+      // "Stop all, then wake", never "restart": restarting members one at a
+      // time keeps the old process that carries them running, so nothing changes.
+      cutoverNotInEffectHint:
+        "Not in effect: the members on this machine are still running in an environment started before the update. Stop every member on this machine first, then wake them, for it to take effect.",
     },
   },
   // ── Backup health (T-da06) — is the scheduled backup still producing

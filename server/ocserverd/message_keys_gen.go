@@ -309,7 +309,7 @@ var messageKeys = map[string]bool{
 	"monitor.machine.copy":                             true,
 	"monitor.machine.copyBootCmd":                      true,
 	"monitor.machine.copyBootCmdError":                 true,
-	"monitor.machine.cutoverNotInEffect":               true,
+	"monitor.machine.cutoverNotInEffectHint":           true,
 	"monitor.machine.deleteBusy":                       true,
 	"monitor.machine.deleteConfirm":                    true,
 	"monitor.machine.deleteConfirmBodyLead":            true,
