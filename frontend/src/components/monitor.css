@@ -431,17 +431,42 @@
   /* Same reason for the name: the menu trigger's `nowrap` (shared with the
    * version pills) would keep a long name on one line past the card's edge.
    * It wraps like the plain name did; a button centres its lines unless told
-   * otherwise. */
+   * otherwise.
+   * Block, not the trigger's inline-flex: as a flex item the wrapped name
+   * takes the whole width and the chevron lands at the card's right edge;
+   * in text flow the chevron follows the name's last word. The padding keeps
+   * a one-line name 24px tall with its line centred, as the flex trigger had
+   * it, which the dot's offset below relies on. */
   .mon-machine-name .runtime-menu__trigger {
+    display: block;
+    min-height: var(--mon-name-row);
+    /* -1px: the trigger's border, inside its border-box min-height. */
+    padding-block: max(0px, (var(--mon-name-row) - 1lh) / 2 - 1px);
     white-space: normal;
     text-align: start;
   }
+  /* Centred on its line box, as the flex trigger centred it; the 6px stands
+   * in for the trigger's gap, which text flow ignores. */
+  .mon-machine-name .runtime-menu__chevron {
+    align-items: center;
+    height: 1lh;
+    margin-left: 6px;
+    vertical-align: top;
+  }
+  /* Centred on the whole cell line, a dot beside a two-line name sat between
+   * its lines. Top-aligned and pushed down to the middle of the trigger's
+   * first line (centred in --mon-name-row, see above), it stays on line one;
+   * for a one-line name that is where centring put it. */
+  .mon-machine-name .mon-online-dot {
+    align-self: flex-start;
+    margin-top: calc((var(--mon-name-row) - var(--mon-dot-size)) / 2);
+  }
   /* The cell wraps its items by their one-line width, so a long name would
    * start a line of its own and leave the online dot alone above it. Capped
-   * at what is left beside the dot (9px + the 6px gap), it stays on the dot's
-   * line and wraps there. */
+   * at what is left beside the dot, it stays on the dot's line and wraps
+   * there. */
   .mon-machine-name__menu {
-    max-width: calc(100% - 15px);
+    max-width: calc(100% - var(--mon-dot-size) - var(--mon-name-gap));
   }
 }
 
@@ -635,10 +660,20 @@
 /* machine identity cell — online dot, name (the trigger of the row's
    operations menu), id chip and the not-in-effect mark, ONE column. */
 .mon-machine-name {
+  /* Shared by the dot, the gap after it and the phone card rules that place
+   * the name beside the dot (max-width, the dot's offset): one value each. */
+  --mon-dot-size: 9px;
+  --mon-name-gap: 6px;
+  /* The name trigger's one-line height (its min-height). */
+  --mon-name-row: 24px;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--mon-name-gap);
   flex-wrap: wrap;
+}
+.mon-machine-name .mon-online-dot {
+  width: var(--mon-dot-size);
+  height: var(--mon-dot-size);
 }
 .mon-machine-name__menu {
   display: inline-flex;

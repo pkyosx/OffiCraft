@@ -52,6 +52,9 @@
 //   phone: wrapped name lines centred        → long-name card tests (lines start)
 //   phone: name menu not capped beside the dot → long-name card tests (dot alone
 //                                              on a line above the name)
+//   phone: dot centred on the wrapped name   → long-name card tests (dot on line 1)
+//   phone: trigger back to inline-flex       → long-name card tests (chevron at
+//                                              the card's right edge)
 //   `.mon-stale` border back to --color-border → frame contrast below 1.5
 //   (in the built-in palette --color-border IS --color-card)
 //   no measured min-width (MachinesTable)    → 機器 cut short (sticky, 800px and
@@ -100,7 +103,7 @@
 //   scrolled, the shade drawn without its 1px line → line test (shade box-shadow)
 import { test, expect } from "@playwright/experimental-ct-react";
 import type { Page } from "@playwright/test";
-import { MonitorMachinesLayoutStory } from "./stories/MonitorMachinesLayoutStory";
+import { MonitorMachinesLayoutStory, type MachinesLayoutState } from "./stories/MonitorMachinesLayoutStory";
 
 const STATES = ["normal", "old"] as const;
 
@@ -1700,46 +1703,69 @@ const PHONE_LONG_NAMES = [
   "Seth's MacBook Pro M5 Max office desk by the window",
   "eva-m5-warden-build-farm-node-0001-us-west",
 ];
-for (const width of [375, 390]) {
-  for (const longName of PHONE_LONG_NAMES) {
-    test(`${width}px card, name "${longName}": the name wraps inside the card and still opens its menu inside the window`, async ({
-      mount,
-      page,
-    }) => {
-      await page.setViewportSize({ width, height: 900 });
-      await mount(<MonitorMachinesLayoutStory states={["named"]} name={longName} />);
-      expect(
-        await page.locator("tbody tr").first().evaluate((tr) => getComputedStyle(tr).display),
-        "control: rows are cards"
-      ).toBe("block");
-      expect(await overflow(page)).toEqual({ page: 0, monitor: 0, frame: 0 });
-      const trigger = page.getByRole("button", { name: `機器操作（${longName}）` });
-      const chevron = trigger.locator(".runtime-menu__chevron");
-      await expect(chevron).toBeVisible();
-      const geo = await trigger.evaluate((el) => {
-        const r = (e: Element) => e.getBoundingClientRect();
-        const td = r(el.closest("td")!);
-        const t = r(el);
-        const name = r(el.querySelector(".mon-table__strong")!);
-        const ch = r(el.querySelector(".runtime-menu__chevron")!);
-        const dot = r(el.closest("td")!.querySelector('[data-testid="mon-machine-online"]')!);
-        const range = document.createRange();
-        range.selectNodeContents(el.querySelector(".mon-table__strong")!);
-        const lines = Array.from(range.getClientRects());
-        return {
-          wraps: lines.length > 1,
-          linesStartTogether: lines.every((l) => Math.abs(l.left - lines[0].left) <= 0.5),
-          dotBesideName: dot.right <= name.left && dot.top >= t.top && dot.bottom <= t.bottom,
-          triggerInCard: t.left >= td.left && t.right <= td.right + 0.5,
-          chevronInTrigger: ch.width > 0 && ch.left >= name.right - 0.5 && ch.right <= t.right + 0.5,
-          chevronBesideName: ch.top >= name.top - 0.5 && ch.bottom <= name.bottom + 0.5,
-        };
-      });
-      expect(geo).toEqual({ wraps: true, linesStartTogether: true, dotBesideName: true, triggerInCard: true, chevronInTrigger: true, chevronBesideName: true });
-      await trigger.click();
-      await expect(page.getByRole("menuitem")).toHaveText(["改名稱", "重新安裝", "解除安裝", "刪除"]);
-      expect(await menuOnTop(page)).toEqual(Array(4).fill({ inside: true, onTop: true }));
-      expect(await overflow(page), "the open menu does not scroll the page").toEqual({ page: 0, monitor: 0, frame: 0 });
+// "stale" adds the not-in-effect exclamation after the id chip.
+const PHONE_LONG_CASES: { width: number; name: string; state: MachinesLayoutState }[] = [
+  ...[320, 375, 390].flatMap((width) => PHONE_LONG_NAMES.map((name) => ({ width, name, state: "named" as const }))),
+  { width: 375, name: PHONE_LONG_NAMES[0], state: "stale" },
+  { width: 320, name: PHONE_LONG_NAMES[0], state: "stale" },
+];
+for (const { width, name: longName, state } of PHONE_LONG_CASES) {
+  test(`${width}px card, ${state} row, name "${longName}": the name wraps inside the card, dot on its first line, chevron after its last word`, async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await mount(<MonitorMachinesLayoutStory states={[state]} name={longName} />);
+    expect(
+      await page.locator("tbody tr").first().evaluate((tr) => getComputedStyle(tr).display),
+      "control: rows are cards"
+    ).toBe("block");
+    expect(await overflow(page)).toEqual({ page: 0, monitor: 0, frame: 0 });
+    if (state === "stale") await expect(page.getByTestId("mon-cutover-warning")).toBeVisible();
+    const trigger = page.getByRole("button", { name: `機器操作（${longName}）` });
+    const chevron = trigger.locator(".runtime-menu__chevron");
+    await expect(chevron).toBeVisible();
+    const geo = await trigger.evaluate((el) => {
+      const r = (e: Element) => e.getBoundingClientRect();
+      const mid = (b: { top: number; bottom: number }) => (b.top + b.bottom) / 2;
+      const td = r(el.closest("td")!);
+      const t = r(el);
+      const name = r(el.querySelector(".mon-table__strong")!);
+      const ch = r(el.querySelector(".runtime-menu__chevron")!);
+      const dot = r(el.closest("td")!.querySelector('[data-testid="mon-machine-online"]')!);
+      const range = document.createRange();
+      range.selectNodeContents(el.querySelector(".mon-table__strong")!);
+      // One rect per line box the text sits on (text nodes only, no element).
+      const lines = Array.from(range.getClientRects());
+      const first = lines[0];
+      const last = lines[lines.length - 1];
+      return {
+        wraps: lines.length > 1,
+        linesStartTogether: lines.every((l) => Math.abs(l.left - first.left) <= 0.5),
+        dotBesideName: dot.right <= name.left && dot.top >= t.top && dot.bottom <= t.bottom,
+        // Text rects are as tall as the font, not the line, so both centres
+        // are compared, never a pixel offset.
+        dotOnFirstLine: Math.abs(mid(dot) - mid(first)) <= 2,
+        triggerInCard: t.left >= td.left && t.right <= td.right + 0.5,
+        chevronInTrigger: ch.width > 0 && ch.right <= t.right + 0.5,
+        chevronAfterLastWord: ch.left >= last.right - 0.5 && ch.left - last.right <= 8,
+        chevronOnLastLine: mid(ch) >= last.top && mid(ch) <= last.bottom,
+      };
     });
-  }
+    expect(geo).toEqual({
+      wraps: true,
+      linesStartTogether: true,
+      dotBesideName: true,
+      dotOnFirstLine: true,
+      triggerInCard: true,
+      chevronInTrigger: true,
+      chevronAfterLastWord: true,
+      chevronOnLastLine: true,
+    });
+    await trigger.click();
+    // The stale row is offline: its machine is installed, not reinstalled.
+    await expect(page.getByRole("menuitem")).toHaveText(["改名稱", state === "stale" ? "安裝" : "重新安裝", "解除安裝", "刪除"]);
+    expect(await menuOnTop(page)).toEqual(Array(4).fill({ inside: true, onTop: true }));
+    expect(await overflow(page), "the open menu does not scroll the page").toEqual({ page: 0, monitor: 0, frame: 0 });
+  });
 }
