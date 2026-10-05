@@ -4141,6 +4141,7 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetMember: %v", err)
 		}
+		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/self/stopped", agent, `{}`)
 		if status != 200 {
@@ -4153,6 +4154,7 @@ func TestHandleReportStoppedApiSelfStoppedPost(t *testing.T) {
 			"refocus_deadline": 0,
 			"stop_effect":      "already_reported",
 		})
+		dashboard.wantFrames()
 		wsWantWardenFrames(t, api, ServerSelfHost)
 		again, err := d.GetMember("kip")
 		if err != nil {

@@ -330,3 +330,110 @@ func TestHandleForceStopMember_ReachesTheMachineAStartIsBootingOn(t *testing.T) 
 	apiWantValue(t, "machines the force-stop's STOP reached", any(stops()),
 		any(map[string]any{"mach-old": true, "mach-boot": true}))
 }
+
+// wakingWorkerElsewhere is wakingElsewhere's worker twin: its last landing is
+// mach-old, and the outsource tick has just handed its START to its pin,
+// mach-boot. Answers the machines a STOP for it reached.
+func wakingWorkerElsewhere(t *testing.T) (*apiServer, string, func() map[string]any) {
+	t.Helper()
+	s := newReconcileTestServer(t)
+	s.noOutsource = true
+	putWarden(t, s, "mach-old")
+	connectOnline(t, s, "mach-old")
+	putWarden(t, s, "mach-boot")
+	connectOnline(t, s, "mach-boot")
+	id := newActiveWorker(t, s, false)
+	w, err := s.dal.GetOutsourceWorker(id)
+	if err != nil || w == nil {
+		t.Fatalf("GetOutsourceWorker: %v (%v)", w, err)
+	}
+	w.LastMachineID = "mach-old"
+	if err := s.dal.PutOutsourceWorker(*w); err != nil {
+		t.Fatalf("PutOutsourceWorker: %v", err)
+	}
+	if err := s.dal.SetMemberDesiredMachineID(id, "mach-boot"); err != nil {
+		t.Fatalf("SetMemberDesiredMachineID: %v", err)
+	}
+	s.runOutsourceTick(nowSecs())
+	booted := []any{}
+	for _, f := range drainFrames(t, s, "mach-boot") {
+		if f.Args["member_id"] == id {
+			booted = append(booted, f.RPC)
+		}
+	}
+	apiWantValue(t, "frames the tick sent to the pin", any(booted), any([]any{reconcileCmdStart}))
+	pre, _ := s.dal.GetOutsourceWorker(id)
+	if got := PresenceState(memberFromWorker(*pre), nowSecs(), false); got != MemberPresenceWaking {
+		t.Fatalf("fixture must be in the waking projection, got %q", got)
+	}
+	return s, id, func() map[string]any {
+		stops := map[string]any{}
+		for _, machine := range []string{"mach-old", "mach-boot"} {
+			for _, f := range drainFrames(t, s, machine) {
+				if f.RPC == reconcileCmdStop && f.Args["member_id"] == id {
+					stops[machine] = true
+				}
+			}
+		}
+		return stops
+	}
+}
+
+func TestHandleDeactivateMember_CancellingAWorkerWakeReachesTheBootingMachineAndTheLastLanding(t *testing.T) {
+	s, id, stops := wakingWorkerElsewhere(t)
+
+	rec := httptest.NewRecorder()
+	s.HandleDeactivateMemberApiMembersMemberIdDeactivatePost(rec,
+		taskReq(t, "POST", "/api/members/"+id+"/deactivate", map[string]any{},
+			wireOwnerID, "owner"), id)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("deactivate: %d %s", rec.Code, rec.Body.String())
+	}
+	apiWantValue(t, "machines the cancel's STOP reached", any(stops()),
+		any(map[string]any{"mach-old": true, "mach-boot": true}))
+	// The stop reached the booting START, so the START no longer holds the FSM.
+	apiWantValue(t, "the reconcile state after the cancel",
+		any(s.reconcileStateOf(id).LastCommand), any(reconcileCmdStop))
+}
+
+func TestHandleForceStopMember_AWorkerStopReachesTheBootingMachineAndTheLastLanding(t *testing.T) {
+	s, id, stops := wakingWorkerElsewhere(t)
+
+	rec := httptest.NewRecorder()
+	s.HandleForceStopMemberApiMembersMemberIdForceStopPost(rec,
+		taskReq(t, "POST", "/api/members/"+id+"/force-stop", map[string]any{},
+			wireOwnerID, "owner"), id)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("force-stop: %d %s", rec.Code, rec.Body.String())
+	}
+	apiWantValue(t, "machines the force-stop's STOP reached", any(stops()),
+		any(map[string]any{"mach-old": true, "mach-boot": true}))
+}
+
+// A worker's cancel locks the worker population (outsourceMu), never reconcileMu:
+// it goes through while the reconcile tick holds its lock, and the STOP and the
+// retired START land as they do with the lock free.
+func TestHandleDeactivateMember_AWorkerCancelGoesThroughWhileTheReconcileTickHoldsItsLock(t *testing.T) {
+	s, id, stops := wakingWorkerElsewhere(t)
+
+	s.reconcileMu.Lock()
+	defer s.reconcileMu.Unlock()
+	answered := make(chan int, 1)
+	go func() {
+		rec := httptest.NewRecorder()
+		s.HandleDeactivateMemberApiMembersMemberIdDeactivatePost(rec,
+			taskReq(t, "POST", "/api/members/"+id+"/deactivate", map[string]any{},
+				wireOwnerID, "owner"), id)
+		answered <- rec.Code
+	}()
+	select {
+	case code := <-answered:
+		apiWantValue(t, "status", any(float64(code)), any(http.StatusOK))
+	case <-time.After(5 * time.Second):
+		t.Fatal("a worker's cancel blocked on the reconcile lock")
+	}
+	apiWantValue(t, "machines the cancel's STOP reached", any(stops()),
+		any(map[string]any{"mach-old": true, "mach-boot": true}))
+	apiWantValue(t, "the reconcile state after the cancel",
+		any(s.reconcileStateOf(id).LastCommand), any(reconcileCmdStop))
+}
