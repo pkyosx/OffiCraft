@@ -99,6 +99,8 @@
 //                                           → phone detail tests
 //   bar segments not at their share, two categories one colour, a swatch
 //   not its segment's colour                → detail bar test
+//   a top-level row without its swatch slot, a sub row indented no further
+//   than its parent's label             → breakdown label tests
 //   a divider painted over each segment's edge, the bar's 5px radius back,
 //   segments that may not shrink           → sliver test
 //   scroll shades measured only on scroll    → shade test (no cue at rest)
@@ -1133,6 +1135,43 @@ test("a category that is a sliver of the total, at the bar's rounded start or in
     expect(await solidColumns(page, seg), `${key}: whole columns of its own colour`).toBeGreaterThanOrEqual(least);
   }
 });
+
+// The breakdown list: every top-level label starts at one x, swatch or not;
+// every sub row's label starts clearly right of its parent's.
+for (const width of [1280, 390]) {
+  test(`production fonts, ${width}px: the breakdown's top-level labels line up and sub rows sit right of their parent`, async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await loadProductionFonts(page);
+    await mount(<MonitorMachinesLayoutStory width={Math.min(width, 996)} states={["zeroconv"]} />);
+    await page.getByTestId("disk-usage-trigger").click();
+    const rows = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('[data-testid="disk-usage-row"]')).map((row) => ({
+        text: row.querySelector(".disk-usage__name")!.textContent,
+        sub: row.classList.contains("disk-usage__row--sub"),
+        x: row.querySelector(".disk-usage__name")!.getBoundingClientRect().left,
+      }))
+    );
+    const top = rows.filter((r) => !r.sub);
+    expect(top.map((r) => r.text), "control: a zero row and the disk row are top level").toEqual(
+      expect.arrayContaining(["對話紀錄", "硬碟剩餘／總容量"])
+    );
+    expect(rows.filter((r) => r.sub).length, "control: members and Claude/Codex are sub rows").toBeGreaterThanOrEqual(4);
+    const bad: string[] = [];
+    let parent = top[0];
+    for (const r of rows) {
+      if (!r.sub) {
+        if (Math.abs(r.x - top[0].x) > 0.5) bad.push(`${r.text} at ${r.x}, top level at ${top[0].x}`);
+        parent = r;
+      } else if (r.x < parent.x + 8) {
+        bad.push(`${r.text} at ${r.x}, parent ${parent.text} at ${parent.x}`);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+}
 
 // The detail on a phone: the box fits the window, the bar shrinks with it, and
 // a long name and the id wrap instead of pushing the page sideways. Measured

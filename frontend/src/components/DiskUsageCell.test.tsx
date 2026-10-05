@@ -101,7 +101,7 @@ function segments(): [string, number][] {
 
 /** The categories whose list row carries a colour swatch. */
 function swatches(): string[] {
-  return Array.from(document.querySelectorAll(".disk-usage__swatch")).map(
+  return Array.from(document.querySelectorAll(".disk-usage__swatch[data-segment]")).map(
     (el) => el.getAttribute("data-segment") ?? "",
   );
 }
@@ -201,6 +201,47 @@ describe("DiskUsageBreakdown", () => {
       ["Codex", "sub"],
       ["其他", ""],
       ["硬碟剩餘／總容量", "section"],
+    ]);
+  });
+
+  it("keeps the swatch slot on every top-level row, coloured or not, and none on a sub row", () => {
+    mountBreakdown({ ...FULL, conversationBytes: 0 });
+    const slots = screen.getAllByTestId("disk-usage-row").map((row) => {
+      const slot = row.querySelector(".disk-usage__label > .disk-usage__swatch");
+      return [
+        row.querySelector(".disk-usage__name")?.textContent ?? "",
+        slot === null ? "none" : slot.getAttribute("data-segment") ?? "empty",
+      ];
+    });
+    expect(slots).toEqual([
+      ["資料庫", "database"],
+      ["備份", "backups"],
+      ["成員 workspace 合計", "workspaces"],
+      ["Mira", "none"],
+      ["O-179", "none"],
+      ["O-151已離開", "none"],
+      ["ow-91c4已離開", "none"],
+      ["O-163已離開", "none"],
+      ["其餘 2 位合計", "none"],
+      ["對話紀錄", "empty"],
+      ["Claude", "none"],
+      ["Codex", "none"],
+      ["其他", "other"],
+      ["硬碟剩餘／總容量", "empty"],
+    ]);
+  });
+
+  it("under members with no workspace total, the first member opens the section rather than hanging under 備份", () => {
+    mountBreakdown({ ...FULL, workspaceBytes: null, members: SEVEN_MEMBERS.slice(0, 2) });
+    const shape = screen.getAllByTestId("disk-usage-row").map((row) => [
+      row.querySelector(".disk-usage__name")?.textContent ?? "",
+      row.classList.contains("disk-usage__row--section"),
+    ]);
+    expect(shape.slice(0, 4)).toEqual([
+      ["資料庫", false],
+      ["備份", false],
+      ["Mira", true],
+      ["O-179", false],
     ]);
   });
 

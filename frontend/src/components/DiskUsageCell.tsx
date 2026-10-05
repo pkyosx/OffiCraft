@@ -114,14 +114,17 @@ export function DiskUsageBreakdown({ usage }: { usage: MachineDiskUsageView }) {
             data-testid="disk-usage-row"
           >
             <span className="disk-usage__label">
-              {r.segment && shown.has(r.segment) && (
-                <span
-                  className={`disk-usage__swatch disk-usage__seg--${r.segment}`}
-                  data-segment={r.segment}
-                  aria-hidden="true"
-                />
-              )}
-              {r.label}
+              {!r.sub &&
+                (r.segment && shown.has(r.segment) ? (
+                  <span
+                    className={`disk-usage__swatch disk-usage__seg--${r.segment}`}
+                    data-segment={r.segment}
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <span className="disk-usage__swatch" aria-hidden="true" />
+                ))}
+              <span className="disk-usage__name">{r.label}</span>
             </span>
             <span className="disk-usage__value">{r.value}</span>
           </li>
@@ -176,7 +179,8 @@ function breakdownRows(
   };
   push("database", d.database, u.databaseBytes, { segment: "database" });
   push("backups", d.backups, u.backupsBytes, { segment: "backups" });
-  push("workspaces", d.workspaces, u.workspaceBytes, { segment: "workspaces", section: true });
+  const workspaceAt = rows.length;
+  push("workspaces", d.workspaces, u.workspaceBytes, { segment: "workspaces" });
 
   const members = [...u.members].sort((a, b) => b.totalBytes - a.totalBytes);
   members.slice(0, TOP_MEMBERS).forEach((m) => {
@@ -196,6 +200,10 @@ function breakdownRows(
   if (rest.length > 0) {
     push("members-rest", otherMembers(rest.length), rest.reduce((sum, m) => sum + m.totalBytes, 0), { sub: true });
   }
+
+  // Without a workspace total the members open the section themselves, so
+  // they do not read as part of 備份 above them.
+  if (rows[workspaceAt]) rows[workspaceAt].section = true;
 
   const conversationAt = rows.length;
   push("conversations", d.conversations, u.conversationBytes, { segment: "conversations" });

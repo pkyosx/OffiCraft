@@ -47,6 +47,8 @@
   --disk-seg-workspaces: var(--color-accent);
   --disk-seg-conversations: var(--color-artifacts);
   --disk-seg-other: var(--color-text-muted);
+  /* The swatch slot (8px + 6px) and then a clear step in. */
+  --disk-sub-indent: 26px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -89,6 +91,8 @@
 .disk-usage__seg--other {
   background: var(--disk-seg-other);
 }
+/* Every top-level row keeps the slot, coloured or not, so their labels
+ * line up; sub rows start past it (see --disk-sub-indent). */
 .disk-usage__swatch {
   display: inline-block;
   width: 8px;
@@ -113,7 +117,7 @@
   border-top: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
 }
 .disk-usage__row--sub .disk-usage__label {
-  padding-left: 12px;
+  padding-left: var(--disk-sub-indent);
   color: var(--color-text-muted);
 }
 .disk-usage__label {

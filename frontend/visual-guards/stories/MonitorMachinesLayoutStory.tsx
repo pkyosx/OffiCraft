@@ -91,10 +91,25 @@ export type MachinesLayoutState =
   | "claude2"
   | "codex2"
   | "nocodex"
-  | "tiny";
+  | "tiny"
+  | "zeroconv";
 
 const rows: Record<MachinesLayoutState, { machine: MachineView; hw: MonMachineView }> = {
   normal: { machine, hw: hardware },
+  // No conversations at all: a top-level row with nothing to colour.
+  zeroconv: {
+    machine,
+    hw: {
+      ...hardware,
+      diskUsage: {
+        ...diskUsage,
+        conversationBytes: 0,
+        claudeConversationBytes: 0,
+        codexConversationBytes: 0,
+        otherBytes: Math.round(993.3 * GIB),
+      },
+    },
+  },
   // Slivers of the total at the bar's rounded start (the database, 424 KB as
   // on a real station) and in its middle (backups).
   tiny: {
