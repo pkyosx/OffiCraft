@@ -686,6 +686,27 @@
       "seam_reason": "hop to the codex rate-limit POST declared by codex-rate-limits"
     },
     {
+      "id": "codex-hop-model-call-success",
+      "source": "cli/ocwarden/codex_session.go",
+      "callsite": "s.lastFailureTs > s.lastReportedSuccessTs {\n\t\ts.reportIdentity()",
+      "kind": "seam",
+      "seam_reason": "hop from a completed agentMessage success to the codex identity POST declared by codex-identity and checked by codex_uplink_wire_test.go"
+    },
+    {
+      "id": "codex-hop-item-completed-success",
+      "source": "cli/ocwarden/codex_session.go",
+      "callsite": "s.recordModelCallSuccess(params)",
+      "kind": "seam",
+      "seam_reason": "hop from item completion handling to the codex identity POST through recordModelCallSuccess, declared by codex-identity and checked by codex_uplink_wire_test.go"
+    },
+    {
+      "id": "codex-hop-event-item-completed",
+      "source": "cli/ocwarden/codex_session.go",
+      "callsite": "s.handleItemCompleted(params)",
+      "kind": "seam",
+      "seam_reason": "hop from the App Server item/completed event to the codex identity POST through handleItemCompleted and recordModelCallSuccess, declared by codex-identity and checked by codex_uplink_wire_test.go"
+    },
+    {
       "id": "warden-command-1",
       "source": "cli/ocwarden/command.go",
       "callsite": "return deps.Report(cr)",
