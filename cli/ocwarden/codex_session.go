@@ -146,9 +146,11 @@ type codexSession struct {
 	// error never says when the limit lifts, only the snapshot does.
 	rateLimitWindows map[string]map[string]any
 
-	pending map[int]*codexDelivery
-	batch   *codexBatch
-	ackTo   io.Writer
+	starting bool
+	queued   []*codexDelivery
+	pending  map[int]*codexDelivery
+	batch    *codexBatch
+	ackTo    io.Writer
 }
 
 type codexDelivery struct {
@@ -328,6 +330,14 @@ func (s *codexSession) waitResponse(id int) (appServerMessage, error) {
 }
 
 func (s *codexSession) startTurn(text string, batch *codexBatch) {
+	if s.starting {
+		s.queued = append(s.queued, &codexDelivery{text: text, batch: batch})
+		if batch != nil {
+			batch.outstanding++
+		}
+		return
+	}
+	s.starting = true
 	s.activity("turn started")
 	params := map[string]any{
 		"threadId": s.threadID,
@@ -340,8 +350,7 @@ func (s *codexSession) startTurn(text string, batch *codexBatch) {
 }
 
 func (s *codexSession) steerOrStart(text string, batch *codexBatch) {
-	text = strings.TrimSpace(text)
-	if text == "" {
+	if strings.TrimSpace(text) == "" {
 		return
 	}
 	if s.active && s.turnID != "" {
@@ -353,6 +362,17 @@ func (s *codexSession) steerOrStart(text string, batch *codexBatch) {
 		return
 	}
 	s.startTurn(text, batch)
+}
+
+func (s *codexSession) drainQueuedTurns() {
+	for len(s.queued) > 0 && !s.starting {
+		d := s.queued[0]
+		s.queued = s.queued[1:]
+		if d.batch != nil {
+			d.batch.outstanding--
+		}
+		s.steerOrStart(d.text, d.batch)
+	}
 }
 
 func (s *codexSession) track(id int, d *codexDelivery) {
@@ -368,11 +388,6 @@ func (s *codexSession) track(id int, d *codexDelivery) {
 	}
 }
 
-// ⚠️ Three wirings in runCodexSession's select loop are pinned by no test: the
-// call to this method, `s.ackTo = ackPipe`, and `listenerCmd.Env =
-// codexListenerEnv(...)`. Delete any of them and every test stays green while
-// acks stop (every drain blocks forever) or the listener never enters ack mode.
-//
 // A refused turn/steer gets ONE second chance as a fresh turn: the common
 // refusal is a stale expectedTurnId (turn/completed is in flight and unread).
 func (s *codexSession) resolveResponse(id int, msg appServerMessage) {
@@ -386,12 +401,20 @@ func (s *codexSession) resolveResponse(id int, msg appServerMessage) {
 	}
 	problem, failed := msg["error"].(map[string]any)
 	if !failed {
+		if d.method == "turn/start" {
+			if id := nestedString(msg, "result", "turn", "id"); id != "" {
+				s.starting = false
+				s.active, s.turnID = true, id
+			}
+		}
 		s.confirmDelivered(d)
+		s.drainQueuedTurns()
 		return
 	}
 	detail := strings.TrimSpace(fmt.Sprintf("%v", problem["message"]))
 	if d.method == "turn/steer" {
 		s.activity("turn/steer 被拒（%s）— 改開新的一輪重送同一段內容", detail)
+		s.active, s.turnID = false, ""
 		s.startTurn(d.text, d.batch)
 		return
 	}
@@ -400,7 +423,9 @@ func (s *codexSession) resolveResponse(id int, msg appServerMessage) {
 	if d.batch != nil {
 		d.batch.failed = true
 	}
+	s.starting = false
 	s.settleBatch(d.batch)
+	s.drainQueuedTurns()
 }
 
 // Why a second piece of evidence: the listener blocks on this sidecar's
@@ -408,6 +433,8 @@ func (s *codexSession) resolveResponse(id int, msg appServerMessage) {
 // would leave the member deaf for the whole turn. `turn/started` suffices;
 // whichever evidence arrives first settles the delivery.
 func (s *codexSession) confirmStartedTurn() {
+	s.starting = false
+	defer s.drainQueuedTurns()
 	oldest := 0
 	for id, d := range s.pending {
 		if d.method != "turn/start" {
@@ -768,18 +795,24 @@ func (s *codexSession) handleServerRequest(msg appServerMessage) {
 
 type codexListenerState struct{ wakeSent bool }
 
-// ⚠️ Deleting the CALL to this method leaves the whole ocwarden suite green;
-// only uplink-guard reddens, incidentally, because uplinks.json's codex-hop-4
-// anchors on the reportIdentity/requestRateLimits pair in the closure passed
-// here. Move those calls out and nothing announces the loss.
 func (st *codexListenerState) handleListenerLine(
 	line string, onConnect func(), openTurn func(string), onBatch func(string),
-) {
+) error {
+	var frame struct {
+		Text *string `json:"text"`
+	}
+	if err := json.Unmarshal([]byte(line), &frame); err != nil {
+		return err
+	}
+	if frame.Text == nil {
+		return errors.New("listener frame has no text")
+	}
+	line = strings.TrimSuffix(*frame.Text, "\n")
 	if token, ok := codexBatchToken(line); ok {
 		if onBatch != nil {
 			onBatch(token)
 		}
-		return
+		return nil
 	}
 	wake, forward := codexListenerActions(line, st.wakeSent)
 	if strings.HasPrefix(strings.TrimSpace(line), noticeConnectedPrefix) {
@@ -796,6 +829,7 @@ func (st *codexListenerState) handleListenerLine(
 	if forward {
 		openTurn(line)
 	}
+	return nil
 }
 
 // A named method, not a closure inside the loop, so a test can drive the
@@ -1015,13 +1049,16 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 				fmt.Fprintln(out, "codex-session: ocagent listen exited; ending session for reconciliation")
 				return 1
 			}
-			listenerState.handleListenerLine(line,
+			if err := listenerState.handleListenerLine(line,
 				func() {
 					s.reportIdentity()
 					s.requestRateLimits()
 					identityHeartbeat.Reset(codexTelemetryThrottle)
 				},
-				s.openListenerTurn, s.closeBatch)
+				s.openListenerTurn, s.closeBatch); err != nil {
+				s.activity("invalid listener frame; ending session without acknowledging delivery: %v", err)
+				return 1
+			}
 		case msg, ok := <-s.messages:
 			if !ok {
 				s.messages = nil
@@ -1054,9 +1091,10 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 				s.turnID = ""
 				s.activity("turn completed")
 				s.recordTurnOutcome(params)
+				s.drainQueuedTurns()
 				if !listenerStarted {
 					listenerStarted = true
-					listenerCmd = exec.Command(filepath.Join(*workdir, "ocagent"), "listen")
+					listenerCmd = exec.Command(filepath.Join(*workdir, "ocagent"), "listen", "--deliver-codex")
 					listenerCmd.Dir = *workdir
 					listenerCmd.Stderr = out
 					// The one runtime signal that this listener's stdout is not an

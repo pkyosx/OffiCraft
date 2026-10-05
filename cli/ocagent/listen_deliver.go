@@ -80,8 +80,16 @@ func cmdListen(argv []string, cfg Config, env func(string) string, out, errOut i
 	deliverMod := fs.Bool("deliver-mod", false,
 		"run under the member's notification mod: print one JSON frame per line on stdout "+
 			"(submit payloads and batch markers), diagnostics on stderr, acks read from OC_LISTEN_ACK_FILE")
+	deliverCodex := fs.Bool("deliver-codex", false, "print each complete notice as one JSON frame for the Codex sidecar")
 	if err := fs.Parse(argv); err != nil {
 		return 2
+	}
+	if *deliverCodex {
+		if *deliverTmux || *deliverMod || env(listenAckEnv) != "1" {
+			fmt.Fprint(errOut, agentLinePrefix+"listen: --deliver-codex requires OC_LISTEN_ACK=1 and cannot be combined with other delivery routes\n")
+			return 2
+		}
+		return start(cfg, env, *once, &codexFrameWriter{out: out})
 	}
 	sink, stop, ok := listenSink(out, errOut, env, *deliverTmux, *deliverMod, run)
 	if !ok {

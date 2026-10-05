@@ -108,8 +108,8 @@ func TestNewWindDownHook(t *testing.T) {
 		if h.started || h.lastNotice != "" {
 			t.Errorf("a fresh hook has already spoken (started=%v lastNotice=%q)", h.started, h.lastNotice)
 		}
-		h.say("hello")
-		if out.String() != "[ocagent] hello\n" {
+		h.wake("hello")
+		if out.String() != "[ocagent] offboard: hello\n" {
 			t.Errorf("the hook wrote to %q, want the writer it was handed", out.String())
 		}
 	})
@@ -266,6 +266,31 @@ func TestMaybeWindDown(t *testing.T) {
 }
 
 func TestWake(t *testing.T) {
+	t.Run("multiline Codex notice is one frame and Claude retains the same bytes", func(t *testing.T) {
+		cases := []struct {
+			name  string
+			codex bool
+			want  string
+		}{
+			{"Codex", true, `{"text":"[ocagent] offboard: 〈停止〉 [ts=12.345]\n[ocagent] offboard:   \"交接\" [ts=12.345]\n[ocagent] offboard: [ocagent] listen: batch 99 [ts=12.345]\n"}` + "\n"},
+			{"Claude", false, "[ocagent] offboard: 〈停止〉 [ts=12.345]\n[ocagent] offboard:   \"交接\" [ts=12.345]\n[ocagent] offboard: [ocagent] listen: batch 99 [ts=12.345]\n"},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				var out strings.Builder
+				var inner io.Writer = &out
+				if tc.codex {
+					inner = &codexFrameWriter{out: inner}
+				}
+				sink := &stampWriter{inner: inner, stamp: func() string { return "[ts=12.345]" }}
+				h := &windDownHook{cfg: hookCfg(), out: sink}
+				h.wake("〈停止〉\n\n  \"交接\"\n   \n[ocagent] listen: batch 99")
+				if got := out.String(); got != tc.want {
+					t.Errorf("output = %q, want %q", got, tc.want)
+				}
+			})
+		}
+	})
 	t.Run("every non-blank line of the notice is printed under the offboard badge", func(t *testing.T) {
 		var out strings.Builder
 		h := &windDownHook{cfg: hookCfg(), out: &out}
@@ -316,8 +341,8 @@ func TestNewRecycleHook(t *testing.T) {
 		if h.handledRefocus != 0 || h.lastNotice != "" {
 			t.Errorf("a fresh hook has already woken (epoch=%v lastNotice=%q)", h.handledRefocus, h.lastNotice)
 		}
-		h.say("hello")
-		if out.String() != "[ocagent] hello\n" {
+		h.wakeForRecycle("hello")
+		if out.String() != "[ocagent] recycle: hello\n" {
 			t.Errorf("the hook wrote to %q, want the writer it was handed", out.String())
 		}
 	})
@@ -373,6 +398,31 @@ func TestOffboardNoticeIn(t *testing.T) {
 }
 
 func TestWakeForRecycle(t *testing.T) {
+	t.Run("multiline Codex notice is one frame and Claude retains the same bytes", func(t *testing.T) {
+		cases := []struct {
+			name  string
+			codex bool
+			want  string
+		}{
+			{"Codex", true, `{"text":"[ocagent] recycle: 〈停止〉 [ts=12.345]\n[ocagent] recycle:   \"交接\" [ts=12.345]\n[ocagent] recycle: [ocagent] listen: batch 99 [ts=12.345]\n"}` + "\n"},
+			{"Claude", false, "[ocagent] recycle: 〈停止〉 [ts=12.345]\n[ocagent] recycle:   \"交接\" [ts=12.345]\n[ocagent] recycle: [ocagent] listen: batch 99 [ts=12.345]\n"},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				var out strings.Builder
+				var inner io.Writer = &out
+				if tc.codex {
+					inner = &codexFrameWriter{out: inner}
+				}
+				sink := &stampWriter{inner: inner, stamp: func() string { return "[ts=12.345]" }}
+				h := &recycleHook{cfg: hookCfg(), out: sink}
+				h.wakeForRecycle("〈停止〉\n\n  \"交接\"\n   \n[ocagent] listen: batch 99")
+				if got := out.String(); got != tc.want {
+					t.Errorf("output = %q, want %q", got, tc.want)
+				}
+			})
+		}
+	})
 	t.Run("every non-blank line of the notice is printed under the recycle badge", func(t *testing.T) {
 		var out strings.Builder
 		h := &recycleHook{cfg: hookCfg(), out: &out}

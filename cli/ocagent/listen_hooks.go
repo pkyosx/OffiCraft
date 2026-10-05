@@ -62,8 +62,6 @@ func newWindDownHook(client httpClient, cfg Config, out io.Writer) *windDownHook
 	}
 }
 
-func (h *windDownHook) say(msg string) { fmt.Fprintf(h.out, "[ocagent] %s\n", msg) }
-
 func (h *windDownHook) maybeWindDown(frame map[string]any) bool {
 	if !isMemberFrameForSelf(frame, h.cfg.MemberID) {
 		return false
@@ -83,16 +81,17 @@ func (h *windDownHook) maybeWindDown(frame map[string]any) bool {
 }
 
 func (h *windDownHook) wake(notice string) {
-	if strings.TrimSpace(notice) == "" {
-		h.say("offboard: " + offboardFallback)
-		return
-	}
-	for _, line := range strings.Split(notice, "\n") {
-		if strings.TrimSpace(line) == "" {
-			continue
+	writeListenerNotice(h.out, func(out io.Writer) {
+		if strings.TrimSpace(notice) == "" {
+			fmt.Fprintf(out, "[ocagent] offboard: %s\n", offboardFallback)
+			return
 		}
-		h.say("offboard: " + line)
-	}
+		for _, line := range strings.Split(notice, "\n") {
+			if strings.TrimSpace(line) != "" {
+				fmt.Fprintf(out, "[ocagent] offboard: %s\n", line)
+			}
+		}
+	})
 }
 
 type recycleHook struct {
@@ -114,8 +113,6 @@ func newRecycleHook(client httpClient, cfg Config, out io.Writer) *recycleHook {
 	}
 }
 
-func (h *recycleHook) say(msg string) { fmt.Fprintf(h.out, "[ocagent] %s\n", msg) }
-
 // Shipped text: the agent reads these bytes on stdout (like seeds/*.md), and
 // nothing reports a bad edit. 〈停止〉 must match the document's on-screen name
 // (ruling rc-e12733548e4b) — the agent goes looking for it by that name.
@@ -136,16 +133,17 @@ func offboardNoticeIn(frame map[string]any) string {
 }
 
 func (h *recycleHook) wakeForRecycle(notice string) {
-	if strings.TrimSpace(notice) == "" {
-		h.say("recycle: " + offboardFallback)
-		return
-	}
-	for _, line := range strings.Split(notice, "\n") {
-		if strings.TrimSpace(line) == "" {
-			continue
+	writeListenerNotice(h.out, func(out io.Writer) {
+		if strings.TrimSpace(notice) == "" {
+			fmt.Fprintf(out, "[ocagent] recycle: %s\n", offboardFallback)
+			return
 		}
-		h.say("recycle: " + line)
-	}
+		for _, line := range strings.Split(notice, "\n") {
+			if strings.TrimSpace(line) != "" {
+				fmt.Fprintf(out, "[ocagent] recycle: %s\n", line)
+			}
+		}
+	})
 }
 
 // The session's own report_stopping/report_stopped make the server fan more
