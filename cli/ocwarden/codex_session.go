@@ -547,20 +547,22 @@ func jsonNumber(value any) float64 {
 	return number
 }
 
-func (s *codexSession) post(path string, payload map[string]any) {
+func (s *codexSession) post(path string, payload map[string]any) bool {
 	raw, _ := json.Marshal(payload)
 	req, err := http.NewRequest(http.MethodPost, strings.TrimRight(s.base, "/")+path,
 		bytes.NewReader(raw))
 	if err != nil {
-		return
+		return false
 	}
 	req.Header.Set("Authorization", "Bearer "+s.token)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
-	if err == nil {
-		s.reportRejectedCodexPost(path, resp.StatusCode)
-		_ = resp.Body.Close()
+	if err != nil {
+		return false
 	}
+	s.reportRejectedCodexPost(path, resp.StatusCode)
+	_ = resp.Body.Close()
+	return resp.StatusCode >= 200 && resp.StatusCode < 300
 }
 
 func (s *codexSession) reportIdentity() {
@@ -568,8 +570,9 @@ func (s *codexSession) reportIdentity() {
 	if s.lastSuccessTs > 0 {
 		identity["model_call"] = map[string]any{"last_success_ts": s.lastSuccessTs}
 	}
-	s.post("/api/monitoring/telemetry", identity)
-	s.recordReportedSuccess()
+	if s.post("/api/monitoring/telemetry", identity) {
+		s.recordReportedSuccess()
+	}
 }
 
 func (s *codexSession) recordReportedSuccess() {
@@ -649,8 +652,9 @@ func (s *codexSession) recordTurnOutcome(params map[string]any) {
 		failureReport := map[string]any{
 			"runtime": "codex", "account": s.account, "account_label": "ChatGPT", "model_call": modelCall,
 		}
-		s.post("/api/monitoring/telemetry", failureReport)
-		s.recordReportedSuccess()
+		if s.post("/api/monitoring/telemetry", failureReport) {
+			s.recordReportedSuccess()
+		}
 	}
 }
 

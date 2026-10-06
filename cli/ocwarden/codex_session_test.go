@@ -2102,6 +2102,43 @@ func TestCodexSessionRecordCompaction(t *testing.T) {
 }
 
 func TestCodexSessionHandleItemCompleted(t *testing.T) {
+	t.Run("a success retries immediately after the preceding success report was not delivered", func(t *testing.T) {
+		for _, tc := range []struct {
+			name   string
+			status int
+			err    error
+		}{
+			{name: "server unavailable", status: http.StatusServiceUnavailable},
+			{name: "connection refused", err: errors.New("connection refused")},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				fake := interceptCodexPosts(t, tc.status, tc.err)
+				s := newCodexTestSession()
+				s.base, s.token, s.account = "https://x.test", "tok", "codex:abc"
+				s.lastFailureTs = 1720000200
+				s.handleItemCompleted(map[string]any{
+					"completedAtMs": float64(1720000201123),
+					"item":          map[string]any{"id": "msg_1", "type": "agentMessage", "text": "OK"},
+				})
+				fake.status, fake.err = http.StatusOK, nil
+				s.handleItemCompleted(map[string]any{
+					"completedAtMs": float64(1720000202123),
+					"item":          map[string]any{"id": "msg_2", "type": "agentMessage", "text": "OK"},
+				})
+				want := []codexPost{
+					{method: http.MethodPost, url: "https://x.test/api/monitoring/telemetry", auth: "Bearer tok", ctype: "application/json", body: map[string]any{
+						"runtime": "codex", "account": "codex:abc", "account_label": "ChatGPT", "model_call": map[string]any{"last_success_ts": float64(1720000201.123)},
+					}},
+					{method: http.MethodPost, url: "https://x.test/api/monitoring/telemetry", auth: "Bearer tok", ctype: "application/json", body: map[string]any{
+						"runtime": "codex", "account": "codex:abc", "account_label": "ChatGPT", "model_call": map[string]any{"last_success_ts": float64(1720000202.123)},
+					}},
+				}
+				if !reflect.DeepEqual(fake.posts, want) {
+					t.Fatalf("the sidecar sent %+v, want %+v", fake.posts, want)
+				}
+			})
+		}
+	})
 	t.Run("a completed agent message reports its success immediately", func(t *testing.T) {
 		fake := interceptCodexPosts(t, http.StatusOK, nil)
 		s := newCodexTestSession()
