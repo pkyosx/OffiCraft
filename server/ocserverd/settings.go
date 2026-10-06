@@ -934,10 +934,7 @@ func consumeLoginLinkOn(tx *writeTx, code string, now int64) (bool, error) {
 		return false, err
 	}
 	var rec loginLinkRecord
-	if err := json.Unmarshal([]byte(*stored), &rec); err != nil {
-		return false, fmt.Errorf("settings %s: %w", settingLoginLink, err)
-	}
-	if now >= rec.ExpiresAt ||
+	if json.Unmarshal([]byte(*stored), &rec) != nil || now >= rec.ExpiresAt ||
 		subtle.ConstantTimeCompare([]byte(loginLinkHash(code)), []byte(rec.Hash)) != 1 {
 		return false, nil
 	}
@@ -976,11 +973,16 @@ func cmdLoginLink(args []string, env func(string) string, out io.Writer) int {
 		fmt.Fprintln(out, "[ocserverd] login-link: enabled — `ocserverd login-link` now mints one-time owner login links")
 		return 0
 	case "disable":
-		for _, key := range []string{settingLoginLinkEnabled, settingLoginLink} {
-			if err := d.DeleteSetting(key); err != nil {
-				fmt.Fprintf(out, "[ocserverd] FATAL: clear %s: %v\n", key, err)
-				return 1
+		// One transaction: a link row left behind would redeem again on the next
+		// enable.
+		if err := d.inTx(func(tx *writeTx) error {
+			if err := deleteSettingOn(tx, settingLoginLink); err != nil {
+				return err
 			}
+			return deleteSettingOn(tx, settingLoginLinkEnabled)
+		}); err != nil {
+			fmt.Fprintf(out, "[ocserverd] FATAL: disable login links: %v\n", err)
+			return 1
 		}
 		fmt.Fprintln(out, "[ocserverd] login-link: disabled — every login link is refused")
 		return 0

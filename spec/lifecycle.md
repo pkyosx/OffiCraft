@@ -159,17 +159,17 @@ ceiling of the warden lifetime setting (§1.6).
     stolen session can switch off protects nothing after the theft. It is therefore NOT the
     lost-authenticator path — that is the local `ocserverd mfa-disable` command, which
     substitutes proof of host shell access and takes effect at the next serve start.
+  - `GET /api/auth/status` additionally discloses `mfa_required` to unauthenticated callers,
+    deliberately: the login wall must render the right fields before any token exists, and a
+    distinguishable "password ok, code missing" refusal would leak strictly more.
 - **One-time login link.** `POST /api/auth/login-link` exchanges a code minted on the station
   host by `ocserverd login-link` for the same owner token as login. It is off until the host
   runs `ocserverd login-link enable` (`auth.login_link_enabled`; not in `/api/settings`).
   Only a sha256 of the latest code is stored (`auth.login_link`), it expires 600 s after
-  minting, and a success deletes it in the same transaction. Every refusal cause is the same
-  flat 401. It does NOT ask for the TOTP code: minting needs host shell access, which can
+  minting, and a success deletes it in the same transaction. Every refusal cause, an
+  unreadable stored row included, is the same flat 401. It does NOT ask for the TOTP code: minting needs host shell access, which can
   already run `ocserverd mfa-disable`. Both rows are read per request, so a running serve
   follows the CLI without a restart.
-  - `GET /api/auth/status` additionally discloses `mfa_required` to unauthenticated callers,
-    deliberately: the login wall must render the right fields before any token exists, and a
-    distinguishable "password ok, code missing" refusal would leak strictly more.
 - **Credential-attempt brake.** It applies to the PUBLIC credential seams and to
   NOTHING else: `POST /api/login`, `POST /api/auth/set-password`'s claim token and
   `POST /api/auth/login-link`.

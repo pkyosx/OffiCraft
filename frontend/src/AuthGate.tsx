@@ -35,13 +35,17 @@ function scrubLoginLinkFromURL(): void {
  * unreachable/failing probe falls back to the login wall (the login itself
  * will surface the real failure).
  *
- * A `?login=<code>` one-time link is scrubbed from the URL on mount and, with
- * no token, redeemed during "checking": success → App, failure → the login
- * wall with a notice.
+ * A `?login=<code>` one-time link is scrubbed from the URL on mount and
+ * redeemed during "checking", even over an existing token: success replaces
+ * the token → App; failure keeps an existing token → App, and without one →
+ * the login wall with a notice.
  */
 export function AuthGate({ authed }: { authed?: ReactNode } = {}) {
+  // Redeemed even when a token exists (owner ruling): a stale token left on a
+  // phone would otherwise swallow a valid link without a word.
+  const loginLinkCode = useRef(USE_MOCK ? "" : readLoginLinkCode());
   const [wall, setWall] = useState<Wall>(() =>
-    USE_MOCK || hasToken() ? "app" : "checking"
+    USE_MOCK || (hasToken() && !loginLinkCode.current) ? "app" : "checking"
   );
   // Whether the login wall must also collect a TOTP code. It comes from the
   // SAME probe that decides first-run vs login, so the wall renders the right
@@ -58,8 +62,6 @@ export function AuthGate({ authed }: { authed?: ReactNode } = {}) {
   // the auth-expired handler both go through "checking" for this reason.
   const [mfaRequired, setMfaRequired] = useState(false);
 
-  // An existing token wins: the link is scrubbed but never spent.
-  const loginLinkCode = useRef(USE_MOCK || hasToken() ? "" : readLoginLinkCode());
   // 🔴 One redemption per page load, shared by every run of the effect below: a
   // code is single-use, so StrictMode's second effect run redeeming again would
   // turn a good link into a refusal.
@@ -89,7 +91,7 @@ export function AuthGate({ authed }: { authed?: ReactNode } = {}) {
         const failure = await loginLinkRedemption.current;
         if (cancelled) return;
         loginLinkCode.current = "";
-        if (failure === null) {
+        if (failure === null || hasToken()) {
           setWall("app");
           return;
         }

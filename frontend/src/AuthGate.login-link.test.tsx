@@ -119,30 +119,50 @@ describe("AuthGate", () => {
 
     renderGate();
 
-    expect(
-      await screen.findByText(`${zh.login.throttledLead} 1 ${zh.login.throttledTail}`),
-    ).toBeTruthy();
+    expect(await screen.findByText("目前同時處理的登入太多，請於 1 秒後再試。")).toBeTruthy();
     expect(screen.queryByText(zh.login.loginLinkInvalid)).toBeNull();
   });
 
-  it("keeps an existing session without spending the link, even after that session expires", async () => {
+  it("spends the link over an existing session and replaces its token", async () => {
     localStorage.setItem(TOKEN_KEY, "existing-owner-token");
-    const fetchMock = stubLoginLinkAnswer(200, { token: "should-not-be-minted" });
-    stubProbe();
+    const fetchMock = stubLoginLinkAnswer(200, {
+      token: "minted-owner-token",
+      token_type: "bearer",
+      expires_in: 86400,
+      owner_id: "owner",
+    });
 
     renderGate();
 
     expect(await screen.findByText(BEHIND_THE_WALL)).toBeTruthy();
+    expect(localStorage.getItem(TOKEN_KEY)).toBe("minted-owner-token");
     expect(window.location.search).toBe("?tab=chat");
-    expect(localStorage.getItem(TOKEN_KEY)).toBe("existing-owner-token");
-
-    localStorage.removeItem(TOKEN_KEY);
-    act(() => {
-      window.dispatchEvent(new Event("oc-auth-expired"));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("/api/auth/login-link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: "link-code-abc" }),
     });
+  });
 
-    expect(await screen.findByPlaceholderText(zh.login.passwordPlaceholder)).toBeTruthy();
-    expect(screen.queryByText(zh.login.loginLinkInvalid)).toBeNull();
-    expect(fetchMock).not.toHaveBeenCalled();
+  it("keeps an existing session and its token when the link is refused", async () => {
+    localStorage.setItem(TOKEN_KEY, "existing-owner-token");
+    const fetchMock = stubLoginLinkAnswer(401, {
+      error: { code: "unauthorized", message: "login link is invalid, expired, or already used" },
+    });
+    const probe = stubProbe();
+
+    renderGate();
+
+    expect(await screen.findByText(BEHIND_THE_WALL)).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem(TOKEN_KEY)).toBe("existing-owner-token");
+    expect(window.location.search).toBe("?tab=chat");
+    expect(probe).not.toHaveBeenCalled();
+    expect(
+      screen.queryByText(
+        "登入連結已失效（已使用、超過 10 分鐘或站台未開啟），請用密碼登入或請人重新產生。",
+      ),
+    ).toBeNull();
   });
 });

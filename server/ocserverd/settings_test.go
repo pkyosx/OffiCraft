@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -785,97 +786,117 @@ func TestCmdLoginLink(t *testing.T) {
 	// A serving station and the subcommand share one database file, and the
 	// station is started BEFORE the subcommand runs: it must follow the CLI
 	// without a restart.
-	station := func(t *testing.T) (env func(string) string, h http.Handler, d *DAL) {
+	type station struct {
+		env                     func(string) string
+		h                       http.Handler
+		d                       *DAL
+		configPath, dbPath, dsn string
+	}
+	newStation := func(t *testing.T) station {
 		t.Helper()
 		dir := t.TempDir()
-		dbPath := filepath.Join(dir, "station.db")
-		_, h, d, _ = newAPITestServerOn(t, newAPITestDALAt(t, dbPath))
-		env = envOf(map[string]string{
-			envConfigPath:  filepath.Join(dir, "absent.toml"),
-			envDatabaseURL: "sqlite:///" + dbPath,
-		})
-		return env, h, d
+		st := station{configPath: filepath.Join(dir, "absent.toml"), dbPath: filepath.Join(dir, "station.db")}
+		st.dsn = "sqlite:///" + st.dbPath
+		_, st.h, st.d, _ = newAPITestServerOn(t, newAPITestDALAt(t, st.dbPath))
+		st.env = envOf(map[string]string{envConfigPath: st.configPath, envDatabaseURL: st.dsn})
+		return st
 	}
-	run := func(t *testing.T, env func(string) string, wantRC int, args ...string) string {
+	linkCode := regexp.MustCompile(`login=([A-Za-z0-9_-]{43})\n`)
+	// run asserts the WHOLE output: the resolution banner every auth subcommand
+	// prints, then tail. A minted code is matched by shape as <code> and returned.
+	run := func(t *testing.T, st station, wantRC int, tail string, args ...string) string {
 		t.Helper()
 		var out strings.Builder
-		if rc := cmdLoginLink(args, env, &out); rc != wantRC {
+		if rc := cmdLoginLink(args, st.env, &out); rc != wantRC {
 			t.Fatalf("login-link %q: want rc %d, got %d output=%s", args, wantRC, rc, out.String())
 		}
-		lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
-		return lines[len(lines)-1]
+		code := ""
+		if m := linkCode.FindStringSubmatch(out.String()); m != nil {
+			code = m[1]
+		}
+		got := linkCode.ReplaceAllString(out.String(), "login=<code>\n")
+		want := fmt.Sprintf(
+			"[ocserverd] login-link: config file = none (looked at %s, from $OC_CONFIG)\n"+
+				"[ocserverd] login-link: to point this run at a config file, set OC_CONFIG=/path/to/oc.toml; it is set now, but names a file that is not there, and while it is set ./oc.toml is not consulted. Without one, nothing is read from oc.toml — $OC_DATABASE_URL and the built-in defaults decide the rest.\n"+
+				"[ocserverd] login-link: database    = %s (DSN %s), from $OC_DATABASE_URL\n",
+			st.configPath, st.dbPath, st.dsn) + tail
+		if got != want {
+			t.Fatalf("login-link %q output:\n got %q\nwant %q", args, got, want)
+		}
+		return code
 	}
-	redeemStatus := func(t *testing.T, h http.Handler, link, prefix string) int {
+	const (
+		enabledOut  = "[ocserverd] login-link: enabled — `ocserverd login-link` now mints one-time owner login links\n"
+		disabledOut = "[ocserverd] login-link: disabled — every login link is refused\n"
+		refusedOut  = "[ocserverd] login-link: login links are disabled on this station — run `ocserverd login-link enable` first; no link was minted\n"
+		mintedOut   = "[ocserverd] login-link: valid for 10 minutes and for one login; minting another invalidates it\n"
+	)
+	redeemStatus := func(t *testing.T, st station, code string) int {
 		t.Helper()
-		code, ok := strings.CutPrefix(link, prefix+"/?login=")
-		if !ok {
-			t.Fatalf("last line is not a %q login link: %q", prefix, link)
-		}
-		if raw, err := base64.RawURLEncoding.DecodeString(code); err != nil || len(raw) != 32 {
-			t.Fatalf("link code is not 32 base64url bytes: %q %v", code, err)
-		}
-		status, _ := apiJSON(t, h, "POST", "/api/auth/login-link", "", `{"code":"`+code+`"}`)
+		status, _ := apiJSON(t, st.h, "POST", "/api/auth/login-link", "", `{"code":"`+code+`"}`)
 		return status
 	}
 
 	t.Run("while disabled minting exits 3 with a refusal and stores no code", func(t *testing.T) {
-		env, _, d := station(t)
+		st := newStation(t)
 
-		last := run(t, env, 3)
+		run(t, st, 3, refusedOut)
 
-		if last != "[ocserverd] login-link: login links are disabled on this station — run `ocserverd login-link enable` first; no link was minted" {
-			t.Fatalf("refusal line: %q", last)
-		}
-		stored, err := d.GetSetting(settingLoginLink)
+		stored, err := st.d.GetSetting(settingLoginLink)
 		if err != nil || stored != nil {
 			t.Fatalf("a refused mint stored a code: %v %v", stored, err)
 		}
 	})
 
 	t.Run("after enable the link printed last redeems once at the running station", func(t *testing.T) {
-		env, h, _ := station(t)
+		st := newStation(t)
 
-		if last := run(t, env, 0, "enable"); last != "[ocserverd] login-link: enabled — `ocserverd login-link` now mints one-time owner login links" {
-			t.Fatalf("enable line: %q", last)
-		}
-		link := run(t, env, 0)
+		run(t, st, 0, enabledOut, "enable")
+		code := run(t, st, 0, mintedOut+"/?login=<code>\n")
 
-		if status := redeemStatus(t, h, link, ""); status != 200 {
+		if status := redeemStatus(t, st, code); status != 200 {
 			t.Fatalf("first redeem: want 200, got %d", status)
 		}
-		if status := redeemStatus(t, h, link, ""); status != 401 {
+		if status := redeemStatus(t, st, code); status != 401 {
 			t.Fatalf("second redeem: want 401, got %d", status)
 		}
 	})
 
 	t.Run("--base-url prefixes the printed link", func(t *testing.T) {
-		env, h, _ := station(t)
-		run(t, env, 0, "enable")
+		st := newStation(t)
+		run(t, st, 0, enabledOut, "enable")
 
-		spaced := run(t, env, 0, "--base-url", "https://station.example/")
-		joined := run(t, env, 0, "--base-url=https://station.example")
+		spaced := run(t, st, 0, mintedOut+"https://station.example/?login=<code>\n", "--base-url", "https://station.example/")
+		joined := run(t, st, 0, mintedOut+"https://station.example/?login=<code>\n", "--base-url=https://station.example")
 
-		if status := redeemStatus(t, h, spaced, "https://station.example"); status != 401 {
+		if status := redeemStatus(t, st, spaced); status != 401 {
 			t.Fatalf("superseded link: want 401, got %d", status)
 		}
-		if status := redeemStatus(t, h, joined, "https://station.example"); status != 200 {
+		if status := redeemStatus(t, st, joined); status != 200 {
 			t.Fatalf("latest link: want 200, got %d", status)
 		}
 	})
 
-	t.Run("disable after enable refuses the minted link and further mints", func(t *testing.T) {
-		env, h, _ := station(t)
-		run(t, env, 0, "enable")
-		link := run(t, env, 0)
+	t.Run("disable refuses the minted link and further mints, and a re-enable does not revive it", func(t *testing.T) {
+		st := newStation(t)
+		run(t, st, 0, enabledOut, "enable")
+		code := run(t, st, 0, mintedOut+"/?login=<code>\n")
 
-		if last := run(t, env, 0, "disable"); last != "[ocserverd] login-link: disabled — every login link is refused" {
-			t.Fatalf("disable line: %q", last)
-		}
+		run(t, st, 0, disabledOut, "disable")
 
-		if status := redeemStatus(t, h, link, ""); status != 401 {
+		if status := redeemStatus(t, st, code); status != 401 {
 			t.Fatalf("redeem after disable: want 401, got %d", status)
 		}
-		run(t, env, 3)
+		run(t, st, 3, refusedOut)
+
+		run(t, st, 0, enabledOut, "enable")
+		if status := redeemStatus(t, st, code); status != 401 {
+			t.Fatalf("redeem after re-enable: want 401, got %d", status)
+		}
+		fresh := run(t, st, 0, mintedOut+"/?login=<code>\n")
+		if status := redeemStatus(t, st, fresh); status != 200 {
+			t.Fatalf("fresh link after re-enable: want 200, got %d", status)
+		}
 	})
 }
 
