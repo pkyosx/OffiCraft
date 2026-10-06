@@ -184,6 +184,7 @@ var messageKeys = map[string]bool{
 	"login.codePlaceholder":                            true,
 	"login.error":                                      true,
 	"login.errorWithCode":                              true,
+	"login.loginLinkInvalid":                           true,
 	"login.passwordPlaceholder":                        true,
 	"login.submit":                                     true,
 	"login.submitting":                                 true,

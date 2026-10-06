@@ -5,6 +5,9 @@ import { isHttpStatus, retryAfterSeconds } from "../api/errors";
 import { LogoMark } from "./icons";
 import "./login.css";
 
+/** Why a `?login=` link did not log in: refused (throttledFor null) or braked. */
+export type LoginLinkFailure = { throttledFor: number | null };
+
 /**
  * Owner login wall — shown ONLY in real-backend mode when no token exists
  * (AuthGate owns that decision; mock mode never renders this). Submits the
@@ -27,6 +30,7 @@ export function LoginPage({
   onSuccess,
   mfaRequired = false,
   refreshMfaRequired,
+  loginLinkFailure = null,
 }: {
   onSuccess: () => void;
   mfaRequired?: boolean;
@@ -34,13 +38,17 @@ export function LoginPage({
    * Called only when a login is refused while this wall shows no code field —
    * see the 401 branch below. */
   refreshMfaRequired?: () => Promise<boolean>;
+  /** A `?login=` link that did not log in on the way here (AuthGate). */
+  loginLinkFailure?: LoginLinkFailure | null;
 }) {
   const { t, msg } = useI18n();
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   const [error, setError] = useState(false);
   /** Seconds to wait, from a 429's Retry-After. null = not throttled. */
-  const [throttledFor, setThrottledFor] = useState<number | null>(null);
+  const [throttledFor, setThrottledFor] = useState<number | null>(
+    loginLinkFailure?.throttledFor ?? null,
+  );
   /** Set when a refused login turned out to be a MISSING code, not a wrong
    * password — the wall was out of date and has just grown its code field. */
   const [codeNowRequired, setCodeNowRequired] = useState(false);
@@ -131,6 +139,9 @@ export function LoginPage({
           </>
         )}
 
+        {loginLinkFailure !== null && loginLinkFailure.throttledFor === null && (
+          <div className="login__error">{t.login.loginLinkInvalid}</div>
+        )}
         {throttledFor !== null && (
           <div className="login__error">{msg.loginThrottled(throttledFor)}</div>
         )}

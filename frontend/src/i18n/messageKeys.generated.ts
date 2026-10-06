@@ -183,6 +183,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "login.codePlaceholder",
   "login.error",
   "login.errorWithCode",
+  "login.loginLinkInvalid",
   "login.passwordPlaceholder",
   "login.submit",
   "login.submitting",

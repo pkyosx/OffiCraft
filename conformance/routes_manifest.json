@@ -56,6 +56,13 @@
     "requires": "public"
   },
   {
+    "auth": "public",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/auth/login-link",
+    "requires": "public"
+  },
+  {
     "auth": "gated",
     "mcp_tool": null,
     "method": "POST",

@@ -107,6 +107,47 @@ func (s *apiServer) HandleLoginApiLoginPost(w http.ResponseWriter, r *http.Reque
 	})
 }
 
+// One message for every refusal cause: telling unknown, expired, used and
+// disabled apart would make this public route an oracle for guessing codes.
+const loginLinkDeniedMsg = "login link is invalid, expired, or already used"
+
+// The link logs in even while TOTP is armed (owner ruling): minting one needs
+// host shell access, which can already run `ocserverd mfa-disable`.
+func (s *apiServer) HandleRedeemLoginLinkApiAuthLoginLinkPost(w http.ResponseWriter, r *http.Request) {
+	started := time.Now()
+	var body LoginLinkDTO
+	if !decodeJSONBodyRequired(w, r, &body, "code") {
+		return
+	}
+	if len(s.keys.signingSecret()) == 0 {
+		writeError(w, http.StatusUnauthorized, "auth not configured")
+		return
+	}
+	release, wait, blocked := s.loginThrottle.begin()
+	if blocked {
+		writeThrottled(w, wait)
+		return
+	}
+	defer release()
+
+	redeemed := false
+	err := s.dal.inTx(func(tx *writeTx) error {
+		var err error
+		redeemed, err = consumeLoginLinkOn(tx, body.Code, time.Now().Unix())
+		return err
+	})
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	if !redeemed {
+		s.holdFailureFloor(started)
+		writeError(w, http.StatusUnauthorized, loginLinkDeniedMsg)
+		return
+	}
+	s.writeOwnerToken(w, s.ownerTokenTTLValue(), time.Now().Unix())
+}
+
 // Owner-gated in the route table.
 func (s *apiServer) HandleMintApiMintPost(w http.ResponseWriter, r *http.Request) {
 	var body MintRequestDTO

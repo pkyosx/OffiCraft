@@ -291,6 +291,285 @@ func TestHandleLoginApiLoginPost(t *testing.T) {
 	})
 }
 
+// apiTestLoginLink switches login links on and mints one the way the
+// `ocserverd login-link` host subcommands do, answering with the code.
+func apiTestLoginLink(t *testing.T, d *DAL, now int64) string {
+	t.Helper()
+	if err := d.PutSetting(settingLoginLinkEnabled, "true"); err != nil {
+		t.Fatalf("enable login links: %v", err)
+	}
+	code, err := mintLoginLink(d, now)
+	if err != nil {
+		t.Fatalf("mintLoginLink: %v", err)
+	}
+	return code
+}
+
+func TestHandleRedeemLoginLinkApiAuthLoginLinkPost(t *testing.T) {
+	const denied = "login link is invalid, expired, or already used"
+	redeem := func(t *testing.T, h http.Handler, code string) (int, map[string]any) {
+		t.Helper()
+		return apiJSON(t, h, "POST", "/api/auth/login-link", "", `{"code":"`+code+`"}`)
+	}
+	wantOwnerToken := func(t *testing.T, h http.Handler, code string) map[string]any {
+		t.Helper()
+		status, data := redeem(t, h, code)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"token":      apiAnyString,
+			"token_type": "bearer",
+			"expires_in": 86400,
+			"owner_id":   "owner",
+		})
+		return data
+	}
+	wantDenied := func(t *testing.T, h http.Handler, code string) {
+		t.Helper()
+		status, data := redeem(t, h, code)
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", denied)
+	}
+
+	t.Run("a freshly minted code answers 200 and an owner token that opens an owner-gated row", func(t *testing.T) {
+		_, h, d, _ := newAPITestServer(t)
+		code := apiTestLoginLink(t, d, time.Now().Unix())
+
+		data := wantOwnerToken(t, h, code)
+
+		token, _ := data["token"].(string)
+		status, data := apiJSON(t, h, "GET", "/api/auth/mfa", token, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"offered":     false,
+			"enrolled":    false,
+			"secret":      nil,
+			"otpauth_uri": nil,
+		})
+	})
+
+	t.Run("a code redeemed once answers 401 the second time", func(t *testing.T) {
+		_, h, d, _ := newAPITestServer(t)
+		code := apiTestLoginLink(t, d, time.Now().Unix())
+		wantOwnerToken(t, h, code)
+
+		wantDenied(t, h, code)
+	})
+
+	t.Run("a code minted more than ten minutes ago answers 401 and one minted nine minutes ago 200", func(t *testing.T) {
+		_, h, d, _ := newAPITestServer(t)
+		expired := apiTestLoginLink(t, d, time.Now().Unix()-601)
+
+		wantDenied(t, h, expired)
+
+		wantOwnerToken(t, h, apiTestLoginLink(t, d, time.Now().Unix()-540))
+	})
+
+	t.Run("a stored code answers 401 while login links are disabled and 200 once enabled", func(t *testing.T) {
+		_, h, d, _ := newAPITestServer(t)
+		code, err := mintLoginLink(d, time.Now().Unix())
+		if err != nil {
+			t.Fatalf("mintLoginLink: %v", err)
+		}
+
+		wantDenied(t, h, code)
+
+		if err := d.PutSetting(settingLoginLinkEnabled, "true"); err != nil {
+			t.Fatalf("enable login links: %v", err)
+		}
+		wantOwnerToken(t, h, code)
+	})
+
+	t.Run("a wrong code answers 401 and leaves the real code redeemable", func(t *testing.T) {
+		_, h, d, _ := newAPITestServer(t)
+		code := apiTestLoginLink(t, d, time.Now().Unix())
+
+		wantDenied(t, h, "not-the-minted-code")
+
+		wantOwnerToken(t, h, code)
+	})
+
+	t.Run("minting a second code makes the first answer 401 and the second 200", func(t *testing.T) {
+		_, h, d, _ := newAPITestServer(t)
+		first := apiTestLoginLink(t, d, time.Now().Unix())
+		second := apiTestLoginLink(t, d, time.Now().Unix())
+
+		wantDenied(t, h, first)
+
+		wantOwnerToken(t, h, second)
+	})
+
+	t.Run("a valid code answers 200 without a TOTP code while a factor is armed", func(t *testing.T) {
+		api, h, d, _ := newAPITestServer(t)
+		apiTestArmMFA(t, api, d)
+		code := apiTestLoginLink(t, d, time.Now().Unix())
+
+		wantOwnerToken(t, h, code)
+	})
+
+	t.Run("a stored code row that does not parse answers 401 with the same refusal", func(t *testing.T) {
+		_, h, d, _ := newAPITestServer(t)
+		apiTestLoginLink(t, d, time.Now().Unix())
+		if err := d.PutSetting(settingLoginLink, "not-json"); err != nil {
+			t.Fatalf("PutSetting: %v", err)
+		}
+
+		wantDenied(t, h, "anything")
+	})
+
+	t.Run("a refusal waits out the failure floor while a success answers at once", func(t *testing.T) {
+		api, h, d, _ := newAPITestServer(t)
+		const floor = 700 * time.Millisecond
+		api.credentialFailureFloor = floor
+		code := apiTestLoginLink(t, d, time.Now().Unix())
+
+		start := time.Now()
+		wantDenied(t, h, "not-the-minted-code")
+		if took := time.Since(start); took < floor {
+			t.Fatalf("refusal answered after %v, want at least %v", took, floor)
+		}
+
+		start = time.Now()
+		wantOwnerToken(t, h, code)
+		if took := time.Since(start); took >= floor {
+			t.Fatalf("success answered after %v, want under %v", took, floor)
+		}
+	})
+
+	// The four-slot cap and its 429 body are the ones /api/login documents
+	// (TestHandleLoginApiLoginPost).
+	t.Run("attempts beyond the in-flight cap answer 429 with a one-second Retry-After", func(t *testing.T) {
+		api, h, d, _ := newAPITestServer(t)
+		api.credentialFailureFloor = 2 * time.Second
+		apiTestLoginLink(t, d, time.Now().Unix())
+
+		type answer struct {
+			code       int
+			retryAfter string
+			body       string
+		}
+		answers := make(chan answer, 8)
+		var wg sync.WaitGroup
+		for i := 0; i < 8; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				rec := apiRequest(t, h, "POST", "/api/auth/login-link", "", `{"code":"wrong"}`)
+				answers <- answer{rec.Code, rec.Header().Get("Retry-After"), rec.Body.String()}
+			}()
+		}
+		wg.Wait()
+		close(answers)
+		throttled := 0
+		for got := range answers {
+			switch got.code {
+			case 429:
+				throttled++
+				if got.retryAfter != "1" {
+					t.Fatalf("Retry-After: want \"1\", got %q", got.retryAfter)
+				}
+				if got.body != `{"error":{"code":"client_error","message":"too many failed credential attempts; retry in 1s"}}` {
+					t.Fatalf("throttled body: %q", got.body)
+				}
+			case 401:
+				if got.body != `{"error":{"code":"unauthorized","message":"login link is invalid, expired, or already used"}}` {
+					t.Fatalf("refused body: %q", got.body)
+				}
+			default:
+				t.Fatalf("want 401 or 429, got %d (%s)", got.code, got.body)
+			}
+		}
+		if throttled != 4 {
+			t.Fatalf("want 4 of 8 concurrent attempts refused for concurrency, got %d", throttled)
+		}
+	})
+
+	t.Run("a valid code answers 429 while refused /api/login attempts hold every slot, and 200 after", func(t *testing.T) {
+		api, h, d, _ := newAPITestServer(t)
+		api.credentialFailureFloor = 2 * time.Second
+		code := apiTestLoginLink(t, d, time.Now().Unix())
+
+		var logins sync.WaitGroup
+		for i := 0; i < 4; i++ {
+			logins.Add(1)
+			go func() {
+				defer logins.Done()
+				apiRequest(t, h, "POST", "/api/login", "", `{"password":"wrong"}`)
+			}()
+		}
+		deadline := time.Now().Add(time.Second)
+		for api.loginThrottle.inFlight.Load() < 4 {
+			if time.Now().After(deadline) {
+				t.Fatal("the refused logins never held all four slots")
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+
+		rec := apiRequest(t, h, "POST", "/api/auth/login-link", "", `{"code":"`+code+`"}`)
+		if rec.Code != 429 || rec.Header().Get("Retry-After") != "1" ||
+			rec.Body.String() != `{"error":{"code":"client_error","message":"too many failed credential attempts; retry in 1s"}}` {
+			t.Fatalf("want 429 with Retry-After 1, got %d %q %s", rec.Code, rec.Header().Get("Retry-After"), rec.Body.String())
+		}
+
+		logins.Wait()
+		wantOwnerToken(t, h, code)
+	})
+
+	t.Run("concurrent redemptions of one code admit exactly one", func(t *testing.T) {
+		_, h, d, _ := newAPITestServer(t)
+		for round := 0; round < 20; round++ {
+			code := apiTestLoginLink(t, d, time.Now().Unix())
+			statuses := make(chan int, 4)
+			start := make(chan struct{})
+			var wg sync.WaitGroup
+			for i := 0; i < 4; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					<-start
+					statuses <- apiRequest(t, h, "POST", "/api/auth/login-link", "", `{"code":"`+code+`"}`).Code
+				}()
+			}
+			close(start)
+			wg.Wait()
+			close(statuses)
+			counts := map[int]int{}
+			for s := range statuses {
+				counts[s]++
+			}
+			if counts[200] != 1 || counts[401] != 3 {
+				t.Fatalf("round %d: want one 200 and three 401, got %v", round, counts)
+			}
+		}
+	})
+
+	t.Run("a request missing `code` answers 422", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "POST", "/api/auth/login-link", "", `{}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "field required: code")
+	})
+
+	t.Run("a valid code on a server with no signing secret answers 401 naming the configuration", func(t *testing.T) {
+		_, h, d, _ := newAPITestStackWithoutSigningSecret(t)
+		code := apiTestLoginLink(t, d, time.Now().Unix())
+
+		status, data := redeem(t, h, code)
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "auth not configured")
+	})
+}
+
 func TestHandleMintApiMintPost(t *testing.T) {
 	t.Run("an owner minting for a staff member answers 200 and a bearer token for that member", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)

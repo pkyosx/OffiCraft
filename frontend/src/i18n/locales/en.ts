@@ -795,6 +795,8 @@ export const en: Dict = {
     // as the password having been wrong.
     codeNowRequired:
       "This server now asks for a code as well. Enter the one in your authenticator app.",
+    loginLinkInvalid:
+      "This login link no longer works (already used, more than 10 minutes old, or not enabled on this station). Sign in with the password, or ask for a new link.",
   },
   firstRun: {
     title: "Set the admin password",

@@ -3592,6 +3592,13 @@ SKIPPED_HAPPY: dict[str, str] = {
         "below; the full first-run flow is pinned in the server unit tests "
         "(api_settings_test.go)."
     ),
+    "POST /api/auth/login-link": (
+        "the positive face needs a link minted on the station host by "
+        "`ocserverd login-link`, a local CLI a black-box client cannot run; the "
+        "anonymous bogus-code 401 is pinned in the auth matrix, and redeem, "
+        "single use, expiry, the off switch and the TOTP ruling in the server "
+        "unit tests (api_auth_test.go)."
+    ),
     "POST /api/auth/change-password": (
         "the positive face rotates the shared owner credential AND revokes the "
         "session-scoped owner token fixture (password_changed_at iat cut) — it "
