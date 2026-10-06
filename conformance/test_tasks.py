@@ -336,8 +336,9 @@ def test_full_task_loop(client, owner_token, executor):
 
     # The agent finishes the work itself (the surviving half of H4): the gate
     # step advances to done, then the closing step, then the task.
-    assert _step_status(client, executor.token, task["id"], gate["id"],
-                        "done").status_code == 200
+    r = _step_status(client, executor.token, task["id"], gate["id"], "done")
+    assert r.status_code == 200, r.text
+    assert "ready_for_done_note" not in r.json()
     assert _step_status(client, executor.token, task["id"], ship["id"],
                         "in_progress").status_code == 200
     # Reporting the LAST step done derives the task to ready_for_done and closes
@@ -350,6 +351,9 @@ def test_full_task_loop(client, owner_token, executor):
     assert final["task_status"] == "ready_for_done"
     assert final["closed_ts"] is None
     assert final["progress_done"] == 3 and final["progress_total"] == 3
+    assert final["ready_for_done_note"] == (
+        "這次的回報讓任務的每一個步驟都完成了，任務停在可結案（ready_for_done）。"
+        "請依系統的收尾指示完成收尾後再結案。")
     closed = _mark_done(client, executor.token, task["id"]).json()
     assert closed["status"] == "done" and closed["closed_ts"]
     # The badge counts open tasks only — the finished loop dropped off.
