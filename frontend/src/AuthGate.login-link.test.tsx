@@ -145,11 +145,22 @@ describe("AuthGate", () => {
     });
   });
 
-  it("keeps an existing session and its token when the link is refused", async () => {
+  it.each<{ answer: string; status: number; body: unknown; headers: Record<string, string> }>([
+    {
+      answer: "refused",
+      status: 401,
+      body: { error: { code: "unauthorized", message: "login link is invalid, expired, or already used" } },
+      headers: {},
+    },
+    {
+      answer: "braked",
+      status: 429,
+      body: { error: { code: "client_error", message: "too many failed credential attempts; retry in 1s" } },
+      headers: { "Retry-After": "1" },
+    },
+  ])("keeps an existing session and its token when the link is $answer", async ({ status, body, headers }) => {
     localStorage.setItem(TOKEN_KEY, "existing-owner-token");
-    const fetchMock = stubLoginLinkAnswer(401, {
-      error: { code: "unauthorized", message: "login link is invalid, expired, or already used" },
-    });
+    const fetchMock = stubLoginLinkAnswer(status, body, headers);
     const probe = stubProbe();
 
     renderGate();
@@ -164,5 +175,6 @@ describe("AuthGate", () => {
         "登入連結已失效（已使用、超過 10 分鐘或站台未開啟），請用密碼登入或請人重新產生。",
       ),
     ).toBeNull();
+    expect(screen.queryByText("目前同時處理的登入太多，請於 1 秒後再試。")).toBeNull();
   });
 });

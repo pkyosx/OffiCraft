@@ -41,8 +41,8 @@ function scrubLoginLinkFromURL(): void {
  * the login wall with a notice.
  */
 export function AuthGate({ authed }: { authed?: ReactNode } = {}) {
-  // Redeemed even when a token exists (owner ruling): a stale token left on a
-  // phone would otherwise swallow a valid link without a word.
+  // Redeemed even when a token exists: a stale token left on a phone would
+  // otherwise swallow a valid link without a word.
   const loginLinkCode = useRef(USE_MOCK ? "" : readLoginLinkCode());
   const [wall, setWall] = useState<Wall>(() =>
     USE_MOCK || (hasToken() && !loginLinkCode.current) ? "app" : "checking"

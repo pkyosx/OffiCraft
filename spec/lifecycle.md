@@ -167,8 +167,9 @@ ceiling of the warden lifetime setting (§1.6).
   runs `ocserverd login-link enable` (`auth.login_link_enabled`; not in `/api/settings`).
   Only a sha256 of the latest code is stored (`auth.login_link`), it expires 600 s after
   minting, and a success deletes it in the same transaction. Every refusal cause, an
-  unreadable stored row included, is the same flat 401. It does NOT ask for the TOTP code: minting needs host shell access, which can
-  already run `ocserverd mfa-disable`. Both rows are read per request, so a running serve
+  unreadable stored row included, is the same flat 401. It does NOT ask for the TOTP
+  code: minting needs host shell access, which can already run `ocserverd mfa-disable`.
+  Both rows are read per request, so a running serve
   follows the CLI without a restart.
 - **Credential-attempt brake.** It applies to the PUBLIC credential seams and to
   NOTHING else: `POST /api/login`, `POST /api/auth/set-password`'s claim token and
