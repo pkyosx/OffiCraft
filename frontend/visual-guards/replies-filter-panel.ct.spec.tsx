@@ -47,7 +47,7 @@
 //   (2) the ID field is FINDABLE against the page behind it — it must differ
 //       from its surroundings by a border, a fill, or both. Asserted as "the
 //       composited border colour is not equal to the composited page
-//       background", in BOTH theme families. UNCHANGED by T-118 except that
+//       background", under every built-in theme. UNCHANGED by T-118 except that
 //       there is no longer a funnel to click before it is on screen.
 //   (3) every CJK label on the row keeps its glyphs on ONE line box inside its
 //       own box. (The 預設/編輯 pills in set-badge-nowrap burst exactly this
@@ -156,6 +156,7 @@
 // measures is whether that page's row FITS and stays in flow.
 import { test, expect } from "@playwright/experimental-ct-react";
 import type { Locator } from "@playwright/test";
+import { BUILTIN_THEME_IDS, expectBuiltinApplied } from "./builtinThemes";
 import {
   RepliesPageStory,
   FilterFieldsStory,
@@ -264,7 +265,7 @@ for (const width of [320, 390, 1040]) {
     page,
   }) => {
     await page.setViewportSize({ width, height: 900 });
-    const cmp = await mount(<RepliesPageStory theme="dark" />);
+    const cmp = await mount(<RepliesPageStory theme="office" />);
 
     // 🔁 WAS 「apply a filter, then RE-OPEN, because that is the only state in
     // which the form, the 已篩選 strip and the header row are all on screen at
@@ -324,7 +325,7 @@ test("width 320: several 篩選 fields WRAP inside the row, and their CJK labels
   page,
 }) => {
   await page.setViewportSize({ width: 320, height: 900 });
-  const cmp = await mount(<FilterFieldsStory theme="dark" />);
+  const cmp = await mount(<FilterFieldsStory theme="office" />);
 
   const fields = cmp.getByTestId("replies-filter-fields");
   await expect(fields).toBeVisible();
@@ -402,7 +403,7 @@ test("the 篩選列 is page content, not an overlay: the list starts below it", 
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 900 });
-  const cmp = await mount(<RepliesPageStory theme="dark" />);
+  const cmp = await mount(<RepliesPageStory theme="office" />);
 
   const panel = cmp.getByTestId("replies-filter");
   const below = cmp.locator(".replies__section").first();
@@ -454,7 +455,7 @@ test("width 320: the row still fits with an empty field and a filter still appli
   page,
 }) => {
   await page.setViewportSize({ width: 320, height: 900 });
-  const cmp = await mount(<RepliesPageStory theme="dark" />);
+  const cmp = await mount(<RepliesPageStory theme="office" />);
 
   await applyId(cmp, FULL_ID);
   const field = cmp.getByTestId("filter-reply-card-id");
@@ -492,7 +493,7 @@ test("the field is sized to the id it holds — a whole id fits, with little to 
 }) => {
   await page.setViewportSize({ width: 1040, height: 900 });
   expect(FULL_ID.length, "the id shape this guard is calibrated on").toBe(15);
-  const cmp = await mount(<RepliesPageStory theme="dark" />);
+  const cmp = await mount(<RepliesPageStory theme="office" />);
   const field = cmp.getByTestId("filter-reply-card-id");
   await field.fill(FULL_ID);
 
@@ -575,7 +576,7 @@ test("the field is no taller than the pill triggers beside it", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1040, height: 900 });
-  const cmp = await mount(<RepliesPageStory theme="dark" />);
+  const cmp = await mount(<RepliesPageStory theme="office" />);
 
   const m = await cmp
     .getByTestId("filter-reply-card-id")
@@ -596,19 +597,20 @@ test("the field is no taller than the pill triggers beside it", async ({
   ).toBeLessThanOrEqual((pill as { height: number }).height + 1);
 });
 
-// (2) The field must be distinguishable from the page behind it, in BOTH theme
-// families. This is the assertion that would have caught a field whose border
+// (2) The field must be distinguishable from the page behind it, under every
+// built-in theme. This is the assertion that would have caught a field whose border
 // was deleted or whose fill collapsed into the background — the failure mode
 // the topbar guard (theme-contrast ①) records as "an invisible rectangle".
 //
 // 🔁 KEPT — only the funnel click before it is gone (owner 2026-09-06).
-for (const theme of ["dark", "light"] as const) {
+for (const theme of BUILTIN_THEME_IDS) {
   test(`theme ${theme}: the ID field is distinguishable from the page behind it`, async ({
     mount,
     page,
   }) => {
     await page.setViewportSize({ width: 1040, height: 900 });
     const cmp = await mount(<RepliesPageStory theme={theme} />);
+    await expectBuiltinApplied(page, theme);
 
     const field = cmp.getByTestId("filter-reply-card-id");
     await expect(field).toBeVisible();
@@ -658,7 +660,7 @@ test("emptying the 編號 box is an escape from an applied filter", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 900 });
-  const cmp = await mount(<RepliesPageStory theme="dark" />);
+  const cmp = await mount(<RepliesPageStory theme="office" />);
 
   await expect(cmp.getByTestId("replies-filter")).toBeVisible();
   // ⚠️ The escape is witnessed through the EMPTY-STATE SENTENCE, not through a
@@ -722,7 +724,7 @@ test("the 篩選 shell adds no spacing of its own: the gap below it is the page'
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 900 });
-  const cmp = await mount(<RepliesPageStory theme="light" />);
+  const cmp = await mount(<RepliesPageStory theme="office-light" />);
   await cmp.locator(".replies__section-title").first().waitFor();
 
   const m = await cmp.evaluate((root: HTMLElement) => {

@@ -16,6 +16,7 @@
 import { test, expect } from "@playwright/experimental-ct-react";
 import { ChatJumpNoticeStory } from "./stories/ChatBottomAffordanceStory";
 import { LIGHT_PACK } from "./stories/chatBottomAffordanceFixtures";
+import { BUILTIN_THEME_IDS, expectBuiltinApplied, selectBuiltinTheme } from "./builtinThemes";
 import { en } from "../src/i18n/locales/en";
 import { zh } from "../src/i18n/locales/zh";
 
@@ -216,15 +217,20 @@ test("顏色是 token 畫的（換得動），而且內建值真的讀得到", a
       };
     });
 
+  for (const theme of [...BUILTIN_THEME_IDS].reverse()) {
+    await selectBuiltinTheme(page, theme);
+    const s = await sample();
+    await expectBuiltinApplied(page, theme);
+    expect(
+      contrast(s.color, flatten(s.layers)),
+      `${theme}: 內建警示色下,提示文字要讀得到`,
+    ).toBeGreaterThanOrEqual(4.5);
+    expect(
+      parseFloat(s.borderWidth),
+      `${theme}: 提示列要有邊框 —— 它是一片警示色的面,沒有邊界就融進 composer`,
+    ).toBeGreaterThan(0);
+  }
   const builtIn = await sample();
-  expect(
-    contrast(builtIn.color, flatten(builtIn.layers)),
-    "內建警示色下,提示文字要讀得到",
-  ).toBeGreaterThanOrEqual(4.5);
-  expect(
-    parseFloat(builtIn.borderWidth),
-    "提示列要有邊框 —— 它是一片警示色的面,沒有邊界就融進 composer",
-  ).toBeGreaterThan(0);
 
   // ① token 化:換掉那三顆,畫面就得跟著換。
   await page.evaluate(() => {

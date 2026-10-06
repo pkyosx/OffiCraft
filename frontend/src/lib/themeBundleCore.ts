@@ -198,10 +198,21 @@ export const AVATAR_MIME_WHITELIST = [
 ] as const;
 const AVATAR_MIME_SET = new Set<string>(AVATAR_MIME_WHITELIST);
 
-/** The built-in theme names a custom bundle must never claim. office is the
- * only built-in now (修仙 is an importable custom bundle, so "xian" is a
- * perfectly legal custom id). */
-export const RESERVED_THEME_IDS = ["office"] as const;
+/** The built-in themes in picker order, each a block in styles/theme.css.
+ * `nameKey` is its name's leaf in the locales' themeIdentity subtree. */
+export const BUILTIN_THEMES = [
+  { id: "office", nameKey: "office" },
+  { id: "office-light", nameKey: "officeLight" },
+] as const;
+export type BuiltinThemeId = (typeof BUILTIN_THEMES)[number]["id"];
+
+/** The ids a custom bundle must never claim. Twin of reservedThemeIDs in
+ * server/ocserverd/theme_bundle.go. */
+export const RESERVED_THEME_IDS: readonly BuiltinThemeId[] = BUILTIN_THEMES.map((b) => b.id);
+
+export function isBuiltinTheme(v: string): v is BuiltinThemeId {
+  return (RESERVED_THEME_IDS as readonly string[]).includes(v);
+}
 
 /** The override languages a wording overlay may key on. */
 export const WORDING_LANGS = ["zh", "en"] as const;
@@ -619,7 +630,7 @@ export function validateThemeBundleWith(
   if (typeof bundle.id !== "string" || !THEME_ID_RE.test(bundle.id)) {
     return `${where}: id must match ^[a-z0-9][a-z0-9-]{1,63}$`;
   }
-  if ((RESERVED_THEME_IDS as readonly string[]).includes(bundle.id)) {
+  if (isBuiltinTheme(bundle.id)) {
     return `${where}: id "${bundle.id}" is reserved for a built-in theme`;
   }
   if (typeof bundle.name !== "string") {
@@ -724,7 +735,7 @@ export function validateThemeBundlesWith(
 export function isValidDisplayTheme(theme: string, customIds: Set<string>): boolean {
   return (
     theme === "" ||
-    (RESERVED_THEME_IDS as readonly string[]).includes(theme) ||
+    isBuiltinTheme(theme) ||
     customIds.has(theme)
   );
 }

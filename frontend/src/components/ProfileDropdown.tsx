@@ -17,6 +17,7 @@ import {
 } from "./icons";
 import { InlineEdit } from "./InlineEdit";
 import { qrSvg } from "../lib/qrSvg";
+import { BUILTIN_THEMES } from "../lib/themeBundle";
 import "./profile-dropdown.css";
 
 interface ProfileDropdownProps {
@@ -513,11 +514,13 @@ export function ProfileDropdown({
               * byte-identical built-in-looking row here (T-081b review round 3,
               * BLOCKER-2). Each option's text is the theme's own name and
               * nothing else; the only thing this picker asserts is ORDER, and
-              * order comes from the rendering below — the built-in is written
+              * order comes from the rendering below — the built-ins are written
               * out first, the packs follow — so no field of a bundle can move a
-              * row ahead of the built-in. */}
+              * row ahead of the built-ins. */}
             <select className="profile-dd__input" aria-label={t.profile.theme} value={theme} onChange={(e) => setTheme(e.target.value)}>
-              <option value="office">{t.themeIdentity.office}</option>
+              {BUILTIN_THEMES.map((b) => (
+                <option key={b.id} value={b.id}>{t.themeIdentity[b.nameKey]}</option>
+              ))}
               {themeList.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </div>

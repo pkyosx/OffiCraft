@@ -41,7 +41,7 @@ const GO_OUT = OUT_DIR
 
 // The SAME extraction regex the P1 css-token lint uses for --color-* definitions
 // (a token DECLARATION is `--color-name:`). sort + uniq gives a stable set
-// regardless of definition order or repetition across the :root / xian blocks.
+// regardless of definition order or repetition across the :root / office-light blocks.
 // Comments are stripped first (as the two lints do): this file is full of
 // token-naming prose, and a `--color-x: ...` inside a /* */ would otherwise mint
 // a phantom token — and, worse for the alias scan below, a phantom alias.

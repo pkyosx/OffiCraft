@@ -4,7 +4,7 @@
 //     computed-colour fact (the colour resolves through color-mix()) invisible
 //     to jsdom, and since the per-row chips were dropped the headings are the
 //     only thing marking which kind a row is.
-//   * the built-in office row and a custom row must line up their trailing
+//   * the built-in rows and a custom row must line up their trailing
 //     action column at every width (the built-in row's download is active while
 //     its edit/delete icons are inert placeholders) — a layout fact jsdom's
 //     zero-geometry engine cannot assert.
@@ -18,9 +18,9 @@
 //
 // ⚠️ What the LIST renders is one line per theme — id and name — and that is
 // all this guard needs; the colours below never reach the screen here (the row
-// would have to be exported or edited to fetch them). `displayTheme` stays
-// "office" so the ACTIVE theme is the built-in and every --color-* token
-// resolves to its office default — the contrast we ship by default.
+// would have to be exported or edited to fetch them). `displayTheme` names a
+// built-in (`builtin`, office by default) so every --color-* token resolves to
+// that built-in's shipped value — the contrast we ship.
 //
 // Wrapped in `.app__main` to reproduce the real ancestor chain (the 22px
 // gutters that a bare mount would omit — see frontend/AGENTS.md).
@@ -37,10 +37,10 @@ const AURORA: ThemeBundle = {
   wording: { zh: { "chat.copyShareLink": "複製連結" } },
 };
 
-export function ThemeSettingsListStory() {
+export function ThemeSettingsListStory({ builtin = "office" }: { builtin?: string }) {
   const seed = async () => {
     await mockApi.putTheme(AURORA);
-    await mockApi.patchServerSettings({ displayTheme: "office" });
+    await mockApi.patchServerSettings({ displayTheme: builtin });
     setToken("ct-owner-token");
   };
   return (

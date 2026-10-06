@@ -6,9 +6,8 @@
 // is invisible to it. These guards mount the provider against the REAL theme.css
 // in Chromium and assert the swatch's resolved --color-bg.
 //
-// office is the only built-in now (修仙 and every other theme is an imported
-// custom bundle, T-16a1 P35), so the dual layer is exercised with a custom
-// bundle ("Midnight"): office base #191c24 → rgb(25, 28, 36); the bundle's
+// 修仙 and every other non-built-in theme is an imported custom bundle
+// (T-16a1 P35), so the dual layer is exercised with a custom bundle ("Midnight"): office base #191c24 → rgb(25, 28, 36); the bundle's
 // #010203 → rgb(1, 2, 3).
 import { test, expect } from "@playwright/experimental-ct-react";
 import { DisplayPrefsReconcileStory } from "./stories/DisplayPrefsReconcileStory";

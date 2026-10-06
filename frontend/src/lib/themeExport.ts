@@ -13,6 +13,7 @@ import {
   isValidColorValue,
   validateThemeBundle,
   RESERVED_THEME_IDS,
+  type BuiltinThemeId,
   type ThemeBundle,
 } from "./themeBundle";
 
@@ -62,13 +63,13 @@ export function exportComputedTheme(
   return { id, name, colors };
 }
 
-/** Read office's BASE palette — the theme.css :root defaults — off `el`,
- * transparently neutralising any active custom theme's inline overrides so the
- * result is always the built-in office colours no matter which theme is currently
- * applied. Used to seed a "以辦公室為底" new custom theme. The strip→read→restore
- * runs synchronously (getComputedStyle forces a style flush, never a paint), so
- * nothing flashes on screen. */
-export function exportOfficeBaseTheme(
+/** Read one built-in theme's palette — its theme.css block — off `el`, whatever
+ * is applied right now: an active custom theme's inline overrides are stripped
+ * and `data-theme` is pointed at `builtin` for the read, then both are put back.
+ * Seeds a "以辦公室為底" new custom theme and backs each built-in row's 下載.
+ * getComputedStyle forces a style flush, never a paint, so nothing flashes. */
+export function exportBuiltinTheme(
+  builtin: BuiltinThemeId,
   id: string,
   name: string,
   el: Element = document.documentElement
@@ -82,9 +83,13 @@ export function exportOfficeBaseTheme(
       root.style.removeProperty(tok);
     }
   }
+  const savedTheme = root.dataset.theme;
+  root.dataset.theme = builtin;
   try {
     return exportComputedTheme(id, name, el);
   } finally {
+    if (savedTheme === undefined) delete root.dataset.theme;
+    else root.dataset.theme = savedTheme;
     for (const [tok, val] of saved) root.style.setProperty(tok, val);
   }
 }

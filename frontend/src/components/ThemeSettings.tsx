@@ -7,6 +7,7 @@ import { MESSAGE_KEYS } from "../i18n/messageKeys.generated";
 import {
   MAX_CUSTOM_THEMES,
   AVATAR_KINDS,
+  BUILTIN_THEMES,
   NAV_ICON_KEYS,
   isValidAvatarValue,
   isValidBackgroundValue,
@@ -22,7 +23,7 @@ import { SAFE_FONT_FAMILIES } from "../styles/themeFonts.generated";
 import { THEME_ALIAS_DEFAULT_TOKENS } from "../styles/themeTokens.generated";
 import {
   bundleFilename,
-  exportOfficeBaseTheme,
+  exportBuiltinTheme,
   nextCustomThemeId,
   parseImportedBundle,
   serializeBundle,
@@ -254,17 +255,16 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
   }
 
   // ── add (req4): create a new custom theme with office as its base, then jump
-  // straight into edit so the owner names + tweaks the fresh copy. The office
-  // BASE palette is read via exportOfficeBaseTheme (which neutralises any active
-  // custom theme's overrides), so the copy starts from office colours even when
-  // the currently applied theme is a custom one. ──
+  // straight into edit so the owner names + tweaks the fresh copy. A custom
+  // theme paints over the office base, so the copy starts from office colours
+  // whichever theme is applied right now. ──
   async function handleAddNew() {
     if (themeList.length >= MAX_CUSTOM_THEMES) {
       setListError(t.profile.themeLimitReached);
       return;
     }
     const id = nextCustomThemeId(themeList.map((b) => b.id));
-    const bundle = exportOfficeBaseTheme(id, t.themeIdentity.newTheme);
+    const bundle = exportBuiltinTheme("office", id, t.themeIdentity.newTheme);
     try {
       await saveTheme(bundle);
     } catch (e) {
@@ -1371,53 +1371,56 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
         <div className="ts-group-head" id="ts-group-builtin" data-testid="ts-group-builtin">
           {t.themeMarkers.builtinGroup}
         </div>
-        {/* built-in: office is the only built-in — selectable and downloadable,
-         * but not editable/deletable. Its download icon exports the office base
-         * palette (owner: 辦公室主題不用擋下載); the edit/delete icons stay
-         * inert-disabled so the built-in and custom rows still line up their right
+        {/* built-in rows are selectable and downloadable, but not
+         * editable/deletable. 下載 exports that row's own palette whatever is
+         * applied right now (owner: 辦公室主題不用擋下載); the edit/delete icons
+         * stay inert-disabled so built-in and custom rows line up their right
          * edge at every width (owner: 內建列與自訂列對齊). */}
-        <div className="ts-row">
-          <button
-            type="button"
-            className={`ts-pick${theme === "office" ? " ts-pick--active" : ""}`}
-            onClick={() => setTheme("office")}
-          >
-            {t.themeIdentity.office}
-          </button>
-          <button
-            type="button"
-            className="ts-icon-btn"
-            aria-label={`${t.profile.themeExport} ${t.themeIdentity.office}`}
-            title={t.profile.themeExport}
-            onClick={() =>
-              downloadBundle(
-                exportOfficeBaseTheme("office-base", t.themeIdentity.office)
-              )
-            }
-          >
-            <DownloadIcon size={15} />
-          </button>
-          <button
-            type="button"
-            className="ts-icon-btn"
-            disabled
-            aria-disabled="true"
-            aria-label={`${t.profile.themeEdit} ${t.themeIdentity.office}`}
-            title={t.profile.themeEdit}
-          >
-            <PencilIcon size={15} />
-          </button>
-          <button
-            type="button"
-            className="ts-icon-btn ts-icon-btn--danger"
-            disabled
-            aria-disabled="true"
-            aria-label={`${t.profile.themeDelete} ${t.themeIdentity.office}`}
-            title={t.profile.themeDelete}
-          >
-            <TrashIcon size={15} />
-          </button>
-        </div>
+        {BUILTIN_THEMES.map((b) => {
+          const name = t.themeIdentity[b.nameKey];
+          return (
+            <div key={b.id} className="ts-row">
+              <button
+                type="button"
+                className={`ts-pick${theme === b.id ? " ts-pick--active" : ""}`}
+                onClick={() => setTheme(b.id)}
+              >
+                {name}
+              </button>
+              <button
+                type="button"
+                className="ts-icon-btn"
+                aria-label={`${t.profile.themeExport} ${name}`}
+                title={t.profile.themeExport}
+                onClick={() =>
+                  downloadBundle(exportBuiltinTheme(b.id, `${b.id}-base`, name))
+                }
+              >
+                <DownloadIcon size={15} />
+              </button>
+              <button
+                type="button"
+                className="ts-icon-btn"
+                disabled
+                aria-disabled="true"
+                aria-label={`${t.profile.themeEdit} ${name}`}
+                title={t.profile.themeEdit}
+              >
+                <PencilIcon size={15} />
+              </button>
+              <button
+                type="button"
+                className="ts-icon-btn ts-icon-btn--danger"
+                disabled
+                aria-disabled="true"
+                aria-label={`${t.profile.themeDelete} ${name}`}
+                title={t.profile.themeDelete}
+              >
+                <TrashIcon size={15} />
+              </button>
+            </div>
+          );
+        })}
       </div>
 
       {themeList.length > 0 && (

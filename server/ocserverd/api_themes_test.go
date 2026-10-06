@@ -328,20 +328,22 @@ func TestHandlePutThemeApiThemesThemeIdPut(t *testing.T) {
 		apiThemeList(t, h, owner)
 	})
 
-	t.Run("a built-in theme's id cannot be claimed by a custom bundle", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		dashboard := apiTestListen(t, api, "")
+	for _, id := range []string{"office", "office-light"} {
+		t.Run("built-in theme id "+id+" cannot be claimed by a custom bundle", func(t *testing.T) {
+			api, h, _, owner := newAPITestServer(t)
+			dashboard := apiTestListen(t, api, "")
 
-		status, data := apiJSON(t, h, "PUT", "/api/themes/office", owner,
-			`{"id":"office","name":"Office","colors":{"--color-bg":"#101418"}}`)
-		if status != 422 {
-			t.Fatalf("want 422, got %d (%v)", status, data)
-		}
-		apiWantError(t, data, "validation_error",
-			`theme "office": id "office" is reserved for a built-in theme`)
-		dashboard.wantFrames()
-		apiThemeList(t, h, owner)
-	})
+			status, data := apiJSON(t, h, "PUT", "/api/themes/"+id, owner,
+				`{"id":"`+id+`","name":"Office","colors":{"--color-bg":"#101418"}}`)
+			if status != 422 {
+				t.Fatalf("want 422, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "validation_error",
+				`theme "`+id+`": id "`+id+`" is reserved for a built-in theme`)
+			dashboard.wantFrames()
+			apiThemeList(t, h, owner)
+		})
+	}
 
 	t.Run("a body with no colours at all is refused 422 naming the missing field", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
@@ -727,6 +729,7 @@ func TestDisplayThemeExists(t *testing.T) {
 	}{
 		{theme: "", want: true},
 		{theme: "office", want: true},
+		{theme: "office-light", want: true},
 		{theme: "dusk", want: true},
 		{theme: "missing", want: false},
 	} {

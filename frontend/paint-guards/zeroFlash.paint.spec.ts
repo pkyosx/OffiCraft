@@ -30,6 +30,8 @@
 // `custom_themes`. Nothing was dropped; only where each fact is read moved.
 
 import { expect, test } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import {
   CACHED_BG_RGB,
   EXPECT_APPLIED,
@@ -212,3 +214,60 @@ test("server no longer knows the theme → the stale picture is dropped (documen
   // …and the page settles on something other than the cached colour.
   expect(samples[samples.length - 1].bg).not.toBe(CACHED_BG_RGB);
 });
+
+const BUILTIN_SERVER = stubURL("PAINT_GUARD_BUILTIN_URL");
+
+/** office-light's --color-bg as getComputedStyle reports it, read from theme.css
+ * so a palette retune cannot leave this guard comparing against a stale colour. */
+function builtinLightBgRGB(): string {
+  const css = readFileSync(
+    fileURLToPath(new URL("../src/styles/theme.css", import.meta.url)),
+    "utf8"
+  );
+  const block = /:root\[data-theme="office-light"\]\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+  const hex = /--color-bg:\s*#([0-9a-fA-F]{6})\s*;/.exec(block)?.[1];
+  if (!hex) throw new Error("theme.css has no office-light block with a #rrggbb --color-bg");
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+for (const profile of ["fourg", "loopback"] as NetProfile[]) {
+  test(`built-in office-light: no frame is anything but its own background — authenticated (${profile})`, async ({
+    page,
+  }) => {
+    const pageErrors = collectPageErrors(page);
+    const settingsBodies = captureSettingsResponses(page);
+    const expectedBg = builtinLightBgRGB();
+
+    await page.goto(BUILTIN_SERVER);
+    await seedSession(page, { token: TOKEN, themeId: "office-light", paintRecord: null });
+
+    await installFrameSampler(page);
+    await applyNetProfile(page, profile);
+    await page.reload({ waitUntil: "load" });
+    await page.waitForTimeout(3000);
+
+    const { samples } = await collect(page);
+
+    expect(settingsBodies.length, "GET /api/settings never answered 200").toBeGreaterThan(0);
+    const settings = (await settingsBodies[0]) as { display_theme?: string } | null;
+    expect(settings?.display_theme, "server did not report office-light as active").toBe(
+      "office-light"
+    );
+    expect(
+      await page.evaluate(() => document.documentElement.dataset.theme),
+      "the built-in was not the theme applied after reconcile"
+    ).toBe("office-light");
+
+    expect(samples.length).toBeGreaterThanOrEqual(MIN_SAMPLES);
+    expect(samples.some((f) => f.mounted), "React never mounted").toBe(true);
+    expect(pageErrors, "uncaught page errors").toEqual([]);
+
+    const bad = badFrames(samples, expectedBg);
+    expect(
+      bad.length,
+      `${bad.length}/${samples.length} frames were not office-light's background; first at ` +
+        `${bad[0]?.t}ms bg=${bad[0]?.bg}\n${summarize(samples)}`
+    ).toBe(0);
+  });
+}

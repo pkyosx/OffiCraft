@@ -1,7 +1,7 @@
 // CT story for req4 — the 設定 › 主題管理 "新增" flow. Starts with NO custom
-// themes (just the built-in office row); clicking 新增 must create an office-based
+// themes (just the built-in rows); clicking 新增 must create an office-based
 // custom theme and jump straight into the edit view. Rendered in its REAL app CSS
-// (theme.css is loaded by playwright/index.ts) so exportOfficeBaseTheme reads the
+// (theme.css is loaded by playwright/index.ts) so exportBuiltinTheme reads the
 // genuine office :root palette — the whole point is that the new theme is seeded
 // with office's colours.
 import { I18nProvider } from "../../src/i18n";

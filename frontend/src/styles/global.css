@@ -37,7 +37,7 @@ body {
 /* Dark, subtle scrollbar (ported from the vibe-clicking dark design system).
  * The default UA scrollbar reads bright against our dark canvas; this pins a
  * thin thumb-only bar tinted with the existing dark design tokens so it recedes
- * on both the default and xian themes. */
+ * on every theme. */
 /* Firefox */
 html {
   scrollbar-width: thin;
@@ -76,7 +76,7 @@ button {
  * collapse header, a different pattern), text --sec #9aa0ad →
  * --color-text-muted at weight 600. Hover lifts the frame --bd → --bd2
  * (#242832 → #2c303a) and the text toward --tx; both expressed as theme-safe
- * white-alpha / token bumps so the xian theme keeps working. */
+ * overlay / token bumps so the light theme keeps working. */
 .add-entry {
   display: flex;
   align-items: center;

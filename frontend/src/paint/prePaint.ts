@@ -3,6 +3,7 @@
 // window.__ocPaintTokens; the React apply effect adopts it as its ledger seed,
 // so there is still exactly ONE ledger.
 import { LS_THEME, readValidatedPaint, applyThemeToRoot } from "../lib/themePaint";
+import { isBuiltinTheme } from "../lib/themeBundleCore";
 
 declare global {
   interface Window {
@@ -17,7 +18,11 @@ try {
   } catch {
     theme = null;
   }
-  if (theme && theme !== "office") {
+  if (theme && isBuiltinTheme(theme)) {
+    // A built-in's colours live in theme.css keyed off this attribute; without
+    // it a light pick would paint dark until React mounts.
+    document.documentElement.dataset.theme = theme;
+  } else if (theme) {
     const bundle = readValidatedPaint();
     if (bundle && bundle.id === theme) {
       document.documentElement.dataset.theme = "office";

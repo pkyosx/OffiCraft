@@ -35,7 +35,7 @@ var (
 	themeBundleIDRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,63}$`)
 )
 
-var reservedThemeIDs = map[string]bool{"office": true}
+var reservedThemeIDs = displayThemeAllowed
 
 // Unicode CATEGORIES, not hand-listed codepoints: a listed set let every
 // unlisted member of the same categories through (SOFT HYPHEN, the TAG block,

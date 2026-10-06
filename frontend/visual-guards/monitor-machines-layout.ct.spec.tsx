@@ -148,6 +148,7 @@ import { test, expect } from "@playwright/experimental-ct-react";
 import type { Page } from "@playwright/test";
 import { MonitorMachinesLayoutStory, type MachinesLayoutState } from "./stories/MonitorMachinesLayoutStory";
 import { LONG_NAME } from "./stories/monitorMachinesLayoutNames";
+import { expectBuiltinApplied, selectBuiltinTheme } from "./builtinThemes";
 
 const STATES = ["normal", "old"] as const;
 
@@ -641,7 +642,7 @@ const LIGHT: Record<string, string> = {
   "--color-overlay": "#000",
 };
 
-for (const theme of ["dark", "light"] as const) {
+for (const theme of ["dark", "office-light", "light"] as const) {
   test(`the 過期 chip draws a visible frame in the ${theme} palette`, async ({ mount, page }) => {
     await page.setViewportSize({ width: 1500, height: 900 });
     if (theme === "light") {
@@ -649,7 +650,9 @@ for (const theme of ["dark", "light"] as const) {
         for (const [k, v] of Object.entries(vars)) document.documentElement.style.setProperty(k, v);
       }, LIGHT);
     }
+    if (theme === "office-light") await selectBuiltinTheme(page, theme);
     await mount(<MonitorMachinesLayoutStory states={["stale"]} />);
+    if (theme === "office-light") await expectBuiltinApplied(page, theme);
     expect(await staleFrameContrast(page)).toBeGreaterThanOrEqual(1.5);
   });
 }

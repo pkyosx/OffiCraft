@@ -44,8 +44,7 @@ describe("I18nProvider dual-layer theme/language", () => {
   });
 
   it("first paint uses the localStorage cache when pre-auth (no server call)", () => {
-    // A cached custom-theme id (office is the only built-in now; a non-default
-    // theme is a custom bundle id). Pre-reconcile the bundle isn't loaded yet,
+    // A cached custom-theme id. Pre-reconcile the bundle isn't loaded yet,
     // so the apply effect paints the neutral office base — but the theme STATE
     // (the cache) is what drives the value.
     localStorage.setItem("oc.theme", "midnight");
@@ -60,6 +59,31 @@ describe("I18nProvider dual-layer theme/language", () => {
     expect(screen.getByTestId("probe").dataset.lang).toBe("en");
     // A dangling custom id (bundle not yet reconciled) paints the office base.
     expect(document.documentElement.dataset.theme).toBe("office");
+  });
+
+  it("first paint applies a cached built-in theme as <html data-theme> pre-auth", () => {
+    localStorage.setItem("oc.theme", "office-light");
+    render(
+      <I18nProvider>
+        <Probe />
+      </I18nProvider>
+    );
+    expect(screen.getByTestId("probe").dataset.theme).toBe("office-light");
+    expect(document.documentElement.dataset.theme).toBe("office-light");
+  });
+
+  it("adopts a server-stored built-in office-light at login and caches it", async () => {
+    await mockApi.patchServerSettings({ displayTheme: "office-light" });
+    localStorage.setItem(TOKEN_KEY, "live-owner-token");
+    render(
+      <I18nProvider>
+        <Probe />
+      </I18nProvider>
+    );
+    await waitFor(() =>
+      expect(document.documentElement.dataset.theme).toBe("office-light")
+    );
+    expect(localStorage.getItem("oc.theme")).toBe("office-light");
   });
 
   it("adopts the server value on mount when a token already exists, writing it back to the cache", async () => {
@@ -298,16 +322,22 @@ describe("I18nProvider custom theme apply", () => {
     expect(root.style.getPropertyValue("--color-bg")).toBe("#040506");
   });
 
-  it("clears the previous custom vars when switching to the built-in office", async () => {
-    await mockApi.putTheme(MIDNIGHT);
-    await mountCapture(1);
-    await activate("midnight");
-    await activateBundleless("office");
+  for (const builtin of ["office", "office-light"]) {
+    it(`clears the previous custom vars and the paint cache when switching to the built-in ${builtin}`, async () => {
+      await mockApi.putTheme(MIDNIGHT);
+      await mountCapture(1);
+      await activate("midnight");
+      const getTheme = vi.spyOn(api, "getTheme");
+      await activateBundleless(builtin);
 
-    expect(root.dataset.theme).toBe("office");
-    expect(root.style.getPropertyValue("--color-accent")).toBe("");
-    expect(root.style.getPropertyValue("--color-bg")).toBe("");
-  });
+      expect(root.dataset.theme).toBe(builtin);
+      expect(root.style.getPropertyValue("--color-accent")).toBe("");
+      expect(root.style.getPropertyValue("--color-bg")).toBe("");
+      expect(localStorage.getItem("oc.themePaint")).toBeNull();
+      expect(getTheme).not.toHaveBeenCalled();
+      getTheme.mockRestore();
+    });
+  }
 
   it("drops vars not carried by the next custom theme when switching between them", async () => {
     await mockApi.putTheme(MIDNIGHT);

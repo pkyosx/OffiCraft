@@ -1,6 +1,6 @@
 // T-3738 visual guards for 設定 › 主題管理 (ThemeSettings list view):
 //
-//   ① the GROUP HEADINGS (內建 / 自訂) clear WCAG AA (≥4.5:1) UNDER THE BUILT-IN
+//   ① the GROUP HEADINGS (內建 / 自訂) clear WCAG AA (≥4.5:1) UNDER EVERY BUILT-IN
 //      THEME — the heading is the only 內建/自訂 label, so its legibility is
 //      the whole label's legibility.
 //      The shipped contrast is a COMPUTED-COLOUR fact jsdom cannot see: we
@@ -9,8 +9,8 @@
 //      Round 8 pointed the colour at the pack-settable --color-text-muted
 //      (owner: a pack may decide its own colours), so this measures what WE
 //      ship, not what an imported pack does to itself.
-//   ② the built-in office row and a custom row line up their trailing action
-//      column at 390 and 1280 — the built-in row carries the SAME three icon
+//   ② the built-in rows and a custom row line up their trailing action
+//      column at 390 and 1280 — a built-in row carries the SAME three icon
 //      buttons for alignment; its download is active (owner: 辦公室主題不用擋
 //      下載) while edit/delete stay inert placeholders, so both rows flush their
 //      action buttons to the same right edge.
@@ -24,6 +24,8 @@ import {
 } from "@playwright/experimental-ct-react";
 import type { Page } from "@playwright/test";
 import { ThemeSettingsListStory } from "./stories/ThemeSettingsListStory";
+import { BUILTIN_THEME_IDS, expectBuiltinApplied } from "./builtinThemes";
+import type { BuiltinThemeId } from "../src/lib/themeBundleCore";
 
 // ── colour helpers (run in Node, on strings pulled from getComputedStyle) ──
 type Rgba = { r: number; g: number; b: number; a: number };
@@ -109,32 +111,36 @@ async function mountSeeded(
   mount: ComponentFixtures["mount"],
   page: Page,
   width: number,
+  builtin: BuiltinThemeId = "office",
 ) {
   await page.setViewportSize({ width, height: 900 });
-  const cmp = await mount(<ThemeSettingsListStory />);
+  const cmp = await mount(<ThemeSettingsListStory builtin={builtin} />);
   await cmp.getByTestId("seed").click();
   // The reconcile adds the custom row, which is what mints the 自訂 group.
   await expect(cmp.locator(".ts-group-head")).toHaveCount(2);
+  await expect(page.locator("html")).toHaveAttribute("data-theme", builtin);
   return cmp;
 }
 
 for (const width of [390, 1280]) {
-  test(`width ${width}: 內建 group heading clears WCAG AA (≥4.5:1)`, async ({ mount, page }) => {
-    const cmp = await mountSeeded(mount, page, width);
-    const { ratio } = await sampleColours(cmp.getByTestId("ts-group-builtin"));
-    expect(ratio).toBeGreaterThanOrEqual(4.5);
-  });
-
-  test(`width ${width}: 自訂 group heading clears WCAG AA (≥4.5:1)`, async ({ mount, page }) => {
-    const cmp = await mountSeeded(mount, page, width);
-    const { ratio } = await sampleColours(cmp.getByTestId("ts-group-custom"));
-    expect(ratio).toBeGreaterThanOrEqual(4.5);
-  });
+  for (const theme of BUILTIN_THEME_IDS) {
+    for (const [group, testId] of [
+      ["內建", "ts-group-builtin"],
+      ["自訂", "ts-group-custom"],
+    ] as const) {
+      test(`width ${width} ${theme}: ${group} group heading clears WCAG AA (≥4.5:1)`, async ({ mount, page }) => {
+        const cmp = await mountSeeded(mount, page, width, theme);
+        const { ratio } = await sampleColours(cmp.getByTestId(testId));
+        await expectBuiltinApplied(page, theme);
+        expect(ratio).toBeGreaterThanOrEqual(4.5);
+      });
+    }
+  }
 
   test(`width ${width}: built-in and custom rows align their action column`, async ({ mount, page }) => {
     const cmp = await mountSeeded(mount, page, width);
     const rows = cmp.locator(".ts-list > .ts-row");
-    await expect(rows).toHaveCount(2);
+    await expect(rows).toHaveCount(BUILTIN_THEME_IDS.length + 1);
 
     const rects = await rows.evaluateAll((els) =>
       els.map((row) =>
@@ -144,37 +150,44 @@ for (const width of [390, 1280]) {
         })
       )
     );
-    const [builtin, custom] = rects;
-
-    // The built-in row carries the SAME count of action buttons as the custom
-    // row — this is what makes the columns line up.
-    expect(builtin.length).toBe(3);
+    const custom = rects[rects.length - 1];
     expect(custom.length).toBe(3);
 
-    // Each of the three columns lines up left AND right across the two rows.
-    for (let i = 0; i < 3; i++) {
-      expect(Math.abs(builtin[i].left - custom[i].left)).toBeLessThanOrEqual(1);
-      expect(Math.abs(builtin[i].right - custom[i].right)).toBeLessThanOrEqual(1);
-    }
+    for (const builtin of rects.slice(0, -1)) {
+      // A built-in row carries the SAME count of action buttons as the custom
+      // row — this is what makes the columns line up.
+      expect(builtin.length).toBe(3);
 
-    // …and both rows flush their trailing button to the same right edge.
-    const builtinRight = builtin[builtin.length - 1].right;
-    const customRight = custom[custom.length - 1].right;
-    expect(Math.abs(builtinRight - customRight)).toBeLessThanOrEqual(1);
+      // Each of the three columns lines up left AND right across the rows.
+      for (let i = 0; i < 3; i++) {
+        expect(Math.abs(builtin[i].left - custom[i].left)).toBeLessThanOrEqual(1);
+        expect(Math.abs(builtin[i].right - custom[i].right)).toBeLessThanOrEqual(1);
+      }
+
+      // …and both rows flush their trailing button to the same right edge.
+      const builtinRight = builtin[builtin.length - 1].right;
+      const customRight = custom[custom.length - 1].right;
+      expect(Math.abs(builtinRight - customRight)).toBeLessThanOrEqual(1);
+    }
   });
 
-  test(`width ${width}: office download is active; edit/delete stay inert placeholders`, async ({ mount, page }) => {
+  test(`width ${width}: built-in downloads are active; edit/delete stay inert placeholders`, async ({ mount, page }) => {
     const cmp = await mountSeeded(mount, page, width);
-    const builtinBtns = cmp.locator(".ts-list > .ts-row").first().locator(".ts-icon-btn");
-    await expect(builtinBtns).toHaveCount(3);
-    // The download icon is an active export now (owner: 辦公室主題不用擋下載)…
-    await expect(builtinBtns.nth(0)).toBeEnabled();
-    // …edit/delete remain inert placeholders that only keep the row aligned.
-    await expect(builtinBtns.nth(1)).toBeDisabled();
-    await expect(builtinBtns.nth(2)).toBeDisabled();
+    for (let row = 0; row < BUILTIN_THEME_IDS.length; row++) {
+      const builtinBtns = cmp.locator(".ts-list > .ts-row").nth(row).locator(".ts-icon-btn");
+      await expect(builtinBtns).toHaveCount(3);
+      // The download icon is an active export now (owner: 辦公室主題不用擋下載)…
+      await expect(builtinBtns.nth(0)).toBeEnabled();
+      // …edit/delete remain inert placeholders that only keep the row aligned.
+      await expect(builtinBtns.nth(1)).toBeDisabled();
+      await expect(builtinBtns.nth(2)).toBeDisabled();
+    }
     // The custom row's buttons stay enabled (the placeholders must not have
     // disabled the real actions).
-    const customBtns = cmp.locator(".ts-list > .ts-row").nth(1).locator(".ts-icon-btn");
+    const customBtns = cmp
+      .locator(".ts-list > .ts-row")
+      .nth(BUILTIN_THEME_IDS.length)
+      .locator(".ts-icon-btn");
     await expect(customBtns).toHaveCount(3);
     for (let i = 0; i < 3; i++) {
       await expect(customBtns.nth(i)).toBeEnabled();

@@ -147,7 +147,8 @@ const (
 	// itself on purpose: it must describe the schema at its own version.
 )
 
-var displayThemeAllowed = map[string]bool{"office": true}
+// The built-in theme ids. Twin of RESERVED_THEME_IDS in frontend/src/lib/themeBundleCore.ts.
+var displayThemeAllowed = map[string]bool{"office": true, "office-light": true}
 var displayLanguageAllowed = map[string]bool{"zh": true, "en": true}
 
 const defaultOutsourceMaxParallel = 3

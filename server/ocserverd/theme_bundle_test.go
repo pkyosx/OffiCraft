@@ -126,6 +126,13 @@ func TestValidateThemeBundles(t *testing.T) {
 			want: `custom_themes[0]: id "office" is reserved for a built-in theme`,
 		},
 		{
+			name: "the built-in light ID is reserved",
+			bundles: []ThemeBundleDTO{
+				themeBundleForTest("office-light", "Custom copy", "#101018"),
+			},
+			want: `custom_themes[0]: id "office-light" is reserved for a built-in theme`,
+		},
+		{
 			name: "an unknown color token is refused",
 			bundles: []ThemeBundleDTO{{
 				Id: "midnight", Name: "Midnight", Colors: map[string]string{"--not-a-color": "#101018"},
@@ -197,6 +204,11 @@ func TestValidateThemeBundle(t *testing.T) {
 			name: "the built-in ID is refused",
 			b:    themeBundleForTest("office", "Office copy", "#101018"),
 			want: `theme: id "office" is reserved for a built-in theme`,
+		},
+		{
+			name: "the built-in light ID is refused",
+			b:    themeBundleForTest("office-light", "Office copy", "#101018"),
+			want: `theme: id "office-light" is reserved for a built-in theme`,
 		},
 		{
 			name: "a name that trims to empty is refused",
