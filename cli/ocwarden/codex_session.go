@@ -15,6 +15,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
@@ -142,8 +143,10 @@ type codexSession struct {
 	// Replayed item/completed notifications must not look like fresh
 	// compactions and recycle a just-booted agent.
 	completedCompactions map[string]struct{}
-	// Rides the identity heartbeat rather than a post of its own.
-	lastSuccessTs float64
+	// The heartbeat carries the latest success when an item report is throttled.
+	lastSuccessTs         float64
+	lastReportedSuccessTs float64
+	lastFailureTs         float64
 	// Merged across sparse account/rateLimits/updated notifications: a turn
 	// error never says when the limit lifts, only the snapshot does.
 	rateLimitWindows map[string]map[string]any
@@ -544,20 +547,22 @@ func jsonNumber(value any) float64 {
 	return number
 }
 
-func (s *codexSession) post(path string, payload map[string]any) {
+func (s *codexSession) post(path string, payload map[string]any) bool {
 	raw, _ := json.Marshal(payload)
 	req, err := http.NewRequest(http.MethodPost, strings.TrimRight(s.base, "/")+path,
 		bytes.NewReader(raw))
 	if err != nil {
-		return
+		return false
 	}
 	req.Header.Set("Authorization", "Bearer "+s.token)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
-	if err == nil {
-		s.reportRejectedCodexPost(path, resp.StatusCode)
-		_ = resp.Body.Close()
+	if err != nil {
+		return false
 	}
+	s.reportRejectedCodexPost(path, resp.StatusCode)
+	_ = resp.Body.Close()
+	return resp.StatusCode >= 200 && resp.StatusCode < 300
 }
 
 func (s *codexSession) reportIdentity() {
@@ -565,7 +570,15 @@ func (s *codexSession) reportIdentity() {
 	if s.lastSuccessTs > 0 {
 		identity["model_call"] = map[string]any{"last_success_ts": s.lastSuccessTs}
 	}
-	s.post("/api/monitoring/telemetry", identity)
+	if s.post("/api/monitoring/telemetry", identity) {
+		s.recordReportedSuccess()
+	}
+}
+
+func (s *codexSession) recordReportedSuccess() {
+	if s.lastSuccessTs > s.lastReportedSuccessTs {
+		s.lastReportedSuccessTs = s.lastSuccessTs
+	}
 }
 
 var codexModelCallKinds = map[string]string{
@@ -612,6 +625,13 @@ func (s *codexSession) recordTurnOutcome(params map[string]any) {
 			s.lastSuccessTs = ended
 		}
 	case "failed":
+		if s.lastSuccessTs > 0 && ended <= s.lastSuccessTs {
+			// Turn timestamps have second precision while item timestamps carry milliseconds.
+			ended = math.Nextafter(s.lastSuccessTs, math.Inf(1))
+		}
+		if ended > s.lastFailureTs {
+			s.lastFailureTs = ended
+		}
 		turnError, _ := turn["error"].(map[string]any)
 		code := codexModelCallCode(turnError)
 		kind, known := codexModelCallKinds[code]
@@ -632,7 +652,29 @@ func (s *codexSession) recordTurnOutcome(params map[string]any) {
 		failureReport := map[string]any{
 			"runtime": "codex", "account": s.account, "account_label": "ChatGPT", "model_call": modelCall,
 		}
-		s.post("/api/monitoring/telemetry", failureReport)
+		if s.post("/api/monitoring/telemetry", failureReport) {
+			s.recordReportedSuccess()
+		}
+	}
+}
+
+func (s *codexSession) recordModelCallSuccess(params map[string]any) {
+	item, _ := params["item"].(map[string]any)
+	if item == nil || item["type"] != "agentMessage" {
+		return
+	}
+	ended := jsonNumber(params["completedAtMs"]) / 1000
+	if ended <= 0 {
+		ended = float64(time.Now().UnixNano()) / 1e9
+	}
+	if ended <= s.lastSuccessTs {
+		return
+	}
+	s.lastSuccessTs = ended
+	if s.lastReportedSuccessTs <= 0 ||
+		ended-s.lastReportedSuccessTs >= codexTelemetryThrottle.Seconds() ||
+		s.lastFailureTs > s.lastReportedSuccessTs {
+		s.reportIdentity()
 	}
 }
 
@@ -758,6 +800,11 @@ func (s *codexSession) recordCompaction(params map[string]any) {
 	s.forceUsageReport = true
 	s.telemetryMu.Unlock()
 	s.activity("context compacted · count %d", s.compactions)
+}
+
+func (s *codexSession) handleItemCompleted(params map[string]any) {
+	s.recordModelCallSuccess(params)
+	s.recordCompaction(params)
 }
 
 // 🔴 The secret warning must ride in THIS text: the warden no longer opens the
@@ -1148,7 +1195,7 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 					s.reportRateLimits(snapshot)
 				}
 			case "item/completed":
-				s.recordCompaction(params)
+				s.handleItemCompleted(params)
 			case "item/tool/requestUserInput", "mcpServer/elicitation/request":
 				s.handleServerRequest(msg)
 			}
