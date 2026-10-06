@@ -265,7 +265,7 @@ func (s *apiServer) writeTaskArtifactReceipt(w http.ResponseWriter, t Task, arti
 	})
 }
 
-func (s *apiServer) writeTaskStepStatusReceipt(w http.ResponseWriter, t Task, step TaskStep) {
+func (s *apiServer) writeTaskStepStatusReceipt(w http.ResponseWriter, t Task, step TaskStep, arrived bool) {
 	steps, err := s.dal.ListTaskSteps(t.ID)
 	if err != nil {
 		internalError(w, err)
@@ -280,6 +280,7 @@ func (s *apiServer) writeTaskStepStatusReceipt(w http.ResponseWriter, t Task, st
 		TaskID: t.ID, StepID: step.ID, StepStatus: step.Status,
 		WaitingReason: t.WaitingReason, TaskStatus: t.Status,
 		ClosedTS: closedTS, ProgressDone: done, ProgressTotal: total,
+		ReadyForDoneNote: readyForDoneNote(arrived),
 	})
 }
 
@@ -513,6 +514,17 @@ func labelWithID(label, id string) string {
 		return label
 	}
 	return label + "（" + id + "）"
+}
+
+// readyForDoneReceiptNote is wire (ready_for_done_note) and owner-fixed wording;
+// it is deliberately a constant, not text read from a boot doc.
+const readyForDoneReceiptNote = "這次的回報讓任務的每一個步驟都完成了，任務停在可結案（ready_for_done）。請依系統的收尾指示完成收尾後再結案。"
+
+func readyForDoneNote(arrived bool) string {
+	if arrived {
+		return readyForDoneReceiptNote
+	}
+	return ""
 }
 
 // rederiveTask reports whether the task has just arrived at ready_for_done.
@@ -1871,6 +1883,7 @@ func (s *apiServer) HandleSubmitTaskPlanApiTasksTaskIdPlanPost(w http.ResponseWr
 	writeJSON(w, http.StatusOK, taskPlanReceiptDTO{
 		TaskID: saved.ID, StepsTotal: len(steps),
 		ProgressDone: done, ProgressTotal: total,
+		ReadyForDoneNote: readyForDoneNote(arrived),
 	})
 }
 
@@ -2087,7 +2100,7 @@ func (s *apiServer) HandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPos
 		return
 	}
 	s.announceDerivedTask(savedTask, arrived, requestTrigger(r))
-	s.writeTaskStepStatusReceipt(w, savedTask, savedStep)
+	s.writeTaskStepStatusReceipt(w, savedTask, savedStep, arrived)
 }
 
 func stepTransitionRefusal(step TaskStep, status string) error {

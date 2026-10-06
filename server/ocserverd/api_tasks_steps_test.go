@@ -413,7 +413,7 @@ func TestHandleInsertTaskStepApiTasksTaskIdStepsPost(t *testing.T) {
 // ── delete_step ──────────────────────────────────────────────────────────────
 
 func TestHandleDeleteTaskStepApiTasksTaskIdStepsStepIdDeletePost(t *testing.T) {
-	t.Run("removing an unfinished step leaves every other step exactly as it was", func(t *testing.T) {
+	t.Run("removing an unfinished step that leaves work open answers a receipt with no close-out note and leaves every other step exactly as it was", func(t *testing.T) {
 		api := newTasksTestServer(t)
 		task := createAdHocTask(t, api, "m-exec")
 		v1 := submitPlan(t, api, task.ID, "m-exec", []map[string]any{
@@ -427,12 +427,9 @@ func TestHandleDeleteTaskStepApiTasksTaskIdStepsStepIdDeletePost(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("delete: %d %s", rec.Code, rec.Body.String())
 		}
-		assertReceiptKeys(t, rec, "task_id", "steps_total", "progress_done",
-			"progress_total")
-		receipt := decodeBody[taskStepMutationReceiptDTO](t, rec)
-		if receipt.TaskID != task.ID || receipt.StepsTotal != 2 ||
-			receipt.ProgressTotal != 2 {
-			t.Fatalf("delete receipt wrong shape: %+v", receipt)
+		if got, want := rec.Body.String(), `{"task_id":"`+task.ID+
+			`","steps_total":2,"progress_done":0,"progress_total":2}`; got != want {
+			t.Fatalf("receipt:\n got %s\nwant %s", got, want)
 		}
 		v2 := getTaskView(t, api, task.ID)
 		if got := stepNames(v2.Steps); !sameStrings(got, []string{"one", "three"}) {
@@ -503,7 +500,7 @@ func TestHandleDeleteTaskStepApiTasksTaskIdStepsStepIdDeletePost(t *testing.T) {
 		}
 	})
 
-	t.Run("deleting the last unfinished step answers the receipt and lands ready_for_done", func(t *testing.T) {
+	t.Run("deleting the last unfinished step lands ready_for_done and the receipt carries the close-out note", func(t *testing.T) {
 		api := newTasksTestServer(t)
 		task := createDelegatedTask(t, api, "owner", "m-exec")
 		v1 := submitPlan(t, api, task.ID, "m-exec", []map[string]any{
@@ -521,7 +518,8 @@ func TestHandleDeleteTaskStepApiTasksTaskIdStepsStepIdDeletePost(t *testing.T) {
 			t.Fatalf("delete: %d %s", rec.Code, rec.Body.String())
 		}
 		if got, want := rec.Body.String(), `{"task_id":"`+task.ID+
-			`","steps_total":1,"progress_done":1,"progress_total":1}`; got != want {
+			`","steps_total":1,"progress_done":1,"progress_total":1,`+
+			`"ready_for_done_note":"這次的回報讓任務的每一個步驟都完成了，任務停在可結案（ready_for_done）。請依系統的收尾指示完成收尾後再結案。"}`; got != want {
 			t.Fatalf("receipt:\n got %s\nwant %s", got, want)
 		}
 		v2 := getTaskView(t, api, task.ID)

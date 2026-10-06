@@ -1028,14 +1028,15 @@ type resumeAnsweredCardStepDTO struct {
 }
 
 type taskStepStatusReceiptDTO struct {
-	TaskID        string   `json:"task_id"`
-	StepID        string   `json:"step_id"`
-	StepStatus    string   `json:"step_status"`
-	WaitingReason string   `json:"waiting_reason"`
-	TaskStatus    string   `json:"task_status"`
-	ClosedTS      *float64 `json:"closed_ts"`
-	ProgressDone  int      `json:"progress_done"`
-	ProgressTotal int      `json:"progress_total"`
+	TaskID           string   `json:"task_id"`
+	StepID           string   `json:"step_id"`
+	StepStatus       string   `json:"step_status"`
+	WaitingReason    string   `json:"waiting_reason"`
+	TaskStatus       string   `json:"task_status"`
+	ClosedTS         *float64 `json:"closed_ts"`
+	ProgressDone     int      `json:"progress_done"`
+	ProgressTotal    int      `json:"progress_total"`
+	ReadyForDoneNote string   `json:"ready_for_done_note,omitempty"`
 }
 
 type taskArtifactReceiptDTO struct {
@@ -1052,10 +1053,11 @@ type taskArtifactReplaceReceiptDTO struct {
 }
 
 type taskPlanReceiptDTO struct {
-	TaskID        string `json:"task_id"`
-	StepsTotal    int    `json:"steps_total"`
-	ProgressDone  int    `json:"progress_done"`
-	ProgressTotal int    `json:"progress_total"`
+	TaskID           string `json:"task_id"`
+	StepsTotal       int    `json:"steps_total"`
+	ProgressDone     int    `json:"progress_done"`
+	ProgressTotal    int    `json:"progress_total"`
+	ReadyForDoneNote string `json:"ready_for_done_note,omitempty"`
 }
 
 type taskStepInsertReceiptDTO struct {
@@ -1067,10 +1069,11 @@ type taskStepInsertReceiptDTO struct {
 }
 
 type taskStepMutationReceiptDTO struct {
-	TaskID        string `json:"task_id"`
-	StepsTotal    int    `json:"steps_total"`
-	ProgressDone  int    `json:"progress_done"`
-	ProgressTotal int    `json:"progress_total"`
+	TaskID           string `json:"task_id"`
+	StepsTotal       int    `json:"steps_total"`
+	ProgressDone     int    `json:"progress_done"`
+	ProgressTotal    int    `json:"progress_total"`
+	ReadyForDoneNote string `json:"ready_for_done_note,omitempty"`
 }
 
 type taskPriorityReceiptDTO struct {

@@ -41,7 +41,7 @@ func (s *apiServer) resolveTaskForStepEdit(
 func (s *apiServer) editSteps(
 	r *http.Request, taskID string,
 	edit func(tx *writeTx, steps []TaskStep) ([]TaskStep, error),
-) (Task, []TaskStep, error) {
+) (Task, []TaskStep, bool, error) {
 	now := nowSecs()
 	var saved Task
 	var stored []TaskStep
@@ -65,10 +65,10 @@ func (s *apiServer) editSteps(
 		return nil
 	})
 	if err != nil {
-		return Task{}, nil, err
+		return Task{}, nil, false, err
 	}
 	s.announceDerivedTask(saved, arrived, requestTrigger(r))
-	return saved, stored, nil
+	return saved, stored, arrived, nil
 }
 
 func (s *apiServer) HandleInsertTaskStepApiTasksTaskIdStepsPost(
@@ -101,7 +101,7 @@ func (s *apiServer) HandleInsertTaskStepApiTasksTaskIdStepsPost(
 		IsGate:        body.IsGate != nil && *body.IsGate,
 	}
 	before := trimmedOrEmpty(body.BeforeStepId)
-	t, stored, err := s.editSteps(r, taskId, func(tx *writeTx, steps []TaskStep) ([]TaskStep, error) {
+	t, stored, _, err := s.editSteps(r, taskId, func(tx *writeTx, steps []TaskStep) ([]TaskStep, error) {
 		at, err := stepInsertPosition(steps, before, fresh)
 		if err != nil {
 			return nil, err
@@ -159,7 +159,7 @@ func (s *apiServer) HandleDeleteTaskStepApiTasksTaskIdStepsStepIdDeletePost(
 	if !s.resolveTaskForStepEdit(w, r, taskId) {
 		return
 	}
-	t, stored, err := s.editSteps(r, taskId, func(tx *writeTx, steps []TaskStep) ([]TaskStep, error) {
+	t, stored, arrived, err := s.editSteps(r, taskId, func(tx *writeTx, steps []TaskStep) ([]TaskStep, error) {
 		if err := stepDeleteRefusal(steps, stepId); err != nil {
 			return nil, err
 		}
@@ -173,6 +173,7 @@ func (s *apiServer) HandleDeleteTaskStepApiTasksTaskIdStepsStepIdDeletePost(
 	writeJSON(w, http.StatusOK, taskStepMutationReceiptDTO{
 		TaskID: t.ID, StepsTotal: len(stored),
 		ProgressDone: done, ProgressTotal: total,
+		ReadyForDoneNote: readyForDoneNote(arrived),
 	})
 }
 
@@ -217,7 +218,7 @@ func (s *apiServer) HandleReorderTaskStepsApiTasksTaskIdStepsReorderPost(
 	if !s.resolveTaskForStepEdit(w, r, taskId) {
 		return
 	}
-	t, stored, err := s.editSteps(r, taskId, func(tx *writeTx, steps []TaskStep) ([]TaskStep, error) {
+	t, stored, arrived, err := s.editSteps(r, taskId, func(tx *writeTx, steps []TaskStep) ([]TaskStep, error) {
 		orderedIDs, err := reorderedStepIDs(taskId, steps, body.StepIds)
 		if err != nil {
 			return nil, err
@@ -232,6 +233,7 @@ func (s *apiServer) HandleReorderTaskStepsApiTasksTaskIdStepsReorderPost(
 	writeJSON(w, http.StatusOK, taskStepMutationReceiptDTO{
 		TaskID: t.ID, StepsTotal: len(stored),
 		ProgressDone: done, ProgressTotal: total,
+		ReadyForDoneNote: readyForDoneNote(arrived),
 	})
 }
 

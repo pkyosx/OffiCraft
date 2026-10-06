@@ -1117,7 +1117,7 @@ func TestWriteTaskStepStatusReceipt(t *testing.T) {
 		})
 	})
 
-	t.Run("the report that finishes the last step reports ready_for_done and NO closure stamp", func(t *testing.T) {
+	t.Run("the report that finishes the last step reports ready_for_done with the close-out note and NO closure stamp", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
 		agent := apiTestAgentToken(t, api, "kip", "")
@@ -1140,14 +1140,15 @@ func TestWriteTaskStepStatusReceipt(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"task_id":        "T-1",
-			"step_id":        lastStep,
-			"step_status":    "done",
-			"waiting_reason": "",
-			"task_status":    "ready_for_done",
-			"closed_ts":      nil,
-			"progress_done":  2,
-			"progress_total": 2,
+			"task_id":             "T-1",
+			"step_id":             lastStep,
+			"step_status":         "done",
+			"waiting_reason":      "",
+			"task_status":         "ready_for_done",
+			"closed_ts":           nil,
+			"progress_done":       2,
+			"progress_total":      2,
+			"ready_for_done_note": "這次的回報讓任務的每一個步驟都完成了，任務停在可結案（ready_for_done）。請依系統的收尾指示完成收尾後再結案。",
 		})
 
 		status, closed := apiJSON(t, h, "POST", "/api/tasks/T-1/mark-done", agent, "")
@@ -5686,7 +5687,7 @@ func TestHandleSubmitTaskPlanApiTasksTaskIdPlanPost(t *testing.T) {
 				"drop the parallel_group to keep the step sequential")
 	})
 
-	t.Run("a replan that leaves every step done answers the plan receipt, lands ready_for_done and fans the delta", func(t *testing.T) {
+	t.Run("a replan that leaves every step done lands ready_for_done with the close-out note and fans the delta; replanning the ready task again carries no note", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
 		agent := apiTestAgentToken(t, api, "kip", "")
@@ -5707,6 +5708,7 @@ func TestHandleSubmitTaskPlanApiTasksTaskIdPlanPost(t *testing.T) {
 		}
 		apiWantBody(t, data, map[string]any{
 			"task_id": "T-1", "steps_total": 1, "progress_done": 1, "progress_total": 1,
+			"ready_for_done_note": "這次的回報讓任務的每一個步驟都完成了，任務停在可結案（ready_for_done）。請依系統的收尾指示完成收尾後再結案。",
 		})
 		_, view := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
 		if view["status"] != TaskStatusReadyForDone || view["closed_ts"] != nil {
@@ -5745,6 +5747,15 @@ func TestHandleSubmitTaskPlanApiTasksTaskIdPlanPost(t *testing.T) {
 		dashboard.wantFrames(readyFrame, readyNoticeFrame)
 		executor.wantFrames(readyFrame, readyNoticeFrame)
 		bystander.wantFrames()
+
+		status, data = apiJSON(t, h, "POST", "/api/tasks/T-1/plan", agent,
+			`{"steps":[{"name":"Draft","dod":"a draft exists"}]}`)
+		if status != 200 {
+			t.Fatalf("replan of the ready task: want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"task_id": "T-1", "steps_total": 1, "progress_done": 1, "progress_total": 1,
+		})
 	})
 
 	t.Run("a plan with no steps at all answers 400", func(t *testing.T) {
@@ -6172,7 +6183,7 @@ func TestHandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost(t *testin
 		dashboard.wantFrames()
 	})
 
-	t.Run("the report that finishes the last step lands ready_for_done, and mark_task_done is what closes it", func(t *testing.T) {
+	t.Run("the report that finishes the last step lands ready_for_done with the close-out note, and mark_task_done is what closes it", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
 		agent := apiTestAgentToken(t, api, "kip", "")
@@ -6191,14 +6202,15 @@ func TestHandleUpdateTaskStepStatusApiTasksTaskIdStepsStepIdStatusPost(t *testin
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"task_id":        "T-1",
-			"step_id":        stepID,
-			"step_status":    "done",
-			"waiting_reason": "",
-			"task_status":    "ready_for_done",
-			"closed_ts":      nil,
-			"progress_done":  1,
-			"progress_total": 1,
+			"task_id":             "T-1",
+			"step_id":             stepID,
+			"step_status":         "done",
+			"waiting_reason":      "",
+			"task_status":         "ready_for_done",
+			"closed_ts":           nil,
+			"progress_done":       1,
+			"progress_total":      1,
+			"ready_for_done_note": "這次的回報讓任務的每一個步驟都完成了，任務停在可結案（ready_for_done）。請依系統的收尾指示完成收尾後再結案。",
 		})
 
 		readyFrame := map[string]any{
