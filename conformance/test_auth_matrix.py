@@ -2337,6 +2337,11 @@ PUBLIC_EXPECT: dict[str, tuple[str, int]] = {
     # claim token is never consulted — no guessing oracle). The 401 wrong-token
     # and positive faces live in the server unit tests (api_settings_test.go).
     "POST /api/auth/set-password": ("/api/auth/set-password", 409),
+    # the login link is public but code-gated: the anonymous face posts a bogus
+    # code and must get the flat 401 (never 403). The positive redeem needs a
+    # link minted by the host-shell `ocserverd login-link`, which a black box
+    # cannot run; it lives in the server unit tests (api_auth_test.go).
+    "POST /api/auth/login-link": ("/api/auth/login-link", 401),
     # machine claim is public but code-gated: the anonymous face posts a bogus
     # code and must get the flat 401 (never 403). The positive redeem + the
     # single-use 409-free semantics live in test_rest_happy / test_lifecycle.
@@ -2378,7 +2383,7 @@ def test_public_routes_serve_without_token(client: httpx.Client, route_key: str)
             "password": "conf-anonymous-claim",
             "claim_token": "conf-any-token",
         }
-    if route_key == "POST /api/machines/claim":
+    if route_key in ("POST /api/machines/claim", "POST /api/auth/login-link"):
         kwargs["json"] = {"code": "conf-bogus-claim-code"}
     r = client.request(method, path, **kwargs)
     assert r.status_code == expected, f"{route_key}: {r.status_code} != {expected}"

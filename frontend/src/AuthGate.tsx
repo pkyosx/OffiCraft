@@ -1,13 +1,25 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import App from "./App";
-import { LoginPage } from "./components/LoginPage";
+import { LoginPage, type LoginLinkFailure } from "./components/LoginPage";
 import { FirstRunPage } from "./components/FirstRunPage";
 import { USE_MOCK, api } from "./api";
-import { hasToken, clearToken } from "./api/auth";
+import { hasToken, clearToken, redeemLoginLink } from "./api/auth";
+import { isHttpStatus, retryAfterSeconds } from "./api/errors";
 import { ReplyCardsProvider } from "./hooks/useReplyCards";
 
 type Wall = "checking" | "firstrun" | "login" | "app";
+
+function readLoginLinkCode(): string {
+  return (new URLSearchParams(window.location.search).get("login") ?? "").trim();
+}
+
+function scrubLoginLinkFromURL(): void {
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has("login")) return;
+  url.searchParams.delete("login");
+  history.replaceState(null, "", url.pathname + url.search + url.hash);
+}
 
 /**
  * Real-mode-only auth wall wrapping the app.
@@ -22,6 +34,10 @@ type Wall = "checking" | "firstrun" | "login" | "app";
  * password set → LoginPage. HONEST loop — no token is ever fabricated, and an
  * unreachable/failing probe falls back to the login wall (the login itself
  * will surface the real failure).
+ *
+ * A `?login=<code>` one-time link is scrubbed from the URL on mount and, with
+ * no token, redeemed during "checking": success → App, failure → the login
+ * wall with a notice.
  */
 export function AuthGate({ authed }: { authed?: ReactNode } = {}) {
   const [wall, setWall] = useState<Wall>(() =>
@@ -42,20 +58,52 @@ export function AuthGate({ authed }: { authed?: ReactNode } = {}) {
   // the auth-expired handler both go through "checking" for this reason.
   const [mfaRequired, setMfaRequired] = useState(false);
 
-  // Real-mode-only: resolve the "checking" wall via the first-run probe.
+  // An existing token wins: the link is scrubbed but never spent.
+  const loginLinkCode = useRef(USE_MOCK || hasToken() ? "" : readLoginLinkCode());
+  // 🔴 One redemption per page load, shared by every run of the effect below: a
+  // code is single-use, so StrictMode's second effect run redeeming again would
+  // turn a good link into a refusal.
+  const loginLinkRedemption = useRef<Promise<LoginLinkFailure | null> | null>(null);
+  const [loginLinkFailure, setLoginLinkFailure] = useState<LoginLinkFailure | null>(null);
+
+  useEffect(() => {
+    if (!USE_MOCK) scrubLoginLinkFromURL();
+  }, []);
+
+  // Real-mode-only: resolve the "checking" wall via the login link, if any, and
+  // then the first-run probe.
   useEffect(() => {
     if (wall !== "checking") return;
     let cancelled = false;
-    api
-      .getAuthStatus()
-      .then((status) => {
+    const code = loginLinkCode.current;
+    if (code) {
+      loginLinkRedemption.current ??= redeemLoginLink(code).then(
+        () => null,
+        (err: unknown) => ({
+          throttledFor: isHttpStatus(err, 429) ? retryAfterSeconds(err) : null,
+        }),
+      );
+    }
+    void (async () => {
+      if (code) {
+        const failure = await loginLinkRedemption.current;
+        if (cancelled) return;
+        loginLinkCode.current = "";
+        if (failure === null) {
+          setWall("app");
+          return;
+        }
+        setLoginLinkFailure(failure);
+      }
+      try {
+        const status = await api.getAuthStatus();
         if (cancelled) return;
         setMfaRequired(status.mfaRequired);
         setWall(status.passwordSet ? "login" : "firstrun");
-      })
-      .catch(() => {
+      } catch {
         if (!cancelled) setWall("login");
-      });
+      }
+    })();
     return () => {
       cancelled = true;
     };
@@ -106,9 +154,13 @@ export function AuthGate({ authed }: { authed?: ReactNode } = {}) {
   if (wall === "login") {
     return (
       <LoginPage
-        onSuccess={() => setWall("app")}
+        onSuccess={() => {
+          setLoginLinkFailure(null);
+          setWall("app");
+        }}
         mfaRequired={mfaRequired}
         refreshMfaRequired={refreshMfaRequired}
+        loginLinkFailure={loginLinkFailure}
       />
     );
   }

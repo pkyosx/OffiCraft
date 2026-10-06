@@ -118,6 +118,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/login-link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Owner login through a one-time link minted on the station host.
+         * @description - Exchanges a one-time login link code for the same owner token `/api/login` returns, without the password.
+         *     - Links are minted only on the station host (`ocserverd login-link`); there is no HTTP route that mints one, so no member or agent credential can create a link.
+         *     - Off by default: the station host must first run `ocserverd login-link enable`. While off, every code is refused.
+         *     - A code is single-use and expires 600 seconds after it was minted; minting a new link invalidates the previous one.
+         *     - An unknown, expired, already-used code and a station with the feature off are the same flat 401, after the same fixed delay as a failed `/api/login`.
+         *     - While TOTP is enrolled the link still logs in without a code: minting one already requires host shell access, the same access `ocserverd mfa-disable` uses to clear the factor.
+         *     - 429 with `Retry-After` when the server-wide verify cap shared with `/api/login` is full.
+         */
+        post: operations["handle_redeem_login_link_api_auth_login_link_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/mfa": {
         parameters: {
             query?: never;
@@ -5875,6 +5901,15 @@ export interface components {
             password: string;
         };
         /**
+         * LoginLinkDTO
+         * @description One-time owner login link redemption (`POST /api/auth/login-link`, PUBLIC).
+         *     `code` is the value of the `login` query parameter of a link minted on the station host by `ocserverd login-link` — possessing it proves host shell access, the same gate as the first-run claim token. A code is valid for 600 seconds, is consumed by its first successful redemption, and only the most recently minted code is valid.
+         */
+        LoginLinkDTO: {
+            /** Code */
+            code: string;
+        };
+        /**
          * MachineClaimDTO
          * @description Redeem a one-time machine claim code (``POST /api/machines/claim``).
          *
@@ -11571,6 +11606,57 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ChangePasswordDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_redeem_login_link_api_auth_login_link_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginLinkDTO"];
             };
         };
         responses: {

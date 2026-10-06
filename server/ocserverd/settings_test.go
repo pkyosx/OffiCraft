@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/base64"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -777,6 +778,104 @@ func TestCmdClaimToken(t *testing.T) {
 		if err != nil || residual != nil {
 			t.Fatalf("residual claim token was not deleted: %v %v", residual, err)
 		}
+	})
+}
+
+func TestCmdLoginLink(t *testing.T) {
+	// A serving station and the subcommand share one database file, and the
+	// station is started BEFORE the subcommand runs: it must follow the CLI
+	// without a restart.
+	station := func(t *testing.T) (env func(string) string, h http.Handler, d *DAL) {
+		t.Helper()
+		dir := t.TempDir()
+		dbPath := filepath.Join(dir, "station.db")
+		_, h, d, _ = newAPITestServerOn(t, newAPITestDALAt(t, dbPath))
+		env = envOf(map[string]string{
+			envConfigPath:  filepath.Join(dir, "absent.toml"),
+			envDatabaseURL: "sqlite:///" + dbPath,
+		})
+		return env, h, d
+	}
+	run := func(t *testing.T, env func(string) string, wantRC int, args ...string) string {
+		t.Helper()
+		var out strings.Builder
+		if rc := cmdLoginLink(args, env, &out); rc != wantRC {
+			t.Fatalf("login-link %q: want rc %d, got %d output=%s", args, wantRC, rc, out.String())
+		}
+		lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+		return lines[len(lines)-1]
+	}
+	redeemStatus := func(t *testing.T, h http.Handler, link, prefix string) int {
+		t.Helper()
+		code, ok := strings.CutPrefix(link, prefix+"/?login=")
+		if !ok {
+			t.Fatalf("last line is not a %q login link: %q", prefix, link)
+		}
+		if raw, err := base64.RawURLEncoding.DecodeString(code); err != nil || len(raw) != 32 {
+			t.Fatalf("link code is not 32 base64url bytes: %q %v", code, err)
+		}
+		status, _ := apiJSON(t, h, "POST", "/api/auth/login-link", "", `{"code":"`+code+`"}`)
+		return status
+	}
+
+	t.Run("while disabled minting exits 3 with a refusal and stores no code", func(t *testing.T) {
+		env, _, d := station(t)
+
+		last := run(t, env, 3)
+
+		if last != "[ocserverd] login-link: login links are disabled on this station — run `ocserverd login-link enable` first; no link was minted" {
+			t.Fatalf("refusal line: %q", last)
+		}
+		stored, err := d.GetSetting(settingLoginLink)
+		if err != nil || stored != nil {
+			t.Fatalf("a refused mint stored a code: %v %v", stored, err)
+		}
+	})
+
+	t.Run("after enable the link printed last redeems once at the running station", func(t *testing.T) {
+		env, h, _ := station(t)
+
+		if last := run(t, env, 0, "enable"); last != "[ocserverd] login-link: enabled — `ocserverd login-link` now mints one-time owner login links" {
+			t.Fatalf("enable line: %q", last)
+		}
+		link := run(t, env, 0)
+
+		if status := redeemStatus(t, h, link, ""); status != 200 {
+			t.Fatalf("first redeem: want 200, got %d", status)
+		}
+		if status := redeemStatus(t, h, link, ""); status != 401 {
+			t.Fatalf("second redeem: want 401, got %d", status)
+		}
+	})
+
+	t.Run("--base-url prefixes the printed link", func(t *testing.T) {
+		env, h, _ := station(t)
+		run(t, env, 0, "enable")
+
+		spaced := run(t, env, 0, "--base-url", "https://station.example/")
+		joined := run(t, env, 0, "--base-url=https://station.example")
+
+		if status := redeemStatus(t, h, spaced, "https://station.example"); status != 401 {
+			t.Fatalf("superseded link: want 401, got %d", status)
+		}
+		if status := redeemStatus(t, h, joined, "https://station.example"); status != 200 {
+			t.Fatalf("latest link: want 200, got %d", status)
+		}
+	})
+
+	t.Run("disable after enable refuses the minted link and further mints", func(t *testing.T) {
+		env, h, _ := station(t)
+		run(t, env, 0, "enable")
+		link := run(t, env, 0)
+
+		if last := run(t, env, 0, "disable"); last != "[ocserverd] login-link: disabled — every login link is refused" {
+			t.Fatalf("disable line: %q", last)
+		}
+
+		if status := redeemStatus(t, h, link, ""); status != 401 {
+			t.Fatalf("redeem after disable: want 401, got %d", status)
+		}
+		run(t, env, 3)
 	})
 }
 

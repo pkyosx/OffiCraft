@@ -3,16 +3,20 @@ package main
 // Read precedence: DB settings → code defaults. oc.toml's retired [auth] /
 // [sse_context_high] keys are consumed ONLY by the one-shot migration here
 // (loader warns + runtime ignores them — config.go). The snapshot is loaded
-// ONCE at serve start — no per-request DB reads.
+// ONCE at serve start — no per-request DB reads, except the login-link rows.
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -36,6 +40,12 @@ const (
 	// local serve log / installer banner: possession proves host shell access —
 	// the gate against a public-tunnel visitor claiming a fresh server.
 	settingClaimToken = "auth.claim_token"
+	// Written only by the `ocserverd login-link` host subcommands and read by
+	// POST /api/auth/login-link on every request, so a running serve follows the
+	// CLI without a restart. Deliberately absent from GET/PATCH /api/settings: an
+	// owner token must not be able to switch on a password-less way in.
+	settingLoginLinkEnabled = "auth.login_link_enabled"
+	settingLoginLink        = "auth.login_link"
 	// settingMFAOffered is the ship-dark flag "may the second factor be SET UP".
 	// 🔴 It gates set-up, NEVER verification: if it switched verification off, a
 	// stolen owner token could withdraw the feature and walk past an armed factor.
@@ -879,6 +889,118 @@ func cmdClaimToken(env func(string) string, out io.Writer) int {
 		return 3
 	}
 	fmt.Fprintln(out, token)
+	return 0
+}
+
+const loginLinkTTLSecs int64 = 600
+
+type loginLinkRecord struct {
+	Hash      string `json:"hash"`
+	ExpiresAt int64  `json:"expires_at"`
+}
+
+func loginLinkHash(code string) string {
+	sum := sha256.Sum256([]byte(code))
+	return hex.EncodeToString(sum[:])
+}
+
+// mintLoginLink replaces any earlier code: only the latest link is valid. Only
+// the hash is stored, so a copy of the database cannot be replayed as a link.
+func mintLoginLink(d *DAL, now int64) (string, error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	code := base64.RawURLEncoding.EncodeToString(raw)
+	rec, err := json.Marshal(loginLinkRecord{Hash: loginLinkHash(code), ExpiresAt: now + loginLinkTTLSecs})
+	if err != nil {
+		return "", err
+	}
+	if err := d.PutSetting(settingLoginLink, string(rec)); err != nil {
+		return "", err
+	}
+	return code, nil
+}
+
+// consumeLoginLinkOn deletes the stored code in the caller's transaction when
+// code redeems it, so two concurrent redemptions cannot both succeed.
+func consumeLoginLinkOn(tx *writeTx, code string, now int64) (bool, error) {
+	enabled, err := getSettingOn(tx, settingLoginLinkEnabled)
+	if err != nil || enabled == nil || *enabled != "true" {
+		return false, err
+	}
+	stored, err := getSettingOn(tx, settingLoginLink)
+	if err != nil || stored == nil {
+		return false, err
+	}
+	var rec loginLinkRecord
+	if err := json.Unmarshal([]byte(*stored), &rec); err != nil {
+		return false, fmt.Errorf("settings %s: %w", settingLoginLink, err)
+	}
+	if now >= rec.ExpiresAt ||
+		subtle.ConstantTimeCompare([]byte(loginLinkHash(code)), []byte(rec.Hash)) != 1 {
+		return false, nil
+	}
+	return true, deleteSettingOn(tx, settingLoginLink)
+}
+
+// cmdLoginLink: `login-link enable|disable` switches the feature, a bare
+// `login-link [--base-url URL]` mints a link and prints it as the LAST output
+// line. Exit codes: 0 = done, 2 = bad arguments, 3 = feature off (nothing
+// minted), 1 = fatal.
+func cmdLoginLink(args []string, env func(string) string, out io.Writer) int {
+	action, baseURL := "mint", ""
+	switch {
+	case len(args) == 1 && (args[0] == "enable" || args[0] == "disable"):
+		action = args[0]
+	case len(args) == 0:
+	case len(args) == 2 && args[0] == "--base-url" && args[1] != "":
+		baseURL = args[1]
+	case len(args) == 1 && strings.HasPrefix(args[0], "--base-url=") && len(args[0]) > len("--base-url="):
+		baseURL = strings.TrimPrefix(args[0], "--base-url=")
+	default:
+		fmt.Fprintln(out, "[ocserverd] usage: ocserverd login-link [enable | disable | --base-url <url>]")
+		return 2
+	}
+	d, _, done, rc := openAuthDAL("login-link", env, out)
+	defer done()
+	if rc != 0 {
+		return rc
+	}
+	switch action {
+	case "enable":
+		if err := d.PutSetting(settingLoginLinkEnabled, "true"); err != nil {
+			fmt.Fprintf(out, "[ocserverd] FATAL: enable login links: %v\n", err)
+			return 1
+		}
+		fmt.Fprintln(out, "[ocserverd] login-link: enabled — `ocserverd login-link` now mints one-time owner login links")
+		return 0
+	case "disable":
+		for _, key := range []string{settingLoginLinkEnabled, settingLoginLink} {
+			if err := d.DeleteSetting(key); err != nil {
+				fmt.Fprintf(out, "[ocserverd] FATAL: clear %s: %v\n", key, err)
+				return 1
+			}
+		}
+		fmt.Fprintln(out, "[ocserverd] login-link: disabled — every login link is refused")
+		return 0
+	}
+	enabled, err := d.GetSetting(settingLoginLinkEnabled)
+	if err != nil {
+		fmt.Fprintf(out, "[ocserverd] FATAL: read %s: %v\n", settingLoginLinkEnabled, err)
+		return 1
+	}
+	if enabled == nil || *enabled != "true" {
+		fmt.Fprintln(out, "[ocserverd] login-link: login links are disabled on this station — run `ocserverd login-link enable` first; no link was minted")
+		return 3
+	}
+	code, err := mintLoginLink(d, time.Now().Unix())
+	if err != nil {
+		fmt.Fprintf(out, "[ocserverd] FATAL: mint login link: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(out, "[ocserverd] login-link: valid for %d minutes and for one login; minting another invalidates it\n", loginLinkTTLSecs/60)
+	fmt.Fprintf(out, "%s/?login=%s\n", strings.TrimRight(baseURL, "/"), code)
 	return 0
 }
 

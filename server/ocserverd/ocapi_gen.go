@@ -1655,6 +1655,12 @@ type LoginDTO struct {
 	Password string  `json:"password"`
 }
 
+// LoginLinkDTO One-time owner login link redemption (`POST /api/auth/login-link`, PUBLIC).
+// `code` is the value of the `login` query parameter of a link minted on the station host by `ocserverd login-link` — possessing it proves host shell access, the same gate as the first-run claim token. A code is valid for 600 seconds, is consumed by its first successful redemption, and only the most recently minted code is valid.
+type LoginLinkDTO struct {
+	Code string `json:"code"`
+}
+
 // LoreEntryDTO One 傳承 entry (T-33). Its text is written once and NEVER edited: no route changes “title“ or “body“, so what you read here is what was written. The mutable surface is “state“ (active / pinned / retired), “retire_reason“, “effective_ts“ and — admin-only, through “set_lore_entry_scope“ (T-236) — the “scope_kind“ / “scope_key“ pair.
 //
 // “effective_ts“ vs “created_ts“: “created_ts“ is when the entry was written and never moves; “effective_ts“ starts equal to it and is what “bump_lore_entry“ sets to now. The fold's selection order reads “effective_ts“, so bumping is how an old entry is brought back to the front — and because “created_ts“ survives, the bump is reversible and explicable afterwards.
@@ -4893,6 +4899,9 @@ type HandleIngestAgentContextApiAgentContextPostJSONRequestBody = AgentContextIn
 // HandleChangePasswordApiAuthChangePasswordPostJSONRequestBody defines body for HandleChangePasswordApiAuthChangePasswordPost for application/json ContentType.
 type HandleChangePasswordApiAuthChangePasswordPostJSONRequestBody = ChangePasswordDTO
 
+// HandleRedeemLoginLinkApiAuthLoginLinkPostJSONRequestBody defines body for HandleRedeemLoginLinkApiAuthLoginLinkPost for application/json ContentType.
+type HandleRedeemLoginLinkApiAuthLoginLinkPostJSONRequestBody = LoginLinkDTO
+
 // HandleMfaActivateApiAuthMfaActivatePostJSONRequestBody defines body for HandleMfaActivateApiAuthMfaActivatePost for application/json ContentType.
 type HandleMfaActivateApiAuthMfaActivatePostJSONRequestBody = MfaActivateDTO
 
@@ -5305,6 +5314,9 @@ type ServerInterface interface {
 	// Change the owner password (verifies the current one).
 	// (POST /api/auth/change-password)
 	HandleChangePasswordApiAuthChangePasswordPost(w http.ResponseWriter, r *http.Request)
+	// Owner login through a one-time link minted on the station host.
+	// (POST /api/auth/login-link)
+	HandleRedeemLoginLinkApiAuthLoginLinkPost(w http.ResponseWriter, r *http.Request)
 	// Read the owner's second-factor state (offered + enrolled).
 	// (GET /api/auth/mfa)
 	HandleMfaStateApiAuthMfaGet(w http.ResponseWriter, r *http.Request)
@@ -6076,6 +6088,20 @@ func (siw *ServerInterfaceWrapper) HandleChangePasswordApiAuthChangePasswordPost
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleChangePasswordApiAuthChangePasswordPost(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleRedeemLoginLinkApiAuthLoginLinkPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleRedeemLoginLinkApiAuthLoginLinkPost(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleRedeemLoginLinkApiAuthLoginLinkPost(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -11099,6 +11125,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agent/binary", wrapper.HandleAgentBinaryApiAgentBinaryGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agent/context", wrapper.HandleIngestAgentContextApiAgentContextPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/change-password", wrapper.HandleChangePasswordApiAuthChangePasswordPost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/login-link", wrapper.HandleRedeemLoginLinkApiAuthLoginLinkPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/mfa", wrapper.HandleMfaStateApiAuthMfaGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/mfa/activate", wrapper.HandleMfaActivateApiAuthMfaActivatePost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/mfa/disable", wrapper.HandleMfaDisableApiAuthMfaDisablePost)

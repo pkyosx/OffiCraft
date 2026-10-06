@@ -148,6 +148,13 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			// §1.3).
 			MCPExclude: true,
 		}),
+		Public(routeDef{
+			Method:  "POST",
+			Path:    "/api/auth/login-link",
+			Handler: w.HandleRedeemLoginLinkApiAuthLoginLinkPost,
+			// Public: the code minted on the station host IS the gate.
+			MCPExclude: true,
+		}),
 		Gated(principalOwner, routeDef{
 			Method:  "POST",
 			Path:    "/api/auth/change-password",

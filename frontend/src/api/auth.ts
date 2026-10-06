@@ -10,7 +10,7 @@ import { ApiError, parseRetryAfter } from "./errors";
 export const TOKEN_KEY = "oc_token";
 
 /** Fired on the window the instant an owner token is minted (login /
- * set-password / change-password — every `setToken` call). Symmetric with
+ * login link / set-password / change-password — every `setToken` call). Symmetric with
  * `oc-auth-expired` (api/client.ts): that signals a session dying, this signals
  * one being born. The dual-layer display prefs (T-0b41-p2) listen for it to
  * reconcile the server's theme/language in after login, since /api/settings is
@@ -91,27 +91,46 @@ export async function login(password: string, code?: string): Promise<void> {
     // CREDENTIAL (401) apart from the attempt brake (429 + Retry-After), and
     // telling an owner "wrong password" while they are merely rate-limited
     // sends them hunting a typo that does not exist.
-    // Named errCode, NOT code — `code` is this function's TOTP parameter, and
-    // shadowing it here would be a trap for the next reader.
-    let errCode = "";
-    let serverMessage = "";
-    try {
-      const parsed: unknown = await res.json();
-      const err = (parsed as { error?: { code?: unknown; message?: unknown } })
-        ?.error;
-      if (typeof err?.code === "string") errCode = err.code;
-      if (typeof err?.message === "string") serverMessage = err.message;
-    } catch {
-      // Not JSON — keep the honest empties.
-    }
-    throw new ApiError(
-      `login failed: http ${res.status}`,
-      res.status,
-      errCode,
-      serverMessage,
-      parseRetryAfter(res.headers.get("Retry-After")),
-    );
+    throw await credentialError(res, "login");
   }
   const data = (await res.json()) as { token: string };
   setToken(data.token);
+}
+
+/**
+ * POST /api/auth/login-link {code} → TokenDTO: the one-time owner login link
+ * minted on the station host (`ocserverd login-link`). Hand-written and bare
+ * for the same reasons as login(): public endpoint, and a refused link must
+ * surface on the wall rather than fire oc-auth-expired.
+ */
+export async function redeemLoginLink(code: string): Promise<void> {
+  const res = await fetch("/api/auth/login-link", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code }),
+  });
+  if (!res.ok) throw await credentialError(res, "login link");
+  const data = (await res.json()) as { token: string };
+  setToken(data.token);
+}
+
+async function credentialError(res: Response, what: string): Promise<ApiError> {
+  let errCode = "";
+  let serverMessage = "";
+  try {
+    const parsed: unknown = await res.json();
+    const err = (parsed as { error?: { code?: unknown; message?: unknown } })
+      ?.error;
+    if (typeof err?.code === "string") errCode = err.code;
+    if (typeof err?.message === "string") serverMessage = err.message;
+  } catch {
+    // Not JSON — keep the honest empties.
+  }
+  return new ApiError(
+    `${what} failed: http ${res.status}`,
+    res.status,
+    errCode,
+    serverMessage,
+    parseRetryAfter(res.headers.get("Retry-After")),
+  );
 }

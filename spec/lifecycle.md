@@ -159,11 +159,20 @@ ceiling of the warden lifetime setting (§1.6).
     stolen session can switch off protects nothing after the theft. It is therefore NOT the
     lost-authenticator path — that is the local `ocserverd mfa-disable` command, which
     substitutes proof of host shell access and takes effect at the next serve start.
+- **One-time login link.** `POST /api/auth/login-link` exchanges a code minted on the station
+  host by `ocserverd login-link` for the same owner token as login. It is off until the host
+  runs `ocserverd login-link enable` (`auth.login_link_enabled`; not in `/api/settings`).
+  Only a sha256 of the latest code is stored (`auth.login_link`), it expires 600 s after
+  minting, and a success deletes it in the same transaction. Every refusal cause is the same
+  flat 401. It does NOT ask for the TOTP code: minting needs host shell access, which can
+  already run `ocserverd mfa-disable`. Both rows are read per request, so a running serve
+  follows the CLI without a restart.
   - `GET /api/auth/status` additionally discloses `mfa_required` to unauthenticated callers,
     deliberately: the login wall must render the right fields before any token exists, and a
     distinguishable "password ok, code missing" refusal would leak strictly more.
-- **Credential-attempt brake.** It applies to the two PUBLIC credential seams and to
-  NOTHING else: `POST /api/login` and `POST /api/auth/set-password`'s claim token.
+- **Credential-attempt brake.** It applies to the PUBLIC credential seams and to
+  NOTHING else: `POST /api/login`, `POST /api/auth/set-password`'s claim token and
+  `POST /api/auth/login-link`.
   `POST /api/auth/change-password` and the `/api/auth/mfa/activate` +
   `/api/auth/mfa/disable` credential checks are NOT braked in any way — no floor, no
   concurrency cap, no call into the throttle at all.
@@ -176,16 +185,16 @@ ceiling of the warden lifetime setting (§1.6).
   what it is called.
 
   The brake keeps NO failure history: there is no attempt counter, no exponential backoff,
-  no lockout and no decay window. It is two mechanisms, both on those two seams only:
-  - a **concurrency cap** on credential verifications in progress at once, shared by the
-    two. A caller refused for concurrency gets **429 + `Retry-After`**; that is the only
+  no lockout and no decay window. It is two mechanisms, both on those seams only:
+  - a **concurrency cap** on credential verifications in progress at once, shared by
+    them. A caller refused for concurrency gets **429 + `Retry-After`**; that is the only
     429 these routes can produce. It exists for memory as much as for policy: argon2id is
     ~19 MiB a verification, so an unbounded burst is an OOM kill.
   - a **refusal floor**: a refusal answers no earlier than a fixed interval after the
     request started, while a SUCCESS is answered immediately. Together with the cap this
     bounds the front door at `cap ÷ floor` attempts a second.
 
-  Because both braked seams are public, nothing an AUTHENTICATED caller does can consume a
+  Because every braked seam is public, nothing an AUTHENTICATED caller does can consume a
   slot the login page needs. That coupling existed while the owner-gated seams shared the
   pool — a token holder could fill it and make the owner's own login answer 429 — and
   removing them from the brake removed it. ⚠️ The accepted consequence is that a holder of

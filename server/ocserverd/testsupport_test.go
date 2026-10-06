@@ -39,7 +39,13 @@ func dalTestDeleteMemberRow(t *testing.T, d *DAL, id string) {
 // two pools serve time uses: writes on one connection, reads on several.
 func newAPITestDAL(t *testing.T) *DAL {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "api-test.db")
+	return newAPITestDALAt(t, filepath.Join(t.TempDir(), "api-test.db"))
+}
+
+// newAPITestDALAt is newAPITestDAL over a database file the caller names, for a
+// test that also drives a host subcommand against the same file.
+func newAPITestDALAt(t *testing.T, path string) *DAL {
+	t.Helper()
 	wdb, err := openSQLite(path)
 	if err != nil {
 		t.Fatalf("open: %v", err)
