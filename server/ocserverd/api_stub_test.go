@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestHealth(t *testing.T) {
@@ -128,6 +129,32 @@ func TestHandleVersionApiVersionGet(t *testing.T) {
 			"latest_version":   nil,
 		})
 		dashboard.wantFrames()
+	})
+
+	t.Run("a station whose last check succeeded and found a newer release reports it with the success stamp", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		api.updateMu.Lock()
+		api.updateCheck = updateCheckState{
+			checkedAt: time.Now(),
+			lastOKAt:  time.Date(2026, time.October, 7, 1, 2, 3, 0, time.UTC),
+			ok:        true,
+			tag:       "v9.9.9",
+		}
+		api.updateMu.Unlock()
+
+		status, data := apiJSON(t, h, "GET", "/api/version", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"version":              "0.0.0",
+			"git_sha":              apiAnyString,
+			"git_time":             apiAnyString,
+			"catalog_hash":         apiAnyString,
+			"update_available":     true,
+			"latest_version":       "v9.9.9",
+			"update_checked_ok_at": "2026-10-07T01:02:03Z",
+		})
 	})
 
 	t.Run("the row is public: a caller with no credentials is served the same build identity as the owner", func(t *testing.T) {

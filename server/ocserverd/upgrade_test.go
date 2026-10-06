@@ -171,14 +171,21 @@ func TestPinUpgradeRelease(t *testing.T) {
 }
 
 func TestPinnedReleaseAsset(t *testing.T) {
-	got := pinnedReleaseAsset("https://github.com", "v1.2.3", "officraft-v1.2.3-darwin-arm64.tar.gz")
-	want := releaseAsset{
-		tag:  "v1.2.3",
-		name: "officraft-v1.2.3-darwin-arm64.tar.gz",
-		url:  "https://github.com/pkyosx/OffiCraft/releases/download/v1.2.3/officraft-v1.2.3-darwin-arm64.tar.gz",
-	}
-	if got != want {
-		t.Fatalf("asset = %#v, want %#v", got, want)
+	for _, want := range []releaseAsset{
+		{
+			tag:  "v1.2.3",
+			name: "officraft-v1.2.3-darwin-arm64.tar.gz",
+			url:  "https://github.com/pkyosx/OffiCraft/releases/download/v1.2.3/officraft-v1.2.3-darwin-arm64.tar.gz",
+		},
+		{
+			tag:  "v1.0.0+build/arm 64",
+			name: "checksums.txt",
+			url:  "https://github.com/pkyosx/OffiCraft/releases/download/v1.0.0+build%2Farm%2064/checksums.txt",
+		},
+	} {
+		if got := pinnedReleaseAsset("https://github.com", want.tag, want.name); got != want {
+			t.Errorf("asset = %#v, want %#v", got, want)
+		}
 	}
 }
 

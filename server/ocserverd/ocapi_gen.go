@@ -2580,8 +2580,7 @@ type PushSubscriptionDeleteDTO struct {
 
 // ReleaseCheckDTO Response of `GET /api/release/check` (owner/admin agent — T-6020) — the explicit
 // 檢查更新 button behind the software-update card. The server reads GitHub's
-// public release pages for repo pkyosx/OffiCraft (no API call, no token, no
-// rate limit): the stable channel takes the release GitHub marks Latest, the
+// public release pages for repo pkyosx/OffiCraft (no API call, no token, not subject to the anonymous API quota): the stable channel takes the release GitHub marks Latest, the
 // beta channel the semver-greatest entry of the releases feed. It does so
 // SYNCHRONOUSLY (bounded; a short reuse
 // window absorbs repeated clicks) and orders its tag against the running

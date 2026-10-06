@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strings"
 	"sync"
@@ -145,6 +146,44 @@ func TestReleaseSiteBaseURL(t *testing.T) {
 	}
 }
 
+func TestReleaseTagFromURL(t *testing.T) {
+	for _, tc := range []struct {
+		raw  string
+		want string
+	}{
+		{raw: "https://github.com/pkyosx/OffiCraft/releases/tag/v0.5.485", want: "v0.5.485"},
+		{raw: "/pkyosx/OffiCraft/releases/tag/v1.0.0-rc.2", want: "v1.0.0-rc.2"},
+		{raw: "https://github.com/pkyosx/OffiCraft/releases/tag/v1%2F..", want: ""},
+		{raw: "https://github.com/pkyosx/OffiCraft/releases/tag/a/b", want: ""},
+		{raw: "https://github.com/pkyosx/OffiCraft/releases/tag/", want: ""},
+		{raw: "https://github.com/pkyosx/OffiCraft/releases", want: ""},
+		{raw: "https://github.com/someone/Other/releases/tag/v9.9.9", want: ""},
+	} {
+		u, err := url.Parse(tc.raw)
+		if err != nil {
+			t.Fatalf("url.Parse(%q): %v", tc.raw, err)
+		}
+		if got := releaseTagFromURL(u); got != tc.want {
+			t.Errorf("releaseTagFromURL(%q) = %q, want %q", tc.raw, got, tc.want)
+		}
+	}
+}
+
+func TestReleasePageURL(t *testing.T) {
+	for _, tc := range []struct {
+		tag  string
+		want string
+	}{
+		{tag: "v0.5.485", want: "https://github.com/pkyosx/OffiCraft/releases/tag/v0.5.485"},
+		{tag: "v1.0.0+build", want: "https://github.com/pkyosx/OffiCraft/releases/tag/v1.0.0+build"},
+		{tag: "v1.0.0+build/arm 64", want: "https://github.com/pkyosx/OffiCraft/releases/tag/v1.0.0+build%2Farm%2064"},
+	} {
+		if got := releasePageURL("https://github.com", tc.tag); got != tc.want {
+			t.Errorf("releasePageURL(%q) = %q, want %q", tc.tag, got, tc.want)
+		}
+	}
+}
+
 func TestUpdateStatus(t *testing.T) {
 	t.Run("a fresh cached newer release answers immediately without another network request", func(t *testing.T) {
 		srv, calls := newReleaseSiteServer(t, latestIsV123)
@@ -175,8 +214,8 @@ func TestUpdateStatus(t *testing.T) {
 		if !available || latest == nil || *latest != "v1.0.0" {
 			t.Fatalf("updateStatus() inside the interval = (%v, %v), want (true, v1.0.0)", available, latest)
 		}
-		if got := calls.Load(); got != 0 {
-			t.Fatalf("a read inside the interval made %d requests, want 0", got)
+		if updateCheckSnapshot(api).fetching {
+			t.Fatal("a read inside the interval started a refresh")
 		}
 
 		api.updateMu.Lock()
@@ -189,6 +228,22 @@ func TestUpdateStatus(t *testing.T) {
 		}
 		if got := calls.Load(); got != 1 {
 			t.Fatalf("a read past the interval made %d requests, want 1", got)
+		}
+	})
+
+	t.Run("under GitHub down for an hour with a failed attempt 55s ago, a read inside the interval starts no refresh", func(t *testing.T) {
+		srv, _ := newReleaseSiteServer(t, latestIsV123)
+		api := &apiServer{releaseSiteBase: srv.URL, updaterCheckIntervalSecs: 300}
+		api.updateCheck = updateCheckState{
+			checkedAt: time.Now().Add(-55 * time.Second),
+			lastOKAt:  time.Now().Add(-time.Hour),
+			ok:        true,
+			tag:       "v1.0.0",
+		}
+
+		api.updateStatus()
+		if updateCheckSnapshot(api).fetching {
+			t.Fatal("a recent failed attempt did not hold off the next refresh")
 		}
 	})
 
@@ -431,6 +486,13 @@ func TestFetchLatestOffiCraftRelease(t *testing.T) {
 			want: result{tag: "v0.5.3"},
 		},
 		{
+			name:       "beta channel never lets an unorderable tag listed after a valid one win",
+			includePre: true,
+			pages: map[string]releaseSitePage{releaseFeedPagePath: {status: http.StatusOK,
+				body: releaseFeedFixture("v0.5.3", "nightly")}},
+			want: result{tag: "v0.5.3"},
+		},
+		{
 			name:       "beta channel with an empty feed is the successful nothing-published result",
 			includePre: true,
 			pages:      map[string]releaseSitePage{releaseFeedPagePath: {status: http.StatusOK, body: releaseFeedFixture()}},
@@ -617,6 +679,28 @@ func TestSyncUpdateCheck(t *testing.T) {
 		}
 		if calls.Load() != 0 {
 			t.Fatalf("button-fresh sync made %d release requests, want 0", calls.Load())
+		}
+	})
+
+	t.Run("a cache checked 10s ago is reused by the button without contacting GitHub", func(t *testing.T) {
+		srv, calls := newReleaseSiteServer(t, latestIsV123)
+		api := &apiServer{releaseSiteBase: srv.URL}
+		api.updateCheck = updateCheckState{checkedAt: time.Now().Add(-10 * time.Second), ok: true, tag: "v1.0.0"}
+
+		got := api.syncUpdateCheck()
+		if got.tag != "v1.0.0" || calls.Load() != 0 {
+			t.Fatalf("10s-old sync = tag %q after %d requests, want v1.0.0 after 0", got.tag, calls.Load())
+		}
+	})
+
+	t.Run("a cache checked 31s ago is past the button window and is fetched again", func(t *testing.T) {
+		srv, calls := newReleaseSiteServer(t, latestIsV123)
+		api := &apiServer{releaseSiteBase: srv.URL}
+		api.updateCheck = updateCheckState{checkedAt: time.Now().Add(-31 * time.Second), ok: true, tag: "v1.0.0"}
+
+		got := api.syncUpdateCheck()
+		if got.tag != "v1.2.3" || calls.Load() != 1 {
+			t.Fatalf("31s-old sync = tag %q after %d requests, want v1.2.3 after 1", got.tag, calls.Load())
 		}
 	})
 
