@@ -4348,7 +4348,7 @@
       },
       "ReleaseCheckDTO": {
         "additionalProperties": false,
-        "description": "Response of `GET /api/release/check` (owner/admin agent — T-6020) — the explicit\n檢查更新 button behind the software-update card. The server asks GitHub\nReleases (repo pkyosx/OffiCraft, anonymous — no token, no configuration)\nfor the newest admissible release SYNCHRONOUSLY (bounded; a short reuse\nwindow absorbs repeated clicks) and orders its tag against the running\n`version` (semver). `status` is \"up_to_date\" (the running build is the\nnewest — running >= latest, nothing is published at all, or a version\nlabel is unorderable — logged server-side, never presented as an update), \"update_available\" (`latest_tag` +\n`release_url` then point at the newer release; applying it is a MANUAL\nstep — download the asset and follow install.sh — unless the\n`updater_auto_update` setting is armed), or \"unknown\" (GitHub unreachable\n/ not answering — the honest degraded verdict, still a 200).",
+        "description": "Response of `GET /api/release/check` (owner/admin agent — T-6020) — the explicit\n檢查更新 button behind the software-update card. The server reads GitHub's\npublic release pages for repo pkyosx/OffiCraft (no API call, no token, no\nrate limit): the stable channel takes the release GitHub marks Latest, the\nbeta channel the semver-greatest entry of the releases feed. It does so\nSYNCHRONOUSLY (bounded; a short reuse\nwindow absorbs repeated clicks) and orders its tag against the running\n`version` (semver). `status` is \"up_to_date\" (the running build is the\nnewest — running >= latest, nothing is published at all, or a version\nlabel is unorderable — logged server-side, never presented as an update), \"update_available\" (`latest_tag` +\n`release_url` then point at the newer release; applying it is a MANUAL\nstep — download the asset and follow install.sh — unless the\n`updater_auto_update` setting is armed), or \"unknown\" (GitHub unreachable\n/ not answering — the honest degraded verdict, still a 200).",
         "properties": {
           "current_version": {
             "title": "Current Version",
@@ -7173,6 +7173,12 @@
             "title": "Updater Auto Update",
             "type": "boolean"
           },
+          "updater_check_interval_secs": {
+            "default": 300,
+            "description": "How often, in seconds (60 through 3600), the server re-reads GitHub's release pages in the background to refresh `update_available`. The 檢查更新 button and an upgrade always read fresh and do not wait for it.",
+            "title": "Updater Check Interval Secs",
+            "type": "integer"
+          },
           "updater_receive_beta": {
             "default": false,
             "title": "Updater Receive Beta",
@@ -7229,7 +7235,7 @@
       },
       "SettingsUpdateDTO": {
         "additionalProperties": false,
-        "description": "Partial settings edit (`PATCH /api/settings`) — only supplied fields change,\neffective immediately (no restart). `owner_token_ttl` and `agent_token_ttl` are\nindependent and each MUST be one of 43200 / 86400 / 604800 / 2592000 seconds\n(12h / 24h / 7d / 30d — a whitelist, so a stray 0 can never lock future logins\nor agent mints out); owner changes apply from the next login and agent changes\nfrom the next bootstrap, reconcile, or outsource spawn. The offboard points are a\nPAIR (T-a9d6): `notice_pct` is the SOFT notice and `handover_pct` is the FINAL one\n(and the point the handover itself fires). `handover_pct` MUST be 40..90,\n`notice_pct` MUST be 1..89, and `notice_pct` MUST be strictly below\n`handover_pct` — the pair is checked against the POST-patch values, so either may\nbe sent on its own, and a pair that would cross is a 422 rather than being\nquietly reordered. `codex_notice_round` / `codex_compaction_threshold` are the\nsame pair on the codex axis (rounds, 1..10, notice strictly below threshold).\nAnything else is a 422. `outsource_max_parallel` MUST be -1..20 (-1 = 無限/unlimited — no global cap; 0 pauses outsource assignment).\n`updater_receive_beta` toggles whether the GitHub-release update check also\nadmits prereleases; `updater_auto_update` toggles unattended background\nself-upgrade to the newest admissible release (both booleans, default false;\nthe manual upgrade endpoint is unaffected). The five document caps (T-ae38;\nthe manual's one became two in T-30f1) are independent knobs. Each one MUST be\nbetween THAT segment's shipped default (the `default` on the matching\n`SettingsDTO` field — Duty's is its own, much smaller number) and 100000. The floor equalling the shipped default is the\npoint: a cap can only ever be RAISED (owner ruling 2026-07-31), because\nlowering one would turn documents that are legal today into shrink-only ones.",
+        "description": "Partial settings edit (`PATCH /api/settings`) — only supplied fields change,\neffective immediately (no restart). `owner_token_ttl` and `agent_token_ttl` are\nindependent and each MUST be one of 43200 / 86400 / 604800 / 2592000 seconds\n(12h / 24h / 7d / 30d — a whitelist, so a stray 0 can never lock future logins\nor agent mints out); owner changes apply from the next login and agent changes\nfrom the next bootstrap, reconcile, or outsource spawn. The offboard points are a\nPAIR (T-a9d6): `notice_pct` is the SOFT notice and `handover_pct` is the FINAL one\n(and the point the handover itself fires). `handover_pct` MUST be 40..90,\n`notice_pct` MUST be 1..89, and `notice_pct` MUST be strictly below\n`handover_pct` — the pair is checked against the POST-patch values, so either may\nbe sent on its own, and a pair that would cross is a 422 rather than being\nquietly reordered. `codex_notice_round` / `codex_compaction_threshold` are the\nsame pair on the codex axis (rounds, 1..10, notice strictly below threshold).\nAnything else is a 422. `outsource_max_parallel` MUST be -1..20 (-1 = 無限/unlimited — no global cap; 0 pauses outsource assignment).\n`updater_receive_beta` toggles whether the GitHub-release update check also\nadmits prereleases; `updater_auto_update` toggles unattended background\nself-upgrade to the newest admissible release (both booleans, default false;\nthe manual upgrade endpoint is unaffected). `updater_check_interval_secs`\nMUST be 60..3600. The five document caps (T-ae38;\nthe manual's one became two in T-30f1) are independent knobs. Each one MUST be\nbetween THAT segment's shipped default (the `default` on the matching\n`SettingsDTO` field — Duty's is its own, much smaller number) and 100000. The floor equalling the shipped default is the\npoint: a cap can only ever be RAISED (owner ruling 2026-07-31), because\nlowering one would turn documents that are legal today into shrink-only ones.",
         "properties": {
           "accelerated_grace_secs": {
             "anyOf": [
@@ -7616,6 +7622,18 @@
               }
             ],
             "title": "Updater Auto Update"
+          },
+          "updater_check_interval_secs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How often, in seconds, the server re-reads GitHub's release pages in the background. Must be 60 through 3600.",
+            "title": "Updater Check Interval Secs"
           },
           "updater_receive_beta": {
             "anyOf": [
@@ -10454,7 +10472,7 @@
       },
       "VersionDTO": {
         "additionalProperties": false,
-        "description": "Build identity: app version, git sha, and the MCP catalog hash (M1 §3.9).\n\n`version` is the single human-facing version identity: an OFFICIAL package\n(bin/release) is stamped with its GitHub Release tag; a self-build keeps the\nhonest \"0.0.0\" (the UI then falls back to git_sha + git_time as the build\nlabel).\n\n`git_time` is the commit time of the running `git_sha` (strict ISO-8601), or\nNone when unavailable (release tarball / no git).\n\n`update_available` drives the software-update card: the server periodically\nasks GitHub Releases (repo pkyosx/OffiCraft, anonymous) for the newest\npublished release (cached, refreshed in the background — unreachable GitHub\nNEVER slows this probe) and reports honestly: True iff the newest admissible\nrelease tag is STRICTLY NEWER than the running `version` under semver\nordering (`latest_version` then carries the tag); running >= latest reads\nFalse, and a version label that does not parse as semver on either side\nreads False (with a server-side log warning) — never a prompt. A\nself-build's \"0.0.0\" sorts below any published release and therefore\nstill prompts. Prereleases are admitted only when the\n`updater_receive_beta` setting is on.\n\n`update_checked_ok_at` is WHEN that check last SUCCEEDED (RFC3339, UTC).\nIt is the freshness of `update_available`, which on its own cannot tell\n\"checked a minute ago, nothing newer\" apart from \"the check has never once\nsucceeded\" (GitHub unreachable, rate-limited, or never run) — both answer\nFalse. A FAILED check NEVER moves it; absent/None means no check has ever\nsucceeded under the current channel (a channel flip resets it). It is\ndeliberately NOT the check cache's TTL anchor — that stays the last\nATTEMPT, so an unreachable GitHub is retried once per TTL, not hammered.",
+        "description": "Build identity: app version, git sha, and the MCP catalog hash (M1 §3.9).\n\n`version` is the single human-facing version identity: an OFFICIAL package\n(bin/release) is stamped with its GitHub Release tag; a self-build keeps the\nhonest \"0.0.0\" (the UI then falls back to git_sha + git_time as the build\nlabel).\n\n`git_time` is the commit time of the running `git_sha` (strict ISO-8601), or\nNone when unavailable (release tarball / no git).\n\n`update_available` drives the software-update card: the server periodically\nreads GitHub's public release pages (repo pkyosx/OffiCraft) for the newest\nadmissible release (cached, refreshed in the background every\n`updater_check_interval_secs` — unreachable GitHub\nNEVER slows this probe) and reports honestly: True iff the newest admissible\nrelease tag is STRICTLY NEWER than the running `version` under semver\nordering (`latest_version` then carries the tag); running >= latest reads\nFalse, and a version label that does not parse as semver on either side\nreads False (with a server-side log warning) — never a prompt. A\nself-build's \"0.0.0\" sorts below any published release and therefore\nstill prompts. Prereleases are admitted only when the\n`updater_receive_beta` setting is on; otherwise the newest admissible release\nis the one GitHub marks Latest.\n\n`update_checked_ok_at` is WHEN that check last SUCCEEDED (RFC3339, UTC).\nIt is the freshness of `update_available`, which on its own cannot tell\n\"checked a minute ago, nothing newer\" apart from \"the check has never once\nsucceeded\" (GitHub unreachable or never run) — both answer\nFalse. A FAILED check NEVER moves it; absent/None means no check has ever\nsucceeded under the current channel (a channel flip resets it). It is\ndeliberately NOT the check cache's TTL anchor — that stays the last\nATTEMPT, so an unreachable GitHub is retried once per TTL, not hammered.",
         "properties": {
           "catalog_hash": {
             "title": "Catalog Hash",
@@ -18514,7 +18532,7 @@
     },
     "/api/release/check": {
       "get": {
-        "description": "- Owner or admin agent; synchronously asks GitHub for the newest admissible release and compares it with the running version.\n- If GitHub cannot be reached the status degrades to `unknown` — never a 5xx.",
+        "description": "- Owner or admin agent; synchronously reads GitHub's public release pages for the newest admissible release and compares it with the running version.\n- If GitHub cannot be reached the status degrades to `unknown` — never a 5xx.",
         "operationId": "handle_check_release_api_release_check_get",
         "responses": {
           "200": {
