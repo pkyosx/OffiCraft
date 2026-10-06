@@ -29,4 +29,9 @@ describe("toServerSettings", () => {
     expect(toServerSettings(settingsFromServer()).diskUsageIntervalSecs).toBe(3600);
     expect(toServerSettings(settingsFromServer({ disk_usage_interval_secs: 7200 })).diskUsageIntervalSecs).toBe(7200);
   });
+
+  it("under a server that omits the update check interval, it reads as the 300s shipped default; a sent value is carried as is", () => {
+    expect(toServerSettings(settingsFromServer()).updaterCheckIntervalSecs).toBe(300);
+    expect(toServerSettings(settingsFromServer({ updater_check_interval_secs: 900 })).updaterCheckIntervalSecs).toBe(900);
+  });
 });

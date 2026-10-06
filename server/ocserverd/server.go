@@ -339,6 +339,7 @@ func (s *apiServer) adoptSettings(auth authSettings) {
 	s.backupRetain = auth.backupRetain
 	s.updaterReceiveBeta = auth.updaterReceiveBeta
 	s.updaterAutoUpdate = auth.updaterAutoUpdate
+	s.updaterCheckIntervalSecs = auth.updaterCheckIntervalSecs
 	s.orgName = auth.orgName
 	s.ownerName = auth.ownerName
 	s.pushContactEmail = auth.pushContactEmail
@@ -377,6 +378,7 @@ func newAPIServer(dal *DAL, hub *Hub, keys *keyring, tokenTTL int64, root assetR
 		runtimeLoginCheckIntervalSecs:   runtimeLoginCheckIntervalSecsDefault,
 		runtimeLoginRecheckIntervalSecs: runtimeLoginRecheckIntervalSecsDefault,
 		diskUsageIntervalSecs:           diskUsageIntervalSecsDefault,
+		updaterCheckIntervalSecs:        updaterCheckIntervalSecsDefault,
 		wardenCredLifetimeSecs:          wardenCredLifetimeSecsDefault,
 		outsourceMaxParallel:            defaultOutsourceMaxParallel,
 		docCapCharsDuty:                 dutyCapCharsDefault,
@@ -512,9 +514,9 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 	}
 	api := newAPIServer(dal, NewHub(), keys, auth.ownerTokenTTL, ".")
 	api.adoptSettings(auth)
-	// A conformance/e2e harness seam that re-points the GitHub Releases API base;
+	// A conformance/e2e harness seam that re-points the GitHub release pages;
 	// normal deployments never set it.
-	api.releaseAPIBase = env("OC_RELEASE_API_BASE")
+	api.releaseSiteBase = env("OC_RELEASE_SITE_BASE")
 	api.namespace = cfg.Server.Namespace
 	api.binCacheDir = filepath.Join(filepath.Dir(dbPath), "bin")
 	if n, err := api.reconcileTaskStatusesOnBoot(); err != nil {

@@ -2169,6 +2169,8 @@ function SoftwareUpdate({
     "idle" | "saving" | "ok" | "fail"
   >("idle");
   const [upgradeBusy, setUpgradeBusy] = useState(false);
+  const [checkIntervalDraft, setCheckIntervalDraft] = useState<string | null>(null);
+  const [checkIntervalRangeError, setCheckIntervalRangeError] = useState(false);
   // The server's own message from a rejected upgrade (409 preconditions /
   // 502 download-or-verify failures) — honest, verbatim; "" = no error.
   const [upgradeError, setUpgradeError] = useState("");
@@ -2271,13 +2273,22 @@ function SoftwareUpdate({
         <span className="sw-badge sw-badge--ok">{t.settings.upToDate}</span>
       );
     }
-    // idle: the cached verdict that came with /api/version.
-    return version?.updateAvailable ? (
-      <span className="sw-badge sw-badge--new">
-        {t.settings.updateAvailable}
-        {version.latestVersion ? ` ${version.latestVersion}` : ""}
-      </span>
-    ) : (
+    // idle: the cached verdict that came with /api/version. A false flag from
+    // a check that never succeeded is no evidence of being up to date.
+    if (version?.updateAvailable)
+      return (
+        <span className="sw-badge sw-badge--new">
+          {t.settings.updateAvailable}
+          {version.latestVersion ? ` ${version.latestVersion}` : ""}
+        </span>
+      );
+    if (!version?.updateCheckedOkAt)
+      return (
+        <span className="sw-badge sw-badge--muted">
+          {t.settings.updateNotConfirmed}
+        </span>
+      );
+    return (
       <span className="sw-badge sw-badge--ok">{t.settings.upToDate}</span>
     );
   }
@@ -2302,6 +2313,15 @@ function SoftwareUpdate({
     onClearSaveError();
     setVerifyStatus("idle");
     void onSave(patch).then(scheduleVersionRefresh);
+  }
+
+  // Edited in minutes; the server's 422 range is 60..3600 seconds.
+  function commitCheckInterval() {
+    if (!settings || checkIntervalDraft === null) return;
+    const n = Number(checkIntervalDraft);
+    setCheckIntervalDraft(null);
+    if (!Number.isInteger(n) || n < 1 || n > 60) { setCheckIntervalRangeError(true); return; }
+    if (n * 60 !== settings.updaterCheckIntervalSecs) void onSave({ updaterCheckIntervalSecs: n * 60 });
   }
 
   /** Commit a patch, then verify it landed by reading the settings BACK and
@@ -2527,7 +2547,21 @@ function SoftwareUpdate({
               <span className="set-toggle__knob" />
             </button>
           </div>
-          {saveError && (
+          <div className="param-row">
+            <div className="param-row__body">
+              <div className="param-row__name">{t.settings.updateCheckInterval}</div>
+              <div className="param-row__sub">{t.settings.updateCheckIntervalSub}</div>
+            </div>
+            <div className="param-pct">
+              <input id="param-update-check-interval" className="param-input" type="number" min={1} max={60}
+                aria-label={t.settings.updateCheckInterval}
+                value={checkIntervalDraft ?? String(settings.updaterCheckIntervalSecs / 60)}
+                onChange={(e) => { setCheckIntervalRangeError(false); onClearSaveError(); setVerifyStatus("idle"); setCheckIntervalDraft(e.target.value); }}
+                onBlur={commitCheckInterval} onKeyDown={(e) => { if (e.key === "Enter") commitCheckInterval(); }} />
+              <span className="param-pct__sign">{t.settings.minutes}</span>
+            </div>
+          </div>
+          {(saveError || checkIntervalRangeError) && (
             <div className="set-error param-error">
               {t.settings.paramsSaveError}
             </div>

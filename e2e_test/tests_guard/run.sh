@@ -3176,7 +3176,7 @@ else
   check "T-45: a private tmux carrier starts successfully" "0" "$T45_START_RC"
   check "T-45: the carrier returns the numeric pane pid for diagnostics" "4242" "$T45_START_PID"
   if grep -qF -- "-L $T45_SOCKET" "$T45_TMUX_LOG" \
-     && grep -qF 'env -u OC_ID -u OC_TOKEN -u OC_BASE OC_RELEASE_API_BASE=http://127.0.0.1:1' "$T45_TMUX_LOG"; then
+     && grep -qF 'env -u OC_ID -u OC_TOKEN -u OC_BASE OC_RELEASE_SITE_BASE=http://127.0.0.1:1' "$T45_TMUX_LOG"; then
     ok "T-45: start uses the requested private socket and single-source env scrub"
   else
     bad "T-45: start did not pass the private socket and single-source env scrub to tmux (log: $(tr '\n' '|' < "$T45_TMUX_LOG"))"

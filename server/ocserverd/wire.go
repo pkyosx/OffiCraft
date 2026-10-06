@@ -103,6 +103,9 @@ type settingsDTO struct {
 
 	UpdaterReceiveBeta bool `json:"updater_receive_beta"`
 	UpdaterAutoUpdate  bool `json:"updater_auto_update"`
+	// UpdaterCheckIntervalSecs paces only the background refresh; the 檢查更新
+	// button and an upgrade always read GitHub fresh.
+	UpdaterCheckIntervalSecs int `json:"updater_check_interval_secs"`
 
 	OrgName string `json:"org_name"`
 

@@ -1,11 +1,12 @@
 package main
 
 // upgrade.go — the upgrade body behind POST /api/update/upgrade and the armed
-// auto-update cadence (auto_update.go). Source of truth: GitHub Releases; the
-// expected sha256 comes from the release's checksums.txt (bin/release
-// publishes it beside the tarball). Everything fallible runs synchronously in
-// the request, and the old binary is untouched until the candidate is
-// verified and smoke-tested. Staging files sit in the running binary's own
+// auto-update cadence (auto_update.go). The release is pinned the way
+// update_check.go finds it; its assets are fetched from GitHub's fixed
+// /releases/download/<tag>/<name> URLs, and the expected sha256 comes from the
+// release's checksums.txt (bin/release publishes it beside the tarball).
+// Everything fallible runs synchronously in the request, and the old binary is
+// untouched until the candidate is verified and smoke-tested. Staging files sit in the running binary's own
 // directory so the final rename is atomic (same filesystem).
 //
 // Exactly ONE <exe>.bak is kept, overwritten by each successful upgrade and
@@ -77,32 +78,33 @@ func upgradeFail(status int, format string, args ...any) *upgradeFailure {
 
 // Pinned by a fresh read at trigger time: the cached check (update_check.go)
 // is only the precondition gate.
-func (s *apiServer) pinUpgradeRelease() (githubRelease, *upgradeFailure) {
-	rel, none, err := fetchLatestOffiCraftRelease(s.releaseAPIBaseURL(), s.receiveBetaEnabled())
+func (s *apiServer) pinUpgradeRelease() (string, *upgradeFailure) {
+	tag, none, err := fetchLatestOffiCraftRelease(s.releaseSiteBaseURL(), s.receiveBetaEnabled())
 	if err != nil {
-		return rel, upgradeFail(http.StatusBadGateway,
+		return "", upgradeFail(http.StatusBadGateway,
 			"cannot reach GitHub to pin the release — nothing was changed: %v", err)
 	}
 	if none {
-		return rel, upgradeFail(http.StatusConflict,
+		return "", upgradeFail(http.StatusConflict,
 			"no release is published on GitHub — nothing to install")
 	}
-	return rel, nil
+	return tag, nil
 }
 
-func findReleaseAsset(rel githubRelease, name string) (githubReleaseAsset, *upgradeFailure) {
-	for _, a := range rel.Assets {
-		if a.Name == name {
-			return a, nil
-		}
-	}
-	return githubReleaseAsset{}, upgradeFail(http.StatusBadGateway,
-		"release %s carries no %q asset — refusing an unverifiable install; nothing was changed",
-		rel.TagName, name)
+// releaseAsset is one file of the pinned release, at its download URL.
+type releaseAsset struct {
+	tag  string
+	name string
+	url  string
 }
 
-// Redirects must be followed: browser_download_url redirects to GitHub's CDN.
-func httpGetAsset(url string, budget time.Duration) (*http.Response, *upgradeFailure) {
+func pinnedReleaseAsset(base, tag, name string) releaseAsset {
+	return releaseAsset{tag: tag, name: name, url: releaseAssetURL(base, tag, name)}
+}
+
+// Redirects must be followed: a release download URL redirects to GitHub's CDN.
+func httpGetAsset(asset releaseAsset, budget time.Duration) (*http.Response, *upgradeFailure) {
+	url := asset.url
 	ctx, cancel := context.WithTimeout(context.Background(), budget)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -114,6 +116,13 @@ func httpGetAsset(url string, budget time.Duration) (*http.Response, *upgradeFai
 		cancel()
 		return nil, upgradeFail(http.StatusBadGateway,
 			"downloading %s failed — nothing was changed: %v", url, err)
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		resp.Body.Close()
+		cancel()
+		return nil, upgradeFail(http.StatusBadGateway,
+			"release %s carries no %q asset — refusing an unverifiable install; nothing was changed",
+			asset.tag, asset.name)
 	}
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
@@ -194,12 +203,8 @@ func (g *stallGuard) Close() error {
 	return g.inner.Close()
 }
 
-func fetchExpectedSHA(rel githubRelease, assetName string) (string, *upgradeFailure) {
-	sums, fail := findReleaseAsset(rel, checksumsAssetName)
-	if fail != nil {
-		return "", fail
-	}
-	resp, fail := httpGetAsset(sums.BrowserDownloadURL, upgradeMetaBudget)
+func fetchExpectedSHA(sums releaseAsset, assetName string) (string, *upgradeFailure) {
+	resp, fail := httpGetAsset(sums, upgradeMetaBudget)
 	if fail != nil {
 		return "", fail
 	}
@@ -218,7 +223,7 @@ func fetchExpectedSHA(rel githubRelease, assetName string) (string, *upgradeFail
 	}
 	return "", upgradeFail(http.StatusBadGateway,
 		"release %s's checksums.txt carries no sha256 for %s — refusing an unverifiable download; nothing was changed",
-		rel.TagName, assetName)
+		sums.tag, assetName)
 }
 
 func isLowerHex64(s string) bool {
@@ -244,8 +249,8 @@ func (s *apiServer) upgradeTargetPath() (string, error) {
 	return exe, nil
 }
 
-func downloadUpgradeTarball(asset githubReleaseAsset, expectedSHA, dir string) (string, *upgradeFailure) {
-	resp, fail := httpGetAsset(asset.BrowserDownloadURL, upgradeBodyBudget)
+func downloadUpgradeTarball(asset releaseAsset, expectedSHA, dir string) (string, *upgradeFailure) {
+	resp, fail := httpGetAsset(asset, upgradeBodyBudget)
 	if fail != nil {
 		return "", fail
 	}
@@ -263,14 +268,14 @@ func downloadUpgradeTarball(asset githubReleaseAsset, expectedSHA, dir string) (
 	if err != nil || closeErr != nil {
 		os.Remove(tmpPath)
 		return "", upgradeFail(http.StatusBadGateway,
-			"the download of %s broke mid-stream — nothing was changed", asset.Name)
+			"the download of %s broke mid-stream — nothing was changed", asset.name)
 	}
 	got := hex.EncodeToString(hasher.Sum(nil))
 	if got != expectedSHA {
 		os.Remove(tmpPath)
 		return "", upgradeFail(http.StatusBadGateway,
 			"sha256 mismatch on %s: checksums.txt promises %s, got %s — the download is corrupt or tampered; nothing was changed",
-			asset.Name, expectedSHA, got)
+			asset.name, expectedSHA, got)
 	}
 	return tmpPath, nil
 }
@@ -349,24 +354,22 @@ func smokeTestBinary(path string) *upgradeFailure {
 }
 
 func (s *apiServer) executeUpgrade() (string, *upgradeFailure) {
-	rel, fail := s.pinUpgradeRelease()
+	tag, fail := s.pinUpgradeRelease()
 	if fail != nil {
 		return "", fail
 	}
 	// Re-check against the PINNED release (the cache may be stale): strictly
 	// newer, so a lagging release list can never turn an upgrade into a
 	// downgrade.
-	if !releaseIsNewer(rel.TagName, appVersion) {
+	if !releaseIsNewer(tag, appVersion) {
 		return "", upgradeFail(http.StatusConflict,
 			"GitHub's current latest (%s) is not newer than the running build (%s) — nothing newer to install",
-			rel.TagName, appVersion)
+			tag, appVersion)
 	}
 
-	asset, fail := findReleaseAsset(rel, releaseAssetName(rel.TagName))
-	if fail != nil {
-		return "", fail
-	}
-	expectedSHA, fail := fetchExpectedSHA(rel, asset.Name)
+	base := s.releaseSiteBaseURL()
+	asset := pinnedReleaseAsset(base, tag, releaseAssetName(tag))
+	expectedSHA, fail := fetchExpectedSHA(pinnedReleaseAsset(base, tag, checksumsAssetName), asset.name)
 	if fail != nil {
 		return "", fail
 	}
@@ -409,7 +412,7 @@ func (s *apiServer) executeUpgrade() (string, *upgradeFailure) {
 		return "", upgradeFail(http.StatusInternalServerError,
 			"the binary swap failed — the old binary was restored and keeps serving: %v", err)
 	}
-	return rel.TagName, nil
+	return tag, nil
 }
 
 func restartIntoUpgradedBinary(exePath string) {

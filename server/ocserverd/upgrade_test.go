@@ -16,7 +16,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"math/big"
@@ -91,11 +90,13 @@ func upgradeTestKnownRelease(t *testing.T, api *apiServer, tag string) {
 		checkedAt: time.Now(),
 		lastOKAt:  time.Now(),
 		ok:        true,
-		rel:       githubRelease{TagName: tag},
+		tag:       tag,
 	}
 }
 
-func upgradeTestReleaseServer(t *testing.T, tag, binary string) *httptest.Server {
+// upgradeTestReleaseServer serves github.com's release pages for a release
+// marked Latest at tag, carrying every asset except the names in missing.
+func upgradeTestReleaseServer(t *testing.T, tag, binary string, missing ...string) *httptest.Server {
 	t.Helper()
 	dir := t.TempDir()
 	tarPath := upgradeTestTarball(t, dir, map[string]string{
@@ -107,52 +108,48 @@ func upgradeTestReleaseServer(t *testing.T, tag, binary string) *httptest.Server
 	}
 	digest := sha256.Sum256(tarball)
 	sha := hex.EncodeToString(digest[:])
-	var srv *httptest.Server
-	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/repos/" + releaseRepo + "/releases":
-			_ = json.NewEncoder(w).Encode([]githubRelease{{
-				TagName: tag,
-				HTMLURL: "https://example.invalid/releases/" + tag,
-				Assets: []githubReleaseAsset{
-					{Name: checksumsAssetName, BrowserDownloadURL: srv.URL + "/checksums.txt"},
-					{Name: releaseAssetName(tag), BrowserDownloadURL: srv.URL + "/release.tar.gz"},
-				},
-			}})
-		case "/checksums.txt":
-			_, _ = io.WriteString(w, sha+"  "+releaseAssetName(tag)+"\n")
-		case "/release.tar.gz":
-			_, _ = w.Write(tarball)
-		default:
-			http.NotFound(w, r)
+	assets := map[string][]byte{
+		checksumsAssetName:    []byte(sha + "  " + releaseAssetName(tag) + "\n"),
+		releaseAssetName(tag): tarball,
+	}
+	for _, name := range missing {
+		delete(assets, name)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/pkyosx/OffiCraft/releases/latest" {
+			http.Redirect(w, r, "https://github.com/pkyosx/OffiCraft/releases/tag/"+tag, http.StatusFound)
+			return
 		}
+		name, ok := strings.CutPrefix(r.URL.Path, "/pkyosx/OffiCraft/releases/download/"+tag+"/")
+		if body, found := assets[name]; ok && found {
+			_, _ = w.Write(body)
+			return
+		}
+		http.NotFound(w, r)
 	}))
 	t.Cleanup(srv.Close)
 	return srv
 }
 
 func TestPinUpgradeRelease(t *testing.T) {
-	t.Run("pins the semver greatest release from a fresh authoritative read", func(t *testing.T) {
+	t.Run("pins the tag GitHub marks Latest from a fresh read of /releases/latest", func(t *testing.T) {
 		var gotPath string
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			gotPath = r.URL.RequestURI()
-			_ = json.NewEncoder(w).Encode([]githubRelease{
-				{TagName: "v0.9.9"},
-				{TagName: "v1.2.3"},
-			})
+			http.Redirect(w, r, "https://github.com/pkyosx/OffiCraft/releases/tag/v1.2.3", http.StatusFound)
 		}))
 		defer srv.Close()
 
-		api := &apiServer{releaseAPIBase: srv.URL}
-		rel, fail := api.pinUpgradeRelease()
+		api := &apiServer{releaseSiteBase: srv.URL}
+		tag, fail := api.pinUpgradeRelease()
 
 		if fail != nil {
 			t.Fatalf("want no failure, got %d %q", fail.status, fail.message)
 		}
-		if rel.TagName != "v1.2.3" {
-			t.Fatalf("pinned tag: %q", rel.TagName)
+		if tag != "v1.2.3" {
+			t.Fatalf("pinned tag: %q", tag)
 		}
-		if gotPath != "/repos/pkyosx/OffiCraft/releases?per_page=20" {
+		if gotPath != "/pkyosx/OffiCraft/releases/latest" {
 			t.Fatalf("request path: %q", gotPath)
 		}
 	})
@@ -161,11 +158,11 @@ func TestPinUpgradeRelease(t *testing.T) {
 		srv := httptest.NewServer(http.NotFoundHandler())
 		defer srv.Close()
 
-		api := &apiServer{releaseAPIBase: srv.URL}
-		rel, fail := api.pinUpgradeRelease()
+		api := &apiServer{releaseSiteBase: srv.URL}
+		tag, fail := api.pinUpgradeRelease()
 
-		if rel.TagName != "" || rel.HTMLURL != "" || rel.Draft || rel.Prerelease || len(rel.Assets) != 0 {
-			t.Fatalf("release: %#v", rel)
+		if tag != "" {
+			t.Fatalf("tag: %q", tag)
 		}
 		if fail == nil || fail.status != http.StatusConflict || fail.Error() != "no release is published on GitHub — nothing to install" {
 			t.Fatalf("failure: %#v", fail)
@@ -173,46 +170,16 @@ func TestPinUpgradeRelease(t *testing.T) {
 	})
 }
 
-func TestFindReleaseAsset(t *testing.T) {
-	rel := githubRelease{
-		TagName: "v1.2.3",
-		Assets: []githubReleaseAsset{
-			{Name: "checksums.txt", BrowserDownloadURL: "https://example.invalid/checksums.txt", Size: 130},
-		},
+func TestPinnedReleaseAsset(t *testing.T) {
+	got := pinnedReleaseAsset("https://github.com", "v1.2.3", "officraft-v1.2.3-darwin-arm64.tar.gz")
+	want := releaseAsset{
+		tag:  "v1.2.3",
+		name: "officraft-v1.2.3-darwin-arm64.tar.gz",
+		url:  "https://github.com/pkyosx/OffiCraft/releases/download/v1.2.3/officraft-v1.2.3-darwin-arm64.tar.gz",
 	}
-
-	t.Run("an asset the release carries resolves to its download entry", func(t *testing.T) {
-		asset, fail := findReleaseAsset(rel, "checksums.txt")
-
-		if fail != nil {
-			t.Fatalf("want no failure, got %d %q", fail.status, fail.message)
-		}
-		want := githubReleaseAsset{
-			Name:               "checksums.txt",
-			BrowserDownloadURL: "https://example.invalid/checksums.txt",
-			Size:               130,
-		}
-		if asset != want {
-			t.Fatalf("asset: %#v", asset)
-		}
-	})
-
-	t.Run("an asset the release does not carry refuses with 502", func(t *testing.T) {
-		asset, fail := findReleaseAsset(rel, "officraft-v1.2.3-darwin-arm64.tar.gz")
-
-		if asset != (githubReleaseAsset{}) {
-			t.Fatalf("asset: %#v", asset)
-		}
-		if fail == nil {
-			t.Fatalf("want a failure")
-		}
-		if fail.status != 502 {
-			t.Fatalf("status: %d", fail.status)
-		}
-		if fail.Error() != `release v1.2.3 carries no "officraft-v1.2.3-darwin-arm64.tar.gz" asset — refusing an unverifiable install; nothing was changed` {
-			t.Fatalf("message: %q", fail.Error())
-		}
-	})
+	if got != want {
+		t.Fatalf("asset = %#v, want %#v", got, want)
+	}
 }
 
 func TestHttpGetAsset(t *testing.T) {
@@ -226,7 +193,7 @@ func TestHttpGetAsset(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		resp, fail := httpGetAsset(srv.URL+"/redirect", upgradeBodyBudget)
+		resp, fail := httpGetAsset(releaseAsset{tag: "v1.2.3", name: "release.tar.gz", url: srv.URL + "/redirect"}, upgradeBodyBudget)
 		if fail != nil {
 			t.Fatalf("want no failure, got %d %q", fail.status, fail.message)
 		}
@@ -240,23 +207,40 @@ func TestHttpGetAsset(t *testing.T) {
 		}
 	})
 
-	t.Run("a non-200 answer is refused and its body is closed", func(t *testing.T) {
-		synctest.Test(t, func(t *testing.T) {
-			pipeAssetServer(t, pacedAssetServer(http.StatusNotFound, len("not found"), 0, 0, []string{"not found"}))
-			closed := spyAssetBodyClose(t)
+	for _, tc := range []struct {
+		name    string
+		status  int
+		message string
+	}{
+		{
+			name:    "a non-200 answer is refused and its body is closed",
+			status:  http.StatusServiceUnavailable,
+			message: "the asset download answered 503 for https://example.invalid/missing — nothing was changed",
+		},
+		{
+			name:    "a 404 answer is refused as a release missing that asset and its body is closed",
+			status:  http.StatusNotFound,
+			message: `release v1.2.3 carries no "missing" asset — refusing an unverifiable install; nothing was changed`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				pipeAssetServer(t, pacedAssetServer(tc.status, len("unavailable"), 0, 0, []string{"unavailable"}))
+				closed := spyAssetBodyClose(t)
 
-			resp, fail := httpGetAsset("https://example.invalid/missing", upgradeBodyBudget)
-			if resp != nil {
-				t.Fatalf("response: %#v", resp)
-			}
-			if fail == nil || fail.status != http.StatusBadGateway || fail.Error() != "the asset download answered 404 for https://example.invalid/missing — nothing was changed" {
-				t.Fatalf("failure: %#v", fail)
-			}
-			if !closed.Load() {
-				t.Error("the refused response's body was left open")
-			}
+				resp, fail := httpGetAsset(releaseAsset{tag: "v1.2.3", name: "missing", url: "https://example.invalid/missing"}, upgradeBodyBudget)
+				if resp != nil {
+					t.Fatalf("response: %#v", resp)
+				}
+				if fail == nil || fail.status != http.StatusBadGateway || fail.Error() != tc.message {
+					t.Fatalf("failure: %#v", fail)
+				}
+				if !closed.Load() {
+					t.Error("the refused response's body was left open")
+				}
+			})
 		})
-	})
+	}
 
 	t.Run("the shared client dials with upgradeDialer, resolves proxies from the environment and negotiates HTTP/2 with a server that offers it", func(t *testing.T) {
 		tr, ok := upgradeAssetClient().Transport.(*http.Transport)
@@ -296,7 +280,7 @@ func TestHttpGetAsset(t *testing.T) {
 		cfg.NextProtos = []string{"h2", "http/1.1"}
 		tr.TLSClientConfig = cfg
 
-		resp, fail := httpGetAsset(srv.URL+"/asset", upgradeMetaBudget)
+		resp, fail := httpGetAsset(releaseAsset{tag: "v1.2.3", name: "asset", url: srv.URL + "/asset"}, upgradeMetaBudget)
 		if fail != nil {
 			t.Fatalf("want no failure, got %d %q", fail.status, fail.message)
 		}
@@ -558,10 +542,7 @@ func wantCutAt(t *testing.T, elapsed, bound time.Duration) {
 
 func TestFetchExpectedSHA(t *testing.T) {
 	const digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	sumsRelease := githubRelease{
-		TagName: "v1.2.3",
-		Assets:  []githubReleaseAsset{{Name: checksumsAssetName, BrowserDownloadURL: "https://example.invalid/checksums.txt"}},
-	}
+	sumsRelease := releaseAsset{tag: "v1.2.3", name: checksumsAssetName, url: "https://example.invalid/checksums.txt"}
 
 	t.Run("extracts the matching digest and tolerates binary mode", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -569,10 +550,7 @@ func TestFetchExpectedSHA(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		rel := githubRelease{
-			TagName: "v1.2.3",
-			Assets:  []githubReleaseAsset{{Name: checksumsAssetName, BrowserDownloadURL: srv.URL}},
-		}
+		rel := releaseAsset{tag: "v1.2.3", name: checksumsAssetName, url: srv.URL}
 		got, fail := fetchExpectedSHA(rel, "target.tar.gz")
 
 		if fail != nil {
@@ -641,10 +619,7 @@ func TestFetchExpectedSHA(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		rel := githubRelease{
-			TagName: "v1.2.3",
-			Assets:  []githubReleaseAsset{{Name: checksumsAssetName, BrowserDownloadURL: srv.URL}},
-		}
+		rel := releaseAsset{tag: "v1.2.3", name: checksumsAssetName, url: srv.URL}
 		got, fail := fetchExpectedSHA(rel, "target.tar.gz")
 
 		if got != "" {
@@ -710,7 +685,7 @@ func TestDownloadUpgradeTarball(t *testing.T) {
 	const body = "verified release bytes"
 	checksum := sha256.Sum256([]byte(body))
 	wantSHA := hex.EncodeToString(checksum[:])
-	tarball := githubReleaseAsset{Name: "release.tar.gz", BrowserDownloadURL: "https://example.invalid/release.tar.gz"}
+	tarball := releaseAsset{tag: "v1.2.3", name: "release.tar.gz", url: "https://example.invalid/release.tar.gz"}
 
 	t.Run("streams the body into the requested directory and verifies its digest", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -719,8 +694,8 @@ func TestDownloadUpgradeTarball(t *testing.T) {
 		defer srv.Close()
 		dir := t.TempDir()
 
-		path, fail := downloadUpgradeTarball(githubReleaseAsset{
-			Name: "release.tar.gz", BrowserDownloadURL: srv.URL,
+		path, fail := downloadUpgradeTarball(releaseAsset{
+			tag: "v1.2.3", name: "release.tar.gz", url: srv.URL,
 		}, wantSHA, dir)
 
 		if fail != nil {
@@ -773,8 +748,8 @@ func TestDownloadUpgradeTarball(t *testing.T) {
 		defer srv.Close()
 		dir := t.TempDir()
 
-		path, fail := downloadUpgradeTarball(githubReleaseAsset{
-			Name: "release.tar.gz", BrowserDownloadURL: srv.URL,
+		path, fail := downloadUpgradeTarball(releaseAsset{
+			tag: "v1.2.3", name: "release.tar.gz", url: srv.URL,
 		}, strings.Repeat("0", 64), dir)
 
 		if path != "" {
@@ -889,8 +864,8 @@ func TestDownloadUpgradeTarball(t *testing.T) {
 			}
 
 			started := time.Now()
-			path, fail := downloadUpgradeTarball(githubReleaseAsset{
-				Name: "release.tar.gz", BrowserDownloadURL: "http://127.0.0.1:1/release.tar.gz",
+			path, fail := downloadUpgradeTarball(releaseAsset{
+				tag: "v1.2.3", name: "release.tar.gz", url: "http://127.0.0.1:1/release.tar.gz",
 			}, wantSHA, t.TempDir())
 
 			if path != "" || fail == nil || fail.status != http.StatusBadGateway {
@@ -1118,7 +1093,7 @@ func TestExecuteUpgrade(t *testing.T) {
 		if err := os.WriteFile(exe, []byte("running binary"), 0o755); err != nil {
 			t.Fatalf("write old binary: %v", err)
 		}
-		api := &apiServer{releaseAPIBase: srv.URL, upgradeExeOverride: exe}
+		api := &apiServer{releaseSiteBase: srv.URL, upgradeExeOverride: exe}
 
 		version, fail := api.executeUpgrade()
 
@@ -1147,6 +1122,48 @@ func TestExecuteUpgrade(t *testing.T) {
 		}
 	})
 
+	for _, tc := range []struct {
+		name    string
+		missing string
+		message string
+	}{
+		{
+			name:    "a release whose tarball is not downloadable refuses and leaves the running binary alone",
+			missing: "officraft-v1.2.3-darwin-arm64.tar.gz",
+			message: `release v1.2.3 carries no "officraft-v1.2.3-darwin-arm64.tar.gz" asset — refusing an unverifiable install; nothing was changed`,
+		},
+		{
+			name:    "a release whose checksums.txt is not downloadable refuses and leaves the running binary alone",
+			missing: "checksums.txt",
+			message: `release v1.2.3 carries no "checksums.txt" asset — refusing an unverifiable install; nothing was changed`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := upgradeTestReleaseServer(t, "v1.2.3", "#!/bin/sh\nexit 0\n", tc.missing)
+			dir := t.TempDir()
+			exe := filepath.Join(dir, "ocserverd")
+			if err := os.WriteFile(exe, []byte("running binary"), 0o755); err != nil {
+				t.Fatalf("write old binary: %v", err)
+			}
+			api := &apiServer{releaseSiteBase: srv.URL, upgradeExeOverride: exe}
+
+			version, fail := api.executeUpgrade()
+
+			if version != "" {
+				t.Fatalf("version: %q", version)
+			}
+			if fail == nil || fail.status != http.StatusBadGateway || fail.Error() != tc.message {
+				t.Fatalf("failure: %#v", fail)
+			}
+			if got := upgradeTestDirEntries(t, dir); !reflect.DeepEqual(got, []string{"ocserverd"}) {
+				t.Fatalf("binary directory: %v", got)
+			}
+			if data, err := os.ReadFile(exe); err != nil || string(data) != "running binary" {
+				t.Fatalf("running binary: %q, %v", data, err)
+			}
+		})
+	}
+
 	t.Run("a pinned release that is not newer leaves the running binary alone", func(t *testing.T) {
 		srv := upgradeTestReleaseServer(t, "v0.0.0", "#!/bin/sh\nexit 0\n")
 		dir := t.TempDir()
@@ -1154,7 +1171,7 @@ func TestExecuteUpgrade(t *testing.T) {
 		if err := os.WriteFile(exe, []byte("running binary"), 0o755); err != nil {
 			t.Fatalf("write old binary: %v", err)
 		}
-		api := &apiServer{releaseAPIBase: srv.URL, upgradeExeOverride: exe}
+		api := &apiServer{releaseSiteBase: srv.URL, upgradeExeOverride: exe}
 
 		version, fail := api.executeUpgrade()
 
@@ -1207,7 +1224,7 @@ func TestRunUpgrade(t *testing.T) {
 	if err := os.WriteFile(exe, []byte("running binary"), 0o755); err != nil {
 		t.Fatalf("write old binary: %v", err)
 	}
-	api := &apiServer{releaseAPIBase: srv.URL, upgradeExeOverride: exe}
+	api := &apiServer{releaseSiteBase: srv.URL, upgradeExeOverride: exe, updaterCheckIntervalSecs: 300}
 	upgradeTestKnownRelease(t, api, "v1.2.3")
 
 	version, path, fail := api.runUpgrade()
@@ -1283,7 +1300,7 @@ func TestHandleUpgradeApiUpdateUpgradePost(t *testing.T) {
 			t.Fatalf("write: %v", err)
 		}
 		api.upgradeExeOverride = exe
-		api.releaseAPIBase = "http://127.0.0.1:1"
+		api.releaseSiteBase = "http://127.0.0.1:1"
 		upgradeTestKnownRelease(t, api, "v9.9.9")
 		dashboard := apiTestListen(t, api, "")
 
@@ -1294,7 +1311,7 @@ func TestHandleUpgradeApiUpdateUpgradePost(t *testing.T) {
 		}
 		apiWantError(t, data, "internal_error",
 			"cannot reach GitHub to pin the release — nothing was changed: "+
-				`Get "http://127.0.0.1:1/repos/pkyosx/OffiCraft/releases?per_page=20": `+
+				`Get "http://127.0.0.1:1/pkyosx/OffiCraft/releases/latest": `+
 				"dial tcp 127.0.0.1:1: connect: connection refused")
 		if got := upgradeTestDirEntries(t, dir); !reflect.DeepEqual(got, []string{"ocserverd"}) {
 			t.Fatalf("binary directory: %v", got)
@@ -1317,7 +1334,7 @@ func TestHandleUpgradeApiUpdateUpgradePost(t *testing.T) {
 		if err := os.WriteFile(exe, []byte("running binary"), 0o755); err != nil {
 			t.Fatalf("write old binary: %v", err)
 		}
-		api.releaseAPIBase = srv.URL
+		api.releaseSiteBase = srv.URL
 		api.upgradeExeOverride = exe
 		upgradeTestKnownRelease(t, api, "v1.2.3")
 		restarted := make(chan string, 1)

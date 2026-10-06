@@ -601,8 +601,10 @@ const MOCK_WIRE_MONITORING: MockMonitoring = {
 // git_time (T-e9d1 round 3 — this fixture renders v260704-0854-f6f5e1c), so both
 // fields must stay REAL and parity with the Go wire. `update_available` is static
 // false — the running build IS the latest ("已是最新版", so latest_version null /
-// no phantom newer version). These are the running build's REAL identity (git
-// HEAD f6f5e1c, committed 2026-07-04) — NOT the mockup's v1.2.0.
+// no phantom newer version), confirmed by a check that succeeded
+// (update_checked_ok_at present; absent would read 尚未確認最新版本). These are
+// the running build's REAL identity (git HEAD f6f5e1c, committed 2026-07-04) —
+// NOT the mockup's v1.2.0.
 const MOCK_WIRE_VERSION: WireVersion = {
   version: "0.0.0",
   git_sha: "f6f5e1c",
@@ -610,6 +612,7 @@ const MOCK_WIRE_VERSION: WireVersion = {
   catalog_hash: "mock",
   update_available: false,
   latest_version: null,
+  update_checked_ok_at: "2026-07-04T01:00:00Z",
 };
 
 // ── Fixture: backup health, in WIRE shape (T-da06). The mock world's scheduled
@@ -2256,6 +2259,7 @@ const DEFAULT_MOCK_SETTINGS = {
   // configure any more).
   updater_receive_beta: false,
   updater_auto_update: false,
+  updater_check_interval_secs: 300,
   // Studio name (T-d693) — "" out of the box, mirroring the server (the topbar
   // shows the localized default until the owner names the studio).
   org_name: "",
@@ -6244,6 +6248,12 @@ const mockApiImpl = {
     ) {
       throw mockApiError("http 422 for PATCH /api/settings", 422, "disk_usage_interval_secs must be between 600 and 86400 seconds");
     }
+    if (
+      patch.updaterCheckIntervalSecs !== undefined &&
+      (patch.updaterCheckIntervalSecs < 60 || patch.updaterCheckIntervalSecs > 3600)
+    ) {
+      throw mockApiError("http 422 for PATCH /api/settings", 422, "updater_check_interval_secs must be between 60 and 3600 seconds");
+    }
     // T-fc53: the mock refuses exactly what the server refuses, so a UI that
     // only ever runs against the mock cannot ship a field that offers the owner
     // a number he would get a 422 for on a real install.
@@ -6546,6 +6556,9 @@ const mockApiImpl = {
     }
     if (patch.updaterAutoUpdate !== undefined) {
       mockServerSettings.updater_auto_update = patch.updaterAutoUpdate;
+    }
+    if (patch.updaterCheckIntervalSecs !== undefined) {
+      mockServerSettings.updater_check_interval_secs = patch.updaterCheckIntervalSecs;
     }
     if (patch.orgName !== undefined) {
       mockServerSettings.org_name = patch.orgName.trim();

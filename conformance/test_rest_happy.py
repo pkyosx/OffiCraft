@@ -2194,7 +2194,7 @@ HAPPY: dict[str, Happy] = {
         ),
     ),
     "GET /api/release/check": Happy(
-        # $OC_RELEASE_API_BASE is pinned unroutable (run.sh), so the fresh
+        # $OC_RELEASE_SITE_BASE is pinned unroutable (run.sh), so the fresh
         # check deterministically answers the honest degraded verdict: 200
         # {"status":"unknown"} with current_version mirroring /api/version and
         # no fabricated latest tag/link. The reachable-GitHub verdicts are
@@ -3668,7 +3668,7 @@ SKIPPED_HAPPY: dict[str, str] = {
     "POST /api/theme/fetch": (
         "the positive face needs an EXTERNAL http origin serving a valid theme "
         "bundle — the black-box harness is deliberately hermetic (same reason "
-        "$OC_RELEASE_API_BASE is pinned unroutable), and standing a second "
+        "$OC_RELEASE_SITE_BASE is pinned unroutable), and standing a second "
         "server up for one row would trade that away. The format 422 is pinned "
         "in the auth matrix; the fetch-and-import path end to end, the timeout "
         "and size ceilings, and the theme-shape validation are pinned in the "
@@ -3676,8 +3676,8 @@ SKIPPED_HAPPY: dict[str, str] = {
         "httptest origin."
     ),
     "POST /api/update/upgrade": (
-        "the positive face needs a reachable GitHub Releases repo holding a "
-        "newer published release — the harness pins $OC_RELEASE_API_BASE "
+        "the positive face needs a reachable GitHub release site holding a "
+        "newer published release — the harness pins $OC_RELEASE_SITE_BASE "
         "unroutable on purpose (hermeticity). The no-newer-known 409 is pinned "
         "in the auth matrix owner cell and test_upgrade_no_newer_conflicts "
         "below; the precondition and execution semantics (pin → download → "
@@ -4296,7 +4296,7 @@ def test_set_password_after_set_conflicts(hctx: HCtx) -> None:
 
 
 def test_upgrade_no_newer_conflicts(hctx: HCtx) -> None:
-    """With GitHub unreachable (the harness pins $OC_RELEASE_API_BASE at an
+    """With GitHub unreachable (the harness pins $OC_RELEASE_SITE_BASE at an
     unroutable loopback) no newer release is ever known, so the owner's
     explicit upgrade trigger is an honest 409 — never a fabricated upgrade."""
     r = hctx.client.post(

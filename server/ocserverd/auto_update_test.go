@@ -34,7 +34,7 @@ func TestAutoUpdateTick(t *testing.T) {
 	})
 
 	t.Run("armed auto-update with no newer cached release does nothing", func(t *testing.T) {
-		api := &apiServer{updaterAutoUpdate: true}
+		api := &apiServer{updaterAutoUpdate: true, updaterCheckIntervalSecs: 300}
 		api.updateCheck = updateCheckState{checkedAt: time.Now()}
 		if api.autoUpdateTick() {
 			t.Fatal("auto-update acted without a newer cached release")

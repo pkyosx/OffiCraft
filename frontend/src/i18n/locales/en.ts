@@ -2048,7 +2048,8 @@ export const en: Dict = {
     themeDeleteConfirmTail: '"? This cannot be undone.',
     currentVersion: "Current version",
     upToDate: "Up to date",
-    // Explicit check against GitHub Releases (GET /api/release/check)
+    updateNotConfirmed: "Latest version not confirmed yet",
+    // Explicit check against GitHub's release pages (GET /api/release/check)
     checkUpdate: "Check for updates",
     checkingUpdate: "Checking…",
     checkUnknown:
@@ -2061,6 +2062,10 @@ export const en: Dict = {
     receiveBetaSub: "Update checks also follow GitHub prereleases · off = official releases only",
     autoUpdate: "Automatic updates",
     autoUpdateSub: "Upgrade and restart in the background when a newer version appears · off by default",
+    updateCheckInterval: "Update check interval",
+    updateCheckIntervalSub:
+      "How often the server asks GitHub in the background whether a newer version exists; Check for updates and upgrading always ask right away (1–60 minutes)",
+    minutes: "minutes",
     upgradeFailed: "Upgrade failed",
     upgradeRestarting:
       "Upgrading — the new version is installed and the server is restarting; this page will reload by itself.",

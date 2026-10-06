@@ -2462,7 +2462,7 @@ export interface paths {
         };
         /**
          * Check GitHub Releases for a newer official OffiCraft version.
-         * @description - Owner or admin agent; synchronously asks GitHub for the newest admissible release and compares it with the running version.
+         * @description - Owner or admin agent; synchronously reads GitHub's public release pages for the newest admissible release and compares it with the running version.
          *     - If GitHub cannot be reached the status degrades to `unknown` — never a 5xx.
          */
         get: operations["handle_check_release_api_release_check_get"];
@@ -7188,9 +7188,11 @@ export interface components {
         /**
          * ReleaseCheckDTO
          * @description Response of `GET /api/release/check` (owner/admin agent — T-6020) — the explicit
-         *     檢查更新 button behind the software-update card. The server asks GitHub
-         *     Releases (repo pkyosx/OffiCraft, anonymous — no token, no configuration)
-         *     for the newest admissible release SYNCHRONOUSLY (bounded; a short reuse
+         *     檢查更新 button behind the software-update card. The server reads GitHub's
+         *     public release pages for repo pkyosx/OffiCraft (no API call, no token, no
+         *     rate limit): the stable channel takes the release GitHub marks Latest, the
+         *     beta channel the semver-greatest entry of the releases feed. It does so
+         *     SYNCHRONOUSLY (bounded; a short reuse
          *     window absorbs repeated clicks) and orders its tag against the running
          *     `version` (semver). `status` is "up_to_date" (the running build is the
          *     newest — running >= latest, nothing is published at all, or a version
@@ -8943,6 +8945,12 @@ export interface components {
              */
             updater_auto_update: boolean;
             /**
+             * Updater Check Interval Secs
+             * @description How often, in seconds (60 through 3600), the server re-reads GitHub's release pages in the background to refresh `update_available`. The 檢查更新 button and an upgrade always read fresh and do not wait for it.
+             * @default 300
+             */
+            updater_check_interval_secs: number;
+            /**
              * Updater Receive Beta
              * @default false
              */
@@ -9002,7 +9010,8 @@ export interface components {
          *     `updater_receive_beta` toggles whether the GitHub-release update check also
          *     admits prereleases; `updater_auto_update` toggles unattended background
          *     self-upgrade to the newest admissible release (both booleans, default false;
-         *     the manual upgrade endpoint is unaffected). The five document caps (T-ae38;
+         *     the manual upgrade endpoint is unaffected). `updater_check_interval_secs`
+         *     MUST be 60..3600. The five document caps (T-ae38;
          *     the manual's one became two in T-30f1) are independent knobs. Each one MUST be
          *     between THAT segment's shipped default (the `default` on the matching
          *     `SettingsDTO` field — Duty's is its own, much smaller number) and 100000. The floor equalling the shipped default is the
@@ -9158,6 +9167,11 @@ export interface components {
             suggested_replies_task_message?: string[] | null;
             /** Updater Auto Update */
             updater_auto_update?: boolean | null;
+            /**
+             * Updater Check Interval Secs
+             * @description How often, in seconds, the server re-reads GitHub's release pages in the background. Must be 60 through 3600.
+             */
+            updater_check_interval_secs?: number | null;
             /** Updater Receive Beta */
             updater_receive_beta?: boolean | null;
             /**
@@ -10938,8 +10952,9 @@ export interface components {
          *     None when unavailable (release tarball / no git).
          *
          *     `update_available` drives the software-update card: the server periodically
-         *     asks GitHub Releases (repo pkyosx/OffiCraft, anonymous) for the newest
-         *     published release (cached, refreshed in the background — unreachable GitHub
+         *     reads GitHub's public release pages (repo pkyosx/OffiCraft) for the newest
+         *     admissible release (cached, refreshed in the background every
+         *     `updater_check_interval_secs` — unreachable GitHub
          *     NEVER slows this probe) and reports honestly: True iff the newest admissible
          *     release tag is STRICTLY NEWER than the running `version` under semver
          *     ordering (`latest_version` then carries the tag); running >= latest reads
@@ -10947,12 +10962,13 @@ export interface components {
          *     reads False (with a server-side log warning) — never a prompt. A
          *     self-build's "0.0.0" sorts below any published release and therefore
          *     still prompts. Prereleases are admitted only when the
-         *     `updater_receive_beta` setting is on.
+         *     `updater_receive_beta` setting is on; otherwise the newest admissible release
+         *     is the one GitHub marks Latest.
          *
          *     `update_checked_ok_at` is WHEN that check last SUCCEEDED (RFC3339, UTC).
          *     It is the freshness of `update_available`, which on its own cannot tell
          *     "checked a minute ago, nothing newer" apart from "the check has never once
-         *     succeeded" (GitHub unreachable, rate-limited, or never run) — both answer
+         *     succeeded" (GitHub unreachable or never run) — both answer
          *     False. A FAILED check NEVER moves it; absent/None means no check has ever
          *     succeeded under the current channel (a channel flip resets it). It is
          *     deliberately NOT the check cache's TTL anchor — that stays the last

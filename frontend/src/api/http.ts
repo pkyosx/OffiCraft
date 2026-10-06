@@ -2593,6 +2593,7 @@ export const httpApi: Api = {
       backup_retain?: number;
       updater_receive_beta?: boolean;
       updater_auto_update?: boolean;
+      updater_check_interval_secs?: number;
       org_name?: string;
       owner_name?: string;
       push_contact_email?: string;
@@ -2673,6 +2674,9 @@ export const httpApi: Api = {
     }
     if (patch.updaterAutoUpdate !== undefined) {
       body.updater_auto_update = patch.updaterAutoUpdate;
+    }
+    if (patch.updaterCheckIntervalSecs !== undefined) {
+      body.updater_check_interval_secs = patch.updaterCheckIntervalSecs;
     }
     if (patch.orgName !== undefined) body.org_name = patch.orgName;
     if (patch.ownerName !== undefined) body.owner_name = patch.ownerName;

@@ -323,8 +323,10 @@
   color: var(--color-text-strong);
   background: var(--color-indigo);
 }
-/* transient "檢查中…" — muted, so it reads as in-flight, not as a verdict */
-.sw-badge--busy {
+/* transient "檢查中…" and "not confirmed yet" — muted, so neither reads as a
+ * verdict */
+.sw-badge--busy,
+.sw-badge--muted {
   color: var(--color-text-muted);
   background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
   border: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);

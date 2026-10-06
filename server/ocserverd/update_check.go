@@ -6,48 +6,36 @@ package main
 // self-build's "0.0.0" still prompts, and an unorderable label never triggers a
 // download. The upgrade body lives in upgrade.go (never exposed to agents);
 // auto_update.go runs it on the opt-in background cadence.
+//
+// The source is GitHub's public release WEB pages, never api.github.com: the
+// anonymous API budget is per egress IP and other programs on the same network
+// can exhaust it for hours. The stable channel follows the release GitHub marks
+// Latest (so moving that pointer is what rolls stable stations back); the beta
+// channel takes the semver-greatest entry of the releases feed whatever its
+// prerelease flag, because the feed does not carry the flag.
 
 import (
-	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 )
 
 const releaseRepo = "pkyosx/OffiCraft"
 
-const releaseAPIDefaultBase = "https://api.github.com"
+const releaseSiteDefaultBase = "https://github.com"
 
 // A var so the test binary can point every test server at an unroutable
 // loopback address — a unit test must never reach the real GitHub.
-var releaseAPIDefault = releaseAPIDefaultBase
+var releaseSiteDefault = releaseSiteDefaultBase
 
-// ⚠️ Anchored on checkedAt (the last ATTEMPT), NEVER on lastOKAt (the last
-// SUCCESS): anchoring on lastOKAt would make every read while GitHub is down
-// look stale and pound GitHub for exactly as long as it is broken. A failed
-// attempt must leave lastOKAt untouched.
-const updateCheckTTL = 5 * time.Minute
-
-// Mashing 檢查更新 must not hammer GitHub's anonymous rate limit (60/hour/IP).
 const releaseCheckButtonTTL = 30 * time.Second
 
 const updateCheckTimeout = 8 * time.Second
-
-type githubReleaseAsset struct {
-	Name               string `json:"name"`
-	BrowserDownloadURL string `json:"browser_download_url"`
-	Size               int64  `json:"size"`
-}
-
-type githubRelease struct {
-	TagName    string               `json:"tag_name"`
-	HTMLURL    string               `json:"html_url"`
-	Draft      bool                 `json:"draft"`
-	Prerelease bool                 `json:"prerelease"`
-	Assets     []githubReleaseAsset `json:"assets"`
-}
 
 type updateCheckState struct {
 	includePre bool
@@ -58,7 +46,7 @@ type updateCheckState struct {
 	fetching bool
 	ok       bool
 	none     bool
-	rel      githubRelease
+	tag      string
 }
 
 func (s *apiServer) receiveBetaEnabled() bool {
@@ -67,21 +55,52 @@ func (s *apiServer) receiveBetaEnabled() bool {
 	return s.updaterReceiveBeta
 }
 
-func (s *apiServer) releaseAPIBaseURL() string {
-	if s.releaseAPIBase != "" {
-		return s.releaseAPIBase
+func (s *apiServer) updateCheckInterval() time.Duration {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return time.Duration(s.updaterCheckIntervalSecs) * time.Second
+}
+
+func (s *apiServer) releaseSiteBaseURL() string {
+	if s.releaseSiteBase != "" {
+		return s.releaseSiteBase
 	}
-	return releaseAPIDefault
+	return releaseSiteDefault
+}
+
+func releaseRepoPath() string { return "/" + releaseRepo + "/releases" }
+
+func releasePageURL(base, tag string) string {
+	return base + releaseRepoPath() + "/tag/" + url.PathEscape(tag)
+}
+
+func releaseAssetURL(base, tag, asset string) string {
+	return base + releaseRepoPath() + "/download/" + url.PathEscape(tag) + "/" + url.PathEscape(asset)
+}
+
+// releaseTagFromURL answers the tag a release page URL names, or "" when the
+// URL is not /<repo>/releases/tag/<tag>.
+func releaseTagFromURL(u *url.URL) string {
+	tag, found := strings.CutPrefix(u.Path, releaseRepoPath()+"/tag/")
+	if !found || tag == "" || strings.Contains(tag, "/") {
+		return ""
+	}
+	return tag
 }
 
 func (s *apiServer) updateStatus() (available bool, latest *string) {
 	includePre := s.receiveBetaEnabled()
+	interval := s.updateCheckInterval()
 	s.updateMu.Lock()
 	if s.updateCheck.includePre != includePre {
 		s.updateCheck = updateCheckState{includePre: includePre}
 	}
+	// ⚠️ Anchored on checkedAt (the last ATTEMPT), NEVER on lastOKAt (the last
+	// SUCCESS): anchoring on lastOKAt would make every read while GitHub is down
+	// look stale and pound GitHub for exactly as long as it is broken. A failed
+	// attempt must leave lastOKAt untouched.
 	stale := s.updateCheck.checkedAt.IsZero() ||
-		time.Since(s.updateCheck.checkedAt) > updateCheckTTL
+		time.Since(s.updateCheck.checkedAt) > interval
 	if stale && !s.updateCheck.fetching {
 		s.updateCheck.fetching = true
 		go s.refreshUpdateCheck(includePre)
@@ -89,10 +108,10 @@ func (s *apiServer) updateStatus() (available bool, latest *string) {
 	st := s.updateCheck
 	s.updateMu.Unlock()
 
-	if !st.ok || st.none || st.rel.TagName == "" || !releaseIsNewer(st.rel.TagName, appVersion) {
+	if !st.ok || st.none || st.tag == "" || !releaseIsNewer(st.tag, appVersion) {
 		return false, nil
 	}
-	v := st.rel.TagName
+	v := st.tag
 	return true, &v
 }
 
@@ -111,7 +130,7 @@ func (s *apiServer) kickUpdateCheck() {
 }
 
 func (s *apiServer) refreshUpdateCheck(includePre bool) {
-	rel, none, err := fetchLatestOffiCraftRelease(s.releaseAPIBaseURL(), includePre)
+	tag, none, err := fetchLatestOffiCraftRelease(s.releaseSiteBaseURL(), includePre)
 
 	s.updateMu.Lock()
 	defer s.updateMu.Unlock()
@@ -128,7 +147,7 @@ func (s *apiServer) refreshUpdateCheck(includePre bool) {
 	s.updateCheck.lastOKAt = s.updateCheck.checkedAt
 	s.updateCheck.ok = true
 	s.updateCheck.none = none
-	s.updateCheck.rel = rel
+	s.updateCheck.tag = tag
 }
 
 func (s *apiServer) updateCheckedOKAt() *string {
@@ -141,46 +160,95 @@ func (s *apiServer) updateCheckedOKAt() *string {
 	return &stamp
 }
 
-func fetchLatestOffiCraftRelease(base string, includePre bool) (githubRelease, bool, error) {
-	req, err := http.NewRequest(http.MethodGet,
-		base+"/repos/"+releaseRepo+"/releases?per_page=20", nil)
-	if err != nil {
-		return githubRelease{}, false, err
+// fetchLatestOffiCraftRelease answers the newest admissible tag, or none=true
+// when nothing is published on that channel.
+func fetchLatestOffiCraftRelease(base string, includePre bool) (tag string, none bool, err error) {
+	client := &http.Client{
+		Timeout: updateCheckTimeout,
+		// /releases/latest answers with a redirect whose Location IS the answer;
+		// following it would only fetch a large HTML page.
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	client := &http.Client{Timeout: updateCheckTimeout}
-	resp, err := client.Do(req)
+	if includePre {
+		return fetchNewestFeedRelease(client, base)
+	}
+	return fetchLatestMarkedRelease(client, base)
+}
+
+func fetchLatestMarkedRelease(client *http.Client, base string) (string, bool, error) {
+	resp, err := client.Get(base + releaseRepoPath() + "/latest")
 	if err != nil {
-		return githubRelease{}, false, err
+		return "", false, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNotFound {
-		return githubRelease{}, true, nil
+	switch resp.StatusCode {
+	case http.StatusNotFound:
+		return "", true, nil
+	case http.StatusMovedPermanently, http.StatusFound, http.StatusSeeOther,
+		http.StatusTemporaryRedirect, http.StatusPermanentRedirect:
+	default:
+		return "", false, fmt.Errorf("github answered %d", resp.StatusCode)
 	}
+	loc, err := resp.Location()
+	if err != nil {
+		return "", false, fmt.Errorf("github redirected without a usable Location: %w", err)
+	}
+	if tag := releaseTagFromURL(loc); tag != "" {
+		return tag, false, nil
+	}
+	// With nothing marked Latest GitHub sends the visitor to the release list.
+	if strings.TrimSuffix(loc.Path, "/") == releaseRepoPath() {
+		return "", true, nil
+	}
+	return "", false, fmt.Errorf("github redirected to %s, not a release page", loc)
+}
+
+type releaseFeed struct {
+	Entries []struct {
+		Links []struct {
+			Rel  string `xml:"rel,attr"`
+			Href string `xml:"href,attr"`
+		} `xml:"link"`
+	} `xml:"entry"`
+}
+
+// The feed lists only the newest few releases in creation order, not version
+// order, so a newer tag created earlier must still win: pick semver-max.
+func fetchNewestFeedRelease(client *http.Client, base string) (string, bool, error) {
+	feedURL := base + releaseRepoPath() + ".atom"
+	resp, err := client.Get(feedURL)
+	if err != nil {
+		return "", false, err
+	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return githubRelease{}, false, fmt.Errorf("github answered %d", resp.StatusCode)
+		return "", false, fmt.Errorf("github answered %d", resp.StatusCode)
 	}
-	var list []githubRelease
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&list); err != nil {
-		return githubRelease{}, false, err
+	var feed releaseFeed
+	if err := xml.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&feed); err != nil {
+		return "", false, fmt.Errorf("the releases feed is unreadable: %w", err)
 	}
-	// 🔴 GitHub's /releases list is ordered by CREATION TIME, not by version, so
-	// taking list[0] would hide a newer tag created earlier; pick semver-max.
-	best := githubRelease{}
-	found := false
-	for _, rel := range list {
-		if rel.Draft || rel.TagName == "" {
-			continue
+	best := ""
+	for i, entry := range feed.Entries {
+		tag := ""
+		for _, link := range entry.Links {
+			if link.Rel != "" && link.Rel != "alternate" {
+				continue
+			}
+			if u, err := url.Parse(link.Href); err == nil {
+				tag = releaseTagFromURL(u)
+			}
+			break
 		}
-		if rel.Prerelease && !includePre {
-			continue
+		if tag == "" {
+			return "", false, fmt.Errorf("releases feed entry %d links to no release page", i+1)
 		}
-		if !found || semverOutranks(rel.TagName, best.TagName) {
-			best, found = rel, true
+		if best == "" || semverOutranks(tag, best) {
+			best = tag
 		}
 	}
-	if !found {
-		return githubRelease{}, true, nil
+	if best == "" {
+		return "", true, nil
 	}
 	return best, false, nil
 }
@@ -207,11 +275,9 @@ func (s *apiServer) HandleCheckReleaseApiReleaseCheckGet(w http.ResponseWriter, 
 	case st.ok && st.none:
 		dto.Status = releaseStatusUpToDate
 	case st.ok:
-		tag, htmlURL := st.rel.TagName, st.rel.HTMLURL
+		tag, pageURL := st.tag, releasePageURL(s.releaseSiteBaseURL(), st.tag)
 		dto.LatestTag = &tag
-		if htmlURL != "" {
-			dto.ReleaseURL = &htmlURL
-		}
+		dto.ReleaseURL = &pageURL
 		if releaseIsNewer(tag, appVersion) {
 			dto.Status = releaseStatusUpdate
 		} else {
@@ -233,7 +299,7 @@ func (s *apiServer) syncUpdateCheck() updateCheckState {
 	}
 	s.updateMu.Unlock()
 
-	rel, none, err := fetchLatestOffiCraftRelease(s.releaseAPIBaseURL(), includePre)
+	tag, none, err := fetchLatestOffiCraftRelease(s.releaseSiteBaseURL(), includePre)
 
 	s.updateMu.Lock()
 	defer s.updateMu.Unlock()
@@ -248,6 +314,6 @@ func (s *apiServer) syncUpdateCheck() updateCheckState {
 	s.updateCheck.lastOKAt = s.updateCheck.checkedAt
 	s.updateCheck.ok = true
 	s.updateCheck.none = none
-	s.updateCheck.rel = rel
+	s.updateCheck.tag = tag
 	return s.updateCheck
 }

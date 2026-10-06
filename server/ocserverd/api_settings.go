@@ -81,6 +81,14 @@ var diskUsageIntervalRangeMsg = fmt.Sprintf(
 	"must be between %d and %d seconds",
 	minDiskUsageIntervalSecs, maxDiskUsageIntervalSecs)
 
+func updaterCheckIntervalInRange(n int) bool {
+	return n >= minUpdaterCheckIntervalSecs && n <= maxUpdaterCheckIntervalSecs
+}
+
+var updaterCheckIntervalRangeMsg = fmt.Sprintf(
+	"must be between %d and %d seconds",
+	minUpdaterCheckIntervalSecs, maxUpdaterCheckIntervalSecs)
+
 var acceleratedGraceRangeMsg = fmt.Sprintf(
 	"must be between %d and %d seconds",
 	minAcceleratedGraceSecs, maxAcceleratedGraceSecs)
@@ -408,6 +416,12 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 			"disk_usage_interval_secs "+diskUsageIntervalRangeMsg)
 		return
 	}
+	if body.UpdaterCheckIntervalSecs != nil &&
+		!updaterCheckIntervalInRange(*body.UpdaterCheckIntervalSecs) {
+		writeError(w, http.StatusUnprocessableEntity,
+			"updater_check_interval_secs "+updaterCheckIntervalRangeMsg)
+		return
+	}
 	if body.OutsourceMaxParallel != nil &&
 		!outsourceParallelInRange(*body.OutsourceMaxParallel) {
 		writeError(w, http.StatusUnprocessableEntity,
@@ -672,6 +686,10 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		v := *body.UpdaterAutoUpdate
 		put(settingUpdaterAutoUpdate, strconv.FormatBool(v), func() { s.updaterAutoUpdate = v })
 	}
+	if body.UpdaterCheckIntervalSecs != nil {
+		v := *body.UpdaterCheckIntervalSecs
+		put(settingUpdaterCheckIntervalSecs, strconv.Itoa(v), func() { s.updaterCheckIntervalSecs = v })
+	}
 	if body.OrgName != nil && orgName != s.orgName {
 		put(settingOrgName, orgName, func() { s.orgName = orgName })
 	}
@@ -785,6 +803,7 @@ func (s *apiServer) settingsView() settingsDTO {
 		BackupRetain:                    s.backupRetain,
 		UpdaterReceiveBeta:              s.updaterReceiveBeta,
 		UpdaterAutoUpdate:               s.updaterAutoUpdate,
+		UpdaterCheckIntervalSecs:        s.updaterCheckIntervalSecs,
 		OrgName:                         s.orgName,
 		OwnerName:                       s.ownerName,
 		PushContactEmail:                s.pushContactEmail,

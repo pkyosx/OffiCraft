@@ -126,6 +126,8 @@ const (
 	settingUpdaterReceiveBeta = "updater.receive_beta"
 
 	settingUpdaterAutoUpdate = "updater.auto_update"
+
+	settingUpdaterCheckIntervalSecs = "updater.check_interval_secs"
 	// org.name reaches every agent via get_global_context; owner.name and
 	// display.* never enter an agent read path. "" = never set: the frontend
 	// falls back to its localized default / cached value.
@@ -198,6 +200,12 @@ const (
 	maxDiskUsageIntervalSecs     = 86400
 )
 
+const (
+	updaterCheckIntervalSecsDefault = 300
+	minUpdaterCheckIntervalSecs     = 60
+	maxUpdaterCheckIntervalSecs     = 3600
+)
+
 // THE DEFAULT IS 30 DAYS (owner rc-f2b96594c621): the production station has
 // no row for this setting, so moving the default moves production.
 //
@@ -252,6 +260,7 @@ type authSettings struct {
 	backupRetain                    int
 	updaterReceiveBeta              bool
 	updaterAutoUpdate               bool
+	updaterCheckIntervalSecs        int
 	orgName                         string
 	ownerName                       string
 	pushContactEmail                string
@@ -333,6 +342,7 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 		runtimeLoginCheckIntervalSecs:   runtimeLoginCheckIntervalSecsDefault,
 		runtimeLoginRecheckIntervalSecs: runtimeLoginRecheckIntervalSecsDefault,
 		diskUsageIntervalSecs:           diskUsageIntervalSecsDefault,
+		updaterCheckIntervalSecs:        updaterCheckIntervalSecsDefault,
 	}
 
 	stored, err := d.GetSetting(settingJWTSecret)
@@ -690,6 +700,16 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 	}
 	if err := getBool(settingUpdaterAutoUpdate, &out.updaterAutoUpdate); err != nil {
 		return out, err
+	}
+	if v, err := d.GetSetting(settingUpdaterCheckIntervalSecs); err != nil {
+		return out, err
+	} else if v != nil {
+		n, err := strconv.Atoi(*v)
+		if err != nil || !updaterCheckIntervalInRange(n) {
+			return out, fmt.Errorf("settings %s: %s: %q",
+				settingUpdaterCheckIntervalSecs, updaterCheckIntervalRangeMsg, *v)
+		}
+		out.updaterCheckIntervalSecs = n
 	}
 	if err := getBool(settingDisplayWide, &out.displayWide); err != nil {
 		return out, err

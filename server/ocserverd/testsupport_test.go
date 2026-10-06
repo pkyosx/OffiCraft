@@ -116,9 +116,9 @@ func apiTestStackOn(t *testing.T, d *DAL, withSigningSecret bool) (*apiServer, h
 	}
 	api := newAPIServer(d, NewHub(), singleKeyring(secret), auth.ownerTokenTTL, "../..")
 	api.adoptSettings(auth)
-	// $OC_RELEASE_API_BASE's harness seam, pointed at a dead port: nothing in
-	// the fixture may reach the real api.github.com.
-	api.releaseAPIBase = "http://127.0.0.1:1"
+	// $OC_RELEASE_SITE_BASE's harness seam, pointed at a dead port: nothing in
+	// the fixture may reach the real github.com.
+	api.releaseSiteBase = "http://127.0.0.1:1"
 	// The production floor is three seconds per refused credential attempt; a
 	// test that is not about the floor should not pay it (throttle.go).
 	api.credentialFailureFloor = time.Millisecond

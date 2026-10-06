@@ -22,6 +22,8 @@ import (
 var lockInTxStaged atomic.Int64
 
 func TestMain(m *testing.M) {
+	// A test that builds a bare apiServer would otherwise read the real github.com.
+	releaseSiteDefault = "http://127.0.0.1:1"
 	var refusalsMu sync.Mutex
 	var refusals []string
 	txguard.OnRefusal = func(at string) {

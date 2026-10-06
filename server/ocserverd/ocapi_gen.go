@@ -2579,9 +2579,11 @@ type PushSubscriptionDeleteDTO struct {
 }
 
 // ReleaseCheckDTO Response of `GET /api/release/check` (owner/admin agent — T-6020) — the explicit
-// 檢查更新 button behind the software-update card. The server asks GitHub
-// Releases (repo pkyosx/OffiCraft, anonymous — no token, no configuration)
-// for the newest admissible release SYNCHRONOUSLY (bounded; a short reuse
+// 檢查更新 button behind the software-update card. The server reads GitHub's
+// public release pages for repo pkyosx/OffiCraft (no API call, no token, no
+// rate limit): the stable channel takes the release GitHub marks Latest, the
+// beta channel the semver-greatest entry of the releases feed. It does so
+// SYNCHRONOUSLY (bounded; a short reuse
 // window absorbs repeated clicks) and orders its tag against the running
 // `version` (semver). `status` is "up_to_date" (the running build is the
 // newest — running >= latest, nothing is published at all, or a version
@@ -3677,7 +3679,10 @@ type SettingsDTO struct {
 	// SuggestedRepliesTaskMessage The one-click 建議回覆 offered under a 任務 message box (T-122). A SEPARATE list from suggested_replies_reply_card by owner ruling: answering a 請示卡 and writing to a task in progress are different conversations, so one list's sentences are wrong in the other's box. [] (the default) means no chips are drawn there.
 	SuggestedRepliesTaskMessage *[]string `json:"suggested_replies_task_message,omitempty"`
 	UpdaterAutoUpdate           *bool     `json:"updater_auto_update,omitempty"`
-	UpdaterReceiveBeta          *bool     `json:"updater_receive_beta,omitempty"`
+
+	// UpdaterCheckIntervalSecs How often, in seconds (60 through 3600), the server re-reads GitHub's release pages in the background to refresh `update_available`. The 檢查更新 button and an upgrade always read fresh and do not wait for it.
+	UpdaterCheckIntervalSecs *int  `json:"updater_check_interval_secs,omitempty"`
+	UpdaterReceiveBeta       *bool `json:"updater_receive_beta,omitempty"`
 
 	// WardenCredentialLifetimeSecs How long a MACHINE (warden) credential is meant to live, in seconds (86400 through 34560000 -- one day through 400 days). It is the number every warden's renewal threshold is derived from: a warden replaces its own credential once that credential is two thirds of this old, measured from the `iat` claim it carries, plus a per-machine stagger of up to one hour. Wardens read it from `GET /api/machines/credential-policy` on their 15-minute poll, so a change reaches the fleet within one interval; a warden that cannot reach that endpoint keeps using the shipped default rather than failing. It is ALSO the credential's expiry: the warden mint stamps `exp = iat + this` (T-fc53). A renewal that does not complete inside the remaining third therefore takes that machine off the fleet until someone re-installs it by hand, and nothing on the station reports that it happened. Lowering this value does not shorten credentials already issued -- an `exp` is fixed at mint time.
 	WardenCredentialLifetimeSecs *int `json:"warden_credential_lifetime_secs,omitempty"`
@@ -3700,7 +3705,8 @@ type SettingsDTO struct {
 // `updater_receive_beta` toggles whether the GitHub-release update check also
 // admits prereleases; `updater_auto_update` toggles unattended background
 // self-upgrade to the newest admissible release (both booleans, default false;
-// the manual upgrade endpoint is unaffected). The five document caps (T-ae38;
+// the manual upgrade endpoint is unaffected). `updater_check_interval_secs`
+// MUST be 60..3600. The five document caps (T-ae38;
 // the manual's one became two in T-30f1) are independent knobs. Each one MUST be
 // between THAT segment's shipped default (the `default` on the matching
 // `SettingsDTO` field — Duty's is its own, much smaller number) and 100000. The floor equalling the shipped default is the
@@ -3809,7 +3815,10 @@ type SettingsUpdateDTO struct {
 	// SuggestedRepliesTaskMessage Replace the 任務 message-box 建議回覆 list wholesale (T-122). Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list: patching one never touches the other. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].
 	SuggestedRepliesTaskMessage *[]string `json:"suggested_replies_task_message,omitempty"`
 	UpdaterAutoUpdate           *bool     `json:"updater_auto_update,omitempty"`
-	UpdaterReceiveBeta          *bool     `json:"updater_receive_beta,omitempty"`
+
+	// UpdaterCheckIntervalSecs How often, in seconds, the server re-reads GitHub's release pages in the background. Must be 60 through 3600.
+	UpdaterCheckIntervalSecs *int  `json:"updater_check_interval_secs,omitempty"`
+	UpdaterReceiveBeta       *bool `json:"updater_receive_beta,omitempty"`
 
 	// WardenCredentialLifetimeSecs How long a MACHINE (warden) credential is meant to live, in seconds. Must be 86400 through 34560000 (one day through 400 days). A warden renews its own credential once that credential is two thirds of this old, plus a per-machine stagger of up to one hour so that LOWERING this value does not put the whole fleet on the mint endpoint inside one poll. The floor is one day because the last third of the lifetime is the retry window: at the 15-minute poll a one-day lifetime still leaves about 32 attempts. Wardens pick a change up within one poll interval. It is ALSO the expiry stamped into the credential (`exp = iat + this`, T-fc53), so a machine that misses its whole retry window needs a hand re-install; lowering the value never shortens a credential already issued, because an `exp` is fixed at mint time. Read the current value from get_settings rather than assuming a number.
 	WardenCredentialLifetimeSecs *int `json:"warden_credential_lifetime_secs,omitempty"`
@@ -4637,8 +4646,9 @@ type UpgradeResultDTO struct {
 // None when unavailable (release tarball / no git).
 //
 // `update_available` drives the software-update card: the server periodically
-// asks GitHub Releases (repo pkyosx/OffiCraft, anonymous) for the newest
-// published release (cached, refreshed in the background — unreachable GitHub
+// reads GitHub's public release pages (repo pkyosx/OffiCraft) for the newest
+// admissible release (cached, refreshed in the background every
+// `updater_check_interval_secs` — unreachable GitHub
 // NEVER slows this probe) and reports honestly: True iff the newest admissible
 // release tag is STRICTLY NEWER than the running `version` under semver
 // ordering (`latest_version` then carries the tag); running >= latest reads
@@ -4646,12 +4656,13 @@ type UpgradeResultDTO struct {
 // reads False (with a server-side log warning) — never a prompt. A
 // self-build's "0.0.0" sorts below any published release and therefore
 // still prompts. Prereleases are admitted only when the
-// `updater_receive_beta` setting is on.
+// `updater_receive_beta` setting is on; otherwise the newest admissible release
+// is the one GitHub marks Latest.
 //
 // `update_checked_ok_at` is WHEN that check last SUCCEEDED (RFC3339, UTC).
 // It is the freshness of `update_available`, which on its own cannot tell
 // "checked a minute ago, nothing newer" apart from "the check has never once
-// succeeded" (GitHub unreachable, rate-limited, or never run) — both answer
+// succeeded" (GitHub unreachable or never run) — both answer
 // False. A FAILED check NEVER moves it; absent/None means no check has ever
 // succeeded under the current channel (a channel flip resets it). It is
 // deliberately NOT the check cache's TTL anchor — that stays the last
