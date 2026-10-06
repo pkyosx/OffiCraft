@@ -5,6 +5,7 @@ package main
 
 import (
 	"net/http"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strconv"
@@ -802,7 +803,7 @@ func TestFoldWorkerCommandResult(t *testing.T) {
 }
 
 func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
-	t.Run("a full warden report answers a receipt carrying the login check and recheck intervals, and the blocks it carried show up on the monitoring view", func(t *testing.T) {
+	t.Run("a full warden report answers a receipt carrying the login check, login recheck and disk-usage intervals, and the blocks it carried show up on the monitoring view", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
 
@@ -830,6 +831,7 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			"ts":                          apiAnyNumber,
 			"login_check_interval_secs":   300,
 			"login_recheck_interval_secs": 30,
+			"disk_usage_interval_secs":    3600,
 		})
 
 		status, view := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
@@ -867,11 +869,11 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 		})
 	})
 
-	t.Run("under owner-set login check and recheck intervals, a warden's receipt carries those values and an agent's receipt on the same machine carries neither", func(t *testing.T) {
+	t.Run("under owner-set login check, login recheck and disk-usage intervals, a warden's receipt carries those values and an agent's receipt on the same machine carries none of them", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
 		mira := apiTestAgentToken(t, api, "mira", "m-server-self")
-		apiJSON(t, h, "PATCH", "/api/settings", owner, `{"runtime_login_check_interval_secs":45,"runtime_login_recheck_interval_secs":60}`)
+		apiJSON(t, h, "PATCH", "/api/settings", owner, `{"runtime_login_check_interval_secs":45,"runtime_login_recheck_interval_secs":60,"disk_usage_interval_secs":1200}`)
 
 		status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden, `{"tokens":{"input":1}}`)
 		if status != 200 {
@@ -883,6 +885,7 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			"ts":                          apiAnyNumber,
 			"login_check_interval_secs":   45,
 			"login_recheck_interval_secs": 60,
+			"disk_usage_interval_secs":    1200,
 		})
 
 		status, data = apiJSON(t, h, "POST", "/api/monitoring/telemetry", mira, `{"tokens":{"input":1}}`)
@@ -1039,6 +1042,49 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 		})
 	})
 
+	t.Run("a warden report carrying only disk_usage answers 200, a later report without it keeps the stored measurement, and a newer measurement replaces it", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		box := apiTestDiskBox(t, api, d)
+		diskOnMonitoring := func() any {
+			t.Helper()
+			status, view := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
+			if status != 200 {
+				t.Fatalf("monitoring: want 200, got %d (%v)", status, view)
+			}
+			machines, _ := view["machines"].([]any)
+			row, _ := machines[0].(map[string]any)
+			if row["machine"] != "m-box" {
+				t.Fatalf("first machine row: want m-box, got %v", row["machine"])
+			}
+			return row["disk_usage"]
+		}
+		wantDisk := func(measuredAt float64, root int) map[string]any {
+			return diskWant(measuredAt, root, nil, []any{diskCat("workspaces", 0, true), diskCat("other", root, true)}, []any{}, nil, nil)
+		}
+
+		status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", box,
+			`{"disk_usage":{"measured_at":1759500000,"root_bytes":4000,"members":[]}}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"agent_id":                    "m-box",
+			"machine":                     "m-box",
+			"ts":                          apiAnyNumber,
+			"login_check_interval_secs":   300,
+			"login_recheck_interval_secs": 30,
+			"disk_usage_interval_secs":    3600,
+		})
+		apiWantValue(t, "after the measurement", diskOnMonitoring(), wantDisk(1759500000, 4000))
+
+		apiJSON(t, h, "POST", "/api/monitoring/telemetry", box, `{"tokens":{"input":1}}`)
+		apiWantValue(t, "after a report without disk_usage", diskOnMonitoring(), wantDisk(1759500000, 4000))
+
+		apiJSON(t, h, "POST", "/api/monitoring/telemetry", box,
+			`{"disk_usage":{"measured_at":1759503600,"root_bytes":6000,"members":[]}}`)
+		apiWantValue(t, "after a newer measurement", diskOnMonitoring(), wantDisk(1759503600, 6000))
+	})
+
 	t.Run("a partial report leaves the blocks it does not carry alone, which the monitoring view is the only place to see", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		agent := apiTestAgentToken(t, api, "mira", "")
@@ -1080,6 +1126,7 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			"ts":                          apiAnyNumber,
 			"login_check_interval_secs":   300,
 			"login_recheck_interval_secs": 30,
+			"disk_usage_interval_secs":    3600,
 		})
 
 		status, member := apiJSON(t, h, "GET", "/api/members/mira", owner, "")
@@ -1118,7 +1165,7 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			t.Fatalf("want 400, got %d (%v)", status, data)
 		}
 		apiWantError(t, data, "validation_error", "rate_limits, tokens, hardware, binaries, claude, cost, effort, runtime, runtimes, "+
-			"self_update, command_result, warden_shape, cutover_effect or model_call is required")
+			"self_update, command_result, warden_shape, cutover_effect, model_call or disk_usage is required")
 	})
 
 	t.Run("a block that is not an object answers 400 naming the block", func(t *testing.T) {
@@ -1204,6 +1251,7 @@ func TestHandleIngestTelemetryApiMonitoringTelemetryPost(t *testing.T) {
 			"ts":                          apiAnyNumber,
 			"login_check_interval_secs":   300,
 			"login_recheck_interval_secs": 30,
+			"disk_usage_interval_secs":    3600,
 		})
 
 		status, view := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
@@ -1820,7 +1868,51 @@ func apiTestMonitoringMachine() map[string]any {
 		"runtime_capabilities_stale": nil,
 		"warden_shape":               nil,
 		"cutover_effect":             nil,
+		"disk_usage":                 nil,
 	}
+}
+
+// apiTestDiskBox onboards a second warden machine, m-box, and answers its
+// machine credential.
+func apiTestDiskBox(t *testing.T, api *apiServer, d *DAL) string {
+	t.Helper()
+	box := Member{ID: "m-box", Name: "m-box", Codename: "m-box", Kind: KindWarden,
+		RosterStatus: RosterStatusActive, ActivatedTS: 1}
+	if err := d.putMemberWholeRowForTest(box); err != nil {
+		t.Fatalf("PutMember: %v", err)
+	}
+	return apiTestAgentToken(t, api, "m-box", "m-box")
+}
+
+// diskCat is one top-level row of a disk_usage breakdown as served.
+func diskCat(key string, bytes any, inRoot bool) map[string]any {
+	return map[string]any{"key": key, "parent_key": nil, "bytes": bytes, "in_root": inRoot}
+}
+
+func diskMember(id string, name any, status string, workspace any) map[string]any {
+	return map[string]any{"member_id": id, "name": name, "roster_status": status, "workspace_bytes": workspace}
+}
+
+// diskWant is a served disk_usage object.
+func diskWant(measuredAt, total, dbAt any, categories, members []any, free, diskTotal any) map[string]any {
+	return map[string]any{
+		"measured_at":          measuredAt,
+		"total_bytes":          total,
+		"database_measured_at": dbAt,
+		"categories":           categories,
+		"members":              members,
+		"disk_free_bytes":      free,
+		"disk_total_bytes":     diskTotal,
+	}
+}
+
+// apiTestDiskBoxMachine is m-box's row with nothing but its disk usage set by
+// the caller.
+func apiTestDiskBoxMachine() map[string]any {
+	row := apiTestMonitoringMachine()
+	row["machine"] = "m-box"
+	row["display_name"] = "m-box"
+	return row
 }
 
 // apiTestSessionsByID indexes the session list by id and asserts the id SET is
@@ -2344,6 +2436,349 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 				"limit_reached": nil,
 			}},
 		})
+	})
+
+	// diskView ingests one warden report as tok (when body is not empty) and
+	// answers the disk_usage of the monitoring row for host.
+	diskView := func(t *testing.T, h http.Handler, owner, tok, host, body string) any {
+		t.Helper()
+		if body != "" {
+			if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", tok, `{"disk_usage":`+body+`}`); status != 200 {
+				t.Fatalf("ingest: want 200, got %d (%v)", status, data)
+			}
+		}
+		status, view := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, view)
+		}
+		for _, raw := range view["machines"].([]any) {
+			if row := raw.(map[string]any); row["machine"] == host {
+				return row["disk_usage"]
+			}
+		}
+		t.Fatalf("no machine row %s", host)
+		return nil
+	}
+
+	t.Run("under a warden's disk measurement on another machine, its row lists workspaces, the warden's categories and other, and the total is the root", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		box := apiTestDiskBox(t, api, d)
+		got := diskView(t, h, owner, box, "m-box", `{
+			"measured_at":1759500000.5,"took_secs":12.3,"root_bytes":10000,
+			"disk_free_bytes":500000,"disk_total_bytes":900000,
+			"categories":[
+				{"key":"old_version_backups","bytes":2000,"in_root":true},
+				{"key":"logs","bytes":1000,"in_root":true}
+			],
+			"members":[
+				{"member_id":"kip","workspace_bytes":2000},
+				{"member_id":"mira","workspace_bytes":3000}
+			]}`)
+		apiWantValue(t, "disk_usage", got, diskWant(1759500000.5, 10000, nil, []any{
+			diskCat("workspaces", 5000, true),
+			diskCat("logs", 1000, true),
+			diskCat("old_version_backups", 2000, true),
+			diskCat("other", 2000, true),
+		}, []any{
+			diskMember("mira", "Mira", "active", 3000),
+			diskMember("kip", "Kip", "active", 2000),
+		}, 500000, 900000))
+		apiWantValue(t, "the server row, not measured", diskView(t, h, owner, "", "m-server-self", ""), nil)
+	})
+
+	t.Run("under the server's database inside the station root, its database, backups and old copies are rows inside the root, the copies added to old_version_backups", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		root, dbPath := diskTestStation(t)
+		diskTestOldCopies(t, dbPath)
+		api.recordServerDisk(dbPath, root, time.Unix(1759500100, 0))
+		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+		got := diskView(t, h, owner, warden, "m-server-self", `{
+			"measured_at":1759500000,"root_bytes":100000,
+			"categories":[{"key":"logs","bytes":1000,"in_root":true},{"key":"old_version_backups","bytes":2000,"in_root":true}],
+			"members":[{"member_id":"mira","workspace_bytes":30000}]}`)
+		apiWantValue(t, "disk_usage", got, diskWant(1759500000, 100000, 1759500100, []any{
+			diskCat("database", 16384, true),
+			diskCat("backups", 20480, true),
+			diskCat("workspaces", 30000, true),
+			diskCat("logs", 1000, true),
+			diskCat("old_version_backups", 2000+diskTestOldCopiesBytes, true),
+			diskCat("other", 100000-16384-20480-30000-1000-2000-diskTestOldCopiesBytes, true),
+		}, []any{diskMember("mira", "Mira", "active", 30000)}, nil, nil))
+	})
+
+	t.Run("under a warden that sends no old_version_backups, the server's old copies inside the root are that row on their own and logs stay in other", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		root, dbPath := diskTestStation(t)
+		diskTestOldCopies(t, dbPath)
+		api.recordServerDisk(dbPath, root, time.Unix(1759500100, 0))
+		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+		got := diskView(t, h, owner, warden, "m-server-self", `{"measured_at":1759500000,"root_bytes":100000,"members":[]}`)
+		apiWantValue(t, "disk_usage", got, diskWant(1759500000, 100000, 1759500100, []any{
+			diskCat("database", 16384, true),
+			diskCat("backups", 20480, true),
+			diskCat("workspaces", 0, true),
+			diskCat("old_version_backups", diskTestOldCopiesBytes, true),
+			diskCat("other", 100000-16384-20480-diskTestOldCopiesBytes, true),
+		}, []any{}, nil, nil))
+	})
+
+	t.Run("under the server's database outside the station root, database, backups and old_database_copies are rows outside it, added to the total and not taken from other", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		_, dbPath := diskTestStation(t)
+		diskTestOldCopies(t, dbPath)
+		api.recordServerDisk(dbPath, t.TempDir(), time.Unix(1759500100, 0))
+		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+		got := diskView(t, h, owner, warden, "m-server-self", `{
+			"measured_at":1759500000,"root_bytes":100000,
+			"categories":[{"key":"logs","bytes":1000,"in_root":true},{"key":"old_version_backups","bytes":2000,"in_root":true}],
+			"members":[{"member_id":"mira","workspace_bytes":30000}]}`)
+		apiWantValue(t, "disk_usage", got, diskWant(1759500000, 100000+16384+20480+diskTestOldCopiesBytes, 1759500100, []any{
+			diskCat("database", 16384, false),
+			diskCat("backups", 20480, false),
+			diskCat("workspaces", 30000, true),
+			diskCat("logs", 1000, true),
+			diskCat("old_version_backups", 2000, true),
+			diskCat("old_database_copies", diskTestOldCopiesBytes, false),
+			diskCat("other", 100000-30000-1000-2000, true),
+		}, []any{diskMember("mira", "Mira", "active", 30000)}, nil, nil))
+	})
+
+	t.Run("under the server's database outside the station root with its backups unmeasured, the total is null and other is not", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		api.serverDisk.Store(&serverDiskSample{DatabaseBytes: diskTestInt(16384), OldCopiesBytes: diskTestInt(0), MeasuredAt: 1759500100})
+		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+		got := diskView(t, h, owner, warden, "m-server-self", `{"measured_at":1759500000,"root_bytes":100000,"members":[{"member_id":"mira","workspace_bytes":30000}]}`)
+		apiWantValue(t, "disk_usage", got, diskWant(1759500000, nil, 1759500100, []any{
+			diskCat("database", 16384, false),
+			diskCat("backups", nil, false),
+			diskCat("workspaces", 30000, true),
+			diskCat("old_database_copies", 0, false),
+			diskCat("other", 70000, true),
+		}, []any{diskMember("mira", "Mira", "active", 30000)}, nil, nil))
+	})
+
+	t.Run("under only the server's own measurement, the server row lists its rows with no other and no total", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		root, dbPath := diskTestStation(t)
+		api.recordServerDisk(dbPath, root, time.Unix(1759500100, 0))
+		apiWantValue(t, "disk_usage", diskView(t, h, owner, "", "m-server-self", ""), diskWant(nil, nil, 1759500100, []any{
+			diskCat("database", 16384, true),
+			diskCat("backups", 20480, true),
+			diskCat("old_version_backups", 0, true),
+		}, []any{}, nil, nil))
+	})
+
+	t.Run("under the server row's warden measurement arriving before the server measured its database, other is null because the root may still hold the database", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+		got := diskView(t, h, owner, warden, "m-server-self", `{"measured_at":1759500000,"root_bytes":100000,"members":[],
+			"categories":[{"key":"logs","bytes":10,"in_root":true}]}`)
+		apiWantValue(t, "disk_usage", got, diskWant(1759500000, 100000, nil, []any{
+			diskCat("workspaces", 0, true),
+			diskCat("logs", 10, true),
+			diskCat("other", nil, true),
+		}, []any{}, nil, nil))
+	})
+
+	t.Run("under workspaces of an active, a removed and an unknown member and one not sized, members sort by workspace with the unsized last, and workspaces and other are null", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if err := d.putMemberWholeRowForTest(Member{ID: "dev-gone", Name: "Gone Dev", Codename: "gone-dev",
+			Kind: KindStaff, RosterStatus: RosterStatusRemoved}); err != nil {
+			t.Fatalf("PutMember: %v", err)
+		}
+		box := apiTestDiskBox(t, api, d)
+		got := diskView(t, h, owner, box, "m-box", `{"measured_at":1759500000,"root_bytes":1000,
+			"members":[
+				{"member_id":"kip"},
+				{"member_id":"mira","workspace_bytes":100},
+				{"member_id":"ow-ghost","workspace_bytes":0},
+				{"member_id":"dev-gone","workspace_bytes":100}
+			]}`)
+		apiWantValue(t, "disk_usage", got, diskWant(1759500000, 1000, nil, []any{
+			diskCat("workspaces", nil, true),
+			diskCat("other", nil, true),
+		}, []any{
+			diskMember("dev-gone", "Gone Dev", "removed", 100),
+			diskMember("mira", "Mira", "active", 100),
+			diskMember("ow-ghost", nil, "unknown", 0),
+			diskMember("kip", "Kip", "active", nil),
+		}, nil, nil))
+	})
+
+	t.Run("under fields and categories of the wrong shape, the heartbeat is accepted, a bad size reads as a failed probe, an entry without a key or in_root, a duplicate and a server-owned key are dropped", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		box := apiTestDiskBox(t, api, d)
+		got := diskView(t, h, owner, box, "m-box", `{
+			"measured_at":"yesterday","root_bytes":"lots","disk_free_bytes":true,"disk_total_bytes":null,
+			"categories":[
+				{"key":"logs","bytes":-5,"in_root":true},
+				{"key":"old_version_backups","bytes":12.5,"in_root":true},
+				{"key":7,"bytes":1,"in_root":true},
+				{"key":"cache","bytes":1},
+				{"key":"database","bytes":1,"in_root":true},
+				{"key":"other","bytes":1,"in_root":true},
+				{"key":"logs","bytes":3,"in_root":true},
+				"x"
+			],
+			"members":[7,{"workspace_bytes":5},{"member_id":"kip","workspace_bytes":"x"}]}`)
+		apiWantValue(t, "disk_usage", got, diskWant(nil, nil, nil, []any{
+			diskCat("workspaces", nil, true),
+			diskCat("logs", nil, true),
+			diskCat("old_version_backups", nil, true),
+			diskCat("other", nil, true),
+		}, []any{diskMember("kip", "Kip", "active", nil)}, nil, nil))
+	})
+
+	t.Run("under a members field that is not a list, workspaces and other are null, members is empty and the total is still the root", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		box := apiTestDiskBox(t, api, d)
+		got := diskView(t, h, owner, box, "m-box", `{"measured_at":1759500000,"root_bytes":500,"members":"many"}`)
+		apiWantValue(t, "disk_usage", got, diskWant(1759500000, 500, nil, []any{
+			diskCat("workspaces", nil, true),
+			diskCat("other", nil, true),
+		}, []any{}, nil, nil))
+	})
+
+	t.Run("under rows inside the root that add up past it, other is 0 rather than negative", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		box := apiTestDiskBox(t, api, d)
+		got := diskView(t, h, owner, box, "m-box", `{"measured_at":1759500000,"root_bytes":100,
+			"categories":[{"key":"logs","bytes":50,"in_root":true}],
+			"members":[{"member_id":"kip","workspace_bytes":300}]}`)
+		apiWantValue(t, "disk_usage", got, diskWant(1759500000, 100, nil, []any{
+			diskCat("workspaces", 300, true),
+			diskCat("logs", 50, true),
+			diskCat("other", 0, true),
+		}, []any{diskMember("kip", "Kip", "active", 300)}, nil, nil))
+	})
+
+	t.Run("a category the warden does not report stays in other; one it reports as failed makes other null but not the total", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		box := apiTestDiskBox(t, api, d)
+		absent := diskView(t, h, owner, box, "m-box", `{"measured_at":1759500000,"root_bytes":1000,"members":[],
+			"categories":[{"key":"logs","bytes":100,"in_root":true}]}`)
+		apiWantValue(t, "old_version_backups absent", absent, diskWant(1759500000, 1000, nil, []any{
+			diskCat("workspaces", 0, true),
+			diskCat("logs", 100, true),
+			diskCat("other", 900, true),
+		}, []any{}, nil, nil))
+		failed := diskView(t, h, owner, box, "m-box", `{"measured_at":1759500001,"root_bytes":1000,"members":[],
+			"categories":[{"key":"logs","bytes":100,"in_root":true},{"key":"old_version_backups","bytes":null,"in_root":true}]}`)
+		apiWantValue(t, "old_version_backups failed", failed, diskWant(1759500001, 1000, nil, []any{
+			diskCat("workspaces", 0, true),
+			diskCat("logs", 100, true),
+			diskCat("old_version_backups", nil, true),
+			diskCat("other", nil, true),
+		}, []any{}, nil, nil))
+	})
+
+	t.Run("an unknown key is passed on after the known ones; parts follow a parent the server adds as their sum, outside the root counted in the total, and a failed part makes the parent and the total null", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		box := apiTestDiskBox(t, api, d)
+		got := diskView(t, h, owner, box, "m-box", `{"measured_at":1759500000,"root_bytes":1000,"members":[],
+			"categories":[
+				{"key":"zeta-b","parent_key":"zeta","bytes":5,"in_root":false},
+				{"key":"cache","bytes":50,"in_root":true},
+				{"key":"zeta-a","parent_key":"zeta","bytes":10,"in_root":false},
+				{"key":"logs","bytes":100,"in_root":true}
+			]}`)
+		part := func(key string, bytes any) map[string]any {
+			c := diskCat(key, bytes, false)
+			c["parent_key"] = "zeta"
+			return c
+		}
+		apiWantValue(t, "disk_usage", got, diskWant(1759500000, 1015, nil, []any{
+			diskCat("workspaces", 0, true),
+			diskCat("logs", 100, true),
+			diskCat("cache", 50, true),
+			diskCat("zeta", 15, false),
+			part("zeta-a", 10),
+			part("zeta-b", 5),
+			diskCat("other", 850, true),
+		}, []any{}, nil, nil))
+		failed := diskView(t, h, owner, box, "m-box", `{"measured_at":1759500001,"root_bytes":1000,"members":[],
+			"categories":[{"key":"zeta-a","parent_key":"zeta","bytes":null,"in_root":false},{"key":"zeta-b","parent_key":"zeta","bytes":5,"in_root":false}]}`)
+		apiWantValue(t, "a failed part", failed, diskWant(1759500001, nil, nil, []any{
+			diskCat("workspaces", 0, true),
+			diskCat("zeta", nil, false),
+			part("zeta-a", nil),
+			part("zeta-b", 5),
+			diskCat("other", 1000, true),
+		}, []any{}, nil, nil))
+	})
+
+	t.Run("a warden part naming a server-owned row as its parent is dropped: the server's database, backups and workspaces keep their numbers and there is one other", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		root, dbPath := diskTestStation(t)
+		api.recordServerDisk(dbPath, root, time.Unix(1759500100, 0))
+		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+		got := diskView(t, h, owner, warden, "m-server-self", `{"measured_at":1759500000,"root_bytes":100000,
+			"members":[{"member_id":"mira","workspace_bytes":30000}],
+			"categories":[
+				{"key":"a","parent_key":"database","bytes":1,"in_root":true},
+				{"key":"b","parent_key":"backups","bytes":1,"in_root":true},
+				{"key":"c","parent_key":"workspaces","bytes":1,"in_root":true},
+				{"key":"d","parent_key":"other","bytes":1,"in_root":true},
+				{"key":"e","parent_key":"old_database_copies","bytes":1,"in_root":false},
+				{"key":"logs","bytes":1000,"in_root":true}
+			]}`)
+		apiWantValue(t, "disk_usage", got, diskWant(1759500000, 100000, 1759500100, []any{
+			diskCat("database", 16384, true),
+			diskCat("backups", 20480, true),
+			diskCat("workspaces", 30000, true),
+			diskCat("logs", 1000, true),
+			diskCat("old_version_backups", 0, true),
+			diskCat("other", 100000-16384-20480-30000-1000, true),
+		}, []any{diskMember("mira", "Mira", "active", 30000)}, nil, nil))
+	})
+
+	t.Run("under a warden that sends old_version_backups as parts, the server's old copies inside the root are one more part and the row is their sum", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		root, dbPath := diskTestStation(t)
+		diskTestOldCopies(t, dbPath)
+		api.recordServerDisk(dbPath, root, time.Unix(1759500100, 0))
+		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+		got := diskView(t, h, owner, warden, "m-server-self", `{"measured_at":1759500000,"root_bytes":100000,"members":[],
+			"categories":[
+				{"key":"releases","parent_key":"old_version_backups","bytes":1000,"in_root":true},
+				{"key":"binaries","parent_key":"old_version_backups","bytes":500,"in_root":true}
+			]}`)
+		part := func(key string, bytes any) map[string]any {
+			c := diskCat(key, bytes, true)
+			c["parent_key"] = "old_version_backups"
+			return c
+		}
+		apiWantValue(t, "disk_usage", got, diskWant(1759500000, 100000, 1759500100, []any{
+			diskCat("database", 16384, true),
+			diskCat("backups", 20480, true),
+			diskCat("workspaces", 0, true),
+			diskCat("old_version_backups", 1500+diskTestOldCopiesBytes, true),
+			part("binaries", 500),
+			part("old_database_copies", diskTestOldCopiesBytes),
+			part("releases", 1000),
+			diskCat("other", 100000-16384-20480-1500-diskTestOldCopiesBytes, true),
+		}, []any{}, nil, nil))
+	})
+
+	t.Run("under an orphaned half-written snapshot, its journal and a file put in backups/ by hand, their bytes are in old_version_backups, not in backups or other", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		root, dbPath := diskTestStation(t)
+		dir := backupDirFor(dbPath)
+		diskTestWrite(t, filepath.Join(dir, "officraft-20260811-012749-premigration.db.partial"), 8000)
+		diskTestWrite(t, filepath.Join(dir, "officraft-20260811-012749-premigration.db.partial-journal"), 100)
+		diskTestWrite(t, filepath.Join(dir, "notes.txt"), 1)
+		const strays = 8192 + 4096 + 4096
+		api.recordServerDisk(dbPath, root, time.Unix(1759500100, 0))
+		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
+		got := diskView(t, h, owner, warden, "m-server-self", `{"measured_at":1759500000,"root_bytes":100000,"members":[],
+			"categories":[{"key":"old_version_backups","bytes":2000,"in_root":true}]}`)
+		apiWantValue(t, "disk_usage", got, diskWant(1759500000, 100000, 1759500100, []any{
+			diskCat("database", 16384, true),
+			diskCat("backups", 20480, true),
+			diskCat("workspaces", 0, true),
+			diskCat("old_version_backups", 2000+strays, true),
+			diskCat("other", 100000-16384-20480-2000-strays, true),
+		}, []any{}, nil, nil))
 	})
 
 	t.Run("a machine alias answers 200 with the alias on the machine and account rows", func(t *testing.T) {

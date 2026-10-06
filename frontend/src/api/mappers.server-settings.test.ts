@@ -24,4 +24,9 @@ describe("toServerSettings", () => {
     expect(sent.runtimeLoginCheckIntervalSecs).toBe(120);
     expect(sent.runtimeLoginRecheckIntervalSecs).toBe(90);
   });
+
+  it("under a server that omits the disk usage interval, it reads as the 3600s shipped default; a sent value is carried as is", () => {
+    expect(toServerSettings(settingsFromServer()).diskUsageIntervalSecs).toBe(3600);
+    expect(toServerSettings(settingsFromServer({ disk_usage_interval_secs: 7200 })).diskUsageIntervalSecs).toBe(7200);
+  });
 });

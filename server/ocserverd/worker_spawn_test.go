@@ -3356,6 +3356,7 @@ func TestReconcileWorkerLiveness(t *testing.T) {
 				"agent_id": "m-server-self", "machine": nil, "ts": apiAnyNumber,
 				"login_check_interval_secs":   300,
 				"login_recheck_interval_secs": 30,
+				"disk_usage_interval_secs":    3600,
 			})
 
 			api.outsourceMu.Lock()

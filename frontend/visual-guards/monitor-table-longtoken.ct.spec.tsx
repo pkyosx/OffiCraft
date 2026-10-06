@@ -11,7 +11,7 @@
 //
 // Fix under test (monitor.css, inside the same @media block): `.mon-table td`
 // gets `overflow-wrap: anywhere` (on the CELL, so it inherits into bare-text
-// values too), and `.mon-machine-id` gives up its desktop `nowrap`. NOT
+// values too). NOT
 // "restore overflow-x: auto" — that would silence the page scroll by regrowing
 // the phantom scrollbar the card mode exists to remove.
 //
@@ -19,14 +19,11 @@
 // a real horizontal scroll (that is the desktop design). A fix that made the
 // desktop table wrap instead of scroll would pass a page-only assertion.
 //
-// MUTANTS (each verified red) — both rules are
-// load-bearing, and each is pinned by a DIFFERENT fixture in the story:
+// MUTANTS (each verified red):
 //   drop `.mon-table td { overflow-wrap }`        → 375px page red, +259px
 //     (pinned by LONG_SESSION, a bare-text cell with no break opportunity)
-//   drop `.mon-machine-id { white-space: normal }` → 375px page red, +66px
-//     (pinned by LONG_MACHINE_ID inside the id chip)
-// Removing either fixture would silently retire the matching mutant, so keep
-// both when editing the story.
+// Removing that fixture would silently retire the mutant, so keep it when
+// editing the story.
 import { test, expect } from "@playwright/experimental-ct-react";
 import { MonitorTableLongTokenStory } from "./stories/MonitorTableLongTokenStory";
 

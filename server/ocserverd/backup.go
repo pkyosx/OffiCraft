@@ -114,6 +114,12 @@ func freeBytesAt(dir string) (int64, bool) {
 	return int64(st.Bavail) * int64(st.Bsize), true
 }
 
+// isEngineBackup: a snapshot file this engine wrote and rotates. The disk
+// usage breakdown counts exactly these as backups.
+func isEngineBackup(name string) bool {
+	return strings.HasPrefix(name, backupFilePrefix) && strings.HasSuffix(name, backupFileSuffix)
+}
+
 // backupFilesIn is the whole reach of rotation and the trash reaper. The
 // hand-made `officraft.db.bak-pre-*` snapshots that predate this engine must
 // stay invisible to it: never counted, never deleted.
@@ -127,8 +133,7 @@ func backupFilesIn(dir string) ([]os.DirEntry, error) {
 		if e.IsDir() {
 			continue
 		}
-		name := e.Name()
-		if strings.HasPrefix(name, backupFilePrefix) && strings.HasSuffix(name, backupFileSuffix) {
+		if isEngineBackup(e.Name()) {
 			mine = append(mine, e)
 		}
 	}

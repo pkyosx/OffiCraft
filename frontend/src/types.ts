@@ -613,6 +613,40 @@ export interface MonMachineView {
   hardwareInvalid: string[];
   claudeCredSource: ClaudeCredSource;
   claudeSubReadable: boolean | null;
+  /** null = nothing measured for this machine since the server started. */
+  diskUsage: MachineDiskUsageView | null;
+}
+
+/** OffiCraft's disk usage on one machine. Sizes are bytes; a null field was not
+ * measured. */
+export interface MachineDiskUsageView {
+  measuredAt: number | null;
+  totalBytes: number | null;
+  databaseMeasuredAt: number | null;
+  /** The breakdown in display order, as the server sends it: a part right
+   * after its parent, `other` last. */
+  categories: MachineDiskUsageCategoryView[];
+  /** Largest `workspaceBytes` first, as the server sorts it. */
+  members: MachineDiskUsageMemberView[];
+  diskFreeBytes: number | null;
+  diskTotalBytes: number | null;
+}
+
+export interface MachineDiskUsageCategoryView {
+  /** An open string: the page knows some keys and shows any other as is. */
+  key: string;
+  parentKey: string | null;
+  /** null: measured but the probe failed. */
+  bytes: number | null;
+  inRoot: boolean;
+}
+
+export interface MachineDiskUsageMemberView {
+  memberId: string;
+  /** null when no roster row carries this id. */
+  name: string | null;
+  rosterStatus: "active" | "removed" | "unknown";
+  workspaceBytes: number | null;
 }
 
 /** One account usage card (Monitor §1 "帳號資訊"). Empty in M1; shape is ready

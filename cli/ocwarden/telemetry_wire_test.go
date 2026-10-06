@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"maps"
 	"net/http"
 	"reflect"
@@ -14,6 +15,8 @@ import (
 func realHeartbeat(t *testing.T) map[string]any {
 	t.Helper()
 	runner := fakeRunner{out: fakeProbes}
+	disk := newDiskUsageReporter(newDiskUsageFixture(t).probe(t, "darwin").measure)
+	disk.run(context.Background(), func(context.Context, time.Duration) bool { return false })
 	bodies := wireBodies(t, func(base string) {
 		result := runOnce(Config{Base: base, Token: "tok", ID: "m-1"},
 			func() map[string]any { return collectHardware(runner, "darwin") },
@@ -26,13 +29,14 @@ func realHeartbeat(t *testing.T) map[string]any {
 			},
 			func() string { return string(shapeAnchor) },
 			func() string { return string(effectUnproven) },
+			disk.snapshot,
 			func() map[string]any {
 				return map[string]any{
 					"claude": map[string]any{"installed": true, "logged_in": true, "version": "2.1.211", "below_notify_minimum": true},
 					"codex":  map[string]any{"installed": true, "logged_in": true, "version": "0.52.0"},
 				}
 			})
-		want := ReportResult{Posted: true, Status: 200, Reason: "posted", LoginCheckInterval: 300 * time.Second, LoginRecheckInterval: 30 * time.Second}
+		want := ReportResult{Posted: true, Status: 200, Reason: "posted", LoginCheckInterval: 300 * time.Second, LoginRecheckInterval: 30 * time.Second, DiskUsageInterval: time.Hour}
 		if result != want {
 			t.Errorf("runOnce = %+v, want %+v", result, want)
 		}
@@ -204,6 +208,23 @@ func TestWardenTelemetryUplinkBodies(t *testing.T) {
 		},
 		"warden_shape":   "anchor",
 		"cutover_effect": "unproven",
+		"disk_usage": map[string]any{
+			"measured_at": float64(1790000107),
+			"took_secs":   107.3,
+			"root_bytes":  float64(35840000),
+			"members": []any{
+				map[string]any{"member_id": "m-1", "workspace_bytes": float64(5120000)},
+				map[string]any{"member_id": "m-12", "workspace_bytes": float64(1024)},
+				map[string]any{"member_id": "ow", "workspace_bytes": float64(307200)},
+			},
+			// The fixture's old binaries are whole 4 KiB blocks: 40960 bytes.
+			"categories": []any{
+				map[string]any{"key": "logs", "bytes": float64(350 * 1024), "in_root": true},
+				map[string]any{"key": "old_version_backups", "bytes": float64(2000*1024 + 40960), "in_root": true},
+			},
+			"disk_free_bytes":  float64(250_000_000_000),
+			"disk_total_bytes": float64(994_662_584_320),
+		},
 	}
 	if !reflect.DeepEqual(heartbeat, wantHeartbeat) {
 		t.Errorf("heartbeat =\n  %#v\nwant\n  %#v", heartbeat, wantHeartbeat)

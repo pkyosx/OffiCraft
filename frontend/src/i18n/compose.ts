@@ -125,6 +125,8 @@ export interface Messages {
   machineOfflineOption: (name: string) => string;
   // ── monitor › accounts ──
   monitorMeasuredAgo: (age: string) => string;
+  // ── monitor › machines › disk usage ──
+  monitorDiskOtherMembers: (count: number) => string;
   monitorLimitReached: (resetsAt: number | null, now: number) => string;
   // ── monitor › machines ──
   machineBootstrapErrorDetail: (detail: string) => string;
@@ -238,6 +240,8 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     // (「量於 3d 前」, with spaces). Caught in independent review.
     monitorMeasuredAgo: (age) =>
       `${mon.measuredAgoLead} ${age} ${mon.measuredAgoTail}`,
+    monitorDiskOtherMembers: (count) =>
+      `${mon.diskUsage.othersLead}${count}${count === 1 ? mon.diskUsage.othersTailOne : mon.diskUsage.othersTailMany}`,
     monitorLimitReached: (resetsAt, now) =>
       resetsAt === null
         ? mon.limitReached

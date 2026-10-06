@@ -1,0 +1,184 @@
+.disk-usage {
+  display: inline-flex;
+  vertical-align: middle;
+}
+.disk-usage__unmeasured {
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+/* Quiet at rest so the column reads as plain numbers; the negative margin
+ * keeps the text on the right-aligned column's edge. */
+.disk-usage__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  margin-right: -6px;
+  padding: 0 4px 0 6px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.disk-usage__trigger:hover,
+.disk-usage__trigger:focus-visible {
+  border-color: color-mix(in srgb, var(--color-overlay) 14%, transparent);
+  background: color-mix(in srgb, var(--color-overlay) 5%, transparent);
+}
+.disk-usage__trigger:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+/* The same chevron the name and version triggers on this row carry. */
+.disk-usage__chevron {
+  display: inline-flex;
+  color: var(--color-text-muted);
+}
+/* One colour per top-level category, shared by the bar and the list's
+ * swatches. Each borrows a theme token of its own hue, so a theme that
+ * re-values those tokens for a light background re-colours the bar too. They
+ * borrow content colours (icons, accent, badges, callouts), never a status
+ * colour such as a presence dot: a theme re-valuing a status would re-colour
+ * the bar with it. */
+.disk-usage-breakdown {
+  --disk-seg-database: var(--color-icon-blue);
+  --disk-seg-backups: var(--color-icon-amber);
+  --disk-seg-workspaces: var(--color-accent);
+  --disk-seg-logs: var(--color-icon-violet);
+  --disk-seg-old_version_backups: var(--color-artifacts);
+  --disk-seg-old_database_copies: var(--color-callout-warning);
+  --disk-seg-other: var(--color-text-muted);
+  /* A key the page does not know: neutral, apart from other's grey. */
+  --disk-seg-unknown: color-mix(in srgb, var(--color-text-muted) 45%, transparent);
+  /* The swatch slot (8px + 6px) and then a clear step in. */
+  --disk-sub-indent: 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+/* The gap between segments is the track showing through, outside every
+ * segment's colour, so even a sliver keeps its colour. Keep the radius well
+ * under a sliver's minimum width: a larger one clips a sliver at either end
+ * down to a "(" curve. */
+.disk-usage__bar {
+  display: flex;
+  gap: 2px;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
+}
+/* Sized by its share (flex-basis, set inline); the gaps and the slivers'
+ * minimum come out of the segments in proportion, so the bar always ends on
+ * its own edge. */
+.disk-usage__seg {
+  flex-grow: 0;
+  flex-shrink: 1;
+  min-width: 4px;
+}
+.disk-usage__seg--database {
+  background: var(--disk-seg-database);
+}
+.disk-usage__seg--backups {
+  background: var(--disk-seg-backups);
+}
+.disk-usage__seg--workspaces {
+  background: var(--disk-seg-workspaces);
+}
+.disk-usage__seg--logs {
+  background: var(--disk-seg-logs);
+}
+.disk-usage__seg--old_version_backups {
+  background: var(--disk-seg-old_version_backups);
+}
+.disk-usage__seg--old_database_copies {
+  background: var(--disk-seg-old_database_copies);
+}
+.disk-usage__seg--unknown {
+  background: var(--disk-seg-unknown);
+}
+.disk-usage__seg--other {
+  background: var(--disk-seg-other);
+}
+/* Every top-level row keeps the slot, coloured or not, so their labels
+ * line up; sub rows start past it (see --disk-sub-indent). */
+.disk-usage__swatch {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 2px;
+}
+.disk-usage__rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.disk-usage__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 2px 0;
+}
+.disk-usage__row--section {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
+}
+.disk-usage__row--sub .disk-usage__label {
+  padding-left: var(--disk-sub-indent);
+  color: var(--color-text-muted);
+}
+/* A flex row, so the swatch slot is a column of its own and a wrapped
+ * label's later lines start under its first, not under the slot. */
+.disk-usage__label {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.disk-usage__swatch {
+  flex: none;
+}
+/* The name over its grey description, both wrapping in the label's column. */
+.disk-usage__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.disk-usage__desc {
+  color: var(--color-text-muted);
+  font-size: 0.92em;
+}
+/* Also a flex row, for the 已離開 pill: a margin would indent it when it
+ * wraps to a line of its own; a gap only shows between items on one line. */
+.disk-usage__name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 6px;
+  min-width: 0;
+}
+.disk-usage__value {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.disk-usage__left {
+  padding: 0 0.35em;
+  border-radius: 3px;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 0.9em;
+  white-space: nowrap;
+}
+.disk-usage__measured {
+  color: var(--color-text-muted);
+}

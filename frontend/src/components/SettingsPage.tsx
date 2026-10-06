@@ -1448,6 +1448,7 @@ function ServerParams({
   const [wardenCredLifetimeDraft, setWardenCredLifetimeDraft] = useState<string | null>(null);
   const [runtimeLoginCheckDraft, setRuntimeLoginCheckDraft] = useState<string | null>(null);
   const [runtimeLoginRecheckDraft, setRuntimeLoginRecheckDraft] = useState<string | null>(null);
+  const [diskUsageIntervalDraft, setDiskUsageIntervalDraft] = useState<string | null>(null);
   // T-ae38, widened by T-30f1: five independent caps, so five independent
   // drafts. A shared draft would make typing in one field snap the others back.
   const [docCapDrafts, setDocCapDrafts] = useState<
@@ -1563,6 +1564,14 @@ function ServerParams({
     if (!Number.isInteger(n) || n < 30 || n > 3600) { setRangeError(true); setRuntimeLoginRecheckDraft(null); return; }
     setRuntimeLoginRecheckDraft(null);
     if (n !== settings.runtimeLoginRecheckIntervalSecs) void onSave({ runtimeLoginRecheckIntervalSecs: n });
+  }
+
+  function commitDiskUsageInterval() {
+    if (!settings || diskUsageIntervalDraft === null) return;
+    const n = Number(diskUsageIntervalDraft);
+    if (!Number.isInteger(n) || n < 600 || n > 86400) { setRangeError(true); setDiskUsageIntervalDraft(null); return; }
+    setDiskUsageIntervalDraft(null);
+    if (n !== settings.diskUsageIntervalSecs) void onSave({ diskUsageIntervalSecs: n });
   }
 
   // 機器憑證壽命 (T-fc53). A free-typed number rather than a dropdown of fixed
@@ -1925,6 +1934,21 @@ function ServerParams({
                 value={runtimeLoginRecheckDraft ?? String(settings.runtimeLoginRecheckIntervalSecs)}
                 onChange={(e) => { setRangeError(false); onClearSaveError(); setRuntimeLoginRecheckDraft(e.target.value); }}
                 onBlur={commitRuntimeLoginRecheck} onKeyDown={(e) => { if (e.key === "Enter") commitRuntimeLoginRecheck(); }} />
+              <span className="param-pct__sign">{t.settings.seconds}</span>
+            </div>
+          </div>
+
+          <div className="param-row">
+            <div className="param-row__body">
+              <div className="param-row__name">{t.settings.diskUsageInterval}</div>
+              <div className="param-row__sub">{t.settings.diskUsageIntervalSub}</div>
+            </div>
+            <div className="param-pct">
+              <input id="param-disk-usage-interval" className="param-input" type="number" min={600} max={86400}
+                aria-label={t.settings.diskUsageInterval}
+                value={diskUsageIntervalDraft ?? String(settings.diskUsageIntervalSecs)}
+                onChange={(e) => { setRangeError(false); onClearSaveError(); setDiskUsageIntervalDraft(e.target.value); }}
+                onBlur={commitDiskUsageInterval} onKeyDown={(e) => { if (e.key === "Enter") commitDiskUsageInterval(); }} />
               <span className="param-pct__sign">{t.settings.seconds}</span>
             </div>
           </div>

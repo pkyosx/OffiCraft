@@ -32,11 +32,11 @@ export interface RuntimeActionItem {
   testId?: string;
 }
 
-/** One runtime's version on a machine row, made into the trigger of that
- * runtime's action menu: `children` (the version and its chips) sit inside a
- * quiet pill with a chevron. `label` is the trigger's accessible name and must
- * name the runtime, since the visible text alone does not say which column it
- * is in. The popup is portalled to <body> with fixed positioning (the
+/** A machine row's value made into the trigger of its action menu: a runtime's
+ * version and chips, or the machine's name. `children` sit inside a quiet pill
+ * with a chevron; given as a function, they place the chevron themselves.
+ * `label` is the trigger's accessible name and must contain the visible text and say what the menu is for, since the text alone does not
+ * say which column it is in. The popup is portalled to <body> with fixed positioning (the
  * InstantHint pattern): the machine table sits in an `overflow: auto` wrapper
  * that clips anything rendered in place, and a one-row table leaves no room
  * below. */
@@ -45,17 +45,11 @@ export function RuntimeActionMenu({
   items,
   testIdPrefix,
   children,
-  iconOnly = false,
-  align = "start",
 }: {
   label: string;
   items: RuntimeActionItem[];
   testIdPrefix: string;
-  children: ReactNode;
-  /** The trigger is a bare icon (no chevron), e.g. a row's ⚙ operations menu. */
-  iconOnly?: boolean;
-  /** Which trigger edge the menu lines up with. */
-  align?: "start" | "end";
+  children: ReactNode | ((chevron: ReactNode) => ReactNode);
 }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<CSSProperties | null>(null);
@@ -107,11 +101,10 @@ export function RuntimeActionMenu({
     const fitsBelow = below + box.height <= window.innerHeight - EDGE;
     const goBelow = fitsBelow || above < EDGE;
     const maxLeft = Math.max(EDGE, window.innerWidth - EDGE - width);
-    const wanted = align === "end" ? trigger.right - width : trigger.left;
-    const left = Math.min(Math.max(EDGE, wanted), maxLeft);
+    const left = Math.min(Math.max(EDGE, trigger.left), maxLeft);
     setPlacement(goBelow ? "below" : "above");
     setPos({ top: goBelow ? below : above, left, minWidth: trigger.width });
-  }, [open, align]);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -136,13 +129,18 @@ export function RuntimeActionMenu({
     if (open && pos) popRef.current?.querySelector<HTMLElement>(ITEM)?.focus();
   }, [open, pos]);
 
-  if (items.length === 0) return <>{children}</>;
+  if (items.length === 0) return <>{typeof children === "function" ? children(null) : children}</>;
+  const chevron = (
+    <span className="runtime-menu__chevron" aria-hidden="true">
+      <ChevronDownIcon size={12} />
+    </span>
+  );
   return (
     <span className="runtime-menu">
       <button
         ref={triggerRef}
         type="button"
-        className={`runtime-menu__trigger${iconOnly ? " runtime-menu__trigger--icon" : ""}`}
+        className="runtime-menu__trigger"
         aria-label={label}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -155,11 +153,13 @@ export function RuntimeActionMenu({
           setOpen(true);
         }}
       >
-        {children}
-        {!iconOnly && (
-          <span className="runtime-menu__chevron" aria-hidden="true">
-            <ChevronDownIcon size={12} />
-          </span>
+        {typeof children === "function" ? (
+          children(chevron)
+        ) : (
+          <>
+            {children}
+            {chevron}
+          </>
         )}
       </button>
       {open &&
@@ -170,7 +170,6 @@ export function RuntimeActionMenu({
             role="menu"
             aria-label={label}
             data-placement={placement}
-            data-align={align}
             data-testid={`${testIdPrefix}-menu-pop`}
             style={pos ?? { top: 0, left: 0, visibility: "hidden" }}
             onKeyDown={(e) => {

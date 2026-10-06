@@ -1,8 +1,18 @@
-import { Children, type ReactNode, useRef, useState } from "react";
+import {
+  Children,
+  type FocusEvent,
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { useI18n } from "../i18n";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
 import { api } from "../api";
 import { ApiError } from "../api/errors";
+import { formatBytes } from "../lib/bytes";
 import { formatCost } from "../lib/cost";
 import { ConfirmModal } from "./ConfirmModal";
 import { formatDuration } from "../lib/duration";
@@ -21,6 +31,7 @@ import type {
   UninstallResultView,
   BootstrapResultView,
   CutoverEffect,
+  MachineDiskUsageView,
   RuntimeLoginRuntime,
 } from "../types";
 import type { OutsourceWorkerView } from "../api/adapter";
@@ -32,7 +43,9 @@ import {
 import { useHashRoute } from "../lib/hashRoute";
 import { Avatar } from "./Avatar";
 import { avatarKindForMember } from "../lib/avatarKind";
+import { DiskUsageBreakdown, DiskUsageCell } from "./DiskUsageCell";
 import { InlineEdit } from "./InlineEdit";
+import { InstantHint } from "./InstantHint";
 import { MemberDetailPanel } from "./MemberDetailPanel";
 import { PresenceBadge } from "./PresenceBadge";
 import {
@@ -40,14 +53,16 @@ import {
   CheckIcon,
   CloseIcon,
   DownloadIcon,
-  GearIcon,
+  FileTextIcon,
   KeyIcon,
   LogOutIcon,
+  PencilIcon,
   TrashIcon,
 } from "./icons";
 import { RuntimeActionMenu } from "./RuntimeActionMenu";
 import { RuntimeLoginDialog } from "./RuntimeLoginDialog";
 import { RuntimeUpgradeDialog } from "./RuntimeUpgradeDialog";
+import { WarningMark } from "./RuntimeLoginWarningMark";
 // The 歸零 pill on the account card is the SAME control as the one on the member
 // panel — same look, same danger colour, same size — so it wears the `mp` block's
 // class rather than a second copy of those rules under `mon`. Importing the
@@ -1157,6 +1172,186 @@ export function MonitorPage() {
   );
 }
 
+/** Scrolls the machine table's frame so a focused control is not left under
+ * the pinned 機器 column, which the browser treats as already in view, or cut
+ * by the frame's right edge. CSS scroll-padding cannot do this: the name's
+ * menu trigger in the pinned column never leaves the padded edge, so focusing
+ * it would scroll the frame, and that scroll closes its menu. */
+function revealUnderPinnedColumns(e: FocusEvent<HTMLDivElement>) {
+  const wrap = e.currentTarget;
+  if (wrap.scrollWidth <= wrap.clientWidth || !(e.target instanceof HTMLElement)) return;
+  // Keyboard focus only: a mouse or touch click focuses its button too, and
+  // scrolling then would close the panel or menu that click just opened.
+  if (!e.target.matches(":focus-visible")) return;
+  const cell = e.target.closest("td, th");
+  const row = cell?.parentElement;
+  if (!cell || !row || !wrap.contains(cell)) return;
+  if (cell === row.firstElementChild) return;
+  const left = row.firstElementChild!.getBoundingClientRect().right;
+  const right = wrap.getBoundingClientRect().left + wrap.clientLeft + wrap.clientWidth;
+  const box = e.target.getBoundingClientRect();
+  if (box.left < left) wrap.scrollLeft -= left - box.left;
+  else if (box.right > right) wrap.scrollLeft += box.right - right;
+}
+
+/** Whether a horizontally scrolling frame has content scrolled away on its
+ * left and hidden on its right, kept current through scrolling, resizing and
+ * content changes. */
+function useScrollEdges(ref: RefObject<HTMLElement>, content: unknown) {
+  const [edges, setEdges] = useState({ left: false, right: false });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => {
+      const left = el.scrollLeft > 0;
+      const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
+      setEdges((prev) => (prev.left === left && prev.right === right ? prev : { left, right }));
+    };
+    measure();
+    el.addEventListener("scroll", measure, { passive: true });
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    ro?.observe(el);
+    if (el.firstElementChild) ro?.observe(el.firstElementChild);
+    return () => {
+      el.removeEventListener("scroll", measure);
+      ro?.disconnect();
+    };
+  }, [ref, content]);
+  return edges;
+}
+
+/** Sizes the 機器資訊 table's content-dependent columns on desktop, as CSS
+ * variables monitor.css reads:
+ * - `--mon-claude-width` / `--mon-codex-width`: what the widest cell of that
+ *   column needs to hold its version, marks and chevron on one line (the CSS
+ *   never goes below 150px). Each column is measured on its own.
+ * - `--mon-machine-width`: what the widest 機器 cell needs to hold its items
+ *   on one line, capped at the CSS's `--mon-machine-max` (a longer name
+ *   wraps); at least `--mon-rename-min` while a rename field is open.
+ * - `--mon-machines-min-width`: the other columns' own widths
+ *   (`--mon-col-base`, before their share of a wider frame) plus 機器's,
+ *   applied as the table's min-width.
+ * Measured rather than written into the CSS because the 機器 cell holds a
+ * user-chosen name and the runtime cells carry however many marks the
+ * machines report. While a rename field is open, the 機器 cell's content is
+ * not measured (the last value stands) but the runtime columns still are.
+ * The runtime cells do not wrap (nowrap) and the names are measured at their
+ * max-content width, so no width measured here depends on a column width set
+ * here, and the measurement cannot feed back into itself. */
+function useMachineColumnWidths(
+  tableRef: RefObject<HTMLTableElement>,
+  wrapRef: RefObject<HTMLElement>,
+  machines: unknown,
+  // The runtime marks come from telemetry, which changes without `machines`.
+  telemetry: string,
+) {
+  // What the widest 機器 cell needed when last measured with no rename field
+  // open; kept across effect runs because a field can stay open through them.
+  const machineNeed = useRef(0);
+  useLayoutEffect(() => {
+    const table = tableRef.current;
+    if (!table) return;
+    const setVar = (name: string, value: string) => {
+      if (table.style.getPropertyValue(name) !== value) table.style.setProperty(name, value);
+    };
+    const padding = (td: Element) => {
+      const cs = getComputedStyle(td);
+      return parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+    };
+    // The widest cell of a runtime column. The menu's trigger sits in a
+    // `.runtime-menu` box whose width already nets out the trigger's negative
+    // margins, so the cell's one child's box is what the content takes.
+    const runtimeNeed = (selector: string) => {
+      let need = 0;
+      for (const td of Array.from(table.querySelectorAll<HTMLElement>(selector))) {
+        const child = td.firstElementChild;
+        if (!child) continue;
+        need = Math.max(need, child.getBoundingClientRect().width + padding(td));
+      }
+      return need;
+    };
+    const measure = () => {
+      const names = Array.from(table.querySelectorAll<HTMLElement>(".mon-machine-name"));
+      // With no machine left, a width kept from the last one would make the
+      // empty-state row scroll sideways for nothing.
+      if (names.length === 0) {
+        for (const v of ["--mon-machines-min-width", "--mon-machine-width", "--mon-claude-width", "--mon-codex-width"]) {
+          table.style.removeProperty(v);
+        }
+        return;
+      }
+      const heads = Array.from(table.tHead?.rows[0]?.cells ?? []);
+      if (heads.length < 2) return;
+      // jsdom (no layout) and the phone card mode (header hidden) measure 0;
+      // keep whatever is set, which the card mode's CSS does not apply.
+      if (heads[1].getBoundingClientRect().width === 0) return;
+      const claude = runtimeNeed(".mon-runtime-cell--claude");
+      const codex = runtimeNeed(".mon-runtime-cell--codex");
+      if (claude > 0) setVar("--mon-claude-width", `${Math.ceil(claude)}px`);
+      if (codex > 0) setVar("--mon-codex-width", `${Math.ceil(codex)}px`);
+      // Read after the runtime widths are set, so the sum includes them.
+      const bases = Array.from(table.querySelectorAll("col:not(.mon-col--machine)")).map((col) =>
+        getComputedStyle(col).getPropertyValue("--mon-col-base").trim()
+      );
+      // A browser without @property hands the base back unresolved
+      // ("max(150px, 163px)"); the header widths less the share of spare
+      // width the CSS gave each (--mon-spare, from the last minimum) stand in.
+      const lastMin = parseFloat(table.style.getPropertyValue("--mon-machines-min-width"));
+      const frame = wrapRef.current?.clientWidth ?? 0;
+      const lastSpare = lastMin > 0 ? Math.max(0, frame - lastMin) : 0;
+      const fixed = bases.every((b) => /^[\d.]+px$/.test(b))
+        ? bases.reduce((sum, b) => sum + parseFloat(b), 0)
+        : heads.slice(1).reduce((sum, th) => sum + th.getBoundingClientRect().width, 0) - lastSpare;
+      // A rename field fits whatever width the cell has (flex: 1, min-width:
+      // 0), but reports its default input size; measuring it would widen the
+      // table for as long as the field is open. Keep the last width instead.
+      const renaming = table.querySelector(".inline-edit--editing") !== null;
+      let machine = renaming ? machineNeed.current : 0;
+      for (const name of renaming ? [] : names) {
+        const td = name.closest("td");
+        if (!td) continue;
+        // At max-content the items lay out as on one line whatever the
+        // column's width, so a name wrapped under the cap still reports its
+        // one-line need. Summed per item, not read off the row, which is as
+        // wide as the cell.
+        name.style.setProperty("width", "max-content");
+        const items = Array.from(name.children) as HTMLElement[];
+        const gap = parseFloat(getComputedStyle(name).columnGap) || 0;
+        const used =
+          items.reduce((sum, el) => sum + el.getBoundingClientRect().width, 0) +
+          gap * Math.max(0, items.length - 1);
+        name.style.removeProperty("width");
+        machine = Math.max(machine, used + padding(td));
+      }
+      if (fixed === 0 || machine === 0) return;
+      machineNeed.current = machine;
+      const cs = getComputedStyle(table);
+      const cap = parseFloat(cs.getPropertyValue("--mon-machine-max")) || Infinity;
+      // 機器 fits its name, so an open rename field would get only the
+      // name's width (a few characters for a short name); while one is open
+      // the column takes at least the CSS's --mon-rename-min from the others.
+      const floor = renaming ? parseFloat(cs.getPropertyValue("--mon-rename-min")) || 0 : 0;
+      const machineWidth = Math.ceil(Math.max(Math.min(machine, cap), floor));
+      setVar("--mon-machine-width", `${machineWidth}px`);
+      setVar("--mon-machines-min-width", `${Math.ceil(fixed) + machineWidth}px`);
+    };
+    measure();
+    // A rename, a web font arriving, a language switch, or the window crossing
+    // the phone breakpoint (card mode lays the cells out differently) changes a
+    // width without re-rendering this table.
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    if (wrapRef.current) ro?.observe(wrapRef.current);
+    const watched = table.querySelectorAll(".mon-machine-name > *, .mon-runtime-cell > *");
+    for (const el of Array.from(watched)) ro?.observe(el);
+    let live = true;
+    document.fonts?.ready.then(() => live && measure());
+    return () => {
+      live = false;
+      ro?.disconnect();
+    };
+  }, [tableRef, wrapRef, machines, telemetry]);
+}
+
 /** The 機器資訊 table. Exported so the layout guard can mount it with
  * hand-built rows (visual-guards/monitor-machines-layout.ct.spec.tsx). */
 export function MachinesTable({
@@ -1184,38 +1379,53 @@ export function MachinesTable({
 }) {
   const { t } = useI18n();
   const dash = t.monitor.dash;
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const tableRef = useRef<HTMLTableElement>(null);
+  const edges = useScrollEdges(wrapRef, machines);
+  // What the runtime cells print, as a string: the page rebuilds hwByHost on
+  // every render, and re-measuring for an equal map would be wasted layout.
+  const runtimeContent = JSON.stringify(
+    machines.map((m) => {
+      const hw = hwByHost.get(m.machineId);
+      return [hw?.runtimeCapabilities ?? null, hw?.runtimeCapabilitiesStale ?? null];
+    })
+  );
+  useMachineColumnWidths(tableRef, wrapRef, machines, runtimeContent);
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const detailMachine = machines.find((m) => m.machineId === detailId);
   return (
-    <div className="mon-table-wrap">
-      <table className="mon-table mon-table--machines">
-        {/* Fixed widths for every column but 機器 (monitor.css), so a mark in
+    <>
+    <div
+      className={
+        "mon-table-frame" +
+        (edges.left ? " mon-table-frame--more-left" : "") +
+        (edges.right ? " mon-table-frame--more-right" : "")
+      }
+    >
+    <div ref={wrapRef} className="mon-table-wrap mon-table-wrap--machines" onFocus={revealUnderPinnedColumns}>
+      <table ref={tableRef} className="mon-table mon-table--machines">
+        {/* Set widths for every column after 機器 (monitor.css), so a mark in
          * one cell never moves the others. */}
         <colgroup>
-          <col />
+          <col className="mon-col--machine" />
           <col className="mon-col--claude" />
           <col className="mon-col--codex" />
           <col className="mon-col--pct" />
           <col className="mon-col--pct" />
           <col className="mon-col--power" />
-          <col className="mon-col--actions" />
+          <col className="mon-col--disk" />
         </colgroup>
         <thead>
           <tr>
-            {/* 機器 + 狀態 are ONE column (T-674d): they were split, and the
-             * name cell was narrow enough that the machine-id chip wrapped
-             * to a second line on every row. Merging is not decoration —
-             * the id is the machine's identity and belongs beside its name,
-             * and the online badge is the same row's other identity fact.
-             * The removed 狀態 header is a header only; the badge itself is
-             * unchanged and still an honest passthrough of `online`. */}
+            {/* 機器 + 狀態 are ONE column: the online dot is the row's
+             * other identity fact, an honest passthrough of `online`. */}
             <th className="mon-table__left">{t.monitor.machineCol.machine}</th>
             <th className="mon-table__left">{t.monitor.machineCol.claude}</th>
             <th className="mon-table__left">{t.monitor.machineCol.codex}</th>
             <th>{t.monitor.machineCol.cpu}</th>
             <th>{t.monitor.machineCol.ram}</th>
             <th>{t.monitor.machineCol.power}</th>
-            <th className="mon-table__right">
-              {t.monitor.machine.actionsCol}
-            </th>
+            <th>{t.monitor.diskUsage.column}</th>
           </tr>
         </thead>
         <tbody>
@@ -1234,62 +1444,23 @@ export function MachinesTable({
               const hw = hwByHost.get(m.machineId);
               return (
               <tr key={m.machineId}>
-                {/* display_name is the editable label; the PATCH target is the
-                 * stable machineId, NOT the label. */}
                 <td
                   className="mon-table__left"
                   data-label={t.monitor.machineCol.machine}
                 >
                   <div className="mon-machine-name">
-                    <InlineEdit
-                      value={m.displayName}
-                      onCommit={(next) => onRename(m.machineId, next)}
-                      ariaLabel={t.monitor.renameMachine}
-                      placeholder={t.monitor.renamePlaceholder}
-                      displayClassName={`mon-table__strong${
-                        m.isSelf ? " mon-self-name" : ""
-                      }`}
+                    <MachineOnlineDot online={m.online} />
+                    <MachineNameMenu
+                      machine={m}
+                      bootstrapBusy={bootstrapBusy}
+                      uninstalling={uninstalling(m.machineId)}
+                      onDetail={() => setDetailId(m.machineId)}
+                      onRename={(next) => onRename(m.machineId, next)}
+                      onInstall={() => onInstall(m)}
+                      onUninstall={() => onUninstall(m)}
+                      onDelete={() => onDelete(m)}
                     />
-                    {/* Stable machine id (the warden member's own id / token
-                        sub) — the machine's identity, never editable. Mirrors
-                        the member detail panel's id badge. */}
-                    <span
-                      className="mon-machine-id"
-                      data-testid="mon-machine-id"
-                      title={m.machineId}
-                    >
-                      {m.machineId}
-                    </span>
-                    {/* online badge — honest passthrough of the registry's
-                     * online, now living in the merged 機器 cell (T-674d).
-                     * Same markup, same source; only its column moved. */}
-                    <span
-                      className={`mon-online${
-                        m.online ? " mon-online--on" : " mon-online--off"
-                      }`}
-                    >
-                      <span
-                        className={`status-dot ${
-                          m.online
-                            ? "status-dot--online"
-                            : "status-dot--offline"
-                        }`}
-                        aria-hidden
-                      />
-                      {m.online
-                        ? t.monitor.machine.online
-                        : t.monitor.machine.offline}
-                    </span>
-                    {/* Nothing is rendered here for a machine whose
-                     * cutover is PROVEN in effect — and that silence is
-                     * now the point: a blank means "measured, fine", and
-                     * the two states that used to share that blank say so
-                     * for themselves below. The badge that used to live
-                     * here named an internal shape vocabulary nobody
-                     * outside this codebase can read, and its green face
-                     * asserted a cutover had taken effect when it only
-                     * ever observed warden's own parent. */}
-                    <CutoverEffectLine effect={m.cutoverEffect} />
+                    <CutoverEffectMark effect={m.cutoverEffect} />
                   </div>
                 </td>
                 {/* Per-runtime version columns (T-674d), replacing the old
@@ -1313,7 +1484,7 @@ export function MachinesTable({
                  * telemetry — stale telemetry carries no login state
                  * (owner ruling). */}
                 <td
-                  className="mon-table__left"
+                  className="mon-table__left mon-runtime-cell mon-runtime-cell--claude"
                   data-label={t.monitor.machineCol.claude}
                   data-testid="mon-claude-version"
                 >
@@ -1329,7 +1500,7 @@ export function MachinesTable({
                   />
                 </td>
                 <td
-                  className="mon-table__left"
+                  className="mon-table__left mon-runtime-cell mon-runtime-cell--codex"
                   data-label={t.monitor.machineCol.codex}
                   data-testid="mon-codex-version"
                 >
@@ -1390,77 +1561,8 @@ export function MachinesTable({
                     )}
                   </CellLine>
                 </td>
-                {/* Actions — the machine-lifecycle verbs (T-IUD):
-                 *   install   → server-self: in-place bootstrap-on-server —
-                 *               run directly while offline, but confirm first
-                 *               while ONLINE (it overwrites the live warden);
-                 *               other machines: a single copy-command dialog.
-                 *   uninstall → POST /uninstall (drive the uninstall RPC to the
-                 *               warden). ONLINE-ONLY — an offline machine has
-                 *               nothing to uninstall (disabled + reason tooltip).
-                 *   delete    → DELETE /machines/{id} (PURE roster soft-delete);
-                 *               NOT offered for the server-self row (undeletable).
-                 */}
-                <td
-                  className="mon-table__right"
-                  data-label={t.monitor.machine.actionsCol}
-                >
-                  <RuntimeActionMenu
-                    label={t.monitor.machine.actionsMenu(m.displayName)}
-                    testIdPrefix="mon-actions"
-                    iconOnly
-                    align="end"
-                    items={[
-                      {
-                        key: "install",
-                        testId: "mon-install-btn",
-                        // Online ⇒ this machine HAS a warden talking to the station, so this
-                        // reinstalls over it. Offline is NOT the negation: the server keeps no
-                        // "was this ever installed" field, so an installed-but-powered-off
-                        // machine is indistinguishable from one that never was (T-ce3d). Owner
-                        // ruled 2026-08-20 to use online as the proxy anyway — the ACTION is
-                        // identical either way (`install --force`), only the word differs.
-                        label:
-                          m.isSelf && bootstrapBusy
-                            ? t.monitor.machine.bootstrapBusy
-                            : m.online
-                              ? t.monitor.machine.reinstall
-                              : t.monitor.machine.install,
-                        icon: <DownloadIcon size={14} />,
-                        disabled: m.isSelf && bootstrapBusy,
-                        onSelect: () => onInstall(m),
-                      },
-                      {
-                        // Mid-uninstall (intent still pending on the warden) the item wears the
-                        // same in-progress treatment as install, until the server consumes the
-                        // one-shot intent on the warden's disconnect.
-                        key: "uninstall",
-                        testId: "mon-uninstall-btn",
-                        label: uninstalling(m.machineId)
-                          ? t.monitor.machine.uninstallInProgress
-                          : t.monitor.machine.uninstall,
-                        icon: <LogOutIcon size={14} />,
-                        disabled: !m.online || uninstalling(m.machineId),
-                        title: !m.online ? t.monitor.machine.uninstallOfflineHint : undefined,
-                        onSelect: () => onUninstall(m),
-                      },
-                      {
-                        // The server-self row is not deletable; the item stays, disabled, so
-                        // every row's menu reads the same.
-                        key: "delete",
-                        testId: "mon-delete-btn",
-                        label: t.monitor.machine.deleteMachine,
-                        icon: <TrashIcon size={14} />,
-                        danger: true,
-                        disabled: m.isSelf,
-                        onSelect: () => {
-                          if (!m.isSelf) onDelete(m);
-                        },
-                      },
-                    ]}
-                  >
-                    <GearIcon size={16} />
-                  </RuntimeActionMenu>
+                <td data-label={t.monitor.diskUsage.column} data-testid="mon-disk">
+                  <DiskUsageCell usage={hw?.diskUsage} onOpen={() => setDetailId(m.machineId)} />
                 </td>
               </tr>
               );
@@ -1469,48 +1571,215 @@ export function MachinesTable({
         </tbody>
       </table>
     </div>
+    </div>
+    {detailMachine && (
+      <MachineDetailModal
+        machine={detailMachine}
+        usage={hwByHost.get(detailMachine.machineId)?.diskUsage}
+        onClose={() => setDetailId(null)}
+      />
+    )}
+    </>
   );
 }
 
-/** What this row says about the cutover — which for THREE of the four states is
- * NOTHING, and that is the contract:
- *
- *   "not_effective" proven otherwise → the short amber mark. The only state
- *                   with a face, and the face is deliberately terse.
- *   "effective"     proven in effect → silence.
- *   "unproven"      the machine checked and could not settle it → silence.
- *   null            the machine has never reported → silence.
- *
- * ⚠️ This used to be three full sentences, and they were added to fix a real
- * incident: before them all four states shared one blank, so a machine whose
- * cutover had NOT taken effect looked healthy for three hours. **That incident
- * is still fenced off** — the proven failure still has a face, it is just very
- * short now (owner 2026-08-04, rc-aaa0e7967f8a: the three sentences were too
- * long, told nobody what to do, and named a concept the reader does not have).
- *
- * What DID fall back to silence are the two "no answer" states, and that is the
- * point rather than a regression: "the box checked and could not tell" and "the
- * box has never checked" are both the ABSENCE of a verdict, and a reader who
- * finishes either sentence cannot do anything with it. A line that costs a row
- * of screen and buys no action is worse than no line. The distinction that the
- * incident was about — measured-and-failed vs everything else — is exactly the
- * one that survives.
- *
- * The mark carries NO internal vocabulary and tells nobody to restart anything:
- * this surface makes the state VISIBLE and stops there. It does not pretend to
- * explain what is wrong either — whoever sees it is meant to come and ask. */
-function CutoverEffectLine({ effect }: { effect: CutoverEffect }) {
+/** The machine's name as the trigger of its operations menu, the same menu
+ * the Claude and Codex versions open. 詳情 opens the machine's detail dialog;
+ * 改名稱 turns the name into the rename field in place; the other verbs keep
+ * their own confirm dialogs, opened by the page:
+ *   install   → server-self: in-place bootstrap-on-server — run directly
+ *               while offline, but confirm first while ONLINE (it overwrites
+ *               the live warden); other machines: a copy-command dialog.
+ *   uninstall → POST /uninstall. ONLINE-ONLY — an offline machine has nothing
+ *               to uninstall (disabled + reason).
+ *   delete    → DELETE /machines/{id} (roster soft-delete); disabled on the
+ *               server-self row, which cannot be deleted. */
+function MachineNameMenu({
+  machine: m,
+  bootstrapBusy,
+  uninstalling,
+  onDetail,
+  onRename,
+  onInstall,
+  onUninstall,
+  onDelete,
+}: {
+  machine: MachineView;
+  bootstrapBusy: boolean;
+  uninstalling: boolean;
+  onDetail: () => void;
+  onRename: (next: string) => void | Promise<void>;
+  onInstall: () => void;
+  onUninstall: () => void;
+  onDelete: () => void;
+}) {
   const { t } = useI18n();
-  const m = t.monitor.machine;
+  const [renaming, setRenaming] = useState(false);
+  const boxRef = useRef<HTMLSpanElement>(null);
+  const wasRenaming = useRef(false);
+  // The trigger is gone while the field is open; once it is back, focus
+  // returns to it, as it does after any other item of this menu.
+  useEffect(() => {
+    if (wasRenaming.current && !renaming) {
+      boxRef.current?.querySelector<HTMLElement>("[aria-haspopup='menu']")?.focus();
+    }
+    wasRenaming.current = renaming;
+  }, [renaming]);
+  const nameClass = `mon-table__strong${m.isSelf ? " mon-self-name" : ""}`;
+  return (
+    <span ref={boxRef} className="mon-machine-name__menu">
+      {renaming ? (
+        <InlineEdit
+          value={m.displayName}
+          onCommit={(next) => void onRename(next)}
+          ariaLabel={t.monitor.renameMachine}
+          placeholder={t.monitor.renamePlaceholder}
+          openOnMount
+          onClose={() => setRenaming(false)}
+        />
+      ) : (
+        <RuntimeActionMenu
+          label={t.monitor.machine.actionsMenu(m.displayName)}
+          testIdPrefix="mon-machine"
+          items={[
+            {
+              key: "detail",
+              testId: "mon-detail-btn",
+              label: t.monitor.machine.detail,
+              icon: <FileTextIcon size={14} />,
+              onSelect: onDetail,
+            },
+            {
+              key: "rename",
+              testId: "mon-rename-btn",
+              label: t.monitor.machine.rename,
+              icon: <PencilIcon size={14} />,
+              onSelect: () => setRenaming(true),
+            },
+            {
+              key: "install",
+              testId: "mon-install-btn",
+              // Online ⇒ this machine HAS a warden talking to the station, so this
+              // reinstalls over it. Offline is NOT the negation: the server keeps no
+              // "was this ever installed" field, so an installed-but-powered-off
+              // machine is indistinguishable from one that never was. Owner ruling:
+              // use online as the proxy anyway — the ACTION is identical either
+              // way (`install --force`), only the word differs.
+              label:
+                m.isSelf && bootstrapBusy
+                  ? t.monitor.machine.bootstrapBusy
+                  : m.online
+                    ? t.monitor.machine.reinstall
+                    : t.monitor.machine.install,
+              icon: <DownloadIcon size={14} />,
+              disabled: m.isSelf && bootstrapBusy,
+              onSelect: onInstall,
+            },
+            {
+              // Mid-uninstall (intent still pending on the warden) the item wears the
+              // same in-progress treatment as install, until the server consumes the
+              // one-shot intent on the warden's disconnect.
+              key: "uninstall",
+              testId: "mon-uninstall-btn",
+              label: uninstalling
+                ? t.monitor.machine.uninstallInProgress
+                : t.monitor.machine.uninstall,
+              icon: <LogOutIcon size={14} />,
+              disabled: !m.online || uninstalling,
+              title: !m.online ? t.monitor.machine.uninstallOfflineHint : undefined,
+              onSelect: onUninstall,
+            },
+            {
+              // The server-self row is not deletable; the item stays, disabled, so
+              // every row's menu reads the same.
+              key: "delete",
+              testId: "mon-delete-btn",
+              label: t.monitor.machine.deleteMachine,
+              icon: <TrashIcon size={14} />,
+              danger: true,
+              disabled: m.isSelf,
+              onSelect: () => {
+                if (!m.isSelf) onDelete();
+              },
+            },
+          ]}
+        >
+          {(chevron) => {
+            const [head, tail] = splitLastCharacter(m.displayName);
+            return (
+              <span className={nameClass}>
+                {head}
+                <span className="mon-machine-name__tail">
+                  {tail}
+                  {chevron}
+                </span>
+              </span>
+            );
+          }}
+        </RuntimeActionMenu>
+      )}
+    </span>
+  );
+}
+
+type GraphemeSegmenter = new (
+  locales?: string,
+  options?: { granularity: "grapheme" }
+) => { segment: (input: string) => Iterable<{ segment: string }> };
+
+/** The name without its last character, and that character (a grapheme, so
+ * an emoji or a letter with its combining marks stays whole). Trailing
+ * whitespace goes with it. */
+function splitLastCharacter(name: string): [string, string] {
+  const core = name.trimEnd();
+  if (core === "") return ["", name];
+  const Segmenter = (Intl as unknown as { Segmenter?: GraphemeSegmenter }).Segmenter;
+  const last = Segmenter
+    ? Array.from(new Segmenter(undefined, { granularity: "grapheme" }).segment(core)).pop()!.segment
+    : Array.from(core).pop()!;
+  const cut = core.length - last.length;
+  return [name.slice(0, cut), name.slice(cut)];
+}
+
+/** The machine's online state as a dot alone, the way the roster shows a
+ * member's presence: the word appears on hover or focus, and a click or tap
+ * pins it, which is the only way to read it on a phone. The machine table is
+ * not member presence, so it keeps its own two-state colours and labels and
+ * shares only the hint mechanism with LifecycleDot. */
+function MachineOnlineDot({ online }: { online: boolean }) {
+  const { t } = useI18n();
+  const label = online ? t.monitor.machine.online : t.monitor.machine.offline;
+  return (
+    <InstantHint
+      hint={label}
+      className={`status-dot mon-online-dot status-dot--${online ? "online" : "offline"}`}
+      role="img"
+      aria-label={label}
+      data-testid="mon-machine-online"
+    />
+  );
+}
+
+/** The cutover verdict beside the online dot: the members' warning
+ * exclamation for "not_effective", nothing for the other three states. The dot
+ * stays online/offline only.
+ *
+ * ⚠️ A proven "not_effective" must always leave a visible mark. When every state
+ * rendered nothing, a machine whose cutover had not taken effect looked healthy
+ * for hours. "unproven" and null are silent on purpose: they are the absence of
+ * a verdict, and the reader can do nothing with them.
+ *
+ * The hint says how to make it take effect: the member sessions live in one
+ * tmux server per machine, which only exits once none of them is left, so
+ * restarting members one at a time keeps the old server. */
+function CutoverEffectMark({ effect }: { effect: CutoverEffect }) {
+  const { t } = useI18n();
   if (effect !== "not_effective") return null;
   return (
-    <span
-      className="mon-cutover-warn"
-      data-testid="mon-cutover-warning"
-      role="status"
-    >
-      {m.cutoverNotInEffect}
-    </span>
+    <WarningMark
+      hint={t.monitor.machine.cutoverNotInEffectHint}
+      testId="mon-cutover-warning"
+    />
   );
 }
 
@@ -1765,8 +2034,9 @@ function RuntimeVersionCell({
 }
 
 /** A machine-table value with its marks (版本太舊, 未登入, 過期, …) on the same
- * line after it. The columns are wide enough for the most a cell can carry
- * (monitor.css), so a mark never moves the columns beside it. */
+ * line after it. The hardware columns are wide enough for the most their cells
+ * carry; the Claude and Codex columns grow to their widest line
+ * (useMachineColumnWidths). */
 function CellLine({ value, children }: { value: ReactNode; children?: ReactNode }) {
   const marks = Children.toArray(children);
   return (
@@ -2591,6 +2861,71 @@ function AccountDetailModal({
             </div>
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** 機器詳情: the machine's name, its full id and its OffiCraft disk usage with
+ * the breakdown. The same shell as the account detail, closing the same ways. */
+function MachineDetailModal({
+  machine: m,
+  usage,
+  onClose,
+}: {
+  machine: MachineView;
+  usage: MachineDiskUsageView | null | undefined;
+  onClose: () => void;
+}) {
+  const { t } = useI18n();
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEscapeLayer(onClose, rootRef);
+  const total = !usage
+    ? t.monitor.diskUsage.notMeasured
+    : usage.totalBytes === null
+      ? t.monitor.dash
+      : formatBytes(usage.totalBytes);
+
+  return (
+    <div
+      ref={rootRef}
+      className="mon-detailmodal"
+      role="dialog"
+      aria-modal="true"
+      aria-label={t.monitor.machine.detailTitle}
+      data-testid="mon-machine-detail-modal"
+      onClick={onClose}
+    >
+      <div className="mon-detailbox" onClick={(e) => e.stopPropagation()}>
+        <div className="mon-detailhead">
+          <span className="mon-detailtitle mon-detailtitle--name" data-testid="mon-machine-detail-name">
+            {m.displayName}
+          </span>
+          <button
+            type="button"
+            className="mon-detailclose"
+            aria-label={t.monitor.detail.close}
+            onClick={onClose}
+            data-testid="mon-machine-detail-close"
+          >
+            <CloseIcon size={15} />
+          </button>
+        </div>
+        <div className="mon-detailgrid">
+          <div className="mon-detailrow">
+            <span className="mon-detaillabel">{t.monitor.machine.machineId}</span>
+            <code className="mon-detailvalue mon-detailvalue--code" data-testid="mon-machine-detail-id">
+              {m.machineId}
+            </code>
+          </div>
+          <div className="mon-detailrow">
+            <span className="mon-detaillabel">{t.monitor.diskUsage.total}</span>
+            <span className="mon-detailvalue" data-testid="mon-machine-detail-total">
+              {total}
+            </span>
+          </div>
+        </div>
+        {usage && <DiskUsageBreakdown usage={usage} />}
       </div>
     </div>
   );

@@ -74,6 +74,7 @@ const card = (caps: Caps, stale = false): MonMachineView => ({
   claudeVersion: null,
   claudeCredSource: null,
   claudeSubReadable: null,
+  diskUsage: null,
 });
 
 const claude = (belowNotifyMinimum: boolean | null) => ({

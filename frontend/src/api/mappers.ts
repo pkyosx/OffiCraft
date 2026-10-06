@@ -57,6 +57,7 @@ import type {
   ClaudeCredSource,
   WardenShape,
   CutoverEffect,
+  MachineDiskUsageView,
 } from "../types";
 import type {
   WireMember,
@@ -64,6 +65,7 @@ import type {
   WireMachine,
   WireMonSession,
   WireMonMachine,
+  WireMachineDiskUsage,
   WireMonAccount,
   WireMonitoring,
   WireVersion,
@@ -1191,6 +1193,29 @@ function toMonMachine(w: WireMonMachine): MonMachineView {
     // Honest-empty, never null: "no key is broken" is an answer every row can
     // give, so the component never has to branch on absence to render a blank.
     hardwareInvalid: w.hardware_invalid ?? [],
+    diskUsage: w.disk_usage ? toMachineDiskUsage(w.disk_usage) : null,
+  };
+}
+
+function toMachineDiskUsage(w: WireMachineDiskUsage): MachineDiskUsageView {
+  return {
+    measuredAt: w.measured_at ?? null,
+    totalBytes: w.total_bytes ?? null,
+    databaseMeasuredAt: w.database_measured_at ?? null,
+    categories: w.categories.map((c) => ({
+      key: c.key,
+      parentKey: c.parent_key ?? null,
+      bytes: c.bytes ?? null,
+      inRoot: c.in_root,
+    })),
+    members: w.members.map((m) => ({
+      memberId: m.member_id,
+      name: m.name ?? null,
+      rosterStatus: m.roster_status,
+      workspaceBytes: m.workspace_bytes ?? null,
+    })),
+    diskFreeBytes: w.disk_free_bytes ?? null,
+    diskTotalBytes: w.disk_total_bytes ?? null,
   };
 }
 
@@ -1276,6 +1301,7 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     reassignHandoverTimeoutSecs: w.reassign_handover_timeout_secs ?? 1800,
     runtimeLoginCheckIntervalSecs: w.runtime_login_check_interval_secs ?? 300,
     runtimeLoginRecheckIntervalSecs: w.runtime_login_recheck_interval_secs ?? 30,
+    diskUsageIntervalSecs: w.disk_usage_interval_secs ?? 3600,
     // 2592000 (30 days) is the server's shipped default, the value a fleet that
     // never touched the knob renews on — and the same number a warden falls back
     // to when it cannot reach the credential-policy endpoint, so a server too

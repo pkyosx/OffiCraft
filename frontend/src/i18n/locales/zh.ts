@@ -1658,6 +1658,36 @@ export const zh = {
     measuredAgoLead: "量於",
     measuredAgoTail: "前",
     limitReached: "已達上限",
+    diskUsage: {
+      column: "磁碟",
+      notMeasured: "尚未量測",
+      open: "機器詳情：磁碟用量",
+      database: "資料庫",
+      backups: "資料庫自動備份",
+      workspaces: "成員 workspace",
+      logs: "日誌",
+      oldVersionBackups: "升級殘留",
+      oldDatabaseCopies: "舊資料庫副本",
+      memberLeft: "已離開",
+      othersLead: "其餘 ",
+      othersTailOne: " 位合計",
+      othersTailMany: " 位合計",
+      other: "其他",
+      // One grey line under each row's name: what the row holds.
+      desc: {
+        database: "成員、任務、聊天等所有資料",
+        backups: "定期自動備份，保留最近幾份",
+        workspaces: "各成員的工作目錄",
+        logs: "OffiCraft 程式的執行紀錄",
+        oldVersionBackups: "升級時留下的舊版程式與舊資料庫副本，不會自動刪除",
+        oldDatabaseCopies: "資料庫旁留下的舊副本，不會自動刪除",
+        other: "目前版本的程式、設定檔，以及手動放進來的檔案",
+      },
+      disk: "硬碟剩餘／總容量",
+      total: "OffiCraft 磁碟用量",
+      barLabel: "OffiCraft 磁碟用量組成：",
+      listSep: "、",
+    },
     // 帳號詳情 modal(T-a9a7):該 claude 帳號背後的真實識別。email/org 來自
     // owner-only 的 account_label;任何缺值一律誠實顯示 "—",絕不猜。
     detail: {
@@ -1778,7 +1808,6 @@ export const zh = {
     },
     // machine lifecycle: onboard (新增機器 / 上線) + teardown (拆除)
     machine: {
-      actionsCol: "操作",
       actionsMenu: (name: string) => `機器操作（${name}）`,
       copy: "複製",
       copied: "已複製",
@@ -1794,8 +1823,11 @@ export const zh = {
       onboardConfirm: "建立",
       onboardBusy: "新增中…",
       onboardError: "新增機器失敗",
-      // ── 三動詞:安裝 / 解除安裝 / 刪除 (install / uninstall / delete) ──
-      // 三顆按鈕標籤
+      // 機器名稱選單的項目
+      detail: "詳情",
+      detailTitle: "機器詳情",
+      machineId: "機器 ID",
+      rename: "改名稱",
       install: "安裝",
       reinstall: "重新安裝",
       uninstall: "解除安裝",
@@ -1892,28 +1924,10 @@ export const zh = {
       // 回報端本身壞了,要查的東西不同。
       hardwareBad: "值異常",
       hardwareBadHint: "這台機器回報的數值無法顯示，請確認它安裝的是最新版本。",
-      // 切換狀態。四種狀態裡只有一種會說話——已證實的失敗;其餘三種(已量到確認
-      // 生效 / 量了但判斷不出來 / 從來沒量過)一律完全不顯示。
-      //
-      // 🔴 owner 2026-08-04 於 rc-aaa0e7967f8a 選①,把原本的三句長話全部拿掉,
-      // 只留這一個短標記。他的原話:「這三句都太長了,而且看到的人能做什麼嗎
-      // 他們看得懂發生什麼事情嗎?」三個抱怨都成立:
-      //   1. 太長 —— 每一句都是一整行敘述,佔滿機器那一列。
-      //   2. 不能行動 —— 舊註解自己寫著「沒有人能據以行動的警告,不是警告」,
-      //      卻在三行之後寫「這三句都不叫任何人去重啟什麼」。**它自己違反自己**,
-      //      而三句話沒有一句告訴讀者要做什麼。
-      //   3. 看不懂 —— 舊文案已避開 anchor / legacy 這類術語,但「改變了執行
-      //      agent 的方式」本身仍是內部概念,看的人不知道那是什麼、也不知道嚴不嚴重。
-      //
-      // ⇒ **短標記不假裝在解釋,它只說「這裡不對勁」。** 說不清楚哪裡不對勁是
-      // 刻意的取捨:看到的人要來問,而那比一句「每個字都看得懂、卻不知道要幹嘛」
-      // 的長句好。
-      //
-      // ⚠️ 原本那三句是為了修一個真實事故加的:在它們之前,三種狀態共用一片空白,
-      // 於是一台其實沒生效的機器看起來很健康三個小時。**那個事故仍然被擋住**——
-      // 已證實的失敗現在有一個面孔,只是那個面孔很短。真正退回沉默的只有兩種
-      // 「沒有答案」的狀態,而它們本來就沒有東西可說(讀完不能做任何事)。
-      cutoverNotInEffect: "未生效",
+      // 機器欄驚嘆號的提示,只有已證實未生效時出現。「全部停止再喚醒」不能寫成
+      // 「重新啟動」:成員一個一個重啟時,承載它們的那個舊程序一直沒停過,不會生效。
+      cutoverNotInEffectHint:
+        "未生效：這台機器上的成員還在更新前啟動的環境裡執行。先把這台機器上的成員全部停止，再把這些成員喚醒，就會生效，機器本身不用動。",
     },
   },
   // ── 備份健康(T-da06)——排程備份還有沒有在產生還原點 ──
@@ -2301,6 +2315,9 @@ export const zh = {
     runtimeLoginRecheckInterval: "未登入時重查間隔",
     runtimeLoginRecheckIntervalSub:
       "Claude 或 Codex 未登入（或檢查失敗）時，每台機器多久再檢查一次；30 秒即每次回報都檢查。改動會在各機器下一次回報時生效（30–3600 秒）",
+    diskUsageInterval: "磁碟用量量測間隔",
+    diskUsageIntervalSub:
+      "warden 多久量一次 OffiCraft 在每台機器佔用的磁碟空間。改動在兩分鐘內套用，下一次量測從上次量完起算（600–86400 秒，10 分鐘到 1 天）",
     rounds: "次",
     // T-ae38 起(T-30f1 又拆過一次):上限不再是一個。這些文件被刪掉的成本差很多
     // ——角色定義是常設說明、判準是逐次累積的權衡——所以不再共用同一把尺。

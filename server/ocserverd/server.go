@@ -321,6 +321,7 @@ func (s *apiServer) adoptSettings(auth authSettings) {
 	s.reassignHandoverTimeoutSecs = auth.reassignHandoverTimeoutSecs
 	s.runtimeLoginCheckIntervalSecs = auth.runtimeLoginCheckIntervalSecs
 	s.runtimeLoginRecheckIntervalSecs = auth.runtimeLoginRecheckIntervalSecs
+	s.diskUsageIntervalSecs = auth.diskUsageIntervalSecs
 	s.wardenCredLifetimeSecs = auth.wardenCredLifetimeSecs
 	s.outsourceMaxParallel = auth.outsourceMaxParallel
 	s.docCapCharsDuty = auth.docCapCharsDuty
@@ -375,6 +376,7 @@ func newAPIServer(dal *DAL, hub *Hub, keys *keyring, tokenTTL int64, root assetR
 		reassignHandoverTimeoutSecs:     reassignHandoverTimeoutSecsDefault,
 		runtimeLoginCheckIntervalSecs:   runtimeLoginCheckIntervalSecsDefault,
 		runtimeLoginRecheckIntervalSecs: runtimeLoginRecheckIntervalSecsDefault,
+		diskUsageIntervalSecs:           diskUsageIntervalSecsDefault,
 		wardenCredLifetimeSecs:          wardenCredLifetimeSecsDefault,
 		outsourceMaxParallel:            defaultOutsourceMaxParallel,
 		docCapCharsDuty:                 dutyCapCharsDefault,
@@ -557,6 +559,7 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 	api.backupHealth = armBackupHealth(dal, dbPath, time.Now())
 	startBackupHealthWatchdog(api.backupHealth, backupWatchdogCadence)
 	startBackupCadence(dal.wdb, dbPath, backupCadence, api.backupHealth)
+	api.startServerDiskUsage(dbPath, stationRootFor(cfg.Server.Namespace))
 	// The bind host is hardwired loopback (B2): expose via a tunnel, never a direct
 	// non-loopback bind.
 	addr := fmt.Sprintf("%s:%d", defaultHost, cfg.Server.Port)

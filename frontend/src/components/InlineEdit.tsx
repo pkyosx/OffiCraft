@@ -15,6 +15,12 @@ interface InlineEditProps {
   className?: string;
   /** Class for the read-only value span (e.g. topbar__org / profile-dd__name). */
   displayClassName?: string;
+  /** Mount already editing, for a host with its own way in (a menu item).
+   * The pencil is still drawn once the field closes, so such a host unmounts
+   * the editor on `onClose`. */
+  openOnMount?: boolean;
+  /** The field closed, by apply or cancel. */
+  onClose?: () => void;
 }
 
 /**
@@ -34,9 +40,11 @@ export function InlineEdit({
   ariaLabel,
   className,
   displayClassName,
+  openOnMount = false,
+  onClose,
 }: InlineEditProps) {
   const { t } = useI18n();
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(openOnMount);
   const [draft, setDraft] = useState(value);
   // IME composition guard — an Enter that confirms a CJK candidate must NOT
   // commit the edit. Ref (not state) so the keydown handler reads the live value
@@ -57,11 +65,13 @@ export function InlineEdit({
     }
     onCommit(next);
     setEditing(false);
+    onClose?.();
   }
 
   function cancel() {
     setDraft(value);
     setEditing(false);
+    onClose?.();
   }
 
   if (!editing) {

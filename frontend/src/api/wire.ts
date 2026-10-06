@@ -90,6 +90,8 @@ export type WireMonSession = components["schemas"]["MonitoringSessionDTO"];
 /** Mirrors `service/dto.py :: MonitoringMachineDTO`. One host machine. */
 export type WireMonMachine = components["schemas"]["MonitoringMachineDTO"];
 
+export type WireMachineDiskUsage = components["schemas"]["MachineDiskUsageDTO"];
+
 /** Mirrors `service/dto.py :: MonitoringAccountDTO`. One account's usage. */
 export type WireMonAccount = components["schemas"]["MonitoringAccountDTO"];
 

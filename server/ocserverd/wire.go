@@ -65,6 +65,7 @@ type settingsDTO struct {
 
 	RuntimeLoginCheckIntervalSecs   int `json:"runtime_login_check_interval_secs"`
 	RuntimeLoginRecheckIntervalSecs int `json:"runtime_login_recheck_interval_secs"`
+	DiskUsageIntervalSecs           int `json:"disk_usage_interval_secs"`
 
 	// WardenCredentialLifetimeSecs drives both the warden's renewal age (two thirds
 	// of it) and the minted credential's exp (api_auth.go mintWardenToken).
@@ -527,6 +528,7 @@ type agentTelemetryReceiptDTO struct {
 
 	LoginCheckIntervalSecs   *int `json:"login_check_interval_secs,omitempty"`
 	LoginRecheckIntervalSecs *int `json:"login_recheck_interval_secs,omitempty"`
+	DiskUsageIntervalSecs    *int `json:"disk_usage_interval_secs,omitempty"`
 }
 
 type monitoringSessionDTO struct {
@@ -603,6 +605,34 @@ type monitoringMachineDTO struct {
 	WardenShape *string `json:"warden_shape"`
 
 	CutoverEffect *string `json:"cutover_effect"`
+
+	DiskUsage *machineDiskUsageDTO `json:"disk_usage"`
+}
+
+// Hand-written instead of the generated MachineDiskUsageDTO: that one drops
+// unmeasured fields (omitempty), and the spec serves them as null.
+type machineDiskUsageDTO struct {
+	MeasuredAt         *float64                      `json:"measured_at"`
+	TotalBytes         *int                          `json:"total_bytes"`
+	DatabaseMeasuredAt *float64                      `json:"database_measured_at"`
+	Categories         []machineDiskUsageCategoryDTO `json:"categories"`
+	Members            []machineDiskUsageMemberDTO   `json:"members"`
+	DiskFreeBytes      *int                          `json:"disk_free_bytes"`
+	DiskTotalBytes     *int                          `json:"disk_total_bytes"`
+}
+
+type machineDiskUsageCategoryDTO struct {
+	Key       string  `json:"key"`
+	ParentKey *string `json:"parent_key"`
+	Bytes     *int    `json:"bytes"`
+	InRoot    bool    `json:"in_root"`
+}
+
+type machineDiskUsageMemberDTO struct {
+	MemberID       string  `json:"member_id"`
+	Name           *string `json:"name"`
+	RosterStatus   string  `json:"roster_status"`
+	WorkspaceBytes *int    `json:"workspace_bytes"`
 }
 
 type monitoringAccountDTO struct {

@@ -1162,6 +1162,9 @@ export interface ServerSettingsView {
   /** How often each warden re-checks a Claude/Codex login that last read as
    * logged out or unknown, in seconds (30..3600; default 30 = every heartbeat). */
   runtimeLoginRecheckIntervalSecs: number;
+  /** How often each warden measures OffiCraft's disk usage on its machine, in
+   * seconds (600..86400; default 3600). */
+  diskUsageIntervalSecs: number;
   /** T-fc53: how long a MACHINE (warden) credential is meant to live, in
    * seconds (86400..34560000; default 2592000 = 30 days). It is BOTH the
    * credential's expiry (the mint stamps `exp = iat + this`, T-fc53 第二段 — it
@@ -1324,6 +1327,8 @@ export interface ServerSettingsPatch {
   runtimeLoginCheckIntervalSecs?: number;
   /** Runtime login recheck interval in seconds. Must be 30..3600. */
   runtimeLoginRecheckIntervalSecs?: number;
+  /** Disk usage measurement interval in seconds. Must be 600..86400. */
+  diskUsageIntervalSecs?: number;
   /** T-fc53 warden credential lifetime in seconds. Must be 86400..34560000 —
    * the floor is one day because the last third of the lifetime is the retry
    * window, and at a 15-minute poll a one-day lifetime still leaves ~32

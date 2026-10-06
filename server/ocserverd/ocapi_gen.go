@@ -6,6 +6,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -64,6 +65,27 @@ func (e BootDocKind) Valid() bool {
 	case TaskTakeoverWithPredecessor:
 		return true
 	case TaskUnblocked:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MachineDiskUsageMemberDTORosterStatus.
+const (
+	Active  MachineDiskUsageMemberDTORosterStatus = "active"
+	Removed MachineDiskUsageMemberDTORosterStatus = "removed"
+	Unknown MachineDiskUsageMemberDTORosterStatus = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the MachineDiskUsageMemberDTORosterStatus enum.
+func (e MachineDiskUsageMemberDTORosterStatus) Valid() bool {
+	switch e {
+	case Active:
+		return true
+	case Removed:
+		return true
+	case Unknown:
 		return true
 	default:
 		return false
@@ -729,7 +751,10 @@ type AgentTelemetryIngestDTO struct {
 
 	// CutoverEffect Warden heartbeats only — whether the anchor cutover is actually IN EFFECT for the processes that CARRY agents, which ``warden_shape`` cannot answer: that field observes warden's own parent process, while the agents live under a tmux server that keeps its original identity across a warden restart — the two populations diverge at exactly the moment the cutover lands. Deliberately THREE-VALUED and fail-closed: ``effective`` = launchd is running the anchor now AND every process carrying an agent session is younger than the current anchor job leader, so it can only have been forked under the anchor identity; ``not_effective`` = a carrier predates the anchor file itself and therefore cannot hold that identity (the one deterministic negative); ``unproven`` = cannot be shown either way, which is NOT a synonym for ``effective`` and must never be rendered as one — a boolean green light is the exact defect this field exists to retire. OMITTED by every warden build older than this release: absent means 'this machine has not received the new build yet', ``unproven`` means 'the new build ran and could not prove it'. Permissive like the other scalars here: a value outside the three states is a flat 400, never a 422.
 	CutoverEffect interface{} `json:"cutover_effect,omitempty"`
-	Effort        interface{} `json:"effort,omitempty"`
+
+	// DiskUsage Warden heartbeats only — the latest OffiCraft disk-usage measurement of THIS station on this host. Measured in the background at the org's ``disk_usage_interval_secs`` (it takes tens of seconds, so it never runs on the 30-second heartbeat), then repeated verbatim on every heartbeat until the next measurement replaces it, so a restarted server has it again within one heartbeat. ``measured_at`` is when the measurement finished, not when this heartbeat was sent. Sizes are bytes of allocated disk blocks, the same quantity ``du`` reports. Each field is omitted when its probe failed. NOT closed, for the same reason as ``hardware``: one undeclared nested key must not 422 the whole heartbeat. Database, backup and old database copy sizes are not here: only the server knows its database path, and it measures them itself.
+	DiskUsage *map[string]interface{} `json:"disk_usage,omitempty"`
+	Effort    interface{}             `json:"effort,omitempty"`
 
 	// Hardware Warden heartbeats only — the host hardware snapshot (``collectHardware``; darwin-only probes, each one omit-on-fail, so any subset may be absent). The sub-fields are DECLARED (T-90be) because the server reads them by literal name: before this shape existed, a producer-side rename was accepted, stored, and then read as null forever — HTTP 200 with the measurement silently unreadable, every test green. Deliberately NOT closed: ``additionalProperties`` stays true (owner ruling rc-55861dd893c6) so a warden that grows a probe — or an older one missing a key — still lands its WHOLE report. Closing it would 422 the entire heartbeat on one undeclared nested key (hardware, binaries, claude and runtimes going null together), which is verbatim the a7fa594 outage. The Go type is pinned to ``map[string]interface{}`` (``x-go-type``) so the handler keeps its own per-field validation and its flat-400 face; the declaration's teeth are the CI guard over our own producers in cli/ocwarden, not runtime rejection.
 	Hardware *map[string]interface{} `json:"hardware,omitempty"`
@@ -762,6 +787,9 @@ type AgentTelemetryIngestDTO struct {
 type AgentTelemetryReceiptDTO struct {
 	// AgentId The identity this report was filed under — the verified JWT sub, never a self-report. A reporter that believed it was somebody else learns it here.
 	AgentId string `json:"agent_id"`
+
+	// DiskUsageIntervalSecs How often, in seconds, this warden measures OffiCraft disk usage: the org's ``disk_usage_interval_secs``. Filled only when the caller is a machine (warden) credential; null or absent for an agent caller.
+	DiskUsageIntervalSecs *int `json:"disk_usage_interval_secs,omitempty"`
 
 	// LoginCheckIntervalSecs How often, in seconds, this warden re-checks a Claude/Codex login that last read as logged in: the org's ``runtime_login_check_interval_secs``. Filled only when the caller is a machine (warden) credential; null or absent for an agent caller.
 	LoginCheckIntervalSecs *int `json:"login_check_interval_secs,omitempty"`
@@ -1354,6 +1382,32 @@ type DiffSideDTO struct {
 	Text       *string `json:"text,omitempty"`
 }
 
+// DiskUsageCategoryReportDTO One measured category of a warden's disk-usage measurement. Sizes are bytes of allocated disk blocks, as “du“ reports them. NOT closed, like the rest of the heartbeat: an undeclared key must not 422 it.
+type DiskUsageCategoryReportDTO struct {
+	// Bytes Its size. Null when the warden tried and its probe failed; a category a warden does not measure is left out of the list instead.
+	Bytes *int `json:"bytes"`
+
+	// InRoot Whether these bytes lie inside the OffiCraft directory, and so are already part of ``root_bytes``. The server takes in-root categories out of ``other`` and adds the rest to the total.
+	InRoot bool `json:"in_root"`
+
+	// Key What was measured, an open string so a warden can report a category the server does not know yet (the server passes it on and the page shows the key itself as its label). Known keys a warden sends: ``logs`` and ``old_version_backups``, both inside the OffiCraft directory; the server's MachineDiskUsageDTO.categories says what each covers.
+	Key string `json:"key"`
+
+	// ParentKey The category this one is a part of, for a category shown as a sub row under another. No known key has one today; it is there so a category can later be split into parts without a new field. The server adds the parent itself; a warden never sends it. Null or omitted for a top-level category.
+	ParentKey            *string                `json:"parent_key,omitempty"`
+	AdditionalProperties map[string]interface{} `json:"-"`
+}
+
+// DiskUsageMemberReportDTO One member's share of a warden's disk-usage measurement. Sizes are bytes of allocated disk blocks, as “du“ reports them; a field is omitted when it was not measured.
+type DiskUsageMemberReportDTO struct {
+	// MemberId The directory name under ``<root>/agents/``, which is the member id.
+	MemberId string `json:"member_id"`
+
+	// WorkspaceBytes ``<root>/agents/<member_id>``.
+	WorkspaceBytes       *int                   `json:"workspace_bytes,omitempty"`
+	AdditionalProperties map[string]interface{} `json:"-"`
+}
+
 // DocDTO One product-guide doc in full (GET /api/docs/{slug}). markdown_md carries the embedded markdown with relative image paths rewritten to the served /api/docs/assets/ endpoint.
 type DocDTO struct {
 	MarkdownMd string `json:"markdown_md"`
@@ -1878,6 +1932,62 @@ type MachineDeleteResultDTO struct {
 	Removed   *bool   `json:"removed,omitempty"`
 }
 
+// MachineDiskUsageCategoryDTO One row of a machine's disk-usage breakdown. The list is in display order: “database“, “backups“, “workspaces“, “logs“, “old_version_backups“, “old_database_copies“, any key the server does not know, then “other“; a part comes right after its parent.
+type MachineDiskUsageCategoryDTO struct {
+	// Bytes Its size; null when it could not be measured. A row a machine has nothing to measure for is left out instead (``database`` on a machine that is not the server's).
+	Bytes *int `json:"bytes"`
+
+	// InRoot Whether these bytes lie inside the OffiCraft directory. ``other`` is the directory less every top-level in-root row; ``total_bytes`` is the directory plus every top-level row that is not in it.
+	InRoot bool `json:"in_root"`
+
+	// Key What the row is. Known keys: ``database`` (server's own machine: the database file with its write-ahead log and shared-memory files); ``backups`` (server's own machine: the snapshots in the automatic backup directory that the server rotates, routine and pre-migration alike); ``workspaces`` (the members' workspaces, ``<root>/agents``; per member in ``members``); ``logs`` (``<root>/warden/log`` on every machine, plus ``<root>/server/log`` on the server's own machine); ``old_version_backups`` (``<root>/release-backups/``, the previous and hand-kept binaries in ``<root>/bin/`` and ``<root>/warden/`` named after an OffiCraft binary plus a dot and a suffix, not ``officraft.probe``, and on the server's own machine the old database copies beside the database: entries named after the database file plus a dot and a suffix, and ``retreat-*`` directories, plus whatever in the backup directory the server does not rotate, such as a snapshot left half-written); ``old_database_copies`` (those copies instead, only when the database lives outside the OffiCraft directory); ``other`` (the rest of the OffiCraft directory). Any other key comes from a warden and is passed on as it reported it; the page labels it with the key itself.
+	Key string `json:"key"`
+
+	// ParentKey The row this one is a part of; null for a top-level row. No known key has a parent today; it is there so a category can later be split into sub rows without a new field. A parent's ``bytes`` is the sum of its parts, null when any part is null.
+	ParentKey *string `json:"parent_key"`
+}
+
+// MachineDiskUsageDTO How much disk OffiCraft uses on one machine. The warden measures this station's OffiCraft directory and its categories at the org's “disk_usage_interval_secs“; on the server's own machine the server adds its database, backups and old database copies. The breakdown is “categories“. Claude and Codex conversation logs are not measured. A field is null when it has not been measured; the whole object is null on a machine that has reported no measurement since the server started and is not the server's own machine. Sizes are bytes of allocated disk blocks, the quantity “du“ reports. Measuring only: nothing here deletes anything.
+type MachineDiskUsageDTO struct {
+	// Categories The breakdown, in display order: the warden's categories, plus on the server's own machine the server's (database, backups and its old database copies, which it adds to ``old_version_backups``), plus ``workspaces`` from ``members``, the parent of any parts, and last ``other``: the OffiCraft directory (the warden's ``root_bytes``) less every top-level row inside it, never below 0, null when the directory or one of those rows was not measured. A category the warden did not report (one that predates it) is not split out and stays in ``other``. Empty until measured.
+	Categories []MachineDiskUsageCategoryDTO `json:"categories"`
+
+	// DatabaseMeasuredAt Epoch seconds when the server last measured its rows: ``database``, ``backups`` and its old database copies.
+	DatabaseMeasuredAt *float64 `json:"database_measured_at,omitempty"`
+
+	// DiskFreeBytes Free space on the volume holding the OffiCraft directory.
+	DiskFreeBytes *int `json:"disk_free_bytes,omitempty"`
+
+	// DiskTotalBytes Total size of that volume.
+	DiskTotalBytes *int `json:"disk_total_bytes,omitempty"`
+
+	// MeasuredAt Epoch seconds when the warden's measurement finished; null when the warden has reported none since the server started. Read the age off it: a warden that went offline keeps its last measurement here.
+	MeasuredAt *float64 `json:"measured_at,omitempty"`
+
+	// Members Every member with a workspace on this machine, largest ``workspace_bytes`` first (a workspace that could not be sized last); empty until measured.
+	Members []MachineDiskUsageMemberDTO `json:"members"`
+
+	// TotalBytes Everything OffiCraft uses on this machine for this station: the OffiCraft directory (the warden's ``root_bytes``) plus every top-level row of ``categories`` that is not inside it (the database, backups and old database copies when the database lives elsewhere). Claude and Codex conversation logs are not counted. Null until the warden has measured, or when one of those rows is null.
+	TotalBytes *int `json:"total_bytes,omitempty"`
+}
+
+// MachineDiskUsageMemberDTO One member's disk usage on one machine, as served by “get_monitoring“.
+type MachineDiskUsageMemberDTO struct {
+	MemberId string `json:"member_id"`
+
+	// Name The member's roster name; null when no roster row carries this id.
+	Name *string `json:"name,omitempty"`
+
+	// RosterStatus ``active`` for a current member, ``removed`` for a released outsource worker or dismissed staff whose row remains, ``unknown`` when no roster row carries this id. A workspace whose member is not ``active`` is what a cleanup looks at first.
+	RosterStatus MachineDiskUsageMemberDTORosterStatus `json:"roster_status"`
+
+	// WorkspaceBytes ``<root>/agents/<member_id>``; null when it could not be sized.
+	WorkspaceBytes *int `json:"workspace_bytes,omitempty"`
+}
+
+// MachineDiskUsageMemberDTORosterStatus “active“ for a current member, “removed“ for a released outsource worker or dismissed staff whose row remains, “unknown“ when no roster row carries this id. A workspace whose member is not “active“ is what a cleanup looks at first.
+type MachineDiskUsageMemberDTORosterStatus string
+
 // MachineOnboardDTO Onboard (register) a machine as a warden member (“POST /api/machines“).
 //
 // “display_name“ is the human label for the machine (REQUIRED — e.g. "Seth's MBP").
@@ -2345,7 +2455,10 @@ type MonitoringMachineDTO struct {
 
 	// CutoverEffect Same reported cutover-effect verdict the machine registry row carries (``effective`` | ``not_effective`` | ``unproven``; null = warden too old to report one) — see ``MachineDTO.cutover_effect``.
 	CutoverEffect *string `json:"cutover_effect,omitempty"`
-	DisplayName   *string `json:"display_name,omitempty"`
+
+	// DiskUsage How much disk OffiCraft uses on this machine, with its breakdown and measurement time; null when nothing has been measured for it since the server started.
+	DiskUsage   *MachineDiskUsageDTO `json:"disk_usage,omitempty"`
+	DisplayName *string              `json:"display_name,omitempty"`
 
 	// HardwareInvalid The DECLARED hardware keys that arrived with the wrong VALUE TYPE in the sample behind ``hardware_ts`` (sorted; empty when the sample is clean, and empty for a stale/absent sample whose blanks are already explained). Nested telemetry blocks are deliberately permissive (owner ruling rc-55861dd893c6): a wrongly-typed ``cpu_pct`` is stored verbatim with a 200, and the reader — which needs a number — then serves null. Without this list that null is byte-identical to 'this probe never answered', so a broken reporter looks exactly like a machine with no battery. This field is the server's answer to 'why is that cell blank': the value WAS measured and IS unreadable. Same role hardware_stale plays for the expired case, and read the same way — per key, because one bad probe must not cast doubt on its siblings. It carries key NAMES only, never the offending value (untrusted input must not reach the cockpit as content).
 	HardwareInvalid *[]string `json:"hardware_invalid,omitempty"`
@@ -3470,6 +3583,9 @@ type SettingsDTO struct {
 	// CodexNoticeRound The codex twin of notice_pct (T-a9d6): the compaction round at which the SOFT notice fires. A codex session hands over on compaction count, not on a percentage, so its pair is a pair of ROUNDS. Must be 1..10 and strictly below codex_compaction_threshold.
 	CodexNoticeRound int `json:"codex_notice_round"`
 
+	// DiskUsageIntervalSecs How often, in seconds (600 through 86400), each warden measures how much disk OffiCraft uses on its machine, and the server measures its database, backups and old database copies. One measurement walks the whole OffiCraft directory and takes tens of seconds of disk reads, hence the 10-minute floor. Wardens learn the value from their heartbeat reply.
+	DiskUsageIntervalSecs *int `json:"disk_usage_interval_secs,omitempty"`
+
 	// DisplayLanguage The owner's cockpit language (T-0b41-p2). "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login as the cross-device source of truth.
 	DisplayLanguage *string `json:"display_language,omitempty"`
 
@@ -3600,6 +3716,9 @@ type SettingsUpdateDTO struct {
 
 	// CodexNoticeRound The codex SOFT-notice compaction round (T-a9d6). 1..10, and strictly below codex_compaction_threshold.
 	CodexNoticeRound *int `json:"codex_notice_round,omitempty"`
+
+	// DiskUsageIntervalSecs How often, in seconds, each warden measures how much disk OffiCraft uses on its machine. Must be 600 through 86400. Wardens pick a change up from their next heartbeat reply.
+	DiskUsageIntervalSecs *int `json:"disk_usage_interval_secs,omitempty"`
 
 	// DisplayLanguage The owner's cockpit language (T-0b41-p2) — trimmed; "" clears it back to unset. Must be one of zh, en (or ""); anything else is a 422.
 	DisplayLanguage *string `json:"display_language,omitempty"`
@@ -4980,6 +5099,194 @@ type HandleFetchThemeApiThemeFetchPostJSONRequestBody = ThemeFetchDTO
 
 // HandlePutThemeApiThemesThemeIdPutJSONRequestBody defines body for HandlePutThemeApiThemesThemeIdPut for application/json ContentType.
 type HandlePutThemeApiThemesThemeIdPutJSONRequestBody = ThemeBundleDTO
+
+// Getter for additional properties for DiskUsageCategoryReportDTO. Returns the specified
+// element and whether it was found
+func (a DiskUsageCategoryReportDTO) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for DiskUsageCategoryReportDTO
+func (a *DiskUsageCategoryReportDTO) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for DiskUsageCategoryReportDTO to handle AdditionalProperties
+func (a *DiskUsageCategoryReportDTO) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["bytes"]; found {
+		err = json.Unmarshal(raw, &a.Bytes)
+		if err != nil {
+			return fmt.Errorf("error reading 'bytes': %w", err)
+		}
+		delete(object, "bytes")
+	}
+
+	if raw, found := object["in_root"]; found {
+		err = json.Unmarshal(raw, &a.InRoot)
+		if err != nil {
+			return fmt.Errorf("error reading 'in_root': %w", err)
+		}
+		delete(object, "in_root")
+	}
+
+	if raw, found := object["key"]; found {
+		err = json.Unmarshal(raw, &a.Key)
+		if err != nil {
+			return fmt.Errorf("error reading 'key': %w", err)
+		}
+		delete(object, "key")
+	}
+
+	if raw, found := object["parent_key"]; found {
+		err = json.Unmarshal(raw, &a.ParentKey)
+		if err != nil {
+			return fmt.Errorf("error reading 'parent_key': %w", err)
+		}
+		delete(object, "parent_key")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for DiskUsageCategoryReportDTO to handle AdditionalProperties
+func (a DiskUsageCategoryReportDTO) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["bytes"], err = json.Marshal(a.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'bytes': %w", err)
+	}
+
+	object["in_root"], err = json.Marshal(a.InRoot)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'in_root': %w", err)
+	}
+
+	object["key"], err = json.Marshal(a.Key)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'key': %w", err)
+	}
+
+	if a.ParentKey != nil {
+		object["parent_key"], err = json.Marshal(a.ParentKey)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'parent_key': %w", err)
+		}
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// Getter for additional properties for DiskUsageMemberReportDTO. Returns the specified
+// element and whether it was found
+func (a DiskUsageMemberReportDTO) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for DiskUsageMemberReportDTO
+func (a *DiskUsageMemberReportDTO) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for DiskUsageMemberReportDTO to handle AdditionalProperties
+func (a *DiskUsageMemberReportDTO) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["member_id"]; found {
+		err = json.Unmarshal(raw, &a.MemberId)
+		if err != nil {
+			return fmt.Errorf("error reading 'member_id': %w", err)
+		}
+		delete(object, "member_id")
+	}
+
+	if raw, found := object["workspace_bytes"]; found {
+		err = json.Unmarshal(raw, &a.WorkspaceBytes)
+		if err != nil {
+			return fmt.Errorf("error reading 'workspace_bytes': %w", err)
+		}
+		delete(object, "workspace_bytes")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for DiskUsageMemberReportDTO to handle AdditionalProperties
+func (a DiskUsageMemberReportDTO) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["member_id"], err = json.Marshal(a.MemberId)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'member_id': %w", err)
+	}
+
+	if a.WorkspaceBytes != nil {
+		object["workspace_bytes"], err = json.Marshal(a.WorkspaceBytes)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'workspace_bytes': %w", err)
+		}
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
