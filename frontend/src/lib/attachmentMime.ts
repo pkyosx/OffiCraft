@@ -15,6 +15,7 @@ export function attachmentMimeForName(filename: string): string {
 /** A name for a clipboard image the browser handed over without one. Without
  * an extension the server would store it as a download, not an image. */
 export function pastedImageName(type: string): string {
+  if (!type.startsWith("image/")) return "";
   const ext = Object.keys(TABLE).find((e) => TABLE[e] === type);
   return ext ? `pasted-image.${ext}` : "";
 }

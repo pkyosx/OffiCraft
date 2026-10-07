@@ -18,10 +18,12 @@ describe("attachmentMimeForName", () => {
 });
 
 describe("pastedImageName", () => {
-  it("names a clipboard image by the table's first extension for its type, and nothing else", () => {
+  it("names a clipboard image by the table's first extension for its type, and leaves anything else nameless", () => {
     expect(pastedImageName("image/png")).toBe("pasted-image.png");
     expect(pastedImageName("image/jpeg")).toBe("pasted-image.jpg");
     expect(pastedImageName("image/heic")).toBe("");
+    expect(pastedImageName("application/pdf")).toBe("");
+    expect(pastedImageName("text/plain")).toBe("");
     expect(pastedImageName("")).toBe("");
   });
 });

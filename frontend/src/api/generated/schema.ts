@@ -616,11 +616,11 @@ export interface paths {
          *     after the last dot); any other extension, or none, stays
          *     ``application/octet-stream``. A blob stored with any other mime keeps it.
          *
-         *     DISPOSITION SPLIT (M2-3 gallery「開新分頁預覽」 vs 「下載」): an IMAGE is
-         *     served with no disposition at all (``<img src>`` keeps working); any other
-         *     PREVIEWABLE type (text/*, application/pdf, application/json) is served
+         *     DISPOSITION SPLIT (M2-3 gallery「開新分頁預覽」 vs 「下載」): a PREVIEWABLE
+         *     type (image/*, text/*, application/pdf, application/json) is served
          *     ``inline; filename="<name>"`` so a new tab RENDERS it instead of
-         *     force-downloading; everything else keeps ``attachment; filename="<name>"``
+         *     force-downloading, while a downloader such as ``ocagent download`` still
+         *     saves it under its name and extension (``<img src>`` ignores the header); everything else keeps ``attachment; filename="<name>"``
          *     and downloads under its original name (the attachment id when it has none).
          *
          *     SECURITY: every response carries ``Content-Security-Policy: sandbox`` and

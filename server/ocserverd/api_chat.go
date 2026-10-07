@@ -126,10 +126,10 @@ func attachmentMimeForName(filename string) string {
 	return attachmentOctetStream
 }
 
-// effectiveAttachmentMime is the mime every reader is handed. Rows stored before
-// typing went by extension carry application/octet-stream (or nothing) for files
-// the table now names; a specific stored mime stays authoritative, which is what
-// keeps link blobs (text/uri-list, no filename) and extensionless images typed.
+// effectiveAttachmentMime is the mime every reader is handed. A stored
+// application/octet-stream (or empty) mime is typed by the filename's
+// extension; any other stored mime wins, and must: link blobs (text/uri-list)
+// and avatars carry no extension and would otherwise become downloads.
 func effectiveAttachmentMime(stored, filename string) string {
 	if base := attachmentMimeBase(stored); base != "" && base != attachmentOctetStream {
 		return stored
@@ -961,24 +961,24 @@ func (s *apiServer) HandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(w ht
 	if name == "" {
 		name = attachmentId
 	}
-	if !isImageMime(mediaType) {
-		asciiName := strings.Map(func(r rune) rune {
-			if r > 127 {
-				return -1
-			}
-			return r
-		}, name)
-		if asciiName == "" {
-			asciiName = attachmentId
+	asciiName := strings.Map(func(r rune) rune {
+		if r > 127 {
+			return -1
 		}
-		safe := strings.ReplaceAll(asciiName, `"`, `\"`)
-		dispSuffix := `filename="` + safe + `"; filename*=UTF-8''` +
-			url.QueryEscape(name)
-		if isPreviewableAttachment(mediaType) {
-			w.Header().Set("Content-Disposition", "inline; "+dispSuffix)
-		} else {
-			w.Header().Set("Content-Disposition", "attachment; "+dispSuffix)
-		}
+		return r
+	}, name)
+	if asciiName == "" {
+		asciiName = attachmentId
+	}
+	safe := strings.ReplaceAll(asciiName, `"`, `\"`)
+	dispSuffix := `filename="` + safe + `"; filename*=UTF-8''` +
+		url.QueryEscape(name)
+	// Images get a filename too: `ocagent download` names the saved file from
+	// it, and a file saved without its extension re-uploads as a download.
+	if isPreviewableAttachment(mediaType) {
+		w.Header().Set("Content-Disposition", "inline; "+dispSuffix)
+	} else {
+		w.Header().Set("Content-Disposition", "attachment; "+dispSuffix)
 	}
 	w.Header().Set("Content-Security-Policy", "sandbox")
 	w.Header().Set("X-Content-Type-Options", "nosniff")

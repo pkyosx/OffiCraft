@@ -2115,14 +2115,16 @@ func TestTrimChatPageNewer(t *testing.T) {
 }
 
 func TestHandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(t *testing.T) {
-	t.Run("an upload is served under its extension's mime: images with no disposition, previewables inline, the rest as downloads, all sandboxed", func(t *testing.T) {
+	t.Run("an upload is served under its extension's mime and its filename: images and previewables inline, the rest as downloads, all sandboxed", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		dashboard := apiTestListen(t, api, "")
 		for _, tc := range []struct {
 			query, body, wantType, wantDisposition string
 		}{
-			{"?filename=shot.png", "\x89PNG\r\n\x1a\nrest", "image/png", ""},
-			{"?filename=icon.svg", "<svg/>", "image/svg+xml", ""},
+			{"?filename=shot.png", "\x89PNG\r\n\x1a\nrest", "image/png",
+				`inline; filename="shot.png"; filename*=UTF-8''shot.png`},
+			{"?filename=icon.svg", "<svg/>", "image/svg+xml",
+				`inline; filename="icon.svg"; filename*=UTF-8''icon.svg`},
 			{"?filename=notes.txt&mime=image/png", "hello", "text/plain",
 				`inline; filename="notes.txt"; filename*=UTF-8''notes.txt`},
 			{"?filename=x.pdf&mime=application/zip", "%PDF-1.7", "application/pdf",
@@ -2144,15 +2146,12 @@ func TestHandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(t *testing.T) {
 			if rec.Code != 200 {
 				t.Fatalf("%s: want 200, got %d (%s)", tc.query, rec.Code, rec.Body.String())
 			}
-			want := map[string]string{
+			apiWantHeaders(t, rec, map[string]string{
 				"Content-Type":            tc.wantType,
+				"Content-Disposition":     tc.wantDisposition,
 				"Content-Security-Policy": "sandbox",
 				"X-Content-Type-Options":  "nosniff",
-			}
-			if tc.wantDisposition != "" {
-				want["Content-Disposition"] = tc.wantDisposition
-			}
-			apiWantHeaders(t, rec, want)
+			})
 			if rec.Body.String() != tc.body {
 				t.Fatalf("%s: body: got %q", tc.query, rec.Body.String())
 			}
@@ -2193,11 +2192,11 @@ func TestHandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(t *testing.T) {
 			{ChatAttachment{ID: "att-legacy000md", Mime: "application/octet-stream", Filename: named("notes.md"), Data: []byte("# hi")},
 				"text/markdown", `inline; filename="notes.md"; filename*=UTF-8''notes.md`},
 			{ChatAttachment{ID: "att-legacy00png", Mime: "", Filename: named("shot.png"), Data: []byte("\x89PNG\r\n\x1a\nold")},
-				"image/png", ""},
+				"image/png", `inline; filename="shot.png"; filename*=UTF-8''shot.png`},
 			{ChatAttachment{ID: "att-legacy00bin", Mime: "application/octet-stream", Filename: named("legacy.bin"), Data: []byte("opaque")},
 				"application/octet-stream", `attachment; filename="legacy.bin"; filename*=UTF-8''legacy.bin`},
 			{ChatAttachment{ID: "att-oldimage001", Mime: "image/png", Data: []byte("\x89PNG\r\n\x1a\nnoname")},
-				"image/png", ""},
+				"image/png", `inline; filename="att-oldimage001"; filename*=UTF-8''att-oldimage001`},
 			{ChatAttachment{ID: "att-declared001", Mime: "text/plain", Filename: named("report.pdf"), Data: []byte("plain")},
 				"text/plain", `inline; filename="report.pdf"; filename*=UTF-8''report.pdf`},
 		} {
@@ -2208,15 +2207,12 @@ func TestHandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(t *testing.T) {
 			if rec.Code != 200 {
 				t.Fatalf("%s: want 200, got %d (%s)", tc.att.ID, rec.Code, rec.Body.String())
 			}
-			want := map[string]string{
+			apiWantHeaders(t, rec, map[string]string{
 				"Content-Type":            tc.wantType,
+				"Content-Disposition":     tc.wantDisposition,
 				"Content-Security-Policy": "sandbox",
 				"X-Content-Type-Options":  "nosniff",
-			}
-			if tc.wantDisposition != "" {
-				want["Content-Disposition"] = tc.wantDisposition
-			}
-			apiWantHeaders(t, rec, want)
+			})
 			if rec.Body.String() != string(tc.att.Data) {
 				t.Fatalf("%s: body: got %q", tc.att.ID, rec.Body.String())
 			}
