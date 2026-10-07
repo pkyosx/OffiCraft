@@ -462,7 +462,7 @@
     {
       "id": "ocagent-cmd-upload",
       "source": "cli/ocagent/main.go",
-      "callsite": "return cmdUpload(newNoDeadlineClient(), cfg, args[0], *mimeType, out, os.Stderr)",
+      "callsite": "return cmdUpload(newNoDeadlineClient(), cfg, args[0], out, os.Stderr)",
       "kind": "skip",
       "skip_reason": "Dispatch to the attachment upload command, which streams raw file bytes rather than JSON: there is no request schema to compare a body against."
     },
