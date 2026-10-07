@@ -28,7 +28,7 @@ import (
 // listen_run.go) and exits once it is gone, or unverifiable for too long.
 //
 // Every line printed on out reaches the agent: a claude member through its
-// notification mod or the paste listener (listen_deliver.go); codex via the
+// messaging socket (listen_deliver.go); codex via the
 // ocwarden sidecar, which swallows "[ocagent] listen:" lines
 // (except the transport notices; actionableCodexListenerLine) and turns every
 // other line into a model turn.
@@ -594,29 +594,20 @@ func attachmentSummary(m map[string]any) string {
 }
 
 // listenAckEnv="1" is set by whoever consumes stdout when printing proves
-// nothing: the codex sidecar (cli/ocwarden/codex_session.go), where each complete notice must
-// become an App Server input, and the claude notification mod (cli/ocwarden/mod),
-// where each payload is a prompt submit; both can be refused. Only the parent
-// knows — never infer it from a tty, the parent process or the member id: a wrong
-// guess (ack mode with nobody answering) hangs the drain.
+// nothing: the codex sidecar (cli/ocwarden/codex_session.go), where each
+// complete notice must become an App Server input, which can be refused. Only
+// the parent knows — never infer it from a tty, the parent process or the
+// member id: a wrong guess (ack mode with nobody answering) hangs the drain.
 // bin/listen-notice-mirror-guard.py holds the name equal to ocwarden's copy.
 const listenAckEnv = "OC_LISTEN_ACK"
-
-// listenAckFileEnv moves the answers from stdin to a file: a mod's child gets
-// its stdin once, at spawn. The mod overwrites the whole file with `ack N` or
-// `nack N`. ocwarden's copy (notifymod.go) is what the mod is handed;
-// bin/listen-notice-mirror-guard.py holds the two equal.
-const listenAckFileEnv = "OC_LISTEN_ACK_FILE"
-
-const ackFilePoll = 200 * time.Millisecond
 
 type ackGate struct {
 	answers   <-chan string
 	lastToken int
 	wait      time.Duration
-	// Where the timeout notice goes; nil ⇒ out. 🔴 Under the mod it must not be
-	// out: every line there becomes a prompt, so the notice would itself be
-	// submitted, once per unanswered batch, into a member that is merely busy.
+	// Where the timeout notice goes; nil ⇒ out. 🔴 On the socket route it must
+	// not be out: every line there is delivered, so the notice would itself be
+	// written into the member once per unanswered batch.
 	timeoutNotice io.Writer
 }
 
@@ -625,16 +616,9 @@ type ackGate struct {
 // Timing out counts as a nack (the batch reprints next drain).
 const ackWaitTimeout = 30 * time.Second
 
-func newAckGate(env func(string) string, answers io.Reader, diag io.Writer) *ackGate {
+func newAckGate(env func(string) string, answers io.Reader) *ackGate {
 	if env == nil || env(listenAckEnv) != "1" {
 		return nil
-	}
-	if path := strings.TrimSpace(env(listenAckFileEnv)); path != "" {
-		if diag == nil {
-			// The mod logs the child's stderr, so the notice stays readable there.
-			diag = os.Stderr
-		}
-		return &ackGate{answers: watchAckFile(path, ackFilePoll), wait: ackWaitTimeout, timeoutNotice: diag}
 	}
 	if answers == nil {
 		return nil
@@ -648,25 +632,6 @@ func newAckGate(env func(string) string, answers io.Reader, diag io.Writer) *ack
 		}
 	}()
 	return &ackGate{answers: lines, wait: ackWaitTimeout}
-}
-
-// The file is removed first: an answer left by the previous listener of this
-// workdir names a token this one will reuse.
-func watchAckFile(path string, every time.Duration) <-chan string {
-	_ = os.Remove(path)
-	lines := make(chan string, 8)
-	go func() {
-		last := ""
-		for {
-			raw, _ := os.ReadFile(path)
-			if answer := strings.TrimSpace(string(raw)); answer != "" && answer != last {
-				last = answer
-				lines <- answer
-			}
-			time.Sleep(every)
-		}
-	}()
-	return lines
 }
 
 func (g *ackGate) confirm(out io.Writer) bool {

@@ -5,16 +5,14 @@ import { expect, test } from 'claude-code/testing'
 const CONFIG_M1 =
   '{"boot_prompt":"開始。","started_marker":"/w/m1/.officraft-mod-started","loaded_marker":"/w/m1/.officraft-mod-loaded",' +
   '"disabled_marker":"/w/m1/.officraft-mod-disabled","booted_marker":"/w/m1/.officraft-mod-booted",' +
-  '"ack_file":"/w/m1/.officraft-listen-ack",' +
   '"ready_prefixes":["[ocagent] listen: connected","[ocagent] listen: disconnected"],' +
-  '"listener":{"argv":["/w/m1/ocagent","listen","--deliver-mod"],"cwd":"/w/m1",' +
-  '"env":{"OC_LISTEN_ACK":"1","OC_LISTEN_ACK_FILE":"/w/m1/.officraft-listen-ack"}}}\n'
-
-const GRACE_STAND_IN_MS = 30
+  '"listener":{"argv":["/w/m1/ocagent","listen","--deliver-socket"],"cwd":"/w/m1"}}\n'
 
 // What clock.now answers, and the started marker the mod writes from it.
 const NOW_MS = Date.UTC(2026, 9, 2, 3, 4, 5, 678)
 const STARTED = { path: '/w/m1/.officraft-mod-started', text: '2026-10-02T03:04:05.678Z\n' }
+const BOOTED = { path: '/w/m1/.officraft-mod-booted', text: 'booted\n' }
+const LOADED = { path: '/w/m1/.officraft-mod-loaded', text: 'loaded\n' }
 
 const CONNECTED = '[ocagent] listen: connected — streaming http://127.0.0.1:7755/api/events [ts=1.000 local]\n'
 
@@ -26,10 +24,6 @@ type World = {
   throwOn?: string[]
   // Prompts whose submit hook throws before returning anything.
   throwSyncOn?: string[]
-  // Prompts the engine holds before answering, in ms: a busy member's queue.
-  busy?: Record<string, number>
-  // Prompts the engine refuses only after that many ms.
-  dropLate?: Record<string, number>
   disabled?: boolean
   // The warden writes the disabled marker once the listener has started.
   disabledAfterSpawn?: boolean
@@ -77,21 +71,9 @@ function world(on: On, w: World) {
     return answer(e.text)
   })
   const answer = async (text: string) => {
-    const e = { text }
-    if ((w.throwOn ?? []).includes(e.text)) throw new Error('the session is gone')
-    const held = w.busy?.[e.text] ?? w.dropLate?.[e.text]
-    if (held !== undefined) {
-      await new Promise(resolve => setTimeout(resolve, held))
-      trail.push(`answered ${e.text}`)
-      if (w.dropLate?.[e.text] !== undefined) return { drop: 'refused late' }
-    }
-    return (w.refuse ?? []).includes(e.text) ? { drop: 'refused' } : { text: e.text }
+    if ((w.throwOn ?? []).includes(text)) throw new Error('the session is gone')
+    return (w.refuse ?? []).includes(text) ? { drop: 'refused' } : { text }
   }
-  // The acceptance grace, shortened: what matters is which side of it an answer lands.
-  on('clock.sleep', async () => {
-    await new Promise(resolve => setTimeout(resolve, GRACE_STAND_IN_MS))
-    return { value: undefined }
-  })
   on('process.spawn', async function* ($, e) {
     spawned.push({ argv: e.argv, cwd: e.cwd, env: e.env, input: e.input })
     trail.push('spawn')
@@ -102,7 +84,7 @@ function world(on: On, w: World) {
   })
   on('ui.log', ($, e) => {
     logs.push({ text: e.text, to: e.to })
-    if (/^(ocagent listen exited|the boot prompt was refused|the warden fell back)/.test(e.text)) finished()
+    if (/^(ocagent listen exited|the boot prompt was refused|the warden gave up)/.test(e.text)) finished()
     return { value: undefined }
   })
   return { trail, writes, reads, submits, spawned, logs, done }
@@ -119,18 +101,16 @@ async function settled(done: Promise<void>) {
 
 const START = { cwd: '/w/m1', surface: null, isInteractive: false } as const
 
+// No env: the listener inherits this session's messaging socket variables.
 const LISTENER = {
-  argv: ['/w/m1/ocagent', 'listen', '--deliver-mod'],
+  argv: ['/w/m1/ocagent', 'listen', '--deliver-socket'],
   cwd: '/w/m1',
-  env: { OC_LISTEN_ACK: '1', OC_LISTEN_ACK_FILE: '/w/m1/.officraft-listen-ack' },
+  env: undefined,
   input: undefined,
 }
 
-test('under a session start, the boot prompt goes in first, then the listener, then the marker and each payload', async ($, on) => {
-  const w = world(on, {
-    stderr: [CONNECTED],
-    stdout: ['{"submit":"[ocagent] chat from owner (#c-1): 甲\\n    第二行', '"}\n{"batch":"1"}\n'],
-  })
+test('under a session start, the boot prompt goes in first, then the listener, then the load marker', async ($, on) => {
+  const w = world(on, { stderr: [CONNECTED] })
 
   expect(await $.session.start(START)).toEqual({ cwd: '/w/m1' })
   await settled(w.done)
@@ -146,64 +126,39 @@ test('under a session start, the boot prompt goes in first, then the listener, t
     'write /w/m1/.officraft-mod-booted',
     'spawn',
     'write /w/m1/.officraft-mod-loaded',
-    'submit [ocagent] chat from owner (#c-1): 甲\n    第二行',
-    'write /w/m1/.officraft-listen-ack',
   ])
-  expect(w.submits).toEqual([
-    { text: '開始。', asUser: true },
-    { text: '[ocagent] chat from owner (#c-1): 甲\n    第二行', asUser: false },
-  ])
-  expect(w.writes).toEqual([
-    STARTED,
-    { path: '/w/m1/.officraft-mod-booted', text: 'booted\n' },
-    { path: '/w/m1/.officraft-mod-loaded', text: 'loaded\n' },
-    { path: '/w/m1/.officraft-listen-ack', text: 'ack 1\n' },
-  ])
+  expect(w.submits).toEqual([{ text: '開始。', asUser: true }])
+  expect(w.writes).toEqual([STARTED, BOOTED, LOADED])
   expect(w.logs).toEqual([
     { text: CONNECTED, to: 'debug' },
     { text: 'ocagent listen exited (code 0, signal null)', to: 'debug' },
   ])
 })
 
-test('under a listener whose first output is a frame, that frame marks the mod loaded', async ($, on) => {
-  const w = world(on, { stdout: ['{"submit":"[ocagent] listen: disconnected — dial tcp: refused"}\n'] })
+test('under a listener whose first transport line is a disconnect, that line marks the mod loaded', async ($, on) => {
+  const w = world(on, { stderr: ['[ocagent] listen: disconnected — dial tcp: refused\n'] })
 
   await $.session.start(START)
   await settled(w.done)
 
-  expect(w.trail).toEqual([
-    'write /w/m1/.officraft-mod-started',
-    'session.start beneath',
-    'submit 開始。',
-    'write /w/m1/.officraft-mod-booted',
-    'spawn',
-    'write /w/m1/.officraft-mod-loaded',
-    'submit [ocagent] listen: disconnected — dial tcp: refused',
-  ])
+  expect(w.writes).toEqual([STARTED, BOOTED, LOADED])
 })
 
-test('under a listener that refuses to start, no load marker is written', async ($, on) => {
-  // Positive control: the first test, where a transport line writes it.
-  const w = world(on, {
-    stderr: ['[ocagent] listen: --deliver-mod needs OC_SESSION (…); refusing to start.\n'],
+for (const [name, output] of [
+  ['a listener that refuses to start', { stderr: ['[ocagent] listen: --deliver-socket needs OC_SESSION (…); refusing to start.\n'] }],
+  ['a listener that prints only on stdout', { stdout: ['[ocagent] listen: connected\n'] }],
+] as const) {
+  test(`under ${name}, no load marker is written`, async ($, on) => {
+    // Positive control: the first test, where a transport line on stderr writes it.
+    const w = world(on, output)
+
+    await $.session.start(START)
+    await settled(w.done)
+
+    expect(w.spawned).toEqual([LISTENER])
+    expect(w.writes).toEqual([STARTED, BOOTED])
   })
-
-  await $.session.start(START)
-  await settled(w.done)
-
-  expect(w.spawned).toEqual([LISTENER])
-  expect(w.writes).toEqual([STARTED, { path: '/w/m1/.officraft-mod-booted', text: 'booted\n' }])
-})
-
-test('under a listener whose stdout is no frame and that prints no transport line, no load marker is written', async ($, on) => {
-  // Positive control: "first output is a frame", where a frame writes it.
-  const w = world(on, { stdout: ['flag provided but not defined: -x\n'] })
-
-  await $.session.start(START)
-  await settled(w.done)
-
-  expect(w.writes).toEqual([STARTED, { path: '/w/m1/.officraft-mod-booted', text: 'booted\n' }])
-})
+}
 
 for (const [name, refusal] of [
   ['refuses', { refuse: ['開始。'] }],
@@ -224,64 +179,17 @@ for (const [name, refusal] of [
   })
 }
 
-test('under the warden falling back before the listener connected, the mod writes no load marker and stops the listener', async ($, on) => {
-  const w = world(on, { disabledAfterSpawn: true, stderr: [CONNECTED], stdout: ['{"submit":"甲"}\n'] })
+test('under the warden giving up before the listener connected, the mod writes no load marker and stops the listener', async ($, on) => {
+  const w = world(on, { disabledAfterSpawn: true, stderr: [CONNECTED] })
 
   await $.session.start(START)
   await settled(w.done)
 
-  expect(w.writes).toEqual([STARTED, { path: '/w/m1/.officraft-mod-booted', text: 'booted\n' }])
-  expect(w.submits).toEqual([{ text: '開始。', asUser: true }])
+  expect(w.writes).toEqual([STARTED, BOOTED])
+  expect(w.logs.at(-1)).toEqual({ text: 'the warden gave up on this session; stopping this listener', to: 'debug' })
 })
 
-for (const [name, failure] of [
-  ['refused', { refuse: ['乙'] }],
-  ['that throws', { throwOn: ['乙'] }],
-  ['that throws synchronously', { throwSyncOn: ['乙'] }],
-] as const) {
-  test(`under a submit ${name}, its batch is nacked and the next batch starts clean`, async ($, on) => {
-    const w = world(on, {
-      ...failure,
-      stderr: [CONNECTED],
-      stdout: [
-        '{"submit":"甲"}\n{"submit":"乙"}\n{"submit":"丙"}\n{"batch":"1"}\n',
-        '{"submit":"丁"}\n{"batch":"2"}\n',
-      ],
-    })
-
-    await $.session.start(START)
-    await settled(w.done)
-
-    expect(w.submits.map(s => s.text)).toEqual(['開始。', '甲', '乙', '丙', '丁'])
-    expect(w.writes).toEqual([
-      STARTED,
-      { path: '/w/m1/.officraft-mod-booted', text: 'booted\n' },
-    { path: '/w/m1/.officraft-mod-loaded', text: 'loaded\n' },
-      { path: '/w/m1/.officraft-listen-ack', text: 'nack 1\n' },
-      { path: '/w/m1/.officraft-listen-ack', text: 'ack 2\n' },
-    ])
-  })
-}
-
-test('under stdout that is no frame, the line goes to the debug log and nothing is submitted', async ($, on) => {
-  const w = world(on, {
-    stderr: [CONNECTED],
-    stdout: ['flag provided but not defined: -x\n{"other":1}\n'],
-  })
-
-  await $.session.start(START)
-  await settled(w.done)
-
-  expect(w.submits).toEqual([{ text: '開始。', asUser: true }])
-  expect(w.logs).toEqual([
-    { text: CONNECTED, to: 'debug' },
-    { text: 'flag provided but not defined: -x', to: 'debug' },
-    { text: '{"other":1}', to: 'debug' },
-    { text: 'ocagent listen exited (code 0, signal null)', to: 'debug' },
-  ])
-})
-
-test('under the warden having fallen back to pasting, the mod marks its start, submits nothing and starts no listener', async ($, on) => {
+test('under the warden having given up on the session, the mod marks its start, submits nothing and starts no listener', async ($, on) => {
   // Positive control: the first test, where the same start boots and listens.
   const w = world(on, { disabled: true, stderr: [CONNECTED] })
 
@@ -291,7 +199,7 @@ test('under the warden having fallen back to pasting, the mod marks its start, s
   expect(w.trail).toEqual(['write /w/m1/.officraft-mod-started', 'session.start beneath'])
   expect(w.writes).toEqual([STARTED])
   expect(w.logs).toEqual([
-    { text: 'session.start found the warden already fell back to pasting; not booting', to: 'debug' },
+    { text: 'session.start found the warden already gave up on this session; not booting', to: 'debug' },
   ])
 })
 
@@ -335,48 +243,3 @@ for (const [name, config] of [
     expect(w.logs[0]?.to).toBe('debug')
   })
 }
-
-test('under a busy member, a batch is acked once its prompts are queued, not when their turns start', async ($, on) => {
-  // The engine holds 甲 and 乙 for far longer than the grace, as it does while
-  // the member is mid-turn; the listener's ack wait would run out long before.
-  const w = world(on, {
-    busy: { 甲: 400, 乙: 400 },
-    stderr: [CONNECTED],
-    stdout: ['{"submit":"甲"}\n{"submit":"乙"}\n{"batch":"1"}\n'],
-  })
-
-  await $.session.start(START)
-  await settled(w.done)
-  await new Promise(resolve => setTimeout(resolve, 600))
-
-  expect(w.trail).toEqual([
-    'write /w/m1/.officraft-mod-started',
-    'session.start beneath',
-    'submit 開始。',
-    'write /w/m1/.officraft-mod-booted',
-    'spawn',
-    'write /w/m1/.officraft-mod-loaded',
-    'submit 甲',
-    'submit 乙',
-    'write /w/m1/.officraft-listen-ack',
-    'answered 甲',
-    'answered 乙',
-  ])
-  expect(w.writes.at(-1)).toEqual({ path: '/w/m1/.officraft-listen-ack', text: 'ack 1\n' })
-  expect(w.submits.map(s => s.text)).toEqual(['開始。', '甲', '乙'])
-})
-
-test('under a prompt refused after the grace, the batch stays acked and the refusal is logged', async ($, on) => {
-  const w = world(on, {
-    dropLate: { 甲: 200 },
-    stderr: [CONNECTED],
-    stdout: ['{"submit":"甲"}\n{"batch":"1"}\n'],
-  })
-
-  await $.session.start(START)
-  await settled(w.done)
-  await new Promise(resolve => setTimeout(resolve, 400))
-
-  expect(w.writes.at(-1)).toEqual({ path: '/w/m1/.officraft-listen-ack', text: 'ack 1\n' })
-  expect(w.logs.at(-1)).toEqual({ text: 'a queued prompt was dropped (refused late) after it was acked: 甲', to: 'debug' })
-})

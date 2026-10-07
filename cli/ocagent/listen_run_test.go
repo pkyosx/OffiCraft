@@ -1476,7 +1476,7 @@ func TestCmdListen(t *testing.T) {
 			}
 			return 7
 		}
-		rc := cmdListen([]string{"--once", "--deliver-codex"}, cfg, env, &out, &errOut, start, nil)
+		rc := cmdListen([]string{"--once", "--deliver-codex"}, cfg, env, &out, &errOut, start)
 		if rc != 7 {
 			t.Errorf("exit code = %d, want 7", rc)
 		}
@@ -1500,8 +1500,6 @@ func TestCmdListen(t *testing.T) {
 		}{
 			{"missing acknowledgement gate", []string{"--deliver-codex"}, nil},
 			{"disabled acknowledgement gate", []string{"--deliver-codex"}, map[string]string{"OC_LISTEN_ACK": "0"}},
-			{"tmux route", []string{"--deliver-codex", "--deliver-tmux"}, map[string]string{"OC_LISTEN_ACK": "1"}},
-			{"mod route", []string{"--deliver-codex", "--deliver-mod"}, map[string]string{"OC_LISTEN_ACK": "1"}},
 			{"socket route", []string{"--deliver-codex", "--deliver-socket"}, map[string]string{"OC_LISTEN_ACK": "1"}},
 		}
 		for _, tc := range cases {
@@ -1509,7 +1507,7 @@ func TestCmdListen(t *testing.T) {
 				var out, errOut strings.Builder
 				started := false
 				start := func(Config, func(string) string, bool, io.Writer) int { started = true; return 0 }
-				rc := cmdListen(tc.argv, Config{}, testEnv(tc.env), &out, &errOut, start, nil)
+				rc := cmdListen(tc.argv, Config{}, testEnv(tc.env), &out, &errOut, start)
 				if rc != 2 || started {
 					t.Errorf("exit code = %d, started = %v, want 2 and false", rc, started)
 				}
@@ -1534,7 +1532,7 @@ func TestCmdListen(t *testing.T) {
 			return 7
 		}
 
-		rc := cmdListen([]string{"--deliver-socket"}, Config{}, env, &out, &errOut, start, nil)
+		rc := cmdListen([]string{"--deliver-socket"}, Config{}, env, &out, &errOut, start)
 
 		if rc != 7 {
 			t.Errorf("rc = %d, want the run's own answer 7", rc)
@@ -1562,7 +1560,7 @@ func TestCmdListen(t *testing.T) {
 		}
 
 		rc := cmdListen([]string{"--deliver-socket"}, Config{}, testEnv(map[string]string{"OC_SESSION": "member-m1"}),
-			&out, &errOut, start, nil)
+			&out, &errOut, start)
 
 		if rc != 7 || !started {
 			t.Errorf("rc = %d, started = %v; want 7 and true — an exited listener looks like a dead member", rc, started)
@@ -1577,20 +1575,13 @@ func TestCmdListen(t *testing.T) {
 		}
 	})
 
-	t.Run("--deliver-socket refuses a second route or a missing session before starting", func(t *testing.T) {
-		withSession := map[string]string{"OC_SESSION": "member-m1"}
+	t.Run("--deliver-socket refuses a missing session before starting", func(t *testing.T) {
 		for _, tc := range []struct {
 			name    string
 			argv    []string
 			env     map[string]string
 			refusal string
 		}{
-			{"mod route", []string{"--deliver-socket", "--deliver-mod"}, withSession,
-				"[ocagent] listen: --deliver-mod and --deliver-socket are two routes into the same member; " +
-					"pick one. Refusing to start.\n"},
-			{"tmux route", []string{"--deliver-socket", "--deliver-tmux"}, withSession,
-				"[ocagent] listen: --deliver-tmux and --deliver-socket are two routes into the same member; " +
-					"pick one. Refusing to start.\n"},
 			{"no session", []string{"--deliver-socket"}, nil,
 				"[ocagent] listen: --deliver-socket needs OC_SESSION (the session to deliver into, and the session " +
 					"this listener must die with); refusing to start.\n"},
@@ -1600,7 +1591,7 @@ func TestCmdListen(t *testing.T) {
 				started := false
 				start := func(Config, func(string) string, bool, io.Writer) int { started = true; return 0 }
 
-				rc := cmdListen(tc.argv, Config{}, testEnv(tc.env), &out, &errOut, start, nil)
+				rc := cmdListen(tc.argv, Config{}, testEnv(tc.env), &out, &errOut, start)
 
 				if rc != 2 || started {
 					t.Errorf("rc = %d, started = %v; want 2 and false", rc, started)
@@ -1612,6 +1603,39 @@ func TestCmdListen(t *testing.T) {
 					t.Errorf("stdout = %q, want nothing", out.String())
 				}
 			})
+		}
+	})
+
+	t.Run("under no delivery flag, the run writes to the caller's own writer", func(t *testing.T) {
+		var out, errOut strings.Builder
+		start := func(_ Config, _ func(string) string, _ bool, sink io.Writer) int {
+			io.WriteString(sink, "[ocagent] chat #c-9\n")
+			return 0
+		}
+
+		rc := cmdListen(nil, Config{}, testEnv(map[string]string{"OC_SESSION": "member-m1"}), &out, &errOut, start)
+
+		if rc != 0 {
+			t.Errorf("rc = %d, want 0", rc)
+		}
+		if got := out.String(); got != "[ocagent] chat #c-9\n" {
+			t.Errorf("out = %q, want the line itself", got)
+		}
+		if errOut.String() != "" {
+			t.Errorf("errOut = %q, want nothing", errOut.String())
+		}
+	})
+
+	t.Run("under an unknown flag, the listener refuses to start", func(t *testing.T) {
+		var out strings.Builder
+		started := false
+		start := func(Config, func(string) string, bool, io.Writer) int { started = true; return 0 }
+
+		if rc := cmdListen([]string{"--nope"}, Config{}, testEnv(nil), &out, io.Discard, start); rc != 2 {
+			t.Errorf("rc = %d, want 2", rc)
+		}
+		if started {
+			t.Error("the listener was started on a flag parse error")
 		}
 	})
 
@@ -1719,7 +1743,7 @@ func TestNewListener(t *testing.T) {
 			t.Error("ack = nil with OC_LISTEN_ACK=1")
 		}
 		if l.replyCardAck != nil {
-			t.Error("replyCardAck is wired outside the socket route — reply cards would wait on the sidecar or the mod")
+			t.Error("replyCardAck is wired outside the socket route — reply cards would wait on the sidecar")
 		}
 	})
 

@@ -10,103 +10,27 @@ import (
 	"unicode/utf8"
 )
 
-// A claude member's listener does not print for the member to read: its events
-// are delivered into the member's conversation, by one of two routes the warden
-// picks per spawn (cli/ocwarden/spawn.go):
-//   - --deliver-mod: the listener is the child of the member's own Claude Code
-//     notification mod (cli/ocwarden/mod), which submits each payload as a
-//     prompt and answers the ack gate;
-//   - --deliver-tmux: the listener runs beside the member in its own tmux
-//     session and pastes into the member's pane. The fallback for a Claude Code
-//     without mods, or one that did not load the mod.
-//
-// --deliver-socket (listen_socket.go) is a third route the warden does not pick yet.
+// A claude member's listener does not print for the member to read: it runs as
+// a child of the member's own Claude Code, started by the notification mod
+// (cli/ocwarden/mod), and writes each event into that session's messaging
+// socket (--deliver-socket, listen_socket.go).
 
 const listenCodexFlag = "deliver-codex"
 
+// Owner ruling rc-62ede5d63772: anything bigger reaches the member as an id-only
+// notice. It counts the bytes actually delivered, header included.
 const (
-	// Owner ruling rc-62ede5d63772: anything bigger reaches the member as an id-only
-	// notice. It counts the bytes actually delivered, header included, and has to
-	// stay well under set-buffer's argv ceiling (~16.3 KB measured; the exact figure
-	// moves with the socket and buffer name lengths).
 	deliveryMaxBytes = 8 << 10
 
 	oversizedNoticeHeaderRunes = 200
 )
 
-type listenRoute struct {
-	tmux, mod, socket bool
-}
-
-func (r listenRoute) flagNames() []string {
-	var names []string
-	for _, f := range []struct {
-		on   bool
-		name string
-	}{{r.tmux, "--deliver-tmux"}, {r.mod, "--deliver-mod"}, {r.socket, "--deliver-socket"}} {
-		if f.on {
-			names = append(names, f.name)
-		}
-	}
-	return names
-}
-
-func listenSink(out, errOut io.Writer, env func(string) string, route listenRoute, run tmuxRun) (io.Writer, func(), bool) {
-	flags := route.flagNames()
-	if len(flags) == 0 {
-		return out, func() {}, true
-	}
-	if len(flags) > 1 {
-		fmt.Fprint(errOut, agentLinePrefix+"listen: "+flags[0]+" and "+flags[1]+" are two routes "+
-			"into the same member; pick one. Refusing to start.\n")
-		return nil, func() {}, false
-	}
-	socket, session, ok := tmuxSessionFromEnv(env)
-	if !ok {
-		// 🔴 Refuse, do not degrade: without OC_SESSION makeSessionProbe returns
-		// nil, so this listener could never self-exit and would hold the SSE —
-		// i.e. keep a vanished member "online" — forever, saying nothing.
-		w := errOut
-		if route.tmux {
-			w = out
-		}
-		fmt.Fprint(w, agentLinePrefix+"listen: "+flags[0]+" needs OC_SESSION "+
-			"(the session to deliver into, and the session this listener must die with); "+
-			"refusing to start.\n")
-		return nil, func() {}, false
-	}
-	switch {
-	case route.socket:
-		// Missing messaging variables are reported per payload, never refused:
-		// an exited listener looks like a dead member.
-		w := newSocketWriter(env, errOut)
-		return w, w.startPump(), true
-	case route.mod:
-		// Without the ack channel a submit the session refused would still be
-		// marked read on the station.
-		if env(listenAckEnv) != "1" || strings.TrimSpace(env(listenAckFileEnv)) == "" {
-			fmt.Fprint(errOut, agentLinePrefix+"listen: --deliver-mod needs "+listenAckEnv+"=1 and "+
-				listenAckFileEnv+" (the file the mod answers each batch in); refusing to start.\n")
-			return nil, func() {}, false
-		}
-		w := newModWriter(out, errOut)
-		return w, w.start(), true
-	}
-	w := newPaneWriter(out, socket, session, run, nil)
-	return w, w.start(), true
-}
-
-// Claude delivery must pass through listenSink; raw stdout never reaches its conversation.
+// Claude delivery must pass through the socket route; raw stdout never reaches its conversation.
 func cmdListen(argv []string, cfg Config, env func(string) string, out, errOut io.Writer,
-	start func(Config, func(string) string, bool, io.Writer) int, run tmuxRun) int {
+	start func(Config, func(string) string, bool, io.Writer) int) int {
 	fs := flag.NewFlagSet("ocagent listen", flag.ContinueOnError)
 	fs.SetOutput(out)
 	once := fs.Bool("once", false, "do a single connect then return (test/diagnostic hook)")
-	deliverTmux := fs.Bool("deliver-tmux", false,
-		"run beside the member: deliver each event into OC_SESSION's pane instead of expecting it to read this stdout")
-	deliverMod := fs.Bool("deliver-mod", false,
-		"run under the member's notification mod: print one JSON frame per line on stdout "+
-			"(submit payloads and batch markers), diagnostics on stderr, acks read from OC_LISTEN_ACK_FILE")
 	deliverSocket := fs.Bool("deliver-socket", false,
 		"run under the member's own Claude Code: write each payload into its messaging socket "+
 			"("+messagingSocketEnv+", "+messagingTokenEnv+"), diagnostics on stderr")
@@ -115,19 +39,30 @@ func cmdListen(argv []string, cfg Config, env func(string) string, out, errOut i
 		return 2
 	}
 	if *deliverCodex {
-		if *deliverTmux || *deliverMod || *deliverSocket || env(listenAckEnv) != "1" {
+		if *deliverSocket || env(listenAckEnv) != "1" {
 			fmt.Fprint(errOut, agentLinePrefix+"listen: --deliver-codex requires OC_LISTEN_ACK=1 and cannot be combined with other delivery routes\n")
 			return 2
 		}
 		return start(cfg, env, *once, &codexFrameWriter{out: out})
 	}
-	route := listenRoute{tmux: *deliverTmux, mod: *deliverMod, socket: *deliverSocket}
-	sink, stop, ok := listenSink(out, errOut, env, route, run)
-	if !ok {
+	if !*deliverSocket {
+		return start(cfg, env, *once, out)
+	}
+	if _, _, ok := tmuxSessionFromEnv(env); !ok {
+		// 🔴 Refuse, do not degrade: without OC_SESSION makeSessionProbe returns
+		// nil, so this listener could never self-exit and would hold the SSE —
+		// i.e. keep a vanished member "online" — forever, saying nothing.
+		fmt.Fprint(errOut, agentLinePrefix+"listen: --deliver-socket needs OC_SESSION "+
+			"(the session to deliver into, and the session this listener must die with); "+
+			"refusing to start.\n")
 		return 2
 	}
+	// Missing messaging variables are reported per payload, never refused:
+	// an exited listener looks like a dead member.
+	w := newSocketWriter(env, errOut)
+	stop := w.startPump()
 	defer stop()
-	return start(cfg, env, *once, sink)
+	return start(cfg, env, *once, w)
 }
 
 // Packs whole events (a column-0 line plus its indented continuation lines) into
@@ -193,9 +128,8 @@ type deliveryItem struct {
 	batch string
 }
 
-// deliveryQueue is what the routes that answer the ack gate share: lines are
-// QUEUED for a pump, never delivered inline — Write runs inside the SSE scan
-// loop, whose idle-read watchdog resets only on reads.
+// deliveryQueue: lines are QUEUED for a pump, never delivered inline — Write
+// runs inside the SSE scan loop, whose idle-read watchdog resets only on reads.
 type deliveryQueue struct {
 	diag io.Writer
 
@@ -236,8 +170,11 @@ func (q *deliveryQueue) start(drain func()) func() {
 	}
 }
 
+// Every transport line also goes to diag, forwarded or not: the mod writes its
+// load marker only on seeing one there (cli/ocwarden/mod), and a first dial that
+// fails forwards the disconnect and spends the swallowed boot connect.
 func (q *deliveryQueue) Write(p []byte) (int, error) {
-	var unforwarded []string
+	var diagLines []string
 	q.mu.Lock()
 	q.pending.Write(p)
 	for {
@@ -249,16 +186,19 @@ func (q *deliveryQueue) Write(p []byte) (int, error) {
 			q.queued = append(q.queued, deliveryItem{batch: token})
 		} else if q.filter.shouldForward(line) {
 			q.queued = append(q.queued, deliveryItem{line: line})
+			if strings.HasPrefix(line, agentLinePrefix+"listen:") {
+				diagLines = append(diagLines, line)
+			}
 		} else {
-			unforwarded = append(unforwarded, line)
+			diagLines = append(diagLines, line)
 		}
 	}
 	queued := len(q.queued)
 	q.mu.Unlock()
 
-	if len(unforwarded) > 0 {
+	if len(diagLines) > 0 {
 		q.diagMu.Lock()
-		_, _ = io.WriteString(q.diag, strings.Join(unforwarded, "\n")+"\n")
+		_, _ = io.WriteString(q.diag, strings.Join(diagLines, "\n")+"\n")
 		q.diagMu.Unlock()
 	}
 	if queued > 0 {
@@ -338,8 +278,8 @@ type bootConnectFilter struct {
 }
 
 // The connect that opens a BOOT is swallowed: the boot turn is already running
-// or queued (pasted by the warden, or submitted by the mod before it starts the
-// listener) and reads the station itself. Later connects mean "the stream is
+// or queued (submitted by the mod before it starts the listener) and reads the
+// station itself. Later connects mean "the stream is
 // back" and are forwarded.
 //
 // 🔴 "Opens a boot" ≠ "first connect printed": if the first dial fails, the

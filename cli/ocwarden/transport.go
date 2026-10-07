@@ -484,7 +484,7 @@ func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner, lau
 			).start(p)
 		},
 		Stop: func(session string) (bool, bool) {
-			// A paste-route `ocagent listen` is detached and never receives the
+			// An `ocagent listen` that outlived its Claude Code never receives the
 			// session's SIGHUP, so the sweep finds it by workdir (lsof) and reaps it
 			// by pid. A legacy
 			// worker-<ow-id> session resolves the retired workers/ root; an unresolvable

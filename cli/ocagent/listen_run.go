@@ -50,9 +50,8 @@ type listener struct {
 	// Not a chat ledger (owner ruling rc-224dee5770dd): the server's unread set
 	// is the only record of what this listener has surfaced.
 	drainWarn *drainWarner
-	// Non-nil only under OC_LISTEN_ACK (the codex sidecar, the claude
-	// notification mod). nil ⇒ a printed line counts as delivered: the paste
-	// route, which must stay byte-for-byte as is.
+	// Non-nil under OC_LISTEN_ACK (the codex sidecar) and on the socket route.
+	// nil ⇒ a printed line counts as delivered.
 	ack *ackGate
 	// Non-nil only on the socket route: a reply card is recorded seen once its
 	// write succeeded, so a failed one is surfaced again.
@@ -479,7 +478,7 @@ func runListen(cfg Config, env func(string) string, once bool, out io.Writer) in
 // its listener directly stayed green while the feature was gone.
 func newListener(cfg Config, env func(string) string, out io.Writer, once bool, stamper *eventStamper) *listener {
 	api := defaultHTTPClient()
-	ack := newAckGate(env, os.Stdin, os.Stderr)
+	ack := newAckGate(env, os.Stdin)
 	var replyCardAck *ackGate
 	if sink := socketSinkOf(out); sink != nil {
 		ack = sink.ackGate()

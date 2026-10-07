@@ -107,19 +107,30 @@ func TestReadHooksModulesFlag(t *testing.T) {
 	})
 }
 
-func TestNotifyModNotLoadedNoteNamesBothFlagValues(t *testing.T) {
-	got := notifyModNotLoadedNote([]hooksModulesFlag{{Value: "false"}, {Value: "true"}})
-	if want := "已自動重啟 Claude Code 一次仍沒載入；啟動前快取的開關：第 1 次 false、第 2 次 true。"; !strings.Contains(got, want) {
-		t.Errorf("note = %q, want it to contain %q", got, want)
-	}
-	if got := notifyModNotLoadedNote([]hooksModulesFlag{{Value: "false"}}); strings.Contains(got, "重啟") {
-		t.Errorf("note without a restart = %q, want no restart sentence", got)
-	}
+func TestNotifyModNotLoadedReason(t *testing.T) {
+	t.Run("under a restart, the reason names both cached flag values", func(t *testing.T) {
+		got := notifyModNotLoadedReason([]hooksModulesFlag{{Value: "false"}, {Value: "true"}})
+		want := "notify_mod_not_loaded: 通知模組沒有載入，成員收不到 OffiCraft 訊息，已停止上線。" +
+			"已自動重啟 Claude Code 一次仍沒載入；啟動前快取的開關：第 1 次 false、第 2 次 true。" +
+			"常見原因：工作目錄未信任、disableAllHooks、--safe-mode、受管設定擋掉 --plugin-dir。"
+		if got != want {
+			t.Errorf("reason =\n%q\nwant\n%q", got, want)
+		}
+	})
+
+	t.Run("under one attempt, the reason has no restart sentence", func(t *testing.T) {
+		got := notifyModNotLoadedReason([]hooksModulesFlag{{Value: "false"}})
+		want := "notify_mod_not_loaded: 通知模組沒有載入，成員收不到 OffiCraft 訊息，已停止上線。" +
+			"常見原因：工作目錄未信任、disableAllHooks、--safe-mode、受管設定擋掉 --plugin-dir。"
+		if got != want {
+			t.Errorf("reason =\n%q\nwant\n%q", got, want)
+		}
+	})
 }
 
 // The station truncates last_op_reason at commandResultReasonMax bytes, read
 // here from the server source so the two cannot drift apart.
-func TestNotifyNotesFitStationReasonCap(t *testing.T) {
+func TestNotifyReasonsFitStationReasonCap(t *testing.T) {
 	src, err := os.ReadFile(filepath.Join("..", "..", "server", "ocserverd", "api_monitoring.go"))
 	if err != nil {
 		t.Fatalf("read the station's cap: %v", err)
@@ -133,15 +144,15 @@ func TestNotifyNotesFitStationReasonCap(t *testing.T) {
 	// longest of its own words.
 	capped := hooksModulesFlag{Value: "…" + strings.Repeat("x", hooksModulesFlagValueCap)}
 	unreadable := hooksModulesFlag{Value: "unreadable"}
-	notes := map[string]string{
-		"not loaded, no restart":               notifyModNotLoadedNote([]hooksModulesFlag{unreadable}),
-		"not loaded after restart, unreadable": notifyModNotLoadedNote([]hooksModulesFlag{unreadable, unreadable}),
-		"not loaded after restart, capped":     notifyModNotLoadedNote([]hooksModulesFlag{capped, capped}),
-		"legacy paste, long version":           notifyLegacyPasteNote(strings.Repeat("9", 16) + "." + strings.Repeat("9", 16)),
+	reasons := map[string]string{
+		"not loaded, no restart":               notifyModNotLoadedReason([]hooksModulesFlag{unreadable}),
+		"not loaded after restart, unreadable": notifyModNotLoadedReason([]hooksModulesFlag{unreadable, unreadable}),
+		"not loaded after restart, capped":     notifyModNotLoadedReason([]hooksModulesFlag{capped, capped}),
+		"too old, long version":                notifyClaudeTooOldReason(strings.Repeat("9", 16) + "." + strings.Repeat("9", 16)),
 	}
-	for name, note := range notes {
-		if len(note) > limit {
-			t.Errorf("%s: %d bytes > the station's %d, so the owner sees it cut off: %q", name, len(note), limit, note)
+	for name, reason := range reasons {
+		if len(reason) > limit {
+			t.Errorf("%s: %d bytes > the station's %d, so the owner sees it cut off: %q", name, len(reason), limit, reason)
 		}
 	}
 }

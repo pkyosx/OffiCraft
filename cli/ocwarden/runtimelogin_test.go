@@ -618,7 +618,8 @@ func TestLoginRunsUnderTheMemberSpawnEnvironment(t *testing.T) {
 				ClaudeBin: claudeBin, ClaudeHome: ch, RepoRoot: root,
 				ResolveOcAgentBin: func() (string, bool) { return claudeBin, true },
 				WriteFile:         osWriteFile, MkdirAll: os.MkdirAll, Symlink: os.Symlink, Remove: os.Remove,
-				Sleep: func(time.Duration) {},
+				Exists: func(path string) bool { return path == filepath.Join(agents, "m1", notifyModLoadedMarker) },
+				Sleep:  func(time.Duration) {},
 			}
 			if out := spawn.start(StartParams{MemberID: "m1", PersonaContext: "you are m1", MemberToken: "jwt-m1"}); !out.OK {
 				t.Fatalf("spawn refused: %+v", out)

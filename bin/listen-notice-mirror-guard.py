@@ -122,7 +122,6 @@ PRODUCER_DELIVER = "cli/ocagent/listen_deliver.go"
 CONSUMER = "cli/ocwarden/codex_session.go"
 SPAWNER = "cli/ocwarden/spawn.go"
 TMUX = "cli/ocwarden/tmux.go"
-NOTIFY_MOD = "cli/ocwarden/notifymod.go"
 
 # Environment names the spawner exports and the member reads: same constant name
 # on both sides, value compared for equality.
@@ -144,8 +143,6 @@ WANTED: Tuple[Tuple[str, str], ...] = (
     (CONSUMER, "noticeBatchPrefix"),
     (CONSUMER, "noticeTransportHead"),
     (CONSUMER, "listenAckEnv"),
-    (PRODUCER_ACK, "listenAckFileEnv"),
-    (NOTIFY_MOD, "listenAckFileEnv"),
     (PRODUCER_DELIVER, "listenCodexFlag"),
     (CONSUMER, "listenCodexFlag"),
 ) + tuple((side, name) for name in SPAWN_ENV for side in (SPAWNER, PRODUCER_ACK)) + (
@@ -432,14 +429,6 @@ def compare(values: Dict[Tuple[str, str], str]) -> List[str]:
             f"the listener reads {ack_a!r} from its environment but the sidecar sets "
             f"{ack_b!r} — the ack gate never turns on and every undelivered message "
             "is marked read"
-        )
-
-    file_a, file_b = values.get((PRODUCER_ACK, "listenAckFileEnv")), values.get((NOTIFY_MOD, "listenAckFileEnv"))
-    if file_a is not None and file_b is not None and file_a != file_b:
-        rows.append(
-            f"the listener reads its ack file from {file_a!r} but the warden hands the "
-            f"notification mod {file_b!r} — the listener refuses --deliver-mod and the "
-            "member falls back to the tmux paste route"
         )
 
     flag_a, flag_b = values.get((PRODUCER_DELIVER, "listenCodexFlag")), values.get((CONSUMER, "listenCodexFlag"))

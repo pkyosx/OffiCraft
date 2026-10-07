@@ -1062,9 +1062,6 @@ func TestBuildCommandDeps(t *testing.T) {
 
 		slept = 0
 		got := d.Spawn(StartParams{MemberID: "m1", PersonaContext: "p", MemberToken: "jwt", Role: "builder"})
-		if !got.OK {
-			t.Fatalf("outcome = %+v, want OK", got)
-		}
 		// The pre-trust landed in the file the launch line states, not in the one
 		// the agent env asked for.
 		trusted := filepath.Join(wardenHome, ".claude.json")
@@ -1084,16 +1081,15 @@ func TestBuildCommandDeps(t *testing.T) {
 			t.Fatalf("startup changed user MCP settings or failed to trust workdir: %s", raw)
 		}
 		// No member really ran, so the notification mod never wrote its marker,
-		// not after the one restart either: that advisory is the only one this
-		// spawn may carry. The seed has no feature cache, so both reads say absent.
-		wantNote := goldenNotifyModRetriedNote
-		if got.Note != wantNote {
-			t.Fatalf("startup note = %q, want only the mod fallback after one restart", got.Note)
+		// not after the one restart either. The seed has no feature cache, so both
+		// reads say absent.
+		if want := (SpawnOutcome{OK: false, Reason: goldenNotifyModRetriedReason}); got != want {
+			t.Fatalf("outcome = %+v, want %+v", got, want)
 		}
-		// The restart went through the production teardown (stop()'s ladder) and
-		// launched the member a second time.
-		if n := countCalls(runner.calls, "tmux -L officraft kill-session -t member-m1"); n != 1 {
-			t.Errorf("the first attempt was killed %d times, want once:\n%v", n, runner.calls)
+		// The restart and the give-up went through the production teardown
+		// (stop()'s ladder), and the member was launched a second time.
+		if n := countCalls(runner.calls, "tmux -L officraft kill-session -t member-m1"); n != 2 {
+			t.Errorf("the member was killed %d times, want twice:\n%v", n, runner.calls)
 		}
 		if n := countCalls(runner.calls, "new-session -d -s member-m1"); n != 2 {
 			t.Errorf("the member was launched %d times, want twice", n)
@@ -1163,8 +1159,8 @@ func TestBuildCommandDeps(t *testing.T) {
 		}}
 		d := buildCommandDeps(Config{Base: "https://station.example"}, spawnEnv, pidGuardRunner{t, runner}, nil, nil)
 
-		if got := d.Spawn(StartParams{MemberID: "m1", PersonaContext: "p", MemberToken: "jwt", Role: "builder"}); !got.OK {
-			t.Fatalf("outcome = %+v, want OK", got)
+		if got := d.Spawn(StartParams{MemberID: "m1", PersonaContext: "p", MemberToken: "jwt", Role: "builder"}); got.Reason != goldenNotifyModRetriedReason {
+			t.Fatalf("outcome = %+v, want a spawn that ran through the launch to the mod wait", got)
 		}
 		if _, err := os.Stat(filepath.Join(configDir, ".claude.json")); err != nil {
 			t.Errorf("pre-trust did not write the redirected file: %v", err)
