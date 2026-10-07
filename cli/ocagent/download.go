@@ -35,9 +35,9 @@ or a task artifact) and writes it to a local file, streamed straight to disk.
              tmp/attachments/ under the current directory.
 
 The file is named after the attachment's stored filename, reduced to its last
-path component; an image, or an attachment with no usable name, is named after
-its id. A file already at that path is overwritten. The flag may come before
-or after the id.
+path component; an attachment with no usable name is named after its id. A
+file already at that path is overwritten. The flag may come before or after
+the id.
 
 stdout on success: one line, the absolute path of the written file.
 Diagnostics, including a one-line summary of what was written, go to stderr.

@@ -126,7 +126,7 @@ export function looksTextualByName(name: string): boolean {
  * the live artifact and left `name` — an author-chosen title with no extension
  * — in its place, so a `.md` report pinned as 「週報 v3」 has nothing in the
  * JSON that says "text". The bytes response does: the server writes
- * `filename="…"; filename*=UTF-8''…` on every non-image attachment
+ * `filename="…"; filename*=UTF-8''…` on every attachment
  * (api_chat.go), and this panel is already fetching exactly that response.
  *
  * `filename*` wins when both are present — it is the one that survives
