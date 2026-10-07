@@ -148,7 +148,6 @@
                   "type": "null"
                 }
               ],
-              "description": "Cockpit language.",
               "title": "Display Language"
             },
             "display_theme": {
@@ -160,7 +159,6 @@
                   "type": "null"
                 }
               ],
-              "description": "Cockpit theme.",
               "title": "Display Theme"
             },
             "display_wide": {
@@ -172,7 +170,6 @@
                   "type": "null"
                 }
               ],
-              "description": "Wide cockpit layout.",
               "title": "Display Wide"
             },
             "display_seasonal_theme": {
@@ -184,7 +181,6 @@
                   "type": "null"
                 }
               ],
-              "description": "Seasonal theme.",
               "title": "Display Seasonal Theme"
             },
             "handover_pct": {
