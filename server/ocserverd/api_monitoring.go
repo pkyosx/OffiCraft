@@ -185,26 +185,28 @@ var wardenLoginRefusalRuntime = map[string]string{
 	"codex_not_logged_in":  RuntimeCodex,
 }
 
-func isWardenLoginRefusal(reason string) bool {
+const claudeTooOldRefusalCode = "notify_claude_too_old"
+
+// isWardenMachineSetupRefusal: the warden refused the START because of how the
+// machine is set up, so the owner reads that refusal on 最近操作 until it is fixed.
+func isWardenMachineSetupRefusal(reason string) bool {
 	code, _, found := strings.Cut(reason, ":")
 	_, isLogin := wardenLoginRefusalRuntime[code]
-	return found && isLogin
+	return found && (isLogin || code == claudeTooOldRefusalCode)
 }
 
-// loginRefusalNamingMachine rewrites a warden's not-logged-in refusal into the
-// sentence placement writes, naming the reporting machine the warden's own text
-// cannot; the cockpit localizes that one sentence. The warden's text is kept as
-// the log.
+// machineSetupRefusalOnReceipt stamps a warden's machine-setup refusal with the
+// server's receipt time: wakeTimeoutYieldsToReceipt compares it with the
+// server-clock start anchor, and the warden's own stamp is whole seconds on the
+// machine's clock — a refusal of this start would read as older than the start
+// and lose to wake_timeout.
 //
-// Its `at` becomes the server's receipt time: wakeTimeoutYieldsToReceipt compares
-// it with the server-clock start anchor, and the warden's own stamp is whole
-// seconds on the machine's clock — a refusal of this start would read as older
-// than the start and lose to wake_timeout.
-func loginRefusalNamingMachine(commandResult map[string]any, reporter string) map[string]any {
+// A not-logged-in refusal is also rewritten into the sentence placement writes,
+// naming the reporting machine the warden's own text cannot; the cockpit
+// localizes that one sentence. The warden's text is kept as the log.
+func machineSetupRefusalOnReceipt(commandResult map[string]any, reporter string) map[string]any {
 	reason := stringOf(commandResult["reason"])
-	code, _, found := strings.Cut(reason, ":")
-	runtime, isLogin := wardenLoginRefusalRuntime[code]
-	if !found || !isLogin {
+	if !isWardenMachineSetupRefusal(reason) {
 		return commandResult
 	}
 	out := make(map[string]any, len(commandResult)+1)
@@ -212,7 +214,9 @@ func loginRefusalNamingMachine(commandResult map[string]any, reporter string) ma
 		out[k] = v
 	}
 	out["at"] = nowSecs()
-	if reporter == "" {
+	code, _, _ := strings.Cut(reason, ":")
+	runtime, isLogin := wardenLoginRefusalRuntime[code]
+	if !isLogin || reporter == "" {
 		return out
 	}
 	if _, hasLog := out["log"].(string); !hasLog {
@@ -263,7 +267,7 @@ func (s *apiServer) foldCommandResult(commandResult map[string]any, trigger, rep
 				strings.TrimSpace(memberIDRawOf(commandResult)), reporter)
 		}
 	}
-	commandResult = loginRefusalNamingMachine(commandResult, reporter)
+	commandResult = machineSetupRefusalOnReceipt(commandResult, reporter)
 	if workerID := strings.TrimSpace(workerIDRaw); workerID != "" {
 		s.foldWorkerCommandResult(workerID, commandResult, trigger)
 		return

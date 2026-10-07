@@ -15,8 +15,8 @@ import (
 // long-running older session can rewrite to false. A member started on that
 // stale false never runs the mod; the same start then fetches true and caches
 // it, so a second start a moment later does run it. Hence ONE restart before
-// the paste fallback (retryNotifyMod), and these names, logged read-only before
-// each attempt and at the fallback. They are Claude Code's names, not ours: if
+// the start fails (retryNotifyMod), and these names, logged read-only before
+// each attempt and at the give-up. They are Claude Code's names, not ours: if
 // it renames them the log reads "absent" and nothing else changes.
 const (
 	claudeHooksModulesFlag      = "tengu_plugin_hooks_modules"
@@ -130,18 +130,18 @@ type notifyModRetry struct {
 	relaunched bool
 	launchedAt time.Time
 	flag       hooksModulesFlag
-	// The disabled marker is in place, so the fallback need not write it again.
+	// The disabled marker is in place, so the give-up need not write it again.
 	disabled   bool
 	failReason string
 }
 
 // retryNotifyMod runs when the first wait ended without the load marker. It
 // restarts Claude Code ONCE, and only when the first one provably never ran the
-// mod: then nothing was submitted (the mod submits the boot prompt, the warden
-// pasted none), no listener ever connected, and nothing was marked read, so
-// killing it loses nothing and the restart's boot is the member's only one. A
-// mod that started or booted is left to the paste fallback as before: a restart
-// there could boot the member twice.
+// mod: then nothing was submitted (only the mod submits the boot prompt), no
+// listener ever connected, and nothing was marked read, so killing it loses
+// nothing and the restart's boot is the member's only one. A mod that started or
+// booted is not restarted, since that could boot the member twice; the start
+// fails instead.
 //
 // The launch line is reused as is: a normal stop + wake starts a fresh session
 // with the same line too (no --resume), and this first one never had a turn.
@@ -170,11 +170,11 @@ func (d SpawnDeps) retryNotifyMod(memberID, workdir, socket, session, command st
 	}
 	d.logf("%s: notify-mod: attempt 1 did not run the mod; restarting Claude Code once", memberID)
 	// The first attempt's screen, before it is gone.
-	d.logNotifyModFallback(memberID, workdir, socket, session, launchedAt)
+	d.logNotifyModNotLoaded(memberID, workdir, socket, session, launchedAt)
 	if !d.StopAttempt(socket, session, workdir) {
 		// stop() is killed && swept: a session already gone with a sweep survivor
-		// is false too, and pasting into that missing pane would report a member
-		// that is not there as started. An unknown probe (nil) counts as alive.
+		// is false too, and that is a failed spawn of its own, not a mod that did
+		// not load. An unknown probe (nil) counts as alive.
 		if has := tmuxHasSession(d.Runner, socket, session); has != nil && !*has {
 			out.failReason = "spawn_exec_failed: restarting after the notification mod did not load: " +
 				"attempt 1's tmux session is gone but its teardown did not finish (a process survived the sweep); no restart"

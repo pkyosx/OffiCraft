@@ -472,6 +472,50 @@ func TestFoldCommandResult(t *testing.T) {
 		}
 	})
 
+	t.Run("under a warden's Claude-Code-too-old refusal, the reason and log stay as the warden wrote them and last_op_at is the server's receipt time", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		before := apiTestMemberRow(t, d, "kip")
+		text := "notify_claude_too_old: 這台機器的 Claude Code 是 2.1.200，低於 2.1.287，Claude 成員無法上線。" +
+			"請到監控頁的機器分頁升級這台機器的 Claude Code。"
+
+		received := nowSecs()
+		api.foldCommandResult(map[string]any{
+			"member_id": "kip", "rpc": "start", "ok": false,
+			"reason": text, "log": text, "at": "2024-07-03T09:46:40Z",
+		}, "telemetry", "m-studio")
+		got := apiTestMemberRow(t, d, "kip")
+
+		if got.LastOpAt < received || got.LastOpAt > nowSecs() {
+			t.Fatalf("last_op_at = %v, want the server's receipt time (>= %v), not the machine's stamp", got.LastOpAt, received)
+		}
+		want := before
+		want.LastOp = "start"
+		want.LastOpOK = boolPtr(false)
+		want.LastOpReason = text
+		want.LastOpLog = text
+		want.LastOpAt = got.LastOpAt
+		apiTestWantEqual(t, "stored member", got, want)
+	})
+
+	t.Run("under a warden's mod-not-loaded refusal, last_op_at keeps the machine's stamp", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		before := apiTestMemberRow(t, d, "kip")
+		text := "notify_mod_not_loaded: 通知模組沒有載入，成員收不到 OffiCraft 訊息，已停止上線。"
+
+		api.foldCommandResult(map[string]any{
+			"member_id": "kip", "rpc": "start", "ok": false,
+			"reason": text, "log": text, "at": "2024-07-03T09:46:40Z",
+		}, "telemetry", "m-studio")
+
+		want := before
+		want.LastOp = "start"
+		want.LastOpOK = boolPtr(false)
+		want.LastOpReason = text
+		want.LastOpLog = text
+		want.LastOpAt = 1720000000
+		apiTestWantEqual(t, "stored member", apiTestMemberRow(t, d, "kip"), want)
+	})
+
 	t.Run("under a not-logged-in refusal from a machine other than the member's pin, the reason names the reporting machine", func(t *testing.T) {
 		api, _, d, _ := newAPITestServer(t)
 		if err := d.SetMemberDesiredMachineID("kip", "m-other"); err != nil {

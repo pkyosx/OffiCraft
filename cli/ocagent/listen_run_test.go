@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -731,6 +732,30 @@ func TestAuthoritativeRefusal(t *testing.T) {
 	}
 }
 
+// steppedBody hands the scanner one step's text per Read, running the step's
+// before hook first: the scanner consumes every line of a step before the next
+// hook runs.
+type steppedBody struct {
+	steps []bodyStep
+}
+
+type bodyStep struct {
+	before func()
+	text   string
+}
+
+func (b *steppedBody) Read(p []byte) (int, error) {
+	if len(b.steps) == 0 {
+		return 0, io.EOF
+	}
+	step := b.steps[0]
+	b.steps = b.steps[1:]
+	if step.before != nil {
+		step.before()
+	}
+	return copy(p, step.text), nil
+}
+
 func TestConnectOnce(t *testing.T) {
 	const connected = "[ocagent] listen: connected — streaming http://station/api/events " +
 		"(⇒ online while held)"
@@ -1070,6 +1095,342 @@ func TestConnectOnce(t *testing.T) {
 		want := connected + "\n" +
 			"[ocagent] listen: tmux session gone (2 consecutive misses) — self-exiting so " +
 			"no orphan holds the SSE.\n"
+		if out.String() != want {
+			t.Errorf("printed %q, want %q", out.String(), want)
+		}
+	})
+
+	unreadChatAPI := func() *routedHTTP {
+		return newRoutedHTTP(map[string]string{
+			"/api/reply-cards?status=answered": `[]`,
+			"/api/reply-cards?status=expired":  `[]`,
+			"/api/chat?recipient=kyle&unread=true&limit=50": `{"messages":` +
+				`[{"id":"c1","from":"boss","to":"kyle","body":"你在嗎","ts":1787148000}]}`,
+			"/api/chat/mark-read": `{}`,
+		})
+	}
+	socketListener := func(t *testing.T, socketPath string, api httpClient, steps ...bodyStep) (*listener, *socketWriter) {
+		t.Helper()
+		w := newSocketWriter(messagingEnv(socketPath), io.Discard)
+		t.Cleanup(w.startPump())
+		tr := &stubTransport{reply: func(int, *http.Request) (*http.Response, error) {
+			resp := sseReply(200, nil, "")
+			resp.Body = io.NopCloser(&steppedBody{steps: steps})
+			return resp, nil
+		}}
+		l := newRunListener(t, runCfg(t), w, api, tr)
+		l.clock = func() time.Time { return time.Unix(1787148090, 0) }
+		l.ack = w.ackGate()
+		l.replyCardAck = l.ack
+		return l, w
+	}
+	connectDrain := []string{
+		"/api/reply-cards?status=answered",
+		"/api/reply-cards?status=expired",
+		"/api/chat?recipient=kyle&unread=true&limit=50",
+	}
+	const chatPayload = "[ocagent] chat from boss (#c1, 1m ago): 你在嗎"
+
+	t.Run("on the socket route a chat the session never got is delivered and marked read on the next heartbeat", func(t *testing.T) {
+		inbox := newInboxSocket(t, false)
+		api := unreadChatAPI()
+		var w *socketWriter
+		l, w := socketListener(t, filepath.Join(shortSocketDir(t), "gone.sock"), api,
+			bodyStep{before: func() { w.socketPath = inbox.path }, text: ": heartbeat\n\n"})
+
+		l.connectOnce(context.Background())
+
+		wantAsked := append(append([]string{}, connectDrain...), append(connectDrain, "/api/chat/mark-read")...)
+		if !reflect.DeepEqual(api.asked, wantAsked) {
+			t.Errorf("asked\n  %v\nwant\n  %v", api.asked, wantAsked)
+		}
+		if got, want := inbox.written(), sessionWrites(t, chatPayload); !reflect.DeepEqual(got, want) {
+			t.Errorf("written =\n%q\nwant\n%q", got, want)
+		}
+	})
+
+	t.Run("on the socket route a heartbeat with nothing undelivered drains nothing", func(t *testing.T) {
+		inbox := newInboxSocket(t, false)
+		api := unreadChatAPI()
+		l, _ := socketListener(t, inbox.path, api,
+			bodyStep{text: ": heartbeat\n\n"}, bodyStep{text: ": heartbeat\n\n"})
+
+		l.connectOnce(context.Background())
+
+		wantAsked := append(append([]string{}, connectDrain...), "/api/chat/mark-read")
+		if !reflect.DeepEqual(api.asked, wantAsked) {
+			t.Errorf("asked\n  %v\nwant\n  %v", api.asked, wantAsked)
+		}
+		if got, want := inbox.written(), sessionWrites(t, chatPayload); !reflect.DeepEqual(got, want) {
+			t.Errorf("written =\n%q\nwant\n%q", got, want)
+		}
+	})
+
+	t.Run("on the socket route an undelivered chat is retried on every heartbeat until it lands, then no more", func(t *testing.T) {
+		inbox := newInboxSocket(t, false)
+		api := unreadChatAPI()
+		var w *socketWriter
+		l, w := socketListener(t, filepath.Join(shortSocketDir(t), "gone.sock"), api,
+			bodyStep{text: ": heartbeat\n\n"},
+			bodyStep{before: func() { w.socketPath = inbox.path }, text: ": heartbeat\n\n"},
+			bodyStep{text: ": heartbeat\n\n"})
+
+		l.connectOnce(context.Background())
+
+		var wantAsked []string
+		wantAsked = append(wantAsked, connectDrain...)
+		wantAsked = append(wantAsked, connectDrain...)
+		wantAsked = append(wantAsked, connectDrain...)
+		wantAsked = append(wantAsked, "/api/chat/mark-read")
+		if !reflect.DeepEqual(api.asked, wantAsked) {
+			t.Errorf("asked\n  %v\nwant\n  %v", api.asked, wantAsked)
+		}
+		if got, want := inbox.written(), sessionWrites(t, chatPayload); !reflect.DeepEqual(got, want) {
+			t.Errorf("written =\n%q\nwant\n%q", got, want)
+		}
+	})
+
+	waitIdle := func(t *testing.T, w *socketWriter) {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for !w.idle() {
+			if time.Now().After(deadline) {
+				t.Fatal("the pump never finished its queue")
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+	const chatUnread = "/api/chat?recipient=kyle&unread=true&limit=50"
+	const heartbeat = ": heartbeat\n\n"
+
+	t.Run("on the socket route a chat whose ack timed out is delivered on the first heartbeat after the pump catches up", func(t *testing.T) {
+		hung := newInboxSocket(t, true)
+		inbox := newInboxSocket(t, false)
+		api := unreadChatAPI()
+		var l *listener
+		var w *socketWriter
+		l, w = socketListener(t, hung.path, api,
+			bodyStep{before: func() {
+				waitIdle(t, w)
+				w.socketPath = inbox.path
+				l.ack.wait = 10 * time.Second
+			}, text: heartbeat},
+			bodyStep{text: heartbeat})
+		w.timeout = 200 * time.Millisecond
+		l.ack.wait = 20 * time.Millisecond
+
+		l.connectOnce(context.Background())
+
+		wantAsked := []string{
+			"/api/reply-cards?status=answered",
+			"/api/reply-cards?status=expired",
+			chatUnread,
+			"/api/reply-cards?status=answered",
+			"/api/reply-cards?status=expired",
+			chatUnread,
+			"/api/chat/mark-read",
+		}
+		if !reflect.DeepEqual(api.asked, wantAsked) {
+			t.Errorf("asked\n  %v\nwant\n  %v", api.asked, wantAsked)
+		}
+		if got := hung.heldCount(); got != 1 {
+			t.Errorf("hung session got %d connections, want 1", got)
+		}
+		if got, want := inbox.written(), sessionWrites(t, chatPayload); !reflect.DeepEqual(got, want) {
+			t.Errorf("written =\n%q\nwant\n%q", got, want)
+		}
+	})
+
+	t.Run("on the socket route a session that never closes gets each unread chat attempted once while the pump is busy, then delivered on the first heartbeat after it goes idle", func(t *testing.T) {
+		hung := newInboxSocket(t, true)
+		inbox := newInboxSocket(t, false)
+		var rows, payloads []string
+		for i := 1; i <= 6; i++ {
+			body := strings.Repeat("字", 2000)
+			rows = append(rows, fmt.Sprintf(`{"id":"c%d","from":"boss","to":"kyle","body":"%s","ts":1787148000}`, i, body))
+			payloads = append(payloads, fmt.Sprintf("[ocagent] chat from boss (#c%d, 1m ago): %s", i, body))
+		}
+		api := newRoutedHTTP(map[string]string{
+			"/api/reply-cards?status=answered": `[]`,
+			"/api/reply-cards?status=expired":  `[]`,
+			chatUnread:                         `{"messages":[` + strings.Join(rows, ",") + `]}`,
+			"/api/chat/mark-read":              `{}`,
+		})
+		var l *listener
+		var w *socketWriter
+		l, w = socketListener(t, hung.path, api,
+			bodyStep{text: heartbeat}, bodyStep{text: heartbeat}, bodyStep{text: heartbeat},
+			bodyStep{text: heartbeat}, bodyStep{text: heartbeat},
+			bodyStep{before: func() {
+				waitIdle(t, w)
+				w.socketPath = inbox.path
+				l.ack.wait = 10 * time.Second
+			}, text: heartbeat})
+		w.timeout = 50 * time.Millisecond
+		l.ack.wait = 100 * time.Millisecond
+
+		l.connectOnce(context.Background())
+
+		wantAsked := []string{
+			"/api/reply-cards?status=answered",
+			"/api/reply-cards?status=expired",
+			chatUnread,
+			"/api/reply-cards?status=answered",
+			"/api/reply-cards?status=expired",
+			chatUnread,
+			"/api/chat/mark-read",
+		}
+		if !reflect.DeepEqual(api.asked, wantAsked) {
+			t.Errorf("asked\n  %v\nwant\n  %v", api.asked, wantAsked)
+		}
+		if got := hung.heldCount(); got != 6 {
+			t.Errorf("hung session got %d connections, want 6", got)
+		}
+		if got, want := inbox.written(), sessionWrites(t, payloads...); !reflect.DeepEqual(got, want) {
+			t.Errorf("written =\n%q\nwant\n%q", got, want)
+		}
+	})
+
+	t.Run("on the socket route a heartbeat whose reply card still does not land leaves the chat for a later heartbeat", func(t *testing.T) {
+		hung := newInboxSocket(t, true)
+		api := newRoutedHTTP(map[string]string{
+			"/api/reply-cards?status=answered": `[{"id":"rc-1","from":"kyle","answered_ts":1700,` +
+				`"summary":"q1","answer":{"text":"改"}}]`,
+			"/api/reply-cards?status=expired": `[]`,
+			chatUnread: `{"messages":` +
+				`[{"id":"c1","from":"boss","to":"kyle","body":"你在嗎","ts":1787148000}]}`,
+			"/api/chat/mark-read": `{}`,
+		})
+		var w *socketWriter
+		l, w := socketListener(t, hung.path, api,
+			bodyStep{before: func() { waitIdle(t, w) }, text: heartbeat})
+		w.timeout = 20 * time.Millisecond
+		seenPath := filepath.Join(t.TempDir(), "replycards-seen")
+		if err := os.WriteFile(seenPath, []byte(`{"rc-0":1}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		l.replySeen = loadReplyCardSeen(seenPath)
+
+		l.connectOnce(context.Background())
+		waitIdle(t, w)
+
+		wantAsked := []string{
+			"/api/reply-cards?status=answered",
+			"/api/reply-cards?status=expired",
+			chatUnread,
+			"/api/reply-cards?status=answered",
+			"/api/reply-cards?status=expired",
+		}
+		if !reflect.DeepEqual(api.asked, wantAsked) {
+			t.Errorf("asked\n  %v\nwant\n  %v", api.asked, wantAsked)
+		}
+		if got := hung.heldCount(); got != 3 {
+			t.Errorf("hung session got %d connections, want 3", got)
+		}
+	})
+
+	t.Run("on the socket route a re-drain whose chat fetch failed is retried on the next heartbeat", func(t *testing.T) {
+		inbox := newInboxSocket(t, false)
+		api := unreadChatAPI()
+		var w *socketWriter
+		l, w := socketListener(t, filepath.Join(shortSocketDir(t), "gone.sock"), api,
+			bodyStep{before: func() {
+				w.socketPath = inbox.path
+				api.status[chatUnread] = 500
+			}, text: heartbeat},
+			bodyStep{before: func() {
+				waitIdle(t, w)
+				delete(api.status, chatUnread)
+			}, text: heartbeat},
+			bodyStep{text: heartbeat})
+
+		l.connectOnce(context.Background())
+
+		var wantAsked []string
+		wantAsked = append(wantAsked, connectDrain...)
+		wantAsked = append(wantAsked, connectDrain...)
+		wantAsked = append(wantAsked, connectDrain...)
+		wantAsked = append(wantAsked, "/api/chat/mark-read")
+		if !reflect.DeepEqual(api.asked, wantAsked) {
+			t.Errorf("asked\n  %v\nwant\n  %v", api.asked, wantAsked)
+		}
+		// The pump may or may not pack the recovery notice with the chat, so the
+		// session's input is compared, not the connections.
+		wantInput := "[ocagent] chat: 補印一頁都沒撈到（HTTP 500）—— 這不是「沒有新訊息」，是這次沒問到。" +
+			"未讀原封不動，下一次補印會再試；等不及就用 get_chat 自己撈。\n" +
+			"[ocagent] chat: 補印又問得到了 —— 上面那次「一頁都沒撈到」到此為止。" +
+			"接下來印出來的就是這次真的撈到的東西；沒有東西就是真的沒有新訊息。\n" +
+			chatPayload
+		if got := sessionInput(t, inbox.written()); got != wantInput {
+			t.Errorf("session input =\n%q\nwant\n%q", got, wantInput)
+		}
+	})
+
+	t.Run("on the socket route a reply card the session never got is re-delivered on a heartbeat, past a failed card fetch", func(t *testing.T) {
+		inbox := newInboxSocket(t, false)
+		api := newRoutedHTTP(map[string]string{
+			"/api/reply-cards?status=answered": `[{"id":"rc-1","from":"kyle","answered_ts":1700,` +
+				`"summary":"q1","answer":{"text":"改"}}]`,
+			"/api/reply-cards?status=expired": `[]`,
+			chatUnread:                        `{"messages":[]}`,
+			"/api/chat/mark-read":             `{}`,
+		})
+		var w *socketWriter
+		l, w := socketListener(t, filepath.Join(shortSocketDir(t), "gone.sock"), api,
+			bodyStep{before: func() {
+				w.socketPath = inbox.path
+				api.status["/api/reply-cards?status=answered"] = 500
+			}, text: heartbeat},
+			bodyStep{before: func() {
+				waitIdle(t, w)
+				delete(api.status, "/api/reply-cards?status=answered")
+			}, text: heartbeat},
+			bodyStep{text: heartbeat})
+		seenPath := filepath.Join(t.TempDir(), "replycards-seen")
+		if err := os.WriteFile(seenPath, []byte(`{"rc-0":1}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		l.replySeen = loadReplyCardSeen(seenPath)
+
+		l.connectOnce(context.Background())
+
+		wantAsked := []string{
+			"/api/reply-cards?status=answered",
+			"/api/reply-cards?status=expired",
+			chatUnread,
+			"/api/reply-cards?status=answered",
+			chatUnread,
+			"/api/reply-cards?status=answered",
+			"/api/reply-cards?status=expired",
+			chatUnread,
+		}
+		if !reflect.DeepEqual(api.asked, wantAsked) {
+			t.Errorf("asked\n  %v\nwant\n  %v", api.asked, wantAsked)
+		}
+		want := sessionWrites(t, `[ocagent] reply-card rc-1 answered: "改" | asked: q1`)
+		if got := inbox.written(); !reflect.DeepEqual(got, want) {
+			t.Errorf("written =\n%q\nwant\n%q", got, want)
+		}
+	})
+
+	t.Run("off the socket route a refused batch waits for the next chat event, not a heartbeat", func(t *testing.T) {
+		var out strings.Builder
+		api := unreadChatAPI()
+		answers := make(chan string, 1)
+		answers <- "nack 1"
+		tr := &stubTransport{reply: func(int, *http.Request) (*http.Response, error) {
+			return sseReply(200, nil, ": heartbeat\n\n: heartbeat\n\n"), nil
+		}}
+		l := newRunListener(t, runCfg(t), &out, api, tr)
+		l.clock = func() time.Time { return time.Unix(1787148090, 0) }
+		l.ack = &ackGate{answers: answers, wait: time.Second}
+
+		l.connectOnce(context.Background())
+
+		if !reflect.DeepEqual(api.asked, connectDrain) {
+			t.Errorf("asked\n  %v\nwant\n  %v", api.asked, connectDrain)
+		}
+		want := connected + "\n" + chatPayload + "\n" + "[ocagent] listen: batch 1\n"
 		if out.String() != want {
 			t.Errorf("printed %q, want %q", out.String(), want)
 		}
@@ -1476,7 +1837,7 @@ func TestCmdListen(t *testing.T) {
 			}
 			return 7
 		}
-		rc := cmdListen([]string{"--once", "--deliver-codex"}, cfg, env, &out, &errOut, start, nil)
+		rc := cmdListen([]string{"--once", "--deliver-codex"}, cfg, env, &out, &errOut, start)
 		if rc != 7 {
 			t.Errorf("exit code = %d, want 7", rc)
 		}
@@ -1500,15 +1861,14 @@ func TestCmdListen(t *testing.T) {
 		}{
 			{"missing acknowledgement gate", []string{"--deliver-codex"}, nil},
 			{"disabled acknowledgement gate", []string{"--deliver-codex"}, map[string]string{"OC_LISTEN_ACK": "0"}},
-			{"tmux route", []string{"--deliver-codex", "--deliver-tmux"}, map[string]string{"OC_LISTEN_ACK": "1"}},
-			{"mod route", []string{"--deliver-codex", "--deliver-mod"}, map[string]string{"OC_LISTEN_ACK": "1"}},
+			{"socket route", []string{"--deliver-codex", "--deliver-socket"}, map[string]string{"OC_LISTEN_ACK": "1"}},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
 				var out, errOut strings.Builder
 				started := false
 				start := func(Config, func(string) string, bool, io.Writer) int { started = true; return 0 }
-				rc := cmdListen(tc.argv, Config{}, testEnv(tc.env), &out, &errOut, start, nil)
+				rc := cmdListen(tc.argv, Config{}, testEnv(tc.env), &out, &errOut, start)
 				if rc != 2 || started {
 					t.Errorf("exit code = %d, started = %v, want 2 and false", rc, started)
 				}
@@ -1522,6 +1882,124 @@ func TestCmdListen(t *testing.T) {
 			})
 		}
 	})
+	t.Run("--deliver-socket writes what the run prints into the session's socket", func(t *testing.T) {
+		inbox := newInboxSocket(t, false)
+		env := testEnv(map[string]string{"OC_SESSION": "member-m1",
+			messagingSocketEnv: inbox.path, messagingTokenEnv: testMessagingToken})
+		var out, errOut strings.Builder
+		start := func(_ Config, _ func(string) string, _ bool, sink io.Writer) int {
+			io.WriteString(sink, "[ocagent] listen: retrying in 4s\n")
+			io.WriteString(sink, "[ocagent] chat #c-9 from Owner: 看一下\n")
+			return 7
+		}
+
+		rc := cmdListen([]string{"--deliver-socket"}, Config{}, env, &out, &errOut, start)
+
+		if rc != 7 {
+			t.Errorf("rc = %d, want the run's own answer 7", rc)
+		}
+		want := []string{`{"type":"auth","token":"tok-aaaaaaaaaaaa"}` + "\n" +
+			`{"type":"user","from":"officraft","message":{"role":"user","content":"[ocagent] chat #c-9 from Owner: 看一下"}}` + "\n"}
+		if got := inbox.written(); !reflect.DeepEqual(got, want) {
+			t.Errorf("written =\n%q\nwant\n%q", got, want)
+		}
+		if out.String() != "" {
+			t.Errorf("stdout = %q, want nothing", out.String())
+		}
+		if want := "[ocagent] listen: retrying in 4s\n"; errOut.String() != want {
+			t.Errorf("stderr = %q, want %q", errOut.String(), want)
+		}
+	})
+
+	t.Run("--deliver-socket without the messaging variables still runs and names them per undelivered payload", func(t *testing.T) {
+		var out, errOut strings.Builder
+		started := false
+		start := func(_ Config, _ func(string) string, _ bool, sink io.Writer) int {
+			started = true
+			io.WriteString(sink, "[ocagent] chat #c-9 from Owner: 看一下\n")
+			return 7
+		}
+
+		rc := cmdListen([]string{"--deliver-socket"}, Config{}, testEnv(map[string]string{"OC_SESSION": "member-m1"}),
+			&out, &errOut, start)
+
+		if rc != 7 || !started {
+			t.Errorf("rc = %d, started = %v; want 7 and true — an exited listener looks like a dead member", rc, started)
+		}
+		want := "[ocagent] listen: 通知沒有送進成員的對話：收件管道環境變數不存在（CLAUDE_CODE_MESSAGING_SOCKET、" +
+			"CLAUDE_CODE_MESSAGING_TOKEN 沒有設定） —— 聊天與 reply-card 不算已讀，之後補送會再送一次\n"
+		if errOut.String() != want {
+			t.Errorf("stderr = %q, want %q", errOut.String(), want)
+		}
+		if out.String() != "" {
+			t.Errorf("stdout = %q, want nothing", out.String())
+		}
+	})
+
+	t.Run("--deliver-socket refuses a missing session before starting", func(t *testing.T) {
+		for _, tc := range []struct {
+			name    string
+			argv    []string
+			env     map[string]string
+			refusal string
+		}{
+			{"no session", []string{"--deliver-socket"}, nil,
+				"[ocagent] listen: --deliver-socket needs OC_SESSION (the session to deliver into, and the session " +
+					"this listener must die with); refusing to start.\n"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				var out, errOut strings.Builder
+				started := false
+				start := func(Config, func(string) string, bool, io.Writer) int { started = true; return 0 }
+
+				rc := cmdListen(tc.argv, Config{}, testEnv(tc.env), &out, &errOut, start)
+
+				if rc != 2 || started {
+					t.Errorf("rc = %d, started = %v; want 2 and false", rc, started)
+				}
+				if errOut.String() != tc.refusal {
+					t.Errorf("stderr = %q, want %q", errOut.String(), tc.refusal)
+				}
+				if out.String() != "" {
+					t.Errorf("stdout = %q, want nothing", out.String())
+				}
+			})
+		}
+	})
+
+	t.Run("under no delivery flag, the run writes to the caller's own writer", func(t *testing.T) {
+		var out, errOut strings.Builder
+		start := func(_ Config, _ func(string) string, _ bool, sink io.Writer) int {
+			io.WriteString(sink, "[ocagent] chat #c-9\n")
+			return 0
+		}
+
+		rc := cmdListen(nil, Config{}, testEnv(map[string]string{"OC_SESSION": "member-m1"}), &out, &errOut, start)
+
+		if rc != 0 {
+			t.Errorf("rc = %d, want 0", rc)
+		}
+		if got := out.String(); got != "[ocagent] chat #c-9\n" {
+			t.Errorf("out = %q, want the line itself", got)
+		}
+		if errOut.String() != "" {
+			t.Errorf("errOut = %q, want nothing", errOut.String())
+		}
+	})
+
+	t.Run("under an unknown flag, the listener refuses to start", func(t *testing.T) {
+		var out strings.Builder
+		started := false
+		start := func(Config, func(string) string, bool, io.Writer) int { started = true; return 0 }
+
+		if rc := cmdListen([]string{"--nope"}, Config{}, testEnv(nil), &out, io.Discard, start); rc != 2 {
+			t.Errorf("rc = %d, want 2", rc)
+		}
+		if started {
+			t.Error("the listener was started on a flag parse error")
+		}
+	})
+
 	t.Run("a mis-wired agent says so once, on a stamped line, and exits cleanly", func(t *testing.T) {
 		cases := []struct {
 			name string
@@ -1624,6 +2102,23 @@ func TestNewListener(t *testing.T) {
 		}
 		if l.ack == nil {
 			t.Error("ack = nil with OC_LISTEN_ACK=1")
+		}
+		if l.replyCardAck != nil {
+			t.Error("replyCardAck is wired outside the socket route — reply cards would wait on the sidecar")
+		}
+	})
+
+	t.Run("a socket sink answers the chat and reply-card gates itself", func(t *testing.T) {
+		sink := newSocketWriter(testEnv(nil), io.Discard)
+		out := &stampWriter{inner: sink, stamp: func() string { return "" }}
+
+		l := newListener(Config{MemberID: "kyle", AgentsRoot: t.TempDir()}, testEnv(nil), out, false, nil)
+
+		if l.ack == nil || l.ack.answers != (<-chan string)(sink.answers) {
+			t.Error("ack does not read the socket writer's own answers")
+		}
+		if l.replyCardAck != l.ack {
+			t.Error("replyCardAck is not the socket route's gate — a failed reply card would be recorded seen")
 		}
 	})
 }

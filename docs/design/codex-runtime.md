@@ -76,7 +76,7 @@ This is composition across two independent axes, not four persona copies:
 The Claude member boot sequence preserved current behavior byte-for-behavior at the time
 this document was written: after boot readiness the agent started bare `ocagent listen`
 with its Monitor tool. Today the agent never starts it: the notification mod runs it as a child
-of the member's Claude Code, or, on the paste fallback, warden starts it beside the member;
+of the member's Claude Code, and it writes each event into that session's messaging socket;
 Claude `statusLine` still feeds context telemetry and `AskUserQuestion` stays disabled.
 
 The Codex member boot sequence changes only execution ownership:
@@ -257,7 +257,8 @@ machine cannot take it, for staff and outsource alike), and reconcile retries af
 telemetry or placement changes. A machine-side not-logged-in refusal is folded into
 `<code>: machine '<id>' is not logged in to <runtime>` (the id is the reporting machine,
 stamped at the server's receipt time) and is not overwritten by the wake_timeout or back-off
-of the start it refused.
+of the start it refused. A machine-side `notify_claude_too_old` refusal (Claude Code below the
+notification mod's minimum) is kept the same way, with the warden's own text.
 
 ### An UNSET runtime is resolved at placement, from that machine
 

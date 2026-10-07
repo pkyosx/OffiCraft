@@ -28,7 +28,7 @@ import (
 // listen_run.go) and exits once it is gone, or unverifiable for too long.
 //
 // Every line printed on out reaches the agent: a claude member through its
-// notification mod or the paste listener (listen_deliver.go); codex via the
+// messaging socket (listen_deliver.go); codex via the
 // ocwarden sidecar, which swallows "[ocagent] listen:" lines
 // (except the transport notices; actionableCodexListenerLine) and turns every
 // other line into a model turn.
@@ -594,30 +594,24 @@ func attachmentSummary(m map[string]any) string {
 }
 
 // listenAckEnv="1" is set by whoever consumes stdout when printing proves
-// nothing: the codex sidecar (cli/ocwarden/codex_session.go), where each complete notice must
-// become an App Server input, and the claude notification mod (cli/ocwarden/mod),
-// where each payload is a prompt submit; both can be refused. Only the parent
-// knows — never infer it from a tty, the parent process or the member id: a wrong
-// guess (ack mode with nobody answering) hangs the drain.
+// nothing: the codex sidecar (cli/ocwarden/codex_session.go), where each
+// complete notice must become an App Server input, which can be refused. Only
+// the parent knows — never infer it from a tty, the parent process or the
+// member id: a wrong guess (ack mode with nobody answering) hangs the drain.
 // bin/listen-notice-mirror-guard.py holds the name equal to ocwarden's copy.
 const listenAckEnv = "OC_LISTEN_ACK"
-
-// listenAckFileEnv moves the answers from stdin to a file: a mod's child gets
-// its stdin once, at spawn. The mod overwrites the whole file with `ack N` or
-// `nack N`. ocwarden's copy (notifymod.go) is what the mod is handed;
-// bin/listen-notice-mirror-guard.py holds the two equal.
-const listenAckFileEnv = "OC_LISTEN_ACK_FILE"
-
-const ackFilePoll = 200 * time.Millisecond
 
 type ackGate struct {
 	answers   <-chan string
 	lastToken int
 	wait      time.Duration
-	// Where the timeout notice goes; nil ⇒ out. 🔴 Under the mod it must not be
-	// out: every line there becomes a prompt, so the notice would itself be
-	// submitted, once per unanswered batch, into a member that is merely busy.
+	// Where the timeout notice goes; nil ⇒ out. 🔴 On the socket route it must
+	// not be out: every line there is delivered, so the notice would itself be
+	// written into the member once per unanswered batch.
 	timeoutNotice io.Writer
+	// Set by every confirm that returns false; only the socket route reads,
+	// clears and re-sets it (listener.redrainUndelivered).
+	nacked bool
 }
 
 // ackWaitTimeout exists because confirm blocks the listener's only thread: an
@@ -625,16 +619,9 @@ type ackGate struct {
 // Timing out counts as a nack (the batch reprints next drain).
 const ackWaitTimeout = 30 * time.Second
 
-func newAckGate(env func(string) string, answers io.Reader, diag io.Writer) *ackGate {
+func newAckGate(env func(string) string, answers io.Reader) *ackGate {
 	if env == nil || env(listenAckEnv) != "1" {
 		return nil
-	}
-	if path := strings.TrimSpace(env(listenAckFileEnv)); path != "" {
-		if diag == nil {
-			// The mod logs the child's stderr, so the notice stays readable there.
-			diag = os.Stderr
-		}
-		return &ackGate{answers: watchAckFile(path, ackFilePoll), wait: ackWaitTimeout, timeoutNotice: diag}
 	}
 	if answers == nil {
 		return nil
@@ -650,29 +637,15 @@ func newAckGate(env func(string) string, answers io.Reader, diag io.Writer) *ack
 	return &ackGate{answers: lines, wait: ackWaitTimeout}
 }
 
-// The file is removed first: an answer left by the previous listener of this
-// workdir names a token this one will reuse.
-func watchAckFile(path string, every time.Duration) <-chan string {
-	_ = os.Remove(path)
-	lines := make(chan string, 8)
-	go func() {
-		last := ""
-		for {
-			raw, _ := os.ReadFile(path)
-			if answer := strings.TrimSpace(string(raw)); answer != "" && answer != last {
-				last = answer
-				lines <- answer
-			}
-			time.Sleep(every)
-		}
-	}()
-	return lines
-}
-
-func (g *ackGate) confirm(out io.Writer) bool {
+func (g *ackGate) confirm(out io.Writer) (acked bool) {
 	if g == nil {
 		return true
 	}
+	defer func() {
+		if !acked {
+			g.nacked = true
+		}
+	}()
 	g.lastToken++
 	token := strconv.Itoa(g.lastToken)
 	fmt.Fprintf(out, "%s%s %s\n", agentLinePrefix, noticeBatch, token)
@@ -703,8 +676,9 @@ func (g *ackGate) confirm(out io.Writer) bool {
 }
 
 // drainWarner latches its lines because they lack the `listen:` head and a
-// drain reruns every ≤ 15 s: unlatched, a standing fault is a codex model turn
-// every 15 s (owner's disconnect-notice ruling, 2026-08-30).
+// drain reruns on every chat event and reconnect — and on the socket route on
+// every ~15 s heartbeat while delivery keeps failing: unlatched, a standing
+// fault is a model turn per drain (owner's disconnect-notice ruling, 2026-08-30).
 type drainWarner struct {
 	markReadWarned bool
 	chatFaultOpen  bool
@@ -876,7 +850,7 @@ func printChatLine(out io.Writer, m map[string]any, now float64) {
 // of the task the card is about — payload.from / payload.task_executor
 // pre-filter before the refetch. A 重新決定 revision bumps answered_ts, so the
 // seen dedup never swallows it.
-func handleReplyCard(client httpClient, cfg Config, frame map[string]any, seen *replyCardSeen, trigger string, out io.Writer) {
+func handleReplyCard(client httpClient, cfg Config, frame map[string]any, seen *replyCardSeen, gate *ackGate, trigger string, out io.Writer) {
 	data, _ := frame["data"].(map[string]any)
 	if data == nil {
 		return
@@ -912,7 +886,9 @@ func handleReplyCard(client httpClient, cfg Config, frame map[string]any, seen *
 			return
 		}
 		printReplyCardAnswered(out, id, card, about, trigger)
-		seen.record(id, ts)
+		if gate.confirm(out) {
+			seen.record(id, ts)
+		}
 	case replyCardExpired:
 		// expired_ts never collides with an answered_ts for the same card: a card
 		// expires only while waiting, so it never printed an answer.
@@ -921,7 +897,9 @@ func handleReplyCard(client httpClient, cfg Config, frame map[string]any, seen *
 			return
 		}
 		printReplyCardExpired(out, id, card, about, trigger)
-		seen.record(id, ts)
+		if gate.confirm(out) {
+			seen.record(id, ts)
+		}
 	default:
 		return
 	}
@@ -1103,7 +1081,7 @@ func (s *replyCardSeen) persist() {
 // server's 24h views (older outcomes: get_reply_card); rebuilding seen from them
 // prunes cards past that window. The first run (no state) prints nothing:
 // flooding a fresh session with stale history is worse than the lost window.
-func drainReplyCards(client httpClient, cfg Config, seen *replyCardSeen, out io.Writer) int {
+func drainReplyCards(client httpClient, cfg Config, seen *replyCardSeen, gate *ackGate, out io.Writer) (n int, fetched bool) {
 	panes := []struct {
 		status string
 		tsKey  string
@@ -1116,18 +1094,18 @@ func drainReplyCards(client httpClient, cfg Config, seen *replyCardSeen, out io.
 	for i, p := range panes {
 		status, body := getJSON(client, cfg, "/api/reply-cards?status="+p.status, true)
 		if status != 200 {
-			return 0
+			return 0, false
 		}
 		list, ok := body.([]any)
 		if !ok {
-			return 0
+			return 0, false
 		}
 		lists[i] = list
 	}
 	selfID := strings.ToLower(strings.TrimSpace(cfg.MemberID))
 	silent := !seen.primed
 	fresh := map[string]float64{}
-	n := 0
+	var printed []string
 	for i, p := range panes {
 		list := lists[i]
 		for j := len(list) - 1; j >= 0; j-- { // the server lists newest-first
@@ -1142,14 +1120,24 @@ func drainReplyCards(client httpClient, cfg Config, seen *replyCardSeen, out io.
 			ts, _ := card[p.tsKey].(float64)
 			if !silent && !seen.has(id, ts) {
 				p.print(out, id, card, replyCardAboutYourTask(card, selfID), "")
+				printed = append(printed, id)
 				n++
 			}
 			fresh[id] = ts
 		}
 	}
+	if len(printed) > 0 && !gate.confirm(out) {
+		for _, id := range printed {
+			if ts, ok := seen.m[id]; ok {
+				fresh[id] = ts
+			} else {
+				delete(fresh, id)
+			}
+		}
+	}
 	seen.m = fresh
 	seen.persist()
-	return n
+	return n, true
 }
 
 // strOrEmpty keeps Python's str(x or "") semantics — 0 and false become "" —

@@ -15,18 +15,15 @@ import (
 
 const (
 	defaultNudge = "開始。"
-	// The Enter loop is UNCONDITIONAL: every claude spawn spends 30×1s here (the
-	// mod route polls within the same 30 s, see waitForNotifyMod), out of the
-	// 150s startReceiptDeadlineSecs in server/ocserverd/receipt_watch.go (the START receipt
-	// is POSTed only after Spawn returns); that comment lists the rest of the spawn
-	// path's budgets and the measured starts (3s normal, 34s for a restart that
-	// then loads the mod, 69s for a restart plus paste fallback); only the restart path's budget worst case, ≈ 185s, runs
-	// past it. Nothing mechanical links them: cli/ocwarden and server/ocserverd
-	// are separate Go modules.
+	// Every claude spawn waits up to 30×1s for the notification mod
+	// (waitForNotifyMod), out of the 150s startReceiptDeadlineSecs in
+	// server/ocserverd/receipt_watch.go (the START receipt is POSTed only after
+	// Spawn returns); that comment lists the rest of the spawn path's budgets and
+	// the measured starts; only the restart path's budget worst case runs past it.
+	// Nothing mechanical links them: cli/ocwarden and server/ocserverd are
+	// separate Go modules.
 	nudgeMaxAttempts = 30
-	// The paste fallback of a mod that did not load (see its call site).
-	fallbackNudgeAttempts = 3
-	nudgeSettle           = 1 * time.Second
+	nudgeSettle      = 1 * time.Second
 
 	paneCols = 160
 	paneRows = 50
@@ -119,10 +116,10 @@ func buildMCPConfig(base, token string) string {
 // puts the workdir holding the ocagent symlink first on PATH.
 //
 // skipDangerousModePermissionPrompt and tui each answer a first-launch dialog in
-// advance: on a config that never saw them, the bypass warning defaults to "No, exit"
-// (the nudge's Enter loop quits the member), and a logged-in config gets a "try the
-// fullscreen renderer?" dialog that swallows the pasted nudge. "fullscreen" is what
-// that dialog's default answer turns on, i.e. what members already run with.
+// advance: on a config that never saw them, the bypass warning defaults to "No, exit",
+// and a logged-in config gets a "try the fullscreen renderer?" dialog; either holds
+// the member before its boot. "fullscreen" is what that dialog's default answer
+// turns on, i.e. what members already run with.
 func buildStatuslineSettings() string {
 	return "{\n" +
 		"  \"skipDangerousModePermissionPrompt\": true,\n" +
@@ -385,88 +382,14 @@ func tmuxNewSession(r CmdRunner, socket, session, command string) error {
 	return nil
 }
 
-// The paste route (notifyByPaste): a claude member whose Claude Code cannot run
-// the notification mod hears through this sidecar instead. OC_SESSION names the
-// MEMBER's session, never the listener's own: it is what `--deliver-tmux` pastes
-// into and what the listener's self-exit probe watches — the tie that stops an
-// orphaned listener projecting a dead member as online.
-func buildListenerLaunchCommand(workdir, tokenFile, base, session, socket string,
-	extraEnv [][2]string, envRendered string) string {
-	s := "cd " + shellQuote(workdir) + "; "
-	if envRendered != "" {
-		s += "[ -f " + shellQuote(envRendered) + " ] && . " + shellQuote(envRendered) + "; "
-	}
-	kvs := []string{tokenEnv + `="$(/bin/cat ` + shellQuote(tokenFile) + `)"`}
-	pairs := [][2]string{
-		{baseEnv, base},
-		{sessionEnv, session},
-		{tmuxSocketEnv, socket},
-	}
-	pairs = append(pairs, extraEnv...)
-	for _, p := range pairs {
-		kvs = append(kvs, p[0]+"="+shellQuote(p[1]))
-	}
-	s += "export " + strings.Join(kvs, " ") + "; "
-	s += "export PATH=" + shellQuote(workdir) + `:"$PATH"; `
-	return s + "exec ocagent listen --deliver-tmux"
-}
-
-// 🔴 Not tidiness, and run on EVERY claude spawn whichever route it takes: session
-// names are reused across respawns, so a leftover paste listener would not
-// self-exit, and the station kicking one of two listeners ends in `ocagent
-// suicide` killing the just-spawned member.
-func killStaleListenerSession(d SpawnDeps, socket, memberID string) {
-	_, _ = d.Runner.Run("tmux", "-L", socket, "kill-session", "-t", listenerSessionName(memberID))
-}
-
-// A failed listener start is LOGGED, never fatal: the member is already up and
-// nudged.
-func startListenerSession(d SpawnDeps, socket, session, memberID, command string) {
-	listenSession := listenerSessionName(memberID)
-	if err := tmuxNewSession(d.Runner, socket, listenSession, command); err != nil {
-		d.logf("listener: could not start %s for %s (%v); the member boots deaf and "+
-			"the station will recycle it", listenSession, session, err)
-	}
-}
-
-// 🔴 nil FALLS BACK TO time.Sleep, NOT A NO-OP: a no-op here silently turned 30 paced
-// Enters into 30 in microseconds with the whole package green. It only catches nil —
-// a non-nil no-op clock at the per-spawn seam is indistinguishable by type.
+// 🔴 nil FALLS BACK TO time.Sleep, NOT A NO-OP: a no-op here turns the mod wait's 30
+// paced sleeps into 30 in microseconds with the whole package green. It only catches
+// nil — a non-nil no-op clock at the per-spawn seam is indistinguishable by type.
 func nudgeClock(sleep func(time.Duration)) func(time.Duration) {
 	if sleep == nil {
 		return time.Sleep
 	}
 	return sleep
-}
-
-// Delivered via a tmux buffer, never send-keys -l (drops multibyte under a busy
-// TUI); set-buffer takes it as argv because CmdRunner has no stdin channel.
-func tmuxDeliverNudge(r CmdRunner, sleep func(time.Duration), socket, session, nudge string) {
-	deliverNudge(r, sleep, socket, session, nudge, nudgeMaxAttempts)
-}
-
-func deliverNudge(r CmdRunner, sleep func(time.Duration), socket, session, nudge string, attempts int) {
-	sleep = nudgeClock(sleep)
-	const buf = "oc-spawn-nudge"
-	_, _ = r.Run("tmux", "-L", socket, "set-buffer", "-b", buf, nudge)
-	// Paste ONCE (it lands even in a not-ready REPL); only the Enter races, so it
-	// is retried. A dialog drawn before the REPL discards the paste instead, which is
-	// why every first-launch dialog is answered in advance (pretrustWorkdir,
-	// buildStatuslineSettings). This loop deliberately does NOT judge success — a statusline-scraping
-	// check was permanently false. The authority is the server's PRESENCE (a live SSE
-	// listener for this member id), NOT a report_waking receipt and NOT waking_since
-	// (stamped at dispatch).
-	//
-	// 🔴 No bare-paste retry when -p is refused: on tmux 3.6b a bare paste turns each
-	// newline into Enter, so a multi-line nudge would become one turn per line.
-	_, _ = r.Run("tmux", "-L", socket, "paste-buffer", "-t", session, "-b", buf, "-d", "-p")
-	for attempt := 0; attempt < attempts; attempt++ {
-		// Under emacs mode-keys a pane left in copy-mode swallows every Enter while the
-		// paste still lands; -q leaves any mode. Per attempt: a viewer can re-enter it.
-		_, _ = r.Run("tmux", "-L", socket, "copy-mode", "-q", "-t", session)
-		_, _ = r.Run("tmux", "-L", socket, "send-keys", "-t", session, "Enter")
-		sleep(nudgeSettle)
-	}
 }
 
 // DURABLE, not mkdtemp: a reaped tmpdir would take the token-bearing .mcp.json.
@@ -552,8 +475,8 @@ func osWriteFile(path, content string, mode os.FileMode) error {
 	return nil
 }
 
-// LOAD-BEARING: without it the "trust this folder?" dialog eats the boot nudge →
-// dead-on-boot. hasCompletedOnboarding covers a config that never ran claude
+// LOAD-BEARING: without it the "trust this folder?" dialog holds the member, and
+// an untrusted workdir does not run the notification mod → the start fails. hasCompletedOnboarding covers a config that never ran claude
 // interactively (a fresh machine, or one where someone ran /logout): `claude auth
 // login` does not set it, so the member stops on the theme picker and then asks to
 // log in again although the machine shows as logged in.
@@ -644,7 +567,7 @@ type SpawnDeps struct {
 	// LaunchEnv keeps the last spawn's interactive layer for the login check.
 	LaunchEnv *launchEnvCache
 	// Logf receives KEY NAMES and reasons ONLY, never a value. The one exception
-	// is logNotifyModFallback's capped capture of a member pane.
+	// is logNotifyModNotLoaded's capped capture of a member pane.
 	Logf      func(string, ...any)
 	ClaudeBin string
 	// nil, or false, launches with the inline boot pointer that has the member
@@ -670,17 +593,19 @@ type SpawnDeps struct {
 	MkdirAll          func(path string, perm os.FileMode) error
 	Symlink           func(oldname, newname string) error
 	Remove            func(name string) error
-	// nil reads every path as absent, which sends a claude member to the paste route.
+	// nil reads every path as absent, which fails every claude start as a mod
+	// that did not load.
 	Exists func(path string) bool
-	// Diagnostics only (logNotifyModFallback): nil ModTime logs the started
+	// Diagnostics only (logNotifyModNotLoaded): nil ModTime logs the started
 	// marker as unreadable, nil Now reads time.Now.
 	ModTime func(path string) (time.Time, error)
 	Now     func() time.Time
 	// nil skips the reap.
 	ReapWorkdirListeners func(workdir string) (found int, cleared bool)
 	// Tears down a launch whose notification mod did not load, before the one
-	// restart (retryNotifyMod): stop()'s whole ladder, workdir sweep included.
-	// nil means no restart: the spawn falls back to pasting at once, as before.
+	// restart (retryNotifyMod) and when the start gives up: stop()'s whole
+	// ladder, workdir sweep included. nil means no restart, and the give-up
+	// falls back to a bare kill-session.
 	StopAttempt func(socket, session, workdir string) (stopped bool)
 	// Diagnostics only (readHooksModulesFlag): nil reads with os.ReadFile.
 	ReadFile   func(path string) ([]byte, error)
@@ -770,12 +695,10 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 			"session_already_exists: tmux session %q is already live (clobber-guard refused to stomp it)", session)}
 	}
 
-	notifyByPaste, notifyNote := false, ""
 	if runtimeName == "claude" {
 		if found, tooOld := d.claudeTooOldForNotifyMod(); tooOld {
-			notifyByPaste, notifyNote = true, notifyLegacyPasteNote(found)
-			d.logf("%s: Claude Code %s is older than %s; notifications go by tmux paste",
-				p.MemberID, found, notifyModMinClaudeVersion)
+			d.logf("%s: Claude Code %s is older than %s; not starting", p.MemberID, found, notifyModMinClaudeVersion)
+			return SpawnOutcome{OK: false, Reason: notifyClaudeTooOldReason(found)}
 		}
 	}
 	workdir := agentWorkdir(d.Home, p.MemberID)
@@ -891,7 +814,7 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 	}
 
 	pluginDir := ""
-	if runtimeName == "claude" && !notifyByPaste {
+	if runtimeName == "claude" {
 		if refusal := d.installNotifyMod(workdir, nudge); refusal != "" {
 			return SpawnOutcome{OK: false, Reason: refusal}
 		}
@@ -916,14 +839,11 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 		}
 	}
 
+	var attemptFlags []hooksModulesFlag
 	if runtimeName == "claude" {
-		killStaleListenerSession(d, socket, p.MemberID)
 		// ⚠️ Trusts the session_already_exists guard above: a broken session probe
 		// (nil) lets this reap hit a live member's listener.
 		d.reapWorkdirListeners(p.MemberID, workdir)
-	}
-	var attemptFlags []hooksModulesFlag
-	if runtimeName == "claude" && !notifyByPaste {
 		attemptFlags = append(attemptFlags, d.logHooksModulesFlag(p.MemberID, "attempt 1/2"))
 	}
 	if err := tmuxNewSession(d.Runner, socket, session, command); err != nil {
@@ -932,61 +852,24 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 	}
 	launchedAt := d.now()
 	if runtimeName == "claude" {
-		// Claude only: codex's sidecar starts the boot turn through App Server; keystrokes
-		// would target a non-interactive pane.
-		disabled, modLoaded := false, false
-		if notifyByPaste {
-			tmuxDeliverNudge(d.Runner, d.Sleep, socket, session, nudge)
-		} else {
-			// The mod submits the boot prompt itself; nothing is pasted. The wait is
-			// bounded by the nudge loop's own 30 s, so the spawn budget barely moves.
-			d.waitForNotifyMod(p.MemberID, workdir, socket, session)
-			if modLoaded = d.notifyModLoaded(workdir); !modLoaded {
-				r := d.retryNotifyMod(p.MemberID, workdir, socket, session, command, launchedAt)
-				if r.failReason != "" {
-					return SpawnOutcome{OK: false, Reason: r.failReason}
-				}
-				disabled = r.disabled
-				if r.relaunched {
-					launchedAt = r.launchedAt
-					attemptFlags = append(attemptFlags, r.flag)
-					modLoaded = d.notifyModLoaded(workdir)
-				}
+		// The mod submits the boot prompt itself; nothing is pasted.
+		d.waitForNotifyMod(p.MemberID, workdir, socket, session)
+		if !d.notifyModLoaded(workdir) {
+			r := d.retryNotifyMod(p.MemberID, workdir, socket, session, command, launchedAt)
+			if r.failReason != "" {
+				return SpawnOutcome{OK: false, Reason: r.failReason}
 			}
-		}
-
-		// 🔴 Not atomic: a mod that loads between this read and the disabled-marker
-		// write still starts its listener, and of the two connections the station
-		// evicts one, whose `ocagent suicide` kills the member.
-		// ⚠️ A Claude Code not idle within the wait (a startup dialog, a slow MCP
-		// load) enters the mod's pending boot submit AFTER the boot prompt pasted
-		// below, so the member boots twice (the mod's listener still stops on the
-		// disabled marker): a pending submit cannot be cancelled.
-		if !notifyByPaste && !modLoaded {
-			notifyByPaste, notifyNote = true, notifyModNotLoadedNote(attemptFlags)
-			if !disabled {
-				d.disableNotifyMod(workdir)
+			if r.relaunched {
+				launchedAt = r.launchedAt
+				attemptFlags = append(attemptFlags, r.flag)
 			}
-			d.logf("%s: the notification mod did not load; notifications go by tmux paste", p.MemberID)
-			d.logHooksModulesFlag(p.MemberID, "at fallback")
-			// Before the paste below, so the capture shows what the wait left on screen.
-			d.logNotifyModFallback(p.MemberID, workdir, socket, session, launchedAt)
-			if !d.notifyModBooted(workdir) {
-				// The member's Claude Code has been up for the whole 30 s wait, so its
-				// prompt is drawn: the Enters only cover a redraw racing the first one.
-				deliverNudge(d.Runner, d.Sleep, socket, session, nudge, fallbackNudgeAttempts)
+			if !r.relaunched || !d.notifyModLoaded(workdir) {
+				return SpawnOutcome{OK: false, Reason: d.giveUpNotifyMod(p.MemberID, workdir, socket, session,
+					launchedAt, attemptFlags, r.disabled)}
 			}
-		}
-		// The paste listener runs BESIDE the member, not inside its harness, which drops
-		// background jobs every 30 minutes (presence IS that connection). Started AFTER
-		// the nudge: a listener connecting first would paste into a still-starting TUI.
-		if notifyByPaste {
-			startListenerSession(d, socket, session, p.MemberID,
-				buildListenerLaunchCommand(workdir, tokenFile, base, session, socket,
-					extraEnv, envRendered))
 		}
 	}
 
 	pid := tmuxPanePID(d.Runner, socket, session)
-	return SpawnOutcome{OK: true, SessionID: session, PID: pid, Note: notifyNote}
+	return SpawnOutcome{OK: true, SessionID: session, PID: pid}
 }

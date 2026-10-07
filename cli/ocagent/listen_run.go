@@ -50,13 +50,15 @@ type listener struct {
 	// Not a chat ledger (owner ruling rc-224dee5770dd): the server's unread set
 	// is the only record of what this listener has surfaced.
 	drainWarn *drainWarner
-	// Non-nil only under OC_LISTEN_ACK (the codex sidecar, the claude
-	// notification mod). nil ⇒ a printed line counts as delivered: the paste
-	// route, which must stay byte-for-byte as is.
-	ack       *ackGate
-	replySeen *replyCardSeen
-	taskSnaps map[string]taskSnap
-	once      bool
+	// Non-nil under OC_LISTEN_ACK (the codex sidecar) and on the socket route.
+	// nil ⇒ a printed line counts as delivered.
+	ack *ackGate
+	// Non-nil only on the socket route: a reply card is recorded seen once its
+	// write succeeded, so a failed one is surfaced again.
+	replyCardAck *ackGate
+	replySeen    *replyCardSeen
+	taskSnaps    map[string]taskSnap
+	once         bool
 }
 
 // Copy-twin of ocwarden newSSEClient.
@@ -235,7 +237,7 @@ func (l *listener) dispatch(payload []byte) {
 	case chatTopic:
 		l.drainChatNow()
 	case replyCardTopic:
-		handleReplyCard(l.api, l.cfg, frame, l.replySeen, trigger, l.out)
+		handleReplyCard(l.api, l.cfg, frame, l.replySeen, l.replyCardAck, trigger, l.out)
 	case taskTopic:
 		if l.taskSnaps == nil {
 			l.taskSnaps = map[string]taskSnap{}
@@ -279,7 +281,7 @@ func authoritativeRefusal(resp *http.Response) string {
 	}
 }
 
-// selfExit comes from the heartbeat-line session probe (onComment → foldProbe),
+// selfExit comes from the heartbeat-line session probe (onHeartbeat → foldProbe),
 // not from the server. Copy-twin of ocwarden connectOnce; resetting backoff on
 // activity mirrors Python's per-line reset.
 func (l *listener) connectOnce(ctx context.Context) (opened, activity, selfExit bool, err error) {
@@ -351,7 +353,7 @@ func (l *listener) connectOnce(ctx context.Context) (opened, activity, selfExit 
 	l.logf(noticeConnected+" — streaming %s%s%s (⇒ online while held)%s%s%s",
 		l.cfg.Base, eventsPath, baseAddressOrigin(l.cfg), verdict, station, agent)
 
-	drainReplyCards(l.api, l.cfg, l.replySeen, l.out)
+	drainReplyCards(l.api, l.cfg, l.replySeen, l.replyCardAck, l.out)
 	l.drainChatNow()
 
 	onAct := func() { activity = true }
@@ -364,13 +366,50 @@ func (l *listener) connectOnce(ctx context.Context) (opened, activity, selfExit 
 		onActivity: onAct,
 		onData:     l.dispatch,
 		onID:       func(id string) { writeSSECursor(l.sseCursorPath, id) },
-		onComment:  l.foldProbe, // SSE comment lines are the server heartbeats
+		onComment:  l.onHeartbeat, // SSE comment lines are the server heartbeats
 	}
 	err = scanSSE(resp.Body, sink)
 	if errors.Is(err, errSelfExit) {
 		return true, activity, true, err
 	}
 	return true, activity, false, err
+}
+
+func (l *listener) onHeartbeat() bool {
+	if l.foldProbe() {
+		return true
+	}
+	l.redrainUndelivered()
+	return false
+}
+
+// redrainUndelivered retries a socket delivery that failed: /api/events has no
+// replay, so without it an unread chat waits for the next chat event or
+// reconnect. replyCardAck exists only on the socket route, where it is also the
+// chat gate. Runs on the read loop, so it never overlaps an event's drain.
+//
+// ⚠️ Skipped while the pump still holds unattempted payloads (a session that
+// accepts but never closes): re-queueing the unread set behind them grows the
+// backlog and blocks the read loop an ack wait per heartbeat. A card batch that
+// did not land skips the chat, so a heartbeat waits on at most the card ack
+// plus the chat confirm.
+func (l *listener) redrainUndelivered() {
+	gate := l.replyCardAck
+	if gate == nil || !gate.nacked {
+		return
+	}
+	if sink := socketSinkOf(l.out); sink != nil && !sink.idle() {
+		return
+	}
+	gate.nacked = false
+	_, cardsFetched := drainReplyCards(l.api, l.cfg, l.replySeen, gate, l.out)
+	if gate.nacked {
+		return
+	}
+	l.drainChatNow()
+	if !cardsFetched || l.drainWarn.chatFaultOpen {
+		gate.nacked = true
+	}
 }
 
 func (l *listener) drainChatNow() int {
@@ -476,6 +515,12 @@ func runListen(cfg Config, env func(string) string, once bool, out io.Writer) in
 // its listener directly stayed green while the feature was gone.
 func newListener(cfg Config, env func(string) string, out io.Writer, once bool, stamper *eventStamper) *listener {
 	api := defaultHTTPClient()
+	ack := newAckGate(env, os.Stdin)
+	var replyCardAck *ackGate
+	if sink := socketSinkOf(out); sink != nil {
+		ack = sink.ackGate()
+		replyCardAck = ack
+	}
 	return &listener{
 		stamper:           stamper,
 		cfg:               cfg,
@@ -496,7 +541,8 @@ func newListener(cfg Config, env func(string) string, out io.Writer, once bool, 
 		winddown:          newWindDownHook(api, cfg, out),
 		recycle:           newRecycleHook(api, cfg, out),
 		drainWarn:         &drainWarner{},
-		ack:               newAckGate(env, os.Stdin, os.Stderr),
+		ack:               ack,
+		replyCardAck:      replyCardAck,
 		replySeen:         loadReplyCardSeen(replyCardSeenPath(cfg)),
 		taskSnaps:         map[string]taskSnap{},
 		once:              once,

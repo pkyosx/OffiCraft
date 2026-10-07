@@ -2066,7 +2066,12 @@ func TestStampWakeObservability(t *testing.T) {
 		reconcileTestWantRow(t, d, "lapsed", want)
 	})
 
-	t.Run("under a warden's not-logged-in refusal, the lapse keeps that refusal on the row, while any other refusal is replaced by the wake-timeout receipt", func(t *testing.T) {
+	t.Run("under a warden's machine-setup refusal, the lapse keeps that refusal on the row, while any other refusal is replaced by the wake-timeout receipt", func(t *testing.T) {
+		const lapsed = "wake_timeout: the START was dispatched to machine 'm-box' but the agent never came " +
+			"online within the start window — check that claude runs and is logged in on " +
+			"that machine (warden log: ocwarden.out.log)"
+		const tooOld = "notify_claude_too_old: 這台機器的 Claude Code 是 2.1.200，低於 2.1.287，Claude 成員無法上線。" +
+			"請到監控頁的機器分頁升級這台機器的 Claude Code。"
 		for _, c := range []struct {
 			name, refusal, want string
 		}{
@@ -2074,10 +2079,9 @@ func TestStampWakeObservability(t *testing.T) {
 				"claude_not_logged_in: machine 'm-box' is not logged in to claude"},
 			{"codex not logged in", "codex_not_logged_in: machine 'm-box' is not logged in to codex",
 				"codex_not_logged_in: machine 'm-box' is not logged in to codex"},
-			{"another refusal", "claude_bin_unresolved: set OC_CLAUDE_BIN or put claude on the daemon PATH",
-				"wake_timeout: the START was dispatched to machine 'm-box' but the agent never came " +
-					"online within the start window — check that claude runs and is logged in on " +
-					"that machine (warden log: ocwarden.out.log)"},
+			{"claude code too old", tooOld, tooOld},
+			{"another refusal", "claude_bin_unresolved: set OC_CLAUDE_BIN or put claude on the daemon PATH", lapsed},
+			{"notify mod not loaded", "notify_mod_not_loaded: 通知模組沒有載入，成員收不到 OffiCraft 訊息，已停止上線。", lapsed},
 		} {
 			t.Run(c.name, func(t *testing.T) {
 				api, d := reconcileTestServer(t)
@@ -2718,13 +2722,28 @@ func TestReconcileTickMemberLocked(t *testing.T) {
 		}
 	})
 
-	t.Run("under a warden's not-logged-in refusal of the START, the ticks past the start window and through back-off still show that refusal", func(t *testing.T) {
+	t.Run("under a warden's machine-setup refusal of the START, the ticks past the start window and through back-off still show that refusal", func(t *testing.T) {
+		const loggedOut = "claude_not_logged_in: machine 'm-box' is not logged in to claude"
+		const noCredential = "claude_not_logged_in: `claude auth status` reports logged out on this host."
+		const tooOld = "notify_claude_too_old: 這台機器的 Claude Code 是 2.1.200，低於 2.1.287，Claude 成員無法上線。" +
+			"請到監控頁的機器分頁升級這台機器的 Claude Code。"
+		const lapsed = "wake_timeout: the START was dispatched to machine 'm-box' but the agent never came " +
+			"online within the start window — check that claude runs and is logged in on " +
+			"that machine (warden log: ocwarden.out.log)"
 		for _, c := range []struct {
-			name        string
+			name, refusal, want string
+			// machine clock offset of the refusal's stamp from the start, in seconds
 			stampOffset float64
+			earlier     bool
 		}{
-			{"stamped in the start's own second", 0},
-			{"stamped by a machine clock 5s slow", -5},
+			{name: "not logged in, stamped in the start's own second", refusal: noCredential, want: loggedOut},
+			{name: "not logged in, stamped by a machine clock 5s slow", refusal: noCredential, want: loggedOut, stampOffset: -5},
+			{name: "claude code too old, stamped in the start's own second", refusal: tooOld, want: tooOld},
+			{name: "claude code too old, stamped by a machine clock 5s slow", refusal: tooOld, want: tooOld, stampOffset: -5},
+			{name: "claude code too old, but of an earlier start: the lapse of this start is a wake timeout",
+				refusal: tooOld, want: lapsed, earlier: true},
+			{name: "notify mod not loaded: the lapse replaces it with the wake-timeout receipt",
+				refusal: "notify_mod_not_loaded: 通知模組沒有載入，成員收不到 OffiCraft 訊息，已停止上線。", want: lapsed},
 		} {
 			t.Run(c.name, func(t *testing.T) {
 				api, d := reconcileTestServer(t)
@@ -2735,33 +2754,41 @@ func TestReconcileTickMemberLocked(t *testing.T) {
 					defer api.reconcileMu.Unlock()
 					return api.reconcileTickMemberLocked(reconcileTestRow(t, d, "runner"), now)
 				}
+				refuse := func(stampedAt float64) {
+					api.foldCommandResult(map[string]any{
+						"member_id": "runner", "rpc": "start", "ok": false,
+						"reason": c.refusal,
+						"at":     time.Unix(int64(stampedAt), 0).UTC().Format(time.RFC3339),
+					}, "telemetry", "m-box")
+				}
 				// Half a second into a second, so the warden's whole-second stamp of a
 				// refusal in that same second reads earlier than the start.
 				base := math.Floor(nowSecs()-2) + 0.5
 				hubTestStderr(t, func() {
+					if c.earlier {
+						base = nowSecs() + 10
+						refuse(nowSecs())
+					}
 					if got := tick(base); got.Command != reconcileCmdStart {
 						t.Fatalf("premise: the first tick must dispatch a START, got %+v", got)
 					}
-					api.foldCommandResult(map[string]any{
-						"member_id": "runner", "rpc": "start", "ok": false,
-						"reason": "claude_not_logged_in: `claude auth status` reports logged out on this host.",
-						"at":     time.Unix(int64(base+c.stampOffset), 0).UTC().Format(time.RFC3339),
-					}, "telemetry", "m-box")
+					if !c.earlier {
+						refuse(base + c.stampOffset)
+					}
 					if got := tick(base + WakingTTLSecs + 1); !got.StartTimedOut {
 						t.Fatalf("premise: this tick must be the start-window lapse, got %+v", got)
 					}
 				})
-				want := "claude_not_logged_in: machine 'm-box' is not logged in to claude"
-				if got := reconcileTestRow(t, d, "runner").LastOpReason; got != want {
-					t.Fatalf("after the lapse:\n got %q\nwant %q", got, want)
+				if got := reconcileTestRow(t, d, "runner").LastOpReason; got != c.want {
+					t.Fatalf("after the lapse:\n got %q\nwant %q", got, c.want)
 				}
 				hubTestStderr(t, func() {
 					if got := tick(base + WakingTTLSecs + 2); got.ReasonCode == "" {
 						t.Fatalf("premise: this tick must be a back-off wait, got %+v", got)
 					}
 				})
-				if got := reconcileTestRow(t, d, "runner").LastOpReason; got != want {
-					t.Fatalf("during back-off:\n got %q\nwant %q", got, want)
+				if got := reconcileTestRow(t, d, "runner").LastOpReason; got != c.want {
+					t.Fatalf("during back-off:\n got %q\nwant %q", got, c.want)
 				}
 			})
 		}

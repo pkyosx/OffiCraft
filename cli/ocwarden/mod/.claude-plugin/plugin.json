@@ -1,5 +1,5 @@
 {
   "name": "officraft",
   "version": "1.0.0",
-  "description": "Delivers OffiCraft notifications into this member's main conversation: runs `ocagent listen --deliver-mod` and submits each event as a prompt."
+  "description": "Boots this OffiCraft member, then runs `ocagent listen --deliver-socket`, which writes each event into this session's messaging socket."
 }

@@ -63,7 +63,7 @@ func realMain(argv []string, env func(string) string, in io.Reader, out io.Write
 		return cmdContextReport(defaultHTTPClient(), cfg, env, now, in, out, os.Stderr)
 
 	case "listen":
-		return cmdListen(rest, cfg, env, out, os.Stderr, runListen, nil)
+		return cmdListen(rest, cfg, env, out, os.Stderr, runListen)
 
 	case "suicide":
 		fs := flag.NewFlagSet("ocagent suicide", flag.ContinueOnError)

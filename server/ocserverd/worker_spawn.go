@@ -228,9 +228,9 @@ const sessionAliveWakeNote = " — the start window then lapsed, but that is NOT
 	"runtime on that machine; deal with the live session — press 強制停止 to " +
 	"end it, then 喚醒."
 
-// wakeTimeoutOverWardenReceipt keeps a warden's clobber or not-logged-in refusal
+// wakeTimeoutOverWardenReceipt keeps a warden's clobber or machine-setup refusal
 // from being overwritten by a wake_timeout stamp (clearWorkerPlacementBlock
-// already never touches a warden receipt); the not-logged-in one is returned
+// already never touches a warden receipt); the machine-setup one is returned
 // unchanged, so the stamp writes nothing. The clobber arm is a defence, not a
 // fix: no production path reaches it today, because reconcile.go returns early
 // on the clobber prefix before StartTimedOut is set — an FSM reorder there would

@@ -14,13 +14,6 @@ func memberSessionName(memberID string) string {
 	return memberSessionPrefix + strings.ToLower(memberID)
 }
 
-// listenerSessionName: 🔴 the prefix must NOT be "member-": isMemberSession
-// would treat "member-kyle-listen" as a member and resolve it to a workdir that
-// does not exist.
-func listenerSessionName(memberID string) string {
-	return "listen-" + strings.ToLower(memberID)
-}
-
 func tmuxClassifyAbsent(errText string) bool {
 	s := strings.ToLower(errText)
 	return strings.Contains(s, "no server running") ||

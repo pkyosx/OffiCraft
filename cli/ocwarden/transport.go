@@ -399,7 +399,7 @@ func buildLoginGate(env func(string) string, login *loginProber) func(runtime st
 }
 
 // spawnSleep is every wait the spawn and stop seams below make (the notify-mod
-// waits, the nudge pacing, the sweep polls). A var only so TestBuildCommandDeps
+// waits, the sweep polls). A var only so TestBuildCommandDeps
 // can run the production wiring, notify-mod restart included, without ~60 s of
 // real sleep.
 var spawnSleep = time.Sleep
@@ -484,7 +484,7 @@ func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner, lau
 			).start(p)
 		},
 		Stop: func(session string) (bool, bool) {
-			// A paste-route `ocagent listen` is detached and never receives the
+			// An `ocagent listen` that outlived its Claude Code never receives the
 			// session's SIGHUP, so the sweep finds it by workdir (lsof) and reaps it
 			// by pid. A legacy
 			// worker-<ow-id> session resolves the retired workers/ root; an unresolvable
