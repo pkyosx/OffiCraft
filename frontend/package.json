@@ -8,6 +8,7 @@
     "build": "npm run typecheck && vite build",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.scripts.json && tsc --noEmit -p tsconfig.guards.json",
     "gen:api": "openapi-typescript ../spec/openapi.json -o src/api/generated/schema.ts",
+    "gen:builtin-themes": "node scripts/gen-builtin-themes.mjs",
     "gen:tokens": "node scripts/gen-theme-tokens.mjs",
     "gen:fonts": "node scripts/gen-theme-fonts.mjs",
     "gen:msgkeys": "node scripts/gen-message-keys.mjs",

@@ -1,3 +1,7 @@
+/* The --color-* values of the built-in blocks (:root = office, and each
+ * :root[data-theme=…]) are generated from themes/<id>.theme.json at the repo
+ * root: edit them there and run `npm run gen:builtin-themes`. Everything else
+ * in this file — comments included — is hand-written. */
 :root {
   --color-bg: #191c24;
   /* T-081b 版面分區:在此之前整個座艙只有「頁底」與「卡片底」兩層可被主題換色

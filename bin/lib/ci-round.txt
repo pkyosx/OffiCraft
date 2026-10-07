@@ -81,6 +81,7 @@ frontend-checks     lint-css-tokens
 frontend-checks     lint-css-token-roles
 frontend-checks     lint-async-landing
 frontend-checks     lint-chat-area-key
+drift-checks        drift-builtin-themes
 drift-checks        drift-theme-tokens
 drift-checks        drift-message-keys
 drift-checks        drift-fonts

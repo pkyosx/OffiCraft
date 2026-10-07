@@ -198,7 +198,8 @@ export const AVATAR_MIME_WHITELIST = [
 ] as const;
 const AVATAR_MIME_SET = new Set<string>(AVATAR_MIME_WHITELIST);
 
-/** The built-in themes in picker order, each a block in styles/theme.css.
+/** The built-in themes in picker order, each a block in styles/theme.css whose
+ * colours are generated from themes/<id>.theme.json (scripts/gen-builtin-themes.mjs).
  * `nameKey` is its name's leaf in the locales' themeIdentity subtree. */
 export const BUILTIN_THEMES = [
   { id: "office", nameKey: "office" },

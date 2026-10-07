@@ -115,7 +115,7 @@ REGEN_PAIR_GATE = $(P) \
   test-frontend-unit \
   test-frontend-ct test-conformance \
   scan-tracked-paths scan-secrets scan-tcc-anchor \
-  drift-ocapi drift-schema-ts drift-theme-tokens drift-message-keys drift-fonts \
+  drift-ocapi drift-schema-ts drift-builtin-themes drift-theme-tokens drift-message-keys drift-fonts \
   drift-mcp-catalog \
   drift-sse-topics \
   drift-migration-lock check-released-migrations
@@ -895,6 +895,23 @@ drift-schema-ts: build-frontend-deps
 	if ! diff -u frontend/src/api/generated/schema.ts "$$fresh"; then \
 	  echo "FAIL — contract drift: frontend/src/api/generated/schema.ts is STALE vs spec/openapi.json."; \
 	  echo "regenerate + commit: (cd frontend && npm run gen:api)"; \
+	  rm -f "$$fresh"; \
+	  exit 1; \
+	fi; \
+	rm -f "$$fresh"; \
+	$(DONE)
+
+# themes/<id>.theme.json is the single source of the built-in themes' colours;
+# the --color-* declarations in theme.css's built-in blocks are GENERATED from it.
+drift-builtin-themes: build-frontend-deps
+	@$(P) \
+	NPM="$$(oc_npm)"; \
+	echo "[drift-builtin-themes] regenerate theme.css built-in colours from themes/*.theme.json + diff committed"; \
+	fresh="$$(mktemp -t oc-fresh-theme-css.XXXXXX)"; \
+	(cd frontend && GEN_BUILTIN_THEMES_OUT="$$fresh" "$$NPM" run --silent gen:builtin-themes >/dev/null); \
+	if ! diff -u frontend/src/styles/theme.css "$$fresh"; then \
+	  echo "FAIL — built-in theme drift: frontend/src/styles/theme.css is STALE vs themes/*.theme.json."; \
+	  echo "regenerate + commit: (cd frontend && npm run gen:builtin-themes && npm run gen:tokens)"; \
 	  rm -f "$$fresh"; \
 	  exit 1; \
 	fi; \

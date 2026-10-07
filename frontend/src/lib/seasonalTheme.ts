@@ -6,10 +6,16 @@ import {
 } from "./seasonalSchedule";
 
 // eager:false keeps every theme file in its own chunk: nothing is fetched until
-// a window opens and load() is called.
-const THEME_FILES = import.meta.glob<ThemeBundle>("../../../themes/*.theme.json", {
-  import: "default",
-});
+// a window opens and load() is called. The built-in themes' files feed
+// theme.css at build time and must not ship as chunks of their own.
+const THEME_FILES = import.meta.glob<ThemeBundle>(
+  [
+    "../../../themes/*.theme.json",
+    "!../../../themes/office.theme.json",
+    "!../../../themes/office-light.theme.json",
+  ],
+  { import: "default" }
+);
 
 export interface LoadableSeasonalWindow extends SeasonalWindow {
   load: () => Promise<ThemeBundle>;

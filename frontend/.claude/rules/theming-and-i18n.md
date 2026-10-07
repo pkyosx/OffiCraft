@@ -53,6 +53,10 @@ wording 值逐字保存，只對「是否為空」做 trim 判斷；句子片段
 
 匯出主題時跳過仍是裸 alias 的 token，避免把內建跟隨值烘成固定值；alias 名單由 theme token generator 推導，不手抄。
 
+## 內建主題的來源
+
+內建主題（office、office-light）的顏色以 repo 根目錄 `themes/<id>.theme.json` 為唯一來源；`theme.css` 各內建區塊裡的 `--color-*` 宣告是 `scripts/gen-builtin-themes.mjs` 產生的，只改值、補缺、刪多餘，註解與非顏色的行（canvas、radius、font、color-scheme）照手寫保留。改顏色就改 JSON 再跑 `npm run gen:builtin-themes`、`npm run gen:tokens`；直接改 theme.css 的值會被 drift-builtin-themes 擋下。theme.css 仍是 token 白名單與各 lint 讀的那份文字，所以白名單照舊從它產生。office 以外的內建主題不可用 `var()`（gen-theme-tokens 會把它收成假的 alias），產生器會拒絕。內建主題檔不會被 seasonal 的 glob 打包成 chunk。
+
 ## 圖片與背景
 
 主題包的 backgrounds 只接受 canvas。圖片仍共用 PNG/JPEG/WEBP MIME、magic bytes 與嚴格 base64 驗證，SVG 永拒；topbar 等有文字的區域不可順手開背景圖。

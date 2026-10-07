@@ -24,6 +24,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { LS_SEASONAL_PAINT, LS_SEASONAL_THEME, LS_THEME, LS_THEME_PAINT } from "./themePaint";
 import { THEME_COLOR_TOKENS } from "../styles/themeTokens.generated";
 import { MESSAGE_KEYS } from "../i18n/messageKeys.generated";
+import { RESERVED_THEME_IDS } from "./themeBundleCore";
 
 const FE_ROOT = resolve(__dirname, "../..");
 // A dedicated outDir: `dist/` belongs to the developer and to the gate-4c paint
@@ -183,4 +184,11 @@ describe("dist/ — every seasonal theme file ships as its own lazily loaded chu
       expect(preloaded).not.toContain(carriers[0]);
     });
   }
+
+  it("ships no chunk for a built-in theme's file — those reach the page through theme.css", () => {
+    const shipped = readdirSync(assetsDir);
+    for (const id of RESERVED_THEME_IDS) {
+      expect(shipped.filter((f) => f.startsWith(`${id}.theme-`)), id).toEqual([]);
+    }
+  });
 });
