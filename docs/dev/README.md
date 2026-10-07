@@ -320,10 +320,11 @@ owner 2026-08-28 於 rc-f9d284c0aef7 裁定:GA 可以在 GitHub UI 上有一顆�
   ⚠️ **fail-closed**:API 出錯、`gh` 不在、body 解不出來、欄位缺席——**一律擋**,沒有「查不到就放行」這條路。`bin/tests/auto-beta-guard.sh` 的 W4eD 餵一支假 `gh` 把這個 step 的 `run:` body 真的跑一遍來釘住這件事,W4e1 另外禁止 gate body 裡再出現任何寫死的帳號名。
   要改誰能按:**改 repo 的 collaborator 權限**,檔案裡沒有名單可編。
 - **按錯了怎麼回退**(完整版寫在 workflow 檔頭,那裡是權威):
-  1. **先止血**——`server/ocserverd/update_check.go` 挑的是「channel 收得下的、semver 最大的非 draft release」,它讀 `/releases` 並看 `prerelease` 旗標,**從來不讀 `/releases/latest`**。所以真正決定站台會不會吃到的是 **prerelease 旗標**,不是 Latest 指標:
-     `gh release edit <按錯的 tag> --repo pkyosx/OffiCraft --prerelease=true`
-  2. **再把 Latest 指標移回去**(給 GitHub UI 與讀 `/releases/latest` 的人看):
+  1. **先止血**——`server/ocserverd/update_check.go` 讀 GitHub 的公開 release 頁:stable 頻道的站吃的是 GitHub 標成 **Latest** 的那一顆(`github.com/<repo>/releases/latest`)。所以決定 stable 站會不會吃到的是 **Latest 指標**,先把它移回上一顆正式版:
      `gh release edit <上一顆正式版 tag> --repo pkyosx/OffiCraft --latest=true`
+  2. **再把按錯的 tag 翻回 prerelease**,讓 release 清單名實相符:
+     `gh release edit <按錯的 tag> --repo pkyosx/OffiCraft --prerelease=true`
+     ⚠️ 這一步**擋不住 beta 頻道的站**:它們吃 `releases.atom` 裡 semver 最大的那一筆,feed 不帶 prerelease 旗標,所以那顆 tag 對它們照樣在架上,直到發出更大的 tag 為止。
   3. **兩件都要回讀確認**——下指令不等於做到:
      `gh api repos/pkyosx/OffiCraft/releases/latest --jq .tag_name`
      `gh release view <按錯的 tag> --repo pkyosx/OffiCraft --json isPrerelease`
@@ -336,7 +337,7 @@ owner 2026-08-28 於 rc-f9d284c0aef7 裁定:GA 可以在 GitHub UI 上有一顆�
 - **gate job 紅** ⇒ `auto-beta` 根本不跑 ⇒ 確實沒有 beta。
 - **`auto-beta` 自己在 upload 之後失敗**(回讀某一項不符、runner 中途死、asset 只上傳一半——`gh release create` 那句 die 訊息本身就寫著「check GitHub for a partially created release」)⇒ **留下一顆沒通過回讀的 prerelease,沒有人回收它**。
 
-嚴重度分兩種:存成 **draft** 的無害(`update_check.go` 的 admission 會把 draft 濾掉,站台看不到);**asset 缺失或不全**的**站台看得見**(admission 只看 draft/prerelease,不檢查 asset),它會是 semver 最大的那顆,`auto_update` 開著的站會挑上它然後下載失敗,直到下一次 merge 發出更大的 tag 才被蓋過去。
+嚴重度分兩種:存成 **draft** 的無害(draft 不會出現在 `releases.atom`,也不會是 Latest,站台看不到);**asset 缺失或不全**的 prerelease **beta 頻道的站看得見**(`update_check.go` 只看 feed 裡 semver 最大的 tag,不檢查 asset),`auto_update` 開著的 beta 站會挑上它,然後升級在下載那一步拒絕(缺 asset = 無法驗證,什麼都不動),每一輪重試都一樣,直到下一次 merge 發出更大的 tag 才被蓋過去。stable 頻道的站只跟 Latest,不受影響。
 
 **人工清理**:確認 job 紅的原因在 upload 之後,然後
 ```

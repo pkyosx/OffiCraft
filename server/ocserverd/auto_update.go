@@ -11,8 +11,8 @@ import (
 	"time"
 )
 
-// autoUpdateCadence: the underlying GitHub check is cached with its own 5-minute
-// TTL, so most ticks cost two mutex reads and nothing else.
+// autoUpdateCadence: the underlying GitHub check is cached for
+// updater_check_interval_secs, so most ticks cost a few mutex reads and nothing else.
 const autoUpdateCadence = time.Minute
 
 func (s *apiServer) autoUpdateEnabled() bool {

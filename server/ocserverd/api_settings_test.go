@@ -74,6 +74,7 @@ func apiTestShippedSettings() map[string]any {
 		"backup_retain":                       5,
 		"updater_receive_beta":                false,
 		"updater_auto_update":                 false,
+		"updater_check_interval_secs":         300,
 		"org_name":                            "",
 		"owner_name":                          "",
 		"push_contact_email":                  "",
@@ -601,7 +602,8 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 			"doc_cap_chars_offboard":20000,
 			"chat_budget_chars":9000,
 			"step_note_cap_chars":20000,
-			"backup_retain":9
+			"backup_retain":9,
+			"updater_check_interval_secs":3600
 		}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
@@ -630,13 +632,14 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		want["chat_budget_chars"] = 9000
 		want["step_note_cap_chars"] = 20000
 		want["backup_retain"] = 9
+		want["updater_check_interval_secs"] = 3600
 		apiWantBody(t, data, want)
 	})
 
-	t.Run("under a restart on the same database, the patched login and disk-usage intervals are still reported", func(t *testing.T) {
+	t.Run("under a restart on the same database, the patched login, disk-usage and update-check intervals are still reported", func(t *testing.T) {
 		_, h, d, owner := newAPITestServer(t)
 		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner,
-			`{"runtime_login_check_interval_secs":600,"runtime_login_recheck_interval_secs":45,"disk_usage_interval_secs":600}`)
+			`{"runtime_login_check_interval_secs":600,"runtime_login_recheck_interval_secs":45,"disk_usage_interval_secs":600,"updater_check_interval_secs":60}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -650,6 +653,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		want["runtime_login_check_interval_secs"] = 600
 		want["runtime_login_recheck_interval_secs"] = 45
 		want["disk_usage_interval_secs"] = 600
+		want["updater_check_interval_secs"] = 60
 		apiWantBody(t, data, want)
 	})
 
@@ -872,6 +876,24 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 			apiWantError(t, data, "validation_error", "disk_usage_interval_secs must be between 600 and 86400 seconds")
 		}
 		if stored, err := d.GetSetting(settingDiskUsageIntervalSecs); err != nil || stored != nil {
+			t.Fatalf("a refused value must not be stored, got %v %v", stored, err)
+		}
+		_, served := apiJSON(t, h, "GET", "/api/settings", owner, "")
+		apiWantBody(t, served, apiTestShippedSettings())
+	})
+
+	t.Run("an updater_check_interval_secs outside 60..3600 answers 422 and writes nothing", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+
+		for _, value := range []string{"59", "3601"} {
+			body := `{"updater_check_interval_secs":` + value + `}`
+			status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, body)
+			if status != 422 {
+				t.Fatalf("%s: want 422, got %d (%v)", body, status, data)
+			}
+			apiWantError(t, data, "validation_error", "updater_check_interval_secs must be between 60 and 3600 seconds")
+		}
+		if stored, err := d.GetSetting("updater.check_interval_secs"); err != nil || stored != nil {
 			t.Fatalf("a refused value must not be stored, got %v %v", stored, err)
 		}
 		_, served := apiJSON(t, h, "GET", "/api/settings", owner, "")
@@ -1157,6 +1179,7 @@ func TestSettingsView(t *testing.T) {
 		ChatBudgetChars:                 6000,
 		StepNoteCapChars:                10000,
 		BackupRetain:                    5,
+		UpdaterCheckIntervalSecs:        300,
 		OrgName:                         "",
 		OwnerName:                       "",
 		PushContactEmail:                "",

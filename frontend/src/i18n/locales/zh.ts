@@ -2057,7 +2057,8 @@ export const zh = {
     // ── 系統更新與備份 (honest build-identity card) ──
     currentVersion: "目前版本",
     upToDate: "已是最新版",
-    // 檢查更新(GET /api/release/check,直接問 GitHub Releases)
+    updateNotConfirmed: "尚未確認最新版本",
+    // 檢查更新(GET /api/release/check,即時讀 GitHub 的 release 頁)
     checkUpdate: "檢查更新",
     checkingUpdate: "檢查中…",
     checkUnknown: "連不上 GitHub、查不到最新版本——請稍後再試",
@@ -2069,6 +2070,10 @@ export const zh = {
     receiveBetaSub: "更新檢查也納入 GitHub 預發佈(prerelease)· 關閉 = 只看正式 release",
     autoUpdate: "自動更新",
     autoUpdateSub: "偵測到新版本時於背景自動升級並重啟 · 預設關閉",
+    updateCheckInterval: "更新檢查間隔",
+    updateCheckIntervalSub:
+      "背景多久向 GitHub 確認一次有沒有新版本；按「檢查更新」與升級一律即時查詢，不受這個間隔影響（1–60 分鐘）",
+    minutes: "分鐘",
     upgradeFailed: "升級失敗",
     upgradeRestarting:
       "升級中——新版本已安裝完成,伺服器重啟中;此頁面將自動重新載入。",

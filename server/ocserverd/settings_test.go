@@ -156,6 +156,9 @@ func TestLoadAuthSettings(t *testing.T) {
 		if got.diskUsageIntervalSecs != 3600 {
 			t.Fatalf("fresh disk usage interval: want 3600, got %d", got.diskUsageIntervalSecs)
 		}
+		if got.updaterCheckIntervalSecs != 300 {
+			t.Fatalf("fresh update check interval: want 300, got %d", got.updaterCheckIntervalSecs)
+		}
 		again, secondLogs, err := settingsTestLoadAuth(t, d, defaultConfig())
 		if err != nil {
 			t.Fatalf("second loadAuthSettings: %v", err)
@@ -244,6 +247,7 @@ func TestLoadAuthSettings(t *testing.T) {
 			settingRuntimeLoginCheckIntervalSecs:   "45",
 			settingRuntimeLoginRecheckIntervalSecs: "90",
 			settingDiskUsageIntervalSecs:           "7200",
+			settingUpdaterCheckIntervalSecs:        "900",
 			settingSuggestedRepliesReplyCard:       ` ["first"] `,
 			settingSuggestedRepliesTaskMessage:     `["second","third"]`,
 		} {
@@ -274,6 +278,9 @@ func TestLoadAuthSettings(t *testing.T) {
 		if got.diskUsageIntervalSecs != 7200 {
 			t.Fatalf("disk usage interval did not load as stored: %d", got.diskUsageIntervalSecs)
 		}
+		if got.updaterCheckIntervalSecs != 900 {
+			t.Fatalf("update check interval did not load as stored: %d", got.updaterCheckIntervalSecs)
+		}
 		wantCtx := SseContextHighConfig{NoticePct: 41, HandoverPct: 66, MinBootSecs: 12.5, StaleGuard: false}
 		if got.ctxHigh != wantCtx {
 			t.Fatalf("context settings did not load as stored: %+v", got.ctxHigh)
@@ -301,6 +308,9 @@ func TestLoadAuthSettings(t *testing.T) {
 			{name: "disk usage interval below range", key: settingDiskUsageIntervalSecs, value: "599", want: `settings monitoring.disk_usage_interval_secs: must be between 600 and 86400 seconds: "599"`},
 			{name: "disk usage interval above range", key: settingDiskUsageIntervalSecs, value: "86401", want: `settings monitoring.disk_usage_interval_secs: must be between 600 and 86400 seconds: "86401"`},
 			{name: "disk usage interval not a number", key: settingDiskUsageIntervalSecs, value: "hourly", want: `settings monitoring.disk_usage_interval_secs: must be between 600 and 86400 seconds: "hourly"`},
+			{name: "update check interval below range", key: settingUpdaterCheckIntervalSecs, value: "59", want: `settings updater.check_interval_secs: must be between 60 and 3600 seconds: "59"`},
+			{name: "update check interval above range", key: settingUpdaterCheckIntervalSecs, value: "3601", want: `settings updater.check_interval_secs: must be between 60 and 3600 seconds: "3601"`},
+			{name: "update check interval not a number", key: settingUpdaterCheckIntervalSecs, value: "often", want: `settings updater.check_interval_secs: must be between 60 and 3600 seconds: "often"`},
 			{name: "invalid suggested reply JSON", key: settingSuggestedRepliesTaskMessage, value: "not-json", want: `settings suggested_replies.task_message: must be a JSON array of strings: "not-json"`},
 		}
 		for _, tc := range cases {

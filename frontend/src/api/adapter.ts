@@ -1237,6 +1237,9 @@ export interface ServerSettingsView {
   /** Whether the server self-upgrades in the background when GitHub has a
    * newer admissible release (false = manual-only, the default). */
   updaterAutoUpdate: boolean;
+  /** How often the server re-reads GitHub's release pages in the background
+   * (60..3600 seconds; the settings page edits it in minutes). */
+  updaterCheckIntervalSecs: number;
   /** The studio display name shown in the topbar (T-d693). "" = never set —
    * the caller falls back to the localized default (`t.orgName`). */
   orgName: string;
@@ -1370,6 +1373,8 @@ export interface ServerSettingsPatch {
   updaterReceiveBeta?: boolean;
   /** Arm unattended background self-upgrade (default false = manual-only). */
   updaterAutoUpdate?: boolean;
+  /** Background update-check interval, 60..3600 seconds (server 422s outside). */
+  updaterCheckIntervalSecs?: number;
   /** The studio display name (T-d693); trimmed server-side, max 80 runes, ""
    * clears it back to the localized default (server 422s anything longer). */
   orgName?: string;

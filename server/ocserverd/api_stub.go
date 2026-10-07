@@ -113,6 +113,8 @@ type apiServer struct {
 	updaterReceiveBeta bool
 	updaterAutoUpdate  bool
 
+	updaterCheckIntervalSecs int
+
 	orgName string
 
 	ownerName string
@@ -240,7 +242,7 @@ type apiServer struct {
 	updateMu    txguard.Mutex
 	updateCheck updateCheckState
 
-	releaseAPIBase string
+	releaseSiteBase string
 
 	upgradeMu txguard.Mutex
 

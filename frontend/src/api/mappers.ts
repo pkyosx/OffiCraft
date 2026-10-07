@@ -1352,6 +1352,7 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     // server, where OFF is exactly the honest reading).
     updaterReceiveBeta: w.updater_receive_beta ?? false,
     updaterAutoUpdate: w.updater_auto_update ?? false,
+    updaterCheckIntervalSecs: w.updater_check_interval_secs ?? 300,
     // Studio name (T-d693; schema-optional for DTO-compat — the Go wire always
     // emits it). "" = never set; the topbar substitutes the localized default.
     orgName: w.org_name ?? "",
@@ -1491,6 +1492,7 @@ export function toVersion(w: WireVersion): VersionView {
     // git_time / latest_version are nullable on the wire; a defaulted-away
     // field arrives as `undefined` — coalesce to null (never fabricated).
     latestVersion: w.latest_version ?? null,
+    updateCheckedOkAt: w.update_checked_ok_at ?? null,
   };
 }
 

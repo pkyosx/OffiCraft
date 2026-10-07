@@ -705,7 +705,10 @@ export interface MonitoringView {
  * fall back to the composed build label v<yymmdd>-<hhmm>-<shortsha> from
  * `gitSha` + `gitTime` (lib/versionFormat; missing `gitTime` degrades to the
  * short sha alone). `updateAvailable`/`latestVersion` mirror the server's
- * cached GitHub Releases check; a phantom newer version is NEVER fabricated.
+ * cached GitHub release check; a phantom newer version is NEVER fabricated.
+ * `updateCheckedOkAt` is when that check last succeeded — null means it never
+ * has since the server started (or since the channel flipped), so a false
+ * `updateAvailable` then proves nothing.
  */
 export interface VersionView {
   version: string;
@@ -714,6 +717,7 @@ export interface VersionView {
   catalogHash: string;
   updateAvailable: boolean;
   latestVersion: string | null;
+  updateCheckedOkAt: string | null;
 }
 
 /**

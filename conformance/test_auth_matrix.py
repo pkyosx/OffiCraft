@@ -729,7 +729,7 @@ MATRIX: dict[str, Route] = {
         overrides={"owner": 204},
     ),
     "GET /api/release/check": Route(
-        # The harness pins $OC_RELEASE_API_BASE at an unroutable loopback
+        # The harness pins $OC_RELEASE_SITE_BASE at an unroutable loopback
         # (run.sh), so the positive authz faces deterministically answer the
         # honest degraded 200 {"status":"unknown"} — never the real GitHub.
         # Full verdict semantics live in the server unit tests
@@ -737,7 +737,7 @@ MATRIX: dict[str, Route] = {
         requires="admin_agent",
     ),
     "POST /api/update/upgrade": Route(
-        # With $OC_RELEASE_API_BASE unroutable (run.sh) no newer GitHub
+        # With $OC_RELEASE_SITE_BASE unroutable (run.sh) no newer GitHub
         # release is ever known, so BOTH positive authz faces deterministically
         # answer the "no newer release known" 409 — the trigger's full
         # precondition/execution semantics (the real

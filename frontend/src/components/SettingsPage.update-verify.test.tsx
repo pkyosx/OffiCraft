@@ -9,12 +9,13 @@
 //     verdict (up to date — never a phantom newer release).
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, fireEvent } from "@testing-library/react";
+import { render, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { SettingsPage } from "./SettingsPage";
 import { __resetMock } from "../api/mock";
 import { api } from "../api";
+import { toVersion } from "../api/mappers";
 
 const s = zh.settings;
 
@@ -153,6 +154,43 @@ describe("SettingsPage · 系統更新與備份 · 檢查更新 (explicit fresh 
     expect(utils.getAllByTestId("settings-update-status")).toHaveLength(1);
   });
 
+  it("under a /api/version whose check never succeeded, the idle badge says not confirmed — never 已是最新版", async () => {
+    vi.spyOn(api, "getVersion").mockResolvedValue(
+      toVersion({
+        version: "0.4.7",
+        git_sha: "f6f5e1c",
+        git_time: null,
+        catalog_hash: "mock",
+        update_available: false,
+        latest_version: null,
+      })
+    );
+    const utils = await openSoftware();
+
+    const status = await utils.findByTestId("settings-update-status");
+    await vi.waitFor(() => expect(status.textContent).toBe("尚未確認最新版本"));
+    expect(status.querySelector(".sw-badge--muted")).not.toBeNull();
+    expect(utils.queryByText(s.upgrade)).toBeNull();
+  });
+
+  it("under a /api/version whose check succeeded and found nothing newer, the idle badge says 已是最新版", async () => {
+    vi.spyOn(api, "getVersion").mockResolvedValue(
+      toVersion({
+        version: "0.4.7",
+        git_sha: "f6f5e1c",
+        git_time: null,
+        catalog_hash: "mock",
+        update_available: false,
+        latest_version: null,
+        update_checked_ok_at: "2026-10-07T01:00:00Z",
+      })
+    );
+    const utils = await openSoftware();
+
+    const status = await utils.findByTestId("settings-update-status");
+    await vi.waitFor(() => expect(status.textContent).toBe("已是最新版"));
+  });
+
   // The refresh control is icon-only: its accessible name must survive.
   it("the refresh control is reachable by its accessible name", async () => {
     const utils = await openSoftware();
@@ -205,5 +243,33 @@ describe("SettingsPage · 系統更新與備份 · 自動更新存檔回讀 (存
     fireEvent.click(toggle);
     await utils.findByText(s.configSaveFailed);
     expect(utils.queryByText(s.configSaved)).toBeNull();
+  });
+});
+
+describe("SettingsPage · 系統更新與備份 · 更新檢查間隔 (minutes on screen, seconds on the wire)", () => {
+  it("shows the 300s default as 5 minutes", async () => {
+    const utils = await openSoftware();
+    const minutes = utils.getByLabelText(s.updateCheckInterval) as HTMLInputElement;
+    expect(minutes.value).toBe("5");
+  });
+
+  it("under an in-range minute count it persists as seconds, and outside 1..60 it snaps back without a write", async () => {
+    const patch = vi.spyOn(api, "patchServerSettings");
+    const utils = await openSoftware();
+    const minutes = utils.getByLabelText(s.updateCheckInterval) as HTMLInputElement;
+    for (const [edge, secs] of [[60, 3600], [1, 60]] as const) {
+      fireEvent.change(minutes, { target: { value: String(edge) } });
+      fireEvent.blur(minutes);
+      await waitFor(async () => expect((await api.getServerSettings()).updaterCheckIntervalSecs).toBe(secs));
+      expect(patch).toHaveBeenLastCalledWith({ updaterCheckIntervalSecs: secs });
+    }
+    for (const outside of ["0", "61", "2.5"]) {
+      fireEvent.change(minutes, { target: { value: outside } });
+      fireEvent.blur(minutes);
+      await utils.findByText(s.paramsSaveError);
+      expect(minutes.value).toBe("1");
+    }
+    expect((await api.getServerSettings()).updaterCheckIntervalSecs).toBe(60);
+    expect(patch).toHaveBeenCalledTimes(2);
   });
 });

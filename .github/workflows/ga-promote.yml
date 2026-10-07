@@ -61,22 +61,26 @@
 # A wrong promote does TWO separable things, and they need two different undos.
 # Do them in this order.
 #
-# (1) STOP STATIONS FROM TAKING IT. This is the urgent half.
-#     server/ocserverd/update_check.go picks the SEMVER-GREATEST non-draft release
-#     that the channel admits, filtering on the `prerelease` flag — it reads
-#     /repos/<repo>/releases and NEVER /releases/latest. So the Latest POINTER is
-#     not what feeds stations; the prerelease FLAG is. Put the flag back:
+# (1) STOP STABLE STATIONS FROM TAKING IT. This is the urgent half.
+#     server/ocserverd/update_check.go reads GitHub's public release pages: a
+#     station on the stable channel takes whatever release GitHub marks Latest
+#     (github.com/<repo>/releases/latest). The Latest POINTER is what feeds
+#     stable stations, so move it back:
 #
-#         gh release edit <wrongly-promoted-tag> --repo pkyosx/OffiCraft --prerelease=true
+#         gh release edit <previous-good-GA-tag> --repo pkyosx/OffiCraft --latest=true
 #
 #     Stable-channel stations stop being offered it on their next check. Anyone who
 #     already upgraded in the window stays upgraded — this stops the bleeding, it
 #     does not un-ship the bytes. There is no downgrade path in the updater.
 #
-# (2) PUT THE LATEST POINTER BACK where it belongs, for the GitHub UI and for
-#     anything reading /releases/latest:
+# (2) FLIP THE WRONG TAG BACK TO A PRERELEASE, so the release list says what it is:
 #
-#         gh release edit <previous-good-GA-tag> --repo pkyosx/OffiCraft --latest=true
+#         gh release edit <wrongly-promoted-tag> --repo pkyosx/OffiCraft --prerelease=true
+#
+#     ⚠️ This does NOT hide it from beta-channel stations. They take the
+#     semver-greatest entry of github.com/<repo>/releases.atom, which carries no
+#     prerelease flag, so the tag stays on offer to them either way — until a
+#     greater tag is published.
 #
 # (3) VERIFY BOTH, because issuing a command is not the same as it landing — the
 #     whole reason bin/release reads back rather than trusting `gh`:
