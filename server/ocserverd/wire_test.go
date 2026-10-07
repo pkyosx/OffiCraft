@@ -173,7 +173,7 @@ func TestNewTaskArtifactVersionDTO(t *testing.T) {
 		want := taskArtifactVersionDTO{
 			ID: 7, Kind: "file", URL: "/api/chat/attachment/att-1", Name: "Report",
 			Description: "the write-up", Filename: "report.md",
-			Mime: "application/octet-stream", IsImage: false,
+			Mime: "text/markdown", IsImage: false,
 			AttachmentID: "att-1", CreatedTS: 1700.5, CreatedBy: "ann",
 		}
 		if !reflect.DeepEqual(got, want) {
@@ -570,6 +570,25 @@ func TestArtifactBlobFacts(t *testing.T) {
 			}
 			if got.isImage {
 				t.Fatalf("artifactBlobFacts(mime %q).isImage = true, want false", mime)
+			}
+		}
+	})
+
+	t.Run("a blob stored as octet-stream takes its extension's mime, and a link blob keeps text/uri-list", func(t *testing.T) {
+		for _, tc := range []struct {
+			att  *ChatAttachment
+			want artifactBlobFields
+		}{
+			{&ChatAttachment{ID: "att-1", Mime: attachmentOctetStream, Filename: wireTestFilename("shot.png")},
+				artifactBlobFields{url: "/api/chat/attachment/att-1", mime: "image/png", filename: "shot.png", isImage: true}},
+			{&ChatAttachment{ID: "att-2", Mime: attachmentOctetStream, Filename: wireTestFilename("recon.md")},
+				artifactBlobFields{url: "/api/chat/attachment/att-2", mime: "text/markdown", filename: "recon.md"}},
+			{&ChatAttachment{ID: "att-3", Mime: linkTargetMime},
+				artifactBlobFields{url: "/api/chat/attachment/att-3", mime: linkTargetMime}},
+		} {
+			got, ok := artifactBlobFacts(tc.att)
+			if !ok || !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("artifactBlobFacts(%s) = (%+v, %v), want (%+v, true)", tc.att.ID, got, ok, tc.want)
 			}
 		}
 	})
@@ -1101,9 +1120,35 @@ func TestAttachmentDTOsFromRefs(t *testing.T) {
 			map[string]any{"id": "att-9"},
 		}
 		got := attachmentDTOsFromRefs(refs)
-		want := []chatAttachmentDTO{{ID: "att-9", URL: "/api/chat/attachment/att-9"}}
+		want := []chatAttachmentDTO{{ID: "att-9", URL: "/api/chat/attachment/att-9", Mime: attachmentOctetStream}}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("attachmentDTOsFromRefs(unusable refs):\n got %+v\nwant %+v", got, want)
+		}
+	})
+
+	t.Run("a ref stored as octet-stream takes its extension's mime, and a specific stored mime is kept", func(t *testing.T) {
+		refs := []any{
+			map[string]any{"id": "att-1", "mime": attachmentOctetStream, "filename": "shot.png"},
+			map[string]any{"id": "att-2", "mime": attachmentOctetStream, "filename": "report.pdf"},
+			map[string]any{"id": "att-3", "mime": attachmentOctetStream, "filename": "core.bin"},
+			map[string]any{"id": "att-4", "mime": "image/png", "filename": ""},
+			map[string]any{"id": "att-5", "mime": attachmentOctetStream, "filename": ""},
+		}
+		got := attachmentDTOsFromRefs(refs)
+		want := []chatAttachmentDTO{
+			{ID: "att-1", URL: "/api/chat/attachment/att-1", Filename: "shot.png",
+				Mime: "image/png", IsImage: true},
+			{ID: "att-2", URL: "/api/chat/attachment/att-2", Filename: "report.pdf",
+				Mime: "application/pdf", IsImage: false},
+			{ID: "att-3", URL: "/api/chat/attachment/att-3", Filename: "core.bin",
+				Mime: attachmentOctetStream, IsImage: false},
+			{ID: "att-4", URL: "/api/chat/attachment/att-4", Filename: "",
+				Mime: "image/png", IsImage: true},
+			{ID: "att-5", URL: "/api/chat/attachment/att-5", Filename: "",
+				Mime: attachmentOctetStream, IsImage: false},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("attachmentDTOsFromRefs(legacy refs):\n got %+v\nwant %+v", got, want)
 		}
 	})
 

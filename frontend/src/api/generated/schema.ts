@@ -609,32 +609,27 @@ export interface paths {
          *     the token (deny-by-default) and fixes the single data scope, and the lookup is
          *     scoped to that owner — a blob outside the owner's scope (or nonexistent) is a
          *     404, so a caller can not fetch another owner's attachment. Returns the raw
-         *     bytes with the stored ``mime`` as the media type, except a generic
-         *     ``application/octet-stream`` blob whose filename ends .json is served as
-         *     ``application/json`` so the inline response renders in a browser.
+         *     bytes. The media type is the stored ``mime``, except that a blob stored as
+         *     ``application/octet-stream`` (or with no mime) takes the type its filename's
+         *     extension names, in the same table the upload routes type a new blob by
+         *     (``server/ocserverd/attachment_mime_types.json``, case-insensitive, the suffix
+         *     after the last dot); any other extension, or none, stays
+         *     ``application/octet-stream``. A blob stored with any other mime keeps it.
          *
-         *     DISPOSITION SPLIT (M2-3 gallery「開新分頁預覽」 vs 「下載」): an IMAGE is
-         *     served with no disposition at all (unchanged — ``<img src>`` keeps working);
-         *     any other PREVIEWABLE blob (text/*, application/pdf, application/json, and
-         *     a generic/unknown blob whose FILENAME ends .json — see ``isPreviewableAttachment``) is
-         *     served ``inline; filename="<name>"`` so a new tab RENDERS it instead of
-         *     force-downloading; everything else keeps ``attachment; filename="<name>"``
-         *     and downloads under its original name.
+         *     DISPOSITION SPLIT (M2-3 gallery「開新分頁預覽」 vs 「下載」): a PREVIEWABLE
+         *     type (image/*, text/*, application/pdf, application/json) is served
+         *     ``inline; filename="<name>"`` so a new tab RENDERS it instead of
+         *     force-downloading, while a downloader such as ``ocagent download`` still
+         *     saves it under its name and extension (``<img src>`` ignores the header); everything else keeps ``attachment; filename="<name>"``
+         *     and downloads under its original name (the attachment id when it has none).
          *
-         *     THE FILENAME IS FALLBACK EVIDENCE, not a declared-type override. A declared
-         *     non-generic MIME remains authoritative. A blob uploaded
-         *     without a declared mime is stored ``application/octet-stream`` — the
-         *     magic-byte sniff speaks for images only — and that is how most
-         *     agent-uploaded JSON arrives, so the mime alone cannot answer for it. The
-         *     upload path now reads the same name-to-mime table, so a blob stored from
-         *     here on carries ``application/json``; reading the name here is what makes
-         *     the ones stored BEFORE that still preview.
-         *
-         *     SECURITY: an inline ``text/html`` blob would otherwise execute
+         *     SECURITY: every response carries ``Content-Security-Policy: sandbox`` and
+         *     ``X-Content-Type-Options: nosniff``. An inline ``text/html`` blob, or an
+         *     ``image/svg+xml`` opened in a tab of its own, would otherwise execute
          *     attacker-supplied script ON THIS ORIGIN (an agent-uploaded page could read
-         *     the owner JWT out of localStorage). Every non-image inline preview therefore
-         *     carries ``Content-Security-Policy: sandbox`` — the document still renders
-         *     visually, but script execution and same-origin reach are disabled.
+         *     the owner JWT out of localStorage); under the sandbox the document still
+         *     renders visually, but script execution and same-origin reach are disabled.
+         *     The header has no effect on an image embedded through ``<img>``.
          *
          *     SHARE-SIG (third credential, this route ONLY — precedence Authorization
          *     header → ``?token=`` → ``?sig=``): when the request carries NO bearer
@@ -685,7 +680,7 @@ export interface paths {
          * Upload one attachment blob (raw octet-stream body; returns the light ref). ?filename= is capped at 128 characters (Unicode runes, not bytes); a longer one is refused with a 400 rather than truncated.
          * @description - The request body IS the raw file bytes, not base64 or multipart; `ocagent upload <path>` is the client.
          *     - Returns {id, mime, filename}; put it into post_chat's `attachments` to actually send it.
-         *     - `?filename=`/`?mime=` name and type the blob; the Content-Type header is ignored.
+         *     - `?filename=` names the blob and its extension alone types it; `?mime=` and the Content-Type header are ignored.
          *     - Caps: 20 MB image, 100 MB otherwise; over-cap or empty body is 400.
          *     - Every authenticated caller can read every blob.
          */
@@ -3259,10 +3254,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Replace a pinned file/image deliverable's content from a LOCAL file in ONE call (T-92) — the raw-body twin of ``replace_task_artifact``, keeping the artifact id exactly as that verb does. The request body IS the new bytes (``application/octet-stream``), the server stores the blob and swaps the live row in the same transaction, and the answer is the ordinary replace receipt (task_id, artifact_id, artifact_count, version_count). It exists for the same reason the add-side upload does: upload-then-replace leaves an unreferenced blob behind whenever the second step does not happen. ``?name=`` and ``?description=`` are OPTIONAL and an omitted one is CARRIED FORWARD, exactly as on the JSON replace; ``?filename=``/``?mime=`` describe the new blob. THE KIND CANNOT CHANGE: this route refuses a LINK artifact with a 400 rather than converting it, and the sniffed image/file distinction must match what is pinned. Permission, freeze, retention and blob collection are the JSON replace's exactly. Excluded from the MCP tool surface — a binary ingest seam, not a tool.
+         * Replace a pinned file/image deliverable's content from a LOCAL file in ONE call (T-92) — the raw-body twin of ``replace_task_artifact``, keeping the artifact id exactly as that verb does. The request body IS the new bytes (``application/octet-stream``), the server stores the blob and swaps the live row in the same transaction, and the answer is the ordinary replace receipt (task_id, artifact_id, artifact_count, version_count). It exists for the same reason the add-side upload does: upload-then-replace leaves an unreferenced blob behind whenever the second step does not happen. ``?name=`` and ``?description=`` are OPTIONAL and an omitted one is CARRIED FORWARD, exactly as on the JSON replace; ``?filename=`` names the new blob and its extension types it, exactly as on the chat-attachment upload; ``?mime=`` is ignored. THE KIND CANNOT CHANGE: this route refuses a LINK artifact with a 400 rather than converting it, and the image/file distinction the extension gives must match what is pinned. Permission, freeze, retention and blob collection are the JSON replace's exactly. Excluded from the MCP tool surface — a binary ingest seam, not a tool.
          * @description - Replaces a pinned file/image's content from raw body bytes in one call, keeping the artifact id.
-         *     - An omitted `?name=` or `?description=` is carried forward; `?filename=`/`?mime=` describe the new blob.
-         *     - The kind cannot change: a link artifact is 400, and the sniffed image/file distinction must match what is pinned.
+         *     - An omitted `?name=` or `?description=` is carried forward; `?filename=` names the new blob and its extension types it; `?mime=` is ignored.
+         *     - The kind cannot change: a link artifact is 400, and the image/file distinction the extension gives must match what is pinned.
          *     - Permission, the closed-task freeze and retention match the JSON replace.
          */
         post: operations["handle_upload_replace_task_artifact_api_tasks__task_id__artifact__artifact_id__replace_upload_post"];
@@ -3280,7 +3275,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read one task's pinned deliverables IN FULL — and since T-92 the ONLY call that returns an artifact row at all: ``get_task`` answers ``artifact_count`` and nothing else, no ids and no names. Answers ``{task_id, artifacts_detail_level, artifacts}`` where every artifact on the task is present, oldest→newest, complete: ``id``, ``kind`` (file|image|link), ``name`` (never empty — derived read-time from the blob's filename or the link target when the row has no stored name), ``description`` (the prose, possibly empty and possibly longer than the 256-rune write cap), ``url`` (where to go for the content — the blob serve path for a file/image, the external address for a link), ``mime`` (the blob's own content type — the authoritative answer to what the bytes are, which ``kind`` cannot give, since file covers .md and .pdf and .zip alike), ``filename`` (the BLOB'S OWN name, NOT the display name — ``name`` is that: it is what separates a .md from a .pdf from a .zip when ``mime`` says ``application/octet-stream``, which is what the agent upload path says about most of the reports pinned here, and it is empty for a link and for a file whose blob is gone), ``created_ts``, ``created_by``, ``version_count`` and ``attachment_id`` (the row's own blob id — the address ``ocagent diff`` takes, so a member can compare a deliverable without re-uploading it; for a LINK it is the ``text/uri-list`` blob holding the target, which ``url`` does not expose at all). ⚠️ This call is where that id COMES FROM: ``get_task`` answers a count, so this is the only place a member can pick one up in the first place. (One other response carries it — the artifact-history read, for RETAINED PREVIOUS versions rather than the live row — but it is ``x-mcp: include=false``, so it is not on the tool surface at all.). ONE call answers the WHOLE ticket, and that is deliberate — there is no per-artifact read, because whoever opens a task's deliverables wants the set (a 32-artifact ticket would otherwise cost 32 calls), whereas a step note is read one at a time and ``get_task_step`` is per-step for exactly that reason. Blob metadata is resolved read-time and is honest-empty when the underlying blob is gone — never fabricated. A task with nothing pinned answers ``artifacts: []``, not a 404; an unknown task id is a 404. Same read floor as ``get_task``: any authenticated principal may read any task's artifacts, and no field here was behind a stricter door before.
+         * Read one task's pinned deliverables IN FULL — and since T-92 the ONLY call that returns an artifact row at all: ``get_task`` answers ``artifact_count`` and nothing else, no ids and no names. Answers ``{task_id, artifacts_detail_level, artifacts}`` where every artifact on the task is present, oldest→newest, complete: ``id``, ``kind`` (file|image|link), ``name`` (never empty — derived read-time from the blob's filename or the link target when the row has no stored name), ``description`` (the prose, possibly empty and possibly longer than the 256-rune write cap), ``url`` (where to go for the content — the blob serve path for a file/image, the external address for a link), ``mime`` (the blob's own content type — the authoritative answer to what the bytes are, which ``kind`` cannot give, since file covers .md and .pdf and .zip alike), ``filename`` (the BLOB'S OWN name, NOT the display name — ``name`` is that: it is what separates a .md from a .pdf from a .zip when ``mime`` says ``application/octet-stream``, and it is empty for a link and for a file whose blob is gone), ``created_ts``, ``created_by``, ``version_count`` and ``attachment_id`` (the row's own blob id — the address ``ocagent diff`` takes, so a member can compare a deliverable without re-uploading it; for a LINK it is the ``text/uri-list`` blob holding the target, which ``url`` does not expose at all). ⚠️ This call is where that id COMES FROM: ``get_task`` answers a count, so this is the only place a member can pick one up in the first place. (One other response carries it — the artifact-history read, for RETAINED PREVIOUS versions rather than the live row — but it is ``x-mcp: include=false``, so it is not on the tool surface at all.). ONE call answers the WHOLE ticket, and that is deliberate — there is no per-artifact read, because whoever opens a task's deliverables wants the set (a 32-artifact ticket would otherwise cost 32 calls), whereas a step note is read one at a time and ``get_task_step`` is per-step for exactly that reason. Blob metadata is resolved read-time and is honest-empty when the underlying blob is gone — never fabricated. A task with nothing pinned answers ``artifacts: []``, not a 404; an unknown task id is a 404. Same read floor as ``get_task``: any authenticated principal may read any task's artifacts, and no field here was behind a stricter door before.
          * @description - Ids come from here only: get_task answers a count, not artifact rows.
          *     - Returns every artifact at once, oldest first; there is no per-artifact read.
          *     - `name` is never empty; `filename`/`mime` describe the blob and are empty when it is gone.
@@ -3306,10 +3301,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Pin a LOCAL file or image onto this task as a deliverable in ONE call (T-92, owner card rc-210fc77beea1): the raw request body IS the bytes (``application/octet-stream``; NOT base64, NOT multipart), the server stores the blob AND registers the artifact in the same transaction, and the answer is the ordinary add receipt — the new artifact's id plus the resulting count. THIS IS THE ONE-CALL PATH for bytes on disk — though no MCP tool and no CLI subcommand drives it today, so only a client written directly against this REST API can take it. The reason it exists is not convenience: upload-then-bind is TWO steps with a gap in the middle, and a caller who takes the first and not the second leaves a blob that nothing references and that nothing goes looking for — the collector runs when a retained version falls off the end, not as a sweep. One call has no such gap. ``?name=`` is REQUIRED (48 runes, refused not truncated, blank refused) and ``?description=`` optional (256 runes); ``?filename=`` and ``?mime=`` describe the BLOB exactly as they do on the chat-attachment upload, with an omitted mime falling back to a magic-byte image sniff and then ``application/octet-stream``. The request ``Content-Type`` header is deliberately IGNORED — clients default it to ``application/octet-stream``, indistinguishable from a real declaration; ``?mime=`` is the explicit channel. ``kind`` is not a parameter: an image mime pins ``image``, anything else pins ``file``. Size caps are the chat upload's exactly (one mechanism, not two): 20 MB for an ``image/*`` blob, 100 MB otherwise, with an over-cap or empty body a flat 400. Permission and freeze are add's exactly: the task's acting executor (the predecessor while it holds the task under the reassign hold; admin excepted), 409 on a terminal task. Excluded from the MCP tool surface — a binary ingest seam like the chat-attachment upload, not a tool; ``add_task_artifact`` remains the JSON door for a link, or for reusing a blob already in the store.
-         * @description - The raw body IS the bytes: not base64, not multipart. Content-Type is ignored; use ?mime=.
+         * Pin a LOCAL file or image onto this task as a deliverable in ONE call (T-92, owner card rc-210fc77beea1): the raw request body IS the bytes (``application/octet-stream``; NOT base64, NOT multipart), the server stores the blob AND registers the artifact in the same transaction, and the answer is the ordinary add receipt — the new artifact's id plus the resulting count. THIS IS THE ONE-CALL PATH for bytes on disk — though no MCP tool and no CLI subcommand drives it today, so only a client written directly against this REST API can take it. The reason it exists is not convenience: upload-then-bind is TWO steps with a gap in the middle, and a caller who takes the first and not the second leaves a blob that nothing references and that nothing goes looking for — the collector runs when a retained version falls off the end, not as a sweep. One call has no such gap. ``?name=`` is REQUIRED (48 runes, refused not truncated, blank refused) and ``?description=`` optional (256 runes); ``?filename=`` names the BLOB and its extension alone types it, exactly as on the chat-attachment upload; ``?mime=`` and the request ``Content-Type`` header are both IGNORED. ``kind`` is not a parameter: an image type pins ``image``, anything else pins ``file``. Size caps are the chat upload's exactly (one mechanism, not two): 20 MB for an ``image/*`` blob, 100 MB otherwise, with an over-cap or empty body a flat 400. Permission and freeze are add's exactly: the task's acting executor (the predecessor while it holds the task under the reassign hold; admin excepted), 409 on a terminal task. Excluded from the MCP tool surface — a binary ingest seam like the chat-attachment upload, not a tool; ``add_task_artifact`` remains the JSON door for a link, or for reusing a blob already in the store.
+         * @description - The raw body IS the bytes: not base64, not multipart. The ?filename= extension types the blob; ?mime= and Content-Type are ignored.
          *     - One call stores the blob and pins the artifact; no orphan blob is left behind.
-         *     - ?name= is REQUIRED (48 runes, refused not truncated); ?description=/?filename=/?mime= optional.
+         *     - ?name= is REQUIRED (48 runes, refused not truncated); ?description=/?filename= optional.
          *     - Caps 20 MB image, 100 MB otherwise; over-cap or empty body is 400. Acting executor only (admin excepted); 409 on a terminal task.
          */
         post: operations["handle_upload_task_artifact_api_tasks__task_id__artifacts_upload_post"];
@@ -4917,10 +4912,11 @@ export interface components {
          *
          *     Inline: ``data_b64`` is the bytes, base64-encoded — a data-URI
          *     (``data:<mime>;base64,....``) OR bare base64 (the handler strips a
-         *     ``data:...;base64,`` prefix if present). ``mime`` and ``filename`` are
-         *     optional: an omitted ``mime`` is sniffed for images (else
-         *     ``application/octet-stream``); an omitted ``filename`` defaults for pasted
-         *     images.
+         *     ``data:...;base64,`` prefix if present). ``filename`` is
+         *     optional, and its extension alone types the blob (the table the serve route
+         *     names); ``mime`` is accepted but IGNORED, as is a data-URI's own media type.
+         *     No filename, or an extension outside the table, stores
+         *     ``application/octet-stream``, which the serve route hands out as a download.
          *
          *     Reference: ``id`` names an EXISTING blob (minted by
          *     ``POST /api/chat/attachments`` — the streaming upload seam that keeps file
@@ -9223,7 +9219,7 @@ export interface components {
         };
         /**
          * TaskArtifactDTO
-         * @description One pinned deliverable on a task's artifact set (T-3dc5, reshaped by T-92). ``kind`` is the closed set file|image|link and it is IMMUTABLE across versions. EVERY artifact — a link included — is backed by one chat_attachment blob (owner ruling c-59fc5834d967): a link's target is stored as a ``text/uri-list`` blob. That is why ``url`` here has exactly ONE meaning — WHERE TO GO FOR THIS DELIVERABLE'S CONTENT: the blob serve path (``/api/chat/attachment/{attachment_id}``) for a file/image, the external address for a link. ``attachment_id`` is that blob's id. T-92 removed it as duplication of ``url`` and the owner restored it on rc-91e29b576ad8, because the duplication was not the whole of what the field did: system_interaction §2.1 tells members to compare a task artifact by passing THE ID IT ALREADY HAS, and the same document forbids assembling an address by hand — so recovering the id by slicing a prefix off ``url`` is the move it rules out, and for a LINK there is nothing to slice, since that ``url`` is the external target rather than a blob path. No tool lists an artifact's retained versions, so there was no second door to the id either. It is present for EVERY kind. ``name`` is the display name and is NEVER EMPTY ON THE WIRE — the stored name when the row has one, else the blob's own filename (file/image), else the link target (link), else ``#`` + the id without its ``ta-`` prefix. It is derived READ-TIME, so replacing the content changes the name with it instead of leaving a filename copied into a second place where it can go stale. ⚠️ ``name`` IS THE DISPLAY NAME AND NOTHING ELSE. T-92 dropped ``filename`` on the reasoning that ``name`` derives from it and therefore replaces it; that holds for what a reader SEES and not for what a reader DECIDES, because a human-written ``name`` carries no extension and a blob's own name does. ``filename`` is back beside it (a SEPARATE field, never the display name) for exactly the reason ``TaskArtifactVersionDTO`` kept its own: it is what tells a reader the bytes are text when ``mime`` cannot. ⚠️ A DERIVED ``name`` IS NOT BOUND BY THE 48-RUNE WRITE CAP — that cap is a gate on what you may store, never a promise about what you will read back. ``description`` is the prose the single old ``label`` used to carry alongside the title — what a reader reads to decide whether this is the artifact they want — and it MAY BE EMPTY and MAY EXCEED 256 runes: that cap binds new writes only, and the labels migrated into this field were written before any cap existed. ``mime`` is the blob's own content type, resolved read-time and honest-empty when the blob is gone; it is what separates a ``.md`` from a ``.pdf`` from a ``.zip``, which ``kind`` cannot do — a reader that drops it renders the other two wrongly and silently. When it cannot say (the agent upload path stores plenty of ``.md`` as ``application/octet-stream``) the only question left is the extension on ``filename``, which is why that field exists. ``created_by``/``created_ts`` are who last WROTE this artifact and when — the registrar and the moment of pinning until someone replaces it, the REPLACER and the moment of replacement afterwards (T-60 rewrites both in place; neither field is a record of the original pin). ``version_count`` (T-60) is how many versions of this deliverable exist, the live one INCLUDED — 1 for an artifact that has never been replaced, and bounded above because only the most recent few replaced versions are retained; list them with GET /api/tasks/{task_id}/artifact/{artifact_id}/history.
+         * @description One pinned deliverable on a task's artifact set (T-3dc5, reshaped by T-92). ``kind`` is the closed set file|image|link and it is IMMUTABLE across versions. EVERY artifact — a link included — is backed by one chat_attachment blob (owner ruling c-59fc5834d967): a link's target is stored as a ``text/uri-list`` blob. That is why ``url`` here has exactly ONE meaning — WHERE TO GO FOR THIS DELIVERABLE'S CONTENT: the blob serve path (``/api/chat/attachment/{attachment_id}``) for a file/image, the external address for a link. ``attachment_id`` is that blob's id. T-92 removed it as duplication of ``url`` and the owner restored it on rc-91e29b576ad8, because the duplication was not the whole of what the field did: system_interaction §2.1 tells members to compare a task artifact by passing THE ID IT ALREADY HAS, and the same document forbids assembling an address by hand — so recovering the id by slicing a prefix off ``url`` is the move it rules out, and for a LINK there is nothing to slice, since that ``url`` is the external target rather than a blob path. No tool lists an artifact's retained versions, so there was no second door to the id either. It is present for EVERY kind. ``name`` is the display name and is NEVER EMPTY ON THE WIRE — the stored name when the row has one, else the blob's own filename (file/image), else the link target (link), else ``#`` + the id without its ``ta-`` prefix. It is derived READ-TIME, so replacing the content changes the name with it instead of leaving a filename copied into a second place where it can go stale. ⚠️ ``name`` IS THE DISPLAY NAME AND NOTHING ELSE. T-92 dropped ``filename`` on the reasoning that ``name`` derives from it and therefore replaces it; that holds for what a reader SEES and not for what a reader DECIDES, because a human-written ``name`` carries no extension and a blob's own name does. ``filename`` is back beside it (a SEPARATE field, never the display name) for exactly the reason ``TaskArtifactVersionDTO`` kept its own: it is what tells a reader the bytes are text when ``mime`` cannot. ⚠️ A DERIVED ``name`` IS NOT BOUND BY THE 48-RUNE WRITE CAP — that cap is a gate on what you may store, never a promise about what you will read back. ``description`` is the prose the single old ``label`` used to carry alongside the title — what a reader reads to decide whether this is the artifact they want — and it MAY BE EMPTY and MAY EXCEED 256 runes: that cap binds new writes only, and the labels migrated into this field were written before any cap existed. ``mime`` is the blob's own content type, resolved read-time and honest-empty when the blob is gone; it is what separates a ``.md`` from a ``.pdf`` from a ``.zip``, which ``kind`` cannot do — a reader that drops it renders the other two wrongly and silently. A blob stored as ``application/octet-stream`` is answered with the type its ``filename``'s extension names, exactly as the attachment serve route types it, so ``mime`` is ``application/octet-stream`` only when that extension is unknown too. ``created_by``/``created_ts`` are who last WROTE this artifact and when — the registrar and the moment of pinning until someone replaces it, the REPLACER and the moment of replacement afterwards (T-60 rewrites both in place; neither field is a record of the original pin). ``version_count`` (T-60) is how many versions of this deliverable exist, the live one INCLUDED — 1 for an artifact that has never been replaced, and bounded above because only the most recent few replaced versions are retained; list them with GET /api/tasks/{task_id}/artifact/{artifact_id}/history.
          */
         TaskArtifactDTO: {
             /**
@@ -9250,7 +9246,7 @@ export interface components {
             description: string;
             /**
              * Filename
-             * @description The BLOB'S OWN name, resolved read-time from the blob and honest-empty when there is none to read: empty for a LINK (whose blob is a ``text/uri-list`` nobody opens by name) and empty for a file/image whose blob is gone — never fabricated. ⚠️ THIS IS NOT THE DISPLAY NAME; ``name`` is, and the two differ the moment someone pins a deliverable under a human title. It is here because a reader deciding whether the bytes are TEXT asks the name when ``mime`` cannot say, and ``application/octet-stream`` is what the agent upload path says about the ``.md`` reports this store mostly holds: the cockpit's preview decides by the extension, and a sentence has no extension. ``TaskArtifactVersionDTO`` carries the same field for the same reason, which is why a RETAINED version of a report could be previewed while the live one could not.
+             * @description The BLOB'S OWN name, resolved read-time from the blob and honest-empty when there is none to read: empty for a LINK (whose blob is a ``text/uri-list`` nobody opens by name) and empty for a file/image whose blob is gone — never fabricated. ⚠️ THIS IS NOT THE DISPLAY NAME; ``name`` is, and the two differ the moment someone pins a deliverable under a human title. It is here because a reader deciding whether the bytes are TEXT asks the name when ``mime`` cannot say: the cockpit's preview decides by the extension, and a sentence has no extension. ``TaskArtifactVersionDTO`` carries the same field for the same reason, which is why a RETAINED version of a report could be previewed while the live one could not.
              * @default
              */
             filename: string;
@@ -12858,6 +12854,7 @@ export interface operations {
         parameters: {
             query?: {
                 filename?: string | null;
+                /** @description Ignored. The blob's media type comes from the ``filename`` extension; the parameter is still accepted so existing callers are not refused. */
                 mime?: string | null;
             };
             header?: never;
@@ -18788,6 +18785,7 @@ export interface operations {
                 name?: string | null;
                 description?: string | null;
                 filename?: string | null;
+                /** @description Ignored. The blob's media type comes from the ``filename`` extension; the parameter is still accepted so existing callers are not refused. */
                 mime?: string | null;
             };
             header?: never;
@@ -18896,6 +18894,7 @@ export interface operations {
                 name: string;
                 description?: string | null;
                 filename?: string | null;
+                /** @description Ignored. The blob's media type comes from the ``filename`` extension; the parameter is still accepted so existing callers are not refused. */
                 mime?: string | null;
             };
             header?: never;

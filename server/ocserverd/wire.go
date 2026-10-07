@@ -1873,14 +1873,12 @@ func artifactBlobFacts(att *ChatAttachment) (artifactBlobFields, bool) {
 	if att == nil {
 		return artifactBlobFields{}, false
 	}
-	b := artifactBlobFields{
-		url:     "/api/chat/attachment/" + att.ID,
-		mime:    att.Mime,
-		isImage: len(att.Mime) >= 6 && att.Mime[:6] == "image/",
-	}
+	b := artifactBlobFields{url: "/api/chat/attachment/" + att.ID}
 	if att.Filename != nil {
 		b.filename = *att.Filename
 	}
+	b.mime = effectiveAttachmentMime(att.Mime, b.filename)
+	b.isImage = isImageMime(b.mime)
 	return b, true
 }
 
@@ -2104,14 +2102,15 @@ func attachmentDTOsFromRefs(refs []any) []chatAttachmentDTO {
 		if id == "" {
 			continue
 		}
-		mime, _ := ref["mime"].(string)
+		stored, _ := ref["mime"].(string)
 		filename, _ := ref["filename"].(string)
+		mime := effectiveAttachmentMime(stored, filename)
 		attachments = append(attachments, chatAttachmentDTO{
 			ID:       id,
 			URL:      "/api/chat/attachment/" + id,
 			Filename: filename,
 			Mime:     mime,
-			IsImage:  len(mime) >= 6 && mime[:6] == "image/",
+			IsImage:  isImageMime(mime),
 		})
 	}
 	return attachments

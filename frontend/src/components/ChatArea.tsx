@@ -1705,10 +1705,7 @@ export function ChatArea({
     // ALL staged attachments ride the SAME message, in staged order.
     const attachments = attachmentsSnapshot.map((a) => ({
       dataB64: a.dataUri,
-      // Omit an empty filename so the backend applies its default (pasted
-      // images); a real picked filename passes through.
       ...(a.filename ? { filename: a.filename } : {}),
-      mime: a.mime,
     }));
     setDraft("");
     clearAttachments();

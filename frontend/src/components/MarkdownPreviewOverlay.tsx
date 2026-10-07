@@ -132,8 +132,8 @@ type MarkdownPreviewOverlayProps = {
    * 🔴 THE TWO USED TO BE ONE VALUE AND ARE NOT ANY MORE. `title` is what the
    * thing is CALLED, and since T-92 a task artifact is called whatever a human
    * typed, with no extension in it. Every detection below asks the mime first
-   * and falls back to the SUFFIX — `application/octet-stream` is what the agent
-   * upload path stores most .md under — so asking `title` for a suffix that is
+   * and falls back to the SUFFIX when the mime is `application/octet-stream`,
+   * so asking `title` for a suffix that is
    * no longer there made .md artifacts stop previewing. This carries the name
    * that still has one.
    *
@@ -248,7 +248,7 @@ export function MarkdownPreviewOverlay({
   // still cannot be drawn here, but the browser can show it perfectly well in a
   // tab of its own, and that is the whole request.
   const inlineInBrowser =
-    attachmentId !== undefined && isInlineDisplayableMime(mime ?? "text/markdown", typeName);
+    attachmentId !== undefined && isInlineDisplayableMime(mime ?? "text/markdown");
   // T-36 (B2) — WHICH files deserve the plain-words note? ONLY the ones that
   // look like they should answer a click. An .html page carries buttons and
   // input boxes that will sit dead in the new tab, and the reader has to be
@@ -1036,23 +1036,20 @@ export function isMarkdownAttachment(mime: string, filename: string): boolean {
  * `Content-Disposition: inline` over `attachment` on the serve route, so it —
  * not this file — is the source of truth for the answer. Keep the two in step;
  * a second, home-grown notion of "previewable" on this side would put the
- * 「在新頁面顯示」 button on files that just download.
+ * 「在新頁面顯示」 button on files that just download. The mime every DTO
+ * carries is already the one the serve route answers with, so the filename is
+ * not consulted.
  *
  * ⚠️ NOT the same question as `isPreviewableTextAttachment` below, and the two
  * must not be merged: that one asks what THIS overlay can render in-panel and
  * is narrow on purpose. */
-export function isInlineDisplayableMime(mime: string, filename = ""): boolean {
+export function isInlineDisplayableMime(mime: string): boolean {
   const baseMime = mime.split(";")[0]!.trim().toLowerCase();
   return (
     baseMime.startsWith("image/") ||
     baseMime.startsWith("text/") ||
     baseMime === "application/pdf" ||
-    baseMime === "application/json" ||
-    // A blob uploaded without a declared type is stored as
-    // application/octet-stream — which is what most of this station's JSON
-    // is — so the name is the only evidence left. The server reads it too.
-    (baseMime === "" || baseMime === "application/octet-stream") &&
-      /\.json$/i.test(filename)
+    baseMime === "application/json"
   );
 }
 
@@ -1085,9 +1082,7 @@ export function isPreviewableTextAttachment(mime: string, filename: string): boo
   );
 }
 
-/** JSON by declared type, or by a .json suffix when the MIME is generic. The
- * name half is not redundant: an agent that uploads without naming a type gets
- * application/octet-stream, which is how most of this station's JSON is stored. */
+/** JSON by declared type, or by a .json suffix when the MIME is generic. */
 export function isJsonAttachment(mime: string, filename: string): boolean {
   const base = mime.split(";")[0]!.trim().toLowerCase();
   return (

@@ -146,54 +146,42 @@ func TestResolveChatRecipient(t *testing.T) {
 }
 
 func TestDecodeChatAttachment(t *testing.T) {
-	t.Run("bare base64 under a declared name and mime is stored as sent, under a fresh id", func(t *testing.T) {
-		att, err := decodeChatAttachment("aGVsbG8=", "notes.txt", "text/plain")
+	t.Run("bare base64 is stored under its name and the mime its extension names, under a fresh id", func(t *testing.T) {
+		att, err := decodeChatAttachment("aGVsbG8=", "notes.txt")
 		if err != nil {
 			t.Fatalf("decodeChatAttachment: %v", err)
 		}
 		apiWantDecodedAttachment(t, att, "text/plain", "notes.txt", "hello")
 	})
 
-	t.Run("a data-URI carries its own mime, and the pasted-image name is defaulted from it", func(t *testing.T) {
-		att, err := decodeChatAttachment("data:image/png;base64,iVBORw0KGgo=", "", "")
-		if err != nil {
-			t.Fatalf("decodeChatAttachment: %v", err)
-		}
-		apiWantDecodedAttachment(t, att, "image/png", "pasted-image.png", "\x89PNG\r\n\x1a\n")
-	})
-
-	t.Run("the caller's mime wins over the one the data-URI declares", func(t *testing.T) {
-		att, err := decodeChatAttachment("data:image/png;base64,iVBORw0KGgo=", "shot.txt", "text/plain")
+	t.Run("the mime a data-URI declares is ignored in favour of the filename's extension", func(t *testing.T) {
+		att, err := decodeChatAttachment("data:image/png;base64,iVBORw0KGgo=", "shot.txt")
 		if err != nil {
 			t.Fatalf("decodeChatAttachment: %v", err)
 		}
 		apiWantDecodedAttachment(t, att, "text/plain", "shot.txt", "\x89PNG\r\n\x1a\n")
 	})
 
-	t.Run("with no mime declared anywhere the bytes are sniffed", func(t *testing.T) {
-		att, err := decodeChatAttachment("iVBORw0KGgo=", "", "")
-		if err != nil {
-			t.Fatalf("decodeChatAttachment: %v", err)
+	t.Run("image bytes with no filename are an unnamed octet-stream blob, not an image", func(t *testing.T) {
+		for _, data := range []string{"data:image/png;base64,iVBORw0KGgo=", "iVBORw0KGgo="} {
+			att, err := decodeChatAttachment(data, "")
+			if err != nil {
+				t.Fatalf("decodeChatAttachment(%q): %v", data, err)
+			}
+			apiWantDecodedAttachment(t, att, "application/octet-stream", "", "\x89PNG\r\n\x1a\n")
 		}
-		apiWantDecodedAttachment(t, att, "image/png", "pasted-image.png", "\x89PNG\r\n\x1a\n")
-
-		att, err = decodeChatAttachment("emJ6", "", "")
-		if err != nil {
-			t.Fatalf("decodeChatAttachment: %v", err)
-		}
-		apiWantDecodedAttachment(t, att, "application/octet-stream", "", "zbz")
 	})
 
 	t.Run("a client fault answers the message the caller is shown and no blob at all", func(t *testing.T) {
-		for name, c := range map[string]struct{ data, filename, mime, want string }{
-			"a data-URI that is not base64": {"data:image/png,iVBORw0KGgo=", "", "", "attachment must be base64-encoded"},
-			"a data-URI with no comma":      {"data:image/png;base64", "", "", "attachment must be base64-encoded"},
-			"bytes that are not base64":     {"!!!not base64!!!", "", "", "attachment is not valid base64"},
-			"nothing sent at all":           {"", "", "", "attachment is empty"},
-			"only whitespace":               {"   ", "", "", "attachment is empty"},
-			"a filename over the cap":       {"aGVsbG8=", strings.Repeat("x", 129), "text/plain", "attachment filename is 129 chars, over the 128-char limit"},
+		for name, c := range map[string]struct{ data, filename, want string }{
+			"a data-URI that is not base64": {"data:image/png,iVBORw0KGgo=", "", "attachment must be base64-encoded"},
+			"a data-URI with no comma":      {"data:image/png;base64", "", "attachment must be base64-encoded"},
+			"bytes that are not base64":     {"!!!not base64!!!", "", "attachment is not valid base64"},
+			"nothing sent at all":           {"", "", "attachment is empty"},
+			"only whitespace":               {"   ", "", "attachment is empty"},
+			"a filename over the cap":       {"aGVsbG8=", strings.Repeat("x", 129), "attachment filename is 129 chars, over the 128-char limit"},
 		} {
-			att, err := decodeChatAttachment(c.data, c.filename, c.mime)
+			att, err := decodeChatAttachment(c.data, c.filename)
 			if att != nil {
 				t.Fatalf("%s: want no attachment, got %#v", name, att)
 			}
@@ -204,8 +192,8 @@ func TestDecodeChatAttachment(t *testing.T) {
 	})
 
 	t.Run("a filename at the cap passes", func(t *testing.T) {
-		name := strings.Repeat("字", 128)
-		att, err := decodeChatAttachment("aGVsbG8=", name, "text/plain")
+		name := strings.Repeat("字", 124) + ".txt"
+		att, err := decodeChatAttachment("aGVsbG8=", name)
 		if err != nil {
 			t.Fatalf("decodeChatAttachment: %v", err)
 		}
@@ -241,53 +229,53 @@ func apiWantDecodedAttachment(t *testing.T, att *ChatAttachment, mime, filename,
 }
 
 func TestResolveChatAttachment(t *testing.T) {
-	t.Run("declared bytes keep their mime and name and get a fresh id", func(t *testing.T) {
-		att, err := resolveChatAttachment([]byte("hello"), "  notes.txt  ", "  text/plain  ")
+	t.Run("named bytes are typed by their extension, keep their trimmed name and get a fresh id", func(t *testing.T) {
+		att, err := resolveChatAttachment([]byte("hello"), "  notes.txt  ")
 		if err != nil {
 			t.Fatalf("resolveChatAttachment: %v", err)
 		}
 		apiWantDecodedAttachment(t, att, "text/plain", "notes.txt", "hello")
 	})
 
-	t.Run("an undeclared mime is sniffed, and only a sniffed image earns the pasted-image name", func(t *testing.T) {
-		att, err := resolveChatAttachment([]byte("GIF89a\x01"), "", "")
+	t.Run("image bytes without a name are an unnamed octet-stream blob", func(t *testing.T) {
+		att, err := resolveChatAttachment([]byte("GIF89a\x01"), "")
 		if err != nil {
 			t.Fatalf("resolveChatAttachment: %v", err)
 		}
-		apiWantDecodedAttachment(t, att, "image/gif", "pasted-image.gif", "GIF89a\x01")
+		apiWantDecodedAttachment(t, att, "application/octet-stream", "", "GIF89a\x01")
 
-		att, err = resolveChatAttachment([]byte("zzz"), "   ", "")
+		att, err = resolveChatAttachment([]byte("zzz"), "   ")
 		if err != nil {
 			t.Fatalf("resolveChatAttachment: %v", err)
 		}
 		apiWantDecodedAttachment(t, att, "application/octet-stream", "", "zzz")
 	})
 
-	t.Run("an image mime with no extension of its own still defaults to a png name", func(t *testing.T) {
-		att, err := resolveChatAttachment([]byte("<svg/>"), "", "image/svg+xml")
-		if err != nil {
-			t.Fatalf("resolveChatAttachment: %v", err)
-		}
-		apiWantDecodedAttachment(t, att, "image/svg+xml", "pasted-image.png", "<svg/>")
-	})
-
-	t.Run("the image cap bounds images only, and a non-image of the same size passes", func(t *testing.T) {
+	t.Run("the image cap follows the extension, whatever the bytes are", func(t *testing.T) {
 		raw := make([]byte, chatAttachmentImageMaxBytes+1)
 		copy(raw, "\x89PNG\r\n\x1a\n")
-		att, err := resolveChatAttachment(raw, "", "")
-		if att != nil {
-			t.Fatalf("want no attachment, got %q", att.ID)
-		}
-		if err == nil || err.Error() != "image exceeds the 20 MB size limit" {
-			t.Fatalf("error = %v", err)
+		for _, name := range []string{"shot.png", "plain.JPG"} {
+			att, err := resolveChatAttachment(raw, name)
+			if att != nil {
+				t.Fatalf("%s: want no attachment, got %q", name, att.ID)
+			}
+			if err == nil || err.Error() != "image exceeds the 20 MB size limit" {
+				t.Fatalf("%s: error = %v", name, err)
+			}
 		}
 
-		att, err = resolveChatAttachment(raw, "big.bin", "application/octet-stream")
-		if err != nil {
-			t.Fatalf("resolveChatAttachment of a same-sized non-image: %v", err)
-		}
-		if att.Mime != "application/octet-stream" || len(att.Data) != chatAttachmentImageMaxBytes+1 {
-			t.Fatalf("got %q, %d bytes", att.Mime, len(att.Data))
+		for name, mime := range map[string]string{
+			"shot":    "application/octet-stream",
+			"big.bin": "application/octet-stream",
+			"big.pdf": "application/pdf",
+		} {
+			att, err := resolveChatAttachment(raw, name)
+			if err != nil {
+				t.Fatalf("resolveChatAttachment(%s) of a same-sized non-image: %v", name, err)
+			}
+			if att.Mime != mime || len(att.Data) != chatAttachmentImageMaxBytes+1 {
+				t.Fatalf("%s: got %q, %d bytes", name, att.Mime, len(att.Data))
+			}
 		}
 	})
 
@@ -300,7 +288,7 @@ func TestResolveChatAttachment(t *testing.T) {
 			"an empty slice":    {[]byte{}, "notes.txt", "attachment is empty"},
 			"an over-long name": {[]byte("hello"), strings.Repeat("字", 129), "attachment filename is 129 chars, over the 128-char limit"},
 		} {
-			att, err := resolveChatAttachment(c.raw, c.filename, "text/plain")
+			att, err := resolveChatAttachment(c.raw, c.filename)
 			if att != nil {
 				t.Fatalf("%s: want no attachment, got %#v", name, att)
 			}
@@ -309,6 +297,65 @@ func TestResolveChatAttachment(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestAttachmentMimeForName(t *testing.T) {
+	t.Run("every extension in the table answers its mime, case-insensitively", func(t *testing.T) {
+		for name, want := range map[string]string{
+			"a.png": "image/png", "a.jpg": "image/jpeg", "a.jpeg": "image/jpeg",
+			"a.gif": "image/gif", "a.webp": "image/webp", "a.svg": "image/svg+xml",
+			"a.pdf": "application/pdf", "a.json": "application/json",
+			"a.md": "text/markdown", "a.markdown": "text/markdown",
+			"a.txt": "text/plain", "a.log": "text/plain",
+			"a.csv": "text/csv", "a.tsv": "text/tab-separated-values",
+			"a.html": "text/html", "a.htm": "text/html", "a.xml": "text/xml",
+			"a.diff": "text/x-diff", "a.patch": "text/x-diff",
+			"a.sql": "text/plain", "a.py": "text/plain", "a.go": "text/plain",
+			"a.sh": "text/plain", "a.js": "text/plain", "a.ts": "text/plain",
+			"a.tsx": "text/plain", "a.jsx": "text/plain", "a.yaml": "text/plain",
+			"a.yml": "text/plain", "a.toml": "text/plain",
+			"Scan.PDF": "application/pdf", " report.tar.json ": "application/json",
+		} {
+			if got := attachmentMimeForName(name); got != want {
+				t.Fatalf("attachmentMimeForName(%q) = %q, want %q", name, got, want)
+			}
+		}
+		if len(attachmentMimeByExtension) != 30 {
+			t.Fatalf("table has %d extensions, want 30", len(attachmentMimeByExtension))
+		}
+	})
+
+	t.Run("no extension or one outside the table is application/octet-stream", func(t *testing.T) {
+		for _, name := range []string{
+			"", "README", "att-0123456789ab", "a.zip", "a.bin", "a.mp4",
+			"report.pdf.zip", "trailing.", "dir.d/file",
+		} {
+			if got := attachmentMimeForName(name); got != "application/octet-stream" {
+				t.Fatalf("attachmentMimeForName(%q) = %q, want application/octet-stream", name, got)
+			}
+		}
+	})
+}
+
+func TestEffectiveAttachmentMime(t *testing.T) {
+	for _, tc := range []struct {
+		name, stored, filename, want string
+	}{
+		{"octet .pdf takes the table's mime", "application/octet-stream", "legacy.pdf", "application/pdf"},
+		{"octet .png takes the table's mime", "application/octet-stream", "shot.png", "image/png"},
+		{"empty stored mime takes the table's mime", "", "notes.md", "text/markdown"},
+		{"octet with an unknown extension stays octet", "application/octet-stream", "core.bin", "application/octet-stream"},
+		{"a specific stored mime is kept over the extension", "text/plain", "report.pdf", "text/plain"},
+		{"an extensionless stored image keeps its mime", "image/png", "att-0123456789ab", "image/png"},
+		{"a link blob keeps text/uri-list", "text/uri-list", "", "text/uri-list"},
+		{"a stored mime with a parameter is kept verbatim", "application/json; charset=utf-8", "a.txt", "application/json; charset=utf-8"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := effectiveAttachmentMime(tc.stored, tc.filename); got != tc.want {
+				t.Fatalf("effectiveAttachmentMime(%q, %q) = %q, want %q", tc.stored, tc.filename, got, tc.want)
+			}
+		})
+	}
 }
 
 func TestAttachmentRef(t *testing.T) {
@@ -334,13 +381,13 @@ func TestAttachmentRef(t *testing.T) {
 }
 
 func TestHandleUploadChatAttachmentApiChatAttachmentsPost(t *testing.T) {
-	t.Run("an upload declaring its filename and mime answers the light ref and stores those bytes", func(t *testing.T) {
+	t.Run("an upload is typed by its filename's extension, not the mime it declares, and stores those bytes", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		dashboard := apiTestListen(t, api, "")
 		bystander := apiTestListen(t, api, "kip")
 
 		status, data := apiJSON(t, h, "POST",
-			"/api/chat/attachments?filename=notes.txt&mime=text/plain", owner, "hello")
+			"/api/chat/attachments?filename=notes.txt&mime=image/png", owner, "hello")
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -359,26 +406,11 @@ func TestHandleUploadChatAttachmentApiChatAttachmentsPost(t *testing.T) {
 		bystander.wantFrames()
 	})
 
-	t.Run("an image uploaded without a mime or a name is stored under the sniffed mime and the pasted-image default", func(t *testing.T) {
+	t.Run("image bytes uploaded without a name are stored as an unnamed octet-stream blob", func(t *testing.T) {
 		_, h, d, owner := newAPITestServer(t)
 
 		status, data := apiJSON(t, h, "POST", "/api/chat/attachments", owner,
 			"\x89PNG\r\n\x1a\nrest")
-		if status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
-		apiWantBody(t, data, map[string]any{
-			"id":       apiAnyString,
-			"mime":     "image/png",
-			"filename": "pasted-image.png",
-		})
-		apiWantStoredBlobs(t, d, data["id"].(string))
-	})
-
-	t.Run("bytes that are not an image and carry no name are stored as an unnamed octet-stream blob", func(t *testing.T) {
-		_, h, d, owner := newAPITestServer(t)
-
-		status, data := apiJSON(t, h, "POST", "/api/chat/attachments", owner, "zzz")
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -2083,57 +2115,107 @@ func TestTrimChatPageNewer(t *testing.T) {
 }
 
 func TestHandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(t *testing.T) {
-	t.Run("an image blob is served under its stored mime with no download disposition", func(t *testing.T) {
+	t.Run("an upload is served under its extension's mime and its filename: images and previewables inline, the rest as downloads, all sandboxed", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		dashboard := apiTestListen(t, api, "")
-		_, uploaded := apiJSON(t, h, "POST", "/api/chat/attachments", owner,
-			"\x89PNG\r\n\x1a\nrest")
-
-		rec := apiRequest(t, h, "GET", "/api/chat/attachment/"+uploaded["id"].(string), owner, "")
-		if rec.Code != 200 {
-			t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
-		}
-		apiWantHeaders(t, rec, map[string]string{"Content-Type": "image/png"})
-		if rec.Body.String() != "\x89PNG\r\n\x1a\nrest" {
-			t.Fatalf("body: got %q", rec.Body.String())
+		for _, tc := range []struct {
+			query, body, wantType, wantDisposition string
+		}{
+			{"?filename=shot.png", "\x89PNG\r\n\x1a\nrest", "image/png",
+				`inline; filename="shot.png"; filename*=UTF-8''shot.png`},
+			{"?filename=icon.svg", "<svg/>", "image/svg+xml",
+				`inline; filename="icon.svg"; filename*=UTF-8''icon.svg`},
+			{"?filename=notes.txt&mime=image/png", "hello", "text/plain",
+				`inline; filename="notes.txt"; filename*=UTF-8''notes.txt`},
+			{"?filename=x.pdf&mime=application/zip", "%PDF-1.7", "application/pdf",
+				`inline; filename="x.pdf"; filename*=UTF-8''x.pdf`},
+			{"?filename=page.html", "<script>1</script>", "text/html",
+				`inline; filename="page.html"; filename*=UTF-8''page.html`},
+			{"?filename=data.json", `{"ok":true}`, "application/json",
+				`inline; filename="data.json"; filename*=UTF-8''data.json`},
+			{"?filename=bundle.zip", "PK", "application/octet-stream",
+				`attachment; filename="bundle.zip"; filename*=UTF-8''bundle.zip`},
+			{"?filename=blob.bin", "zzz", "application/octet-stream",
+				`attachment; filename="blob.bin"; filename*=UTF-8''blob.bin`},
+		} {
+			status, uploaded := apiJSON(t, h, "POST", "/api/chat/attachments"+tc.query, owner, tc.body)
+			if status != 200 {
+				t.Fatalf("%s: upload %d (%v)", tc.query, status, uploaded)
+			}
+			rec := apiRequest(t, h, "GET", "/api/chat/attachment/"+uploaded["id"].(string), owner, "")
+			if rec.Code != 200 {
+				t.Fatalf("%s: want 200, got %d (%s)", tc.query, rec.Code, rec.Body.String())
+			}
+			apiWantHeaders(t, rec, map[string]string{
+				"Content-Type":            tc.wantType,
+				"Content-Disposition":     tc.wantDisposition,
+				"Content-Security-Policy": "sandbox",
+				"X-Content-Type-Options":  "nosniff",
+			})
+			if rec.Body.String() != tc.body {
+				t.Fatalf("%s: body: got %q", tc.query, rec.Body.String())
+			}
 		}
 		dashboard.wantFrames()
 	})
 
-	t.Run("a previewable non-image is served inline under a sandbox so it cannot script on this origin", func(t *testing.T) {
+	t.Run("image bytes uploaded without a name download as octet-stream under the attachment id", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
-		_, uploaded := apiJSON(t, h, "POST",
-			"/api/chat/attachments?filename=notes.txt&mime=text/plain", owner, "hello")
+		_, uploaded := apiJSON(t, h, "POST", "/api/chat/attachments", owner,
+			"\x89PNG\r\n\x1a\nrest")
+		id := uploaded["id"].(string)
 
-		rec := apiRequest(t, h, "GET", "/api/chat/attachment/"+uploaded["id"].(string), owner, "")
+		rec := apiRequest(t, h, "GET", "/api/chat/attachment/"+id, owner, "")
 		if rec.Code != 200 {
 			t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
 		}
 		apiWantHeaders(t, rec, map[string]string{
-			"Content-Type":            "text/plain",
-			"Content-Disposition":     `inline; filename="notes.txt"; filename*=UTF-8''notes.txt`,
+			"Content-Type":            "application/octet-stream",
+			"Content-Disposition":     `attachment; filename="` + id + `"; filename*=UTF-8''` + id,
 			"Content-Security-Policy": "sandbox",
+			"X-Content-Type-Options":  "nosniff",
 		})
-		if rec.Body.String() != "hello" {
+		if rec.Body.String() != "\x89PNG\r\n\x1a\nrest" {
 			t.Fatalf("body: got %q", rec.Body.String())
 		}
 	})
 
-	t.Run("a blob the browser cannot render downloads under its stored name", func(t *testing.T) {
-		_, h, _, owner := newAPITestServer(t)
-		_, uploaded := apiJSON(t, h, "POST", "/api/chat/attachments?filename=blob.bin",
-			owner, "zzz")
-
-		rec := apiRequest(t, h, "GET", "/api/chat/attachment/"+uploaded["id"].(string), owner, "")
-		if rec.Code != 200 {
-			t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
-		}
-		apiWantHeaders(t, rec, map[string]string{
-			"Content-Type":        "application/octet-stream",
-			"Content-Disposition": `attachment; filename="blob.bin"; filename*=UTF-8''blob.bin`,
-		})
-		if rec.Body.String() != "zzz" {
-			t.Fatalf("body: got %q", rec.Body.String())
+	t.Run("a stored octet-stream row is served under its extension's mime and a specific stored mime is kept", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		named := func(n string) *string { return &n }
+		for _, tc := range []struct {
+			att                       ChatAttachment
+			wantType, wantDisposition string
+		}{
+			{ChatAttachment{ID: "att-legacy00pdf", Mime: "application/octet-stream", Filename: named("legacy.pdf"), Data: []byte("%PDF-1.7 legacy")},
+				"application/pdf", `inline; filename="legacy.pdf"; filename*=UTF-8''legacy.pdf`},
+			{ChatAttachment{ID: "att-legacy000md", Mime: "application/octet-stream", Filename: named("notes.md"), Data: []byte("# hi")},
+				"text/markdown", `inline; filename="notes.md"; filename*=UTF-8''notes.md`},
+			{ChatAttachment{ID: "att-legacy00png", Mime: "", Filename: named("shot.png"), Data: []byte("\x89PNG\r\n\x1a\nold")},
+				"image/png", `inline; filename="shot.png"; filename*=UTF-8''shot.png`},
+			{ChatAttachment{ID: "att-legacy00bin", Mime: "application/octet-stream", Filename: named("legacy.bin"), Data: []byte("opaque")},
+				"application/octet-stream", `attachment; filename="legacy.bin"; filename*=UTF-8''legacy.bin`},
+			{ChatAttachment{ID: "att-oldimage001", Mime: "image/png", Data: []byte("\x89PNG\r\n\x1a\nnoname")},
+				"image/png", `inline; filename="att-oldimage001"; filename*=UTF-8''att-oldimage001`},
+			{ChatAttachment{ID: "att-declared001", Mime: "text/plain", Filename: named("report.pdf"), Data: []byte("plain")},
+				"text/plain", `inline; filename="report.pdf"; filename*=UTF-8''report.pdf`},
+		} {
+			if err := d.PutChatAttachment(tc.att); err != nil {
+				t.Fatalf("PutChatAttachment(%s): %v", tc.att.ID, err)
+			}
+			rec := apiRequest(t, h, "GET", "/api/chat/attachment/"+tc.att.ID, owner, "")
+			if rec.Code != 200 {
+				t.Fatalf("%s: want 200, got %d (%s)", tc.att.ID, rec.Code, rec.Body.String())
+			}
+			apiWantHeaders(t, rec, map[string]string{
+				"Content-Type":            tc.wantType,
+				"Content-Disposition":     tc.wantDisposition,
+				"Content-Security-Policy": "sandbox",
+				"X-Content-Type-Options":  "nosniff",
+			})
+			if rec.Body.String() != string(tc.att.Data) {
+				t.Fatalf("%s: body: got %q", tc.att.ID, rec.Body.String())
+			}
 		}
 	})
 
@@ -2275,6 +2357,47 @@ func TestHandleListChatAttachmentsApiChatAttachmentsGet(t *testing.T) {
 			"to":         "mira",
 			"ts":         apiAnyNumber,
 		}})
+	})
+
+	t.Run("an octet-stream row takes its extension's mime and unnamed image bytes are not an image, in the gallery and on the message", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		legacyName := "shot.png"
+		if err := d.PutChatAttachment(ChatAttachment{ID: "att-legacy00png", Mime: attachmentOctetStream,
+			Filename: &legacyName, Data: []byte("\x89PNG\r\n\x1a\nold")}); err != nil {
+			t.Fatalf("PutChatAttachment: %v", err)
+		}
+		status, posted := apiJSON(t, h, "POST", "/api/chat", owner,
+			`{"to":"mira","body":"two shots","attachments":[{"id":"att-legacy00png"},`+
+				`{"data_b64":"data:image/png;base64,iVBORw0KGgo=","mime":"image/png"}]}`)
+		if status != 200 {
+			t.Fatalf("post: %d %v", status, posted)
+		}
+		messageID, _ := posted["id"].(string)
+		inlineID, _ := posted["attachments"].([]any)[1].(map[string]any)["id"].(string)
+
+		_, body := apiChatDecoded(t, h, "GET", "/api/chat/attachments?with=mira", owner)
+		entry := func(id, filename, mime string, isImage bool) map[string]any {
+			return map[string]any{
+				"id": id, "url": "/api/chat/attachment/" + id, "filename": filename,
+				"mime": mime, "is_image": isImage, "message_id": messageID,
+				"from": "owner", "from_name": "", "to": "mira", "ts": apiAnyNumber,
+			}
+		}
+		apiWantValue(t, "gallery", body, []any{
+			entry("att-legacy00png", "shot.png", "image/png", true),
+			entry(inlineID, "", "application/octet-stream", false),
+		})
+
+		dto, err := api.servedChatMessageDTO(apiTestChatRowOf(t, d, messageID))
+		if err != nil {
+			t.Fatalf("servedChatMessageDTO: %v", err)
+		}
+		apiWantValue(t, "message attachments", apiTestJSONOf(t, dto.Attachments), []any{
+			map[string]any{"id": "att-legacy00png", "url": "/api/chat/attachment/att-legacy00png",
+				"filename": "shot.png", "mime": "image/png", "is_image": true},
+			map[string]any{"id": inlineID, "url": "/api/chat/attachment/" + inlineID,
+				"filename": "", "mime": "application/octet-stream", "is_image": false},
+		})
 	})
 
 	t.Run("a gallery asked for without naming a member answers 422", func(t *testing.T) {
@@ -3566,7 +3689,7 @@ func apiWantHeaders(t *testing.T, rec *httptest.ResponseRecorder, want map[strin
 			t.Fatalf("%s: want %q, got %q", name, value, got)
 		}
 	}
-	for _, name := range []string{"Content-Disposition", "Content-Security-Policy"} {
+	for _, name := range []string{"Content-Disposition", "Content-Security-Policy", "X-Content-Type-Options"} {
 		if _, named := want[name]; !named && rec.Header().Get(name) != "" {
 			t.Fatalf("%s: the response carries a header the expectation does not name (%q)",
 				name, rec.Header().Get(name))

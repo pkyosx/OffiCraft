@@ -15,7 +15,7 @@ subcommands:
   context-report  statusLine reporter: stdin statusLine JSON → POST /api/agent/context
   suicide         self-terminate: kill my own tmux session (OC_SESSION) → SSE drops → offline
   download        fetch a chat attachment blob to a local file (streaming; --out <dir>)
-  upload          stream a local file into the attachment store (prints the att id; --mime <type>)
+  upload          stream a local file into the attachment store (prints the att id)
   diff            print a compare-screen link (a host-less /diff path) for two attachment ids / document versions (--external mints a no-login URL)
   guard-bash      PreToolUse hook: refuse the removal shapes that stall a headless member
   guard-permission PermissionRequest hook: refuse every confirmation prompt nobody is here to answer
@@ -86,9 +86,20 @@ func TestRealMain(t *testing.T) {
 			t.Errorf("rc = %d, want 2", rc)
 		}
 		want := "[ocagent] upload: exactly one <path> argument is required\n" +
-			"usage: ocagent upload <path> [--mime <type>]\n"
+			"usage: ocagent upload <path>\n"
 		if out.String() != want {
 			t.Errorf("printed %q, want %q", out.String(), want)
+		}
+	})
+
+	t.Run("upload --mime is refused as an unknown flag and sends nothing", func(t *testing.T) {
+		var out bytes.Buffer
+		rc := realMain([]string{"upload", "--mime", "image/png", "shot"}, testEnv(nil), strings.NewReader(""), &out)
+		if rc != 2 {
+			t.Errorf("rc = %d, want 2", rc)
+		}
+		if !strings.HasPrefix(out.String(), "flag provided but not defined: -mime\nusage: ocagent upload <path>\n") {
+			t.Errorf("printed %q, want the unknown-flag error then the upload usage", out.String())
 		}
 	})
 
@@ -97,11 +108,12 @@ func TestRealMain(t *testing.T) {
 		wants []string
 	}{
 		{"upload", []string{
-			"usage: ocagent upload <path> [--mime <type>]\n",
+			"usage: ocagent upload <path>\n",
 			"line 1  the attachment id (att-…)",
 			"line 2  the server's JSON for it: {\"id\": …, \"mime\": …, \"filename\": …}",
 			"4  the server refused the file (HTTP 400): it is empty, over the size limit,",
-			"a name\n               ending in .json is application/json, and everything else is\n               application/octet-stream.",
+			"its extension alone decides\nthe media type",
+			"(including no extension) is application/octet-stream and downloads.",
 		}},
 		{"download", []string{
 			"usage: ocagent download <attachment-id> [--out <dir>]\n",

@@ -104,6 +104,25 @@ describe("mock reply-card api", () => {
     );
   });
 
+  it("answer attachments are typed by their filename's extension, never by the data-URI", async () => {
+    __injectMockReplyCard(mkCard({ id: "rc-1" }));
+    const png = "data:image/png;base64,iVBORw0KGgo=";
+    const card = await mockApi.answerReplyCard("rc-1", {
+      attachments: [
+        { dataB64: png, filename: "shot.PNG" },
+        { dataB64: png, filename: "notes.txt" },
+        { dataB64: png },
+      ],
+    });
+    expect(
+      card.answer?.attachments.map((a) => [a.filename, a.mime, a.isImage]),
+    ).toEqual([
+      ["shot.PNG", "image/png", true],
+      ["notes.txt", "text/plain", false],
+      ["", "application/octet-stream", false],
+    ]);
+  });
+
   it("a typed counter-question is a real answer and closes the card too", async () => {
     __injectMockReplyCard(mkCard({ id: "rc-1" }));
     const card = await mockApi.answerReplyCard("rc-1", {

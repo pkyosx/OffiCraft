@@ -56,7 +56,7 @@ MCP_CATALOG = json.loads(
 )
 
 # A 1x1 transparent PNG — a REAL image payload so the attachment round-trip
-# also exercises the is_image/gallery face (mime sniffing stays honest).
+# also exercises the is_image/gallery face.
 _PNG_B64 = (
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8"
     "z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
@@ -1058,8 +1058,8 @@ def _happy_replaced_file_artifact(ctx: HCtx) -> tuple[str, str]:
     row's own `url` column cannot serve: it is empty for file/image, so a version
     projection that copied it left every retained report unreachable.
 
-    Uploaded as `application/octet-stream` under a .md name because that is what
-    the agent upload path produces for a report."""
+    Sent with a declared `application/octet-stream` under a .md name: the
+    declaration is ignored and the extension types it `text/markdown`."""
     blobs = []
     for n in (1, 2):
         r = ctx.client.post(
@@ -1200,7 +1200,8 @@ def _check_artifact_upload(ctx: HCtx, r: httpx.Response) -> None:
     exact failure this one-call door exists to make impossible, and neither a
     status nor the receipt's own shape can see it: the check reads the pin back
     and asserts the query's name/description landed on the row, that the kind
-    was decided from the mime (`file`, not a caller-declared field), and that
+    was decided from the filename's extension (`file`, not a caller-declared
+    field — the declared ?mime= is ignored), and that
     `url` addresses a real blob whose bytes come back."""
     data = r.json()
     assert data["artifact_count"] == 1 and data["artifact_id"], data
@@ -1208,7 +1209,7 @@ def _check_artifact_upload(ctx: HCtx, r: httpx.Response) -> None:
     assert row["kind"] == "file", row
     assert row["name"] == "conf upload", row
     assert row["description"] == "pinned in one call", row
-    assert row["mime"] == "application/octet-stream", row
+    assert row["mime"] == "text/markdown", row
     assert row["version_count"] == 1, row
     assert row["url"].startswith("/api/chat/attachment/"), row
     blob = ctx.client.get(row["url"], headers=_auth(ctx.agent.token))
@@ -3440,7 +3441,7 @@ HAPPY: dict[str, Happy] = {
             and d[0]["url"]
             == f"/api/chat/attachment/{_REPLACED_FILE['attachment_id']}"
             and d[0]["attachment_id"] == _REPLACED_FILE["attachment_id"]
-            and d[0]["mime"] == "application/octet-stream"
+            and d[0]["mime"] == "text/markdown"
             and d[0]["is_image"] is False
             and d[0]["filename"] == "report.md",
         ),
@@ -4523,7 +4524,9 @@ def test_upload_then_ref_post_roundtrip(hctx: HCtx) -> None:
     """The send-side seam end to end: upload raw bytes → post_chat with the
     light {id} ref → the message stamps the STORED blob's mime/filename (a
     filename/mime alongside the ref is ignored) → the blob serves back
-    byte-exact. No base64 ever rides the message body."""
+    byte-exact. No base64 ever rides the message body. A .zip is outside the
+    extension table, so the declared application/zip is ignored and the blob
+    is application/octet-stream."""
     payload = b"PK\x03\x04 conformance zip payload " * 64
     up = hctx.client.post(
         "/api/chat/attachments?filename=conf-ref.zip&mime=application/zip",
@@ -4532,7 +4535,7 @@ def test_upload_then_ref_post_roundtrip(hctx: HCtx) -> None:
     )
     assert up.status_code == 200, up.text
     ref = up.json()
-    assert ref["mime"] == "application/zip" and ref["filename"] == "conf-ref.zip"
+    assert ref["mime"] == "application/octet-stream" and ref["filename"] == "conf-ref.zip"
 
     posted = hctx.client.post(
         "/api/chat",
@@ -4544,7 +4547,7 @@ def test_upload_then_ref_post_roundtrip(hctx: HCtx) -> None:
     assert posted.status_code == 200, posted.text
     atts = posted.json()["attachments"]
     assert len(atts) == 1 and atts[0]["id"] == ref["id"], atts
-    assert atts[0]["mime"] == "application/zip", "stored blob must beat the ref's mime"
+    assert atts[0]["mime"] == "application/octet-stream", "stored blob must beat the ref's mime"
     assert atts[0]["filename"] == "conf-ref.zip", "stored blob must beat the ref's filename"
 
     served = hctx.client.get(
@@ -4781,7 +4784,7 @@ def test_upload_ref_rejections(hctx: HCtx) -> None:
     assert r.status_code == 400 and "empty" in r.text, f"{r.status_code} {r.text}"
 
     r = hctx.client.post(
-        "/api/chat/attachments?mime=image/png",
+        "/api/chat/attachments?filename=big.png",
         content=b"x" * (20 * 1024 * 1024 + 1),
         headers=headers,
     )

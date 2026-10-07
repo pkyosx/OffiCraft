@@ -74,7 +74,7 @@ func apiDiffSeededSides(t *testing.T, h http.Handler, credential string) (string
 func apiDiffUpload(t *testing.T, h http.Handler, credential, filename, body string) string {
 	t.Helper()
 	status, data := apiJSON(t, h, "POST",
-		"/api/chat/attachments?filename="+filename+"&mime=text/plain", credential, body)
+		"/api/chat/attachments?filename="+filename, credential, body)
 	if status != 200 {
 		t.Fatalf("upload %s: %d %v", filename, status, data)
 	}
@@ -568,6 +568,20 @@ func TestResolveDiffSide(t *testing.T) {
 		got := api.resolveDiffSide(id, "before")
 		apiWantValue(t, "side", apiTestJSONOf(t, got), map[string]any{
 			"address": id, "gone": false, "label": "before", "mime": "text/plain", "text": "the report",
+		})
+	})
+
+	t.Run("a stored octet-stream attachment reports the media type its extension names", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		name := "recon.md"
+		if err := d.PutChatAttachment(ChatAttachment{ID: "att-0000000000d1", Mime: attachmentOctetStream,
+			Filename: &name, Data: []byte("# recon")}); err != nil {
+			t.Fatalf("PutChatAttachment: %v", err)
+		}
+
+		got := api.resolveDiffSide("att-0000000000d1", "before")
+		apiWantValue(t, "side", apiTestJSONOf(t, got), map[string]any{
+			"address": "att-0000000000d1", "gone": false, "label": "before", "mime": "text/markdown", "text": "# recon",
 		})
 	})
 

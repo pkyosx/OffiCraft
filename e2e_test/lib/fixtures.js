@@ -14,7 +14,7 @@ const BASE = process.env.OC_E2E_BASE || 'http://127.0.0.1:8791';
 const PASSWORD = process.env.OC_E2E_PASSWORD || 'kyle-e2e-local-pw';
 
 // ── inline binary fixtures (no external files) ──────────────────────────────
-// A valid 1x1 red PNG (67 bytes) — sniffable image/png magic.
+// A valid 1x1 red PNG (67 bytes).
 const PNG_1x1_B64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 // A valid EMPTY zip (the 22-byte end-of-central-directory record) — a real,

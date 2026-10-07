@@ -49,15 +49,15 @@ test.describe('B7 · chat attachments — send/receive round-trip', () => {
     expect(zip.filename, 'the zip ref must keep its filename').toBe(ZIP_FILENAME);
 
     // ── API: owner-token blob serve + the preview/download disposition split ──
-    // An IMAGE is served with NO disposition at all (contract: <img src> keeps
-    // working; see handle_get_chat_attachment).
+    // An IMAGE is served inline under its own name, so a download keeps the
+    // extension that types it on re-upload; <img src> ignores the header.
     const pngRes = await request.get(`${BASE}${png.url}`, { headers: authHeaders(token) });
     expect(pngRes.status(), 'owner GET of the image blob must 200').toBe(200);
     expect(pngRes.headers()['content-type'], 'stored mime must round-trip').toBe('image/png');
     expect(
       pngRes.headers()['content-disposition'],
-      'an image is served with NO disposition (inline <img> contract)',
-    ).toBeUndefined();
+      'an image is served inline under its filename',
+    ).toBe(`inline; filename="photo.png"; filename*=UTF-8''photo.png`);
     // A previewable NON-image (text/*) is `inline` + CSP sandbox (no script/
     // same-origin reach — an inline html/text blob must not read localStorage).
     const txtRes = await request.get(`${BASE}${txt.url}`, { headers: authHeaders(token) });
@@ -72,7 +72,10 @@ test.describe('B7 · chat attachments — send/receive round-trip', () => {
     ).toContain('sandbox');
     const zipRes = await request.get(`${BASE}${zip.url}`, { headers: authHeaders(token) });
     expect(zipRes.status(), 'owner GET of the zip blob must 200').toBe(200);
-    expect(zipRes.headers()['content-type']).toBe('application/zip');
+    expect(
+      zipRes.headers()['content-type'],
+      'a .zip is outside the extension table, so the declared mime is ignored',
+    ).toBe('application/octet-stream');
     const zipDisp = zipRes.headers()['content-disposition'] || '';
     expect(
       zipDisp,

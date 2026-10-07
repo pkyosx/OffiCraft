@@ -62,12 +62,10 @@
 // resolves it from THAT version's retained blob, so the fallback below reads
 // each side under its own name rather than under the live row's.
 //
-// 🔴 WITH ONE FALLBACK, because a mime-only rule loses the common case: an
-// `application/octet-stream` file whose NAME ends in a text extension is read as
-// text (TEXTUAL_EXTENSIONS below). That mime is an upload path saying it does
-// not know, not a claim of binary — and the reports, logs and specs this cockpit
-// mostly holds arrive under it. Without this, the deliverable class that made
-// this reader exist would never reach the diff at all.
+// 🔴 WITH ONE FALLBACK: an `application/octet-stream` response whose NAME ends
+// in a text extension is read as text (TEXTUAL_EXTENSIONS below). That mime says
+// the type is not known, not that the bytes are binary — the server answers it
+// for text extensions outside its own type table (.ini, .env, .css).
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -99,16 +97,10 @@ export type ArtifactPayload =
   | { state: "gone" }
   | { state: "error" };
 
-/** Extensions this panel reads as text when the RESPONSE will not say so.
- *
- * 🔴 A mime test alone is not enough, and the ticket's own motivating artifact
- * is the proof: a `.md` report uploaded through the agent tooling comes back
- * `application/octet-stream`, which is what an upload path says when it does not
- * know — not a claim that the bytes are binary. Reports, logs and specs are the
- * deliverables this cockpit sees most, so a mime-only rule sends exactly the
- * common case to the 前/後 toggle, where it can never be diffed. Wrong in the
- * OTHER direction is cheap: this list is closed and holds only extensions whose
- * bytes are text by definition, so the worst case is text rendered as text. */
+/** Extensions this panel reads as text when the RESPONSE will not say so
+ * (`application/octet-stream`). Wrong in the OTHER direction is cheap: this list
+ * is closed and holds only extensions whose bytes are text by definition, so the
+ * worst case is text rendered as text. */
 const TEXTUAL_EXTENSIONS = new Set([
   "md", "txt", "log", "json", "csv", "yaml", "yml", "diff", "patch", "sql",
   "go", "ts", "tsx", "js", "py", "sh", "toml", "ini", "env", "html", "css",
@@ -134,7 +126,7 @@ export function looksTextualByName(name: string): boolean {
  * the live artifact and left `name` — an author-chosen title with no extension
  * — in its place, so a `.md` report pinned as 「週報 v3」 has nothing in the
  * JSON that says "text". The bytes response does: the server writes
- * `filename="…"; filename*=UTF-8''…` on every non-image attachment
+ * `filename="…"; filename*=UTF-8''…` on every attachment
  * (api_chat.go), and this panel is already fetching exactly that response.
  *
  * `filename*` wins when both are present — it is the one that survives

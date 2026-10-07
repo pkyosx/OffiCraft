@@ -31,7 +31,7 @@ func (s *apiServer) HandleUploadTaskArtifactApiTasksTaskIdArtifactsUploadPost(
 			"name is required: give this deliverable a short display name")
 		return
 	}
-	att, ok := s.readArtifactUploadBody(w, r, params.Filename, params.Mime)
+	att, ok := s.readArtifactUploadBody(w, r, params.Filename)
 	if !ok {
 		return
 	}
@@ -99,7 +99,7 @@ func (s *apiServer) HandleUploadReplaceTaskArtifactApiTasksTaskIdArtifactArtifac
 		}
 		description = v
 	}
-	att, ok := s.readArtifactUploadBody(w, r, params.Filename, params.Mime)
+	att, ok := s.readArtifactUploadBody(w, r, params.Filename)
 	if !ok {
 		return
 	}
@@ -131,7 +131,7 @@ func (s *apiServer) HandleUploadReplaceTaskArtifactApiTasksTaskIdArtifactArtifac
 }
 
 func (s *apiServer) readArtifactUploadBody(
-	w http.ResponseWriter, r *http.Request, filename, mime *string,
+	w http.ResponseWriter, r *http.Request, filename *string,
 ) (*ChatAttachment, bool) {
 	if r.ContentLength > chatAttachmentMaxBytes {
 		writeError(w, http.StatusBadRequest,
@@ -148,7 +148,7 @@ func (s *apiServer) readArtifactUploadBody(
 			"attachment exceeds the 100 MB size limit")
 		return nil, false
 	}
-	att, rerr := resolveChatAttachment(raw, trimmedOrEmpty(filename), trimmedOrEmpty(mime))
+	att, rerr := resolveChatAttachment(raw, trimmedOrEmpty(filename))
 	if rerr != nil {
 		writeError(w, http.StatusBadRequest, rerr.Error())
 		return nil, false
@@ -158,7 +158,7 @@ func (s *apiServer) readArtifactUploadBody(
 
 // Same file-vs-image read taskArtifactDTO's consumers make.
 func artifactKindOfBlob(att *ChatAttachment) string {
-	if len(att.Mime) >= 6 && att.Mime[:6] == "image/" {
+	if isImageMime(att.Mime) {
 		return ArtifactKindImage
 	}
 	return ArtifactKindFile

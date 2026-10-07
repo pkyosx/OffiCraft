@@ -104,15 +104,21 @@ describe("ChatArea multi-attachment composer", () => {
     expect(container.querySelectorAll(".chat__preview-file").length).toBe(1);
   });
 
-  it("stages EVERY pasted image on a multi-image clipboard", async () => {
+  it("stages EVERY pasted image on a multi-image clipboard, naming a nameless one so it stays an image", async () => {
     const { container } = renderChat();
     const input = container.querySelector(".chat__input") as HTMLTextAreaElement;
-    const items = [pngFile("p1.png"), pngFile("p2.png")].map((f) => ({
+    const items = [pngFile("p1.png"), pngFile("")].map((f) => ({
       type: f.type,
       getAsFile: () => f,
     }));
     fireEvent.paste(input, { clipboardData: { items } });
     await waitFor(() => expect(previewCount(container)).toBe(2));
+    expect(container.querySelectorAll(".chat__preview-thumb").length).toBe(2);
+
+    fireEvent.click(container.querySelector(".chat__send") as HTMLElement);
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+    const [, attachments] = send.mock.calls[0] as unknown as [string, { filename?: string }[]];
+    expect(attachments.map((a) => a.filename)).toEqual(["p1.png", "pasted-image.png"]);
   });
 
   it("sends ALL staged attachments on ONE message and clears the stage", async () => {
@@ -132,14 +138,14 @@ describe("ChatArea multi-attachment composer", () => {
     await waitFor(() => expect(send).toHaveBeenCalledTimes(1));
     const [body, attachments] = send.mock.calls[0] as unknown as [
       string,
-      { dataB64: string; filename?: string; mime: string }[],
+      { dataB64: string; filename?: string }[],
     ];
     expect(body).toBe("here you go");
     expect(attachments).toHaveLength(2);
+    expect(Object.keys(attachments[0]).sort()).toEqual(["dataB64", "filename"]);
     expect(attachments[0].filename).toBe("a.png");
-    expect(attachments[0].mime).toBe("image/png");
+    expect(Object.keys(attachments[1]).sort()).toEqual(["dataB64", "filename"]);
     expect(attachments[1].filename).toBe("b.txt");
-    expect(attachments[1].mime).toBe("text/plain");
     // The stage is cleared after the send.
     await waitFor(() => expect(previewCount(container)).toBe(0));
   });

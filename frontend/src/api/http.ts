@@ -877,7 +877,6 @@ function toAnswerBody(answer: ReplyCardAnswerInput) {
           attachments: attachments.map((a) => ({
             data_b64: a.dataB64,
             ...(a.filename ? { filename: a.filename } : {}),
-            ...(a.mime ? { mime: a.mime } : {}),
           })),
         }
       : {}),
@@ -1566,7 +1565,6 @@ export const httpApi: Api = {
               attachments: attachments.map((a) => ({
                 data_b64: a.dataB64,
                 ...(a.filename ? { filename: a.filename } : {}),
-                ...(a.mime ? { mime: a.mime } : {}),
               })),
             }
           : {}),
@@ -1959,7 +1957,6 @@ export const httpApi: Api = {
               attachments: attachments.map((a) => ({
                 data_b64: a.dataB64,
                 ...(a.filename ? { filename: a.filename } : {}),
-                ...(a.mime ? { mime: a.mime } : {}),
               })),
             }
           : {}),

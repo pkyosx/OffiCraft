@@ -5,6 +5,7 @@
 
 import { useCallback, useState, useSyncExternalStore } from "react";
 import { useI18n } from "../i18n";
+import { attachmentMimeForName, pastedImageName } from "../lib/attachmentMime";
 import {
   getChatAttachError,
   getChatDraftAttachments,
@@ -47,7 +48,6 @@ export interface PendingAttachment {
   key: string;
   dataUri: string;
   filename: string;
-  mime: string;
   size: number;
   isImage: boolean;
 }
@@ -221,8 +221,8 @@ export function useAttachmentStaging(target: string): AttachmentStaging {
     reader.onload = () => {
       const dataUri = typeof reader.result === "string" ? reader.result : "";
       if (!dataUri) return;
-      const mime = file.type || "application/octet-stream";
-      const isImage = mime.startsWith("image/");
+      const filename = file.name || pastedImageName(file.type);
+      const isImage = attachmentMimeForName(filename).startsWith("image/");
       const size = estimateDataUriBytes(dataUri);
       const limit = isImage ? CHAT_IMAGE_MAX_BYTES : CHAT_FILE_MAX_BYTES;
       if (size > limit) {
@@ -235,11 +235,8 @@ export function useAttachmentStaging(target: string): AttachmentStaging {
       }
       const attachment: PendingAttachment = {
         key: `pa-${++pendingAttachmentSeq}`,
-        // A pasted screenshot has no filename — leave it empty and let the
-        // backend default it; a picked file keeps its real name.
-        filename: file.name || "",
+        filename,
         dataUri,
-        mime,
         size,
         isImage,
       };

@@ -59,17 +59,22 @@ func TestCmdDownload(t *testing.T) {
 		}
 	})
 
-	t.Run("an image served with no disposition lands under its attachment id", func(t *testing.T) {
-		dir := t.TempDir()
-		var out, errOut bytes.Buffer
-		rc := cmdDownload(dispositionReply("PNGDATA", "", "image/png"), configured,
-			"att-0123456789ab", dir, &out, &errOut)
-		dest := filepath.Join(dir, "att-0123456789ab")
-		if rc != 0 || out.String() != dest+"\n" {
-			t.Fatalf("got (%d, %q), want (0, %q)", rc, out.String(), dest+"\n")
-		}
-		if _, err := os.Stat(dest); err != nil {
-			t.Fatalf("stat %s: %v", dest, err)
+	t.Run("an image lands under the inline filename, extension kept, or under its attachment id when none is given", func(t *testing.T) {
+		for disposition, want := range map[string]string{
+			`inline; filename="shot.png"; filename*=UTF-8''shot.png`: "shot.png",
+			"": "att-0123456789ab",
+		} {
+			dir := t.TempDir()
+			var out, errOut bytes.Buffer
+			rc := cmdDownload(dispositionReply("PNGDATA", disposition, "image/png"), configured,
+				"att-0123456789ab", dir, &out, &errOut)
+			dest := filepath.Join(dir, want)
+			if rc != 0 || out.String() != dest+"\n" {
+				t.Fatalf("disposition %q: got (%d, %q), want (0, %q)", disposition, rc, out.String(), dest+"\n")
+			}
+			if landed, err := os.ReadFile(dest); err != nil || string(landed) != "PNGDATA" {
+				t.Fatalf("disposition %q: file %q err %v", disposition, string(landed), err)
+			}
 		}
 	})
 
