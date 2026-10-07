@@ -80,12 +80,8 @@ const SEASONAL_BUNDLE = JSON.parse(
 ) as ThemeBundle;
 const SEASONAL_RECORD = paintRecordJSON(SEASONAL_BUNDLE);
 
-function hexToRGB(hex: string): string {
-  const m = /^#([0-9a-fA-F]{6})$/.exec(hex);
-  if (!m) throw new Error(`setup error: ${SEASON.theme} --color-bg is not #rrggbb: ${hex}`);
-  const [r, g, b] = [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16));
-  return `rgb(${r}, ${g}, ${b})`;
-}
+/** The shipped seasonal theme's --color-bg (#15101f) as getComputedStyle reports it. */
+const SEASONAL_BG_RGB = "rgb(21, 16, 31)";
 const UNKNOWN_SERVER = stubURL("PAINT_GUARD_UNKNOWN_URL");
 
 for (const profile of ["fourg", "loopback"] as NetProfile[]) {
@@ -311,7 +307,7 @@ for (const profile of ["fourg", "loopback"] as NetProfile[]) {
     const settingsBodies = captureSettingsResponses(page);
     const seasonalChunks = captureSeasonalChunkRequests(page);
     const seasonalBg = SEASONAL_BUNDLE.colors["--color-bg"];
-    const expectedBg = hexToRGB(seasonalBg);
+    expect(seasonalBg, `setup error: ${SEASON.theme} changed its --color-bg`).toBe("#15101f");
 
     await pinClock(page, SEASON.start);
     await page.goto(OK_SERVER);
@@ -353,7 +349,7 @@ for (const profile of ["fourg", "loopback"] as NetProfile[]) {
       painted(samples, `--color-bg: ${seasonalBg}`),
       `the cached seasonal record was never painted\n${summarize(samples)}`
     ).toBeTruthy();
-    const bad = badFrames(samples, expectedBg);
+    const bad = badFrames(samples, SEASONAL_BG_RGB);
     expect(
       bad.length,
       `${bad.length}/${samples.length} frames were not the seasonal colour; first at ` +

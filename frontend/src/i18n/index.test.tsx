@@ -882,4 +882,92 @@ describe("I18nProvider seasonal theme", () => {
     expect(ctx.seasonalTheme).toBe(true);
     expect(localStorage.getItem("oc.seasonalTheme")).toBe("true");
   });
+
+  it("inside the window, a seasonal theme file that fails to load shows the selected theme, and the next clock reading retries it", async () => {
+    load.mockReset();
+    load.mockRejectedValueOnce(new Error("chunk fetch failed")).mockResolvedValue(HARVEST);
+    at(new Date(2030, 9, 28, 12, 0));
+    await mount();
+
+    await waitFor(() => expect(root.dataset.theme).toBe("office-light"));
+    expect(ctx.t.nav.office).toBe(zh.nav.office);
+    expect(root.style.getPropertyValue("--color-bg")).toBe("");
+    expect(load).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date(2030, 9, 28, 12, 5));
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+
+    await waitFor(() => expect(ctx.t.nav.office).toBe("鬼屋辦公室"));
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(root.style.getPropertyValue("--color-bg")).toBe("#15101f");
+  });
+
+  for (const [event, target] of [
+    ["visibilitychange", document],
+    ["focus", window],
+  ] as const) {
+    it(`after sleeping past the window's start, ${event} switches to the seasonal theme without the boundary timer firing`, async () => {
+      at(new Date(HARVEST_START.getTime() - 60 * 60 * 1000));
+      await mount();
+      expect(ctx.t.nav.office).toBe(zh.nav.office);
+
+      vi.setSystemTime(new Date(HARVEST_START.getTime() + 60 * 1000));
+      await act(async () => {
+        target.dispatchEvent(new Event(event));
+      });
+
+      await waitFor(() => expect(ctx.t.nav.office).toBe("鬼屋辦公室"));
+      expect(load).toHaveBeenCalledTimes(1);
+    });
+  }
+
+  it("arms the boundary timer at most 2^31-1 ms ahead when the window opens later than that, and still switches when it opens", async () => {
+    at(new Date(HARVEST_START.getTime() - 30 * 24 * 60 * 60 * 1000));
+    const setTimeoutSpy = vi.spyOn(window, "setTimeout");
+    await mount();
+
+    expect(setTimeoutSpy.mock.calls.map((c) => c[1])).toContain(2147483647);
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(load).not.toHaveBeenCalled();
+    expect(ctx.t.nav.office).toBe(zh.nav.office);
+
+    await act(async () => {
+      vi.advanceTimersByTime(2147483647);
+    });
+    expect(load).not.toHaveBeenCalled();
+    await act(async () => {
+      vi.advanceTimersByTime(30 * 24 * 60 * 60 * 1000 - 2147483647);
+    });
+
+    await waitFor(() => expect(ctx.t.nav.office).toBe("鬼屋辦公室"));
+    expect(load).toHaveBeenCalledTimes(1);
+    setTimeoutSpy.mockRestore();
+  });
+
+  it("inside the window, while the seasonal theme is still loading, shows none of the selected custom theme", async () => {
+    const DUSK = {
+      id: "dusk",
+      name: "Dusk",
+      colors: { "--color-bg": "#0a0b0c" },
+      wording: { zh: { "nav.office": "黃昏辦公室" } },
+    };
+    await mockApi.putTheme(DUSK);
+    await mockApi.patchServerSettings({ displayTheme: "dusk" });
+    localStorage.setItem("oc.theme", "dusk");
+    localStorage.setItem(TOKEN_KEY, "live-owner-token");
+    load.mockReset();
+    load.mockReturnValue(new Promise(() => {}));
+    at(new Date(2030, 9, 28, 12, 0));
+    await mount();
+
+    await waitFor(() => expect(ctx.activeThemeBundle?.id).toBe("dusk"));
+    expect(ctx.theme).toBe("dusk");
+    expect(ctx.t.nav.office).toBe(zh.nav.office);
+    expect(root.dataset.theme).toBe("office");
+    expect(root.style.getPropertyValue("--color-bg")).toBe("");
+  });
 });

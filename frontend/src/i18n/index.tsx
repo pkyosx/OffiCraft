@@ -212,10 +212,14 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const [seasonalTheme, setSeasonalThemeState] = useState<boolean>(() =>
     readStoredSeasonalTheme()
   );
-  // Moves only at a window boundary (the timer below), which is the only time
-  // the answer to "which window is open" can change.
+  // Re-read at each window boundary (the timer below) and whenever the page is
+  // shown or focused again: a timer does not count time the machine slept.
   const [clock, setClock] = useState(() => Date.now());
+  const clockRef = useRef(clock);
   const [seasonalBundle, setSeasonalBundle] = useState<ThemeBundle | null>(null);
+  // The clock reading at which the seasonal file failed to load; the next
+  // reading retries it.
+  const [seasonalLoadFailedAt, setSeasonalLoadFailedAt] = useState<number | null>(null);
   const [themeList, setThemeList] = useState<ThemeListItem[]>([]);
   const [activeThemeBundle, setActiveThemeBundle] = useState<ThemeBundle | null>(
     null
@@ -261,7 +265,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     () => activeSeasonalWindow(new Date(clock), SEASONAL_WINDOWS),
     [clock]
   );
-  const seasonalWindow = seasonalTheme ? openSeasonalWindow : null;
+  const seasonalWindow =
+    seasonalTheme && seasonalLoadFailedAt !== clock ? openSeasonalWindow : null;
   // The theme on screen: the seasonal one while its window is open and the
   // owner has not turned it off, otherwise the selected theme. Inside the window
   // a bundle still in flight resolves to null, never to the selected theme's.
@@ -353,6 +358,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   }, [theme, shownTheme, shownBundle, seasonalWindow, themesLoaded]);
 
   useEffect(() => {
+    clockRef.current = clock;
     const next = nextSeasonalBoundary(new Date(clock), SEASONAL_WINDOWS);
     if (!next) return;
     const id = window.setTimeout(
@@ -361,6 +367,18 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     );
     return () => window.clearTimeout(id);
   }, [clock]);
+
+  useEffect(() => {
+    const reread = () => {
+      if (document.visibilityState === "visible") setClock(Date.now());
+    };
+    document.addEventListener("visibilitychange", reread);
+    window.addEventListener("focus", reread);
+    return () => {
+      document.removeEventListener("visibilitychange", reread);
+      window.removeEventListener("focus", reread);
+    };
+  }, []);
 
   useEffect(() => {
     if (!seasonalWindow) return;
@@ -372,7 +390,10 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         setSeasonalBundle(b);
         writeStored(LS_SEASONAL_PAINT, JSON.stringify(paintRecordFor(b)));
       })
-      .catch((e) => console.warn("seasonal theme: load failed", e));
+      .catch((e) => {
+        console.warn("seasonal theme: load failed", e);
+        if (current) setSeasonalLoadFailedAt(clockRef.current);
+      });
     return () => {
       current = false;
     };

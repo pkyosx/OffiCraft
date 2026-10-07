@@ -10,6 +10,7 @@
 // and constrain the token NAME to the generated theme.css whitelist.
 
 import { THEME_COLOR_TOKENS } from "../styles/themeTokens.generated";
+import { SEASONAL_SCHEDULE } from "./seasonalSchedule";
 import {
   THEME_FONT_TOKENS,
   SAFE_FONT_FAMILIES,
@@ -207,12 +208,18 @@ export const BUILTIN_THEMES = [
 ] as const;
 export type BuiltinThemeId = (typeof BUILTIN_THEMES)[number]["id"];
 
-/** The ids a custom bundle must never claim. Twin of reservedThemeIDs in
- * server/ocserverd/theme_bundle.go. */
-export const RESERVED_THEME_IDS: readonly BuiltinThemeId[] = BUILTIN_THEMES.map((b) => b.id);
+export const BUILTIN_THEME_IDS: readonly BuiltinThemeId[] = BUILTIN_THEMES.map((b) => b.id);
+
+/** The ids a custom bundle must never claim: the built-in themes and every
+ * seasonal theme in the schedule. The built-in half is twinned by
+ * reservedThemeIDs in server/ocserverd/theme_bundle.go. */
+export const RESERVED_THEME_IDS: readonly string[] = [
+  ...BUILTIN_THEME_IDS,
+  ...SEASONAL_SCHEDULE.map((e) => e.id),
+];
 
 export function isBuiltinTheme(v: string): v is BuiltinThemeId {
-  return (RESERVED_THEME_IDS as readonly string[]).includes(v);
+  return (BUILTIN_THEME_IDS as readonly string[]).includes(v);
 }
 
 /** The override languages a wording overlay may key on. */

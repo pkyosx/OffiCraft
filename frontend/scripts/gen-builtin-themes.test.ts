@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { RESERVED_THEME_IDS } from "../src/lib/themeBundleCore";
+import { BUILTIN_THEME_IDS } from "../src/lib/themeBundleCore";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SCRIPT = join(HERE, "gen-builtin-themes.mjs");
@@ -74,7 +74,7 @@ describe("gen-builtin-themes.mjs", () => {
     expect(r.out).toContain(
       'office (:root) 74 tokens, office-light (:root[data-theme="office-light"]) 73 tokens'
     );
-    expect(RESERVED_THEME_IDS).toEqual(["office", "office-light"]);
+    expect(BUILTIN_THEME_IDS).toEqual(["office", "office-light"]);
   });
 
   it("changes only the edited value, in the edited block, keeping its spacing and trailing comment", () => {

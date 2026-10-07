@@ -3,7 +3,8 @@ import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { seasonalWindowsFrom } from "./seasonalTheme";
 import { parseLocalDateTime, scheduleFrom } from "./seasonalSchedule";
-import { validateThemeBundle, type ThemeBundle } from "./themeBundle";
+import { validateThemeBundleWith, type ThemeBundle } from "./themeBundleCore";
+import { validateWording } from "./themeWording";
 import { paintRecordFor } from "./themePaint";
 
 const THEMES_DIR = resolve(__dirname, "../../../themes");
@@ -76,17 +77,17 @@ describe("the shipped themes/ seasonal data", () => {
   });
 
   for (const e of raw) {
-    it(`${e.theme} exists, passes the frontend bundle validation whole, and carries the entry's id`, () => {
+    it(`${e.theme} exists, passes the bundle grammar whole, wording included, and carries the entry's id`, () => {
       const bundle = readThemesFile(e.theme);
       const skipped: string[] = [];
-      expect(validateThemeBundle(bundle, e.theme, skipped)).toBeNull();
+      expect(validateThemeBundleWith(bundle, e.theme, skipped, validateWording)).toBeNull();
       expect(skipped, "wording codes the app does not know").toEqual([]);
       expect((bundle as ThemeBundle).id).toBe(e.id);
     });
 
     it(`${e.theme} still validates once pruned to the pre-paint record`, () => {
       const bundle = readThemesFile(e.theme) as ThemeBundle;
-      expect(validateThemeBundle(paintRecordFor(bundle).bundle, e.theme)).toBeNull();
+      expect(validateThemeBundleWith(paintRecordFor(bundle).bundle, e.theme, undefined, null)).toBeNull();
     });
   }
 });
