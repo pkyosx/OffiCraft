@@ -162,6 +162,7 @@ const (
 )
 
 // The built-in theme ids. Twin of RESERVED_THEME_IDS in frontend/src/lib/themeBundleCore.ts.
+// The seasonal theme (themes/ at the repo root) is never selectable and is not one of them.
 var displayThemeAllowed = map[string]bool{"office": true, "office-light": true}
 var displayLanguageAllowed = map[string]bool{"zh": true, "en": true}
 

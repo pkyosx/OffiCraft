@@ -5,9 +5,9 @@ import {
   type SeasonalWindow,
 } from "./seasonalSchedule";
 
-// eager:false keeps every theme file in its own chunk: nothing is fetched until
+// A lazy glob keeps every theme file in its own chunk: nothing is fetched until
 // a window opens and load() is called. The built-in themes' files feed
-// theme.css at build time and must not ship as chunks of their own.
+// theme.css through gen-builtin-themes.mjs and must not ship as chunks.
 const THEME_FILES = import.meta.glob<ThemeBundle>(
   [
     "../../../themes/*.theme.json",

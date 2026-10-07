@@ -39,7 +39,7 @@ type View = "main" | "preferences" | "password" | "notifications" | "mfa";
  * Profile menu that drops from the topbar profile pill.
  *  - main view: profile header (inline rename), Preferences row, Log out.
  *  - preferences view: Theme SELECTOR (辦公室 / custom) + Language
- *    (中文 / English) + Layout (窄版 / 寬版).
+ *    (中文 / English) + Layout (窄版 / 寬版) + Show seasonal theme (開 / 關).
  *  - account rows in the main view: notification email and password.
  *  - password view: current / new / repeat → POST /api/auth/change-password.
  *

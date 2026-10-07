@@ -157,17 +157,18 @@ interface I18nContextValue {
    * it. */
   seasonalTheme: boolean;
   setSeasonalTheme: (next: boolean) => void;
-  /** The active custom theme's per-role avatar images (T-16a1 P5; T-ea81), or
-   * undefined when the active theme carries none (the built-in office, or a
+  /** The shown theme's per-role avatar images (T-16a1 P5; T-ea81) — the
+   * seasonal theme's inside its window, else the active custom theme's — or
+   * undefined when the shown theme carries none (the built-in office, or a
    * custom theme with no avatars overlay). The Avatar component reads this to
    * render a staff/outsource/owner/assistant avatar image, falling back to the
    * built-in glyph when absent. */
   activeAvatars?: Partial<Record<AvatarKind, string>>;
-  /** The active custom theme's studio logo image (T-ea81), or undefined when the
-   * active theme carries none — the top bar then renders its built-in mark. */
+  /** The shown theme's studio logo image (T-ea81), or undefined when the
+   * shown theme carries none — the top bar then renders its built-in mark. */
   activeLogo?: string;
-  /** The active custom theme's per-nav-tab icon images (T-ea81), or undefined
-   * when the active theme carries none — each tab then keeps its built-in icon. */
+  /** The shown theme's per-nav-tab icon images (T-ea81), or undefined
+   * when the shown theme carries none — each tab then keeps its built-in icon. */
   activeNavIcons?: Partial<Record<NavIconKey, string>>;
   /** The owner's saved themes as ONE LINE EACH — id and name, no colours and
    * no images (T-83ef). This is what the pickers render, and it is deliberately

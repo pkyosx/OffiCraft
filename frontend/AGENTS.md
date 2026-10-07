@@ -18,7 +18,7 @@
 | tasks-and-outsource.md | 任務篩選/錨點、TaskCard、外包面板、任務手冊 |
 | overlays-and-modals.md | 全幅閱覽、Esc 分層、DocCard、差異呈現 |
 | css-layout-traps.md | 長 token、nowrap、浮層邊界、CSS ownership、lazy fetch、動作列 |
-| theming-and-i18n.md | 首設與設定、i18n、主題包、用詞編輯、pre-paint |
+| theming-and-i18n.md | 首設與設定、i18n、主題包、用詞編輯、內建主題來源、應景主題、pre-paint |
 
 各規則檔只留讀碼才能知道的契約與護欄；事故日記、票號、一次性量測、mutant 數字與過時清單不在這裡。
 
