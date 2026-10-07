@@ -66,6 +66,19 @@ describe("activeSeasonalWindow", () => {
     expect(activeSeasonalWindow(new Date(2031, 0, 1, 0, 0), windows)).toBeNull();
   });
 
+  it("lets the entry listed first win while two windows overlap, and hands over to the other where only it is open", () => {
+    const a = { id: "a", start: new Date(2030, 9, 24, 0, 0), end: new Date(2030, 10, 1, 0, 0) };
+    const b = { id: "b", start: new Date(2030, 9, 30, 0, 0), end: new Date(2030, 10, 28, 0, 0) };
+
+    expect(activeSeasonalWindow(new Date(2030, 9, 30, 12, 0), [a, b])).toBe(a);
+    expect(activeSeasonalWindow(new Date(2030, 9, 31, 23, 59, 59, 999), [a, b])).toBe(a);
+    expect(activeSeasonalWindow(new Date(2030, 10, 1, 0, 0), [a, b])).toBe(b);
+
+    expect(activeSeasonalWindow(new Date(2030, 9, 29, 12, 0), [b, a])).toBe(a);
+    expect(activeSeasonalWindow(new Date(2030, 9, 30, 12, 0), [b, a])).toBe(b);
+    expect(activeSeasonalWindow(new Date(2030, 10, 1, 0, 0), [b, a])).toBe(b);
+  });
+
   it("never matches an entry whose dates did not parse", () => {
     const broken = { id: "broken", start: new Date(NaN), end: new Date(NaN) };
     expect(activeSeasonalWindow(new Date(2030, 9, 28), [broken])).toBeNull();
@@ -85,6 +98,13 @@ describe("nextSeasonalBoundary", () => {
 
   it("answers the next window's start at a window's end", () => {
     expect(nextSeasonalBoundary(new Date(2030, 10, 1, 0, 0), windows)).toEqual(new Date(2030, 11, 20, 0, 0));
+  });
+
+  it("inside two overlapping windows, answers the earlier of their ends", () => {
+    const a = { id: "a", start: new Date(2030, 9, 24, 0, 0), end: new Date(2030, 10, 1, 0, 0) };
+    const b = { id: "b", start: new Date(2030, 9, 30, 0, 0), end: new Date(2030, 10, 28, 0, 0) };
+    expect(nextSeasonalBoundary(new Date(2030, 9, 30, 12, 0), [a, b])).toEqual(new Date(2030, 10, 1, 0, 0));
+    expect(nextSeasonalBoundary(new Date(2030, 10, 1, 0, 0), [a, b])).toEqual(new Date(2030, 10, 28, 0, 0));
   });
 
   it("answers null once every boundary has passed", () => {

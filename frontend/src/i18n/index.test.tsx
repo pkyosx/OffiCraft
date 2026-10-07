@@ -939,6 +939,34 @@ describe("I18nProvider seasonal theme", () => {
     });
   }
 
+  it("while two windows overlap shows the one listed first, and switches by itself to the other when the first ends", async () => {
+    const FROST = {
+      id: "frost",
+      name: "Frost",
+      colors: { "--color-bg": "#0d1a26" },
+      wording: { zh: { "nav.office": "冰雪辦公室" } },
+    };
+    const loadFrost = vi.fn(() => Promise.resolve(FROST));
+    seasonalWindows.length = 0;
+    seasonalWindows.push(
+      { id: "harvest", start: HARVEST_START, end: HARVEST_END, load },
+      { id: "frost", start: new Date(2030, 9, 30, 0, 0), end: new Date(2030, 10, 28, 0, 0), load: loadFrost }
+    );
+    at(new Date(HARVEST_END.getTime() - 1000));
+    await mount();
+
+    await waitFor(() => expect(ctx.t.nav.office).toBe("鬼屋辦公室"));
+    expect(loadFrost).not.toHaveBeenCalled();
+
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    await waitFor(() => expect(ctx.t.nav.office).toBe("冰雪辦公室"));
+    expect(root.style.getPropertyValue("--color-bg")).toBe("#0d1a26");
+    expect(loadFrost).toHaveBeenCalledTimes(1);
+  });
+
   it("arms the boundary timer at most 2^31-1 ms ahead when the window opens later than that, and still switches when it opens", async () => {
     at(new Date(HARVEST_START.getTime() - 30 * 24 * 60 * 60 * 1000));
     const setTimeoutSpy = vi.spyOn(window, "setTimeout");

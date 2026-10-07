@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { seasonalWindowsFrom } from "./seasonalTheme";
-import { parseLocalDateTime, scheduleFrom } from "./seasonalSchedule";
+import { parseLocalDateTime } from "./seasonalSchedule";
 import { validateThemeBundleWith, type ThemeBundle } from "./themeBundleCore";
 import { validateWording } from "./themeWording";
 import { paintRecordFor } from "./themePaint";
@@ -59,19 +59,13 @@ describe("the shipped themes/ seasonal data", () => {
     }
   });
 
-  it("gives every entry a parseable local start strictly before its end, and no two windows overlap", () => {
+  it("gives every entry a parseable local start strictly before its end, and a unique id", () => {
     for (const e of raw) {
       const start = parseLocalDateTime(e.start);
       const end = parseLocalDateTime(e.end);
       expect(Number.isNaN(start.getTime()), `${e.id} start ${e.start}`).toBe(false);
       expect(Number.isNaN(end.getTime()), `${e.id} end ${e.end}`).toBe(false);
       expect(start.getTime(), `${e.id} start must be before end`).toBeLessThan(end.getTime());
-    }
-    const sorted = scheduleFrom(raw).sort((a, b) => a.start.getTime() - b.start.getTime());
-    for (let i = 1; i < sorted.length; i++) {
-      expect(sorted[i].start.getTime(), `${sorted[i].id} overlaps ${sorted[i - 1].id}`).toBeGreaterThanOrEqual(
-        sorted[i - 1].end.getTime()
-      );
     }
     expect(new Set(raw.map((e) => e.id)).size).toBe(raw.length);
   });

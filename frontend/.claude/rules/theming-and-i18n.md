@@ -75,7 +75,7 @@ stub server 的埠不可寫死：playwright-paint.config.ts 用 allocateFreePort
 
 ## 應景主題
 
-應景主題的檔案與時段是資料，放在 repo 根目錄 `themes/`（`seasonal-schedule.json` 與它指名的 `*.theme.json`）；TS 不寫日期或 id。時段以觀看者當地時間計，起點含、終點不含。畫面上的主題 = 時段內且 `display_seasonal_theme` 為 true 時是應景主題，否則是 display_theme；display_theme 從不被改寫，應景主題不進主題清單，server 也不接受它當 display_theme。邊界由排到下一個邊界的 timer 切換，不輪詢；頁面重新可見或取得焦點時也重讀時鐘（timer 不計睡眠時間）。應景主題檔載入失敗就在這次頁面期間一直顯示 display_theme，不重試、也不再經過應景路徑（瀏覽器對同一個 URL 的失敗 dynamic import 會快取，重試只會立刻再失敗；只有重新整理能恢復）；載入中則不顯示 display_theme 的自訂主題。應景主題的 id 在前端的 RESERVED_THEME_IDS 裡：新增與匯入的自訂主題不可用它；但 server 不保留它，所以已存在 server 上、用這個 id 的自訂主題仍可編輯儲存——驗證文法（validateThemeBundle／validateThemeBundleWith）只擋內建 id，應景主題自己的 paint 記錄也要經過它。
+應景主題的檔案與時段是資料，放在 repo 根目錄 `themes/`（`seasonal-schedule.json` 與它指名的 `*.theme.json`）；TS 不寫日期或 id。時段以觀看者當地時間計，起點含、終點不含。時段重疊時，以 seasonal-schedule.json 裡排在前面的那一筆為準（owner 裁定）。畫面上的主題 = 時段內且 `display_seasonal_theme` 為 true 時是應景主題，否則是 display_theme；display_theme 從不被改寫，應景主題不進主題清單，server 也不接受它當 display_theme。邊界由排到下一個邊界的 timer 切換，不輪詢；頁面重新可見或取得焦點時也重讀時鐘（timer 不計睡眠時間）。應景主題檔載入失敗就在這次頁面期間一直顯示 display_theme，不重試、也不再經過應景路徑（瀏覽器對同一個 URL 的失敗 dynamic import 會快取，重試只會立刻再失敗；只有重新整理能恢復）；載入中則不顯示 display_theme 的自訂主題。應景主題的 id 在前端的 RESERVED_THEME_IDS 裡：新增與匯入的自訂主題不可用它；但 server 不保留它，所以已存在 server 上、用這個 id 的自訂主題仍可編輯儲存——驗證文法（validateThemeBundle／validateThemeBundleWith）只擋內建 id，應景主題自己的 paint 記錄也要經過它。
 
 `lib/seasonalSchedule.ts` 會被 pre-paint 的 esbuild 單獨打包，不可放 `import.meta.glob` 或其他 Vite 專屬語法（esbuild 把 `import.meta` 換成空物件，模組初始化就丟 TypeError；那發生在 prePaint 的 try/catch 之外，整段 pre-paint 不會執行）；theme 檔只經 `lib/seasonalTheme.ts` 的 lazy glob 載入，時段外不會被抓。應景主題有自己的 paint 記錄（`LS_SEASONAL_PAINT`），不寫進 `LS_THEME_PAINT`，所以時段結束時選定主題的快取還在；時段內 pre-paint 只畫應景記錄或什麼都不畫，時段外記錄被清掉。
 

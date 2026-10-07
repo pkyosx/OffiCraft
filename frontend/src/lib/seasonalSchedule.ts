@@ -52,6 +52,7 @@ export function activeSeasonalWindow<W extends SeasonalWindow>(
   windows: readonly W[]
 ): W | null {
   const t = now.getTime();
+  // Overlapping windows are allowed; the one listed first wins (owner ruling).
   return windows.find((w) => w.start.getTime() <= t && t < w.end.getTime()) ?? null;
 }
 
