@@ -102,10 +102,15 @@ func sniffAttachmentMime(raw []byte) string {
 	return attachmentOctetStream
 }
 
-// Only .json, by owner ruling (rc-ab005893c16c); YAML/CSV deliberately not.
+// Only .json and .pdf, by owner rulings (rc-ab005893c16c, rc-44d5075666d0);
+// YAML/CSV/HTML deliberately not.
 func attachmentMimeForName(filename string) string {
-	if strings.HasSuffix(strings.ToLower(strings.TrimSpace(filename)), ".json") {
+	name := strings.ToLower(strings.TrimSpace(filename))
+	switch {
+	case strings.HasSuffix(name, ".json"):
 		return "application/json"
+	case strings.HasSuffix(name, ".pdf"):
+		return "application/pdf"
 	}
 	return ""
 }

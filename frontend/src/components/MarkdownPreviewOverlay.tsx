@@ -1050,9 +1050,10 @@ export function isInlineDisplayableMime(mime: string, filename = ""): boolean {
     baseMime === "application/json" ||
     // A blob uploaded without a declared type is stored as
     // application/octet-stream — which is what most of this station's JSON
-    // is — so the name is the only evidence left. The server reads it too.
+    // and PDF is — so the name is the only evidence left. The server reads it
+    // too, by the same suffix list.
     (baseMime === "" || baseMime === "application/octet-stream") &&
-      /\.json$/i.test(filename)
+      /\.(json|pdf)$/i.test(filename)
   );
 }
 

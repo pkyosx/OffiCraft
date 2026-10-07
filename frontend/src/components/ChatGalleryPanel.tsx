@@ -18,13 +18,6 @@
 // lookup and no client-side aggregation. READ-ONLY: opening the gallery never
 // advances a read watermark — which since T-48 is true of every read door on
 // this API, so this is no longer a contrast with the thread's own listing.
-//
-// OPEN BEHAVIOR (preview/download split, mirroring the server's disposition
-// table on the server): a previewable mime (image/*, text/* —
-// plain/markdown/html —, application/pdf, application/json, or a generic /
-// unknown MIME with a .json filename) opens in a NEW TAB (the server serves
-// those inline); anything else (zip and other opaque binaries) downloads (the server forces
-// Content-Disposition: attachment).
 
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
@@ -41,27 +34,6 @@ import { MarkdownPreviewOverlay } from "./MarkdownPreviewOverlay";
 // sub ("owner"); same constant as ChatArea's OWNER_ID (kept local to avoid an
 // import cycle: ChatArea imports this component).
 const OWNER_ID = "owner";
-
-/** FE mirror of the server's preview/download split
- * (`isPreviewableAttachment`, server/ocserverd/api_chat.go): previewable blobs
- * are served inline → open in a new tab; the rest are forced downloads.
- *
- * `filename` is part of the question, not a convenience: a blob uploaded
- * without a declared type is stored as application/octet-stream, and most of
- * the JSON in this station arrives that way, so the mime alone cannot answer
- * for it. The server reads the name for the same reason and by the same rule —
- * keep the two in step. */
-export function isPreviewableMime(mime: string, filename = ""): boolean {
-  const baseMime = mime.split(";")[0]!.trim().toLowerCase();
-  return (
-    baseMime.startsWith("image/") ||
-    baseMime.startsWith("text/") ||
-    baseMime === "application/pdf" ||
-    baseMime === "application/json" ||
-    (baseMime === "" || baseMime === "application/octet-stream") &&
-      /\.json$/i.test(filename)
-  );
-}
 
 /**
  * Could THIS ONE chat delta change what the gallery renders?

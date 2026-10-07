@@ -101,7 +101,7 @@ func TestRealMain(t *testing.T) {
 			"line 1  the attachment id (att-…)",
 			"line 2  the server's JSON for it: {\"id\": …, \"mime\": …, \"filename\": …}",
 			"4  the server refused the file (HTTP 400): it is empty, over the size limit,",
-			"a name\n               ending in .json is application/json, and everything else is\n               application/octet-stream.",
+			"a name\n               ending in .json is application/json, a name ending in .pdf is\n               application/pdf, and everything else is\n               application/octet-stream.",
 		}},
 		{"download", []string{
 			"usage: ocagent download <attachment-id> [--out <dir>]\n",

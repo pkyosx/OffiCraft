@@ -148,6 +148,43 @@ func TestUploadChatAttachment(t *testing.T) {
 			legacyResp.Header.Get("Content-Disposition"), string(legacyBody))
 	}
 
+	ref = uploadBlob(t, srv.URL, agentTok, "?filename=Scan.PDF", []byte("%PDF-1.7 unnamed"))
+	if ref["mime"] != "application/pdf" || ref["filename"] != "Scan.PDF" {
+		t.Fatalf("PDF filename fallback: %v", ref)
+	}
+	ref = uploadBlob(t, srv.URL, agentTok,
+		"?filename=legacy.pdf&mime=application/octet-stream", []byte("%PDF-1.7 legacy"))
+	legacyPDFID, _ := ref["id"].(string)
+	ref = uploadBlob(t, srv.URL, agentTok,
+		"?filename=legacy.bin&mime=application/octet-stream", []byte("opaque"))
+	legacyBinID, _ := ref["id"].(string)
+	for _, tc := range []struct {
+		id, wantType, wantDisposition, wantBody string
+	}{
+		{legacyPDFID, "application/pdf",
+			`inline; filename="legacy.pdf"; filename*=UTF-8''legacy.pdf`, "%PDF-1.7 legacy"},
+		{legacyBinID, attachmentOctetStream,
+			`attachment; filename="legacy.bin"; filename*=UTF-8''legacy.bin`, "opaque"},
+	} {
+		req, err := http.NewRequest("GET", srv.URL+"/api/chat/attachment/"+tc.id, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Authorization", "Bearer "+agentTok)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != tc.wantType ||
+			resp.Header.Get("Content-Disposition") != tc.wantDisposition || string(body) != tc.wantBody {
+			t.Fatalf("legacy octet blob %s: status=%d type=%q disposition=%q body=%q",
+				tc.id, resp.StatusCode, resp.Header.Get("Content-Type"),
+				resp.Header.Get("Content-Disposition"), string(body))
+		}
+	}
+
 	// Faults are flat 400s: empty body, >100MB body, >20MB image.
 	for name, tc := range map[string]struct {
 		query string
@@ -184,6 +221,10 @@ func TestIsPreviewableAttachment(t *testing.T) {
 		{"octet JSON filename", attachmentOctetStream, "report.json", true},
 		{"octet non-JSON filename", attachmentOctetStream, "report.zip", false},
 		{"declared binary wins over JSON suffix", "application/zip", "report.json", false},
+		{"octet PDF filename", attachmentOctetStream, "Report.PDF", true},
+		{"unknown MIME PDF filename", "", "report.pdf", true},
+		{"octet filename merely containing .pdf", attachmentOctetStream, "report.pdf.zip", false},
+		{"declared binary wins over PDF suffix", "application/zip", "report.pdf", false},
 		{"binary", "application/zip", "report.zip", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

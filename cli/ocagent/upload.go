@@ -25,7 +25,8 @@ card, or a task artifact) instead of pasting the file's contents.
 
 --mime <type>  declare the media type. Without it the server decides: PNG,
                JPEG, GIF and WebP are recognised by their bytes, a name
-               ending in .json is application/json, and everything else is
+               ending in .json is application/json, a name ending in .pdf is
+               application/pdf, and everything else is
                application/octet-stream.
 
 The stored filename is the path's basename. The flag may come before or after

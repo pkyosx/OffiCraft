@@ -57,11 +57,16 @@ describe("isInlineDisplayableMime (mirror of the server's isPreviewableAttachmen
       expect(`${m}=${isInlineDisplayableMime(m)}`).toBe(`${m}=true`);
     }
   });
-  it("accepts a .json filename when the mime is octet-stream", () => {
+  it("accepts a .json or .pdf filename when the mime is octet-stream", () => {
     expect(isInlineDisplayableMime("application/octet-stream", "report.json")).toBe(true);
     expect(isInlineDisplayableMime("application/octet-stream", "REPORT.JSON")).toBe(true);
+    expect(isInlineDisplayableMime("application/octet-stream", "report.pdf")).toBe(true);
+    expect(isInlineDisplayableMime("application/octet-stream", "REPORT.PDF")).toBe(true);
+    expect(isInlineDisplayableMime("", "report.pdf")).toBe(true);
     expect(isInlineDisplayableMime("application/octet-stream", "report.zip")).toBe(false);
+    expect(isInlineDisplayableMime("application/octet-stream", "report.pdf.zip")).toBe(false);
     expect(isInlineDisplayableMime("application/zip", "report.json")).toBe(false);
+    expect(isInlineDisplayableMime("application/zip", "report.pdf")).toBe(false);
   });
   it("rejects the mimes the server sends as Content-Disposition: attachment", () => {
     for (const m of [
@@ -155,6 +160,20 @@ describe("MarkdownPreviewOverlay — 在新頁面顯示 (T-36)", () => {
       expect(bundle.chat.mdPreview.newTabStaticNote.length).toBeGreaterThan(0);
     }
     expect(zh.chat.mdPreview.newTabStaticNote).not.toBe(en.chat.mdPreview.newTabStaticNote);
+  });
+
+  it("renders the new-tab button on a .pdf stored as application/octet-stream", async () => {
+    vi.spyOn(api, "getChatAttachmentShareLink").mockResolvedValue(
+      "/api/chat/attachment/att-36?sig=test-sig",
+    );
+    globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "" })) as unknown as typeof fetch;
+
+    mountOverlay("application/octet-stream", "AI-Data-Security.pdf");
+
+    await waitFor(() => expect(document.body.querySelector(NEW_TAB)).toBeTruthy());
+    expect((document.body.querySelector(NEW_TAB) as HTMLAnchorElement).getAttribute("href")).toBe(
+      `${window.location.origin}/api/chat/attachment/att-36?sig=test-sig`,
+    );
   });
 
   it("offers NEITHER button nor note on an attachment the browser downloads", async () => {
