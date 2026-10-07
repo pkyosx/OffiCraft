@@ -24,6 +24,11 @@ function validatePaintBundle(b: unknown): string | null {
  * nothing would catch when it drifts. */
 export const LS_THEME = "oc.theme";
 export const LS_THEME_PAINT = "oc.themePaint";
+/** The display_seasonal_theme cache ("true"/"false", absent = the shipped true)
+ * and the seasonal theme's own paint record, kept apart from LS_THEME_PAINT so
+ * the display theme's cached picture survives the seasonal window. */
+export const LS_SEASONAL_THEME = "oc.seasonalTheme";
+export const LS_SEASONAL_PAINT = "oc.seasonalPaint";
 export const PAINT_CACHE_VERSION = 1;
 
 export interface PaintRecord {
@@ -46,10 +51,10 @@ export function paintRecordFor(b: ThemeBundle): PaintRecord {
 
 /** Read + fully validate the cached picture. Any failure → null (today's
  * behaviour). Never throws. */
-export function readValidatedPaint(): ThemeBundle | null {
+export function readValidatedPaint(key: string = LS_THEME_PAINT): ThemeBundle | null {
   let raw: string | null = null;
   try {
-    raw = localStorage.getItem(LS_THEME_PAINT);
+    raw = localStorage.getItem(key);
   } catch {
     return null;
   }

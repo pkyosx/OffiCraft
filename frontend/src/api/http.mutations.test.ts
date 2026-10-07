@@ -103,6 +103,18 @@ describe("httpApi · PATCH bodies carry ONLY the supplied fields", () => {
     expect(method).toBe("POST");
     expect(JSON.parse(String(body))).toEqual({ name: "QA" });
   });
+
+  it("patchServerSettings {displaySeasonalTheme: false} sends {display_seasonal_theme: false} only", async () => {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({ owner_token_ttl: 86400, agent_token_ttl: 604800, display_seasonal_theme: false })
+    );
+    const s = await httpApi.patchServerSettings({ displaySeasonalTheme: false });
+    const { url, method, body } = await lastRequest();
+    expect(url).toBe("/api/settings");
+    expect(method).toBe("PATCH");
+    expect(JSON.parse(String(body))).toEqual({ display_seasonal_theme: false });
+    expect(s.displaySeasonalTheme).toBe(false);
+  });
 });
 
 describe("httpApi · activateMember body (MemberActivateDTO)", () => {

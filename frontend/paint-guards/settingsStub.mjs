@@ -113,6 +113,7 @@ function settingsDTO() {
     display_theme: MODE === "builtin-light" ? "office-light" : known ? SERVER_THEME.id : "",
     display_language: "zh",
     display_wide: false,
+    display_seasonal_theme: true,
     // The real settingsDTO carries no `omitempty`, so this key is ALWAYS on the
     // wire — null once onboarding has finished, which is every installation the
     // owner reloads. Absent and null map to the same `null` in the FE mapper, so

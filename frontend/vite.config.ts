@@ -4,6 +4,7 @@ import react from "@vitejs/plugin-react";
 import { build as esbuild } from "esbuild";
 import { fileURLToPath } from "node:url";
 import { localTestWorkers } from "./local-test-workers";
+import { NO_SEASONAL_SCHEDULE_ALIAS } from "./seasonal-test-alias";
 
 // [T-1500] Inline the pre-React theme applier into index.html.
 // It is bundled FROM src/paint/prePaint.ts — i.e. it imports the real
@@ -67,6 +68,7 @@ export default defineConfig(({ mode }) => ({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
+    alias: [NO_SEASONAL_SCHEDULE_ALIAS],
     ...testWorkerOptions(mode),
     // T-187c: the Playwright Component-Testing visual guards live in
     // visual-guards/*.ct.spec.tsx and run in a REAL browser (see

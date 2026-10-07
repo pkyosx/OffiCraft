@@ -30,6 +30,7 @@
 // `custom_themes`. Nothing was dropped; only where each fact is read moved.
 
 import { expect, test } from "@playwright/test";
+import { LS_SEASONAL_PAINT } from "../src/lib/themePaint";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
@@ -45,17 +46,25 @@ import {
   badFrames,
   captureSettingsResponses,
   captureThemeBundleResponses,
+  captureSeasonalChunkRequests,
   captureThemeListResponses,
   collect,
   collectPageErrors,
   frameCarrying,
+  frameCarryingBeforeMount,
   installFrameSampler,
+  pinClock,
+  pinClockOutsideSeasonalWindows,
   readStoredPaint,
   seedSession,
   stubURL,
   summarize,
   type NetProfile,
 } from "./frameProbe";
+import { SEASONAL_SCHEDULE } from "../src/lib/seasonalSchedule";
+import type { ThemeBundle } from "../src/lib/themeBundleCore";
+
+test.beforeEach(({ page }) => pinClockOutsideSeasonalWindows(page));
 
 const TOKEN = "paint-guard-owner-token";
 /** The seeded cache is byte-identical to the server's copy EXCEPT the name, so
@@ -64,6 +73,19 @@ const STALE_NAME = "STALE-CACHE-NAME";
 const STALE_RECORD = paintRecordJSON({ ...VALID_RICH_BUNDLE, name: STALE_NAME });
 
 const OK_SERVER = stubURL("PAINT_GUARD_OK_URL");
+
+const SEASON = SEASONAL_SCHEDULE[0];
+const SEASONAL_BUNDLE = JSON.parse(
+  readFileSync(fileURLToPath(new URL(`../../themes/${SEASON.theme}`, import.meta.url)), "utf8")
+) as ThemeBundle;
+const SEASONAL_RECORD = paintRecordJSON(SEASONAL_BUNDLE);
+
+function hexToRGB(hex: string): string {
+  const m = /^#([0-9a-fA-F]{6})$/.exec(hex);
+  if (!m) throw new Error(`setup error: ${SEASON.theme} --color-bg is not #rrggbb: ${hex}`);
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16));
+  return `rgb(${r}, ${g}, ${b})`;
+}
 const UNKNOWN_SERVER = stubURL("PAINT_GUARD_UNKNOWN_URL");
 
 for (const profile of ["fourg", "loopback"] as NetProfile[]) {
@@ -74,12 +96,14 @@ for (const profile of ["fourg", "loopback"] as NetProfile[]) {
     const settingsBodies = captureSettingsResponses(page);
     const themeListBodies = captureThemeListResponses(page);
     const themeBundleBodies = captureThemeBundleResponses(page);
+    const seasonalChunks = captureSeasonalChunkRequests(page);
 
     await page.goto(OK_SERVER);
     await seedSession(page, {
       token: TOKEN,
       themeId: PAINT_THEME_ID,
       paintRecord: STALE_RECORD,
+      seasonalPaintRecord: SEASONAL_RECORD,
     });
 
     await installFrameSampler(page);
@@ -144,6 +168,13 @@ for (const profile of ["fourg", "loopback"] as NetProfile[]) {
     ).toBe(true);
     expect(pageErrors, "uncaught page errors").toEqual([]);
     expect(prototypePolluted).toBe(false);
+
+    // ---- outside every seasonal window: no seasonal chunk, no seasonal picture ----
+    expect(seasonalChunks, "a seasonal theme chunk was fetched outside its window").toEqual([]);
+    expect(
+      await page.evaluate((k) => localStorage.getItem(k), LS_SEASONAL_PAINT),
+      "the seasonal picture outlived its window"
+    ).toBeNull();
 
     // ---- the contract ----
     const bad = badFrames(samples, CACHED_BG_RGB);
@@ -269,5 +300,70 @@ for (const profile of ["fourg", "loopback"] as NetProfile[]) {
       `${bad.length}/${samples.length} frames were not office-light's background; first at ` +
         `${bad[0]?.t}ms bg=${bad[0]?.bg}\n${summarize(samples)}`
     ).toBe(0);
+  });
+}
+
+for (const profile of ["fourg", "loopback"] as NetProfile[]) {
+  test(`inside a seasonal window: no frame is anything but the cached seasonal colour — authenticated (${profile})`, async ({
+    page,
+  }) => {
+    const pageErrors = collectPageErrors(page);
+    const settingsBodies = captureSettingsResponses(page);
+    const seasonalChunks = captureSeasonalChunkRequests(page);
+    const seasonalBg = SEASONAL_BUNDLE.colors["--color-bg"];
+    const expectedBg = hexToRGB(seasonalBg);
+
+    await pinClock(page, SEASON.start);
+    await page.goto(OK_SERVER);
+    await seedSession(page, {
+      token: TOKEN,
+      themeId: PAINT_THEME_ID,
+      paintRecord: STALE_RECORD,
+      seasonalPaintRecord: SEASONAL_RECORD,
+    });
+
+    await installFrameSampler(page);
+    await applyNetProfile(page, profile);
+    await page.reload({ waitUntil: "load" });
+    await page.waitForTimeout(3000);
+
+    const { samples } = await collect(page);
+    const storedPaint = await readStoredPaint(page);
+
+    expect(settingsBodies.length, "GET /api/settings never answered 200").toBeGreaterThan(0);
+    const settings = (await settingsBodies[0]) as {
+      display_theme?: string;
+      display_seasonal_theme?: boolean;
+    } | null;
+    expect(settings?.display_seasonal_theme, "server did not leave the seasonal theme on").toBe(true);
+    expect(settings?.display_theme).toBe(PAINT_THEME_ID);
+
+    expect(samples.length).toBeGreaterThanOrEqual(MIN_SAMPLES);
+    expect(samples.some((f) => f.mounted), "React never mounted").toBe(true);
+    expect(pageErrors, "uncaught page errors").toEqual([]);
+
+    expect(
+      seasonalChunks.filter((u) => u.includes(SEASON.theme.replace(/\.json$/, ""))),
+      "the seasonal theme chunk was never fetched inside its window"
+    ).not.toEqual([]);
+    // Unthrottled, React mounts before the first sampled frame, so only the
+    // throttled run has pre-mount frames to attribute to the pre-paint.
+    const painted = profile === "fourg" ? frameCarryingBeforeMount : frameCarrying;
+    expect(
+      painted(samples, `--color-bg: ${seasonalBg}`),
+      `the cached seasonal record was never painted\n${summarize(samples)}`
+    ).toBeTruthy();
+    const bad = badFrames(samples, expectedBg);
+    expect(
+      bad.length,
+      `${bad.length}/${samples.length} frames were not the seasonal colour; first at ` +
+        `${bad[0]?.t}ms bg=${bad[0]?.bg}\n${summarize(samples)}`
+    ).toBe(0);
+
+    // The selected theme's own cached picture is kept, refreshed by the reconcile.
+    expect(storedPaint, "the selected theme's picture was dropped during the window").not.toBeNull();
+    expect((JSON.parse(storedPaint as string) as { bundle: { name: string } }).bundle.name).toBe(
+      VALID_RICH_BUNDLE.name
+    );
   });
 }

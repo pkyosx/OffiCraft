@@ -564,6 +564,7 @@ DB 三個 key（`suggested_replies.reply_card` / `suggested_replies.task_message
 - **主題（Theme）** 選擇（管理在 設定 › 主題，這裡只有一句指路）
 - **語言（Language）** 切換（中文 / English）
 - **版面（Layout）**：窄版 / 寬版
+- **顯示應景主題（Show seasonal theme）**：開 / 關（預設開；server `display_seasonal_theme`）
 
 ⚠️ **上一版這裡只寫了主題與語言兩項**，那是 M1；版面、通知信箱、密碼、兩步驟驗證都是後來長出來的。
 

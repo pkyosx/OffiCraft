@@ -2279,6 +2279,7 @@ const DEFAULT_MOCK_SETTINGS = {
   // Layout width (T-756f) — OFF out of the box, mirroring the server (the
   // cockpit ships with the narrow centred column).
   display_wide: false,
+  display_seasonal_theme: true,
   // The first-run onboarding report (T-ba62). Null in the mock and staying
   // that way: mock mode is a healthy studio, and a seeded FAILED report would
   // hang the "your studio is broken" banner over every mock page. Declared
@@ -6619,6 +6620,9 @@ const mockApiImpl = {
     // omitted field never changes it (PATCH semantics, server parity).
     if (patch.displayWide !== undefined) {
       mockServerSettings.display_wide = patch.displayWide;
+    }
+    if (patch.displaySeasonalTheme !== undefined) {
+      mockServerSettings.display_seasonal_theme = patch.displaySeasonalTheme;
     }
     // onboarding_dismissed (T-0648) — server parity: the stamp lives ON the
     // report row, and only a `failed` report has a banner up to close. Every

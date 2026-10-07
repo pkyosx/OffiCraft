@@ -19,7 +19,8 @@ import type { Page, Response } from "@playwright/test";
 // key rename — it would just be seeding a key nothing reads, and asserting that
 // the theme it never seeded did not appear.
 import { TOKEN_KEY } from "../src/api/auth";
-import { LS_THEME, LS_THEME_PAINT } from "../src/lib/themePaint";
+import { LS_SEASONAL_PAINT, LS_THEME, LS_THEME_PAINT } from "../src/lib/themePaint";
+import { SEASONAL_SCHEDULE, activeSeasonalWindow } from "../src/lib/seasonalSchedule";
 
 /** Any frame count below this means the sampler did not actually run per frame
  * (measured: a healthy 3 s window yields 200-260 samples; a single late read
@@ -103,17 +104,80 @@ export async function installFrameSampler(page: Page): Promise<void> {
  * measurement needs one. */
 export async function seedSession(
   page: Page,
-  opts: { token: string | null; themeId: string; paintRecord: string | null }
+  opts: {
+    token: string | null;
+    themeId: string;
+    paintRecord: string | null;
+    seasonalPaintRecord?: string;
+  }
 ): Promise<void> {
   await page.evaluate(
-    ([tokenKey, themeKey, paintKey, token, themeId, record]) => {
+    ([tokenKey, themeKey, paintKey, seasonalPaintKey, token, themeId, record, seasonalRecord]) => {
       localStorage.clear();
       if (token !== null) localStorage.setItem(tokenKey as string, token as string);
       localStorage.setItem(themeKey as string, themeId as string);
       if (record !== null) localStorage.setItem(paintKey as string, record as string);
+      if (seasonalRecord !== null) {
+        localStorage.setItem(seasonalPaintKey as string, seasonalRecord as string);
+      }
     },
-    [TOKEN_KEY, LS_THEME, LS_THEME_PAINT, opts.token, opts.themeId, opts.paintRecord] as const
+    [
+      TOKEN_KEY,
+      LS_THEME,
+      LS_THEME_PAINT,
+      LS_SEASONAL_PAINT,
+      opts.token,
+      opts.themeId,
+      opts.paintRecord,
+      opts.seasonalPaintRecord ?? null,
+    ] as const
   );
+}
+
+/** A moment inside no shipped seasonal window. The build under test carries the
+ * real schedule and the browser runs on the real clock, so without a pinned
+ * clock every guard here would measure a different theme during a window. */
+export const OUTSIDE_SEASONAL_WINDOWS = new Date(2026, 8, 1, 12, 0);
+
+/** Fix `new Date()` and `Date.now()` in the page, from document start on.
+ *
+ * ⚠️ Not page.clock: any Playwright clock mode also fakes requestAnimationFrame,
+ * and the sampler then records frames the browser never painted (measured: 62
+ * "unstyled" samples before the render-blocking stylesheet, on a build that
+ * shows none). Only Date may move here. */
+export async function pinClock(page: Page, at: Date): Promise<void> {
+  await page.addInitScript((t: number) => {
+    const RealDate = Date;
+    class PinnedDate extends RealDate {
+      constructor(...args: ConstructorParameters<DateConstructor> | []) {
+        if (args.length === 0) super(t);
+        else super(...(args as ConstructorParameters<DateConstructor>));
+      }
+      static now(): number {
+        return t;
+      }
+    }
+    globalThis.Date = PinnedDate as DateConstructor;
+  }, at.getTime());
+}
+
+export async function pinClockOutsideSeasonalWindows(page: Page): Promise<void> {
+  const open = activeSeasonalWindow(OUTSIDE_SEASONAL_WINDOWS, SEASONAL_SCHEDULE);
+  if (open) {
+    throw new Error(
+      `setup error: OUTSIDE_SEASONAL_WINDOWS falls inside the shipped "${open.id}" window — move it`
+    );
+  }
+  await pinClock(page, OUTSIDE_SEASONAL_WINDOWS);
+}
+
+/** Every request for a seasonal theme chunk (built from themes/*.theme.json). */
+export function captureSeasonalChunkRequests(page: Page): string[] {
+  const urls: string[] = [];
+  page.on("request", (req) => {
+    if (/\/assets\/[^/]+\.theme-[^/]+\.js$/.test(new URL(req.url()).pathname)) urls.push(req.url());
+  });
+  return urls;
 }
 
 /** Read the stored paint record via the module's own key. */

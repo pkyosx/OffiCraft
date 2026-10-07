@@ -56,12 +56,15 @@ import {
   collect,
   collectPageErrors,
   installFrameSampler,
+  pinClockOutsideSeasonalWindows,
   readStoredPaint,
   seedSession,
   summarize,
   type FrameSample,
   type NetProfile,
 } from "./frameProbe";
+
+test.beforeEach(({ page }) => pinClockOutsideSeasonalWindows(page));
 
 const DEV_URL = process.env.PAINT_DEV_URL ?? "http://localhost:4320";
 const TOKEN = "paint-guard-owner-token";
@@ -104,6 +107,7 @@ function settingsDTO() {
     display_theme: PAINT_THEME_ID,
     display_language: "zh",
     display_wide: false,
+    display_seasonal_theme: true,
     onboarding: null,
   };
 }

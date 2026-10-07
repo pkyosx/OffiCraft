@@ -76,9 +76,10 @@ describe("mock settings — display prefs (display_theme / display_language)", (
     ).rejects.toBeInstanceOf(ApiError);
   });
 
-  it("defaults display_wide to false (the shipped narrow column)", async () => {
+  it("defaults display_wide to false (the shipped narrow column) and display_seasonal_theme to true", async () => {
     const s = await mockApi.getServerSettings();
     expect(s.displayWide).toBe(false);
+    expect(s.displaySeasonalTheme).toBe(true);
   });
 
   it("PATCHes display_wide both ways and reads it back durably", async () => {
@@ -91,9 +92,20 @@ describe("mock settings — display prefs (display_theme / display_language)", (
     expect((await mockApi.getServerSettings()).displayWide).toBe(false);
   });
 
-  it("leaves display_wide alone when the patch omits it (PATCH semantics)", async () => {
-    await mockApi.patchServerSettings({ displayWide: true });
+  it("PATCHes display_seasonal_theme both ways and reads it back durably", async () => {
+    let s = await mockApi.patchServerSettings({ displaySeasonalTheme: false });
+    expect(s.displaySeasonalTheme).toBe(false);
+    expect((await mockApi.getServerSettings()).displaySeasonalTheme).toBe(false);
+
+    s = await mockApi.patchServerSettings({ displaySeasonalTheme: true });
+    expect(s.displaySeasonalTheme).toBe(true);
+    expect((await mockApi.getServerSettings()).displaySeasonalTheme).toBe(true);
+  });
+
+  it("leaves display_wide and display_seasonal_theme alone when the patch omits them (PATCH semantics)", async () => {
+    await mockApi.patchServerSettings({ displayWide: true, displaySeasonalTheme: false });
     const s = await mockApi.patchServerSettings({ displayLanguage: "en" });
     expect(s.displayWide).toBe(true);
+    expect(s.displaySeasonalTheme).toBe(false);
   });
 });

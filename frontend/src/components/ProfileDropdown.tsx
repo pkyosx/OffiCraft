@@ -70,6 +70,8 @@ export function ProfileDropdown({
     setLanguage,
     wide,
     setWide,
+    seasonalTheme,
+    setSeasonalTheme,
     resetPreferences, msg } = useI18n();
 
   const [view, setView] = useState<View>("main");
@@ -571,6 +573,30 @@ export function ProfileDropdown({
                 onClick={() => setWide(true)}
               >
                 {t.profile.layoutWide}
+              </button>
+            </div>
+          </div>
+
+          <div className="profile-dd__section">
+            <div className="profile-dd__section-label">{t.profile.seasonalTheme}</div>
+            <div className="profile-dd__seg">
+              <button
+                type="button"
+                className={`profile-dd__seg-btn${
+                  seasonalTheme ? " profile-dd__seg-btn--active" : ""
+                }`}
+                onClick={() => setSeasonalTheme(true)}
+              >
+                {t.profile.seasonalThemeOn}
+              </button>
+              <button
+                type="button"
+                className={`profile-dd__seg-btn${
+                  !seasonalTheme ? " profile-dd__seg-btn--active" : ""
+                }`}
+                onClick={() => setSeasonalTheme(false)}
+              >
+                {t.profile.seasonalThemeOff}
               </button>
             </div>
           </div>

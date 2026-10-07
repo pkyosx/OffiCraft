@@ -5,7 +5,7 @@
 // data-theme> reconcile wiring; the geometry-free bits a real browser is not
 // needed for (the visual pre-auth guard lives in the Playwright CT suite).
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, waitFor, act } from "@testing-library/react";
 import { I18nProvider, useI18n } from "./index";
 import { zh } from "./locales/zh";
@@ -13,6 +13,10 @@ import { readDictMessage } from "./wording";
 import { mockApi, __resetMock } from "../api/mock";
 import { api } from "../api";
 import { setToken, TOKEN_KEY } from "../api/auth";
+import type { LoadableSeasonalWindow } from "../lib/seasonalTheme";
+
+const seasonalWindows = vi.hoisted(() => [] as LoadableSeasonalWindow[]);
+vi.mock("../lib/seasonalTheme", () => ({ SEASONAL_WINDOWS: seasonalWindows }));
 
 function Probe() {
   const { theme, language } = useI18n();
@@ -691,5 +695,191 @@ describe("I18nProvider · the switch window", () => {
     await waitFor(() => expect(ctx.activeThemeBundle?.id).toBe("plain"));
     expect(ctx.activeAvatars).toBeUndefined();
     spy.mockRestore();
+  });
+});
+
+describe("I18nProvider seasonal theme", () => {
+  const root = document.documentElement;
+  const HARVEST_START = new Date(2030, 9, 24, 0, 0);
+  const HARVEST_END = new Date(2030, 10, 1, 0, 0);
+  const HARVEST = {
+    id: "harvest",
+    name: "Harvest",
+    colors: { "--color-bg": "#15101f", "--color-accent": "#ff8c2b" },
+    avatars: { staff: PNG },
+    logo: PNG,
+    navIcons: { office: PNG },
+    wording: { zh: { "nav.office": "鬼屋辦公室" }, en: { "nav.office": "Haunted Office" } },
+  };
+  let load: ReturnType<typeof vi.fn>;
+
+  function at(date: Date) {
+    vi.useFakeTimers({
+      shouldAdvanceTime: true,
+      toFake: ["Date", "setTimeout", "clearTimeout"],
+    });
+    vi.setSystemTime(date);
+  }
+
+  async function mount() {
+    await act(async () => {
+      render(
+        <I18nProvider>
+          <Capture />
+        </I18nProvider>
+      );
+    });
+  }
+
+  beforeEach(() => {
+    __resetMock();
+    localStorage.clear();
+    root.removeAttribute("style");
+    delete root.dataset.theme;
+    localStorage.setItem("oc.theme", "office-light");
+    load = vi.fn(() => Promise.resolve(HARVEST));
+    seasonalWindows.push({ id: "harvest", start: HARVEST_START, end: HARVEST_END, load });
+  });
+  afterEach(() => {
+    seasonalWindows.length = 0;
+    vi.useRealTimers();
+  });
+
+  it("before the window opens, shows the selected theme and never loads the seasonal theme file", async () => {
+    at(new Date(2030, 9, 23, 12, 0));
+    await mount();
+
+    expect(load).not.toHaveBeenCalled();
+    expect(ctx.theme).toBe("office-light");
+    expect(root.dataset.theme).toBe("office-light");
+    expect(ctx.t.nav.office).toBe(zh.nav.office);
+    expect(ctx.activeLogo).toBeUndefined();
+    expect(localStorage.getItem("oc.seasonalPaint")).toBeNull();
+  });
+
+  it("inside the window, shows the seasonal theme whole while the selected theme stays what it was", async () => {
+    at(new Date(2030, 9, 28, 12, 0));
+    await mount();
+
+    await waitFor(() => expect(ctx.t.nav.office).toBe("鬼屋辦公室"));
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(root.dataset.theme).toBe("office");
+    expect(root.style.getPropertyValue("--color-bg")).toBe("#15101f");
+    expect(root.style.getPropertyValue("--color-accent")).toBe("#ff8c2b");
+    expect(ctx.activeAvatars).toEqual({ staff: PNG });
+    expect(ctx.activeLogo).toBe(PNG);
+    expect(ctx.activeNavIcons).toEqual({ office: PNG });
+    expect(ctx.theme).toBe("office-light");
+    expect(localStorage.getItem("oc.theme")).toBe("office-light");
+    expect(JSON.parse(localStorage.getItem("oc.seasonalPaint") ?? "null")).toEqual({
+      v: 1,
+      bundle: {
+        id: "harvest",
+        name: "Harvest",
+        colors: { "--color-bg": "#15101f", "--color-accent": "#ff8c2b" },
+      },
+    });
+  });
+
+  it("inside the window, never lists the seasonal theme among the owner's themes", async () => {
+    localStorage.setItem(TOKEN_KEY, "live-owner-token");
+    await mockApi.putTheme(SUNRISE);
+    at(new Date(2030, 9, 28, 12, 0));
+    await mount();
+
+    await waitFor(() => expect(ctx.t.nav.office).toBe("鬼屋辦公室"));
+    await waitFor(() => expect(ctx.themeList).toEqual([{ id: "sunrise", name: "Sunrise" }]));
+  });
+
+  it("switches to the seasonal theme by itself when the window opens on an open page", async () => {
+    at(new Date(HARVEST_START.getTime() - 1000));
+    await mount();
+    expect(ctx.t.nav.office).toBe(zh.nav.office);
+    expect(load).not.toHaveBeenCalled();
+
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    await waitFor(() => expect(ctx.t.nav.office).toBe("鬼屋辦公室"));
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(root.style.getPropertyValue("--color-bg")).toBe("#15101f");
+  });
+
+  it("switches back to the selected theme by itself when the window ends, and drops the seasonal picture", async () => {
+    at(new Date(HARVEST_END.getTime() - 1000));
+    await mount();
+    await waitFor(() => expect(ctx.t.nav.office).toBe("鬼屋辦公室"));
+
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    expect(ctx.t.nav.office).toBe(zh.nav.office);
+    expect(root.dataset.theme).toBe("office-light");
+    expect(root.style.getPropertyValue("--color-bg")).toBe("");
+    expect(ctx.activeLogo).toBeUndefined();
+    expect(localStorage.getItem("oc.seasonalPaint")).toBeNull();
+  });
+
+  it("inside the window, turning it off shows the selected theme and saves the choice; turning it on brings it back", async () => {
+    localStorage.setItem(TOKEN_KEY, "live-owner-token");
+    at(new Date(2030, 9, 28, 12, 0));
+    await mount();
+    await waitFor(() => expect(ctx.t.nav.office).toBe("鬼屋辦公室"));
+    const patch = vi.spyOn(api, "patchServerSettings");
+
+    act(() => ctx.setSeasonalTheme(false));
+
+    expect(ctx.seasonalTheme).toBe(false);
+    expect(ctx.t.nav.office).toBe(zh.nav.office);
+    expect(root.dataset.theme).toBe("office-light");
+    expect(root.style.getPropertyValue("--color-bg")).toBe("");
+    expect(localStorage.getItem("oc.seasonalTheme")).toBe("false");
+    expect(patch).toHaveBeenCalledWith({ displaySeasonalTheme: false });
+    await waitFor(async () =>
+      expect((await mockApi.getServerSettings()).displaySeasonalTheme).toBe(false)
+    );
+
+    act(() => ctx.setSeasonalTheme(true));
+
+    await waitFor(() => expect(ctx.t.nav.office).toBe("鬼屋辦公室"));
+    expect(root.style.getPropertyValue("--color-bg")).toBe("#15101f");
+    expect(localStorage.getItem("oc.seasonalTheme")).toBe("true");
+    expect(patch).toHaveBeenLastCalledWith({ displaySeasonalTheme: true });
+    patch.mockRestore();
+  });
+
+  it("inside the window with the choice cached off, never loads the seasonal theme file", async () => {
+    localStorage.setItem("oc.seasonalTheme", "false");
+    at(new Date(2030, 9, 28, 12, 0));
+    await mount();
+
+    expect(ctx.seasonalTheme).toBe(false);
+    expect(load).not.toHaveBeenCalled();
+    expect(root.dataset.theme).toBe("office-light");
+  });
+
+  it("adopts the server's off at login over a cached on, writing it back to the cache", async () => {
+    await mockApi.patchServerSettings({ displaySeasonalTheme: false });
+    localStorage.setItem("oc.seasonalTheme", "true");
+    localStorage.setItem(TOKEN_KEY, "live-owner-token");
+    at(new Date(2030, 9, 23, 12, 0));
+    await mount();
+
+    await waitFor(() => expect(ctx.seasonalTheme).toBe(false));
+    expect(localStorage.getItem("oc.seasonalTheme")).toBe("false");
+  });
+
+  it("resetPreferences turns the seasonal theme back on (the shipped default)", async () => {
+    localStorage.setItem("oc.seasonalTheme", "false");
+    at(new Date(2030, 9, 23, 12, 0));
+    await mount();
+    expect(ctx.seasonalTheme).toBe(false);
+
+    act(() => ctx.resetPreferences());
+
+    expect(ctx.seasonalTheme).toBe(true);
+    expect(localStorage.getItem("oc.seasonalTheme")).toBe("true");
   });
 });

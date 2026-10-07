@@ -6,6 +6,8 @@ paths:
   - "scripts/**"
   - "src/lib/theme*"
   - "src/lib/paint*"
+  - "src/lib/seasonal*"
+  - "seasonal-test-alias.ts"
   - "src/lib/imageCap*"
   - "src/components/ThemeSettings*"
   - "src/components/theme-settings.css"
@@ -66,3 +68,11 @@ pre-React 上色的三道守衛分工固定：記錄驗證、build artifact 形�
 stub server 的埠不可寫死：playwright-paint.config.ts 用 allocateFreePorts() 向 OS 要沒人用的埠，spec 端一律由 PAINT_GUARD_OK_URL／PAINT_GUARD_UNKNOWN_URL 讀回來，沒有預設值——預設值就是釘死的埠，兩份工作副本同時跑就會搶同一個。settingsStub.mjs 的 listen 失敗一定要自己講出失敗原因（埠被佔用就說埠被佔用、說它自己沒壞），否則 runner 只會印「web server 起不來」，跟 stub 本身壞掉長得一模一樣。
 
 注入案例要用 server 不認得任何主題的 stub，否則合法的 server theme 會偽裝成 pre-paint 洩漏。paint 記錄只在真的拿到 bundle 之後才寫；拿不到就不動它——用空值覆蓋等於自己清掉快取的畫面，下一次 pre-auth 載入就會閃。pre-paint 與 i18n 只能透過 api/auth 的 TOKEN_KEY 與 themePaint 的 LS_THEME、LS_THEME_PAINT 取儲存鍵，不可在 source 或探針硬寫 key。
+
+## 應景主題
+
+應景主題的檔案與時段是資料，放在 repo 根目錄 `themes/`（`seasonal-schedule.json` 與它指名的 `*.theme.json`）；TS 不寫日期或 id。時段以觀看者當地時間計，起點含、終點不含。畫面上的主題 = 時段內且 `display_seasonal_theme` 為 true 時是應景主題，否則是 display_theme；display_theme 從不被改寫，應景主題不進主題清單，server 也不接受它當 display_theme。邊界由排到下一個邊界的 timer 切換，不輪詢。
+
+`lib/seasonalSchedule.ts` 會被 pre-paint 的 esbuild 單獨打包，不可放 `import.meta.glob` 或其他 Vite 專屬語法（esbuild 不認得，pre-paint 會整段失效而被 try/catch 吞掉）；theme 檔只經 `lib/seasonalTheme.ts` 的 lazy glob 載入，時段外不會被抓。應景主題有自己的 paint 記錄（`LS_SEASONAL_PAINT`），不寫進 `LS_THEME_PAINT`，所以時段結束時選定主題的快取還在；時段內 pre-paint 只畫應景記錄或什麼都不畫，時段外記錄被清掉。
+
+測試不可跟著真實日期變：vitest 與 CT 用 `seasonal-test-alias.ts` 把 schedule 換成空的，應景行為用明確的時段測；paint guard 跑的是帶真實 schedule 的 build，所以每支 spec 都先釘住 Date（`frameProbe.pinClock`）。不要改用 `page.clock`：它連 requestAnimationFrame 一起假造，取樣器會記到瀏覽器從沒畫出來的幀。

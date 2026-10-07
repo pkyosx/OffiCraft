@@ -1376,6 +1376,8 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     // emits it). Absent maps to false, which is exactly the honest reading: an
     // older server has no wide layout, so the cockpit stays narrow.
     displayWide: w.display_wide ?? false,
+    // An older server has no seasonal-theme setting; true is its shipped default.
+    displaySeasonalTheme: w.display_seasonal_theme ?? true,
     // The first-run onboarding report (T-ba62). Absent/null is the NORMAL
     // state (onboarding never ran on this database) and maps to null — the
     // mapper never manufactures a report, so "no report" can never be
