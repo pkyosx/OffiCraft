@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -22,6 +23,7 @@ type inboxSocket struct {
 	path string
 	mu   sync.Mutex
 	got  []string
+	held int
 }
 
 // A short directory under /tmp: macOS refuses unix socket paths past ~104 bytes.
@@ -62,6 +64,9 @@ func newInboxSocket(t *testing.T, holding bool) *inboxSocket {
 			}
 			if holding {
 				held = append(held, conn)
+				s.mu.Lock()
+				s.held++
+				s.mu.Unlock()
 				continue
 			}
 			raw, _ := io.ReadAll(conn)
@@ -73,6 +78,12 @@ func newInboxSocket(t *testing.T, holding bool) *inboxSocket {
 		}
 	}()
 	return s
+}
+
+func (s *inboxSocket) heldCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.held
 }
 
 func (s *inboxSocket) written() []string {
@@ -145,6 +156,24 @@ func sessionWrites(t *testing.T, contents ...string) []string {
 		out = append(out, sessionWrite(t, c))
 	}
 	return out
+}
+
+// sessionInput joins the message contents of every write, in order.
+func sessionInput(t *testing.T, writes []string) string {
+	t.Helper()
+	var contents []string
+	for _, wr := range writes {
+		for _, line := range strings.Split(strings.TrimSuffix(wr, "\n"), "\n") {
+			var m messagingUser
+			if err := json.Unmarshal([]byte(line), &m); err != nil {
+				t.Fatalf("write line %q: %v", line, err)
+			}
+			if m.Type == "user" {
+				contents = append(contents, m.Message.Content)
+			}
+		}
+	}
+	return strings.Join(contents, "\n")
 }
 
 func chatEvent(t *testing.T, id, body string) string {

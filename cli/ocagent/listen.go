@@ -609,8 +609,8 @@ type ackGate struct {
 	// not be out: every line there is delivered, so the notice would itself be
 	// written into the member once per unanswered batch.
 	timeoutNotice io.Writer
-	// Set by every confirm that returns false; only the socket route reads and
-	// clears it (listener.redrainUndelivered).
+	// Set by every confirm that returns false; only the socket route reads,
+	// clears and re-sets it (listener.redrainUndelivered).
 	nacked bool
 }
 
@@ -1081,7 +1081,7 @@ func (s *replyCardSeen) persist() {
 // server's 24h views (older outcomes: get_reply_card); rebuilding seen from them
 // prunes cards past that window. The first run (no state) prints nothing:
 // flooding a fresh session with stale history is worse than the lost window.
-func drainReplyCards(client httpClient, cfg Config, seen *replyCardSeen, gate *ackGate, out io.Writer) int {
+func drainReplyCards(client httpClient, cfg Config, seen *replyCardSeen, gate *ackGate, out io.Writer) (n int, fetched bool) {
 	panes := []struct {
 		status string
 		tsKey  string
@@ -1094,11 +1094,11 @@ func drainReplyCards(client httpClient, cfg Config, seen *replyCardSeen, gate *a
 	for i, p := range panes {
 		status, body := getJSON(client, cfg, "/api/reply-cards?status="+p.status, true)
 		if status != 200 {
-			return 0
+			return 0, false
 		}
 		list, ok := body.([]any)
 		if !ok {
-			return 0
+			return 0, false
 		}
 		lists[i] = list
 	}
@@ -1106,7 +1106,6 @@ func drainReplyCards(client httpClient, cfg Config, seen *replyCardSeen, gate *a
 	silent := !seen.primed
 	fresh := map[string]float64{}
 	var printed []string
-	n := 0
 	for i, p := range panes {
 		list := lists[i]
 		for j := len(list) - 1; j >= 0; j-- { // the server lists newest-first
@@ -1138,7 +1137,7 @@ func drainReplyCards(client httpClient, cfg Config, seen *replyCardSeen, gate *a
 	}
 	seen.m = fresh
 	seen.persist()
-	return n
+	return n, true
 }
 
 // strOrEmpty keeps Python's str(x or "") semantics — 0 and false become "" —

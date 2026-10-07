@@ -140,6 +140,7 @@ type deliveryQueue struct {
 	mu      sync.Mutex
 	pending bytes.Buffer
 	queued  []deliveryItem
+	inHand  int // items the pump has taken but not yet attempted
 	filter  bootConnectFilter
 
 	wake chan struct{}
@@ -231,6 +232,7 @@ func (q *deliveryQueue) drain(payload func(string), batch func(string)) {
 		q.mu.Lock()
 		items := q.queued
 		q.queued = nil
+		q.inHand = len(items)
 		q.mu.Unlock()
 		if len(items) == 0 {
 			return
@@ -240,6 +242,7 @@ func (q *deliveryQueue) drain(payload func(string), batch func(string)) {
 			for _, p := range packDeliveries(lines) {
 				payload(p)
 			}
+			q.settle(len(lines))
 			lines = nil
 		}
 		for _, item := range items {
@@ -248,10 +251,25 @@ func (q *deliveryQueue) drain(payload func(string), batch func(string)) {
 				continue
 			}
 			flush()
+			q.settle(1)
 			batch(item.batch)
 		}
 		flush()
 	}
+}
+
+func (q *deliveryQueue) settle(n int) {
+	q.mu.Lock()
+	q.inHand -= n
+	q.mu.Unlock()
+}
+
+// idle: every line written so far has been attempted, so a batch answer
+// already given covers all of it.
+func (q *deliveryQueue) idle() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.queued) == 0 && q.inHand == 0
 }
 
 func (q *deliveryQueue) note(format string, args ...any) {

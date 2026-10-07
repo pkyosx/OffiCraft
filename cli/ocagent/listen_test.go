@@ -1657,7 +1657,7 @@ func TestDrainReplyCards(t *testing.T) {
 		seen := loadReplyCardSeen(path)
 		var out bytes.Buffer
 
-		if n := drainReplyCards(client, cfg, seen, nil, &out); n != 0 {
+		if n, _ := drainReplyCards(client, cfg, seen, nil, &out); n != 0 {
 			t.Errorf("printed %d lines, want 0 on a brand-new agent home", n)
 		}
 		if out.String() != "" {
@@ -1683,7 +1683,7 @@ func TestDrainReplyCards(t *testing.T) {
 		seen := loadReplyCardSeen(path)
 		var out bytes.Buffer
 
-		if n := drainReplyCards(client, cfg, seen, nil, &out); n != 3 {
+		if n, _ := drainReplyCards(client, cfg, seen, nil, &out); n != 3 {
 			t.Errorf("printed %d lines, want 3", n)
 		}
 		want := "[ocagent] reply-card rc-1 answered: \"舊的\" | asked: q1\n" +
@@ -1714,7 +1714,7 @@ func TestDrainReplyCards(t *testing.T) {
 		}
 		var out bytes.Buffer
 
-		if n := drainReplyCards(client, cfg, loadReplyCardSeen(path), nil, &out); n != 0 {
+		if n, _ := drainReplyCards(client, cfg, loadReplyCardSeen(path), nil, &out); n != 0 {
 			t.Errorf("printed %d lines, want 0", n)
 		}
 		if out.String() != "" {
@@ -1737,7 +1737,7 @@ func TestDrainReplyCards(t *testing.T) {
 		w := newSocketWriter(messagingEnv(filepath.Join(shortSocketDir(t), "gone.sock")), io.Discard)
 		stop := w.startPump()
 
-		n := drainReplyCards(client, cfg, loadReplyCardSeen(path), w.ackGate(), w)
+		n, _ := drainReplyCards(client, cfg, loadReplyCardSeen(path), w.ackGate(), w)
 		stop()
 
 		if n != 2 {
@@ -1761,7 +1761,7 @@ func TestDrainReplyCards(t *testing.T) {
 		}
 		var out bytes.Buffer
 
-		if n := drainReplyCards(client, cfg, loadReplyCardSeen(path), nil, &out); n != 1 {
+		if n, _ := drainReplyCards(client, cfg, loadReplyCardSeen(path), nil, &out); n != 1 {
 			t.Errorf("printed %d lines, want 1", n)
 		}
 		want := "[ocagent] reply-card rc-5 answered: \"走 A\" | asked: q5 | opened by m-2 about your task T-1\n"
@@ -1785,7 +1785,7 @@ func TestDrainReplyCards(t *testing.T) {
 		}
 		var out bytes.Buffer
 
-		if n := drainReplyCards(client, cfg, loadReplyCardSeen(path), nil, &out); n != 0 {
+		if n, _ := drainReplyCards(client, cfg, loadReplyCardSeen(path), nil, &out); n != 0 {
 			t.Errorf("printed %d lines, want 0", n)
 		}
 		if got := readFileString(t, path); got != `{}` {
@@ -1805,7 +1805,7 @@ func TestDrainReplyCards(t *testing.T) {
 		}
 		var out bytes.Buffer
 
-		if n := drainReplyCards(client, cfg, loadReplyCardSeen(path), nil, &out); n != 0 {
+		if n, _ := drainReplyCards(client, cfg, loadReplyCardSeen(path), nil, &out); n != 0 {
 			t.Errorf("printed %d lines, want 0", n)
 		}
 		if out.String() != "" {
@@ -1824,7 +1824,7 @@ func TestDrainReplyCards(t *testing.T) {
 		})
 		var out bytes.Buffer
 
-		if n := drainReplyCards(client, cfg,
+		if n, _ := drainReplyCards(client, cfg,
 			loadReplyCardSeen(filepath.Join(t.TempDir(), "replycards-seen")), nil, &out); n != 0 {
 			t.Errorf("printed %d lines, want 0", n)
 		}

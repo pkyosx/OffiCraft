@@ -1085,7 +1085,7 @@
     {
       "id": "ocagent-heartbeat-redrain-chat",
       "source": "cli/ocagent/listen_run.go",
-      "callsite": "l.drainChatNow()\n}\n\nfunc (l *listener) drainChatNow() int {",
+      "callsite": "l.drainChatNow()\n\tif !cardsFetched",
       "kind": "seam",
       "seam_reason": "hop: one of the entrances to l.drainChatNow() (T-48 centralised them). The body-bearing send below it is the read receipt, claimed by ocagent-chat-mark-read; the wire GET is claimed by ocagent-run-6. This line itself puts nothing on the wire."
     }

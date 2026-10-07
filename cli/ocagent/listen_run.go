@@ -387,14 +387,28 @@ func (l *listener) onHeartbeat() bool {
 // replay, so without it an unread chat waits for the next chat event or
 // reconnect. replyCardAck exists only on the socket route, where it is also the
 // chat gate. Runs on the read loop, so it never overlaps an event's drain.
+//
+// ⚠️ Skipped while the pump still holds unattempted payloads (a session that
+// accepts but never closes): re-queueing the unread set behind them grows the
+// backlog and blocks the read loop an ack wait per heartbeat. A card batch that
+// did not land skips the chat too, so a heartbeat waits on at most one ack.
 func (l *listener) redrainUndelivered() {
 	gate := l.replyCardAck
 	if gate == nil || !gate.nacked {
 		return
 	}
+	if sink := socketSinkOf(l.out); sink != nil && !sink.idle() {
+		return
+	}
 	gate.nacked = false
-	drainReplyCards(l.api, l.cfg, l.replySeen, gate, l.out)
+	_, cardsFetched := drainReplyCards(l.api, l.cfg, l.replySeen, gate, l.out)
+	if gate.nacked {
+		return
+	}
 	l.drainChatNow()
+	if !cardsFetched || l.drainWarn.chatFaultOpen {
+		gate.nacked = true
+	}
 }
 
 func (l *listener) drainChatNow() int {
