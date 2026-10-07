@@ -2872,6 +2872,7 @@ export interface paths {
          *     - `display_language`: The owner's cockpit language (T-0b41-p2) — trimmed; "" clears it back to unset. Must be one of zh, en (or ""); anything else is a 422.
          *     - `display_theme`: The owner's cockpit visual theme (T-0b41-p2) — trimmed; "" clears it back to unset. Must be "", a built-in theme id (office, office-light), or an existing custom theme id; anything else is a 422.
          *     - `display_wide`: Turn the WIDE cockpit layout on/off (T-756f) — true lifts the centred ~1040px content column (the side gutters stay), false restores it. A plain boolean with no unset state: omit the field to leave it unchanged.
+         *     - `display_seasonal_theme`: Turn the built-in seasonal theme on/off for the cockpit. A plain boolean with no unset state: omit the field to leave it unchanged.
          *     - `handover_pct`: The SECOND offboard point: the FINAL notice, and where the automatic handover fires. 40..90, and strictly greater than notice_pct (the pair is validated together against the POST-patch values, so either one may be sent alone).
          *     - `notice_pct`: The FIRST offboard point (T-a9d6): the SOFT notice, where the agent is asked to work the offboard sequence and then call report_stopped itself. 1..89, and strictly below handover_pct.
          *     - `codex_notice_round`: The codex SOFT-notice compaction round (T-a9d6). 1..10, and strictly below codex_compaction_threshold.
@@ -8836,6 +8837,12 @@ export interface components {
              */
             display_wide: boolean;
             /**
+             * Display Seasonal Theme
+             * @description Whether the cockpit takes the built-in seasonal theme while its window is open (a holiday theme shipped with the release, e.g. Halloween; its dates ship with it and are not configurable). true (the default) = show it; false = keep display_theme through the window. Outside every window this has no effect. Same dual-layer contract as display_wide.
+             * @default true
+             */
+            display_seasonal_theme: boolean;
+            /**
              * Doc Cap Chars Boot Sequence
              * @description The size cap on a 啟動步驟 block of the boot context, in CHARACTERS (Unicode code points). ONE knob for BOTH runtimes (claude and codex), each document measured on its own text — they are two renderings of one short checklist, so a studio that needs more room for one needs it for the other. The floor of the adjustable range is this document's shipped default (the `default` field above), the ceiling is 100000.
              * @default 15000
@@ -9076,6 +9083,11 @@ export interface components {
              * @description Turn the WIDE cockpit layout on/off (T-756f) — true lifts the centred ~1040px content column (the side gutters stay), false restores it. A plain boolean with no unset state: omit the field to leave it unchanged.
              */
             display_wide?: boolean | null;
+            /**
+             * Display Seasonal Theme
+             * @description Turn the built-in seasonal theme on/off for the cockpit. A plain boolean with no unset state: omit the field to leave it unchanged.
+             */
+            display_seasonal_theme?: boolean | null;
             /**
              * Doc Cap Chars Boot Sequence
              * @description The size cap on a 啟動步驟 block of the boot context, in CHARACTERS (Unicode code points). One knob for both runtimes, each measured on its own text. Must be at least this document's shipped default (see `SettingsDTO.doc_cap_chars_boot_sequence`, whose `default` is that floor) and at most 100000.

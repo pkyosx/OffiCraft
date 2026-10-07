@@ -346,6 +346,7 @@ func (s *apiServer) adoptSettings(auth authSettings) {
 	s.displayTheme = auth.displayTheme
 	s.displayLanguage = auth.displayLanguage
 	s.displayWide = auth.displayWide
+	s.displaySeasonalTheme = auth.displaySeasonalTheme
 	s.suggestedRepliesReplyCard = auth.suggestedRepliesReplyCard
 	s.suggestedRepliesTaskMessage = auth.suggestedRepliesTaskMessage
 	s.suggestedRepliesLoreMessage = auth.suggestedRepliesLoreMessage

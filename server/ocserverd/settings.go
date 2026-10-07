@@ -146,6 +146,8 @@ const (
 	settingDisplayLanguage = "display.language"
 
 	settingDisplayWide = "display.wide"
+
+	settingDisplaySeasonalTheme = "display.seasonal_theme"
 	// suggested_replies.*: ONE KEY PER BOX (owner ruling) — the three boxes are
 	// different conversations, and separate rows keep changing one list a single
 	// write instead of an unlocked read-modify-write over a shared blob.
@@ -267,6 +269,7 @@ type authSettings struct {
 	displayTheme                    string
 	displayLanguage                 string
 	displayWide                     bool
+	displaySeasonalTheme            bool
 
 	suggestedRepliesReplyCard   []string
 	suggestedRepliesTaskMessage []string
@@ -343,6 +346,7 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 		runtimeLoginRecheckIntervalSecs: runtimeLoginRecheckIntervalSecsDefault,
 		diskUsageIntervalSecs:           diskUsageIntervalSecsDefault,
 		updaterCheckIntervalSecs:        updaterCheckIntervalSecsDefault,
+		displaySeasonalTheme:            true,
 	}
 
 	stored, err := d.GetSetting(settingJWTSecret)
@@ -712,6 +716,9 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 		out.updaterCheckIntervalSecs = n
 	}
 	if err := getBool(settingDisplayWide, &out.displayWide); err != nil {
+		return out, err
+	}
+	if err := getBool(settingDisplaySeasonalTheme, &out.displaySeasonalTheme); err != nil {
 		return out, err
 	}
 	if v, err := d.GetSetting(settingOrgName); err != nil {

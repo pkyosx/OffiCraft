@@ -59,7 +59,7 @@ func apiDisplayTheme(t *testing.T, h http.Handler, credential string) string {
 }
 
 func TestHandleListThemesApiThemesGet(t *testing.T) {
-	t.Run("an office that has saved no theme answers an empty array", func(t *testing.T) {
+	t.Run("an office that has saved no theme answers an empty array, without the frontend's built-in seasonal theme", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		dashboard := apiTestListen(t, api, "")
 
@@ -732,6 +732,7 @@ func TestDisplayThemeExists(t *testing.T) {
 		{theme: "office-light", want: true},
 		{theme: "dusk", want: true},
 		{theme: "missing", want: false},
+		{theme: "halloween-2026", want: false},
 	} {
 		t.Run(tc.theme, func(t *testing.T) {
 			got, err := displayThemeExistsOn(api.dal.rdb, tc.theme)

@@ -119,6 +119,8 @@ type settingsDTO struct {
 	DisplayLanguage string `json:"display_language"`
 
 	DisplayWide bool `json:"display_wide"`
+
+	DisplaySeasonalTheme bool `json:"display_seasonal_theme"`
 	// 🔴 SuggestedReplies* are never null on the wire (the spec types them as
 	// array); settingsView normalizes them to [].
 	SuggestedRepliesReplyCard   []string `json:"suggested_replies_reply_card"`

@@ -125,6 +125,8 @@ type apiServer struct {
 	displayLanguage string
 
 	displayWide bool
+
+	displaySeasonalTheme bool
 	// suggestedReplies* are REPLACED wholesale on a patch, never mutated in place,
 	// so a reader holding a slice under settingsMu can keep it.
 	suggestedRepliesReplyCard   []string
@@ -530,6 +532,12 @@ func (s *apiServer) displayWideSnapshot() bool {
 	s.settingsMu.RLock()
 	defer s.settingsMu.RUnlock()
 	return s.displayWide
+}
+
+func (s *apiServer) displaySeasonalThemeSnapshot() bool {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.displaySeasonalTheme
 }
 
 func (s *apiServer) ctxHighConfig() SseContextHighConfig {
