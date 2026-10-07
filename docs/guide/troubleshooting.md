@@ -64,7 +64,7 @@ server 的標準埠是 **7755**。被別的程式占用時，安裝會**當場�
 
 Claude Code 成員的這個程序只有一種起法：warden 讓成員的 Claude Code 載入 OffiCraft 通知模組，模組先送出開機指令，再把 `ocagent listen` 當成自己的子程序起起來；這個程序把每則通知寫進成員自己 Claude Code 的訊息通道——成員正在工作時，通知插在兩次工具呼叫之間、在同一輪裡就讀到；閒著時，通知會開啟新的一輪。聊天要等通知真的寫進去才標成已讀、請示卡也才記成已看過；寫不進去就保持未讀，之後補送時再送一次。機器上不會有額外的 tmux session 替成員收通知。
 
-通知模組起不來，成員就**不會上線**，喚醒直接失敗。失敗當下，成員面板的「最近操作」寫著下面其中一個原因；等喚醒窗過了，那一行會換成較籠統的 `wake_timeout`，這時原因只留在那台機器 warden 的紀錄（`~/.officraft/warden/log/ocwarden.err.log`）裡：
+通知模組起不來，成員就**不會上線**，喚醒直接失敗。失敗當下，成員面板的「最近操作」寫著下面其中一個原因。`notify_claude_too_old` 會一直留著；`notify_mod_not_loaded` 等喚醒窗過了會換成較籠統的 `wake_timeout`，這時原因只留在那台機器 warden 的紀錄（`~/.officraft/warden/log/ocwarden.err.log`）裡：
 
 - **`notify_claude_too_old`**：那台機器的 Claude Code 比通知模組需要的最低版本舊。warden 在起任何東西之前就拒絕，訊息裡寫著讀到的版本與最低版本。到控制台 **監控 › 機器**，在那台機器 Claude 欄的版本號選單選 **升級 Claude Code**，升完再喚醒；版本太舊的機器在那一欄會標「版本太舊」。warden 紀錄裡對應的是一行 `Claude Code <版本> is older than <最低版本>; not starting`。
 - **`notify_mod_not_loaded`**：Claude Code 起來了，但模組在等待時間內沒有載入。warden 把這次起的成員收掉，喚醒失敗；訊息裡列了常見原因，診斷見下面。

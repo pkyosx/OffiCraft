@@ -257,7 +257,8 @@ machine cannot take it, for staff and outsource alike), and reconcile retries af
 telemetry or placement changes. A machine-side not-logged-in refusal is folded into
 `<code>: machine '<id>' is not logged in to <runtime>` (the id is the reporting machine,
 stamped at the server's receipt time) and is not overwritten by the wake_timeout or back-off
-of the start it refused.
+of the start it refused. A machine-side `notify_claude_too_old` refusal (Claude Code below the
+notification mod's minimum) is kept the same way, with the warden's own text.
 
 ### An UNSET runtime is resolved at placement, from that machine
 
