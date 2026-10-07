@@ -609,6 +609,9 @@ type ackGate struct {
 	// not be out: every line there is delivered, so the notice would itself be
 	// written into the member once per unanswered batch.
 	timeoutNotice io.Writer
+	// Set by every confirm that returns false; only the socket route reads and
+	// clears it (listener.redrainUndelivered).
+	nacked bool
 }
 
 // ackWaitTimeout exists because confirm blocks the listener's only thread: an
@@ -634,10 +637,15 @@ func newAckGate(env func(string) string, answers io.Reader) *ackGate {
 	return &ackGate{answers: lines, wait: ackWaitTimeout}
 }
 
-func (g *ackGate) confirm(out io.Writer) bool {
+func (g *ackGate) confirm(out io.Writer) (acked bool) {
 	if g == nil {
 		return true
 	}
+	defer func() {
+		if !acked {
+			g.nacked = true
+		}
+	}()
 	g.lastToken++
 	token := strconv.Itoa(g.lastToken)
 	fmt.Fprintf(out, "%s%s %s\n", agentLinePrefix, noticeBatch, token)
@@ -668,8 +676,9 @@ func (g *ackGate) confirm(out io.Writer) bool {
 }
 
 // drainWarner latches its lines because they lack the `listen:` head and a
-// drain reruns every ≤ 15 s: unlatched, a standing fault is a codex model turn
-// every 15 s (owner's disconnect-notice ruling, 2026-08-30).
+// drain reruns on every chat event and reconnect — and on the socket route on
+// every ~15 s heartbeat while delivery keeps failing: unlatched, a standing
+// fault is a model turn per drain (owner's disconnect-notice ruling, 2026-08-30).
 type drainWarner struct {
 	markReadWarned bool
 	chatFaultOpen  bool

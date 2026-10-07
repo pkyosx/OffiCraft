@@ -731,6 +731,30 @@ func TestAuthoritativeRefusal(t *testing.T) {
 	}
 }
 
+// steppedBody hands the scanner one step's text per Read, running the step's
+// before hook first: the scanner consumes every line of a step before the next
+// hook runs.
+type steppedBody struct {
+	steps []bodyStep
+}
+
+type bodyStep struct {
+	before func()
+	text   string
+}
+
+func (b *steppedBody) Read(p []byte) (int, error) {
+	if len(b.steps) == 0 {
+		return 0, io.EOF
+	}
+	step := b.steps[0]
+	b.steps = b.steps[1:]
+	if step.before != nil {
+		step.before()
+	}
+	return copy(p, step.text), nil
+}
+
 func TestConnectOnce(t *testing.T) {
 	const connected = "[ocagent] listen: connected — streaming http://station/api/events " +
 		"(⇒ online while held)"
@@ -1070,6 +1094,119 @@ func TestConnectOnce(t *testing.T) {
 		want := connected + "\n" +
 			"[ocagent] listen: tmux session gone (2 consecutive misses) — self-exiting so " +
 			"no orphan holds the SSE.\n"
+		if out.String() != want {
+			t.Errorf("printed %q, want %q", out.String(), want)
+		}
+	})
+
+	unreadChatAPI := func() *routedHTTP {
+		return newRoutedHTTP(map[string]string{
+			"/api/reply-cards?status=answered": `[]`,
+			"/api/reply-cards?status=expired":  `[]`,
+			"/api/chat?recipient=kyle&unread=true&limit=50": `{"messages":` +
+				`[{"id":"c1","from":"boss","to":"kyle","body":"你在嗎","ts":1787148000}]}`,
+			"/api/chat/mark-read": `{}`,
+		})
+	}
+	socketListener := func(t *testing.T, socketPath string, api httpClient, steps ...bodyStep) (*listener, *socketWriter) {
+		t.Helper()
+		w := newSocketWriter(messagingEnv(socketPath), io.Discard)
+		t.Cleanup(w.startPump())
+		tr := &stubTransport{reply: func(int, *http.Request) (*http.Response, error) {
+			resp := sseReply(200, nil, "")
+			resp.Body = io.NopCloser(&steppedBody{steps: steps})
+			return resp, nil
+		}}
+		l := newRunListener(t, runCfg(t), w, api, tr)
+		l.clock = func() time.Time { return time.Unix(1787148090, 0) }
+		l.ack = w.ackGate()
+		l.replyCardAck = l.ack
+		return l, w
+	}
+	connectDrain := []string{
+		"/api/reply-cards?status=answered",
+		"/api/reply-cards?status=expired",
+		"/api/chat?recipient=kyle&unread=true&limit=50",
+	}
+	const chatPayload = "[ocagent] chat from boss (#c1, 1m ago): 你在嗎"
+
+	t.Run("on the socket route a chat the session never got is delivered and marked read on the next heartbeat", func(t *testing.T) {
+		inbox := newInboxSocket(t, false)
+		api := unreadChatAPI()
+		var w *socketWriter
+		l, w := socketListener(t, filepath.Join(shortSocketDir(t), "gone.sock"), api,
+			bodyStep{before: func() { w.socketPath = inbox.path }, text: ": heartbeat\n\n"})
+
+		l.connectOnce(context.Background())
+
+		wantAsked := append(append([]string{}, connectDrain...), append(connectDrain, "/api/chat/mark-read")...)
+		if !reflect.DeepEqual(api.asked, wantAsked) {
+			t.Errorf("asked\n  %v\nwant\n  %v", api.asked, wantAsked)
+		}
+		if got, want := inbox.written(), sessionWrites(t, chatPayload); !reflect.DeepEqual(got, want) {
+			t.Errorf("written =\n%q\nwant\n%q", got, want)
+		}
+	})
+
+	t.Run("on the socket route a heartbeat with nothing undelivered drains nothing", func(t *testing.T) {
+		inbox := newInboxSocket(t, false)
+		api := unreadChatAPI()
+		l, _ := socketListener(t, inbox.path, api,
+			bodyStep{text: ": heartbeat\n\n"}, bodyStep{text: ": heartbeat\n\n"})
+
+		l.connectOnce(context.Background())
+
+		wantAsked := append(append([]string{}, connectDrain...), "/api/chat/mark-read")
+		if !reflect.DeepEqual(api.asked, wantAsked) {
+			t.Errorf("asked\n  %v\nwant\n  %v", api.asked, wantAsked)
+		}
+		if got, want := inbox.written(), sessionWrites(t, chatPayload); !reflect.DeepEqual(got, want) {
+			t.Errorf("written =\n%q\nwant\n%q", got, want)
+		}
+	})
+
+	t.Run("on the socket route an undelivered chat is retried on every heartbeat until it lands, then no more", func(t *testing.T) {
+		inbox := newInboxSocket(t, false)
+		api := unreadChatAPI()
+		var w *socketWriter
+		l, w := socketListener(t, filepath.Join(shortSocketDir(t), "gone.sock"), api,
+			bodyStep{text: ": heartbeat\n\n"},
+			bodyStep{before: func() { w.socketPath = inbox.path }, text: ": heartbeat\n\n"},
+			bodyStep{text: ": heartbeat\n\n"})
+
+		l.connectOnce(context.Background())
+
+		var wantAsked []string
+		wantAsked = append(wantAsked, connectDrain...)
+		wantAsked = append(wantAsked, connectDrain...)
+		wantAsked = append(wantAsked, connectDrain...)
+		wantAsked = append(wantAsked, "/api/chat/mark-read")
+		if !reflect.DeepEqual(api.asked, wantAsked) {
+			t.Errorf("asked\n  %v\nwant\n  %v", api.asked, wantAsked)
+		}
+		if got, want := inbox.written(), sessionWrites(t, chatPayload); !reflect.DeepEqual(got, want) {
+			t.Errorf("written =\n%q\nwant\n%q", got, want)
+		}
+	})
+
+	t.Run("off the socket route a refused batch waits for the next chat event, not a heartbeat", func(t *testing.T) {
+		var out strings.Builder
+		api := unreadChatAPI()
+		answers := make(chan string, 1)
+		answers <- "nack 1"
+		tr := &stubTransport{reply: func(int, *http.Request) (*http.Response, error) {
+			return sseReply(200, nil, ": heartbeat\n\n: heartbeat\n\n"), nil
+		}}
+		l := newRunListener(t, runCfg(t), &out, api, tr)
+		l.clock = func() time.Time { return time.Unix(1787148090, 0) }
+		l.ack = &ackGate{answers: answers, wait: time.Second}
+
+		l.connectOnce(context.Background())
+
+		if !reflect.DeepEqual(api.asked, connectDrain) {
+			t.Errorf("asked\n  %v\nwant\n  %v", api.asked, connectDrain)
+		}
+		want := connected + "\n" + chatPayload + "\n" + "[ocagent] listen: batch 1\n"
 		if out.String() != want {
 			t.Errorf("printed %q, want %q", out.String(), want)
 		}

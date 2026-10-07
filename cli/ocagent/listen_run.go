@@ -281,7 +281,7 @@ func authoritativeRefusal(resp *http.Response) string {
 	}
 }
 
-// selfExit comes from the heartbeat-line session probe (onComment → foldProbe),
+// selfExit comes from the heartbeat-line session probe (onHeartbeat → foldProbe),
 // not from the server. Copy-twin of ocwarden connectOnce; resetting backoff on
 // activity mirrors Python's per-line reset.
 func (l *listener) connectOnce(ctx context.Context) (opened, activity, selfExit bool, err error) {
@@ -366,13 +366,35 @@ func (l *listener) connectOnce(ctx context.Context) (opened, activity, selfExit 
 		onActivity: onAct,
 		onData:     l.dispatch,
 		onID:       func(id string) { writeSSECursor(l.sseCursorPath, id) },
-		onComment:  l.foldProbe, // SSE comment lines are the server heartbeats
+		onComment:  l.onHeartbeat, // SSE comment lines are the server heartbeats
 	}
 	err = scanSSE(resp.Body, sink)
 	if errors.Is(err, errSelfExit) {
 		return true, activity, true, err
 	}
 	return true, activity, false, err
+}
+
+func (l *listener) onHeartbeat() bool {
+	if l.foldProbe() {
+		return true
+	}
+	l.redrainUndelivered()
+	return false
+}
+
+// redrainUndelivered retries a socket delivery that failed: /api/events has no
+// replay, so without it an unread chat waits for the next chat event or
+// reconnect. replyCardAck exists only on the socket route, where it is also the
+// chat gate. Runs on the read loop, so it never overlaps an event's drain.
+func (l *listener) redrainUndelivered() {
+	gate := l.replyCardAck
+	if gate == nil || !gate.nacked {
+		return
+	}
+	gate.nacked = false
+	drainReplyCards(l.api, l.cfg, l.replySeen, gate, l.out)
+	l.drainChatNow()
 }
 
 func (l *listener) drainChatNow() int {
