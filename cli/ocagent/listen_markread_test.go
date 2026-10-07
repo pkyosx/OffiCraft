@@ -272,7 +272,7 @@ func TestDrainChatFilesReadReceipts(t *testing.T) {
 			t.Errorf("diag = %q, want nothing", diag)
 		}
 
-		wantWritten := []string{`{"type":"auth","token":"tok-0123456789abcdef"}` + "\n" +
+		wantWritten := []string{`{"type":"auth","token":"tok-aaaaaaaaaaaa"}` + "\n" +
 			`{"type":"user","from":"officraft","message":{"role":"user","content":"[ocagent] chat from alice (#a1, 1m ago): body-a1"}}` + "\n"}
 		if got := inbox.written(); !reflect.DeepEqual(got, wantWritten) {
 			t.Errorf("written =\n%q\nwant\n%q", got, wantWritten)

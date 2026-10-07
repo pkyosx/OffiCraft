@@ -1898,7 +1898,7 @@ func TestCmdListen(t *testing.T) {
 		if rc != 7 {
 			t.Errorf("rc = %d, want the run's own answer 7", rc)
 		}
-		want := []string{`{"type":"auth","token":"tok-0123456789abcdef"}` + "\n" +
+		want := []string{`{"type":"auth","token":"tok-aaaaaaaaaaaa"}` + "\n" +
 			`{"type":"user","from":"officraft","message":{"role":"user","content":"[ocagent] chat #c-9 from Owner: 看一下"}}` + "\n"}
 		if got := inbox.written(); !reflect.DeepEqual(got, want) {
 			t.Errorf("written =\n%q\nwant\n%q", got, want)

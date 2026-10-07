@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-const testMessagingToken = "tok-0123456789abcdef"
+const testMessagingToken = "tok-aaaaaaaaaaaa"
 
 // inboxSocket stands in for a Claude Code session's messaging socket and keeps
 // every connection's bytes exactly as written.
@@ -214,7 +214,7 @@ func TestSocketWriter(t *testing.T) {
 		w.Write([]byte("[ocagent] chat #c-1 from Owner: 看 \"這個\" <b>&\n    第二行\n"))
 		w.flushToSession()
 
-		want := []string{`{"type":"auth","token":"tok-0123456789abcdef"}` + "\n" +
+		want := []string{`{"type":"auth","token":"tok-aaaaaaaaaaaa"}` + "\n" +
 			`{"type":"user","from":"officraft","message":{"role":"user","content":"[ocagent] chat #c-1 from Owner: 看 \"這個\" <b>&\n    第二行"}}` + "\n"}
 		if got := inbox.written(); !reflect.DeepEqual(got, want) {
 			t.Errorf("written =\n%q\nwant\n%q", got, want)

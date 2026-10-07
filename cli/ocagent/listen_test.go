@@ -1373,10 +1373,10 @@ func TestHandleReplyCard(t *testing.T) {
 			wantWritten  []string
 			wantRecorded bool
 		}{
-			{"an answer written", "rc-1", 1700, inbox.path, []string{`{"type":"auth","token":"tok-0123456789abcdef"}` + "\n" +
+			{"an answer written", "rc-1", 1700, inbox.path, []string{`{"type":"auth","token":"tok-aaaaaaaaaaaa"}` + "\n" +
 				`{"type":"user","from":"officraft","message":{"role":"user","content":"[ocagent] reply-card rc-1 answered: \"改\" | asked: q1 · by owner"}}` + "\n"}, true},
 			{"an answer not written", "rc-1", 1700, gone, nil, false},
-			{"an expiry written", "rc-2", 1800, inbox.path, []string{`{"type":"auth","token":"tok-0123456789abcdef"}` + "\n" +
+			{"an expiry written", "rc-2", 1800, inbox.path, []string{`{"type":"auth","token":"tok-aaaaaaaaaaaa"}` + "\n" +
 				`{"type":"user","from":"officraft","message":{"role":"user","content":"[ocagent] reply-card rc-2 EXPIRED (no answer) | asked: q2 — ` +
 				`settled without an answer: if the question still matters, open a FRESH card with current context; ` +
 				`if not, proceed / close out. Any held step/task was already restored to in_progress · by owner"}}` + "\n"}, true},
