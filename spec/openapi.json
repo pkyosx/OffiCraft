@@ -7054,6 +7054,12 @@
             "title": "Display Wide",
             "type": "boolean"
           },
+          "display_seasonal_theme": {
+            "default": true,
+            "description": "Whether the cockpit takes the built-in seasonal theme while its window is open (a holiday theme shipped with the release, e.g. Halloween; its dates ship with it and are not configurable). true (the default) = show it; false = keep display_theme through the window. Outside every window this has no effect. Same dual-layer contract as display_wide.",
+            "title": "Display Seasonal Theme",
+            "type": "boolean"
+          },
           "doc_cap_chars_boot_sequence": {
             "default": 15000,
             "description": "The size cap on a 啟動步驟 block of the boot context, in CHARACTERS (Unicode code points). ONE knob for BOTH runtimes (claude and codex), each document measured on its own text — they are two renderings of one short checklist, so a studio that needs more room for one needs it for the other. The floor of the adjustable range is this document's shipped default (the `default` field above), the ceiling is 100000.",
@@ -7391,6 +7397,18 @@
             ],
             "description": "Turn the WIDE cockpit layout on/off (T-756f) — true lifts the centred ~1040px content column (the side gutters stay), false restores it. A plain boolean with no unset state: omit the field to leave it unchanged.",
             "title": "Display Wide"
+          },
+          "display_seasonal_theme": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Turn the built-in seasonal theme on/off for the cockpit. A plain boolean with no unset state: omit the field to leave it unchanged.",
+            "title": "Display Seasonal Theme"
           },
           "doc_cap_chars_boot_sequence": {
             "anyOf": [
