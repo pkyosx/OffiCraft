@@ -156,10 +156,7 @@ func chatEvent(t *testing.T, id, body string) string {
 
 // quotedInBody is the CONTINUATION line of a chat body that quotes a transport
 // line, produced by renderMessageBody — the renderer the real path uses. The
-// indentation is what these cases turn on, and typed as a string literal it was
-// four spaces nobody could see: anything that tidied the literal would have
-// retired the case into a duplicate of "other transport chatter" and left the
-// package green.
+// cases turn on its indentation, which a typed literal would hide.
 func quotedInBody(t *testing.T, transportLine string) string {
 	t.Helper()
 	lines := strings.Split(renderMessageBody("一位成員貼給另一位：\n"+transportLine, "get_chat"), "\n")
@@ -233,6 +230,20 @@ func TestSocketWriter(t *testing.T) {
 		if got := takeAnswer(t, w); got != "ack 3" {
 			t.Errorf("answer = %q, want ack 3", got)
 		}
+
+		first := "[ocagent] chat from owner (#c-4): " + strings.Repeat("丁", 1700)
+		second := "[ocagent] chat from owner (#c-5): " + strings.Repeat("戊", 1700)
+		w.socketPath = filepath.Join(filepath.Dir(inbox.path), "gone.sock")
+		w.report = func(bool, string) { w.socketPath = inbox.path }
+		w.Write([]byte(first + "\n" + second + "\n[ocagent] listen: batch 4\n"))
+		w.flushToSession()
+		want := sessionWrites(t, "[ocagent] chat from owner (#c-1): 甲", second)
+		if got := inbox.written(); !reflect.DeepEqual(got, want) {
+			t.Errorf("written = %q, want batch 1's payload and then only batch 4's second", got)
+		}
+		if got := takeAnswer(t, w); got != "nack 4" {
+			t.Errorf("answer = %q, want nack 4 — its first payload never reached the session", got)
+		}
 	})
 
 	t.Run("a payload taken before its marker was queued still decides that batch", func(t *testing.T) {
@@ -296,7 +307,7 @@ func TestSocketWriter(t *testing.T) {
 		w.Write([]byte("[ocagent] chat from owner (#c-1): 甲\n[ocagent] listen: batch 1\n"))
 		w.flushToSession()
 
-		want := "[ocagent] listen: 通知沒有送進成員的對話：收件 socket 100ms 內沒有收完這則訊息" +
+		want := "[ocagent] listen: 通知沒有送進成員的對話：收件 socket 100ms 內沒有關閉連線" +
 			" —— 聊天與 reply-card 不算已讀，之後補送會再送一次\n"
 		if diag.String() != want {
 			t.Errorf("diag = %q, want %q", diag.String(), want)

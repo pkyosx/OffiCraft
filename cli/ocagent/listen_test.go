@@ -1356,21 +1356,31 @@ func TestHandleReplyCard(t *testing.T) {
 		}
 	})
 
-	t.Run("on the socket route an answer is recorded only once its write succeeded", func(t *testing.T) {
+	t.Run("on the socket route a card is recorded only once its write succeeded", func(t *testing.T) {
 		client := newRoutedHTTP(map[string]string{
 			"/api/reply-cards/rc-1": `{"id":"rc-1","from":"m-1","status":"answered",` +
 				`"answered_ts":1700,"summary":"q1","answer":{"text":"改"}}`,
+			"/api/reply-cards/rc-2": `{"id":"rc-2","from":"m-1","status":"expired",` +
+				`"expired_ts":1800,"summary":"q2"}`,
 		})
 		inbox := newInboxSocket(t, false)
+		gone := filepath.Join(shortSocketDir(t), "gone.sock")
 		for _, tc := range []struct {
 			name         string
+			card         string
+			ts           float64
 			socketPath   string
 			wantWritten  []string
 			wantRecorded bool
 		}{
-			{"written", inbox.path, []string{`{"type":"auth","token":"tok-0123456789abcdef"}` + "\n" +
+			{"an answer written", "rc-1", 1700, inbox.path, []string{`{"type":"auth","token":"tok-0123456789abcdef"}` + "\n" +
 				`{"type":"user","from":"officraft","message":{"role":"user","content":"[ocagent] reply-card rc-1 answered: \"改\" | asked: q1 · by owner"}}` + "\n"}, true},
-			{"not written", filepath.Join(shortSocketDir(t), "gone.sock"), nil, false},
+			{"an answer not written", "rc-1", 1700, gone, nil, false},
+			{"an expiry written", "rc-2", 1800, inbox.path, []string{`{"type":"auth","token":"tok-0123456789abcdef"}` + "\n" +
+				`{"type":"user","from":"officraft","message":{"role":"user","content":"[ocagent] reply-card rc-2 EXPIRED (no answer) | asked: q2 — ` +
+				`settled without an answer: if the question still matters, open a FRESH card with current context; ` +
+				`if not, proceed / close out. Any held step/task was already restored to in_progress · by owner"}}` + "\n"}, true},
+			{"an expiry not written", "rc-2", 1800, gone, nil, false},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				inbox.mu.Lock()
@@ -1380,13 +1390,13 @@ func TestHandleReplyCard(t *testing.T) {
 				stop := w.startPump()
 				seen := newSeen(t)
 
-				handleReplyCard(client, cfg, frame("rc-1", "m-1"), seen, w.ackGate(), "owner", w)
+				handleReplyCard(client, cfg, frame(tc.card, "m-1"), seen, w.ackGate(), "owner", w)
 				stop()
 
 				if got := inbox.written(); !reflect.DeepEqual(got, tc.wantWritten) {
 					t.Errorf("written =\n%q\nwant\n%q", got, tc.wantWritten)
 				}
-				if seen.has("rc-1", 1700) != tc.wantRecorded {
+				if seen.has(tc.card, tc.ts) != tc.wantRecorded {
 					t.Errorf("recorded = %v, want %v", !tc.wantRecorded, tc.wantRecorded)
 				}
 			})

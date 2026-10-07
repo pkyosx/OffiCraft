@@ -14,7 +14,9 @@ import (
 // --deliver-socket: the listener is a child of the member's own Claude Code and
 // writes each packed payload into that session's messaging socket. Claude Code
 // puts it between tool calls, or starts a turn when idle. The socket never
-// answers, so a clean write is the strongest delivery proof there is.
+// answers, so "delivered" only means the write completed and the session closed
+// the connection: a rejected token, a full queue, a refused burst or a changed
+// line format look the same, and the chat is still marked read.
 //
 // ⚠️ The session queues at most 50 accepted messages and refuses rapid bursts;
 // packing is what keeps a backlog under that.
@@ -118,7 +120,7 @@ func (w *socketWriter) writeToSession(content string) error {
 	if _, err := io.Copy(io.Discard, conn); err != nil {
 		var netErr net.Error
 		if errors.As(err, &netErr) && netErr.Timeout() {
-			return fmt.Errorf("收件 socket %s 內沒有收完這則訊息", w.timeout)
+			return fmt.Errorf("收件 socket %s 內沒有關閉連線", w.timeout)
 		}
 		return fmt.Errorf("收件 socket 中途斷線（%v）", err)
 	}
