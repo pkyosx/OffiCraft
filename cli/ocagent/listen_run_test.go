@@ -1241,12 +1241,14 @@ func TestConnectOnce(t *testing.T) {
 		}
 	})
 
-	t.Run("on the socket route a session that never closes gets each unread chat attempted once however many heartbeats pass", func(t *testing.T) {
+	t.Run("on the socket route a session that never closes gets each unread chat attempted once while the pump is busy, then delivered on the first heartbeat after it goes idle", func(t *testing.T) {
 		hung := newInboxSocket(t, true)
-		var rows []string
+		inbox := newInboxSocket(t, false)
+		var rows, payloads []string
 		for i := 1; i <= 6; i++ {
-			rows = append(rows, fmt.Sprintf(`{"id":"c%d","from":"boss","to":"kyle","body":"%s","ts":1787148000}`,
-				i, strings.Repeat("字", 2000)))
+			body := strings.Repeat("字", 2000)
+			rows = append(rows, fmt.Sprintf(`{"id":"c%d","from":"boss","to":"kyle","body":"%s","ts":1787148000}`, i, body))
+			payloads = append(payloads, fmt.Sprintf("[ocagent] chat from boss (#c%d, 1m ago): %s", i, body))
 		}
 		api := newRoutedHTTP(map[string]string{
 			"/api/reply-cards?status=answered": `[]`,
@@ -1254,25 +1256,38 @@ func TestConnectOnce(t *testing.T) {
 			chatUnread:                         `{"messages":[` + strings.Join(rows, ",") + `]}`,
 			"/api/chat/mark-read":              `{}`,
 		})
-		l, w := socketListener(t, hung.path, api,
+		var l *listener
+		var w *socketWriter
+		l, w = socketListener(t, hung.path, api,
 			bodyStep{text: heartbeat}, bodyStep{text: heartbeat}, bodyStep{text: heartbeat},
-			bodyStep{text: heartbeat}, bodyStep{text: heartbeat})
+			bodyStep{text: heartbeat}, bodyStep{text: heartbeat},
+			bodyStep{before: func() {
+				waitIdle(t, w)
+				w.socketPath = inbox.path
+				l.ack.wait = 10 * time.Second
+			}, text: heartbeat})
 		w.timeout = 50 * time.Millisecond
 		l.ack.wait = 100 * time.Millisecond
 
 		l.connectOnce(context.Background())
-		waitIdle(t, w)
 
 		wantAsked := []string{
 			"/api/reply-cards?status=answered",
 			"/api/reply-cards?status=expired",
 			chatUnread,
+			"/api/reply-cards?status=answered",
+			"/api/reply-cards?status=expired",
+			chatUnread,
+			"/api/chat/mark-read",
 		}
 		if !reflect.DeepEqual(api.asked, wantAsked) {
 			t.Errorf("asked\n  %v\nwant\n  %v", api.asked, wantAsked)
 		}
 		if got := hung.heldCount(); got != 6 {
 			t.Errorf("hung session got %d connections, want 6", got)
+		}
+		if got, want := inbox.written(), sessionWrites(t, payloads...); !reflect.DeepEqual(got, want) {
+			t.Errorf("written =\n%q\nwant\n%q", got, want)
 		}
 	})
 

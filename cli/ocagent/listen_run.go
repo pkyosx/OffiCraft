@@ -391,7 +391,8 @@ func (l *listener) onHeartbeat() bool {
 // ⚠️ Skipped while the pump still holds unattempted payloads (a session that
 // accepts but never closes): re-queueing the unread set behind them grows the
 // backlog and blocks the read loop an ack wait per heartbeat. A card batch that
-// did not land skips the chat too, so a heartbeat waits on at most one ack.
+// did not land skips the chat, so a heartbeat waits on at most the card ack
+// plus the chat confirm.
 func (l *listener) redrainUndelivered() {
 	gate := l.replyCardAck
 	if gate == nil || !gate.nacked {
