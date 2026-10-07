@@ -866,6 +866,7 @@ var messageKeys = map[string]bool{
 	"profile.themeImportLinkWorking":                   true,
 	"profile.themeImportPlaceholder":                   true,
 	"profile.themeImportReadFailed":                    true,
+	"profile.themeImportSeasonalId":                    true,
 	"profile.themeImportSkippedLead":                   true,
 	"profile.themeImportSkippedMid":                    true,
 	"profile.themeImportSkippedMore":                   true,

@@ -883,9 +883,9 @@ describe("I18nProvider seasonal theme", () => {
     expect(localStorage.getItem("oc.seasonalTheme")).toBe("true");
   });
 
-  it("inside the window, a seasonal theme file that fails to load shows the selected theme, and the next clock reading retries it", async () => {
+  it("inside the window, a seasonal theme file that fails to load shows the selected theme, and later clock readings never pass through the seasonal path or retry", async () => {
     load.mockReset();
-    load.mockRejectedValueOnce(new Error("chunk fetch failed")).mockResolvedValue(HARVEST);
+    load.mockRejectedValue(new Error("chunk fetch failed"));
     at(new Date(2030, 9, 28, 12, 0));
     await mount();
 
@@ -894,14 +894,30 @@ describe("I18nProvider seasonal theme", () => {
     expect(root.style.getPropertyValue("--color-bg")).toBe("");
     expect(load).toHaveBeenCalledTimes(1);
 
-    vi.setSystemTime(new Date(2030, 9, 28, 12, 5));
-    await act(async () => {
-      window.dispatchEvent(new Event("focus"));
-    });
+    const painted: string[] = [];
+    const observer = new MutationObserver(() =>
+      painted.push(`${root.dataset.theme}|${root.style.getPropertyValue("--color-bg")}`)
+    );
+    observer.observe(root, { attributes: true, attributeFilter: ["data-theme", "style"] });
+    const visible = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    for (const [minute, target, event] of [
+      [5, window, "focus"],
+      [6, document, "visibilitychange"],
+      [7, window, "focus"],
+    ] as const) {
+      vi.setSystemTime(new Date(2030, 9, 28, 12, minute));
+      await act(async () => {
+        target.dispatchEvent(new Event(event));
+      });
+      painted.push(`${root.dataset.theme}|${root.style.getPropertyValue("--color-bg")}`);
+    }
+    observer.disconnect();
+    visible.mockRestore();
 
-    await waitFor(() => expect(ctx.t.nav.office).toBe("鬼屋辦公室"));
-    expect(load).toHaveBeenCalledTimes(2);
-    expect(root.style.getPropertyValue("--color-bg")).toBe("#15101f");
+    expect(painted.filter((p) => p !== "office-light|")).toEqual([]);
+    expect(painted.slice(-3)).toEqual(["office-light|", "office-light|", "office-light|"]);
+    expect(ctx.t.nav.office).toBe(zh.nav.office);
+    expect(load).toHaveBeenCalledTimes(1);
   });
 
   for (const [event, target] of [

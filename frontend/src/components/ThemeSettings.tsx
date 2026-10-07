@@ -8,6 +8,7 @@ import {
   MAX_CUSTOM_THEMES,
   AVATAR_KINDS,
   BUILTIN_THEMES,
+  RESERVED_THEME_IDS,
   NAV_ICON_KEYS,
   isValidAvatarValue,
   isValidBackgroundValue,
@@ -336,6 +337,9 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
   // Returns the message to show, or null on success. The duplicate/limit checks
   // read `themeList` — id and name is all they ever needed.
   async function addBundle(bundle: ThemeBundle): Promise<string | null> {
+    // Only a NEW theme is held to this: one the server already stores under a
+    // seasonal id (written over the API) stays editable.
+    if (RESERVED_THEME_IDS.includes(bundle.id)) return t.profile.themeImportSeasonalId;
     if (themeList.some((b) => b.id === bundle.id))
       return t.profile.themeImportDup;
     if (themeList.length >= MAX_CUSTOM_THEMES)

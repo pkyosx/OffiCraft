@@ -865,6 +865,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "profile.themeImportLinkWorking",
   "profile.themeImportPlaceholder",
   "profile.themeImportReadFailed",
+  "profile.themeImportSeasonalId",
   "profile.themeImportSkippedLead",
   "profile.themeImportSkippedMid",
   "profile.themeImportSkippedMore",

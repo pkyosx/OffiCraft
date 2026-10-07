@@ -30,7 +30,7 @@
 // `custom_themes`. Nothing was dropped; only where each fact is read moved.
 
 import { expect, test } from "@playwright/test";
-import { LS_SEASONAL_PAINT } from "../src/lib/themePaint";
+import { LS_SEASONAL_PAINT, paintRecordFor } from "../src/lib/themePaint";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
@@ -78,7 +78,7 @@ const SEASON = SEASONAL_SCHEDULE[0];
 const SEASONAL_BUNDLE = JSON.parse(
   readFileSync(fileURLToPath(new URL(`../../themes/${SEASON.theme}`, import.meta.url)), "utf8")
 ) as ThemeBundle;
-const SEASONAL_RECORD = paintRecordJSON(SEASONAL_BUNDLE);
+const SEASONAL_RECORD = JSON.stringify(paintRecordFor(SEASONAL_BUNDLE));
 
 /** The shipped seasonal theme's --color-bg (#15101f) as getComputedStyle reports it. */
 const SEASONAL_BG_RGB = "rgb(21, 16, 31)";

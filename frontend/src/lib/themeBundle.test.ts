@@ -178,15 +178,18 @@ describe("validateThemeBundle", () => {
     // business now. The built-in's OWN name is what still cannot move: it comes
     // from the non-overridable themeIdentity subtree, so the shipped row keeps
     // saying 辦公室 whatever a pack calls itself. Only the NAME is free — the id
-    // stays reserved (RESERVED_THEME_IDS), and so does every seasonal theme's.
+    // stays reserved. A seasonal theme's id is not refused here: the server
+    // accepts it, so a theme already stored under it must stay editable; only
+    // an import refuses it (ThemeSettings).
     for (const name of ["辦公室", "Office", "office", "  OFFICE  ", " 辦公室 "]) {
       expect(validateThemeBundle({ ...ok, name }), name).toBeNull();
     }
-    for (const id of ["office", "office-light", "harvest-2030"]) {
+    for (const id of ["office", "office-light"]) {
       expect(validateThemeBundle({ ...ok, id, name: "Whatever" }), id).toMatch(
         /is reserved for a built-in theme/
       );
     }
+    expect(validateThemeBundle({ ...ok, id: "harvest-2030", name: "Whatever" })).toBeNull();
   });
 
   it("accepts every legitimate name shape, including the new-theme default", () => {
