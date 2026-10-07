@@ -710,8 +710,7 @@ func (s *apiServer) applyReplyCardAnswer(w http.ResponseWriter, r *http.Request,
 	}
 	var decoded []*ChatAttachment
 	for _, a := range inputs {
-		att, err := decodeChatAttachment(
-			strOrEmpty(a.DataB64), strOrEmpty(a.Filename), strOrEmpty(a.Mime))
+		att, err := decodeChatAttachment(strOrEmpty(a.DataB64), strOrEmpty(a.Filename))
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return

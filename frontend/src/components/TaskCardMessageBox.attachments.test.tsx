@@ -128,11 +128,11 @@ describe("task card message box — attachments", () => {
     expect(id).toBe("task-att-1");
     expect(msg.body).toBe("附上檔案");
     expect(msg.attachments).toHaveLength(2);
+    expect(Object.keys(msg.attachments![0]).sort()).toEqual(["dataB64", "filename"]);
     expect(msg.attachments![0].filename).toBe("a.png");
-    expect(msg.attachments![0].mime).toBe("image/png");
     expect(msg.attachments![0].dataB64.startsWith("data:image/png")).toBe(true);
+    expect(Object.keys(msg.attachments![1]).sort()).toEqual(["dataB64", "filename"]);
     expect(msg.attachments![1].filename).toBe("b.txt");
-    expect(msg.attachments![1].mime).toBe("text/plain");
   });
 
   it("a successful send clears the staged attachments AND the draft", async () => {

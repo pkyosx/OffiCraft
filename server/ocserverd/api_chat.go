@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	_ "embed"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -53,9 +55,8 @@ const (
 
 	resumeNote = "這是一份**開機快照**，不是完整資料。\n聊天：只帶最近的往來，而且是照**字數**（不是則數）收的，收到裝不下為止，由舊到新排。每則都附寄件與收件者的名字、以及帶時區的時間（請跟最上面的 `generated_at` 對照著看）；有回覆卡的會一併附上。\n有兩種「不完整」，意思不一樣，不要混：\n· `body_omitted_chars` > 0 ＝ **這一則就在這裡，只是被摺短了**，數字是被摺掉的字數，這是確定的事實（你自己寫給自己的交接、以及你跟 owner 之間的往來——他說的和你對他說的都算——一律不摺）。要看全文，把那一則的 `id` 放進 `get_chat` 的 `ids`。\n· `chat_earlier_omitted` ＝ **可能整則整則不見了**。這是「可能」不是「一定」：那條線在讀取或字數上限被切斷，而沒有人往切口後面看過，所以就算其實沒有更舊的也會標。它自己會附上怎麼去抓。\n任務：只給精簡列，沒有計畫細節；其中 `answered_card_steps` ＝ **這一步卡在一張 owner 已經回答、卻還沒有人接手的卡上**（`overview` 的 `steps_on_answered_card` ＝ **這份快照帶的這幾列裡**有幾步這樣卡著，不是你所有任務的總數：任務列只帶最近更新的前幾張，你手上票多的時候，更舊的那些就算卡著也不會出現在這裡，也不會被算進去——所以 0 不等於沒有，要確認請用 `list_tasks`／`list_reply_cards`）——那不表示那一步做完了，他的答覆也可能是不通過、要改做，先用 `get_reply_card` 把答案讀完再決定怎麼走。名冊：工作室裡每個人的狀態、所在機器與職責（過長會截斷，`…` 是切口）。機器：機器清單，以及你在哪一台。\n先看 `overview` 的數量與大小，再決定要拉什麼：單張任務用 `get_task`（`detail_chars` 很大的就交給分身去拉），你的卡片用 `list_reply_cards`（記得給 `limit`），要更多聊天或任務用 `list_chat`／`list_tasks`。"
 
-	peekNote                     = "Size-only preview of resume_summary — counts/sizes ONLY, no chat or task content. estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars + steps_on_answered_card_chars, all five reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit, the two studio-floor blocks, and the answered-card pointers its task rows carry. steps_on_answered_card > 0 means that many steps AMONG THE FEW MOST-RECENTLY-UPDATED TASKS the snapshot carries — not across all your tasks — are sitting on a reply card the owner ALREADY answered while the step is still in_progress, and nobody has acted on the answer yet; pull resume_summary (or the cards) and read it before anything else. It is a FLOOR, not a total: the task block is capped at the most recently updated tasks, so when you hold more tasks than that cap, an older task stuck on an answered card is not counted here and 0 does not prove there is none — use list_tasks / list_reply_cards to be sure. So it is what pulling the snapshot actually costs. Use it to decide: if small (rule of thumb < 20000 chars, ≈ 5k tokens) call resume_summary directly in your main session; if large, spawn a cheap sub-agent (e.g. haiku) to call resume_summary and return a compressed digest, so the full payload never burns your own context."
-	attachmentOctetStream        = "application/octet-stream"
-	attachmentDefaultPastedImage = "pasted-image"
+	peekNote              = "Size-only preview of resume_summary — counts/sizes ONLY, no chat or task content. estimated_total_chars is exactly chat_chars + tasks_detail_chars + roster_chars + machines_chars + steps_on_answered_card_chars, all five reported in overview: the WHOLE chat block as the snapshot renders it (chat_chars is the rendered block's cost, NOT the sum of the message bodies), plus the plan text its task rows omit, the two studio-floor blocks, and the answered-card pointers its task rows carry. steps_on_answered_card > 0 means that many steps AMONG THE FEW MOST-RECENTLY-UPDATED TASKS the snapshot carries — not across all your tasks — are sitting on a reply card the owner ALREADY answered while the step is still in_progress, and nobody has acted on the answer yet; pull resume_summary (or the cards) and read it before anything else. It is a FLOOR, not a total: the task block is capped at the most recently updated tasks, so when you hold more tasks than that cap, an older task stuck on an answered card is not counted here and 0 does not prove there is none — use list_tasks / list_reply_cards to be sure. So it is what pulling the snapshot actually costs. Use it to decide: if small (rule of thumb < 20000 chars, ≈ 5k tokens) call resume_summary directly in your main session; if large, spawn a cheap sub-agent (e.g. haiku) to call resume_summary and return a compressed digest, so the full payload never burns your own context."
+	attachmentOctetStream = "application/octet-stream"
 	// 4000 was calibrated on a 3,882-message send-side survey (2026-07): agent↔owner
 	// p99 1,683; agent↔agent p99 4,894, the blocked tail being material pasted inline.
 	// 🔴 Enforced only by the POST /api/chat handler (owner exempt); every other
@@ -69,12 +70,19 @@ const (
 	shortLabelMaxChars = 128
 )
 
-var imageMimeExt = map[string]string{
-	"image/png":  "png",
-	"image/jpeg": "jpg",
-	"image/gif":  "gif",
-	"image/webp": "webp",
-}
+// The frontend imports the same file, so the cockpit and the server type a
+// filename identically.
+//
+//go:embed attachment_mime_types.json
+var attachmentMimeTypesJSON []byte
+
+var attachmentMimeByExtension = func() map[string]string {
+	table := map[string]string{}
+	if err := json.Unmarshal(attachmentMimeTypesJSON, &table); err != nil {
+		panic("attachment_mime_types.json: " + err.Error())
+	}
+	return table
+}()
 
 // Key and payload per spec/sse.md §2.2.
 func (s *apiServer) publishChatRead(receipt ChatRead, trigger string) {
@@ -102,17 +110,35 @@ func sniffAttachmentMime(raw []byte) string {
 	return attachmentOctetStream
 }
 
-// Only .json and .pdf, by owner rulings (rc-ab005893c16c, rc-44d5075666d0);
-// YAML/CSV/HTML deliberately not.
+// attachmentMimeForName is the ONLY thing that types a new attachment: a
+// declared mime (?mime=, an inline item's mime, a data: URI header) is ignored,
+// and the bytes are never sniffed. No extension, or one not in the table, is
+// application/octet-stream, which the serve route hands out as a download.
 func attachmentMimeForName(filename string) string {
-	name := strings.ToLower(strings.TrimSpace(filename))
-	switch {
-	case strings.HasSuffix(name, ".json"):
-		return "application/json"
-	case strings.HasSuffix(name, ".pdf"):
-		return "application/pdf"
+	name := strings.TrimSpace(filename)
+	dot := strings.LastIndex(name, ".")
+	if dot < 0 {
+		return attachmentOctetStream
 	}
-	return ""
+	if m, ok := attachmentMimeByExtension[strings.ToLower(name[dot+1:])]; ok {
+		return m
+	}
+	return attachmentOctetStream
+}
+
+// effectiveAttachmentMime is the mime every reader is handed. Rows stored before
+// typing went by extension carry application/octet-stream (or nothing) for files
+// the table now names; a specific stored mime stays authoritative, which is what
+// keeps link blobs (text/uri-list, no filename) and extensionless images typed.
+func effectiveAttachmentMime(stored, filename string) string {
+	if base := attachmentMimeBase(stored); base != "" && base != attachmentOctetStream {
+		return stored
+	}
+	return attachmentMimeForName(filename)
+}
+
+func isImageMime(mime string) bool {
+	return strings.HasPrefix(mime, "image/")
 }
 
 func attachmentMimeBase(mimeType string) string {
@@ -145,43 +171,28 @@ func resolveChatRecipientOn(q sqlRowQuerier, id string) (string, error) {
 	return id, nil
 }
 
-func decodeChatAttachment(dataB64, filename, mimeType string) (*ChatAttachment, error) {
+func decodeChatAttachment(dataB64, filename string) (*ChatAttachment, error) {
 	payload := strings.TrimSpace(dataB64)
-	declaredMime := ""
 	if strings.HasPrefix(payload, "data:") {
 		header, rest, found := strings.Cut(payload, ",")
 		if !found || !strings.Contains(header, ";base64") {
 			return nil, chatBadRequest{"attachment must be base64-encoded"}
 		}
-		declaredMime = strings.TrimSpace(strings.SplitN(
-			strings.TrimPrefix(header, "data:"), ";", 2)[0])
 		payload = rest
 	}
 	raw, err := base64.StdEncoding.DecodeString(payload)
 	if err != nil {
 		return nil, chatBadRequest{"attachment is not valid base64"}
 	}
-	resolved := strings.TrimSpace(mimeType)
-	if resolved == "" {
-		resolved = declaredMime
-	}
-	return resolveChatAttachment(raw, filename, resolved)
+	return resolveChatAttachment(raw, filename)
 }
 
-func resolveChatAttachment(raw []byte, filename, mimeType string) (*ChatAttachment, error) {
+func resolveChatAttachment(raw []byte, filename string) (*ChatAttachment, error) {
 	if len(raw) == 0 {
 		return nil, chatBadRequest{"attachment is empty"}
 	}
-	resolved := strings.TrimSpace(mimeType)
-	if resolved == "" {
-		resolved = sniffAttachmentMime(raw)
-		if resolved == attachmentOctetStream {
-			if byName := attachmentMimeForName(filename); byName != "" {
-				resolved = byName
-			}
-		}
-	}
-	isImage := strings.HasPrefix(resolved, "image/")
+	resolved := attachmentMimeForName(filename)
+	isImage := isImageMime(resolved)
 	if isImage && len(raw) > chatAttachmentImageMaxBytes {
 		return nil, chatBadRequest{"image exceeds the 20 MB size limit"}
 	}
@@ -196,13 +207,6 @@ func resolveChatAttachment(raw []byte, filename, mimeType string) (*ChatAttachme
 				strconv.Itoa(shortLabelMaxChars) + "-char limit"}
 		}
 		name = &trimmed
-	} else if isImage {
-		ext, ok := imageMimeExt[resolved]
-		if !ok {
-			ext = "png"
-		}
-		defaulted := attachmentDefaultPastedImage + "." + ext
-		name = &defaulted
 	}
 	return &ChatAttachment{
 		ID:       "att-" + newHexID(12),
@@ -222,9 +226,8 @@ func attachmentRef(att *ChatAttachment) map[string]any {
 	return map[string]any{"id": att.ID, "mime": att.Mime, "filename": filename}
 }
 
-// POST /api/chat/attachments — the raw body is the file (`ocagent upload`). The
-// request Content-Type is deliberately ignored: every client defaults it to
-// application/octet-stream, indistinguishable from a declaration; use ?mime=.
+// POST /api/chat/attachments — the raw body is the file (`ocagent upload`).
+// Neither the request Content-Type nor ?mime= types it: the filename does.
 func (s *apiServer) HandleUploadChatAttachmentApiChatAttachmentsPost(w http.ResponseWriter, r *http.Request, params HandleUploadChatAttachmentApiChatAttachmentsPostParams) {
 	raw, err := io.ReadAll(io.LimitReader(r.Body, chatAttachmentMaxBytes+1))
 	if err != nil {
@@ -236,8 +239,7 @@ func (s *apiServer) HandleUploadChatAttachmentApiChatAttachmentsPost(w http.Resp
 			"attachment exceeds the 100 MB size limit")
 		return
 	}
-	att, rerr := resolveChatAttachment(
-		raw, trimmedOrEmpty(params.Filename), trimmedOrEmpty(params.Mime))
+	att, rerr := resolveChatAttachment(raw, trimmedOrEmpty(params.Filename))
 	if rerr != nil {
 		writeError(w, http.StatusBadRequest, rerr.Error())
 		return
@@ -289,8 +291,7 @@ func (s *apiServer) resolveChatAttachmentInputs(inputs []ChatAttachmentInputDTO)
 			return nil, http.StatusBadRequest,
 				"attachment carries neither id nor data_b64"
 		}
-		att, err := decodeChatAttachment(
-			strOrEmpty(a.DataB64), strOrEmpty(a.Filename), strOrEmpty(a.Mime))
+		att, err := decodeChatAttachment(strOrEmpty(a.DataB64), strOrEmpty(a.Filename))
 		if err != nil {
 			return nil, http.StatusBadRequest, err.Error()
 		}
@@ -930,17 +931,14 @@ func trimChatPageNewer(msgs []ChatMessage, limit int) ([]ChatMessage, string) {
 	return msgs, encodeChatCursor(chatCursorNewer, chatAnchor{TS: last.TS, ID: last.ID})
 }
 
-func isPreviewableAttachment(mime, filename string) bool {
+func isPreviewableAttachment(mime string) bool {
 	base := attachmentMimeBase(mime)
-	if strings.HasPrefix(base, "image/") || strings.HasPrefix(base, "text/") ||
-		base == "application/pdf" || base == "application/json" {
-		return true
-	}
-	return (base == "" || base == attachmentOctetStream) && attachmentMimeForName(filename) != ""
+	return strings.HasPrefix(base, "image/") || strings.HasPrefix(base, "text/") ||
+		base == "application/pdf" || base == "application/json"
 }
 
-// Non-image previewables go inline under CSP sandbox: an inline HTML blob must never
-// script on this origin.
+// Every response carries CSP sandbox: an inline HTML or SVG blob must never
+// script on this origin, and on an image the header does not affect <img>.
 func (s *apiServer) HandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(w http.ResponseWriter, r *http.Request, attachmentId string) {
 	att, err := s.dal.GetChatAttachment(attachmentId)
 	if err != nil {
@@ -951,11 +949,19 @@ func (s *apiServer) HandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(w ht
 		writeError(w, http.StatusNotFound, "attachment '"+attachmentId+"' not found")
 		return
 	}
-	name := attachmentId
-	if att.Filename != nil && *att.Filename != "" {
-		name = *att.Filename
+	filename := ""
+	if att.Filename != nil {
+		filename = *att.Filename
 	}
-	if !strings.HasPrefix(att.Mime, "image/") {
+	mediaType := effectiveAttachmentMime(att.Mime, filename)
+	if _, _, err := mime.ParseMediaType(mediaType); err != nil {
+		mediaType = attachmentOctetStream
+	}
+	name := filename
+	if name == "" {
+		name = attachmentId
+	}
+	if !isImageMime(mediaType) {
 		asciiName := strings.Map(func(r rune) rune {
 			if r > 127 {
 				return -1
@@ -968,25 +974,14 @@ func (s *apiServer) HandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(w ht
 		safe := strings.ReplaceAll(asciiName, `"`, `\"`)
 		dispSuffix := `filename="` + safe + `"; filename*=UTF-8''` +
 			url.QueryEscape(name)
-		if isPreviewableAttachment(att.Mime, name) {
+		if isPreviewableAttachment(mediaType) {
 			w.Header().Set("Content-Disposition", "inline; "+dispSuffix)
-			w.Header().Set("Content-Security-Policy", "sandbox")
 		} else {
 			w.Header().Set("Content-Disposition", "attachment; "+dispSuffix)
 		}
 	}
-	mediaType := att.Mime
-	if mediaType == "" {
-		mediaType = attachmentOctetStream
-	}
-	if attachmentMimeBase(mediaType) == attachmentOctetStream {
-		if byName := attachmentMimeForName(name); byName != "" {
-			mediaType = byName
-		}
-	}
-	if _, _, err := mime.ParseMediaType(mediaType); err != nil {
-		mediaType = attachmentOctetStream
-	}
+	w.Header().Set("Content-Security-Policy", "sandbox")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Type", mediaType)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(att.Data)
@@ -1033,12 +1028,13 @@ func (s *apiServer) HandleListChatAttachmentsApiChatAttachmentsGet(w http.Respon
 	// and triggers drop id-less refs.
 	entries := []chatGalleryEntryDTO{}
 	for _, r := range refs {
+		mime := effectiveAttachmentMime(r.Mime, r.Filename)
 		entries = append(entries, chatGalleryEntryDTO{
 			ID:        r.AttachmentID,
 			URL:       "/api/chat/attachment/" + r.AttachmentID,
 			Filename:  r.Filename,
-			Mime:      r.Mime,
-			IsImage:   strings.HasPrefix(r.Mime, "image/"),
+			Mime:      mime,
+			IsImage:   isImageMime(mime),
 			MessageID: r.MessageID,
 			From:      r.Sender,
 			FromName:  names[r.Sender],

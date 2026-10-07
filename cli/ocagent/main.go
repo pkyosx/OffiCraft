@@ -23,7 +23,7 @@ var planeASubcommands = []struct{ name, help string }{
 	{"context-report", "statusLine reporter: stdin statusLine JSON → POST /api/agent/context"},
 	{"suicide", "self-terminate: kill my own tmux session (OC_SESSION) → SSE drops → offline"},
 	{"download", "fetch a chat attachment blob to a local file (streaming; --out <dir>)"},
-	{"upload", "stream a local file into the attachment store (prints the att id; --mime <type>)"},
+	{"upload", "stream a local file into the attachment store (prints the att id)"},
 	{"diff", "print a compare-screen link (a host-less /diff path) for two attachment ids / document versions (--external mints a no-login URL)"},
 	// guard-bash / guard-permission are wired by cli/ocwarden/spawn.go into every
 	// member's settings.json hooks, not run by hand; listed so an agent they
@@ -99,7 +99,6 @@ func realMain(argv []string, env func(string) string, in io.Reader, out io.Write
 		fs := flag.NewFlagSet("ocagent upload", flag.ContinueOnError)
 		fs.SetOutput(out)
 		fs.Usage = func() { uploadUsage(out) }
-		mimeType := fs.String("mime", "", "declared media type (default: server-side sniff)")
 		if err := fs.Parse(rest); err != nil {
 			return 2
 		}
@@ -111,10 +110,10 @@ func realMain(argv []string, env func(string) string, in io.Reader, out io.Write
 		}
 		if len(args) < 1 || fs.NArg() != 0 {
 			fmt.Fprintln(out, "[ocagent] upload: exactly one <path> argument is required")
-			fmt.Fprintln(out, "usage: ocagent upload <path> [--mime <type>]")
+			fmt.Fprintln(out, "usage: ocagent upload <path>")
 			return 2
 		}
-		return cmdUpload(newNoDeadlineClient(), cfg, args[0], *mimeType, out, os.Stderr)
+		return cmdUpload(newNoDeadlineClient(), cfg, args[0], out, os.Stderr)
 
 	case "diff":
 		fs := flag.NewFlagSet("ocagent diff", flag.ContinueOnError)

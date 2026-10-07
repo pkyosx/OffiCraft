@@ -966,7 +966,6 @@ export function TaskCard({
     const attachments: ChatAttachmentInput[] = pendingAttachments.map((a) => ({
       dataB64: a.dataUri,
       ...(a.filename ? { filename: a.filename } : {}),
-      mime: a.mime,
     }));
     setSending(true);
     try {

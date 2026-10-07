@@ -53,7 +53,7 @@ describe("mock task message box — server parity", () => {
 
     await mockApi.postTaskMessage(task.id, {
       body: "   ",
-      attachments: [{ dataB64: "Zm9v", mime: "text/plain", filename: "f.txt" }],
+      attachments: [{ dataB64: "Zm9v", filename: "f.txt" }],
     });
 
     const thread = await mockApi.listChat("mira");

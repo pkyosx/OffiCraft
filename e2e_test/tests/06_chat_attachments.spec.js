@@ -72,7 +72,10 @@ test.describe('B7 · chat attachments — send/receive round-trip', () => {
     ).toContain('sandbox');
     const zipRes = await request.get(`${BASE}${zip.url}`, { headers: authHeaders(token) });
     expect(zipRes.status(), 'owner GET of the zip blob must 200').toBe(200);
-    expect(zipRes.headers()['content-type']).toBe('application/zip');
+    expect(
+      zipRes.headers()['content-type'],
+      'a .zip is outside the extension table, so the declared mime is ignored',
+    ).toBe('application/octet-stream');
     const zipDisp = zipRes.headers()['content-disposition'] || '';
     expect(
       zipDisp,

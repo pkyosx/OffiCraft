@@ -25,7 +25,7 @@ func TestCmdUpload(t *testing.T) {
 		path := fileWith(t, "report.txt", "the bytes")
 		var out, errOut bytes.Buffer
 		client := canned(200, mintedRef)
-		rc := cmdUpload(client, configured, path, "text/plain", &out, &errOut)
+		rc := cmdUpload(client, configured, path, &out, &errOut)
 
 		if rc != 0 {
 			t.Fatalf("cmdUpload returned %d, want 0", rc)
@@ -39,7 +39,7 @@ func TestCmdUpload(t *testing.T) {
 		}
 		want := sentRequest{
 			method: "POST",
-			url:    "https://station.example.com/api/chat/attachments?filename=report.txt&mime=text%2Fplain",
+			url:    "https://station.example.com/api/chat/attachments?filename=report.txt",
 			ua:     "ocagent/0.1",
 			accept: "application/json",
 			auth:   "Bearer tok-1",
@@ -51,34 +51,11 @@ func TestCmdUpload(t *testing.T) {
 		}
 	})
 
-	t.Run("no --mime leaves the sniffing to the server", func(t *testing.T) {
-		path := fileWith(t, "report.txt", "x")
-		var out, errOut bytes.Buffer
-		client := canned(200, mintedRef)
-		cmdUpload(client, configured, path, "  ", &out, &errOut)
-		want := "https://station.example.com/api/chat/attachments?filename=report.txt"
-		if client.sent[0].url != want {
-			t.Fatalf("URL %q, want %q", client.sent[0].url, want)
-		}
-	})
-
-	t.Run("a plus in the media type is escaped rather than reaching the server as a space", func(t *testing.T) {
-		path := fileWith(t, "book.epub", "x")
-		var out, errOut bytes.Buffer
-		client := canned(200, mintedRef)
-		cmdUpload(client, configured, path, "application/epub+zip", &out, &errOut)
-		want := "https://station.example.com/api/chat/attachments?" +
-			"filename=book.epub&mime=application%2Fepub%2Bzip"
-		if client.sent[0].url != want {
-			t.Fatalf("URL %q, want %q", client.sent[0].url, want)
-		}
-	})
-
 	t.Run("stdout carries the server's body verbatim, not a re-serialisation", func(t *testing.T) {
 		path := fileWith(t, "report.txt", "x")
 		var out, errOut bytes.Buffer
 		body := `{"id":"att-0123456789ab","mime":"text/plain","filename":"report.txt","future":"kept"}`
-		rc := cmdUpload(canned(200, body), configured, path, "", &out, &errOut)
+		rc := cmdUpload(canned(200, body), configured, path, &out, &errOut)
 		if rc != 0 || out.String() != "att-0123456789ab\n"+body+"\n" {
 			t.Fatalf("got (%d, %q), want (0, the id then the verbatim body)", rc, out.String())
 		}
@@ -88,7 +65,7 @@ func TestCmdUpload(t *testing.T) {
 		var out, errOut bytes.Buffer
 		client := canned(200, mintedRef)
 		plainCfg := Config{Base: "https://station.example.com", BaseConfigured: true}
-		rc := cmdUpload(client, plainCfg, filepath.Join(t.TempDir(), "absent.txt"), "", &out, &errOut)
+		rc := cmdUpload(client, plainCfg, filepath.Join(t.TempDir(), "absent.txt"), &out, &errOut)
 		want := "[ocagent] upload: no OC_TOKEN configured — cannot make an authed upload.\n"
 		if rc != 3 || errOut.String() != want || out.String() != "" {
 			t.Fatalf("got (%d, %q, %q), want (3, \"\", the no-token refusal)",
@@ -104,7 +81,7 @@ func TestCmdUpload(t *testing.T) {
 		var out, errOut bytes.Buffer
 		client := canned(200, mintedRef)
 		unset := Config{Base: defaultBase, Token: "tok-1"}
-		rc := cmdUpload(client, unset, path, "", &out, &errOut)
+		rc := cmdUpload(client, unset, path, &out, &errOut)
 		want := "[ocagent] upload: no OC_BASE configured — nothing here knows which station " +
 			"to talk to, and the built-in default is this machine's loopback address.\n"
 		if rc != 3 || errOut.String() != want || out.String() != "" {
@@ -121,7 +98,7 @@ func TestCmdUpload(t *testing.T) {
 		var out, errOut bytes.Buffer
 		client := canned(200, mintedRef)
 		malformed := loadConfig(testEnv(map[string]string{"OC_BASE": "http://", "OC_TOKEN": "tok-1"}))
-		rc := cmdUpload(client, malformed, path, "", &out, &errOut)
+		rc := cmdUpload(client, malformed, path, &out, &errOut)
 		want := "[ocagent] upload: OC_BASE is set but is not a usable station address — " +
 			"it must be http:// or https:// followed by a host.\n"
 		if rc != 3 || errOut.String() != want || out.String() != "" {
@@ -137,7 +114,7 @@ func TestCmdUpload(t *testing.T) {
 		missing := filepath.Join(t.TempDir(), "absent.txt")
 		var out, errOut bytes.Buffer
 		client := canned(200, mintedRef)
-		rc := cmdUpload(client, configured, missing, "", &out, &errOut)
+		rc := cmdUpload(client, configured, missing, &out, &errOut)
 		want := "[ocagent] upload: cannot open " + missing + ": open " + missing +
 			": no such file or directory\n"
 		if rc != 1 || errOut.String() != want || out.String() != "" {
@@ -152,7 +129,7 @@ func TestCmdUpload(t *testing.T) {
 		dir := t.TempDir()
 		var out, errOut bytes.Buffer
 		client := canned(200, mintedRef)
-		rc := cmdUpload(client, configured, dir, "", &out, &errOut)
+		rc := cmdUpload(client, configured, dir, &out, &errOut)
 		want := "[ocagent] upload: " + dir + " is a directory, not a file\n"
 		if rc != 1 || errOut.String() != want || out.String() != "" {
 			t.Fatalf("got (%d, %q, %q), want (1, \"\", %q)", rc, out.String(), errOut.String(), want)
@@ -165,7 +142,7 @@ func TestCmdUpload(t *testing.T) {
 	t.Run("a transport failure is exit 1", func(t *testing.T) {
 		path := fileWith(t, "report.txt", "x")
 		var out, errOut bytes.Buffer
-		rc := cmdUpload(failingHTTP("connection refused"), configured, path, "", &out, &errOut)
+		rc := cmdUpload(failingHTTP("connection refused"), configured, path, &out, &errOut)
 		want := "[ocagent] upload: request failed (network): connection refused\n"
 		if rc != 1 || errOut.String() != want || out.String() != "" {
 			t.Fatalf("got (%d, %q, %q), want (1, \"\", the network reason)",
@@ -197,7 +174,7 @@ func TestCmdUpload(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			path := fileWith(t, "report.txt", "x")
 			var out, errOut bytes.Buffer
-			rc := cmdUpload(canned(tc.status, tc.body), configured, path, "", &out, &errOut)
+			rc := cmdUpload(canned(tc.status, tc.body), configured, path, &out, &errOut)
 			if rc != tc.wantRC || errOut.String() != tc.wantErr || out.String() != "" {
 				t.Fatalf("got (%d, %q, %q), want (%d, \"\", %q)",
 					rc, out.String(), errOut.String(), tc.wantRC, tc.wantErr)

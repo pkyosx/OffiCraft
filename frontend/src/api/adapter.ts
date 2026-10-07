@@ -203,9 +203,8 @@ export interface ChatAttachmentView {
    * one (`name` = 「稽核報告」, blob = `audit-2026-09.md`).
    *
    * 🔴 FOR CONTENT-TYPE DETECTION ONLY, never for display. It is the extension
-   * a reader needs when the mime cannot answer — `application/octet-stream` is
-   * what the agent upload path stores most .md under — and a display name has
-   * no extension in it.
+   * a reader needs when the mime cannot answer (`application/octet-stream`),
+   * and a display name has no extension in it.
    *
    * Absent ⇒ `filename` IS the blob's name, which is the case for every chat
    * attachment: there the two were never separate things. */
@@ -294,12 +293,11 @@ export interface ChatAnchor {
 
 /** A staged attachment carried on a posted chat message (a pasted image OR an
  * uploaded file). `dataB64` is a data-URI (`data:<mime>;base64,…`) OR bare
- * base64 — the server accepts either. `filename` / `mime` are optional (the
- * server sniffs/defaults an omitted mime and defaults a pasted image's name). */
+ * base64 — the server accepts either. The server types it by `filename`'s
+ * extension alone; without one it is stored as a download. */
 export interface ChatAttachmentInput {
   dataB64: string;
   filename?: string;
-  mime?: string;
 }
 
 /** Browser-owned Web Push endpoint. These are encryption keys from the
@@ -736,10 +734,10 @@ export interface TaskArtifactView {
    * "" for a link, and "" when a file/image's blob is gone: honest-empty, never
    * fabricated.
    *
-   * 🔴 IT IS READ FOR ITS EXTENSION AND NOTHING ELSE. `mime` is asked first and
-   * answers `application/octet-stream` for most agent-uploaded .md, and then
-   * this suffix is the only thing left that separates a report the cockpit can
-   * preview from a tarball it cannot. Dropping it from the wire is what stopped
+   * 🔴 IT IS READ FOR ITS EXTENSION AND NOTHING ELSE. `mime` is asked first;
+   * when it answers `application/octet-stream` this suffix is the only thing
+   * left that separates a report the cockpit can preview from a tarball it
+   * cannot. Dropping it from the wire is what stopped
    * .md artifacts previewing after T-92. */
   filename: string;
   /** How many versions this deliverable has, the LIVE one INCLUDED (T-60) — 1

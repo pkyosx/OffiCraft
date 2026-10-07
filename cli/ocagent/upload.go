@@ -17,20 +17,17 @@ import (
 // set.
 
 func uploadUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: ocagent upload <path> [--mime <type>]
+	fmt.Fprint(w, `usage: ocagent upload <path>
 
 Streams one local file into the station's attachment store and prints the id
 it was stored under. Put that id in the `+"`attachments`"+` of post_chat (or a reply
 card, or a task artifact) instead of pasting the file's contents.
 
---mime <type>  declare the media type. Without it the server decides: PNG,
-               JPEG, GIF and WebP are recognised by their bytes, a name
-               ending in .json is application/json, a name ending in .pdf is
-               application/pdf, and everything else is
-               application/octet-stream.
-
-The stored filename is the path's basename. The flag may come before or after
-<path>.
+The stored filename is the path's basename, and its extension alone decides
+the media type: .png .jpg .gif .webp .svg are images, .pdf .json .md .txt
+.csv .html and other text formats open in the browser, and anything else
+(including no extension) is application/octet-stream and downloads. Name the
+file with the right extension before uploading it.
 
 stdout on success, two lines:
   line 1  the attachment id (att-…)
@@ -41,8 +38,8 @@ Exit codes:
   0  stored
   1  the file could not be opened or is a directory, or the request never got
      an answer (network)
-  2  usage: --help itself, an unknown flag, a flag missing its value, missing
-     <path>, or more than one path
+  2  usage: --help itself, any other flag, missing <path>, or more than one
+     path
   3  no OC_TOKEN or no OC_BASE in the environment, or the server answered
      401/403
   4  the server refused the file (HTTP 400): it is empty, over the size limit,
@@ -59,7 +56,7 @@ type uploadedRef struct {
 	bodyJSON string
 }
 
-func cmdUpload(client httpClient, cfg Config, path, mimeType string, out, errOut io.Writer) int {
+func cmdUpload(client httpClient, cfg Config, path string, out, errOut io.Writer) int {
 	if cfg.Token == "" {
 		fmt.Fprint(errOut, "[ocagent] upload: no OC_TOKEN configured — cannot make an authed upload.\n")
 		return 3
@@ -89,9 +86,6 @@ func cmdUpload(client httpClient, cfg Config, path, mimeType string, out, errOut
 	query := url.Values{}
 	if name := strings.TrimSpace(filename); name != "" && name != "." && name != string(filepath.Separator) {
 		query.Set("filename", name)
-	}
-	if declared := strings.TrimSpace(mimeType); declared != "" {
-		query.Set("mime", declared)
 	}
 	reqURL := cfg.Base + "/api/chat/attachments?" + query.Encode()
 

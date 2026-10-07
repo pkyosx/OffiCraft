@@ -5,7 +5,7 @@ package main
 // ref-form attachments item ({id} referencing an already-stored blob). The
 // black-box wire authority stays conformance/ (test_rest_happy.py); these
 // tests pin the handler semantics the happy table cannot cheaply reach
-// (caps, sniff/override matrix, ref validation faces).
+// (caps, extension typing, ref validation faces).
 
 import (
 	"bytes"
@@ -62,127 +62,37 @@ func TestUploadChatAttachment(t *testing.T) {
 	now := time.Now().Unix()
 	agentTok, _ := mintJWT("mira", "agent", 300, secret, now, "")
 
-	// Happy path: named non-image, declared mime, bytes round-trip via the
-	// serve route under the stored name.
 	payload := []byte("%PDF-1.4 not really a pdf")
-	ref := uploadBlob(t, srv.URL, agentTok,
-		"?filename=report.pdf&mime=application/pdf", payload)
+	ref := uploadBlob(t, srv.URL, agentTok, "?filename=report.pdf", payload)
 	id, _ := ref["id"].(string)
 	if id == "" || !strings.HasPrefix(id, "att-") {
 		t.Fatalf("upload must mint an att- id, got %v", ref)
 	}
 	if ref["mime"] != "application/pdf" || ref["filename"] != "report.pdf" {
-		t.Fatalf("declared mime/filename must echo: %v", ref)
+		t.Fatalf("an untyped .pdf must be application/pdf: %v", ref)
 	}
 	status, served := doRaw(t, "GET", srv.URL+"/api/chat/attachment/"+id, agentTok, "", nil)
 	if status != 200 || served != string(payload) {
 		t.Fatalf("served blob must round-trip: %d %q", status, served)
 	}
 
-	// An unnamed image sniffs its mime and defaults the pasted-image filename;
-	// the request Content-Type is ignored (only ?mime= declares).
-	ref = uploadBlob(t, srv.URL, agentTok, "", testPNGBytes)
-	if ref["mime"] != "image/png" || ref["filename"] != "pasted-image.png" {
-		t.Fatalf("sniff + filename default: %v", ref)
-	}
-
-	// An unnamed non-image stays unnamed (filename "") under octet-stream.
-	ref = uploadBlob(t, srv.URL, agentTok, "", []byte("plain bytes"))
-	if ref["mime"] != attachmentOctetStream || ref["filename"] != "" {
-		t.Fatalf("unnamed non-image: %v", ref)
-	}
-
-	// The image-only sniff cannot identify JSON, so an unnamed MIME falls back
-	// to the filename. A declared MIME remains authoritative even when the
-	// filename suggests JSON.
-	ref = uploadBlob(t, srv.URL, agentTok, "?filename=report.json", []byte(`{"ok":true}`))
-	jsonID, _ := ref["id"].(string)
-	if ref["mime"] != "application/json" || ref["filename"] != "report.json" {
-		t.Fatalf("JSON filename fallback: %v", ref)
-	}
-	ref = uploadBlob(t, srv.URL, agentTok,
-		"?filename=declared.json&mime=application/zip", []byte(`{"ok":true}`))
-	if ref["mime"] != "application/zip" || ref["filename"] != "declared.json" {
-		t.Fatalf("declared MIME must not be second-guessed: %v", ref)
-	}
-	ref = uploadBlob(t, srv.URL, agentTok,
-		"?filename=legacy.json&mime=application/octet-stream", []byte(`{"legacy":true}`))
-	legacyJSONID, _ := ref["id"].(string)
-	if ref["mime"] != attachmentOctetStream || ref["filename"] != "legacy.json" {
-		t.Fatalf("declared octet MIME must remain authoritative: %v", ref)
-	}
-
-	// The resolved JSON blob is served inline, which is the server-side half of
-	// the preview/download contract.
-	req, err := http.NewRequest("GET", srv.URL+"/api/chat/attachment/"+jsonID, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Authorization", "Bearer "+agentTok)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "application/json" ||
-		!strings.HasPrefix(resp.Header.Get("Content-Disposition"), "inline;") {
-		t.Fatalf("JSON attachment must be served inline: status=%d disposition=%q",
-			resp.StatusCode, resp.Header.Get("Content-Disposition"))
-	}
-	legacyReq, err := http.NewRequest("GET", srv.URL+"/api/chat/attachment/"+legacyJSONID, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacyReq.Header.Set("Authorization", "Bearer "+agentTok)
-	legacyResp, err := http.DefaultClient.Do(legacyReq)
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacyBody, _ := io.ReadAll(legacyResp.Body)
-	legacyResp.Body.Close()
-	if legacyResp.StatusCode != http.StatusOK || legacyResp.Header.Get("Content-Type") != "application/json" ||
-		!strings.HasPrefix(legacyResp.Header.Get("Content-Disposition"), "inline;") ||
-		string(legacyBody) != `{"legacy":true}` {
-		t.Fatalf("legacy JSON must render with JSON media type: status=%d type=%q disposition=%q body=%q",
-			legacyResp.StatusCode, legacyResp.Header.Get("Content-Type"),
-			legacyResp.Header.Get("Content-Disposition"), string(legacyBody))
-	}
-
-	ref = uploadBlob(t, srv.URL, agentTok, "?filename=Scan.PDF", []byte("%PDF-1.7 unnamed"))
-	if ref["mime"] != "application/pdf" || ref["filename"] != "Scan.PDF" {
-		t.Fatalf("PDF filename fallback: %v", ref)
-	}
-	ref = uploadBlob(t, srv.URL, agentTok,
-		"?filename=legacy.pdf&mime=application/octet-stream", []byte("%PDF-1.7 legacy"))
-	legacyPDFID, _ := ref["id"].(string)
-	ref = uploadBlob(t, srv.URL, agentTok,
-		"?filename=legacy.bin&mime=application/octet-stream", []byte("opaque"))
-	legacyBinID, _ := ref["id"].(string)
-	for _, tc := range []struct {
-		id, wantType, wantDisposition, wantBody string
-	}{
-		{legacyPDFID, "application/pdf",
-			`inline; filename="legacy.pdf"; filename*=UTF-8''legacy.pdf`, "%PDF-1.7 legacy"},
-		{legacyBinID, attachmentOctetStream,
-			`attachment; filename="legacy.bin"; filename*=UTF-8''legacy.bin`, "opaque"},
+	for _, tc := range []struct{ query, mime, filename string }{
+		{"?filename=notes.txt&mime=image/png", "text/plain", "notes.txt"},
+		{"?filename=x.pdf&mime=application/zip", "application/pdf", "x.pdf"},
+		{"?filename=declared.json&mime=application/octet-stream", "application/json", "declared.json"},
+		{"?filename=Scan.PDF", "application/pdf", "Scan.PDF"},
+		{"?mime=image/png", attachmentOctetStream, ""},
+		{"?filename=core.zip&mime=text/plain", attachmentOctetStream, "core.zip"},
 	} {
-		req, err := http.NewRequest("GET", srv.URL+"/api/chat/attachment/"+tc.id, nil)
-		if err != nil {
-			t.Fatal(err)
+		ref = uploadBlob(t, srv.URL, agentTok, tc.query, []byte("bytes"))
+		if ref["mime"] != tc.mime || ref["filename"] != tc.filename {
+			t.Fatalf("%s: want mime %q filename %q, got %v", tc.query, tc.mime, tc.filename, ref)
 		}
-		req.Header.Set("Authorization", "Bearer "+agentTok)
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != tc.wantType ||
-			resp.Header.Get("Content-Disposition") != tc.wantDisposition || string(body) != tc.wantBody {
-			t.Fatalf("legacy octet blob %s: status=%d type=%q disposition=%q body=%q",
-				tc.id, resp.StatusCode, resp.Header.Get("Content-Type"),
-				resp.Header.Get("Content-Disposition"), string(body))
-		}
+	}
+
+	ref = uploadBlob(t, srv.URL, agentTok, "", testPNGBytes)
+	if ref["mime"] != attachmentOctetStream || ref["filename"] != "" {
+		t.Fatalf("unnamed image bytes must be an unnamed octet-stream blob: %v", ref)
 	}
 
 	// Faults are flat 400s: empty body, >100MB body, >20MB image.
@@ -193,7 +103,7 @@ func TestUploadChatAttachment(t *testing.T) {
 	}{
 		"empty":       {"", nil, "attachment is empty"},
 		"over100mb":   {"", make([]byte, chatAttachmentMaxBytes+1), "100 MB"},
-		"over20mbimg": {"?mime=image/png", make([]byte, chatAttachmentImageMaxBytes+1), "20 MB"},
+		"over20mbimg": {"?filename=big.png", make([]byte, chatAttachmentImageMaxBytes+1), "20 MB"},
 	} {
 		status, resp := doRaw(t, "POST", srv.URL+"/api/chat/attachments"+tc.query,
 			agentTok, "", tc.body)
@@ -210,29 +120,24 @@ func TestUploadChatAttachment(t *testing.T) {
 
 func TestIsPreviewableAttachment(t *testing.T) {
 	for _, tc := range []struct {
-		name, mime, filename string
-		want                 bool
+		mime string
+		want bool
 	}{
-		{"image", "image/webp", "", true},
-		{"text", "text/plain", "", true},
-		{"pdf", "application/pdf", "", true},
-		{"json MIME", "application/json", "", true},
-		{"json MIME with parameter", "application/json; charset=utf-8", "", true},
-		{"octet JSON filename", attachmentOctetStream, "report.json", true},
-		{"octet non-JSON filename", attachmentOctetStream, "report.zip", false},
-		{"declared binary wins over JSON suffix", "application/zip", "report.json", false},
-		{"octet PDF filename", attachmentOctetStream, "Report.PDF", true},
-		{"unknown MIME PDF filename", "", "report.pdf", true},
-		{"octet filename merely containing .pdf", attachmentOctetStream, "report.pdf.zip", false},
-		{"declared binary wins over PDF suffix", "application/zip", "report.pdf", false},
-		{"binary", "application/zip", "report.zip", false},
+		{"image/webp", true},
+		{"image/svg+xml", true},
+		{"text/plain", true},
+		{"text/html", true},
+		{"application/pdf", true},
+		{"application/json", true},
+		{"application/json; charset=utf-8", true},
+		{attachmentOctetStream, false},
+		{"", false},
+		{"application/zip", false},
+		{"video/mp4", false},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := isPreviewableAttachment(tc.mime, tc.filename); got != tc.want {
-				t.Fatalf("isPreviewableAttachment(%q, %q) = %v, want %v",
-					tc.mime, tc.filename, got, tc.want)
-			}
-		})
+		if got := isPreviewableAttachment(tc.mime); got != tc.want {
+			t.Fatalf("isPreviewableAttachment(%q) = %v, want %v", tc.mime, got, tc.want)
+		}
 	}
 }
 
@@ -390,8 +295,7 @@ func TestHandlePostChatApiChatPost_Mainline(t *testing.T) {
 	// Ref form: upload first, post the light {id} ref — the message stamps the
 	// STORED blob's mime/filename (a filename/mime sent alongside is ignored),
 	// and a ref-only message satisfies the non-empty rule.
-	ref := uploadBlob(t, srv.URL, agentTok, "?filename=data.zip&mime=application/zip",
-		[]byte("zipzipzip"))
+	ref := uploadBlob(t, srv.URL, agentTok, "?filename=data.json", []byte(`{"z":1}`))
 	id := ref["id"].(string)
 	status, resp := postChat(fmt.Sprintf(
 		`{"to":"owner","attachments":[{"id":%q,"filename":"spoofed.txt","mime":"text/plain"}]}`, id))
@@ -405,7 +309,7 @@ func TestHandlePostChatApiChatPost_Mainline(t *testing.T) {
 		t.Fatalf("ref post echo: %v %s", err, resp)
 	}
 	got := msg.Attachments[0]
-	if got["id"] != id || got["mime"] != "application/zip" || got["filename"] != "data.zip" {
+	if got["id"] != id || got["mime"] != "application/json" || got["filename"] != "data.json" {
 		t.Fatalf("stored blob must be authoritative over the ref's fields: %v", got)
 	}
 

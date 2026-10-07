@@ -213,6 +213,7 @@ import {
 import { mockApiError } from "./errorCodes";
 import { isLoreType } from "./loreType";
 import { formatDiffUrl, type DiffParams } from "../lib/diffLink";
+import { attachmentMimeForName } from "../lib/attachmentMime";
 
 /** The offline cockpit's compare fixture — two texts that differ by one edited
  * line and one added line, so both the line-level rows and the character-level
@@ -1430,10 +1431,7 @@ function toStoredReplyAnswer(
 ): NonNullable<ReplyCard["answer"]> {
   const attachments: ChatAttachmentView[] = (answer.attachments ?? []).map(
     (att, i) => {
-      const dataUriMime = att.dataB64.startsWith("data:")
-        ? att.dataB64.slice(5, att.dataB64.indexOf(";"))
-        : "";
-      const mime = att.mime || dataUriMime || "application/octet-stream";
+      const mime = attachmentMimeForName(att.filename ?? "");
       return {
         id: `mock-rc-att-${stamp}-${i}`,
         url: att.dataB64,
@@ -3813,11 +3811,7 @@ const mockApiImpl = {
     // the SAME list-per-message rule as the http adapter.
     const stamp = Date.now();
     const attachments = (msg.attachments ?? []).map((att, i) => {
-      // Derive isImage from the explicit mime, else the data-URI's own mime prefix.
-      const dataUriMime = att.dataB64.startsWith("data:")
-        ? att.dataB64.slice(5, att.dataB64.indexOf(";"))
-        : "";
-      const mime = att.mime || dataUriMime || "application/octet-stream";
+      const mime = attachmentMimeForName(att.filename ?? "");
       return {
         id: `mock-att-${stamp}-${i}`,
         url: att.dataB64,

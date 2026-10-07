@@ -109,7 +109,11 @@ func (s *apiServer) resolveDiffSide(raw, label string) DiffSideDTO {
 		if att == nil {
 			return diffGone(dto, "attachment '"+side.AttachmentID+"' is no longer stored")
 		}
-		text, mime := string(att.Data), att.Mime
+		filename := ""
+		if att.Filename != nil {
+			filename = *att.Filename
+		}
+		text, mime := string(att.Data), effectiveAttachmentMime(att.Mime, filename)
 		dto.Text, dto.Mime = &text, &mime
 		return dto
 	}

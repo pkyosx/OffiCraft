@@ -57,21 +57,11 @@ describe("isInlineDisplayableMime (mirror of the server's isPreviewableAttachmen
       expect(`${m}=${isInlineDisplayableMime(m)}`).toBe(`${m}=true`);
     }
   });
-  it("accepts a .json or .pdf filename when the mime is octet-stream", () => {
-    expect(isInlineDisplayableMime("application/octet-stream", "report.json")).toBe(true);
-    expect(isInlineDisplayableMime("application/octet-stream", "REPORT.JSON")).toBe(true);
-    expect(isInlineDisplayableMime("application/octet-stream", "report.pdf")).toBe(true);
-    expect(isInlineDisplayableMime("application/octet-stream", "REPORT.PDF")).toBe(true);
-    expect(isInlineDisplayableMime("", "report.pdf")).toBe(true);
-    expect(isInlineDisplayableMime("application/octet-stream", "report.zip")).toBe(false);
-    expect(isInlineDisplayableMime("application/octet-stream", "report.pdf.zip")).toBe(false);
-    expect(isInlineDisplayableMime("application/zip", "report.json")).toBe(false);
-    expect(isInlineDisplayableMime("application/zip", "report.pdf")).toBe(false);
-  });
   it("rejects the mimes the server sends as Content-Disposition: attachment", () => {
     for (const m of [
       "application/zip",
       "application/octet-stream",
+      "application/octet-stream; name=report.pdf",
       "video/mp4",
       "",
     ]) {
@@ -87,13 +77,16 @@ describe("MarkdownPreviewOverlay — 在新頁面顯示 (T-36)", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders the new-tab button on an html attachment, pointing at the SHARE link, target=_blank rel=noopener", async () => {
+  it.each([
+    ["text/html", "mock.html"],
+    ["application/pdf", "AI-Data-Security.pdf"],
+  ])("renders the new-tab button on a %s attachment, pointing at the SHARE link, target=_blank rel=noopener", async (mime, title) => {
     const mint = vi
       .spyOn(api, "getChatAttachmentShareLink")
       .mockResolvedValue("/api/chat/attachment/att-36?sig=test-sig");
     globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "" })) as unknown as typeof fetch;
 
-    mountOverlay("text/html");
+    mountOverlay(mime, title);
 
     await waitFor(() =>
       expect(
@@ -162,27 +155,16 @@ describe("MarkdownPreviewOverlay — 在新頁面顯示 (T-36)", () => {
     expect(zh.chat.mdPreview.newTabStaticNote).not.toBe(en.chat.mdPreview.newTabStaticNote);
   });
 
-  it("renders the new-tab button on a .pdf stored as application/octet-stream", async () => {
-    vi.spyOn(api, "getChatAttachmentShareLink").mockResolvedValue(
-      "/api/chat/attachment/att-36?sig=test-sig",
-    );
-    globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "" })) as unknown as typeof fetch;
-
-    mountOverlay("application/octet-stream", "AI-Data-Security.pdf");
-
-    await waitFor(() => expect(document.body.querySelector(NEW_TAB)).toBeTruthy());
-    expect((document.body.querySelector(NEW_TAB) as HTMLAnchorElement).getAttribute("href")).toBe(
-      `${window.location.origin}/api/chat/attachment/att-36?sig=test-sig`,
-    );
-  });
-
-  it("offers NEITHER button nor note on an attachment the browser downloads", async () => {
+  it.each([
+    ["application/zip", "bundle.zip"],
+    ["application/octet-stream", "report.pdf"],
+  ])("offers NEITHER button nor note on a %s attachment the browser downloads", async (mime, title) => {
     const mint = vi
       .spyOn(api, "getChatAttachmentShareLink")
       .mockResolvedValue("/api/chat/attachment/att-36?sig=test-sig");
     globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "" })) as unknown as typeof fetch;
 
-    mountOverlay("application/zip", "bundle.zip");
+    mountOverlay(mime, title);
 
     // The overlay itself is up (this is not a "nothing rendered" false pass).
     await waitFor(() => expect(document.body.querySelector(".md-preview")).toBeTruthy());
@@ -191,7 +173,7 @@ describe("MarkdownPreviewOverlay — 在新頁面顯示 (T-36)", () => {
     );
     expect(
       document.body.querySelector(NEW_TAB) !== null
-        ? "T-36 REGRESSION: 「在新頁面顯示」 is offered on application/zip — the " +
+        ? `T-36 REGRESSION: 「在新頁面顯示」 is offered on ${mime} — the ` +
           "server sends that as Content-Disposition: attachment, so the button " +
           "would DOWNLOAD the file instead of showing it. The gate must mirror " +
           "the server's isPreviewableAttachment rule."
@@ -199,7 +181,7 @@ describe("MarkdownPreviewOverlay — 在新頁面顯示 (T-36)", () => {
     ).toBe("absent");
     expect(
       document.body.querySelector(NOTE) !== null
-        ? "T-36 REGRESSION: the new-tab note is on screen for application/zip, " +
+        ? `T-36 REGRESSION: the new-tab note is on screen for ${mime}, ` +
           "where there is no new-tab button for it to describe"
         : "absent",
     ).toBe("absent");

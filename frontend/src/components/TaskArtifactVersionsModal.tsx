@@ -64,9 +64,8 @@
 //
 // 🔴 WITH ONE FALLBACK, because a mime-only rule loses the common case: an
 // `application/octet-stream` file whose NAME ends in a text extension is read as
-// text (TEXTUAL_EXTENSIONS below). That mime is an upload path saying it does
-// not know, not a claim of binary — and the reports, logs and specs this cockpit
-// mostly holds arrive under it. Without this, the deliverable class that made
+// text (TEXTUAL_EXTENSIONS below). That mime says the type is not known, not
+// that the bytes are binary. Without this, the deliverable class that made
 // this reader exist would never reach the diff at all.
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -102,9 +101,9 @@ export type ArtifactPayload =
 /** Extensions this panel reads as text when the RESPONSE will not say so.
  *
  * 🔴 A mime test alone is not enough, and the ticket's own motivating artifact
- * is the proof: a `.md` report uploaded through the agent tooling comes back
- * `application/octet-stream`, which is what an upload path says when it does not
- * know — not a claim that the bytes are binary. Reports, logs and specs are the
+ * is the proof: a `.md` report uploaded through the agent tooling used to come
+ * back `application/octet-stream`, which says the type is not known — not that
+ * the bytes are binary. Reports, logs and specs are the
  * deliverables this cockpit sees most, so a mime-only rule sends exactly the
  * common case to the 前/後 toggle, where it can never be diffed. Wrong in the
  * OTHER direction is cheap: this list is closed and holds only extensions whose

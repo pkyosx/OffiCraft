@@ -54,6 +54,8 @@ Chat 訊息不保證 Owner 會逐則查看，因此若需要 Owner 做決定或�
 
 先使用 `ocagent upload` 取得 attachment id，再於同一則 `post_chat` 的 attachments 中引用。附件已有完整內容時，正文只需摘要重點並說明附件用途，不要將完整內容重貼在 Chat 中。
 
+附件的類型只看檔名的副檔名（例如 `.md`、`.pdf`、`.png`）。沒有副檔名、或副檔名不在系統認得的範圍內，Owner 只能下載、無法直接在瀏覽器開啟，所以上傳前先把檔名取成正確的副檔名。
+
 需要呈現修改前後差異時，可使用 `ocagent diff <before> <after>` 產生 Diff 連結：
 - <before> 與 <after> 都必須使用已存在於系統中的位址。如果要比較的是 Task 產物、收到的附件或先前已上傳的內容，直接使用既有的附件 id（`att-` 開頭；Task 產物使用它的 attachment_id），不要為了產生 Diff 再上傳一份。
 - 系統文件（例如角色誌、Insight、Global Context、任務手冊）可以直接使用 doc: 位址作為其中一側，不要先下載、另存再上傳，避免產生不必要的副本，且副本不會隨原文件更新。
