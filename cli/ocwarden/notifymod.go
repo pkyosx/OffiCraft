@@ -265,8 +265,8 @@ func (d SpawnDeps) waitForNotifyMod(memberID, workdir, socket, session string) {
 		if err != nil || !strings.Contains(out, claudePluginsChangedBanner) {
 			continue
 		}
-		// ASCII, so send-keys -l is safe here (the nudge's multibyte caveat does not
-		// apply); copy-mode -q first, as the nudge does, or the keys are swallowed.
+		// ASCII, so send-keys -l is safe here; copy-mode -q first, or the keys are
+		// swallowed.
 		// ⚠️ Text an attached person has typed into the prompt box is submitted
 		// together with /reload-plugins, and a startup dialog drawn over the prompt
 		// takes the Enter instead.

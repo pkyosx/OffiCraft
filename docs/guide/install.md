@@ -32,18 +32,17 @@
 
 | 需求 | 最低版本 | 為什麼 |
 | --- | --- | --- |
-| **一種 agent runtime**：`claude`（Claude Code CLI）或 `codex`（Codex CLI），**至少一種，而且已登入** | 用 `claude` 的話：**建議 2.1.98 以上**（內建 **Monitor** tool，成員用它等待長時間的背景工作）。這個版本建議是 `claude` 專屬的 | 每位成員底下就是一個 Claude Code 或 Codex session。**claude 與 codex 兩種都解析不到時，安裝腳本當場拒絕、warden 也拒絕安裝**（兩層 fail-closed，並在控制台橫幅說明原因），不會裝一個永遠起不了成員的 warden；**只裝其中一種是合法配置，不會被擋**（但若你只裝 `codex`，出廠的 Mira 仍然起不來——見下面步驟 8）。`claude` 的裝法：`npm install -g @anthropic-ai/claude-code` |
+| **一種 agent runtime**：`claude`（Claude Code CLI）或 `codex`（Codex CLI），**至少一種，而且已登入** | 用 `claude` 的話：**不能低於 OffiCraft 通知模組需要的最低版本**（以 `cli/ocwarden/notifymod.go` 的 `notifyModMinClaudeVersion` 為準），低於它 Claude 成員起不來。這個下限是 `claude` 專屬的 | 每位成員底下就是一個 Claude Code 或 Codex session。**claude 與 codex 兩種都解析不到時，安裝腳本當場拒絕、warden 也拒絕安裝**（兩層 fail-closed，並在控制台橫幅說明原因），不會裝一個永遠起不了成員的 warden；**只裝其中一種是合法配置，不會被擋**（但若你只裝 `codex`，出廠的 Mira 仍然起不來——見下面步驟 8）。`claude` 的裝法：`npm install -g @anthropic-ai/claude-code` |
 | **`tmux`** | 3.0 以上（任何近代 3.x 都行） | 成員的 session 跑在 tmux 裡（`cli/ocwarden/spawn.go` 的 `tmux new-session`，沒有備援）。**解析不到時安裝腳本直接拒絕**，不會裝出一台成員永遠停在「waking」的機器 |
 
 > [!IMPORTANT]
-> **`claude` 建議新到內建 Monitor tool（2.1.98 起）。** 成員用 **Monitor** 這個內建工具等待長時間的背景工作。
-> 到 server 的 SSE 長連線**不經過它**——那條連線由另一個 `ocagent listen` 程序持住（**持著連線＝online**，見
-> [架構與運作原理](architecture.md)），所以 `claude` 太舊不會讓成員亮不起來。
-> 平常那個程序由 OffiCraft 通知模組在成員的 Claude Code 裡當子程序起起來；`claude` 比通知模組需要的最低版本舊時，
-> warden 改在成員旁邊另起一個 `listen-<成員 id>` tmux session、把通知貼進成員的視窗——這條路在有人
-> 把成員畫面切到子代理時會漏通知（見 [疑難排解](troubleshooting.md)）。升級：`npm install -g @anthropic-ai/claude-code`。
+> **Claude 成員要求 `claude` 不低於通知模組需要的最低版本。** 成員到 server 的 SSE 長連線由另一個 `ocagent listen`
+> 程序持住（**持著連線＝online**，見 [架構與運作原理](architecture.md)）；這個程序由 OffiCraft 通知模組在成員的
+> Claude Code 裡當子程序起起來，並把每則通知寫進成員自己的對話。`claude` 比這個最低版本舊時，warden 不起 Claude 成員，
+> 喚醒直接失敗，「最近操作」寫 `notify_claude_too_old`（見 [疑難排解](troubleshooting.md)）。升級：控制台 **監控 › 機器**，
+> 在那台機器 Claude 欄的版本號選單選 **升級 Claude Code**；或在那台機器上跑 `npm install -g @anthropic-ai/claude-code`。
 >
-> 注意：**安裝器擋「沒裝」，但不擋「太舊」**——它確認 `tmux` 與（claude／codex 至少一種）解析得到（缺就停），但**不比對版本號**。所以「2.1.98 以上」是**你要自己確保**的建議，不是安裝當下會替你把關的東西；裝了太舊的 `claude`，安裝照樣過、成員也亮得起來，只是成員用不到 Monitor 這個等待工具。
+> 注意：**安裝器擋「沒裝」，但不擋「太舊」**——它確認 `tmux` 與（claude／codex 至少一種）解析得到（缺就停），但**不比對版本號**。所以裝了太舊的 `claude`，安裝照樣過，要到喚醒 Claude 成員時才會失敗；控制台 **監控 › 機器** 的 Claude 欄會在太舊的版本旁標「版本太舊」。
 
 > [!NOTE]
 > 用 asdf / nvm / volta 裝 `claude` 的人要注意：launchd 的 PATH 很小，找不到 shim。
@@ -165,6 +164,10 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 **之後的升級不必重跑 install.sh。** 設定 › 系統更新與備份 有「檢查更新」與一鍵升級
 （從 GitHub Releases 下載、sha256 驗證後原地抽換重啟）；打開「自動更新」則在背景自動升級。
 「接收 Beta」= 也吃 GitHub prerelease。
+
+**升級正式站機器上的 Claude Code 之前，先在試用站驗一次。** 把試用站上一位 Claude 成員所在的機器升到新版本、
+重新喚醒那位成員（已在執行的成員繼續用舊版本），趁它正在工作時傳一則訊息、等它閒下來再傳一則，確認兩則都送進它的對話，
+再升級正式站的機器——Claude Code 收訊息的格式沒有公開文件，新版一旦改了格式，訊息會無聲地送不進去。
 
 ### 移除
 

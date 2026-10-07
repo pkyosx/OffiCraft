@@ -60,45 +60,38 @@ server 的標準埠是 **7755**。被別的程式占用時，安裝會**當場�
 
 先確認**那位成員被指派到的機器上**有 `tmux`，以及那位成員的 runtime 所需的 `claude` 或 `codex`（已登入）——warden 靠它們把成員 spawn 起來。缺了，成員就起不來。
 
-成員到 server 的 SSE 長連線由一個 `ocagent listen` 程序持住（成員自己不掛、也不維護它）——**持著連線才算 online**。所以 Waking 卡住或一直 Offline，多半是那個程序沒起來或起來就退了。Claude Code 成員的這個程序有兩種起法，warden 每次喚醒時選一種：
+成員到 server 的 SSE 長連線由一個 `ocagent listen` 程序持住（成員自己不掛、也不維護它）——**持著連線才算 online**。所以 Waking 卡住或一直 Offline，多半是那個程序沒起來或起來就退了。
 
-- **通知模組（平常走這條）**：warden 讓成員的 Claude Code 載入 OffiCraft 通知模組，由模組把 `ocagent listen` 當成自己的子程序起起來，通知直接送進成員的主對話。這時機器上**沒有** `listen-<成員 id>` 這個 tmux session，看不到它是正常的。
-- **貼上（備援）**：那台機器的 Claude Code 版本比通知模組需要的舊，或模組這次沒有載入，warden 才改在成員旁邊另起一個 `listen-<成員 id>` tmux session，把通知貼進成員的視窗。這條路在有人把成員畫面切到子代理時會漏通知。
+Claude Code 成員的這個程序只有一種起法：warden 讓成員的 Claude Code 載入 OffiCraft 通知模組，模組先送出開機指令，再把 `ocagent listen` 當成自己的子程序起起來；這個程序把每則通知寫進成員自己 Claude Code 的訊息通道——成員正在工作時，通知插在兩次工具呼叫之間、在同一輪裡就讀到；閒著時，通知會開啟新的一輪。聊天要等通知真的寫進去才標成已讀、請示卡也才記成已看過；寫不進去就保持未讀，之後補送時再送一次。機器上不會有額外的 tmux session 替成員收通知。
 
-**分辨成員走哪一條**：看成員面板的「最近操作」。喚醒那一行帶著「通知改用貼進 tmux 視窗的舊方式送達」的提醒（`notify_legacy_paste` 是版本太舊，`notify_mod_not_loaded` 是模組沒載入，提醒裡寫了常見原因），就是貼上；沒有這段提醒就是通知模組。
+通知模組起不來，成員就**不會上線**，喚醒直接失敗。失敗當下，成員面板的「最近操作」寫著下面其中一個原因；等喚醒窗過了，那一行會換成較籠統的 `wake_timeout`，這時原因只留在那台機器 warden 的紀錄（`~/.officraft/warden/log/ocwarden.err.log`）裡：
 
-走通知模組的成員，到那位成員被指派到的機器上看：
+- **`notify_claude_too_old`**：那台機器的 Claude Code 比通知模組需要的最低版本舊。warden 在起任何東西之前就拒絕，訊息裡寫著讀到的版本與最低版本。到控制台 **監控 › 機器**，在那台機器 Claude 欄的版本號選單選 **升級 Claude Code**，升完再喚醒；版本太舊的機器在那一欄會標「版本太舊」。warden 紀錄裡對應的是一行 `Claude Code <版本> is older than <最低版本>; not starting`。
+- **`notify_mod_not_loaded`**：Claude Code 起來了，但模組在等待時間內沒有載入。warden 把這次起的成員收掉，喚醒失敗；訊息裡列了常見原因，診斷見下面。
+
+到那位成員被指派到的機器上看：
 
 ```bash
 ls ~/.officraft/agents/<成員 id>/.officraft-mod-loaded   # 在＝模組有載入，而且它起的 listener 開始連線過
-pgrep -fl 'ocagent listen --deliver-mod'                 # 那個 listener 現在還活著嗎
+pgrep -fl 'ocagent listen --deliver-socket'              # 那個 listener 現在還活著嗎
 ```
 
-標記在、listener 卻不在，表示它後來退了；它印的話只進成員 Claude Code 的 debug log（以 `claude --debug` 啟動時才看得到）。
+標記在、listener 卻不在，表示它後來退了；它印的話只進成員 Claude Code 的 debug log（以 `claude --debug` 啟動時才看得到）。通知寫不進成員對話時，它也只在那裡留一行以 `[ocagent] listen: 通知沒有送進成員的對話` 開頭的說明。
 
-**模組第一次沒跑、warden 自己重啟了一次**：模組在第一次啟動完全沒跑到（`.officraft-mod-started` 不在）時，warden 不會馬上退回貼上，而是把那個 Claude Code 收掉、原樣再起一次，再等 30 秒；常見原因是同一台機器上長跑的舊 Claude Code session 把共用 `~/.claude.json` 裡 Claude Code 自己的快取旗標 `tengu_plugin_hooks_modules` 寫回了 false，新啟動的 Claude Code 先讀到 false 就不跑模組，等它拿到遠端的 true 寫回去，下一次啟動就正常。warden 紀錄每次啟動前都有一行 `notify-mod: attempt 1/2:`／`attempt 2/2:`，退回時一行 `at fallback:`，寫著那個檔裡的旗標值與 `cachedGrowthBookFeaturesAt` 時間（只讀、不改）。重啟後還是沒載入，最近操作的 `notify_mod_not_loaded` 提醒後面會多一句「已自動重啟 Claude Code 再試一次」和兩次讀到的值。
+**模組第一次沒跑、warden 自己重啟了一次**：模組在第一次啟動完全沒跑到（`.officraft-mod-started` 不在）時，warden 不會馬上放棄，而是把那個 Claude Code 收掉、原樣再起一次，再等 30 秒；常見原因是同一台機器上長跑的舊 Claude Code session 把共用 `~/.claude.json` 裡 Claude Code 自己的快取旗標 `tengu_plugin_hooks_modules` 寫回了 false，新啟動的 Claude Code 先讀到 false 就不跑模組，等它拿到遠端的 true 寫回去，下一次啟動就正常。warden 紀錄每次啟動前都有一行 `notify-mod: attempt 1/2:`／`attempt 2/2:`，放棄時一行 `at give-up:`，寫著那個檔裡的旗標值與 `cachedGrowthBookFeaturesAt` 時間（只讀、不改）。重啟後還是沒載入，最近操作的 `notify_mod_not_loaded` 後面會多一句「已自動重啟 Claude Code 一次仍沒載入」和兩次讀到的值。
 
-**最近操作出現 `notify_mod_not_loaded`、想知道模組為什麼沒載入**：到那台機器看 warden 的紀錄，退回貼上那一刻它寫了幾行以 `notify-mod-fallback` 開頭的診斷：
+**最近操作出現 `notify_mod_not_loaded`、想知道模組為什麼沒載入**：到那台機器看 warden 的紀錄，放棄那一刻它寫了幾行以 `notify-mod-not-loaded` 開頭的診斷：
 
 ```bash
-grep 'notify-mod' ~/.officraft/warden/log/ocwarden.err.log   # 每次退回貼上都有一組 notify-mod-fallback，最後一組是最近這次；也看得到 warden 送過的 /reload-plugins
+grep 'notify-mod' ~/.officraft/warden/log/ocwarden.err.log   # 每次放棄都有一組 notify-mod-not-loaded，最後一組是最近這次；也看得到 warden 送過的 /reload-plugins
 ls -l ~/.officraft/agents/<成員 id>/.officraft-mod-started          # 模組開始跑的時間（內容是 UTC 時間戳）
 ```
 
 - `.officraft-mod-started written 12.3s after launch`：模組有跑，只是 Claude Code 的啟動慢到快 30 秒才輪到它（常見是開機時的對話框或 MCP 載入卡住）——看下面 pane 那幾行就知道卡在哪。
-- `.officraft-mod-started absent`：模組根本沒跑到。最常見的是 Claude Code 啟動時同步了組織的 plugin、剛好有變動，它就把所有 plugin（包括通知模組）扣住、畫面上顯示 `Plugins changed. Run /reload-plugins to activate.`——下面 pane 那幾行會看得到這句。warden 等待時看到這句會自己送一次 `/reload-plugins`（紀錄裡有一行 `notify-mod: plugins changed during startup; sent /reload-plugins`），通常模組就接著載入、不會退回貼上；送了還是退回，才往下看其他原因（工作目錄沒被信任、`disableAllHooks`、`--safe-mode`、受管設定擋掉 `--plugin-dir`，或讀不到 `officraft.json`）。
+- `.officraft-mod-started absent`：模組根本沒跑到。最常見的是 Claude Code 啟動時同步了組織的 plugin、剛好有變動，它就把所有 plugin（包括通知模組）扣住、畫面上顯示 `Plugins changed. Run /reload-plugins to activate.`——下面 pane 那幾行會看得到這句。warden 等待時看到這句會自己送一次 `/reload-plugins`（紀錄裡有一行 `notify-mod: plugins changed during startup; sent /reload-plugins`），通常模組就接著載入；送了還是沒載入，才往下看其他原因（工作目錄沒被信任、`disableAllHooks`、`--safe-mode`、受管設定擋掉 `--plugin-dir`，或讀不到 `officraft.json`）。
 - `pane| ` 開頭的那幾行：等滿 30 秒時成員視窗最後 40 行的原樣（最多 4 KiB），看得出當時畫面停在什麼對話框或錯誤。
 
 這份診斷只在 warden 的紀錄裡，不會出現在最近操作。
-
-走貼上的成員：
-
-```bash
-tmux -L officraft ls          # 應該看得到 listen-<成員 id>
-tmux -L officraft attach -t listen-<成員 id>   # 讀它印出來的連線紀錄（唯讀觀察，看完 Ctrl-b d 離開）
-```
-
-`listen-<成員 id>` 不在，就去看那台機器 warden 的紀錄：起不來時它會寫一行以 `listener:` 開頭的說明。
 
 （控制台 **監控 › 機器** 看得到每台機器上 warden 探到的 `claude` 版本與 warden 自己的版本。）
 

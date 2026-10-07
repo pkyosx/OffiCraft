@@ -399,7 +399,7 @@ func buildLoginGate(env func(string) string, login *loginProber) func(runtime st
 }
 
 // spawnSleep is every wait the spawn and stop seams below make (the notify-mod
-// waits, the nudge pacing, the sweep polls). A var only so TestBuildCommandDeps
+// waits, the sweep polls). A var only so TestBuildCommandDeps
 // can run the production wiring, notify-mod restart included, without ~60 s of
 // real sleep.
 var spawnSleep = time.Sleep
