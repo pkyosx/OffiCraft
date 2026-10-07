@@ -210,9 +210,11 @@ export type BuiltinThemeId = (typeof BUILTIN_THEMES)[number]["id"];
 
 export const BUILTIN_THEME_IDS: readonly BuiltinThemeId[] = BUILTIN_THEMES.map((b) => b.id);
 
-/** The ids a custom bundle must never claim: the built-in themes and every
- * seasonal theme in the schedule. The built-in half is twinned by
- * reservedThemeIDs in server/ocserverd/theme_bundle.go. */
+/** The ids a NEW custom bundle (created or imported) must not take: the
+ * built-in themes and every seasonal theme in the schedule. Only the built-in
+ * half is enforced by the server (reservedThemeIDs in
+ * server/ocserverd/theme_bundle.go), so an existing theme stored under a
+ * seasonal id stays editable. */
 export const RESERVED_THEME_IDS: readonly string[] = [
   ...BUILTIN_THEME_IDS,
   ...SEASONAL_SCHEDULE.map((e) => e.id),
