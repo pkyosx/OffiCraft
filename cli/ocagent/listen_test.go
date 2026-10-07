@@ -1276,7 +1276,7 @@ func TestHandleReplyCard(t *testing.T) {
 		var out bytes.Buffer
 		seen := newSeen(t)
 
-		handleReplyCard(client, cfg, frame("rc-1", "m-1"), seen, "owner", &out)
+		handleReplyCard(client, cfg, frame("rc-1", "m-1"), seen, nil, "owner", &out)
 
 		want := "[ocagent] reply-card rc-1 answered: picked [0] \"改\" | asked: 要不要改 schema? · by owner\n"
 		if out.String() != want {
@@ -1295,9 +1295,9 @@ func TestHandleReplyCard(t *testing.T) {
 		var out bytes.Buffer
 		seen := newSeen(t)
 
-		handleReplyCard(client, cfg, frame("rc-1", "m-1"), seen, "owner", &out)
+		handleReplyCard(client, cfg, frame("rc-1", "m-1"), seen, nil, "owner", &out)
 		first := out.String()
-		handleReplyCard(client, cfg, frame("rc-1", "m-1"), seen, "owner", &out)
+		handleReplyCard(client, cfg, frame("rc-1", "m-1"), seen, nil, "owner", &out)
 
 		if out.String() != first {
 			t.Errorf("printed %q, want the answer exactly once (%q)", out.String(), first)
@@ -1311,7 +1311,7 @@ func TestHandleReplyCard(t *testing.T) {
 		})
 		var out bytes.Buffer
 
-		handleReplyCard(client, cfg, frame("rc-2", "m-1"), newSeen(t), "owner", &out)
+		handleReplyCard(client, cfg, frame("rc-2", "m-1"), newSeen(t), nil, "owner", &out)
 
 		want := "[ocagent] reply-card rc-2 EXPIRED (no answer) | asked: 要不要改 schema? — " +
 			"settled without an answer: if the question still matters, open a FRESH card " +
@@ -1326,7 +1326,7 @@ func TestHandleReplyCard(t *testing.T) {
 		client := newRoutedHTTP(nil)
 		var out bytes.Buffer
 
-		handleReplyCard(client, cfg, frame("rc-3", "m-2"), newSeen(t), "owner", &out)
+		handleReplyCard(client, cfg, frame("rc-3", "m-2"), newSeen(t), nil, "owner", &out)
 
 		if out.String() != "" {
 			t.Errorf("printed %q, want nothing", out.String())
@@ -1346,7 +1346,7 @@ func TestHandleReplyCard(t *testing.T) {
 		var out bytes.Buffer
 		seen := newSeen(t)
 
-		handleReplyCard(client, cfg, frameAboutTask("rc-7", "m-2", "m-1"), seen, "owner", &out)
+		handleReplyCard(client, cfg, frameAboutTask("rc-7", "m-2", "m-1"), seen, nil, "owner", &out)
 
 		want := "[ocagent] reply-card rc-7 answered: picked [0] \"走 A\" | asked: 出貨路線? " +
 			"| opened by m-2 about your task T-1 · by owner\n"
@@ -1365,7 +1365,7 @@ func TestHandleReplyCard(t *testing.T) {
 		})
 		var out bytes.Buffer
 
-		handleReplyCard(client, cfg, frameAboutTask("rc-8", "m-2", "m-1"), newSeen(t), "m-2", &out)
+		handleReplyCard(client, cfg, frameAboutTask("rc-8", "m-2", "m-1"), newSeen(t), nil, "m-2", &out)
 
 		want := "[ocagent] reply-card rc-8 EXPIRED (no answer) | asked: 出貨路線? " +
 			"| opened by m-2 about your task T-1 — settled without an answer: do not keep " +
@@ -1383,7 +1383,7 @@ func TestHandleReplyCard(t *testing.T) {
 		})
 		var out bytes.Buffer
 
-		handleReplyCard(client, cfg, frameAboutTask("rc-9", "m-2", "m-1"), newSeen(t), "owner", &out)
+		handleReplyCard(client, cfg, frameAboutTask("rc-9", "m-2", "m-1"), newSeen(t), nil, "owner", &out)
 
 		if out.String() != "" {
 			t.Errorf("printed %q, want nothing — the task was handed on before the refetch", out.String())
@@ -1394,7 +1394,7 @@ func TestHandleReplyCard(t *testing.T) {
 		client := newRoutedHTTP(nil)
 		var out bytes.Buffer
 
-		handleReplyCard(client, cfg, frameAboutTask("rc-10", "m-2", "m-3"), newSeen(t), "owner", &out)
+		handleReplyCard(client, cfg, frameAboutTask("rc-10", "m-2", "m-3"), newSeen(t), nil, "owner", &out)
 
 		if out.String() != "" || client.asked != nil {
 			t.Errorf("printed %q and asked %v, want neither", out.String(), client.asked)
@@ -1408,7 +1408,7 @@ func TestHandleReplyCard(t *testing.T) {
 		})
 		var out bytes.Buffer
 
-		handleReplyCard(client, cfg, frame("rc-4", "m-1"), newSeen(t), "owner", &out)
+		handleReplyCard(client, cfg, frame("rc-4", "m-1"), newSeen(t), nil, "owner", &out)
 
 		if out.String() != "" {
 			t.Errorf("printed %q, want nothing — a stale payload costs one wasted GET, "+
@@ -1422,7 +1422,7 @@ func TestHandleReplyCard(t *testing.T) {
 		})
 		var out bytes.Buffer
 
-		handleReplyCard(client, cfg, frame("rc-5", "m-1"), newSeen(t), "", &out)
+		handleReplyCard(client, cfg, frame("rc-5", "m-1"), newSeen(t), nil, "", &out)
 
 		if out.String() != "" {
 			t.Errorf("printed %q, want nothing to wake on yet", out.String())
@@ -1433,7 +1433,7 @@ func TestHandleReplyCard(t *testing.T) {
 		client := newRoutedHTTP(nil)
 		var out bytes.Buffer
 
-		handleReplyCard(client, cfg, frame("rc-6", "m-1"), newSeen(t), "owner", &out)
+		handleReplyCard(client, cfg, frame("rc-6", "m-1"), newSeen(t), nil, "owner", &out)
 
 		want := "[ocagent] reply-card rc-6 changed but refetch failed (HTTP 404) — " +
 			"read it manually (get_reply_card).\n"
@@ -1446,11 +1446,48 @@ func TestHandleReplyCard(t *testing.T) {
 		client := newRoutedHTTP(nil)
 		var out bytes.Buffer
 
-		handleReplyCard(client, cfg, map[string]any{"topic": "reply_card"}, newSeen(t), "", &out)
-		handleReplyCard(client, cfg, frame("  ", "m-1"), newSeen(t), "", &out)
+		handleReplyCard(client, cfg, map[string]any{"topic": "reply_card"}, newSeen(t), nil, "", &out)
+		handleReplyCard(client, cfg, frame("  ", "m-1"), newSeen(t), nil, "", &out)
 
 		if out.String() != "" || client.asked != nil {
 			t.Errorf("printed %q and asked %v, want neither", out.String(), client.asked)
+		}
+	})
+
+	t.Run("on the socket route an answer is recorded only once its write succeeded", func(t *testing.T) {
+		client := newRoutedHTTP(map[string]string{
+			"/api/reply-cards/rc-1": `{"id":"rc-1","from":"m-1","status":"answered",` +
+				`"answered_ts":1700,"summary":"q1","answer":{"text":"改"}}`,
+		})
+		inbox := newInboxSocket(t, false)
+		for _, tc := range []struct {
+			name         string
+			socketPath   string
+			wantWritten  []string
+			wantRecorded bool
+		}{
+			{"written", inbox.path, []string{`{"type":"auth","token":"tok-0123456789abcdef"}` + "\n" +
+				`{"type":"user","from":"officraft","message":{"role":"user","content":"[ocagent] reply-card rc-1 answered: \"改\" | asked: q1 · by owner"}}` + "\n"}, true},
+			{"not written", filepath.Join(shortSocketDir(t), "gone.sock"), nil, false},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				inbox.mu.Lock()
+				inbox.got = nil
+				inbox.mu.Unlock()
+				w := newSocketWriter(messagingEnv(tc.socketPath), io.Discard)
+				stop := w.startPump()
+				seen := newSeen(t)
+
+				handleReplyCard(client, cfg, frame("rc-1", "m-1"), seen, w.ackGate(), "owner", w)
+				stop()
+
+				if got := inbox.written(); !reflect.DeepEqual(got, tc.wantWritten) {
+					t.Errorf("written =\n%q\nwant\n%q", got, tc.wantWritten)
+				}
+				if seen.has("rc-1", 1700) != tc.wantRecorded {
+					t.Errorf("recorded = %v, want %v", !tc.wantRecorded, tc.wantRecorded)
+				}
+			})
 		}
 	})
 }
@@ -1708,7 +1745,7 @@ func TestDrainReplyCards(t *testing.T) {
 		seen := loadReplyCardSeen(path)
 		var out bytes.Buffer
 
-		if n := drainReplyCards(client, cfg, seen, &out); n != 0 {
+		if n := drainReplyCards(client, cfg, seen, nil, &out); n != 0 {
 			t.Errorf("printed %d lines, want 0 on a brand-new agent home", n)
 		}
 		if out.String() != "" {
@@ -1734,7 +1771,7 @@ func TestDrainReplyCards(t *testing.T) {
 		seen := loadReplyCardSeen(path)
 		var out bytes.Buffer
 
-		if n := drainReplyCards(client, cfg, seen, &out); n != 3 {
+		if n := drainReplyCards(client, cfg, seen, nil, &out); n != 3 {
 			t.Errorf("printed %d lines, want 3", n)
 		}
 		want := "[ocagent] reply-card rc-1 answered: \"舊的\" | asked: q1\n" +
@@ -1765,11 +1802,37 @@ func TestDrainReplyCards(t *testing.T) {
 		}
 		var out bytes.Buffer
 
-		if n := drainReplyCards(client, cfg, loadReplyCardSeen(path), &out); n != 0 {
+		if n := drainReplyCards(client, cfg, loadReplyCardSeen(path), nil, &out); n != 0 {
 			t.Errorf("printed %d lines, want 0", n)
 		}
 		if out.String() != "" {
 			t.Errorf("printed %q, want nothing", out.String())
+		}
+	})
+
+	t.Run("on the socket route an outcome whose write failed stays unseen for the next drain", func(t *testing.T) {
+		client := newRoutedHTTP(map[string]string{
+			answeredPane: `[{"id":"rc-3","from":"m-1","answered_ts":1800,"summary":"q3",` +
+				`"answer":{"text":"第一次"}},` +
+				`{"id":"rc-1","from":"m-1","answered_ts":1700,"summary":"q1",` +
+				`"answer":{"text":"新的"}}]`,
+			expiredPane: `[{"id":"rc-2","from":"m-1","expired_ts":1900,"summary":"q2"}]`,
+		})
+		path := filepath.Join(t.TempDir(), "replycards-seen")
+		if err := os.WriteFile(path, []byte(`{"rc-1":1600,"rc-2":1900}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		w := newSocketWriter(messagingEnv(filepath.Join(shortSocketDir(t), "gone.sock")), io.Discard)
+		stop := w.startPump()
+
+		n := drainReplyCards(client, cfg, loadReplyCardSeen(path), w.ackGate(), w)
+		stop()
+
+		if n != 2 {
+			t.Errorf("printed %d lines, want 2", n)
+		}
+		if got, want := readFileString(t, path), `{"rc-1":1600,"rc-2":1900}`; got != want {
+			t.Errorf("state = %q, want %q — an undelivered outcome must not count as seen", got, want)
 		}
 	})
 
@@ -1786,7 +1849,7 @@ func TestDrainReplyCards(t *testing.T) {
 		}
 		var out bytes.Buffer
 
-		if n := drainReplyCards(client, cfg, loadReplyCardSeen(path), &out); n != 1 {
+		if n := drainReplyCards(client, cfg, loadReplyCardSeen(path), nil, &out); n != 1 {
 			t.Errorf("printed %d lines, want 1", n)
 		}
 		want := "[ocagent] reply-card rc-5 answered: \"走 A\" | asked: q5 | opened by m-2 about your task T-1\n"
@@ -1810,7 +1873,7 @@ func TestDrainReplyCards(t *testing.T) {
 		}
 		var out bytes.Buffer
 
-		if n := drainReplyCards(client, cfg, loadReplyCardSeen(path), &out); n != 0 {
+		if n := drainReplyCards(client, cfg, loadReplyCardSeen(path), nil, &out); n != 0 {
 			t.Errorf("printed %d lines, want 0", n)
 		}
 		if got := readFileString(t, path); got != `{}` {
@@ -1830,7 +1893,7 @@ func TestDrainReplyCards(t *testing.T) {
 		}
 		var out bytes.Buffer
 
-		if n := drainReplyCards(client, cfg, loadReplyCardSeen(path), &out); n != 0 {
+		if n := drainReplyCards(client, cfg, loadReplyCardSeen(path), nil, &out); n != 0 {
 			t.Errorf("printed %d lines, want 0", n)
 		}
 		if out.String() != "" {
@@ -1850,7 +1913,7 @@ func TestDrainReplyCards(t *testing.T) {
 		var out bytes.Buffer
 
 		if n := drainReplyCards(client, cfg,
-			loadReplyCardSeen(filepath.Join(t.TempDir(), "replycards-seen")), &out); n != 0 {
+			loadReplyCardSeen(filepath.Join(t.TempDir(), "replycards-seen")), nil, &out); n != 0 {
 			t.Errorf("printed %d lines, want 0", n)
 		}
 	})

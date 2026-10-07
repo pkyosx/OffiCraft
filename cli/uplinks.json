@@ -555,7 +555,7 @@
     {
       "id": "ocagent-run-2",
       "source": "cli/ocagent/listen_run.go",
-      "callsite": "handleReplyCard(l.api, l.cfg, frame, l.replySeen, trigger, l.out)",
+      "callsite": "handleReplyCard(l.api, l.cfg, frame, l.replySeen, l.replyCardAck, trigger, l.out)",
       "kind": "seam",
       "seam_reason": "hop: reply-card handling reaches the GET seam below it"
     },
@@ -569,9 +569,37 @@
     {
       "id": "ocagent-run-5",
       "source": "cli/ocagent/listen_run.go",
-      "callsite": "drainReplyCards(l.api, l.cfg, l.replySeen, l.out)",
+      "callsite": "drainReplyCards(l.api, l.cfg, l.replySeen, l.replyCardAck, l.out)",
       "kind": "seam",
       "seam_reason": "hop: drains reply cards, reaching the GET seam below it"
+    },
+    {
+      "id": "ocagent-listen-socket-dial",
+      "source": "cli/ocagent/listen_socket.go",
+      "callsite": "conn, err := net.DialTimeout(\"unix\", w.socketPath, w.timeout)",
+      "kind": "skip",
+      "skip_reason": "Dials the member's own Claude Code messaging socket (a local unix socket named by CLAUDE_CODE_MESSAGING_SOCKET), never the station: it writes the event text into the member's session and nothing reaches the server."
+    },
+    {
+      "id": "ocagent-listen-socket-write",
+      "source": "cli/ocagent/listen_socket.go",
+      "callsite": "err := w.writeToSession(payload)",
+      "kind": "skip",
+      "skip_reason": "Calls the messaging-socket write declared as ocagent-listen-socket-dial: a local unix socket into the member's own session, nothing reaches the server."
+    },
+    {
+      "id": "ocagent-listen-socket-deliver",
+      "source": "cli/ocagent/listen_socket.go",
+      "callsite": "if !w.deliverPayload(payload) {",
+      "kind": "skip",
+      "skip_reason": "Hop to the messaging-socket write (ocagent-listen-socket-dial); the payload goes into the member's own session, nothing reaches the server."
+    },
+    {
+      "id": "ocagent-listen-socket-pump",
+      "source": "cli/ocagent/listen_socket.go",
+      "callsite": "return w.deliveryQueue.start(w.flushToSession)",
+      "kind": "skip",
+      "skip_reason": "Hands the socket route's flush to the delivery pump as a value; what it reaches is the local messaging-socket write (ocagent-listen-socket-dial), nothing reaches the server."
     },
     {
       "id": "ocagent-run-6",

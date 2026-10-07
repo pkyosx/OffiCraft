@@ -876,7 +876,7 @@ func printChatLine(out io.Writer, m map[string]any, now float64) {
 // of the task the card is about — payload.from / payload.task_executor
 // pre-filter before the refetch. A 重新決定 revision bumps answered_ts, so the
 // seen dedup never swallows it.
-func handleReplyCard(client httpClient, cfg Config, frame map[string]any, seen *replyCardSeen, trigger string, out io.Writer) {
+func handleReplyCard(client httpClient, cfg Config, frame map[string]any, seen *replyCardSeen, gate *ackGate, trigger string, out io.Writer) {
 	data, _ := frame["data"].(map[string]any)
 	if data == nil {
 		return
@@ -912,7 +912,9 @@ func handleReplyCard(client httpClient, cfg Config, frame map[string]any, seen *
 			return
 		}
 		printReplyCardAnswered(out, id, card, about, trigger)
-		seen.record(id, ts)
+		if gate.confirm(out) {
+			seen.record(id, ts)
+		}
 	case replyCardExpired:
 		// expired_ts never collides with an answered_ts for the same card: a card
 		// expires only while waiting, so it never printed an answer.
@@ -921,7 +923,9 @@ func handleReplyCard(client httpClient, cfg Config, frame map[string]any, seen *
 			return
 		}
 		printReplyCardExpired(out, id, card, about, trigger)
-		seen.record(id, ts)
+		if gate.confirm(out) {
+			seen.record(id, ts)
+		}
 	default:
 		return
 	}
@@ -1103,7 +1107,7 @@ func (s *replyCardSeen) persist() {
 // server's 24h views (older outcomes: get_reply_card); rebuilding seen from them
 // prunes cards past that window. The first run (no state) prints nothing:
 // flooding a fresh session with stale history is worse than the lost window.
-func drainReplyCards(client httpClient, cfg Config, seen *replyCardSeen, out io.Writer) int {
+func drainReplyCards(client httpClient, cfg Config, seen *replyCardSeen, gate *ackGate, out io.Writer) int {
 	panes := []struct {
 		status string
 		tsKey  string
@@ -1127,6 +1131,7 @@ func drainReplyCards(client httpClient, cfg Config, seen *replyCardSeen, out io.
 	selfID := strings.ToLower(strings.TrimSpace(cfg.MemberID))
 	silent := !seen.primed
 	fresh := map[string]float64{}
+	var printed []string
 	n := 0
 	for i, p := range panes {
 		list := lists[i]
@@ -1142,9 +1147,19 @@ func drainReplyCards(client httpClient, cfg Config, seen *replyCardSeen, out io.
 			ts, _ := card[p.tsKey].(float64)
 			if !silent && !seen.has(id, ts) {
 				p.print(out, id, card, replyCardAboutYourTask(card, selfID), "")
+				printed = append(printed, id)
 				n++
 			}
 			fresh[id] = ts
+		}
+	}
+	if len(printed) > 0 && !gate.confirm(out) {
+		for _, id := range printed {
+			if ts, ok := seen.m[id]; ok {
+				fresh[id] = ts
+			} else {
+				delete(fresh, id)
+			}
 		}
 	}
 	seen.m = fresh

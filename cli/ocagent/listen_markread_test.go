@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -249,6 +250,59 @@ func TestDrainChatFilesReadReceipts(t *testing.T) {
 			t.Errorf("read receipts =\n  %q\nwant\n  %q — the unprinted self-sent row "+
 				"is still marked, or it comes back on every walk from here on",
 				bodies, wantBodies)
+		}
+	})
+
+	one := "[" + chatMessage("a1", "alice", now-90) + "]"
+	drainIntoSocket := func(t *testing.T, srv *markReadServer, env func(string) string) string {
+		t.Helper()
+		var diag lockedBuffer
+		w := newSocketWriter(env, &diag)
+		stop := w.startPump()
+		drainChat(srv.Client(), markReadCfg(srv.URL, t.TempDir()), w, &drainWarner{}, w.ackGate(), clock)
+		stop()
+		return diag.String()
+	}
+
+	t.Run("on the socket route a message written into the session is marked read", func(t *testing.T) {
+		srv := newMarkReadServer(t, one, 200)
+		inbox := newInboxSocket(t, false)
+
+		if diag := drainIntoSocket(t, srv, messagingEnv(inbox.path)); diag != "" {
+			t.Errorf("diag = %q, want nothing", diag)
+		}
+
+		wantWritten := []string{`{"type":"auth","token":"tok-0123456789abcdef"}` + "\n" +
+			`{"type":"user","from":"officraft","message":{"role":"user","content":"[ocagent] chat from alice (#a1, 1m ago): body-a1"}}` + "\n"}
+		if got := inbox.written(); !reflect.DeepEqual(got, wantWritten) {
+			t.Errorf("written =\n%q\nwant\n%q", got, wantWritten)
+		}
+		wantBodies := []string{fmt.Sprintf(`{"last_read_ts":%.0f,"peer":"alice"}`, now-90)}
+		if bodies := srv.receipts(); !reflect.DeepEqual(bodies, wantBodies) {
+			t.Errorf("read receipts = %q, want %q", bodies, wantBodies)
+		}
+	})
+
+	t.Run("on the socket route a message the session never got stays unread", func(t *testing.T) {
+		for _, tc := range []struct {
+			name string
+			env  func(string) string
+		}{
+			{"no socket file", messagingEnv(filepath.Join(shortSocketDir(t), "gone.sock"))},
+			{"no messaging variables", testEnv(nil)},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				srv := newMarkReadServer(t, one, 200)
+
+				diag := drainIntoSocket(t, srv, tc.env)
+
+				if bodies := srv.receipts(); len(bodies) != 0 {
+					t.Errorf("read receipts = %q, want none — the message would never be delivered again", bodies)
+				}
+				if !strings.HasPrefix(diag, "[ocagent] listen: 通知沒有送進成員的對話：") {
+					t.Errorf("diag = %q, want the undelivered line", diag)
+				}
+			})
 		}
 	})
 

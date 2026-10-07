@@ -53,10 +53,13 @@ type listener struct {
 	// Non-nil only under OC_LISTEN_ACK (the codex sidecar, the claude
 	// notification mod). nil ⇒ a printed line counts as delivered: the paste
 	// route, which must stay byte-for-byte as is.
-	ack       *ackGate
-	replySeen *replyCardSeen
-	taskSnaps map[string]taskSnap
-	once      bool
+	ack *ackGate
+	// Non-nil only on the socket route: a reply card is recorded seen once its
+	// write succeeded, so a failed one is surfaced again.
+	replyCardAck *ackGate
+	replySeen    *replyCardSeen
+	taskSnaps    map[string]taskSnap
+	once         bool
 }
 
 // Copy-twin of ocwarden newSSEClient.
@@ -235,7 +238,7 @@ func (l *listener) dispatch(payload []byte) {
 	case chatTopic:
 		l.drainChatNow()
 	case replyCardTopic:
-		handleReplyCard(l.api, l.cfg, frame, l.replySeen, trigger, l.out)
+		handleReplyCard(l.api, l.cfg, frame, l.replySeen, l.replyCardAck, trigger, l.out)
 	case taskTopic:
 		if l.taskSnaps == nil {
 			l.taskSnaps = map[string]taskSnap{}
@@ -351,7 +354,7 @@ func (l *listener) connectOnce(ctx context.Context) (opened, activity, selfExit 
 	l.logf(noticeConnected+" — streaming %s%s%s (⇒ online while held)%s%s%s",
 		l.cfg.Base, eventsPath, baseAddressOrigin(l.cfg), verdict, station, agent)
 
-	drainReplyCards(l.api, l.cfg, l.replySeen, l.out)
+	drainReplyCards(l.api, l.cfg, l.replySeen, l.replyCardAck, l.out)
 	l.drainChatNow()
 
 	onAct := func() { activity = true }
@@ -476,6 +479,12 @@ func runListen(cfg Config, env func(string) string, once bool, out io.Writer) in
 // its listener directly stayed green while the feature was gone.
 func newListener(cfg Config, env func(string) string, out io.Writer, once bool, stamper *eventStamper) *listener {
 	api := defaultHTTPClient()
+	ack := newAckGate(env, os.Stdin, os.Stderr)
+	var replyCardAck *ackGate
+	if sink := socketSinkOf(out); sink != nil {
+		ack = sink.ackGate()
+		replyCardAck = ack
+	}
 	return &listener{
 		stamper:           stamper,
 		cfg:               cfg,
@@ -496,7 +505,8 @@ func newListener(cfg Config, env func(string) string, out io.Writer, once bool, 
 		winddown:          newWindDownHook(api, cfg, out),
 		recycle:           newRecycleHook(api, cfg, out),
 		drainWarn:         &drainWarner{},
-		ack:               newAckGate(env, os.Stdin, os.Stderr),
+		ack:               ack,
+		replyCardAck:      replyCardAck,
 		replySeen:         loadReplyCardSeen(replyCardSeenPath(cfg)),
 		taskSnaps:         map[string]taskSnap{},
 		once:              once,

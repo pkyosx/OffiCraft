@@ -1502,6 +1502,7 @@ func TestCmdListen(t *testing.T) {
 			{"disabled acknowledgement gate", []string{"--deliver-codex"}, map[string]string{"OC_LISTEN_ACK": "0"}},
 			{"tmux route", []string{"--deliver-codex", "--deliver-tmux"}, map[string]string{"OC_LISTEN_ACK": "1"}},
 			{"mod route", []string{"--deliver-codex", "--deliver-mod"}, map[string]string{"OC_LISTEN_ACK": "1"}},
+			{"socket route", []string{"--deliver-codex", "--deliver-socket"}, map[string]string{"OC_LISTEN_ACK": "1"}},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
@@ -1522,6 +1523,98 @@ func TestCmdListen(t *testing.T) {
 			})
 		}
 	})
+	t.Run("--deliver-socket writes what the run prints into the session's socket", func(t *testing.T) {
+		inbox := newInboxSocket(t, false)
+		env := testEnv(map[string]string{"OC_SESSION": "member-m1",
+			messagingSocketEnv: inbox.path, messagingTokenEnv: testMessagingToken})
+		var out, errOut strings.Builder
+		start := func(_ Config, _ func(string) string, _ bool, sink io.Writer) int {
+			io.WriteString(sink, "[ocagent] listen: retrying in 4s\n")
+			io.WriteString(sink, "[ocagent] chat #c-9 from Owner: 看一下\n")
+			return 7
+		}
+
+		rc := cmdListen([]string{"--deliver-socket"}, Config{}, env, &out, &errOut, start, nil)
+
+		if rc != 7 {
+			t.Errorf("rc = %d, want the run's own answer 7", rc)
+		}
+		want := []string{`{"type":"auth","token":"tok-0123456789abcdef"}` + "\n" +
+			`{"type":"user","from":"officraft","message":{"role":"user","content":"[ocagent] chat #c-9 from Owner: 看一下"}}` + "\n"}
+		if got := inbox.written(); !reflect.DeepEqual(got, want) {
+			t.Errorf("written =\n%q\nwant\n%q", got, want)
+		}
+		if out.String() != "" {
+			t.Errorf("stdout = %q, want nothing", out.String())
+		}
+		if want := "[ocagent] listen: retrying in 4s\n"; errOut.String() != want {
+			t.Errorf("stderr = %q, want %q", errOut.String(), want)
+		}
+	})
+
+	t.Run("--deliver-socket without the messaging variables still runs and names them per undelivered payload", func(t *testing.T) {
+		var out, errOut strings.Builder
+		started := false
+		start := func(_ Config, _ func(string) string, _ bool, sink io.Writer) int {
+			started = true
+			io.WriteString(sink, "[ocagent] chat #c-9 from Owner: 看一下\n")
+			return 7
+		}
+
+		rc := cmdListen([]string{"--deliver-socket"}, Config{}, testEnv(map[string]string{"OC_SESSION": "member-m1"}),
+			&out, &errOut, start, nil)
+
+		if rc != 7 || !started {
+			t.Errorf("rc = %d, started = %v; want 7 and true — an exited listener looks like a dead member", rc, started)
+		}
+		want := "[ocagent] listen: 通知沒有送進成員的對話：收件管道環境變數不存在（CLAUDE_CODE_MESSAGING_SOCKET、" +
+			"CLAUDE_CODE_MESSAGING_TOKEN 沒有設定） —— 聊天與 reply-card 不算已讀，之後補送會再送一次\n"
+		if errOut.String() != want {
+			t.Errorf("stderr = %q, want %q", errOut.String(), want)
+		}
+		if out.String() != "" {
+			t.Errorf("stdout = %q, want nothing", out.String())
+		}
+	})
+
+	t.Run("--deliver-socket refuses a second route or a missing session before starting", func(t *testing.T) {
+		withSession := map[string]string{"OC_SESSION": "member-m1"}
+		for _, tc := range []struct {
+			name    string
+			argv    []string
+			env     map[string]string
+			refusal string
+		}{
+			{"mod route", []string{"--deliver-socket", "--deliver-mod"}, withSession,
+				"[ocagent] listen: --deliver-mod and --deliver-socket are two routes into the same member; " +
+					"pick one. Refusing to start.\n"},
+			{"tmux route", []string{"--deliver-socket", "--deliver-tmux"}, withSession,
+				"[ocagent] listen: --deliver-tmux and --deliver-socket are two routes into the same member; " +
+					"pick one. Refusing to start.\n"},
+			{"no session", []string{"--deliver-socket"}, nil,
+				"[ocagent] listen: --deliver-socket needs OC_SESSION (the session to deliver into, and the session " +
+					"this listener must die with); refusing to start.\n"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				var out, errOut strings.Builder
+				started := false
+				start := func(Config, func(string) string, bool, io.Writer) int { started = true; return 0 }
+
+				rc := cmdListen(tc.argv, Config{}, testEnv(tc.env), &out, &errOut, start, nil)
+
+				if rc != 2 || started {
+					t.Errorf("rc = %d, started = %v; want 2 and false", rc, started)
+				}
+				if errOut.String() != tc.refusal {
+					t.Errorf("stderr = %q, want %q", errOut.String(), tc.refusal)
+				}
+				if out.String() != "" {
+					t.Errorf("stdout = %q, want nothing", out.String())
+				}
+			})
+		}
+	})
+
 	t.Run("a mis-wired agent says so once, on a stamped line, and exits cleanly", func(t *testing.T) {
 		cases := []struct {
 			name string
@@ -1624,6 +1717,23 @@ func TestNewListener(t *testing.T) {
 		}
 		if l.ack == nil {
 			t.Error("ack = nil with OC_LISTEN_ACK=1")
+		}
+		if l.replyCardAck != nil {
+			t.Error("replyCardAck is wired outside the socket route — reply cards would wait on the sidecar or the mod")
+		}
+	})
+
+	t.Run("a socket sink answers the chat and reply-card gates itself", func(t *testing.T) {
+		sink := newSocketWriter(testEnv(nil), io.Discard)
+		out := &stampWriter{inner: sink, stamp: func() string { return "" }}
+
+		l := newListener(Config{MemberID: "kyle", AgentsRoot: t.TempDir()}, testEnv(nil), out, false, nil)
+
+		if l.ack == nil || l.ack.answers != (<-chan string)(sink.answers) {
+			t.Error("ack does not read the socket writer's own answers")
+		}
+		if l.replyCardAck != l.ack {
+			t.Error("replyCardAck is not the socket route's gate — a failed reply card would be recorded seen")
 		}
 	})
 }
