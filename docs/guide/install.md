@@ -165,10 +165,6 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 （從 GitHub Releases 下載、sha256 驗證後原地抽換重啟）；打開「自動更新」則在背景自動升級。
 「接收 Beta」= 也吃 GitHub prerelease。
 
-**升級正式站機器上的 Claude Code 之前，先在試用站驗一次。** 把試用站上一位 Claude 成員所在的機器升到新版本、
-重新喚醒那位成員（已在執行的成員繼續用舊版本），趁它正在工作時傳一則訊息、等它閒下來再傳一則，確認兩則都送進它的對話，
-再升級正式站的機器——Claude Code 收訊息的格式沒有公開文件，新版一旦改了格式，訊息會無聲地送不進去。
-
 ### 移除
 
 ```bash
