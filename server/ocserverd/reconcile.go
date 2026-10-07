@@ -1155,20 +1155,20 @@ func isStopgapRetryReason(reason string) bool {
 
 // stopgapRetryStampYields is the precedence rule both the staff and the worker op-blocked stamps
 // obey: a retry-loop wait (backoff / circuit_open) must not overwrite a diagnosis of the PREVIOUS
-// attempt (wake_timeout, a warden's not-logged-in refusal, or the worker-only never_collected).
+// attempt (wake_timeout, a warden's machine-setup refusal, or the worker-only never_collected).
 func stopgapRetryStampYields(prior, reason string) bool {
 	return isStopgapRetryReason(reason) &&
 		(strings.HasPrefix(prior, wakeTimeoutReasonCode+":") ||
 			strings.HasPrefix(prior, spawnReasonNeverCollected+":") ||
-			isWardenLoginRefusal(prior))
+			isWardenMachineSetupRefusal(prior))
 }
 
-// wakeTimeoutYieldsToReceipt: a start the warden refused as not logged in never came up for that
-// reason, and the owner reads it on 最近操作; the timeout that follows would replace it with a
+// wakeTimeoutYieldsToReceipt: a start the warden refused over the machine's setup never came up for
+// that reason, and the owner reads it on 最近操作; the timeout that follows would replace it with a
 // vaguer guess. Only a refusal of THIS start (written at or after startedAt) counts: an older one
 // left on the row says nothing about why this start lapsed.
 func wakeTimeoutYieldsToReceipt(lastOp, lastOpReason string, lastOpAt, startedAt float64) bool {
-	return lastOp == reconcileCmdStart && isWardenLoginRefusal(lastOpReason) &&
+	return lastOp == reconcileCmdStart && isWardenMachineSetupRefusal(lastOpReason) &&
 		startedAt > 0 && lastOpAt >= startedAt
 }
 
