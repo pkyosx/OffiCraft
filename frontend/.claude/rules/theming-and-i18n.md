@@ -6,6 +6,8 @@ paths:
   - "scripts/**"
   - "src/lib/theme*"
   - "src/lib/paint*"
+  - "src/lib/seasonal*"
+  - "seasonal-test-alias.ts"
   - "src/lib/imageCap*"
   - "src/components/ThemeSettings*"
   - "src/components/theme-settings.css"
@@ -17,13 +19,13 @@ paths:
   - "src/styles/**"
 ---
 
-# 首設與設定、i18n、主題包、用詞與 pre-paint
+# 首設與設定、i18n、主題包、用詞、應景主題與 pre-paint
 
 ## 首設與伺服器設定
 
 real mode 的 AuthGate：有 token 直接進 App；無 token 先打一次公開 auth/status，未設密碼進 FirstRunPage，已設密碼進 LoginPage。啟用碼可由 query 預填，set-password 成功後直接保存新 token，並以 history.replaceState 移除網址中的 code。網址帶 `?login=`（host 上 `ocserverd login-link` 印的一次性登入連結）時，掛載當下就移除它，並在 "checking" 兌換——已有 token 也照樣兌換（手機上殘留的舊 token 不可默默吞掉有效連結）：成功換上新 token 進 App；失敗時原本有 token 就保留它進 App、不顯示提示，沒有 token 才回登入牆並顯示失效提示（429 顯示節流訊息）。兌換一次頁面載入只送一次——碼是一次性的，StrictMode 重跑 effect 再送一次會把好連結變成拒絕。mock mode 不走這面牆。
 
-ProfileDropdown 的 preferences 內含主題、語言與 server settings；settings 經 getServerSettings/patchServerSettings 即時生效，載入失敗就不渲染設定區，不捏預設。settings 只帶「現在選哪一套主題」（display_theme），主題本身不在其中——見「主題編輯與清單」。密碼 set/change 不走會把 401 轉成登出的 typed client，而走 credentialPost；成功後換上 server 新 token。
+ProfileDropdown 的 preferences 內含主題、語言與 server settings；settings 經 getServerSettings/patchServerSettings 即時生效，載入失敗就不渲染設定區，不捏預設。settings 只帶「現在選哪一套主題」（display_theme）與是否顯示應景主題（display_seasonal_theme），主題本身不在其中——見「主題編輯與清單」。密碼 set/change 不走會把 401 轉成登出的 typed client，而走 credentialPost；成功後換上 server 新 token。
 
 ## i18n
 
@@ -51,6 +53,10 @@ wording 值逐字保存，只對「是否為空」做 trim 判斷；句子片段
 
 匯出主題時跳過仍是裸 alias 的 token，避免把內建跟隨值烘成固定值；alias 名單由 theme token generator 推導，不手抄。
 
+## 內建主題的來源
+
+內建主題（office、office-light）的顏色以 repo 根目錄 `themes/<id>.theme.json` 為唯一來源；`theme.css` 各內建區塊裡的 `--color-*` 宣告是 `scripts/gen-builtin-themes.mjs` 產生的，只改值、補缺、刪多餘，註解與非顏色的行（canvas、radius、font、color-scheme）照手寫保留。改顏色就改 JSON 再跑 `npm run gen:builtin-themes`、`npm run gen:tokens`；直接改 theme.css 的值會被 drift-builtin-themes 擋下。theme.css 仍是 token 白名單與各 lint 讀的那份文字，所以白名單照舊從它產生。office 以外的內建主題不可用 `var()`（gen-theme-tokens 會把它收成假的 alias），產生器會拒絕。內建主題檔不會被 seasonal 的 glob 打包成 chunk。
+
 ## 圖片與背景
 
 主題包的 backgrounds 只接受 canvas。圖片仍共用 PNG/JPEG/WEBP MIME、magic bytes 與嚴格 base64 驗證，SVG 永拒；topbar 等有文字的區域不可順手開背景圖。
@@ -65,4 +71,12 @@ pre-React 上色的三道守衛分工固定：記錄驗證、build artifact 形�
 
 stub server 的埠不可寫死：playwright-paint.config.ts 用 allocateFreePorts() 向 OS 要沒人用的埠，spec 端一律由 PAINT_GUARD_OK_URL／PAINT_GUARD_UNKNOWN_URL 讀回來，沒有預設值——預設值就是釘死的埠，兩份工作副本同時跑就會搶同一個。settingsStub.mjs 的 listen 失敗一定要自己講出失敗原因（埠被佔用就說埠被佔用、說它自己沒壞），否則 runner 只會印「web server 起不來」，跟 stub 本身壞掉長得一模一樣。
 
-注入案例要用 server 不認得任何主題的 stub，否則合法的 server theme 會偽裝成 pre-paint 洩漏。paint 記錄只在真的拿到 bundle 之後才寫；拿不到就不動它——用空值覆蓋等於自己清掉快取的畫面，下一次 pre-auth 載入就會閃。pre-paint 與 i18n 只能透過 api/auth 的 TOKEN_KEY 與 themePaint 的 LS_THEME、LS_THEME_PAINT 取儲存鍵，不可在 source 或探針硬寫 key。
+注入案例要用 server 不認得任何主題的 stub，否則合法的 server theme 會偽裝成 pre-paint 洩漏。paint 記錄只在真的拿到 bundle 之後才寫；拿不到就不動它——用空值覆蓋等於自己清掉快取的畫面，下一次 pre-auth 載入就會閃。pre-paint 與 i18n 只能透過 api/auth 的 TOKEN_KEY 與 themePaint 的 LS_THEME、LS_THEME_PAINT、LS_SEASONAL_THEME、LS_SEASONAL_PAINT 取儲存鍵，不可在 source 或探針硬寫 key。
+
+## 應景主題
+
+應景主題的檔案與時段是資料，放在 repo 根目錄 `themes/`（`seasonal-schedule.json` 與它指名的 `*.theme.json`）；TS 不寫日期或 id。時段以觀看者當地時間計，起點含、終點不含。時段重疊時，以 seasonal-schedule.json 裡排在前面的那一筆為準（owner 裁定）。畫面上的主題 = 時段內且 `display_seasonal_theme` 為 true 時是應景主題，否則是 display_theme；display_theme 從不被改寫，應景主題不進主題清單，server 也不接受它當 display_theme。邊界由排到下一個邊界的 timer 切換，不輪詢；頁面重新可見或取得焦點時也重讀時鐘（timer 不計睡眠時間）。應景主題檔載入失敗就在這次頁面期間一直顯示 display_theme，不重試、也不再經過應景路徑（瀏覽器對同一個 URL 的失敗 dynamic import 會快取，重試只會立刻再失敗；只有重新整理能恢復）；載入中則不顯示 display_theme 的自訂主題。應景主題的 id 在前端的 RESERVED_THEME_IDS 裡：新增與匯入的自訂主題不可用它；但 server 不保留它，所以已存在 server 上、用這個 id 的自訂主題仍可編輯儲存——驗證文法（validateThemeBundle／validateThemeBundleWith）只擋內建 id，應景主題自己的 paint 記錄也要經過它。
+
+`lib/seasonalSchedule.ts` 會被 pre-paint 的 esbuild 單獨打包，不可放 `import.meta.glob` 或其他 Vite 專屬語法（esbuild 把 `import.meta` 換成空物件，模組初始化就丟 TypeError；那發生在 prePaint 的 try/catch 之外，整段 pre-paint 不會執行）；theme 檔只經 `lib/seasonalTheme.ts` 的 lazy glob 載入，時段外不會被抓。應景主題有自己的 paint 記錄（`LS_SEASONAL_PAINT`），不寫進 `LS_THEME_PAINT`，所以時段結束時選定主題的快取還在；時段內 pre-paint 只畫應景記錄或什麼都不畫，時段外記錄被清掉。
+
+測試不可跟著真實日期變：vitest 與 CT 用 `seasonal-test-alias.ts` 把 schedule 換成空的，應景行為用明確的時段測；paint guard 跑的是帶真實 schedule 的 build，所以每支 spec 都先釘住 Date（`frameProbe.pinClock`）。不要改用 `page.clock`：它連 requestAnimationFrame 一起假造，取樣器會記到瀏覽器從沒畫出來的幀。

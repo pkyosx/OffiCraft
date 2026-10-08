@@ -712,6 +712,10 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		v := *body.DisplayWide
 		put(settingDisplayWide, strconv.FormatBool(v), func() { s.displayWide = v })
 	}
+	if body.DisplaySeasonalTheme != nil && *body.DisplaySeasonalTheme != s.displaySeasonalTheme {
+		v := *body.DisplaySeasonalTheme
+		put(settingDisplaySeasonalTheme, strconv.FormatBool(v), func() { s.displaySeasonalTheme = v })
+	}
 	if body.SuggestedRepliesReplyCard != nil {
 		put(settingSuggestedRepliesReplyCard, encodeSuggestedReplies(suggestedRepliesReplyCard),
 			func() { s.suggestedRepliesReplyCard = suggestedRepliesReplyCard })
@@ -810,6 +814,7 @@ func (s *apiServer) settingsView() settingsDTO {
 		DisplayTheme:                    s.displayTheme,
 		DisplayLanguage:                 s.displayLanguage,
 		DisplayWide:                     s.displayWide,
+		DisplaySeasonalTheme:            s.displaySeasonalTheme,
 		// Never null on the wire (spec types these as arrays); copied so no response
 		// shares a slice with the live snapshot.
 		SuggestedRepliesReplyCard:   append([]string{}, s.suggestedRepliesReplyCard...),

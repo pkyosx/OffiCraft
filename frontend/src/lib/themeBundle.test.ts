@@ -2,7 +2,19 @@
 // grammar in server/ocserverd/theme_bundle.go). The colour-value grammar is the
 // security boundary, so the illegal-value table is the load-bearing case.
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+
+vi.mock("./seasonalSchedule", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./seasonalSchedule")>()),
+  SEASONAL_SCHEDULE: [
+    {
+      id: "harvest-2030",
+      start: new Date(2030, 9, 24),
+      end: new Date(2030, 10, 1),
+      theme: "harvest-2030.theme.json",
+    },
+  ],
+}));
 import {
   isValidColorValue,
   isValidFontValue,
@@ -166,7 +178,9 @@ describe("validateThemeBundle", () => {
     // business now. The built-in's OWN name is what still cannot move: it comes
     // from the non-overridable themeIdentity subtree, so the shipped row keeps
     // saying 辦公室 whatever a pack calls itself. Only the NAME is free — the id
-    // stays reserved (RESERVED_THEME_IDS).
+    // stays reserved. A seasonal theme's id is not refused here: the server
+    // accepts it, so a theme already stored under it must stay editable; only
+    // an import refuses it (ThemeSettings).
     for (const name of ["辦公室", "Office", "office", "  OFFICE  ", " 辦公室 "]) {
       expect(validateThemeBundle({ ...ok, name }), name).toBeNull();
     }
@@ -175,6 +189,7 @@ describe("validateThemeBundle", () => {
         /is reserved for a built-in theme/
       );
     }
+    expect(validateThemeBundle({ ...ok, id: "harvest-2030", name: "Whatever" })).toBeNull();
   });
 
   it("accepts every legitimate name shape, including the new-theme default", () => {

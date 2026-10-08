@@ -990,6 +990,7 @@ export const zh = {
     themeImportLinkShareNote:
       "拿到這條連結的人都能看到這套主題（包含裡面的私人圖片）。連結不會過期，也無法單獨收回。",
     themeImportDup: "已經有同一套自訂主題",
+    themeImportSeasonalId: "這個 id 保留給內建的應景主題，請改掉主題的 id 再匯入",
     themeImportReadFailed: "讀取檔案失敗",
     themeLimitReached: "自訂主題數量已達上限",
     themeImportSkippedLead: "已匯入,但有",
@@ -1007,6 +1008,9 @@ export const zh = {
     layout: "版面",
     layoutNarrow: "窄版",
     layoutWide: "寬版",
+    seasonalTheme: "顯示應景主題",
+    seasonalThemeOn: "開",
+    seasonalThemeOff: "關",
     changePassword: "修改密碼",
     changePasswordSub: "登入這個主控台用的密碼",
     currentPasswordPlaceholder: "目前密碼",

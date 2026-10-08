@@ -31,10 +31,13 @@ import {
   frameCarrying,
   frameCarryingBeforeMount,
   installFrameSampler,
+  pinClockOutsideSeasonalWindows,
   seedSession,
   stubURL,
   summarize,
 } from "./frameProbe";
+
+test.beforeEach(({ page }) => pinClockOutsideSeasonalWindows(page));
 
 const TOKEN = "paint-guard-owner-token";
 

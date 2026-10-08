@@ -174,6 +174,29 @@ describe("ProfileDropdown · preferences scope", () => {
     fireEvent.click(utils.getByText(p.layoutNarrow));
     expect(document.documentElement.hasAttribute("data-layout")).toBe(false);
   });
+
+  it("offers the 顯示應景主題 control on by default, and saves each flip to the server", async () => {
+    setToken("owner-token");
+    const utils = await openPreferences();
+    expect(utils.getByText("顯示應景主題")).toBeTruthy();
+    const on = utils.getByText("開");
+    const off = utils.getByText("關");
+    expect(on.className).toBe("profile-dd__seg-btn profile-dd__seg-btn--active");
+    expect(off.className).toBe("profile-dd__seg-btn");
+
+    fireEvent.click(off);
+    expect(on.className).toBe("profile-dd__seg-btn");
+    expect(off.className).toBe("profile-dd__seg-btn profile-dd__seg-btn--active");
+    await waitFor(async () =>
+      expect((await api.getServerSettings()).displaySeasonalTheme).toBe(false)
+    );
+
+    fireEvent.click(on);
+    expect(on.className).toBe("profile-dd__seg-btn profile-dd__seg-btn--active");
+    await waitFor(async () =>
+      expect((await api.getServerSettings()).displaySeasonalTheme).toBe(true)
+    );
+  });
 });
 
 describe("ProfileDropdown · change password", () => {

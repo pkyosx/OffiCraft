@@ -2597,6 +2597,7 @@ export const httpApi: Api = {
       display_theme?: string;
       display_language?: string;
       display_wide?: boolean;
+      display_seasonal_theme?: boolean;
       onboarding_dismissed?: boolean;
     } = {};
     if (patch.ownerTokenTtl !== undefined)
@@ -2686,6 +2687,9 @@ export const httpApi: Api = {
     }
     if (patch.displayWide !== undefined) {
       body.display_wide = patch.displayWide;
+    }
+    if (patch.displaySeasonalTheme !== undefined) {
+      body.display_seasonal_theme = patch.displaySeasonalTheme;
     }
     if (patch.onboardingDismissed !== undefined) {
       body.onboarding_dismissed = patch.onboardingDismissed;

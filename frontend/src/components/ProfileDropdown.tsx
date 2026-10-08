@@ -39,7 +39,7 @@ type View = "main" | "preferences" | "password" | "notifications" | "mfa";
  * Profile menu that drops from the topbar profile pill.
  *  - main view: profile header (inline rename), Preferences row, Log out.
  *  - preferences view: Theme SELECTOR (辦公室 / custom) + Language
- *    (中文 / English) + Layout (窄版 / 寬版).
+ *    (中文 / English) + Layout (窄版 / 寬版) + Show seasonal theme (開 / 關).
  *  - account rows in the main view: notification email and password.
  *  - password view: current / new / repeat → POST /api/auth/change-password.
  *
@@ -70,6 +70,8 @@ export function ProfileDropdown({
     setLanguage,
     wide,
     setWide,
+    seasonalTheme,
+    setSeasonalTheme,
     resetPreferences, msg } = useI18n();
 
   const [view, setView] = useState<View>("main");
@@ -571,6 +573,30 @@ export function ProfileDropdown({
                 onClick={() => setWide(true)}
               >
                 {t.profile.layoutWide}
+              </button>
+            </div>
+          </div>
+
+          <div className="profile-dd__section">
+            <div className="profile-dd__section-label">{t.profile.seasonalTheme}</div>
+            <div className="profile-dd__seg">
+              <button
+                type="button"
+                className={`profile-dd__seg-btn${
+                  seasonalTheme ? " profile-dd__seg-btn--active" : ""
+                }`}
+                onClick={() => setSeasonalTheme(true)}
+              >
+                {t.profile.seasonalThemeOn}
+              </button>
+              <button
+                type="button"
+                className={`profile-dd__seg-btn${
+                  !seasonalTheme ? " profile-dd__seg-btn--active" : ""
+                }`}
+                onClick={() => setSeasonalTheme(false)}
+              >
+                {t.profile.seasonalThemeOff}
               </button>
             </div>
           </div>

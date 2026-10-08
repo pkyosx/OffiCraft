@@ -1272,6 +1272,10 @@ export interface ServerSettingsView {
    * centred column, the shipped default. Same dual-layer contract as
    * displayTheme, but a plain bool — there is no "never set" third state. */
   displayWide: boolean;
+  /** Whether the cockpit takes the built-in seasonal theme while its window is
+   * open; display_theme is never rewritten by it. Same dual-layer contract as
+   * displayWide; true is the shipped default. */
+  displaySeasonalTheme: boolean;
   /** The automatic first-run onboarding report (T-ba62), or null when
    * onboarding never ran on this server (an install predating it, or a
    * database that already had a password). This is how the cockpit can say
@@ -1401,6 +1405,8 @@ export interface ServerSettingsPatch {
   /** Turn the WIDE cockpit layout on/off (T-756f). Omit to leave it
    * unchanged — a plain bool, so there is nothing to "clear" it to. */
   displayWide?: boolean;
+  /** Turn the built-in seasonal theme on/off. Omit to leave it unchanged. */
+  displaySeasonalTheme?: boolean;
   /** Dismiss (true) or un-dismiss (false) the first-run onboarding banner
    * (T-0648) — it stamps / clears `dismissedAt` on the ONE onboarding report,
    * so 「不再顯示」 outlives the tab it was pressed in. 409 when there is no

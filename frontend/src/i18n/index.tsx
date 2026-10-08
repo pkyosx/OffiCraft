@@ -28,10 +28,14 @@ import {
 import {
   LS_THEME,
   LS_THEME_PAINT,
+  LS_SEASONAL_THEME,
+  LS_SEASONAL_PAINT,
   paintRecordFor,
   applyThemeToRoot,
   readValidatedPaint,
 } from "../lib/themePaint";
+import { activeSeasonalWindow, nextSeasonalBoundary } from "../lib/seasonalSchedule";
+import { SEASONAL_WINDOWS } from "../lib/seasonalTheme";
 import { applyWording } from "./wording";
 import { makeMessages, type Messages } from "./compose";
 
@@ -104,6 +108,21 @@ function readStoredWide(): boolean {
   return false;
 }
 
+// Same vocabulary as oc.wide, but true is the shipped default: only an explicit
+// "false" turns the seasonal theme off.
+function readStoredSeasonalTheme(): boolean {
+  try {
+    return localStorage.getItem(LS_SEASONAL_THEME) !== "false";
+  } catch {
+    // localStorage unavailable — fall through to the shipped default
+  }
+  return true;
+}
+
+// setTimeout fires at once for any delay above 2^31-1 ms (~24.8 days), so a
+// boundary further out is reached in steps.
+const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
+
 function writeStored(key: string, value: string | null) {
   try {
     if (value == null) localStorage.removeItem(key);
@@ -133,17 +152,23 @@ interface I18nContextValue {
    * centred column (the default). */
   wide: boolean;
   setWide: (next: boolean) => void;
-  /** The active custom theme's per-role avatar images (T-16a1 P5; T-ea81), or
-   * undefined when the active theme carries none (the built-in office, or a
+  /** display_seasonal_theme: whether the built-in seasonal theme replaces the
+   * active theme while its window is open. `theme` itself is never changed by
+   * it. */
+  seasonalTheme: boolean;
+  setSeasonalTheme: (next: boolean) => void;
+  /** The shown theme's per-role avatar images (T-16a1 P5; T-ea81) — the
+   * seasonal theme's inside its window, else the active custom theme's — or
+   * undefined when the shown theme carries none (the built-in office, or a
    * custom theme with no avatars overlay). The Avatar component reads this to
    * render a staff/outsource/owner/assistant avatar image, falling back to the
    * built-in glyph when absent. */
   activeAvatars?: Partial<Record<AvatarKind, string>>;
-  /** The active custom theme's studio logo image (T-ea81), or undefined when the
-   * active theme carries none — the top bar then renders its built-in mark. */
+  /** The shown theme's studio logo image (T-ea81), or undefined when the
+   * shown theme carries none — the top bar then renders its built-in mark. */
   activeLogo?: string;
-  /** The active custom theme's per-nav-tab icon images (T-ea81), or undefined
-   * when the active theme carries none — each tab then keeps its built-in icon. */
+  /** The shown theme's per-nav-tab icon images (T-ea81), or undefined
+   * when the shown theme carries none — each tab then keeps its built-in icon. */
   activeNavIcons?: Partial<Record<NavIconKey, string>>;
   /** The owner's saved themes as ONE LINE EACH — id and name, no colours and
    * no images (T-83ef). This is what the pickers render, and it is deliberately
@@ -184,6 +209,16 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   );
   const [theme, setThemeState] = useState<string>(() => readStoredTheme());
   const [wide, setWideState] = useState<boolean>(() => readStoredWide());
+  const [seasonalTheme, setSeasonalThemeState] = useState<boolean>(() =>
+    readStoredSeasonalTheme()
+  );
+  // Re-read at each window boundary (the timer below) and whenever the page is
+  // shown or focused again: a timer does not count time the machine slept.
+  const [clock, setClock] = useState(() => Date.now());
+  const [seasonalBundle, setSeasonalBundle] = useState<ThemeBundle | null>(null);
+  // ⚠️ No retry: browsers cache a failed dynamic import per URL, so importing
+  // the same chunk again rejects at once; only a reload can recover it.
+  const [seasonalLoadFailedId, setSeasonalLoadFailedId] = useState<string | null>(null);
   const [themeList, setThemeList] = useState<ThemeListItem[]>([]);
   const [activeThemeBundle, setActiveThemeBundle] = useState<ThemeBundle | null>(
     null
@@ -225,11 +260,27 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     [activeThemeBundle, theme]
   );
 
+  const openSeasonalWindow = useMemo(
+    () => activeSeasonalWindow(new Date(clock), SEASONAL_WINDOWS),
+    [clock]
+  );
+  const seasonalWindow =
+    seasonalTheme && openSeasonalWindow?.id !== seasonalLoadFailedId ? openSeasonalWindow : null;
+  // The theme on screen: the seasonal one while its window is open and the
+  // owner has not turned it off, otherwise the selected theme. Inside the window
+  // a bundle still in flight resolves to null, never to the selected theme's.
+  const shownTheme = seasonalWindow ? seasonalWindow.id : theme;
+  const shownBundle = seasonalWindow
+    ? seasonalBundle && seasonalBundle.id === seasonalWindow.id
+      ? seasonalBundle
+      : null
+    : bundleForTheme;
+
   const t = useMemo(() => {
     const base = DICTS[locale];
-    const overlay = bundleForTheme?.wording?.[language];
+    const overlay = shownBundle?.wording?.[language];
     return applyWording(base, overlay);
-  }, [locale, language, bundleForTheme]);
+  }, [locale, language, shownBundle]);
 
   // The composed parameterised messages ride the SAME memo inputs as `t` — a
   // wording overlay change re-composes them, so no message can serve stale
@@ -242,8 +293,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   // The built-in office theme carries none; a dangling active id resolves to
   // undefined (office glyph fallback — office never degrades).
   const activeAvatars = useMemo(
-    () => bundleForTheme?.avatars,
-    [bundleForTheme]
+    () => shownBundle?.avatars,
+    [shownBundle]
   );
 
   // The active custom theme's studio logo image + per-nav-tab icons (T-ea81).
@@ -251,13 +302,13 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   // icons), so they ride the context rather than the DOM. Absent → the built-in
   // logo mark / built-in nav icons (office never degrades).
   const activeLogo = useMemo(
-    () => bundleForTheme?.logo,
-    [bundleForTheme]
+    () => shownBundle?.logo,
+    [shownBundle]
   );
 
   const activeNavIcons = useMemo(
-    () => bundleForTheme?.navIcons,
-    [bundleForTheme]
+    () => shownBundle?.navIcons,
+    [shownBundle]
   );
 
   // The --color-* inline props applied for the current custom theme, remembered
@@ -277,13 +328,20 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     for (const tok of appliedTokensRef.current) root.style.removeProperty(tok);
     appliedTokensRef.current = [];
 
-    if (isBuiltinTheme(theme)) {
-      root.dataset.theme = theme;
+    if (isBuiltinTheme(shownTheme)) {
+      root.dataset.theme = shownTheme;
       return;
     }
     root.dataset.theme = "office";
-    if (bundleForTheme) {
-      appliedTokensRef.current = applyThemeToRoot(root, bundleForTheme);
+    if (shownBundle) {
+      appliedTokensRef.current = applyThemeToRoot(root, shownBundle);
+      return;
+    }
+    if (seasonalWindow) {
+      const cached = readValidatedPaint(LS_SEASONAL_PAINT);
+      if (cached && cached.id === seasonalWindow.id) {
+        appliedTokensRef.current = applyThemeToRoot(root, cached);
+      }
       return;
     }
     // [T-1500] the bundle is unresolved AND reconcile has not spoken: keep
@@ -296,7 +354,55 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         appliedTokensRef.current = applyThemeToRoot(root, cached);
       }
     }
-  }, [theme, bundleForTheme, themesLoaded]);
+  }, [theme, shownTheme, shownBundle, seasonalWindow, themesLoaded]);
+
+  useEffect(() => {
+    const next = nextSeasonalBoundary(new Date(clock), SEASONAL_WINDOWS);
+    if (!next) return;
+    const id = window.setTimeout(
+      () => setClock(Date.now()),
+      Math.min(next.getTime() - clock, MAX_TIMER_DELAY_MS)
+    );
+    return () => window.clearTimeout(id);
+  }, [clock]);
+
+  useEffect(() => {
+    const reread = () => {
+      if (document.visibilityState === "visible") setClock(Date.now());
+    };
+    document.addEventListener("visibilitychange", reread);
+    window.addEventListener("focus", reread);
+    return () => {
+      document.removeEventListener("visibilitychange", reread);
+      window.removeEventListener("focus", reread);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!seasonalWindow) return;
+    let current = true;
+    seasonalWindow
+      .load()
+      .then((b) => {
+        if (!current || b.id !== seasonalWindow.id) return;
+        setSeasonalBundle(b);
+        writeStored(LS_SEASONAL_PAINT, JSON.stringify(paintRecordFor(b)));
+      })
+      .catch((e) => {
+        console.warn("seasonal theme: load failed", e);
+        if (current) setSeasonalLoadFailedId(seasonalWindow.id);
+      });
+    return () => {
+      current = false;
+    };
+  }, [seasonalWindow]);
+
+  useEffect(() => {
+    if (!openSeasonalWindow) {
+      setSeasonalBundle(null);
+      writeStored(LS_SEASONAL_PAINT, null);
+    }
+  }, [openSeasonalWindow]);
 
   // Apply the layout width (T-756f). Narrow REMOVES the attribute rather than
   // writing data-layout="narrow": the default DOM then looks exactly as it did
@@ -396,6 +502,11 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     writeStored(LS_WIDE, next ? "true" : "false");
   }, []);
 
+  const cacheSeasonalTheme = useCallback((next: boolean) => {
+    setSeasonalThemeState(next);
+    writeStored(LS_SEASONAL_THEME, next ? "true" : "false");
+  }, []);
+
   // Public setters (owner edits from ProfileDropdown): apply locally at once
   // (instant, and the pre-auth cache for next load) AND push to the server so
   // the choice syncs to the owner's other devices. Server sync is best-effort:
@@ -462,6 +573,19 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       }
     },
     [cacheWide]
+  );
+
+  const setSeasonalTheme = useCallback(
+    (next: boolean) => {
+      cacheSeasonalTheme(next);
+      if (hasToken()) {
+        api
+          .patchServerSettings({ displaySeasonalTheme: next })
+          .then(adoptServerSettings)
+          .catch((e) => console.warn("setSeasonalTheme: server sync failed", e));
+      }
+    },
+    [cacheSeasonalTheme]
   );
 
   // [T-83ef] The whole-set write is GONE. It re-sent every theme, with every
@@ -548,6 +672,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         // server's bool is simply the truth. That is what lets the owner turn
         // wide OFF on one device and have the others follow.
         cacheWide(s.displayWide);
+        cacheSeasonalTheme(s.displaySeasonalTheme);
         // [T-1500] never leave a picture the server no longer recognises.
         // The active id AFTER this reconcile: the server's when selectable,
         // else the local one that survived above.
@@ -587,7 +712,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         });
       })
       .catch((e) => console.warn("i18n reconcile: load failed", e));
-  }, [cacheTheme, cacheLanguage, cacheWide, writePaint]);
+  }, [cacheTheme, cacheLanguage, cacheWide, cacheSeasonalTheme, writePaint]);
 
   useEffect(() => {
     // Reconcile now if a token already exists (a returning session / reload
@@ -609,12 +734,13 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     cacheTheme("office");
     writeStored(LS_THEME_PAINT, null);
     cacheWide(false);
+    cacheSeasonalTheme(true);
     // The themes are server-backed — clear only the LOCAL mirror so the next
     // owner's paint is not tinted; the server copy is untouched (re-adopted at
     // that owner's reconcile).
     setThemeList([]);
     setActiveThemeBundle(null);
-  }, [cacheLanguage, cacheTheme, cacheWide]);
+  }, [cacheLanguage, cacheTheme, cacheWide, cacheSeasonalTheme]);
 
   const value = useMemo<I18nContextValue>(
     () => ({
@@ -627,6 +753,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       setTheme,
       wide,
       setWide,
+      seasonalTheme,
+      setSeasonalTheme,
       activeAvatars,
       activeLogo,
       activeNavIcons,
@@ -647,6 +775,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       setTheme,
       wide,
       setWide,
+      seasonalTheme,
+      setSeasonalTheme,
       activeAvatars,
       activeLogo,
       activeNavIcons,

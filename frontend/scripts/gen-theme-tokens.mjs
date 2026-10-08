@@ -4,6 +4,8 @@
 //
 // styles/theme.css IS the token contract (the P1 lint already enforces that
 // every theme-surface colour flows through a --color-* token defined there).
+// Its built-in blocks' --color-* lines are themselves generated from
+// themes/<id>.theme.json by gen-builtin-themes.mjs, which runs first.
 // A user-imported / user-authored theme bundle is `{ "--color-x": "<value>" }`;
 // its KEY set must be exactly this file's --color-* names — never a hand-kept
 // second list that silently drifts. So we EXTRACT the names here (same regex

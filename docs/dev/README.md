@@ -21,6 +21,7 @@ cli/          Go 模組：ocwarden（push-executor）、ocagent（agent runtime�
 spec/         凍結的 wire 契約：openapi.json 是權威（動 wire 先改它）；mcp-catalog.json 是
               由 openapi.json 的 x-mcp 產生的 committed 生成物，不手改
 seeds/        語言中立 seed .md 資產（boot context；ocserverd runtime 直讀）
+themes/       內建主題的顏色來源與應景主題（*.theme.json、seasonal-schedule.json）；前端打包時讀入
 conformance/  語言無關黑箱套件：server wire 行為的可執行定義（HTTP-only 回歸權威）
 e2e_test/     Playwright 端到端（隔離 port，絕不碰 prod）
 bin/          維運指令：ocserver / ocwarden / serve / migrate / build / ci.sh / local-ci.sh …

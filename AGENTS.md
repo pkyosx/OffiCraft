@@ -63,7 +63,7 @@ This file is read by coding agents (Claude Code, Codex) working in this repo.
 - `cli/`：`ocagent` 與 `ocwarden` 的自更新工具；先讀 `cli/AGENTS.md`。
 - `frontend/`：React／Vite／TypeScript SPA；共通規則在 `frontend/AGENTS.md`，窄範圍規則在 `frontend/.claude/rules/`。
 - `conformance/`：HTTP-only、語言無關的 wire 行為回歸權威；`e2e_test/`：隔離環境的 Playwright 流程，絕不碰 production。
-- `spec/`：凍結 wire 契約；`seeds/`：runtime seed 資產；`bin/`／`Makefile`：可執行檢查與建置；`docs/`：較長的設計與操作說明。
+- `spec/`：凍結 wire 契約；`seeds/`：runtime seed 資產；`themes/`：內建與應景主題的主題檔和應景時段（前端資料）；`bin/`／`Makefile`：可執行檢查與建置；`docs/`：較長的設計與操作說明。
 
 ## 變更前自問
 

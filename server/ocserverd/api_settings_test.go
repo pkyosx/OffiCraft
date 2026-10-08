@@ -81,6 +81,7 @@ func apiTestShippedSettings() map[string]any {
 		"display_theme":                       "",
 		"display_language":                    "",
 		"display_wide":                        false,
+		"display_seasonal_theme":              true,
 		"suggested_replies_reply_card":        []any{},
 		"suggested_replies_task_message":      []any{},
 		"suggested_replies_lore_message":      []any{},
@@ -636,10 +637,10 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		apiWantBody(t, data, want)
 	})
 
-	t.Run("under a restart on the same database, the patched login, disk-usage and update-check intervals are still reported", func(t *testing.T) {
+	t.Run("under a restart on the same database, the patched login, disk-usage and update-check intervals and the seasonal-theme opt-out are still reported", func(t *testing.T) {
 		_, h, d, owner := newAPITestServer(t)
 		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner,
-			`{"runtime_login_check_interval_secs":600,"runtime_login_recheck_interval_secs":45,"disk_usage_interval_secs":600,"updater_check_interval_secs":60}`)
+			`{"runtime_login_check_interval_secs":600,"runtime_login_recheck_interval_secs":45,"disk_usage_interval_secs":600,"updater_check_interval_secs":60,"display_seasonal_theme":false}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -654,6 +655,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		want["runtime_login_recheck_interval_secs"] = 45
 		want["disk_usage_interval_secs"] = 600
 		want["updater_check_interval_secs"] = 60
+		want["display_seasonal_theme"] = false
 		apiWantBody(t, data, want)
 	})
 
@@ -669,6 +671,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 			"display_theme":"office-light",
 			"display_language":"en",
 			"display_wide":true,
+			"display_seasonal_theme":false,
 			"suggested_replies_reply_card":["  yes  ","","no"],
 			"suggested_replies_task_message":["on it"]
 		}`)
@@ -684,6 +687,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		want["display_theme"] = "office-light"
 		want["display_language"] = "en"
 		want["display_wide"] = true
+		want["display_seasonal_theme"] = false
 		want["suggested_replies_reply_card"] = []any{"yes", "no"}
 		want["suggested_replies_task_message"] = []any{"on it"}
 		apiWantBody(t, data, want)
@@ -998,14 +1002,16 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		apiWantError(t, data, "validation_error", "push_contact_email must be an email address like name@example.com")
 	})
 
-	t.Run("a display_theme nothing defines answers 422", func(t *testing.T) {
+	t.Run("a display_theme nothing defines, the frontend's built-in seasonal theme included, answers 422", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 
-		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"display_theme":"midnight"}`)
-		if status != 422 {
-			t.Fatalf("want 422, got %d (%v)", status, data)
+		for _, theme := range []string{"midnight", "halloween-2026"} {
+			status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"display_theme":"`+theme+`"}`)
+			if status != 422 {
+				t.Fatalf("%s: want 422, got %d (%v)", theme, status, data)
+			}
+			apiWantError(t, data, "validation_error", `display_theme must be "", office, office-light, or an existing custom theme id`)
 		}
-		apiWantError(t, data, "validation_error", `display_theme must be "", office, office-light, or an existing custom theme id`)
 	})
 
 	t.Run("a display_language outside the vocabulary answers 422", func(t *testing.T) {
@@ -1185,6 +1191,7 @@ func TestSettingsView(t *testing.T) {
 		PushContactEmail:                "",
 		DisplayTheme:                    "",
 		DisplayLanguage:                 "",
+		DisplaySeasonalTheme:            true,
 		SuggestedRepliesReplyCard:       []string{},
 		SuggestedRepliesTaskMessage:     []string{},
 		SuggestedRepliesLoreMessage:     []string{},

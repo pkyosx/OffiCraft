@@ -17,13 +17,14 @@
 // VITE_USE_MOCK=false because that is what ships (see bin/build).
 
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { gzipSync } from "node:zlib";
 import { beforeAll, describe, expect, it } from "vitest";
-import { LS_THEME, LS_THEME_PAINT } from "./themePaint";
+import { LS_SEASONAL_PAINT, LS_SEASONAL_THEME, LS_THEME, LS_THEME_PAINT } from "./themePaint";
 import { THEME_COLOR_TOKENS } from "../styles/themeTokens.generated";
 import { MESSAGE_KEYS } from "../i18n/messageKeys.generated";
+import { BUILTIN_THEME_IDS } from "./themeBundleCore";
 
 const FE_ROOT = resolve(__dirname, "../..");
 // A dedicated outDir: `dist/` belongs to the developer and to the gate-4c paint
@@ -96,12 +97,14 @@ describe("dist/index.html — the pre-paint script is present, FIRST, and comple
     expect(THEME_COLOR_TOKENS.length).toBeGreaterThan(20);
   });
 
-  it("E. both localStorage keys come from the module, not from a literal", () => {
+  it("E. every localStorage key comes from the module, not from a literal", () => {
     // Read the values FROM the module and look for them in the artifact: if
     // someone re-hardcodes a key in prePaint.ts and then changes the module's
     // value, the artifact stops carrying the new value and this goes red.
     expect(html).toContain(JSON.stringify(LS_THEME));
     expect(html).toContain(JSON.stringify(LS_THEME_PAINT));
+    expect(html).toContain(JSON.stringify(LS_SEASONAL_THEME));
+    expect(html).toContain(JSON.stringify(LS_SEASONAL_PAINT));
   });
 });
 
@@ -137,7 +140,7 @@ describe("no second source of truth for the theme storage keys", () => {
   // the values have already diverged (a two-step regression: re-hardcode, then
   // change the constant). This catches step one — the moment a literal is
   // reintroduced — which is while a reviewer can still act on it.
-  const THEME_KEY_LITERALS = /"(oc\.theme|oc\.themePaint)"/g;
+  const THEME_KEY_LITERALS = /"(oc\.theme|oc\.themePaint|oc\.seasonalTheme|oc\.seasonalPaint)"/g;
   const SOURCES = ["src/paint/prePaint.ts", "src/i18n/index.tsx"] as const;
 
   for (const rel of SOURCES) {
@@ -146,8 +149,46 @@ describe("no second source of truth for the theme storage keys", () => {
       const hits = [...src.matchAll(THEME_KEY_LITERALS)].map((m) => m[1]);
       expect(
         hits,
-        `hardcoded theme storage keys in ${rel} — import LS_THEME / LS_THEME_PAINT from lib/themePaint`
+        `hardcoded theme storage keys in ${rel} — import the LS_* keys from lib/themePaint`
       ).toEqual([]);
     });
   }
+});
+
+describe("dist/ — every seasonal theme file ships as its own lazily loaded chunk", () => {
+  const themesDir = resolve(FE_ROOT, "../themes");
+  const schedule = JSON.parse(
+    readFileSync(resolve(themesDir, "seasonal-schedule.json"), "utf8")
+  ) as { theme: string }[];
+  const assetsDir = resolve(FE_ROOT, OUT_DIR, "assets");
+
+  for (const { theme } of schedule) {
+    it(`${theme} is in no script the page loads up front, and in exactly one other chunk`, () => {
+      const bundle = JSON.parse(readFileSync(resolve(themesDir, theme), "utf8")) as {
+        backgrounds?: { canvas?: string };
+        avatars?: Record<string, string>;
+      };
+      const image = bundle.backgrounds?.canvas ?? Object.values(bundle.avatars ?? {})[0];
+      expect(image, `${theme} carries no image to recognise its chunk by`).toBeTruthy();
+      const needle = (image as string).slice(-64);
+
+      const entries = [...html.matchAll(/<script[^>]*\ssrc="\/assets\/([^"]+)"/g)].map((m) => m[1]);
+      expect(entries.length).toBeGreaterThan(0);
+      expect(html.includes(needle), "inlined into index.html").toBe(false);
+      const carriers = readdirSync(assetsDir).filter((f) =>
+        readFileSync(resolve(assetsDir, f), "utf8").includes(needle)
+      );
+      expect(carriers).toHaveLength(1);
+      expect(entries).not.toContain(carriers[0]);
+      const preloaded = [...html.matchAll(/<link[^>]*href="\/assets\/([^"]+)"/g)].map((m) => m[1]);
+      expect(preloaded).not.toContain(carriers[0]);
+    });
+  }
+
+  it("ships no chunk for a built-in theme's file — those reach the page through theme.css", () => {
+    const shipped = readdirSync(assetsDir);
+    for (const id of BUILTIN_THEME_IDS) {
+      expect(shipped.filter((f) => f.startsWith(`${id}.theme-`)), id).toEqual([]);
+    }
+  });
 });

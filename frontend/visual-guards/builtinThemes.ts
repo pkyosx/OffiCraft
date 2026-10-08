@@ -5,9 +5,9 @@
 import { expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { LS_THEME } from "../src/lib/themePaint";
-import { RESERVED_THEME_IDS, type BuiltinThemeId } from "../src/lib/themeBundleCore";
+import { BUILTIN_THEME_IDS, type BuiltinThemeId } from "../src/lib/themeBundleCore";
 
-export const BUILTIN_THEME_IDS: readonly BuiltinThemeId[] = RESERVED_THEME_IDS;
+export { BUILTIN_THEME_IDS };
 
 /** Each built-in's --color-bg, written out by hand so a block that loses its
  * own declaration cannot pass by inheriting office's. */

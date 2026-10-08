@@ -4,6 +4,18 @@
 // overlay editor round-trip.
 
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
+
+vi.mock("../lib/seasonalSchedule", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/seasonalSchedule")>()),
+  SEASONAL_SCHEDULE: [
+    {
+      id: "harvest-2000",
+      start: new Date(2000, 9, 24),
+      end: new Date(2000, 10, 1),
+      theme: "harvest-2000.theme.json",
+    },
+  ],
+}));
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -469,6 +481,26 @@ describe("ThemeSettings · colour editing", () => {
     await clickSave(utils);
 
     const b = await savedTheme("midnight");
+    expect(b?.colors["--color-accent"]).toBe("#ffffff");
+  });
+
+  it("saves an edit to a theme the server already stores under a seasonal theme's id", async () => {
+    setToken("owner-token");
+    await api.putTheme({
+      id: "harvest-2000",
+      name: "豐收",
+      colors: { "--color-accent": "#0b1020" },
+    });
+    const utils = await renderManage();
+    await utils.findByText("豐收");
+    await openEditor(utils, "豐收");
+    fireEvent.change(within(colourRow(utils, "主色")).getByLabelText("主色"), {
+      target: { value: "#ffffff" },
+    });
+    await clickSave(utils);
+
+    expect(utils.container.querySelector(".set-error")).toBeNull();
+    const b = await savedTheme("harvest-2000");
     expect(b?.colors["--color-accent"]).toBe("#ffffff");
   });
 });
@@ -1330,6 +1362,23 @@ describe("ThemeSettings · refusals that still stand", () => {
     const stored = await savedTheme("midnight");
     expect(stored.name).toBe("午夜藍");
     expect(stored.colors["--color-accent"]).toBe("#aa0011");
+  });
+
+  it("refuses an import whose id is a seasonal theme's, saying so — and stores nothing", async () => {
+    setToken("owner-token");
+    const utils = await renderManage();
+
+    await importBundle(utils, {
+      id: "harvest-2000",
+      name: "豐收",
+      colors: { "--color-accent": "#bb0022" },
+    });
+
+    expect(utils.container.querySelector(".set-error")?.textContent).toBe(
+      "這個 id 保留給內建的應景主題，請改掉主題的 id 再匯入"
+    );
+    expect(utils.getByLabelText(p.themeImportTitle)).toBeTruthy();
+    expect(await savedIds()).toEqual([]);
   });
 
   it("refuses an import once the saved set is at the cap", async () => {

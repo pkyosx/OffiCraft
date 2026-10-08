@@ -754,6 +754,12 @@ const MODULE_STATE = [
   },
   {
     file: "lib/themeBundleCore.ts",
+    name: "RESERVED_THEME_IDS",
+    verdict:
+      "the built-in and seasonal theme ids, fixed at build time and only ever asked `.includes(…)`; read-only, no room in it",
+  },
+  {
+    file: "lib/themeBundleCore.ts",
     name: "SAFE_FONT_STACK_SET",
     verdict:
       "the same, over SAFE_FONT_FAMILIES' stacks; the font-injection allowlist, read-only",

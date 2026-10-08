@@ -922,6 +922,7 @@ export const en: Dict = {
     themeImportLinkShareNote:
       "Anyone who has this link can see the theme, including any private images inside it. The link never expires and cannot be withdrawn on its own.",
     themeImportDup: "This custom theme already exists",
+    themeImportSeasonalId: "This id is reserved for a built-in seasonal theme. Change the theme's id and import again.",
     themeImportReadFailed: "Could not read that file",
     themeLimitReached: "You've reached the custom-theme limit",
     themeImportSkippedLead: "Imported, but",
@@ -939,6 +940,9 @@ export const en: Dict = {
     layout: "Layout",
     layoutNarrow: "Narrow",
     layoutWide: "Wide",
+    seasonalTheme: "Show seasonal theme",
+    seasonalThemeOn: "On",
+    seasonalThemeOff: "Off",
     changePassword: "Change password",
     changePasswordSub: "The password you sign in to this console with",
     currentPasswordPlaceholder: "Current password",

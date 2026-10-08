@@ -3597,6 +3597,9 @@ type SettingsDTO struct {
 	// DisplayLanguage The owner's cockpit language (T-0b41-p2). "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login as the cross-device source of truth.
 	DisplayLanguage *string `json:"display_language,omitempty"`
 
+	// DisplaySeasonalTheme Whether the cockpit takes the built-in seasonal theme while its window is open (a holiday theme shipped with the release, e.g. Halloween; its dates ship with it and are not configurable). true (the default) = show it; false = keep display_theme through the window. Outside every window this has no effect. Same dual-layer contract as display_wide.
+	DisplaySeasonalTheme *bool `json:"display_seasonal_theme,omitempty"`
+
 	// DisplayTheme The owner's cockpit visual theme (T-0b41-p2). "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login as the cross-device source of truth.
 	DisplayTheme *string `json:"display_theme,omitempty"`
 
@@ -3734,6 +3737,9 @@ type SettingsUpdateDTO struct {
 
 	// DisplayLanguage The owner's cockpit language (T-0b41-p2) — trimmed; "" clears it back to unset. Must be one of zh, en (or ""); anything else is a 422.
 	DisplayLanguage *string `json:"display_language,omitempty"`
+
+	// DisplaySeasonalTheme Turn the built-in seasonal theme on/off for the cockpit. A plain boolean with no unset state: omit the field to leave it unchanged.
+	DisplaySeasonalTheme *bool `json:"display_seasonal_theme,omitempty"`
 
 	// DisplayTheme The owner's cockpit visual theme (T-0b41-p2) — trimmed; "" clears it back to unset. Accepted values are "", a built-in theme id (`office` dark, `office-light` light), or the id of a theme that ALREADY EXISTS (T-83ef); anything else is a 422 reading `display_theme must be "", office, office-light, or an existing custom theme id`. The existence half is why this can no longer create a theme on the way past: themes are their own resource now, so save it with PUT /api/themes/{theme_id} first and select it here second.
 	DisplayTheme *string `json:"display_theme,omitempty"`
@@ -5839,6 +5845,7 @@ type ServerInterface interface {
 	// - `display_language`: The owner's cockpit language (T-0b41-p2) — trimmed; "" clears it back to unset. Must be one of zh, en (or ""); anything else is a 422.
 	// - `display_theme`: The owner's cockpit visual theme (T-0b41-p2) — trimmed; "" clears it back to unset. Must be "", a built-in theme id (office, office-light), or an existing custom theme id; anything else is a 422.
 	// - `display_wide`: Turn the WIDE cockpit layout on/off (T-756f) — true lifts the centred ~1040px content column (the side gutters stay), false restores it. A plain boolean with no unset state: omit the field to leave it unchanged.
+	// - `display_seasonal_theme`: Turn the built-in seasonal theme on/off for the cockpit. A plain boolean with no unset state: omit the field to leave it unchanged.
 	// - `handover_pct`: The SECOND offboard point: the FINAL notice, and where the automatic handover fires. 40..90, and strictly greater than notice_pct (the pair is validated together against the POST-patch values, so either one may be sent alone).
 	// - `notice_pct`: The FIRST offboard point (T-a9d6): the SOFT notice, where the agent is asked to work the offboard sequence and then call report_stopped itself. 1..89, and strictly below handover_pct.
 	// - `codex_notice_round`: The codex SOFT-notice compaction round (T-a9d6). 1..10, and strictly below codex_compaction_threshold.
