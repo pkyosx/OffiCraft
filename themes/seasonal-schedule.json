@@ -4,5 +4,11 @@
     "start": "2026-10-19T00:00",
     "end": "2026-11-01T00:00",
     "theme": "halloween-2026.theme.json"
+  },
+  {
+    "id": "national-day-2026",
+    "start": "2026-10-08T00:00",
+    "end": "2026-10-11T00:00",
+    "theme": "national-day-2026.theme.json"
   }
 ]
