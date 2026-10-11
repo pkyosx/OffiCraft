@@ -939,6 +939,8 @@ func isPreviewableAttachment(mime string) bool {
 
 // Every response carries CSP sandbox: an inline HTML or SVG blob must never
 // script on this origin, and on an image the header does not affect <img>.
+// The one exception is HTML opened by its share sig alone, which may script —
+// still in an opaque origin, and its URL holds nothing but a grant to itself.
 func (s *apiServer) HandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(w http.ResponseWriter, r *http.Request, attachmentId string) {
 	att, err := s.dal.GetChatAttachment(attachmentId)
 	if err != nil {
@@ -956,6 +958,22 @@ func (s *apiServer) HandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(w ht
 	mediaType := effectiveAttachmentMime(att.Mime, filename)
 	if _, _, err := mime.ParseMediaType(mediaType); err != nil {
 		mediaType = attachmentOctetStream
+	}
+	csp := "sandbox"
+	if attachmentMimeBase(mediaType) == "text/html" {
+		// A page that may script can read its own address: a ?token= there is
+		// the opener's whole login. Trade it for the sig before any byte loads.
+		if r.URL.Query().Get(authTokenQueryParam) != "" {
+			if sig := shareSigForRing(s.keys, attachmentId); sig != "" {
+				w.Header().Set("Cache-Control", "no-store")
+				w.Header().Set("Referrer-Policy", "no-referrer")
+				http.Redirect(w, r, "/api/chat/attachment/"+url.PathEscape(attachmentId)+"?sig="+sig, http.StatusFound)
+				return
+			}
+		} else if extractToken(r) == "" {
+			csp = "sandbox allow-scripts"
+			w.Header().Set("Referrer-Policy", "no-referrer")
+		}
 	}
 	name := filename
 	if name == "" {
@@ -980,7 +998,7 @@ func (s *apiServer) HandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(w ht
 	} else {
 		w.Header().Set("Content-Disposition", "attachment; "+dispSuffix)
 	}
-	w.Header().Set("Content-Security-Policy", "sandbox")
+	w.Header().Set("Content-Security-Policy", csp)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Type", mediaType)
 	w.WriteHeader(http.StatusOK)

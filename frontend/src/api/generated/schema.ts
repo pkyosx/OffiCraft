@@ -631,6 +631,16 @@ export interface paths {
          *     renders visually, but script execution and same-origin reach are disabled.
          *     The header has no effect on an image embedded through ``<img>``.
          *
+         *     HTML BY SIG MAY SCRIPT: a ``text/html`` blob requested with ``?token=`` is
+         *     answered ``302`` to the same path carrying only its ``?sig=`` (``Cache-Control:
+         *     no-store``, ``Referrer-Policy: no-referrer``) — a page that may script can read
+         *     its own address, and a ``?token=`` there is the opener's whole login. The same
+         *     blob requested by ``?sig=`` alone is served ``Content-Security-Policy: sandbox
+         *     allow-scripts`` with ``Referrer-Policy: no-referrer``: its script runs in an
+         *     opaque origin with no reach into this one. Requested with an Authorization
+         *     header it keeps plain ``sandbox``. Every other type keeps plain ``sandbox``
+         *     under every credential.
+         *
          *     SHARE-SIG (third credential, this route ONLY — precedence Authorization
          *     header → ``?token=`` → ``?sig=``): when the request carries NO bearer
          *     credential at all, a ``?sig=`` query param is accepted instead — an

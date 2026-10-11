@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"regexp"
 	"sort"
@@ -2157,6 +2158,79 @@ func TestHandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(t *testing.T) {
 			}
 		}
 		dashboard.wantFrames()
+	})
+
+	t.Run("an HTML blob opened with the login in its address is moved to a sig-only address that may script", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		page := "<script>document.title=1</script>"
+		_, uploaded := apiJSON(t, h, "POST", "/api/chat/attachments?filename=game.html", owner, page)
+		id := uploaded["id"].(string)
+
+		rec := apiRequest(t, h, "GET", "/api/chat/attachment/"+id+"?token="+url.QueryEscape(owner), "", "")
+		if rec.Code != http.StatusFound {
+			t.Fatalf("want 302, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		loc := rec.Header().Get("Location")
+		prefix := "/api/chat/attachment/" + id + "?sig="
+		if !strings.HasPrefix(loc, prefix) || len(loc) == len(prefix) || strings.Contains(loc, owner) {
+			t.Fatalf("Location: want %q followed by a sig and no login, got %q", prefix, loc)
+		}
+		apiWantHeaders(t, rec, map[string]string{
+			"Cache-Control":   "no-store",
+			"Referrer-Policy": "no-referrer",
+		})
+
+		rec = apiRequest(t, h, "GET", loc, "", "")
+		if rec.Code != 200 {
+			t.Fatalf("follow: want 200, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		apiWantHeaders(t, rec, map[string]string{
+			"Content-Type":            "text/html",
+			"Content-Disposition":     `inline; filename="game.html"; filename*=UTF-8''game.html`,
+			"Content-Security-Policy": "sandbox allow-scripts",
+			"Referrer-Policy":         "no-referrer",
+			"X-Content-Type-Options":  "nosniff",
+		})
+		if rec.Body.String() != page {
+			t.Fatalf("body: got %q", rec.Body.String())
+		}
+	})
+
+	t.Run("an HTML blob fetched with the login in a header stays fully sandboxed", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		_, uploaded := apiJSON(t, h, "POST", "/api/chat/attachments?filename=game.html", owner, "<script>1</script>")
+
+		rec := apiRequest(t, h, "GET", "/api/chat/attachment/"+uploaded["id"].(string), owner, "")
+		if rec.Code != 200 {
+			t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		apiWantHeaders(t, rec, map[string]string{
+			"Content-Disposition":     `inline; filename="game.html"; filename*=UTF-8''game.html`,
+			"Content-Security-Policy": "sandbox",
+			"X-Content-Type-Options":  "nosniff",
+		})
+	})
+
+	t.Run("a non-HTML blob keeps the full sandbox under either credential", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		_, uploaded := apiJSON(t, h, "POST", "/api/chat/attachments?filename=icon.svg", owner, "<svg/>")
+		id := uploaded["id"].(string)
+		_, minted := apiJSON(t, h, "GET", "/api/chat/attachments/"+id+"/share-link", owner, "")
+
+		for _, target := range []string{
+			"/api/chat/attachment/" + id + "?token=" + url.QueryEscape(owner),
+			minted["url"].(string),
+		} {
+			rec := apiRequest(t, h, "GET", target, "", "")
+			if rec.Code != 200 {
+				t.Fatalf("%s: want 200, got %d (%s)", target, rec.Code, rec.Body.String())
+			}
+			apiWantHeaders(t, rec, map[string]string{
+				"Content-Disposition":     `inline; filename="icon.svg"; filename*=UTF-8''icon.svg`,
+				"Content-Security-Policy": "sandbox",
+				"X-Content-Type-Options":  "nosniff",
+			})
+		}
 	})
 
 	t.Run("image bytes uploaded without a name download as octet-stream under the attachment id", func(t *testing.T) {
