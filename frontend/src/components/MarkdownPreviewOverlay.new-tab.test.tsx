@@ -1,21 +1,20 @@
 // T-36 — 「在新頁面顯示」 on the attachment preview overlay.
 //
 // The owner's request, verbatim: 「html 應該要可以點開以後 popup new window 顯示
-// 不然我都要複製以後找新的頁面貼很麻煩」. The approved shape (card rc-d645ba36503d,
-// option 0): add the button, leave the server's sandbox exactly as it is, and
-// say on screen that what opens there will not react to clicks.
+// 不然我都要複製以後找新的頁面貼很麻煩」 (card rc-d645ba36503d).
 //
-// THREE THINGS ARE PINNED HERE, and each is a separate mutant:
-//   1. the button exists at all, opens the SHARE link, target=_blank + noopener;
-//   2. the plain-words note is on screen beside it, in zh AND en;
-//   3. it appears ONLY where the browser would DISPLAY the file — never on one
+// TWO THINGS ARE PINNED HERE, and each is a separate mutant:
+//   1. the button exists at all, opens the SHARE link, target=_blank + noopener
+//      — an HTML page opened there may script (T-392), so a ?token= in its
+//      address would hand it the owner's login;
+//   2. it appears ONLY where the browser would DISPLAY the file — never on one
 //      it would download, where the button would be a lie.
 //
 // The overlay PORTALS to document.body (T-76cd), so every reach goes through
 // `document.body` / `screen`, never the render() container.
 
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, waitFor, screen } from "@testing-library/react";
+import { render, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { api } from "../api";
 import {
@@ -26,7 +25,6 @@ import { zh } from "../i18n/locales/zh";
 import { en } from "../i18n/locales/en";
 
 const NEW_TAB = "a.md-preview__new-tab";
-const NOTE = ".md-preview__new-tab-note";
 
 function mountOverlay(mime: string, title = "mock.html") {
   return render(
@@ -110,55 +108,19 @@ describe("MarkdownPreviewOverlay — 在新頁面顯示 (T-36)", () => {
     expect(a.getAttribute("aria-label")).toBe(zh.chat.mdPreview.openInNewTab);
   });
 
-  it("shows the plain-words note beside the button — and it names no internal jargon", async () => {
-    vi.spyOn(api, "getChatAttachmentShareLink").mockResolvedValue(
-      "/api/chat/attachment/att-36?sig=test-sig",
-    );
-    globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "" })) as unknown as typeof fetch;
-
-    mountOverlay("text/html");
-
-    await waitFor(() =>
-      expect(
-        document.body.querySelector(NOTE) === null
-          ? "T-36 REGRESSION: the note (.md-preview__new-tab-note) telling the " +
-            "reader that the new tab does not react to clicks is missing — the " +
-            "owner asked for that sentence to be ON SCREEN (「我會在畫面上講一句」)"
-          : "present",
-      ).toBe("present"),
-    );
-    const note = document.body.querySelector(NOTE)!;
-    expect(note.textContent).toBe(zh.chat.mdPreview.newTabStaticNote);
-    expect(screen.getByText(zh.chat.mdPreview.newTabStaticNote)).toBeTruthy();
-    // 🔴 Plain words only. The owner cannot read internal nouns and said so.
-    for (const banned of ["CSP", "sandbox", "沙箱", "origin", "script", "JavaScript", "JS"]) {
-      expect(
-        `${banned} in zh note: ${zh.chat.mdPreview.newTabStaticNote.includes(banned)}`,
-      ).toBe(`${banned} in zh note: false`);
-      expect(
-        `${banned} in en note: ${en.chat.mdPreview.newTabStaticNote.toLowerCase().includes(banned.toLowerCase())}`,
-      ).toBe(`${banned} in en note: false`);
-    }
-  });
-
-  it("ships BOTH locales for the button and the note", () => {
+  it("ships BOTH locales for the button", () => {
     for (const [name, bundle] of [["zh", zh], ["en", en]] as const) {
       expect(`${name}.openInNewTab=${typeof bundle.chat.mdPreview.openInNewTab}`).toBe(
         `${name}.openInNewTab=string`,
       );
-      expect(`${name}.newTabStaticNote=${typeof bundle.chat.mdPreview.newTabStaticNote}`).toBe(
-        `${name}.newTabStaticNote=string`,
-      );
       expect(bundle.chat.mdPreview.openInNewTab.length).toBeGreaterThan(0);
-      expect(bundle.chat.mdPreview.newTabStaticNote.length).toBeGreaterThan(0);
     }
-    expect(zh.chat.mdPreview.newTabStaticNote).not.toBe(en.chat.mdPreview.newTabStaticNote);
   });
 
   it.each([
     ["application/zip", "bundle.zip"],
     ["application/octet-stream", "report.pdf"],
-  ])("offers NEITHER button nor note on a %s attachment the browser downloads", async (mime, title) => {
+  ])("offers no button on a %s attachment the browser downloads", async (mime, title) => {
     const mint = vi
       .spyOn(api, "getChatAttachmentShareLink")
       .mockResolvedValue("/api/chat/attachment/att-36?sig=test-sig");
@@ -179,12 +141,6 @@ describe("MarkdownPreviewOverlay — 在新頁面顯示 (T-36)", () => {
           "the server's isPreviewableAttachment rule."
         : "absent",
     ).toBe("absent");
-    expect(
-      document.body.querySelector(NOTE) !== null
-        ? `T-36 REGRESSION: the new-tab note is on screen for ${mime}, ` +
-          "where there is no new-tab button for it to describe"
-        : "absent",
-    ).toBe("absent");
     // And no link was even minted for a file that cannot use one.
     expect(mint).not.toHaveBeenCalled();
   });
@@ -201,6 +157,5 @@ describe("MarkdownPreviewOverlay — 在新頁面顯示 (T-36)", () => {
       expect(vi.mocked(console.warn).mock.calls.length).toBeGreaterThan(0),
     );
     expect(document.body.querySelector(NEW_TAB)).toBeNull();
-    expect(document.body.querySelector(NOTE)).toBeNull();
   });
 });

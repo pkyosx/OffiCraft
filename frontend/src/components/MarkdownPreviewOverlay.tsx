@@ -249,16 +249,6 @@ export function MarkdownPreviewOverlay({
   // tab of its own, and that is the whole request.
   const inlineInBrowser =
     attachmentId !== undefined && isInlineDisplayableMime(mime ?? "text/markdown");
-  // T-36 (B2) — WHICH files deserve the plain-words note? ONLY the ones that
-  // look like they should answer a click. An .html page carries buttons and
-  // input boxes that will sit dead in the new tab, and the reader has to be
-  // told before they try one. A screenshot, a PDF or a .txt has no controls to
-  // be disappointed by, so the same sentence there says nothing true about what
-  // is on screen — and image preview is the HIGHEST-TRAFFIC use of this
-  // overlay, where the line would push every pasted screenshot down for
-  // nothing. The note therefore rides `looksInteractiveInNewTab`, NOT the
-  // button's own condition.
-  const interactiveLooking = looksInteractiveInNewTab(mime ?? "text/markdown", typeName);
   const plainText = previewableText && !isMarkdownAttachment(mime ?? "text/markdown", typeName);
   // JSON rides the SAME <pre> as .txt/.log — one plain-text surface, not a
   // second renderer. All that is added is the indenting, and the one line that
@@ -841,22 +831,6 @@ export function MarkdownPreviewOverlay({
             </button>
           </div>
         </div>
-        {/* 🔴 SAY IT IN PLAIN WORDS, and say it BEFORE the click, on the same
-          * screen as the button that causes it. What the new tab serves is
-          * locked down so nothing on it can run — good, and also the reason a
-          * design mockup opened there will not answer a single click. The owner
-          * asked for that to be said on screen rather than discovered
-          * (「需要 JS 的設計稿會不會動，我會在畫面上講一句」). The sentence names
-          * what the reader will SEE — buttons and boxes that do nothing — and
-          * never the mechanism behind it: this line is read by someone who does
-          * not write code.
-          *
-          * 🔴 It rides the button's condition AND `looksInteractiveInNewTab`.
-          * It used to ride the button's condition alone, and that put it on
-          * every screenshot and every PDF — a PNG has no buttons and no input
-          * boxes, so the sentence was untrue there and cost the most common
-          * preview in the cockpit a line of height. The sentence is only ever
-          * worth saying about a file that LOOKS like it should react. */}
         {/* T-51 ① — the two chevrons ride the PANEL's edges rather than the
           * header, for two reasons that are not taste: the header at 390px is
           * already carrying a filename plus four controls, and an edge chevron
@@ -887,11 +861,6 @@ export function MarkdownPreviewOverlay({
               <ChevronRightIcon size={20} />
             </button>
           </>
-        )}
-        {shareHref !== null && interactiveLooking && (
-          <div className="md-preview__new-tab-note">
-            {t.chat.mdPreview.newTabStaticNote}
-          </div>
         )}
         <div className="md-preview__body">
           {image && imageBytes !== undefined ? (
@@ -1050,25 +1019,6 @@ export function isInlineDisplayableMime(mime: string): boolean {
     baseMime.startsWith("text/") ||
     baseMime === "application/pdf" ||
     baseMime === "application/json"
-  );
-}
-
-/** T-36 (B2) — does this attachment LOOK interactive once it is opened in a
- * tab of its own? Only then is the plain-words note worth saying.
- *
- * NARROWER than `isInlineDisplayableMime` on purpose, and it is not the same
- * question. That one asks "will the browser show this rather than download
- * it?" — the button's gate. This one asks "will the reader expect the thing on
- * screen to answer a click?", which is true of an .html page (buttons, input
- * boxes, a design mockup) and false of a screenshot, a PDF or a .txt. Saying
- * 「上面的按鈕和輸入格不會有反應」 over a PNG describes controls that are not
- * there, on the busiest preview surface in the cockpit. */
-export function looksInteractiveInNewTab(mime: string, filename: string): boolean {
-  const base = mime.split(";")[0]!.trim().toLowerCase();
-  return (
-    base === "text/html" ||
-    base === "application/xhtml+xml" ||
-    /\.(html?|xhtml)$/i.test(filename)
   );
 }
 

@@ -65,7 +65,6 @@ export const MESSAGE_KEYS: readonly string[] = [
   "chat.mdPreview.error",
   "chat.mdPreview.jsonUnparseable",
   "chat.mdPreview.loading",
-  "chat.mdPreview.newTabStaticNote",
   "chat.mdPreview.next",
   "chat.mdPreview.openInNewTab",
   "chat.mdPreview.pan",
