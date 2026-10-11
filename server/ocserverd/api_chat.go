@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -140,6 +141,11 @@ func effectiveAttachmentMime(stored, filename string) string {
 func isImageMime(mime string) bool {
 	return strings.HasPrefix(mime, "image/")
 }
+
+// A ref id becomes a URL path segment that the client appends ?token= to; one
+// carrying "?", "#", "&" or "/" (e.g. "<id>?sig=<sig>#") would put the owner's
+// login in the address of a page that may script.
+var attachmentIDShape = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 func attachmentMimeBase(mimeType string) string {
 	return strings.ToLower(strings.TrimSpace(strings.SplitN(mimeType, ";", 2)[0]))
@@ -939,6 +945,8 @@ func isPreviewableAttachment(mime string) bool {
 
 // Every response carries CSP sandbox: an inline HTML or SVG blob must never
 // script on this origin, and on an image the header does not affect <img>.
+// The one exception is HTML opened by its share sig alone, which may script —
+// still in an opaque origin, and its URL holds nothing but a grant to itself.
 func (s *apiServer) HandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(w http.ResponseWriter, r *http.Request, attachmentId string) {
 	att, err := s.dal.GetChatAttachment(attachmentId)
 	if err != nil {
@@ -956,6 +964,24 @@ func (s *apiServer) HandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(w ht
 	mediaType := effectiveAttachmentMime(att.Mime, filename)
 	if _, _, err := mime.ParseMediaType(mediaType); err != nil {
 		mediaType = attachmentOctetStream
+	}
+	csp := "sandbox"
+	if attachmentMimeBase(mediaType) == "text/html" {
+		// A page that may script can read its own address: a ?token= there is
+		// the opener's whole login. Trade it for the sig before any byte loads.
+		// Any token key counts, empty or repeated — only the first is ever read.
+		q := r.URL.Query()
+		if _, carriesToken := q[authTokenQueryParam]; carriesToken {
+			if sig := shareSigForRing(s.keys, attachmentId); sig != "" {
+				w.Header().Set("Cache-Control", "no-store")
+				w.Header().Set("Referrer-Policy", "no-referrer")
+				http.Redirect(w, r, "/api/chat/attachment/"+url.PathEscape(attachmentId)+"?sig="+sig, http.StatusFound)
+				return
+			}
+		} else if extractToken(r) == "" && len(q) == 1 && len(q["sig"]) == 1 {
+			csp = "sandbox allow-scripts"
+			w.Header().Set("Referrer-Policy", "no-referrer")
+		}
 	}
 	name := filename
 	if name == "" {
@@ -980,7 +1006,7 @@ func (s *apiServer) HandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(w ht
 	} else {
 		w.Header().Set("Content-Disposition", "attachment; "+dispSuffix)
 	}
-	w.Header().Set("Content-Security-Policy", "sandbox")
+	w.Header().Set("Content-Security-Policy", csp)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Type", mediaType)
 	w.WriteHeader(http.StatusOK)
@@ -1028,6 +1054,9 @@ func (s *apiServer) HandleListChatAttachmentsApiChatAttachmentsGet(w http.Respon
 	// and triggers drop id-less refs.
 	entries := []chatGalleryEntryDTO{}
 	for _, r := range refs {
+		if !attachmentIDShape.MatchString(r.AttachmentID) {
+			continue
+		}
 		mime := effectiveAttachmentMime(r.Mime, r.Filename)
 		entries = append(entries, chatGalleryEntryDTO{
 			ID:        r.AttachmentID,

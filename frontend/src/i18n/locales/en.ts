@@ -1170,12 +1170,8 @@ export const en: Dict = {
       unavailableOpenInNewTab:
         "This file cannot be previewed here. Use “Open in a new tab” above.",
       // T-36 — open the attachment in a tab of its own (the share link), for
-      // files the browser shows rather than downloads. The note beside it is
-      // deliberately in plain words: it describes what the reader will SEE, not
-      // the mechanism behind it.
+      // files the browser shows rather than downloads.
       openInNewTab: "Open in a new tab",
-      newTabStaticNote:
-        "The new tab only shows the file as it is — buttons and boxes on it will not respond.",
       // T-51 ① — the two paging chevrons. They are the ONLY control for a
       // zoomed image or a text file, where the arrow keys stay with the pan and
       // the scroll, so the accessible name has to stand on its own.

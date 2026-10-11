@@ -2101,7 +2101,7 @@ func attachmentDTOsFromRefs(refs []any) []chatAttachmentDTO {
 	for _, r := range refs {
 		ref, _ := r.(map[string]any)
 		id, _ := ref["id"].(string)
-		if id == "" {
+		if !attachmentIDShape.MatchString(id) {
 			continue
 		}
 		stored, _ := ref["mime"].(string)

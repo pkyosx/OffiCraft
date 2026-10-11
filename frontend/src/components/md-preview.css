@@ -482,20 +482,6 @@
   }
 }
 
-/* T-36 — the plain-words line under the header, paired with 「在新頁面顯示」:
- * what that tab opens is shown as-is and does not react to clicks. Muted and
- * one line high so it reads as a note rather than an error, but it is ALWAYS
- * on screen when the button is — never a tooltip only a mouse can find. */
-.md-preview__new-tab-note {
-  flex: none;
-  padding: 8px 16px;
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--color-overlay) 8%, transparent);
-  color: var(--color-text-muted);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
 /* T-51 ① — paging chevrons and the position counter.
  *
  * The chevrons sit ON the panel's edges (see the JSX for why they are not in

@@ -1117,6 +1117,8 @@ func TestAttachmentDTOsFromRefs(t *testing.T) {
 			map[string]any{"mime": "image/png"},
 			map[string]any{"id": 7},
 			"not-a-map",
+			map[string]any{"id": "att-9?sig=x#"},
+			map[string]any{"id": "../att-9"},
 			map[string]any{"id": "att-9"},
 		}
 		got := attachmentDTOsFromRefs(refs)

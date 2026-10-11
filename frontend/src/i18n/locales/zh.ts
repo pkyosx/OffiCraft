@@ -1206,10 +1206,8 @@ export const zh = {
       // 就不該再叫他去下載：他這張票要的就是不用再複製去別的地方貼。
       unavailableOpenInNewTab: "此檔案無法在這裡預覽，請用上方的「在新頁面顯示」開啟。",
       // T-36 — 用一個獨立分頁打開這個附件（走分享連結），只出現在瀏覽器會直接
-      // 顯示、而不是下載的檔案上。旁邊那句話刻意講白話：說的是使用者「會看到
-      // 什麼」，不是背後的機制。
+      // 顯示、而不是下載的檔案上。
       openInNewTab: "在新頁面顯示",
-      newTabStaticNote: "新頁面只會照原樣顯示，上面的按鈕和輸入格不會有反應。",
       // T-51 ① — the two paging chevrons. They are the ONLY control for a
       // zoomed image or a text file, where the arrow keys stay with the pan and
       // the scroll, so the accessible name has to stand on its own.
