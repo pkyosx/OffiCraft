@@ -1187,6 +1187,15 @@ ONE-SHOT, never a standing order):
   frames are withheld (so the predecessor's 〈停止〉 does not wake it), and the recycle arm
   does not collect it for `WakingTTLSecs` (120 s) from that credential's `iat`. A replacement
   still not reporting waking past that window is collected and respawned as any other.
+  The predecessor's `stopped_since` latch stays on the row with its hand-off, and it is read
+  by the same rule: a latch older than the live (or reporting, or connecting) credential
+  collects only an epoch that is also older (`stopLatchCollectsRowEpoch`). So a stop, 加速停止
+  or hand-off pressed on the replacement runs on its own report or clock, the replacement's
+  own `report_stopped` is collected rather than answered `already_reported`, and its listener
+  is re-admitted by the SSE stop gate while it works that stop. An owner verb that changes
+  what a start is built from (model / runtime / effort / machine) on a replacement whose
+  predecessor's hand-off is collected restarts it at once, as the recycle arm used to on its
+  first tick; workers already restart at once on that plan.
 - **Stale-stopping clear**: a desired-online member OBSERVED online while carrying
   `stopping_since > 0` MUST have the anchor cleared (survived-stop / reconnect path)
   — but ONLY once it has been SILENT for `soft_offboard_grace`, where silence means

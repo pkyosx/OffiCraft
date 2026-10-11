@@ -1526,23 +1526,23 @@ func TestOwnerOpHandoverPlanFor(t *testing.T) {
 		worker := OutsourceWorker{ID: "ow-plan", DesiredState: c.desired,
 			StoppingSince: c.stopping, RefocusSince: c.refocus, StoppedSince: c.stopped}
 		t.Run("staff: "+c.name, func(t *testing.T) {
-			apiWantValue(t, "plan", any(ownerOpHandoverPlanFor(staff, c.online)), any(c.want))
+			apiWantValue(t, "plan", any(ownerOpHandoverPlanFor(staff, liveSession{Online: c.online})), any(c.want))
 		})
 		t.Run("outsource: "+c.name, func(t *testing.T) {
-			apiWantValue(t, "plan", any(ownerOpHandoverPlanFor(memberFromWorker(worker), c.online)), any(c.want))
+			apiWantValue(t, "plan", any(ownerOpHandoverPlanFor(memberFromWorker(worker), liveSession{Online: c.online})), any(c.want))
 		})
 	}
 }
 
-func TestHasUncollectedOnlineOwnerOpState(t *testing.T) {
+func TestOwnerOpEpochUncollected(t *testing.T) {
 	t.Run("an offline worker has nothing to flush even when a refocus marker remains", func(t *testing.T) {
-		if got := hasUncollectedOnlineOwnerOpState(10, 0, false); got {
+		if got := ownerOpEpochUncollected(Member{DesiredState: DesiredStateOnline, RefocusSince: 10}, liveSession{}); got {
 			t.Fatal("an offline worker must not report online owner-operation state")
 		}
 	})
 
 	t.Run("an online worker whose refocus and stopped markers are both present has been collected", func(t *testing.T) {
-		if got := hasUncollectedOnlineOwnerOpState(10, 20, true); got {
+		if got := ownerOpEpochUncollected(Member{DesiredState: DesiredStateOnline, RefocusSince: 10, StoppedSince: 20}, liveSession{Online: true}); got {
 			t.Fatal("a worker with both close-out markers must have no state left to flush")
 		}
 	})
@@ -3019,6 +3019,28 @@ func TestReconcileWorkerLiveness(t *testing.T) {
 		}
 		api.reconcileWorkerLiveness(w, iat+121)
 		apiWantValue(t, "past the wake window", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop"}))
+	})
+
+	t.Run("a hand-off stamped on the replacement is collected on its own clock, not by its predecessor's latch", func(t *testing.T) {
+		api, _, d, _, _ := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, refocusOpContextNotice, 1000.5, 0, 1100, false)
+		apiTestListen(t, api, ServerSelfHost)
+		_, _, iat := apiTestSessionStream(t, api, "ow-abc123", "")
+		if err := d.SetMemberWindDownAnchors("ow-abc123", 0, 1100, iat+5, refocusOpAcceleratedStop); err != nil {
+			t.Fatalf("SetMemberWindDownAnchors: %v", err)
+		}
+		w, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || w == nil {
+			t.Fatalf("GetOutsourceWorker: %v", err)
+		}
+		wsDrainWardenFrames(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		defer api.outsourceMu.Unlock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.reconcileWorkerLiveness(*w, iat+5+60)
+		apiWantValue(t, "inside the grace", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+		api.reconcileWorkerLiveness(*w, iat+5+121)
+		apiWantValue(t, "past the grace", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop"}))
 	})
 
 	t.Run("an owner-pressed 加速停止 sends a STOP on ITS clock, counted from the press, and collects only once the session is confirmed gone", func(t *testing.T) {

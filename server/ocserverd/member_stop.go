@@ -325,7 +325,7 @@ func (s *apiServer) reportMemberStopped(m Member, sessionIat float64, trigger st
 // this session's own, it would answer already_reported and the stop would never be
 // collected, leaving a stopped member running.
 func decideStoppedReport(row windDownAnchorRow, now, sessionIat float64) (collect bool, stopEffect string) {
-	if sessionIat > 0 && *row.StoppedSince > 0 && *row.StoppedSince < sessionIat {
+	if latchPredatesCredential(*row.StoppedSince, sessionIat) {
 		*row.StoppedSince = 0
 	}
 	if latched, _ := collectWindDownRow(row, now); !latched {

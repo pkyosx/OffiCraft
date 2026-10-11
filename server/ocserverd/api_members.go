@@ -630,7 +630,8 @@ func (s *apiServer) HandleUpdateMemberApiMembersMemberIdPatch(w http.ResponseWri
 	var saved Member
 	noted := false
 	cfg := s.reconcileConfigLive()
-	online := s.hub.IsOnline(memberId)
+	live := s.liveSessionOf(memberId)
+	restartReplacement := false
 	err = s.dal.inTx(func(tx *writeTx) error {
 		cur, err := resolveMemberOn(tx, memberId, anyMember)
 		if err != nil {
@@ -641,9 +642,10 @@ func (s *apiServer) HandleUpdateMemberApiMembersMemberIdPatch(w http.ResponseWri
 		if err != nil {
 			return err
 		}
-		noted = false
+		noted, restartReplacement = false, false
 		if launchIntentChanged {
-			_, noted = s.applyMemberOwnerOpPlan(cur, memberOpRuntimeModel, cfg, online)
+			restartReplacement = replacementOwedOwnerOpRestart(*cur, live)
+			_, noted = s.applyMemberOwnerOpPlan(cur, memberOpRuntimeModel, cfg, live)
 		}
 		if err := persistMemberRowOn(tx, before, *cur); err != nil {
 			return err
@@ -683,6 +685,9 @@ func (s *apiServer) HandleUpdateMemberApiMembersMemberIdPatch(w http.ResponseWri
 	if noted {
 		s.publishMemberPatch(saved, requestTrigger(r))
 		s.reconcileAfterOwnerOp(saved.ID, memberOpRuntimeModel, noted)
+	}
+	if restartReplacement {
+		s.restartReplacementForOwnerOp(saved.ID, memberOpRuntimeModel)
 	}
 	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: saved.ID})
 }
@@ -882,7 +887,8 @@ func (s *apiServer) HandleRelocateMemberApiMembersMemberIdRelocatePost(w http.Re
 	var saved Member
 	windDown, noted := false, false
 	cfg := s.reconcileConfigLive()
-	online := s.hub.IsOnline(memberId)
+	live := s.liveSessionOf(memberId)
+	restartReplacement := false
 	err := s.dal.inTx(func(tx *writeTx) error {
 		if _, err := resolveMachineOn(tx, machineID); err != nil {
 			return machineResolveRefusal(err, machineID)
@@ -900,7 +906,8 @@ func (s *apiServer) HandleRelocateMemberApiMembersMemberIdRelocatePost(w http.Re
 		// delta the agent wakes on already names the destination.
 		// Owner (2026-08-30): 改機器 is a 重啟 intent, so a stopped member comes back up
 		// on the new pin.
-		windDown, noted = s.applyMemberOwnerOpPlan(cur, memberOpRelocate, cfg, online)
+		restartReplacement = replacementOwedOwnerOpRestart(*cur, live)
+		windDown, noted = s.applyMemberOwnerOpPlan(cur, memberOpRelocate, cfg, live)
 		if err := persistMemberRowOn(tx, before, *cur); err != nil {
 			return err
 		}
@@ -920,10 +927,13 @@ func (s *apiServer) HandleRelocateMemberApiMembersMemberIdRelocatePost(w http.Re
 	if noted {
 		s.publishMemberPatch(saved, requestTrigger(r))
 	}
+	if restartReplacement {
+		s.restartReplacementForOwnerOp(saved.ID, memberOpRelocate)
+	}
 	dec := s.reconcileAfterOwnerOp(saved.ID, memberOpRelocate, noted)
 	receipt := agentRelocateReceiptDTO{ID: saved.ID}
 	// relocation_pending also covers an opened wind-down (nothing dispatched yet).
-	if dec.DispatchUnlanded || windDown {
+	if dec.DispatchUnlanded || windDown || restartReplacement {
 		receipt.RelocationPending = true
 	}
 	// Deferred is reported separately because relocation_pending's meaning is on the
@@ -1059,7 +1069,7 @@ func (s *apiServer) HandleRefocusMemberApiMembersMemberIdRefocusPost(w http.Resp
 		s.HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(w, r, memberId)
 		return
 	}
-	online := s.hub.IsOnline(memberId)
+	live := s.liveSessionOf(memberId)
 	var saved Member
 	err = s.dal.inTx(func(tx *writeTx) error {
 		cur, err := resolveMemberOn(tx, memberId, anyMember)
@@ -1067,7 +1077,7 @@ func (s *apiServer) HandleRefocusMemberApiMembersMemberIdRefocusPost(w http.Resp
 			return err
 		}
 		before := *cur
-		switch applyRefocusVerb(ownerOpRowOfMember(cur), *cur, online, nowSecs()) {
+		switch applyRefocusVerb(ownerOpRowOfMember(cur), *cur, live, nowSecs()) {
 		case refocusRefusedWantedOffline:
 			return refuseInTx(http.StatusConflict, refocusWantedOfflineRefusalMsg("member"))
 		case refocusRefusedNoSession:

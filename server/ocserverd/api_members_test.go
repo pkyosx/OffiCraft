@@ -1634,6 +1634,30 @@ func TestHandleGetMemberApiMembersMemberIdGet(t *testing.T) {
 }
 
 func TestHandleUpdateMemberApiMembersMemberIdPatch(t *testing.T) {
+	t.Run("a changed model on a replacement that has not reported waking after its predecessor's collected hand-off restarts it on the new model", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestRunner(t, api, d, DesiredStateOnline)
+		if err := d.SetMemberWindDownAnchors("runner", 0, 1100, 1000.5, refocusOpContextNotice); err != nil {
+			t.Fatalf("SetMemberWindDownAnchors: %v", err)
+		}
+		stream, _, _ := apiTestSessionStream(t, api, "runner", "m-box")
+		wsDrainWardenFrames(t, api, "m-box")
+
+		if status, data := apiJSON(t, h, "PATCH", "/api/members/runner", owner, `{"model":"opus"}`); status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+
+		wsWantWardenFrames(t, api, "m-box", wsStopFrame("runner"))
+		row := apiTestMemberRow(t, d, "runner")
+		if row.Model != "opus" || row.RefocusSince != 1000.5 || row.StoppedSince != 1100 {
+			t.Fatalf("the model is saved and the hand-off still waits for a report_waking: model %q refocus %v stopped %v",
+				row.Model, row.RefocusSince, row.StoppedSince)
+		}
+		stream.stop()
+		api.reconcileMemberNow("runner")
+		wsWantWardenFrames(t, api, "m-box", apiTestRunnerStartFrame("opus"))
+	})
+
 	t.Run("a changed model on a member whose stop is still in flight queues the 起來 behind it, and the receipt names the model change", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
@@ -2100,6 +2124,30 @@ func wantQueuedRestartRow(t *testing.T, d *DAL, id string, before Member, reason
 }
 
 func TestHandleRelocateMemberApiMembersMemberIdRelocatePost(t *testing.T) {
+	t.Run("relocating a replacement that has not reported waking after its predecessor's collected hand-off restarts it, and the receipt says the move is pending", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestRunner(t, api, d, DesiredStateOnline)
+		if err := d.SetMemberWindDownAnchors("runner", 0, 1100, 1000.5, refocusOpContextNotice); err != nil {
+			t.Fatalf("SetMemberWindDownAnchors: %v", err)
+		}
+		apiTestSessionStream(t, api, "runner", "m-box")
+		wsDrainWardenFrames(t, api, "m-box")
+		wsDrainWardenFrames(t, api, "m-new")
+
+		status, data := apiJSON(t, h, "POST", "/api/members/runner/relocate", owner, `{"machine_id":"m-new"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+
+		apiWantBody(t, data, map[string]any{"id": "runner", "relocation_pending": true})
+		wsWantWardenFrames(t, api, "m-box", wsStopFrame("runner"))
+		row := apiTestMemberRow(t, d, "runner")
+		if row.DesiredMachineID != "m-new" || row.RefocusSince != 1000.5 || row.StoppedSince != 1100 {
+			t.Fatalf("the pin is saved and the hand-off still waits for a report_waking: pin %q refocus %v stopped %v",
+				row.DesiredMachineID, row.RefocusSince, row.StoppedSince)
+		}
+	})
+
 	t.Run("relocating a member whose stop is still in flight queues the 起來 behind it, and the receipt names the relocate", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
@@ -2855,7 +2903,7 @@ func TestHandleForceStopMemberApiMembersMemberIdForceStopPost(t *testing.T) {
 }
 
 func TestHandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost(t *testing.T) {
-	t.Run("pressed on a replacement still carrying its predecessor's hand-off, it reaches the replacement and collects it on its own clock", func(t *testing.T) {
+	t.Run("pressed on a replacement still carrying its predecessor's collected hand-off, it reaches the replacement and collects it on its own clock, not the predecessor's latch", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		kip := apiTestMemberRow(t, d, "kip")
 		kip.DesiredState = DesiredStateOnline
@@ -2863,7 +2911,7 @@ func TestHandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost(t *tes
 		if err := d.putMemberWholeRowForTest(kip); err != nil {
 			t.Fatalf("putMemberWholeRowForTest: %v", err)
 		}
-		if err := d.SetMemberWindDownAnchors("kip", 0, 0, 1000.5, refocusOpContextNotice); err != nil {
+		if err := d.SetMemberWindDownAnchors("kip", 0, 1100, 1000.5, refocusOpContextNotice); err != nil {
 			t.Fatalf("SetMemberWindDownAnchors: %v", err)
 		}
 		apiTestListen(t, api, ServerSelfHost)
@@ -2874,6 +2922,7 @@ func TestHandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost(t *tes
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
+		apiWantValue(t, "the press itself", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
 		stream.waitFor("offboard_notice")
 		final := apiTestMemberPayload("kip", "Kip", "active", "online")
 		// The final notice quotes the deadline instant this press just opened.
@@ -2883,6 +2932,9 @@ func TestHandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost(t *tes
 		frame["data"].(map[string]any)["epoch"] = apiAnyNumber
 		stream.wantWireFrames(frame)
 		row := apiTestMemberRow(t, d, "kip")
+		if row.StoppedSince != 1100 {
+			t.Fatalf("premise: the predecessor's latch stays on the row, got %v", row.StoppedSince)
+		}
 		if row.RefocusOp != refocusOpAcceleratedStop || row.RefocusSince <= iat {
 			t.Fatalf("the press must re-stamp the epoch after the replacement's credential (iat %v): %q at %v",
 				iat, row.RefocusOp, row.RefocusSince)
@@ -2891,6 +2943,38 @@ func TestHandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost(t *tes
 		api.reconcileOne(row, newReconcileState(), row.RefocusSince+119)
 		apiWantValue(t, "inside the grace", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
 		api.reconcileOne(row, newReconcileState(), row.RefocusSince+121)
+		apiWantValue(t, "past the grace", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop"}))
+	})
+
+	t.Run("pressed after 停止 on a replacement still carrying its predecessor's latch, it collects on its own clock", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		kip := apiTestMemberRow(t, d, "kip")
+		kip.DesiredState = DesiredStateOnline
+		kip.DesiredMachineID = ServerSelfHost
+		if err := d.putMemberWholeRowForTest(kip); err != nil {
+			t.Fatalf("putMemberWholeRowForTest: %v", err)
+		}
+		if err := d.SetMemberWindDownAnchors("kip", 0, 1100, 1000.5, refocusOpContextNotice); err != nil {
+			t.Fatalf("SetMemberWindDownAnchors: %v", err)
+		}
+		apiTestListen(t, api, ServerSelfHost)
+		apiTestSessionStream(t, api, "kip", ServerSelfHost)
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/deactivate", owner, `{}`); status != 200 {
+			t.Fatalf("deactivate: %d %v", status, data)
+		}
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/accelerated-stop", owner, `{}`); status != 200 {
+			t.Fatalf("accelerated-stop: %d %v", status, data)
+		}
+		wsDrainWardenFrames(t, api, ServerSelfHost)
+		row := apiTestMemberRow(t, d, "kip")
+		if row.DesiredState != DesiredStateOffline || row.StoppedSince != 1100 || row.StoppingSince <= 1100 {
+			t.Fatalf("premise: offline, the predecessor's latch kept, the stop re-stamped: %q %v %v",
+				row.DesiredState, row.StoppedSince, row.StoppingSince)
+		}
+
+		api.reconcileOne(row, newReconcileState(), row.StoppingSince+119)
+		apiWantValue(t, "inside the grace", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+		api.reconcileOne(row, newReconcileState(), row.StoppingSince+121)
 		apiWantValue(t, "past the grace", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop"}))
 	})
 

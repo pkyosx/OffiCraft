@@ -2356,6 +2356,30 @@ func TestReconcileOne(t *testing.T) {
 		}
 	})
 
+	t.Run("the session a hand-off was stamped for, reconnecting on its own credential, is still the one collected", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestOnline(t, api, "m-box", "")
+		reconcileTestPut(t, d, Member{ID: "runner", Name: "Runner", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline, DesiredMachineID: "m-box"})
+		tok, iat := apiTestSessionCredential(t, api, "runner", "")
+		// Stamped after the credential was issued and before the stream (re)connects: the
+		// connect's own clock would read this session as a newer one.
+		stamped := nowSecs()
+		if err := d.SetMemberWindDownAnchors("runner", 0, stamped, stamped, refocusOpContextNotice); err != nil {
+			t.Fatalf("SetMemberWindDownAnchors: %v", err)
+		}
+		apiTestOpenSession(t, api, tok)
+		api.hub.DrainWardenCommands("m-box")
+
+		got := api.reconcileOne(reconcileTestRow(t, d, "runner"), newReconcileState(), iat+30)
+		reconcileTestWantDecision(t, got, reconcileDecision{
+			Command: reconcileCmdStop, MemberID: "runner", StopKind: stopKindRecycle,
+			Reason: "recycle: refocus marker + agent dump done — robust stop",
+			State: reconcileState{
+				Phase: reconcilePhaseStopping, LastCommand: reconcileCmdStop, LastCommandAt: iat + 30,
+			},
+		})
+	})
+
 	t.Run("a member with no machine is downgraded to a no-op that reports unlanded, keeps the prior state and stamps the row", func(t *testing.T) {
 		api, d := reconcileTestServer(t)
 		reconcileTestPut(t, d, Member{ID: "nowhere", Name: "Nowhere", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline})

@@ -534,6 +534,8 @@ func (s *apiServer) reconcileWorkerLiveness(w OutsourceWorker, now float64) bool
 	liveIat, online := s.hub.LiveCredentialIat(w.ID)
 	obs := workerObservation(w, online)
 	obs.LiveCredentialIat = liveIat
+	obs.AgentStopped = stopLatchCollectsRowEpoch(Member{DesiredState: w.DesiredState,
+		RefocusSince: w.RefocusSince, StoppedSince: w.StoppedSince}, liveIat)
 	obs.RobustStopOwed = s.robustStopOwed(w.ID)
 	s.observeStopCollect(&obs, memberFromWorker(w), now)
 	decision := reconcileDecide(obs, st, s.reconcileConfigLive(), now)
@@ -722,13 +724,13 @@ func (s *apiServer) relocateWorkerNow(w OutsourceWorker) ownerOpOutcome {
 // its handler sets DesiredState online on the row it passes by value.
 // Callers hold s.outsourceMu.
 func (s *apiServer) respawnWorkerForOwnerOp(w OutsourceWorker, op string) ownerOpOutcome {
-	online := s.hub.IsOnline(w.ID)
-	switch ownerOpHandoverPlanFor(memberFromWorker(w), online) {
+	live := s.liveSessionOf(w.ID)
+	switch ownerOpHandoverPlanFor(memberFromWorker(w), live) {
 	case ownerOpPlanQueueBehindStop, ownerOpPlanHeldDown:
 		// 換 model reaches here only while the session is up; with none it applies
 		// the same judgement in api_outsource.go.
 		now := nowSecs()
-		fresh, applied, err := s.applyWorkerStoppedOwnerOpOnRow(w.ID, op, online, now)
+		fresh, applied, err := s.applyWorkerStoppedOwnerOpOnRow(w.ID, op, live, now)
 		if err != nil {
 			outsourceLog("spawn %s: %s on a stopped worker, persist failed: %v", w.ID, op, err)
 			return ownerOpOutcome{HeldDown: true}
@@ -737,7 +739,7 @@ func (s *apiServer) respawnWorkerForOwnerOp(w OutsourceWorker, op string) ownerO
 			return ownerOpOutcome{HeldDown: true}
 		}
 		s.publishOutsourceWorker(*fresh, triggerServer)
-		if !online && ownerOpStartsAtOnce(op) && s.consumeWorkerRestartAfterStop(fresh, now) {
+		if !live.Online && ownerOpStartsAtOnce(op) && s.consumeWorkerRestartAfterStop(fresh, now) {
 			return s.reconcileWorkerNow(*fresh, now)
 		}
 		return ownerOpOutcome{HeldDown: true}
@@ -795,6 +797,8 @@ func (s *apiServer) openOwnerOpHandover(w OutsourceWorker, op string) bool {
 	armed := false
 	var fresh OutsourceWorker
 	var proj Member
+	live := s.liveSessionOf(w.ID)
+	live.Online = true
 	err := s.dal.inTx(func(tx *writeTx) error {
 		cur, err := getOutsourceWorkerOn(tx, w.ID)
 		if err != nil || cur == nil {
@@ -807,7 +811,7 @@ func (s *apiServer) openOwnerOpHandover(w OutsourceWorker, op string) bool {
 		proj = memberFromWorker(*cur)
 		// Presence was the caller's question; a session that dropped since is
 		// collected by openWorkerHandoverGrace, so only the row is asked again here.
-		if ownerOpHandoverPlanFor(proj, true) != ownerOpPlanWindDown {
+		if ownerOpHandoverPlanFor(proj, live) != ownerOpPlanWindDown {
 			return nil
 		}
 		if !armRefocusEpoch(&proj, op, nowSecs()) {

@@ -862,7 +862,7 @@ func (s *apiServer) reconcileOne(m Member, st reconcileState, now float64) recon
 		RefocusSince:    m.RefocusSince,
 		RefocusOp:       m.RefocusOp,
 		StoppingSince:   m.StoppingSince,
-		AgentStopped:    m.StoppedSince > 0.0,
+		AgentStopped:    stopLatchCollectsRowEpoch(m, liveIat),
 		LastOpKind:      m.LastOp,
 		LastOpReason:    m.LastOpReason,
 		TargetMachine:   m.DesiredMachineID,
@@ -1107,14 +1107,14 @@ func (s *apiServer) armDecidedHandover(memberID string, decision reconcileDecisi
 		return
 	}
 	cfg := s.reconcileConfigLive()
-	online := s.hub.IsOnline(memberID)
+	live := s.liveSessionOf(memberID)
 	var armed *Member
 	err := s.dal.inTx(func(tx *writeTx) error {
 		fresh, err := getMemberOn(tx, memberID)
 		if err != nil || fresh == nil || fresh.RosterStatus != RosterStatusActive {
 			return err
 		}
-		if !s.armMemberOwnerOpHandover(fresh, decision.ArmHandoverOp, cfg, online) {
+		if !s.armMemberOwnerOpHandover(fresh, decision.ArmHandoverOp, cfg, live) {
 			return nil
 		}
 		armed = fresh
