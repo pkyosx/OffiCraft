@@ -709,6 +709,19 @@ func clearWindDownRow(row windDownAnchorRow) {
 	*row.RefocusOp = ""
 }
 
+// windDownPredatesLiveSession: the stream holding this member online was opened on a
+// credential issued after the hand-off was stamped, so the epoch belongs to an earlier
+// generation and the connected session is its replacement. Strictly earlier, unlike the
+// wake clear's same-second rule: an ambiguous second keeps today's behaviour (the notice
+// is sent, the session can be collected) rather than swallowing a stop meant for it.
+// 🔴 This only answers who the epoch is for; the epoch still completes on report_waking
+// alone. That is an owner ruling (rc-10cc6f9b2572): do not clear the anchors on the SSE
+// connect instead — a connected listener is not a session that can take over yet.
+func windDownPredatesLiveSession(m Member, liveCredentialIat float64) bool {
+	return liveCredentialIat > 0 && aRefocusStampWouldReachTheAgent(m) &&
+		m.RefocusSince > 0 && m.RefocusSince < liveCredentialIat
+}
+
 // clearWindDownRowOnWake is report_waking's clear, for staff and workers alike.
 // 🔴 stopping_since survives unless the subject is wanted online: it is the only
 // trace of a stop that landed while the session was still booting.

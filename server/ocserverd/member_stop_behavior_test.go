@@ -147,3 +147,31 @@ func TestDeactivateOfflineMemberCollectsAndBanks(t *testing.T) {
 		t.Fatalf("offline 下線 frames = %+v, want one stop", frames)
 	}
 }
+
+func TestDecideStoppedReport(t *testing.T) {
+	for _, c := range []struct {
+		name        string
+		stopped     float64
+		iat         float64
+		wantCollect bool
+		wantEffect  string
+		wantStopped float64
+	}{
+		{"a first report latches and collects", 0, 1031, true, "collected", 2000},
+		{"a repeat report from the session that latched is not collected again", 1500, 1031, false, "already_reported", 1500},
+		{"a latch left by an earlier generation is not this session's report", 1030.7, 1031, true, "collected", 2000},
+		{"a latch in the credential's own second counts as this session's", 1031.2, 1031, false, "already_reported", 1031.2},
+		{"a credential with no issue time keeps the latch it finds", 1030.7, 0, false, "already_reported", 1030.7},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			row := Member{ID: "m-report", StoppingSince: 900, StoppedSince: c.stopped,
+				RefocusSince: 1000, RefocusOp: refocusOpContextNotice}
+			collect, effect := decideStoppedReport(windDownAnchorRowOfMember(&row), 2000, c.iat)
+			if collect != c.wantCollect || effect != c.wantEffect {
+				t.Fatalf("decideStoppedReport = (%v, %q), want (%v, %q)", collect, effect, c.wantCollect, c.wantEffect)
+			}
+			apiTestWantEqual(t, "row after the report", row, Member{ID: "m-report", StoppingSince: 900,
+				StoppedSince: c.wantStopped, RefocusSince: 1000, RefocusOp: refocusOpContextNotice})
+		})
+	}
+}

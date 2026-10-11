@@ -284,7 +284,7 @@ server's own deps-fulfill, not by eavesdropping on another member's stream):
 
 | topic | agent audience (owner always receives) |
 |---|---|
-| `member` | the subject member, including an outsource worker (its own delta drives the wind-down / recycle hooks) |
+| `member` | the subject member, including an outsource worker (its own delta drives the wind-down / recycle hooks) — **except** while the subject is wanted online and its `refocus_since` is earlier than the `iat` of the credential that opened the stream holding it online (§5.3): the frame is then owner-only, because that hand-off belongs to the generation the connected session replaces |
 | `chat` | the sender and the recipient |
 | `chat_read` | — (no agent consumes it; owner cockpit only) |
 | `reply_card` | the initiator (`from`) and, while the card's task is open, that task's acting executor (`task_executor`) — the one audience read from another row: the card stores only the task id, and a stored executor would go stale on reassignment |
@@ -370,6 +370,27 @@ Two side effects are bound to the presence edges. These are
   MUST NOT re-fire it. No telemetry entry → skip. Best-effort: never raises into teardown.
 - **boot_ts stamp**: opening an agent connection MUST stamp `boot_ts = now` into that
   agent's context-gauge entry, merging (never clobbering) other gauge fields. This anchors the context-high stale-pct guard (§6).
+
+### 5.3 The live stream's credential
+
+The server records, per listener, the `iat` of the credential that opened it (0 when the
+credential carries none); with one listener per member (§5.1) that is the credential of
+the session holding the member online. A START's credential is handed to no process when
+the warden refuses the start (a session already holds the slot), so a stream presenting a
+credential proves a session was launched on it.
+
+Two decisions read it against the member's `refocus_since`, strictly earlier counting as
+"stamped for an earlier generation":
+
+- the `member` audience exception of §4.1 — the replacement is not woken by its
+  predecessor's hand-off (the agent's recycle hook wakes on ANY self frame while the row
+  carries `refocus_since > 0`, so withholding only `offboard_notice` would still wake it);
+- the reconcile recycle arm (spec/lifecycle.md §4.5) leaves such a replacement running for
+  `WakingTTLSecs` from that `iat` while it has not reported waking.
+
+Neither clears the hand-off: it completes on the replacement's `report_waking` alone
+(owner ruling rc-10cc6f9b2572 — a connected listener is not yet a session that can take
+over, and the cockpit must keep showing the generation change as unfinished).
 
 ## 6. Context-high band (directed signal, agent connections only)
 
@@ -715,6 +736,7 @@ From the migration inventory (§0.5), items assigned to spec/sse.md:
 |---|---|---|
 | 1 | presence projection (`is_online`/`online_members`) | §5 |
 | 2 | observed position (`machine_of`, token machine claim) | §5 (claim shape: lifecycle §1) |
+| — | live stream's credential `iat` | §5.3 |
 | 4 | context-high per-connection band state | §6 |
 | 6 | warden-command FIFO (in-memory except the durable `update` mirror — §7) | §7 |
 | 8 | seq/epoch counter, restart rollback | §2.1 |

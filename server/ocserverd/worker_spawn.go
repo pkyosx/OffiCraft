@@ -531,7 +531,9 @@ func (s *apiServer) reconcileWorkerLiveness(w OutsourceWorker, now float64) bool
 		st.LastCommand = reconcileCmdNone
 		st.LastCommandAt = 0.0
 	}
-	obs := workerObservation(w, s.hub.IsOnline(w.ID))
+	liveIat, online := s.hub.LiveCredentialIat(w.ID)
+	obs := workerObservation(w, online)
+	obs.LiveCredentialIat = liveIat
 	obs.RobustStopOwed = s.robustStopOwed(w.ID)
 	s.observeStopCollect(&obs, memberFromWorker(w), now)
 	decision := reconcileDecide(obs, st, s.reconcileConfigLive(), now)
@@ -979,8 +981,7 @@ func (s *apiServer) openWorkerHandoverGrace(w OutsourceWorker, trigger string) {
 		s.reconcileWorkerNow(w, now)
 		return
 	}
-	s.hub.Publish("member", "patch", "member", wireOwnerID+"::"+w.ID,
-		s.offboardDeltaPayload(memberFromWorker(w)), audienceMembers(w.ID), trigger)
+	s.publishMemberPatch(memberFromWorker(w), trigger)
 	if grace, clocked := recycleGraceFor(w.RefocusOp, s.reconcileConfigLive()); clocked {
 		outsourceLog("handover %s (%s): grace opened — SOP nudge fanned, collect on "+
 			"stopped-report or +%.0fs", w.ID, w.Codename, grace)

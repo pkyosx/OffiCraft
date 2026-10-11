@@ -864,6 +864,45 @@ func TestDecideUp(t *testing.T) {
 		})
 	})
 
+	t.Run("a replacement whose credential postdates its predecessor's collected hand-off is left to report waking for the wake window, then collected as before", func(t *testing.T) {
+		obs := reconcileTestUpObs()
+		obs.Online = true
+		obs.RefocusSince = now - 300.5
+		obs.RefocusOp = refocusOpContextNotice
+		obs.AgentStopped = true
+		waiting := reconcileDecision{
+			Command: reconcileCmdNone, MemberID: "kip",
+			Reason: "recycle: replacement connected on a credential issued after the hand-off — " +
+				"awaiting its report_waking",
+			State: reconcileState{Phase: reconcilePhaseStarting, LastCommand: reconcileCmdNone},
+		}
+		collected := reconcileDecision{
+			Command: reconcileCmdStop, MemberID: "kip", StopKind: stopKindRecycle,
+			Reason: "recycle: refocus marker + agent dump done — robust stop",
+			State: reconcileState{
+				Phase: reconcilePhaseStopping, LastCommand: reconcileCmdStop, LastCommandAt: now,
+			},
+		}
+		for _, c := range []struct {
+			name string
+			iat  float64
+			want reconcileDecision
+		}{
+			{"booted 60s ago", now - 60, waiting},
+			{"booted exactly the wake window ago", now - 120, waiting},
+			{"booted one second past the wake window", now - 121, collected},
+			{"a credential issued in the hand-off's own second is the collected generation", now - 301, collected},
+			{"a credential issued before the hand-off is the collected generation", now - 400, collected},
+			{"a stream whose credential iat is unknown", 0, collected},
+		} {
+			t.Run(c.name, func(t *testing.T) {
+				o := obs
+				o.LiveCredentialIat = c.iat
+				reconcileTestWantDecision(t, decideUp(o, newReconcileState(), cfg, now), c.want)
+			})
+		}
+	})
+
 	t.Run("a clocked 加速停止 epoch whose grace has elapsed is force-stopped even with no dump report", func(t *testing.T) {
 		obs := reconcileTestUpObs()
 		obs.Online = true
@@ -2271,6 +2310,50 @@ func TestReconcileOne(t *testing.T) {
 		})
 		reconcileTestWantRow(t, d, "gone", dismissed)
 		wsWantWardenFrames(t, api, "m-box")
+	})
+
+	t.Run("a replacement connected after its predecessor's collected hand-off is not stopped before it reports waking inside the wake window, and is collected past it", func(t *testing.T) {
+		api, d := reconcileTestServer(t)
+		reconcileTestOnline(t, api, "m-box", "")
+		reconcileTestPut(t, d, Member{ID: "runner", Name: "Runner", Kind: KindStaff, RoleKey: "assistant", DesiredState: DesiredStateOnline, DesiredMachineID: "m-box"})
+		if err := d.SetMemberWindDownAnchors("runner", 0, 1100, 1000.5, refocusOpContextNotice); err != nil {
+			t.Fatalf("SetMemberWindDownAnchors: %v", err)
+		}
+		_, _, iat := apiTestSessionStream(t, api, "runner", "")
+		api.hub.DrainWardenCommands("m-box")
+
+		got := api.reconcileOne(reconcileTestRow(t, d, "runner"), newReconcileState(), iat+60)
+		reconcileTestWantDecision(t, got, reconcileDecision{
+			Command: reconcileCmdNone, MemberID: "runner",
+			Reason: "recycle: replacement connected on a credential issued after the hand-off — " +
+				"awaiting its report_waking",
+			State: reconcileState{Phase: reconcilePhaseStarting, LastCommand: reconcileCmdNone},
+		})
+		if queued := api.hub.DrainWardenCommands("m-box"); len(queued) != 0 {
+			t.Fatalf("60s after boot nothing may be sent, got %+v", queued)
+		}
+		row := reconcileTestRow(t, d, "runner")
+		if row.RefocusSince != 1000.5 || row.StoppedSince != 1100 || row.RefocusOp != refocusOpContextNotice {
+			t.Fatalf("the hand-off completes on report_waking alone; row = %v %v %q",
+				row.RefocusSince, row.StoppedSince, row.RefocusOp)
+		}
+
+		got = api.reconcileOne(row, newReconcileState(), iat+121)
+		reconcileTestWantDecision(t, got, reconcileDecision{
+			Command: reconcileCmdStop, MemberID: "runner", StopKind: stopKindRecycle,
+			Reason: "recycle: refocus marker + agent dump done — robust stop",
+			State: reconcileState{
+				Phase: reconcilePhaseStopping, LastCommand: reconcileCmdStop, LastCommandAt: iat + 121,
+			},
+		})
+		queued := api.hub.DrainWardenCommands("m-box")
+		if len(queued) != 1 {
+			t.Fatalf("past the wake window one STOP goes out, got %+v", queued)
+		}
+		if digest, ok := decodeWardenCommandFrame(queued[0].Frame); !ok ||
+			digest != (wardenCommandDigest{Verb: reconcileCmdStop, MemberID: "runner"}) {
+			t.Fatalf("queued frame digest = %+v (%v)", digest, ok)
+		}
 	})
 
 	t.Run("a member with no machine is downgraded to a no-op that reports unlanded, keeps the prior state and stamps the row", func(t *testing.T) {

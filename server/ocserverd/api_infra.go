@@ -93,7 +93,7 @@ func (s *apiServer) HandleEventsApiEventsGet(w http.ResponseWriter, r *http.Requ
 			return
 		}
 	}
-	listener, err := s.hub.Connect(memberID, machineID)
+	listener, err := s.hub.ConnectWithCredential(memberID, machineID, callerIat(r))
 	if err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return
@@ -377,8 +377,8 @@ func (s *apiServer) onFirstConnect(memberID string) {
 // connect begins a new session. The gauge is emptied on a station re-exec while
 // the agents survive it, so an existing durable anchor is RESTORED, never
 // re-minted: otherwise every live session reads as seconds old after an upgrade
-// and the min-liveness floor, context-high auto-recycle suppressor and worker
-// auto-handover loop-break all misfire. A mid-session SSE flap must not reset it
+// and the min-liveness floor and the context-high auto-recycle suppressor
+// misfire. A mid-session SSE flap must not reset it
 // either. On this edge the anchor may only move backwards in time, never
 // forwards.
 func (s *apiServer) anchorSessionBoot(memberID string) {

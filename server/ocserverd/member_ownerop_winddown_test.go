@@ -757,6 +757,31 @@ func TestClearWindDownRowOnWake(t *testing.T) {
 	}
 }
 
+func TestWindDownPredatesLiveSession(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		desired string
+		refocus float64
+		iat     float64
+		want    bool
+	}{
+		{"a hand-off stamped before the live credential was issued", DesiredStateOnline, 1030.7, 1031, true},
+		{"a hand-off stamped in the live credential's second, after it was issued", DesiredStateOnline, 1031.2, 1031, false},
+		{"a hand-off stamped after the live credential was issued", DesiredStateOnline, 1040, 1031, false},
+		{"a live credential with no issue time", DesiredStateOnline, 1030.7, 0, false},
+		{"no hand-off on the row", DesiredStateOnline, 0, 1031, false},
+		{"a member wanted offline", DesiredStateOffline, 1030.7, 1031, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			m := Member{ID: "m-live", DesiredState: c.desired, RefocusSince: c.refocus,
+				RefocusOp: refocusOpContextNotice, StoppedSince: 1035}
+			if got := windDownPredatesLiveSession(m, c.iat); got != c.want {
+				t.Fatalf("windDownPredatesLiveSession = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
 func TestClearWindDownRow(t *testing.T) {
 	row := Member{ID: "m-clear-row", StoppingSince: 10, StoppedSince: 20,
 		RefocusSince: 30, RefocusOp: memberOpRelocate, WakingSince: 40, ForcedStopAt: 50}

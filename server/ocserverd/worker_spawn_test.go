@@ -2998,6 +2998,29 @@ func TestReconcileWorkerLiveness(t *testing.T) {
 		}))
 	})
 
+	t.Run("a replacement connected after its predecessor's collected hand-off is not collected before it reports waking inside the wake window, and is past it", func(t *testing.T) {
+		api, _, d, _, w := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, refocusOpContextNotice, 1000.5, 0, 1100, false)
+		apiTestListen(t, api, ServerSelfHost)
+		_, _, iat := apiTestSessionStream(t, api, "ow-abc123", "")
+		wsDrainWardenFrames(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		defer api.outsourceMu.Unlock()
+		api.workerSpawnTarget["ow-abc123"] = ServerSelfHost
+		api.reconcileWorkerLiveness(w, iat+60)
+		apiWantValue(t, "60s after boot", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+		row, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || row == nil {
+			t.Fatalf("GetOutsourceWorker: %v", err)
+		}
+		if row.RefocusSince != 1000.5 || row.StoppedSince != 1100 || row.LastOp == "stop" {
+			t.Fatalf("the hand-off completes on report_waking alone; refocus %v stopped %v last_op %q",
+				row.RefocusSince, row.StoppedSince, row.LastOp)
+		}
+		api.reconcileWorkerLiveness(w, iat+121)
+		apiWantValue(t, "past the wake window", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop"}))
+	})
+
 	t.Run("an owner-pressed 加速停止 sends a STOP on ITS clock, counted from the press, and collects only once the session is confirmed gone", func(t *testing.T) {
 		api, _, d, _, w := wsWindDown(t, WorkerStatusActive, DesiredStateOffline, "accelerated_stop", 0, 200, 0, false)
 		apiTestListen(t, api, ServerSelfHost)

@@ -194,6 +194,9 @@ type memberObservation struct {
 	// 🔴 Do not re-derive it from stopped_since: 下線 → 喚醒 leaves a predecessor's stopped_since on
 	// a fresh session, which would then be robust-stopped on its first tick.
 	RobustStopOwed bool
+	// LiveCredentialIat: iat of the credential the online stream was opened on (0 when offline
+	// or unknown). Read from the hub at decision time, not from the tick's roster snapshot.
+	LiveCredentialIat float64
 }
 
 type reconcileDecision struct {
@@ -288,6 +291,12 @@ func recycleGraceFor(refocusOp string, cfg reconcileConfig) (grace float64, cloc
 	return cfg.RecycleGrace, true
 }
 
+func replacementAwaitingWake(obs memberObservation, now float64) bool {
+	predates := windDownPredatesLiveSession(Member{DesiredState: obs.Desired,
+		RefocusSince: obs.RefocusSince}, obs.LiveCredentialIat)
+	return predates && now-obs.LiveCredentialIat <= WakingTTLSecs
+}
+
 func decideUp(
 	obs memberObservation, st reconcileState, cfg reconcileConfig, now float64,
 ) reconcileDecision {
@@ -297,6 +306,16 @@ func decideUp(
 		st.OfflineSince = now
 	}
 	if obs.Online && obs.RefocusSince > 0.0 {
+		// The epoch was stamped for an earlier generation and this session is its replacement,
+		// booting: collecting the epoch here would kill the replacement. It gets the same window
+		// a wake has to complete; past it, a replacement that never reported waking is collected
+		// and respawned as before.
+		if replacementAwaitingWake(obs, now) {
+			st.Phase = reconcilePhaseStarting
+			return decisionNone(obs, st,
+				"recycle: replacement connected on a credential issued after the hand-off — "+
+					"awaiting its report_waking")
+		}
 		dumpDone := obs.AgentStopped
 		grace, clocked := recycleGraceFor(obs.RefocusOp, cfg)
 		graceExpired := clocked && now >= obs.RefocusSince+grace
@@ -835,10 +854,11 @@ func (s *apiServer) reconcileOne(m Member, st reconcileState, now float64) recon
 	// BEFORE the observation is built: flipping desired_state back to online is what makes this tick
 	// take decideUp and START the member (下線 → 重啟).
 	s.consumeRestartAfterStop(&m, now)
+	liveIat, online := s.hub.LiveCredentialIat(m.ID)
 	obs := memberObservation{
 		MemberID:        m.ID,
 		Desired:         parseDesired(m.DesiredState),
-		Online:          s.hub.IsOnline(m.ID),
+		Online:          online,
 		RefocusSince:    m.RefocusSince,
 		RefocusOp:       m.RefocusOp,
 		StoppingSince:   m.StoppingSince,
@@ -849,6 +869,8 @@ func (s *apiServer) reconcileOne(m Member, st reconcileState, now float64) recon
 		RunningMachine:  s.hub.MachineOf(m.ID),
 		HandoverArmable: s.memberOwnerOpHandoverArmable(m, memberOpRelocate),
 		RobustStopOwed:  s.robustStopOwed(m.ID),
+
+		LiveCredentialIat: liveIat,
 	}
 	s.observeStopCollect(&obs, m, now)
 	decision := reconcileDecide(obs, st, s.reconcileConfigLive(), now)

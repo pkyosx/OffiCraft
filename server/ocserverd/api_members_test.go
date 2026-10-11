@@ -2855,6 +2855,45 @@ func TestHandleForceStopMemberApiMembersMemberIdForceStopPost(t *testing.T) {
 }
 
 func TestHandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost(t *testing.T) {
+	t.Run("pressed on a replacement still carrying its predecessor's hand-off, it reaches the replacement and collects it on its own clock", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		kip := apiTestMemberRow(t, d, "kip")
+		kip.DesiredState = DesiredStateOnline
+		kip.DesiredMachineID = ServerSelfHost
+		if err := d.putMemberWholeRowForTest(kip); err != nil {
+			t.Fatalf("putMemberWholeRowForTest: %v", err)
+		}
+		if err := d.SetMemberWindDownAnchors("kip", 0, 0, 1000.5, refocusOpContextNotice); err != nil {
+			t.Fatalf("SetMemberWindDownAnchors: %v", err)
+		}
+		apiTestListen(t, api, ServerSelfHost)
+		stream, _, iat := apiTestSessionStream(t, api, "kip", ServerSelfHost)
+		wsDrainWardenFrames(t, api, ServerSelfHost)
+
+		status, data := apiJSON(t, h, "POST", "/api/members/kip/accelerated-stop", owner, `{}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		stream.waitFor("offboard_notice")
+		final := apiTestMemberPayload("kip", "Kip", "active", "online")
+		// The final notice quotes the deadline instant this press just opened.
+		final["offboard_notice"] = apiAnyString
+		frame := apiTestMemberFrame(0, "patch", "kip", final, "owner")
+		frame["seq"] = apiAnyNumber
+		frame["data"].(map[string]any)["epoch"] = apiAnyNumber
+		stream.wantWireFrames(frame)
+		row := apiTestMemberRow(t, d, "kip")
+		if row.RefocusOp != refocusOpAcceleratedStop || row.RefocusSince <= iat {
+			t.Fatalf("the press must re-stamp the epoch after the replacement's credential (iat %v): %q at %v",
+				iat, row.RefocusOp, row.RefocusSince)
+		}
+
+		api.reconcileOne(row, newReconcileState(), row.RefocusSince+119)
+		apiWantValue(t, "inside the grace", any(wsVerbs(t, api, ServerSelfHost)), any([]any{}))
+		api.reconcileOne(row, newReconcileState(), row.RefocusSince+121)
+		apiWantValue(t, "past the grace", any(wsVerbs(t, api, ServerSelfHost)), any([]any{"stop"}))
+	})
+
 	t.Run("escalating an open wind-down re-stamps the epoch, names the cause and tells the member", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestListen(t, api, "kip")

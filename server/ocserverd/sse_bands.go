@@ -99,8 +99,8 @@ func codexNoticeDue(record map[string]any, pct *float64, noticeRound, codexThres
 	return count == noticeRound && pct != nil && *pct >= codexNoticeRoundPct
 }
 
-// boot_ts is the SSE-connect boot anchor that the stale-pct guard, the
-// boot-storm guard and the worker refocus loop-break all read.
+// boot_ts is the SSE-connect boot anchor that the stale-pct guard and the
+// boot-storm guard read.
 func gaugeBootTS(record map[string]any) (float64, bool) {
 	if record == nil {
 		return 0, false

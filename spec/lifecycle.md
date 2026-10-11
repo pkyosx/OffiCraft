@@ -828,7 +828,7 @@ The server owns desired-state reconciliation; the warden is a stateless executor
   which opens a relocate wind-down epoch on the row); the one HTTP kick that borrows it
   (`api_machines.go`); and — because the whole reconcile HALF of the cadence tick is skipped —
   every roster pass that half runs BEFORE it decides anything (context-high recycle stamping,
-  recycle-marker and stale-stopping clears, uninstall-intent consumption,
+  stale-stopping clears, uninstall-intent consumption,
   lapsed-receipt sweep). Each of those passes persists real member rows. A
   rewrite that gates only the dispatches leaves every one of them running against real data.
   A shadow deployment must keep those paths away from real machines by some other means;
@@ -1177,9 +1177,16 @@ ONE-SHOT, never a standing order):
   whose actionable context pct (same stale/boot-storm guards as the SSE band —
   spec/sse.md §6) is in the HANDOVER band, only when the member is online and not already
   recycling. This replaces any SSE handover emit.
-- **Loop-break**: the tick MUST clear `refocus_since`/`stopped_since`/`stopping_since` the
-  moment it observes the respawn-pending state (`desired_state==online ∧ ¬online ∧
-  refocus_since>0`) so a slow/never-waking respawn can never be re-killed off a stale marker.
+- **Completion is the replacement's `report_waking`, nothing earlier** (owner ruling
+  rc-10cc6f9b2572): the epoch's anchors are cleared there (`clearWindDownRowOnWake`), never by
+  the tick on `¬online` and never on the replacement's SSE connect — a session whose listener
+  is up has not yet shown it can take over, and the cockpit keeps showing the change as
+  unfinished until it has. What keeps the replacement from being treated as the session the
+  epoch was for is its credential (spec/sse.md §5.3): while the stream holding the member
+  online was opened on a credential issued after `refocus_since`, the member's own `member`
+  frames are withheld (so the predecessor's 〈停止〉 does not wake it), and the recycle arm
+  does not collect it for `WakingTTLSecs` (120 s) from that credential's `iat`. A replacement
+  still not reporting waking past that window is collected and respawned as any other.
 - **Stale-stopping clear**: a desired-online member OBSERVED online while carrying
   `stopping_since > 0` MUST have the anchor cleared (survived-stop / reconnect path)
   — but ONLY once it has been SILENT for `soft_offboard_grace`, where silence means

@@ -123,6 +123,13 @@ func windDownAnchorRowOfWorker(w *OutsourceWorker) windDownAnchorRow {
 // Split from the row writes for single-column writers: marking a column insertOnly and
 // forgetting this call silently stops the cockpit converging.
 func (s *apiServer) publishMemberPatch(m Member, trigger string) {
+	// A replacement must not be woken by its predecessor's hand-off: the agent's hook reads
+	// refocus_since off a refetch of the row on ANY self frame and wakes on it, notice or
+	// not, so stripping only the notice would still wake it (with the fallback text).
+	if iat, online := s.hub.LiveCredentialIat(m.ID); online && windDownPredatesLiveSession(m, iat) {
+		s.publishMemberOwnerOnly(m, trigger)
+		return
+	}
 	op := "patch"
 	if m.RosterStatus == RosterStatusRemoved {
 		op = "remove"
@@ -927,9 +934,10 @@ func (s *apiServer) HandleRelocateMemberApiMembersMemberIdRelocatePost(w http.Re
 	writeJSON(w, http.StatusOK, receipt)
 }
 
-// 🔴 The harm is on the NEXT generation: activate clears neither refocus_since nor
+// 🔴 The harm is on the NEXT generation: a live activate clears neither refocus_since nor
 // stopped_since, so a leftover marker survives 下線 → 喚醒 and decideUp's recycle
-// arm robust-stops the brand-new session on its first tick. stopping_since /
+// arm collects the brand-new session once its wake window passes
+// (replacementAwaitingWake) unless it has reported waking. stopping_since /
 // stopped_since / forced_stop_at are left alone: forced_stop_at is the durable
 // cut-off record the next generation reads.
 func clearMemberHandoverMarker(m *Member) {
@@ -1258,7 +1266,7 @@ func (s *apiServer) HandleReportStoppedApiSelfStoppedPost(w http.ResponseWriter,
 		writeResolveError(w, err, "member", currentActor(r))
 		return
 	}
-	saved, stopEffect, err := s.reportMemberStopped(*m, requestTrigger(r))
+	saved, stopEffect, err := s.reportMemberStopped(*m, callerIat(r), requestTrigger(r))
 	if err != nil {
 		writeResolveTxError(w, err, "member", currentActor(r))
 		return

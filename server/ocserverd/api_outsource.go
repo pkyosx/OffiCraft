@@ -176,7 +176,7 @@ func (s *apiServer) relocateWorkerByID(w http.ResponseWriter, r *http.Request, i
 // returns; the stop belongs to the worker's report_stopped (or a force-stop).
 // There is NO grace deadline: refocusOpRefocus runs no clock (winddownKindFor).
 // The refocus_since marker doubles as the tick's auto-handover cooldown and is
-// cleared by the loop-break once the respawn lands.
+// cleared by the replacement's report_waking.
 func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(w http.ResponseWriter, r *http.Request, id string) {
 	unlockMu := s.outsourceMu.Acquire()
 	defer unlockMu()
