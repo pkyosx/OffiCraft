@@ -2596,6 +2596,50 @@ func TestApplyStopVerbRow(t *testing.T) {
 }
 
 func TestHandleDeactivateMemberApiMembersMemberIdDeactivatePost(t *testing.T) {
+	for _, kind := range []struct {
+		name, id string
+		setup    func(t *testing.T, h http.Handler, d *DAL, owner string)
+	}{
+		{"staff", "kip", func(t *testing.T, h http.Handler, d *DAL, owner string) {
+			kip := apiTestMemberRow(t, d, "kip")
+			kip.DesiredState = DesiredStateOnline
+			if err := d.putMemberWholeRowForTest(kip); err != nil {
+				t.Fatalf("putMemberWholeRowForTest: %v", err)
+			}
+		}},
+		{"outsource", "ow-abc123", func(t *testing.T, h http.Handler, d *DAL, owner string) {
+			apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+			apiTestWorkerWantedOnline(t, d, "ow-abc123")
+		}},
+	} {
+		t.Run(kind.name+": a replacement whose session is already gone is collected by the stop itself though its predecessor's latch is on the row, and its credential is refused afterwards", func(t *testing.T) {
+			api, h, d, owner := newAPITestServer(t)
+			kind.setup(t, h, d, owner)
+			if err := d.SetMemberDesiredMachineID(kind.id, ServerSelfHost); err != nil {
+				t.Fatalf("SetMemberDesiredMachineID: %v", err)
+			}
+			if err := d.SetMemberWindDownAnchors(kind.id, 0, 1100, 1000.5, refocusOpContextNotice); err != nil {
+				t.Fatalf("SetMemberWindDownAnchors: %v", err)
+			}
+			apiTestListen(t, api, ServerSelfHost)
+			stream, tok, iat := apiTestSessionStream(t, api, kind.id, ServerSelfHost)
+			stream.stop()
+			wsDrainWardenFrames(t, api, ServerSelfHost)
+
+			if status, data := apiJSON(t, h, "POST", "/api/members/"+kind.id+"/deactivate", owner, `{}`); status != 200 {
+				t.Fatalf("deactivate: %d %v", status, data)
+			}
+
+			wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame(kind.id))
+			row := apiTestMemberRow(t, d, kind.id)
+			if row.StoppedSince < row.StoppingSince || row.StoppedSince <= iat {
+				t.Fatalf("the stop must latch its own collect, not keep the predecessor's 1100: stopping %v stopped %v (iat %v)",
+					row.StoppingSince, row.StoppedSince, iat)
+			}
+			wantStopGateRefuses(t, h, kind.id, tok)
+		})
+	}
+
 	t.Run("a deactivation answers the member id and fans a delta carrying the stop notice the agent is to read", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		dashboard := apiTestListen(t, api, "")
