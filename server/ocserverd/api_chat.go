@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -140,6 +141,11 @@ func effectiveAttachmentMime(stored, filename string) string {
 func isImageMime(mime string) bool {
 	return strings.HasPrefix(mime, "image/")
 }
+
+// A ref id becomes a URL path segment that the client appends ?token= to; one
+// carrying "?", "#", "&" or "/" (e.g. "<id>?sig=<sig>#") would put the owner's
+// login in the address of a page that may script.
+var attachmentIDShape = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 func attachmentMimeBase(mimeType string) string {
 	return strings.ToLower(strings.TrimSpace(strings.SplitN(mimeType, ";", 2)[0]))
@@ -963,14 +969,16 @@ func (s *apiServer) HandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(w ht
 	if attachmentMimeBase(mediaType) == "text/html" {
 		// A page that may script can read its own address: a ?token= there is
 		// the opener's whole login. Trade it for the sig before any byte loads.
-		if r.URL.Query().Get(authTokenQueryParam) != "" {
+		// Any token key counts, empty or repeated — only the first is ever read.
+		q := r.URL.Query()
+		if _, carriesToken := q[authTokenQueryParam]; carriesToken {
 			if sig := shareSigForRing(s.keys, attachmentId); sig != "" {
 				w.Header().Set("Cache-Control", "no-store")
 				w.Header().Set("Referrer-Policy", "no-referrer")
 				http.Redirect(w, r, "/api/chat/attachment/"+url.PathEscape(attachmentId)+"?sig="+sig, http.StatusFound)
 				return
 			}
-		} else if extractToken(r) == "" {
+		} else if extractToken(r) == "" && len(q) == 1 && len(q["sig"]) == 1 {
 			csp = "sandbox allow-scripts"
 			w.Header().Set("Referrer-Policy", "no-referrer")
 		}
@@ -1046,6 +1054,9 @@ func (s *apiServer) HandleListChatAttachmentsApiChatAttachmentsGet(w http.Respon
 	// and triggers drop id-less refs.
 	entries := []chatGalleryEntryDTO{}
 	for _, r := range refs {
+		if !attachmentIDShape.MatchString(r.AttachmentID) {
+			continue
+		}
 		mime := effectiveAttachmentMime(r.Mime, r.Filename)
 		entries = append(entries, chatGalleryEntryDTO{
 			ID:        r.AttachmentID,

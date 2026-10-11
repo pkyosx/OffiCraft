@@ -202,8 +202,13 @@ export function authedAttachmentUrl(url?: string): string | undefined {
   if (!url || !url.startsWith("/")) return url;
   const t = ownerToken();
   if (!t) return url;
-  const sep = url.includes("?") ? "&" : "?";
-  return `${url}${sep}token=${encodeURIComponent(t)}`;
+  // Parsed, not concatenated: a ref carrying its own "?…" or "#" must not
+  // smuggle the token past the server's token-key check or into a fragment.
+  const u = new URL(url, window.location.origin);
+  u.hash = "";
+  u.searchParams.delete("token");
+  u.searchParams.append("token", t);
+  return `${u.pathname}${u.search}`;
 }
 
 // credentialPost is the bare-fetch POST the two password endpoints share:

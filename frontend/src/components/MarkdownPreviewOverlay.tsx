@@ -801,7 +801,7 @@ export function MarkdownPreviewOverlay({
                 className="md-preview__new-tab"
                 href={shareHref}
                 target="_blank"
-                rel="noopener"
+                rel="noopener noreferrer"
                 aria-label={t.chat.mdPreview.openInNewTab}
                 title={t.chat.mdPreview.openInNewTab}
               >

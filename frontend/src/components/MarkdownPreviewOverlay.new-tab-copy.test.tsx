@@ -1,15 +1,12 @@
 // T-36 — WHAT THE OWNER ACTUALLY SEES on the preview overlay once the
 // 「在新頁面顯示」 button exists. The button itself, its href and its gate are
-// pinned by MarkdownPreviewOverlay.new-tab.test.tsx; this file pins the two
-// product-facing regressions that survived it, and each is its own mutant:
+// pinned by MarkdownPreviewOverlay.new-tab.test.tsx; this file pins the
+// product-facing regression that survived it:
 //
 //   B1  Opening an .html put 「此檔案無法預覽，請下載」 in the biggest, most
 //       central spot on the screen — while the ticket's own words were 「不然我
 //       都要複製以後找新的頁面貼很麻煩」. The body copy must point at the
 //       button, not back at 下載.
-//   B2  The plain-words note rode the button's condition alone, so it landed on
-//       EVERY screenshot and EVERY pdf — 「上面的按鈕和輸入格不會有反應」 over a
-//       PNG that has neither, on the highest-traffic use of this overlay.
 //
 // The overlay PORTALS to document.body (T-76cd): every reach goes through
 // `document.body` / `screen`, never render()'s container.

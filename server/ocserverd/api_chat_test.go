@@ -2196,6 +2196,56 @@ func TestHandleGetChatAttachmentApiChatAttachmentAttachmentIdGet(t *testing.T) {
 		}
 	})
 
+	t.Run("an HTML blob may script only when its address carries the sig and nothing else", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		_, uploaded := apiJSON(t, h, "POST", "/api/chat/attachments?filename=game.html", owner, "<script>1</script>")
+		id := uploaded["id"].(string)
+		_, minted := apiJSON(t, h, "GET", "/api/chat/attachments/"+id+"/share-link", owner, "")
+		sig := strings.SplitN(minted["url"].(string), "?sig=", 2)[1]
+		base := "/api/chat/attachment/" + id
+
+		for _, query := range []string{
+			"?token&sig=" + sig + "&token=" + url.QueryEscape(owner),
+			"?token=&sig=" + sig + "&token=" + url.QueryEscape(owner),
+		} {
+			rec := apiRequest(t, h, "GET", base+query, "", "")
+			if rec.Code != http.StatusFound {
+				t.Fatalf("%s: a token key in the address must be traded away, got %d (CSP %q)",
+					query, rec.Code, rec.Header().Get("Content-Security-Policy"))
+			}
+		}
+		rec := apiRequest(t, h, "GET", base+"?sig="+sig+"&x=1", "", "")
+		if rec.Code != 200 {
+			t.Fatalf("sig plus another param: want 200, got %d (%s)", rec.Code, rec.Body.String())
+		}
+		apiWantHeaders(t, rec, map[string]string{
+			"Content-Disposition":     `inline; filename="game.html"; filename*=UTF-8''game.html`,
+			"Content-Security-Policy": "sandbox",
+			"X-Content-Type-Options":  "nosniff",
+		})
+	})
+
+	t.Run("a stored ref that is not a minted id is never turned into a serve URL", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		agent := apiTestAgentToken(t, api, "mira", "")
+		_, uploaded := apiJSON(t, h, "POST", "/api/chat/attachments?filename=game.html", agent, "<script>1</script>")
+		id := uploaded["id"].(string)
+		for _, crafted := range []string{id + "?sig=x#", id + "?token&sig=x", "../" + id} {
+			status, posted := apiJSON(t, h, "POST", "/api/chat", agent,
+				`{"to":"owner","body":"play","meta":{"attachments":[{"id":"`+crafted+`","filename":"game.html","mime":"text/html"}]}}`)
+			if status != 200 {
+				t.Fatalf("%s: post %d %v", crafted, status, posted)
+			}
+			dto, err := api.servedChatMessageDTO(apiTestChatRowOf(t, d, posted["id"].(string)))
+			if err != nil {
+				t.Fatalf("servedChatMessageDTO: %v", err)
+			}
+			apiWantValue(t, crafted+" on the message", apiTestJSONOf(t, dto.Attachments), []any{})
+		}
+		_, body := apiChatDecoded(t, h, "GET", "/api/chat/attachments?with=mira", owner)
+		apiWantValue(t, "gallery", body, []any{})
+	})
+
 	t.Run("an HTML blob fetched with the login in a header stays fully sandboxed", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		_, uploaded := apiJSON(t, h, "POST", "/api/chat/attachments?filename=game.html", owner, "<script>1</script>")
