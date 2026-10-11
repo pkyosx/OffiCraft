@@ -1198,7 +1198,10 @@ ONE-SHOT, never a standing order):
   replacement's own latch), after which the gate refuses its credential again. An owner verb that changes
   what a start is built from (model / runtime / effort / machine) on a replacement whose
   predecessor's hand-off is collected restarts it at once, as the recycle arm used to on its
-  first tick; workers already restart at once on that plan.
+  first tick; workers already restart at once on that plan. That stop retires the START the
+  replacement booted on (as 取消喚醒 does), and a replacement seen connected has its START
+  recorded as landed, so the next start is dispatched at the next tick rather than after the
+  start window, and no wake_timeout is stamped for a session that did come up.
 - **Stale-stopping clear**: a desired-online member OBSERVED online while carrying
   `stopping_since > 0` MUST have the anchor cleared (survived-stop / reconnect path)
   — but ONLY once it has been SILENT for `soft_offboard_grace`, where silence means

@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -107,6 +108,16 @@ func apiTestRunner(t *testing.T, api *apiServer, d *DAL, desired string) {
 	reconcileTestPut(t, d, Member{ID: "runner", Name: "Runner", Kind: KindStaff, RoleKey: "assistant",
 		Runtime: "claude", Model: "sonnet", Effort: "medium",
 		DesiredState: desired, DesiredMachineID: "m-box"})
+}
+
+// apiTestWantNoWakeDiagnosis: id's 最近操作 carries no wake_timeout, in its reason or its log.
+func apiTestWantNoWakeDiagnosis(t *testing.T, d *DAL, id string) {
+	t.Helper()
+	row := apiTestMemberRow(t, d, id)
+	if strings.Contains(row.LastOpReason, spawnReasonWakeTimeout) || strings.Contains(row.LastOpLog, spawnReasonWakeTimeout) {
+		t.Fatalf("a restart the owner asked for is not a failed wake: last_op_reason %q last_op_log %q",
+			row.LastOpReason, row.LastOpLog)
+	}
 }
 
 func apiTestRunnerStartFrame(model string) map[string]any {
@@ -1634,12 +1645,16 @@ func TestHandleGetMemberApiMembersMemberIdGet(t *testing.T) {
 }
 
 func TestHandleUpdateMemberApiMembersMemberIdPatch(t *testing.T) {
-	t.Run("a changed model on a replacement that has not reported waking after its predecessor's collected hand-off restarts it on the new model", func(t *testing.T) {
+	t.Run("a changed model on a replacement that has not reported waking after its predecessor's collected hand-off restarts it on the new model at the next tick, with no wake diagnosis", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestRunner(t, api, d, DesiredStateOnline)
 		if err := d.SetMemberWindDownAnchors("runner", 0, 1100, 1000.5, refocusOpContextNotice); err != nil {
 			t.Fatalf("SetMemberWindDownAnchors: %v", err)
 		}
+		// The replacement is the one the reconcile tick started: its START is still the
+		// tick's last command when the owner presses.
+		api.reconcileMemberNow("runner")
+		wsWantWardenFrames(t, api, "m-box", apiTestRunnerStartFrame("sonnet"))
 		stream, _, _ := apiTestSessionStream(t, api, "runner", "m-box")
 		wsDrainWardenFrames(t, api, "m-box")
 
@@ -1654,8 +1669,9 @@ func TestHandleUpdateMemberApiMembersMemberIdPatch(t *testing.T) {
 				row.Model, row.RefocusSince, row.StoppedSince)
 		}
 		stream.stop()
-		api.reconcileMemberNow("runner")
+		api.runReconcileTick(nowSecs() + 30)
 		wsWantWardenFrames(t, api, "m-box", apiTestRunnerStartFrame("opus"))
+		apiTestWantNoWakeDiagnosis(t, d, "runner")
 	})
 
 	t.Run("a changed model on a member whose stop is still in flight queues the 起來 behind it, and the receipt names the model change", func(t *testing.T) {
@@ -2124,13 +2140,15 @@ func wantQueuedRestartRow(t *testing.T, d *DAL, id string, before Member, reason
 }
 
 func TestHandleRelocateMemberApiMembersMemberIdRelocatePost(t *testing.T) {
-	t.Run("relocating a replacement that has not reported waking after its predecessor's collected hand-off restarts it, and the receipt says the move is pending", func(t *testing.T) {
+	t.Run("relocating a replacement that has not reported waking after its predecessor's collected hand-off restarts it on the new machine at the next tick, and the receipt says the move is pending", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		apiTestRunner(t, api, d, DesiredStateOnline)
 		if err := d.SetMemberWindDownAnchors("runner", 0, 1100, 1000.5, refocusOpContextNotice); err != nil {
 			t.Fatalf("SetMemberWindDownAnchors: %v", err)
 		}
-		apiTestSessionStream(t, api, "runner", "m-box")
+		api.reconcileMemberNow("runner")
+		wsWantWardenFrames(t, api, "m-box", apiTestRunnerStartFrame("sonnet"))
+		stream, _, _ := apiTestSessionStream(t, api, "runner", "m-box")
 		wsDrainWardenFrames(t, api, "m-box")
 		wsDrainWardenFrames(t, api, "m-new")
 
@@ -2146,6 +2164,11 @@ func TestHandleRelocateMemberApiMembersMemberIdRelocatePost(t *testing.T) {
 			t.Fatalf("the pin is saved and the hand-off still waits for a report_waking: pin %q refocus %v stopped %v",
 				row.DesiredMachineID, row.RefocusSince, row.StoppedSince)
 		}
+		stream.stop()
+		wsDrainWardenFrames(t, api, "m-new")
+		api.runReconcileTick(nowSecs() + 30)
+		wsWantWardenFrames(t, api, "m-new", apiTestRunnerStartFrame("sonnet"))
+		apiTestWantNoWakeDiagnosis(t, d, "runner")
 	})
 
 	t.Run("relocating a member whose stop is still in flight queues the 起來 behind it, and the receipt names the relocate", func(t *testing.T) {

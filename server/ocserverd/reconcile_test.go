@@ -883,6 +883,13 @@ func TestDecideUp(t *testing.T) {
 				Phase: reconcilePhaseStopping, LastCommand: reconcileCmdStop, LastCommandAt: now,
 			},
 		}
+		t.Run("the START it booted on is recorded as landed, so a drop afterwards is not read as a failed wake", func(t *testing.T) {
+			o := obs
+			o.LiveCredentialIat = now - 60
+			booting := reconcileState{Phase: reconcilePhaseStarting, LastCommand: reconcileCmdStart,
+				LastCommandAt: now - 62, StartTarget: "m-box"}
+			reconcileTestWantDecision(t, decideUp(o, booting, cfg, now), waiting)
+		})
 		for _, c := range []struct {
 			name string
 			iat  float64
@@ -3523,6 +3530,26 @@ func TestClearStaleStoppingOnOnline(t *testing.T) {
 }
 
 func TestRunReconcileTick(t *testing.T) {
+	t.Run("a replacement the tick started that drops before it reports waking is started again at the next tick, with no wake diagnosis", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		apiTestRunner(t, api, d, DesiredStateOnline)
+		if err := d.SetMemberWindDownAnchors("runner", 0, 1100, 1000.5, refocusOpContextNotice); err != nil {
+			t.Fatalf("SetMemberWindDownAnchors: %v", err)
+		}
+		api.reconcileMemberNow("runner")
+		wsWantWardenFrames(t, api, "m-box", apiTestRunnerStartFrame("sonnet"))
+		stream, _, _ := apiTestSessionStream(t, api, "runner", "m-box")
+		wsDrainWardenFrames(t, api, "m-box")
+		t0 := nowSecs()
+
+		api.runReconcileTick(t0 + 30)
+		wsWantWardenFrames(t, api, "m-box")
+		stream.stop()
+		api.runReconcileTick(t0 + 60)
+		wsWantWardenFrames(t, api, "m-box", apiTestRunnerStartFrame("sonnet"))
+		apiTestWantNoWakeDiagnosis(t, d, "runner")
+	})
+
 	t.Run("one tick runs the roster passes, names its candidate count and decides each candidate in name order", func(t *testing.T) {
 		api, d := reconcileTestServer(t)
 		reconcileTestOnline(t, api, "m-box", "")

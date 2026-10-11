@@ -311,7 +311,13 @@ func decideUp(
 		// a wake has to complete; past it, a replacement that never reported waking is collected
 		// and respawned as before.
 		if replacementAwaitingWake(obs, now) {
+			// Its START has landed (it is connected) even though the hand-off has not
+			// completed: a START left in flight makes a replacement that drops before it
+			// wakes wait out the start window and read as a failed wake.
 			st.Phase = reconcilePhaseStarting
+			st.LastCommand = reconcileCmdNone
+			st.LastCommandAt = 0.0
+			st.StartTarget = ""
 			return decisionNone(obs, st,
 				"recycle: replacement connected on a credential issued after the hand-off — "+
 					"awaiting its report_waking")

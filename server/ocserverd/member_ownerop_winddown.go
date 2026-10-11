@@ -795,11 +795,15 @@ func replacementOwedOwnerOpRestart(m Member, live liveSession) bool {
 // the verb just wrote. No hand-off is asked for: it has not reported waking, so it holds
 // nothing to hand over. Workers need no twin — their NothingToFlush already restarts at once
 // (handOverWorkerNow).
+// 🔴 The replacement is usually the session of the tick's own last START, which the wake
+// window never marks converged. The stop must retire that START (PastBootingStart): left in
+// flight, the tick waits out the whole start window on a session it just killed, then stamps
+// a wake_timeout telling the owner to check the machine's login.
 func (s *apiServer) restartReplacementForOwnerOp(memberID, op string) {
 	reconcileLog("%s %s: the session is a replacement that has not reported waking — "+
 		"restarting it so the change applies", op, memberID)
 	s.bankLiveCost(memberID)
-	s.dispatchRobustStopNow(s.staffStopPopulation(), memberID)
+	s.dispatchRobustStopPastBootingStart(s.staffStopPopulation(), memberID)
 }
 
 // clearWindDownRowOnWake is report_waking's clear, for staff and workers alike.
