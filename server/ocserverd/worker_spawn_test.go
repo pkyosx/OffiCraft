@@ -1603,6 +1603,30 @@ func TestRespawnWorkerForOwnerOp(t *testing.T) {
 		}))
 	})
 
+	t.Run("a replacement on its own 加速停止 clock is wound down, not killed, though its predecessor's latch is still on the row", func(t *testing.T) {
+		api, _, d, _, _ := wsWindDown(t, WorkerStatusActive, DesiredStateOnline, refocusOpContextNotice, 1000.5, 0, 1100, false)
+		apiTestListen(t, api, ServerSelfHost)
+		_, _, iat := apiTestSessionStream(t, api, "ow-abc123", "")
+		if err := d.SetMemberWindDownAnchors("ow-abc123", 0, 1100, iat+5, refocusOpAcceleratedStop); err != nil {
+			t.Fatalf("SetMemberWindDownAnchors: %v", err)
+		}
+		w, err := d.GetOutsourceWorker("ow-abc123")
+		if err != nil || w == nil {
+			t.Fatalf("GetOutsourceWorker: %v", err)
+		}
+		wsDrainWardenFrames(t, api, ServerSelfHost)
+
+		api.outsourceMu.Lock()
+		outcome := api.respawnWorkerForOwnerOp(*w, ownerOpRuntimeModel)
+		api.outsourceMu.Unlock()
+
+		apiWantValue(t, "outcome", any(wsOutcome(outcome)), any(map[string]any{
+			"dispatched": false, "wound_down": true, "held_down": false,
+			"already_running": false, "pending": true,
+		}))
+		wsWantWardenFrames(t, api, ServerSelfHost)
+	})
+
 	t.Run("a worker with nothing to flush and no live session is started by the same call", func(t *testing.T) {
 		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
 		apiTestListen(t, api, ServerSelfHost)
