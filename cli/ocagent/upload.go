@@ -29,6 +29,12 @@ the media type: .png .jpg .gif .webp .svg are images, .pdf .json .md .txt
 (including no extension) is application/octet-stream and downloads. Name the
 file with the right extension before uploading it.
 
+An .html attachment opens in its own tab and its JavaScript runs, but the page
+gets an anonymous origin, so localStorage, cookies and other browser storage
+throw SecurityError. An interactive page (a game, a report with controls) must
+work without browser storage — wrap any storage access in try/catch — and be
+opened once through its share link before you hand it over.
+
 stdout on success, two lines:
   line 1  the attachment id (att-…)
   line 2  the server's JSON for it: {"id": …, "mime": …, "filename": …}
