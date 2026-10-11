@@ -1192,7 +1192,10 @@ ONE-SHOT, never a standing order):
   collects only an epoch that is also older (`stopLatchCollectsRowEpoch`). So a stop, 加速停止
   or hand-off pressed on the replacement runs on its own report or clock, the replacement's
   own `report_stopped` is collected rather than answered `already_reported`, and its listener
-  is re-admitted by the SSE stop gate while it works that stop. An owner verb that changes
+  is re-admitted by the SSE stop gate while it works that stop. Once the replacement's session is
+  gone, that stop is collected like any other (`stopLatchCollectsStop`: a latch older than
+  `stopping_since` does not collect the stop, so the session-gone collect writes the
+  replacement's own latch), after which the gate refuses its credential again. An owner verb that changes
   what a start is built from (model / runtime / effort / machine) on a replacement whose
   predecessor's hand-off is collected restarts it at once, as the recycle arm used to on its
   first tick; workers already restart at once on that plan.

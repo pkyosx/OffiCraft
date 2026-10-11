@@ -1040,7 +1040,7 @@ func latchSessionGoneCollectOn(tx *writeTx, memberID string, now float64) (*Memb
 		parseDesired(cur.DesiredState) != DesiredStateOffline || !stopAwaitsCollect(*cur) {
 		return nil, nil
 	}
-	collectWindDownRow(windDownAnchorRowOfMember(cur), now)
+	collectStopRow(windDownAnchorRowOfMember(cur), now)
 	if err := setMemberStoppedSinceOn(tx, cur.ID, cur.StoppedSince); err != nil {
 		return nil, err
 	}

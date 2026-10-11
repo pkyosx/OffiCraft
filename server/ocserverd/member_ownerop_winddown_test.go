@@ -767,6 +767,7 @@ func TestWindDownPredatesLiveSession(t *testing.T) {
 	}{
 		{"a hand-off stamped before the live credential was issued", DesiredStateOnline, 1030.7, 1031, true},
 		{"a hand-off stamped in the live credential's second, after it was issued", DesiredStateOnline, 1031.2, 1031, false},
+		{"a hand-off stamped at the live credential's issue instant", DesiredStateOnline, 1031, 1031, false},
 		{"a hand-off stamped after the live credential was issued", DesiredStateOnline, 1040, 1031, false},
 		{"a live credential with no issue time", DesiredStateOnline, 1030.7, 0, false},
 		{"no hand-off on the row", DesiredStateOnline, 0, 1031, false},
@@ -777,6 +778,28 @@ func TestWindDownPredatesLiveSession(t *testing.T) {
 				RefocusOp: refocusOpContextNotice, StoppedSince: 1035}
 			if got := windDownPredatesLiveSession(m, c.iat); got != c.want {
 				t.Fatalf("windDownPredatesLiveSession = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestStopLatchCollectsStop(t *testing.T) {
+	for _, c := range []struct {
+		name     string
+		stopping float64
+		stopped  float64
+		want     bool
+	}{
+		{"no latch", 2000, 0, false},
+		{"a latch written after the stop was asked for", 2000, 2050.5, true},
+		{"a latch written at the stop's own instant", 2000, 2000, true},
+		{"a latch older than the stop", 2000, 1100, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			m := Member{ID: "m-stop", DesiredState: DesiredStateOffline,
+				StoppingSince: c.stopping, StoppedSince: c.stopped}
+			if got := stopLatchCollectsStop(m); got != c.want {
+				t.Fatalf("stopLatchCollectsStop = %v, want %v", got, c.want)
 			}
 		})
 	}

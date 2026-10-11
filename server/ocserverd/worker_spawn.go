@@ -1061,7 +1061,7 @@ func (s *apiServer) collectWorkerSessionGone(w OutsourceWorker, now float64) boo
 // handover funnel, which would let the FSM restart a worker the owner stopped.
 // Callers hold s.outsourceMu.
 func (s *apiServer) collectWorkerStop(w OutsourceWorker, reason, trigger string) error {
-	_, prior := collectWindDownRow(windDownAnchorRowOfWorker(&w), nowSecs())
+	_, prior := collectStopRow(windDownAnchorRowOfWorker(&w), nowSecs())
 	if err := s.latchWorkerStopped(&w, prior, reason, trigger); err != nil {
 		return err
 	}

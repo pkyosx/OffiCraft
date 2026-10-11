@@ -161,6 +161,7 @@ func TestDecideStoppedReport(t *testing.T) {
 		{"a repeat report from the session that latched is not collected again", 1500, 1031, false, "already_reported", 1500},
 		{"a latch left by an earlier generation is not this session's report", 1030.7, 1031, true, "collected", 2000},
 		{"a latch in the credential's own second counts as this session's", 1031.2, 1031, false, "already_reported", 1031.2},
+		{"a latch at the credential's issue instant counts as this session's", 1031, 1031, false, "already_reported", 1031},
 		{"a credential with no issue time keeps the latch it finds", 1030.7, 0, false, "already_reported", 1030.7},
 	} {
 		t.Run(c.name, func(t *testing.T) {

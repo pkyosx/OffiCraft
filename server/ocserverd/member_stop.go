@@ -111,7 +111,7 @@ func (s *apiServer) stopMember(m Member, trigger string) (Member, error) {
 		// A session already gone is collected right here: the stopped latch lands
 		// with the stop, so a failure leaves neither and a retry is a first collect.
 		if arm == stopArmCollectNow {
-			collectWindDownRow(windDownAnchorRowOfMember(cur), nowSecs())
+			collectStopRow(windDownAnchorRowOfMember(cur), nowSecs())
 		}
 		saved = *cur
 		return persistMemberRowOn(tx, before, *cur)

@@ -667,7 +667,30 @@ const offlineConfirmGraceSecs = 120.0
 // stopAwaitsCollect: a graceful 停止 epoch nobody has collected yet. A forced
 // epoch is excluded because force-stop already sent its kill.
 func stopAwaitsCollect(m Member) bool {
-	return m.StoppedSince <= 0.0 && gracefulStopEpochOpen(m)
+	return !stopLatchCollectsStop(m) && gracefulStopEpochOpen(m)
+}
+
+// stopLatchCollectsStop is THE "has this 停止 been collected" read for a stop whose session is
+// gone (no live credential to compare with): the latch must be written at or after the stop
+// was asked for. An older one answers something earlier — typically the predecessor's report
+// still on the row of a replacement that was stopped before it reported waking.
+// 🔴 Reading that one as this stop's collect leaves the stop uncollected for good, and the SSE
+// stop gate (latchPredatesCredential) keeps re-admitting the replacement's credential: a
+// stopped member that reconnects and reads online forever.
+func stopLatchCollectsStop(m Member) bool {
+	return m.StoppedSince > 0.0 && m.StoppedSince >= m.StoppingSince
+}
+
+// collectStopRow is collectWindDownRow for a 停止 collect: a latch older than the stop anchor
+// does not collect it (stopLatchCollectsStop), so it is replaced rather than kept by the
+// once-only guard. prior is the latch as read, for a caller's rollback.
+func collectStopRow(row windDownAnchorRow, now float64) (latched bool, prior float64) {
+	prior = *row.StoppedSince
+	if prior > 0.0 && prior < *row.StoppingSince {
+		*row.StoppedSince = 0.0
+	}
+	latched, _ = collectWindDownRow(row, now)
+	return latched, prior
 }
 
 // sessionConfirmedGone is the one "the stopped session is gone" judgement for
