@@ -130,6 +130,7 @@ func TestGuardBash_AllowsEverythingElse(t *testing.T) {
 		"relative glob":                 `rm -f ./*.json`,
 		"a named directory":             `rm -rf node_modules`,
 		"absolute path":                 `rm -f /tmp/x/a.json`,
+		"the rewrite the refusal names": `rm -r /tmp/x/build`,
 		"a variable with no removal":    `ls -la "$D"/`,
 		"not a removal at all":          `git status`,
 		"the word inside another token": `echo "please rm -f $D/x by hand"`,
@@ -232,7 +233,7 @@ func TestGuardBash_RefusalIsAStatementAboutTheEnvironmentNotARequest(t *testing.
 			"that clause is what stops the member treating tool output as an instruction to weigh")
 	}
 	// It also has to say what to do instead, or the member has a refusal and no exit.
-	if !strings.Contains(guardBashRefusal, "rm -rf <完整路徑>") {
+	if !strings.Contains(guardBashRefusal, "rm -r <完整路徑>") {
 		t.Error("the refusal no longer names a way forward")
 	}
 	// The way forward must not be a shape that stalls too. This text used to

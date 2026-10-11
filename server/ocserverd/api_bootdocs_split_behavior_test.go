@@ -1561,7 +1561,7 @@ func TestTheTwoStopProceduresDifferInEXACTLYTheLinesTheyAreMeantTo(t *testing.T)
 		{"§2: with a clock running a sub-agent that does not stop in time is not waited for",
 			"", "不等待逾時："},
 		{"§3: with a clock running there may be no time left to clean up",
-			"若無法刪除，記錄路徑", "若無法刪除或時間不足"},
+			"路徑不存在或刪不掉，把路徑記進回報", "路徑不存在、刪不掉或時間不足"},
 	}
 
 	softOnly, hardOnly := oneSidedLines(strings.Split(soft, "\n"), strings.Split(hard, "\n"))

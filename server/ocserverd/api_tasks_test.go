@@ -3,12 +3,12 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"reflect"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -1979,6 +1979,9 @@ func TestNameWithIDSlot(t *testing.T) {
 	})
 }
 
+// apiTestReadyForDoneNoticeT1 is the factory 〈任務可結案〉 for T-1, with %d for visit_no.
+const apiTestReadyForDoneNoticeT1 = "[T-1] 這張任務的每一個步驟都回報完成了，它現在停在可結案（ready_for_done），不會自己結束。這是它第 %d 次停在可結案。\n\n所有 Steps 已完成，現在進入結案流程。 Task 一旦進入終態，Artifacts、Step notes 與 Task 上的必要紀錄就會凍結，無法再補寫，因此先依序完成以下收尾：\n\n- 整理成果與驗證紀錄：需要驗收或使用的成果以 add_task_artifact 掛到 Task；驗證結果與其他必要紀錄寫回對應的 Task 或 Step。\n- 請 Owner 驗收：開 Reply Card，提供成果、驗證結果，以及需要 Owner 知道的風險或待決事項。Owner 尚未回覆、要求修改或仍有待處理事項時，先不要繼續結案。\n- 處理傳承：Owner 驗收通過後，依開機說明「傳承」判斷是否有值得留下的經驗；有才寫入，沒有就不寫。\n- 清理暫存資料：使用 rm -r <完整路徑> 移除這次執行產生的暫存檔與資料夾，不要接終端機執行（Codex 的 tty 設為 false）。路徑必須直接寫完整，不要使用變數。路徑不存在或刪不掉，把路徑記進回報，繼續收尾。\n- 移除你開啟的外部資源。\n- 確認你自己開的、還在等 Owner 回覆的卡（用 list_reply_cards 查）：還需要答案就先不要結案，已經用不到的標為過期再結案。\n- 完成結案：確認以上事項都已完成後，呼叫 MCP mark_task_done() 將 Task 結案，並停止更新 Task。\n\n如果目前還不適合結案，就不要呼叫 mark_task_done()，讓 Task 維持可結案狀態。之後若新增 Step，Task 會回到進行中。"
+
 func TestDeriveAndPersistTask(t *testing.T) {
 	t.Run("the task's status is re-projected from its steps, persisted and fanned", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
@@ -2160,9 +2163,7 @@ func TestDeriveAndPersistTask(t *testing.T) {
 			t.Fatalf("chat rows = %d, want one notice per arrival", len(rows))
 		}
 		for i, row := range rows {
-			want := api.taskNoticeText(docKindTaskReadyForDone, map[string]string{
-				"task_no": "T-1", "visit_no": strconv.Itoa(i + 1),
-			})
+			want := fmt.Sprintf(apiTestReadyForDoneNoticeT1, i+1)
 			if row.Sender != wireSystemSender || row.Recipient != "kip" || row.Body != want {
 				t.Fatalf("notice %d = %#v, want the durable 〈任務可結案〉 numbered %d", i+1, row, i+1)
 			}
