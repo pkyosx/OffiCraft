@@ -57,17 +57,29 @@ const (
 // worker analogue: a worker routed through this shell answers false, which closes
 // its every wind-down — workers ask ownerOpHandoverPlanFor directly.
 func (s *apiServer) memberHasStateToFlush(m Member) bool {
-	return memberHasStateToFlushGiven(m, s.hub.IsOnline(m.ID))
+	return memberHasStateToFlushGiven(m, s.liveSessionOf(m.ID))
+}
+
+// liveSession is what the owner-op plan knows of the session: whether one holds the member
+// online, and the iat of the credential it connected on (windDownPredatesLiveSession).
+type liveSession struct {
+	Online        bool
+	CredentialIat float64
+}
+
+func (s *apiServer) liveSessionOf(id string) liveSession {
+	iat, online := s.hub.LiveCredentialIat(id)
+	return liveSession{Online: online, CredentialIat: iat}
 }
 
 // memberHasStateToFlushGiven takes the session's presence from the caller, read
 // before any transaction it holds (the hub's lock is refused inside one).
-func memberHasStateToFlushGiven(m Member, online bool) bool {
+func memberHasStateToFlushGiven(m Member, live liveSession) bool {
 	// Not redundant with the handlers' staffOnly: that is a per-call-site choice.
 	if m.Kind != KindStaff {
 		return false
 	}
-	return ownerOpHandoverPlanFor(m, online) == ownerOpPlanWindDown
+	return ownerOpHandoverPlanFor(m, live) == ownerOpPlanWindDown
 }
 
 // Server half of a CROSS-LAYER contract (root AGENTS.md §9c): maybeRecycle in
@@ -80,8 +92,8 @@ func aRefocusStampWouldReachTheAgent(m Member) bool {
 	return m.DesiredState == DesiredStateOnline
 }
 
-func hasUncollectedOnlineOwnerOpState(refocusSince, stoppedSince float64, online bool) bool {
-	return online && !(refocusSince > 0.0 && stoppedSince > 0.0)
+func ownerOpEpochUncollected(m Member, live liveSession) bool {
+	return live.Online && !(m.RefocusSince > 0.0 && stopLatchCollectsRowEpoch(m, live.CredentialIat))
 }
 
 // ownerOpHandoverPlan is what an owner verb that leaves the member running does
@@ -103,14 +115,14 @@ const (
 // 🔴 Wanted-offline is decided BEFORE state-to-flush. A session can still be up
 // while its stop is in flight; asking flush first would stamp a refocus epoch that
 // reaches no agent and skip the queue behind the stop.
-func ownerOpHandoverPlanFor(m Member, online bool) ownerOpHandoverPlan {
+func ownerOpHandoverPlanFor(m Member, live liveSession) ownerOpHandoverPlan {
 	if !aRefocusStampWouldReachTheAgent(m) {
 		if aStopWasEverAskedFor(m) {
 			return ownerOpPlanQueueBehindStop
 		}
 		return ownerOpPlanHeldDown
 	}
-	if hasUncollectedOnlineOwnerOpState(m.RefocusSince, m.StoppedSince, online) {
+	if ownerOpEpochUncollected(m, live) {
 		return ownerOpPlanWindDown
 	}
 	return ownerOpPlanNothingToFlush
@@ -170,10 +182,10 @@ func queueRestartBehindStop(row ownerOpRow, op string, online bool, now float64)
 // one wanted offline, staff and workers alike: queue a 起來 behind a stop that was
 // asked for, or only note that the change waits for 喚醒. Answers false, writing
 // nothing, when the member is wanted online.
-func applyStoppedOwnerOp(row ownerOpRow, snapshot Member, op string, online bool, now float64) bool {
-	switch ownerOpHandoverPlanFor(snapshot, online) {
+func applyStoppedOwnerOp(row ownerOpRow, snapshot Member, op string, live liveSession, now float64) bool {
+	switch ownerOpHandoverPlanFor(snapshot, live) {
 	case ownerOpPlanQueueBehindStop:
-		queueRestartBehindStop(row, op, online, now)
+		queueRestartBehindStop(row, op, live.Online, now)
 	case ownerOpPlanHeldDown:
 		stampOwnerOpNote(row, heldDownNote(op), now)
 	default:
@@ -295,12 +307,12 @@ const (
 // applyRefocusVerb is 重新聚焦 for both populations.
 // ⚠️ Owner ruling: a member wanted offline (stopping or stopped) is refused, never
 // queued behind its stop the way 改機器 / 換模型 are; 喚醒 is how it comes back.
-func applyRefocusVerb(row ownerOpRow, snapshot Member, online bool, now float64) refocusVerdict {
-	switch ownerOpHandoverPlanFor(snapshot, online) {
+func applyRefocusVerb(row ownerOpRow, snapshot Member, live liveSession, now float64) refocusVerdict {
+	switch ownerOpHandoverPlanFor(snapshot, live) {
 	case ownerOpPlanQueueBehindStop, ownerOpPlanHeldDown:
 		return refocusRefusedWantedOffline
 	}
-	if !online {
+	if !live.Online {
 		return refocusRefusedNoSession
 	}
 	// The ladder only goes forward (owner, 2026-08-24): a backward press would clear
@@ -399,8 +411,8 @@ func (s *apiServer) memberOwnerOpHandoverArmable(m Member, op string) bool {
 // cfg is the caller's reconcileConfigLive(), read before any transaction it
 // holds: that read takes settingsMu, which txguard refuses inside a write
 // transaction (the request answers 500).
-func (s *apiServer) armMemberOwnerOpHandover(m *Member, op string, cfg reconcileConfig, online bool) bool {
-	if !memberHasStateToFlushGiven(*m, online) {
+func (s *apiServer) armMemberOwnerOpHandover(m *Member, op string, cfg reconcileConfig, live liveSession) bool {
+	if !memberHasStateToFlushGiven(*m, live) {
 		return false
 	}
 	if !armRefocusEpoch(m, op, nowSecs()) {
@@ -421,11 +433,11 @@ func (s *apiServer) armMemberOwnerOpHandover(m *Member, op string, cfg reconcile
 // applyMemberOwnerOpPlan is the staff shell of an owner verb that leaves the member
 // running. It writes cur in memory only; noted says a receipt was stamped and
 // must be persisted.
-func (s *apiServer) applyMemberOwnerOpPlan(cur *Member, op string, cfg reconcileConfig, online bool) (windDown, noted bool) {
-	if ownerOpHandoverPlanFor(*cur, online) == ownerOpPlanWindDown {
-		return s.armMemberOwnerOpHandover(cur, op, cfg, online), false
+func (s *apiServer) applyMemberOwnerOpPlan(cur *Member, op string, cfg reconcileConfig, live liveSession) (windDown, noted bool) {
+	if ownerOpHandoverPlanFor(*cur, live) == ownerOpPlanWindDown {
+		return s.armMemberOwnerOpHandover(cur, op, cfg, live), false
 	}
-	return false, applyStoppedOwnerOp(ownerOpRowOfMember(cur), *cur, op, online, nowSecs())
+	return false, applyStoppedOwnerOp(ownerOpRowOfMember(cur), *cur, op, live, nowSecs())
 }
 
 // 「要不要起來」 is split out of desired_state (owner ruling rc-bc1b029a3aa2:
@@ -523,15 +535,15 @@ func (s *apiServer) consumeRestartAfterStop(m *Member, now float64) bool {
 // calls into the staff ones: a worker's one-task restart/release semantics and
 // outsourceMu serialization are not shared.
 
-func applyWorkerStoppedOwnerOp(w *OutsourceWorker, op string, online bool, now float64) bool {
-	return applyStoppedOwnerOp(ownerOpRowOfWorker(w), memberFromWorker(*w), op, online, now)
+func applyWorkerStoppedOwnerOp(w *OutsourceWorker, op string, live liveSession, now float64) bool {
+	return applyStoppedOwnerOp(ownerOpRowOfWorker(w), memberFromWorker(*w), op, live, now)
 }
 
 // applyWorkerStoppedOwnerOpOnRow applies op on the worker's row as it is inside
 // the transaction, not on a caller's copy: a release, a 喚醒 or any other column
 // written since the caller read the worker stands. fresh is that row afterwards
 // (nil when the worker is gone or released).
-func (s *apiServer) applyWorkerStoppedOwnerOpOnRow(id, op string, online bool, now float64) (fresh *OutsourceWorker, applied bool, err error) {
+func (s *apiServer) applyWorkerStoppedOwnerOpOnRow(id, op string, live liveSession, now float64) (fresh *OutsourceWorker, applied bool, err error) {
 	err = s.dal.inTx(func(tx *writeTx) error {
 		cur, err := getOutsourceWorkerOn(tx, id)
 		if err != nil || cur == nil || cur.Status == WorkerStatusReleased {
@@ -539,7 +551,7 @@ func (s *apiServer) applyWorkerStoppedOwnerOpOnRow(id, op string, online bool, n
 		}
 		fresh = cur
 		before := *cur
-		if !applyWorkerStoppedOwnerOp(cur, op, online, now) {
+		if !applyWorkerStoppedOwnerOp(cur, op, live, now) {
 			return nil
 		}
 		applied = true
@@ -655,7 +667,30 @@ const offlineConfirmGraceSecs = 120.0
 // stopAwaitsCollect: a graceful 停止 epoch nobody has collected yet. A forced
 // epoch is excluded because force-stop already sent its kill.
 func stopAwaitsCollect(m Member) bool {
-	return m.StoppedSince <= 0.0 && gracefulStopEpochOpen(m)
+	return !stopLatchCollectsStop(m) && gracefulStopEpochOpen(m)
+}
+
+// stopLatchCollectsStop is THE "has this 停止 been collected" read for a stop whose session is
+// gone (no live credential to compare with): the latch must be written at or after the stop
+// was asked for. An older one answers something earlier — typically the predecessor's report
+// still on the row of a replacement that was stopped before it reported waking.
+// 🔴 Reading that one as this stop's collect leaves the stop uncollected for good, and the SSE
+// stop gate (latchPredatesCredential) keeps re-admitting the replacement's credential: a
+// stopped member that reconnects and reads online forever.
+func stopLatchCollectsStop(m Member) bool {
+	return m.StoppedSince > 0.0 && m.StoppedSince >= m.StoppingSince
+}
+
+// collectStopRow is collectWindDownRow for a 停止 collect: a latch older than the stop anchor
+// does not collect it (stopLatchCollectsStop), so it is replaced rather than kept by the
+// once-only guard. prior is the latch as read, for a caller's rollback.
+func collectStopRow(row windDownAnchorRow, now float64) (latched bool, prior float64) {
+	prior = *row.StoppedSince
+	if prior > 0.0 && prior < *row.StoppingSince {
+		*row.StoppedSince = 0.0
+	}
+	latched, _ = collectWindDownRow(row, now)
+	return latched, prior
 }
 
 // sessionConfirmedGone is the one "the stopped session is gone" judgement for
@@ -707,6 +742,68 @@ func clearWindDownRow(row windDownAnchorRow) {
 	*row.StoppedSince = 0.0
 	*row.RefocusSince = 0.0
 	*row.RefocusOp = ""
+}
+
+// windDownPredatesLiveSession: the stream holding this member online was opened on a
+// credential issued after the hand-off was stamped, so the epoch belongs to an earlier
+// generation and the connected session is its replacement. Strictly earlier, unlike the
+// wake clear's same-second rule: an ambiguous second keeps today's behaviour (the notice
+// is sent, the session can be collected) rather than swallowing a stop meant for it.
+// 🔴 This only answers who the epoch is for; the epoch still completes on report_waking
+// alone. That is an owner ruling (rc-10cc6f9b2572): do not clear the anchors on the SSE
+// connect instead — a connected listener is not a session that can take over yet.
+func windDownPredatesLiveSession(m Member, liveCredentialIat float64) bool {
+	return liveCredentialIat > 0 && aRefocusStampWouldReachTheAgent(m) &&
+		m.RefocusSince > 0 && m.RefocusSince < liveCredentialIat
+}
+
+// latchPredatesCredential: a stopped_since written before this credential was issued is an
+// earlier generation's 「我收完了」 — the latch survives 下線 → 喚醒, and a replacement runs
+// beside its predecessor's until report_waking. Strictly earlier, as for the hand-off.
+func latchPredatesCredential(stoppedSince, credentialIat float64) bool {
+	return credentialIat > 0 && stoppedSince > 0 && stoppedSince < credentialIat
+}
+
+// stopLatchCollectsRowEpoch is THE "this wind-down is collected" read of stopped_since for a
+// member whose live stream connected on liveCredentialIat (0: offline or unknown, today's
+// reading). An earlier generation's latch collects only an earlier generation's epoch: read
+// against an epoch stamped for the live session (an owner verb or 加速停止 pressed on the
+// replacement) it would collect that session on the spot, with no close-out and no clock.
+// 🔴 Every reader that asks "has this epoch been collected" goes through here, so the
+// replacement's own stop report (decideStoppedReport) and these readers never disagree.
+func stopLatchCollectsRowEpoch(m Member, liveCredentialIat float64) bool {
+	if m.StoppedSince <= 0 {
+		return false
+	}
+	return !latchPredatesCredential(m.StoppedSince, liveCredentialIat) ||
+		windDownPredatesLiveSession(m, liveCredentialIat)
+}
+
+// replacementOwedOwnerOpRestart: the live session is the replacement of a generation whose
+// hand-off is collected and still on the row. The plan reads that epoch as collected
+// (NothingToFlush) because the recycle arm kills such a session and restarts it from the
+// row; replacementAwaitingWake now spares the replacement, so a verb changing what a start
+// is built from (model / runtime / effort / machine) must restart it itself, or the change
+// never reaches a running session.
+func replacementOwedOwnerOpRestart(m Member, live liveSession) bool {
+	return live.Online && windDownPredatesLiveSession(m, live.CredentialIat) &&
+		ownerOpHandoverPlanFor(m, live) == ownerOpPlanNothingToFlush
+}
+
+// restartReplacementForOwnerOp kills the replacement replacementOwedOwnerOpRestart named, as
+// the recycle arm did before the wake window spared it; the next START is built from the row
+// the verb just wrote. No hand-off is asked for: it has not reported waking, so it holds
+// nothing to hand over. Workers need no twin — their NothingToFlush already restarts at once
+// (handOverWorkerNow).
+// 🔴 The replacement is usually the session of the tick's own last START, which the wake
+// window never marks converged. The stop must retire that START (PastBootingStart): left in
+// flight, the tick waits out the whole start window on a session it just killed, then stamps
+// a wake_timeout telling the owner to check the machine's login.
+func (s *apiServer) restartReplacementForOwnerOp(memberID, op string) {
+	reconcileLog("%s %s: the session is a replacement that has not reported waking — "+
+		"restarting it so the change applies", op, memberID)
+	s.bankLiveCost(memberID)
+	s.dispatchRobustStopPastBootingStart(s.staffStopPopulation(), memberID)
 }
 
 // clearWindDownRowOnWake is report_waking's clear, for staff and workers alike.

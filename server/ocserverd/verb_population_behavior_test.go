@@ -1331,7 +1331,7 @@ func parityCases() []verbCase {
 				return workerTerminal(t, api, id, code.Code, notices)
 			},
 			// Both arm the wind-down through the SAME predicate
-			// (hasUncollectedOnlineOwnerOpState: online ∧ ¬(refocus>0 ∧ stopped>0)) and
+			// (ownerOpEpochUncollected: online ∧ ¬(refocus>0 ∧ the latch collects that epoch)) and
 			// stamp the epoch through the SAME armRefocusEpoch with op="relocate".
 			wantStaff: terminalState{
 				Status: http.StatusOK, DesiredState: DesiredStateOnline,

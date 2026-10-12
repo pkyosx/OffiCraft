@@ -87,13 +87,13 @@ func (s *apiServer) HandleEventsApiEventsGet(w http.ResponseWriter, r *http.Requ
 	// Zombie SSE gate, checked BEFORE hub.Connect so a member the gate refuses can
 	// never take the slot over (zombie-stop outranks takeover).
 	if memberID != "" {
-		if msg := s.sseStopGateRefusal(memberID); msg != "" {
+		if msg := s.sseStopGateRefusal(memberID, callerIat(r)); msg != "" {
 			fmt.Fprintf(os.Stderr, "[sse] refused reconnect for %q: %s\n", memberID, msg)
 			writeError(w, http.StatusConflict, msg)
 			return
 		}
 	}
-	listener, err := s.hub.Connect(memberID, machineID)
+	listener, err := s.hub.ConnectWithCredential(memberID, machineID, callerIat(r))
 	if err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return
@@ -320,7 +320,8 @@ func (s *apiServer) HandleEventsApiEventsGet(w http.ResponseWriter, r *http.Requ
 // desired-offline with no stop anchors and must stay admitted; a warden is
 // desired-offline by default (dbseed / onboarding) and is removed through the
 // one-shot uninstall intent instead.
-func (s *apiServer) sseStopGateRefusal(memberID string) string {
+// credentialIat is the connecting credential's (0 when unknown).
+func (s *apiServer) sseStopGateRefusal(memberID string, credentialIat float64) string {
 	m, err := s.dal.GetMember(memberID)
 	if err != nil || m == nil {
 		return ""
@@ -338,7 +339,9 @@ func (s *apiServer) sseStopGateRefusal(memberID string) string {
 		// tmux session (listen_run.go), so refusing here would take a mid-hand-off
 		// session down with the hand-off unwritten. A member that reported stopped, or
 		// was force-stopped, is still refused (gracefulStopEpochOpen, api_members.go).
-		if m.StoppedSince <= 0.0 && gracefulStopEpochOpen(*m) {
+		// A latch older than the connecting credential is a predecessor's, not this session's.
+		if (m.StoppedSince <= 0.0 || latchPredatesCredential(m.StoppedSince, credentialIat)) &&
+			gracefulStopEpochOpen(*m) {
 			return ""
 		}
 		return "member '" + m.ID + "' has a stop in effect (desired_state=offline) — " +
@@ -377,8 +380,8 @@ func (s *apiServer) onFirstConnect(memberID string) {
 // connect begins a new session. The gauge is emptied on a station re-exec while
 // the agents survive it, so an existing durable anchor is RESTORED, never
 // re-minted: otherwise every live session reads as seconds old after an upgrade
-// and the min-liveness floor, context-high auto-recycle suppressor and worker
-// auto-handover loop-break all misfire. A mid-session SSE flap must not reset it
+// and the min-liveness floor and the context-high auto-recycle suppressor
+// misfire. A mid-session SSE flap must not reset it
 // either. On this edge the anchor may only move backwards in time, never
 // forwards.
 func (s *apiServer) anchorSessionBoot(memberID string) {

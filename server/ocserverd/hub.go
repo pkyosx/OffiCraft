@@ -38,6 +38,10 @@ const triggerServer = "server"
 type hubListener struct {
 	MemberID  string
 	MachineID string
+	// CredentialIat is the iat of the token that opened this stream (0 when unknown): the
+	// one live fact that says which generation is connected. A START's token reaches no
+	// process when the warden refuses it, so a stream carrying it proves the session runs.
+	CredentialIat float64
 
 	Gen int64
 
@@ -100,6 +104,10 @@ func NewHub() *Hub {
 // §5.1) in one critical section, so the member never drops offline. The caller
 // maps errDualSSEThrottled to a 409 BEFORE the stream starts.
 func (h *Hub) Connect(memberID, machineID string) (*hubListener, error) {
+	return h.ConnectWithCredential(memberID, machineID, 0)
+}
+
+func (h *Hub) ConnectWithCredential(memberID, machineID string, credentialIat float64) (*hubListener, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	now := h.clock()
@@ -132,11 +140,12 @@ func (h *Hub) Connect(memberID, machineID string) (*hubListener, error) {
 	}
 	h.connGen++
 	l := &hubListener{
-		MemberID:   memberID,
-		MachineID:  machineID,
-		Gen:        h.connGen,
-		kicked:     make(chan struct{}),
-		attachedAt: now,
+		MemberID:      memberID,
+		MachineID:     machineID,
+		CredentialIat: credentialIat,
+		Gen:           h.connGen,
+		kicked:        make(chan struct{}),
+		attachedAt:    now,
 	}
 	h.listeners[l] = true
 	if old != nil {
@@ -167,6 +176,22 @@ func (h *Hub) Disconnect(l *hubListener) (lastForMember bool) {
 		}
 	}
 	return true
+}
+
+// LiveCredentialIat answers presence and the live stream's credential iat under one lock,
+// so a caller never pairs one connection's presence with another's iat across a takeover.
+func (h *Hub) LiveCredentialIat(memberID string) (iat float64, online bool) {
+	if memberID == "" {
+		return 0, false
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for l := range h.listeners {
+		if l.MemberID == memberID {
+			return l.CredentialIat, true
+		}
+	}
+	return 0, false
 }
 
 func (h *Hub) IsOnline(memberID string) bool {

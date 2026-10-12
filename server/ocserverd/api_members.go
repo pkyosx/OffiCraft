@@ -123,6 +123,13 @@ func windDownAnchorRowOfWorker(w *OutsourceWorker) windDownAnchorRow {
 // Split from the row writes for single-column writers: marking a column insertOnly and
 // forgetting this call silently stops the cockpit converging.
 func (s *apiServer) publishMemberPatch(m Member, trigger string) {
+	// A replacement must not be woken by its predecessor's hand-off: the agent's hook reads
+	// refocus_since off a refetch of the row on ANY self frame and wakes on it, notice or
+	// not, so stripping only the notice would still wake it (with the fallback text).
+	if iat, online := s.hub.LiveCredentialIat(m.ID); online && windDownPredatesLiveSession(m, iat) {
+		s.publishMemberOwnerOnly(m, trigger)
+		return
+	}
 	op := "patch"
 	if m.RosterStatus == RosterStatusRemoved {
 		op = "remove"
@@ -623,7 +630,8 @@ func (s *apiServer) HandleUpdateMemberApiMembersMemberIdPatch(w http.ResponseWri
 	var saved Member
 	noted := false
 	cfg := s.reconcileConfigLive()
-	online := s.hub.IsOnline(memberId)
+	live := s.liveSessionOf(memberId)
+	restartReplacement := false
 	err = s.dal.inTx(func(tx *writeTx) error {
 		cur, err := resolveMemberOn(tx, memberId, anyMember)
 		if err != nil {
@@ -634,9 +642,10 @@ func (s *apiServer) HandleUpdateMemberApiMembersMemberIdPatch(w http.ResponseWri
 		if err != nil {
 			return err
 		}
-		noted = false
+		noted, restartReplacement = false, false
 		if launchIntentChanged {
-			_, noted = s.applyMemberOwnerOpPlan(cur, memberOpRuntimeModel, cfg, online)
+			restartReplacement = replacementOwedOwnerOpRestart(*cur, live)
+			_, noted = s.applyMemberOwnerOpPlan(cur, memberOpRuntimeModel, cfg, live)
 		}
 		if err := persistMemberRowOn(tx, before, *cur); err != nil {
 			return err
@@ -676,6 +685,9 @@ func (s *apiServer) HandleUpdateMemberApiMembersMemberIdPatch(w http.ResponseWri
 	if noted {
 		s.publishMemberPatch(saved, requestTrigger(r))
 		s.reconcileAfterOwnerOp(saved.ID, memberOpRuntimeModel, noted)
+	}
+	if restartReplacement {
+		s.restartReplacementForOwnerOp(saved.ID, memberOpRuntimeModel)
 	}
 	writeJSON(w, http.StatusOK, agentLifecycleReceiptDTO{ID: saved.ID})
 }
@@ -875,7 +887,8 @@ func (s *apiServer) HandleRelocateMemberApiMembersMemberIdRelocatePost(w http.Re
 	var saved Member
 	windDown, noted := false, false
 	cfg := s.reconcileConfigLive()
-	online := s.hub.IsOnline(memberId)
+	live := s.liveSessionOf(memberId)
+	restartReplacement := false
 	err := s.dal.inTx(func(tx *writeTx) error {
 		if _, err := resolveMachineOn(tx, machineID); err != nil {
 			return machineResolveRefusal(err, machineID)
@@ -893,7 +906,8 @@ func (s *apiServer) HandleRelocateMemberApiMembersMemberIdRelocatePost(w http.Re
 		// delta the agent wakes on already names the destination.
 		// Owner (2026-08-30): 改機器 is a 重啟 intent, so a stopped member comes back up
 		// on the new pin.
-		windDown, noted = s.applyMemberOwnerOpPlan(cur, memberOpRelocate, cfg, online)
+		restartReplacement = replacementOwedOwnerOpRestart(*cur, live)
+		windDown, noted = s.applyMemberOwnerOpPlan(cur, memberOpRelocate, cfg, live)
 		if err := persistMemberRowOn(tx, before, *cur); err != nil {
 			return err
 		}
@@ -913,10 +927,13 @@ func (s *apiServer) HandleRelocateMemberApiMembersMemberIdRelocatePost(w http.Re
 	if noted {
 		s.publishMemberPatch(saved, requestTrigger(r))
 	}
+	if restartReplacement {
+		s.restartReplacementForOwnerOp(saved.ID, memberOpRelocate)
+	}
 	dec := s.reconcileAfterOwnerOp(saved.ID, memberOpRelocate, noted)
 	receipt := agentRelocateReceiptDTO{ID: saved.ID}
 	// relocation_pending also covers an opened wind-down (nothing dispatched yet).
-	if dec.DispatchUnlanded || windDown {
+	if dec.DispatchUnlanded || windDown || restartReplacement {
 		receipt.RelocationPending = true
 	}
 	// Deferred is reported separately because relocation_pending's meaning is on the
@@ -927,9 +944,10 @@ func (s *apiServer) HandleRelocateMemberApiMembersMemberIdRelocatePost(w http.Re
 	writeJSON(w, http.StatusOK, receipt)
 }
 
-// 🔴 The harm is on the NEXT generation: activate clears neither refocus_since nor
+// 🔴 The harm is on the NEXT generation: a live activate clears neither refocus_since nor
 // stopped_since, so a leftover marker survives 下線 → 喚醒 and decideUp's recycle
-// arm robust-stops the brand-new session on its first tick. stopping_since /
+// arm collects the brand-new session once its wake window passes
+// (replacementAwaitingWake) unless it has reported waking. stopping_since /
 // stopped_since / forced_stop_at are left alone: forced_stop_at is the durable
 // cut-off record the next generation reads.
 func clearMemberHandoverMarker(m *Member) {
@@ -1051,7 +1069,7 @@ func (s *apiServer) HandleRefocusMemberApiMembersMemberIdRefocusPost(w http.Resp
 		s.HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(w, r, memberId)
 		return
 	}
-	online := s.hub.IsOnline(memberId)
+	live := s.liveSessionOf(memberId)
 	var saved Member
 	err = s.dal.inTx(func(tx *writeTx) error {
 		cur, err := resolveMemberOn(tx, memberId, anyMember)
@@ -1059,7 +1077,7 @@ func (s *apiServer) HandleRefocusMemberApiMembersMemberIdRefocusPost(w http.Resp
 			return err
 		}
 		before := *cur
-		switch applyRefocusVerb(ownerOpRowOfMember(cur), *cur, online, nowSecs()) {
+		switch applyRefocusVerb(ownerOpRowOfMember(cur), *cur, live, nowSecs()) {
 		case refocusRefusedWantedOffline:
 			return refuseInTx(http.StatusConflict, refocusWantedOfflineRefusalMsg("member"))
 		case refocusRefusedNoSession:
@@ -1258,7 +1276,7 @@ func (s *apiServer) HandleReportStoppedApiSelfStoppedPost(w http.ResponseWriter,
 		writeResolveError(w, err, "member", currentActor(r))
 		return
 	}
-	saved, stopEffect, err := s.reportMemberStopped(*m, requestTrigger(r))
+	saved, stopEffect, err := s.reportMemberStopped(*m, callerIat(r), requestTrigger(r))
 	if err != nil {
 		writeResolveTxError(w, err, "member", currentActor(r))
 		return

@@ -165,6 +165,41 @@ func apiTestAgentToken(t *testing.T, api *apiServer, sub, machineID string) stri
 	return tok
 }
 
+// apiTestSessionStream connects id's listener the way a booting session's does: GET
+// /api/events on the credential the spawn paths mint, through the full route table. It
+// answers the stream, the credential and the credential's iat.
+func apiTestSessionStream(t *testing.T, api *apiServer, id, machineID string) (*apiEventStream, string, float64) {
+	t.Helper()
+	tok, iat := apiTestSessionCredential(t, api, id, machineID)
+	return apiTestOpenSession(t, api, tok), tok, iat
+}
+
+// apiTestSessionCredential mints a session credential the way the spawn paths do and answers
+// it with its iat.
+func apiTestSessionCredential(t *testing.T, api *apiServer, id, machineID string) (string, float64) {
+	t.Helper()
+	tok := apiTestAgentToken(t, api, id, machineID)
+	claims, err := verifyJWT(tok, api.keys.signingSecret(), time.Now().Unix())
+	if err != nil {
+		t.Fatalf("verifyJWT: %v", err)
+	}
+	iat, _ := claims["iat"].(float64)
+	if iat <= 0 {
+		t.Fatalf("premise: the minted credential must carry an iat, got %v", claims["iat"])
+	}
+	return tok, iat
+}
+
+// apiTestOpenSession opens GET /api/events on tok through the full route table.
+func apiTestOpenSession(t *testing.T, api *apiServer, tok string) *apiEventStream {
+	t.Helper()
+	h, err := buildHandler(specsFor(api), api.keys, api.dal.GetMember, api.authPasswordChangedAt)
+	if err != nil {
+		t.Fatalf("buildHandler: %v", err)
+	}
+	return apiEventsStream(t, h, tok, "")
+}
+
 // apiTestPrincipalToken obtains a production-minted token for a roster-backed class.
 func apiTestPrincipalToken(t *testing.T, api *apiServer, d *DAL, class principalClass, id string) string {
 	t.Helper()

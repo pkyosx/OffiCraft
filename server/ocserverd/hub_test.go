@@ -499,6 +499,41 @@ func TestIsOnline(t *testing.T) {
 	})
 }
 
+func TestLiveCredentialIat(t *testing.T) {
+	t.Run("answers the iat of the stream holding the member online, and follows a takeover to the newer stream", func(t *testing.T) {
+		h := hubTestPinned()
+		h.Connect("", "")
+		old, _ := h.ConnectWithCredential("kip", "m-1", 1700000000)
+		for id, want := range map[string][2]any{
+			"kip": {1700000000.0, true},
+			"ana": {0.0, false},
+			"":    {0.0, false},
+		} {
+			iat, online := h.LiveCredentialIat(id)
+			if iat != want[0] || online != want[1] {
+				t.Fatalf("LiveCredentialIat(%q) = (%v, %v), want (%v, %v)", id, iat, online, want[0], want[1])
+			}
+		}
+		replacement, _ := h.ConnectWithCredential("kip", "m-1", 1700000600)
+		if iat, online := h.LiveCredentialIat("kip"); iat != 1700000600 || !online {
+			t.Fatalf("after the takeover = (%v, %v), want (1.7000006e+09, true)", iat, online)
+		}
+		h.Disconnect(old)
+		h.Disconnect(replacement)
+		if iat, online := h.LiveCredentialIat("kip"); iat != 0 || online {
+			t.Fatalf("after the last disconnect = (%v, %v), want (0, false)", iat, online)
+		}
+	})
+
+	t.Run("a stream opened without a credential reads online with an unknown iat", func(t *testing.T) {
+		h := hubTestPinned()
+		h.Connect("kip", "")
+		if iat, online := h.LiveCredentialIat("kip"); iat != 0 || !online {
+			t.Fatalf("LiveCredentialIat = (%v, %v), want (0, true)", iat, online)
+		}
+	})
+}
+
 func TestOnlineMembers(t *testing.T) {
 	t.Run("the set holds every connected member id and never the owner connection", func(t *testing.T) {
 		h := hubTestPinned()

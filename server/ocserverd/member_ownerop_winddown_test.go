@@ -232,7 +232,7 @@ func TestArmMemberOwnerOpHandover(t *testing.T) {
 			}
 			before := m
 			lower := nowSecs()
-			got := api.armMemberOwnerOpHandover(&m, tc.op, api.reconcileConfigLive(), api.hub.IsOnline(m.ID))
+			got := api.armMemberOwnerOpHandover(&m, tc.op, api.reconcileConfigLive(), api.liveSessionOf(m.ID))
 			upper := nowSecs()
 			if got != tc.want {
 				t.Fatalf("armMemberOwnerOpHandover() = %t, want %t", got, tc.want)
@@ -464,7 +464,7 @@ func TestApplyWorkerStoppedOwnerOp(t *testing.T) {
 			api, _, _, _, _ := wsWorkerSpawnFixture(t, WorkerStatusActive)
 			dashboard := apiTestListen(t, api, "")
 			w := tc.w
-			if got := applyWorkerStoppedOwnerOp(&w, tc.op, true, 1234.5); got != tc.want {
+			if got := applyWorkerStoppedOwnerOp(&w, tc.op, liveSession{Online: true}, 1234.5); got != tc.want {
 				t.Fatalf("applyWorkerStoppedOwnerOp() = %t, want %t", got, tc.want)
 			}
 			apiTestWantEqual(t, "worker after applyWorkerStoppedOwnerOp", w, tc.row)
@@ -489,7 +489,7 @@ func TestAnOwnerVerbOnAStoppedWorkerQueuesItsRestartOnTheRow(t *testing.T) {
 		api, h, _, owner := stopped(t)
 		dashboard := apiTestListen(t, api, "")
 
-		fresh, queued, err := api.applyWorkerStoppedOwnerOpOnRow("ow-abc123", ownerOpRelocate, true, 1234.5)
+		fresh, queued, err := api.applyWorkerStoppedOwnerOpOnRow("ow-abc123", ownerOpRelocate, liveSession{Online: true}, 1234.5)
 
 		if err != nil || !queued || fresh == nil || !fresh.RestartAfterStop {
 			t.Fatalf("queue: fresh %+v queued %v err %v; want the row queued", fresh, queued, err)
@@ -753,6 +753,54 @@ func TestClearWindDownRowOnWake(t *testing.T) {
 			want := c.want
 			want.ID, want.WakingSince, want.ForcedStopAt = "m-wake", 40, 50
 			apiTestWantEqual(t, "row after the wake", row, want)
+		})
+	}
+}
+
+func TestWindDownPredatesLiveSession(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		desired string
+		refocus float64
+		iat     float64
+		want    bool
+	}{
+		{"a hand-off stamped before the live credential was issued", DesiredStateOnline, 1030.7, 1031, true},
+		{"a hand-off stamped in the live credential's second, after it was issued", DesiredStateOnline, 1031.2, 1031, false},
+		{"a hand-off stamped at the live credential's issue instant", DesiredStateOnline, 1031, 1031, false},
+		{"a hand-off stamped after the live credential was issued", DesiredStateOnline, 1040, 1031, false},
+		{"a live credential with no issue time", DesiredStateOnline, 1030.7, 0, false},
+		{"no hand-off on the row", DesiredStateOnline, 0, 1031, false},
+		{"a member wanted offline", DesiredStateOffline, 1030.7, 1031, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			m := Member{ID: "m-live", DesiredState: c.desired, RefocusSince: c.refocus,
+				RefocusOp: refocusOpContextNotice, StoppedSince: 1035}
+			if got := windDownPredatesLiveSession(m, c.iat); got != c.want {
+				t.Fatalf("windDownPredatesLiveSession = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestStopLatchCollectsStop(t *testing.T) {
+	for _, c := range []struct {
+		name     string
+		stopping float64
+		stopped  float64
+		want     bool
+	}{
+		{"no latch", 2000, 0, false},
+		{"a latch written after the stop was asked for", 2000, 2050.5, true},
+		{"a latch written at the stop's own instant", 2000, 2000, true},
+		{"a latch older than the stop", 2000, 1100, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			m := Member{ID: "m-stop", DesiredState: DesiredStateOffline,
+				StoppingSince: c.stopping, StoppedSince: c.stopped}
+			if got := stopLatchCollectsStop(m); got != c.want {
+				t.Fatalf("stopLatchCollectsStop = %v, want %v", got, c.want)
+			}
 		})
 	}
 }

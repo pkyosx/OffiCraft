@@ -176,11 +176,11 @@ func (s *apiServer) relocateWorkerByID(w http.ResponseWriter, r *http.Request, i
 // returns; the stop belongs to the worker's report_stopped (or a force-stop).
 // There is NO grace deadline: refocusOpRefocus runs no clock (winddownKindFor).
 // The refocus_since marker doubles as the tick's auto-handover cooldown and is
-// cleared by the loop-break once the respawn lands.
+// cleared by the replacement's report_waking.
 func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost(w http.ResponseWriter, r *http.Request, id string) {
 	unlockMu := s.outsourceMu.Acquire()
 	defer unlockMu()
-	online := s.hub.IsOnline(id)
+	live := s.liveSessionOf(id)
 	var worker *OutsourceWorker
 	err := s.dal.inTx(func(tx *writeTx) error {
 		var err error
@@ -188,7 +188,7 @@ func (s *apiServer) HandleRefocusOutsourceWorkerApiOutsourceWorkersIdRefocusPost
 			return err
 		}
 		before := *worker
-		switch applyRefocusVerb(ownerOpRowOfWorker(worker), memberFromWorker(*worker), online, nowSecs()) {
+		switch applyRefocusVerb(ownerOpRowOfWorker(worker), memberFromWorker(*worker), live, nowSecs()) {
 		case refocusRefusedWantedOffline:
 			return refuseInTx(http.StatusConflict, refocusWantedOfflineRefusalMsg("worker"))
 		case refocusRefusedNoSession:
@@ -342,7 +342,7 @@ func (s *apiServer) HandleSetOutsourceWorkerModelApiOutsourceWorkersIdModelPost(
 func (s *apiServer) handleSetOutsourceWorkerModel(w http.ResponseWriter, r *http.Request, id string, body MemberUpdateDTO) {
 	unlockMu := s.outsourceMu.Acquire()
 	defer unlockMu()
-	online := s.hub.IsOnline(id)
+	live := s.liveSessionOf(id)
 	var worker *OutsourceWorker
 	launchIntentChanged, respawn, noted := false, false, false
 	var wantModel, wantRuntime, wantEffort string
@@ -379,12 +379,12 @@ func (s *apiServer) handleSetOutsourceWorkerModel(w http.ResponseWriter, r *http
 		wantModel, wantRuntime, wantEffort = worker.Model, NormalizeRuntime(worker.Runtime), worker.Effort
 		// Whether the owner wants it running is NOT re-asked here —
 		// respawnWorkerForOwnerOp owns that branch for all three owner verbs.
-		respawn = launchIntentChanged && online
+		respawn = launchIntentChanged && live.Online
 		if !respawn && launchIntentChanged {
 			// With no live session the funnel is never entered, so a stopped worker's
 			// note is stamped here; 改機器 has no such gate. Owner 2026-08-30:
 			// 「change model / machine 只是帶起來的方式不一樣而已」.
-			noted = applyWorkerStoppedOwnerOp(worker, ownerOpRuntimeModel, online, nowSecs())
+			noted = applyWorkerStoppedOwnerOp(worker, ownerOpRuntimeModel, live, nowSecs())
 			if noted {
 				if err := persistWorkerRestartIntentOn(tx, before, *worker); err != nil {
 					return err

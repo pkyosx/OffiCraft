@@ -111,7 +111,7 @@ func (s *apiServer) stopMember(m Member, trigger string) (Member, error) {
 		// A session already gone is collected right here: the stopped latch lands
 		// with the stop, so a failure leaves neither and a retry is a first collect.
 		if arm == stopArmCollectNow {
-			collectWindDownRow(windDownAnchorRowOfMember(cur), nowSecs())
+			collectStopRow(windDownAnchorRowOfMember(cur), nowSecs())
 		}
 		saved = *cur
 		return persistMemberRowOn(tx, before, *cur)
@@ -282,7 +282,8 @@ func accelerateMemberStop(m *Member, now float64) error {
 // collected (owner, rc-b08d49dc3b03 option ①); the latch lands with the row or not
 // at all: a latch left behind a failed write would make every retry read "already
 // reported" and dispatch nothing, forever.
-func (s *apiServer) reportMemberStopped(m Member, trigger string) (Member, string, error) {
+// sessionIat is the reporting credential's iat (0 when unknown).
+func (s *apiServer) reportMemberStopped(m Member, sessionIat float64, trigger string) (Member, string, error) {
 	pop := s.stopPopulationOf(m)
 	now := nowSecs()
 	var saved Member
@@ -295,7 +296,7 @@ func (s *apiServer) reportMemberStopped(m Member, trigger string) (Member, strin
 			return err
 		}
 		before := *cur
-		collect, stopEffect = decideStoppedReport(windDownAnchorRowOfMember(cur), now)
+		collect, stopEffect = decideStoppedReport(windDownAnchorRowOfMember(cur), now, sessionIat)
 		saved = *cur
 		return persistMemberRowOn(tx, before, *cur)
 	})
@@ -319,7 +320,14 @@ func (s *apiServer) reportMemberStopped(m Member, trigger string) (Member, strin
 	return saved, stopEffect, nil
 }
 
-func decideStoppedReport(row windDownAnchorRow, now float64) (collect bool, stopEffect string) {
+// A latch older than the reporting credential is a predecessor's report still on the row
+// (it survives 下線 → 喚醒, and a replacement runs beside it until report_waking): read as
+// this session's own, it would answer already_reported and the stop would never be
+// collected, leaving a stopped member running.
+func decideStoppedReport(row windDownAnchorRow, now, sessionIat float64) (collect bool, stopEffect string) {
+	if latchPredatesCredential(*row.StoppedSince, sessionIat) {
+		*row.StoppedSince = 0
+	}
 	if latched, _ := collectWindDownRow(row, now); !latched {
 		return false, stopEffectAlreadyReported
 	}

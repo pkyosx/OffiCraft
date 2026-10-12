@@ -85,7 +85,90 @@ func wantStaffStop(t *testing.T, d *DAL, label string, stoppedSince float64) {
 	apiWantValue(t, label+": stopped_since", any(m.StoppedSince), any(stoppedSince))
 }
 
+// replacementStoppedBeforeWaking: id is wanted online on ServerSelfHost (warden up) with its
+// predecessor's collected hand-off still on the row (refocus 1000.5, stopped 1100), its
+// replacement connected on a spawn-minted credential, and the owner has pressed 停止 on it.
+// Answers the replacement's stream and credential.
+func replacementStoppedBeforeWaking(t *testing.T, api *apiServer, h http.Handler, d *DAL, owner, id string) (*apiEventStream, string) {
+	t.Helper()
+	if err := d.SetMemberDesiredMachineID(id, ServerSelfHost); err != nil {
+		t.Fatalf("SetMemberDesiredMachineID: %v", err)
+	}
+	if err := d.SetMemberWindDownAnchors(id, 0, 1100, 1000.5, refocusOpContextNotice); err != nil {
+		t.Fatalf("SetMemberWindDownAnchors: %v", err)
+	}
+	apiTestListen(t, api, ServerSelfHost)
+	stream, tok, _ := apiTestSessionStream(t, api, id, ServerSelfHost)
+	if status, data := apiJSON(t, h, "POST", "/api/members/"+id+"/deactivate", owner, `{}`); status != 200 {
+		t.Fatalf("deactivate: %d %v", status, data)
+	}
+	wsDrainWardenFrames(t, api, ServerSelfHost)
+	return stream, tok
+}
+
+// wantStopGateRefuses: id's credential is refused 409 at GET /api/events.
+func wantStopGateRefuses(t *testing.T, h http.Handler, id, tok string) {
+	t.Helper()
+	status, data := apiJSON(t, h, "GET", "/api/events", tok, "")
+	if status != 409 {
+		t.Fatalf("a collected stop must refuse the replacement's reconnect: want 409, got %d (%v)", status, data)
+	}
+	apiWantError(t, data, "conflict",
+		"member '"+id+"' has a stop in effect (desired_state=offline) — SSE refused "+
+			"(a stopped member must not re-project online; 喚醒 it to reconnect)")
+}
+
 func TestAStoppedStaffMemberWhoseSessionDroppedIsCollectedAfterTheConfirmWindow(t *testing.T) {
+	t.Run("a replacement stopped before it reported waking is collected by the window though its predecessor's latch is on the row, and its credential is refused afterwards", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		kip := apiTestMemberRow(t, d, "kip")
+		kip.DesiredState = DesiredStateOnline
+		if err := d.putMemberWholeRowForTest(kip); err != nil {
+			t.Fatalf("putMemberWholeRowForTest: %v", err)
+		}
+		stream, tok := replacementStoppedBeforeWaking(t, api, h, d, owner, "kip")
+		stream.stop()
+		t0 := nowSecs()
+
+		api.runReconcileTick(t0)
+		api.runReconcileTick(t0 + 119)
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		wantStaffStop(t, d, "one second short of the window", 1100)
+
+		api.runReconcileTick(t0 + 120)
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("kip"))
+		wantStaffStop(t, d, "at the window", t0+120)
+		wantStopGateRefuses(t, h, "kip", tok)
+	})
+
+	t.Run("a replacement whose 加速停止 grace ran out is collected once it is gone though its predecessor's latch is on the row, and its credential is refused afterwards", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		kip := apiTestMemberRow(t, d, "kip")
+		kip.DesiredState = DesiredStateOnline
+		if err := d.putMemberWholeRowForTest(kip); err != nil {
+			t.Fatalf("putMemberWholeRowForTest: %v", err)
+		}
+		stream, tok := replacementStoppedBeforeWaking(t, api, h, d, owner, "kip")
+		if status, data := apiJSON(t, h, "POST", "/api/members/kip/accelerated-stop", owner, `{}`); status != 200 {
+			t.Fatalf("accelerated-stop: %d %v", status, data)
+		}
+		wsDrainWardenFrames(t, api, ServerSelfHost)
+		t0 := reconcileTestRow(t, d, "kip").StoppingSince + 121
+
+		api.runReconcileTick(t0)
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("kip"))
+		stream.stop()
+		api.runReconcileTick(t0 + 1)
+		api.runReconcileTick(t0 + 120)
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		wantStaffStop(t, d, "one second short of the window", 1100)
+
+		api.runReconcileTick(t0 + 121)
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("kip"))
+		wantStaffStop(t, d, "at the window", t0+121)
+		wantStopGateRefuses(t, h, "kip", tok)
+	})
+
 	t.Run("inside the window nothing is collected or sent; at the window the close-out is latched and the residual session is stopped, once", func(t *testing.T) {
 		api, _, d, _ := stoppedStaffAfterDisconnect(t)
 		t0 := nowSecs()
@@ -268,6 +351,29 @@ func wantWorkerStop(t *testing.T, d *DAL, label string, collected bool) {
 }
 
 func TestAStoppedWorkerWhoseSessionDroppedIsCollectedAfterTheConfirmWindow(t *testing.T) {
+	t.Run("a replacement stopped before it reported waking is collected by the window though its predecessor's latch is on the row, and its credential is refused afterwards", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+		apiTestWorkerWantedOnline(t, d, "ow-abc123")
+		stream, tok := replacementStoppedBeforeWaking(t, api, h, d, owner, "ow-abc123")
+		stream.stop()
+		t0 := nowSecs()
+
+		api.runOutsourceTick(t0)
+		api.runOutsourceTick(t0 + 119)
+		wsWantWardenFrames(t, api, ServerSelfHost)
+		if got := apiTestMemberRow(t, d, "ow-abc123").StoppedSince; got != 1100 {
+			t.Fatalf("one second short of the window the predecessor's latch stands, got %v", got)
+		}
+
+		api.runOutsourceTick(t0 + 120)
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
+		if got := apiTestMemberRow(t, d, "ow-abc123").StoppedSince; got != t0+120 {
+			t.Fatalf("at the window the replacement's own collect is latched: want %v, got %v", t0+120, got)
+		}
+		wantStopGateRefuses(t, h, "ow-abc123", tok)
+	})
+
 	t.Run("a reconnect inside the window is a blip: the window starts again from the next disconnect", func(t *testing.T) {
 		api, _, d, _ := stoppedWorkerAfterDisconnect(t)
 		t0 := nowSecs()
