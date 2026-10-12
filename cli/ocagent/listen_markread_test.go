@@ -259,7 +259,7 @@ func TestDrainChatFilesReadReceipts(t *testing.T) {
 		t.Helper()
 		ackFile := filepath.Join(t.TempDir(), ".officraft-listen-ack")
 		gate := newAckGate(testEnv(map[string]string{listenAckEnv: "1", listenAckFileEnv: ackFile}), nil, io.Discard)
-		mod := &answeringMod{ackFile: ackFile, verb: verb}
+		mod := &answeringMod{ackFile: ackFile, verbs: []string{verb}}
 		w := newModWriter(mod, io.Discard)
 		stop := w.start()
 		drainChat(srv.Client(), markReadCfg(srv.URL, t.TempDir()), w, &drainWarner{}, gate, clock)
@@ -309,10 +309,10 @@ func TestDrainChatFilesReadReceipts(t *testing.T) {
 }
 
 // answeringMod stands in for the notification mod: it keeps every frame and
-// answers each batch frame in the ack file with verb.
+// answers the n-th batch frame in the ack file with verbs[n].
 type answeringMod struct {
 	ackFile string
-	verb    string
+	verbs   []string
 	mu      sync.Mutex
 	got     strings.Builder
 }
@@ -325,7 +325,9 @@ func (m *answeringMod) Write(p []byte) (int, error) {
 		Batch *string `json:"batch"`
 	}
 	if json.Unmarshal(p, &frame) == nil && frame.Batch != nil {
-		if err := os.WriteFile(m.ackFile, []byte(m.verb+" "+*frame.Batch+"\n"), 0o600); err != nil {
+		verb := m.verbs[0]
+		m.verbs = m.verbs[1:]
+		if err := os.WriteFile(m.ackFile, []byte(verb+" "+*frame.Batch+"\n"), 0o600); err != nil {
 			return 0, err
 		}
 	}

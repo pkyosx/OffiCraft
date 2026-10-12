@@ -1075,6 +1075,50 @@ func TestConnectOnce(t *testing.T) {
 		}
 	})
 
+	t.Run("on the mod route a batch the mod nacked stays unread and is re-sent, acked and marked read on the next chat event", func(t *testing.T) {
+		api := newRoutedHTTP(map[string]string{
+			"/api/reply-cards?status=answered": `[]`,
+			"/api/reply-cards?status=expired":  `[]`,
+			"/api/chat?recipient=kyle&unread=true&limit=50": `{"messages":` +
+				`[{"id":"c1","from":"boss","to":"kyle","body":"你在嗎","ts":1787148000}]}`,
+			"/api/chat/mark-read": `{}`,
+		})
+		tr := &stubTransport{reply: func(int, *http.Request) (*http.Response, error) {
+			return sseReply(200, nil, "data: {\"topic\":\"chat\",\"trigger\":\"boss\"}\n\n"), nil
+		}}
+		ackFile := filepath.Join(t.TempDir(), ".officraft-listen-ack")
+		mod := &answeringMod{ackFile: ackFile, verbs: []string{"nack", "ack"}}
+		var diag lockedBuffer
+		w := newModWriter(mod, &diag)
+		stop := w.start()
+		l := newRunListener(t, runCfg(t), w, api, tr)
+		l.clock = func() time.Time { return time.Unix(1787148090, 0) }
+		l.ack = newAckGate(testEnv(map[string]string{listenAckEnv: "1", listenAckFileEnv: ackFile}), nil, &diag)
+
+		l.connectOnce(context.Background())
+		stop()
+
+		wantAsked := []string{
+			"/api/reply-cards?status=answered",
+			"/api/reply-cards?status=expired",
+			"/api/chat?recipient=kyle&unread=true&limit=50",
+			"/api/chat?recipient=kyle&unread=true&limit=50",
+			"/api/chat/mark-read",
+		}
+		if !reflect.DeepEqual(api.asked, wantAsked) {
+			t.Errorf("asked\n  %v\nwant\n  %v", api.asked, wantAsked)
+		}
+		wantFrames := `{"submit":"[ocagent] chat from boss (#c1, 1m ago): 你在嗎"}` + "\n" +
+			`{"batch":"1"}` + "\n" +
+			`{"submit":"[ocagent] chat from boss (#c1, 1m ago): 你在嗎"}` + "\n" +
+			`{"batch":"2"}` + "\n"
+		if got := mod.frames(); got != wantFrames {
+			t.Errorf("frames =\n%q\nwant\n%q", got, wantFrames)
+		}
+		if want := connected + "\n"; diag.String() != want {
+			t.Errorf("diag = %q, want %q", diag.String(), want)
+		}
+	})
 }
 
 func TestDrainChatNow(t *testing.T) {
