@@ -11,9 +11,9 @@ import (
 )
 
 // A claude member's listener does not print for the member to read: it runs as
-// a child of the member's own Claude Code, started by the notification mod
-// (cli/ocwarden/mod), and writes each event into that session's messaging
-// socket (--deliver-socket, listen_socket.go).
+// a child of the member's own Claude Code notification mod (cli/ocwarden/mod),
+// which submits each payload as a prompt and answers the ack gate
+// (--deliver-mod, listen_mod.go).
 
 const listenCodexFlag = "deliver-codex"
 
@@ -25,42 +25,47 @@ const (
 	oversizedNoticeHeaderRunes = 200
 )
 
-// Claude delivery must pass through the socket route; raw stdout never reaches its conversation.
+// Claude delivery must pass through the mod route; raw stdout never reaches its conversation.
 func cmdListen(argv []string, cfg Config, env func(string) string, out, errOut io.Writer,
 	start func(Config, func(string) string, bool, io.Writer) int) int {
 	fs := flag.NewFlagSet("ocagent listen", flag.ContinueOnError)
 	fs.SetOutput(out)
 	once := fs.Bool("once", false, "do a single connect then return (test/diagnostic hook)")
-	deliverSocket := fs.Bool("deliver-socket", false,
-		"run under the member's own Claude Code: write each payload into its messaging socket "+
-			"("+messagingSocketEnv+", "+messagingTokenEnv+"), diagnostics on stderr")
+	deliverMod := fs.Bool("deliver-mod", false,
+		"run under the member's notification mod: print one JSON frame per line on stdout "+
+			"(submit payloads and batch markers), diagnostics on stderr, acks read from "+listenAckFileEnv)
 	deliverCodex := fs.Bool(listenCodexFlag, false, "print each complete notice as one JSON frame for the Codex sidecar")
 	if err := fs.Parse(argv); err != nil {
 		return 2
 	}
 	if *deliverCodex {
-		if *deliverSocket || env(listenAckEnv) != "1" {
+		if *deliverMod || env(listenAckEnv) != "1" {
 			fmt.Fprint(errOut, agentLinePrefix+"listen: --deliver-codex requires OC_LISTEN_ACK=1 and cannot be combined with other delivery routes\n")
 			return 2
 		}
 		return start(cfg, env, *once, &codexFrameWriter{out: out})
 	}
-	if !*deliverSocket {
+	if !*deliverMod {
 		return start(cfg, env, *once, out)
 	}
 	if _, _, ok := tmuxSessionFromEnv(env); !ok {
 		// 🔴 Refuse, do not degrade: without OC_SESSION makeSessionProbe returns
 		// nil, so this listener could never self-exit and would hold the SSE —
 		// i.e. keep a vanished member "online" — forever, saying nothing.
-		fmt.Fprint(errOut, agentLinePrefix+"listen: --deliver-socket needs OC_SESSION "+
+		fmt.Fprint(errOut, agentLinePrefix+"listen: --deliver-mod needs OC_SESSION "+
 			"(the session to deliver into, and the session this listener must die with); "+
 			"refusing to start.\n")
 		return 2
 	}
-	// Missing messaging variables are reported per payload, never refused:
-	// an exited listener looks like a dead member.
-	w := newSocketWriter(env, errOut)
-	stop := w.startPump()
+	// Without the ack channel a submit the session refused would still be
+	// marked read on the station.
+	if env(listenAckEnv) != "1" || strings.TrimSpace(env(listenAckFileEnv)) == "" {
+		fmt.Fprint(errOut, agentLinePrefix+"listen: --deliver-mod needs "+listenAckEnv+"=1 and "+
+			listenAckFileEnv+" (the file the mod answers each batch in); refusing to start.\n")
+		return 2
+	}
+	w := newModWriter(out, errOut)
+	stop := w.start()
 	defer stop()
 	return start(cfg, env, *once, w)
 }
@@ -140,7 +145,6 @@ type deliveryQueue struct {
 	mu      sync.Mutex
 	pending bytes.Buffer
 	queued  []deliveryItem
-	inHand  int // items the pump has taken but not yet attempted
 	filter  bootConnectFilter
 
 	wake chan struct{}
@@ -172,8 +176,9 @@ func (q *deliveryQueue) start(drain func()) func() {
 }
 
 // Every transport line also goes to diag, forwarded or not: the mod writes its
-// load marker only on seeing one there (cli/ocwarden/mod), and a first dial that
-// fails forwards the disconnect and spends the swallowed boot connect.
+// load marker on the first one there or on the first frame (cli/ocwarden/mod),
+// and a first dial that fails forwards the disconnect and spends the swallowed
+// boot connect.
 func (q *deliveryQueue) Write(p []byte) (int, error) {
 	var diagLines []string
 	q.mu.Lock()
@@ -232,7 +237,6 @@ func (q *deliveryQueue) drain(payload func(string), batch func(string)) {
 		q.mu.Lock()
 		items := q.queued
 		q.queued = nil
-		q.inHand = len(items)
 		q.mu.Unlock()
 		if len(items) == 0 {
 			return
@@ -242,7 +246,6 @@ func (q *deliveryQueue) drain(payload func(string), batch func(string)) {
 			for _, p := range packDeliveries(lines) {
 				payload(p)
 			}
-			q.settle(len(lines))
 			lines = nil
 		}
 		for _, item := range items {
@@ -251,25 +254,10 @@ func (q *deliveryQueue) drain(payload func(string), batch func(string)) {
 				continue
 			}
 			flush()
-			q.settle(1)
 			batch(item.batch)
 		}
 		flush()
 	}
-}
-
-func (q *deliveryQueue) settle(n int) {
-	q.mu.Lock()
-	q.inHand -= n
-	q.mu.Unlock()
-}
-
-// idle: every line written so far has been attempted, so a batch answer
-// already given covers all of it.
-func (q *deliveryQueue) idle() bool {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	return len(q.queued) == 0 && q.inHand == 0
 }
 
 func (q *deliveryQueue) note(format string, args ...any) {
