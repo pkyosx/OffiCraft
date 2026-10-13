@@ -157,7 +157,9 @@ async function listen($: EngineInterface, config: Config): Promise<void> {
         if (frame === undefined) {
           if (line.trim() !== '') $.ui.log(line, { to: 'debug' })
         } else if ('submit' in frame) {
-          batchDelivered = (await accepted($, frame.submit)) && batchDelivered
+          // asUser, or Claude Code wraps every payload in its own plugin notice.
+          // ⚠️ The member then reads chat and webhook text as the user's own words.
+          batchDelivered = (await accepted($, frame.submit, true)) && batchDelivered
         } else {
           // Answered only after every submit before the marker settled: the
           // listener marks the batch read on the station on `ack`.

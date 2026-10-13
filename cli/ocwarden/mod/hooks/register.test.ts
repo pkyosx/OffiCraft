@@ -151,7 +151,7 @@ test('under a session start, the boot prompt goes in first, then the listener, t
   ])
   expect(w.submits).toEqual([
     { text: '開始。', asUser: true },
-    { text: '[ocagent] chat from owner (#c-1): 甲\n    第二行', asUser: false },
+    { text: '[ocagent] chat from owner (#c-1): 甲\n    第二行', asUser: true },
   ])
   expect(w.writes).toEqual([
     STARTED,
