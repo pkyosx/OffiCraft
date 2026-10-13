@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -254,28 +255,24 @@ func TestDrainChatFilesReadReceipts(t *testing.T) {
 	})
 
 	one := "[" + chatMessage("a1", "alice", now-90) + "]"
-	drainIntoSocket := func(t *testing.T, srv *markReadServer, env func(string) string) string {
+	drainThroughMod := func(t *testing.T, srv *markReadServer, verb string) string {
 		t.Helper()
-		var diag lockedBuffer
-		w := newSocketWriter(env, &diag)
-		stop := w.startPump()
-		drainChat(srv.Client(), markReadCfg(srv.URL, t.TempDir()), w, &drainWarner{}, w.ackGate(), clock)
+		ackFile := filepath.Join(t.TempDir(), ".officraft-listen-ack")
+		gate := newAckGate(testEnv(map[string]string{listenAckEnv: "1", listenAckFileEnv: ackFile}), nil, io.Discard)
+		mod := &answeringMod{ackFile: ackFile, verbs: []string{verb}}
+		w := newModWriter(mod, io.Discard)
+		stop := w.start()
+		drainChat(srv.Client(), markReadCfg(srv.URL, t.TempDir()), w, &drainWarner{}, gate, clock)
 		stop()
-		return diag.String()
+		return mod.frames()
 	}
+	wantFrames := `{"submit":"[ocagent] chat from alice (#a1, 1m ago): body-a1"}` + "\n" + `{"batch":"1"}` + "\n"
 
-	t.Run("on the socket route a message written into the session is marked read", func(t *testing.T) {
+	t.Run("on the mod route a message the mod acked is marked read", func(t *testing.T) {
 		srv := newMarkReadServer(t, one, 200)
-		inbox := newInboxSocket(t, false)
 
-		if diag := drainIntoSocket(t, srv, messagingEnv(inbox.path)); diag != "" {
-			t.Errorf("diag = %q, want nothing", diag)
-		}
-
-		wantWritten := []string{`{"type":"auth","token":"tok-aaaaaaaaaaaa"}` + "\n" +
-			`{"type":"user","from":"officraft","message":{"role":"user","content":"[ocagent] chat from alice (#a1, 1m ago): body-a1"}}` + "\n"}
-		if got := inbox.written(); !reflect.DeepEqual(got, wantWritten) {
-			t.Errorf("written =\n%q\nwant\n%q", got, wantWritten)
+		if got := drainThroughMod(t, srv, "ack"); got != wantFrames {
+			t.Errorf("frames = %q, want %q", got, wantFrames)
 		}
 		wantBodies := []string{fmt.Sprintf(`{"last_read_ts":%.0f,"peer":"alice"}`, now-90)}
 		if bodies := srv.receipts(); !reflect.DeepEqual(bodies, wantBodies) {
@@ -283,26 +280,14 @@ func TestDrainChatFilesReadReceipts(t *testing.T) {
 		}
 	})
 
-	t.Run("on the socket route a message the session never got stays unread", func(t *testing.T) {
-		for _, tc := range []struct {
-			name string
-			env  func(string) string
-		}{
-			{"no socket file", messagingEnv(filepath.Join(shortSocketDir(t), "gone.sock"))},
-			{"no messaging variables", testEnv(nil)},
-		} {
-			t.Run(tc.name, func(t *testing.T) {
-				srv := newMarkReadServer(t, one, 200)
+	t.Run("on the mod route a message the mod nacked stays unread", func(t *testing.T) {
+		srv := newMarkReadServer(t, one, 200)
 
-				diag := drainIntoSocket(t, srv, tc.env)
-
-				if bodies := srv.receipts(); len(bodies) != 0 {
-					t.Errorf("read receipts = %q, want none — the message would never be delivered again", bodies)
-				}
-				if !strings.HasPrefix(diag, "[ocagent] listen: 通知沒有送進成員的對話：") {
-					t.Errorf("diag = %q, want the undelivered line", diag)
-				}
-			})
+		if got := drainThroughMod(t, srv, "nack"); got != wantFrames {
+			t.Errorf("frames = %q, want %q", got, wantFrames)
+		}
+		if bodies := srv.receipts(); len(bodies) != 0 {
+			t.Errorf("read receipts = %q, want none — the message would never be delivered again", bodies)
 		}
 	})
 
@@ -321,4 +306,36 @@ func TestDrainChatFilesReadReceipts(t *testing.T) {
 		t.Errorf("cli/uplinks.json commits %v to this wire test but the listener posted to %v",
 			want, walked)
 	}
+}
+
+// answeringMod stands in for the notification mod: it keeps every frame and
+// answers the n-th batch frame in the ack file with verbs[n].
+type answeringMod struct {
+	ackFile string
+	verbs   []string
+	mu      sync.Mutex
+	got     strings.Builder
+}
+
+func (m *answeringMod) Write(p []byte) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.got.Write(p)
+	var frame struct {
+		Batch *string `json:"batch"`
+	}
+	if json.Unmarshal(p, &frame) == nil && frame.Batch != nil {
+		verb := m.verbs[0]
+		m.verbs = m.verbs[1:]
+		if err := os.WriteFile(m.ackFile, []byte(verb+" "+*frame.Batch+"\n"), 0o600); err != nil {
+			return 0, err
+		}
+	}
+	return len(p), nil
+}
+
+func (m *answeringMod) frames() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.got.String()
 }

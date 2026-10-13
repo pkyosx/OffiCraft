@@ -870,7 +870,7 @@ func TestNewAckGate(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := newAckGate(testEnv(tc.env), tc.answers)
+			got := newAckGate(testEnv(tc.env), tc.answers, nil)
 			if (got == nil) != tc.wantNil {
 				t.Errorf("newAckGate = %v, want nil == %v", got, tc.wantNil)
 			}
@@ -878,17 +878,35 @@ func TestNewAckGate(t *testing.T) {
 	}
 
 	t.Run("a nil env is the claude path", func(t *testing.T) {
-		if got := newAckGate(nil, strings.NewReader("")); got != nil {
+		if got := newAckGate(nil, strings.NewReader(""), nil); got != nil {
 			t.Errorf("newAckGate = %v, want nil", got)
 		}
 	})
 
+	t.Run("an ack file needs no stdin", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), ".officraft-listen-ack")
+		got := newAckGate(testEnv(map[string]string{listenAckEnv: "1", listenAckFileEnv: path}), nil, nil)
+		if got == nil {
+			t.Error("newAckGate = nil with OC_LISTEN_ACK=1 and an ack file")
+		}
+	})
+
+	t.Run("an answer left in the ack file by an earlier listener is removed", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), ".officraft-listen-ack")
+		if err := os.WriteFile(path, []byte("ack 1\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		newAckGate(testEnv(map[string]string{listenAckEnv: "1", listenAckFileEnv: path}), nil, nil)
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("stat after start = %v, want the file gone", err)
+		}
+	})
 }
 
 func TestConfirm(t *testing.T) {
 	newGate := func(t *testing.T, answers string) *ackGate {
 		t.Helper()
-		g := newAckGate(testEnv(map[string]string{listenAckEnv: "1"}), strings.NewReader(answers))
+		g := newAckGate(testEnv(map[string]string{listenAckEnv: "1"}), strings.NewReader(answers), nil)
 		if g == nil {
 			t.Fatal("newAckGate = nil with OC_LISTEN_ACK=1")
 		}
@@ -952,10 +970,75 @@ func TestConfirm(t *testing.T) {
 		}
 	})
 
+	t.Run("with an ack file the answer is read from the file, not from stdin", func(t *testing.T) {
+		for _, tc := range []struct {
+			name, answer string
+			want         bool
+		}{
+			{"an ack", "ack 1\n", true},
+			{"a nack", "nack 1\n", false},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				path := filepath.Join(t.TempDir(), ".officraft-listen-ack")
+				g := newAckGate(testEnv(map[string]string{listenAckEnv: "1", listenAckFileEnv: path}),
+					strings.NewReader("nack 1\nack 1\n"), nil)
+				var out bytes.Buffer
+				go func() {
+					time.Sleep(50 * time.Millisecond)
+					_ = os.WriteFile(path, []byte(tc.answer), 0o600)
+				}()
+
+				if got := g.confirm(&out); got != tc.want {
+					t.Errorf("confirm = %v after the file said %q, want %v", got, tc.answer, tc.want)
+				}
+				if out.String() != "[ocagent] listen: batch 1\n" {
+					t.Errorf("printed %q, want %q", out.String(), "[ocagent] listen: batch 1\n")
+				}
+			})
+		}
+	})
+
+	t.Run("each overwrite of the ack file answers the next batch", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), ".officraft-listen-ack")
+		g := newAckGate(testEnv(map[string]string{listenAckEnv: "1", listenAckFileEnv: path}), nil, nil)
+		var out bytes.Buffer
+		answer := func(text string) {
+			go func() {
+				time.Sleep(50 * time.Millisecond)
+				_ = os.WriteFile(path, []byte(text), 0o600)
+			}()
+		}
+
+		answer("ack 1\n")
+		first := g.confirm(&out)
+		answer("nack 2\n")
+		second := g.confirm(&out)
+
+		if !first || second {
+			t.Errorf("confirm = %v, %v; want true, false", first, second)
+		}
+	})
+
+	t.Run("a stale answer in the ack file does not confirm the new listener's batch", func(t *testing.T) {
+		// Positive control: the cases above, where the same text written after
+		// start confirms.
+		path := filepath.Join(t.TempDir(), ".officraft-listen-ack")
+		if err := os.WriteFile(path, []byte("ack 1\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		g := newAckGate(testEnv(map[string]string{listenAckEnv: "1", listenAckFileEnv: path}), nil, nil)
+		g.wait = 500 * time.Millisecond
+		var out bytes.Buffer
+
+		if g.confirm(&out) {
+			t.Error("confirm = true on an answer written before this listener started")
+		}
+	})
+
 	t.Run("a batch nobody answers times out loudly and counts as undelivered", func(t *testing.T) {
 		pr, pw := io.Pipe()
 		t.Cleanup(func() { _ = pw.Close() })
-		g := newAckGate(testEnv(map[string]string{listenAckEnv: "1"}), pr)
+		g := newAckGate(testEnv(map[string]string{listenAckEnv: "1"}), pr, nil)
 		g.wait = 20 * time.Millisecond
 		var out bytes.Buffer
 
@@ -971,27 +1054,42 @@ func TestConfirm(t *testing.T) {
 		}
 	})
 
-	t.Run("under the socket route, an unanswered batch's notice goes to stderr and is never written into the session", func(t *testing.T) {
+	t.Run("under an ack file, an unanswered batch's notice goes to stderr and never becomes a frame", func(t *testing.T) {
 		// Positive control: the case above, where the codex gate prints it on out.
-		inbox := newInboxSocket(t, false)
+		path := filepath.Join(t.TempDir(), ".officraft-listen-ack")
 		var diag bytes.Buffer
-		w := newSocketWriter(messagingEnv(inbox.path), &diag)
-		g := w.ackGate()
+		g := newAckGate(testEnv(map[string]string{listenAckEnv: "1", listenAckFileEnv: path}), nil, &diag)
 		g.wait = 20 * time.Millisecond
+		var stdout, modDiag bytes.Buffer
+		w := newModWriter(&stdout, &modDiag)
 
 		if g.confirm(w) {
 			t.Error("confirm = true after the deadline, want false")
 		}
-		w.flushToSession()
+		w.flushToMod()
 
-		if got := inbox.written(); len(got) != 0 {
-			t.Errorf("written = %q, want nothing", got)
+		if want := `{"batch":"1"}` + "\n"; stdout.String() != want {
+			t.Errorf("stdout = %q, want %q", stdout.String(), want)
 		}
 		want := "[ocagent] 等不到「已送達」的回覆（batch 1，等了 20ms）—— " +
 			"這一批訊息**沒有**被算成你看過了，下一次補印會再送一次。" +
 			"如果這行一直出現，收訊這條路的另一端有問題。\n"
 		if diag.String() != want {
 			t.Errorf("stderr = %q, want %q", diag.String(), want)
+		}
+	})
+
+	t.Run("under an ack file and no stderr given, the notice still never reaches out", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), ".officraft-listen-ack")
+		g := newAckGate(testEnv(map[string]string{listenAckEnv: "1", listenAckFileEnv: path}), nil, nil)
+		g.wait = 20 * time.Millisecond
+		var out bytes.Buffer
+
+		if g.confirm(&out) {
+			t.Error("confirm = true after the deadline, want false")
+		}
+		if want := "[ocagent] listen: batch 1\n"; out.String() != want {
+			t.Errorf("printed %q, want %q", out.String(), want)
 		}
 	})
 }
@@ -1178,7 +1276,7 @@ func TestHandleReplyCard(t *testing.T) {
 		var out bytes.Buffer
 		seen := newSeen(t)
 
-		handleReplyCard(client, cfg, frame("rc-1", "m-1"), seen, nil, "owner", &out)
+		handleReplyCard(client, cfg, frame("rc-1", "m-1"), seen, "owner", &out)
 
 		want := "[ocagent] reply-card rc-1 answered: picked [0] \"改\" | asked: 要不要改 schema? · by owner\n"
 		if out.String() != want {
@@ -1197,9 +1295,9 @@ func TestHandleReplyCard(t *testing.T) {
 		var out bytes.Buffer
 		seen := newSeen(t)
 
-		handleReplyCard(client, cfg, frame("rc-1", "m-1"), seen, nil, "owner", &out)
+		handleReplyCard(client, cfg, frame("rc-1", "m-1"), seen, "owner", &out)
 		first := out.String()
-		handleReplyCard(client, cfg, frame("rc-1", "m-1"), seen, nil, "owner", &out)
+		handleReplyCard(client, cfg, frame("rc-1", "m-1"), seen, "owner", &out)
 
 		if out.String() != first {
 			t.Errorf("printed %q, want the answer exactly once (%q)", out.String(), first)
@@ -1213,7 +1311,7 @@ func TestHandleReplyCard(t *testing.T) {
 		})
 		var out bytes.Buffer
 
-		handleReplyCard(client, cfg, frame("rc-2", "m-1"), newSeen(t), nil, "owner", &out)
+		handleReplyCard(client, cfg, frame("rc-2", "m-1"), newSeen(t), "owner", &out)
 
 		want := "[ocagent] reply-card rc-2 EXPIRED (no answer) | asked: 要不要改 schema? — " +
 			"settled without an answer: if the question still matters, open a FRESH card " +
@@ -1228,7 +1326,7 @@ func TestHandleReplyCard(t *testing.T) {
 		client := newRoutedHTTP(nil)
 		var out bytes.Buffer
 
-		handleReplyCard(client, cfg, frame("rc-3", "m-2"), newSeen(t), nil, "owner", &out)
+		handleReplyCard(client, cfg, frame("rc-3", "m-2"), newSeen(t), "owner", &out)
 
 		if out.String() != "" {
 			t.Errorf("printed %q, want nothing", out.String())
@@ -1248,7 +1346,7 @@ func TestHandleReplyCard(t *testing.T) {
 		var out bytes.Buffer
 		seen := newSeen(t)
 
-		handleReplyCard(client, cfg, frameAboutTask("rc-7", "m-2", "m-1"), seen, nil, "owner", &out)
+		handleReplyCard(client, cfg, frameAboutTask("rc-7", "m-2", "m-1"), seen, "owner", &out)
 
 		want := "[ocagent] reply-card rc-7 answered: picked [0] \"走 A\" | asked: 出貨路線? " +
 			"| opened by m-2 about your task T-1 · by owner\n"
@@ -1267,7 +1365,7 @@ func TestHandleReplyCard(t *testing.T) {
 		})
 		var out bytes.Buffer
 
-		handleReplyCard(client, cfg, frameAboutTask("rc-8", "m-2", "m-1"), newSeen(t), nil, "m-2", &out)
+		handleReplyCard(client, cfg, frameAboutTask("rc-8", "m-2", "m-1"), newSeen(t), "m-2", &out)
 
 		want := "[ocagent] reply-card rc-8 EXPIRED (no answer) | asked: 出貨路線? " +
 			"| opened by m-2 about your task T-1 — settled without an answer: do not keep " +
@@ -1285,7 +1383,7 @@ func TestHandleReplyCard(t *testing.T) {
 		})
 		var out bytes.Buffer
 
-		handleReplyCard(client, cfg, frameAboutTask("rc-9", "m-2", "m-1"), newSeen(t), nil, "owner", &out)
+		handleReplyCard(client, cfg, frameAboutTask("rc-9", "m-2", "m-1"), newSeen(t), "owner", &out)
 
 		if out.String() != "" {
 			t.Errorf("printed %q, want nothing — the task was handed on before the refetch", out.String())
@@ -1296,7 +1394,7 @@ func TestHandleReplyCard(t *testing.T) {
 		client := newRoutedHTTP(nil)
 		var out bytes.Buffer
 
-		handleReplyCard(client, cfg, frameAboutTask("rc-10", "m-2", "m-3"), newSeen(t), nil, "owner", &out)
+		handleReplyCard(client, cfg, frameAboutTask("rc-10", "m-2", "m-3"), newSeen(t), "owner", &out)
 
 		if out.String() != "" || client.asked != nil {
 			t.Errorf("printed %q and asked %v, want neither", out.String(), client.asked)
@@ -1310,7 +1408,7 @@ func TestHandleReplyCard(t *testing.T) {
 		})
 		var out bytes.Buffer
 
-		handleReplyCard(client, cfg, frame("rc-4", "m-1"), newSeen(t), nil, "owner", &out)
+		handleReplyCard(client, cfg, frame("rc-4", "m-1"), newSeen(t), "owner", &out)
 
 		if out.String() != "" {
 			t.Errorf("printed %q, want nothing — a stale payload costs one wasted GET, "+
@@ -1324,7 +1422,7 @@ func TestHandleReplyCard(t *testing.T) {
 		})
 		var out bytes.Buffer
 
-		handleReplyCard(client, cfg, frame("rc-5", "m-1"), newSeen(t), nil, "", &out)
+		handleReplyCard(client, cfg, frame("rc-5", "m-1"), newSeen(t), "", &out)
 
 		if out.String() != "" {
 			t.Errorf("printed %q, want nothing to wake on yet", out.String())
@@ -1335,7 +1433,7 @@ func TestHandleReplyCard(t *testing.T) {
 		client := newRoutedHTTP(nil)
 		var out bytes.Buffer
 
-		handleReplyCard(client, cfg, frame("rc-6", "m-1"), newSeen(t), nil, "owner", &out)
+		handleReplyCard(client, cfg, frame("rc-6", "m-1"), newSeen(t), "owner", &out)
 
 		want := "[ocagent] reply-card rc-6 changed but refetch failed (HTTP 404) — " +
 			"read it manually (get_reply_card).\n"
@@ -1348,58 +1446,11 @@ func TestHandleReplyCard(t *testing.T) {
 		client := newRoutedHTTP(nil)
 		var out bytes.Buffer
 
-		handleReplyCard(client, cfg, map[string]any{"topic": "reply_card"}, newSeen(t), nil, "", &out)
-		handleReplyCard(client, cfg, frame("  ", "m-1"), newSeen(t), nil, "", &out)
+		handleReplyCard(client, cfg, map[string]any{"topic": "reply_card"}, newSeen(t), "", &out)
+		handleReplyCard(client, cfg, frame("  ", "m-1"), newSeen(t), "", &out)
 
 		if out.String() != "" || client.asked != nil {
 			t.Errorf("printed %q and asked %v, want neither", out.String(), client.asked)
-		}
-	})
-
-	t.Run("on the socket route a card is recorded only once its write succeeded", func(t *testing.T) {
-		client := newRoutedHTTP(map[string]string{
-			"/api/reply-cards/rc-1": `{"id":"rc-1","from":"m-1","status":"answered",` +
-				`"answered_ts":1700,"summary":"q1","answer":{"text":"改"}}`,
-			"/api/reply-cards/rc-2": `{"id":"rc-2","from":"m-1","status":"expired",` +
-				`"expired_ts":1800,"summary":"q2"}`,
-		})
-		inbox := newInboxSocket(t, false)
-		gone := filepath.Join(shortSocketDir(t), "gone.sock")
-		for _, tc := range []struct {
-			name         string
-			card         string
-			ts           float64
-			socketPath   string
-			wantWritten  []string
-			wantRecorded bool
-		}{
-			{"an answer written", "rc-1", 1700, inbox.path, []string{`{"type":"auth","token":"tok-aaaaaaaaaaaa"}` + "\n" +
-				`{"type":"user","from":"officraft","message":{"role":"user","content":"[ocagent] reply-card rc-1 answered: \"改\" | asked: q1 · by owner"}}` + "\n"}, true},
-			{"an answer not written", "rc-1", 1700, gone, nil, false},
-			{"an expiry written", "rc-2", 1800, inbox.path, []string{`{"type":"auth","token":"tok-aaaaaaaaaaaa"}` + "\n" +
-				`{"type":"user","from":"officraft","message":{"role":"user","content":"[ocagent] reply-card rc-2 EXPIRED (no answer) | asked: q2 — ` +
-				`settled without an answer: if the question still matters, open a FRESH card with current context; ` +
-				`if not, proceed / close out. Any held step/task was already restored to in_progress · by owner"}}` + "\n"}, true},
-			{"an expiry not written", "rc-2", 1800, gone, nil, false},
-		} {
-			t.Run(tc.name, func(t *testing.T) {
-				inbox.mu.Lock()
-				inbox.got = nil
-				inbox.mu.Unlock()
-				w := newSocketWriter(messagingEnv(tc.socketPath), io.Discard)
-				stop := w.startPump()
-				seen := newSeen(t)
-
-				handleReplyCard(client, cfg, frame(tc.card, "m-1"), seen, w.ackGate(), "owner", w)
-				stop()
-
-				if got := inbox.written(); !reflect.DeepEqual(got, tc.wantWritten) {
-					t.Errorf("written =\n%q\nwant\n%q", got, tc.wantWritten)
-				}
-				if seen.has(tc.card, tc.ts) != tc.wantRecorded {
-					t.Errorf("recorded = %v, want %v", !tc.wantRecorded, tc.wantRecorded)
-				}
-			})
 		}
 	})
 }
@@ -1657,7 +1708,7 @@ func TestDrainReplyCards(t *testing.T) {
 		seen := loadReplyCardSeen(path)
 		var out bytes.Buffer
 
-		if n, _ := drainReplyCards(client, cfg, seen, nil, &out); n != 0 {
+		if n := drainReplyCards(client, cfg, seen, &out); n != 0 {
 			t.Errorf("printed %d lines, want 0 on a brand-new agent home", n)
 		}
 		if out.String() != "" {
@@ -1683,7 +1734,7 @@ func TestDrainReplyCards(t *testing.T) {
 		seen := loadReplyCardSeen(path)
 		var out bytes.Buffer
 
-		if n, _ := drainReplyCards(client, cfg, seen, nil, &out); n != 3 {
+		if n := drainReplyCards(client, cfg, seen, &out); n != 3 {
 			t.Errorf("printed %d lines, want 3", n)
 		}
 		want := "[ocagent] reply-card rc-1 answered: \"舊的\" | asked: q1\n" +
@@ -1714,37 +1765,11 @@ func TestDrainReplyCards(t *testing.T) {
 		}
 		var out bytes.Buffer
 
-		if n, _ := drainReplyCards(client, cfg, loadReplyCardSeen(path), nil, &out); n != 0 {
+		if n := drainReplyCards(client, cfg, loadReplyCardSeen(path), &out); n != 0 {
 			t.Errorf("printed %d lines, want 0", n)
 		}
 		if out.String() != "" {
 			t.Errorf("printed %q, want nothing", out.String())
-		}
-	})
-
-	t.Run("on the socket route an outcome whose write failed stays unseen for the next drain", func(t *testing.T) {
-		client := newRoutedHTTP(map[string]string{
-			answeredPane: `[{"id":"rc-3","from":"m-1","answered_ts":1800,"summary":"q3",` +
-				`"answer":{"text":"第一次"}},` +
-				`{"id":"rc-1","from":"m-1","answered_ts":1700,"summary":"q1",` +
-				`"answer":{"text":"新的"}}]`,
-			expiredPane: `[{"id":"rc-2","from":"m-1","expired_ts":1900,"summary":"q2"}]`,
-		})
-		path := filepath.Join(t.TempDir(), "replycards-seen")
-		if err := os.WriteFile(path, []byte(`{"rc-1":1600,"rc-2":1900}`), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		w := newSocketWriter(messagingEnv(filepath.Join(shortSocketDir(t), "gone.sock")), io.Discard)
-		stop := w.startPump()
-
-		n, _ := drainReplyCards(client, cfg, loadReplyCardSeen(path), w.ackGate(), w)
-		stop()
-
-		if n != 2 {
-			t.Errorf("printed %d lines, want 2", n)
-		}
-		if got, want := readFileString(t, path), `{"rc-1":1600,"rc-2":1900}`; got != want {
-			t.Errorf("state = %q, want %q — an undelivered outcome must not count as seen", got, want)
 		}
 	})
 
@@ -1761,7 +1786,7 @@ func TestDrainReplyCards(t *testing.T) {
 		}
 		var out bytes.Buffer
 
-		if n, _ := drainReplyCards(client, cfg, loadReplyCardSeen(path), nil, &out); n != 1 {
+		if n := drainReplyCards(client, cfg, loadReplyCardSeen(path), &out); n != 1 {
 			t.Errorf("printed %d lines, want 1", n)
 		}
 		want := "[ocagent] reply-card rc-5 answered: \"走 A\" | asked: q5 | opened by m-2 about your task T-1\n"
@@ -1785,7 +1810,7 @@ func TestDrainReplyCards(t *testing.T) {
 		}
 		var out bytes.Buffer
 
-		if n, _ := drainReplyCards(client, cfg, loadReplyCardSeen(path), nil, &out); n != 0 {
+		if n := drainReplyCards(client, cfg, loadReplyCardSeen(path), &out); n != 0 {
 			t.Errorf("printed %d lines, want 0", n)
 		}
 		if got := readFileString(t, path); got != `{}` {
@@ -1805,7 +1830,7 @@ func TestDrainReplyCards(t *testing.T) {
 		}
 		var out bytes.Buffer
 
-		if n, _ := drainReplyCards(client, cfg, loadReplyCardSeen(path), nil, &out); n != 0 {
+		if n := drainReplyCards(client, cfg, loadReplyCardSeen(path), &out); n != 0 {
 			t.Errorf("printed %d lines, want 0", n)
 		}
 		if out.String() != "" {
@@ -1824,8 +1849,8 @@ func TestDrainReplyCards(t *testing.T) {
 		})
 		var out bytes.Buffer
 
-		if n, _ := drainReplyCards(client, cfg,
-			loadReplyCardSeen(filepath.Join(t.TempDir(), "replycards-seen")), nil, &out); n != 0 {
+		if n := drainReplyCards(client, cfg,
+			loadReplyCardSeen(filepath.Join(t.TempDir(), "replycards-seen")), &out); n != 0 {
 			t.Errorf("printed %d lines, want 0", n)
 		}
 	})

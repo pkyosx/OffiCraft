@@ -16,9 +16,10 @@ import (
 
 // A claude member hears OffiCraft events through the notification mod (mod/, a
 // Claude Code plugin of function hooks): it submits the boot prompt, then runs
-// `ocagent listen --deliver-socket` as its child, which writes each event into
-// the session's own messaging socket. There is no other route: a Claude Code too
-// old for mods, or one that did not load the mod, fails the start.
+// `ocagent listen --deliver-mod` as its child and submits each event as a prompt
+// of the member's MAIN conversation, whatever view the pane shows. There is no
+// other route: a Claude Code too old for mods, or one that did not load the mod,
+// fails the start.
 
 //go:embed mod/.claude-plugin/plugin.json mod/hooks/hooks.json mod/hooks/register.ts
 var notifyModFS embed.FS
@@ -33,13 +34,19 @@ const (
 	notifyModLoadedMarker   = ".officraft-mod-loaded"
 	notifyModDisabledMarker = ".officraft-mod-disabled"
 	notifyModBootedMarker   = ".officraft-mod-booted"
+	notifyModAckFile        = ".officraft-listen-ack"
+
+	// Read by the listener from its environment (cli/ocagent/listen.go's
+	// listenAckFileEnv); bin/listen-notice-mirror-guard.py holds the two equal.
+	listenAckFileEnv = "OC_LISTEN_ACK_FILE"
 
 	notifyModMinClaudeVersion = "2.1.287"
 )
 
 type notifyModListener struct {
-	Argv []string `json:"argv"`
-	Cwd  string   `json:"cwd"`
+	Argv []string          `json:"argv"`
+	Cwd  string            `json:"cwd"`
+	Env  map[string]string `json:"env"`
 }
 
 type notifyModConfig struct {
@@ -55,24 +62,28 @@ type notifyModConfig struct {
 	// Written once the boot prompt went in, so a mod that booted the member is
 	// not restarted.
 	BootedMarker string `json:"booted_marker"`
-	// The mod writes the load marker only once the listener printed a stderr line
-	// starting with one of these: a listener that refused to start prints none,
-	// and the start then fails.
+	AckFile      string `json:"ack_file"`
+	// The mod writes the load marker only once the listener printed a frame or a
+	// stderr line starting with one of these: a listener that refused to start
+	// prints neither, and the start then fails.
 	ReadyPrefixes []string          `json:"ready_prefixes"`
 	Listener      notifyModListener `json:"listener"`
 }
 
 func buildNotifyModConfig(workdir, bootPrompt string) string {
+	ackFile := filepath.Join(workdir, notifyModAckFile)
 	b, _ := json.Marshal(notifyModConfig{
 		BootPrompt:     bootPrompt,
 		StartedMarker:  filepath.Join(workdir, notifyModStartedMarker),
 		LoadedMarker:   filepath.Join(workdir, notifyModLoadedMarker),
 		DisabledMarker: filepath.Join(workdir, notifyModDisabledMarker),
 		BootedMarker:   filepath.Join(workdir, notifyModBootedMarker),
+		AckFile:        ackFile,
 		ReadyPrefixes:  []string{noticeConnectedPrefix, noticeDisconnectedPrefix},
 		Listener: notifyModListener{
-			Argv: []string{filepath.Join(workdir, "ocagent"), "listen", "--deliver-socket"},
+			Argv: []string{filepath.Join(workdir, "ocagent"), "listen", "--deliver-mod"},
 			Cwd:  workdir,
+			Env:  map[string]string{listenAckEnv: "1", listenAckFileEnv: ackFile},
 		},
 	})
 	return string(b) + "\n"

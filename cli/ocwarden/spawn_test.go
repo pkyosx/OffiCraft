@@ -263,8 +263,10 @@ func notifyModWrites(t *testing.T) []writtenFile {
 		{"/w/m1/.officraft-mod/officraft.json",
 			`{"boot_prompt":"開始。","started_marker":"/w/m1/.officraft-mod-started","loaded_marker":"/w/m1/.officraft-mod-loaded",` +
 				`"disabled_marker":"/w/m1/.officraft-mod-disabled","booted_marker":"/w/m1/.officraft-mod-booted",` +
+				`"ack_file":"/w/m1/.officraft-listen-ack",` +
 				`"ready_prefixes":["[ocagent] listen: connected","[ocagent] listen: disconnected"],` +
-				`"listener":{"argv":["/w/m1/ocagent","listen","--deliver-socket"],"cwd":"/w/m1"}}` + "\n",
+				`"listener":{"argv":["/w/m1/ocagent","listen","--deliver-mod"],"cwd":"/w/m1",` +
+				`"env":{"OC_LISTEN_ACK":"1","OC_LISTEN_ACK_FILE":"/w/m1/.officraft-listen-ack"}}}` + "\n",
 			0o600},
 	}
 }
@@ -1956,8 +1958,10 @@ func TestStart(t *testing.T) {
 		}
 		want := `{"boot_prompt":"請開機。","started_marker":"/w/m1/.officraft-mod-started","loaded_marker":"/w/m1/.officraft-mod-loaded",` +
 			`"disabled_marker":"/w/m1/.officraft-mod-disabled","booted_marker":"/w/m1/.officraft-mod-booted",` +
+			`"ack_file":"/w/m1/.officraft-listen-ack",` +
 			`"ready_prefixes":["[ocagent] listen: connected","[ocagent] listen: disconnected"],` +
-			`"listener":{"argv":["/w/m1/ocagent","listen","--deliver-socket"],"cwd":"/w/m1"}}` + "\n"
+			`"listener":{"argv":["/w/m1/ocagent","listen","--deliver-mod"],"cwd":"/w/m1",` +
+			`"env":{"OC_LISTEN_ACK":"1","OC_LISTEN_ACK_FILE":"/w/m1/.officraft-listen-ack"}}}` + "\n"
 		var got string
 		for _, w := range h.writes {
 			if w.path == "/w/m1/.officraft-mod/officraft.json" {

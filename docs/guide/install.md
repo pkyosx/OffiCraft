@@ -38,7 +38,7 @@
 > [!IMPORTANT]
 > **Claude 成員要求 `claude` 不低於通知模組需要的最低版本。** 成員到 server 的 SSE 長連線由另一個 `ocagent listen`
 > 程序持住（**持著連線＝online**，見 [架構與運作原理](architecture.md)）；這個程序由 OffiCraft 通知模組在成員的
-> Claude Code 裡當子程序起起來，並把每則通知寫進成員自己的對話。`claude` 比這個最低版本舊時，warden 不起 Claude 成員，
+> Claude Code 裡當子程序起起來，模組再把每則通知送進成員自己的對話。`claude` 比這個最低版本舊時，warden 不起 Claude 成員，
 > 喚醒直接失敗，「最近操作」寫 `notify_claude_too_old`（見 [疑難排解](troubleshooting.md)）。升級：控制台 **監控 › 機器**，
 > 在那台機器 Claude 欄的版本號選單選 **升級 Claude Code**；或在那台機器上跑 `npm install -g @anthropic-ai/claude-code`。
 >

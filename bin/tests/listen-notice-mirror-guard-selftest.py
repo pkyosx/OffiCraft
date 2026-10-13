@@ -32,6 +32,7 @@ DELIVER = "cli/ocagent/listen_deliver.go"
 SIDECAR = "cli/ocwarden/codex_session.go"
 SPAWNER = "cli/ocwarden/spawn.go"
 TMUX = "cli/ocwarden/tmux.go"
+NOTIFY_MOD = "cli/ocwarden/notifymod.go"
 
 # (name, file, the exact text to replace, what to replace it with).
 # Each is a ONE-SIDED change: the point is that one side moving must redden, and
@@ -100,6 +101,16 @@ MUTANTS: Tuple[Tuple[str, str, str, str], ...] = (
         "the listener renames the ack switch",
         ACK, 'const listenAckEnv = "OC_LISTEN_ACK"',
         'const listenAckEnv = "OC_LISTEN_ACK2"',
+    ),
+    (
+        "the warden renames the ack file variable it hands the notification mod",
+        NOTIFY_MOD, '\tlistenAckFileEnv = "OC_LISTEN_ACK_FILE"',
+        '\tlistenAckFileEnv = "OC_LISTEN_ACKFILE"',
+    ),
+    (
+        "the listener renames the ack file variable",
+        ACK, 'const listenAckFileEnv = "OC_LISTEN_ACK_FILE"',
+        'const listenAckFileEnv = "OC_ACK_FILE"',
     ),
     (
         # T-278: each of these left both module suites green when renamed on one
@@ -264,7 +275,7 @@ RESPELLINGS = (
 
 def stage() -> Path:
     tmp = Path(tempfile.mkdtemp(prefix="listen-notice-mirror-selftest-"))
-    for rel in (RUN, ACK, DELIVER, SIDECAR, SPAWNER, TMUX):
+    for rel in (RUN, ACK, DELIVER, SIDECAR, SPAWNER, TMUX, NOTIFY_MOD):
         dst = tmp / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / rel, dst)

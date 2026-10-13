@@ -62,7 +62,7 @@ server 的標準埠是 **7755**。被別的程式占用時，安裝會**當場�
 
 成員到 server 的 SSE 長連線由一個 `ocagent listen` 程序持住（成員自己不掛、也不維護它）——**持著連線才算 online**。所以 Waking 卡住或一直 Offline，多半是那個程序沒起來或起來就退了。
 
-Claude Code 成員的這個程序只有一種起法：warden 讓成員的 Claude Code 載入 OffiCraft 通知模組，模組先送出開機指令，再把 `ocagent listen` 當成自己的子程序起起來；這個程序把每則通知寫進成員自己 Claude Code 的訊息通道——成員正在工作時，通知插在兩次工具呼叫之間、在同一輪裡就讀到；閒著時，通知會開啟新的一輪。聊天要等通知真的寫進去才標成已讀、請示卡也才記成已看過；寫不進去就保持未讀，之後在伺服器心跳（約 15 秒一次）時再送一次；上一批還沒寫完就等下一次心跳，補撈失敗也下一次心跳再試，直到寫進去為止。但「寫進去」只代表寫完、而且成員的 Claude Code 關掉了連線：Claude Code 不回任何確認，所以通道憑證被拒、它的待收佇列滿了、短時間送太多被擋，或新版改了收訊息的格式，看起來都跟成功一樣，聊天照樣標成已讀。機器上不會有額外的 tmux session 替成員收通知。
+Claude Code 成員的這個程序只有一種起法：warden 讓成員的 Claude Code 載入 OffiCraft 通知模組，模組先送出開機指令，再把 `ocagent listen` 當成自己的子程序起起來，並把它印出的每則通知當成一則提示送進成員的主對話（不管成員畫面當時切在哪個子代理）。成員閒著時，通知會開啟新的一輪；成員正在工作時，通知排在 Claude Code 的佇列裡，等這一輪結束才輪到。每則提示送出後 1.5 秒內沒被 Claude Code 拒絕，就算收下；同一批全部收下，那批聊天才標成已讀。在那 1.5 秒內被拒的那批保持未讀，等下一則聊天或重新連線時再送一次；過了 1.5 秒才被拒的已經標成已讀，只在成員 Claude Code 的 debug log 留一行 `a queued prompt was … after it was acked`。請示卡的結果不等這個判定，送出就記成已看過。機器上不會有額外的 tmux session 替成員收通知。
 
 通知模組起不來，成員就**不會上線**，喚醒直接失敗。失敗當下，成員面板的「最近操作」寫著下面其中一個原因。`notify_claude_too_old` 會一直留著；`notify_mod_not_loaded` 等喚醒窗過了會換成較籠統的 `wake_timeout`，這時原因只留在那台機器 warden 的紀錄（`~/.officraft/warden/log/ocwarden.err.log`）裡：
 
@@ -73,10 +73,10 @@ Claude Code 成員的這個程序只有一種起法：warden 讓成員的 Claude
 
 ```bash
 ls ~/.officraft/agents/<成員 id>/.officraft-mod-loaded   # 在＝模組有載入，而且它起的 listener 開始連線過
-pgrep -fl 'ocagent listen --deliver-socket'              # 那個 listener 現在還活著嗎
+pgrep -fl 'ocagent listen --deliver-mod'                 # 那個 listener 現在還活著嗎
 ```
 
-標記在、listener 卻不在，表示它後來退了；它印的話只進成員 Claude Code 的 debug log（以 `claude --debug` 啟動時才看得到）。通知寫不進成員對話時，它也只在那裡留一行以 `[ocagent] listen: 通知沒有送進成員的對話` 開頭的說明。
+標記在、listener 卻不在，表示它後來退了；它印的話只進成員 Claude Code 的 debug log（以 `claude --debug` 啟動時才看得到）。
 
 **模組第一次沒跑、warden 自己重啟了一次**：模組在第一次啟動完全沒跑到（`.officraft-mod-started` 不在）時，warden 不會馬上放棄，而是把那個 Claude Code 收掉、原樣再起一次，再等 30 秒；常見原因是同一台機器上長跑的舊 Claude Code session 把共用 `~/.claude.json` 裡 Claude Code 自己的快取旗標 `tengu_plugin_hooks_modules` 寫回了 false，新啟動的 Claude Code 先讀到 false 就不跑模組，等它拿到遠端的 true 寫回去，下一次啟動就正常。warden 紀錄每次啟動前都有一行 `notify-mod: attempt 1/2:`／`attempt 2/2:`，放棄時一行 `at give-up:`，寫著那個檔裡的旗標值與 `cachedGrowthBookFeaturesAt` 時間（只讀、不改）。重啟後還是沒載入，最近操作的 `notify_mod_not_loaded` 後面會多一句「已自動重啟 Claude Code 一次仍沒載入」和兩次讀到的值。
 

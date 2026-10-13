@@ -341,7 +341,7 @@ ceiling of the warden lifetime setting (§1.6).
        不可更改順序 in those words (`seeds/boot_sequence.md`, `seeds/boot_sequence_codex.md`).
      - NEITHER MODEL attaches its own listener. On the claude path the listener starts
        right after the boot prompt is submitted: the notification mod submits the boot
-       prompt itself and then runs `ocagent listen --deliver-socket` as a child of the
+       prompt itself and then runs `ocagent listen --deliver-mod` as a child of the
        member's Claude Code, so the stream comes up alongside the boot turn rather than
        at the end of it. On the codex path
        `cli/ocwarden/codex_session.go` execs the listener only on the FIRST
