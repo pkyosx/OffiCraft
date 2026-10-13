@@ -1503,10 +1503,6 @@ export function ChatArea({
     // come up immediately, without waiting for the owner to scroll first.
     const latestVisible = isLatestRowInView(box);
     setLatestInView(latestVisible);
-    // A run longer than a page that still shows down to the newest row on
-    // landing has been seen; a thread that cannot scroll emits no scroll event
-    // to mark it otherwise.
-    if (latestVisible) setTailSeen(true);
     // NOTE: the run deliberately stays OPEN even when a short thread lands at
     // the bottom here — every real "the owner saw it" path (a bottom-crossing
     // scroll, or an at-bottom auto-follow) closes it; closing on this

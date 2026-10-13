@@ -7,7 +7,8 @@
 // and the first unread itself is asked of the server
 // (GET /api/chat?unread=true&with=<id>&limit=1) — both strictly before the entry
 // read receipt goes out. The room is marked read up to its newest message as
-// soon as it lands, and the roster refetches to 0 right after. Only a real server + real HTTP ordering exercises it.
+// soon as it lands, and the roster refetches to 0 right after. Only a real
+// server + real HTTP ordering exercises it.
 //
 // ⚠ ordering is load-bearing throughout: every unread_count sample happens
 // BEFORE anything lists M's thread. The spec hires its OWN member (M is never

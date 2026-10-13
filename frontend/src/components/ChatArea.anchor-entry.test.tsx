@@ -446,7 +446,24 @@ describe("ChatArea 進房錨點優先(useChat 的 anchor 參數)", () => {
     expect(forward.length, "80 則的距離,一通 100 就撈完了").toBe(1);
   });
 
-  it("🔴 走訪把中間幾百則載進來,一則都不准被標成已讀 —— 按下回到最新才標", async () => {
+  it.each([
+    [
+      "按下回到最新",
+      (container: HTMLElement) => {
+        const arrow = container.querySelector<HTMLButtonElement>(
+          '[data-testid="chat-jump-latest"]',
+        );
+        expect(arrow, "前提:停在錨點上時箭頭要在").not.toBeNull();
+        fireEvent.click(arrow!);
+      },
+    ],
+    [
+      "捲到底",
+      (container: HTMLElement) => {
+        fireEvent.scroll(container.querySelector(".chat__messages")!);
+      },
+    ],
+  ])("🔴 走訪把中間幾百則載進來,一則都不准被標成已讀 —— %s之後才以最新那一則標已讀", async (_how, reachTail) => {
     // 🔴 這張票最容易靜默做錯的一格,而且它是 fix12 **自己造出來**的風險。
     //
     // 以前:跳轉停在錨點窗,`hasNewer` 為 true 一路擋著 mark-read,而讓 hasNewer
@@ -484,19 +501,15 @@ describe("ChatArea 進房錨點優先(useChat 的 anchor 參數)", () => {
     ).toEqual([]);
 
     // 🔴 另一個方向,而且不能省:只釘上面那一半的話,「mark-read 整條路壞掉、
-    // 永遠不標」也會過,那本身就是另一個靜默失敗。按下回到最新 → 才標,
+    // 永遠不標」也會過,那本身就是另一個靜默失敗。按下回到最新或捲到底 → 才標,
     // 而且標在**真正最新**那一則的 ts 上。
-    const arrow = container.querySelector<HTMLButtonElement>(
-      '[data-testid="chat-jump-latest"]',
-    );
-    expect(arrow, "前提:停在錨點上時箭頭要在").not.toBeNull();
     await act(async () => {
-      fireEvent.click(arrow!);
+      reachTail(container);
       await new Promise((r) => setTimeout(r, 30));
     });
     expect(
       markReads.at(-1),
-      "回到最新之後要標,而且要標在最新那一則上",
+      "到了最新那一端之後要標,而且要標在最新那一則上",
       // seed 的 ts 從 100 起算,第 300 則是 399。
     ).toBe(399);
   });
@@ -1174,7 +1187,7 @@ describe("ChatArea 帶著未讀進房,停在伺服器說的第一則未讀", () 
     expect(markReads).toEqual([234]);
   });
 
-  it("一頁內的少量未讀、整段都在畫面內時,進房即以最新 ts 標已讀", async () => {
+  it("未讀整段都在畫面內時,進房即以最新 ts 標已讀、不顯示回到最新", async () => {
     seed(A, "a", 6, 100);
     firstUnreadAnswer = "a3";
 
@@ -1188,7 +1201,7 @@ describe("ChatArea 帶著未讀進房,停在伺服器說的第一則未讀", () 
     ).toBeNull();
   });
 
-  it("一頁內但最新一則在畫面外時,進房即以最新 ts 標已讀(不等捲到底)", async () => {
+  it("最新一則在畫面外時,進房即以最新 ts 標已讀(不等捲到底)", async () => {
     // 20 列 × 40px = 800px > 視窗 400px;落在 a5 上方,a19 在畫面外。
     seed(A, "a", 20, 100);
     firstUnreadAnswer = "a5";
@@ -1340,7 +1353,7 @@ describe("ChatArea 進房等錨點期間的新訊息、退回與離房", () => {
       ]),
     );
     expect(dividerRow(container)).toBe("a0");
-    expect(markReads.at(-1)).toBe(500);
+    expect(markReads).toEqual([500]);
   });
 
   it("帶著跳轉目標進房、錨點那一段已讀回還沒落地時對方又送一則,落地後那一則照樣出現", async () => {
