@@ -107,9 +107,7 @@ import type { Thread } from "../lib/threadCommit";
 
 // One scrollback page — mirrors the server's default recent window. A page
 // returning fewer than this means the history is exhausted (hasMore=false).
-// ChatArea also reads it: an unread run no longer than one page is marked read
-// on entry.
-export const CHAT_PAGE_SIZE = 30;
+const CHAT_PAGE_SIZE = 30;
 
 // 🔴 ONE PAGE OF THE FETCH-TO-THE-LIVE-TAIL (T-48 fix12, owner rc-e1fb80065f8f:
 // 「一次撈100則撈完」). The window path (`?start_id=` / `?end_id=`) has always

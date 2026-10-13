@@ -998,8 +998,8 @@ describe("ChatArea 進房錨點優先(useChat 的 anchor 參數)", () => {
 
 // ── 帶著未讀進房:停在伺服器說的第一則未讀 ────────────────────────────────────
 //
-// jsdom 沒有版面:每個 rect 都是 0,於是「最新那一列在視窗內」恆為真,進房就會
-// 標已讀,「捲到底之前不准標」這類斷言會綠在錯的理由上。這一組自己架一個最
+// jsdom 沒有版面:每個 rect 都是 0,於是「最新那一列在視窗內」恆為真,「落點在
+// 最新一則上方、箭頭在」這類斷言根本量不到。這一組自己架一個最
 // 小的版面:訊息列與收合的成員間往來各佔 ROW_PX 高,依文件順序往下排;未讀分隔線
 // 不佔高度、貼在它下一列的頂端;捲動容器的可視高度是 viewportPx。
 // scrollIntoView 照 block 參數真的移動 scrollTop,讓之後的量測量到落點。
@@ -1113,12 +1113,6 @@ function dividerRow(container: HTMLElement): string | null {
   return d.nextElementSibling?.getAttribute("data-msg-id") ?? "(not a row)";
 }
 
-function scrollBox(container: HTMLElement, top: number) {
-  const box = container.querySelector(".chat__messages")!;
-  box.scrollTop = top;
-  fireEvent.scroll(box);
-}
-
 /** Lets every fire-and-forget mark-read land before anything is asserted. */
 async function settle() {
   await act(async () => {
@@ -1130,7 +1124,7 @@ describe("ChatArea 帶著未讀進房,停在伺服器說的第一則未讀", () 
   beforeEach(installLayout);
   afterEach(uninstallLayout);
 
-  it("未讀 40 則(超過一頁)時,停在最舊那一則未讀、分隔線在它上方,捲到底之前不標已讀", async () => {
+  it("未讀 40 則(超過一頁)時,停在最舊那一則未讀、分隔線在它上方,不必捲到底就以最新那一則的 ts 標已讀", async () => {
     seed(A, "a", 40, 100);
     firstUnreadAnswer = "a0";
 
@@ -1143,7 +1137,7 @@ describe("ChatArea 帶著未讀進房,停在伺服器說的第一則未讀", () 
       Array.from({ length: 40 }, (_, i) => `a${i}`),
     );
     expect(scrolls).toContainEqual({ on: "chat__unread-divider", block: "start" });
-    expect(markReads).toEqual([]);
+    expect(markReads).toEqual([139]);
     expect(
       container.querySelector('[data-testid="chat-jump-latest"]'),
     ).not.toBeNull();
@@ -1180,25 +1174,6 @@ describe("ChatArea 帶著未讀進房,停在伺服器說的第一則未讀", () 
     expect(markReads).toEqual([234]);
   });
 
-  it("未讀超過一頁時,捲到中段不標已讀,捲到底才以最新那一則的 ts 標已讀", async () => {
-    seed(A, "a", 40, 100);
-    firstUnreadAnswer = "a0";
-
-    const { container } = render(view(withUnread(alice, 40)));
-    await waitFor(() => expect(dividerRow(container)).toBe("a0"));
-    await settle();
-    expect(markReads, "剛落地").toEqual([]);
-
-    // 40 列 × 40px = 1600px,視窗 400px:捲到 600 還在中段。
-    await act(async () => scrollBox(container, 600));
-    await settle();
-    expect(markReads, "捲到中段").toEqual([]);
-
-    await act(async () => scrollBox(container, 1200));
-    await settle();
-    expect(markReads, "捲到底").toEqual([139]);
-  });
-
   it("一頁內的少量未讀、整段都在畫面內時,進房即以最新 ts 標已讀", async () => {
     seed(A, "a", 6, 100);
     firstUnreadAnswer = "a3";
@@ -1229,41 +1204,6 @@ describe("ChatArea 帶著未讀進房,停在伺服器說的第一則未讀", () 
     ).not.toBeNull();
   });
 
-  it("從第一則未讀到最新剛好一頁(30 列)時,進房即標已讀", async () => {
-    seed(A, "a", 40, 100);
-    firstUnreadAnswer = "a10";
-
-    const { container } = render(view(withUnread(alice, 30)));
-    await waitFor(() => expect(dividerRow(container)).toBe("a10"));
-    await settle();
-
-    expect(markReads).toEqual([139]);
-  });
-
-  it("從第一則未讀到最新多一頁一列(31 列)時,進房不標已讀", async () => {
-    seed(A, "a", 40, 100);
-    firstUnreadAnswer = "a9";
-
-    const { container } = render(view(withUnread(alice, 31)));
-    await waitFor(() => expect(dividerRow(container)).toBe("a9"));
-    await settle();
-
-    expect(markReads).toEqual([]);
-  });
-
-  it("未讀超過一頁但視窗高到落地就看得到最新一則時,進房即標已讀", async () => {
-    // 31 列 × 40px = 1240px,視窗 2000px:整段放得下,也捲不動。
-    viewportPx = 2000;
-    seed(A, "a", 31, 100);
-    firstUnreadAnswer = "a0";
-
-    const { container } = render(view(withUnread(alice, 31)));
-    await waitFor(() => expect(dividerRow(container)).toBe("a0"));
-    await settle();
-
-    expect(markReads).toEqual([130]);
-  });
-
   it("StrictMode 的 setup→cleanup→setup 之後,帶未讀進房照樣停在第一則未讀、只問一次", async () => {
     seed(A, "a", 40, 100);
     firstUnreadAnswer = "a0";
@@ -1276,7 +1216,7 @@ describe("ChatArea 帶著未讀進房,停在伺服器說的第一則未讀", () 
 
     expect(firstUnreadAsks).toEqual([A]);
     expect(bubbles(container)).toHaveLength(40);
-    expect(markReads).toEqual([]);
+    expect(markReads).toEqual([139]);
 
     // 落地之後這間房回到一般的刷新:focus 會打一頁最新的。
     plainCalls = [];
@@ -1295,7 +1235,7 @@ describe("ChatArea 帶著未讀進房,停在伺服器說的第一則未讀", () 
     await waitFor(() => expect(dividerRow(container)).toBe("a0"));
     await settle();
 
-    expect(markReads).toEqual([]);
+    expect(markReads).toEqual([139]);
   });
 
   it("伺服器說沒有未讀時,退回最新一頁、落在最底、不畫分隔線,照常標已讀", async () => {
@@ -1400,7 +1340,7 @@ describe("ChatArea 進房等錨點期間的新訊息、退回與離房", () => {
       ]),
     );
     expect(dividerRow(container)).toBe("a0");
-    expect(markReads).toEqual([]);
+    expect(markReads.at(-1)).toBe(500);
   });
 
   it("帶著跳轉目標進房、錨點那一段已讀回還沒落地時對方又送一則,落地後那一則照樣出現", async () => {
