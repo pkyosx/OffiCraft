@@ -6,9 +6,9 @@
 // entered AT the first unread is decided from `member.unreadCount` at entry,
 // and the first unread itself is asked of the server
 // (GET /api/chat?unread=true&with=<id>&limit=1) — both strictly before the entry
-// read receipt goes out. A run that fits in one page (this one does) is marked
-// read as soon as the room lands on it, and the roster refetches to 0 right
-// after. Only a real server + real HTTP ordering exercises it.
+// read receipt goes out. The room is marked read up to its newest message as
+// soon as it lands, and the roster refetches to 0 right after. Only a real
+// server + real HTTP ordering exercises it.
 //
 // ⚠ ordering is load-bearing throughout: every unread_count sample happens
 // BEFORE anything lists M's thread. The spec hires its OWN member (M is never
@@ -162,8 +162,8 @@ test.describe('B9 · unread — badge, entry divider anchor, 進房 mark-read, f
       `the divider's top must sit flush with the thread's top, got ${dividerOffset}px off`,
     ).toBeLessThanOrEqual(2);
 
-    // ── read convergence: an unread run that fits in one page is read by
-    // entering the room, even when its newest message is below the fold.
+    // ── read convergence: the unread run is read by entering the room, even
+    // when its newest message is below the fold.
     // It is the COCKPIT that reports it (ChatArea's entry read receipt → POST
     // /api/chat/mark-read), not the listing — see the fixture note above. ──
     await expect
