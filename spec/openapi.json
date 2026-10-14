@@ -10203,7 +10203,7 @@
           },
           "lock": {
             "default": "",
-            "description": "The handover lock, ``reassigning`` while a transfer is waiting to be claimed and empty otherwise. Only reassign_task sets it and only claim_task clears it, so on the other four verbs it is the answer to a question with no other cheap source: ``status`` is derived from the steps and does not move when a lock is placed, so a caller reading status alone cannot see that the ticket is mid-transfer.",
+            "description": "The handover lock, ``reassigning`` while a transfer is waiting to be claimed and empty otherwise. Only reassign_task sets it; claim_task clears it, and so does every close (done, terminated, duplicated), since a closed task awaits no takeover. So on the other four verbs it is the answer to a question with no other cheap source: ``status`` is derived from the steps and does not move when a lock is placed, so a caller reading status alone cannot see that the ticket is mid-transfer.",
             "title": "Lock",
             "type": "string"
           },
@@ -22399,7 +22399,7 @@
     },
     "/api/tasks/{task_id}/reassign": {
       "post": {
-        "description": "- Target is an active member (`kind=staff`) or a new outsource worker (`outsource`).\n- Owner/admin reassign any task; ordinary staff may only outsource its OWN; a worker never (403).\n- Waiting cards that hold a step expire (a card that only names the task stays for the next executor), live steps reset to `pending`, and the task locks until the new executor claims it.\n- Under the hold the predecessor keeps the executor's write rights until the successor claims or the predecessor leaves (an outsource predecessor is reclaimed after `reassign_handover_timeout_secs` with no change to the task (artifact changes do not count); a staff predecessor when dismissed); the successor can only read and claim.\n- Both sides get a handover message.\n- 404 unknown task; 409 terminal or same executor; 400 invalid target.",
+        "description": "- Target is an active member (`kind=staff`) or a new outsource worker (`outsource`).\n- Owner/admin reassign any task; ordinary staff may only outsource its OWN; a worker never (403).\n- Waiting cards that hold a step expire (a card that only names the task stays for the next executor), live steps reset to `pending`, and the task locks until the new executor claims it or the task closes.\n- Under the hold the predecessor keeps the executor's write rights until the successor claims or the predecessor leaves (an outsource predecessor is reclaimed after `reassign_handover_timeout_secs` with no change to the task (artifact changes do not count); a staff predecessor when dismissed); the successor can only read and claim.\n- Both sides get a handover message.\n- 404 unknown task; 409 terminal or same executor; 400 invalid target.",
         "operationId": "handle_reassign_task_api_tasks__task_id__reassign_post",
         "parameters": [
           {

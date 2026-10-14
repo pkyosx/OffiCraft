@@ -942,7 +942,7 @@ func TestNotifyWorkerSpawn(t *testing.T) {
 		apiWantValue(t, "attempts", any(float64(api.workerSpawnAttempts["ow-abc123"])), any(2))
 	})
 
-	t.Run("a worker whose bound task has closed is never booted into a void, and the stall says so on its row", func(t *testing.T) {
+	t.Run("a worker whose bound task has closed is never booted into a void: the stall says so on its row and the worker is released", func(t *testing.T) {
 		api, h, d, owner, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
 		apiTestListen(t, api, ServerSelfHost)
 		task, err := d.GetTask("T-1")
@@ -959,17 +959,17 @@ func TestNotifyWorkerSpawn(t *testing.T) {
 		api.outsourceMu.Unlock()
 
 		apiWantValue(t, "dispatched", any(dispatched), any(false))
-		wsWantWardenFrames(t, api, ServerSelfHost)
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
 		apiWantValue(t, "spawn observation", any(float64(len(api.workerSpawnAt))), any(0))
 		apiTestWantWorker(t, h, owner, "ow-abc123", apiTestWorkerRow(t, map[string]any{
-			"task_status": "done",
-			"last_op":     "start", "last_op_ok": false, "last_op_at": 1000,
+			"task_status": "done", "status": "released", "roster_status": "removed", "presence": "",
+			"last_op": "start", "last_op_ok": false, "last_op_at": 1000,
 			"last_op_reason": "no_live_task: bound task T-1 is missing or already closed — " +
 				"nothing left to boot this worker for",
 		}))
 	})
 
-	t.Run("a worker bound to a task id nothing carries stalls with that id named", func(t *testing.T) {
+	t.Run("a worker bound to a task id nothing carries stalls with that id named and is released", func(t *testing.T) {
 		api, _, _, _, w := wsWorkerSpawnFixture(t, WorkerStatusAssigned)
 		apiTestListen(t, api, ServerSelfHost)
 		orphan := wsPinned(w)
@@ -980,7 +980,7 @@ func TestNotifyWorkerSpawn(t *testing.T) {
 		api.outsourceMu.Unlock()
 
 		apiWantValue(t, "dispatched", any(dispatched), any(false))
-		wsWantWardenFrames(t, api, ServerSelfHost)
+		wsWantWardenFrames(t, api, ServerSelfHost, wsStopFrame("ow-abc123"))
 		row, err := api.dal.GetOutsourceWorker("ow-abc123")
 		if err != nil || row == nil {
 			t.Fatalf("GetOutsourceWorker: %v (%v)", row, err)
@@ -988,6 +988,7 @@ func TestNotifyWorkerSpawn(t *testing.T) {
 		apiWantValue(t, "receipt reason", any(row.LastOpReason),
 			any("no_live_task: bound task T-404 is missing or already closed — "+
 				"nothing left to boot this worker for"))
+		apiWantValue(t, "status", any(row.Status), any(WorkerStatusReleased))
 	})
 
 	t.Run("a worker nobody placed is not dispatched anywhere and the row names the unmade choice", func(t *testing.T) {

@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -1312,7 +1313,7 @@ func TestReconcileWorkerLiveness_LegacyWorkerStartReceiptStillDetectsZombie(t *t
 	}
 }
 
-func TestNotifyWorkerSpawn_TerminalTask_NoDispatch(t *testing.T) {
+func TestNotifyWorkerSpawn_TerminalTask_ReleasesInsteadOfDispatching(t *testing.T) {
 	s := newWorkerTestServer(t)
 	connectWarden(t, s, ServerSelfHost)
 	task := putTaskFixture(t, s, Task{
@@ -1327,8 +1328,13 @@ func TestNotifyWorkerSpawn_TerminalTask_NoDispatch(t *testing.T) {
 	s.outsourceMu.Lock()
 	s.notifyWorkerSpawn(w, nowSecs())
 	s.outsourceMu.Unlock()
-	if got := s.hub.DrainWardenCommands(ServerSelfHost); len(got) != 0 {
-		t.Errorf("a terminal task must never boot a worker, got %d frames", len(got))
+	frames := s.hub.DrainWardenCommands(ServerSelfHost)
+	if len(frames) != 1 {
+		t.Fatalf("want exactly the reclaiming stop, got %d frames", len(frames))
+	}
+	if rpc, args := decodeWardenFrame(t, frames[0].Frame); rpc != reconcileCmdStop ||
+		args["member_id"] != "ow-3" {
+		t.Errorf("frame = %s %v, want stop ow-3", rpc, args)
 	}
 	// This arm repeats on every tick forever, so it must be diagnosable rather
 	// than log-only — otherwise a permanently unbootable worker and a booting one
@@ -1340,6 +1346,9 @@ func TestNotifyWorkerSpawn_TerminalTask_NoDispatch(t *testing.T) {
 	if !strings.HasPrefix(got.LastOpReason, spawnReasonNoLiveTask+":") {
 		t.Errorf("want a %s receipt, got last_op=%q reason=%q",
 			spawnReasonNoLiveTask, got.LastOp, got.LastOpReason)
+	}
+	if got.Status != WorkerStatusReleased {
+		t.Errorf("worker status = %q, want released: nothing else can collect it", got.Status)
 	}
 }
 
@@ -2018,6 +2027,42 @@ func TestTaskClose_DismissesBoundWorkers(t *testing.T) {
 			t.Fatalf("force_task_done: %d %s", rec.Code, rec.Body.String())
 		}
 		assertWorkerDismissed(t, s, "ow-g")
+	})
+
+	t.Run("a worker the scheduler released before the close still has its unbound waiting cards expired", func(t *testing.T) {
+		s := newWorkerTestServer(t)
+		connectWarden(t, s, ServerSelfHost)
+		task := closedWorkerFixture(t, s, "t-000000000012", "ow-h", TaskStatusInProgress)
+		if _, err := s.dal.ReleaseWorkerByID("ow-h", 40); err != nil {
+			t.Fatalf("release worker: %v", err)
+		}
+		for _, card := range []ReplyCard{
+			{ID: "rc-worker", FromMember: "ow-h", Kind: "decision", Status: "waiting", CreatedTS: 10},
+			{ID: "rc-other", FromMember: "kip", Kind: "decision", Status: "waiting", CreatedTS: 11},
+		} {
+			if err := s.dal.PutReplyCard(card); err != nil {
+				t.Fatalf("PutReplyCard(%q): %v", card.ID, err)
+			}
+		}
+		rec := httptest.NewRecorder()
+		s.HandleMarkTaskTerminatedApiTasksTaskIdMarkTerminatedPost(rec,
+			taskReq(t, http.MethodPost, "/api/tasks/"+task.ID+"/mark-terminated",
+				nil, "owner", "owner"), task.ID)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("mark_task_terminated: %d %s", rec.Code, rec.Body.String())
+		}
+		got := map[string]string{}
+		cards, err := s.dal.ListReplyCards()
+		if err != nil {
+			t.Fatalf("ListReplyCards: %v", err)
+		}
+		for _, c := range cards {
+			got[c.ID] = c.Status
+		}
+		want := map[string]string{"rc-worker": "expired", "rc-other": "waiting"}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("card statuses after close = %v, want %v", got, want)
+		}
 	})
 
 	t.Run("a member-executed task dismisses nobody", func(t *testing.T) {

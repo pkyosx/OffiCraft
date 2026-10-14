@@ -437,6 +437,9 @@ func (s *apiServer) closeTask(
 			}
 		}
 		cur.Status = status
+		// claim_task and the handover-timeout reaper read the lock without the
+		// status, so a closed task must not keep it.
+		cur.Lock = TaskLockNone
 		cur.ClosedTS = now
 		cur.UpdatedTS = now
 		closed = *cur
@@ -474,11 +477,11 @@ func (s *apiServer) afterTaskClosed(t *Task, now float64, trigger string) {
 	}
 	// Every close dismisses the bound workers — no door opts out, force_done and
 	// terminate included (owner ruling rc-571b665bc047: 「外包改在按下結案那一刻遣散」).
-	fired := s.dismissOutsourceWorkersForTask(t.ID, now, trigger)
-	// Sweeps the dismissed workers' unbound cards (linked_task=null), which the
+	bound := s.dismissOutsourceWorkersForTask(t.ID, now, trigger)
+	// Sweeps the bound workers' unbound cards (linked_task=null), which the
 	// task sweep above cannot reach. Outside dismissOutsourceWorkersForTask on
 	// purpose: card writes must not run under outsourceMu.
-	for _, workerID := range fired {
+	for _, workerID := range bound {
 		if _, err := s.expireWaitingCardsByAuthor(workerID, now, trigger); err != nil {
 			taskLog("close %s: card sweep for dismissed worker %s failed: %v",
 				t.ID, workerID, err)
@@ -825,8 +828,8 @@ func parseTaskStatusSet(raw *[]string) (set map[string]bool, badStatus string) {
 // taskStatusSetMatch accepts `reassigning` (a lock, not a status) because the
 // cockpit's 狀態 dropdown lists 轉派中 and its default view ticks it. The single
 // ?status= param is not widened: that is frozen wire a live client sends. The
-// lock counts only while open: closeTask leaves Lock set (known residue,
-// deliberately unfixed), so a terminated task can carry lock=reassigning.
+// lock counts only while open: databases written by older binaries hold closed
+// tasks that still carry lock=reassigning.
 func taskStatusSetMatch(t Task, set map[string]bool) bool {
 	if set[t.Status] {
 		return true

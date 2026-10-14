@@ -53,6 +53,22 @@ func TestOutsourceAwaitingAssignment(t *testing.T) {
 			task.Lock = TaskLockReassigning
 			return task
 		}(), want: false},
+		{name: "a reassigning task in its close-out window is still queued", task: func() Task {
+			task := base
+			task.Status = TaskStatusReadyForDone
+			task.Lock = TaskLockReassigning
+			return task
+		}(), want: true},
+	}
+	for _, closed := range []string{TaskStatusDone, TaskStatusTerminated, TaskStatusDuplicated} {
+		task := base
+		task.Status = closed
+		task.Lock = TaskLockReassigning
+		cases = append(cases, struct {
+			name string
+			task Task
+			want bool
+		}{name: "a " + closed + " task still carrying a reassigning lock is not queued", task: task, want: false})
 	}
 
 	for _, tc := range cases {
@@ -525,6 +541,128 @@ func TestRunOutsourceTick(t *testing.T) {
 		if w := workers[0]; w.Runtime != RuntimeCodex || w.Model != "gpt-5" || w.Effort != "high" {
 			t.Fatalf("worker launch spec = (%q, %q, %q), want (%q, %q, %q)", w.Runtime, w.Model, w.Effort, RuntimeCodex, "gpt-5", "high")
 		}
+	})
+
+	t.Run("a task terminated while it waits for its outsource successor gets no worker", func(t *testing.T) {
+		for _, terminate := range []bool{false, true} {
+			name := "left open, the successor is minted"
+			if terminate {
+				name = "terminated, nothing is minted and the hold is gone"
+			}
+			t.Run(name, func(t *testing.T) {
+				api, h, d, owner := newAPITestServer(t)
+				if code, data := apiJSON(t, h, "POST", "/api/tasks", owner,
+					`{"title":"Ship it","executor_member_id":"kip"}`); code != 200 {
+					t.Fatalf("create task: %d %v", code, data)
+				}
+				api.noOutsource = true
+				if code, data := apiJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner,
+					`{"target":{"kind":"outsource","model":"sonnet","effort":"medium"}}`); code != 200 {
+					t.Fatalf("reassign: %d %v", code, data)
+				}
+				if terminate {
+					if code, data := apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, ""); code != 200 {
+						t.Fatalf("terminate: %d %v", code, data)
+					}
+				}
+
+				api.runOutsourceTick(nowSecs())
+
+				workers, err := d.ListOutsourceWorkers()
+				if err != nil {
+					t.Fatalf("ListOutsourceWorkers: %v", err)
+				}
+				_, task := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+				if !terminate {
+					if len(workers) != 1 || workers[0].TaskID != "T-1" || workers[0].Status != WorkerStatusAssigned {
+						t.Fatalf("workers = %+v, want one assigned successor on T-1", workers)
+					}
+					apiWantValue(t, "lock", task["lock"], any("reassigning"))
+					return
+				}
+				if len(workers) != 0 {
+					t.Fatalf("workers = %+v, want none for a terminated task", workers)
+				}
+				apiWantValue(t, "status", task["status"], any("terminated"))
+				apiWantValue(t, "lock", task["lock"], any(""))
+				apiWantValue(t, "executor_id", task["executor_id"], any(""))
+			})
+		}
+	})
+
+	t.Run("a task an older binary closed with its lock left on gets no worker, while its open twin does", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		for id, status := range map[string]string{
+			"T-closed": TaskStatusTerminated, "T-open": TaskStatusInProgress,
+		} {
+			dalPutTask(t, d, Task{
+				ID: id, Title: "dispatched before an older binary closed it", Inputs: map[string]any{},
+				Status: status, Lock: TaskLockReassigning,
+				Priority: TaskPriorityMid, ExecutorKind: TaskExecutorOutsource,
+				ReassignedFrom: "kip", ReassignedFromKind: TaskExecutorStaff,
+				OutsourceRuntime: RuntimeClaude, OutsourceModel: "sonnet", OutsourceEffort: "medium",
+				OutsourceDispatched: true,
+				CreatorID:           wireOwnerID, CreatedTS: 1700000000, UpdatedTS: nowSecs(),
+			})
+		}
+
+		api.runOutsourceTick(nowSecs())
+
+		workers, err := d.ListOutsourceWorkers()
+		if err != nil {
+			t.Fatalf("ListOutsourceWorkers: %v", err)
+		}
+		if len(workers) != 1 || workers[0].TaskID != "T-open" {
+			t.Fatalf("workers = %+v, want exactly one, bound to T-open", workers)
+		}
+	})
+
+	t.Run("a worker whose bound task is closed or missing is released by the tick, and one on an open task is not", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestListen(t, api, ServerSelfHost)
+		for _, task := range []Task{
+			{ID: "T-closed", Status: TaskStatusTerminated, Lock: TaskLockReassigning, ExecutorID: "ow-stuck", ClosedTS: 1700000000},
+			{ID: "T-open", Status: TaskStatusInProgress, ExecutorID: "ow-working"},
+			{ID: "T-closing", Status: TaskStatusReadyForDone, ExecutorID: "ow-closing"},
+		} {
+			task.Title, task.Inputs, task.Priority = "x", map[string]any{}, TaskPriorityMid
+			task.ExecutorKind, task.CreatorID = TaskExecutorOutsource, wireOwnerID
+			task.CreatedTS, task.UpdatedTS = 1700000000, 1700000000
+			dalPutTask(t, d, task)
+		}
+		for id, taskID := range map[string]string{
+			"ow-stuck": "T-closed", "ow-orphan": "T-404", "ow-working": "T-open", "ow-closing": "T-closing",
+		} {
+			if err := d.PutOutsourceWorker(OutsourceWorker{
+				ID: id, Codename: "O-" + id, TaskID: taskID, Status: WorkerStatusAssigned,
+				Runtime: "claude", Model: "sonnet", Effort: "medium",
+			}); err != nil {
+				t.Fatalf("PutOutsourceWorker(%s): %v", id, err)
+			}
+		}
+
+		api.runOutsourceTick(nowSecs())
+
+		state := func(id string) string {
+			_, member := apiJSON(t, h, "GET", "/api/members/"+id, owner, "")
+			return member["status"].(string) + "/" + member["roster_status"].(string)
+		}
+		for id, want := range map[string]string{
+			"ow-stuck": "released/removed", "ow-orphan": "released/removed",
+			"ow-working": "assigned/active", "ow-closing": "assigned/active",
+		} {
+			if got := state(id); got != want {
+				t.Fatalf("%s after the tick = %s, want %s", id, got, want)
+			}
+		}
+		stopped := map[string]bool{}
+		for _, frame := range api.hub.DrainWardenCommands(ServerSelfHost) {
+			if rpc, args := decodeWardenFrame(t, frame.Frame); rpc == reconcileCmdStop {
+				stopped[args["member_id"].(string)] = true
+			}
+		}
+		apiWantValue(t, "workers sent a stop", any(stopped),
+			any(map[string]bool{"ow-stuck": true, "ow-orphan": true}))
 	})
 
 	t.Run("past the handover timeout an outsource predecessor is released and loses the hold", func(t *testing.T) {

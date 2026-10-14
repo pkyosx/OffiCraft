@@ -8357,6 +8357,23 @@ func TestHandleForceTaskDoneApiTasksTaskIdForceDonePost(t *testing.T) {
 		}
 	})
 
+	t.Run("force-closing a task under a reassign hold clears the hold, so the successor has nothing to claim", func(t *testing.T) {
+		f := newHandoverFixture(t)
+
+		f.must(t, "POST", "/api/tasks/T-1/force-done", f.owner, `{"reason":"gone"}`)
+
+		want := handoverUntouched("")
+		want.Status = "done"
+		if got := f.view(t); !reflect.DeepEqual(got, want) {
+			t.Fatalf("T-1 after force_task_done\ngot  %#v\nwant %#v", got, want)
+		}
+		status, data := apiJSON(t, f.h, "POST", "/api/tasks/T-1/claim", f.successor, "")
+		if status != http.StatusConflict {
+			t.Fatalf("claim after the close: want 409, got %d %v", status, data)
+		}
+		apiWantError(t, data, "conflict", "task 'T-1' is not awaiting takeover (no reassigning lock)")
+	})
+
 	t.Run("the admin assistant may force, and a plain agent and the executor may not", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		if err := d.putMemberWholeRowForTest(Member{

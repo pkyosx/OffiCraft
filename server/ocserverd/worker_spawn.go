@@ -395,6 +395,9 @@ func (s *apiServer) notifyWorkerSpawn(w OutsourceWorker, now float64) bool {
 	if err != nil || t == nil || TaskIsTerminal(t.Status) {
 		s.stampWorkerPlacementBlocked(&w, spawnReasonNoLiveTask+": bound task "+w.TaskID+
 			" is missing or already closed — nothing left to boot this worker for", now)
+		if err == nil {
+			s.releaseWorkerWithoutLiveTask(w, now)
+		}
 		return false
 	}
 	var manual *TaskManual
@@ -1227,8 +1230,31 @@ func (s *apiServer) reclaimKillTargets(w OutsourceWorker) []string {
 	return s.onlineWardens()
 }
 
+// releaseWorkerWithoutLiveTask collects a worker whose bound task is missing or
+// closed: no tool can, and the scheduler would otherwise retry its START forever.
+// Callers hold s.outsourceMu, so it must not go through dismissOutsourceWorkerByID,
+// which takes that lock itself.
+func (s *apiServer) releaseWorkerWithoutLiveTask(w OutsourceWorker, now float64) {
+	released, err := s.dal.ReleaseWorkerByID(w.ID, now)
+	if err != nil {
+		outsourceLog("release %s (%s): bound task %q is missing or closed but the release failed: %v",
+			w.ID, w.Codename, w.TaskID, err)
+		return
+	}
+	if released == nil {
+		return
+	}
+	s.publishOutsourceWorker(*released, triggerServer)
+	outsourceLog("release %s (%s): bound task %q is missing or closed — released",
+		w.ID, w.Codename, w.TaskID)
+	if !s.workerReclaimed[w.ID] {
+		s.reclaimWorkerSession(*released)
+	}
+}
+
 // dismissOutsourceWorkersForTask takes outsourceMu itself — call it WITHOUT the
-// scheduler lock. It returns the fired ids instead of sweeping their cards: card
+// scheduler lock. It returns the ids of every worker bound to the task, including
+// one the scheduler tick released first, instead of sweeping their cards: card
 // writes make outward calls that must not run under outsourceMu (closeTask
 // sweeps them unlocked; dismissOutsourceWorkerByID sweeping inside the lock is
 // debt, not the shape to copy).
@@ -1250,12 +1276,17 @@ func (s *apiServer) dismissOutsourceWorkersForTask(taskID string, now float64, t
 		outsourceLog("dismiss task %s: worker read failed: %v", taskID, err)
 		return fired
 	}
+	bound := []string{}
 	for _, w := range workers {
-		if w.TaskID == taskID && !s.workerReclaimed[w.ID] {
+		if w.TaskID != taskID {
+			continue
+		}
+		bound = append(bound, w.ID)
+		if !s.workerReclaimed[w.ID] {
 			s.reclaimWorkerSession(w)
 		}
 	}
-	return fired
+	return bound
 }
 
 // dismissOutsourceWorkerByID fires one worker by WORKER ID, never task_id: an
