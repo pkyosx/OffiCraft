@@ -828,8 +828,8 @@ func parseTaskStatusSet(raw *[]string) (set map[string]bool, badStatus string) {
 // taskStatusSetMatch accepts `reassigning` (a lock, not a status) because the
 // cockpit's 狀態 dropdown lists 轉派中 and its default view ticks it. The single
 // ?status= param is not widened: that is frozen wire a live client sends. The
-// lock counts only while open: closeTask leaves Lock set (known residue,
-// deliberately unfixed), so a terminated task can carry lock=reassigning.
+// lock counts only while open: databases written by older binaries hold closed
+// tasks that still carry lock=reassigning.
 func taskStatusSetMatch(t Task, set map[string]bool) bool {
 	if set[t.Status] {
 		return true
