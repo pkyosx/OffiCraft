@@ -4542,7 +4542,7 @@ type TaskWriteReceiptDTO struct {
 	// ExecutorKind Whether that executor is staff or a contractor. Server-derived from the roster rather than sent, and it changes how a caller addresses them - a contractor is bound to one task and goes away with it.
 	ExecutorKind string `json:"executor_kind"`
 
-	// Lock The handover lock, ``reassigning`` while a transfer is waiting to be claimed and empty otherwise. Only reassign_task sets it and only claim_task clears it, so on the other four verbs it is the answer to a question with no other cheap source: ``status`` is derived from the steps and does not move when a lock is placed, so a caller reading status alone cannot see that the ticket is mid-transfer.
+	// Lock The handover lock, ``reassigning`` while a transfer is waiting to be claimed and empty otherwise. Only reassign_task sets it; claim_task clears it, and so does every close (done, terminated, duplicated), since a closed task awaits no takeover. So on the other four verbs it is the answer to a question with no other cheap source: ``status`` is derived from the steps and does not move when a lock is placed, so a caller reading status alone cannot see that the ticket is mid-transfer.
 	Lock *string `json:"lock,omitempty"`
 
 	// ProgressDone How many steps are finished after this write. With ``progress_total`` it is what replaces the step ROWS: a caller learns the plan is intact and how far along it is, in two integers instead of fifteen fields per step.

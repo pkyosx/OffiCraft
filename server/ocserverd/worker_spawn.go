@@ -395,6 +395,9 @@ func (s *apiServer) notifyWorkerSpawn(w OutsourceWorker, now float64) bool {
 	if err != nil || t == nil || TaskIsTerminal(t.Status) {
 		s.stampWorkerPlacementBlocked(&w, spawnReasonNoLiveTask+": bound task "+w.TaskID+
 			" is missing or already closed — nothing left to boot this worker for", now)
+		if err == nil {
+			s.releaseWorkerWithoutLiveTask(w, now)
+		}
 		return false
 	}
 	var manual *TaskManual
@@ -1225,6 +1228,28 @@ func (s *apiServer) reclaimKillTargets(w OutsourceWorker) []string {
 		return []string{t}
 	}
 	return s.onlineWardens()
+}
+
+// releaseWorkerWithoutLiveTask collects a worker whose bound task is missing or
+// closed: no tool can, and the scheduler would otherwise retry its START forever.
+// Callers hold s.outsourceMu, so it must not go through dismissOutsourceWorkerByID,
+// which takes that lock itself.
+func (s *apiServer) releaseWorkerWithoutLiveTask(w OutsourceWorker, now float64) {
+	released, err := s.dal.ReleaseWorkerByID(w.ID, now)
+	if err != nil {
+		outsourceLog("release %s (%s): task %q is gone but the release failed: %v",
+			w.ID, w.Codename, w.TaskID, err)
+		return
+	}
+	if released == nil {
+		return
+	}
+	s.publishOutsourceWorker(*released, triggerServer)
+	outsourceLog("release %s (%s): bound task %q is missing or closed — released",
+		w.ID, w.Codename, w.TaskID)
+	if !s.workerReclaimed[w.ID] {
+		s.reclaimWorkerSession(*released)
+	}
 }
 
 // dismissOutsourceWorkersForTask takes outsourceMu itself — call it WITHOUT the

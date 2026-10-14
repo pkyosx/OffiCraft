@@ -1312,7 +1312,7 @@ func TestReconcileWorkerLiveness_LegacyWorkerStartReceiptStillDetectsZombie(t *t
 	}
 }
 
-func TestNotifyWorkerSpawn_TerminalTask_NoDispatch(t *testing.T) {
+func TestNotifyWorkerSpawn_TerminalTask_ReleasesInsteadOfDispatching(t *testing.T) {
 	s := newWorkerTestServer(t)
 	connectWarden(t, s, ServerSelfHost)
 	task := putTaskFixture(t, s, Task{
@@ -1327,8 +1327,13 @@ func TestNotifyWorkerSpawn_TerminalTask_NoDispatch(t *testing.T) {
 	s.outsourceMu.Lock()
 	s.notifyWorkerSpawn(w, nowSecs())
 	s.outsourceMu.Unlock()
-	if got := s.hub.DrainWardenCommands(ServerSelfHost); len(got) != 0 {
-		t.Errorf("a terminal task must never boot a worker, got %d frames", len(got))
+	frames := s.hub.DrainWardenCommands(ServerSelfHost)
+	if len(frames) != 1 {
+		t.Fatalf("want exactly the reclaiming stop, got %d frames", len(frames))
+	}
+	if rpc, args := decodeWardenFrame(t, frames[0].Frame); rpc != reconcileCmdStop ||
+		args["member_id"] != "ow-3" {
+		t.Errorf("frame = %s %v, want stop ow-3", rpc, args)
 	}
 	// This arm repeats on every tick forever, so it must be diagnosable rather
 	// than log-only — otherwise a permanently unbootable worker and a booting one
@@ -1340,6 +1345,9 @@ func TestNotifyWorkerSpawn_TerminalTask_NoDispatch(t *testing.T) {
 	if !strings.HasPrefix(got.LastOpReason, spawnReasonNoLiveTask+":") {
 		t.Errorf("want a %s receipt, got last_op=%q reason=%q",
 			spawnReasonNoLiveTask, got.LastOp, got.LastOpReason)
+	}
+	if got.Status != WorkerStatusReleased {
+		t.Errorf("worker status = %q, want released: nothing else can collect it", got.Status)
 	}
 }
 

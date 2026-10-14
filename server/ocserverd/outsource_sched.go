@@ -54,9 +54,11 @@ func (a outsourceAssignment) hasExplicitTarget() bool { return a.ExplicitTarget 
 
 // The reassigning lock counts as awaiting: a partially-done task reassigned to
 // outsource derives to in_progress, so status alone would miss the successor.
+// A closed task is never awaiting, whatever its lock says: databases written by
+// older binaries hold closed tasks that still carry the lock.
 func outsourceAwaitingAssignment(t Task) bool {
 	if t.ExecutorKind != TaskExecutorOutsource || t.ExecutorID != "" ||
-		t.Priority == TaskPriorityFrozen {
+		t.Priority == TaskPriorityFrozen || TaskIsTerminal(t.Status) {
 		return false
 	}
 	return t.Status == TaskStatusNotStarted || t.Lock == TaskLockReassigning
@@ -239,8 +241,10 @@ func (s *apiServer) runOutsourceTick(now float64) {
 	// Codenames fold over released rows too: a codename is never reused
 	// (contract §A.4).
 	typeOf := make(map[string]string, len(tasks))
+	openTask := make(map[string]bool, len(tasks))
 	for _, t := range tasks {
 		typeOf[t.ID] = t.TypeKey
+		openTask[t.ID] = !TaskIsTerminal(t.Status)
 	}
 	liveByType := map[string]int{}
 	liveTotal := 0
@@ -261,6 +265,12 @@ func (s *apiServer) runOutsourceTick(now float64) {
 	s.runWorkerLifecyclePasses(workers, now)
 
 	for _, w := range workers {
+		// The close dismisses only the workers that exist when it commits, so a
+		// worker minted after it, or one whose dismissal failed, is collected here.
+		if w.Status != WorkerStatusReleased && !openTask[w.TaskID] {
+			s.releaseWorkerWithoutLiveTask(w, now)
+			continue
+		}
 		// Runs before the FSM below, so a queued 起來 spent at the converged-offline
 		// edge is started in the same tick.
 		s.consumeWorkerRestartAfterStop(&w, now)

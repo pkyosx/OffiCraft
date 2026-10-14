@@ -428,7 +428,7 @@ func handoverDoors() []handoverDoor {
 			})},
 		{name: "mark_task_duplicated",
 			call: handoverPost("/api/tasks/T-1/mark-duplicated", `{"duplicate_of":"T-2"}`),
-			want: handoverWith(func(v *handoverView) { v.Status = "duplicated" })},
+			want: handoverWith(func(v *handoverView) { v.Status, v.Lock = "duplicated", "" })},
 		{name: "create_reply_card bound to the task",
 			prep: func(t *testing.T, f handoverFixture) string {
 				f.must(t, "POST", "/api/tasks/T-1/steps/"+f.stepOne+"/status", f.owner, `{"status":"in_progress"}`)
@@ -513,7 +513,7 @@ func handoverDoors() []handoverDoor {
 			want: handoverWith(func(v *handoverView) { v.StepOneNote = "next is Y" })},
 		{name: "mark_task_terminated",
 			call: handoverPost("/api/tasks/T-1/mark-terminated", ""),
-			want: handoverWith(func(v *handoverView) { v.Status = "terminated" })},
+			want: handoverWith(func(v *handoverView) { v.Status, v.Lock = "terminated", "" })},
 		{name: "mark_task_done",
 			prep: func(t *testing.T, f handoverFixture) string {
 				for _, step := range []string{f.stepOne, f.stepTwo} {
@@ -524,7 +524,7 @@ func handoverDoors() []handoverDoor {
 			},
 			call: handoverPost("/api/tasks/T-1/mark-done", ""),
 			want: handoverWith(func(v *handoverView) {
-				v.Status = "done"
+				v.Status, v.Lock = "done", ""
 				v.Steps = []string{"one:done", "two:done"}
 			})},
 	}

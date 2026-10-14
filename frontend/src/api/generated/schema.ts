@@ -10775,7 +10775,7 @@ export interface components {
             executor_kind: string;
             /**
              * Lock
-             * @description The handover lock, ``reassigning`` while a transfer is waiting to be claimed and empty otherwise. Only reassign_task sets it and only claim_task clears it, so on the other four verbs it is the answer to a question with no other cheap source: ``status`` is derived from the steps and does not move when a lock is placed, so a caller reading status alone cannot see that the ticket is mid-transfer.
+             * @description The handover lock, ``reassigning`` while a transfer is waiting to be claimed and empty otherwise. Only reassign_task sets it; claim_task clears it, and so does every close (done, terminated, duplicated), since a closed task awaits no takeover. So on the other four verbs it is the answer to a question with no other cheap source: ``status`` is derived from the steps and does not move when a lock is placed, so a caller reading status alone cannot see that the ticket is mid-transfer.
              * @default
              */
             lock: string;

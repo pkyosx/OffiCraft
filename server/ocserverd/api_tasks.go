@@ -437,6 +437,9 @@ func (s *apiServer) closeTask(
 			}
 		}
 		cur.Status = status
+		// claim_task and the handover-timeout reaper read the lock without the
+		// status, so a closed task must not keep it.
+		cur.Lock = TaskLockNone
 		cur.ClosedTS = now
 		cur.UpdatedTS = now
 		closed = *cur
