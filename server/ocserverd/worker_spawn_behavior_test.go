@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -2026,6 +2027,42 @@ func TestTaskClose_DismissesBoundWorkers(t *testing.T) {
 			t.Fatalf("force_task_done: %d %s", rec.Code, rec.Body.String())
 		}
 		assertWorkerDismissed(t, s, "ow-g")
+	})
+
+	t.Run("a worker the scheduler released before the close still has its unbound waiting cards expired", func(t *testing.T) {
+		s := newWorkerTestServer(t)
+		connectWarden(t, s, ServerSelfHost)
+		task := closedWorkerFixture(t, s, "t-000000000012", "ow-h", TaskStatusInProgress)
+		if _, err := s.dal.ReleaseWorkerByID("ow-h", 40); err != nil {
+			t.Fatalf("release worker: %v", err)
+		}
+		for _, card := range []ReplyCard{
+			{ID: "rc-worker", FromMember: "ow-h", Kind: "decision", Status: "waiting", CreatedTS: 10},
+			{ID: "rc-other", FromMember: "kip", Kind: "decision", Status: "waiting", CreatedTS: 11},
+		} {
+			if err := s.dal.PutReplyCard(card); err != nil {
+				t.Fatalf("PutReplyCard(%q): %v", card.ID, err)
+			}
+		}
+		rec := httptest.NewRecorder()
+		s.HandleMarkTaskTerminatedApiTasksTaskIdMarkTerminatedPost(rec,
+			taskReq(t, http.MethodPost, "/api/tasks/"+task.ID+"/mark-terminated",
+				nil, "owner", "owner"), task.ID)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("mark_task_terminated: %d %s", rec.Code, rec.Body.String())
+		}
+		got := map[string]string{}
+		cards, err := s.dal.ListReplyCards()
+		if err != nil {
+			t.Fatalf("ListReplyCards: %v", err)
+		}
+		for _, c := range cards {
+			got[c.ID] = c.Status
+		}
+		want := map[string]string{"rc-worker": "expired", "rc-other": "waiting"}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("card statuses after close = %v, want %v", got, want)
+		}
 	})
 
 	t.Run("a member-executed task dismisses nobody", func(t *testing.T) {

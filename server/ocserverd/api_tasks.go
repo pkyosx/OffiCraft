@@ -477,11 +477,11 @@ func (s *apiServer) afterTaskClosed(t *Task, now float64, trigger string) {
 	}
 	// Every close dismisses the bound workers — no door opts out, force_done and
 	// terminate included (owner ruling rc-571b665bc047: 「外包改在按下結案那一刻遣散」).
-	fired := s.dismissOutsourceWorkersForTask(t.ID, now, trigger)
-	// Sweeps the dismissed workers' unbound cards (linked_task=null), which the
+	bound := s.dismissOutsourceWorkersForTask(t.ID, now, trigger)
+	// Sweeps the bound workers' unbound cards (linked_task=null), which the
 	// task sweep above cannot reach. Outside dismissOutsourceWorkersForTask on
 	// purpose: card writes must not run under outsourceMu.
-	for _, workerID := range fired {
+	for _, workerID := range bound {
 		if _, err := s.expireWaitingCardsByAuthor(workerID, now, trigger); err != nil {
 			taskLog("close %s: card sweep for dismissed worker %s failed: %v",
 				t.ID, workerID, err)

@@ -1237,7 +1237,7 @@ func (s *apiServer) reclaimKillTargets(w OutsourceWorker) []string {
 func (s *apiServer) releaseWorkerWithoutLiveTask(w OutsourceWorker, now float64) {
 	released, err := s.dal.ReleaseWorkerByID(w.ID, now)
 	if err != nil {
-		outsourceLog("release %s (%s): task %q is gone but the release failed: %v",
+		outsourceLog("release %s (%s): bound task %q is missing or closed but the release failed: %v",
 			w.ID, w.Codename, w.TaskID, err)
 		return
 	}
@@ -1253,7 +1253,8 @@ func (s *apiServer) releaseWorkerWithoutLiveTask(w OutsourceWorker, now float64)
 }
 
 // dismissOutsourceWorkersForTask takes outsourceMu itself — call it WITHOUT the
-// scheduler lock. It returns the fired ids instead of sweeping their cards: card
+// scheduler lock. It returns the ids of every worker bound to the task, including
+// one the scheduler tick released first, instead of sweeping their cards: card
 // writes make outward calls that must not run under outsourceMu (closeTask
 // sweeps them unlocked; dismissOutsourceWorkerByID sweeping inside the lock is
 // debt, not the shape to copy).
@@ -1275,12 +1276,17 @@ func (s *apiServer) dismissOutsourceWorkersForTask(taskID string, now float64, t
 		outsourceLog("dismiss task %s: worker read failed: %v", taskID, err)
 		return fired
 	}
+	bound := []string{}
 	for _, w := range workers {
-		if w.TaskID == taskID && !s.workerReclaimed[w.ID] {
+		if w.TaskID != taskID {
+			continue
+		}
+		bound = append(bound, w.ID)
+		if !s.workerReclaimed[w.ID] {
 			s.reclaimWorkerSession(w)
 		}
 	}
-	return fired
+	return bound
 }
 
 // dismissOutsourceWorkerByID fires one worker by WORKER ID, never task_id: an
