@@ -1551,6 +1551,32 @@ describe("ChatArea 回覆這則", () => {
       });
     });
 
+    it("a failed send keeps the excerpt in the room's draft after the owner has left the room", async () => {
+      let reject: (e: Error) => void = () => {};
+      send.mockImplementationOnce(
+        () => new Promise((_, r) => (reject = r)) as Promise<void>,
+      );
+      const { container, unmount } = renderChat();
+      const text = bodyTextOf(container, "c-1");
+      selectText(text, 3, text, 5);
+      fireEvent.click(selectionButton()!);
+      fireEvent.change(input(container), { target: { value: "這段" } });
+      fireEvent.keyDown(input(container), { key: "Enter" });
+
+      unmount();
+      await act(async () => {
+        reject(new Error("nope"));
+        await Promise.resolve();
+      });
+
+      expect(getChatDraft(m1.id)).toEqual({
+        text: "這段",
+        attachments: [],
+        replyTo: "c-1",
+        replyExcerpt: "問題",
+      });
+    });
+
     it("the restored draft brings the excerpt back with its target", () => {
       saveChatDraftText(m1.id, "", "c-1", "個問");
       const { container } = renderChat();

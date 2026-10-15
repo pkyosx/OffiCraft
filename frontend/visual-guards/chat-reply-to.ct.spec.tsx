@@ -898,8 +898,9 @@ test.describe("coarse pointer", () => {
 
 // 「回覆這段」: the floating button is portaled to <body> with fixed
 // coordinates, so the guards are that it lands inside the viewport (selection
-// at the bubble's far edge, phone width), never widens the page, and fills the
-// banner with exactly the selected text on one clipped line.
+// at the right end of an own bubble, where it would otherwise poke out), never
+// widens the page, and fills the banner with exactly the selected text on one
+// clipped line.
 function selectInBodies(
   page: import("@playwright/test").Page,
   from: { row: string; start: number },
@@ -924,25 +925,31 @@ function selectInBodies(
   );
 }
 
-for (const width of [390, 1280]) {
-  test(`width ${width}: 回覆這段 over a selection at the bubble's far edge stays inside the viewport and fills a one-line banner`, async ({
+for (const [language, width] of [
+  ["zh", 390],
+  ["en", 390],
+  ["zh", 1280],
+] as const) {
+  test(`${language} width ${width}: 回覆這段 over a selection at the bubble's far edge stays inside the viewport and fills a one-line banner`, async ({
     mount,
     page,
   }) => {
+    await page.evaluate((l) => localStorage.setItem("oc.language", l), language);
     await page.setViewportSize({ width, height: 800 });
     await mount(<ChatSelectionReplyStory />);
-    const selected = await page.evaluate(() => {
-      const p = document.querySelector('[data-msg-id="c-1"] .chat__msg-text p')!;
+    const length = await page.evaluate(() => {
+      const p = document.querySelector('[data-msg-id="c-3"] .chat__msg-text p')!;
       return (p.firstChild as Text).length;
     });
-    const picked = await selectInBodies(
-      page,
-      { row: "c-1", start: selected - 6 },
-      { row: "c-1", end: "end" },
-    );
-    expect(picked).toHaveLength(6);
+    const picked = "個字";
 
     const button = page.getByTestId("chat-selection-reply");
+    await selectInBodies(page, { row: "c-2", start: 0 }, { row: "c-2", end: 1 });
+    await expect(button).toBeVisible();
+    const leftBox = (await button.boundingBox())!;
+    expect(leftBox.x, "a selection at the far left keeps the button on screen").toBeGreaterThanOrEqual(0);
+
+    await selectInBodies(page, { row: "c-3", start: length - 2 }, { row: "c-3", end: "end" });
     await expect(button).toBeVisible();
     const box = (await button.boundingBox())!;
     expect(box.x).toBeGreaterThanOrEqual(0);
@@ -958,14 +965,16 @@ for (const width of [390, 1280]) {
     await button.click();
     await expect(button).toHaveCount(0);
     const banner = page.getByTestId("chat-reply-banner");
-    await expect(banner).toHaveAttribute("data-reply-to", "c-1");
+    await expect(banner).toHaveAttribute("data-reply-to", "c-3");
     const body = banner.locator(".chat__reply-banner__body");
     await expect(body).toHaveText(picked);
     expect(await body.evaluate((e) => e.getClientRects().length)).toBe(1);
     const bannerBox = (await banner.boundingBox())!;
     expect(bannerBox.x + bannerBox.width).toBeLessThanOrEqual(width + 0.5);
   });
+}
 
+for (const width of [390, 1280]) {
   test(`width ${width}: a selection dragged across two messages offers no 回覆這段, one dragged inside one does`, async ({
     mount,
     page,
