@@ -1007,3 +1007,65 @@ for (const width of [390, 1280]) {
     await expect(page.getByTestId("chat-selection-reply")).toBeVisible();
   });
 }
+
+// A triple-click ends the range at offset 0 of whatever follows the block —
+// for a message's last block that is the next row's time or name, outside the
+// body.
+for (const width of [390, 1280]) {
+  test.describe(`width ${width}`, () => {
+    test.use({ hasTouch: width === 390, isMobile: width === 390 });
+
+    test("a triple-clicked paragraph or list item offers 回覆這段 and quotes exactly that block", async ({
+      mount,
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await mount(<ChatSelectionReplyStory />);
+      const button = page.getByTestId("chat-selection-reply");
+      const banner = page.getByTestId("chat-reply-banner");
+      for (const [row, selector, quoted] of [
+        ["c-4", "p:nth-child(2)", "中間這一段是重點"],
+        ["c-4", "p:nth-child(3)", "最後一段收尾"],
+        ["c-2", "p", "第二則訊息"],
+        ["c-3", "p", "好的我確認這兩個字"],
+        ["c-5", "li:nth-child(1)", "第一項待辦"],
+        ["c-5", "li:nth-child(2)", "第二項待辦"],
+      ] as const) {
+        const block = page.locator(`[data-msg-id="${row}"] .chat__msg-text ${selector}`);
+        await block.scrollIntoViewIfNeeded();
+        const box = (await block.boundingBox())!;
+        await page.mouse.click(box.x + 4, box.y + box.height / 2, { clickCount: 3 });
+        await expect(button, `${row} ${selector}`).toBeVisible();
+        await button.click();
+        await expect(banner).toHaveAttribute("data-reply-to", row);
+        expect(await banner.locator(".chat__reply-banner__body").textContent()).toBe(quoted);
+      }
+
+      await page.evaluate(() => {
+        const meta = document.querySelector('[data-msg-id="c-5"] .chat__msg-meta')!;
+        const item = document.querySelector('[data-msg-id="c-5"] li')!;
+        const range = document.createRange();
+        range.setStart(meta, meta.childNodes.length);
+        range.setEnd(item.firstChild!, 3);
+        window.getSelection()!.removeAllRanges();
+        window.getSelection()!.addRange(range);
+      });
+      await expect(button, "a range starting just above the body").toBeVisible();
+      await button.click();
+      await expect(banner).toHaveAttribute("data-reply-to", "c-5");
+      expect(await banner.locator(".chat__reply-banner__body").textContent()).toBe("第一項");
+
+      await page.evaluate(() => {
+        const last = document.querySelector('[data-msg-id="c-4"] .chat__msg-text p:nth-child(3)')!;
+        const name = document.querySelector('[data-msg-id="c-5"] .chat__msg-name')!;
+        const range = document.createRange();
+        range.setStart(last.firstChild!, 0);
+        range.setEnd(name.firstChild!, 2);
+        window.getSelection()!.removeAllRanges();
+        window.getSelection()!.addRange(range);
+      });
+      await page.waitForTimeout(50);
+      await expect(button, "a range reaching into the next sender's name").toHaveCount(0);
+    });
+  });
+}

@@ -3,6 +3,7 @@
 // The banner is markup (as in ChatReplyToStory) driven by the story's own
 // state, so no function prop crosses the mount bridge.
 import { useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { I18nProvider } from "../../src/i18n";
 import { ChatSelectionReply } from "../../src/components/ChatSelectionReply";
 
@@ -29,7 +30,15 @@ function MineRow({ id, body }: { id: string; body: string }) {
   );
 }
 
-function Row({ id, body }: { id: string; body: string }) {
+function Row({
+  id,
+  body,
+  children,
+}: {
+  id: string;
+  body?: string;
+  children?: ReactNode;
+}) {
   return (
     <div className="chat__msg" data-msg-id={id}>
       <div className="chat__msg-meta">
@@ -40,7 +49,7 @@ function Row({ id, body }: { id: string; body: string }) {
           <div className="chat__msg-bubble chat__msg-bubble--expandable chat__msg-bubble--acts2">
             <div className="chat__msg-actions" />
             <div className="chat__msg-text doc-md">
-              <p>{body}</p>
+              {children ?? <p>{body}</p>}
             </div>
           </div>
         </div>
@@ -69,6 +78,17 @@ export function ChatSelectionReplyStory() {
             <Row id="c-1" body={LONG_BODY} />
             <Row id="c-2" body="第二則訊息" />
             <MineRow id="c-3" body="好的我確認這兩個字" />
+            <Row id="c-4">
+              <p>第一段開場白</p>
+              <p>中間這一段是重點</p>
+              <p>最後一段收尾</p>
+            </Row>
+            <Row id="c-5">
+              <ul>
+                <li>第一項待辦</li>
+                <li>第二項待辦</li>
+              </ul>
+            </Row>
           </div>
         </div>
         <footer className="chat__composer">

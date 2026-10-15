@@ -28,6 +28,7 @@ import {
   MarkdownPreviewCommentsStory,
   MarkdownPreviewImageCommentsStory,
   PlainTextCommentsStory,
+  JsonCommentsStory,
 } from "./stories/MarkdownPreviewStory";
 
 /** The phone width owner reads the cockpit at (iPhone 13 CSS pixels). */
@@ -705,4 +706,60 @@ test("390: a log with a long unbroken line stays inside the page, and a selected
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth),
   ).toBe(0);
+
+  await tripleClickLastLine(page, pre);
+  await page.getByRole("button", { name: "加註解" }).click();
+  await page.getByRole("textbox", { name: "註解內容" }).fill("結束也要記");
+  await page.getByRole("button", { name: "儲存" }).click();
+  expect(
+    await page.getByTestId("doc-comment").locator(".doc-comments__excerpt").allTextContents(),
+  ).toEqual(["09:00:01 start", "2026-10-15 09:00:03 done"]);
 });
+
+/** A triple-click on the element's last line — where the browser ends the range
+ * outside the document, at the comment panel that follows it. */
+async function tripleClickLastLine(page: Page, target: ReturnType<Page["locator"]>) {
+  await target.scrollIntoViewIfNeeded();
+  const box = (await target.boundingBox())!;
+  await page.mouse.click(box.x + 4, box.y + box.height - 6, { clickCount: 3 });
+}
+
+for (const size of [NARROW, WIDE]) {
+  test.describe(`${size.width}: a triple-clicked last block`, () => {
+    test.use({ hasTouch: size === NARROW, isMobile: size === NARROW });
+
+    test("of a markdown document offers 加註解 and comments exactly that block", async ({
+      mount,
+      page,
+    }) => {
+      await page.setViewportSize(size);
+      await page.addInitScript(() => localStorage.clear());
+      await mount(<MarkdownPreviewCommentsStory />);
+      await expect(page.getByRole("heading", { name: "目標" })).toBeVisible();
+      await page.getByRole("button", { name: "註解" }).click();
+      await tripleClickLastLine(page, page.locator(".md-preview__md blockquote p"));
+      await page.getByRole("button", { name: "加註解" }).click();
+      await page.getByRole("textbox", { name: "註解內容" }).fill("改成可下載");
+      await page.getByRole("button", { name: "儲存" }).click();
+      expect(
+        await page.getByTestId("doc-comment").locator(".doc-comments__excerpt").allTextContents(),
+      ).toEqual(["主要互動是線上預覽，不是下載。"]);
+    });
+
+    test("of a JSON file offers 加註解 and comments exactly that line", async ({ mount, page }) => {
+      await page.setViewportSize(size);
+      await page.addInitScript(() => localStorage.clear());
+      await mount(<JsonCommentsStory />);
+      const pre = page.locator("pre.md-preview__text");
+      await expect(pre).toContainText('"port": 5241');
+      await page.getByRole("button", { name: "註解" }).click();
+      await tripleClickLastLine(page, pre);
+      await page.getByRole("button", { name: "加註解" }).click();
+      await page.getByRole("textbox", { name: "註解內容" }).fill("少了逗號");
+      await page.getByRole("button", { name: "儲存" }).click();
+      expect(
+        await page.getByTestId("doc-comment").locator(".doc-comments__excerpt").allTextContents(),
+      ).toEqual(["}"]);
+    });
+  });
+}

@@ -15,7 +15,7 @@ import {
   locateImage,
   saveDocCommentDraft,
 } from "../lib/docComments";
-import { placeUnderSelection } from "../lib/selectionFloat";
+import { placeUnderSelection, rangeInside } from "../lib/selectionFloat";
 import type { DocComment, DocCommentAnchor, DocCommentTarget } from "../lib/docComments";
 import "./doc-comments.css";
 import { PencilIcon, SendIcon, TrashIcon } from "./icons";
@@ -53,13 +53,13 @@ function useDocSelection(docRef: RefObject<HTMLElement | null>, active: boolean)
         setSelection(null);
         return;
       }
-      const range = sel.getRangeAt(0);
+      const inside = rangeInside(sel.getRangeAt(0), root);
       const excerpt = sel.toString().trim();
-      if (excerpt === "" || !root.contains(range.commonAncestorContainer)) {
+      if (excerpt === "" || !inside) {
         setSelection(null);
         return;
       }
-      setSelection({ anchor: { kind: "text", excerpt }, rect: range.getBoundingClientRect() });
+      setSelection({ anchor: { kind: "text", excerpt }, rect: inside.getBoundingClientRect() });
     };
     document.addEventListener("selectionchange", read);
     document.addEventListener("mouseup", read);
@@ -259,19 +259,6 @@ export function DocCommentPanel({
 
   return (
     <aside className="doc-comments" aria-label={tc.panelTitle}>
-      {pick && (
-        <button
-          ref={floatRef}
-          type="button"
-          className="doc-comments__float"
-          onPointerDown={(e) => e.preventDefault()}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={startComposing}
-        >
-          <PencilIcon size={13} />
-          {tc.add}
-        </button>
-      )}
       <div className="doc-comments__head">{tc.panelTitle}</div>
       <div className="doc-comments__list">
         {composing && (
@@ -385,6 +372,22 @@ export function DocCommentPanel({
           {tc.send}
         </button>
       </div>
+      {/* Last in the panel: a triple-click on the document's last line ends the
+        * range at the panel's first text, and the float's own label must not
+        * fall inside it. */}
+      {pick && (
+        <button
+          ref={floatRef}
+          type="button"
+          className="doc-comments__float"
+          onPointerDown={(e) => e.preventDefault()}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={startComposing}
+        >
+          <PencilIcon size={13} />
+          {tc.add}
+        </button>
+      )}
     </aside>
   );
 }

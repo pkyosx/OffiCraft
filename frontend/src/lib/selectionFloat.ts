@@ -20,3 +20,17 @@ export function placeUnderSelection(
       : Math.max(MARGIN_PX, selection.top - float.height - MARGIN_PX);
   return { left, top };
 }
+
+/** `range` cut down to `container`, or null when that would drop visible text
+ * or leave none. A triple-click ends the range at offset 0 of whatever follows
+ * the paragraph, which for a container's last block lies outside it. */
+export function rangeInside(range: Range, container: Node): Range | null {
+  const startIn = container.contains(range.startContainer);
+  const endIn = container.contains(range.endContainer);
+  if (!startIn && !endIn) return null;
+  const inside = range.cloneRange();
+  if (!startIn) inside.setStart(container, 0);
+  if (!endIn) inside.setEnd(container, container.childNodes.length);
+  const text = inside.toString().trim();
+  return text !== "" && text === range.toString().trim() ? inside : null;
+}

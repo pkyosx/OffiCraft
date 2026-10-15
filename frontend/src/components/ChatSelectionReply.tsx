@@ -7,7 +7,7 @@ import {
   normalizeReplyExcerpt,
   replyExcerptTooLong,
 } from "../lib/replyExcerpt";
-import { placeUnderSelection } from "../lib/selectionFloat";
+import { placeUnderSelection, rangeInside } from "../lib/selectionFloat";
 import { ReplyIcon } from "./icons";
 import "./office.css";
 
@@ -29,12 +29,16 @@ function bodyOf(node: Node | null, root: HTMLElement): HTMLElement | null {
 function pickSelection(root: HTMLElement | null): Picked | null {
   const sel = window.getSelection();
   if (!root || !sel || sel.isCollapsed || sel.rangeCount === 0) return null;
-  const body = bodyOf(sel.anchorNode, root);
-  if (!body || body !== bodyOf(sel.focusNode, root)) return null;
-  const msgId = body.closest("[data-msg-id]")?.getAttribute("data-msg-id");
-  const excerpt = normalizeReplyExcerpt(sel.toString());
-  if (!msgId || !excerpt) return null;
-  return { msgId, excerpt, rect: sel.getRangeAt(0).getBoundingClientRect() };
+  const range = sel.getRangeAt(0);
+  for (const body of [bodyOf(range.startContainer, root), bodyOf(range.endContainer, root)]) {
+    const inside = body && rangeInside(range, body);
+    if (!body || !inside) continue;
+    const msgId = body.closest("[data-msg-id]")?.getAttribute("data-msg-id");
+    const excerpt = normalizeReplyExcerpt(sel.toString());
+    if (!msgId || !excerpt) return null;
+    return { msgId, excerpt, rect: inside.getBoundingClientRect() };
+  }
+  return null;
 }
 
 /** The floating 「回覆這段」 button for a text selection in a chat bubble body.

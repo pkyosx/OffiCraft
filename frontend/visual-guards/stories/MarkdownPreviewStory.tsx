@@ -122,3 +122,18 @@ export function PlainTextCommentsStory() {
     </I18nProvider>
   );
 }
+
+export function JsonCommentsStory() {
+  return (
+    <I18nProvider>
+      <MarkdownPreviewOverlay
+        title="config.json"
+        url={"data:application/json;charset=utf-8," + encodeURIComponent('{"name":"officraft","port":5241}')}
+        attachmentId="att-ct-json-comments"
+        mime="application/json"
+        docComments={{ recipient: { id: "m-mira", name: "Mira", roster: "active" } }}
+        onClose={() => {}}
+      />
+    </I18nProvider>
+  );
+}
