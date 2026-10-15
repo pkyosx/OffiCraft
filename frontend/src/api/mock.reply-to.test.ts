@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { mockApi, __resetMock } from "./mock";
 import type { ChatMessage } from "./adapter";
+import { REPLY_EXCERPT_MAX_CHARS } from "../lib/replyExcerpt";
 
 /** Post a message and hand back the row the mock STORED for it.
  *
@@ -32,6 +33,7 @@ async function post(msg: {
   to: string;
   body: string;
   replyTo?: string;
+  replyExcerpt?: string;
 }): Promise<ChatMessage> {
   await mockApi.postChat(msg);
   const thread = await mockApi.listChat(msg.to);
@@ -150,6 +152,78 @@ describe("mock 回覆這則 — server parity", () => {
     // …and a message that replies to nothing claims no quote, or a mock that
     // stamped every row would pass the line above.
     expect(rows.find((m) => m.id === quoted.id)?.replyToChat ?? null).toBeNull();
+  });
+
+  it("stores a trimmed excerpt and serves it verbatim on the listing and the wake snapshot, beside the unchanged quote line", async () => {
+    const quoted = await post({ to: "mira", body: "第一段\n\n第二段" });
+    const excerpted = await post({
+      to: "mira",
+      body: "問這段",
+      replyTo: quoted.id,
+      replyExcerpt: "  第二\n段 \n",
+    });
+    const whole = await post({ to: "mira", body: "問整則", replyTo: quoted.id, replyExcerpt: "   " });
+
+    expect(excerpted.replyToChat).toEqual({
+      id: quoted.id,
+      from: "owner",
+      fromName: "",
+      to: "mira",
+      toName: "",
+      content: "第一段 第二段",
+      replyExcerpt: "第二\n段",
+    });
+    expect(whole.replyToChat).toEqual({
+      id: quoted.id,
+      from: "owner",
+      fromName: "",
+      to: "mira",
+      toName: "",
+      content: "第一段 第二段",
+    });
+    const snap = await mockApi.getMemberResumeSummary("mira");
+    expect(snap.chat.find((m) => m.id === excerpted.id)?.replyToChat?.replyExcerpt).toBe("第二\n段");
+  });
+
+  it("refuses an excerpt without reply_to, and one over 1000 characters, with the server's 400 sentences", async () => {
+    await expect(
+      mockApi.postChat({ to: "mira", body: "無錨", replyExcerpt: "一段" }),
+    ).rejects.toMatchObject({
+      status: 400,
+      serverMessage:
+        "reply_excerpt needs reply_to — an excerpt is a piece of the message you are " +
+        "replying to; name that message in reply_to, or drop the excerpt",
+    });
+    const quoted = await post({ to: "mira", body: "原文" });
+    await expect(
+      mockApi.postChat({
+        to: "mira",
+        body: "太長",
+        replyTo: quoted.id,
+        replyExcerpt: "字".repeat(1001),
+      }),
+    ).rejects.toMatchObject({
+      status: 400,
+      serverMessage:
+        "reply_excerpt is 1001 chars, over the 1000-char limit — it is refused " +
+        "rather than shortened; quote a shorter piece of the message",
+    });
+    const fits = await post({
+      to: "mira",
+      body: "剛好",
+      replyTo: quoted.id,
+      replyExcerpt: "字".repeat(1000),
+    });
+    expect(fits.replyToChat?.replyExcerpt).toBe("字".repeat(1000));
+    const thread = await mockApi.listChat("mira");
+    expect(thread.map((m) => m.body)).toEqual(["原文", "剛好"]);
+  });
+
+  it("caps the excerpt at the same length the server does — read out of api_chat.go, not copied", () => {
+    const src = readFileSync(join(dirname(WIRE_GO), "api_chat.go"), "utf8");
+    const m = src.match(/^\s*chatReplyExcerptMaxChars\s*=\s*(\d+)$/m);
+    expect(m, "chatReplyExcerptMaxChars is no longer a plain const line in api_chat.go").toBeTruthy();
+    expect(REPLY_EXCERPT_MAX_CHARS).toBe(Number(m![1]));
   });
 
   it("carries the quote on the WAKE SNAPSHOT too, and it is the read that fills its names", async () => {

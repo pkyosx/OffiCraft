@@ -24,6 +24,7 @@
 // 的那一段。
 import { test, expect } from "@playwright/experimental-ct-react";
 import { ChatReplyToStory } from "./stories/ChatReplyToStory";
+import { ChatSelectionReplyStory } from "./stories/ChatSelectionReplyStory";
 import { BUILTIN_THEME_IDS, expectBuiltinApplied, selectBuiltinTheme } from "./builtinThemes";
 
 /** Parse what getComputedStyle hands back for a colour — `rgb()`, `rgba()` or
@@ -894,3 +895,94 @@ test.describe("coarse pointer", () => {
 
   }
 });
+
+// 「回覆這段」: the floating button is portaled to <body> with fixed
+// coordinates, so the guards are that it lands inside the viewport (selection
+// at the bubble's far edge, phone width), never widens the page, and fills the
+// banner with exactly the selected text on one clipped line.
+function selectInBodies(
+  page: import("@playwright/test").Page,
+  from: { row: string; start: number },
+  to: { row: string; end: number | "end" },
+) {
+  return page.evaluate(
+    ([f, t]) => {
+      const textOf = (row: string) =>
+        document.querySelector(`[data-msg-id="${row}"] .chat__msg-text p`)!
+          .firstChild as Text;
+      const a = textOf(f.row);
+      const b = textOf(t.row);
+      const range = document.createRange();
+      range.setStart(a, f.start);
+      range.setEnd(b, t.end === "end" ? b.length : t.end);
+      const sel = window.getSelection()!;
+      sel.removeAllRanges();
+      sel.addRange(range);
+      return sel.toString();
+    },
+    [from, to] as const,
+  );
+}
+
+for (const width of [390, 1280]) {
+  test(`width ${width}: 回覆這段 over a selection at the bubble's far edge stays inside the viewport and fills a one-line banner`, async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 800 });
+    await mount(<ChatSelectionReplyStory />);
+    const selected = await page.evaluate(() => {
+      const p = document.querySelector('[data-msg-id="c-1"] .chat__msg-text p')!;
+      return (p.firstChild as Text).length;
+    });
+    const picked = await selectInBodies(
+      page,
+      { row: "c-1", start: selected - 6 },
+      { row: "c-1", end: "end" },
+    );
+    expect(picked).toHaveLength(6);
+
+    const button = page.getByTestId("chat-selection-reply");
+    await expect(button).toBeVisible();
+    const box = (await button.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(width);
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    const lineBoxes = await button.evaluate((e) => e.getClientRects().length);
+    expect(lineBoxes, "the label stays on one line").toBe(1);
+    const pageScroll = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(pageScroll, "no horizontal page scroll").toBeLessThanOrEqual(0);
+
+    await button.click();
+    await expect(button).toHaveCount(0);
+    const banner = page.getByTestId("chat-reply-banner");
+    await expect(banner).toHaveAttribute("data-reply-to", "c-1");
+    const body = banner.locator(".chat__reply-banner__body");
+    await expect(body).toHaveText(picked);
+    expect(await body.evaluate((e) => e.getClientRects().length)).toBe(1);
+    const bannerBox = (await banner.boundingBox())!;
+    expect(bannerBox.x + bannerBox.width).toBeLessThanOrEqual(width + 0.5);
+  });
+
+  test(`width ${width}: a selection dragged across two messages offers no 回覆這段, one dragged inside one does`, async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 800 });
+    await mount(<ChatSelectionReplyStory />);
+    await selectInBodies(page, { row: "c-1", start: 2 }, { row: "c-2", end: 2 });
+    await page.waitForTimeout(50);
+    await expect(page.getByTestId("chat-selection-reply")).toHaveCount(0);
+
+    await page.evaluate(() => window.getSelection()!.removeAllRanges());
+    const text = page.locator('[data-msg-id="c-2"] .chat__msg-text p');
+    const t = (await text.boundingBox())!;
+    await page.mouse.move(t.x + 1, t.y + t.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(t.x + t.width - 1, t.y + t.height / 2, { steps: 5 });
+    await page.mouse.up();
+    await expect(page.getByTestId("chat-selection-reply")).toBeVisible();
+  });
+}

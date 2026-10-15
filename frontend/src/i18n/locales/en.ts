@@ -1196,6 +1196,8 @@ export const en: Dict = {
     // appears is that the original is genuinely gone (cleared, or its sender
     // removed). It is not retried and never re-resolves into something else.
     replyAction: "Reply",
+    replyExcerptAction: "Reply to this part",
+    replyExcerptTooLong: (max: number) => `Selection is over ${max} characters`,
     replyingTo: (name: string) => `Replying to ${name}`,
     replyCancel: "Cancel reply",
     // 🔴 THE LABEL CHANGED WITH THE BEHAVIOUR (owner ruling 2026-08-21). It was

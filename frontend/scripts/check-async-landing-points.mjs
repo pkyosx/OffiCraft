@@ -357,6 +357,13 @@ const REGISTRY = [
       "gallery fetch; `alive` + deps [member.id], and the panel dies with the room",
   },
   {
+    file: "components/ChatSelectionReply.tsx",
+    kind: "addEventListener",
+    count: 3,
+    verdict:
+      "selectionchange / scroll / resize re-read the live selection into the button's own state; removed on unmount, and the reply target it hands back is read from this room's DOM at click time",
+  },
+  {
     file: "components/ChatGalleryPanel.tsx",
     kind: "addEventListener",
     count: 1,

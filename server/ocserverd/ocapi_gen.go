@@ -1217,7 +1217,7 @@ type ChatMessageDTO struct {
 	// WHAT WAS REPLIED TO travels beside it in ``reply_to_chat``, rebuilt on every read. The two answer different questions and a reader needs both: this one says a reply happened, that one says what it was aimed at — and that one can legitimately be absent while this one is set.
 	ReplyTo *string `json:"reply_to,omitempty"`
 
-	// ReplyToChat A SNAPSHOT of the message ``reply_to`` names — who sent it and a short piece of what they said — built FRESH on every read. Never stored, never cached, and never a second source of truth: the quoted text lives in exactly one row and this is a projection of it taken at read time.
+	// ReplyToChat A SNAPSHOT of the message ``reply_to`` names — who sent it and a short piece of what they said — built FRESH on every read. When the reply quoted only a selected part of it, that part rides along verbatim in ``reply_excerpt``, which is stored with the reply rather than rebuilt. Never stored, never cached, and never a second source of truth: the quoted text lives in exactly one row and this is a projection of it taken at read time.
 	//
 	// IT IS BUILT UNCONDITIONALLY for every message whose ``reply_to`` is non-empty. There is deliberately no "the target happens to be in this same batch, so skip it" optimisation and no "only when the client asks" flag: a reader must never have to decide whether to go and fetch something, because a reader that sometimes fetches is a reader that sometimes fails to.
 	//
@@ -1242,6 +1242,15 @@ type ChatPostDTO struct {
 	Attachments *[]ChatAttachmentInputDTO `json:"attachments,omitempty"`
 	Body        *string                   `json:"body,omitempty"`
 	Meta        *map[string]interface{}   `json:"meta,omitempty"`
+
+	// ReplyExcerpt OPTIONAL — the PIECE of the ``reply_to`` message this reply quotes, when it quotes a selected part of it rather than the whole. Surrounding whitespace is trimmed; what is empty after trimming counts as not sent.
+	//
+	// It REQUIRES ``reply_to``: an excerpt with no message to come from is a 400. It is capped at 1000 characters (Unicode runes, counted after trimming); a longer one is REFUSED with a 400 and never truncated.
+	//
+	// IT IS NOT CHECKED AGAINST THE QUOTED MESSAGE'S TEXT (owner ruling): a selection made on the rendered message need not appear verbatim in its raw markdown, so the server stores what was sent.
+	//
+	// It is stored with this message and comes back VERBATIM on every read in ``ChatMessageDTO.reply_to_chat.reply_excerpt``. Like the reply link, the server is its only writer: a ``meta.reply_excerpt`` you send yourself is DISCARDED.
+	ReplyExcerpt *string `json:"reply_excerpt,omitempty"`
 
 	// ReplyTo OPTIONAL — the id of the message this one is REPLYING TO (a quote-reply, LINE-style). Omit it and nothing about the post changes.
 	//
@@ -1308,7 +1317,12 @@ type ChatReplyQuoteDTO struct {
 	// FromName The quoted sender's DISPLAY name, resolved server-side exactly as ``ChatMessageDTO.from_name`` is — including the part that is easy to forget: only the reads that resolve names at all (the wake snapshot) fill it, and every other read leaves it ``""``. Honestly empty, never fabricated, and never a substitute for ``from``, which is always the address.
 	FromName *string `json:"from_name,omitempty"`
 	Id       string  `json:"id"`
-	To       string  `json:"to"`
+
+	// ReplyExcerpt The piece of the quoted message the REPLY selected (``ChatPostDTO.reply_excerpt``), exactly as it was sent: not collapsed and not shortened. ABSENT when the reply quoted the whole message.
+	//
+	// It belongs to the reply, not to the quoted message, and is not guaranteed to appear verbatim in either ``content`` or the quoted body (a selection of rendered text). ``content`` beside it is unchanged: still the quoted message's own quote line.
+	ReplyExcerpt *string `json:"reply_excerpt,omitempty"`
+	To           string  `json:"to"`
 
 	// ToName The quoted ADDRESSEE's DISPLAY name, resolved exactly as ``to_name`` on the message DTO is, and filled by exactly the same reads ``from_name`` is: only the wake snapshot resolves names, every other read leaves it ``""``. Honestly empty, never fabricated, and never a substitute for ``to``, which is always the address.
 	ToName *string `json:"to_name,omitempty"`

@@ -43,6 +43,7 @@ import { ChatJumpLatestButton } from "./ChatJumpLatestButton";
 import { ChatThreadLoading } from "./ChatThreadLoading";
 import { ChatNewMsgPreview } from "./ChatNewMsgPreview";
 import { ChatReplyCard } from "./ChatReplyCard";
+import { ChatSelectionReply } from "./ChatSelectionReply";
 import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
 import { Markdown } from "./Markdown";
 import { MarkdownPreviewOverlay } from "./MarkdownPreviewOverlay";
@@ -591,9 +592,18 @@ export function ChatArea({
   // restored the words but silently dropped the reply target would send the
   // message somewhere the owner did not aim it, and look like a normal restore
   // while doing it.
-  const [replyToId, setReplyToId] = useState<string | null>(
-    () => getChatDraft(member.id)?.replyTo ?? null,
-  );
+  // `excerpt` is set only by 「回覆這段」; a whole-message reply carries none.
+  const [replyTarget, setReplyTarget] = useState<{
+    id: string;
+    excerpt?: string;
+  } | null>(() => {
+    const stored = getChatDraft(member.id);
+    return stored?.replyTo
+      ? { id: stored.replyTo, excerpt: stored.replyExcerpt }
+      : null;
+  });
+  const replyToId = replyTarget?.id ?? null;
+  const replyExcerpt = replyTarget?.excerpt;
   // The staged attachments (pasted images AND/OR picked/dropped files), held
   // until the message is sent — the SHARED staging state machine
   // (useAttachmentStaging: size/count caps, paste/pick funnels, previews).
@@ -822,8 +832,8 @@ export function ChatArea({
   // to write back: they live in the store, and `saveChatDraftText` leaves them
   // exactly where they are.
   useEffect(() => {
-    saveChatDraftText(member.id, draft, replyToId ?? undefined);
-  }, [member.id, draft, replyToId]);
+    saveChatDraftText(member.id, draft, replyToId ?? undefined, replyExcerpt);
+  }, [member.id, draft, replyToId, replyExcerpt]);
 
   // T-e987 compose seed: prefill the composer once with "[<taskNo>] " when the
   // 任務卡 label routes here, but only into an EMPTY draft (never overwrite
@@ -1676,7 +1686,7 @@ export function ChatArea({
     // silently swallowed.
     const draftSnapshot = draft;
     const attachmentsSnapshot = pendingAttachments;
-    const replyToSnapshot = replyToId;
+    const replyTargetSnapshot = replyTarget;
     // 🔴 WHICH ROOM THIS SEND BELONGS TO. The restore below runs after an await,
     // and the owner can switch peers during it — this component is REUSED across
     // peers, so the restore landed in whoever was on screen when the failure came
@@ -1697,12 +1707,13 @@ export function ChatArea({
     clearAttachments();
     // Cleared with the rest of the composer: a reply target that survived its
     // own send would silently attach itself to the NEXT message too.
-    setReplyToId(null);
+    setReplyTarget(null);
     try {
       await send(
         draftSnapshot,
         attachments.length > 0 ? attachments : undefined,
-        replyToSnapshot ?? undefined,
+        replyTargetSnapshot?.id,
+        replyTargetSnapshot?.excerpt,
       );
     } catch (e) {
       console.warn("ChatArea: send failed, restoring composer", e);
@@ -1731,10 +1742,14 @@ export function ChatArea({
       // cannot occupy one composer, and theirs is the one they can see. Said
       // out loud rather than left to be discovered.
       const stored = getChatDraft(sendPeer);
+      const restoredTarget = stored?.replyTo
+        ? { id: stored.replyTo, excerpt: stored.replyExcerpt }
+        : replyTargetSnapshot;
       saveChatDraftText(
         sendPeer,
         stored && stored.text ? stored.text : draftSnapshot,
-        stored && stored.replyTo ? stored.replyTo : (replyToSnapshot ?? undefined),
+        restoredTarget?.id,
+        restoredTarget?.excerpt,
       );
       updateChatDraftAttachments(sendPeer, (prev) =>
         prev.length > 0 ? prev : attachmentsSnapshot,
@@ -1750,7 +1765,7 @@ export function ChatArea({
       setDraft((cur) => (cur ? cur : draftSnapshot));
       // Put the target back only if the owner has not already aimed at
       // something else while the send was in flight.
-      setReplyToId((cur) => (cur ? cur : replyToSnapshot));
+      setReplyTarget((cur) => (cur ? cur : replyTargetSnapshot));
     }
   }
 
@@ -1828,7 +1843,9 @@ export function ChatArea({
     // the truth; it must NOT be folded into the gone sentence, because "there
     // was nothing to quote" and "there is nothing to quote FROM" are different
     // facts about the conversation.
-    const quoteText = quoted ? quoted.content : t.chat.replyQuoteGone;
+    const quoteText = quoted
+      ? (quoted.replyExcerpt ?? quoted.content)
+      : t.chat.replyQuoteGone;
     const quoteLine = !m.replyTo ? null : (
       /* 🔴 THE ONE THING THIS ROW EXISTS TO SAY HAS TO REACH THE A11Y TREE TOO.
        * Measured in a real browser on a real <ChatArea>: as a bare <div> this
@@ -2008,7 +2025,7 @@ export function ChatArea({
         aria-label={t.chat.replyAction}
         title={t.chat.replyAction}
         onClick={() => {
-          setReplyToId(m.id);
+          setReplyTarget({ id: m.id });
           inputRef.current?.focus();
         }}
       >
@@ -2340,6 +2357,13 @@ export function ChatArea({
           <ChatThreadLoading />
         ) : messages.length > 0 ? (
           <>
+            <ChatSelectionReply
+              root={messagesRef}
+              onReply={(id, excerpt) => {
+                setReplyTarget({ id, excerpt });
+                inputRef.current?.focus();
+              }}
+            />
             <div
               className="chat__messages"
               ref={messagesRef}
@@ -2650,7 +2674,7 @@ export function ChatArea({
                     {/* Raw, not pre-collapsed: `white-space: nowrap` on the
                       * parent is what makes this one line — see the note where
                       * `oneLine()` used to be. */}
-                    {replyQuote ? replyQuote.body : ""}
+                    {replyExcerpt ?? (replyQuote ? replyQuote.body : "")}
                   </span>
                 </span>
                 <button
@@ -2659,7 +2683,7 @@ export function ChatArea({
                   aria-label={t.chat.replyCancel}
                   title={t.chat.replyCancel}
                   onClick={() => {
-                    setReplyToId(null);
+                    setReplyTarget(null);
                     // 🔴 GIVE THE FOCUS BACK. This button is about to unmount
                     // itself, and a focused element that leaves the document
                     // hands focus to <body> — so a keyboard user who cancels

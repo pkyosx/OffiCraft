@@ -77,6 +77,24 @@ describe("toChatMessage · reply_to_chat", () => {
     });
   });
 
+  it("carries a selected excerpt verbatim, and draws no excerpt key for a whole-message quote", () => {
+    const quote = { id: "c-1", from: "m1", from_name: "", to: "owner", to_name: "", content: "一 二" };
+    expect(
+      toChatMessage({
+        ...BASE,
+        reply_to: "c-1",
+        reply_to_chat: { ...quote, reply_excerpt: "一\n\n二" },
+      } as unknown as Parameters<typeof toChatMessage>[0]).replyToChat,
+    ).toEqual({ id: "c-1", from: "m1", fromName: "", to: "owner", toName: "", content: "一 二", replyExcerpt: "一\n\n二" });
+    expect(
+      toChatMessage({
+        ...BASE,
+        reply_to: "c-1",
+        reply_to_chat: quote,
+      } as unknown as Parameters<typeof toChatMessage>[0]).replyToChat,
+    ).toEqual({ id: "c-1", from: "m1", fromName: "", to: "owner", toName: "", content: "一 二" });
+  });
+
   it("reads an ABSENT quote as null while reply_to survives", () => {
     // The state the server documents as "the original is gone": the key is
     // omitted, `reply_to` is not. They must arrive as two separate facts —

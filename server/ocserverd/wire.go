@@ -452,6 +452,9 @@ type chatReplyQuoteDTO struct {
 	ToName   string `json:"to_name"`
 
 	Content string `json:"content"`
+	// ReplyExcerpt belongs to the replying message (its meta), not the quoted one,
+	// and is served verbatim — never collapsed or cut like Content.
+	ReplyExcerpt string `json:"reply_excerpt,omitempty"`
 }
 
 // chatReplyQuoteMaxChars is the quote-line length in runes; the browser cuts
@@ -2146,6 +2149,12 @@ func replyToFromMeta(meta map[string]any) string {
 	}
 	id, _ := meta[chatReplyToMetaKey].(string)
 	return id
+}
+
+// Same forgery guard as replyToFromMeta: the post handler deletes a caller-supplied key.
+func replyExcerptFromMeta(meta map[string]any) string {
+	excerpt, _ := meta[chatReplyExcerptMetaKey].(string)
+	return excerpt
 }
 
 func replyCardIDFromMeta(meta map[string]any) string {

@@ -86,6 +86,7 @@ var messageKeys = map[string]bool{
 	"chat.removeAttachmentLabel":                       true,
 	"chat.replyAction":                                 true,
 	"chat.replyCancel":                                 true,
+	"chat.replyExcerptAction":                          true,
 	"chat.replyQuoteGone":                              true,
 	"chat.replyQuoteJump":                              true,
 	"chat.replyQuoteOpenFailed":                        true,

@@ -1228,6 +1228,8 @@ export const zh = {
     // 下一個事件來時自己變成別的樣子——因為 2026-08-21 起，引用內容是伺服器
     // 每次讀取都現組後隨訊息一起送來的，前端沒有「還沒撈到」這個狀態。
     replyAction: "回覆這則",
+    replyExcerptAction: "回覆這段",
+    replyExcerptTooLong: (max: number) => `選取超過 ${max} 字`,
     replyingTo: (name: string) => `正在回覆 ${name}`,
     replyCancel: "取消回覆",
     // 🔴 文案跟著行為改（owner 2026-08-21 裁定）。它以前叫「跳到原訊息」，因為

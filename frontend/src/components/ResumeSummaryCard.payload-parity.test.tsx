@@ -590,6 +590,16 @@ describe("ResumeSummaryCard renders the SAME snapshot the agent receives", () =>
     );
   });
 
+  it("draws the reply's selected excerpt in place of the quote line when it has one", async () => {
+    const mapped = MAPPED();
+    const chat = mapped.chat.map((m, i) =>
+      i === 2 ? { ...m, replyToChat: { ...m.replyToChat!, replyExcerpt: "被選的那段" } } : m,
+    );
+    OVERRIDE.value = { ...mapped, chat };
+    const u = await open();
+    expect(txt(u.getAllByTestId("mp-resume-chat-quote-body")[0])).toBe("被選的那段");
+  });
+
   it("says the original is gone — the fixed sentence — when the reply has no quote", async () => {
     // TWO STATES, NO THIRD. `reply_to` set with `reply_to_chat` absent is the
     // server's own answer on THIS read: the original no longer exists. Nothing

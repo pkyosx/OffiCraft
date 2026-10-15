@@ -214,6 +214,11 @@ import { mockApiError } from "./errorCodes";
 import { isLoreType } from "./loreType";
 import { formatDiffUrl, type DiffParams } from "../lib/diffLink";
 import { attachmentMimeForName } from "../lib/attachmentMime";
+import {
+  REPLY_EXCERPT_MAX_CHARS,
+  normalizeReplyExcerpt,
+  replyExcerptTooLong,
+} from "../lib/replyExcerpt";
 
 /** The offline cockpit's compare fixture — two texts that differ by one edited
  * line and one added line, so both the line-level rows and the character-level
@@ -969,6 +974,9 @@ const INSIGHT_SEEDS: Record<string, string> = {
 // shows only the owner's own message. Fabricating an assistant reply here would
 // be as dishonest as a fake lastSeen for a never-online member.
 let chatLog: ChatMessage[] = [];
+// The server keeps a reply's excerpt in the message's meta, which the mock's
+// ChatMessage view does not carry; keyed by the REPLYING message's id.
+let chatReplyExcerpts = new Map<string, string>();
 // T-4e95: chat message ids used to be `mock-${Date.now()}` alone, and two posts
 // inside the same millisecond therefore got the SAME id — reproduced, not
 // theorised. That was survivable while nothing pointed AT a message; a reply
@@ -1512,7 +1520,10 @@ const MOCK_REPLY_QUOTE_MAX_CHARS = 60;
  * disappears. Mock mode exists so an offline preview behaves like the real
  * thing; a mock that only sometimes attached the quote would preview a bug the
  * server does not have. */
-function mockReplyToChatOf(replyTo: string | null | undefined): ChatReplyQuote | null {
+function mockReplyToChatOf(
+  replyTo: string | null | undefined,
+  replyExcerpt?: string,
+): ChatReplyQuote | null {
   if (!replyTo) return null;
   const quoted = chatLog.find((m) => m.id === replyTo);
   if (!quoted) return null;
@@ -1538,6 +1549,7 @@ function mockReplyToChatOf(replyTo: string | null | undefined): ChatReplyQuote |
       runes.length > MOCK_REPLY_QUOTE_MAX_CHARS
         ? runes.slice(0, MOCK_REPLY_QUOTE_MAX_CHARS).join("") + "\u2026"
         : oneLine,
+    ...(replyExcerpt ? { replyExcerpt } : {}),
   };
 }
 
@@ -1548,7 +1560,7 @@ function mockServedChatMessage(m: ChatMessage): ChatMessage {
   return {
     ...m,
     replyCardStatus: mockReplyCardStatusOf(m.replyCardId),
-    replyToChat: mockReplyToChatOf(m.replyTo),
+    replyToChat: mockReplyToChatOf(m.replyTo, chatReplyExcerpts.get(m.id)),
   };
 }
 
@@ -3446,7 +3458,7 @@ const mockApiImpl = {
     // BILLS those characters against the chat budget, so a mock that dropped the
     // quote here would preview a card cheaper and emptier than the real one.
     const chat = chatWindow.map((m) => {
-      const quote = mockReplyToChatOf(m.replyTo);
+      const quote = mockReplyToChatOf(m.replyTo, chatReplyExcerpts.get(m.id));
       return {
         ...m,
         fromName: resumeDisplayNameOf(m.from),
@@ -3794,6 +3806,7 @@ const mockApiImpl = {
     body: string;
     attachments?: ChatAttachmentInput[];
     replyTo?: string;
+    replyExcerpt?: string;
     // Accepted and DROPPED, on purpose. `meta` is read by an AGENT off the
     // stored row, and the mock has no agent and no meta on its ChatMessage
     // view — there is no screen in offline preview whose appearance depends on
@@ -3821,6 +3834,24 @@ const mockApiImpl = {
         isImage: mime.startsWith("image/"),
       };
     });
+    const replyExcerpt = normalizeReplyExcerpt(msg.replyExcerpt ?? "");
+    if (replyExcerpt && !msg.replyTo) {
+      throw mockApiError(
+        "http 400 for /api/chat",
+        400,
+        "reply_excerpt needs reply_to — an excerpt is a piece of the message you are " +
+          "replying to; name that message in reply_to, or drop the excerpt",
+      );
+    }
+    if (replyExcerptTooLong(replyExcerpt)) {
+      throw mockApiError(
+        "http 400 for /api/chat",
+        400,
+        `reply_excerpt is ${[...replyExcerpt].length} chars, over the ` +
+          `${REPLY_EXCERPT_MAX_CHARS}-char limit — it is refused rather than ` +
+          "shortened; quote a shorter piece of the message",
+      );
+    }
     // The quote link (T-4e95). The mock enforces the SAME refusal the server
     // does, and only that one: the target must EXIST. The same-conversation
     // refusal that used to sit here went with the server's on 2026-08-21 —
@@ -3844,6 +3875,7 @@ const mockApiImpl = {
       replyTo: msg.replyTo ?? null,
     };
     chatLog.push(sent);
+    if (replyExcerpt) chatReplyExcerpts.set(sent.id, replyExcerpt);
     // T-91: the write answers a RECEIPT, not the object. The mock's own store
     // is still the one that changed above, so a read-back sees the write; the
     // response just stops carrying what nobody may render from it.
@@ -7396,6 +7428,7 @@ export function __resetMock(): void {
   documentRows.clear();
   nextDocumentHistoryId = 1;
   chatLog = [];
+  chatReplyExcerpts = new Map();
   chatReads.clear();
   replyCards = [];
   tasks = [];

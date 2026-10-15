@@ -85,6 +85,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "chat.removeAttachmentLabel",
   "chat.replyAction",
   "chat.replyCancel",
+  "chat.replyExcerptAction",
   "chat.replyQuoteGone",
   "chat.replyQuoteJump",
   "chat.replyQuoteOpenFailed",

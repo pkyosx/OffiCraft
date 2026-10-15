@@ -5186,7 +5186,7 @@ export interface components {
              */
             reply_to: string;
             /**
-             * @description A SNAPSHOT of the message ``reply_to`` names — who sent it and a short piece of what they said — built FRESH on every read. Never stored, never cached, and never a second source of truth: the quoted text lives in exactly one row and this is a projection of it taken at read time.
+             * @description A SNAPSHOT of the message ``reply_to`` names — who sent it and a short piece of what they said — built FRESH on every read. When the reply quoted only a selected part of it, that part rides along verbatim in ``reply_excerpt``, which is stored with the reply rather than rebuilt. Never stored, never cached, and never a second source of truth: the quoted text lives in exactly one row and this is a projection of it taken at read time.
              *
              *     IT IS BUILT UNCONDITIONALLY for every message whose ``reply_to`` is non-empty. There is deliberately no "the target happens to be in this same batch, so skip it" optimisation and no "only when the client asks" flag: a reader must never have to decide whether to go and fetch something, because a reader that sometimes fetches is a reader that sometimes fails to.
              *
@@ -5233,6 +5233,18 @@ export interface components {
             meta?: {
                 [key: string]: unknown;
             };
+            /**
+             * Reply Excerpt
+             * @description OPTIONAL — the PIECE of the ``reply_to`` message this reply quotes, when it quotes a selected part of it rather than the whole. Surrounding whitespace is trimmed; what is empty after trimming counts as not sent.
+             *
+             *     It REQUIRES ``reply_to``: an excerpt with no message to come from is a 400. It is capped at 1000 characters (Unicode runes, counted after trimming); a longer one is REFUSED with a 400 and never truncated.
+             *
+             *     IT IS NOT CHECKED AGAINST THE QUOTED MESSAGE'S TEXT (owner ruling): a selection made on the rendered message need not appear verbatim in its raw markdown, so the server stores what was sent.
+             *
+             *     It is stored with this message and comes back VERBATIM on every read in ``ChatMessageDTO.reply_to_chat.reply_excerpt``. Like the reply link, the server is its only writer: a ``meta.reply_excerpt`` you send yourself is DISCARDED.
+             * @default
+             */
+            reply_excerpt: string;
             /**
              * Reply To
              * @description OPTIONAL — the id of the message this one is REPLYING TO (a quote-reply, LINE-style). Omit it and nothing about the post changes.
@@ -5333,6 +5345,13 @@ export interface components {
             from_name: string;
             /** Id */
             id: string;
+            /**
+             * Reply Excerpt
+             * @description The piece of the quoted message the REPLY selected (``ChatPostDTO.reply_excerpt``), exactly as it was sent: not collapsed and not shortened. ABSENT when the reply quoted the whole message.
+             *
+             *     It belongs to the reply, not to the quoted message, and is not guaranteed to appear verbatim in either ``content`` or the quoted body (a selection of rendered text). ``content`` beside it is unchanged: still the quoted message's own quote line.
+             */
+            reply_excerpt?: string;
             /** To */
             to: string;
             /**
