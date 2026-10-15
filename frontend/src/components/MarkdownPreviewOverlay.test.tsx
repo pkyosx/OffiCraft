@@ -65,6 +65,7 @@ describe("MarkdownPreviewOverlay", () => {
   afterEach(() => {
     globalThis.fetch = realFetch;
     vi.restoreAllMocks();
+    localStorage.removeItem("oc_token");
   });
 
   it("fetches the blob text and renders it as markdown, block images included", async () => {
@@ -101,7 +102,6 @@ describe("MarkdownPreviewOverlay", () => {
       ["https://cdn.example.com/a.png", ""],
     ]);
     expect(screen.getByText("![x](javascript:alert(1))")).toBeTruthy();
-    localStorage.removeItem("oc_token");
     // The download action is present and separate from the preview render.
     // Reached by ACCESSIBLE NAME, not by visible text: T-51 ④ made the header
     // controls icon-only (owner: 「又都有字太多了，可以一起改成圖示就好嘛」), so
@@ -742,7 +742,7 @@ describe("MarkdownPreviewOverlay", () => {
         "第一段要修改1. 改",
         "已被刪掉的句子文件中找不到這段原文，註解仍會送出。2. 留著",
         "圖片：流程圖3. 換圖",
-        "圖片：舊圖文件中找不到這段原文，註解仍會送出。4. 刪掉",
+        "圖片：舊圖文件中找不到這張圖片，註解仍會送出。4. 刪掉",
       ]);
       expect(commentedImages()).toEqual(["流程圖"]);
     });
@@ -767,8 +767,7 @@ describe("MarkdownPreviewOverlay", () => {
 
       fireEvent.click(screen.getByRole("button", { name: "送出給 AI" }));
       await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
-      localStorage.removeItem("oc_token");
-      const body = post.mock.calls[0][0].body;
+        const body = post.mock.calls[0][0].body;
       expect(body).toBe(
         "**文件註解**：[weekly.md](/api/chat/attachment/att-aaaaaaaaaaaa)\n" +
           "\n" +
@@ -810,6 +809,7 @@ describe("MarkdownPreviewOverlay", () => {
       renderDoc({ title: "report.json", mime: "application/json" });
       await waitFor(() => expect(document.body.querySelector("pre.md-preview__text")).toBeTruthy());
       fireEvent.click(screen.getByRole("button", { name: "註解" }));
+      expect(screen.getByText("在文件中選取一段文字，再按「加註解」。")).toBeTruthy();
       addComment('"name": "Mira",\n  "items"', "items 改名");
       expect(listed()).toEqual(['"name": "Mira",\n  "items"1. items 改名']);
 
@@ -966,6 +966,71 @@ describe("MarkdownPreviewOverlay", () => {
       });
     });
 
+    it("sends a same-origin image's own query and a protocol-relative image's loaded path, without the owner's token", async () => {
+      localStorage.setItem("oc_token", "tok-aaaaaaaaaaaa");
+      globalThis.fetch = vi.fn(async () => ({
+        ok: true,
+        text: async () => "# 週報\n\n![版本圖](/x.png?v=2)\n\n![外站圖](//cdn.example.com/y.png)",
+      })) as unknown as typeof fetch;
+      const post = vi.spyOn(api, "postChat").mockResolvedValue(undefined);
+      renderDoc();
+      await openComments();
+      expect([docImage("版本圖").getAttribute("src"), docImage("外站圖").getAttribute("src")]).toEqual([
+        "/x.png?v=2&token=tok-aaaaaaaaaaaa",
+        "/y.png?token=tok-aaaaaaaaaaaa",
+      ]);
+      addImageComment("版本圖", "換新版");
+      addImageComment("外站圖", "這張不要");
+      fireEvent.click(screen.getByRole("button", { name: "送出給 AI" }));
+      await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+      expect(post.mock.calls[0][0].body).toBe(
+        "**文件註解**：[weekly.md](/api/chat/attachment/att-aaaaaaaaaaaa)\n" +
+          "\n" +
+          "1. 原文：\n" +
+          "   > 圖片：[版本圖](/x.png?v=2)\n" +
+          "\n" +
+          "   註解：換新版\n" +
+          "\n" +
+          "2. 原文：\n" +
+          "   > 圖片：[外站圖](/y.png)\n" +
+          "\n" +
+          "   註解：這張不要",
+      );
+    });
+
+    it("after paging to another attachment, shows and saves that attachment's own draft and leaves the first one's alone", async () => {
+      const draftA = [{ id: "a1", excerpt: "週報", comment: "A 的註解" }];
+      localStorage.setItem("oc_doc_comments:att-aaaaaaaaaaaa", JSON.stringify(draftA));
+      localStorage.setItem(
+        "oc_doc_comments:att-bbbbbbbbbbbb",
+        JSON.stringify([{ id: "b1", excerpt: "第一段要修改", comment: "B 的註解" }]),
+      );
+      const overlay = (id: string, title: string) => (
+        <I18nProvider>
+          <MarkdownPreviewOverlay
+            title={title}
+            url={`/api/chat/attachment/${id}`}
+            attachmentId={id}
+            docComments={{ recipient: MIRA }}
+            pager={{ index: id === "att-aaaaaaaaaaaa" ? 0 : 1, total: 2, onGo: () => {} }}
+            onClose={() => {}}
+          />
+        </I18nProvider>
+      );
+      const view = render(overlay("att-aaaaaaaaaaaa", "a.md"));
+      await openComments();
+      expect(listed()).toEqual(["週報1. A 的註解"]);
+
+      view.rerender(overlay("att-bbbbbbbbbbbb", "b.md"));
+      await waitFor(() => expect(listed()).toEqual(["第一段要修改1. B 的註解"]));
+      addComment("第二段保持原樣", "B 再一則");
+      expect(listed()).toEqual(["第一段要修改1. B 的註解", "第二段保持原樣2. B 再一則"]);
+      expect(JSON.parse(localStorage.getItem("oc_doc_comments:att-aaaaaaaaaaaa")!)).toEqual(draftA);
+      expect(
+        JSON.parse(localStorage.getItem("oc_doc_comments:att-bbbbbbbbbbbb")!).map((c: { comment: string }) => c.comment),
+      ).toEqual(["B 的註解", "B 再一則"]);
+    });
+
     it("keeps the draft and says so when sending fails", async () => {
       vi.spyOn(api, "postChat").mockRejectedValue(new Error("http 500"));
       const onClose = vi.fn();
@@ -1005,6 +1070,7 @@ describe("MarkdownPreviewOverlay", () => {
     it("enables sending to an active recipient once a comment exists", async () => {
       renderDoc();
       await openComments();
+      expect(screen.getByText("在文件中選取一段文字或點一張圖片，再按「加註解」。")).toBeTruthy();
       const send = screen.getByRole("button", { name: "送出給 AI" }) as HTMLButtonElement;
       expect(send.disabled).toBe(true);
       addComment("第一段要修改", "改成條列");

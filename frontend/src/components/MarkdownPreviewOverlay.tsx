@@ -1032,11 +1032,13 @@ export function MarkdownPreviewOverlay({
             {body}
             {commenting && (
               <DocCommentPanel
+                key={attachmentId}
                 attachmentId={attachmentId}
                 filename={typeName}
                 target={docComments}
                 docRef={bodyRef}
                 docReady={!failed && source !== null}
+                imagePickable={!plainText}
                 onSent={onClose}
               />
             )}

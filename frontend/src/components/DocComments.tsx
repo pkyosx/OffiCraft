@@ -121,6 +121,7 @@ export function DocCommentPanel({
   target,
   docRef,
   docReady,
+  imagePickable,
   onSent,
 }: {
   attachmentId: string;
@@ -129,6 +130,8 @@ export function DocCommentPanel({
   /** The rendered document the excerpts are selected from and highlighted in. */
   docRef: RefObject<HTMLElement | null>;
   docReady: boolean;
+  /** Whether the body can show images, i.e. whether a click on one is a pick. */
+  imagePickable: boolean;
   onSent: () => void;
 }) {
   const { t } = useI18n();
@@ -140,7 +143,7 @@ export function DocCommentPanel({
   const [sendError, setSendError] = useState<string | null>(null);
   const [unlocated, setUnlocated] = useState<Set<string>>(new Set());
   const [selection, clearSelection] = useDocSelection(docRef, docReady);
-  const [imagePick, clearImagePick] = useDocImagePick(docRef, docReady);
+  const [imagePick, clearImagePick] = useDocImagePick(docRef, docReady && imagePickable);
   const pick = selection ?? imagePick;
   const floatRef = useRef<HTMLButtonElement>(null);
   const composeRef = useRef<HTMLTextAreaElement>(null);
@@ -299,12 +302,16 @@ export function DocCommentPanel({
           </div>
         )}
         {comments.length === 0 && !composing && (
-          <p className="doc-comments__empty">{tc.empty}</p>
+          <p className="doc-comments__empty">{imagePickable ? tc.empty : tc.emptyTextOnly}</p>
         )}
         {comments.map((c, i) => (
           <div key={c.id} className="doc-comments__item" data-testid="doc-comment">
             <Excerpt anchor={anchorOf(c)} />
-            {unlocated.has(c.id) && <p className="doc-comments__note">{tc.excerptNotFound}</p>}
+            {unlocated.has(c.id) && (
+              <p className="doc-comments__note">
+                {c.kind === "image" ? tc.imageNotFound : tc.excerptNotFound}
+              </p>
+            )}
             {editing?.id === c.id ? (
               <>
                 <textarea
