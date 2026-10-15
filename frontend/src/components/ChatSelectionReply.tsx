@@ -7,12 +7,11 @@ import {
   normalizeReplyExcerpt,
   replyExcerptTooLong,
 } from "../lib/replyExcerpt";
+import { placeUnderSelection } from "../lib/selectionFloat";
 import { ReplyIcon } from "./icons";
 import "./office.css";
 
 const BODY_SELECTOR = ".chat__msg-text";
-const GAP_PX = 6;
-const EDGE_PX = 8;
 
 interface Picked {
   msgId: string;
@@ -38,9 +37,9 @@ function pickSelection(root: HTMLElement | null): Picked | null {
   return { msgId, excerpt, rect: sel.getRangeAt(0).getBoundingClientRect() };
 }
 
-/** The floating 「回覆這段」 button over a text selection in a chat bubble body.
+/** The floating 「回覆這段」 button for a text selection in a chat bubble body.
  * Portaled to <body> with fixed coordinates so it never takes space in the
- * thread; clamped inside the viewport so it stays reachable at phone width. */
+ * thread. */
 export function ChatSelectionReply({
   root,
   onReply,
@@ -74,16 +73,7 @@ export function ChatSelectionReply({
       setPos(null);
       return;
     }
-    const viewport = document.documentElement.clientWidth;
-    const { width, height } = btn.getBoundingClientRect();
-    const center = picked.rect.left + picked.rect.width / 2;
-    const left = Math.min(
-      Math.max(center - width / 2, EDGE_PX),
-      Math.max(viewport - width - EDGE_PX, EDGE_PX),
-    );
-    const above = picked.rect.top - height - GAP_PX;
-    const top = above >= EDGE_PX ? above : picked.rect.bottom + GAP_PX;
-    setPos({ left, top });
+    setPos(placeUnderSelection(picked.rect, btn.getBoundingClientRect()));
   }, [picked]);
 
   if (!picked) return null;

@@ -897,10 +897,17 @@ test.describe("coarse pointer", () => {
 });
 
 // 「回覆這段」: the floating button is portaled to <body> with fixed
-// coordinates, so the guards are that it lands inside the viewport (selection
-// at the right end of an own bubble, where it would otherwise poke out), never
-// widens the page, and fills the banner with exactly the selected text on one
-// clipped line.
+// coordinates, so the guards are that it lands under the selection (above it
+// would cover the line before and iOS's own Copy menu), inside the viewport
+// (selection at the right end of an own bubble, where it would otherwise poke
+// out), never widens the page, and fills the banner with exactly the selected
+// text on one clipped line.
+function selectionBottom(page: import("@playwright/test").Page) {
+  return page.evaluate(
+    () => window.getSelection()!.getRangeAt(0).getBoundingClientRect().bottom,
+  );
+}
+
 function selectInBodies(
   page: import("@playwright/test").Page,
   from: { row: string; start: number },
@@ -948,13 +955,18 @@ for (const [language, width] of [
     await expect(button).toBeVisible();
     const leftBox = (await button.boundingBox())!;
     expect(leftBox.x, "a selection at the far left keeps the button on screen").toBeGreaterThanOrEqual(0);
+    expect(leftBox.y, "the button sits under the selection").toBeGreaterThanOrEqual(
+      await selectionBottom(page),
+    );
 
     await selectInBodies(page, { row: "c-3", start: length - 2 }, { row: "c-3", end: "end" });
     await expect(button).toBeVisible();
     const box = (await button.boundingBox())!;
     expect(box.x).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width).toBeLessThanOrEqual(width);
-    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.y, "the button sits under the selection").toBeGreaterThanOrEqual(
+      await selectionBottom(page),
+    );
     const lineBoxes = await button.evaluate((e) => e.getClientRects().length);
     expect(lineBoxes, "the label stays on one line").toBe(1);
     const pageScroll = await page.evaluate(

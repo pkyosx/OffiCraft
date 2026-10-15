@@ -94,7 +94,7 @@ export function formatDocCommentMessage(input: {
   comments: DocComment[];
 }): string {
   const head = [
-    `**文件註解**：[${escapeLinkText(input.filename)}](/api/chat/attachment/${input.attachmentId})（${input.attachmentId}）`,
+    `**文件註解**：[${escapeLinkText(input.filename)}](/api/chat/attachment/${input.attachmentId})`,
   ];
   if (input.task) {
     head.push(

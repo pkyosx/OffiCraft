@@ -157,11 +157,17 @@
   font-weight: 600;
   color: var(--color-text-strong);
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .md-preview__title svg {
   flex: none;
+}
+/* text-overflow does nothing on a flex container's anonymous text item, so
+ * the name needs its own box to ellipsise in. */
+.md-preview__title-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .md-preview__actions {
   display: inline-flex;

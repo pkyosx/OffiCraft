@@ -68,7 +68,7 @@ export function MarkdownPreviewCommentsStory() {
   return (
     <I18nProvider>
       <MarkdownPreviewOverlay
-        title="架構設計.md"
+        title="引用回覆導入提案.md"
         url={DATA_URL}
         attachmentId="att-ct-comments"
         docComments={{ recipient: { id: "m-mira", name: "Mira", roster: "active" } }}

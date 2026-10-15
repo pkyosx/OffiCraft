@@ -607,7 +607,7 @@ describe("任務產物 .md 的註解", () => {
     expect(vi.mocked(api.postChat).mock.calls[0][0]).toEqual({
       to: "ow-eeeeeeeeeeee",
       body:
-        "**文件註解**：[weekly-0930.md](/api/chat/attachment/att-dddddddddddd)（att-dddddddddddd）\n" +
+        "**文件註解**：[weekly-0930.md](/api/chat/attachment/att-dddddddddddd)\n" +
         "任務 [T-1](/#tasks/t-1) 產物「週報」\n" +
         "\n" +
         "1. 原文：\n" +

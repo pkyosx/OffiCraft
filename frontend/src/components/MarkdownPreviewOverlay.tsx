@@ -851,7 +851,9 @@ export function MarkdownPreviewOverlay({
         <div className="md-preview__header">
           <span className="md-preview__title">
             <FileTextIcon size={16} />
-            {title}
+            <span className="md-preview__title-text" title={title}>
+              {title}
+            </span>
           </span>
           {/* Position within the caller's list. Digits only — nothing to
             * translate, and it is the one thing the two chevrons cannot say:

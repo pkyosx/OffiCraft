@@ -12,12 +12,12 @@ import {
   locateExcerpt,
   saveDocCommentDraft,
 } from "../lib/docComments";
+import { placeUnderSelection } from "../lib/selectionFloat";
 import type { DocComment, DocCommentTarget } from "../lib/docComments";
 import "./doc-comments.css";
 import { PencilIcon, SendIcon, TrashIcon } from "./icons";
 
 const HIGHLIGHT_NAME = "oc-doc-comment";
-const VIEWPORT_MARGIN = 8;
 
 type HighlightRegistry = { set(name: string, h: unknown): void; delete(name: string): void };
 type HighlightCtor = new (...ranges: Range[]) => unknown;
@@ -120,16 +120,10 @@ export function DocCommentPanel({
   useLayoutEffect(() => {
     const el = floatRef.current;
     if (!el || !selection) return;
-    const { rect } = selection;
-    const w = el.offsetWidth;
-    const h = el.offsetHeight;
-    const maxLeft = window.innerWidth - w - VIEWPORT_MARGIN;
-    const left = Math.max(VIEWPORT_MARGIN, Math.min(rect.left + rect.width / 2 - w / 2, maxLeft));
-    const below = rect.bottom + VIEWPORT_MARGIN;
-    const top =
-      below + h <= window.innerHeight - VIEWPORT_MARGIN
-        ? below
-        : Math.max(VIEWPORT_MARGIN, rect.top - h - VIEWPORT_MARGIN);
+    const { left, top } = placeUnderSelection(selection.rect, {
+      width: el.offsetWidth,
+      height: el.offsetHeight,
+    });
     el.style.left = `${left}px`;
     el.style.top = `${top}px`;
   }, [selection]);

@@ -560,6 +560,15 @@ for (const size of [NARROW, WIDE]) {
     }
     expect(layout.panel.right).toBeLessThanOrEqual(layout.vw);
     expect(layout.panel.bottom).toBeLessThanOrEqual(layout.vh);
+
+    const name = page.locator(".md-preview__title-text");
+    await expect(name).toHaveAttribute("title", "引用回覆導入提案.md");
+    const cut = await name.evaluate((el) => ({
+      clipped: el.scrollWidth > el.clientWidth,
+      textOverflow: getComputedStyle(el).textOverflow,
+    }));
+    expect(cut.textOverflow).toBe("ellipsis");
+    expect(cut.clipped, "the header squeezes the name only at phone width").toBe(size === NARROW);
     if (size === NARROW) {
       expect(layout.aside.top).toBeGreaterThanOrEqual(layout.body.bottom);
     } else {

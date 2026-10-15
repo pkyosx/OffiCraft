@@ -675,7 +675,7 @@ describe("MarkdownPreviewOverlay", () => {
           {
             to: "m-mira",
             body:
-              "**文件註解**：[weekly.md](/api/chat/attachment/att-aaaaaaaaaaaa)（att-aaaaaaaaaaaa）\n" +
+              "**文件註解**：[weekly.md](/api/chat/attachment/att-aaaaaaaaaaaa)\n" +
               "\n" +
               "1. 原文：\n" +
               "   > 第一段要修改的內容。\n" +
@@ -738,7 +738,7 @@ describe("MarkdownPreviewOverlay", () => {
       await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
       const body = post.mock.calls[0][0].body;
       expect(body).toBe(
-        "**文件註解**：[a\\](javascript:alert(1)) \\[b](/api/chat/attachment/att-aaaaaaaaaaaa)（att-aaaaaaaaaaaa）\n" +
+        "**文件註解**：[a\\](javascript:alert(1)) \\[b](/api/chat/attachment/att-aaaaaaaaaaaa)\n" +
           "\n" +
           "1. 原文：\n" +
           "   > 週報\n" +
@@ -784,7 +784,7 @@ describe("MarkdownPreviewOverlay", () => {
       expect(post.mock.calls[0][0]).toEqual({
         to: "ow-cccccccccccc",
         body:
-          "**文件註解**：[weekly-0930.md](/api/chat/attachment/att-bbbbbbbbbbbb)（att-bbbbbbbbbbbb）\n" +
+          "**文件註解**：[weekly-0930.md](/api/chat/attachment/att-bbbbbbbbbbbb)\n" +
           "任務 [T-12](/#tasks/T-12) 產物「週報」\n" +
           "\n" +
           "1. 原文：\n" +
