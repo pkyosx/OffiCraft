@@ -67,10 +67,13 @@ describe("MarkdownPreviewOverlay", () => {
     vi.restoreAllMocks();
   });
 
-  it("fetches the blob text and renders it as markdown", async () => {
+  it("fetches the blob text and renders it as markdown, block images included", async () => {
+    localStorage.setItem("oc_token", "tok-aaaaaaaaaaaa");
     globalThis.fetch = vi.fn(async () => ({
       ok: true,
-      text: async () => "# Hello\n\nsome **body**",
+      text: async () =>
+        "# Hello\n\nsome **body**\n\n![架構圖](/api/chat/attachment/att-img)\n\n" +
+        "![](https://cdn.example.com/a.png)\n\n![x](javascript:alert(1))",
     })) as unknown as typeof fetch;
 
     render(
@@ -88,6 +91,17 @@ describe("MarkdownPreviewOverlay", () => {
       expect(screen.getByRole("heading", { name: "Hello" })).toBeTruthy(),
     );
     expect(screen.getByText("body")).toBeTruthy();
+    expect(
+      [...document.body.querySelectorAll(".md-preview__md img")].map((img) => [
+        img.getAttribute("src"),
+        img.getAttribute("alt"),
+      ]),
+    ).toEqual([
+      ["/api/chat/attachment/att-img?token=tok-aaaaaaaaaaaa", "架構圖"],
+      ["https://cdn.example.com/a.png", ""],
+    ]);
+    expect(screen.getByText("![x](javascript:alert(1))")).toBeTruthy();
+    localStorage.removeItem("oc_token");
     // The download action is present and separate from the preview render.
     // Reached by ACCESSIBLE NAME, not by visible text: T-51 ④ made the header
     // controls icon-only (owner: 「又都有字太多了，可以一起改成圖示就好嘛」), so
@@ -304,13 +318,15 @@ describe("MarkdownPreviewOverlay", () => {
       <I18nProvider>
         <MarkdownPreviewOverlay
           title="Mira"
-          source={"# Inline\n\nbody text"}
+          source={"# Inline\n\nbody text\n\n![架構圖](/api/chat/attachment/att-img)"}
           onClose={() => {}}
         />
       </I18nProvider>,
     );
     // Synchronous — an inline source never passes through the loading state.
     expect(screen.getByRole("heading", { name: "Inline" })).toBeTruthy();
+    expect(document.body.querySelector(".md-preview__md img")).toBeNull();
+    expect(screen.getByText("![架構圖](/api/chat/attachment/att-img)")).toBeTruthy();
     expect(globalThis.fetch).not.toHaveBeenCalled();
     expect(screen.queryByText("載入預覽中…")).toBeNull();
     expect(document.body.querySelector(".md-preview__download")).toBeNull();
@@ -518,7 +534,10 @@ describe("MarkdownPreviewOverlay", () => {
   });
 
   describe("comment mode", () => {
-    const DOC = "# 週報\n\n第一段要修改的內容。\n\n第二段保持原樣。";
+    const DOC =
+      "# 週報\n\n第一段要修改的內容。\n\n第二段保持原樣。\n\n" +
+      "![流程圖](/api/chat/attachment/att-dddddddddddd)\n\n" +
+      "![](https://cdn.example.com/charts/q3-revenue.png)";
     const MIRA = { id: "m-mira", name: "Mira", roster: "active" as const };
 
     beforeEach(() => {
@@ -534,6 +553,7 @@ describe("MarkdownPreviewOverlay", () => {
       docComments?: Parameters<typeof MarkdownPreviewOverlay>[0]["docComments"];
       onClose?: () => void;
       title?: string;
+      mime?: string;
     } = {}) {
       return render(
         <I18nProvider>
@@ -541,6 +561,7 @@ describe("MarkdownPreviewOverlay", () => {
             title={props.title ?? "weekly.md"}
             url="/api/chat/attachment/att-aaaaaaaaaaaa"
             attachmentId="att-aaaaaaaaaaaa"
+            mime={props.mime}
             docComments={props.docComments ?? { recipient: MIRA }}
             onClose={props.onClose ?? (() => {})}
           />
@@ -553,9 +574,28 @@ describe("MarkdownPreviewOverlay", () => {
       fireEvent.click(screen.getByRole("button", { name: "註解" }));
     }
 
+    function docImage(alt: string) {
+      return [...document.body.querySelectorAll<HTMLImageElement>(".md-preview__md img")].find(
+        (img) => img.alt === alt,
+      )!;
+    }
+
+    function addImageComment(alt: string, comment: string) {
+      fireEvent.click(docImage(alt));
+      fireEvent.click(screen.getByRole("button", { name: "加註解" }));
+      fireEvent.change(screen.getByRole("textbox", { name: "註解內容" }), {
+        target: { value: comment },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "儲存" }));
+    }
+
+    function commentedImages() {
+      return [...document.body.querySelectorAll("img[data-doc-comment]")].map((img) => img.getAttribute("alt"));
+    }
+
     function selectText(text: string) {
       const walker = document.createTreeWalker(
-        document.body.querySelector(".md-preview__md")!,
+        document.body.querySelector(".md-preview__body")!,
         NodeFilter.SHOW_TEXT,
       );
       for (let n = walker.nextNode(); n; n = walker.nextNode()) {
@@ -586,12 +626,28 @@ describe("MarkdownPreviewOverlay", () => {
       return screen.getAllByTestId("doc-comment").map((el) => el.textContent);
     }
 
-    it("offers the 註解 toggle on an attachment document and not on a message body", async () => {
+    it("offers the 註解 toggle on markdown, plain-text and JSON attachments, and not on an image attachment or a message body", async () => {
       const doc = renderDoc();
       await waitFor(() => expect(screen.getByRole("heading", { name: "週報" })).toBeTruthy());
       expect(screen.getByRole("button", { name: "註解" }).getAttribute("aria-pressed")).toBe("false");
-
       doc.unmount();
+
+      for (const [title, mime] of [
+        ["notes.txt", "text/plain"],
+        ["run.log", "text/plain"],
+        ["report.json", "application/json"],
+      ]) {
+        const plain = renderDoc({ title, mime });
+        await waitFor(() => expect(document.body.querySelector("pre.md-preview__text")).toBeTruthy());
+        expect(screen.getByRole("button", { name: "註解" })).toBeTruthy();
+        plain.unmount();
+      }
+
+      const picture = renderDoc({ title: "shot.png", mime: "image/png" });
+      expect(document.body.querySelector(".md-preview__image-viewport img")).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "註解" })).toBeNull();
+      picture.unmount();
+
       render(
         <I18nProvider>
           <MarkdownPreviewOverlay title="Mira" source={DOC} onClose={() => {}} />
@@ -601,13 +657,43 @@ describe("MarkdownPreviewOverlay", () => {
       expect(screen.queryByRole("button", { name: "註解" })).toBeNull();
     });
 
-    it("adds, edits and deletes a comment on the selected excerpt", async () => {
+    it("adds, edits and deletes comments on a selected excerpt or a clicked image, outlining the commented image", async () => {
       const onClose = vi.fn();
       renderDoc({ onClose });
+      await waitFor(() => expect(screen.getByRole("heading", { name: "週報" })).toBeTruthy());
+      fireEvent.click(docImage("流程圖"));
+      expect(screen.queryByRole("button", { name: "加註解" })).toBeNull();
       await openComments();
       expect(screen.queryByRole("button", { name: "加註解" })).toBeNull();
 
+      fireEvent.click(docImage("流程圖"));
+      expect(screen.getByRole("button", { name: "加註解" })).toBeTruthy();
+      fireEvent.click(screen.getByText("第二段保持原樣。"));
+      expect(screen.queryByRole("button", { name: "加註解" })).toBeNull();
+
       addComment("第一段要修改", "改成條列");
+      addComment("第二段保持原樣", "這段可以");
+      addImageComment("流程圖", "換成新版");
+      addImageComment("", "數字對不上");
+      expect(listed()).toEqual([
+        "第一段要修改1. 改成條列",
+        "第二段保持原樣2. 這段可以",
+        "圖片：流程圖3. 換成新版",
+        "圖片：q3-revenue.png4. 數字對不上",
+      ]);
+      expect(commentedImages()).toEqual(["流程圖", ""]);
+
+      fireEvent.click(screen.getAllByRole("button", { name: "編輯註解" })[2]);
+      fireEvent.change(screen.getByRole("textbox", { name: "註解內容" }), {
+        target: { value: "換成 v2 流程" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "儲存" }));
+      fireEvent.click(screen.getAllByRole("button", { name: "刪除註解" })[3]);
+      fireEvent.click(screen.getAllByRole("button", { name: "刪除註解" })[1]);
+      expect(listed()).toEqual(["第一段要修改1. 改成條列", "圖片：流程圖2. 換成 v2 流程"]);
+      expect(commentedImages()).toEqual(["流程圖"]);
+      fireEvent.click(screen.getAllByRole("button", { name: "刪除註解" })[1]);
+      expect(commentedImages()).toEqual([]);
       addComment("第二段保持原樣", "這段可以");
       expect(listed()).toEqual(["第一段要修改1. 改成條列", "第二段保持原樣2. 這段可以"]);
 
@@ -638,12 +724,16 @@ describe("MarkdownPreviewOverlay", () => {
       expect(listed()).toEqual(["第一段要修改1. 改成條列"]);
     });
 
-    it("marks a restored excerpt the document no longer contains", async () => {
+    it("restores text drafts stored before image comments existed alongside image comments, marking what the document no longer contains and dropping malformed entries", async () => {
       localStorage.setItem(
         "oc_doc_comments:att-aaaaaaaaaaaa",
         JSON.stringify([
           { id: "c1", excerpt: "第一段要修改", comment: "改" },
           { id: "c2", excerpt: "已被刪掉的句子", comment: "留著" },
+          { id: "c3", kind: "image", alt: "流程圖", src: "/api/chat/attachment/att-dddddddddddd", comment: "換圖" },
+          { id: "c4", kind: "image", alt: "舊圖", src: "/api/chat/attachment/att-eeeeeeeeeeee", comment: "刪掉" },
+          { id: "c5", kind: "image", alt: "沒有位址", comment: "壞的" },
+          { id: "c6", kind: "video", excerpt: "x", comment: "壞的" },
         ]),
       );
       renderDoc();
@@ -651,7 +741,89 @@ describe("MarkdownPreviewOverlay", () => {
       expect(listed()).toEqual([
         "第一段要修改1. 改",
         "已被刪掉的句子文件中找不到這段原文，註解仍會送出。2. 留著",
+        "圖片：流程圖3. 換圖",
+        "圖片：舊圖文件中找不到這段原文，註解仍會送出。4. 刪掉",
       ]);
+      expect(commentedImages()).toEqual(["流程圖"]);
+    });
+
+    it("sends an image comment as a quote naming the image with a host-less link to its own address, never the owner's token", async () => {
+      localStorage.setItem("oc_token", "tok-aaaaaaaaaaaa");
+      localStorage.setItem(
+        "oc_doc_comments:att-aaaaaaaaaaaa",
+        JSON.stringify([
+          { id: "c1", kind: "image", alt: "a]b [v2]", src: "/api/docs/assets/my chart (1).png", comment: "這張重畫" },
+        ]),
+      );
+      const post = vi.spyOn(api, "postChat").mockResolvedValue(undefined);
+      renderDoc({ onClose: () => {} });
+      await openComments();
+      expect(docImage("流程圖").getAttribute("src")).toBe(
+        "/api/chat/attachment/att-dddddddddddd?token=tok-aaaaaaaaaaaa",
+      );
+      addImageComment("流程圖", "標上單位");
+      addImageComment("", "來源寫出來");
+      expect(commentedImages()).toEqual(["流程圖", ""]);
+
+      fireEvent.click(screen.getByRole("button", { name: "送出給 AI" }));
+      await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+      localStorage.removeItem("oc_token");
+      const body = post.mock.calls[0][0].body;
+      expect(body).toBe(
+        "**文件註解**：[weekly.md](/api/chat/attachment/att-aaaaaaaaaaaa)\n" +
+          "\n" +
+          "1. 原文：\n" +
+          "   > 圖片：[a\\]b \\[v2\\]](/api/docs/assets/my%20chart%20%281%29.png)\n" +
+          "\n" +
+          "   註解：這張重畫\n" +
+          "\n" +
+          "2. 原文：\n" +
+          "   > 圖片：[流程圖](/api/chat/attachment/att-dddddddddddd)\n" +
+          "\n" +
+          "   註解：標上單位\n" +
+          "\n" +
+          "3. 原文：\n" +
+          "   > 圖片：[q3-revenue.png](https://cdn.example.com/charts/q3-revenue.png)\n" +
+          "\n" +
+          "   註解：來源寫出來",
+      );
+
+      const bubble = render(<Markdown source={body} breaks />).container;
+      expect([...bubble.querySelectorAll("ol > li > blockquote")].map((q) => q.textContent)).toEqual([
+        "圖片：a]b [v2]",
+        "圖片：流程圖",
+        "圖片：q3-revenue.png",
+      ]);
+      expect([...bubble.querySelectorAll("blockquote a")].map((a) => a.getAttribute("href"))).toEqual([
+        "/api/docs/assets/my%20chart%20%281%29.png",
+        "/api/chat/attachment/att-dddddddddddd",
+        "https://cdn.example.com/charts/q3-revenue.png",
+      ]);
+    });
+
+    it("comments on a passage of a JSON attachment's indented view and sends it as a multi-line quote", async () => {
+      globalThis.fetch = vi.fn(async () => ({
+        ok: true,
+        text: async () => '{"name":"Mira","items":[1,2]}',
+      })) as unknown as typeof fetch;
+      const post = vi.spyOn(api, "postChat").mockResolvedValue(undefined);
+      renderDoc({ title: "report.json", mime: "application/json" });
+      await waitFor(() => expect(document.body.querySelector("pre.md-preview__text")).toBeTruthy());
+      fireEvent.click(screen.getByRole("button", { name: "註解" }));
+      addComment('"name": "Mira",\n  "items"', "items 改名");
+      expect(listed()).toEqual(['"name": "Mira",\n  "items"1. items 改名']);
+
+      fireEvent.click(screen.getByRole("button", { name: "送出給 AI" }));
+      await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+      expect(post.mock.calls[0][0].body).toBe(
+        "**文件註解**：[report.json](/api/chat/attachment/att-aaaaaaaaaaaa)\n" +
+          "\n" +
+          "1. 原文：\n" +
+          '   > "name": "Mira",\n' +
+          '   > "items"\n' +
+          "\n" +
+          "   註解：items 改名",
+      );
     });
 
     it("sends every comment as one message to the sender and closes, clearing the draft", async () => {

@@ -427,8 +427,8 @@ const REGISTRY = [
   {
     file: "components/DocComments.tsx",
     kind: "addEventListener",
-    count: 3,
-    verdict: "selection tracking; removed on unmount, and the panel unmounts with its overlay",
+    count: 4,
+    verdict: "selection tracking and image picks on the document root; removed on unmount, and the panel unmounts with its overlay",
   },
   {
     file: "components/MarkdownPreviewOverlay.tsx",

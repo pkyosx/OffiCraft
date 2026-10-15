@@ -3,6 +3,10 @@
 ::highlight(oc-doc-comment) {
   background-color: var(--color-warn-bg);
 }
+img[data-doc-comment] {
+  outline: 3px solid var(--color-warn-border);
+  outline-offset: 2px;
+}
 
 .doc-comments {
   display: flex;

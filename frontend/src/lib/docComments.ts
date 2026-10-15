@@ -1,12 +1,19 @@
-// lib/docComments.ts — the owner's comments on a delivered .md document: the
+// lib/docComments.ts — the owner's comments on a delivered document: the
 // draft kept per attachment in browser storage, the chat message they are sent
-// as, and the lookup that finds an excerpt in the rendered document again.
+// as, and the lookups that find what a comment is on in the rendered document
+// again.
 
-export interface DocComment {
-  id: string;
-  excerpt: string;
-  comment: string;
-}
+/** A comment on a passage (`excerpt`) or on an image. Text comments carry no
+ * `kind`, which is also the shape drafts were stored in before images could
+ * be commented on. */
+export type DocComment =
+  | { id: string; comment: string; kind?: undefined; excerpt: string }
+  | { id: string; comment: string; kind: "image"; alt: string; src: string };
+
+/** What a new comment is about, before it has a comment. */
+export type DocCommentAnchor =
+  | { kind: "text"; excerpt: string }
+  | { kind: "image"; alt: string; src: string };
 
 /** Who the comments go to, resolved by the surface that opened the document. */
 export interface DocCommentRecipient {
@@ -35,17 +42,18 @@ export function loadDocCommentDraft(attachmentId: string): DocComment[] {
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (c): c is DocComment =>
-        typeof c === "object" &&
-        c !== null &&
-        typeof (c as DocComment).id === "string" &&
-        typeof (c as DocComment).excerpt === "string" &&
-        typeof (c as DocComment).comment === "string",
-    );
+    return parsed.filter(isDocComment);
   } catch {
     return [];
   }
+}
+
+function isDocComment(value: unknown): value is DocComment {
+  if (typeof value !== "object" || value === null) return false;
+  const c = value as Record<string, unknown>;
+  if (typeof c.id !== "string" || typeof c.comment !== "string") return false;
+  if (c.kind === "image") return typeof c.alt === "string" && typeof c.src === "string";
+  return c.kind === undefined && typeof c.excerpt === "string";
 }
 
 export function saveDocCommentDraft(attachmentId: string, comments: DocComment[]): void {
@@ -84,6 +92,54 @@ function escapeBlockMarker(line: string): string {
   );
 }
 
+/** The image's file name, short enough for a list row or a link text. */
+export function imageShortName(src: string): string {
+  const path = src.split(/[?#]/)[0];
+  let name = path.slice(path.lastIndexOf("/") + 1);
+  try {
+    name = decodeURIComponent(name);
+  } catch {
+    /* keep it encoded */
+  }
+  if (name === "") name = src;
+  return name.length > 32 ? `${name.slice(0, 31)}…` : name;
+}
+
+// The renderer ends a link target at a space or a paren.
+function linkTarget(src: string): string {
+  return src.replace(/[\s()<>]/g, (ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`);
+}
+
+/** A rendered image's address as the document wrote it: host-less when it is
+ * same-origin, and without the `?token=` the page added to load it — the
+ * address goes into a chat message, the owner's credential must not. */
+export function imageCommentSrc(rendered: string): string {
+  let u: URL;
+  try {
+    u = new URL(rendered, window.location.origin);
+  } catch {
+    return rendered;
+  }
+  if (u.origin !== window.location.origin) return rendered;
+  u.searchParams.delete("token");
+  return `${u.pathname}${u.search}${u.hash}`;
+}
+
+/** The images in `root` an image comment is on. */
+export function locateImage(root: ParentNode, src: string): HTMLImageElement[] {
+  return [...root.querySelectorAll("img")].filter(
+    (img) => imageCommentSrc(img.getAttribute("src") ?? "") === src,
+  );
+}
+
+function quoteLines(c: DocComment): string[] {
+  if (c.kind === "image") {
+    const label = c.alt.trim() || imageShortName(c.src);
+    return [`   > 圖片：[${escapeLinkText(label)}](${linkTarget(c.src)})`];
+  }
+  return excerptLines(c.excerpt).map((l) => (l === "" ? "   >" : `   > ${l}`));
+}
+
 /** The chat message body. It is read by an AI through get_chat, so its labels
  * are a fixed format rather than UI wording a theme may override. Links are
  * host-less paths so they open on whatever address the reader uses. */
@@ -105,7 +161,7 @@ export function formatDocCommentMessage(input: {
   // item's first line inline, so the blockquote has to start on a continuation
   // line to stay a blockquote.
   const items = input.comments.map((c, i) => {
-    const quote = excerptLines(c.excerpt).map((l) => (l === "" ? "   >" : `   > ${l}`));
+    const quote = quoteLines(c);
     const commentLines = c.comment.trim().split(/\r?\n/);
     const comment = commentLines.map((l, j) =>
       j === 0 ? `   註解：${l}` : l === "" ? "" : `   ${escapeBlockMarker(l)}`,

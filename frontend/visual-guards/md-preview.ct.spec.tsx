@@ -26,6 +26,8 @@ import {
   MarkdownPreviewStory,
   MarkdownPreviewLongStory,
   MarkdownPreviewCommentsStory,
+  MarkdownPreviewImageCommentsStory,
+  PlainTextCommentsStory,
 } from "./stories/MarkdownPreviewStory";
 
 /** The phone width owner reads the cockpit at (iPhone 13 CSS pixels). */
@@ -576,3 +578,131 @@ for (const size of [NARROW, WIDE]) {
     }
   });
 }
+
+const WIDE_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="400" viewBox="0 0 1600 400">' +
+  '<rect width="1600" height="400" fill="#5b8def"/></svg>';
+
+for (const size of [NARROW, WIDE]) {
+  test.describe(`${size.width}: an image in a document`, () => {
+    test.use({ hasTouch: size === NARROW });
+
+    test("fits the column, and tapping it in comment mode offers 加註解 on screen, saves an image comment and outlines the image", async ({
+      mount,
+      page,
+    }) => {
+      await page.setViewportSize(size);
+      await page.addInitScript(() => localStorage.clear());
+      await page.route("**/api/chat/attachment/att-ct-wide-image*", (route) =>
+        route.fulfill({ status: 200, contentType: "image/svg+xml", body: WIDE_SVG }),
+      );
+      await mount(<MarkdownPreviewImageCommentsStory />);
+      const img = page.locator(".md-preview__md img");
+      await expect(img).toHaveAttribute("alt", "版面配置圖");
+      await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBe(1600);
+      await settleLayout(page);
+
+      const fit = await img.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const col = el.closest(".md-preview__md")!.getBoundingClientRect();
+        return {
+          left: r.left,
+          right: r.right,
+          width: r.width,
+          colLeft: col.left,
+          colRight: col.right,
+          pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        };
+      });
+      expect(fit.width).toBeLessThan(1600);
+      expect(fit.left).toBeGreaterThanOrEqual(fit.colLeft);
+      expect(fit.right).toBeLessThanOrEqual(fit.colRight);
+      expect(fit.pageOverflow).toBe(0);
+
+      await page.getByRole("button", { name: "註解" }).click();
+      await img.scrollIntoViewIfNeeded();
+      if (size === NARROW) await img.tap();
+      else await img.click();
+      const add = page.getByRole("button", { name: "加註解" });
+      await expect(add).toBeVisible();
+      const float = await add.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, vw: innerWidth, vh: innerHeight };
+      });
+      expect(float.left).toBeGreaterThanOrEqual(0);
+      expect(float.right).toBeLessThanOrEqual(float.vw);
+      expect(float.top).toBeGreaterThanOrEqual(0);
+      expect(float.bottom).toBeLessThanOrEqual(float.vh);
+      expect(await img.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe("none");
+
+      await add.click();
+      await page.getByRole("textbox", { name: "註解內容" }).fill("箭頭方向反了");
+      await page.getByRole("button", { name: "儲存" }).click();
+      const item = page.getByTestId("doc-comment");
+      await expect(item.locator(".doc-comments__excerpt")).toHaveText("圖片：版面配置圖");
+      await expect(item.locator(".doc-comments__text")).toHaveText("1. 箭頭方向反了");
+      const outline = await img.evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return { style: cs.outlineStyle, width: cs.outlineWidth };
+      });
+      expect(outline).toEqual({ style: "solid", width: "3px" });
+    });
+  });
+}
+
+test("390: a log with a long unbroken line stays inside the page, and a selected passage of it is commented and highlighted", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize(NARROW);
+  await page.addInitScript(() => localStorage.clear());
+  await mount(<PlainTextCommentsStory />);
+  const pre = page.locator("pre.md-preview__text");
+  await expect(pre).toContainText("09:00:03 done");
+  await settleLayout(page);
+  await page.getByRole("button", { name: "註解" }).click();
+
+  const layout = await pre.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const panel = document.querySelector(".md-preview__panel")!.getBoundingClientRect();
+    return {
+      right: r.right,
+      panelRight: panel.right,
+      pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    };
+  });
+  expect(layout.pageOverflow).toBe(0);
+  expect(layout.right).toBeLessThanOrEqual(layout.panelRight);
+
+  await pre.evaluate((el) => {
+    const text = el.firstChild as Text;
+    const at = text.data.indexOf("09:00:01 start");
+    const range = document.createRange();
+    range.setStart(text, at);
+    range.setEnd(text, at + "09:00:01 start".length);
+    document.getSelection()!.removeAllRanges();
+    document.getSelection()!.addRange(range);
+  });
+  const add = page.getByRole("button", { name: "加註解" });
+  await expect(add).toBeVisible();
+  const float = await add.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, vw: innerWidth, vh: innerHeight };
+  });
+  expect(float.left).toBeGreaterThanOrEqual(0);
+  expect(float.right).toBeLessThanOrEqual(float.vw);
+  expect(float.top).toBeGreaterThanOrEqual(0);
+  expect(float.bottom).toBeLessThanOrEqual(float.vh);
+  await add.click();
+  await page.getByRole("textbox", { name: "註解內容" }).fill("啟動要記版本");
+  await page.getByRole("button", { name: "儲存" }).click();
+  await expect(page.getByTestId("doc-comment").locator(".doc-comments__excerpt")).toHaveText("09:00:01 start");
+  const highlighted = await page.evaluate(() => {
+    const h = (CSS as unknown as { highlights: Map<string, Set<Range>> }).highlights.get("oc-doc-comment");
+    return h ? [...h].map((r) => r.toString()) : [];
+  });
+  expect(highlighted).toEqual(["09:00:01 start"]);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth),
+  ).toBe(0);
+});

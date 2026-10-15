@@ -434,6 +434,9 @@
 .md-preview__md.doc-md > :last-child {
   margin-bottom: 0;
 }
+.md-preview__content--commenting .md-preview__md img {
+  cursor: pointer;
+}
 
 /* SHORT VIEWPORTS (a phone held sideways — iPhone 13 landscape is 390px tall).
  * 32px of inset top and bottom is 16% of that screen, and it comes off the image

@@ -159,7 +159,7 @@ type MarkdownPreviewOverlayProps = {
       /** The stored blob kind decides the body renderer. Omitted keeps the
        * original markdown-file contract for existing callers. */
       mime?: string;
-      /** Offers comment mode on a markdown document; absent ⇒ no 註解 toggle. */
+      /** Offers comment mode on a text document (markdown, plain text, JSON); absent ⇒ no 註解 toggle. */
       docComments?: DocCommentTarget;
       source?: never;
       imageSrc?: never;
@@ -264,13 +264,14 @@ export function MarkdownPreviewOverlay({
   // says why it is missing when the bytes will not parse.
   const jsonAttachment = plainText && isJsonAttachment(mime ?? "text/markdown", typeName);
   const source = inlineSource ?? fetched;
+  // Which bodies take comments: anything with a text-selection or image-pick
+  // surface inside `bodyRef` can, so widening it is this one condition.
   const commentable =
     docComments !== undefined &&
     attachmentId !== undefined &&
     url !== undefined &&
     !image &&
-    previewableText &&
-    !plainText;
+    previewableText;
   const [commenting, setCommenting] = useState(false);
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const [zoom, setZoom] = useState(1);
@@ -813,6 +814,9 @@ export function MarkdownPreviewOverlay({
            * blob is a document, not a chat line — it keeps standard
            * soft-wrap, same as every other document surface. */
           breaks={inlineSource !== undefined}
+          /* A delivered document may show images, through the same gate the
+           * 使用說明 page uses; a message body keeps `![…](…)` as text. */
+          resolveImageSrc={inlineSource === undefined ? authedAttachmentUrl : undefined}
         />
       )}
     </div>
