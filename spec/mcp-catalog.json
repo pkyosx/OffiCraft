@@ -4612,6 +4612,14 @@
         "type": "object"
       },
       "name": "get_member_boot_context"
+    },
+    {
+      "description": "List the names of the secrets the owner has granted to you (never their values). To use one, run a command through the CLI: `ocagent secret run NAME -- <command>` puts the value in that command's environment as $NAME and masks it in the output; `ocagent secret write NAME --file <path>` writes it to a file. There is no MCP tool that returns a value.",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "list_secrets"
     }
   ]
 }

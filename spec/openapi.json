@@ -3409,6 +3409,93 @@
         "title": "MemberRelocateDTO",
         "type": "object"
       },
+      "MemberSecretDTO": {
+        "additionalProperties": false,
+        "description": "One secret granted to the member the panel is open on, without its value.",
+        "properties": {
+          "granted_ts": {
+            "default": 0.0,
+            "title": "Granted Ts",
+            "type": "number"
+          },
+          "last_used_ts": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When this member last retrieved the value (the newest access-log row for this name and member); null when it never has.",
+            "title": "Last Used Ts"
+          },
+          "name": {
+            "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+            "title": "Name",
+            "type": "string"
+          },
+          "updated_ts": {
+            "default": 0.0,
+            "title": "Updated Ts",
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "updated_ts",
+          "granted_ts",
+          "last_used_ts"
+        ],
+        "title": "MemberSecretDTO",
+        "type": "object"
+      },
+      "MemberSecretsDTO": {
+        "additionalProperties": false,
+        "description": "The secrets granted to ONE member, ordered by name. Every mutating call on the member's grants answers with this whole list.",
+        "properties": {
+          "member_id": {
+            "title": "Member Id",
+            "type": "string"
+          },
+          "secrets": {
+            "items": {
+              "$ref": "#/components/schemas/MemberSecretDTO"
+            },
+            "title": "Secrets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "member_id",
+          "secrets"
+        ],
+        "title": "MemberSecretsDTO",
+        "type": "object"
+      },
+      "MemberSecretPutDTO": {
+        "additionalProperties": false,
+        "description": "Create or overwrite a secret and grant it to the member in the path. The value is encrypted at rest and NEVER echoed on any wire, log, chat message or event.",
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "maxLength": 65536,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Write-only. A non-empty string creates the secret or overwrites its value. Omitted or null grants an EXISTING secret without touching its value (404 when the name is not in the vault).",
+            "title": "Value",
+            "writeOnly": true
+          }
+        },
+        "title": "MemberSecretPutDTO",
+        "type": "object"
+      },
       "MemberUpdateDTO": {
         "additionalProperties": false,
         "description": "Partial edit of a member's owner-editable fields (§3.4 #11). Every field is\noptional (PATCH). A blank ``name`` is a 422; an ``effort`` outside\nlow/medium/high/xhigh/max or a ``runtime`` outside claude/codex is a 422. Changing\nruntime takes effect on the next wake/recycle. The server owns everything else.",
@@ -6918,6 +7005,217 @@
         "title": "ScheduledMessageUpdateDTO",
         "type": "object"
       },
+      "SecretGrantDTO": {
+        "additionalProperties": false,
+        "description": "One member holding a grant on a secret.",
+        "properties": {
+          "granted_ts": {
+            "default": 0.0,
+            "title": "Granted Ts",
+            "type": "number"
+          },
+          "last_used_ts": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When this member last retrieved the value (the newest access-log row for this name and member); null when it never has.",
+            "title": "Last Used Ts"
+          },
+          "member_id": {
+            "title": "Member Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "member_id",
+          "granted_ts",
+          "last_used_ts"
+        ],
+        "title": "SecretGrantDTO",
+        "type": "object"
+      },
+      "SecretDTO": {
+        "additionalProperties": false,
+        "description": "One secret in the vault, WITHOUT its value: no route ever returns a value to the owner, not even masked or hashed. `updated_ts` moves on every value write.",
+        "properties": {
+          "created_ts": {
+            "default": 0.0,
+            "title": "Created Ts",
+            "type": "number"
+          },
+          "grants": {
+            "items": {
+              "$ref": "#/components/schemas/SecretGrantDTO"
+            },
+            "title": "Grants",
+            "type": "array"
+          },
+          "last_used_ts": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When any member last retrieved the value; null when nobody has.",
+            "title": "Last Used Ts"
+          },
+          "name": {
+            "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+            "title": "Name",
+            "type": "string"
+          },
+          "updated_ts": {
+            "default": 0.0,
+            "title": "Updated Ts",
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "created_ts",
+          "updated_ts",
+          "last_used_ts",
+          "grants"
+        ],
+        "title": "SecretDTO",
+        "type": "object"
+      },
+      "SecretVaultDTO": {
+        "additionalProperties": false,
+        "description": "Every secret in the vault, ordered by name, each with its grantees. Every mutating vault call answers with this whole list so the settings page never re-fetches to learn the truth.",
+        "properties": {
+          "secrets": {
+            "items": {
+              "$ref": "#/components/schemas/SecretDTO"
+            },
+            "title": "Secrets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "secrets"
+        ],
+        "title": "SecretVaultDTO",
+        "type": "object"
+      },
+      "SecretAccessLogEntryDTO": {
+        "additionalProperties": false,
+        "description": "One successful value retrieval. Rows outlive the secret and the grant they record.",
+        "properties": {
+          "machine_id": {
+            "default": "",
+            "description": "The `machine_id` claim of the caller's token; `\"\"` when the token carried none.",
+            "title": "Machine Id",
+            "type": "string"
+          },
+          "member_id": {
+            "title": "Member Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "ts": {
+            "title": "Ts",
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "member_id",
+          "machine_id",
+          "ts"
+        ],
+        "title": "SecretAccessLogEntryDTO",
+        "type": "object"
+      },
+      "SecretAccessLogDTO": {
+        "additionalProperties": false,
+        "description": "Value retrievals, newest first.",
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/SecretAccessLogEntryDTO"
+            },
+            "title": "Entries",
+            "type": "array"
+          }
+        },
+        "required": [
+          "entries"
+        ],
+        "title": "SecretAccessLogDTO",
+        "type": "object"
+      },
+      "SecretRevealRequestDTO": {
+        "additionalProperties": false,
+        "description": "The secrets to retrieve, by name.",
+        "properties": {
+          "names": {
+            "items": {
+              "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+              "type": "string"
+            },
+            "maxItems": 16,
+            "minItems": 1,
+            "title": "Names",
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "names"
+        ],
+        "title": "SecretRevealRequestDTO",
+        "type": "object"
+      },
+      "SecretValueDTO": {
+        "additionalProperties": false,
+        "description": "One retrieved secret. `value` is the plaintext; the caller must not print or store it.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "value"
+        ],
+        "title": "SecretValueDTO",
+        "type": "object"
+      },
+      "SecretRevealDTO": {
+        "additionalProperties": false,
+        "description": "The requested values, in request order.",
+        "properties": {
+          "secrets": {
+            "items": {
+              "$ref": "#/components/schemas/SecretValueDTO"
+            },
+            "title": "Secrets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "secrets"
+        ],
+        "title": "SecretRevealDTO",
+        "type": "object"
+      },
       "SelfReportReceiptDTO": {
         "additionalProperties": false,
         "description": "Bounded receipt for the four SELF-REPORT writes an agent makes about its own lifecycle - ``POST /api/self/waking`` (report_waking), ``/api/self/stopping`` (report_stopping), ``/api/self/stopped`` (report_stopped) and ``/api/self/refocus`` (restart_self) (T-91). All four answered with the whole MemberDTO, 32 fields flattened, measured first-hand this session: a boot report came back with 30 populated fields, of which the caller needed none it could not already name. These are agent-called through MCP, so that answer lands in the model's CONTEXT WINDOW - once per boot and once per shutdown, for every agent, forever. Owner ruling 2026-09-05: what the caller sent does not come home, only ids and what it genuinely needs to learn from the reply.\n\nWHAT IS KEPT IS WHAT CHANGES WHAT THE CALLER DOES NEXT, and nothing else passed that test. ``desired_state`` is the important one and it is not bookkeeping: api_members.go:1789-1795 records that a boot which lands after the owner has already cancelled it must not paint itself green, and names this field as the one that says whether the boot is wanted; the stopped-report handler says the same for the other end (\"desired_state alone decides whether a new generation follows\"). ``refocus_op`` and ``refocus_deadline`` say which rung of the wind-down ladder the agent is on and the epoch second it is counting to.\n\nDROPPED AND WHY, since a receipt has to be able to say it: ``machine`` and ``unread_count`` were NEVER REAL on this path - the shared member tail passed a literal \"\" and 0, which frontend/src/api/dtoParity.ts recorded on 2026-08-01 with the note that it has no user-visible consequence today because the cockpit never feeds these answers back into the roster. Collapsing these four routes removes the two invented values rather than fixing them in place, which is what owner asked for (\"是bug的可以順手修掉\"). ``forced_stop_at`` looks like a deadline and is not - its own description says it is the last time this member WAS force-stopped, 0 if never, deliberately not cleared by the next boot - so it cannot change what a waking agent does. ``roster_status`` was checked and dropped for a stronger reason: dismissal sets it and ``desired_state`` TOGETHER (api_members.go:1671-1672), so it can never say anything ``desired_state`` has not already said. Everything else is the caller's own identity, its own report coming back, or state ``get_member`` serves.",
@@ -6961,6 +7259,45 @@
           "refocus_op"
         ],
         "title": "SelfReportReceiptDTO",
+        "type": "object"
+      },
+      "SelfSecretDTO": {
+        "additionalProperties": false,
+        "description": "One secret granted to the caller: its name only.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "updated_ts": {
+            "default": 0.0,
+            "title": "Updated Ts",
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "updated_ts"
+        ],
+        "title": "SelfSecretDTO",
+        "type": "object"
+      },
+      "SelfSecretsDTO": {
+        "additionalProperties": false,
+        "description": "The names of every secret granted to the caller, ordered by name. Never carries a value.",
+        "properties": {
+          "secrets": {
+            "items": {
+              "$ref": "#/components/schemas/SelfSecretDTO"
+            },
+            "title": "Secrets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "secrets"
+        ],
+        "title": "SelfSecretsDTO",
         "type": "object"
       },
       "SetPasswordDTO": {
@@ -17489,6 +17826,223 @@
         }
       }
     },
+    "/api/members/{member_id}/secrets": {
+      "get": {
+        "description": "- 404 when the member is absent or has left the roster; 422 when the target is a machine.\n- Owner only.",
+        "operationId": "handle_list_member_secrets_api_members__member_id__secrets_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberSecretsDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "List the secrets granted to one member (no values).",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "member_id",
+            "required": true,
+            "schema": {
+              "title": "Member Id",
+              "type": "string"
+            }
+          }
+        ],
+        "x-mcp": {
+          "include": false
+        }
+      }
+    },
+    "/api/members/{member_id}/secrets/{name}": {
+      "put": {
+        "description": "- With `value`: creates the secret or overwrites its value, then grants it to the member (idempotent if already granted). Without `value`: grants an existing secret, 404 when the name is not in the vault.\n- Overwriting changes the value for EVERY grantee, not only this member.\n- Posts a chat message from `system` to the member naming the secret, never its value.\n- 422 for a name outside `^[A-Z][A-Z0-9_]{0,63}$` or a machine target; 404 when the member is absent or has left the roster.\n- Owner only.",
+        "operationId": "handle_put_member_secret_api_members__member_id__secrets__name__put",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberSecretsDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Create or overwrite a secret and grant it to this member.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "member_id",
+            "required": true,
+            "schema": {
+              "title": "Member Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemberSecretPutDTO"
+              }
+            }
+          },
+          "required": true
+        },
+        "x-mcp": {
+          "include": false
+        }
+      },
+      "delete": {
+        "description": "- Removes the grant only; the secret and other grants stay. The member's next retrieval of the name is refused.\n- Posts a chat message from `system` to the member naming the secret.\n- 404 when the member, the secret or the grant is absent.\n- Owner only.",
+        "operationId": "handle_revoke_member_secret_api_members__member_id__secrets__name__delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberSecretsDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Revoke this member's grant on a secret.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "member_id",
+            "required": true,
+            "schema": {
+              "title": "Member Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+            }
+          }
+        ],
+        "x-mcp": {
+          "include": false
+        }
+      }
+    },
     "/api/members/{member_id}/webhooks": {
       "get": {
         "description": "- A member's webhook endpoints, oldest first.\n- Each row carries the opaque token, so the full callback URL can be rendered and copied.\n- 404 if the member is absent or soft-removed.",
@@ -19668,6 +20222,224 @@
         }
       }
     },
+    "/api/secrets": {
+      "get": {
+        "description": "- Names, timestamps and grantees only; no value, masked value or hash of a value is ever returned.\n- Owner only.",
+        "operationId": "handle_list_secrets_api_secrets_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecretVaultDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "List every secret in the vault with its grantees (no values).",
+        "x-mcp": {
+          "include": false
+        }
+      }
+    },
+    "/api/secrets/access-log": {
+      "get": {
+        "description": "- One row per successful retrieval through `POST /api/self/secrets/reveal`; a refused retrieval writes no row.\n- `name` and `member_id` narrow the list (AND); `limit` caps it after ordering (absent or non-positive = 200).\n- Owner only.",
+        "operationId": "handle_list_secret_access_log_api_secrets_access_log_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecretAccessLogDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "List value retrievals, newest first.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "name",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Name"
+            }
+          },
+          {
+            "in": "query",
+            "name": "member_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Member Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          }
+        ],
+        "x-mcp": {
+          "include": false
+        }
+      }
+    },
+    "/api/secrets/{name}": {
+      "delete": {
+        "description": "- Permanent: the ciphertext and all grants go; access-log rows stay. No undo.\n- 404 when the name is not in the vault.\n- Owner only.",
+        "operationId": "handle_delete_secret_api_secrets__name__delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecretVaultDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Delete a secret and every grant on it.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+            }
+          }
+        ],
+        "x-mcp": {
+          "include": false
+        }
+      }
+    },
     "/api/self/refocus": {
       "post": {
         "description": "- Restarts your own session: the server pushes you the stop document, you run the close-out and call report_stopped, then it respawns you in place.\n- 409 if you have no live event-stream connection or your desired state is not online, or if you are already further down the wind-down ladder - finish that close-out instead of retrying.\n- 429 within 10 minutes of your session connecting.\n- Emits a `member` event; a client holding the stream learns of this without polling.",
@@ -19733,6 +20505,126 @@
           },
           "name": "restart_self",
           "order": 16
+        }
+      }
+    },
+    "/api/self/secrets": {
+      "get": {
+        "description": "- Names only, granted to the verified caller; never a value.\n- An admin agent sees only its own grants.\n- Agents only (403 for the owner and for machines).",
+        "operationId": "handle_list_self_secrets_api_self_secrets_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SelfSecretsDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "List the names of the secrets granted to you.",
+        "x-mcp": {
+          "description": "List the names of the secrets the owner has granted to you (never their values). To use one, run a command through the CLI: `ocagent secret run NAME -- <command>` puts the value in that command's environment as $NAME and masks it in the output; `ocagent secret write NAME --file <path>` writes it to a file. There is no MCP tool that returns a value.",
+          "include": true,
+          "legacy": {
+            "descriptor": "{\n      \"description\": \"List the names of the secrets the owner has granted to you (never their values). To use one, run a command through the CLI: `ocagent secret run NAME -- <command>` puts the value in that command's environment as $NAME and masks it in the output; `ocagent secret write NAME --file <path>` writes it to a file. There is no MCP tool that returns a value.\",\n      \"inputSchema\": {\n        \"properties\": {},\n        \"type\": \"object\"\n      },\n      \"name\": \"list_secrets\"\n    }"
+          },
+          "name": "list_secrets",
+          "order": 126
+        }
+      }
+    },
+    "/api/self/secrets/reveal": {
+      "post": {
+        "description": "- For `ocagent secret run` / `ocagent secret write` only; deliberately absent from MCP so a value never lands in a tool result.\n- All or nothing: when any name is not granted to the caller (or not in the vault) the call is 404 naming those names, and returns no value.\n- Writes one access-log row per name (name, caller, the token's `machine_id` claim, time) in the same transaction that reads the values.\n- The value never reaches a log, an event or a chat message.\n- Agents only (403 for the owner and for machines); an admin agent has no implicit access.",
+        "operationId": "handle_reveal_self_secrets_api_self_secrets_reveal_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecretRevealDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Retrieve the values of secrets granted to you (CLI only).",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SecretRevealRequestDTO"
+              }
+            }
+          },
+          "required": true
+        },
+        "x-mcp": {
+          "include": false
         }
       }
     },
