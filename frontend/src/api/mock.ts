@@ -980,7 +980,7 @@ let chatReplyExcerpts = new Map<string, string>();
 // T-4e95: chat message ids used to be `mock-${Date.now()}` alone, and two posts
 // inside the same millisecond therefore got the SAME id — reproduced, not
 // theorised. That was survivable while nothing pointed AT a message; a reply
-// carries the quoted message's id and nothing else, so an ambiguous id makes
+// names the quoted message by its id alone, so an ambiguous id makes
 // the quote resolve to whichever row happens to be first (and collides React's
 // keys besides). The real server mints `c-` + 12 random hex; this counter is the
 // mock's cheapest way to keep the same promise — one id, one message.
@@ -3853,11 +3853,12 @@ const mockApiImpl = {
       );
     }
     // The quote link (T-4e95). The mock enforces the SAME refusal the server
-    // does, and only that one: the target must EXIST. The same-conversation
-    // refusal that used to sit here went with the server's on 2026-08-21 —
-    // quoting a line out of another conversation is the use case now, and a
-    // mock that still refused it would make offline preview disagree with the
-    // real thing about the very behaviour this change exists to add.
+    // does for the link, and only that one: the target must EXIST. The
+    // same-conversation refusal that used to sit here went with the server's
+    // on 2026-08-21 — quoting a line out of another conversation is the use
+    // case now, and a mock that still refused it would make offline preview
+    // disagree with the real thing about the very behaviour this change exists
+    // to add.
     if (msg.replyTo && !chatLog.some((m) => m.id === msg.replyTo)) {
       throw new Error(`reply_to names no message (${msg.replyTo})`);
     }

@@ -203,7 +203,7 @@ hash route #office/chat/<id>/msg/<msgId> 只做一次定位與 highlight。產�
 **引用內容由 server 隨每次讀取現組，前端只讀不找。** 每則 `reply_to` 非空的
 訊息，server 會在**每一個**讀取出口（listing、history page、`?ids=`、POST 回
 應、wake snapshot）附上
-`reply_to_chat = {id, from, from_name, to, to_name, content}`。前端
+`reply_to_chat = {id, from, from_name, to, to_name, content}`（「回覆這段」另帶 `reply_excerpt`）。前端
 畫引用列就是讀 `m.replyToChat`，**沒有查表、沒有 fallback、沒有補撈**。
 
 **引用列畫的是「寄件者 → 收件者」，而那個收件者是被引訊息自己的 `to`。**
@@ -317,7 +317,7 @@ disabled 而 blur，所以那條測試裡真正有牙的是那句 `jump.disabled
 `messageById` 還活著，但它只回答**一個**問題：composer 上方的橫幅認不認得回覆
 對象。它**不**回答「能不能看原訊息」。
 
-**「回覆這段」＝回覆對象＋一段選取原文（`reply_excerpt`）。** 選取完全落在**同一則**氣泡正文（`.chat__msg-text`）裡才浮出按鈕（`ChatSelectionReply`，portal 到 body、fixed 座標夾在視窗內）；跨兩則或落在正文外就不出現。超過 1000 字時按鈕停用並顯示上限（`lib/replyExcerpt.ts`，與 server 的 `chatReplyExcerptMaxChars` 同一個數，`mock.reply-to.test.ts` 會讀 Go 原始碼對帳）：server 是**拒絕不截斷**，所以前端也不截。excerpt 跟回覆對象**同生共死**：存在草稿、x 一起清、整則回覆會把它清掉、送出失敗一起還原。有 excerpt 時，橫幅與每一個引用面（訊息列、`ResumeSummaryCard`）畫 `replyToChat.replyExcerpt`，否則照舊畫 `content`；「已不存在」那一態不變。⚠️ server **不檢查**它是不是原文的子字串（owner 裁定：畫面上選到的字不等於原始 markdown），不要在前端或 mock 補這個檢查。
+**「回覆這段」＝回覆對象＋一段選取原文（`reply_excerpt`）。** 選取完全落在**同一則**氣泡正文（`.chat__msg-text`）裡才浮出按鈕（`ChatSelectionReply`，portal 到 body、fixed 座標夾在視窗內）；跨兩則或落在正文外就不出現。超過 1000 字時按鈕停用並顯示上限（`lib/replyExcerpt.ts`，與 server 的 `chatReplyExcerptMaxChars` 同一個數，`mock.reply-to.test.ts` 會讀 Go 原始碼對帳）：server 是**拒絕不截斷**，所以前端也不截。excerpt 跟回覆對象**同生共死**：存在草稿、x 一起清、整則回覆會把它清掉、送出失敗一起還原。有 excerpt 時，橫幅與每一個引用面（訊息列、`ResumeSummaryCard`）畫 `replyToChat.replyExcerpt`，否則照舊畫 `content`；「已不存在」那一態不變。⚠️ server **不檢查**它是不是原文的子字串（畫面上選到的字不等於原始 markdown），不要在前端或 mock 補這個檢查。
 
 **取消回覆的 x 只清回覆對象。** 不准順手清 `draft`、不准清
 `pendingAttachments`：取消回覆不是取消訊息。這條有測試釘住

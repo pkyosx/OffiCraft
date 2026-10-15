@@ -125,8 +125,9 @@ export interface ChatMessage {
   replyTo?: string | null;
   /** WHAT this message is replying to (wire `reply_to_chat`) — the quoted
    * sender and a server-shortened line of what they said, rebuilt by the server
-   * on every read. null when `replyTo` is null, and null ALSO when `replyTo` is
-   * set but the quoted message no longer exists.
+   * on every read, plus the reply's own `replyExcerpt` when it quoted a piece.
+   * null when `replyTo` is null, and null ALSO when `replyTo` is set but the
+   * quoted message no longer exists.
    *
    * 🔴 THE UI READS THIS AND NOTHING ELSE (T-4e95, owner ruling 2026-08-21).
    * There is no lookup, no fallback to the loaded window, no re-fetch and no

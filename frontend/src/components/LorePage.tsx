@@ -1659,9 +1659,9 @@ function LoreAuthorComposer({
       //
       // The server copies unknown meta keys through WHOLESALE — read, not
       // assumed: HandlePostChatApiChatPost (api_chat.go) builds its map from
-      // body.Meta, then `delete`s `reply_to` (it is the only writer of that
-      // link) and OVERWRITES `attachments` when the post carries any. Every
-      // other key, this one included, is stored verbatim.
+      // body.Meta, then `delete`s `reply_to` and `reply_excerpt` (it is the
+      // only writer of both) and OVERWRITES `attachments` when the post
+      // carries any. Every other key, this one included, is stored verbatim.
       await api.postChat({
         to: author.peerId,
         body: `[LoreID=${entryId}] ${draft.trim()}`,

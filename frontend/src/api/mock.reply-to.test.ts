@@ -5,7 +5,8 @@
 // surface later, on a real backend, to somebody else.
 //
 // Pinned here, against what server/ocserverd/api_chat.go actually does:
-//   • the quoted message must EXIST — the ONE refusal;
+//   • the quoted message must EXIST — the ONE refusal of the link itself;
+//   • an excerpt is refused without a reply_to, and over 1000 characters;
 //   • it does NOT have to be in the same conversation (owner ruling,
 //     2026-08-21). This was a refusal on both sides until that date, and a mock
 //     that still refused it would preview a product the server no longer is;

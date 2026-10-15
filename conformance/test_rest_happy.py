@@ -4574,7 +4574,9 @@ def test_chat_reply_to_is_the_servers_link_not_the_callers(hctx: HCtx) -> None:
     caller-supplied ``meta.reply_to`` is discarded. The last is the one that
     needs a real request the most — ``meta`` is copied through wholesale, so the
     only thing standing between a caller and an unvalidated link is a deletion
-    the handler performs before it validates anything.
+    the handler performs before it validates anything. The selected-piece
+    ``reply_excerpt`` rides along: it round-trips verbatim beside the quote
+    line, and without ``reply_to`` it is refused.
 
     The second REVERSED on 2026-08-21 (owner ruling): this test asserted a 400
     and an "another conversation" message until that date. The refusal is gone

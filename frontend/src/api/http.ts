@@ -1563,9 +1563,9 @@ export const httpApi: Api = {
         // Machine-readable keys stored on the message (`ChatPostDTO.meta`).
         // OMITTED when the caller sends none, so an ordinary post's body is
         // byte-identical to what it always was. The server copies unknown keys
-        // through wholesale — it deletes `reply_to` (the `reply_to` param above
-        // is the only door to that link) and overwrites `attachments` when the
-        // post carries any; nothing else is touched.
+        // through wholesale — it deletes `reply_to` and `reply_excerpt` (the
+        // params above are the only doors to them) and overwrites
+        // `attachments` when the post carries any; nothing else is touched.
         ...(msg.meta ? { meta: msg.meta } : {}),
         ...(attachments.length > 0
           ? {

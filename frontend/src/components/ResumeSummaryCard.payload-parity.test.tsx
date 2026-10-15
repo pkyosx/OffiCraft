@@ -1006,8 +1006,9 @@ describe("the roll-call: a field the seam gains cannot stay undrawn", () => {
         // T-4e95: the two halves of a reply, and they are deliberately two.
         // `replyTo` is the id and says THAT this message is a reply; it never
         // disappears. `replyToChat` is the quoted sender + a server-shortened
-        // line and says WHAT it replied to; it is rebuilt on every read and is
-        // legitimately null while `replyTo` is set (the original is gone).
+        // line (+ the reply's excerpt, if any) and says WHAT it replied to; it
+        // is rebuilt on every read and is legitimately null while `replyTo` is
+        // set (the original is gone).
         // Collapsing them into one field is the change this roll-call is here
         // to make announce itself.
         "replyTo",

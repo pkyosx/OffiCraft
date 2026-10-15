@@ -365,13 +365,13 @@ func (s *apiServer) HandlePostChatApiChatPost(w http.ResponseWriter, r *http.Req
 			meta[k] = v
 		}
 	}
-	// Drop any caller-supplied reply link: one arriving pre-made in meta would bypass
-	// the existence check below.
+	// Drop any caller-supplied reply link or excerpt: one arriving pre-made in meta
+	// would bypass the checks below.
 	delete(meta, chatReplyToMetaKey)
 	delete(meta, chatReplyExcerptMetaKey)
 	replyTo := trimString(strOrEmpty(body.ReplyTo))
-	// ⚠️ Not checked against the quoted body, by owner ruling: a selection of the
-	// rendered message need not appear verbatim in its raw markdown.
+	// ⚠️ Not checked against the quoted body: a selection of the rendered message
+	// need not appear verbatim in its raw markdown.
 	replyExcerpt := trimString(strOrEmpty(body.ReplyExcerpt))
 	if replyExcerpt != "" && replyTo == "" {
 		writeError(w, http.StatusBadRequest, chatReplyExcerptWithoutReplyToMsg)
