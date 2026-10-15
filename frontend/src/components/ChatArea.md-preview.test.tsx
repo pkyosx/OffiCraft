@@ -9,6 +9,7 @@ import { render, fireEvent, waitFor, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { api } from "../api";
 import { ChatArea } from "./ChatArea";
+import { AttachmentModalHost } from "./AttachmentModalHost";
 import type { Member } from "../types";
 import type { ChatMessage } from "../api/adapter";
 
@@ -266,5 +267,96 @@ describe("chat .md attachment comments", () => {
       expect(synthetic.queryByText("對方已不在名冊上（已移除或已釋出），無法送出。")).toBeNull();
       synthetic.unmount();
     }
+  });
+});
+
+describe("chat message links to a stored attachment", () => {
+  const DOC = "/api/chat/attachment/att-aaaaaaaaaaaa";
+  const body = [
+    `**文件註解**：[設計.md](${DOC})`,
+    "",
+    "1. 原文：",
+    "   > 圖片：[架構圖.png](/api/chat/attachment/att-bbbbbbbbbbbb)",
+    "",
+    "   註解：看 [規格](https://example.com/spec)，以及 [架構圖](/api/chat/attachment/att-cccccccccccc)",
+  ].join("\n");
+
+  function readingTheCommentMessage() {
+    globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "# 設計稿" })) as unknown as typeof fetch;
+    vi.spyOn(api, "getChatAttachmentShareLink").mockResolvedValue("/api/chat/attachment/x?sig=s");
+    const windowOpen = vi.spyOn(window, "open").mockReturnValue(null);
+    messages = [{ ...msgWith([]), body }];
+    const view = render(
+      <I18nProvider>
+        <AttachmentModalHost>
+          <ChatArea member={mkMember()} />
+        </AttachmentModalHost>
+      </I18nProvider>,
+    );
+    const expand = within(view.container).queryByRole("button", { name: /展開/ });
+    if (expand) fireEvent.click(expand);
+    const link = (name: string) => within(view.container).getByRole("link", { name });
+    return { view, windowOpen, link };
+  }
+
+  const overlay = () => document.body.querySelector<HTMLElement>(".md-preview[role=dialog]");
+
+  it("previews the commented document in place on a plain click, with no token in any address", async () => {
+    const before = window.location.href;
+    const { view, windowOpen, link } = readingTheCommentMessage();
+    const docLink = link("設計.md");
+    expect(docLink.getAttribute("href")).toBe(DOC);
+
+    expect(fireEvent.click(docLink)).toBe(false);
+    await waitFor(() => expect(view.getByRole("heading", { name: "設計稿" })).toBeTruthy());
+    expect(overlay()?.getAttribute("aria-label")).toBe("設計.md");
+    expect(overlay()?.querySelector(".md-preview__title")?.textContent).toContain("設計.md");
+    expect(globalThis.fetch).toHaveBeenCalledWith("/api/chat/attachment/att-aaaaaaaaaaaa?token=jwt-1");
+    expect(windowOpen).not.toHaveBeenCalled();
+    expect(window.location.href).toBe(before);
+    expect(docLink.getAttribute("href")).toBe(DOC);
+    expect(within(overlay()!).queryByRole("button", { name: "註解" })).toBeNull();
+  });
+
+  it("previews in place on a modified or middle click too, since a new tab would have no token", async () => {
+    const { windowOpen, link } = readingTheCommentMessage();
+    const clicks: [string, (a: HTMLElement) => boolean][] = [
+      ["meta", (a) => fireEvent.click(a, { metaKey: true })],
+      ["ctrl", (a) => fireEvent.click(a, { ctrlKey: true })],
+      ["shift", (a) => fireEvent.click(a, { shiftKey: true })],
+      ["middle", (a) => fireEvent(a, new MouseEvent("auxclick", { bubbles: true, cancelable: true, button: 1 }))],
+    ];
+    for (const [, click] of clicks) {
+      expect(click(link("設計.md"))).toBe(false);
+      await waitFor(() => expect(overlay()?.getAttribute("aria-label")).toBe("設計.md"));
+      fireEvent.keyDown(window, { key: "Escape" });
+      await waitFor(() => expect(overlay()).toBeNull());
+    }
+    expect(windowOpen).not.toHaveBeenCalled();
+  });
+
+  it("previews an image comment's link as that image, and a link text with no extension as not previewable", async () => {
+    const { link } = readingTheCommentMessage();
+    fireEvent.click(link("架構圖.png"));
+    await waitFor(() => expect(overlay()?.querySelector("img")).toBeTruthy());
+    expect(overlay()?.querySelector("img")?.getAttribute("src")).toBe(
+      "/api/chat/attachment/att-bbbbbbbbbbbb?token=jwt-1",
+    );
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(overlay()).toBeNull());
+
+    fireEvent.click(link("架構圖"));
+    await waitFor(() => expect(overlay()?.getAttribute("aria-label")).toBe("架構圖"));
+    expect(overlay()?.querySelector("img")).toBeNull();
+    expect(within(overlay()!).getByText("此檔案無法預覽，請下載")).toBeTruthy();
+  });
+
+  it("leaves an external link in the same message to open its new tab", () => {
+    const { link } = readingTheCommentMessage();
+    const external = link("規格");
+    expect(external.getAttribute("href")).toBe("https://example.com/spec");
+    expect(external.getAttribute("target")).toBe("_blank");
+    expect(fireEvent.click(external)).toBe(true);
+    expect(overlay()).toBeNull();
   });
 });

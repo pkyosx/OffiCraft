@@ -9,6 +9,7 @@ import { render, fireEvent } from "@testing-library/react";
 import { Markdown } from "./Markdown";
 import { DiffOpenerContext } from "../hooks/useDiffOpener";
 import type { DiffParams } from "../lib/diffLink";
+import { AttachmentOpenerContext } from "../hooks/useAttachmentOpener";
 
 function renderMd(source: string): HTMLElement {
   const { container } = render(<Markdown source={source} />);
@@ -1266,6 +1267,47 @@ describe("Markdown", () => {
         "[!NOPE] 這不是 alert",
       );
       expect(c.querySelector("blockquote")?.getAttribute("class")).toBeNull();
+    });
+  });
+
+  describe("links to a stored attachment", () => {
+    function withOpener(source: string) {
+      const opened: unknown[] = [];
+      const { container } = render(
+        <AttachmentOpenerContext.Provider value={(link) => opened.push(link)}>
+          <Markdown source={source} />
+        </AttachmentOpenerContext.Provider>,
+      );
+      return { opened, a: container.querySelector("a")! };
+    }
+
+    it("hands the blob's id, bare serve path and link text to the studio's opener", () => {
+      const { opened, a } = withOpener(
+        `[設計.md](${window.location.origin}/api/chat/attachment/att-0123456789ab?sig=x)`,
+      );
+      expect(fireEvent.click(a)).toBe(false);
+      expect(opened).toEqual([
+        { attachmentId: "att-0123456789ab", url: "/api/chat/attachment/att-0123456789ab", name: "設計.md" },
+      ]);
+    });
+
+    it.each([
+      "https://evil.example/api/chat/attachment/att-0123456789ab",
+      "/api/chat/attachment/att-0123456789AB",
+      "/api/chat/attachment/att-0123456789ab/x",
+      "/api/chat/attachments/att-0123456789ab",
+    ])("leaves %s an ordinary link", (href) => {
+      const { opened, a } = withOpener(`[x](${href})`);
+      expect(a.getAttribute("href")).toBe(href);
+      expect(fireEvent.click(a)).toBe(true);
+      expect(opened).toEqual([]);
+    });
+
+    it("stays an ordinary link outside the studio", () => {
+      const a = renderMd("[設計.md](/api/chat/attachment/att-0123456789ab)").querySelector("a")!;
+      expect(a.getAttribute("href")).toBe("/api/chat/attachment/att-0123456789ab");
+      expect(a.hasAttribute("data-attachment-link")).toBe(false);
+      expect(fireEvent.click(a)).toBe(true);
     });
   });
 });

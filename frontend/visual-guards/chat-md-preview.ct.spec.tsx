@@ -8,7 +8,7 @@
 // a11y:此按鈕刻意不設 aria-label——依 §5 教訓「aria-label 會取代連結的可及
 // 名稱,不是附加」,可見的檔名文字本身就是可及名稱。
 import { test, expect } from "@playwright/experimental-ct-react";
-import { ChatMdPreviewStory } from "./stories/ChatMdPreviewStory";
+import { ChatAttachmentLinkStory, ChatMdPreviewStory } from "./stories/ChatMdPreviewStory";
 
 for (const width of [390, 1280]) {
   test(`width ${width}: every stored file chip opens the common popup`, async ({
@@ -54,4 +54,32 @@ test("narrow 390: Enter activates the .md chip (native <button> keyboard semanti
   await chip.focus();
   await page.keyboard.press("Enter");
   await expect(page.locator(".md-preview")).toBeVisible();
+});
+
+test("narrow 390: the document link in a 文件註解 message previews the document in place", async ({
+  mount,
+  page,
+}) => {
+  await page.route("**/api/chat/attachment/att-aaaaaaaaaaaa*", (route) =>
+    route.fulfill({ contentType: "text/markdown", body: "# 設計提案\n\n## 目標" }),
+  );
+  await page.setViewportSize({ width: 390, height: 800 });
+  const cmp = await mount(<ChatAttachmentLinkStory />);
+  const before = page.url();
+  const popups: unknown[] = [];
+  page.context().on("page", (p) => popups.push(p));
+
+  await cmp.getByRole("link", { name: "一份檔名相當長的設計提案文件-第三版.md" }).click();
+  await expect(page.locator(".md-preview").getByRole("heading", { name: "設計提案" })).toBeVisible();
+  await expect(page.locator(".md-preview__title")).toContainText("一份檔名相當長的設計提案文件-第三版.md");
+  expect(page.url()).toBe(before);
+  expect(popups).toEqual([]);
+
+  const panel = await page.locator(".md-preview__panel").boundingBox();
+  expect(panel!.x).toBeGreaterThanOrEqual(0);
+  expect(panel!.x + panel!.width).toBeLessThanOrEqual(391);
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  );
+  expect(overflow).toBe(0);
 });

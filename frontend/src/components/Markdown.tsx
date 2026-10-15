@@ -49,6 +49,9 @@
 //               click on it opens the comparison in place instead of
 //               navigating — see `ExternalOrDiffLink` below. Both the written
 //               [text](url) form and the autolinked bare form go through it.
+//               A FIFTH is a link to one stored chat blob
+//               (`/api/chat/attachment/att-…`): any click on it previews the
+//               blob in place, since a new tab has no token to fetch it with.
 
 import {
   Fragment,
@@ -60,6 +63,8 @@ import {
 } from "react";
 import { DIFF_PATH, diffParamsFromHref } from "../lib/diffLink";
 import { useDiffOpener } from "../hooks/useDiffOpener";
+import { attachmentLinkFromHref } from "../lib/attachmentLink";
+import { useAttachmentOpener } from "../hooks/useAttachmentOpener";
 
 interface MarkdownProps {
   source: string;
@@ -213,10 +218,38 @@ interface InlineOpts {
  * the one that would otherwise throw away the page they are reading. A
  * <button> here (the doc-link class's shape) would take all four of those away,
  * and this link is one people are meant to be able to copy and paste onward.
+ *
+ * A same-origin link to one stored blob (lib/attachmentLink.ts) is the
+ * exception to that last paragraph: every click on it — modified and middle
+ * clicks too — opens the in-app preview, because the tab any of them would
+ * open answers 401 (the serve route wants the token this page holds, which no
+ * address may carry). Only the context menu's 「open in new tab」 still escapes.
  */
 function ExternalOrDiffLink({ href, label }: { href: string; label: string }) {
   const openDiff = useDiffOpener();
+  const openAttachment = useAttachmentOpener();
   const params = useMemo(() => diffParamsFromHref(href), [href]);
+  const attachment = useMemo(() => attachmentLinkFromHref(href), [href]);
+  if (openAttachment !== null && attachment !== null) {
+    const open = (e: ReactMouseEvent<HTMLAnchorElement>) => {
+      e.preventDefault();
+      openAttachment({ ...attachment, name: label });
+    };
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={open}
+        onAuxClick={(e) => {
+          if (e.button === 1) open(e);
+        }}
+        data-attachment-link=""
+      >
+        {label}
+      </a>
+    );
+  }
   const intercept =
     openDiff !== null && params !== null
       ? (e: ReactMouseEvent<HTMLAnchorElement>) => {

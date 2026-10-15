@@ -25,6 +25,7 @@ import { SettingsPage } from "./components/SettingsPage";
 import { ProfileDropdown } from "./components/ProfileDropdown";
 import { OnboardingBanner } from "./components/OnboardingBanner";
 import { DiffModalHost } from "./components/DiffModalHost";
+import { AttachmentModalHost } from "./components/AttachmentModalHost";
 import { ConnectionBanner } from "./components/ConnectionBanner";
 import { InlineEdit } from "./components/InlineEdit";
 import { PushNotifications } from "./components/PushNotifications";
@@ -251,6 +252,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
         manuals alike — one place to say it, instead of a prop threaded through
         every surface that renders markdown. */}
     <DiffModalHost>
+    <AttachmentModalHost>
     <div className="app">
       <header className="topbar">
         <div className="topbar__brand">
@@ -463,6 +465,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
         )}
       </main>
     </div>
+    </AttachmentModalHost>
     </DiffModalHost>
     </OwnerNameProvider>
   );
