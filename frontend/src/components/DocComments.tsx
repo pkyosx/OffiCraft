@@ -372,9 +372,7 @@ export function DocCommentPanel({
           {tc.send}
         </button>
       </div>
-      {/* Last in the panel: a triple-click on the document's last line ends the
-        * range at the panel's first text, and the float's own label must not
-        * fall inside it. */}
+      {/* Must stay after all panel text: a triple-click range can end at the panel's first text node. */}
       {pick && (
         <button
           ref={floatRef}

@@ -746,6 +746,25 @@ for (const size of [NARROW, WIDE]) {
       ).toEqual(["主要互動是線上預覽，不是下載。"]);
     });
 
+    test("a selection from it into the comment panel's text offers no 加註解", async ({ mount, page }) => {
+      await page.setViewportSize(size);
+      await page.addInitScript(() => localStorage.clear());
+      await mount(<MarkdownPreviewCommentsStory />);
+      await expect(page.getByRole("heading", { name: "目標" })).toBeVisible();
+      await page.getByRole("button", { name: "註解" }).click();
+      await page.evaluate(() => {
+        const last = document.querySelector(".md-preview__md blockquote p")!;
+        const head = document.querySelector(".doc-comments__head")!;
+        const range = document.createRange();
+        range.setStart(last.firstChild!, 0);
+        range.setEnd(head.firstChild!, 2);
+        document.getSelection()!.removeAllRanges();
+        document.getSelection()!.addRange(range);
+      });
+      await page.waitForTimeout(50);
+      await expect(page.getByRole("button", { name: "加註解" })).toHaveCount(0);
+    });
+
     test("of a JSON file offers 加註解 and comments exactly that line", async ({ mount, page }) => {
       await page.setViewportSize(size);
       await page.addInitScript(() => localStorage.clear());
