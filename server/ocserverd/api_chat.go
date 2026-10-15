@@ -493,7 +493,7 @@ func (s *apiServer) servedChatMessageDTO(m ChatMessage) (chatMessageDTO, error) 
 	// The quote is joined HERE so every door that serves a message serves it (the
 	// listing, the history page, the by-ids read). Unlike the card status it is not
 	// best-effort: its absence is drawn on screen as an assertion.
-	quote, err := s.chatReplyQuote(dto.ReplyTo, replyExcerptFromMeta(dto.Meta), nil)
+	quote, err := s.chatReplyQuote(dto.ReplyTo, replyExcerptFromMeta(m.Meta), nil)
 	if err != nil {
 		return chatMessageDTO{}, err
 	}
@@ -1297,7 +1297,7 @@ func resumeChatCarriesFullBody(subject string, m ChatMessage) bool {
 
 func (s *apiServer) resumeChatMessageDTO(subject string, m ChatMessage, names map[string]string, cards map[string]ReplyCard) (chatMessageDTO, error) {
 	d := newChatMessageDTO(m)
-	quote, err := s.chatReplyQuote(d.ReplyTo, replyExcerptFromMeta(d.Meta), names)
+	quote, err := s.chatReplyQuote(d.ReplyTo, replyExcerptFromMeta(m.Meta), names)
 	if err != nil {
 		return chatMessageDTO{}, err
 	}

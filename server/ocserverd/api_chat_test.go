@@ -747,7 +747,7 @@ func TestHandlePostChatApiChatPost(t *testing.T) {
 				"message that exists; re-read the conversation and use the id it carries")
 	})
 
-	t.Run("a reply carrying an excerpt serves it verbatim on the listing and the by-id read, and a reply without one carries no excerpt key", func(t *testing.T) {
+	t.Run("a reply carrying an excerpt serves it verbatim in reply_to_chat and nowhere else on the listing and the by-id read, and a reply without one carries no excerpt key", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 		_, first := apiJSON(t, h, "POST", "/api/chat", owner,
 			`{"to":"mira","body":"line one\n\nline   two is **bold**"}`)
@@ -774,7 +774,7 @@ func TestHandlePostChatApiChatPost(t *testing.T) {
 			map[string]any{
 				"id": excerpted["id"], "from": "owner", "from_name": "", "to": "mira", "to_name": "",
 				"body": "about that", "body_omitted_chars": 0, "ts": apiAnyNumber, "ts_display": "",
-				"meta":              map[string]any{"reply_to": quoted, "reply_excerpt": "line one\n\nline   two is bold"},
+				"meta":              map[string]any{"reply_to": quoted},
 				"reply_card_status": "", "attachments": []any{}, "reply_to": quoted,
 				"reply_to_chat": excerptQuote,
 			},
@@ -3254,23 +3254,27 @@ func TestResumeChatMessageDTO(t *testing.T) {
 		}
 	})
 
-	t.Run("a reply carries its quote, resolved through the snapshot's own name table", func(t *testing.T) {
+	t.Run("a reply carries its quote, resolved through the snapshot's own name table, and its excerpt only inside that quote", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		_, first := apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"mira","body":"the original"}`)
 		_, second := apiJSON(t, h, "POST", "/api/chat", owner,
-			`{"to":"mira","body":"quoting","reply_to":"`+first["id"].(string)+`"}`)
+			`{"to":"mira","body":"quoting","reply_to":"`+first["id"].(string)+`","reply_excerpt":"orig"}`)
 
 		got, err := api.resumeChatMessageDTO("mira", apiTestChatRowOf(t, d, second["id"].(string)),
 			map[string]string{"mira": "Mira"}, nil)
 		if err != nil {
 			t.Fatalf("resumeChatMessageDTO: %v", err)
 		}
-		if got.ReplyToChat == nil {
-			t.Fatalf("want a quote, got nil")
-		}
-		apiWantValue(t, "quote", apiTestJSONOf(t, *got.ReplyToChat), map[string]any{
-			"id": first["id"], "from": "owner", "from_name": "Owner",
-			"to": "mira", "to_name": "Mira", "content": "the original",
+		apiWantValue(t, "dto", apiTestJSONOf(t, got), map[string]any{
+			"id": second["id"], "from": "owner", "from_name": "Owner",
+			"to": "mira", "to_name": "Mira", "body": "quoting",
+			"body_omitted_chars": 0, "ts": apiAnyNumber, "ts_display": apiAnyString,
+			"meta": map[string]any{"reply_to": first["id"]}, "reply_card_status": "",
+			"attachments": []any{}, "reply_to": first["id"],
+			"reply_to_chat": map[string]any{
+				"id": first["id"], "from": "owner", "from_name": "Owner",
+				"to": "mira", "to_name": "Mira", "content": "the original", "reply_excerpt": "orig",
+			},
 		})
 	})
 }

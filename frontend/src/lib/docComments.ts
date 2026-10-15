@@ -13,8 +13,9 @@ export interface DocCommentRecipient {
   id: string;
   name: string;
   /** Against the live roster (members or live outsource workers); "pending"
-   * until that roster has loaded, so nobody is called departed by a miss. */
-  roster: "active" | "left" | "pending";
+   * until that roster has loaded, so nobody is called departed by a miss.
+   * "not-member" is a server-stamped sender (system, webhook, schedule). */
+  roster: "active" | "left" | "pending" | "not-member";
 }
 
 export interface DocCommentTarget {
@@ -70,6 +71,19 @@ function excerptLines(excerpt: string): string[] {
   return out;
 }
 
+function escapeLinkText(text: string): string {
+  return text.replace(/[\\[\]`]/g, "\\$&");
+}
+
+// So a comment line reads as the comment's own text, never as a quoted excerpt
+// or another numbered item.
+function escapeBlockMarker(line: string): string {
+  return line.replace(
+    /^(\s*)(#|>|[-*+](?=\s|$)|\d+(?=[.)](?:\s|$))|([-*_=])\3{2}|```|~~~)/,
+    (m, indent: string, marker: string) => (/^\d/.test(marker) ? `${m}\\` : `${indent}\\${marker}`),
+  );
+}
+
 /** The chat message body. It is read by an AI through get_chat, so its labels
  * are a fixed format rather than UI wording a theme may override. Links are
  * host-less paths so they open on whatever address the reader uses. */
@@ -80,7 +94,7 @@ export function formatDocCommentMessage(input: {
   comments: DocComment[];
 }): string {
   const head = [
-    `**文件註解**：[${input.filename}](/api/chat/attachment/${input.attachmentId})（${input.attachmentId}）`,
+    `**文件註解**：[${escapeLinkText(input.filename)}](/api/chat/attachment/${input.attachmentId})（${input.attachmentId}）`,
   ];
   if (input.task) {
     head.push(
@@ -93,7 +107,9 @@ export function formatDocCommentMessage(input: {
   const items = input.comments.map((c, i) => {
     const quote = excerptLines(c.excerpt).map((l) => (l === "" ? "   >" : `   > ${l}`));
     const commentLines = c.comment.trim().split(/\r?\n/);
-    const comment = commentLines.map((l, j) => (j === 0 ? `   註解：${l}` : l === "" ? "" : `   ${l}`));
+    const comment = commentLines.map((l, j) =>
+      j === 0 ? `   註解：${l}` : l === "" ? "" : `   ${escapeBlockMarker(l)}`,
+    );
     return [`${i + 1}. 原文：`, ...quote, "", ...comment].join("\n");
   });
   return [head.join("\n"), ...items].join("\n\n");

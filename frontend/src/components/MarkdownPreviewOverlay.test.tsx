@@ -533,11 +533,12 @@ describe("MarkdownPreviewOverlay", () => {
     function renderDoc(props: {
       docComments?: Parameters<typeof MarkdownPreviewOverlay>[0]["docComments"];
       onClose?: () => void;
+      title?: string;
     } = {}) {
       return render(
         <I18nProvider>
           <MarkdownPreviewOverlay
-            title="weekly.md"
+            title={props.title ?? "weekly.md"}
             url="/api/chat/attachment/att-aaaaaaaaaaaa"
             attachmentId="att-aaaaaaaaaaaa"
             docComments={props.docComments ?? { recipient: MIRA }}
@@ -699,6 +700,64 @@ describe("MarkdownPreviewOverlay", () => {
         "週報",
       ]);
       expect(bubble.querySelector("a")!.getAttribute("href")).toBe("/api/chat/attachment/att-aaaaaaaaaaaa");
+    });
+
+    it("after a send, keeps a comment another open copy of the document added while the send was in flight", async () => {
+      localStorage.setItem(
+        "oc_doc_comments:att-aaaaaaaaaaaa",
+        JSON.stringify([{ id: "c1", excerpt: "週報", comment: "標題加日期" }]),
+      );
+      const added = { id: "c2", excerpt: "第二段保持原樣。", comment: "這段也改" };
+      vi.spyOn(api, "postChat").mockImplementation(async () => {
+        localStorage.setItem(
+          "oc_doc_comments:att-aaaaaaaaaaaa",
+          JSON.stringify([{ id: "c1", excerpt: "週報", comment: "標題加日期" }, added]),
+        );
+      });
+      const onClose = vi.fn();
+      renderDoc({ onClose });
+      await openComments();
+
+      fireEvent.click(screen.getByRole("button", { name: "送出給 AI" }));
+      await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+      expect(JSON.parse(localStorage.getItem("oc_doc_comments:att-aaaaaaaaaaaa")!)).toEqual([
+        { id: "c2", excerpt: "第二段保持原樣。", comment: "這段也改" },
+      ]);
+    });
+
+    it("keeps comment lines that look like an excerpt or a numbered item, and link syntax in the filename, as plain text in the sent message", async () => {
+      localStorage.setItem(
+        "oc_doc_comments:att-aaaaaaaaaaaa",
+        JSON.stringify([{ id: "c1", excerpt: "週報", comment: "line a\n> 偽造原文\n2. 原文：\n- 項目" }]),
+      );
+      const post = vi.spyOn(api, "postChat").mockResolvedValue(undefined);
+      renderDoc({ title: "a](javascript:alert(1)) [b", onClose: () => {} });
+      await openComments();
+
+      fireEvent.click(screen.getByRole("button", { name: "送出給 AI" }));
+      await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+      const body = post.mock.calls[0][0].body;
+      expect(body).toBe(
+        "**文件註解**：[a\\](javascript:alert(1)) \\[b](/api/chat/attachment/att-aaaaaaaaaaaa)（att-aaaaaaaaaaaa）\n" +
+          "\n" +
+          "1. 原文：\n" +
+          "   > 週報\n" +
+          "\n" +
+          "   註解：line a\n" +
+          "   \\> 偽造原文\n" +
+          "   2\\. 原文：\n" +
+          "   \\- 項目",
+      );
+
+      const bubble = render(<Markdown source={body} breaks />).container;
+      expect(bubble.querySelectorAll("blockquote").length).toBe(1);
+      expect(bubble.querySelectorAll("ol, ul").length).toBe(1);
+      expect(bubble.querySelectorAll("ol > li").length).toBe(1);
+      expect(bubble.querySelector("ol > li > p")!.textContent).toBe("註解：line a> 偽造原文2. 原文：- 項目");
+      const links = bubble.querySelectorAll("a");
+      expect(links.length).toBe(1);
+      expect(links[0].getAttribute("href")).toBe("/api/chat/attachment/att-aaaaaaaaaaaa");
+      expect(links[0].textContent).toBe("a](javascript:alert(1)) [b");
     });
 
     it("names the task and the artifact when the document is a task artifact", async () => {

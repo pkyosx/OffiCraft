@@ -1196,6 +1196,7 @@ export const en: Dict = {
         recipientLabel: "To: ",
         recipientUnknown: "There is no one to send this document's comments to.",
         recipientGone: "The recipient is no longer on the roster (removed or released), so this cannot be sent.",
+        recipientNotMember: "This document was not sent by a member, so its comments cannot be sent directly.",
         send: "Send to AI",
         sendFailed: "Sending failed; your comments are kept",
       },

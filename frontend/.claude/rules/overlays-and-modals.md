@@ -53,7 +53,7 @@ overlay portal 到 document.body，避免宿主 stacking context 困住它；需
 
 ### 文件註解
 
-註解模式只開在 url 模式的 markdown 文件，而且呼叫端要傳 `docComments`（收件人＋任務產物資訊）；沒傳就沒有「註解」鈕。收件人由開啟的那個面決定、overlay 不猜：聊天附件是那則訊息的寄件人（自己寄的就是聊天室對象），任務產物是負責人；收件人的 roster 是三態：live 名冊（members 或 live 外包 workers）查得到是 active；名冊還沒載完（呼叫端的 rosterSettled 為 false）是 pending——送出鈕停用但不說對方已離開，因為查不到可能只是還沒到；載完仍查不到才是 left、顯示原因。送出的本文格式由 `lib/docComments.ts` 的 `formatDocCommentMessage` 獨占——它是給 AI 讀的固定格式，不走 i18n、不讓主題用詞覆寫；引言要寫在清單項的續行，因為 Markdown.tsx 把清單項第一行當 inline 讀，寫在第一行的 `>` 不會變成引言。標色用 CSS Custom Highlight API，不改 Markdown 畫出來的 DOM（React 還管著那些節點）；找原文時忽略空白，因為選取文字在區塊之間帶換行、DOM 文字節點沒有。草稿存 localStorage（以附件 id 為鍵，讀寫都包 try/catch）。
+註解模式只開在 url 模式的 markdown 文件，而且呼叫端要傳 `docComments`（收件人＋任務產物資訊）；沒傳就沒有「註解」鈕。收件人由開啟的那個面決定、overlay 不猜：聊天附件是那則訊息的寄件人（自己寄的就是聊天室對象），任務產物是負責人；收件人的 roster 是四態：寄件者是 server 蓋的身分（system、`hook:`、`sched:`，見 `lib/syntheticSender.ts`）是 not-member，顯示「不是成員寄出的」而不是「已離開」；live 名冊（members 或 live 外包 workers）查得到是 active；名冊還沒載完（呼叫端的 rosterSettled 為 false）是 pending——送出鈕停用但不說對方已離開，因為查不到可能只是還沒到；載完仍查不到才是 left、顯示原因。送出的本文格式由 `lib/docComments.ts` 的 `formatDocCommentMessage` 獨占——它是給 AI 讀的固定格式，不走 i18n、不讓主題用詞覆寫；引言要寫在清單項的續行，因為 Markdown.tsx 把清單項第一行當 inline 讀，寫在第一行的 `>` 不會變成引言。註解續行開頭的區塊符號（`>`、`#`、`-`/`*`/`+`、`1.`、fence、`---`）與檔名裡的 `\`、`[`、`]`、反引號都以反斜線跳脫，Markdown.tsx 照 CommonMark 把反斜線後的 ASCII 標點當字面字元，否則註解裡的一行 `> …` 或 `2. 原文：` 會畫成另一段原文或另一項。送出成功只從草稿刪掉送出的那幾則（依 id），另一個開著的同份文件在送出途中加的註解要留著。標色用 CSS Custom Highlight API，不改 Markdown 畫出來的 DOM（React 還管著那些節點）；找原文時忽略空白，因為選取文字在區塊之間帶換行、DOM 文字節點沒有。草稿存 localStorage（以附件 id 為鍵，讀寫都包 try/catch）。
 
 ## Esc 分層
 

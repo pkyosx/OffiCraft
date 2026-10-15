@@ -23,7 +23,10 @@
 //               render it nested — so a numbered step with indented sub-bullets
 //               stays ONE list with continuous numbering instead of collapsing
 //               into many single-item lists each restarting at 1.
-// Inline:       **bold**, `code`, and [text](url) links — the destination may
+// Inline:       a backslash before ASCII punctuation makes that character
+//               literal (CommonMark), e.g. "\>" or "1\." at a line start,
+//               "\]" inside link text. **bold**, `code`, and [text](url)
+//               links — the destination may
 //               also be written CommonMark's angle-bracketed way,
 //               [text](<url>), which means the same thing (http/https/mailto
 //               only — any other scheme, e.g. "javascript:", falls through as
@@ -123,7 +126,15 @@ interface MarkdownProps {
   resolveDocLink?: (target: string) => (() => void) | null;
 }
 
-const LINK_RE = /^\[([^\]]+)\]\(([^)]+)\)$/;
+const ESCAPABLE = "[!-/:-@[-`{-~]";
+const ESCAPE_RE = new RegExp(`^\\\\${ESCAPABLE}$`);
+const UNESCAPE_RE = new RegExp(`\\\\(${ESCAPABLE})`, "g");
+const LINK_LABEL = `(?:\\\\${ESCAPABLE}|\\\\(?!${ESCAPABLE})|[^\\]\\\\])+`;
+const LINK_RE = new RegExp(`^\\[(${LINK_LABEL})\\]\\(([^)]+)\\)$`);
+const INLINE_TOKEN_RE = new RegExp(
+  `(\`[^\`]+\`|\\*\\*[^*]+\\*\\*|\\[${LINK_LABEL}\\]\\([^)]+\\)|\\\\${ESCAPABLE})`,
+  "g",
+);
 // CommonMark lets a link destination be WRAPPED IN ANGLE BRACKETS:
 // `[text](<https://x>)` is the same link as `[text](https://x)`, and the
 // wrapper is the standard way to write a destination that carries spaces.
@@ -373,7 +384,7 @@ function autolinkBareUrls(text: string): ReactNode[] {
 function renderInline(text: string, opts?: InlineOpts): ReactNode[] {
   // Capturing split keeps the delimiters as their own array entries.
   const parts = text
-    .split(/(`[^`]+`|\*\*[^*]+\*\*|\[[^\]]+\]\([^)]+\))/g)
+    .split(INLINE_TOKEN_RE)
     .filter((p) => p !== "");
   return parts
     .map((part, i) => {
@@ -389,9 +400,13 @@ function renderInline(text: string, opts?: InlineOpts): ReactNode[] {
         // can never contain another bold run.
         return <strong key={i}>{renderInline(part.slice(2, -2), opts)}</strong>;
       }
+      if (ESCAPE_RE.test(part)) {
+        return <Fragment key={i}>{part.slice(1)}</Fragment>;
+      }
       const link = LINK_RE.exec(part);
       if (link) {
-        const [, label, url] = link;
+        const label = link[1].replace(UNESCAPE_RE, "$1");
+        const url = link[2];
         const angled = ANGLE_DEST_RE.exec(url.trim());
         const target = (angled ? angled[1] : url).trim();
         // The external-scheme allowlist runs FIRST and is unchanged.

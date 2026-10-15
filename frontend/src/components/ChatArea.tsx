@@ -2111,7 +2111,13 @@ export function ChatArea({
           docCommentsFor={() => {
             const to = m.from === OWNER_ID ? member.id : m.from;
             const listed = members.some((x) => x.id === to) || workers.some((w) => w.id === to);
-            const roster = listed ? "active" : rosterSettled ? "left" : "pending";
+            const roster = isSyntheticSender(to)
+              ? "not-member"
+              : listed
+                ? "active"
+                : rosterSettled
+                  ? "left"
+                  : "pending";
             return { recipient: { id: to, name: nameOf(to), roster } };
           }}
         />

@@ -67,6 +67,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "chat.mdPreview.comments.panelTitle",
   "chat.mdPreview.comments.recipientGone",
   "chat.mdPreview.comments.recipientLabel",
+  "chat.mdPreview.comments.recipientNotMember",
   "chat.mdPreview.comments.recipientUnknown",
   "chat.mdPreview.comments.remove",
   "chat.mdPreview.comments.save",

@@ -1232,6 +1232,7 @@ export const zh = {
         recipientLabel: "送給：",
         recipientUnknown: "不知道這份文件該送給誰，無法送出。",
         recipientGone: "對方已不在名冊上（已移除或已釋出），無法送出。",
+        recipientNotMember: "這份文件不是成員寄出的，無法直接送出註解。",
         send: "送出給 AI",
         sendFailed: "送出失敗，註解已保留",
       },

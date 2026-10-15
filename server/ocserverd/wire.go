@@ -2122,9 +2122,11 @@ func attachmentDTOsFromRefs(refs []any) []chatAttachmentDTO {
 }
 
 func newChatMessageDTO(m ChatMessage) chatMessageDTO {
-	meta := m.Meta
-	if meta == nil {
-		meta = map[string]any{}
+	meta := map[string]any{}
+	for k, v := range m.Meta {
+		if k != chatReplyExcerptMetaKey {
+			meta[k] = v
+		}
 	}
 	refs, _ := meta["attachments"].([]any)
 	attachments := attachmentDTOsFromRefs(refs)
@@ -2152,6 +2154,8 @@ func replyToFromMeta(meta map[string]any) string {
 }
 
 // Same forgery guard as replyToFromMeta: the post handler deletes a caller-supplied key.
+// Read it off the stored row: newChatMessageDTO leaves it out of the served meta,
+// since it is served in reply_to_chat.
 func replyExcerptFromMeta(meta map[string]any) string {
 	excerpt, _ := meta[chatReplyExcerptMetaKey].(string)
 	return excerpt

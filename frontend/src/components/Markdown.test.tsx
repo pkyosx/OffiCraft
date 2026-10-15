@@ -225,6 +225,20 @@ describe("Markdown", () => {
     expect(c.textContent).toContain("[click me](javascript:alert(1))");
   });
 
+  it("renders a backslash-escaped block marker as the bare character in prose, not as a block", () => {
+    const c = renderMd("\\> 不是引用\n\n2\\. 不是清單\n\n\\# 不是標題\n\n\\- 不是項目\n\n\\---");
+    expect(c.firstElementChild?.innerHTML).toBe(
+      "<p>&gt; 不是引用</p><p>2. 不是清單</p><p># 不是標題</p><p>- 不是項目</p><p>---</p>",
+    );
+  });
+
+  it("keeps escaped brackets inside the link text and shows them without the backslash", () => {
+    const c = renderMd("[a\\](javascript:alert(1)) \\[b](/api/x) and C:\\Users");
+    expect(c.firstElementChild?.innerHTML).toBe(
+      '<p><a href="/api/x" target="_blank" rel="noopener noreferrer">a](javascript:alert(1)) [b</a> and C:\\Users</p>',
+    );
+  });
+
   // Same-origin absolute paths. An agent running on the station's own machine
   // only knows the loopback address it calls the API with, so every link it
   // wrote carried a host that opened nowhere else; a path carries no host and

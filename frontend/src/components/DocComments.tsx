@@ -159,7 +159,13 @@ export function DocCommentPanel({
 
   const recipient = target.recipient;
   const blockedReason =
-    recipient === null ? tc.recipientUnknown : recipient.roster === "left" ? tc.recipientGone : null;
+    recipient === null
+      ? tc.recipientUnknown
+      : recipient.roster === "left"
+        ? tc.recipientGone
+        : recipient.roster === "not-member"
+          ? tc.recipientNotMember
+          : null;
   const canSend =
     blockedReason === null && recipient?.roster === "active" && comments.length > 0 && !sending;
 
@@ -172,7 +178,11 @@ export function DocCommentPanel({
         to: recipient.id,
         body: formatDocCommentMessage({ filename, attachmentId, task: target.task, comments }),
       });
-      saveDocCommentDraft(attachmentId, []);
+      const sent = new Set(comments.map((c) => c.id));
+      saveDocCommentDraft(
+        attachmentId,
+        loadDocCommentDraft(attachmentId).filter((c) => !sent.has(c.id)),
+      );
       onSent();
     } catch (e) {
       console.warn("DocCommentPanel: send failed", e);

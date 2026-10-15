@@ -250,10 +250,21 @@ describe("chat .md attachment comments", () => {
     expect(view.queryByText("對方已不在名冊上（已移除或已釋出），無法送出。")).toBeNull();
   });
 
-  it("refuses to send to a sender who is no longer on the roster", async () => {
+  it("refuses to send to a sender who is no longer on the roster, and says a webhook or scheduled sender is not a member instead", async () => {
     messages = [{ ...msgWith([md("att-from-nova")]), id: "msg-n", from: "m2", to: "m1" }];
     const view = await sendSeededComment("att-from-nova", [mkMember()], true);
     expect((view.getByRole("button", { name: "送出給 AI" }) as HTMLButtonElement).disabled).toBe(true);
     expect(view.getByText("對方已不在名冊上（已移除或已釋出），無法送出。")).toBeTruthy();
+    expect(view.queryByText("這份文件不是成員寄出的，無法直接送出註解。")).toBeNull();
+    view.unmount();
+
+    for (const from of ["hook:ep-aaaa", "sched:sc-aaaa", "system"]) {
+      messages = [{ ...msgWith([md("att-synthetic")]), id: "msg-s", from, to: "owner" }];
+      const synthetic = await sendSeededComment("att-synthetic", [mkMember()], true);
+      expect((synthetic.getByRole("button", { name: "送出給 AI" }) as HTMLButtonElement).disabled).toBe(true);
+      expect(synthetic.getByText("這份文件不是成員寄出的，無法直接送出註解。")).toBeTruthy();
+      expect(synthetic.queryByText("對方已不在名冊上（已移除或已釋出），無法送出。")).toBeNull();
+      synthetic.unmount();
+    }
   });
 });

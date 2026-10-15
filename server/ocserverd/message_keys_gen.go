@@ -68,6 +68,7 @@ var messageKeys = map[string]bool{
 	"chat.mdPreview.comments.panelTitle":               true,
 	"chat.mdPreview.comments.recipientGone":            true,
 	"chat.mdPreview.comments.recipientLabel":           true,
+	"chat.mdPreview.comments.recipientNotMember":       true,
 	"chat.mdPreview.comments.recipientUnknown":         true,
 	"chat.mdPreview.comments.remove":                   true,
 	"chat.mdPreview.comments.save":                     true,

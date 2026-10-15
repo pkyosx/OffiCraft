@@ -588,7 +588,7 @@ export interface paths {
          *
          *     IT IS NOT CHECKED AGAINST THE QUOTED MESSAGE'S TEXT: a selection made on the rendered message need not appear verbatim in its raw markdown, so the server stores what was sent.
          *
-         *     It is stored with this message and comes back VERBATIM on every read in ``ChatMessageDTO.reply_to_chat.reply_excerpt``. Like the reply link, the server is its only writer: a ``meta.reply_excerpt`` you send yourself is DISCARDED.
+         *     It is stored with this message and comes back VERBATIM on every read in ``ChatMessageDTO.reply_to_chat.reply_excerpt``, and only there: it is not served in ``meta``. Like the reply link, the server is its only writer: a ``meta.reply_excerpt`` you send yourself is DISCARDED.
          * @description - The sender is always your token; the body's `from` is ignored.
          *     - `to` is the owner or an active member; unknown, removed or machine id is a 404.
          *     - Presence is not checked: an offline member reads it later.
@@ -5248,7 +5248,7 @@ export interface components {
              *
              *     IT IS NOT CHECKED AGAINST THE QUOTED MESSAGE'S TEXT: a selection made on the rendered message need not appear verbatim in its raw markdown, so the server stores what was sent.
              *
-             *     It is stored with this message and comes back VERBATIM on every read in ``ChatMessageDTO.reply_to_chat.reply_excerpt``. Like the reply link, the server is its only writer: a ``meta.reply_excerpt`` you send yourself is DISCARDED.
+             *     It is stored with this message and comes back VERBATIM on every read in ``ChatMessageDTO.reply_to_chat.reply_excerpt``, and only there: it is not served in ``meta``. Like the reply link, the server is its only writer: a ``meta.reply_excerpt`` you send yourself is DISCARDED.
              * @default
              */
             reply_excerpt: string;

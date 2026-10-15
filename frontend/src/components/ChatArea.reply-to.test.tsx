@@ -1474,9 +1474,28 @@ describe("ChatArea 回覆這則", () => {
       expect(banner(container)).toBeNull();
     });
 
-    it("a selection spanning two messages, or touching no body, offers nothing", () => {
+    it("a selection spanning two messages, running out of a body into its own row's name or quote, or touching no body, offers nothing", () => {
+      messages.push(
+        mkMsg({
+          id: "c-9",
+          from: "owner",
+          to: "m1",
+          body: "問這則",
+          ts: 9,
+          replyTo: "c-1",
+          replyToChat: mkQuote("c-1", "m1", "owner", "第一個問題"),
+        }),
+      );
       const { container } = renderChat();
       selectText(bodyTextOf(container, "c-1"), 1, bodyTextOf(container, "c-2"), 2);
+      expect(selectionButton()).toBeNull();
+
+      const ownName = rowOf(container, "c-1").querySelector(".chat__msg-name")!.firstChild!;
+      selectText(ownName, 1, bodyTextOf(container, "c-1"), 2);
+      expect(selectionButton()).toBeNull();
+
+      const ownQuote = rowOf(container, "c-9").querySelector(".chat__msg-quote__body")!.firstChild!;
+      selectText(ownQuote, 2, bodyTextOf(container, "c-9"), 1);
       expect(selectionButton()).toBeNull();
 
       const name = rowOf(container, "c-1").querySelector(".chat__msg-name")!
