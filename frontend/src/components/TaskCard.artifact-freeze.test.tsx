@@ -79,13 +79,14 @@ const ARTIFACT: TaskArtifactView = {
   versionCount: 1,
 };
 
-function renderCard(task: TaskView, members: Member[] = []) {
+function renderCard(task: TaskView, members: Member[] = [], rosterSettled = false) {
   return render(
     <I18nProvider>
       <TaskCard
         task={task}
         allTasks={[task]}
         members={members}
+        rosterSettled={rosterSettled}
         workers={[]}
         nowTs={Date.now() / 1000}
         onTerminate={NOOP as never}
@@ -165,7 +166,7 @@ describe("產物註解送給任務負責人", () => {
   }
 
   it("addresses the executor on the roster", async () => {
-    renderCard(mkTask({ executorId: "mira" }), [mira]);
+    renderCard(mkTask({ executorId: "mira" }), [mira], true);
     await openComments();
     expect(screen.getByText("Mira", { selector: ".doc-comments__recipient strong" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "送出給 AI" }));
@@ -173,8 +174,15 @@ describe("產物註解送給任務負責人", () => {
     expect(vi.mocked(api.postChat).mock.calls[0][0].to).toBe("mira");
   });
 
+  it("does not call the executor departed while the roster has not loaded", async () => {
+    renderCard(mkTask({ executorId: "mira" }), [], false);
+    await openComments();
+    expect((screen.getByRole("button", { name: "送出給 AI" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByText("對方已不在名冊上（已移除或已釋出），無法送出。")).toBeNull();
+  });
+
   it("refuses an executor who has left the roster", async () => {
-    renderCard(mkTask({ executorId: "mira" }), []);
+    renderCard(mkTask({ executorId: "mira" }), [], true);
     await openComments();
     expect((screen.getByRole("button", { name: "送出給 AI" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText("對方已不在名冊上（已移除或已釋出），無法送出。")).toBeTruthy();

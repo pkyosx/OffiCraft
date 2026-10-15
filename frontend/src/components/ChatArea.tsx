@@ -275,6 +275,7 @@ export function ChatArea({
   member,
   members = [],
   workers = [],
+  rosterSettled = false,
   onOpenDetail,
   onOpenTasks,
   onOpenRoleSettings,
@@ -304,6 +305,9 @@ export function ChatArea({
   //      Passing the live lists is what keeps that read off live identities.
   // Optional (defaults empty) for the same reason `members` is.
   workers?: OutsourceWorkerView[];
+  // True once `members` and `workers` have both loaded without error; before
+  // that a participant missing from them may simply not have arrived yet.
+  rosterSettled?: boolean;
   // Open the member detail page. Optional: when absent the header is NOT
   // interactive (no cursor/role/tabindex) so we never advertise a dead click.
   onOpenDetail?: () => void;
@@ -2106,8 +2110,9 @@ export function ChatArea({
           imageClassName="chat__msg-image chat__msg-image--clickable"
           docCommentsFor={() => {
             const to = m.from === OWNER_ID ? member.id : m.from;
-            const active = members.some((x) => x.id === to) || workers.some((w) => w.id === to);
-            return { recipient: { id: to, name: nameOf(to), active } };
+            const listed = members.some((x) => x.id === to) || workers.some((w) => w.id === to);
+            const roster = listed ? "active" : rosterSettled ? "left" : "pending";
+            return { recipient: { id: to, name: nameOf(to), roster } };
           }}
         />
       </div>

@@ -71,7 +71,7 @@ export function MarkdownPreviewCommentsStory() {
         title="架構設計.md"
         url={DATA_URL}
         attachmentId="att-ct-comments"
-        docComments={{ recipient: { id: "m-mira", name: "Mira", active: true } }}
+        docComments={{ recipient: { id: "m-mira", name: "Mira", roster: "active" } }}
         onClose={() => {}}
       />
     </I18nProvider>

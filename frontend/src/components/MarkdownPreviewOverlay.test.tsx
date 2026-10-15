@@ -519,7 +519,7 @@ describe("MarkdownPreviewOverlay", () => {
 
   describe("comment mode", () => {
     const DOC = "# 週報\n\n第一段要修改的內容。\n\n第二段保持原樣。";
-    const MIRA = { id: "m-mira", name: "Mira", active: true };
+    const MIRA = { id: "m-mira", name: "Mira", roster: "active" as const };
 
     beforeEach(() => {
       localStorage.clear();
@@ -711,7 +711,7 @@ describe("MarkdownPreviewOverlay", () => {
             url="/api/chat/attachment/att-bbbbbbbbbbbb"
             attachmentId="att-bbbbbbbbbbbb"
             docComments={{
-              recipient: { id: "ow-cccccccccccc", name: "外包 阿青", active: true },
+              recipient: { id: "ow-cccccccccccc", name: "外包 阿青", roster: "active" },
               task: { id: "T-12", taskNo: "T-12", artifactName: "週報" },
             }}
             onClose={() => {}}
@@ -752,7 +752,7 @@ describe("MarkdownPreviewOverlay", () => {
 
     it("disables sending to a recipient who left the roster, with the reason", async () => {
       const post = vi.spyOn(api, "postChat").mockResolvedValue(undefined);
-      renderDoc({ docComments: { recipient: { ...MIRA, active: false } } });
+      renderDoc({ docComments: { recipient: { ...MIRA, roster: "left" } } });
       await openComments();
       addComment("第一段要修改", "改成條列");
       const send = screen.getByRole("button", { name: "送出給 AI" }) as HTMLButtonElement;
@@ -760,6 +760,15 @@ describe("MarkdownPreviewOverlay", () => {
       expect(screen.getByText("對方已不在名冊上（已移除或已釋出），無法送出。")).toBeTruthy();
       fireEvent.click(send);
       expect(post).not.toHaveBeenCalled();
+    });
+
+    it("keeps send disabled without calling anyone departed while the roster is still loading", async () => {
+      renderDoc({ docComments: { recipient: { ...MIRA, roster: "pending" } } });
+      await openComments();
+      addComment("第一段要修改", "改成條列");
+      expect((screen.getByRole("button", { name: "送出給 AI" }) as HTMLButtonElement).disabled).toBe(true);
+      expect(screen.queryByText("對方已不在名冊上（已移除或已釋出），無法送出。")).toBeNull();
+      expect(screen.getByText("Mira")).toBeTruthy();
     });
 
     it("enables sending to an active recipient once a comment exists", async () => {

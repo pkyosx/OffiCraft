@@ -12,8 +12,9 @@ export interface DocComment {
 export interface DocCommentRecipient {
   id: string;
   name: string;
-  /** In the live roster (members or live outsource workers). */
-  active: boolean;
+  /** Against the live roster (members or live outsource workers); "pending"
+   * until that roster has loaded, so nobody is called departed by a miss. */
+  roster: "active" | "left" | "pending";
 }
 
 export interface DocCommentTarget {

@@ -159,8 +159,9 @@ export function DocCommentPanel({
 
   const recipient = target.recipient;
   const blockedReason =
-    recipient === null ? tc.recipientUnknown : !recipient.active ? tc.recipientGone : null;
-  const canSend = blockedReason === null && comments.length > 0 && !sending;
+    recipient === null ? tc.recipientUnknown : recipient.roster === "left" ? tc.recipientGone : null;
+  const canSend =
+    blockedReason === null && recipient?.roster === "active" && comments.length > 0 && !sending;
 
   async function send() {
     if (!canSend || recipient === null) return;

@@ -866,6 +866,7 @@ export function OfficePage({
             {...chatProjection.slots}
             members={members}
             workers={outsource.workers}
+            rosterSettled={listsSettled && !error && !outsource.error}
           />
         </section>
       )}

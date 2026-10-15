@@ -69,7 +69,7 @@ function renderBadge(
   opts: {
     count?: number;
     onRemove?: (t: string, a: string) => Promise<void>;
-    commentRecipient?: { id: string; name: string; active: boolean } | null;
+    commentRecipient?: { id: string; name: string; roster: "active" | "left" | "pending" } | null;
   } = {},
 ) {
   const count = opts.count ?? artifacts.length;
@@ -597,7 +597,7 @@ describe("任務產物 .md 的註解", () => {
       JSON.stringify([{ id: "c1", excerpt: "週報", comment: "補上日期" }]),
     );
     const view = renderBadge([report()], {
-      commentRecipient: { id: "ow-eeeeeeeeeeee", name: "外包 阿青", active: true },
+      commentRecipient: { id: "ow-eeeeeeeeeeee", name: "外包 阿青", roster: "active" },
     });
     await openCommentsOn(view);
     fireEvent.click(screen.getByRole("button", { name: "註解" }));

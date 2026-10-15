@@ -1562,7 +1562,12 @@ export function TaskCard({
                   : {
                       id: worker?.id ?? task.executorId,
                       name: executorName,
-                      active: worker !== undefined || !isUnlisted(task.executorId),
+                      roster:
+                        worker !== undefined || !isUnlisted(task.executorId)
+                          ? "active"
+                          : rosterSettled
+                            ? "left"
+                            : "pending",
                     }
               }
               onRemoveArtifact={
