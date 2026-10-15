@@ -232,6 +232,15 @@ describe("Markdown", () => {
     );
   });
 
+  it("leaves backslashes literal inside a code span, a fenced block and a bare URL", () => {
+    const c = renderMd("`\\d+\\.\\d+` and see https://x.com/a\\_b/c done\n\n```\n\\d+\\.\\d+\n```");
+    expect(c.firstElementChild?.innerHTML).toBe(
+      "<p><code>\\d+\\.\\d+</code> and see " +
+        '<a href="https://x.com/a\\_b/c" target="_blank" rel="noopener noreferrer">https://x.com/a\\_b/c</a> done</p>' +
+        "<pre><code>\\d+\\.\\d+</code></pre>",
+    );
+  });
+
   it("keeps escaped brackets inside the link text and shows them without the backslash", () => {
     const c = renderMd("[a\\](javascript:alert(1)) \\[b](/api/x) and C:\\Users");
     expect(c.firstElementChild?.innerHTML).toBe(

@@ -25,7 +25,7 @@
 //               into many single-item lists each restarting at 1.
 // Inline:       a backslash before ASCII punctuation makes that character
 //               literal (CommonMark), e.g. "\>" or "1\." at a line start,
-//               "\]" inside link text. **bold**, `code`, and [text](url)
+//               "\]" inside link text; not inside code or a bare URL. **bold**, `code`, and [text](url)
 //               links — the destination may
 //               also be written CommonMark's angle-bracketed way,
 //               [text](<url>), which means the same thing (http/https/mailto
@@ -127,12 +127,11 @@ interface MarkdownProps {
 }
 
 const ESCAPABLE = "[!-/:-@[-`{-~]";
-const ESCAPE_RE = new RegExp(`^\\\\${ESCAPABLE}$`);
 const UNESCAPE_RE = new RegExp(`\\\\(${ESCAPABLE})`, "g");
 const LINK_LABEL = `(?:\\\\${ESCAPABLE}|\\\\(?!${ESCAPABLE})|[^\\]\\\\])+`;
 const LINK_RE = new RegExp(`^\\[(${LINK_LABEL})\\]\\(([^)]+)\\)$`);
 const INLINE_TOKEN_RE = new RegExp(
-  `(\`[^\`]+\`|\\*\\*[^*]+\\*\\*|\\[${LINK_LABEL}\\]\\([^)]+\\)|\\\\${ESCAPABLE})`,
+  `(\`[^\`]+\`|\\*\\*[^*]+\\*\\*|\\[${LINK_LABEL}\\]\\([^)]+\\))`,
   "g",
 );
 // CommonMark lets a link destination be WRAPPED IN ANGLE BRACKETS:
@@ -341,6 +340,11 @@ function trimUrlTail(url: string): string {
   return url.slice(0, end);
 }
 
+// Prose only: a bare URL keeps its backslashes, as it did before escapes existed.
+function unescapeText(text: string): string {
+  return text.replace(UNESCAPE_RE, "$1");
+}
+
 /** Turn bare http(s) URLs and bare compare paths inside one run of plain text into anchors. */
 function autolinkBareUrls(text: string): ReactNode[] {
   BARE_URL_RE.lastIndex = 0;
@@ -363,7 +367,7 @@ function autolinkBareUrls(text: string): ReactNode[] {
       if (BARE_URL_RE.lastIndex <= m.index) BARE_URL_RE.lastIndex = m.index + 1;
       continue;
     }
-    if (m.index > last) out.push(text.slice(last, m.index));
+    if (m.index > last) out.push(unescapeText(text.slice(last, m.index)));
     // A bare compare url is the SHAPE THIS FEATURE IS FOR — pasting one to
     // someone is how a comparison travels — so the autolinked form goes
     // through the same component as the written [text](url) form. It widens
@@ -373,8 +377,8 @@ function autolinkBareUrls(text: string): ReactNode[] {
     out.push(<ExternalOrDiffLink key={key++} href={url} label={url} />);
     last = BARE_URL_RE.lastIndex;
   }
-  if (out.length === 0) return [text];
-  if (last < text.length) out.push(text.slice(last));
+  if (out.length === 0) return [unescapeText(text)];
+  if (last < text.length) out.push(unescapeText(text.slice(last)));
   return out;
 }
 
@@ -399,9 +403,6 @@ function renderInline(text: string, opts?: InlineOpts): ReactNode[] {
         // Terminates: the split pattern's bold body is `[^*]+`, so a bold run
         // can never contain another bold run.
         return <strong key={i}>{renderInline(part.slice(2, -2), opts)}</strong>;
-      }
-      if (ESCAPE_RE.test(part)) {
-        return <Fragment key={i}>{part.slice(1)}</Fragment>;
       }
       const link = LINK_RE.exec(part);
       if (link) {
