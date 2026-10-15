@@ -335,20 +335,50 @@ describe("chat message links to a stored attachment", () => {
     expect(windowOpen).not.toHaveBeenCalled();
   });
 
-  it("previews an image comment's link as that image, and a link text with no extension as not previewable", async () => {
+  it("previews an image comment's link as that image, typed by its link text's extension", async () => {
     const { link } = readingTheCommentMessage();
     fireEvent.click(link("架構圖.png"));
     await waitFor(() => expect(overlay()?.querySelector("img")).toBeTruthy());
     expect(overlay()?.querySelector("img")?.getAttribute("src")).toBe(
       "/api/chat/attachment/att-bbbbbbbbbbbb?token=jwt-1",
     );
-    fireEvent.keyDown(window, { key: "Escape" });
-    await waitFor(() => expect(overlay()).toBeNull());
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
 
-    fireEvent.click(link("架構圖"));
+  it("asks the server for the type when the link text has no extension, loading meanwhile, and shows the image it answers", async () => {
+    const { link } = readingTheCommentMessage();
+    let answer!: (r: unknown) => void;
+    globalThis.fetch = vi.fn(
+      () => new Promise((resolve) => (answer = resolve)),
+    ) as unknown as typeof fetch;
+    const flowChart = link("架構圖");
+
+    fireEvent.click(flowChart);
     await waitFor(() => expect(overlay()?.getAttribute("aria-label")).toBe("架構圖"));
+    expect(within(overlay()!).getByText("載入預覽中…")).toBeTruthy();
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(globalThis.fetch).toHaveBeenCalledWith("/api/chat/attachment/att-cccccccccccc?token=jwt-1", {
+      method: "HEAD",
+    });
+
+    answer({ ok: true, headers: new Headers({ "content-type": "image/png" }) });
+    await waitFor(() => expect(overlay()?.querySelector("img")).toBeTruthy());
+    expect(overlay()?.querySelector("img")?.getAttribute("src")).toBe(
+      "/api/chat/attachment/att-cccccccccccc?token=jwt-1",
+    );
+    expect(within(overlay()!).queryByText("載入預覽中…")).toBeNull();
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(flowChart.getAttribute("href")).toBe("/api/chat/attachment/att-cccccccccccc");
+  });
+
+  it("shows the not-previewable view when the type question fails", async () => {
+    const { link } = readingTheCommentMessage();
+    globalThis.fetch = vi.fn(async () => ({ ok: false, status: 500, headers: new Headers() })) as unknown as typeof fetch;
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    fireEvent.click(link("架構圖"));
+    await waitFor(() => expect(within(overlay()!).getByText("此檔案無法預覽，請下載")).toBeTruthy());
     expect(overlay()?.querySelector("img")).toBeNull();
-    expect(within(overlay()!).getByText("此檔案無法預覽，請下載")).toBeTruthy();
+    expect(within(overlay()!).queryByText("載入預覽中…")).toBeNull();
   });
 
   it("leaves an external link in the same message to open its new tab", () => {

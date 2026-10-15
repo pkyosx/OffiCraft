@@ -161,6 +161,9 @@ type MarkdownPreviewOverlayProps = {
       mime?: string;
       /** Offers comment mode on a text document (markdown, plain text, JSON); absent ⇒ no 註解 toggle. */
       docComments?: DocCommentTarget;
+      /** The caller is still finding out what `mime` is: show the loading
+       * state and fetch nothing until it says. */
+      typePending?: boolean;
       source?: never;
       imageSrc?: never;
       diffParams?: never;
@@ -169,6 +172,7 @@ type MarkdownPreviewOverlayProps = {
       /** Markdown text the caller already holds — rendered as-is, no fetch. */
       source: string;
       url?: never;
+      typePending?: never;
       /** No blob, so no share link: there is nothing for a link to point at. */
       attachmentId?: never;
       mime?: never;
@@ -182,6 +186,7 @@ type MarkdownPreviewOverlayProps = {
        * nothing has been uploaded, so no blob id exists to mint a link from. */
       imageSrc: string;
       url?: never;
+      typePending?: never;
       attachmentId?: never;
       mime?: never;
       docComments?: never;
@@ -197,6 +202,7 @@ type MarkdownPreviewOverlayProps = {
        * `DiffScreen`, the same compare screen the standalone page draws. */
       diffParams: DiffParams;
       url?: never;
+      typePending?: never;
       attachmentId?: never;
       mime?: never;
       docComments?: never;
@@ -215,6 +221,7 @@ export function MarkdownPreviewOverlay({
   imageSrc,
   diffParams,
   docComments,
+  typePending,
   source: inlineSource,
   onClose,
 }: MarkdownPreviewOverlayProps) {
@@ -353,7 +360,7 @@ export function MarkdownPreviewOverlay({
   // download/thumbnail paths use). A non-ok response / network error surfaces
   // the honest error state, never a blank render.
   useEffect(() => {
-    if (url === undefined || image || unavailable) return;
+    if (url === undefined || image || unavailable || typePending) return;
     let alive = true;
     setFetched(null);
     setFailed(false);
@@ -372,7 +379,7 @@ export function MarkdownPreviewOverlay({
     return () => {
       alive = false;
     };
-  }, [url, image, unavailable, diff]);
+  }, [url, image, unavailable, diff, typePending]);
 
   // Mint the share link for the tab anchor. Only for an attachment the browser
   // would actually DISPLAY — a downloadable one gets no anchor, so it needs no

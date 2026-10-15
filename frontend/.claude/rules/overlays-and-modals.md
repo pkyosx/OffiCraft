@@ -62,7 +62,7 @@ url 模式的 markdown 文件把獨立成行的圖片畫出來，走的就是使
 
 ### 附件連結
 
-訊息本文裡指向單一附件的同源連結（`/api/chat/attachment/att-<12hex>`，query 不看，例如文件註解訊息的開頭與圖片引言）由 `AttachmentModalHost`（App 根，跟 `DiffModalHost` 同一個模式：context 在 `hooks/useAttachmentOpener.tsx`，沒有 provider 就是普通連結）在原頁以 url 模式開這個 overlay。與比較連結不同，**所有點擊都攔**（含 ⌘/ctrl/shift 與中鍵）：serve route 要 token，新分頁一定 401，而 token 不能寫進 href 或網址列；只剩右鍵選單的「在新分頁開啟」攔不到。連結本身沒有 mime／檔名，也沒有回附件 metadata 的 route，所以型態用 `attachmentMimeForName(連結文字)` 判（跟 server 同一張副檔名表）；圖片引言的連結文字是 alt，沒有副檔名時就是「無法預覽」加下載。這樣開的是唯讀閱覽：不傳 docComments，因為收件人要由開啟的面決定，一條連結答不出來。
+訊息本文裡指向單一附件的同源連結（`/api/chat/attachment/att-<12hex>`，query 不看，例如文件註解訊息的開頭與圖片引言）由 `AttachmentModalHost`（App 根，跟 `DiffModalHost` 同一個模式：context 在 `hooks/useAttachmentOpener.tsx`，沒有 provider 就是普通連結）在原頁以 url 模式開這個 overlay。與比較連結不同，**所有點擊都攔**（含 ⌘/ctrl/shift 與中鍵）：serve route 要 token，新分頁一定 401，而 token 不能寫進 href 或網址列；只剩右鍵選單的「在新分頁開啟」攔不到。連結本身沒有 mime／檔名，也沒有回附件 metadata 的 route：型態先用 `attachmentMimeForName(連結文字)` 判（跟 server 同一張副檔名表）；判不出可預覽的型態（圖片引言的連結文字是 alt，常常沒有副檔名）就對 serve route 送 HEAD（Go ServeMux 的 `GET` pattern 也接 HEAD，token 只在請求裡），等回應時 overlay 以 `typePending` 顯示載入中、不 fetch 內容，回應的 Content-Type 決定型態；HEAD 失敗才是「無法預覽」加下載。這樣開的是唯讀閱覽：不傳 docComments，因為收件人要由開啟的面決定，一條連結答不出來。
 
 ## Esc 分層
 
