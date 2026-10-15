@@ -2104,6 +2104,11 @@ export function ChatArea({
           className="chat__msg-attachments"
           itemClassName="chat__msg-attachment"
           imageClassName="chat__msg-image chat__msg-image--clickable"
+          docCommentsFor={() => {
+            const to = m.from === OWNER_ID ? member.id : m.from;
+            const active = members.some((x) => x.id === to) || workers.some((w) => w.id === to);
+            return { recipient: { id: to, name: nameOf(to), active } };
+          }}
         />
       </div>
     );

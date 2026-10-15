@@ -271,17 +271,21 @@ export function TaskCard({
     rosterSettled && !unassigned && isUnlisted(task.executorId);
   const staffExecutorName =
     member?.name || unlistedNames.get(task.executorId) || task.executorId;
-  const executorText = unassigned
-    ? t.tasks.unassigned
-    : task.executorKind === "staff"
+  const executorName =
+    task.executorKind === "staff"
       ? staffExecutorName
       : worker
-        ? `${msg.outsourceLabel(worker.codename)} · ${worker.model || "—"} · ${
-            t.tasks.effortOf[worker.effort] ?? worker.effort
-          }`
+        ? msg.outsourceLabel(worker.codename)
         : releasedExecutorCodename
           ? msg.outsourceLabel(releasedExecutorCodename)
           : t.tasks.outsource;
+  const executorText = unassigned
+    ? t.tasks.unassigned
+    : task.executorKind === "outsource" && worker
+      ? `${executorName} · ${worker.model || "—"} · ${
+          t.tasks.effortOf[worker.effort] ?? worker.effort
+        }`
+      : executorName;
   // 類型 chip text: the manual's display name (T-fa76), falling back to the
   // raw key (deleted manual / legacy type), then the ad-hoc word.
   const typeLabel = task.typeKey
@@ -1552,6 +1556,15 @@ export function TaskCard({
                 so the popover fetches every row itself when it opens. */}
             <TaskArtifactsBadge
               task={view}
+              commentRecipient={
+                unassigned
+                  ? null
+                  : {
+                      id: worker?.id ?? task.executorId,
+                      name: executorName,
+                      active: worker !== undefined || !isUnlisted(task.executorId),
+                    }
+              }
               onRemoveArtifact={
                 TERMINAL.has(view.status) ? undefined : onRemoveArtifact
               }

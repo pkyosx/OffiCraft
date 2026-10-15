@@ -9,7 +9,7 @@
 // `document.body` / `screen`. A `container.querySelector(".md-preview…")` here
 // returns null and reads like the overlay never rendered.
 
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, fireEvent, waitFor, screen } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { api } from "../api";
@@ -20,6 +20,7 @@ import {
   isMarkdownAttachment,
 } from "./MarkdownPreviewOverlay";
 import { AlertTriangleIcon } from "./icons";
+import { Markdown } from "./Markdown";
 import { zh } from "../i18n/locales/zh";
 
 describe("isMarkdownAttachment", () => {
@@ -514,6 +515,262 @@ describe("MarkdownPreviewOverlay", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
     fireEvent.keyDown(window, { key: "Escape" });
     expect(onClose).toHaveBeenCalledTimes(2);
+  });
+
+  describe("comment mode", () => {
+    const DOC = "# 週報\n\n第一段要修改的內容。\n\n第二段保持原樣。";
+    const MIRA = { id: "m-mira", name: "Mira", active: true };
+
+    beforeEach(() => {
+      localStorage.clear();
+      Range.prototype.getBoundingClientRect = () => new DOMRect(40, 120, 200, 20);
+      globalThis.fetch = vi.fn(async () => ({
+        ok: true,
+        text: async () => DOC,
+      })) as unknown as typeof fetch;
+    });
+
+    function renderDoc(props: {
+      docComments?: Parameters<typeof MarkdownPreviewOverlay>[0]["docComments"];
+      onClose?: () => void;
+    } = {}) {
+      return render(
+        <I18nProvider>
+          <MarkdownPreviewOverlay
+            title="weekly.md"
+            url="/api/chat/attachment/att-aaaaaaaaaaaa"
+            attachmentId="att-aaaaaaaaaaaa"
+            docComments={props.docComments ?? { recipient: MIRA }}
+            onClose={props.onClose ?? (() => {})}
+          />
+        </I18nProvider>,
+      );
+    }
+
+    async function openComments() {
+      await waitFor(() => expect(screen.getByRole("heading", { name: "週報" })).toBeTruthy());
+      fireEvent.click(screen.getByRole("button", { name: "註解" }));
+    }
+
+    function selectText(text: string) {
+      const walker = document.createTreeWalker(
+        document.body.querySelector(".md-preview__md")!,
+        NodeFilter.SHOW_TEXT,
+      );
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        const at = (n as Text).data.indexOf(text);
+        if (at < 0) continue;
+        const range = document.createRange();
+        range.setStart(n, at);
+        range.setEnd(n, at + text.length);
+        const sel = document.getSelection()!;
+        sel.removeAllRanges();
+        sel.addRange(range);
+        fireEvent.mouseUp(document);
+        return;
+      }
+      throw new Error(`text not in document: ${text}`);
+    }
+
+    function addComment(excerpt: string, comment: string) {
+      selectText(excerpt);
+      fireEvent.click(screen.getByRole("button", { name: "加註解" }));
+      fireEvent.change(screen.getByRole("textbox", { name: "註解內容" }), {
+        target: { value: comment },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "儲存" }));
+    }
+
+    function listed() {
+      return screen.getAllByTestId("doc-comment").map((el) => el.textContent);
+    }
+
+    it("offers the 註解 toggle on an attachment document and not on a message body", async () => {
+      const doc = renderDoc();
+      await waitFor(() => expect(screen.getByRole("heading", { name: "週報" })).toBeTruthy());
+      expect(screen.getByRole("button", { name: "註解" }).getAttribute("aria-pressed")).toBe("false");
+
+      doc.unmount();
+      render(
+        <I18nProvider>
+          <MarkdownPreviewOverlay title="Mira" source={DOC} onClose={() => {}} />
+        </I18nProvider>,
+      );
+      expect(screen.getByRole("heading", { name: "週報" })).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "註解" })).toBeNull();
+    });
+
+    it("adds, edits and deletes a comment on the selected excerpt", async () => {
+      const onClose = vi.fn();
+      renderDoc({ onClose });
+      await openComments();
+      expect(screen.queryByRole("button", { name: "加註解" })).toBeNull();
+
+      addComment("第一段要修改", "改成條列");
+      addComment("第二段保持原樣", "這段可以");
+      expect(listed()).toEqual(["第一段要修改1. 改成條列", "第二段保持原樣2. 這段可以"]);
+
+      fireEvent.click(screen.getAllByRole("button", { name: "編輯註解" })[0]);
+      fireEvent.change(screen.getByRole("textbox", { name: "註解內容" }), {
+        target: { value: "改成三點條列" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "儲存" }));
+      expect(listed()).toEqual(["第一段要修改1. 改成三點條列", "第二段保持原樣2. 這段可以"]);
+
+      fireEvent.click(screen.getAllByRole("button", { name: "編輯註解" })[1]);
+      fireEvent.keyDown(screen.getByRole("textbox", { name: "註解內容" }), { key: "Escape" });
+      expect(screen.queryByRole("textbox", { name: "註解內容" })).toBeNull();
+      expect(onClose).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getAllByRole("button", { name: "刪除註解" })[1]);
+      expect(listed()).toEqual(["第一段要修改1. 改成三點條列"]);
+    });
+
+    it("restores the unsent comments after the document is closed and reopened", async () => {
+      const first = renderDoc();
+      await openComments();
+      addComment("第一段要修改", "改成條列");
+      first.unmount();
+
+      renderDoc();
+      await openComments();
+      expect(listed()).toEqual(["第一段要修改1. 改成條列"]);
+    });
+
+    it("marks a restored excerpt the document no longer contains", async () => {
+      localStorage.setItem(
+        "oc_doc_comments:att-aaaaaaaaaaaa",
+        JSON.stringify([
+          { id: "c1", excerpt: "第一段要修改", comment: "改" },
+          { id: "c2", excerpt: "已被刪掉的句子", comment: "留著" },
+        ]),
+      );
+      renderDoc();
+      await openComments();
+      expect(listed()).toEqual([
+        "第一段要修改1. 改",
+        "已被刪掉的句子文件中找不到這段原文，註解仍會送出。2. 留著",
+      ]);
+    });
+
+    it("sends every comment as one message to the sender and closes, clearing the draft", async () => {
+      localStorage.setItem(
+        "oc_doc_comments:att-aaaaaaaaaaaa",
+        JSON.stringify([
+          { id: "c1", excerpt: "第一段要修改的內容。\n\n第二段保持原樣。", comment: "兩段合併\n並縮短" },
+          { id: "c2", excerpt: "週報", comment: "標題加日期" },
+        ]),
+      );
+      const post = vi.spyOn(api, "postChat").mockResolvedValue(undefined);
+      const onClose = vi.fn();
+      renderDoc({ onClose });
+      await openComments();
+      expect(screen.getByText("Mira")).toBeTruthy();
+
+      fireEvent.click(screen.getByRole("button", { name: "送出給 AI" }));
+      await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+      expect(post.mock.calls).toEqual([
+        [
+          {
+            to: "m-mira",
+            body:
+              "**文件註解**：[weekly.md](/api/chat/attachment/att-aaaaaaaaaaaa)（att-aaaaaaaaaaaa）\n" +
+              "\n" +
+              "1. 原文：\n" +
+              "   > 第一段要修改的內容。\n" +
+              "   >\n" +
+              "   > 第二段保持原樣。\n" +
+              "\n" +
+              "   註解：兩段合併\n" +
+              "   並縮短\n" +
+              "\n" +
+              "2. 原文：\n" +
+              "   > 週報\n" +
+              "\n" +
+              "   註解：標題加日期",
+          },
+        ],
+      ]);
+      expect(localStorage.getItem("oc_doc_comments:att-aaaaaaaaaaaa")).toBeNull();
+
+      const bubble = render(<Markdown source={post.mock.calls[0][0].body} breaks />).container;
+      expect([...bubble.querySelectorAll("ol > li > blockquote")].map((q) => q.textContent)).toEqual([
+        "第一段要修改的內容。第二段保持原樣。",
+        "週報",
+      ]);
+      expect(bubble.querySelector("a")!.getAttribute("href")).toBe("/api/chat/attachment/att-aaaaaaaaaaaa");
+    });
+
+    it("names the task and the artifact when the document is a task artifact", async () => {
+      const post = vi.spyOn(api, "postChat").mockResolvedValue(undefined);
+      render(
+        <I18nProvider>
+          <MarkdownPreviewOverlay
+            title="週報"
+            filename="weekly-0930.md"
+            url="/api/chat/attachment/att-bbbbbbbbbbbb"
+            attachmentId="att-bbbbbbbbbbbb"
+            docComments={{
+              recipient: { id: "ow-cccccccccccc", name: "外包 阿青", active: true },
+              task: { id: "T-12", taskNo: "T-12", artifactName: "週報" },
+            }}
+            onClose={() => {}}
+          />
+        </I18nProvider>,
+      );
+      await openComments();
+      addComment("第二段保持原樣", "刪掉");
+      fireEvent.click(screen.getByRole("button", { name: "送出給 AI" }));
+      await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+      expect(post.mock.calls[0][0]).toEqual({
+        to: "ow-cccccccccccc",
+        body:
+          "**文件註解**：[weekly-0930.md](/api/chat/attachment/att-bbbbbbbbbbbb)（att-bbbbbbbbbbbb）\n" +
+          "任務 [T-12](/#tasks/T-12) 產物「週報」\n" +
+          "\n" +
+          "1. 原文：\n" +
+          "   > 第二段保持原樣\n" +
+          "\n" +
+          "   註解：刪掉",
+      });
+    });
+
+    it("keeps the draft and says so when sending fails", async () => {
+      vi.spyOn(api, "postChat").mockRejectedValue(new Error("http 500"));
+      const onClose = vi.fn();
+      renderDoc({ onClose });
+      await openComments();
+      addComment("第一段要修改", "改成條列");
+      fireEvent.click(screen.getByRole("button", { name: "送出給 AI" }));
+      await waitFor(() =>
+        expect(screen.getByRole("alert").textContent).toBe("送出失敗，註解已保留（http 500）"),
+      );
+      expect(onClose).not.toHaveBeenCalled();
+      expect(listed()).toEqual(["第一段要修改1. 改成條列"]);
+      expect(JSON.parse(localStorage.getItem("oc_doc_comments:att-aaaaaaaaaaaa")!)).toHaveLength(1);
+    });
+
+    it("disables sending to a recipient who left the roster, with the reason", async () => {
+      const post = vi.spyOn(api, "postChat").mockResolvedValue(undefined);
+      renderDoc({ docComments: { recipient: { ...MIRA, active: false } } });
+      await openComments();
+      addComment("第一段要修改", "改成條列");
+      const send = screen.getByRole("button", { name: "送出給 AI" }) as HTMLButtonElement;
+      expect(send.disabled).toBe(true);
+      expect(screen.getByText("對方已不在名冊上（已移除或已釋出），無法送出。")).toBeTruthy();
+      fireEvent.click(send);
+      expect(post).not.toHaveBeenCalled();
+    });
+
+    it("enables sending to an active recipient once a comment exists", async () => {
+      renderDoc();
+      await openComments();
+      const send = screen.getByRole("button", { name: "送出給 AI" }) as HTMLButtonElement;
+      expect(send.disabled).toBe(true);
+      addComment("第一段要修改", "改成條列");
+      expect(send.disabled).toBe(false);
+      expect(screen.queryByText("對方已不在名冊上（已移除或已釋出），無法送出。")).toBeNull();
+    });
   });
 });
 

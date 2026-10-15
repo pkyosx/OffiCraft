@@ -2,6 +2,9 @@
 paths:
   - "src/components/MarkdownPreviewOverlay*"
   - "src/components/AttachmentStrip*"
+  - "src/components/DocComments*"
+  - "src/components/doc-comments.css"
+  - "src/lib/docComments.ts"
   - "src/components/ComposerAttachmentPreview*"
   - "src/components/md-preview.css"
   - "src/components/ConfirmModal*"
@@ -47,6 +50,10 @@ MarkdownPreviewOverlay 是唯一的全幅面，props 是互斥的 url+attachment
 單指 touch 交給圖片自己的原生捲動，避免 double-apply；雙指由 overlay 接管，frame 用 touch-action: pan-x pan-y，並以 non-passive touch handler 改 zoom。iOS 的 gesture 事件與 touch 事件用互斥旗標；不可用 user-scalable=no 或 maximum-scale=1 禁掉整頁縮放。
 
 overlay portal 到 document.body，避免宿主 stacking context 困住它；需要 click-outside 的 caller 以 .md-preview 選擇器辨識，不再靠 ancestor contains。render 與 CT 查詢從 document.body/page 找 overlay。圖片、文件都要戴共用 .doc-md；source 開 breaks，url 不開。圖片展開鈕只在有本文的 incoming bubble，位置由 bubble padding 讓位。
+
+### 文件註解
+
+註解模式只開在 url 模式的 markdown 文件，而且呼叫端要傳 `docComments`（收件人＋任務產物資訊）；沒傳就沒有「註解」鈕。收件人由開啟的那個面決定、overlay 不猜：聊天附件是那則訊息的寄件人（自己寄的就是聊天室對象），任務產物是負責人；active 的判準是 live 名冊（members 或 live 外包 workers）查得到。送出的本文格式由 `lib/docComments.ts` 的 `formatDocCommentMessage` 獨占——它是給 AI 讀的固定格式，不走 i18n、不讓主題用詞覆寫；引言要寫在清單項的續行，因為 Markdown.tsx 把清單項第一行當 inline 讀，寫在第一行的 `>` 不會變成引言。標色用 CSS Custom Highlight API，不改 Markdown 畫出來的 DOM（React 還管著那些節點）；找原文時忽略空白，因為選取文字在區塊之間帶換行、DOM 文字節點沒有。草稿存 localStorage（以附件 id 為鍵，讀寫都包 try/catch）。
 
 ## Esc 分層
 

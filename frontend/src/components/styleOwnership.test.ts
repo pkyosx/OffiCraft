@@ -60,6 +60,7 @@ const OWNED_SHEETS = [
   // task card's message box, whose hosts import replies.css / tasks.css — so
   // this sheet would free-ride on whichever page drew the row first.
   "suggested-replies.css",
+  "doc-comments.css",
 ] as const;
 
 /** Sheets whose BEM block is not just the filename. `member-detail.css` owns the

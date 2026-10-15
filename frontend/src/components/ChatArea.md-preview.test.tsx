@@ -194,3 +194,59 @@ describe("chat .md preview action (T-a1c4 / T-7bc2)", () => {
     );
   });
 });
+
+describe("chat .md attachment comments", () => {
+  const md = (id: string) => ({
+    id,
+    url: `/api/chat/attachment/${id}`,
+    filename: `${id}.md`,
+    mime: "text/markdown",
+    isImage: false,
+  });
+
+  async function sendSeededComment(chipName: string, members: Member[]) {
+    localStorage.setItem(
+      `oc_doc_comments:${chipName}`,
+      JSON.stringify([{ id: "c1", excerpt: "Design", comment: "ok" }]),
+    );
+    globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "# Design" })) as unknown as typeof fetch;
+    const view = render(
+      <I18nProvider>
+        <ChatArea member={mkMember()} members={members} />
+      </I18nProvider>,
+    );
+    const expand = within(view.container).queryByRole("button", { name: /展開/ });
+    if (expand) fireEvent.click(expand);
+    fireEvent.click(within(view.container).getByRole("button", { name: `${chipName}.md` }));
+    await waitFor(() => expect(view.getByRole("heading", { name: "Design" })).toBeTruthy());
+    fireEvent.click(view.getByRole("button", { name: "註解" }));
+    return view;
+  }
+
+  it("addresses comments on an agent's attachment to that agent, and on the owner's own to the room's peer", async () => {
+    const post = vi.spyOn(api, "postChat").mockResolvedValue(undefined);
+    messages = [
+      { ...msgWith([md("att-from-nova")]), id: "msg-n", from: "m2", to: "m1" },
+      { ...msgWith([md("att-from-owner")]), id: "msg-o", from: "owner", to: "m1" },
+    ];
+    const roster = [mkMember(), mkMember("m2", "Nova")];
+
+    const first = await sendSeededComment("att-from-nova", roster);
+    expect(first.getByText("Nova")).toBeTruthy();
+    fireEvent.click(first.getByRole("button", { name: "送出給 AI" }));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    first.unmount();
+
+    const second = await sendSeededComment("att-from-owner", roster);
+    fireEvent.click(second.getByRole("button", { name: "送出給 AI" }));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
+    expect(post.mock.calls.map(([arg]) => arg.to)).toEqual(["m2", "m1"]);
+  });
+
+  it("refuses to send to a sender who is no longer on the roster", async () => {
+    messages = [{ ...msgWith([md("att-from-nova")]), id: "msg-n", from: "m2", to: "m1" }];
+    const view = await sendSeededComment("att-from-nova", [mkMember()]);
+    expect((view.getByRole("button", { name: "送出給 AI" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(view.getByText("對方已不在名冊上（已移除或已釋出），無法送出。")).toBeTruthy();
+  });
+});

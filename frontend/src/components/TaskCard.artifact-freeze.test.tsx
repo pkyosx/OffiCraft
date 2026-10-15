@@ -14,6 +14,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, fireEvent, waitFor, screen } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { TaskCard } from "./TaskCard";
+import { api } from "../api";
+import type { Member } from "../types";
 import type { TaskArtifactView, TaskView } from "../api/adapter";
 
 // T-66 / T-92: the artifact rows come from the SERVER when the panel opens, not
@@ -28,6 +30,7 @@ vi.mock("../api", () => ({
     getTaskStep: vi.fn(),
     getOutsourceWorker: () => Promise.reject(new Error("not found")),
     listTaskArtifacts,
+    postChat: vi.fn(async () => {}),
   },
 }));
 
@@ -76,13 +79,13 @@ const ARTIFACT: TaskArtifactView = {
   versionCount: 1,
 };
 
-function renderCard(task: TaskView) {
+function renderCard(task: TaskView, members: Member[] = []) {
   return render(
     <I18nProvider>
       <TaskCard
         task={task}
         allTasks={[task]}
-        members={[]}
+        members={members}
         workers={[]}
         nowTs={Date.now() / 1000}
         onTerminate={NOOP as never}
@@ -130,5 +133,50 @@ describe("T-2654 已結案任務的產物集凍結", () => {
     expect(
       view.container.querySelectorAll('[aria-label="移除產物"]').length
     ).toBeGreaterThan(0);
+  });
+});
+
+describe("產物註解送給任務負責人", () => {
+  const MD: TaskArtifactView = {
+    ...ARTIFACT,
+    kind: "file",
+    url: "/api/chat/attachment/att-ffffffffffff",
+    name: "週報",
+    filename: "weekly.md",
+    mime: "text/markdown",
+  };
+  const mira = { id: "mira", name: "Mira" } as Member;
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  async function openComments() {
+    globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "# 週報" })) as unknown as typeof fetch;
+    listTaskArtifacts.mockResolvedValue([MD]);
+    localStorage.setItem(
+      "oc_doc_comments:att-ffffffffffff",
+      JSON.stringify([{ id: "c1", excerpt: "週報", comment: "補日期" }]),
+    );
+    fireEvent.click(screen.getByTestId("task-artifacts-badge"));
+    fireEvent.click(await screen.findByRole("button", { name: /週報/ }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "週報" })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "註解" }));
+  }
+
+  it("addresses the executor on the roster", async () => {
+    renderCard(mkTask({ executorId: "mira" }), [mira]);
+    await openComments();
+    expect(screen.getByText("Mira", { selector: ".doc-comments__recipient strong" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "送出給 AI" }));
+    await waitFor(() => expect(api.postChat).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(api.postChat).mock.calls[0][0].to).toBe("mira");
+  });
+
+  it("refuses an executor who has left the roster", async () => {
+    renderCard(mkTask({ executorId: "mira" }), []);
+    await openComments();
+    expect((screen.getByRole("button", { name: "送出給 AI" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("對方已不在名冊上（已移除或已釋出），無法送出。")).toBeTruthy();
   });
 });

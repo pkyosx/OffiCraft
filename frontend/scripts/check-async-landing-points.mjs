@@ -418,6 +418,19 @@ const REGISTRY = [
       "keydown pager, wheel/touch/gesture zoom, resize, pointermove; all removed on unmount, and the overlay unmounts with whatever opened it",
   },
   {
+    file: "components/DocComments.tsx",
+    kind: "await",
+    count: 1,
+    verdict:
+      "comment send; the draft it clears is keyed by attachment id, and the rest writes only the panel's own state or closes the overlay it lives in",
+  },
+  {
+    file: "components/DocComments.tsx",
+    kind: "addEventListener",
+    count: 3,
+    verdict: "selection tracking; removed on unmount, and the panel unmounts with its overlay",
+  },
+  {
     file: "components/MarkdownPreviewOverlay.tsx",
     kind: "JSX onLoad/onError",
     count: 1,

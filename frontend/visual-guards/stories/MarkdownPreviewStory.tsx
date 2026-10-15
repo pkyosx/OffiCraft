@@ -63,3 +63,17 @@ export function MarkdownPreviewLongStory() {
     </I18nProvider>
   );
 }
+
+export function MarkdownPreviewCommentsStory() {
+  return (
+    <I18nProvider>
+      <MarkdownPreviewOverlay
+        title="架構設計.md"
+        url={DATA_URL}
+        attachmentId="att-ct-comments"
+        docComments={{ recipient: { id: "m-mira", name: "Mira", active: true } }}
+        onClose={() => {}}
+      />
+    </I18nProvider>
+  );
+}

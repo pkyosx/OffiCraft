@@ -537,3 +537,29 @@
   font-variant-numeric: tabular-nums;
   color: var(--color-text-muted);
 }
+
+/* A commentable document: the body beside its comment panel, stacked on a
+ * phone (DocComments.tsx owns the panel). */
+.md-preview__content {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+.md-preview__content > .md-preview__body {
+  min-width: 0;
+}
+.md-preview__comment-toggle {
+  cursor: pointer;
+  font-family: inherit;
+}
+.md-preview__comment-toggle[aria-pressed="true"] {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
+  background: var(--color-accent-soft);
+}
+@media (max-width: 720px) {
+  .md-preview__content--commenting {
+    flex-direction: column;
+  }
+}

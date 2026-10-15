@@ -25,6 +25,7 @@ import type { Page } from "@playwright/test";
 import {
   MarkdownPreviewStory,
   MarkdownPreviewLongStory,
+  MarkdownPreviewCommentsStory,
 } from "./stories/MarkdownPreviewStory";
 
 /** The phone width owner reads the cockpit at (iPhone 13 CSS pixels). */
@@ -474,3 +475,95 @@ test("landscape 844x390: the short-viewport rule gives the panel the screen, min
     .evaluate((el) => el.scrollHeight - el.clientHeight);
   expect(overflow).toBeGreaterThan(400);
 });
+
+async function commentOnSelection(page: Page, text: string, comment: string) {
+  await page.getByRole("button", { name: "註解" }).click();
+  const target = page.locator(".md-preview__md li", { hasText: text });
+  await target.scrollIntoViewIfNeeded();
+  const box = (await target.boundingBox())!;
+  // A real drag, so the browser itself produces the selection. Corner to
+  // corner, because the item wraps onto several lines at 390px.
+  await page.mouse.move(box.x + 2, box.y + 4);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width - 2, box.y + box.height - 4, { steps: 8 });
+  await page.mouse.up();
+  const add = page.getByRole("button", { name: "加註解" });
+  await expect(add).toBeVisible();
+  const geometry = await page.evaluate(() => {
+    const r = document.querySelector(".doc-comments__float")!.getBoundingClientRect();
+    return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, vw: innerWidth, vh: innerHeight };
+  });
+  await add.click();
+  await page.getByRole("textbox", { name: "註解內容" }).fill(comment);
+  await page.getByRole("button", { name: "儲存" }).click();
+  return geometry;
+}
+
+for (const size of [NARROW, WIDE]) {
+  test(`${size.width}: selecting text offers 加註解 on screen, and the saved comment is listed and highlighted`, async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize(size);
+    await page.addInitScript(() => localStorage.clear());
+    await mount(<MarkdownPreviewCommentsStory />);
+    await expect(page.getByRole("heading", { name: "目標" })).toBeVisible();
+
+    const float = await commentOnSelection(page, "檔名 chip", "這行要拆兩句");
+    expect(float.left).toBeGreaterThanOrEqual(0);
+    expect(float.right).toBeLessThanOrEqual(float.vw);
+    expect(float.top).toBeGreaterThanOrEqual(0);
+    expect(float.bottom).toBeLessThanOrEqual(float.vh);
+
+    const item = page.getByTestId("doc-comment");
+    await expect(item).toHaveCount(1);
+    await expect(item.locator(".doc-comments__excerpt")).toContainText("檔名 chip");
+    await expect(item.locator(".doc-comments__text")).toHaveText("1. 這行要拆兩句");
+    const highlighted = await page.evaluate(() => {
+      const h = (CSS as unknown as { highlights: Map<string, Set<Range>> }).highlights.get("oc-doc-comment");
+      return h ? [...h].map((r) => r.toString()) : [];
+    });
+    expect(highlighted).toHaveLength(1);
+    expect(highlighted[0]).toContain("檔名 chip");
+
+    const layout = await page.evaluate(() => {
+      const rect = (sel: string) => {
+        const r = document.querySelector(sel)!.getBoundingClientRect();
+        return { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+      };
+      const actions = [...document.querySelectorAll(".md-preview__actions > *")].map((el) => {
+        const r = el.getBoundingClientRect();
+        return { right: r.right, left: r.left };
+      });
+      return {
+        panel: rect(".md-preview__panel"),
+        header: rect(".md-preview__header"),
+        body: rect(".md-preview__body"),
+        aside: rect(".doc-comments"),
+        send: rect(".doc-comments__send"),
+        actions,
+        vw: innerWidth,
+        vh: innerHeight,
+        pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      };
+    });
+    expect(layout.pageOverflow).toBe(0);
+    for (const box of [layout.aside, layout.send]) {
+      expect(box.left).toBeGreaterThanOrEqual(layout.panel.left);
+      expect(box.right).toBeLessThanOrEqual(layout.panel.right);
+      expect(box.top).toBeGreaterThanOrEqual(layout.panel.top);
+      expect(box.bottom).toBeLessThanOrEqual(layout.panel.bottom);
+    }
+    for (const a of layout.actions) {
+      expect(a.left).toBeGreaterThanOrEqual(layout.header.left);
+      expect(a.right).toBeLessThanOrEqual(layout.header.right);
+    }
+    expect(layout.panel.right).toBeLessThanOrEqual(layout.vw);
+    expect(layout.panel.bottom).toBeLessThanOrEqual(layout.vh);
+    if (size === NARROW) {
+      expect(layout.aside.top).toBeGreaterThanOrEqual(layout.body.bottom);
+    } else {
+      expect(layout.aside.left).toBeGreaterThanOrEqual(layout.body.right);
+    }
+  });
+}

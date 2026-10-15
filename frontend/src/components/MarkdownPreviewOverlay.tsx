@@ -70,10 +70,13 @@ import type { DiffParams } from "../lib/diffLink";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
 import { DiffScreen } from "./DiffScreen";
 import { DiffShareLinkButton } from "./DiffShareLinkButton";
+import { DocCommentPanel } from "./DocComments";
+import type { DocCommentTarget } from "../lib/docComments";
 import { Markdown } from "./Markdown";
 import "./md-preview.css";
 import {
   AlertTriangleIcon,
+  ChatBubbleIcon,
   CheckIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -156,6 +159,8 @@ type MarkdownPreviewOverlayProps = {
       /** The stored blob kind decides the body renderer. Omitted keeps the
        * original markdown-file contract for existing callers. */
       mime?: string;
+      /** Offers comment mode on a markdown document; absent ⇒ no 註解 toggle. */
+      docComments?: DocCommentTarget;
       source?: never;
       imageSrc?: never;
       diffParams?: never;
@@ -167,6 +172,7 @@ type MarkdownPreviewOverlayProps = {
       /** No blob, so no share link: there is nothing for a link to point at. */
       attachmentId?: never;
       mime?: never;
+      docComments?: never;
       imageSrc?: never;
       diffParams?: never;
     }
@@ -178,6 +184,7 @@ type MarkdownPreviewOverlayProps = {
       url?: never;
       attachmentId?: never;
       mime?: never;
+      docComments?: never;
       source?: never;
       diffParams?: never;
     }
@@ -192,6 +199,7 @@ type MarkdownPreviewOverlayProps = {
       url?: never;
       attachmentId?: never;
       mime?: never;
+      docComments?: never;
       source?: never;
       imageSrc?: never;
     }
@@ -206,6 +214,7 @@ export function MarkdownPreviewOverlay({
   mime,
   imageSrc,
   diffParams,
+  docComments,
   source: inlineSource,
   onClose,
 }: MarkdownPreviewOverlayProps) {
@@ -255,6 +264,15 @@ export function MarkdownPreviewOverlay({
   // says why it is missing when the bytes will not parse.
   const jsonAttachment = plainText && isJsonAttachment(mime ?? "text/markdown", typeName);
   const source = inlineSource ?? fetched;
+  const commentable =
+    docComments !== undefined &&
+    attachmentId !== undefined &&
+    url !== undefined &&
+    !image &&
+    previewableText &&
+    !plainText;
+  const [commenting, setCommenting] = useState(false);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
   const [zoom, setZoom] = useState(1);
   // The bytes the header's 下載 link points at. A stored blob needs the ?token=
   // gate; a staged data: URI already IS the bytes. An inline text `source` has
@@ -675,6 +693,131 @@ export function MarkdownPreviewOverlay({
     };
   }, []);
 
+  const body = (
+    <div className="md-preview__body" ref={bodyRef}>
+      {image && imageBytes !== undefined ? (
+        <div className="md-preview__image-viewport">
+          <div
+            className={
+              "md-preview__image-wrap" +
+              (fitBox !== null && zoom > 1 ? " md-preview__image-wrap--pannable" : "") +
+              (panning ? " md-preview__image-wrap--panning" : "")
+            }
+            ref={wrapRef}
+            /* Focusable and named so the overflow is reachable without a
+             * pointer at all: arrow keys / PageUp / Home scroll a focused
+             * overflow container natively. */
+            tabIndex={0}
+            role="group"
+            aria-label={t.chat.mdPreview.pan}
+            onPointerDown={onPanPointerDown}
+          >
+            <img
+              className="md-preview__image"
+              ref={imageRef}
+              src={imageBytes}
+              /* The filename IS the alt text: it is the only thing known
+               * about these bytes, and a generic 「圖片」 would tell a screen
+               * reader nothing that the surrounding dialog did not. */
+              alt={title || t.chat.imageAlt}
+              draggable={false}
+              onLoad={measureFit}
+              style={zoomedSize}
+            />
+          </div>
+          {/* The zoom cluster is a labelled group, and each control names
+           * itself: the bare −/+ glyphs announce as "minus"/"plus" with no
+           * hint of what they act on, and the hard-coded English label the
+           * first version carried was invisible to the wording overlay. */}
+          <div className="md-preview__zoom" role="group" aria-label={t.chat.mdPreview.zoomControls}>
+            <button
+              type="button"
+              aria-label={t.chat.mdPreview.zoomOut}
+              title={t.chat.mdPreview.zoomOut}
+              onClick={() => setZoom((value) => clampZoom(value - ZOOM_STEP))}
+            >
+              −
+            </button>
+            <span>{Math.round(zoom * 100)}%</span>
+            <button
+              type="button"
+              aria-label={t.chat.mdPreview.zoomIn}
+              title={t.chat.mdPreview.zoomIn}
+              onClick={() => setZoom((value) => clampZoom(value + ZOOM_STEP))}
+            >
+              +
+            </button>
+          </div>
+        </div>
+      ) : unavailable ? (
+        /* 🔴 T-36 (B1) — DO NOT SEND HIM BACK TO THE THING HE COMPLAINED
+         * ABOUT. This overlay cannot DRAW an .html (that contract stays
+         * narrow on purpose), but there is now a button in the header that
+         * opens it, and the biggest, most central line on the screen must
+         * point AT that button rather than at 下載 — the owner's own words
+         * for this ticket were 「不然我都要複製以後找新的頁面貼很麻煩」.
+         * 「請下載」 survives only where there is genuinely no button: a
+         * file the browser would download anyway, or a mint that failed.
+         * The line follows the BUTTON, not the mime: while the share link
+         * is still being minted neither exists yet, and they appear
+         * together on the same state change. */
+        <div className="md-preview__status">
+          {shareHref !== null
+            ? t.chat.mdPreview.unavailableOpenInNewTab
+            : t.chat.mdPreview.unavailable}
+        </div>
+      ) : failed ? (
+        <div className="md-preview__status">{t.chat.mdPreview.error}</div>
+      ) : diff ? (
+        /* The compare screen is DiffScreen and only DiffScreen — the
+         * same one the standalone /diff page draws, which is in turn
+         * DiffView and only DiffView. A second compare renderer here would
+         * be a second authority on the owner's six 2026-07-31 rulings, and
+         * the two would start to drift. */
+        <DiffScreen params={diffParams} />
+      ) : source === null ? (
+        <div className="md-preview__status">{t.chat.mdPreview.loading}</div>
+      ) : (
+        /* `.doc-md` is the SHARED markdown skin (headings, code, tables,
+         * links, callouts) every other render site wears — the task manual,
+         * the role doc, the reply card, the chat bubble. Rendering without
+         * it left this overlay on bare UA defaults: black-on-card headings,
+         * unstyled code, no callout colour. One class, same document look
+         * as the surface the file was opened from. */
+        plainText ? (
+          jsonAttachment ? (
+            (() => {
+              const { body, unparseable } = formatJsonForPreview(source);
+              return (
+                <>
+                  {unparseable ? (
+                    <div className="md-preview__status">
+                      {t.chat.mdPreview.jsonUnparseable}
+                    </div>
+                  ) : null}
+                  <pre className="md-preview__text">{body}</pre>
+                </>
+              );
+            })()
+          ) : (
+            <pre className="md-preview__text">{source}</pre>
+          )
+        ) : <Markdown
+          source={source}
+          className="md-preview__md doc-md"
+          /* An inline source is a CHAT message: Enter meant "new line"
+           * when it was typed and the bubble renders it that way, so the
+           * full-view read of the same text must keep those newlines.
+           * Standard markdown folds them into spaces, which reflowed a
+           * plain multi-line message into one run-on line. A fetched .md
+           * blob is a document, not a chat line — it keeps standard
+           * soft-wrap, same as every other document surface. */
+          breaks={inlineSource !== undefined}
+        />
+      )}
+    </div>
+  );
+
   // T-76cd — PORTALLED TO `document.body`, and that is a correctness property,
   // not tidiness. `z-index: 1100` is only worth what its nearest stacking-context
   // ancestor is worth: rendered in place, this overlay sat inside the task
@@ -743,6 +886,18 @@ export function MarkdownPreviewOverlay({
                 params={diffParams}
                 className="md-preview__download md-preview__share"
               />
+            )}
+            {commentable && (
+              <button
+                type="button"
+                className="md-preview__download md-preview__comment-toggle"
+                aria-pressed={commenting}
+                aria-label={t.chat.mdPreview.comments.toggle}
+                title={t.chat.mdPreview.comments.toggle}
+                onClick={() => setCommenting((v) => !v)}
+              >
+                <ChatBubbleIcon size={14} />
+              </button>
             )}
             {/* Share needs a STORED blob id. Download only needs bytes, so it
              * also serves a staged `imageSrc`. An inline text source has
@@ -862,128 +1017,27 @@ export function MarkdownPreviewOverlay({
             </button>
           </>
         )}
-        <div className="md-preview__body">
-          {image && imageBytes !== undefined ? (
-            <div className="md-preview__image-viewport">
-              <div
-                className={
-                  "md-preview__image-wrap" +
-                  (fitBox !== null && zoom > 1 ? " md-preview__image-wrap--pannable" : "") +
-                  (panning ? " md-preview__image-wrap--panning" : "")
-                }
-                ref={wrapRef}
-                /* Focusable and named so the overflow is reachable without a
-                 * pointer at all: arrow keys / PageUp / Home scroll a focused
-                 * overflow container natively. */
-                tabIndex={0}
-                role="group"
-                aria-label={t.chat.mdPreview.pan}
-                onPointerDown={onPanPointerDown}
-              >
-                <img
-                  className="md-preview__image"
-                  ref={imageRef}
-                  src={imageBytes}
-                  /* The filename IS the alt text: it is the only thing known
-                   * about these bytes, and a generic 「圖片」 would tell a screen
-                   * reader nothing that the surrounding dialog did not. */
-                  alt={title || t.chat.imageAlt}
-                  draggable={false}
-                  onLoad={measureFit}
-                  style={zoomedSize}
-                />
-              </div>
-              {/* The zoom cluster is a labelled group, and each control names
-               * itself: the bare −/+ glyphs announce as "minus"/"plus" with no
-               * hint of what they act on, and the hard-coded English label the
-               * first version carried was invisible to the wording overlay. */}
-              <div className="md-preview__zoom" role="group" aria-label={t.chat.mdPreview.zoomControls}>
-                <button
-                  type="button"
-                  aria-label={t.chat.mdPreview.zoomOut}
-                  title={t.chat.mdPreview.zoomOut}
-                  onClick={() => setZoom((value) => clampZoom(value - ZOOM_STEP))}
-                >
-                  −
-                </button>
-                <span>{Math.round(zoom * 100)}%</span>
-                <button
-                  type="button"
-                  aria-label={t.chat.mdPreview.zoomIn}
-                  title={t.chat.mdPreview.zoomIn}
-                  onClick={() => setZoom((value) => clampZoom(value + ZOOM_STEP))}
-                >
-                  +
-                </button>
-              </div>
-            </div>
-          ) : unavailable ? (
-            /* 🔴 T-36 (B1) — DO NOT SEND HIM BACK TO THE THING HE COMPLAINED
-             * ABOUT. This overlay cannot DRAW an .html (that contract stays
-             * narrow on purpose), but there is now a button in the header that
-             * opens it, and the biggest, most central line on the screen must
-             * point AT that button rather than at 下載 — the owner's own words
-             * for this ticket were 「不然我都要複製以後找新的頁面貼很麻煩」.
-             * 「請下載」 survives only where there is genuinely no button: a
-             * file the browser would download anyway, or a mint that failed.
-             * The line follows the BUTTON, not the mime: while the share link
-             * is still being minted neither exists yet, and they appear
-             * together on the same state change. */
-            <div className="md-preview__status">
-              {shareHref !== null
-                ? t.chat.mdPreview.unavailableOpenInNewTab
-                : t.chat.mdPreview.unavailable}
-            </div>
-          ) : failed ? (
-            <div className="md-preview__status">{t.chat.mdPreview.error}</div>
-          ) : diff ? (
-            /* The compare screen is DiffScreen and only DiffScreen — the
-             * same one the standalone /diff page draws, which is in turn
-             * DiffView and only DiffView. A second compare renderer here would
-             * be a second authority on the owner's six 2026-07-31 rulings, and
-             * the two would start to drift. */
-            <DiffScreen params={diffParams} />
-          ) : source === null ? (
-            <div className="md-preview__status">{t.chat.mdPreview.loading}</div>
-          ) : (
-            /* `.doc-md` is the SHARED markdown skin (headings, code, tables,
-             * links, callouts) every other render site wears — the task manual,
-             * the role doc, the reply card, the chat bubble. Rendering without
-             * it left this overlay on bare UA defaults: black-on-card headings,
-             * unstyled code, no callout colour. One class, same document look
-             * as the surface the file was opened from. */
-            plainText ? (
-              jsonAttachment ? (
-                (() => {
-                  const { body, unparseable } = formatJsonForPreview(source);
-                  return (
-                    <>
-                      {unparseable ? (
-                        <div className="md-preview__status">
-                          {t.chat.mdPreview.jsonUnparseable}
-                        </div>
-                      ) : null}
-                      <pre className="md-preview__text">{body}</pre>
-                    </>
-                  );
-                })()
-              ) : (
-                <pre className="md-preview__text">{source}</pre>
-              )
-            ) : <Markdown
-              source={source}
-              className="md-preview__md doc-md"
-              /* An inline source is a CHAT message: Enter meant "new line"
-               * when it was typed and the bubble renders it that way, so the
-               * full-view read of the same text must keep those newlines.
-               * Standard markdown folds them into spaces, which reflowed a
-               * plain multi-line message into one run-on line. A fetched .md
-               * blob is a document, not a chat line — it keeps standard
-               * soft-wrap, same as every other document surface. */
-              breaks={inlineSource !== undefined}
-            />
-          )}
-        </div>
+        {commentable ? (
+          <div
+            className={
+              "md-preview__content" + (commenting ? " md-preview__content--commenting" : "")
+            }
+          >
+            {body}
+            {commenting && (
+              <DocCommentPanel
+                attachmentId={attachmentId}
+                filename={typeName}
+                target={docComments}
+                docRef={bodyRef}
+                docReady={!failed && source !== null}
+                onSent={onClose}
+              />
+            )}
+          </div>
+        ) : (
+          body
+        )}
       </div>
     </div>,
     document.body,

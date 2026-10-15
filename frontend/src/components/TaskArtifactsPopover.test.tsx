@@ -41,6 +41,7 @@ vi.mock("../api", () => ({
     // T-60: the version reader reads its own state from the server (never from
     // these rows), so the popover's tests have to answer its version call too.
     listTaskArtifactVersions: vi.fn(async () => []),
+    postChat: vi.fn(async () => {}),
   },
 }));
 
@@ -65,7 +66,11 @@ function mkArtifact(over: Partial<TaskArtifactView>): TaskArtifactView {
 
 function renderBadge(
   artifacts: TaskArtifactView[],
-  opts: { count?: number; onRemove?: (t: string, a: string) => Promise<void> } = {},
+  opts: {
+    count?: number;
+    onRemove?: (t: string, a: string) => Promise<void>;
+    commentRecipient?: { id: string; name: string; active: boolean } | null;
+  } = {},
 ) {
   const count = opts.count ?? artifacts.length;
   // The rows come from the SERVER, not from a prop: the task the card holds
@@ -75,8 +80,9 @@ function renderBadge(
   return render(
     <I18nProvider>
       <TaskArtifactsBadge
-        task={{ id: "t-1", artifactCount: count }}
+        task={{ id: "t-1", taskNo: "T-1", artifactCount: count }}
         onRemoveArtifact={opts.onRemove}
+        commentRecipient={opts.commentRecipient}
       />
     </I18nProvider>,
   );
@@ -565,3 +571,67 @@ describe("產物列的版本入口 (T-60)", () => {
 function t_panelTitle(): string {
   return zh.tasks.artifacts.panelTitle;
 }
+
+describe("任務產物 .md 的註解", () => {
+  const report = () =>
+    mkArtifact({
+      id: "ta-report",
+      kind: "file",
+      name: "週報",
+      filename: "weekly-0930.md",
+      mime: "application/octet-stream",
+      url: "/api/chat/attachment/att-dddddddddddd",
+    });
+
+  async function openCommentsOn(view: ReturnType<typeof renderBadge>) {
+    globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "# 週報" })) as unknown as typeof fetch;
+    fireEvent.click(screen.getByTestId("task-artifacts-badge"));
+    await waitFor(() => expect(view.container.querySelector("button.task-artifacts__chip")).toBeTruthy());
+    fireEvent.click(view.container.querySelector("button.task-artifacts__chip")!);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "週報" })).toBeTruthy());
+  }
+
+  it("sends the comments to the executor, naming the task and the artifact", async () => {
+    localStorage.setItem(
+      "oc_doc_comments:att-dddddddddddd",
+      JSON.stringify([{ id: "c1", excerpt: "週報", comment: "補上日期" }]),
+    );
+    const view = renderBadge([report()], {
+      commentRecipient: { id: "ow-eeeeeeeeeeee", name: "外包 阿青", active: true },
+    });
+    await openCommentsOn(view);
+    fireEvent.click(screen.getByRole("button", { name: "註解" }));
+    expect(screen.getByText("外包 阿青")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "送出給 AI" }));
+    await waitFor(() => expect(api.postChat).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(api.postChat).mock.calls[0][0]).toEqual({
+      to: "ow-eeeeeeeeeeee",
+      body:
+        "**文件註解**：[weekly-0930.md](/api/chat/attachment/att-dddddddddddd)（att-dddddddddddd）\n" +
+        "任務 [T-1](/#tasks/t-1) 產物「週報」\n" +
+        "\n" +
+        "1. 原文：\n" +
+        "   > 週報\n" +
+        "\n" +
+        "   註解：補上日期",
+    });
+  });
+
+  it("refuses to send when the task has no executor", async () => {
+    localStorage.setItem(
+      "oc_doc_comments:att-dddddddddddd",
+      JSON.stringify([{ id: "c1", excerpt: "週報", comment: "補上日期" }]),
+    );
+    const view = renderBadge([report()], { commentRecipient: null });
+    await openCommentsOn(view);
+    fireEvent.click(screen.getByRole("button", { name: "註解" }));
+    expect((screen.getByRole("button", { name: "送出給 AI" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("不知道這份文件該送給誰，無法送出。")).toBeTruthy();
+  });
+
+  it("offers no comment mode when the card passes no recipient", async () => {
+    const view = renderBadge([report()]);
+    await openCommentsOn(view);
+    expect(screen.queryByRole("button", { name: "註解" })).toBeNull();
+  });
+});
