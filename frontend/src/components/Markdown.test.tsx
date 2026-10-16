@@ -1274,7 +1274,10 @@ describe("Markdown", () => {
     function withOpener(source: string) {
       const opened: unknown[] = [];
       const { container } = render(
-        <AttachmentOpenerContext.Provider value={(link) => opened.push(link)}>
+        <AttachmentOpenerContext.Provider value={(link) => {
+          opened.push(link);
+          return () => {};
+        }}>
           <Markdown source={source} />
         </AttachmentOpenerContext.Provider>,
       );

@@ -14,7 +14,11 @@ import { MarkdownPreviewOverlay, isPreviewableTextAttachment } from "./MarkdownP
 
 const OCTET_STREAM = "application/octet-stream";
 
-type Opened = AttachmentLink & { name: string; docComments?: DocCommentTarget };
+type Opened = AttachmentLink & { name: string };
+
+function sameTarget(a: DocCommentTarget | undefined, b: DocCommentTarget | undefined): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
 
 function previewable(mime: string, name: string): boolean {
   return mime.startsWith("image/") || isPreviewableTextAttachment(mime, name);
@@ -32,7 +36,21 @@ export function AttachmentModalHost({ children }: { children: ReactNode }) {
   // The link text is a name only when it ends in a known extension; an image
   // comment's link text is the image's alt, so the server is asked instead.
   const [probed, setProbed] = useState<{ attachmentId: string; mime: string } | null>(null);
-  const value = useMemo<AttachmentOpener>(() => (link) => setOpen(link), []);
+  const [comments, setComments] = useState<{ for: Opened; target?: DocCommentTarget } | null>(null);
+  const value = useMemo<AttachmentOpener>(
+    () =>
+      ({ docComments, ...link }) => {
+        setOpen(link);
+        setComments({ for: link, target: docComments });
+        return (target) =>
+          setComments((prev) =>
+            prev === null || prev.for !== link || sameTarget(prev.target, target)
+              ? prev
+              : { for: link, target },
+          );
+      },
+    [],
+  );
 
   const nameMime = open === null ? OCTET_STREAM : attachmentMimeForName(open.name);
   const needsProbe = open !== null && !previewable(nameMime, open.name);
@@ -68,7 +86,7 @@ export function AttachmentModalHost({ children }: { children: ReactNode }) {
           attachmentId={open.attachmentId}
           mime={mime}
           typePending={needsProbe && probedMime === null}
-          docComments={open.docComments}
+          docComments={comments?.for === open ? comments.target : undefined}
           onClose={() => setOpen(null)}
         />
       )}

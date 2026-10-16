@@ -2351,6 +2351,7 @@ export function ChatArea({
         <ChatGalleryPanel
           member={member}
           resolveSender={nameOf}
+          docComments={roomDocComments}
           onClose={() => setGalleryOpen(false)}
         />
       )}
@@ -2801,7 +2802,9 @@ export function ChatArea({
         ))}
       {/* The 看原訊息 overlay is the shared exit's own — same surface, one
        * owner for the read behind it (hooks/useQuotedMessageOverlay). */}
-      {quotedMessage.overlay}
+      <AttachmentLinkCommentsContext.Provider value={roomDocComments}>
+        {quotedMessage.overlay}
+      </AttachmentLinkCommentsContext.Provider>
     </div>
   );
 }

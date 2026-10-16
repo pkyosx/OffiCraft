@@ -196,15 +196,15 @@ describe("chat .md preview action (T-a1c4 / T-7bc2)", () => {
   });
 });
 
-describe("chat .md attachment comments", () => {
-  const md = (id: string) => ({
-    id,
-    url: `/api/chat/attachment/${id}`,
-    filename: `${id}.md`,
-    mime: "text/markdown",
-    isImage: false,
-  });
+const md = (id: string) => ({
+  id,
+  url: `/api/chat/attachment/${id}`,
+  filename: `${id}.md`,
+  mime: "text/markdown",
+  isImage: false,
+});
 
+describe("chat .md attachment comments", () => {
   async function sendSeededComment(chipName: string, members: Member[], rosterSettled?: boolean) {
     localStorage.setItem(
       `oc_doc_comments:${chipName}`,
@@ -302,6 +302,7 @@ describe("chat message links to a stored attachment", () => {
   }
 
   const overlay = () => document.body.querySelector<HTMLElement>(".md-preview[role=dialog]");
+  const topOverlay = () => [...document.body.querySelectorAll<HTMLElement>(".md-preview[role=dialog]")].at(-1)!;
 
   it("previews the commented document in place on a plain click, with no token in any address", async () => {
     const before = window.location.href;
@@ -346,37 +347,132 @@ describe("chat message links to a stored attachment", () => {
       to: "m1",
       body: "**文件註解**：[設計.md](/api/chat/attachment/att-aaaaaaaaaaaa)\n\n1. 原文：\n   > 設計稿\n\n   註解：補日期",
     });
+    await waitFor(() => expect(overlay()).toBeNull());
+
+    fireEvent.click(within(view.container).getByRole("button", { name: "放大閱讀" }));
+    fireEvent.click(within(overlay()!).getByRole("link", { name: "設計.md" }));
+    await waitFor(() => expect(view.getByRole("heading", { name: "設計稿" })).toBeTruthy());
+    fireEvent.click(within(topOverlay()).getByRole("button", { name: "註解" }));
+    expect(topOverlay().querySelector(".doc-comments__recipient strong")?.textContent).toBe("Mira");
+  });
+
+  it("comments a document opened from 看原訊息 or the room's gallery to the room's peer", async () => {
+    globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "# 設計稿" })) as unknown as typeof fetch;
+    vi.spyOn(api, "getChatMessage").mockResolvedValue({ ...msgWith([]), id: "c-1", body, from: "m2", to: "m1" });
+    vi.spyOn(api, "listChatAttachments").mockResolvedValue([
+      {
+        ...md("att-ffffffffffff"),
+        filename: "plan.md",
+        messageId: "c-0",
+        from: "m2",
+        fromName: "Nova",
+        to: "m1",
+        ts: 900,
+      },
+    ]);
+    messages = [
+      {
+        ...msgWith([]),
+        id: "c-2",
+        from: "owner",
+        body: "看這個",
+        replyTo: "c-1",
+        replyToChat: { id: "c-1", from: "m2", fromName: "", to: "m1", toName: "", content: "設計" },
+      },
+    ];
+    const view = render(
+      <I18nProvider>
+        <AttachmentModalHost>
+          <ChatArea member={mkMember()} members={[mkMember(), mkMember("m2", "Nova")]} rosterSettled />
+        </AttachmentModalHost>
+      </I18nProvider>,
+    );
+
+    fireEvent.click(within(view.container).getByRole("button", { name: "看原訊息" }));
+    await waitFor(() => expect(overlay()).toBeTruthy());
+    fireEvent.click(within(overlay()!).getByRole("link", { name: "設計.md" }));
+    await waitFor(() => expect(view.getByRole("heading", { name: "設計稿" })).toBeTruthy());
+    fireEvent.click(within(topOverlay()).getByRole("button", { name: "註解" }));
+    expect(topOverlay().querySelector(".doc-comments__recipient strong")?.textContent).toBe("Mira");
+    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(overlay()).toBeNull());
+
+    fireEvent.click(within(view.container).getByRole("button", { name: "檔案與圖片" }));
+    fireEvent.click(view.getByRole("tab", { name: "檔案" }));
+    fireEvent.click(await within(view.container).findByText("plan.md"));
+    await waitFor(() => expect(view.getByRole("heading", { name: "設計稿" })).toBeTruthy());
+    fireEvent.click(within(overlay()!).getByRole("button", { name: "註解" }));
+    expect(overlay()!.querySelector(".doc-comments__recipient strong")?.textContent).toBe("Mira");
+  });
+
+  it("updates a link-opened document's send state as the room's roster loads and changes", async () => {
+    globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "# 設計稿" })) as unknown as typeof fetch;
+    localStorage.setItem(
+      "oc_doc_comments:att-aaaaaaaaaaaa",
+      JSON.stringify([{ id: "c1", excerpt: "設計稿", comment: "補日期" }]),
+    );
+    messages = [{ ...msgWith([]), body }];
+    const room = (members: Member[], rosterSettled: boolean) => (
+      <I18nProvider>
+        <AttachmentModalHost>
+          <ChatArea member={mkMember()} members={members} rosterSettled={rosterSettled} />
+        </AttachmentModalHost>
+      </I18nProvider>
+    );
+    const view = render(room([], false));
+    const send = () => view.getByRole("button", { name: "送出給 AI" }) as HTMLButtonElement;
+    const gone = "對方已不在名冊上（已移除或已釋出），無法送出。";
+    fireEvent.click(within(view.container).getByRole("link", { name: "設計.md" }));
+    await waitFor(() => expect(view.getByRole("heading", { name: "設計稿" })).toBeTruthy());
+    fireEvent.click(within(overlay()!).getByRole("button", { name: "註解" }));
+    expect(send().disabled).toBe(true);
+    expect(view.queryByText(gone)).toBeNull();
+
+    view.rerender(room([mkMember()], true));
+    await waitFor(() => expect(send().disabled).toBe(false));
+
+    view.rerender(room([], true));
+    await waitFor(() => expect(view.getByText(gone)).toBeTruthy());
+    expect(send().disabled).toBe(true);
   });
 
   it("sends comments on a document linked from a reply card in the room to the card's author", async () => {
     const post = vi.spyOn(api, "postChat").mockResolvedValue(undefined);
     globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "# 設計稿" })) as unknown as typeof fetch;
     vi.spyOn(api, "getReplyCard").mockResolvedValue({
-      id: "rc-mira", from: "m1", kind: "decision", summary: "要採用嗎？",
+      id: "rc-nova", from: "m2", kind: "decision", summary: "要採用嗎？",
       body: `見 [設計.md](${DOC})`,
-      options: [], selectMode: "single", status: "waiting", attachments: [],
+      options: [], selectMode: "single", status: "waiting", attachments: [md("att-question")],
       createdTs: 1000, answeredTs: null, chatMessageId: "msg1", answer: null,
     });
     localStorage.setItem(
       "oc_doc_comments:att-aaaaaaaaaaaa",
       JSON.stringify([{ id: "c1", excerpt: "設計稿", comment: "補日期" }]),
     );
-    messages = [{ ...msgWith([]), body: "要採用嗎？", replyCardId: "rc-mira" }];
+    messages = [{ ...msgWith([]), from: "m2", to: "m1", body: "要採用嗎？", replyCardId: "rc-nova" }];
     const view = render(
       <I18nProvider>
         <AttachmentModalHost>
-          <ChatArea member={mkMember()} members={[mkMember()]} rosterSettled />
+          <ChatArea member={mkMember()} members={[mkMember(), mkMember("m2", "Nova")]} rosterSettled />
         </AttachmentModalHost>
       </I18nProvider>,
     );
+    fireEvent.click(within(view.container).getByRole("button", { name: /展開/ }));
     fireEvent.click(within(view.container).getByTestId("chat-reply-card-expand"));
     fireEvent.click(await within(view.container).findByRole("link", { name: "設計.md" }));
     await waitFor(() => expect(view.getByRole("heading", { name: "設計稿" })).toBeTruthy());
     fireEvent.click(within(overlay()!).getByRole("button", { name: "註解" }));
-    expect(document.body.querySelector(".doc-comments__recipient strong")?.textContent).toBe("Mira");
+    expect(document.body.querySelector(".doc-comments__recipient strong")?.textContent).toBe("Nova");
     fireEvent.click(view.getByRole("button", { name: "送出給 AI" }));
     await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
-    expect(post.mock.calls[0][0].to).toBe("m1");
+    expect(post.mock.calls[0][0].to).toBe("m2");
+    await waitFor(() => expect(overlay()).toBeNull());
+
+    fireEvent.click(within(view.container).getByRole("button", { name: "att-question.md" }));
+    await waitFor(() => expect(view.getByRole("heading", { name: "設計稿" })).toBeTruthy());
+    fireEvent.click(within(overlay()!).getByRole("button", { name: "註解" }));
+    expect(overlay()!.querySelector(".doc-comments__recipient strong")?.textContent).toBe("Nova");
   });
 
   it("previews in place on a modified or middle click too, since a new tab would have no token", async () => {

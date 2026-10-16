@@ -8,9 +8,12 @@ import { createContext, useContext } from "react";
 import type { AttachmentLink } from "../lib/attachmentLink";
 import type { DocCommentTarget } from "../lib/docComments";
 
+/** Returns a refresher for that preview's comment target, so the recipient's
+ * roster state stays live while it is open; a no-op once it is closed or
+ * replaced. */
 export type AttachmentOpener = (
   link: AttachmentLink & { name: string; docComments?: DocCommentTarget },
-) => void;
+) => (docComments: DocCommentTarget | undefined) => void;
 
 export const AttachmentOpenerContext = createContext<AttachmentOpener | null>(null);
 

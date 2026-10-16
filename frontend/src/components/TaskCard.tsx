@@ -99,7 +99,7 @@ import { TaskReplyCard } from "./TaskReplyCard";
 import { Avatar } from "./Avatar";
 import { avatarKindForMember } from "../lib/avatarKind";
 import { OWNER_ID } from "../lib/ownerUnread";
-import { docCommentRecipient, type DocCommentRecipient } from "../lib/docComments";
+import { docCommentRecipient } from "../lib/docComments";
 import { AttachmentLinkCommentsContext } from "../hooks/useAttachmentOpener";
 import {
   ChatBubbleIcon,
@@ -288,18 +288,14 @@ export function TaskCard({
           t.tasks.effortOf[worker.effort] ?? worker.effort
         }`
       : executorName;
-  const executorRecipient: DocCommentRecipient | null = unassigned
+  const executorRecipient = unassigned
     ? null
-    : {
-        id: worker?.id ?? task.executorId,
-        name: executorName,
-        roster:
-          worker !== undefined || !isUnlisted(task.executorId)
-            ? "active"
-            : rosterSettled
-              ? "left"
-              : "pending",
-      };
+    : docCommentRecipient(
+        worker?.id ?? task.executorId,
+        executorName,
+        worker !== undefined || !isUnlisted(task.executorId),
+        rosterSettled,
+      );
   const docCommentRecipientFor = (id: string) => {
     if (id === executorRecipient?.id) return executorRecipient;
     const live = workers.find((w) => w.id === id);
