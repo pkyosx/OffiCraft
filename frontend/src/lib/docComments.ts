@@ -3,6 +3,9 @@
 // as, and the lookups that find what a comment is on in the rendered document
 // again.
 
+import { OWNER_ID } from "./ownerUnread";
+import { isSyntheticSender } from "./syntheticSender";
+
 /** A comment on a passage (`excerpt`) or on an image. Text comments carry no
  * `kind`, which is also the shape drafts were stored in before images could
  * be commented on. */
@@ -30,6 +33,24 @@ export interface DocCommentTarget {
   recipient: DocCommentRecipient | null;
   /** Present when the document is a task artifact. */
   task?: { id: string; taskNo: string; artifactName: string };
+}
+
+/** `id` placed on the live roster; null for the owner, who is never sent comments. */
+export function docCommentRecipient(
+  id: string,
+  name: string,
+  listed: boolean,
+  rosterSettled: boolean,
+): DocCommentRecipient | null {
+  if (id === "" || id === OWNER_ID) return null;
+  const roster = isSyntheticSender(id)
+    ? "not-member"
+    : listed
+      ? "active"
+      : rosterSettled
+        ? "left"
+        : "pending";
+  return { id, name, roster };
 }
 
 const STORAGE_PREFIX = "oc_doc_comments:";

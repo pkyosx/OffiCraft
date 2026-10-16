@@ -99,6 +99,8 @@ import { TaskReplyCard } from "./TaskReplyCard";
 import { Avatar } from "./Avatar";
 import { avatarKindForMember } from "../lib/avatarKind";
 import { OWNER_ID } from "../lib/ownerUnread";
+import { docCommentRecipient, type DocCommentRecipient } from "../lib/docComments";
+import { AttachmentLinkCommentsContext } from "../hooks/useAttachmentOpener";
 import {
   ChatBubbleIcon,
   CheckIcon,
@@ -286,6 +288,27 @@ export function TaskCard({
           t.tasks.effortOf[worker.effort] ?? worker.effort
         }`
       : executorName;
+  const executorRecipient: DocCommentRecipient | null = unassigned
+    ? null
+    : {
+        id: worker?.id ?? task.executorId,
+        name: executorName,
+        roster:
+          worker !== undefined || !isUnlisted(task.executorId)
+            ? "active"
+            : rosterSettled
+              ? "left"
+              : "pending",
+      };
+  const docCommentRecipientFor = (id: string) => {
+    if (id === executorRecipient?.id) return executorRecipient;
+    const live = workers.find((w) => w.id === id);
+    const name =
+      members.find((m) => m.id === id)?.name ??
+      (live ? msg.outsourceLabel(live.codename) : unlistedNames.get(id) ?? id);
+    return docCommentRecipient(id, name, !isUnlisted(id), rosterSettled);
+  };
+
   // 類型 chip text: the manual's display name (T-fa76), falling back to the
   // raw key (deleted manual / legacy type), then the ad-hoc word.
   const typeLabel = task.typeKey
@@ -1197,6 +1220,7 @@ export function TaskCard({
             replyCardId={step.replyCardId}
             initialStatus={step.replyCardStatus}
             fallbackSummary={step.name}
+            commentRecipientFor={docCommentRecipientFor}
           />
         )}
       </div>
@@ -1205,7 +1229,7 @@ export function TaskCard({
 
   const timeline = buildTimeline(view.steps);
 
-  return (
+  const card = (
     <article
       ref={rootRef}
       className={`task-card task-card--${task.status}${
@@ -1556,20 +1580,7 @@ export function TaskCard({
                 so the popover fetches every row itself when it opens. */}
             <TaskArtifactsBadge
               task={view}
-              commentRecipient={
-                unassigned
-                  ? null
-                  : {
-                      id: worker?.id ?? task.executorId,
-                      name: executorName,
-                      roster:
-                        worker !== undefined || !isUnlisted(task.executorId)
-                          ? "active"
-                          : rosterSettled
-                            ? "left"
-                            : "pending",
-                    }
-              }
+              commentRecipient={executorRecipient}
               onRemoveArtifact={
                 TERMINAL.has(view.status) ? undefined : onRemoveArtifact
               }
@@ -2487,5 +2498,12 @@ export function TaskCard({
         />
       )}
     </article>
+  );
+  return (
+    <AttachmentLinkCommentsContext.Provider
+      value={executorRecipient === null ? null : { recipient: executorRecipient }}
+    >
+      {card}
+    </AttachmentLinkCommentsContext.Provider>
   );
 }

@@ -9,11 +9,12 @@ import { authedAttachmentUrl } from "../api/http";
 import { AttachmentOpenerContext, type AttachmentOpener } from "../hooks/useAttachmentOpener";
 import { attachmentMimeForName } from "../lib/attachmentMime";
 import type { AttachmentLink } from "../lib/attachmentLink";
+import type { DocCommentTarget } from "../lib/docComments";
 import { MarkdownPreviewOverlay, isPreviewableTextAttachment } from "./MarkdownPreviewOverlay";
 
 const OCTET_STREAM = "application/octet-stream";
 
-type Opened = AttachmentLink & { name: string };
+type Opened = AttachmentLink & { name: string; docComments?: DocCommentTarget };
 
 function previewable(mime: string, name: string): boolean {
   return mime.startsWith("image/") || isPreviewableTextAttachment(mime, name);
@@ -67,6 +68,7 @@ export function AttachmentModalHost({ children }: { children: ReactNode }) {
           attachmentId={open.attachmentId}
           mime={mime}
           typePending={needsProbe && probedMime === null}
+          docComments={open.docComments}
           onClose={() => setOpen(null)}
         />
       )}

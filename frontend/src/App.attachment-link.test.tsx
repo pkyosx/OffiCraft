@@ -29,7 +29,7 @@ describe("App", () => {
     vi.restoreAllMocks();
   });
 
-  it("previews an attachment linked from a page's markdown in place", async () => {
+  it("previews an attachment linked from a page's markdown in place, read-only where no surface names a recipient", async () => {
     globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "# 設計稿" })) as unknown as typeof fetch;
     vi.spyOn(api, "getChatAttachmentShareLink").mockResolvedValue("/api/chat/attachment/x?sig=s");
     render(
@@ -40,5 +40,6 @@ describe("App", () => {
     expect(fireEvent.click(screen.getByRole("link", { name: "設計.md" }))).toBe(false);
     await waitFor(() => expect(screen.getByRole("heading", { name: "設計稿" })).toBeTruthy());
     expect(document.body.querySelector(".md-preview[role=dialog]")?.getAttribute("aria-label")).toBe("設計.md");
+    expect(screen.queryByRole("button", { name: "註解" })).toBeNull();
   });
 });

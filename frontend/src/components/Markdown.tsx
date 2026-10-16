@@ -64,7 +64,7 @@ import {
 import { DIFF_PATH, diffParamsFromHref } from "../lib/diffLink";
 import { useDiffOpener } from "../hooks/useDiffOpener";
 import { attachmentLinkFromHref } from "../lib/attachmentLink";
-import { useAttachmentOpener } from "../hooks/useAttachmentOpener";
+import { useAttachmentLinkComments, useAttachmentOpener } from "../hooks/useAttachmentOpener";
 
 interface MarkdownProps {
   source: string;
@@ -228,12 +228,13 @@ interface InlineOpts {
 function ExternalOrDiffLink({ href, label }: { href: string; label: string }) {
   const openDiff = useDiffOpener();
   const openAttachment = useAttachmentOpener();
+  const docComments = useAttachmentLinkComments();
   const params = useMemo(() => diffParamsFromHref(href), [href]);
   const attachment = useMemo(() => attachmentLinkFromHref(href), [href]);
   if (openAttachment !== null && attachment !== null) {
     const open = (e: ReactMouseEvent<HTMLAnchorElement>) => {
       e.preventDefault();
-      openAttachment({ ...attachment, name: label });
+      openAttachment({ ...attachment, name: label, docComments: docComments ?? undefined });
     };
     return (
       <a

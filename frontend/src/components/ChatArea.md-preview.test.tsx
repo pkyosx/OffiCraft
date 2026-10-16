@@ -224,7 +224,10 @@ describe("chat .md attachment comments", () => {
     return view;
   }
 
-  it("addresses comments on an agent's attachment to that agent, and on the owner's own to the room's peer", async () => {
+  const recipientShown = () =>
+    document.body.querySelector(".doc-comments__recipient strong")?.textContent;
+
+  it("addresses comments on any attachment in the room to the room's peer, including one another agent sent that peer", async () => {
     const post = vi.spyOn(api, "postChat").mockResolvedValue(undefined);
     messages = [
       { ...msgWith([md("att-from-nova")]), id: "msg-n", from: "m2", to: "m1" },
@@ -233,7 +236,7 @@ describe("chat .md attachment comments", () => {
     const roster = [mkMember(), mkMember("m2", "Nova")];
 
     const first = await sendSeededComment("att-from-nova", roster, true);
-    expect(first.getByText("Nova")).toBeTruthy();
+    expect(recipientShown()).toBe("Mira");
     fireEvent.click(first.getByRole("button", { name: "送出給 AI" }));
     await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
     first.unmount();
@@ -241,30 +244,29 @@ describe("chat .md attachment comments", () => {
     const second = await sendSeededComment("att-from-owner", roster, true);
     fireEvent.click(second.getByRole("button", { name: "送出給 AI" }));
     await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
-    expect(post.mock.calls.map(([arg]) => arg.to)).toEqual(["m2", "m1"]);
+    expect(post.mock.calls.map(([arg]) => arg.to)).toEqual(["m1", "m1"]);
   });
 
-  it("does not call a sender departed while the roster has not loaded", async () => {
+  it("does not call the room's peer departed while the roster has not loaded", async () => {
     messages = [{ ...msgWith([md("att-from-nova")]), id: "msg-n", from: "m2", to: "m1" }];
-    const view = await sendSeededComment("att-from-nova", [mkMember()]);
+    const view = await sendSeededComment("att-from-nova", [mkMember("m2", "Nova")]);
     expect((view.getByRole("button", { name: "送出給 AI" }) as HTMLButtonElement).disabled).toBe(true);
     expect(view.queryByText("對方已不在名冊上（已移除或已釋出），無法送出。")).toBeNull();
   });
 
-  it("refuses to send to a sender who is no longer on the roster, and says a webhook or scheduled sender is not a member instead", async () => {
+  it("refuses to send once the roster has loaded without the room's peer, and sends a webhook or scheduled message's attachment to the peer", async () => {
     messages = [{ ...msgWith([md("att-from-nova")]), id: "msg-n", from: "m2", to: "m1" }];
-    const view = await sendSeededComment("att-from-nova", [mkMember()], true);
+    const view = await sendSeededComment("att-from-nova", [mkMember("m2", "Nova")], true);
     expect((view.getByRole("button", { name: "送出給 AI" }) as HTMLButtonElement).disabled).toBe(true);
     expect(view.getByText("對方已不在名冊上（已移除或已釋出），無法送出。")).toBeTruthy();
-    expect(view.queryByText("這份文件不是成員寄出的，無法直接送出註解。")).toBeNull();
     view.unmount();
 
     for (const from of ["hook:ep-aaaa", "sched:sc-aaaa", "system"]) {
       messages = [{ ...msgWith([md("att-synthetic")]), id: "msg-s", from, to: "owner" }];
       const synthetic = await sendSeededComment("att-synthetic", [mkMember()], true);
-      expect((synthetic.getByRole("button", { name: "送出給 AI" }) as HTMLButtonElement).disabled).toBe(true);
-      expect(synthetic.getByText("這份文件不是成員寄出的，無法直接送出註解。")).toBeTruthy();
-      expect(synthetic.queryByText("對方已不在名冊上（已移除或已釋出），無法送出。")).toBeNull();
+      expect(recipientShown()).toBe("Mira");
+      expect((synthetic.getByRole("button", { name: "送出給 AI" }) as HTMLButtonElement).disabled).toBe(false);
+      expect(synthetic.queryByText("這份文件不是成員寄出的，無法直接送出註解。")).toBeNull();
       synthetic.unmount();
     }
   });
@@ -315,7 +317,66 @@ describe("chat message links to a stored attachment", () => {
     expect(windowOpen).not.toHaveBeenCalled();
     expect(window.location.href).toBe(before);
     expect(docLink.getAttribute("href")).toBe(DOC);
-    expect(within(overlay()!).queryByRole("button", { name: "註解" })).toBeNull();
+  });
+
+  it("takes comments on a document opened from a link in the room and sends them to the room's peer, even on a message between two agents", async () => {
+    const post = vi.spyOn(api, "postChat").mockResolvedValue(undefined);
+    globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "# 設計稿" })) as unknown as typeof fetch;
+    localStorage.setItem(
+      "oc_doc_comments:att-aaaaaaaaaaaa",
+      JSON.stringify([{ id: "c1", excerpt: "設計稿", comment: "補日期" }]),
+    );
+    messages = [{ ...msgWith([]), body, from: "m2", to: "m1" }];
+    const view = render(
+      <I18nProvider>
+        <AttachmentModalHost>
+          <ChatArea member={mkMember()} members={[mkMember(), mkMember("m2", "Nova")]} rosterSettled />
+        </AttachmentModalHost>
+      </I18nProvider>,
+    );
+    const expand = within(view.container).queryByRole("button", { name: /展開/ });
+    if (expand) fireEvent.click(expand);
+    fireEvent.click(within(view.container).getByRole("link", { name: "設計.md" }));
+    await waitFor(() => expect(view.getByRole("heading", { name: "設計稿" })).toBeTruthy());
+    fireEvent.click(within(overlay()!).getByRole("button", { name: "註解" }));
+    expect(document.body.querySelector(".doc-comments__recipient strong")?.textContent).toBe("Mira");
+    fireEvent.click(view.getByRole("button", { name: "送出給 AI" }));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    expect(post.mock.calls[0][0]).toEqual({
+      to: "m1",
+      body: "**文件註解**：[設計.md](/api/chat/attachment/att-aaaaaaaaaaaa)\n\n1. 原文：\n   > 設計稿\n\n   註解：補日期",
+    });
+  });
+
+  it("sends comments on a document linked from a reply card in the room to the card's author", async () => {
+    const post = vi.spyOn(api, "postChat").mockResolvedValue(undefined);
+    globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "# 設計稿" })) as unknown as typeof fetch;
+    vi.spyOn(api, "getReplyCard").mockResolvedValue({
+      id: "rc-mira", from: "m1", kind: "decision", summary: "要採用嗎？",
+      body: `見 [設計.md](${DOC})`,
+      options: [], selectMode: "single", status: "waiting", attachments: [],
+      createdTs: 1000, answeredTs: null, chatMessageId: "msg1", answer: null,
+    });
+    localStorage.setItem(
+      "oc_doc_comments:att-aaaaaaaaaaaa",
+      JSON.stringify([{ id: "c1", excerpt: "設計稿", comment: "補日期" }]),
+    );
+    messages = [{ ...msgWith([]), body: "要採用嗎？", replyCardId: "rc-mira" }];
+    const view = render(
+      <I18nProvider>
+        <AttachmentModalHost>
+          <ChatArea member={mkMember()} members={[mkMember()]} rosterSettled />
+        </AttachmentModalHost>
+      </I18nProvider>,
+    );
+    fireEvent.click(within(view.container).getByTestId("chat-reply-card-expand"));
+    fireEvent.click(await within(view.container).findByRole("link", { name: "設計.md" }));
+    await waitFor(() => expect(view.getByRole("heading", { name: "設計稿" })).toBeTruthy());
+    fireEvent.click(within(overlay()!).getByRole("button", { name: "註解" }));
+    expect(document.body.querySelector(".doc-comments__recipient strong")?.textContent).toBe("Mira");
+    fireEvent.click(view.getByRole("button", { name: "送出給 AI" }));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    expect(post.mock.calls[0][0].to).toBe("m1");
   });
 
   it("previews in place on a modified or middle click too, since a new tab would have no token", async () => {
@@ -343,6 +404,7 @@ describe("chat message links to a stored attachment", () => {
       "/api/chat/attachment/att-bbbbbbbbbbbb?token=jwt-1",
     );
     expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(within(overlay()!).queryByRole("button", { name: "註解" })).toBeNull();
   });
 
   it("asks the server for the type when the link text has no extension, loading meanwhile, and shows the image it answers", async () => {
@@ -356,6 +418,7 @@ describe("chat message links to a stored attachment", () => {
     fireEvent.click(flowChart);
     await waitFor(() => expect(overlay()?.getAttribute("aria-label")).toBe("架構圖"));
     expect(within(overlay()!).getByText("載入預覽中…")).toBeTruthy();
+    expect(within(overlay()!).queryByRole("button", { name: "註解" })).toBeNull();
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     expect(globalThis.fetch).toHaveBeenCalledWith("/api/chat/attachment/att-cccccccccccc?token=jwt-1", {
       method: "HEAD",

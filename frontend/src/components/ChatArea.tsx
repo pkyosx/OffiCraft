@@ -51,6 +51,8 @@ import { useQuotedMessageOverlay } from "../hooks/useQuotedMessageOverlay";
 import { PresenceBadge } from "./PresenceBadge";
 import { CurrentTaskTitle } from "./CurrentTaskTitle";
 import { isSyntheticSender } from "../lib/syntheticSender";
+import { docCommentRecipient, type DocCommentTarget } from "../lib/docComments";
+import { AttachmentLinkCommentsContext } from "../hooks/useAttachmentOpener";
 import {
   BoltIcon,
   ChevronRightIcon,
@@ -550,6 +552,18 @@ export function ChatArea({
   // the SAME join, so a reader never meets two ways of saying who-to-whom.
   const directionLabel = (from: string, to: string): string =>
     `${nameOf(from)} → ${nameOf(to)}`;
+  const docCommentRecipientFor = (id: string) =>
+    docCommentRecipient(
+      id,
+      nameOf(id),
+      members.some((x) => x.id === id) || workers.some((w) => w.id === id),
+      rosterSettled,
+    );
+  // A document opened anywhere in this room — even from a message between two
+  // other agents — is commented back to this room's peer.
+  const roomDocComments: DocCommentTarget = {
+    recipient: docCommentRecipientFor(member.id),
+  };
   // The shared 看原訊息 exit. Declared here rather than at the top of the
   // component because it is handed `nameOf`, and `nameOf` needs the roster
   // hooks above it. It is still an unconditional top-level hook call.
@@ -2042,6 +2056,7 @@ export function ChatArea({
         replyCardId={m.replyCardId}
         fallbackSummary={m.body}
         initialStatus={m.replyCardStatus}
+        commentRecipientFor={docCommentRecipientFor}
       />
     ) : (
       <div
@@ -2096,11 +2111,13 @@ export function ChatArea({
          * fallback as markdown. `breaks` keeps Enter meaning "new line", the
          * way the bubble's pre-wrap did before. */}
         {m.body && (
-          <Markdown
-            source={m.body}
-            className="chat__msg-text doc-md"
-            breaks
-          />
+          <AttachmentLinkCommentsContext.Provider value={roomDocComments}>
+            <Markdown
+              source={m.body}
+              className="chat__msg-text doc-md"
+              breaks
+            />
+          </AttachmentLinkCommentsContext.Provider>
         )}
         {/* Stored attachments — one click target, opening the shared popup. */}
         <AttachmentStrip
@@ -2108,18 +2125,7 @@ export function ChatArea({
           className="chat__msg-attachments"
           itemClassName="chat__msg-attachment"
           imageClassName="chat__msg-image chat__msg-image--clickable"
-          docCommentsFor={() => {
-            const to = m.from === OWNER_ID ? member.id : m.from;
-            const listed = members.some((x) => x.id === to) || workers.some((w) => w.id === to);
-            const roster = isSyntheticSender(to)
-              ? "not-member"
-              : listed
-                ? "active"
-                : rosterSettled
-                  ? "left"
-                  : "pending";
-            return { recipient: { id: to, name: nameOf(to), roster } };
-          }}
+          docCommentsFor={() => roomDocComments}
         />
       </div>
     );
@@ -2785,11 +2791,13 @@ export function ChatArea({
             onClose={() => setMdPreview(null)}
           />
         ) : (
-          <MarkdownPreviewOverlay
-            title={mdPreview.title}
-            source={mdPreview.source}
-            onClose={() => setMdPreview(null)}
-          />
+          <AttachmentLinkCommentsContext.Provider value={roomDocComments}>
+            <MarkdownPreviewOverlay
+              title={mdPreview.title}
+              source={mdPreview.source}
+              onClose={() => setMdPreview(null)}
+            />
+          </AttachmentLinkCommentsContext.Provider>
         ))}
       {/* The 看原訊息 overlay is the shared exit's own — same surface, one
        * owner for the read behind it (hooks/useQuotedMessageOverlay). */}

@@ -44,6 +44,8 @@ useTasks 把 statusFilter 轉成重複的 ?statuses=；執行者與類型篩選�
 
 卡片預設收合；標題與 description 是唯讀 UI，owner 沒有要求編輯入口。進度與 gate 狀態直接使用 server 值；stepBadge 由 lib/stepBadge.ts 統一，superseded 不計入 progress。gate 預告、內嵌 TaskReplyCard、等待外部 banner 與任務訊息框都要維持原 wire 語意。
 
+卡內（描述、步驟、備註）的附件連結可以下註解、回給負責人，步驟內嵌的請示卡則回給開卡人；契約見 overlays-and-modals.md〈附件連結〉。
+
 依賴 chip 讀 task.depTasks，必須區分已解析、查無此任務與 undefined 未提供。
 
 **卡上有兩個「開／關」，owner 對它們的裁定相反，不要把其中一條套到另一條（T-6630）：備註是「不准動畫面」，整張任務卡收合是「要把畫面定位過去」。**

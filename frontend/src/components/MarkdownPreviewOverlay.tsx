@@ -278,6 +278,7 @@ export function MarkdownPreviewOverlay({
     attachmentId !== undefined &&
     url !== undefined &&
     !image &&
+    !typePending &&
     previewableText;
   const [commenting, setCommenting] = useState(false);
   const bodyRef = useRef<HTMLDivElement | null>(null);

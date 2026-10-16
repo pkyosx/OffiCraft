@@ -27,9 +27,11 @@ import { Markdown } from "./Markdown";
 import {
   ReplyCardAnsweredBody,
   ReplyCardExpiredBody,
+  ReplyCardLinkComments,
   ReplyCardQuestionAttachments,
   ReplyCardWaitingBody,
 } from "./ReplyCardBody";
+import type { DocCommentRecipient } from "../lib/docComments";
 import { ChevronRightIcon } from "./icons";
 import "./replies.css";
 
@@ -37,6 +39,7 @@ export function TaskReplyCard({
   replyCardId,
   initialStatus,
   fallbackSummary,
+  commentRecipientFor,
 }: {
   replyCardId: string;
   /** The bound step's read-time `reply_card_status` hint. ANSWERED or EXPIRED
@@ -48,6 +51,9 @@ export function TaskReplyCard({
    * (the step name — the only summary available without the card). Once the
    * card loads, its own summary + answer replace it. */
   fallbackSummary?: string;
+  /** Who a document linked from the card is commented to, by author id;
+   * absent ⇒ such documents open read-only. */
+  commentRecipientFor?: (id: string) => DocCommentRecipient | null;
 }) {
   const { t, msg } = useI18n();
   const [, setRoute] = useHashRoute();
@@ -262,66 +268,68 @@ export function TaskReplyCard({
   }
 
   return (
-    <div
-      className="reply-card task-reply-card"
-      data-testid="task-reply-card"
-      data-reply-card-id={replyCardId}
-    >
-      <header className="task-reply-card__head">
-        <span className="task-reply-card__title">{t.tasks.replyHeader}</span>
-        {card?.status === "waiting" && (
-          <span className="reply-tag reply-tag--ai">{t.tasks.replyBadge}</span>
+    <ReplyCardLinkComments from={card?.from} recipientFor={commentRecipientFor}>
+      <div
+        className="reply-card task-reply-card"
+        data-testid="task-reply-card"
+        data-reply-card-id={replyCardId}
+      >
+        <header className="task-reply-card__head">
+          <span className="task-reply-card__title">{t.tasks.replyHeader}</span>
+          {card?.status === "waiting" && (
+            <span className="reply-tag reply-tag--ai">{t.tasks.replyBadge}</span>
+          )}
+          {card && (
+            <button
+              type="button"
+              className="task-reply-card__jump"
+              onClick={jumpToChat}
+            >
+              {t.tasks.replyInChat}
+              <ChevronRightIcon size={12} />
+            </button>
+          )}
+          {(card?.status === "answered" || card?.status === "expired") && (
+            <button
+              type="button"
+              className="task-reply-card__collapse"
+              aria-label={t.tasks.collapseReply}
+              title={t.tasks.collapseReply}
+              data-testid="task-reply-card-collapse"
+              onClick={() => setAnsweredOpen(false)}
+            >
+              <ChevronRightIcon size={12} className="reply-card__caret reply-card__caret--open" />
+            </button>
+          )}
+        </header>
+
+        {/* T-a20b: summary is agent-authored free text (markdown), like body. */}
+        {card?.summary && (
+          <Markdown source={card.summary} className="reply-card__summary doc-md" />
         )}
+        {card?.body && (
+          <Markdown source={card.body} className="reply-card__body doc-md" />
+        )}
+        {/* QUESTION-side attachments (T-5e8a): thumbnails/chips under the body,
+         * on every status — click an image to preview in the lightbox. */}
         {card && (
-          <button
-            type="button"
-            className="task-reply-card__jump"
-            onClick={jumpToChat}
-          >
-            {t.tasks.replyInChat}
-            <ChevronRightIcon size={12} />
-          </button>
+          <ReplyCardQuestionAttachments card={card} />
         )}
-        {(card?.status === "answered" || card?.status === "expired") && (
-          <button
-            type="button"
-            className="task-reply-card__collapse"
-            aria-label={t.tasks.collapseReply}
-            title={t.tasks.collapseReply}
-            data-testid="task-reply-card-collapse"
-            onClick={() => setAnsweredOpen(false)}
-          >
-            <ChevronRightIcon size={12} className="reply-card__caret reply-card__caret--open" />
-          </button>
+
+        {loadError && (
+          <div className="reply-card__error">{t.replies.loadError}</div>
         )}
-      </header>
+        {actionError && <div className="reply-card__error">{actionError}</div>}
 
-      {/* T-a20b: summary is agent-authored free text (markdown), like body. */}
-      {card?.summary && (
-        <Markdown source={card.summary} className="reply-card__summary doc-md" />
-      )}
-      {card?.body && (
-        <Markdown source={card.body} className="reply-card__body doc-md" />
-      )}
-      {/* QUESTION-side attachments (T-5e8a): thumbnails/chips under the body,
-       * on every status — click an image to preview in the lightbox. */}
-      {card && (
-        <ReplyCardQuestionAttachments card={card} />
-      )}
-
-      {loadError && (
-        <div className="reply-card__error">{t.replies.loadError}</div>
-      )}
-      {actionError && <div className="reply-card__error">{actionError}</div>}
-
-      {card &&
-        (card.status === "waiting" ? (
-          <ReplyCardWaitingBody card={card} onAnswer={doAnswer} />
-        ) : card.status === "expired" ? (
-          <ReplyCardExpiredBody card={card} />
-        ) : (
-          <ReplyCardAnsweredBody card={card} onReanswer={doReanswer} />
-        ))}
-    </div>
+        {card &&
+          (card.status === "waiting" ? (
+            <ReplyCardWaitingBody card={card} onAnswer={doAnswer} />
+          ) : card.status === "expired" ? (
+            <ReplyCardExpiredBody card={card} />
+          ) : (
+            <ReplyCardAnsweredBody card={card} onReanswer={doReanswer} />
+          ))}
+      </div>
+    </ReplyCardLinkComments>
   );
 }
