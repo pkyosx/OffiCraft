@@ -52,6 +52,9 @@ export interface ChatDraft {
    * the reply target silently dropped would send the message to the wrong
    * place while looking exactly like a normal restore. */
   replyTo?: string;
+  /** The selected piece of the `replyTo` message, when the owner replied to a
+   * selection rather than the whole message. Never set without `replyTo`. */
+  replyExcerpt?: string;
 }
 
 const drafts = new Map<string, ChatDraft>();
@@ -154,9 +157,15 @@ export function saveChatDraftText(
   peerId: string,
   text: string,
   replyTo?: string,
+  replyExcerpt?: string,
 ): void {
   const cur = drafts.get(peerId);
-  write(peerId, { text, attachments: cur?.attachments ?? [], replyTo });
+  write(peerId, {
+    text,
+    attachments: cur?.attachments ?? [],
+    replyTo,
+    replyExcerpt: replyTo ? replyExcerpt : undefined,
+  });
 }
 
 /** Functionally update a peer's staged files. The updater sees the room's own
@@ -174,6 +183,7 @@ export function updateChatDraftAttachments(
     text: cur?.text ?? "",
     attachments: next,
     replyTo: cur?.replyTo,
+    replyExcerpt: cur?.replyExcerpt,
   });
 }
 

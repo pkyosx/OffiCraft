@@ -365,9 +365,22 @@ func (s *apiServer) HandlePostChatApiChatPost(w http.ResponseWriter, r *http.Req
 			meta[k] = v
 		}
 	}
-	// Drop any caller-supplied reply link: one arriving pre-made in meta would bypass
-	// the existence check below.
+	// Drop any caller-supplied reply link or excerpt: one arriving pre-made in meta
+	// would bypass the checks below.
 	delete(meta, chatReplyToMetaKey)
+	delete(meta, chatReplyExcerptMetaKey)
+	replyTo := trimString(strOrEmpty(body.ReplyTo))
+	// ⚠️ Not checked against the quoted body: a selection of the rendered message
+	// need not appear verbatim in its raw markdown.
+	replyExcerpt := trimString(strOrEmpty(body.ReplyExcerpt))
+	if replyExcerpt != "" && replyTo == "" {
+		writeError(w, http.StatusBadRequest, chatReplyExcerptWithoutReplyToMsg)
+		return
+	}
+	if n := utf8.RuneCountInString(replyExcerpt); n > chatReplyExcerptMaxChars {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf(chatReplyExcerptTooLongMsg, n, chatReplyExcerptMaxChars))
+		return
+	}
 	var inputs []ChatAttachmentInputDTO
 	if body.Attachments != nil {
 		inputs = *body.Attachments
@@ -389,7 +402,6 @@ func (s *apiServer) HandlePostChatApiChatPost(w http.ResponseWriter, r *http.Req
 	}
 	// Existence is the only gate — no same-conversation check (owner ruling
 	// 2026-08-21): quoting a line out of another thread is the use case.
-	replyTo := trimString(strOrEmpty(body.ReplyTo))
 	quotedGone := func() error {
 		if replyTo == "" {
 			return nil
@@ -406,6 +418,9 @@ func (s *apiServer) HandlePostChatApiChatPost(w http.ResponseWriter, r *http.Req
 	}
 	if replyTo != "" {
 		meta[chatReplyToMetaKey] = replyTo
+	}
+	if replyExcerpt != "" {
+		meta[chatReplyExcerptMetaKey] = replyExcerpt
 	}
 	var fresh []ChatAttachment
 	if len(resolved) > 0 {
@@ -478,7 +493,7 @@ func (s *apiServer) servedChatMessageDTO(m ChatMessage) (chatMessageDTO, error) 
 	// The quote is joined HERE so every door that serves a message serves it (the
 	// listing, the history page, the by-ids read). Unlike the card status it is not
 	// best-effort: its absence is drawn on screen as an assertion.
-	quote, err := s.chatReplyQuote(dto.ReplyTo, nil)
+	quote, err := s.chatReplyQuote(dto.ReplyTo, replyExcerptFromMeta(m.Meta), nil)
 	if err != nil {
 		return chatMessageDTO{}, err
 	}
@@ -494,7 +509,7 @@ func (s *apiServer) servedChatMessageDTO(m ChatMessage) (chatMessageDTO, error) 
 // 2026-08-21: bad data should be noisy. The price, measured: one unreadable quoted
 // row 500s ?ids=, paging and both resume-summary endpoints, so an agent that
 // replied to it cannot boot.
-func (s *apiServer) chatReplyQuote(replyTo string, names map[string]string) (*chatReplyQuoteDTO, error) {
+func (s *apiServer) chatReplyQuote(replyTo, excerpt string, names map[string]string) (*chatReplyQuoteDTO, error) {
 	if replyTo == "" {
 		return nil, nil
 	}
@@ -505,7 +520,9 @@ func (s *apiServer) chatReplyQuote(replyTo string, names map[string]string) (*ch
 	if len(quoted) == 0 {
 		return nil, nil
 	}
-	return newChatReplyQuoteDTO(quoted[0], names), nil
+	quote := newChatReplyQuoteDTO(quoted[0], names)
+	quote.ReplyExcerpt = excerpt
+	return quote, nil
 }
 
 const (
@@ -545,6 +562,15 @@ const (
 
 	chatReplyToUnknownMsg = "reply_to names no message (%s) — you can only reply to a message " +
 		"that exists; re-read the conversation and use the id it carries"
+
+	chatReplyExcerptMetaKey  = "reply_excerpt"
+	chatReplyExcerptMaxChars = 1000
+
+	chatReplyExcerptWithoutReplyToMsg = "reply_excerpt needs reply_to — an excerpt is a piece of " +
+		"the message you are replying to; name that message in reply_to, or drop the excerpt"
+
+	chatReplyExcerptTooLongMsg = "reply_excerpt is %d chars, over the %d-char limit — it is " +
+		"refused rather than shortened; quote a shorter piece of the message"
 
 	chatCursorUnreadableMsg = "cursor is not a cursor this API issued — copy the previous " +
 		"response's next_cursor back verbatim; it is opaque, and constructing or " +
@@ -1271,7 +1297,7 @@ func resumeChatCarriesFullBody(subject string, m ChatMessage) bool {
 
 func (s *apiServer) resumeChatMessageDTO(subject string, m ChatMessage, names map[string]string, cards map[string]ReplyCard) (chatMessageDTO, error) {
 	d := newChatMessageDTO(m)
-	quote, err := s.chatReplyQuote(d.ReplyTo, names)
+	quote, err := s.chatReplyQuote(d.ReplyTo, replyExcerptFromMeta(m.Meta), names)
 	if err != nil {
 		return chatMessageDTO{}, err
 	}
@@ -1327,7 +1353,8 @@ func resumeChatMessageChars(d chatMessageDTO) int {
 	if d.ReplyToChat != nil {
 		n += utf8.RuneCountInString(d.ReplyToChat.FromName) +
 			utf8.RuneCountInString(d.ReplyToChat.ToName) +
-			utf8.RuneCountInString(d.ReplyToChat.Content)
+			utf8.RuneCountInString(d.ReplyToChat.Content) +
+			utf8.RuneCountInString(d.ReplyToChat.ReplyExcerpt)
 	}
 	if d.Card != nil {
 		for _, o := range d.Card.Options {

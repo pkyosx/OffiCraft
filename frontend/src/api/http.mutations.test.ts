@@ -542,13 +542,24 @@ describe("httpApi · postChat carries the reply link (T-4e95)", () => {
     body_omitted_chars: 0,
   };
 
-  it("sends reply_to when the composer is aimed at a message", async () => {
+  it("sends reply_to when the composer is aimed at a message, and reply_excerpt when it is aimed at a piece of one", async () => {
     fetchMock.mockImplementation(async () => jsonResponse(WIRE_MSG));
     await httpApi.postChat({ to: "m1", body: "回你這句", replyTo: "c-1" });
     const { url, method, body } = await lastRequest();
     expect(url).toBe("/api/chat");
     expect(method).toBe("POST");
     expect(JSON.parse(String(body)).reply_to).toBe("c-1");
+    expect(JSON.parse(String(body)).reply_excerpt).toBe("");
+
+    await httpApi.postChat({
+      to: "m1",
+      body: "回你這段",
+      replyTo: "c-1",
+      replyExcerpt: "被選的\n兩行",
+    });
+    const excerpted = JSON.parse(String((await lastRequest()).body));
+    expect(excerpted.reply_to).toBe("c-1");
+    expect(excerpted.reply_excerpt).toBe("被選的\n兩行");
   });
 
   it("sends the empty string — the wire's 'replies to nothing' — otherwise", async () => {

@@ -23,7 +23,10 @@
 //               render it nested — so a numbered step with indented sub-bullets
 //               stays ONE list with continuous numbering instead of collapsing
 //               into many single-item lists each restarting at 1.
-// Inline:       **bold**, `code`, and [text](url) links — the destination may
+// Inline:       a backslash before ASCII punctuation makes that character
+//               literal (CommonMark), e.g. "\>" or "1\." at a line start,
+//               "\]" inside link text; not inside code or a bare URL. **bold**, `code`, and [text](url)
+//               links — the destination may
 //               also be written CommonMark's angle-bracketed way,
 //               [text](<url>), which means the same thing (http/https/mailto
 //               only — any other scheme, e.g. "javascript:", falls through as
@@ -46,9 +49,13 @@
 //               click on it opens the comparison in place instead of
 //               navigating — see `ExternalOrDiffLink` below. Both the written
 //               [text](url) form and the autolinked bare form go through it.
+//               A FIFTH is a link to one stored chat blob
+//               (`/api/chat/attachment/att-…`): any click on it previews the
+//               blob in place, since a new tab has no token to fetch it with.
 
 import {
   Fragment,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -57,6 +64,9 @@ import {
 } from "react";
 import { DIFF_PATH, diffParamsFromHref } from "../lib/diffLink";
 import { useDiffOpener } from "../hooks/useDiffOpener";
+import { attachmentLinkFromHref } from "../lib/attachmentLink";
+import { useAttachmentLinkComments, useAttachmentOpener } from "../hooks/useAttachmentOpener";
+import type { DocCommentTarget } from "../lib/docComments";
 
 interface MarkdownProps {
   source: string;
@@ -123,7 +133,14 @@ interface MarkdownProps {
   resolveDocLink?: (target: string) => (() => void) | null;
 }
 
-const LINK_RE = /^\[([^\]]+)\]\(([^)]+)\)$/;
+const ESCAPABLE = "[!-/:-@[-`{-~]";
+const UNESCAPE_RE = new RegExp(`\\\\(${ESCAPABLE})`, "g");
+const LINK_LABEL = `(?:\\\\${ESCAPABLE}|\\\\(?!${ESCAPABLE})|[^\\]\\\\])+`;
+const LINK_RE = new RegExp(`^\\[(${LINK_LABEL})\\]\\(([^)]+)\\)$`);
+const INLINE_TOKEN_RE = new RegExp(
+  `(\`[^\`]+\`|\\*\\*[^*]+\\*\\*|\\[${LINK_LABEL}\\]\\([^)]+\\))`,
+  "g",
+);
 // CommonMark lets a link destination be WRAPPED IN ANGLE BRACKETS:
 // `[text](<https://x>)` is the same link as `[text](https://x)`, and the
 // wrapper is the standard way to write a destination that carries spaces.
@@ -203,10 +220,43 @@ interface InlineOpts {
  * the one that would otherwise throw away the page they are reading. A
  * <button> here (the doc-link class's shape) would take all four of those away,
  * and this link is one people are meant to be able to copy and paste onward.
+ *
+ * A same-origin link to one stored blob (lib/attachmentLink.ts) is the
+ * exception to that last paragraph: every click on it — modified and middle
+ * clicks too — opens the in-app preview, because the tab any of them would
+ * open answers 401 (the serve route wants the token this page holds, which no
+ * address may carry). Only the context menu's 「open in new tab」 still escapes.
  */
 function ExternalOrDiffLink({ href, label }: { href: string; label: string }) {
   const openDiff = useDiffOpener();
+  const openAttachment = useAttachmentOpener();
+  const docComments = useAttachmentLinkComments() ?? undefined;
+  const refreshComments = useRef<((target: DocCommentTarget | undefined) => void) | null>(null);
+  useEffect(() => {
+    refreshComments.current?.(docComments);
+  }, [docComments]);
   const params = useMemo(() => diffParamsFromHref(href), [href]);
+  const attachment = useMemo(() => attachmentLinkFromHref(href), [href]);
+  if (openAttachment !== null && attachment !== null) {
+    const open = (e: ReactMouseEvent<HTMLAnchorElement>) => {
+      e.preventDefault();
+      refreshComments.current = openAttachment({ ...attachment, name: label, docComments });
+    };
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={open}
+        onAuxClick={(e) => {
+          if (e.button === 1) open(e);
+        }}
+        data-attachment-link=""
+      >
+        {label}
+      </a>
+    );
+  }
   const intercept =
     openDiff !== null && params !== null
       ? (e: ReactMouseEvent<HTMLAnchorElement>) => {
@@ -330,6 +380,11 @@ function trimUrlTail(url: string): string {
   return url.slice(0, end);
 }
 
+// Prose only: a bare URL keeps its backslashes, as it did before escapes existed.
+function unescapeText(text: string): string {
+  return text.replace(UNESCAPE_RE, "$1");
+}
+
 /** Turn bare http(s) URLs and bare compare paths inside one run of plain text into anchors. */
 function autolinkBareUrls(text: string): ReactNode[] {
   BARE_URL_RE.lastIndex = 0;
@@ -352,7 +407,7 @@ function autolinkBareUrls(text: string): ReactNode[] {
       if (BARE_URL_RE.lastIndex <= m.index) BARE_URL_RE.lastIndex = m.index + 1;
       continue;
     }
-    if (m.index > last) out.push(text.slice(last, m.index));
+    if (m.index > last) out.push(unescapeText(text.slice(last, m.index)));
     // A bare compare url is the SHAPE THIS FEATURE IS FOR — pasting one to
     // someone is how a comparison travels — so the autolinked form goes
     // through the same component as the written [text](url) form. It widens
@@ -362,8 +417,8 @@ function autolinkBareUrls(text: string): ReactNode[] {
     out.push(<ExternalOrDiffLink key={key++} href={url} label={url} />);
     last = BARE_URL_RE.lastIndex;
   }
-  if (out.length === 0) return [text];
-  if (last < text.length) out.push(text.slice(last));
+  if (out.length === 0) return [unescapeText(text)];
+  if (last < text.length) out.push(unescapeText(text.slice(last)));
   return out;
 }
 
@@ -373,7 +428,7 @@ function autolinkBareUrls(text: string): ReactNode[] {
 function renderInline(text: string, opts?: InlineOpts): ReactNode[] {
   // Capturing split keeps the delimiters as their own array entries.
   const parts = text
-    .split(/(`[^`]+`|\*\*[^*]+\*\*|\[[^\]]+\]\([^)]+\))/g)
+    .split(INLINE_TOKEN_RE)
     .filter((p) => p !== "");
   return parts
     .map((part, i) => {
@@ -391,7 +446,8 @@ function renderInline(text: string, opts?: InlineOpts): ReactNode[] {
       }
       const link = LINK_RE.exec(part);
       if (link) {
-        const [, label, url] = link;
+        const label = link[1].replace(UNESCAPE_RE, "$1");
+        const url = link[2];
         const angled = ANGLE_DEST_RE.exec(url.trim());
         const target = (angled ? angled[1] : url).trim();
         // The external-scheme allowlist runs FIRST and is unchanged.

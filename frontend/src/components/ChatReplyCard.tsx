@@ -37,10 +37,12 @@ import { Markdown } from "./Markdown";
 import {
   ReplyCardAnsweredBody,
   ReplyCardExpiredBody,
+  ReplyCardLinkComments,
   ReplyCardQuestionAttachments,
   ReplyCardTaskRef,
   ReplyCardWaitingBody,
 } from "./ReplyCardBody";
+import type { DocCommentRecipient } from "../lib/docComments";
 import { ChevronRightIcon } from "./icons";
 import "./replies.css";
 
@@ -48,6 +50,7 @@ export function ChatReplyCard({
   replyCardId,
   fallbackSummary,
   initialStatus,
+  commentRecipientFor,
 }: {
   replyCardId: string;
   /** The carrying message's body (the server posts the card's summary as the
@@ -60,6 +63,9 @@ export function ChatReplyCard({
    * has been fetched. Null/undefined (unknown) is treated as 待回覆; the first
    * expand replaces it with the card's own status. */
   initialStatus?: ReplyCard["status"] | null;
+  /** Who a document linked from the card is commented to, by author id;
+   * absent ⇒ such documents open read-only. */
+  commentRecipientFor?: (id: string) => DocCommentRecipient | null;
 }) {
   const { t } = useI18n();
   const [, setRoute] = useHashRoute();
@@ -306,54 +312,56 @@ export function ChatReplyCard({
   }
 
   return (
-    <div
-      className="reply-card reply-card--chat"
-      data-testid="chat-reply-card"
-      data-reply-card-id={replyCardId}
-    >
-      {/* §3.6 請示 → 任務 (chat surface): the SAME row RepliesPage renders —
-       * one component, so TITLE and 查看任務詳情 can never drift between the two
-       * surfaces. Only the route is ours. It leads the card (owner 2026-08-14,
-       * T-ee17:「這個不能夠放到最一開始嗎？」) — WHICH piece of work this asks
-       * about should not require reading the whole card first. Both surfaces
-       * moved together; a lead row on one and a trailing row on the other is
-       * exactly the drift this shared component exists to prevent. */}
-      {card?.task && (
-        <ReplyCardTaskRef
-          task={card.task}
-          onJump={() => setRoute({ page: "tasks", taskId: card.task!.id })}
+    <ReplyCardLinkComments from={card?.from} recipientFor={commentRecipientFor}>
+      <div
+        className="reply-card reply-card--chat"
+        data-testid="chat-reply-card"
+        data-reply-card-id={replyCardId}
+      >
+        {/* §3.6 請示 → 任務 (chat surface): the SAME row RepliesPage renders —
+         * one component, so TITLE and 查看任務詳情 can never drift between the two
+         * surfaces. Only the route is ours. It leads the card (owner 2026-08-14,
+         * T-ee17:「這個不能夠放到最一開始嗎？」) — WHICH piece of work this asks
+         * about should not require reading the whole card first. Both surfaces
+         * moved together; a lead row on one and a trailing row on the other is
+         * exactly the drift this shared component exists to prevent. */}
+        {card?.task && (
+          <ReplyCardTaskRef
+            task={card.task}
+            onJump={() => setRoute({ page: "tasks", taskId: card.task!.id })}
+          />
+        )}
+
+        {/* T-a20b: summary is agent-authored free text (markdown), like body. */}
+        <Markdown
+          source={card?.summary || fallbackSummary}
+          className="reply-card__summary doc-md"
         />
-      )}
+        {card?.body && (
+          <Markdown source={card.body} className="reply-card__body doc-md" />
+        )}
+        {/* QUESTION-side attachments (T-5e8a): thumbnails/chips under the body,
+         * on every status — click an image to preview in the lightbox. */}
+        {card && (
+          <ReplyCardQuestionAttachments card={card} />
+        )}
 
-      {/* T-a20b: summary is agent-authored free text (markdown), like body. */}
-      <Markdown
-        source={card?.summary || fallbackSummary}
-        className="reply-card__summary doc-md"
-      />
-      {card?.body && (
-        <Markdown source={card.body} className="reply-card__body doc-md" />
-      )}
-      {/* QUESTION-side attachments (T-5e8a): thumbnails/chips under the body,
-       * on every status — click an image to preview in the lightbox. */}
-      {card && (
-        <ReplyCardQuestionAttachments card={card} />
-      )}
+        {loadError && (
+          <div className="reply-card__error">{t.replies.loadError}</div>
+        )}
+        {actionError && (
+          <div className="reply-card__error">{actionError}</div>
+        )}
 
-      {loadError && (
-        <div className="reply-card__error">{t.replies.loadError}</div>
-      )}
-      {actionError && (
-        <div className="reply-card__error">{actionError}</div>
-      )}
-
-      {card &&
-        (card.status === "waiting" ? (
-          <ReplyCardWaitingBody card={card} onAnswer={doAnswer} />
-        ) : card.status === "expired" ? (
-          <ReplyCardExpiredBody card={card} />
-        ) : (
-          <ReplyCardAnsweredBody card={card} onReanswer={doReanswer} />
-        ))}
-    </div>
+        {card &&
+          (card.status === "waiting" ? (
+            <ReplyCardWaitingBody card={card} onAnswer={doAnswer} />
+          ) : card.status === "expired" ? (
+            <ReplyCardExpiredBody card={card} />
+          ) : (
+            <ReplyCardAnsweredBody card={card} onReanswer={doReanswer} />
+          ))}
+      </div>
+    </ReplyCardLinkComments>
   );
 }

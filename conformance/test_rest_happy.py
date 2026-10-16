@@ -4574,7 +4574,9 @@ def test_chat_reply_to_is_the_servers_link_not_the_callers(hctx: HCtx) -> None:
     caller-supplied ``meta.reply_to`` is discarded. The last is the one that
     needs a real request the most — ``meta`` is copied through wholesale, so the
     only thing standing between a caller and an unvalidated link is a deletion
-    the handler performs before it validates anything.
+    the handler performs before it validates anything. The selected-piece
+    ``reply_excerpt`` rides along: it round-trips verbatim beside the quote
+    line, and without ``reply_to`` it is refused.
 
     The second REVERSED on 2026-08-21 (owner ruling): this test asserted a 400
     and an "another conversation" message until that date. The refusal is gone
@@ -4631,6 +4633,24 @@ def test_chat_reply_to_is_the_servers_link_not_the_callers(hctx: HCtx) -> None:
     assert quote["from"] == "owner"
     assert quote["to"] == hctx.agent.member_id
     assert quote["content"] == "reply-to-target"
+    assert "reply_excerpt" not in quote, f"a whole-message reply carries no excerpt: {quote}"
+
+    # A reply that quotes a selected PIECE: the excerpt comes back exactly as
+    # sent (trimmed, never collapsed or cut) beside the unchanged quote line.
+    excerpted = hctx.client.post(
+        "/api/chat",
+        json={
+            "to": "owner",
+            "body": "about this part",
+            "reply_to": quoted_id,
+            "reply_excerpt": "  reply-to\n\n  target \n",
+        },
+        headers=_auth(hctx.agent.token),
+    )
+    excerpted_quote = posted(excerpted, hctx.agent.token).get("reply_to_chat")
+    assert excerpted_quote is not None
+    assert excerpted_quote["content"] == "reply-to-target"
+    assert excerpted_quote["reply_excerpt"] == "reply-to\n\n  target"
 
     # A link OUT of this conversation, over the real wire: ACCEPTED, and the
     # quoted text crosses the boundary with it. A THIRD party's line, so this is
@@ -4682,6 +4702,14 @@ def test_chat_reply_to_is_the_servers_link_not_the_callers(hctx: HCtx) -> None:
     assert orphan.status_code == 400, orphan.text
     assert "c-nosuchmessage" in orphan.text
 
+    unanchored = hctx.client.post(
+        "/api/chat",
+        json={"to": "owner", "body": "no anchor", "reply_excerpt": "a piece"},
+        headers=_auth(hctx.agent.token),
+    )
+    assert unanchored.status_code == 400, unanchored.text
+    assert "reply_excerpt needs reply_to" in unanchored.text
+
     # A caller-supplied meta.reply_to is DISCARDED — while the rest of meta,
     # which really is free-form passthrough, survives.
     forged = hctx.client.post(
@@ -4689,7 +4717,7 @@ def test_chat_reply_to_is_the_servers_link_not_the_callers(hctx: HCtx) -> None:
         json={
             "to": "owner",
             "body": "forged-link",
-            "meta": {"reply_to": quoted_id, "keepme": "yes"},
+            "meta": {"reply_to": quoted_id, "reply_excerpt": "forged", "keepme": "yes"},
         },
         headers=_auth(hctx.agent.token),
     )
@@ -4718,6 +4746,7 @@ def test_chat_reply_to_is_the_servers_link_not_the_callers(hctx: HCtx) -> None:
         "a message that answers nothing must carry no quote: " + plain.text
     )
     assert "reply_to" not in forged_row["meta"]
+    assert "reply_excerpt" not in forged_row["meta"]
 
 
 def test_chat_recipient_validation_preserves_offline_mailbox(hctx: HCtx) -> None:

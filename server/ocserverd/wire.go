@@ -452,6 +452,9 @@ type chatReplyQuoteDTO struct {
 	ToName   string `json:"to_name"`
 
 	Content string `json:"content"`
+	// ReplyExcerpt belongs to the replying message (its meta), not the quoted one,
+	// and is served verbatim — never collapsed or cut like Content.
+	ReplyExcerpt string `json:"reply_excerpt,omitempty"`
 }
 
 // chatReplyQuoteMaxChars is the quote-line length in runes; the browser cuts
@@ -2119,9 +2122,11 @@ func attachmentDTOsFromRefs(refs []any) []chatAttachmentDTO {
 }
 
 func newChatMessageDTO(m ChatMessage) chatMessageDTO {
-	meta := m.Meta
-	if meta == nil {
-		meta = map[string]any{}
+	meta := map[string]any{}
+	for k, v := range m.Meta {
+		if k != chatReplyExcerptMetaKey {
+			meta[k] = v
+		}
 	}
 	refs, _ := meta["attachments"].([]any)
 	attachments := attachmentDTOsFromRefs(refs)
@@ -2146,6 +2151,14 @@ func replyToFromMeta(meta map[string]any) string {
 	}
 	id, _ := meta[chatReplyToMetaKey].(string)
 	return id
+}
+
+// Same forgery guard as replyToFromMeta: the post handler deletes a caller-supplied key.
+// Read it off the stored row: newChatMessageDTO leaves it out of the served meta,
+// since it is served in reply_to_chat.
+func replyExcerptFromMeta(meta map[string]any) string {
+	excerpt, _ := meta[chatReplyExcerptMetaKey].(string)
+	return excerpt
 }
 
 func replyCardIDFromMeta(meta map[string]any) string {

@@ -4,10 +4,12 @@
 // (ReplyCardBody.tsx is shared; the body row itself lives in each wrapper).
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, fireEvent, waitFor } from "@testing-library/react";
+import { render, fireEvent, waitFor, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { RepliesPage } from "./RepliesPage";
 import { ReplyCardsProvider } from "../hooks/useReplyCards";
+import { AttachmentModalHost } from "./AttachmentModalHost";
+import { api } from "../api";
 import { __resetMock, __injectMockReplyCard } from "../api/mock";
 import type { ReplyCard } from "../api/adapter";
 
@@ -33,9 +35,11 @@ function mkCard(over: Partial<ReplyCard>): ReplyCard {
 function renderPage() {
   return render(
     <I18nProvider>
-      <ReplyCardsProvider>
-        <RepliesPage />
-      </ReplyCardsProvider>
+      <AttachmentModalHost>
+        <ReplyCardsProvider>
+          <RepliesPage />
+        </ReplyCardsProvider>
+      </AttachmentModalHost>
     </I18nProvider>
   );
 }
@@ -197,5 +201,66 @@ describe("RepliesPage markdown render (T-13af)", () => {
     expect(summary.querySelector("code")?.textContent).toBe("919fe961");
     expect(summary.textContent).not.toContain("**fms #20054**");
     expect(summary.textContent).not.toContain("`919fe961`");
+  });
+
+  it("sends comments on a document linked from a card's body to the card's author", async () => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "# 合約" })) as unknown as typeof fetch;
+    const post = vi.spyOn(api, "postChat").mockResolvedValue(undefined);
+    localStorage.setItem(
+      "oc_doc_comments:att-eeeeeeeeeeee",
+      JSON.stringify([{ id: "c1", excerpt: "合約", comment: "第三條要改" }]),
+    );
+    __injectMockReplyCard(mkCard({ body: "請看 [合約.md](/api/chat/attachment/att-eeeeeeeeeeee)" }));
+    try {
+      const { findAllByTestId, findByRole, getByRole } = renderPage();
+      const [card] = await findAllByTestId("waiting-card");
+      await openCards();
+
+      fireEvent.click(within(card).getByRole("link", { name: "合約.md" }));
+      await findByRole("heading", { name: "合約" });
+      const overlay = document.body.querySelector<HTMLElement>(".md-preview[role=dialog]")!;
+      fireEvent.click(within(overlay).getByRole("button", { name: "註解" }));
+      expect(overlay.querySelector(".doc-comments__recipient strong")?.textContent).toBe("Mira");
+      await waitFor(() =>
+        expect((getByRole("button", { name: "送出給 AI" }) as HTMLButtonElement).disabled).toBe(false),
+      );
+      fireEvent.click(getByRole("button", { name: "送出給 AI" }));
+      await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+      expect(post.mock.calls[0][0].to).toBe("mira");
+    } finally {
+      globalThis.fetch = realFetch;
+      localStorage.clear();
+    }
+  });
+
+  it("opens a document linked from an owner-authored card read-only, and names the reason on a departed author's card", async () => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "# 合約" })) as unknown as typeof fetch;
+    __injectMockReplyCard(
+      mkCard({ id: "rc-owner", from: "owner", body: "[自己的.md](/api/chat/attachment/att-eeeeeeeeeee1)" }),
+    );
+    __injectMockReplyCard(
+      mkCard({ id: "rc-gone", from: "m-1892d870ded7", body: "[交接.md](/api/chat/attachment/att-eeeeeeeeeee2)" }),
+    );
+    const overlay = () => document.body.querySelector<HTMLElement>(".md-preview[role=dialog]");
+    try {
+      const { findAllByTestId, findByRole, findByText } = renderPage();
+      await findAllByTestId("waiting-card");
+      await openCards();
+
+      fireEvent.click(await findByRole("link", { name: "自己的.md" }));
+      await findByRole("heading", { name: "合約" });
+      expect(within(overlay()!).queryByRole("button", { name: "註解" })).toBeNull();
+      fireEvent.keyDown(window, { key: "Escape" });
+      await waitFor(() => expect(overlay()).toBeNull());
+
+      fireEvent.click(await findByRole("link", { name: "交接.md" }));
+      await findByRole("heading", { name: "合約" });
+      fireEvent.click(within(overlay()!).getByRole("button", { name: "註解" }));
+      expect(await findByText("對方已不在名冊上（已移除或已釋出），無法送出。")).toBeTruthy();
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 });

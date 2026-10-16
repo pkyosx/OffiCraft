@@ -1217,6 +1217,28 @@ export const zh = {
       zoomIn: "放大",
       zoomOut: "縮小",
       pan: "拖曳圖片移動，或用方向鍵捲動",
+      comments: {
+        toggle: "註解",
+        panelTitle: "文件註解",
+        add: "加註解",
+        inputLabel: "註解內容",
+        inputPlaceholder: "寫下你對這段的意見",
+        save: "儲存",
+        cancel: "取消",
+        edit: "編輯註解",
+        remove: "刪除註解",
+        empty: "在文件中選取一段文字或點一張圖片，再按「加註解」。",
+        imageExcerpt: (name: string) => `圖片：${name}`,
+        emptyTextOnly: "在文件中選取一段文字，再按「加註解」。",
+        excerptNotFound: "文件中找不到這段原文，註解仍會送出。",
+        imageNotFound: "文件中找不到這張圖片，註解仍會送出。",
+        recipientLabel: "送給：",
+        recipientUnknown: "不知道這份文件該送給誰，無法送出。",
+        recipientGone: "對方已不在名冊上（已移除或已釋出），無法送出。",
+        recipientNotMember: "這份文件不是成員寄出的，無法直接送出註解。",
+        send: "送出給 AI",
+        sendFailed: "送出失敗，註解已保留",
+      },
     },
     // 對方訊息角落的「放大閱讀」小按鈕：把這則訊息本文丟進同一個
     // 全幅 overlay 讀（長回覆在對話欄裡很難讀）。自己發的訊息沒有。
@@ -1228,6 +1250,8 @@ export const zh = {
     // 下一個事件來時自己變成別的樣子——因為 2026-08-21 起，引用內容是伺服器
     // 每次讀取都現組後隨訊息一起送來的，前端沒有「還沒撈到」這個狀態。
     replyAction: "回覆這則",
+    replyExcerptAction: "回覆這段",
+    replyExcerptTooLong: (max: number) => `選取超過 ${max} 字`,
     replyingTo: (name: string) => `正在回覆 ${name}`,
     replyCancel: "取消回覆",
     // 🔴 文案跟著行為改（owner 2026-08-21 裁定）。它以前叫「跳到原訊息」，因為

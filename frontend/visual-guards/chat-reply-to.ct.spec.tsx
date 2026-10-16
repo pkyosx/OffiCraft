@@ -24,6 +24,7 @@
 // 的那一段。
 import { test, expect } from "@playwright/experimental-ct-react";
 import { ChatReplyToStory } from "./stories/ChatReplyToStory";
+import { ChatSelectionReplyStory } from "./stories/ChatSelectionReplyStory";
 import { BUILTIN_THEME_IDS, expectBuiltinApplied, selectBuiltinTheme } from "./builtinThemes";
 
 /** Parse what getComputedStyle hands back for a colour — `rgb()`, `rgba()` or
@@ -894,3 +895,177 @@ test.describe("coarse pointer", () => {
 
   }
 });
+
+// 「回覆這段」: the floating button is portaled to <body> with fixed
+// coordinates, so the guards are that it lands under the selection (above it
+// would cover the line before and iOS's own Copy menu), inside the viewport
+// (selection at the right end of an own bubble, where it would otherwise poke
+// out), never widens the page, and fills the banner with exactly the selected
+// text on one clipped line.
+function selectionBottom(page: import("@playwright/test").Page) {
+  return page.evaluate(
+    () => window.getSelection()!.getRangeAt(0).getBoundingClientRect().bottom,
+  );
+}
+
+function selectInBodies(
+  page: import("@playwright/test").Page,
+  from: { row: string; start: number },
+  to: { row: string; end: number | "end" },
+) {
+  return page.evaluate(
+    ([f, t]) => {
+      const textOf = (row: string) =>
+        document.querySelector(`[data-msg-id="${row}"] .chat__msg-text p`)!
+          .firstChild as Text;
+      const a = textOf(f.row);
+      const b = textOf(t.row);
+      const range = document.createRange();
+      range.setStart(a, f.start);
+      range.setEnd(b, t.end === "end" ? b.length : t.end);
+      const sel = window.getSelection()!;
+      sel.removeAllRanges();
+      sel.addRange(range);
+      return sel.toString();
+    },
+    [from, to] as const,
+  );
+}
+
+for (const [language, width] of [
+  ["zh", 390],
+  ["en", 390],
+  ["zh", 1280],
+] as const) {
+  test(`${language} width ${width}: 回覆這段 over a selection at the bubble's far edge stays inside the viewport and fills a one-line banner`, async ({
+    mount,
+    page,
+  }) => {
+    await page.evaluate((l) => localStorage.setItem("oc.language", l), language);
+    await page.setViewportSize({ width, height: 800 });
+    await mount(<ChatSelectionReplyStory />);
+    const length = await page.evaluate(() => {
+      const p = document.querySelector('[data-msg-id="c-3"] .chat__msg-text p')!;
+      return (p.firstChild as Text).length;
+    });
+    const picked = "個字";
+
+    const button = page.getByTestId("chat-selection-reply");
+    await selectInBodies(page, { row: "c-2", start: 0 }, { row: "c-2", end: 1 });
+    await expect(button).toBeVisible();
+    const leftBox = (await button.boundingBox())!;
+    expect(leftBox.x, "a selection at the far left keeps the button on screen").toBeGreaterThanOrEqual(0);
+    expect(leftBox.y, "the button sits under the selection").toBeGreaterThanOrEqual(
+      await selectionBottom(page),
+    );
+
+    await selectInBodies(page, { row: "c-3", start: length - 2 }, { row: "c-3", end: "end" });
+    await expect(button).toBeVisible();
+    const box = (await button.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(width);
+    expect(box.y, "the button sits under the selection").toBeGreaterThanOrEqual(
+      await selectionBottom(page),
+    );
+    const lineBoxes = await button.evaluate((e) => e.getClientRects().length);
+    expect(lineBoxes, "the label stays on one line").toBe(1);
+    const pageScroll = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(pageScroll, "no horizontal page scroll").toBeLessThanOrEqual(0);
+
+    await button.click();
+    await expect(button).toHaveCount(0);
+    const banner = page.getByTestId("chat-reply-banner");
+    await expect(banner).toHaveAttribute("data-reply-to", "c-3");
+    const body = banner.locator(".chat__reply-banner__body");
+    await expect(body).toHaveText(picked);
+    expect(await body.evaluate((e) => e.getClientRects().length)).toBe(1);
+    const bannerBox = (await banner.boundingBox())!;
+    expect(bannerBox.x + bannerBox.width).toBeLessThanOrEqual(width + 0.5);
+  });
+}
+
+for (const width of [390, 1280]) {
+  test(`width ${width}: a selection dragged across two messages offers no 回覆這段, one dragged inside one does`, async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 800 });
+    await mount(<ChatSelectionReplyStory />);
+    await selectInBodies(page, { row: "c-1", start: 2 }, { row: "c-2", end: 2 });
+    await page.waitForTimeout(50);
+    await expect(page.getByTestId("chat-selection-reply")).toHaveCount(0);
+
+    await page.evaluate(() => window.getSelection()!.removeAllRanges());
+    const text = page.locator('[data-msg-id="c-2"] .chat__msg-text p');
+    const t = (await text.boundingBox())!;
+    await page.mouse.move(t.x + 1, t.y + t.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(t.x + t.width - 1, t.y + t.height / 2, { steps: 5 });
+    await page.mouse.up();
+    await expect(page.getByTestId("chat-selection-reply")).toBeVisible();
+  });
+}
+
+// A triple-click ends the range at offset 0 of whatever follows the block —
+// for a message's last block that is the next row's time or name, outside the
+// body.
+for (const width of [390, 1280]) {
+  test.describe(`width ${width}`, () => {
+    test.use({ hasTouch: width === 390, isMobile: width === 390 });
+
+    test("a triple-clicked paragraph or list item offers 回覆這段 and quotes exactly that block", async ({
+      mount,
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await mount(<ChatSelectionReplyStory />);
+      const button = page.getByTestId("chat-selection-reply");
+      const banner = page.getByTestId("chat-reply-banner");
+      for (const [row, selector, quoted] of [
+        ["c-4", "p:nth-child(2)", "中間這一段是重點"],
+        ["c-4", "p:nth-child(3)", "最後一段收尾"],
+        ["c-2", "p", "第二則訊息"],
+        ["c-3", "p", "好的我確認這兩個字"],
+        ["c-5", "li:nth-child(1)", "第一項待辦"],
+        ["c-5", "li:nth-child(2)", "第二項待辦"],
+      ] as const) {
+        const block = page.locator(`[data-msg-id="${row}"] .chat__msg-text ${selector}`);
+        await block.scrollIntoViewIfNeeded();
+        const box = (await block.boundingBox())!;
+        await page.mouse.click(box.x + 4, box.y + box.height / 2, { clickCount: 3 });
+        await expect(button, `${row} ${selector}`).toBeVisible();
+        await button.click();
+        await expect(banner).toHaveAttribute("data-reply-to", row);
+        expect(await banner.locator(".chat__reply-banner__body").textContent()).toBe(quoted);
+      }
+
+      await page.evaluate(() => {
+        const meta = document.querySelector('[data-msg-id="c-5"] .chat__msg-meta')!;
+        const item = document.querySelector('[data-msg-id="c-5"] li')!;
+        const range = document.createRange();
+        range.setStart(meta, meta.childNodes.length);
+        range.setEnd(item.firstChild!, 3);
+        window.getSelection()!.removeAllRanges();
+        window.getSelection()!.addRange(range);
+      });
+      await expect(button, "a range starting just above the body").toBeVisible();
+      await button.click();
+      await expect(banner).toHaveAttribute("data-reply-to", "c-5");
+      expect(await banner.locator(".chat__reply-banner__body").textContent()).toBe("第一項");
+
+      await page.evaluate(() => {
+        const last = document.querySelector('[data-msg-id="c-4"] .chat__msg-text p:nth-child(3)')!;
+        const name = document.querySelector('[data-msg-id="c-5"] .chat__msg-name')!;
+        const range = document.createRange();
+        range.setStart(last.firstChild!, 0);
+        range.setEnd(name.firstChild!, 2);
+        window.getSelection()!.removeAllRanges();
+        window.getSelection()!.addRange(range);
+      });
+      await page.waitForTimeout(50);
+      await expect(button, "a range reaching into the next sender's name").toHaveCount(0);
+    });
+  });
+}

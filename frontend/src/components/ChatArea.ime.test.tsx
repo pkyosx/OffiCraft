@@ -95,7 +95,7 @@ describe("ChatArea IME composition gate", () => {
       fireEvent.keyDown(input, { key: "Enter" });
     });
     expect(send).toHaveBeenCalledTimes(1);
-    expect(send).toHaveBeenCalledWith("你好", undefined, undefined);
+    expect(send).toHaveBeenCalledWith("你好", undefined, undefined, undefined);
   });
 
   it("Shift+Enter never sends (newline intent)", () => {

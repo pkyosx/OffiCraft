@@ -36,12 +36,18 @@
 // caller shows its own error notice.
 
 import { useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { useI18n } from "../i18n";
 import type {
   ChatAttachmentInput,
   ReplyCard,
   ReplyCardAnswerInput,
 } from "../api/adapter";
+import {
+  AttachmentLinkCommentsContext,
+  useAttachmentLinkComments,
+} from "../hooks/useAttachmentOpener";
+import type { DocCommentRecipient } from "../lib/docComments";
 import { AttachmentStrip } from "./AttachmentStrip";
 import { ReplyComposer } from "./ReplyComposer";
 import { ChevronRightIcon } from "./icons";
@@ -221,12 +227,34 @@ function ReplySelectionCount({
  * under this card face's existing classes. Renders nothing when the answer
  * carries none. */
 function ReplyAnswerAttachments({ card }: { card: ReplyCard }) {
+  const docComments = useAttachmentLinkComments();
   return (
     <AttachmentStrip
       attachments={card.answer?.attachments ?? []}
+      docCommentsFor={docComments === null ? undefined : () => docComments}
       className="reply-card__answer-atts"
       imageClassName="reply-card__answer-image"
     />
+  );
+}
+
+/** A document linked from the card, or attached to its question or answer, is
+ * commented back to the card's author; read-only while the card is unread or
+ * when `recipientFor` names nobody. */
+export function ReplyCardLinkComments({
+  from,
+  recipientFor,
+  children,
+}: {
+  from: string | undefined;
+  recipientFor: ((id: string) => DocCommentRecipient | null) | undefined;
+  children: ReactNode;
+}) {
+  const recipient = from === undefined ? null : (recipientFor?.(from) ?? null);
+  return (
+    <AttachmentLinkCommentsContext.Provider value={recipient === null ? null : { recipient }}>
+      {children}
+    </AttachmentLinkCommentsContext.Provider>
   );
 }
 
@@ -240,9 +268,11 @@ export function ReplyCardQuestionAttachments({
 }: {
   card: ReplyCard;
 }) {
+  const docComments = useAttachmentLinkComments();
   return (
     <AttachmentStrip
       attachments={card.attachments}
+      docCommentsFor={docComments === null ? undefined : () => docComments}
       className="reply-card__answer-atts reply-card__question-atts"
       imageClassName="reply-card__answer-image chat__msg-image--clickable"
     />

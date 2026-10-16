@@ -40,6 +40,7 @@ import type { ReactNode } from "react";
 import { useI18n } from "../i18n";
 import { api } from "../api";
 import type { TaskArtifactView, ChatAttachmentView } from "../api/adapter";
+import type { DocCommentRecipient } from "../lib/docComments";
 import { formatAbsolute } from "../lib/dateFormat";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
 import { AttachmentStrip } from "./AttachmentStrip";
@@ -142,14 +143,18 @@ function artifactMetaLabel(a: TaskArtifactView, nowTs: number): string {
 export function TaskArtifactsBadge({
   task,
   onRemoveArtifact,
+  commentRecipient,
 }: {
   /** Only the id and the COUNT are read here. The card carries NO artifact
    * rows at all since T-92 (T-66 had already cut them to an id+label index),
    * so there is nothing a row could be drawn from and this component
    * deliberately does not take them — it fetches. */
-  task: { id: string; artifactCount?: number };
+  task: { id: string; taskNo?: string; artifactCount?: number };
   /** Owner/admin un-pin. Absent ⇒ the popover is display-only (no × affordance). */
   onRemoveArtifact?: (taskId: string, artifactId: string) => Promise<void>;
+  /** Who comments on a previewed .md artifact go to (the executor); null ⇒
+   * nobody. Absent ⇒ the preview offers no comment mode. */
+  commentRecipient?: DocCommentRecipient | null;
 }) {
   const { t } = useI18n();
   const count = task.artifactCount ?? 0;
@@ -222,6 +227,8 @@ export function TaskArtifactsBadge({
       {open && (
         <ArtifactsPopover
           taskId={task.id}
+          taskNo={task.taskNo ?? task.id}
+          commentRecipient={commentRecipient}
           onRemoveArtifact={onRemoveArtifact}
           onClose={() => setOpen(false)}
         />
@@ -232,10 +239,14 @@ export function TaskArtifactsBadge({
 
 function ArtifactsPopover({
   taskId,
+  taskNo,
+  commentRecipient,
   onRemoveArtifact,
   onClose,
 }: {
   taskId: string;
+  taskNo: string;
+  commentRecipient?: DocCommentRecipient | null;
   onRemoveArtifact?: (taskId: string, artifactId: string) => Promise<void>;
   onClose: () => void;
 }) {
@@ -406,6 +417,14 @@ function ArtifactsPopover({
               fileNameClassName="task-artifacts__chip-name"
               fileNameColClassName="task-artifacts__chip-text"
               renderExtra={renderExtra}
+              docCommentsFor={
+                commentRecipient === undefined
+                  ? undefined
+                  : (att) => ({
+                      recipient: commentRecipient,
+                      task: { id: taskId, taskNo, artifactName: att.filename },
+                    })
+              }
               renderMeta={(att) => {
                 const art = artifacts.find((a) => a.id === att.id);
                 return art ? (

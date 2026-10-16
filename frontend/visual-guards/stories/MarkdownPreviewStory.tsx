@@ -63,3 +63,77 @@ export function MarkdownPreviewLongStory() {
     </I18nProvider>
   );
 }
+
+export function MarkdownPreviewCommentsStory() {
+  return (
+    <I18nProvider>
+      <MarkdownPreviewOverlay
+        title="引用回覆導入提案.md"
+        url={DATA_URL}
+        attachmentId="att-ct-comments"
+        docComments={{ recipient: { id: "m-mira", name: "Mira", roster: "active" } }}
+        onClose={() => {}}
+      />
+    </I18nProvider>
+  );
+}
+
+const IMAGE_MD = [
+  "# 版面說明",
+  "",
+  "下圖是新的版面配置。",
+  "",
+  "![版面配置圖](/api/chat/attachment/att-ct-wide-image)",
+  "",
+  "圖後面的說明文字。",
+].join("\n");
+
+export function MarkdownPreviewImageCommentsStory() {
+  return (
+    <I18nProvider>
+      <MarkdownPreviewOverlay
+        title="版面說明.md"
+        url={"data:text/markdown;charset=utf-8," + encodeURIComponent(IMAGE_MD)}
+        attachmentId="att-ct-image-comments"
+        docComments={{ recipient: { id: "m-mira", name: "Mira", roster: "active" } }}
+        onClose={() => {}}
+      />
+    </I18nProvider>
+  );
+}
+
+const LOG = [
+  "2026-10-15 09:00:01 start",
+  "2026-10-15 09:00:02 token=" + "abcdef0123456789".repeat(12),
+  "2026-10-15 09:00:03 done",
+].join("\n");
+
+export function PlainTextCommentsStory() {
+  return (
+    <I18nProvider>
+      <MarkdownPreviewOverlay
+        title="run.log"
+        url={"data:text/plain;charset=utf-8," + encodeURIComponent(LOG)}
+        attachmentId="att-ct-log-comments"
+        mime="text/plain"
+        docComments={{ recipient: { id: "m-mira", name: "Mira", roster: "active" } }}
+        onClose={() => {}}
+      />
+    </I18nProvider>
+  );
+}
+
+export function JsonCommentsStory() {
+  return (
+    <I18nProvider>
+      <MarkdownPreviewOverlay
+        title="config.json"
+        url={"data:application/json;charset=utf-8," + encodeURIComponent('{"name":"officraft","port":5241}')}
+        attachmentId="att-ct-json-comments"
+        mime="application/json"
+        docComments={{ recipient: { id: "m-mira", name: "Mira", roster: "active" } }}
+        onClose={() => {}}
+      />
+    </I18nProvider>
+  );
+}

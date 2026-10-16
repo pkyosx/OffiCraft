@@ -25,6 +25,10 @@ import type { Page } from "@playwright/test";
 import {
   MarkdownPreviewStory,
   MarkdownPreviewLongStory,
+  MarkdownPreviewCommentsStory,
+  MarkdownPreviewImageCommentsStory,
+  PlainTextCommentsStory,
+  JsonCommentsStory,
 } from "./stories/MarkdownPreviewStory";
 
 /** The phone width owner reads the cockpit at (iPhone 13 CSS pixels). */
@@ -474,3 +478,307 @@ test("landscape 844x390: the short-viewport rule gives the panel the screen, min
     .evaluate((el) => el.scrollHeight - el.clientHeight);
   expect(overflow).toBeGreaterThan(400);
 });
+
+async function commentOnSelection(page: Page, text: string, comment: string) {
+  await page.getByRole("button", { name: "註解" }).click();
+  const target = page.locator(".md-preview__md li", { hasText: text });
+  await target.scrollIntoViewIfNeeded();
+  const box = (await target.boundingBox())!;
+  // A real drag, so the browser itself produces the selection. Corner to
+  // corner, because the item wraps onto several lines at 390px.
+  await page.mouse.move(box.x + 2, box.y + 4);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width - 2, box.y + box.height - 4, { steps: 8 });
+  await page.mouse.up();
+  const add = page.getByRole("button", { name: "加註解" });
+  await expect(add).toBeVisible();
+  const geometry = await page.evaluate(() => {
+    const r = document.querySelector(".doc-comments__float")!.getBoundingClientRect();
+    return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, vw: innerWidth, vh: innerHeight };
+  });
+  await add.click();
+  await page.getByRole("textbox", { name: "註解內容" }).fill(comment);
+  await page.getByRole("button", { name: "儲存" }).click();
+  return geometry;
+}
+
+for (const size of [NARROW, WIDE]) {
+  test(`${size.width}: selecting text offers 加註解 on screen, and the saved comment is listed and highlighted`, async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize(size);
+    await page.addInitScript(() => localStorage.clear());
+    await mount(<MarkdownPreviewCommentsStory />);
+    await expect(page.getByRole("heading", { name: "目標" })).toBeVisible();
+
+    const float = await commentOnSelection(page, "檔名 chip", "這行要拆兩句");
+    expect(float.left).toBeGreaterThanOrEqual(0);
+    expect(float.right).toBeLessThanOrEqual(float.vw);
+    expect(float.top).toBeGreaterThanOrEqual(0);
+    expect(float.bottom).toBeLessThanOrEqual(float.vh);
+
+    const item = page.getByTestId("doc-comment");
+    await expect(item).toHaveCount(1);
+    await expect(item.locator(".doc-comments__excerpt")).toContainText("檔名 chip");
+    await expect(item.locator(".doc-comments__text")).toHaveText("1. 這行要拆兩句");
+    const highlighted = await page.evaluate(() => {
+      const h = (CSS as unknown as { highlights: Map<string, Set<Range>> }).highlights.get("oc-doc-comment");
+      return h ? [...h].map((r) => r.toString()) : [];
+    });
+    expect(highlighted).toHaveLength(1);
+    expect(highlighted[0]).toContain("檔名 chip");
+
+    const layout = await page.evaluate(() => {
+      const rect = (sel: string) => {
+        const r = document.querySelector(sel)!.getBoundingClientRect();
+        return { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+      };
+      const actions = [...document.querySelectorAll(".md-preview__actions > *")].map((el) => {
+        const r = el.getBoundingClientRect();
+        return { right: r.right, left: r.left };
+      });
+      return {
+        panel: rect(".md-preview__panel"),
+        header: rect(".md-preview__header"),
+        body: rect(".md-preview__body"),
+        aside: rect(".doc-comments"),
+        send: rect(".doc-comments__send"),
+        actions,
+        vw: innerWidth,
+        vh: innerHeight,
+        pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      };
+    });
+    expect(layout.pageOverflow).toBe(0);
+    for (const box of [layout.aside, layout.send]) {
+      expect(box.left).toBeGreaterThanOrEqual(layout.panel.left);
+      expect(box.right).toBeLessThanOrEqual(layout.panel.right);
+      expect(box.top).toBeGreaterThanOrEqual(layout.panel.top);
+      expect(box.bottom).toBeLessThanOrEqual(layout.panel.bottom);
+    }
+    for (const a of layout.actions) {
+      expect(a.left).toBeGreaterThanOrEqual(layout.header.left);
+      expect(a.right).toBeLessThanOrEqual(layout.header.right);
+    }
+    expect(layout.panel.right).toBeLessThanOrEqual(layout.vw);
+    expect(layout.panel.bottom).toBeLessThanOrEqual(layout.vh);
+
+    const name = page.locator(".md-preview__title-text");
+    await expect(name).toHaveAttribute("title", "引用回覆導入提案.md");
+    const cut = await name.evaluate((el) => ({
+      clipped: el.scrollWidth > el.clientWidth,
+      textOverflow: getComputedStyle(el).textOverflow,
+    }));
+    expect(cut.textOverflow).toBe("ellipsis");
+    expect(cut.clipped, "the header squeezes the name only at phone width").toBe(size === NARROW);
+    if (size === NARROW) {
+      expect(layout.aside.top).toBeGreaterThanOrEqual(layout.body.bottom);
+    } else {
+      expect(layout.aside.left).toBeGreaterThanOrEqual(layout.body.right);
+    }
+  });
+}
+
+const WIDE_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="400" viewBox="0 0 1600 400">' +
+  '<rect width="1600" height="400" fill="#5b8def"/></svg>';
+
+for (const size of [NARROW, WIDE]) {
+  test.describe(`${size.width}: an image in a document`, () => {
+    test.use({ hasTouch: size === NARROW });
+
+    test("fits the column, and tapping it in comment mode offers 加註解 on screen, saves an image comment and outlines the image", async ({
+      mount,
+      page,
+    }) => {
+      await page.setViewportSize(size);
+      await page.addInitScript(() => localStorage.clear());
+      await page.route("**/api/chat/attachment/att-ct-wide-image*", (route) =>
+        route.fulfill({ status: 200, contentType: "image/svg+xml", body: WIDE_SVG }),
+      );
+      await mount(<MarkdownPreviewImageCommentsStory />);
+      const img = page.locator(".md-preview__md img");
+      await expect(img).toHaveAttribute("alt", "版面配置圖");
+      await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBe(1600);
+      await settleLayout(page);
+
+      const fit = await img.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const col = el.closest(".md-preview__md")!.getBoundingClientRect();
+        return {
+          left: r.left,
+          right: r.right,
+          width: r.width,
+          colLeft: col.left,
+          colRight: col.right,
+          pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        };
+      });
+      expect(fit.width).toBeLessThan(1600);
+      expect(fit.left).toBeGreaterThanOrEqual(fit.colLeft);
+      expect(fit.right).toBeLessThanOrEqual(fit.colRight);
+      expect(fit.pageOverflow).toBe(0);
+
+      await page.getByRole("button", { name: "註解" }).click();
+      await img.scrollIntoViewIfNeeded();
+      if (size === NARROW) await img.tap();
+      else await img.click();
+      const add = page.getByRole("button", { name: "加註解" });
+      await expect(add).toBeVisible();
+      const float = await add.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, vw: innerWidth, vh: innerHeight };
+      });
+      expect(float.left).toBeGreaterThanOrEqual(0);
+      expect(float.right).toBeLessThanOrEqual(float.vw);
+      expect(float.top).toBeGreaterThanOrEqual(0);
+      expect(float.bottom).toBeLessThanOrEqual(float.vh);
+      expect(await img.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe("none");
+
+      await add.click();
+      await page.getByRole("textbox", { name: "註解內容" }).fill("箭頭方向反了");
+      await page.getByRole("button", { name: "儲存" }).click();
+      const item = page.getByTestId("doc-comment");
+      await expect(item.locator(".doc-comments__excerpt")).toHaveText("圖片：版面配置圖");
+      await expect(item.locator(".doc-comments__text")).toHaveText("1. 箭頭方向反了");
+      const outline = await img.evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return { style: cs.outlineStyle, width: cs.outlineWidth };
+      });
+      expect(outline).toEqual({ style: "solid", width: "3px" });
+    });
+  });
+}
+
+test("390: a log with a long unbroken line stays inside the page, and a selected passage of it is commented and highlighted", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize(NARROW);
+  await page.addInitScript(() => localStorage.clear());
+  await mount(<PlainTextCommentsStory />);
+  const pre = page.locator("pre.md-preview__text");
+  await expect(pre).toContainText("09:00:03 done");
+  await settleLayout(page);
+  await page.getByRole("button", { name: "註解" }).click();
+
+  const layout = await pre.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const panel = document.querySelector(".md-preview__panel")!.getBoundingClientRect();
+    return {
+      right: r.right,
+      panelRight: panel.right,
+      pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    };
+  });
+  expect(layout.pageOverflow).toBe(0);
+  expect(layout.right).toBeLessThanOrEqual(layout.panelRight);
+
+  await pre.evaluate((el) => {
+    const text = el.firstChild as Text;
+    const at = text.data.indexOf("09:00:01 start");
+    const range = document.createRange();
+    range.setStart(text, at);
+    range.setEnd(text, at + "09:00:01 start".length);
+    document.getSelection()!.removeAllRanges();
+    document.getSelection()!.addRange(range);
+  });
+  const add = page.getByRole("button", { name: "加註解" });
+  await expect(add).toBeVisible();
+  const float = await add.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, vw: innerWidth, vh: innerHeight };
+  });
+  expect(float.left).toBeGreaterThanOrEqual(0);
+  expect(float.right).toBeLessThanOrEqual(float.vw);
+  expect(float.top).toBeGreaterThanOrEqual(0);
+  expect(float.bottom).toBeLessThanOrEqual(float.vh);
+  await add.click();
+  await page.getByRole("textbox", { name: "註解內容" }).fill("啟動要記版本");
+  await page.getByRole("button", { name: "儲存" }).click();
+  await expect(page.getByTestId("doc-comment").locator(".doc-comments__excerpt")).toHaveText("09:00:01 start");
+  const highlighted = await page.evaluate(() => {
+    const h = (CSS as unknown as { highlights: Map<string, Set<Range>> }).highlights.get("oc-doc-comment");
+    return h ? [...h].map((r) => r.toString()) : [];
+  });
+  expect(highlighted).toEqual(["09:00:01 start"]);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth),
+  ).toBe(0);
+
+  await tripleClickLastLine(page, pre);
+  await page.getByRole("button", { name: "加註解" }).click();
+  await page.getByRole("textbox", { name: "註解內容" }).fill("結束也要記");
+  await page.getByRole("button", { name: "儲存" }).click();
+  expect(
+    await page.getByTestId("doc-comment").locator(".doc-comments__excerpt").allTextContents(),
+  ).toEqual(["09:00:01 start", "2026-10-15 09:00:03 done"]);
+});
+
+/** A triple-click on the element's last line — where the browser ends the range
+ * outside the document, at the comment panel that follows it. */
+async function tripleClickLastLine(page: Page, target: ReturnType<Page["locator"]>) {
+  await target.scrollIntoViewIfNeeded();
+  const box = (await target.boundingBox())!;
+  await page.mouse.click(box.x + 4, box.y + box.height - 6, { clickCount: 3 });
+}
+
+for (const size of [NARROW, WIDE]) {
+  test.describe(`${size.width}: a triple-clicked last block`, () => {
+    test.use({ hasTouch: size === NARROW, isMobile: size === NARROW });
+
+    test("of a markdown document offers 加註解 and comments exactly that block", async ({
+      mount,
+      page,
+    }) => {
+      await page.setViewportSize(size);
+      await page.addInitScript(() => localStorage.clear());
+      await mount(<MarkdownPreviewCommentsStory />);
+      await expect(page.getByRole("heading", { name: "目標" })).toBeVisible();
+      await page.getByRole("button", { name: "註解" }).click();
+      await tripleClickLastLine(page, page.locator(".md-preview__md blockquote p"));
+      await page.getByRole("button", { name: "加註解" }).click();
+      await page.getByRole("textbox", { name: "註解內容" }).fill("改成可下載");
+      await page.getByRole("button", { name: "儲存" }).click();
+      expect(
+        await page.getByTestId("doc-comment").locator(".doc-comments__excerpt").allTextContents(),
+      ).toEqual(["主要互動是線上預覽，不是下載。"]);
+    });
+
+    test("a selection from it into the comment panel's text offers no 加註解", async ({ mount, page }) => {
+      await page.setViewportSize(size);
+      await page.addInitScript(() => localStorage.clear());
+      await mount(<MarkdownPreviewCommentsStory />);
+      await expect(page.getByRole("heading", { name: "目標" })).toBeVisible();
+      await page.getByRole("button", { name: "註解" }).click();
+      await page.evaluate(() => {
+        const last = document.querySelector(".md-preview__md blockquote p")!;
+        const head = document.querySelector(".doc-comments__head")!;
+        const range = document.createRange();
+        range.setStart(last.firstChild!, 0);
+        range.setEnd(head.firstChild!, 2);
+        document.getSelection()!.removeAllRanges();
+        document.getSelection()!.addRange(range);
+      });
+      await page.waitForTimeout(50);
+      await expect(page.getByRole("button", { name: "加註解" })).toHaveCount(0);
+    });
+
+    test("of a JSON file offers 加註解 and comments exactly that line", async ({ mount, page }) => {
+      await page.setViewportSize(size);
+      await page.addInitScript(() => localStorage.clear());
+      await mount(<JsonCommentsStory />);
+      const pre = page.locator("pre.md-preview__text");
+      await expect(pre).toContainText('"port": 5241');
+      await page.getByRole("button", { name: "註解" }).click();
+      await tripleClickLastLine(page, pre);
+      await page.getByRole("button", { name: "加註解" }).click();
+      await page.getByRole("textbox", { name: "註解內容" }).fill("少了逗號");
+      await page.getByRole("button", { name: "儲存" }).click();
+      expect(
+        await page.getByTestId("doc-comment").locator(".doc-comments__excerpt").allTextContents(),
+      ).toEqual(["}"]);
+    });
+  });
+}

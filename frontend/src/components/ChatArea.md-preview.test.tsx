@@ -5,10 +5,11 @@
 // (pdf) stays a plain download <a>.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, fireEvent, waitFor, within } from "@testing-library/react";
+import { render, fireEvent, waitFor, within, act } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { api } from "../api";
 import { ChatArea } from "./ChatArea";
+import { AttachmentModalHost } from "./AttachmentModalHost";
 import type { Member } from "../types";
 import type { ChatMessage } from "../api/adapter";
 
@@ -192,5 +193,411 @@ describe("chat .md preview action (T-a1c4 / T-7bc2)", () => {
         `${window.location.origin}/api/chat/attachment/a-md?sig=test-sig`,
       ),
     );
+  });
+});
+
+const md = (id: string) => ({
+  id,
+  url: `/api/chat/attachment/${id}`,
+  filename: `${id}.md`,
+  mime: "text/markdown",
+  isImage: false,
+});
+
+describe("chat .md attachment comments", () => {
+  async function sendSeededComment(chipName: string, members: Member[], rosterSettled?: boolean) {
+    localStorage.setItem(
+      `oc_doc_comments:${chipName}`,
+      JSON.stringify([{ id: "c1", excerpt: "Design", comment: "ok" }]),
+    );
+    globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "# Design" })) as unknown as typeof fetch;
+    const view = render(
+      <I18nProvider>
+        <ChatArea member={mkMember()} members={members} rosterSettled={rosterSettled} />
+      </I18nProvider>,
+    );
+    const expand = within(view.container).queryByRole("button", { name: /展開/ });
+    if (expand) fireEvent.click(expand);
+    fireEvent.click(within(view.container).getByRole("button", { name: `${chipName}.md` }));
+    await waitFor(() => expect(view.getByRole("heading", { name: "Design" })).toBeTruthy());
+    fireEvent.click(view.getByRole("button", { name: "註解" }));
+    return view;
+  }
+
+  const recipientShown = () =>
+    document.body.querySelector(".doc-comments__recipient strong")?.textContent;
+
+  it("addresses comments on any attachment in the room to the room's peer, including one another agent sent that peer", async () => {
+    const post = vi.spyOn(api, "postChat").mockResolvedValue(undefined);
+    messages = [
+      { ...msgWith([md("att-from-nova")]), id: "msg-n", from: "m2", to: "m1" },
+      { ...msgWith([md("att-from-owner")]), id: "msg-o", from: "owner", to: "m1" },
+    ];
+    const roster = [mkMember(), mkMember("m2", "Nova")];
+
+    const first = await sendSeededComment("att-from-nova", roster, true);
+    expect(recipientShown()).toBe("Mira");
+    fireEvent.click(first.getByRole("button", { name: "送出給 AI" }));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    first.unmount();
+
+    const second = await sendSeededComment("att-from-owner", roster, true);
+    fireEvent.click(second.getByRole("button", { name: "送出給 AI" }));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
+    expect(post.mock.calls.map(([arg]) => arg.to)).toEqual(["m1", "m1"]);
+  });
+
+  it("does not call the room's peer departed while the roster has not loaded", async () => {
+    messages = [{ ...msgWith([md("att-from-nova")]), id: "msg-n", from: "m2", to: "m1" }];
+    const view = await sendSeededComment("att-from-nova", [mkMember("m2", "Nova")]);
+    expect((view.getByRole("button", { name: "送出給 AI" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(view.queryByText("對方已不在名冊上（已移除或已釋出），無法送出。")).toBeNull();
+  });
+
+  it("refuses to send once the roster has loaded without the room's peer, and sends a webhook or scheduled message's attachment to the peer", async () => {
+    messages = [{ ...msgWith([md("att-from-nova")]), id: "msg-n", from: "m2", to: "m1" }];
+    const view = await sendSeededComment("att-from-nova", [mkMember("m2", "Nova")], true);
+    expect((view.getByRole("button", { name: "送出給 AI" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(view.getByText("對方已不在名冊上（已移除或已釋出），無法送出。")).toBeTruthy();
+    view.unmount();
+
+    for (const from of ["hook:ep-aaaa", "sched:sc-aaaa", "system"]) {
+      messages = [{ ...msgWith([md("att-synthetic")]), id: "msg-s", from, to: "owner" }];
+      const synthetic = await sendSeededComment("att-synthetic", [mkMember()], true);
+      expect(recipientShown()).toBe("Mira");
+      expect((synthetic.getByRole("button", { name: "送出給 AI" }) as HTMLButtonElement).disabled).toBe(false);
+      expect(synthetic.queryByText("這份文件不是成員寄出的，無法直接送出註解。")).toBeNull();
+      synthetic.unmount();
+    }
+  });
+});
+
+describe("chat message links to a stored attachment", () => {
+  const DOC = "/api/chat/attachment/att-aaaaaaaaaaaa";
+  const body = [
+    `**文件註解**：[設計.md](${DOC})`,
+    "",
+    "1. 原文：",
+    "   > 圖片：[架構圖.png](/api/chat/attachment/att-bbbbbbbbbbbb)",
+    "",
+    "   註解：看 [規格](https://example.com/spec)，以及 [架構圖](/api/chat/attachment/att-cccccccccccc)、[流程圖](/api/chat/attachment/att-dddddddddddd)",
+  ].join("\n");
+
+  function readingTheCommentMessage() {
+    globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "# 設計稿" })) as unknown as typeof fetch;
+    vi.spyOn(api, "getChatAttachmentShareLink").mockResolvedValue("/api/chat/attachment/x?sig=s");
+    const windowOpen = vi.spyOn(window, "open").mockReturnValue(null);
+    messages = [{ ...msgWith([]), body }];
+    const room = (members: Member[] = [], rosterSettled = false) => (
+      <I18nProvider>
+        <AttachmentModalHost>
+          <ChatArea member={mkMember()} members={members} rosterSettled={rosterSettled} />
+        </AttachmentModalHost>
+      </I18nProvider>
+    );
+    const view = render(room());
+    const expand = within(view.container).queryByRole("button", { name: /展開/ });
+    if (expand) fireEvent.click(expand);
+    const link = (name: string) => within(view.container).getByRole("link", { name });
+    const rerenderRoom = (members: Member[], rosterSettled: boolean) => view.rerender(room(members, rosterSettled));
+    return { view, windowOpen, link, rerenderRoom };
+  }
+
+  const overlay = () => document.body.querySelector<HTMLElement>(".md-preview[role=dialog]");
+  const topOverlay = () => [...document.body.querySelectorAll<HTMLElement>(".md-preview[role=dialog]")].at(-1)!;
+
+  it("previews the commented document in place on a plain click, with no token in any address", async () => {
+    const before = window.location.href;
+    const { view, windowOpen, link } = readingTheCommentMessage();
+    const docLink = link("設計.md");
+    expect(docLink.getAttribute("href")).toBe(DOC);
+
+    expect(fireEvent.click(docLink)).toBe(false);
+    await waitFor(() => expect(view.getByRole("heading", { name: "設計稿" })).toBeTruthy());
+    expect(overlay()?.getAttribute("aria-label")).toBe("設計.md");
+    expect(overlay()?.querySelector(".md-preview__title")?.textContent).toContain("設計.md");
+    expect(globalThis.fetch).toHaveBeenCalledWith("/api/chat/attachment/att-aaaaaaaaaaaa?token=jwt-1");
+    expect(windowOpen).not.toHaveBeenCalled();
+    expect(window.location.href).toBe(before);
+    expect(docLink.getAttribute("href")).toBe(DOC);
+  });
+
+  it("takes comments on a document opened from a link in the room and sends them to the room's peer, even on a message between two agents", async () => {
+    const post = vi.spyOn(api, "postChat").mockResolvedValue(undefined);
+    globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "# 設計稿" })) as unknown as typeof fetch;
+    localStorage.setItem(
+      "oc_doc_comments:att-aaaaaaaaaaaa",
+      JSON.stringify([{ id: "c1", excerpt: "設計稿", comment: "補日期" }]),
+    );
+    messages = [{ ...msgWith([]), body, from: "m2", to: "m1" }];
+    const view = render(
+      <I18nProvider>
+        <AttachmentModalHost>
+          <ChatArea member={mkMember()} members={[mkMember(), mkMember("m2", "Nova")]} rosterSettled />
+        </AttachmentModalHost>
+      </I18nProvider>,
+    );
+    const expand = within(view.container).queryByRole("button", { name: /展開/ });
+    if (expand) fireEvent.click(expand);
+    fireEvent.click(within(view.container).getByRole("link", { name: "設計.md" }));
+    await waitFor(() => expect(view.getByRole("heading", { name: "設計稿" })).toBeTruthy());
+    fireEvent.click(within(overlay()!).getByRole("button", { name: "註解" }));
+    expect(document.body.querySelector(".doc-comments__recipient strong")?.textContent).toBe("Mira");
+    fireEvent.click(view.getByRole("button", { name: "送出給 AI" }));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    expect(post.mock.calls[0][0]).toEqual({
+      to: "m1",
+      body: "**文件註解**：[設計.md](/api/chat/attachment/att-aaaaaaaaaaaa)\n\n1. 原文：\n   > 設計稿\n\n   註解：補日期",
+    });
+    await waitFor(() => expect(overlay()).toBeNull());
+
+    fireEvent.click(within(view.container).getByRole("button", { name: "放大閱讀" }));
+    fireEvent.click(within(overlay()!).getByRole("link", { name: "設計.md" }));
+    await waitFor(() => expect(view.getByRole("heading", { name: "設計稿" })).toBeTruthy());
+    fireEvent.click(within(topOverlay()).getByRole("button", { name: "註解" }));
+    expect(topOverlay().querySelector(".doc-comments__recipient strong")?.textContent).toBe("Mira");
+  });
+
+  it("comments a document opened from 看原訊息 or the room's gallery to the room's peer", async () => {
+    globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "# 設計稿" })) as unknown as typeof fetch;
+    vi.spyOn(api, "getChatMessage").mockResolvedValue({ ...msgWith([]), id: "c-1", body, from: "m2", to: "m1" });
+    vi.spyOn(api, "listChatAttachments").mockResolvedValue([
+      {
+        ...md("att-ffffffffffff"),
+        filename: "plan.md",
+        messageId: "c-0",
+        from: "m2",
+        fromName: "Nova",
+        to: "m1",
+        ts: 900,
+      },
+    ]);
+    messages = [
+      {
+        ...msgWith([]),
+        id: "c-2",
+        from: "owner",
+        body: "看這個",
+        replyTo: "c-1",
+        replyToChat: { id: "c-1", from: "m2", fromName: "", to: "m1", toName: "", content: "設計" },
+      },
+    ];
+    const view = render(
+      <I18nProvider>
+        <AttachmentModalHost>
+          <ChatArea member={mkMember()} members={[mkMember(), mkMember("m2", "Nova")]} rosterSettled />
+        </AttachmentModalHost>
+      </I18nProvider>,
+    );
+
+    fireEvent.click(within(view.container).getByRole("button", { name: "看原訊息" }));
+    await waitFor(() => expect(overlay()).toBeTruthy());
+    fireEvent.click(within(overlay()!).getByRole("link", { name: "設計.md" }));
+    await waitFor(() => expect(view.getByRole("heading", { name: "設計稿" })).toBeTruthy());
+    fireEvent.click(within(topOverlay()).getByRole("button", { name: "註解" }));
+    expect(topOverlay().querySelector(".doc-comments__recipient strong")?.textContent).toBe("Mira");
+    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(overlay()).toBeNull());
+
+    fireEvent.click(within(view.container).getByRole("button", { name: "檔案與圖片" }));
+    fireEvent.click(view.getByRole("tab", { name: "檔案" }));
+    fireEvent.click(await within(view.container).findByText("plan.md"));
+    await waitFor(() => expect(view.getByRole("heading", { name: "設計稿" })).toBeTruthy());
+    fireEvent.click(within(overlay()!).getByRole("button", { name: "註解" }));
+    expect(overlay()!.querySelector(".doc-comments__recipient strong")?.textContent).toBe("Mira");
+  });
+
+  it("updates a link-opened document's send state as the room's roster loads and changes", async () => {
+    globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "# 設計稿" })) as unknown as typeof fetch;
+    localStorage.setItem(
+      "oc_doc_comments:att-aaaaaaaaaaaa",
+      JSON.stringify([{ id: "c1", excerpt: "設計稿", comment: "補日期" }]),
+    );
+    messages = [{ ...msgWith([]), body }];
+    const room = (members: Member[], rosterSettled: boolean) => (
+      <I18nProvider>
+        <AttachmentModalHost>
+          <ChatArea member={mkMember()} members={members} rosterSettled={rosterSettled} />
+        </AttachmentModalHost>
+      </I18nProvider>
+    );
+    const view = render(room([], false));
+    const send = () => view.getByRole("button", { name: "送出給 AI" }) as HTMLButtonElement;
+    const gone = "對方已不在名冊上（已移除或已釋出），無法送出。";
+    fireEvent.click(within(view.container).getByRole("link", { name: "設計.md" }));
+    await waitFor(() => expect(view.getByRole("heading", { name: "設計稿" })).toBeTruthy());
+    fireEvent.click(within(overlay()!).getByRole("button", { name: "註解" }));
+    expect(send().disabled).toBe(true);
+    expect(view.queryByText(gone)).toBeNull();
+
+    view.rerender(room([mkMember()], true));
+    await waitFor(() => expect(send().disabled).toBe(false));
+
+    view.rerender(room([], true));
+    await waitFor(() => expect(view.getByText(gone)).toBeTruthy());
+    expect(send().disabled).toBe(true);
+  });
+
+  it("sends comments on a document linked from a reply card in the room to the card's author", async () => {
+    const post = vi.spyOn(api, "postChat").mockResolvedValue(undefined);
+    globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "# 設計稿" })) as unknown as typeof fetch;
+    vi.spyOn(api, "getReplyCard").mockResolvedValue({
+      id: "rc-nova", from: "m2", kind: "decision", summary: "要採用嗎？",
+      body: `見 [設計.md](${DOC})`,
+      options: [], selectMode: "single", status: "answered", attachments: [md("att-question")],
+      createdTs: 1000, answeredTs: 1100, chatMessageId: "msg1",
+      answer: { optionIdxs: [], text: "好", attachments: [md("att-answer")] },
+    });
+    localStorage.setItem(
+      "oc_doc_comments:att-aaaaaaaaaaaa",
+      JSON.stringify([{ id: "c1", excerpt: "設計稿", comment: "補日期" }]),
+    );
+    messages = [
+      { ...msgWith([]), id: "msg0", ts: 900, body: "另見 [附錄.md](/api/chat/attachment/att-bbbbbbbbbbb1)" },
+      { ...msgWith([]), from: "m2", to: "m1", body: "要採用嗎？", replyCardId: "rc-nova" },
+    ];
+    const room = () => (
+      <I18nProvider>
+        <AttachmentModalHost>
+          <ChatArea member={mkMember()} members={[mkMember(), mkMember("m2", "Nova")]} rosterSettled />
+        </AttachmentModalHost>
+      </I18nProvider>
+    );
+    const view = render(room());
+    const recipient = () => overlay()!.querySelector(".doc-comments__recipient strong")?.textContent;
+    const closePreview = async () => {
+      fireEvent.click(within(overlay()!).getByLabelText("關閉預覽"));
+      await waitFor(() => expect(overlay()).toBeNull());
+    };
+    fireEvent.click(within(view.container).getByRole("button", { name: /展開/ }));
+    fireEvent.click(within(view.container).getByTestId("chat-reply-card-expand"));
+    fireEvent.click(await within(view.container).findByRole("link", { name: "設計.md" }));
+    await waitFor(() => expect(view.getByRole("heading", { name: "設計稿" })).toBeTruthy());
+    fireEvent.click(within(overlay()!).getByRole("button", { name: "註解" }));
+    expect(document.body.querySelector(".doc-comments__recipient strong")?.textContent).toBe("Nova");
+    fireEvent.click(view.getByRole("button", { name: "送出給 AI" }));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    expect(post.mock.calls[0][0].to).toBe("m2");
+    await waitFor(() => expect(overlay()).toBeNull());
+
+    for (const chip of ["att-question.md", "att-answer.md"]) {
+      fireEvent.click(within(view.container).getByRole("button", { name: chip }));
+      await waitFor(() => expect(view.getByRole("heading", { name: "設計稿" })).toBeTruthy());
+      fireEvent.click(within(overlay()!).getByRole("button", { name: "註解" }));
+      expect(recipient()).toBe("Nova");
+      await closePreview();
+    }
+
+    fireEvent.click(within(view.container).getByRole("link", { name: "附錄.md" }));
+    await waitFor(() => expect(view.getByRole("heading", { name: "設計稿" })).toBeTruthy());
+    fireEvent.click(within(overlay()!).getByRole("button", { name: "註解" }));
+    expect(recipient()).toBe("Mira");
+    view.rerender(room());
+    await act(async () => {});
+    expect(recipient()).toBe("Mira");
+  });
+
+  it("previews in place on a modified or middle click too, since a new tab would have no token", async () => {
+    const { windowOpen, link } = readingTheCommentMessage();
+    const clicks: [string, (a: HTMLElement) => boolean][] = [
+      ["meta", (a) => fireEvent.click(a, { metaKey: true })],
+      ["ctrl", (a) => fireEvent.click(a, { ctrlKey: true })],
+      ["shift", (a) => fireEvent.click(a, { shiftKey: true })],
+      ["middle", (a) => fireEvent(a, new MouseEvent("auxclick", { bubbles: true, cancelable: true, button: 1 }))],
+    ];
+    for (const [, click] of clicks) {
+      expect(click(link("設計.md"))).toBe(false);
+      await waitFor(() => expect(overlay()?.getAttribute("aria-label")).toBe("設計.md"));
+      fireEvent.keyDown(window, { key: "Escape" });
+      await waitFor(() => expect(overlay()).toBeNull());
+    }
+    expect(windowOpen).not.toHaveBeenCalled();
+  });
+
+  it("previews an image comment's link as that image, typed by its link text's extension", async () => {
+    const { link } = readingTheCommentMessage();
+    fireEvent.click(link("架構圖.png"));
+    await waitFor(() => expect(overlay()?.querySelector("img")).toBeTruthy());
+    expect(overlay()?.querySelector("img")?.getAttribute("src")).toBe(
+      "/api/chat/attachment/att-bbbbbbbbbbbb?token=jwt-1",
+    );
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(within(overlay()!).queryByRole("button", { name: "註解" })).toBeNull();
+  });
+
+  it("asks the server for the type once when the link text has no extension, loading meanwhile, and shows the image it answers", async () => {
+    const { link, rerenderRoom } = readingTheCommentMessage();
+    let answer!: (r: unknown) => void;
+    globalThis.fetch = vi.fn(
+      () => new Promise((resolve) => (answer = resolve)),
+    ) as unknown as typeof fetch;
+    const flowChart = link("架構圖");
+
+    fireEvent.click(flowChart);
+    await waitFor(() => expect(overlay()?.getAttribute("aria-label")).toBe("架構圖"));
+    expect(within(overlay()!).getByText("載入預覽中…")).toBeTruthy();
+    expect(within(overlay()!).queryByRole("button", { name: "註解" })).toBeNull();
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(globalThis.fetch).toHaveBeenCalledWith("/api/chat/attachment/att-cccccccccccc?token=jwt-1", {
+      method: "HEAD",
+    });
+
+    answer({ ok: true, headers: new Headers({ "content-type": "image/png" }) });
+    await waitFor(() => expect(overlay()?.querySelector("img")).toBeTruthy());
+    expect(overlay()?.querySelector("img")?.getAttribute("src")).toBe(
+      "/api/chat/attachment/att-cccccccccccc?token=jwt-1",
+    );
+    expect(within(overlay()!).queryByText("載入預覽中…")).toBeNull();
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(flowChart.getAttribute("href")).toBe("/api/chat/attachment/att-cccccccccccc");
+
+    rerenderRoom([mkMember()], true);
+    await act(async () => {});
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(overlay()?.querySelector("img")).toBeTruthy();
+  });
+
+  it("keeps a second extension-less link loading while its own type is unanswered, not showing the first one's answer", async () => {
+    const { link } = readingTheCommentMessage();
+    const answers: ((r: unknown) => void)[] = [];
+    globalThis.fetch = vi.fn(
+      () => new Promise((resolve) => answers.push(resolve)),
+    ) as unknown as typeof fetch;
+
+    fireEvent.click(link("架構圖"));
+    await waitFor(() => expect(answers.length).toBe(1));
+    answers[0]({ ok: true, headers: new Headers({ "content-type": "image/png" }) });
+    await waitFor(() => expect(overlay()?.querySelector("img")).toBeTruthy());
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(overlay()).toBeNull());
+
+    fireEvent.click(link("流程圖"));
+    await waitFor(() => expect(answers.length).toBe(2));
+    expect(globalThis.fetch).toHaveBeenLastCalledWith("/api/chat/attachment/att-dddddddddddd?token=jwt-1", {
+      method: "HEAD",
+    });
+    expect(overlay()?.getAttribute("aria-label")).toBe("流程圖");
+    expect(within(overlay()!).getByText("載入預覽中…")).toBeTruthy();
+    expect(overlay()?.querySelector("img")).toBeNull();
+  });
+
+  it("shows the not-previewable view when the type question fails", async () => {
+    const { link } = readingTheCommentMessage();
+    globalThis.fetch = vi.fn(async () => ({ ok: false, status: 500, headers: new Headers() })) as unknown as typeof fetch;
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    fireEvent.click(link("架構圖"));
+    await waitFor(() => expect(within(overlay()!).getByText("此檔案無法預覽，請下載")).toBeTruthy());
+    expect(overlay()?.querySelector("img")).toBeNull();
+    expect(within(overlay()!).queryByText("載入預覽中…")).toBeNull();
+  });
+
+  it("leaves an external link in the same message to open its new tab", () => {
+    const { link } = readingTheCommentMessage();
+    const external = link("規格");
+    expect(external.getAttribute("href")).toBe("https://example.com/spec");
+    expect(external.getAttribute("target")).toBe("_blank");
+    expect(fireEvent.click(external)).toBe(true);
+    expect(overlay()).toBeNull();
   });
 });

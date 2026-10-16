@@ -4,11 +4,13 @@
 // text, never dangerouslySetInnerHTML).
 
 import { describe, it, expect, vi } from "vitest";
-import { render, fireEvent, act } from "@testing-library/react";
+import { render, fireEvent, act, waitFor, within, screen } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { TaskCard } from "./TaskCard";
+import { AttachmentModalHost } from "./AttachmentModalHost";
+import { api } from "../api";
 import type { Member } from "../types";
-import type { TaskView, TaskStepView, OutsourceWorkerView } from "../api/adapter";
+import type { TaskView, TaskStepView, OutsourceWorkerView, ReplyCard } from "../api/adapter";
 
 let seq = 0;
 function mkStep(over: Partial<TaskStepView>): TaskStepView {
@@ -30,18 +32,21 @@ function mkTask(over: Partial<TaskView>): TaskView {
 }
 
 const MIRA = { id: "mira", name: "Mira", kind: "agent" } as unknown as Member;
+const NOVA = { id: "nova", name: "Nova", kind: "agent" } as unknown as Member;
 const noop = async () => {};
 const workers: OutsourceWorkerView[] = [];
 
 function renderCard(task: TaskView, onHydrate: (id: string) => Promise<TaskView>) {
   return render(
     <I18nProvider>
-      <TaskCard
-        task={task} allTasks={[task]} members={[MIRA]} workers={workers} nowTs={3000}
-        onTerminate={noop as never} onMarkDuplicate={noop as never} onSetPriority={noop as never}
-        onReassign={noop as never}
-        onSendMessage={noop as never} onHydrate={onHydrate}
-      />
+      <AttachmentModalHost>
+        <TaskCard
+          task={task} allTasks={[task]} members={[MIRA, NOVA]} workers={workers} nowTs={3000}
+          onTerminate={noop as never} onMarkDuplicate={noop as never} onSetPriority={noop as never}
+          onReassign={noop as never}
+          onSendMessage={noop as never} onHydrate={onHydrate}
+        />
+      </AttachmentModalHost>
     </I18nProvider>
   );
 }
@@ -104,5 +109,76 @@ describe("TaskCard markdown render (T-13af)", () => {
     const dod = container.querySelector(".task-step__dod")!;
     expect(dod.querySelectorAll("ul > li").length).toBe(2);
     expect(dod.textContent).not.toContain("- 條件一");
+  });
+
+  describe("links to a stored document", () => {
+    const overlay = () => document.body.querySelector<HTMLElement>(".md-preview[role=dialog]");
+
+    async function commentOnLink(container: HTMLElement, linkName: string, attachmentId: string) {
+      localStorage.setItem(
+        `oc_doc_comments:${attachmentId}`,
+        JSON.stringify([{ id: "c1", excerpt: "文件", comment: "看過" }]),
+      );
+      fireEvent.click(within(container).getByRole("link", { name: linkName }));
+      await screen.findByRole("heading", { name: "文件" });
+      fireEvent.click(within(overlay()!).getByRole("button", { name: "註解" }));
+      const recipient = overlay()!.querySelector(".doc-comments__recipient strong")?.textContent;
+      fireEvent.click(screen.getByRole("button", { name: "送出給 AI" }));
+      await waitFor(() => expect(overlay()).toBeNull());
+      return recipient;
+    }
+
+    it("sends comments on the description's document to the executor, and on a step reply card's document to that card's author", async () => {
+      const realFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "# 文件" })) as unknown as typeof fetch;
+      const post = vi.spyOn(api, "postChat").mockResolvedValue(undefined);
+      const askedByNova: ReplyCard = {
+        id: "rc-nova", from: "nova", kind: "decision", summary: "要採用嗎？",
+        body: "見 [附錄.md](/api/chat/attachment/att-222222222222)",
+        options: [], selectMode: "single", status: "waiting", attachments: [],
+        createdTs: 1000, answeredTs: null, chatMessageId: "msg-1", answer: null,
+      };
+      vi.spyOn(api, "getReplyCard").mockResolvedValue(askedByNova);
+      const detail = mkTask({
+        description: "見 [規格.md](/api/chat/attachment/att-111111111111)",
+        steps: [mkStep({ status: "in_progress", replyCardId: "rc-nova" })],
+      });
+      try {
+        const { container, findByTestId } = renderCard(mkTask({}), vi.fn(async () => detail));
+        fireEvent.click(await findByTestId("task-card"));
+        await within(container).findByRole("link", { name: "附錄.md" });
+
+        expect(await commentOnLink(container, "規格.md", "att-111111111111")).toBe("Mira");
+        expect(await commentOnLink(container, "附錄.md", "att-222222222222")).toBe("Nova");
+        expect(post.mock.calls.map(([arg]) => arg.to)).toEqual(["mira", "nova"]);
+      } finally {
+        globalThis.fetch = realFetch;
+        vi.restoreAllMocks();
+        localStorage.clear();
+      }
+    });
+
+    it("opens a document linked from a task with no executor to address read-only", async () => {
+      const realFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "# 文件" })) as unknown as typeof fetch;
+      const executors = [
+        { executorKind: "outsource" as const, executorId: "" },
+        { executorKind: "staff" as const, executorId: "owner" },
+        { executorKind: "staff" as const, executorId: "" },
+      ];
+      try {
+        for (const executor of executors) {
+          const detail = mkTask({ ...executor, description: "見 [規格.md](/api/chat/attachment/att-111111111111)" });
+          const view = renderCard(mkTask(executor), vi.fn(async () => detail));
+          fireEvent.click(await view.findByTestId("task-card"));
+          fireEvent.click(await within(view.container).findByRole("link", { name: "規格.md" }));
+          await screen.findByRole("heading", { name: "文件" });
+          expect(within(overlay()!).queryByRole("button", { name: "註解" })).toBeNull();
+          view.unmount();
+        }
+      } finally {
+        globalThis.fetch = realFetch;
+      }
+    });
   });
 });

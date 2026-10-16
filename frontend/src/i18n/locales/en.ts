@@ -1181,6 +1181,28 @@ export const en: Dict = {
       zoomIn: "Zoom in",
       zoomOut: "Zoom out",
       pan: "Drag the image to move it, or scroll with the arrow keys",
+      comments: {
+        toggle: "Comments",
+        panelTitle: "Document comments",
+        add: "Add comment",
+        inputLabel: "Comment",
+        inputPlaceholder: "Write what you think about this passage",
+        save: "Save",
+        cancel: "Cancel",
+        edit: "Edit comment",
+        remove: "Delete comment",
+        empty: "Select some text or tap an image in the document, then press “Add comment”.",
+        imageExcerpt: (name: string) => `Image: ${name}`,
+        emptyTextOnly: "Select some text in the document, then press “Add comment”.",
+        excerptNotFound: "This passage was not found in the document; the comment is still sent.",
+        imageNotFound: "This image was not found in the document; the comment is still sent.",
+        recipientLabel: "To: ",
+        recipientUnknown: "There is no one to send this document's comments to.",
+        recipientGone: "The recipient is no longer on the roster (removed or released), so this cannot be sent.",
+        recipientNotMember: "This document was not sent by a member, so its comments cannot be sent directly.",
+        send: "Send to AI",
+        sendFailed: "Sending failed; your comments are kept",
+      },
     },
     // Corner button on an incoming bubble: reopen this message body in the same
     // full-view overlay (a long answer is hard to read in the thread column).
@@ -1196,6 +1218,8 @@ export const en: Dict = {
     // appears is that the original is genuinely gone (cleared, or its sender
     // removed). It is not retried and never re-resolves into something else.
     replyAction: "Reply",
+    replyExcerptAction: "Reply to this part",
+    replyExcerptTooLong: (max: number) => `Selection is over ${max} characters`,
     replyingTo: (name: string) => `Replying to ${name}`,
     replyCancel: "Cancel reply",
     // 🔴 THE LABEL CHANGED WITH THE BEHAVIOUR (owner ruling 2026-08-21). It was

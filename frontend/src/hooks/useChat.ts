@@ -167,6 +167,9 @@ interface UseChat {
     /** T-4e95: the id of the message this send REPLIES TO, when it is a reply.
      * Omitted on an ordinary send. */
     replyTo?: string,
+    /** The selected piece of the `replyTo` message; omitted on a whole-message
+     * reply. */
+    replyExcerpt?: string,
   ) => Promise<void>;
   // Mark this conversation read up to `lastReadTs` (the owner's own watermark) —
   // called when the owner enters / scrolls to the bottom of the thread.
@@ -1159,12 +1162,19 @@ export function useChat(
       body: string,
       attachments?: ChatAttachmentInput[],
       replyTo?: string,
+      replyExcerpt?: string,
     ) => {
       const trimmed = body.trim();
       // Allow sending when EITHER text or attachments are present; reject only a
       // truly empty message (no text AND no attachments) — mirrors the server's 400.
       if (!trimmed && !(attachments && attachments.length > 0)) return;
-      await api.postChat({ to: withId, body: trimmed, attachments, replyTo });
+      await api.postChat({
+        to: withId,
+        body: trimmed,
+        attachments,
+        replyTo,
+        ...(replyExcerpt ? { replyExcerpt } : {}),
+      });
       // Reconcile by refetch so the sent message appears immediately.
       //
       // 🔴 ONCE THE POST HAS RETURNED, THIS SEND HAS SUCCEEDED. The refresh

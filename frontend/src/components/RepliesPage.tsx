@@ -60,6 +60,7 @@ import {
 } from "../hooks/useWorkerCodenames";
 import { useHashRoute } from "../lib/hashRoute";
 import { isSyntheticSender } from "../lib/syntheticSender";
+import { docCommentRecipient } from "../lib/docComments";
 import { avatarKindForMember } from "../lib/avatarKind";
 import { ReplyCardAvatarButton } from "./ReplyCardAvatarButton";
 import { CurrentTaskTitle } from "./CurrentTaskTitle";
@@ -73,6 +74,7 @@ import { Markdown } from "./Markdown";
 import {
   ReplyCardAnsweredBody,
   ReplyCardExpiredBody,
+  ReplyCardLinkComments,
   ReplyCardQuestionAttachments,
   ReplyCardTaskRef,
   ReplyCardWaitingBody,
@@ -676,6 +678,13 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   function whoOf(card: ReplyCardRow): { name: string; role: string } {
     return whoOfId(card.from);
   }
+  const docCommentRecipientFor = (id: string) =>
+    docCommentRecipient(
+      id,
+      whoOfId(id).name,
+      members.some((m) => m.id === id),
+      rosterLoaded,
+    );
 
   // ── 開卡人 下拉的選項 ──────────────────────────────────────────────────────
   // owner 2026-09-06 (c-63f5651493f8):「可以選的人就是現在UI filter出來的那些人,
@@ -1036,8 +1045,10 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
           * print it again — 「卡片標題只出現一次」.
           * T-a20b: it is agent-authored free text like the body, so it goes
           * through Markdown; the light row carries it, so this costs no read. */}
-        <Markdown source={row.summary} className="reply-card__summary doc-md" />
-        {open && (card ? opts.body(card) : renderOpenState(row.id))}
+        <ReplyCardLinkComments from={row.from} recipientFor={docCommentRecipientFor}>
+          <Markdown source={row.summary} className="reply-card__summary doc-md" />
+          {open && (card ? opts.body(card) : renderOpenState(row.id))}
+        </ReplyCardLinkComments>
       </article>
     );
   }

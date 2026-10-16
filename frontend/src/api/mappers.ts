@@ -435,6 +435,9 @@ export function toChatMessage(w: WireChatMessage): ChatMessage {
           to: w.reply_to_chat.to,
           toName: w.reply_to_chat.to_name ?? "",
           content: w.reply_to_chat.content ?? "",
+          ...(w.reply_to_chat.reply_excerpt
+            ? { replyExcerpt: w.reply_to_chat.reply_excerpt }
+            : {}),
         }
       : null,
   };
