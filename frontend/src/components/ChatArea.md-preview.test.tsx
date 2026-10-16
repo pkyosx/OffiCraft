@@ -5,7 +5,7 @@
 // (pdf) stays a plain download <a>.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, fireEvent, waitFor, within } from "@testing-library/react";
+import { render, fireEvent, waitFor, within, act } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { api } from "../api";
 import { ChatArea } from "./ChatArea";
@@ -288,17 +288,19 @@ describe("chat message links to a stored attachment", () => {
     vi.spyOn(api, "getChatAttachmentShareLink").mockResolvedValue("/api/chat/attachment/x?sig=s");
     const windowOpen = vi.spyOn(window, "open").mockReturnValue(null);
     messages = [{ ...msgWith([]), body }];
-    const view = render(
+    const room = (members: Member[] = [], rosterSettled = false) => (
       <I18nProvider>
         <AttachmentModalHost>
-          <ChatArea member={mkMember()} />
+          <ChatArea member={mkMember()} members={members} rosterSettled={rosterSettled} />
         </AttachmentModalHost>
-      </I18nProvider>,
+      </I18nProvider>
     );
+    const view = render(room());
     const expand = within(view.container).queryByRole("button", { name: /展開/ });
     if (expand) fireEvent.click(expand);
     const link = (name: string) => within(view.container).getByRole("link", { name });
-    return { view, windowOpen, link };
+    const rerenderRoom = (members: Member[], rosterSettled: boolean) => view.rerender(room(members, rosterSettled));
+    return { view, windowOpen, link, rerenderRoom };
   }
 
   const overlay = () => document.body.querySelector<HTMLElement>(".md-preview[role=dialog]");
@@ -443,21 +445,31 @@ describe("chat message links to a stored attachment", () => {
     vi.spyOn(api, "getReplyCard").mockResolvedValue({
       id: "rc-nova", from: "m2", kind: "decision", summary: "要採用嗎？",
       body: `見 [設計.md](${DOC})`,
-      options: [], selectMode: "single", status: "waiting", attachments: [md("att-question")],
-      createdTs: 1000, answeredTs: null, chatMessageId: "msg1", answer: null,
+      options: [], selectMode: "single", status: "answered", attachments: [md("att-question")],
+      createdTs: 1000, answeredTs: 1100, chatMessageId: "msg1",
+      answer: { optionIdxs: [], text: "好", attachments: [md("att-answer")] },
     });
     localStorage.setItem(
       "oc_doc_comments:att-aaaaaaaaaaaa",
       JSON.stringify([{ id: "c1", excerpt: "設計稿", comment: "補日期" }]),
     );
-    messages = [{ ...msgWith([]), from: "m2", to: "m1", body: "要採用嗎？", replyCardId: "rc-nova" }];
-    const view = render(
+    messages = [
+      { ...msgWith([]), id: "msg0", ts: 900, body: "另見 [附錄.md](/api/chat/attachment/att-bbbbbbbbbbb1)" },
+      { ...msgWith([]), from: "m2", to: "m1", body: "要採用嗎？", replyCardId: "rc-nova" },
+    ];
+    const room = () => (
       <I18nProvider>
         <AttachmentModalHost>
           <ChatArea member={mkMember()} members={[mkMember(), mkMember("m2", "Nova")]} rosterSettled />
         </AttachmentModalHost>
-      </I18nProvider>,
+      </I18nProvider>
     );
+    const view = render(room());
+    const recipient = () => overlay()!.querySelector(".doc-comments__recipient strong")?.textContent;
+    const closePreview = async () => {
+      fireEvent.click(within(overlay()!).getByLabelText("關閉預覽"));
+      await waitFor(() => expect(overlay()).toBeNull());
+    };
     fireEvent.click(within(view.container).getByRole("button", { name: /展開/ }));
     fireEvent.click(within(view.container).getByTestId("chat-reply-card-expand"));
     fireEvent.click(await within(view.container).findByRole("link", { name: "設計.md" }));
@@ -469,10 +481,21 @@ describe("chat message links to a stored attachment", () => {
     expect(post.mock.calls[0][0].to).toBe("m2");
     await waitFor(() => expect(overlay()).toBeNull());
 
-    fireEvent.click(within(view.container).getByRole("button", { name: "att-question.md" }));
+    for (const chip of ["att-question.md", "att-answer.md"]) {
+      fireEvent.click(within(view.container).getByRole("button", { name: chip }));
+      await waitFor(() => expect(view.getByRole("heading", { name: "設計稿" })).toBeTruthy());
+      fireEvent.click(within(overlay()!).getByRole("button", { name: "註解" }));
+      expect(recipient()).toBe("Nova");
+      await closePreview();
+    }
+
+    fireEvent.click(within(view.container).getByRole("link", { name: "附錄.md" }));
     await waitFor(() => expect(view.getByRole("heading", { name: "設計稿" })).toBeTruthy());
     fireEvent.click(within(overlay()!).getByRole("button", { name: "註解" }));
-    expect(overlay()!.querySelector(".doc-comments__recipient strong")?.textContent).toBe("Nova");
+    expect(recipient()).toBe("Mira");
+    view.rerender(room());
+    await act(async () => {});
+    expect(recipient()).toBe("Mira");
   });
 
   it("previews in place on a modified or middle click too, since a new tab would have no token", async () => {
@@ -503,8 +526,8 @@ describe("chat message links to a stored attachment", () => {
     expect(within(overlay()!).queryByRole("button", { name: "註解" })).toBeNull();
   });
 
-  it("asks the server for the type when the link text has no extension, loading meanwhile, and shows the image it answers", async () => {
-    const { link } = readingTheCommentMessage();
+  it("asks the server for the type once when the link text has no extension, loading meanwhile, and shows the image it answers", async () => {
+    const { link, rerenderRoom } = readingTheCommentMessage();
     let answer!: (r: unknown) => void;
     globalThis.fetch = vi.fn(
       () => new Promise((resolve) => (answer = resolve)),
@@ -528,6 +551,11 @@ describe("chat message links to a stored attachment", () => {
     expect(within(overlay()!).queryByText("載入預覽中…")).toBeNull();
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     expect(flowChart.getAttribute("href")).toBe("/api/chat/attachment/att-cccccccccccc");
+
+    rerenderRoom([mkMember()], true);
+    await act(async () => {});
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(overlay()?.querySelector("img")).toBeTruthy();
   });
 
   it("keeps a second extension-less link loading while its own type is unanswered, not showing the first one's answer", async () => {

@@ -158,17 +158,24 @@ describe("TaskCard markdown render (T-13af)", () => {
       }
     });
 
-    it("opens a document linked from an unassigned task read-only", async () => {
+    it("opens a document linked from a task with no executor to address read-only", async () => {
       const realFetch = globalThis.fetch;
       globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "# 文件" })) as unknown as typeof fetch;
-      const unassigned = { executorKind: "outsource" as const, executorId: "" };
-      const detail = mkTask({ ...unassigned, description: "見 [規格.md](/api/chat/attachment/att-111111111111)" });
+      const executors = [
+        { executorKind: "outsource" as const, executorId: "" },
+        { executorKind: "staff" as const, executorId: "owner" },
+        { executorKind: "staff" as const, executorId: "" },
+      ];
       try {
-        const { container, findByTestId } = renderCard(mkTask(unassigned), vi.fn(async () => detail));
-        fireEvent.click(await findByTestId("task-card"));
-        fireEvent.click(await within(container).findByRole("link", { name: "規格.md" }));
-        await screen.findByRole("heading", { name: "文件" });
-        expect(within(overlay()!).queryByRole("button", { name: "註解" })).toBeNull();
+        for (const executor of executors) {
+          const detail = mkTask({ ...executor, description: "見 [規格.md](/api/chat/attachment/att-111111111111)" });
+          const view = renderCard(mkTask(executor), vi.fn(async () => detail));
+          fireEvent.click(await view.findByTestId("task-card"));
+          fireEvent.click(await within(view.container).findByRole("link", { name: "規格.md" }));
+          await screen.findByRole("heading", { name: "文件" });
+          expect(within(overlay()!).queryByRole("button", { name: "註解" })).toBeNull();
+          view.unmount();
+        }
       } finally {
         globalThis.fetch = realFetch;
       }

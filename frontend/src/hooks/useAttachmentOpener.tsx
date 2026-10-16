@@ -9,8 +9,8 @@ import type { AttachmentLink } from "../lib/attachmentLink";
 import type { DocCommentTarget } from "../lib/docComments";
 
 /** Returns a refresher for that preview's comment target, so the recipient's
- * roster state stays live while it is open; a no-op once it is closed or
- * replaced. */
+ * roster state stays live while it is open; it has no visible effect once that
+ * preview is closed or another one is opened. */
 export type AttachmentOpener = (
   link: AttachmentLink & { name: string; docComments?: DocCommentTarget },
 ) => (docComments: DocCommentTarget | undefined) => void;
