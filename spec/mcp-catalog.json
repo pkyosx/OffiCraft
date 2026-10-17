@@ -1492,20 +1492,12 @@
           "ReplyCardSecretRequestDTO": {
             "additionalProperties": false,
             "properties": {
-              "mode": {
-                "enum": [
-                  "one_time",
-                  "store"
-                ],
-                "type": "string"
-              },
               "name": {
                 "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
                 "type": "string"
               }
             },
             "required": [
-              "mode",
               "name"
             ],
             "title": "ReplyCardSecretRequestDTO",
@@ -1657,7 +1649,7 @@
               }
             ],
             "default": null,
-            "description": "OPTIONAL. Ask the owner for a secret value (an API token, a password) instead of free text; never ask for one in body or chat. mode one_time: the value is for you only, retrievable ONCE with `ocagent secret run --card <card_id> -- <command>`, and deleted 24 hours after the answer if unused. mode store: the value goes into the vault under name (overwriting it) and is granted to you; use it with `ocagent secret run NAME -- <command>`. name is env-var style, ^[A-Z][A-Z0-9_]{0,63}$. The owner still sees your options, so offer one for declining. The answer you read never contains the value: answer.secret_stored and secret_request.state say whether it was given.",
+            "description": "OPTIONAL. Ask the owner for a secret value (an API token, a password) instead of free text; never ask for one in body or chat. The value is for you only: use it ONCE with `ocagent secret run --card <card_id> -- <command>`, or move it into the vault with `ocagent secret keep --card <card_id> NAME` (refused when NAME already exists) and then use it as `ocagent secret run NAME -- <command>`. It is deleted 24 hours after the answer if neither. name is your suggested env-var style name, ^[A-Z][A-Z0-9_]{0,63}$. The owner still sees your options, so offer one for declining. The answer you read never contains the value: answer.secret_provided and secret_request.state say whether it was given.",
             "title": "Secret Request"
           },
           "select_mode": {
@@ -4649,7 +4641,7 @@
       "name": "get_member_boot_context"
     },
     {
-      "description": "List the names of the secrets the owner has granted to you (never their values). To use one, run a command through the CLI: `ocagent secret run NAME -- <command>` puts the value in that command's environment as $NAME and masks it in the output; `ocagent secret write NAME --file <path>` writes it to a file. There is no MCP tool that returns a value.",
+      "description": "List the names of every long-term secret in the vault (never their values), plus the one-time values the owner gave on reply cards you opened that are still pending. Every AI member may use every long-term secret. To use one, run a command through the CLI: `ocagent secret run NAME -- <command>` puts the value in that command's environment as $NAME and masks it in the output; `ocagent secret write NAME --file <path>` writes it to a file. A one-time value: `ocagent secret run --card <card_id> -- <command>` (once only), or `ocagent secret keep --card <card_id> NAME` to move it into the vault. There is no MCP tool that returns a value.",
       "inputSchema": {
         "properties": {},
         "type": "object"
