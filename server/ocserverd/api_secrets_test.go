@@ -173,9 +173,10 @@ func TestHandleCreateSecretApiSecretsPost(t *testing.T) {
 			apiWantError(t, data, "validation_error", tc.msg)
 		}
 		status, _ := apiJSON(t, f.h, "POST", "/api/secrets", f.owner,
-			`{"name":"n","value":"`+strings.Repeat("名", secretValueMaxChars)+`"}`)
+			`{"name":"`+strings.Repeat("名", shortLabelMaxChars)+`","value":"`+strings.Repeat("名", secretValueMaxChars)+
+				`","note":"`+strings.Repeat("n", chatBodyMaxChars)+`"}`)
 		if status != http.StatusOK {
-			t.Fatalf("a value of exactly %d characters must be accepted, got %d", secretValueMaxChars, status)
+			t.Fatalf("a name, value and note each exactly at its limit must be accepted, got %d", status)
 		}
 	})
 
