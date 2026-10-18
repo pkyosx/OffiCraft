@@ -70,6 +70,9 @@ export interface Messages {
   loreOpenManual: (manualName: string) => string;
   loreScopeManual: (manualName: string) => string;
   loreScopeAgent: (authorName: string) => string;
+  // ── secrets ──
+  secretCopyId: (secretId: string) => string;
+  secretDeleteConfirmBody: (name: string) => string;
   // ── office ──
   outsourceLabel: (codename: string) => string;
   // ── chat ──
@@ -317,6 +320,9 @@ export function makeMessages(t: Dict, language: Lang): Messages {
       `${t.lore.openManualLabel} ${manualName}`,
     loreScopeManual: (manualName) => `${t.lore.scopeManualLead}${manualName}`,
     loreScopeAgent: (authorName) => `${t.lore.scopeAgentLead}${authorName}`,
+    secretCopyId: (secretId) => `${t.secrets.copyIdLabel} ${secretId}`,
+    secretDeleteConfirmBody: (name) =>
+      `${t.secrets.deleteConfirmLead}${name}${t.secrets.deleteConfirmTail}`,
 
     // The outsource identity label has ONE source of the word 外包 now: the
     // section title. It used to have two (a title leaf and an identically

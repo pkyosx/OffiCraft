@@ -26,6 +26,7 @@
  *   #tasks/executor/<memberId>                    → tasks page, filtered to that
  *                                                   member's unfinished tasks
  *   #lore                                         → 傳承 page (T-33)
+ *   #secrets                                      → Secrets page
  *   #monitor                                      → monitor page
  *   #monitor/member/<detailId>                    → monitor's member detail
  *   #guide                                        → 使用說明 (product guide) list
@@ -53,6 +54,7 @@ export interface HashRoute {
     | "replies"
     | "tasks"
     | "lore"
+    | "secrets"
     | "monitor"
     | "guide"
     | "settings";
@@ -216,6 +218,10 @@ export function parseHash(raw: string): HashRoute {
     return { page: "lore" };
   }
 
+  if (head === "secrets") {
+    return { page: "secrets" };
+  }
+
   if (head === "guide") {
     return rest[0] ? { page: "guide", guideSlug: rest[0] } : { page: "guide" };
   }
@@ -282,6 +288,7 @@ export function formatHash(route: HashRoute): string {
       : "#tasks";
   }
   if (route.page === "lore") return "#lore";
+  if (route.page === "secrets") return "#secrets";
   if (route.page === "guide") {
     return route.guideSlug
       ? `#guide/${encodeURIComponent(route.guideSlug)}`

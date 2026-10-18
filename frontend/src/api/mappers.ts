@@ -33,6 +33,8 @@ import type {
   ReleaseCheckView,
   BackupHealthView,
   SigningKeyView,
+  SecretView,
+  SecretAccessEntryView,
   BackupHealthStatus,
   BackupHealthCode,
   GlobalContextView,
@@ -72,6 +74,9 @@ import type {
   WireReleaseCheck,
   WireBackupHealth,
   WireSigningKeys,
+  WireSecret,
+  WireSecrets,
+  WireSecretAccessLog,
   WireGlobalContext,
   WireBootDoc,
   WireDocumentHistory,
@@ -1552,6 +1557,32 @@ export function toSigningKeys(w: WireSigningKeys): SigningKeyView[] {
     keyId: k.key_id,
     createdTs: k.created_ts === 0 ? null : k.created_ts,
     isSigning: k.is_signing,
+  }));
+}
+
+export function toSecret(w: WireSecret): SecretView {
+  return {
+    id: w.id,
+    name: w.name,
+    note: w.note,
+    createdTs: w.created_ts,
+    updatedTs: w.updated_ts,
+  };
+}
+
+export function toSecrets(w: WireSecrets): SecretView[] {
+  return w.secrets.map(toSecret);
+}
+
+export function toSecretAccessLog(w: WireSecretAccessLog): SecretAccessEntryView[] {
+  return w.entries.map((e) => ({
+    id: e.id,
+    action: e.action,
+    secretId: e.secret_id,
+    secretName: e.secret_name,
+    memberId: e.member_id,
+    machineId: e.machine_id,
+    ts: e.ts,
   }));
 }
 

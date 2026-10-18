@@ -2758,6 +2758,88 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/secrets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List every secret (no values).
+         * @description - Every secret, ordered by `created_ts`: id, name, note and timestamps. No value, masked value or hash of a value is ever returned.
+         *     - Owner only; off the MCP surface.
+         */
+        get: operations["handle_list_secrets_api_secrets_get"];
+        put?: never;
+        /**
+         * Create a secret.
+         * @description - The server mints the id (`sec-` + 12 hex); it never changes and is the key every other route and `ocagent secret` take.
+         *     - `name`: trimmed, 1–128 characters (the short-label cap), not unique. `value`: required, 1–65536 characters. `note`: optional, at most 4000 characters (the chat-body cap). 400 for a blank name or empty value, naming the field and the limit and nothing else.
+         *     - The value is sealed (AES-256-GCM, AAD = the id) before it is written, and is never echoed, logged, or put in a chat message or event.
+         *     - Returns the created secret without its value.
+         *     - Owner only; off the MCP surface.
+         */
+        post: operations["handle_create_secret_api_secrets_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/secrets/access-log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List secret access attempts, newest first.
+         * @description - One row per secret on a successful `POST /api/self/secrets/reveal` (`reveal`), and one row per id asked for on a refused one (`denied`; `secret_id` is the id as sent, `""` when the call named none).
+         *     - `secret_id`, `member_id` and `action` narrow the list (AND); `limit` caps it after ordering (absent or non-positive = 200).
+         *     - Owner only; off the MCP surface.
+         */
+        get: operations["handle_list_secret_access_log_api_secrets_access_log_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/secrets/{secret_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a secret.
+         * @description - Permanent: the row and its ciphertext go; access-log rows stay. No undo.
+         *     - 404 when the id is unknown.
+         *     - Returns the deleted secret without its value.
+         *     - Owner only; off the MCP surface.
+         */
+        delete: operations["handle_delete_secret_api_secrets__secret_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Edit a secret's name, value or note.
+         * @description - Only supplied fields change; the id never does. An absent or null `value` keeps the stored value; a supplied one is re-sealed with a fresh nonce. An absent or null `note` keeps the note; `""` clears it.
+         *     - Same limits as create. `updated_ts` moves on every successful edit; `created_ts` never does.
+         *     - 404 when the id is unknown.
+         *     - Returns the secret without its value.
+         *     - Owner only; off the MCP surface.
+         */
+        patch: operations["handle_update_secret_api_secrets__secret_id__patch"];
+        trace?: never;
+    };
     "/api/self/refocus": {
         parameters: {
             query?: never;
@@ -2775,6 +2857,54 @@ export interface paths {
          *     - Emits a `member` event; a client holding the stream learns of this without polling.
          */
         post: operations["handle_restart_self_api_self_refocus_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/self/secrets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List every secret (no values).
+         * @description - Every secret, ordered by `created_ts`: id, name and note, so the caller can pick one and read the owner's note on how to use it. Never a value.
+         *     - Every AI member may use every secret; there are no per-member grants.
+         *     - For `ocagent secret list`.
+         *     - Agents and admin agents only (403 for the owner and for machines); off the MCP surface: AI members use secrets only through `ocagent secret`.
+         */
+        get: operations["handle_list_self_secrets_api_self_secrets_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/self/secrets/reveal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retrieve secret values (CLI only).
+         * @description - For `ocagent secret` only, so a value never lands in an MCP tool result.
+         *     - Every AI member may reveal every secret; there are no per-member grants.
+         *     - All or nothing: when any id is unknown the call is 404 naming those ids and returns no value.
+         *     - Writes one `reveal` access-log row per id with the caller, the token's `machine_id` claim and the time, in the same transaction that reads the values. A refused call (unknown id, wrong principal, malformed body) returns no value and writes one `denied` row per id it asked for (one row with `secret_id` `""` when it named none).
+         *     - The value never reaches a log, an event or a chat message.
+         *     - Agents and admin agents only (403 for the owner and for machines); off the MCP surface: AI members use secrets only through `ocagent secret`.
+         */
+        post: operations["handle_reveal_self_secrets_api_self_secrets_reveal_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -8729,6 +8859,162 @@ export interface components {
             timezone?: string | null;
         };
         /**
+         * SecretAccessLogDTO
+         * @description Secret access attempts, newest first.
+         */
+        SecretAccessLogDTO: {
+            /** Entries */
+            entries: components["schemas"]["SecretAccessLogEntryDTO"][];
+        };
+        /**
+         * SecretAccessLogEntryDTO
+         * @description One access attempt on a secret value. Rows are append-only and outlive the secret they record.
+         */
+        SecretAccessLogEntryDTO: {
+            /**
+             * Action
+             * @description `reveal` — the value was returned to the caller; `denied` — the call was refused and returned nothing.
+             * @enum {string}
+             */
+            action: "reveal" | "denied";
+            /** Id */
+            id: number;
+            /**
+             * Machine Id
+             * @description The `machine_id` claim of the caller's token; `""` when the token carried none.
+             * @default
+             */
+            machine_id: string;
+            /** Member Id */
+            member_id: string;
+            /**
+             * Secret Id
+             * @description The id revealed, or the id asked for on a refused attempt (`""` when it named none).
+             * @default
+             */
+            secret_id: string;
+            /**
+             * Secret Name
+             * @description The secret's CURRENT name, resolved at read time; `""` once the secret is deleted or when the id never existed.
+             * @default
+             */
+            secret_name: string;
+            /** Ts */
+            ts: number;
+        };
+        /**
+         * SecretCreateDTO
+         * @description Create a secret. The value is encrypted at rest and NEVER echoed on any wire, log, chat message or event.
+         */
+        SecretCreateDTO: {
+            /**
+             * Name
+             * @description Free-text label: trimmed, 1–128 characters (the short-label cap), not unique. Not the key — the server-minted id is.
+             */
+            name: string;
+            /**
+             * Note
+             * @description What the AI should pay attention to when using it; at most 4000 characters (the chat-body cap). Readable by the owner and every AI member.
+             * @default null
+             */
+            note: string | null;
+            /**
+             * Value
+             * @description Write-only. The plaintext value, 1–65536 characters.
+             */
+            value: string;
+        };
+        /**
+         * SecretDTO
+         * @description One secret WITHOUT its value: no owner route ever returns a value, not even masked or hashed. `updated_ts` moves on every edit, value-only edits included.
+         */
+        SecretDTO: {
+            /**
+             * Created Ts
+             * @default 0
+             */
+            created_ts: number;
+            /**
+             * Id
+             * @description Server-minted (`sec-` + 12 hex), immutable; the key every route and `ocagent secret` take.
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /**
+             * Updated Ts
+             * @default 0
+             */
+            updated_ts: number;
+        };
+        /**
+         * SecretRevealDTO
+         * @description The requested values, in request order.
+         */
+        SecretRevealDTO: {
+            /** Secrets */
+            secrets: components["schemas"]["SecretValueDTO"][];
+        };
+        /**
+         * SecretRevealRequestDTO
+         * @description The secrets to retrieve, by id.
+         */
+        SecretRevealRequestDTO: {
+            /** Ids */
+            ids: string[];
+        };
+        /**
+         * SecretUpdateDTO
+         * @description Partial edit of a secret. PATCH semantics — only supplied fields change; the id is immutable and not editable here.
+         */
+        SecretUpdateDTO: {
+            /**
+             * Name
+             * @description Same rule as create: trimmed, 1–128 characters (the short-label cap), not unique.
+             */
+            name?: string | null;
+            /**
+             * Note
+             * @description `""` clears the note; at most 4000 characters (the chat-body cap).
+             */
+            note?: string | null;
+            /**
+             * Value
+             * @description Write-only. Supply to replace the value (1–65536 characters); absent or null keeps the stored one. Never echoed back.
+             */
+            value?: string | null;
+        };
+        /**
+         * SecretValueDTO
+         * @description One retrieved secret. `value` is the plaintext; the caller must not print or store it.
+         */
+        SecretValueDTO: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /** Value */
+            value: string;
+        };
+        /**
+         * SecretsDTO
+         * @description Every secret, ordered by `created_ts`, without values.
+         */
+        SecretsDTO: {
+            /** Secrets */
+            secrets: components["schemas"]["SecretDTO"][];
+        };
+        /**
          * SelfReportReceiptDTO
          * @description Bounded receipt for the four SELF-REPORT writes an agent makes about its own lifecycle - ``POST /api/self/waking`` (report_waking), ``/api/self/stopping`` (report_stopping), ``/api/self/stopped`` (report_stopped) and ``/api/self/refocus`` (restart_self) (T-91). All four answered with the whole MemberDTO, 32 fields flattened, measured first-hand this session: a boot report came back with 30 populated fields, of which the caller needed none it could not already name. These are agent-called through MCP, so that answer lands in the model's CONTEXT WINDOW - once per boot and once per shutdown, for every agent, forever. Owner ruling 2026-09-05: what the caller sent does not come home, only ids and what it genuinely needs to learn from the reply.
          *
@@ -8774,6 +9060,29 @@ export interface components {
              * @enum {string}
              */
             stop_effect?: "collected" | "latched_for_collect" | "recorded_only" | "already_reported";
+        };
+        /**
+         * SelfSecretDTO
+         * @description One secret as an AI member sees it in a listing: id, name and the owner's note. Never the value.
+         */
+        SelfSecretDTO: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+        };
+        /**
+         * SelfSecretsDTO
+         * @description Every secret, ordered by `created_ts`. Never carries a value.
+         */
+        SelfSecretsDTO: {
+            /** Secrets */
+            secrets: components["schemas"]["SelfSecretDTO"][];
         };
         /**
          * SetPasswordDTO
@@ -17576,6 +17885,258 @@ export interface operations {
             };
         };
     };
+    handle_list_secrets_api_secrets_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretsDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_create_secret_api_secrets_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SecretCreateDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_list_secret_access_log_api_secrets_access_log_get: {
+        parameters: {
+            query?: {
+                secret_id?: string | null;
+                member_id?: string | null;
+                action?: ("reveal" | "denied") | null;
+                limit?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretAccessLogDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_delete_secret_api_secrets__secret_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                secret_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_update_secret_api_secrets__secret_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                secret_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SecretUpdateDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
     handle_restart_self_api_self_refocus_post: {
         parameters: {
             query?: never;
@@ -17596,6 +18157,104 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SelfReportReceiptDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_list_self_secrets_api_self_secrets_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SelfSecretsDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_reveal_self_secrets_api_self_secrets_reveal_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SecretRevealRequestDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretRevealDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
