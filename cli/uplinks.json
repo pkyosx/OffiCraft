@@ -1032,6 +1032,87 @@
       "callsite": "l.drainChatNow()\n\n\tonAct := func() { activity = true }",
       "kind": "seam",
       "seam_reason": "every connect/reconnect (T-48: closes the outage gap) — hop: one of the two entrances to l.drainChatNow() (T-48 centralised them). The body-bearing send below it is the read receipt, claimed by ocagent-chat-mark-read; the wire GET is claimed by ocagent-run-6. This line itself puts nothing on the wire."
+    },
+    {
+      "id": "ocagent-secret-dispatch-hop",
+      "source": "cli/ocagent/main.go",
+      "callsite": "return cmdSecret(rest, cfg, in, out, os.Stderr)",
+      "kind": "seam",
+      "seam_reason": "Dispatch into the secret subcommands; their sends are claimed by the ocagent-secret-* rows below."
+    },
+    {
+      "id": "ocagent-secret-list-hop",
+      "source": "cli/ocagent/secret.go",
+      "callsite": "return cmdSecretList(defaultHTTPClient(), cfg, out, errOut)",
+      "kind": "seam",
+      "seam_reason": "Dispatch into `secret list`, whose one request is the GET ocagent-secret-list-read."
+    },
+    {
+      "id": "ocagent-secret-show-hop",
+      "source": "cli/ocagent/secret.go",
+      "callsite": "return cmdSecretShow(defaultHTTPClient(), cfg, fs.Arg(0), out, errOut)",
+      "kind": "seam",
+      "seam_reason": "Dispatch into `secret show`, whose one request is the GET ocagent-secret-list-read."
+    },
+    {
+      "id": "ocagent-secret-run-hop",
+      "source": "cli/ocagent/secret.go",
+      "callsite": "return cmdSecretRun(defaultHTTPClient(), cfg, envs, fs.Args(), os.Environ(), in, out, errOut)",
+      "kind": "seam",
+      "seam_reason": "Dispatch into `secret run`, whose one request is ocagent-secret-reveal."
+    },
+    {
+      "id": "ocagent-secret-write-hop",
+      "source": "cli/ocagent/secret.go",
+      "callsite": "return cmdSecretWrite(defaultHTTPClient(), cfg, args[0], *file, *force, out, errOut)",
+      "kind": "seam",
+      "seam_reason": "Dispatch into `secret write`, whose one request is ocagent-secret-reveal."
+    },
+    {
+      "id": "ocagent-secret-list-read",
+      "source": "cli/ocagent/secret.go",
+      "callsite": "status, text := httpRequest(client, http.MethodGet, cfg.Base+selfSecretsPath, cfg.Token, nil)",
+      "kind": "skip",
+      "skip_reason": "GET /api/self/secrets with a nil body through the shared httpRequest seam (ocagent-request-seam): a read, nothing goes out in a body. It goes through httpRequest rather than getJSON so a refusal can quote only the error envelope's message."
+    },
+    {
+      "id": "ocagent-secret-reveal",
+      "source": "cli/ocagent/secret.go",
+      "callsite": "status, text := httpRequest(client, http.MethodPost, cfg.Base+selfSecretRevealPath, cfg.Token, map[string]any{\"ids\": ids})",
+      "kind": "json",
+      "method": "post",
+      "path": "/api/self/secrets/reveal",
+      "request_schema": "#/components/schemas/SecretRevealRequestDTO",
+      "wire_test": "cli/ocagent/secret_wire_test.go",
+      "wire_needle": "if bad := schemaViolations(reveal.body, revealDeclared); len(bad) > 0 {"
+    },
+    {
+      "id": "ocagent-secret-list-fetch-hop",
+      "source": "cli/ocagent/secret.go",
+      "callsite": "secrets, rerr := fetchSelfSecrets(client, cfg)\n\tif rerr != nil {\n\t\tfmt.Fprintf(errOut, \"[ocagent] secret list:",
+      "kind": "seam",
+      "seam_reason": "`secret list` reaches the GET ocagent-secret-list-read through fetchSelfSecrets."
+    },
+    {
+      "id": "ocagent-secret-show-fetch-hop",
+      "source": "cli/ocagent/secret.go",
+      "callsite": "secrets, rerr := fetchSelfSecrets(client, cfg)\n\tif rerr != nil {\n\t\tfmt.Fprintf(errOut, \"[ocagent] secret show:",
+      "kind": "seam",
+      "seam_reason": "`secret show` reaches the GET ocagent-secret-list-read through fetchSelfSecrets."
+    },
+    {
+      "id": "ocagent-secret-run-reveal-hop",
+      "source": "cli/ocagent/secret.go",
+      "callsite": "values, rerr := revealSecrets(client, cfg, ids)",
+      "kind": "seam",
+      "seam_reason": "`secret run` reaches ocagent-secret-reveal (one call for all its ids)."
+    },
+    {
+      "id": "ocagent-secret-write-reveal-hop",
+      "source": "cli/ocagent/secret.go",
+      "callsite": "values, rerr := revealSecrets(client, cfg, []string{id})",
+      "kind": "seam",
+      "seam_reason": "`secret write` reaches ocagent-secret-reveal with its one id."
     }
   ]
 }
