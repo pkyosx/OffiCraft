@@ -441,6 +441,31 @@ var authzOutsideRouteTable = map[string]string{
 		"floor and the owner is refused here, and a refused reveal is written to the " +
 		"access log as denied.",
 
+	"api_secrets.go :: callerIsActiveAIMember :: classifyMember(m)": "" +
+		"the reveal route is the only one that returns plaintext, so on top of the " +
+		"agent floor it re-reads the caller's roster row and refuses unless it is an " +
+		"ACTIVE agent or admin agent (a warden classifies as machine and is refused). " +
+		"resolvePrincipal answers agent when the roster read fails or finds no row, which " +
+		"is fail-open by design for every other route; this check is the fail-closed " +
+		"override for reveal and cannot be a Requires value, because a route floor is " +
+		"decided by that same resolver.",
+	"api_secrets.go :: callerIsActiveAIMember :: class == principalAgent": "" +
+		"the reveal route is the only one that returns plaintext, so on top of the " +
+		"agent floor it re-reads the caller's roster row and refuses unless it is an " +
+		"ACTIVE agent or admin agent (a warden classifies as machine and is refused). " +
+		"resolvePrincipal answers agent when the roster read fails or finds no row, which " +
+		"is fail-open by design for every other route; this check is the fail-closed " +
+		"override for reveal and cannot be a Requires value, because a route floor is " +
+		"decided by that same resolver.",
+	"api_secrets.go :: callerIsActiveAIMember :: class == principalAdminAgent": "" +
+		"the reveal route is the only one that returns plaintext, so on top of the " +
+		"agent floor it re-reads the caller's roster row and refuses unless it is an " +
+		"ACTIVE agent or admin agent (a warden classifies as machine and is refused). " +
+		"resolvePrincipal answers agent when the roster read fails or finds no row, which " +
+		"is fail-open by design for every other route; this check is the fail-closed " +
+		"override for reveal and cannot be a Requires value, because a route floor is " +
+		"decided by that same resolver.",
+
 	// ── owner-only presentation folds (not access control, but they DO branch
 	// on the principal, so a re-grade must see them) ──────────────────────────
 	"account_display.go :: accountDisplayFold :: s.principalOfRequest(r) == principalOwner": "" +

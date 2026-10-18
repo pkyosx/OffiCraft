@@ -3578,7 +3578,7 @@ type SecretAccessLogEntryDTO struct {
 	MachineId string `json:"machine_id"`
 	MemberId  string `json:"member_id"`
 
-	// SecretId The id revealed, or the id asked for on a refused attempt (`""` when it named none).
+	// SecretId The id revealed, or the id asked for on a refused attempt (`""` when it named none or named something not shaped like a secret id).
 	SecretId string `json:"secret_id"`
 
 	// SecretName The secret's CURRENT name, resolved at read time; `""` once the secret is deleted or when the id never existed.

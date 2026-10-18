@@ -14,6 +14,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -24,6 +25,8 @@ const (
 	secretRevealMaxIDs    = 16
 	secretRevealBodyBytes = 64 << 10
 )
+
+var secretIDShape = regexp.MustCompile(`^sec-[0-9a-f]{12}$`)
 
 const secretOwnerRevealMsg = "secrets are revealed only to AI members through `ocagent secret`; " +
 	"the owner manages them at /api/secrets"
@@ -243,6 +246,18 @@ func (s *apiServer) callerIsOwner(r *http.Request) bool {
 	return s.principalOfRequest(r) == principalOwner
 }
 
+// resolvePrincipal falls back to agent when the roster read fails or finds no
+// row, which is fail-open; reveal is the one route that returns plaintext, so
+// it asks the roster itself and refuses on anything but an active AI member.
+func (s *apiServer) callerIsActiveAIMember(r *http.Request) bool {
+	m, err := s.dal.GetMember(currentActor(r))
+	if err != nil || m == nil || m.RosterStatus != RosterStatusActive {
+		return false
+	}
+	class := classifyMember(m)
+	return class == principalAgent || class == principalAdminAgent
+}
+
 func (s *apiServer) HandleListSelfSecretsApiSelfSecretsGet(w http.ResponseWriter, r *http.Request) {
 	if s.callerIsOwner(r) {
 		writeError(w, http.StatusForbidden, secretOwnerRevealMsg)
@@ -262,7 +277,9 @@ func (s *apiServer) HandleListSelfSecretsApiSelfSecretsGet(w http.ResponseWriter
 
 // revealRequestedIDs reads the ids a body asked for even when the body is
 // otherwise invalid, so a refusal can still be logged against them. Distinct,
-// in order, capped so a hostile body cannot flood the log; [""] when none.
+// in order, capped so a hostile body cannot flood the log; anything not shaped
+// like a secret id is logged as "" so caller-chosen garbage never lands in the
+// owner's access log; [""] when none.
 func revealRequestedIDs(raw []byte) []string {
 	var loose struct {
 		IDs []any `json:"ids"`
@@ -271,8 +288,11 @@ func revealRequestedIDs(raw []byte) []string {
 	seen := map[string]bool{}
 	var ids []string
 	for _, v := range loose.IDs {
-		id, ok := v.(string)
-		if !ok || seen[id] {
+		id, _ := v.(string)
+		if !secretIDShape.MatchString(id) {
+			id = ""
+		}
+		if seen[id] {
 			continue
 		}
 		seen[id] = true
@@ -317,11 +337,23 @@ func (s *apiServer) HandleRevealSelfSecretsApiSelfSecretsRevealPost(w http.Respo
 		writeError(w, http.StatusForbidden, secretOwnerRevealMsg)
 		return
 	}
+	if !s.callerIsActiveAIMember(r) {
+		s.logRevealDenied(r, asked)
+		writeError(w, http.StatusForbidden, "only an active AI member may reveal secrets")
+		return
+	}
 	r.Body = io.NopCloser(bytes.NewReader(raw))
 	var body SecretRevealRequestDTO
 	if !decodeJSONBodyRequired(w, r, &body, "ids") {
 		s.logRevealDenied(r, asked)
 		return
+	}
+	for _, id := range body.Ids {
+		if !secretIDShape.MatchString(id) {
+			s.logRevealDenied(r, []string{""})
+			writeError(w, http.StatusBadRequest, "ids must be secret ids (sec- followed by 12 lowercase hex digits)")
+			return
+		}
 	}
 	if problem := validateRevealIDs(body.Ids); problem != "" {
 		s.logRevealDenied(r, asked)
@@ -358,7 +390,7 @@ func (s *apiServer) HandleRevealSelfSecretsApiSelfSecretsRevealPost(w http.Respo
 			return keyErr
 		}
 		for _, sec := range found {
-			value, err := openSecretValue(aead, sec.ID, sec.Nonce, sec.ValueCT)
+			value, err := openSecretValue(aead, sec.ID, sec.KeyVersion, sec.Nonce, sec.ValueCT)
 			if err != nil {
 				return err
 			}

@@ -115,14 +115,20 @@ func TestOpenSecretValue(t *testing.T) {
 	}
 
 	t.Run("the sealing id opens it", func(t *testing.T) {
-		got, err := openSecretValue(aead, "sec-aaaaaaaaaaaa", nonce, ct)
+		got, err := openSecretValue(aead, "sec-aaaaaaaaaaaa", vaultKeyVersion, nonce, ct)
 		if err != nil || got != "fake-value-1" {
 			t.Fatalf("open = %q, %v", got, err)
 		}
 	})
 
+	t.Run("an unknown key version is refused without trying to decrypt", func(t *testing.T) {
+		if _, err := openSecretValue(aead, "sec-aaaaaaaaaaaa", vaultKeyVersion+1, nonce, ct); err == nil {
+			t.Fatal("a row sealed under an unknown key version was opened")
+		}
+	})
+
 	t.Run("another id cannot open it and the error carries no value", func(t *testing.T) {
-		_, err := openSecretValue(aead, "sec-bbbbbbbbbbbb", nonce, ct)
+		_, err := openSecretValue(aead, "sec-bbbbbbbbbbbb", vaultKeyVersion, nonce, ct)
 		if err == nil {
 			t.Fatal("ciphertext opened under a different id")
 		}

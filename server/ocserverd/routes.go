@@ -1378,8 +1378,7 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:    w.HandleDeleteSecretApiSecretsSecretIdDelete,
 			MCPExclude: true,
 		}),
-		// AI members only: the owner clears this floor and is refused in the
-		// handler. Off MCP so a value never lands in a tool result.
+		// Off MCP so a value never lands in a tool result.
 		Gated(principalAgent, routeDef{
 			Method:     "GET",
 			Path:       "/api/self/secrets",

@@ -2796,7 +2796,7 @@ export interface paths {
         };
         /**
          * List secret access attempts, newest first.
-         * @description - One row per secret on a successful `POST /api/self/secrets/reveal` (`reveal`), and one row per id asked for on a refused one (`denied`; `secret_id` is the id as sent, `""` when the call named none).
+         * @description - One row per secret on a successful `POST /api/self/secrets/reveal` (`reveal`), and one row per id asked for on one refused by the handler (`denied`; `secret_id` is the id as sent, `""` when the call named none or named something not shaped like a secret id). A machine refused at the route floor leaves no row.
          *     - `secret_id`, `member_id` and `action` narrow the list (AND); `limit` caps it after ordering (absent or non-positive = 200).
          *     - Owner only; off the MCP surface.
          */
@@ -2899,8 +2899,9 @@ export interface paths {
          * Retrieve secret values (CLI only).
          * @description - For `ocagent secret` only, so a value never lands in an MCP tool result.
          *     - Every AI member may reveal every secret; there are no per-member grants.
+         *     - Every id must be shaped like a secret id (`sec-` + 12 lowercase hex); any other id is 400 before any lookup and writes a single `denied` row with `secret_id` `""`.
          *     - All or nothing: when any id is unknown the call is 404 naming those ids and returns no value.
-         *     - Writes one `reveal` access-log row per id with the caller, the token's `machine_id` claim and the time, in the same transaction that reads the values. A refused call (unknown id, wrong principal, malformed body) returns no value and writes one `denied` row per id it asked for (one row with `secret_id` `""` when it named none).
+         *     - Writes one `reveal` access-log row per id with the caller, the token's `machine_id` claim and the time, in the same transaction that reads the values. A call refused by the handler (an unknown id, a malformed body, the owner, or a caller that is not an active AI member) returns no value and writes one `denied` row per id it asked for, at most 16 (one row with `secret_id` `""` when it named none; an id not shaped like a secret id is recorded as `""`). A machine is refused at the route floor before the handler runs and writes no row.
          *     - The value never reaches a log, an event or a chat message.
          *     - Agents and admin agents only (403 for the owner and for machines); off the MCP surface: AI members use secrets only through `ocagent secret`.
          */
@@ -8889,7 +8890,7 @@ export interface components {
             member_id: string;
             /**
              * Secret Id
-             * @description The id revealed, or the id asked for on a refused attempt (`""` when it named none).
+             * @description The id revealed, or the id asked for on a refused attempt (`""` when it named none or named something not shaped like a secret id).
              * @default
              */
             secret_id: string;

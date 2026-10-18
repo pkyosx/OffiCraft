@@ -163,7 +163,10 @@ func sealSecretValue(aead cipher.AEAD, secretID, value string) (nonce, ct []byte
 }
 
 // The error never carries the plaintext or the ciphertext.
-func openSecretValue(aead cipher.AEAD, secretID string, nonce, ct []byte) (string, error) {
+func openSecretValue(aead cipher.AEAD, secretID string, keyVersion int, nonce, ct []byte) (string, error) {
+	if keyVersion != vaultKeyVersion {
+		return "", fmt.Errorf("secret %s is sealed under key version %d, which this server does not hold", secretID, keyVersion)
+	}
 	if len(nonce) != vaultNonceBytes {
 		return "", fmt.Errorf("secret %s: stored nonce is %d bytes", secretID, len(nonce))
 	}

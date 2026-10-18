@@ -359,14 +359,14 @@ func TestHandleListSecretAccessLogApiSecretsAccessLogGet(t *testing.T) {
 		b := f.create(t, "beta", "fake-value-2", "")["id"].(string)
 		f.reveal(t, f.agent, a)
 		f.reveal(t, f.admin, b)
-		f.reveal(t, f.agent, "sec-nope")
+		f.reveal(t, f.agent, "sec-000000000000")
 
 		all := f.accessLog(t, "")
 		if len(all) != 3 {
 			t.Fatalf("entries = %v", all)
 		}
 		apiWantValue(t, "newest", all[0], map[string]any{
-			"id": apiAnyNumber, "action": "denied", "secret_id": "sec-nope", "secret_name": "",
+			"id": apiAnyNumber, "action": "denied", "secret_id": "sec-000000000000", "secret_name": "",
 			"member_id": apiTestPlainAgentID, "machine_id": apiTestSecretMachineID, "ts": apiAnyNumber,
 		})
 		apiWantValue(t, "oldest", all[2], map[string]any{
@@ -449,14 +449,14 @@ func TestHandleRevealSelfSecretsApiSelfSecretsRevealPost(t *testing.T) {
 		f := newAPITestSecretFixture(t)
 		a := f.create(t, "a", apiTestSecretValue, "")["id"].(string)
 		rec := apiRequest(t, f.h, "POST", "/api/self/secrets/reveal", f.agent,
-			`{"ids":["`+a+`","sec-nope"]}`)
+			`{"ids":["`+a+`","sec-000000000000"]}`)
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("status %d", rec.Code)
 		}
 		apiWantNoSecretValue(t, rec.Body.Bytes(), apiTestSecretValue)
 		var data map[string]any
 		_ = json.Unmarshal(rec.Body.Bytes(), &data)
-		apiWantError(t, data, "not_found", "unknown secret id(s): sec-nope")
+		apiWantError(t, data, "not_found", "unknown secret id(s): sec-000000000000")
 		if got := f.accessLog(t, "?action=reveal"); len(got) != 0 {
 			t.Fatalf("a refused call wrote reveal rows: %v", got)
 		}
@@ -464,7 +464,7 @@ func TestHandleRevealSelfSecretsApiSelfSecretsRevealPost(t *testing.T) {
 		for _, e := range f.accessLog(t, "?action=denied") {
 			denied[e.(map[string]any)["secret_id"].(string)] = true
 		}
-		if len(denied) != 2 || !denied[a] || !denied["sec-nope"] {
+		if len(denied) != 2 || !denied[a] || !denied["sec-000000000000"] {
 			t.Fatalf("denied rows name %v, want both asked ids", denied)
 		}
 	})
@@ -479,7 +479,7 @@ func TestHandleRevealSelfSecretsApiSelfSecretsRevealPost(t *testing.T) {
 		for _, tc := range []struct{ body, msg string }{
 			{`{"ids":[]}`, "ids must name 1–16 secrets"},
 			{string(many), "ids must name 1–16 secrets"},
-			{`{"ids":["sec-a","sec-a"]}`, "ids must be unique: 'sec-a' appears more than once"},
+			{`{"ids":["sec-aaaaaaaaaaaa","sec-aaaaaaaaaaaa"]}`, "ids must be unique: 'sec-aaaaaaaaaaaa' appears more than once"},
 			{`{}`, "field required: ids"},
 		} {
 			status, data := apiJSON(t, f.h, "POST", "/api/self/secrets/reveal", f.agent, tc.body)
@@ -490,9 +490,49 @@ func TestHandleRevealSelfSecretsApiSelfSecretsRevealPost(t *testing.T) {
 		}
 		denied := f.accessLog(t, "?action=denied")
 		// [] and {} log one blank row each, the duplicate body one row for
-		// sec-a, and the oversized body is capped at 16.
+		// the repeated id, and the oversized body is capped at 16.
 		if len(denied) != 1+16+1+1 {
 			t.Fatalf("denied rows = %d", len(denied))
+		}
+	})
+
+	t.Run("ids not shaped like secret ids are a 400 with one blank denied row", func(t *testing.T) {
+		f := newAPITestSecretFixture(t)
+		a := f.create(t, "a", apiTestSecretValue, "")["id"].(string)
+		status, data := apiJSON(t, f.h, "POST", "/api/self/secrets/reveal", f.agent,
+			`{"ids":["`+a+`","garbage-id-from-a-caller","SEC-AAAAAAAAAAAA"]}`)
+		if status != http.StatusBadRequest {
+			t.Fatalf("status %d %v", status, data)
+		}
+		apiWantError(t, data, "validation_error", "ids must be secret ids (sec- followed by 12 lowercase hex digits)")
+		denied := f.accessLog(t, "?action=denied")
+		if len(denied) != 1 || denied[0].(map[string]any)["secret_id"] != "" {
+			t.Fatalf("denied rows = %v, want one row with secret_id \"\"", denied)
+		}
+	})
+
+	t.Run("a token whose subject is not an active AI member is refused", func(t *testing.T) {
+		f := newAPITestSecretFixture(t)
+		a := f.create(t, "a", apiTestSecretValue, "")["id"].(string)
+		ghost := apiTestAgentToken(t, f.api, "ghost-no-roster-row", "")
+		rec := apiRequest(t, f.h, "POST", "/api/self/secrets/reveal", ghost, `{"ids":["`+a+`"]}`)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("status %d: %s", rec.Code, rec.Body)
+		}
+		apiWantNoSecretValue(t, rec.Body.Bytes(), apiTestSecretValue)
+		if got := f.accessLog(t, "?action=reveal"); len(got) != 0 {
+			t.Fatalf("a refused caller wrote reveal rows: %v", got)
+		}
+	})
+
+	t.Run("a multi-line value round-trips byte for byte", func(t *testing.T) {
+		f := newAPITestSecretFixture(t)
+		multi := "-----BEGIN FAKE KEY-----\nfake-line-1\r\nfake-line-2\n\n-----END FAKE KEY-----\n"
+		id := f.create(t, "deploy key", multi, "")["id"].(string)
+		_, data := f.reveal(t, f.agent, id)
+		got := data["secrets"].([]any)[0].(map[string]any)["value"]
+		if got != multi {
+			t.Fatalf("revealed %q, want %q", got, multi)
 		}
 	})
 

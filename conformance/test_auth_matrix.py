@@ -2056,7 +2056,7 @@ MATRIX: dict[str, Route] = {
     "GET /api/self/secrets": Route(requires="agent", overrides={"owner": 403}),
     "POST /api/self/secrets/reveal": Route(
         requires="agent",
-        body={"ids": ["sec-conf-nope"]},
+        body={"ids": ["sec-0000000000ff"]},
         overrides={"owner": 403, "admin_agent": 404,
                    "agent_self": 404, "agent_other": 404},
     ),
