@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -314,6 +315,22 @@ func TestCmdSecretWrite(t *testing.T) {
 		entries, _ := os.ReadDir(filepath.Dir(path))
 		if len(entries) != 1 {
 			t.Fatalf("directory holds %d entries, want only the file (no temp left)", len(entries))
+		}
+	})
+
+	t.Run("a multi-line value is written byte for byte", func(t *testing.T) {
+		multi := "-----BEGIN FAKE KEY-----\nfake-line-1\r\nfake-line-2\n\n-----END FAKE KEY-----\n"
+		body, _ := json.Marshal(map[string]any{"secrets": []map[string]string{
+			{"id": "sec-1", "name": "n", "note": "", "value": multi},
+		}})
+		path := filepath.Join(t.TempDir(), "deploy.key")
+		var out, errOut bytes.Buffer
+		if rc := cmdSecretWrite(canned(200, string(body)), secretCfg, "sec-1", path, false, &out, &errOut); rc != 0 {
+			t.Fatalf("rc = %d (stderr %q), want 0", rc, errOut.String())
+		}
+		assertNoValue(t, "secret write", out.String(), errOut.String())
+		if got, _ := os.ReadFile(path); string(got) != multi {
+			t.Fatalf("file holds %q, want %q", got, multi)
 		}
 	})
 

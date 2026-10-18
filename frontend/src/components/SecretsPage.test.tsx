@@ -82,8 +82,8 @@ describe("SecretsPage", () => {
     await firstRow(container);
 
     fireEvent.click(screen.getByTestId("secrets-add"));
-    const valueInput = screen.getByTestId("secret-value-input") as HTMLInputElement;
-    expect(valueInput.type).toBe("password");
+    const valueInput = screen.getByTestId("secret-value-input") as HTMLTextAreaElement;
+    expect(valueInput.tagName).toBe("TEXTAREA");
     fireEvent.change(screen.getByTestId("secret-name-input"), {
       target: { value: "  Staging DB  " },
     });
@@ -105,6 +105,36 @@ describe("SecretsPage", () => {
     );
     expect(screen.queryByTestId("secret-create-form")).toBeNull();
     expect(valueAppearsAnywhere(container)).toBe(false);
+  });
+
+  it("a multi-line value is sent byte for byte on create and on edit", async () => {
+    const multiLine = "-----BEGIN FAKE KEY-----\nfake-line-1\nfake-line-2\n-----END FAKE KEY-----\n";
+    const createSpy = vi.spyOn(api, "createSecret");
+    const updateSpy = vi.spyOn(api, "updateSecret");
+    const { container } = renderPage();
+    const row = await firstRow(container);
+
+    fireEvent.click(screen.getByTestId("secrets-add"));
+    fireEvent.change(screen.getByTestId("secret-name-input"), {
+      target: { value: "Deploy key" },
+    });
+    fireEvent.change(screen.getByTestId("secret-value-input"), {
+      target: { value: multiLine },
+    });
+    fireEvent.click(screen.getByTestId("secret-save"));
+    await waitFor(() =>
+      expect(createSpy).toHaveBeenCalledWith({ name: "Deploy key", value: multiLine, note: "" }),
+    );
+
+    fireEvent.click(row.querySelector('[data-testid="secret-edit"]')!);
+    fireEvent.change(screen.getByTestId("secret-value-input"), {
+      target: { value: multiLine },
+    });
+    fireEvent.click(screen.getByTestId("secret-save"));
+    await waitFor(() =>
+      expect(updateSpy).toHaveBeenCalledWith("sec-00000000000a", { value: multiLine }),
+    );
+    expect(container.textContent).not.toContain("fake-line-1");
   });
 
   it("a failed create keeps the form open with the server's reason and drops the value", async () => {

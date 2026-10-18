@@ -1,6 +1,3 @@
-// SecretsPage — the owner's Secrets tab: create, rename, re-note, replace and
-// delete secrets, and read who revealed what.
-//
 // 🔴 A VALUE NEVER COMES BACK. No route returns one, so this page has nothing
 // to show; the value lives only in the create/edit input until the request is
 // sent, and the input is cleared whether the save succeeds or not.
@@ -331,11 +328,14 @@ function SecretForm({
       </label>
       <label className="secrets__field">
         <span className="secrets__label">{d.valueLabel}</span>
-        <input
-          className="secrets__input"
+        {/* A textarea, not a password input: an input strips newlines, which
+            silently corrupts PEM and SSH keys. Masked by CSS instead. */}
+        <textarea
+          className="secrets__input secrets__textarea secrets__value"
           data-testid="secret-value-input"
-          type="password"
-          autoComplete="new-password"
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
           spellCheck={false}
           value={value}
           placeholder={mode === "edit" ? d.valueKeepPlaceholder : undefined}
