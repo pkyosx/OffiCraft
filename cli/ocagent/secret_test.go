@@ -61,6 +61,19 @@ func TestCmdSecret(t *testing.T) {
 		}
 	})
 
+	t.Run("an id not shaped like a secret id is a usage error before anything is sent", func(t *testing.T) {
+		for _, args := range [][]string{
+			{"show", "sec-1"},
+			{"write", "SEC-00000000000A", "--file", filepath.Join(t.TempDir(), "out")},
+			{"run", "--env", "A=prod-token", "--", "true"},
+		} {
+			var out, errOut bytes.Buffer
+			if rc := cmdSecret(args, secretCfg, nil, &out, &errOut); rc != 2 || !strings.Contains(errOut.String(), "is not a secret id") {
+				t.Errorf("%q = (%d, %q), want (2, the id-shape refusal)", args, rc, errOut.String())
+			}
+		}
+	})
+
 	t.Run("an unknown subcommand is a usage error", func(t *testing.T) {
 		var out, errOut bytes.Buffer
 		if rc := cmdSecret([]string{"dump"}, secretCfg, nil, &out, &errOut); rc != 2 {
@@ -144,13 +157,13 @@ func TestCmdSecretShow(t *testing.T) {
 
 func TestParseEnvBindings(t *testing.T) {
 	t.Run("one id feeding two variables is revealed once", func(t *testing.T) {
-		_, ids, err := parseEnvBindings([]string{"A=sec-1", "B=sec-1", "C=sec-2"})
-		if err != nil || !reflect.DeepEqual(ids, []string{"sec-1", "sec-2"}) {
-			t.Fatalf("got (%v, %v), want ([sec-1 sec-2], nil)", ids, err)
+		_, ids, err := parseEnvBindings([]string{"A=sec-00000000000a", "B=sec-00000000000a", "C=sec-00000000000b"})
+		if err != nil || !reflect.DeepEqual(ids, []string{"sec-00000000000a", "sec-00000000000b"}) {
+			t.Fatalf("got (%v, %v), want ([sec-00000000000a sec-00000000000b], nil)", ids, err)
 		}
 	})
 
-	for _, bad := range [][]string{nil, {"A"}, {"A="}, {"1A=sec-1"}, {"A-B=sec-1"}, {"A=sec-1", "A=sec-2"}} {
+	for _, bad := range [][]string{nil, {"A"}, {"A="}, {"1A=sec-00000000000a"}, {"A-B=sec-00000000000a"}, {"A=sec-00000000000a", "A=sec-00000000000b"}} {
 		if _, _, err := parseEnvBindings(bad); err == nil {
 			t.Errorf("parseEnvBindings(%q) accepted a malformed binding", bad)
 		}
@@ -176,8 +189,8 @@ func TestCmdSecretRun(t *testing.T) {
 	}
 
 	t.Run("one reveal for every id; the child sees the values, the output shows ***", func(t *testing.T) {
-		client := canned(200, revealBody("sec-1", fakeValue1, "sec-2", fakeValue2))
-		rc, out, errOut := run(t, client, []string{"A=sec-1", "B=sec-2", "C=sec-1"},
+		client := canned(200, revealBody("sec-00000000000a", fakeValue1, "sec-00000000000b", fakeValue2))
+		rc, out, errOut := run(t, client, []string{"A=sec-00000000000a", "B=sec-00000000000b", "C=sec-00000000000a"},
 			`printf '%s|%s|%s\n' "$A" "$B" "$C"; printf 'err:%s\n' "$B" >&2; printf 'fake-val'`)
 		if rc != 0 {
 			t.Fatalf("rc = %d (stderr %q), want 0", rc, errOut)
@@ -185,20 +198,20 @@ func TestCmdSecretRun(t *testing.T) {
 		if out != "***|***|***\nfake-val" || errOut != "err:***\n" {
 			t.Fatalf("got (%q, %q), want both streams masked", out, errOut)
 		}
-		if len(client.sent) != 1 || client.sent[0].body != `{"ids":["sec-1","sec-2"]}` {
+		if len(client.sent) != 1 || client.sent[0].body != `{"ids":["sec-00000000000a","sec-00000000000b"]}` {
 			t.Fatalf("sent %+v, want one reveal of both ids", client.sent)
 		}
 	})
 
 	t.Run("the child's exit code is propagated", func(t *testing.T) {
-		rc, _, _ := run(t, canned(200, revealBody("sec-1", fakeValue1)), []string{"A=sec-1"}, "exit 7")
+		rc, _, _ := run(t, canned(200, revealBody("sec-00000000000a", fakeValue1)), []string{"A=sec-00000000000a"}, "exit 7")
 		if rc != 7 {
 			t.Fatalf("rc = %d, want 7", rc)
 		}
 	})
 
 	t.Run("a child killed by a signal exits 128+signal", func(t *testing.T) {
-		rc, _, _ := run(t, canned(200, revealBody("sec-1", fakeValue1)), []string{"A=sec-1"}, "kill -TERM $$")
+		rc, _, _ := run(t, canned(200, revealBody("sec-00000000000a", fakeValue1)), []string{"A=sec-00000000000a"}, "kill -TERM $$")
 		if rc != 128+15 {
 			t.Fatalf("rc = %d, want 143", rc)
 		}
@@ -206,9 +219,9 @@ func TestCmdSecretRun(t *testing.T) {
 
 	t.Run("an unknown id exits 4 and the command never runs", func(t *testing.T) {
 		marker := filepath.Join(t.TempDir(), "ran")
-		rc, out, errOut := run(t, canned(404, `{"error":{"code":"not_found","message":"unknown secret ids: sec-9"}}`),
-			[]string{"A=sec-9"}, "touch "+marker)
-		if rc != 4 || out != "" || !strings.Contains(errOut, "unknown secret ids: sec-9") {
+		rc, out, errOut := run(t, canned(404, `{"error":{"code":"not_found","message":"unknown secret ids: sec-00000000000f"}}`),
+			[]string{"A=sec-00000000000f"}, "touch "+marker)
+		if rc != 4 || out != "" || !strings.Contains(errOut, "unknown secret ids: sec-00000000000f") {
 			t.Fatalf("got (%d, %q, %q), want (4, \"\", the server's message)", rc, out, errOut)
 		}
 		if _, err := os.Stat(marker); err == nil {
@@ -217,7 +230,7 @@ func TestCmdSecretRun(t *testing.T) {
 	})
 
 	t.Run("a 200 missing an id refuses without quoting the body", func(t *testing.T) {
-		rc, out, errOut := run(t, canned(200, revealBody("sec-1", fakeValue1)), []string{"A=sec-1", "B=sec-2"}, "true")
+		rc, out, errOut := run(t, canned(200, revealBody("sec-00000000000a", fakeValue1)), []string{"A=sec-00000000000a", "B=sec-00000000000b"}, "true")
 		if rc != 5 {
 			t.Fatalf("rc = %d, want 5", rc)
 		}
@@ -226,8 +239,8 @@ func TestCmdSecretRun(t *testing.T) {
 
 	t.Run("no command is a usage error and reveals nothing", func(t *testing.T) {
 		var out, errOut bytes.Buffer
-		client := canned(200, revealBody("sec-1", fakeValue1))
-		rc := cmdSecretRun(client, secretCfg, []string{"A=sec-1"}, nil, nil, nil, &out, &errOut)
+		client := canned(200, revealBody("sec-00000000000a", fakeValue1))
+		rc := cmdSecretRun(client, secretCfg, []string{"A=sec-00000000000a"}, nil, nil, nil, &out, &errOut)
 		if rc != 2 || len(client.sent) != 0 {
 			t.Fatalf("got (%d, sent %v), want (2, nothing sent)", rc, client.sent)
 		}
@@ -296,8 +309,8 @@ func TestCmdSecretWrite(t *testing.T) {
 	t.Run("writes the value 0600 and prints only the path", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "deploy.key")
 		var out, errOut bytes.Buffer
-		client := canned(200, revealBody("sec-1", fakeValue1))
-		if rc := cmdSecretWrite(client, secretCfg, "sec-1", path, false, &out, &errOut); rc != 0 {
+		client := canned(200, revealBody("sec-00000000000a", fakeValue1))
+		if rc := cmdSecretWrite(client, secretCfg, "sec-00000000000a", path, false, &out, &errOut); rc != 0 {
 			t.Fatalf("rc = %d (stderr %q), want 0", rc, errOut.String())
 		}
 		if out.String() != "已寫入 "+path+"\n" {
@@ -321,11 +334,11 @@ func TestCmdSecretWrite(t *testing.T) {
 	t.Run("a multi-line value is written byte for byte", func(t *testing.T) {
 		multi := "-----BEGIN FAKE KEY-----\nfake-line-1\r\nfake-line-2\n\n-----END FAKE KEY-----\n"
 		body, _ := json.Marshal(map[string]any{"secrets": []map[string]string{
-			{"id": "sec-1", "name": "n", "note": "", "value": multi},
+			{"id": "sec-00000000000a", "name": "n", "note": "", "value": multi},
 		}})
 		path := filepath.Join(t.TempDir(), "deploy.key")
 		var out, errOut bytes.Buffer
-		if rc := cmdSecretWrite(canned(200, string(body)), secretCfg, "sec-1", path, false, &out, &errOut); rc != 0 {
+		if rc := cmdSecretWrite(canned(200, string(body)), secretCfg, "sec-00000000000a", path, false, &out, &errOut); rc != 0 {
 			t.Fatalf("rc = %d (stderr %q), want 0", rc, errOut.String())
 		}
 		assertNoValue(t, "secret write", out.String(), errOut.String())
@@ -337,8 +350,8 @@ func TestCmdSecretWrite(t *testing.T) {
 	t.Run("an existing file is refused before anything is fetched", func(t *testing.T) {
 		path := fileWith(t, "deploy.key", "old")
 		var out, errOut bytes.Buffer
-		client := canned(200, revealBody("sec-1", fakeValue1))
-		rc := cmdSecretWrite(client, secretCfg, "sec-1", path, false, &out, &errOut)
+		client := canned(200, revealBody("sec-00000000000a", fakeValue1))
+		rc := cmdSecretWrite(client, secretCfg, "sec-00000000000a", path, false, &out, &errOut)
 		if rc != 6 || len(client.sent) != 0 {
 			t.Fatalf("got (%d, sent %v), want (6, nothing sent)", rc, client.sent)
 		}
@@ -350,7 +363,7 @@ func TestCmdSecretWrite(t *testing.T) {
 	t.Run("--force replaces an existing file and leaves it 0600", func(t *testing.T) {
 		path := fileWith(t, "deploy.key", "old")
 		var out, errOut bytes.Buffer
-		if rc := cmdSecretWrite(canned(200, revealBody("sec-1", fakeValue1)), secretCfg, "sec-1", path, true, &out, &errOut); rc != 0 {
+		if rc := cmdSecretWrite(canned(200, revealBody("sec-00000000000a", fakeValue1)), secretCfg, "sec-00000000000a", path, true, &out, &errOut); rc != 0 {
 			t.Fatalf("rc = %d (stderr %q), want 0", rc, errOut.String())
 		}
 		got, _ := os.ReadFile(path)
@@ -363,8 +376,8 @@ func TestCmdSecretWrite(t *testing.T) {
 	t.Run("a missing parent directory fails and is not created", func(t *testing.T) {
 		dir := filepath.Join(t.TempDir(), "absent")
 		var out, errOut bytes.Buffer
-		client := canned(200, revealBody("sec-1", fakeValue1))
-		rc := cmdSecretWrite(client, secretCfg, "sec-1", filepath.Join(dir, "deploy.key"), false, &out, &errOut)
+		client := canned(200, revealBody("sec-00000000000a", fakeValue1))
+		rc := cmdSecretWrite(client, secretCfg, "sec-00000000000a", filepath.Join(dir, "deploy.key"), false, &out, &errOut)
 		if rc != 1 || len(client.sent) != 0 {
 			t.Fatalf("got (%d, sent %v), want (1, nothing sent)", rc, client.sent)
 		}
@@ -376,7 +389,7 @@ func TestCmdSecretWrite(t *testing.T) {
 	t.Run("an unknown id exits 4 and writes nothing", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "deploy.key")
 		var out, errOut bytes.Buffer
-		rc := cmdSecretWrite(canned(404, `{"error":{"code":"not_found","message":"unknown secret ids: sec-9"}}`), secretCfg, "sec-9", path, false, &out, &errOut)
+		rc := cmdSecretWrite(canned(404, `{"error":{"code":"not_found","message":"unknown secret ids: sec-00000000000f"}}`), secretCfg, "sec-00000000000f", path, false, &out, &errOut)
 		if rc != 4 || out.String() != "" {
 			t.Fatalf("got (%d, %q), want (4, \"\")", rc, out.String())
 		}

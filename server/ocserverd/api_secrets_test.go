@@ -511,7 +511,7 @@ func TestHandleRevealSelfSecretsApiSelfSecretsRevealPost(t *testing.T) {
 		}
 	})
 
-	t.Run("a token whose subject is not an active AI member is refused", func(t *testing.T) {
+	t.Run("a token whose subject is not an active AI member is refused and logged as denied", func(t *testing.T) {
 		f := newAPITestSecretFixture(t)
 		a := f.create(t, "a", apiTestSecretValue, "")["id"].(string)
 		ghost := apiTestAgentToken(t, f.api, "ghost-no-roster-row", "")
@@ -522,6 +522,10 @@ func TestHandleRevealSelfSecretsApiSelfSecretsRevealPost(t *testing.T) {
 		apiWantNoSecretValue(t, rec.Body.Bytes(), apiTestSecretValue)
 		if got := f.accessLog(t, "?action=reveal"); len(got) != 0 {
 			t.Fatalf("a refused caller wrote reveal rows: %v", got)
+		}
+		denied := f.accessLog(t, "?action=denied")
+		if len(denied) != 1 || denied[0].(map[string]any)["member_id"] != "ghost-no-roster-row" || denied[0].(map[string]any)["secret_id"] != a {
+			t.Fatalf("denied rows = %v, want the ghost's one naming %s", denied, a)
 		}
 	})
 

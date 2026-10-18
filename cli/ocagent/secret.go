@@ -209,6 +209,10 @@ func cmdSecret(argv []string, cfg Config, in io.Reader, out, errOut io.Writer) i
 			fmt.Fprintln(errOut, "[ocagent] secret show: exactly one <ID> argument is required")
 			return 2
 		}
+		if !secretIDShape.MatchString(fs.Arg(0)) {
+			fmt.Fprintf(errOut, "[ocagent] secret show: %q is not a secret id (sec- followed by 12 lowercase hex digits)\n", fs.Arg(0))
+			return 2
+		}
 		return cmdSecretShow(defaultHTTPClient(), cfg, fs.Arg(0), out, errOut)
 	case "run":
 		fs := flag.NewFlagSet("ocagent secret run", flag.ContinueOnError)
@@ -238,6 +242,10 @@ func cmdSecret(argv []string, cfg Config, in io.Reader, out, errOut io.Writer) i
 		if len(args) < 1 || fs.NArg() != 0 || *file == "" {
 			fmt.Fprintln(errOut, "[ocagent] secret write: exactly one <ID> and --file <path> are required")
 			fmt.Fprintln(errOut, "usage: ocagent secret write <ID> --file <path> [--force]")
+			return 2
+		}
+		if !secretIDShape.MatchString(args[0]) {
+			fmt.Fprintf(errOut, "[ocagent] secret write: %q is not a secret id (sec- followed by 12 lowercase hex digits)\n", args[0])
 			return 2
 		}
 		return cmdSecretWrite(defaultHTTPClient(), cfg, args[0], *file, *force, out, errOut)
@@ -390,6 +398,8 @@ func (e *envFlags) Set(v string) error { *e = append(*e, v); return nil }
 
 var envVarName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
+var secretIDShape = regexp.MustCompile(`^sec-[0-9a-f]{12}$`)
+
 type envBinding struct{ name, id string }
 
 func parseEnvBindings(envs []string) ([]envBinding, []string, error) {
@@ -407,6 +417,9 @@ func parseEnvBindings(envs []string) ([]envBinding, []string, error) {
 		}
 		if !envVarName.MatchString(name) {
 			return nil, nil, fmt.Errorf("--env %q: %q is not a valid variable name", e, name)
+		}
+		if !secretIDShape.MatchString(id) {
+			return nil, nil, fmt.Errorf("--env %q: %q is not a secret id (sec- followed by 12 lowercase hex digits)", e, id)
 		}
 		if seenVar[name] {
 			return nil, nil, fmt.Errorf("--env: %s is given more than once", name)
