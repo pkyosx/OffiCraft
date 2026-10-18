@@ -58,7 +58,6 @@ export const MESSAGE_KEYS: readonly string[] = [
   "chat.jumpToLatest",
   "chat.mdPreview.close",
   "chat.mdPreview.comments.add",
-  "chat.mdPreview.comments.bubble",
   "chat.mdPreview.comments.cancel",
   "chat.mdPreview.comments.collapseList",
   "chat.mdPreview.comments.edit",

@@ -59,7 +59,6 @@ var messageKeys = map[string]bool{
 	"chat.jumpToLatest":                                true,
 	"chat.mdPreview.close":                             true,
 	"chat.mdPreview.comments.add":                      true,
-	"chat.mdPreview.comments.bubble":                   true,
 	"chat.mdPreview.comments.cancel":                   true,
 	"chat.mdPreview.comments.collapseList":             true,
 	"chat.mdPreview.comments.edit":                     true,

@@ -1238,7 +1238,7 @@ export const zh = {
         recipientNotMember: "這份文件不是成員寄出的，無法直接送出註解。",
         send: "送出給 AI",
         sendFailed: "送出失敗，註解已保留",
-        bubble: "前往註解",
+        bubble: (excerpt: string) => `前往註解：${excerpt}`,
         bubbleCount: (n: number) => `${n} 則註解`,
         showInDocument: "在文件中顯示這段原文",
         collapseList: "收合註解清單",

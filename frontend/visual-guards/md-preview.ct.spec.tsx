@@ -649,25 +649,66 @@ for (const size of [NARROW, WIDE]) {
       expect(outline).toEqual({ style: "solid", width: "3px" });
     });
 
-    test("puts a bubble in the gutter beside a commented passage and on a commented image's corner, and both jump to their comments", async ({
+    test("puts a bubble in the gutter level with each commented passage and on a commented image's corner, keeps them there through reflow, and both jump to their comments", async ({
       mount,
       page,
     }) => {
       await page.setViewportSize(size);
       await page.addInitScript(() => localStorage.clear());
-      await page.route("**/api/chat/attachment/att-ct-wide-image*", (route) =>
-        route.fulfill({ status: 200, contentType: "image/svg+xml", body: WIDE_SVG }),
-      );
+      let releaseImage!: () => void;
+      const imageHeld = new Promise<void>((resolve) => (releaseImage = resolve));
+      await page.route("**/api/chat/attachment/att-ct-wide-image*", async (route) => {
+        await imageHeld;
+        await route.fulfill({ status: 200, contentType: "image/svg+xml", body: WIDE_SVG });
+      });
       await mount(<MarkdownPreviewImageCommentsStory />);
-      const img = page.locator(".md-preview__md img");
-      await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBe(1600);
+      await expect(page.getByRole("heading", { name: "版面說明" })).toBeVisible();
       await page.getByRole("button", { name: "註解" }).click();
+      const img = page.locator(".md-preview__md img");
+      const paragraph = (text: string) => page.locator(".md-preview__md p", { hasText: text });
+      const commentWholeParagraph = async (text: string, comment: string) => {
+        await paragraph(text).scrollIntoViewIfNeeded();
+        await paragraph(text).click({ clickCount: 3 });
+        await page.getByRole("button", { name: "加註解" }).click();
+        await page.getByRole("textbox", { name: "註解內容" }).fill(comment);
+        await page.getByRole("button", { name: "儲存" }).click();
+      };
+      /** The bubble's vertical centre against the last line of the passage. */
+      const bubbleBesideLastLine = (bubbleName: string, text: string) =>
+        page.evaluate(
+          ([name, text]) => {
+            const p = [...document.querySelectorAll(".md-preview__md p")].find((el) =>
+              el.textContent!.includes(text),
+            )!;
+            const range = document.createRange();
+            range.selectNodeContents(p);
+            const lines = [...range.getClientRects()].filter((r) => r.width > 0);
+            const bubble = [...document.querySelectorAll(".doc-comments__bubble")]
+              .find((b) => b.getAttribute("aria-label") === name)!
+              .getBoundingClientRect();
+            const mid = (bubble.top + bubble.bottom) / 2;
+            return {
+              level: mid >= lines.at(-1)!.top && mid <= lines.at(-1)!.bottom,
+              left: bubble.left,
+              right: bubble.right,
+              textRight: Math.max(...lines.map((r) => r.right)),
+              columnRight: document.querySelector(".md-preview__md")!.getBoundingClientRect().right,
+              bodyRight: document.querySelector(".md-preview__body")!.getBoundingClientRect().right,
+            };
+          },
+          [bubbleName, text] as const,
+        );
 
-      const para = page.locator(".md-preview__md p", { hasText: "下圖是新的版面配置" });
-      await para.click({ clickCount: 3 });
-      await page.getByRole("button", { name: "加註解" }).click();
-      await page.getByRole("textbox", { name: "註解內容" }).fill("改成兩欄");
-      await page.getByRole("button", { name: "儲存" }).click();
+      await commentWholeParagraph("圖後面的說明文字", "補一句結論");
+      expect(await img.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBe(0);
+      releaseImage();
+      await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBe(1600);
+      await settleLayout(page);
+      const lowerName = "前往註解：圖後面的說明文字。";
+      await paragraph("圖後面的說明文字").scrollIntoViewIfNeeded();
+      expect((await bubbleBesideLastLine(lowerName, "圖後面的說明文字")).level).toBe(true);
+
+      await commentWholeParagraph("下圖是新的版面配置", "改成兩欄");
       await img.scrollIntoViewIfNeeded();
       if (size === NARROW) await img.tap();
       else await img.click();
@@ -676,40 +717,51 @@ for (const size of [NARROW, WIDE]) {
       await page.getByRole("button", { name: "儲存" }).click();
       await settleLayout(page);
 
-      const bubbles = page.locator(".md-preview__body .doc-comments__bubble");
-      await expect(bubbles).toHaveCount(2);
-      const textBubble = bubbles.and(page.locator(":not(.doc-comments__bubble--image)"));
+      const upperName = "前往註解：下圖是新的版面配置。";
       const imageBubble = page.locator(".doc-comments__bubble--image");
-      await expect(textBubble).toHaveAccessibleName("前往註解");
-      await expect(imageBubble).toHaveAccessibleName("前往註解");
+      await expect(page.locator(".md-preview__body .doc-comments__bubble")).toHaveCount(3);
+      await expect(imageBubble).toHaveAccessibleName("前往註解：圖片：版面配置圖");
 
-      await para.scrollIntoViewIfNeeded();
-      const placed = await page.evaluate(() => {
-        const rect = (el: Element) => el.getBoundingClientRect();
-        const body = rect(document.querySelector(".md-preview__body")!);
-        const column = rect(document.querySelector(".md-preview__md")!);
-        const p = [...document.querySelectorAll(".md-preview__md p")].find((el) =>
-          el.textContent!.includes("下圖是新的版面配置"),
-        )!;
+      for (const [name, text] of [
+        [upperName, "下圖是新的版面配置"],
+        [lowerName, "圖後面的說明文字"],
+      ] as const) {
+        await paragraph(text).scrollIntoViewIfNeeded();
+        const placed = await bubbleBesideLastLine(name, text);
+        expect(placed.level, name).toBe(true);
+        expect(placed.left).toBeGreaterThanOrEqual(placed.columnRight);
+        expect(placed.left).toBeGreaterThanOrEqual(placed.textRight);
+        expect(placed.right).toBeLessThanOrEqual(placed.bodyRight);
+      }
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth),
+      ).toBe(0);
+
+      await paragraph("下圖是新的版面配置").evaluate((p) => {
+        const text = p.firstChild as Text;
         const range = document.createRange();
-        range.selectNodeContents(p);
-        const lines = [...range.getClientRects()].filter((r) => r.width > 0);
-        const bubble = rect(document.querySelector(".doc-comments__bubble:not(.doc-comments__bubble--image)")!);
-        return {
-          bubble: { left: bubble.left, right: bubble.right, mid: (bubble.top + bubble.bottom) / 2 },
-          lastLine: { top: lines.at(-1)!.top, bottom: lines.at(-1)!.bottom },
-          textRight: Math.max(...lines.map((r) => r.right)),
-          columnRight: column.right,
-          bodyRight: body.right,
-          pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-        };
+        range.setStart(text, 0);
+        range.setEnd(text, 3);
+        const sel = document.getSelection()!;
+        sel.removeAllRanges();
+        sel.addRange(range);
+        document.dispatchEvent(new MouseEvent("mouseup"));
       });
-      expect(placed.pageOverflow).toBe(0);
-      expect(placed.bubble.left).toBeGreaterThanOrEqual(placed.columnRight);
-      expect(placed.bubble.left).toBeGreaterThanOrEqual(placed.textRight);
-      expect(placed.bubble.right).toBeLessThanOrEqual(placed.bodyRight);
-      expect(placed.bubble.mid).toBeGreaterThanOrEqual(placed.lastLine.top);
-      expect(placed.bubble.mid).toBeLessThanOrEqual(placed.lastLine.bottom);
+      await page.getByRole("button", { name: "加註解" }).click();
+      await page.getByRole("textbox", { name: "註解內容" }).fill("開頭再短一點");
+      await page.getByRole("button", { name: "儲存" }).click();
+      await expect(page.getByRole("button", { name: "前往註解：下圖是", exact: true })).toBeVisible();
+      const sameLine = await page.evaluate(
+        ([a, b]) => {
+          const rect = (name: string) =>
+            [...document.querySelectorAll(".doc-comments__bubble")]
+              .find((el) => el.getAttribute("aria-label") === name)!
+              .getBoundingClientRect();
+          return { upper: rect(a).bottom, lower: rect(b).top };
+        },
+        [upperName, "前往註解：下圖是"] as const,
+      );
+      expect(sameLine.lower).toBeGreaterThanOrEqual(sameLine.upper);
 
       const expectOnImageCorner = async () => {
         await img.scrollIntoViewIfNeeded();
@@ -737,29 +789,37 @@ for (const size of [NARROW, WIDE]) {
       await settleLayout(page);
 
       const items = page.getByTestId("doc-comment");
+      const list = page.locator(".doc-comments__list");
       const collapse = page.locator(".doc-comments__collapse");
       if (size === NARROW) {
         await collapse.click();
-        await expect(page.locator(".doc-comments__list")).toBeHidden();
+        await expect(list).toBeHidden();
+        await paragraph("圖後面的說明文字").click({ clickCount: 3 });
+        await page.getByRole("button", { name: "加註解" }).click();
+        await expect(page.getByRole("textbox", { name: "註解內容" })).toBeVisible();
+        await page.getByRole("button", { name: "取消" }).click();
+        await collapse.click();
+        await expect(list).toBeHidden();
       } else {
         await expect(collapse).toBeHidden();
       }
       await imageBubble.focus();
       await page.keyboard.press("Enter");
-      await expect(page.locator(".doc-comments__list")).toBeVisible();
-      await expect(items.nth(1)).toHaveClass(/doc-comments__item--flash/);
-      await expect(items.nth(1)).toBeInViewport();
-      await expect(items.nth(1)).not.toHaveClass(/doc-comments__item--flash/, { timeout: 3000 });
+      await expect(list).toBeVisible();
+      await expect(items.nth(2)).toHaveClass(/doc-comments__item--flash/);
+      await expect(items.nth(2)).toBeInViewport();
+      await expect(items.nth(2).locator(".doc-comments__goto")).toBeFocused();
+      await expect(items.nth(2)).not.toHaveClass(/doc-comments__item--flash/, { timeout: 3000 });
 
-      await items.nth(0).locator(".doc-comments__goto").click();
-      await expect(para).toBeInViewport();
+      await items.nth(1).locator(".doc-comments__goto").click();
+      await expect(paragraph("下圖是新的版面配置")).toBeInViewport();
       const focused = await page.evaluate(() => {
         const h = (CSS as unknown as { highlights: Map<string, Set<Range>> }).highlights.get("oc-doc-comment-focus");
         return h ? [...h].map((r) => r.toString()) : [];
       });
       expect(focused).toEqual(["下圖是新的版面配置。"]);
 
-      await items.nth(1).locator(".doc-comments__goto").click();
+      await items.nth(2).locator(".doc-comments__goto").click();
       await expect(img).toHaveAttribute("data-doc-comment-focus", "");
       await expect(img).toBeInViewport();
     });

@@ -10,7 +10,7 @@
 // returns null and reads like the overlay never rendered.
 
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, fireEvent, waitFor, screen } from "@testing-library/react";
+import { render, fireEvent, waitFor, screen, act } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { api } from "../api";
 import {
@@ -639,8 +639,12 @@ describe("MarkdownPreviewOverlay", () => {
       return [...document.body.querySelectorAll<HTMLButtonElement>(".md-preview__body .doc-comments__bubble")];
     }
 
-    function bubbleLabels() {
-      return bubbles().map((b) => `${b.getAttribute("aria-label")}${b.dataset.count ? `#${b.dataset.count}` : ""}${b.classList.contains("doc-comments__bubble--image") ? "@image" : ""}`);
+    function bubbleInfo() {
+      return bubbles().map((b) => ({
+        name: b.getAttribute("aria-label"),
+        count: b.dataset.count ?? null,
+        image: b.classList.contains("doc-comments__bubble--image"),
+      }));
     }
 
     it("offers the 註解 toggle on markdown, plain-text and JSON attachments, and not on an image attachment or a message body", async () => {
@@ -699,7 +703,12 @@ describe("MarkdownPreviewOverlay", () => {
         "圖片：q3-revenue.png4. 數字對不上",
       ]);
       expect(commentedImages()).toEqual(["流程圖", ""]);
-      expect(bubbleLabels()).toEqual(["前往註解", "前往註解", "前往註解@image", "前往註解@image"]);
+      expect(bubbleInfo()).toEqual([
+        { name: "前往註解：第一段要修改", count: null, image: false },
+        { name: "前往註解：第二段保持原樣", count: null, image: false },
+        { name: "前往註解：圖片：流程圖", count: null, image: true },
+        { name: "前往註解：圖片：q3-revenue.png", count: null, image: true },
+      ]);
 
       fireEvent.click(screen.getAllByRole("button", { name: "編輯註解" })[2]);
       fireEvent.change(screen.getByRole("textbox", { name: "註解內容" }), {
@@ -729,10 +738,10 @@ describe("MarkdownPreviewOverlay", () => {
 
       fireEvent.click(screen.getAllByRole("button", { name: "刪除註解" })[1]);
       expect(listed()).toEqual(["第一段要修改1. 改成三點條列"]);
-      expect(bubbleLabels()).toEqual(["前往註解"]);
+      expect(bubbleInfo()).toEqual([{ name: "前往註解：第一段要修改", count: null, image: false }]);
 
       addComment("第一段要修改", "再加一句");
-      expect(bubbleLabels()).toEqual(["2 則註解#2"]);
+      expect(bubbleInfo()).toEqual([{ name: "2 則註解", count: "2", image: false }]);
     });
 
     it("jumps from a bubble to its passage's first comment, and from a listed comment to its passage or image, marking each briefly", async () => {
@@ -760,33 +769,44 @@ describe("MarkdownPreviewOverlay", () => {
         addImageComment("流程圖", "換成新版");
         const items = screen.getAllByTestId("doc-comment");
         const flashed = () => items.map((el) => el.classList.contains("doc-comments__item--flash"));
+        const goto = (i: number) => items[i].querySelector<HTMLElement>(".doc-comments__goto")!;
+        vi.useFakeTimers();
+        const elapse = (ms: number) => act(() => vi.advanceTimersByTime(ms));
 
         fireEvent.click(screen.getByRole("button", { name: "2 則註解" }));
         expect(flashed()).toEqual([false, true, false, false]);
         expect(scrolled).toEqual([items[1]]);
-        await waitFor(() => expect(flashed()).toEqual([false, false, false, false]), { timeout: 2500 });
+        expect(document.activeElement).toBe(goto(1));
+        elapse(1499);
+        expect(flashed()).toEqual([false, true, false, false]);
+        elapse(1);
+        expect(flashed()).toEqual([false, false, false, false]);
 
         fireEvent.click(bubbles().find((b) => b.classList.contains("doc-comments__bubble--image"))!);
         expect(flashed()).toEqual([false, false, false, true]);
+        expect(document.activeElement).toBe(goto(3));
 
         scrolled.length = 0;
-        fireEvent.click(items[0].querySelector(".doc-comments__goto")!);
+        fireEvent.click(goto(0));
         expect(registry.get("oc-doc-comment-focus")?.ranges.map((r) => r.toString())).toEqual(["第二段保持原樣"]);
         expect(scrolled.map((el) => el.textContent)).toEqual(["第二段保持原樣。"]);
-        await waitFor(() => expect(registry.has("oc-doc-comment-focus")).toBe(false), { timeout: 2500 });
+        elapse(1499);
+        expect(registry.has("oc-doc-comment-focus")).toBe(true);
+        elapse(1);
+        expect(registry.has("oc-doc-comment-focus")).toBe(false);
 
-        fireEvent.click(items[3].querySelector(".doc-comments__goto")!);
+        fireEvent.click(goto(3));
         expect(docImage("流程圖").hasAttribute("data-doc-comment-focus")).toBe(true);
         expect(scrolled.at(-1)).toBe(docImage("流程圖"));
-        await waitFor(() => expect(docImage("流程圖").hasAttribute("data-doc-comment-focus")).toBe(false), {
-          timeout: 2500,
-        });
+        elapse(1500);
+        expect(docImage("流程圖").hasAttribute("data-doc-comment-focus")).toBe(false);
       } finally {
+        vi.useRealTimers();
         vi.unstubAllGlobals();
       }
     });
 
-    it("expands a collapsed comment list before showing the comment a bubble points at", async () => {
+    it("expands a collapsed comment list before showing the comment a bubble points at, or the box for a new comment", async () => {
       Element.prototype.scrollIntoView = vi.fn();
       renderDoc();
       await openComments();
@@ -796,11 +816,22 @@ describe("MarkdownPreviewOverlay", () => {
       expect(panel.classList.contains("doc-comments--collapsed")).toBe(true);
       expect(screen.getByRole("button", { name: "展開註解清單" }).getAttribute("aria-expanded")).toBe("false");
 
-      fireEvent.click(screen.getByRole("button", { name: "前往註解" }));
+      const toggle = screen.getByRole("button", { name: "展開註解清單" });
+      expect(document.getElementById(toggle.getAttribute("aria-controls")!)).toBe(
+        panel.querySelector(".doc-comments__list"),
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "前往註解：第一段要修改" }));
       expect(panel.classList.contains("doc-comments--collapsed")).toBe(false);
       expect(screen.getByRole("button", { name: "收合註解清單" }).getAttribute("aria-expanded")).toBe("true");
       expect(screen.getByTestId("doc-comment").classList.contains("doc-comments__item--flash")).toBe(true);
       expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(1);
+
+      fireEvent.click(screen.getByRole("button", { name: "收合註解清單" }));
+      selectText("第二段保持原樣");
+      fireEvent.click(screen.getByRole("button", { name: "加註解" }));
+      expect(panel.classList.contains("doc-comments--collapsed")).toBe(false);
+      expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "註解內容" }));
     });
 
     it("restores the unsent comments after the document is closed and reopened, with bubbles only in comment mode", async () => {
@@ -814,7 +845,7 @@ describe("MarkdownPreviewOverlay", () => {
       expect(bubbles()).toEqual([]);
       fireEvent.click(screen.getByRole("button", { name: "註解" }));
       expect(listed()).toEqual(["第一段要修改1. 改成條列"]);
-      expect(bubbleLabels()).toEqual(["前往註解"]);
+      expect(bubbleInfo()).toEqual([{ name: "前往註解：第一段要修改", count: null, image: false }]);
       second.unmount();
 
       renderDoc({ readOnly: true });

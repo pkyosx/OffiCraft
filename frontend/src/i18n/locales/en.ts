@@ -1202,7 +1202,7 @@ export const en: Dict = {
         recipientNotMember: "This document was not sent by a member, so its comments cannot be sent directly.",
         send: "Send to AI",
         sendFailed: "Sending failed; your comments are kept",
-        bubble: "Go to comment",
+        bubble: (excerpt: string) => `Go to comment: ${excerpt}`,
         bubbleCount: (n: number) => `${n} comments`,
         showInDocument: "Show this passage in the document",
         collapseList: "Collapse comment list",

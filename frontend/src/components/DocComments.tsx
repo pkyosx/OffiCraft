@@ -2,7 +2,7 @@
 // text (or tap an image) in the rendered document, attach a comment to it, and
 // send every comment to the AI as one chat message.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
@@ -28,6 +28,7 @@ const IMAGE_FOCUS_MARK = "data-doc-comment-focus";
 const FLASH_MS = 1500;
 /** Matches `.doc-comments__bubble`'s size in doc-comments.css. */
 const BUBBLE_SIZE = 22;
+const BUBBLE_NAME_CHARS = 20;
 
 type HighlightRegistry = { set(name: string, h: unknown): void; delete(name: string): void };
 type HighlightCtor = new (...ranges: Range[]) => { priority?: number };
@@ -44,7 +45,6 @@ function newCommentId(): string {
 
 type Pick = { anchor: DocCommentAnchor; rect: DOMRect };
 
-/** Where a comment sits in the rendered document. */
 type Located = Range | HTMLImageElement;
 
 /** One bubble: the comments on one passage or one image, in list order. */
@@ -86,14 +86,10 @@ function lastLineRect(range: Range): DOMRect | null {
 function measureSpots(root: HTMLElement, bubbles: Bubble[]): (Spot | null)[] {
   const box = root.getBoundingClientRect();
   const toTop = (y: number) => y - box.top + root.scrollTop;
-  let lastTextBottom = -Infinity;
-  return bubbles.map(({ at }) => {
+  const spots: (Spot | null)[] = bubbles.map(({ at }) => {
     if (at instanceof Range) {
       const line = lastLineRect(at);
-      if (!line) return null;
-      const top = Math.max(toTop(line.top + (line.height - BUBBLE_SIZE) / 2), lastTextBottom + 2);
-      lastTextBottom = top + BUBBLE_SIZE;
-      return { top };
+      return line ? { top: toTop(line.top + (line.height - BUBBLE_SIZE) / 2) } : null;
     }
     const img = at.getBoundingClientRect();
     const right = img.right - box.left + root.scrollLeft;
@@ -102,6 +98,18 @@ function measureSpots(root: HTMLElement, bubbles: Bubble[]): (Spot | null)[] {
       left: Math.max(0, Math.min(right - BUBBLE_SIZE - 4, root.clientWidth - BUBBLE_SIZE - 4)),
     };
   });
+  // Bubbles come in list order, which is the order comments were added; the
+  // nudge has to walk them top to bottom.
+  const textSpots = bubbles
+    .map((b, i) => (b.at instanceof Range ? spots[i] : null))
+    .filter((spot): spot is Spot => spot !== null)
+    .sort((a, b) => a.top - b.top);
+  let lastTextBottom = -Infinity;
+  for (const spot of textSpots) {
+    spot.top = Math.max(spot.top, lastTextBottom + 2);
+    lastTextBottom = spot.top + BUBBLE_SIZE;
+  }
+  return spots;
 }
 
 /** Re-measures bubble positions on window resize and whenever the document's
@@ -202,6 +210,15 @@ function newComment(anchor: DocCommentAnchor, comment: string): DocComment {
     : { id, excerpt: anchor.excerpt, comment };
 }
 
+/** A bubble's name has to tell its passage apart from the other bubbles'. */
+function bubbleExcerpt(c: DocComment, imageExcerpt: (name: string) => string): string {
+  const text =
+    c.kind === "image"
+      ? imageExcerpt(c.alt.trim() || imageShortName(c.src))
+      : c.excerpt.replace(/\s+/g, " ").trim();
+  return text.length > BUBBLE_NAME_CHARS ? `${text.slice(0, BUBBLE_NAME_CHARS)}…` : text;
+}
+
 function anchorOf(c: DocComment): DocCommentAnchor {
   return c.kind === "image"
     ? { kind: "image", alt: c.alt, src: c.src }
@@ -248,6 +265,7 @@ export function DocCommentPanel({
   const spots = useBubbleSpots(bubbleHost, bubbles);
   const [flashId, setFlashId] = useState<{ id: string } | null>(null);
   const [focused, setFocused] = useState<{ at: Located } | null>(null);
+  const listId = useId();
 
   function commit(next: DocComment[]) {
     setComments(next);
@@ -293,9 +311,9 @@ export function DocCommentPanel({
   useEffect(() => {
     if (!flashId) return;
     const items = listRef.current?.querySelectorAll<HTMLElement>("[data-comment-id]") ?? [];
-    [...items]
-      .find((el) => el.dataset.commentId === flashId.id)
-      ?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+    const item = [...items].find((el) => el.dataset.commentId === flashId.id);
+    item?.querySelector<HTMLElement>(".doc-comments__goto")?.focus({ preventScroll: true });
+    item?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
     const timer = window.setTimeout(() => setFlashId(null), FLASH_MS);
     return () => window.clearTimeout(timer);
   }, [flashId]);
@@ -350,6 +368,7 @@ export function DocCommentPanel({
 
   function startComposing() {
     if (!pick) return;
+    setCollapsed(false);
     setComposing({ anchor: pick.anchor, text: "" });
     document.getSelection()?.removeAllRanges();
     clearSelection();
@@ -420,6 +439,7 @@ export function DocCommentPanel({
           type="button"
           className="doc-comments__icon doc-comments__collapse"
           aria-expanded={!collapsed}
+          aria-controls={listId}
           aria-label={collapsed ? tc.expandList : tc.collapseList}
           title={collapsed ? tc.expandList : tc.collapseList}
           onClick={() => setCollapsed((v) => !v)}
@@ -427,7 +447,7 @@ export function DocCommentPanel({
           <ChevronRightIcon size={13} />
         </button>
       </div>
-      <div className="doc-comments__list" ref={listRef}>
+      <div className="doc-comments__list" id={listId} ref={listRef}>
         {composing && (
           <div className="doc-comments__item doc-comments__item--compose">
             <Excerpt anchor={composing.anchor} />
@@ -558,22 +578,29 @@ export function DocCommentPanel({
       {bubbleHost &&
         createPortal(
           <div className="doc-comments__bubbles">
-            {bubbles.map((b, i) => (
-              <button
-                key={b.ids[0]}
-                type="button"
-                className={
-                  "doc-comments__bubble" + (b.at instanceof Range ? "" : " doc-comments__bubble--image")
-                }
-                style={spots[i] ? { top: spots[i].top, left: spots[i].left } : { visibility: "hidden" }}
-                data-count={b.ids.length > 1 ? b.ids.length : undefined}
-                aria-label={b.ids.length > 1 ? tc.bubbleCount(b.ids.length) : tc.bubble}
-                title={b.ids.length > 1 ? tc.bubbleCount(b.ids.length) : tc.bubble}
-                onClick={() => showComment(b.ids[0])}
-              >
-                <ChatBubbleIcon size={13} />
-              </button>
-            ))}
+            {bubbles.map((b, i) => {
+              const first = comments.find((c) => c.id === b.ids[0]);
+              const name =
+                b.ids.length > 1 || !first
+                  ? tc.bubbleCount(b.ids.length)
+                  : tc.bubble(bubbleExcerpt(first, tc.imageExcerpt));
+              return (
+                <button
+                  key={b.ids[0]}
+                  type="button"
+                  className={
+                    "doc-comments__bubble" + (b.at instanceof Range ? "" : " doc-comments__bubble--image")
+                  }
+                  style={spots[i] ? { top: spots[i].top, left: spots[i].left } : { visibility: "hidden" }}
+                  data-count={b.ids.length > 1 ? b.ids.length : undefined}
+                  aria-label={name}
+                  title={name}
+                  onClick={() => showComment(b.ids[0])}
+                >
+                  <ChatBubbleIcon size={13} />
+                </button>
+              );
+            })}
           </div>,
           bubbleHost,
         )}
