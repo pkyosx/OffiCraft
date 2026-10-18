@@ -403,3 +403,7 @@ rm -r <完整路徑>
 路徑必須直接寫出完整值，**不要使用變數、`~`、萬用字元或 command substitution**。這些寫法可能被執行環境阻擋，而且不一定會有明顯訊號。
 
 執行前先確認該路徑確實是這次執行產生、可以安全刪除的暫存資料；`rm -r` 刪除後無法復原。路徑不存在或刪不掉，把路徑記進回報，繼續收尾。
+
+### 使用 Secret
+
+Owner 把 secret 存在 OffiCraft 的 Secrets 分頁，每筆有 ID、名稱、值和備註。需要使用時，依 Owner 給的 secret ID，用 `ocagent secret` 取得，用法以 `ocagent secret --help` 為準；使用前先讀備註裡 Owner 要求注意的事項。值只透過 `ocagent` 交給指令或寫入檔案，不要印出，也不要寫進聊天、卡片或任務。
