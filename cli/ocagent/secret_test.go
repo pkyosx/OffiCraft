@@ -17,8 +17,8 @@ const (
 var secretCfg = Config{Base: "https://station.example.com", BaseConfigured: true, Token: "tok-1"}
 
 const secretListBody = `{"secrets":[` +
-	`{"id":"sec-000000000001","name":"GitHub","note":"read-only token\nrotate monthly"},` +
-	`{"id":"sec-000000000002","name":"npm","note":""}]}`
+	`{"id":"sec-000000000001","name":"GitHub","note":"read-only token\nrotate monthly","value":"` + fakeValue1 + `"},` +
+	`{"id":"sec-000000000002","name":"npm","note":"","value":"` + fakeValue2 + `"}]}`
 
 func revealBody(pairs ...string) string {
 	var parts []string
@@ -77,7 +77,7 @@ func TestCmdSecret(t *testing.T) {
 }
 
 func TestCmdSecretList(t *testing.T) {
-	t.Run("prints id, name and indented note, oldest first", func(t *testing.T) {
+	t.Run("prints id, name and indented note, oldest first, never a value", func(t *testing.T) {
 		var out, errOut bytes.Buffer
 		client := canned(200, secretListBody)
 		if rc := cmdSecretList(client, secretCfg, &out, &errOut); rc != 0 {
@@ -122,7 +122,7 @@ func TestCmdSecretList(t *testing.T) {
 }
 
 func TestCmdSecretShow(t *testing.T) {
-	t.Run("prints one secret's id, name and note", func(t *testing.T) {
+	t.Run("prints one secret's id, name and note, never a value", func(t *testing.T) {
 		var out, errOut bytes.Buffer
 		if rc := cmdSecretShow(canned(200, secretListBody), secretCfg, "sec-000000000002", &out, &errOut); rc != 0 {
 			t.Fatalf("rc = %d, want 0", rc)
@@ -177,11 +177,11 @@ func TestCmdSecretRun(t *testing.T) {
 	t.Run("one reveal for every id; the child sees the values, the output shows ***", func(t *testing.T) {
 		client := canned(200, revealBody("sec-1", fakeValue1, "sec-2", fakeValue2))
 		rc, out, errOut := run(t, client, []string{"A=sec-1", "B=sec-2", "C=sec-1"},
-			`printf '%s|%s|%s\n' "$A" "$B" "$C"; printf 'err:%s\n' "$B" >&2`)
+			`printf '%s|%s|%s\n' "$A" "$B" "$C"; printf 'err:%s\n' "$B" >&2; printf 'fake-val'`)
 		if rc != 0 {
 			t.Fatalf("rc = %d (stderr %q), want 0", rc, errOut)
 		}
-		if out != "***|***|***\n" || errOut != "err:***\n" {
+		if out != "***|***|***\nfake-val" || errOut != "err:***\n" {
 			t.Fatalf("got (%q, %q), want both streams masked", out, errOut)
 		}
 		if len(client.sent) != 1 || client.sent[0].body != `{"ids":["sec-1","sec-2"]}` {
