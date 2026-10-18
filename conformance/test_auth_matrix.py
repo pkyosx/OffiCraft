@@ -2033,6 +2033,33 @@ MATRIX: dict[str, Route] = {
         path=lambda ctx, _i: f"/api/lore/{_matrix_lore_entry(ctx)}/scope",
         body={"scope_kind": "everyone"},
     ),
+    # ── secrets ─────────────────────────────────────────────────────────────
+    "GET /api/secrets": Route(requires="owner"),
+    "POST /api/secrets": Route(
+        requires="owner",
+        body={"name": "conf-secret", "value": "fake-value-conf"},
+    ),
+    "GET /api/secrets/access-log": Route(requires="owner"),
+    "PATCH /api/secrets/{secret_id}": Route(
+        requires="owner",
+        path="/api/secrets/sec-conf-nope",
+        body={"note": "conformance"},
+        overrides={"owner": 404},
+    ),
+    "DELETE /api/secrets/{secret_id}": Route(
+        requires="owner",
+        path="/api/secrets/sec-conf-nope",
+        overrides={"owner": 404},
+    ),
+    # AI members only: the owner clears the agent floor and is refused by the
+    # handler, so its 403 is a route-semantic cell, not a derived one.
+    "GET /api/self/secrets": Route(requires="agent", overrides={"owner": 403}),
+    "POST /api/self/secrets/reveal": Route(
+        requires="agent",
+        body={"ids": ["sec-conf-nope"]},
+        overrides={"owner": 403, "admin_agent": 404,
+                   "agent_self": 404, "agent_other": 404},
+    ),
 }
 
 # Manifest rows deliberately NOT in the matrix (must carry a reason — the
@@ -2042,6 +2069,21 @@ SKIPPED: dict[str, str] = {}
 # Honest degradations: covered in the matrix, but with a weaker probe than the
 # route's full semantics. Reported here so nothing is silently soft.
 DEGRADED: dict[str, str] = {
+    "PATCH /api/secrets/{secret_id}": (
+        "owner face probed with an unknown secret id (404); the edit, the "
+        "kept-value rule and the re-seal are pinned in the server unit tests "
+        "(api_secrets_test.go)."
+    ),
+    "DELETE /api/secrets/{secret_id}": (
+        "owner face probed with an unknown secret id (404); the delete round-trip "
+        "and the surviving access-log rows are pinned in test_rest_happy.py and "
+        "the server unit tests (api_secrets_test.go)."
+    ),
+    "POST /api/self/secrets/reveal": (
+        "every AI face asks for an unknown id (404, all or nothing); revealing a "
+        "real value from this shared fixture is pinned in test_rest_happy.py and "
+        "the server unit tests (api_secrets_test.go)."
+    ),
     "POST /api/insight/{role_key}/reset": (
         "the agent_self face is pinned at 409, not 200: it aims at the agent's "
         "OWN role (so the per-role write guard is genuinely exercised and PASSES) "

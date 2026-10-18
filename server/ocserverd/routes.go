@@ -1348,6 +1348,50 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler: w.HandleGetMemberBootContextApiMembersMemberIdBootContextGet,
 			MCPTool: "get_member_boot_context",
 		}),
+		Gated(principalOwner, routeDef{
+			Method:     "GET",
+			Path:       "/api/secrets",
+			Handler:    w.HandleListSecretsApiSecretsGet,
+			MCPExclude: true,
+		}),
+		Gated(principalOwner, routeDef{
+			Method:     "POST",
+			Path:       "/api/secrets",
+			Handler:    w.HandleCreateSecretApiSecretsPost,
+			MCPExclude: true,
+		}),
+		Gated(principalOwner, routeDef{
+			Method:     "GET",
+			Path:       "/api/secrets/access-log",
+			Handler:    w.HandleListSecretAccessLogApiSecretsAccessLogGet,
+			MCPExclude: true,
+		}),
+		Gated(principalOwner, routeDef{
+			Method:     "PATCH",
+			Path:       "/api/secrets/{secret_id}",
+			Handler:    w.HandleUpdateSecretApiSecretsSecretIdPatch,
+			MCPExclude: true,
+		}),
+		Gated(principalOwner, routeDef{
+			Method:     "DELETE",
+			Path:       "/api/secrets/{secret_id}",
+			Handler:    w.HandleDeleteSecretApiSecretsSecretIdDelete,
+			MCPExclude: true,
+		}),
+		// AI members only: the owner clears this floor and is refused in the
+		// handler. Off MCP so a value never lands in a tool result.
+		Gated(principalAgent, routeDef{
+			Method:     "GET",
+			Path:       "/api/self/secrets",
+			Handler:    w.HandleListSelfSecretsApiSelfSecretsGet,
+			MCPExclude: true,
+		}),
+		Gated(principalAgent, routeDef{
+			Method:     "POST",
+			Path:       "/api/self/secrets/reveal",
+			Handler:    w.HandleRevealSelfSecretsApiSelfSecretsRevealPost,
+			MCPExclude: true,
+		}),
 	}
 	out := make([]RouteSpec, len(rows))
 	for i, r := range rows {

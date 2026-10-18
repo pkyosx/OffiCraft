@@ -2106,6 +2106,52 @@ def _check_lore_scope_moved(ctx: HCtx, r: httpx.Response) -> None:
     assert row["scope_options"] == ["agent", "everyone"], row
 
 
+_HAPPY_SECRET_VALUE = "fake-value-conf-happy"
+
+
+def _happy_secret(ctx: HCtx) -> str:
+    r = ctx.client.post(
+        "/api/secrets",
+        json={"name": "conf happy secret", "value": _HAPPY_SECRET_VALUE,
+              "note": "conformance"},
+        headers=_auth(ctx.owner_token),
+    )
+    assert r.status_code == 200, (r.status_code, r.text)
+    return r.json()["id"]
+
+
+def _check_secret_without_value(_ctx: HCtx, r: httpx.Response) -> None:
+    d = r.json()
+    assert d["id"].startswith("sec-"), d
+    assert "value" not in d, d
+    assert _HAPPY_SECRET_VALUE not in r.text, r.text
+
+
+def _check_secret_list_without_values(_ctx: HCtx, r: httpx.Response) -> None:
+    for row in r.json()["secrets"]:
+        assert "value" not in row, row
+    assert _HAPPY_SECRET_VALUE not in r.text, r.text
+
+
+def _happy_reveal_body(ctx: HCtx) -> dict[str, Any]:
+    return {"ids": [_happy_secret(ctx)]}
+
+
+def _check_secret_revealed(ctx: HCtx, r: httpx.Response) -> None:
+    (row,) = r.json()["secrets"]
+    assert row["value"] == _HAPPY_SECRET_VALUE, row
+    log = ctx.client.get(
+        "/api/secrets/access-log",
+        params={"secret_id": row["id"]},
+        headers=_auth(ctx.owner_token),
+    )
+    assert log.status_code == 200, (log.status_code, log.text)
+    (entry,) = log.json()["entries"]
+    assert entry["action"] == "reveal", entry
+    assert entry["member_id"] == ctx.agent.member_id, entry
+    assert entry["secret_name"] == "conf happy secret", entry
+
+
 HAPPY: dict[str, Happy] = {
     # ── public ───────────────────────────────────────────────────────────────
     "GET /api/health": Happy(identity="none"),
@@ -3555,6 +3601,28 @@ HAPPY: dict[str, Happy] = {
             r,
             lambda d: d["slug"] == "why" and len(d["markdown_md"]) > 0,
         ),
+    ),
+    # ── secrets ─────────────────────────────────────────────────────────────
+    "GET /api/secrets": Happy(check=_check_secret_list_without_values),
+    "POST /api/secrets": Happy(
+        body={"name": "conf happy secret", "value": _HAPPY_SECRET_VALUE},
+        check=_check_secret_without_value,
+    ),
+    "GET /api/secrets/access-log": Happy(),
+    "PATCH /api/secrets/{secret_id}": Happy(
+        path=lambda ctx: f"/api/secrets/{_happy_secret(ctx)}",
+        body={"note": "edited by conformance"},
+        check=_check_secret_without_value,
+    ),
+    "DELETE /api/secrets/{secret_id}": Happy(
+        path=lambda ctx: f"/api/secrets/{_happy_secret(ctx)}",
+        check=_check_secret_without_value,
+    ),
+    "GET /api/self/secrets": Happy(
+        identity="agent", check=_check_secret_list_without_values
+    ),
+    "POST /api/self/secrets/reveal": Happy(
+        identity="agent", body=_happy_reveal_body, check=_check_secret_revealed
     ),
 }
 

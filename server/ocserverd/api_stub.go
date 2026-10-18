@@ -175,6 +175,9 @@ type apiServer struct {
 	backupHealth *backupHealthMonitor
 
 	binCacheDir string
+	// vault is nil until serve wires it beside the database; every secret route
+	// then answers 503 instead of sealing under a key nobody can find.
+	vault *secretVault
 	// ocwardenFS is a test seam (nil in production → bindistFS()). The EXEC seam
 	// is the package-level runOcwarden var — do not add a second one here.
 	ocwardenFS fs.FS

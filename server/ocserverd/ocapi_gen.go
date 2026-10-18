@@ -584,6 +584,24 @@ func (e ScheduledMessageUpdateDTOStatus) Valid() bool {
 	}
 }
 
+// Defines values for SecretAccessLogEntryDTOAction.
+const (
+	SecretAccessLogEntryDTOActionDenied SecretAccessLogEntryDTOAction = "denied"
+	SecretAccessLogEntryDTOActionReveal SecretAccessLogEntryDTOAction = "reveal"
+)
+
+// Valid indicates whether the value is a known member of the SecretAccessLogEntryDTOAction enum.
+func (e SecretAccessLogEntryDTOAction) Valid() bool {
+	switch e {
+	case SecretAccessLogEntryDTOActionDenied:
+		return true
+	case SecretAccessLogEntryDTOActionReveal:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SelfReportReceiptDTOStopEffect.
 const (
 	AlreadyReported   SelfReportReceiptDTOStopEffect = "already_reported"
@@ -644,6 +662,24 @@ func (e WebhookEndpointDTOPlatform) Valid() bool {
 	case WebhookEndpointDTOPlatformGithub:
 		return true
 	case WebhookEndpointDTOPlatformSlack:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for HandleListSecretAccessLogApiSecretsAccessLogGetParamsAction.
+const (
+	HandleListSecretAccessLogApiSecretsAccessLogGetParamsActionDenied HandleListSecretAccessLogApiSecretsAccessLogGetParamsAction = "denied"
+	HandleListSecretAccessLogApiSecretsAccessLogGetParamsActionReveal HandleListSecretAccessLogApiSecretsAccessLogGetParamsAction = "reveal"
+)
+
+// Valid indicates whether the value is a known member of the HandleListSecretAccessLogApiSecretsAccessLogGetParamsAction enum.
+func (e HandleListSecretAccessLogApiSecretsAccessLogGetParamsAction) Valid() bool {
+	switch e {
+	case HandleListSecretAccessLogApiSecretsAccessLogGetParamsActionDenied:
+		return true
+	case HandleListSecretAccessLogApiSecretsAccessLogGetParamsActionReveal:
 		return true
 	default:
 		return false
@@ -3527,6 +3563,90 @@ type ScheduledMessageUpdateDTOCadence string
 // ScheduledMessageUpdateDTOStatus The enabled/disabled toggle. `disabled` suspends firing and is reversible — it is NOT a lifecycle state; DELETE is the permanent removal.
 type ScheduledMessageUpdateDTOStatus string
 
+// SecretAccessLogDTO Secret access attempts, newest first.
+type SecretAccessLogDTO struct {
+	Entries []SecretAccessLogEntryDTO `json:"entries"`
+}
+
+// SecretAccessLogEntryDTO One access attempt on a secret value. Rows are append-only and outlive the secret they record.
+type SecretAccessLogEntryDTO struct {
+	// Action `reveal` — the value was returned to the caller; `denied` — the call was refused and returned nothing.
+	Action SecretAccessLogEntryDTOAction `json:"action"`
+	Id     int                           `json:"id"`
+
+	// MachineId The `machine_id` claim of the caller's token; `""` when the token carried none.
+	MachineId string `json:"machine_id"`
+	MemberId  string `json:"member_id"`
+
+	// SecretId The id revealed, or the id asked for on a refused attempt (`""` when it named none).
+	SecretId string `json:"secret_id"`
+
+	// SecretName The secret's CURRENT name, resolved at read time; `""` once the secret is deleted or when the id never existed.
+	SecretName string  `json:"secret_name"`
+	Ts         float64 `json:"ts"`
+}
+
+// SecretAccessLogEntryDTOAction `reveal` — the value was returned to the caller; `denied` — the call was refused and returned nothing.
+type SecretAccessLogEntryDTOAction string
+
+// SecretCreateDTO Create a secret. The value is encrypted at rest and NEVER echoed on any wire, log, chat message or event.
+type SecretCreateDTO struct {
+	// Name Free-text label: trimmed, 1–128 characters (the short-label cap), not unique. Not the key — the server-minted id is.
+	Name string `json:"name"`
+
+	// Note What the AI should pay attention to when using it; at most 4000 characters (the chat-body cap). Readable by the owner and every AI member.
+	Note *string `json:"note,omitempty"`
+
+	// Value Write-only. The plaintext value, 1–65536 characters.
+	Value *string `json:"value,omitempty"`
+}
+
+// SecretDTO One secret WITHOUT its value: no owner route ever returns a value, not even masked or hashed. `updated_ts` moves on every edit, value-only edits included.
+type SecretDTO struct {
+	CreatedTs float64 `json:"created_ts"`
+
+	// Id Server-minted (`sec-` + 12 hex), immutable; the key every route and `ocagent secret` take.
+	Id        string  `json:"id"`
+	Name      string  `json:"name"`
+	Note      string  `json:"note"`
+	UpdatedTs float64 `json:"updated_ts"`
+}
+
+// SecretRevealDTO The requested values, in request order.
+type SecretRevealDTO struct {
+	Secrets []SecretValueDTO `json:"secrets"`
+}
+
+// SecretRevealRequestDTO The secrets to retrieve, by id.
+type SecretRevealRequestDTO struct {
+	Ids []string `json:"ids"`
+}
+
+// SecretUpdateDTO Partial edit of a secret. PATCH semantics — only supplied fields change; the id is immutable and not editable here.
+type SecretUpdateDTO struct {
+	// Name Same rule as create: trimmed, 1–128 characters (the short-label cap), not unique.
+	Name *string `json:"name,omitempty"`
+
+	// Note `""` clears the note; at most 4000 characters (the chat-body cap).
+	Note *string `json:"note,omitempty"`
+
+	// Value Write-only. Supply to replace the value (1–65536 characters); absent or null keeps the stored one. Never echoed back.
+	Value *string `json:"value,omitempty"`
+}
+
+// SecretValueDTO One retrieved secret. `value` is the plaintext; the caller must not print or store it.
+type SecretValueDTO struct {
+	Id    string `json:"id"`
+	Name  string `json:"name"`
+	Note  string `json:"note"`
+	Value string `json:"value"`
+}
+
+// SecretsDTO Every secret, ordered by `created_ts`, without values.
+type SecretsDTO struct {
+	Secrets []SecretDTO `json:"secrets"`
+}
+
 // SelfReportReceiptDTO Bounded receipt for the four SELF-REPORT writes an agent makes about its own lifecycle - “POST /api/self/waking“ (report_waking), “/api/self/stopping“ (report_stopping), “/api/self/stopped“ (report_stopped) and “/api/self/refocus“ (restart_self) (T-91). All four answered with the whole MemberDTO, 32 fields flattened, measured first-hand this session: a boot report came back with 30 populated fields, of which the caller needed none it could not already name. These are agent-called through MCP, so that answer lands in the model's CONTEXT WINDOW - once per boot and once per shutdown, for every agent, forever. Owner ruling 2026-09-05: what the caller sent does not come home, only ids and what it genuinely needs to learn from the reply.
 //
 // WHAT IS KEPT IS WHAT CHANGES WHAT THE CALLER DOES NEXT, and nothing else passed that test. “desired_state“ is the important one and it is not bookkeeping: api_members.go:1789-1795 records that a boot which lands after the owner has already cancelled it must not paint itself green, and names this field as the one that says whether the boot is wanted; the stopped-report handler says the same for the other end ("desired_state alone decides whether a new generation follows"). “refocus_op“ and “refocus_deadline“ say which rung of the wind-down ladder the agent is on and the epoch second it is counting to.
@@ -3573,6 +3693,18 @@ type SelfReportReceiptDTO struct {
 //
 // Optional (T-102 adds it to a frozen DTO), so a client written before this field must keep working when it is absent - but a client that reads a stopped-report receipt WITHOUT reading this field is reading the exact ambiguity the field was added to remove.
 type SelfReportReceiptDTOStopEffect string
+
+// SelfSecretDTO One secret as an AI member sees it in a listing: id, name and the owner's note. Never the value.
+type SelfSecretDTO struct {
+	Id   string `json:"id"`
+	Name string `json:"name"`
+	Note string `json:"note"`
+}
+
+// SelfSecretsDTO Every secret, ordered by `created_ts`. Never carries a value.
+type SelfSecretsDTO struct {
+	Secrets []SelfSecretDTO `json:"secrets"`
+}
 
 // SetPasswordDTO First-run owner-password claim (`POST /api/auth/set-password`, PUBLIC).
 // `claim_token` is the one-shot token the server mints at first boot and prints
@@ -4891,6 +5023,17 @@ type HandleListReplyCardsApiReplyCardsGetParams struct {
 	Limit    *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// HandleListSecretAccessLogApiSecretsAccessLogGetParams defines parameters for HandleListSecretAccessLogApiSecretsAccessLogGet.
+type HandleListSecretAccessLogApiSecretsAccessLogGetParams struct {
+	SecretId *string                                                      `form:"secret_id,omitempty" json:"secret_id,omitempty"`
+	MemberId *string                                                      `form:"member_id,omitempty" json:"member_id,omitempty"`
+	Action   *HandleListSecretAccessLogApiSecretsAccessLogGetParamsAction `form:"action,omitempty" json:"action,omitempty"`
+	Limit    *int                                                         `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// HandleListSecretAccessLogApiSecretsAccessLogGetParamsAction defines parameters for HandleListSecretAccessLogApiSecretsAccessLogGet.
+type HandleListSecretAccessLogApiSecretsAccessLogGetParamsAction string
+
 // HandleListTasksApiTasksGetParams defines parameters for HandleListTasksApiTasksGet.
 type HandleListTasksApiTasksGetParams struct {
 	Executor *string `form:"executor,omitempty" json:"executor,omitempty"`
@@ -5074,8 +5217,17 @@ type HandleCreateRoleApiRolesPostJSONRequestBody = RoleCreateDTO
 // HandleUpdateRoleApiRolesRolePostJSONRequestBody defines body for HandleUpdateRoleApiRolesRolePost for application/json ContentType.
 type HandleUpdateRoleApiRolesRolePostJSONRequestBody = RoleDefUpdateDTO
 
+// HandleCreateSecretApiSecretsPostJSONRequestBody defines body for HandleCreateSecretApiSecretsPost for application/json ContentType.
+type HandleCreateSecretApiSecretsPostJSONRequestBody = SecretCreateDTO
+
+// HandleUpdateSecretApiSecretsSecretIdPatchJSONRequestBody defines body for HandleUpdateSecretApiSecretsSecretIdPatch for application/json ContentType.
+type HandleUpdateSecretApiSecretsSecretIdPatchJSONRequestBody = SecretUpdateDTO
+
 // HandleRestartSelfApiSelfRefocusPostJSONRequestBody defines body for HandleRestartSelfApiSelfRefocusPost for application/json ContentType.
 type HandleRestartSelfApiSelfRefocusPostJSONRequestBody = RestartSelfDTO
+
+// HandleRevealSelfSecretsApiSelfSecretsRevealPostJSONRequestBody defines body for HandleRevealSelfSecretsApiSelfSecretsRevealPost for application/json ContentType.
+type HandleRevealSelfSecretsApiSelfSecretsRevealPostJSONRequestBody = SecretRevealRequestDTO
 
 // HandleReportWakingApiSelfWakingPostJSONRequestBody defines body for HandleReportWakingApiSelfWakingPost for application/json ContentType.
 type HandleReportWakingApiSelfWakingPostJSONRequestBody = ReportWakingDTO
@@ -5830,9 +5982,30 @@ type ServerInterface interface {
 	// Reset a role definition to seed (idempotent tombstone overlay). Only a shipped (seed) role can be reset: a role created on this station is refused with 409 (not applicable), an unknown role is 404. Answers with a bounded receipt (“key“, “name“, “is_default“, “is_seed“, “size_chars“, “cap_chars“, “sha256“), not the duty document — call “get_role“ when you need the rest.
 	// (POST /api/roles/{role}/reset)
 	HandleResetRoleApiRolesRoleResetPost(w http.ResponseWriter, r *http.Request, role string)
+	// List every secret (no values).
+	// (GET /api/secrets)
+	HandleListSecretsApiSecretsGet(w http.ResponseWriter, r *http.Request)
+	// Create a secret.
+	// (POST /api/secrets)
+	HandleCreateSecretApiSecretsPost(w http.ResponseWriter, r *http.Request)
+	// List secret access attempts, newest first.
+	// (GET /api/secrets/access-log)
+	HandleListSecretAccessLogApiSecretsAccessLogGet(w http.ResponseWriter, r *http.Request, params HandleListSecretAccessLogApiSecretsAccessLogGetParams)
+	// Delete a secret.
+	// (DELETE /api/secrets/{secret_id})
+	HandleDeleteSecretApiSecretsSecretIdDelete(w http.ResponseWriter, r *http.Request, secretId string)
+	// Edit a secret's name, value or note.
+	// (PATCH /api/secrets/{secret_id})
+	HandleUpdateSecretApiSecretsSecretIdPatch(w http.ResponseWriter, r *http.Request, secretId string)
 	// restart_self(): ask for your own session to be stopped and started again. This call only records the request; it stops nothing itself. Your session is woken with the 〈停止〉 document, and the server stops and respawns the session only after you work that procedure and call “report_stopped“. If the owner or an admin agent escalates to 加速停止 while you are working it, a deadline starts, you are sent the 〈加速停止〉 document naming it, and the server collects the session at that deadline even if “report_stopped“ has not been called. The owner or an admin agent can also end the session at once with 強制停止 (“force_stop_member“); that stop cancels the restart and leaves you down, with your desired state set to offline. Refused with 409 when you have no live event-stream connection or your desired state is not online, with 429 while the current session is younger than the minimum-liveness floor the refusal states, and with 409 when you are already further along the wind-down ladder (下線 → 加速 → 強制). Answers with a bounded receipt (“id“, “desired_state“, “refocus_op“, “refocus_deadline“), not the member row — call “get_member“ when you need the rest.
 	// (POST /api/self/refocus)
 	HandleRestartSelfApiSelfRefocusPost(w http.ResponseWriter, r *http.Request)
+	// List every secret (no values).
+	// (GET /api/self/secrets)
+	HandleListSelfSecretsApiSelfSecretsGet(w http.ResponseWriter, r *http.Request)
+	// Retrieve secret values (CLI only).
+	// (POST /api/self/secrets/reveal)
+	HandleRevealSelfSecretsApiSelfSecretsRevealPost(w http.ResponseWriter, r *http.Request)
 	// report_stopped(): tell the server you have FINISHED your close-out, then read the receipt's “stop_effect“:
 	//
 	// * “collected“ — this was your first report, and this call dispatched the kill for your session. If your desired state is online, a new session is started once this one is gone; if it is offline, you stay down. If you are still alive and still being given work long after this, do NOT call again (see the next line) — tell someone with the authority to set your desired state.
@@ -9483,11 +9656,191 @@ func (siw *ServerInterfaceWrapper) HandleResetRoleApiRolesRoleResetPost(w http.R
 	handler.ServeHTTP(w, r)
 }
 
+// HandleListSecretsApiSecretsGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleListSecretsApiSecretsGet(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleListSecretsApiSecretsGet(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleCreateSecretApiSecretsPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleCreateSecretApiSecretsPost(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleCreateSecretApiSecretsPost(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleListSecretAccessLogApiSecretsAccessLogGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleListSecretAccessLogApiSecretsAccessLogGet(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params HandleListSecretAccessLogApiSecretsAccessLogGetParams
+
+	// ------------- Optional query parameter "secret_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "secret_id", r.URL.Query(), &params.SecretId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "secret_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "secret_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "member_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "member_id", r.URL.Query(), &params.MemberId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "member_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "member_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "action" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "action", r.URL.Query(), &params.Action, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "action"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "action", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleListSecretAccessLogApiSecretsAccessLogGet(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleDeleteSecretApiSecretsSecretIdDelete operation middleware
+func (siw *ServerInterfaceWrapper) HandleDeleteSecretApiSecretsSecretIdDelete(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "secret_id" -------------
+	var secretId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "secret_id", r.PathValue("secret_id"), &secretId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "secret_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleDeleteSecretApiSecretsSecretIdDelete(w, r, secretId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleUpdateSecretApiSecretsSecretIdPatch operation middleware
+func (siw *ServerInterfaceWrapper) HandleUpdateSecretApiSecretsSecretIdPatch(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "secret_id" -------------
+	var secretId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "secret_id", r.PathValue("secret_id"), &secretId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "secret_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleUpdateSecretApiSecretsSecretIdPatch(w, r, secretId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // HandleRestartSelfApiSelfRefocusPost operation middleware
 func (siw *ServerInterfaceWrapper) HandleRestartSelfApiSelfRefocusPost(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleRestartSelfApiSelfRefocusPost(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleListSelfSecretsApiSelfSecretsGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleListSelfSecretsApiSelfSecretsGet(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleListSelfSecretsApiSelfSecretsGet(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleRevealSelfSecretsApiSelfSecretsRevealPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleRevealSelfSecretsApiSelfSecretsRevealPost(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleRevealSelfSecretsApiSelfSecretsRevealPost(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -11304,7 +11657,14 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/roles/{role}", wrapper.HandleGetRoleApiRolesRoleGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/roles/{role}", wrapper.HandleUpdateRoleApiRolesRolePost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/roles/{role}/reset", wrapper.HandleResetRoleApiRolesRoleResetPost)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/secrets", wrapper.HandleListSecretsApiSecretsGet)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/secrets", wrapper.HandleCreateSecretApiSecretsPost)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/secrets/access-log", wrapper.HandleListSecretAccessLogApiSecretsAccessLogGet)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/secrets/{secret_id}", wrapper.HandleDeleteSecretApiSecretsSecretIdDelete)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/secrets/{secret_id}", wrapper.HandleUpdateSecretApiSecretsSecretIdPatch)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/self/refocus", wrapper.HandleRestartSelfApiSelfRefocusPost)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/self/secrets", wrapper.HandleListSelfSecretsApiSelfSecretsGet)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/self/secrets/reveal", wrapper.HandleRevealSelfSecretsApiSelfSecretsRevealPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/self/stopped", wrapper.HandleReportStoppedApiSelfStoppedPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/self/stopping", wrapper.HandleReportStoppingApiSelfStoppingPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/self/waking", wrapper.HandleReportWakingApiSelfWakingPost)
