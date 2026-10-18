@@ -648,6 +648,121 @@ for (const size of [NARROW, WIDE]) {
       });
       expect(outline).toEqual({ style: "solid", width: "3px" });
     });
+
+    test("puts a bubble in the gutter beside a commented passage and on a commented image's corner, and both jump to their comments", async ({
+      mount,
+      page,
+    }) => {
+      await page.setViewportSize(size);
+      await page.addInitScript(() => localStorage.clear());
+      await page.route("**/api/chat/attachment/att-ct-wide-image*", (route) =>
+        route.fulfill({ status: 200, contentType: "image/svg+xml", body: WIDE_SVG }),
+      );
+      await mount(<MarkdownPreviewImageCommentsStory />);
+      const img = page.locator(".md-preview__md img");
+      await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBe(1600);
+      await page.getByRole("button", { name: "註解" }).click();
+
+      const para = page.locator(".md-preview__md p", { hasText: "下圖是新的版面配置" });
+      await para.click({ clickCount: 3 });
+      await page.getByRole("button", { name: "加註解" }).click();
+      await page.getByRole("textbox", { name: "註解內容" }).fill("改成兩欄");
+      await page.getByRole("button", { name: "儲存" }).click();
+      await img.scrollIntoViewIfNeeded();
+      if (size === NARROW) await img.tap();
+      else await img.click();
+      await page.getByRole("button", { name: "加註解" }).click();
+      await page.getByRole("textbox", { name: "註解內容" }).fill("箭頭方向反了");
+      await page.getByRole("button", { name: "儲存" }).click();
+      await settleLayout(page);
+
+      const bubbles = page.locator(".md-preview__body .doc-comments__bubble");
+      await expect(bubbles).toHaveCount(2);
+      const textBubble = bubbles.and(page.locator(":not(.doc-comments__bubble--image)"));
+      const imageBubble = page.locator(".doc-comments__bubble--image");
+      await expect(textBubble).toHaveAccessibleName("前往註解");
+      await expect(imageBubble).toHaveAccessibleName("前往註解");
+
+      await para.scrollIntoViewIfNeeded();
+      const placed = await page.evaluate(() => {
+        const rect = (el: Element) => el.getBoundingClientRect();
+        const body = rect(document.querySelector(".md-preview__body")!);
+        const column = rect(document.querySelector(".md-preview__md")!);
+        const p = [...document.querySelectorAll(".md-preview__md p")].find((el) =>
+          el.textContent!.includes("下圖是新的版面配置"),
+        )!;
+        const range = document.createRange();
+        range.selectNodeContents(p);
+        const lines = [...range.getClientRects()].filter((r) => r.width > 0);
+        const bubble = rect(document.querySelector(".doc-comments__bubble:not(.doc-comments__bubble--image)")!);
+        return {
+          bubble: { left: bubble.left, right: bubble.right, mid: (bubble.top + bubble.bottom) / 2 },
+          lastLine: { top: lines.at(-1)!.top, bottom: lines.at(-1)!.bottom },
+          textRight: Math.max(...lines.map((r) => r.right)),
+          columnRight: column.right,
+          bodyRight: body.right,
+          pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        };
+      });
+      expect(placed.pageOverflow).toBe(0);
+      expect(placed.bubble.left).toBeGreaterThanOrEqual(placed.columnRight);
+      expect(placed.bubble.left).toBeGreaterThanOrEqual(placed.textRight);
+      expect(placed.bubble.right).toBeLessThanOrEqual(placed.bodyRight);
+      expect(placed.bubble.mid).toBeGreaterThanOrEqual(placed.lastLine.top);
+      expect(placed.bubble.mid).toBeLessThanOrEqual(placed.lastLine.bottom);
+
+      const expectOnImageCorner = async () => {
+        await img.scrollIntoViewIfNeeded();
+        const onImage = await page.evaluate(() => {
+          const b = document.querySelector(".doc-comments__bubble--image")!.getBoundingClientRect();
+          const i = document.querySelector(".md-preview__md img")!.getBoundingClientRect();
+          const body = document.querySelector(".md-preview__body")!.getBoundingClientRect();
+          return {
+            b: { left: b.left, right: b.right, top: b.top, bottom: b.bottom },
+            i: { left: i.left, right: i.right, top: i.top, bottom: i.bottom },
+            bodyRight: body.right,
+          };
+        });
+        expect(onImage.b.right).toBeLessThanOrEqual(onImage.i.right);
+        expect(onImage.b.top).toBeGreaterThanOrEqual(onImage.i.top);
+        expect(onImage.b.left).toBeGreaterThan((onImage.i.left + onImage.i.right) / 2);
+        expect(onImage.b.bottom).toBeLessThan((onImage.i.top + onImage.i.bottom) / 2);
+        expect(onImage.b.right).toBeLessThanOrEqual(onImage.bodyRight);
+      };
+      await expectOnImageCorner();
+      await page.setViewportSize({ width: size.width - 40, height: size.height });
+      await settleLayout(page);
+      await expectOnImageCorner();
+      await page.setViewportSize(size);
+      await settleLayout(page);
+
+      const items = page.getByTestId("doc-comment");
+      const collapse = page.locator(".doc-comments__collapse");
+      if (size === NARROW) {
+        await collapse.click();
+        await expect(page.locator(".doc-comments__list")).toBeHidden();
+      } else {
+        await expect(collapse).toBeHidden();
+      }
+      await imageBubble.focus();
+      await page.keyboard.press("Enter");
+      await expect(page.locator(".doc-comments__list")).toBeVisible();
+      await expect(items.nth(1)).toHaveClass(/doc-comments__item--flash/);
+      await expect(items.nth(1)).toBeInViewport();
+      await expect(items.nth(1)).not.toHaveClass(/doc-comments__item--flash/, { timeout: 3000 });
+
+      await items.nth(0).locator(".doc-comments__goto").click();
+      await expect(para).toBeInViewport();
+      const focused = await page.evaluate(() => {
+        const h = (CSS as unknown as { highlights: Map<string, Set<Range>> }).highlights.get("oc-doc-comment-focus");
+        return h ? [...h].map((r) => r.toString()) : [];
+      });
+      expect(focused).toEqual(["下圖是新的版面配置。"]);
+
+      await items.nth(1).locator(".doc-comments__goto").click();
+      await expect(img).toHaveAttribute("data-doc-comment-focus", "");
+      await expect(img).toBeInViewport();
+    });
   });
 }
 

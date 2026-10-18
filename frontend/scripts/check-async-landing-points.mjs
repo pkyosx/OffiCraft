@@ -427,8 +427,23 @@ const REGISTRY = [
   {
     file: "components/DocComments.tsx",
     kind: "addEventListener",
-    count: 4,
-    verdict: "selection tracking and image picks on the document root; removed on unmount, and the panel unmounts with its overlay",
+    count: 5,
+    verdict:
+      "selection tracking, image picks on the document root and the bubble re-measure on resize; removed on unmount, and the panel unmounts with its overlay",
+  },
+  {
+    file: "components/DocComments.tsx",
+    kind: "Observer",
+    count: 1,
+    verdict:
+      "bubble re-measure when the document reflows; writes only the panel's own bubble positions, read from the root it observes, and is disconnected in the same effect's cleanup",
+  },
+  {
+    file: "components/DocComments.tsx",
+    kind: "setTimeout/setInterval",
+    count: 2,
+    verdict:
+      "end of the 1.5s flash on a listed comment or a document passage; clear only the panel's own state or a mark it set, and are cleared in the effect's cleanup",
   },
   {
     file: "components/MarkdownPreviewOverlay.tsx",

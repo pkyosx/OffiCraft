@@ -7,6 +7,48 @@ img[data-doc-comment] {
   outline: 3px solid var(--color-warn-border);
   outline-offset: 2px;
 }
+::highlight(oc-doc-comment-focus) {
+  background-color: var(--color-warn-border);
+}
+img[data-doc-comment-focus] {
+  outline-color: var(--color-accent);
+}
+
+/* Bubbles live inside the document's scroll container (made positioned, with a
+ * right gutter they sit in, by md-preview.css) so they scroll with the text. */
+.doc-comments__bubble {
+  position: absolute;
+  right: 8px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border: 1px solid var(--color-warn-border);
+  border-radius: 11px;
+  background: var(--color-warn-bg);
+  color: var(--color-text-strong);
+  font-family: inherit;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+}
+.doc-comments__bubble[data-count]::after {
+  content: attr(data-count);
+}
+.doc-comments__bubble--image {
+  right: auto;
+}
+.doc-comments__bubble:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
 
 .doc-comments {
   display: flex;
@@ -18,6 +60,10 @@ img[data-doc-comment] {
   background: var(--color-surface-sunken);
 }
 .doc-comments__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   padding: 12px 14px 8px;
   font-size: 13px;
   font-weight: 600;
@@ -48,7 +94,28 @@ img[data-doc-comment] {
   background: var(--color-card);
   min-width: 0;
 }
+.doc-comments__goto {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.doc-comments__goto:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.doc-comments__item--flash {
+  border-color: var(--color-warn-border);
+  box-shadow: 0 0 0 2px var(--color-warn-border);
+}
 .doc-comments__excerpt {
+  display: block;
   margin: 0;
   padding-left: 8px;
   border-left: 3px solid var(--color-warn-border);
@@ -164,6 +231,13 @@ img[data-doc-comment] {
 .doc-comments__send {
   align-self: flex-end;
 }
+.doc-comments__collapse {
+  display: none;
+  transform: rotate(90deg);
+}
+.doc-comments--collapsed .doc-comments__collapse {
+  transform: rotate(-90deg);
+}
 
 @media (max-width: 720px) {
   .doc-comments {
@@ -171,5 +245,11 @@ img[data-doc-comment] {
     max-height: 45%;
     border-left: none;
     border-top: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
+  }
+  .doc-comments__collapse {
+    display: inline-flex;
+  }
+  .doc-comments--collapsed .doc-comments__list {
+    display: none;
   }
 }

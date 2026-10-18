@@ -1202,6 +1202,11 @@ export const en: Dict = {
         recipientNotMember: "This document was not sent by a member, so its comments cannot be sent directly.",
         send: "Send to AI",
         sendFailed: "Sending failed; your comments are kept",
+        bubble: "Go to comment",
+        bubbleCount: (n: number) => `${n} comments`,
+        showInDocument: "Show this passage in the document",
+        collapseList: "Collapse comment list",
+        expandList: "Expand comment list",
       },
     },
     // Corner button on an incoming bubble: reopen this message body in the same
