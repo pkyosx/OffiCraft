@@ -406,4 +406,4 @@ rm -r <完整路徑>
 
 ### 使用 Secret
 
-Owner 把 secret 存在 OffiCraft 的 Secrets 分頁，每筆有 ID、名稱、值和備註。需要使用時，依 Owner 給的 secret ID，用 `ocagent secret` 取得，用法以 `ocagent secret --help` 為準；使用前先讀備註裡 Owner 要求注意的事項。值只透過 `ocagent` 交給指令或寫入檔案，不要印出，也不要寫進聊天、卡片或任務。
+Owner 把 secret 存在 OffiCraft 的 Secrets 分頁，每筆有 ID、名稱、值和備註。需要使用時，用 `ocagent secret` 查詢與取得，用法以 `ocagent secret --help` 為準：Owner 指定了 secret ID 就用該 ID，沒有指定就依名稱與備註找出對應的 secret，無法確定是哪一筆時請 Owner 指定。使用前先讀備註裡 Owner 要求注意的事項。值只透過 `ocagent` 交給指令或寫入檔案，不要印出，也不要寫進聊天、卡片或任務。
