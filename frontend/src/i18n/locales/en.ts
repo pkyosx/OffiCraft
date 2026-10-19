@@ -55,6 +55,7 @@ export const en: Dict = {
     // 傳承 (T-33) — between Task and Monitor. What it lists is what the last
     // round learned, which sits closest to the tasks that produced it.
     lore: "Lore",
+    secrets: "Secrets",
     monitor: "Monitor",
     // 使用說明 — the rightmost main nav tab (owner: it belongs next to Monitor,
     // not buried in Settings). Separate key from the page title on purpose: a
@@ -194,6 +195,31 @@ export const en: Dict = {
     // A failed action (403 included) must be visible — never a silent no-op.
     actionFailed: "That action did not go through. Please try again.",
     forbidden: "You do not have permission to do that.",
+  },
+  secrets: {
+    loadFailed: "Could not load secrets. Please try again later.",
+    empty: "No secrets yet",
+    colNote: "Note",
+    colUpdated: "Updated",
+    colLastAccessed: "Last accessed",
+    neverAccessed: "Never used",
+    copyIdLabel: "Copy secret ID",
+    idCopied: "Copied",
+    add: "Add secret",
+    createTitle: "Add secret",
+    editTitle: "Edit secret",
+    nameLabel: "Name",
+    valueLabel: "Value",
+    noteLabel: "Note",
+    notePlaceholder: "What the AI should know when using it (optional)",
+    valueKeepPlaceholder: "Leave blank to keep the current value",
+    save: "Save",
+    cancel: "Cancel",
+    edit: "Edit",
+    delete: "Delete",
+    deleteConfirmLead: "Delete \u201c",
+    deleteConfirmTail: "\u201d? This cannot be undone.",
+    deleteConfirm: "Delete",
   },
   notifications: {
     dismiss: "Dismiss notification",

@@ -56,6 +56,7 @@ export const zh = {
     // 傳承 (T-33) — 任務右邊、監控左邊。它讀的是「上一輪學到的東西」,離任務
     // 最近,所以排在任務旁邊而不是被塞進設定。
     lore: "傳承",
+    secrets: "密鑰",
     monitor: "監控",
     // 使用說明 — 主導覽最右的分頁(owner:「user guide 改放在 tab 中,監控的
     // 右邊」)。分頁標籤與頁面標題分開兩個 key:標籤要短,標題可以完整。
@@ -189,6 +190,31 @@ export const zh = {
     // 動作失敗要看得見(403 也是)——不要靜靜失敗
     actionFailed: "這個動作沒有成功，請稍後再試",
     forbidden: "你沒有權限做這個動作",
+  },
+  secrets: {
+    loadFailed: "讀不到密鑰，請稍後再試",
+    empty: "還沒有任何密鑰",
+    colNote: "備註",
+    colUpdated: "最後更新",
+    colLastAccessed: "最後存取",
+    neverAccessed: "尚未使用",
+    copyIdLabel: "複製密鑰 ID",
+    idCopied: "已複製",
+    add: "新增密鑰",
+    createTitle: "新增密鑰",
+    editTitle: "編輯密鑰",
+    nameLabel: "名稱",
+    valueLabel: "值",
+    noteLabel: "備註",
+    notePlaceholder: "給 AI 看的使用注意事項（選填）",
+    valueKeepPlaceholder: "留空＝保留原本的值",
+    save: "儲存",
+    cancel: "取消",
+    edit: "編輯",
+    delete: "刪除",
+    deleteConfirmLead: "要刪除「",
+    deleteConfirmTail: "」嗎？刪除後無法復原。",
+    deleteConfirm: "刪除",
   },
   notifications: {
     dismiss: "關閉提示",

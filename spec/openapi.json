@@ -6918,6 +6918,227 @@
         "title": "ScheduledMessageUpdateDTO",
         "type": "object"
       },
+      "SecretCreateDTO": {
+        "additionalProperties": false,
+        "description": "Create a secret. The value is encrypted at rest and NEVER echoed on any wire, log, chat message or event.",
+        "properties": {
+          "name": {
+            "description": "Free-text label: trimmed, 1–128 characters (the short-label cap), not unique. Not the key — the server-minted id is.",
+            "title": "Name",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note",
+            "default": null,
+            "description": "What the AI should pay attention to when using it; at most 4000 characters (the chat-body cap). Readable by the owner and every AI member."
+          },
+          "value": {
+            "description": "Write-only. The plaintext value, 1–65536 characters.",
+            "title": "Value",
+            "type": "string",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "name",
+          "value"
+        ],
+        "title": "SecretCreateDTO",
+        "type": "object"
+      },
+      "SecretDTO": {
+        "additionalProperties": false,
+        "description": "One secret WITHOUT its value: no owner route ever returns a value, not even masked or hashed. `updated_ts` moves on every edit, value-only edits included; `last_accessed_ts` moves only on a successful reveal.",
+        "properties": {
+          "created_ts": {
+            "default": 0.0,
+            "title": "Created Ts",
+            "type": "number"
+          },
+          "id": {
+            "description": "Server-minted (`sec-` + 12 hex), immutable; the key every route and `ocagent secret` take.",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_accessed_ts": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Epoch seconds of the newest successful reveal of this secret by an AI member; null when it has never been revealed. Editing the secret does not reset it.",
+            "title": "Last Accessed Ts"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "note": {
+            "default": "",
+            "title": "Note",
+            "type": "string"
+          },
+          "updated_ts": {
+            "default": 0.0,
+            "title": "Updated Ts",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "note",
+          "created_ts",
+          "updated_ts",
+          "last_accessed_ts"
+        ],
+        "title": "SecretDTO",
+        "type": "object"
+      },
+      "SecretRevealDTO": {
+        "additionalProperties": false,
+        "description": "The requested values, in request order.",
+        "properties": {
+          "secrets": {
+            "items": {
+              "$ref": "#/components/schemas/SecretValueDTO"
+            },
+            "title": "Secrets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "secrets"
+        ],
+        "title": "SecretRevealDTO",
+        "type": "object"
+      },
+      "SecretRevealRequestDTO": {
+        "additionalProperties": false,
+        "description": "The secrets to retrieve, by id.",
+        "properties": {
+          "ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 16,
+            "minItems": 1,
+            "title": "Ids",
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "ids"
+        ],
+        "title": "SecretRevealRequestDTO",
+        "type": "object"
+      },
+      "SecretUpdateDTO": {
+        "additionalProperties": false,
+        "description": "Partial edit of a secret. PATCH semantics — only supplied fields change; the id is immutable and not editable here.",
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "Same rule as create: trimmed, 1–128 characters (the short-label cap), not unique."
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note",
+            "description": "`\"\"` clears the note; at most 4000 characters (the chat-body cap)."
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value",
+            "description": "Write-only. Supply to replace the value (1–65536 characters); absent or null keeps the stored one. Never echoed back.",
+            "writeOnly": true
+          }
+        },
+        "title": "SecretUpdateDTO",
+        "type": "object"
+      },
+      "SecretValueDTO": {
+        "additionalProperties": false,
+        "description": "One retrieved secret. `value` is the plaintext; the caller must not print or store it.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "note": {
+            "default": "",
+            "title": "Note",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "note",
+          "value"
+        ],
+        "title": "SecretValueDTO",
+        "type": "object"
+      },
+      "SecretsDTO": {
+        "additionalProperties": false,
+        "description": "Every secret, ordered by `created_ts`, without values.",
+        "properties": {
+          "secrets": {
+            "items": {
+              "$ref": "#/components/schemas/SecretDTO"
+            },
+            "title": "Secrets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "secrets"
+        ],
+        "title": "SecretsDTO",
+        "type": "object"
+      },
       "SelfReportReceiptDTO": {
         "additionalProperties": false,
         "description": "Bounded receipt for the four SELF-REPORT writes an agent makes about its own lifecycle - ``POST /api/self/waking`` (report_waking), ``/api/self/stopping`` (report_stopping), ``/api/self/stopped`` (report_stopped) and ``/api/self/refocus`` (restart_self) (T-91). All four answered with the whole MemberDTO, 32 fields flattened, measured first-hand this session: a boot report came back with 30 populated fields, of which the caller needed none it could not already name. These are agent-called through MCP, so that answer lands in the model's CONTEXT WINDOW - once per boot and once per shutdown, for every agent, forever. Owner ruling 2026-09-05: what the caller sent does not come home, only ids and what it genuinely needs to learn from the reply.\n\nWHAT IS KEPT IS WHAT CHANGES WHAT THE CALLER DOES NEXT, and nothing else passed that test. ``desired_state`` is the important one and it is not bookkeeping: api_members.go:1789-1795 records that a boot which lands after the owner has already cancelled it must not paint itself green, and names this field as the one that says whether the boot is wanted; the stopped-report handler says the same for the other end (\"desired_state alone decides whether a new generation follows\"). ``refocus_op`` and ``refocus_deadline`` say which rung of the wind-down ladder the agent is on and the epoch second it is counting to.\n\nDROPPED AND WHY, since a receipt has to be able to say it: ``machine`` and ``unread_count`` were NEVER REAL on this path - the shared member tail passed a literal \"\" and 0, which frontend/src/api/dtoParity.ts recorded on 2026-08-01 with the note that it has no user-visible consequence today because the cockpit never feeds these answers back into the roster. Collapsing these four routes removes the two invented values rather than fixing them in place, which is what owner asked for (\"是bug的可以順手修掉\"). ``forced_stop_at`` looks like a deadline and is not - its own description says it is the last time this member WAS force-stopped, 0 if never, deliberately not cleared by the next boot - so it cannot change what a waking agent does. ``roster_status`` was checked and dropped for a stronger reason: dismissal sets it and ``desired_state`` TOGETHER (api_members.go:1671-1672), so it can never say anything ``desired_state`` has not already said. Everything else is the caller's own identity, its own report coming back, or state ``get_member`` serves.",
@@ -6961,6 +7182,50 @@
           "refocus_op"
         ],
         "title": "SelfReportReceiptDTO",
+        "type": "object"
+      },
+      "SelfSecretDTO": {
+        "additionalProperties": false,
+        "description": "One secret as an AI member sees it in a listing: id, name and the owner's note. Never the value.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "note": {
+            "default": "",
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "note"
+        ],
+        "title": "SelfSecretDTO",
+        "type": "object"
+      },
+      "SelfSecretsDTO": {
+        "additionalProperties": false,
+        "description": "Every secret, ordered by `created_ts`. Never carries a value.",
+        "properties": {
+          "secrets": {
+            "items": {
+              "$ref": "#/components/schemas/SelfSecretDTO"
+            },
+            "title": "Secrets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "secrets"
+        ],
+        "title": "SelfSecretsDTO",
         "type": "object"
       },
       "SetPasswordDTO": {
@@ -19668,6 +19933,252 @@
         }
       }
     },
+    "/api/secrets": {
+      "get": {
+        "description": "- Every secret, ordered by `created_ts`: id, name, note, timestamps and when an AI member last revealed it. No value, masked value or hash of a value is ever returned.\n- Owner only; off the MCP surface.",
+        "operationId": "handle_list_secrets_api_secrets_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecretsDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "List every secret (no values).",
+        "x-mcp": {
+          "include": false
+        }
+      },
+      "post": {
+        "description": "- The server mints the id (`sec-` + 12 hex); it never changes and is the key every other route and `ocagent secret` take.\n- `name`: trimmed, 1–128 characters (the short-label cap), not unique. `value`: required, 1–65536 characters. `note`: optional, at most 4000 characters (the chat-body cap). 400 for a blank name or empty value, naming the field and the limit and nothing else.\n- The value is sealed (AES-256-GCM, AAD = the id) before it is written, and is never echoed, logged, or put in a chat message or event.\n- Returns the created secret without its value.\n- Owner only; off the MCP surface.",
+        "operationId": "handle_create_secret_api_secrets_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SecretCreateDTO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecretDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Create a secret.",
+        "x-mcp": {
+          "include": false
+        }
+      }
+    },
+    "/api/secrets/{secret_id}": {
+      "patch": {
+        "description": "- Only supplied fields change; the id never does. An absent or null `value` keeps the stored value; a supplied one is re-sealed with a fresh nonce. An absent or null `note` keeps the note; `\"\"` clears it.\n- Same limits as create. `updated_ts` moves on every successful edit; `created_ts` never does.\n- 404 when the id is unknown.\n- Returns the secret without its value.\n- Owner only; off the MCP surface.",
+        "operationId": "handle_update_secret_api_secrets__secret_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "secret_id",
+            "required": true,
+            "schema": {
+              "title": "Secret Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SecretUpdateDTO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecretDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Edit a secret's name, value or note.",
+        "x-mcp": {
+          "include": false
+        }
+      },
+      "delete": {
+        "description": "- Permanent: the row and its ciphertext go. No undo.\n- 404 when the id is unknown.\n- Returns the deleted secret without its value.\n- Owner only; off the MCP surface.",
+        "operationId": "handle_delete_secret_api_secrets__secret_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "secret_id",
+            "required": true,
+            "schema": {
+              "title": "Secret Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecretDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Delete a secret.",
+        "x-mcp": {
+          "include": false
+        }
+      }
+    },
     "/api/self/refocus": {
       "post": {
         "description": "- Restarts your own session: the server pushes you the stop document, you run the close-out and call report_stopped, then it respawns you in place.\n- 409 if you have no live event-stream connection or your desired state is not online, or if you are already further down the wind-down ladder - finish that close-out instead of retrying.\n- 429 within 10 minutes of your session connecting.\n- Emits a `member` event; a client holding the stream learns of this without polling.",
@@ -19733,6 +20244,120 @@
           },
           "name": "restart_self",
           "order": 16
+        }
+      }
+    },
+    "/api/self/secrets": {
+      "get": {
+        "description": "- Every secret, ordered by `created_ts`: id, name and note, so the caller can pick one and read the owner's note on how to use it. Never a value.\n- Every AI member may use every secret; there are no per-member grants.\n- For `ocagent secret list`.\n- Agents and admin agents only (403 for the owner and for machines); off the MCP surface: AI members use secrets only through `ocagent secret`.",
+        "operationId": "handle_list_self_secrets_api_self_secrets_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SelfSecretsDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "List every secret (no values).",
+        "x-mcp": {
+          "include": false
+        }
+      }
+    },
+    "/api/self/secrets/reveal": {
+      "post": {
+        "description": "- For `ocagent secret` only, so a value never lands in an MCP tool result.\n- Every AI member may reveal every secret; there are no per-member grants.\n- Every id must be shaped like a secret id (`sec-` + 12 lowercase hex); any other id is 400 before any lookup.\n- All or nothing: when any id is unknown the call is 404 naming those ids and returns no value.\n- A successful call sets `last_accessed_ts` on every revealed secret in the same transaction that reads the values. A refused or failed call returns no value and changes no `last_accessed_ts`.\n- The value never reaches a log, an event or a chat message.\n- Agents and admin agents only (403 for the owner and for machines); off the MCP surface: AI members use secrets only through `ocagent secret`.",
+        "operationId": "handle_reveal_self_secrets_api_self_secrets_reveal_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SecretRevealRequestDTO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecretRevealDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Retrieve secret values (CLI only).",
+        "x-mcp": {
+          "include": false
         }
       }
     },

@@ -12,6 +12,9 @@ import type {
   ReleaseCheckView,
   BackupHealthView,
   SigningKeyView,
+  SecretView,
+  SecretCreateInput,
+  SecretUpdateInput,
   AuthStatusView,
   MfaEnrollView,
   MfaStateView,
@@ -114,6 +117,7 @@ import type {
   WireVersion,
   WireBackupHealth,
   WireSigningKeys,
+  WireSecret,
   WireGlobalContext,
   WireBootDoc,
   WireDocumentHistory,
@@ -136,6 +140,8 @@ import {
   toReleaseCheck,
   toBackupHealth,
   toSigningKeys,
+  toSecret,
+  toSecrets,
   toGlobalContext,
   toBootDoc,
   toDocumentHistory,
@@ -2789,6 +2795,32 @@ const MOCK_WIRE_SIGNING_KEYS: WireSigningKeys["keys"] = [
 let mockSigningKeys: WireSigningKeys["keys"] = structuredClone(
   MOCK_WIRE_SIGNING_KEYS,
 );
+
+// Mock rows never hold a value: the mock has no reveal route, and keeping a
+// value nobody can read would only invite a component to start showing it.
+const MOCK_WIRE_SECRETS: WireSecret[] = [
+  {
+    id: "sec-00000000000a",
+    name: "GitHub deploy token",
+    note: "Only for pushing release tags.",
+    created_ts: 1760000000,
+    updated_ts: 1760000000,
+    last_accessed_ts: 1760000600,
+  },
+];
+let mockSecrets: WireSecret[] = structuredClone(MOCK_WIRE_SECRETS);
+
+function mockSecretOrThrow(method: string, id: string): WireSecret {
+  const row = mockSecrets.find((s) => s.id === id);
+  if (!row) {
+    throw mockApiError(
+      `http 404 for ${method} /api/secrets/${id}`,
+      404,
+      `no secret '${id}'`,
+    );
+  }
+  return row;
+}
 
 const mockApiImpl = {
   async listMembers(_opts?: { light?: boolean }): Promise<Member[]> {
@@ -5925,6 +5957,45 @@ const mockApiImpl = {
     return toSigningKeys({ keys: mockSigningKeys });
   },
 
+  async listSecrets(): Promise<SecretView[]> {
+    return toSecrets({ secrets: mockSecrets });
+  },
+
+  async createSecret(input: SecretCreateInput): Promise<SecretView> {
+    if (input.name.trim() === "" || input.value === "") {
+      throw mockApiError(
+        "http 400 for POST /api/secrets",
+        400,
+        input.name.trim() === "" ? "name must not be blank" : "value must not be empty",
+      );
+    }
+    const now = Date.now() / 1000;
+    const row: WireSecret = {
+      id: `sec-${Math.random().toString(16).slice(2, 14).padEnd(12, "0")}`,
+      name: input.name.trim(),
+      note: input.note,
+      created_ts: now,
+      updated_ts: now,
+      last_accessed_ts: null,
+    };
+    mockSecrets.push(row);
+    return toSecret(row);
+  },
+
+  async updateSecret(id: string, patch: SecretUpdateInput): Promise<SecretView> {
+    const row = mockSecretOrThrow("PATCH", id);
+    if (patch.name !== undefined) row.name = patch.name.trim();
+    if (patch.note !== undefined) row.note = patch.note;
+    row.updated_ts = Date.now() / 1000;
+    return toSecret(row);
+  },
+
+  async deleteSecret(id: string): Promise<SecretView> {
+    const row = mockSecretOrThrow("DELETE", id);
+    mockSecrets = mockSecrets.filter((s) => s.id !== id);
+    return toSecret(row);
+  },
+
   async getAuthStatus(): Promise<AuthStatusView> {
     return { passwordSet: mockPasswordSet, mfaRequired: mockMfaActive };
   },
@@ -7415,6 +7486,7 @@ export function __resetMock(): void {
   // test that rotates leaves a two-key ring for whatever runs next, and the
   // failure lands on the innocent test.
   mockSigningKeys = structuredClone(MOCK_WIRE_SIGNING_KEYS);
+  mockSecrets = structuredClone(MOCK_WIRE_SECRETS);
   wireMembers = structuredClone(MOCK_WIRE_MEMBERS);
   wireMonitoring = structuredClone(MOCK_WIRE_MONITORING);
   mockBinStatus.clear();

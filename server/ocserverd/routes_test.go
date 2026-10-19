@@ -108,6 +108,12 @@ func TestRouteSpecs(t *testing.T) {
 		{method: http.MethodPost, path: "/api/tasks/{task_id}/mark-terminated", auth: authGated, requires: principalAgent, mcpTool: "mark_task_terminated"},
 		{method: http.MethodPost, path: "/api/tasks/{task_id}/mark-duplicated", auth: authGated, requires: principalAgent, mcpTool: "mark_task_duplicated"},
 		{method: http.MethodPost, path: "/api/tasks/{task_id}/force-done", auth: authGated, requires: principalAdminAgent, mcpTool: "force_task_done"},
+		{method: http.MethodGet, path: "/api/secrets", auth: authGated, requires: principalOwner, exclude: true},
+		{method: http.MethodPost, path: "/api/secrets", auth: authGated, requires: principalOwner, exclude: true},
+		{method: http.MethodPatch, path: "/api/secrets/{secret_id}", auth: authGated, requires: principalOwner, exclude: true},
+		{method: http.MethodDelete, path: "/api/secrets/{secret_id}", auth: authGated, requires: principalOwner, exclude: true},
+		{method: http.MethodGet, path: "/api/self/secrets", auth: authGated, requires: principalAgent, exclude: true},
+		{method: http.MethodPost, path: "/api/self/secrets/reveal", auth: authGated, requires: principalAgent, exclude: true},
 	} {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
 			var got *RouteSpec

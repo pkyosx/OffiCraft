@@ -1321,5 +1321,47 @@
     "method": "GET",
     "path": "/api/members/{member_id}/boot-context",
     "requires": "admin_agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/api/secrets",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/secrets",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "PATCH",
+    "path": "/api/secrets/{secret_id}",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "DELETE",
+    "path": "/api/secrets/{secret_id}",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/api/self/secrets",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/self/secrets/reveal",
+    "requires": "agent"
   }
 ]

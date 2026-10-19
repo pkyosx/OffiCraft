@@ -1110,6 +1110,32 @@ export interface SigningKeyView {
   isSigning: boolean;
 }
 
+/** One secret as the owner's Secrets page sees it. There is no value field:
+ * no owner route returns a value, masked or otherwise. */
+export interface SecretView {
+  id: string;
+  name: string;
+  note: string;
+  createdTs: number;
+  updatedTs: number;
+  /** null until an AI member first reveals it. */
+  lastAccessedTs: number | null;
+}
+
+export interface SecretCreateInput {
+  name: string;
+  value: string;
+  note: string;
+}
+
+/** Omitted fields are kept by the server; an absent `value` keeps the stored
+ * value and `note: ""` clears the note. */
+export interface SecretUpdateInput {
+  name?: string;
+  note?: string;
+  value?: string;
+}
+
 export interface BackupHealthView {
   status: BackupHealthStatus;
   code: BackupHealthCode;

@@ -432,6 +432,39 @@ var authzOutsideRouteTable = map[string]string{
 		"purpose — they ask the same question of the same caller about the same row, so " +
 		"two copies could only drift into one of them being wider than the ruling.",
 
+	"api_secrets.go :: callerIsOwner :: s.principalOfRequest(r) == principalOwner": "" +
+		"GET /api/self/secrets and POST /api/self/secrets/reveal admit agents and admin " +
+		"agents but NOT the owner (the approved spec: the owner manages secrets on the " +
+		"owner routes and AI members reveal them only through ocagent, so every reveal is " +
+		"attributable to a member). The capability ladder is linear, so no Requires value " +
+		"can admit agent and admin_agent while excluding owner; the rows carry the agent " +
+		"floor and the owner is refused here.",
+
+	"api_secrets.go :: callerIsActiveAIMember :: classifyMember(m)": "" +
+		"the reveal route is the only one that returns plaintext, so on top of the " +
+		"agent floor it re-reads the caller's roster row and refuses unless it is an " +
+		"ACTIVE agent or admin agent (a warden classifies as machine and is refused). " +
+		"resolvePrincipal answers agent when the roster read fails or finds no row, which " +
+		"is fail-open by design for every other route; this check is the fail-closed " +
+		"override for reveal and cannot be a Requires value, because a route floor is " +
+		"decided by that same resolver.",
+	"api_secrets.go :: callerIsActiveAIMember :: class == principalAgent": "" +
+		"the reveal route is the only one that returns plaintext, so on top of the " +
+		"agent floor it re-reads the caller's roster row and refuses unless it is an " +
+		"ACTIVE agent or admin agent (a warden classifies as machine and is refused). " +
+		"resolvePrincipal answers agent when the roster read fails or finds no row, which " +
+		"is fail-open by design for every other route; this check is the fail-closed " +
+		"override for reveal and cannot be a Requires value, because a route floor is " +
+		"decided by that same resolver.",
+	"api_secrets.go :: callerIsActiveAIMember :: class == principalAdminAgent": "" +
+		"the reveal route is the only one that returns plaintext, so on top of the " +
+		"agent floor it re-reads the caller's roster row and refuses unless it is an " +
+		"ACTIVE agent or admin agent (a warden classifies as machine and is refused). " +
+		"resolvePrincipal answers agent when the roster read fails or finds no row, which " +
+		"is fail-open by design for every other route; this check is the fail-closed " +
+		"override for reveal and cannot be a Requires value, because a route floor is " +
+		"decided by that same resolver.",
+
 	// ── owner-only presentation folds (not access control, but they DO branch
 	// on the principal, so a re-grade must see them) ──────────────────────────
 	"account_display.go :: accountDisplayFold :: s.principalOfRequest(r) == principalOwner": "" +

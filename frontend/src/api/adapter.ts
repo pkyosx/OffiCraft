@@ -21,6 +21,9 @@ import type {
   ReleaseCheckView,
   BackupHealthView,
   SigningKeyView,
+  SecretView,
+  SecretCreateInput,
+  SecretUpdateInput,
   AuthStatusView,
   MfaEnrollView,
   MfaStateView,
@@ -2848,6 +2851,14 @@ export interface Api {
   /** POST /api/auth/signing-keys/{keyId}/remove — REVOKE everything that key
    * signed. No undo, no grace period. Answers the ring after the removal. */
   removeSigningKey(keyId: string): Promise<SigningKeyView[]>;
+  /** GET /api/secrets — every secret, oldest first, never a value. */
+  listSecrets(): Promise<SecretView[]>;
+  /** POST /api/secrets — the value is write-only and never comes back. */
+  createSecret(input: SecretCreateInput): Promise<SecretView>;
+  /** PATCH /api/secrets/{id} — only the supplied fields change. */
+  updateSecret(id: string, patch: SecretUpdateInput): Promise<SecretView>;
+  /** DELETE /api/secrets/{id} — permanent. */
+  deleteSecret(id: string): Promise<SecretView>;
   /** The folded global-context doc (owner overlay ⊕ file seed). */
   getGlobalContext(): Promise<GlobalContextView>;
   /** Whole-doc replace of the global context. The write answers with a

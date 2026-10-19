@@ -2336,3 +2336,46 @@ func newWebhookEndpointDTO(e WebhookEndpoint) webhookEndpointDTO {
 		LastDropReason:   e.LastDropReason,
 	}
 }
+
+// No secret DTO has a value field except secretValueDTO, which only the AI
+// reveal route serves.
+type secretDTO struct {
+	ID             string   `json:"id"`
+	Name           string   `json:"name"`
+	Note           string   `json:"note"`
+	CreatedTS      float64  `json:"created_ts"`
+	UpdatedTS      float64  `json:"updated_ts"`
+	LastAccessedTS *float64 `json:"last_accessed_ts"`
+}
+
+func newSecretDTO(s Secret) secretDTO {
+	return secretDTO{
+		ID: s.ID, Name: s.Name, Note: s.Note,
+		CreatedTS: s.CreatedTS, UpdatedTS: s.UpdatedTS, LastAccessedTS: s.LastAccessedTS,
+	}
+}
+
+type secretsDTO struct {
+	Secrets []secretDTO `json:"secrets"`
+}
+
+type selfSecretDTO struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Note string `json:"note"`
+}
+
+type selfSecretsDTO struct {
+	Secrets []selfSecretDTO `json:"secrets"`
+}
+
+type secretValueDTO struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Note  string `json:"note"`
+	Value string `json:"value"`
+}
+
+type secretRevealDTO struct {
+	Secrets []secretValueDTO `json:"secrets"`
+}

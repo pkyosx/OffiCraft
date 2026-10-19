@@ -520,6 +520,7 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 	api.releaseSiteBase = env("OC_RELEASE_SITE_BASE")
 	api.namespace = cfg.Server.Namespace
 	api.binCacheDir = filepath.Join(filepath.Dir(dbPath), "bin")
+	api.vault = newSecretVault(vaultKeyPathFor(dbPath))
 	if n, err := api.reconcileTaskStatusesOnBoot(); err != nil {
 		fmt.Fprintf(out, "[ocserverd] WARN: task status boot reconcile: %v\n", err)
 	} else if n > 0 {

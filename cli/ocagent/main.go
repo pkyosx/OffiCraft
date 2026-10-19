@@ -24,6 +24,7 @@ var planeASubcommands = []struct{ name, help string }{
 	{"suicide", "self-terminate: kill my own tmux session (OC_SESSION) → SSE drops → offline"},
 	{"download", "fetch a chat attachment blob to a local file (streaming; --out <dir>)"},
 	{"upload", "stream a local file into the attachment store (prints the att id)"},
+	{"secret", "use an owner-stored secret by id: list, show, run (env + masked output), write (0600 file); never prints a value"},
 	{"diff", "print a compare-screen link (a host-less /diff path) for two attachment ids / document versions (--external mints a no-login URL)"},
 	// guard-bash / guard-permission are wired by cli/ocwarden/spawn.go into every
 	// member's settings.json hooks, not run by hand; listed so an agent they
@@ -138,6 +139,9 @@ func realMain(argv []string, env func(string) string, in io.Reader, out io.Write
 		}
 		return cmdDiff(newNoDeadlineClient(), cfg, args[0], args[1],
 			*labelBefore, *labelAfter, *external, out, os.Stderr)
+
+	case "secret":
+		return cmdSecret(rest, cfg, in, out, os.Stderr)
 
 	case "guard-bash":
 		fs := flag.NewFlagSet("ocagent guard-bash", flag.ContinueOnError)

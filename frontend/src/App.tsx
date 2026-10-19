@@ -9,6 +9,7 @@ import {
   InboxIcon,
   TasksIcon,
   BookIcon,
+  KeyIcon,
   MonitorIcon,
   FileTextIcon,
 } from "./components/icons";
@@ -19,6 +20,7 @@ import { OfficePage } from "./components/OfficePage";
 import { RepliesPage } from "./components/RepliesPage";
 import { TasksPage } from "./components/TasksPage";
 import { LorePage } from "./components/LorePage";
+import { SecretsPage } from "./components/SecretsPage";
 import { MonitorPage } from "./components/MonitorPage";
 import { GuidePage } from "./components/UserGuidePage";
 import { SettingsPage } from "./components/SettingsPage";
@@ -36,7 +38,14 @@ import { useChatUnread } from "./hooks/useChatUnread";
 import { useTaskCount } from "./hooks/useTaskCount";
 import "./components/chrome.css";
 
-type Tab = "office" | "replies" | "tasks" | "lore" | "monitor" | "guide";
+type Tab =
+  | "office"
+  | "replies"
+  | "tasks"
+  | "lore"
+  | "secrets"
+  | "monitor"
+  | "guide";
 
 // Which peer the office was last left on. Browser-local by nature (it is this
 // browser's last position, not studio state), so it stays out of the server and
@@ -96,7 +105,9 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
             ? "tasks"
             : route.page === "lore"
               ? "lore"
-              : "office";
+              : route.page === "secrets"
+                ? "secrets"
+                : "office";
   // The 等我回覆 nav badge: how many reply cards are WAITING (answered never
   // counts). Live via the count endpoint + "reply_card" SSE deltas. A separate
   // signal from the per-member chat unread red dot (different clearing rules —
@@ -403,6 +414,18 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
             <NavIcon tabKey="lore" fallback={<BookIcon size={15} />} />
             <span>{t.nav.lore}</span>
           </button>
+          {/* No NavIcon: themes can only override the tab keys
+              navIconKeyAllowed lists, and secrets is not one of them. */}
+          <button
+            type="button"
+            className={`nav-tab${
+              !settingsOpen && tab === "secrets" ? " nav-tab--active" : ""
+            }`}
+            onClick={() => selectTab("secrets")}
+          >
+            <KeyIcon size={15} />
+            <span>{t.nav.secrets}</span>
+          </button>
           <button
             type="button"
             className={`nav-tab${
@@ -458,6 +481,8 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
           <TasksPage />
         ) : tab === "lore" ? (
           <LorePage />
+        ) : tab === "secrets" ? (
+          <SecretsPage />
         ) : tab === "guide" ? (
           <GuidePage />
         ) : (

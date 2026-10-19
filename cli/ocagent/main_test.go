@@ -16,6 +16,7 @@ subcommands:
   suicide         self-terminate: kill my own tmux session (OC_SESSION) → SSE drops → offline
   download        fetch a chat attachment blob to a local file (streaming; --out <dir>)
   upload          stream a local file into the attachment store (prints the att id)
+  secret          use an owner-stored secret by id: list, show, run (env + masked output), write (0600 file); never prints a value
   diff            print a compare-screen link (a host-less /diff path) for two attachment ids / document versions (--external mints a no-login URL)
   guard-bash      PreToolUse hook: refuse the removal shapes that stall a headless member
   guard-permission PermissionRequest hook: refuse every confirmation prompt nobody is here to answer

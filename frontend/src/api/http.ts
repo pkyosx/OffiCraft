@@ -31,6 +31,9 @@ import type {
   ReleaseCheckView,
   BackupHealthView,
   SigningKeyView,
+  SecretView,
+  SecretCreateInput,
+  SecretUpdateInput,
   AuthStatusView,
   MfaEnrollView,
   MfaStateView,
@@ -133,6 +136,8 @@ import {
   toReleaseCheck,
   toBackupHealth,
   toSigningKeys,
+  toSecret,
+  toSecrets,
   toGlobalContext,
   toBootDoc,
   toDocumentHistory,
@@ -2465,6 +2470,40 @@ export const httpApi: Api = {
       }),
     );
     return toSigningKeys(wire);
+  },
+
+  async listSecrets(): Promise<SecretView[]> {
+    return toSecrets(unwrap(await client.GET("/api/secrets")));
+  },
+
+  async createSecret(input: SecretCreateInput): Promise<SecretView> {
+    const body = { name: input.name, value: input.value, note: input.note };
+    return toSecret(unwrap(await client.POST("/api/secrets", { body })));
+  },
+
+  async updateSecret(id: string, patch: SecretUpdateInput): Promise<SecretView> {
+    const body: SecretUpdateInput = {};
+    if (patch.name !== undefined) body.name = patch.name;
+    if (patch.note !== undefined) body.note = patch.note;
+    if (patch.value !== undefined) body.value = patch.value;
+    return toSecret(
+      unwrap(
+        await client.PATCH("/api/secrets/{secret_id}", {
+          params: { path: { secret_id: id } },
+          body,
+        }),
+      ),
+    );
+  },
+
+  async deleteSecret(id: string): Promise<SecretView> {
+    return toSecret(
+      unwrap(
+        await client.DELETE("/api/secrets/{secret_id}", {
+          params: { path: { secret_id: id } },
+        }),
+      ),
+    );
   },
 
   async getAuthStatus(): Promise<AuthStatusView> {
