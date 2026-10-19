@@ -499,7 +499,7 @@ func TestHandleRevealSelfSecretsApiSelfSecretsRevealPost(t *testing.T) {
 		apiWantNoSecretValue(t, rec.Body.Bytes(), apiTestSecretValue)
 	})
 
-	t.Run("a ciphertext moved onto another id does not decrypt", func(t *testing.T) {
+	t.Run("a ciphertext moved onto another id does not decrypt, and the readable secret revealed alongside it stays never accessed", func(t *testing.T) {
 		f := newAPITestSecretFixture(t)
 		a := f.create(t, "a", apiTestSecretValue, "")["id"].(string)
 		b := f.create(t, "b", "fake-value-2", "")["id"].(string)
@@ -507,7 +507,7 @@ func TestHandleRevealSelfSecretsApiSelfSecretsRevealPost(t *testing.T) {
 		if _, err := f.d.wdb.Exec(`UPDATE secret SET nonce = ?, value_ct = ? WHERE id = ?`, src.Nonce, src.ValueCT, b); err != nil {
 			t.Fatal(err)
 		}
-		rec := apiRequest(t, f.h, "POST", "/api/self/secrets/reveal", f.agent, `{"ids":["`+b+`"]}`)
+		rec := apiRequest(t, f.h, "POST", "/api/self/secrets/reveal", f.agent, `{"ids":["`+a+`","`+b+`"]}`)
 		if rec.Code != http.StatusInternalServerError {
 			t.Fatalf("status %d: %s", rec.Code, rec.Body)
 		}
