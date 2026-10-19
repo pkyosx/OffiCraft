@@ -265,6 +265,18 @@ if [ -z "${TOKEN:-}" ]; then
 fi
 echo "$TOKEN" > "$STATE_DIR/owner.tok"
 
+# 5a. turn the built-in seasonal theme off: while its window is open it rewrites
+#     UI wording (nav tabs, column headers, chat labels) by calendar date, and
+#     the specs select on the plain wording.
+SEASONAL=$(curl -sf -X PATCH "$OC_E2E_BASE/api/settings" -H "Authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' -d '{"display_seasonal_theme":false}' \
+  | py -c 'import sys,json;print(json.load(sys.stdin).get("display_seasonal_theme"))' || true)
+if [ "$SEASONAL" != "False" ]; then
+  echo "[setup] FATAL: could not turn off display_seasonal_theme (server reported '${SEASONAL:-<no response>}')." >&2
+  exit 1
+fi
+echo "[setup] display_seasonal_theme=false"
+
 # 6. persist state for the spec runner.
 cat > "$STATE_DIR/env" <<EOF
 OC_E2E_BASE=$OC_E2E_BASE
