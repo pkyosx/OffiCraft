@@ -45,17 +45,24 @@ afterEach(() => {
 });
 
 describe("SecretsPage", () => {
-  it("a collapsed row shows id, name, updated time and the edit / delete icons; clicking it reveals the note and last access", async () => {
+  it("each secret card shows id, name, note, last access, updated time and the edit / delete icons without any interaction", async () => {
     const { container } = renderPage();
     const row = await firstRow(container);
     const now = Math.floor(Date.now() / 1000);
     expect(row.getAttribute("data-secret-id")).toBe("sec-00000000000a");
-    expect(row.getAttribute("aria-expanded")).toBe("false");
+    expect(row.getAttribute("role")).toBeNull();
+    expect(row.hasAttribute("aria-expanded")).toBe(false);
     expect(row.querySelector('[data-testid="secret-id"]')?.textContent).toContain(
       "sec-00000000000a",
     );
     expect(row.querySelector('[data-testid="secret-name"]')?.textContent).toBe(
       "GitHub deploy token",
+    );
+    expect(row.querySelector('[data-testid="secret-note"]')?.textContent).toBe(
+      zh.secrets.colNote + "Only for pushing release tags.",
+    );
+    expect(row.querySelector('[data-testid="secret-last-accessed"]')?.textContent).toBe(
+      zh.secrets.colLastAccessed + formatAbsolute(1760000600, now),
     );
     expect(row.querySelector('[data-testid="secret-updated"]')?.textContent).toBe(
       zh.secrets.colUpdated + formatAbsolute(1760000000, now),
@@ -69,33 +76,15 @@ describe("SecretsPage", () => {
       expect(icon.getAttribute("aria-label")).toBe(`${label} GitHub deploy token`);
       expect(icon.getAttribute("title")).toBe(label);
     }
-    for (const hidden of ["secret-note", "secret-last-accessed"]) {
-      expect(row.querySelector(`[data-testid="${hidden}"]`)).toBeNull();
-    }
     expect(container.querySelector("h2")).toBeNull();
-
-    fireEvent.click(row.querySelector('[data-testid="secret-name"]')!);
-    expect(row.getAttribute("aria-expanded")).toBe("true");
-    expect(row.querySelector('[data-testid="secret-note"]')?.textContent).toContain(
-      "Only for pushing release tags.",
-    );
-    expect(row.querySelector('[data-testid="secret-last-accessed"]')?.textContent).toBe(
-      zh.secrets.colLastAccessed + formatAbsolute(1760000600, now),
-    );
-    const detail = row.querySelector('[data-testid="secret-detail"]')!;
-    expect(detail.querySelector("button")).toBeNull();
-
-    fireEvent.keyDown(row, { key: "Enter" });
-    expect(row.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("clicking the id copies it without expanding the row, and confirms only after the copy succeeded", async () => {
+  it("clicking the id copies it and confirms only after the copy succeeded", async () => {
     const { container } = renderPage();
     const row = await firstRow(container);
     fireEvent.click(row.querySelector('[data-testid="secret-id"]')!);
     await waitFor(() => expect(copyTextMock).toHaveBeenCalledWith("sec-00000000000a"));
     expect(await screen.findByTestId("secret-id-copied")).toBeTruthy();
-    expect(row.getAttribute("aria-expanded")).toBe("false");
   });
 
   it("creating sends name, value and note, then shows the new row without its value", async () => {
@@ -128,7 +117,6 @@ describe("SecretsPage", () => {
     expect(screen.queryByTestId("secret-create-form")).toBeNull();
     expect(valueAppearsAnywhere(container)).toBe(false);
     const created = container.querySelectorAll<HTMLElement>('[data-testid="secret-row"]')[1];
-    fireEvent.click(created);
     expect(created.querySelector('[data-testid="secret-last-accessed"]')?.textContent).toBe(
       zh.secrets.colLastAccessed + zh.secrets.neverAccessed,
     );
@@ -187,13 +175,12 @@ describe("SecretsPage", () => {
     expect(valueAppearsAnywhere(container)).toBe(false);
   });
 
-  it("editing with a blank value sends only the changed fields and keeps the stored value", async () => {
+  it("editing with a blank value sends only the changed fields, and clearing the note drops its line from the card", async () => {
     const updateSpy = vi.spyOn(api, "updateSecret");
     const { container } = renderPage();
     const row = await firstRow(container);
 
     fireEvent.click(row.querySelector('[data-testid="secret-edit"]')!);
-    expect(row.getAttribute("aria-expanded")).toBe("false");
     const valueInput = screen.getByTestId("secret-value-input") as HTMLInputElement;
     expect(valueInput.value).toBe("");
     expect(valueInput.placeholder).toBe(zh.secrets.valueKeepPlaceholder);
@@ -206,19 +193,16 @@ describe("SecretsPage", () => {
       expect(updateSpy).toHaveBeenCalledWith("sec-00000000000a", { note: "" }),
     );
     const saved = await firstRow(container);
-    fireEvent.click(saved);
-    expect(saved.querySelector('[data-testid="secret-note"]')?.textContent).toBe(
-      zh.secrets.colNote + zh.secrets.noNote,
-    );
+    expect(saved.querySelector('[data-testid="secret-note"]')).toBeNull();
+    expect(saved.querySelector('[data-testid="secret-last-accessed"]')).toBeTruthy();
   });
 
-  it("deleting from the collapsed row goes through the confirmation before calling the API, without expanding the row", async () => {
+  it("deleting goes through the confirmation before calling the API", async () => {
     const deleteSpy = vi.spyOn(api, "deleteSecret");
     const { container } = renderPage();
     const row = await firstRow(container);
 
     fireEvent.click(row.querySelector('[data-testid="secret-delete"]')!);
-    expect(row.getAttribute("aria-expanded")).toBe("false");
     expect(deleteSpy).not.toHaveBeenCalled();
     expect(screen.getByTestId("secrets-delete-confirm").textContent).toContain(
       "GitHub deploy token",
@@ -228,61 +212,5 @@ describe("SecretsPage", () => {
     await waitFor(() => expect(deleteSpy).toHaveBeenCalledWith("sec-00000000000a"));
     expect(await screen.findByTestId("secrets-empty")).toBeTruthy();
     expect(screen.queryByTestId("secrets-delete-confirm")).toBeNull();
-  });
-
-  describe("on a phone", () => {
-    beforeEach(() => {
-      Object.defineProperty(window, "matchMedia", {
-        configurable: true,
-        writable: true,
-        value: (query: string) => ({
-          matches: /max-width/.test(query),
-          media: query,
-          onchange: null,
-          addEventListener: () => {},
-          removeEventListener: () => {},
-          addListener: () => {},
-          removeListener: () => {},
-          dispatchEvent: () => false,
-        }),
-      });
-    });
-    afterEach(() => {
-      delete (window as unknown as { matchMedia?: unknown }).matchMedia;
-    });
-
-    it("each secret is a card showing note, last access and updated time without an expand toggle", async () => {
-      const { container } = renderPage();
-      const row = await firstRow(container);
-      const now = Math.floor(Date.now() / 1000);
-      expect(row.getAttribute("role")).toBeNull();
-      expect(row.hasAttribute("aria-expanded")).toBe(false);
-      expect(row.querySelector(".lore-row__expand-mark")).toBeNull();
-      expect(row.querySelector('[data-testid="secret-edit"]')).toBeTruthy();
-      expect(row.querySelector('[data-testid="secret-delete"]')).toBeTruthy();
-      expect(row.querySelector('[data-testid="secret-note"]')?.textContent).toBe(
-        zh.secrets.colNote + "Only for pushing release tags.",
-      );
-      expect(row.querySelector('[data-testid="secret-last-accessed"]')?.textContent).toBe(
-        zh.secrets.colLastAccessed + formatAbsolute(1760000600, now),
-      );
-      expect(row.querySelector('[data-testid="secret-updated"]')?.textContent).toBe(
-        zh.secrets.colUpdated + formatAbsolute(1760000000, now),
-      );
-    });
-
-    it("a card without a note omits the note line", async () => {
-      const { container } = renderPage();
-      const row = await firstRow(container);
-      fireEvent.click(row.querySelector('[data-testid="secret-edit"]')!);
-      fireEvent.change(screen.getByTestId("secret-note-input"), { target: { value: "" } });
-      fireEvent.click(screen.getByTestId("secret-save"));
-      await waitFor(() =>
-        expect(container.querySelector('[data-testid="secret-edit-form"]')).toBeNull(),
-      );
-      const saved = await firstRow(container);
-      expect(saved.querySelector('[data-testid="secret-note"]')).toBeNull();
-      expect(saved.querySelector('[data-testid="secret-last-accessed"]')).toBeTruthy();
-    });
   });
 });
