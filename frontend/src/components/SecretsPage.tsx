@@ -4,13 +4,22 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useI18n } from "../i18n";
+import { useIsMobile } from "../hooks/useIsMobile";
 import { useSecrets } from "../hooks/useSecrets";
 import { copyText } from "../lib/clipboard";
 import { formatAbsolute } from "../lib/dateFormat";
 import type { SecretView } from "../types";
 import { ConfirmModal } from "./ConfirmModal";
-import { CheckIcon, ChevronDownIcon, ChevronRightIcon, KeyIcon } from "./icons";
+import {
+  CheckIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
+  KeyIcon,
+  PencilIcon,
+  TrashIcon,
+} from "./icons";
 import "./lore.css";
+import "./theme-settings.css";
 import "./secrets.css";
 
 export function SecretsPage() {
@@ -25,6 +34,7 @@ export function SecretsPage() {
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const nowSecs = Math.floor(Date.now() / 1000);
+  const isMobile = useIsMobile();
 
   async function confirmDelete() {
     if (!deleteTarget) return;
@@ -54,7 +64,10 @@ export function SecretsPage() {
       )}
 
       {secrets.length > 0 && (
-        <div className="secrets__card" data-testid="secrets-list">
+        <div
+          className={isMobile ? "secrets__stack" : "secrets__card"}
+          data-testid="secrets-list"
+        >
           {secrets.map((s) =>
             editingId === s.id ? (
               <SecretForm
@@ -78,6 +91,7 @@ export function SecretsPage() {
                 key={s.id}
                 secret={s}
                 nowSecs={nowSecs}
+                stacked={isMobile}
                 onEdit={() => setEditingId(s.id)}
                 onDelete={() => {
                   setDeleteError("");
@@ -139,11 +153,13 @@ function SecretRow({
   nowSecs,
   onEdit,
   onDelete,
+  stacked,
 }: {
   secret: SecretView;
   nowSecs: number;
   onEdit: () => void;
   onDelete: () => void;
+  stacked: boolean;
 }) {
   const { t, msg } = useI18n();
   const d = t.secrets;
@@ -186,6 +202,98 @@ function SecretRow({
     }
   }
 
+  const idBadge = (
+    <button
+      type="button"
+      className="lore-row__id-badge"
+      data-testid="secret-id"
+      aria-label={msg.secretCopyId(secret.id)}
+      title={msg.secretCopyId(secret.id)}
+      onClick={copyId}
+    >
+      {copied ? <CheckIcon size={13} /> : <KeyIcon size={13} />}
+      {secret.id}
+      {copied && (
+        <span
+          className="lore-row__id-badge-copied"
+          role="status"
+          data-testid="secret-id-copied"
+        >
+          {d.idCopied}
+        </span>
+      )}
+    </button>
+  );
+  const name = (
+    <span className="secrets__name" data-testid="secret-name">
+      {secret.name}
+    </span>
+  );
+  const actions = (
+    <>
+      <button
+        type="button"
+        className="ts-icon-btn"
+        data-testid="secret-edit"
+        aria-label={`${d.edit} ${secret.name}`}
+        title={d.edit}
+        onClick={onEdit}
+      >
+        <PencilIcon size={15} />
+      </button>
+      <button
+        type="button"
+        className="ts-icon-btn ts-icon-btn--danger"
+        data-testid="secret-delete"
+        aria-label={`${d.delete} ${secret.name}`}
+        title={d.delete}
+        onClick={onDelete}
+      >
+        <TrashIcon size={15} />
+      </button>
+    </>
+  );
+  const updated = formatAbsolute(secret.updatedTs, nowSecs);
+  const lastAccessed =
+    secret.lastAccessedTs == null
+      ? d.neverAccessed
+      : formatAbsolute(secret.lastAccessedTs, nowSecs);
+
+  if (stacked) {
+    return (
+      <article
+        className="secrets__row secrets__row--stacked"
+        data-testid="secret-row"
+        data-secret-id={secret.id}
+      >
+        <div className="secrets__stack-head">
+          <div className="secrets__stack-title">
+            {idBadge}
+            {name}
+          </div>
+          <span className="secrets__row-actions">{actions}</span>
+        </div>
+        {secret.note && (
+          <div
+            className="secrets__stack-line secrets__stack-line--block"
+            data-testid="secret-note"
+          >
+            <span className="secrets__label">{d.colNote}</span>
+            <span className="secrets__note">{secret.note}</span>
+          </div>
+        )}
+        <div className="secrets__stack-line" data-testid="secret-last-accessed">
+          <span className="secrets__label">{d.colLastAccessed}</span>
+          <span className="secrets__stack-value">{lastAccessed}</span>
+        </div>
+        <div className="secrets__stack-line" data-testid="secret-updated">
+          <span className="secrets__label">{d.colUpdated}</span>
+          <span className="secrets__stack-value">{updated}</span>
+        </div>
+      </article>
+    );
+  }
+
   return (
     <article
       className="secrets__row"
@@ -199,35 +307,17 @@ function SecretRow({
       onKeyDown={onRowToggleKeyDown}
     >
       <div className="secrets__row-head">
-        <button
-          type="button"
-          className="lore-row__id-badge"
-          data-testid="secret-id"
-          aria-label={msg.secretCopyId(secret.id)}
-          title={msg.secretCopyId(secret.id)}
-          onClick={copyId}
-        >
-          {copied ? <CheckIcon size={13} /> : <KeyIcon size={13} />}
-          {secret.id}
-          {copied && (
-            <span
-              className="lore-row__id-badge-copied"
-              role="status"
-              data-testid="secret-id-copied"
-            >
-              {d.idCopied}
-            </span>
-          )}
-        </button>
-        <span className="secrets__name" data-testid="secret-name">
-          {secret.name}
-        </span>
+        {idBadge}
+        {name}
         <span className="secrets__updated" data-testid="secret-updated">
           <span className="secrets__label">{d.colUpdated}</span>
-          {formatAbsolute(secret.updatedTs, nowSecs)}
+          {updated}
         </span>
-        <span className="lore-row__expand-mark" aria-hidden="true">
-          {expanded ? <ChevronDownIcon size={18} /> : <ChevronRightIcon size={18} />}
+        <span className="secrets__row-actions">
+          {actions}
+          <span className="lore-row__expand-mark" aria-hidden="true">
+            {expanded ? <ChevronDownIcon size={18} /> : <ChevronRightIcon size={18} />}
+          </span>
         </span>
       </div>
       {expanded && (
@@ -242,27 +332,7 @@ function SecretRow({
           </div>
           <div className="secrets__detail-line" data-testid="secret-last-accessed">
             <span className="secrets__label">{d.colLastAccessed}</span>
-            {secret.lastAccessedTs == null
-              ? d.neverAccessed
-              : formatAbsolute(secret.lastAccessedTs, nowSecs)}
-          </div>
-          <div className="secrets__detail-actions">
-            <button
-              type="button"
-              className="secrets__btn"
-              data-testid="secret-edit"
-              onClick={onEdit}
-            >
-              {d.edit}
-            </button>
-            <button
-              type="button"
-              className="secrets__btn secrets__action--danger"
-              data-testid="secret-delete"
-              onClick={onDelete}
-            >
-              {d.delete}
-            </button>
+            {lastAccessed}
           </div>
         </div>
       )}

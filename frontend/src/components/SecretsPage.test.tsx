@@ -45,7 +45,7 @@ afterEach(() => {
 });
 
 describe("SecretsPage", () => {
-  it("a collapsed row shows only id, name and updated time; clicking it reveals the note, last access and actions", async () => {
+  it("a collapsed row shows id, name, updated time and the edit / delete icons; clicking it reveals the note and last access", async () => {
     const { container } = renderPage();
     const row = await firstRow(container);
     const now = Math.floor(Date.now() / 1000);
@@ -60,7 +60,16 @@ describe("SecretsPage", () => {
     expect(row.querySelector('[data-testid="secret-updated"]')?.textContent).toBe(
       zh.secrets.colUpdated + formatAbsolute(1760000000, now),
     );
-    for (const hidden of ["secret-note", "secret-last-accessed", "secret-edit", "secret-delete"]) {
+    for (const [testId, label] of [
+      ["secret-edit", zh.secrets.edit],
+      ["secret-delete", zh.secrets.delete],
+    ]) {
+      const icon = row.querySelector<HTMLElement>(`[data-testid="${testId}"]`)!;
+      expect(icon.textContent).toBe("");
+      expect(icon.getAttribute("aria-label")).toBe(`${label} GitHub deploy token`);
+      expect(icon.getAttribute("title")).toBe(label);
+    }
+    for (const hidden of ["secret-note", "secret-last-accessed"]) {
       expect(row.querySelector(`[data-testid="${hidden}"]`)).toBeNull();
     }
     expect(container.querySelector("h2")).toBeNull();
@@ -73,7 +82,8 @@ describe("SecretsPage", () => {
     expect(row.querySelector('[data-testid="secret-last-accessed"]')?.textContent).toBe(
       zh.secrets.colLastAccessed + formatAbsolute(1760000600, now),
     );
-    expect(row.querySelector('[data-testid="secret-edit"]')).toBeTruthy();
+    const detail = row.querySelector('[data-testid="secret-detail"]')!;
+    expect(detail.querySelector("button")).toBeNull();
 
     fireEvent.keyDown(row, { key: "Enter" });
     expect(row.getAttribute("aria-expanded")).toBe("false");
@@ -146,7 +156,6 @@ describe("SecretsPage", () => {
       expect(createSpy).toHaveBeenCalledWith({ name: "Deploy key", value: multiLine, note: "" }),
     );
 
-    fireEvent.click(row);
     fireEvent.click(row.querySelector('[data-testid="secret-edit"]')!);
     fireEvent.change(screen.getByTestId("secret-value-input"), {
       target: { value: multiLine },
@@ -183,8 +192,8 @@ describe("SecretsPage", () => {
     const { container } = renderPage();
     const row = await firstRow(container);
 
-    fireEvent.click(row);
     fireEvent.click(row.querySelector('[data-testid="secret-edit"]')!);
+    expect(row.getAttribute("aria-expanded")).toBe("false");
     const valueInput = screen.getByTestId("secret-value-input") as HTMLInputElement;
     expect(valueInput.value).toBe("");
     expect(valueInput.placeholder).toBe(zh.secrets.valueKeepPlaceholder);
@@ -203,13 +212,13 @@ describe("SecretsPage", () => {
     );
   });
 
-  it("deleting goes through the confirmation before calling the API", async () => {
+  it("deleting from the collapsed row goes through the confirmation before calling the API, without expanding the row", async () => {
     const deleteSpy = vi.spyOn(api, "deleteSecret");
     const { container } = renderPage();
     const row = await firstRow(container);
 
-    fireEvent.click(row);
     fireEvent.click(row.querySelector('[data-testid="secret-delete"]')!);
+    expect(row.getAttribute("aria-expanded")).toBe("false");
     expect(deleteSpy).not.toHaveBeenCalled();
     expect(screen.getByTestId("secrets-delete-confirm").textContent).toContain(
       "GitHub deploy token",
@@ -219,5 +228,61 @@ describe("SecretsPage", () => {
     await waitFor(() => expect(deleteSpy).toHaveBeenCalledWith("sec-00000000000a"));
     expect(await screen.findByTestId("secrets-empty")).toBeTruthy();
     expect(screen.queryByTestId("secrets-delete-confirm")).toBeNull();
+  });
+
+  describe("on a phone", () => {
+    beforeEach(() => {
+      Object.defineProperty(window, "matchMedia", {
+        configurable: true,
+        writable: true,
+        value: (query: string) => ({
+          matches: /max-width/.test(query),
+          media: query,
+          onchange: null,
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          addListener: () => {},
+          removeListener: () => {},
+          dispatchEvent: () => false,
+        }),
+      });
+    });
+    afterEach(() => {
+      delete (window as unknown as { matchMedia?: unknown }).matchMedia;
+    });
+
+    it("each secret is a card showing note, last access and updated time without an expand toggle", async () => {
+      const { container } = renderPage();
+      const row = await firstRow(container);
+      const now = Math.floor(Date.now() / 1000);
+      expect(row.getAttribute("role")).toBeNull();
+      expect(row.hasAttribute("aria-expanded")).toBe(false);
+      expect(row.querySelector(".lore-row__expand-mark")).toBeNull();
+      expect(row.querySelector('[data-testid="secret-edit"]')).toBeTruthy();
+      expect(row.querySelector('[data-testid="secret-delete"]')).toBeTruthy();
+      expect(row.querySelector('[data-testid="secret-note"]')?.textContent).toBe(
+        zh.secrets.colNote + "Only for pushing release tags.",
+      );
+      expect(row.querySelector('[data-testid="secret-last-accessed"]')?.textContent).toBe(
+        zh.secrets.colLastAccessed + formatAbsolute(1760000600, now),
+      );
+      expect(row.querySelector('[data-testid="secret-updated"]')?.textContent).toBe(
+        zh.secrets.colUpdated + formatAbsolute(1760000000, now),
+      );
+    });
+
+    it("a card without a note omits the note line", async () => {
+      const { container } = renderPage();
+      const row = await firstRow(container);
+      fireEvent.click(row.querySelector('[data-testid="secret-edit"]')!);
+      fireEvent.change(screen.getByTestId("secret-note-input"), { target: { value: "" } });
+      fireEvent.click(screen.getByTestId("secret-save"));
+      await waitFor(() =>
+        expect(container.querySelector('[data-testid="secret-edit-form"]')).toBeNull(),
+      );
+      const saved = await firstRow(container);
+      expect(saved.querySelector('[data-testid="secret-note"]')).toBeNull();
+      expect(saved.querySelector('[data-testid="secret-last-accessed"]')).toBeTruthy();
+    });
   });
 });
