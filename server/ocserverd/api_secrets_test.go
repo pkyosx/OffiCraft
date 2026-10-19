@@ -57,6 +57,27 @@ func (f apiTestSecretFixture) reveal(t *testing.T, token string, ids ...string) 
 	return apiJSON(t, f.h, "POST", "/api/self/secrets/reveal", token, string(body))
 }
 
+// notActiveAIMembers answers credentials whose subject is not an active AI
+// member, with the status each is refused with: a subject with no roster row
+// passes the gate, a removed member is refused there.
+func (f apiTestSecretFixture) notActiveAIMembers(t *testing.T) []struct {
+	name, token string
+	status      int
+} {
+	t.Helper()
+	removed := Member{ID: "secret-removed", Name: "secret-removed", Kind: KindStaff, RoleKey: "conf-plain-role", RosterStatus: RosterStatusRemoved}
+	if err := f.d.putMemberWholeRowForTest(removed); err != nil {
+		t.Fatalf("PutMember: %v", err)
+	}
+	return []struct {
+		name, token string
+		status      int
+	}{
+		{"no roster row", apiTestAgentToken(t, f.api, "ghost-no-roster-row", ""), http.StatusForbidden},
+		{"removed member", apiTestAgentToken(t, f.api, removed.ID, ""), http.StatusUnauthorized},
+	}
+}
+
 func (f apiTestSecretFixture) row(t *testing.T, id string) Secret {
 	t.Helper()
 	sec, err := getSecretOn(f.d.rdb, id)
@@ -204,6 +225,10 @@ func TestHandleCreateSecretApiSecretsPost(t *testing.T) {
 		status, data := apiJSON(t, f.h, "POST", "/api/secrets", f.owner, `{"name":"b","value":"fake-value-2"}`)
 		if status != http.StatusServiceUnavailable {
 			t.Fatalf("status %d %v, want 503", status, data)
+		}
+		if msg, _ := data["error"].(map[string]any)["message"].(string); !strings.Contains(msg, "Restore vault.key") ||
+			!strings.Contains(msg, "delete the existing secrets and recreate them") {
+			t.Fatalf("message %q does not say how to recover", msg)
 		}
 		if _, err := os.Stat(f.keyPath); !os.IsNotExist(err) {
 			t.Fatalf("a replacement key was minted: %v", err)
@@ -370,10 +395,15 @@ func TestHandleListSelfSecretsApiSelfSecretsGet(t *testing.T) {
 		}})
 	})
 
-	t.Run("agents and admin agents may list; the owner and machines may not", func(t *testing.T) {
+	t.Run("active agents and admin agents may list; the owner, machines and callers off the active roster may not", func(t *testing.T) {
 		f := newAPITestSecretFixture(t)
 		got := f.statuses(t, "GET", func() string { return "/api/self/secrets" }, "")
 		apiWantStatuses(t, got, map[string]int{"owner": 403, "admin_agent": 200, "agent": 200, "machine": 403})
+		for _, c := range f.notActiveAIMembers(t) {
+			if code := apiRequest(t, f.h, "GET", "/api/self/secrets", c.token, "").Code; code != c.status {
+				t.Fatalf("%s answered %d, want %d", c.name, code, c.status)
+			}
+		}
 	})
 }
 
@@ -451,12 +481,13 @@ func TestHandleRevealSelfSecretsApiSelfSecretsRevealPost(t *testing.T) {
 	t.Run("a token whose subject is not an active AI member is refused and records no access", func(t *testing.T) {
 		f := newAPITestSecretFixture(t)
 		a := f.create(t, "a", apiTestSecretValue, "")["id"].(string)
-		ghost := apiTestAgentToken(t, f.api, "ghost-no-roster-row", "")
-		rec := apiRequest(t, f.h, "POST", "/api/self/secrets/reveal", ghost, `{"ids":["`+a+`"]}`)
-		if rec.Code != http.StatusForbidden {
-			t.Fatalf("status %d: %s", rec.Code, rec.Body)
+		for _, c := range f.notActiveAIMembers(t) {
+			rec := apiRequest(t, f.h, "POST", "/api/self/secrets/reveal", c.token, `{"ids":["`+a+`"]}`)
+			if rec.Code != c.status {
+				t.Fatalf("%s: status %d, want %d: %s", c.name, rec.Code, c.status, rec.Body)
+			}
+			apiWantNoSecretValue(t, rec.Body.Bytes(), apiTestSecretValue)
 		}
-		apiWantNoSecretValue(t, rec.Body.Bytes(), apiTestSecretValue)
 		f.wantNeverAccessed(t, a)
 	})
 

@@ -5,6 +5,7 @@ import { zh } from "../i18n/locales/zh";
 import { SecretsPage } from "./SecretsPage";
 import { __resetMock } from "../api/mock";
 import { api } from "../api";
+import { ApiError } from "../api/errors";
 import { formatAbsolute } from "../lib/dateFormat";
 
 const copyTextMock = vi.hoisted(() => vi.fn(async (_text: string) => true));
@@ -156,7 +157,10 @@ describe("SecretsPage", () => {
   });
 
   it("a failed create keeps the form open with the server's reason and drops the value", async () => {
-    vi.spyOn(api, "createSecret").mockRejectedValue(new Error("boom"));
+    const reason = "value is over the 65536-char limit";
+    vi.spyOn(api, "createSecret").mockRejectedValue(
+      new ApiError("http 400 for POST /api/secrets", 400, "validation_error", reason),
+    );
     const { container } = renderPage();
     await firstRow(container);
 
@@ -169,10 +173,42 @@ describe("SecretsPage", () => {
     });
     fireEvent.click(screen.getByTestId("secret-save"));
 
+    expect((await screen.findByTestId("secret-form-error")).textContent).toBe(reason);
+    expect(valueAppearsAnywhere(container)).toBe(false);
+  });
+
+  it("after a failed value change, saving again needs the value re-entered instead of closing with the old value kept", async () => {
+    const updateSpy = vi
+      .spyOn(api, "updateSecret")
+      .mockRejectedValueOnce(new Error("boom"));
+    const { container } = renderPage();
+    const row = await firstRow(container);
+
+    fireEvent.click(row.querySelector('[data-testid="secret-edit"]')!);
+    fireEvent.change(screen.getByTestId("secret-value-input"), {
+      target: { value: FAKE_VALUE },
+    });
+    fireEvent.click(screen.getByTestId("secret-save"));
     expect((await screen.findByTestId("secret-form-error")).textContent).toBe(
       zh.secrets.loadFailed,
     );
     expect(valueAppearsAnywhere(container)).toBe(false);
+
+    const save = screen.getByTestId("secret-save") as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    expect((screen.getByTestId("secret-value-input") as HTMLTextAreaElement).placeholder).not.toBe(
+      zh.secrets.valueKeepPlaceholder,
+    );
+    fireEvent.submit(screen.getByTestId("secret-edit-form"));
+    expect(updateSpy).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("secret-edit-form")).toBeTruthy();
+
+    fireEvent.change(screen.getByTestId("secret-value-input"), {
+      target: { value: FAKE_VALUE },
+    });
+    fireEvent.click(save);
+    await waitFor(() => expect(screen.queryByTestId("secret-edit-form")).toBeNull());
+    expect(updateSpy).toHaveBeenLastCalledWith("sec-00000000000a", { value: FAKE_VALUE });
   });
 
   it("editing with a blank value sends only the changed fields, and clearing the note drops its line from the card", async () => {

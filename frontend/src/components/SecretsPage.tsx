@@ -278,8 +278,11 @@ function SecretForm({
   const [note, setNote] = useState(initial?.note ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const canSubmit =
-    !busy && name.trim() !== "" && (mode === "edit" || value !== "");
+  // After a failed value change the input is already cleared; saving again
+  // blank would succeed without the value and read as if the change landed.
+  const [valueLost, setValueLost] = useState(false);
+  const needsValue = mode === "create" || valueLost;
+  const canSubmit = !busy && name.trim() !== "" && (!needsValue || value !== "");
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -290,7 +293,10 @@ function SecretForm({
     setValue("");
     const err = await onSubmit(sent);
     setBusy(false);
-    if (err) setError(err);
+    if (err) {
+      setError(err);
+      if (sent.value !== "") setValueLost(true);
+    }
   }
 
   return (
@@ -324,7 +330,7 @@ function SecretForm({
           autoCapitalize="off"
           spellCheck={false}
           value={value}
-          placeholder={mode === "edit" ? d.valueKeepPlaceholder : undefined}
+          placeholder={needsValue ? undefined : d.valueKeepPlaceholder}
           onChange={(e) => setValue(e.target.value)}
         />
       </label>

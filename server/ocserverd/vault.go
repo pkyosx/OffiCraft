@@ -15,8 +15,9 @@ import (
 )
 
 // 🔴 The key file sits next to the database but is deliberately NOT named
-// officraft.db.*: every database copy (VACUUM INTO backups, the pre-migration
-// snapshot) must stay unable to open a secret.
+// officraft.db.*: a database copy on its own (a VACUUM INTO backup, the
+// pre-migration snapshot) must stay unable to open a secret. A copy of the
+// whole data dir carries the key along.
 const (
 	vaultKeyFileName = "vault.key"
 	vaultKeyBytes    = 32
@@ -29,7 +30,8 @@ var (
 	// A missing key with rows already sealed must never be "fixed" by minting a
 	// fresh key: the new key cannot open the old rows, and every later reveal
 	// would fail while create kept succeeding.
-	errVaultKeyMissing = errors.New("secret vault key file is missing; existing secrets cannot be opened")
+	errVaultKeyMissing = errors.New("secret vault key file is missing; existing secrets cannot be opened or changed. " +
+		"Restore vault.key into the data dir, or delete the existing secrets and recreate them")
 )
 
 type secretVault struct {

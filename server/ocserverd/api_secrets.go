@@ -27,6 +27,8 @@ var secretIDShape = regexp.MustCompile(`^sec-[0-9a-f]{12}$`)
 const secretOwnerRevealMsg = "secrets are revealed only to AI members through `ocagent secret`; " +
 	"the owner manages them at /api/secrets"
 
+const secretNotActiveAIMemberMsg = "only an active AI member may list or reveal secrets"
+
 func validateSecretName(raw string) (string, string) {
 	name := trimString(raw)
 	if name == "" {
@@ -218,8 +220,8 @@ func (s *apiServer) callerIsOwner(r *http.Request) bool {
 }
 
 // resolvePrincipal falls back to agent when the roster read fails or finds no
-// row, which is fail-open; reveal is the one route that returns plaintext, so
-// it asks the roster itself and refuses on anything but an active AI member.
+// row, which is fail-open; the self secret routes ask the roster themselves and
+// refuse anything but an active AI member.
 func (s *apiServer) callerIsActiveAIMember(r *http.Request) bool {
 	m, err := s.dal.GetMember(currentActor(r))
 	if err != nil || m == nil || m.RosterStatus != RosterStatusActive {
@@ -232,6 +234,10 @@ func (s *apiServer) callerIsActiveAIMember(r *http.Request) bool {
 func (s *apiServer) HandleListSelfSecretsApiSelfSecretsGet(w http.ResponseWriter, r *http.Request) {
 	if s.callerIsOwner(r) {
 		writeError(w, http.StatusForbidden, secretOwnerRevealMsg)
+		return
+	}
+	if !s.callerIsActiveAIMember(r) {
+		writeError(w, http.StatusForbidden, secretNotActiveAIMemberMsg)
 		return
 	}
 	rows, err := s.dal.ListSecrets()
@@ -252,7 +258,7 @@ func (s *apiServer) HandleRevealSelfSecretsApiSelfSecretsRevealPost(w http.Respo
 		return
 	}
 	if !s.callerIsActiveAIMember(r) {
-		writeError(w, http.StatusForbidden, "only an active AI member may reveal secrets")
+		writeError(w, http.StatusForbidden, secretNotActiveAIMemberMsg)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, secretRevealBodyBytes)
