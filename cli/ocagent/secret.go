@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 )
 
 // The secret routes are off the MCP surface on purpose: a value revealed
@@ -472,6 +473,7 @@ func cmdSecretRun(client httpClient, cfg Config, envs []string, cmdArgs, environ
 	cmd.Stdin = in
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
+	cmd.WaitDelay = secretRunWaitDelay
 	if err := cmd.Start(); err != nil {
 		// exec's error names the program and the reason, never the environment.
 		fmt.Fprintf(errOut, "[ocagent] secret run: cannot start %s: %v\n", cmdArgs[0], err)
@@ -497,7 +499,7 @@ func cmdSecretRun(client httpClient, cfg Config, envs []string, cmdArgs, environ
 	stdout.Flush()
 	stderr.Flush()
 
-	if waitErr == nil {
+	if waitErr == nil || errors.Is(waitErr, exec.ErrWaitDelay) {
 		return 0
 	}
 	var exitErr *exec.ExitError
@@ -510,6 +512,10 @@ func cmdSecretRun(client httpClient, cfg Config, envs []string, cmdArgs, environ
 	fmt.Fprintf(errOut, "[ocagent] secret run: waiting for %s failed: %v\n", cmdArgs[0], waitErr)
 	return 1
 }
+
+// secretRunWaitDelay bounds how long run waits, after the command exits, for a
+// background process it left behind to release the output pipes.
+var secretRunWaitDelay = 3 * time.Second
 
 // maskWriter replaces every occurrence of any value with secretMask. It holds
 // back a tail that could still be the start of a value, so a value split across
@@ -525,9 +531,9 @@ type maskWriter struct {
 func newMaskWriter(dst io.Writer, values []string) *maskWriter {
 	m := &maskWriter{dst: dst}
 	seen := map[string]bool{}
-	for _, v := range values {
+	add := func(v string) {
 		if v == "" || seen[v] {
-			continue
+			return
 		}
 		seen[v] = true
 		m.values = append(m.values, []byte(v))
@@ -535,8 +541,17 @@ func newMaskWriter(dst io.Writer, values []string) *maskWriter {
 			m.maxLen = len(v)
 		}
 	}
-	// Longest first, so a value containing another is masked whole.
-	sort.Slice(m.values, func(i, j int) bool { return len(m.values[i]) > len(m.values[j]) })
+	for _, v := range values {
+		// A value pasted with a trailing newline is often printed trimmed (by
+		// the child, or by $(...)), and a multi-line value may be printed with
+		// CRLF line ends; neither form contains the stored bytes.
+		for _, form := range []string{v, strings.TrimSpace(v)} {
+			add(form)
+			if strings.Contains(form, "\n") {
+				add(strings.ReplaceAll(strings.ReplaceAll(form, "\r\n", "\n"), "\n", "\r\n"))
+			}
+		}
+	}
 	return m
 }
 
@@ -566,45 +581,80 @@ func (m *maskWriter) Flush() {
 	}
 }
 
+type span struct{ start, end int }
+
 // scan emits what is settled and returns where the held-back tail starts.
+// Overlapping matches of different values are merged into one masked span:
+// masking them one at a time would leave the rest of a value whose head
+// another value already consumed.
 func (m *maskWriter) scan(out *bytes.Buffer, final bool) int {
-	i := 0
-	for i < len(m.buf) {
-		// Hold before matching: a complete short value may be the head of a
-		// longer one that the next Write completes.
-		if !final && m.couldStartValue(m.buf[i:]) {
-			return i
+	cut := len(m.buf)
+	if !final {
+		cut = m.heldFrom()
+	}
+	spans := m.mergedMatches()
+	emitted := 0
+	for _, s := range spans {
+		if s.start >= cut {
+			break
 		}
-		if n := m.matchAt(i); n > 0 {
-			out.WriteString(secretMask)
-			i += n
+		// A span reaching into the held tail may still grow with the next
+		// Write, so it is held whole.
+		if s.end > cut {
+			cut = s.start
+			break
+		}
+		out.Write(m.buf[emitted:s.start])
+		out.WriteString(secretMask)
+		emitted = s.end
+	}
+	out.Write(m.buf[emitted:cut])
+	return cut
+}
+
+func (m *maskWriter) mergedMatches() []span {
+	var all []span
+	for _, v := range m.values {
+		for from := 0; from < len(m.buf); {
+			j := bytes.Index(m.buf[from:], v)
+			if j < 0 {
+				break
+			}
+			all = append(all, span{from + j, from + j + len(v)})
+			from += j + 1
+		}
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].start < all[j].start })
+	var merged []span
+	for _, s := range all {
+		if n := len(merged); n > 0 && s.start < merged[n-1].end {
+			if s.end > merged[n-1].end {
+				merged[n-1].end = s.end
+			}
 			continue
 		}
-		out.WriteByte(m.buf[i])
-		i++
+		merged = append(merged, s)
 	}
-	return i
+	return merged
 }
 
-func (m *maskWriter) matchAt(i int) int {
-	for _, v := range m.values {
-		if bytes.HasPrefix(m.buf[i:], v) {
-			return len(v)
+// heldFrom returns the earliest offset whose remaining bytes could still be
+// the start of a value that the next Write completes. A complete short value
+// there is held too: it may be the head of a longer one.
+func (m *maskWriter) heldFrom() int {
+	from := len(m.buf) - m.maxLen + 1
+	if from < 0 {
+		from = 0
+	}
+	for i := from; i < len(m.buf); i++ {
+		tail := m.buf[i:]
+		for _, v := range m.values {
+			if len(tail) < len(v) && bytes.HasPrefix(v, tail) {
+				return i
+			}
 		}
 	}
-	return 0
-}
-
-func (m *maskWriter) couldStartValue(tail []byte) bool {
-	if len(tail) >= m.maxLen {
-		return false
-	}
-	for _, v := range m.values {
-		if len(tail) < len(v) && bytes.HasPrefix(v, tail) {
-			return true
-		}
-	}
-	return false
+	return len(m.buf)
 }
 
 func cmdSecretWrite(client httpClient, cfg Config, id, path string, force bool, out, errOut io.Writer) int {

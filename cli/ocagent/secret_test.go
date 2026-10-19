@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 const (
@@ -237,6 +238,20 @@ func TestCmdSecretRun(t *testing.T) {
 		assertNoValue(t, "secret run", out, errOut)
 	})
 
+	t.Run("a background process holding the output does not keep run waiting", func(t *testing.T) {
+		defer func(d time.Duration) { secretRunWaitDelay = d }(secretRunWaitDelay)
+		secretRunWaitDelay = 100 * time.Millisecond
+		start := time.Now()
+		rc, out, _ := run(t, canned(200, revealBody("sec-00000000000a", fakeValue1)), []string{"A=sec-00000000000a"},
+			`sleep 5 & printf '%s' "$A"`)
+		if rc != 0 || out != "***" {
+			t.Fatalf("got (%d, %q), want (0, \"***\")", rc, out)
+		}
+		if elapsed := time.Since(start); elapsed > 3*time.Second {
+			t.Fatalf("run waited %v for the background process", elapsed)
+		}
+	})
+
 	t.Run("no command is a usage error and reveals nothing", func(t *testing.T) {
 		var out, errOut bytes.Buffer
 		client := canned(200, revealBody("sec-00000000000a", fakeValue1))
@@ -289,6 +304,38 @@ func TestMaskWriter(t *testing.T) {
 	t.Run("a short value that is the head of a longer one waits for the next write", func(t *testing.T) {
 		if got := writeChunks([]string{"fake-v1", "fake-v12"}, "x fake-v1", "2 y fake-v1"); got != "x *** y ***" {
 			t.Fatalf("got %q", got)
+		}
+	})
+
+	t.Run("values that overlap end to start are masked as one span", func(t *testing.T) {
+		for _, tc := range []struct {
+			values     []string
+			text, want string
+		}{
+			{[]string{"12345678", "01"}, "x012345678y", "x***y"},
+			{[]string{"abcdefgh", "zzab"}, "zzabcdefgh", "***"},
+		} {
+			if got := writeChunks(tc.values, tc.text); got != tc.want {
+				t.Errorf("%v in one write: got %q, want %q", tc.values, got, tc.want)
+			}
+			if got := writeChunks(tc.values, strings.Split(tc.text, "")...); got != tc.want {
+				t.Errorf("%v byte by byte: got %q, want %q", tc.values, got, tc.want)
+			}
+		}
+	})
+
+	t.Run("the trimmed and CRLF forms of a value are masked", func(t *testing.T) {
+		for _, tc := range []struct {
+			value      string
+			text, want string
+		}{
+			{fakeValue1 + "\n", "x " + fakeValue1 + " y", "x *** y"},
+			{"line1\nline2", "a line1\r\nline2 b", "a *** b"},
+			{"line1\nline2", "a line1\nline2 b", "a *** b"},
+		} {
+			if got := writeChunks([]string{tc.value}, tc.text); got != tc.want {
+				t.Errorf("value %q: got %q, want %q", tc.value, got, tc.want)
+			}
 		}
 	})
 
