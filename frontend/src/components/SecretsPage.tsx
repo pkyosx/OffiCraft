@@ -60,7 +60,7 @@ export function SecretsPage() {
       )}
 
       {secrets.length > 0 && (
-        <div className="secrets__grid" data-testid="secrets-list">
+        <div className="secrets__list" data-testid="secrets-list">
           {secrets.map((s) =>
             editingId === s.id ? (
               <SecretForm
