@@ -41,8 +41,7 @@ that secret may be used.
 
 NO COMMAND EVER PRINTS A VALUE. A value only ever reaches a child process's
 environment (run) or a 0600 file (write). Do not echo it, paste it into chat,
-or write it anywhere else. Every value retrieval is recorded in the station's
-access log with your id and machine.
+or write it anywhere else. The owner sees when each secret was last retrieved.
 
 subcommands:
   list                              every secret: id, name, note

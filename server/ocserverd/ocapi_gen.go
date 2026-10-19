@@ -584,24 +584,6 @@ func (e ScheduledMessageUpdateDTOStatus) Valid() bool {
 	}
 }
 
-// Defines values for SecretAccessLogEntryDTOAction.
-const (
-	SecretAccessLogEntryDTOActionDenied SecretAccessLogEntryDTOAction = "denied"
-	SecretAccessLogEntryDTOActionReveal SecretAccessLogEntryDTOAction = "reveal"
-)
-
-// Valid indicates whether the value is a known member of the SecretAccessLogEntryDTOAction enum.
-func (e SecretAccessLogEntryDTOAction) Valid() bool {
-	switch e {
-	case SecretAccessLogEntryDTOActionDenied:
-		return true
-	case SecretAccessLogEntryDTOActionReveal:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for SelfReportReceiptDTOStopEffect.
 const (
 	AlreadyReported   SelfReportReceiptDTOStopEffect = "already_reported"
@@ -662,24 +644,6 @@ func (e WebhookEndpointDTOPlatform) Valid() bool {
 	case WebhookEndpointDTOPlatformGithub:
 		return true
 	case WebhookEndpointDTOPlatformSlack:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for HandleListSecretAccessLogApiSecretsAccessLogGetParamsAction.
-const (
-	HandleListSecretAccessLogApiSecretsAccessLogGetParamsActionDenied HandleListSecretAccessLogApiSecretsAccessLogGetParamsAction = "denied"
-	HandleListSecretAccessLogApiSecretsAccessLogGetParamsActionReveal HandleListSecretAccessLogApiSecretsAccessLogGetParamsAction = "reveal"
-)
-
-// Valid indicates whether the value is a known member of the HandleListSecretAccessLogApiSecretsAccessLogGetParamsAction enum.
-func (e HandleListSecretAccessLogApiSecretsAccessLogGetParamsAction) Valid() bool {
-	switch e {
-	case HandleListSecretAccessLogApiSecretsAccessLogGetParamsActionDenied:
-		return true
-	case HandleListSecretAccessLogApiSecretsAccessLogGetParamsActionReveal:
 		return true
 	default:
 		return false
@@ -3563,32 +3527,6 @@ type ScheduledMessageUpdateDTOCadence string
 // ScheduledMessageUpdateDTOStatus The enabled/disabled toggle. `disabled` suspends firing and is reversible — it is NOT a lifecycle state; DELETE is the permanent removal.
 type ScheduledMessageUpdateDTOStatus string
 
-// SecretAccessLogDTO Secret access attempts, newest first.
-type SecretAccessLogDTO struct {
-	Entries []SecretAccessLogEntryDTO `json:"entries"`
-}
-
-// SecretAccessLogEntryDTO One access attempt on a secret value. Rows are append-only and outlive the secret they record.
-type SecretAccessLogEntryDTO struct {
-	// Action `reveal` — the value was returned to the caller; `denied` — the call was refused and returned nothing.
-	Action SecretAccessLogEntryDTOAction `json:"action"`
-	Id     int                           `json:"id"`
-
-	// MachineId The `machine_id` claim of the caller's token; `""` when the token carried none.
-	MachineId string `json:"machine_id"`
-	MemberId  string `json:"member_id"`
-
-	// SecretId The id revealed, or the id asked for on a refused attempt (`""` when it named none or named something not shaped like a secret id).
-	SecretId string `json:"secret_id"`
-
-	// SecretName The secret's CURRENT name, resolved at read time; `""` once the secret is deleted or when the id never existed.
-	SecretName string  `json:"secret_name"`
-	Ts         float64 `json:"ts"`
-}
-
-// SecretAccessLogEntryDTOAction `reveal` — the value was returned to the caller; `denied` — the call was refused and returned nothing.
-type SecretAccessLogEntryDTOAction string
-
 // SecretCreateDTO Create a secret. The value is encrypted at rest and NEVER echoed on any wire, log, chat message or event.
 type SecretCreateDTO struct {
 	// Name Free-text label: trimmed, 1–128 characters (the short-label cap), not unique. Not the key — the server-minted id is.
@@ -3601,15 +3539,18 @@ type SecretCreateDTO struct {
 	Value *string `json:"value,omitempty"`
 }
 
-// SecretDTO One secret WITHOUT its value: no owner route ever returns a value, not even masked or hashed. `updated_ts` moves on every edit, value-only edits included.
+// SecretDTO One secret WITHOUT its value: no owner route ever returns a value, not even masked or hashed. `updated_ts` moves on every edit, value-only edits included; `last_accessed_ts` moves only on a successful reveal.
 type SecretDTO struct {
 	CreatedTs float64 `json:"created_ts"`
 
 	// Id Server-minted (`sec-` + 12 hex), immutable; the key every route and `ocagent secret` take.
-	Id        string  `json:"id"`
-	Name      string  `json:"name"`
-	Note      string  `json:"note"`
-	UpdatedTs float64 `json:"updated_ts"`
+	Id string `json:"id"`
+
+	// LastAccessedTs Epoch seconds of the newest successful reveal of this secret by an AI member; null when it has never been revealed. Editing the secret does not reset it.
+	LastAccessedTs *float64 `json:"last_accessed_ts"`
+	Name           string   `json:"name"`
+	Note           string   `json:"note"`
+	UpdatedTs      float64  `json:"updated_ts"`
 }
 
 // SecretRevealDTO The requested values, in request order.
@@ -5023,17 +4964,6 @@ type HandleListReplyCardsApiReplyCardsGetParams struct {
 	Limit    *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
-// HandleListSecretAccessLogApiSecretsAccessLogGetParams defines parameters for HandleListSecretAccessLogApiSecretsAccessLogGet.
-type HandleListSecretAccessLogApiSecretsAccessLogGetParams struct {
-	SecretId *string                                                      `form:"secret_id,omitempty" json:"secret_id,omitempty"`
-	MemberId *string                                                      `form:"member_id,omitempty" json:"member_id,omitempty"`
-	Action   *HandleListSecretAccessLogApiSecretsAccessLogGetParamsAction `form:"action,omitempty" json:"action,omitempty"`
-	Limit    *int                                                         `form:"limit,omitempty" json:"limit,omitempty"`
-}
-
-// HandleListSecretAccessLogApiSecretsAccessLogGetParamsAction defines parameters for HandleListSecretAccessLogApiSecretsAccessLogGet.
-type HandleListSecretAccessLogApiSecretsAccessLogGetParamsAction string
-
 // HandleListTasksApiTasksGetParams defines parameters for HandleListTasksApiTasksGet.
 type HandleListTasksApiTasksGetParams struct {
 	Executor *string `form:"executor,omitempty" json:"executor,omitempty"`
@@ -5988,9 +5918,6 @@ type ServerInterface interface {
 	// Create a secret.
 	// (POST /api/secrets)
 	HandleCreateSecretApiSecretsPost(w http.ResponseWriter, r *http.Request)
-	// List secret access attempts, newest first.
-	// (GET /api/secrets/access-log)
-	HandleListSecretAccessLogApiSecretsAccessLogGet(w http.ResponseWriter, r *http.Request, params HandleListSecretAccessLogApiSecretsAccessLogGetParams)
 	// Delete a secret.
 	// (DELETE /api/secrets/{secret_id})
 	HandleDeleteSecretApiSecretsSecretIdDelete(w http.ResponseWriter, r *http.Request, secretId string)
@@ -9684,78 +9611,6 @@ func (siw *ServerInterfaceWrapper) HandleCreateSecretApiSecretsPost(w http.Respo
 	handler.ServeHTTP(w, r)
 }
 
-// HandleListSecretAccessLogApiSecretsAccessLogGet operation middleware
-func (siw *ServerInterfaceWrapper) HandleListSecretAccessLogApiSecretsAccessLogGet(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params HandleListSecretAccessLogApiSecretsAccessLogGetParams
-
-	// ------------- Optional query parameter "secret_id" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "secret_id", r.URL.Query(), &params.SecretId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "secret_id"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "secret_id", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "member_id" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "member_id", r.URL.Query(), &params.MemberId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "member_id"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "member_id", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "action" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "action", r.URL.Query(), &params.Action, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "action"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "action", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "limit" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
-		}
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.HandleListSecretAccessLogApiSecretsAccessLogGet(w, r, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 // HandleDeleteSecretApiSecretsSecretIdDelete operation middleware
 func (siw *ServerInterfaceWrapper) HandleDeleteSecretApiSecretsSecretIdDelete(w http.ResponseWriter, r *http.Request) {
 
@@ -11659,7 +11514,6 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/roles/{role}/reset", wrapper.HandleResetRoleApiRolesRoleResetPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/secrets", wrapper.HandleListSecretsApiSecretsGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/secrets", wrapper.HandleCreateSecretApiSecretsPost)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/secrets/access-log", wrapper.HandleListSecretAccessLogApiSecretsAccessLogGet)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/secrets/{secret_id}", wrapper.HandleDeleteSecretApiSecretsSecretIdDelete)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/secrets/{secret_id}", wrapper.HandleUpdateSecretApiSecretsSecretIdPatch)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/self/refocus", wrapper.HandleRestartSelfApiSelfRefocusPost)

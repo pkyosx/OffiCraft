@@ -15,7 +15,6 @@ import type {
   SecretView,
   SecretCreateInput,
   SecretUpdateInput,
-  SecretAccessEntryView,
   AuthStatusView,
   MfaEnrollView,
   MfaStateView,
@@ -119,7 +118,6 @@ import type {
   WireBackupHealth,
   WireSigningKeys,
   WireSecret,
-  WireSecretAccessLog,
   WireGlobalContext,
   WireBootDoc,
   WireDocumentHistory,
@@ -144,7 +142,6 @@ import {
   toSigningKeys,
   toSecret,
   toSecrets,
-  toSecretAccessLog,
   toGlobalContext,
   toBootDoc,
   toDocumentHistory,
@@ -2808,17 +2805,7 @@ const MOCK_WIRE_SECRETS: WireSecret[] = [
     note: "Only for pushing release tags.",
     created_ts: 1760000000,
     updated_ts: 1760000000,
-  },
-];
-const MOCK_WIRE_SECRET_ACCESS_LOG: WireSecretAccessLog["entries"] = [
-  {
-    id: 1,
-    action: "reveal",
-    secret_id: "sec-00000000000a",
-    secret_name: "GitHub deploy token",
-    member_id: "mira",
-    machine_id: "warden-mbp5",
-    ts: 1760000600,
+    last_accessed_ts: 1760000600,
   },
 ];
 let mockSecrets: WireSecret[] = structuredClone(MOCK_WIRE_SECRETS);
@@ -5989,6 +5976,7 @@ const mockApiImpl = {
       note: input.note,
       created_ts: now,
       updated_ts: now,
+      last_accessed_ts: null,
     };
     mockSecrets.push(row);
     return toSecret(row);
@@ -6006,16 +5994,6 @@ const mockApiImpl = {
     const row = mockSecretOrThrow("DELETE", id);
     mockSecrets = mockSecrets.filter((s) => s.id !== id);
     return toSecret(row);
-  },
-
-  async listSecretAccessLog(): Promise<SecretAccessEntryView[]> {
-    const names = new Map(mockSecrets.map((s) => [s.id, s.name]));
-    return toSecretAccessLog({
-      entries: MOCK_WIRE_SECRET_ACCESS_LOG.map((e) => ({
-        ...e,
-        secret_name: names.get(e.secret_id) ?? "",
-      })),
-    });
   },
 
   async getAuthStatus(): Promise<AuthStatusView> {

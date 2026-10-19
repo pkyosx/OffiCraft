@@ -1339,13 +1339,6 @@
   {
     "auth": "gated",
     "mcp_tool": null,
-    "method": "GET",
-    "path": "/api/secrets/access-log",
-    "requires": "owner"
-  },
-  {
-    "auth": "gated",
-    "mcp_tool": null,
     "method": "PATCH",
     "path": "/api/secrets/{secret_id}",
     "requires": "owner"

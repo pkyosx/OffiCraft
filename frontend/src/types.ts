@@ -1118,6 +1118,8 @@ export interface SecretView {
   note: string;
   createdTs: number;
   updatedTs: number;
+  /** null until an AI member first reveals it. */
+  lastAccessedTs: number | null;
 }
 
 export interface SecretCreateInput {
@@ -1132,19 +1134,6 @@ export interface SecretUpdateInput {
   name?: string;
   note?: string;
   value?: string;
-}
-
-export type SecretAccessAction = "reveal" | "denied";
-
-export interface SecretAccessEntryView {
-  id: number;
-  action: SecretAccessAction;
-  secretId: string;
-  /** The secret's CURRENT name; "" once deleted or when the id never existed. */
-  secretName: string;
-  memberId: string;
-  machineId: string;
-  ts: number;
 }
 
 export interface BackupHealthView {

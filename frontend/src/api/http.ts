@@ -34,7 +34,6 @@ import type {
   SecretView,
   SecretCreateInput,
   SecretUpdateInput,
-  SecretAccessEntryView,
   AuthStatusView,
   MfaEnrollView,
   MfaStateView,
@@ -139,7 +138,6 @@ import {
   toSigningKeys,
   toSecret,
   toSecrets,
-  toSecretAccessLog,
   toGlobalContext,
   toBootDoc,
   toDocumentHistory,
@@ -2506,10 +2504,6 @@ export const httpApi: Api = {
         }),
       ),
     );
-  },
-
-  async listSecretAccessLog(): Promise<SecretAccessEntryView[]> {
-    return toSecretAccessLog(unwrap(await client.GET("/api/secrets/access-log")));
   },
 
   async getAuthStatus(): Promise<AuthStatusView> {

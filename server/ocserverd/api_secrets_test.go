@@ -57,16 +57,6 @@ func (f apiTestSecretFixture) reveal(t *testing.T, token string, ids ...string) 
 	return apiJSON(t, f.h, "POST", "/api/self/secrets/reveal", token, string(body))
 }
 
-func (f apiTestSecretFixture) accessLog(t *testing.T, query string) []any {
-	t.Helper()
-	status, data := apiJSON(t, f.h, "GET", "/api/secrets/access-log"+query, f.owner, "")
-	if status != http.StatusOK {
-		t.Fatalf("access log: %d %v", status, data)
-	}
-	entries, _ := data["entries"].([]any)
-	return entries
-}
-
 func (f apiTestSecretFixture) row(t *testing.T, id string) Secret {
 	t.Helper()
 	sec, err := getSecretOn(f.d.rdb, id)
@@ -87,6 +77,15 @@ func (f apiTestSecretFixture) statuses(t *testing.T, method string, path func() 
 		out[who.name] = apiRequest(t, f.h, method, path(), who.token, body).Code
 	}
 	return out
+}
+
+func (f apiTestSecretFixture) wantNeverAccessed(t *testing.T, ids ...string) {
+	t.Helper()
+	for _, id := range ids {
+		if ts := f.row(t, id).LastAccessedTS; ts != nil {
+			t.Fatalf("%s last_accessed_ts = %v, want it never set", id, *ts)
+		}
+	}
 }
 
 func apiWantStatuses(t *testing.T, got, want map[string]int) {
@@ -125,7 +124,7 @@ func TestHandleCreateSecretApiSecretsPost(t *testing.T) {
 		_ = json.Unmarshal(rec.Body.Bytes(), &data)
 		apiWantBody(t, data, map[string]any{
 			"id": apiAnyString, "name": "GitHub token", "note": "read-only scope",
-			"created_ts": apiAnyNumber, "updated_ts": apiAnyNumber,
+			"created_ts": apiAnyNumber, "updated_ts": apiAnyNumber, "last_accessed_ts": nil,
 		})
 		id := data["id"].(string)
 		if !apiTestSecretIDPattern.MatchString(id) {
@@ -213,10 +212,13 @@ func TestHandleCreateSecretApiSecretsPost(t *testing.T) {
 }
 
 func TestHandleListSecretsApiSecretsGet(t *testing.T) {
-	t.Run("secrets come back in creation order without values", func(t *testing.T) {
+	t.Run("secrets come back in creation order without values, with when each was last revealed", func(t *testing.T) {
 		f := newAPITestSecretFixture(t)
 		first := f.create(t, "first", apiTestSecretValue, "n1")
 		second := f.create(t, "second", "fake-value-2", "")
+		if status, _ := f.reveal(t, f.agent, first["id"].(string)); status != http.StatusOK {
+			t.Fatalf("reveal: %d", status)
+		}
 		rec := apiRequest(t, f.h, "GET", "/api/secrets", f.owner, "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status %d", rec.Code)
@@ -224,6 +226,7 @@ func TestHandleListSecretsApiSecretsGet(t *testing.T) {
 		apiWantNoSecretValue(t, rec.Body.Bytes(), apiTestSecretValue, "fake-value-2")
 		var data map[string]any
 		_ = json.Unmarshal(rec.Body.Bytes(), &data)
+		first["last_accessed_ts"] = apiAnyNumber
 		apiWantBody(t, data, map[string]any{"secrets": []any{first, second}})
 	})
 
@@ -241,9 +244,12 @@ func TestHandleListSecretsApiSecretsGet(t *testing.T) {
 }
 
 func TestHandleUpdateSecretApiSecretsSecretIdPatch(t *testing.T) {
-	t.Run("an edit without a value keeps the stored ciphertext", func(t *testing.T) {
+	t.Run("an edit without a value keeps the stored ciphertext and the last access time", func(t *testing.T) {
 		f := newAPITestSecretFixture(t)
 		id := f.create(t, "old", apiTestSecretValue, "keep me")["id"].(string)
+		if status, _ := f.reveal(t, f.agent, id); status != http.StatusOK {
+			t.Fatalf("reveal: %d", status)
+		}
 		before := f.row(t, id)
 		rec := apiRequest(t, f.h, "PATCH", "/api/secrets/"+id, f.owner, `{"name":" new ","value":null}`)
 		if rec.Code != http.StatusOK {
@@ -259,6 +265,9 @@ func TestHandleUpdateSecretApiSecretsSecretIdPatch(t *testing.T) {
 		}
 		if after.CreatedTS != before.CreatedTS || after.UpdatedTS <= before.UpdatedTS {
 			t.Fatalf("timestamps: created %v→%v updated %v→%v", before.CreatedTS, after.CreatedTS, before.UpdatedTS, after.UpdatedTS)
+		}
+		if before.LastAccessedTS == nil || after.LastAccessedTS == nil || *after.LastAccessedTS != *before.LastAccessedTS {
+			t.Fatalf("last_accessed_ts %v→%v, want it kept across an edit", before.LastAccessedTS, after.LastAccessedTS)
 		}
 	})
 
@@ -318,13 +327,10 @@ func TestHandleUpdateSecretApiSecretsSecretIdPatch(t *testing.T) {
 }
 
 func TestHandleDeleteSecretApiSecretsSecretIdDelete(t *testing.T) {
-	t.Run("delete returns the secret, removes the row and keeps its access log", func(t *testing.T) {
+	t.Run("delete returns the secret and removes the row", func(t *testing.T) {
 		f := newAPITestSecretFixture(t)
 		created := f.create(t, "gone", apiTestSecretValue, "")
 		id := created["id"].(string)
-		if status, _ := f.reveal(t, f.agent, id); status != http.StatusOK {
-			t.Fatalf("reveal: %d", status)
-		}
 		rec := apiRequest(t, f.h, "DELETE", "/api/secrets/"+id, f.owner, "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status %d", rec.Code)
@@ -335,10 +341,6 @@ func TestHandleDeleteSecretApiSecretsSecretIdDelete(t *testing.T) {
 		apiWantBody(t, data, created)
 		_, list := apiJSON(t, f.h, "GET", "/api/secrets", f.owner, "")
 		apiWantBody(t, list, map[string]any{"secrets": []any{}})
-		entries := f.accessLog(t, "?secret_id="+id)
-		if len(entries) != 1 || entries[0].(map[string]any)["secret_name"] != "" {
-			t.Fatalf("access log after delete = %v, want one row with secret_name \"\"", entries)
-		}
 		if status, _ := apiJSON(t, f.h, "DELETE", "/api/secrets/"+id, f.owner, ""); status != http.StatusNotFound {
 			t.Fatalf("second delete: %d, want 404", status)
 		}
@@ -348,51 +350,6 @@ func TestHandleDeleteSecretApiSecretsSecretIdDelete(t *testing.T) {
 		f := newAPITestSecretFixture(t)
 		path := func() string { return "/api/secrets/" + f.create(t, "n", apiTestSecretValue, "")["id"].(string) }
 		got := f.statuses(t, "DELETE", path, "")
-		apiWantStatuses(t, got, map[string]int{"owner": 200, "admin_agent": 403, "agent": 403, "machine": 403})
-	})
-}
-
-func TestHandleListSecretAccessLogApiSecretsAccessLogGet(t *testing.T) {
-	t.Run("entries are newest first and narrow by secret, member, action and limit", func(t *testing.T) {
-		f := newAPITestSecretFixture(t)
-		a := f.create(t, "alpha", apiTestSecretValue, "")["id"].(string)
-		b := f.create(t, "beta", "fake-value-2", "")["id"].(string)
-		f.reveal(t, f.agent, a)
-		f.reveal(t, f.admin, b)
-		f.reveal(t, f.agent, "sec-000000000000")
-
-		all := f.accessLog(t, "")
-		if len(all) != 3 {
-			t.Fatalf("entries = %v", all)
-		}
-		apiWantValue(t, "newest", all[0], map[string]any{
-			"id": apiAnyNumber, "action": "denied", "secret_id": "sec-000000000000", "secret_name": "",
-			"member_id": apiTestPlainAgentID, "machine_id": apiTestSecretMachineID, "ts": apiAnyNumber,
-		})
-		apiWantValue(t, "oldest", all[2], map[string]any{
-			"id": apiAnyNumber, "action": "reveal", "secret_id": a, "secret_name": "alpha",
-			"member_id": apiTestPlainAgentID, "machine_id": apiTestSecretMachineID, "ts": apiAnyNumber,
-		})
-		for query, want := range map[string]int{
-			"?secret_id=" + b:                   1,
-			"?member_id=" + apiTestPlainAgentID: 2,
-			"?action=reveal":                    2,
-			"?action=denied&member_id=kip":      1,
-			"?limit=1":                          1,
-			"?limit=0":                          3,
-		} {
-			if got := f.accessLog(t, query); len(got) != want {
-				t.Fatalf("%s: %d entries, want %d", query, len(got), want)
-			}
-		}
-		if status, _ := apiJSON(t, f.h, "GET", "/api/secrets/access-log?action=keep", f.owner, ""); status != http.StatusUnprocessableEntity {
-			t.Fatalf("unknown action: %d, want 422", status)
-		}
-	})
-
-	t.Run("only the owner may read the log", func(t *testing.T) {
-		f := newAPITestSecretFixture(t)
-		got := f.statuses(t, "GET", func() string { return "/api/secrets/access-log" }, "")
 		apiWantStatuses(t, got, map[string]int{"owner": 200, "admin_agent": 403, "agent": 403, "machine": 403})
 	})
 }
@@ -421,10 +378,12 @@ func TestHandleListSelfSecretsApiSelfSecretsGet(t *testing.T) {
 }
 
 func TestHandleRevealSelfSecretsApiSelfSecretsRevealPost(t *testing.T) {
-	t.Run("values come back in request order with one reveal row each", func(t *testing.T) {
+	t.Run("values come back in request order and every revealed secret records the access time", func(t *testing.T) {
 		f := newAPITestSecretFixture(t)
 		a := f.create(t, "a", apiTestSecretValue, "na")["id"].(string)
 		b := f.create(t, "b", "fake-value-2", "")["id"].(string)
+		untouched := f.create(t, "c", "fake-value-3", "")["id"].(string)
+		before := nowSecs()
 		status, data := f.reveal(t, f.agent, b, a)
 		if status != http.StatusOK {
 			t.Fatalf("status %d %v", status, data)
@@ -433,19 +392,15 @@ func TestHandleRevealSelfSecretsApiSelfSecretsRevealPost(t *testing.T) {
 			map[string]any{"id": b, "name": "b", "note": "", "value": "fake-value-2"},
 			map[string]any{"id": a, "name": "a", "note": "na", "value": apiTestSecretValue},
 		}})
-		entries := f.accessLog(t, "?action=reveal")
-		if len(entries) != 2 {
-			t.Fatalf("reveal rows = %v", entries)
-		}
-		for _, e := range entries {
-			row := e.(map[string]any)
-			if row["member_id"] != apiTestPlainAgentID || row["machine_id"] != apiTestSecretMachineID {
-				t.Fatalf("reveal row does not name the caller: %v", row)
+		for _, id := range []string{a, b} {
+			if ts := f.row(t, id).LastAccessedTS; ts == nil || *ts < before {
+				t.Fatalf("%s last_accessed_ts = %v, want at or after %v", id, ts, before)
 			}
 		}
+		f.wantNeverAccessed(t, untouched)
 	})
 
-	t.Run("one unknown id refuses the whole call and logs every asked id as denied", func(t *testing.T) {
+	t.Run("one unknown id refuses the whole call and records no access", func(t *testing.T) {
 		f := newAPITestSecretFixture(t)
 		a := f.create(t, "a", apiTestSecretValue, "")["id"].(string)
 		rec := apiRequest(t, f.h, "POST", "/api/self/secrets/reveal", f.agent,
@@ -457,19 +412,10 @@ func TestHandleRevealSelfSecretsApiSelfSecretsRevealPost(t *testing.T) {
 		var data map[string]any
 		_ = json.Unmarshal(rec.Body.Bytes(), &data)
 		apiWantError(t, data, "not_found", "unknown secret id(s): sec-000000000000")
-		if got := f.accessLog(t, "?action=reveal"); len(got) != 0 {
-			t.Fatalf("a refused call wrote reveal rows: %v", got)
-		}
-		denied := map[string]bool{}
-		for _, e := range f.accessLog(t, "?action=denied") {
-			denied[e.(map[string]any)["secret_id"].(string)] = true
-		}
-		if len(denied) != 2 || !denied[a] || !denied["sec-000000000000"] {
-			t.Fatalf("denied rows name %v, want both asked ids", denied)
-		}
+		f.wantNeverAccessed(t, a)
 	})
 
-	t.Run("malformed id lists are refused and logged as denied", func(t *testing.T) {
+	t.Run("malformed id lists are refused", func(t *testing.T) {
 		f := newAPITestSecretFixture(t)
 		seventeen := make([]string, 17)
 		for i := range seventeen {
@@ -488,15 +434,9 @@ func TestHandleRevealSelfSecretsApiSelfSecretsRevealPost(t *testing.T) {
 			}
 			apiWantError(t, data, "validation_error", tc.msg)
 		}
-		denied := f.accessLog(t, "?action=denied")
-		// [] and {} log one blank row each, the duplicate body one row for
-		// the repeated id, and the oversized body is capped at 16.
-		if len(denied) != 1+16+1+1 {
-			t.Fatalf("denied rows = %d", len(denied))
-		}
 	})
 
-	t.Run("ids not shaped like secret ids are a 400 with one blank denied row", func(t *testing.T) {
+	t.Run("ids not shaped like secret ids are a 400 that records no access", func(t *testing.T) {
 		f := newAPITestSecretFixture(t)
 		a := f.create(t, "a", apiTestSecretValue, "")["id"].(string)
 		status, data := apiJSON(t, f.h, "POST", "/api/self/secrets/reveal", f.agent,
@@ -505,13 +445,10 @@ func TestHandleRevealSelfSecretsApiSelfSecretsRevealPost(t *testing.T) {
 			t.Fatalf("status %d %v", status, data)
 		}
 		apiWantError(t, data, "validation_error", "ids must be secret ids (sec- followed by 12 lowercase hex digits)")
-		denied := f.accessLog(t, "?action=denied")
-		if len(denied) != 1 || denied[0].(map[string]any)["secret_id"] != "" {
-			t.Fatalf("denied rows = %v, want one row with secret_id \"\"", denied)
-		}
+		f.wantNeverAccessed(t, a)
 	})
 
-	t.Run("a token whose subject is not an active AI member is refused and logged as denied", func(t *testing.T) {
+	t.Run("a token whose subject is not an active AI member is refused and records no access", func(t *testing.T) {
 		f := newAPITestSecretFixture(t)
 		a := f.create(t, "a", apiTestSecretValue, "")["id"].(string)
 		ghost := apiTestAgentToken(t, f.api, "ghost-no-roster-row", "")
@@ -520,13 +457,7 @@ func TestHandleRevealSelfSecretsApiSelfSecretsRevealPost(t *testing.T) {
 			t.Fatalf("status %d: %s", rec.Code, rec.Body)
 		}
 		apiWantNoSecretValue(t, rec.Body.Bytes(), apiTestSecretValue)
-		if got := f.accessLog(t, "?action=reveal"); len(got) != 0 {
-			t.Fatalf("a refused caller wrote reveal rows: %v", got)
-		}
-		denied := f.accessLog(t, "?action=denied")
-		if len(denied) != 1 || denied[0].(map[string]any)["member_id"] != "ghost-no-roster-row" || denied[0].(map[string]any)["secret_id"] != a {
-			t.Fatalf("denied rows = %v, want the ghost's one naming %s", denied, a)
-		}
+		f.wantNeverAccessed(t, a)
 	})
 
 	t.Run("a multi-line value round-trips byte for byte", func(t *testing.T) {
@@ -540,16 +471,18 @@ func TestHandleRevealSelfSecretsApiSelfSecretsRevealPost(t *testing.T) {
 		}
 	})
 
-	t.Run("the owner is refused and the attempt is logged; a machine never reaches the handler", func(t *testing.T) {
+	t.Run("the owner and machines are refused without recording an access; AI members may reveal", func(t *testing.T) {
 		f := newAPITestSecretFixture(t)
 		a := f.create(t, "a", apiTestSecretValue, "")["id"].(string)
 		body := `{"ids":["` + a + `"]}`
+		for _, token := range []string{f.owner, f.machine} {
+			if code := apiRequest(t, f.h, "POST", "/api/self/secrets/reveal", token, body).Code; code != http.StatusForbidden {
+				t.Fatalf("status %d, want 403", code)
+			}
+		}
+		f.wantNeverAccessed(t, a)
 		got := f.statuses(t, "POST", func() string { return "/api/self/secrets/reveal" }, body)
 		apiWantStatuses(t, got, map[string]int{"owner": 403, "admin_agent": 200, "agent": 200, "machine": 403})
-		denied := f.accessLog(t, "?action=denied")
-		if len(denied) != 1 || denied[0].(map[string]any)["member_id"] != wireOwnerID {
-			t.Fatalf("denied rows = %v, want the owner's one", denied)
-		}
 	})
 
 	t.Run("a missing key file is a 503, never a value", func(t *testing.T) {
@@ -579,8 +512,6 @@ func TestHandleRevealSelfSecretsApiSelfSecretsRevealPost(t *testing.T) {
 			t.Fatalf("status %d: %s", rec.Code, rec.Body)
 		}
 		apiWantNoSecretValue(t, rec.Body.Bytes(), apiTestSecretValue, "fake-value-2")
-		if got := f.accessLog(t, "?action=reveal"); len(got) != 0 {
-			t.Fatalf("a failed decrypt wrote reveal rows: %v", got)
-		}
+		f.wantNeverAccessed(t, a, b)
 	})
 }

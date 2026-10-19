@@ -21,26 +21,10 @@ CREATE TABLE secret (
     -- re-seal rows one by one.
     key_version INTEGER NOT NULL DEFAULT 1,
     created_ts  REAL NOT NULL DEFAULT 0.0,
-    updated_ts  REAL NOT NULL DEFAULT 0.0
+    updated_ts  REAL NOT NULL DEFAULT 0.0,
+    -- set by a successful reveal only; NULL until the first one.
+    last_accessed_ts REAL
 );
-
--- Append-only. Outlives the secret it records, so a deleted secret's history
--- stays readable. A refused attempt is a 'denied' row.
-CREATE TABLE secret_access_log (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    action      TEXT NOT NULL CHECK (action IN ('reveal', 'denied')),
-    -- the id as sent; on a denied row it may name no secret, '' when none was sent.
-    secret_id   TEXT NOT NULL DEFAULT '',
-    member_id   TEXT NOT NULL,
-    -- the machine_id claim of the caller's token; '' when the token has none.
-    machine_id  TEXT NOT NULL DEFAULT '',
-    ts          REAL NOT NULL DEFAULT 0.0
-);
-CREATE INDEX idx_secret_access_log_ts ON secret_access_log (ts);
-CREATE INDEX idx_secret_access_log_secret_member ON secret_access_log (secret_id, member_id, ts);
 
 -- +goose Down
-DROP INDEX IF EXISTS idx_secret_access_log_secret_member;
-DROP INDEX IF EXISTS idx_secret_access_log_ts;
-DROP TABLE IF EXISTS secret_access_log;
 DROP TABLE IF EXISTS secret;

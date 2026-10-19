@@ -7,12 +7,8 @@ package main
 // limits.
 
 import (
-	"bytes"
 	"crypto/cipher"
-	"encoding/json"
 	"errors"
-	"io"
-	"log"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -215,33 +211,8 @@ func (s *apiServer) HandleDeleteSecretApiSecretsSecretIdDelete(w http.ResponseWr
 	writeJSON(w, http.StatusOK, newSecretDTO(deleted))
 }
 
-func (s *apiServer) HandleListSecretAccessLogApiSecretsAccessLogGet(w http.ResponseWriter, r *http.Request, params HandleListSecretAccessLogApiSecretsAccessLogGetParams) {
-	f := SecretAccessLogFilter{
-		SecretID: strOrEmpty(params.SecretId),
-		MemberID: strOrEmpty(params.MemberId),
-		Limit:    intOr(params.Limit, 0),
-	}
-	if params.Action != nil {
-		f.Action = string(*params.Action)
-		if f.Action != secretActionReveal && f.Action != secretActionDenied {
-			writeError(w, http.StatusUnprocessableEntity, "action must be 'reveal' or 'denied'")
-			return
-		}
-	}
-	rows, err := s.dal.ListSecretAccessLog(f)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	out := secretAccessLogDTO{Entries: []secretAccessLogEntryDTO{}}
-	for _, e := range rows {
-		out.Entries = append(out.Entries, newSecretAccessLogEntryDTO(e))
-	}
-	writeJSON(w, http.StatusOK, out)
-}
-
 // The route floor is agent, which the owner clears; the owner is refused here
-// because a value revealed to the cockpit has no audit trail of which AI used it.
+// because values reach AI members only through `ocagent secret`.
 func (s *apiServer) callerIsOwner(r *http.Request) bool {
 	return s.principalOfRequest(r) == principalOwner
 }
@@ -275,97 +246,36 @@ func (s *apiServer) HandleListSelfSecretsApiSelfSecretsGet(w http.ResponseWriter
 	writeJSON(w, http.StatusOK, out)
 }
 
-// revealRequestedIDs reads the ids a body asked for even when the body is
-// otherwise invalid, so a refusal can still be logged against them. Distinct,
-// in order, capped so a hostile body cannot flood the log; anything not shaped
-// like a secret id is logged as "" so caller-chosen garbage never lands in the
-// owner's access log; [""] when none.
-func revealRequestedIDs(raw []byte) []string {
-	var loose struct {
-		IDs []any `json:"ids"`
-	}
-	_ = json.Unmarshal(raw, &loose)
-	seen := map[string]bool{}
-	var ids []string
-	for _, v := range loose.IDs {
-		id, _ := v.(string)
-		if !secretIDShape.MatchString(id) {
-			id = ""
-		}
-		if seen[id] {
-			continue
-		}
-		seen[id] = true
-		ids = append(ids, id)
-		if len(ids) == secretRevealMaxIDs {
-			break
-		}
-	}
-	if len(ids) == 0 {
-		return []string{""}
-	}
-	return ids
-}
-
-// logRevealDenied must not turn a refusal into a different answer: a failed
-// audit write is logged and the caller still gets the refusal.
-func (s *apiServer) logRevealDenied(r *http.Request, ids []string) {
-	member, machine, now := currentActor(r), currentMachineClaim(r), nowSecs()
-	err := s.dal.inTx(func(tx *writeTx) error {
-		for _, id := range ids {
-			if err := insertSecretAccessLogOn(tx, secretActionDenied, id, member, machine, now); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		log.Printf("[secrets] WARNING: could not record a denied reveal by %s: %v", member, err)
-	}
-}
-
 func (s *apiServer) HandleRevealSelfSecretsApiSelfSecretsRevealPost(w http.ResponseWriter, r *http.Request) {
-	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, secretRevealBodyBytes))
-	if err != nil {
-		s.logRevealDenied(r, []string{""})
-		writeError(w, http.StatusUnprocessableEntity, "could not read request body")
-		return
-	}
-	asked := revealRequestedIDs(raw)
 	if s.callerIsOwner(r) {
-		s.logRevealDenied(r, asked)
 		writeError(w, http.StatusForbidden, secretOwnerRevealMsg)
 		return
 	}
 	if !s.callerIsActiveAIMember(r) {
-		s.logRevealDenied(r, asked)
 		writeError(w, http.StatusForbidden, "only an active AI member may reveal secrets")
 		return
 	}
-	r.Body = io.NopCloser(bytes.NewReader(raw))
+	r.Body = http.MaxBytesReader(w, r.Body, secretRevealBodyBytes)
 	var body SecretRevealRequestDTO
 	if !decodeJSONBodyRequired(w, r, &body, "ids") {
-		s.logRevealDenied(r, asked)
 		return
 	}
 	for _, id := range body.Ids {
 		if !secretIDShape.MatchString(id) {
-			s.logRevealDenied(r, []string{""})
 			writeError(w, http.StatusBadRequest, "ids must be secret ids (sec- followed by 12 lowercase hex digits)")
 			return
 		}
 	}
 	if problem := validateRevealIDs(body.Ids); problem != "" {
-		s.logRevealDenied(r, asked)
 		writeError(w, http.StatusUnprocessableEntity, problem)
 		return
 	}
 	// Loaded before the transaction: the vault lock may not be taken inside one.
 	aead, keyErr := s.vault.cipherFor(nil)
-	member, machine, now := currentActor(r), currentMachineClaim(r), nowSecs()
+	now := nowSecs()
 	var missing []string
 	out := secretRevealDTO{Secrets: make([]secretValueDTO, 0, len(body.Ids))}
-	err = s.dal.inTx(func(tx *writeTx) error {
+	err := s.dal.inTx(func(tx *writeTx) error {
 		found := make([]Secret, 0, len(body.Ids))
 		for _, id := range body.Ids {
 			sec, err := getSecretOn(tx, id)
@@ -379,11 +289,6 @@ func (s *apiServer) HandleRevealSelfSecretsApiSelfSecretsRevealPost(w http.Respo
 			found = append(found, *sec)
 		}
 		if len(missing) > 0 {
-			for _, id := range body.Ids {
-				if err := insertSecretAccessLogOn(tx, secretActionDenied, id, member, machine, now); err != nil {
-					return err
-				}
-			}
 			return nil
 		}
 		if keyErr != nil {
@@ -395,7 +300,7 @@ func (s *apiServer) HandleRevealSelfSecretsApiSelfSecretsRevealPost(w http.Respo
 				return err
 			}
 			out.Secrets = append(out.Secrets, secretValueDTO{ID: sec.ID, Name: sec.Name, Note: sec.Note, Value: value})
-			if err := insertSecretAccessLogOn(tx, secretActionReveal, sec.ID, member, machine, now); err != nil {
+			if err := markSecretAccessedOn(tx, sec.ID, now); err != nil {
 				return err
 			}
 		}

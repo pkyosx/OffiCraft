@@ -5,6 +5,7 @@ import { zh } from "../i18n/locales/zh";
 import { SecretsPage } from "./SecretsPage";
 import { __resetMock } from "../api/mock";
 import { api } from "../api";
+import { formatAbsolute } from "../lib/dateFormat";
 
 const copyTextMock = vi.hoisted(() => vi.fn(async (_text: string) => true));
 vi.mock("../lib/clipboard", () => ({ copyText: copyTextMock }));
@@ -44,36 +45,47 @@ afterEach(() => {
 });
 
 describe("SecretsPage", () => {
-  it("lists each secret's id, name, note and the access log", async () => {
+  it("a collapsed row shows only id, name and updated time; clicking it reveals the note, last access and actions", async () => {
     const { container } = renderPage();
     const row = await firstRow(container);
+    const now = Math.floor(Date.now() / 1000);
     expect(row.getAttribute("data-secret-id")).toBe("sec-00000000000a");
+    expect(row.getAttribute("aria-expanded")).toBe("false");
     expect(row.querySelector('[data-testid="secret-id"]')?.textContent).toContain(
       "sec-00000000000a",
     );
     expect(row.querySelector('[data-testid="secret-name"]')?.textContent).toBe(
       "GitHub deploy token",
     );
+    expect(row.querySelector('[data-testid="secret-updated"]')?.textContent).toBe(
+      zh.secrets.colUpdated + formatAbsolute(1760000000, now),
+    );
+    for (const hidden of ["secret-note", "secret-last-accessed", "secret-edit", "secret-delete"]) {
+      expect(row.querySelector(`[data-testid="${hidden}"]`)).toBeNull();
+    }
+    expect(container.querySelector("h2")).toBeNull();
+
+    fireEvent.click(row.querySelector('[data-testid="secret-name"]')!);
+    expect(row.getAttribute("aria-expanded")).toBe("true");
     expect(row.querySelector('[data-testid="secret-note"]')?.textContent).toContain(
       "Only for pushing release tags.",
     );
-    const logRow = await waitFor(() => {
-      const el = container.querySelector<HTMLElement>('[data-testid="secret-log-row"]');
-      if (!el) throw new Error("no log row yet");
-      return el;
-    });
-    expect(logRow.getAttribute("data-action")).toBe("reveal");
-    expect(logRow.textContent).toContain(zh.secrets.actionReveal);
-    expect(logRow.textContent).toContain("GitHub deploy token");
-    expect(logRow.textContent).toContain("warden-mbp5");
+    expect(row.querySelector('[data-testid="secret-last-accessed"]')?.textContent).toBe(
+      zh.secrets.colLastAccessed + formatAbsolute(1760000600, now),
+    );
+    expect(row.querySelector('[data-testid="secret-edit"]')).toBeTruthy();
+
+    fireEvent.keyDown(row, { key: "Enter" });
+    expect(row.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("copies the id on click and confirms only after the copy succeeded", async () => {
+  it("clicking the id copies it without expanding the row, and confirms only after the copy succeeded", async () => {
     const { container } = renderPage();
     const row = await firstRow(container);
     fireEvent.click(row.querySelector('[data-testid="secret-id"]')!);
     await waitFor(() => expect(copyTextMock).toHaveBeenCalledWith("sec-00000000000a"));
     expect(await screen.findByTestId("secret-id-copied")).toBeTruthy();
+    expect(row.getAttribute("aria-expanded")).toBe("false");
   });
 
   it("creating sends name, value and note, then shows the new row without its value", async () => {
@@ -105,6 +117,14 @@ describe("SecretsPage", () => {
     );
     expect(screen.queryByTestId("secret-create-form")).toBeNull();
     expect(valueAppearsAnywhere(container)).toBe(false);
+    const created = container.querySelectorAll<HTMLElement>('[data-testid="secret-row"]')[1];
+    fireEvent.click(created);
+    expect(created.querySelector('[data-testid="secret-last-accessed"]')?.textContent).toBe(
+      zh.secrets.colLastAccessed + zh.secrets.neverAccessed,
+    );
+    expect(created.querySelector('[data-testid="secret-note"]')?.textContent).toContain(
+      "read-only",
+    );
   });
 
   it("a multi-line value is sent byte for byte on create and on edit", async () => {
@@ -126,6 +146,7 @@ describe("SecretsPage", () => {
       expect(createSpy).toHaveBeenCalledWith({ name: "Deploy key", value: multiLine, note: "" }),
     );
 
+    fireEvent.click(row);
     fireEvent.click(row.querySelector('[data-testid="secret-edit"]')!);
     fireEvent.change(screen.getByTestId("secret-value-input"), {
       target: { value: multiLine },
@@ -162,6 +183,7 @@ describe("SecretsPage", () => {
     const { container } = renderPage();
     const row = await firstRow(container);
 
+    fireEvent.click(row);
     fireEvent.click(row.querySelector('[data-testid="secret-edit"]')!);
     const valueInput = screen.getByTestId("secret-value-input") as HTMLInputElement;
     expect(valueInput.value).toBe("");
@@ -174,6 +196,11 @@ describe("SecretsPage", () => {
     await waitFor(() =>
       expect(updateSpy).toHaveBeenCalledWith("sec-00000000000a", { note: "" }),
     );
+    const saved = await firstRow(container);
+    fireEvent.click(saved);
+    expect(saved.querySelector('[data-testid="secret-note"]')?.textContent).toBe(
+      zh.secrets.colNote + zh.secrets.noNote,
+    );
   });
 
   it("deleting goes through the confirmation before calling the API", async () => {
@@ -181,6 +208,7 @@ describe("SecretsPage", () => {
     const { container } = renderPage();
     const row = await firstRow(container);
 
+    fireEvent.click(row);
     fireEvent.click(row.querySelector('[data-testid="secret-delete"]')!);
     expect(deleteSpy).not.toHaveBeenCalled();
     expect(screen.getByTestId("secrets-delete-confirm").textContent).toContain(

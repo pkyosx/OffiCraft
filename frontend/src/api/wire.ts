@@ -395,7 +395,6 @@ export type WireBackupHealth = components["schemas"]["BackupHealthDTO"];
 export type WireSigningKeys = components["schemas"]["SigningKeysDTO"];
 export type WireSecret = components["schemas"]["SecretDTO"];
 export type WireSecrets = components["schemas"]["SecretsDTO"];
-export type WireSecretAccessLog = components["schemas"]["SecretAccessLogDTO"];
 
 // ── Resume summary (RESUME SUMMARY panel section, T-8b0d) ─────────────────────
 

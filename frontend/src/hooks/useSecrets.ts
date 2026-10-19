@@ -1,10 +1,9 @@
-// hooks/useSecrets.ts — the owner's Secrets page data: the secret list and the
-// access log. No SSE topic carries secrets, so both are read on mount and
-// re-read after each of this page's own writes.
+// hooks/useSecrets.ts — the owner's Secrets page data. No SSE topic carries
+// secrets, so the list is read on mount and re-read after each of this page's
+// own writes.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
-  SecretAccessEntryView,
   SecretCreateInput,
   SecretUpdateInput,
   SecretView,
@@ -14,7 +13,6 @@ import { serverMessageOf } from "../api/errors";
 
 interface UseSecrets {
   secrets: SecretView[];
-  accessLog: SecretAccessEntryView[];
   loading: boolean;
   /** The last load failure's message, or "". */
   loadError: string;
@@ -27,20 +25,15 @@ interface UseSecrets {
 
 export function useSecrets(fallbackMessage: string): UseSecrets {
   const [secrets, setSecrets] = useState<SecretView[]>([]);
-  const [accessLog, setAccessLog] = useState<SecretAccessEntryView[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const alive = useRef(true);
 
   const reload = useCallback(async () => {
     try {
-      const [list, log] = await Promise.all([
-        api.listSecrets(),
-        api.listSecretAccessLog(),
-      ]);
+      const list = await api.listSecrets();
       if (!alive.current) return;
       setSecrets(list);
-      setAccessLog(log);
       setLoadError("");
     } catch (e: unknown) {
       console.warn("useSecrets: load failed", e);
@@ -85,5 +78,5 @@ export function useSecrets(fallbackMessage: string): UseSecrets {
     [run],
   );
 
-  return { secrets, accessLog, loading, loadError, create, update, remove };
+  return { secrets, loading, loadError, create, update, remove };
 }

@@ -2140,17 +2140,10 @@ def _happy_reveal_body(ctx: HCtx) -> dict[str, Any]:
 def _check_secret_revealed(ctx: HCtx, r: httpx.Response) -> None:
     (row,) = r.json()["secrets"]
     assert row["value"] == _HAPPY_SECRET_VALUE, row
-    log = ctx.client.get(
-        "/api/secrets/access-log",
-        params={"secret_id": row["id"]},
-        headers=_auth(ctx.owner_token),
-    )
-    assert log.status_code == 200, (log.status_code, log.text)
-    (entry,) = log.json()["entries"]
-    assert entry["action"] == "reveal", entry
-    assert entry["member_id"] == ctx.agent.member_id, entry
-    assert entry["secret_name"] == "conf happy secret", entry
-
+    listing = ctx.client.get("/api/secrets", headers=_auth(ctx.owner_token))
+    assert listing.status_code == 200, (listing.status_code, listing.text)
+    (listed,) = [s for s in listing.json()["secrets"] if s["id"] == row["id"]]
+    assert isinstance(listed["last_accessed_ts"], (int, float)), listed
 
 HAPPY: dict[str, Happy] = {
     # ── public ───────────────────────────────────────────────────────────────
@@ -3608,7 +3601,6 @@ HAPPY: dict[str, Happy] = {
         body={"name": "conf happy secret", "value": _HAPPY_SECRET_VALUE},
         check=_check_secret_without_value,
     ),
-    "GET /api/secrets/access-log": Happy(),
     "PATCH /api/secrets/{secret_id}": Happy(
         path=lambda ctx: f"/api/secrets/{_happy_secret(ctx)}",
         body={"note": "edited by conformance"},

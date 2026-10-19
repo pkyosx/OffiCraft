@@ -24,7 +24,6 @@ import type {
   SecretView,
   SecretCreateInput,
   SecretUpdateInput,
-  SecretAccessEntryView,
   AuthStatusView,
   MfaEnrollView,
   MfaStateView,
@@ -2858,10 +2857,8 @@ export interface Api {
   createSecret(input: SecretCreateInput): Promise<SecretView>;
   /** PATCH /api/secrets/{id} — only the supplied fields change. */
   updateSecret(id: string, patch: SecretUpdateInput): Promise<SecretView>;
-  /** DELETE /api/secrets/{id} — permanent; access-log rows stay. */
+  /** DELETE /api/secrets/{id} — permanent. */
   deleteSecret(id: string): Promise<SecretView>;
-  /** GET /api/secrets/access-log — newest first, server default limit. */
-  listSecretAccessLog(): Promise<SecretAccessEntryView[]>;
   /** The folded global-context doc (owner overlay ⊕ file seed). */
   getGlobalContext(): Promise<GlobalContextView>;
   /** Whole-doc replace of the global context. The write answers with a

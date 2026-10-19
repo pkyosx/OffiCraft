@@ -2,28 +2,22 @@
 // to show; the value lives only in the create/edit input until the request is
 // sent, and the input is cleared whether the save succeeds or not.
 
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useI18n } from "../i18n";
 import { useSecrets } from "../hooks/useSecrets";
-import { useMembers } from "../hooks/useMembers";
 import { copyText } from "../lib/clipboard";
 import { formatAbsolute } from "../lib/dateFormat";
-import type { SecretAccessEntryView, SecretView } from "../types";
+import type { SecretView } from "../types";
 import { ConfirmModal } from "./ConfirmModal";
-import { CheckIcon, KeyIcon } from "./icons";
+import { CheckIcon, ChevronDownIcon, ChevronRightIcon, KeyIcon } from "./icons";
 import "./lore.css";
 import "./secrets.css";
 
 export function SecretsPage() {
   const { t, msg } = useI18n();
   const d = t.secrets;
-  const { secrets, accessLog, loading, loadError, create, update, remove } =
+  const { secrets, loading, loadError, create, update, remove } =
     useSecrets(d.loadFailed);
-  const { members } = useMembers({ light: true });
-  const memberName = useMemo(() => {
-    const byId = new Map(members.map((m) => [m.id, m.name]));
-    return (id: string) => byId.get(id) || id;
-  }, [members]);
 
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -47,40 +41,10 @@ export function SecretsPage() {
 
   return (
     <div className="secrets" data-testid="secrets-page">
-      <div className="secrets__head">
-        <h2 className="secrets__title">{d.title}</h2>
-        <p className="secrets__intro">{d.intro}</p>
-      </div>
-
       {loadError && (
         <div className="lore__error" data-testid="secrets-load-error">
           {loadError}
         </div>
-      )}
-
-      {adding ? (
-        <SecretForm
-          mode="create"
-          onCancel={() => setAdding(false)}
-          onSubmit={async (fields) => {
-            const err = await create({
-              name: fields.name,
-              value: fields.value,
-              note: fields.note,
-            });
-            if (!err) setAdding(false);
-            return err;
-          }}
-        />
-      ) : (
-        <button
-          type="button"
-          className="secrets__add"
-          data-testid="secrets-add"
-          onClick={() => setAdding(true)}
-        >
-          {d.add}
-        </button>
       )}
 
       {!loading && secrets.length === 0 && !loadError && (
@@ -89,66 +53,68 @@ export function SecretsPage() {
         </div>
       )}
 
-      <div className="secrets__list">
-        {secrets.map((s) =>
-          editingId === s.id ? (
-            <SecretForm
-              key={s.id}
-              mode="edit"
-              initial={s}
-              onCancel={() => setEditingId(null)}
-              onSubmit={async (fields) => {
-                const patch: { name?: string; note?: string; value?: string } =
-                  {};
-                if (fields.name !== s.name) patch.name = fields.name;
-                if (fields.note !== s.note) patch.note = fields.note;
-                if (fields.value !== "") patch.value = fields.value;
-                const err = await update(s.id, patch);
-                if (!err) setEditingId(null);
-                return err;
-              }}
-            />
-          ) : (
-            <SecretRow
-              key={s.id}
-              secret={s}
-              nowSecs={nowSecs}
-              onEdit={() => setEditingId(s.id)}
-              onDelete={() => {
-                setDeleteError("");
-                setDeleteTarget(s);
-              }}
-            />
-          ),
-        )}
-      </div>
-
-      <section className="secrets__log" data-testid="secrets-log">
-        <h3 className="secrets__subtitle">{d.logTitle}</h3>
-        {!loading && accessLog.length === 0 ? (
-          <div className="lore__empty" data-testid="secrets-log-empty">
-            {d.logEmpty}
-          </div>
-        ) : (
-          <div className="secrets__log-table" role="table">
-            <div className="secrets__log-row secrets__log-row--head" role="row">
-              <span role="columnheader">{d.logTime}</span>
-              <span role="columnheader">{d.logMember}</span>
-              <span role="columnheader">{d.logMachine}</span>
-              <span role="columnheader">{d.logSecret}</span>
-              <span role="columnheader">{d.logAction}</span>
-            </div>
-            {accessLog.map((e) => (
-              <AccessRow
-                key={e.id}
-                entry={e}
-                nowSecs={nowSecs}
-                memberName={memberName(e.memberId)}
+      {secrets.length > 0 && (
+        <div className="secrets__card" data-testid="secrets-list">
+          {secrets.map((s) =>
+            editingId === s.id ? (
+              <SecretForm
+                key={s.id}
+                mode="edit"
+                initial={s}
+                onCancel={() => setEditingId(null)}
+                onSubmit={async (fields) => {
+                  const patch: { name?: string; note?: string; value?: string } =
+                    {};
+                  if (fields.name !== s.name) patch.name = fields.name;
+                  if (fields.note !== s.note) patch.note = fields.note;
+                  if (fields.value !== "") patch.value = fields.value;
+                  const err = await update(s.id, patch);
+                  if (!err) setEditingId(null);
+                  return err;
+                }}
               />
-            ))}
-          </div>
-        )}
-      </section>
+            ) : (
+              <SecretRow
+                key={s.id}
+                secret={s}
+                nowSecs={nowSecs}
+                onEdit={() => setEditingId(s.id)}
+                onDelete={() => {
+                  setDeleteError("");
+                  setDeleteTarget(s);
+                }}
+              />
+            ),
+          )}
+        </div>
+      )}
+
+      {adding ? (
+        <div className="secrets__card">
+          <SecretForm
+            mode="create"
+            onCancel={() => setAdding(false)}
+            onSubmit={async (fields) => {
+              const err = await create({
+                name: fields.name,
+                value: fields.value,
+                note: fields.note,
+              });
+              if (!err) setAdding(false);
+              return err;
+            }}
+          />
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="add-entry"
+          data-testid="secrets-add"
+          onClick={() => setAdding(true)}
+        >
+          + {d.add}
+        </button>
+      )}
 
       {deleteTarget && (
         <ConfirmModal
@@ -183,6 +149,7 @@ function SecretRow({
   const d = t.secrets;
   // Same contract as the 傳承 entry id: 已複製 only when the clipboard write
   // actually succeeded, and the timer dies with the row.
+  const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef<number | null>(null);
   useEffect(
@@ -199,11 +166,37 @@ function SecretRow({
     copiedTimer.current = window.setTimeout(() => setCopied(false), 1600);
   }
 
+  // Same toggle contract as the 傳承 row (LorePage onRowToggleClick): a click
+  // on a control does that control's job only, and ending a text selection
+  // does not fold the row.
+  function onRowToggleClick(e: React.MouseEvent<HTMLElement>) {
+    const hit = (e.target as HTMLElement).closest(
+      "button, a, textarea, input, select, [role='button'], [role='dialog']",
+    );
+    if (hit && hit !== e.currentTarget) return;
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0 && !sel.isCollapsed) return;
+    setExpanded((v) => !v);
+  }
+  function onRowToggleKeyDown(e: React.KeyboardEvent<HTMLElement>) {
+    if (e.target !== e.currentTarget) return;
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      setExpanded((v) => !v);
+    }
+  }
+
   return (
     <article
       className="secrets__row"
       data-testid="secret-row"
       data-secret-id={secret.id}
+      role="button"
+      tabIndex={0}
+      aria-expanded={expanded}
+      aria-label={expanded ? d.collapseRow : d.expandRow}
+      onClick={onRowToggleClick}
+      onKeyDown={onRowToggleKeyDown}
     >
       <div className="secrets__row-head">
         <button
@@ -229,40 +222,50 @@ function SecretRow({
         <span className="secrets__name" data-testid="secret-name">
           {secret.name}
         </span>
-        <span className="secrets__spacer" />
-        <button
-          type="button"
-          className="secrets__btn secrets__action"
-          data-testid="secret-edit"
-          onClick={onEdit}
-        >
-          {d.edit}
-        </button>
-        <button
-          type="button"
-          className="secrets__btn secrets__action secrets__action--danger"
-          data-testid="secret-delete"
-          onClick={onDelete}
-        >
-          {d.delete}
-        </button>
-      </div>
-      {secret.note && (
-        <div className="secrets__note" data-testid="secret-note">
-          <span className="secrets__label">{d.colNote}</span>
-          {secret.note}
-        </div>
-      )}
-      <div className="secrets__times">
-        <span>
-          <span className="secrets__label">{d.colCreated}</span>
-          {formatAbsolute(secret.createdTs, nowSecs)}
-        </span>
-        <span>
+        <span className="secrets__updated" data-testid="secret-updated">
           <span className="secrets__label">{d.colUpdated}</span>
           {formatAbsolute(secret.updatedTs, nowSecs)}
         </span>
+        <span className="lore-row__expand-mark" aria-hidden="true">
+          {expanded ? <ChevronDownIcon size={18} /> : <ChevronRightIcon size={18} />}
+        </span>
       </div>
+      {expanded && (
+        <div className="secrets__detail" data-testid="secret-detail">
+          <div className="secrets__detail-line" data-testid="secret-note">
+            <span className="secrets__label">{d.colNote}</span>
+            {secret.note ? (
+              <span className="secrets__note">{secret.note}</span>
+            ) : (
+              <span className="secrets__muted">{d.noNote}</span>
+            )}
+          </div>
+          <div className="secrets__detail-line" data-testid="secret-last-accessed">
+            <span className="secrets__label">{d.colLastAccessed}</span>
+            {secret.lastAccessedTs == null
+              ? d.neverAccessed
+              : formatAbsolute(secret.lastAccessedTs, nowSecs)}
+          </div>
+          <div className="secrets__detail-actions">
+            <button
+              type="button"
+              className="secrets__btn"
+              data-testid="secret-edit"
+              onClick={onEdit}
+            >
+              {d.edit}
+            </button>
+            <button
+              type="button"
+              className="secrets__btn secrets__action--danger"
+              data-testid="secret-delete"
+              onClick={onDelete}
+            >
+              {d.delete}
+            </button>
+          </div>
+        </div>
+      )}
     </article>
   );
 }
@@ -372,51 +375,5 @@ function SecretForm({
         </button>
       </div>
     </form>
-  );
-}
-
-function AccessRow({
-  entry,
-  nowSecs,
-  memberName,
-}: {
-  entry: SecretAccessEntryView;
-  nowSecs: number;
-  memberName: string;
-}) {
-  const { t } = useI18n();
-  const d = t.secrets;
-  return (
-    <div
-      className="secrets__log-row"
-      role="row"
-      data-testid="secret-log-row"
-      data-action={entry.action}
-    >
-      <span role="cell">{formatAbsolute(entry.ts, nowSecs)}</span>
-      <span role="cell">{memberName}</span>
-      <span role="cell" className="secrets__mono">
-        {entry.machineId || "—"}
-      </span>
-      <span role="cell">
-        {entry.secretName ? (
-          <>
-            {entry.secretName}{" "}
-            <span className="secrets__mono secrets__muted">{entry.secretId}</span>
-          </>
-        ) : (
-          <>
-            <span className="secrets__mono">{entry.secretId || "—"}</span>{" "}
-            <span className="secrets__muted">{d.deletedSecret}</span>
-          </>
-        )}
-      </span>
-      <span
-        role="cell"
-        className={`secrets__action-word secrets__action-word--${entry.action}`}
-      >
-        {entry.action === "reveal" ? d.actionReveal : d.actionDenied}
-      </span>
-    </div>
   );
 }

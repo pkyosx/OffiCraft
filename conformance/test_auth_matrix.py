@@ -2039,7 +2039,6 @@ MATRIX: dict[str, Route] = {
         requires="owner",
         body={"name": "conf-secret", "value": "fake-value-conf"},
     ),
-    "GET /api/secrets/access-log": Route(requires="owner"),
     "PATCH /api/secrets/{secret_id}": Route(
         requires="owner",
         path="/api/secrets/sec-conf-nope",
@@ -2076,7 +2075,7 @@ DEGRADED: dict[str, str] = {
     ),
     "DELETE /api/secrets/{secret_id}": (
         "owner face probed with an unknown secret id (404); the delete round-trip "
-        "and the surviving access-log rows are pinned in test_rest_happy.py and "
+        "is pinned in test_rest_happy.py and "
         "the server unit tests (api_secrets_test.go)."
     ),
     "POST /api/self/secrets/reveal": (

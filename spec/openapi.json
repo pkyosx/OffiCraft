@@ -6918,80 +6918,6 @@
         "title": "ScheduledMessageUpdateDTO",
         "type": "object"
       },
-      "SecretAccessLogDTO": {
-        "additionalProperties": false,
-        "description": "Secret access attempts, newest first.",
-        "properties": {
-          "entries": {
-            "items": {
-              "$ref": "#/components/schemas/SecretAccessLogEntryDTO"
-            },
-            "title": "Entries",
-            "type": "array"
-          }
-        },
-        "required": [
-          "entries"
-        ],
-        "title": "SecretAccessLogDTO",
-        "type": "object"
-      },
-      "SecretAccessLogEntryDTO": {
-        "additionalProperties": false,
-        "description": "One access attempt on a secret value. Rows are append-only and outlive the secret they record.",
-        "properties": {
-          "action": {
-            "description": "`reveal` — the value was returned to the caller; `denied` — the call was refused and returned nothing.",
-            "enum": [
-              "reveal",
-              "denied"
-            ],
-            "title": "Action",
-            "type": "string"
-          },
-          "id": {
-            "title": "Id",
-            "type": "integer"
-          },
-          "machine_id": {
-            "default": "",
-            "description": "The `machine_id` claim of the caller's token; `\"\"` when the token carried none.",
-            "title": "Machine Id",
-            "type": "string"
-          },
-          "member_id": {
-            "title": "Member Id",
-            "type": "string"
-          },
-          "secret_id": {
-            "default": "",
-            "description": "The id revealed, or the id asked for on a refused attempt (`\"\"` when it named none or named something not shaped like a secret id).",
-            "title": "Secret Id",
-            "type": "string"
-          },
-          "secret_name": {
-            "default": "",
-            "description": "The secret's CURRENT name, resolved at read time; `\"\"` once the secret is deleted or when the id never existed.",
-            "title": "Secret Name",
-            "type": "string"
-          },
-          "ts": {
-            "title": "Ts",
-            "type": "number"
-          }
-        },
-        "required": [
-          "id",
-          "action",
-          "secret_id",
-          "secret_name",
-          "member_id",
-          "machine_id",
-          "ts"
-        ],
-        "title": "SecretAccessLogEntryDTO",
-        "type": "object"
-      },
       "SecretCreateDTO": {
         "additionalProperties": false,
         "description": "Create a secret. The value is encrypted at rest and NEVER echoed on any wire, log, chat message or event.",
@@ -7030,7 +6956,7 @@
       },
       "SecretDTO": {
         "additionalProperties": false,
-        "description": "One secret WITHOUT its value: no owner route ever returns a value, not even masked or hashed. `updated_ts` moves on every edit, value-only edits included.",
+        "description": "One secret WITHOUT its value: no owner route ever returns a value, not even masked or hashed. `updated_ts` moves on every edit, value-only edits included; `last_accessed_ts` moves only on a successful reveal.",
         "properties": {
           "created_ts": {
             "default": 0.0,
@@ -7041,6 +6967,18 @@
             "description": "Server-minted (`sec-` + 12 hex), immutable; the key every route and `ocagent secret` take.",
             "title": "Id",
             "type": "string"
+          },
+          "last_accessed_ts": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Epoch seconds of the newest successful reveal of this secret by an AI member; null when it has never been revealed. Editing the secret does not reset it.",
+            "title": "Last Accessed Ts"
           },
           "name": {
             "title": "Name",
@@ -7062,7 +7000,8 @@
           "name",
           "note",
           "created_ts",
-          "updated_ts"
+          "updated_ts",
+          "last_accessed_ts"
         ],
         "title": "SecretDTO",
         "type": "object"
@@ -19996,7 +19935,7 @@
     },
     "/api/secrets": {
       "get": {
-        "description": "- Every secret, ordered by `created_ts`: id, name, note and timestamps. No value, masked value or hash of a value is ever returned.\n- Owner only; off the MCP surface.",
+        "description": "- Every secret, ordered by `created_ts`: id, name, note, timestamps and when an AI member last revealed it. No value, masked value or hash of a value is ever returned.\n- Owner only; off the MCP surface.",
         "operationId": "handle_list_secrets_api_secrets_get",
         "responses": {
           "200": {
@@ -20106,128 +20045,6 @@
         }
       }
     },
-    "/api/secrets/access-log": {
-      "get": {
-        "description": "- One row per secret on a successful `POST /api/self/secrets/reveal` (`reveal`), and one row per id asked for on one refused by the handler (`denied`; `secret_id` is the id as sent, `\"\"` when the call named none or named something not shaped like a secret id). A machine refused at the route floor leaves no row.\n- `secret_id`, `member_id` and `action` narrow the list (AND); `limit` caps it after ordering (absent or non-positive = 200).\n- Owner only; off the MCP surface.",
-        "operationId": "handle_list_secret_access_log_api_secrets_access_log_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "secret_id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Secret Id"
-            }
-          },
-          {
-            "in": "query",
-            "name": "member_id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Member Id"
-            }
-          },
-          {
-            "in": "query",
-            "name": "action",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "enum": [
-                    "reveal",
-                    "denied"
-                  ],
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Action"
-            }
-          },
-          {
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Limit"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SecretAccessLogDTO"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Validation error (unified error envelope)."
-          },
-          "4XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Client error (unified error envelope)."
-          },
-          "5XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Server error (unified error envelope)."
-          }
-        },
-        "summary": "List secret access attempts, newest first.",
-        "x-mcp": {
-          "include": false
-        }
-      }
-    },
     "/api/secrets/{secret_id}": {
       "patch": {
         "description": "- Only supplied fields change; the id never does. An absent or null `value` keeps the stored value; a supplied one is re-sealed with a fresh nonce. An absent or null `note` keeps the note; `\"\"` clears it.\n- Same limits as create. `updated_ts` moves on every successful edit; `created_ts` never does.\n- 404 when the id is unknown.\n- Returns the secret without its value.\n- Owner only; off the MCP surface.",
@@ -20301,7 +20118,7 @@
         }
       },
       "delete": {
-        "description": "- Permanent: the row and its ciphertext go; access-log rows stay. No undo.\n- 404 when the id is unknown.\n- Returns the deleted secret without its value.\n- Owner only; off the MCP surface.",
+        "description": "- Permanent: the row and its ciphertext go. No undo.\n- 404 when the id is unknown.\n- Returns the deleted secret without its value.\n- Owner only; off the MCP surface.",
         "operationId": "handle_delete_secret_api_secrets__secret_id__delete",
         "parameters": [
           {
@@ -20484,7 +20301,7 @@
     },
     "/api/self/secrets/reveal": {
       "post": {
-        "description": "- For `ocagent secret` only, so a value never lands in an MCP tool result.\n- Every AI member may reveal every secret; there are no per-member grants.\n- Every id must be shaped like a secret id (`sec-` + 12 lowercase hex); any other id is 400 before any lookup and writes a single `denied` row with `secret_id` `\"\"`.\n- All or nothing: when any id is unknown the call is 404 naming those ids and returns no value.\n- Writes one `reveal` access-log row per id with the caller, the token's `machine_id` claim and the time, in the same transaction that reads the values. A call refused by the handler (an unknown id, a malformed body, the owner, or a caller that is not an active AI member) returns no value and writes one `denied` row per id it asked for, at most 16 (one row with `secret_id` `\"\"` when it named none; an id not shaped like a secret id is recorded as `\"\"`). A machine is refused at the route floor before the handler runs and writes no row.\n- The value never reaches a log, an event or a chat message.\n- Agents and admin agents only (403 for the owner and for machines); off the MCP surface: AI members use secrets only through `ocagent secret`.",
+        "description": "- For `ocagent secret` only, so a value never lands in an MCP tool result.\n- Every AI member may reveal every secret; there are no per-member grants.\n- Every id must be shaped like a secret id (`sec-` + 12 lowercase hex); any other id is 400 before any lookup.\n- All or nothing: when any id is unknown the call is 404 naming those ids and returns no value.\n- A successful call sets `last_accessed_ts` on every revealed secret in the same transaction that reads the values. A refused or failed call returns no value and changes no `last_accessed_ts`.\n- The value never reaches a log, an event or a chat message.\n- Agents and admin agents only (403 for the owner and for machines); off the MCP surface: AI members use secrets only through `ocagent secret`.",
         "operationId": "handle_reveal_self_secrets_api_self_secrets_reveal_post",
         "requestBody": {
           "content": {

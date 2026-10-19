@@ -110,7 +110,6 @@ func TestRouteSpecs(t *testing.T) {
 		{method: http.MethodPost, path: "/api/tasks/{task_id}/force-done", auth: authGated, requires: principalAdminAgent, mcpTool: "force_task_done"},
 		{method: http.MethodGet, path: "/api/secrets", auth: authGated, requires: principalOwner, exclude: true},
 		{method: http.MethodPost, path: "/api/secrets", auth: authGated, requires: principalOwner, exclude: true},
-		{method: http.MethodGet, path: "/api/secrets/access-log", auth: authGated, requires: principalOwner, exclude: true},
 		{method: http.MethodPatch, path: "/api/secrets/{secret_id}", auth: authGated, requires: principalOwner, exclude: true},
 		{method: http.MethodDelete, path: "/api/secrets/{secret_id}", auth: authGated, requires: principalOwner, exclude: true},
 		{method: http.MethodGet, path: "/api/self/secrets", auth: authGated, requires: principalAgent, exclude: true},

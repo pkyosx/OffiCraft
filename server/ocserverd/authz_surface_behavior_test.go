@@ -438,8 +438,7 @@ var authzOutsideRouteTable = map[string]string{
 		"owner routes and AI members reveal them only through ocagent, so every reveal is " +
 		"attributable to a member). The capability ladder is linear, so no Requires value " +
 		"can admit agent and admin_agent while excluding owner; the rows carry the agent " +
-		"floor and the owner is refused here, and a refused reveal is written to the " +
-		"access log as denied.",
+		"floor and the owner is refused here.",
 
 	"api_secrets.go :: callerIsActiveAIMember :: classifyMember(m)": "" +
 		"the reveal route is the only one that returns plaintext, so on top of the " +

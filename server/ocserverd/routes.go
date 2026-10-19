@@ -1361,12 +1361,6 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			MCPExclude: true,
 		}),
 		Gated(principalOwner, routeDef{
-			Method:     "GET",
-			Path:       "/api/secrets/access-log",
-			Handler:    w.HandleListSecretAccessLogApiSecretsAccessLogGet,
-			MCPExclude: true,
-		}),
-		Gated(principalOwner, routeDef{
 			Method:     "PATCH",
 			Path:       "/api/secrets/{secret_id}",
 			Handler:    w.HandleUpdateSecretApiSecretsSecretIdPatch,
