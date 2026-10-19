@@ -157,11 +157,17 @@
   font-weight: 600;
   color: var(--color-text-strong);
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .md-preview__title svg {
   flex: none;
+}
+/* text-overflow does nothing on a flex container's anonymous text item, so
+ * the name needs its own box to ellipsise in. */
+.md-preview__title-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .md-preview__actions {
   display: inline-flex;
@@ -428,6 +434,15 @@
 .md-preview__md.doc-md > :last-child {
   margin-bottom: 0;
 }
+.md-preview__content--commenting .md-preview__md img {
+  cursor: pointer;
+}
+/* The comment bubbles' containing block and the gutter they sit in, so they
+ * never cover a line of text (DocComments.tsx positions them). */
+.md-preview__content--commenting > .md-preview__body {
+  position: relative;
+  padding-right: 44px;
+}
 
 /* SHORT VIEWPORTS (a phone held sideways — iPhone 13 landscape is 390px tall).
  * 32px of inset top and bottom is 16% of that screen, and it comes off the image
@@ -536,4 +551,30 @@
   font-weight: 400;
   font-variant-numeric: tabular-nums;
   color: var(--color-text-muted);
+}
+
+/* A commentable document: the body beside its comment panel, stacked on a
+ * phone (DocComments.tsx owns the panel). */
+.md-preview__content {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+.md-preview__content > .md-preview__body {
+  min-width: 0;
+}
+.md-preview__comment-toggle {
+  cursor: pointer;
+  font-family: inherit;
+}
+.md-preview__comment-toggle[aria-pressed="true"] {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
+  background: var(--color-accent-soft);
+}
+@media (max-width: 720px) {
+  .md-preview__content--commenting {
+    flex-direction: column;
+  }
 }

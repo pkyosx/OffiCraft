@@ -5,7 +5,8 @@
 // row's own content column, above the card. Only the first had a witness, and
 // earlier rounds judged the second unreachable "in product". It is reachable:
 // `post_chat` exposes BOTH `meta` and `reply_to`, the POST handler copies
-// caller meta through wholesale and deletes only the `reply_to` key, and the
+// caller meta through wholesale and deletes only the `reply_to` and
+// `reply_excerpt` keys, and the
 // cockpit derives `m.replyCardId` straight from `meta.reply_card_id`
 // (api/mappers.ts) with no card-existence check. The server half is measured
 // in server/ocserverd/api_chat_reply_card_meta_t4e95_test.go.

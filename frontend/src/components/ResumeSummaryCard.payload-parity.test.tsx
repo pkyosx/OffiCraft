@@ -590,6 +590,16 @@ describe("ResumeSummaryCard renders the SAME snapshot the agent receives", () =>
     );
   });
 
+  it("draws the reply's selected excerpt in place of the quote line when it has one", async () => {
+    const mapped = MAPPED();
+    const chat = mapped.chat.map((m, i) =>
+      i === 2 ? { ...m, replyToChat: { ...m.replyToChat!, replyExcerpt: "被選的那段" } } : m,
+    );
+    OVERRIDE.value = { ...mapped, chat };
+    const u = await open();
+    expect(txt(u.getAllByTestId("mp-resume-chat-quote-body")[0])).toBe("被選的那段");
+  });
+
   it("says the original is gone — the fixed sentence — when the reply has no quote", async () => {
     // TWO STATES, NO THIRD. `reply_to` set with `reply_to_chat` absent is the
     // server's own answer on THIS read: the original no longer exists. Nothing
@@ -996,8 +1006,9 @@ describe("the roll-call: a field the seam gains cannot stay undrawn", () => {
         // T-4e95: the two halves of a reply, and they are deliberately two.
         // `replyTo` is the id and says THAT this message is a reply; it never
         // disappears. `replyToChat` is the quoted sender + a server-shortened
-        // line and says WHAT it replied to; it is rebuilt on every read and is
-        // legitimately null while `replyTo` is set (the original is gone).
+        // line (+ the reply's excerpt, if any) and says WHAT it replied to; it
+        // is rebuilt on every read and is legitimately null while `replyTo` is
+        // set (the original is gone).
         // Collapsing them into one field is the change this roll-call is here
         // to make announce itself.
         "replyTo",

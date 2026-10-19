@@ -1,0 +1,255 @@
+/* doc-comments.css — comment mode of the document preview (`.doc-comments*`). */
+
+::highlight(oc-doc-comment) {
+  background-color: var(--color-warn-bg);
+}
+img[data-doc-comment] {
+  outline: 3px solid var(--color-warn-border);
+  outline-offset: 2px;
+}
+::highlight(oc-doc-comment-focus) {
+  background-color: var(--color-warn-border);
+}
+img[data-doc-comment-focus] {
+  outline-color: var(--color-accent);
+}
+
+/* Bubbles live inside the document's scroll container (made positioned, with a
+ * right gutter they sit in, by md-preview.css) so they scroll with the text. */
+.doc-comments__bubble {
+  position: absolute;
+  right: 8px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border: 1px solid var(--color-warn-border);
+  border-radius: 11px;
+  background: var(--color-warn-bg);
+  color: var(--color-text-strong);
+  font-family: inherit;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+}
+.doc-comments__bubble[data-count]::after {
+  content: attr(data-count);
+}
+.doc-comments__bubble--image {
+  right: auto;
+}
+.doc-comments__bubble:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.doc-comments {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  width: 320px;
+  min-height: 0;
+  border-left: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
+  background: var(--color-surface-sunken);
+}
+.doc-comments__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.doc-comments__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.doc-comments__empty,
+.doc-comments__note {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+.doc-comments__item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
+  border-radius: 10px;
+  background: var(--color-card);
+  min-width: 0;
+}
+.doc-comments__goto {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.doc-comments__goto:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.doc-comments__item--flash {
+  border-color: var(--color-warn-border);
+  box-shadow: 0 0 0 2px var(--color-warn-border);
+}
+.doc-comments__excerpt {
+  display: block;
+  margin: 0;
+  padding-left: 8px;
+  border-left: 3px solid var(--color-warn-border);
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 7.5em;
+  overflow-y: auto;
+}
+.doc-comments__text {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.doc-comments__index {
+  color: var(--color-text-muted);
+}
+.doc-comments__input {
+  width: 100%;
+  min-height: 64px;
+  box-sizing: border-box;
+  padding: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-card);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13px;
+  resize: vertical;
+}
+.doc-comments__row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.doc-comments__row--item {
+  justify-content: flex-start;
+  align-items: flex-start;
+}
+.doc-comments__btn,
+.doc-comments__icon,
+.doc-comments__float {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
+  border-radius: 8px;
+  background: var(--color-card);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: 12.5px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.doc-comments__btn {
+  height: 30px;
+  padding: 0 12px;
+}
+.doc-comments__icon {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+}
+.doc-comments__btn--primary {
+  border-color: color-mix(in srgb, var(--color-accent) 18%, transparent);
+  background: var(--color-accent-cta-bg);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+.doc-comments__btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.doc-comments__float {
+  position: fixed;
+  z-index: 2;
+  height: 32px;
+  padding: 0 12px;
+  border-color: color-mix(in srgb, var(--color-accent) 18%, transparent);
+  background: var(--color-accent-cta-bg);
+  color: var(--color-accent);
+  font-weight: 600;
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--color-shadow) 40%, transparent);
+}
+.doc-comments__foot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px 12px;
+  border-top: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
+}
+.doc-comments__recipient {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+.doc-comments__recipient strong {
+  color: var(--color-text-strong);
+}
+.doc-comments__blocked,
+.doc-comments__error {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--color-danger);
+}
+.doc-comments__send {
+  align-self: flex-end;
+}
+.doc-comments__collapse {
+  display: none;
+  transform: rotate(90deg);
+}
+.doc-comments--collapsed .doc-comments__collapse {
+  transform: rotate(-90deg);
+}
+
+@media (max-width: 720px) {
+  .doc-comments {
+    width: auto;
+    max-height: 45%;
+    border-left: none;
+    border-top: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
+  }
+  .doc-comments__collapse {
+    display: inline-flex;
+  }
+  .doc-comments--collapsed .doc-comments__list {
+    display: none;
+  }
+}

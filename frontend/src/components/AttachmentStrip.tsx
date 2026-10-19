@@ -16,6 +16,7 @@ import { Fragment, useState } from "react";
 import type { ReactNode } from "react";
 import { useI18n } from "../i18n";
 import type { ChatAttachmentView } from "../api/adapter";
+import type { DocCommentTarget } from "../lib/docComments";
 import { authedAttachmentUrl } from "../api/http";
 import { copyAttachmentShareLink } from "../lib/shareLink";
 import { MarkdownPreviewOverlay } from "./MarkdownPreviewOverlay";
@@ -32,6 +33,7 @@ export function AttachmentStrip({
   showShareLink = false,
   renderExtra,
   renderMeta,
+  docCommentsFor,
 }: {
   attachments: ChatAttachmentView[];
   /** The container element's class (e.g. `chat__msg-attachments`,
@@ -67,6 +69,9 @@ export function AttachmentStrip({
    * lets a non-image download chip carry a second line without every other
    * call site knowing about it). Undefined ⇒ no second line, no wrapper. */
   renderMeta?: (att: ChatAttachmentView) => ReactNode;
+  /** Where comments on a previewed markdown document go. Absent ⇒ the
+   * preview offers no comment mode. */
+  docCommentsFor?: (att: ChatAttachmentView) => DocCommentTarget;
 }) {
   const { t } = useI18n();
   // 🔴 THE OPEN PREVIEW IS AN ITEM OF THE LIST ON SCREEN, NOT A REMEMBERED
@@ -216,7 +221,7 @@ export function AttachmentStrip({
       * ONE attachment ⇒ no `pager` at all, so neither the chevrons, the counter,
       * nor the key listener exist. Passing a 1-of-1 pager would draw two dead
       * controls that can never do anything. */}
-    {preview && <MarkdownPreviewOverlay title={preview.filename || t.chat.downloadAttachment} filename={preview.blobFilename} url={preview.url} attachmentId={preview.backingAttachmentId ?? preview.id} mime={preview.mime} pager={attachments.length > 1 ? { index: previewIndex, total: attachments.length, onGo: (i) => setPreviewId(attachments[i].id) } : undefined} onClose={() => setPreviewId(null)} />}
+    {preview && <MarkdownPreviewOverlay title={preview.filename || t.chat.downloadAttachment} filename={preview.blobFilename} url={preview.url} attachmentId={preview.backingAttachmentId ?? preview.id} mime={preview.mime} docComments={docCommentsFor?.(preview)} pager={attachments.length > 1 ? { index: previewIndex, total: attachments.length, onGo: (i) => setPreviewId(attachments[i].id) } : undefined} onClose={() => setPreviewId(null)} />}
     </>
   );
 }

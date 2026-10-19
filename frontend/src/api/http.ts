@@ -1527,6 +1527,7 @@ export const httpApi: Api = {
     body: string;
     attachments?: ChatAttachmentInput[];
     replyTo?: string;
+    replyExcerpt?: string;
     meta?: Record<string, unknown>;
   }): Promise<void> {
     // POST /api/chat {to, body, attachments?} -> ChatPostReceiptDTO. The write
@@ -1558,12 +1559,13 @@ export const httpApi: Api = {
         // comment.) The server checks a non-empty value EXISTS — and only
         // that, since 2026-08-21 — and is the only writer of the stored link.
         reply_to: msg.replyTo ?? "",
+        reply_excerpt: msg.replyExcerpt ?? "",
         // Machine-readable keys stored on the message (`ChatPostDTO.meta`).
         // OMITTED when the caller sends none, so an ordinary post's body is
         // byte-identical to what it always was. The server copies unknown keys
-        // through wholesale — it deletes `reply_to` (the `reply_to` param above
-        // is the only door to that link) and overwrites `attachments` when the
-        // post carries any; nothing else is touched.
+        // through wholesale — it deletes `reply_to` and `reply_excerpt` (the
+        // params above are the only doors to them) and overwrites
+        // `attachments` when the post carries any; nothing else is touched.
         ...(msg.meta ? { meta: msg.meta } : {}),
         ...(attachments.length > 0
           ? {

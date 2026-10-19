@@ -9,6 +9,7 @@ import { render, fireEvent } from "@testing-library/react";
 import { Markdown } from "./Markdown";
 import { DiffOpenerContext } from "../hooks/useDiffOpener";
 import type { DiffParams } from "../lib/diffLink";
+import { AttachmentOpenerContext } from "../hooks/useAttachmentOpener";
 
 function renderMd(source: string): HTMLElement {
   const { container } = render(<Markdown source={source} />);
@@ -223,6 +224,29 @@ describe("Markdown", () => {
     const c = renderMd("[click me](javascript:alert(1))");
     expect(c.querySelector("a")).toBeNull();
     expect(c.textContent).toContain("[click me](javascript:alert(1))");
+  });
+
+  it("renders a backslash-escaped block marker as the bare character in prose, not as a block", () => {
+    const c = renderMd("\\> 不是引用\n\n2\\. 不是清單\n\n\\# 不是標題\n\n\\- 不是項目\n\n\\---");
+    expect(c.firstElementChild?.innerHTML).toBe(
+      "<p>&gt; 不是引用</p><p>2. 不是清單</p><p># 不是標題</p><p>- 不是項目</p><p>---</p>",
+    );
+  });
+
+  it("leaves backslashes literal inside a code span, a fenced block and a bare URL", () => {
+    const c = renderMd("`\\d+\\.\\d+` and see https://x.com/a\\_b/c done\n\n```\n\\d+\\.\\d+\n```");
+    expect(c.firstElementChild?.innerHTML).toBe(
+      "<p><code>\\d+\\.\\d+</code> and see " +
+        '<a href="https://x.com/a\\_b/c" target="_blank" rel="noopener noreferrer">https://x.com/a\\_b/c</a> done</p>' +
+        "<pre><code>\\d+\\.\\d+</code></pre>",
+    );
+  });
+
+  it("keeps escaped brackets inside the link text and shows them without the backslash", () => {
+    const c = renderMd("[a\\](javascript:alert(1)) \\[b](/api/x) and C:\\Users");
+    expect(c.firstElementChild?.innerHTML).toBe(
+      '<p><a href="/api/x" target="_blank" rel="noopener noreferrer">a](javascript:alert(1)) [b</a> and C:\\Users</p>',
+    );
   });
 
   // Same-origin absolute paths. An agent running on the station's own machine
@@ -1243,6 +1267,50 @@ describe("Markdown", () => {
         "[!NOPE] 這不是 alert",
       );
       expect(c.querySelector("blockquote")?.getAttribute("class")).toBeNull();
+    });
+  });
+
+  describe("links to a stored attachment", () => {
+    function withOpener(source: string) {
+      const opened: unknown[] = [];
+      const { container } = render(
+        <AttachmentOpenerContext.Provider value={(link) => {
+          opened.push(link);
+          return () => {};
+        }}>
+          <Markdown source={source} />
+        </AttachmentOpenerContext.Provider>,
+      );
+      return { opened, a: container.querySelector("a")! };
+    }
+
+    it("hands the blob's id, bare serve path and link text to the studio's opener", () => {
+      const { opened, a } = withOpener(
+        `[設計.md](${window.location.origin}/api/chat/attachment/att-0123456789ab?sig=x)`,
+      );
+      expect(fireEvent.click(a)).toBe(false);
+      expect(opened).toEqual([
+        { attachmentId: "att-0123456789ab", url: "/api/chat/attachment/att-0123456789ab", name: "設計.md" },
+      ]);
+    });
+
+    it.each([
+      "https://evil.example/api/chat/attachment/att-0123456789ab",
+      "/api/chat/attachment/att-0123456789AB",
+      "/api/chat/attachment/att-0123456789ab/x",
+      "/api/chat/attachments/att-0123456789ab",
+    ])("leaves %s an ordinary link", (href) => {
+      const { opened, a } = withOpener(`[x](${href})`);
+      expect(a.getAttribute("href")).toBe(href);
+      expect(fireEvent.click(a)).toBe(true);
+      expect(opened).toEqual([]);
+    });
+
+    it("stays an ordinary link outside the studio", () => {
+      const a = renderMd("[設計.md](/api/chat/attachment/att-0123456789ab)").querySelector("a")!;
+      expect(a.getAttribute("href")).toBe("/api/chat/attachment/att-0123456789ab");
+      expect(a.hasAttribute("data-attachment-link")).toBe(false);
+      expect(fireEvent.click(a)).toBe(true);
     });
   });
 });

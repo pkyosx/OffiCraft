@@ -1546,6 +1546,35 @@
   background: color-mix(in srgb, var(--color-overlay) 8%, transparent);
 }
 
+/* 「回覆這段」 over a text selection in a bubble body. Fixed and portaled to
+ * <body>: ChatSelectionReply computes left/top in viewport coordinates and
+ * clamps them, so it takes no space in the thread at any width. */
+.chat__selection-reply {
+  position: fixed;
+  z-index: 40;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-card);
+  color: var(--color-text);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--color-shadow) 35%, transparent);
+}
+.chat__selection-reply:hover,
+.chat__selection-reply:focus-visible {
+  border-color: var(--color-text-muted);
+}
+.chat__selection-reply:disabled {
+  color: var(--color-text-muted);
+  cursor: default;
+}
+
 /* Attachment stack inside the bubble: each item (thumbnail / file chip) on its
  * own row, in message order. */
 .chat__msg-attachments {

@@ -14,6 +14,8 @@
 // opened" shape AttachmentStrip's own header comment describes. What the guard
 // clicks and what appears are now the same component's, which is the point.
 import { AttachmentStrip } from "../../src/components/AttachmentStrip";
+import { AttachmentModalHost } from "../../src/components/AttachmentModalHost";
+import { Markdown } from "../../src/components/Markdown";
 import { I18nProvider } from "../../src/i18n";
 import type { ChatAttachmentView } from "../../src/api/adapter";
 import "../../src/components/office.css";
@@ -56,6 +58,35 @@ export function ChatMdPreviewStory() {
           </div>
         </div>
       </div>
+    </I18nProvider>
+  );
+}
+
+const DOC_COMMENT_BODY = [
+  "**文件註解**：[一份檔名相當長的設計提案文件-第三版.md](/api/chat/attachment/att-aaaaaaaaaaaa)",
+  "",
+  "1. 原文：",
+  "   > 目標",
+  "",
+  "   註解：這段要再寫清楚",
+].join("\n");
+
+/** A 文件註解 message as the chat bubble renders its body, inside the studio's
+ * attachment-link host. */
+export function ChatAttachmentLinkStory() {
+  return (
+    <I18nProvider>
+      <AttachmentModalHost>
+        <div className="chat__body">
+          <div className="chat__messages">
+            <div className="chat__msg">
+              <div className="chat__msg-bubble">
+                <Markdown source={DOC_COMMENT_BODY} className="chat__msg-text doc-md" breaks />
+              </div>
+            </div>
+          </div>
+        </div>
+      </AttachmentModalHost>
     </I18nProvider>
   );
 }

@@ -18,10 +18,13 @@
 //      claims about the card once it is OPEN, so those tests expand first.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, fireEvent, waitFor, act } from "@testing-library/react";
+import { render, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { ChatReplyCard } from "./ChatReplyCard";
 import { ChatArea } from "./ChatArea";
+import { AttachmentModalHost } from "./AttachmentModalHost";
+import { Markdown } from "./Markdown";
+import { AttachmentLinkCommentsContext } from "../hooks/useAttachmentOpener";
 import type { Member } from "../types";
 import type { ChatMessage, ReplyCard } from "../api/adapter";
 import { api } from "../api";
@@ -516,5 +519,40 @@ describe("ChatReplyCard", () => {
     fireDelta();
     await Promise.resolve();
     expect(getSpy).not.toHaveBeenCalled();
+  });
+
+  it("opens a document linked from a still-unread card read-only, inside a surface that names a recipient", async () => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async () => ({ ok: true, text: async () => "# 設計稿" })) as unknown as typeof fetch;
+    vi.spyOn(api, "getReplyCard").mockReturnValue(new Promise(() => {}));
+    const outer = { recipient: { id: "m1", name: "Mira", roster: "active" as const } };
+    const overlay = () => document.body.querySelector<HTMLElement>(".md-preview[role=dialog]");
+    try {
+      const r = render(
+        <I18nProvider>
+          <AttachmentModalHost>
+            <AttachmentLinkCommentsContext.Provider value={outer}>
+              <Markdown source="[外面.md](/api/chat/attachment/att-000000000001)" />
+              <ChatReplyCard
+                replyCardId="rc-1"
+                fallbackSummary="見 [設計.md](/api/chat/attachment/att-000000000002)"
+              />
+            </AttachmentLinkCommentsContext.Provider>
+          </AttachmentModalHost>
+        </I18nProvider>,
+      );
+      fireEvent.click(r.getByRole("link", { name: "外面.md" }));
+      await r.findByRole("heading", { name: "設計稿" });
+      expect(within(overlay()!).getByRole("button", { name: "註解" })).toBeTruthy();
+      fireEvent.keyDown(window, { key: "Escape" });
+      await waitFor(() => expect(overlay()).toBeNull());
+
+      fireEvent.click(r.getByTestId("chat-reply-card-expand"));
+      fireEvent.click(await r.findByRole("link", { name: "設計.md" }));
+      await r.findByRole("heading", { name: "設計稿" });
+      expect(within(overlay()!).queryByRole("button", { name: "註解" })).toBeNull();
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 });

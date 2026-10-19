@@ -78,7 +78,7 @@ describe("ChatArea multi-line composer", () => {
     });
     expect(prevented).toBe(true);
     expect(send).toHaveBeenCalledTimes(1);
-    expect(send).toHaveBeenCalledWith("hello", undefined, undefined);
+    expect(send).toHaveBeenCalledWith("hello", undefined, undefined, undefined);
   });
 
   it("Shift+Enter does NOT submit and is NOT prevented (native newline goes through)", () => {
@@ -99,7 +99,7 @@ describe("ChatArea multi-line composer", () => {
     await act(async () => {
       fireEvent.keyDown(input, { key: "Enter" });
     });
-    expect(send).toHaveBeenCalledWith("第一行\n第二行", undefined, undefined);
+    expect(send).toHaveBeenCalledWith("第一行\n第二行", undefined, undefined, undefined);
   });
 });
 
@@ -147,6 +147,6 @@ describe("ChatArea multi-line composer — phone viewport", () => {
     await act(async () => {
       fireEvent.click(sendBtn);
     });
-    expect(send).toHaveBeenCalledWith("hello", undefined, undefined);
+    expect(send).toHaveBeenCalledWith("hello", undefined, undefined, undefined);
   });
 });

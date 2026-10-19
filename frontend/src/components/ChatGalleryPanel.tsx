@@ -29,6 +29,7 @@ import { createDeltaSink } from "../lib/deltaSink";
 import { authedAttachmentUrl } from "../api/http";
 import { ChevronDownIcon, CloseIcon, FileTextIcon } from "./icons";
 import { MarkdownPreviewOverlay } from "./MarkdownPreviewOverlay";
+import type { DocCommentTarget } from "../lib/docComments";
 
 // The owner's sender id — the real backend stamps `from` from the verified JWT
 // sub ("owner"); same constant as ChatArea's OWNER_ID (kept local to avoid an
@@ -202,6 +203,7 @@ export function GallerySenderFilter({
 export function ChatGalleryPanel({
   member,
   resolveSender,
+  docComments,
   onClose,
 }: {
   member: Member;
@@ -222,6 +224,7 @@ export function ChatGalleryPanel({
   // read, or a row whose name is empty — and nobody has re-measured how often
   // that happens. Removing it re-prints raw ow- ids the moment it does.
   resolveSender?: (id: string) => string;
+  docComments?: DocCommentTarget;
   onClose: () => void;
 }) {
   const { t } = useI18n();
@@ -556,6 +559,7 @@ export function ChatGalleryPanel({
           url={preview.url}
           attachmentId={preview.id}
           mime={preview.mime}
+          docComments={docComments}
           /* T-51 ① — paging is over the list the reader is LOOKING AT (both
            * filters applied), not over every attachment the member ever sent:
            * stepping out of the tab or the uploader they picked would answer a

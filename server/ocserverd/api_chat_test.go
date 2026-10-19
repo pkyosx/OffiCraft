@@ -747,6 +747,133 @@ func TestHandlePostChatApiChatPost(t *testing.T) {
 				"message that exists; re-read the conversation and use the id it carries")
 	})
 
+	t.Run("a reply carrying an excerpt serves it verbatim in reply_to_chat and nowhere else on the listing and the by-id read, and a reply without one carries no excerpt key", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		_, first := apiJSON(t, h, "POST", "/api/chat", owner,
+			`{"to":"mira","body":"line one\n\nline   two is **bold**"}`)
+		quoted := first["id"].(string)
+		status, excerpted := apiJSON(t, h, "POST", "/api/chat", owner,
+			`{"to":"mira","body":"about that","reply_to":"`+quoted+`","reply_excerpt":"  line one\n\nline   two is bold \n"}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, excerpted)
+		}
+		_, whole := apiJSON(t, h, "POST", "/api/chat", owner,
+			`{"to":"mira","body":"and that","reply_to":"`+quoted+`","reply_excerpt":"   "}`)
+
+		quote := map[string]any{
+			"id": quoted, "from": "owner", "from_name": "", "to": "mira", "to_name": "",
+			"content": "line one line two is **bold**",
+		}
+		excerptQuote := map[string]any{}
+		for k, v := range quote {
+			excerptQuote[k] = v
+		}
+		excerptQuote["reply_excerpt"] = "line one\n\nline   two is bold"
+		want := []any{
+			apiTestChatRow(quoted, "owner", "mira", "line one\n\nline   two is **bold**"),
+			map[string]any{
+				"id": excerpted["id"], "from": "owner", "from_name": "", "to": "mira", "to_name": "",
+				"body": "about that", "body_omitted_chars": 0, "ts": apiAnyNumber, "ts_display": "",
+				"meta":              map[string]any{"reply_to": quoted},
+				"reply_card_status": "", "attachments": []any{}, "reply_to": quoted,
+				"reply_to_chat": excerptQuote,
+			},
+			map[string]any{
+				"id": whole["id"], "from": "owner", "from_name": "", "to": "mira", "to_name": "",
+				"body": "and that", "body_omitted_chars": 0, "ts": apiAnyNumber, "ts_display": "",
+				"meta":              map[string]any{"reply_to": quoted},
+				"reply_card_status": "", "attachments": []any{}, "reply_to": quoted,
+				"reply_to_chat": quote,
+			},
+		}
+
+		status, page := apiJSON(t, h, "GET", "/api/chat?with=mira", owner, "")
+		if status != 200 {
+			t.Fatalf("listing: want 200, got %d (%v)", status, page)
+		}
+		apiWantValue(t, "listing", page["messages"], want)
+		status, byID := apiJSON(t, h, "GET", "/api/chat?ids="+quoted+"&ids="+excerpted["id"].(string)+
+			"&ids="+whole["id"].(string), owner, "")
+		if status != 200 {
+			t.Fatalf("by ids: want 200, got %d (%v)", status, byID)
+		}
+		apiWantValue(t, "by ids", byID["messages"], want)
+	})
+
+	t.Run("an excerpt with no reply_to answers 400 and stores nothing", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "POST", "/api/chat", owner,
+			`{"to":"mira","body":"about that","reply_excerpt":"a piece"}`)
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			"reply_excerpt needs reply_to — an excerpt is a piece of the message you are "+
+				"replying to; name that message in reply_to, or drop the excerpt")
+		apiWantValue(t, "stored rows", apiTestChatRows(t, d), []any{})
+	})
+
+	t.Run("an excerpt of 1001 characters is refused whole, and one of exactly 1000 is stored whole", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		_, first := apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"mira","body":"the original"}`)
+		quoted := first["id"].(string)
+
+		status, data := apiJSON(t, h, "POST", "/api/chat", owner,
+			`{"to":"mira","body":"too long","reply_to":"`+quoted+`","reply_excerpt":" `+strings.Repeat("字", 1001)+` "}`)
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			"reply_excerpt is 1001 chars, over the 1000-char limit — it is refused rather "+
+				"than shortened; quote a shorter piece of the message")
+		apiWantValue(t, "stored rows", apiTestChatRows(t, d), []any{
+			map[string]any{"from": "owner", "to": "mira", "body": "the original"},
+		})
+
+		status, data = apiJSON(t, h, "POST", "/api/chat", owner,
+			`{"to":"mira","body":"just fits","reply_to":"`+quoted+`","reply_excerpt":" `+strings.Repeat("字", 1000)+` "}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		_, byID := apiJSON(t, h, "GET", "/api/chat?ids="+data["id"].(string), owner, "")
+		rows, _ := byID["messages"].([]any)
+		row, _ := rows[0].(map[string]any)
+		apiWantValue(t, "reply_to_chat", row["reply_to_chat"], map[string]any{
+			"id": quoted, "from": "owner", "from_name": "", "to": "mira", "to_name": "",
+			"content": "the original", "reply_excerpt": strings.Repeat("字", 1000),
+		})
+	})
+
+	t.Run("an excerpt smuggled through meta is discarded, with or without a reply_to", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		_, first := apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"mira","body":"the original"}`)
+		quoted := first["id"].(string)
+		_, forgedReply := apiJSON(t, h, "POST", "/api/chat", owner,
+			`{"to":"mira","body":"quoting","reply_to":"`+quoted+`","meta":{"reply_excerpt":"forged","source":"cli"}}`)
+		_, forgedPlain := apiJSON(t, h, "POST", "/api/chat", owner,
+			`{"to":"mira","body":"plain","meta":{"reply_excerpt":"forged"}}`)
+
+		status, byID := apiJSON(t, h, "GET", "/api/chat?ids="+forgedReply["id"].(string)+
+			"&ids="+forgedPlain["id"].(string), owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, byID)
+		}
+		apiWantValue(t, "messages", byID["messages"], []any{
+			map[string]any{
+				"id": forgedReply["id"], "from": "owner", "from_name": "", "to": "mira", "to_name": "",
+				"body": "quoting", "body_omitted_chars": 0, "ts": apiAnyNumber, "ts_display": "",
+				"meta":              map[string]any{"reply_to": quoted, "source": "cli"},
+				"reply_card_status": "", "attachments": []any{}, "reply_to": quoted,
+				"reply_to_chat": map[string]any{
+					"id": quoted, "from": "owner", "from_name": "", "to": "mira", "to_name": "",
+					"content": "the original",
+				},
+			},
+			apiTestChatRow(forgedPlain["id"].(string), "owner", "mira", "plain"),
+		})
+	})
+
 	t.Run("a message addressed to a member that is not on the roster answers 404", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
 
@@ -1125,7 +1252,7 @@ func TestChatReplyQuote(t *testing.T) {
 		_, posted := apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"mira","body":"the original"}`)
 		id, _ := posted["id"].(string)
 
-		quote, err := api.chatReplyQuote(id, map[string]string{"mira": "Mira"})
+		quote, err := api.chatReplyQuote(id, "", map[string]string{"mira": "Mira"})
 		if err != nil {
 			t.Fatalf("chatReplyQuote: %v", err)
 		}
@@ -1143,7 +1270,7 @@ func TestChatReplyQuote(t *testing.T) {
 		_, posted := apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"mira","body":"the original"}`)
 		id, _ := posted["id"].(string)
 
-		quote, err := api.chatReplyQuote(id, nil)
+		quote, err := api.chatReplyQuote(id, "", nil)
 		if err != nil || quote == nil {
 			t.Fatalf("chatReplyQuote = %#v, %v", quote, err)
 		}
@@ -1153,11 +1280,26 @@ func TestChatReplyQuote(t *testing.T) {
 		})
 	})
 
+	t.Run("an excerpt rides beside the quote verbatim while content stays the collapsed quote line", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		_, posted := apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"mira","body":"the\n\noriginal"}`)
+		id, _ := posted["id"].(string)
+
+		quote, err := api.chatReplyQuote(id, "the\n\norig", map[string]string{"mira": "Mira"})
+		if err != nil || quote == nil {
+			t.Fatalf("chatReplyQuote = %#v, %v", quote, err)
+		}
+		apiWantValue(t, "quote", apiTestJSONOf(t, *quote), map[string]any{
+			"id": id, "from": "owner", "from_name": "Owner",
+			"to": "mira", "to_name": "Mira", "content": "the original", "reply_excerpt": "the\n\norig",
+		})
+	})
+
 	t.Run("a message that replies to nothing, and one naming an id nobody carries, both answer no quote and no error", func(t *testing.T) {
 		api, _, _, _ := newAPITestServer(t)
 
 		for _, id := range []string{"", "c-nosuchmessage"} {
-			quote, err := api.chatReplyQuote(id, nil)
+			quote, err := api.chatReplyQuote(id, "", nil)
 			if quote != nil || err != nil {
 				t.Fatalf("chatReplyQuote(%q) = %#v, %v", id, quote, err)
 			}
@@ -3112,23 +3254,27 @@ func TestResumeChatMessageDTO(t *testing.T) {
 		}
 	})
 
-	t.Run("a reply carries its quote, resolved through the snapshot's own name table", func(t *testing.T) {
+	t.Run("a reply carries its quote, resolved through the snapshot's own name table, and its excerpt only inside that quote", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		_, first := apiJSON(t, h, "POST", "/api/chat", owner, `{"to":"mira","body":"the original"}`)
 		_, second := apiJSON(t, h, "POST", "/api/chat", owner,
-			`{"to":"mira","body":"quoting","reply_to":"`+first["id"].(string)+`"}`)
+			`{"to":"mira","body":"quoting","reply_to":"`+first["id"].(string)+`","reply_excerpt":"orig"}`)
 
 		got, err := api.resumeChatMessageDTO("mira", apiTestChatRowOf(t, d, second["id"].(string)),
 			map[string]string{"mira": "Mira"}, nil)
 		if err != nil {
 			t.Fatalf("resumeChatMessageDTO: %v", err)
 		}
-		if got.ReplyToChat == nil {
-			t.Fatalf("want a quote, got nil")
-		}
-		apiWantValue(t, "quote", apiTestJSONOf(t, *got.ReplyToChat), map[string]any{
-			"id": first["id"], "from": "owner", "from_name": "Owner",
-			"to": "mira", "to_name": "Mira", "content": "the original",
+		apiWantValue(t, "dto", apiTestJSONOf(t, got), map[string]any{
+			"id": second["id"], "from": "owner", "from_name": "Owner",
+			"to": "mira", "to_name": "Mira", "body": "quoting",
+			"body_omitted_chars": 0, "ts": apiAnyNumber, "ts_display": apiAnyString,
+			"meta": map[string]any{"reply_to": first["id"]}, "reply_card_status": "",
+			"attachments": []any{}, "reply_to": first["id"],
+			"reply_to_chat": map[string]any{
+				"id": first["id"], "from": "owner", "from_name": "Owner",
+				"to": "mira", "to_name": "Mira", "content": "the original", "reply_excerpt": "orig",
+			},
 		})
 	})
 }
@@ -3165,16 +3311,24 @@ func TestResumeChatMessageChars(t *testing.T) {
 		}
 	})
 
-	t.Run("the quote line is prose and is billed, but no id-shaped field ever is", func(t *testing.T) {
+	t.Run("the quote line and its excerpt are prose and are billed, but no id-shaped field ever is", func(t *testing.T) {
+		quote := chatReplyQuoteDTO{
+			ID: "c-000000000002", From: "owner", To: "mira",
+			FromName: "Owner", ToName: "Mira", Content: "the original",
+		}
 		got := resumeChatMessageChars(chatMessageDTO{
-			ID: "c-000000000001", ReplyTo: "c-000000000002",
-			ReplyToChat: &chatReplyQuoteDTO{
-				ID: "c-000000000002", From: "owner", To: "mira",
-				FromName: "Owner", ToName: "Mira", Content: "the original",
-			},
+			ID: "c-000000000001", ReplyTo: "c-000000000002", ReplyToChat: &quote,
 		})
 		if got != 22 {
 			t.Fatalf("chars = %d, want 22", got)
+		}
+		excerpted := quote
+		excerpted.ReplyExcerpt = "原文一段"
+		got = resumeChatMessageChars(chatMessageDTO{
+			ID: "c-000000000001", ReplyTo: "c-000000000002", ReplyToChat: &excerpted,
+		})
+		if got != 26 {
+			t.Fatalf("chars with an excerpt = %d, want 26", got)
 		}
 	})
 

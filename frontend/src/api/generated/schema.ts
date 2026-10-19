@@ -572,7 +572,7 @@ export interface paths {
          * Post a chat message (sender = verified JWT sub; auto SSE fan-out). ``to`` must name the owner or an active staff or outsource member; any other id is a 404, including a removed member, a warden (machine) id and a sender address the server generates for webhook, scheduled or system messages. Presence is not a gate: an offline member keeps its durable mailbox. Answers with a bounded receipt (``id``, ``ts``, ``to``, ``attachments``), not the message — call ``get_chat`` when you need the rest.
          *
          *     PARAMETER NOTES. In the input schema the parameters below carry only a short summary; these are their full rules.
-         *     - `meta`: Free-form metadata carried alongside the message. The map is copied through wholesale with NO validation of keys or values, so a misspelled key is stored rather than refused and simply never read by anything. TWO keys are exceptions to that, and they are exceptions in OPPOSITE directions. The first is meta.attachments, which is not simply taken from you: it is the ONLY link a message has to its blobs. The handler overwrites it with what it computed - but ONLY when this call actually carried attachments. Send none, and whatever you put under that key is stored as this message's attachment refs; it also satisfies the 'must carry text or an attachment' check, so a message with no text and no real attachment gets through with a 200. If you are not sending attachments, do not put an attachments key in meta. The second exception is meta.reply_to, and it is the reverse: the handler DELETES it before it stores anything, silently and unconditionally, so you get a 200 and the key is simply gone when you read the message back. The reply link has a typed field of its own (``reply_to``, above) and the server is its only writer — a link smuggled through meta would be one nothing validated, pointing anywhere. Send the typed field.
+         *     - `meta`: Free-form metadata carried alongside the message. The map is copied through wholesale with NO validation of keys or values, so a misspelled key is stored rather than refused and simply never read by anything. THREE keys are exceptions to that, and they are exceptions in OPPOSITE directions. The first is meta.attachments, which is not simply taken from you: it is the ONLY link a message has to its blobs. The handler overwrites it with what it computed - but ONLY when this call actually carried attachments. Send none, and whatever you put under that key is stored as this message's attachment refs; it also satisfies the 'must carry text or an attachment' check, so a message with no text and no real attachment gets through with a 200. If you are not sending attachments, do not put an attachments key in meta. The second and third are meta.reply_to and meta.reply_excerpt, and they are the reverse: the handler DELETES them before it stores anything, silently and unconditionally, so you get a 200 and the keys are simply gone when you read the message back. The reply link has a typed field of its own (``reply_to``, above) and the server is its only writer — a link smuggled through meta would be one nothing validated, pointing anywhere. Send the typed field. The excerpt likewise has its own: ``reply_excerpt``.
          *     - `reply_to`: OPTIONAL — the id of the message this one is REPLYING TO (a quote-reply, LINE-style). Omit it and nothing about the post changes.
          *
          *     The referenced message must EXIST; an id that names nothing is a 400, because that is a mistake in this request rather than a state of the world.
@@ -581,7 +581,14 @@ export interface paths {
          *
          *     THE SERVER IS THE ONLY WRITER OF THIS LINK: a ``meta.reply_to`` you send yourself is DISCARDED before the message is stored, so the relation cannot be forged from the client — this parameter is the only door.
          *
-         *     NOTHING IS STORED TWICE. The stored message carries the id alone. What the quoted message SAID comes back on every read in ``ChatMessageDTO.reply_to_chat``, rebuilt from the original each time, so a reader never has to fetch it and a stale copy can never exist.
+         *     NOTHING IS STORED TWICE. The stored message carries the id (plus, with ``reply_excerpt``, the piece the reply selected), never a copy of the quoted message. What the quoted message SAID comes back on every read in ``ChatMessageDTO.reply_to_chat``, rebuilt from the original each time, so a reader never has to fetch it and a stale copy can never exist.
+         *     - `reply_excerpt`: OPTIONAL — the PIECE of the ``reply_to`` message this reply quotes, when it quotes a selected part of it rather than the whole. Surrounding whitespace is trimmed; what is empty after trimming counts as not sent.
+         *
+         *     It REQUIRES ``reply_to``: an excerpt with no message to come from is a 400. It is capped at 1000 characters (Unicode runes, counted after trimming); a longer one is REFUSED with a 400 and never truncated.
+         *
+         *     IT IS NOT CHECKED AGAINST THE QUOTED MESSAGE'S TEXT: a selection made on the rendered message need not appear verbatim in its raw markdown, so the server stores what was sent.
+         *
+         *     It is stored with this message and comes back VERBATIM on every read in ``ChatMessageDTO.reply_to_chat.reply_excerpt``, and only there: it is not served in ``meta``. Like the reply link, the server is its only writer: a ``meta.reply_excerpt`` you send yourself is DISCARDED.
          * @description - The sender is always your token; the body's `from` is ignored.
          *     - `to` is the owner or an active member; unknown, removed or machine id is a 404.
          *     - Presence is not checked: an offline member reads it later.
@@ -5186,7 +5193,7 @@ export interface components {
              */
             reply_to: string;
             /**
-             * @description A SNAPSHOT of the message ``reply_to`` names — who sent it and a short piece of what they said — built FRESH on every read. Never stored, never cached, and never a second source of truth: the quoted text lives in exactly one row and this is a projection of it taken at read time.
+             * @description A SNAPSHOT of the message ``reply_to`` names — who sent it and a short piece of what they said — built FRESH on every read. When the reply quoted only a selected part of it, that part rides along verbatim in ``reply_excerpt``, which is stored with the reply rather than rebuilt. The rest is never stored, never cached, and never a second source of truth: the quoted text lives in exactly one row and this is a projection of it taken at read time.
              *
              *     IT IS BUILT UNCONDITIONALLY for every message whose ``reply_to`` is non-empty. There is deliberately no "the target happens to be in this same batch, so skip it" optimisation and no "only when the client asks" flag: a reader must never have to decide whether to go and fetch something, because a reader that sometimes fetches is a reader that sometimes fails to.
              *
@@ -5234,6 +5241,18 @@ export interface components {
                 [key: string]: unknown;
             };
             /**
+             * Reply Excerpt
+             * @description OPTIONAL — the PIECE of the ``reply_to`` message this reply quotes, when it quotes a selected part of it rather than the whole. Surrounding whitespace is trimmed; what is empty after trimming counts as not sent.
+             *
+             *     It REQUIRES ``reply_to``: an excerpt with no message to come from is a 400. It is capped at 1000 characters (Unicode runes, counted after trimming); a longer one is REFUSED with a 400 and never truncated.
+             *
+             *     IT IS NOT CHECKED AGAINST THE QUOTED MESSAGE'S TEXT: a selection made on the rendered message need not appear verbatim in its raw markdown, so the server stores what was sent.
+             *
+             *     It is stored with this message and comes back VERBATIM on every read in ``ChatMessageDTO.reply_to_chat.reply_excerpt``, and only there: it is not served in ``meta``. Like the reply link, the server is its only writer: a ``meta.reply_excerpt`` you send yourself is DISCARDED.
+             * @default
+             */
+            reply_excerpt: string;
+            /**
              * Reply To
              * @description OPTIONAL — the id of the message this one is REPLYING TO (a quote-reply, LINE-style). Omit it and nothing about the post changes.
              *
@@ -5243,7 +5262,7 @@ export interface components {
              *
              *     THE SERVER IS THE ONLY WRITER OF THIS LINK: a ``meta.reply_to`` you send yourself is DISCARDED before the message is stored, so the relation cannot be forged from the client — this parameter is the only door.
              *
-             *     NOTHING IS STORED TWICE. The stored message carries the id alone. What the quoted message SAID comes back on every read in ``ChatMessageDTO.reply_to_chat``, rebuilt from the original each time, so a reader never has to fetch it and a stale copy can never exist.
+             *     NOTHING IS STORED TWICE. The stored message carries the id (plus, with ``reply_excerpt``, the piece the reply selected), never a copy of the quoted message. What the quoted message SAID comes back on every read in ``ChatMessageDTO.reply_to_chat``, rebuilt from the original each time, so a reader never has to fetch it and a stale copy can never exist.
              * @default
              */
             reply_to: string;
@@ -5306,7 +5325,7 @@ export interface components {
         };
         /**
          * ChatReplyQuoteDTO
-         * @description The message a reply QUOTES, reduced to what a quote line has to draw: who said it, WHO THEY SAID IT TO, and a short piece of what they said. Carried inside ``ChatMessageDTO.reply_to_chat`` and assembled at read time.
+         * @description The message a reply QUOTES, reduced to what a quote line has to draw: who said it, WHO THEY SAID IT TO, and a short piece of what they said — plus, when the reply quoted only a selected part, that part (``reply_excerpt``). Carried inside ``ChatMessageDTO.reply_to_chat`` and assembled at read time.
          *
          *     ``from`` / ``from_name`` and ``to`` / ``to_name`` follow ``ChatMessageDTO``'s own convention and nothing else: the bare id is the ADDRESS and always present, the ``_name`` beside it is the human name carried IN ADDITION to it and filled only by the reads that resolve names at all. The pairs are copied from the message DTO on purpose — a quote that named its participants differently from the way the rest of the chat names them would be a second naming convention to keep in step.
          *
@@ -5333,6 +5352,13 @@ export interface components {
             from_name: string;
             /** Id */
             id: string;
+            /**
+             * Reply Excerpt
+             * @description The piece of the quoted message the REPLY selected (``ChatPostDTO.reply_excerpt``), exactly as it was sent: not collapsed and not shortened. ABSENT when the reply quoted the whole message.
+             *
+             *     It belongs to the reply, not to the quoted message, and is not guaranteed to appear verbatim in either ``content`` or the quoted body (a selection of rendered text). ``content`` beside it is unchanged: still the quoted message's own quote line.
+             */
+            reply_excerpt?: string;
             /** To */
             to: string;
             /**

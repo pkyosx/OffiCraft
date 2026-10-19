@@ -164,6 +164,36 @@ const rowOf = (c: HTMLElement, id: string) =>
 
 let scrolled: Element[] = [];
 
+const selectionButton = () =>
+  document.body.querySelector(
+    "[data-testid='chat-selection-reply']",
+  ) as HTMLButtonElement | null;
+
+/** Select text from `start` in one node to `end` in another, the way a drag
+ * leaves it, and tell the page the selection moved. */
+function selectText(
+  startNode: Node,
+  start: number,
+  endNode: Node,
+  end: number,
+) {
+  const range = document.createRange();
+  range.setStart(startNode, start);
+  range.setEnd(endNode, end);
+  const sel = window.getSelection()!;
+  sel.removeAllRanges();
+  sel.addRange(range);
+  act(() => {
+    document.dispatchEvent(new Event("selectionchange"));
+  });
+}
+
+const bodyTextOf = (c: HTMLElement, id: string) => {
+  const body = rowOf(c, id).querySelector(".chat__msg-text")!;
+  const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+  return walker.nextNode() as Text;
+};
+
 describe("ChatArea 回覆這則", () => {
   beforeEach(() => {
     resetChatDrafts();
@@ -521,7 +551,7 @@ describe("ChatArea 回覆這則", () => {
     fireEvent.click(container.querySelector(".chat__send")!);
 
     await waitFor(() =>
-      expect(send).toHaveBeenCalledWith("答案", undefined, "c-1"),
+      expect(send).toHaveBeenCalledWith("答案", undefined, "c-1", undefined),
     );
     expect(banner(container)).toBeNull();
 
@@ -531,7 +561,7 @@ describe("ChatArea 回覆這則", () => {
     fireEvent.change(input(container), { target: { value: "另一句" } });
     fireEvent.click(container.querySelector(".chat__send")!);
     await waitFor(() =>
-      expect(send).toHaveBeenCalledWith("另一句", undefined, undefined),
+      expect(send).toHaveBeenCalledWith("另一句", undefined, undefined, undefined),
     );
   });
 
@@ -549,7 +579,7 @@ describe("ChatArea 回覆這則", () => {
     // c-3, not c-1 and not c-2: the send must carry the LAST aim, and a
     // cancelled one must not come back.
     await waitFor(() =>
-      expect(send).toHaveBeenCalledWith("第三次", undefined, "c-3"),
+      expect(send).toHaveBeenCalledWith("第三次", undefined, "c-3", undefined),
     );
   });
 
@@ -1086,7 +1116,7 @@ describe("ChatArea 回覆這則", () => {
     fireEvent.change(input(container), { target: { value: "給 c-2 的" } });
     fireEvent.keyDown(input(container), { key: "Enter" });
     await waitFor(() =>
-      expect(send).toHaveBeenCalledWith("給 c-2 的", undefined, "c-2"),
+      expect(send).toHaveBeenCalledWith("給 c-2 的", undefined, "c-2", undefined),
     );
   });
 
@@ -1401,6 +1431,210 @@ describe("ChatArea 回覆這則", () => {
   // MUTANT: put `return t.user` back in `nameOf`'s owner branch — the first
   // test below goes red and the second stays green, because the second is
   // exactly the state in which the default IS the right answer.
+  describe("回覆這段 — replying to a selected piece", () => {
+    beforeEach(() => {
+      window.getSelection()?.removeAllRanges();
+      // jsdom lays nothing out, so a Range has no box; the button only needs
+      // one to be placed.
+      Range.prototype.getBoundingClientRect = () =>
+        ({ left: 10, top: 100, width: 40, height: 16, right: 50, bottom: 116 }) as DOMRect;
+    });
+
+    it("a selection inside one body offers 回覆這段, which aims the composer at that message with the selected text and sends it", async () => {
+      const { container } = renderChat();
+      expect(selectionButton()).toBeNull();
+
+      const text = bodyTextOf(container, "c-1");
+      selectText(text, 3, text, 5);
+
+      const button = selectionButton()!;
+      expect(button.textContent).toBe(zh.chat.replyExcerptAction);
+      expect(button.disabled).toBe(false);
+      expect(container.contains(button), "portaled out of the thread").toBe(false);
+
+      fireEvent.click(button);
+      expect(selectionButton()).toBeNull();
+      const b = banner(container)!;
+      expect(b.querySelector(".chat__reply-banner__who")?.textContent).toBe(
+        zh.chat.replyingTo(`Mira → ${zh.user}`),
+      );
+      expect(b.querySelector(".chat__reply-banner__body")?.textContent).toBe("問題");
+      expect(getChatDraft(m1.id)).toEqual({
+        text: "",
+        attachments: [],
+        replyTo: "c-1",
+        replyExcerpt: "問題",
+      });
+
+      fireEvent.change(input(container), { target: { value: "這段是指？" } });
+      fireEvent.click(container.querySelector(".chat__send")!);
+      await waitFor(() =>
+        expect(send).toHaveBeenCalledWith("這段是指？", undefined, "c-1", "問題"),
+      );
+      expect(banner(container)).toBeNull();
+    });
+
+    it("a selection spanning two messages, running out of a body into its own row's name or quote, or touching no body, offers nothing", () => {
+      messages.push(
+        mkMsg({
+          id: "c-9",
+          from: "owner",
+          to: "m1",
+          body: "問這則",
+          ts: 9,
+          replyTo: "c-1",
+          replyToChat: mkQuote("c-1", "m1", "owner", "第一個問題"),
+        }),
+      );
+      const { container } = renderChat();
+      selectText(bodyTextOf(container, "c-1"), 1, bodyTextOf(container, "c-2"), 2);
+      expect(selectionButton()).toBeNull();
+
+      const ownName = rowOf(container, "c-1").querySelector(".chat__msg-name")!.firstChild!;
+      selectText(ownName, 1, bodyTextOf(container, "c-1"), 2);
+      expect(selectionButton()).toBeNull();
+
+      const ownQuote = rowOf(container, "c-9").querySelector(".chat__msg-quote__body")!.firstChild!;
+      selectText(ownQuote, 2, bodyTextOf(container, "c-9"), 1);
+      expect(selectionButton()).toBeNull();
+
+      const name = rowOf(container, "c-1").querySelector(".chat__msg-name")!
+        .firstChild!;
+      selectText(name, 0, name, 2);
+      expect(selectionButton()).toBeNull();
+
+      const text = bodyTextOf(container, "c-2");
+      selectText(text, 0, text, 2);
+      expect(selectionButton(), "positive control").not.toBeNull();
+    });
+
+    it("the whole-message reply drops an excerpt, and the x clears target and excerpt together", async () => {
+      const { container } = renderChat();
+      const text = bodyTextOf(container, "c-1");
+      selectText(text, 0, text, 2);
+      fireEvent.click(selectionButton()!);
+      expect(banner(container)!.querySelector(".chat__reply-banner__body")?.textContent).toBe("第一");
+
+      fireEvent.click(rowOf(container, "c-1").querySelector(".chat__msg-reply")!);
+      expect(banner(container)!.querySelector(".chat__reply-banner__body")?.textContent).toBe("第一個問題");
+      expect(getChatDraft(m1.id)).toEqual({ text: "", attachments: [], replyTo: "c-1" });
+
+      selectText(text, 0, text, 2);
+      fireEvent.click(selectionButton()!);
+      fireEvent.change(input(container), { target: { value: "留著" } });
+      fireEvent.click(container.querySelector(".chat__reply-banner__x")!);
+      expect(banner(container)).toBeNull();
+      expect(getChatDraft(m1.id)).toEqual({ text: "留著", attachments: [] });
+    });
+
+    it("a selection over 1000 characters shows the limit on a disabled button and aims nothing", () => {
+      messages = [mkMsg({ id: "c-long", body: "長".repeat(1001) })];
+      const { container } = renderChat();
+      const text = bodyTextOf(container, "c-long");
+
+      selectText(text, 0, text, 1001);
+      const button = selectionButton()!;
+      expect(button.disabled).toBe(true);
+      expect(button.textContent).toBe(zh.chat.replyExcerptTooLong(1000));
+      fireEvent.click(button);
+      expect(banner(container)).toBeNull();
+
+      selectText(text, 0, text, 1000);
+      expect(selectionButton()!.disabled, "1000 is allowed").toBe(false);
+    });
+
+    it("a failed send puts the excerpt back with its target, on screen and in the draft", async () => {
+      let reject: (e: Error) => void = () => {};
+      send.mockImplementationOnce(
+        () => new Promise((_, r) => (reject = r)) as Promise<void>,
+      );
+      const { container } = renderChat();
+      const text = bodyTextOf(container, "c-1");
+      selectText(text, 3, text, 5);
+      fireEvent.click(selectionButton()!);
+      fireEvent.change(input(container), { target: { value: "這段" } });
+      fireEvent.keyDown(input(container), { key: "Enter" });
+      expect(banner(container), "optimistically cleared").toBeNull();
+
+      await act(async () => {
+        reject(new Error("nope"));
+        await Promise.resolve();
+      });
+
+      expect(banner(container)!.querySelector(".chat__reply-banner__body")?.textContent).toBe("問題");
+      expect(getChatDraft(m1.id)).toEqual({
+        text: "這段",
+        attachments: [],
+        replyTo: "c-1",
+        replyExcerpt: "問題",
+      });
+    });
+
+    it("a failed send keeps the excerpt in the room's draft after the owner has left the room", async () => {
+      let reject: (e: Error) => void = () => {};
+      send.mockImplementationOnce(
+        () => new Promise((_, r) => (reject = r)) as Promise<void>,
+      );
+      const { container, unmount } = renderChat();
+      const text = bodyTextOf(container, "c-1");
+      selectText(text, 3, text, 5);
+      fireEvent.click(selectionButton()!);
+      fireEvent.change(input(container), { target: { value: "這段" } });
+      fireEvent.keyDown(input(container), { key: "Enter" });
+
+      unmount();
+      await act(async () => {
+        reject(new Error("nope"));
+        await Promise.resolve();
+      });
+
+      expect(getChatDraft(m1.id)).toEqual({
+        text: "這段",
+        attachments: [],
+        replyTo: "c-1",
+        replyExcerpt: "問題",
+      });
+    });
+
+    it("the restored draft brings the excerpt back with its target", () => {
+      saveChatDraftText(m1.id, "", "c-1", "個問");
+      const { container } = renderChat();
+      expect(banner(container)!.querySelector(".chat__reply-banner__body")?.textContent).toBe("個問");
+    });
+
+    it("a sent reply's quote row draws the excerpt when it has one, and the quote line when it does not", () => {
+      messages = [
+        mkMsg({ id: "c-1", body: "第一個問題\n\n第二段很長" }),
+        mkMsg({
+          id: "c-2",
+          from: "owner",
+          to: "m1",
+          body: "問這段",
+          ts: 2,
+          replyTo: "c-1",
+          replyToChat: {
+            ...mkQuote("c-1", "m1", "owner", "第一個問題 第二段很長"),
+            replyExcerpt: "第二段\n很長",
+          },
+        }),
+        mkMsg({
+          id: "c-3",
+          from: "owner",
+          to: "m1",
+          body: "問整則",
+          ts: 3,
+          replyTo: "c-1",
+          replyToChat: mkQuote("c-1", "m1", "owner", "第一個問題 第二段很長"),
+        }),
+      ];
+      const { container } = renderChat();
+      const quoteBody = (id: string) =>
+        rowOf(container, id).querySelector(".chat__msg-quote__body")?.textContent;
+      expect(quoteBody("c-2")).toBe("第二段\n很長");
+      expect(quoteBody("c-3")).toBe("第一個問題 第二段很長");
+    });
+  });
+
   describe("the owner's own name", () => {
     beforeEach(() => {
       messages = [

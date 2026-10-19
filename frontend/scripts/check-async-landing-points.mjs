@@ -357,6 +357,13 @@ const REGISTRY = [
       "gallery fetch; `alive` + deps [member.id], and the panel dies with the room",
   },
   {
+    file: "components/ChatSelectionReply.tsx",
+    kind: "addEventListener",
+    count: 3,
+    verdict:
+      "selectionchange / scroll / resize re-read the live selection into the button's own state; removed on unmount, and the reply target it hands back is read from this room's DOM at click time",
+  },
+  {
     file: "components/ChatGalleryPanel.tsx",
     kind: "addEventListener",
     count: 1,
@@ -409,6 +416,34 @@ const REGISTRY = [
     count: 13,
     verdict:
       "keydown pager, wheel/touch/gesture zoom, resize, pointermove; all removed on unmount, and the overlay unmounts with whatever opened it",
+  },
+  {
+    file: "components/DocComments.tsx",
+    kind: "await",
+    count: 1,
+    verdict:
+      "comment send; the draft it clears is keyed by attachment id, and the rest writes only the panel's own state or closes the overlay it lives in",
+  },
+  {
+    file: "components/DocComments.tsx",
+    kind: "addEventListener",
+    count: 5,
+    verdict:
+      "selection tracking, image picks on the document root and the bubble re-measure on resize; removed on unmount, and the panel unmounts with its overlay",
+  },
+  {
+    file: "components/DocComments.tsx",
+    kind: "Observer",
+    count: 1,
+    verdict:
+      "bubble re-measure when the document reflows; writes only the panel's own bubble positions, read from the root it observes, and is disconnected in the same effect's cleanup",
+  },
+  {
+    file: "components/DocComments.tsx",
+    kind: "setTimeout/setInterval",
+    count: 2,
+    verdict:
+      "end of the 1.5s flash on a listed comment or a document passage; clear only the panel's own state or a mark it set, and are cleared in the effect's cleanup",
   },
   {
     file: "components/MarkdownPreviewOverlay.tsx",

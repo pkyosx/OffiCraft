@@ -125,8 +125,9 @@ export interface ChatMessage {
   replyTo?: string | null;
   /** WHAT this message is replying to (wire `reply_to_chat`) — the quoted
    * sender and a server-shortened line of what they said, rebuilt by the server
-   * on every read. null when `replyTo` is null, and null ALSO when `replyTo` is
-   * set but the quoted message no longer exists.
+   * on every read, plus the reply's own `replyExcerpt` when it quoted a piece.
+   * null when `replyTo` is null, and null ALSO when `replyTo` is set but the
+   * quoted message no longer exists.
    *
    * 🔴 THE UI READS THIS AND NOTHING ELSE (T-4e95, owner ruling 2026-08-21).
    * There is no lookup, no fallback to the loaded window, no re-fetch and no
@@ -161,6 +162,10 @@ export interface ChatReplyQuote {
    * THE SERVER (the length is defined there and nowhere else). `""` is an
    * ordinary value — an attachment-only message has no text to quote. */
   content: string;
+  /** The piece of the quoted message the REPLY selected (wire
+   * `reply_excerpt`), verbatim as sent. Absent when the reply quoted the whole
+   * message; when present, quote surfaces draw it instead of `content`. */
+  replyExcerpt?: string;
 }
 
 /** One reply card folded onto the chat message that opened it (view model of
@@ -2253,14 +2258,19 @@ export interface Api {
      * only writer of the stored link; a forged `meta.reply_to` is dropped.
      * Omitted on an ordinary post. */
     replyTo?: string;
+    /** The selected piece of the `replyTo` message this reply quotes. Requires
+     * `replyTo`; trimmed; over 1000 characters is a 400 (never truncated). Not
+     * checked against the quoted text. Omitted on a whole-message reply. */
+    replyExcerpt?: string;
     /** Machine-readable keys stored ON the message, for a reader that must not
      * have to parse the visible body. The 傳承 composer sends
      * `{ lore_entry_id }` here so an agent knows which entry the message is
      * about; the human-facing 「[LoreID=…]」 prefix is display and may be
      * reworded, this is not.
      *
-     * 🔴 TWO KEYS ARE NOT YOURS TO SET. The server DELETES `reply_to` (use the
-     * `replyTo` param — the server is the only writer of that link) and
+     * 🔴 THREE KEYS ARE NOT YOURS TO SET. The server DELETES `reply_to` and
+     * `reply_excerpt` (use the `replyTo` / `replyExcerpt` params — the server
+     * is the only writer of both) and
      * OVERWRITES `attachments` when the post carries any. Every other key is
      * stored verbatim. Omitted ⇒ no keys of its own. */
     meta?: Record<string, unknown>;
