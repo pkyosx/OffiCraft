@@ -332,7 +332,7 @@ func TestHandleBeginPasskeyRegistrationApiAuthPasskeysRegisterBeginPost(t *testi
 			"options": map[string]any{
 				"challenge": apiAnyString,
 				"rp":        map[string]any{"id": "localhost", "name": "OffiCraft"},
-				"user":      map[string]any{"id": apiAnyString, "name": "owner", "displayName": "owner"},
+				"user":      map[string]any{"id": apiAnyString, "name": "OffiCraft owner", "displayName": "OffiCraft owner"},
 				"pubKeyCredParams": []any{
 					map[string]any{"type": "public-key", "alg": -7},
 					map[string]any{"type": "public-key", "alg": -35},

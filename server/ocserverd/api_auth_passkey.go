@@ -33,7 +33,7 @@ const (
 	passkeyLoginCeremonyCap = 64
 	passkeyMaxPerOwner      = 20
 	passkeyUserHandleBytes  = 32
-	passkeyUserName         = "owner"
+	passkeyUserName         = "OffiCraft owner"
 )
 
 // One message for every refusal cause on the public route: naming the cause
