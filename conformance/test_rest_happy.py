@@ -2172,6 +2172,9 @@ HAPPY: dict[str, Happy] = {
     "POST /api/auth/mfa/offer": Happy(
         body=lambda _ctx: {"offered": True}, check=_check_mfa_offer
     ),
+    "GET /api/auth/passkeys": Happy(
+        check=lambda _c, r: _expect(r, lambda d: isinstance(d["passkeys"], list)),
+    ),
     "GET /api/auth/signing-keys": Happy(check=_check_signing_keys),
     "POST /api/auth/signing-keys/rotate": Happy(check=_check_signing_key_rotated),
     "POST /api/auth/signing-keys/{key_id}/remove": Happy(
@@ -3674,6 +3677,31 @@ SKIPPED_HAPPY: dict[str, str] = {
         "then disarms inside one test so the install is left as found; the 409 "
         "and 401 faces are pinned in the auth matrix."
     ),
+    "POST /api/auth/passkeys/register/begin": (
+        "the positive face needs a domain or localhost Host, and the table sends "
+        "the harness's 127.0.0.1; pinned with a localhost Host in "
+        "test_passkey_begin_answers_options_on_localhost below."
+    ),
+    "POST /api/auth/passkey-login/begin": (
+        "same Host constraint as register/begin; pinned in "
+        "test_passkey_begin_answers_options_on_localhost below."
+    ),
+    "POST /api/auth/passkeys/register/finish": (
+        "the positive face needs a WebAuthn authenticator's signed attestation, "
+        "which this stdlib-only client cannot produce; the registration ceremony "
+        "is pinned in the server unit tests with a software authenticator "
+        "(api_auth_passkey_test.go)."
+    ),
+    "POST /api/auth/passkey-login/finish": (
+        "the positive face needs a registered passkey and its signed assertion; "
+        "pinned in the server unit tests with a software authenticator "
+        "(api_auth_passkey_test.go). The bogus-ceremony 401 is in the auth matrix."
+    ),
+    "DELETE /api/auth/passkeys/{passkey_id}": (
+        "the positive face needs a registered passkey (see register/finish); "
+        "pinned in the server unit tests (api_auth_passkey_test.go). The unknown-id "
+        "404 is in the auth matrix."
+    ),
     "POST /api/auth/mfa/disable": (
         "the positive face needs an ARMED factor (see above) plus a live code. "
         "Exercised by test_mfa_full_ceremony below; its nothing-armed 409 face is "
@@ -4339,6 +4367,43 @@ def test_mfa_full_ceremony(hctx: HCtx) -> None:
 
 
 # ── coverage teeth ───────────────────────────────────────────────────────────
+
+
+def test_passkey_begin_answers_options_on_localhost(hctx: HCtx) -> None:
+    """Both ceremonies begin on a localhost Host with spec-shaped options bound
+    to `localhost`, and refuse the IP-address host with a 400. Nothing is stored
+    by a begin, so the shared install is left as found."""
+    port = hctx.client.base_url.port
+    localhost = {"Host": f"localhost:{port}"}
+
+    r = hctx.client.post(
+        "/api/auth/passkeys/register/begin",
+        headers={**_auth(hctx.owner_token), **localhost},
+        json={"current_password": os.environ["OC_OWNER_PASSWORD"]},
+    )
+    assert r.status_code == 200, r.text[:300]
+    problems = violations(r.json(), _response_schema("POST", "/api/auth/passkeys/register/begin", 200), SPEC)
+    assert not problems, problems
+    options = r.json()["options"]
+    assert options["rp"]["id"] == "localhost", options
+    assert options["authenticatorSelection"]["userVerification"] == "required", options
+    assert options["authenticatorSelection"]["residentKey"] == "required", options
+
+    r = hctx.client.post("/api/auth/passkey-login/begin", headers=localhost)
+    assert r.status_code == 200, r.text[:300]
+    problems = violations(r.json(), _response_schema("POST", "/api/auth/passkey-login/begin", 200), SPEC)
+    assert not problems, problems
+    assert r.json()["options"]["rpId"] == "localhost", r.json()
+    assert r.json()["expires_in"] == 300, r.json()
+
+    r = hctx.client.post("/api/auth/passkey-login/begin")
+    assert r.status_code == 400, r.text[:300]
+    assert "localhost" in r.json()["error"]["message"], r.json()
+
+    r = hctx.client.get("/api/auth/status", headers=localhost)
+    assert r.json()["passkey_login_available"] is True, r.json()
+    r = hctx.client.get("/api/auth/status")
+    assert r.json()["passkey_login_available"] is False, r.json()
 
 
 def test_set_password_after_set_conflicts(hctx: HCtx) -> None:

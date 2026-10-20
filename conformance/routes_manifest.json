@@ -127,6 +127,48 @@
   },
   {
     "auth": "gated",
+    "mcp_tool": null,
+    "method": "GET",
+    "path": "/api/auth/passkeys",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/auth/passkeys/register/begin",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/auth/passkeys/register/finish",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
+    "mcp_tool": null,
+    "method": "DELETE",
+    "path": "/api/auth/passkeys/{passkey_id}",
+    "requires": "owner"
+  },
+  {
+    "auth": "public",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/auth/passkey-login/begin",
+    "requires": "public"
+  },
+  {
+    "auth": "public",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/auth/passkey-login/finish",
+    "requires": "public"
+  },
+  {
+    "auth": "gated",
     "mcp_tool": "get_settings",
     "method": "GET",
     "path": "/api/settings",

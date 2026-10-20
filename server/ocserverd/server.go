@@ -369,6 +369,7 @@ func newAPIServer(dal *DAL, hub *Hub, keys *keyring, tokenTTL int64, root assetR
 		telemetry:                       newMemStore(),
 		gauge:                           newMemStore(),
 		machineClaims:                   newMachineClaimStore(),
+		passkeyCeremonies:               newPasskeyCeremonyStore(),
 		runtimeLogins:                   newRuntimeLoginStore(),
 		runtimeUpgrades:                 newRuntimeUpgradeStore(),
 		keys:                            keys,

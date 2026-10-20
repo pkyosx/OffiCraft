@@ -267,11 +267,35 @@ func apiJSON(t *testing.T, h http.Handler, method, target, token, body string) (
 	return rec.Code, data
 }
 
+// apiJSONAt is apiJSON with the request's Host header named, for a route
+// whose answer depends on the host the page was opened on.
+func apiJSONAt(t *testing.T, h http.Handler, method, target, host, token, body string) (int, map[string]any) {
+	t.Helper()
+	rec := apiRequestAt(t, h, method, target, host, token, body)
+	var parsed any
+	if raw := rec.Body.Bytes(); len(raw) > 0 {
+		if err := json.Unmarshal(raw, &parsed); err != nil {
+			t.Fatalf("non-JSON body (%d): %s", rec.Code, raw)
+		}
+	}
+	data, _ := parsed.(map[string]any)
+	return rec.Code, data
+}
+
 // apiRequest is apiJSON without the decode, for a route whose answer is not
 // JSON or whose response headers are the subject.
 func apiRequest(t *testing.T, h http.Handler, method, target, token, body string) *httptest.ResponseRecorder {
 	t.Helper()
+	return apiRequestAt(t, h, method, target, "", token, body)
+}
+
+// host "" keeps httptest's default Host, example.com.
+func apiRequestAt(t *testing.T, h http.Handler, method, target, host, token, body string) *httptest.ResponseRecorder {
+	t.Helper()
 	req := httptest.NewRequest(method, target, strings.NewReader(body))
+	if host != "" {
+		req.Host = host
+	}
 	req.Header.Set("Content-Type", "application/json")
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)

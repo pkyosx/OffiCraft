@@ -28,9 +28,10 @@ type apiServer struct {
 	// first one finishes.
 	serverDisk atomic.Pointer[serverDiskSample]
 
-	machineClaims   *machineClaimStore
-	runtimeLogins   *runtimeLoginStore
-	runtimeUpgrades *runtimeUpgradeStore
+	machineClaims     *machineClaimStore
+	passkeyCeremonies *passkeyCeremonyStore
+	runtimeLogins     *runtimeLoginStore
+	runtimeUpgrades   *runtimeUpgradeStore
 	// keys is a POINTER on purpose: every gated route shares this one ring, so a
 	// rotation is visible process-wide. Read keys.signingSecret() per mint —
 	// never cache the []byte it returns across requests.

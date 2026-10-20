@@ -826,10 +826,15 @@ type AliasUpdateDTO struct {
 // itself stays a flat 401 either way and never discloses the first-run state.
 //
 // `mfa_required` says whether the login wall must also collect a TOTP code. It is disclosed to an unauthenticated caller DELIBERATELY: the wall has to render the right number of fields before anyone has a token, and the alternative (a distinguishable "password ok, code missing" refusal) discloses strictly more — it confirms a correct password. What leaks here is one bit an attacker learns from a single login attempt anyway.
+//
+// `passkey_login_available` is a fact about the HOST the page was opened on, never about enrolment: whether a passkey exists stays undisclosed before sign-in, so `/api/auth/passkey-login/begin` answers the same either way.
 type AuthStatusDTO struct {
 	// MfaRequired Whether an active TOTP secret is enrolled, i.e. whether `/api/login` demands a `code`. Optional for compatibility: a client that does not read it, or an older server that does not send it, behaves exactly as before.
 	MfaRequired *bool `json:"mfa_required,omitempty"`
-	PasswordSet bool  `json:"password_set"`
+
+	// PasskeyLoginAvailable Whether the login wall should offer passkey sign-in on THIS host: the request's host is usable as a WebAuthn RP ID (a domain name or `localhost`, not an IP address). It says NOTHING about whether any passkey is registered. Optional for compatibility, like `mfa_required`.
+	PasskeyLoginAvailable *bool `json:"passkey_login_available,omitempty"`
+	PasswordSet           bool  `json:"password_set"`
 }
 
 // BackupHealthDTO Whether the SCHEDULED database backup is still producing retreat points
@@ -2560,6 +2565,82 @@ type OnboardingStepDTO struct {
 	Name   string  `json:"name"`
 	Ok     *bool   `json:"ok,omitempty"`
 	Reason *string `json:"reason,omitempty"`
+}
+
+// PasskeyDTO One owner passkey as the outside is allowed to see it. There is deliberately no field for the public key, the credential id, the sign counter or the AAGUID.
+type PasskeyDTO struct {
+	CreatedTs float64 `json:"created_ts"`
+
+	// Id Server-minted (`pk-` + 12 hex), immutable; the key the delete route takes. Not the WebAuthn credential id.
+	Id string `json:"id"`
+
+	// LastUsedTs Epoch seconds of the newest successful sign-in with this passkey; null when it has never signed in.
+	LastUsedTs *float64 `json:"last_used_ts"`
+	Name       string   `json:"name"`
+
+	// Origin The origin the passkey was registered at, e.g. `https://office.example.com` or `http://localhost:8787`. Informational; sign-in checks `rp_id` and the origin of the sign-in itself.
+	Origin string `json:"origin"`
+
+	// RpId The WebAuthn RP ID the passkey is bound to: the host it was registered on, without port. A passkey signs in only on that host.
+	RpId string `json:"rp_id"`
+
+	// UsableHere Whether `rp_id` equals the RP ID of the request that produced this response.
+	UsableHere bool `json:"usable_here"`
+}
+
+// PasskeyLoginFinishDTO Owner passkey sign-in (`POST /api/auth/passkey-login/finish`, PUBLIC). Possessing a registered passkey and passing its user verification is the whole gate; no password or TOTP code is asked.
+type PasskeyLoginFinishDTO struct {
+	// CeremonyId The one-time id from the matching `.../begin` response.
+	CeremonyId string `json:"ceremony_id"`
+
+	// Credential The browser's `PublicKeyCredential` serialized with `.toJSON()` (the result of `navigator.credentials.get()`): binary members base64url-encoded, shape owned by the WebAuthn specification and passed through to the verifier unchanged.
+	Credential map[string]interface{} `json:"credential"`
+}
+
+// PasskeyLoginOptionsDTO Answer to `/api/auth/passkey-login/begin` (PUBLIC). Identical in shape and content class whether or not a passkey is registered.
+type PasskeyLoginOptionsDTO struct {
+	// CeremonyId One-time id to send back to `/api/auth/passkey-login/finish`.
+	CeremonyId string `json:"ceremony_id"`
+
+	// ExpiresIn Seconds until `ceremony_id` expires (300).
+	ExpiresIn int `json:"expires_in"`
+
+	// Options `PublicKeyCredentialRequestOptionsJSON` as defined by the WebAuthn specification (binary members base64url-encoded, `allowCredentials` always empty): pass it to `PublicKeyCredential.parseRequestOptionsFromJSON()` and the result to `navigator.credentials.get({publicKey})`. Shape owned by the specification, not by this API.
+	Options map[string]interface{} `json:"options"`
+}
+
+// PasskeyRegistrationBeginDTO Start of a passkey registration (`POST /api/auth/passkeys/register/begin`, owner-gated). `current_password` is re-verified against the stored argon2id hash (401 on a mismatch), the same gate as `/api/auth/change-password`.
+type PasskeyRegistrationBeginDTO struct {
+	CurrentPassword *string `json:"current_password,omitempty"`
+}
+
+// PasskeyRegistrationFinishDTO Completion of a passkey registration (`POST /api/auth/passkeys/register/finish`, owner-gated).
+type PasskeyRegistrationFinishDTO struct {
+	// CeremonyId The one-time id from the matching `.../begin` response.
+	CeremonyId string `json:"ceremony_id"`
+
+	// Credential The browser's `PublicKeyCredential` serialized with `.toJSON()` (the result of `navigator.credentials.create()`): binary members base64url-encoded, shape owned by the WebAuthn specification and passed through to the verifier unchanged.
+	Credential map[string]interface{} `json:"credential"`
+
+	// Name Display name chosen by the owner, e.g. the device: trimmed, 1–128 characters (the short-label cap), not unique.
+	Name string `json:"name"`
+}
+
+// PasskeyRegistrationOptionsDTO Answer to `.../register/begin`: what the browser needs to create a passkey, and the ceremony it belongs to.
+type PasskeyRegistrationOptionsDTO struct {
+	// CeremonyId One-time id to send back to `.../register/finish`.
+	CeremonyId string `json:"ceremony_id"`
+
+	// ExpiresIn Seconds until `ceremony_id` expires (300).
+	ExpiresIn int `json:"expires_in"`
+
+	// Options `PublicKeyCredentialCreationOptionsJSON` as defined by the WebAuthn specification (binary members base64url-encoded): pass it to `PublicKeyCredential.parseCreationOptionsFromJSON()` and the result to `navigator.credentials.create({publicKey})`. Shape owned by the specification, not by this API.
+	Options map[string]interface{} `json:"options"`
+}
+
+// PasskeysDTO Every owner passkey, ordered by `created_ts`, without key material.
+type PasskeysDTO struct {
+	Passkeys []PasskeyDTO `json:"passkeys"`
 }
 
 // ProbeVersionDTO Bare `/version` deploy-probe shape (autodeploy reads `sha` to compare).
@@ -5030,6 +5111,15 @@ type HandleMfaDisableApiAuthMfaDisablePostJSONRequestBody = MfaDisableDTO
 // HandleMfaOfferApiAuthMfaOfferPostJSONRequestBody defines body for HandleMfaOfferApiAuthMfaOfferPost for application/json ContentType.
 type HandleMfaOfferApiAuthMfaOfferPostJSONRequestBody = MfaOfferDTO
 
+// HandleFinishPasskeyLoginApiAuthPasskeyLoginFinishPostJSONRequestBody defines body for HandleFinishPasskeyLoginApiAuthPasskeyLoginFinishPost for application/json ContentType.
+type HandleFinishPasskeyLoginApiAuthPasskeyLoginFinishPostJSONRequestBody = PasskeyLoginFinishDTO
+
+// HandleBeginPasskeyRegistrationApiAuthPasskeysRegisterBeginPostJSONRequestBody defines body for HandleBeginPasskeyRegistrationApiAuthPasskeysRegisterBeginPost for application/json ContentType.
+type HandleBeginPasskeyRegistrationApiAuthPasskeysRegisterBeginPostJSONRequestBody = PasskeyRegistrationBeginDTO
+
+// HandleFinishPasskeyRegistrationApiAuthPasskeysRegisterFinishPostJSONRequestBody defines body for HandleFinishPasskeyRegistrationApiAuthPasskeysRegisterFinishPost for application/json ContentType.
+type HandleFinishPasskeyRegistrationApiAuthPasskeysRegisterFinishPostJSONRequestBody = PasskeyRegistrationFinishDTO
+
 // HandleSetPasswordApiAuthSetPasswordPostJSONRequestBody defines body for HandleSetPasswordApiAuthSetPasswordPost for application/json ContentType.
 type HandleSetPasswordApiAuthSetPasswordPostJSONRequestBody = SetPasswordDTO
 
@@ -5460,6 +5550,24 @@ type ServerInterface interface {
 	// Turn the second-factor feature on or off for this server.
 	// (POST /api/auth/mfa/offer)
 	HandleMfaOfferApiAuthMfaOfferPost(w http.ResponseWriter, r *http.Request)
+	// Start an owner passkey sign-in (no password).
+	// (POST /api/auth/passkey-login/begin)
+	HandleBeginPasskeyLoginApiAuthPasskeyLoginBeginPost(w http.ResponseWriter, r *http.Request)
+	// Finish an owner passkey sign-in: exchange the assertion for an owner token.
+	// (POST /api/auth/passkey-login/finish)
+	HandleFinishPasskeyLoginApiAuthPasskeyLoginFinishPost(w http.ResponseWriter, r *http.Request)
+	// List the owner's passkeys (no key material).
+	// (GET /api/auth/passkeys)
+	HandleListPasskeysApiAuthPasskeysGet(w http.ResponseWriter, r *http.Request)
+	// Start registering a passkey (re-verifies the password).
+	// (POST /api/auth/passkeys/register/begin)
+	HandleBeginPasskeyRegistrationApiAuthPasskeysRegisterBeginPost(w http.ResponseWriter, r *http.Request)
+	// Finish registering a passkey with the browser's credential.
+	// (POST /api/auth/passkeys/register/finish)
+	HandleFinishPasskeyRegistrationApiAuthPasskeysRegisterFinishPost(w http.ResponseWriter, r *http.Request)
+	// Delete a passkey.
+	// (DELETE /api/auth/passkeys/{passkey_id})
+	HandleDeletePasskeyApiAuthPasskeysPasskeyIdDelete(w http.ResponseWriter, r *http.Request, passkeyId string)
 	// First-run: set the owner password (one-shot claim token gate).
 	// (POST /api/auth/set-password)
 	HandleSetPasswordApiAuthSetPasswordPost(w http.ResponseWriter, r *http.Request)
@@ -6326,6 +6434,102 @@ func (siw *ServerInterfaceWrapper) HandleMfaOfferApiAuthMfaOfferPost(w http.Resp
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleMfaOfferApiAuthMfaOfferPost(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleBeginPasskeyLoginApiAuthPasskeyLoginBeginPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleBeginPasskeyLoginApiAuthPasskeyLoginBeginPost(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleBeginPasskeyLoginApiAuthPasskeyLoginBeginPost(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleFinishPasskeyLoginApiAuthPasskeyLoginFinishPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleFinishPasskeyLoginApiAuthPasskeyLoginFinishPost(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleFinishPasskeyLoginApiAuthPasskeyLoginFinishPost(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleListPasskeysApiAuthPasskeysGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleListPasskeysApiAuthPasskeysGet(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleListPasskeysApiAuthPasskeysGet(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleBeginPasskeyRegistrationApiAuthPasskeysRegisterBeginPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleBeginPasskeyRegistrationApiAuthPasskeysRegisterBeginPost(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleBeginPasskeyRegistrationApiAuthPasskeysRegisterBeginPost(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleFinishPasskeyRegistrationApiAuthPasskeysRegisterFinishPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleFinishPasskeyRegistrationApiAuthPasskeysRegisterFinishPost(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleFinishPasskeyRegistrationApiAuthPasskeysRegisterFinishPost(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleDeletePasskeyApiAuthPasskeysPasskeyIdDelete operation middleware
+func (siw *ServerInterfaceWrapper) HandleDeletePasskeyApiAuthPasskeysPasskeyIdDelete(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "passkey_id" -------------
+	var passkeyId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "passkey_id", r.PathValue("passkey_id"), &passkeyId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "passkey_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleDeletePasskeyApiAuthPasskeysPasskeyIdDelete(w, r, passkeyId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -11393,6 +11597,12 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/mfa/disable", wrapper.HandleMfaDisableApiAuthMfaDisablePost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/mfa/enroll", wrapper.HandleMfaEnrollApiAuthMfaEnrollPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/mfa/offer", wrapper.HandleMfaOfferApiAuthMfaOfferPost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/passkey-login/begin", wrapper.HandleBeginPasskeyLoginApiAuthPasskeyLoginBeginPost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/passkey-login/finish", wrapper.HandleFinishPasskeyLoginApiAuthPasskeyLoginFinishPost)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/passkeys", wrapper.HandleListPasskeysApiAuthPasskeysGet)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/passkeys/register/begin", wrapper.HandleBeginPasskeyRegistrationApiAuthPasskeysRegisterBeginPost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/passkeys/register/finish", wrapper.HandleFinishPasskeyRegistrationApiAuthPasskeysRegisterFinishPost)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/auth/passkeys/{passkey_id}", wrapper.HandleDeletePasskeyApiAuthPasskeysPasskeyIdDelete)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/set-password", wrapper.HandleSetPasswordApiAuthSetPasswordPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/auth/signing-keys", wrapper.HandleSigningKeysApiAuthSigningKeysGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/signing-keys/rotate", wrapper.HandleSigningKeyRotateApiAuthSigningKeysRotatePost)
