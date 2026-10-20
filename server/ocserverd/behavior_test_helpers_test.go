@@ -277,14 +277,11 @@ const interopSecret = "interop-unit-test-signing-secret"
 // that do not need the API read pool or HTTP route table.
 func newTestDAL(t *testing.T) *DAL {
 	t.Helper()
-	db, err := openSQLite(filepath.Join(t.TempDir(), "behavior-test.db"))
+	db, err := openMigratedSQLite(t, filepath.Join(t.TempDir(), "behavior-test.db"))
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	if err := runMigrations(db); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
 	return NewDAL(db)
 }
 
@@ -294,14 +291,11 @@ func newTestDAL(t *testing.T) *DAL {
 // file.
 func newWiredTestServer(t *testing.T) (*httptest.Server, []byte, *Hub) {
 	t.Helper()
-	db, err := openSQLite(filepath.Join(t.TempDir(), "behavior-server.db"))
+	db, err := openMigratedSQLite(t, filepath.Join(t.TempDir(), "behavior-server.db"))
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	if err := runMigrations(db); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
 	dal := NewDAL(db)
 	if err := seedOutOfBox(dal); err != nil {
 		t.Fatalf("seed: %v", err)
@@ -328,14 +322,11 @@ func newWiredTestServer(t *testing.T) (*httptest.Server, []byte, *Hub) {
 // test can seed a deterministic overlay before exercising the REST surface.
 func newDocCapTestServer(t *testing.T) (*httptest.Server, *DAL, []byte) {
 	t.Helper()
-	db, err := openSQLite(filepath.Join(t.TempDir(), "behavior-doccap.db"))
+	db, err := openMigratedSQLite(t, filepath.Join(t.TempDir(), "behavior-doccap.db"))
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	if err := runMigrations(db); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
 	dal := NewDAL(db)
 	if err := seedOutOfBox(dal); err != nil {
 		t.Fatalf("seed: %v", err)
@@ -359,14 +350,11 @@ func newDocCapTestServer(t *testing.T) (*httptest.Server, *DAL, []byte) {
 
 func newReconcileTestServer(t *testing.T) *apiServer {
 	t.Helper()
-	db, err := openSQLite(filepath.Join(t.TempDir(), "behavior-reconcile.db"))
+	db, err := openMigratedSQLite(t, filepath.Join(t.TempDir(), "behavior-reconcile.db"))
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	if err := runMigrations(db); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
 	dal := NewDAL(db)
 	if err := seedOutOfBox(dal); err != nil {
 		t.Fatalf("seed: %v", err)

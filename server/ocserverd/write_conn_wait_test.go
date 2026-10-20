@@ -133,12 +133,9 @@ func (c stallConn) CheckNamedValue(nv *driver.NamedValue) error {
 func stallDAL(t *testing.T) (*DAL, *stallSeam) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "stall.db")
-	plain, err := openSQLite(path)
+	plain, err := openMigratedSQLite(t, path)
 	if err != nil {
 		t.Fatalf("open: %v", err)
-	}
-	if err := runMigrations(plain); err != nil {
-		t.Fatalf("migrate: %v", err)
 	}
 	drv := plain.Driver()
 	plain.Close()
