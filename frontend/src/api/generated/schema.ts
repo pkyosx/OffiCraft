@@ -270,7 +270,8 @@ export interface paths {
          * Start an owner passkey sign-in (no password).
          * @description - PUBLIC. Returns the request options for `navigator.credentials.get()` and a one-time `ceremony_id`.
          *     - The options never list credentials (`allowCredentials` is empty: a discoverable login), so the response is the same whether or not any passkey is registered.
-         *     - The RP ID is the HOST of this request, without its port (the T-78 rule: the Host header, never X-Forwarded-*). An IP-address host (`127.0.0.1`) cannot carry a passkey under the WebAuthn rules, so it is a 400 naming `localhost` as the alternative.
+         *     - The RP ID is the HOST of this request, without its port, read from the Host header, never X-Forwarded-*. An IP-address host (`127.0.0.1`) cannot carry a passkey under the WebAuthn rules, so it is a 400 naming `localhost` as the alternative.
+         *     - On `localhost` only the port this server listens on is accepted: every local port shares the RP ID `localhost`, so another port is another service and is a 400 naming the right port.
          *     - Takes no request body and no throttle slot: it does no credential work. Ceremonies in flight are capped server-wide; the oldest is dropped first.
          *     - 401 `auth not configured` while the server has no signing secret, as `/api/login`.
          */
@@ -294,7 +295,7 @@ export interface paths {
          * Finish an owner passkey sign-in: exchange the assertion for an owner token.
          * @description - PUBLIC. Exchanges a passkey assertion for the same owner token `/api/login` returns.
          *     - No password and no TOTP code: a passkey with user verification is itself the stronger factor.
-         *     - An unknown, expired or used ceremony, a ceremony begun on another host, an unknown or deleted passkey, a bad signature and a sign counter that went backwards are the same flat 401, after the same fixed delay as a failed `/api/login`.
+         *     - An unknown, expired or used ceremony, a ceremony begun on another host or port, a `localhost` host on a port this server does not listen on, a user handle that is not the owner's, an unknown or deleted passkey, a bad signature and a sign counter that went backwards are the same flat 401, after the same fixed delay as a failed `/api/login`.
          *     - A refusal here never raises the password-exposed alert: it says nothing about the password.
          *     - 429 with `Retry-After` when the server-wide verify cap shared with `/api/login` is full.
          */
@@ -341,7 +342,8 @@ export interface paths {
          * Start registering a passkey (re-verifies the password).
          * @description - `current_password` is re-verified, so a stolen live session cannot quietly plant a passkey that outlives it; a mismatch is 401.
          *     - Returns the creation options for `navigator.credentials.create()` and a one-time `ceremony_id`. Nothing is stored until `.../register/finish` succeeds.
-         *     - The RP ID is the HOST of this request, without its port (the T-78 rule: the Host header, never X-Forwarded-*). An IP-address host (`127.0.0.1`) cannot carry a passkey under the WebAuthn rules, so it is a 400 naming `localhost` as the alternative.
+         *     - The RP ID is the HOST of this request, without its port, read from the Host header, never X-Forwarded-*. An IP-address host (`127.0.0.1`) cannot carry a passkey under the WebAuthn rules, so it is a 400 naming `localhost` as the alternative.
+         *     - On `localhost` only the port this server listens on is accepted: every local port shares the RP ID `localhost`, so another port is another service and is a 400 naming the right port.
          *     - The options ask for a discoverable credential with user verification required, no attestation, and exclude passkeys already registered for this RP ID.
          *     - 409 when the owner already has 20 passkeys.
          *     - Owner only; off the MCP surface.
@@ -4828,7 +4830,7 @@ export interface components {
             mfa_required: boolean;
             /**
              * Passkey Login Available
-             * @description Whether the login wall should offer passkey sign-in on THIS host: the request's host is usable as a WebAuthn RP ID (a domain name or `localhost`, not an IP address). It says NOTHING about whether any passkey is registered. Optional for compatibility, like `mfa_required`.
+             * @description Whether the login wall should offer passkey sign-in on THIS host: the request's host is usable as a WebAuthn RP ID (a domain name, or `localhost` on the port this server listens on; never an IP address). It says NOTHING about whether any passkey is registered. Optional for compatibility, like `mfa_required`.
              * @default false
              */
             passkey_login_available: boolean;

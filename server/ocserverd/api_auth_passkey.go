@@ -131,29 +131,41 @@ func (st *passkeyCeremonyStore) take(id string, purpose passkeyPurpose, now time
 	return passkeyCeremony{}, false
 }
 
-// passkeyRPIDOf answers the RP ID a request on host would use, or false when
-// the host cannot be one (an IP address is never a valid RP ID).
-func passkeyRPIDOf(host string) (string, bool) {
-	h := host
-	if hostOnly, _, err := net.SplitHostPort(host); err == nil {
-		h = hostOnly
+// passkeyRPIDOf answers the RP ID a request on host would use, or the reason
+// the host cannot carry a passkey.
+func (s *apiServer) passkeyRPIDOf(host string) (rpID, refusal string) {
+	h, port := host, ""
+	if hostOnly, p, err := net.SplitHostPort(host); err == nil {
+		h, port = hostOnly, p
 	}
 	h = strings.ToLower(strings.TrimSuffix(h, "."))
-	if h == "" || net.ParseIP(h) != nil {
-		return "", false
+	if h == "" || net.ParseIP(h) != nil || protocol.ValidateRPID(h) != nil {
+		return "", "passkeys cannot be used on an IP address; open this site at " + s.passkeyLocalhostURL(port) + " instead"
 	}
-	if err := protocol.ValidateRPID(h); err != nil {
-		return "", false
+	if h == "localhost" {
+		if port == "" {
+			port = "80"
+		}
+		// Every port on localhost shares the RP ID "localhost", so without this
+		// any other local service could run a ceremony against our passkeys
+		// under its own Host and origin and sign in here.
+		if s.listenPort == "" || port != s.listenPort {
+			return "", "passkeys on localhost work only at " + s.passkeyLocalhostURL("") +
+				", the port this server listens on"
+		}
 	}
-	return h, true
+	return h, ""
 }
 
-func passkeyHostRefusal(host string) string {
-	alt := "http://localhost"
-	if _, port, err := net.SplitHostPort(host); err == nil && port != "" {
-		alt += ":" + port
+func (s *apiServer) passkeyLocalhostURL(requestPort string) string {
+	port := s.listenPort
+	if port == "" {
+		port = requestPort
 	}
-	return "passkeys cannot be used on an IP address; open this site at " + alt + " instead"
+	if port == "" {
+		return "http://localhost"
+	}
+	return "http://localhost:" + port
 }
 
 // A fresh verifier per request: the RP ID and origin come from the request.
@@ -261,7 +273,7 @@ func (s *apiServer) HandleListPasskeysApiAuthPasskeysGet(w http.ResponseWriter, 
 		internalError(w, err)
 		return
 	}
-	rpID, _ := passkeyRPIDOf(r.Host)
+	rpID, _ := s.passkeyRPIDOf(r.Host)
 	out := passkeysDTO{Passkeys: make([]passkeyDTO, 0, len(rows))}
 	for _, p := range rows {
 		out.Passkeys = append(out.Passkeys, newPasskeyDTO(p, rpID))
@@ -276,15 +288,15 @@ func (s *apiServer) HandleBeginPasskeyRegistrationApiAuthPasskeysRegisterBeginPo
 	if !decodeJSONBodyRequired(w, r, &body, "current_password") {
 		return
 	}
-	rpID, ok := passkeyRPIDOf(r.Host)
-	if !ok {
-		writeError(w, http.StatusBadRequest, passkeyHostRefusal(r.Host))
+	rpID, refusal := s.passkeyRPIDOf(r.Host)
+	if refusal != "" {
+		writeError(w, http.StatusBadRequest, refusal)
 		return
 	}
 	origin := baseURLForHost(r.Host)
 	rp, err := s.passkeyRP(rpID, origin)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, passkeyHostRefusal(r.Host))
+		internalError(w, err)
 		return
 	}
 
@@ -372,8 +384,8 @@ func (s *apiServer) HandleFinishPasskeyRegistrationApiAuthPasskeysRegisterFinish
 			strconv.Itoa(shortLabelMaxChars)+"-char limit")
 		return
 	}
-	rpID, ok := passkeyRPIDOf(r.Host)
-	if !ok || rpID != c.rpID || baseURLForHost(r.Host) != c.origin {
+	rpID, refusal := s.passkeyRPIDOf(r.Host)
+	if refusal != "" || rpID != c.rpID || baseURLForHost(r.Host) != c.origin {
 		writeError(w, http.StatusBadRequest, "this registration was begun at "+c.origin+"; finish it there")
 		return
 	}
@@ -476,7 +488,7 @@ func (s *apiServer) HandleDeletePasskeyApiAuthPasskeysPasskeyIdDelete(w http.Res
 		writeTxError(w, err)
 		return
 	}
-	rpID, _ := passkeyRPIDOf(r.Host)
+	rpID, _ := s.passkeyRPIDOf(r.Host)
 	writeJSON(w, http.StatusOK, newPasskeyDTO(deleted, rpID))
 }
 
@@ -487,15 +499,15 @@ func (s *apiServer) HandleBeginPasskeyLoginApiAuthPasskeyLoginBeginPost(w http.R
 		writeError(w, http.StatusUnauthorized, "auth not configured")
 		return
 	}
-	rpID, ok := passkeyRPIDOf(r.Host)
-	if !ok {
-		writeError(w, http.StatusBadRequest, passkeyHostRefusal(r.Host))
+	rpID, refusal := s.passkeyRPIDOf(r.Host)
+	if refusal != "" {
+		writeError(w, http.StatusBadRequest, refusal)
 		return
 	}
 	origin := baseURLForHost(r.Host)
 	rp, err := s.passkeyRP(rpID, origin)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, passkeyHostRefusal(r.Host))
+		internalError(w, err)
 		return
 	}
 	assertion, session, err := rp.BeginDiscoverableLogin(
@@ -559,8 +571,8 @@ func (s *apiServer) verifyPasskeyAssertion(r *http.Request, body passkeyLoginFin
 	if !ok {
 		return false
 	}
-	rpID, ok := passkeyRPIDOf(r.Host)
-	if !ok || rpID != c.rpID || baseURLForHost(r.Host) != c.origin {
+	rpID, refusal := s.passkeyRPIDOf(r.Host)
+	if refusal != "" || rpID != c.rpID || baseURLForHost(r.Host) != c.origin {
 		return false
 	}
 	parsed, err := protocol.ParseCredentialRequestResponseBytes(body.Credential)

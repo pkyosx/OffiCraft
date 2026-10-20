@@ -182,7 +182,11 @@ ceiling of the warden lifetime setting (§1.6).
     RP ID, so both begins answer 400 there and `GET /api/auth/status` reports
     `passkey_login_available: false`; that field is a fact about the HOST and MUST NOT
     disclose whether any passkey is registered (`allowCredentials` is always empty).
-  - Every `…/finish` refusal — unknown/expired/used ceremony, other host, bad signature,
+    Every port on `localhost` shares the RP ID `localhost`, so a `localhost` Host is
+    accepted only on the port this server listens on; another port gets the same 400 and
+    `false`, and its `…/finish` is refused.
+  - Every `…/finish` refusal — unknown/expired/used ceremony, other host or port, a user
+    handle that is not the owner's, bad signature,
     sign counter gone backwards (the row is stamped `clone_warning_ts`, which the list shows
     until the passkey is deleted),
     deleted passkey — MUST be the same flat 401 served after the refusal floor, and the

@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"regexp"
+	"sync"
 	"testing"
 	"time"
 
@@ -378,6 +379,18 @@ func TestHandleBeginPasskeyRegistrationApiAuthPasskeysRegisterBeginPost(t *testi
 			"passkeys cannot be used on an IP address; open this site at http://localhost:8787 instead")
 	})
 
+	t.Run("a localhost host on a port this server does not listen on answers 400 naming the right one", func(t *testing.T) {
+		env := newPasskeyTestEnv(t)
+
+		status, data := apiJSONAt(t, env.h, "POST", "/api/auth/passkeys/register/begin", "localhost:9999", env.owner,
+			`{"current_password":"`+apiTestOwnerPassword+`"}`)
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			"passkeys on localhost work only at http://localhost:8787, the port this server listens on")
+	})
+
 	t.Run("a passkey already registered on this host is excluded from the options", func(t *testing.T) {
 		env := newPasskeyTestEnv(t)
 		a := newSoftPasskey(t, "excluded")
@@ -568,6 +581,18 @@ func TestHandleBeginPasskeyLoginApiAuthPasskeyLoginBeginPost(t *testing.T) {
 			"passkeys cannot be used on an IP address; open this site at http://localhost:8787 instead")
 	})
 
+	t.Run("a localhost host on a port this server does not listen on answers 400 naming the right one", func(t *testing.T) {
+		env := newPasskeyTestEnv(t)
+		passkeyTestRegister(t, env, passkeyTestHost, passkeyTestOrigin, newSoftPasskey(t, "other-port"))
+
+		status, data := apiJSONAt(t, env.h, "POST", "/api/auth/passkey-login/begin", "localhost:9999", "", "")
+		if status != 400 {
+			t.Fatalf("want 400, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			"passkeys on localhost work only at http://localhost:8787, the port this server listens on")
+	})
+
 	t.Run("a server with no signing secret answers 401 naming the configuration", func(t *testing.T) {
 		_, h, _, _ := newAPITestStackWithoutSigningSecret(t)
 
@@ -737,5 +762,182 @@ func TestHandleFinishPasskeyLoginApiAuthPasskeyLoginFinishPost(t *testing.T) {
 		case <-time.After(time.Second):
 			t.Fatal("control: the password-exposed alert did not fire at all, so the silence above proves nothing")
 		}
+	})
+
+	t.Run("a synced passkey whose counter stays 0 signs in every time and is never marked cloned", func(t *testing.T) {
+		env := newPasskeyTestEnv(t)
+		a := newSoftPasskey(t, "synced")
+		passkeyTestRegister(t, env, passkeyTestHost, passkeyTestOrigin, a)
+
+		for i := 0; i < 2; i++ {
+			id, options := passkeyTestBeginLogin(t, env, passkeyTestHost)
+			status, data := passkeyTestFinishLogin(t, env, passkeyTestHost, id, a.getWithCounter(t, options, passkeyTestOrigin, 0))
+			if status != 200 {
+				t.Fatalf("sign-in %d at counter 0: want 200, got %d (%v)", i+1, status, data)
+			}
+			apiWantBody(t, data, passkeyTestOwnerToken)
+		}
+		_, list := apiJSONAt(t, env.h, "GET", "/api/auth/passkeys", passkeyTestHost, env.owner, "")
+		apiWantBody(t, list, map[string]any{"passkeys": []any{map[string]any{
+			"id":               apiAnyString,
+			"name":             "Eva 的 MacBook",
+			"rp_id":            "localhost",
+			"origin":           "http://localhost:8787",
+			"created_ts":       apiAnyNumber,
+			"last_used_ts":     apiAnyNumber,
+			"usable_here":      true,
+			"clone_warning_ts": nil,
+		}}})
+	})
+
+	t.Run("an assertion carrying another user handle answers 401", func(t *testing.T) {
+		env := newPasskeyTestEnv(t)
+		a := newSoftPasskey(t, "handle")
+		passkeyTestRegister(t, env, passkeyTestHost, passkeyTestOrigin, a)
+		a.handle = []byte("0123456789abcdef0123456789abcdef")
+
+		status, data := passkeyTestSignIn(t, env, passkeyTestHost, passkeyTestOrigin, a)
+		passkeyTestWantRefused(t, status, data)
+	})
+
+	t.Run("a registration ceremony answers 401 at sign-in", func(t *testing.T) {
+		env := newPasskeyTestEnv(t)
+		a := newSoftPasskey(t, "purpose")
+		passkeyTestRegister(t, env, passkeyTestHost, passkeyTestOrigin, a)
+		id, creation := passkeyTestBeginRegistration(t, env, passkeyTestHost)
+		options := map[string]any{"rpId": "localhost", "challenge": creation["challenge"]}
+
+		status, data := passkeyTestFinishLogin(t, env, passkeyTestHost, id, a.get(t, options, passkeyTestOrigin))
+		passkeyTestWantRefused(t, status, data)
+	})
+
+	t.Run("a localhost ceremony finished from another localhost port answers 401", func(t *testing.T) {
+		env := newPasskeyTestEnv(t)
+		a := newSoftPasskey(t, "port-hop")
+		passkeyTestRegister(t, env, passkeyTestHost, passkeyTestOrigin, a)
+		id, options := passkeyTestBeginLogin(t, env, passkeyTestHost)
+
+		status, data := passkeyTestFinishLogin(t, env, "localhost:9999", id, a.get(t, options, "http://localhost:9999"))
+		passkeyTestWantRefused(t, status, data)
+	})
+
+	t.Run("a ceremony begun on a domain answers 401 when finished on another port of it", func(t *testing.T) {
+		env := newPasskeyTestEnv(t)
+		a := newSoftPasskey(t, "domain-port")
+		passkeyTestRegister(t, env, passkeyTestDomain, passkeyTestDomainOrigin, a)
+		id, options := passkeyTestBeginLogin(t, env, passkeyTestDomain)
+
+		status, data := passkeyTestFinishLogin(t, env, passkeyTestDomain+":8443", id, a.get(t, options, passkeyTestDomainOrigin))
+		passkeyTestWantRefused(t, status, data)
+	})
+
+	t.Run("a refusal waits out the failure floor while a success answers at once", func(t *testing.T) {
+		env := newPasskeyTestEnv(t)
+		const floor = 700 * time.Millisecond
+		env.api.credentialFailureFloor = floor
+		a := newSoftPasskey(t, "floor")
+		passkeyTestRegister(t, env, passkeyTestHost, passkeyTestOrigin, a)
+
+		_, options := passkeyTestBeginLogin(t, env, passkeyTestHost)
+		start := time.Now()
+		status, data := passkeyTestFinishLogin(t, env, passkeyTestHost, "not-a-ceremony", a.get(t, options, passkeyTestOrigin))
+		passkeyTestWantRefused(t, status, data)
+		if took := time.Since(start); took < floor {
+			t.Fatalf("refusal answered after %v, want at least %v", took, floor)
+		}
+
+		id, options := passkeyTestBeginLogin(t, env, passkeyTestHost)
+		start = time.Now()
+		status, data = passkeyTestFinishLogin(t, env, passkeyTestHost, id, a.get(t, options, passkeyTestOrigin))
+		if status != 200 {
+			t.Fatalf("success: want 200, got %d (%v)", status, data)
+		}
+		if took := time.Since(start); took >= floor {
+			t.Fatalf("success answered after %v, want under %v", took, floor)
+		}
+	})
+
+	t.Run("attempts beyond the in-flight cap answer 429 with a one-second Retry-After", func(t *testing.T) {
+		env := newPasskeyTestEnv(t)
+		env.api.credentialFailureFloor = 2 * time.Second
+		body := `{"ceremony_id":"not-a-ceremony","credential":{}}`
+
+		type answer struct {
+			code       int
+			retryAfter string
+			body       string
+		}
+		answers := make(chan answer, 8)
+		var wg sync.WaitGroup
+		for i := 0; i < 8; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				rec := apiRequestAt(t, env.h, "POST", "/api/auth/passkey-login/finish", passkeyTestHost, "", body)
+				answers <- answer{rec.Code, rec.Header().Get("Retry-After"), rec.Body.String()}
+			}()
+		}
+		wg.Wait()
+		close(answers)
+		throttled := 0
+		for got := range answers {
+			switch got.code {
+			case 429:
+				throttled++
+				if got.retryAfter != "1" {
+					t.Fatalf("Retry-After: want \"1\", got %q", got.retryAfter)
+				}
+				if got.body != `{"error":{"code":"client_error","message":"too many failed credential attempts; retry in 1s"}}` {
+					t.Fatalf("throttled body: %q", got.body)
+				}
+			case 401:
+				if got.body != `{"error":{"code":"unauthorized","message":"passkey sign-in failed"}}` {
+					t.Fatalf("refused body: %q", got.body)
+				}
+			default:
+				t.Fatalf("want 401 or 429, got %d (%s)", got.code, got.body)
+			}
+		}
+		if throttled != 4 {
+			t.Fatalf("want 4 of 8 concurrent attempts refused for concurrency, got %d", throttled)
+		}
+	})
+
+	t.Run("a valid passkey answers 429 while refused /api/login attempts hold every slot, and 200 after", func(t *testing.T) {
+		env := newPasskeyTestEnv(t)
+		env.api.credentialFailureFloor = 2 * time.Second
+		a := newSoftPasskey(t, "shared-throttle")
+		passkeyTestRegister(t, env, passkeyTestHost, passkeyTestOrigin, a)
+		id, options := passkeyTestBeginLogin(t, env, passkeyTestHost)
+
+		var logins sync.WaitGroup
+		for i := 0; i < 4; i++ {
+			logins.Add(1)
+			go func() {
+				defer logins.Done()
+				apiRequest(t, env.h, "POST", "/api/login", "", `{"password":"wrong"}`)
+			}()
+		}
+		deadline := time.Now().Add(time.Second)
+		for env.api.loginThrottle.inFlight.Load() < 4 {
+			if time.Now().After(deadline) {
+				t.Fatal("the refused logins never held all four slots")
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+
+		body := string(softJSON(t, map[string]any{"ceremony_id": id, "credential": a.get(t, options, passkeyTestOrigin)}))
+		rec := apiRequestAt(t, env.h, "POST", "/api/auth/passkey-login/finish", passkeyTestHost, "", body)
+		if rec.Code != 429 || rec.Header().Get("Retry-After") != "1" ||
+			rec.Body.String() != `{"error":{"code":"client_error","message":"too many failed credential attempts; retry in 1s"}}` {
+			t.Fatalf("want 429 with Retry-After 1, got %d %q %s", rec.Code, rec.Header().Get("Retry-After"), rec.Body.String())
+		}
+
+		logins.Wait()
+		status, data := passkeyTestFinishLogin(t, env, passkeyTestHost, id, a.get(t, options, passkeyTestOrigin))
+		if status != 200 {
+			t.Fatalf("after the logins: want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, passkeyTestOwnerToken)
 	})
 }

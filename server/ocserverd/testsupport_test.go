@@ -122,6 +122,7 @@ func apiTestStackOn(t *testing.T, d *DAL, withSigningSecret bool) (*apiServer, h
 	// The production floor is three seconds per refused credential attempt; a
 	// test that is not about the floor should not pay it (throttle.go).
 	api.credentialFailureFloor = time.Millisecond
+	api.listenPort = "8787"
 
 	h, err := buildHandler(specsFor(api), api.keys, d.GetMember, api.authPasswordChangedAt)
 	if err != nil {

@@ -198,12 +198,14 @@ func TestHandleAuthStatusApiAuthStatusGet(t *testing.T) {
 		apiWantBody(t, data, map[string]any{"password_set": true, "mfa_required": true, "passkey_login_available": true})
 	})
 
-	t.Run("passkey sign-in is offered on localhost and on a domain but not on an IP address", func(t *testing.T) {
+	t.Run("passkey sign-in is offered on a domain and on localhost at the listening port only, never on an IP address", func(t *testing.T) {
 		_, h, _, _ := newAPITestServer(t)
 
 		for host, want := range map[string]bool{
 			"localhost:8787":     true,
 			"office.example.com": true,
+			"localhost:9999":     false,
+			"localhost":          false,
 			"127.0.0.1:8787":     false,
 		} {
 			status, data := apiJSONAt(t, h, "GET", "/api/auth/status", host, "", "")

@@ -139,11 +139,11 @@ func validatePushContactEmail(address string) error {
 // deliberate: the alternative, a distinguishable "password accepted, code
 // missing" refusal, leaks MORE because it confirms a correct password.
 func (s *apiServer) HandleAuthStatusApiAuthStatusGet(w http.ResponseWriter, r *http.Request) {
-	_, passkeyHost := passkeyRPIDOf(r.Host)
+	_, passkeyRefusal := s.passkeyRPIDOf(r.Host)
 	writeJSON(w, http.StatusOK, authStatusDTO{
 		PasswordSet:           s.authPasswordHash() != "",
 		MFARequired:           s.authMFAEnrolled(),
-		PasskeyLoginAvailable: passkeyHost,
+		PasskeyLoginAvailable: passkeyRefusal == "",
 	})
 }
 

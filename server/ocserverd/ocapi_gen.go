@@ -832,7 +832,7 @@ type AuthStatusDTO struct {
 	// MfaRequired Whether an active TOTP secret is enrolled, i.e. whether `/api/login` demands a `code`. Optional for compatibility: a client that does not read it, or an older server that does not send it, behaves exactly as before.
 	MfaRequired *bool `json:"mfa_required,omitempty"`
 
-	// PasskeyLoginAvailable Whether the login wall should offer passkey sign-in on THIS host: the request's host is usable as a WebAuthn RP ID (a domain name or `localhost`, not an IP address). It says NOTHING about whether any passkey is registered. Optional for compatibility, like `mfa_required`.
+	// PasskeyLoginAvailable Whether the login wall should offer passkey sign-in on THIS host: the request's host is usable as a WebAuthn RP ID (a domain name, or `localhost` on the port this server listens on; never an IP address). It says NOTHING about whether any passkey is registered. Optional for compatibility, like `mfa_required`.
 	PasskeyLoginAvailable *bool `json:"passkey_login_available,omitempty"`
 	PasswordSet           bool  `json:"password_set"`
 }
