@@ -33,14 +33,11 @@ import (
 // so a test can plant roster rows directly and then talk HTTP.
 func revokeStack(t *testing.T) (*httptest.Server, []byte, *apiServer) {
 	t.Helper()
-	db, err := openSQLite(filepath.Join(t.TempDir(), "revoke-test.db"))
+	db, err := openMigratedSQLite(t, filepath.Join(t.TempDir(), "revoke-test.db"))
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	if err := runMigrations(db); err != nil {
-		t.Fatalf("goose up: %v", err)
-	}
 	dal := NewDAL(db)
 	if err := seedOutOfBox(dal); err != nil {
 		t.Fatalf("seed: %v", err)

@@ -33,14 +33,11 @@ import (
 
 func newEventProcServer(t *testing.T) *apiServer {
 	t.Helper()
-	db, err := openSQLite(filepath.Join(t.TempDir(), "event-proc.db"))
+	db, err := openMigratedSQLite(t, filepath.Join(t.TempDir(), "event-proc.db"))
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	if err := runMigrations(db); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
 	dal := NewDAL(db)
 	if err := seedOutOfBox(dal); err != nil {
 		t.Fatalf("seed: %v", err)
