@@ -1111,7 +1111,7 @@ export const zh = {
     passkeys: "通行密鑰",
     passkeysSub: "用 Touch ID、Face ID、Windows Hello 或安全金鑰登入",
     passkeysIntro:
-      "通行密鑰登入不用密碼、也不問驗證碼。每一把只能在註冊時的網址使用：正式站、試用站與 localhost 要各自註冊。",
+      "通行密鑰登入不用密碼、也不問驗證碼。",
     passkeysLoading: "讀取中…",
     passkeysEmpty: "還沒有註冊任何通行密鑰",
     passkeysErrorLoad: "讀不到通行密鑰清單",
