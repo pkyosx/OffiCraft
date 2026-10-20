@@ -1050,7 +1050,7 @@ export const en: Dict = {
     passkeys: "Passkeys",
     passkeysSub: "Sign in with Touch ID, Face ID, Windows Hello or a security key",
     passkeysIntro:
-      "A passkey signs you in with no password and no code. Each one works only at the address it was registered on: the main site, a trial site and localhost each need their own.",
+      "A passkey signs you in with no password and no code.",
     passkeysLoading: "Loading…",
     passkeysEmpty: "No passkeys registered yet",
     passkeysErrorLoad: "Could not read the passkey list",
