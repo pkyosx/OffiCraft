@@ -28,9 +28,10 @@ type apiServer struct {
 	// first one finishes.
 	serverDisk atomic.Pointer[serverDiskSample]
 
-	machineClaims   *machineClaimStore
-	runtimeLogins   *runtimeLoginStore
-	runtimeUpgrades *runtimeUpgradeStore
+	machineClaims     *machineClaimStore
+	passkeyCeremonies *passkeyCeremonyStore
+	runtimeLogins     *runtimeLoginStore
+	runtimeUpgrades   *runtimeUpgradeStore
 	// keys is a POINTER on purpose: every gated route shares this one ring, so a
 	// rotation is visible process-wide. Read keys.signingSecret() per mint —
 	// never cache the []byte it returns across requests.
@@ -134,6 +135,8 @@ type apiServer struct {
 	suggestedRepliesLoreMessage []string
 
 	selfBase string
+	// listenPort is the port the listener actually bound; "" until serve binds.
+	listenPort string
 	// namespace ("" = main instance) leaves the server on exactly three surfaces:
 	// the install.sh line, the bootstrap/teardown-here child env (OC_NAMESPACE),
 	// and terminal_attach_command, which names the `tmux -L` socket.

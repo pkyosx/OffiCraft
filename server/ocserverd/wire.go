@@ -29,8 +29,32 @@ const wireSchemaVersion = 3
 // MFARequired has no omitempty on purpose: the schema marks it optional, but
 // this server must say `false` rather than leave the login wall to guess.
 type authStatusDTO struct {
-	PasswordSet bool `json:"password_set"`
-	MFARequired bool `json:"mfa_required"`
+	PasswordSet           bool `json:"password_set"`
+	MFARequired           bool `json:"mfa_required"`
+	PasskeyLoginAvailable bool `json:"passkey_login_available"`
+}
+
+// No key material on the wire: no public key, credential id, counter or AAGUID.
+type passkeyDTO struct {
+	ID             string   `json:"id"`
+	Name           string   `json:"name"`
+	RPID           string   `json:"rp_id"`
+	Origin         string   `json:"origin"`
+	CreatedTS      float64  `json:"created_ts"`
+	LastUsedTS     *float64 `json:"last_used_ts"`
+	UsableHere     bool     `json:"usable_here"`
+	CloneWarningTS *float64 `json:"clone_warning_ts"`
+}
+
+type passkeysDTO struct {
+	Passkeys []passkeyDTO `json:"passkeys"`
+}
+
+// Options is the WebAuthn options JSON exactly as the verifier produced it.
+type passkeyCeremonyDTO struct {
+	CeremonyID string `json:"ceremony_id"`
+	ExpiresIn  int    `json:"expires_in"`
+	Options    any    `json:"options"`
 }
 
 // Secret / OtpauthURI: null = no pending secret to show. Only enroll fills them,

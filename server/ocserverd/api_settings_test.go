@@ -174,7 +174,7 @@ func TestHandleAuthStatusApiAuthStatusGet(t *testing.T) {
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantBody(t, data, map[string]any{"password_set": false, "mfa_required": false})
+		apiWantBody(t, data, map[string]any{"password_set": false, "mfa_required": false, "passkey_login_available": true})
 	})
 
 	t.Run("a claimed server answers 200 with the password set", func(t *testing.T) {
@@ -184,7 +184,7 @@ func TestHandleAuthStatusApiAuthStatusGet(t *testing.T) {
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantBody(t, data, map[string]any{"password_set": true, "mfa_required": false})
+		apiWantBody(t, data, map[string]any{"password_set": true, "mfa_required": false, "passkey_login_available": true})
 	})
 
 	t.Run("an armed factor answers 200 with mfa_required true", func(t *testing.T) {
@@ -195,7 +195,27 @@ func TestHandleAuthStatusApiAuthStatusGet(t *testing.T) {
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantBody(t, data, map[string]any{"password_set": true, "mfa_required": true})
+		apiWantBody(t, data, map[string]any{"password_set": true, "mfa_required": true, "passkey_login_available": true})
+	})
+
+	t.Run("passkey sign-in is offered on a domain and on localhost at the listening port only, never on an IP address", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		for host, want := range map[string]bool{
+			"localhost:8787":     true,
+			"office.example.com": true,
+			"localhost:9999":     false,
+			"localhost:787":      false,
+			"localhost:87":       false,
+			"localhost":          false,
+			"127.0.0.1:8787":     false,
+		} {
+			status, data := apiJSONAt(t, h, "GET", "/api/auth/status", host, "", "")
+			if status != 200 {
+				t.Fatalf("%s: want 200, got %d (%v)", host, status, data)
+			}
+			apiWantBody(t, data, map[string]any{"password_set": true, "mfa_required": false, "passkey_login_available": want})
+		}
 	})
 }
 

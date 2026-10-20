@@ -57,6 +57,7 @@ export interface Messages {
   taskArtifactOpaque: (mime: string) => string;
   // ── login / the credential-attempt brake ──
   loginThrottled: (secs: number) => string;
+  passkeyIpHint: (url: string) => string;
   // ── replies ──
   replyWaited: (elapsed: string) => string;
   replyOpenedAt: (time: string) => string;
@@ -278,6 +279,7 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     // a leading space there would be invisible to whoever edits it.
     loginThrottled: (secs) =>
       `${login.throttledLead} ${secs}${language === "zh" ? " " : ""}${login.throttledTail}`,
+    passkeyIpHint: (url) => `${login.passkeyIpHintLead} ${url} ${login.passkeyIpHintTail}`,
     taskElapsed: (elapsed) => `${tasks.elapsedLabel} ${elapsed}`,
     taskPlanningBy: (name) =>
       `${tasks.planningByLead} ${name} ${tasks.planningByTail}`,

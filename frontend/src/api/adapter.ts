@@ -22,6 +22,8 @@ import type {
   BackupHealthView,
   SigningKeyView,
   SecretView,
+  PasskeyView,
+  PasskeyCeremonyView,
   SecretCreateInput,
   SecretUpdateInput,
   AuthStatusView,
@@ -2859,6 +2861,20 @@ export interface Api {
   updateSecret(id: string, patch: SecretUpdateInput): Promise<SecretView>;
   /** DELETE /api/secrets/{id} — permanent. */
   deleteSecret(id: string): Promise<SecretView>;
+  /** GET /api/auth/passkeys — the owner's passkeys, no key material. */
+  listPasskeys(): Promise<PasskeyView[]>;
+  /** POST /api/auth/passkeys/register/begin. Re-checks the current password:
+   * 401 on a wrong one stays an inline error, never a logout. 400 on an IP
+   * host, 409 at the passkey limit. */
+  beginPasskeyRegistration(currentPassword: string): Promise<PasskeyCeremonyView>;
+  /** POST /api/auth/passkeys/register/finish with the browser's credential JSON. */
+  finishPasskeyRegistration(
+    ceremonyId: string,
+    credential: Record<string, unknown>,
+    name: string,
+  ): Promise<PasskeyView>;
+  /** DELETE /api/auth/passkeys/{id} — the next sign-in with it fails. */
+  deletePasskey(id: string): Promise<PasskeyView>;
   /** The folded global-context doc (owner overlay ⊕ file seed). */
   getGlobalContext(): Promise<GlobalContextView>;
   /** Whole-doc replace of the global context. The write answers with a

@@ -59,6 +59,10 @@ const (
 	settingTOTPSecret        = "auth.totp_secret"
 	settingTOTPPendingSecret = "auth.totp_pending_secret"
 	settingTOTPLastStep      = "auth.totp_last_step"
+	// base64url of the 32 random bytes every owner passkey carries as its
+	// WebAuthn user handle; minted by the first registration, cleared by
+	// `ocserverd passkey-reset`.
+	settingPasskeyUserHandle = "auth.passkey_user_handle"
 	// `ctx.warn_pct` / `ctx.remind_step_pct` are retired and deliberately not
 	// listed: the notice is derived from handover_pct. Do not re-add them — two
 	// thresholds for one decision is the bug that removed them.
@@ -892,6 +896,31 @@ func cmdMFADisable(env func(string) string, out io.Writer) int {
 		}
 	}
 	fmt.Fprintln(out, "[ocserverd] mfa-disable: the owner's second factor is cleared (takes effect at the next serve start)")
+	return 0
+}
+
+// cmdPasskeyReset is the lost-every-passkey recovery path, on the same footing
+// as cmdMFADisable: whoever can run it can already run set-password. Unlike
+// mfa-disable it needs no restart, because serve reads the passkey table on
+// every sign-in.
+func cmdPasskeyReset(env func(string) string, out io.Writer) int {
+	d, _, done, rc := openAuthDAL("passkey-reset", env, out)
+	defer done()
+	if rc != 0 {
+		return rc
+	}
+	var cleared int64
+	if err := d.inTx(func(tx *writeTx) error {
+		var err error
+		if cleared, err = deleteAllPasskeysOn(tx); err != nil {
+			return err
+		}
+		return deleteSettingOn(tx, settingPasskeyUserHandle)
+	}); err != nil {
+		fmt.Fprintf(out, "[ocserverd] FATAL: clear passkeys: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(out, "[ocserverd] passkey-reset: %d passkey(s) cleared (effective immediately)\n", cleared)
 	return 0
 }
 

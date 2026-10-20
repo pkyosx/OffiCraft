@@ -369,6 +369,7 @@ func newAPIServer(dal *DAL, hub *Hub, keys *keyring, tokenTTL int64, root assetR
 		telemetry:                       newMemStore(),
 		gauge:                           newMemStore(),
 		machineClaims:                   newMachineClaimStore(),
+		passkeyCeremonies:               newPasskeyCeremonyStore(),
 		runtimeLogins:                   newRuntimeLoginStore(),
 		runtimeUpgrades:                 newRuntimeUpgradeStore(),
 		keys:                            keys,
@@ -577,6 +578,7 @@ func cmdServe(env func(string) string, noReconcile, noOutsource bool, out io.Wri
 	}
 	boundAddr := ln.Addr().String()
 	api.selfBase = schemeForHost(boundAddr) + "://" + boundAddr
+	_, api.listenPort, _ = net.SplitHostPort(boundAddr)
 	fmt.Fprintf(out, "ocserverd serving on http://%s\n", boundAddr)
 	if claimToken != "" {
 		setupURL := firstRunSetupURL(boundAddr, claimToken)

@@ -54,7 +54,7 @@ function renderGate() {
 function stubProbe(passwordSet: boolean, mfaRequired: boolean) {
   return vi
     .spyOn(api, "getAuthStatus")
-    .mockResolvedValue({ passwordSet, mfaRequired });
+    .mockResolvedValue({ passwordSet, mfaRequired, passkeyLoginAvailable: false });
 }
 
 beforeEach(() => {
@@ -113,7 +113,7 @@ describe("AuthGate — a wall that is out of date recovers itself", () => {
     expect(utils.queryByLabelText(L.codePlaceholder)).toBeNull();
 
     // Meanwhile, elsewhere, the factor is armed — and the login is refused.
-    probe.mockResolvedValue({ passwordSet: true, mfaRequired: true });
+    probe.mockResolvedValue({ passwordSet: true, mfaRequired: true, passkeyLoginAvailable: false });
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -146,7 +146,7 @@ describe("AuthGate — a wall that is out of date recovers itself", () => {
     const probe = vi
       .spyOn(api, "getAuthStatus")
       .mockRejectedValueOnce(new Error("network down"))
-      .mockResolvedValue({ passwordSet: true, mfaRequired: true });
+      .mockResolvedValue({ passwordSet: true, mfaRequired: true, passkeyLoginAvailable: false });
 
     const utils = renderGate();
     await utils.findByPlaceholderText(L.passwordPlaceholder);

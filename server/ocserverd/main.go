@@ -15,6 +15,7 @@ var subcommands = []struct{ name, help string }{
 	{"set-password", "store the owner password's argon2id hash in DB settings ($OC_NEW_PASSWORD)"},
 	{"claim-token", "print the one-shot first-run claim code (exit 3 once a password is set)"},
 	{"mfa-disable", "clear the owner's TOTP second factor (lost-authenticator recovery)"},
+	{"passkey-reset", "delete every owner passkey (lost-passkey recovery; no restart needed)"},
 	{"login-link", "[--base-url URL] | enable | disable: mint a one-time 10-minute owner login link (exit 3 while disabled)"},
 	{"migration-lock", "--write / --check server/ocserverd/migration.lock (run from that directory)"},
 	{"theme-name-verdicts", "<cases.json> <verdicts.json>: this side of the Go/TS theme-name parity check"},
@@ -96,6 +97,13 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 			return 2
 		}
 		return cmdMFADisable(env, out)
+
+	case "passkey-reset":
+		if len(rest) != 0 {
+			fmt.Fprintln(out, "[ocserverd] passkey-reset takes no arguments (the database comes from the resolved DSN)")
+			return 2
+		}
+		return cmdPasskeyReset(env, out)
 
 	case "login-link":
 		return cmdLoginLink(rest, env, out)

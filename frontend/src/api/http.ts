@@ -32,6 +32,8 @@ import type {
   BackupHealthView,
   SigningKeyView,
   SecretView,
+  PasskeyView,
+  PasskeyCeremonyView,
   SecretCreateInput,
   SecretUpdateInput,
   AuthStatusView,
@@ -138,6 +140,7 @@ import {
   toSigningKeys,
   toSecret,
   toSecrets,
+  toPasskey,
   toGlobalContext,
   toBootDoc,
   toDocumentHistory,
@@ -2506,6 +2509,44 @@ export const httpApi: Api = {
     );
   },
 
+  async listPasskeys(): Promise<PasskeyView[]> {
+    const wire = unwrap(await client.GET("/api/auth/passkeys"));
+    return wire.passkeys.map(toPasskey);
+  },
+
+  async beginPasskeyRegistration(currentPassword: string): Promise<PasskeyCeremonyView> {
+    // credentialPost: a wrong current password is a 401 the form shows inline;
+    // the typed client would read it as an expired session and log out.
+    const data = await credentialPost<{ ceremony_id: string; options: Record<string, unknown> }>(
+      "/api/auth/passkeys/register/begin",
+      { current_password: currentPassword },
+      ownerToken(),
+    );
+    return { ceremonyId: data.ceremony_id, options: data.options };
+  },
+
+  async finishPasskeyRegistration(
+    ceremonyId: string,
+    credential: Record<string, unknown>,
+    name: string,
+  ): Promise<PasskeyView> {
+    const wire = unwrap(
+      await client.POST("/api/auth/passkeys/register/finish", {
+        body: { ceremony_id: ceremonyId, credential, name },
+      }),
+    );
+    return toPasskey(wire);
+  },
+
+  async deletePasskey(id: string): Promise<PasskeyView> {
+    const wire = unwrap(
+      await client.DELETE("/api/auth/passkeys/{passkey_id}", {
+        params: { path: { passkey_id: id } },
+      }),
+    );
+    return toPasskey(wire);
+  },
+
   async getAuthStatus(): Promise<AuthStatusView> {
     // GET /api/auth/status (PUBLIC) -> AuthStatusDTO. Rides the typed client
     // (a public route never 401s, so the auth-expired middleware is inert).
@@ -2516,6 +2557,7 @@ export const httpApi: Api = {
     return {
       passwordSet: wire.password_set,
       mfaRequired: wire.mfa_required ?? false,
+      passkeyLoginAvailable: wire.passkey_login_available ?? false,
     };
   },
 

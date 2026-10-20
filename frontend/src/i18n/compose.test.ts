@@ -42,6 +42,8 @@ const EXPECTED: [Lang, string, (string | number | string[] | number[] | null)[],
     // or "in 42 s." — which typecheck and the drift gate both accept happily.
     ["zh", "loginThrottled", [42], "目前同時處理的登入太多，請於 42 秒後再試。"],
     ["en", "loginThrottled", [42], "Too many logins in flight. Try again in 42s."],
+    ["zh", "passkeyIpHint", ["http://localhost:8787"], "要用通行密鑰，請改用 http://localhost:8787 開啟"],
+    ["en", "passkeyIpHint", ["http://localhost:8787"], "To use a passkey, open http://localhost:8787 instead"],
     ["zh", "taskProgress", [3,7], "步驟 3/7"],
     ["zh", "taskElapsed", ["2 小時"], "已歷時 2 小時"],
     ["zh", "taskPlanningBy", ["Mira"], "等待 Mira 建立 Steps"],

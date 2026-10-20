@@ -680,6 +680,66 @@ func TestCmdMFADisable(t *testing.T) {
 	})
 }
 
+func TestCmdPasskeyReset(t *testing.T) {
+	t.Run("clears every passkey and the user handle so a running server refuses them at once", func(t *testing.T) {
+		dir := t.TempDir()
+		dbPath := filepath.Join(dir, "passkey-reset.db")
+		api, h, d, owner := newAPITestServerOn(t, newAPITestDALAt(t, dbPath))
+		env := passkeyTestEnv{api: api, h: h, d: d, owner: owner}
+		local := newSoftPasskey(t, "reset-local")
+		remote := newSoftPasskey(t, "reset-remote")
+		passkeyTestRegister(t, env, passkeyTestHost, passkeyTestOrigin, local)
+		passkeyTestRegister(t, env, passkeyTestDomain, passkeyTestDomainOrigin, remote)
+		if err := d.PutSetting(settingOrgName, "kept"); err != nil {
+			t.Fatalf("PutSetting: %v", err)
+		}
+		configPath := filepath.Join(dir, "absent.toml")
+		dsn := "sqlite:///" + dbPath
+		cliEnv := envOf(map[string]string{
+			envConfigPath:  configPath,
+			envDatabaseURL: dsn,
+		})
+		announce := fmt.Sprintf(
+			"[ocserverd] passkey-reset: config file = none (looked at %s, from $OC_CONFIG)\n"+
+				"[ocserverd] passkey-reset: to point this run at a config file, set OC_CONFIG=/path/to/oc.toml; it is set now, but names a file that is not there, and while it is set ./oc.toml is not consulted. Without one, nothing is read from oc.toml — $OC_DATABASE_URL and the built-in defaults decide the rest.\n"+
+				"[ocserverd] passkey-reset: database    = %s (DSN %s), from $OC_DATABASE_URL\n",
+			configPath, dbPath, dsn,
+		)
+
+		var out strings.Builder
+		if rc := cmdPasskeyReset(cliEnv, &out); rc != 0 {
+			t.Fatalf("cmdPasskeyReset: want rc 0, got %d output=%s", rc, out.String())
+		}
+		if want := announce + "[ocserverd] passkey-reset: 2 passkey(s) cleared (effective immediately)\n"; out.String() != want {
+			t.Fatalf("passkey-reset output: got=%q want=%q", out.String(), want)
+		}
+
+		status, data := passkeyTestSignIn(t, env, passkeyTestHost, passkeyTestOrigin, local)
+		passkeyTestWantRefused(t, status, data)
+		status, data = passkeyTestSignIn(t, env, passkeyTestDomain, passkeyTestDomainOrigin, remote)
+		passkeyTestWantRefused(t, status, data)
+		status, data = apiJSONAt(t, h, "GET", "/api/auth/passkeys", passkeyTestHost, owner, "")
+		if status != 200 {
+			t.Fatalf("list: want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"passkeys": []any{}})
+		if handle, err := d.GetSetting(settingPasskeyUserHandle); err != nil || handle != nil {
+			t.Fatalf("user handle: want cleared, got %v (err=%v)", handle, err)
+		}
+		if kept, err := d.GetSetting(settingOrgName); err != nil || kept == nil || *kept != "kept" {
+			t.Fatalf("unrelated setting was changed: %v %v", kept, err)
+		}
+
+		var again strings.Builder
+		if rc := cmdPasskeyReset(cliEnv, &again); rc != 0 {
+			t.Fatalf("second cmdPasskeyReset: want rc 0, got %d output=%s", rc, again.String())
+		}
+		if want := announce + "[ocserverd] passkey-reset: 0 passkey(s) cleared (effective immediately)\n"; again.String() != want {
+			t.Fatalf("second passkey-reset output: got=%q want=%q", again.String(), want)
+		}
+	})
+}
+
 func TestCmdClaimToken(t *testing.T) {
 	t.Run("prints and persists the first-run token then returns no token after a password is set", func(t *testing.T) {
 		dir := t.TempDir()

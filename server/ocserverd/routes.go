@@ -218,6 +218,45 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler:    w.HandleMfaDisableApiAuthMfaDisablePost,
 			MCPExclude: true,
 		}),
+		// Owner passkeys: principalOwner + MCPExclude for the same reason as
+		// the second factor above.
+		Gated(principalOwner, routeDef{
+			Method:     "GET",
+			Path:       "/api/auth/passkeys",
+			Handler:    w.HandleListPasskeysApiAuthPasskeysGet,
+			MCPExclude: true,
+		}),
+		Gated(principalOwner, routeDef{
+			Method:     "POST",
+			Path:       "/api/auth/passkeys/register/begin",
+			Handler:    w.HandleBeginPasskeyRegistrationApiAuthPasskeysRegisterBeginPost,
+			MCPExclude: true,
+		}),
+		Gated(principalOwner, routeDef{
+			Method:     "POST",
+			Path:       "/api/auth/passkeys/register/finish",
+			Handler:    w.HandleFinishPasskeyRegistrationApiAuthPasskeysRegisterFinishPost,
+			MCPExclude: true,
+		}),
+		Gated(principalOwner, routeDef{
+			Method:     "DELETE",
+			Path:       "/api/auth/passkeys/{passkey_id}",
+			Handler:    w.HandleDeletePasskeyApiAuthPasskeysPasskeyIdDelete,
+			MCPExclude: true,
+		}),
+		Public(routeDef{
+			Method:  "POST",
+			Path:    "/api/auth/passkey-login/begin",
+			Handler: w.HandleBeginPasskeyLoginApiAuthPasskeyLoginBeginPost,
+			// Public: the passkey assertion at finish IS the gate.
+			MCPExclude: true,
+		}),
+		Public(routeDef{
+			Method:     "POST",
+			Path:       "/api/auth/passkey-login/finish",
+			Handler:    w.HandleFinishPasskeyLoginApiAuthPasskeyLoginFinishPost,
+			MCPExclude: true,
+		}),
 		Gated(principalAdminAgent, routeDef{
 			Method:  "GET",
 			Path:    "/api/settings",

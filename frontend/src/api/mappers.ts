@@ -34,6 +34,7 @@ import type {
   BackupHealthView,
   SigningKeyView,
   SecretView,
+  PasskeyView,
   BackupHealthStatus,
   BackupHealthCode,
   GlobalContextView,
@@ -74,6 +75,7 @@ import type {
   WireBackupHealth,
   WireSigningKeys,
   WireSecret,
+  WirePasskey,
   WireSecrets,
   WireGlobalContext,
   WireBootDoc,
@@ -1556,6 +1558,19 @@ export function toSigningKeys(w: WireSigningKeys): SigningKeyView[] {
     createdTs: k.created_ts === 0 ? null : k.created_ts,
     isSigning: k.is_signing,
   }));
+}
+
+export function toPasskey(w: WirePasskey): PasskeyView {
+  return {
+    id: w.id,
+    name: w.name,
+    rpId: w.rp_id,
+    origin: w.origin,
+    createdTs: w.created_ts,
+    lastUsedTs: w.last_used_ts,
+    usableHere: w.usable_here,
+    cloneWarningTs: w.clone_warning_ts ?? null,
+  };
 }
 
 export function toSecret(w: WireSecret): SecretView {

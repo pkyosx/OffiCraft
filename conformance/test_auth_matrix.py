@@ -694,6 +694,27 @@ MATRIX: dict[str, Route] = {
         overrides={"owner": 409},
         body={"password": "conf-wrong-current", "code": "000000"},
     ),
+    # ── owner passkeys ──────────────────────────────────────────────────────
+    # The harness reaches the server on 127.0.0.1, an IP address, which can
+    # never be a WebAuthn RP ID: the begin row's owner face is that 400. The
+    # localhost faces are in test_rest_happy.py, the full ceremony in the server
+    # unit tests (api_auth_passkey_test.go).
+    "GET /api/auth/passkeys": Route(requires="owner"),
+    "POST /api/auth/passkeys/register/begin": Route(
+        requires="owner",
+        overrides={"owner": 400},
+        body={"current_password": "conf-wrong-current"},
+    ),
+    "POST /api/auth/passkeys/register/finish": Route(
+        requires="owner",
+        overrides={"owner": 400},
+        body={"ceremony_id": "conf-no-such-ceremony", "credential": {}, "name": "conf"},
+    ),
+    "DELETE /api/auth/passkeys/{passkey_id}": Route(
+        requires="owner",
+        path="/api/auth/passkeys/pk-000000000000",
+        overrides={"owner": 404},
+    ),
     # ── Signing-key ring (T-62) ─────────────────────────────────────────────
     # The read is a plain owner-gated GET: ids and timestamps, never key bytes.
     "GET /api/auth/signing-keys": Route(requires="owner"),
@@ -2170,6 +2191,22 @@ DEGRADED: dict[str, str] = {
         "armed factor plus a live code, which is the same shared-credential "
         "poisoning. Pinned in the server unit tests instead."
     ),
+    "POST /api/auth/passkeys/register/begin": (
+        "owner face pinned at 400: the harness host is 127.0.0.1, which cannot "
+        "carry a passkey. The localhost face is pinned in test_rest_happy.py, "
+        "the password re-check and the ceremony in the server unit tests "
+        "(api_auth_passkey_test.go)."
+    ),
+    "POST /api/auth/passkeys/register/finish": (
+        "owner face probed with an unknown ceremony (400): a real finish needs "
+        "a WebAuthn authenticator. The ceremony is pinned in the server unit "
+        "tests (api_auth_passkey_test.go)."
+    ),
+    "DELETE /api/auth/passkeys/{passkey_id}": (
+        "owner face probed with an unknown passkey id (404): registering one "
+        "needs a WebAuthn authenticator. The delete and its effect on sign-in "
+        "are pinned in the server unit tests (api_auth_passkey_test.go)."
+    ),
     "POST /api/auth/signing-keys/{key_id}/remove": (
         "owner face uses an UNKNOWN key id (expects 404): a real target would be "
         "a key in the live ring, and removing one revokes every token signed by "
@@ -2383,6 +2420,11 @@ PUBLIC_EXPECT: dict[str, tuple[str, int]] = {
     # link minted by the host-shell `ocserverd login-link`, which a black box
     # cannot run; it lives in the server unit tests (api_auth_test.go).
     "POST /api/auth/login-link": ("/api/auth/login-link", 401),
+    # passkey sign-in: begin on the harness's 127.0.0.1 host is the 400 naming
+    # localhost (the localhost 200 is in test_rest_happy.py); finish with a
+    # bogus ceremony is the flat 401.
+    "POST /api/auth/passkey-login/begin": ("/api/auth/passkey-login/begin", 400),
+    "POST /api/auth/passkey-login/finish": ("/api/auth/passkey-login/finish", 401),
     # machine claim is public but code-gated: the anonymous face posts a bogus
     # code and must get the flat 401 (never 403). The positive redeem + the
     # single-use 409-free semantics live in test_rest_happy / test_lifecycle.
@@ -2426,6 +2468,8 @@ def test_public_routes_serve_without_token(client: httpx.Client, route_key: str)
         }
     if route_key in ("POST /api/machines/claim", "POST /api/auth/login-link"):
         kwargs["json"] = {"code": "conf-bogus-claim-code"}
+    if route_key == "POST /api/auth/passkey-login/finish":
+        kwargs["json"] = {"ceremony_id": "conf-bogus-ceremony", "credential": {}}
     r = client.request(method, path, **kwargs)
     assert r.status_code == expected, f"{route_key}: {r.status_code} != {expected}"
     assert r.status_code not in (403,), "public route must never 403 anonymously"
