@@ -62,8 +62,7 @@ func newAPITestDALAt(t *testing.T, path string) *DAL {
 }
 
 // migratedTemplate is the fully migrated database image, built once per test
-// binary because replaying the goose chain per test dominates the package's
-// run time.
+// binary.
 var migratedTemplate = sync.OnceValues(func() ([]byte, error) {
 	dir, err := os.MkdirTemp("", "ocserverd-migrated-template-")
 	if err != nil {
@@ -110,7 +109,17 @@ func openMigratedSQLite(t *testing.T, path string) (*sql.DB, error) {
 	if err := f.Close(); err != nil {
 		return nil, err
 	}
-	return openSQLite(path)
+	db, err := openSQLite(path)
+	if err != nil {
+		return nil, err
+	}
+	// VACUUM INTO leaves the image in rollback-journal mode and sql.Open does not
+	// connect, so without this a read pool opened next sees a non-WAL file.
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return db, nil
 }
 
 // newAPITestStack assembles the handler stack over a FIRST-RUN server: no
