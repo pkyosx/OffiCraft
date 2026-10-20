@@ -887,7 +887,6 @@ export const MESSAGE_KEYS: readonly string[] = [
   "profile.passkeys",
   "profile.passkeysEmpty",
   "profile.passkeysErrorLoad",
-  "profile.passkeysIntro",
   "profile.passkeysLoading",
   "profile.passkeysSub",
   "profile.preferences",
