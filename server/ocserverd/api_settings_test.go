@@ -205,6 +205,8 @@ func TestHandleAuthStatusApiAuthStatusGet(t *testing.T) {
 			"localhost:8787":     true,
 			"office.example.com": true,
 			"localhost:9999":     false,
+			"localhost:787":      false,
+			"localhost:87":       false,
 			"localhost":          false,
 			"127.0.0.1:8787":     false,
 		} {

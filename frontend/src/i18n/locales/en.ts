@@ -1074,7 +1074,7 @@ export const en: Dict = {
     passkeyCancelled: "Cancelled; no passkey was added. You can try again any time.",
     passkeyDuplicate: "This device already holds a passkey for this server",
     passkeyBrowserFailed: "The browser could not create a passkey",
-    passkeyUnsupported: "This browser version does not support passkey sign-in; please update the browser",
+    passkeyUnsupported: "This browser version does not support passkeys; please update the browser",
     passkeyNoToJSON: "The browser or an extension returned a passkey without toJSON(), so it cannot be sent. Update the browser or that extension.",
     passkeyErrorLead: "Could not finish: ",
   },

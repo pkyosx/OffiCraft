@@ -124,7 +124,7 @@ describe("ProfileDropdown · passkeys", () => {
     vi.stubGlobal("PublicKeyCredential", function PublicKeyCredential() {});
     const utils = await openPasskeys();
 
-    await utils.findByText("此瀏覽器版本不支援通行密鑰登入，請更新瀏覽器");
+    await utils.findByText("此瀏覽器版本不支援通行密鑰，請更新瀏覽器");
     expect(utils.queryByRole("button", { name: "新增通行密鑰" })).toBeNull();
   });
 

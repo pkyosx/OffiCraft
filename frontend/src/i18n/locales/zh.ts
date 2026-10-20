@@ -1135,7 +1135,7 @@ export const zh = {
     passkeyCancelled: "已取消，沒有新增通行密鑰。需要時可以再試一次。",
     passkeyDuplicate: "這個裝置已經有這台伺服器的通行密鑰了",
     passkeyBrowserFailed: "瀏覽器無法建立通行密鑰",
-    passkeyUnsupported: "此瀏覽器版本不支援通行密鑰登入，請更新瀏覽器",
+    passkeyUnsupported: "此瀏覽器版本不支援通行密鑰，請更新瀏覽器",
     passkeyNoToJSON: "瀏覽器或擴充功能回傳的通行密鑰缺少 toJSON()，無法送出。請更新瀏覽器或該擴充功能。",
     passkeyErrorLead: "無法完成：",
   },
