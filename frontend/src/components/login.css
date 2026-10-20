@@ -84,6 +84,9 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+.login__submit--secondary {
+  background: transparent;
+}
 
 /* First-run setup (FirstRunPage) — rides the same card.
  *

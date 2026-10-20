@@ -13,6 +13,8 @@ import type {
   BackupHealthView,
   SigningKeyView,
   SecretView,
+  PasskeyView,
+  PasskeyCeremonyView,
   SecretCreateInput,
   SecretUpdateInput,
   AuthStatusView,
@@ -118,6 +120,7 @@ import type {
   WireBackupHealth,
   WireSigningKeys,
   WireSecret,
+  WirePasskey,
   WireGlobalContext,
   WireBootDoc,
   WireDocumentHistory,
@@ -142,6 +145,7 @@ import {
   toSigningKeys,
   toSecret,
   toSecrets,
+  toPasskey,
   toGlobalContext,
   toBootDoc,
   toDocumentHistory,
@@ -217,6 +221,7 @@ import {
   SEED_TASK_READY_FOR_DONE_MD,
 } from "./seeds";
 import { mockApiError } from "./errorCodes";
+import { isIpHost } from "../lib/webauthn";
 import { isLoreType } from "./loreType";
 import { formatDiffUrl, type DiffParams } from "../lib/diffLink";
 import { attachmentMimeForName } from "../lib/attachmentMime";
@@ -2218,6 +2223,14 @@ let mockMfaOffered = false;
 let mockMfaActive = false;
 let mockMfaPending = false;
 const MOCK_TOTP_CODE = "123456";
+// Passkeys: the mock cannot verify a WebAuthn signature, so finish accepts any
+// credential JSON for the ceremony it was begun with. The state machine and
+// the refusals (wrong password, unknown ceremony, blank name, unknown id) are
+// the server's.
+let mockPasskeys: WirePasskey[] = [];
+let mockPasskeyCeremony: string | null = null;
+let mockPasskeySeq = 0;
+const MOCK_PASSKEY_LIMIT = 20;
 const MOCK_TOTP_SECRET = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
 const DEFAULT_MOCK_SETTINGS = {
   owner_token_ttl: 86400,
@@ -5997,7 +6010,86 @@ const mockApiImpl = {
   },
 
   async getAuthStatus(): Promise<AuthStatusView> {
-    return { passwordSet: mockPasswordSet, mfaRequired: mockMfaActive };
+    return {
+      passwordSet: mockPasswordSet,
+      mfaRequired: mockMfaActive,
+      passkeyLoginAvailable: !isIpHost(window.location.hostname),
+    };
+  },
+
+  async listPasskeys(): Promise<PasskeyView[]> {
+    const here = window.location.hostname;
+    return mockPasskeys.map((p) => toPasskey({ ...p, usable_here: p.rp_id === here }));
+  },
+
+  async beginPasskeyRegistration(currentPassword: string): Promise<PasskeyCeremonyView> {
+    const host = window.location.hostname;
+    if (isIpHost(host)) {
+      throw mockApiError(
+        "http 400 for POST /api/auth/passkeys/register/begin",
+        400,
+        `passkeys cannot be used on an IP address; open this site at http://localhost${window.location.port ? `:${window.location.port}` : ""} instead`,
+      );
+    }
+    if (currentPassword !== mockPassword) {
+      throw mockApiError("http 401 for POST /api/auth/passkeys/register/begin", 401, "invalid password");
+    }
+    if (mockPasskeys.length >= MOCK_PASSKEY_LIMIT) {
+      throw mockApiError(
+        "http 409 for POST /api/auth/passkeys/register/begin",
+        409,
+        `the owner already has ${MOCK_PASSKEY_LIMIT} passkeys, the limit; delete one first`,
+      );
+    }
+    mockPasskeySeq += 1;
+    mockPasskeyCeremony = `pkc-mock-${mockPasskeySeq}`;
+    return {
+      ceremonyId: mockPasskeyCeremony,
+      options: {
+        rp: { id: host, name: "OffiCraft" },
+        user: { id: "b3duZXI", name: "owner", displayName: "owner" },
+        challenge: "bW9jay1jaGFsbGVuZ2U",
+        pubKeyCredParams: [{ type: "public-key", alg: -7 }],
+        timeout: 300000,
+        authenticatorSelection: { residentKey: "required", userVerification: "required" },
+        attestation: "none",
+      },
+    };
+  },
+
+  async finishPasskeyRegistration(
+    ceremonyId: string,
+    _credential: Record<string, unknown>,
+    name: string,
+  ): Promise<PasskeyView> {
+    const path = "/api/auth/passkeys/register/finish";
+    if (ceremonyId !== mockPasskeyCeremony) {
+      mockPasskeyCeremony = null;
+      throw mockApiError(`http 400 for POST ${path}`, 400, "ceremony_id is unknown, expired, or already used");
+    }
+    mockPasskeyCeremony = null;
+    if (!name.trim()) throw mockApiError(`http 400 for POST ${path}`, 400, "name must not be blank");
+    const row: WirePasskey = {
+      id: `pk-${mockPasskeySeq.toString(16).padStart(12, "0")}`,
+      name: name.trim(),
+      rp_id: window.location.hostname,
+      origin: window.location.origin,
+      created_ts: Date.now() / 1000,
+      last_used_ts: null,
+      usable_here: true,
+      clone_warning_ts: null,
+    };
+    mockPasskeys.push(row);
+    return toPasskey(row);
+  },
+
+  async deletePasskey(id: string): Promise<PasskeyView> {
+    const row = mockPasskeys.find((p) => p.id === id);
+    if (!row) {
+      throw mockApiError(`http 404 for DELETE /api/auth/passkeys/${id}`, 404, `passkey '${id}' not found`);
+    }
+    mockPasskeys = mockPasskeys.filter((p) => p.id !== id);
+    return toPasskey({ ...row, usable_here: row.rp_id === window.location.hostname });
   },
 
   async getMfaState(): Promise<MfaStateView> {
@@ -7513,6 +7605,9 @@ export function __resetMock(): void {
   mockMfaOffered = false;
   mockMfaActive = false;
   mockMfaPending = false;
+  mockPasskeys = [];
+  mockPasskeyCeremony = null;
+  mockPasskeySeq = 0;
   mockServerSettings = { ...DEFAULT_MOCK_SETTINGS };
   // T-83ef: themes are their own store now, so resetting settings no longer
   // clears them — the reset hook has to name the store explicitly or a theme
@@ -7521,6 +7616,13 @@ export function __resetMock(): void {
   activationPendingNext = false;
   relocationPendingNext = false;
   relocationDeferredNext = false;
+}
+
+// Test-only hook: land a passkey row as the server would hold it — including
+// ones bound to another host or flagged as possibly cloned, which the mock's own
+// registration path cannot produce.
+export function __injectMockPasskey(row: WirePasskey): void {
+  mockPasskeys.push(structuredClone(row));
 }
 
 // Test-only hook: put the mock into the FIRST-RUN shape (no password set), the

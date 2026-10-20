@@ -13,9 +13,11 @@ import {
   GearIcon,
   BellIcon,
   LogOutIcon,
+  KeyIcon,
   UserIcon,
 } from "./icons";
 import { InlineEdit } from "./InlineEdit";
+import { PasskeysPanel } from "./PasskeysPanel";
 import { qrSvg } from "../lib/qrSvg";
 import { BUILTIN_THEMES } from "../lib/themeBundle";
 import "./profile-dropdown.css";
@@ -33,14 +35,23 @@ interface ProfileDropdownProps {
   setOwnerName: (next: string) => void;
 }
 
-type View = "main" | "preferences" | "password" | "notifications" | "mfa";
+type View =
+  | "main"
+  | "preferences"
+  | "notifications"
+  | "security"
+  | "password"
+  | "mfa"
+  | "passkeys";
 
 /**
  * Profile menu that drops from the topbar profile pill.
  *  - main view: profile header (inline rename), Preferences row, Log out.
  *  - preferences view: Theme SELECTOR (辦公室 / custom) + Language
  *    (中文 / English) + Layout (窄版 / 寬版) + Show seasonal theme (開 / 關).
- *  - account rows in the main view: notification email and password.
+ *  - main view rows: preferences, notification email, 帳號安全.
+ *  - 帳號安全 (security) view: change password, two-step verification,
+ *    passkeys; their Back returns here, and this view's Back returns to main.
  *  - password view: current / new / repeat → POST /api/auth/change-password.
  *
  * Scope (owner 2026-07-12): this menu holds APPEARANCE + ACCOUNT IDENTITY only.
@@ -456,15 +467,9 @@ export function ProfileDropdown({
             <ChevronRightIcon size={16} className="profile-dd__row-chevron" />
           </button>
 
-          <button type="button" className="profile-dd__row" onClick={openPasswordView}>
-            <span className="profile-dd__row-icon"><GearIcon size={16} /></span>
-            <span className="profile-dd__row-body"><span className="profile-dd__row-title">{t.profile.changePassword}</span><span className="profile-dd__row-sub">{t.profile.changePasswordSub}</span></span>
-            <ChevronRightIcon size={16} className="profile-dd__row-chevron" />
-          </button>
-
-          <button type="button" className="profile-dd__row" onClick={openMfaView}>
-            <span className="profile-dd__row-icon"><GearIcon size={16} /></span>
-            <span className="profile-dd__row-body"><span className="profile-dd__row-title">{t.profile.mfa}</span><span className="profile-dd__row-sub">{mfaEnrolled === null || mfaOffered === null ? "" : mfaEnrolled ? t.profile.mfaSubOn : mfaOffered ? t.profile.mfaSubOff : t.profile.mfaSubUnavailable}</span></span>
+          <button type="button" className="profile-dd__row" onClick={() => setView("security")}>
+            <span className="profile-dd__row-icon"><KeyIcon size={16} /></span>
+            <span className="profile-dd__row-body"><span className="profile-dd__row-title">{t.profile.accountSecurity}</span><span className="profile-dd__row-sub">{t.profile.accountSecuritySub}</span></span>
             <ChevronRightIcon size={16} className="profile-dd__row-chevron" />
           </button>
 
@@ -481,6 +486,43 @@ export function ProfileDropdown({
             </span>
             <span className="profile-dd__row-title">{t.profile.logout}</span>
           </button>
+        </>
+      )}
+
+      {view === "security" && (
+        <>
+          <button type="button" className="profile-dd__back" onClick={() => setView("main")}>
+            <ChevronLeftIcon size={16} />
+            <span>{t.profile.accountSecurity}</span>
+          </button>
+
+          <button type="button" className="profile-dd__row" onClick={openPasswordView}>
+            <span className="profile-dd__row-icon"><GearIcon size={16} /></span>
+            <span className="profile-dd__row-body"><span className="profile-dd__row-title">{t.profile.changePassword}</span><span className="profile-dd__row-sub">{t.profile.changePasswordSub}</span></span>
+            <ChevronRightIcon size={16} className="profile-dd__row-chevron" />
+          </button>
+
+          <button type="button" className="profile-dd__row" onClick={openMfaView}>
+            <span className="profile-dd__row-icon"><GearIcon size={16} /></span>
+            <span className="profile-dd__row-body"><span className="profile-dd__row-title">{t.profile.mfa}</span><span className="profile-dd__row-sub">{mfaEnrolled === null || mfaOffered === null ? "" : mfaEnrolled ? t.profile.mfaSubOn : mfaOffered ? t.profile.mfaSubOff : t.profile.mfaSubUnavailable}</span></span>
+            <ChevronRightIcon size={16} className="profile-dd__row-chevron" />
+          </button>
+
+          <button type="button" className="profile-dd__row" onClick={() => setView("passkeys")}>
+            <span className="profile-dd__row-icon"><GearIcon size={16} /></span>
+            <span className="profile-dd__row-body"><span className="profile-dd__row-title">{t.profile.passkeys}</span><span className="profile-dd__row-sub">{t.profile.passkeysSub}</span></span>
+            <ChevronRightIcon size={16} className="profile-dd__row-chevron" />
+          </button>
+        </>
+      )}
+
+      {view === "passkeys" && (
+        <>
+          <button type="button" className="profile-dd__back" onClick={() => setView("security")}>
+            <ChevronLeftIcon size={16} />
+            <span>{t.profile.passkeys}</span>
+          </button>
+          <PasskeysPanel />
         </>
       )}
 
@@ -609,7 +651,7 @@ export function ProfileDropdown({
           <button
             type="button"
             className="profile-dd__back"
-            onClick={() => setView("main")}
+            onClick={() => setView("security")}
           >
             <ChevronLeftIcon size={16} />
             <span>{t.profile.mfa}</span>
@@ -842,7 +884,7 @@ export function ProfileDropdown({
           <button
             type="button"
             className="profile-dd__back"
-            onClick={() => setView("main")}
+            onClick={() => setView("security")}
           >
             <ChevronLeftIcon size={16} />
             <span>{t.profile.changePassword}</span>

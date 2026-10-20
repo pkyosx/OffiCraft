@@ -44,7 +44,7 @@ function stubLoginLinkAnswer(status: number, body: unknown, headers: Record<stri
 function stubProbe() {
   return vi
     .spyOn(api, "getAuthStatus")
-    .mockResolvedValue({ passwordSet: true, mfaRequired: false });
+    .mockResolvedValue({ passwordSet: true, mfaRequired: false, passkeyLoginAvailable: false });
 }
 
 beforeEach(() => {

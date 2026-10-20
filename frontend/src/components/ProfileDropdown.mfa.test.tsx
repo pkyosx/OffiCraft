@@ -44,6 +44,7 @@ async function openMfa() {
       />
     </I18nProvider>,
   );
+  fireEvent.click(utils.getByText(p.accountSecurity));
   fireEvent.click(utils.getByText(p.mfa));
   return utils;
 }

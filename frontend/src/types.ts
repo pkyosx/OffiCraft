@@ -1050,6 +1050,9 @@ export interface RoleDefView extends RoleSummaryView {
 export interface AuthStatusView {
   passwordSet: boolean;
   mfaRequired: boolean;
+  /** Whether this HOST can offer passkey sign-in (false on an IP address).
+   * Says nothing about whether a passkey is registered. */
+  passkeyLoginAvailable: boolean;
 }
 
 /** The one-time output of `POST /api/auth/mfa/enroll`.
@@ -1108,6 +1111,26 @@ export interface SigningKeyView {
   /** Exactly one key in a ring carries this: the one that SIGNS new tokens.
    * Every other key still verifies until someone removes it. */
   isSigning: boolean;
+}
+
+export interface PasskeyView {
+  id: string;
+  name: string;
+  /** The host the passkey is bound to; it signs in nowhere else. */
+  rpId: string;
+  origin: string;
+  createdTs: number;
+  lastUsedTs: number | null;
+  /** Whether rpId is the host this page is open on. */
+  usableHere: boolean;
+  /** When a sign-in was refused because the sign counter went backwards. */
+  cloneWarningTs: number | null;
+}
+
+/** A begun registration: `options` goes to navigator.credentials.create as is. */
+export interface PasskeyCeremonyView {
+  ceremonyId: string;
+  options: Record<string, unknown>;
 }
 
 /** One secret as the owner's Secrets page sees it. There is no value field:

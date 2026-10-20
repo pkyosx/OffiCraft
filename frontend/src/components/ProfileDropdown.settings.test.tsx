@@ -204,6 +204,7 @@ describe("ProfileDropdown · change password", () => {
     const utils = render(
       <I18nProvider><ProfileDropdown open onClose={vi.fn()} userName="使用者" setOwnerName={vi.fn()} /></I18nProvider>,
     );
+    fireEvent.click(utils.getByText(p.accountSecurity));
     fireEvent.click(utils.getByText(p.changePassword));
     fireEvent.change(utils.getByLabelText(p.currentPasswordPlaceholder), {
       target: { value: "mock-password" },
@@ -225,6 +226,7 @@ describe("ProfileDropdown · change password", () => {
     const utils = render(
       <I18nProvider><ProfileDropdown open onClose={vi.fn()} userName="使用者" setOwnerName={vi.fn()} /></I18nProvider>,
     );
+    fireEvent.click(utils.getByText(p.accountSecurity));
     fireEvent.click(utils.getByText(p.changePassword));
     fireEvent.change(utils.getByLabelText(p.currentPasswordPlaceholder), {
       target: { value: "wrong-password" },
@@ -243,6 +245,7 @@ describe("ProfileDropdown · change password", () => {
     const utils = render(
       <I18nProvider><ProfileDropdown open onClose={vi.fn()} userName="使用者" setOwnerName={vi.fn()} /></I18nProvider>,
     );
+    fireEvent.click(utils.getByText(p.accountSecurity));
     fireEvent.click(utils.getByText(p.changePassword));
     fireEvent.change(utils.getByLabelText(p.currentPasswordPlaceholder), {
       target: { value: "mock-password" },
@@ -282,5 +285,52 @@ describe("ProfileDropdown · notification email", () => {
 
     fireEvent.click(save);
     await vi.waitFor(() => expect((save as HTMLButtonElement).disabled).toBe(true));
+  });
+});
+
+describe("ProfileDropdown · menu levels", () => {
+  function renderMenu() {
+    return render(
+      <I18nProvider><ProfileDropdown open onClose={vi.fn()} userName="使用者" setOwnerName={vi.fn()} /></I18nProvider>,
+    );
+  }
+  const rowTexts = (root: HTMLElement) =>
+    Array.from(root.querySelectorAll(".profile-dd__row")).map((r) => r.textContent);
+  const backText = (root: HTMLElement) => root.querySelector(".profile-dd__back")?.textContent;
+
+  it("the first level holds preferences, notification email and account security", () => {
+    const utils = renderMenu();
+    expect(rowTexts(utils.container)).toEqual([
+      "偏好設定外觀、語言、版面",
+      "通知信箱填寫後才會送出通知。這個信箱會提供給瀏覽器的推播服務，請用可公開的信箱。",
+      "帳號安全修改密碼、兩步驟驗證、通行密鑰",
+      "登出",
+    ]);
+  });
+
+  it("account security opens a sub-list of password, two-step verification and passkeys", () => {
+    const utils = renderMenu();
+    fireEvent.click(utils.getByText("帳號安全"));
+    expect(backText(utils.container)).toBe("帳號安全");
+    expect(rowTexts(utils.container)).toEqual([
+      "修改密碼登入這個主控台用的密碼",
+      "兩步驟驗證",
+      "通行密鑰用 Touch ID、Face ID、Windows Hello 或安全金鑰登入",
+    ]);
+  });
+
+  it("each security screen's Back returns to the sub-list, and the sub-list's Back to the first level", async () => {
+    const utils = renderMenu();
+    fireEvent.click(utils.getByText("帳號安全"));
+    for (const entry of ["修改密碼", "兩步驟驗證", "通行密鑰"]) {
+      fireEvent.click(utils.getByText(entry));
+      expect(backText(utils.container)).toBe(entry);
+      fireEvent.click(utils.container.querySelector(".profile-dd__back")!);
+      expect(backText(utils.container)).toBe("帳號安全");
+    }
+    fireEvent.click(utils.container.querySelector(".profile-dd__back")!);
+    expect(backText(utils.container)).toBeUndefined();
+    expect(utils.getByText("偏好設定")).toBeTruthy();
+    await utils.findByText("帳號安全");
   });
 });

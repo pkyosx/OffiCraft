@@ -1,7 +1,13 @@
 import { useState, type FormEvent } from "react";
 import { useI18n } from "../i18n";
-import { login } from "../api/auth";
+import { login, passkeyLogin } from "../api/auth";
 import { isHttpStatus, retryAfterSeconds } from "../api/errors";
+import {
+  classifyBrowserError,
+  getPasskeyAssertion,
+  localhostAlternative,
+  passkeysSupported,
+} from "../lib/webauthn";
 import { LogoMark } from "./icons";
 import "./login.css";
 
@@ -31,6 +37,7 @@ export function LoginPage({
   mfaRequired = false,
   refreshMfaRequired,
   loginLinkFailure = null,
+  passkeyLoginAvailable = false,
 }: {
   onSuccess: () => void;
   mfaRequired?: boolean;
@@ -40,6 +47,8 @@ export function LoginPage({
   refreshMfaRequired?: () => Promise<boolean>;
   /** A `?login=` link that did not log in on the way here (AuthGate). */
   loginLinkFailure?: LoginLinkFailure | null;
+  /** From the public auth probe: whether this host can offer passkey sign-in. */
+  passkeyLoginAvailable?: boolean;
 }) {
   const { t, msg } = useI18n();
   const [password, setPassword] = useState("");
@@ -53,11 +62,34 @@ export function LoginPage({
    * password — the wall was out of date and has just grown its code field. */
   const [codeNowRequired, setCodeNowRequired] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
+  const [passkeyOutcome, setPasskeyOutcome] = useState<"" | "cancelled" | "failed">("");
+  const showPasskey = passkeyLoginAvailable && passkeysSupported();
+  const showLocalhostHint =
+    !passkeyLoginAvailable && window.location.hostname === "127.0.0.1";
 
   function clearErrors() {
     if (error) setError(false);
     if (throttledFor !== null) setThrottledFor(null);
     if (codeNowRequired) setCodeNowRequired(false);
+    if (passkeyOutcome) setPasskeyOutcome("");
+  }
+
+  async function handlePasskey() {
+    if (busy || passkeyBusy) return;
+    setPasskeyBusy(true);
+    setError(false);
+    setThrottledFor(null);
+    setCodeNowRequired(false);
+    setPasskeyOutcome("");
+    try {
+      await passkeyLogin(getPasskeyAssertion);
+      onSuccess();
+    } catch (err) {
+      if (isHttpStatus(err, 429)) setThrottledFor(retryAfterSeconds(err));
+      else setPasskeyOutcome(classifyBrowserError(err) === "cancelled" ? "cancelled" : "failed");
+      setPasskeyBusy(false);
+    }
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -153,14 +185,34 @@ export function LoginPage({
             {mfaRequired ? t.login.errorWithCode : t.login.error}
           </div>
         )}
+        {passkeyOutcome === "cancelled" && (
+          <div className="login__hint">{t.login.passkeyCancelled}</div>
+        )}
+        {passkeyOutcome === "failed" && (
+          <div className="login__error">{t.login.passkeyFailed}</div>
+        )}
 
         <button
           type="submit"
           className="login__submit"
-          disabled={busy || !password || (mfaRequired && !code)}
+          disabled={busy || passkeyBusy || !password || (mfaRequired && !code)}
         >
           {busy ? t.login.submitting : t.login.submit}
         </button>
+
+        {showPasskey && (
+          <button
+            type="button"
+            className="login__submit login__submit--secondary"
+            disabled={busy || passkeyBusy}
+            onClick={() => void handlePasskey()}
+          >
+            {passkeyBusy ? t.login.passkeyWaiting : t.login.passkeySubmit}
+          </button>
+        )}
+        {showLocalhostHint && (
+          <div className="login__hint">{msg.passkeyIpHint(localhostAlternative())}</div>
+        )}
       </form>
     </div>
   );

@@ -61,6 +61,7 @@ export function AuthGate({ authed }: { authed?: ReactNode } = {}) {
   // was wrong, with no way to enter a code short of a page reload. Logout and
   // the auth-expired handler both go through "checking" for this reason.
   const [mfaRequired, setMfaRequired] = useState(false);
+  const [passkeyLoginAvailable, setPasskeyLoginAvailable] = useState(false);
 
   // 🔴 One redemption per page load, shared by every run of the effect below: a
   // code is single-use, so StrictMode's second effect run redeeming again would
@@ -101,6 +102,7 @@ export function AuthGate({ authed }: { authed?: ReactNode } = {}) {
         const status = await api.getAuthStatus();
         if (cancelled) return;
         setMfaRequired(status.mfaRequired);
+        setPasskeyLoginAvailable(status.passkeyLoginAvailable);
         setWall(status.passwordSet ? "login" : "firstrun");
       } catch {
         if (!cancelled) setWall("login");
@@ -161,6 +163,7 @@ export function AuthGate({ authed }: { authed?: ReactNode } = {}) {
           setWall("app");
         }}
         mfaRequired={mfaRequired}
+        passkeyLoginAvailable={passkeyLoginAvailable}
         refreshMfaRequired={refreshMfaRequired}
         loginLinkFailure={loginLinkFailure}
       />

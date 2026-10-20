@@ -497,3 +497,55 @@
   align-self: center;
   line-height: 0;
 }
+
+/* ── passkeys view ── */
+.profile-dd__pk-pad {
+  padding: 4px 14px 10px;
+}
+
+.profile-dd__pk-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+/* A column, not a row: name, host and two timestamps never fit one line in a
+   288px menu, and a host like a long tunnel domain must wrap, not overflow. */
+.profile-dd__pk {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
+  overflow-wrap: anywhere;
+}
+
+.profile-dd__pk-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+
+.profile-dd__pk-meta {
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+}
+
+.profile-dd__pk-flag {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.profile-dd__pk-flag--danger {
+  color: var(--color-danger);
+}
+
+.profile-dd__pk-delete {
+  align-self: flex-end;
+}

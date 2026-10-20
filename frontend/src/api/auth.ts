@@ -114,6 +114,33 @@ export async function redeemLoginLink(code: string): Promise<void> {
   setToken(data.token);
 }
 
+/**
+ * Owner passkey sign-in: passkey-login/begin → the browser's passkey dialog →
+ * passkey-login/finish → TokenDTO, stored exactly as login() stores it. Both
+ * routes are public, so this is bare fetch for the same reasons as login().
+ * A dismissed dialog rejects with the browser's DOMException (see
+ * lib/webauthn classifyBrowserError); a server refusal rejects with ApiError.
+ */
+export async function passkeyLogin(
+  getAssertion: (options: Record<string, unknown>) => Promise<Record<string, unknown>>,
+): Promise<void> {
+  const begin = await fetch("/api/auth/passkey-login/begin", { method: "POST" });
+  if (!begin.ok) throw await credentialError(begin, "passkey sign-in");
+  const ceremony = (await begin.json()) as {
+    ceremony_id: string;
+    options: Record<string, unknown>;
+  };
+  const credential = await getAssertion(ceremony.options);
+  const res = await fetch("/api/auth/passkey-login/finish", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ceremony_id: ceremony.ceremony_id, credential }),
+  });
+  if (!res.ok) throw await credentialError(res, "passkey sign-in");
+  const data = (await res.json()) as { token: string };
+  setToken(data.token);
+}
+
 async function credentialError(res: Response, what: string): Promise<ApiError> {
   let errCode = "";
   let serverMessage = "";
