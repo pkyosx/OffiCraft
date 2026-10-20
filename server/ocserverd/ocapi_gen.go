@@ -2569,7 +2569,9 @@ type OnboardingStepDTO struct {
 
 // PasskeyDTO One owner passkey as the outside is allowed to see it. There is deliberately no field for the public key, the credential id, the sign counter or the AAGUID.
 type PasskeyDTO struct {
-	CreatedTs float64 `json:"created_ts"`
+	// CloneWarningTs Epoch seconds of the newest sign-in this passkey refused because its sign counter went backwards, which suggests the authenticator was cloned; null when that has never happened. The flag stays until the passkey is deleted.
+	CloneWarningTs *float64 `json:"clone_warning_ts,omitempty"`
+	CreatedTs      float64  `json:"created_ts"`
 
 	// Id Server-minted (`pk-` + 12 hex), immutable; the key the delete route takes. Not the WebAuthn credential id.
 	Id string `json:"id"`

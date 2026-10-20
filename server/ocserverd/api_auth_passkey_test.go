@@ -262,13 +262,14 @@ func TestHandleListPasskeysApiAuthPasskeysGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{"passkeys": []any{map[string]any{
-			"id":           apiAnyString,
-			"name":         "Eva 的 MacBook",
-			"rp_id":        "localhost",
-			"origin":       "http://localhost:8787",
-			"created_ts":   apiAnyNumber,
-			"last_used_ts": nil,
-			"usable_here":  true,
+			"id":               apiAnyString,
+			"name":             "Eva 的 MacBook",
+			"rp_id":            "localhost",
+			"origin":           "http://localhost:8787",
+			"created_ts":       apiAnyNumber,
+			"last_used_ts":     nil,
+			"usable_here":      true,
+			"clone_warning_ts": nil,
 		}}})
 		passkeyTestWantID(t, data["passkeys"].([]any)[0].(map[string]any))
 	})
@@ -283,13 +284,14 @@ func TestHandleListPasskeysApiAuthPasskeysGet(t *testing.T) {
 
 		_, data := apiJSONAt(t, env.h, "GET", "/api/auth/passkeys", passkeyTestHost, env.owner, "")
 		apiWantBody(t, data, map[string]any{"passkeys": []any{map[string]any{
-			"id":           apiAnyString,
-			"name":         "Eva 的 MacBook",
-			"rp_id":        "localhost",
-			"origin":       "http://localhost:8787",
-			"created_ts":   apiAnyNumber,
-			"last_used_ts": apiAnyNumber,
-			"usable_here":  true,
+			"id":               apiAnyString,
+			"name":             "Eva 的 MacBook",
+			"rp_id":            "localhost",
+			"origin":           "http://localhost:8787",
+			"created_ts":       apiAnyNumber,
+			"last_used_ts":     apiAnyNumber,
+			"usable_here":      true,
+			"clone_warning_ts": nil,
 		}}})
 	})
 
@@ -302,13 +304,14 @@ func TestHandleListPasskeysApiAuthPasskeysGet(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{"passkeys": []any{map[string]any{
-			"id":           apiAnyString,
-			"name":         "Eva 的 MacBook",
-			"rp_id":        "office.example.com",
-			"origin":       "https://office.example.com",
-			"created_ts":   apiAnyNumber,
-			"last_used_ts": nil,
-			"usable_here":  false,
+			"id":               apiAnyString,
+			"name":             "Eva 的 MacBook",
+			"rp_id":            "office.example.com",
+			"origin":           "https://office.example.com",
+			"created_ts":       apiAnyNumber,
+			"last_used_ts":     nil,
+			"usable_here":      false,
+			"clone_warning_ts": nil,
 		}}})
 	})
 }
@@ -416,13 +419,14 @@ func TestHandleFinishPasskeyRegistrationApiAuthPasskeysRegisterFinishPost(t *tes
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"id":           apiAnyString,
-			"name":         "Eva 的 MacBook",
-			"rp_id":        "office.example.com",
-			"origin":       "https://office.example.com",
-			"created_ts":   apiAnyNumber,
-			"last_used_ts": nil,
-			"usable_here":  true,
+			"id":               apiAnyString,
+			"name":             "Eva 的 MacBook",
+			"rp_id":            "office.example.com",
+			"origin":           "https://office.example.com",
+			"created_ts":       apiAnyNumber,
+			"last_used_ts":     nil,
+			"usable_here":      true,
+			"clone_warning_ts": nil,
 		})
 		passkeyTestWantID(t, data)
 	})
@@ -507,13 +511,14 @@ func TestHandleDeletePasskeyApiAuthPasskeysPasskeyIdDelete(t *testing.T) {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, map[string]any{
-			"id":           id,
-			"name":         "Eva 的 MacBook",
-			"rp_id":        "localhost",
-			"origin":       "http://localhost:8787",
-			"created_ts":   apiAnyNumber,
-			"last_used_ts": nil,
-			"usable_here":  true,
+			"id":               id,
+			"name":             "Eva 的 MacBook",
+			"rp_id":            "localhost",
+			"origin":           "http://localhost:8787",
+			"created_ts":       apiAnyNumber,
+			"last_used_ts":     nil,
+			"usable_here":      true,
+			"clone_warning_ts": nil,
 		})
 		status, data = passkeyTestSignIn(t, env, passkeyTestHost, passkeyTestOrigin, a)
 		passkeyTestWantRefused(t, status, data)
@@ -667,6 +672,17 @@ func TestHandleFinishPasskeyLoginApiAuthPasskeyLoginFinishPost(t *testing.T) {
 			t.Fatalf("want a clone warning and the counter kept at 5, got warning=%v count=%d",
 				rows[0].CloneWarningTS, rows[0].SignCount)
 		}
+		_, list := apiJSONAt(t, env.h, "GET", "/api/auth/passkeys", passkeyTestHost, env.owner, "")
+		apiWantBody(t, list, map[string]any{"passkeys": []any{map[string]any{
+			"id":               apiAnyString,
+			"name":             "Eva 的 MacBook",
+			"rp_id":            "localhost",
+			"origin":           "http://localhost:8787",
+			"created_ts":       apiAnyNumber,
+			"last_used_ts":     apiAnyNumber,
+			"usable_here":      true,
+			"clone_warning_ts": apiAnyNumber,
+		}}})
 	})
 
 	t.Run("a passkey registered on another host answers 401 even when its signature is good", func(t *testing.T) {

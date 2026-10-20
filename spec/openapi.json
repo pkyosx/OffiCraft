@@ -4274,6 +4274,19 @@
         "additionalProperties": false,
         "description": "One owner passkey as the outside is allowed to see it. There is deliberately no field for the public key, the credential id, the sign counter or the AAGUID.",
         "properties": {
+          "clone_warning_ts": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Epoch seconds of the newest sign-in this passkey refused because its sign counter went backwards, which suggests the authenticator was cloned; null when that has never happened. The flag stays until the passkey is deleted.",
+            "title": "Clone Warning Ts"
+          },
           "created_ts": {
             "default": 0.0,
             "title": "Created Ts",

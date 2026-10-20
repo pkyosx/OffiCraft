@@ -36,13 +36,14 @@ type authStatusDTO struct {
 
 // No key material on the wire: no public key, credential id, counter or AAGUID.
 type passkeyDTO struct {
-	ID         string   `json:"id"`
-	Name       string   `json:"name"`
-	RPID       string   `json:"rp_id"`
-	Origin     string   `json:"origin"`
-	CreatedTS  float64  `json:"created_ts"`
-	LastUsedTS *float64 `json:"last_used_ts"`
-	UsableHere bool     `json:"usable_here"`
+	ID             string   `json:"id"`
+	Name           string   `json:"name"`
+	RPID           string   `json:"rp_id"`
+	Origin         string   `json:"origin"`
+	CreatedTS      float64  `json:"created_ts"`
+	LastUsedTS     *float64 `json:"last_used_ts"`
+	UsableHere     bool     `json:"usable_here"`
+	CloneWarningTS *float64 `json:"clone_warning_ts"`
 }
 
 type passkeysDTO struct {

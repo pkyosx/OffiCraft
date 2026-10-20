@@ -7445,6 +7445,12 @@ export interface components {
          */
         PasskeyDTO: {
             /**
+             * Clone Warning Ts
+             * @description Epoch seconds of the newest sign-in this passkey refused because its sign counter went backwards, which suggests the authenticator was cloned; null when that has never happened. The flag stays until the passkey is deleted.
+             * @default null
+             */
+            clone_warning_ts: number | null;
+            /**
              * Created Ts
              * @default 0
              */

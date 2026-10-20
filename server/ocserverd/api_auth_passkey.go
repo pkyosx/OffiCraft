@@ -244,13 +244,14 @@ func passkeyCredentialOf(p Passkey) webauthn.Credential {
 
 func newPasskeyDTO(p Passkey, requestRPID string) passkeyDTO {
 	return passkeyDTO{
-		ID:         p.ID,
-		Name:       p.Name,
-		RPID:       p.RPID,
-		Origin:     p.Origin,
-		CreatedTS:  p.CreatedTS,
-		LastUsedTS: p.LastUsedTS,
-		UsableHere: requestRPID != "" && p.RPID == requestRPID,
+		ID:             p.ID,
+		Name:           p.Name,
+		RPID:           p.RPID,
+		Origin:         p.Origin,
+		CreatedTS:      p.CreatedTS,
+		LastUsedTS:     p.LastUsedTS,
+		UsableHere:     requestRPID != "" && p.RPID == requestRPID,
+		CloneWarningTS: p.CloneWarningTS,
 	}
 }
 
