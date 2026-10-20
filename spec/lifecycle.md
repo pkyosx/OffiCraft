@@ -102,6 +102,7 @@ retired `var/jwt_secret` fallback file has no successor.
 | mint | scope / sub | ttl | machine_id claim |
 |---|---|---|---|
 | `POST /api/login` (owner password **+ TOTP code once enrolled** → token) | `owner` / the fixed single-tenant owner id `"owner"` | DB setting `auth.owner_token_ttl` (default **86400 s**; owner-adjustable via `PATCH /api/settings`, applies from the next login) | none |
+| `POST /api/auth/passkey-login/finish` (public; a registered owner passkey's assertion → token, no password, no TOTP) | `owner` / `"owner"` | `auth.owner_token_ttl`, the same as `/api/login` | none |
 | `POST /api/mint` (owner-gated) | `agent` / `body.member_id` | `min(ttl_days*86400, 400 days)` — the 400-day ceiling MUST cap every long-lived agent token, and an `exp` is ALWAYS stamped (`mintJWT` computes `now + ttl` unconditionally; `ttl_days: 0` mints a token that is already expired, never a permanent one). 🔴 For a member whose `kind` is NOT `warden`, the ceiling is not a guarantee of lifetime: the token carries NO exemption from the §1.2 cut 3 agent floor, so it dies the moment that member next reports waking, however many days are left on it (owner 2026-08-30, rc-162a4ace086d option 0 — asked and accepted). A long-lived token handed to an external script therefore stops working at that member's next boot. 🔴 THE `kind="warden"` CASE IS THE EXCEPTION AND IT IS OPEN ON PURPOSE. This route resolves its target with `staffOnly`, which refuses `kind='outsource'` and NOTHING ELSE — so a mint MAY be aimed at a machine (warden) member, and §1.2 cut 3 exempts `kind="warden"` rows by design. The resulting token is therefore an `agent`-scope credential that NO boot report can end. It is NOT unrevocable: it still expires (≤ 400 days), and removing that machine from the roster still refuses it through the cut 2 machine revocation. What is missing is only the boot cut. Two guards were proposed for this — refusing a machine target here, and raising the floor at dispatch time — and owner DEFERRED both on 2026-08-31, verbatim 「都先不加」(rc-b08b0a5d678b, free text, no option selected). That is a POSTPONEMENT, not an accepted permanent gap: this paragraph MUST be revisited rather than read as a settled design. | none |
 | `POST /api/bootstrap` (with `member_id`) | `agent` / member id | DB setting `auth.agent_token_ttl` (default **604800 s**) | `member.desired_machine_id` (omitted if empty) |
 | reconcile START payload (server-side, per spawn) | `agent` / member id | `auth.agent_token_ttl` | `member.desired_machine_id` |
@@ -171,11 +172,36 @@ ceiling of the warden lifetime setting (§1.6).
   code: minting needs host shell access, which can already run `ocserverd mfa-disable`.
   Both rows are read per request, so a running serve
   follows the CLI without a restart.
+- **Passkey sign-in (WebAuthn).** `POST /api/auth/passkey-login/begin` → the browser's
+  `navigator.credentials.get` → `POST /api/auth/passkey-login/finish` mints the same owner
+  token as login and does NOT ask for the TOTP code: registration and sign-in both demand
+  `userVerification: required`, so possession of the device plus its biometric/PIN is
+  already two factors. Owner only; no agent, member or warden passkeys.
+  - The RP ID is the request `Host` without port and is fixed per ceremony: a passkey signs
+    in only on the host it was registered on. An IP host (e.g. `127.0.0.1`) can never be an
+    RP ID, so both begins answer 400 there and `GET /api/auth/status` reports
+    `passkey_login_available: false`; that field is a fact about the HOST and MUST NOT
+    disclose whether any passkey is registered (`allowCredentials` is always empty).
+  - Every `…/finish` refusal — unknown/expired/used ceremony, other host, bad signature,
+    sign counter gone backwards (the row is stamped `clone_warning_ts`, which the list shows
+    until the passkey is deleted),
+    deleted passkey — MUST be the same flat 401 served after the refusal floor, and the
+    route shares `/api/login`'s throttle (concurrency cap → 429 + `Retry-After`).
+    `…/begin` does not take a throttle slot: it verifies nothing.
+  - 🔴 A `…/finish` refusal MUST NOT raise the password-exposure alert below: a failed
+    passkey says nothing about the password, and an anonymous caller could fire the alert
+    at will.
+  - Registration (`POST /api/auth/passkeys/register/begin`, owner-gated) MUST re-verify the
+    current password, like `…/mfa/activate`; a passkey outlives the session that planted it.
+  - Credentials are read per request, so a delete (`DELETE /api/auth/passkeys/{id}`) and the
+    lost-device CLI `ocserverd passkey-reset` take effect at the next sign-in with no
+    restart. Neither revokes owner tokens already minted with the passkey; those live to
+    their TTL or the next password change.
 - **Credential-attempt brake.** It applies to the PUBLIC credential seams and to
-  NOTHING else: `POST /api/login`, `POST /api/auth/set-password`'s claim token and
-  `POST /api/auth/login-link`.
-  `POST /api/auth/change-password` and the `/api/auth/mfa/activate` +
-  `/api/auth/mfa/disable` credential checks are NOT braked in any way — no floor, no
+  NOTHING else: `POST /api/login`, `POST /api/auth/set-password`'s claim token,
+  `POST /api/auth/login-link` and `POST /api/auth/passkey-login/finish`.
+  `POST /api/auth/change-password`, the `/api/auth/mfa/activate` +
+  `/api/auth/mfa/disable` and `/api/auth/passkeys/register/begin` credential checks are NOT braked in any way — no floor, no
   concurrency cap, no call into the throttle at all.
 
   🔑 **The dividing line is whether an UNAUTHENTICATED caller can reach the seam, not
