@@ -658,12 +658,18 @@
       },
       "AuthStatusDTO": {
         "additionalProperties": false,
-        "description": "First-run probe (`GET /api/auth/status`, PUBLIC): whether an owner password\nhas been set. The UI branches first-run setup vs login on this; /api/login\nitself stays a flat 401 either way and never discloses the first-run state.\n\n`mfa_required` says whether the login wall must also collect a TOTP code. It is disclosed to an unauthenticated caller DELIBERATELY: the wall has to render the right number of fields before anyone has a token, and the alternative (a distinguishable \"password ok, code missing\" refusal) discloses strictly more — it confirms a correct password. What leaks here is one bit an attacker learns from a single login attempt anyway.",
+        "description": "First-run probe (`GET /api/auth/status`, PUBLIC): whether an owner password\nhas been set. The UI branches first-run setup vs login on this; /api/login\nitself stays a flat 401 either way and never discloses the first-run state.\n\n`mfa_required` says whether the login wall must also collect a TOTP code. It is disclosed to an unauthenticated caller DELIBERATELY: the wall has to render the right number of fields before anyone has a token, and the alternative (a distinguishable \"password ok, code missing\" refusal) discloses strictly more — it confirms a correct password. What leaks here is one bit an attacker learns from a single login attempt anyway.\n\n`passkey_login_available` is a fact about the HOST the page was opened on, never about enrolment: whether a passkey exists stays undisclosed before sign-in, so `/api/auth/passkey-login/begin` answers the same either way.",
         "properties": {
           "mfa_required": {
             "default": false,
             "description": "Whether an active TOTP secret is enrolled, i.e. whether `/api/login` demands a `code`. Optional for compatibility: a client that does not read it, or an older server that does not send it, behaves exactly as before.",
             "title": "Mfa Required",
+            "type": "boolean"
+          },
+          "passkey_login_available": {
+            "default": false,
+            "description": "Whether the login wall should offer passkey sign-in on THIS host: the request's host is usable as a WebAuthn RP ID (a domain name or `localhost`, not an IP address). It says NOTHING about whether any passkey is registered. Optional for compatibility, like `mfa_required`.",
+            "title": "Passkey Login Available",
             "type": "boolean"
           },
           "password_set": {
@@ -4262,6 +4268,208 @@
           "name"
         ],
         "title": "OnboardingStepDTO",
+        "type": "object"
+      },
+      "PasskeyDTO": {
+        "additionalProperties": false,
+        "description": "One owner passkey as the outside is allowed to see it. There is deliberately no field for the public key, the credential id, the sign counter or the AAGUID.",
+        "properties": {
+          "created_ts": {
+            "default": 0.0,
+            "title": "Created Ts",
+            "type": "number"
+          },
+          "id": {
+            "description": "Server-minted (`pk-` + 12 hex), immutable; the key the delete route takes. Not the WebAuthn credential id.",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_used_ts": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Epoch seconds of the newest successful sign-in with this passkey; null when it has never signed in.",
+            "title": "Last Used Ts"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "origin": {
+            "description": "The origin the passkey was registered at, e.g. `https://office.example.com` or `http://localhost:8787`. Informational; sign-in checks `rp_id` and the origin of the sign-in itself.",
+            "title": "Origin",
+            "type": "string"
+          },
+          "rp_id": {
+            "description": "The WebAuthn RP ID the passkey is bound to: the host it was registered on, without port. A passkey signs in only on that host.",
+            "title": "Rp Id",
+            "type": "string"
+          },
+          "usable_here": {
+            "description": "Whether `rp_id` equals the RP ID of the request that produced this response.",
+            "title": "Usable Here",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "rp_id",
+          "origin",
+          "created_ts",
+          "last_used_ts",
+          "usable_here"
+        ],
+        "title": "PasskeyDTO",
+        "type": "object"
+      },
+      "PasskeyLoginFinishDTO": {
+        "additionalProperties": false,
+        "description": "Owner passkey sign-in (`POST /api/auth/passkey-login/finish`, PUBLIC). Possessing a registered passkey and passing its user verification is the whole gate; no password or TOTP code is asked.",
+        "properties": {
+          "ceremony_id": {
+            "description": "The one-time id from the matching `.../begin` response.",
+            "title": "Ceremony Id",
+            "type": "string"
+          },
+          "credential": {
+            "additionalProperties": true,
+            "description": "The browser's `PublicKeyCredential` serialized with `.toJSON()` (the result of `navigator.credentials.get()`): binary members base64url-encoded, shape owned by the WebAuthn specification and passed through to the verifier unchanged.",
+            "title": "Credential",
+            "type": "object"
+          }
+        },
+        "required": [
+          "ceremony_id",
+          "credential"
+        ],
+        "title": "PasskeyLoginFinishDTO",
+        "type": "object"
+      },
+      "PasskeyLoginOptionsDTO": {
+        "additionalProperties": false,
+        "description": "Answer to `/api/auth/passkey-login/begin` (PUBLIC). Identical in shape and content class whether or not a passkey is registered.",
+        "properties": {
+          "ceremony_id": {
+            "description": "One-time id to send back to `/api/auth/passkey-login/finish`.",
+            "title": "Ceremony Id",
+            "type": "string"
+          },
+          "expires_in": {
+            "description": "Seconds until `ceremony_id` expires (300).",
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "options": {
+            "additionalProperties": true,
+            "description": "`PublicKeyCredentialRequestOptionsJSON` as defined by the WebAuthn specification (binary members base64url-encoded, `allowCredentials` always empty): pass it to `PublicKeyCredential.parseRequestOptionsFromJSON()` and the result to `navigator.credentials.get({publicKey})`. Shape owned by the specification, not by this API.",
+            "title": "Options",
+            "type": "object"
+          }
+        },
+        "required": [
+          "ceremony_id",
+          "expires_in",
+          "options"
+        ],
+        "title": "PasskeyLoginOptionsDTO",
+        "type": "object"
+      },
+      "PasskeyRegistrationBeginDTO": {
+        "additionalProperties": false,
+        "description": "Start of a passkey registration (`POST /api/auth/passkeys/register/begin`, owner-gated). `current_password` is re-verified against the stored argon2id hash (401 on a mismatch), the same gate as `/api/auth/change-password`.",
+        "properties": {
+          "current_password": {
+            "title": "Current Password",
+            "type": "string",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "current_password"
+        ],
+        "title": "PasskeyRegistrationBeginDTO",
+        "type": "object"
+      },
+      "PasskeyRegistrationFinishDTO": {
+        "additionalProperties": false,
+        "description": "Completion of a passkey registration (`POST /api/auth/passkeys/register/finish`, owner-gated).",
+        "properties": {
+          "ceremony_id": {
+            "description": "The one-time id from the matching `.../begin` response.",
+            "title": "Ceremony Id",
+            "type": "string"
+          },
+          "credential": {
+            "additionalProperties": true,
+            "description": "The browser's `PublicKeyCredential` serialized with `.toJSON()` (the result of `navigator.credentials.create()`): binary members base64url-encoded, shape owned by the WebAuthn specification and passed through to the verifier unchanged.",
+            "title": "Credential",
+            "type": "object"
+          },
+          "name": {
+            "description": "Display name chosen by the owner, e.g. the device: trimmed, 1–128 characters (the short-label cap), not unique.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ceremony_id",
+          "credential",
+          "name"
+        ],
+        "title": "PasskeyRegistrationFinishDTO",
+        "type": "object"
+      },
+      "PasskeyRegistrationOptionsDTO": {
+        "additionalProperties": false,
+        "description": "Answer to `.../register/begin`: what the browser needs to create a passkey, and the ceremony it belongs to.",
+        "properties": {
+          "ceremony_id": {
+            "description": "One-time id to send back to `.../register/finish`.",
+            "title": "Ceremony Id",
+            "type": "string"
+          },
+          "expires_in": {
+            "description": "Seconds until `ceremony_id` expires (300).",
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "options": {
+            "additionalProperties": true,
+            "description": "`PublicKeyCredentialCreationOptionsJSON` as defined by the WebAuthn specification (binary members base64url-encoded): pass it to `PublicKeyCredential.parseCreationOptionsFromJSON()` and the result to `navigator.credentials.create({publicKey})`. Shape owned by the specification, not by this API.",
+            "title": "Options",
+            "type": "object"
+          }
+        },
+        "required": [
+          "ceremony_id",
+          "expires_in",
+          "options"
+        ],
+        "title": "PasskeyRegistrationOptionsDTO",
+        "type": "object"
+      },
+      "PasskeysDTO": {
+        "additionalProperties": false,
+        "description": "Every owner passkey, ordered by `created_ts`, without key material.",
+        "properties": {
+          "passkeys": {
+            "items": {
+              "$ref": "#/components/schemas/PasskeyDTO"
+            },
+            "title": "Passkeys",
+            "type": "array"
+          }
+        },
+        "required": [
+          "passkeys"
+        ],
+        "title": "PasskeysDTO",
         "type": "object"
       },
       "ProbeVersionDTO": {
@@ -12097,6 +12305,359 @@
         }
       }
     },
+    "/api/auth/passkey-login/begin": {
+      "post": {
+        "description": "- PUBLIC. Returns the request options for `navigator.credentials.get()` and a one-time `ceremony_id`.\n- The options never list credentials (`allowCredentials` is empty: a discoverable login), so the response is the same whether or not any passkey is registered.\n- The RP ID is the HOST of this request, without its port (the T-78 rule: the Host header, never X-Forwarded-*). An IP-address host (`127.0.0.1`) cannot carry a passkey under the WebAuthn rules, so it is a 400 naming `localhost` as the alternative.\n- Takes no request body and no throttle slot: it does no credential work. Ceremonies in flight are capped server-wide; the oldest is dropped first.\n- 401 `auth not configured` while the server has no signing secret, as `/api/login`.",
+        "operationId": "handle_begin_passkey_login_api_auth_passkey_login_begin_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasskeyLoginOptionsDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Start an owner passkey sign-in (no password).",
+        "x-mcp": {
+          "include": false
+        }
+      }
+    },
+    "/api/auth/passkey-login/finish": {
+      "post": {
+        "description": "- PUBLIC. Exchanges a passkey assertion for the same owner token `/api/login` returns.\n- No password and no TOTP code: a passkey with user verification is itself the stronger factor.\n- An unknown, expired or used ceremony, a ceremony begun on another host, an unknown or deleted passkey, a bad signature and a sign counter that went backwards are the same flat 401, after the same fixed delay as a failed `/api/login`.\n- A refusal here never raises the password-exposed alert: it says nothing about the password.\n- 429 with `Retry-After` when the server-wide verify cap shared with `/api/login` is full.",
+        "operationId": "handle_finish_passkey_login_api_auth_passkey_login_finish_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasskeyLoginFinishDTO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Finish an owner passkey sign-in: exchange the assertion for an owner token.",
+        "x-mcp": {
+          "include": false
+        }
+      }
+    },
+    "/api/auth/passkeys": {
+      "get": {
+        "description": "- Every registered passkey, ordered by `created_ts`: id, name, the RP ID it is bound to, and when it was made and last used.\n- No public key, credential id, sign counter or AAGUID is returned.\n- `usable_here` says whether the passkey can sign in on the host of THIS request; one registered on another site is listed but cannot be used here.\n- Owner only; off the MCP surface.",
+        "operationId": "handle_list_passkeys_api_auth_passkeys_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasskeysDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "List the owner's passkeys (no key material).",
+        "x-mcp": {
+          "include": false
+        }
+      }
+    },
+    "/api/auth/passkeys/register/begin": {
+      "post": {
+        "description": "- `current_password` is re-verified, so a stolen live session cannot quietly plant a passkey that outlives it; a mismatch is 401.\n- Returns the creation options for `navigator.credentials.create()` and a one-time `ceremony_id`. Nothing is stored until `.../register/finish` succeeds.\n- The RP ID is the HOST of this request, without its port (the T-78 rule: the Host header, never X-Forwarded-*). An IP-address host (`127.0.0.1`) cannot carry a passkey under the WebAuthn rules, so it is a 400 naming `localhost` as the alternative.\n- The options ask for a discoverable credential with user verification required, no attestation, and exclude passkeys already registered for this RP ID.\n- 409 when the owner already has 20 passkeys.\n- Owner only; off the MCP surface.",
+        "operationId": "handle_begin_passkey_registration_api_auth_passkeys_register_begin_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasskeyRegistrationBeginDTO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasskeyRegistrationOptionsDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Start registering a passkey (re-verifies the password).",
+        "x-mcp": {
+          "include": false
+        }
+      }
+    },
+    "/api/auth/passkeys/register/finish": {
+      "post": {
+        "description": "- `ceremony_id` is the one `.../register/begin` returned; it is single-use and expires `expires_in` seconds after begin. A finish consumes it whether or not it succeeds.\n- The ceremony is bound to the host it began on: a finish from another host is refused.\n- 400 for an unknown or expired ceremony, a credential that fails verification, or a blank `name`, naming the field and the limit and nothing else.\n- 409 when the same authenticator is already registered.\n- Returns the stored passkey. It can sign in from the next `/api/auth/passkey-login/begin` on; no restart.\n- Owner only; off the MCP surface.",
+        "operationId": "handle_finish_passkey_registration_api_auth_passkeys_register_finish_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasskeyRegistrationFinishDTO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasskeyDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Finish registering a passkey with the browser's credential.",
+        "x-mcp": {
+          "include": false
+        }
+      }
+    },
+    "/api/auth/passkeys/{passkey_id}": {
+      "delete": {
+        "description": "- Permanent: the passkey stops signing in the moment this returns. No undo.\n- Owner tokens already issued through it are NOT revoked; they lapse at their own expiry or at the next password change.\n- 404 when the id is unknown.\n- Returns the deleted passkey.\n- Owner only; off the MCP surface.",
+        "operationId": "handle_delete_passkey_api_auth_passkeys__passkey_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "passkey_id",
+            "required": true,
+            "schema": {
+              "title": "Passkey Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasskeyDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Delete a passkey.",
+        "x-mcp": {
+          "include": false
+        }
+      }
+    },
     "/api/auth/set-password": {
       "post": {
         "description": "- First run only: claims the owner password with the one-shot token printed to the serve log / installer banner.\n- If a password is already set this is 409 and the token is never consulted; a wrong token is 401.\n- On success the claim token is destroyed and a fresh owner token is returned, logging you straight in.\n- Public route, but holding the claim token effectively means host shell access.",
@@ -12327,7 +12888,7 @@
     },
     "/api/auth/status": {
       "get": {
-        "description": "- Pre-auth probe, PUBLIC: whether an owner password is set, and whether the login wall must also collect a TOTP code.\n- Branch first-run setup vs login on `password_set`, and render the code field from `mfa_required`.\n- Nothing else about the auth state is disclosed — never the secret, the replay floor, or verifications in flight.",
+        "description": "- Pre-auth probe, PUBLIC: whether an owner password is set, and whether the login wall must also collect a TOTP code.\n- Branch first-run setup vs login on `password_set`, and render the code field from `mfa_required`.\n- `passkey_login_available` says whether this host can offer passkey sign-in at all; it never says whether a passkey is registered.\n- Nothing else about the auth state is disclosed — never the secret, the replay floor, or verifications in flight.",
         "operationId": "handle_auth_status_api_auth_status_get",
         "responses": {
           "200": {
