@@ -75,7 +75,9 @@ export function PasskeysPanel() {
             ? p.passkeyCancelled
             : outcome === "duplicate"
               ? p.passkeyDuplicate
-              : p.passkeyBrowserFailed,
+              : outcome === "noToJSON"
+                ? p.passkeyNoToJSON
+                : p.passkeyBrowserFailed,
         );
         return;
       }

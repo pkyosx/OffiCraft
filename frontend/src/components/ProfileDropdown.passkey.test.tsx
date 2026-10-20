@@ -16,9 +16,13 @@ const YEAR = new Date().getFullYear();
 const at = (mo: number, d: number, h: number, mi: number) => new Date(YEAR, mo - 1, d, h, mi).getTime() / 1000;
 
 const create = vi.fn();
+const parseCreationOptionsFromJSON = vi.fn((json: unknown) => ({ parsed: json }));
 
 function stubWebAuthn() {
-  vi.stubGlobal("PublicKeyCredential", function PublicKeyCredential() {});
+  vi.stubGlobal("PublicKeyCredential", Object.assign(function PublicKeyCredential() {}, {
+    parseCreationOptionsFromJSON,
+    parseRequestOptionsFromJSON: vi.fn(),
+  }));
   Object.defineProperty(navigator, "credentials", {
     configurable: true,
     value: { create, get: vi.fn() },
@@ -53,6 +57,7 @@ beforeEach(() => {
   clearToken();
   localStorage.clear();
   create.mockReset();
+  parseCreationOptionsFromJSON.mockClear();
   stubWebAuthn();
 });
 
@@ -89,10 +94,9 @@ describe("ProfileDropdown · passkeys", () => {
     fillAndSubmit(utils, MOCK_PASSWORD, "Eva 的 iPhone");
     await utils.findByText("通行密鑰已新增");
 
-    const publicKey = create.mock.calls[0][0].publicKey;
-    expect(publicKey.challenge).toBeInstanceOf(Uint8Array);
-    expect(new TextDecoder().decode(publicKey.challenge)).toBe("mock-challenge");
-    expect(new TextDecoder().decode(publicKey.user.id)).toBe("owner");
+    const options = parseCreationOptionsFromJSON.mock.calls[0][0] as { challenge: string; user: { id: string } };
+    expect([options.challenge, options.user.id]).toEqual(["bW9jay1jaGFsbGVuZ2U", "b3duZXI"]);
+    expect(create.mock.calls[0][0].publicKey).toEqual({ parsed: options });
     expect(rowTexts(utils.container)).toHaveLength(1);
     expect(rowTexts(utils.container)[0]).toMatch(/^Eva 的 iPhone \| 綁定網址 localhost \| 建立於 /);
     expect((await api.listPasskeys()).map((k) => k.name)).toEqual(["Eva 的 iPhone"]);
@@ -105,6 +109,23 @@ describe("ProfileDropdown · passkeys", () => {
 
     await utils.findByText("已取消，沒有新增通行密鑰。需要時可以再試一次。");
     expect(await api.listPasskeys()).toEqual([]);
+  });
+
+  it("a credential without toJSON is named as the reason and adds nothing", async () => {
+    create.mockResolvedValue({ id: "cred", type: "public-key", response: {} });
+    const utils = await openPasskeys();
+    fillAndSubmit(utils, MOCK_PASSWORD, "Eva 的 iPhone");
+
+    await utils.findByText("瀏覽器或擴充功能回傳的通行密鑰缺少 toJSON()，無法送出。請更新瀏覽器或該擴充功能。");
+    expect(await api.listPasskeys()).toEqual([]);
+  });
+
+  it("a browser without the native WebAuthn JSON methods is told to update and offered no add form", async () => {
+    vi.stubGlobal("PublicKeyCredential", function PublicKeyCredential() {});
+    const utils = await openPasskeys();
+
+    await utils.findByText("此瀏覽器版本不支援通行密鑰登入，請更新瀏覽器");
+    expect(utils.queryByRole("button", { name: "新增通行密鑰" })).toBeNull();
   });
 
   it("a wrong current password never reaches the browser dialog", async () => {

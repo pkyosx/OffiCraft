@@ -10,9 +10,13 @@ import { TOKEN_KEY } from "../api/auth";
 const jsdom = (globalThis as unknown as { jsdom: { reconfigure(o: { url: string }): void } }).jsdom;
 const originalUrl = window.location.href;
 const get = vi.fn();
+const parseRequestOptionsFromJSON = vi.fn((json: unknown) => ({ parsed: json }));
 
 function stubWebAuthn() {
-  vi.stubGlobal("PublicKeyCredential", function PublicKeyCredential() {});
+  vi.stubGlobal("PublicKeyCredential", Object.assign(function PublicKeyCredential() {}, {
+    parseCreationOptionsFromJSON: vi.fn(),
+    parseRequestOptionsFromJSON,
+  }));
   Object.defineProperty(navigator, "credentials", {
     configurable: true,
     value: { create: vi.fn(), get },
@@ -45,10 +49,12 @@ function renderWall(passkeyLoginAvailable: boolean, onSuccess = vi.fn()) {
 }
 
 const BUTTON = "用通行密鑰登入";
+const UNSUPPORTED = "此瀏覽器版本不支援通行密鑰登入，請更新瀏覽器";
 
 beforeEach(() => {
   localStorage.removeItem(TOKEN_KEY);
   get.mockReset();
+  parseRequestOptionsFromJSON.mockClear();
 });
 
 afterEach(() => {
@@ -59,13 +65,20 @@ afterEach(() => {
 });
 
 describe("LoginPage — passkey sign-in", () => {
-  it("shows the button only when the host allows it AND the browser has WebAuthn", () => {
+  it("shows the button only when the host allows it AND the browser has the native WebAuthn JSON methods, else says to update", () => {
     stubWebAuthn();
     expect(renderWall(false).queryByText(BUTTON)).toBeNull();
     vi.unstubAllGlobals();
-    expect(renderWall(true).queryByText(BUTTON)).toBeNull();
+    vi.stubGlobal("PublicKeyCredential", function PublicKeyCredential() {});
+    const older = renderWall(true);
+    expect(older.queryByText(BUTTON)).toBeNull();
+    expect(older.getAllByText(UNSUPPORTED)).toHaveLength(1);
+    older.unmount();
+    vi.unstubAllGlobals();
     stubWebAuthn();
-    expect(renderWall(true).getAllByText(BUTTON)).toHaveLength(1);
+    const current = renderWall(true);
+    expect(current.getAllByText(BUTTON)).toHaveLength(1);
+    expect(current.queryByText(UNSUPPORTED)).toBeNull();
   });
 
   it("signs in with the passkey and stores the token the way a password login does", async () => {
@@ -78,7 +91,10 @@ describe("LoginPage — passkey sign-in", () => {
 
     await waitFor(() => expect(utils.onSuccess).toHaveBeenCalledTimes(1));
     expect(localStorage.getItem(TOKEN_KEY)).toBe("pk-token");
-    expect(new TextDecoder().decode(get.mock.calls[0][0].publicKey.challenge)).toBe("challenge");
+    expect(parseRequestOptionsFromJSON).toHaveBeenCalledWith({ challenge: "Y2hhbGxlbmdl", rpId: "localhost", userVerification: "required" });
+    expect(get.mock.calls[0][0].publicKey).toEqual({
+      parsed: { challenge: "Y2hhbGxlbmdl", rpId: "localhost", userVerification: "required" },
+    });
     expect(calls).toEqual([
       { url: "/api/auth/passkey-login/begin", body: null },
       {
@@ -111,6 +127,19 @@ describe("LoginPage — passkey sign-in", () => {
 
     await utils.findByText("通行密鑰登入失敗，請再試一次或改用密碼。");
     expect(localStorage.getItem(TOKEN_KEY)).toBeNull();
+    expect(utils.onSuccess).not.toHaveBeenCalled();
+  });
+
+  it("a credential without toJSON is named as the reason and nothing is sent", async () => {
+    stubWebAuthn();
+    get.mockResolvedValue({ id: "cred", type: "public-key", response: {} });
+    const calls = stubPasskeyRoutes(() => [200, {}]);
+    const utils = renderWall(true);
+
+    fireEvent.click(utils.getByText(BUTTON));
+
+    await utils.findByText("瀏覽器或擴充功能回傳的通行密鑰缺少 toJSON()，無法送出。請更新瀏覽器或該擴充功能，或改用密碼。");
+    expect(calls.map((c) => c.url)).toEqual(["/api/auth/passkey-login/begin"]);
     expect(utils.onSuccess).not.toHaveBeenCalled();
   });
 

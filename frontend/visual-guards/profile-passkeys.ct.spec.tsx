@@ -7,7 +7,8 @@
 // drop `overflow-wrap: anywhere` from .profile-dd__pk) is red at 390 AND 1280,
 // measured as 114/122px of sideways pan inside the list. 390 additionally pins
 // that the right-anchored menu itself stays inside a phone viewport.
-import { test, expect, type Page } from "@playwright/experimental-ct-react";
+import { test, expect } from "@playwright/experimental-ct-react";
+import type { Page } from "@playwright/test";
 import { ProfilePasskeysStory } from "./stories/ProfilePasskeysStory";
 
 async function measure(page: Page) {

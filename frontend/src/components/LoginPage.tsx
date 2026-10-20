@@ -63,8 +63,10 @@ export function LoginPage({
   const [codeNowRequired, setCodeNowRequired] = useState(false);
   const [busy, setBusy] = useState(false);
   const [passkeyBusy, setPasskeyBusy] = useState(false);
-  const [passkeyOutcome, setPasskeyOutcome] = useState<"" | "cancelled" | "failed">("");
-  const showPasskey = passkeyLoginAvailable && passkeysSupported();
+  const [passkeyOutcome, setPasskeyOutcome] = useState<"" | "cancelled" | "noToJSON" | "failed">("");
+  const browserSupportsPasskeys = passkeysSupported();
+  const showPasskey = passkeyLoginAvailable && browserSupportsPasskeys;
+  const showUnsupportedHint = passkeyLoginAvailable && !browserSupportsPasskeys;
   const showLocalhostHint =
     !passkeyLoginAvailable && window.location.hostname === "127.0.0.1";
 
@@ -87,7 +89,10 @@ export function LoginPage({
       onSuccess();
     } catch (err) {
       if (isHttpStatus(err, 429)) setThrottledFor(retryAfterSeconds(err));
-      else setPasskeyOutcome(classifyBrowserError(err) === "cancelled" ? "cancelled" : "failed");
+      else {
+        const outcome = classifyBrowserError(err);
+        setPasskeyOutcome(outcome === "cancelled" || outcome === "noToJSON" ? outcome : "failed");
+      }
       setPasskeyBusy(false);
     }
   }
@@ -191,6 +196,9 @@ export function LoginPage({
         {passkeyOutcome === "failed" && (
           <div className="login__error">{t.login.passkeyFailed}</div>
         )}
+        {passkeyOutcome === "noToJSON" && (
+          <div className="login__error">{t.login.passkeyNoToJSON}</div>
+        )}
 
         <button
           type="submit"
@@ -210,6 +218,7 @@ export function LoginPage({
             {passkeyBusy ? t.login.passkeyWaiting : t.login.passkeySubmit}
           </button>
         )}
+        {showUnsupportedHint && <div className="login__hint">{t.login.passkeyUnsupported}</div>}
         {showLocalhostHint && (
           <div className="login__hint">{msg.passkeyIpHint(localhostAlternative())}</div>
         )}

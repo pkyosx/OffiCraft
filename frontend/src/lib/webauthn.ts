@@ -1,17 +1,21 @@
 // Browser side of a passkey ceremony: the server's options JSON in, the
-// credential JSON out. The native WebAuthn L3 JSON methods are used where the
-// browser has them; the fallback below covers browsers that predate them
-// (they arrived in Chrome/Edge 129, Firefox 119, Safari 18.4) and credential
-// objects some password-manager extensions hand back without `toJSON`.
+// credential JSON out, through the browser's own WebAuthn L3 JSON methods only.
+// 🔴 No hand-rolled base64url fallback: a browser without these methods is told
+// to update (passkeysSupported is false), and a credential without toJSON (some
+// password-manager extensions) is a visible error, never a silent second path.
 
 type Json = Record<string, unknown>;
 
-/** Whether this page can run a passkey ceremony at all. */
+/** Whether this browser can run a passkey ceremony with the native JSON methods. */
 export function passkeysSupported(): boolean {
+  if (typeof window === "undefined") return false;
+  const PKC = window.PublicKeyCredential as Partial<typeof PublicKeyCredential> | undefined;
   return (
-    typeof window !== "undefined" &&
     typeof window.PublicKeyCredential === "function" &&
-    typeof navigator.credentials?.create === "function"
+    typeof PKC?.parseCreationOptionsFromJSON === "function" &&
+    typeof PKC?.parseRequestOptionsFromJSON === "function" &&
+    typeof navigator.credentials?.create === "function" &&
+    typeof navigator.credentials?.get === "function"
   );
 }
 
@@ -20,96 +24,28 @@ export function isIpHost(hostname: string): boolean {
   return /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname) || hostname.includes(":") || hostname.startsWith("[");
 }
 
-export function base64urlToBytes(s: string): Uint8Array<ArrayBuffer> {
-  const b64 = s.replace(/-/g, "+").replace(/_/g, "/");
-  const bin = atob(b64 + "=".repeat((4 - (b64.length % 4)) % 4));
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-
-export function bytesToBase64url(buf: ArrayBuffer | ArrayBufferView): string {
-  const bytes = ArrayBuffer.isView(buf)
-    ? new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)
-    : new Uint8Array(buf);
-  let bin = "";
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function decodeDescriptors(list: unknown): PublicKeyCredentialDescriptor[] | undefined {
-  if (!Array.isArray(list)) return undefined;
-  return list.map((d: Json) => ({
-    ...(d as object),
-    id: base64urlToBytes(String(d.id)),
-  })) as unknown as PublicKeyCredentialDescriptor[];
-}
-
-function nativeParsers(): {
-  creation?: (o: PublicKeyCredentialCreationOptionsJSON) => PublicKeyCredentialCreationOptions;
-  request?: (o: PublicKeyCredentialRequestOptionsJSON) => PublicKeyCredentialRequestOptions;
-} {
-  const PKC = window.PublicKeyCredential as Partial<typeof PublicKeyCredential> | undefined;
-  return {
-    creation:
-      typeof PKC?.parseCreationOptionsFromJSON === "function"
-        ? PKC.parseCreationOptionsFromJSON.bind(PKC)
-        : undefined,
-    request:
-      typeof PKC?.parseRequestOptionsFromJSON === "function"
-        ? PKC.parseRequestOptionsFromJSON.bind(PKC)
-        : undefined,
-  };
-}
-
 export function toCreationOptions(json: Json): PublicKeyCredentialCreationOptions {
-  const native = nativeParsers().creation;
-  if (native) return native(json as unknown as PublicKeyCredentialCreationOptionsJSON);
-  const user = json.user as Json;
-  return {
-    ...(json as object),
-    challenge: base64urlToBytes(String(json.challenge)),
-    user: { ...(user as object), id: base64urlToBytes(String(user.id)) },
-    excludeCredentials: decodeDescriptors(json.excludeCredentials),
-  } as unknown as PublicKeyCredentialCreationOptions;
+  return PublicKeyCredential.parseCreationOptionsFromJSON(json as unknown as PublicKeyCredentialCreationOptionsJSON);
 }
 
 export function toRequestOptions(json: Json): PublicKeyCredentialRequestOptions {
-  const native = nativeParsers().request;
-  if (native) return native(json as unknown as PublicKeyCredentialRequestOptionsJSON);
-  return {
-    ...(json as object),
-    challenge: base64urlToBytes(String(json.challenge)),
-    allowCredentials: decodeDescriptors(json.allowCredentials),
-  } as unknown as PublicKeyCredentialRequestOptions;
+  return PublicKeyCredential.parseRequestOptionsFromJSON(json as unknown as PublicKeyCredentialRequestOptionsJSON);
+}
+
+export class CredentialWithoutToJSONError extends Error {
+  constructor() {
+    super("the credential the browser returned has no toJSON()");
+    this.name = "CredentialWithoutToJSONError";
+  }
 }
 
 export function credentialToJSON(cred: PublicKeyCredential): Json {
-  if (typeof cred.toJSON === "function") return cred.toJSON() as Json;
-  const r = cred.response;
-  const response: Json = { clientDataJSON: bytesToBase64url(r.clientDataJSON) };
-  if ("attestationObject" in r) {
-    const att = r as AuthenticatorAttestationResponse;
-    response.attestationObject = bytesToBase64url(att.attestationObject);
-    if (typeof att.getTransports === "function") response.transports = att.getTransports();
-  } else {
-    const asr = r as AuthenticatorAssertionResponse;
-    response.authenticatorData = bytesToBase64url(asr.authenticatorData);
-    response.signature = bytesToBase64url(asr.signature);
-    if (asr.userHandle) response.userHandle = bytesToBase64url(asr.userHandle);
-  }
-  return {
-    id: cred.id,
-    rawId: bytesToBase64url(cred.rawId),
-    type: cred.type,
-    response,
-    authenticatorAttachment: cred.authenticatorAttachment ?? undefined,
-    clientExtensionResults: cred.getClientExtensionResults?.() ?? {},
-  };
+  if (typeof cred.toJSON !== "function") throw new CredentialWithoutToJSONError();
+  return cred.toJSON() as Json;
 }
 
 /** The ways a ceremony ends without a credential, as the browser reports them. */
-export type PasskeyBrowserOutcome = "cancelled" | "duplicate" | "failed";
+export type PasskeyBrowserOutcome = "cancelled" | "duplicate" | "noToJSON" | "failed";
 
 export function classifyBrowserError(err: unknown): PasskeyBrowserOutcome {
   const name = (err as { name?: unknown })?.name;
@@ -117,6 +53,7 @@ export function classifyBrowserError(err: unknown): PasskeyBrowserOutcome {
   // timeout; browsers deliberately do not tell the page which.
   if (name === "NotAllowedError" || name === "AbortError") return "cancelled";
   if (name === "InvalidStateError") return "duplicate";
+  if (name === "CredentialWithoutToJSONError") return "noToJSON";
   return "failed";
 }
 

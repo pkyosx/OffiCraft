@@ -827,6 +827,8 @@ export const en: Dict = {
     passkeyWaiting: "Waiting for the passkey…",
     passkeyCancelled: "Passkey sign-in was cancelled. Try again, or use the password.",
     passkeyFailed: "Passkey sign-in failed. Try again, or use the password.",
+    passkeyUnsupported: "This browser version does not support passkey sign-in; please update the browser",
+    passkeyNoToJSON: "The browser or an extension returned a passkey without toJSON(), so it cannot be sent. Update the browser or that extension, or use the password.",
     passkeyIpHintLead: "To use a passkey, open",
     passkeyIpHintTail: "instead",
   },
@@ -1072,7 +1074,8 @@ export const en: Dict = {
     passkeyCancelled: "Cancelled; no passkey was added. You can try again any time.",
     passkeyDuplicate: "This device already holds a passkey for this server",
     passkeyBrowserFailed: "The browser could not create a passkey",
-    passkeyUnsupported: "This browser does not support passkeys",
+    passkeyUnsupported: "This browser version does not support passkey sign-in; please update the browser",
+    passkeyNoToJSON: "The browser or an extension returned a passkey without toJSON(), so it cannot be sent. Update the browser or that extension.",
     passkeyErrorLead: "Could not finish: ",
   },
   chat: {
