@@ -875,7 +875,7 @@ export const zh = {
     passkeyCancelled: "已取消通行密鑰登入，可以再試一次或改用密碼。",
     passkeyFailed: "通行密鑰登入失敗，請再試一次或改用密碼。",
     passkeyUnsupported: "此瀏覽器版本不支援通行密鑰登入，請更新瀏覽器",
-    passkeyNoToJSON: "瀏覽器或擴充功能回傳的通行密鑰缺少 toJSON()，無法送出。請更新瀏覽器或該擴充功能，或改用密碼。",
+    passkeyNoToJSON: "這個瀏覽器或擴充功能無法使用通行密鑰，請更新後再試，或改用密碼登入。",
     passkeyIpHintLead: "要用通行密鑰，請改用",
     passkeyIpHintTail: "開啟",
   },
@@ -1109,9 +1109,7 @@ export const zh = {
     accountSecuritySub: "修改密碼、兩步驟驗證、通行密鑰",
     // ── 通行密鑰(WebAuthn) ──
     passkeys: "通行密鑰",
-    passkeysSub: "用 Touch ID、Face ID、Windows Hello 或安全金鑰登入",
-    passkeysIntro:
-      "通行密鑰登入不用密碼、也不問驗證碼。",
+    passkeysSub: "用手機或電腦本身的解鎖方式登入，例如 Face ID、Touch ID、指紋或裝置密碼",
     passkeysLoading: "讀取中…",
     passkeysEmpty: "還沒有註冊任何通行密鑰",
     passkeysErrorLoad: "讀不到通行密鑰清單",
@@ -1136,7 +1134,7 @@ export const zh = {
     passkeyDuplicate: "這個裝置已經有這台伺服器的通行密鑰了",
     passkeyBrowserFailed: "瀏覽器無法建立通行密鑰",
     passkeyUnsupported: "此瀏覽器版本不支援通行密鑰，請更新瀏覽器",
-    passkeyNoToJSON: "瀏覽器或擴充功能回傳的通行密鑰缺少 toJSON()，無法送出。請更新瀏覽器或該擴充功能。",
+    passkeyNoToJSON: "這個瀏覽器或擴充功能無法建立通行密鑰，請更新後再試。",
     passkeyErrorLead: "無法完成：",
   },
   chat: {

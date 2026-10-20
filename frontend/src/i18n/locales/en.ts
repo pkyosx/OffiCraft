@@ -828,7 +828,7 @@ export const en: Dict = {
     passkeyCancelled: "Passkey sign-in was cancelled. Try again, or use the password.",
     passkeyFailed: "Passkey sign-in failed. Try again, or use the password.",
     passkeyUnsupported: "This browser version does not support passkey sign-in; please update the browser",
-    passkeyNoToJSON: "The browser or an extension returned a passkey without toJSON(), so it cannot be sent. Update the browser or that extension, or use the password.",
+    passkeyNoToJSON: "This browser or extension can't use passkeys. Update it and try again, or sign in with the password.",
     passkeyIpHintLead: "To use a passkey, open",
     passkeyIpHintTail: "instead",
   },
@@ -1048,9 +1048,7 @@ export const en: Dict = {
     accountSecurity: "Account security",
     accountSecuritySub: "Password, two-factor authentication, passkeys",
     passkeys: "Passkeys",
-    passkeysSub: "Sign in with Touch ID, Face ID, Windows Hello or a security key",
-    passkeysIntro:
-      "A passkey signs you in with no password and no code.",
+    passkeysSub: "Sign in with your phone or computer's own unlock — for example Face ID, Touch ID, a fingerprint or the device passcode",
     passkeysLoading: "Loading…",
     passkeysEmpty: "No passkeys registered yet",
     passkeysErrorLoad: "Could not read the passkey list",
@@ -1075,7 +1073,7 @@ export const en: Dict = {
     passkeyDuplicate: "This device already holds a passkey for this server",
     passkeyBrowserFailed: "The browser could not create a passkey",
     passkeyUnsupported: "This browser version does not support passkeys; please update the browser",
-    passkeyNoToJSON: "The browser or an extension returned a passkey without toJSON(), so it cannot be sent. Update the browser or that extension.",
+    passkeyNoToJSON: "This browser or extension can't create a passkey. Update it and try again.",
     passkeyErrorLead: "Could not finish: ",
   },
   chat: {

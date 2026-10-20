@@ -116,7 +116,7 @@ describe("ProfileDropdown · passkeys", () => {
     const utils = await openPasskeys();
     fillAndSubmit(utils, MOCK_PASSWORD, "Eva 的 iPhone");
 
-    await utils.findByText("瀏覽器或擴充功能回傳的通行密鑰缺少 toJSON()，無法送出。請更新瀏覽器或該擴充功能。");
+    await utils.findByText("這個瀏覽器或擴充功能無法建立通行密鑰，請更新後再試。");
     expect(await api.listPasskeys()).toEqual([]);
   });
 

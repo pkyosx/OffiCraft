@@ -138,7 +138,7 @@ describe("LoginPage — passkey sign-in", () => {
 
     fireEvent.click(utils.getByText(BUTTON));
 
-    await utils.findByText("瀏覽器或擴充功能回傳的通行密鑰缺少 toJSON()，無法送出。請更新瀏覽器或該擴充功能，或改用密碼。");
+    await utils.findByText("這個瀏覽器或擴充功能無法使用通行密鑰，請更新後再試，或改用密碼登入。");
     expect(calls.map((c) => c.url)).toEqual(["/api/auth/passkey-login/begin"]);
     expect(utils.onSuccess).not.toHaveBeenCalled();
   });

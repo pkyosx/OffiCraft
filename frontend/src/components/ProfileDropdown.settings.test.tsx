@@ -315,7 +315,7 @@ describe("ProfileDropdown · menu levels", () => {
     expect(rowTexts(utils.container)).toEqual([
       "修改密碼登入這個主控台用的密碼",
       "兩步驟驗證",
-      "通行密鑰用 Touch ID、Face ID、Windows Hello 或安全金鑰登入",
+      "通行密鑰用手機或電腦本身的解鎖方式登入，例如 Face ID、Touch ID、指紋或裝置密碼",
     ]);
   });
 

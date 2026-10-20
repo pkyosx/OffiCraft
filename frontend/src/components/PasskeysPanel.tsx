@@ -114,12 +114,11 @@ export function PasskeysPanel() {
 
   return (
     <>
-      <div className="profile-dd__form">
-        <div className="profile-dd__hint">{p.passkeysIntro}</div>
-        {window.location.hostname === "127.0.0.1" && (
+      {window.location.hostname === "127.0.0.1" && (
+        <div className="profile-dd__form">
           <div className="profile-dd__hint">{msg.passkeyIpHint(localhostAlternative())}</div>
-        )}
-      </div>
+        </div>
+      )}
 
       {loadError && (
         <div className="profile-dd__form">

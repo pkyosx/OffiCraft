@@ -888,7 +888,6 @@ var messageKeys = map[string]bool{
 	"profile.passkeys":                                 true,
 	"profile.passkeysEmpty":                            true,
 	"profile.passkeysErrorLoad":                        true,
-	"profile.passkeysIntro":                            true,
 	"profile.passkeysLoading":                          true,
 	"profile.passkeysSub":                              true,
 	"profile.preferences":                              true,
