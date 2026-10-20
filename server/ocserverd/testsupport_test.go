@@ -6,10 +6,12 @@ package main
 // test speaks through.
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -46,20 +48,78 @@ func newAPITestDAL(t *testing.T) *DAL {
 // test that also drives a host subcommand against the same file.
 func newAPITestDALAt(t *testing.T, path string) *DAL {
 	t.Helper()
-	wdb, err := openSQLite(path)
+	wdb, err := openMigratedSQLite(t, path)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
 	t.Cleanup(func() { wdb.Close() })
-	if err := runMigrations(wdb); err != nil {
-		t.Fatalf("goose up: %v", err)
-	}
 	rdb, err := openSQLiteReadPool(path)
 	if err != nil {
 		t.Fatalf("open read pool: %v", err)
 	}
 	t.Cleanup(func() { rdb.Close() })
 	return NewDALPools(wdb, rdb)
+}
+
+// migratedTemplate is the fully migrated database image, built once per test
+// binary.
+var migratedTemplate = sync.OnceValues(func() ([]byte, error) {
+	dir, err := os.MkdirTemp("", "ocserverd-migrated-template-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(dir)
+	db, err := openSQLite(filepath.Join(dir, "migrate.db"))
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	if err := runMigrations(db); err != nil {
+		return nil, fmt.Errorf("goose up: %w", err)
+	}
+	out := filepath.Join(dir, "template.db")
+	if _, err := db.Exec(`VACUUM INTO ?`, out); err != nil {
+		return nil, fmt.Errorf("vacuum into: %w", err)
+	}
+	return os.ReadFile(out)
+})
+
+// openMigratedSQLite is openSQLite over a copy of migratedTemplate written to
+// path, so the file is already at the head goose version (a later
+// runMigrations on it is a no-op). A test that needs an empty or partially
+// migrated file — the migration tests, a pre-migration backup — must keep
+// calling openSQLite and goose itself.
+func openMigratedSQLite(t *testing.T, path string) (*sql.DB, error) {
+	t.Helper()
+	image, err := migratedTemplate()
+	if err != nil {
+		t.Fatalf("build migrated template: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := f.Write(image); err != nil {
+		f.Close()
+		return nil, err
+	}
+	if err := f.Close(); err != nil {
+		return nil, err
+	}
+	db, err := openSQLite(path)
+	if err != nil {
+		return nil, err
+	}
+	// VACUUM INTO leaves the image in rollback-journal mode and sql.Open does not
+	// connect, so without this a read pool opened next sees a non-WAL file.
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return db, nil
 }
 
 // newAPITestStack assembles the handler stack over a FIRST-RUN server: no

@@ -184,12 +184,9 @@ func (c windowConn) CheckNamedValue(nv *driver.NamedValue) error {
 func windowDAL(t *testing.T, shape string) (*DAL, *windowHook, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "window.db")
-	plain, err := openSQLite(path)
+	plain, err := openMigratedSQLite(t, path)
 	if err != nil {
 		t.Fatalf("open: %v", err)
-	}
-	if err := runMigrations(plain); err != nil {
-		t.Fatalf("migrate: %v", err)
 	}
 	drv := plain.Driver()
 	plain.Close()

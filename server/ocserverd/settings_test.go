@@ -600,13 +600,9 @@ func TestCmdMFADisable(t *testing.T) {
 	t.Run("clears active pending and replay-floor MFA settings while retaining other settings", func(t *testing.T) {
 		dir := t.TempDir()
 		dbPath := filepath.Join(dir, "mfa-disable.db")
-		db, err := openSQLite(dbPath)
+		db, err := openMigratedSQLite(t, dbPath)
 		if err != nil {
 			t.Fatalf("open DB: %v", err)
-		}
-		if err := runMigrations(db); err != nil {
-			db.Close()
-			t.Fatalf("migrate DB: %v", err)
 		}
 		d := NewDAL(db)
 		secret, err := newTOTPSecret()
