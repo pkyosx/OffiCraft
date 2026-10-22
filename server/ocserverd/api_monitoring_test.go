@@ -2447,14 +2447,17 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		})
 	})
 
-	t.Run("only stale reports measured at the same moment answer 200 with the later reset", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
+	t.Run("only stale reports measured at the same moment answer 200 with the latest reset", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
 		now := time.Now().Unix()
 		staleStamp := float64(now) - telemetryFreshSecs - 60
 		reportFiveHour(t, api, h, "kip", 60, now+3000)
 		reportFiveHour(t, api, h, "mira", 10, now+4000)
-		ageRateLimits(api, "mira", staleStamp)
+		reportFiveHour(t, api, h, "ow-abc123", 30, now+2000)
 		ageRateLimits(api, "kip", staleStamp)
+		ageRateLimits(api, "mira", staleStamp)
+		ageRateLimits(api, "ow-abc123", staleStamp)
 
 		status, data := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
 		if status != 200 {
