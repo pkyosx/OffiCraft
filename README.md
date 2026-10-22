@@ -2,7 +2,7 @@
 
 **Craft your own AI office.** OffiCraft 是一間跑在你自己 Mac 上的 AI 工作室：你僱幾位常駐的 AI 成員，把事情**整件**交給他們，在一個網頁控制台裡看他們做到哪、在他們需要你點頭時回一句。跑的就是你機器上那個 Claude Code 或 Codex——你在它上面串好的設定照舊生效（Claude Code 的 skill / plugin / MCP 原封不動全都在）。
 
-[![OffiCraft 介紹影片](https://img.youtube.com/vi/RAZuchCozVE/maxresdefault.jpg)](https://youtu.be/RAZuchCozVE)
+[![OffiCraft 介紹影片](https://img.youtube.com/vi/5WYeZn38_Eg/maxresdefault.jpg)](https://youtu.be/5WYeZn38_Eg)
 
 ---
 
