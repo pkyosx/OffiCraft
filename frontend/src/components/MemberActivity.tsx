@@ -131,7 +131,6 @@ function ActivityStatusIcon({
   // what it holds then may be the previous session's.
   const reporting = presence === "online" || presence === "stopping";
   const activity = reporting ? reported : null;
-  const now = useActivityNow(activity);
   const triggerRef = useRef<HTMLElement | null>(null);
   const [openFor, setOpenFor] = useState<string | null>(null);
   const open = activity != null && openFor !== null && openFor === memberName;
@@ -163,7 +162,7 @@ function ActivityStatusIcon({
     );
   }
   const word = t.activity.state[activity.state];
-  const hint = msg.memberActivitySummary(activity, now);
+  const hint = msg.memberActivitySummary(activity);
   if (memberName === undefined) {
     return (
       <InstantHint

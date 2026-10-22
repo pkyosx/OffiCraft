@@ -101,9 +101,9 @@ export interface Messages {
   runtimeSignInHint: (runtime: "claude" | "codex") => string;
   modelCallServerWarning: (runtime: "claude" | "codex") => string;
   memberModelCallLastSuccess: (age: string) => string;
-  /** The one-sentence account of a session's activity. `now` is epoch
-   * seconds; elapsed time is measured from `busySince`. */
-  memberActivitySummary: (activity: MemberActivity, now: number) => string;
+  /** The one-sentence account of a session's activity. It carries no elapsed
+   * time and, when nobody is working, does not name the main or sub-agents. */
+  memberActivitySummary: (activity: MemberActivity) => string;
   /** 「已 3 分鐘」: how long the main agent's turn has run. */
   memberActivitySince: (since: number, now: number) => string;
   /** 「40 秒」/「3 分鐘」: how long a sub-agent has run. */
@@ -394,23 +394,22 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     },
     modelCallServerWarning: (runtime) => `${mcw.runtime[runtime]} ${mcw.server}`,
     memberModelCallLastSuccess: (age) => `${age} ${mp.modelCallLastSuccessAgoTail}`,
-    memberActivitySummary: (a, now) => {
+    memberActivitySummary: (a) => {
       const subs = a.subagents.length;
+      const waits = a.waits.length;
+      const waitsCount = counted(waits, act.waitsTailOne, act.waitsTailMany);
       let head: string;
       if (a.busySince !== null) {
-        head = `${act.mainBusyLead}${activityElapsed(act.elapsedLead, a.busySince, now)}${act.mainBusyTail}`;
+        head = act.mainBusy;
         if (subs > 0) {
           head += `${act.subagentsAlsoLead} ${counted(subs, act.subagentsAlsoTailOne, act.subagentsAlsoTailMany)}`;
         }
       } else if (subs > 0) {
         head = counted(subs, act.subagentsAlsoTailOne, act.subagentsAlsoTailMany);
       } else {
-        head = act.noneWorking;
+        return waits > 0 ? `${act.waitsOnlyLead} ${waitsCount}` : act.state.idle;
       }
-      const waits = a.waits.length;
-      return waits > 0
-        ? `${head}${act.waitsLead} ${counted(waits, act.waitsTailOne, act.waitsTailMany)}`
-        : head;
+      return waits > 0 ? `${head}${act.waitsLead} ${waitsCount}` : head;
     },
     memberActivitySince: (since, now) => activityElapsed(act.elapsedLead, since, now),
     memberActivityDuration: (since, now) => activityElapsed("", since, now),
