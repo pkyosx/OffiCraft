@@ -878,11 +878,11 @@ type rateLimitCandidate struct {
 }
 
 // Among fresh reports the later resets_at wins: right after a window rolls
-// over, idle members still report the previous period. Freshness comes first
-// because the account tag is read from a machine-wide login file, so after a
-// re-login a member still on the old account reports that account's window
-// under the new name, and its later resets_at would otherwise win until it
-// expires.
+// over, idle members still report the previous period. Freshness comes first,
+// and with no fresh report the latest measurement wins, because the account
+// tag is read from a machine-wide login file: after a re-login a member still
+// on the old account reports that account's window under the new name, and its
+// later resets_at would otherwise win until it expires.
 func pickRateLimitWindow(candidates []rateLimitCandidate, now float64) rateLimitCandidate {
 	fresh := make([]rateLimitCandidate, 0, len(candidates))
 	for _, c := range candidates {
@@ -890,13 +890,20 @@ func pickRateLimitWindow(candidates []rateLimitCandidate, now float64) rateLimit
 			fresh = append(fresh, c)
 		}
 	}
-	pool := fresh
-	if len(pool) == 0 {
-		pool = candidates
+	if len(fresh) == 0 {
+		return pickBy(candidates, func(c, picked rateLimitCandidate) bool {
+			return c.measuredAt > picked.measuredAt || (c.measuredAt == picked.measuredAt && c.resetAt > picked.resetAt)
+		})
 	}
+	return pickBy(fresh, func(c, picked rateLimitCandidate) bool {
+		return c.resetAt > picked.resetAt || (c.resetAt == picked.resetAt && c.measuredAt > picked.measuredAt)
+	})
+}
+
+func pickBy(pool []rateLimitCandidate, beats func(c, picked rateLimitCandidate) bool) rateLimitCandidate {
 	picked := pool[0]
 	for _, c := range pool[1:] {
-		if c.resetAt > picked.resetAt || (c.resetAt == picked.resetAt && c.measuredAt > picked.measuredAt) {
+		if beats(c, picked) {
 			picked = c
 		}
 	}
