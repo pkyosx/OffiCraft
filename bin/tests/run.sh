@@ -107,6 +107,21 @@ else
   bad "bin/tests/port-default.sh is missing"
 fi
 
+# ── Go security bump (.github/workflows/go-security-bump.yml) ───────────────
+# The workflow runs only on the default branch, so a pull request that breaks
+# the script it calls is otherwise first noticed when a real CVE goes unbumped.
+GOBUMP="$HERE/go-security-bump-guard.sh"
+echo
+if [[ -f "$GOBUMP" ]]; then
+  if run_guard "$GOBUMP"; then
+    ok "go-security-bump suite passed"
+  else
+    bad "go-security-bump suite FAILED (see output above)"
+  fi
+else
+  bad "bin/tests/go-security-bump-guard.sh is missing"
+fi
+
 # ── SSE station-sha header: one contract spelled in two modules (T-5b83) ─────
 # server/ocserverd and cli/ocagent cannot import each other, so the header name
 # exists twice. A mismatch is SILENT — Header.Get returns "" and the connection
