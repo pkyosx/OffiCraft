@@ -81,9 +81,11 @@ func deriveMemberActivity(busy bool, busySince *float64, subagents []activitySub
 }
 
 // ownerActivity answers what MemberDTO.activity carries for this read: the
-// stored activity only for the owner and only while presence is online.
+// stored activity only for the owner and only while the session is up and
+// reporting (online or stopping). Waking stays null: the store is cleared on
+// report_waking, so until then it may still hold the previous session's report.
 func (s *apiServer) ownerActivity(isOwner bool, id, presence string) *memberActivityDTO {
-	if !isOwner || presence != MemberPresenceOnline {
+	if !isOwner || (presence != MemberPresenceOnline && presence != MemberPresenceStopping) {
 		return nil
 	}
 	a, ok := s.activity.Get(id)

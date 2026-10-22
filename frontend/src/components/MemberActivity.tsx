@@ -65,8 +65,8 @@ export function ActivityStateIcon({
 
 /** A member's name led by its status icon. List rows, chat header and detail
  * identity card all render this, so the icon's place is decided here alone.
- * A member that is not online gets the moon; an online one that has not
- * reported yet gets the unknown mark. `layout="list"`: the icon sits on the
+ * Online and stopping show the reported state, or the unknown mark before a
+ * report; waking always shows the unknown mark; anything else gets the moon. `layout="list"`: the icon sits on the
  * first line of a wrapped name. `layout="group"`: icon and name form one box,
  * for a line that wraps its other items onto the next line. */
 export function NameWithActivity({
@@ -124,9 +124,12 @@ function ActivityStatusIcon({
   list: boolean;
 }) {
   const { t, msg } = useI18n();
-  // Dropping a stale activity when presence leaves online is what closes an
-  // open dialog then; kept, the dialog would reopen and take focus on return.
-  const activity = presence === "online" ? reported : null;
+  // Dropping a stale activity when the session stops reporting is what closes
+  // an open dialog then; kept, the dialog would reopen and take focus on return.
+  // Waking drops it too: the server clears the store only on report_waking, so
+  // what it holds then may be the previous session's.
+  const reporting = presence === "online" || presence === "stopping";
+  const activity = reporting ? reported : null;
   const now = useActivityNow(activity);
   const triggerRef = useRef<HTMLElement | null>(null);
   const [openFor, setOpenFor] = useState<string | null>(null);
@@ -138,14 +141,20 @@ function ActivityStatusIcon({
   const box = memberName === undefined ? "" : " activity-icon--box";
   const listClass = list ? " activity-icon--list" : "";
   if (!activity) {
-    const kind = presence === "online" ? "unknown" : "offline";
+    const kind = reporting || presence === "waking" ? "unknown" : "offline";
     // Out of the tab order and the a11y tree. The focusable corner dot beside it
     // names the presence: for the moon that is the whole story, for the unknown
-    // mark it reads online and the unknown hint is hover or tap only (owner
-    // asked for the moon's behaviour).
+    // mark the unknown hint is hover or tap only (owner asked for the moon's
+    // behaviour).
+    const hint =
+      kind === "offline"
+        ? t.office.presence[presenceVisual(presence)]
+        : presence === "waking"
+          ? t.activity.unknownWakingHint
+          : t.activity.unknownHint;
     return (
       <InstantHint
-        hint={kind === "unknown" ? t.activity.unknownHint : t.office.presence[presenceVisual(presence)]}
+        hint={hint}
         focusable={false}
         className={`activity-icon activity-icon--${kind}${box}${listClass}`}
         aria-hidden="true"

@@ -745,6 +745,7 @@ export const zh = {
     waitsTailOne: "個背景檢查或排程",
     waitsTailMany: "個背景檢查或排程",
     unknownHint: "狀態未知，成員重新啟動後就會顯示",
+    unknownWakingHint: "狀態未知，成員醒來回報後就會顯示",
     cardTitle: "運作狀況",
     dialogTitleSep: " · ",
     currentState: "目前狀態",

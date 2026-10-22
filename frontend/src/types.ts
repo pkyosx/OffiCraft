@@ -226,8 +226,8 @@ export interface Member {
    */
   unreadCount: number;
 
-  /** null = not online, or the session has not reported yet; the UI then shows
-   * no activity at all. Optional so hand-built fixtures stay valid. */
+  /** null = presence is neither online nor stopping, or the session has not
+   * reported yet. Optional so hand-built fixtures stay valid. */
   activity?: MemberActivity | null;
 }
 
