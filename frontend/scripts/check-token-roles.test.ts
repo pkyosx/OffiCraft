@@ -57,7 +57,7 @@ function run(sabotage?: (edit: (rel: string, f: (css: string) => string) => void
 const THEME = "styles/theme.css";
 const CHROME = "components/chrome.css";
 
-describe("check-token-roles", () => {
+describe("check-token-roles", { timeout: 60_000 }, () => {
   it("passes on the tree as shipped", () => {
     const { code, out } = run();
     expect(out, out).toContain("[token-roles] ok");

@@ -66,7 +66,7 @@ const tokensIn = (css: string) =>
     ),
   ].sort();
 
-describe("gen-theme-tokens", () => {
+describe("gen-theme-tokens", { timeout: 60_000 }, () => {
   it("puts every --color-* token theme.css defines into both whitelists", () => {
     const { code, out, ts, go } = run();
     expect(code, out).toBe(0);

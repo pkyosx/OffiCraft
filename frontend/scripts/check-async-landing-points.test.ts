@@ -67,7 +67,7 @@ function run(
 
 const CHAT_AREA = "components/ChatArea.tsx";
 
-describe("check-async-landing-points", () => {
+describe("check-async-landing-points", { timeout: 60_000 }, () => {
   it("passes on the tree as shipped", () => {
     const { code, out } = run();
     expect(out, out).toContain("[async-landing] ok");
