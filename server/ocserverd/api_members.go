@@ -404,6 +404,7 @@ func (s *apiServer) HandleListMembersApiMembersGet(w http.ResponseWriter, r *htt
 		calls = newModelCallBoard(members, tele, s.modelCallClock())
 	}
 
+	isOwner := s.callerIsOwner(r)
 	out := []memberDTO{}
 	for _, m := range members {
 		if m.RosterStatus == RosterStatusRemoved {
@@ -425,10 +426,14 @@ func (s *apiServer) HandleListMembersApiMembersGet(w http.ResponseWriter, r *htt
 				internalError(w, err)
 				return
 			}
-			out = append(out, s.projectWorker(worker, task, unread[m.ID], now, tele, gauge, machines, accountDisplay, typeNames, calls))
+			dto := s.projectWorker(worker, task, unread[m.ID], now, tele, gauge, machines, accountDisplay, typeNames, calls)
+			dto.Activity = s.ownerActivity(isOwner, dto.ID, dto.Presence)
+			out = append(out, dto)
 			continue
 		}
-		out = append(out, s.newMemberDTO(m, roleName, s.observedHost(m), unread[m.ID], machines, calls))
+		dto := s.newMemberDTO(m, roleName, s.observedHost(m), unread[m.ID], machines, calls)
+		dto.Activity = s.ownerActivity(isOwner, dto.ID, dto.Presence)
+		out = append(out, dto)
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -571,10 +576,14 @@ func (s *apiServer) HandleGetMemberApiMembersMemberIdGet(w http.ResponseWriter, 
 			internalError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, s.projectWorker(worker, task, unread[m.ID], nowSecs(), tele, gauge, machines, accountDisplay, s.taskTypeDisplayNames(), calls))
+		dto := s.projectWorker(worker, task, unread[m.ID], nowSecs(), tele, gauge, machines, accountDisplay, s.taskTypeDisplayNames(), calls)
+		dto.Activity = s.ownerActivity(s.callerIsOwner(r), dto.ID, dto.Presence)
+		writeJSON(w, http.StatusOK, dto)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.newMemberDTO(*m, roleName, s.observedHost(*m), unread[m.ID], machines, calls))
+	dto := s.newMemberDTO(*m, roleName, s.observedHost(*m), unread[m.ID], machines, calls)
+	dto.Activity = s.ownerActivity(s.callerIsOwner(r), dto.ID, dto.Presence)
+	writeJSON(w, http.StatusOK, dto)
 }
 
 // Same buildBootContext call as buildStartFrame, so the preview is the text a
@@ -1192,6 +1201,7 @@ func (s *apiServer) HandleReportWakingApiSelfWakingPost(w http.ResponseWriter, r
 		writeResolveError(w, err, "member", currentActor(r))
 		return
 	}
+	s.activity.Delete(m.ID)
 	// A new generation counts spend from zero, so its first cost is not read as an
 	// increase over the previous session's.
 	s.startAccountSpendSession(m.ID)

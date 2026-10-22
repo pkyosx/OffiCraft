@@ -34,6 +34,7 @@ function mkWireMember(over: Partial<WireMember>): WireMember {
     actual_model: "",
     actual_runtime: "",
     actual_effort: "",
+    activity: null,
     actual_machine: "",
     runtime_login_warnings: [],
     model_call_warnings: [],

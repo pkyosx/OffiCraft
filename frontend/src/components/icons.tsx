@@ -558,3 +558,51 @@ export function ShieldAlertIcon({ size = 16, className }: IconProps) {
     </svg>
   );
 }
+
+export function HourglassIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M5 22h14" />
+      <path d="M5 2h14" />
+      <path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22" />
+      <path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2" />
+    </svg>
+  );
+}
+
+/** The three steam lines carry class names so a stylesheet can animate them. */
+export function CoffeeIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path className="coffee-icon__steam coffee-icon__steam--left" d="M6 2v2" />
+      <path className="coffee-icon__steam coffee-icon__steam--mid" d="M10 2v2" />
+      <path className="coffee-icon__steam coffee-icon__steam--right" d="M14 2v2" />
+      <path d="M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1" />
+    </svg>
+  );
+}
+
+/** A four-point star with two small twinkles at its top-right and bottom-right.
+ * The groups carry class names so a stylesheet can animate each part. */
+export function SparkleIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <g transform="translate(10.5 13.5) scale(0.82) translate(-12 -12)">
+        <path
+          className="sparkle-icon__star"
+          d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"
+          fill="currentColor"
+          vectorEffect="non-scaling-stroke"
+        />
+      </g>
+      <g className="sparkle-icon__twinkle sparkle-icon__twinkle--top">
+        <path d="M20 2v4" />
+        <path d="M22 4h-4" />
+      </g>
+      <g className="sparkle-icon__twinkle sparkle-icon__twinkle--bottom">
+        <path d="M19.5 17.5v3" />
+        <path d="M21 19h-3" />
+      </g>
+    </svg>
+  );
+}

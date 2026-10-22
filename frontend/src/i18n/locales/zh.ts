@@ -721,6 +721,44 @@ export const zh = {
   },
   // ── 外包 worker 詳情面板（前端 only 精簡版：只放外包真有的欄位，
   // 不套用成員面板的機器綁定／model 編輯／context％／花費／refocus）──
+  // 成員 session 的運作狀況（名字旁的狀態圖示＋詳情面板「運作狀況」卡）。
+  // 句子由 compose.ts 的 memberActivity* 組裝。
+  activity: {
+    state: {
+      busy: "工作中",
+      waiting: "等待中",
+      idle: "閒置",
+    },
+    mainBusyLead: "主 agent 工作中（",
+    mainBusyTail: "）",
+    elapsedLead: "已",
+    elapsedSeconds: "秒",
+    elapsedMinutes: "分鐘",
+    subagentsAlsoLead: "，另有",
+    subagentsAlsoTailOne: "個 sub-agent 工作中",
+    subagentsAlsoTailMany: "個 sub-agent 工作中",
+    subagentsOnlyLead: "主 agent 已回覆完畢，",
+    subagentsOnlyTailOne: "個 sub-agent 仍在工作中",
+    subagentsOnlyTailMany: "個 sub-agent 仍在工作中",
+    noneWorking: "主 agent 與 sub-agent 都沒有在工作",
+    waitsLead: "，正在等",
+    waitsTailOne: "個背景檢查或排程",
+    waitsTailMany: "個背景檢查或排程",
+    cardTitle: "運作狀況",
+    dialogTitleSep: " · ",
+    currentState: "目前狀態",
+    openLabelSep: "，",
+    openLabel: "查看運作狀況",
+    close: "關閉",
+    mainAgent: "主 agent",
+    mainReplied: "已回覆完畢",
+    nextLead: "下次",
+    recurring: "重複",
+    waitKind: {
+      background_command: "背景指令",
+      schedule: "排程",
+    },
+  },
   workerDetail: {
     back: "返回",
     codename: "代號",

@@ -222,6 +222,145 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
     },
   );
 
+  const treeRows = (card: HTMLElement) =>
+    Array.from(card.querySelectorAll<HTMLElement>(".mp-activity__row")).map((row) => {
+      let depth = 0;
+      for (let el = row.parentElement; el && el !== card; el = el.parentElement) {
+        if (el.classList.contains("mp-activity__children")) depth++;
+      }
+      return [
+        depth,
+        row.querySelector(".activity-icon__glyph")!.className.replace("activity-icon__glyph activity-icon__glyph--", ""),
+        row.querySelector(".mp-activity__label")!.textContent,
+        row.querySelector(".mp-activity__aside")?.textContent ?? "",
+      ];
+    });
+
+  it("an online member with activity gets a 運作狀況 card right under the identity card: state, sentence, then the tree nested by parent with waits under the main agent", () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date(2026, 9, 22, 11, 0, 0) });
+    const now = Date.now() / 1000;
+    const nextRun = new Date(2026, 9, 22, 12, 15).getTime() / 1000;
+    try {
+      const { getByTestId, container } = renderPanel(
+        mkMember({
+          status: "online",
+          lifecycle: "online",
+          activity: {
+            state: "busy",
+            busySince: now - 600,
+            subagents: [
+              { id: "a1", parentId: null, name: "Explore", description: "盤點 Backlog 票", startedTs: now - 120 },
+              { id: "a2", parentId: "a1", name: "general-purpose", description: "讀取錯誤紀錄", startedTs: now - 40 },
+              { id: "p", parentId: "gone", name: "Plan", description: "", startedTs: now - 300 },
+            ],
+            waits: [
+              { kind: "background_command", description: "每 30 秒檢查 CI", nextTs: null, recurring: false },
+              { kind: "schedule", description: "檢查 PR 審查結果", nextTs: nextRun, recurring: true },
+            ],
+          },
+        }),
+      );
+      const card = getByTestId("mp-activity");
+      expect(card.previousElementSibling?.classList.contains("mp-identity")).toBe(true);
+      expect(card.querySelector(".mp-activity__head")!.textContent).toBe("運作狀況工作中");
+      expect(card.querySelector(".mp-activity__summary")!.textContent).toBe(
+        "主 agent 工作中（已 10 分鐘），另有 3 個 sub-agent 工作中，正在等 2 個背景檢查或排程",
+      );
+      expect(treeRows(card)).toEqual([
+        [0, "working", "主 agent", "已 10 分鐘"],
+        [1, "working", "Plan", "5 分鐘"],
+        [1, "working", "盤點 Backlog 票Explore", "2 分鐘"],
+        [2, "working", "讀取錯誤紀錄general-purpose", "40 秒"],
+        [1, "waiting", "每 30 秒檢查 CI", "背景指令"],
+        [1, "waiting", "檢查 PR 審查結果", "排程 · 下次 12:15 · 重複"],
+      ]);
+      expect(container.querySelector(".mp-runtime .mp-activity__summary")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("with only sub-agents running the main agent reads 已回覆完畢, and a schedule with no next run reads just 排程", () => {
+    const now = Date.now() / 1000;
+    const { getByTestId } = renderPanel(
+      mkMember({
+        status: "online",
+        lifecycle: "online",
+        activity: {
+          state: "busy",
+          busySince: null,
+          subagents: [{ id: "a1", parentId: null, name: "Explore", description: "", startedTs: now - 5 }],
+          waits: [{ kind: "schedule", description: "", nextTs: null, recurring: false }],
+        },
+      }),
+    );
+    expect(treeRows(getByTestId("mp-activity"))).toEqual([
+      [0, "waiting", "主 agent", "已回覆完畢"],
+      [1, "working", "Explore", "5 秒"],
+      [1, "waiting", "排程", ""],
+    ]);
+  });
+
+  it("an idle member with nothing waiting gets only the 運作狀況 header and the 閒置 sentence", () => {
+    const { getByTestId } = renderPanel(
+      mkMember({
+        status: "online",
+        lifecycle: "online",
+        activity: { state: "idle", busySince: null, subagents: [], waits: [] },
+      }),
+    );
+    const card = getByTestId("mp-activity");
+    expect(Array.from(card.children).map((c) => c.textContent)).toEqual([
+      "運作狀況閒置",
+      "主 agent 與 sub-agent 都沒有在工作",
+    ]);
+  });
+
+  it("without activity there is no 運作狀況 card, and the 運行狀況 card still shows its context and cost cells", () => {
+    const { queryByTestId, getByTestId } = renderPanel(
+      mkMember({ status: "online", lifecycle: "online", activity: null }),
+    );
+    expect(queryByTestId("mp-activity")).toBeNull();
+    expect(queryByTestId("mp-identity-activity")).toBeNull();
+    expect(queryByTestId("mp-identity-activity-slot")).toBeNull();
+    expect(queryByTestId("mp-identity-activity-offline")).toBeNull();
+    expect(getByTestId("mp-context").closest(".mp-runtime")).not.toBeNull();
+  });
+
+  it("an offline member's identity card leads the name with a still moon that hints 離線 and is no button", () => {
+    const { getByTestId } = renderPanel(mkMember({ status: "offline", lifecycle: "offline", activity: null }));
+    const moon = getByTestId("mp-identity-activity-offline");
+    expect(moon.className).toBe("activity-icon activity-icon--offline");
+    expect(moon.parentElement!.className).toBe("activity-name");
+    expect(moon.hasAttribute("tabindex")).toBe(false);
+    expect(moon.querySelector(".activity-icon__glyph--offline svg")).not.toBeNull();
+    fireEvent.mouseEnter(moon);
+    expect(screen.getByRole("tooltip").textContent).toBe("離線");
+  });
+
+  it("the identity card carries the presence dot on the avatar corner and the status icon right before the name, which pins its hint instead of opening a dialog", () => {
+    const { getByTestId, container } = renderPanel(
+      mkMember({
+        status: "online",
+        lifecycle: "online",
+        activity: { state: "waiting", busySince: null, subagents: [], waits: [] },
+      }),
+    );
+    const dot = getByTestId("mp-identity-presence");
+    expect(dot.closest(".presence-avatar")!.querySelector(".avatar")).not.toBeNull();
+    expect(dot.getAttribute("aria-label")).toBe("線上");
+    expect(container.querySelector(".mp-identity__status .lifecycle-dot")).toBeNull();
+    const icon = getByTestId("mp-identity-activity");
+    expect(icon.parentElement!.className).toBe("activity-name");
+    expect(icon.parentElement!.parentElement!.classList.contains("mp-identity__line")).toBe(true);
+    expect(icon.nextElementSibling!.textContent).toBe("Mira");
+    expect(icon.getAttribute("aria-label")).toBe("等待中");
+    expect(icon.getAttribute("role")).toBe("img");
+    fireEvent.click(icon);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("tooltip").className).toContain("instant-hint--pinned");
+  });
+
   it("awakened (online) shows the real running machine and its bound account", async () => {
     const { container } = renderPanel(
       mkMember({ status: "online", lifecycle: "online" })

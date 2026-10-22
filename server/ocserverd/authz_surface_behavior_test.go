@@ -1027,6 +1027,11 @@ var machineFloorWriteRulings = map[string]machineFloorRuling{
 		Ruling: "M1 wire freeze",
 		Why:    "an agent posting ITS OWN accumulated context back; identity from the token.",
 	},
+	"POST /api/agent/activity": {
+		Ruling: "T-492 · owner-approved wire (spec 9ee34ec5)",
+		Why: "same shape as /api/agent/context: a session posting ITS OWN working state, " +
+			"keyed on the token sub, so no caller can write another member's activity.",
+	},
 	"POST /api/monitoring/telemetry": {
 		Ruling: "M1 wire freeze · T-9cf8",
 		Why: "the machine heartbeat — wardens rank AT the machine floor, so this route " +

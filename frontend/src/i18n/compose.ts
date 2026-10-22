@@ -31,8 +31,8 @@
 // stays inside the (overridable) fragment.
 
 import type { Dict } from "./locales/zh";
-import type { Effort } from "../types";
-import { formatResetTime } from "../lib/dateFormat";
+import type { ActivityWait, Effort, MemberActivity } from "../types";
+import { dayStartOf, formatAbsolute, formatClock, formatResetTime } from "../lib/dateFormat";
 
 /** The UI languages a wording overlay keys on (mirrors i18n's `Language`;
  * declared locally so this module never imports the provider back). */
@@ -101,6 +101,20 @@ export interface Messages {
   runtimeSignInHint: (runtime: "claude" | "codex") => string;
   modelCallServerWarning: (runtime: "claude" | "codex") => string;
   memberModelCallLastSuccess: (age: string) => string;
+  /** The one-sentence account of a session's activity. `now` is epoch
+   * seconds; elapsed time is measured from `busySince`. */
+  memberActivitySummary: (activity: MemberActivity, now: number) => string;
+  /** 「已 3 分鐘」: how long the main agent's turn has run. */
+  memberActivitySince: (since: number, now: number) => string;
+  /** 「40 秒」/「3 分鐘」: how long a sub-agent has run. */
+  memberActivityDuration: (since: number, now: number) => string;
+  /** 「背景指令」, or 「排程 · 下次 12:15 · 重複」 in the viewer's local time; a
+   * next run that is not today carries its date (「下次 10/5 09:05」). */
+  memberActivityWaitTag: (wait: ActivityWait, now: number) => string;
+  /** 「Mira · 運作狀況」: the activity dialog's title. */
+  memberActivityDialogTitle: (name: string) => string;
+  /** 「工作中，查看運作狀況」: the accessible name of the icon that opens it. */
+  memberActivityOpenLabel: (state: MemberActivity["state"]) => string;
   /** `by` is the deadline text, or null when the wind-down is on NO clock —
    * which since T-ed79 is every cause except the second context threshold. The
    * no-clock sentence must not contain any time at all. */
@@ -232,6 +246,17 @@ export function makeMessages(t: Dict, language: Lang): Messages {
   // Named rather than returned inline: the row summary is literally the three
   // group phrases joined, so it composes them through this same object instead
   // of keeping a second copy of the every-set/empty-set rules.
+  const act = t.activity;
+  const activityElapsed = (lead: string, since: number, now: number): string => {
+    const secs = Math.max(0, Math.floor(now - since));
+    const [n, unit] =
+      secs < 60 ? [secs, act.elapsedSeconds] : [Math.floor(secs / 60), act.elapsedMinutes];
+    return [lead, String(n), unit].filter((part) => part !== "").join(" ");
+  };
+  const counted = (n: number, one: string, many: string): string =>
+    `${n} ${n === 1 ? one : many}`;
+  const nextRunAt = (ts: number, now: number): string =>
+    dayStartOf(ts) === dayStartOf(now) ? formatClock(ts) : formatAbsolute(ts, now);
   const messages: Messages = {
     // 「量於 3d 前」/「measured 3d ago」— the age rides beside the usage number
     // so a frozen snapshot can never read as a live one (T-3b90).
@@ -369,6 +394,36 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     },
     modelCallServerWarning: (runtime) => `${mcw.runtime[runtime]} ${mcw.server}`,
     memberModelCallLastSuccess: (age) => `${age} ${mp.modelCallLastSuccessAgoTail}`,
+    memberActivitySummary: (a, now) => {
+      const subs = a.subagents.length;
+      let head: string;
+      if (a.busySince !== null) {
+        head = `${act.mainBusyLead}${activityElapsed(act.elapsedLead, a.busySince, now)}${act.mainBusyTail}`;
+        if (subs > 0) {
+          head += `${act.subagentsAlsoLead} ${counted(subs, act.subagentsAlsoTailOne, act.subagentsAlsoTailMany)}`;
+        }
+      } else if (subs > 0) {
+        head = `${act.subagentsOnlyLead}${sp}${counted(subs, act.subagentsOnlyTailOne, act.subagentsOnlyTailMany)}`;
+      } else {
+        head = act.noneWorking;
+      }
+      const waits = a.waits.length;
+      return waits > 0
+        ? `${head}${act.waitsLead} ${counted(waits, act.waitsTailOne, act.waitsTailMany)}`
+        : head;
+    },
+    memberActivitySince: (since, now) => activityElapsed(act.elapsedLead, since, now),
+    memberActivityDuration: (since, now) => activityElapsed("", since, now),
+    memberActivityWaitTag: (w, now) =>
+      w.kind === "background_command"
+        ? act.waitKind.background_command
+        : [
+            act.waitKind.schedule,
+            ...(w.nextTs !== null ? [`${act.nextLead} ${nextRunAt(w.nextTs, now)}`] : []),
+            ...(w.recurring ? [act.recurring] : []),
+          ].join(" · "),
+    memberActivityDialogTitle: (name) => `${name}${act.dialogTitleSep}${act.cardTitle}`,
+    memberActivityOpenLabel: (state) => `${act.state[state]}${act.openLabelSep}${act.openLabel}`,
     // 「正在收尾以套用你的改動 · 最晚 14:32 生效」 — the deadline is a CEILING
     // (the collect fires as soon as the agent reports stopped), so the wording
     // says 最晚 rather than promising a time.

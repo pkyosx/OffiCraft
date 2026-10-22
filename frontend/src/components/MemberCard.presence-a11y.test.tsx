@@ -14,10 +14,11 @@
 // getAttribute("aria-label") check would NOT catch it (the attribute survives
 // aria-hidden; the label just stops being reachable).
 
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { MemberCard } from "./MemberCard";
+import { MemberActivityCard } from "./MemberActivity";
 import type { Member } from "../types";
 
 function mkMember(over: Partial<Member> = {}): Member {
@@ -112,7 +113,7 @@ describe("MemberCard presence — the dot carries it", () => {
   // user can't tell the states apart, which is the same failure as having no
   // label at all (and would survive every per-state check above if they all
   // read e.g. "線上").
-  it("under a runtime login warning, the card shows one exclamation right after the dot, whose hint shows at once on hover or focus, and Enter/Space on the focused mark do not open the row", () => {
+  it("under a runtime login warning, the card leads its role line with one exclamation, whose hint shows at once on hover or focus, and Enter/Space on the focused mark do not open the row", () => {
     const onChat = vi.fn();
     const onOpenDetail = vi.fn();
     const { getAllByTestId, container } = render(
@@ -134,7 +135,8 @@ describe("MemberCard presence — the dot carries it", () => {
     expect(marks).toHaveLength(1);
     expect(marks[0].getAttribute("aria-label")).toBe("mac-1 未登入 Codex\n可到「監控」頁的機器資訊，在 Codex 欄按版本號 →「登入」");
     expect(marks[0].hasAttribute("title")).toBe(false);
-    expect(marks[0].previousElementSibling).toBe(container.querySelector(".lifecycle-dot"));
+    expect(marks[0].previousElementSibling).toBeNull();
+    expect(marks[0].closest(".member-card__presence")).not.toBeNull();
     expect(screen.queryByRole("tooltip")).toBeNull();
 
     fireEvent.mouseOver(marks[0]);
@@ -189,8 +191,8 @@ describe("MemberCard presence — the dot carries it", () => {
     expect(screen.queryByRole("tooltip")).toBeNull();
   });
 
-  it("under only a model-call warning, the card shows one exclamation right after the dot naming that reason", () => {
-    const { getAllByTestId, container } = render(
+  it("under only a model-call warning, the card leads its role line with one exclamation naming that reason", () => {
+    const { getAllByTestId } = render(
       <I18nProvider>
         <MemberCard
           member={mkMember({
@@ -216,7 +218,18 @@ describe("MemberCard presence — the dot carries it", () => {
     const marks = getAllByTestId("runtime-login-warning");
     expect(marks).toHaveLength(1);
     expect(marks[0].getAttribute("aria-label")).toBe("Claude 已達用量上限");
-    expect(marks[0].previousElementSibling).toBe(container.querySelector(".lifecycle-dot"));
+    expect(marks[0].previousElementSibling).toBeNull();
+    expect(marks[0].closest(".member-card__presence")).not.toBeNull();
+  });
+
+  it("draws the dot on the avatar's corner, beside the detail button rather than inside it, and not on the role line", () => {
+    const { container } = renderCard("online");
+    const dot = container.querySelector(".lifecycle-dot")!;
+    const corner = dot.closest(".presence-avatar")!;
+    expect(corner.querySelector(":scope > .member-card__avatar")).not.toBeNull();
+    expect(dot.closest("button")).toBeNull();
+    expect(container.querySelector(".member-card__presence .lifecycle-dot")).toBeNull();
+    expect(container.querySelector(".member-card__presence")!.textContent).toBe("特助");
   });
 
   it("gives each of the five lifecycle states a distinct label", () => {
@@ -376,5 +389,248 @@ describe("MemberCard presence dot hint", () => {
     expect(getByRole("img", { name: "離線" })).toBe(dot);
     expect(dot.tabIndex).toBe(0);
     expect(dot.querySelectorAll("*")).toHaveLength(0);
+  });
+});
+
+describe("MemberCard activity icon", () => {
+  const cardWith = (
+    activity: Member["activity"],
+    onChat: () => void,
+    name = "Mira",
+    lifecycle: Member["lifecycle"] = activity ? "online" : "offline",
+  ) => (
+    <I18nProvider>
+      <MemberCard
+        member={mkMember({ name, lifecycle, activity })}
+        selected={false}
+        onOpenDetail={() => {}}
+        onChat={onChat}
+      />
+    </I18nProvider>
+  );
+  const renderWith = (activity: Member["activity"], onChat = vi.fn()) => render(cardWith(activity, onChat));
+
+  it.each([
+    ["busy", "工作中，查看運作狀況", "working", "主 agent 工作中（已 0 秒）"],
+    ["waiting", "等待中，查看運作狀況", "waiting", "主 agent 與 sub-agent 都沒有在工作，正在等 1 個背景檢查或排程"],
+    ["idle", "閒置，查看運作狀況", "idle", "主 agent 與 sub-agent 都沒有在工作"],
+  ] as const)("under %s, the icon right before the name is a button named %s, draws its own glyph and hints the summary", (state, name, glyph, hint) => {
+    const { getByTestId, getByRole } = renderWith({
+      state,
+      busySince: state === "busy" ? Date.now() / 1000 + 5 : null,
+      subagents: [],
+      waits: state === "waiting" ? [{ kind: "background_command", description: "", nextTs: null, recurring: false }] : [],
+    });
+    const icon = getByTestId("activity-icon-mira");
+    expect(icon.nextElementSibling!.textContent).toBe("Mira");
+    expect(getByRole("button", { name })).toBe(icon);
+    expect(icon.querySelector(`.activity-icon__glyph--${glyph}`)).not.toBeNull();
+    fireEvent.mouseEnter(icon);
+    expect(screen.getByRole("tooltip").textContent).toBe(hint);
+  });
+
+  it("draws 工作中 as the sparkle glyph", () => {
+    const { getByTestId } = renderWith({ state: "busy", busySince: Date.now() / 1000, subagents: [], waits: [] });
+    const glyph = getByTestId("activity-icon-mira").querySelector(".activity-icon__glyph--working")!;
+    expect(glyph.querySelector(".sparkle-icon__star")).not.toBeNull();
+    expect(glyph.querySelectorAll(".sparkle-icon__twinkle")).toHaveLength(2);
+  });
+
+  describe("運作狀況 dialog", () => {
+    const NOW = 1_800_000_000;
+    const activity: Member["activity"] = {
+      state: "busy",
+      busySince: NOW - 180,
+      subagents: [
+        { id: "s1", parentId: null, name: "ci-watch", description: "查 CI 結果", startedTs: NOW - 45 },
+        { id: "s2", parentId: "s1", name: "log-reader", description: "讀 log", startedTs: NOW - 12 },
+      ],
+      waits: [{ kind: "schedule", description: "每 10 秒檢查 CI", nextTs: null, recurring: true }],
+    };
+    const dialog = () => screen.queryByRole("dialog");
+    const rows = (root: HTMLElement) =>
+      Array.from(root.querySelectorAll(".mp-activity__row")).map((r) => r.textContent);
+
+    beforeEach(() => {
+      vi.useFakeTimers({ now: NOW * 1000 });
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("tapping the icon opens the dialog with the title, state, summary and tree, without opening the chat", () => {
+      const onChat = vi.fn();
+      const { getByTestId } = renderWith(activity, onChat);
+      fireEvent.click(getByTestId("activity-icon-mira"));
+      expect(onChat).not.toHaveBeenCalled();
+      expect(screen.queryByRole("tooltip")).toBeNull();
+      const d = screen.getByRole("dialog", { name: "Mira · 運作狀況" });
+      expect(d.getAttribute("aria-modal")).toBe("true");
+      expect(d.querySelector(".mp-activity__head")!.textContent).toBe("目前狀態工作中");
+      expect(d.querySelector(".mp-activity__state--busy")).not.toBeNull();
+      expect(d.querySelector(".mp-activity__summary")!.textContent).toBe(
+        "主 agent 工作中（已 3 分鐘），另有 2 個 sub-agent 工作中，正在等 1 個背景檢查或排程",
+      );
+      expect(rows(d)).toEqual([
+        "主 agent已 3 分鐘",
+        "查 CI 結果ci-watch45 秒",
+        "讀 loglog-reader12 秒",
+        "每 10 秒檢查 CI排程 · 重複",
+      ]);
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "關閉" }));
+    });
+
+    it("renders the very body the detail panel's 運作狀況 card renders", () => {
+      const { getByTestId } = renderWith(activity);
+      fireEvent.click(getByTestId("activity-icon-mira"));
+      const card = render(
+        <I18nProvider>
+          <MemberActivityCard activity={activity} testId="card" />
+        </I18nProvider>,
+      ).getByTestId("card");
+      const d = screen.getByRole("dialog");
+      for (const sel of [".mp-activity__summary", ".mp-activity__tree"]) {
+        expect(d.querySelector(sel)!.outerHTML, sel).toBe(card.querySelector(sel)!.outerHTML);
+      }
+    });
+
+    it("keeps counting while open", () => {
+      const { getByTestId } = renderWith(activity);
+      fireEvent.click(getByTestId("activity-icon-mira"));
+      act(() => {
+        vi.advanceTimersByTime(5_000);
+      });
+      expect(rows(screen.getByRole("dialog"))[2]).toBe("讀 loglog-reader17 秒");
+    });
+
+    it.each([
+      ["Esc", () => fireEvent.keyDown(document.activeElement!, { key: "Escape" })],
+      ["the backdrop", () => fireEvent.click(dialog()!)],
+      ["✕", () => fireEvent.click(screen.getByRole("button", { name: "關閉" }))],
+    ])("closes on %s, hands focus back to the icon and leaves the chat closed", (_, close) => {
+      const onChat = vi.fn();
+      const { getByTestId } = renderWith(activity, onChat);
+      const icon = getByTestId("activity-icon-mira");
+      fireEvent.click(icon);
+      act(() => close());
+      expect(dialog()).toBeNull();
+      expect(document.activeElement).toBe(icon);
+      expect(onChat).not.toHaveBeenCalled();
+    });
+
+    it("a click or Enter inside the dialog stays there", () => {
+      const onChat = vi.fn();
+      const { getByTestId } = renderWith(activity, onChat);
+      fireEvent.click(getByTestId("activity-icon-mira"));
+      const summary = dialog()!.querySelector(".mp-activity__summary")!;
+      fireEvent.click(summary);
+      fireEvent.keyDown(summary, { key: "Enter" });
+      expect(dialog()).not.toBeNull();
+      expect(onChat).not.toHaveBeenCalled();
+    });
+
+    it.each([["Enter", "Enter"], ["Space", " "]])("%s on the icon opens the dialog, not the chat", (_, key) => {
+      const onChat = vi.fn();
+      const { getByTestId } = renderWith(activity, onChat);
+      const icon = getByTestId("activity-icon-mira");
+      fireEvent.keyDown(icon, { key });
+      fireEvent.keyUp(icon, { key });
+      fireEvent.click(icon);
+      expect(onChat).not.toHaveBeenCalled();
+      expect(dialog()).not.toBeNull();
+    });
+
+    it("Tab and Shift+Tab keep focus inside the dialog", () => {
+      const { getByTestId } = renderWith(activity);
+      fireEvent.click(getByTestId("activity-icon-mira"));
+      const close = screen.getByRole("button", { name: "關閉" });
+      for (const shiftKey of [false, true]) {
+        const moved = fireEvent.keyDown(close, { key: "Tab", shiftKey });
+        expect(moved, shiftKey ? "Shift+Tab" : "Tab").toBe(false);
+        expect(document.activeElement).toBe(close);
+      }
+      act(() => getByTestId("activity-icon-mira").focus());
+      fireEvent.keyDown(dialog()!, { key: "Tab" });
+      expect(document.activeElement, "focus outside is pulled back in").toBe(close);
+    });
+
+    it("closes when the activity goes away or the presence leaves online, stays closed without taking focus when either returns, and a later close focuses the live icon", () => {
+      const onChat = vi.fn();
+      const { getByTestId, rerender } = renderWith(activity, onChat);
+      fireEvent.click(getByTestId("activity-icon-mira"));
+      expect(dialog()).not.toBeNull();
+      rerender(cardWith(null, onChat));
+      expect(dialog()).toBeNull();
+      rerender(cardWith(activity, onChat));
+      expect(dialog()).toBeNull();
+      expect(document.activeElement).toBe(document.body);
+      fireEvent.click(getByTestId("activity-icon-mira"));
+      expect(dialog()).not.toBeNull();
+      rerender(cardWith(activity, onChat, "Mira", "offline"));
+      expect(dialog()).toBeNull();
+      rerender(cardWith(activity, onChat, "Mira", "online"));
+      expect(dialog()).toBeNull();
+      const icon = getByTestId("activity-icon-mira");
+      expect(icon.getAttribute("aria-expanded")).toBe("false");
+      expect(document.activeElement).toBe(document.body);
+      fireEvent.click(icon);
+      fireEvent.click(screen.getByRole("button", { name: "關閉" }));
+      expect(dialog()).toBeNull();
+      expect(document.activeElement).toBe(icon);
+    });
+
+    it("closes when the card turns to another member", () => {
+      const onChat = vi.fn();
+      const { getByTestId, rerender } = renderWith(activity, onChat);
+      fireEvent.click(getByTestId("activity-icon-mira"));
+      rerender(cardWith(activity, onChat, "Nova"));
+      expect(dialog()).toBeNull();
+    });
+  });
+
+  it.each([
+    ["offline", "離線"],
+    ["waking", "喚醒中"],
+    ["stopping", "停止中"],
+    ["stopped", "已停止"],
+  ] as const)("a %s member gets a still moon before the name that hints %s, is no button, takes no focus and opens neither dialog nor chat", (lifecycle, word) => {
+    const onChat = vi.fn();
+    const { queryByTestId, getByTestId, container } = render(cardWith(null, onChat, "Mira", lifecycle));
+    expect(queryByTestId("activity-icon-mira")).toBeNull();
+    expect(queryByTestId("activity-icon-mira-slot")).toBeNull();
+    expect(screen.queryByRole("button", { name: /查看運作狀況/ })).toBeNull();
+    const moon = getByTestId("activity-icon-mira-offline");
+    expect(moon.tagName).toBe("SPAN");
+    expect(moon.className).toBe("activity-icon activity-icon--offline activity-icon--box activity-icon--list");
+    expect(moon.hasAttribute("tabindex")).toBe(false);
+    expect(moon.getAttribute("aria-hidden")).toBe("true");
+    expect(moon.querySelector(".activity-icon__glyph--offline svg")).not.toBeNull();
+    expect(moon.nextElementSibling!.textContent).toBe("Mira");
+    expect(container.querySelectorAll(".activity-icon")).toHaveLength(1);
+    fireEvent.mouseEnter(moon);
+    expect(screen.getByRole("tooltip").textContent).toBe(word);
+    fireEvent.click(moon);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(onChat).not.toHaveBeenCalled();
+    expect(screen.getByRole("tooltip").textContent).toBe(word);
+  });
+
+  it("a member that reported activity and then dropped offline gets the moon, not the stale state icon", () => {
+    const { queryByTestId, getByTestId } = render(
+      cardWith({ state: "busy", busySince: Date.now() / 1000, subagents: [], waits: [] }, vi.fn(), "Mira", "offline"),
+    );
+    expect(queryByTestId("activity-icon-mira")).toBeNull();
+    expect(getByTestId("activity-icon-mira-offline").querySelector(".activity-icon__glyph--offline")).not.toBeNull();
+  });
+
+  it("an online member that has not reported yet has no icon and no way into the dialog, only an empty hidden slot before the name", () => {
+    const { queryByTestId, getByTestId } = render(cardWith(null, vi.fn(), "Mira", "online"));
+    expect(queryByTestId("activity-icon-mira")).toBeNull();
+    expect(queryByTestId("activity-icon-mira-offline")).toBeNull();
+    expect(screen.queryByRole("button", { name: /查看運作狀況/ })).toBeNull();
+    const slot = getByTestId("activity-icon-mira-slot");
+    expect(slot.getAttribute("aria-hidden")).toBe("true");
+    expect(slot.className).toBe("activity-icon activity-icon--slot activity-icon--box activity-icon--list");
+    expect(slot.nextElementSibling!.textContent).toBe("Mira");
   });
 });

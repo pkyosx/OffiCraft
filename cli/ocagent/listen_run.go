@@ -56,6 +56,10 @@ type listener struct {
 	replySeen *replyCardSeen
 	taskSnaps map[string]taskSnap
 	once      bool
+	// False under the Codex sidecar, which reports activity itself.
+	activityHooks      bool
+	activityAPI        httpClient
+	activityFlushEvery time.Duration
 }
 
 // Copy-twin of ocwarden newSSEClient.
@@ -350,6 +354,9 @@ func (l *listener) connectOnce(ctx context.Context) (opened, activity, selfExit 
 	l.logf(noticeConnected+" — streaming %s%s%s (⇒ online while held)%s%s%s",
 		l.cfg.Base, eventsPath, baseAddressOrigin(l.cfg), verdict, station, agent)
 
+	if l.activityHooks {
+		reannounceActivity(l.activityAPI, l.cfg, float64(l.clock().UnixNano())/1e9)
+	}
 	drainReplyCards(l.api, l.cfg, l.replySeen, l.out)
 	l.drainChatNow()
 
@@ -383,6 +390,18 @@ func (l *listener) drainChatNow() int {
 func (l *listener) run(ctx context.Context) int {
 	// 🔴 No chat drain at process start — only on connect (owner ruling
 	// 2026-09-02): a boot drain makes a machine whose stream never opens look healthy.
+	if l.activityHooks && l.activityFlushEvery > 0 {
+		flushCtx, stopFlush := context.WithCancel(ctx)
+		flushed := make(chan struct{})
+		go func() {
+			l.flushActivityEvery(flushCtx)
+			close(flushed)
+		}()
+		defer func() {
+			stopFlush()
+			<-flushed
+		}()
+	}
 	backoff := l.backoffStart
 	for {
 		if ctx.Err() != nil {
@@ -439,6 +458,19 @@ func (l *listener) run(ctx context.Context) int {
 	}
 }
 
+func (l *listener) flushActivityEvery(ctx context.Context) {
+	ticker := time.NewTicker(l.activityFlushEvery)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			flushActivity(l.activityAPI, l.cfg, float64(l.clock().UnixNano())/1e9)
+		}
+	}
+}
+
 // Copy-twin of ocwarden sleepCtx.
 func sleepCtx(ctx context.Context, sleep func(time.Duration), d time.Duration) bool {
 	if ctx.Err() != nil {
@@ -451,6 +483,7 @@ func sleepCtx(ctx context.Context, sleep func(time.Duration), d time.Duration) b
 // A mis-wire (no OC_ID/OC_TOKEN) exits 0 quietly, mirroring Python cmd_listen.
 func runListen(cfg Config, env func(string) string, once bool, out io.Writer) int {
 	// Wrap before the first print: the mis-wire line below must be stamped too.
+	activityHooks := runsActivityHooks(out)
 	stamper := &eventStamper{clock: time.Now}
 	out = &stampWriter{inner: out, stamp: stamper.suffix}
 
@@ -467,13 +500,13 @@ func runListen(cfg Config, env func(string) string, once bool, out io.Writer) in
 		fmt.Fprint(out, "[ocagent] listen: no OC_ID/OC_TOKEN — nothing to do; exiting.\n")
 		return 0
 	}
-	return newListener(cfg, env, out, once, stamper).run(rootCtx())
+	return newListener(cfg, env, out, once, stamper, activityHooks).run(rootCtx())
 }
 
 // 🔴 A separate function so the wiring can be pinned: review set
 // cfg.BaseConfigured to a constant inside runListen and every test that builds
 // its listener directly stayed green while the feature was gone.
-func newListener(cfg Config, env func(string) string, out io.Writer, once bool, stamper *eventStamper) *listener {
+func newListener(cfg Config, env func(string) string, out io.Writer, once bool, stamper *eventStamper, activityHooks bool) *listener {
 	api := defaultHTTPClient()
 	return &listener{
 		stamper:           stamper,
@@ -499,7 +532,16 @@ func newListener(cfg Config, env func(string) string, out io.Writer, once bool, 
 		replySeen:         loadReplyCardSeen(replyCardSeenPath(cfg)),
 		taskSnaps:         map[string]taskSnap{},
 		once:              once,
+
+		activityHooks:      activityHooks,
+		activityAPI:        newActivityClient(),
+		activityFlushEvery: activityFlushInterval,
 	}
+}
+
+func runsActivityHooks(out io.Writer) bool {
+	_, codex := out.(*codexFrameWriter)
+	return !codex
 }
 
 func rootCtx() context.Context {

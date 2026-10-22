@@ -57,6 +57,7 @@
 
 /* ---- identity card ---- */
 .mp-identity {
+  --presence-ring: var(--color-card);
   display: flex;
   align-items: center;
   gap: 16px;
@@ -2112,4 +2113,99 @@
 .mp-resume__youareon {
   padding: 4px 0 6px;
   font-size: 12.5px;
+}
+
+/* ---- 運行狀況 (member activity) ---- */
+.mp-activity {
+  padding: 16px 20px 18px;
+}
+.mp-activity__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.mp-activity__state {
+  flex: none;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.mp-activity__state--busy {
+  color: var(--color-success);
+}
+.mp-activity__state--waiting {
+  color: var(--color-warn-fg);
+}
+.mp-activity__state--idle {
+  color: var(--color-text-muted);
+}
+.mp-activity__summary {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+.mp-activity__tree,
+.mp-activity__children {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mp-activity__tree {
+  margin-top: 10px;
+}
+.mp-activity__children {
+  margin-left: 10px;
+  padding-left: 12px;
+  border-left: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
+}
+.mp-activity__node {
+  margin-top: 6px;
+}
+.mp-activity__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: color-mix(in srgb, var(--color-overlay) 3%, transparent);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.mp-activity__row > .activity-icon__glyph {
+  height: 1.45em;
+}
+.mp-activity__row--main .mp-activity__text {
+  font-weight: 600;
+}
+.mp-activity__row--wait {
+  background: transparent;
+  border: 1px dashed var(--color-warn-fg);
+}
+.mp-activity__label {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 6px;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+.mp-activity__chip {
+  padding: 0 6px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+}
+.mp-activity__aside {
+  flex: none;
+  max-width: 45%;
+  text-align: right;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
 }

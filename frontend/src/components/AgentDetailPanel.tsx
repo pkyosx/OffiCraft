@@ -14,6 +14,8 @@ import {
   FileTextIcon,
 } from "./icons";
 import { localizeLastOpReason } from "../lib/lastOpReason";
+import type { MemberActivity } from "../types";
+import { MemberActivityCard } from "./MemberActivity";
 import "./member-detail.css";
 
 /** The lazily-fetched initial-prompt expand card's config. `fetch` returns the
@@ -148,6 +150,8 @@ export interface AgentDetailVM {
   /** What to say instead of the command when the station sent none. */
   terminalUnavailable: string;
   prompt?: AgentDetailPrompt;
+  /** null ⇒ no 運作狀況 card. */
+  activity: MemberActivity | null;
 }
 
 /** The kind-specific card slots this panel offers, in render order.
@@ -554,6 +558,7 @@ export function AgentDetailPanel({
       </button>
 
       {identity}
+      <MemberActivityCard activity={vm.activity} testId={`${p}-activity`} />
       {rendered.overlays}
       {rendered.afterIdentityCards}
 

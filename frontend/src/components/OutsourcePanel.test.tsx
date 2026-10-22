@@ -111,7 +111,7 @@ beforeEach(() => {
 });
 
 describe("OutsourcePanel", () => {
-  it("renders 代號 / [task-id chip → task type + presence 點] one line + the task TITLE line (T-3451) — NO model·識別鍵·狀態字", async () => {
+  it("renders the avatar with its corner presence 點, 代號 / [task-id chip → task type] one line + the task TITLE line (T-3451) — NO model·識別鍵·狀態字", async () => {
     const now = Date.now() / 1000;
     const task = mkTask({
       id: "t-a",
@@ -139,29 +139,21 @@ describe("OutsourcePanel", () => {
     // line 1 — the worker's name is the outsource identity label 「外包 · 代號」
     // (T-3ed8, owner 2026-07-20: consistent with the chat header / task chips).
     expect(row.textContent).toContain("外包 · O-7");
-    // line 2 — ONE line (owner 2026-07-16, second ruling): the PRESENCE dot at
-    // the LINE START (member-row parity — the shared LifecycleDot; this worker
-    // really is online, so it is the green one), THEN the task-id chip, THEN the
-    // bound task's TYPE.
+    // The PRESENCE dot is on the avatar's corner (PresenceAvatar, the same on
+    // every identity surface), beside the detail button rather than inside it;
+    // line 2 is the task-id chip then the bound task's TYPE.
     const taskLine = await findByTestId("outsource-task-line-ow-a");
     const chip = within(taskLine).getByTestId("outsource-task-ow-a");
     const typeLine = within(taskLine).getByTestId("outsource-type-ow-a");
-    // Dot, chip and type are SIBLINGS in the same one-line container, in
-    // that order — the dot is the container's FIRST element (行首).
-    const dot = taskLine.querySelector(".lifecycle-dot");
-    expect(dot).not.toBeNull();
-    expect(dot!.className).toContain("lifecycle-dot--online-awake");
-    expect(dot!.getAttribute("aria-label")).toBe(zh.office.presence["online-awake"]);
-    // The colour comes from the token layer (the shared dot's class), never an
-    // inline literal — a JS style would slip past `npm run lint:tokens`.
-    expect(dot!.getAttribute("style")).toBeNull();
-    expect(dot!.parentElement).toBe(taskLine);
-    expect(taskLine.firstElementChild).toBe(dot);
-    expect(chip.parentElement).toBe(taskLine);
+    const dot = within(row).getByTestId("outsource-presence-ow-a");
+    expect(dot.className).toContain("lifecycle-dot--online-awake");
+    expect(dot.getAttribute("aria-label")).toBe(zh.office.presence["online-awake"]);
+    expect(dot.getAttribute("style")).toBeNull();
+    expect(dot.closest(".presence-avatar")!.querySelector(":scope > .outsource-row__avatar-btn")).not.toBeNull();
+    expect(dot.closest("button")).toBeNull();
+    expect(taskLine.querySelector(".lifecycle-dot")).toBeNull();
+    expect(taskLine.firstElementChild).toBe(chip);
     expect(typeLine.parentElement).toBe(taskLine);
-    expect(
-      dot!.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
     expect(
       chip.compareDocumentPosition(typeLine) &
         Node.DOCUMENT_POSITION_FOLLOWING
@@ -231,6 +223,99 @@ describe("OutsourcePanel", () => {
     },
   );
 
+  it("shows the activity icon right before the codename with its summary hint, a still moon hinting 離線 for an offline worker or one without presence, and for an online worker without activity only an empty slot that keeps the codename in line", async () => {
+    const task = mkTask({ id: "t-i", taskNo: "T-i" });
+    __injectMockTask(task);
+    __injectMockOutsourceWorker(
+      mkWorker({
+        id: "ow-busy",
+        codename: "B-1",
+        taskId: task.id,
+        presence: "online",
+        activity: {
+          state: "waiting",
+          busySince: null,
+          subagents: [],
+          waits: [{ kind: "schedule", description: "", nextTs: null, recurring: false }],
+        },
+      }),
+    );
+    __injectMockOutsourceWorker(mkWorker({ id: "ow-off", codename: "C-1", taskId: task.id, presence: "offline" }));
+    __injectMockOutsourceWorker(mkWorker({ id: "ow-none", codename: "E-1", taskId: task.id }));
+    __injectMockOutsourceWorker(
+      mkWorker({ id: "ow-quiet", codename: "D-1", taskId: task.id, presence: "online", activity: null }),
+    );
+
+    const { findByTestId, queryByTestId } = renderOutsource();
+    const icon = await findByTestId("activity-icon-ow-busy");
+    expect(icon.nextElementSibling!.textContent).toBe("外包 · B-1");
+    expect(icon.getAttribute("aria-label")).toBe("等待中，查看運作狀況");
+    fireEvent.mouseEnter(icon);
+    expect(screen.getByRole("tooltip").textContent).toBe(
+      "主 agent 與 sub-agent 都沒有在工作，正在等 1 個背景檢查或排程",
+    );
+    await findByTestId("outsource-row-ow-off");
+    expect(queryByTestId("activity-icon-ow-off")).toBeNull();
+    expect(queryByTestId("activity-icon-ow-off-slot")).toBeNull();
+    const moon = await findByTestId("activity-icon-ow-off-offline");
+    expect(moon.tagName).toBe("SPAN");
+    expect(moon.hasAttribute("tabindex")).toBe(false);
+    expect(moon.querySelector(".activity-icon__glyph--offline svg")).not.toBeNull();
+    expect(moon.nextElementSibling!.textContent).toBe("外包 · C-1");
+    fireEvent.mouseEnter(moon);
+    expect(screen.getByRole("tooltip").textContent).toBe("離線");
+    fireEvent.mouseLeave(moon);
+    expect(queryByTestId("activity-icon-ow-none")).toBeNull();
+    const noPresenceMoon = await findByTestId("activity-icon-ow-none-offline");
+    expect(noPresenceMoon.querySelector(".activity-icon__glyph--offline svg")).not.toBeNull();
+    expect(noPresenceMoon.nextElementSibling!.textContent).toBe("外包 · E-1");
+    fireEvent.mouseEnter(noPresenceMoon);
+    expect(screen.getByRole("tooltip").textContent).toBe("離線");
+    expect(queryByTestId("activity-icon-ow-quiet")).toBeNull();
+    expect(queryByTestId("activity-icon-ow-quiet-offline")).toBeNull();
+    const slot = await findByTestId("activity-icon-ow-quiet-slot");
+    expect(slot.getAttribute("aria-hidden")).toBe("true");
+    expect(slot.tagName).toBe("SPAN");
+    expect(slot.nextElementSibling!.textContent).toBe("外包 · D-1");
+  });
+
+  it("tapping a worker's activity icon opens its 運作狀況 dialog, not its chat; the backdrop closes it", async () => {
+    const task = mkTask({ id: "t-d", taskNo: "T-d" });
+    __injectMockTask(task);
+    __injectMockOutsourceWorker(
+      mkWorker({
+        id: "ow-dlg",
+        codename: "D-1",
+        taskId: task.id,
+        presence: "online",
+        activity: {
+          state: "waiting",
+          busySince: null,
+          subagents: [],
+          waits: [{ kind: "background_command", description: "npm test", nextTs: null, recurring: false }],
+        },
+      }),
+    );
+    const before = window.location.hash;
+    const { findByTestId } = renderOutsource();
+    const icon = await findByTestId("activity-icon-ow-dlg");
+    fireEvent.click(icon);
+    expect(window.location.hash).toBe(before);
+    const dialog = screen.getByRole("dialog", { name: "外包 · D-1 · 運作狀況" });
+    expect(dialog.querySelector(".mp-activity__head")!.textContent).toBe("目前狀態等待中");
+    expect(dialog.querySelector(".mp-activity__summary")!.textContent).toBe(
+      "主 agent 與 sub-agent 都沒有在工作，正在等 1 個背景檢查或排程",
+    );
+    expect(Array.from(dialog.querySelectorAll(".mp-activity__row")).map((r) => r.textContent)).toEqual([
+      "主 agent",
+      "npm test背景指令",
+    ]);
+    fireEvent.click(dialog);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(icon);
+    expect(window.location.hash).toBe(before);
+  });
+
   it("does not paint an assigned but offline worker as live (owner screenshot: X-46)", async () => {
     const task = mkTask({ id: "t-offline", taskNo: "T-offline" });
     __injectMockTask(task);
@@ -253,7 +338,7 @@ describe("OutsourcePanel", () => {
     expect(dot.getAttribute("aria-label")).toBe(zh.office.presence.offline);
   });
 
-  it("under runtime login warnings, the row's dot is followed by one exclamation whose hover hint lists each pair on its own line, and a clean row has none", async () => {
+  it("under runtime login warnings, the row's task line leads with one exclamation whose hover hint lists each pair on its own line, and a clean row has none", async () => {
     const warned = mkTask({ id: "t-warned", taskNo: "T-warned" });
     const clean = mkTask({ id: "t-clean", taskNo: "T-clean" });
     __injectMockTask(warned);
@@ -288,11 +373,11 @@ describe("OutsourcePanel", () => {
       "可到「監控」頁的機器資訊，在 Codex 欄按版本號 →「登入」",
       "可到「監控」頁的機器資訊，在 Claude 欄按版本號 →「登入」",
     ]);
-    expect(marks[0].previousElementSibling?.getAttribute("data-testid")).toBe("outsource-presence-ow-warned");
+    expect(marks[0].previousElementSibling).toBeNull();
     expect(within(cleanLine).queryByTestId("runtime-login-warning")).toBeNull();
   });
 
-  it("under only a model-call warning, the row's dot is followed by the exclamation naming that reason, and a clean row has none", async () => {
+  it("under only a model-call warning, the row's task line leads with the exclamation naming that reason, and a clean row has none", async () => {
     const warned = mkTask({ id: "t-warned", taskNo: "T-warned" });
     const clean = mkTask({ id: "t-clean", taskNo: "T-clean" });
     __injectMockTask(warned);
@@ -326,7 +411,7 @@ describe("OutsourcePanel", () => {
     expect(marks).toHaveLength(1);
     fireEvent.mouseEnter(marks[0]);
     expect(screen.getByRole("tooltip").textContent).toBe("Codex 模型呼叫失敗（contextWindowExceeded）");
-    expect(marks[0].previousElementSibling?.getAttribute("data-testid")).toBe("outsource-presence-ow-warned");
+    expect(marks[0].previousElementSibling).toBeNull();
     expect(within(cleanLine).queryByTestId("runtime-login-warning")).toBeNull();
   });
 
@@ -655,6 +740,8 @@ describe("OutsourcePanel", () => {
         taskId: "t-1",
         taskTitle: "查帳單",
         taskStatus: "waiting_external",
+        presence: "online",
+        activity: { state: "idle", busySince: null, subagents: [], waits: [] },
       })
     );
 
@@ -677,6 +764,8 @@ describe("OutsourcePanel", () => {
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
     expect(sub.querySelector(".lifecycle-dot")).toBeNull();
+    expect(screen.getByTestId("chat-header-activity").getAttribute("aria-label")).toBe("閒置，查看運作狀況");
+    expect(screen.getByTestId("chat-header-presence").closest(".presence-avatar")).not.toBeNull();
     // T-dfae: the chat header's 任務/角色設定 buttons are wired ONLY for roster
     // members. An outsource peer has no role to define, and its tasks are not
     // separable from every other worker's (all collapse to the single

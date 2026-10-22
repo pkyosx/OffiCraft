@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -150,6 +151,18 @@ type codexSession struct {
 	// Merged across sparse account/rateLimits/updated notifications: a turn
 	// error never says when the limit lifts, only the snapshot does.
 	rateLimitWindows map[string]map[string]any
+
+	// What the owner sees as this member's activity; waits stay empty because
+	// Codex does not expose background commands.
+	busySince        float64
+	runningSubagents map[string]float64
+	// A sub-agent's first start, kept across its turns.
+	subagentFirstStart map[string]float64
+	subagentNames      map[string]string
+	subagentParent     map[string]string
+	lastActivity       string
+	threadTokenTotals  map[string]map[string]any
+	lastReportedTokens string
 
 	starting bool
 	queued   []*codexDelivery
@@ -575,6 +588,158 @@ func (s *codexSession) reportIdentity() {
 	}
 }
 
+// The station keeps identity and activity in memory only, so both go out again
+// on the heartbeat and on every listener reconnect.
+// Tokens go too when their sum changed since the last accepted report: usage
+// that landed inside the throttle window is otherwise never sent once the
+// threads go quiet, which is how a sub-agent burst ends.
+func (s *codexSession) reannounce() {
+	s.reportIdentity()
+	s.reportActivity()
+	if raw, _ := json.Marshal(s.tokenSum()); len(s.threadTokenTotals) > 0 && string(raw) != s.lastReportedTokens {
+		s.reportTokens()
+	}
+}
+
+const codexActivityNameMax = 80
+const codexActivityListMax = 50
+
+var codexNow = time.Now
+
+func codexActivityNow() float64 {
+	return float64(codexNow().UnixNano()) / 1e9
+}
+
+// Sub-agent threads of any depth run their own turns over this connection; the
+// name arrives separately, as a subAgentActivity item on the parent's thread.
+func (s *codexSession) trackActivity(method string, params map[string]any) {
+	threadID, _ := params["threadId"].(string)
+	switch method {
+	case "turn/started":
+		if s.isMainThread(params) {
+			if s.busySince == 0 {
+				s.busySince = codexActivityNow()
+			}
+			s.forgetFinishedSubagents()
+		} else if _, running := s.runningSubagents[threadID]; !running {
+			if s.runningSubagents == nil {
+				s.runningSubagents = map[string]float64{}
+			}
+			if s.subagentFirstStart == nil {
+				s.subagentFirstStart = map[string]float64{}
+			}
+			if _, seen := s.subagentFirstStart[threadID]; !seen {
+				s.subagentFirstStart[threadID] = codexActivityNow()
+			}
+			s.runningSubagents[threadID] = s.subagentFirstStart[threadID]
+		}
+	case "turn/completed":
+		if s.isMainThread(params) {
+			s.busySince = 0
+			s.forgetFinishedSubagents()
+		} else {
+			delete(s.runningSubagents, threadID)
+		}
+	// In case a sub-agent thread stops without sending turn/completed.
+	case "thread/status/changed":
+		if statusType := nestedString(params, "status", "type"); statusType == "active" || statusType == "" {
+			return
+		}
+		delete(s.runningSubagents, threadID)
+	case "item/started", "item/completed":
+		item, _ := params["item"].(map[string]any)
+		if item == nil || item["type"] != "subAgentActivity" {
+			return
+		}
+		agentThreadID, _ := item["agentThreadId"].(string)
+		agentPath, _ := item["agentPath"].(string)
+		name := agentPath[strings.LastIndex(agentPath, "/")+1:]
+		if agentThreadID == "" || name == "" {
+			return
+		}
+		if s.subagentNames == nil {
+			s.subagentNames = map[string]string{}
+			s.subagentParent = map[string]string{}
+		}
+		s.subagentNames[agentThreadID] = name
+		if parent, _ := params["threadId"].(string); parent != "" && parent != s.threadID && parent != agentThreadID {
+			s.subagentParent[agentThreadID] = parent
+		}
+	default:
+		return
+	}
+	if raw, _ := json.Marshal(s.activityBody()); string(raw) != s.lastActivity {
+		s.reportActivity()
+	}
+}
+
+// At either end of a main turn: a finished sub-agent a later main turn wakes
+// again counts from then, not from its first-ever start. One whose own child
+// is still running is waiting on it, not finished, and keeps its start.
+func (s *codexSession) forgetFinishedSubagents() {
+	waiting := map[string]bool{}
+	for id := range s.runningSubagents {
+		for parent := s.subagentParent[id]; parent != "" && !waiting[parent]; parent = s.subagentParent[parent] {
+			waiting[parent] = true
+		}
+	}
+	for id := range s.subagentFirstStart {
+		if _, running := s.runningSubagents[id]; !running && !waiting[id] {
+			delete(s.subagentFirstStart, id)
+			delete(s.subagentNames, id)
+			delete(s.subagentParent, id)
+		}
+	}
+}
+
+func (s *codexSession) activityBody() map[string]any {
+	ids := make([]string, 0, len(s.runningSubagents))
+	for id := range s.runningSubagents {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		if s.runningSubagents[ids[i]] != s.runningSubagents[ids[j]] {
+			return s.runningSubagents[ids[i]] < s.runningSubagents[ids[j]]
+		}
+		return ids[i] < ids[j]
+	})
+	subagents := []any{}
+	for _, id := range ids {
+		if len(subagents) == codexActivityListMax {
+			break
+		}
+		name := s.subagentNames[id]
+		if name == "" {
+			name = "sub-agent"
+		}
+		if runes := []rune(name); len(runes) > codexActivityNameMax {
+			name = string(runes[:codexActivityNameMax])
+		}
+		var parent any
+		if p := s.subagentParent[id]; p != "" {
+			parent = p
+		}
+		subagents = append(subagents, map[string]any{
+			"id": id, "parent_id": parent, "name": name, "description": "", "started_ts": s.runningSubagents[id],
+		})
+	}
+	var busySince any
+	if s.busySince > 0 {
+		busySince = s.busySince
+	}
+	return map[string]any{
+		"busy": s.busySince > 0, "busy_since": busySince, "subagents": subagents, "waits": []any{},
+	}
+}
+
+func (s *codexSession) reportActivity() {
+	snapshot := s.activityBody()
+	raw, _ := json.Marshal(snapshot)
+	if s.post("/api/agent/activity", snapshot) {
+		s.lastActivity = string(raw)
+	}
+}
+
 func (s *codexSession) recordReportedSuccess() {
 	if s.lastSuccessTs > s.lastReportedSuccessTs {
 		s.lastReportedSuccessTs = s.lastSuccessTs
@@ -610,6 +775,34 @@ func codexModelCallCode(turnError map[string]any) string {
 		}
 	}
 	return "unknown"
+}
+
+// Sub-agent threads share this app-server connection and send their own turn,
+// usage and compaction notifications; only the main thread's describe this agent.
+func (s *codexSession) isMainThread(params map[string]any) bool {
+	threadID, _ := params["threadId"].(string)
+	return threadID == "" || threadID == s.threadID
+}
+
+func (s *codexSession) handleTurnStarted(params map[string]any) {
+	if !s.isMainThread(params) {
+		return
+	}
+	s.active = true
+	s.turnID = nestedString(params, "turn", "id")
+	s.confirmStartedTurn()
+}
+
+// Reports whether the turn that ended was the main thread's.
+func (s *codexSession) handleTurnCompleted(params map[string]any) bool {
+	if !s.isMainThread(params) {
+		return false
+	}
+	s.active = false
+	s.turnID = ""
+	s.activity("turn completed")
+	s.recordTurnOutcome(params)
+	return true
 }
 
 // An interrupted turn counts as neither a success nor a failure.
@@ -708,33 +901,61 @@ func rateLimitSnapshot(result map[string]any) map[string]any {
 	return result
 }
 
+var codexTokenKeys = []string{
+	"inputTokens", "cachedInputTokens", "outputTokens",
+	"reasoningOutputTokens", "totalTokens",
+}
+
+// Account usage counts every thread, sub-agents included (owner ruling); the
+// context gauge is the main agent's alone. Each thread's "total" is cumulative,
+// so the latest replaces that thread's previous one, and a thread that ends
+// keeps its share. Recorded before the throttle, so a throttled update still
+// counts in the next report.
 func (s *codexSession) reportTokenUsage(params map[string]any) {
+	usage, _ := params["tokenUsage"].(map[string]any)
+	if total, ok := usage["total"].(map[string]any); ok {
+		threadID, _ := params["threadId"].(string)
+		if s.isMainThread(params) {
+			threadID = s.threadID
+		}
+		if s.threadTokenTotals == nil {
+			s.threadTokenTotals = map[string]map[string]any{}
+		}
+		s.threadTokenTotals[threadID] = total
+	}
 	if !s.allowUsageReport() {
 		return
 	}
-	usage, _ := params["tokenUsage"].(map[string]any)
-	total, _ := usage["total"].(map[string]any)
 	last, _ := usage["last"].(map[string]any)
 	window := jsonNumber(usage["modelContextWindow"])
 	// "total" is cumulative across the thread and can exceed one context
 	// window; "last" is the current turn's context gauge.
 	used := jsonNumber(last["totalTokens"])
-	if window > 0 {
+	if window > 0 && s.isMainThread(params) {
 		s.activity("context %.0f%% · compact %d", used/window*100, s.compactions)
 		s.post("/api/agent/context", map[string]any{
 			"context_pct":      used / window * 100,
 			"compaction_count": s.compactions,
 		})
 	}
+	s.reportTokens()
+}
+
+func (s *codexSession) tokenSum() map[string]any {
 	tokens := map[string]any{}
-	for _, key := range []string{
-		"inputTokens", "cachedInputTokens", "outputTokens",
-		"reasoningOutputTokens", "totalTokens",
-	} {
-		if value, ok := total[key]; ok {
-			tokens[key] = value
+	for _, total := range s.threadTokenTotals {
+		for _, key := range codexTokenKeys {
+			if value, ok := total[key]; ok {
+				sum, _ := tokens[key].(float64)
+				tokens[key] = sum + jsonNumber(value)
+			}
 		}
 	}
+	return tokens
+}
+
+func (s *codexSession) reportTokens() {
+	tokens := s.tokenSum()
 	body := map[string]any{
 		"runtime": "codex", "tokens": tokens, "effort": s.effort,
 		"account": s.account, "account_label": "ChatGPT",
@@ -745,7 +966,10 @@ func (s *codexSession) reportTokenUsage(params map[string]any) {
 	if m := strings.TrimSpace(s.model); m != "" {
 		body["model"] = m
 	}
-	s.post("/api/monitoring/telemetry", body)
+	raw, _ := json.Marshal(tokens)
+	if s.post("/api/monitoring/telemetry", body) {
+		s.lastReportedTokens = string(raw)
+	}
 }
 
 func (s *codexSession) reportRateLimits(snapshot map[string]any) {
@@ -780,6 +1004,9 @@ func (s *codexSession) reportRateLimits(snapshot map[string]any) {
 // Compaction is an item, not a turn; the deprecated thread/compacted echo is
 // intentionally ignored.
 func (s *codexSession) recordCompaction(params map[string]any) {
+	if !s.isMainThread(params) {
+		return
+	}
 	item, _ := params["item"].(map[string]any)
 	if item == nil || item["type"] != "contextCompaction" {
 		return
@@ -1104,7 +1331,7 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 	for s.messages != nil {
 		select {
 		case <-identityHeartbeat.C:
-			s.reportIdentity()
+			s.reannounce()
 		case line, ok := <-listenerLines:
 			if !ok {
 				fmt.Fprintln(out, "codex-session: ocagent listen exited; ending session for reconciliation")
@@ -1112,7 +1339,7 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 			}
 			if err := listenerState.handleListenerLine(line,
 				func() {
-					s.reportIdentity()
+					s.reannounce()
 					s.requestRateLimits()
 					identityHeartbeat.Reset(codexTelemetryThrottle)
 				},
@@ -1142,16 +1369,14 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 			}
 			method, _ := msg["method"].(string)
 			params, _ := msg["params"].(map[string]any)
+			s.trackActivity(method, params)
 			switch method {
 			case "turn/started":
-				s.active = true
-				s.turnID = nestedString(params, "turn", "id")
-				s.confirmStartedTurn()
+				s.handleTurnStarted(params)
 			case "turn/completed":
-				s.active = false
-				s.turnID = ""
-				s.activity("turn completed")
-				s.recordTurnOutcome(params)
+				if !s.handleTurnCompleted(params) {
+					continue
+				}
 				if !listenerStarted {
 					listenerStarted = true
 					listenerCmd = exec.Command(filepath.Join(*workdir, "ocagent"), "listen", "--"+listenCodexFlag)

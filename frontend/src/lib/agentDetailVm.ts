@@ -19,6 +19,7 @@
 // applied to the four pending hints).
 
 import type { AgentDetailVM } from "../components/AgentDetailPanel";
+import type { MemberActivity } from "../types";
 
 /** One machine as the settings dialog's <select> needs it. */
 export interface MachineOption {
@@ -183,6 +184,7 @@ export interface AgentDetailVmInput {
   terminalHint: string;
   terminalUnavailable: string;
   prompt?: AgentDetailVM["prompt"];
+  activity: MemberActivity | null | undefined;
 }
 
 /** The op names that render as 開機 / 停止. The worker wire prefixes its own
@@ -283,5 +285,6 @@ export function buildAgentDetailVm(input: AgentDetailVmInput): AgentDetailVM {
     terminalHint: input.terminalHint,
     terminalUnavailable: input.terminalUnavailable,
     prompt: input.prompt,
+    activity: input.activity ?? null,
   };
 }

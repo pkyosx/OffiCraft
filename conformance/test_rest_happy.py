@@ -2662,6 +2662,24 @@ HAPPY: dict[str, Happy] = {
             and "context_pct" not in d,
         ),
     ),
+    "POST /api/agent/activity": Happy(
+        identity="agent",
+        body={
+            "busy": True,
+            "busy_since": 1000,
+            "subagents": [{"id": "a-1", "name": "Explore", "started_ts": 1001}],
+            "waits": [
+                {"kind": "schedule", "description": "check CI", "next_ts": 2000, "recurring": True}
+            ],
+        },
+        check=lambda ctx, r: _expect(
+            r,
+            lambda d: set(d) == {"agent_id", "ts"}
+            and d["agent_id"] == ctx.agent.member_id
+            and isinstance(d["ts"], (int, float))
+            and d["ts"] > 0,
+        ),
+    ),
     # T-133: same reshape as the context gauge above. The old answer echoed the
     # whole merged entry (17 fields); the receipt keeps the attribution the
     # server DECIDED — machine comes from the token claim first — plus its stamp.

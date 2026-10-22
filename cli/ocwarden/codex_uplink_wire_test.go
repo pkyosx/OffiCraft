@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"testing"
+	"time"
 )
 
 // TestCodexUplinkBodies drives the codex sidecar's real producers against a test
@@ -84,6 +85,15 @@ func TestCodexUplinkBodies(t *testing.T) {
 				"additionalDetails": nil}}})
 	})
 
+	drive("activity", func() {
+		now := time.Unix(1720000400, 0)
+		stubCodexNow(t, &now)
+		session.threadID, session.busySince = "th_main", 1720000350
+		session.subagentNames = map[string]string{"th_sub": "scout"}
+		session.subagentParent = map[string]string{"th_sub": "th_outer"}
+		session.trackActivity("turn/started", map[string]any{"threadId": "th_sub", "turn": map[string]any{"id": "t-3"}})
+	})
+
 	wantCaptures := []capture{
 		{
 			run:   "identity",
@@ -134,6 +144,16 @@ func TestCodexUplinkBodies(t *testing.T) {
 						"code": "usageLimitExceeded", "resets_at": float64(1720003600)},
 					"last_success_ts": float64(1720000200),
 				},
+			},
+		},
+		{
+			run:   "activity",
+			route: "/api/agent/activity",
+			body: map[string]any{
+				"busy": true, "busy_since": float64(1720000350),
+				"subagents": []any{map[string]any{"id": "th_sub", "parent_id": "th_outer", "name": "scout",
+					"description": "", "started_ts": float64(1720000400)}},
+				"waits": []any{},
 			},
 		},
 	}

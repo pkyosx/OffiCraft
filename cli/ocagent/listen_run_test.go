@@ -5,11 +5,13 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -1119,6 +1121,84 @@ func TestConnectOnce(t *testing.T) {
 			t.Errorf("diag = %q, want %q", diag.String(), want)
 		}
 	})
+
+	t.Run("every connect sends the session's last activity snapshot again, on the activity client", func(t *testing.T) {
+		cfg := runCfg(t)
+		writeActivityState(activityStatePath(cfg), activityState{
+			Busy: true, BusySince: ptrFloat(1000),
+			Subagents: []activitySubagent{{ID: "a1", Name: "Explore", StartedTs: 1001}},
+		})
+		drains := &bodyRecordingHTTP{routedHTTP: quietAPI()}
+		activity := &bodyRecordingHTTP{routedHTTP: newRoutedHTTP(map[string]string{
+			"/api/agent/activity": `{"agent_id":"kyle","ts":1002}`})}
+		tr := &stubTransport{reply: func(int, *http.Request) (*http.Response, error) {
+			return sseReply(200, nil, ""), nil
+		}}
+		l := newRunListener(t, cfg, io.Discard, drains, tr)
+		l.activityHooks, l.activityAPI = true, activity
+
+		l.connectOnce(context.Background())
+		l.connectOnce(context.Background())
+
+		snapshot := "POST /api/agent/activity " + `{"busy":true,"busy_since":1000,` +
+			`"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"","started_ts":1001}],"waits":[]}`
+		if want := []string{snapshot, snapshot}; !reflect.DeepEqual(activity.bodies, want) {
+			t.Errorf("sent on the activity client\n  %q\nwant\n  %q", activity.bodies, want)
+		}
+		if len(drains.bodies) != 0 {
+			t.Errorf("sent on the listener's 10s client %q, want nothing — the re-announce holds the hooks' lock", drains.bodies)
+		}
+	})
+
+	t.Run("a Codex listener never re-sends an activity file left from a Claude session", func(t *testing.T) {
+		cfg := runCfg(t)
+		writeActivityState(activityStatePath(cfg), activityState{Busy: true, BusySince: ptrFloat(1000)})
+		api := &bodyRecordingHTTP{routedHTTP: quietAPI()}
+		tr := &stubTransport{reply: func(int, *http.Request) (*http.Response, error) {
+			return sseReply(200, nil, ""), nil
+		}}
+		l := newRunListener(t, cfg, io.Discard, api, tr)
+		l.activityHooks, l.activityAPI = false, api
+
+		l.connectOnce(context.Background())
+
+		if len(api.bodies) != 0 {
+			t.Errorf("sent %q, want nothing", api.bodies)
+		}
+	})
+}
+
+func TestRunsActivityHooks(t *testing.T) {
+	cases := []struct {
+		name string
+		out  io.Writer
+		want bool
+	}{
+		{"the Codex sidecar's frame writer", &codexFrameWriter{out: io.Discard}, false},
+		{"a plain transcript", io.Discard, true},
+		{"the notification mod's writer", newModWriter(io.Discard, io.Discard), true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := runsActivityHooks(tc.out); got != tc.want {
+				t.Errorf("runsActivityHooks = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// bodyRecordingHTTP is routedHTTP that also keeps every request body it was sent.
+type bodyRecordingHTTP struct {
+	*routedHTTP
+	bodies []string
+}
+
+func (b *bodyRecordingHTTP) Do(req *http.Request) (*http.Response, error) {
+	if req.Body != nil {
+		raw, _ := io.ReadAll(req.Body)
+		b.bodies = append(b.bodies, req.Method+" "+req.URL.Path+" "+string(raw))
+	}
+	return b.routedHTTP.Do(req)
 }
 
 func TestDrainChatNow(t *testing.T) {
@@ -1168,6 +1248,38 @@ func TestDrainChatNow(t *testing.T) {
 }
 
 func TestRun(t *testing.T) {
+	t.Run("a Claude session's listener retries an unsent activity snapshot on its timer, and a Codex one does not", func(t *testing.T) {
+		for _, tc := range []struct {
+			name          string
+			activityHooks bool
+			want          []string
+		}{
+			{"Claude", true, []string{"POST /api/agent/activity " +
+				`{"busy":false,"busy_since":null,"subagents":[],"waits":[]}`}},
+			{"Codex", false, nil},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				cfg := runCfg(t)
+				writeActivityState(activityStatePath(cfg), activityState{Unsent: true})
+				api := &bodyRecordingHTTP{routedHTTP: newRoutedHTTP(map[string]string{"/api/agent/activity": `{}`})}
+				tr := &stubTransport{reply: func(int, *http.Request) (*http.Response, error) {
+					return nil, errors.New("connection refused")
+				}}
+				l := newRunListener(t, cfg, io.Discard, quietAPI(), tr)
+				l.sleep = time.Sleep
+				l.activityHooks, l.activityAPI, l.activityFlushEvery = tc.activityHooks, api, 10*time.Millisecond
+				ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+				defer cancel()
+
+				l.run(ctx)
+
+				if !reflect.DeepEqual(api.bodies, tc.want) {
+					t.Errorf("sent %q, want %q", api.bodies, tc.want)
+				}
+			})
+		}
+	})
+
 	t.Run("a context already cancelled stops before dialling and says nothing", func(t *testing.T) {
 		var out strings.Builder
 		tr := &stubTransport{reply: func(int, *http.Request) (*http.Response, error) {
@@ -1496,6 +1608,49 @@ func TestSleepCtx(t *testing.T) {
 }
 
 func TestCmdListen(t *testing.T) {
+	t.Run("a Claude listener re-announces the session's activity on connect and a Codex one never does", func(t *testing.T) {
+		for _, tc := range []struct {
+			name string
+			argv []string
+			want []string
+		}{
+			{"Claude", []string{"--once"}, []string{`{"busy":true,"busy_since":1000,"subagents":[],"waits":[]}`}},
+			{"Codex", []string{"--once", "--deliver-codex"}, nil},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				var mu sync.Mutex
+				var activity []string
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					switch r.URL.Path {
+					case "/api/events":
+						w.Header().Set("Content-Type", "text/event-stream")
+					case "/api/reply-cards":
+						_, _ = w.Write([]byte(`[]`))
+					case "/api/chat":
+						_, _ = w.Write([]byte(`{"messages":[]}`))
+					case "/api/agent/activity":
+						raw, _ := io.ReadAll(r.Body)
+						mu.Lock()
+						activity = append(activity, string(raw))
+						mu.Unlock()
+						_, _ = w.Write([]byte(`{}`))
+					}
+				}))
+				defer srv.Close()
+				cfg := Config{Base: srv.URL, BaseConfigured: true, Token: "tok", MemberID: "kyle", AgentsRoot: t.TempDir()}
+				writeActivityState(activityStatePath(cfg), activityState{Busy: true, BusySince: ptrFloat(1000)})
+
+				cmdListen(tc.argv, cfg, testEnv(map[string]string{"OC_LISTEN_ACK": "1"}), io.Discard, io.Discard, runListen)
+
+				mu.Lock()
+				defer mu.Unlock()
+				if !reflect.DeepEqual(activity, tc.want) {
+					t.Errorf("sent %q, want %q", activity, tc.want)
+				}
+			})
+		}
+	})
+
 	t.Run("Codex delivers complete messages and batch markers in order", func(t *testing.T) {
 		cfg := Config{MemberID: "m-1"}
 		env := testEnv(map[string]string{"OC_LISTEN_ACK": "1"})
@@ -1711,13 +1866,22 @@ func TestNewListener(t *testing.T) {
 		stamper := &eventStamper{clock: time.Now}
 		var out strings.Builder
 
-		l := newListener(cfg, testEnv(nil), &out, true, stamper)
+		l := newListener(cfg, testEnv(nil), &out, true, stamper, true)
 
 		if l.cfg != cfg {
 			t.Errorf("cfg = %+v, want %+v — the origin segment rides BaseConfigured and BaseMalformed", l.cfg, cfg)
 		}
 		if !l.once {
 			t.Error("once = false, want true")
+		}
+		if !l.activityHooks {
+			t.Error("activityHooks = false, want the value it was handed")
+		}
+		if c, ok := l.activityAPI.(*http.Client); !ok || c.Timeout != 2*time.Second {
+			t.Errorf("activityAPI = %#v, want the hooks' 2s client — the re-announce and flush hold the hooks' lock", l.activityAPI)
+		}
+		if l.activityFlushEvery != 30*time.Second {
+			t.Errorf("activityFlushEvery = %v, want 30s", l.activityFlushEvery)
 		}
 		if l.stamper != stamper {
 			t.Error("stamp is not the stamper cmdListen already wrapped out with")
@@ -1752,7 +1916,7 @@ func TestNewListener(t *testing.T) {
 	})
 
 	t.Run("a headless run has no session to probe and no ack gate to wait on", func(t *testing.T) {
-		l := newListener(Config{MemberID: "kyle", AgentsRoot: t.TempDir()}, testEnv(nil), io.Discard, false, nil)
+		l := newListener(Config{MemberID: "kyle", AgentsRoot: t.TempDir()}, testEnv(nil), io.Discard, false, nil, true)
 
 		if l.probe != nil {
 			t.Error("probe is wired with no OC_SESSION — a headless run could self-exit on a verdict")
@@ -1768,7 +1932,7 @@ func TestNewListener(t *testing.T) {
 	t.Run("a spawned session is probed and an ack-gated sidecar is waited on", func(t *testing.T) {
 		env := testEnv(map[string]string{"OC_SESSION": "oc-kyle", "OC_LISTEN_ACK": "1"})
 
-		l := newListener(Config{MemberID: "kyle", AgentsRoot: t.TempDir()}, env, io.Discard, false, nil)
+		l := newListener(Config{MemberID: "kyle", AgentsRoot: t.TempDir()}, env, io.Discard, false, nil, true)
 
 		if l.probe == nil {
 			t.Error("probe = nil with OC_SESSION set")

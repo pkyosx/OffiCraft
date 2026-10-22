@@ -1,4 +1,8 @@
 import {
+  type FocusEvent as ReactFocusEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  type MutableRefObject,
   useEffect,
   useId,
   useLayoutEffect,
@@ -38,15 +42,28 @@ function contentRect(el: HTMLElement): { top: number; bottom: number; left: numb
  * shows at a time), so phones (no hover) can read it too. Each `\n` in `hint`
  * starts a new line. The hint is portalled to <body> with fixed
  * positioning because its hosts sit inside ellipsis / overflow-hidden rows that
- * would clip anything rendered in place. */
+ * would clip anything rendered in place.
+ *
+ * With `onActivate` the trigger is a button instead: a click or Enter/Space
+ * calls it and no longer pins the hint; hover and focus still show it.
+ * `triggerRef` follows the mounted trigger, so focus can be handed back to it.
+ * `focusable={false}` keeps a span trigger out of the tab order. */
 export function InstantHint({
   hint,
   children,
   onKeyDown,
+  onActivate,
+  triggerRef: outerRef,
+  focusable = true,
   ...rest
-}: { hint: string } & Omit<HTMLAttributes<HTMLSpanElement>, "title">) {
+}: {
+  hint: string;
+  onActivate?: () => void;
+  focusable?: boolean;
+  triggerRef?: MutableRefObject<HTMLElement | null>;
+} & Omit<HTMLAttributes<HTMLElement>, "title">) {
   const id = useId();
-  const triggerRef = useRef<HTMLSpanElement>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
   const hintRef = useRef<HTMLDivElement>(null);
   // "pinned" is set only by a click, and mouseleave / blur never clear it, so
   // neither the pointer leaving nor the blur from tapping the hint itself drops
@@ -114,30 +131,60 @@ export function InstantHint({
   const show = () => setState((s) => (s === "pinned" ? s : "shown"));
   const hide = () => setState((s) => (s === "pinned" ? s : "closed"));
 
+  const triggerProps = {
+    ...rest,
+    "aria-describedby": open ? id : undefined,
+    onMouseEnter: show,
+    onMouseLeave: hide,
+    // A button gets focus handed back after whatever it opened closes; after a
+    // pointer close that is not keyboard focus, and the hint would stay up
+    // until the next blur.
+    onFocus: (e: ReactFocusEvent<HTMLElement>) => {
+      if (!onActivate || e.currentTarget.matches(":focus-visible")) show();
+    },
+    onBlur: hide,
+    // The trigger sits inside row-buttons that open on click and on
+    // Enter/Space; neither may bubble, or using the hint opens the row.
+    onClick: (e: ReactMouseEvent<HTMLElement>) => {
+      e.stopPropagation();
+      if (onActivate) {
+        setState("closed");
+        onActivate();
+      } else {
+        setState((s) => (s === "pinned" ? "closed" : "pinned"));
+      }
+    },
+    onKeyDown: (e: ReactKeyboardEvent<HTMLElement>) => {
+      onKeyDown?.(e);
+      if (e.key === "Enter" || e.key === " ") e.stopPropagation();
+    },
+  };
+
   return (
     <>
-      <span
-        {...rest}
-        ref={triggerRef}
-        tabIndex={0}
-        aria-describedby={open ? id : undefined}
-        onMouseEnter={show}
-        onMouseLeave={hide}
-        onFocus={show}
-        onBlur={hide}
-        // The trigger sits inside row-buttons that open on click and on
-        // Enter/Space; neither may bubble, or using the hint opens the row.
-        onClick={(e) => {
-          e.stopPropagation();
-          setState((s) => (s === "pinned" ? "closed" : "pinned"));
-        }}
-        onKeyDown={(e) => {
-          onKeyDown?.(e);
-          if (e.key === "Enter" || e.key === " ") e.stopPropagation();
-        }}
-      >
-        {children}
-      </span>
+      {onActivate ? (
+        <button
+          {...triggerProps}
+          type="button"
+          ref={(el) => {
+            triggerRef.current = el;
+            if (outerRef) outerRef.current = el;
+          }}
+        >
+          {children}
+        </button>
+      ) : (
+        <span
+          {...triggerProps}
+          tabIndex={focusable ? 0 : undefined}
+          ref={(el) => {
+            triggerRef.current = el;
+            if (outerRef) outerRef.current = el;
+          }}
+        >
+          {children}
+        </span>
+      )}
       {open &&
         createPortal(
           <div

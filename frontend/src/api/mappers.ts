@@ -19,6 +19,7 @@ import {
 } from "./suggestedReplies";
 import type {
   Member,
+  MemberActivity,
   RuntimeLoginWarning,
   ModelCallWarning,
   MemberStatus,
@@ -250,6 +251,29 @@ export function toModelCallLastSuccessTs(ts: number | undefined): number | null 
   return ts && ts > 0 ? ts : null;
 }
 
+export function toMemberActivity(
+  w: WireMember["activity"] | undefined,
+): MemberActivity | null {
+  if (!w) return null;
+  return {
+    state: w.state,
+    busySince: w.busy_since ?? null,
+    subagents: (w.subagents ?? []).map((s) => ({
+      id: s.id,
+      parentId: s.parent_id ?? null,
+      name: s.name,
+      description: s.description ?? "",
+      startedTs: s.started_ts,
+    })),
+    waits: (w.waits ?? []).map((x) => ({
+      kind: x.kind,
+      description: x.description ?? "",
+      nextTs: x.next_ts ?? null,
+      recurring: x.recurring ?? false,
+    })),
+  };
+}
+
 export function toMember(w: WireMember): Member {
   // Narrowed ONCE per member (T-59d6): both `status` and `lifecycle` below are
   // projections of the same presence word, so they must agree about what
@@ -366,6 +390,7 @@ export function toMember(w: WireMember): Member {
     // inverse of the chat_read watermark, for the caller). Honest passthrough —
     // a defaulted-away wire field reads as 0, never a fabricated count.
     unreadCount: w.unread_count ?? 0,
+    activity: toMemberActivity(w.activity),
   };
 }
 
@@ -891,6 +916,7 @@ export function toOutsourceWorker(w: WireOutsourceWorker): OutsourceWorkerView {
     runtimeLoginWarnings: toRuntimeLoginWarnings(w.runtime_login_warnings),
     modelCallWarnings: toModelCallWarnings(w.model_call_warnings),
     modelCallLastSuccessTs: toModelCallLastSuccessTs(w.model_call_last_success_ts),
+    activity: toMemberActivity(w.activity),
     // Runtime facts: nullable on the wire (null = unreported). A defaulted-away
     // field arrives as undefined — coalesce to null (the honest dash), never 0.
     account: w.account ?? null,

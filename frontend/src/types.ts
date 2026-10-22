@@ -33,6 +33,35 @@ export interface RuntimeLoginWarning {
   pending: boolean;
 }
 
+export interface ActivitySubagent {
+  id: string;
+  /** The sub-agent that started this one; null = the main agent or unknown. */
+  parentId: string | null;
+  name: string;
+  /** "" when the runtime gives none. */
+  description: string;
+  /** Epoch seconds, by the member machine's clock. */
+  startedTs: number;
+}
+
+export interface ActivityWait {
+  kind: "background_command" | "schedule";
+  description: string;
+  /** A schedule's next run, epoch seconds by the member machine's clock. */
+  nextTs: number | null;
+  recurring: boolean;
+}
+
+/** What a member's session is doing right now (wire `MemberDTO.activity`). */
+export interface MemberActivity {
+  state: "busy" | "waiting" | "idle";
+  /** Epoch seconds the main agent's current turn started; null while the main
+   * agent is not in a turn. */
+  busySince: number | null;
+  subagents: ActivitySubagent[];
+  waits: ActivityWait[];
+}
+
 export type ModelCallFailureKind = "auth" | "rate_limit" | "server" | "other";
 
 export interface ModelCallWarning {
@@ -196,6 +225,10 @@ export interface Member {
    * computes it.
    */
   unreadCount: number;
+
+  /** null = not online, or the session has not reported yet; the UI then shows
+   * no activity at all. Optional so hand-built fixtures stay valid. */
+  activity?: MemberActivity | null;
 }
 
 /**

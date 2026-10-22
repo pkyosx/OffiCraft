@@ -641,6 +641,12 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			MCPTool: "ingest_agent_context",
 		}),
 		Gated(principalMachine, routeDef{
+			Method:     "POST",
+			Path:       "/api/agent/activity",
+			Handler:    w.HandleIngestAgentActivityApiAgentActivityPost,
+			MCPExclude: true,
+		}),
+		Gated(principalMachine, routeDef{
 			Method:  "POST",
 			Path:    "/api/monitoring/telemetry",
 			Handler: w.HandleIngestTelemetryApiMonitoringTelemetryPost,

@@ -299,6 +299,7 @@ export function OfficePage({
         // live worker's server-computed badge is therefore part of the same
         // entry contract as a regular member's unreadCount.
         unreadCount: workerPeer.unreadCount ?? 0,
+        activity: workerPeer.activity ?? null,
       }
     : undefined;
 
@@ -694,6 +695,7 @@ export function OfficePage({
                 <OutsourceTaskLine
                   worker={workerPeer}
                   onOpenTask={(taskId) => setRoute({ page: "tasks", taskId })}
+                  mark
                   idPrefix="outsource-chat"
                 />
               </span>

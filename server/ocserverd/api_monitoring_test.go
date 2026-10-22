@@ -162,6 +162,336 @@ func TestHandleIngestAgentContextApiAgentContextPost(t *testing.T) {
 	})
 }
 
+func TestHandleIngestAgentActivityApiAgentActivityPost(t *testing.T) {
+	t.Run("a report answers a receipt naming the caller, and the owner reads it back as busy with sub-agents earliest first", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		kip := apiTestAgentToken(t, api, "kip", "")
+		apiTestListen(t, api, "kip")
+
+		status, data := apiJSON(t, h, "POST", "/api/agent/activity", kip, `{
+			"busy": true, "busy_since": 1000,
+			"subagents": [
+				{"id": "a-2", "parent_id": "a-1", "name": "general-purpose", "started_ts": 1300},
+				{"id": "a-1", "name": "Explore", "description": "find the route table", "started_ts": 1200}
+			],
+			"waits": [
+				{"kind": "schedule", "description": "check CI", "next_ts": 1900, "recurring": true},
+				{"kind": "background_command"}
+			]}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"agent_id": "kip", "ts": apiAnyNumber})
+		receiptTS := data["ts"]
+
+		status, data = apiJSON(t, h, "GET", "/api/members/kip", owner, "")
+		if status != 200 {
+			t.Fatalf("read back: want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, apiTestOnlineKipRow(map[string]any{
+			"activity": map[string]any{
+				"state":      "busy",
+				"busy_since": 1000,
+				"subagents": []any{
+					map[string]any{"id": "a-1", "parent_id": nil, "name": "Explore", "description": "find the route table", "started_ts": 1200},
+					map[string]any{"id": "a-2", "parent_id": "a-1", "name": "general-purpose", "description": "", "started_ts": 1300},
+				},
+				"waits": []any{
+					map[string]any{"kind": "schedule", "description": "check CI", "next_ts": 1900, "recurring": true},
+					map[string]any{"kind": "background_command", "description": "", "next_ts": nil, "recurring": false},
+				},
+				"ts": receiptTS,
+			},
+		}))
+	})
+
+	for _, tc := range []struct {
+		name, body string
+		want       map[string]any
+	}{
+		{
+			name: "only sub-agents running reads busy with no busy_since",
+			body: `{"busy": false, "busy_since": 900, "subagents": [{"id": "a-1", "name": "Explore", "started_ts": 1200}]}`,
+			want: map[string]any{
+				"state": "busy", "busy_since": nil,
+				"subagents": []any{map[string]any{"id": "a-1", "parent_id": nil, "name": "Explore", "description": "", "started_ts": 1200}},
+				"waits":     []any{},
+			},
+		},
+		{
+			name: "nothing running but a wait reads waiting",
+			body: `{"busy": false, "subagents": [], "waits": [{"kind": "background_command", "description": "npm test"}]}`,
+			want: map[string]any{
+				"state": "waiting", "busy_since": nil, "subagents": []any{},
+				"waits": []any{map[string]any{"kind": "background_command", "description": "npm test", "next_ts": nil, "recurring": false}},
+			},
+		},
+		{
+			name: "nothing running and nothing waited on reads idle",
+			body: `{"busy": false, "subagents": []}`,
+			want: map[string]any{
+				"state": "idle", "busy_since": nil, "subagents": []any{}, "waits": []any{},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			api, h, _, owner := newAPITestServer(t)
+			kip := apiTestAgentToken(t, api, "kip", "")
+			apiTestListen(t, api, "kip")
+
+			status, data := apiJSON(t, h, "POST", "/api/agent/activity", kip, tc.body)
+			if status != 200 {
+				t.Fatalf("want 200, got %d (%v)", status, data)
+			}
+			tc.want["ts"] = data["ts"]
+
+			status, data = apiJSON(t, h, "GET", "/api/members/kip", owner, "")
+			if status != 200 {
+				t.Fatalf("read back: want 200, got %d (%v)", status, data)
+			}
+			apiWantValue(t, "activity", data["activity"], any(tc.want))
+		})
+	}
+
+	t.Run("a main turn reported with no start time is dated by its first report and keeps that date until a start is reported", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		kip := apiTestAgentToken(t, api, "kip", "")
+		apiTestListen(t, api, "kip")
+		body := `{"busy": true, "subagents": [], "waits": [{"kind": "schedule"}]}`
+
+		status, data := apiJSON(t, h, "POST", "/api/agent/activity", kip, body)
+		if status != 200 {
+			t.Fatalf("first report: want 200, got %d (%v)", status, data)
+		}
+		firstTS := data["ts"]
+		dashboard := apiTestListen(t, api, "")
+		status, data = apiJSON(t, h, "POST", "/api/agent/activity", kip, body)
+		if status != 200 {
+			t.Fatalf("second report: want 200, got %d (%v)", status, data)
+		}
+		secondTS := data["ts"]
+
+		status, data = apiJSON(t, h, "GET", "/api/members/kip", owner, "")
+		if status != 200 {
+			t.Fatalf("read back: want 200, got %d (%v)", status, data)
+		}
+		apiWantValue(t, "activity", data["activity"], any(map[string]any{
+			"state": "busy", "busy_since": firstTS, "subagents": []any{},
+			"waits": []any{map[string]any{"kind": "schedule", "description": "", "next_ts": nil, "recurring": false}},
+			"ts":    secondTS,
+		}))
+		dashboard.wantFrames()
+
+		status, data = apiJSON(t, h, "POST", "/api/agent/activity", kip, `{"busy": true, "busy_since": 5000, "subagents": []}`)
+		if status != 200 {
+			t.Fatalf("report with a start: want 200, got %d (%v)", status, data)
+		}
+		thirdTS := data["ts"]
+		status, data = apiJSON(t, h, "GET", "/api/members/kip", owner, "")
+		if status != 200 {
+			t.Fatalf("read back: want 200, got %d (%v)", status, data)
+		}
+		apiWantValue(t, "activity once the start is reported", data["activity"], any(map[string]any{
+			"state": "busy", "busy_since": 5000, "subagents": []any{}, "waits": []any{}, "ts": thirdTS,
+		}))
+	})
+
+	t.Run("a main turn starting after only sub-agents ran is dated by the report that starts it", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		kip := apiTestAgentToken(t, api, "kip", "")
+		apiTestListen(t, api, "kip")
+		if status, data := apiJSON(t, h, "POST", "/api/agent/activity", kip,
+			`{"busy": false, "subagents": [{"id": "a-1", "name": "Explore", "started_ts": 1200}]}`); status != 200 {
+			t.Fatalf("first report: want 200, got %d (%v)", status, data)
+		}
+
+		status, data := apiJSON(t, h, "POST", "/api/agent/activity", kip, `{"busy": true, "subagents": []}`)
+		if status != 200 {
+			t.Fatalf("second report: want 200, got %d (%v)", status, data)
+		}
+		turnTS := data["ts"]
+
+		status, data = apiJSON(t, h, "GET", "/api/members/kip", owner, "")
+		if status != 200 {
+			t.Fatalf("read back: want 200, got %d (%v)", status, data)
+		}
+		apiWantValue(t, "activity", data["activity"], any(map[string]any{
+			"state": "busy", "busy_since": turnTS, "subagents": []any{}, "waits": []any{}, "ts": turnTS,
+		}))
+	})
+
+	t.Run("a report from an online outsource worker reads back on its row", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		if err := d.PutOutsourceWorker(OutsourceWorker{
+			ID: "ow-abc123", Codename: "Contractor", Status: WorkerStatusActive,
+		}); err != nil {
+			t.Fatalf("PutOutsourceWorker: %v", err)
+		}
+		worker := apiTestAgentToken(t, api, "ow-abc123", "")
+		apiTestListen(t, api, "ow-abc123")
+
+		status, data := apiJSON(t, h, "POST", "/api/agent/activity", worker, `{"busy": true, "busy_since": 1000, "subagents": []}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"agent_id": "ow-abc123", "ts": apiAnyNumber})
+		receiptTS := data["ts"]
+
+		status, data = apiJSON(t, h, "GET", "/api/members/ow-abc123", owner, "")
+		if status != 200 {
+			t.Fatalf("read back: want 200, got %d (%v)", status, data)
+		}
+		apiWantValue(t, "presence", data["presence"], any("online"))
+		apiWantValue(t, "activity", data["activity"], any(map[string]any{
+			"state": "busy", "busy_since": 1000, "subagents": []any{}, "waits": []any{}, "ts": receiptTS,
+		}))
+	})
+
+	t.Run("a changed activity patches the member to the owner and to no agent, the reporter included", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		kip := apiTestAgentToken(t, api, "kip", "")
+		self := apiTestListen(t, api, "kip")
+		bystander := apiTestListen(t, api, "mira")
+		dashboard := apiTestListen(t, api, "")
+
+		for i, body := range []string{
+			`{"busy": true, "busy_since": 1000, "subagents": []}`,
+			`{"busy": false, "subagents": []}`,
+		} {
+			if status, data := apiJSON(t, h, "POST", "/api/agent/activity", kip, body); status != 200 {
+				t.Fatalf("report %d: want 200, got %d (%v)", i, status, data)
+			}
+		}
+
+		dashboard.wantFrames(
+			apiTestMemberFrame(1, "patch", "kip", apiTestMemberPayload("kip", "Kip", "active", ""), "kip"),
+			apiTestMemberFrame(2, "patch", "kip", apiTestMemberPayload("kip", "Kip", "active", ""), "kip"),
+		)
+		self.wantFrames()
+		bystander.wantFrames()
+	})
+
+	t.Run("a report repeating the current activity publishes nothing", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		kip := apiTestAgentToken(t, api, "kip", "")
+		body := `{"busy": true, "busy_since": 1000, "subagents": [{"id": "a-1", "name": "Explore", "started_ts": 1200}], "waits": [{"kind": "schedule", "next_ts": 1900}]}`
+		if status, data := apiJSON(t, h, "POST", "/api/agent/activity", kip, body); status != 200 {
+			t.Fatalf("first report: want 200, got %d (%v)", status, data)
+		}
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/agent/activity", kip, body)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"agent_id": "kip", "ts": apiAnyNumber})
+		dashboard.wantFrames()
+	})
+
+	long := func(n int) string { return strings.Repeat("字", n) }
+	tooMany := make([]string, 51)
+	for i := range tooMany {
+		tooMany[i] = `{"kind": "schedule"}`
+	}
+	for _, tc := range []struct {
+		name, body string
+		status     int
+		code, msg  string
+	}{
+		{"a report without busy answers 422", `{"subagents": []}`,
+			422, "validation_error", "field required: busy"},
+		{"a report without subagents answers 422", `{"busy": false}`,
+			422, "validation_error", "field required: subagents"},
+		{"a null busy answers 422", `{"busy": null, "subagents": []}`,
+			422, "validation_error", "busy must be a boolean"},
+		{"a null subagents answers 422", `{"busy": false, "subagents": null}`,
+			422, "validation_error", "subagents must be an array"},
+		{"a sub-agent without a name answers 422", `{"busy": false, "subagents": [{"id": "a-1", "started_ts": 1}]}`,
+			422, "validation_error", "field required: subagents[0].name"},
+		{"a sub-agent without a start time answers 422", `{"busy": false, "subagents": [{"id": "a-1", "name": "Explore"}]}`,
+			422, "validation_error", "field required: subagents[0].started_ts"},
+		{"a wait without a kind answers 422", `{"busy": false, "subagents": [], "waits": [{"description": "x"}]}`,
+			422, "validation_error", "field required: waits[0].kind"},
+		{"an undeclared key answers 422", `{"busy": false, "subagents": [], "agent_id": "mira"}`,
+			422, "validation_error", `invalid request body: json: unknown field "agent_id"`},
+		{"a wait kind outside the enum answers 400", `{"busy": false, "subagents": [], "waits": [{"kind": "monitor"}]}`,
+			400, "validation_error", `waits[0].kind must be background_command or schedule, got "monitor"`},
+		{"fifty-one waits answer 400", `{"busy": false, "subagents": [], "waits": [` + strings.Join(tooMany, ",") + `]}`,
+			400, "validation_error", "waits carries 51 items, over the 50-item limit"},
+		{"fifty-one sub-agents answer 400", `{"busy": false, "subagents": [` +
+			strings.Repeat(`{"id": "a", "name": "x", "started_ts": 1},`, 50) + `{"id": "a", "name": "x", "started_ts": 1}]}`,
+			400, "validation_error", "subagents carries 51 items, over the 50-item limit"},
+		{"an 81-character sub-agent name answers 400", `{"busy": false, "subagents": [{"id": "a-1", "name": "` + long(81) + `", "started_ts": 1}]}`,
+			400, "validation_error", "subagents[0].name is 81 chars, over the 80-char limit"},
+		{"a 201-character sub-agent description answers 400", `{"busy": false, "subagents": [{"id": "a-1", "name": "x", "description": "` + long(201) + `", "started_ts": 1}]}`,
+			400, "validation_error", "subagents[0].description is 201 chars, over the 200-char limit"},
+		{"a 201-character wait description answers 400", `{"busy": false, "subagents": [], "waits": [{"kind": "schedule", "description": "` + long(201) + `"}]}`,
+			400, "validation_error", "waits[0].description is 201 chars, over the 200-char limit"},
+		{"a negative sub-agent start time answers 400", `{"busy": false, "subagents": [{"id": "a-1", "name": "x", "started_ts": -1}]}`,
+			400, "validation_error", "subagents[0].started_ts must be a non-negative number"},
+		{"a sub-agent without an id answers 422", `{"busy": false, "subagents": [{"name": "x", "started_ts": 1}]}`,
+			422, "validation_error", "field required: subagents[0].id"},
+		{"an empty sub-agent id answers 400", `{"busy": false, "subagents": [{"id": "", "name": "x", "started_ts": 1}]}`,
+			400, "validation_error", "subagents[0].id must not be empty"},
+		{"an 81-character sub-agent id answers 400", `{"busy": false, "subagents": [{"id": "` + long(81) + `", "name": "x", "started_ts": 1}]}`,
+			400, "validation_error", "subagents[0].id is 81 chars, over the 80-char limit"},
+		{"two sub-agents sharing an id answer 400", `{"busy": false, "subagents": [{"id": "a-1", "name": "x", "started_ts": 1}, {"id": "a-1", "name": "y", "started_ts": 2}]}`,
+			400, "validation_error", `subagents[1].id "a-1" repeats an earlier sub-agent's id`},
+		{"an 81-character parent_id answers 400", `{"busy": false, "subagents": [{"id": "a-1", "parent_id": "` + long(81) + `", "name": "x", "started_ts": 1}]}`,
+			400, "validation_error", "subagents[0].parent_id is 81 chars, over the 80-char limit"},
+		{"a negative next_ts answers 400", `{"busy": false, "subagents": [], "waits": [{"kind": "schedule", "next_ts": -1}]}`,
+			400, "validation_error", "waits[0].next_ts must be a non-negative number"},
+		{"a recurring that is not a boolean answers 422", `{"busy": false, "subagents": [], "waits": [{"kind": "schedule", "recurring": "yes"}]}`,
+			422, "validation_error", "invalid request body: json: cannot unmarshal string into Go struct field agentActivityIngestWait.waits.recurring of type bool"},
+		{"a negative busy_since on a main turn answers 400", `{"busy": true, "busy_since": -1, "subagents": []}`,
+			400, "validation_error", "busy_since must be a non-negative number"},
+	} {
+		t.Run(tc.name+", stores nothing and fans nothing", func(t *testing.T) {
+			api, h, _, owner := newAPITestServer(t)
+			kip := apiTestAgentToken(t, api, "kip", "")
+			apiTestListen(t, api, "kip")
+			dashboard := apiTestListen(t, api, "")
+
+			status, data := apiJSON(t, h, "POST", "/api/agent/activity", kip, tc.body)
+			if status != tc.status {
+				t.Fatalf("want %d, got %d (%v)", tc.status, status, data)
+			}
+			apiWantError(t, data, tc.code, tc.msg)
+			dashboard.wantFrames()
+
+			status, data = apiJSON(t, h, "GET", "/api/members/kip", owner, "")
+			if status != 200 {
+				t.Fatalf("read back: want 200, got %d (%v)", status, data)
+			}
+			apiWantBody(t, data, apiTestOnlineKipRow(nil))
+		})
+	}
+
+	t.Run("the limits themselves are accepted: 80-character ids and names, 200-character descriptions, 50 items, zero times", func(t *testing.T) {
+		api, h, _, _ := newAPITestServer(t)
+		kip := apiTestAgentToken(t, api, "kip", "")
+		fifty := strings.TrimSuffix(strings.Repeat(`{"kind": "schedule", "description": "`+long(200)+`", "next_ts": 0},`, 50), ",")
+
+		status, data := apiJSON(t, h, "POST", "/api/agent/activity", kip, `{"busy": false, "subagents": [{"id": "`+
+			long(80)+`", "parent_id": "`+long(80)+`", "name": "`+long(80)+`", "description": "`+long(200)+
+			`", "started_ts": 0}], "waits": [`+fifty+`]}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"agent_id": "kip", "ts": apiAnyNumber})
+	})
+
+	t.Run("a request without a token answers 401", func(t *testing.T) {
+		_, h, _, _ := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "POST", "/api/agent/activity", "", `{"busy": false, "subagents": []}`)
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+	})
+}
+
 func TestTeleNum(t *testing.T) {
 	cases := []struct {
 		name    string

@@ -14,6 +14,24 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for AgentActivityWaitDTOKind.
+const (
+	BackgroundCommand AgentActivityWaitDTOKind = "background_command"
+	Schedule          AgentActivityWaitDTOKind = "schedule"
+)
+
+// Valid indicates whether the value is a known member of the AgentActivityWaitDTOKind enum.
+func (e AgentActivityWaitDTOKind) Valid() bool {
+	switch e {
+	case BackgroundCommand:
+		return true
+	case Schedule:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AgentRuntime.
 const (
 	AgentRuntimeClaude AgentRuntime = "claude"
@@ -86,6 +104,27 @@ func (e MachineDiskUsageMemberDTORosterStatus) Valid() bool {
 	case Removed:
 		return true
 	case Unknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MemberActivityDTOState.
+const (
+	Busy    MemberActivityDTOState = "busy"
+	Idle    MemberActivityDTOState = "idle"
+	Waiting MemberActivityDTOState = "waiting"
+)
+
+// Valid indicates whether the value is a known member of the MemberActivityDTOState enum.
+func (e MemberActivityDTOState) Valid() bool {
+	switch e {
+	case Busy:
+		return true
+	case Idle:
+		return true
+	case Waiting:
 		return true
 	default:
 		return false
@@ -668,6 +707,64 @@ type AccountCostResetRequestDTO struct {
 	// Account The stable account tag to zero. Blank → 422. A tag nobody has reported under is not an error: 200 with `cleared_cost` null.
 	Account string `json:"account"`
 }
+
+// AgentActivityIngestDTO Inbound activity report (“POST /api/agent/activity“): the CALLER's whole current working state, keyed by the verified JWT “sub“. Each report replaces the previous one; it is a snapshot, not an event.
+type AgentActivityIngestDTO struct {
+	// Busy True while the main agent is handling a turn.
+	Busy bool `json:"busy"`
+
+	// BusySince Epoch seconds the main agent's current turn started, by the reporting machine's clock. Ignored when ``busy`` is false; when omitted under ``busy`` the station dates the turn by its first report.
+	BusySince *float64 `json:"busy_since,omitempty"`
+
+	// Subagents Every sub-agent running right now, all nesting levels together.
+	Subagents []AgentActivitySubagentDTO `json:"subagents"`
+
+	// Waits What the session is waiting on that will wake it again: background commands, monitors and scheduled prompts. Empty when the runtime does not expose them.
+	Waits *[]AgentActivityWaitDTO `json:"waits,omitempty"`
+}
+
+// AgentActivityReceiptDTO Bounded receipt of “POST /api/agent/activity“. The derived state is served on “MemberDTO.activity“.
+type AgentActivityReceiptDTO struct {
+	// AgentId The identity the report was filed under — the verified JWT sub.
+	AgentId string `json:"agent_id"`
+
+	// Ts The server's stamp on the report, in epoch seconds.
+	Ts float64 `json:"ts"`
+}
+
+// AgentActivitySubagentDTO One running sub-agent. Shown to the owner as it is sent.
+type AgentActivitySubagentDTO struct {
+	// Description The one-line task description the parent agent gave it; empty when the runtime does not expose one.
+	Description *string `json:"description,omitempty"`
+
+	// Id The runtime's id for this sub-agent (Claude Code agent_id, Codex thread id); unique within the report.
+	Id string `json:"id"`
+
+	// Name The sub-agent's type (Claude Code, e.g. ``Explore``) or the name its parent gave it (Codex).
+	Name string `json:"name"`
+
+	// ParentId The ``id`` of the sub-agent that started this one; null when the main agent started it or the runtime did not say.
+	ParentId *string `json:"parent_id,omitempty"`
+
+	// StartedTs Epoch seconds it started, by the reporting machine's clock.
+	StartedTs float64 `json:"started_ts"`
+}
+
+// AgentActivityWaitDTO One thing a session is waiting on. Shown to the owner as it is sent.
+type AgentActivityWaitDTO struct {
+	// Description The agent's own one-line description of it (a scheduled prompt's text for ``schedule``).
+	Description *string                  `json:"description,omitempty"`
+	Kind        AgentActivityWaitDTOKind `json:"kind"`
+
+	// NextTs For ``schedule``: epoch seconds of its next run, by the reporting machine's clock; null when unknown or for other kinds.
+	NextTs *float64 `json:"next_ts,omitempty"`
+
+	// Recurring For ``schedule``: whether it repeats after ``next_ts``.
+	Recurring *bool `json:"recurring,omitempty"`
+}
+
+// AgentActivityWaitDTOKind defines model for AgentActivityWaitDTO.Kind.
+type AgentActivityWaitDTOKind string
 
 // AgentContextIngestDTO Inbound agent context-gauge report (“POST /api/agent/context“). The gauge
 // key is the CALLER (the verified JWT “sub“), NEVER a self-reported “agent_id“
@@ -2153,6 +2250,25 @@ type MemberActivateReceiptDTO struct {
 	LastOpReason *string `json:"last_op_reason,omitempty"`
 }
 
+// MemberActivityDTO A member session's working state, derived from its latest activity report: “busy“ while the main agent is handling a turn or any sub-agent (every nesting level counted) is running; “waiting“ when neither is running but the session is waiting on background commands or scheduled prompts that will wake it; “idle“ otherwise.
+type MemberActivityDTO struct {
+	// BusySince Epoch seconds the main agent's current turn started: the reporter's clock, or the station's (the turn's first report) when the reporter sent none. Null exactly when the main agent is not handling a turn, which under ``busy`` means only sub-agents are running.
+	BusySince *float64               `json:"busy_since,omitempty"`
+	State     MemberActivityDTOState `json:"state"`
+
+	// Subagents Every sub-agent running right now, all nesting levels together.
+	Subagents []AgentActivitySubagentDTO `json:"subagents"`
+
+	// Ts The server's stamp on the report this state came from, in epoch seconds.
+	Ts float64 `json:"ts"`
+
+	// Waits What the session is waiting on, whatever the ``state``.
+	Waits []AgentActivityWaitDTO `json:"waits"`
+}
+
+// MemberActivityDTOState defines model for MemberActivityDTO.State.
+type MemberActivityDTOState string
+
 // MemberAvatarDTO Narrow result of an owner-only personal-avatar mutation. “avatar_url“ is a newly minted authenticated blob path after upload and empty after removal; the changing blob id naturally cache-busts replacements.
 type MemberAvatarDTO struct {
 	AvatarUrl *string `json:"avatar_url,omitempty"`
@@ -2184,6 +2300,9 @@ type MemberBootContextDTO struct {
 // role roster (empty until role definitions land in build order B2).
 type MemberDTO struct {
 	Account *string `json:"account,omitempty"`
+
+	// Activity What the member's session is doing right now, from its own latest ``POST /api/agent/activity`` report. Filled only on the owner's reads. Null whenever ``presence`` is not ``online``, and while the member's current session has not reported yet (the reports live in memory, so a server restart also blanks it until the session reports again).
+	Activity *MemberActivityDTO `json:"activity,omitempty"`
 
 	// ActualEffort The effort level the member's session is REPORTED to be running at, from its own live telemetry (``AgentTelemetryIngestDTO.effort``) — durably persisted alongside ``actual_model``, so it survives a server restart and outlives the session that reported it. Empty means nothing has ever reported an effort for this member; it is separate from, and NEVER falls back to, the owner-configured ``effort`` launch setting. WAS: reported effort lived ONLY in the in-memory telemetry store, so a server restart blanked it fleet-wide and no detail panel could tell a configured effort from a running one (T-7f28).
 	ActualEffort *string `json:"actual_effort,omitempty"`
@@ -5096,6 +5215,9 @@ type HandleResetAccountCostApiAccountsCostResetPostJSONRequestBody = AccountCost
 // HandleUpdateAccountApiAccountsAccountIdPatchJSONRequestBody defines body for HandleUpdateAccountApiAccountsAccountIdPatch for application/json ContentType.
 type HandleUpdateAccountApiAccountsAccountIdPatchJSONRequestBody = AliasUpdateDTO
 
+// HandleIngestAgentActivityApiAgentActivityPostJSONRequestBody defines body for HandleIngestAgentActivityApiAgentActivityPost for application/json ContentType.
+type HandleIngestAgentActivityApiAgentActivityPostJSONRequestBody = AgentActivityIngestDTO
+
 // HandleIngestAgentContextApiAgentContextPostJSONRequestBody defines body for HandleIngestAgentContextApiAgentContextPost for application/json ContentType.
 type HandleIngestAgentContextApiAgentContextPostJSONRequestBody = AgentContextIngestDTO
 
@@ -5526,6 +5648,9 @@ type ServerInterface interface {
 	// Set an account's display name (id = stable tag). Blank name → 422.
 	// (PATCH /api/accounts/{account_id})
 	HandleUpdateAccountApiAccountsAccountIdPatch(w http.ResponseWriter, r *http.Request, accountId string)
+	// Ingest an agent session's working state (in-memory snapshot).
+	// (POST /api/agent/activity)
+	HandleIngestAgentActivityApiAgentActivityPost(w http.ResponseWriter, r *http.Request)
 	// Download the prebuilt ocagent binary (octet-stream) for an agent.
 	// (GET /api/agent/binary)
 	HandleAgentBinaryApiAgentBinaryGet(w http.ResponseWriter, r *http.Request)
@@ -6311,6 +6436,20 @@ func (siw *ServerInterfaceWrapper) HandleUpdateAccountApiAccountsAccountIdPatch(
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleUpdateAccountApiAccountsAccountIdPatch(w, r, accountId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleIngestAgentActivityApiAgentActivityPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleIngestAgentActivityApiAgentActivityPost(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleIngestAgentActivityApiAgentActivityPost(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -11591,6 +11730,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/accounts/cost/reset", wrapper.HandleResetAccountCostApiAccountsCostResetPost)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/accounts/{account_id}", wrapper.HandleUpdateAccountApiAccountsAccountIdPatch)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agent/activity", wrapper.HandleIngestAgentActivityApiAgentActivityPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/agent/binary", wrapper.HandleAgentBinaryApiAgentBinaryGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/agent/context", wrapper.HandleIngestAgentContextApiAgentContextPost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/auth/change-password", wrapper.HandleChangePasswordApiAuthChangePasswordPost)

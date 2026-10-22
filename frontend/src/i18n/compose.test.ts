@@ -13,7 +13,7 @@ import { en } from "./locales/en";
 import { makeMessages, effortText } from "./compose";
 import { applyWording } from "./wording";
 import { MESSAGE_KEYS } from "./messageKeys.generated";
-import type { Effort } from "../types";
+import type { ActivityWait, Effort, MemberActivity } from "../types";
 
 type Lang = "zh" | "en";
 const DICTS: Record<Lang, Dict> = { zh, en };
@@ -34,8 +34,76 @@ const at = (y: number, mo: number, d: number, h: number, mi: number): number =>
 /** The reader's clock for the reset-time rows: 2026-10-04 10:00. */
 const NOW = at(2026, 10, 4, 10, 0);
 
+/** The reader's clock for the activity rows. */
+const T = 1_800_000_000;
+const act = (over: Partial<MemberActivity>): MemberActivity => ({
+  state: "busy",
+  busySince: null,
+  subagents: [],
+  waits: [],
+  ...over,
+});
+const sub = (name: string, description: string, startedTs: number) => ({
+  id: `${name}-${startedTs}`,
+  parentId: null,
+  name,
+  description,
+  startedTs,
+});
+const SUBS_4 = [sub("a", "", T), sub("b", "", T), sub("c", "", T), sub("d", "", T)];
+const WAIT_BG = { kind: "background_command" as const, description: "npm test", nextTs: null, recurring: false };
+const WAIT_CRON = { kind: "schedule" as const, description: "每小時看 CI", nextTs: null, recurring: false };
+const NEXT = at(2026, 10, 4, 12, 15);
+const cron = (nextTs: number | null, recurring: boolean) => ({ ...WAIT_CRON, nextTs, recurring });
+
+type Arg = string | number | string[] | number[] | null | MemberActivity | ActivityWait;
 /** [language, message, arguments, the text that must appear on screen]. */
-const EXPECTED: [Lang, string, (string | number | string[] | number[] | null)[], string][] = [
+const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
+    ["zh", "memberActivitySummary", [act({ busySince: T - 180 }), T], "主 agent 工作中（已 3 分鐘）"],
+    ["en", "memberActivitySummary", [act({ busySince: T - 180 }), T], "Main agent working (for 3 min)"],
+    ["zh", "memberActivitySummary", [act({ busySince: T - 45 }), T], "主 agent 工作中（已 45 秒）"],
+    ["en", "memberActivitySummary", [act({ busySince: T - 45 }), T], "Main agent working (for 45 sec)"],
+    ["zh", "memberActivitySummary", [act({ busySince: T - 59 }), T], "主 agent 工作中（已 59 秒）"],
+    ["zh", "memberActivitySummary", [act({ busySince: T - 60 }), T], "主 agent 工作中（已 1 分鐘）"],
+    ["zh", "memberActivitySummary", [act({ busySince: T - 119 }), T], "主 agent 工作中（已 1 分鐘）"],
+    ["zh", "memberActivitySummary", [act({ busySince: T + 30 }), T], "主 agent 工作中（已 0 秒）"],
+    ["zh", "memberActivitySummary", [act({ busySince: T - 180, subagents: SUBS_4, waits: [WAIT_BG, WAIT_CRON] }), T], "主 agent 工作中（已 3 分鐘），另有 4 個 sub-agent 工作中，正在等 2 個背景檢查或排程"],
+    ["en", "memberActivitySummary", [act({ busySince: T - 180, subagents: SUBS_4, waits: [WAIT_BG, WAIT_CRON] }), T], "Main agent working (for 3 min), plus 4 sub-agents working, waiting on 2 background checks or schedules"],
+    ["zh", "memberActivityDialogTitle", ["Mira"], "Mira · 運作狀況"],
+    ["en", "memberActivityDialogTitle", ["Mira"], "Mira · Activity"],
+    ["zh", "memberActivityOpenLabel", ["busy"], "工作中，查看運作狀況"],
+    ["en", "memberActivityOpenLabel", ["waiting"], "Waiting, see activity details"],
+    ["zh", "memberActivitySummary", [act({ busySince: T - 180, subagents: SUBS_4.slice(0, 1) }), T], "主 agent 工作中（已 3 分鐘），另有 1 個 sub-agent 工作中"],
+    ["en", "memberActivitySummary", [act({ busySince: T - 180, subagents: SUBS_4.slice(0, 1) }), T], "Main agent working (for 3 min), plus 1 sub-agent working"],
+    ["zh", "memberActivitySummary", [act({ busySince: T - 180, waits: [WAIT_BG] }), T], "主 agent 工作中（已 3 分鐘），正在等 1 個背景檢查或排程"],
+    ["en", "memberActivitySummary", [act({ busySince: T - 180, waits: [WAIT_BG] }), T], "Main agent working (for 3 min), waiting on 1 background check or schedule"],
+    ["zh", "memberActivitySummary", [act({ subagents: SUBS_4.slice(0, 2) }), T], "主 agent 已回覆完畢，2 個 sub-agent 仍在工作中"],
+    ["en", "memberActivitySummary", [act({ subagents: SUBS_4.slice(0, 2) }), T], "Main agent has finished replying; 2 sub-agents still working"],
+    ["en", "memberActivitySummary", [act({ subagents: SUBS_4.slice(0, 1) }), T], "Main agent has finished replying; 1 sub-agent still working"],
+    ["zh", "memberActivitySummary", [act({ subagents: SUBS_4.slice(0, 2), waits: [WAIT_CRON] }), T], "主 agent 已回覆完畢，2 個 sub-agent 仍在工作中，正在等 1 個背景檢查或排程"],
+    ["en", "memberActivitySummary", [act({ subagents: SUBS_4.slice(0, 2), waits: [WAIT_CRON] }), T], "Main agent has finished replying; 2 sub-agents still working, waiting on 1 background check or schedule"],
+    ["zh", "memberActivitySummary", [act({ state: "waiting", waits: [WAIT_BG, WAIT_CRON, WAIT_BG] }), T], "主 agent 與 sub-agent 都沒有在工作，正在等 3 個背景檢查或排程"],
+    ["en", "memberActivitySummary", [act({ state: "waiting", waits: [WAIT_BG, WAIT_CRON, WAIT_BG] }), T], "Neither the main agent nor any sub-agent is working, waiting on 3 background checks or schedules"],
+    ["zh", "memberActivitySummary", [act({ state: "idle" }), T], "主 agent 與 sub-agent 都沒有在工作"],
+    ["zh", "memberActivitySince", [T - 180, T], "已 3 分鐘"],
+    ["zh", "memberActivitySince", [T - 40, T], "已 40 秒"],
+    ["en", "memberActivitySince", [T - 180, T], "for 3 min"],
+    ["zh", "memberActivityDuration", [T - 40, T], "40 秒"],
+    ["zh", "memberActivityDuration", [T - 125, T], "2 分鐘"],
+    ["en", "memberActivityDuration", [T - 40, T], "40 sec"],
+    ["zh", "memberActivityWaitTag", [WAIT_BG, NOW], "背景指令"],
+    ["en", "memberActivityWaitTag", [WAIT_BG, NOW], "background command"],
+    ["zh", "memberActivityWaitTag", [cron(NEXT, false), NOW], "排程 · 下次 12:15"],
+    ["zh", "memberActivityWaitTag", [cron(NEXT, true), NOW], "排程 · 下次 12:15 · 重複"],
+    ["zh", "memberActivityWaitTag", [cron(at(2026, 10, 4, 23, 59), false), NOW], "排程 · 下次 23:59"],
+    ["zh", "memberActivityWaitTag", [cron(at(2026, 10, 5, 0, 0), false), NOW], "排程 · 下次 10/5 00:00"],
+    ["zh", "memberActivityWaitTag", [cron(at(2026, 10, 11, 9, 5), true), NOW], "排程 · 下次 10/11 09:05 · 重複"],
+    ["zh", "memberActivityWaitTag", [cron(at(2027, 1, 2, 9, 5), true), NOW], "排程 · 下次 2027/1/2 09:05 · 重複"],
+    ["zh", "memberActivityWaitTag", [cron(null, false), NOW], "排程"],
+    ["zh", "memberActivityWaitTag", [cron(null, true), NOW], "排程 · 重複"],
+    ["en", "memberActivityWaitTag", [cron(NEXT, true), NOW], "schedule · next 12:15 · repeats"],
+    ["en", "memberActivityWaitTag", [cron(at(2026, 10, 5, 9, 5), true), NOW], "schedule · next 10/5 09:05 · repeats"],
+    ["en", "memberActivitySummary", [act({ state: "idle" }), T], "Neither the main agent nor any sub-agent is working"],
     // The 429 credential brake. Pinned in BOTH languages because the space
     // after the number is language-specific and is the opposite of `sp`: zh
     // wants it, en does not. Getting that backwards yields "請於 42秒後再試。"
@@ -353,9 +421,9 @@ describe("makeMessages", () => {
     (lang, name, args, want) => {
       const composed = makeMessages(DICTS[lang], lang) as unknown as Record<
         string,
-        (...a: (string | number | string[] | number[] | null)[]) => string
+        (...a: Arg[]) => string | string[]
       >;
-      expect(composed[name](...args)).toBe(want);
+      expect(composed[name](...args)).toEqual(want);
     }
   );
 
@@ -397,6 +465,33 @@ describe("makeMessages", () => {
     expect(`${m.taskProgress(3, 7)} · ${m.taskElapsed("2 小時")}`).toBe(
       "關卡 3/7 · 耗費 2 小時"
     );
+  });
+
+  it("re-words every part of the activity sentence and the tree's time and wait labels from a theme overlay", () => {
+    const themed = applyWording(zh, {
+      "activity.mainBusyLead": "主幽靈施法中（",
+      "activity.elapsedLead": "已過",
+      "activity.elapsedMinutes": "刻",
+      "activity.subagentsAlsoLead": "，還有",
+      "activity.subagentsAlsoTailMany": "個分身在施法",
+      "activity.waitsLead": "，正在守候",
+      "activity.waitsTailOne": "個背景咒語或排程鐘聲",
+      "activity.waitKind.schedule": "排程鐘聲",
+      "activity.nextLead": "下次鐘響",
+      "activity.recurring": "輪迴",
+    });
+    const m = makeMessages(themed, "zh");
+    const a = act({
+      busySince: T - 180,
+      subagents: [sub("Explore", "", T - 120), sub("Plan", "", T - 60)],
+      waits: [WAIT_CRON],
+    });
+    expect(m.memberActivitySummary(a, T)).toBe(
+      "主幽靈施法中（已過 3 刻），還有 2 個分身在施法，正在守候 1 個背景咒語或排程鐘聲",
+    );
+    expect(m.memberActivitySince(T - 180, T)).toBe("已過 3 刻");
+    expect(m.memberActivityDuration(T - 120, T)).toBe("2 刻");
+    expect(m.memberActivityWaitTag(cron(NEXT, true), NOW)).toBe("排程鐘聲 · 下次鐘響 12:15 · 輪迴");
   });
 
   it("names the monitor's own labels in the sign-in hint, so re-wording them reaches it", () => {
@@ -504,6 +599,36 @@ describe("makeMessages", () => {
       "lifecycle.signInHint.sectionTail",
       "lifecycle.signInHint.columnTail",
       "lifecycle.signInHint.tail",
+      "activity.state.busy",
+      "activity.state.waiting",
+      "activity.state.idle",
+      "activity.mainBusyLead",
+      "activity.mainBusyTail",
+      "activity.elapsedLead",
+      "activity.elapsedSeconds",
+      "activity.elapsedMinutes",
+      "activity.subagentsAlsoLead",
+      "activity.subagentsAlsoTailOne",
+      "activity.subagentsAlsoTailMany",
+      "activity.subagentsOnlyLead",
+      "activity.subagentsOnlyTailOne",
+      "activity.subagentsOnlyTailMany",
+      "activity.noneWorking",
+      "activity.waitsLead",
+      "activity.waitsTailOne",
+      "activity.waitsTailMany",
+      "activity.cardTitle",
+      "activity.mainAgent",
+      "activity.mainReplied",
+      "activity.nextLead",
+      "activity.recurring",
+      "activity.waitKind.background_command",
+      "activity.waitKind.schedule",
+      "activity.dialogTitleSep",
+      "activity.currentState",
+      "activity.openLabelSep",
+      "activity.openLabel",
+      "activity.close",
     ]) {
       expect(keys.has(code), `${code} must be overridable`).toBe(true);
     }

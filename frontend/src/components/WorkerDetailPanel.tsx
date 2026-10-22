@@ -29,7 +29,8 @@ import { AvatarEditor } from "./AvatarEditor";
 import { Avatar } from "./Avatar";
 import { ResumeSummaryCard } from "./ResumeSummaryCard";
 import { RuntimeLoginWarningMark } from "./RuntimeLoginWarningMark";
-import { LifecycleDot, presenceVisual } from "./LifecycleDot";
+import { PresenceAvatar } from "./PresenceAvatar";
+import { NameWithActivity } from "./MemberActivity";
 import { MemberActionButtons, stopLadderStageOf } from "./MemberActionButtons";
 import { ScheduledMessagesCard } from "./ScheduledMessagesCard";
 import { WebhooksCard } from "./WebhooksCard";
@@ -477,35 +478,31 @@ export function WorkerDetailPanel({
   // theme image and glyph fallbacks, plus codename + real presence. ──────────
   const identity = (
     <div className="mp-card mp-identity">
-      {onUpdateAvatar && onRemoveAvatar ? (
-        <AvatarEditor
-          size={52}
-          kind="outsource"
-          src={worker.avatarUrl}
-          onUpload={onUpdateAvatar}
-          onRemove={onRemoveAvatar}
-        />
-      ) : (
-        <Avatar size={52} kind="outsource" src={worker.avatarUrl} />
-      )}
+      <PresenceAvatar presence={worker.presence} dotTestId="worker-detail-header-dot">
+        {onUpdateAvatar && onRemoveAvatar ? (
+          <AvatarEditor
+            size={52}
+            kind="outsource"
+            src={worker.avatarUrl}
+            onUpload={onUpdateAvatar}
+            onRemove={onRemoveAvatar}
+          />
+        ) : (
+          <Avatar size={52} kind="outsource" src={worker.avatarUrl} />
+        )}
+      </PresenceAvatar>
       <div className="mp-identity__body">
         <div className="mp-identity__line">
-          <span className="outsource-row__codename">
-            {msg.outsourceLabel(worker.codename)}
-          </span>
+          <NameWithActivity activity={worker.activity} presence={worker.presence} testId="worker-detail-identity-activity" layout="group">
+            <span className="outsource-row__codename">
+              {msg.outsourceLabel(worker.codename)}
+            </span>
+          </NameWithActivity>
         </div>
         <div
           className="outsource-row__task-line"
           data-testid="worker-detail-header-task"
         >
-          {/* Presence dot — the SAME shared LifecycleDot + `presenceVisual`
-              the 正職 roster and the 外包 rail row render (T-59d6): five
-              distinct --color-dot-* colours, role="img" + label, never a
-              private colour literal and never a fabricated live green. */}
-          <LifecycleDot
-            status={presenceVisual(worker.presence)}
-            testId="worker-detail-header-dot"
-          />
           <RuntimeLoginWarningMark
             warnings={worker.runtimeLoginWarnings}
             modelCallWarnings={worker.modelCallWarnings}
@@ -916,6 +913,7 @@ export function WorkerDetailPanel({
         lastOpReason: worker.lastOpReason,
         lastOpAt: worker.lastOpAt,
         modelCallLastSuccessTs: worker.modelCallLastSuccessTs,
+        activity: worker.activity,
         // T-139: was `member-${worker.id}` — a THIRD independent copy of the
         // session-naming rule, wrapped downstream in a hardcoded socket. The
         // station composes the whole line now.

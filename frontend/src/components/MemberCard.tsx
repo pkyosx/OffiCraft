@@ -4,6 +4,8 @@ import { useWindowActive } from "../hooks/useWindowActive";
 import { Avatar } from "./Avatar";
 import { avatarKindForMember } from "../lib/avatarKind";
 import { PresenceBadge } from "./PresenceBadge";
+import { PresenceAvatar } from "./PresenceAvatar";
+import { NameWithActivity } from "./MemberActivity";
 
 interface MemberCardProps {
   member: Member;
@@ -43,49 +45,41 @@ export function MemberCard({
       role="button"
       tabIndex={0}
     >
-      {/* No status dot on the avatar: the PresenceBadge below carries the single
-       * authoritative lifecycle dot (5-state), so a 2-state avatar dot beside it
-       * would contradict it. Same reason the detail panel dropped its avatar dot.
-       * The avatar is its own click/keyboard target (member detail) nested in
+      {/* The avatar is its own click/keyboard target (member detail) nested in
        * the chat row — stopPropagation on both events keeps the two apart. */}
-      <button
-        type="button"
-        className="member-card__avatar"
-        aria-label={t.office.viewProfile}
-        title={t.office.viewProfile}
-        onClick={(e) => {
-          e.stopPropagation();
-          onOpenDetail();
-        }}
-        onKeyDown={(e) => e.stopPropagation()}
-      >
-        {/* Roster cards are 正職 members; an assistant-role member shows the
-            theme's 助理 image (T-ea81). Outsource workers live in the
-            OutsourcePanel, not this roster. */}
-        <Avatar size={40} kind={avatarKindForMember(member)} src={member.avatarUrl} />
-      </button>
+      <PresenceAvatar presence={member.lifecycle}>
+        <button
+          type="button"
+          className="member-card__avatar"
+          aria-label={t.office.viewProfile}
+          title={t.office.viewProfile}
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenDetail();
+          }}
+          onKeyDown={(e) => e.stopPropagation()}
+        >
+          <Avatar size={40} kind={avatarKindForMember(member)} src={member.avatarUrl} />
+        </button>
+      </PresenceAvatar>
 
       <div className="member-card__body">
         <div className="member-card__line">
-          <span className="member-card__name">{member.name}</span>
-          {/* No 離線 text badge beside the name (owner 2026-07-17, retires the
-           * mockup's badge): the PresenceBadge dot below already turns grey the
-           * moment a member goes offline/stopped, so the word restated a fact
-           * the dot had just made. Screen readers keep the fact — the dot names
-           * itself now (LifecycleDot role="img" + aria-label), which is what
-           * had to land BEFORE this badge could go. */}
+          <NameWithActivity
+            activity={member.activity}
+            presence={member.lifecycle}
+            memberName={member.name}
+            testId={`activity-icon-${member.id}`}
+            layout="list"
+          >
+            <span className="member-card__name">{member.name}</span>
+          </NameWithActivity>
         </div>
-        {/* Single presence truth: the SHARED PresenceBadge (lifecycle dot +
-         * role) — the SAME component the monitor session row and the detail
-         * panel render. The dot's COLOUR carries all five real presence states
-         * (offline/waking/online/stopping/stopped); the roster paints no status
-         * word and no last-seen, so presence reads identically (and once)
-         * across all three cockpit surfaces. */}
-        {/* No settings gear here: owner 2026-07-17 moved the role ⚙ OFF the
-         * roster row and INTO the member detail panel's identity card — the
-         * roster row stays a pure presence line. */}
+        {/* Line 2: the runtime warning mark and the role. Presence is the
+         * avatar-corner dot (PresenceAvatar), the same on every identity
+         * surface. */}
         <div className="member-card__presence">
-          <PresenceBadge member={member} />
+          <PresenceBadge member={member} dot={false} />
         </div>
       </div>
 

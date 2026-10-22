@@ -33,6 +33,7 @@ function mkWireMember(over: Partial<WireMember>): WireMember {
     actual_model: "",
     actual_runtime: "",
     actual_effort: "",
+    activity: null,
     actual_machine: "",
     runtime_login_warnings: [],
     model_call_warnings: [],
@@ -218,5 +219,62 @@ describe("presence narrowing at the mapper seam (T-59d6)", () => {
       toOutsourceWorker({ ...wire, presence: "waking" } as WireOutsourceWorker)
         .presence,
     ).toBe("waking");
+  });
+});
+
+describe("toMemberActivity", () => {
+  it("maps the wire activity onto both the member and the worker", () => {
+    const wire: WireMember["activity"] = {
+      state: "busy",
+      busy_since: 1_700_000_000,
+      subagents: [
+        { id: "a1", parent_id: null, name: "Explore", description: "掃描程式碼", started_ts: 1_700_000_100 },
+        { id: "a2", parent_id: "a1", name: "Plan", description: "", started_ts: 1_700_000_150 },
+      ],
+      waits: [
+        { kind: "background_command", description: "npm test", next_ts: null, recurring: false },
+        { kind: "schedule", description: "", next_ts: 1_700_003_600, recurring: true },
+      ],
+      ts: 1_700_000_200,
+    };
+    const want = {
+      state: "busy",
+      busySince: 1_700_000_000,
+      subagents: [
+        { id: "a1", parentId: null, name: "Explore", description: "掃描程式碼", startedTs: 1_700_000_100 },
+        { id: "a2", parentId: "a1", name: "Plan", description: "", startedTs: 1_700_000_150 },
+      ],
+      waits: [
+        { kind: "background_command", description: "npm test", nextTs: null, recurring: false },
+        { kind: "schedule", description: "", nextTs: 1_700_003_600, recurring: true },
+      ],
+    };
+    expect(toMember(mkWireMember({ activity: wire })).activity).toEqual(want);
+    expect(
+      toOutsourceWorker({ ...mkWireMember({}), activity: wire } as WireOutsourceWorker).activity,
+    ).toEqual(want);
+  });
+
+  it("reads a null or absent activity as null on both paths", () => {
+    expect(toMember(mkWireMember({ activity: null })).activity).toBeNull();
+    expect(
+      toOutsourceWorker({ ...mkWireMember({}), activity: undefined } as unknown as WireOutsourceWorker)
+        .activity,
+    ).toBeNull();
+  });
+
+  it("keeps a null busy_since null, the only-sub-agents-running case", () => {
+    const m = toMember(
+      mkWireMember({
+        activity: {
+          state: "busy",
+          busy_since: null,
+          subagents: [{ id: "p", parent_id: null, name: "Plan", description: "", started_ts: 5 }],
+          waits: [],
+          ts: 6,
+        },
+      }),
+    );
+    expect(m.activity?.busySince).toBeNull();
   });
 });

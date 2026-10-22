@@ -45,6 +45,173 @@
         "title": "AccountCostResetRequestDTO",
         "type": "object"
       },
+      "AgentActivityIngestDTO": {
+        "additionalProperties": false,
+        "description": "Inbound activity report (``POST /api/agent/activity``): the CALLER's whole current working state, keyed by the verified JWT ``sub``. Each report replaces the previous one; it is a snapshot, not an event.",
+        "properties": {
+          "busy": {
+            "description": "True while the main agent is handling a turn.",
+            "title": "Busy",
+            "type": "boolean"
+          },
+          "busy_since": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Epoch seconds the main agent's current turn started, by the reporting machine's clock. Ignored when ``busy`` is false; when omitted under ``busy`` the station dates the turn by its first report.",
+            "title": "Busy Since"
+          },
+          "subagents": {
+            "description": "Every sub-agent running right now, all nesting levels together.",
+            "items": {
+              "$ref": "#/components/schemas/AgentActivitySubagentDTO"
+            },
+            "maxItems": 50,
+            "title": "Subagents",
+            "type": "array"
+          },
+          "waits": {
+            "default": [],
+            "description": "What the session is waiting on that will wake it again: background commands, monitors and scheduled prompts. Empty when the runtime does not expose them.",
+            "items": {
+              "$ref": "#/components/schemas/AgentActivityWaitDTO"
+            },
+            "maxItems": 50,
+            "title": "Waits",
+            "type": "array"
+          }
+        },
+        "required": [
+          "busy",
+          "subagents"
+        ],
+        "title": "AgentActivityIngestDTO",
+        "type": "object"
+      },
+      "AgentActivityReceiptDTO": {
+        "additionalProperties": false,
+        "description": "Bounded receipt of ``POST /api/agent/activity``. The derived state is served on ``MemberDTO.activity``.",
+        "properties": {
+          "agent_id": {
+            "description": "The identity the report was filed under — the verified JWT sub.",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "ts": {
+            "description": "The server's stamp on the report, in epoch seconds.",
+            "title": "Ts",
+            "type": "number"
+          }
+        },
+        "required": [
+          "agent_id",
+          "ts"
+        ],
+        "title": "AgentActivityReceiptDTO",
+        "type": "object"
+      },
+      "AgentActivitySubagentDTO": {
+        "additionalProperties": false,
+        "description": "One running sub-agent. Shown to the owner as it is sent.",
+        "properties": {
+          "id": {
+            "description": "The runtime's id for this sub-agent (Claude Code agent_id, Codex thread id); unique within the report.",
+            "maxLength": 80,
+            "title": "Id",
+            "type": "string"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The ``id`` of the sub-agent that started this one; null when the main agent started it or the runtime did not say.",
+            "title": "Parent Id"
+          },
+          "description": {
+            "default": "",
+            "description": "The one-line task description the parent agent gave it; empty when the runtime does not expose one.",
+            "maxLength": 200,
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "description": "The sub-agent's type (Claude Code, e.g. ``Explore``) or the name its parent gave it (Codex).",
+            "maxLength": 80,
+            "title": "Name",
+            "type": "string"
+          },
+          "started_ts": {
+            "description": "Epoch seconds it started, by the reporting machine's clock.",
+            "title": "Started Ts",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "started_ts"
+        ],
+        "title": "AgentActivitySubagentDTO",
+        "type": "object"
+      },
+      "AgentActivityWaitDTO": {
+        "additionalProperties": false,
+        "description": "One thing a session is waiting on. Shown to the owner as it is sent.",
+        "properties": {
+          "description": {
+            "default": "",
+            "description": "The agent's own one-line description of it (a scheduled prompt's text for ``schedule``).",
+            "maxLength": 200,
+            "title": "Description",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "background_command",
+              "schedule"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "next_ts": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "For ``schedule``: epoch seconds of its next run, by the reporting machine's clock; null when unknown or for other kinds.",
+            "title": "Next Ts"
+          },
+          "recurring": {
+            "default": false,
+            "description": "For ``schedule``: whether it repeats after ``next_ts``.",
+            "title": "Recurring",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "AgentActivityWaitDTO",
+        "type": "object"
+      },
       "AgentContextIngestDTO": {
         "additionalProperties": false,
         "description": "Inbound agent context-gauge report (``POST /api/agent/context``). The gauge\nkey is the CALLER (the verified JWT ``sub``), NEVER a self-reported ``agent_id``\n(identity-from-token audit) — the field was removed, so an agent can only ever\nreport its OWN context. ``context_pct`` is permissive so the handler returns a\nclean 400 (not a Pydantic 422) on a non-numeric value.",
@@ -3030,6 +3197,63 @@
         "title": "MemberActivateReceiptDTO",
         "type": "object"
       },
+      "MemberActivityDTO": {
+        "additionalProperties": false,
+        "description": "A member session's working state, derived from its latest activity report: ``busy`` while the main agent is handling a turn or any sub-agent (every nesting level counted) is running; ``waiting`` when neither is running but the session is waiting on background commands or scheduled prompts that will wake it; ``idle`` otherwise.",
+        "properties": {
+          "busy_since": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Epoch seconds the main agent's current turn started: the reporter's clock, or the station's (the turn's first report) when the reporter sent none. Null exactly when the main agent is not handling a turn, which under ``busy`` means only sub-agents are running.",
+            "title": "Busy Since"
+          },
+          "state": {
+            "enum": [
+              "busy",
+              "waiting",
+              "idle"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "subagents": {
+            "description": "Every sub-agent running right now, all nesting levels together.",
+            "items": {
+              "$ref": "#/components/schemas/AgentActivitySubagentDTO"
+            },
+            "title": "Subagents",
+            "type": "array"
+          },
+          "waits": {
+            "description": "What the session is waiting on, whatever the ``state``.",
+            "items": {
+              "$ref": "#/components/schemas/AgentActivityWaitDTO"
+            },
+            "title": "Waits",
+            "type": "array"
+          },
+          "ts": {
+            "description": "The server's stamp on the report this state came from, in epoch seconds.",
+            "title": "Ts",
+            "type": "number"
+          }
+        },
+        "required": [
+          "state",
+          "subagents",
+          "waits",
+          "ts"
+        ],
+        "title": "MemberActivityDTO",
+        "type": "object"
+      },
       "MemberAvatarDTO": {
         "additionalProperties": false,
         "description": "Narrow result of an owner-only personal-avatar mutation. ``avatar_url`` is a newly minted authenticated blob path after upload and empty after removal; the changing blob id naturally cache-busts replacements.",
@@ -3085,6 +3309,18 @@
         "additionalProperties": false,
         "description": "API representation of one ``domain.Member`` (a roster member; §3.4 #8/#10).\n\nCarries the durable roster fields PLUS one projection the domain computes at\nread time: ``presence`` (the DERIVED five-state\noffline/waking/online/stopping/stopped, §3.6 — never stored; the SINGLE\npresence word on this wire). The raw ``online`` / ``waking_since`` /\n``stopping_timed_out`` projections were removed from the wire (2026-07-11\naudit): the FE mapper never mapped them and no agent read them — every\nconsumer reads ``presence``. ``roster_status`` is the\nactive/removed LIFECYCLE (the durable ``member.status``), orthogonal to\npresence — named ``roster_status`` on the wire because the FE view model\nalready uses ``status`` for its presence tint (three layers, one word was a\ncollision). The member's TOKEN is NEVER on this DTO.\n\n``role_name`` is the role's display title, resolved by the handler from the\nrole roster (empty until role definitions land in build order B2).",
         "properties": {
+          "activity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MemberActivityDTO"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "What the member's session is doing right now, from its own latest ``POST /api/agent/activity`` report. Filled only on the owner's reads. Null whenever ``presence`` is not ``online``, and while the member's current session has not reported yet (the reports live in memory, so a server restart also blanks it until the session reports again)."
+          },
           "actual_effort": {
             "default": "",
             "description": "The effort level the member's session is REPORTED to be running at, from its own live telemetry (``AgentTelemetryIngestDTO.effort``) — durably persisted alongside ``actual_model``, so it survives a server restart and outlives the session that reported it. Empty means nothing has ever reported an effort for this member; it is separate from, and NEVER falls back to, the owner-configured ``effort`` launch setting. WAS: reported effort lived ONLY in the in-memory telemetry store, so a server restart blanked it fleet-wide and no detail panel could tell a configured effort from a running one (T-7f28).",
@@ -11831,6 +12067,68 @@
           }
         },
         "summary": "Download the prebuilt ocagent binary (octet-stream) for an agent.",
+        "x-mcp": {
+          "include": false
+        }
+      }
+    },
+    "/api/agent/activity": {
+      "post": {
+        "description": "- Reports the CALLER's own working state; the key is your token, so an agent can never report for another.\n- Sent by the runtime hooks and the Codex session runner, not by the agent itself.\n- Stored in memory only — the state resets when the server restarts, and when the member reports waking.\n- Emits a ``member`` patch to the owner when the derived ``MemberDTO.activity`` changes.",
+        "operationId": "handle_ingest_agent_activity_api_agent_activity_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentActivityIngestDTO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentActivityReceiptDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Ingest an agent session's working state (in-memory snapshot).",
         "x-mcp": {
           "include": false
         }

@@ -101,11 +101,23 @@ function mkInput(over: Partial<AgentDetailVmInput> = {}): AgentDetailVmInput {
     terminalAttachCommand: "tmux -L officraft attach -t member-m-1",
     terminalHint: "hint",
     terminalUnavailable: "no command",
+    activity: null,
     ...over,
   };
 }
 
 describe("buildAgentDetailVm", () => {
+  it("carries the activity through, and reads an absent one as null", () => {
+    const activity = {
+      state: "waiting" as const,
+      busySince: null,
+      subagents: [],
+      waits: [{ kind: "schedule" as const, description: "看 CI", nextTs: null, recurring: false }],
+    };
+    expect(buildAgentDetailVm(mkInput({ activity })).activity).toEqual(activity);
+    expect(buildAgentDetailVm(mkInput({ activity: undefined })).activity).toBeNull();
+  });
+
   it("reads out the REPORTED model and effort, and says so", () => {
     const vm = buildAgentDetailVm(mkInput());
     expect(vm.model).toBe("Opus 4.6");

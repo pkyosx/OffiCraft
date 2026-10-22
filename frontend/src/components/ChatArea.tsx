@@ -49,6 +49,8 @@ import { Markdown } from "./Markdown";
 import { MarkdownPreviewOverlay } from "./MarkdownPreviewOverlay";
 import { useQuotedMessageOverlay } from "../hooks/useQuotedMessageOverlay";
 import { PresenceBadge } from "./PresenceBadge";
+import { NameWithActivity } from "./MemberActivity";
+import { PresenceAvatar } from "./PresenceAvatar";
 import { CurrentTaskTitle } from "./CurrentTaskTitle";
 import { isSyntheticSender } from "../lib/syntheticSender";
 import { docCommentRecipient, type DocCommentTarget } from "../lib/docComments";
@@ -2256,21 +2258,28 @@ export function ChatArea({
          * role — an outsource peer (ow- id) shows the theme's 外包 image, an
          * assistant the 助理 image, a 正職 peer the member image. Rendering
          * member for an outsource peer fabricated a 正職 identity. */}
-        <Avatar size={38} kind={avatarKindForMember(member)} src={member.avatarUrl} />
+        <PresenceAvatar presence={member.lifecycle} dotTestId="chat-header-presence">
+          <Avatar size={38} kind={avatarKindForMember(member)} src={member.avatarUrl} />
+        </PresenceAvatar>
         <div className="chat__header-text">
           {/* Name only — no chevron/caret glyph (owner feedback: the "Mira ›"
            * arrow was noise). The header itself stays the clickable detail
            * entry (chat__header--clickable above); its hover/focus affordance
            * carries the click hint now. */}
           <div className="chat__header-name">
-            <span>{member.name}</span>
+            <NameWithActivity
+              activity={member.activity}
+              presence={member.lifecycle}
+              memberName={member.name}
+              testId="chat-header-activity"
+            >
+              <span>{member.name}</span>
+            </NameWithActivity>
           </div>
-          {/* Single presence truth: the SHARED PresenceBadge (lifecycle dot +
-           * role) — same component as the roster card / monitor row / detail
-           * panel. No self-drawn `role · lastSeen` (that was a second presence
-           * source + the "online yet Never online" dishonesty). */}
+          {/* Presence is the avatar-corner dot; this line is the warning mark
+           * and the role (or the caller's own sub line). */}
           <div className="chat__header-sub">
-            {headerSub ?? <PresenceBadge member={member} />}
+            {headerSub ?? <PresenceBadge member={member} dot={false} />}
           </div>
           {/* T-3451: the peer's CURRENT task title, FULL (no clamp) — owner 圖2.
            * Rendered only when present (a taskless / released peer grows no

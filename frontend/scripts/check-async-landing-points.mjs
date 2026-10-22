@@ -265,6 +265,13 @@ const REGISTRY = [
       "highlight clear; cleared in the effect cleanup, and the state it writes dies with the room. The centring settle timer that used to be the second one was deleted with the jump's re-center loop (T-48, owner rc-6c27f486ef9d)",
   },
   {
+    file: "components/MemberActivity.tsx",
+    kind: "setTimeout/setInterval",
+    count: 1,
+    verdict:
+      "the activity clock's re-render tick. It writes only this component's own `now` (no peer id, no thread state); the header word renders under `ChatArea`, mounted under `key={peerId}`, so a conversation switch destroys the timer, and the effect's cleanup clears it on every re-arm and on unmount",
+  },
+  {
     file: "components/ChatThreadLoading.tsx",
     kind: "setTimeout/setInterval",
     count: 1,

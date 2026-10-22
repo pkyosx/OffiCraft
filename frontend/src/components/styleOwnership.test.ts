@@ -61,6 +61,8 @@ const OWNED_SHEETS = [
   // this sheet would free-ride on whichever page drew the row first.
   "suggested-replies.css",
   "doc-comments.css",
+  "member-activity.css",
+  "presence-avatar.css",
 ] as const;
 
 /** Sheets whose BEM block is not just the filename. `member-detail.css` owns the
@@ -77,6 +79,7 @@ const OWNED_SHEETS = [
 const BLOCK_OVERRIDES: Record<string, string> = {
   "member-detail.css": "mp",
   "task-artifact-versions.css": "ta-versions",
+  "member-activity.css": "activity-icon",
 };
 
 function blockOf(sheet: string): string {

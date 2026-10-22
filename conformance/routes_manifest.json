@@ -575,6 +575,13 @@
   },
   {
     "auth": "gated",
+    "mcp_tool": null,
+    "method": "POST",
+    "path": "/api/agent/activity",
+    "requires": "machine"
+  },
+  {
+    "auth": "gated",
     "mcp_tool": "ingest_telemetry",
     "method": "POST",
     "path": "/api/monitoring/telemetry",
