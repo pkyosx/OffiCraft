@@ -49,10 +49,7 @@ function inlinePrePaint(): Plugin {
 function testWorkerOptions(mode: string) {
   if (mode !== "test") return {};
   const workers = localTestWorkers();
-  // minWorkers must come down with it: vitest's run-mode default minimum is
-  // numCpus - 1, and a maxWorkers below that aborts the run with
-  // "minThreads and maxThreads must not conflict".
-  return workers === undefined ? {} : { maxWorkers: workers, minWorkers: 1 };
+  return workers === undefined ? {} : { maxWorkers: workers };
 }
 
 export default defineConfig(({ mode }) => ({
