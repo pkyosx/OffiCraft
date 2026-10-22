@@ -32,7 +32,7 @@
 
 import type { Dict } from "./locales/zh";
 import type { ActivityWait, Effort, MemberActivity } from "../types";
-import { formatResetTime } from "../lib/dateFormat";
+import { dayStartOf, formatAbsolute, formatClock, formatResetTime } from "../lib/dateFormat";
 
 /** The UI languages a wording overlay keys on (mirrors i18n's `Language`;
  * declared locally so this module never imports the provider back). */
@@ -108,8 +108,9 @@ export interface Messages {
   memberActivitySince: (since: number, now: number) => string;
   /** 「40 秒」/「3 分鐘」: how long a sub-agent has run. */
   memberActivityDuration: (since: number, now: number) => string;
-  /** 「背景指令」, or 「排程 · 下次 12:15 · 重複」 in the viewer's local time. */
-  memberActivityWaitTag: (wait: ActivityWait) => string;
+  /** 「背景指令」, or 「排程 · 下次 12:15 · 重複」 in the viewer's local time; a
+   * next run that is not today carries its date (「下次 10/5 09:05」). */
+  memberActivityWaitTag: (wait: ActivityWait, now: number) => string;
   /** `by` is the deadline text, or null when the wind-down is on NO clock —
    * which since T-ed79 is every cause except the second context threshold. The
    * no-clock sentence must not contain any time at all. */
@@ -250,10 +251,8 @@ export function makeMessages(t: Dict, language: Lang): Messages {
   };
   const counted = (n: number, one: string, many: string): string =>
     `${n} ${n === 1 ? one : many}`;
-  const clock = (ts: number): string => {
-    const d = new Date(ts * 1000);
-    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  };
+  const nextRunAt = (ts: number, now: number): string =>
+    dayStartOf(ts) === dayStartOf(now) ? formatClock(ts) : formatAbsolute(ts, now);
   const messages: Messages = {
     // 「量於 3d 前」/「measured 3d ago」— the age rides beside the usage number
     // so a frozen snapshot can never read as a live one (T-3b90).
@@ -411,12 +410,12 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     },
     memberActivitySince: (since, now) => activityElapsed(act.elapsedLead, since, now),
     memberActivityDuration: (since, now) => activityElapsed("", since, now),
-    memberActivityWaitTag: (w) =>
+    memberActivityWaitTag: (w, now) =>
       w.kind === "background_command"
         ? act.waitKind.background_command
         : [
             act.waitKind.schedule,
-            ...(w.nextTs !== null ? [`${act.nextLead} ${clock(w.nextTs)}`] : []),
+            ...(w.nextTs !== null ? [`${act.nextLead} ${nextRunAt(w.nextTs, now)}`] : []),
             ...(w.recurring ? [act.recurring] : []),
           ].join(" · "),
     // 「正在收尾以套用你的改動 · 最晚 14:32 生效」 — the deadline is a CEILING

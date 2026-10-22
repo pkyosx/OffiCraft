@@ -1,19 +1,7 @@
-// T-492 round 2: the avatar-corner presence dot and the activity status icon on
-// the list rows and the chat header, and the 運作狀況 card's tree, at phone and
-// desktop widths. Every check compares boxes with each other in a real browser
-// (CT pages lack the production fonts, so no absolute text widths).
-//
-// Mutants (measured):
-//   1. drop `position: absolute` from .presence-avatar__dot → the dot leaves the
-//      corner → "dot sits on the avatar's bottom-right corner" red (list + header).
-//   2. drop `flex: none` from .activity-icon → the long name squeezes the
-//      header's icon → "icon keeps its natural width" red at 390 (the list name
-//      wraps instead, so the list rows stay green under this one).
-//   3. drop `flex: none` from .mp-activity__aside AND give .mp-activity__label
-//      `flex: 1 1 auto` (either one alone still holds the time column) → a long
-//      description squeezes the time into two lines → "aside on one line" red at 390.
-//   4. drop margin-left + padding-left from .mp-activity__children → "child
-//      indented under the main agent" red.
+// The avatar-corner presence dot and the activity status icon on the list rows
+// and the chat header, and the 運作狀況 card's tree, at phone and desktop widths.
+// Every check compares boxes with each other in a real browser (CT pages lack
+// the production fonts, so no absolute text widths).
 import { test, expect } from "@playwright/experimental-ct-react";
 import type { Page } from "@playwright/test";
 import { IdentityActivityStory } from "./stories/IdentityActivityStory";

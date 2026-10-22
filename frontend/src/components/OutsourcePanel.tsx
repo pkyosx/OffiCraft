@@ -12,10 +12,9 @@
 //
 // Row shape (owner 2026-07-16 — one line, folding the 2026-07-14 report's
 // lines 2+3):
-//   avatar  with the presence dot on its corner (PresenceAvatar, the same on
-//           every identity surface). The dot is PRESENCE, not "is this row
-//           alive": an assigned worker may not have started yet and must never
-//           look live (owner 2026-07-26 screenshot: an offline X-46 painted green).
+//   avatar  with the presence dot on its corner (PresenceAvatar). The dot is
+//           PRESENCE, not "is this row alive": an assigned worker may not have
+//           started yet and must never look live.
 //   line 1  代號 (O-7 式 — the worker's name; an outsource has no other) and
 //           the activity status icon
 //   line 2  the runtime warning mark, the 任務編號 chip — CLICKABLE, routes to
@@ -40,8 +39,9 @@ import { ActivityStatusIcon } from "./MemberActivity";
 
 /** The worker's ONE-LINE task line — [task-id chip → task type], optionally
  * led by the runtime warning mark. SHARED between the rail's outsource row, the
- * worker chat header's subtitle and the reply-card header (owner 2026-07-16:
- * 兩邊顯示一樣的東西). Presence is not on this line: it is the avatar-corner dot.
+ * worker chat header's subtitle and the reply-card header (owner's ruling: the
+ * places show the same thing). Presence is not on this line: it is the
+ * avatar-corner dot.
  *
  *   · The task-id chip stays CLICKABLE → #tasks/<taskId> (owner 2026-07-14:
  *     點 task id 連到該任務頁); stopPropagation so the jump never also
@@ -170,9 +170,9 @@ export function OutsourcePanel({
                 }
               }}
             >
-              {/* The avatar renders the active theme's 外包 image (T-3738 —
-               * kind="outsource"); the button mirrors MemberCard's
-               * avatar-as-detail-target so the two rails read identically. */}
+              {/* kind="outsource" renders the active theme's 外包 image; the
+               * button mirrors MemberCard's avatar-as-detail-target so the two
+               * rails read identically. */}
               <PresenceAvatar presence={w.presence} dotTestId={`outsource-presence-${w.id}`}>
                 <button
                   type="button"

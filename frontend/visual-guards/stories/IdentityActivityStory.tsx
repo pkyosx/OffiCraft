@@ -1,4 +1,4 @@
-// CT story (T-492 round 2): the three identity surfaces that carry the
+// CT story: the three identity surfaces that carry the
 // avatar-corner presence dot and the activity status icon — the left list
 // (real MemberCard + real OutsourcePanel rows), the chat header (built from the
 // same PresenceAvatar / ActivityStatusIcon ChatArea renders, beside its three

@@ -65,6 +65,9 @@ export default defineConfig(({ mode }) => ({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
+    // CI runners are on UTC, where formatting in UTC instead of local time
+    // looks correct; a fixed non-UTC zone makes that mistake fail everywhere.
+    env: { TZ: "Asia/Taipei" },
     alias: [NO_SEASONAL_SCHEDULE_ALIAS],
     ...testWorkerOptions(mode),
     // T-187c: the Playwright Component-Testing visual guards live in

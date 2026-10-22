@@ -27,7 +27,7 @@ function useActivityNow(activity: MemberActivity | null | undefined): number {
   return activity ? Date.now() / 1000 : now;
 }
 
-/** The 工作中 glyph (three dots bouncing in turn, owner rc-89f97eb28af9).
+/** The 工作中 glyph: three dots bouncing in turn (owner's ruling, keep the glyph).
  * Every working icon goes through this one component, so a swap is one edit. */
 export function ActivityWorkingIcon({ size = 14 }: { size?: number }) {
   return (
@@ -157,11 +157,11 @@ export function MemberActivityCard({
                       <ActivityStateIcon state="waiting" />
                       <span className="mp-activity__label">
                         <span className="mp-activity__text">
-                          {w.description || msg.memberActivityWaitTag(w)}
+                          {w.description || msg.memberActivityWaitTag(w, now)}
                         </span>
                       </span>
                       {w.description && (
-                        <span className="mp-activity__aside">{msg.memberActivityWaitTag(w)}</span>
+                        <span className="mp-activity__aside">{msg.memberActivityWaitTag(w, now)}</span>
                       )}
                     </div>
                   </li>
