@@ -69,10 +69,11 @@ type activityState struct {
 	BusySince *float64           `json:"busy_since"`
 	Subagents []activitySubagent `json:"subagents"`
 	Waits     []activityWait     `json:"waits"`
-	// A sub-agent that ends a turn to wait for its own child stops and later
-	// starts again under the same id; this keeps its original start time until
-	// the session restarts. Not pruned at the main Stop: a sub-agent waiting on
-	// its child is not always listed as running in background_tasks.
+	// A sub-agent that stops with no listed sub-agent under it can still start
+	// again under the same id, e.g. after a child whose parent was never known;
+	// this keeps its original start time until the session restarts. Not pruned
+	// at the main Stop: a sub-agent waiting on its child is not always listed as
+	// running in background_tasks.
 	Paused map[string]float64 `json:"paused,omitempty"`
 	// The station has not accepted this snapshot; `listen` retries it.
 	Unsent bool `json:"unsent,omitempty"`
@@ -230,13 +231,7 @@ func applyActivityHook(s *activityState, in activityHookInput, now float64) (cha
 				running[task.ID] = true
 			}
 		}
-		kept := s.Subagents[:0]
-		for _, sub := range s.Subagents {
-			if running[sub.ID] {
-				kept = append(kept, sub)
-			}
-		}
-		s.Subagents = kept
+		s.Subagents = keepWithAncestors(s.Subagents, func(sub activitySubagent) bool { return running[sub.ID] })
 		s.Pending = nil
 		refreshActivityFromTasks(s, in, now)
 	case "PreToolUse":
@@ -257,10 +252,8 @@ func applyActivityHook(s *activityState, in activityHookInput, now float64) (cha
 		}
 		return true, recordSpawn(s, response.AgentID, spawnOf(in))
 	case "SubagentStart":
-		for _, sub := range s.Subagents {
-			if sub.ID == in.AgentID {
-				return true, true
-			}
+		if listsSubagent(s.Subagents, in.AgentID) {
+			return true, true
 		}
 		started, paused := s.Paused[in.AgentID]
 		if !paused {
@@ -275,16 +268,17 @@ func applyActivityHook(s *activityState, in activityHookInput, now float64) (cha
 		s.Subagents = append(s.Subagents, activitySubagent{ID: in.AgentID, ParentID: spawn.ParentID,
 			Name: in.AgentType, Description: spawn.Description, StartedTs: started})
 	case "SubagentStop":
-		kept := s.Subagents[:0]
+		// Claude Code (seen in 2.1.308) also fires SubagentStop when a sub-agent
+		// ends its turn to wait for its own child, and SubagentStart when it
+		// resumes: a stop does not mean finished while its child is listed.
+		kept := keepWithAncestors(s.Subagents, func(sub activitySubagent) bool { return sub.ID != in.AgentID })
 		for _, sub := range s.Subagents {
-			if sub.ID != in.AgentID {
-				kept = append(kept, sub)
-				continue
+			if sub.ID == in.AgentID && !listsSubagent(kept, sub.ID) {
+				if s.Paused == nil {
+					s.Paused = map[string]float64{}
+				}
+				s.Paused[sub.ID] = sub.StartedTs
 			}
-			if s.Paused == nil {
-				s.Paused = map[string]float64{}
-			}
-			s.Paused[sub.ID] = sub.StartedTs
 		}
 		s.Subagents = kept
 		refreshActivityFromTasks(s, in, now)
@@ -292,6 +286,48 @@ func applyActivityHook(s *activityState, in activityHookInput, now float64) (cha
 		return false, false
 	}
 	return true, true
+}
+
+// Keeps the sub-agents keep accepts plus every listed ancestor of one, so no
+// kept sub-agent is left without its parent.
+func keepWithAncestors(subs []activitySubagent, keep func(activitySubagent) bool) []activitySubagent {
+	parents := make(map[string]*string, len(subs))
+	for _, sub := range subs {
+		parents[sub.ID] = sub.ParentID
+	}
+	keepIDs := map[string]bool{}
+	for _, sub := range subs {
+		if !keep(sub) {
+			continue
+		}
+		for id := sub.ID; !keepIDs[id]; {
+			keepIDs[id] = true
+			parent := parents[id]
+			if parent == nil {
+				break
+			}
+			if _, listed := parents[*parent]; !listed {
+				break
+			}
+			id = *parent
+		}
+	}
+	kept := make([]activitySubagent, 0, len(subs))
+	for _, sub := range subs {
+		if keepIDs[sub.ID] {
+			kept = append(kept, sub)
+		}
+	}
+	return kept
+}
+
+func listsSubagent(subs []activitySubagent, id string) bool {
+	for _, sub := range subs {
+		if sub.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func isAgentTool(name string) bool { return name == "Agent" || name == "Task" }
