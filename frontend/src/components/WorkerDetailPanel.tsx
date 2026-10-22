@@ -141,7 +141,7 @@ export function WorkerDetailPanel({
   const { t, msg } = useI18n();
   const dash = t.workerDetail.dash;
 
-  const { machines } = useMachines();
+  const { machines, loading: machinesLoading } = useMachines();
 
   // ── honest presence projection (A案 P6 — the ONE member vocabulary) ────────
   // presence (wire `presence`, replacing the retired spawn_state) is the
@@ -204,7 +204,9 @@ export function WorkerDetailPanel({
   // `rc-25c5679371c3`, both kinds).
   const machineText = awake || stoppingNow ? shownMachine : "";
   const desiredMachineId = worker.desiredMachineId ?? "";
-  const pendingMachine = pendingMachineHint(
+  // Until the registry lands, a pin (an id) cannot be matched to a reported
+  // display name, so a correctly placed worker would read as moving.
+  const pendingMachine = machinesLoading ? "" : pendingMachineHint(
     machines,
     desiredMachineId,
     reportedMachine(worker.machine ?? "", worker.actualMachine ?? ""),
