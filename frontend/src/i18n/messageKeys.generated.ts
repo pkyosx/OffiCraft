@@ -7,18 +7,20 @@
  * functions are not overridable). The single source of truth for both the
  * client wording validator (lib/themeBundle.ts) and the mock API. */
 export const MESSAGE_KEYS: readonly string[] = [
+  "activity.cardTitle",
   "activity.elapsedLead",
   "activity.elapsedMinutes",
   "activity.elapsedSeconds",
+  "activity.mainAgent",
   "activity.mainBusyLead",
   "activity.mainBusyTail",
+  "activity.mainReplied",
+  "activity.nextLead",
   "activity.noneWorking",
-  "activity.parenLead",
-  "activity.parenTail",
+  "activity.recurring",
   "activity.state.busy",
   "activity.state.idle",
   "activity.state.waiting",
-  "activity.subagentRanLead",
   "activity.subagentsAlsoLead",
   "activity.subagentsAlsoTailMany",
   "activity.subagentsAlsoTailOne",

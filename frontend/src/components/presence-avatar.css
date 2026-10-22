@@ -1,0 +1,28 @@
+/* The presence dot on the avatar's bottom-right corner. The ring takes the
+ * host's background (--presence-ring), so the dot reads as cut out of the
+ * avatar on every surface. */
+.presence-avatar {
+  position: relative;
+  flex: none;
+  display: inline-grid;
+}
+.presence-avatar__dot {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 50%;
+  background: var(--presence-ring, var(--color-bg));
+  line-height: 0;
+}
+/* On the corner the dot's touch area grows over the avatar (up and left), not
+ * below it, where it would reach the next row of a list. */
+@media (hover: none) {
+  .presence-avatar__dot .lifecycle-dot::after {
+    top: -8px;
+    right: -3px;
+    bottom: -3px;
+    left: -8px;
+  }
+}

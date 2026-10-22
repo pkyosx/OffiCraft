@@ -2,6 +2,12 @@
 paths:
   - "src/components/LifecycleDot.tsx"
   - "src/components/PresenceBadge.tsx"
+  - "src/components/PresenceAvatar*"
+  - "src/components/presence-avatar.css"
+  - "src/components/MemberActivity*"
+  - "src/components/member-activity.css"
+  - "src/components/OutsourcePanel*"
+  - "src/components/ChatArea.tsx"
   - "src/components/MemberCard*"
   - "src/components/MemberActionButtons*"
   - "src/components/*DetailPanel*"
@@ -22,11 +28,13 @@ paths:
 
 ## Presence
 
-共用 LifecycleDot、PresenceBadge、MemberCard、MonitorPage、MemberDetailPanel 與外包列的唯一狀態聯集是 offline、waking、online、stopping、stopped。畫面取 hub.is_online 與 server lifecycle，不取 DB member.online；那個欄位只供 reconcile fallback。外包 worker 也不能因為仍在任務列就畫成 online。
+共用 LifecycleDot、PresenceBadge、MemberCard、MonitorPage、MemberDetailPanel 與外包列的唯一狀態聯集是 offline、waking、online、stopping、stopped。
+
+圓點畫在哪裡（owner rc-734cffef6221、c-3d68c2b097e7）：成員的三個身分面——左欄清單列、聊天室上方 header、詳情面板最上面的身分卡——正職與外包一律把圓點畫在**頭像右下角**，而且只經 `PresenceAvatar` 這一個元件畫；名字後面緊接著同樣只經 `ActivityStatusIcon` 畫的運作狀態圖示（沒有 activity 就不畫）。這三處的第二行（`PresenceBadge dot={false}`、`OutsourceTaskLine mark`）只剩驚嘆號與角色／任務，不再有圓點。監控頁仍用 PresenceBadge 預設的行內圓點。不要在任何一個身分面另寫一份圓點或圖示：owner 要的是「從程式面都是同一條路」。圓點是頭像按鈕的**兄弟**，不能放進按鈕裡（按鈕裡不能再有可聚焦元素）。畫面取 hub.is_online 與 server lifecycle，不取 DB member.online；那個欄位只供 reconcile fallback。外包 worker 也不能因為仍在任務列就畫成 online。
 
 圓點旁的驚嘆號（RuntimeLoginWarningMark）合併兩種來源：runtime_login_warnings（機器回報未登入）與 model_call_warnings（模型呼叫失敗），一個原因一行；兩者都空才不畫。rate_limit 不論幾筆都只畫一行（server 刻意會送成員自己無重置時間的一筆加帳號共用有重置時間的一筆），有重置時間就取最晚的；有未登入或登入失效時，最後按 runtime 各加一行「到監控頁登入」的指引。點驚嘆號會釘住提示（再點、點外面——包括點另一個驚嘆號——、Esc、捲動、resize，或另一個 InstantHint 被打開（含 hover／focus）才收；全畫面同時最多一個提示；hover 自己這顆不會解除釘住），點擊不往上冒泡，不會打開所在的列；手機沒有 hover，這是唯一看得到原因的方法（owner 要求），別恢復成讓點擊穿到列上。
 
-圓點（LifecycleDot）本身就是同一種 InstantHint 觸發點：hover 立刻顯示狀態字、點擊釘住且不冒泡（不進聊天或詳情），別改回原生 title（電腦要等一秒、手機根本看不到）。狀態字同時是圓點的 aria-label，圓點是唯一一層可聚焦元素，不要再包一層可聚焦的 wrapper。手機觸控範圍（hover: none）：圓點只往左、往下擴（用 ::after，不用 padding，免得色點變大、提示位置偏掉）；驚嘆號不往左擴。兩者加大的範圍不可重疊（中間空隙不屬於任何一方的加大範圍，點下去由瀏覽器的觸控修正交給較近的那一個）——往右或往上擴會讓瀏覽器的觸控修正把點名字或點驚嘆號的手指吸到圓點上。
+圓點（LifecycleDot）本身就是同一種 InstantHint 觸發點：hover 立刻顯示狀態字、點擊釘住且不冒泡（不進聊天或詳情），別改回原生 title（電腦要等一秒、手機根本看不到）。狀態字同時是圓點的 aria-label，圓點是唯一一層可聚焦元素，不要再包一層可聚焦的 wrapper。手機觸控範圍（hover: none）：行內圓點（監控頁）只往左、往下擴（用 ::after，不用 padding，免得色點變大、提示位置偏掉）；驚嘆號不往左擴。兩者加大的範圍不可重疊（中間空隙不屬於任何一方的加大範圍，點下去由瀏覽器的觸控修正交給較近的那一個）——往右或往上擴會讓瀏覽器的觸控修正把點名字或點驚嘆號的手指吸到圓點上。頭像角上的圓點則往上、往左擴（蓋在頭像上），不往下擴，否則會伸進清單下一列。
 
 presenceVisual 是唯一視覺映射，顏色只來自 CSS token，不准在元件裡塞色值；inline 色值會繞過 token guard，讓不同 lifecycle 共用錯誤顏色。toPresence 是 member 與 worker 共用的唯一 wire seam：未知 member wire 值落到 offline；未知 worker 值保持 undefined 並誠實畫 offline。不要加 default 把未知值偽裝成線上；否則會繞過 no-default 的錯誤訊號，畫面可能只剩沒有顏色或可及性名稱的假元件。
 

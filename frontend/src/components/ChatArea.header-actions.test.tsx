@@ -173,58 +173,76 @@ describe("ChatArea header 任務/角色設定 圖示 (T-dfae)", () => {
     waits: [],
     ...over,
   });
-  const subText = () => document.querySelector(".chat__header-sub")!.textContent;
   const hintText = () => screen.getByRole("tooltip").textContent;
+  const icon = () => screen.getByTestId("chat-header-activity");
+  const glyphState = (el: HTMLElement) =>
+    el.querySelector(".activity-icon__glyph")!.className.replace("activity-icon__glyph activity-icon__glyph--", "");
 
-  it("shows the status word after the role, and hovering it shows the one-sentence summary", () => {
+  it("shows the status icon right after the name, named by its state, and hovering it shows the one-sentence summary", () => {
     vi.useFakeTimers({ now: NOW * 1000 });
     renderChat({
       member: mkMember({
         activity: busy({
-          subagents: [{ name: "Explore", description: "", startedTs: NOW - 60 }],
-          waits: [{ kind: "schedule", description: "看 CI" }],
+          subagents: [{ id: "s1", parentId: null, name: "Explore", description: "", startedTs: NOW - 60 }],
+          waits: [{ kind: "schedule", description: "看 CI", nextTs: null, recurring: false }],
         }),
       }),
     });
-    expect(subText()).toBe("特助·工作中");
-    fireEvent.mouseEnter(screen.getByTestId("chat-header-activity"));
+    expect(icon().parentElement!.className).toBe("chat__header-name");
+    expect(icon().previousElementSibling!.textContent).toBe("Mira");
+    expect(icon().getAttribute("aria-label")).toBe("工作中");
+    expect(glyphState(icon())).toBe("working");
+    fireEvent.mouseEnter(icon());
     expect(hintText()).toBe(
       "主 agent 工作中（已 3 分鐘），另有 1 個 sub-agent 工作中，正在等 1 個背景檢查或排程",
     );
   });
 
-  it("names the waiting and idle states with their own words", () => {
+  it("draws the waiting and idle states with their own icon and name", () => {
     const waiting = renderChat({
       member: mkMember({
-        activity: busy({ state: "waiting", busySince: null, waits: [{ kind: "background_command", description: "" }] }),
+        activity: busy({
+          state: "waiting",
+          busySince: null,
+          waits: [{ kind: "background_command", description: "", nextTs: null, recurring: false }],
+        }),
       }),
     });
-    expect(subText()).toBe("特助·等待中");
-    fireEvent.mouseEnter(screen.getByTestId("chat-header-activity"));
+    expect(icon().getAttribute("aria-label")).toBe("等待中");
+    expect(glyphState(icon())).toBe("waiting");
+    fireEvent.mouseEnter(icon());
     expect(hintText()).toBe("主 agent 與 sub-agent 都沒有在工作，正在等 1 個背景檢查或排程");
     waiting.unmount();
 
     renderChat({ member: mkMember({ activity: busy({ state: "idle", busySince: null }) }) });
-    expect(subText()).toBe("特助·閒置");
-    fireEvent.mouseEnter(screen.getByTestId("chat-header-activity"));
+    expect(icon().getAttribute("aria-label")).toBe("閒置");
+    expect(glyphState(icon())).toBe("idle");
+    fireEvent.mouseEnter(icon());
     expect(hintText()).toBe("主 agent 與 sub-agent 都沒有在工作");
   });
 
-  it("renders no word and no separator when there is no activity", () => {
+  it("renders no status icon when there is no activity, and the role line carries no presence dot", () => {
     renderChat({ member: mkMember({ activity: null }) });
-    expect(subText()).toBe("特助");
     expect(screen.queryByTestId("chat-header-activity")).toBeNull();
+    expect(document.querySelector(".chat__header-sub .lifecycle-dot")).toBeNull();
+    expect(document.querySelector(".chat__header-sub")!.textContent).toBe("特助");
+    expect(screen.getByTestId("chat-header-presence").closest(".presence-avatar")).not.toBeNull();
   });
 
-  it("shows the word beside an outsource chat's own sub line too", () => {
+  it("puts the presence dot on the avatar corner, not on the role line, and shows the icon in an outsource chat too", () => {
     renderChat({
       member: mkMember({ activity: busy({ state: "idle", busySince: null }) }),
       headerSub: <span>T-12 · 修理電梯</span>,
     });
-    expect(subText()).toBe("T-12 · 修理電梯·閒置");
+    const dot = screen.getByTestId("chat-header-presence");
+    expect(dot.closest(".presence-avatar")!.querySelector(".avatar")).not.toBeNull();
+    expect(dot.getAttribute("aria-label")).toBe("線上");
+    expect(document.querySelector(".chat__header-sub .lifecycle-dot")).toBeNull();
+    expect(document.querySelector(".chat__header-sub")!.textContent).toBe("T-12 · 修理電梯");
+    expect(icon().getAttribute("aria-label")).toBe("閒置");
   });
 
-  it("tapping the word pins the hint without opening the member detail", () => {
+  it("tapping the status icon pins the hint without opening the member detail", () => {
     const onOpenDetail = vi.fn();
     renderChat({ member: mkMember({ activity: busy() }), onOpenDetail });
     const word = screen.getByTestId("chat-header-activity");

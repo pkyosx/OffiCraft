@@ -1141,7 +1141,7 @@ func TestConnectOnce(t *testing.T) {
 		l.connectOnce(context.Background())
 
 		snapshot := "POST /api/agent/activity " + `{"busy":true,"busy_since":1000,` +
-			`"subagents":[{"name":"Explore","description":"","started_ts":1001}],"waits":[]}`
+			`"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"","started_ts":1001}],"waits":[]}`
 		if want := []string{snapshot, snapshot}; !reflect.DeepEqual(activity.bodies, want) {
 			t.Errorf("sent on the activity client\n  %q\nwant\n  %q", activity.bodies, want)
 		}

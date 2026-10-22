@@ -2667,8 +2667,10 @@ HAPPY: dict[str, Happy] = {
         body={
             "busy": True,
             "busy_since": 1000,
-            "subagents": [{"name": "Explore", "started_ts": 1001}],
-            "waits": [{"kind": "schedule", "description": "check CI"}],
+            "subagents": [{"id": "a-1", "name": "Explore", "started_ts": 1001}],
+            "waits": [
+                {"kind": "schedule", "description": "check CI", "next_ts": 2000, "recurring": True}
+            ],
         },
         check=lambda ctx, r: _expect(
             r,

@@ -27,6 +27,7 @@ func activityHook(event string, fields string) string {
 }
 
 func TestCmdActivityReport(t *testing.T) {
+	stubCronLocation(t)
 	newCfg := func(t *testing.T, base string) Config {
 		return Config{BaseConfigured: true, Base: base, Token: "t", MemberID: "Kyle", AgentsRoot: t.TempDir()}
 	}
@@ -81,6 +82,8 @@ func TestCmdActivityReport(t *testing.T) {
 			Subagents: []activitySubagent{{ID: "a1", Name: "Explore", StartedTs: 901}},
 			Waits:     []activityWait{{Kind: "schedule", Description: "check CI"}},
 			Paused:    map[string]float64{"b2": 902},
+			Spawns:    map[string]activitySpawn{"a1": {Description: "survey"}},
+			Pending:   []activitySpawn{{Description: "never started"}},
 		})
 
 		drive(t, cfg, srv.Client(), step{1000, activityHook("SessionStart", `"source":"startup"`)})
@@ -131,22 +134,156 @@ func TestCmdActivityReport(t *testing.T) {
 
 		want := []capturedPost{
 			sent(`{"busy":true,"busy_since":1000,"subagents":[],"waits":[]}`),
-			sent(`{"busy":true,"busy_since":1000,"subagents":[{"name":"Explore","description":"","started_ts":1001}],"waits":[]}`),
-			sent(`{"busy":true,"busy_since":1000,"subagents":[{"name":"Explore","description":"","started_ts":1001},` +
-				`{"name":"general-purpose","description":"","started_ts":1002}],"waits":[]}`),
-			sent(`{"busy":true,"busy_since":1000,"subagents":[{"name":"general-purpose","description":"read cli/","started_ts":1002}],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"","started_ts":1001}],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"","started_ts":1001},` +
+				`{"id":"b2","parent_id":null,"name":"general-purpose","description":"","started_ts":1002}],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"b2","parent_id":null,"name":"general-purpose","description":"read cli/","started_ts":1002}],"waits":[]}`),
 			sent(`{"busy":true,"busy_since":1000,"subagents":[],"waits":[]}`),
 			sent(`{"busy":false,"busy_since":null,"subagents":[],"waits":[]}`),
-			sent(`{"busy":false,"busy_since":null,"subagents":[{"name":"Explore","description":"","started_ts":1001}],"waits":[]}`),
-			sent(`{"busy":false,"busy_since":null,"subagents":[{"name":"Explore","description":"","started_ts":1001}],"waits":[]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"","started_ts":1001}],"waits":[]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"","started_ts":1001}],"waits":[]}`),
 		}
 		if !reflect.DeepEqual(*posts, want) {
 			t.Errorf("sent\n  %+v\nwant\n  %+v", *posts, want)
 		}
 		if got, want := readFileString(t, statePath(cfg)),
-			`{"busy":false,"busy_since":null,"subagents":[{"id":"a1","name":"Explore","description":"","started_ts":1001}],`+
+			`{"busy":false,"busy_since":null,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"","started_ts":1001}],`+
 				`"waits":[],"paused":{"b2":1002}}`+"\n"; got != want {
 			t.Errorf("state file = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("a background sub-agent gets its parent and description from the Agent call that spawned it", func(t *testing.T) {
+		srv, posts := contextServer(t)
+		cfg := newCfg(t, srv.URL)
+
+		drive(t, cfg, srv.Client(),
+			step{1000, activityHook("UserPromptSubmit", `"prompt":"hi"`)},
+			step{1001, agentPreToolUse("", "survey the repo")},
+			step{1002, activityHook("SubagentStart", `"agent_id":"a1","agent_type":"Explore"`)},
+			step{1003, agentPostToolUse("", "survey the repo", `{"isAsync":true,"status":"async_launched","agentId":"a1"}`)},
+			step{1004, agentPreToolUse("a1", "read cli/")},
+			step{1005, activityHook("SubagentStart", `"agent_id":"b2","agent_type":"general-purpose"`)},
+			step{1006, agentPostToolUse("a1", "read cli/ (renamed)", `{"isAsync":true,"status":"async_launched","agentId":"b2"}`)})
+
+		a1 := `{"id":"a1","parent_id":null,"name":"Explore","description":"survey the repo","started_ts":1002}`
+		want := []capturedPost{
+			sent(`{"busy":true,"busy_since":1000,"subagents":[],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"subagents":[` + a1 + `],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"subagents":[` + a1 + `],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"subagents":[` + a1 + `,` +
+				`{"id":"b2","parent_id":"a1","name":"general-purpose","description":"read cli/","started_ts":1005}],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"subagents":[` + a1 + `,` +
+				`{"id":"b2","parent_id":"a1","name":"general-purpose","description":"read cli/ (renamed)","started_ts":1005}],"waits":[]}`),
+		}
+		if !reflect.DeepEqual(*posts, want) {
+			t.Errorf("sent\n  %+v\nwant\n  %+v", *posts, want)
+		}
+	})
+
+	t.Run("a foreground sub-agent takes the oldest pending Agent call, and its late PostToolUse sends nothing", func(t *testing.T) {
+		srv, posts := contextServer(t)
+		cfg := newCfg(t, srv.URL)
+
+		drive(t, cfg, srv.Client(),
+			step{1001, agentPreToolUse("", "first")},
+			step{1002, agentPreToolUse("", "second")},
+			step{1003, activityHook("SubagentStart", `"agent_id":"f1","agent_type":"Plan"`)},
+			step{1004, activityHook("SubagentStop", `"agent_id":"f1","agent_type":"Plan","background_tasks":[],"session_crons":[]`)},
+			step{1005, agentPostToolUse("", "first", `{"status":"completed","agentId":"f1","content":[{"type":"text","text":"done"}]}`)})
+
+		want := []capturedPost{
+			sent(`{"busy":false,"busy_since":null,"subagents":[{"id":"f1","parent_id":null,"name":"Plan","description":"first","started_ts":1003}],"waits":[]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[],"waits":[]}`),
+		}
+		if !reflect.DeepEqual(*posts, want) {
+			t.Errorf("sent\n  %+v\nwant\n  %+v", *posts, want)
+		}
+		if got, want := readFileString(t, statePath(cfg)), `{"busy":false,"busy_since":null,"subagents":[],"waits":[],`+
+			`"paused":{"f1":1003},"spawns":{"f1":{"parent_id":null,"description":"first"}},`+
+			`"pending":[{"parent_id":null,"description":"second"}]}`+"\n"; got != want {
+			t.Errorf("state file = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("a PostToolUse ahead of its SubagentStart is merged into it and uses up its own pending call", func(t *testing.T) {
+		srv, posts := contextServer(t)
+		cfg := newCfg(t, srv.URL)
+
+		drive(t, cfg, srv.Client(),
+			step{1001, agentPreToolUse("a1", "deep dive")},
+			step{1002, agentPreToolUse("", "other")},
+			step{1003, agentPostToolUse("a1", "deep dive", `{"isAsync":true,"status":"async_launched","agentId":"b2"}`)},
+			step{1004, activityHook("SubagentStart", `"agent_id":"b2","agent_type":"Explore"`)},
+			step{1005, activityHook("SubagentStart", `"agent_id":"c3","agent_type":"Plan"`)})
+
+		b2 := `{"id":"b2","parent_id":"a1","name":"Explore","description":"deep dive","started_ts":1004}`
+		want := []capturedPost{
+			sent(`{"busy":false,"busy_since":null,"subagents":[` + b2 + `],"waits":[]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[` + b2 + `,` +
+				`{"id":"c3","parent_id":null,"name":"Plan","description":"other","started_ts":1005}],"waits":[]}`),
+		}
+		if !reflect.DeepEqual(*posts, want) {
+			t.Errorf("sent\n  %+v\nwant\n  %+v", *posts, want)
+		}
+	})
+
+	t.Run("a sub-agent resuming after a pause keeps its spawn and leaves the pending calls alone", func(t *testing.T) {
+		srv, posts := contextServer(t)
+		cfg := newCfg(t, srv.URL)
+		writeActivityState(statePath(cfg), activityState{
+			Paused:  map[string]float64{"a1": 1001, "z9": 1002},
+			Spawns:  map[string]activitySpawn{"a1": {Description: "survey"}},
+			Pending: []activitySpawn{{ParentID: ptrString("a1"), Description: "child"}},
+		})
+
+		drive(t, cfg, srv.Client(),
+			step{1010, activityHook("SubagentStart", `"agent_id":"a1","agent_type":"Explore"`)},
+			step{1011, activityHook("SubagentStart", `"agent_id":"z9","agent_type":"Plan"`)})
+
+		want := []capturedPost{
+			sent(`{"busy":false,"busy_since":null,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey","started_ts":1001}],"waits":[]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey","started_ts":1001},` +
+				`{"id":"z9","parent_id":null,"name":"Plan","description":"","started_ts":1002}],"waits":[]}`),
+		}
+		if !reflect.DeepEqual(*posts, want) {
+			t.Errorf("sent\n  %+v\nwant\n  %+v", *posts, want)
+		}
+		var state activityState
+		_ = json.Unmarshal([]byte(readFileString(t, statePath(cfg))), &state)
+		if want := []activitySpawn{{ParentID: ptrString("a1"), Description: "child"}}; !reflect.DeepEqual(state.Pending, want) {
+			t.Errorf("pending = %+v, want %+v", state.Pending, want)
+		}
+	})
+
+	t.Run("the main Stop drops Agent calls whose sub-agent never started", func(t *testing.T) {
+		srv, posts := contextServer(t)
+		cfg := newCfg(t, srv.URL)
+
+		drive(t, cfg, srv.Client(),
+			step{1001, agentPreToolUse("", "refused call")},
+			step{1002, activityHook("Stop", `"background_tasks":[],"session_crons":[]`)},
+			step{1003, activityHook("SubagentStart", `"agent_id":"a1","agent_type":"Explore"`)})
+
+		if got, want := (*posts)[1], sent(`{"busy":false,"busy_since":null,`+
+			`"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"","started_ts":1003}],"waits":[]}`); got != want {
+			t.Errorf("sent %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("another tool's PreToolUse or PostToolUse changes nothing", func(t *testing.T) {
+		srv, posts := contextServer(t)
+		cfg := newCfg(t, srv.URL)
+
+		drive(t, cfg, srv.Client(),
+			step{1000, activityHook("PreToolUse", `"tool_name":"Bash","tool_input":{"command":"ls","description":"list"}`)},
+			step{1001, activityHook("PostToolUse", `"tool_name":"Bash","tool_input":{"command":"ls"},"tool_response":{"agentId":"x"}`)})
+
+		if len(*posts) != 0 {
+			t.Errorf("sent %+v, want nothing", *posts)
+		}
+		if _, err := os.Stat(statePath(cfg)); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("state file stat err = %v, want it absent", err)
 		}
 	})
 
@@ -174,18 +311,18 @@ func TestCmdActivityReport(t *testing.T) {
 			`"session_crons":[{"id":"c1","schedule":"*/5 * * * *","recurring":true,"prompt":"check CI"}]`)})
 
 		want := []capturedPost{sent(`{"busy":false,"busy_since":null,` +
-			`"subagents":[{"name":"Explore","description":"survey the repo","started_ts":1001}],` +
-			`"waits":[{"kind":"background_command","description":"npm test"},` +
-			`{"kind":"background_command","description":"watch the deploy log"},` +
-			`{"kind":"schedule","description":"check CI"}]}`)}
+			`"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey the repo","started_ts":1001}],` +
+			`"waits":[{"kind":"background_command","description":"npm test","next_ts":null,"recurring":false},` +
+			`{"kind":"background_command","description":"watch the deploy log","next_ts":null,"recurring":false},` +
+			`{"kind":"schedule","description":"check CI","next_ts":1200,"recurring":true}]}`)}
 		if !reflect.DeepEqual(*posts, want) {
 			t.Errorf("sent\n  %+v\nwant\n  %+v", *posts, want)
 		}
 		if got, want := readFileString(t, statePath(cfg)), `{"busy":false,"busy_since":null,`+
-			`"subagents":[{"id":"a1","name":"Explore","description":"survey the repo","started_ts":1001}],`+
-			`"waits":[{"kind":"background_command","description":"npm test"},`+
-			`{"kind":"background_command","description":"watch the deploy log"},`+
-			`{"kind":"schedule","description":"check CI"}],"paused":{"a1-child":1004,"gone":1005}}`+"\n"; got != want {
+			`"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey the repo","started_ts":1001}],`+
+			`"waits":[{"kind":"background_command","description":"npm test","next_ts":null,"recurring":false},`+
+			`{"kind":"background_command","description":"watch the deploy log","next_ts":null,"recurring":false},`+
+			`{"kind":"schedule","description":"check CI","next_ts":1200,"recurring":true}],"paused":{"a1-child":1004,"gone":1005}}`+"\n"; got != want {
 			t.Errorf("state file = %q, want %q", got, want)
 		}
 	})
@@ -276,7 +413,7 @@ func TestCmdActivityReport(t *testing.T) {
 			step{1000, activityHook("UserPromptSubmit", `"prompt":"hi"`)},
 			step{1010, activityHook("SubagentStart", `"agent_id":"a1","agent_type":"Explore"`)})
 		if got, want := readFileString(t, statePath(cfg)), `{"busy":true,"busy_since":1000,`+
-			`"subagents":[{"id":"a1","name":"Explore","description":"","started_ts":1010}],"waits":[],"unsent":true}`+"\n"; got != want {
+			`"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"","started_ts":1010}],"waits":[],"unsent":true}`+"\n"; got != want {
 			t.Errorf("state file after the skipped report = %q, want %q", got, want)
 		}
 		client.err, client.status, client.body = nil, 200, `{}`
@@ -385,7 +522,7 @@ func TestCmdActivityReport(t *testing.T) {
 		<-hookDone
 
 		want := []capturedPost{sent(`{"busy":true,"busy_since":999,` +
-			`"subagents":[{"name":"Explore","description":"","started_ts":1010}],"waits":[]}`)}
+			`"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"","started_ts":1010}],"waits":[]}`)}
 		if !reflect.DeepEqual(*posts, want) {
 			t.Errorf("sent\n  %+v\nwant\n  %+v", *posts, want)
 		}
@@ -393,6 +530,38 @@ func TestCmdActivityReport(t *testing.T) {
 }
 
 func ptrFloat(v float64) *float64 { return &v }
+
+func ptrString(v string) *string { return &v }
+
+// The Agent tool's hooks as Claude Code 2.1.307 sends them; the caller's
+// agent_id is absent when the main agent made the call.
+func agentToolHook(event, caller, description, response string) string {
+	fields := `"tool_name":"Agent","tool_input":{"description":"` + description +
+		`","prompt":"…","subagent_type":"Explore"}`
+	if caller != "" {
+		fields = `"agent_id":"` + caller + `","agent_type":"general-purpose",` + fields
+	}
+	if response != "" {
+		fields += `,"tool_response":` + response
+	}
+	return activityHook(event, fields)
+}
+
+func agentPreToolUse(caller, description string) string {
+	return agentToolHook("PreToolUse", caller, description, "")
+}
+
+func agentPostToolUse(caller, description, response string) string {
+	return agentToolHook("PostToolUse", caller, description, response)
+}
+
+// stubCronLocation pins the zone session crons are read in for one test.
+func stubCronLocation(t *testing.T) {
+	t.Helper()
+	saved := cronLocation
+	cronLocation = time.FixedZone("UTC+5:45", 5*3600+45*60)
+	t.Cleanup(func() { cronLocation = saved })
+}
 
 func TestNewActivityBody(t *testing.T) {
 	t.Run("busy_since is null whenever the main agent is not busy", func(t *testing.T) {
@@ -408,9 +577,9 @@ func TestNewActivityBody(t *testing.T) {
 		state := activityState{Busy: true, BusySince: ptrFloat(1)}
 		for i := 0; i < 52; i++ {
 			state.Subagents = append(state.Subagents, activitySubagent{
-				ID: "s", Name: strings.Repeat("名", 81), Description: strings.Repeat("述", 201), StartedTs: float64(100 - i),
+				ID: strings.Repeat("i", 81), ParentID: ptrString(strings.Repeat("p", 81)), Name: strings.Repeat("名", 81), Description: strings.Repeat("述", 201), StartedTs: float64(100 - i),
 			})
-			state.Waits = append(state.Waits, activityWait{Kind: "schedule", Description: strings.Repeat("w", 201)})
+			state.Waits = append(state.Waits, activityWait{Kind: "schedule", Description: strings.Repeat("w", 201), NextTs: ptrFloat(7), Recurring: true})
 		}
 
 		got := newActivityBody(state)
@@ -418,12 +587,12 @@ func TestNewActivityBody(t *testing.T) {
 		var wantSubs []activitySubagentBody
 		for i := 0; i < 50; i++ {
 			wantSubs = append(wantSubs, activitySubagentBody{
-				Name: strings.Repeat("名", 80), Description: strings.Repeat("述", 200), StartedTs: float64(49 + i),
+				ID: strings.Repeat("i", 80), ParentID: ptrString(strings.Repeat("p", 80)), Name: strings.Repeat("名", 80), Description: strings.Repeat("述", 200), StartedTs: float64(49 + i),
 			})
 		}
 		var wantWaits []activityWait
 		for i := 0; i < 50; i++ {
-			wantWaits = append(wantWaits, activityWait{Kind: "schedule", Description: strings.Repeat("w", 200)})
+			wantWaits = append(wantWaits, activityWait{Kind: "schedule", Description: strings.Repeat("w", 200), NextTs: ptrFloat(7), Recurring: true})
 		}
 		want := activityBody{Busy: true, BusySince: ptrFloat(1), Subagents: wantSubs, Waits: wantWaits}
 		if !reflect.DeepEqual(got, want) {
@@ -444,8 +613,8 @@ func TestReannounceActivity(t *testing.T) {
 		reannounceActivity(srv.Client(), cfg, 2000)
 
 		want := []capturedPost{{path: "/api/agent/activity", auth: "Bearer t", body: `{"busy":false,"busy_since":null,` +
-			`"subagents":[{"name":"Explore","description":"survey","started_ts":1001}],` +
-			`"waits":[{"kind":"background_command","description":"npm test"}]}`}}
+			`"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey","started_ts":1001}],` +
+			`"waits":[{"kind":"background_command","description":"npm test","next_ts":null,"recurring":false}]}`}}
 		if !reflect.DeepEqual(*posts, want) {
 			t.Errorf("sent\n  %+v\nwant\n  %+v", *posts, want)
 		}

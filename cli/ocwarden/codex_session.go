@@ -662,7 +662,7 @@ func (s *codexSession) trackActivity(method string, params map[string]any) {
 			s.subagentParent = map[string]string{}
 		}
 		s.subagentNames[agentThreadID] = name
-		if parent, _ := params["threadId"].(string); parent != "" && parent != s.threadID {
+		if parent, _ := params["threadId"].(string); parent != "" && parent != s.threadID && parent != agentThreadID {
 			s.subagentParent[agentThreadID] = parent
 		}
 	default:
@@ -715,8 +715,12 @@ func (s *codexSession) activityBody() map[string]any {
 		if runes := []rune(name); len(runes) > codexActivityNameMax {
 			name = string(runes[:codexActivityNameMax])
 		}
+		var parent any
+		if p := s.subagentParent[id]; p != "" {
+			parent = p
+		}
 		subagents = append(subagents, map[string]any{
-			"name": name, "description": "", "started_ts": s.runningSubagents[id],
+			"id": id, "parent_id": parent, "name": name, "description": "", "started_ts": s.runningSubagents[id],
 		})
 	}
 	var busySince any

@@ -216,37 +216,46 @@ describe("WorkerDetailPanel — aligned real info (T-f190 item 1)", () => {
     expect((await findByTestId("worker-detail-cost")).textContent).toBe("$4");
   });
 
-  it("shows the worker's activity at the top of its 運行狀況 card, above the context and cost cells, and nothing without activity", async () => {
+  it("shows the worker's 運作狀況 card right under the identity card, the dot on the avatar corner and the status icon after the codename; none of it without activity", async () => {
     __injectMockTask(mkTask({ id: "t-1" }));
     __injectMockOutsourceWorker(
       mkWorker({
         id: "ow-1",
+        codename: "O-7",
         taskId: "t-1",
         presence: "online",
         activity: {
           state: "waiting",
           busySince: null,
           subagents: [],
-          waits: [{ kind: "schedule", description: "每小時看 CI" }],
+          waits: [{ kind: "schedule", description: "每小時看 CI", nextTs: null, recurring: true }],
         },
       }),
     );
     __injectMockOutsourceWorker(mkWorker({ id: "ow-2", taskId: "t-1", presence: "online", activity: null }));
 
     const first = renderOfficeAt("#office/worker/ow-1");
-    const block = await first.findByTestId("worker-detail-activity");
-    expect(block.closest(".mp-card")!.classList.contains("mp-runtime")).toBe(true);
-    expect(block.previousElementSibling?.textContent).toBe("運行狀況");
-    expect(block.nextElementSibling?.classList.contains("mp-runtime__cells")).toBe(true);
-    expect(Array.from(block.children).map((c) => c.textContent)).toEqual([
+    const card = await first.findByTestId("worker-detail-activity");
+    expect(card.previousElementSibling?.classList.contains("mp-identity")).toBe(true);
+    expect(card.querySelector(".mp-activity__head")!.textContent).toBe("運作狀況等待中");
+    expect(card.querySelector(".mp-activity__summary")!.textContent).toBe(
       "主 agent 與 sub-agent 都沒有在工作，正在等 1 個背景檢查或排程",
-      "每小時看 CI（排程）",
-    ]);
+    );
+    expect(
+      Array.from(card.querySelectorAll(".mp-activity__row")).map((r) => r.textContent),
+    ).toEqual(["主 agent", "每小時看 CI排程 · 重複"]);
+    const dot = await first.findByTestId("worker-detail-header-dot");
+    expect(dot.closest(".presence-avatar")).not.toBeNull();
+    expect(queryTestId(document.body, "worker-detail-header-task")!.querySelector(".lifecycle-dot")).toBeNull();
+    const icon = await first.findByTestId("worker-detail-identity-activity");
+    expect(icon.previousElementSibling!.textContent).toBe("外包 · O-7");
+    expect(icon.getAttribute("aria-label")).toBe("等待中");
     first.unmount();
 
     const second = renderOfficeAt("#office/worker/ow-2");
     await second.findByTestId("worker-detail-task");
     expect(queryTestId(document.body, "worker-detail-activity")).toBeNull();
+    expect(queryTestId(document.body, "worker-detail-identity-activity")).toBeNull();
     expect(queryTestId(document.body, "worker-detail-context")).not.toBeNull();
   });
 
@@ -814,7 +823,7 @@ describe("WorkerDetailPanel — header matches the sidebar 外包 row (T-f190 UI
     await waitFor(() => expect(window.location.hash).toBe("#tasks/t-1"));
   });
 
-  it("under a runtime login warning, the header dot is followed by one exclamation whose hover hint names the pending pair's machine like a current one", async () => {
+  it("under a runtime login warning, the header's task line leads with one exclamation whose hover hint names the pending pair's machine like a current one", async () => {
     __injectMockTask(mkTask({ id: "t-1", taskNo: "T-e9f4" }));
     __injectMockOutsourceWorker(
       mkWorker({
@@ -836,10 +845,10 @@ describe("WorkerDetailPanel — header matches the sidebar 外包 row (T-f190 UI
       "Mac Mini 未登入 Codex",
       "可到「監控」頁的機器資訊，在 Codex 欄按版本號 →「登入」",
     ]);
-    expect(marks[0].previousElementSibling?.getAttribute("data-testid")).toBe("worker-detail-header-dot");
+    expect(marks[0].previousElementSibling).toBeNull();
   });
 
-  it("under only a model-call warning, the header dot is followed by the exclamation naming that reason", async () => {
+  it("under only a model-call warning, the header task line carries the exclamation naming that reason", async () => {
     __injectMockTask(mkTask({ id: "t-1", taskNo: "T-e9f4" }));
     __injectMockOutsourceWorker(
       mkWorker({

@@ -33,6 +33,9 @@ const activityReportTimeout = 2 * time.Second
 
 const activityFlushInterval = 30 * time.Second
 
+// Claude Code schedules session crons in the machine's local time.
+var cronLocation = time.Local
+
 const (
 	activityNameMax        = 80
 	activityDescriptionMax = 200
@@ -41,14 +44,24 @@ const (
 
 type activitySubagent struct {
 	ID          string  `json:"id"`
+	ParentID    *string `json:"parent_id"`
 	Name        string  `json:"name"`
 	Description string  `json:"description"`
 	StartedTs   float64 `json:"started_ts"`
 }
 
 type activityWait struct {
-	Kind        string `json:"kind"`
-	Description string `json:"description"`
+	Kind        string   `json:"kind"`
+	Description string   `json:"description"`
+	NextTs      *float64 `json:"next_ts"`
+	Recurring   bool     `json:"recurring"`
+}
+
+// Who spawned a sub-agent and the description it was given: the Agent tool's
+// caller and tool_input, which SubagentStart does not carry.
+type activitySpawn struct {
+	ParentID    *string `json:"parent_id"`
+	Description string  `json:"description"`
 }
 
 type activityState struct {
@@ -63,9 +76,18 @@ type activityState struct {
 	Paused map[string]float64 `json:"paused,omitempty"`
 	// The station has not accepted this snapshot; `listen` retries it.
 	Unsent bool `json:"unsent,omitempty"`
+	// Keyed by sub-agent id; PostToolUse's is authoritative.
+	Spawns map[string]activitySpawn `json:"spawns,omitempty"`
+	// Agent-tool calls whose sub-agent has not started yet, oldest first. A
+	// foreground child's PostToolUse only arrives after it finished, so its
+	// SubagentStart takes the oldest; concurrent spawns from different parents
+	// can be paired wrongly.
+	Pending []activitySpawn `json:"pending,omitempty"`
 }
 
 type activitySubagentBody struct {
+	ID          string  `json:"id"`
+	ParentID    *string `json:"parent_id"`
 	Name        string  `json:"name"`
 	Description string  `json:"description"`
 	StartedTs   float64 `json:"started_ts"`
@@ -79,10 +101,14 @@ type activityBody struct {
 }
 
 type activityHookInput struct {
-	HookEventName   string `json:"hook_event_name"`
-	Source          string `json:"source"`
-	AgentID         string `json:"agent_id"`
-	AgentType       string `json:"agent_type"`
+	HookEventName string `json:"hook_event_name"`
+	Source        string `json:"source"`
+	AgentID       string `json:"agent_id"`
+	AgentType     string `json:"agent_type"`
+	ToolName      string `json:"tool_name"`
+	// Raw: a failed tool call's response need not be an object.
+	ToolInput       json.RawMessage `json:"tool_input"`
+	ToolResponse    json.RawMessage `json:"tool_response"`
 	BackgroundTasks []struct {
 		ID          string `json:"id"`
 		Type        string `json:"type"`
@@ -90,7 +116,9 @@ type activityHookInput struct {
 		Description string `json:"description"`
 	} `json:"background_tasks"`
 	SessionCrons []struct {
-		Prompt string `json:"prompt"`
+		Schedule  string `json:"schedule"`
+		Recurring bool   `json:"recurring"`
+		Prompt    string `json:"prompt"`
 	} `json:"session_crons"`
 }
 
@@ -103,7 +131,12 @@ func cmdActivityReport(client httpClient, cfg Config, now float64, stdin io.Read
 	}
 	withActivityLock(cfg, func() {
 		state, _ := loadActivityState(activityStatePath(cfg))
-		if !applyActivityHook(&state, in, now) {
+		changed, report := applyActivityHook(&state, in, now)
+		if !changed {
+			return
+		}
+		if !report {
+			writeActivityState(activityStatePath(cfg), state)
 			return
 		}
 		_ = warnMissingBase(cfg, "activity-report", errOut)
@@ -178,8 +211,9 @@ func loadActivityState(path string) (activityState, bool) {
 	return state, true
 }
 
-// Reports false for an event that changes nothing.
-func applyActivityHook(s *activityState, in activityHookInput, now float64) bool {
+// changed is false for an event that changes nothing; report is false for one
+// that changes only bookkeeping the station does not see.
+func applyActivityHook(s *activityState, in activityHookInput, now float64) (changed, report bool) {
 	switch in.HookEventName {
 	case "SessionStart":
 		// Auto-compaction fires SessionStart in the middle of a turn.
@@ -203,11 +237,29 @@ func applyActivityHook(s *activityState, in activityHookInput, now float64) bool
 			}
 		}
 		s.Subagents = kept
-		refreshActivityFromTasks(s, in)
+		s.Pending = nil
+		refreshActivityFromTasks(s, in, now)
+	case "PreToolUse":
+		if !isAgentTool(in.ToolName) {
+			return false, false
+		}
+		s.Pending = append(s.Pending, spawnOf(in))
+		return true, false
+	case "PostToolUse":
+		if !isAgentTool(in.ToolName) {
+			return false, false
+		}
+		var response struct {
+			AgentID string `json:"agentId"`
+		}
+		if json.Unmarshal(in.ToolResponse, &response) != nil || response.AgentID == "" {
+			return false, false
+		}
+		return true, recordSpawn(s, response.AgentID, spawnOf(in))
 	case "SubagentStart":
 		for _, sub := range s.Subagents {
 			if sub.ID == in.AgentID {
-				return true
+				return true, true
 			}
 		}
 		started, paused := s.Paused[in.AgentID]
@@ -215,7 +267,13 @@ func applyActivityHook(s *activityState, in activityHookInput, now float64) bool
 			started = now
 		}
 		delete(s.Paused, in.AgentID)
-		s.Subagents = append(s.Subagents, activitySubagent{ID: in.AgentID, Name: in.AgentType, StartedTs: started})
+		spawn, known := s.Spawns[in.AgentID]
+		if !known && !paused && len(s.Pending) > 0 {
+			spawn, s.Pending = s.Pending[0], s.Pending[1:]
+			setSpawn(s, in.AgentID, spawn)
+		}
+		s.Subagents = append(s.Subagents, activitySubagent{ID: in.AgentID, ParentID: spawn.ParentID,
+			Name: in.AgentType, Description: spawn.Description, StartedTs: started})
 	case "SubagentStop":
 		kept := s.Subagents[:0]
 		for _, sub := range s.Subagents {
@@ -229,15 +287,66 @@ func applyActivityHook(s *activityState, in activityHookInput, now float64) bool
 			s.Paused[sub.ID] = sub.StartedTs
 		}
 		s.Subagents = kept
-		refreshActivityFromTasks(s, in)
+		refreshActivityFromTasks(s, in, now)
 	default:
-		return false
+		return false, false
 	}
-	return true
+	return true, true
+}
+
+func isAgentTool(name string) bool { return name == "Agent" || name == "Task" }
+
+// The caller is the hook's agent_id; absent when the main agent called.
+func spawnOf(in activityHookInput) activitySpawn {
+	var input struct {
+		Description string `json:"description"`
+	}
+	_ = json.Unmarshal(in.ToolInput, &input)
+	spawn := activitySpawn{Description: input.Description}
+	if in.AgentID != "" {
+		caller := in.AgentID
+		spawn.ParentID = &caller
+	}
+	return spawn
+}
+
+func setSpawn(s *activityState, id string, spawn activitySpawn) {
+	if s.Spawns == nil {
+		s.Spawns = map[string]activitySpawn{}
+	}
+	s.Spawns[id] = spawn
+}
+
+// Reports whether a running sub-agent changed. Before its SubagentStart the
+// mapping waits in Spawns, and the PreToolUse entry for the same call is
+// dropped so a later SubagentStart cannot take it.
+func recordSpawn(s *activityState, id string, spawn activitySpawn) bool {
+	_, known := s.Spawns[id]
+	_, paused := s.Paused[id]
+	setSpawn(s, id, spawn)
+	for i := range s.Subagents {
+		if s.Subagents[i].ID == id {
+			s.Subagents[i].ParentID, s.Subagents[i].Description = spawn.ParentID, spawn.Description
+			return true
+		}
+	}
+	if !known && !paused {
+		for i, pending := range s.Pending {
+			if pending.Description == spawn.Description && sameParent(pending.ParentID, spawn.ParentID) {
+				s.Pending = append(s.Pending[:i], s.Pending[i+1:]...)
+				break
+			}
+		}
+	}
+	return false
+}
+
+func sameParent(a, b *string) bool {
+	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
 }
 
 // Monitor tasks are listed as type "shell" too.
-func refreshActivityFromTasks(s *activityState, in activityHookInput) {
+func refreshActivityFromTasks(s *activityState, in activityHookInput, now float64) {
 	s.Waits = nil
 	for _, task := range in.BackgroundTasks {
 		switch {
@@ -252,7 +361,12 @@ func refreshActivityFromTasks(s *activityState, in activityHookInput) {
 		}
 	}
 	for _, cron := range in.SessionCrons {
-		s.Waits = append(s.Waits, activityWait{Kind: "schedule", Description: cron.Prompt})
+		wait := activityWait{Kind: "schedule", Description: cron.Prompt, Recurring: cron.Recurring}
+		if next, ok := cronNextRun(cron.Schedule, time.Unix(0, int64(now*1e9)).In(cronLocation)); ok {
+			ts := float64(next.Unix())
+			wait.NextTs = &ts
+		}
+		s.Waits = append(s.Waits, wait)
 	}
 }
 
@@ -272,6 +386,8 @@ func newActivityBody(s activityState) activityBody {
 			break
 		}
 		body.Subagents = append(body.Subagents, activitySubagentBody{
+			ID:          truncateRunes(sub.ID, activityNameMax),
+			ParentID:    truncateParent(sub.ParentID),
 			Name:        truncateRunes(sub.Name, activityNameMax),
 			Description: truncateRunes(sub.Description, activityDescriptionMax),
 			StartedTs:   sub.StartedTs,
@@ -283,9 +399,18 @@ func newActivityBody(s activityState) activityBody {
 		}
 		body.Waits = append(body.Waits, activityWait{
 			Kind: wait.Kind, Description: truncateRunes(wait.Description, activityDescriptionMax),
+			NextTs: wait.NextTs, Recurring: wait.Recurring,
 		})
 	}
 	return body
+}
+
+func truncateParent(id *string) *string {
+	if id == nil {
+		return nil
+	}
+	cut := truncateRunes(*id, activityNameMax)
+	return &cut
 }
 
 func truncateRunes(s string, max int) string {

@@ -171,11 +171,11 @@ func TestHandleIngestAgentActivityApiAgentActivityPost(t *testing.T) {
 		status, data := apiJSON(t, h, "POST", "/api/agent/activity", kip, `{
 			"busy": true, "busy_since": 1000,
 			"subagents": [
-				{"name": "general-purpose", "started_ts": 1300},
-				{"name": "Explore", "description": "find the route table", "started_ts": 1200}
+				{"id": "a-2", "parent_id": "a-1", "name": "general-purpose", "started_ts": 1300},
+				{"id": "a-1", "name": "Explore", "description": "find the route table", "started_ts": 1200}
 			],
 			"waits": [
-				{"kind": "schedule", "description": "check CI"},
+				{"kind": "schedule", "description": "check CI", "next_ts": 1900, "recurring": true},
 				{"kind": "background_command"}
 			]}`)
 		if status != 200 {
@@ -193,12 +193,12 @@ func TestHandleIngestAgentActivityApiAgentActivityPost(t *testing.T) {
 				"state":      "busy",
 				"busy_since": 1000,
 				"subagents": []any{
-					map[string]any{"name": "Explore", "description": "find the route table", "started_ts": 1200},
-					map[string]any{"name": "general-purpose", "description": "", "started_ts": 1300},
+					map[string]any{"id": "a-1", "parent_id": nil, "name": "Explore", "description": "find the route table", "started_ts": 1200},
+					map[string]any{"id": "a-2", "parent_id": "a-1", "name": "general-purpose", "description": "", "started_ts": 1300},
 				},
 				"waits": []any{
-					map[string]any{"kind": "schedule", "description": "check CI"},
-					map[string]any{"kind": "background_command", "description": ""},
+					map[string]any{"kind": "schedule", "description": "check CI", "next_ts": 1900, "recurring": true},
+					map[string]any{"kind": "background_command", "description": "", "next_ts": nil, "recurring": false},
 				},
 				"ts": receiptTS,
 			},
@@ -211,10 +211,10 @@ func TestHandleIngestAgentActivityApiAgentActivityPost(t *testing.T) {
 	}{
 		{
 			name: "only sub-agents running reads busy with no busy_since",
-			body: `{"busy": false, "busy_since": 900, "subagents": [{"name": "Explore", "started_ts": 1200}]}`,
+			body: `{"busy": false, "busy_since": 900, "subagents": [{"id": "a-1", "name": "Explore", "started_ts": 1200}]}`,
 			want: map[string]any{
 				"state": "busy", "busy_since": nil,
-				"subagents": []any{map[string]any{"name": "Explore", "description": "", "started_ts": 1200}},
+				"subagents": []any{map[string]any{"id": "a-1", "parent_id": nil, "name": "Explore", "description": "", "started_ts": 1200}},
 				"waits":     []any{},
 			},
 		},
@@ -223,7 +223,7 @@ func TestHandleIngestAgentActivityApiAgentActivityPost(t *testing.T) {
 			body: `{"busy": false, "subagents": [], "waits": [{"kind": "background_command", "description": "npm test"}]}`,
 			want: map[string]any{
 				"state": "waiting", "busy_since": nil, "subagents": []any{},
-				"waits": []any{map[string]any{"kind": "background_command", "description": "npm test"}},
+				"waits": []any{map[string]any{"kind": "background_command", "description": "npm test", "next_ts": nil, "recurring": false}},
 			},
 		},
 		{
@@ -277,7 +277,7 @@ func TestHandleIngestAgentActivityApiAgentActivityPost(t *testing.T) {
 		}
 		apiWantValue(t, "activity", data["activity"], any(map[string]any{
 			"state": "busy", "busy_since": firstTS, "subagents": []any{},
-			"waits": []any{map[string]any{"kind": "schedule", "description": ""}},
+			"waits": []any{map[string]any{"kind": "schedule", "description": "", "next_ts": nil, "recurring": false}},
 			"ts":    secondTS,
 		}))
 		dashboard.wantFrames()
@@ -301,7 +301,7 @@ func TestHandleIngestAgentActivityApiAgentActivityPost(t *testing.T) {
 		kip := apiTestAgentToken(t, api, "kip", "")
 		apiTestListen(t, api, "kip")
 		if status, data := apiJSON(t, h, "POST", "/api/agent/activity", kip,
-			`{"busy": false, "subagents": [{"name": "Explore", "started_ts": 1200}]}`); status != 200 {
+			`{"busy": false, "subagents": [{"id": "a-1", "name": "Explore", "started_ts": 1200}]}`); status != 200 {
 			t.Fatalf("first report: want 200, got %d (%v)", status, data)
 		}
 
@@ -374,7 +374,7 @@ func TestHandleIngestAgentActivityApiAgentActivityPost(t *testing.T) {
 	t.Run("a report repeating the current activity publishes nothing", func(t *testing.T) {
 		api, h, _, _ := newAPITestServer(t)
 		kip := apiTestAgentToken(t, api, "kip", "")
-		body := `{"busy": true, "busy_since": 1000, "subagents": [{"name": "Explore", "started_ts": 1200}], "waits": [{"kind": "schedule"}]}`
+		body := `{"busy": true, "busy_since": 1000, "subagents": [{"id": "a-1", "name": "Explore", "started_ts": 1200}], "waits": [{"kind": "schedule", "next_ts": 1900}]}`
 		if status, data := apiJSON(t, h, "POST", "/api/agent/activity", kip, body); status != 200 {
 			t.Fatalf("first report: want 200, got %d (%v)", status, data)
 		}
@@ -406,9 +406,9 @@ func TestHandleIngestAgentActivityApiAgentActivityPost(t *testing.T) {
 			422, "validation_error", "busy must be a boolean"},
 		{"a null subagents answers 422", `{"busy": false, "subagents": null}`,
 			422, "validation_error", "subagents must be an array"},
-		{"a sub-agent without a name answers 422", `{"busy": false, "subagents": [{"started_ts": 1}]}`,
+		{"a sub-agent without a name answers 422", `{"busy": false, "subagents": [{"id": "a-1", "started_ts": 1}]}`,
 			422, "validation_error", "field required: subagents[0].name"},
-		{"a sub-agent without a start time answers 422", `{"busy": false, "subagents": [{"name": "Explore"}]}`,
+		{"a sub-agent without a start time answers 422", `{"busy": false, "subagents": [{"id": "a-1", "name": "Explore"}]}`,
 			422, "validation_error", "field required: subagents[0].started_ts"},
 		{"a wait without a kind answers 422", `{"busy": false, "subagents": [], "waits": [{"description": "x"}]}`,
 			422, "validation_error", "field required: waits[0].kind"},
@@ -419,16 +419,30 @@ func TestHandleIngestAgentActivityApiAgentActivityPost(t *testing.T) {
 		{"fifty-one waits answer 400", `{"busy": false, "subagents": [], "waits": [` + strings.Join(tooMany, ",") + `]}`,
 			400, "validation_error", "waits carries 51 items, over the 50-item limit"},
 		{"fifty-one sub-agents answer 400", `{"busy": false, "subagents": [` +
-			strings.Repeat(`{"name": "x", "started_ts": 1},`, 50) + `{"name": "x", "started_ts": 1}]}`,
+			strings.Repeat(`{"id": "a", "name": "x", "started_ts": 1},`, 50) + `{"id": "a", "name": "x", "started_ts": 1}]}`,
 			400, "validation_error", "subagents carries 51 items, over the 50-item limit"},
-		{"an 81-character sub-agent name answers 400", `{"busy": false, "subagents": [{"name": "` + long(81) + `", "started_ts": 1}]}`,
+		{"an 81-character sub-agent name answers 400", `{"busy": false, "subagents": [{"id": "a-1", "name": "` + long(81) + `", "started_ts": 1}]}`,
 			400, "validation_error", "subagents[0].name is 81 chars, over the 80-char limit"},
-		{"a 201-character sub-agent description answers 400", `{"busy": false, "subagents": [{"name": "x", "description": "` + long(201) + `", "started_ts": 1}]}`,
+		{"a 201-character sub-agent description answers 400", `{"busy": false, "subagents": [{"id": "a-1", "name": "x", "description": "` + long(201) + `", "started_ts": 1}]}`,
 			400, "validation_error", "subagents[0].description is 201 chars, over the 200-char limit"},
 		{"a 201-character wait description answers 400", `{"busy": false, "subagents": [], "waits": [{"kind": "schedule", "description": "` + long(201) + `"}]}`,
 			400, "validation_error", "waits[0].description is 201 chars, over the 200-char limit"},
-		{"a negative sub-agent start time answers 400", `{"busy": false, "subagents": [{"name": "x", "started_ts": -1}]}`,
+		{"a negative sub-agent start time answers 400", `{"busy": false, "subagents": [{"id": "a-1", "name": "x", "started_ts": -1}]}`,
 			400, "validation_error", "subagents[0].started_ts must be a non-negative number"},
+		{"a sub-agent without an id answers 422", `{"busy": false, "subagents": [{"name": "x", "started_ts": 1}]}`,
+			422, "validation_error", "field required: subagents[0].id"},
+		{"an empty sub-agent id answers 400", `{"busy": false, "subagents": [{"id": "", "name": "x", "started_ts": 1}]}`,
+			400, "validation_error", "subagents[0].id must not be empty"},
+		{"an 81-character sub-agent id answers 400", `{"busy": false, "subagents": [{"id": "` + long(81) + `", "name": "x", "started_ts": 1}]}`,
+			400, "validation_error", "subagents[0].id is 81 chars, over the 80-char limit"},
+		{"two sub-agents sharing an id answer 400", `{"busy": false, "subagents": [{"id": "a-1", "name": "x", "started_ts": 1}, {"id": "a-1", "name": "y", "started_ts": 2}]}`,
+			400, "validation_error", `subagents[1].id "a-1" repeats an earlier sub-agent's id`},
+		{"an 81-character parent_id answers 400", `{"busy": false, "subagents": [{"id": "a-1", "parent_id": "` + long(81) + `", "name": "x", "started_ts": 1}]}`,
+			400, "validation_error", "subagents[0].parent_id is 81 chars, over the 80-char limit"},
+		{"a negative next_ts answers 400", `{"busy": false, "subagents": [], "waits": [{"kind": "schedule", "next_ts": -1}]}`,
+			400, "validation_error", "waits[0].next_ts must be a non-negative number"},
+		{"a recurring that is not a boolean answers 422", `{"busy": false, "subagents": [], "waits": [{"kind": "schedule", "recurring": "yes"}]}`,
+			422, "validation_error", "invalid request body: json: cannot unmarshal string into Go struct field agentActivityIngestWait.waits.recurring of type bool"},
 		{"a negative busy_since on a main turn answers 400", `{"busy": true, "busy_since": -1, "subagents": []}`,
 			400, "validation_error", "busy_since must be a non-negative number"},
 	} {
@@ -453,13 +467,14 @@ func TestHandleIngestAgentActivityApiAgentActivityPost(t *testing.T) {
 		})
 	}
 
-	t.Run("the limits themselves are accepted: 80-character names, 200-character descriptions, 50 items", func(t *testing.T) {
+	t.Run("the limits themselves are accepted: 80-character ids and names, 200-character descriptions, 50 items, zero times", func(t *testing.T) {
 		api, h, _, _ := newAPITestServer(t)
 		kip := apiTestAgentToken(t, api, "kip", "")
-		fifty := strings.TrimSuffix(strings.Repeat(`{"kind": "schedule", "description": "`+long(200)+`"},`, 50), ",")
+		fifty := strings.TrimSuffix(strings.Repeat(`{"kind": "schedule", "description": "`+long(200)+`", "next_ts": 0},`, 50), ",")
 
-		status, data := apiJSON(t, h, "POST", "/api/agent/activity", kip, `{"busy": false, "subagents": [{"name": "`+
-			long(80)+`", "description": "`+long(200)+`", "started_ts": 0}], "waits": [`+fifty+`]}`)
+		status, data := apiJSON(t, h, "POST", "/api/agent/activity", kip, `{"busy": false, "subagents": [{"id": "`+
+			long(80)+`", "parent_id": "`+long(80)+`", "name": "`+long(80)+`", "description": "`+long(200)+
+			`", "started_ts": 0}], "waits": [`+fifty+`]}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}

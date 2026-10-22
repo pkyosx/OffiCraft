@@ -112,7 +112,7 @@ describe("buildAgentDetailVm", () => {
       state: "waiting" as const,
       busySince: null,
       subagents: [],
-      waits: [{ kind: "schedule" as const, description: "看 CI" }],
+      waits: [{ kind: "schedule" as const, description: "看 CI", nextTs: null, recurring: false }],
     };
     expect(buildAgentDetailVm(mkInput({ activity })).activity).toEqual(activity);
     expect(buildAgentDetailVm(mkInput({ activity: undefined })).activity).toBeNull();

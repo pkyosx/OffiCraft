@@ -90,6 +90,7 @@ func TestCodexUplinkBodies(t *testing.T) {
 		stubCodexNow(t, &now)
 		session.threadID, session.busySince = "th_main", 1720000350
 		session.subagentNames = map[string]string{"th_sub": "scout"}
+		session.subagentParent = map[string]string{"th_sub": "th_outer"}
 		session.trackActivity("turn/started", map[string]any{"threadId": "th_sub", "turn": map[string]any{"id": "t-3"}})
 	})
 
@@ -150,8 +151,9 @@ func TestCodexUplinkBodies(t *testing.T) {
 			route: "/api/agent/activity",
 			body: map[string]any{
 				"busy": true, "busy_since": float64(1720000350),
-				"subagents": []any{map[string]any{"name": "scout", "description": "", "started_ts": float64(1720000400)}},
-				"waits":     []any{},
+				"subagents": []any{map[string]any{"id": "th_sub", "parent_id": "th_outer", "name": "scout",
+					"description": "", "started_ts": float64(1720000400)}},
+				"waits": []any{},
 			},
 		},
 	}

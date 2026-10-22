@@ -176,8 +176,8 @@ function mkPopulatedVM(): AgentDetailVM {
     activity: {
       state: "busy",
       busySince: 1,
-      subagents: [{ name: "Explore", description: "scan", startedTs: 1 }],
-      waits: [{ kind: "schedule", description: "check CI" }],
+      subagents: [{ id: "s1", parentId: null, name: "Explore", description: "scan", startedTs: 1 }],
+      waits: [{ kind: "schedule", description: "check CI", nextTs: 2, recurring: true }],
     },
     prompt: {
       fetch: () => Promise.resolve("boot"),

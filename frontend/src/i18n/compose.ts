@@ -31,7 +31,7 @@
 // stays inside the (overridable) fragment.
 
 import type { Dict } from "./locales/zh";
-import type { Effort, MemberActivity } from "../types";
+import type { ActivityWait, Effort, MemberActivity } from "../types";
 import { formatResetTime } from "../lib/dateFormat";
 
 /** The UI languages a wording overlay keys on (mirrors i18n's `Language`;
@@ -104,9 +104,12 @@ export interface Messages {
   /** The one-sentence account of a session's activity. `now` is epoch
    * seconds; elapsed time is measured from `busySince`. */
   memberActivitySummary: (activity: MemberActivity, now: number) => string;
-  /** One line per running sub-agent (earliest started first), then one per
-   * wait. */
-  memberActivityDetails: (activity: MemberActivity, now: number) => string[];
+  /** 「已 3 分鐘」: how long the main agent's turn has run. */
+  memberActivitySince: (since: number, now: number) => string;
+  /** 「40 秒」/「3 分鐘」: how long a sub-agent has run. */
+  memberActivityDuration: (since: number, now: number) => string;
+  /** 「背景指令」, or 「排程 · 下次 12:15 · 重複」 in the viewer's local time. */
+  memberActivityWaitTag: (wait: ActivityWait) => string;
   /** `by` is the deadline text, or null when the wind-down is on NO clock —
    * which since T-ed79 is every cause except the second context threshold. The
    * no-clock sentence must not contain any time at all. */
@@ -247,8 +250,10 @@ export function makeMessages(t: Dict, language: Lang): Messages {
   };
   const counted = (n: number, one: string, many: string): string =>
     `${n} ${n === 1 ? one : many}`;
-  const parenthesised = (head: string, inner: string): string =>
-    head ? `${head}${sp}${act.parenLead}${inner}${act.parenTail}` : inner;
+  const clock = (ts: number): string => {
+    const d = new Date(ts * 1000);
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  };
   const messages: Messages = {
     // 「量於 3d 前」/「measured 3d ago」— the age rides beside the usage number
     // so a frozen snapshot can never read as a live one (T-3b90).
@@ -404,18 +409,16 @@ export function makeMessages(t: Dict, language: Lang): Messages {
         ? `${head}${act.waitsLead} ${counted(waits, act.waitsTailOne, act.waitsTailMany)}`
         : head;
     },
-    // zh writes 「…（Explore）· 已跑」: a fullwidth paren already carries its own
-    // spacing, so the separator loses its leading space there and only there.
-    memberActivityDetails: (a, now) => [
-      ...[...a.subagents]
-        .sort((x, y) => x.startedTs - y.startedTs)
-        .map((s) => {
-          const head = parenthesised(s.description, s.name);
-          const gap = s.description && language === "zh" ? "" : " ";
-          return `${head}${gap}· ${activityElapsed(act.subagentRanLead, s.startedTs, now)}`;
-        }),
-      ...a.waits.map((w) => parenthesised(w.description, act.waitKind[w.kind])),
-    ],
+    memberActivitySince: (since, now) => activityElapsed(act.elapsedLead, since, now),
+    memberActivityDuration: (since, now) => activityElapsed("", since, now),
+    memberActivityWaitTag: (w) =>
+      w.kind === "background_command"
+        ? act.waitKind.background_command
+        : [
+            act.waitKind.schedule,
+            ...(w.nextTs !== null ? [`${act.nextLead} ${clock(w.nextTs)}`] : []),
+            ...(w.recurring ? [act.recurring] : []),
+          ].join(" · "),
     // 「正在收尾以套用你的改動 · 最晚 14:32 生效」 — the deadline is a CEILING
     // (the collect fires as soon as the agent reports stopped), so the wording
     // says 最晚 rather than promising a time.

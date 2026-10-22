@@ -34,6 +34,9 @@ export interface RuntimeLoginWarning {
 }
 
 export interface ActivitySubagent {
+  id: string;
+  /** The sub-agent that started this one; null = the main agent or unknown. */
+  parentId: string | null;
   name: string;
   /** "" when the runtime gives none. */
   description: string;
@@ -44,6 +47,9 @@ export interface ActivitySubagent {
 export interface ActivityWait {
   kind: "background_command" | "schedule";
   description: string;
+  /** A schedule's next run, epoch seconds by the member machine's clock. */
+  nextTs: number | null;
+  recurring: boolean;
 }
 
 /** What a member's session is doing right now (wire `MemberDTO.activity`). */

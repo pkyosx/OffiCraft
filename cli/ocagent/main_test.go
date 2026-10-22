@@ -173,6 +173,8 @@ func TestRealMain(t *testing.T) {
 			activityHook("SubagentStop", `"agent_id":"a1","agent_type":"Explore"`),
 			activityHook("Stop", `"background_tasks":[],"session_crons":[]`),
 			activityHook("StopFailure", `"error":"rate_limit"`),
+			agentPreToolUse("", "survey the repo"),
+			agentPostToolUse("a1", "read cli/", `{"isAsync":true,"status":"async_launched","agentId":"b2"}`),
 			"not json",
 		} {
 			t.Run(input, func(t *testing.T) {

@@ -112,7 +112,7 @@ describe("MemberCard presence — the dot carries it", () => {
   // user can't tell the states apart, which is the same failure as having no
   // label at all (and would survive every per-state check above if they all
   // read e.g. "線上").
-  it("under a runtime login warning, the card shows one exclamation right after the dot, whose hint shows at once on hover or focus, and Enter/Space on the focused mark do not open the row", () => {
+  it("under a runtime login warning, the card leads its role line with one exclamation, whose hint shows at once on hover or focus, and Enter/Space on the focused mark do not open the row", () => {
     const onChat = vi.fn();
     const onOpenDetail = vi.fn();
     const { getAllByTestId, container } = render(
@@ -134,7 +134,8 @@ describe("MemberCard presence — the dot carries it", () => {
     expect(marks).toHaveLength(1);
     expect(marks[0].getAttribute("aria-label")).toBe("mac-1 未登入 Codex\n可到「監控」頁的機器資訊，在 Codex 欄按版本號 →「登入」");
     expect(marks[0].hasAttribute("title")).toBe(false);
-    expect(marks[0].previousElementSibling).toBe(container.querySelector(".lifecycle-dot"));
+    expect(marks[0].previousElementSibling).toBeNull();
+    expect(marks[0].closest(".member-card__presence")).not.toBeNull();
     expect(screen.queryByRole("tooltip")).toBeNull();
 
     fireEvent.mouseOver(marks[0]);
@@ -189,8 +190,8 @@ describe("MemberCard presence — the dot carries it", () => {
     expect(screen.queryByRole("tooltip")).toBeNull();
   });
 
-  it("under only a model-call warning, the card shows one exclamation right after the dot naming that reason", () => {
-    const { getAllByTestId, container } = render(
+  it("under only a model-call warning, the card leads its role line with one exclamation naming that reason", () => {
+    const { getAllByTestId } = render(
       <I18nProvider>
         <MemberCard
           member={mkMember({
@@ -216,7 +217,18 @@ describe("MemberCard presence — the dot carries it", () => {
     const marks = getAllByTestId("runtime-login-warning");
     expect(marks).toHaveLength(1);
     expect(marks[0].getAttribute("aria-label")).toBe("Claude 已達用量上限");
-    expect(marks[0].previousElementSibling).toBe(container.querySelector(".lifecycle-dot"));
+    expect(marks[0].previousElementSibling).toBeNull();
+    expect(marks[0].closest(".member-card__presence")).not.toBeNull();
+  });
+
+  it("draws the dot on the avatar's corner, beside the detail button rather than inside it, and not on the role line", () => {
+    const { container } = renderCard("online");
+    const dot = container.querySelector(".lifecycle-dot")!;
+    const corner = dot.closest(".presence-avatar")!;
+    expect(corner.querySelector(":scope > .member-card__avatar")).not.toBeNull();
+    expect(dot.closest("button")).toBeNull();
+    expect(container.querySelector(".member-card__presence .lifecycle-dot")).toBeNull();
+    expect(container.querySelector(".member-card__presence")!.textContent).toBe("特助");
   });
 
   it("gives each of the five lifecycle states a distinct label", () => {
@@ -376,5 +388,51 @@ describe("MemberCard presence dot hint", () => {
     expect(getByRole("img", { name: "離線" })).toBe(dot);
     expect(dot.tabIndex).toBe(0);
     expect(dot.querySelectorAll("*")).toHaveLength(0);
+  });
+});
+
+describe("MemberCard activity icon", () => {
+  const renderWith = (activity: Member["activity"], onChat = vi.fn()) =>
+    render(
+      <I18nProvider>
+        <MemberCard
+          member={mkMember({ lifecycle: activity ? "online" : "offline", activity })}
+          selected={false}
+          onOpenDetail={() => {}}
+          onChat={onChat}
+        />
+      </I18nProvider>,
+    );
+
+  it.each([
+    ["busy", "工作中", "working", "主 agent 工作中（已 0 秒）"],
+    ["waiting", "等待中", "waiting", "主 agent 與 sub-agent 都沒有在工作，正在等 1 個背景檢查或排程"],
+    ["idle", "閒置", "idle", "主 agent 與 sub-agent 都沒有在工作"],
+  ] as const)("under %s, the icon right after the name is named %s, draws its own glyph and hints the summary", (state, word, glyph, hint) => {
+    const { getByTestId } = renderWith({
+      state,
+      busySince: state === "busy" ? Date.now() / 1000 + 5 : null,
+      subagents: [],
+      waits: state === "waiting" ? [{ kind: "background_command", description: "", nextTs: null, recurring: false }] : [],
+    });
+    const icon = getByTestId("activity-icon-mira");
+    expect(icon.previousElementSibling!.textContent).toBe("Mira");
+    expect(icon.getAttribute("aria-label")).toBe(word);
+    expect(icon.querySelector(`.activity-icon__glyph--${glyph}`)).not.toBeNull();
+    fireEvent.mouseEnter(icon);
+    expect(screen.getByRole("tooltip").textContent).toBe(hint);
+  });
+
+  it("tapping the icon pins its hint without opening the chat", () => {
+    const onChat = vi.fn();
+    const { getByTestId } = renderWith({ state: "idle", busySince: null, subagents: [], waits: [] }, onChat);
+    fireEvent.click(getByTestId("activity-icon-mira"));
+    expect(screen.getByRole("tooltip").className).toBe("instant-hint instant-hint--pinned");
+    expect(onChat).not.toHaveBeenCalled();
+  });
+
+  it("an offline member (no activity) has no icon", () => {
+    const { queryByTestId } = renderWith(null);
+    expect(queryByTestId("activity-icon-mira")).toBeNull();
   });
 });

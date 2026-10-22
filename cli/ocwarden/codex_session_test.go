@@ -1925,8 +1925,12 @@ func activitySnapshot(busySince any, subagents ...any) map[string]any {
 	return map[string]any{"busy": busySince != nil, "busy_since": busySince, "subagents": subagents, "waits": []any{}}
 }
 
-func activitySubagentItem(name string, started float64) map[string]any {
-	return map[string]any{"name": name, "description": "", "started_ts": started}
+func activitySubagentItem(id, name string, started float64) map[string]any {
+	return activityChildItem(id, nil, name, started)
+}
+
+func activityChildItem(id string, parent any, name string, started float64) map[string]any {
+	return map[string]any{"id": id, "parent_id": parent, "name": name, "description": "", "started_ts": started}
 }
 
 func TestCodexSessionTrackActivity(t *testing.T) {
@@ -1969,9 +1973,9 @@ func TestCodexSessionTrackActivity(t *testing.T) {
 
 		main := float64(1719999990)
 		want := []codexPost{
-			activityPost(activitySnapshot(main, activitySubagentItem("sub-agent", 1720000000))),
-			activityPost(activitySnapshot(main, activitySubagentItem("sub-agent", 1720000000), activitySubagentItem("sub-agent", 1720000005))),
-			activityPost(activitySnapshot(main, activitySubagentItem("sub-agent", 1720000005))),
+			activityPost(activitySnapshot(main, activitySubagentItem("th_sub", "sub-agent", 1720000000))),
+			activityPost(activitySnapshot(main, activitySubagentItem("th_sub", "sub-agent", 1720000000), activitySubagentItem("th_deeper", "sub-agent", 1720000005))),
+			activityPost(activitySnapshot(main, activitySubagentItem("th_deeper", "sub-agent", 1720000005))),
 			activityPost(activitySnapshot(main)),
 		}
 		if !reflect.DeepEqual(fake.posts, want) {
@@ -1992,8 +1996,8 @@ func TestCodexSessionTrackActivity(t *testing.T) {
 
 		want := []codexPost{
 			activityPost(activitySnapshot(float64(1720000000))),
-			activityPost(activitySnapshot(float64(1720000000), activitySubagentItem("sub-agent", 1720000002))),
-			activityPost(activitySnapshot(nil, activitySubagentItem("sub-agent", 1720000002))),
+			activityPost(activitySnapshot(float64(1720000000), activitySubagentItem("th_sub", "sub-agent", 1720000002))),
+			activityPost(activitySnapshot(nil, activitySubagentItem("th_sub", "sub-agent", 1720000002))),
 		}
 		if !reflect.DeepEqual(fake.posts, want) {
 			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
@@ -2010,7 +2014,7 @@ func TestCodexSessionTrackActivity(t *testing.T) {
 		*now = now.Add(10 * time.Second)
 		s.trackActivity("turn/started", map[string]any{"threadId": "th_sub"})
 
-		first := activityPost(activitySnapshot(nil, activitySubagentItem("sub-agent", 1720000000)))
+		first := activityPost(activitySnapshot(nil, activitySubagentItem("th_sub", "sub-agent", 1720000000)))
 		if want := []codexPost{first, activityPost(activitySnapshot(nil)), first}; !reflect.DeepEqual(fake.posts, want) {
 			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
 		}
@@ -2032,14 +2036,14 @@ func TestCodexSessionTrackActivity(t *testing.T) {
 		s.trackActivity("turn/started", map[string]any{"threadId": "th_other"})
 
 		later := float64(1720000000 + 4*3600)
-		other := activitySubagentItem("sub-agent", 1720000000)
+		other := activitySubagentItem("th_other", "sub-agent", 1720000000)
 		want := []codexPost{
-			activityPost(activitySnapshot(nil, activitySubagentItem("explorer", 1720000000))),
-			activityPost(activitySnapshot(nil, other, activitySubagentItem("explorer", 1720000000))),
+			activityPost(activitySnapshot(nil, activitySubagentItem("th_sub", "explorer", 1720000000))),
+			activityPost(activitySnapshot(nil, other, activitySubagentItem("th_sub", "explorer", 1720000000))),
 			activityPost(activitySnapshot(nil, other)),
-			activityPost(activitySnapshot(nil, other, activitySubagentItem("sub-agent", later))),
-			activityPost(activitySnapshot(nil, activitySubagentItem("sub-agent", later))),
-			activityPost(activitySnapshot(nil, other, activitySubagentItem("sub-agent", later))),
+			activityPost(activitySnapshot(nil, other, activitySubagentItem("th_sub", "sub-agent", later))),
+			activityPost(activitySnapshot(nil, activitySubagentItem("th_sub", "sub-agent", later))),
+			activityPost(activitySnapshot(nil, other, activitySubagentItem("th_sub", "sub-agent", later))),
 		}
 		if !reflect.DeepEqual(fake.posts, want) {
 			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
@@ -2061,11 +2065,11 @@ func TestCodexSessionTrackActivity(t *testing.T) {
 		later := float64(1720000000 + 5*60 + 4*3600)
 		want := []codexPost{
 			activityPost(activitySnapshot(float64(1720000000))),
-			activityPost(activitySnapshot(float64(1720000000), activitySubagentItem("sub-agent", 1720000000))),
-			activityPost(activitySnapshot(nil, activitySubagentItem("sub-agent", 1720000000))),
+			activityPost(activitySnapshot(float64(1720000000), activitySubagentItem("th_sub", "sub-agent", 1720000000))),
+			activityPost(activitySnapshot(nil, activitySubagentItem("th_sub", "sub-agent", 1720000000))),
 			activityPost(activitySnapshot(nil)),
 			activityPost(activitySnapshot(later)),
-			activityPost(activitySnapshot(later, activitySubagentItem("sub-agent", later))),
+			activityPost(activitySnapshot(later, activitySubagentItem("th_sub", "sub-agent", later))),
 		}
 		if !reflect.DeepEqual(fake.posts, want) {
 			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
@@ -2090,8 +2094,8 @@ func TestCodexSessionTrackActivity(t *testing.T) {
 		s.trackActivity("turn/completed", map[string]any{"threadId": "th_inner"})
 		s.trackActivity("turn/started", map[string]any{"threadId": "th_outer"})
 
-		outer := activitySubagentItem("outer", 1720000000)
-		inner := activitySubagentItem("inner", 1720000000)
+		outer := activitySubagentItem("th_outer", "outer", 1720000000)
+		inner := activityChildItem("th_inner", "th_outer", "inner", 1720000000)
 		want := []codexPost{
 			activityPost(activitySnapshot(nil, outer)),
 			activityPost(activitySnapshot(nil, inner, outer)),
@@ -2108,7 +2112,7 @@ func TestCodexSessionTrackActivity(t *testing.T) {
 
 	t.Run("a sub-agent thread reported no longer active is removed, and an earlier idle does not block its next turn", func(t *testing.T) {
 		idle := map[string]any{"threadId": "th_sub", "status": map[string]any{"type": "idle"}}
-		started := activityPost(activitySnapshot(nil, activitySubagentItem("sub-agent", 1720000000)))
+		started := activityPost(activitySnapshot(nil, activitySubagentItem("th_sub", "sub-agent", 1720000000)))
 		cases := []struct {
 			name   string
 			events []string
@@ -2147,14 +2151,14 @@ func TestCodexSessionTrackActivity(t *testing.T) {
 		s.trackActivity("item/started", map[string]any{"threadId": "th_1", "item": map[string]any{
 			"type": "subAgentActivity", "agentThreadId": "th_sub", "agentPath": "/root/outer"}})
 		s.trackActivity("turn/started", map[string]any{"threadId": "th_sub"})
-		s.trackActivity("item/completed", map[string]any{"threadId": "th_sub", "item": map[string]any{
+		s.trackActivity("item/completed", map[string]any{"threadId": "th_1", "item": map[string]any{
 			"type": "subAgentActivity", "agentThreadId": "th_sub", "agentPath": "/root/outer/inner"}})
 		s.trackActivity("item/completed", map[string]any{"threadId": "th_1", "item": map[string]any{
 			"type": "agentMessage", "text": "OK"}})
 
 		want := []codexPost{
-			activityPost(activitySnapshot(nil, activitySubagentItem("outer", 1720000000))),
-			activityPost(activitySnapshot(nil, activitySubagentItem("inner", 1720000000))),
+			activityPost(activitySnapshot(nil, activitySubagentItem("th_sub", "outer", 1720000000))),
+			activityPost(activitySnapshot(nil, activitySubagentItem("th_sub", "inner", 1720000000))),
 		}
 		if !reflect.DeepEqual(fake.posts, want) {
 			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
@@ -2192,7 +2196,7 @@ func TestCodexSessionActivityBody(t *testing.T) {
 
 		var subs []any
 		for i := 0; i < 50; i++ {
-			subs = append(subs, activitySubagentItem(strings.Repeat("名", 80), float64(1949+i)))
+			subs = append(subs, activitySubagentItem(fmt.Sprintf("th_%02d", 51-i), strings.Repeat("名", 80), float64(1949+i)))
 		}
 		if want := activitySnapshot(nil, subs...); !reflect.DeepEqual(got, want) {
 			t.Errorf("activityBody = %v, want %v", got, want)
@@ -2215,7 +2219,7 @@ func TestCodexSessionReannounce(t *testing.T) {
 		identity := codexPost{method: http.MethodPost, url: "https://x.test/api/monitoring/telemetry",
 			auth: "Bearer tok", ctype: "application/json",
 			body: map[string]any{"runtime": "codex", "account": "codex:abc", "account_label": "ChatGPT"}}
-		activity := activityPost(activitySnapshot(float64(1720000000), activitySubagentItem("scout", 1720000001)))
+		activity := activityPost(activitySnapshot(float64(1720000000), activitySubagentItem("th_sub", "scout", 1720000001)))
 		if want := []codexPost{identity, activity, identity, activity}; !reflect.DeepEqual(fake.posts, want) {
 			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
 		}
@@ -3202,8 +3206,8 @@ func TestRunCodexSession(t *testing.T) {
 		main := float64(1720000000)
 		want := []codexPost{
 			activityPost(activitySnapshot(main)),
-			activityPost(activitySnapshot(main, activitySubagentItem("sub-agent", main))),
-			activityPost(activitySnapshot(main, activitySubagentItem("scout", main))),
+			activityPost(activitySnapshot(main, activitySubagentItem("th_sub", "sub-agent", main))),
+			activityPost(activitySnapshot(main, activitySubagentItem("th_sub", "scout", main))),
 			activityPost(activitySnapshot(main)),
 			activityPost(activitySnapshot(nil)),
 			activityPost(activitySnapshot(nil)),

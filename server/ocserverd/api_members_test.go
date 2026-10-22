@@ -1247,7 +1247,7 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 		apiTestListen(t, api, "kip")
 		apiTestListen(t, api, "mira")
 		status, data := apiJSON(t, h, "POST", "/api/agent/activity", kip,
-			`{"busy": false, "subagents": [], "waits": [{"kind": "schedule", "description": "nightly"}]}`)
+			`{"busy": false, "subagents": [], "waits": [{"kind": "schedule", "description": "nightly", "next_ts": 2000, "recurring": true}]}`)
 		if status != 200 {
 			t.Fatalf("report: %d %v", status, data)
 		}
@@ -1260,7 +1260,7 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 			{"owner", owner, map[string]any{
 				"kip": map[string]any{
 					"state": "waiting", "busy_since": nil, "subagents": []any{},
-					"waits": []any{map[string]any{"kind": "schedule", "description": "nightly"}},
+					"waits": []any{map[string]any{"kind": "schedule", "description": "nightly", "next_ts": 2000, "recurring": true}},
 					"ts":    reportTS,
 				},
 				"mira": nil, "m-server-self": nil,

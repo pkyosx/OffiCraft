@@ -29,7 +29,9 @@ export function lifecycleVisual(member: Member): LifecycleVisualStatus {
   return presenceVisual(member.lifecycle);
 }
 
-export function PresenceBadge({ member }: { member: Member }) {
+/** `dot={false}` on the surfaces whose avatar carries the dot (PresenceAvatar):
+ * the badge is then only the warning mark and the role. */
+export function PresenceBadge({ member, dot = true }: { member: Member; dot?: boolean }) {
   const { t } = useI18n();
   const visual = lifecycleVisual(member);
   // i18n label for a known seed key; a CUSTOM role (M2-2, open key space)
@@ -40,7 +42,7 @@ export function PresenceBadge({ member }: { member: Member }) {
     (member.roleName || member.role);
   return (
     <span className="presence-badge">
-      <LifecycleDot status={visual} />
+      {dot && <LifecycleDot status={visual} />}
       <RuntimeLoginWarningMark
         warnings={member.runtimeLoginWarnings}
         modelCallWarnings={member.modelCallWarnings}

@@ -1,21 +1,53 @@
-/* The chat header's status word. The header row must stay one line (see
- * .chat__header-name in office.css): the word keeps one line at its full width
- * (nowrap makes its min-content its whole width), and the role text beside it
- * is what ellipsises. */
-.activity-word__sep {
+/* The status icon beside a member's name, and the glyphs it shares with the
+ * 運作狀況 tree. The icon never shrinks: the name beside it is what gives. */
+.activity-icon {
   flex: none;
-  color: var(--color-text-muted);
-}
-.activity-word {
-  white-space: nowrap;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
   cursor: default;
   outline: none;
-  color: var(--color-text);
-}
-.activity-word:focus-visible {
-  box-shadow: 0 0 0 2px var(--color-accent-soft);
   border-radius: 4px;
 }
-.activity-word--busy {
-  color: var(--color-accent);
+.activity-icon:focus-visible {
+  box-shadow: 0 0 0 2px var(--color-accent-soft);
+}
+.activity-icon__glyph {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+}
+.activity-icon__glyph--working {
+  color: var(--color-success);
+}
+.activity-icon__glyph--waiting {
+  color: var(--color-warn-fg);
+}
+.activity-icon__glyph--idle {
+  color: var(--color-text-muted);
+}
+/* 工作中: the three dots bounce in turn. */
+.activity-icon__glyph--working circle {
+  animation: activity-working-bounce 1.2s ease-in-out infinite;
+}
+.activity-icon__glyph--working circle:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.activity-icon__glyph--working circle:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes activity-working-bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+  }
+  30% {
+    transform: translateY(-3px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .activity-icon__glyph--working circle {
+    animation: none;
+  }
 }

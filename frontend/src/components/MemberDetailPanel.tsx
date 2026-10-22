@@ -36,6 +36,8 @@ import { ModelEffortEditor } from "./ModelEffortEditor";
 import { presenceVisual } from "./LifecycleDot";
 import type { LifecycleVisualStatus } from "./LifecycleDot";
 import { PresenceBadge } from "./PresenceBadge";
+import { PresenceAvatar } from "./PresenceAvatar";
+import { ActivityStatusIcon } from "./MemberActivity";
 import { MemberActionButtons, stopLadderStageOf } from "./MemberActionButtons";
 import { DispatchAlert } from "./DispatchAlert";
 // 🔴 This panel renders its settings dialog with the .machine-picker* classes,
@@ -533,20 +535,19 @@ export function MemberDetailPanel({
     <>
       {/* identity card */}
       <div className="mp-card mp-identity">
-        {/* Avatar dot dropped here: the 7-state LifecycleDot on the status line
-            below is now the single source of presence colour (replaces the old
-            3-state Avatar dot in this panel). */}
-        {onUpdateAvatar && onRemoveAvatar ? (
-          <AvatarEditor
-            size={52}
-            kind={avatarKindForMember(member)}
-            src={member.avatarUrl}
-            onUpload={onUpdateAvatar}
-            onRemove={onRemoveAvatar}
-          />
-        ) : (
-          <Avatar size={52} kind={avatarKindForMember(member)} src={member.avatarUrl} />
-        )}
+        <PresenceAvatar presence={member.lifecycle} dotTestId="mp-identity-presence">
+          {onUpdateAvatar && onRemoveAvatar ? (
+            <AvatarEditor
+              size={52}
+              kind={avatarKindForMember(member)}
+              src={member.avatarUrl}
+              onUpload={onUpdateAvatar}
+              onRemove={onRemoveAvatar}
+            />
+          ) : (
+            <Avatar size={52} kind={avatarKindForMember(member)} src={member.avatarUrl} />
+          )}
+        </PresenceAvatar>
         <div className="mp-identity__body">
           <div className="mp-identity__line">
             <InlineEdit
@@ -556,6 +557,7 @@ export function MemberDetailPanel({
               ariaLabel={t.mp.rename}
               displayClassName="mp-identity__name"
             />
+            <ActivityStatusIcon activity={member.activity} testId="mp-identity-activity" />
             {/* The STABLE member id itself — the same string that addresses this
                 member everywhere else (post_chat, resume summary, task rows).
                 It used to render the derived MB-XXX### badge, which gave one
@@ -564,15 +566,13 @@ export function MemberDetailPanel({
             <span className="badge mp-identity__id">{member.id}</span>
           </div>
           <div className="mp-identity__status">
-            {/* Shared presence badge: lifecycle dot (colour = presence) + role.
-                Trimmed — no status word, no last-seen (presence was expressed
-                three times; the dot's colour is now the single presence signal). */}
+            {/* The warning mark and the role; presence is the avatar-corner dot. */}
             {/* NO role-settings gear here. It landed on the roster row
                 (2faa5ce), moved into this panel (owner's 1st ruling), and
                 owner 2026-07-17 moved it AGAIN — out of the panel entirely,
                 onto the chat window header (ChatArea's 角色設定 button). The
                 panel's status line is back to pure presence. */}
-            <PresenceBadge member={member} />
+            <PresenceBadge member={member} dot={false} />
           </div>
         </div>
         {/* State-ized action group replaces the single wake button. Every button

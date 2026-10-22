@@ -84,14 +84,18 @@ type agentActivityIngestBody struct {
 }
 
 type agentActivityIngestSubagent struct {
+	ID          *string  `json:"id"`
+	ParentID    *string  `json:"parent_id"`
 	Name        *string  `json:"name"`
 	Description *string  `json:"description"`
 	StartedTs   *float64 `json:"started_ts"`
 }
 
 type agentActivityIngestWait struct {
-	WaitKind    *string `json:"kind"`
-	Description *string `json:"description"`
+	WaitKind    *string  `json:"kind"`
+	Description *string  `json:"description"`
+	NextTs      *float64 `json:"next_ts"`
+	Recurring   bool     `json:"recurring"`
 }
 
 // A snapshot replaces the previous one whole; only a change in what the owner
@@ -134,13 +138,35 @@ func validateAgentActivity(body agentActivityIngestBody) (
 			"subagents carries %d items, over the %d-item limit", len(*body.Subagents), activityMaxItems)
 	}
 	subagents := make([]activitySubagentDTO, 0, len(*body.Subagents))
+	seen := map[string]bool{}
 	for i, sa := range *body.Subagents {
 		at := fmt.Sprintf("subagents[%d]", i)
+		if sa.ID == nil {
+			return nil, nil, http.StatusUnprocessableEntity, "field required: " + at + ".id"
+		}
 		if sa.Name == nil {
 			return nil, nil, http.StatusUnprocessableEntity, "field required: " + at + ".name"
 		}
 		if sa.StartedTs == nil {
 			return nil, nil, http.StatusUnprocessableEntity, "field required: " + at + ".started_ts"
+		}
+		if *sa.ID == "" {
+			return nil, nil, http.StatusBadRequest, at + ".id must not be empty"
+		}
+		if n := utf8.RuneCountInString(*sa.ID); n > activityNameMaxChars {
+			return nil, nil, http.StatusBadRequest, fmt.Sprintf(
+				"%s.id is %d chars, over the %d-char limit", at, n, activityNameMaxChars)
+		}
+		if seen[*sa.ID] {
+			return nil, nil, http.StatusBadRequest, fmt.Sprintf(
+				"%s.id %q repeats an earlier sub-agent's id", at, *sa.ID)
+		}
+		seen[*sa.ID] = true
+		if sa.ParentID != nil {
+			if n := utf8.RuneCountInString(*sa.ParentID); n > activityNameMaxChars {
+				return nil, nil, http.StatusBadRequest, fmt.Sprintf(
+					"%s.parent_id is %d chars, over the %d-char limit", at, n, activityNameMaxChars)
+			}
 		}
 		if n := utf8.RuneCountInString(*sa.Name); n > activityNameMaxChars {
 			return nil, nil, http.StatusBadRequest, fmt.Sprintf(
@@ -155,6 +181,7 @@ func validateAgentActivity(body agentActivityIngestBody) (
 			return nil, nil, http.StatusBadRequest, at + ".started_ts must be a non-negative number"
 		}
 		subagents = append(subagents, activitySubagentDTO{
+			ID: *sa.ID, ParentID: sa.ParentID,
 			Name: *sa.Name, Description: description, StartedTS: *sa.StartedTs,
 		})
 	}
@@ -178,7 +205,13 @@ func validateAgentActivity(body agentActivityIngestBody) (
 				return nil, nil, http.StatusBadRequest, fmt.Sprintf(
 					"%s.description is %d chars, over the %d-char limit", at, n, activityDescriptionMax)
 			}
-			waits = append(waits, activityWaitDTO{WaitKind: *wt.WaitKind, Description: description})
+			if wt.NextTs != nil && *wt.NextTs < 0 {
+				return nil, nil, http.StatusBadRequest, at + ".next_ts must be a non-negative number"
+			}
+			waits = append(waits, activityWaitDTO{
+				WaitKind: *wt.WaitKind, Description: description,
+				NextTS: wt.NextTs, Recurring: wt.Recurring,
+			})
 		}
 	}
 	return subagents, waits, 0, ""

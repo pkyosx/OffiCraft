@@ -567,14 +567,18 @@ type memberActivityDTO struct {
 }
 
 type activitySubagentDTO struct {
+	ID          string  `json:"id"`
+	ParentID    *string `json:"parent_id"`
 	Name        string  `json:"name"`
 	Description string  `json:"description"`
 	StartedTS   float64 `json:"started_ts"`
 }
 
 type activityWaitDTO struct {
-	WaitKind    string `json:"kind"`
-	Description string `json:"description"`
+	WaitKind    string   `json:"kind"`
+	Description string   `json:"description"`
+	NextTS      *float64 `json:"next_ts"`
+	Recurring   bool     `json:"recurring"`
 }
 
 // agentTelemetryReceiptDTO: Machine is the attribution actually used — the

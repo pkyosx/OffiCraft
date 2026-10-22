@@ -721,8 +721,8 @@ export const zh = {
   },
   // ── 外包 worker 詳情面板（前端 only 精簡版：只放外包真有的欄位，
   // 不套用成員面板的機器綁定／model 編輯／context％／花費／refocus）──
-  // 成員 session 的運行狀況（聊天 header 狀態字＋詳情面板卡）。句子由
-  // compose.ts 的 memberActivitySummary／memberActivityDetails 組裝。
+  // 成員 session 的運作狀況（名字旁的狀態圖示＋詳情面板「運作狀況」卡）。
+  // 句子由 compose.ts 的 memberActivity* 組裝。
   activity: {
     state: {
       busy: "工作中",
@@ -744,9 +744,11 @@ export const zh = {
     waitsLead: "，正在等",
     waitsTailOne: "個背景檢查或排程",
     waitsTailMany: "個背景檢查或排程",
-    parenLead: "（",
-    parenTail: "）",
-    subagentRanLead: "已跑",
+    cardTitle: "運作狀況",
+    mainAgent: "主 agent",
+    mainReplied: "已回覆完畢",
+    nextLead: "下次",
+    recurring: "重複",
     waitKind: {
       background_command: "背景指令",
       schedule: "排程",

@@ -695,6 +695,7 @@ export function OfficePage({
                 <OutsourceTaskLine
                   worker={workerPeer}
                   onOpenTask={(taskId) => setRoute({ page: "tasks", taskId })}
+                  mark
                   idPrefix="outsource-chat"
                 />
               </span>

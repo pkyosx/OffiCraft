@@ -14,6 +14,7 @@ import (
 // decodes with DisallowUnknownFields, so one undeclared key loses the report
 // while the hook still exits 0.
 func TestActivityReportUplinkBodies(t *testing.T) {
+	stubCronLocation(t)
 	declared := frozenIngestProperties(t, "AgentActivityIngestDTO")
 	subagentDeclared := frozenIngestProperties(t, "AgentActivitySubagentDTO")
 	waitDeclared := frozenIngestProperties(t, "AgentActivityWaitDTO")
@@ -64,8 +65,9 @@ func TestActivityReportUplinkBodies(t *testing.T) {
 	hook := check("hook", before)
 
 	want := `{"busy":true,"busy_since":1000,` +
-		`"subagents":[{"name":"Explore","description":"survey the repo","started_ts":1001}],` +
-		`"waits":[{"kind":"background_command","description":"npm test"},{"kind":"schedule","description":"check CI"}]}`
+		`"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey the repo","started_ts":1001}],` +
+		`"waits":[{"kind":"background_command","description":"npm test","next_ts":null,"recurring":false},` +
+		`{"kind":"schedule","description":"check CI","next_ts":4500,"recurring":true}]}`
 	if hook.body != want {
 		t.Errorf("hook body =\n  %s\nwant\n  %s", hook.body, want)
 	}

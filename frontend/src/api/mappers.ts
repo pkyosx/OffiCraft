@@ -259,6 +259,8 @@ export function toMemberActivity(
     state: w.state,
     busySince: w.busy_since ?? null,
     subagents: (w.subagents ?? []).map((s) => ({
+      id: s.id,
+      parentId: s.parent_id ?? null,
       name: s.name,
       description: s.description ?? "",
       startedTs: s.started_ts,
@@ -266,6 +268,8 @@ export function toMemberActivity(
     waits: (w.waits ?? []).map((x) => ({
       kind: x.kind,
       description: x.description ?? "",
+      nextTs: x.next_ts ?? null,
+      recurring: x.recurring ?? false,
     })),
   };
 }

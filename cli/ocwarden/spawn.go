@@ -112,8 +112,9 @@ func buildMCPConfig(base, token string) string {
 // PreToolUse→guard-bash keeps it from being raised, PermissionRequest→guard-permission
 // answers it once raised (no matcher: every question reaching it is unanswerable).
 // Stop and StopFailure both run model-call-report: a normal turn fires only Stop, an
-// API error only StopFailure. They and the session, prompt and sub-agent hooks run
-// activity-report; all synchronous, because an async UserPromptSubmit and Stop were
+// API error only StopFailure. They, the session, prompt and sub-agent hooks, and
+// PreToolUse/PostToolUse on the Agent tool (which say who spawned which sub-agent)
+// run activity-report; all synchronous, because an async UserPromptSubmit and Stop were
 // measured running concurrently and landing out of order. Every command is named
 // bare because the launch line puts the workdir holding the ocagent symlink first on PATH.
 //
@@ -138,6 +139,26 @@ func buildStatuslineSettings() string {
 		"          {\n" +
 		"            \"type\": \"command\",\n" +
 		"            \"command\": \"ocagent guard-bash\"\n" +
+		"          }\n" +
+		"        ]\n" +
+		"      },\n" +
+		"      {\n" +
+		"        \"matcher\": \"Agent|Task\",\n" +
+		"        \"hooks\": [\n" +
+		"          {\n" +
+		"            \"type\": \"command\",\n" +
+		"            \"command\": \"ocagent activity-report\"\n" +
+		"          }\n" +
+		"        ]\n" +
+		"      }\n" +
+		"    ],\n" +
+		"    \"PostToolUse\": [\n" +
+		"      {\n" +
+		"        \"matcher\": \"Agent|Task\",\n" +
+		"        \"hooks\": [\n" +
+		"          {\n" +
+		"            \"type\": \"command\",\n" +
+		"            \"command\": \"ocagent activity-report\"\n" +
 		"          }\n" +
 		"        ]\n" +
 		"      }\n" +

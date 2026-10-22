@@ -227,20 +227,26 @@ describe("toMemberActivity", () => {
     const wire: WireMember["activity"] = {
       state: "busy",
       busy_since: 1_700_000_000,
-      subagents: [{ name: "Explore", description: "掃描程式碼", started_ts: 1_700_000_100 }],
+      subagents: [
+        { id: "a1", parent_id: null, name: "Explore", description: "掃描程式碼", started_ts: 1_700_000_100 },
+        { id: "a2", parent_id: "a1", name: "Plan", description: "", started_ts: 1_700_000_150 },
+      ],
       waits: [
-        { kind: "background_command", description: "npm test" },
-        { kind: "schedule", description: "" },
+        { kind: "background_command", description: "npm test", next_ts: null, recurring: false },
+        { kind: "schedule", description: "", next_ts: 1_700_003_600, recurring: true },
       ],
       ts: 1_700_000_200,
     };
     const want = {
       state: "busy",
       busySince: 1_700_000_000,
-      subagents: [{ name: "Explore", description: "掃描程式碼", startedTs: 1_700_000_100 }],
+      subagents: [
+        { id: "a1", parentId: null, name: "Explore", description: "掃描程式碼", startedTs: 1_700_000_100 },
+        { id: "a2", parentId: "a1", name: "Plan", description: "", startedTs: 1_700_000_150 },
+      ],
       waits: [
-        { kind: "background_command", description: "npm test" },
-        { kind: "schedule", description: "" },
+        { kind: "background_command", description: "npm test", nextTs: null, recurring: false },
+        { kind: "schedule", description: "", nextTs: 1_700_003_600, recurring: true },
       ],
     };
     expect(toMember(mkWireMember({ activity: wire })).activity).toEqual(want);
@@ -263,7 +269,7 @@ describe("toMemberActivity", () => {
         activity: {
           state: "busy",
           busy_since: null,
-          subagents: [{ name: "Plan", description: "", started_ts: 5 }],
+          subagents: [{ id: "p", parent_id: null, name: "Plan", description: "", started_ts: 5 }],
           waits: [],
           ts: 6,
         },

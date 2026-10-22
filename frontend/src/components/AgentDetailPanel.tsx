@@ -15,7 +15,7 @@ import {
 } from "./icons";
 import { localizeLastOpReason } from "../lib/lastOpReason";
 import type { MemberActivity } from "../types";
-import { MemberActivityDetails } from "./MemberActivity";
+import { MemberActivityCard } from "./MemberActivity";
 import "./member-detail.css";
 
 /** The lazily-fetched initial-prompt expand card's config. `fetch` returns the
@@ -150,7 +150,7 @@ export interface AgentDetailVM {
   /** What to say instead of the command when the station sent none. */
   terminalUnavailable: string;
   prompt?: AgentDetailPrompt;
-  /** null ⇒ the 運行狀況 card shows no activity block. */
+  /** null ⇒ no 運作狀況 card. */
   activity: MemberActivity | null;
 }
 
@@ -558,6 +558,7 @@ export function AgentDetailPanel({
       </button>
 
       {identity}
+      <MemberActivityCard activity={vm.activity} testId={`${p}-activity`} />
       {rendered.overlays}
       {rendered.afterIdentityCards}
 
@@ -643,7 +644,6 @@ export function AgentDetailPanel({
         <div className="mp-runtime__head">
           <span className="mp-card__title">{t.mp.runtime}</span>
         </div>
-        <MemberActivityDetails activity={vm.activity} testId={`${p}-activity`} />
         <div className="mp-runtime__cells">
           <div className="mp-cell">
             <div className="mp-cell__head">

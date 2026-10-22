@@ -367,6 +367,7 @@
   background: color-mix(in srgb, var(--color-overlay) 2%, transparent);
 }
 .member-card--selected {
+  --presence-ring: var(--color-card);
   background: var(--color-card);
   border-color: color-mix(in srgb, var(--color-overlay) 5%, transparent);
 }
@@ -2619,6 +2620,7 @@ button.chat__msg-file {
   background: color-mix(in srgb, var(--color-overlay) 2%, transparent);
 }
 .outsource-row--selected {
+  --presence-ring: var(--color-card);
   background: var(--color-card);
   border-color: color-mix(in srgb, var(--color-overlay) 5%, transparent);
 }

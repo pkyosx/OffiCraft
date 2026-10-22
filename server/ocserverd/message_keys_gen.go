@@ -8,18 +8,20 @@ package main
 // wording overlay may re-value (wording_bundle.go validation). Extracted from
 // frontend/src/i18n/locales/en.ts — the single message-code contract.
 var messageKeys = map[string]bool{
+	"activity.cardTitle":                               true,
 	"activity.elapsedLead":                             true,
 	"activity.elapsedMinutes":                          true,
 	"activity.elapsedSeconds":                          true,
+	"activity.mainAgent":                               true,
 	"activity.mainBusyLead":                            true,
 	"activity.mainBusyTail":                            true,
+	"activity.mainReplied":                             true,
+	"activity.nextLead":                                true,
 	"activity.noneWorking":                             true,
-	"activity.parenLead":                               true,
-	"activity.parenTail":                               true,
+	"activity.recurring":                               true,
 	"activity.state.busy":                              true,
 	"activity.state.idle":                              true,
 	"activity.state.waiting":                           true,
-	"activity.subagentRanLead":                         true,
 	"activity.subagentsAlsoLead":                       true,
 	"activity.subagentsAlsoTailMany":                   true,
 	"activity.subagentsAlsoTailOne":                    true,
