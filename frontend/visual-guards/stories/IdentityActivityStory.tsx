@@ -1,12 +1,13 @@
 // CT story: the identity surfaces that carry the avatar-corner presence dot and
 // the activity status icon — the left list (real MemberCard + real
 // OutsourcePanel rows, each list ending with an online row that has not
-// reported and an offline row), the chat header and the detail identity card
-// (built from the same PresenceAvatar / NameWithActivity ChatArea and the
-// detail panels render; each with an icon, an online member without activity
-// and an offline one), and the detail panel's 運作狀況 card (real
-// MemberActivityCard) — at the widths the spec mounts it at; plus the state
-// glyphs and the moon drawn large.
+// reported and an offline row; `mixed` gives every list one row per icon),
+// the chat header and the detail identity card (built from the same
+// PresenceAvatar / NameWithActivity ChatArea and the detail panels render;
+// each with an icon, an online member without activity and an offline one),
+// and the detail panel's 運作狀況 card (real MemberActivityCard) — at the
+// widths the spec mounts it at; plus the state glyphs, the unknown mark and the
+// moon drawn large. A row opened by a click is recorded on body[data-opened].
 import { I18nProvider } from "../../src/i18n";
 import { MemberCard } from "../../src/components/MemberCard";
 import { OutsourcePanel } from "../../src/components/OutsourcePanel";
@@ -102,17 +103,20 @@ function mkWorker(
 }
 
 const noop = () => {};
+const opened = (what: string) => () => document.body.setAttribute("data-opened", what);
 
 export function IdentityActivityStory({
   surface,
   state,
   mobile,
   warning = false,
+  mixed = false,
 }: {
   surface: "list" | "header" | "detail" | "card" | "glyphs";
   state: MemberActivity["state"];
   mobile: boolean;
   warning?: boolean;
+  mixed?: boolean;
 }) {
   const now = Date.now() / 1000;
   const activity = activityOf(state, now);
@@ -131,26 +135,42 @@ export function IdentityActivityStory({
       <div className={mobile ? "office office--mobile" : "office"} style={{ height: 900 }}>
         {surface === "list" && (
           <aside className="office__members" data-testid="list">
-            <MemberCard member={member} selected={false} onOpenDetail={noop} onChat={noop} />
-            <MemberCard member={warned(mkMember("m-short", "Mira", activity, 0))} selected onOpenDetail={noop} onChat={noop} />
-            <MemberCard member={mkMember("m-none", "Jun", null, 0)} selected={false} onOpenDetail={noop} onChat={noop} />
+            {mixed ? (
+              <>
+                <MemberCard member={mkMember("m-busy", "Mira", activityOf("busy", now), 0)} selected={false} onOpenDetail={opened("detail")} onChat={opened("chat")} />
+                <MemberCard member={mkMember("m-wait", "Ana", activityOf("waiting", now), 0)} selected={false} onOpenDetail={opened("detail")} onChat={opened("chat")} />
+                <MemberCard member={mkMember("m-idle", "Leo", activityOf("idle", now), 0)} selected={false} onOpenDetail={opened("detail")} onChat={opened("chat")} />
+              </>
+            ) : (
+              <>
+                <MemberCard member={member} selected={false} onOpenDetail={opened("detail")} onChat={opened("chat")} />
+                <MemberCard member={warned(mkMember("m-short", "Mira", activity, 0))} selected onOpenDetail={opened("detail")} onChat={opened("chat")} />
+              </>
+            )}
+            <MemberCard member={mkMember("m-none", "Jun", null, 0)} selected={false} onOpenDetail={opened("detail")} onChat={opened("chat")} />
             <MemberCard
               member={mkMember("m-off", "Kai", null, 0, "stopped")}
               selected={false}
-              onOpenDetail={noop}
-              onChat={noop}
+              onOpenDetail={opened("detail")}
+              onChat={opened("chat")}
             />
             <OutsourcePanel
               workers={[
-                mkWorker("ow-1", "O-413", activity),
+                ...(mixed
+                  ? [
+                      mkWorker("ow-1", "O-413", activityOf("busy", now)),
+                      mkWorker("ow-4", "O-52", activityOf("waiting", now)),
+                      mkWorker("ow-5", "O-61", activityOf("idle", now)),
+                    ]
+                  : [mkWorker("ow-1", "O-413", activity)]),
                 mkWorker("ow-2", "O-7", null),
                 mkWorker("ow-3", "O-88", null, "offline"),
               ]}
               error={false}
               maxParallel={3}
               selectedId=""
-              onOpenChat={noop}
-              onOpenDetail={noop}
+              onOpenChat={opened("chat")}
+              onOpenDetail={opened("detail")}
               onOpenTask={noop}
             />
           </aside>
@@ -213,6 +233,11 @@ export function IdentityActivityStory({
                 <ActivityStateIcon state={s} size={48} />
               </span>
             ))}
+            <span data-testid="glyph-unknown" style={{ display: "inline-flex", padding: 8 }}>
+              <NameWithActivity activity={null} presence="online">
+                <span>Jun</span>
+              </NameWithActivity>
+            </span>
             <span data-testid="glyph-offline" style={{ display: "inline-flex", padding: 8 }}>
               <NameWithActivity activity={null} presence="offline">
                 <span>Kai</span>

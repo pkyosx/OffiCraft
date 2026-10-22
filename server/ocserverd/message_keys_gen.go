@@ -33,6 +33,7 @@ var messageKeys = map[string]bool{
 	"activity.subagentsOnlyLead":                       true,
 	"activity.subagentsOnlyTailMany":                   true,
 	"activity.subagentsOnlyTailOne":                    true,
+	"activity.unknownHint":                             true,
 	"activity.waitKind.background_command":             true,
 	"activity.waitKind.schedule":                       true,
 	"activity.waitsLead":                               true,

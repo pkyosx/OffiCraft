@@ -216,7 +216,7 @@ describe("WorkerDetailPanel — aligned real info (T-f190 item 1)", () => {
     expect((await findByTestId("worker-detail-cost")).textContent).toBe("$4");
   });
 
-  it("shows the worker's 運作狀況 card right under the identity card, the dot on the avatar corner and the status icon before the codename; none of it, not even an empty slot, for an online worker without activity; a stopped worker gets the moon instead", async () => {
+  it("shows the worker's 運作狀況 card right under the identity card, the dot on the avatar corner and the status icon before the codename; no card and a still unknown mark hinting 狀態未知 for an online worker without activity; a stopped worker gets the moon instead", async () => {
     __injectMockTask(mkTask({ id: "t-1" }));
     __injectMockOutsourceWorker(
       mkWorker({
@@ -257,8 +257,14 @@ describe("WorkerDetailPanel — aligned real info (T-f190 item 1)", () => {
     await second.findByTestId("worker-detail-task");
     expect(queryTestId(document.body, "worker-detail-activity")).toBeNull();
     expect(queryTestId(document.body, "worker-detail-identity-activity")).toBeNull();
-    expect(queryTestId(document.body, "worker-detail-identity-activity-slot")).toBeNull();
     expect(queryTestId(document.body, "worker-detail-identity-activity-offline")).toBeNull();
+    const unknown = await second.findByTestId("worker-detail-identity-activity-unknown");
+    expect(unknown.hasAttribute("tabindex")).toBe(false);
+    expect(unknown.getAttribute("aria-hidden")).toBe("true");
+    expect(unknown.querySelector(".activity-icon__glyph--unknown svg")).not.toBeNull();
+    fireEvent.mouseEnter(unknown);
+    expect(screen.getByRole("tooltip").textContent).toBe("狀態未知，成員重新啟動後就會顯示");
+    fireEvent.mouseLeave(unknown);
     expect(queryTestId(document.body, "worker-detail-context")).not.toBeNull();
     second.unmount();
 

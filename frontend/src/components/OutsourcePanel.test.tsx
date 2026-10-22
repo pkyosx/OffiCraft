@@ -223,7 +223,7 @@ describe("OutsourcePanel", () => {
     },
   );
 
-  it("shows the activity icon right before the codename with its summary hint, a still moon hinting 離線 for an offline worker or one without presence, and for an online worker without activity only an empty slot that keeps the codename in line", async () => {
+  it("shows the activity icon right before the codename with its summary hint, a still moon hinting 離線 for an offline worker or one without presence, and a still unknown mark hinting 狀態未知 for an online worker without activity", async () => {
     const task = mkTask({ id: "t-i", taskNo: "T-i" });
     __injectMockTask(task);
     __injectMockOutsourceWorker(
@@ -256,7 +256,7 @@ describe("OutsourcePanel", () => {
     );
     await findByTestId("outsource-row-ow-off");
     expect(queryByTestId("activity-icon-ow-off")).toBeNull();
-    expect(queryByTestId("activity-icon-ow-off-slot")).toBeNull();
+    expect(queryByTestId("activity-icon-ow-off-unknown")).toBeNull();
     const moon = await findByTestId("activity-icon-ow-off-offline");
     expect(moon.tagName).toBe("SPAN");
     expect(moon.hasAttribute("tabindex")).toBe(false);
@@ -273,10 +273,14 @@ describe("OutsourcePanel", () => {
     expect(screen.getByRole("tooltip").textContent).toBe("離線");
     expect(queryByTestId("activity-icon-ow-quiet")).toBeNull();
     expect(queryByTestId("activity-icon-ow-quiet-offline")).toBeNull();
-    const slot = await findByTestId("activity-icon-ow-quiet-slot");
-    expect(slot.getAttribute("aria-hidden")).toBe("true");
-    expect(slot.tagName).toBe("SPAN");
-    expect(slot.nextElementSibling!.textContent).toBe("外包 · D-1");
+    const unknown = await findByTestId("activity-icon-ow-quiet-unknown");
+    expect(unknown.getAttribute("aria-hidden")).toBe("true");
+    expect(unknown.tagName).toBe("SPAN");
+    expect(unknown.hasAttribute("tabindex")).toBe(false);
+    expect(unknown.querySelector(".activity-icon__glyph--unknown svg")).not.toBeNull();
+    expect(unknown.nextElementSibling!.textContent).toBe("外包 · D-1");
+    fireEvent.mouseEnter(unknown);
+    expect(screen.getByRole("tooltip").textContent).toBe("狀態未知，成員重新啟動後就會顯示");
   });
 
   it("tapping a worker's activity icon opens its 運作狀況 dialog, not its chat; the backdrop closes it", async () => {
