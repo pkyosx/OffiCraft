@@ -1119,6 +1119,46 @@ func TestConnectOnce(t *testing.T) {
 			t.Errorf("diag = %q, want %q", diag.String(), want)
 		}
 	})
+
+	t.Run("every connect sends the session's last activity snapshot again, before the drains", func(t *testing.T) {
+		cfg := runCfg(t)
+		writeActivityState(activityStatePath(cfg), activityState{
+			Busy: true, BusySince: ptrFloat(1000),
+			Subagents: []activitySubagent{{ID: "a1", Name: "Explore", StartedTs: 1001}},
+		})
+		api := &bodyRecordingHTTP{routedHTTP: quietAPI()}
+		api.routes["/api/agent/activity"] = `{"agent_id":"kyle","ts":1002}`
+		tr := &stubTransport{reply: func(int, *http.Request) (*http.Response, error) {
+			return sseReply(200, nil, ""), nil
+		}}
+		l := newRunListener(t, cfg, io.Discard, api, tr)
+
+		l.connectOnce(context.Background())
+		l.connectOnce(context.Background())
+
+		snapshot := "POST /api/agent/activity " + `{"busy":true,"busy_since":1000,` +
+			`"subagents":[{"name":"Explore","description":"","started_ts":1001}],"waits":[]}`
+		if want := []string{snapshot, snapshot}; !reflect.DeepEqual(api.bodies, want) {
+			t.Errorf("sent\n  %q\nwant\n  %q", api.bodies, want)
+		}
+		if api.asked[0] != "/api/agent/activity" {
+			t.Errorf("asked %v, want the activity snapshot first", api.asked)
+		}
+	})
+}
+
+// bodyRecordingHTTP is routedHTTP that also keeps every request body it was sent.
+type bodyRecordingHTTP struct {
+	*routedHTTP
+	bodies []string
+}
+
+func (b *bodyRecordingHTTP) Do(req *http.Request) (*http.Response, error) {
+	if req.Body != nil {
+		raw, _ := io.ReadAll(req.Body)
+		b.bodies = append(b.bodies, req.Method+" "+req.URL.Path+" "+string(raw))
+	}
+	return b.routedHTTP.Do(req)
 }
 
 func TestDrainChatNow(t *testing.T) {

@@ -21,6 +21,7 @@ subcommands:
   guard-bash      PreToolUse hook: refuse the removal shapes that stall a headless member
   guard-permission PermissionRequest hook: refuse every confirmation prompt nobody is here to answer
   model-call-report Stop / StopFailure hook: record the turn's outcome; report a failure to monitoring at once
+  activity-report session / turn / sub-agent hooks: report what this session is busy with or waiting on
   version         print this build's identity: build.sha, VCS stamp when present, self-hash
 `
 

@@ -112,8 +112,10 @@ func buildMCPConfig(base, token string) string {
 // PreToolUse→guard-bash keeps it from being raised, PermissionRequest→guard-permission
 // answers it once raised (no matcher: every question reaching it is unanswerable).
 // Stop and StopFailure both run model-call-report: a normal turn fires only Stop, an
-// API error only StopFailure. Every command is named bare because the launch line
-// puts the workdir holding the ocagent symlink first on PATH.
+// API error only StopFailure. They and the session, prompt and sub-agent hooks run
+// activity-report; all synchronous, because an async UserPromptSubmit and Stop were
+// measured running concurrently and landing out of order. Every command is named
+// bare because the launch line puts the workdir holding the ocagent symlink first on PATH.
 //
 // skipDangerousModePermissionPrompt and tui each answer a first-launch dialog in
 // advance: on a config that never saw them, the bypass warning defaults to "No, exit",
@@ -156,6 +158,10 @@ func buildStatuslineSettings() string {
 		"          {\n" +
 		"            \"type\": \"command\",\n" +
 		"            \"command\": \"ocagent model-call-report\"\n" +
+		"          },\n" +
+		"          {\n" +
+		"            \"type\": \"command\",\n" +
+		"            \"command\": \"ocagent activity-report\"\n" +
 		"          }\n" +
 		"        ]\n" +
 		"      }\n" +
@@ -166,6 +172,50 @@ func buildStatuslineSettings() string {
 		"          {\n" +
 		"            \"type\": \"command\",\n" +
 		"            \"command\": \"ocagent model-call-report\"\n" +
+		"          },\n" +
+		"          {\n" +
+		"            \"type\": \"command\",\n" +
+		"            \"command\": \"ocagent activity-report\"\n" +
+		"          }\n" +
+		"        ]\n" +
+		"      }\n" +
+		"    ],\n" +
+		"    \"SessionStart\": [\n" +
+		"      {\n" +
+		"        \"hooks\": [\n" +
+		"          {\n" +
+		"            \"type\": \"command\",\n" +
+		"            \"command\": \"ocagent activity-report\"\n" +
+		"          }\n" +
+		"        ]\n" +
+		"      }\n" +
+		"    ],\n" +
+		"    \"UserPromptSubmit\": [\n" +
+		"      {\n" +
+		"        \"hooks\": [\n" +
+		"          {\n" +
+		"            \"type\": \"command\",\n" +
+		"            \"command\": \"ocagent activity-report\"\n" +
+		"          }\n" +
+		"        ]\n" +
+		"      }\n" +
+		"    ],\n" +
+		"    \"SubagentStart\": [\n" +
+		"      {\n" +
+		"        \"hooks\": [\n" +
+		"          {\n" +
+		"            \"type\": \"command\",\n" +
+		"            \"command\": \"ocagent activity-report\"\n" +
+		"          }\n" +
+		"        ]\n" +
+		"      }\n" +
+		"    ],\n" +
+		"    \"SubagentStop\": [\n" +
+		"      {\n" +
+		"        \"hooks\": [\n" +
+		"          {\n" +
+		"            \"type\": \"command\",\n" +
+		"            \"command\": \"ocagent activity-report\"\n" +
 		"          }\n" +
 		"        ]\n" +
 		"      }\n" +

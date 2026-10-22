@@ -350,6 +350,7 @@ func (l *listener) connectOnce(ctx context.Context) (opened, activity, selfExit 
 	l.logf(noticeConnected+" — streaming %s%s%s (⇒ online while held)%s%s%s",
 		l.cfg.Base, eventsPath, baseAddressOrigin(l.cfg), verdict, station, agent)
 
+	reannounceActivity(l.api, l.cfg)
 	drainReplyCards(l.api, l.cfg, l.replySeen, l.out)
 	l.drainChatNow()
 

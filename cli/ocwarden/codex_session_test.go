@@ -1836,6 +1836,165 @@ func TestCodexSessionHandleTurnCompleted(t *testing.T) {
 	})
 }
 
+// stubCodexNow pins the sidecar's activity clock for one test.
+func stubCodexNow(t *testing.T, at *time.Time) {
+	t.Helper()
+	saved := codexNow
+	codexNow = func() time.Time { return *at }
+	t.Cleanup(func() { codexNow = saved })
+}
+
+func activityPost(body map[string]any) codexPost {
+	return codexPost{method: http.MethodPost, url: "https://x.test/api/agent/activity",
+		auth: "Bearer tok", ctype: "application/json", body: body}
+}
+
+func activitySnapshot(busySince any, subagents ...any) map[string]any {
+	if subagents == nil {
+		subagents = []any{}
+	}
+	return map[string]any{"busy": busySince != nil, "busy_since": busySince, "subagents": subagents, "waits": []any{}}
+}
+
+func activitySubagentItem(name string, started float64) map[string]any {
+	return map[string]any{"name": name, "description": "", "started_ts": started}
+}
+
+func TestCodexSessionTrackActivity(t *testing.T) {
+	newSession := func(t *testing.T) (*codexTestSession, *codexFakeTransport, *time.Time) {
+		fake := interceptCodexPosts(t, http.StatusOK, nil)
+		now := time.Unix(1720000000, 0)
+		stubCodexNow(t, &now)
+		s := newCodexTestSession()
+		s.base, s.token = "https://x.test", "tok"
+		return s, fake, &now
+	}
+
+	t.Run("the main thread is busy from its turn's start until the turn completes", func(t *testing.T) {
+		s, fake, now := newSession(t)
+
+		s.trackActivity("turn/started", map[string]any{"threadId": "th_1", "turn": map[string]any{"id": "t1"}})
+		*now = now.Add(30 * time.Second)
+		s.trackActivity("turn/started", map[string]any{"threadId": "th_1", "turn": map[string]any{"id": "t1"}})
+		s.trackActivity("turn/completed", map[string]any{"threadId": "th_1", "turn": map[string]any{"id": "t1", "status": "completed"}})
+
+		want := []codexPost{
+			activityPost(activitySnapshot(float64(1720000000))),
+			activityPost(activitySnapshot(nil)),
+		}
+		if !reflect.DeepEqual(fake.posts, want) {
+			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
+		}
+	})
+
+	t.Run("a sub-agent thread counts from its turn's start and is removed when that turn completes", func(t *testing.T) {
+		s, fake, now := newSession(t)
+		s.busySince = 1719999990
+		s.lastActivity = `{"busy":true,"busy_since":1719999990,"subagents":[],"waits":[]}`
+
+		s.trackActivity("turn/started", map[string]any{"threadId": "th_sub", "turn": map[string]any{"id": "ts"}})
+		*now = now.Add(5 * time.Second)
+		s.trackActivity("turn/started", map[string]any{"threadId": "th_deeper", "turn": map[string]any{"id": "td"}})
+		s.trackActivity("turn/completed", map[string]any{"threadId": "th_sub", "turn": map[string]any{"id": "ts", "status": "completed"}})
+		s.trackActivity("turn/completed", map[string]any{"threadId": "th_deeper", "turn": map[string]any{"id": "td", "status": "completed"}})
+
+		main := float64(1719999990)
+		want := []codexPost{
+			activityPost(activitySnapshot(main, activitySubagentItem("sub-agent", 1720000000))),
+			activityPost(activitySnapshot(main, activitySubagentItem("sub-agent", 1720000000), activitySubagentItem("sub-agent", 1720000005))),
+			activityPost(activitySnapshot(main, activitySubagentItem("sub-agent", 1720000005))),
+			activityPost(activitySnapshot(main)),
+		}
+		if !reflect.DeepEqual(fake.posts, want) {
+			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
+		}
+		if s.active || s.turnID != "" {
+			t.Errorf("active=%v turnID=%q, want the delivery state untouched", s.active, s.turnID)
+		}
+	})
+
+	t.Run("a sub-agent is named by the last segment of its agentPath, from item/started or item/completed", func(t *testing.T) {
+		s, fake, _ := newSession(t)
+		s.lastActivity = `{"busy":false,"busy_since":null,"subagents":[],"waits":[]}`
+
+		s.trackActivity("item/started", map[string]any{"threadId": "th_1", "item": map[string]any{
+			"type": "subAgentActivity", "agentThreadId": "th_sub", "agentPath": "/root/outer"}})
+		s.trackActivity("turn/started", map[string]any{"threadId": "th_sub"})
+		s.trackActivity("item/completed", map[string]any{"threadId": "th_sub", "item": map[string]any{
+			"type": "subAgentActivity", "agentThreadId": "th_sub", "agentPath": "/root/outer/inner"}})
+		s.trackActivity("item/completed", map[string]any{"threadId": "th_1", "item": map[string]any{
+			"type": "agentMessage", "text": "OK"}})
+
+		want := []codexPost{
+			activityPost(activitySnapshot(nil, activitySubagentItem("outer", 1720000000))),
+			activityPost(activitySnapshot(nil, activitySubagentItem("inner", 1720000000))),
+		}
+		if !reflect.DeepEqual(fake.posts, want) {
+			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
+		}
+	})
+
+	t.Run("a snapshot the station did not accept is sent again on the next event", func(t *testing.T) {
+		s, fake, _ := newSession(t)
+		fake.status = http.StatusServiceUnavailable
+
+		s.trackActivity("turn/started", map[string]any{"threadId": "th_1"})
+		fake.status = http.StatusOK
+		s.trackActivity("turn/started", map[string]any{"threadId": "th_1"})
+		s.trackActivity("turn/started", map[string]any{"threadId": "th_1"})
+
+		busy := activityPost(activitySnapshot(float64(1720000000)))
+		if want := []codexPost{busy, busy}; !reflect.DeepEqual(fake.posts, want) {
+			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
+		}
+	})
+}
+
+func TestCodexSessionActivityBody(t *testing.T) {
+	t.Run("sub-agents go earliest first, at most 50, names cut to 80 runes", func(t *testing.T) {
+		s := newCodexTestSession()
+		s.runningSubagents = map[string]float64{}
+		s.subagentNames = map[string]string{}
+		for i := 0; i < 52; i++ {
+			id := fmt.Sprintf("th_%02d", i)
+			s.runningSubagents[id] = float64(2000 - i)
+			s.subagentNames[id] = strings.Repeat("名", 81)
+		}
+
+		got := s.activityBody()
+
+		var subs []any
+		for i := 0; i < 50; i++ {
+			subs = append(subs, activitySubagentItem(strings.Repeat("名", 80), float64(1949+i)))
+		}
+		if want := activitySnapshot(nil, subs...); !reflect.DeepEqual(got, want) {
+			t.Errorf("activityBody = %v, want %v", got, want)
+		}
+	})
+}
+
+func TestCodexSessionReannounce(t *testing.T) {
+	t.Run("identity and the current activity go out every time, changed or not", func(t *testing.T) {
+		fake := interceptCodexPosts(t, http.StatusOK, nil)
+		s := newCodexTestSession()
+		s.base, s.token, s.account = "https://x.test", "tok", "codex:abc"
+		s.busySince = 1720000000
+		s.runningSubagents = map[string]float64{"th_sub": 1720000001}
+		s.subagentNames = map[string]string{"th_sub": "scout"}
+
+		s.reannounce()
+		s.reannounce()
+
+		identity := codexPost{method: http.MethodPost, url: "https://x.test/api/monitoring/telemetry",
+			auth: "Bearer tok", ctype: "application/json",
+			body: map[string]any{"runtime": "codex", "account": "codex:abc", "account_label": "ChatGPT"}}
+		activity := activityPost(activitySnapshot(float64(1720000000), activitySubagentItem("scout", 1720000001)))
+		if want := []codexPost{identity, activity, identity, activity}; !reflect.DeepEqual(fake.posts, want) {
+			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
+		}
+	})
+}
+
 func TestCodexSessionRecordTurnOutcome(t *testing.T) {
 	turn := func(status string, completedAt any, turnError any) map[string]any {
 		return map[string]any{"threadId": "th_1", "turn": map[string]any{
@@ -2720,6 +2879,60 @@ func TestRunCodexSession(t *testing.T) {
 		}
 		if ts := successReports[0].body["model_call"].(map[string]any)["last_success_ts"]; ts != float64(1720000200123)/1000 {
 			t.Errorf("last_success_ts = %v, want %v", ts, float64(1720000200123)/1000)
+		}
+	})
+
+	t.Run("activity follows main and sub-agent turns and goes out again when the listener connects", func(t *testing.T) {
+		fake := interceptCodexPosts(t, http.StatusOK, nil)
+		now := time.Unix(1720000000, 0)
+		stubCodexNow(t, &now)
+		work := t.TempDir()
+		t.Setenv("HOME", work)
+		app := "#!/bin/sh\nboot=1\nwhile IFS= read -r line; do\n" +
+			" id=$(printf '%s' \"$line\" | sed -E 's/.*\"id\":([0-9]+).*/\\1/')\n" +
+			" case \"$line\" in\n" +
+			" *'\"method\":\"initialize\"'*|*'\"method\":\"account/rateLimits/read\"'*) printf '{\"id\":%s,\"result\":{}}\\n' \"$id\" ;;\n" +
+			" *'\"method\":\"thread/start\"'*) printf '{\"id\":%s,\"result\":{\"thread\":{\"id\":\"th_1\"}}}\\n' \"$id\" ;;\n" +
+			" *'\"method\":\"turn/start\"'*) if [ \"$boot\" = 1 ]; then boot=0\n" +
+			"   echo '{\"method\":\"turn/started\",\"params\":{\"threadId\":\"th_1\",\"turn\":{\"id\":\"t1\"}}}'\n" +
+			"   echo '{\"method\":\"turn/started\",\"params\":{\"threadId\":\"th_sub\",\"turn\":{\"id\":\"ts\"}}}'\n" +
+			"   echo '{\"method\":\"item/started\",\"params\":{\"threadId\":\"th_1\",\"item\":{\"type\":\"subAgentActivity\",\"agentThreadId\":\"th_sub\",\"agentPath\":\"/root/scout\"}}}'\n" +
+			"   echo '{\"method\":\"turn/completed\",\"params\":{\"threadId\":\"th_sub\",\"turn\":{\"id\":\"ts\",\"status\":\"completed\"}}}'\n" +
+			"   echo '{\"method\":\"turn/completed\",\"params\":{\"threadId\":\"th_1\",\"turn\":{\"id\":\"t1\",\"status\":\"interrupted\"}}}'\n" +
+			" fi ;;\n" +
+			" esac\ndone\n"
+		listener := "#!/bin/sh\nprintf '%s\\n' " + shellQuote(`{"text":"[ocagent] listen: connected\n"}`) + "\n"
+		codexBin := filepath.Join(work, "codex")
+		for name, body := range map[string]string{codexBin: app, filepath.Join(work, "ocagent"): listener} {
+			if err := os.WriteFile(name, []byte(body), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		out := &lockedBuffer{}
+
+		code := runCodexSession([]string{"--codex-bin", codexBin, "--workdir", work, "--persona", stagePersona(t, work)},
+			envMap(map[string]string{"OC_BASE": "https://x.test", "OC_TOKEN": "tok"}), out)
+
+		if code != 1 {
+			t.Fatalf("code=%d, out=%q", code, out.String())
+		}
+		var got []codexPost
+		for _, post := range fake.posts {
+			if post.url == "https://x.test/api/agent/activity" {
+				got = append(got, post)
+			}
+		}
+		main := float64(1720000000)
+		want := []codexPost{
+			activityPost(activitySnapshot(main)),
+			activityPost(activitySnapshot(main, activitySubagentItem("sub-agent", main))),
+			activityPost(activitySnapshot(main, activitySubagentItem("scout", main))),
+			activityPost(activitySnapshot(main)),
+			activityPost(activitySnapshot(nil)),
+			activityPost(activitySnapshot(nil)),
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("the sidecar sent activity\n  %+v\nwant\n  %+v\nout=%q", got, want, out.String())
 		}
 	})
 }

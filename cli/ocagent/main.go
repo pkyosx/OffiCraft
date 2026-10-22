@@ -32,6 +32,7 @@ var planeASubcommands = []struct{ name, help string }{
 	{"guard-bash", "PreToolUse hook: refuse the removal shapes that stall a headless member"},
 	{"guard-permission", "PermissionRequest hook: refuse every confirmation prompt nobody is here to answer"},
 	{"model-call-report", "Stop / StopFailure hook: record the turn's outcome; report a failure to monitoring at once"},
+	{"activity-report", "session / turn / sub-agent hooks: report what this session is busy with or waiting on"},
 	{"version", "print this build's identity: build.sha, VCS stamp when present, self-hash"},
 }
 
@@ -167,6 +168,15 @@ func realMain(argv []string, env func(string) string, in io.Reader, out io.Write
 		}
 		now := float64(time.Now().UnixNano()) / 1e9
 		return cmdModelCallReport(&http.Client{Timeout: modelCallReportTimeout}, cfg, env, now, in, os.Stderr)
+
+	case "activity-report":
+		fs := flag.NewFlagSet("ocagent activity-report", flag.ContinueOnError)
+		fs.SetOutput(out)
+		if err := fs.Parse(rest); err != nil {
+			return 2
+		}
+		now := float64(time.Now().UnixNano()) / 1e9
+		return cmdActivityReport(&http.Client{Timeout: activityReportTimeout}, cfg, now, in, os.Stderr)
 
 	case "version", "--version", "-v":
 		return cmdVersion(out)

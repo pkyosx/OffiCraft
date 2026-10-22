@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -150,6 +151,13 @@ type codexSession struct {
 	// Merged across sparse account/rateLimits/updated notifications: a turn
 	// error never says when the limit lifts, only the snapshot does.
 	rateLimitWindows map[string]map[string]any
+
+	// What the owner sees as this member's activity; waits stay empty because
+	// Codex does not expose background commands.
+	busySince        float64
+	runningSubagents map[string]float64
+	subagentNames    map[string]string
+	lastActivity     string
 
 	starting bool
 	queued   []*codexDelivery
@@ -572,6 +580,111 @@ func (s *codexSession) reportIdentity() {
 	}
 	if s.post("/api/monitoring/telemetry", identity) {
 		s.recordReportedSuccess()
+	}
+}
+
+// The station keeps identity and activity in memory only, so both go out again
+// on the heartbeat and on every listener reconnect.
+func (s *codexSession) reannounce() {
+	s.reportIdentity()
+	s.reportActivity()
+}
+
+const codexActivityNameMax = 80
+const codexActivityListMax = 50
+
+var codexNow = time.Now
+
+func codexActivityNow() float64 {
+	return float64(codexNow().UnixNano()) / 1e9
+}
+
+// Sub-agent threads of any depth run their own turns over this connection; the
+// name arrives separately, as a subAgentActivity item on the parent's thread.
+func (s *codexSession) trackActivity(method string, params map[string]any) {
+	threadID, _ := params["threadId"].(string)
+	switch method {
+	case "turn/started":
+		if s.isMainThread(params) {
+			if s.busySince == 0 {
+				s.busySince = codexActivityNow()
+			}
+		} else if _, running := s.runningSubagents[threadID]; !running {
+			if s.runningSubagents == nil {
+				s.runningSubagents = map[string]float64{}
+			}
+			s.runningSubagents[threadID] = codexActivityNow()
+		}
+	case "turn/completed":
+		if s.isMainThread(params) {
+			s.busySince = 0
+		} else {
+			delete(s.runningSubagents, threadID)
+		}
+	case "item/started", "item/completed":
+		item, _ := params["item"].(map[string]any)
+		if item == nil || item["type"] != "subAgentActivity" {
+			return
+		}
+		agentThreadID, _ := item["agentThreadId"].(string)
+		agentPath, _ := item["agentPath"].(string)
+		name := agentPath[strings.LastIndex(agentPath, "/")+1:]
+		if agentThreadID == "" || name == "" {
+			return
+		}
+		if s.subagentNames == nil {
+			s.subagentNames = map[string]string{}
+		}
+		s.subagentNames[agentThreadID] = name
+	default:
+		return
+	}
+	if raw, _ := json.Marshal(s.activityBody()); string(raw) != s.lastActivity {
+		s.reportActivity()
+	}
+}
+
+func (s *codexSession) activityBody() map[string]any {
+	ids := make([]string, 0, len(s.runningSubagents))
+	for id := range s.runningSubagents {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		if s.runningSubagents[ids[i]] != s.runningSubagents[ids[j]] {
+			return s.runningSubagents[ids[i]] < s.runningSubagents[ids[j]]
+		}
+		return ids[i] < ids[j]
+	})
+	subagents := []any{}
+	for _, id := range ids {
+		if len(subagents) == codexActivityListMax {
+			break
+		}
+		name := s.subagentNames[id]
+		if name == "" {
+			name = "sub-agent"
+		}
+		if runes := []rune(name); len(runes) > codexActivityNameMax {
+			name = string(runes[:codexActivityNameMax])
+		}
+		subagents = append(subagents, map[string]any{
+			"name": name, "description": "", "started_ts": s.runningSubagents[id],
+		})
+	}
+	var busySince any
+	if s.busySince > 0 {
+		busySince = s.busySince
+	}
+	return map[string]any{
+		"busy": s.busySince > 0, "busy_since": busySince, "subagents": subagents, "waits": []any{},
+	}
+}
+
+func (s *codexSession) reportActivity() {
+	snapshot := s.activityBody()
+	raw, _ := json.Marshal(snapshot)
+	if s.post("/api/agent/activity", snapshot) {
+		s.lastActivity = string(raw)
 	}
 }
 
@@ -1135,7 +1248,7 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 	for s.messages != nil {
 		select {
 		case <-identityHeartbeat.C:
-			s.reportIdentity()
+			s.reannounce()
 		case line, ok := <-listenerLines:
 			if !ok {
 				fmt.Fprintln(out, "codex-session: ocagent listen exited; ending session for reconciliation")
@@ -1143,7 +1256,7 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 			}
 			if err := listenerState.handleListenerLine(line,
 				func() {
-					s.reportIdentity()
+					s.reannounce()
 					s.requestRateLimits()
 					identityHeartbeat.Reset(codexTelemetryThrottle)
 				},
@@ -1173,6 +1286,7 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 			}
 			method, _ := msg["method"].(string)
 			params, _ := msg["params"].(map[string]any)
+			s.trackActivity(method, params)
 			switch method {
 			case "turn/started":
 				s.handleTurnStarted(params)
