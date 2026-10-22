@@ -3092,7 +3092,7 @@ printf "%s|%s|%s\n" "$a" "$h" "$n"' _ "$1"
   # exactly what happened to the `env -u OC_WARDEN_TOKFILE` line it replaces.
   _sg26_code() { grep -v '^[[:space:]]*#' "$1"; }
   _sg26_live="$SG_DIR/actors/live.sh"
-  _sg26_code "$_sg26_live" | grep -qF 'sg_scrub_assert' \
+  grep -qF 'sg_scrub_assert' <<<"$(_sg26_code "$_sg26_live")" \
     && ok "seven_gate: live.sh proves the scrub in CODE before it starts the warden" \
     || bad "seven_gate: live.sh no longer calls sg_scrub_assert — the proof is wired to nothing and ⑨'s answer rides into the agent's shell again"
   _sg26_assert_line="$(_sg26_code "$_sg26_live" | grep -n 'sg_scrub_assert' | head -1 | cut -d: -f1)"
@@ -3102,7 +3102,7 @@ printf "%s|%s|%s\n" "$a" "$h" "$n"' _ "$1"
   else
     bad "seven_gate: live.sh's scrub proof does not precede the warden start (assert=${_sg26_assert_line:-none} warden=${_sg26_warden_line:-none}) — a refusal after the spawn is not a refusal"
   fi
-  _sg26_code "$_sg26_live" | grep -qE 'sg_scrub_env[[:space:]]+env' \
+  grep -qE 'sg_scrub_env[[:space:]]+env' <<<"$(_sg26_code "$_sg26_live")" \
     && ok "seven_gate: …and the warden is actually launched THROUGH the scrub" \
     || bad "seven_gate: live.sh launches the warden without sg_scrub_env — the assertion above would be proving something about an environment the warden never gets"
 fi
@@ -3146,19 +3146,16 @@ else
   T45_TEARDOWN="$HERE/../teardown.sh"
   T45_SETUP_CODE="$(_t45_code "$T45_SETUP")"
   T45_TEARDOWN_CODE="$(_t45_code "$T45_TEARDOWN")"
-  printf '%s\n' "$T45_SETUP_CODE" | grep -qE '^[[:space:]]*source .*lib/tmux\.sh' \
+  grep -qE '^[[:space:]]*source .*lib/tmux\.sh' <<<"$T45_SETUP_CODE" \
     && ok "T-45: setup.sh sources the tmux helper in code" \
     || bad "T-45: setup.sh no longer sources lib/tmux.sh — its independent-exec fix is disconnected"
   T45_START_CALL='if ! SERVE_LAUNCH_PID="$(oc_e2e_tmux_start '
-  printf '%s\n' "$T45_SETUP_CODE" | grep -qF "$T45_START_CALL" \
+  grep -qF "$T45_START_CALL" <<<"$T45_SETUP_CODE" \
     && ok "T-45: setup.sh starts the server through the tmux helper" \
     || bad "T-45: setup.sh has no executable oc_e2e_tmux_start assignment — a trailing comment must not satisfy the carrier guard"
-  if printf '%s\n' "$T45_TEARDOWN_CODE" \
-       | grep -qE '^[[:space:]]*oc_e2e_tmux_stop[[:space:]]' \
-     && printf '%s\n' "$T45_TEARDOWN_CODE" \
-       | grep -qF 'if [ -e "$STATE_DIR/tmux.socket" ] || [ -e "$STATE_DIR/tmux.session" ]; then' \
-     && ! printf '%s\n' "$T45_TEARDOWN_CODE" \
-       | grep -qE '^[[:space:]]*if[[:space:]]+false([;[:space:]]|$)'; then
+  if grep -qE '^[[:space:]]*oc_e2e_tmux_stop[[:space:]]' <<<"$T45_TEARDOWN_CODE" \
+     && grep -qF 'if [ -e "$STATE_DIR/tmux.socket" ] || [ -e "$STATE_DIR/tmux.session" ]; then' <<<"$T45_TEARDOWN_CODE" \
+     && ! grep -qE '^[[:space:]]*if[[:space:]]+false([;[:space:]]|$)' <<<"$T45_TEARDOWN_CODE"; then
     ok "T-45: teardown.sh executes the exact tmux stop and clears even empty state files"
   else
     bad "T-45: teardown.sh must execute oc_e2e_tmux_stop and clear even empty tmux state files"
@@ -3256,7 +3253,7 @@ else
   T45_START_MUT="$T45_TMUX_FIXTURE/setup-disabled-start.sh"
   sed 's/oc_e2e_tmux_start/DISABLED_oc_e2e_tmux_start/g' "$T45_SETUP" > "$T45_START_MUT"
   T45_START_MUT_CODE="$(_t45_code "$T45_START_MUT")"
-  if printf '%s\n' "$T45_START_MUT_CODE" | grep -qF "$T45_START_CALL"; then
+  if grep -qF "$T45_START_CALL" <<<"$T45_START_MUT_CODE"; then
     bad "MUT-T-45: renaming oc_e2e_tmux_start left the carrier guard apparently green"
   else
     ok "MUT-T-45: renaming the carrier helper removes the exact executable call"
@@ -3302,7 +3299,7 @@ T45_MEMBER_AGENTS="$HERE/../AGENTS.md"
 T45_RUN_ALL_CODE="$(_t45_code "$T45_RUN_ALL")"
 T45_CMUX_GATE_LINE="$(printf '%s\n' "$T45_RUN_ALL_CODE" | grep -nF 'case "${OC_E2E_BROWSER_BACKEND:-playwright}" in' | head -1 | cut -d: -f1)"
 T45_SETUP_LINE="$(printf '%s\n' "$T45_RUN_ALL_CODE" | grep -nF 'if ! bash "$HERE/setup.sh"; then' | head -1 | cut -d: -f1)"
-if printf '%s\n' "$T45_RUN_ALL_CODE" | grep -qF 'OC_E2E_BROWSER_BACKEND' \
+if grep -qF 'OC_E2E_BROWSER_BACKEND' <<<"$T45_RUN_ALL_CODE" \
    && [[ -n "$T45_CMUX_GATE_LINE" && -n "$T45_SETUP_LINE" \
          && "$T45_CMUX_GATE_LINE" -lt "$T45_SETUP_LINE" ]]; then
   ok "T-45/B: run_all has an explicit browser-backend selector before setup"
