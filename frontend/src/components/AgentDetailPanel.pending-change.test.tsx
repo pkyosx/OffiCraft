@@ -81,13 +81,26 @@ function mkSettled(over: Partial<Member> = {}): Member {
   };
 }
 
-async function renderPanel(over: Partial<Member> = {}) {
+/** Settle every GET /api/machines issued so far, inside act. The machine-move
+ * hint is withheld until the first one lands, so an assertion made before this
+ * reads the loading state — and a "no hint" assertion passes vacuously. */
+async function machineListLoaded() {
+  await act(async () => {
+    await Promise.all(listMachines.mock.results.map((r) => r.value));
+  });
+}
+
+async function renderPanel(
+  over: Partial<Member> = {},
+  { awaitMachineList = true }: { awaitMachineList?: boolean } = {},
+) {
   const utils = render(
     <I18nProvider>
       <MemberDetailPanel member={mkSettled(over)} onBack={vi.fn()} />
     </I18nProvider>,
   );
   await waitFor(() => expect(listMachines).toHaveBeenCalled());
+  if (awaitMachineList) await machineListLoaded();
   return utils;
 }
 
@@ -165,7 +178,10 @@ describe("AgentDetailPanel · pending-change hints", () => {
     };
 
     const releaseSame = holdMachineList();
-    const same = await renderPanel({ desiredMachineId: "m-5f3a", machine: "eva-m5", actualMachine: "eva-m5" });
+    const same = await renderPanel(
+      { desiredMachineId: "m-5f3a", machine: "eva-m5", actualMachine: "eva-m5" },
+      { awaitMachineList: false },
+    );
     expect(same.queryByTestId("mp-machine-pending")).toBeNull();
     await releaseSame();
     expect(same.getByTestId("mp-machine").textContent).toBe("eva-m5");
@@ -173,7 +189,10 @@ describe("AgentDetailPanel · pending-change hints", () => {
     same.unmount();
 
     const releaseMoving = holdMachineList();
-    const moving = await renderPanel({ desiredMachineId: "m-9c1d", machine: "eva-m5", actualMachine: "eva-m5" });
+    const moving = await renderPanel(
+      { desiredMachineId: "m-9c1d", machine: "eva-m5", actualMachine: "eva-m5" },
+      { awaitMachineList: false },
+    );
     expect(moving.queryByTestId("mp-machine-pending")).toBeNull();
     await releaseMoving();
     expect(moving.getByTestId("mp-machine-pending").textContent).toBe("→ 要換到 seth-m1");
