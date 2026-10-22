@@ -186,12 +186,12 @@ jobs:
           # this very line; without it -> ok (a local checkout still skips, and
           # a skip is NOT a pass).
           fetch-depth: 0
-      # Pinned to what the repo develops against (go.mod says 1.26.4).
+      # Pinned to what the repo develops against (go.mod says 1.26.10).
       # check-latest:false + an exact version keeps the runner from silently
       # drifting ahead of the developer.
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.26.4'
+          go-version: '1.26.10'
           check-latest: false
           # Only server/ocserverd has third-party deps (hence a go.sum); the
           # cli/ modules are stdlib-only. setup-go errors on an unresolved path.
@@ -232,7 +232,7 @@ jobs:
       # what the repo develops against would redden on toolchain drift.
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.26.4'
+          go-version: '1.26.10'
           check-latest: false
           cache-dependency-path: server/ocserverd/go.sum
       # ⚠️ lint-async-landing / lint-chat-area-key were added to bin/ci.sh by T-48
@@ -287,7 +287,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.26.4'
+          go-version: '1.26.10'
           check-latest: false
           cache-dependency-path: server/ocserverd/go.sum
       - uses: actions/setup-node@v5
@@ -328,7 +328,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.26.4'
+          go-version: '1.26.10'
           check-latest: false
           cache-dependency-path: server/ocserverd/go.sum
       - run: bash bin/run-checks.sh --lane "${{ github.job }}"
@@ -361,7 +361,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.26.4'
+          go-version: '1.26.10'
           check-latest: false
           cache-dependency-path: server/ocserverd/go.sum
       - uses: actions/setup-node@v5
@@ -411,7 +411,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.26.4'
+          go-version: '1.26.10'
           check-latest: false
           cache-dependency-path: server/ocserverd/go.sum
       - uses: actions/setup-node@v5
@@ -673,7 +673,7 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.26.4'
+          go-version: '1.26.10'
           check-latest: false
           cache-dependency-path: server/ocserverd/go.sum
 
