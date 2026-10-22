@@ -1197,7 +1197,7 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 						defer close(tuiDone)
 						runCodexTUI(tuiCtx, func(ctx context.Context) *exec.Cmd {
 							return codexTUICommand(ctx, *codexBin, *workdir, s.threadID, socketPath)
-						}, term, sleepUntil)
+						}, term, s.activity, sleepUntil)
 					}()
 				}
 			case "turn/completed":

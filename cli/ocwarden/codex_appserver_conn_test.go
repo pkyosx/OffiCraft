@@ -168,6 +168,49 @@ func TestDialCodexAppServer(t *testing.T) {
 		}
 	})
 
+	t.Run("a frame sequence outside the protocol or over the size cap ends the message stream", func(t *testing.T) {
+		frame := func(b0 byte, payload string) []byte { return append([]byte{b0, byte(len(payload))}, payload...) }
+		cases := []struct {
+			name   string
+			frames [][]byte
+			want   appServerMessage
+		}{
+			{name: "a message exactly at the cap arrives", frames: [][]byte{frame(0x80|wsOpText, `{"id":1}`)},
+				want: appServerMessage{"id": float64(1)}},
+			{name: "a single frame over the cap", frames: [][]byte{frame(0x80|wsOpText, `{"id":12}`)}},
+			{name: "fragments that add up to more than the cap", frames: [][]byte{
+				frame(wsOpText, `{"id"`), frame(0x80|wsOpContinuation, `:12}`)}},
+			{name: "a continuation with no message to continue", frames: [][]byte{frame(0x80|wsOpContinuation, `{}`)}},
+			{name: "a new text frame inside an unfinished message", frames: [][]byte{
+				frame(wsOpText, `{"id"`), frame(0x80|wsOpText, `:5}`)}},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				path := fakeAppServer(t, upgradeAnswer, func(conn net.Conn, _ *bufio.Reader) {
+					for _, f := range tc.frames {
+						_, _ = conn.Write(f)
+					}
+					time.Sleep(200 * time.Millisecond)
+				})
+				c, err := dialCodexAppServer(path, 2*time.Second)
+				if err != nil {
+					t.Fatalf("dialCodexAppServer: %v", err)
+				}
+				defer c.Close()
+				c.maxMessage = 8
+
+				msg, ok := nextMessage(t, c.messages())
+
+				if tc.want == nil && ok {
+					t.Errorf("messages() yielded %v, want the channel closed", msg)
+				}
+				if tc.want != nil && (!ok || !reflect.DeepEqual(msg, tc.want)) {
+					t.Errorf("messages() yielded %v (open %v), want %v", msg, ok, tc.want)
+				}
+			})
+		}
+	})
+
 	t.Run("a close frame ends the message stream", func(t *testing.T) {
 		path := fakeAppServer(t, upgradeAnswer, func(conn net.Conn, _ *bufio.Reader) {
 			_, _ = conn.Write(encodeWebSocketFrame(wsOpClose, nil, false))

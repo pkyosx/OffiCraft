@@ -67,9 +67,10 @@ func removeCodexAppServerSocket(path string) {
 }
 
 type codexAppConn struct {
-	conn    net.Conn
-	r       *bufio.Reader
-	writeMu sync.Mutex
+	conn       net.Conn
+	r          *bufio.Reader
+	writeMu    sync.Mutex
+	maxMessage int
 }
 
 func dialCodexAppServer(socketPath string, timeout time.Duration) (*codexAppConn, error) {
@@ -77,7 +78,7 @@ func dialCodexAppServer(socketPath string, timeout time.Duration) (*codexAppConn
 	if err != nil {
 		return nil, err
 	}
-	c := &codexAppConn{conn: conn, r: bufio.NewReader(conn)}
+	c := &codexAppConn{conn: conn, r: bufio.NewReader(conn), maxMessage: codexAppMaxMessageBytes}
 	if err := c.handshake(timeout); err != nil {
 		_ = conn.Close()
 		return nil, err
@@ -227,8 +228,9 @@ func readWebSocketFrame(r io.Reader, limit int) (webSocketFrame, error) {
 // close frame or a broken stream ends the conversation with an error.
 func (c *codexAppConn) readMessage() ([]byte, error) {
 	var message []byte
+	fragmented := false
 	for {
-		f, err := readWebSocketFrame(c.r, codexAppMaxMessageBytes)
+		f, err := readWebSocketFrame(c.r, c.maxMessage)
 		if err != nil {
 			return nil, err
 		}
@@ -242,17 +244,25 @@ func (c *codexAppConn) readMessage() ([]byte, error) {
 			continue
 		case wsOpClose:
 			return nil, io.EOF
-		case wsOpText, wsOpBinary, wsOpContinuation:
+		case wsOpText, wsOpBinary:
+			if fragmented {
+				return nil, errors.New("websocket data frame inside an unfinished fragmented message")
+			}
+		case wsOpContinuation:
+			if !fragmented {
+				return nil, errors.New("websocket continuation frame without a message to continue")
+			}
 		default:
 			return nil, fmt.Errorf("websocket opcode %#x is not defined", f.opcode)
 		}
-		if len(message)+len(f.payload) > codexAppMaxMessageBytes {
+		if len(message)+len(f.payload) > c.maxMessage {
 			return nil, errors.New("websocket message exceeds the reassembly cap")
 		}
 		message = append(message, f.payload...)
 		if f.fin {
 			return message, nil
 		}
+		fragmented = true
 	}
 }
 

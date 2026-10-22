@@ -2612,92 +2612,117 @@ func TestRunCodexSession(t *testing.T) {
 			t.Errorf("last_success_ts = %v, want %v", ts, float64(1720000200123)/1000)
 		}
 	})
-	t.Run("the TUI resumes the thread only after its first turn, a terminal Ctrl-C is ignored, and SIGTERM stops the App Server and removes its socket", func(t *testing.T) {
-		work := shortTempDir(t)
-		t.Setenv("HOME", work)
-		events := filepath.Join(work, "events")
-		appServer := filepath.Join(work, "app-server-pid")
-		script := "#!/bin/sh\n" +
-			"if [ \"$1\" = resume ]; then printf '%s\\n' \"$*\" >> " + shellQuote(events) + "; exit 0; fi\n" +
-			"printf '%s %s\\n' \"$PPID\" \"$(ps -o pgid= -p $PPID | tr -d ' ')\" > " + shellQuote(appServer) + "\n" +
-			"while IFS= read -r line; do\n" +
-			" id=$(printf '%s' \"$line\" | sed -E 's/.*\"id\":([0-9]+).*/\\1/')\n" +
-			" case \"$line\" in\n" +
-			" *'\"method\":\"initialize\"'*|*'\"method\":\"account/rateLimits/read\"'*) printf '{\"id\":%s,\"result\":{}}\\n' \"$id\" ;;\n" +
-			" *'\"method\":\"thread/start\"'*) printf '{\"id\":%s,\"result\":{\"thread\":{\"id\":\"th\"}}}\\n' \"$id\"; echo '{\"method\":\"thread/started\",\"params\":{\"thread\":{\"id\":\"th\"}}}' ;;\n" +
-			" *'\"method\":\"turn/start\"'*) sleep 1; echo turn-started >> " + shellQuote(events) + "; echo '{\"method\":\"turn/started\",\"params\":{\"turn\":{\"id\":\"live\"}}}' ;;\n" +
-			" esac\ndone\n"
-		codexBin := stageCodexStub(t, work, script)
-		out := &lockedBuffer{}
-		done := make(chan int, 1)
-		go func() {
-			done <- runCodexSession([]string{"--codex-bin", codexBin, "--workdir", work,
-				"--persona", stagePersona(t, work)}, envMap(map[string]string{"OC_BASE": "://invalid", "OC_TOKEN": "tok"}), out)
-		}()
-		waitFor := func(what string, ok func() bool) {
-			t.Helper()
-			for deadline := time.Now().Add(10 * time.Second); !ok(); time.Sleep(50 * time.Millisecond) {
-				if time.Now().After(deadline) {
-					t.Fatalf("timed out waiting for %s; out=%q", what, out.String())
+	for _, stop := range []struct {
+		sig  syscall.Signal
+		line string
+	}{
+		{syscall.SIGTERM, "[codex] received terminated; stopping the App Server\n"},
+		{syscall.SIGHUP, "[codex] received hangup; stopping the App Server\n"},
+	} {
+		t.Run("the TUI resumes the thread only after its first turn, a terminal Ctrl-C is ignored, and "+stop.sig.String()+" stops the App Server and removes its socket", func(t *testing.T) {
+			work := shortTempDir(t)
+			t.Setenv("HOME", work)
+			events := filepath.Join(work, "events")
+			appServer := filepath.Join(work, "app-server-pid")
+			listener := filepath.Join(work, "listener-pid")
+			listenerStub := "#!/bin/sh\nprintf '%s %s\\n' \"$$\" \"$(ps -o pgid= -p $$ | tr -d ' ')\" > " + shellQuote(listener) + "\nwhile IFS= read -r line; do :; done\n"
+			if err := os.WriteFile(filepath.Join(work, "ocagent"), []byte(listenerStub), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			script := "#!/bin/sh\n" +
+				"if [ \"$1\" = resume ]; then printf '%s\\n' \"$*\" >> " + shellQuote(events) + "; exit 0; fi\n" +
+				"printf '%s %s\\n' \"$PPID\" \"$(ps -o pgid= -p $PPID | tr -d ' ')\" > " + shellQuote(appServer) + "\n" +
+				"while IFS= read -r line; do\n" +
+				" id=$(printf '%s' \"$line\" | sed -E 's/.*\"id\":([0-9]+).*/\\1/')\n" +
+				" case \"$line\" in\n" +
+				" *'\"method\":\"initialize\"'*|*'\"method\":\"account/rateLimits/read\"'*) printf '{\"id\":%s,\"result\":{}}\\n' \"$id\" ;;\n" +
+				" *'\"method\":\"thread/start\"'*) printf '{\"id\":%s,\"result\":{\"thread\":{\"id\":\"th\"}}}\\n' \"$id\"; echo '{\"method\":\"thread/started\",\"params\":{\"thread\":{\"id\":\"th\"}}}' ;;\n" +
+				" *'\"method\":\"turn/start\"'*) sleep 1; echo turn-started >> " + shellQuote(events) + "; echo '{\"method\":\"turn/started\",\"params\":{\"turn\":{\"id\":\"live\"}}}'; echo '{\"method\":\"turn/completed\",\"params\":{\"turn\":{\"status\":\"interrupted\"}}}' ;;\n" +
+				" esac\ndone\n"
+			codexBin := stageCodexStub(t, work, script)
+			out := &lockedBuffer{}
+			done := make(chan int, 1)
+			go func() {
+				done <- runCodexSession([]string{"--codex-bin", codexBin, "--workdir", work,
+					"--persona", stagePersona(t, work)}, envMap(map[string]string{"OC_BASE": "://invalid", "OC_TOKEN": "tok"}), out)
+			}()
+			waitFor := func(what string, ok func() bool) {
+				t.Helper()
+				for deadline := time.Now().Add(10 * time.Second); !ok(); time.Sleep(50 * time.Millisecond) {
+					if time.Now().After(deadline) {
+						t.Fatalf("timed out waiting for %s; out=%q", what, out.String())
+					}
 				}
 			}
-		}
-		readEvents := func() []string {
-			raw, _ := os.ReadFile(events)
-			return strings.Split(strings.TrimSpace(string(raw)), "\n")
-		}
-		waitFor("the TUI launch", func() bool { return len(readEvents()) >= 2 })
-
-		wantEvents := []string{"turn-started",
-			"resume th --remote unix://" + work + "/.codex-app.sock -c check_for_update_on_startup=false"}
-		if got := readEvents()[:2]; !reflect.DeepEqual(got, wantEvents) {
-			t.Errorf("events = %q, want %q", got, wantEvents)
-		}
-
-		if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
-			t.Fatal(err)
-		}
-		const ignored = "[codex] ignored interrupt from the terminal; close the Codex screen to reopen it\n"
-		waitFor("the ignored SIGINT", func() bool { return strings.Contains(out.String(), ignored) })
-		select {
-		case code := <-done:
-			t.Fatalf("a terminal Ctrl-C ended the session with %d", code)
-		default:
-		}
-
-		raw, err := os.ReadFile(appServer)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var pid, pgid int
-		if _, err := fmt.Sscanf(string(raw), "%d %d", &pid, &pgid); err != nil {
-			t.Fatalf("app-server pid file %q: %v", raw, err)
-		}
-		if own, _ := syscall.Getpgid(0); pgid != pid || pgid == own {
-			t.Errorf("app-server pid %d runs in process group %d (sidecar's group %d), want a group of its own", pid, pgid, own)
-		}
-
-		if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
-			t.Fatal(err)
-		}
-		select {
-		case code := <-done:
-			if code != 1 {
-				t.Errorf("runCodexSession returned %d after SIGTERM, want 1", code)
+			readEvents := func() []string {
+				raw, _ := os.ReadFile(events)
+				return strings.Split(strings.TrimSpace(string(raw)), "\n")
 			}
-		case <-time.After(15 * time.Second):
-			t.Fatalf("SIGTERM did not end the session; out=%q", out.String())
-		}
-		if !strings.Contains(out.String(), "[codex] received terminated; stopping the App Server\n") {
-			t.Errorf("out = %q, want the SIGTERM line", out.String())
-		}
-		if syscall.Kill(pid, 0) == nil {
-			t.Errorf("app-server pid %d is still running after SIGTERM", pid)
-		}
-		if _, err := os.Lstat(filepath.Join(work, ".codex-app.sock")); !os.IsNotExist(err) {
-			t.Errorf("the App Server socket still exists after SIGTERM: %v", err)
-		}
-	})
+			waitFor("the TUI launch", func() bool { return len(readEvents()) >= 2 })
+
+			wantEvents := []string{"turn-started",
+				"resume th --remote unix://" + work + "/.codex-app.sock -c check_for_update_on_startup=false"}
+			if got := readEvents()[:2]; !reflect.DeepEqual(got, wantEvents) {
+				t.Errorf("events = %q, want %q", got, wantEvents)
+			}
+
+			if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
+				t.Fatal(err)
+			}
+			const ignored = "[codex] ignored interrupt from the terminal; close the Codex screen to reopen it\n"
+			waitFor("the ignored SIGINT", func() bool { return strings.Contains(out.String(), ignored) })
+			select {
+			case code := <-done:
+				t.Fatalf("a terminal Ctrl-C ended the session with %d", code)
+			default:
+			}
+
+			raw, err := os.ReadFile(appServer)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var pid, pgid int
+			if _, err := fmt.Sscanf(string(raw), "%d %d", &pid, &pgid); err != nil {
+				t.Fatalf("app-server pid file %q: %v", raw, err)
+			}
+			if own, _ := syscall.Getpgid(0); pgid != pid || pgid == own {
+				t.Errorf("app-server pid %d runs in process group %d (sidecar's group %d), want a group of its own", pid, pgid, own)
+			}
+			waitFor("the listener start", func() bool { _, err := os.Stat(listener); return err == nil })
+			raw, err = os.ReadFile(listener)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var lpid, lpgid int
+			if _, err := fmt.Sscanf(string(raw), "%d %d", &lpid, &lpgid); err != nil {
+				t.Fatalf("listener pid file %q: %v", raw, err)
+			}
+			if own, _ := syscall.Getpgid(0); lpgid != lpid || lpgid == own {
+				t.Errorf("listener pid %d runs in process group %d (sidecar's group %d), want a group of its own", lpid, lpgid, own)
+			}
+
+			if err := syscall.Kill(os.Getpid(), stop.sig); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case code := <-done:
+				if code != 1 {
+					t.Errorf("runCodexSession returned %d after the stop signal, want 1", code)
+				}
+			case <-time.After(15 * time.Second):
+				t.Fatalf("the stop signal did not end the session; out=%q", out.String())
+			}
+			if !strings.Contains(out.String(), stop.line) {
+				t.Errorf("out = %q, want %q", out.String(), stop.line)
+			}
+			if syscall.Kill(pid, 0) == nil {
+				t.Errorf("app-server pid %d is still running after the stop signal", pid)
+			}
+			if _, err := os.Lstat(filepath.Join(work, ".codex-app.sock")); !os.IsNotExist(err) {
+				t.Errorf("the App Server socket still exists after the stop signal: %v", err)
+			}
+		})
+	}
 }
 
 func stagePersona(t *testing.T, dir string) string {

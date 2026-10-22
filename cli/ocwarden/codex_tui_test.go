@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -20,6 +21,7 @@ func TestRunCodexTUI(t *testing.T) {
 	notice := func(reason, delay string) string {
 		return "\r\nOffiCraft：Codex 畫面已關閉（" + reason + "），" + delay + " 後重新接上。成員在背景照常工作。\r\n"
 	}
+	discard := func(string, ...any) {}
 
 	t.Run("a TUI that keeps exiting straight away is reopened with a delay doubling up to 30s", func(t *testing.T) {
 		ctx := context.Background()
@@ -30,7 +32,7 @@ func TestRunCodexTUI(t *testing.T) {
 		runCodexTUI(ctx, func(ctx context.Context) *exec.Cmd {
 			launches++
 			return exec.CommandContext(ctx, "/bin/sh", "-c", "exit 0")
-		}, term, func(_ context.Context, d time.Duration) bool {
+		}, term, discard, func(_ context.Context, d time.Duration) bool {
 			delays = append(delays, d)
 			return len(delays) < 7
 		})
@@ -50,15 +52,21 @@ func TestRunCodexTUI(t *testing.T) {
 		}
 	})
 
-	t.Run("a TUI that fails names its exit status on the terminal", func(t *testing.T) {
+	t.Run("a TUI that fails names its exit status on the terminal and in the session log", func(t *testing.T) {
 		term := &lockedBuffer{}
+		var logged []string
 
 		runCodexTUI(context.Background(), func(ctx context.Context) *exec.Cmd {
 			return exec.CommandContext(ctx, "/bin/sh", "-c", "exit 3")
-		}, term, func(context.Context, time.Duration) bool { return false })
+		}, term, func(format string, args ...any) {
+			logged = append(logged, fmt.Sprintf(format, args...))
+		}, func(context.Context, time.Duration) bool { return false })
 
 		if want := notice("exit status 3", "1s"); term.String() != want {
 			t.Errorf("terminal = %q, want %q", term.String(), want)
+		}
+		if want := []string{"Codex TUI exited after 0s (exit status 3); reopening in 1s"}; !reflect.DeepEqual(logged, want) {
+			t.Errorf("logged = %q, want %q", logged, want)
 		}
 	})
 
@@ -72,7 +80,7 @@ func TestRunCodexTUI(t *testing.T) {
 				time.Sleep(codexTUIStableRun)
 			}
 			return exec.CommandContext(ctx, "/bin/sh", "-c", "exit 0")
-		}, &lockedBuffer{}, func(_ context.Context, d time.Duration) bool {
+		}, &lockedBuffer{}, discard, func(_ context.Context, d time.Duration) bool {
 			delays = append(delays, d)
 			return len(delays) < 3
 		})
@@ -91,7 +99,7 @@ func TestRunCodexTUI(t *testing.T) {
 			launches++
 			cancel()
 			return exec.CommandContext(context.Background(), "/bin/sh", "-c", "exit 0")
-		}, term, func(context.Context, time.Duration) bool { sleeps++; return true })
+		}, term, discard, func(context.Context, time.Duration) bool { sleeps++; return true })
 
 		if launches != 1 || sleeps != 0 || term.String() != "" {
 			t.Errorf("launches=%d sleeps=%d terminal=%q, want 1, 0, empty", launches, sleeps, term.String())

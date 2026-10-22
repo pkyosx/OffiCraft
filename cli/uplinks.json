@@ -271,6 +271,34 @@
       "seam_reason": "The send half of codexSession.post. Its four uplinks all leave through here."
     },
     {
+      "id": "codex-appserver-dial",
+      "source": "cli/ocwarden/codex_appserver_conn.go",
+      "callsite": "conn, err := net.DialTimeout(\"unix\", socketPath, timeout)",
+      "kind": "skip",
+      "skip_reason": "Talks to the member's own Codex App Server over its unix socket, never to the OffiCraft station: opens the local socket; JSON-RPC to Codex is not an OffiCraft uplink."
+    },
+    {
+      "id": "codex-appserver-handshake",
+      "source": "cli/ocwarden/codex_appserver_conn.go",
+      "callsite": "if err := c.handshake(timeout); err != nil {",
+      "kind": "skip",
+      "skip_reason": "Talks to the member's own Codex App Server over its unix socket, never to the OffiCraft station: the WebSocket upgrade request on that socket."
+    },
+    {
+      "id": "codex-appserver-upgrade-request",
+      "source": "cli/ocwarden/codex_appserver_conn.go",
+      "callsite": "req, err := http.NewRequest(http.MethodGet, \"http://localhost/\", nil)",
+      "kind": "skip",
+      "skip_reason": "Talks to the member's own Codex App Server over its unix socket, never to the OffiCraft station: the bodyless GET that carries the WebSocket upgrade."
+    },
+    {
+      "id": "codex-appserver-wait",
+      "source": "cli/ocwarden/codex_tui.go",
+      "callsite": "conn, err := dialCodexAppServer(socketPath, 2*time.Second)",
+      "kind": "skip",
+      "skip_reason": "Talks to the member's own Codex App Server over its unix socket, never to the OffiCraft station: retries the local dial until the App Server listens."
+    },
+    {
       "id": "codex-identity",
       "source": "cli/ocwarden/codex_session.go",
       "callsite": "s.post(\"/api/monitoring/telemetry\", identity)",

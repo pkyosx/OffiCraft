@@ -85,7 +85,7 @@ func codexTUICommand(ctx context.Context, codexBin, workdir, threadID, socketPat
 // in the App Server, so the TUI is only reopened, with a growing delay while it
 // keeps failing straight away.
 func runCodexTUI(ctx context.Context, newCmd func(context.Context) *exec.Cmd, term io.Writer,
-	sleep func(context.Context, time.Duration) bool) {
+	logf func(string, ...any), sleep func(context.Context, time.Duration) bool) {
 	delay := codexTUIRetryMin
 	for {
 		started := time.Now()
@@ -102,6 +102,8 @@ func runCodexTUI(ctx context.Context, newCmd func(context.Context) *exec.Cmd, te
 			reason = err.Error()
 		}
 		fmt.Fprintf(term, "\r\nOffiCraft：Codex 畫面已關閉（%s），%s 後重新接上。成員在背景照常工作。\r\n", reason, delay)
+		// The TUI clears the pane on its next start, so the reason survives only here.
+		logf("Codex TUI exited after %s (%s); reopening in %s", ran.Round(time.Second), reason, delay)
 		if !sleep(ctx, delay) {
 			return
 		}
