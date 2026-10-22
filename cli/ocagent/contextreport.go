@@ -94,13 +94,14 @@ func cmdContextReport(client httpClient, cfg Config, env func(string) string, no
 			// Sent even when no usage was measured: runtime/account/machine must still
 			// reach monitoring, or it keeps showing a stale account for a live session.
 			rl, cost, tokens := buildTelemetry(payload)
+			account := measuredClaudeAccount(claudeAccountPath(cfg), rateLimitsFingerprint(payload), env)
 			body := telemetryBody{
 				Runtime:      "claude",
 				RateLimits:   rl,
 				Cost:         cost,
 				Tokens:       tokens,
-				Account:      readClaudeAccount(env),
-				AccountLabel: readClaudeAccountLabel(env),
+				Account:      account.ID,
+				AccountLabel: account.Label,
 				Effort:       effortValue(payload),
 				Model:        modelValue(payload),
 			}
@@ -474,6 +475,56 @@ func machineID(env func(string) string) string {
 		return h
 	}
 	return "m-server-self"
+}
+
+type claudeAccount struct {
+	ID         string `json:"account"`
+	Label      string `json:"account_label"`
+	RateLimits string `json:"rate_limits"`
+}
+
+func claudeAccountPath(cfg Config) string {
+	return filepath.Join(filepath.Dir(reportStampPath(cfg)), "claude_account.json")
+}
+
+// statusLine rate_limits are the headers of this session's LAST API response,
+// kept in memory, while the login file is machine-wide and a running session
+// adopts a re-login at its next call. So an idle session after a re-login
+// still shows the previous account's windows: the account is re-read only when
+// the windows change (= a new call landed) and otherwise stays the one that
+// was logged in when these windows were measured.
+func measuredClaudeAccount(path, rateLimits string, env func(string) string) claudeAccount {
+	if rateLimits != "" {
+		if raw, err := os.ReadFile(path); err == nil {
+			var recorded claudeAccount
+			if json.Unmarshal(raw, &recorded) == nil && recorded.ID != "" && recorded.RateLimits == rateLimits {
+				return recorded
+			}
+		}
+	}
+	current := claudeAccount{ID: readClaudeAccount(env), Label: readClaudeAccountLabel(env), RateLimits: rateLimits}
+	if rateLimits != "" && current.ID != "" {
+		if raw, err := json.Marshal(current); err == nil && os.MkdirAll(filepath.Dir(path), 0o755) == nil {
+			_ = os.WriteFile(path, raw, 0o644)
+		}
+	}
+	return current
+}
+
+func rateLimitsFingerprint(payload string) string {
+	obj, ok := safeJSON(payload).(map[string]any)
+	if !ok {
+		return ""
+	}
+	rl, ok := obj["rate_limits"].(map[string]any)
+	if !ok || len(rl) == 0 {
+		return ""
+	}
+	raw, err := json.Marshal(rl)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
 }
 
 // The monitoring attribution key must stay stable across machines and

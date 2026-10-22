@@ -253,6 +253,71 @@ func TestCmdContextReport(t *testing.T) {
 		}
 	})
 
+	t.Run("windows measured before a re-login stay on the account that measured them", func(t *testing.T) {
+		const maxWindow = `{"rate_limits":{"seven_day":{"used_percentage":41,"resets_at":1792648800}}}`
+		const enterpriseWindow = `{"rate_limits":{"seven_day":{"used_percentage":3,"resets_at":1793000000}}}`
+		const maxLogin = `{"oauthAccount":{"accountUuid":"au-max","organizationUuid":"org-max",` +
+			`"emailAddress":"seth@x.io","organizationName":"Max"}}`
+		const enterpriseLogin = `{"oauthAccount":{"accountUuid":"au-ent","organizationUuid":"org-ent",` +
+			`"emailAddress":"seth@x.io","organizationName":"Enterprise"}}`
+		home := writeClaudeJSON(t, maxLogin)
+		env := testEnv(map[string]string{"HOME": home})
+		agentsRoot := t.TempDir()
+		report := func(member string, now float64, payload string) []string {
+			t.Helper()
+			cfg := Config{BaseConfigured: true, Base: "http://x", Token: "t", MemberID: member, AgentsRoot: agentsRoot}
+			client := &fakeHTTP{status: 200, body: "{}"}
+			var out, errOut bytes.Buffer
+			cmdContextReport(client, cfg, env, now, strings.NewReader(payload), &out, &errOut)
+			return client.seen
+		}
+		telemetry := func(window, account, label string) []string {
+			return []string{`POST /api/monitoring/telemetry {"runtime":"claude",` + window +
+				`,"account":"` + account + `","account_label":"` + label + `","machine":"m-server-self"}`}
+		}
+		maxRL := `"rate_limits":{"seven_day":{"used_percentage":41,"resets_at":1792648800}}`
+		entRL := `"rate_limits":{"seven_day":{"used_percentage":3,"resets_at":1793000000}}`
+
+		if got, want := report("family-game", 1000, maxWindow), telemetry(maxRL, "au-max/org-max", "seth@x.io(Max)"); !reflect.DeepEqual(got, want) {
+			t.Fatalf("before the re-login sent\n  %q\nwant\n  %q", got, want)
+		}
+		if err := os.WriteFile(filepath.Join(home, ".claude", ".claude.json"), []byte(enterpriseLogin), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		if got, want := report("family-game", 1100, maxWindow), telemetry(maxRL, "au-max/org-max", "seth@x.io(Max)"); !reflect.DeepEqual(got, want) {
+			t.Errorf("an idle session after the re-login sent\n  %q\nwant\n  %q", got, want)
+		}
+		if got, want := report("family-game", 1200, enterpriseWindow), telemetry(entRL, "au-ent/org-ent", "seth@x.io(Enterprise)"); !reflect.DeepEqual(got, want) {
+			t.Errorf("the same session after its next call sent\n  %q\nwant\n  %q", got, want)
+		}
+		if got, want := report("new-member", 1300, enterpriseWindow), telemetry(entRL, "au-ent/org-ent", "seth@x.io(Enterprise)"); !reflect.DeepEqual(got, want) {
+			t.Errorf("a member started after the re-login sent\n  %q\nwant\n  %q", got, want)
+		}
+	})
+
+	t.Run("a session with no measured windows reports the current login", func(t *testing.T) {
+		home := writeClaudeJSON(t, `{"oauthAccount":{"accountUuid":"au-old"}}`)
+		env := testEnv(map[string]string{"HOME": home})
+		agentsRoot := t.TempDir()
+		cfg := Config{BaseConfigured: true, Base: "http://x", Token: "t", MemberID: "kyle", AgentsRoot: agentsRoot}
+		var out, errOut bytes.Buffer
+		cmdContextReport(&fakeHTTP{status: 200, body: "{}"}, cfg, env, 1000,
+			strings.NewReader(`{"rate_limits":{"seven_day":{"used_percentage":9,"resets_at":1792648800}}}`), &out, &errOut)
+		if err := os.WriteFile(filepath.Join(home, ".claude", ".claude.json"),
+			[]byte(`{"oauthAccount":{"accountUuid":"au-new"}}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		client := &fakeHTTP{status: 200, body: "{}"}
+
+		cmdContextReport(client, cfg, env, 1100, strings.NewReader(`{}`), &out, &errOut)
+
+		want := []string{`POST /api/monitoring/telemetry {"runtime":"claude","account":"au-new","machine":"m-server-self"}`}
+		if !reflect.DeepEqual(client.seen, want) {
+			t.Errorf("sent %q, want %q", client.seen, want)
+		}
+	})
+
 	t.Run("a null pct skips its own POST and never blocks the telemetry one", func(t *testing.T) {
 		home := t.TempDir()
 		cfg := Config{BaseConfigured: true, Base: "http://x", Token: "t", MemberID: "kyle", AgentsRoot: home}
