@@ -26,28 +26,132 @@
 .activity-icon__glyph--idle {
   color: var(--color-text-muted);
 }
-/* 工作中: the three dots bounce in turn. */
-.activity-icon__glyph--working circle {
-  animation: activity-working-bounce 1.2s ease-in-out infinite;
+/* 工作中: the star breathes while the two twinkles flash in turn. */
+.activity-icon__glyph--working .sparkle-icon__star {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: activity-working-star 1.6s ease-in-out infinite;
 }
-.activity-icon__glyph--working circle:nth-child(2) {
-  animation-delay: 0.15s;
+.activity-icon__glyph--working .sparkle-icon__twinkle--top {
+  animation: activity-working-twinkle 1.6s ease-in-out infinite;
 }
-.activity-icon__glyph--working circle:nth-child(3) {
-  animation-delay: 0.3s;
+.activity-icon__glyph--working .sparkle-icon__twinkle--bottom {
+  animation: activity-working-twinkle 1.6s ease-in-out -0.8s infinite;
 }
-@keyframes activity-working-bounce {
+@keyframes activity-working-star {
   0%,
-  60%,
+  50%,
   100% {
-    transform: translateY(0);
+    transform: scale(0.86);
   }
-  30% {
-    transform: translateY(-3px);
+  25%,
+  75% {
+    transform: scale(1);
+  }
+}
+@keyframes activity-working-twinkle {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.2;
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .activity-icon__glyph--working circle {
+  .activity-icon__glyph--working .sparkle-icon__star,
+  .activity-icon__glyph--working .sparkle-icon__twinkle {
     animation: none;
+  }
+}
+
+/* The icon that opens the 運作狀況 dialog: a faint chip says it can be pressed.
+ * Its height stays within the name's line so rows and headers keep theirs. */
+.activity-icon--button {
+  position: relative;
+  margin: 0;
+  padding: 1px 3px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 12%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
+  color: inherit;
+  font: inherit;
+  line-height: 0;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.activity-icon--button.activity-icon--busy {
+  background: color-mix(in srgb, var(--color-success) 8%, var(--color-card));
+}
+.activity-icon--button.activity-icon--waiting {
+  background: color-mix(in srgb, var(--color-warn-fg) 7%, var(--color-card));
+}
+.activity-icon--button:hover,
+.activity-icon--button:focus-visible {
+  border-color: var(--color-success);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-success) 15%, transparent);
+}
+/* Touch area of at least 32px, grown with ::after so the chip does not change
+ * size. It grows less downward: below lies the second line, whose warning mark
+ * has a tap area of its own. */
+@media (hover: none) {
+  .activity-icon--button::after {
+    content: "";
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    bottom: -5px;
+    left: -8px;
+  }
+}
+
+.confirm-modal__box.activity-dialog__box {
+  gap: 0;
+  padding: 18px 20px;
+}
+.activity-dialog__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.activity-dialog__title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-text-strong);
+  overflow-wrap: anywhere;
+}
+.activity-dialog__close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 12%, transparent);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.activity-dialog__close:hover {
+  background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
+}
+/* Same 720px as useIsMobile and the office layout. */
+@media (max-width: 720px) {
+  .confirm-modal.activity-dialog {
+    align-items: flex-end;
+    padding: 0;
+  }
+  .confirm-modal__box.activity-dialog__box {
+    max-width: none;
+    max-height: 85%;
+    max-height: 85dvh;
+    border-radius: 18px 18px 0 0;
+    border-bottom: none;
+    padding-bottom: calc(22px + env(safe-area-inset-bottom));
   }
 }

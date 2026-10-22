@@ -14,10 +14,11 @@
 // getAttribute("aria-label") check would NOT catch it (the attribute survives
 // aria-hidden; the label just stops being reachable).
 
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { MemberCard } from "./MemberCard";
+import { MemberActivityCard } from "./MemberActivity";
 import type { Member } from "../types";
 
 function mkMember(over: Partial<Member> = {}): Member {
@@ -405,11 +406,11 @@ describe("MemberCard activity icon", () => {
     );
 
   it.each([
-    ["busy", "工作中", "working", "主 agent 工作中（已 0 秒）"],
-    ["waiting", "等待中", "waiting", "主 agent 與 sub-agent 都沒有在工作，正在等 1 個背景檢查或排程"],
-    ["idle", "閒置", "idle", "主 agent 與 sub-agent 都沒有在工作"],
-  ] as const)("under %s, the icon right after the name is named %s, draws its own glyph and hints the summary", (state, word, glyph, hint) => {
-    const { getByTestId } = renderWith({
+    ["busy", "工作中，查看運作狀況", "working", "主 agent 工作中（已 0 秒）"],
+    ["waiting", "等待中，查看運作狀況", "waiting", "主 agent 與 sub-agent 都沒有在工作，正在等 1 個背景檢查或排程"],
+    ["idle", "閒置，查看運作狀況", "idle", "主 agent 與 sub-agent 都沒有在工作"],
+  ] as const)("under %s, the icon right after the name is a button named %s, draws its own glyph and hints the summary", (state, name, glyph, hint) => {
+    const { getByTestId, getByRole } = renderWith({
       state,
       busySince: state === "busy" ? Date.now() / 1000 + 5 : null,
       subagents: [],
@@ -417,22 +418,126 @@ describe("MemberCard activity icon", () => {
     });
     const icon = getByTestId("activity-icon-mira");
     expect(icon.previousElementSibling!.textContent).toBe("Mira");
-    expect(icon.getAttribute("aria-label")).toBe(word);
+    expect(getByRole("button", { name })).toBe(icon);
     expect(icon.querySelector(`.activity-icon__glyph--${glyph}`)).not.toBeNull();
     fireEvent.mouseEnter(icon);
     expect(screen.getByRole("tooltip").textContent).toBe(hint);
   });
 
-  it("tapping the icon pins its hint without opening the chat", () => {
-    const onChat = vi.fn();
-    const { getByTestId } = renderWith({ state: "idle", busySince: null, subagents: [], waits: [] }, onChat);
-    fireEvent.click(getByTestId("activity-icon-mira"));
-    expect(screen.getByRole("tooltip").className).toBe("instant-hint instant-hint--pinned");
-    expect(onChat).not.toHaveBeenCalled();
+  it("draws 工作中 as the sparkle glyph", () => {
+    const { getByTestId } = renderWith({ state: "busy", busySince: Date.now() / 1000, subagents: [], waits: [] });
+    const glyph = getByTestId("activity-icon-mira").querySelector(".activity-icon__glyph--working")!;
+    expect(glyph.querySelector(".sparkle-icon__star")).not.toBeNull();
+    expect(glyph.querySelectorAll(".sparkle-icon__twinkle")).toHaveLength(2);
   });
 
-  it("an offline member (no activity) has no icon", () => {
+  describe("運作狀況 dialog", () => {
+    const NOW = 1_800_000_000;
+    const activity: Member["activity"] = {
+      state: "busy",
+      busySince: NOW - 180,
+      subagents: [
+        { id: "s1", parentId: null, name: "ci-watch", description: "查 CI 結果", startedTs: NOW - 45 },
+        { id: "s2", parentId: "s1", name: "log-reader", description: "讀 log", startedTs: NOW - 12 },
+      ],
+      waits: [{ kind: "schedule", description: "每 10 秒檢查 CI", nextTs: null, recurring: true }],
+    };
+    const dialog = () => screen.queryByRole("dialog");
+    const rows = (root: HTMLElement) =>
+      Array.from(root.querySelectorAll(".mp-activity__row")).map((r) => r.textContent);
+
+    beforeEach(() => {
+      vi.useFakeTimers({ now: NOW * 1000 });
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("tapping the icon opens the dialog with the title, state, summary and tree, without opening the chat", () => {
+      const onChat = vi.fn();
+      const { getByTestId } = renderWith(activity, onChat);
+      fireEvent.click(getByTestId("activity-icon-mira"));
+      expect(onChat).not.toHaveBeenCalled();
+      expect(screen.queryByRole("tooltip")).toBeNull();
+      const d = screen.getByRole("dialog", { name: "Mira · 運作狀況" });
+      expect(d.getAttribute("aria-modal")).toBe("true");
+      expect(d.querySelector(".mp-activity__head")!.textContent).toBe("目前狀態工作中");
+      expect(d.querySelector(".mp-activity__state--busy")).not.toBeNull();
+      expect(d.querySelector(".mp-activity__summary")!.textContent).toBe(
+        "主 agent 工作中（已 3 分鐘），另有 2 個 sub-agent 工作中，正在等 1 個背景檢查或排程",
+      );
+      expect(rows(d)).toEqual([
+        "主 agent已 3 分鐘",
+        "查 CI 結果ci-watch45 秒",
+        "讀 loglog-reader12 秒",
+        "每 10 秒檢查 CI排程 · 重複",
+      ]);
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "關閉" }));
+    });
+
+    it("renders the very body the detail panel's 運作狀況 card renders", () => {
+      const { getByTestId } = renderWith(activity);
+      fireEvent.click(getByTestId("activity-icon-mira"));
+      const card = render(
+        <I18nProvider>
+          <MemberActivityCard activity={activity} testId="card" />
+        </I18nProvider>,
+      ).getByTestId("card");
+      const d = screen.getByRole("dialog");
+      for (const sel of [".mp-activity__summary", ".mp-activity__tree"]) {
+        expect(d.querySelector(sel)!.outerHTML, sel).toBe(card.querySelector(sel)!.outerHTML);
+      }
+    });
+
+    it("keeps counting while open", () => {
+      const { getByTestId } = renderWith(activity);
+      fireEvent.click(getByTestId("activity-icon-mira"));
+      act(() => {
+        vi.advanceTimersByTime(5_000);
+      });
+      expect(rows(screen.getByRole("dialog"))[2]).toBe("讀 loglog-reader17 秒");
+    });
+
+    it.each([
+      ["Esc", () => fireEvent.keyDown(document.activeElement!, { key: "Escape" })],
+      ["the backdrop", () => fireEvent.click(dialog()!)],
+      ["✕", () => fireEvent.click(screen.getByRole("button", { name: "關閉" }))],
+    ])("closes on %s, hands focus back to the icon and leaves the chat closed", (_, close) => {
+      const onChat = vi.fn();
+      const { getByTestId } = renderWith(activity, onChat);
+      const icon = getByTestId("activity-icon-mira");
+      fireEvent.click(icon);
+      act(() => close());
+      expect(dialog()).toBeNull();
+      expect(document.activeElement).toBe(icon);
+      expect(onChat).not.toHaveBeenCalled();
+    });
+
+    it("a click or Enter inside the dialog stays there", () => {
+      const onChat = vi.fn();
+      const { getByTestId } = renderWith(activity, onChat);
+      fireEvent.click(getByTestId("activity-icon-mira"));
+      const summary = dialog()!.querySelector(".mp-activity__summary")!;
+      fireEvent.click(summary);
+      fireEvent.keyDown(summary, { key: "Enter" });
+      expect(dialog()).not.toBeNull();
+      expect(onChat).not.toHaveBeenCalled();
+    });
+
+    it("Enter on the icon opens the dialog, not the chat", () => {
+      const onChat = vi.fn();
+      const { getByTestId } = renderWith(activity, onChat);
+      const icon = getByTestId("activity-icon-mira");
+      fireEvent.keyDown(icon, { key: "Enter" });
+      fireEvent.click(icon);
+      expect(onChat).not.toHaveBeenCalled();
+      expect(dialog()).not.toBeNull();
+    });
+  });
+
+  it("an offline member (no activity) has no icon and no way into the dialog", () => {
     const { queryByTestId } = renderWith(null);
     expect(queryByTestId("activity-icon-mira")).toBeNull();
+    expect(screen.queryByRole("button", { name: /查看運作狀況/ })).toBeNull();
   });
 });

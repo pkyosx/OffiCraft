@@ -66,7 +66,11 @@ export function MemberCard({
       <div className="member-card__body">
         <div className="member-card__line">
           <span className="member-card__name">{member.name}</span>
-          <ActivityStatusIcon activity={member.activity} testId={`activity-icon-${member.id}`} />
+          <ActivityStatusIcon
+            activity={member.activity}
+            memberName={member.name}
+            testId={`activity-icon-${member.id}`}
+          />
         </div>
         {/* Line 2: the runtime warning mark and the role. Presence is the
          * avatar-corner dot (PresenceAvatar), the same on every identity

@@ -8,6 +8,9 @@
  * client wording validator (lib/themeBundle.ts) and the mock API. */
 export const MESSAGE_KEYS: readonly string[] = [
   "activity.cardTitle",
+  "activity.close",
+  "activity.currentState",
+  "activity.dialogTitleSep",
   "activity.elapsedLead",
   "activity.elapsedMinutes",
   "activity.elapsedSeconds",
@@ -17,6 +20,8 @@ export const MESSAGE_KEYS: readonly string[] = [
   "activity.mainReplied",
   "activity.nextLead",
   "activity.noneWorking",
+  "activity.openLabel",
+  "activity.openLabelSep",
   "activity.recurring",
   "activity.state.busy",
   "activity.state.idle",

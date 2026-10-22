@@ -325,7 +325,7 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
     expect(getByTestId("mp-context").closest(".mp-runtime")).not.toBeNull();
   });
 
-  it("the identity card carries the presence dot on the avatar corner and the status icon right after the name", () => {
+  it("the identity card carries the presence dot on the avatar corner and the status icon right after the name, which pins its hint instead of opening a dialog", () => {
     const { getByTestId, container } = renderPanel(
       mkMember({
         status: "online",
@@ -340,6 +340,10 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
     const icon = getByTestId("mp-identity-activity");
     expect(icon.parentElement!.classList.contains("mp-identity__line")).toBe(true);
     expect(icon.getAttribute("aria-label")).toBe("等待中");
+    expect(icon.getAttribute("role")).toBe("img");
+    fireEvent.click(icon);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("tooltip").className).toContain("instant-hint--pinned");
   });
 
   it("awakened (online) shows the real running machine and its bound account", async () => {

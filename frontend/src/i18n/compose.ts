@@ -111,6 +111,10 @@ export interface Messages {
   /** 「背景指令」, or 「排程 · 下次 12:15 · 重複」 in the viewer's local time; a
    * next run that is not today carries its date (「下次 10/5 09:05」). */
   memberActivityWaitTag: (wait: ActivityWait, now: number) => string;
+  /** 「Mira · 運作狀況」: the activity dialog's title. */
+  memberActivityDialogTitle: (name: string) => string;
+  /** 「工作中，查看運作狀況」: the accessible name of the icon that opens it. */
+  memberActivityOpenLabel: (state: MemberActivity["state"]) => string;
   /** `by` is the deadline text, or null when the wind-down is on NO clock —
    * which since T-ed79 is every cause except the second context threshold. The
    * no-clock sentence must not contain any time at all. */
@@ -418,6 +422,8 @@ export function makeMessages(t: Dict, language: Lang): Messages {
             ...(w.nextTs !== null ? [`${act.nextLead} ${nextRunAt(w.nextTs, now)}`] : []),
             ...(w.recurring ? [act.recurring] : []),
           ].join(" · "),
+    memberActivityDialogTitle: (name) => `${name}${act.dialogTitleSep}${act.cardTitle}`,
+    memberActivityOpenLabel: (state) => `${act.state[state]}${act.openLabelSep}${act.openLabel}`,
     // 「正在收尾以套用你的改動 · 最晚 14:32 生效」 — the deadline is a CEILING
     // (the collect fires as soon as the agent reports stopped), so the wording
     // says 最晚 rather than promising a time.

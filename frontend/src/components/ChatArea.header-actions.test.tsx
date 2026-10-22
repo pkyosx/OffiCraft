@@ -190,7 +190,7 @@ describe("ChatArea header 任務/角色設定 圖示 (T-dfae)", () => {
     });
     expect(icon().parentElement!.className).toBe("chat__header-name");
     expect(icon().previousElementSibling!.textContent).toBe("Mira");
-    expect(icon().getAttribute("aria-label")).toBe("工作中");
+    expect(icon().getAttribute("aria-label")).toBe("工作中，查看運作狀況");
     expect(glyphState(icon())).toBe("working");
     fireEvent.mouseEnter(icon());
     expect(hintText()).toBe(
@@ -208,14 +208,14 @@ describe("ChatArea header 任務/角色設定 圖示 (T-dfae)", () => {
         }),
       }),
     });
-    expect(icon().getAttribute("aria-label")).toBe("等待中");
+    expect(icon().getAttribute("aria-label")).toBe("等待中，查看運作狀況");
     expect(glyphState(icon())).toBe("waiting");
     fireEvent.mouseEnter(icon());
     expect(hintText()).toBe("主 agent 與 sub-agent 都沒有在工作，正在等 1 個背景檢查或排程");
     waiting.unmount();
 
     renderChat({ member: mkMember({ activity: busy({ state: "idle", busySince: null }) }) });
-    expect(icon().getAttribute("aria-label")).toBe("閒置");
+    expect(icon().getAttribute("aria-label")).toBe("閒置，查看運作狀況");
     expect(glyphState(icon())).toBe("idle");
     fireEvent.mouseEnter(icon());
     expect(hintText()).toBe("主 agent 與 sub-agent 都沒有在工作");
@@ -239,17 +239,40 @@ describe("ChatArea header 任務/角色設定 圖示 (T-dfae)", () => {
     expect(dot.getAttribute("aria-label")).toBe("線上");
     expect(document.querySelector(".chat__header-sub .lifecycle-dot")).toBeNull();
     expect(document.querySelector(".chat__header-sub")!.textContent).toBe("T-12 · 修理電梯");
-    expect(icon().getAttribute("aria-label")).toBe("閒置");
+    expect(icon().getAttribute("aria-label")).toBe("閒置，查看運作狀況");
   });
 
-  it("tapping the status icon pins the hint without opening the member detail", () => {
+  it("tapping the status icon opens the 運作狀況 dialog without opening the member detail, and Esc closes it", () => {
+    vi.useFakeTimers({ now: NOW * 1000 });
     const onOpenDetail = vi.fn();
-    renderChat({ member: mkMember({ activity: busy() }), onOpenDetail });
-    const word = screen.getByTestId("chat-header-activity");
+    renderChat({
+      member: mkMember({
+        activity: busy({
+          subagents: [{ id: "s1", parentId: null, name: "Explore", description: "查 CI 結果", startedTs: NOW - 45 }],
+        }),
+      }),
+      onOpenDetail,
+    });
+    const word = icon();
+    fireEvent.keyDown(word, { key: "Enter" });
     fireEvent.click(word);
     expect(onOpenDetail).not.toHaveBeenCalled();
-    expect(screen.getByRole("tooltip").className).toContain("instant-hint--pinned");
-    fireEvent.keyDown(word, { key: "Enter" });
+    const dialog = screen.getByRole("dialog", { name: "Mira · 運作狀況" });
+    expect(dialog.querySelector(".mp-activity__summary")!.textContent).toBe(
+      "主 agent 工作中（已 3 分鐘），另有 1 個 sub-agent 工作中",
+    );
+    expect(Array.from(dialog.querySelectorAll(".mp-activity__row")).map((r) => r.textContent)).toEqual([
+      "主 agent已 3 分鐘",
+      "查 CI 結果Explore45 秒",
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "關閉" }));
+    expect(onOpenDetail).not.toHaveBeenCalled();
+    fireEvent.click(word);
+    act(() => {
+      fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(word);
     expect(onOpenDetail).not.toHaveBeenCalled();
   });
 

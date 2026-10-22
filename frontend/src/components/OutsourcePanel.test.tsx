@@ -245,13 +245,50 @@ describe("OutsourcePanel", () => {
     const { findByTestId, queryByTestId } = renderOutsource();
     const icon = await findByTestId("activity-icon-ow-busy");
     expect(icon.previousElementSibling!.textContent).toBe("外包 · B-1");
-    expect(icon.getAttribute("aria-label")).toBe("等待中");
+    expect(icon.getAttribute("aria-label")).toBe("等待中，查看運作狀況");
     fireEvent.mouseEnter(icon);
     expect(screen.getByRole("tooltip").textContent).toBe(
       "主 agent 與 sub-agent 都沒有在工作，正在等 1 個背景檢查或排程",
     );
     await findByTestId("outsource-row-ow-off");
     expect(queryByTestId("activity-icon-ow-off")).toBeNull();
+  });
+
+  it("tapping a worker's activity icon opens its 運作狀況 dialog, not its chat; the backdrop closes it", async () => {
+    const task = mkTask({ id: "t-d", taskNo: "T-d" });
+    __injectMockTask(task);
+    __injectMockOutsourceWorker(
+      mkWorker({
+        id: "ow-dlg",
+        codename: "D-1",
+        taskId: task.id,
+        presence: "online",
+        activity: {
+          state: "waiting",
+          busySince: null,
+          subagents: [],
+          waits: [{ kind: "background_command", description: "npm test", nextTs: null, recurring: false }],
+        },
+      }),
+    );
+    const before = window.location.hash;
+    const { findByTestId } = renderOutsource();
+    const icon = await findByTestId("activity-icon-ow-dlg");
+    fireEvent.click(icon);
+    expect(window.location.hash).toBe(before);
+    const dialog = screen.getByRole("dialog", { name: "外包 · D-1 · 運作狀況" });
+    expect(dialog.querySelector(".mp-activity__head")!.textContent).toBe("目前狀態等待中");
+    expect(dialog.querySelector(".mp-activity__summary")!.textContent).toBe(
+      "主 agent 與 sub-agent 都沒有在工作，正在等 1 個背景檢查或排程",
+    );
+    expect(Array.from(dialog.querySelectorAll(".mp-activity__row")).map((r) => r.textContent)).toEqual([
+      "主 agent",
+      "npm test背景指令",
+    ]);
+    fireEvent.click(dialog);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(icon);
+    expect(window.location.hash).toBe(before);
   });
 
   it("does not paint an assigned but offline worker as live (owner screenshot: X-46)", async () => {
@@ -702,7 +739,7 @@ describe("OutsourcePanel", () => {
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
     expect(sub.querySelector(".lifecycle-dot")).toBeNull();
-    expect(screen.getByTestId("chat-header-activity").getAttribute("aria-label")).toBe("閒置");
+    expect(screen.getByTestId("chat-header-activity").getAttribute("aria-label")).toBe("閒置，查看運作狀況");
     expect(screen.getByTestId("chat-header-presence").closest(".presence-avatar")).not.toBeNull();
     // T-dfae: the chat header's 任務/角色設定 buttons are wired ONLY for roster
     // members. An outsource peer has no role to define, and its tasks are not

@@ -130,7 +130,7 @@ export function IdentityActivityStory({
                   <div className="chat__header-text">
                     <div className="chat__header-name">
                       <span>{m.name}</span>
-                      <ActivityStatusIcon activity={m.activity} testId="chat-header-activity" />
+                      <ActivityStatusIcon activity={m.activity} memberName={m.name} testId="chat-header-activity" />
                     </div>
                     <div className="chat__header-sub">
                       <PresenceBadge member={m} dot={false} />

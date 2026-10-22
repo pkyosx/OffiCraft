@@ -2268,7 +2268,11 @@ export function ChatArea({
            * carries the click hint now. */}
           <div className="chat__header-name">
             <span>{member.name}</span>
-            <ActivityStatusIcon activity={member.activity} testId="chat-header-activity" />
+            <ActivityStatusIcon
+              activity={member.activity}
+              memberName={member.name}
+              testId="chat-header-activity"
+            />
           </div>
           {/* Presence is the avatar-corner dot; this line is the warning mark
            * and the role (or the caller's own sub line). */}

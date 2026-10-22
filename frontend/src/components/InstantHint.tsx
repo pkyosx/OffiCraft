@@ -1,4 +1,6 @@
 import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   useEffect,
   useId,
   useLayoutEffect,
@@ -38,15 +40,23 @@ function contentRect(el: HTMLElement): { top: number; bottom: number; left: numb
  * shows at a time), so phones (no hover) can read it too. Each `\n` in `hint`
  * starts a new line. The hint is portalled to <body> with fixed
  * positioning because its hosts sit inside ellipsis / overflow-hidden rows that
- * would clip anything rendered in place. */
+ * would clip anything rendered in place.
+ *
+ * With `onActivate` the trigger is a button instead: a click or Enter/Space
+ * calls it (receiving the trigger, so focus can be handed back later) and no
+ * longer pins the hint; hover and focus still show it. */
 export function InstantHint({
   hint,
   children,
   onKeyDown,
+  onActivate,
   ...rest
-}: { hint: string } & Omit<HTMLAttributes<HTMLSpanElement>, "title">) {
+}: {
+  hint: string;
+  onActivate?: (trigger: HTMLElement) => void;
+} & Omit<HTMLAttributes<HTMLElement>, "title">) {
   const id = useId();
-  const triggerRef = useRef<HTMLSpanElement>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
   const hintRef = useRef<HTMLDivElement>(null);
   // "pinned" is set only by a click, and mouseleave / blur never clear it, so
   // neither the pointer leaving nor the blur from tapping the hint itself drops
@@ -114,30 +124,53 @@ export function InstantHint({
   const show = () => setState((s) => (s === "pinned" ? s : "shown"));
   const hide = () => setState((s) => (s === "pinned" ? s : "closed"));
 
+  const triggerProps = {
+    ...rest,
+    "aria-describedby": open ? id : undefined,
+    onMouseEnter: show,
+    onMouseLeave: hide,
+    onFocus: show,
+    onBlur: hide,
+    // The trigger sits inside row-buttons that open on click and on
+    // Enter/Space; neither may bubble, or using the hint opens the row.
+    onClick: (e: ReactMouseEvent<HTMLElement>) => {
+      e.stopPropagation();
+      if (onActivate) {
+        setState("closed");
+        onActivate(e.currentTarget);
+      } else {
+        setState((s) => (s === "pinned" ? "closed" : "pinned"));
+      }
+    },
+    onKeyDown: (e: ReactKeyboardEvent<HTMLElement>) => {
+      onKeyDown?.(e);
+      if (e.key === "Enter" || e.key === " ") e.stopPropagation();
+    },
+  };
+
   return (
     <>
-      <span
-        {...rest}
-        ref={triggerRef}
-        tabIndex={0}
-        aria-describedby={open ? id : undefined}
-        onMouseEnter={show}
-        onMouseLeave={hide}
-        onFocus={show}
-        onBlur={hide}
-        // The trigger sits inside row-buttons that open on click and on
-        // Enter/Space; neither may bubble, or using the hint opens the row.
-        onClick={(e) => {
-          e.stopPropagation();
-          setState((s) => (s === "pinned" ? "closed" : "pinned"));
-        }}
-        onKeyDown={(e) => {
-          onKeyDown?.(e);
-          if (e.key === "Enter" || e.key === " ") e.stopPropagation();
-        }}
-      >
-        {children}
-      </span>
+      {onActivate ? (
+        <button
+          {...triggerProps}
+          type="button"
+          ref={(el) => {
+            triggerRef.current = el;
+          }}
+        >
+          {children}
+        </button>
+      ) : (
+        <span
+          {...triggerProps}
+          tabIndex={0}
+          ref={(el) => {
+            triggerRef.current = el;
+          }}
+        >
+          {children}
+        </span>
+      )}
       {open &&
         createPortal(
           <div

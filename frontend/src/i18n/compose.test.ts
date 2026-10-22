@@ -69,6 +69,10 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["zh", "memberActivitySummary", [act({ busySince: T + 30 }), T], "主 agent 工作中（已 0 秒）"],
     ["zh", "memberActivitySummary", [act({ busySince: T - 180, subagents: SUBS_4, waits: [WAIT_BG, WAIT_CRON] }), T], "主 agent 工作中（已 3 分鐘），另有 4 個 sub-agent 工作中，正在等 2 個背景檢查或排程"],
     ["en", "memberActivitySummary", [act({ busySince: T - 180, subagents: SUBS_4, waits: [WAIT_BG, WAIT_CRON] }), T], "Main agent working (for 3 min), plus 4 sub-agents working, waiting on 2 background checks or schedules"],
+    ["zh", "memberActivityDialogTitle", ["Mira"], "Mira · 運作狀況"],
+    ["en", "memberActivityDialogTitle", ["Mira"], "Mira · Activity"],
+    ["zh", "memberActivityOpenLabel", ["busy"], "工作中，查看運作狀況"],
+    ["en", "memberActivityOpenLabel", ["waiting"], "Waiting, see activity details"],
     ["zh", "memberActivitySummary", [act({ busySince: T - 180, subagents: SUBS_4.slice(0, 1) }), T], "主 agent 工作中（已 3 分鐘），另有 1 個 sub-agent 工作中"],
     ["en", "memberActivitySummary", [act({ busySince: T - 180, subagents: SUBS_4.slice(0, 1) }), T], "Main agent working (for 3 min), plus 1 sub-agent working"],
     ["zh", "memberActivitySummary", [act({ busySince: T - 180, waits: [WAIT_BG] }), T], "主 agent 工作中（已 3 分鐘），正在等 1 個背景檢查或排程"],
@@ -620,6 +624,11 @@ describe("makeMessages", () => {
       "activity.recurring",
       "activity.waitKind.background_command",
       "activity.waitKind.schedule",
+      "activity.dialogTitleSep",
+      "activity.currentState",
+      "activity.openLabelSep",
+      "activity.openLabel",
+      "activity.close",
     ]) {
       expect(keys.has(code), `${code} must be overridable`).toBe(true);
     }

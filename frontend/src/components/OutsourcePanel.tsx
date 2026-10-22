@@ -196,7 +196,11 @@ export function OutsourcePanel({
                   <span className="outsource-row__codename">
                     {msg.outsourceLabel(w.codename)}
                   </span>
-                  <ActivityStatusIcon activity={w.activity} testId={`activity-icon-${w.id}`} />
+                  <ActivityStatusIcon
+                    activity={w.activity}
+                    memberName={msg.outsourceLabel(w.codename)}
+                    testId={`activity-icon-${w.id}`}
+                  />
                 </span>
                 {/* line 2 — the shared OutsourceTaskLine (the worker chat
                  * header renders the same line). */}

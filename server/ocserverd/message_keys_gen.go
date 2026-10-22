@@ -9,6 +9,9 @@ package main
 // frontend/src/i18n/locales/en.ts — the single message-code contract.
 var messageKeys = map[string]bool{
 	"activity.cardTitle":                               true,
+	"activity.close":                                   true,
+	"activity.currentState":                            true,
+	"activity.dialogTitleSep":                          true,
 	"activity.elapsedLead":                             true,
 	"activity.elapsedMinutes":                          true,
 	"activity.elapsedSeconds":                          true,
@@ -18,6 +21,8 @@ var messageKeys = map[string]bool{
 	"activity.mainReplied":                             true,
 	"activity.nextLead":                                true,
 	"activity.noneWorking":                             true,
+	"activity.openLabel":                               true,
+	"activity.openLabelSep":                            true,
 	"activity.recurring":                               true,
 	"activity.state.busy":                              true,
 	"activity.state.idle":                              true,

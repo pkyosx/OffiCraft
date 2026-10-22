@@ -80,6 +80,8 @@
   "wording": {
     "zh": {
       "activity.cardTitle": "運作狀況 🔮",
+      "activity.close": "關閉 🚪",
+      "activity.currentState": "此刻的動靜",
       "activity.elapsedLead": "已",
       "activity.elapsedMinutes": "分鐘",
       "activity.elapsedSeconds": "秒",
@@ -89,6 +91,7 @@
       "activity.mainReplied": "已回覆完畢，靜靜飄著",
       "activity.nextLead": "下次鐘響",
       "activity.noneWorking": "主幽靈與分身都在飄盪，沒有在施法",
+      "activity.openLabel": "窺看水晶球",
       "activity.recurring": "輪迴",
       "activity.state.busy": "施法中",
       "activity.state.idle": "飄盪中",
@@ -1454,6 +1457,8 @@
     },
     "en": {
       "activity.cardTitle": "Haunting status 🔮",
+      "activity.close": "Close 🚪",
+      "activity.currentState": "Right now",
       "activity.elapsedLead": "for",
       "activity.elapsedMinutes": "min",
       "activity.elapsedSeconds": "sec",
@@ -1463,6 +1468,7 @@
       "activity.mainReplied": "Replied, now drifting",
       "activity.nextLead": "next chime",
       "activity.noneWorking": "Neither the main ghost nor any spectral helper is casting",
+      "activity.openLabel": "peer into the crystal ball",
       "activity.recurring": "recurs",
       "activity.state.busy": "Casting",
       "activity.state.idle": "Drifting",

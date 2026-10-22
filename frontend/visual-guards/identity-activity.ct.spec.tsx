@@ -1,5 +1,6 @@
 // The avatar-corner presence dot and the activity status icon on the list rows
-// and the chat header, and the 運作狀況 card's tree, at phone and desktop widths.
+// and the chat header, the 運作狀況 card's tree, and the dialog the icon opens,
+// at phone and desktop widths.
 // Every check compares boxes with each other in a real browser (CT pages lack
 // the production fonts, so no absolute text widths).
 import { test, expect } from "@playwright/experimental-ct-react";
@@ -126,3 +127,89 @@ for (const width of [390, 1280]) {
     expect(await hscroll(page), "no page hscroll").toBeLessThanOrEqual(1);
   });
 }
+
+test.describe("the 運作狀況 dialog the icon opens", () => {
+  const dialogBox = (page: Page) =>
+    page.evaluate(() => {
+      const box = document.querySelector(".activity-dialog__box") as HTMLElement;
+      const card = box.getBoundingClientRect();
+      const rows = Array.from(box.querySelectorAll(".mp-activity__row")).map((r) => r.getBoundingClientRect().right);
+      return {
+        box: card.toJSON() as Box,
+        boxOverflow: box.scrollWidth - box.clientWidth,
+        rowsRight: Math.max(...rows),
+        vw: document.documentElement.clientWidth,
+        vh: window.innerHeight,
+        listIcon: document.querySelector(".member-card .activity-icon")!.getBoundingClientRect().toJSON() as Box,
+      };
+    });
+
+  test("width 390: a bottom sheet across the viewport, inside it, with no horizontal scroll", async ({ mount, page }) => {
+    await page.setViewportSize({ width: 390, height: 780 });
+    await mount(<IdentityActivityStory surface="list" state="busy" mobile />);
+    await page.locator(".member-card .activity-icon").first().click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    const m = await dialogBox(page);
+    expect(Math.abs(m.box.bottom - m.vh), "sheet sits on the bottom edge").toBeLessThanOrEqual(1);
+    expect(m.box.left, "sheet spans the width").toBeLessThanOrEqual(0.5);
+    expect(Math.abs(m.box.right - m.vw), "sheet spans the width").toBeLessThanOrEqual(0.5);
+    expect(m.box.top, "sheet top inside the viewport").toBeGreaterThan(0);
+    expect(m.boxOverflow, "sheet does not overflow sideways").toBeLessThanOrEqual(0);
+    expect(m.rowsRight, "tree rows inside the sheet").toBeLessThanOrEqual(m.box.right);
+    expect(await hscroll(page), "no page hscroll").toBeLessThanOrEqual(1);
+  });
+
+  test("width 1280: a centred dialog about 420 wide", async ({ mount, page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await mount(<IdentityActivityStory surface="list" state="busy" mobile={false} />);
+    await page.locator(".member-card .activity-icon").first().click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    const m = await dialogBox(page);
+    const cx = m.box.left + m.box.width / 2;
+    const cy = m.box.top + m.box.height / 2;
+    expect(Math.abs(cx - m.vw / 2), "centred horizontally").toBeLessThanOrEqual(1);
+    expect(Math.abs(cy - m.vh / 2), "centred vertically").toBeLessThanOrEqual(1);
+    expect(m.box.width, "about 420 wide").toBeGreaterThan(m.vw * 0.3);
+    expect(m.box.width, "about 420 wide").toBeLessThanOrEqual(420.5);
+    expect(m.box.width, "about 420 wide").toBeGreaterThanOrEqual(400);
+    expect(m.rowsRight, "tree rows inside the dialog").toBeLessThanOrEqual(m.box.right);
+    expect(await hscroll(page), "no page hscroll").toBeLessThanOrEqual(1);
+  });
+
+  test.describe("on a touch screen", () => {
+    test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 780 } });
+
+    test("the icon takes taps over at least 32px while its chip stays the size it shows", async ({ mount, page }) => {
+      await mount(<IdentityActivityStory surface="list" state="busy" mobile />);
+      const hit = await page.evaluate(() => {
+        const icon = document.querySelector(".member-card .activity-icon") as HTMLElement;
+        const r = icon.getBoundingClientRect();
+        const cx = r.left + r.width / 2;
+        const cy = r.top + r.height / 2;
+        const lands = (x: number, y: number) => icon.contains(document.elementFromPoint(x, y));
+        return {
+          chip: r.toJSON() as Box,
+          across: lands(cx - 15.5, cy) && lands(cx + 15.5, cy),
+          upDown: lands(cx, cy - 15.5) && lands(cx, cy + 12),
+        };
+      });
+      expect(hit.chip.height, "the chip itself stays smaller than its tap area").toBeLessThan(32);
+      expect(hit.across, "32px across").toBe(true);
+      expect(hit.upDown, "taps above and below land on the icon").toBe(true);
+    });
+  });
+});
+
+test("the 工作中 sparkle animates, and stands still under reduced motion", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await mount(<IdentityActivityStory surface="list" state="busy" mobile={false} />);
+  const animations = () =>
+    page.evaluate(() =>
+      [".sparkle-icon__star", ".sparkle-icon__twinkle--top", ".sparkle-icon__twinkle--bottom"].map(
+        (s) => getComputedStyle(document.querySelector(`.member-card ${s}`)!).animationName,
+      ),
+    );
+  expect(await animations()).not.toContain("none");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  expect(await animations()).toEqual(["none", "none", "none"]);
+});
