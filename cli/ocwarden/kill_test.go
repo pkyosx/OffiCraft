@@ -454,7 +454,7 @@ func TestSweepPIDs(t *testing.T) {
 	})
 }
 
-func TestOcagentPIDsByCwd(t *testing.T) {
+func TestMemberPIDsByCwd(t *testing.T) {
 	const lsofCmd = "lsof -a -c ocagent -c codex -d cwd -F pn"
 	out := "p101\nfcwd\nn/Users/eva/.officraft/agents/m1\np102\nn/Users/eva/.officraft/agents/m2\np103\nn/Users/eva/.officraft/agents/m1\n"
 
@@ -657,6 +657,47 @@ func TestStop(t *testing.T) {
 			func(pid int) (int, error) { return pid, nil }, sweepSeams{sleep: func(time.Duration) {}})
 		if stopped || noop {
 			t.Errorf("got (stopped=%v, noop=%v), want (false, false)", stopped, noop)
+		}
+	})
+
+	t.Run("a stop that cleared every process removes the App Server socket a killed Codex left in the workdir", func(t *testing.T) {
+		workdir := shortTempDir(t)
+		real, link := filepath.Join(shortTempDir(t), "real.sock"), filepath.Join(workdir, ".codex-app.sock")
+		leaveUnixSocket(t, real)
+		if err := os.Symlink(real, link); err != nil {
+			t.Fatal(err)
+		}
+		r := &wardenRunner{script: map[string]wardenRun{probeOf("member-m1"): gone, paneCmd: gone}}
+
+		stopped, _ := stop(r, "officraft", "member-m1", (&killSpy{answer: aliveKill()}).kill,
+			func(pid int) (int, error) { return pid, nil },
+			sweepSeams{workdir: workdir, listenPIDs: func(string) []int { return []int{900} }, sleep: func(time.Duration) {}})
+
+		if !stopped {
+			t.Error("stopped = false, want true")
+		}
+		for _, p := range []string{link, real} {
+			if _, err := os.Lstat(p); !os.IsNotExist(err) {
+				t.Errorf("%s survived the stop: %v", p, err)
+			}
+		}
+	})
+
+	t.Run("a stop with a surviving process leaves the App Server socket in place", func(t *testing.T) {
+		workdir := shortTempDir(t)
+		link := filepath.Join(workdir, ".codex-app.sock")
+		leaveUnixSocket(t, link)
+		r := &wardenRunner{script: map[string]wardenRun{probeOf("member-m1"): gone, paneCmd: gone}}
+
+		stopped, _ := stop(r, "officraft", "member-m1", (&killSpy{answer: aliveKill(900)}).kill,
+			func(pid int) (int, error) { return pid, nil },
+			sweepSeams{workdir: workdir, listenPIDs: func(string) []int { return []int{900} }, sleep: func(time.Duration) {}})
+
+		if stopped {
+			t.Error("stopped = true with a survivor, want false")
+		}
+		if _, err := os.Lstat(link); err != nil {
+			t.Errorf("the socket of a still-running App Server was removed: %v", err)
 		}
 	})
 

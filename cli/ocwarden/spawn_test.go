@@ -2482,9 +2482,10 @@ func TestStart(t *testing.T) {
 			`export PATH=/w/m1:"$PATH"; ` +
 			`exec /Users/eva/.officraft/warden/ocwarden codex-session ` +
 			`--codex-bin /usr/local/bin/codex --workdir /w/m1 --persona /w/m1/persona.md ` +
-			`--agent-id m1 --model gpt-5 --effort high`
+			`--agent-id m1 --model gpt-5 --effort high --log /w/m1/codex-session.log`
 		wantCalls := []string{
 			"tmux -L officraft has-session -t member-m1",
+			"reap /w/m1",
 			wantLaunch,
 			"tmux -L officraft set-option -t member-m1 window-size manual",
 			"tmux -L officraft resize-window -t member-m1 -x 160 -y 50",
@@ -2561,13 +2562,14 @@ func TestStart(t *testing.T) {
 				}
 				wantCalls := []string{
 					"tmux -L officraft has-session -t member-m1",
+					"reap /w/m1",
 					"tmux -L officraft new-session -d -s member-m1 -x 160 -y 50 " +
 						`cd /w/m1; export OC_TOKEN="$(/bin/cat /w/m1/.oc-token)" ` +
 						`OC_BASE=http://127.0.0.1:7755 OC_ID=m1 OC_SESSION=member-m1 OC_TMUX_SOCKET=officraft; ` +
 						`export PATH=/w/m1:"$PATH"; ` +
 						`exec /Users/eva/.officraft/warden/ocwarden codex-session ` +
 						`--codex-bin /usr/local/bin/codex --workdir /w/m1 --persona /w/m1/persona.md ` +
-						`--agent-id m1 --model ` + c.wantModel + ` --effort high`,
+						`--agent-id m1 --model ` + c.wantModel + ` --effort high --log /w/m1/codex-session.log`,
 					"tmux -L officraft set-option -t member-m1 window-size manual",
 					"tmux -L officraft resize-window -t member-m1 -x 160 -y 50",
 					"tmux -L officraft display-message -p -t member-m1 #{pane_pid}",
@@ -2598,9 +2600,9 @@ func TestStart(t *testing.T) {
 			`export PATH=/w/m1:"$PATH"; ` +
 			`exec /Users/eva/.officraft/warden/ocwarden codex-session ` +
 			`--codex-bin /usr/local/bin/codex --workdir /w/m1 --persona /w/m1/persona.md ` +
-			`--agent-id m1 --model gpt-5 --effort medium`
-		if h.runner.calls[1] != wantLaunch {
-			t.Errorf("launch call =\n%s\nwant\n%s", h.runner.calls[1], wantLaunch)
+			`--agent-id m1 --model gpt-5 --effort medium --log /w/m1/codex-session.log`
+		if h.runner.calls[2] != wantLaunch {
+			t.Errorf("launch call =\n%s\nwant\n%s", h.runner.calls[2], wantLaunch)
 		}
 		wantLog := `codex launch: effort "xxhigh" is not a level this warden knows; ` +
 			`launching at "medium". The cockpit will keep showing "xxhigh", so this line is the ` +

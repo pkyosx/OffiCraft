@@ -1,19 +1,23 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"regexp"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -126,6 +130,7 @@ func TestBuildCodexLaunchCommand(t *testing.T) {
 		"--workdir /Users/seth/work/ow-1 " +
 		"--persona /Users/seth/work/ow-1/PERSONA.md " +
 		"--agent-id ow-1 --model gpt-5-codex --effort "
+	const goldenLog = " --log /Users/seth/work/ow-1/codex-session.log"
 
 	const unknownEffortLog = `codex launch: effort "extreme" is not a level this warden knows; ` +
 		`launching at "medium". The cockpit will keep showing "extreme", so this line is the ` +
@@ -134,7 +139,7 @@ func TestBuildCodexLaunchCommand(t *testing.T) {
 	t.Run("an effort this warden does not know still launches, at medium, and is announced once", func(t *testing.T) {
 		got, logged := build("extreme")
 
-		if want := goldenPrefix + "medium"; got != want {
+		if want := goldenPrefix + "medium" + goldenLog; got != want {
 			t.Errorf("buildCodexLaunchCommand =\n%q\nwant\n%q", got, want)
 		}
 		if want := []string{unknownEffortLog}; !reflect.DeepEqual(logged, want) {
@@ -154,7 +159,7 @@ func TestBuildCodexLaunchCommand(t *testing.T) {
 		} {
 			got, logged := build(tc.in)
 
-			if want := goldenPrefix + tc.want; got != want {
+			if want := goldenPrefix + tc.want + goldenLog; got != want {
 				t.Errorf("effort %q: buildCodexLaunchCommand =\n%q\nwant\n%q", tc.in, got, want)
 			}
 			if len(logged) != 0 {
@@ -174,7 +179,7 @@ func TestBuildCodexLaunchCommand(t *testing.T) {
 			"OC_SESSION=oc-ow-2 OC_TMUX_SOCKET=/tmp/s.sock; " +
 			`export PATH=/w:"$PATH"; ` +
 			"exec /usr/local/bin/ocwarden codex-session --codex-bin /opt/homebrew/bin/codex " +
-			"--workdir /w --persona /w/P.md --agent-id ow-2 --model '' --effort medium"
+			"--workdir /w --persona /w/P.md --agent-id ow-2 --model '' --effort medium --log /w/codex-session.log"
 		if got != want {
 			t.Errorf("buildCodexLaunchCommand =\n%q\nwant\n%q", got, want)
 		}
@@ -2312,6 +2317,7 @@ func TestCodexSessionHandleServerRequest(t *testing.T) {
 
 func TestRunCodexSession(t *testing.T) {
 	env := envMap(map[string]string{"OC_BASE": "https://x.test", "OC_TOKEN": "tok"})
+	silenceCodexTUI(t)
 
 	t.Run("incomplete launch parameters are refused before anything starts", func(t *testing.T) {
 		cases := []struct {
@@ -2386,7 +2392,7 @@ func TestRunCodexSession(t *testing.T) {
 
 	t.Run("thread/start carries the whole boot file as developer instructions", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
-		work := t.TempDir()
+		work := shortTempDir(t)
 		persona := filepath.Join(work, "persona.md")
 		personaText := "# 身分\n" + strings.Repeat("一行很長的開機檔內容。\n", 4000) +
 			"# 啟動步驟（Boot Sequence）\n最後一行 `$HOME` \"q\" \\ $(x) <b>&\n"
@@ -2402,10 +2408,7 @@ func TestRunCodexSession(t *testing.T) {
 			"    *'\"method\":\"thread/start\"'*) printf '%s\\n' \"$line\" > " + captured + "; exit 0 ;;\n" +
 			"  esac\n" +
 			"done\n"
-		codexBin := filepath.Join(work, "codex")
-		if err := os.WriteFile(codexBin, []byte(script), 0o755); err != nil {
-			t.Fatalf("stage codex stub: %v", err)
-		}
+		codexBin := stageCodexStub(t, work, script)
 		out := &lockedBuffer{}
 
 		code := runCodexSession([]string{
@@ -2459,12 +2462,8 @@ func TestRunCodexSession(t *testing.T) {
 
 	t.Run("an app server that never answers initialize ends the session", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
-		work := t.TempDir()
-		codexBin := filepath.Join(work, "codex")
-		script := "#!/bin/sh\nprintf '%s\\n' \"$1\" >&2\nexit 0\n"
-		if err := os.WriteFile(codexBin, []byte(script), 0o755); err != nil {
-			t.Fatalf("stage codex stub: %v", err)
-		}
+		work := shortTempDir(t)
+		codexBin := stageCodexStub(t, work, "#!/bin/sh\nprintf '%s\\n' \"$*\" >&2\nexit 0\n")
 		out := &lockedBuffer{}
 
 		code := runCodexSession([]string{
@@ -2479,19 +2478,16 @@ func TestRunCodexSession(t *testing.T) {
 			"codex-session: initialize: app-server exited before responding\n") {
 			t.Errorf("runCodexSession printed %q, want the initialize failure", out.String())
 		}
-		if !strings.Contains(out.String(), "app-server\n") {
-			t.Errorf("the stub was run as %q, want it invoked with the app-server subcommand", out.String())
+		if want := "app-server --listen unix://" + work + "/.codex-app.sock\n"; !strings.Contains(out.String(), want) {
+			t.Errorf("the stub was run as %q, want it invoked as %q", out.String(), want)
 		}
 	})
 
 	t.Run("an --effort this warden does not know runs at medium and is announced in the pane", func(t *testing.T) {
 		run := func(effort string) string {
-			work := t.TempDir()
+			work := shortTempDir(t)
 			t.Setenv("HOME", work)
-			codexBin := filepath.Join(work, "codex")
-			if err := os.WriteFile(codexBin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-				t.Fatalf("stage codex stub: %v", err)
-			}
+			codexBin := stageCodexStub(t, work, "#!/bin/sh\nexit 0\n")
 			out := &lockedBuffer{}
 			runCodexSession([]string{
 				"--codex-bin", codexBin, "--workdir", work,
@@ -2515,11 +2511,10 @@ func TestRunCodexSession(t *testing.T) {
 		}
 	})
 	t.Run("the listener child sends complete distinct messages and receives an ack", func(t *testing.T) {
-		work := t.TempDir()
+		work := shortTempDir(t)
 		t.Setenv("HOME", work)
 		capture := filepath.Join(work, "requests")
 		verdict := filepath.Join(work, "ack")
-		codexBin := filepath.Join(work, "codex")
 		app := "#!/bin/sh\nboot=1\nwhile IFS= read -r line; do\n" +
 			" printf '%s\\n' \"$line\" >> " + shellQuote(capture) + "\n" +
 			" id=$(printf '%s' \"$line\" | sed -E 's/.*\"id\":([0-9]+).*/\\1/')\n" +
@@ -2537,10 +2532,9 @@ func TestRunCodexSession(t *testing.T) {
 			shellQuote(`{"text":"[ocagent] recycle: stop\n[ocagent] recycle: finish\n"}`) + " " +
 			shellQuote(`{"text":"[ocagent] listen: batch b-1\n"}`) + "\n" +
 			"IFS= read -r -t 3 ack || exit 3\nprintf '%s\\n' \"$ack\" > " + shellQuote(verdict) + "\n"
-		for name, body := range map[string]string{codexBin: app, filepath.Join(work, "ocagent"): listener} {
-			if err := os.WriteFile(name, []byte(body), 0o755); err != nil {
-				t.Fatal(err)
-			}
+		codexBin := stageCodexStub(t, work, app)
+		if err := os.WriteFile(filepath.Join(work, "ocagent"), []byte(listener), 0o755); err != nil {
+			t.Fatal(err)
 		}
 		out := &lockedBuffer{}
 		code := runCodexSession([]string{"--codex-bin", codexBin, "--workdir", work, "--persona", stagePersona(t, work)}, envMap(map[string]string{"OC_BASE": "://invalid", "OC_TOKEN": "tok"}), out)
@@ -2582,9 +2576,8 @@ func TestRunCodexSession(t *testing.T) {
 
 	t.Run("a completed assistant item in the app-server stream reports success immediately", func(t *testing.T) {
 		fake := interceptCodexPosts(t, http.StatusOK, nil)
-		work := t.TempDir()
+		work := shortTempDir(t)
 		t.Setenv("HOME", work)
-		codexBin := filepath.Join(work, "codex")
 		script := "#!/bin/sh\n" +
 			"while IFS= read -r line; do\n" +
 			"  case \"$line\" in\n" +
@@ -2594,9 +2587,7 @@ func TestRunCodexSession(t *testing.T) {
 			"    *'\"method\":\"turn/start\"'*) echo '{\"method\":\"item/completed\",\"params\":{\"item\":{\"type\":\"agentMessage\"},\"completedAtMs\":1720000200123}}'; exit 0 ;;\n" +
 			"  esac\n" +
 			"done\n"
-		if err := os.WriteFile(codexBin, []byte(script), 0o755); err != nil {
-			t.Fatalf("stage codex stub: %v", err)
-		}
+		codexBin := stageCodexStub(t, work, script)
 		out := &lockedBuffer{}
 
 		code := runCodexSession([]string{
@@ -2621,6 +2612,92 @@ func TestRunCodexSession(t *testing.T) {
 			t.Errorf("last_success_ts = %v, want %v", ts, float64(1720000200123)/1000)
 		}
 	})
+	t.Run("the TUI resumes the thread only after its first turn, a terminal Ctrl-C is ignored, and SIGTERM stops the App Server and removes its socket", func(t *testing.T) {
+		work := shortTempDir(t)
+		t.Setenv("HOME", work)
+		events := filepath.Join(work, "events")
+		appServer := filepath.Join(work, "app-server-pid")
+		script := "#!/bin/sh\n" +
+			"if [ \"$1\" = resume ]; then printf '%s\\n' \"$*\" >> " + shellQuote(events) + "; exit 0; fi\n" +
+			"printf '%s %s\\n' \"$PPID\" \"$(ps -o pgid= -p $PPID | tr -d ' ')\" > " + shellQuote(appServer) + "\n" +
+			"while IFS= read -r line; do\n" +
+			" id=$(printf '%s' \"$line\" | sed -E 's/.*\"id\":([0-9]+).*/\\1/')\n" +
+			" case \"$line\" in\n" +
+			" *'\"method\":\"initialize\"'*|*'\"method\":\"account/rateLimits/read\"'*) printf '{\"id\":%s,\"result\":{}}\\n' \"$id\" ;;\n" +
+			" *'\"method\":\"thread/start\"'*) printf '{\"id\":%s,\"result\":{\"thread\":{\"id\":\"th\"}}}\\n' \"$id\"; echo '{\"method\":\"thread/started\",\"params\":{\"thread\":{\"id\":\"th\"}}}' ;;\n" +
+			" *'\"method\":\"turn/start\"'*) sleep 1; echo turn-started >> " + shellQuote(events) + "; echo '{\"method\":\"turn/started\",\"params\":{\"turn\":{\"id\":\"live\"}}}' ;;\n" +
+			" esac\ndone\n"
+		codexBin := stageCodexStub(t, work, script)
+		out := &lockedBuffer{}
+		done := make(chan int, 1)
+		go func() {
+			done <- runCodexSession([]string{"--codex-bin", codexBin, "--workdir", work,
+				"--persona", stagePersona(t, work)}, envMap(map[string]string{"OC_BASE": "://invalid", "OC_TOKEN": "tok"}), out)
+		}()
+		waitFor := func(what string, ok func() bool) {
+			t.Helper()
+			for deadline := time.Now().Add(10 * time.Second); !ok(); time.Sleep(50 * time.Millisecond) {
+				if time.Now().After(deadline) {
+					t.Fatalf("timed out waiting for %s; out=%q", what, out.String())
+				}
+			}
+		}
+		readEvents := func() []string {
+			raw, _ := os.ReadFile(events)
+			return strings.Split(strings.TrimSpace(string(raw)), "\n")
+		}
+		waitFor("the TUI launch", func() bool { return len(readEvents()) >= 2 })
+
+		wantEvents := []string{"turn-started",
+			"resume th --remote unix://" + work + "/.codex-app.sock -c check_for_update_on_startup=false"}
+		if got := readEvents()[:2]; !reflect.DeepEqual(got, wantEvents) {
+			t.Errorf("events = %q, want %q", got, wantEvents)
+		}
+
+		if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
+			t.Fatal(err)
+		}
+		const ignored = "[codex] ignored interrupt from the terminal; close the Codex screen to reopen it\n"
+		waitFor("the ignored SIGINT", func() bool { return strings.Contains(out.String(), ignored) })
+		select {
+		case code := <-done:
+			t.Fatalf("a terminal Ctrl-C ended the session with %d", code)
+		default:
+		}
+
+		raw, err := os.ReadFile(appServer)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var pid, pgid int
+		if _, err := fmt.Sscanf(string(raw), "%d %d", &pid, &pgid); err != nil {
+			t.Fatalf("app-server pid file %q: %v", raw, err)
+		}
+		if own, _ := syscall.Getpgid(0); pgid != pid || pgid == own {
+			t.Errorf("app-server pid %d runs in process group %d (sidecar's group %d), want a group of its own", pid, pgid, own)
+		}
+
+		if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case code := <-done:
+			if code != 1 {
+				t.Errorf("runCodexSession returned %d after SIGTERM, want 1", code)
+			}
+		case <-time.After(15 * time.Second):
+			t.Fatalf("SIGTERM did not end the session; out=%q", out.String())
+		}
+		if !strings.Contains(out.String(), "[codex] received terminated; stopping the App Server\n") {
+			t.Errorf("out = %q, want the SIGTERM line", out.String())
+		}
+		if syscall.Kill(pid, 0) == nil {
+			t.Errorf("app-server pid %d is still running after SIGTERM", pid)
+		}
+		if _, err := os.Lstat(filepath.Join(work, ".codex-app.sock")); !os.IsNotExist(err) {
+			t.Errorf("the App Server socket still exists after SIGTERM: %v", err)
+		}
+	})
 }
 
 func stagePersona(t *testing.T, dir string) string {
@@ -2630,4 +2707,110 @@ func stagePersona(t *testing.T, dir string) string {
 		t.Fatalf("stage persona: %v", err)
 	}
 	return path
+}
+
+const codexStubEnv = "OC_TEST_CODEX_STUB"
+
+func TestMain(m *testing.M) {
+	if stub := os.Getenv(codexStubEnv); stub != "" {
+		os.Exit(runCodexStubBridge(stub, os.Args[1:]))
+	}
+	os.Exit(m.Run())
+}
+
+// stageCodexStub installs script as a fake codex. The App Server face goes
+// through this test binary, which serves the sidecar's WebSocket on the
+// requested unix socket and hands the script one JSON message per stdin line,
+// so the script keeps speaking plain JSON lines.
+func stageCodexStub(t *testing.T, dir, script string) string {
+	t.Helper()
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stub := filepath.Join(dir, "codex-stub")
+	if err := os.WriteFile(stub, []byte(script), 0o755); err != nil {
+		t.Fatalf("stage codex stub: %v", err)
+	}
+	wrapper := filepath.Join(dir, "codex")
+	body := "#!/bin/sh\n" + codexStubEnv + "=" + shellQuote(stub) + " exec " + shellQuote(self) + " \"$@\"\n"
+	if err := os.WriteFile(wrapper, []byte(body), 0o755); err != nil {
+		t.Fatalf("stage codex wrapper: %v", err)
+	}
+	return wrapper
+}
+
+// A unix socket path is capped at 104 bytes on macOS, which t.TempDir() exceeds.
+func shortTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("/tmp", "ocw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
+func silenceCodexTUI(t *testing.T) *lockedBuffer {
+	t.Helper()
+	in, out := codexTUIStdin, codexTUIStdout
+	screen := &lockedBuffer{}
+	codexTUIStdin, codexTUIStdout = strings.NewReader(""), screen
+	t.Cleanup(func() { codexTUIStdin, codexTUIStdout = in, out })
+	return screen
+}
+
+func runCodexStubBridge(stub string, args []string) int {
+	if len(args) < 3 || args[0] != "app-server" || args[1] != "--listen" {
+		argv := append([]string{stub}, args...)
+		if err := syscall.Exec(stub, argv, os.Environ()); err != nil {
+			fmt.Fprintf(os.Stderr, "bridge: exec %s: %v\n", stub, err)
+		}
+		return 127
+	}
+	path := strings.TrimPrefix(args[2], "unix://")
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "bridge: listen: %v\n", err)
+		return 1
+	}
+	defer ln.Close()
+	conn, err := ln.Accept()
+	if err != nil {
+		return 1
+	}
+	defer conn.Close()
+	r := bufio.NewReader(conn)
+	req, err := http.ReadRequest(r)
+	if err != nil {
+		return 1
+	}
+	fmt.Fprintf(conn, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n",
+		websocketAccept(req.Header.Get("Sec-WebSocket-Key")))
+	child := exec.Command(stub, args...)
+	child.Stderr = os.Stderr
+	stdin, _ := child.StdinPipe()
+	stdout, _ := child.StdoutPipe()
+	if err := child.Start(); err != nil {
+		return 1
+	}
+	go func() {
+		defer stdin.Close()
+		for {
+			f, err := readWebSocketFrame(r, codexAppMaxMessageBytes)
+			if err != nil || f.opcode == wsOpClose {
+				return
+			}
+			if f.opcode == wsOpText {
+				_, _ = stdin.Write(append(bytes.TrimRight(f.payload, "\n"), '\n'))
+			}
+		}
+	}()
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 64*1024), 8<<20)
+	for scanner.Scan() {
+		_, _ = conn.Write(encodeWebSocketFrame(wsOpText, scanner.Bytes(), false))
+	}
+	_ = child.Wait()
+	return 0
 }

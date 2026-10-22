@@ -1100,7 +1100,7 @@ func TestBuildCommandDeps(t *testing.T) {
 		firstLaunch := slices.IndexFunc(runner.calls, func(c string) bool { return strings.Contains(c, "new-session -d -s member-m1") })
 		kill := slices.Index(runner.calls, "tmux -L officraft kill-session -t member-m1")
 		if firstLaunch < 0 || kill < 0 ||
-			!slices.Contains(runner.calls[firstLaunch:kill], "lsof -a -c ocagent -d cwd -F pn") {
+			!slices.Contains(runner.calls[firstLaunch:kill], "lsof -a -c ocagent -c codex -d cwd -F pn") {
 			t.Errorf("the restart's teardown did not sweep the workdir's ocagent before the kill:\n%v", runner.calls)
 		}
 		// Both 30 s waits ran (recorded, not slept).
