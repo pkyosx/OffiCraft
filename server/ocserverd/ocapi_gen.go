@@ -737,6 +737,9 @@ type AgentActivitySubagentDTO struct {
 	// Description The one-line task description the parent agent gave it; empty when the runtime does not expose one.
 	Description *string `json:"description,omitempty"`
 
+	// FirstStartedTs Epoch seconds its first run started, by the reporting machine's clock; never later than ``started_ts``. A report that leaves it out is read as ``started_ts``, and ``MemberDTO.activity`` always carries it.
+	FirstStartedTs *float64 `json:"first_started_ts,omitempty"`
+
 	// Id The runtime's id for this sub-agent (Claude Code agent_id, Codex thread id); unique within the report.
 	Id string `json:"id"`
 
@@ -746,7 +749,7 @@ type AgentActivitySubagentDTO struct {
 	// ParentId The ``id`` of the sub-agent that started this one; null when the main agent started it or the runtime did not say.
 	ParentId *string `json:"parent_id,omitempty"`
 
-	// StartedTs Epoch seconds it started, by the reporting machine's clock.
+	// StartedTs Epoch seconds its latest run started, by the reporting machine's clock: every time the runtime starts it again (Claude Code SubagentStart, a Codex turn on its thread) begins a new run.
 	StartedTs float64 `json:"started_ts"`
 }
 
