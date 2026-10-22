@@ -286,7 +286,7 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
     }
   });
 
-  it("with only sub-agents running the main agent reads 已回覆完畢, and a schedule with no next run reads just 排程", () => {
+  it("with only sub-agents running the main agent row carries the idle glyph and nothing on its right, and a schedule with no next run reads just 排程", () => {
     const now = Date.now() / 1000;
     const { getByTestId } = renderPanel(
       mkMember({
@@ -300,14 +300,15 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
         },
       }),
     );
+    expect(getByTestId("mp-activity").querySelector(".mp-activity__row--main .mp-activity__aside")).toBeNull();
     expect(treeRows(getByTestId("mp-activity"))).toEqual([
-      [0, "waiting", "主 agent", "已回覆完畢"],
+      [0, "idle", "主 agent", ""],
       [1, "working", "Explore", "5 秒"],
       [1, "waiting", "排程", ""],
     ]);
   });
 
-  it("an idle member with nothing waiting gets only the 目前狀態 header with the 閒置 glyph", () => {
+  it("an idle member with nothing waiting gets the 目前狀態 header with the 閒置 glyph, then the main agent alone with the idle glyph and nothing on its right", () => {
     const { getByTestId } = renderPanel(
       mkMember({
         status: "online",
@@ -316,7 +317,8 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
       }),
     );
     const card = getByTestId("mp-activity");
-    expect(Array.from(card.children).map((c) => c.className)).toEqual(["mp-activity__head"]);
+    expect(Array.from(card.children).map((c) => c.className)).toEqual(["mp-activity__head", "mp-activity__tree"]);
+    expect(treeRows(card)).toEqual([[0, "idle", "主 agent", ""]]);
     expect(card.querySelector(".mp-activity__state-icon")!.getAttribute("aria-label")).toBe("閒置");
     expect(card.querySelector(".mp-activity__state-icon .activity-icon__glyph--idle")).not.toBeNull();
   });

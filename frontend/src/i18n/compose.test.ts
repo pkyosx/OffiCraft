@@ -618,7 +618,6 @@ describe("makeMessages", () => {
       "activity.waitsTailOne",
       "activity.waitsTailMany",
       "activity.mainAgent",
-      "activity.mainReplied",
       "activity.nextLead",
       "activity.recurring",
       "activity.waitKind.background_command",

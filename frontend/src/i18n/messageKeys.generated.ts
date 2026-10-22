@@ -16,7 +16,6 @@ export const MESSAGE_KEYS: readonly string[] = [
   "activity.mainAgent",
   "activity.mainBusyLead",
   "activity.mainBusyTail",
-  "activity.mainReplied",
   "activity.nextLead",
   "activity.noneWorking",
   "activity.openLabel",

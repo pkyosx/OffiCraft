@@ -751,7 +751,6 @@ export const zh = {
     openLabel: "查看運行狀況",
     close: "關閉",
     mainAgent: "主 agent",
-    mainReplied: "已回覆完畢",
     nextLead: "下次",
     recurring: "重複",
     waitKind: {

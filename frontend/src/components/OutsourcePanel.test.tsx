@@ -306,12 +306,16 @@ describe("OutsourcePanel", () => {
     fireEvent.click(icon);
     expect(window.location.hash).toBe(before);
     const dialog = screen.getByRole("dialog", { name: "外包 · D-1 · 運行狀況" });
-    expect(dialog.querySelector(".mp-activity__head")!.textContent).toBe("目前狀態等待中");
+    expect(dialog.querySelector(".activity-dialog__head > .mp-activity__state-icon")!.getAttribute("aria-label")).toBe("等待中");
+    expect(dialog.querySelector(".mp-activity__head")).toBeNull();
     expect(dialog.querySelector(".mp-activity__summary")).toBeNull();
     expect(Array.from(dialog.querySelectorAll(".mp-activity__row")).map((r) => r.textContent)).toEqual([
       "主 agent",
       "npm test背景指令",
     ]);
+    expect(dialog.querySelector(".mp-activity__row--main .activity-icon__glyph")!.className).toBe(
+      "activity-icon__glyph activity-icon__glyph--idle",
+    );
     fireEvent.click(dialog);
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(document.activeElement).toBe(icon);

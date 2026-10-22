@@ -285,7 +285,8 @@ describe("ChatArea header 任務/角色設定 圖示 (T-dfae)", () => {
     fireEvent.click(word);
     expect(onOpenDetail).not.toHaveBeenCalled();
     const dialog = screen.getByRole("dialog", { name: "Mira · 運行狀況" });
-    expect(dialog.querySelector(".mp-activity__head")!.textContent).toBe("目前狀態工作中");
+    expect(dialog.querySelector(".activity-dialog__head > .mp-activity__state-icon")!.getAttribute("aria-label")).toBe("工作中");
+    expect(dialog.querySelector(".mp-activity__head")).toBeNull();
     expect(dialog.querySelector(".mp-activity__summary")).toBeNull();
     expect(Array.from(dialog.querySelectorAll(".mp-activity__row")).map((r) => r.textContent)).toEqual([
       "主 agent已 3 分鐘",

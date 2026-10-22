@@ -264,6 +264,7 @@ function MemberActivityDialog({
     >
       <div className="confirm-modal__box activity-dialog__box">
         <div className="activity-dialog__head">
+          <ActivityStateBadge state={activity.state} />
           <h2 id={titleId} className="activity-dialog__title">
             {msg.memberActivityDialogTitle(name)}
           </h2>
@@ -277,16 +278,11 @@ function MemberActivityDialog({
             <CloseIcon size={16} />
           </button>
         </div>
-        <MemberActivityBody activity={activity} stateAs="word" />
+        <MemberActivityTree activity={activity} />
       </div>
     </div>,
     document.body,
   );
-}
-
-function mainIconState(a: MemberActivity): MemberActivity["state"] {
-  if (a.busySince !== null) return "busy";
-  return a.subagents.length > 0 || a.waits.length > 0 ? "waiting" : "idle";
 }
 
 function SubagentNode({ node, now }: { node: ActivityTreeNode; now: number }) {
@@ -322,77 +318,70 @@ export function MemberActivitySection({
   activity: MemberActivity | null | undefined;
   testId: string;
 }) {
+  const { t } = useI18n();
   if (!activity) return null;
   return (
     <div className="mp-cell mp-activity" data-testid={testId}>
-      <MemberActivityBody activity={activity} stateAs="icon" />
+      <div className="mp-activity__head">
+        <span className="mp-card__title">{t.activity.currentState}</span>
+        <ActivityStateBadge state={activity.state} />
+      </div>
+      <MemberActivityTree activity={activity} />
     </div>
   );
 }
 
-/** The 目前狀態 label with the state, then the tree — the 運行狀況 card shows
- * the state as the name-front glyph, the dialog as its word. Neither repeats
- * the one-sentence summary the icon's hint carries (owner's call). */
-function MemberActivityBody({ activity: a, stateAs }: { activity: MemberActivity; stateAs: "word" | "icon" }) {
+/** The name-front glyph as a still label for the state, not a button. */
+function ActivityStateBadge({ state }: { state: MemberActivity["state"] }) {
+  const { t } = useI18n();
+  return (
+    <span className="mp-activity__state-icon" role="img" aria-label={t.activity.state[state]}>
+      <ActivityStateIcon state={state} />
+    </span>
+  );
+}
+
+/** The main agent with its sub-agents and waits under it — the 運行狀況 card and
+ * the dialog both render exactly this. Neither repeats the one-sentence summary
+ * the icon's hint carries (owner's call). */
+function MemberActivityTree({ activity: a }: { activity: MemberActivity }) {
   const { t, msg } = useI18n();
   const now = useActivityNow(a);
   const tree = buildActivityTree(a.subagents);
-  const showTree = a.busySince !== null || a.subagents.length > 0 || a.waits.length > 0;
-  const mainAside =
-    a.busySince !== null
-      ? msg.memberActivitySince(a.busySince, now)
-      : a.subagents.length > 0
-        ? t.activity.mainReplied
-        : "";
+  const mainAside = a.busySince !== null ? msg.memberActivitySince(a.busySince, now) : "";
   return (
-    <>
-      <div className="mp-activity__head">
-        <span className="mp-card__title">{t.activity.currentState}</span>
-        {stateAs === "icon" ? (
-          <span className="mp-activity__state-icon" role="img" aria-label={t.activity.state[a.state]}>
-            <ActivityStateIcon state={a.state} />
+    <ul className="mp-activity__tree">
+      <li className="mp-activity__node">
+        <div className="mp-activity__row mp-activity__row--main">
+          <ActivityStateIcon state={a.busySince !== null ? "busy" : "idle"} />
+          <span className="mp-activity__label">
+            <span className="mp-activity__text">{t.activity.mainAgent}</span>
           </span>
-        ) : (
-          <span className={`mp-activity__state mp-activity__state--${a.state}`}>
-            {t.activity.state[a.state]}
-          </span>
+          {mainAside && <span className="mp-activity__aside">{mainAside}</span>}
+        </div>
+        {(tree.length > 0 || a.waits.length > 0) && (
+          <ul className="mp-activity__children">
+            {tree.map((n) => (
+              <SubagentNode key={n.subagent.id} node={n} now={now} />
+            ))}
+            {a.waits.map((w, i) => (
+              <li key={i} className="mp-activity__node">
+                <div className="mp-activity__row mp-activity__row--wait">
+                  <ActivityStateIcon state="waiting" />
+                  <span className="mp-activity__label">
+                    <span className="mp-activity__text">
+                      {w.description || msg.memberActivityWaitTag(w, now)}
+                    </span>
+                  </span>
+                  {w.description && (
+                    <span className="mp-activity__aside">{msg.memberActivityWaitTag(w, now)}</span>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
         )}
-      </div>
-      {showTree && (
-        <ul className="mp-activity__tree">
-          <li className="mp-activity__node">
-            <div className="mp-activity__row mp-activity__row--main">
-              <ActivityStateIcon state={mainIconState(a)} />
-              <span className="mp-activity__label">
-                <span className="mp-activity__text">{t.activity.mainAgent}</span>
-              </span>
-              {mainAside && <span className="mp-activity__aside">{mainAside}</span>}
-            </div>
-            {(tree.length > 0 || a.waits.length > 0) && (
-              <ul className="mp-activity__children">
-                {tree.map((n) => (
-                  <SubagentNode key={n.subagent.id} node={n} now={now} />
-                ))}
-                {a.waits.map((w, i) => (
-                  <li key={i} className="mp-activity__node">
-                    <div className="mp-activity__row mp-activity__row--wait">
-                      <ActivityStateIcon state="waiting" />
-                      <span className="mp-activity__label">
-                        <span className="mp-activity__text">
-                          {w.description || msg.memberActivityWaitTag(w, now)}
-                        </span>
-                      </span>
-                      {w.description && (
-                        <span className="mp-activity__aside">{msg.memberActivityWaitTag(w, now)}</span>
-                      )}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </li>
-        </ul>
-      )}
-    </>
+      </li>
+    </ul>
   );
 }

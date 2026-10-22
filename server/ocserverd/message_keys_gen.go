@@ -17,7 +17,6 @@ var messageKeys = map[string]bool{
 	"activity.mainAgent":                               true,
 	"activity.mainBusyLead":                            true,
 	"activity.mainBusyTail":                            true,
-	"activity.mainReplied":                             true,
 	"activity.nextLead":                                true,
 	"activity.noneWorking":                             true,
 	"activity.openLabel":                               true,

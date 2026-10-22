@@ -703,7 +703,6 @@ export const en: Dict = {
     openLabel: "see runtime details",
     close: "Close",
     mainAgent: "Main agent",
-    mainReplied: "Replied",
     nextLead: "next",
     recurring: "repeats",
     waitKind: {
