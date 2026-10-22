@@ -4521,14 +4521,9 @@ export interface components {
             name: string;
             /**
              * Started Ts
-             * @description Epoch seconds its latest run started, by the reporting machine's clock: every time the runtime starts it again (Claude Code SubagentStart, a Codex turn on its thread) begins a new run.
+             * @description Epoch seconds it started, by the reporting machine's clock.
              */
             started_ts: number;
-            /**
-             * First Started Ts
-             * @description Epoch seconds its first run started, by the reporting machine's clock; never later than ``started_ts``. A report that leaves it out is read as ``started_ts``, and ``MemberDTO.activity`` always carries it.
-             */
-            first_started_ts?: number;
         };
         /**
          * AgentActivityWaitDTO
