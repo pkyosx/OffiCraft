@@ -112,7 +112,7 @@ func TestCmdActivityReport(t *testing.T) {
 		}
 	})
 
-	t.Run("a nested sub-agent that stops to wait for its child keeps its start time when it resumes", func(t *testing.T) {
+	t.Run("a nested sub-agent that stops to wait for its child keeps its start time when it resumes, even across the main Stop", func(t *testing.T) {
 		srv, posts := contextServer(t)
 		cfg := newCfg(t, srv.URL)
 		tasks := `"background_tasks":[` +
@@ -125,6 +125,7 @@ func TestCmdActivityReport(t *testing.T) {
 			step{1002, activityHook("SubagentStart", `"agent_id":"b2","agent_type":"general-purpose"`)},
 			step{1003, activityHook("SubagentStop", `"agent_id":"a1","agent_type":"Explore",`+tasks)},
 			step{1004, activityHook("SubagentStop", `"agent_id":"b2","agent_type":"general-purpose",`+tasks)},
+			step{1004.5, activityHook("Stop", `"background_tasks":[],"session_crons":[]`)},
 			step{1005, activityHook("SubagentStart", `"agent_id":"a1","agent_type":"Explore"`)},
 			step{1006, activityHook("SubagentStart", `"agent_id":"a1","agent_type":"Explore"`)})
 
@@ -135,14 +136,15 @@ func TestCmdActivityReport(t *testing.T) {
 				`{"name":"general-purpose","description":"","started_ts":1002}],"waits":[]}`),
 			sent(`{"busy":true,"busy_since":1000,"subagents":[{"name":"general-purpose","description":"read cli/","started_ts":1002}],"waits":[]}`),
 			sent(`{"busy":true,"busy_since":1000,"subagents":[],"waits":[]}`),
-			sent(`{"busy":true,"busy_since":1000,"subagents":[{"name":"Explore","description":"","started_ts":1001}],"waits":[]}`),
-			sent(`{"busy":true,"busy_since":1000,"subagents":[{"name":"Explore","description":"","started_ts":1001}],"waits":[]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[],"waits":[]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[{"name":"Explore","description":"","started_ts":1001}],"waits":[]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[{"name":"Explore","description":"","started_ts":1001}],"waits":[]}`),
 		}
 		if !reflect.DeepEqual(*posts, want) {
 			t.Errorf("sent\n  %+v\nwant\n  %+v", *posts, want)
 		}
 		if got, want := readFileString(t, statePath(cfg)),
-			`{"busy":true,"busy_since":1000,"subagents":[{"id":"a1","name":"Explore","description":"","started_ts":1001}],`+
+			`{"busy":false,"busy_since":null,"subagents":[{"id":"a1","name":"Explore","description":"","started_ts":1001}],`+
 				`"waits":[],"paused":{"b2":1002}}`+"\n"; got != want {
 			t.Errorf("state file = %q, want %q", got, want)
 		}
@@ -183,7 +185,7 @@ func TestCmdActivityReport(t *testing.T) {
 			`"subagents":[{"id":"a1","name":"Explore","description":"survey the repo","started_ts":1001}],`+
 			`"waits":[{"kind":"background_command","description":"npm test"},`+
 			`{"kind":"background_command","description":"watch the deploy log"},`+
-			`{"kind":"schedule","description":"check CI"}],"paused":{"a1-child":1004}}`+"\n"; got != want {
+			`{"kind":"schedule","description":"check CI"}],"paused":{"a1-child":1004,"gone":1005}}`+"\n"; got != want {
 			t.Errorf("state file = %q, want %q", got, want)
 		}
 	})

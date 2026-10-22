@@ -1585,17 +1585,86 @@ func TestCodexSessionReportTokenUsage(t *testing.T) {
 		}}
 	}
 
-	t.Run("a sub-agent thread's usage reports nothing", func(t *testing.T) {
+	subUsage := func(threadID string, input, output, total float64) map[string]any {
+		return map[string]any{"threadId": threadID, "tokenUsage": map[string]any{
+			"modelContextWindow": float64(100),
+			"last":               map[string]any{"totalTokens": float64(90)},
+			"total": map[string]any{
+				"inputTokens": input, "outputTokens": output, "totalTokens": total,
+			},
+		}}
+	}
+	telemetry := func(tokens map[string]any) codexPost {
+		return codexPost{
+			method: http.MethodPost, url: "https://x.test/api/monitoring/telemetry",
+			auth: "Bearer tok", ctype: "application/json",
+			body: map[string]any{
+				"runtime": "codex", "account": "codex:abc", "account_label": "ChatGPT",
+				"effort": "medium", "tokens": tokens,
+			},
+		}
+	}
+	newUsageSession := func(t *testing.T) (*codexTestSession, *codexFakeTransport) {
 		fake := interceptCodexPosts(t, http.StatusOK, nil)
 		s := newCodexTestSession()
-		s.base, s.token, s.account = "https://x.test", "tok", "codex:abc"
-		params := usage(100)
-		params["threadId"] = "th_sub"
+		s.base, s.token, s.account, s.effort = "https://x.test", "tok", "codex:abc", "medium"
+		return s, fake
+	}
 
+	t.Run("sub-agent threads' usage adds into the account tokens but never into the context gauge", func(t *testing.T) {
+		s, fake := newUsageSession(t)
+		params := usage(0)
+		params["threadId"] = "th_1"
 		s.reportTokenUsage(params)
+		s.lastUsageReport = time.Time{}
+		s.reportTokenUsage(subUsage("th_sub", 100, 20, 120))
+		s.lastUsageReport = time.Time{}
+		s.reportTokenUsage(subUsage("th_deeper", 1000, 300, 1300))
 
-		if len(fake.posts) != 0 || s.pane.Len() != 0 {
-			t.Errorf("the sidecar sent %+v and logged %q, want neither", fake.posts, s.pane.String())
+		want := []codexPost{
+			telemetry(map[string]any{"inputTokens": float64(1), "outputTokens": float64(2), "totalTokens": float64(10)}),
+			telemetry(map[string]any{"inputTokens": float64(101), "outputTokens": float64(22), "totalTokens": float64(130)}),
+			telemetry(map[string]any{"inputTokens": float64(1101), "outputTokens": float64(322), "totalTokens": float64(1430)}),
+		}
+		if !reflect.DeepEqual(fake.posts, want) {
+			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
+		}
+		if s.pane.Len() != 0 {
+			t.Errorf("the pane shows %q, want no context line for a sub-agent", s.pane.String())
+		}
+	})
+
+	t.Run("a thread's later cumulative total replaces its earlier one, even when lower", func(t *testing.T) {
+		s, fake := newUsageSession(t)
+		s.reportTokenUsage(subUsage("th_sub", 100, 20, 120))
+		s.lastUsageReport = time.Time{}
+		s.reportTokenUsage(subUsage("th_other", 5, 5, 10))
+		s.lastUsageReport = time.Time{}
+		s.reportTokenUsage(subUsage("th_sub", 40, 10, 50))
+
+		want := []codexPost{
+			telemetry(map[string]any{"inputTokens": float64(100), "outputTokens": float64(20), "totalTokens": float64(120)}),
+			telemetry(map[string]any{"inputTokens": float64(105), "outputTokens": float64(25), "totalTokens": float64(130)}),
+			telemetry(map[string]any{"inputTokens": float64(45), "outputTokens": float64(15), "totalTokens": float64(60)}),
+		}
+		if !reflect.DeepEqual(fake.posts, want) {
+			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
+		}
+	})
+
+	t.Run("a throttled sub-agent update still counts in the next report", func(t *testing.T) {
+		s, fake := newUsageSession(t)
+		s.reportTokenUsage(subUsage("th_sub", 100, 20, 120))
+		s.reportTokenUsage(subUsage("th_other", 5, 5, 10))
+		s.lastUsageReport = time.Time{}
+		s.reportTokenUsage(subUsage("th_sub", 200, 40, 240))
+
+		want := []codexPost{
+			telemetry(map[string]any{"inputTokens": float64(100), "outputTokens": float64(20), "totalTokens": float64(120)}),
+			telemetry(map[string]any{"inputTokens": float64(205), "outputTokens": float64(45), "totalTokens": float64(250)}),
+		}
+		if !reflect.DeepEqual(fake.posts, want) {
+			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
 		}
 	})
 
@@ -1947,7 +2016,7 @@ func TestCodexSessionTrackActivity(t *testing.T) {
 		}
 	})
 
-	t.Run("once the main turn ends, a finished sub-agent woken later counts from then and is named again", func(t *testing.T) {
+	t.Run("once the main turn ends, a finished sub-agent woken later counts from then and drops its old name", func(t *testing.T) {
 		s, fake, now := newSession(t)
 		s.lastActivity = `{"busy":false,"busy_since":null,"subagents":[],"waits":[]}`
 
@@ -1971,6 +2040,66 @@ func TestCodexSessionTrackActivity(t *testing.T) {
 			activityPost(activitySnapshot(nil, other, activitySubagentItem("sub-agent", later))),
 			activityPost(activitySnapshot(nil, activitySubagentItem("sub-agent", later))),
 			activityPost(activitySnapshot(nil, other, activitySubagentItem("sub-agent", later))),
+		}
+		if !reflect.DeepEqual(fake.posts, want) {
+			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
+		}
+	})
+
+	t.Run("a sub-agent that outlived the main turn and finished later counts afresh when the next main turn wakes it", func(t *testing.T) {
+		s, fake, now := newSession(t)
+
+		s.trackActivity("turn/started", map[string]any{"threadId": "th_1"})
+		s.trackActivity("turn/started", map[string]any{"threadId": "th_sub"})
+		s.trackActivity("turn/completed", map[string]any{"threadId": "th_1"})
+		*now = now.Add(5 * time.Minute)
+		s.trackActivity("turn/completed", map[string]any{"threadId": "th_sub"})
+		*now = now.Add(4 * time.Hour)
+		s.trackActivity("turn/started", map[string]any{"threadId": "th_1"})
+		s.trackActivity("turn/started", map[string]any{"threadId": "th_sub"})
+
+		later := float64(1720000000 + 5*60 + 4*3600)
+		want := []codexPost{
+			activityPost(activitySnapshot(float64(1720000000))),
+			activityPost(activitySnapshot(float64(1720000000), activitySubagentItem("sub-agent", 1720000000))),
+			activityPost(activitySnapshot(nil, activitySubagentItem("sub-agent", 1720000000))),
+			activityPost(activitySnapshot(nil)),
+			activityPost(activitySnapshot(later)),
+			activityPost(activitySnapshot(later, activitySubagentItem("sub-agent", later))),
+		}
+		if !reflect.DeepEqual(fake.posts, want) {
+			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
+		}
+	})
+
+	t.Run("a sub-agent waiting on its running child keeps its start time and name across main turns", func(t *testing.T) {
+		s, fake, now := newSession(t)
+		s.lastActivity = `{"busy":false,"busy_since":null,"subagents":[],"waits":[]}`
+
+		s.trackActivity("item/started", map[string]any{"threadId": "th_1", "item": map[string]any{
+			"type": "subAgentActivity", "agentThreadId": "th_outer", "agentPath": "/root/outer"}})
+		s.trackActivity("turn/started", map[string]any{"threadId": "th_outer"})
+		s.trackActivity("item/started", map[string]any{"threadId": "th_outer", "item": map[string]any{
+			"type": "subAgentActivity", "agentThreadId": "th_inner", "agentPath": "/root/outer/inner"}})
+		s.trackActivity("turn/started", map[string]any{"threadId": "th_inner"})
+		s.trackActivity("turn/completed", map[string]any{"threadId": "th_outer"})
+		s.trackActivity("turn/completed", map[string]any{"threadId": "th_1"})
+		*now = now.Add(time.Minute)
+		s.trackActivity("turn/started", map[string]any{"threadId": "th_1"})
+		s.trackActivity("turn/completed", map[string]any{"threadId": "th_1"})
+		s.trackActivity("turn/completed", map[string]any{"threadId": "th_inner"})
+		s.trackActivity("turn/started", map[string]any{"threadId": "th_outer"})
+
+		outer := activitySubagentItem("outer", 1720000000)
+		inner := activitySubagentItem("inner", 1720000000)
+		want := []codexPost{
+			activityPost(activitySnapshot(nil, outer)),
+			activityPost(activitySnapshot(nil, inner, outer)),
+			activityPost(activitySnapshot(nil, inner)),
+			activityPost(activitySnapshot(float64(1720000060), inner)),
+			activityPost(activitySnapshot(nil, inner)),
+			activityPost(activitySnapshot(nil)),
+			activityPost(activitySnapshot(nil, outer)),
 		}
 		if !reflect.DeepEqual(fake.posts, want) {
 			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)

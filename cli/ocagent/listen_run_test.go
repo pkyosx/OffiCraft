@@ -1122,30 +1122,31 @@ func TestConnectOnce(t *testing.T) {
 		}
 	})
 
-	t.Run("every connect sends the session's last activity snapshot again, before the drains", func(t *testing.T) {
+	t.Run("every connect sends the session's last activity snapshot again, on the activity client", func(t *testing.T) {
 		cfg := runCfg(t)
 		writeActivityState(activityStatePath(cfg), activityState{
 			Busy: true, BusySince: ptrFloat(1000),
 			Subagents: []activitySubagent{{ID: "a1", Name: "Explore", StartedTs: 1001}},
 		})
-		api := &bodyRecordingHTTP{routedHTTP: quietAPI()}
-		api.routes["/api/agent/activity"] = `{"agent_id":"kyle","ts":1002}`
+		drains := &bodyRecordingHTTP{routedHTTP: quietAPI()}
+		activity := &bodyRecordingHTTP{routedHTTP: newRoutedHTTP(map[string]string{
+			"/api/agent/activity": `{"agent_id":"kyle","ts":1002}`})}
 		tr := &stubTransport{reply: func(int, *http.Request) (*http.Response, error) {
 			return sseReply(200, nil, ""), nil
 		}}
-		l := newRunListener(t, cfg, io.Discard, api, tr)
-		l.activityHooks, l.activityAPI = true, api
+		l := newRunListener(t, cfg, io.Discard, drains, tr)
+		l.activityHooks, l.activityAPI = true, activity
 
 		l.connectOnce(context.Background())
 		l.connectOnce(context.Background())
 
 		snapshot := "POST /api/agent/activity " + `{"busy":true,"busy_since":1000,` +
 			`"subagents":[{"name":"Explore","description":"","started_ts":1001}],"waits":[]}`
-		if want := []string{snapshot, snapshot}; !reflect.DeepEqual(api.bodies, want) {
-			t.Errorf("sent\n  %q\nwant\n  %q", api.bodies, want)
+		if want := []string{snapshot, snapshot}; !reflect.DeepEqual(activity.bodies, want) {
+			t.Errorf("sent on the activity client\n  %q\nwant\n  %q", activity.bodies, want)
 		}
-		if api.asked[0] != "/api/agent/activity" {
-			t.Errorf("asked %v, want the activity snapshot first", api.asked)
+		if len(drains.bodies) != 0 {
+			t.Errorf("sent on the listener's 10s client %q, want nothing — the re-announce holds the hooks' lock", drains.bodies)
 		}
 	})
 

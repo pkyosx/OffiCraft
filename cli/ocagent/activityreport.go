@@ -57,7 +57,9 @@ type activityState struct {
 	Subagents []activitySubagent `json:"subagents"`
 	Waits     []activityWait     `json:"waits"`
 	// A sub-agent that ends a turn to wait for its own child stops and later
-	// starts again under the same id; this keeps its original start time.
+	// starts again under the same id; this keeps its original start time until
+	// the session restarts. Not pruned at the main Stop: a sub-agent waiting on
+	// its child is not always listed as running in background_tasks.
 	Paused map[string]float64 `json:"paused,omitempty"`
 	// The station has not accepted this snapshot; `listen` retries it.
 	Unsent bool `json:"unsent,omitempty"`
@@ -100,7 +102,7 @@ func cmdActivityReport(client httpClient, cfg Config, now float64, stdin io.Read
 		return 0
 	}
 	withActivityLock(cfg, func() {
-		state := readActivityState(activityStatePath(cfg))
+		state, _ := loadActivityState(activityStatePath(cfg))
 		if !applyActivityHook(&state, in, now) {
 			return
 		}
@@ -166,6 +168,7 @@ func sendActivity(client httpClient, cfg Config, state activityState, now float6
 	writeActivityState(activityStatePath(cfg), state)
 }
 
+// A missing or unreadable file is a session with nothing running.
 func loadActivityState(path string) (activityState, bool) {
 	var state activityState
 	raw, err := os.ReadFile(path)
@@ -200,11 +203,6 @@ func applyActivityHook(s *activityState, in activityHookInput, now float64) bool
 			}
 		}
 		s.Subagents = kept
-		for id := range s.Paused {
-			if !running[id] {
-				delete(s.Paused, id)
-			}
-		}
 		refreshActivityFromTasks(s, in)
 	case "SubagentStart":
 		for _, sub := range s.Subagents {
@@ -328,17 +326,6 @@ func withActivityLock(cfg Config, fn func()) {
 		}
 	}
 	fn()
-}
-
-// A missing or unreadable file is a session with nothing running.
-func readActivityState(path string) activityState {
-	var state activityState
-	if raw, err := os.ReadFile(path); err == nil {
-		if json.Unmarshal(raw, &state) != nil {
-			state = activityState{}
-		}
-	}
-	return state
 }
 
 func writeActivityState(path string, s activityState) {

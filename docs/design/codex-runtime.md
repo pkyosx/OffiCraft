@@ -127,8 +127,10 @@ The Codex member boot sequence changes only execution ownership:
    only its usage and compaction items drive the context percentage and the compaction
    count. A sub-agent's completed `agentMessage` still counts as a model-call success.
    Sub-agent turns also feed the member's activity report (`POST /api/agent/activity`),
-   named from the parent's `subAgentActivity` item. Their token usage is not counted
-   anywhere.
+   named from the parent's `subAgentActivity` item. Their token usage is counted into
+   the account's `tokens` (`POST /api/monitoring/telemetry`): the sidecar keeps the latest
+   cumulative `total` of every thread seen this session, main and sub-agents, kept after
+   a thread ends, and reports the per-key sum (owner ruling).
 
 ### Context compaction and refocus
 
