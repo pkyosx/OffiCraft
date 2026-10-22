@@ -156,12 +156,16 @@ def cmd_apply(old, new):
     rewrite(INSTALL_GUIDE, [(rf"`go {o}`", f"`go {new}`")])
     # The rewrite above is pattern-by-pattern; a spelling it does not know would
     # survive and leave CI and go.mod disagreeing, so any leftover fails the run.
-    leftovers = subprocess.run(
-        ["git", "grep", "-nF", old, "--", *[f"{d}/go.mod" for d in MODULE_DIRS], CI_WORKFLOW, INSTALL_GUIDE],
-        cwd=ROOT, capture_output=True, text=True,
-    ).stdout
+    # Bounded so that 1.27.1 does not match inside its own replacement 1.27.12.
+    old_version = re.compile(rf"(?<![\d.]){o}(?![\d])")
+    leftovers = [
+        f"{path}:{n}:{line}"
+        for path in [*[f"{d}/go.mod" for d in MODULE_DIRS], CI_WORKFLOW, INSTALL_GUIDE]
+        for n, line in enumerate((ROOT / path).read_text().splitlines(), 1)
+        if old_version.search(line)
+    ]
     if leftovers:
-        raise BumpError(f"go {old} is still mentioned after the rewrite:\n{leftovers}")
+        raise BumpError(f"go {old} is still mentioned after the rewrite:\n" + "\n".join(leftovers))
 
 
 def cmd_anchor(source_sha):

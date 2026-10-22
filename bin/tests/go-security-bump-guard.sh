@@ -87,12 +87,14 @@ check "scan of a clean repo exits 0" "0" "$RC"
 check "scan of a clean repo plans nothing" "" "$OUT"
 
 F="$WORK/fixable"; mkdir -p "$F"
-{ echo "$CFG"; finding GO-2026-6809 v1.26.10 stdlib crypto/x509.Verify; finding GO-2026-6603 v1.26.9 stdlib net/http.Serve; } > "$F/ocagent.json"
+{ echo "$CFG"; finding GO-2026-6809 v1.26.10 stdlib crypto/x509.Verify; finding GO-2026-6603 v1.26.9 stdlib net/http.Serve
+  echo '{"finding":{"osv":"GO-2026-6605","fixed_version":"v1.26.9","trace":[{"module":"stdlib","version":"v1.26.4","package":"net/textproto","function":"ReadMIMEHeader"},{"module":"stdlib","package":"net/http","function":"ReadRequest"},{"module":"ocagent","package":"ocagent","function":"main"}]}}'
+} > "$F/ocagent.json"
 { echo "$CFG"; finding GO-2026-6603 v1.26.9 stdlib net/http.Serve; finding GO-2026-7000 v1.26.6 toolchain cmd/go.Run; } > "$F/ocserverd.json"
 scan "$REPO" "$F"
 check "scan with fixable stdlib and toolchain findings exits 0" "0" "$RC"
 check "scan with fixable findings plans a bump to the newest patch of the same minor, listing every vuln once" \
-  '{"from": "1.26.4", "to": "1.26.10", "vulns": ["GO-2026-6603", "GO-2026-6809", "GO-2026-7000"]}' "$OUT"
+  '{"from": "1.26.4", "to": "1.26.10", "vulns": ["GO-2026-6603", "GO-2026-6605", "GO-2026-6809", "GO-2026-7000"]}' "$OUT"
 
 F="$WORK/unreached"; mkdir -p "$F"
 { echo "$CFG"; finding GO-2026-6809 v1.26.10 stdlib; finding GO-2026-9001 v0.3.1 golang.org/x/net golang.org/x/net/html.Parse; } > "$F/ocserverd.json"
@@ -141,6 +143,11 @@ check "apply rewrites every setup-go pin and the go.mod comment in ci.yml" \
         with:
           go-version: '1.26.10'" "$(cat "$REPO/.github/workflows/ci.yml")"
 check "apply rewrites the install guide" '> 版本依據：**Go 1.26** 取自 repo 的 `go.mod`（`go 1.26.10`）；' "$(cat "$REPO/docs/guide/install.md")"
+
+PREFIX="$WORK/prefix"; new_repo "$PREFIX" 1.26.1
+(cd "$PREFIX" && python3 bin/go-security-bump.py apply 1.26.1 1.26.10 2>"$WORK/err"); RC=$?
+check "apply 1.26.1 -> 1.26.10, where the old version prefixes the new one, exits 0" "0" "$RC"
+check "apply 1.26.1 -> 1.26.10 rewrites the install guide" '> 版本依據：**Go 1.26** 取自 repo 的 `go.mod`（`go 1.26.10`）；' "$(cat "$PREFIX/docs/guide/install.md")"
 
 DRIFT="$WORK/drift"; new_repo "$DRIFT" 1.26.4
 printf '> Go version: 1.26.4\n' > "$DRIFT/docs/guide/install.md"
