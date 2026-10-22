@@ -18,7 +18,7 @@ import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { MemberCard } from "./MemberCard";
-import { MemberActivityCard } from "./MemberActivity";
+import { MemberActivitySection } from "./MemberActivity";
 import type { Member } from "../types";
 
 function mkMember(over: Partial<Member> = {}): Member {
@@ -411,13 +411,13 @@ describe("MemberCard activity icon", () => {
   const renderWith = (activity: Member["activity"], onChat = vi.fn()) => render(cardWith(activity, onChat));
 
   it.each([
-    ["busy", "online", "工作中，查看運作狀況", "working", "主 agent 工作中（已 0 秒）"],
-    ["waiting", "online", "等待中，查看運作狀況", "waiting", "主 agent 與 sub-agent 都沒有在工作，正在等 1 個背景檢查或排程"],
-    ["idle", "online", "閒置，查看運作狀況", "idle", "主 agent 與 sub-agent 都沒有在工作"],
-    ["busy", "stopping", "工作中，查看運作狀況", "working", "主 agent 工作中（已 0 秒）"],
-    ["waiting", "stopping", "等待中，查看運作狀況", "waiting", "主 agent 與 sub-agent 都沒有在工作，正在等 1 個背景檢查或排程"],
-    ["idle", "stopping", "閒置，查看運作狀況", "idle", "主 agent 與 sub-agent 都沒有在工作"],
-  ] as const)("under %s while %s, the icon right before the name is a button named %s, draws its own glyph, hints the summary and opens the 運作狀況 dialog", (state, lifecycle, name, glyph, hint) => {
+    ["busy", "online", "工作中，查看運行狀況", "working", "主 agent 工作中（已 0 秒）"],
+    ["waiting", "online", "等待中，查看運行狀況", "waiting", "主 agent 與 sub-agent 都沒有在工作，正在等 1 個背景檢查或排程"],
+    ["idle", "online", "閒置，查看運行狀況", "idle", "主 agent 與 sub-agent 都沒有在工作"],
+    ["busy", "stopping", "工作中，查看運行狀況", "working", "主 agent 工作中（已 0 秒）"],
+    ["waiting", "stopping", "等待中，查看運行狀況", "waiting", "主 agent 與 sub-agent 都沒有在工作，正在等 1 個背景檢查或排程"],
+    ["idle", "stopping", "閒置，查看運行狀況", "idle", "主 agent 與 sub-agent 都沒有在工作"],
+  ] as const)("under %s while %s, the icon right before the name is a button named %s, draws its own glyph, hints the summary and opens the 運行狀況 dialog", (state, lifecycle, name, glyph, hint) => {
     const onChat = vi.fn();
     const { getByTestId, getByRole } = render(
       cardWith(
@@ -439,7 +439,7 @@ describe("MemberCard activity icon", () => {
     fireEvent.mouseEnter(icon);
     expect(screen.getByRole("tooltip").textContent).toBe(hint);
     fireEvent.click(icon);
-    expect(screen.getByRole("dialog", { name: "Mira · 運作狀況" })).not.toBeNull();
+    expect(screen.getByRole("dialog", { name: "Mira · 運行狀況" })).not.toBeNull();
     expect(onChat).not.toHaveBeenCalled();
   });
 
@@ -450,7 +450,7 @@ describe("MemberCard activity icon", () => {
     expect(glyph.querySelectorAll(".sparkle-icon__twinkle")).toHaveLength(2);
   });
 
-  describe("運作狀況 dialog", () => {
+  describe("運行狀況 dialog", () => {
     const NOW = 1_800_000_000;
     const activity: Member["activity"] = {
       state: "busy",
@@ -478,7 +478,7 @@ describe("MemberCard activity icon", () => {
       fireEvent.click(getByTestId("activity-icon-mira"));
       expect(onChat).not.toHaveBeenCalled();
       expect(screen.queryByRole("tooltip")).toBeNull();
-      const d = screen.getByRole("dialog", { name: "Mira · 運作狀況" });
+      const d = screen.getByRole("dialog", { name: "Mira · 運行狀況" });
       expect(d.getAttribute("aria-modal")).toBe("true");
       expect(d.querySelector(".mp-activity__head")!.textContent).toBe("目前狀態工作中");
       expect(d.querySelector(".mp-activity__state--busy")).not.toBeNull();
@@ -494,16 +494,16 @@ describe("MemberCard activity icon", () => {
       expect(document.activeElement).toBe(screen.getByRole("button", { name: "關閉" }));
     });
 
-    it("renders the very body the detail panel's 運作狀況 card renders", () => {
+    it("renders the very body the detail panel's 運行狀況 card renders, 目前狀態 label included", () => {
       const { getByTestId } = renderWith(activity);
       fireEvent.click(getByTestId("activity-icon-mira"));
       const card = render(
         <I18nProvider>
-          <MemberActivityCard activity={activity} testId="card" />
+          <MemberActivitySection activity={activity} testId="card" />
         </I18nProvider>,
       ).getByTestId("card");
       const d = screen.getByRole("dialog");
-      for (const sel of [".mp-activity__summary", ".mp-activity__tree"]) {
+      for (const sel of [".mp-activity__head", ".mp-activity__summary", ".mp-activity__tree"]) {
         expect(d.querySelector(sel)!.outerHTML, sel).toBe(card.querySelector(sel)!.outerHTML);
       }
     });
@@ -610,7 +610,7 @@ describe("MemberCard activity icon", () => {
     const { queryByTestId, getByTestId, container } = render(cardWith(null, onChat, "Mira", lifecycle));
     expect(queryByTestId("activity-icon-mira")).toBeNull();
     expect(queryByTestId("activity-icon-mira-unknown")).toBeNull();
-    expect(screen.queryByRole("button", { name: /查看運作狀況/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /查看運行狀況/ })).toBeNull();
     const moon = getByTestId("activity-icon-mira-offline");
     expect(moon.tagName).toBe("SPAN");
     expect(moon.className).toBe("activity-icon activity-icon--offline activity-icon--box activity-icon--list");
@@ -646,7 +646,7 @@ describe("MemberCard activity icon", () => {
     const { queryByTestId, getByTestId, container } = render(cardWith(activity, onChat, "Mira", lifecycle));
     expect(queryByTestId("activity-icon-mira")).toBeNull();
     expect(queryByTestId("activity-icon-mira-offline")).toBeNull();
-    expect(screen.queryByRole("button", { name: /查看運作狀況/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /查看運行狀況/ })).toBeNull();
     const unknown = getByTestId("activity-icon-mira-unknown");
     expect(unknown.tagName).toBe("SPAN");
     expect(unknown.className).toBe("activity-icon activity-icon--unknown activity-icon--box activity-icon--list");

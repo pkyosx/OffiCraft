@@ -1,7 +1,7 @@
 // The avatar-corner presence dot and the activity status icon (or, for a member
 // that is offline or stopped, the moon; waking, or without a report yet, the unknown mark)
 // leading the name on the list rows, the chat
-// header and the detail identity card, the 運作狀況 card's tree, and the dialog
+// header and the detail identity card, the activity tree in the 運行狀況 card, and the dialog
 // the icon opens, at phone and desktop widths.
 // Every check compares boxes with each other in a real browser (CT pages lack
 // the production fonts, so no absolute text widths).
@@ -295,11 +295,11 @@ for (const width of [390, 1280]) {
     expect(await hscroll(page), "no page hscroll").toBeLessThanOrEqual(1);
   });
 
-  test(`width ${width}: the 運作狀況 card's tree wraps inside the card and indents each level`, async ({ mount, page }) => {
+  test(`width ${width}: the activity tree in the 運行狀況 card wraps inside the card and indents each level`, async ({ mount, page }) => {
     await page.setViewportSize({ width, height: 900 });
     await mount(<IdentityActivityStory surface="card" state="busy" mobile={width < 720} />);
     const m = await page.evaluate(() => {
-      const card = document.querySelector('[data-testid="mp-activity"]') as HTMLElement;
+      const card = document.querySelector('[data-testid="mp-activity"]')!.closest(".mp-runtime") as HTMLElement;
       const rows = Array.from(card.querySelectorAll<HTMLElement>(".mp-activity__row")).map((row) => {
         const r = row.getBoundingClientRect();
         const aside = row.querySelector<HTMLElement>(".mp-activity__aside");
@@ -336,7 +336,7 @@ for (const width of [390, 1280]) {
   });
 }
 
-test.describe("the 運作狀況 dialog the icon opens", () => {
+test.describe("the 運行狀況 dialog the icon opens", () => {
   const dialogBox = (page: Page) =>
     page.evaluate(() => {
       const box = document.querySelector(".activity-dialog__box") as HTMLElement;

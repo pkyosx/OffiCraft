@@ -5,7 +5,8 @@
 // the chat header and the detail identity card (built from the same
 // PresenceAvatar / NameWithActivity ChatArea and the detail panels render;
 // each with an icon, an online member without activity and an offline one),
-// and the detail panel's 運作狀況 card (real MemberActivityCard) — at the
+// and the activity section of the detail panel's 運行狀況 card (real
+// MemberActivitySection) — at the
 // widths the spec mounts it at; plus the state glyphs, the unknown mark and the
 // moon drawn large. A row opened by a click is recorded on body[data-opened].
 import { I18nProvider } from "../../src/i18n";
@@ -15,7 +16,7 @@ import { PresenceAvatar } from "../../src/components/PresenceAvatar";
 import { PresenceBadge } from "../../src/components/PresenceBadge";
 import { Avatar } from "../../src/components/Avatar";
 import { InlineEdit } from "../../src/components/InlineEdit";
-import { ActivityStateIcon, NameWithActivity, MemberActivityCard } from "../../src/components/MemberActivity";
+import { ActivityStateIcon, NameWithActivity, MemberActivitySection } from "../../src/components/MemberActivity";
 import type { OutsourceWorkerView } from "../../src/api/adapter";
 import type { Member, MemberActivity, MemberLifecycle } from "../../src/types";
 import "../../src/components/office.css";
@@ -95,7 +96,7 @@ function mkWorker(
     taskId: "t-1",
     taskNo: "T-492",
     taskTypeName: "OffiCraft 開發",
-    taskTitle: "成員運作狀況",
+    taskTitle: "成員運行狀況",
     presence,
     unreadCount: 120,
     activity,
@@ -249,7 +250,9 @@ export function IdentityActivityStory({
           <section className="office__chat">
             <div className="mp" data-testid="panel">
               <div className="mp-card mp-identity" />
-              <MemberActivityCard activity={activity} testId="mp-activity" />
+              <div className="mp-card mp-runtime">
+                <MemberActivitySection activity={activity} testId="mp-activity" />
+              </div>
             </div>
           </section>
         )}

@@ -721,7 +721,7 @@ export const zh = {
   },
   // ── 外包 worker 詳情面板（前端 only 精簡版：只放外包真有的欄位，
   // 不套用成員面板的機器綁定／model 編輯／context％／花費／refocus）──
-  // 成員 session 的運作狀況（名字旁的狀態圖示＋詳情面板「運作狀況」卡）。
+  // 成員 session 的運作狀態（名字旁的狀態圖示＋詳情面板「運行狀況」卡裡的「目前狀態」）。
   // 句子由 compose.ts 的 memberActivity* 組裝。
   activity: {
     state: {
@@ -746,11 +746,10 @@ export const zh = {
     waitsTailMany: "個背景檢查或排程",
     unknownHint: "狀態未知，成員重新啟動後就會顯示",
     unknownWakingHint: "狀態未知，成員醒來回報後就會顯示",
-    cardTitle: "運作狀況",
     dialogTitleSep: " · ",
     currentState: "目前狀態",
     openLabelSep: "，",
-    openLabel: "查看運作狀況",
+    openLabel: "查看運行狀況",
     close: "關閉",
     mainAgent: "主 agent",
     mainReplied: "已回覆完畢",

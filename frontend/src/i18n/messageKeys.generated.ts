@@ -7,7 +7,6 @@
  * functions are not overridable). The single source of truth for both the
  * client wording validator (lib/themeBundle.ts) and the mock API. */
 export const MESSAGE_KEYS: readonly string[] = [
-  "activity.cardTitle",
   "activity.close",
   "activity.currentState",
   "activity.dialogTitleSep",

@@ -109,7 +109,7 @@ export function NameWithActivity({
   );
 }
 
-/** Given `memberName`, the icon is a button opening the 運作狀況 dialog. */
+/** Given `memberName`, the icon is a button opening the 運行狀況 dialog. */
 function ActivityStatusIcon({
   activity: reported,
   presence,
@@ -317,8 +317,9 @@ function SubagentNode({ node, now }: { node: ActivityTreeNode; now: number }) {
   );
 }
 
-/** The detail panels' 運作狀況 card; nothing when there is no activity. */
-export function MemberActivityCard({
+/** The activity section inside the detail panels' 運行狀況 card; nothing when
+ * there is no activity. */
+export function MemberActivitySection({
   activity,
   testId,
 }: {
@@ -328,14 +329,14 @@ export function MemberActivityCard({
   const { t } = useI18n();
   if (!activity) return null;
   return (
-    <div className="mp-card mp-activity" data-testid={testId}>
-      <MemberActivityBody activity={activity} label={t.activity.cardTitle} />
+    <div className="mp-activity" data-testid={testId}>
+      <MemberActivityBody activity={activity} label={t.activity.currentState} />
     </div>
   );
 }
 
-/** Label and state word, the one-sentence summary, then the tree — the card
- * and the dialog both render exactly this. */
+/** Label and state word, the one-sentence summary, then the tree — the
+ * 運行狀況 card and the dialog both render exactly this. */
 function MemberActivityBody({ activity: a, label }: { activity: MemberActivity; label: string }) {
   const { t, msg } = useI18n();
   const now = useActivityNow(a);

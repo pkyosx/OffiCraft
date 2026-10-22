@@ -249,7 +249,7 @@ describe("OutsourcePanel", () => {
     const { findByTestId, queryByTestId } = renderOutsource();
     const icon = await findByTestId("activity-icon-ow-busy");
     expect(icon.nextElementSibling!.textContent).toBe("外包 · B-1");
-    expect(icon.getAttribute("aria-label")).toBe("等待中，查看運作狀況");
+    expect(icon.getAttribute("aria-label")).toBe("等待中，查看運行狀況");
     fireEvent.mouseEnter(icon);
     expect(screen.getByRole("tooltip").textContent).toBe(
       "主 agent 與 sub-agent 都沒有在工作，正在等 1 個背景檢查或排程",
@@ -283,7 +283,7 @@ describe("OutsourcePanel", () => {
     expect(screen.getByRole("tooltip").textContent).toBe("狀態未知，成員重新啟動後就會顯示");
   });
 
-  it("tapping a worker's activity icon opens its 運作狀況 dialog, not its chat; the backdrop closes it", async () => {
+  it("tapping a worker's activity icon opens its 運行狀況 dialog, not its chat; the backdrop closes it", async () => {
     const task = mkTask({ id: "t-d", taskNo: "T-d" });
     __injectMockTask(task);
     __injectMockOutsourceWorker(
@@ -305,7 +305,7 @@ describe("OutsourcePanel", () => {
     const icon = await findByTestId("activity-icon-ow-dlg");
     fireEvent.click(icon);
     expect(window.location.hash).toBe(before);
-    const dialog = screen.getByRole("dialog", { name: "外包 · D-1 · 運作狀況" });
+    const dialog = screen.getByRole("dialog", { name: "外包 · D-1 · 運行狀況" });
     expect(dialog.querySelector(".mp-activity__head")!.textContent).toBe("目前狀態等待中");
     expect(dialog.querySelector(".mp-activity__summary")!.textContent).toBe(
       "主 agent 與 sub-agent 都沒有在工作，正在等 1 個背景檢查或排程",
@@ -768,7 +768,7 @@ describe("OutsourcePanel", () => {
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
     expect(sub.querySelector(".lifecycle-dot")).toBeNull();
-    expect(screen.getByTestId("chat-header-activity").getAttribute("aria-label")).toBe("閒置，查看運作狀況");
+    expect(screen.getByTestId("chat-header-activity").getAttribute("aria-label")).toBe("閒置，查看運行狀況");
     expect(screen.getByTestId("chat-header-presence").closest(".presence-avatar")).not.toBeNull();
     // T-dfae: the chat header's 任務/角色設定 buttons are wired ONLY for roster
     // members. An outsource peer has no role to define, and its tasks are not

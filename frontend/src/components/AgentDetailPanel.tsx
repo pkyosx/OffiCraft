@@ -15,7 +15,7 @@ import {
 } from "./icons";
 import { localizeLastOpReason } from "../lib/lastOpReason";
 import type { MemberActivity } from "../types";
-import { MemberActivityCard } from "./MemberActivity";
+import { MemberActivitySection } from "./MemberActivity";
 import "./member-detail.css";
 
 /** The lazily-fetched initial-prompt expand card's config. `fetch` returns the
@@ -150,7 +150,7 @@ export interface AgentDetailVM {
   /** What to say instead of the command when the station sent none. */
   terminalUnavailable: string;
   prompt?: AgentDetailPrompt;
-  /** null ⇒ no 運作狀況 card. */
+  /** null ⇒ the 運行狀況 card carries no activity section. */
   activity: MemberActivity | null;
 }
 
@@ -558,7 +558,6 @@ export function AgentDetailPanel({
       </button>
 
       {identity}
-      <MemberActivityCard activity={vm.activity} testId={`${p}-activity`} />
       {rendered.overlays}
       {rendered.afterIdentityCards}
 
@@ -639,7 +638,7 @@ export function AgentDetailPanel({
 
       {rendered.afterInfoCards}
 
-      {/* runtime card: context% + est.$ + 換手 */}
+      {/* runtime card: context% + est.$ + activity + 換手 */}
       <div className="mp-card mp-runtime">
         <div className="mp-runtime__head">
           <span className="mp-card__title">{t.mp.runtime}</span>
@@ -689,6 +688,7 @@ export function AgentDetailPanel({
             </div>
           </div>
         </div>
+        <MemberActivitySection activity={vm.activity} testId={`${p}-activity`} />
         {refocusState === "done" && (
           <div className="mp-runtime__note" data-testid={`${p}-refocus-note`}>
             {vm.refocusSubmittedNote}

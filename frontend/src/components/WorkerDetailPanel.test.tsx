@@ -233,7 +233,7 @@ describe("WorkerDetailPanel — aligned real info (T-f190 item 1)", () => {
     expect((await findByTestId("worker-detail-cost")).textContent).toBe("$4");
   });
 
-  it("shows the worker's 運作狀況 card right under the identity card, the dot on the avatar corner and the status icon before the codename; no card and a still unknown mark hinting 狀態未知 for an online worker without activity; a stopped worker gets the moon instead", async () => {
+  it("shows the worker's 目前狀態 section inside the 運行狀況 card under its cells, the dot on the avatar corner and the status icon before the codename; no section and a still unknown mark hinting 狀態未知 for an online worker without activity; a stopped worker gets the moon instead", async () => {
     __injectMockTask(mkTask({ id: "t-1" }));
     __injectMockOutsourceWorker(
       mkWorker({
@@ -254,8 +254,9 @@ describe("WorkerDetailPanel — aligned real info (T-f190 item 1)", () => {
 
     const first = renderOfficeAt("#office/worker/ow-1");
     const card = await first.findByTestId("worker-detail-activity");
-    expect(card.previousElementSibling?.classList.contains("mp-identity")).toBe(true);
-    expect(card.querySelector(".mp-activity__head")!.textContent).toBe("運作狀況等待中");
+    expect(card.parentElement!.classList.contains("mp-runtime")).toBe(true);
+    expect(card.previousElementSibling?.classList.contains("mp-runtime__cells")).toBe(true);
+    expect(card.querySelector(".mp-activity__head")!.textContent).toBe("目前狀態等待中");
     expect(card.querySelector(".mp-activity__summary")!.textContent).toBe(
       "主 agent 與 sub-agent 都沒有在工作，正在等 1 個背景檢查或排程",
     );

@@ -8,7 +8,6 @@ package main
 // wording overlay may re-value (wording_bundle.go validation). Extracted from
 // frontend/src/i18n/locales/en.ts — the single message-code contract.
 var messageKeys = map[string]bool{
-	"activity.cardTitle":                               true,
 	"activity.close":                                   true,
 	"activity.currentState":                            true,
 	"activity.dialogTitleSep":                          true,

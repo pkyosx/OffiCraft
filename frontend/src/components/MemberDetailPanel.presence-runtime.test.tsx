@@ -236,7 +236,7 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
       ];
     });
 
-  it("an online member with activity gets a 運作狀況 card right under the identity card: state, sentence, then the tree nested by parent with waits under the main agent", () => {
+  it("an online member with activity gets a 目前狀態 section inside the 運行狀況 card, right under its context and cost cells: state, sentence, then the tree nested by parent with waits under the main agent", () => {
     vi.useFakeTimers({ toFake: ["Date"], now: new Date(2026, 9, 22, 11, 0, 0) });
     const now = Date.now() / 1000;
     const nextRun = new Date(2026, 9, 22, 12, 15).getTime() / 1000;
@@ -261,8 +261,9 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
         }),
       );
       const card = getByTestId("mp-activity");
-      expect(card.previousElementSibling?.classList.contains("mp-identity")).toBe(true);
-      expect(card.querySelector(".mp-activity__head")!.textContent).toBe("運作狀況工作中");
+      expect(card.parentElement!.classList.contains("mp-runtime")).toBe(true);
+      expect(card.previousElementSibling?.classList.contains("mp-runtime__cells")).toBe(true);
+      expect(card.querySelector(".mp-activity__head")!.textContent).toBe("目前狀態工作中");
       expect(card.querySelector(".mp-activity__summary")!.textContent).toBe(
         "主 agent 工作中（已 10 分鐘），另有 3 個 sub-agent 工作中，正在等 2 個背景檢查或排程",
       );
@@ -274,7 +275,7 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
         [1, "waiting", "每 30 秒檢查 CI", "背景指令"],
         [1, "waiting", "檢查 PR 審查結果", "排程 · 下次 12:15 · 重複"],
       ]);
-      expect(container.querySelector(".mp-runtime .mp-activity__summary")).toBeNull();
+      expect(container.querySelectorAll(".mp-activity")).toHaveLength(1);
     } finally {
       vi.useRealTimers();
     }
@@ -301,7 +302,7 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
     ]);
   });
 
-  it("an idle member with nothing waiting gets only the 運作狀況 header and the 閒置 sentence", () => {
+  it("an idle member with nothing waiting gets only the 目前狀態 header and the 閒置 sentence", () => {
     const { getByTestId } = renderPanel(
       mkMember({
         status: "online",
@@ -311,12 +312,12 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
     );
     const card = getByTestId("mp-activity");
     expect(Array.from(card.children).map((c) => c.textContent)).toEqual([
-      "運作狀況閒置",
+      "目前狀態閒置",
       "主 agent 與 sub-agent 都沒有在工作",
     ]);
   });
 
-  it("without activity there is no 運作狀況 card, the identity card leads the name with a still unknown mark hinting 狀態未知, and the 運行狀況 card still shows its context and cost cells", () => {
+  it("without activity the 運行狀況 card carries no activity section, the identity card leads the name with a still unknown mark hinting 狀態未知, and the 運行狀況 card still shows its context and cost cells", () => {
     const { queryByTestId, getByTestId } = renderPanel(
       mkMember({ status: "online", lifecycle: "online", activity: null }),
     );

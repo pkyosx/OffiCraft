@@ -79,7 +79,6 @@
   },
   "wording": {
     "zh": {
-      "activity.cardTitle": "運作狀況 🔮",
       "activity.close": "關閉 🚪",
       "activity.currentState": "此刻的動靜",
       "activity.elapsedLead": "已",
@@ -1458,7 +1457,6 @@
       "workerDetail.terminalUnavailable": "目前的伺服器版本太古老，不支援連線指令，請更新伺服器。"
     },
     "en": {
-      "activity.cardTitle": "Haunting status 🔮",
       "activity.close": "Close 🚪",
       "activity.currentState": "Right now",
       "activity.elapsedLead": "for",

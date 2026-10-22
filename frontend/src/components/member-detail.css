@@ -2115,9 +2115,9 @@
   font-size: 12.5px;
 }
 
-/* ---- 運行狀況 (member activity) ---- */
+/* ---- member activity, inside the 運行狀況 card ---- */
 .mp-activity {
-  padding: 16px 20px 18px;
+  margin-top: 14px;
 }
 .mp-activity__head {
   display: flex;
