@@ -83,6 +83,9 @@ func cmdContextReport(client httpClient, cfg Config, env func(string) string, no
 	_ = warnMissingBase(cfg, "context-report", errOut)
 
 	if cfg.Token != "" && cfg.MemberID != "" {
+		// Before the throttle: windows that first appear on a throttled tick must
+		// still be paired with the login of that moment, not of the next sent one.
+		account := measuredClaudeAccount(claudeAccountPath(cfg), rateLimitsFingerprint(payload), env)
 		stamp := reportStampPath(cfg)
 		backoffFile := reportBackoffPath(cfg)
 		backoff := readReportBackoff(backoffFile)
@@ -94,7 +97,6 @@ func cmdContextReport(client httpClient, cfg Config, env func(string) string, no
 			// Sent even when no usage was measured: runtime/account/machine must still
 			// reach monitoring, or it keeps showing a stale account for a live session.
 			rl, cost, tokens := buildTelemetry(payload)
-			account := measuredClaudeAccount(claudeAccountPath(cfg), rateLimitsFingerprint(payload), env)
 			body := telemetryBody{
 				Runtime:      "claude",
 				RateLimits:   rl,

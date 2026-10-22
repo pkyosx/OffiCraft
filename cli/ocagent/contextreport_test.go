@@ -285,7 +285,8 @@ func TestCmdContextReport(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if got, want := report("family-game", 1100, maxWindow), telemetry(maxRL, "au-max/org-max", "seth@x.io(Max)"); !reflect.DeepEqual(got, want) {
+		idleMaxWindow := strings.Replace(maxWindow, "{", `{"cost":{"total_duration_ms":90000},`, 1)
+		if got, want := report("family-game", 1100, idleMaxWindow), telemetry(maxRL, "au-max/org-max", "seth@x.io(Max)"); !reflect.DeepEqual(got, want) {
 			t.Errorf("an idle session after the re-login sent\n  %q\nwant\n  %q", got, want)
 		}
 		if got, want := report("family-game", 1200, enterpriseWindow), telemetry(entRL, "au-ent/org-ent", "seth@x.io(Enterprise)"); !reflect.DeepEqual(got, want) {
@@ -293,6 +294,35 @@ func TestCmdContextReport(t *testing.T) {
 		}
 		if got, want := report("new-member", 1300, enterpriseWindow), telemetry(entRL, "au-ent/org-ent", "seth@x.io(Enterprise)"); !reflect.DeepEqual(got, want) {
 			t.Errorf("a member started after the re-login sent\n  %q\nwant\n  %q", got, want)
+		}
+	})
+
+	t.Run("windows first seen inside the throttle window keep the login of that moment", func(t *testing.T) {
+		const oldWindow = `{"rate_limits":{"seven_day":{"used_percentage":9,"resets_at":1792648800}}}`
+		const newWindow = `{"rate_limits":{"seven_day":{"used_percentage":12,"resets_at":1792648800}}}`
+		home := writeClaudeJSON(t, `{"oauthAccount":{"accountUuid":"au-max"}}`)
+		env := testEnv(map[string]string{"HOME": home})
+		cfg := Config{BaseConfigured: true, Base: "http://x", Token: "t", MemberID: "kyle", AgentsRoot: t.TempDir()}
+		var out, errOut bytes.Buffer
+		cmdContextReport(&fakeHTTP{status: 200, body: "{}"}, cfg, env, 1000, strings.NewReader(oldWindow), &out, &errOut)
+		throttled := &fakeHTTP{status: 200, body: "{}"}
+		cmdContextReport(throttled, cfg, env, 1010, strings.NewReader(newWindow), &out, &errOut)
+		if throttled.seen != nil {
+			t.Fatalf("sent %q inside the throttle window, want nothing", throttled.seen)
+		}
+		if err := os.WriteFile(filepath.Join(home, ".claude", ".claude.json"),
+			[]byte(`{"oauthAccount":{"accountUuid":"au-ent"}}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		client := &fakeHTTP{status: 200, body: "{}"}
+
+		cmdContextReport(client, cfg, env, 1100, strings.NewReader(newWindow), &out, &errOut)
+
+		want := []string{`POST /api/monitoring/telemetry {"runtime":"claude",` +
+			`"rate_limits":{"seven_day":{"used_percentage":12,"resets_at":1792648800}},` +
+			`"account":"au-max","machine":"m-server-self"}`}
+		if !reflect.DeepEqual(client.seen, want) {
+			t.Errorf("sent %q, want %q", client.seen, want)
 		}
 	})
 
