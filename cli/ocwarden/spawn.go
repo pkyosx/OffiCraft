@@ -839,11 +839,11 @@ func (d SpawnDeps) start(p StartParams) SpawnOutcome {
 		}
 	}
 
+	// ⚠️ Trusts the session_already_exists guard above: a broken session probe
+	// (nil) lets this reap hit a live member's listener or App Server.
+	d.reapWorkdirListeners(p.MemberID, workdir)
 	var attemptFlags []hooksModulesFlag
 	if runtimeName == "claude" {
-		// ⚠️ Trusts the session_already_exists guard above: a broken session probe
-		// (nil) lets this reap hit a live member's listener.
-		d.reapWorkdirListeners(p.MemberID, workdir)
 		attemptFlags = append(attemptFlags, d.logHooksModulesFlag(p.MemberID, "attempt 1/2"))
 	}
 	if err := tmuxNewSession(d.Runner, socket, session, command); err != nil {

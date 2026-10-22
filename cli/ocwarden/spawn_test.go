@@ -1979,8 +1979,8 @@ func TestStart(t *testing.T) {
 			stuck bool
 			log   string
 		}{
-			{"reaped", false, "m1: reaped 2 leftover ocagent process(es) in /w/m1"},
-			{"still alive", true, "m1: 2 leftover ocagent process(es) in /w/m1 did not exit; spawning anyway"},
+			{"reaped", false, "m1: reaped 2 leftover ocagent/codex process(es) in /w/m1"},
+			{"still alive", true, "m1: 2 leftover ocagent/codex process(es) in /w/m1 did not exit; spawning anyway"},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				h := newSpawnHarness()

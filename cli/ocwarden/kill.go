@@ -122,7 +122,7 @@ const (
 )
 
 type sweepSeams struct {
-	// production: ocagentPIDsByCwd
+	// production: memberPIDsByCwd
 	listenPIDs func(workdir string) []int
 	workdir    string
 	sleep      func(time.Duration)
@@ -197,10 +197,12 @@ func sweepPIDs(pids []int, kill killFunc, sleep func(time.Duration)) bool {
 	return false
 }
 
-// Matching by cwd works because the spawn shim and the listener both cd into
-// the member's own workdir before exec; other members' listeners never match.
-func ocagentPIDsByCwd(r CmdRunner, workdir string) []int {
-	out, err := r.Run("lsof", "-a", "-c", "ocagent", "-d", "cwd", "-F", "pn")
+// Matching by cwd works because the spawn shim, the listener and the Codex App
+// Server all start in the member's own workdir; other members' never match. The
+// App Server runs in its own process group with no stdin to lose, so a sidecar
+// that died without stopping it leaves it running until this sweep.
+func memberPIDsByCwd(r CmdRunner, workdir string) []int {
+	out, err := r.Run("lsof", "-a", "-c", "ocagent", "-c", "codex", "-d", "cwd", "-F", "pn")
 	if err != nil {
 		return nil
 	}
@@ -261,6 +263,9 @@ func stop(r CmdRunner, socket, session string, kill killFunc, getpgid pgidFunc, 
 		killed = killSession(r, socket, session)
 	}
 	swept := sweepPIDs(snap, kill, sw.sleep)
+	if swept && sw.workdir != "" {
+		removeCodexAppServerSocket(codexAppServerSocketPath(sw.workdir))
+	}
 	stopped = killed && swept
 	noop = stopped && positivelyAbsent && len(snap) == 0
 	if sw.purgeTrash != nil {

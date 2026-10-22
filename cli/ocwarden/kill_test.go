@@ -455,11 +455,11 @@ func TestSweepPIDs(t *testing.T) {
 }
 
 func TestOcagentPIDsByCwd(t *testing.T) {
-	const lsofCmd = "lsof -a -c ocagent -d cwd -F pn"
+	const lsofCmd = "lsof -a -c ocagent -c codex -d cwd -F pn"
 	out := "p101\nfcwd\nn/Users/eva/.officraft/agents/m1\np102\nn/Users/eva/.officraft/agents/m2\np103\nn/Users/eva/.officraft/agents/m1\n"
 
 	r := &wardenRunner{script: map[string]wardenRun{lsofCmd: {out: out}}}
-	got := ocagentPIDsByCwd(r, "/Users/eva/.officraft/agents/m1")
+	got := memberPIDsByCwd(r, "/Users/eva/.officraft/agents/m1")
 	if want := []int{101, 103}; !reflect.DeepEqual(got, want) {
 		t.Errorf("pids = %v, want %v", got, want)
 	}
@@ -467,17 +467,17 @@ func TestOcagentPIDsByCwd(t *testing.T) {
 		t.Errorf("calls = %v, want %v", r.calls, []string{lsofCmd})
 	}
 
-	if got := ocagentPIDsByCwd(&wardenRunner{script: map[string]wardenRun{lsofCmd: {out: out}}},
+	if got := memberPIDsByCwd(&wardenRunner{script: map[string]wardenRun{lsofCmd: {out: out}}},
 		"/Users/eva/.officraft/agents/m1/"); !reflect.DeepEqual(got, []int{101, 103}) {
 		t.Errorf("a trailing slash must still match, got %v", got)
 	}
 
-	if got := ocagentPIDsByCwd(&wardenRunner{script: map[string]wardenRun{lsofCmd: {out: out}}},
+	if got := memberPIDsByCwd(&wardenRunner{script: map[string]wardenRun{lsofCmd: {out: out}}},
 		"/Users/eva/.officraft/agents/m9"); got != nil {
 		t.Errorf("another member's workdir matches nothing, got %v", got)
 	}
 
-	if got := ocagentPIDsByCwd(&wardenRunner{fallback: wardenRun{err: errors.New("exit status 1")}},
+	if got := memberPIDsByCwd(&wardenRunner{fallback: wardenRun{err: errors.New("exit status 1")}},
 		"/Users/eva/.officraft/agents/m1"); got != nil {
 		t.Errorf("a failed lsof reads nil, got %v", got)
 	}
@@ -485,7 +485,7 @@ func TestOcagentPIDsByCwd(t *testing.T) {
 	orphan := &wardenRunner{script: map[string]wardenRun{lsofCmd: {
 		out: "pX\nn/Users/eva/.officraft/agents/m1\np0\nn/Users/eva/.officraft/agents/m1\n",
 	}}}
-	if got := ocagentPIDsByCwd(orphan, "/Users/eva/.officraft/agents/m1"); got != nil {
+	if got := memberPIDsByCwd(orphan, "/Users/eva/.officraft/agents/m1"); got != nil {
 		t.Errorf("a cwd line with no valid pid before it is dropped, got %v", got)
 	}
 
@@ -499,7 +499,7 @@ func TestOcagentPIDsByCwd(t *testing.T) {
 		t.Fatalf("evalsymlinks: %v", err)
 	}
 	sym := &wardenRunner{script: map[string]wardenRun{lsofCmd: {out: "p104\nn" + resolved + "\n"}}}
-	if got := ocagentPIDsByCwd(sym, link); !reflect.DeepEqual(got, []int{104}) {
+	if got := memberPIDsByCwd(sym, link); !reflect.DeepEqual(got, []int{104}) {
 		t.Errorf("the kernel-resolved cwd must match the symlinked workdir, got %v", got)
 	}
 }

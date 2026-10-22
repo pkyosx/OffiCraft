@@ -304,9 +304,9 @@ func (d SpawnDeps) reapWorkdirListeners(memberID, workdir string) {
 	found, cleared := d.ReapWorkdirListeners(workdir)
 	switch {
 	case found > 0 && cleared:
-		d.logf("%s: reaped %d leftover ocagent process(es) in %s", memberID, found, workdir)
+		d.logf("%s: reaped %d leftover ocagent/codex process(es) in %s", memberID, found, workdir)
 	case found > 0:
-		d.logf("%s: %d leftover ocagent process(es) in %s did not exit; spawning anyway", memberID, found, workdir)
+		d.logf("%s: %d leftover ocagent/codex process(es) in %s did not exit; spawning anyway", memberID, found, workdir)
 	}
 }
 

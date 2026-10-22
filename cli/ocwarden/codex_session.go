@@ -8,6 +8,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -19,9 +20,11 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -65,6 +68,7 @@ func buildCodexLaunchCommand(wardenBin, codexBin, workdir, personaFile, tokenFil
 		"--agent-id", shellQuote(agentID),
 		"--model", shellQuote(model),
 		"--effort", shellQuote(launchEffort),
+		"--log", shellQuote(filepath.Join(workdir, codexSessionLogName)),
 	}
 	return cd + exports + "exec " + strings.Join(parts, " ")
 }
@@ -994,6 +998,7 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 	agentID := fs.String("agent-id", "", "")
 	model := fs.String("model", "", "")
 	effort := fs.String("effort", "medium", "")
+	logPath := fs.String("log", "", "")
 	if fs.Parse(argv) != nil || *codexBin == "" || *workdir == "" || *persona == "" {
 		fmt.Fprintln(out, "codex-session: missing required launch parameters")
 		return 2
@@ -1003,32 +1008,51 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 		fmt.Fprintf(out, "codex-session: no boot file at %s, refusing to boot without one\n", *persona)
 		return 2
 	}
-	cmd := exec.Command(*codexBin, "app-server")
+	term := out
+	if *logPath != "" {
+		logFile, err := openCodexSessionLog(*logPath)
+		if err != nil {
+			fmt.Fprintf(out, "codex-session: log: %v\n", err)
+			return 1
+		}
+		defer logFile.Close()
+		out = logFile
+		fmt.Fprintf(term, "OffiCraft：Codex 啟動中，開機第一輪開始後這裡會顯示 Codex 畫面。轉接程式記錄在 %s\n", *logPath)
+	}
+	// Caught, not ignored: an ignored signal stays ignored in every child, and
+	// the TUI needs its own. Between two TUI runs the pane is a cooked terminal,
+	// where a stray Ctrl-C would otherwise end the whole member.
+	signals := make(chan os.Signal, 4)
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGHUP, syscall.SIGTERM)
+	defer signal.Stop(signals)
+	socketPath := codexAppServerSocketPath(*workdir)
+	removeCodexAppServerSocket(socketPath)
+	cmd := exec.Command(*codexBin, "app-server", "--listen", "unix://"+socketPath)
 	cmd.Dir = *workdir
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		fmt.Fprintf(out, "codex-session: stdin: %v\n", err)
-		return 1
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		fmt.Fprintf(out, "codex-session: stdout: %v\n", err)
-		return 1
-	}
+	cmd.Stdout = out
 	cmd.Stderr = out
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
 		fmt.Fprintf(out, "codex-session: start app-server: %v\n", err)
 		return 1
 	}
-	defer func() {
-		_ = cmd.Process.Kill()
+	appServerExited := make(chan struct{})
+	go func() {
 		_ = cmd.Wait()
+		close(appServerExited)
 	}()
+	defer stopCodexAppServer(cmd.Process.Pid, appServerExited, socketPath)
+	conn, err := waitForCodexAppServer(socketPath, appServerExited)
+	if err != nil {
+		fmt.Fprintf(out, "codex-session: connect app-server: %v\n", err)
+		return 1
+	}
+	defer conn.Close()
 	// Normalised again on purpose: --effort can come from anywhere, not only
 	// buildCodexLaunchCommand.
 	sessionEffort, recognisedEffort := normalizeCodexEffort(*effort)
 	s := &codexSession{
-		in: stdin, messages: codexAppReader(stdout), nextID: 0,
+		in: conn, messages: conn.messages(), nextID: 0,
 		base: normalizeBase(env(baseEnv)), token: env(tokenEnv), workdir: *workdir,
 		model: *model, effort: sessionEffort, account: codexAccountKey(), out: out,
 	}
@@ -1065,6 +1089,8 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 		"developerInstructions": codexPersonaInstruction(*persona, string(personaBytes), *model),
 		"config": map[string]any{
 			"features": map[string]any{"default_mode_request_user_input": false},
+			// Without it the TUI shows no reasoning at all, at any effort.
+			"model_reasoning_summary": "detailed",
 			"mcp_servers": map[string]any{"officraft": map[string]any{
 				"url":          strings.TrimRight(s.base, "/") + "/api/mcp",
 				"http_headers": map[string]any{"Authorization": "Bearer " + s.token},
@@ -1101,8 +1127,24 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 			_ = listenerCmd.Process.Kill()
 		}
 	}()
+	tuiCtx, stopTUI := context.WithCancel(context.Background())
+	tuiDone := make(chan struct{})
+	tuiStarted := false
+	defer func() {
+		stopTUI()
+		if tuiStarted {
+			<-tuiDone
+		}
+	}()
 	for s.messages != nil {
 		select {
+		case sig := <-signals:
+			if sig == syscall.SIGINT || sig == syscall.SIGQUIT {
+				s.activity("ignored %v from the terminal; close the Codex screen to reopen it", sig)
+				continue
+			}
+			s.activity("received %v; stopping the App Server", sig)
+			return 1
 		case <-identityHeartbeat.C:
 			s.reportIdentity()
 		case line, ok := <-listenerLines:
@@ -1147,6 +1189,16 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 				s.active = true
 				s.turnID = nestedString(params, "turn", "id")
 				s.confirmStartedTurn()
+				// Not before: `codex resume` refuses a thread that has no turn yet.
+				if !tuiStarted {
+					tuiStarted = true
+					go func() {
+						defer close(tuiDone)
+						runCodexTUI(tuiCtx, func(ctx context.Context) *exec.Cmd {
+							return codexTUICommand(ctx, *codexBin, *workdir, s.threadID, socketPath)
+						}, term, sleepUntil)
+					}()
+				}
 			case "turn/completed":
 				s.active = false
 				s.turnID = ""
@@ -1157,6 +1209,7 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 					listenerCmd = exec.Command(filepath.Join(*workdir, "ocagent"), "listen", "--"+listenCodexFlag)
 					listenerCmd.Dir = *workdir
 					listenerCmd.Stderr = out
+					listenerCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 					// The one runtime signal that this listener's stdout is not an
 					// agent transcript: every guess the listener could make is wrong
 					// in some configuration, and a wrong guess is a drain that waits

@@ -447,13 +447,13 @@ func buildSpawnDeps(cfg Config, env func(string) string, runner CmdRunner, socke
 		ModTime:           fileModTime,
 		Now:               time.Now,
 		ReapWorkdirListeners: func(workdir string) (int, bool) {
-			pids := ocagentPIDsByCwd(runner, workdir)
+			pids := memberPIDsByCwd(runner, workdir)
 			return len(pids), sweepPIDs(pids, realKill, spawnSleep)
 		},
 		// The same ladder as the Stop verb, minus the trash purge.
 		StopAttempt: func(socket, session, workdir string) bool {
 			stopped, _ := stop(runner, socket, session, realKill, realGetpgid, sweepSeams{
-				listenPIDs: func(wd string) []int { return ocagentPIDsByCwd(runner, wd) },
+				listenPIDs: func(wd string) []int { return memberPIDsByCwd(runner, wd) },
 				workdir:    workdir,
 				sleep:      spawnSleep,
 			})
@@ -499,7 +499,7 @@ func buildCommandDeps(cfg Config, env func(string) string, runner CmdRunner, lau
 				root = ""
 			}
 			return stop(runner, socket, session, realKill, realGetpgid, sweepSeams{
-				listenPIDs: func(wd string) []int { return ocagentPIDsByCwd(runner, wd) },
+				listenPIDs: func(wd string) []int { return memberPIDsByCwd(runner, wd) },
 				workdir:    workdir,
 				sleep:      spawnSleep,
 				purgeTrash: func() { purgeTrash(root, workdir, stderrLogf) },
