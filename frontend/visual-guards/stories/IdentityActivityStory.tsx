@@ -23,6 +23,21 @@ import "../../src/components/office.css";
 import "../../src/components/member-detail.css";
 
 const LONG_NAME = "Eva Rhapsody Inbox Supervisor";
+const LONG_WAITS: MemberActivity["waits"] = [
+  {
+    kind: "background_command",
+    description:
+      "cd /Users/eva/.officraft/agents/ow-691b883dc2da/work/t-492-mobile/frontend && npx vite --port 5391 --strictPort --host 127.0.0.1 > /private/tmp/claude-501/-Users-eva--officraft-agents-ow-691b883dc2da/2c6e103e-787e-4fa5-943e-148a8d6d8008/scratchpad/vite.log 2>&1",
+    nextTs: null,
+    recurring: false,
+  },
+  {
+    kind: "background_command",
+    description: "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a089f86d081884c7d659a2feaa0c55ad015",
+    nextTs: null,
+    recurring: false,
+  },
+];
 
 function activityOf(state: MemberActivity["state"], now: number): MemberActivity {
   if (state === "idle") return { state, busySince: null, subagents: [], waits: [] };
@@ -112,15 +127,18 @@ export function IdentityActivityStory({
   mobile,
   warning = false,
   mixed = false,
+  longWaits = false,
 }: {
   surface: "list" | "header" | "detail" | "card" | "glyphs";
   state: MemberActivity["state"];
   mobile: boolean;
   warning?: boolean;
   mixed?: boolean;
+  longWaits?: boolean;
 }) {
   const now = Date.now() / 1000;
-  const activity = activityOf(state, now);
+  const base = activityOf(state, now);
+  const activity = longWaits ? { ...base, waits: [...base.waits, ...LONG_WAITS] } : base;
   const warned = (m: Member): Member =>
     warning
       ? { ...m, runtimeLoginWarnings: [{ machineId: "mc-1", machineName: "eva-mbp", runtime: "claude", pending: false }] }
