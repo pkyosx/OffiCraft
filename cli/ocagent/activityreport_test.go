@@ -115,7 +115,7 @@ func TestCmdActivityReport(t *testing.T) {
 		}
 	})
 
-	t.Run("a nested sub-agent that stops to wait for its child keeps its start time when it resumes, even across the main Stop", func(t *testing.T) {
+	t.Run("a sub-agent with no listed child under it is dropped when it stops, and keeps its start time when it resumes, even across the main Stop", func(t *testing.T) {
 		srv, posts := contextServer(t)
 		cfg := newCfg(t, srv.URL)
 		tasks := `"background_tasks":[` +
