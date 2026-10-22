@@ -57,7 +57,9 @@ type listener struct {
 	taskSnaps map[string]taskSnap
 	once      bool
 	// False under the Codex sidecar, which reports activity itself.
-	activityHooks bool
+	activityHooks      bool
+	activityAPI        httpClient
+	activityFlushEvery time.Duration
 }
 
 // Copy-twin of ocwarden newSSEClient.
@@ -353,7 +355,7 @@ func (l *listener) connectOnce(ctx context.Context) (opened, activity, selfExit 
 		l.cfg.Base, eventsPath, baseAddressOrigin(l.cfg), verdict, station, agent)
 
 	if l.activityHooks {
-		reannounceActivity(l.api, l.cfg)
+		reannounceActivity(l.activityAPI, l.cfg, float64(l.clock().UnixNano())/1e9)
 	}
 	drainReplyCards(l.api, l.cfg, l.replySeen, l.out)
 	l.drainChatNow()
@@ -388,6 +390,18 @@ func (l *listener) drainChatNow() int {
 func (l *listener) run(ctx context.Context) int {
 	// 🔴 No chat drain at process start — only on connect (owner ruling
 	// 2026-09-02): a boot drain makes a machine whose stream never opens look healthy.
+	if l.activityHooks && l.activityFlushEvery > 0 {
+		flushCtx, stopFlush := context.WithCancel(ctx)
+		flushed := make(chan struct{})
+		go func() {
+			l.flushActivityEvery(flushCtx)
+			close(flushed)
+		}()
+		defer func() {
+			stopFlush()
+			<-flushed
+		}()
+	}
 	backoff := l.backoffStart
 	for {
 		if ctx.Err() != nil {
@@ -441,6 +455,19 @@ func (l *listener) run(ctx context.Context) int {
 			return l.stopRetrying("this process is shutting down")
 		}
 		backoff = nextBackoff(backoff, l.backoffStart, l.backoffCap, l.jitter())
+	}
+}
+
+func (l *listener) flushActivityEvery(ctx context.Context) {
+	ticker := time.NewTicker(l.activityFlushEvery)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			flushActivity(l.activityAPI, l.cfg, float64(l.clock().UnixNano())/1e9)
+		}
 	}
 }
 
@@ -505,7 +532,10 @@ func newListener(cfg Config, env func(string) string, out io.Writer, once bool, 
 		replySeen:         loadReplyCardSeen(replyCardSeenPath(cfg)),
 		taskSnaps:         map[string]taskSnap{},
 		once:              once,
-		activityHooks:     activityHooks,
+
+		activityHooks:      activityHooks,
+		activityAPI:        newActivityClient(),
+		activityFlushEvery: activityFlushInterval,
 	}
 }
 

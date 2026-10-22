@@ -8,11 +8,11 @@ import (
 	"testing"
 )
 
-// TestActivityReportUplinkBodies drives the real hook and the reconnect
-// re-announce and compares every body they put on the wire, nested sub-agent and
-// wait items included, against the frozen schema: the server decodes with
-// DisallowUnknownFields, so one undeclared key loses the report while the hook
-// still exits 0.
+// TestActivityReportUplinkBodies drives the real hook, whose send the reconnect
+// re-announce and the listener's flush share, and compares its body, nested
+// sub-agent and wait items included, against the frozen schema: the server
+// decodes with DisallowUnknownFields, so one undeclared key loses the report
+// while the hook still exits 0.
 func TestActivityReportUplinkBodies(t *testing.T) {
 	declared := frozenIngestProperties(t, "AgentActivityIngestDTO")
 	subagentDeclared := frozenIngestProperties(t, "AgentActivitySubagentDTO")
@@ -63,18 +63,11 @@ func TestActivityReportUplinkBodies(t *testing.T) {
 			`"session_crons":[{"id":"c1","schedule":"0 * * * *","recurring":true,"prompt":"check CI"}]`)), &errOut)
 	hook := check("hook", before)
 
-	before = len(*posts)
-	reannounceActivity(srv.Client(), cfg)
-	reannounce := check("reannounce", before)
-
 	want := `{"busy":true,"busy_since":1000,` +
 		`"subagents":[{"name":"Explore","description":"survey the repo","started_ts":1001}],` +
 		`"waits":[{"kind":"background_command","description":"npm test"},{"kind":"schedule","description":"check CI"}]}`
 	if hook.body != want {
 		t.Errorf("hook body =\n  %s\nwant\n  %s", hook.body, want)
-	}
-	if reannounce.body != want {
-		t.Errorf("re-announce body =\n  %s\nwant\n  %s", reannounce.body, want)
 	}
 
 	committed := manifestUplinkPaths(t, "cli/ocagent/activityreport_wire_test.go")

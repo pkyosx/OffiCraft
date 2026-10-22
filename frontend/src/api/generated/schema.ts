@@ -4460,7 +4460,7 @@ export interface components {
             busy: boolean;
             /**
              * Busy Since
-             * @description Epoch seconds the main agent's current turn started, by the reporting machine's clock. Ignored when ``busy`` is false.
+             * @description Epoch seconds the main agent's current turn started, by the reporting machine's clock. Ignored when ``busy`` is false; when omitted under ``busy`` the station dates the turn by its first report.
              * @default null
              */
             busy_since: number | null;
@@ -6763,7 +6763,7 @@ export interface components {
         MemberActivityDTO: {
             /**
              * Busy Since
-             * @description Epoch seconds the main agent's current turn started, by the member machine's clock; null while the main agent is not handling a turn, which under ``busy`` means only sub-agents are running.
+             * @description Epoch seconds the main agent's current turn started: the reporter's clock, or the station's (the turn's first report) when the reporter sent none. Null exactly when the main agent is not handling a turn, which under ``busy`` means only sub-agents are running.
              * @default null
              */
             busy_since: number | null;

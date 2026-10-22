@@ -1947,7 +1947,37 @@ func TestCodexSessionTrackActivity(t *testing.T) {
 		}
 	})
 
-	t.Run("a sub-agent thread reported no longer active is removed, but only once it was counted", func(t *testing.T) {
+	t.Run("once the main turn ends, a finished sub-agent woken later counts from then and is named again", func(t *testing.T) {
+		s, fake, now := newSession(t)
+		s.lastActivity = `{"busy":false,"busy_since":null,"subagents":[],"waits":[]}`
+
+		s.trackActivity("item/started", map[string]any{"threadId": "th_1", "item": map[string]any{
+			"type": "subAgentActivity", "agentThreadId": "th_sub", "agentPath": "/root/explorer"}})
+		s.trackActivity("turn/started", map[string]any{"threadId": "th_sub"})
+		s.trackActivity("turn/started", map[string]any{"threadId": "th_other"})
+		s.trackActivity("turn/completed", map[string]any{"threadId": "th_sub"})
+		s.trackActivity("turn/completed", map[string]any{"threadId": "th_1"})
+		*now = now.Add(4 * time.Hour)
+		s.trackActivity("turn/started", map[string]any{"threadId": "th_sub"})
+		s.trackActivity("turn/completed", map[string]any{"threadId": "th_other"})
+		s.trackActivity("turn/started", map[string]any{"threadId": "th_other"})
+
+		later := float64(1720000000 + 4*3600)
+		other := activitySubagentItem("sub-agent", 1720000000)
+		want := []codexPost{
+			activityPost(activitySnapshot(nil, activitySubagentItem("explorer", 1720000000))),
+			activityPost(activitySnapshot(nil, other, activitySubagentItem("explorer", 1720000000))),
+			activityPost(activitySnapshot(nil, other)),
+			activityPost(activitySnapshot(nil, other, activitySubagentItem("sub-agent", later))),
+			activityPost(activitySnapshot(nil, activitySubagentItem("sub-agent", later))),
+			activityPost(activitySnapshot(nil, other, activitySubagentItem("sub-agent", later))),
+		}
+		if !reflect.DeepEqual(fake.posts, want) {
+			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
+		}
+	})
+
+	t.Run("a sub-agent thread reported no longer active is removed, and an earlier idle does not block its next turn", func(t *testing.T) {
 		idle := map[string]any{"threadId": "th_sub", "status": map[string]any{"type": "idle"}}
 		started := activityPost(activitySnapshot(nil, activitySubagentItem("sub-agent", 1720000000)))
 		cases := []struct {

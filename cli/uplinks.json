@@ -86,23 +86,32 @@
       "wire_case": "hook"
     },
     {
-      "id": "ocagent-activity-reannounce",
-      "source": "cli/ocagent/activityreport.go",
-      "callsite": "postActivity(client, cfg, state, io.Discard)",
-      "kind": "json",
-      "method": "post",
-      "path": "/api/agent/activity",
-      "request_schema": "#/components/schemas/AgentActivityIngestDTO",
-      "wire_test": "cli/ocagent/activityreport_wire_test.go",
-      "wire_needle": "reannounce := check(\"reannounce\", before)",
-      "wire_case": "reannounce"
-    },
-    {
       "id": "ocagent-activity-post-seam",
       "source": "cli/ocagent/activityreport.go",
       "callsite": "status, detail := httpRequest(client, http.MethodPost, cfg.Base+activityPath, cfg.Token, newActivityBody(s))",
       "kind": "seam",
-      "seam_reason": "postActivity's own send: ocagent-activity-hook and ocagent-activity-reannounce travel through it and are compared there."
+      "seam_reason": "postActivity's own send: ocagent-activity-hook travels through it and is compared there."
+    },
+    {
+      "id": "ocagent-activity-send-hook",
+      "source": "cli/ocagent/activityreport.go",
+      "callsite": "sendActivity(client, cfg, state, now, errOut)",
+      "kind": "seam",
+      "seam_reason": "hop: the hook's send through sendActivity to postActivity, declared by ocagent-activity-hook"
+    },
+    {
+      "id": "ocagent-activity-send-reannounce",
+      "source": "cli/ocagent/activityreport.go",
+      "callsite": "if state, ok := loadActivityState(activityStatePath(cfg)); ok {\n\t\t\tsendActivity(client, cfg, state, now, io.Discard)",
+      "kind": "seam",
+      "seam_reason": "hop: the reconnect re-announce sends the stored snapshot through sendActivity; the body is newActivityBody's, compared by ocagent-activity-hook"
+    },
+    {
+      "id": "ocagent-activity-send-flush",
+      "source": "cli/ocagent/activityreport.go",
+      "callsite": "return\n\t\t}\n\t\tsendActivity(client, cfg, state, now, io.Discard)",
+      "kind": "seam",
+      "seam_reason": "hop: the listener's flush retries an unsent snapshot through sendActivity; the body is newActivityBody's, compared by ocagent-activity-hook"
     },
     {
       "id": "ocagent-request-seam",
@@ -498,9 +507,23 @@
     {
       "id": "ocagent-connect-reannounce-activity",
       "source": "cli/ocagent/listen_run.go",
-      "callsite": "reannounceActivity(l.api, l.cfg)",
+      "callsite": "reannounceActivity(l.activityAPI, l.cfg, float64(l.clock().UnixNano())/1e9)",
       "kind": "seam",
       "seam_reason": "hop: every connect of a listener whose session runs the Claude activity hooks re-sends the last activity snapshot, declared by ocagent-activity-reannounce"
+    },
+    {
+      "id": "ocagent-listen-activity-flush",
+      "source": "cli/ocagent/listen_run.go",
+      "callsite": "flushActivity(l.activityAPI, l.cfg, float64(l.clock().UnixNano())/1e9)",
+      "kind": "seam",
+      "seam_reason": "hop: the listener's timer retries an unsent activity snapshot, declared by ocagent-activity-hook"
+    },
+    {
+      "id": "ocagent-listen-activity-flush-loop",
+      "source": "cli/ocagent/listen_run.go",
+      "callsite": "l.flushActivityEvery(flushCtx)",
+      "kind": "seam",
+      "seam_reason": "hop: starts the flush timer whose send is ocagent-listen-activity-flush"
     },
     {
       "id": "ocagent-cmd-download",

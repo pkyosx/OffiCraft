@@ -31,6 +31,8 @@ const activityPath = "/api/agent/activity"
 // The hooks are synchronous: a hung station holds up the member's turn.
 const activityReportTimeout = 2 * time.Second
 
+const activityFlushInterval = 30 * time.Second
+
 const (
 	activityNameMax        = 80
 	activityDescriptionMax = 200
@@ -57,6 +59,8 @@ type activityState struct {
 	// A sub-agent that ends a turn to wait for its own child stops and later
 	// starts again under the same id; this keeps its original start time.
 	Paused map[string]float64 `json:"paused,omitempty"`
+	// The station has not accepted this snapshot; `listen` retries it.
+	Unsent bool `json:"unsent,omitempty"`
 }
 
 type activitySubagentBody struct {
@@ -100,24 +104,22 @@ func cmdActivityReport(client httpClient, cfg Config, now float64, stdin io.Read
 		if !applyActivityHook(&state, in, now) {
 			return
 		}
-		writeActivityState(activityStatePath(cfg), state)
 		_ = warnMissingBase(cfg, "activity-report", errOut)
 		if cfg.Token == "" || cfg.MemberID == "" {
+			writeActivityState(activityStatePath(cfg), state)
 			return
 		}
 		// Every hook of a turn waits on this lock, so an unreachable station
-		// costs one timeout per backoff window, not one per queued hook. The
-		// state file keeps moving; the next accepted POST carries it.
-		backoffPath := activityBackoffPath(cfg)
-		backoff := readReportBackoff(backoffPath)
-		if reportBackedOff(backoff, now) {
+		// costs one timeout per backoff window, not one per queued hook. A
+		// skipped snapshot is marked unsent for the listener's flush: Claude has
+		// no heartbeat, so a skipped Stop would otherwise leave the member busy
+		// on the station until its next prompt.
+		if reportBackedOff(readReportBackoff(activityBackoffPath(cfg)), now) {
+			state.Unsent = true
+			writeActivityState(activityStatePath(cfg), state)
 			return
 		}
-		if postActivity(client, cfg, state, errOut) {
-			clearReportBackoff(backoffPath)
-		} else {
-			writeReportBackoff(backoffPath, reportBackoffState{failures: backoff.failures + 1, lastAttempt: now})
-		}
+		sendActivity(client, cfg, state, now, errOut)
 	})
 	return 0
 }
@@ -128,22 +130,49 @@ func newActivityClient() *http.Client {
 
 // The station's activity is in memory only, so a listener that has just
 // (re)connected — possibly to a restarted station — sends the last snapshot
-// again. The caller skips it for a Codex listener: the sidecar reports for
-// itself, and a file left from when the member ran on Claude would be stale.
-func reannounceActivity(client httpClient, cfg Config) {
+// again, whatever the backoff says. The caller skips it for a Codex listener:
+// the sidecar reports for itself, and a file left from when the member ran on
+// Claude would be stale.
+func reannounceActivity(client httpClient, cfg Config, now float64) {
 	withActivityLock(cfg, func() {
-		raw, err := os.ReadFile(activityStatePath(cfg))
-		if err != nil {
-			return
-		}
-		var state activityState
-		if json.Unmarshal(raw, &state) != nil {
-			return
-		}
-		if postActivity(client, cfg, state, io.Discard) {
-			clearReportBackoff(activityBackoffPath(cfg))
+		if state, ok := loadActivityState(activityStatePath(cfg)); ok {
+			sendActivity(client, cfg, state, now, io.Discard)
 		}
 	})
+}
+
+// Run by the listener on a timer: retries a snapshot a hook could not send.
+func flushActivity(client httpClient, cfg Config, now float64) {
+	withActivityLock(cfg, func() {
+		state, ok := loadActivityState(activityStatePath(cfg))
+		if !ok || !state.Unsent || reportBackedOff(readReportBackoff(activityBackoffPath(cfg)), now) {
+			return
+		}
+		sendActivity(client, cfg, state, now, io.Discard)
+	})
+}
+
+// Callers hold the activity lock.
+func sendActivity(client httpClient, cfg Config, state activityState, now float64, errOut io.Writer) {
+	backoffPath := activityBackoffPath(cfg)
+	backoff := readReportBackoff(backoffPath)
+	if postActivity(client, cfg, state, errOut) {
+		clearReportBackoff(backoffPath)
+		state.Unsent = false
+	} else {
+		writeReportBackoff(backoffPath, reportBackoffState{failures: backoff.failures + 1, lastAttempt: now})
+		state.Unsent = true
+	}
+	writeActivityState(activityStatePath(cfg), state)
+}
+
+func loadActivityState(path string) (activityState, bool) {
+	var state activityState
+	raw, err := os.ReadFile(path)
+	if err != nil || json.Unmarshal(raw, &state) != nil {
+		return activityState{}, false
+	}
+	return state, true
 }
 
 // Reports false for an event that changes nothing.

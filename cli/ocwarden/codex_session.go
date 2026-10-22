@@ -626,17 +626,20 @@ func (s *codexSession) trackActivity(method string, params map[string]any) {
 	case "turn/completed":
 		if s.isMainThread(params) {
 			s.busySince = 0
+			// Like the Claude side's prune at Stop: a sub-agent the next main
+			// turn wakes again counts from then, not from its first-ever start.
+			for id := range s.subagentFirstStart {
+				if _, running := s.runningSubagents[id]; !running {
+					delete(s.subagentFirstStart, id)
+					delete(s.subagentNames, id)
+				}
+			}
 		} else {
 			delete(s.runningSubagents, threadID)
 		}
-	// A sub-agent thread that stops can end with only this, no turn/completed.
-	// An idle status can also arrive just before the thread's turn/started, so
-	// only a thread already counted is removed.
+	// Also a way out for a sub-agent thread that stops without a turn/completed.
 	case "thread/status/changed":
 		if statusType := nestedString(params, "status", "type"); statusType == "active" || statusType == "" {
-			return
-		}
-		if _, running := s.runningSubagents[threadID]; !running {
 			return
 		}
 		delete(s.runningSubagents, threadID)

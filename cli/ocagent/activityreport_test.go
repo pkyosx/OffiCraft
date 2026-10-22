@@ -259,7 +259,7 @@ func TestCmdActivityReport(t *testing.T) {
 					t.Errorf("stderr = %q, want %q", errOut, tc.wantErr)
 				}
 				if got, want := readFileString(t, statePath(cfg)),
-					`{"busy":true,"busy_since":1000,"subagents":[],"waits":[]}`+"\n"; got != want {
+					`{"busy":true,"busy_since":1000,"subagents":[],"waits":[],"unsent":true}`+"\n"; got != want {
 					t.Errorf("state file = %q, want %q", got, want)
 				}
 			})
@@ -273,6 +273,10 @@ func TestCmdActivityReport(t *testing.T) {
 		errOut := drive(t, cfg, client,
 			step{1000, activityHook("UserPromptSubmit", `"prompt":"hi"`)},
 			step{1010, activityHook("SubagentStart", `"agent_id":"a1","agent_type":"Explore"`)})
+		if got, want := readFileString(t, statePath(cfg)), `{"busy":true,"busy_since":1000,`+
+			`"subagents":[{"id":"a1","name":"Explore","description":"","started_ts":1010}],"waits":[],"unsent":true}`+"\n"; got != want {
+			t.Errorf("state file after the skipped report = %q, want %q", got, want)
+		}
 		client.err, client.status, client.body = nil, 200, `{}`
 		drive(t, cfg, client,
 			step{1029, activityHook("SubagentStop", `"agent_id":"a1","agent_type":"Explore"`)},
@@ -435,7 +439,7 @@ func TestReannounceActivity(t *testing.T) {
 			Waits:     []activityWait{{Kind: "background_command", Description: "npm test"}},
 		})
 
-		reannounceActivity(srv.Client(), cfg)
+		reannounceActivity(srv.Client(), cfg, 2000)
 
 		want := []capturedPost{{path: "/api/agent/activity", auth: "Bearer t", body: `{"busy":false,"busy_since":null,` +
 			`"subagents":[{"name":"Explore","description":"survey","started_ts":1001}],` +
@@ -445,14 +449,118 @@ func TestReannounceActivity(t *testing.T) {
 		}
 	})
 
+	t.Run("an accepted re-announce clears the backoff and a refused one sets it", func(t *testing.T) {
+		cfg := Config{BaseConfigured: true, Base: "http://x", Token: "t", MemberID: "kyle", AgentsRoot: t.TempDir()}
+		backoffPath := filepath.Join(cfg.AgentsRoot, "kyle", "activity.backoff")
+		writeActivityState(activityStatePath(cfg), activityState{Unsent: true})
+		writeReportBackoff(backoffPath, reportBackoffState{failures: 2, lastAttempt: 1990})
+
+		reannounceActivity(&fakeHTTP{status: 200, body: `{}`}, cfg, 2000)
+
+		if _, err := os.Stat(backoffPath); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("backoff record stat err = %v, want it cleared", err)
+		}
+		if got, want := readFileString(t, activityStatePath(cfg)),
+			`{"busy":false,"busy_since":null,"subagents":[],"waits":[]}`+"\n"; got != want {
+			t.Errorf("state file = %q, want %q", got, want)
+		}
+
+		reannounceActivity(&fakeHTTP{err: errors.New("connection refused")}, cfg, 2010)
+
+		if got, want := readFileString(t, backoffPath), "1 2010"; got != want {
+			t.Errorf("backoff record = %q, want %q", got, want)
+		}
+		if got, want := readFileString(t, activityStatePath(cfg)),
+			`{"busy":false,"busy_since":null,"subagents":[],"waits":[],"unsent":true}`+"\n"; got != want {
+			t.Errorf("state file = %q, want %q", got, want)
+		}
+	})
+
 	t.Run("a session that never ran a hook sends nothing", func(t *testing.T) {
 		srv, posts := contextServer(t)
 		cfg := Config{BaseConfigured: true, Base: srv.URL, Token: "t", MemberID: "kyle", AgentsRoot: t.TempDir()}
 
-		reannounceActivity(srv.Client(), cfg)
+		reannounceActivity(srv.Client(), cfg, 2000)
 
 		if len(*posts) != 0 {
 			t.Errorf("sent %+v, want nothing", *posts)
+		}
+	})
+}
+
+func TestFlushActivity(t *testing.T) {
+	newCfg := func(t *testing.T) Config {
+		return Config{BaseConfigured: true, Base: "http://x", Token: "t", MemberID: "kyle", AgentsRoot: t.TempDir()}
+	}
+	hook := func(cfg Config, client httpClient, now float64, input string) {
+		cmdActivityReport(client, cfg, now, strings.NewReader(input), io.Discard)
+	}
+
+	t.Run("a Stop skipped during the backoff reaches the station once the window passes", func(t *testing.T) {
+		cfg := newCfg(t)
+		client := &fakeHTTP{err: errors.New("context deadline exceeded")}
+		hook(cfg, client, 1000, activityHook("UserPromptSubmit", `"prompt":"hi"`))
+		client.err, client.status, client.body = nil, 200, `{}`
+		hook(cfg, client, 1020, activityHook("Stop", `"background_tasks":[],"session_crons":[]`))
+
+		flushActivity(client, cfg, 1025)
+		flushActivity(client, cfg, 1031)
+		flushActivity(client, cfg, 1061)
+
+		idle := "POST /api/agent/activity " + `{"busy":false,"busy_since":null,"subagents":[],"waits":[]}`
+		want := []string{"POST /api/agent/activity " + `{"busy":true,"busy_since":1000,"subagents":[],"waits":[]}`, idle}
+		if !reflect.DeepEqual(client.seen, want) {
+			t.Errorf("sent\n  %q\nwant\n  %q", client.seen, want)
+		}
+		if got, want := readFileString(t, activityStatePath(cfg)),
+			`{"busy":false,"busy_since":null,"subagents":[],"waits":[]}`+"\n"; got != want {
+			t.Errorf("state file = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("a hook skipped in the backoff window marks its snapshot unsent even when the state file was lost", func(t *testing.T) {
+		cfg := newCfg(t)
+		writeReportBackoff(filepath.Join(cfg.AgentsRoot, "kyle", "activity.backoff"), reportBackoffState{failures: 1, lastAttempt: 1000})
+		client := &fakeHTTP{status: 200, body: `{}`}
+		hook(cfg, client, 1010, activityHook("Stop", `"background_tasks":[],"session_crons":[]`))
+
+		flushActivity(client, cfg, 1030)
+
+		want := []string{"POST /api/agent/activity " + `{"busy":false,"busy_since":null,"subagents":[],"waits":[]}`}
+		if !reflect.DeepEqual(client.seen, want) {
+			t.Errorf("sent %q, want %q", client.seen, want)
+		}
+	})
+
+	t.Run("a snapshot the station already accepted is not sent again", func(t *testing.T) {
+		cfg := newCfg(t)
+		client := &fakeHTTP{status: 200, body: `{}`}
+		hook(cfg, client, 1000, activityHook("UserPromptSubmit", `"prompt":"hi"`))
+
+		flushActivity(client, cfg, 2000)
+
+		if len(client.seen) != 1 {
+			t.Errorf("sent %q, want only the hook's own report", client.seen)
+		}
+	})
+
+	t.Run("a flush the station refuses extends the backoff and stays unsent", func(t *testing.T) {
+		cfg := newCfg(t)
+		client := &fakeHTTP{err: errors.New("connection refused")}
+		hook(cfg, client, 1000, activityHook("UserPromptSubmit", `"prompt":"hi"`))
+
+		flushActivity(client, cfg, 1030)
+		flushActivity(client, cfg, 1060)
+
+		if len(client.seen) != 2 {
+			t.Errorf("sent %q, want the hook's report and one flush inside the doubled window", client.seen)
+		}
+		if got, want := readFileString(t, filepath.Join(cfg.AgentsRoot, "kyle", "activity.backoff")), "2 1030"; got != want {
+			t.Errorf("backoff record = %q, want %q", got, want)
+		}
+		if got, want := readFileString(t, activityStatePath(cfg)),
+			`{"busy":true,"busy_since":1000,"subagents":[],"waits":[],"unsent":true}`+"\n"; got != want {
+			t.Errorf("state file = %q, want %q", got, want)
 		}
 	})
 }
