@@ -1,5 +1,6 @@
 // The avatar-corner presence dot and the activity status icon (or, for a member
-// that is not online, the moon) leading the name on the list rows, the chat
+// that is not online, the moon; online without a report yet, the unknown mark)
+// leading the name on the list rows, the chat
 // header and the detail identity card, the 運作狀況 card's tree, and the dialog
 // the icon opens, at phone and desktop widths.
 // Every check compares boxes with each other in a real browser (CT pages lack
@@ -28,83 +29,65 @@ async function boxes(page: Page, root: string, sel: Record<string, string>) {
 const hscroll = (page: Page) =>
   page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 
-async function slotRows(page: Page) {
-  return page.evaluate(() =>
-    Array.from(document.querySelectorAll<HTMLElement>(".member-card, .outsource-row"))
-      .map((row) => ({ row, slot: row.querySelector<HTMLElement>(".activity-icon--slot") }))
-      .filter((r): r is { row: HTMLElement; slot: HTMLElement } => r.slot !== null)
-      .map(({ row, slot }) => {
-        const b = slot.getBoundingClientRect();
+type Still = "offline" | "unknown";
+
+async function stillIcons(page: Page, kind: Still) {
+  return page.evaluate(
+    (k) =>
+      Array.from(document.querySelectorAll<HTMLElement>(`.activity-icon--${k}`)).map((icon) => {
+        const b = icon.getBoundingClientRect();
         const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+        const glyph = icon.querySelector<HTMLElement>(`.activity-icon__glyph--${k}`)!;
+        const muted = document.createElement("span");
+        muted.style.color = "var(--color-text-muted)";
+        document.body.append(muted);
+        const mutedColor = getComputedStyle(muted).color;
+        muted.remove();
         return {
-          visibility: getComputedStyle(slot).visibility,
-          animations: [slot, ...Array.from(slot.querySelectorAll("*"))].map((el) => getComputedStyle(el).animationName),
-          centreOnSlot: slot.contains(hit),
-          centreInRow: row.contains(hit),
+          tag: icon.tagName,
+          tabIndex: icon.tabIndex,
+          visibility: getComputedStyle(icon).visibility,
+          opacity: getComputedStyle(icon).opacity,
+          glyph: glyph.querySelector("svg")!.getBoundingClientRect().toJSON() as Box,
+          color: getComputedStyle(glyph).color,
+          mutedColor,
+          cursor: getComputedStyle(icon).cursor,
+          animations: [icon, ...Array.from(icon.querySelectorAll("*"))].map((el) => getComputedStyle(el).animationName),
+          centreOnIcon: icon.contains(hit),
         };
       }),
+    kind,
   );
 }
 
-function expectInertSlots(slots: Awaited<ReturnType<typeof slotRows>>) {
-  expect(slots.length, "one slot row in each list").toBe(2);
-  for (const [i, s] of slots.entries()) {
-    const label = `slot ${i + 1}`;
-    expect(s.visibility, `${label}: hidden`).toBe("hidden");
-    expect(s.animations.every((name) => name === "none"), `${label}: nothing inside it animates (${s.animations.join(",")})`).toBe(true);
-    expect(s.centreOnSlot, `${label}: a tap at its centre passes through it`).toBe(false);
-    expect(s.centreInRow, `${label}: a tap at its centre lands on the row`).toBe(true);
-  }
-}
-
-async function moons(page: Page) {
-  return page.evaluate(() =>
-    Array.from(document.querySelectorAll<HTMLElement>(".activity-icon--offline")).map((moon) => {
-      const b = moon.getBoundingClientRect();
-      const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
-      const glyph = moon.querySelector<HTMLElement>(".activity-icon__glyph--offline")!;
-      const muted = document.createElement("span");
-      muted.style.color = "var(--color-text-muted)";
-      document.body.append(muted);
-      const mutedColor = getComputedStyle(muted).color;
-      muted.remove();
-      return {
-        tag: moon.tagName,
-        tabIndex: moon.tabIndex,
-        visibility: getComputedStyle(moon).visibility,
-        opacity: getComputedStyle(moon).opacity,
-        glyph: glyph.querySelector("svg")!.getBoundingClientRect().toJSON() as Box,
-        color: getComputedStyle(glyph).color,
-        mutedColor,
-        cursor: getComputedStyle(moon).cursor,
-        animations: [moon, ...Array.from(moon.querySelectorAll("*"))].map((el) => getComputedStyle(el).animationName),
-        centreOnMoon: moon.contains(hit),
-      };
-    }),
-  );
-}
-
-function expectStillMoons(list: Awaited<ReturnType<typeof moons>>, count: number) {
-  expect(list.length, "moons drawn").toBe(count);
+function expectStillIcons(list: Awaited<ReturnType<typeof stillIcons>>, count: number, noun: string) {
+  expect(list.length, `${noun}s drawn`).toBe(count);
   for (const [i, m] of list.entries()) {
-    const label = `moon ${i + 1}`;
+    const label = `${noun} ${i + 1}`;
     expect([m.tag, m.tabIndex], `${label}: a plain span out of the tab order, not a button`).toEqual(["SPAN", -1]);
     expect([m.visibility, m.opacity], `${label}: visible`).toEqual(["visible", "1"]);
     expect(m.glyph.width, `${label}: glyph drawn at 14px`).toBe(14);
     expect(m.color, `${label}: muted grey`).toBe(m.mutedColor);
     expect(m.cursor, `${label}: no pointer cursor`).toBe("default");
     expect(m.animations.every((name) => name === "none"), `${label}: nothing inside it animates (${m.animations.join(",")})`).toBe(true);
-    expect(m.centreOnMoon, `${label}: a pointer at its centre lands on it`).toBe(true);
+    expect(m.centreOnIcon, `${label}: a pointer at its centre lands on it`).toBe(true);
   }
 }
 
-async function expectMoonOnlyHints(page: Page, moon: string, word: string) {
-  await page.locator(moon).hover();
+const UNKNOWN_HINT = "狀態未知，成員重新啟動後就會顯示";
+
+async function expectHintOnly(page: Page, sel: string, word: string) {
+  await page.locator(sel).hover();
   await expect(page.getByRole("tooltip")).toHaveText(word);
-  await page.locator(moon).click();
+  await page.locator(sel).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(page.locator(moon)).not.toBeFocused();
-  await expect(page.locator(".activity-icon--offline.activity-icon--button, .activity-icon--offline button")).toHaveCount(0);
+  await expect(page.locator(sel)).not.toBeFocused();
+  expect(await page.evaluate(() => document.body.getAttribute("data-opened")), `${sel}: the click opened nothing`).toBeNull();
+  await expect(
+    page.locator(
+      ".activity-icon--offline.activity-icon--button, .activity-icon--offline button, .activity-icon--unknown.activity-icon--button, .activity-icon--unknown button",
+    ),
+  ).toHaveCount(0);
 }
 
 function expectCornerDot(dot: Box, avatar: Box, label: string) {
@@ -152,7 +135,7 @@ for (const width of [390, 1280]) {
       expect(await hscroll(page), "no page hscroll").toBeLessThanOrEqual(1);
     });
 
-    test(`width ${width}, ${state}: each list's icons share one x, an online row without activity keeps a hidden, still, click-through slot and an offline row a visible, still moon, so the names line up`, async ({ mount, page }) => {
+    test(`width ${width}, ${state}: each list's icons share one x, an online row without activity gets a visible, still unknown mark and an offline row a visible, still moon, so the names line up`, async ({ mount, page }) => {
       await page.setViewportSize({ width, height: 900 });
       await mount(<IdentityActivityStory surface="list" state={state} mobile={width < 720} />);
       const lists = [
@@ -165,8 +148,8 @@ for (const width of [390, 1280]) {
             Array.from(document.querySelectorAll(rowSel)).map((row) => {
               const icon = row.querySelector(".activity-icon")!;
               return {
-                kind: icon.classList.contains("activity-icon--slot")
-                  ? "slot"
+                kind: icon.classList.contains("activity-icon--unknown")
+                  ? "unknown"
                   : icon.classList.contains("activity-icon--offline")
                     ? "moon"
                     : "icon",
@@ -178,25 +161,58 @@ for (const width of [390, 1280]) {
         );
         expect(rows.map((r) => r.kind), `${l.row}: an online row without activity, then an offline row, last`).toEqual([
           ...Array(rows.length - 2).fill("icon"),
-          "slot",
+          "unknown",
           "moon",
         ]);
         const [first, ...rest] = rows;
         for (const [i, r] of rest.entries()) {
           const label = `${l.row} ${i + 2}`;
           expect(Math.abs(r.icon.left - first.icon.left), `${label}: icon at the first row's x`).toBeLessThanOrEqual(0.5);
-          expect(Math.abs(r.icon.width - first.icon.width), `${label}: icon, slot or moon as wide as the first row's icon`).toBeLessThanOrEqual(0.5);
+          expect(Math.abs(r.icon.width - first.icon.width), `${label}: icon, unknown mark or moon as wide as the first row's icon`).toBeLessThanOrEqual(0.5);
           expect(Math.abs(r.name.left - first.name.left), `${label}: name at the first row's x`).toBeLessThanOrEqual(0.5);
         }
       }
-      expectInertSlots(await slotRows(page));
-      expectStillMoons(await moons(page), 2);
-      await expectMoonOnlyHints(page, ".member-card .activity-icon--offline", "已停止");
-      await expectMoonOnlyHints(page, ".outsource-row .activity-icon--offline", "離線");
+      expectStillIcons(await stillIcons(page, "unknown"), 2, "unknown mark");
+      expectStillIcons(await stillIcons(page, "offline"), 2, "moon");
+      await expectHintOnly(page, ".member-card .activity-icon--unknown", UNKNOWN_HINT);
+      await expectHintOnly(page, ".outsource-row .activity-icon--unknown", UNKNOWN_HINT);
+      await expectHintOnly(page, ".member-card .activity-icon--offline", "已停止");
+      await expectHintOnly(page, ".outsource-row .activity-icon--offline", "離線");
     });
   }
 
-  test(`width ${width}: the chat header keeps its height with the icon or the offline moon before the ellipsized name, the dot sits on the avatar corner`, async ({ mount, page }) => {
+  test(`width ${width}: a list mixing every icon — star, hourglass, coffee, unknown mark, moon — keeps them and the names on one x`, async ({ mount, page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await mount(<IdentityActivityStory surface="list" state="busy" mobile={width < 720} mixed />);
+    for (const l of [
+      { row: ".member-card", name: ".member-card__name" },
+      { row: ".outsource-row", name: ".outsource-row__codename" },
+    ]) {
+      const rows = await page.evaluate(
+        ([rowSel, nameSel]) =>
+          Array.from(document.querySelectorAll(rowSel)).map((row) => {
+            const icon = row.querySelector(".activity-icon")!;
+            return {
+              glyph: icon.querySelector(".activity-icon__glyph")!.className.replace("activity-icon__glyph activity-icon__glyph--", ""),
+              icon: icon.getBoundingClientRect().toJSON() as Box,
+              name: row.querySelector(nameSel)!.getBoundingClientRect().toJSON() as Box,
+            };
+          }),
+        [l.row, l.name] as const,
+      );
+      expect(rows.map((r) => r.glyph), `${l.row}: one row per icon`).toEqual(["working", "waiting", "idle", "unknown", "offline"]);
+      const [first, ...rest] = rows;
+      for (const [i, r] of rest.entries()) {
+        const label = `${l.row} ${r.glyph}`;
+        expect(Math.abs(r.icon.left - first.icon.left), `${label}: icon at the star row's x`).toBeLessThanOrEqual(0.5);
+        expect(Math.abs(r.icon.width - first.icon.width), `${label}: as wide as the star row's icon`).toBeLessThanOrEqual(0.5);
+        expect(Math.abs(r.name.left - first.name.left), `${label}: name at the star row's x (row ${i + 2})`).toBeLessThanOrEqual(0.5);
+      }
+    }
+    expect(await hscroll(page), "no page hscroll").toBeLessThanOrEqual(1);
+  });
+
+  test(`width ${width}: the chat header keeps its height with the icon, the unknown mark or the offline moon before the ellipsized name, the dot sits on the avatar corner`, async ({ mount, page }) => {
     await page.setViewportSize({ width, height: 900 });
     await mount(<IdentityActivityStory surface="header" state="busy" mobile={width < 720} />);
     const withIcon = await boxes(page, '[data-testid="header-with"]', {
@@ -210,7 +226,8 @@ for (const width of [390, 1280]) {
     });
     const bare = await boxes(page, '[data-testid="header-without"]', {
       header: ":scope",
-      name: ".chat__header-name > span",
+      unknown: ".activity-icon--unknown",
+      name: ".chat__header-name > span:not(.activity-icon)",
       avatar: ".avatar",
     });
     const off = await boxes(page, '[data-testid="header-offline"]', {
@@ -223,14 +240,15 @@ for (const width of [390, 1280]) {
     expect(off.moon!.right, "moon before the name").toBeLessThanOrEqual(off.name!.left);
     expect(Math.abs(off.moon!.left - off.avatar!.right - (withIcon.icon!.left - withIcon.avatar!.right)), "moon where the icon sits").toBeLessThanOrEqual(0.5);
     expect(Math.abs(off.name!.left - withIcon.name!.left), "name where it sits after the icon").toBeLessThanOrEqual(0.5);
-    expectStillMoons(await moons(page), 1);
-    await expectMoonOnlyHints(page, '[data-testid="header-offline"] .activity-icon--offline', "離線");
+    expectStillIcons(await stillIcons(page, "offline"), 1, "moon");
+    await expectHintOnly(page, '[data-testid="header-offline"] .activity-icon--offline', "離線");
+    expect(Math.abs(bare.unknown!.left - bare.avatar!.right - (withIcon.icon!.left - withIcon.avatar!.right)), "unknown mark where the icon sits").toBeLessThanOrEqual(0.5);
+    expect(Math.abs(bare.name!.left - withIcon.name!.left), "name where it sits after the icon").toBeLessThanOrEqual(0.5);
+    expectStillIcons(await stillIcons(page, "unknown"), 1, "unknown mark");
+    await expectHintOnly(page, '[data-testid="header-without"] .activity-icon--unknown', UNKNOWN_HINT);
     expect(Math.abs(withIcon.header!.height - bare.header!.height), "header height unchanged by the icon").toBeLessThanOrEqual(0.5);
     expect(withIcon.icon!.right, "icon before the name").toBeLessThanOrEqual(withIcon.name!.left);
     expect(withIcon.dot!.right, "dot clear of the icon").toBeLessThanOrEqual(withIcon.icon!.left);
-    expect(bare.name!.left - bare.avatar!.right, "no slot without activity: the name sits where the icon would").toBeLessThan(
-      withIcon.icon!.right - withIcon.avatar!.right,
-    );
     const ellipsized = await page.evaluate(() => {
       const n = document.querySelector('[data-testid="header-with"] .chat__header-name > span:not(.activity-icon)') as HTMLElement;
       return { cut: n.scrollWidth > n.clientWidth, ellipsis: getComputedStyle(n).textOverflow };
@@ -243,7 +261,7 @@ for (const width of [390, 1280]) {
     expect(await hscroll(page), "no page hscroll").toBeLessThanOrEqual(1);
   });
 
-  test(`width ${width}: the detail identity card leads the name with the icon, offline with the moon, and online without activity the name takes its place`, async ({ mount, page }) => {
+  test(`width ${width}: the detail identity card leads the name with the icon, offline with the moon, and online without activity with the unknown mark`, async ({ mount, page }) => {
     await page.setViewportSize({ width, height: 900 });
     await mount(<IdentityActivityStory surface="detail" state="busy" mobile={width < 720} />);
     const withIcon = await boxes(page, '[data-testid="identity-with"]', {
@@ -254,20 +272,25 @@ for (const width of [390, 1280]) {
       glyph: ".activity-icon svg",
       name: ".mp-identity__name",
     });
-    const bare = await boxes(page, '[data-testid="identity-without"]', { name: ".mp-identity__name", slot: ".activity-icon" });
+    const bare = await boxes(page, '[data-testid="identity-without"]', { card: ":scope", unknown: ".activity-icon--unknown", name: ".mp-identity__name" });
     const off = await boxes(page, '[data-testid="identity-offline"]', { card: ":scope", moon: ".activity-icon--offline", name: ".mp-identity__name" });
     expect(Math.abs(off.moon!.left - withIcon.icon!.left), "moon where the icon sits").toBeLessThanOrEqual(0.5);
     expect(off.moon!.right, "moon before the name").toBeLessThanOrEqual(off.name!.left);
     expect(Math.abs(off.name!.left - withIcon.name!.left), "name where it sits after the icon").toBeLessThanOrEqual(0.5);
     expect(off.moon!.top, "moon on the name's line").toBeLessThan(off.name!.bottom);
     expect(off.name!.right, "name inside the card").toBeLessThanOrEqual(off.card!.right);
-    expectStillMoons(await moons(page), 1);
-    await expectMoonOnlyHints(page, '[data-testid="identity-offline"] .activity-icon--offline', "離線");
+    expectStillIcons(await stillIcons(page, "offline"), 1, "moon");
+    await expectHintOnly(page, '[data-testid="identity-offline"] .activity-icon--offline', "離線");
+    expect(Math.abs(bare.unknown!.left - withIcon.icon!.left), "unknown mark where the icon sits").toBeLessThanOrEqual(0.5);
+    expect(bare.unknown!.right, "unknown mark before the name").toBeLessThanOrEqual(bare.name!.left);
+    expect(Math.abs(bare.name!.left - withIcon.name!.left), "name where it sits after the icon").toBeLessThanOrEqual(0.5);
+    expect(bare.unknown!.top, "unknown mark on the name's line").toBeLessThan(bare.name!.bottom);
+    expect(bare.name!.right, "name inside the card").toBeLessThanOrEqual(bare.card!.right);
+    expectStillIcons(await stillIcons(page, "unknown"), 1, "unknown mark");
+    await expectHintOnly(page, '[data-testid="identity-without"] .activity-icon--unknown', UNKNOWN_HINT);
     expectCornerDot(withIcon.dot!, withIcon.avatar!, "identity");
     expect(withIcon.icon!.right, "icon before the name").toBeLessThanOrEqual(withIcon.name!.left);
     expect(withIcon.icon!.width, "icon keeps its natural width").toBeGreaterThanOrEqual(withIcon.glyph!.width - 0.5);
-    expect(Math.abs(bare.name!.left - withIcon.icon!.left), "no slot: the bare name starts where the icon does").toBeLessThanOrEqual(0.5);
-    expect(bare.slot, "no slot without activity").toBeNull();
     expect(withIcon.name!.right, "name inside the card").toBeLessThanOrEqual(withIcon.card!.right);
     expect(await hscroll(page), "no page hscroll").toBeLessThanOrEqual(1);
   });
@@ -385,7 +408,7 @@ test.describe("the 運作狀況 dialog the icon opens", () => {
         await mount(<IdentityActivityStory surface="list" state="busy" mobile={width < 720} warning />);
         const rows = await page.evaluate(() =>
           Array.from(document.querySelectorAll<HTMLElement>(".member-card, .outsource-row"))
-            .filter((row) => row.querySelector(".activity-icon--button:not(.activity-icon--slot)"))
+            .filter((row) => row.querySelector(".activity-icon--button"))
             .map((row) => {
               const icon = row.querySelector(".activity-icon") as HTMLElement;
               const dot = row.querySelector(".presence-avatar__dot .lifecycle-dot") as HTMLElement;
@@ -447,18 +470,24 @@ test.describe("the 運作狀況 dialog the icon opens", () => {
         expect(rows.filter((m) => m.mark).length, "both member rows carry the warning mark").toBe(2);
       });
 
-      test("an online row without activity keeps a hidden, still slot that a tap passes through to the row; a tap on an offline row's moon only pins its presence word", async ({ mount, page }) => {
+      test("a tap on an online row's unknown mark only pins its hint and a tap on an offline row's moon only its presence word; neither opens the dialog or the row", async ({ mount, page }) => {
         await mount(<IdentityActivityStory surface="list" state="idle" mobile={width < 720} />);
-        expectInertSlots(await slotRows(page));
-        await page.locator(".member-card .activity-icon--offline").tap();
-        await expect(page.getByRole("tooltip")).toHaveText("已停止");
-        await expect(page.getByRole("dialog")).toHaveCount(0);
+        for (const [sel, word] of [
+          [".member-card .activity-icon--unknown", UNKNOWN_HINT],
+          [".outsource-row .activity-icon--unknown", UNKNOWN_HINT],
+          [".member-card .activity-icon--offline", "已停止"],
+        ] as const) {
+          await page.locator(sel).tap();
+          await expect(page.getByRole("tooltip")).toHaveText(word);
+          await expect(page.getByRole("dialog")).toHaveCount(0);
+          expect(await page.evaluate(() => document.body.getAttribute("data-opened")), `${sel}: the tap opened no row`).toBeNull();
+        }
       });
     });
   }
 });
 
-test("each state glyph animates — the 工作中 sparkle, the 等待中 hourglass flip, the 閒置 steam — and all stand still under reduced motion; the offline moon never moves", async ({ mount, page }) => {
+test("each state glyph animates — the 工作中 sparkle, the 等待中 hourglass flip, the 閒置 steam — and all stand still under reduced motion; the unknown mark and the offline moon never move", async ({ mount, page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await mount(<IdentityActivityStory surface="glyphs" state="busy" mobile={false} />);
   const parts = {
@@ -481,7 +510,8 @@ test("each state glyph animates — the 工作中 sparkle, the 等待中 hourgla
       parts,
     );
   const moving = await animations();
-  expectStillMoons(await moons(page), 1);
+  expectStillIcons(await stillIcons(page, "unknown"), 1, "unknown mark");
+  expectStillIcons(await stillIcons(page, "offline"), 1, "moon");
   for (const [state, list] of Object.entries(moving)) {
     for (const a of list) {
       expect(a.name, `${state}: animated`).not.toBe("none");

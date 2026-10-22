@@ -32,6 +32,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "activity.subagentsOnlyLead",
   "activity.subagentsOnlyTailMany",
   "activity.subagentsOnlyTailOne",
+  "activity.unknownHint",
   "activity.waitKind.background_command",
   "activity.waitKind.schedule",
   "activity.waitsLead",

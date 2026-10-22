@@ -696,6 +696,7 @@ export const en: Dict = {
     waitsLead: ", waiting on",
     waitsTailOne: "background check or schedule",
     waitsTailMany: "background checks or schedules",
+    unknownHint: "Status unknown — shows after the member restarts",
     cardTitle: "Activity",
     dialogTitleSep: " · ",
     currentState: "Current status",

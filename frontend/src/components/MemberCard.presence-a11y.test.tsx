@@ -597,7 +597,7 @@ describe("MemberCard activity icon", () => {
     const onChat = vi.fn();
     const { queryByTestId, getByTestId, container } = render(cardWith(null, onChat, "Mira", lifecycle));
     expect(queryByTestId("activity-icon-mira")).toBeNull();
-    expect(queryByTestId("activity-icon-mira-slot")).toBeNull();
+    expect(queryByTestId("activity-icon-mira-unknown")).toBeNull();
     expect(screen.queryByRole("button", { name: /查看運作狀況/ })).toBeNull();
     const moon = getByTestId("activity-icon-mira-offline");
     expect(moon.tagName).toBe("SPAN");
@@ -623,14 +623,25 @@ describe("MemberCard activity icon", () => {
     expect(getByTestId("activity-icon-mira-offline").querySelector(".activity-icon__glyph--offline")).not.toBeNull();
   });
 
-  it("an online member that has not reported yet has no icon and no way into the dialog, only an empty hidden slot before the name", () => {
-    const { queryByTestId, getByTestId } = render(cardWith(null, vi.fn(), "Mira", "online"));
+  it("an online member that has not reported yet gets a still unknown mark before the name that hints how to get a status, is no button, takes no focus and opens neither dialog nor chat", () => {
+    const onChat = vi.fn();
+    const { queryByTestId, getByTestId, container } = render(cardWith(null, onChat, "Mira", "online"));
     expect(queryByTestId("activity-icon-mira")).toBeNull();
     expect(queryByTestId("activity-icon-mira-offline")).toBeNull();
     expect(screen.queryByRole("button", { name: /查看運作狀況/ })).toBeNull();
-    const slot = getByTestId("activity-icon-mira-slot");
-    expect(slot.getAttribute("aria-hidden")).toBe("true");
-    expect(slot.className).toBe("activity-icon activity-icon--slot activity-icon--box activity-icon--list");
-    expect(slot.nextElementSibling!.textContent).toBe("Mira");
+    const unknown = getByTestId("activity-icon-mira-unknown");
+    expect(unknown.tagName).toBe("SPAN");
+    expect(unknown.className).toBe("activity-icon activity-icon--unknown activity-icon--box activity-icon--list");
+    expect(unknown.hasAttribute("tabindex")).toBe(false);
+    expect(unknown.getAttribute("aria-hidden")).toBe("true");
+    expect(unknown.querySelector(".activity-icon__glyph--unknown svg circle")).not.toBeNull();
+    expect(unknown.nextElementSibling!.textContent).toBe("Mira");
+    expect(container.querySelectorAll(".activity-icon")).toHaveLength(1);
+    fireEvent.mouseEnter(unknown);
+    expect(screen.getByRole("tooltip").textContent).toBe("狀態未知，成員重新啟動後就會顯示");
+    fireEvent.click(unknown);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(onChat).not.toHaveBeenCalled();
+    expect(screen.getByRole("tooltip").textContent).toBe("狀態未知，成員重新啟動後就會顯示");
   });
 });

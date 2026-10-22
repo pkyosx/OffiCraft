@@ -316,14 +316,23 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
     ]);
   });
 
-  it("without activity there is no 運作狀況 card, and the 運行狀況 card still shows its context and cost cells", () => {
+  it("without activity there is no 運作狀況 card, the identity card leads the name with a still unknown mark hinting 狀態未知, and the 運行狀況 card still shows its context and cost cells", () => {
     const { queryByTestId, getByTestId } = renderPanel(
       mkMember({ status: "online", lifecycle: "online", activity: null }),
     );
     expect(queryByTestId("mp-activity")).toBeNull();
     expect(queryByTestId("mp-identity-activity")).toBeNull();
-    expect(queryByTestId("mp-identity-activity-slot")).toBeNull();
     expect(queryByTestId("mp-identity-activity-offline")).toBeNull();
+    const unknown = getByTestId("mp-identity-activity-unknown");
+    expect(unknown.className).toBe("activity-icon activity-icon--unknown");
+    expect(unknown.parentElement!.className).toBe("activity-name");
+    expect(unknown.hasAttribute("tabindex")).toBe(false);
+    expect(unknown.getAttribute("aria-hidden")).toBe("true");
+    expect(unknown.querySelector(".activity-icon__glyph--unknown svg")).not.toBeNull();
+    fireEvent.mouseEnter(unknown);
+    expect(screen.getByRole("tooltip").textContent).toBe("狀態未知，成員重新啟動後就會顯示");
+    fireEvent.click(unknown);
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(getByTestId("mp-context").closest(".mp-runtime")).not.toBeNull();
   });
 

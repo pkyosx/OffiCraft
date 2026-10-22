@@ -221,12 +221,23 @@ describe("ChatArea header 任務/角色設定 圖示 (T-dfae)", () => {
     expect(hintText()).toBe("主 agent 與 sub-agent 都沒有在工作");
   });
 
-  it("renders no status icon and no empty slot for an online member without activity, a still moon hinting 已停止 for a stopped one, and the role line carries no presence dot", () => {
-    const online = renderChat({ member: mkMember({ activity: null }) });
+  it("renders a still unknown mark hinting 狀態未知 for an online member without activity, a still moon hinting 已停止 for a stopped one, neither opening dialog nor detail, and the role line carries no presence dot", () => {
+    const onOpenDetail = vi.fn();
+    const online = renderChat({ member: mkMember({ activity: null }), onOpenDetail });
     expect(screen.queryByTestId("chat-header-activity")).toBeNull();
-    expect(screen.queryByTestId("chat-header-activity-slot")).toBeNull();
     expect(screen.queryByTestId("chat-header-activity-offline")).toBeNull();
-    expect(document.querySelector(".chat__header-name")!.children.length).toBe(1);
+    const unknown = screen.getByTestId("chat-header-activity-unknown");
+    expect(unknown.parentElement!.className).toBe("chat__header-name");
+    expect(unknown.nextElementSibling!.textContent).toBe("Mira");
+    expect(unknown.tagName).toBe("SPAN");
+    expect(unknown.hasAttribute("tabindex")).toBe(false);
+    expect(unknown.getAttribute("aria-hidden")).toBe("true");
+    expect(unknown.querySelector(".activity-icon__glyph--unknown svg")).not.toBeNull();
+    fireEvent.mouseEnter(unknown);
+    expect(hintText()).toBe("狀態未知，成員重新啟動後就會顯示");
+    fireEvent.click(unknown);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(onOpenDetail).not.toHaveBeenCalled();
     expect(document.querySelector(".chat__header-sub .lifecycle-dot")).toBeNull();
     expect(document.querySelector(".chat__header-sub")!.textContent).toBe("特助");
     expect(screen.getByTestId("chat-header-presence").closest(".presence-avatar")).not.toBeNull();
@@ -388,7 +399,7 @@ describe("ChatArea header 任務/角色設定 圖示 (T-dfae)", () => {
       onOpenTasks: vi.fn(),
       onOpenRoleSettings: vi.fn(),
     });
-    const nameSpan = container.querySelector(".chat__header-name > span")!;
+    const nameSpan = container.querySelector(".chat__header-name > span:last-child")!;
     expect(nameSpan.textContent).toBe("Eva Rhapsody Inbox");
     // The real geometric proof is the Playwright measurement (header height +
     // gallery top at 390px) — this only pins the DOM shape the CSS rule

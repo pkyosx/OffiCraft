@@ -16,18 +16,6 @@
   gap: inherit;
   min-width: 0;
 }
-/* For an online row that has not reported yet. Takes the icon's exact box
- * (same classes, same glyph) so list names line up with the rows that have an
- * icon; hidden also keeps it out of hit testing.
- * Hidden glyphs still animate, so the slot stops them, with a selector that
- * outranks every glyph animation rule below. */
-.activity-icon--slot {
-  visibility: hidden;
-}
-.activity-icon.activity-icon--slot .activity-icon__glyph,
-.activity-icon.activity-icon--slot .activity-icon__glyph * {
-  animation: none;
-}
 .activity-icon:focus-visible {
   box-shadow: 0 0 0 2px var(--color-accent-soft);
 }
@@ -45,8 +33,9 @@
 .activity-icon__glyph--idle {
   color: var(--color-text-muted);
 }
-/* Not online: the one glyph that never moves. */
-.activity-icon__glyph--offline {
+/* Not online, or online with nothing reported yet: the glyphs that never move. */
+.activity-icon__glyph--offline,
+.activity-icon__glyph--unknown {
   color: var(--color-text-muted);
 }
 /* 工作中: the star breathes while the two twinkles flash in turn. */
@@ -128,7 +117,7 @@
 }
 
 /* The box of the icon that opens the 運作狀況 dialog, also worn by the moon and
- * the slot that stand in its place, so a list keeps one column. The border
+ * the unknown mark that stand in its place, so a list keeps one column. The border
  * stays, transparent, so the chip does not change the size. Its height stays
  * within the name's line so rows and headers keep theirs. */
 .activity-icon--box {

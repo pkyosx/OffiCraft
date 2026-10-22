@@ -13,7 +13,7 @@ import { buildActivityTree, type ActivityTreeNode } from "../lib/activityTree";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
 import { InstantHint } from "./InstantHint";
 import { presenceVisual } from "./LifecycleDot";
-import { CoffeeIcon, CloseIcon, HourglassIcon, MoonIcon, SparkleIcon } from "./icons";
+import { CoffeeIcon, CloseIcon, HourglassIcon, MoonIcon, SparkleIcon, UnknownIcon } from "./icons";
 import "./member-detail.css";
 import "./confirm-modal.css";
 import "./member-activity.css";
@@ -65,11 +65,10 @@ export function ActivityStateIcon({
 
 /** A member's name led by its status icon. List rows, chat header and detail
  * identity card all render this, so the icon's place is decided here alone.
- * A member that is not online gets the moon. `layout="list"`: an online row
- * that has not reported yet keeps an empty slot of the icon's width so the
- * names of a list stay in one column, and the icon sits on the first line of a
- * wrapped name. `layout="group"`: icon and name form one box, for a line that
- * wraps its other items onto the next line. */
+ * A member that is not online gets the moon; an online one that has not
+ * reported yet gets the unknown mark. `layout="list"`: the icon sits on the
+ * first line of a wrapped name. `layout="group"`: icon and name form one box,
+ * for a line that wraps its other items onto the next line. */
 export function NameWithActivity({
   activity,
   presence,
@@ -138,33 +137,24 @@ function ActivityStatusIcon({
   // Same box as the button it stands in for, so a list keeps one column.
   const box = memberName === undefined ? "" : " activity-icon--box";
   const listClass = list ? " activity-icon--list" : "";
-  if (presence !== "online") {
-    // Out of the tab order and the a11y tree: the corner dot beside it is the
-    // focusable element that already names this presence.
+  if (!activity) {
+    const kind = presence === "online" ? "unknown" : "offline";
+    // Out of the tab order and the a11y tree. The focusable corner dot beside it
+    // names the presence: for the moon that is the whole story, for the unknown
+    // mark it reads online and the unknown hint is hover or tap only (owner
+    // asked for the moon's behaviour).
     return (
       <InstantHint
-        hint={t.office.presence[presenceVisual(presence)]}
+        hint={kind === "unknown" ? t.activity.unknownHint : t.office.presence[presenceVisual(presence)]}
         focusable={false}
-        className={`activity-icon activity-icon--offline${box}${listClass}`}
+        className={`activity-icon activity-icon--${kind}${box}${listClass}`}
         aria-hidden="true"
-        data-testid={testId && `${testId}-offline`}
+        data-testid={testId && `${testId}-${kind}`}
       >
-        <span className="activity-icon__glyph activity-icon__glyph--offline">
-          <MoonIcon size={14} />
+        <span className={`activity-icon__glyph activity-icon__glyph--${kind}`}>
+          {kind === "unknown" ? <UnknownIcon size={14} /> : <MoonIcon size={14} />}
         </span>
       </InstantHint>
-    );
-  }
-  if (!activity) {
-    if (!list) return null;
-    return (
-      <span
-        className={`activity-icon activity-icon--slot${box}${listClass}`}
-        aria-hidden="true"
-        data-testid={testId && `${testId}-slot`}
-      >
-        <ActivityStateIcon state="idle" />
-      </span>
     );
   }
   const word = t.activity.state[activity.state];
