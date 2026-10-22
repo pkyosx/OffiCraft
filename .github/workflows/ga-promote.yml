@@ -99,10 +99,9 @@
 name: GA promote
 
 # Manual only. No push, no pull_request, no schedule — this workflow must never
-# fire on its own, and bin/tests/auto-beta-guard.sh (W4f) pins that: a second
-# workflow file is allowed to exist ONLY while workflow_dispatch is its one
-# trigger, because that is what keeps it out of every push/PR run and therefore
-# out of the job universe auto-beta's `needs` reasons about.
+# fire on its own, and bin/tests/auto-beta-guard.sh (W4f) pins that. W4f also
+# keeps every workflow other than ci.yml off push and pull_request, because that
+# is what keeps it out of the job universe auto-beta's `needs` reasons about.
 on:
   workflow_dispatch:
     inputs:
