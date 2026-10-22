@@ -2421,12 +2421,64 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		})
 	})
 
-	t.Run("only stale reports answer 200 with the later reset and no pace verdict", func(t *testing.T) {
+	t.Run("only stale reports answer 200 with the most recently measured report and no pace verdict", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		now := time.Now().Unix()
 		staleStamp := float64(now) - telemetryFreshSecs - 60
 		reportFiveHour(t, api, h, "mira", 10, now+4000)
 		reportFiveHour(t, api, h, "kip", 60, now+3000)
+		ageRateLimits(api, "mira", staleStamp)
+		ageRateLimits(api, "kip", staleStamp+30)
+
+		status, data := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"sessions": data["sessions"],
+			"machines": data["machines"],
+			"accounts": []any{sharedAccountRow(map[string]any{
+				"used_pct":    60,
+				"resets_at":   float64(now + 3000),
+				"elapsed_pct": apiAnyNumber,
+				"measured_at": staleStamp + 30,
+				"pace":        nil,
+			})},
+		})
+	})
+
+	t.Run("only stale reports measured at the same moment answer 200 with the later reset", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		now := time.Now().Unix()
+		staleStamp := float64(now) - telemetryFreshSecs - 60
+		reportFiveHour(t, api, h, "kip", 60, now+3000)
+		reportFiveHour(t, api, h, "mira", 10, now+4000)
+		ageRateLimits(api, "mira", staleStamp)
+		ageRateLimits(api, "kip", staleStamp)
+
+		status, data := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"sessions": data["sessions"],
+			"machines": data["machines"],
+			"accounts": []any{sharedAccountRow(map[string]any{
+				"used_pct":    10,
+				"resets_at":   float64(now + 4000),
+				"elapsed_pct": apiAnyNumber,
+				"measured_at": staleStamp,
+				"pace":        nil,
+			})},
+		})
+	})
+
+	t.Run("only stale reports whose most recent one has already reset answer 200 with the older unexpired report", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		now := time.Now().Unix()
+		staleStamp := float64(now) - telemetryFreshSecs - 60
+		reportFiveHour(t, api, h, "mira", 10, now+4000)
+		reportFiveHour(t, api, h, "kip", 60, now-30)
 		ageRateLimits(api, "mira", staleStamp)
 		ageRateLimits(api, "kip", staleStamp+30)
 
