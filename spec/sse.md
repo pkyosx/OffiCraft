@@ -220,7 +220,7 @@ relay; everything else is the M1 freeze):
 
 | topic | trigger | op |
 |---|---|---|
-| `member` | any roster write, including outsource assignment / claim / release; a telemetry ingest that changes a member's derived warnings (`runtime_login_warnings`, `model_call_warnings`); a usage-limit reset timer firing at a reported `resets_at` | patch / remove |
+| `member` | any roster write, including outsource assignment / claim / release; a telemetry ingest that changes a member's derived warnings (`runtime_login_warnings`, `model_call_warnings`); an activity report that changes a member's derived `activity` (owner-only); a usage-limit reset timer firing at a reported `resets_at` | patch / remove |
 | `chat` | message append | patch |
 | `chat_read` | read-watermark advance | patch |
 | `reply_card` | reply-card create / answer / answer revision / expire | patch |

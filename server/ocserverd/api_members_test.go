@@ -67,6 +67,31 @@ func apiTestMemberPayload(id, name, status, desired string) map[string]any {
 	}
 }
 
+// apiTestOnlineKipRow is the fixture's staff member kip as GET /api/members/kip
+// answers it while its session is connected, with over laid on top.
+func apiTestOnlineKipRow(over map[string]any) map[string]any {
+	row := map[string]any{
+		"id": "kip", "avatar_url": "", "name": "Kip", "kind": "staff",
+		"role_key": "engineer", "role_name": "", "runtime": "claude",
+		"model": "", "actual_model": "", "actual_runtime": "",
+		"actual_effort": "", "actual_machine": "", "effort": "",
+		"desired_state": "", "desired_machine_id": "", "machine": "",
+		"presence": "online", "refocus_since": 0, "refocus_op": "",
+		"refocus_deadline": 0, "last_op": "", "last_op_ok": nil,
+		"last_op_log": "", "last_op_reason": "", "last_op_at": 0,
+		"forced_stop_at": 0, "forced_stop_live": false, "unread_count": 0, "roster_status": "active",
+		"owner_id": "owner", "schema_version": 3,
+		"terminal_attach_command":    "tmux -L officraft attach -t member-kip",
+		"runtime_login_warnings":     []any{},
+		"model_call_last_success_ts": 0,
+		"model_call_warnings":        []any{},
+	}
+	for k, v := range over {
+		row[k] = v
+	}
+	return row
+}
+
 func apiTestMemberRow(t *testing.T, d *DAL, id string) Member {
 	t.Helper()
 	m, err := d.GetMember(id)
@@ -1215,6 +1240,49 @@ func TestHandleListMembersApiMembersGet(t *testing.T) {
 		apiWantValue(t, "body", got, []any{})
 	})
 
+	t.Run("the owner's listing carries a reporter's activity on its own row only, and an agent's listing on none", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		kip := apiTestAgentToken(t, api, "kip", "")
+		mira := apiTestAgentToken(t, api, "mira", "")
+		apiTestListen(t, api, "kip")
+		apiTestListen(t, api, "mira")
+		status, data := apiJSON(t, h, "POST", "/api/agent/activity", kip,
+			`{"busy": false, "subagents": [], "waits": [{"kind": "schedule", "description": "nightly"}]}`)
+		if status != 200 {
+			t.Fatalf("report: %d %v", status, data)
+		}
+		reportTS := data["ts"]
+
+		for _, reader := range []struct {
+			name, token string
+			want        map[string]any
+		}{
+			{"owner", owner, map[string]any{
+				"kip": map[string]any{
+					"state": "waiting", "busy_since": nil, "subagents": []any{},
+					"waits": []any{map[string]any{"kind": "schedule", "description": "nightly"}},
+					"ts":    reportTS,
+				},
+				"mira": nil, "m-server-self": nil,
+			}},
+			{"agent", mira, map[string]any{"kip": nil, "mira": nil, "m-server-self": nil}},
+		} {
+			rec := apiRequest(t, h, "GET", "/api/members", reader.token, "")
+			if rec.Code != 200 {
+				t.Fatalf("%s listing: want 200, got %d (%s)", reader.name, rec.Code, rec.Body.String())
+			}
+			var rows []map[string]any
+			if err := json.Unmarshal(rec.Body.Bytes(), &rows); err != nil {
+				t.Fatalf("non-JSON body: %s", rec.Body.String())
+			}
+			got := map[string]any{}
+			for _, row := range rows {
+				got[row["id"].(string)] = row["activity"]
+			}
+			apiWantValue(t, reader.name+" listing activity by id", any(got), any(reader.want))
+		}
+	})
+
 	t.Run("a request without a token answers 401", func(t *testing.T) {
 		_, h, _, _ := newAPITestServer(t)
 
@@ -1608,6 +1676,57 @@ func TestHandleGetMemberApiMembersMemberIdGet(t *testing.T) {
 			"model_call_warnings":        []any{},
 		})
 		dashboard.wantFrames()
+	})
+
+	t.Run("a member's reported activity is carried only on the owner's read", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		kip := apiTestAgentToken(t, api, "kip", "")
+		mira := apiTestAgentToken(t, api, "mira", "")
+		apiTestListen(t, api, "kip")
+		status, data := apiJSON(t, h, "POST", "/api/agent/activity", kip, `{"busy": false, "subagents": []}`)
+		if status != 200 {
+			t.Fatalf("report: %d %v", status, data)
+		}
+		reportTS := data["ts"]
+
+		status, data = apiJSON(t, h, "GET", "/api/members/kip", mira, "")
+		if status != 200 {
+			t.Fatalf("agent read: want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, apiTestOnlineKipRow(nil))
+
+		status, data = apiJSON(t, h, "GET", "/api/members/kip", owner, "")
+		if status != 200 {
+			t.Fatalf("owner read: want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, apiTestOnlineKipRow(map[string]any{"activity": map[string]any{
+			"state": "idle", "busy_since": nil, "subagents": []any{}, "waits": []any{}, "ts": reportTS,
+		}}))
+	})
+
+	t.Run("a member that reported and is not online carries no activity until its session connects", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		kip := apiTestAgentToken(t, api, "kip", "")
+		status, data := apiJSON(t, h, "POST", "/api/agent/activity", kip, `{"busy": true, "busy_since": 1000, "subagents": []}`)
+		if status != 200 {
+			t.Fatalf("report: %d %v", status, data)
+		}
+		reportTS := data["ts"]
+
+		status, data = apiJSON(t, h, "GET", "/api/members/kip", owner, "")
+		if status != 200 {
+			t.Fatalf("offline read: want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, apiTestOnlineKipRow(map[string]any{"presence": "offline"}))
+
+		apiTestListen(t, api, "kip")
+		status, data = apiJSON(t, h, "GET", "/api/members/kip", owner, "")
+		if status != 200 {
+			t.Fatalf("online read: want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, apiTestOnlineKipRow(map[string]any{"activity": map[string]any{
+			"state": "busy", "busy_since": 1000, "subagents": []any{}, "waits": []any{}, "ts": reportTS,
+		}}))
 	})
 
 	t.Run("a removed warden answers 404 naming it, as does an id nothing carries", func(t *testing.T) {
@@ -3924,6 +4043,28 @@ func TestHandleReportWakingApiSelfWakingPost(t *testing.T) {
 		}
 		if m.AgentIatFloor != float64(issued) {
 			t.Fatalf("the credential floor must equal the waking token's iat %d, got %v", issued, m.AgentIatFloor)
+		}
+	})
+
+	t.Run("a boot report drops the previous session's activity from the owner's read", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		kip := apiTestAgentToken(t, api, "kip", "")
+		apiTestListen(t, api, "kip")
+		if status, data := apiJSON(t, h, "POST", "/api/agent/activity", kip,
+			`{"busy": true, "busy_since": 1000, "subagents": []}`); status != 200 {
+			t.Fatalf("report: %d %v", status, data)
+		}
+
+		if status, data := apiJSON(t, h, "POST", "/api/self/waking", kip, `{}`); status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+
+		status, data := apiJSON(t, h, "GET", "/api/members/kip", owner, "")
+		if status != 200 {
+			t.Fatalf("read back: want 200, got %d (%v)", status, data)
+		}
+		if activity, present := data["activity"]; present {
+			t.Fatalf("a woken session has not reported yet, so the row must carry no activity, got %#v", activity)
 		}
 	})
 

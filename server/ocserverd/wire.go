@@ -248,6 +248,9 @@ type memberDTO struct {
 	BankedCost            *float64 `json:"banked_cost,omitempty"`
 	CreatorID             string   `json:"creator_id,omitempty"`
 	DelegatedBy           string   `json:"delegated_by,omitempty"`
+	// Activity is omitted rather than null when unset, like context_pct: the
+	// spec's default is null and it is not required.
+	Activity *memberActivityDTO `json:"activity,omitempty"`
 
 	RuntimeLoginWarnings []RuntimeLoginWarningDTO `json:"runtime_login_warnings"`
 
@@ -548,6 +551,30 @@ type chatMarkReadReceiptDTO struct {
 type agentContextReceiptDTO struct {
 	AgentID string  `json:"agent_id"`
 	TS      float64 `json:"ts"`
+}
+
+type agentActivityReceiptDTO struct {
+	AgentID string  `json:"agent_id"`
+	TS      float64 `json:"ts"`
+}
+
+type memberActivityDTO struct {
+	State     string                `json:"state"`
+	BusySince *float64              `json:"busy_since"`
+	Subagents []activitySubagentDTO `json:"subagents"`
+	Waits     []activityWaitDTO     `json:"waits"`
+	TS        float64               `json:"ts"`
+}
+
+type activitySubagentDTO struct {
+	Name        string  `json:"name"`
+	Description string  `json:"description"`
+	StartedTS   float64 `json:"started_ts"`
+}
+
+type activityWaitDTO struct {
+	WaitKind    string `json:"kind"`
+	Description string `json:"description"`
 }
 
 // agentTelemetryReceiptDTO: Machine is the attribution actually used — the

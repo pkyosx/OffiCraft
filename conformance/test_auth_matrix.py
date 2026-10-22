@@ -1151,6 +1151,9 @@ MATRIX: dict[str, Route] = {
     ),
     # ── telemetry / monitoring ───────────────────────────────────────────────
     "POST /api/agent/context": Route(requires="machine", body={"context_pct": 5}),
+    "POST /api/agent/activity": Route(
+        requires="machine", body={"busy": False, "subagents": []}
+    ),
     "POST /api/monitoring/telemetry": Route(
         requires="machine", body={"rate_limits": {}}
     ),

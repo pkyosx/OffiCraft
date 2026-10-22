@@ -24,6 +24,7 @@ type apiServer struct {
 	hub         *Hub
 	telemetry   *memStore
 	gauge       *memStore
+	activity    *activityStore
 	// serverDisk is the server's own database/backup measurement; nil until the
 	// first one finishes.
 	serverDisk atomic.Pointer[serverDiskSample]

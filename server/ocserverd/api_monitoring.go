@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Re-clamp: the warden already truncates to 4 KB, but the body is untrusted.
@@ -66,6 +67,121 @@ func (s *apiServer) HandleIngestAgentContextApiAgentContextPost(w http.ResponseW
 	// context-high band); owner cockpit only.
 	s.hub.Publish("context", "signal", "context", agentID, nil, audienceOwnerOnly(), requestTrigger(r))
 	writeJSON(w, http.StatusOK, agentContextReceiptDTO{AgentID: agentID, TS: now})
+}
+
+const (
+	activityMaxItems       = 50
+	activityNameMaxChars   = 80
+	activityDescriptionMax = 200
+)
+
+// Pointer fields so an absent nested required key is told apart from a zero.
+type agentActivityIngestBody struct {
+	Busy      *bool                          `json:"busy"`
+	BusySince *float64                       `json:"busy_since"`
+	Subagents *[]agentActivityIngestSubagent `json:"subagents"`
+	Waits     *[]agentActivityIngestWait     `json:"waits"`
+}
+
+type agentActivityIngestSubagent struct {
+	Name        *string  `json:"name"`
+	Description *string  `json:"description"`
+	StartedTs   *float64 `json:"started_ts"`
+}
+
+type agentActivityIngestWait struct {
+	WaitKind    *string `json:"kind"`
+	Description *string `json:"description"`
+}
+
+// A snapshot replaces the previous one whole; only a change in what the owner
+// would see (ts aside) is announced, so a hook firing every turn stays quiet.
+func (s *apiServer) HandleIngestAgentActivityApiAgentActivityPost(w http.ResponseWriter, r *http.Request) {
+	var body agentActivityIngestBody
+	if !decodeJSONBodyRequired(w, r, &body, "busy", "subagents") {
+		return
+	}
+	subagents, waits, status, msg := validateAgentActivity(body)
+	if status != 0 {
+		writeError(w, status, msg)
+		return
+	}
+	agentID := currentActor(r)
+	now := nowSecs()
+	activity := deriveMemberActivity(*body.Busy, body.BusySince, subagents, waits, now)
+	if s.activity.Swap(agentID, activity) {
+		if m, err := s.dal.GetMember(agentID); err == nil && m != nil {
+			s.publishMemberOwnerOnly(*m, requestTrigger(r))
+		}
+	}
+	writeJSON(w, http.StatusOK, agentActivityReceiptDTO{AgentID: agentID, TS: now})
+}
+
+func validateAgentActivity(body agentActivityIngestBody) (
+	[]activitySubagentDTO, []activityWaitDTO, int, string,
+) {
+	if body.Busy == nil {
+		return nil, nil, http.StatusUnprocessableEntity, "busy must be a boolean"
+	}
+	if body.Subagents == nil {
+		return nil, nil, http.StatusUnprocessableEntity, "subagents must be an array"
+	}
+	if *body.Busy && body.BusySince != nil && *body.BusySince < 0 {
+		return nil, nil, http.StatusBadRequest, "busy_since must be a non-negative number"
+	}
+	if len(*body.Subagents) > activityMaxItems {
+		return nil, nil, http.StatusBadRequest, fmt.Sprintf(
+			"subagents carries %d items, over the %d-item limit", len(*body.Subagents), activityMaxItems)
+	}
+	subagents := make([]activitySubagentDTO, 0, len(*body.Subagents))
+	for i, sa := range *body.Subagents {
+		at := fmt.Sprintf("subagents[%d]", i)
+		if sa.Name == nil {
+			return nil, nil, http.StatusUnprocessableEntity, "field required: " + at + ".name"
+		}
+		if sa.StartedTs == nil {
+			return nil, nil, http.StatusUnprocessableEntity, "field required: " + at + ".started_ts"
+		}
+		if n := utf8.RuneCountInString(*sa.Name); n > activityNameMaxChars {
+			return nil, nil, http.StatusBadRequest, fmt.Sprintf(
+				"%s.name is %d chars, over the %d-char limit", at, n, activityNameMaxChars)
+		}
+		description := strOrEmpty(sa.Description)
+		if n := utf8.RuneCountInString(description); n > activityDescriptionMax {
+			return nil, nil, http.StatusBadRequest, fmt.Sprintf(
+				"%s.description is %d chars, over the %d-char limit", at, n, activityDescriptionMax)
+		}
+		if *sa.StartedTs < 0 {
+			return nil, nil, http.StatusBadRequest, at + ".started_ts must be a non-negative number"
+		}
+		subagents = append(subagents, activitySubagentDTO{
+			Name: *sa.Name, Description: description, StartedTS: *sa.StartedTs,
+		})
+	}
+	waits := []activityWaitDTO{}
+	if body.Waits != nil {
+		if len(*body.Waits) > activityMaxItems {
+			return nil, nil, http.StatusBadRequest, fmt.Sprintf(
+				"waits carries %d items, over the %d-item limit", len(*body.Waits), activityMaxItems)
+		}
+		for i, wt := range *body.Waits {
+			at := fmt.Sprintf("waits[%d]", i)
+			if wt.WaitKind == nil {
+				return nil, nil, http.StatusUnprocessableEntity, "field required: " + at + ".kind"
+			}
+			if !AgentActivityWaitDTOKind(*wt.WaitKind).Valid() {
+				return nil, nil, http.StatusBadRequest, fmt.Sprintf(
+					"%s.kind must be background_command or schedule, got %q", at, *wt.WaitKind)
+			}
+			description := strOrEmpty(wt.Description)
+			if n := utf8.RuneCountInString(description); n > activityDescriptionMax {
+				return nil, nil, http.StatusBadRequest, fmt.Sprintf(
+					"%s.description is %d chars, over the %d-char limit", at, n, activityDescriptionMax)
+			}
+			waits = append(waits, activityWaitDTO{WaitKind: *wt.WaitKind, Description: description})
+		}
+	}
+	return subagents, waits, 0, ""
 }
 
 // -1 is the warden's 未量到 sentinel → nil, never a fabricated 0.

@@ -21,7 +21,7 @@ var memberReadFaceKeys = []string{
 }
 
 var memberDeclaredFaceKeys = append(append([]string{}, memberReadFaceKeys...),
-	"account", "banked_cost", "compaction_count", "context_pct", "cost",
+	"account", "activity", "banked_cost", "compaction_count", "context_pct", "cost",
 	"created_ts", "creator_id", "delegated_by", "status", "task_created_ts",
 	"task_id", "task_no", "task_status", "task_title", "task_type_key",
 	"task_type_name",
