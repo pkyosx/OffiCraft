@@ -27,6 +27,35 @@ async function boxes(page: Page, root: string, sel: Record<string, string>) {
 const hscroll = (page: Page) =>
   page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 
+async function slotRows(page: Page) {
+  return page.evaluate(() =>
+    Array.from(document.querySelectorAll<HTMLElement>(".member-card, .outsource-row"))
+      .map((row) => ({ row, slot: row.querySelector<HTMLElement>(".activity-icon--slot") }))
+      .filter((r): r is { row: HTMLElement; slot: HTMLElement } => r.slot !== null)
+      .map(({ row, slot }) => {
+        const b = slot.getBoundingClientRect();
+        const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+        return {
+          visibility: getComputedStyle(slot).visibility,
+          animations: [slot, ...Array.from(slot.querySelectorAll("*"))].map((el) => getComputedStyle(el).animationName),
+          centreOnSlot: slot.contains(hit),
+          centreInRow: row.contains(hit),
+        };
+      }),
+  );
+}
+
+function expectInertSlots(slots: Awaited<ReturnType<typeof slotRows>>) {
+  expect(slots.length, "one slot row in each list").toBe(2);
+  for (const [i, s] of slots.entries()) {
+    const label = `slot ${i + 1}`;
+    expect(s.visibility, `${label}: hidden`).toBe("hidden");
+    expect(s.animations.every((name) => name === "none"), `${label}: nothing inside it animates (${s.animations.join(",")})`).toBe(true);
+    expect(s.centreOnSlot, `${label}: a tap at its centre passes through it`).toBe(false);
+    expect(s.centreInRow, `${label}: a tap at its centre lands on the row`).toBe(true);
+  }
+}
+
 function expectCornerDot(dot: Box, avatar: Box, label: string) {
   const cx = dot.left + dot.width / 2;
   const cy = dot.top + dot.height / 2;
@@ -72,7 +101,7 @@ for (const width of [390, 1280]) {
       expect(await hscroll(page), "no page hscroll").toBeLessThanOrEqual(1);
     });
 
-    test(`width ${width}, ${state}: each list's icons share one x and a row without activity keeps an empty slot, so the names line up`, async ({ mount, page }) => {
+    test(`width ${width}, ${state}: each list's icons share one x and a row without activity keeps a hidden, still, click-through slot, so the names line up`, async ({ mount, page }) => {
       await page.setViewportSize({ width, height: 900 });
       await mount(<IdentityActivityStory surface="list" state={state} mobile={width < 720} />);
       const lists = [
@@ -104,6 +133,7 @@ for (const width of [390, 1280]) {
           expect(Math.abs(r.name.left - first.name.left), `${label}: name at the first row's x`).toBeLessThanOrEqual(0.5);
         }
       }
+      expectInertSlots(await slotRows(page));
     });
   }
 
@@ -336,6 +366,11 @@ test.describe("the 運作狀況 dialog the icon opens", () => {
           }
         }
         expect(rows.filter((m) => m.mark).length, "both member rows carry the warning mark").toBe(2);
+      });
+
+      test("a row without activity keeps a hidden, still slot that a tap passes through to the row", async ({ mount, page }) => {
+        await mount(<IdentityActivityStory surface="list" state="idle" mobile={width < 720} />);
+        expectInertSlots(await slotRows(page));
       });
     });
   }

@@ -17,11 +17,14 @@
   min-width: 0;
 }
 /* Takes the icon's exact box (same classes, same glyph) so list names line up
- * with the rows that have an icon; hidden also keeps it out of hit testing. */
+ * with the rows that have an icon; hidden also keeps it out of hit testing.
+ * Hidden glyphs still animate, so the slot stops them, with a selector that
+ * outranks every glyph animation rule below. */
 .activity-icon--slot {
   visibility: hidden;
 }
-.activity-icon--slot * {
+.activity-icon.activity-icon--slot .activity-icon__glyph,
+.activity-icon.activity-icon--slot .activity-icon__glyph * {
   animation: none;
 }
 .activity-icon:focus-visible {
