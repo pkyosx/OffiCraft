@@ -170,8 +170,6 @@ export interface AgentDetailVM {
  * something someone has to remember. */
 export const AGENT_DETAIL_SLOTS = [
   "overlays",
-  "afterIdentityCards",
-  "afterInfoCards",
   "extraExpandCards",
   "afterPromptCards",
 ] as const;
@@ -246,8 +244,6 @@ interface AgentDetailPanelProps {
   /** Every slot the panel offers — see `AGENT_DETAIL_SLOTS`.
    *
    * Render POSITIONS, in order: `overlays` right after the identity card ·
-   * `afterIdentityCards` between those and the 模型/機器 info card ·
-   * `afterInfoCards` between the info card and the runtime card ·
    * `extraExpandCards` after the terminal card and BEFORE the initial-prompt
    * card · `afterPromptCards` after it, the LAST slot the panel offers.
    *
@@ -256,21 +252,10 @@ interface AgentDetailPanelProps {
    * this ticket stopped `docs/design/worker-panel-parity.md` from maintaining it.
    * Read it off the code instead:
    *
-   * ⚠️ And read the ORDER above as documentation, not as a guarantee. An earlier
-   * draft of this comment claimed the positions were "pinned by the JSX below and
-   * by worker-detail-task-card-order.ct.spec.tsx" — round-2 review showed that is
-   * false: that spec pinned exactly ONE relation on ONE side (it went with the
-   * worker's 委託任務 card), and it was a Playwright CT that the vitest gate
-   * never runs. SWAP TWO RENDER SITES IN THE JSX BELOW and nothing reddens
-   * — measured (tsc rc=0, whole suite green), including the very relation that
-   * spec claims to pin. A false sense of safety is worse than none, which is the
-   * whole point of this ticket, so the claim is gone rather than softened.
-   *
-   * ⚠️ An earlier draft aimed that sentence at "reorder the entries in
-   * `rendered`" — round-3 review pointed out that is the WRONG target: the
-   * object is a literal whose values are each referenced by name at their own
-   * JSX position, so reordering its keys is a semantic no-op that could never
-   * redden, guard or no guard. Right conclusion, wrong experiment.
+   * ⚠️ The ORDER above is documentation, not a guarantee: nothing pins it, so
+   * swapping two render sites in the JSX below stays green (tsc and the suite).
+   * Reordering the keys of `rendered` is not that experiment — each value is
+   * referenced by name at its own JSX position.
    *
    *   command grep -an "slots={" -A 20 src/components/MemberDetailPanel.tsx \
    *                                      src/components/WorkerDetailPanel.tsx
@@ -325,8 +310,6 @@ export function AgentDetailPanel({
   // sentinel is what makes that survivable.
   const rendered = {
     overlays: slotNode(slots.overlays),
-    afterIdentityCards: slotNode(slots.afterIdentityCards),
-    afterInfoCards: slotNode(slots.afterInfoCards),
     extraExpandCards: slotNode(slots.extraExpandCards),
     afterPromptCards: slotNode(slots.afterPromptCards),
   } satisfies Record<AgentDetailSlotKey, ReactNode>;
@@ -559,7 +542,6 @@ export function AgentDetailPanel({
 
       {identity}
       {rendered.overlays}
-      {rendered.afterIdentityCards}
 
       {/* info card: LEFT 執行環境 + 模型 + 思考強度 (editable launch intents), RIGHT 機器 +
        * runtime account — the member page's mp-info2 layout, now the ONE layout. */}
@@ -635,8 +617,6 @@ export function AgentDetailPanel({
           </div>
         </div>
       </div>
-
-      {rendered.afterInfoCards}
 
       {/* runtime card: context% + est.$ + activity + 換手 */}
       <div className="mp-card mp-runtime">

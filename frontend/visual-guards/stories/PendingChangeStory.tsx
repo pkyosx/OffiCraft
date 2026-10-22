@@ -39,8 +39,6 @@ import {
 
 const NO_SLOTS: AgentDetailSlots = {
   overlays: notHere("此故事只量 pending 提示行的版面"),
-  afterIdentityCards: notHere("此故事只量 pending 提示行的版面"),
-  afterInfoCards: notHere("此故事只量 pending 提示行的版面"),
   extraExpandCards: notHere("此故事只量 pending 提示行的版面"),
   afterPromptCards: notHere("此故事只量 pending 提示行的版面"),
 };

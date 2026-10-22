@@ -496,17 +496,19 @@ describe("WorkerDetailPanel — honest presence states (A案 P6 member vocabular
   // owner 2026-07-31:「為什麼從不同進入頁面會有不同的顯示方式?不是應該要一致嗎」
   // A released worker is reachable from exactly two entries — the chat room and
   // the detail panel — and both must say the SAME sentence from the SAME leaf.
-  it("released: the panel says 已結案 in the SAME words the chat room uses, and the identity card keeps the task line and full title", async () => {
-    __injectMockTask(mkTask({ id: "t-1", taskNo: "T-9c21", title: "查帳單" }));
+  it("released: the panel says 已結案 in the SAME words the chat room uses, with no task line, delegator or task card", async () => {
+    __injectMockTask(mkTask({ id: "t-1" }));
     __injectMockOutsourceWorker(
-      mkWorker({ id: "ow-1", taskId: "t-1", taskNo: "T-9c21", taskTitle: "查帳單", status: "released" }),
+      mkWorker({ id: "ow-1", taskId: "t-1", status: "released" }),
     );
     const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
     const released = await findByTestId("worker-detail-released");
-    expect(within(released).getByTestId("worker-detail-task-line-ow-1").textContent).toBe("T-9c21自由代辦");
-    expect(within(released).getByTestId("worker-detail-header-task-title").textContent).toBe("查帳單");
-    expect(within(released).queryAllByTestId("runtime-login-warning")).toHaveLength(0);
+    expect(within(released).queryByTestId("worker-detail-task-line-ow-1")).toBeNull();
+    expect(within(released).queryByTestId("worker-detail-header-task-title")).toBeNull();
     expect(released.querySelector(".mp-worker-task")).toBeNull();
+    for (const gone of ["委託人", "委託任務"]) {
+      expect(released.textContent, gone).not.toContain(gone);
+    }
     // 🔴 The SAME leaf the chat header reads — asserted against the dictionary,
     // not against a literal copied into this test. A second string added for the
     // panel would still satisfy a hard-coded literal here; it cannot satisfy this.
@@ -779,7 +781,7 @@ describe("WorkerDetailPanel — worker-specific bits carry over", () => {
 // are asserted; pure styling (the refocus pulse tint) is NOT (jsdom does not
 // compute it) — an honest "測不到" gap, not a decorative assertion.
 describe("WorkerDetailPanel — identity card matches the worker chat header", () => {
-  it("the identity card shows codename, the clickable task chip with the SHORT task-type label, then the FULL task title on its own line, and a real (online) dot", async () => {
+  it("the identity card shows codename, the clickable task chip with the SHORT task-type label, then the FULL task title on its own line (no title line at all when the title is empty), and a real (online) dot", async () => {
     // The detail page's `worker` comes from the SAME useOutsourceWorkers() join
     // the roster reads (OfficePage.tsx) — taskTypeName/Key are derived there
     // from the task's typeKey + the registered manual, overwriting anything set
@@ -808,7 +810,7 @@ describe("WorkerDetailPanel — identity card matches the worker chat header", (
         presence: "online",
       }),
     );
-    const { findByTestId, findByText } = renderOfficeAt("#office/worker/ow-1");
+    const { findByTestId, findByText, unmount } = renderOfficeAt("#office/worker/ow-1");
     const header = await findByTestId("worker-detail-task-line-ow-1");
     // The codename line shows the outsource identity label 「外包 · 代號」,
     // matching the sidebar 外包 row (T-3ed8, owner 2026-07-20 完全一致).
@@ -830,6 +832,18 @@ describe("WorkerDetailPanel — identity card matches the worker chat header", (
     // Clicking the chip routes to the bound task.
     fireEvent.click(await findByTestId("worker-detail-task-ow-1"));
     await waitFor(() => expect(window.location.hash).toBe("#tasks/t-1"));
+    unmount();
+
+    __injectMockTask(mkTask({ id: "t-2", taskNo: "T-e9f5", title: "", typeKey: "tm-officraft-dev" }));
+    __injectMockOutsourceWorker(
+      mkWorker({ id: "ow-2", codename: "O-20", taskId: "t-2", taskNo: "T-e9f5", taskTitle: "", presence: "online" }),
+    );
+    const untitled = renderOfficeAt("#office/worker/ow-2");
+    const untitledLine = await untitled.findByTestId("worker-detail-task-line-ow-2");
+    expect(untitledLine.textContent).toBe("T-e9f5OffiCraft 開發");
+    expect(untitledLine.nextElementSibling).toBeNull();
+    expect(untitled.queryByTestId("worker-detail-header-task-title")).toBeNull();
+    expect(untitled.container.textContent).not.toContain("無當前任務");
   });
 
   it("under a runtime login warning, the header's task line leads with one exclamation whose hover hint names the pending pair's machine like a current one", async () => {

@@ -66,9 +66,10 @@ export function ActivityStateIcon({
 /** A member's name led by its status icon. List rows, chat header and detail
  * identity card all render this, so the icon's place is decided here alone.
  * Online and stopping show the reported state, or the unknown mark before a
- * report; waking always shows the unknown mark; anything else gets the moon. `layout="list"`: the icon sits on the
- * first line of a wrapped name. `layout="group"`: icon and name form one box,
- * for a line that wraps its other items onto the next line. */
+ * report; waking always shows the unknown mark; anything else gets the moon.
+ * `layout="list"`: the icon sits on the first line of a wrapped name.
+ * `layout="group"`: icon and name form one box, for a line that wraps its other
+ * items onto the next line. */
 export function NameWithActivity({
   activity,
   presence,

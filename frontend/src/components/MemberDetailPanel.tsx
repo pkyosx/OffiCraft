@@ -10,7 +10,6 @@ import type {
 import { useMachines } from "../hooks/useMachines";
 import {
   AgentDetailPanel,
-  notHere,
   runtimeLabel,
   slot,
 } from "./AgentDetailPanel";
@@ -804,10 +803,6 @@ export function MemberDetailPanel({
       // AGENT_DETAIL_SLOTS breaks THIS literal until it is answered here too.
       slots={{
         overlays: slot(overlayCards),
-        afterIdentityCards: notHere(
-          "正職沒有綁定的任務；外包的任務畫在它自己的身分卡裡（docs/design/worker-panel-parity.md C4）",
-        ),
-        afterInfoCards: notHere("兩邊都沒有：外包的委託人已依 owner 拿掉（docs/design/worker-panel-parity.md C3）"),
         extraExpandCards: slot(extraExpandCards),
         afterPromptCards: slot(resumeSummaryCard),
       }}

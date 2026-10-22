@@ -28,8 +28,6 @@ import {
   type AgentDetailSlots,
   type AgentDetailVM,
 } from "./AgentDetailPanel";
-import { MemberDetailPanel } from "./MemberDetailPanel";
-import type { Member } from "../types";
 
 vi.mock("../api", () => ({
   api: {
@@ -50,9 +48,7 @@ vi.mock("../api", () => ({
 // ─────────────────────────────────────────────────────────────────────────────
 
 const every: AgentDetailSlots = {
-  overlays: slot(null),
-  afterIdentityCards: notHere("正職沒有這個概念"),
-  afterInfoCards: notHere("正職沒有這個概念"),
+  overlays: notHere("not this fixture's subject"),
   extraExpandCards: slot(null),
   afterPromptCards: slot(null),
 };
@@ -64,8 +60,6 @@ const every: AgentDetailSlots = {
 // @ts-expect-error — a missing slot key is a type error, never a silent nothing
 const missingOne: AgentDetailSlots = {
   overlays: slot(null),
-  afterIdentityCards: slot(null),
-  afterInfoCards: slot(null),
   extraExpandCards: slot(null),
 };
 
@@ -189,13 +183,11 @@ function mkPopulatedVM(): AgentDetailVM {
 }
 
 describe("AgentDetailPanel slot map", () => {
-  it("offers exactly the five slots both wrappers must answer", () => {
+  it("offers exactly the three slots both wrappers must answer", () => {
     // Pins the LIST itself: growing it is exactly the event that must break
     // both wrappers, so it should be a deliberate edit here as well.
     expect([...AGENT_DETAIL_SLOTS]).toEqual([
       "overlays",
-      "afterIdentityCards",
-      "afterInfoCards",
       "extraExpandCards",
       "afterPromptCards",
     ]);
@@ -204,51 +196,6 @@ describe("AgentDetailPanel slot map", () => {
     expect(
       [every, missingOne, unknownKey, emptyReason, bareLiteral].every(Boolean),
     ).toBe(true);
-  });
-
-  it("renders nothing — not even the reason — for a slot this side declined", async () => {
-    const member: Member = {
-      id: "mira",
-      name: "Mira",
-      role: "assistant",
-      status: "offline",
-      lifecycle: "offline",
-      runtime: "claude",
-      actualRuntime: "",
-      model: "opus",
-      actualModel: "",
-      effort: "medium",
-      actualEffort: "",
-      kind: "staff",
-      desiredMachineId: "",
-      machine: "",
-      actualMachine: "",
-      account: null,
-      contextPct: null,
-      estimatedCost: null,
-      bankedCost: null,
-      terminalAttachCommand: "tmux -L officraft attach -t member-mira",
-      refocusSince: null,
-      lastOp: "",
-      lastOpOk: null,
-      lastOpLog: "",
-      lastOpReason: "",
-      lastOpAt: null,
-      unreadCount: 0,
-    } as unknown as Member;
-
-    const { container } = render(
-      <I18nProvider>
-        <MemberDetailPanel member={member} onBack={() => {}} />
-      </I18nProvider>,
-    );
-
-    // The member panel declines two slots (worker-panel-parity.md C4 / C3).
-    // Their reasons are developer notes — they
-    // must never be rendered, or "this side has nothing here" would turn into a
-    // line of internal prose on the owner's screen.
-    expect(container.textContent ?? "").not.toContain("外包獨有");
-    expect(container.textContent ?? "").not.toContain("worker-panel-parity");
   });
 
   // 🔴 The half `satisfies` cannot answer: a key can be RESOLVED in the panel and
@@ -268,7 +215,7 @@ describe("AgentDetailPanel slot map", () => {
   //
   // ⚠️ (c) exists because round-2 broke the single-VM version: wrapping a render
   // site in a condition that happens to be TRUE under the minimal VM
-  // (`{!vm.online && rendered.afterInfoCards}`) was completely green, and that is
+  // (`{!vm.online && rendered.extraExpandCards}`) was completely green, and that is
   // this ticket's own bug wearing a different hat — the card would vanish the
   // moment the agent came online. A minimal all-falsy VM is the LEAST
   // production-like state there is, so it cannot be the only one we mount.

@@ -14,15 +14,12 @@ import { I18nProvider } from "../../src/i18n";
 import {
   AgentDetailPanel,
   notHere,
-  slot,
   type AgentDetailSlots,
   type AgentDetailVM,
 } from "../../src/components/AgentDetailPanel";
 
 const NO_SLOTS: AgentDetailSlots = {
   overlays: notHere("此故事只量成本歸零那一格"),
-  afterIdentityCards: notHere("此故事只量成本歸零那一格"),
-  afterInfoCards: notHere("此故事只量成本歸零那一格"),
   extraExpandCards: notHere("此故事只量成本歸零那一格"),
   afterPromptCards: notHere("此故事只量成本歸零那一格"),
 };
@@ -105,21 +102,14 @@ export function CostResetNothingToClearStory() {
 }
 
 /** The outsource arm of the same shared component — one implementation, both
- * kinds (DoD #4). Its extra card mirrors the convergence story's. */
+ * kinds (DoD #4). */
 export function CostResetWorkerStory() {
   return (
     <I18nProvider>
       <AgentDetailPanel
         onBack={() => {}}
         identity={<div className="mp-card mp-identity">worker</div>}
-        slots={{
-          ...NO_SLOTS,
-          afterInfoCards: slot(
-            <div className="mp-card">
-              <div className="mp-field">delegator</div>
-            </div>,
-          ),
-        }}
+        slots={NO_SLOTS}
         vm={{
           ...baseVM,
           testIdPrefix: "worker-detail",

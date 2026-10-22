@@ -27,8 +27,7 @@ for (const [kind, story] of Object.entries(stories)) {
   }) => {
     await page.setViewportSize({ width: 1200, height: 900 });
     const cmp = await mount(story);
-    // The FIRST .mp-info2 is the shared model/machine info card (AgentDetailPanel
-    // renders it before any afterInfoCards slot).
+    // The shared model/machine info card is the panel's only .mp-info2.
     const info = cmp.locator(".mp-info2").first();
     await expect(info).toBeVisible();
     const fields = info.locator(":scope > .mp-field");

@@ -6,7 +6,6 @@ import type { MonSessionView } from "../types";
 import { useMachines } from "../hooks/useMachines";
 import {
   AgentDetailPanel,
-  notHere,
   runtimeLabel,
   slot,
 } from "./AgentDetailPanel";
@@ -456,24 +455,6 @@ export function WorkerDetailPanel({
     }
   }
 
-  // The chat header's lines for this worker, from the same components.
-  const taskLines = (mark: boolean) => (
-    <div className="mp-identity__task">
-      <OutsourceTaskLine
-        worker={worker}
-        onOpenTask={() => onOpenTask?.()}
-        mark={mark}
-        idPrefix="worker-detail"
-      />
-      <CurrentTaskTitle
-        title={worker.taskTitle ?? ""}
-        clamp={false}
-        showEmpty={false}
-        testid="worker-detail-header-task-title"
-      />
-    </div>
-  );
-
   // ── identity slot: stable worker id's personal image, then the outsource
   // theme image and glyph fallbacks, plus codename + real presence. ──────────
   const identity = (
@@ -499,7 +480,21 @@ export function WorkerDetailPanel({
             </span>
           </NameWithActivity>
         </div>
-        {taskLines(true)}
+        {/* The chat header's lines for this worker, from the same components. */}
+        <div className="mp-identity__task">
+          <OutsourceTaskLine
+            worker={worker}
+            onOpenTask={() => onOpenTask?.()}
+            mark
+            idPrefix="worker-detail"
+          />
+          <CurrentTaskTitle
+            title={worker.taskTitle ?? ""}
+            clamp={false}
+            showEmpty={false}
+            testid="worker-detail-header-task-title"
+          />
+        </div>
         {/* The offline REASON, moved here when the 狀態 cell went (owner
             2026-07-31). It is the one thing that cell carried which the dot does
             NOT: a bare grey dot on a worker whose spawn silently failed tells
@@ -770,7 +765,6 @@ export function WorkerDetailPanel({
                   : t.office.outsource.releasedTitle}
               </span>
             </div>
-            {worker.taskNo && taskLines(false)}
             <div className="mp-identity__status">
               <span data-testid="worker-detail-released-sub">
                 {t.office.outsource.releasedSub}
@@ -793,8 +787,6 @@ export function WorkerDetailPanel({
       // simply did not exist here, and nothing said so.
       slots={{
         overlays: slot(settingsDialog),
-        afterIdentityCards: notHere("任務編號、類型與完整標題畫在身分卡裡，與聊天室 header 同一組元件（docs/design/worker-panel-parity.md C4）"),
-        afterInfoCards: notHere("owner 拿掉了委託人（docs/design/worker-panel-parity.md C3）"),
         extraExpandCards: slot(extraExpandCards),
         afterPromptCards: slot(<ResumeSummaryCard agentId={worker.id} />),
       }}
