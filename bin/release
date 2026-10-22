@@ -143,6 +143,10 @@
 #                          settle_station's poll-retry — GitHub's own docs do
 #                          not promise --latest is visible on /releases/latest
 #                          the instant `gh release edit` returns.
+#   OC_RELEASE_CI_TRIES / OC_RELEASE_CI_SLEEP           CI-gate re-read budget
+#                          (run_release_ci) for required jobs whose conclusion
+#                          still reads null. It only bounds the wait; it cannot
+#                          skip the gate or accept anything but "success".
 #
 # There is deliberately NO "override the build command" knob, and none that can
 # soften the CI gate. Step 3 runs `$STAGE/bin/build` — a path INSIDE the staging
@@ -171,6 +175,8 @@ SETTLE_TRIES="${OC_RELEASE_SETTLE_TRIES:-60}"
 SETTLE_SLEEP="${OC_RELEASE_SETTLE_SLEEP:-5}"
 LATEST_TRIES="${OC_RELEASE_LATEST_TRIES:-3}"
 LATEST_SLEEP="${OC_RELEASE_LATEST_SLEEP:-2}"
+CI_TRIES="${OC_RELEASE_CI_TRIES:-10}"
+CI_SLEEP="${OC_RELEASE_CI_SLEEP:-60}"
 
 say()  { echo "[release] $*"; }
 die()  { echo "[release] FATAL: $*" >&2; exit "${2:-1}"; }
@@ -503,6 +509,13 @@ macos-e2e"
 # unique directory whose creation is `mkdir` without -p, so a name collision is a
 # hard error rather than a run quietly adopting somebody else's verdict.
 #
+# NULL IS RE-READ. auto-beta `needs:` every gate job, so here a null cannot mean
+# "still running": it is the jobs endpoint lagging (finished jobs have been
+# measured reading null minutes after completing). When null conclusions are the
+# ONLY defect, the job list is re-read up to CI_TRIES times, CI_SLEEP apart, and
+# the last read is judged; still null then fails closed. Every other outcome
+# above still fails on the first read.
+#
 # CREDENTIALS: TOKEN WHEN THERE IS ONE, ANONYMOUS WHEN THERE IS NOT.
 # This started out unconditionally anonymous, on the measurement that a public
 # repo answers 200 to an unauthenticated request on both endpoints. That
@@ -637,18 +650,24 @@ run_release_ci() {
     || fail_item release-ci "could not read GitHub Actions run $run_id from $GH_REPO using $authnote — this publish is inside a run whose verdict it cannot read, which is not permission to ship. If the token was rejected, check that auto-beta still declares \`actions: read\` next to \`contents: write\` (a job-level permissions block replaces the set wholesale)."
   printf '%s\n' "$run_json" > "$dir/run.json"
 
-  # ⚠️ NO `filter` parameter. The default (filter=latest) is what drops a re-run's
-  # superseded earlier attempt; filter=all would let a stale green attempt certify
-  # a red re-run.
-  jobs_json="$(gh_api_get "$api/repos/$GH_REPO/actions/runs/$run_id/jobs?per_page=100" 2>/dev/null)" \
-    || fail_item release-ci "could not read the job list of GitHub Actions run $run_id using $authnote — without it there is no verdict to believe."
-  printf '%s\n' "$jobs_json" > "$dir/jobs.json"
+  local ci_read=0 still_null
+  while :; do
+    ci_read=$((ci_read + 1))
+    # ⚠️ NO `filter` parameter. The default (filter=latest) is what drops a re-run's
+    # superseded earlier attempt; filter=all would let a stale green attempt certify
+    # a red re-run.
+    jobs_json="$(gh_api_get "$api/repos/$GH_REPO/actions/runs/$run_id/jobs?per_page=100" 2>/dev/null)" \
+      || fail_item release-ci "could not read the job list of GitHub Actions run $run_id using $authnote — without it there is no verdict to believe."
+    printf '%s\n' "$jobs_json" > "$dir/jobs.json"
 
-  # ONE pass over both payloads, so "what GitHub said" and "what we require"
-  # cannot drift apart across separate ad-hoc extractions.
-  WANT_SHA="$SHA" WANT_RUN_ID="$run_id" WANT_JOBS="$REQUIRED_CI_JOBS" \
-  RUN_FILE="$dir/run.json" JOBS_FILE="$dir/jobs.json" \
-  python3 -c '
+    # ONE pass over both payloads, so "what GitHub said" and "what we require"
+    # cannot drift apart across separate ad-hoc extractions. Exit 75 (stdout =
+    # the null job names) means "only nulls, reads left": re-read.
+    rc=0
+    still_null="$(WANT_SHA="$SHA" WANT_RUN_ID="$run_id" WANT_JOBS="$REQUIRED_CI_JOBS" \
+    RUN_FILE="$dir/run.json" JOBS_FILE="$dir/jobs.json" \
+    CI_READ="$ci_read" CI_TRIES="$CI_TRIES" CI_SLEEP="$CI_SLEEP" \
+    python3 -c '
 import json, os, sys
 
 def fail(item, msg):
@@ -690,12 +709,23 @@ missing = [n for n in want if n not in by_name]
 if missing:
     fail("release-ci", "run %s has NO ENTRY for required gate job(s): %s. A job that never ran produces no entry at all, so \"everything visible is green\" is also true of a round that never checked it. Saw: %s." % (want_run, ", ".join(missing), ", ".join(sorted(str(k) for k in by_name)) or "nothing"))
 notgreen = [(n, by_name[n].get("conclusion")) for n in want if by_name[n].get("conclusion") != "success"]
+reads, tries = int(os.environ["CI_READ"]), int(os.environ["CI_TRIES"])
+if notgreen and all(c is None for _, c in notgreen) and reads < tries:
+    print(", ".join(n for n, _ in notgreen))
+    raise SystemExit(75)
 if notgreen:
-    fail("release-ci", "run %s did not go green on: %s. The required conclusion is exactly \"success\" - skipped, cancelled, action_required, timed_out, neutral and a still-running null are all NOT a pass." % (want_run, ", ".join("%s=%r" % (n, c) for n, c in notgreen)))
+    waited = ""
+    if all(c is None for _, c in notgreen):
+        waited = " Still null after %d reads, %ss apart." % (reads, os.environ["CI_SLEEP"])
+    fail("release-ci", "run %s did not go green on: %s. The required conclusion is exactly \"success\" - skipped, cancelled, action_required, timed_out, neutral and a still-running null are all NOT a pass.%s" % (want_run, ", ".join("%s=%r" % (n, c) for n, c in notgreen), waited))
 
 print("[release]   %d/%d required gate jobs succeeded on run %s (head_sha %s)"
       % (len(want), len(want), want_run, head), file=sys.stderr)
-' || rc=$?
+')" || rc=$?
+    [[ "$rc" == "75" ]] || break
+    say "  read $ci_read/$CI_TRIES: conclusion still null on $still_null — re-reading the job list in ${CI_SLEEP}s"
+    sleep "$CI_SLEEP"
+  done
   [[ "$rc" == "0" ]] || exit "$rc"
 
   say "  CI verdict accepted for $SHORT (GitHub run $run_id, head_sha bound to --target, all required jobs success)"
