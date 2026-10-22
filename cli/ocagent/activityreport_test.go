@@ -81,7 +81,7 @@ func TestCmdActivityReport(t *testing.T) {
 			Busy: true, BusySince: ptrFloat(900),
 			Subagents: []activitySubagent{{ID: "a1", Name: "Explore", StartedTs: 901}},
 			Waits:     []activityWait{{Kind: "schedule", Description: "check CI"}},
-			Paused:    map[string]float64{"b2": 902},
+			Stopped:   map[string]bool{"b2": true},
 			Spawns:    map[string]activitySpawn{"a1": {Description: "survey"}},
 			Pending:   []activitySpawn{{Description: "never started"}},
 		})
@@ -115,7 +115,7 @@ func TestCmdActivityReport(t *testing.T) {
 		}
 	})
 
-	t.Run("a sub-agent with no listed child under it is dropped when it stops, and keeps its start time when it resumes, even across the main Stop", func(t *testing.T) {
+	t.Run("a sub-agent with no listed child under it is dropped when it stops, and its time restarts at every start, even across the main Stop", func(t *testing.T) {
 		srv, posts := contextServer(t)
 		cfg := newCfg(t, srv.URL)
 		tasks := `"background_tasks":[` +
@@ -140,20 +140,20 @@ func TestCmdActivityReport(t *testing.T) {
 			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"b2","parent_id":null,"name":"general-purpose","description":"read cli/","started_ts":1002}],"waits":[]}`),
 			sent(`{"busy":true,"busy_since":1000,"subagents":[],"waits":[]}`),
 			sent(`{"busy":false,"busy_since":null,"subagents":[],"waits":[]}`),
-			sent(`{"busy":false,"busy_since":null,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"","started_ts":1001}],"waits":[]}`),
-			sent(`{"busy":false,"busy_since":null,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"","started_ts":1001}],"waits":[]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"","started_ts":1005}],"waits":[]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"","started_ts":1006}],"waits":[]}`),
 		}
 		if !reflect.DeepEqual(*posts, want) {
 			t.Errorf("sent\n  %+v\nwant\n  %+v", *posts, want)
 		}
 		if got, want := readFileString(t, statePath(cfg)),
-			`{"busy":false,"busy_since":null,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"","started_ts":1001}],`+
-				`"waits":[],"paused":{"b2":1002}}`+"\n"; got != want {
+			`{"busy":false,"busy_since":null,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"","started_ts":1006}],`+
+				`"waits":[],"stopped":{"b2":true}}`+"\n"; got != want {
 			t.Errorf("state file = %q, want %q", got, want)
 		}
 	})
 
-	t.Run("a background sub-agent gets its parent and description from the Agent call that spawned it, and that parent stays listed while it stops to wait for it", func(t *testing.T) {
+	t.Run("a background sub-agent gets its parent and description from the Agent call that spawned it, and that parent stays listed while it stops to wait for it, its time restarting when it carries on", func(t *testing.T) {
 		srv, posts := contextServer(t)
 		cfg := newCfg(t, srv.URL)
 
@@ -185,7 +185,7 @@ func TestCmdActivityReport(t *testing.T) {
 			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey the repo","started_ts":1002},` +
 				`{"id":"b2","parent_id":"a1","name":"general-purpose","description":"read cli/ (renamed)","started_ts":1005}],"waits":[]}`),
 			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey the repo","started_ts":1002}],"waits":[]}`),
-			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey the repo","started_ts":1002}],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey the repo","started_ts":1009}],"waits":[]}`),
 			sent(`{"busy":true,"busy_since":1000,"subagents":[],"waits":[]}`),
 		}
 		if !reflect.DeepEqual(*posts, want) {
@@ -193,7 +193,7 @@ func TestCmdActivityReport(t *testing.T) {
 		}
 	})
 
-	t.Run("each sub-agent of a three-level chain stays listed while it waits for its child and goes at its own last stop", func(t *testing.T) {
+	t.Run("each sub-agent of a three-level chain stays listed while it waits for its child, restarts its time when it carries on, and goes at its own last stop", func(t *testing.T) {
 		srv, posts := contextServer(t)
 		cfg := newCfg(t, srv.URL)
 		running := func(ids ...string) string {
@@ -236,9 +236,9 @@ func TestCmdActivityReport(t *testing.T) {
 			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"A","parent_id":null,"name":"general-purpose","description":"A task","started_ts":1002},` +
 				`{"id":"B","parent_id":"A","name":"general-purpose","description":"B task","started_ts":1004}],"waits":[]}`),
 			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"A","parent_id":null,"name":"general-purpose","description":"A task","started_ts":1002},` +
-				`{"id":"B","parent_id":"A","name":"general-purpose","description":"B task","started_ts":1004}],"waits":[]}`),
+				`{"id":"B","parent_id":"A","name":"general-purpose","description":"B task","started_ts":1010}],"waits":[]}`),
 			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"A","parent_id":null,"name":"general-purpose","description":"A task","started_ts":1002}],"waits":[]}`),
-			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"A","parent_id":null,"name":"general-purpose","description":"A task","started_ts":1002}],"waits":[]}`),
+			sent(`{"busy":true,"busy_since":1000,"subagents":[{"id":"A","parent_id":null,"name":"general-purpose","description":"A task","started_ts":1012}],"waits":[]}`),
 			sent(`{"busy":true,"busy_since":1000,"subagents":[],"waits":[]}`),
 		}
 		if !reflect.DeepEqual(*posts, want) {
@@ -302,7 +302,7 @@ func TestCmdActivityReport(t *testing.T) {
 			t.Errorf("sent\n  %+v\nwant\n  %+v", *posts, want)
 		}
 		if got, want := readFileString(t, statePath(cfg)), `{"busy":false,"busy_since":null,"subagents":[],"waits":[],`+
-			`"paused":{"f1":1003},"spawns":{"f1":{"parent_id":null,"description":"first"}},`+
+			`"stopped":{"f1":true},"spawns":{"f1":{"parent_id":null,"description":"first"}},`+
 			`"pending":[{"parent_id":null,"description":"second"}]}`+"\n"; got != want {
 			t.Errorf("state file = %q, want %q", got, want)
 		}
@@ -330,11 +330,11 @@ func TestCmdActivityReport(t *testing.T) {
 		}
 	})
 
-	t.Run("a sub-agent resuming after a pause keeps its spawn and leaves the pending calls alone", func(t *testing.T) {
+	t.Run("a sub-agent starting again after it stopped keeps its spawn, leaves the pending calls alone and counts its time from the new start", func(t *testing.T) {
 		srv, posts := contextServer(t)
 		cfg := newCfg(t, srv.URL)
 		writeActivityState(statePath(cfg), activityState{
-			Paused:  map[string]float64{"a1": 1001, "z9": 1002},
+			Stopped: map[string]bool{"a1": true, "z9": true},
 			Spawns:  map[string]activitySpawn{"a1": {Description: "survey"}},
 			Pending: []activitySpawn{{ParentID: ptrString("a1"), Description: "child"}},
 		})
@@ -344,9 +344,9 @@ func TestCmdActivityReport(t *testing.T) {
 			step{1011, activityHook("SubagentStart", `"agent_id":"z9","agent_type":"Plan"`)})
 
 		want := []capturedPost{
-			sent(`{"busy":false,"busy_since":null,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey","started_ts":1001}],"waits":[]}`),
-			sent(`{"busy":false,"busy_since":null,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey","started_ts":1001},` +
-				`{"id":"z9","parent_id":null,"name":"Plan","description":"","started_ts":1002}],"waits":[]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey","started_ts":1010}],"waits":[]}`),
+			sent(`{"busy":false,"busy_since":null,"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey","started_ts":1010},` +
+				`{"id":"z9","parent_id":null,"name":"Plan","description":"","started_ts":1011}],"waits":[]}`),
 		}
 		if !reflect.DeepEqual(*posts, want) {
 			t.Errorf("sent\n  %+v\nwant\n  %+v", *posts, want)
@@ -399,7 +399,7 @@ func TestCmdActivityReport(t *testing.T) {
 				{ID: "stale", Name: "Plan", Description: "plan it", StartedTs: 1002},
 				{ID: "done", Name: "general-purpose", StartedTs: 1003},
 			},
-			Paused: map[string]float64{"a1-child": 1004, "gone": 1005},
+			Stopped: map[string]bool{"a1-child": true, "gone": true},
 		})
 
 		drive(t, cfg, srv.Client(), step{1010, activityHook("Stop", `"background_tasks":[`+
@@ -424,7 +424,7 @@ func TestCmdActivityReport(t *testing.T) {
 			`"subagents":[{"id":"a1","parent_id":null,"name":"Explore","description":"survey the repo","started_ts":1001}],`+
 			`"waits":[{"kind":"background_command","description":"npm test","next_ts":null,"recurring":false},`+
 			`{"kind":"background_command","description":"watch the deploy log","next_ts":null,"recurring":false},`+
-			`{"kind":"schedule","description":"check CI","next_ts":1200,"recurring":true}],"paused":{"a1-child":1004,"gone":1005}}`+"\n"; got != want {
+			`{"kind":"schedule","description":"check CI","next_ts":1200,"recurring":true}],"stopped":{"a1-child":true,"gone":true}}`+"\n"; got != want {
 			t.Errorf("state file = %q, want %q", got, want)
 		}
 	})
