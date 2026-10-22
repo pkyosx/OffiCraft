@@ -5,7 +5,7 @@
 // awake path NEVER goes through activateMember.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { MemberDetailPanel } from "./MemberDetailPanel";
@@ -81,6 +81,15 @@ function mkMember(over: Partial<Member> = {}): Member {
   };
 }
 
+/** Settle every GET /api/machines issued so far, inside act. The machine-move
+ * hint is withheld until the first one lands, so an assertion made before this
+ * reads the loading state — and a "no hint" assertion passes vacuously. */
+async function machineListLoaded() {
+  await act(async () => {
+    await Promise.all(listMachines.mock.results.map((r) => r.value));
+  });
+}
+
 function renderPanel(over: Partial<Member> = {}) {
   const onRelocate = vi.fn(async (machineId: string) => {
     await relocateMember("mira", machineId);
@@ -134,7 +143,8 @@ describe("MemberDetailPanel — unified wake/change settings", () => {
     const { getByTestId, queryByTestId, rerender } = render(
       <I18nProvider><MemberDetailPanel member={initial} onBack={vi.fn()} /></I18nProvider>,
     );
-    await waitFor(() => expect(getByTestId("mp-machine").textContent).toContain("Machine A"));
+    await machineListLoaded();
+    expect(getByTestId("mp-machine").textContent).toContain("Machine A");
     expect(getByTestId("mp-machine-pending").textContent).toContain("→ 要換到 Machine B");
 
     rerender(
@@ -259,7 +269,7 @@ describe("MemberDetailPanel — unified wake/change settings", () => {
       machine: "mach-a",
       desiredMachineId: "mach-b",
     });
-    await waitFor(() => expect(listMachines).toHaveBeenCalled());
+    await machineListLoaded();
     expect(getByTestId("mp-machine-pending").textContent).toContain(
       "→ 要換到 Machine B",
     );
@@ -282,9 +292,8 @@ describe("MemberDetailPanel — unified wake/change settings", () => {
         machine: "mach-a",
         desiredMachineId,
       });
-      await waitFor(() =>
-        expect(getByTestId("mp-machine-pending").textContent).toBe(movingTo),
-      );
+      await machineListLoaded();
+      expect(getByTestId("mp-machine-pending").textContent).toBe(movingTo);
     },
   );
 
@@ -299,9 +308,8 @@ describe("MemberDetailPanel — unified wake/change settings", () => {
       actualMachine: "mach-b",
       desiredMachineId: "mach-a",
     });
-    await waitFor(async () =>
-      expect((await findByTestId("mp-machine")).textContent).toBe("box"),
-    );
+    await machineListLoaded();
+    expect((await findByTestId("mp-machine")).textContent).toBe("box");
     expect((await findByTestId("mp-machine-pending")).textContent).toBe(
       "→ 要換到 box",
     );
@@ -316,7 +324,7 @@ describe("MemberDetailPanel — unified wake/change settings", () => {
       machine: "mach-b",
       desiredMachineId: "mach-b",
     });
-    await waitFor(() => expect(listMachines).toHaveBeenCalled());
+    await machineListLoaded();
     expect(queryByTestId("mp-machine-pending")).toBeNull();
   });
 

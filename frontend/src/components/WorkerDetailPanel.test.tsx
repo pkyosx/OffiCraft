@@ -13,8 +13,8 @@
 // mock-adapter relocate round-trip. Pure visual styling (the stuck warn tint,
 // the picker's dark theme) is NOT asserted here — jsdom does not compute it.
 
-import { describe, it, expect, afterEach, beforeEach, vi, onTestFinished } from "vitest";
-import { render, fireEvent, screen, waitFor, configure, within } from "@testing-library/react";
+import { describe, it, expect, afterEach, beforeEach, vi, onTestFinished, type MockInstance } from "vitest";
+import { act, render, fireEvent, screen, waitFor, configure, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { api } from "../api";
 import { zh } from "../i18n/locales/zh";
@@ -31,6 +31,7 @@ import {
   MOCK_FORCED_STOP_DISCONNECT_MS,
 } from "../api/mock";
 import type { TaskView, OutsourceWorkerView } from "../api/adapter";
+import type { MachineView } from "../types";
 
 let seq = 0;
 
@@ -153,6 +154,22 @@ function reporting(
   effort = "high",
 ): Partial<OutsourceWorkerView> {
   return { presence: "online", actualModel: model, actualEffort: effort, ...over };
+}
+
+/** Hold GET /api/machines until the returned `release()`, so a test can read
+ * the panel while the machine registry is still loading and again once it
+ * has landed. Call it after the fixtures are set: it snapshots the list now. */
+async function holdMachineList(): Promise<() => Promise<void>> {
+  const machines = await api.listMachines();
+  let resolve!: (list: MachineView[]) => void;
+  const held = new Promise<MachineView[]>((r) => {
+    resolve = r;
+  });
+  vi.spyOn(api, "listMachines").mockReturnValue(held);
+  return () =>
+    act(async () => {
+      resolve(machines);
+    });
 }
 
 function renderOfficeAt(hash: string) {
@@ -2144,6 +2161,22 @@ describe("WorkerDetailPanel — reported state vs configured launch intent (T-e1
 describe("WorkerDetailPanel — pending launch changes (T-7f28)", () => {
   const CELLS = ["runtime", "model", "effort", "machine"] as const;
 
+  let listMachines: MockInstance<typeof api.listMachines>;
+  beforeEach(() => {
+    listMachines = vi.spyOn(api, "listMachines");
+  });
+
+  /** Settle the panel's GET /api/machines inside act. The machine-move hint is
+   * withheld until it lands, so an assertion made before this reads the
+   * loading state — and a "no hint" assertion passes vacuously. Only the
+   * worker panel lists machines on this route, so the first call is its own. */
+  async function machineListLoaded() {
+    await waitFor(() => expect(listMachines).toHaveBeenCalled());
+    await act(async () => {
+      await Promise.all(listMachines.mock.results.map((r) => r.value));
+    });
+  }
+
   it("marks each cell whose reported value differs from the configured one", async () => {
     __injectMockTask(mkTask({ id: "t-1" }));
     __injectMockOutsourceWorker(
@@ -2182,7 +2215,7 @@ describe("WorkerDetailPanel — pending launch changes (T-7f28)", () => {
     );
   });
 
-  it("adds nothing to the panel when every reported value already agrees", async () => {
+  it("adds nothing to the panel when every reported value already agrees, neither while the machine list loads nor after", async () => {
     __injectMockTask(mkTask({ id: "t-2" }));
     __injectMockOutsourceWorker(
       mkWorker({
@@ -2202,6 +2235,7 @@ describe("WorkerDetailPanel — pending launch changes (T-7f28)", () => {
         actualMachine: "warden-mbp5",
       }),
     );
+    const releaseMachineList = await holdMachineList();
 
     const { findByTestId, queryByTestId } = renderOfficeAt(
       "#office/worker/ow-1",
@@ -2210,6 +2244,37 @@ describe("WorkerDetailPanel — pending launch changes (T-7f28)", () => {
     for (const cell of CELLS) {
       expect(queryByTestId(`worker-detail-${cell}-pending`)).toBeNull();
     }
+
+    await releaseMachineList();
+    for (const cell of CELLS) {
+      expect(queryByTestId(`worker-detail-${cell}-pending`)).toBeNull();
+    }
+  });
+
+  it("a worker mid-relocation shows no moving-to hint while the machine list loads, then names the destination by its display name", async () => {
+    __setMockMemberOnline("warden-mbp5", true);
+    __setMockMemberOnline("m-server-self", true);
+    __injectMockTask(mkTask({ id: "t-7" }));
+    __injectMockOutsourceWorker(
+      mkWorker({
+        id: "ow-1",
+        taskId: "t-7",
+        presence: "online",
+        desiredMachineId: "warden-mbp5",
+        machine: "m-server-self",
+        actualMachine: "m-server-self",
+      }),
+    );
+    const releaseMachineList = await holdMachineList();
+
+    const { findByTestId, queryByTestId } = renderOfficeAt("#office/worker/ow-1");
+    await findByTestId("worker-detail-task");
+    expect(queryByTestId("worker-detail-machine-pending")).toBeNull();
+
+    await releaseMachineList();
+    expect((await findByTestId("worker-detail-machine-pending")).textContent).toBe(
+      "→ 要換到 Warden · mbp5",
+    );
   });
 
   it.each([
@@ -2233,9 +2298,9 @@ describe("WorkerDetailPanel — pending launch changes (T-7f28)", () => {
         }),
       );
       const { findByTestId, queryByTestId } = renderOfficeAt("#office/worker/ow-1");
-      await waitFor(async () =>
-        expect((await findByTestId("worker-detail-machine")).textContent).toBe(cell),
-      );
+      await findByTestId("worker-detail-machine");
+      await machineListLoaded();
+      expect((await findByTestId("worker-detail-machine")).textContent).toBe(cell);
       expect(
         queryByTestId("worker-detail-machine-pending")?.textContent ?? null,
       ).toBe(movingTo);
@@ -2313,6 +2378,7 @@ describe("WorkerDetailPanel — pending launch changes (T-7f28)", () => {
     expect((await findByTestId("worker-detail-runtime-value")).textContent).toBe(
       "—",
     );
+    await machineListLoaded();
     for (const cell of CELLS) {
       expect(queryByTestId(`worker-detail-${cell}-pending`)).toBeNull();
     }

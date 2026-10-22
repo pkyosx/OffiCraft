@@ -239,7 +239,7 @@ export function MemberDetailPanel({
   // entry button stays dead while no machine is online, with the reason in its
   // tooltip). The member's current pin is `member.desiredMachineId` — the
   // machine_id an activate binds to, and the value the machine row is seeded with.
-  const { machines } = useMachines();
+  const { machines, loading: machinesLoading } = useMachines();
   const onlineMachines = machines.filter((m) => m.online);
   const firstOnlineMachineId = onlineMachines[0]?.machineId;
   // Whether the 模型 row upstairs is currently showing a reported value at all
@@ -502,7 +502,9 @@ export function MemberDetailPanel({
   // the DURABLE last landing, which is what makes that possible.
   const machineDisplay = (id: string) =>
     machines.find((m) => m.machineId === id)?.displayName || id;
-  const pendingMachine = pendingMachineHint(
+  // Until the registry lands, a pin (an id) cannot be matched to a reported
+  // display name, so a correctly placed member would read as moving.
+  const pendingMachine = machinesLoading ? "" : pendingMachineHint(
     machines,
     member.desiredMachineId,
     reportedMachine(member.machine ?? "", member.actualMachine ?? ""),

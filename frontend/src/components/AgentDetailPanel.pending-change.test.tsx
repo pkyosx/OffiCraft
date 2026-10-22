@@ -13,7 +13,7 @@
 // nor "pending" (which would guess).
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, waitFor } from "@testing-library/react";
+import { act, render, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { MemberDetailPanel } from "./MemberDetailPanel";
 import type { Member, MachineView } from "../types";
@@ -81,13 +81,26 @@ function mkSettled(over: Partial<Member> = {}): Member {
   };
 }
 
-async function renderPanel(over: Partial<Member> = {}) {
+/** Settle every GET /api/machines issued so far, inside act. The machine-move
+ * hint is withheld until the first one lands, so an assertion made before this
+ * reads the loading state — and a "no hint" assertion passes vacuously. */
+async function machineListLoaded() {
+  await act(async () => {
+    await Promise.all(listMachines.mock.results.map((r) => r.value));
+  });
+}
+
+async function renderPanel(
+  over: Partial<Member> = {},
+  { awaitMachineList = true }: { awaitMachineList?: boolean } = {},
+) {
   const utils = render(
     <I18nProvider>
       <MemberDetailPanel member={mkSettled(over)} onBack={vi.fn()} />
     </I18nProvider>,
   );
   await waitFor(() => expect(listMachines).toHaveBeenCalled());
+  if (awaitMachineList) await machineListLoaded();
   return utils;
 }
 
@@ -154,25 +167,35 @@ describe("AgentDetailPanel · pending-change hints", () => {
     },
   );
 
-  it("marks a move only when the pin names another machine, with the machine reported by its name and the pin by its id", async () => {
-    listMachines.mockImplementation(() =>
-      Promise.resolve([machine("m-5f3a", "eva-m5"), machine("m-9c1d", "seth-m1")]),
-    );
-    try {
-      const same = await renderPanel({ desiredMachineId: "m-5f3a", machine: "eva-m5", actualMachine: "eva-m5" });
-      await waitFor(() => expect(same.getByTestId("mp-machine").textContent).toBe("eva-m5"));
-      expect(same.queryByTestId("mp-machine-pending")).toBeNull();
-      same.unmount();
+  it("marks a move only once the machine list has loaded and the pin names another machine, with the machine reported by its name and the pin by its id", async () => {
+    const registry = [machine("m-5f3a", "eva-m5"), machine("m-9c1d", "seth-m1")];
+    const holdMachineList = () => {
+      let resolve!: (list: MachineView[]) => void;
+      listMachines.mockImplementationOnce(
+        () => new Promise<MachineView[]>((r) => { resolve = r; }),
+      );
+      return () => act(async () => { resolve(registry); });
+    };
 
-      const moving = await renderPanel({ desiredMachineId: "m-9c1d", machine: "eva-m5", actualMachine: "eva-m5" });
-      await waitFor(() =>
-        expect(moving.getByTestId("mp-machine-pending").textContent).toBe("→ 要換到 seth-m1"),
-      );
-    } finally {
-      listMachines.mockImplementation(() =>
-        Promise.resolve([machine("mach-a", "Machine A"), machine("mach-b", "Machine B")]),
-      );
-    }
+    const releaseSame = holdMachineList();
+    const same = await renderPanel(
+      { desiredMachineId: "m-5f3a", machine: "eva-m5", actualMachine: "eva-m5" },
+      { awaitMachineList: false },
+    );
+    expect(same.queryByTestId("mp-machine-pending")).toBeNull();
+    await releaseSame();
+    expect(same.getByTestId("mp-machine").textContent).toBe("eva-m5");
+    expect(same.queryByTestId("mp-machine-pending")).toBeNull();
+    same.unmount();
+
+    const releaseMoving = holdMachineList();
+    const moving = await renderPanel(
+      { desiredMachineId: "m-9c1d", machine: "eva-m5", actualMachine: "eva-m5" },
+      { awaitMachineList: false },
+    );
+    expect(moving.queryByTestId("mp-machine-pending")).toBeNull();
+    await releaseMoving();
+    expect(moving.getByTestId("mp-machine-pending").textContent).toBe("→ 要換到 seth-m1");
   });
 
   it("marks the machine cell with the pin's display name, not its raw id", async () => {
