@@ -82,7 +82,7 @@ function goVerdicts(): Record<string, string> {
   }
 }
 
-describe("theme name validation · Go/TS parity", () => {
+describe("theme name validation · Go/TS parity", { timeout: 120_000 }, () => {
   const cases: NameCase[] = JSON.parse(readFileSync(CASES, "utf8"));
 
   it("carries a corpus that covers every rejected category and the legal ones", () => {

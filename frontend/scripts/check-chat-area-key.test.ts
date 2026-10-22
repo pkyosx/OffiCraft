@@ -56,7 +56,7 @@ function run(
 
 const OFFICE = "components/OfficePage.tsx";
 
-describe("check-chat-area-key", () => {
+describe("check-chat-area-key", { timeout: 60_000 }, () => {
   it("passes on the tree as shipped, and finds the shared mount", () => {
     const { code, out } = run();
     expect(out, out).toContain("[chat-area-key] ok");

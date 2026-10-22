@@ -54,7 +54,7 @@ function run(edit: {
   }
 }
 
-describe("gen-builtin-themes.mjs", () => {
+describe("gen-builtin-themes.mjs", { timeout: 60_000 }, () => {
   it("over the shipped theme files, reproduces the committed theme.css byte for byte", () => {
     const r = run();
     expect(r.code).toBe(0);

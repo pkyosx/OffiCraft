@@ -5,7 +5,7 @@
 // data-theme> reconcile wiring; the geometry-free bits a real browser is not
 // needed for (the visual pre-auth guard lives in the Playwright CT suite).
 
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from "vitest";
 import { render, screen, waitFor, act } from "@testing-library/react";
 import { I18nProvider, useI18n } from "./index";
 import { zh } from "./locales/zh";
@@ -711,7 +711,7 @@ describe("I18nProvider seasonal theme", () => {
     navIcons: { office: PNG },
     wording: { zh: { "nav.office": "鬼屋辦公室" }, en: { "nav.office": "Haunted Office" } },
   };
-  let load: ReturnType<typeof vi.fn>;
+  let load: Mock<(typeof seasonalWindows)[number]["load"]>;
 
   function at(date: Date) {
     vi.useFakeTimers({

@@ -15,7 +15,7 @@
 // Runs against the REAL mock adapter (mock parity with handle_create_role /
 // handle_delete_role), like the sibling global-context test.
 
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
@@ -153,7 +153,7 @@ describe("SettingsPage · 角色誌 新增角色 auto-scroll (T-25b7 owner feedb
   // jsdom has no layout engine and no scrollIntoView; install a spy so the
   // effect's call is observable (production guards it with `?.` so an absent
   // method is a no-op).
-  let scrollSpy: ReturnType<typeof vi.fn>;
+  let scrollSpy: Mock<Element["scrollIntoView"]>;
   beforeEach(() => {
     scrollSpy = vi.fn();
     Element.prototype.scrollIntoView = scrollSpy;
