@@ -266,6 +266,10 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
       expect(card.previousElementSibling).toBeNull();
       expect(card.nextElementSibling!.contains(getByTestId("mp-context"))).toBe(true);
       expect(card.querySelector(".mp-activity__head")!.textContent).toBe("目前狀態");
+      expect(Array.from(card.querySelector(".mp-activity__head")!.children).map((c) => c.className)).toEqual([
+        "mp-activity__state-icon",
+        "mp-card__title",
+      ]);
       const stateIcon = card.querySelector(".mp-activity__state-icon")!;
       expect(stateIcon.getAttribute("role")).toBe("img");
       expect(stateIcon.getAttribute("aria-label")).toBe("工作中");

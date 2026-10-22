@@ -2085,8 +2085,7 @@
 .mp-activity__head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
 }
 .mp-activity__state-icon {
   flex: none;

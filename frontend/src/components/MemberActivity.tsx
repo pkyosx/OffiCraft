@@ -323,8 +323,8 @@ export function MemberActivitySection({
   return (
     <div className="mp-cell mp-activity" data-testid={testId}>
       <div className="mp-activity__head">
-        <span className="mp-card__title">{t.activity.currentState}</span>
         <ActivityStateBadge state={activity.state} />
+        <span className="mp-card__title">{t.activity.currentState}</span>
       </div>
       <MemberActivityTree activity={activity} />
     </div>

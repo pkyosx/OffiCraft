@@ -260,6 +260,10 @@ describe("WorkerDetailPanel — aligned real info (T-f190 item 1)", () => {
     expect(card.previousElementSibling).toBeNull();
     expect(card.nextElementSibling!.contains(await first.findByTestId("worker-detail-context"))).toBe(true);
     expect(card.querySelector(".mp-activity__head")!.textContent).toBe("目前狀態");
+    expect(Array.from(card.querySelector(".mp-activity__head")!.children).map((c) => c.className)).toEqual([
+      "mp-activity__state-icon",
+      "mp-card__title",
+    ]);
     const stateIcon = card.querySelector(".mp-activity__state-icon")!;
     expect(stateIcon.getAttribute("aria-label")).toBe("等待中");
     expect(stateIcon.querySelector(".activity-icon__glyph--waiting")).not.toBeNull();

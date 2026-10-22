@@ -65,7 +65,7 @@ const runtimeStories = {
 
 for (const [kind, story] of Object.entries(runtimeStories)) {
   for (const width of [390, 1280]) {
-    test(`${kind} width ${width}: the 運行狀況 card leads with a boxed 目前狀態, then 記憶用量 and 估計$, and without activity has only the two`, async ({
+    test(`${kind} width ${width}: the 運行狀況 card leads with a boxed 目前狀態 whose header starts with the state icon, then 記憶用量 and 估計$, and without activity has only the two`, async ({
       mount,
       page,
     }) => {
@@ -88,7 +88,19 @@ for (const [kind, story] of Object.entries(runtimeStories)) {
             };
           });
           const c = cells.getBoundingClientRect();
+          const head = (sel: string) => {
+            const el = cells.querySelector(`.mp-activity__head ${sel}`);
+            return el ? el.getBoundingClientRect().toJSON() : null;
+          };
+          const nowBox = cells.querySelector(".mp-activity");
           return {
+            icon: head(".mp-activity__state-icon"),
+            label: head(".mp-card__title"),
+            nowContentLeft: nowBox
+              ? nowBox.getBoundingClientRect().left +
+                parseFloat(getComputedStyle(nowBox).borderLeftWidth) +
+                parseFloat(getComputedStyle(nowBox).paddingLeft)
+              : null,
             boxes,
             cellsLeft: c.left,
             cellsRight: c.right,
@@ -103,6 +115,9 @@ for (const [kind, story] of Object.entries(runtimeStories)) {
       expect(Math.abs(now.left - m.cellsLeft), "目前狀態 starts at the row's left").toBeLessThan(1);
       expect(Math.abs(now.right - m.cellsRight), "目前狀態 spans the whole row").toBeLessThan(1);
       expect(ctx.top, "記憶用量 sits below 目前狀態").toBeGreaterThanOrEqual(now.bottom);
+      expect(Math.abs(m.icon!.left - m.nowContentLeft!), "the state icon starts the 目前狀態 header").toBeLessThan(1);
+      expect(m.icon!.right, "the 目前狀態 label follows the icon").toBeLessThanOrEqual(m.label!.left);
+      expect(Math.abs(m.icon!.top + m.icon!.height / 2 - (m.label!.top + m.label!.height / 2)), "icon and label share a line").toBeLessThan(2);
       if (width >= 720) {
         expect(Math.abs(cost.top - ctx.top), "記憶用量 and 估計$ share a row").toBeLessThan(1);
         expect(cost.left, "估計$ is right of 記憶用量").toBeGreaterThanOrEqual(ctx.right);
