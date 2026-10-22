@@ -156,8 +156,10 @@ type codexSession struct {
 	// Codex does not expose background commands.
 	busySince        float64
 	runningSubagents map[string]float64
-	subagentNames    map[string]string
-	lastActivity     string
+	// A sub-agent's first start, kept across its turns.
+	subagentFirstStart map[string]float64
+	subagentNames      map[string]string
+	lastActivity       string
 
 	starting bool
 	queued   []*codexDelivery
@@ -613,7 +615,13 @@ func (s *codexSession) trackActivity(method string, params map[string]any) {
 			if s.runningSubagents == nil {
 				s.runningSubagents = map[string]float64{}
 			}
-			s.runningSubagents[threadID] = codexActivityNow()
+			if s.subagentFirstStart == nil {
+				s.subagentFirstStart = map[string]float64{}
+			}
+			if _, seen := s.subagentFirstStart[threadID]; !seen {
+				s.subagentFirstStart[threadID] = codexActivityNow()
+			}
+			s.runningSubagents[threadID] = s.subagentFirstStart[threadID]
 		}
 	case "turn/completed":
 		if s.isMainThread(params) {
@@ -621,6 +629,17 @@ func (s *codexSession) trackActivity(method string, params map[string]any) {
 		} else {
 			delete(s.runningSubagents, threadID)
 		}
+	// A sub-agent thread that stops can end with only this, no turn/completed.
+	// An idle status can also arrive just before the thread's turn/started, so
+	// only a thread already counted is removed.
+	case "thread/status/changed":
+		if statusType := nestedString(params, "status", "type"); statusType == "active" || statusType == "" {
+			return
+		}
+		if _, running := s.runningSubagents[threadID]; !running {
+			return
+		}
+		delete(s.runningSubagents, threadID)
 	case "item/started", "item/completed":
 		item, _ := params["item"].(map[string]any)
 		if item == nil || item["type"] != "subAgentActivity" {
@@ -725,7 +744,6 @@ func codexModelCallCode(turnError map[string]any) string {
 	return "unknown"
 }
 
-// An interrupted turn counts as neither a success nor a failure.
 // Sub-agent threads share this app-server connection and send their own turn,
 // usage and compaction notifications; only the main thread's describe this agent.
 func (s *codexSession) isMainThread(params map[string]any) bool {
@@ -754,6 +772,7 @@ func (s *codexSession) handleTurnCompleted(params map[string]any) bool {
 	return true
 }
 
+// An interrupted turn counts as neither a success nor a failure.
 func (s *codexSession) recordTurnOutcome(params map[string]any) {
 	turn, _ := params["turn"].(map[string]any)
 	ended := jsonNumber(turn["completedAt"])

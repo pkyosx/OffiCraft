@@ -1132,6 +1132,7 @@ func TestConnectOnce(t *testing.T) {
 			return sseReply(200, nil, ""), nil
 		}}
 		l := newRunListener(t, cfg, io.Discard, api, tr)
+		l.activityHooks = true
 
 		l.connectOnce(context.Background())
 		l.connectOnce(context.Background())
@@ -1145,6 +1146,42 @@ func TestConnectOnce(t *testing.T) {
 			t.Errorf("asked %v, want the activity snapshot first", api.asked)
 		}
 	})
+
+	t.Run("a Codex listener never re-sends an activity file left from a Claude session", func(t *testing.T) {
+		cfg := runCfg(t)
+		writeActivityState(activityStatePath(cfg), activityState{Busy: true, BusySince: ptrFloat(1000)})
+		api := &bodyRecordingHTTP{routedHTTP: quietAPI()}
+		tr := &stubTransport{reply: func(int, *http.Request) (*http.Response, error) {
+			return sseReply(200, nil, ""), nil
+		}}
+		l := newRunListener(t, cfg, io.Discard, api, tr)
+		l.activityHooks = false
+
+		l.connectOnce(context.Background())
+
+		if len(api.bodies) != 0 {
+			t.Errorf("sent %q, want nothing", api.bodies)
+		}
+	})
+}
+
+func TestRunsActivityHooks(t *testing.T) {
+	cases := []struct {
+		name string
+		out  io.Writer
+		want bool
+	}{
+		{"the Codex sidecar's frame writer", &codexFrameWriter{out: io.Discard}, false},
+		{"a plain transcript", io.Discard, true},
+		{"the notification mod's writer", newModWriter(io.Discard, io.Discard), true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := runsActivityHooks(tc.out); got != tc.want {
+				t.Errorf("runsActivityHooks = %v, want %v", got, tc.want)
+			}
+		})
+	}
 }
 
 // bodyRecordingHTTP is routedHTTP that also keeps every request body it was sent.
@@ -1751,13 +1788,16 @@ func TestNewListener(t *testing.T) {
 		stamper := &eventStamper{clock: time.Now}
 		var out strings.Builder
 
-		l := newListener(cfg, testEnv(nil), &out, true, stamper)
+		l := newListener(cfg, testEnv(nil), &out, true, stamper, true)
 
 		if l.cfg != cfg {
 			t.Errorf("cfg = %+v, want %+v — the origin segment rides BaseConfigured and BaseMalformed", l.cfg, cfg)
 		}
 		if !l.once {
 			t.Error("once = false, want true")
+		}
+		if !l.activityHooks {
+			t.Error("activityHooks = false, want the value it was handed")
 		}
 		if l.stamper != stamper {
 			t.Error("stamp is not the stamper cmdListen already wrapped out with")
@@ -1792,7 +1832,7 @@ func TestNewListener(t *testing.T) {
 	})
 
 	t.Run("a headless run has no session to probe and no ack gate to wait on", func(t *testing.T) {
-		l := newListener(Config{MemberID: "kyle", AgentsRoot: t.TempDir()}, testEnv(nil), io.Discard, false, nil)
+		l := newListener(Config{MemberID: "kyle", AgentsRoot: t.TempDir()}, testEnv(nil), io.Discard, false, nil, true)
 
 		if l.probe != nil {
 			t.Error("probe is wired with no OC_SESSION — a headless run could self-exit on a verdict")
@@ -1808,7 +1848,7 @@ func TestNewListener(t *testing.T) {
 	t.Run("a spawned session is probed and an ack-gated sidecar is waited on", func(t *testing.T) {
 		env := testEnv(map[string]string{"OC_SESSION": "oc-kyle", "OC_LISTEN_ACK": "1"})
 
-		l := newListener(Config{MemberID: "kyle", AgentsRoot: t.TempDir()}, env, io.Discard, false, nil)
+		l := newListener(Config{MemberID: "kyle", AgentsRoot: t.TempDir()}, env, io.Discard, false, nil, true)
 
 		if l.probe == nil {
 			t.Error("probe = nil with OC_SESSION set")

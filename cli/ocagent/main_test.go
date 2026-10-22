@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -158,6 +160,35 @@ func TestRealMain(t *testing.T) {
 		if out.String() != want {
 			t.Errorf("printed %q, want %q — the status line must not be printed when the "+
 				"launch itself was rejected", out.String(), want)
+		}
+	})
+
+	t.Run("activity-report prints nothing on stdout for any hook, even when its report fails", func(t *testing.T) {
+		refused := httptest.NewServer(http.NotFoundHandler())
+		refused.Close()
+		for _, input := range []string{
+			activityHook("SessionStart", `"source":"startup"`),
+			activityHook("UserPromptSubmit", `"prompt":"hi"`),
+			activityHook("SubagentStart", `"agent_id":"a1","agent_type":"Explore"`),
+			activityHook("SubagentStop", `"agent_id":"a1","agent_type":"Explore"`),
+			activityHook("Stop", `"background_tasks":[],"session_crons":[]`),
+			activityHook("StopFailure", `"error":"rate_limit"`),
+			"not json",
+		} {
+			t.Run(input, func(t *testing.T) {
+				var out bytes.Buffer
+				env := testEnv(map[string]string{"OC_BASE": refused.URL, "OC_TOKEN": "tok", "OC_ID": "kyle",
+					"OC_AGENT_HOME": t.TempDir()})
+
+				rc := realMain([]string{"activity-report"}, env, strings.NewReader(input), &out)
+
+				if rc != 0 {
+					t.Errorf("rc = %d, want 0", rc)
+				}
+				if out.Len() != 0 {
+					t.Errorf("stdout = %q, want nothing — SessionStart and UserPromptSubmit feed it to the model", out.String())
+				}
+			})
 		}
 	})
 

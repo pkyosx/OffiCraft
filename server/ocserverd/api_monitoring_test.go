@@ -233,14 +233,6 @@ func TestHandleIngestAgentActivityApiAgentActivityPost(t *testing.T) {
 				"state": "idle", "busy_since": nil, "subagents": []any{}, "waits": []any{},
 			},
 		},
-		{
-			name: "a main turn with no start time reads busy with a null busy_since",
-			body: `{"busy": true, "subagents": [], "waits": [{"kind": "schedule"}]}`,
-			want: map[string]any{
-				"state": "busy", "busy_since": nil, "subagents": []any{},
-				"waits": []any{map[string]any{"kind": "schedule", "description": ""}},
-			},
-		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			api, h, _, owner := newAPITestServer(t)
@@ -260,6 +252,73 @@ func TestHandleIngestAgentActivityApiAgentActivityPost(t *testing.T) {
 			apiWantValue(t, "activity", data["activity"], any(tc.want))
 		})
 	}
+
+	t.Run("a main turn reported with no start time is dated by its first report and keeps that date until a start is reported", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		kip := apiTestAgentToken(t, api, "kip", "")
+		apiTestListen(t, api, "kip")
+		body := `{"busy": true, "subagents": [], "waits": [{"kind": "schedule"}]}`
+
+		status, data := apiJSON(t, h, "POST", "/api/agent/activity", kip, body)
+		if status != 200 {
+			t.Fatalf("first report: want 200, got %d (%v)", status, data)
+		}
+		firstTS := data["ts"]
+		dashboard := apiTestListen(t, api, "")
+		status, data = apiJSON(t, h, "POST", "/api/agent/activity", kip, body)
+		if status != 200 {
+			t.Fatalf("second report: want 200, got %d (%v)", status, data)
+		}
+		secondTS := data["ts"]
+
+		status, data = apiJSON(t, h, "GET", "/api/members/kip", owner, "")
+		if status != 200 {
+			t.Fatalf("read back: want 200, got %d (%v)", status, data)
+		}
+		apiWantValue(t, "activity", data["activity"], any(map[string]any{
+			"state": "busy", "busy_since": firstTS, "subagents": []any{},
+			"waits": []any{map[string]any{"kind": "schedule", "description": ""}},
+			"ts":    secondTS,
+		}))
+		dashboard.wantFrames()
+
+		status, data = apiJSON(t, h, "POST", "/api/agent/activity", kip, `{"busy": true, "busy_since": 5000, "subagents": []}`)
+		if status != 200 {
+			t.Fatalf("report with a start: want 200, got %d (%v)", status, data)
+		}
+		thirdTS := data["ts"]
+		status, data = apiJSON(t, h, "GET", "/api/members/kip", owner, "")
+		if status != 200 {
+			t.Fatalf("read back: want 200, got %d (%v)", status, data)
+		}
+		apiWantValue(t, "activity once the start is reported", data["activity"], any(map[string]any{
+			"state": "busy", "busy_since": 5000, "subagents": []any{}, "waits": []any{}, "ts": thirdTS,
+		}))
+	})
+
+	t.Run("a main turn starting after only sub-agents ran is dated by the report that starts it", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		kip := apiTestAgentToken(t, api, "kip", "")
+		apiTestListen(t, api, "kip")
+		if status, data := apiJSON(t, h, "POST", "/api/agent/activity", kip,
+			`{"busy": false, "subagents": [{"name": "Explore", "started_ts": 1200}]}`); status != 200 {
+			t.Fatalf("first report: want 200, got %d (%v)", status, data)
+		}
+
+		status, data := apiJSON(t, h, "POST", "/api/agent/activity", kip, `{"busy": true, "subagents": []}`)
+		if status != 200 {
+			t.Fatalf("second report: want 200, got %d (%v)", status, data)
+		}
+		turnTS := data["ts"]
+
+		status, data = apiJSON(t, h, "GET", "/api/members/kip", owner, "")
+		if status != 200 {
+			t.Fatalf("read back: want 200, got %d (%v)", status, data)
+		}
+		apiWantValue(t, "activity", data["activity"], any(map[string]any{
+			"state": "busy", "busy_since": turnTS, "subagents": []any{}, "waits": []any{}, "ts": turnTS,
+		}))
+	})
 
 	t.Run("a report from an online outsource worker reads back on its row", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)

@@ -500,7 +500,7 @@
       "source": "cli/ocagent/listen_run.go",
       "callsite": "reannounceActivity(l.api, l.cfg)",
       "kind": "seam",
-      "seam_reason": "hop: every connect re-sends the session's last activity snapshot, declared by ocagent-activity-reannounce"
+      "seam_reason": "hop: every connect of a listener whose session runs the Claude activity hooks re-sends the last activity snapshot, declared by ocagent-activity-reannounce"
     },
     {
       "id": "ocagent-cmd-download",
@@ -633,7 +633,7 @@
     {
       "id": "ocagent-cmdlisten-run",
       "source": "cli/ocagent/listen_run.go",
-      "callsite": "return newListener(cfg, env, out, once, stamper).run(rootCtx())",
+      "callsite": "return newListener(cfg, env, out, once, stamper, activityHooks).run(rootCtx())",
       "kind": "seam",
       "seam_reason": "hop: the process entry point. It builds the listener and enters run(), so every send this subcommand ever makes hangs below this one line — all of them already claimed on their own callsites (ocagent-run-1..9, ocagent-connectonce, ocagent-dispatch-value, ocagent-chat-mark-read). This line itself puts nothing on the wire. It is NEW as a callsite only because T-89 split the construction out of runListen into newListener so the wiring could be asserted; before that the same hop was spelled `return l.run(ctx)`, which the scan did not match. Nothing about what goes on the wire changed."
     },
@@ -668,7 +668,7 @@
     {
       "id": "ocagent-cmd-activity-report",
       "source": "cli/ocagent/main.go",
-      "callsite": "return cmdActivityReport(&http.Client{Timeout: activityReportTimeout}, cfg, now, in, os.Stderr)",
+      "callsite": "return cmdActivityReport(newActivityClient(), cfg, now, in, os.Stderr)",
       "kind": "seam",
       "seam_reason": "hop: the activity-report command reaches ocagent-activity-hook"
     },

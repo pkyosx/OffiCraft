@@ -176,7 +176,7 @@ func realMain(argv []string, env func(string) string, in io.Reader, out io.Write
 			return 2
 		}
 		now := float64(time.Now().UnixNano()) / 1e9
-		return cmdActivityReport(&http.Client{Timeout: activityReportTimeout}, cfg, now, in, os.Stderr)
+		return cmdActivityReport(newActivityClient(), cfg, now, in, os.Stderr)
 
 	case "version", "--version", "-v":
 		return cmdVersion(out)

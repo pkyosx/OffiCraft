@@ -109,7 +109,7 @@ func (s *apiServer) HandleIngestAgentActivityApiAgentActivityPost(w http.Respons
 	agentID := currentActor(r)
 	now := nowSecs()
 	activity := deriveMemberActivity(*body.Busy, body.BusySince, subagents, waits, now)
-	if s.activity.Swap(agentID, activity) {
+	if s.activity.Swap(agentID, activity, *body.Busy && body.BusySince == nil) {
 		if m, err := s.dal.GetMember(agentID); err == nil && m != nil {
 			s.publishMemberOwnerOnly(*m, requestTrigger(r))
 		}

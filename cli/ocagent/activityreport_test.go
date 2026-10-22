@@ -2,10 +2,16 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -257,6 +263,74 @@ func TestCmdActivityReport(t *testing.T) {
 					t.Errorf("state file = %q, want %q", got, want)
 				}
 			})
+		}
+	})
+
+	t.Run("after a failed report later hooks only update the file until the backoff window passes", func(t *testing.T) {
+		cfg := newCfg(t, "http://x")
+		client := &fakeHTTP{err: errors.New("connection refused")}
+
+		errOut := drive(t, cfg, client,
+			step{1000, activityHook("UserPromptSubmit", `"prompt":"hi"`)},
+			step{1010, activityHook("SubagentStart", `"agent_id":"a1","agent_type":"Explore"`)})
+		client.err, client.status, client.body = nil, 200, `{}`
+		drive(t, cfg, client,
+			step{1029, activityHook("SubagentStop", `"agent_id":"a1","agent_type":"Explore"`)},
+			step{1030, activityHook("Stop", `"background_tasks":[],"session_crons":[]`)},
+			step{1031, activityHook("UserPromptSubmit", `"prompt":"again"`)})
+
+		want := []string{
+			"POST /api/agent/activity " + `{"busy":true,"busy_since":1000,"subagents":[],"waits":[]}`,
+			"POST /api/agent/activity " + `{"busy":false,"busy_since":null,"subagents":[],"waits":[]}`,
+			"POST /api/agent/activity " + `{"busy":true,"busy_since":1031,"subagents":[],"waits":[]}`,
+		}
+		if !reflect.DeepEqual(client.seen, want) {
+			t.Errorf("sent\n  %q\nwant\n  %q", client.seen, want)
+		}
+		if want := "[ocagent] activity-report: POST /api/agent/activity FAILED status=0: connection refused\n"; errOut != want {
+			t.Errorf("stderr = %q, want %q", errOut, want)
+		}
+		if _, err := os.Stat(filepath.Join(cfg.AgentsRoot, "kyle", "activity.backoff")); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("backoff record stat err = %v, want it cleared by the accepted report", err)
+		}
+	})
+
+	t.Run("hooks queued behind a station that accepts and never answers all finish within 4 seconds", func(t *testing.T) {
+		release := make(chan struct{})
+		srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-release }))
+		t.Cleanup(srv.Close)
+		t.Cleanup(func() { close(release) })
+		cfg := newCfg(t, srv.URL)
+		const hooks = 6
+		started := time.Now()
+		done := make(chan struct{}, hooks)
+		for i := 1; i <= hooks; i++ {
+			go func(i int) {
+				input := activityHook("SubagentStart", fmt.Sprintf(`"agent_id":"a%d","agent_type":"Explore"`, i))
+				cmdActivityReport(newActivityClient(), cfg, float64(1000+i), strings.NewReader(input), io.Discard)
+				done <- struct{}{}
+			}(i)
+		}
+		deadline := time.After(4 * time.Second)
+		for i := 0; i < hooks; i++ {
+			select {
+			case <-done:
+			case <-deadline:
+				t.Fatalf("%d of %d hooks still blocked after %v", hooks-i, hooks, time.Since(started))
+			}
+		}
+
+		var state activityState
+		if err := json.Unmarshal([]byte(readFileString(t, statePath(cfg))), &state); err != nil {
+			t.Fatal(err)
+		}
+		var ids []string
+		for _, sub := range state.Subagents {
+			ids = append(ids, sub.ID)
+		}
+		sort.Strings(ids)
+		if want := []string{"a1", "a2", "a3", "a4", "a5", "a6"}; !reflect.DeepEqual(ids, want) {
+			t.Errorf("the state file holds sub-agents %v, want every hook's %v", ids, want)
 		}
 	})
 

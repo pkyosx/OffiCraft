@@ -123,10 +123,12 @@ The Codex member boot sequence changes only execution ownership:
 7. Sub-agents (any nesting level) run on their own threads over the same App Server
    connection and send their own `turn/started`, `turn/completed`,
    `thread/tokenUsage/updated` and `contextCompaction` items. Only the main thread's
-   (the id `thread/start` returned) drive steering, model-call outcomes, the context
-   percentage and the compaction count; sub-agent threads only feed the member's
-   activity report (`POST /api/agent/activity`), named from the parent's
-   `subAgentActivity` item. Their token usage is not counted anywhere.
+   (the id `thread/start` returned) turn events drive steering and the turn outcome, and
+   only its usage and compaction items drive the context percentage and the compaction
+   count. A sub-agent's completed `agentMessage` still counts as a model-call success.
+   Sub-agent turns also feed the member's activity report (`POST /api/agent/activity`),
+   named from the parent's `subAgentActivity` item. Their token usage is not counted
+   anywhere.
 
 ### Context compaction and refocus
 

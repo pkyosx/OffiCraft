@@ -56,6 +56,8 @@ type listener struct {
 	replySeen *replyCardSeen
 	taskSnaps map[string]taskSnap
 	once      bool
+	// False under the Codex sidecar, which reports activity itself.
+	activityHooks bool
 }
 
 // Copy-twin of ocwarden newSSEClient.
@@ -350,7 +352,9 @@ func (l *listener) connectOnce(ctx context.Context) (opened, activity, selfExit 
 	l.logf(noticeConnected+" — streaming %s%s%s (⇒ online while held)%s%s%s",
 		l.cfg.Base, eventsPath, baseAddressOrigin(l.cfg), verdict, station, agent)
 
-	reannounceActivity(l.api, l.cfg)
+	if l.activityHooks {
+		reannounceActivity(l.api, l.cfg)
+	}
 	drainReplyCards(l.api, l.cfg, l.replySeen, l.out)
 	l.drainChatNow()
 
@@ -452,6 +456,7 @@ func sleepCtx(ctx context.Context, sleep func(time.Duration), d time.Duration) b
 // A mis-wire (no OC_ID/OC_TOKEN) exits 0 quietly, mirroring Python cmd_listen.
 func runListen(cfg Config, env func(string) string, once bool, out io.Writer) int {
 	// Wrap before the first print: the mis-wire line below must be stamped too.
+	activityHooks := runsActivityHooks(out)
 	stamper := &eventStamper{clock: time.Now}
 	out = &stampWriter{inner: out, stamp: stamper.suffix}
 
@@ -468,13 +473,13 @@ func runListen(cfg Config, env func(string) string, once bool, out io.Writer) in
 		fmt.Fprint(out, "[ocagent] listen: no OC_ID/OC_TOKEN — nothing to do; exiting.\n")
 		return 0
 	}
-	return newListener(cfg, env, out, once, stamper).run(rootCtx())
+	return newListener(cfg, env, out, once, stamper, activityHooks).run(rootCtx())
 }
 
 // 🔴 A separate function so the wiring can be pinned: review set
 // cfg.BaseConfigured to a constant inside runListen and every test that builds
 // its listener directly stayed green while the feature was gone.
-func newListener(cfg Config, env func(string) string, out io.Writer, once bool, stamper *eventStamper) *listener {
+func newListener(cfg Config, env func(string) string, out io.Writer, once bool, stamper *eventStamper, activityHooks bool) *listener {
 	api := defaultHTTPClient()
 	return &listener{
 		stamper:           stamper,
@@ -500,7 +505,13 @@ func newListener(cfg Config, env func(string) string, out io.Writer, once bool, 
 		replySeen:         loadReplyCardSeen(replyCardSeenPath(cfg)),
 		taskSnaps:         map[string]taskSnap{},
 		once:              once,
+		activityHooks:     activityHooks,
 	}
+}
+
+func runsActivityHooks(out io.Writer) bool {
+	_, codex := out.(*codexFrameWriter)
+	return !codex
 }
 
 func rootCtx() context.Context {

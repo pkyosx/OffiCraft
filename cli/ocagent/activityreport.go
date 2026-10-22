@@ -29,7 +29,7 @@ const activityHookInputCap = 1 << 20
 const activityPath = "/api/agent/activity"
 
 // The hooks are synchronous: a hung station holds up the member's turn.
-const activityReportTimeout = 5 * time.Second
+const activityReportTimeout = 2 * time.Second
 
 const (
 	activityNameMax        = 80
@@ -105,15 +105,31 @@ func cmdActivityReport(client httpClient, cfg Config, now float64, stdin io.Read
 		if cfg.Token == "" || cfg.MemberID == "" {
 			return
 		}
-		postActivity(client, cfg, state, errOut)
+		// Every hook of a turn waits on this lock, so an unreachable station
+		// costs one timeout per backoff window, not one per queued hook. The
+		// state file keeps moving; the next accepted POST carries it.
+		backoffPath := activityBackoffPath(cfg)
+		backoff := readReportBackoff(backoffPath)
+		if reportBackedOff(backoff, now) {
+			return
+		}
+		if postActivity(client, cfg, state, errOut) {
+			clearReportBackoff(backoffPath)
+		} else {
+			writeReportBackoff(backoffPath, reportBackoffState{failures: backoff.failures + 1, lastAttempt: now})
+		}
 	})
 	return 0
 }
 
+func newActivityClient() *http.Client {
+	return &http.Client{Timeout: activityReportTimeout}
+}
+
 // The station's activity is in memory only, so a listener that has just
 // (re)connected — possibly to a restarted station — sends the last snapshot
-// again. No state file means this session never ran a hook (a Codex member,
-// whose sidecar reports for itself).
+// again. The caller skips it for a Codex listener: the sidecar reports for
+// itself, and a file left from when the member ran on Claude would be stale.
 func reannounceActivity(client httpClient, cfg Config) {
 	withActivityLock(cfg, func() {
 		raw, err := os.ReadFile(activityStatePath(cfg))
@@ -124,7 +140,9 @@ func reannounceActivity(client httpClient, cfg Config) {
 		if json.Unmarshal(raw, &state) != nil {
 			return
 		}
-		postActivity(client, cfg, state, io.Discard)
+		if postActivity(client, cfg, state, io.Discard) {
+			clearReportBackoff(activityBackoffPath(cfg))
+		}
 	})
 }
 
@@ -259,6 +277,10 @@ func postActivity(client httpClient, cfg Config, s activityState, errOut io.Writ
 	fmt.Fprintf(errOut, "[ocagent] activity-report: POST %s FAILED status=%d: %s\n",
 		activityPath, status, truncateForLog(strings.TrimSpace(detail)))
 	return false
+}
+
+func activityBackoffPath(cfg Config) string {
+	return filepath.Join(filepath.Dir(reportStampPath(cfg)), "activity.backoff")
 }
 
 func activityStatePath(cfg Config) string {

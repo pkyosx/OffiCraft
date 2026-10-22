@@ -1913,6 +1913,74 @@ func TestCodexSessionTrackActivity(t *testing.T) {
 		}
 	})
 
+	t.Run("the main turn ending leaves running sub-agents counted", func(t *testing.T) {
+		s, fake, now := newSession(t)
+
+		s.trackActivity("turn/started", map[string]any{"threadId": "th_1"})
+		*now = now.Add(2 * time.Second)
+		s.trackActivity("turn/started", map[string]any{"threadId": "th_sub"})
+		s.trackActivity("turn/completed", map[string]any{"threadId": "th_1", "turn": map[string]any{"status": "completed"}})
+
+		want := []codexPost{
+			activityPost(activitySnapshot(float64(1720000000))),
+			activityPost(activitySnapshot(float64(1720000000), activitySubagentItem("sub-agent", 1720000002))),
+			activityPost(activitySnapshot(nil, activitySubagentItem("sub-agent", 1720000002))),
+		}
+		if !reflect.DeepEqual(fake.posts, want) {
+			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
+		}
+	})
+
+	t.Run("a sub-agent keeps its first start time across its turns", func(t *testing.T) {
+		s, fake, now := newSession(t)
+		s.lastActivity = `{"busy":false,"busy_since":null,"subagents":[],"waits":[]}`
+
+		s.trackActivity("turn/started", map[string]any{"threadId": "th_sub"})
+		*now = now.Add(10 * time.Second)
+		s.trackActivity("turn/completed", map[string]any{"threadId": "th_sub"})
+		*now = now.Add(10 * time.Second)
+		s.trackActivity("turn/started", map[string]any{"threadId": "th_sub"})
+
+		first := activityPost(activitySnapshot(nil, activitySubagentItem("sub-agent", 1720000000)))
+		if want := []codexPost{first, activityPost(activitySnapshot(nil)), first}; !reflect.DeepEqual(fake.posts, want) {
+			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
+		}
+	})
+
+	t.Run("a sub-agent thread reported no longer active is removed, but only once it was counted", func(t *testing.T) {
+		idle := map[string]any{"threadId": "th_sub", "status": map[string]any{"type": "idle"}}
+		started := activityPost(activitySnapshot(nil, activitySubagentItem("sub-agent", 1720000000)))
+		cases := []struct {
+			name   string
+			events []string
+			want   []codexPost
+		}{
+			{"idle after the thread's turn started", []string{"turn/started", "thread/status/changed"},
+				[]codexPost{started, activityPost(activitySnapshot(nil))}},
+			{"idle just before the thread's turn started", []string{"thread/status/changed", "turn/started"},
+				[]codexPost{started}},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				s, fake, _ := newSession(t)
+				s.lastActivity = `{"busy":false,"busy_since":null,"subagents":[],"waits":[]}`
+
+				for _, event := range tc.events {
+					if event == "thread/status/changed" {
+						s.trackActivity(event, idle)
+					} else {
+						s.trackActivity(event, map[string]any{"threadId": "th_sub"})
+					}
+				}
+				s.trackActivity("thread/status/changed", map[string]any{"threadId": "th_sub", "status": map[string]any{"type": "active"}})
+
+				if !reflect.DeepEqual(fake.posts, tc.want) {
+					t.Errorf("the sidecar sent %+v, want %+v", fake.posts, tc.want)
+				}
+			})
+		}
+	})
+
 	t.Run("a sub-agent is named by the last segment of its agentPath, from item/started or item/completed", func(t *testing.T) {
 		s, fake, _ := newSession(t)
 		s.lastActivity = `{"busy":false,"busy_since":null,"subagents":[],"waits":[]}`

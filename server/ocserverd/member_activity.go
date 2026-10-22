@@ -26,11 +26,17 @@ func (s *activityStore) Get(id string) (memberActivityDTO, bool) {
 }
 
 // Swap stores next and reports whether it differs from what it replaced,
-// ignoring the server stamp.
-func (s *activityStore) Swap(id string, next memberActivityDTO) bool {
+// ignoring the server stamp. stampedStart says next.BusySince is the server's
+// stand-in for a turn start the reporter did not send: an ongoing main turn
+// keeps the start it already has, or every report of the same turn would
+// restart its clock and re-announce it.
+func (s *activityStore) Swap(id string, next memberActivityDTO, stampedStart bool) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	prev, had := s.entries[id]
+	if stampedStart && had && prev.BusySince != nil {
+		next.BusySince = prev.BusySince
+	}
 	s.entries[id] = next
 	if !had {
 		return true
@@ -56,8 +62,14 @@ func deriveMemberActivity(busy bool, busySince *float64, subagents []activitySub
 		Waits:     append([]activityWaitDTO{}, waits...),
 		TS:        ts,
 	}
+	// A null busy_since under busy reads as "only sub-agents running" on the
+	// wire, so a main turn without a reported start is dated by the report.
 	if busy {
 		a.BusySince = busySince
+		if a.BusySince == nil {
+			stamped := ts
+			a.BusySince = &stamped
+		}
 	}
 	switch {
 	case busy || len(sorted) > 0:
