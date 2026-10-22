@@ -497,13 +497,13 @@ func measuredClaudeAccount(path, rateLimits string, env func(string) string) cla
 	if rateLimits != "" {
 		if raw, err := os.ReadFile(path); err == nil {
 			var recorded claudeAccount
-			if json.Unmarshal(raw, &recorded) == nil && recorded.ID != "" && recorded.RateLimits == rateLimits {
+			if json.Unmarshal(raw, &recorded) == nil && recorded.RateLimits == rateLimits {
 				return recorded
 			}
 		}
 	}
 	current := claudeAccount{ID: readClaudeAccount(env), Label: readClaudeAccountLabel(env), RateLimits: rateLimits}
-	if rateLimits != "" && current.ID != "" {
+	if current.ID != "" {
 		if raw, err := json.Marshal(current); err == nil && os.MkdirAll(filepath.Dir(path), 0o755) == nil {
 			_ = os.WriteFile(path, raw, 0o644)
 		}

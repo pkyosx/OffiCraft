@@ -302,8 +302,7 @@ func TestCmdContextReport(t *testing.T) {
 		agentsRoot := t.TempDir()
 		cfg := Config{BaseConfigured: true, Base: "http://x", Token: "t", MemberID: "kyle", AgentsRoot: agentsRoot}
 		var out, errOut bytes.Buffer
-		cmdContextReport(&fakeHTTP{status: 200, body: "{}"}, cfg, env, 1000,
-			strings.NewReader(`{"rate_limits":{"seven_day":{"used_percentage":9,"resets_at":1792648800}}}`), &out, &errOut)
+		cmdContextReport(&fakeHTTP{status: 200, body: "{}"}, cfg, env, 1000, strings.NewReader(`{}`), &out, &errOut)
 		if err := os.WriteFile(filepath.Join(home, ".claude", ".claude.json"),
 			[]byte(`{"oauthAccount":{"accountUuid":"au-new"}}`), 0o644); err != nil {
 			t.Fatal(err)
@@ -313,6 +312,29 @@ func TestCmdContextReport(t *testing.T) {
 		cmdContextReport(client, cfg, env, 1100, strings.NewReader(`{}`), &out, &errOut)
 
 		want := []string{`POST /api/monitoring/telemetry {"runtime":"claude","account":"au-new","machine":"m-server-self"}`}
+		if !reflect.DeepEqual(client.seen, want) {
+			t.Errorf("sent %q, want %q", client.seen, want)
+		}
+	})
+
+	t.Run("a login unreadable when the windows were measured is read again on the next report", func(t *testing.T) {
+		const window = `{"rate_limits":{"seven_day":{"used_percentage":9,"resets_at":1792648800}}}`
+		home := writeClaudeJSON(t, `{"oauthAccount":{"accountUuid":"au-1"`)
+		env := testEnv(map[string]string{"HOME": home})
+		cfg := Config{BaseConfigured: true, Base: "http://x", Token: "t", MemberID: "kyle", AgentsRoot: t.TempDir()}
+		var out, errOut bytes.Buffer
+		cmdContextReport(&fakeHTTP{status: 200, body: "{}"}, cfg, env, 1000, strings.NewReader(window), &out, &errOut)
+		if err := os.WriteFile(filepath.Join(home, ".claude", ".claude.json"),
+			[]byte(`{"oauthAccount":{"accountUuid":"au-1"}}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		client := &fakeHTTP{status: 200, body: "{}"}
+
+		cmdContextReport(client, cfg, env, 1100, strings.NewReader(window), &out, &errOut)
+
+		want := []string{`POST /api/monitoring/telemetry {"runtime":"claude",` +
+			`"rate_limits":{"seven_day":{"used_percentage":9,"resets_at":1792648800}},` +
+			`"account":"au-1","machine":"m-server-self"}`}
 		if !reflect.DeepEqual(client.seen, want) {
 			t.Errorf("sent %q, want %q", client.seen, want)
 		}
