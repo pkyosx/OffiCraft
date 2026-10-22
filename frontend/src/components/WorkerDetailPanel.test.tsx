@@ -216,7 +216,7 @@ describe("WorkerDetailPanel — aligned real info (T-f190 item 1)", () => {
     expect((await findByTestId("worker-detail-cost")).textContent).toBe("$4");
   });
 
-  it("shows the worker's 運作狀況 card right under the identity card, the dot on the avatar corner and the status icon before the codename; none of it, not even an empty slot, without activity", async () => {
+  it("shows the worker's 運作狀況 card right under the identity card, the dot on the avatar corner and the status icon before the codename; none of it, not even an empty slot, for an online worker without activity; a stopped worker gets the moon instead", async () => {
     __injectMockTask(mkTask({ id: "t-1" }));
     __injectMockOutsourceWorker(
       mkWorker({
@@ -233,6 +233,7 @@ describe("WorkerDetailPanel — aligned real info (T-f190 item 1)", () => {
       }),
     );
     __injectMockOutsourceWorker(mkWorker({ id: "ow-2", taskId: "t-1", presence: "online", activity: null }));
+    __injectMockOutsourceWorker(mkWorker({ id: "ow-3", codename: "O-9", taskId: "t-1", presence: "stopped", activity: null }));
 
     const first = renderOfficeAt("#office/worker/ow-1");
     const card = await first.findByTestId("worker-detail-activity");
@@ -257,7 +258,15 @@ describe("WorkerDetailPanel — aligned real info (T-f190 item 1)", () => {
     expect(queryTestId(document.body, "worker-detail-activity")).toBeNull();
     expect(queryTestId(document.body, "worker-detail-identity-activity")).toBeNull();
     expect(queryTestId(document.body, "worker-detail-identity-activity-slot")).toBeNull();
+    expect(queryTestId(document.body, "worker-detail-identity-activity-offline")).toBeNull();
     expect(queryTestId(document.body, "worker-detail-context")).not.toBeNull();
+    second.unmount();
+
+    const third = renderOfficeAt("#office/worker/ow-3");
+    const moon = await third.findByTestId("worker-detail-identity-activity-offline");
+    expect(moon.nextElementSibling!.textContent).toBe("外包 · O-9");
+    expect(moon.hasAttribute("tabindex")).toBe(false);
+    expect(queryTestId(document.body, "worker-detail-identity-activity")).toBeNull();
   });
 
   it("shows honest dashes, never fabricated values, when nothing reported", async () => {

@@ -221,14 +221,28 @@ describe("ChatArea header 任務/角色設定 圖示 (T-dfae)", () => {
     expect(hintText()).toBe("主 agent 與 sub-agent 都沒有在工作");
   });
 
-  it("renders no status icon and no empty slot when there is no activity, and the role line carries no presence dot", () => {
-    renderChat({ member: mkMember({ activity: null }) });
+  it("renders no status icon and no empty slot for an online member without activity, a still moon hinting 已停止 for a stopped one, and the role line carries no presence dot", () => {
+    const online = renderChat({ member: mkMember({ activity: null }) });
     expect(screen.queryByTestId("chat-header-activity")).toBeNull();
     expect(screen.queryByTestId("chat-header-activity-slot")).toBeNull();
+    expect(screen.queryByTestId("chat-header-activity-offline")).toBeNull();
     expect(document.querySelector(".chat__header-name")!.children.length).toBe(1);
     expect(document.querySelector(".chat__header-sub .lifecycle-dot")).toBeNull();
     expect(document.querySelector(".chat__header-sub")!.textContent).toBe("特助");
     expect(screen.getByTestId("chat-header-presence").closest(".presence-avatar")).not.toBeNull();
+    online.unmount();
+
+    renderChat({ member: mkMember({ lifecycle: "stopped", activity: null }) });
+    const moon = screen.getByTestId("chat-header-activity-offline");
+    expect(moon.parentElement!.className).toBe("chat__header-name");
+    expect(moon.nextElementSibling!.textContent).toBe("Mira");
+    expect(moon.tagName).toBe("SPAN");
+    expect(moon.hasAttribute("tabindex")).toBe(false);
+    expect(moon.querySelector(".activity-icon__glyph--offline svg")).not.toBeNull();
+    fireEvent.mouseEnter(moon);
+    expect(hintText()).toBe("已停止");
+    fireEvent.click(moon);
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("puts the presence dot on the avatar corner, not on the role line, and shows the icon in an outsource chat too", () => {

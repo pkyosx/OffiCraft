@@ -1,6 +1,7 @@
-// The avatar-corner presence dot and the activity status icon leading the name
-// on the list rows, the chat header and the detail identity card, the 運作狀況
-// card's tree, and the dialog the icon opens, at phone and desktop widths.
+// The avatar-corner presence dot and the activity status icon (or, for a member
+// that is not online, the moon) leading the name on the list rows, the chat
+// header and the detail identity card, the 運作狀況 card's tree, and the dialog
+// the icon opens, at phone and desktop widths.
 // Every check compares boxes with each other in a real browser (CT pages lack
 // the production fonts, so no absolute text widths).
 import { test, expect } from "@playwright/experimental-ct-react";
@@ -56,6 +57,56 @@ function expectInertSlots(slots: Awaited<ReturnType<typeof slotRows>>) {
   }
 }
 
+async function moons(page: Page) {
+  return page.evaluate(() =>
+    Array.from(document.querySelectorAll<HTMLElement>(".activity-icon--offline")).map((moon) => {
+      const b = moon.getBoundingClientRect();
+      const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+      const glyph = moon.querySelector<HTMLElement>(".activity-icon__glyph--offline")!;
+      const muted = document.createElement("span");
+      muted.style.color = "var(--color-text-muted)";
+      document.body.append(muted);
+      const mutedColor = getComputedStyle(muted).color;
+      muted.remove();
+      return {
+        tag: moon.tagName,
+        tabIndex: moon.tabIndex,
+        visibility: getComputedStyle(moon).visibility,
+        opacity: getComputedStyle(moon).opacity,
+        glyph: glyph.querySelector("svg")!.getBoundingClientRect().toJSON() as Box,
+        color: getComputedStyle(glyph).color,
+        mutedColor,
+        cursor: getComputedStyle(moon).cursor,
+        animations: [moon, ...Array.from(moon.querySelectorAll("*"))].map((el) => getComputedStyle(el).animationName),
+        centreOnMoon: moon.contains(hit),
+      };
+    }),
+  );
+}
+
+function expectStillMoons(list: Awaited<ReturnType<typeof moons>>, count: number) {
+  expect(list.length, "moons drawn").toBe(count);
+  for (const [i, m] of list.entries()) {
+    const label = `moon ${i + 1}`;
+    expect([m.tag, m.tabIndex], `${label}: a plain span out of the tab order, not a button`).toEqual(["SPAN", -1]);
+    expect([m.visibility, m.opacity], `${label}: visible`).toEqual(["visible", "1"]);
+    expect(m.glyph.width, `${label}: glyph drawn at 14px`).toBe(14);
+    expect(m.color, `${label}: muted grey`).toBe(m.mutedColor);
+    expect(m.cursor, `${label}: no pointer cursor`).toBe("default");
+    expect(m.animations.every((name) => name === "none"), `${label}: nothing inside it animates (${m.animations.join(",")})`).toBe(true);
+    expect(m.centreOnMoon, `${label}: a pointer at its centre lands on it`).toBe(true);
+  }
+}
+
+async function expectMoonOnlyHints(page: Page, moon: string, word: string) {
+  await page.locator(moon).hover();
+  await expect(page.getByRole("tooltip")).toHaveText(word);
+  await page.locator(moon).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.locator(moon)).not.toBeFocused();
+  await expect(page.locator(".activity-icon--offline.activity-icon--button, .activity-icon--offline button")).toHaveCount(0);
+}
+
 function expectCornerDot(dot: Box, avatar: Box, label: string) {
   const cx = dot.left + dot.width / 2;
   const cy = dot.top + dot.height / 2;
@@ -101,7 +152,7 @@ for (const width of [390, 1280]) {
       expect(await hscroll(page), "no page hscroll").toBeLessThanOrEqual(1);
     });
 
-    test(`width ${width}, ${state}: each list's icons share one x and a row without activity keeps a hidden, still, click-through slot, so the names line up`, async ({ mount, page }) => {
+    test(`width ${width}, ${state}: each list's icons share one x, an online row without activity keeps a hidden, still, click-through slot and an offline row a visible, still moon, so the names line up`, async ({ mount, page }) => {
       await page.setViewportSize({ width, height: 900 });
       await mount(<IdentityActivityStory surface="list" state={state} mobile={width < 720} />);
       const lists = [
@@ -114,30 +165,38 @@ for (const width of [390, 1280]) {
             Array.from(document.querySelectorAll(rowSel)).map((row) => {
               const icon = row.querySelector(".activity-icon")!;
               return {
-                slot: icon.classList.contains("activity-icon--slot"),
+                kind: icon.classList.contains("activity-icon--slot")
+                  ? "slot"
+                  : icon.classList.contains("activity-icon--offline")
+                    ? "moon"
+                    : "icon",
                 icon: icon.getBoundingClientRect().toJSON() as Box,
                 name: row.querySelector(nameSel)!.getBoundingClientRect().toJSON() as Box,
               };
             }),
           [l.row, l.name] as const,
         );
-        expect(rows.map((r) => r.slot), `${l.row}: the last row has no activity`).toEqual([
-          ...Array(rows.length - 1).fill(false),
-          true,
+        expect(rows.map((r) => r.kind), `${l.row}: an online row without activity, then an offline row, last`).toEqual([
+          ...Array(rows.length - 2).fill("icon"),
+          "slot",
+          "moon",
         ]);
         const [first, ...rest] = rows;
         for (const [i, r] of rest.entries()) {
           const label = `${l.row} ${i + 2}`;
           expect(Math.abs(r.icon.left - first.icon.left), `${label}: icon at the first row's x`).toBeLessThanOrEqual(0.5);
-          expect(Math.abs(r.icon.width - first.icon.width), `${label}: icon or slot as wide as the first row's icon`).toBeLessThanOrEqual(0.5);
+          expect(Math.abs(r.icon.width - first.icon.width), `${label}: icon, slot or moon as wide as the first row's icon`).toBeLessThanOrEqual(0.5);
           expect(Math.abs(r.name.left - first.name.left), `${label}: name at the first row's x`).toBeLessThanOrEqual(0.5);
         }
       }
       expectInertSlots(await slotRows(page));
+      expectStillMoons(await moons(page), 2);
+      await expectMoonOnlyHints(page, ".member-card .activity-icon--offline", "已停止");
+      await expectMoonOnlyHints(page, ".outsource-row .activity-icon--offline", "離線");
     });
   }
 
-  test(`width ${width}: the chat header keeps its height with the icon before the ellipsized name, the dot sits on the avatar corner`, async ({ mount, page }) => {
+  test(`width ${width}: the chat header keeps its height with the icon or the offline moon before the ellipsized name, the dot sits on the avatar corner`, async ({ mount, page }) => {
     await page.setViewportSize({ width, height: 900 });
     await mount(<IdentityActivityStory surface="header" state="busy" mobile={width < 720} />);
     const withIcon = await boxes(page, '[data-testid="header-with"]', {
@@ -154,6 +213,18 @@ for (const width of [390, 1280]) {
       name: ".chat__header-name > span",
       avatar: ".avatar",
     });
+    const off = await boxes(page, '[data-testid="header-offline"]', {
+      header: ":scope",
+      moon: ".activity-icon--offline",
+      name: ".chat__header-name > span:not(.activity-icon)",
+      avatar: ".avatar",
+    });
+    expect(Math.abs(off.header!.height - bare.header!.height), "header height unchanged by the moon").toBeLessThanOrEqual(0.5);
+    expect(off.moon!.right, "moon before the name").toBeLessThanOrEqual(off.name!.left);
+    expect(Math.abs(off.moon!.left - off.avatar!.right - (withIcon.icon!.left - withIcon.avatar!.right)), "moon where the icon sits").toBeLessThanOrEqual(0.5);
+    expect(Math.abs(off.name!.left - withIcon.name!.left), "name where it sits after the icon").toBeLessThanOrEqual(0.5);
+    expectStillMoons(await moons(page), 1);
+    await expectMoonOnlyHints(page, '[data-testid="header-offline"] .activity-icon--offline', "離線");
     expect(Math.abs(withIcon.header!.height - bare.header!.height), "header height unchanged by the icon").toBeLessThanOrEqual(0.5);
     expect(withIcon.icon!.right, "icon before the name").toBeLessThanOrEqual(withIcon.name!.left);
     expect(withIcon.dot!.right, "dot clear of the icon").toBeLessThanOrEqual(withIcon.icon!.left);
@@ -172,7 +243,7 @@ for (const width of [390, 1280]) {
     expect(await hscroll(page), "no page hscroll").toBeLessThanOrEqual(1);
   });
 
-  test(`width ${width}: the detail identity card leads the name with the icon, and without activity the name takes its place`, async ({ mount, page }) => {
+  test(`width ${width}: the detail identity card leads the name with the icon, offline with the moon, and online without activity the name takes its place`, async ({ mount, page }) => {
     await page.setViewportSize({ width, height: 900 });
     await mount(<IdentityActivityStory surface="detail" state="busy" mobile={width < 720} />);
     const withIcon = await boxes(page, '[data-testid="identity-with"]', {
@@ -184,6 +255,14 @@ for (const width of [390, 1280]) {
       name: ".mp-identity__name",
     });
     const bare = await boxes(page, '[data-testid="identity-without"]', { name: ".mp-identity__name", slot: ".activity-icon" });
+    const off = await boxes(page, '[data-testid="identity-offline"]', { card: ":scope", moon: ".activity-icon--offline", name: ".mp-identity__name" });
+    expect(Math.abs(off.moon!.left - withIcon.icon!.left), "moon where the icon sits").toBeLessThanOrEqual(0.5);
+    expect(off.moon!.right, "moon before the name").toBeLessThanOrEqual(off.name!.left);
+    expect(Math.abs(off.name!.left - withIcon.name!.left), "name where it sits after the icon").toBeLessThanOrEqual(0.5);
+    expect(off.moon!.top, "moon on the name's line").toBeLessThan(off.name!.bottom);
+    expect(off.name!.right, "name inside the card").toBeLessThanOrEqual(off.card!.right);
+    expectStillMoons(await moons(page), 1);
+    await expectMoonOnlyHints(page, '[data-testid="identity-offline"] .activity-icon--offline', "離線");
     expectCornerDot(withIcon.dot!, withIcon.avatar!, "identity");
     expect(withIcon.icon!.right, "icon before the name").toBeLessThanOrEqual(withIcon.name!.left);
     expect(withIcon.icon!.width, "icon keeps its natural width").toBeGreaterThanOrEqual(withIcon.glyph!.width - 0.5);
@@ -368,15 +447,18 @@ test.describe("the 運作狀況 dialog the icon opens", () => {
         expect(rows.filter((m) => m.mark).length, "both member rows carry the warning mark").toBe(2);
       });
 
-      test("a row without activity keeps a hidden, still slot that a tap passes through to the row", async ({ mount, page }) => {
+      test("an online row without activity keeps a hidden, still slot that a tap passes through to the row; a tap on an offline row's moon only pins its presence word", async ({ mount, page }) => {
         await mount(<IdentityActivityStory surface="list" state="idle" mobile={width < 720} />);
         expectInertSlots(await slotRows(page));
+        await page.locator(".member-card .activity-icon--offline").tap();
+        await expect(page.getByRole("tooltip")).toHaveText("已停止");
+        await expect(page.getByRole("dialog")).toHaveCount(0);
       });
     });
   }
 });
 
-test("each state glyph animates — the 工作中 sparkle, the 等待中 hourglass flip, the 閒置 steam — and all stand still under reduced motion", async ({ mount, page }) => {
+test("each state glyph animates — the 工作中 sparkle, the 等待中 hourglass flip, the 閒置 steam — and all stand still under reduced motion; the offline moon never moves", async ({ mount, page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await mount(<IdentityActivityStory surface="glyphs" state="busy" mobile={false} />);
   const parts = {
@@ -399,6 +481,7 @@ test("each state glyph animates — the 工作中 sparkle, the 等待中 hourgla
       parts,
     );
   const moving = await animations();
+  expectStillMoons(await moons(page), 1);
   for (const [state, list] of Object.entries(moving)) {
     for (const a of list) {
       expect(a.name, `${state}: animated`).not.toBe("none");

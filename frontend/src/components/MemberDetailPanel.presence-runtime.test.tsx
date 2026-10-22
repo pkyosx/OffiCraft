@@ -323,7 +323,19 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
     expect(queryByTestId("mp-activity")).toBeNull();
     expect(queryByTestId("mp-identity-activity")).toBeNull();
     expect(queryByTestId("mp-identity-activity-slot")).toBeNull();
+    expect(queryByTestId("mp-identity-activity-offline")).toBeNull();
     expect(getByTestId("mp-context").closest(".mp-runtime")).not.toBeNull();
+  });
+
+  it("an offline member's identity card leads the name with a still moon that hints 離線 and is no button", () => {
+    const { getByTestId } = renderPanel(mkMember({ status: "offline", lifecycle: "offline", activity: null }));
+    const moon = getByTestId("mp-identity-activity-offline");
+    expect(moon.className).toBe("activity-icon activity-icon--offline");
+    expect(moon.parentElement!.className).toBe("activity-name");
+    expect(moon.hasAttribute("tabindex")).toBe(false);
+    expect(moon.querySelector(".activity-icon__glyph--offline svg")).not.toBeNull();
+    fireEvent.mouseEnter(moon);
+    expect(screen.getByRole("tooltip").textContent).toBe("離線");
   });
 
   it("the identity card carries the presence dot on the avatar corner and the status icon right before the name, which pins its hint instead of opening a dialog", () => {

@@ -2269,6 +2269,7 @@ export function ChatArea({
           <div className="chat__header-name">
             <NameWithActivity
               activity={member.activity}
+              presence={member.lifecycle}
               memberName={member.name}
               testId="chat-header-activity"
             >

@@ -550,7 +550,7 @@ export function MemberDetailPanel({
         </PresenceAvatar>
         <div className="mp-identity__body">
           <div className="mp-identity__line">
-            <NameWithActivity activity={member.activity} testId="mp-identity-activity" layout="group">
+            <NameWithActivity activity={member.activity} presence={member.lifecycle} testId="mp-identity-activity" layout="group">
               <InlineEdit
                 value={member.name}
                 onCommit={(next) => onRename?.(next)}

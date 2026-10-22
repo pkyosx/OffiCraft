@@ -46,17 +46,20 @@ function contentRect(el: HTMLElement): { top: number; bottom: number; left: numb
  *
  * With `onActivate` the trigger is a button instead: a click or Enter/Space
  * calls it and no longer pins the hint; hover and focus still show it.
- * `triggerRef` follows the mounted trigger, so focus can be handed back to it. */
+ * `triggerRef` follows the mounted trigger, so focus can be handed back to it.
+ * `focusable={false}` keeps a span trigger out of the tab order. */
 export function InstantHint({
   hint,
   children,
   onKeyDown,
   onActivate,
   triggerRef: outerRef,
+  focusable = true,
   ...rest
 }: {
   hint: string;
   onActivate?: () => void;
+  focusable?: boolean;
   triggerRef?: MutableRefObject<HTMLElement | null>;
 } & Omit<HTMLAttributes<HTMLElement>, "title">) {
   const id = useId();
@@ -173,7 +176,7 @@ export function InstantHint({
       ) : (
         <span
           {...triggerProps}
-          tabIndex={0}
+          tabIndex={focusable ? 0 : undefined}
           ref={(el) => {
             triggerRef.current = el;
             if (outerRef) outerRef.current = el;

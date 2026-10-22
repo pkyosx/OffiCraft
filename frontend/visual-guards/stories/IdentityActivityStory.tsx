@@ -1,10 +1,12 @@
 // CT story: the identity surfaces that carry the avatar-corner presence dot and
 // the activity status icon — the left list (real MemberCard + real
-// OutsourcePanel rows, each list with one row that has no activity), the chat
-// header and the detail identity card (built from the same PresenceAvatar /
-// NameWithActivity ChatArea and the detail panels render), and the detail
-// panel's 運作狀況 card (real MemberActivityCard) — at the widths the spec
-// mounts it at; plus the three state glyphs drawn large.
+// OutsourcePanel rows, each list ending with an online row that has not
+// reported and an offline row), the chat header and the detail identity card
+// (built from the same PresenceAvatar / NameWithActivity ChatArea and the
+// detail panels render; each with an icon, an online member without activity
+// and an offline one), and the detail panel's 運作狀況 card (real
+// MemberActivityCard) — at the widths the spec mounts it at; plus the state
+// glyphs and the moon drawn large.
 import { I18nProvider } from "../../src/i18n";
 import { MemberCard } from "../../src/components/MemberCard";
 import { OutsourcePanel } from "../../src/components/OutsourcePanel";
@@ -14,7 +16,7 @@ import { Avatar } from "../../src/components/Avatar";
 import { InlineEdit } from "../../src/components/InlineEdit";
 import { ActivityStateIcon, NameWithActivity, MemberActivityCard } from "../../src/components/MemberActivity";
 import type { OutsourceWorkerView } from "../../src/api/adapter";
-import type { Member, MemberActivity } from "../../src/types";
+import type { Member, MemberActivity, MemberLifecycle } from "../../src/types";
 import "../../src/components/office.css";
 import "../../src/components/member-detail.css";
 
@@ -44,14 +46,20 @@ function activityOf(state: MemberActivity["state"], now: number): MemberActivity
   };
 }
 
-function mkMember(id: string, name: string, activity: MemberActivity | null, unreadCount: number): Member {
+function mkMember(
+  id: string,
+  name: string,
+  activity: MemberActivity | null,
+  unreadCount: number,
+  lifecycle: MemberLifecycle = "online",
+): Member {
   return {
     id,
     name,
     role: "r-custom",
     roleName: "Platform Reliability Lead",
-    status: "online",
-    lifecycle: "online",
+    status: lifecycle === "online" ? "online" : "offline",
+    lifecycle,
     model: "opus",
     effort: "medium",
     kind: "staff",
@@ -72,7 +80,12 @@ function mkMember(id: string, name: string, activity: MemberActivity | null, unr
   };
 }
 
-function mkWorker(id: string, codename: string, activity: MemberActivity | null): OutsourceWorkerView {
+function mkWorker(
+  id: string,
+  codename: string,
+  activity: MemberActivity | null,
+  presence: MemberLifecycle = "online",
+): OutsourceWorkerView {
   return {
     id,
     codename,
@@ -82,7 +95,7 @@ function mkWorker(id: string, codename: string, activity: MemberActivity | null)
     taskNo: "T-492",
     taskTypeName: "OffiCraft 開發",
     taskTitle: "成員運作狀況",
-    presence: "online",
+    presence,
     unreadCount: 120,
     activity,
   };
@@ -108,6 +121,11 @@ export function IdentityActivityStory({
       ? { ...m, runtimeLoginWarnings: [{ machineId: "mc-1", machineName: "eva-mbp", runtime: "claude", pending: false }] }
       : m;
   const member = warned(mkMember("m-long", LONG_NAME, activity, 120));
+  const variants = [
+    ["with", member],
+    ["without", mkMember("m-long-bare", LONG_NAME, null, 0)],
+    ["offline", mkMember("m-long-off", LONG_NAME, null, 0, "offline")],
+  ] as const;
   return (
     <I18nProvider>
       <div className={mobile ? "office office--mobile" : "office"} style={{ height: 900 }}>
@@ -116,8 +134,18 @@ export function IdentityActivityStory({
             <MemberCard member={member} selected={false} onOpenDetail={noop} onChat={noop} />
             <MemberCard member={warned(mkMember("m-short", "Mira", activity, 0))} selected onOpenDetail={noop} onChat={noop} />
             <MemberCard member={mkMember("m-none", "Jun", null, 0)} selected={false} onOpenDetail={noop} onChat={noop} />
+            <MemberCard
+              member={mkMember("m-off", "Kai", null, 0, "stopped")}
+              selected={false}
+              onOpenDetail={noop}
+              onChat={noop}
+            />
             <OutsourcePanel
-              workers={[mkWorker("ow-1", "O-413", activity), mkWorker("ow-2", "O-7", null)]}
+              workers={[
+                mkWorker("ow-1", "O-413", activity),
+                mkWorker("ow-2", "O-7", null),
+                mkWorker("ow-3", "O-88", null, "offline"),
+              ]}
               error={false}
               maxParallel={3}
               selectedId=""
@@ -131,14 +159,14 @@ export function IdentityActivityStory({
         {surface === "header" && (
           <section className="office__chat">
             <div className="chat">
-              {[member, mkMember("m-long-bare", LONG_NAME, null, 0)].map((m) => (
-                <header key={m.id} className="chat__header" data-testid={`header-${m.activity ? "with" : "without"}`}>
+              {variants.map(([key, m]) => (
+                <header key={key} className="chat__header" data-testid={`header-${key}`}>
                   <PresenceAvatar presence={m.lifecycle}>
                     <Avatar size={38} kind="staff" src="" />
                   </PresenceAvatar>
                   <div className="chat__header-text">
                     <div className="chat__header-name">
-                      <NameWithActivity activity={m.activity} memberName={m.name} testId="chat-header-activity">
+                      <NameWithActivity activity={m.activity} presence={m.lifecycle} memberName={m.name} testId="chat-header-activity">
                         <span>{m.name}</span>
                       </NameWithActivity>
                     </div>
@@ -157,14 +185,14 @@ export function IdentityActivityStory({
         {surface === "detail" && (
           <section className="office__chat">
             <div className="mp" data-testid="panel">
-              {[member, mkMember("m-long-bare", LONG_NAME, null, 0)].map((m) => (
-                <div key={m.id} className="mp-card mp-identity" data-testid={`identity-${m.activity ? "with" : "without"}`}>
+              {variants.map(([key, m]) => (
+                <div key={key} className="mp-card mp-identity" data-testid={`identity-${key}`}>
                   <PresenceAvatar presence={m.lifecycle}>
                     <Avatar size={52} kind="staff" src="" />
                   </PresenceAvatar>
                   <div className="mp-identity__body">
                     <div className="mp-identity__line">
-                      <NameWithActivity activity={m.activity} testId="mp-identity-activity" layout="group">
+                      <NameWithActivity activity={m.activity} presence={m.lifecycle} testId="mp-identity-activity" layout="group">
                         <InlineEdit value={m.name} onCommit={noop} ariaLabel="rename" displayClassName="mp-identity__name" />
                       </NameWithActivity>
                       <span className="badge mp-identity__id">{m.id}</span>
@@ -185,6 +213,11 @@ export function IdentityActivityStory({
                 <ActivityStateIcon state={s} size={48} />
               </span>
             ))}
+            <span data-testid="glyph-offline" style={{ display: "inline-flex", padding: 8 }}>
+              <NameWithActivity activity={null} presence="offline">
+                <span>Kai</span>
+              </NameWithActivity>
+            </span>
           </div>
         )}
         {surface === "card" && (

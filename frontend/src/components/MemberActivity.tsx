@@ -8,11 +8,12 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
-import type { MemberActivity } from "../types";
+import type { MemberActivity, MemberLifecycle } from "../types";
 import { buildActivityTree, type ActivityTreeNode } from "../lib/activityTree";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
 import { InstantHint } from "./InstantHint";
-import { CoffeeIcon, CloseIcon, HourglassIcon, SparkleIcon } from "./icons";
+import { presenceVisual } from "./LifecycleDot";
+import { CoffeeIcon, CloseIcon, HourglassIcon, MoonIcon, SparkleIcon } from "./icons";
 import "./member-detail.css";
 import "./confirm-modal.css";
 import "./member-activity.css";
@@ -64,25 +65,34 @@ export function ActivityStateIcon({
 
 /** A member's name led by its status icon. List rows, chat header and detail
  * identity card all render this, so the icon's place is decided here alone.
- * `layout="list"`: a row without activity keeps an empty slot of the icon's
- * width so the names of a list stay in one column, and the icon sits on the
- * first line of a wrapped name. `layout="group"`: icon and name form one box,
- * for a line that wraps its other items onto the next line. */
+ * A member that is not online gets the moon. `layout="list"`: an online row
+ * that has not reported yet keeps an empty slot of the icon's width so the
+ * names of a list stay in one column, and the icon sits on the first line of a
+ * wrapped name. `layout="group"`: icon and name form one box, for a line that
+ * wraps its other items onto the next line. */
 export function NameWithActivity({
   activity,
+  presence,
   memberName,
   testId,
   layout,
   children,
 }: {
   activity: MemberActivity | null | undefined;
+  presence: MemberLifecycle | undefined;
   memberName?: string;
   testId?: string;
   layout?: "list" | "group";
   children: ReactNode;
 }) {
   const icon = (
-    <ActivityStatusIcon activity={activity} memberName={memberName} testId={testId} list={layout === "list"} />
+    <ActivityStatusIcon
+      activity={activity}
+      presence={presence}
+      memberName={memberName}
+      testId={testId}
+      list={layout === "list"}
+    />
   );
   if (layout === "group") {
     return (
@@ -100,20 +110,24 @@ export function NameWithActivity({
   );
 }
 
-/** Nothing when there is no activity, unless a slot is reserved. Given
- * `memberName`, the icon is a button opening the 運作狀況 dialog. */
+/** Given `memberName`, the icon is a button opening the 運作狀況 dialog. */
 function ActivityStatusIcon({
-  activity,
+  activity: reported,
+  presence,
   memberName,
   testId,
   list,
 }: {
   activity: MemberActivity | null | undefined;
+  presence: MemberLifecycle | undefined;
   memberName?: string;
   testId?: string;
   list: boolean;
 }) {
   const { t, msg } = useI18n();
+  // The corner dot decides: an activity still held after the presence left
+  // online is stale, and the icon must not say 工作中 beside a grey dot.
+  const activity = presence === "online" ? reported : null;
   const now = useActivityNow(activity);
   const triggerRef = useRef<HTMLElement | null>(null);
   const [openFor, setOpenFor] = useState<string | null>(null);
@@ -121,11 +135,31 @@ function ActivityStatusIcon({
   // Dropped rather than kept hidden: a dialog closed by the activity going away
   // must not reopen, and take focus, when the activity comes back.
   if (openFor !== null && !open) setOpenFor(null);
+  // Same box as the button it stands in for, so a list keeps one column.
+  const box = memberName === undefined ? "" : " activity-icon--box";
+  const listClass = list ? " activity-icon--list" : "";
+  if (presence !== "online") {
+    // Out of the tab order and the a11y tree: the corner dot beside it is the
+    // focusable element that already names this presence.
+    return (
+      <InstantHint
+        hint={t.office.presence[presenceVisual(presence)]}
+        focusable={false}
+        className={`activity-icon activity-icon--offline${box}${listClass}`}
+        aria-hidden="true"
+        data-testid={testId && `${testId}-offline`}
+      >
+        <span className="activity-icon__glyph activity-icon__glyph--offline">
+          <MoonIcon size={14} />
+        </span>
+      </InstantHint>
+    );
+  }
   if (!activity) {
     if (!list) return null;
     return (
       <span
-        className={`activity-icon activity-icon--list activity-icon--slot${memberName === undefined ? "" : " activity-icon--button"}`}
+        className={`activity-icon activity-icon--slot${box}${listClass}`}
         aria-hidden="true"
         data-testid={testId && `${testId}-slot`}
       >
@@ -139,7 +173,7 @@ function ActivityStatusIcon({
     return (
       <InstantHint
         hint={hint}
-        className={`activity-icon activity-icon--${activity.state}${list ? " activity-icon--list" : ""}`}
+        className={`activity-icon activity-icon--${activity.state}${listClass}`}
         role="img"
         aria-label={word}
         data-testid={testId}
@@ -152,7 +186,7 @@ function ActivityStatusIcon({
     <>
       <InstantHint
         hint={hint}
-        className={`activity-icon activity-icon--button activity-icon--${activity.state}${list ? " activity-icon--list" : ""}`}
+        className={`activity-icon activity-icon--box activity-icon--button activity-icon--${activity.state}${listClass}`}
         aria-label={msg.memberActivityOpenLabel(activity.state)}
         aria-haspopup="dialog"
         aria-expanded={open}

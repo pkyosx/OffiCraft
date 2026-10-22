@@ -195,6 +195,7 @@ export function OutsourcePanel({
                 <span className="outsource-row__line">
                   <NameWithActivity
                     activity={w.activity}
+                    presence={w.presence}
                     memberName={msg.outsourceLabel(w.codename)}
                     testId={`activity-icon-${w.id}`}
                     layout="list"

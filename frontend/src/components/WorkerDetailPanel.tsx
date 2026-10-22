@@ -493,7 +493,7 @@ export function WorkerDetailPanel({
       </PresenceAvatar>
       <div className="mp-identity__body">
         <div className="mp-identity__line">
-          <NameWithActivity activity={worker.activity} testId="worker-detail-identity-activity" layout="group">
+          <NameWithActivity activity={worker.activity} presence={worker.presence} testId="worker-detail-identity-activity" layout="group">
             <span className="outsource-row__codename">
               {msg.outsourceLabel(worker.codename)}
             </span>

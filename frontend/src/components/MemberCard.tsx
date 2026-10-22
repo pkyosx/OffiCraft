@@ -67,6 +67,7 @@ export function MemberCard({
         <div className="member-card__line">
           <NameWithActivity
             activity={member.activity}
+            presence={member.lifecycle}
             memberName={member.name}
             testId={`activity-icon-${member.id}`}
             layout="list"

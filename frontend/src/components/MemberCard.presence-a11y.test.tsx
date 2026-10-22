@@ -393,10 +393,15 @@ describe("MemberCard presence dot hint", () => {
 });
 
 describe("MemberCard activity icon", () => {
-  const cardWith = (activity: Member["activity"], onChat: () => void, name = "Mira") => (
+  const cardWith = (
+    activity: Member["activity"],
+    onChat: () => void,
+    name = "Mira",
+    lifecycle: Member["lifecycle"] = activity ? "online" : "offline",
+  ) => (
     <I18nProvider>
       <MemberCard
-        member={mkMember({ name, lifecycle: activity ? "online" : "offline", activity })}
+        member={mkMember({ name, lifecycle, activity })}
         selected={false}
         onOpenDetail={() => {}}
         onChat={onChat}
@@ -576,13 +581,49 @@ describe("MemberCard activity icon", () => {
     });
   });
 
-  it("an offline member (no activity) has no icon and no way into the dialog, only an empty hidden slot before the name", () => {
-    const { queryByTestId, getByTestId } = renderWith(null);
+  it.each([
+    ["offline", "離線"],
+    ["waking", "喚醒中"],
+    ["stopping", "停止中"],
+    ["stopped", "已停止"],
+  ] as const)("a %s member gets a still moon before the name that hints %s, is no button, takes no focus and opens neither dialog nor chat", (lifecycle, word) => {
+    const onChat = vi.fn();
+    const { queryByTestId, getByTestId, container } = render(cardWith(null, onChat, "Mira", lifecycle));
     expect(queryByTestId("activity-icon-mira")).toBeNull();
+    expect(queryByTestId("activity-icon-mira-slot")).toBeNull();
+    expect(screen.queryByRole("button", { name: /查看運作狀況/ })).toBeNull();
+    const moon = getByTestId("activity-icon-mira-offline");
+    expect(moon.tagName).toBe("SPAN");
+    expect(moon.className).toBe("activity-icon activity-icon--offline activity-icon--box activity-icon--list");
+    expect(moon.hasAttribute("tabindex")).toBe(false);
+    expect(moon.getAttribute("aria-hidden")).toBe("true");
+    expect(moon.querySelector(".activity-icon__glyph--offline svg")).not.toBeNull();
+    expect(moon.nextElementSibling!.textContent).toBe("Mira");
+    expect(container.querySelectorAll(".activity-icon")).toHaveLength(1);
+    fireEvent.mouseEnter(moon);
+    expect(screen.getByRole("tooltip").textContent).toBe(word);
+    fireEvent.click(moon);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(onChat).not.toHaveBeenCalled();
+    expect(screen.getByRole("tooltip").textContent).toBe(word);
+  });
+
+  it("a member that reported activity and then dropped offline gets the moon, not the stale state icon", () => {
+    const { queryByTestId, getByTestId } = render(
+      cardWith({ state: "busy", busySince: Date.now() / 1000, subagents: [], waits: [] }, vi.fn(), "Mira", "offline"),
+    );
+    expect(queryByTestId("activity-icon-mira")).toBeNull();
+    expect(getByTestId("activity-icon-mira-offline").querySelector(".activity-icon__glyph--offline")).not.toBeNull();
+  });
+
+  it("an online member that has not reported yet has no icon and no way into the dialog, only an empty hidden slot before the name", () => {
+    const { queryByTestId, getByTestId } = render(cardWith(null, vi.fn(), "Mira", "online"));
+    expect(queryByTestId("activity-icon-mira")).toBeNull();
+    expect(queryByTestId("activity-icon-mira-offline")).toBeNull();
     expect(screen.queryByRole("button", { name: /查看運作狀況/ })).toBeNull();
     const slot = getByTestId("activity-icon-mira-slot");
     expect(slot.getAttribute("aria-hidden")).toBe("true");
-    expect(slot.className).toBe("activity-icon activity-icon--list activity-icon--slot activity-icon--button");
+    expect(slot.className).toBe("activity-icon activity-icon--slot activity-icon--box activity-icon--list");
     expect(slot.nextElementSibling!.textContent).toBe("Mira");
   });
 });
