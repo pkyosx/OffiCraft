@@ -59,32 +59,27 @@ const cron = (nextTs: number | null, recurring: boolean) => ({ ...WAIT_CRON, nex
 type Arg = string | number | string[] | number[] | null | MemberActivity | ActivityWait;
 /** [language, message, arguments, the text that must appear on screen]. */
 const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
-    ["zh", "memberActivitySummary", [act({ busySince: T - 180 }), T], "主 agent 工作中（已 3 分鐘）"],
-    ["en", "memberActivitySummary", [act({ busySince: T - 180 }), T], "Main agent working (for 3 min)"],
-    ["zh", "memberActivitySummary", [act({ busySince: T - 45 }), T], "主 agent 工作中（已 45 秒）"],
-    ["en", "memberActivitySummary", [act({ busySince: T - 45 }), T], "Main agent working (for 45 sec)"],
-    ["zh", "memberActivitySummary", [act({ busySince: T - 59 }), T], "主 agent 工作中（已 59 秒）"],
-    ["zh", "memberActivitySummary", [act({ busySince: T - 60 }), T], "主 agent 工作中（已 1 分鐘）"],
-    ["zh", "memberActivitySummary", [act({ busySince: T - 119 }), T], "主 agent 工作中（已 1 分鐘）"],
-    ["zh", "memberActivitySummary", [act({ busySince: T + 30 }), T], "主 agent 工作中（已 0 秒）"],
-    ["zh", "memberActivitySummary", [act({ busySince: T - 180, subagents: SUBS_4, waits: [WAIT_BG, WAIT_CRON] }), T], "主 agent 工作中（已 3 分鐘），另有 4 個 sub-agent 工作中，正在等 2 個背景檢查或排程"],
-    ["en", "memberActivitySummary", [act({ busySince: T - 180, subagents: SUBS_4, waits: [WAIT_BG, WAIT_CRON] }), T], "Main agent working (for 3 min), plus 4 sub-agents working, waiting on 2 background checks or schedules"],
-    ["zh", "memberActivityDialogTitle", ["Mira"], "Mira · 運作狀況"],
-    ["en", "memberActivityDialogTitle", ["Mira"], "Mira · Activity"],
-    ["zh", "memberActivityOpenLabel", ["busy"], "工作中，查看運作狀況"],
-    ["en", "memberActivityOpenLabel", ["waiting"], "Waiting, see activity details"],
-    ["zh", "memberActivitySummary", [act({ busySince: T - 180, subagents: SUBS_4.slice(0, 1) }), T], "主 agent 工作中（已 3 分鐘），另有 1 個 sub-agent 工作中"],
-    ["en", "memberActivitySummary", [act({ busySince: T - 180, subagents: SUBS_4.slice(0, 1) }), T], "Main agent working (for 3 min), plus 1 sub-agent working"],
-    ["zh", "memberActivitySummary", [act({ busySince: T - 180, waits: [WAIT_BG] }), T], "主 agent 工作中（已 3 分鐘），正在等 1 個背景檢查或排程"],
-    ["en", "memberActivitySummary", [act({ busySince: T - 180, waits: [WAIT_BG] }), T], "Main agent working (for 3 min), waiting on 1 background check or schedule"],
-    ["zh", "memberActivitySummary", [act({ subagents: SUBS_4.slice(0, 2) }), T], "主 agent 已回覆完畢，2 個 sub-agent 仍在工作中"],
-    ["en", "memberActivitySummary", [act({ subagents: SUBS_4.slice(0, 2) }), T], "Main agent has finished replying; 2 sub-agents still working"],
-    ["en", "memberActivitySummary", [act({ subagents: SUBS_4.slice(0, 1) }), T], "Main agent has finished replying; 1 sub-agent still working"],
-    ["zh", "memberActivitySummary", [act({ subagents: SUBS_4.slice(0, 2), waits: [WAIT_CRON] }), T], "主 agent 已回覆完畢，2 個 sub-agent 仍在工作中，正在等 1 個背景檢查或排程"],
-    ["en", "memberActivitySummary", [act({ subagents: SUBS_4.slice(0, 2), waits: [WAIT_CRON] }), T], "Main agent has finished replying; 2 sub-agents still working, waiting on 1 background check or schedule"],
-    ["zh", "memberActivitySummary", [act({ state: "waiting", waits: [WAIT_BG, WAIT_CRON, WAIT_BG] }), T], "主 agent 與 sub-agent 都沒有在工作，正在等 3 個背景檢查或排程"],
-    ["en", "memberActivitySummary", [act({ state: "waiting", waits: [WAIT_BG, WAIT_CRON, WAIT_BG] }), T], "Neither the main agent nor any sub-agent is working, waiting on 3 background checks or schedules"],
-    ["zh", "memberActivitySummary", [act({ state: "idle" }), T], "主 agent 與 sub-agent 都沒有在工作"],
+    ["zh", "memberActivitySummary", [act({ busySince: T - 180 })], "主代理工作中"],
+    ["en", "memberActivitySummary", [act({ busySince: T - 180 })], "Main agent working"],
+    ["zh", "memberActivitySummary", [act({ busySince: T - 180, subagents: SUBS_4, waits: [WAIT_BG, WAIT_CRON] })], "主代理工作中，另有 4 個子代理工作中，正在等 2 個背景檢查或排程"],
+    ["en", "memberActivitySummary", [act({ busySince: T - 180, subagents: SUBS_4, waits: [WAIT_BG, WAIT_CRON] })], "Main agent working, plus 4 sub-agents working, waiting on 2 background checks or schedules"],
+    ["zh", "memberActivityDialogTitle", ["Mira"], "Mira · 運行狀況"],
+    ["en", "memberActivityDialogTitle", ["Mira"], "Mira · Runtime"],
+    ["zh", "memberActivityOpenLabel", ["busy"], "工作中，查看運行狀況"],
+    ["en", "memberActivityOpenLabel", ["waiting"], "Waiting, see runtime details"],
+    ["zh", "memberActivitySummary", [act({ busySince: T - 180, subagents: SUBS_4.slice(0, 1) })], "主代理工作中，另有 1 個子代理工作中"],
+    ["en", "memberActivitySummary", [act({ busySince: T - 180, subagents: SUBS_4.slice(0, 1) })], "Main agent working, plus 1 sub-agent working"],
+    ["zh", "memberActivitySummary", [act({ busySince: T - 180, waits: [WAIT_BG] })], "主代理工作中，正在等 1 個背景檢查或排程"],
+    ["en", "memberActivitySummary", [act({ busySince: T - 180, waits: [WAIT_BG] })], "Main agent working, waiting on 1 background check or schedule"],
+    ["zh", "memberActivitySummary", [act({ subagents: SUBS_4.slice(0, 2) })], "2 個子代理工作中"],
+    ["en", "memberActivitySummary", [act({ subagents: SUBS_4.slice(0, 2) })], "2 sub-agents working"],
+    ["en", "memberActivitySummary", [act({ subagents: SUBS_4.slice(0, 1) })], "1 sub-agent working"],
+    ["zh", "memberActivitySummary", [act({ subagents: SUBS_4.slice(0, 1) })], "1 個子代理工作中"],
+    ["zh", "memberActivitySummary", [act({ subagents: SUBS_4.slice(0, 2), waits: [WAIT_CRON] })], "2 個子代理工作中，正在等 1 個背景檢查或排程"],
+    ["en", "memberActivitySummary", [act({ subagents: SUBS_4.slice(0, 2), waits: [WAIT_CRON] })], "2 sub-agents working, waiting on 1 background check or schedule"],
+    ["zh", "memberActivitySummary", [act({ state: "waiting", waits: [WAIT_BG, WAIT_CRON, WAIT_BG] })], "正在等 3 個背景檢查或排程"],
+    ["en", "memberActivitySummary", [act({ state: "waiting", waits: [WAIT_BG, WAIT_CRON, WAIT_BG] })], "Waiting on 3 background checks or schedules"],
+    ["zh", "memberActivitySummary", [act({ state: "idle" })], "閒置"],
     ["zh", "memberActivitySince", [T - 180, T], "已 3 分鐘"],
     ["zh", "memberActivitySince", [T - 40, T], "已 40 秒"],
     ["en", "memberActivitySince", [T - 180, T], "for 3 min"],
@@ -103,7 +98,7 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["zh", "memberActivityWaitTag", [cron(null, true), NOW], "排程 · 重複"],
     ["en", "memberActivityWaitTag", [cron(NEXT, true), NOW], "schedule · next 12:15 · repeats"],
     ["en", "memberActivityWaitTag", [cron(at(2026, 10, 5, 9, 5), true), NOW], "schedule · next 10/5 09:05 · repeats"],
-    ["en", "memberActivitySummary", [act({ state: "idle" }), T], "Neither the main agent nor any sub-agent is working"],
+    ["en", "memberActivitySummary", [act({ state: "idle" })], "Idle"],
     // The 429 credential brake. Pinned in BOTH languages because the space
     // after the number is language-specific and is the opposite of `sp`: zh
     // wants it, en does not. Getting that backwards yields "請於 42秒後再試。"
@@ -469,25 +464,29 @@ describe("makeMessages", () => {
 
   it("re-words every part of the activity sentence and the tree's time and wait labels from a theme overlay", () => {
     const themed = applyWording(zh, {
-      "activity.mainBusyLead": "主幽靈施法中（",
+      "activity.mainBusy": "主幽靈施法中",
       "activity.elapsedLead": "已過",
       "activity.elapsedMinutes": "刻",
       "activity.subagentsAlsoLead": "，還有",
       "activity.subagentsAlsoTailMany": "個分身在施法",
       "activity.waitsLead": "，正在守候",
+      "activity.waitsOnlyLead": "正在守候",
       "activity.waitsTailOne": "個背景咒語或排程鐘聲",
       "activity.waitKind.schedule": "排程鐘聲",
       "activity.nextLead": "下次鐘響",
       "activity.recurring": "輪迴",
+      "activity.state.idle": "飄盪中",
     });
     const m = makeMessages(themed, "zh");
+    expect(m.memberActivitySummary(act({ state: "waiting", waits: [WAIT_BG] }))).toBe("正在守候 1 個背景咒語或排程鐘聲");
+    expect(m.memberActivitySummary(act({ state: "idle" }))).toBe("飄盪中");
     const a = act({
       busySince: T - 180,
       subagents: [sub("Explore", "", T - 120), sub("Plan", "", T - 60)],
       waits: [WAIT_CRON],
     });
-    expect(m.memberActivitySummary(a, T)).toBe(
-      "主幽靈施法中（已過 3 刻），還有 2 個分身在施法，正在守候 1 個背景咒語或排程鐘聲",
+    expect(m.memberActivitySummary(a)).toBe(
+      "主幽靈施法中，還有 2 個分身在施法，正在守候 1 個背景咒語或排程鐘聲",
     );
     expect(m.memberActivitySince(T - 180, T)).toBe("已過 3 刻");
     expect(m.memberActivityDuration(T - 120, T)).toBe("2 刻");
@@ -602,24 +601,18 @@ describe("makeMessages", () => {
       "activity.state.busy",
       "activity.state.waiting",
       "activity.state.idle",
-      "activity.mainBusyLead",
-      "activity.mainBusyTail",
+      "activity.mainBusy",
       "activity.elapsedLead",
       "activity.elapsedSeconds",
       "activity.elapsedMinutes",
       "activity.subagentsAlsoLead",
       "activity.subagentsAlsoTailOne",
       "activity.subagentsAlsoTailMany",
-      "activity.subagentsOnlyLead",
-      "activity.subagentsOnlyTailOne",
-      "activity.subagentsOnlyTailMany",
-      "activity.noneWorking",
       "activity.waitsLead",
+      "activity.waitsOnlyLead",
       "activity.waitsTailOne",
       "activity.waitsTailMany",
-      "activity.cardTitle",
       "activity.mainAgent",
-      "activity.mainReplied",
       "activity.nextLead",
       "activity.recurring",
       "activity.waitKind.background_command",

@@ -681,30 +681,24 @@ export const en: Dict = {
       waiting: "Waiting",
       idle: "Idle",
     },
-    mainBusyLead: "Main agent working (",
-    mainBusyTail: ")",
+    mainBusy: "Main agent working",
     elapsedLead: "for",
     elapsedSeconds: "sec",
     elapsedMinutes: "min",
     subagentsAlsoLead: ", plus",
     subagentsAlsoTailOne: "sub-agent working",
     subagentsAlsoTailMany: "sub-agents working",
-    subagentsOnlyLead: "Main agent has finished replying;",
-    subagentsOnlyTailOne: "sub-agent still working",
-    subagentsOnlyTailMany: "sub-agents still working",
-    noneWorking: "Neither the main agent nor any sub-agent is working",
     waitsLead: ", waiting on",
+    waitsOnlyLead: "Waiting on",
     waitsTailOne: "background check or schedule",
     waitsTailMany: "background checks or schedules",
-    unknownHint: "Status unknown — shows after the member restarts",
-    cardTitle: "Activity",
+    unknownHint: "Status unknown",
     dialogTitleSep: " · ",
     currentState: "Current status",
     openLabelSep: ", ",
-    openLabel: "see activity details",
+    openLabel: "see runtime details",
     close: "Close",
     mainAgent: "Main agent",
-    mainReplied: "Replied",
     nextLead: "next",
     recurring: "repeats",
     waitKind: {
@@ -718,14 +712,6 @@ export const en: Dict = {
     model: "Model",
     effort: "Effort",
     // T-7526: the 狀態 cell and its statusOf lookup are retired — see zh.ts.
-    task: "Delegated task",
-    delegator: "Delegated by",
-    // Shown only when the owner personally created the bound task (a real
-    // source, no longer an unconditional placeholder).
-    delegatorOwner: "System owner",
-    // Honest fallback when creator_id is blank (pre-column / server-scheduled),
-    // replacing the former hardcoded "System owner".
-    delegatorSystem: "System-scheduled",
     // ── T-f190: fields aligned with the member detail panel ───────────────
     machine: "Machine",
     claudeAccount: "Claude Account",
@@ -768,7 +754,6 @@ export const en: Dict = {
     initialPromptHint: "current version preview",
     initialPromptNote:
       "A preview built from the current settings — it may differ from what was sent at dispatch time.",
-    dash: "—",
   },
   lifecycle: {
     action: {

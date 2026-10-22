@@ -107,8 +107,8 @@
 |---|------|-----------|-----------|--------|---------|
 | C1 | 狀態欄 + 停止／喚醒 | 狀態字收在 `PresenceBadge`；停止走 A7 的 `MemberActionButtons` | ~~`worker-detail-status` 欄 + `worker-detail-stop-toggle`~~ **狀態欄已刪、鍵已搬到身分卡動作列** | ~~位置不同~~ **已對齊** | ✅ **owner 2026-07-31 裁定**：狀態欄整個退場（見下方裁定段），鍵搬到身分卡右上角 |
 | C2 | 離線原因 | 無對應（正職走 `最近操作` 卡） | `worker-detail-stuck-reason`：presence=offline 時攤 `lastOpReason`；**狀態欄刪掉後移到身分卡的點下面** | 外包多 | **保留**（位置改了、東西沒少）。理由：spawn 默默失敗時光一個灰點對 owner 無資訊，而 `最近操作` 卡只在 `lastOp` 非空時才渲染——「從沒派出去」正好就是它不渲染的情況 |
-| C3 | 委託人 | 無 | `worker-detail-delegator`（真實建票人／系統排程 fallback） | 外包獨有 | **保留**。外包是系統代 owner 生出來的，「誰委託的」是外包才有的來歷資訊，正職沒有對應概念 |
-| C4 | 委託任務卡 | 無 | `worker-detail-task`，可點 → `#tasks/<id>` | 外包獨有 | **保留**。外包與任務一對一綁定（任務終態即 release），這是外包存在的理由本身 |
+| C3 | 委託人 | 無 | 無 | 已對齊 | **owner 裁定拿掉**：外包詳情不再顯示委託人（wire 的 `creator_id` 不變） |
+| C4 | 委託任務卡 | 無 | 無；任務編號、類型與完整標題畫在身分卡裡，與聊天室 header 同一組元件（`OutsourceTaskLine` ＋ `CurrentTaskTitle`），任務編號可點 → `#tasks/<id>` | 外包多身分卡那兩行 | **owner 裁定**：獨立的委託任務卡整張拿掉，身分卡改成與聊天室 header 同樣三行 |
 
 ## D. 正職獨有
 
@@ -246,7 +246,7 @@ CT 護欄因此改成量**四種形狀**，五顆那個最寬的 case 原封不�
 
 ⇒ 狀態格、`t.workerDetail.status` / `starting` / `offline` / `working` / `stopped` /
 `statusOf`、以及只為餵它而存在的 `compose.ts::workerStatusText` **一起刪掉**。
-剩下的卡只有「委託人」（外包獨有、別處沒有），所以不再是 `.mp-info2` 兩欄格，改成單欄 `.mp-card`。
+剩下的卡只有「委託人」（外包獨有、別處沒有），所以不再是 `.mp-info2` 兩欄格，改成單欄 `.mp-card`。（後來 owner 連委託人也拿掉了，見 C3。）
 
 ⚠️ **有一樣東西刻意沒跟著刪**：`worker-detail-stuck-reason`（離線原因）。
 它不是狀態字的複述，而是「為什麼是灰的」的唯一答案；而 `最近操作` 回執卡是

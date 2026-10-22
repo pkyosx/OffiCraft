@@ -15,7 +15,7 @@ import {
 } from "./icons";
 import { localizeLastOpReason } from "../lib/lastOpReason";
 import type { MemberActivity } from "../types";
-import { MemberActivityCard } from "./MemberActivity";
+import { MemberActivitySection } from "./MemberActivity";
 import "./member-detail.css";
 
 /** The lazily-fetched initial-prompt expand card's config. `fetch` returns the
@@ -150,7 +150,7 @@ export interface AgentDetailVM {
   /** What to say instead of the command when the station sent none. */
   terminalUnavailable: string;
   prompt?: AgentDetailPrompt;
-  /** null ⇒ no 運作狀況 card. */
+  /** null ⇒ the 運行狀況 card carries no activity section. */
   activity: MemberActivity | null;
 }
 
@@ -170,8 +170,6 @@ export interface AgentDetailVM {
  * something someone has to remember. */
 export const AGENT_DETAIL_SLOTS = [
   "overlays",
-  "afterIdentityCards",
-  "afterInfoCards",
   "extraExpandCards",
   "afterPromptCards",
 ] as const;
@@ -246,8 +244,6 @@ interface AgentDetailPanelProps {
   /** Every slot the panel offers — see `AGENT_DETAIL_SLOTS`.
    *
    * Render POSITIONS, in order: `overlays` right after the identity card ·
-   * `afterIdentityCards` between those and the 模型/機器 info card ·
-   * `afterInfoCards` between the info card and the runtime card ·
    * `extraExpandCards` after the terminal card and BEFORE the initial-prompt
    * card · `afterPromptCards` after it, the LAST slot the panel offers.
    *
@@ -256,21 +252,10 @@ interface AgentDetailPanelProps {
    * this ticket stopped `docs/design/worker-panel-parity.md` from maintaining it.
    * Read it off the code instead:
    *
-   * ⚠️ And read the ORDER above as documentation, not as a guarantee. An earlier
-   * draft of this comment claimed the positions were "pinned by the JSX below and
-   * by worker-detail-task-card-order.ct.spec.tsx" — round-2 review showed that is
-   * false: that spec pins exactly ONE relation (the worker's 委託任務 sits above
-   * the 模型/機器 card) on ONE side, and it is a Playwright CT that the vitest
-   * gate never runs. SWAP TWO RENDER SITES IN THE JSX BELOW and nothing reddens
-   * — measured (tsc rc=0, whole suite green), including the very relation that
-   * spec claims to pin. A false sense of safety is worse than none, which is the
-   * whole point of this ticket, so the claim is gone rather than softened.
-   *
-   * ⚠️ An earlier draft aimed that sentence at "reorder the entries in
-   * `rendered`" — round-3 review pointed out that is the WRONG target: the
-   * object is a literal whose values are each referenced by name at their own
-   * JSX position, so reordering its keys is a semantic no-op that could never
-   * redden, guard or no guard. Right conclusion, wrong experiment.
+   * ⚠️ The ORDER above is documentation, not a guarantee: nothing pins it, so
+   * swapping two render sites in the JSX below stays green (tsc and the suite).
+   * Reordering the keys of `rendered` is not that experiment — each value is
+   * referenced by name at its own JSX position.
    *
    *   command grep -an "slots={" -A 20 src/components/MemberDetailPanel.tsx \
    *                                      src/components/WorkerDetailPanel.tsx
@@ -325,8 +310,6 @@ export function AgentDetailPanel({
   // sentinel is what makes that survivable.
   const rendered = {
     overlays: slotNode(slots.overlays),
-    afterIdentityCards: slotNode(slots.afterIdentityCards),
-    afterInfoCards: slotNode(slots.afterInfoCards),
     extraExpandCards: slotNode(slots.extraExpandCards),
     afterPromptCards: slotNode(slots.afterPromptCards),
   } satisfies Record<AgentDetailSlotKey, ReactNode>;
@@ -558,9 +541,7 @@ export function AgentDetailPanel({
       </button>
 
       {identity}
-      <MemberActivityCard activity={vm.activity} testId={`${p}-activity`} />
       {rendered.overlays}
-      {rendered.afterIdentityCards}
 
       {/* info card: LEFT 執行環境 + 模型 + 思考強度 (editable launch intents), RIGHT 機器 +
        * runtime account — the member page's mp-info2 layout, now the ONE layout. */}
@@ -637,14 +618,13 @@ export function AgentDetailPanel({
         </div>
       </div>
 
-      {rendered.afterInfoCards}
-
-      {/* runtime card: context% + est.$ + 換手 */}
+      {/* runtime card: context% + est.$ + activity + 換手 */}
       <div className="mp-card mp-runtime">
         <div className="mp-runtime__head">
           <span className="mp-card__title">{t.mp.runtime}</span>
         </div>
         <div className="mp-runtime__cells">
+          <MemberActivitySection activity={vm.activity} testId={`${p}-activity`} />
           <div className="mp-cell">
             <div className="mp-cell__head">
               <span className="mp-cell__label">🧠 {t.mp.context}</span>

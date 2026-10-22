@@ -190,11 +190,11 @@ describe("ChatArea header 任務/角色設定 圖示 (T-dfae)", () => {
     });
     expect(icon().parentElement!.className).toBe("chat__header-name");
     expect(icon().nextElementSibling!.textContent).toBe("Mira");
-    expect(icon().getAttribute("aria-label")).toBe("工作中，查看運作狀況");
+    expect(icon().getAttribute("aria-label")).toBe("工作中，查看運行狀況");
     expect(glyphState(icon())).toBe("working");
     fireEvent.mouseEnter(icon());
     expect(hintText()).toBe(
-      "主 agent 工作中（已 3 分鐘），另有 1 個 sub-agent 工作中，正在等 1 個背景檢查或排程",
+      "主代理工作中，另有 1 個子代理工作中，正在等 1 個背景檢查或排程",
     );
   });
 
@@ -208,17 +208,17 @@ describe("ChatArea header 任務/角色設定 圖示 (T-dfae)", () => {
         }),
       }),
     });
-    expect(icon().getAttribute("aria-label")).toBe("等待中，查看運作狀況");
+    expect(icon().getAttribute("aria-label")).toBe("等待中，查看運行狀況");
     expect(glyphState(icon())).toBe("waiting");
     fireEvent.mouseEnter(icon());
-    expect(hintText()).toBe("主 agent 與 sub-agent 都沒有在工作，正在等 1 個背景檢查或排程");
+    expect(hintText()).toBe("正在等 1 個背景檢查或排程");
     waiting.unmount();
 
     renderChat({ member: mkMember({ activity: busy({ state: "idle", busySince: null }) }) });
-    expect(icon().getAttribute("aria-label")).toBe("閒置，查看運作狀況");
+    expect(icon().getAttribute("aria-label")).toBe("閒置，查看運行狀況");
     expect(glyphState(icon())).toBe("idle");
     fireEvent.mouseEnter(icon());
-    expect(hintText()).toBe("主 agent 與 sub-agent 都沒有在工作");
+    expect(hintText()).toBe("閒置");
   });
 
   it("renders a still unknown mark hinting 狀態未知 for an online member without activity, a still moon hinting 已停止 for a stopped one, neither opening dialog nor detail, and the role line carries no presence dot", () => {
@@ -234,7 +234,7 @@ describe("ChatArea header 任務/角色設定 圖示 (T-dfae)", () => {
     expect(unknown.getAttribute("aria-hidden")).toBe("true");
     expect(unknown.querySelector(".activity-icon__glyph--unknown svg")).not.toBeNull();
     fireEvent.mouseEnter(unknown);
-    expect(hintText()).toBe("狀態未知，成員重新啟動後就會顯示");
+    expect(hintText()).toBe("狀態未知");
     fireEvent.click(unknown);
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(onOpenDetail).not.toHaveBeenCalled();
@@ -266,10 +266,10 @@ describe("ChatArea header 任務/角色設定 圖示 (T-dfae)", () => {
     expect(dot.getAttribute("aria-label")).toBe("線上");
     expect(document.querySelector(".chat__header-sub .lifecycle-dot")).toBeNull();
     expect(document.querySelector(".chat__header-sub")!.textContent).toBe("T-12 · 修理電梯");
-    expect(icon().getAttribute("aria-label")).toBe("閒置，查看運作狀況");
+    expect(icon().getAttribute("aria-label")).toBe("閒置，查看運行狀況");
   });
 
-  it("tapping the status icon opens the 運作狀況 dialog without opening the member detail, and Esc closes it", () => {
+  it("tapping the status icon opens the 運行狀況 dialog without opening the member detail, and Esc closes it", () => {
     vi.useFakeTimers({ now: NOW * 1000 });
     const onOpenDetail = vi.fn();
     renderChat({
@@ -284,12 +284,12 @@ describe("ChatArea header 任務/角色設定 圖示 (T-dfae)", () => {
     fireEvent.keyDown(word, { key: "Enter" });
     fireEvent.click(word);
     expect(onOpenDetail).not.toHaveBeenCalled();
-    const dialog = screen.getByRole("dialog", { name: "Mira · 運作狀況" });
-    expect(dialog.querySelector(".mp-activity__summary")!.textContent).toBe(
-      "主 agent 工作中（已 3 分鐘），另有 1 個 sub-agent 工作中",
-    );
+    const dialog = screen.getByRole("dialog", { name: "Mira · 運行狀況" });
+    expect(dialog.querySelector(".activity-dialog__head > .mp-activity__state-icon")!.getAttribute("aria-label")).toBe("工作中");
+    expect(dialog.querySelector(".mp-activity__head")).toBeNull();
+    expect(dialog.querySelector(".mp-activity__summary")).toBeNull();
     expect(Array.from(dialog.querySelectorAll(".mp-activity__row")).map((r) => r.textContent)).toEqual([
-      "主 agent已 3 分鐘",
+      "主代理已 3 分鐘",
       "查 CI 結果Explore45 秒",
     ]);
     fireEvent.click(screen.getByRole("button", { name: "關閉" }));
@@ -303,24 +303,16 @@ describe("ChatArea header 任務/角色設定 圖示 (T-dfae)", () => {
     expect(onOpenDetail).not.toHaveBeenCalled();
   });
 
-  it("moves the elapsed time on while the chat stays open, from seconds into minutes", () => {
+  it("keeps the hover hint free of elapsed time while the chat stays open", () => {
     vi.useFakeTimers({ now: NOW * 1000 });
     renderChat({ member: mkMember({ activity: busy({ busySince: NOW - 50 }) }) });
     const word = screen.getByTestId("chat-header-activity");
     fireEvent.mouseEnter(word);
-    expect(hintText()).toBe("主 agent 工作中（已 50 秒）");
+    expect(hintText()).toBe("主代理工作中");
     act(() => {
-      vi.advanceTimersByTime(5_000);
+      vi.advanceTimersByTime(75_000);
     });
-    expect(hintText()).toBe("主 agent 工作中（已 55 秒）");
-    act(() => {
-      vi.advanceTimersByTime(10_000);
-    });
-    expect(hintText()).toBe("主 agent 工作中（已 1 分鐘）");
-    act(() => {
-      vi.advanceTimersByTime(60_000);
-    });
-    expect(hintText()).toBe("主 agent 工作中（已 2 分鐘）");
+    expect(hintText()).toBe("主代理工作中");
   });
 
   it("neither click bubbles into the clickable header (open detail)", () => {

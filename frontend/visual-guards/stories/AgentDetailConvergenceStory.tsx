@@ -12,18 +12,16 @@ import { I18nProvider } from "../../src/i18n";
 import {
   AgentDetailPanel,
   notHere,
-  slot,
   type AgentDetailSlots,
   type AgentDetailVM,
 } from "../../src/components/AgentDetailPanel";
+import type { MemberActivity } from "../../src/types";
 
 /** Every slot declined — these stories isolate the SHARED cards, so nothing
  * kind-specific belongs on screen. Since T-0b4f the panel takes the whole slot
  * map, so "this story wants none of them" has to be said, not left out. */
 const NO_SLOTS: AgentDetailSlots = {
   overlays: notHere("此故事只量共用卡片的版面"),
-  afterIdentityCards: notHere("此故事只量共用卡片的版面"),
-  afterInfoCards: notHere("此故事只量共用卡片的版面"),
   extraExpandCards: notHere("此故事只量共用卡片的版面"),
   afterPromptCards: notHere("此故事只量共用卡片的版面"),
 };
@@ -68,41 +66,31 @@ const baseVM: Omit<AgentDetailVM, "testIdPrefix"> = {
   activity: null,
 };
 
-export function MemberDetailConvergenceStory() {
+export function MemberDetailConvergenceStory({ activity = null }: { activity?: MemberActivity | null }) {
   return (
     <I18nProvider>
       <AgentDetailPanel
         onBack={() => {}}
         identity={<div className="mp-card mp-identity">member</div>}
         slots={NO_SLOTS}
-        vm={{ ...baseVM, testIdPrefix: "mp" }}
+        vm={{ ...baseVM, testIdPrefix: "mp", activity }}
       />
     </I18nProvider>
   );
 }
 
-export function WorkerDetailConvergenceStory() {
+export function WorkerDetailConvergenceStory({ activity = null }: { activity?: MemberActivity | null }) {
   return (
     <I18nProvider>
       <AgentDetailPanel
         onBack={() => {}}
         identity={<div className="mp-card mp-identity">worker</div>}
-        // The worker's own extra card is a single 委託人 field since T-7526
-        // (its 狀態 half retired — owner 2026-07-31), so it is a plain .mp-card:
-        // the assertion below deliberately reads the SHARED grid via .first(),
-        // and a second .mp-info2 here would let a regression hide behind it.
-        slots={{
-          ...NO_SLOTS,
-          afterInfoCards: slot(
-            <div className="mp-card">
-              <div className="mp-field">delegator</div>
-            </div>,
-          ),
-        }}
+        slots={NO_SLOTS}
         vm={{
           ...baseVM,
           testIdPrefix: "worker-detail",
           terminalAttachCommand: "tmux -L officraft attach -t member-ow-1",
+          activity,
         }}
       />
     </I18nProvider>

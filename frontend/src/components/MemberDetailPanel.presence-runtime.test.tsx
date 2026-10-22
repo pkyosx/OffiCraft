@@ -236,7 +236,7 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
       ];
     });
 
-  it("an online member with activity gets a 運作狀況 card right under the identity card: state, sentence, then the tree nested by parent with waits under the main agent", () => {
+  it("an online member with activity gets a 目前狀態 box first in the 運行狀況 card, before its context and cost boxes: the state as the name-front glyph, no summary, then the tree nested by parent with waits under the main agent", () => {
     vi.useFakeTimers({ toFake: ["Date"], now: new Date(2026, 9, 22, 11, 0, 0) });
     const now = Date.now() / 1000;
     const nextRun = new Date(2026, 9, 22, 12, 15).getTime() / 1000;
@@ -261,26 +261,36 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
         }),
       );
       const card = getByTestId("mp-activity");
-      expect(card.previousElementSibling?.classList.contains("mp-identity")).toBe(true);
-      expect(card.querySelector(".mp-activity__head")!.textContent).toBe("運作狀況工作中");
-      expect(card.querySelector(".mp-activity__summary")!.textContent).toBe(
-        "主 agent 工作中（已 10 分鐘），另有 3 個 sub-agent 工作中，正在等 2 個背景檢查或排程",
-      );
+      expect(card.className).toBe("mp-cell mp-activity");
+      expect(card.parentElement!.className).toBe("mp-runtime__cells");
+      expect(card.previousElementSibling).toBeNull();
+      expect(card.nextElementSibling!.contains(getByTestId("mp-context"))).toBe(true);
+      expect(card.querySelector(".mp-activity__head")!.textContent).toBe("目前狀態");
+      expect(Array.from(card.querySelector(".mp-activity__head")!.children).map((c) => c.className)).toEqual([
+        "mp-activity__state-icon",
+        "mp-card__title",
+      ]);
+      const stateIcon = card.querySelector(".mp-activity__state-icon")!;
+      expect(stateIcon.getAttribute("role")).toBe("img");
+      expect(stateIcon.getAttribute("aria-label")).toBe("工作中");
+      expect(stateIcon.querySelector(".activity-icon__glyph--working .sparkle-icon__star")).not.toBeNull();
+      expect(card.querySelector(".mp-activity__state")).toBeNull();
+      expect(card.querySelector(".mp-activity__summary")).toBeNull();
       expect(treeRows(card)).toEqual([
-        [0, "working", "主 agent", "已 10 分鐘"],
+        [0, "working", "主代理", "已 10 分鐘"],
         [1, "working", "Plan", "5 分鐘"],
         [1, "working", "盤點 Backlog 票Explore", "2 分鐘"],
         [2, "working", "讀取錯誤紀錄general-purpose", "40 秒"],
         [1, "waiting", "每 30 秒檢查 CI", "背景指令"],
         [1, "waiting", "檢查 PR 審查結果", "排程 · 下次 12:15 · 重複"],
       ]);
-      expect(container.querySelector(".mp-runtime .mp-activity__summary")).toBeNull();
+      expect(container.querySelectorAll(".mp-activity")).toHaveLength(1);
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("with only sub-agents running the main agent reads 已回覆完畢, and a schedule with no next run reads just 排程", () => {
+  it("with only sub-agents running the main agent row carries the idle glyph and nothing on its right, and a schedule with no next run reads just 排程", () => {
     const now = Date.now() / 1000;
     const { getByTestId } = renderPanel(
       mkMember({
@@ -294,14 +304,15 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
         },
       }),
     );
+    expect(getByTestId("mp-activity").querySelector(".mp-activity__row--main .mp-activity__aside")).toBeNull();
     expect(treeRows(getByTestId("mp-activity"))).toEqual([
-      [0, "waiting", "主 agent", "已回覆完畢"],
+      [0, "idle", "主代理", ""],
       [1, "working", "Explore", "5 秒"],
       [1, "waiting", "排程", ""],
     ]);
   });
 
-  it("an idle member with nothing waiting gets only the 運作狀況 header and the 閒置 sentence", () => {
+  it("an idle member with nothing waiting gets the 目前狀態 header with the 閒置 glyph, then the main agent alone with the idle glyph and nothing on its right", () => {
     const { getByTestId } = renderPanel(
       mkMember({
         status: "online",
@@ -310,13 +321,13 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
       }),
     );
     const card = getByTestId("mp-activity");
-    expect(Array.from(card.children).map((c) => c.textContent)).toEqual([
-      "運作狀況閒置",
-      "主 agent 與 sub-agent 都沒有在工作",
-    ]);
+    expect(Array.from(card.children).map((c) => c.className)).toEqual(["mp-activity__head", "mp-activity__tree"]);
+    expect(treeRows(card)).toEqual([[0, "idle", "主代理", ""]]);
+    expect(card.querySelector(".mp-activity__state-icon")!.getAttribute("aria-label")).toBe("閒置");
+    expect(card.querySelector(".mp-activity__state-icon .activity-icon__glyph--idle")).not.toBeNull();
   });
 
-  it("without activity there is no 運作狀況 card, the identity card leads the name with a still unknown mark hinting 狀態未知, and the 運行狀況 card still shows its context and cost cells", () => {
+  it("without activity the 運行狀況 card carries no activity section, the identity card leads the name with a still unknown mark hinting 狀態未知, and the 運行狀況 card still shows its context and cost cells", () => {
     const { queryByTestId, getByTestId } = renderPanel(
       mkMember({ status: "online", lifecycle: "online", activity: null }),
     );
@@ -330,7 +341,7 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
     expect(unknown.getAttribute("aria-hidden")).toBe("true");
     expect(unknown.querySelector(".activity-icon__glyph--unknown svg")).not.toBeNull();
     fireEvent.mouseEnter(unknown);
-    expect(screen.getByRole("tooltip").textContent).toBe("狀態未知，成員重新啟動後就會顯示");
+    expect(screen.getByRole("tooltip").textContent).toBe("狀態未知");
     fireEvent.click(unknown);
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(getByTestId("mp-context").closest(".mp-runtime")).not.toBeNull();

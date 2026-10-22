@@ -6860,7 +6860,7 @@ export interface components {
          */
         MemberDTO: {
             /**
-             * @description What the member's session is doing right now, from its own latest ``POST /api/agent/activity`` report. Filled only on the owner's reads. Null whenever ``presence`` is not ``online``, and while the member's current session has not reported yet (the reports live in memory, so a server restart also blanks it until the session reports again).
+             * @description What the member's session is doing right now, from its own latest ``POST /api/agent/activity`` report. Filled only on the owner's reads. Null whenever ``presence`` is neither ``online`` nor ``stopping`` (a ``waking`` member reads null even with a stored report, which may be the previous session's), and while the member's current session has not reported yet (the reports live in memory, so a server restart also blanks it until the session reports again).
              * @default null
              */
             activity: components["schemas"]["MemberActivityDTO"] | null;

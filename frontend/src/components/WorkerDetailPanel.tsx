@@ -24,13 +24,14 @@ import {
 import { DispatchAlert } from "./DispatchAlert";
 import type { MemberActivateResult, MemberRelocateResult } from "../types";
 import { ModelEffortEditor } from "./ModelEffortEditor";
-import { ChevronLeftIcon, ChevronRightIcon } from "./icons";
+import { ChevronLeftIcon } from "./icons";
 import { AvatarEditor } from "./AvatarEditor";
 import { Avatar } from "./Avatar";
 import { ResumeSummaryCard } from "./ResumeSummaryCard";
-import { RuntimeLoginWarningMark } from "./RuntimeLoginWarningMark";
 import { PresenceAvatar } from "./PresenceAvatar";
 import { NameWithActivity } from "./MemberActivity";
+import { OutsourceTaskLine } from "./OutsourcePanel";
+import { CurrentTaskTitle } from "./CurrentTaskTitle";
 import { MemberActionButtons, stopLadderStageOf } from "./MemberActionButtons";
 import { ScheduledMessagesCard } from "./ScheduledMessagesCard";
 import { WebhooksCard } from "./WebhooksCard";
@@ -113,8 +114,9 @@ interface WorkerDetailPanelProps {
  * AgentDetailPanel the member detail page uses (owner constitution:「外包只是
  * 一個系統會幫我產生跟刪除的正職員工」) — the shared cards (模型/思考強度、機器/
  * Claude Account、運行狀況、最近操作、終端、初始 PROMPT) read the ONE unified
- * view model, and the worker-specific bits (外包角色頭像身分 + 任務 chip、
- * 委託人、委託任務) plug in through the panel's slots. Since T-7526 the shared
+ * view model, and the worker-specific bits (外包角色頭像身分, and the chat
+ * header's task line + full task title on the identity card) plug in through
+ * the identity slot. Since T-7526 the shared
  * cards are READ-ONLY here too (the member panel's shape since T-927a): 模型/
  * 思考強度 and 機器 carry no in-place editor, and every edit goes through the ONE
  * dialog the identity card's action row opens — 更改 while it is running, 喚醒
@@ -139,7 +141,6 @@ export function WorkerDetailPanel({
   onRemoveAvatar,
 }: WorkerDetailPanelProps) {
   const { t, msg } = useI18n();
-  const dash = t.workerDetail.dash;
 
   const { machines, loading: machinesLoading } = useMachines();
 
@@ -241,20 +242,6 @@ export function WorkerDetailPanel({
   // `workerStatusText` lookup that existed only to feed it.
   // What did NOT go is the offline REASON below — that is not a restatement of
   // the dot, it is the only answer to "why is it grey".
-
-  // 委託人 (item 2): the RESOLVED creator name replaces the former hardcoded
-  // "System owner". delegatedBy carries a real member name; a blank name with
-  // creator_id === "owner" is the owner's own ticket; a non-owner creator_id
-  // with no resolvable name (removed member) falls back to the raw id — never a
-  // fabricated name; a blank creator_id (pre-column / server-scheduled) shows
-  // the honest 系統排程 fallback.
-  const delegatorText = worker.delegatedBy
-    ? worker.delegatedBy
-    : worker.creatorId === "owner"
-      ? t.workerDetail.delegatorOwner
-      : worker.creatorId
-        ? worker.creatorId
-        : t.workerDetail.delegatorSystem;
 
   // The structured failure reason, surfaced under the identity card's presence
   // dot when the worker reads offline (a silently-failing spawn / died session);
@@ -468,14 +455,6 @@ export function WorkerDetailPanel({
     }
   }
 
-  const taskStatusText = worker.taskStatus
-    ? (t.tasks.status[worker.taskStatus] ?? worker.taskStatus)
-    : "";
-  const taskLabel = [worker.taskNo, worker.taskTitle]
-    .filter(Boolean)
-    .join(" · ");
-  const hasTask = Boolean(worker.taskId && taskLabel);
-
   // ── identity slot: stable worker id's personal image, then the outsource
   // theme image and glyph fallbacks, plus codename + real presence. ──────────
   const identity = (
@@ -501,28 +480,20 @@ export function WorkerDetailPanel({
             </span>
           </NameWithActivity>
         </div>
-        <div
-          className="outsource-row__task-line"
-          data-testid="worker-detail-header-task"
-        >
-          <RuntimeLoginWarningMark
-            warnings={worker.runtimeLoginWarnings}
-            modelCallWarnings={worker.modelCallWarnings}
+        {/* The chat header's lines for this worker, from the same components. */}
+        <div className="mp-identity__task">
+          <OutsourceTaskLine
+            worker={worker}
+            onOpenTask={() => onOpenTask?.()}
+            mark
+            idPrefix="worker-detail"
           />
-          {worker.taskNo && (
-            <button
-              type="button"
-              className="outsource-row__chip outsource-row__chip--task"
-              data-testid="worker-detail-header-chip"
-              disabled={!onOpenTask}
-              onClick={onOpenTask}
-            >
-              {worker.taskNo}
-            </button>
-          )}
-          <span className="outsource-row__type">
-            {worker.taskTypeName || worker.taskTypeKey || t.tasks.adhoc}
-          </span>
+          <CurrentTaskTitle
+            title={worker.taskTitle ?? ""}
+            clamp={false}
+            showEmpty={false}
+            testid="worker-detail-header-task-title"
+          />
         </div>
         {/* The offline REASON, moved here when the 狀態 cell went (owner
             2026-07-31). It is the one thing that cell carried which the dot does
@@ -751,51 +722,6 @@ export function WorkerDetailPanel({
     </div>
   ) : null;
 
-  // ── afterInfoCards slot: 委託人 only. ──────────────────────────────────────
-  // The 狀態 half of this card is GONE (owner 2026-07-31 — see the note at the
-  // top of the component), and the 停止/喚醒 button that lived in its header
-  // moved up to the identity card's action row. 委託人 stays: it is the one
-  // thing on this card that is outsource-only and appears nowhere else — the
-  // worker was minted on someone's behalf, and "whose" has no other home.
-  // Plain .mp-card, not .mp-info2: that grid existed to put 狀態 and 委託人 in
-  // two columns, and a `1fr 1fr` grid holding ONE field leaves the value
-  // floating in the left half of an empty card. .mp-field carries the padding.
-  const delegatorCard = (
-    <div className="mp-card">
-      <div className="mp-field">
-        <div className="mp-field__label">{t.workerDetail.delegator}</div>
-        <div className="mp-field__value" data-testid="worker-detail-delegator">
-          {delegatorText}
-        </div>
-      </div>
-    </div>
-  );
-
-  // ── afterIdentityCards slot: 委託任務 (clickable → #tasks/<taskId>). Moved
-  // above 模型/機器 per owner 2026-07-20 截圖 (T-b0e3) — was buried after 最近操作. ──
-  const taskCard = (
-    <div className="mp-card mp-worker-task">
-      <div className="mp-card__title">{t.workerDetail.task}</div>
-      {hasTask ? (
-        <button
-          type="button"
-          className="mp-worker-task__link"
-          onClick={onOpenTask}
-          disabled={!onOpenTask}
-          data-testid="worker-detail-task"
-        >
-          <span className="mp-worker-task__label">{taskLabel}</span>
-          {taskStatusText && (
-            <span className="mp-worker-task__status">{taskStatusText}</span>
-          )}
-          <ChevronRightIcon size={16} className="mp-worker-task__chevron" />
-        </button>
-      ) : (
-        <div className="mp-field__value">{dash}</div>
-      )}
-    </div>
-  );
-
   // ── extraExpandCards slot: 回呼端點 + 定期訊息, the member panel's two cards ──
   // Both bind to an `ow-` worker on the server as they do to a member, and an
   // endpoint is revoked with the worker when it is released.
@@ -846,7 +772,6 @@ export function WorkerDetailPanel({
             </div>
           </div>
         </div>
-        {taskCard}
       </div>
     );
   }
@@ -862,8 +787,6 @@ export function WorkerDetailPanel({
       // simply did not exist here, and nothing said so.
       slots={{
         overlays: slot(settingsDialog),
-        afterIdentityCards: slot(taskCard),
-        afterInfoCards: slot(delegatorCard),
         extraExpandCards: slot(extraExpandCards),
         afterPromptCards: slot(<ResumeSummaryCard agentId={worker.id} />),
       }}

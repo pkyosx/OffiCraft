@@ -1,8 +1,7 @@
-// CT story for T-b0e3: mounts the REAL WorkerDetailPanel (not a hand-built
-// AgentDetailPanel slot stub) with a bound task, so the paired visual guard
-// measures the ACTUAL 委託任務-vs-模型/機器 card order and the ACTUAL header
-// (short task-type label) — both of which only exist once WorkerDetailPanel's
-// own slot-wiring and identity JSX run, not the shared-panel plumbing alone.
+// CT story: mounts the REAL WorkerDetailPanel (not a hand-built AgentDetailPanel
+// slot stub) with a bound task whose title is long, so the paired guards
+// measure the ACTUAL identity card: codename, the task line (short task-type
+// label) and the full task title, as WorkerDetailPanel's own JSX renders them.
 import { I18nProvider } from "../../src/i18n";
 import { WorkerDetailPanel } from "../../src/components/WorkerDetailPanel";
 import type { OutsourceWorkerView } from "../../src/api/adapter";
@@ -32,7 +31,7 @@ const worker: OutsourceWorkerView = {
   delegatedBy: "",
 };
 
-export function WorkerDetailPanelTaskOrderStory() {
+export function WorkerDetailPanelIdentityStory() {
   return (
     <I18nProvider>
       <WorkerDetailPanel

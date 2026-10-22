@@ -1,5 +1,5 @@
 /* The status icon leading a member's name, and the glyphs it shares with the
- * 運作狀況 tree. The icon never shrinks: the name beside it is what gives. */
+ * 運行狀況 activity tree. The icon never shrinks: the name beside it is what gives. */
 .activity-icon {
   flex: none;
   align-self: center;
@@ -116,7 +116,7 @@
   }
 }
 
-/* The box of the icon that opens the 運作狀況 dialog, also worn by the moon and
+/* The box of the icon that opens the 運行狀況 dialog, also worn by the moon and
  * the unknown mark that stand in its place, so a list keeps one column. The border
  * stays, transparent, so the chip does not change the size. Its height stays
  * within the name's line so rows and headers keep theirs. */

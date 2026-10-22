@@ -69,12 +69,12 @@ type activityState struct {
 	BusySince *float64           `json:"busy_since"`
 	Subagents []activitySubagent `json:"subagents"`
 	Waits     []activityWait     `json:"waits"`
-	// A sub-agent that stops with no listed sub-agent under it can still start
-	// again under the same id, e.g. after a child whose parent was never known;
-	// this keeps its original start time until the session restarts. Not pruned
-	// at the main Stop: a sub-agent waiting on its child is not always listed as
-	// running in background_tasks.
-	Paused map[string]float64 `json:"paused,omitempty"`
+	// Sub-agents that stopped with no listed sub-agent under it, kept until the
+	// session restarts: one can start again under the same id (SendMessage, or a
+	// child whose parent was never known), and must then not take a pending
+	// Agent call. Not pruned at the main Stop: a sub-agent waiting on its child
+	// is not always listed as running in background_tasks.
+	Stopped map[string]bool `json:"stopped,omitempty"`
 	// The station has not accepted this snapshot; `listen` retries it.
 	Unsent bool `json:"unsent,omitempty"`
 	// Keyed by sub-agent id; PostToolUse's is authoritative.
@@ -252,21 +252,24 @@ func applyActivityHook(s *activityState, in activityHookInput, now float64) (cha
 		}
 		return true, recordSpawn(s, response.AgentID, spawnOf(in))
 	case "SubagentStart":
-		if listsSubagent(s.Subagents, in.AgentID) {
-			return true, true
+		// The shown time is the current run's: every start restarts it,
+		// including a parent carrying on after it stopped to wait for its child
+		// (it stayed listed meanwhile).
+		for i := range s.Subagents {
+			if s.Subagents[i].ID == in.AgentID {
+				s.Subagents[i].StartedTs = now
+				return true, true
+			}
 		}
-		started, paused := s.Paused[in.AgentID]
-		if !paused {
-			started = now
-		}
-		delete(s.Paused, in.AgentID)
+		stopped := s.Stopped[in.AgentID]
+		delete(s.Stopped, in.AgentID)
 		spawn, known := s.Spawns[in.AgentID]
-		if !known && !paused && len(s.Pending) > 0 {
+		if !known && !stopped && len(s.Pending) > 0 {
 			spawn, s.Pending = s.Pending[0], s.Pending[1:]
 			setSpawn(s, in.AgentID, spawn)
 		}
 		s.Subagents = append(s.Subagents, activitySubagent{ID: in.AgentID, ParentID: spawn.ParentID,
-			Name: in.AgentType, Description: spawn.Description, StartedTs: started})
+			Name: in.AgentType, Description: spawn.Description, StartedTs: now})
 	case "SubagentStop":
 		// Claude Code (seen in 2.1.308) also fires SubagentStop when a sub-agent
 		// ends its turn to wait for its own child, and SubagentStart when it
@@ -274,10 +277,10 @@ func applyActivityHook(s *activityState, in activityHookInput, now float64) (cha
 		kept := keepWithAncestors(s.Subagents, func(sub activitySubagent) bool { return sub.ID != in.AgentID })
 		for _, sub := range s.Subagents {
 			if sub.ID == in.AgentID && !listsSubagent(kept, sub.ID) {
-				if s.Paused == nil {
-					s.Paused = map[string]float64{}
+				if s.Stopped == nil {
+					s.Stopped = map[string]bool{}
 				}
-				s.Paused[sub.ID] = sub.StartedTs
+				s.Stopped[sub.ID] = true
 			}
 		}
 		s.Subagents = kept
@@ -358,7 +361,7 @@ func setSpawn(s *activityState, id string, spawn activitySpawn) {
 // dropped so a later SubagentStart cannot take it.
 func recordSpawn(s *activityState, id string, spawn activitySpawn) bool {
 	_, known := s.Spawns[id]
-	_, paused := s.Paused[id]
+	stopped := s.Stopped[id]
 	setSpawn(s, id, spawn)
 	for i := range s.Subagents {
 		if s.Subagents[i].ID == id {
@@ -366,7 +369,7 @@ func recordSpawn(s *activityState, id string, spawn activitySpawn) bool {
 			return true
 		}
 	}
-	if !known && !paused {
+	if !known && !stopped {
 		for i, pending := range s.Pending {
 			if pending.Description == spawn.Description && sameParent(pending.ParentID, spawn.ParentID) {
 				s.Pending = append(s.Pending[:i], s.Pending[i+1:]...)

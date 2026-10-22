@@ -156,8 +156,9 @@ type codexSession struct {
 	// Codex does not expose background commands.
 	busySince        float64
 	runningSubagents map[string]float64
-	// A sub-agent's first start, kept across its turns.
-	subagentFirstStart map[string]float64
+	// Sub-agent threads that have started a turn, kept across their turns
+	// until forgetFinishedSubagents drops their name and parent.
+	subagentsSeen      map[string]bool
 	subagentNames      map[string]string
 	subagentParent     map[string]string
 	lastActivity       string
@@ -625,13 +626,11 @@ func (s *codexSession) trackActivity(method string, params map[string]any) {
 			if s.runningSubagents == nil {
 				s.runningSubagents = map[string]float64{}
 			}
-			if s.subagentFirstStart == nil {
-				s.subagentFirstStart = map[string]float64{}
+			if s.subagentsSeen == nil {
+				s.subagentsSeen = map[string]bool{}
 			}
-			if _, seen := s.subagentFirstStart[threadID]; !seen {
-				s.subagentFirstStart[threadID] = codexActivityNow()
-			}
-			s.runningSubagents[threadID] = s.subagentFirstStart[threadID]
+			s.subagentsSeen[threadID] = true
+			s.runningSubagents[threadID] = codexActivityNow()
 		}
 	case "turn/completed":
 		if s.isMainThread(params) {
@@ -674,8 +673,8 @@ func (s *codexSession) trackActivity(method string, params map[string]any) {
 }
 
 // At either end of a main turn: a finished sub-agent a later main turn wakes
-// again counts from then, not from its first-ever start. One whose own child
-// is still running is waiting on it, not finished, and keeps its start.
+// again is named afresh. One whose own child is still running is waiting on
+// it, not finished, and keeps its name and parent.
 func (s *codexSession) forgetFinishedSubagents() {
 	waiting := map[string]bool{}
 	for id := range s.runningSubagents {
@@ -683,9 +682,9 @@ func (s *codexSession) forgetFinishedSubagents() {
 			waiting[parent] = true
 		}
 	}
-	for id := range s.subagentFirstStart {
+	for id := range s.subagentsSeen {
 		if _, running := s.runningSubagents[id]; !running && !waiting[id] {
-			delete(s.subagentFirstStart, id)
+			delete(s.subagentsSeen, id)
 			delete(s.subagentNames, id)
 			delete(s.subagentParent, id)
 		}

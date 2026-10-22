@@ -721,7 +721,7 @@ export const zh = {
   },
   // ── 外包 worker 詳情面板（前端 only 精簡版：只放外包真有的欄位，
   // 不套用成員面板的機器綁定／model 編輯／context％／花費／refocus）──
-  // 成員 session 的運作狀況（名字旁的狀態圖示＋詳情面板「運作狀況」卡）。
+  // 成員 session 的運作狀態（名字旁的狀態圖示＋詳情面板「運行狀況」卡裡的「目前狀態」）。
   // 句子由 compose.ts 的 memberActivity* 組裝。
   activity: {
     state: {
@@ -729,30 +729,24 @@ export const zh = {
       waiting: "等待中",
       idle: "閒置",
     },
-    mainBusyLead: "主 agent 工作中（",
-    mainBusyTail: "）",
+    mainBusy: "主代理工作中",
     elapsedLead: "已",
     elapsedSeconds: "秒",
     elapsedMinutes: "分鐘",
     subagentsAlsoLead: "，另有",
-    subagentsAlsoTailOne: "個 sub-agent 工作中",
-    subagentsAlsoTailMany: "個 sub-agent 工作中",
-    subagentsOnlyLead: "主 agent 已回覆完畢，",
-    subagentsOnlyTailOne: "個 sub-agent 仍在工作中",
-    subagentsOnlyTailMany: "個 sub-agent 仍在工作中",
-    noneWorking: "主 agent 與 sub-agent 都沒有在工作",
+    subagentsAlsoTailOne: "個子代理工作中",
+    subagentsAlsoTailMany: "個子代理工作中",
     waitsLead: "，正在等",
+    waitsOnlyLead: "正在等",
     waitsTailOne: "個背景檢查或排程",
     waitsTailMany: "個背景檢查或排程",
-    unknownHint: "狀態未知，成員重新啟動後就會顯示",
-    cardTitle: "運作狀況",
+    unknownHint: "狀態未知",
     dialogTitleSep: " · ",
     currentState: "目前狀態",
     openLabelSep: "，",
-    openLabel: "查看運作狀況",
+    openLabel: "查看運行狀況",
     close: "關閉",
-    mainAgent: "主 agent",
-    mainReplied: "已回覆完畢",
+    mainAgent: "主代理",
     nextLead: "下次",
     recurring: "重複",
     waitKind: {
@@ -767,13 +761,6 @@ export const zh = {
     effort: "投入度",
     // T-7526（owner 2026-07-31）：狀態欄與它的 statusOf 對照表整個退場。四個狀態
     // 字與身分卡那顆 LifecycleDot 完全重複，「已釋放」則由聊天室橫幅承擔。
-    task: "委託任務",
-    delegator: "委託人",
-    // 委託人＝owner 本人建的票時顯示（真實來源，非佔位）。
-    delegatorOwner: "系統 Owner",
-    // creator_id 為空（pre-column／排程自動建票）時的誠實 fallback，取代舊的
-    // 一律假「System owner」。
-    delegatorSystem: "系統排程",
     // ── T-f190：對齊成員詳情的真實資訊欄 ──────────────────────────────────
     machine: "機器",
     claudeAccount: "Claude Account",
@@ -819,7 +806,6 @@ export const zh = {
     initialPromptHint: "目前版本預覽",
     initialPromptNote:
       "這是依目前設定產生的預覽，可能和派工當下的內容不同。",
-    dash: "—",
   },
   // ── Layer-4 lifecycle UI (aligned to backend's real five-state presence) ──
   // 5 visual-state names + 5 状态化 action-button labels + lifecycle surface

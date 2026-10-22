@@ -101,9 +101,9 @@ export interface Messages {
   runtimeSignInHint: (runtime: "claude" | "codex") => string;
   modelCallServerWarning: (runtime: "claude" | "codex") => string;
   memberModelCallLastSuccess: (age: string) => string;
-  /** The one-sentence account of a session's activity. `now` is epoch
-   * seconds; elapsed time is measured from `busySince`. */
-  memberActivitySummary: (activity: MemberActivity, now: number) => string;
+  /** The one-sentence account of a session's activity. It carries no elapsed
+   * time and, when nobody is working, does not name the main or sub-agents. */
+  memberActivitySummary: (activity: MemberActivity) => string;
   /** 「已 3 分鐘」: how long the main agent's turn has run. */
   memberActivitySince: (since: number, now: number) => string;
   /** 「40 秒」/「3 分鐘」: how long a sub-agent has run. */
@@ -111,9 +111,9 @@ export interface Messages {
   /** 「背景指令」, or 「排程 · 下次 12:15 · 重複」 in the viewer's local time; a
    * next run that is not today carries its date (「下次 10/5 09:05」). */
   memberActivityWaitTag: (wait: ActivityWait, now: number) => string;
-  /** 「Mira · 運作狀況」: the activity dialog's title. */
+  /** 「Mira · 運行狀況」: the activity dialog's title. */
   memberActivityDialogTitle: (name: string) => string;
-  /** 「工作中，查看運作狀況」: the accessible name of the icon that opens it. */
+  /** 「工作中，查看運行狀況」: the accessible name of the icon that opens it. */
   memberActivityOpenLabel: (state: MemberActivity["state"]) => string;
   /** `by` is the deadline text, or null when the wind-down is on NO clock —
    * which since T-ed79 is every cause except the second context threshold. The
@@ -394,23 +394,22 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     },
     modelCallServerWarning: (runtime) => `${mcw.runtime[runtime]} ${mcw.server}`,
     memberModelCallLastSuccess: (age) => `${age} ${mp.modelCallLastSuccessAgoTail}`,
-    memberActivitySummary: (a, now) => {
+    memberActivitySummary: (a) => {
       const subs = a.subagents.length;
+      const waits = a.waits.length;
+      const waitsCount = counted(waits, act.waitsTailOne, act.waitsTailMany);
       let head: string;
       if (a.busySince !== null) {
-        head = `${act.mainBusyLead}${activityElapsed(act.elapsedLead, a.busySince, now)}${act.mainBusyTail}`;
+        head = act.mainBusy;
         if (subs > 0) {
           head += `${act.subagentsAlsoLead} ${counted(subs, act.subagentsAlsoTailOne, act.subagentsAlsoTailMany)}`;
         }
       } else if (subs > 0) {
-        head = `${act.subagentsOnlyLead}${sp}${counted(subs, act.subagentsOnlyTailOne, act.subagentsOnlyTailMany)}`;
+        head = counted(subs, act.subagentsAlsoTailOne, act.subagentsAlsoTailMany);
       } else {
-        head = act.noneWorking;
+        return waits > 0 ? `${act.waitsOnlyLead} ${waitsCount}` : act.state.idle;
       }
-      const waits = a.waits.length;
-      return waits > 0
-        ? `${head}${act.waitsLead} ${counted(waits, act.waitsTailOne, act.waitsTailMany)}`
-        : head;
+      return waits > 0 ? `${head}${act.waitsLead} ${waitsCount}` : head;
     },
     memberActivitySince: (since, now) => activityElapsed(act.elapsedLead, since, now),
     memberActivityDuration: (since, now) => activityElapsed("", since, now),
@@ -422,7 +421,7 @@ export function makeMessages(t: Dict, language: Lang): Messages {
             ...(w.nextTs !== null ? [`${act.nextLead} ${nextRunAt(w.nextTs, now)}`] : []),
             ...(w.recurring ? [act.recurring] : []),
           ].join(" · "),
-    memberActivityDialogTitle: (name) => `${name}${act.dialogTitleSep}${act.cardTitle}`,
+    memberActivityDialogTitle: (name) => `${name}${act.dialogTitleSep}${t.mp.runtime}`,
     memberActivityOpenLabel: (state) => `${act.state[state]}${act.openLabelSep}${act.openLabel}`,
     // 「正在收尾以套用你的改動 · 最晚 14:32 生效」 — the deadline is a CEILING
     // (the collect fires as soon as the agent reports stopped), so the wording
