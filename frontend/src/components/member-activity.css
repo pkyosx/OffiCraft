@@ -92,15 +92,16 @@
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-success) 15%, transparent);
 }
 /* Touch area of at least 32px, grown with ::after so the chip does not change
- * size. It grows less downward: below lies the second line, whose warning mark
- * has a tap area of its own. */
+ * size. It grows mostly upward: about 4px below the chip starts the tap area of
+ * the second line's warning mark, and a short name puts that mark right under
+ * the icon. */
 @media (hover: none) {
   .activity-icon--button::after {
     content: "";
     position: absolute;
-    top: -8px;
+    top: -12px;
     right: -8px;
-    bottom: -5px;
+    bottom: -4px;
     left: -8px;
   }
 }

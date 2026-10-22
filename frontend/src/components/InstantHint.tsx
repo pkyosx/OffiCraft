@@ -1,6 +1,8 @@
 import {
+  type FocusEvent as ReactFocusEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
+  type MutableRefObject,
   useEffect,
   useId,
   useLayoutEffect,
@@ -43,17 +45,19 @@ function contentRect(el: HTMLElement): { top: number; bottom: number; left: numb
  * would clip anything rendered in place.
  *
  * With `onActivate` the trigger is a button instead: a click or Enter/Space
- * calls it (receiving the trigger, so focus can be handed back later) and no
- * longer pins the hint; hover and focus still show it. */
+ * calls it and no longer pins the hint; hover and focus still show it.
+ * `triggerRef` follows the mounted trigger, so focus can be handed back to it. */
 export function InstantHint({
   hint,
   children,
   onKeyDown,
   onActivate,
+  triggerRef: outerRef,
   ...rest
 }: {
   hint: string;
-  onActivate?: (trigger: HTMLElement) => void;
+  onActivate?: () => void;
+  triggerRef?: MutableRefObject<HTMLElement | null>;
 } & Omit<HTMLAttributes<HTMLElement>, "title">) {
   const id = useId();
   const triggerRef = useRef<HTMLElement | null>(null);
@@ -129,7 +133,12 @@ export function InstantHint({
     "aria-describedby": open ? id : undefined,
     onMouseEnter: show,
     onMouseLeave: hide,
-    onFocus: show,
+    // A button gets focus handed back after whatever it opened closes; after a
+    // pointer close that is not keyboard focus, and the hint would stay up
+    // until the next blur.
+    onFocus: (e: ReactFocusEvent<HTMLElement>) => {
+      if (!onActivate || e.currentTarget.matches(":focus-visible")) show();
+    },
     onBlur: hide,
     // The trigger sits inside row-buttons that open on click and on
     // Enter/Space; neither may bubble, or using the hint opens the row.
@@ -137,7 +146,7 @@ export function InstantHint({
       e.stopPropagation();
       if (onActivate) {
         setState("closed");
-        onActivate(e.currentTarget);
+        onActivate();
       } else {
         setState((s) => (s === "pinned" ? "closed" : "pinned"));
       }
@@ -156,6 +165,7 @@ export function InstantHint({
           type="button"
           ref={(el) => {
             triggerRef.current = el;
+            if (outerRef) outerRef.current = el;
           }}
         >
           {children}
@@ -166,6 +176,7 @@ export function InstantHint({
           tabIndex={0}
           ref={(el) => {
             triggerRef.current = el;
+            if (outerRef) outerRef.current = el;
           }}
         >
           {children}

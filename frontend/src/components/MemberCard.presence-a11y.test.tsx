@@ -393,17 +393,17 @@ describe("MemberCard presence dot hint", () => {
 });
 
 describe("MemberCard activity icon", () => {
-  const renderWith = (activity: Member["activity"], onChat = vi.fn()) =>
-    render(
-      <I18nProvider>
-        <MemberCard
-          member={mkMember({ lifecycle: activity ? "online" : "offline", activity })}
-          selected={false}
-          onOpenDetail={() => {}}
-          onChat={onChat}
-        />
-      </I18nProvider>,
-    );
+  const cardWith = (activity: Member["activity"], onChat: () => void, name = "Mira") => (
+    <I18nProvider>
+      <MemberCard
+        member={mkMember({ name, lifecycle: activity ? "online" : "offline", activity })}
+        selected={false}
+        onOpenDetail={() => {}}
+        onChat={onChat}
+      />
+    </I18nProvider>
+  );
+  const renderWith = (activity: Member["activity"], onChat = vi.fn()) => render(cardWith(activity, onChat));
 
   it.each([
     ["busy", "工作中，查看運作狀況", "working", "主 agent 工作中（已 0 秒）"],
@@ -524,14 +524,55 @@ describe("MemberCard activity icon", () => {
       expect(onChat).not.toHaveBeenCalled();
     });
 
-    it("Enter on the icon opens the dialog, not the chat", () => {
+    it.each([["Enter", "Enter"], ["Space", " "]])("%s on the icon opens the dialog, not the chat", (_, key) => {
       const onChat = vi.fn();
       const { getByTestId } = renderWith(activity, onChat);
       const icon = getByTestId("activity-icon-mira");
-      fireEvent.keyDown(icon, { key: "Enter" });
+      fireEvent.keyDown(icon, { key });
+      fireEvent.keyUp(icon, { key });
       fireEvent.click(icon);
       expect(onChat).not.toHaveBeenCalled();
       expect(dialog()).not.toBeNull();
+    });
+
+    it("Tab and Shift+Tab keep focus inside the dialog", () => {
+      const { getByTestId } = renderWith(activity);
+      fireEvent.click(getByTestId("activity-icon-mira"));
+      const close = screen.getByRole("button", { name: "關閉" });
+      for (const shiftKey of [false, true]) {
+        const moved = fireEvent.keyDown(close, { key: "Tab", shiftKey });
+        expect(moved, shiftKey ? "Shift+Tab" : "Tab").toBe(false);
+        expect(document.activeElement).toBe(close);
+      }
+      act(() => getByTestId("activity-icon-mira").focus());
+      fireEvent.keyDown(dialog()!, { key: "Tab" });
+      expect(document.activeElement, "focus outside is pulled back in").toBe(close);
+    });
+
+    it("closes when the activity goes away, stays closed without taking focus when it returns, and a later close focuses the live icon", () => {
+      const onChat = vi.fn();
+      const { getByTestId, rerender } = renderWith(activity, onChat);
+      fireEvent.click(getByTestId("activity-icon-mira"));
+      expect(dialog()).not.toBeNull();
+      rerender(cardWith(null, onChat));
+      expect(dialog()).toBeNull();
+      rerender(cardWith(activity, onChat));
+      expect(dialog()).toBeNull();
+      const icon = getByTestId("activity-icon-mira");
+      expect(icon.getAttribute("aria-expanded")).toBe("false");
+      expect(document.activeElement).toBe(document.body);
+      fireEvent.click(icon);
+      fireEvent.click(screen.getByRole("button", { name: "關閉" }));
+      expect(dialog()).toBeNull();
+      expect(document.activeElement).toBe(icon);
+    });
+
+    it("closes when the card turns to another member", () => {
+      const onChat = vi.fn();
+      const { getByTestId, rerender } = renderWith(activity, onChat);
+      fireEvent.click(getByTestId("activity-icon-mira"));
+      rerender(cardWith(activity, onChat, "Nova"));
+      expect(dialog()).toBeNull();
     });
   });
 

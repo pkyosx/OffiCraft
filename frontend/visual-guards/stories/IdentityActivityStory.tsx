@@ -92,21 +92,27 @@ export function IdentityActivityStory({
   surface,
   state,
   mobile,
+  warning = false,
 }: {
   surface: "list" | "header" | "card";
   state: MemberActivity["state"];
   mobile: boolean;
+  warning?: boolean;
 }) {
   const now = Date.now() / 1000;
   const activity = activityOf(state, now);
-  const member = mkMember("m-long", LONG_NAME, activity, 120);
+  const warned = (m: Member): Member =>
+    warning
+      ? { ...m, runtimeLoginWarnings: [{ machineId: "mc-1", machineName: "eva-mbp", runtime: "claude", pending: false }] }
+      : m;
+  const member = warned(mkMember("m-long", LONG_NAME, activity, 120));
   return (
     <I18nProvider>
       <div className={mobile ? "office office--mobile" : "office"} style={{ height: 900 }}>
         {surface === "list" && (
           <aside className="office__members" data-testid="list">
             <MemberCard member={member} selected={false} onOpenDetail={noop} onChat={noop} />
-            <MemberCard member={mkMember("m-short", "Mira", activity, 0)} selected onOpenDetail={noop} onChat={noop} />
+            <MemberCard member={warned(mkMember("m-short", "Mira", activity, 0))} selected onOpenDetail={noop} onChat={noop} />
             <OutsourcePanel
               workers={[mkWorker(activity)]}
               error={false}

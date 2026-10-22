@@ -176,26 +176,64 @@ test.describe("the 運作狀況 dialog the icon opens", () => {
     expect(await hscroll(page), "no page hscroll").toBeLessThanOrEqual(1);
   });
 
+  test("width 1280: closing with the mouse hands focus back without leaving the hint up; Esc keeps it for the keyboard", async ({ mount, page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await mount(<IdentityActivityStory surface="list" state="busy" mobile={false} />);
+    const icon = page.locator(".member-card .activity-icon").first();
+    await icon.click();
+    await page.getByRole("dialog").getByRole("button").click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(icon).toBeFocused();
+    await expect(page.getByRole("tooltip")).toHaveCount(0);
+    await icon.press("Enter");
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(icon).toBeFocused();
+    await expect(page.getByRole("tooltip")).toHaveCount(1);
+  });
+
   test.describe("on a touch screen", () => {
     test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 780 } });
 
-    test("the icon takes taps over at least 32px while its chip stays the size it shows", async ({ mount, page }) => {
-      await mount(<IdentityActivityStory surface="list" state="busy" mobile />);
-      const hit = await page.evaluate(() => {
-        const icon = document.querySelector(".member-card .activity-icon") as HTMLElement;
-        const r = icon.getBoundingClientRect();
-        const cx = r.left + r.width / 2;
-        const cy = r.top + r.height / 2;
-        const lands = (x: number, y: number) => icon.contains(document.elementFromPoint(x, y));
-        return {
-          chip: r.toJSON() as Box,
-          across: lands(cx - 15.5, cy) && lands(cx + 15.5, cy),
-          upDown: lands(cx, cy - 15.5) && lands(cx, cy + 12),
-        };
-      });
-      expect(hit.chip.height, "the chip itself stays smaller than its tap area").toBeLessThan(32);
-      expect(hit.across, "32px across").toBe(true);
-      expect(hit.upDown, "taps above and below land on the icon").toBe(true);
+    test("the icon takes taps over at least 32px each way, clear of the warning mark below, while its chip stays the size it shows", async ({ mount, page }) => {
+      await mount(<IdentityActivityStory surface="list" state="busy" mobile warning />);
+      const rows = await page.evaluate(() =>
+        Array.from(document.querySelectorAll<HTMLElement>(".member-card")).map((row) => {
+          const icon = row.querySelector(".activity-icon") as HTMLElement;
+          const mark = row.querySelector(".runtime-login-warning") as HTMLElement;
+          const chip = icon.getBoundingClientRect();
+          const cx = chip.left + chip.width / 2;
+          const cy = chip.top + chip.height / 2;
+          const lands = (x: number, y: number) => icon.contains(document.elementFromPoint(x, y));
+          const reach = (dx: number, dy: number) => {
+            let d = 0;
+            while (d < 100 && lands(cx + dx * (d + 0.5), cy + dy * (d + 0.5))) d += 0.5;
+            return d;
+          };
+          const hit = { left: cx - reach(-1, 0), right: cx + reach(1, 0), top: cy - reach(0, -1), bottom: cy + reach(0, 1) };
+          const markBox = mark.getBoundingClientRect();
+          return {
+            chip: chip.toJSON() as Box,
+            hit,
+            mark: markBox.toJSON() as Box,
+            markTakesItsCentre: mark.contains(
+              document.elementFromPoint(markBox.left + markBox.width / 2, markBox.top + markBox.height / 2),
+            ),
+          };
+        }),
+      );
+      expect(rows.length).toBe(2);
+      for (const [i, m] of rows.entries()) {
+        const label = `member-card ${i + 1}`;
+        expect(m.chip.height, `${label}: the chip itself stays smaller than its tap area`).toBeLessThan(32);
+        expect(m.hit.right - m.hit.left, `${label}: tap area width`).toBeGreaterThanOrEqual(32);
+        expect(m.hit.bottom - m.hit.top, `${label}: tap area height`).toBeGreaterThanOrEqual(32);
+        const overlaps =
+          m.hit.left < m.mark.right && m.mark.left < m.hit.right && m.hit.top < m.mark.bottom && m.mark.top < m.hit.bottom;
+        expect(overlaps, `${label}: tap area clear of the warning mark's tap area`).toBe(false);
+        expect(m.hit.bottom, `${label}: tap area ends above the warning mark's`).toBeLessThanOrEqual(m.mark.top);
+        expect(m.markTakesItsCentre, `${label}: a tap on the warning mark still lands on it`).toBe(true);
+      }
     });
   });
 });

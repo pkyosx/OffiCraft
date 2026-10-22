@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
 import type { MemberActivity } from "../types";
@@ -69,7 +69,12 @@ export function ActivityStatusIcon({
 }) {
   const { t, msg } = useI18n();
   const now = useActivityNow(activity);
-  const [trigger, setTrigger] = useState<HTMLElement | null>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
+  const [openFor, setOpenFor] = useState<string | null>(null);
+  const open = activity != null && openFor !== null && openFor === memberName;
+  // Dropped rather than kept hidden: a dialog closed by the activity going away
+  // must not reopen, and take focus, when the activity comes back.
+  if (openFor !== null && !open) setOpenFor(null);
   if (!activity) return null;
   const word = t.activity.state[activity.state];
   const hint = msg.memberActivitySummary(activity, now);
@@ -93,25 +98,42 @@ export function ActivityStatusIcon({
         className={`activity-icon activity-icon--button activity-icon--${activity.state}`}
         aria-label={msg.memberActivityOpenLabel(activity.state)}
         aria-haspopup="dialog"
-        aria-expanded={trigger !== null}
+        aria-expanded={open}
         data-testid={testId}
-        onActivate={setTrigger}
+        triggerRef={triggerRef}
+        onActivate={() => setOpenFor(memberName)}
       >
         <ActivityStateIcon state={activity.state} />
       </InstantHint>
-      {trigger && (
+      {open && (
         <MemberActivityDialog
           name={memberName}
           activity={activity}
           testId={testId && `${testId}-dialog`}
           onClose={() => {
-            setTrigger(null);
-            trigger.focus();
+            setOpenFor(null);
+            triggerRef.current?.focus();
           }}
         />
       )}
     </>
   );
+}
+
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+function keepTabInside(e: ReactKeyboardEvent, root: HTMLElement) {
+  const focusables = Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE));
+  if (focusables.length === 0) return;
+  const first = focusables[0];
+  const last = focusables[focusables.length - 1];
+  const at = document.activeElement;
+  const edge = e.shiftKey ? first : last;
+  if (at === edge || !root.contains(at)) {
+    e.preventDefault();
+    (e.shiftKey ? last : first).focus();
+  }
 }
 
 /** Centred on a desktop, a bottom sheet on a phone (member-activity.css). */
@@ -151,6 +173,7 @@ function MemberActivityDialog({
       }}
       onKeyDown={(e) => {
         if (e.key !== "Escape") e.stopPropagation();
+        if (e.key === "Tab") keepTabInside(e, e.currentTarget);
       }}
     >
       <div className="confirm-modal__box activity-dialog__box">
