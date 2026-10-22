@@ -223,7 +223,7 @@ describe("OutsourcePanel", () => {
     },
   );
 
-  it("shows the activity icon right before the codename with its summary hint, a still moon hinting 離線 for an offline worker, and for an online worker without activity only an empty slot that keeps the codename in line", async () => {
+  it("shows the activity icon right before the codename with its summary hint, a still moon hinting 離線 for an offline worker or one without presence, and for an online worker without activity only an empty slot that keeps the codename in line", async () => {
     const task = mkTask({ id: "t-i", taskNo: "T-i" });
     __injectMockTask(task);
     __injectMockOutsourceWorker(
@@ -241,6 +241,7 @@ describe("OutsourcePanel", () => {
       }),
     );
     __injectMockOutsourceWorker(mkWorker({ id: "ow-off", codename: "C-1", taskId: task.id, presence: "offline" }));
+    __injectMockOutsourceWorker(mkWorker({ id: "ow-none", codename: "E-1", taskId: task.id }));
     __injectMockOutsourceWorker(
       mkWorker({ id: "ow-quiet", codename: "D-1", taskId: task.id, presence: "online", activity: null }),
     );
@@ -262,6 +263,13 @@ describe("OutsourcePanel", () => {
     expect(moon.querySelector(".activity-icon__glyph--offline svg")).not.toBeNull();
     expect(moon.nextElementSibling!.textContent).toBe("外包 · C-1");
     fireEvent.mouseEnter(moon);
+    expect(screen.getByRole("tooltip").textContent).toBe("離線");
+    fireEvent.mouseLeave(moon);
+    expect(queryByTestId("activity-icon-ow-none")).toBeNull();
+    const noPresenceMoon = await findByTestId("activity-icon-ow-none-offline");
+    expect(noPresenceMoon.querySelector(".activity-icon__glyph--offline svg")).not.toBeNull();
+    expect(noPresenceMoon.nextElementSibling!.textContent).toBe("外包 · E-1");
+    fireEvent.mouseEnter(noPresenceMoon);
     expect(screen.getByRole("tooltip").textContent).toBe("離線");
     expect(queryByTestId("activity-icon-ow-quiet")).toBeNull();
     expect(queryByTestId("activity-icon-ow-quiet-offline")).toBeNull();

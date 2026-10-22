@@ -554,7 +554,7 @@ describe("MemberCard activity icon", () => {
       expect(document.activeElement, "focus outside is pulled back in").toBe(close);
     });
 
-    it("closes when the activity goes away, stays closed without taking focus when it returns, and a later close focuses the live icon", () => {
+    it("closes when the activity goes away or the presence leaves online, stays closed without taking focus when either returns, and a later close focuses the live icon", () => {
       const onChat = vi.fn();
       const { getByTestId, rerender } = renderWith(activity, onChat);
       fireEvent.click(getByTestId("activity-icon-mira"));
@@ -562,6 +562,13 @@ describe("MemberCard activity icon", () => {
       rerender(cardWith(null, onChat));
       expect(dialog()).toBeNull();
       rerender(cardWith(activity, onChat));
+      expect(dialog()).toBeNull();
+      expect(document.activeElement).toBe(document.body);
+      fireEvent.click(getByTestId("activity-icon-mira"));
+      expect(dialog()).not.toBeNull();
+      rerender(cardWith(activity, onChat, "Mira", "offline"));
+      expect(dialog()).toBeNull();
+      rerender(cardWith(activity, onChat, "Mira", "online"));
       expect(dialog()).toBeNull();
       const icon = getByTestId("activity-icon-mira");
       expect(icon.getAttribute("aria-expanded")).toBe("false");

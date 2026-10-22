@@ -125,8 +125,8 @@ function ActivityStatusIcon({
   list: boolean;
 }) {
   const { t, msg } = useI18n();
-  // The corner dot decides: an activity still held after the presence left
-  // online is stale, and the icon must not say 工作中 beside a grey dot.
+  // Dropping a stale activity when presence leaves online is what closes an
+  // open dialog then; kept, the dialog would reopen and take focus on return.
   const activity = presence === "online" ? reported : null;
   const now = useActivityNow(activity);
   const triggerRef = useRef<HTMLElement | null>(null);
