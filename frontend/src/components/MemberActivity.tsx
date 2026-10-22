@@ -221,7 +221,7 @@ function keepTabInside(e: ReactKeyboardEvent, root: HTMLElement) {
   }
 }
 
-/** Centred on a desktop, a bottom sheet on a phone (member-activity.css). */
+/** Centred at every width, a phone included. */
 function MemberActivityDialog({
   name,
   activity,
