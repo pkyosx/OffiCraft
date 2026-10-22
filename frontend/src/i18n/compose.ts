@@ -403,7 +403,7 @@ export function makeMessages(t: Dict, language: Lang): Messages {
           head += `${act.subagentsAlsoLead} ${counted(subs, act.subagentsAlsoTailOne, act.subagentsAlsoTailMany)}`;
         }
       } else if (subs > 0) {
-        head = `${act.subagentsOnlyLead}${sp}${counted(subs, act.subagentsOnlyTailOne, act.subagentsOnlyTailMany)}`;
+        head = counted(subs, act.subagentsAlsoTailOne, act.subagentsAlsoTailMany);
       } else {
         head = act.noneWorking;
       }
