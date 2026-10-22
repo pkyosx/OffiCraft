@@ -73,6 +73,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ingest an agent session's working state (in-memory snapshot).
+         * @description - Reports the CALLER's own working state; the key is your token, so an agent can never report for another.
+         *     - Sent by the runtime hooks and the Codex session runner, not by the agent itself.
+         *     - Stored in memory only — the state resets when the server restarts, and when the member reports waking.
+         *     - Emits a ``member`` patch to the owner when the derived ``MemberDTO.activity`` changes.
+         */
+        post: operations["handle_ingest_agent_activity_api_agent_activity_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/context": {
         parameters: {
             query?: never;
@@ -4426,6 +4449,89 @@ export interface components {
             account: string;
         };
         /**
+         * AgentActivityIngestDTO
+         * @description Inbound activity report (``POST /api/agent/activity``): the CALLER's whole current working state, keyed by the verified JWT ``sub``. Each report replaces the previous one; it is a snapshot, not an event.
+         */
+        AgentActivityIngestDTO: {
+            /**
+             * Busy
+             * @description True while the main agent is handling a turn.
+             */
+            busy: boolean;
+            /**
+             * Busy Since
+             * @description Epoch seconds the main agent's current turn started, by the reporting machine's clock. Ignored when ``busy`` is false.
+             * @default null
+             */
+            busy_since: number | null;
+            /**
+             * Subagents
+             * @description Every sub-agent running right now, all nesting levels together.
+             */
+            subagents: components["schemas"]["AgentActivitySubagentDTO"][];
+            /**
+             * Waits
+             * @description What the session is waiting on that will wake it again: background commands, monitors and scheduled prompts. Empty when the runtime does not expose them.
+             * @default []
+             */
+            waits: components["schemas"]["AgentActivityWaitDTO"][];
+        };
+        /**
+         * AgentActivityReceiptDTO
+         * @description Bounded receipt of ``POST /api/agent/activity``. The derived state is served on ``MemberDTO.activity``.
+         */
+        AgentActivityReceiptDTO: {
+            /**
+             * Agent Id
+             * @description The identity the report was filed under — the verified JWT sub.
+             */
+            agent_id: string;
+            /**
+             * Ts
+             * @description The server's stamp on the report, in epoch seconds.
+             */
+            ts: number;
+        };
+        /**
+         * AgentActivitySubagentDTO
+         * @description One running sub-agent. Shown to the owner as it is sent.
+         */
+        AgentActivitySubagentDTO: {
+            /**
+             * Description
+             * @description The one-line task description the parent agent gave it; empty when the runtime does not expose one.
+             * @default
+             */
+            description: string;
+            /**
+             * Name
+             * @description The sub-agent's type (Claude Code, e.g. ``Explore``) or the name its parent gave it (Codex).
+             */
+            name: string;
+            /**
+             * Started Ts
+             * @description Epoch seconds it started, by the reporting machine's clock.
+             */
+            started_ts: number;
+        };
+        /**
+         * AgentActivityWaitDTO
+         * @description One thing a session is waiting on. Shown to the owner as it is sent.
+         */
+        AgentActivityWaitDTO: {
+            /**
+             * Description
+             * @description The agent's own one-line description of it (a scheduled prompt's text for ``schedule``).
+             * @default
+             */
+            description: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "background_command" | "schedule";
+        };
+        /**
          * AgentContextIngestDTO
          * @description Inbound agent context-gauge report (``POST /api/agent/context``). The gauge
          *     key is the CALLER (the verified JWT ``sub``), NEVER a self-reported ``agent_id``
@@ -6651,6 +6757,38 @@ export interface components {
             last_op_reason?: string;
         };
         /**
+         * MemberActivityDTO
+         * @description A member session's working state, derived from its latest activity report: ``busy`` while the main agent is handling a turn or any sub-agent (every nesting level counted) is running; ``waiting`` when neither is running but the session is waiting on background commands or scheduled prompts that will wake it; ``idle`` otherwise.
+         */
+        MemberActivityDTO: {
+            /**
+             * Busy Since
+             * @description Epoch seconds the main agent's current turn started, by the member machine's clock; null while the main agent is not handling a turn, which under ``busy`` means only sub-agents are running.
+             * @default null
+             */
+            busy_since: number | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "busy" | "waiting" | "idle";
+            /**
+             * Subagents
+             * @description Every sub-agent running right now, all nesting levels together.
+             */
+            subagents: components["schemas"]["AgentActivitySubagentDTO"][];
+            /**
+             * Waits
+             * @description What the session is waiting on, whatever the ``state``.
+             */
+            waits: components["schemas"]["AgentActivityWaitDTO"][];
+            /**
+             * Ts
+             * @description The server's stamp on the report this state came from, in epoch seconds.
+             */
+            ts: number;
+        };
+        /**
          * MemberAvatarDTO
          * @description Narrow result of an owner-only personal-avatar mutation. ``avatar_url`` is a newly minted authenticated blob path after upload and empty after removal; the changing blob id naturally cache-busts replacements.
          */
@@ -6698,6 +6836,11 @@ export interface components {
          *     role roster (empty until role definitions land in build order B2).
          */
         MemberDTO: {
+            /**
+             * @description What the member's session is doing right now, from its own latest ``POST /api/agent/activity`` report. Filled only on the owner's reads. Null whenever ``presence`` is not ``online``, and while the member's current session has not reported yet (the reports live in memory, so a server restart also blanks it until the session reports again).
+             * @default null
+             */
+            activity: components["schemas"]["MemberActivityDTO"] | null;
             /**
              * Actual Effort
              * @description The effort level the member's session is REPORTED to be running at, from its own live telemetry (``AgentTelemetryIngestDTO.effort``) — durably persisted alongside ``actual_model``, so it survives a server restart and outlives the session that reported it. Empty means nothing has ever reported an effort for this member; it is separate from, and NEVER falls back to, the owner-configured ``effort`` launch setting. WAS: reported effort lived ONLY in the in-memory telemetry store, so a server restart blanked it fleet-wide and no detail panel could tell a configured effort from a running one (T-7f28).
@@ -12141,6 +12284,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_ingest_agent_activity_api_agent_activity_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentActivityIngestDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentActivityReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */
