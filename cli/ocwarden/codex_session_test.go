@@ -1585,6 +1585,20 @@ func TestCodexSessionReportTokenUsage(t *testing.T) {
 		}}
 	}
 
+	t.Run("a sub-agent thread's usage reports nothing", func(t *testing.T) {
+		fake := interceptCodexPosts(t, http.StatusOK, nil)
+		s := newCodexTestSession()
+		s.base, s.token, s.account = "https://x.test", "tok", "codex:abc"
+		params := usage(100)
+		params["threadId"] = "th_sub"
+
+		s.reportTokenUsage(params)
+
+		if len(fake.posts) != 0 || s.pane.Len() != 0 {
+			t.Errorf("the sidecar sent %+v and logged %q, want neither", fake.posts, s.pane.String())
+		}
+	})
+
 	t.Run("a blank launch model is omitted rather than reported as measured", func(t *testing.T) {
 		fake := interceptCodexPosts(t, http.StatusOK, nil)
 		s := newCodexTestSession()
@@ -1746,6 +1760,80 @@ func TestCodexSessionReportRateLimits(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCodexSessionHandleTurnStarted(t *testing.T) {
+	t.Run("the main thread's turn marks the agent mid-turn and confirms the pending turn/start", func(t *testing.T) {
+		s := newCodexTestSession()
+		s.startTurn("hello", nil)
+		s.pane.Reset()
+
+		s.handleTurnStarted(map[string]any{"threadId": "th_1", "turn": map[string]any{"id": "t_main"}})
+
+		if !s.active || s.turnID != "t_main" {
+			t.Errorf("active=%v turnID=%q, want true and t_main", s.active, s.turnID)
+		}
+		if len(s.pending) != 0 {
+			t.Errorf("pending = %v, want the turn/start confirmed", s.pending)
+		}
+		if got, want := s.paneLines(t), []string{"已送進對話：hello"}; !reflect.DeepEqual(got, want) {
+			t.Errorf("the pane shows %q, want %q", got, want)
+		}
+	})
+
+	t.Run("a sub-agent thread's turn leaves the main agent idle and the turn/start pending", func(t *testing.T) {
+		s := newCodexTestSession()
+		s.startTurn("hello", nil)
+		s.pane.Reset()
+
+		s.handleTurnStarted(map[string]any{"threadId": "th_sub", "turn": map[string]any{"id": "t_sub"}})
+
+		if s.active || s.turnID != "" {
+			t.Errorf("active=%v turnID=%q, want false and empty", s.active, s.turnID)
+		}
+		if len(s.pending) != 1 || s.pending[1].method != "turn/start" {
+			t.Errorf("pending = %v, want the turn/start still waiting", s.pending)
+		}
+		if s.pane.Len() != 0 {
+			t.Errorf("the pane shows %q, want nothing", s.pane.String())
+		}
+	})
+}
+
+func TestCodexSessionHandleTurnCompleted(t *testing.T) {
+	t.Run("the main thread's turn ending marks the agent idle", func(t *testing.T) {
+		s := newCodexTestSession()
+		s.active, s.turnID = true, "t_main"
+
+		mainTurn := s.handleTurnCompleted(map[string]any{"threadId": "th_1", "turn": map[string]any{"id": "t_main", "status": "completed"}})
+
+		if !mainTurn {
+			t.Error("handleTurnCompleted = false, want true for the main thread")
+		}
+		if s.active || s.turnID != "" {
+			t.Errorf("active=%v turnID=%q, want false and empty", s.active, s.turnID)
+		}
+		if got, want := s.paneLines(t), []string{"turn completed"}; !reflect.DeepEqual(got, want) {
+			t.Errorf("the pane shows %q, want %q", got, want)
+		}
+	})
+
+	t.Run("a sub-agent thread's turn ending leaves the main agent mid-turn", func(t *testing.T) {
+		s := newCodexTestSession()
+		s.active, s.turnID = true, "t_main"
+
+		mainTurn := s.handleTurnCompleted(map[string]any{"threadId": "th_sub", "turn": map[string]any{"id": "t_sub", "status": "completed"}})
+
+		if mainTurn {
+			t.Error("handleTurnCompleted = true, want false for a sub-agent thread")
+		}
+		if !s.active || s.turnID != "t_main" {
+			t.Errorf("active=%v turnID=%q, want true and t_main", s.active, s.turnID)
+		}
+		if s.pane.Len() != 0 {
+			t.Errorf("the pane shows %q, want nothing", s.pane.String())
+		}
+	})
 }
 
 func TestCodexSessionRecordTurnOutcome(t *testing.T) {
@@ -2077,6 +2165,19 @@ func TestCodexSessionRecordCompaction(t *testing.T) {
 						s.compactions, s.forceUsageReport, s.pane.String())
 				}
 			})
+		}
+	})
+
+	t.Run("a sub-agent thread's compaction is not counted as the main agent's", func(t *testing.T) {
+		s := newCodexTestSession()
+		params := compaction("i_sub")
+		params["threadId"] = "th_sub"
+
+		s.recordCompaction(params)
+
+		if s.compactions != 0 || s.forceUsageReport || s.pane.Len() != 0 {
+			t.Errorf("count=%d force=%v pane=%q, want 0, false and nothing",
+				s.compactions, s.forceUsageReport, s.pane.String())
 		}
 	})
 

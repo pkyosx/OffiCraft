@@ -613,6 +613,34 @@ func codexModelCallCode(turnError map[string]any) string {
 }
 
 // An interrupted turn counts as neither a success nor a failure.
+// Sub-agent threads share this app-server connection and send their own turn,
+// usage and compaction notifications; only the main thread's describe this agent.
+func (s *codexSession) isMainThread(params map[string]any) bool {
+	threadID, _ := params["threadId"].(string)
+	return threadID == "" || threadID == s.threadID
+}
+
+func (s *codexSession) handleTurnStarted(params map[string]any) {
+	if !s.isMainThread(params) {
+		return
+	}
+	s.active = true
+	s.turnID = nestedString(params, "turn", "id")
+	s.confirmStartedTurn()
+}
+
+// Reports whether the turn that ended was the main thread's.
+func (s *codexSession) handleTurnCompleted(params map[string]any) bool {
+	if !s.isMainThread(params) {
+		return false
+	}
+	s.active = false
+	s.turnID = ""
+	s.activity("turn completed")
+	s.recordTurnOutcome(params)
+	return true
+}
+
 func (s *codexSession) recordTurnOutcome(params map[string]any) {
 	turn, _ := params["turn"].(map[string]any)
 	ended := jsonNumber(turn["completedAt"])
@@ -709,7 +737,7 @@ func rateLimitSnapshot(result map[string]any) map[string]any {
 }
 
 func (s *codexSession) reportTokenUsage(params map[string]any) {
-	if !s.allowUsageReport() {
+	if !s.isMainThread(params) || !s.allowUsageReport() {
 		return
 	}
 	usage, _ := params["tokenUsage"].(map[string]any)
@@ -780,6 +808,9 @@ func (s *codexSession) reportRateLimits(snapshot map[string]any) {
 // Compaction is an item, not a turn; the deprecated thread/compacted echo is
 // intentionally ignored.
 func (s *codexSession) recordCompaction(params map[string]any) {
+	if !s.isMainThread(params) {
+		return
+	}
 	item, _ := params["item"].(map[string]any)
 	if item == nil || item["type"] != "contextCompaction" {
 		return
@@ -1144,14 +1175,11 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 			params, _ := msg["params"].(map[string]any)
 			switch method {
 			case "turn/started":
-				s.active = true
-				s.turnID = nestedString(params, "turn", "id")
-				s.confirmStartedTurn()
+				s.handleTurnStarted(params)
 			case "turn/completed":
-				s.active = false
-				s.turnID = ""
-				s.activity("turn completed")
-				s.recordTurnOutcome(params)
+				if !s.handleTurnCompleted(params) {
+					continue
+				}
 				if !listenerStarted {
 					listenerStarted = true
 					listenerCmd = exec.Command(filepath.Join(*workdir, "ocagent"), "listen", "--"+listenCodexFlag)
