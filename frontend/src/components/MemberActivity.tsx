@@ -65,10 +65,11 @@ export function ActivityStateIcon({
 
 /** A member's name led by its status icon. List rows, chat header and detail
  * identity card all render this, so the icon's place is decided here alone.
- * A member that is not online gets the moon; an online one that has not
- * reported yet gets the unknown mark. `layout="list"`: the icon sits on the
- * first line of a wrapped name. `layout="group"`: icon and name form one box,
- * for a line that wraps its other items onto the next line. */
+ * Online and stopping show the reported state, or the unknown mark before a
+ * report; waking always shows the unknown mark; anything else gets the moon.
+ * `layout="list"`: the icon sits on the first line of a wrapped name.
+ * `layout="group"`: icon and name form one box, for a line that wraps its other
+ * items onto the next line. */
 export function NameWithActivity({
   activity,
   presence,
@@ -109,7 +110,7 @@ export function NameWithActivity({
   );
 }
 
-/** Given `memberName`, the icon is a button opening the 運作狀況 dialog. */
+/** Given `memberName`, the icon is a button opening the 運行狀況 dialog. */
 function ActivityStatusIcon({
   activity: reported,
   presence,
@@ -124,10 +125,12 @@ function ActivityStatusIcon({
   list: boolean;
 }) {
   const { t, msg } = useI18n();
-  // Dropping a stale activity when presence leaves online is what closes an
-  // open dialog then; kept, the dialog would reopen and take focus on return.
-  const activity = presence === "online" ? reported : null;
-  const now = useActivityNow(activity);
+  // Dropping a stale activity when the session stops reporting is what closes
+  // an open dialog then; kept, the dialog would reopen and take focus on return.
+  // Waking drops it too: the server clears the store only on report_waking, so
+  // what it holds then may be the previous session's.
+  const reporting = presence === "online" || presence === "stopping";
+  const activity = reporting ? reported : null;
   const triggerRef = useRef<HTMLElement | null>(null);
   const [openFor, setOpenFor] = useState<string | null>(null);
   const open = activity != null && openFor !== null && openFor === memberName;
@@ -138,14 +141,15 @@ function ActivityStatusIcon({
   const box = memberName === undefined ? "" : " activity-icon--box";
   const listClass = list ? " activity-icon--list" : "";
   if (!activity) {
-    const kind = presence === "online" ? "unknown" : "offline";
+    const kind = reporting || presence === "waking" ? "unknown" : "offline";
     // Out of the tab order and the a11y tree. The focusable corner dot beside it
     // names the presence: for the moon that is the whole story, for the unknown
-    // mark it reads online and the unknown hint is hover or tap only (owner
-    // asked for the moon's behaviour).
+    // mark the unknown hint is hover or tap only (owner asked for the moon's
+    // behaviour).
+    const hint = kind === "offline" ? t.office.presence[presenceVisual(presence)] : t.activity.unknownHint;
     return (
       <InstantHint
-        hint={kind === "unknown" ? t.activity.unknownHint : t.office.presence[presenceVisual(presence)]}
+        hint={hint}
         focusable={false}
         className={`activity-icon activity-icon--${kind}${box}${listClass}`}
         aria-hidden="true"
@@ -158,7 +162,7 @@ function ActivityStatusIcon({
     );
   }
   const word = t.activity.state[activity.state];
-  const hint = msg.memberActivitySummary(activity, now);
+  const hint = msg.memberActivitySummary(activity);
   if (memberName === undefined) {
     return (
       <InstantHint
@@ -259,6 +263,7 @@ function MemberActivityDialog({
     >
       <div className="confirm-modal__box activity-dialog__box">
         <div className="activity-dialog__head">
+          <ActivityStateBadge state={activity.state} />
           <h2 id={titleId} className="activity-dialog__title">
             {msg.memberActivityDialogTitle(name)}
           </h2>
@@ -272,16 +277,11 @@ function MemberActivityDialog({
             <CloseIcon size={16} />
           </button>
         </div>
-        <MemberActivityBody activity={activity} label={t.activity.currentState} />
+        <MemberActivityTree activity={activity} />
       </div>
     </div>,
     document.body,
   );
-}
-
-function mainIconState(a: MemberActivity): MemberActivity["state"] {
-  if (a.busySince !== null) return "busy";
-  return a.subagents.length > 0 || a.waits.length > 0 ? "waiting" : "idle";
 }
 
 function SubagentNode({ node, now }: { node: ActivityTreeNode; now: number }) {
@@ -308,8 +308,9 @@ function SubagentNode({ node, now }: { node: ActivityTreeNode; now: number }) {
   );
 }
 
-/** The detail panels' 運作狀況 card; nothing when there is no activity. */
-export function MemberActivityCard({
+/** The 目前狀態 box leading the detail panels' 運行狀況 cells; nothing when
+ * there is no activity. */
+export function MemberActivitySection({
   activity,
   testId,
 }: {
@@ -319,69 +320,67 @@ export function MemberActivityCard({
   const { t } = useI18n();
   if (!activity) return null;
   return (
-    <div className="mp-card mp-activity" data-testid={testId}>
-      <MemberActivityBody activity={activity} label={t.activity.cardTitle} />
+    <div className="mp-cell mp-activity" data-testid={testId}>
+      <div className="mp-activity__head">
+        <ActivityStateBadge state={activity.state} />
+        <span className="mp-card__title">{t.activity.currentState}</span>
+      </div>
+      <MemberActivityTree activity={activity} />
     </div>
   );
 }
 
-/** Label and state word, the one-sentence summary, then the tree — the card
- * and the dialog both render exactly this. */
-function MemberActivityBody({ activity: a, label }: { activity: MemberActivity; label: string }) {
+/** The name-front glyph as a still label for the state, not a button. */
+function ActivityStateBadge({ state }: { state: MemberActivity["state"] }) {
+  const { t } = useI18n();
+  return (
+    <span className="mp-activity__state-icon" role="img" aria-label={t.activity.state[state]}>
+      <ActivityStateIcon state={state} />
+    </span>
+  );
+}
+
+/** The main agent with its sub-agents and waits under it — the 運行狀況 card and
+ * the dialog both render exactly this. Neither repeats the one-sentence summary
+ * the icon's hint carries (owner's call). */
+function MemberActivityTree({ activity: a }: { activity: MemberActivity }) {
   const { t, msg } = useI18n();
   const now = useActivityNow(a);
   const tree = buildActivityTree(a.subagents);
-  const showTree = a.busySince !== null || a.subagents.length > 0 || a.waits.length > 0;
-  const mainAside =
-    a.busySince !== null
-      ? msg.memberActivitySince(a.busySince, now)
-      : a.subagents.length > 0
-        ? t.activity.mainReplied
-        : "";
+  const mainAside = a.busySince !== null ? msg.memberActivitySince(a.busySince, now) : "";
   return (
-    <>
-      <div className="mp-activity__head">
-        <span className="mp-card__title">{label}</span>
-        <span className={`mp-activity__state mp-activity__state--${a.state}`}>
-          {t.activity.state[a.state]}
-        </span>
-      </div>
-      <div className="mp-activity__summary">{msg.memberActivitySummary(a, now)}</div>
-      {showTree && (
-        <ul className="mp-activity__tree">
-          <li className="mp-activity__node">
-            <div className="mp-activity__row mp-activity__row--main">
-              <ActivityStateIcon state={mainIconState(a)} />
-              <span className="mp-activity__label">
-                <span className="mp-activity__text">{t.activity.mainAgent}</span>
-              </span>
-              {mainAside && <span className="mp-activity__aside">{mainAside}</span>}
-            </div>
-            {(tree.length > 0 || a.waits.length > 0) && (
-              <ul className="mp-activity__children">
-                {tree.map((n) => (
-                  <SubagentNode key={n.subagent.id} node={n} now={now} />
-                ))}
-                {a.waits.map((w, i) => (
-                  <li key={i} className="mp-activity__node">
-                    <div className="mp-activity__row mp-activity__row--wait">
-                      <ActivityStateIcon state="waiting" />
-                      <span className="mp-activity__label">
-                        <span className="mp-activity__text">
-                          {w.description || msg.memberActivityWaitTag(w, now)}
-                        </span>
-                      </span>
-                      {w.description && (
-                        <span className="mp-activity__aside">{msg.memberActivityWaitTag(w, now)}</span>
-                      )}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </li>
-        </ul>
-      )}
-    </>
+    <ul className="mp-activity__tree">
+      <li className="mp-activity__node">
+        <div className="mp-activity__row mp-activity__row--main">
+          <ActivityStateIcon state={a.busySince !== null ? "busy" : "idle"} />
+          <span className="mp-activity__label">
+            <span className="mp-activity__text">{t.activity.mainAgent}</span>
+          </span>
+          {mainAside && <span className="mp-activity__aside">{mainAside}</span>}
+        </div>
+        {(tree.length > 0 || a.waits.length > 0) && (
+          <ul className="mp-activity__children">
+            {tree.map((n) => (
+              <SubagentNode key={n.subagent.id} node={n} now={now} />
+            ))}
+            {a.waits.map((w, i) => (
+              <li key={i} className="mp-activity__node">
+                <div className="mp-activity__row mp-activity__row--wait">
+                  <ActivityStateIcon state="waiting" />
+                  <span className="mp-activity__label">
+                    <span className="mp-activity__text">
+                      {w.description || msg.memberActivityWaitTag(w, now)}
+                    </span>
+                  </span>
+                  {w.description && (
+                    <span className="mp-activity__aside">{msg.memberActivityWaitTag(w, now)}</span>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </li>
+    </ul>
   );
 }

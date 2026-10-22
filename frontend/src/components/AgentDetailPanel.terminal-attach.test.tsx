@@ -13,7 +13,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
-import { AgentDetailPanel, notHere, slot } from "./AgentDetailPanel";
+import { AgentDetailPanel, slot } from "./AgentDetailPanel";
 import type { AgentDetailSlots, AgentDetailVM } from "./AgentDetailPanel";
 import { MemberDetailPanel } from "./MemberDetailPanel";
 import type { Member } from "../types";
@@ -38,8 +38,6 @@ const SERVED = "tmux -L officraft-seth attach -t member-m-1a2b";
 
 const slots: AgentDetailSlots = {
   overlays: slot(null),
-  afterIdentityCards: notHere("not this test's subject"),
-  afterInfoCards: notHere("not this test's subject"),
   extraExpandCards: slot(null),
   afterPromptCards: slot(null),
 };

@@ -2004,7 +2004,7 @@ func TestCodexSessionTrackActivity(t *testing.T) {
 		}
 	})
 
-	t.Run("a sub-agent keeps its first start time across its turns", func(t *testing.T) {
+	t.Run("a sub-agent's time restarts with each of its turns", func(t *testing.T) {
 		s, fake, now := newSession(t)
 		s.lastActivity = `{"busy":false,"busy_since":null,"subagents":[],"waits":[]}`
 
@@ -2014,8 +2014,12 @@ func TestCodexSessionTrackActivity(t *testing.T) {
 		*now = now.Add(10 * time.Second)
 		s.trackActivity("turn/started", map[string]any{"threadId": "th_sub"})
 
-		first := activityPost(activitySnapshot(nil, activitySubagentItem("th_sub", "sub-agent", 1720000000)))
-		if want := []codexPost{first, activityPost(activitySnapshot(nil)), first}; !reflect.DeepEqual(fake.posts, want) {
+		want := []codexPost{
+			activityPost(activitySnapshot(nil, activitySubagentItem("th_sub", "sub-agent", 1720000000))),
+			activityPost(activitySnapshot(nil)),
+			activityPost(activitySnapshot(nil, activitySubagentItem("th_sub", "sub-agent", 1720000020))),
+		}
+		if !reflect.DeepEqual(fake.posts, want) {
 			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
 		}
 	})
@@ -2043,7 +2047,7 @@ func TestCodexSessionTrackActivity(t *testing.T) {
 			activityPost(activitySnapshot(nil, other)),
 			activityPost(activitySnapshot(nil, other, activitySubagentItem("th_sub", "sub-agent", later))),
 			activityPost(activitySnapshot(nil, activitySubagentItem("th_sub", "sub-agent", later))),
-			activityPost(activitySnapshot(nil, other, activitySubagentItem("th_sub", "sub-agent", later))),
+			activityPost(activitySnapshot(nil, activitySubagentItem("th_other", "sub-agent", later), activitySubagentItem("th_sub", "sub-agent", later))),
 		}
 		if !reflect.DeepEqual(fake.posts, want) {
 			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
@@ -2076,7 +2080,7 @@ func TestCodexSessionTrackActivity(t *testing.T) {
 		}
 	})
 
-	t.Run("a sub-agent waiting on its running child keeps its start time and name across main turns", func(t *testing.T) {
+	t.Run("a sub-agent waiting on its running child keeps its name across main turns, and its time restarts when it carries on", func(t *testing.T) {
 		s, fake, now := newSession(t)
 		s.lastActivity = `{"busy":false,"busy_since":null,"subagents":[],"waits":[]}`
 
@@ -2103,7 +2107,7 @@ func TestCodexSessionTrackActivity(t *testing.T) {
 			activityPost(activitySnapshot(float64(1720000060), inner)),
 			activityPost(activitySnapshot(nil, inner)),
 			activityPost(activitySnapshot(nil)),
-			activityPost(activitySnapshot(nil, outer)),
+			activityPost(activitySnapshot(nil, activitySubagentItem("th_outer", "outer", 1720000060))),
 		}
 		if !reflect.DeepEqual(fake.posts, want) {
 			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)

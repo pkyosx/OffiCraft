@@ -1,8 +1,9 @@
 // The outsource-worker detail panel. Since T-f190 it MIRRORS the member detail
 // panel: the SAME machine / Claude account / context% / est.$ / 最近操作 cards,
 // fed by the worker DTO's runtime fold, PLUS the worker-specific bits — the
-// anonymous codename, the ONE delegated task (clickable → #tasks/<id>) with its
-// REAL delegator, the owner 改機器 operation, and the worker-<id> tmux command.
+// anonymous codename, the ONE bound task on the identity card (the chat
+// header's task line and full title), the owner 改機器 operation, and the
+// worker-<id> tmux command.
 //
 // Rendered through OfficePage so the hash → resolve → panel chain is the REAL
 // wiring, not a stub. Runtime facts and the four honest spawn states are driven
@@ -217,7 +218,7 @@ describe("WorkerDetailPanel — aligned real info (T-f190 item 1)", () => {
     );
 
     const { findByTestId, container } = renderOfficeAt("#office/worker/ow-1");
-    await findByTestId("worker-detail-task");
+    await findByTestId("worker-detail-task-line-ow-1");
     const text = container.textContent ?? "";
     expect(text).toContain("O-7");
     expect(text).toContain("Opus 4.6");
@@ -233,7 +234,7 @@ describe("WorkerDetailPanel — aligned real info (T-f190 item 1)", () => {
     expect((await findByTestId("worker-detail-cost")).textContent).toBe("$4");
   });
 
-  it("shows the worker's 運作狀況 card right under the identity card, the dot on the avatar corner and the status icon before the codename; no card and a still unknown mark hinting 狀態未知 for an online worker without activity; a stopped worker gets the moon instead", async () => {
+  it("shows the worker's 目前狀態 box first in the 運行狀況 card, its state as the name-front glyph and no summary, the dot on the avatar corner and the status icon before the codename; no section and a still unknown mark hinting 狀態未知 for an online worker without activity; a stopped worker gets the moon instead", async () => {
     __injectMockTask(mkTask({ id: "t-1" }));
     __injectMockOutsourceWorker(
       mkWorker({
@@ -254,24 +255,35 @@ describe("WorkerDetailPanel — aligned real info (T-f190 item 1)", () => {
 
     const first = renderOfficeAt("#office/worker/ow-1");
     const card = await first.findByTestId("worker-detail-activity");
-    expect(card.previousElementSibling?.classList.contains("mp-identity")).toBe(true);
-    expect(card.querySelector(".mp-activity__head")!.textContent).toBe("運作狀況等待中");
-    expect(card.querySelector(".mp-activity__summary")!.textContent).toBe(
-      "主 agent 與 sub-agent 都沒有在工作，正在等 1 個背景檢查或排程",
-    );
+    expect(card.className).toBe("mp-cell mp-activity");
+    expect(card.parentElement!.className).toBe("mp-runtime__cells");
+    expect(card.previousElementSibling).toBeNull();
+    expect(card.nextElementSibling!.contains(await first.findByTestId("worker-detail-context"))).toBe(true);
+    expect(card.querySelector(".mp-activity__head")!.textContent).toBe("目前狀態");
+    expect(Array.from(card.querySelector(".mp-activity__head")!.children).map((c) => c.className)).toEqual([
+      "mp-activity__state-icon",
+      "mp-card__title",
+    ]);
+    const stateIcon = card.querySelector(".mp-activity__state-icon")!;
+    expect(stateIcon.getAttribute("aria-label")).toBe("等待中");
+    expect(stateIcon.querySelector(".activity-icon__glyph--waiting")).not.toBeNull();
+    expect(card.querySelector(".mp-activity__summary")).toBeNull();
     expect(
       Array.from(card.querySelectorAll(".mp-activity__row")).map((r) => r.textContent),
-    ).toEqual(["主 agent", "每小時看 CI排程 · 重複"]);
+    ).toEqual(["主代理", "每小時看 CI排程 · 重複"]);
+    expect(card.querySelector(".mp-activity__row--main .activity-icon__glyph")!.className).toBe(
+      "activity-icon__glyph activity-icon__glyph--idle",
+    );
     const dot = await first.findByTestId("worker-detail-header-dot");
     expect(dot.closest(".presence-avatar")).not.toBeNull();
-    expect(queryTestId(document.body, "worker-detail-header-task")!.querySelector(".lifecycle-dot")).toBeNull();
+    expect(queryTestId(document.body, "worker-detail-task-line-ow-1")!.querySelector(".lifecycle-dot")).toBeNull();
     const icon = await first.findByTestId("worker-detail-identity-activity");
     expect(icon.nextElementSibling!.textContent).toBe("外包 · O-7");
     expect(icon.getAttribute("aria-label")).toBe("等待中");
     first.unmount();
 
     const second = renderOfficeAt("#office/worker/ow-2");
-    await second.findByTestId("worker-detail-task");
+    await second.findByTestId("worker-detail-task-line-ow-2");
     expect(queryTestId(document.body, "worker-detail-activity")).toBeNull();
     expect(queryTestId(document.body, "worker-detail-identity-activity")).toBeNull();
     expect(queryTestId(document.body, "worker-detail-identity-activity-offline")).toBeNull();
@@ -280,7 +292,7 @@ describe("WorkerDetailPanel — aligned real info (T-f190 item 1)", () => {
     expect(unknown.getAttribute("aria-hidden")).toBe("true");
     expect(unknown.querySelector(".activity-icon__glyph--unknown svg")).not.toBeNull();
     fireEvent.mouseEnter(unknown);
-    expect(screen.getByRole("tooltip").textContent).toBe("狀態未知，成員重新啟動後就會顯示");
+    expect(screen.getByRole("tooltip").textContent).toBe("狀態未知");
     fireEvent.mouseLeave(unknown);
     expect(queryTestId(document.body, "worker-detail-context")).not.toBeNull();
     second.unmount();
@@ -494,13 +506,19 @@ describe("WorkerDetailPanel — honest presence states (A案 P6 member vocabular
   // owner 2026-07-31:「為什麼從不同進入頁面會有不同的顯示方式?不是應該要一致嗎」
   // A released worker is reachable from exactly two entries — the chat room and
   // the detail panel — and both must say the SAME sentence from the SAME leaf.
-  it("released: the panel says 已結案 in the SAME words the chat room uses", async () => {
+  it("released: the panel says 已結案 in the SAME words the chat room uses, with no task line, delegator or task card", async () => {
     __injectMockTask(mkTask({ id: "t-1" }));
     __injectMockOutsourceWorker(
       mkWorker({ id: "ow-1", taskId: "t-1", status: "released" }),
     );
     const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
-    await findByTestId("worker-detail-released");
+    const released = await findByTestId("worker-detail-released");
+    expect(within(released).queryByTestId("worker-detail-task-line-ow-1")).toBeNull();
+    expect(within(released).queryByTestId("worker-detail-header-task-title")).toBeNull();
+    expect(released.querySelector(".mp-worker-task")).toBeNull();
+    for (const gone of ["委託人", "委託任務"]) {
+      expect(released.textContent, gone).not.toContain(gone);
+    }
     // 🔴 The SAME leaf the chat header reads — asserted against the dictionary,
     // not against a literal copied into this test. A second string added for the
     // panel would still satisfy a hard-coded literal here; it cannot satisfy this.
@@ -557,48 +575,24 @@ describe("WorkerDetailPanel — honest presence states (A案 P6 member vocabular
   });
 });
 
-describe("WorkerDetailPanel — real delegator (T-f190 item 2)", () => {
-  it("shows the RESOLVED member name when the creator is a member", async () => {
-    __injectMockTask(mkTask({ id: "t-1", creatorId: "m-xiao" }));
+describe("WorkerDetailPanel — no 委託人 and no 委託任務 card", () => {
+  it.each([
+    ["a member", "m-xiao", "小明"],
+    ["the owner", "owner", ""],
+    ["nobody", "", ""],
+  ])("under a task created by %s, the panel names no delegator and carries no separate task card", async (_, creatorId, delegatedBy) => {
+    __injectMockTask(mkTask({ id: "t-1", taskNo: "T-9c21", title: "查帳單", creatorId }));
     __injectMockOutsourceWorker(
-      mkWorker({
-        id: "ow-1",
-        taskId: "t-1",
-        creatorId: "m-xiao",
-        delegatedBy: "小明",
-      }),
+      mkWorker({ id: "ow-1", taskId: "t-1", taskTitle: "查帳單", creatorId, delegatedBy }),
     );
-    const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
-    expect((await findByTestId("worker-detail-delegator")).textContent).toBe(
-      "小明",
-    );
-  });
-
-  it("shows the owner label when the owner created the task", async () => {
-    __injectMockTask(mkTask({ id: "t-1", creatorId: "owner" }));
-    __injectMockOutsourceWorker(
-      mkWorker({
-        id: "ow-1",
-        taskId: "t-1",
-        creatorId: "owner",
-        delegatedBy: "",
-      }),
-    );
-    const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
-    expect((await findByTestId("worker-detail-delegator")).textContent).toBe(
-      "系統 Owner",
-    );
-  });
-
-  it("falls back to 系統排程 (not a fabricated name) for a blank creator", async () => {
-    __injectMockTask(mkTask({ id: "t-1", creatorId: "" }));
-    __injectMockOutsourceWorker(
-      mkWorker({ id: "ow-1", taskId: "t-1", creatorId: "", delegatedBy: "" }),
-    );
-    const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
-    expect((await findByTestId("worker-detail-delegator")).textContent).toBe(
-      "系統排程",
-    );
+    const { findByTestId, container } = renderOfficeAt("#office/worker/ow-1");
+    await findByTestId("worker-detail-task-line-ow-1");
+    const text = container.textContent ?? "";
+    for (const gone of ["委託人", "委託任務", "小明", "系統 Owner", "系統排程"]) {
+      expect(text, gone).not.toContain(gone);
+    }
+    expect(container.querySelector(".mp-worker-task")).toBeNull();
+    expect(container.querySelectorAll('[data-testid^="worker-detail-delegator"]')).toHaveLength(0);
   });
 });
 
@@ -752,16 +746,6 @@ describe("WorkerDetailPanel — 設定改走喚醒區 (T-7526 parity)", () => {
 });
 
 describe("WorkerDetailPanel — worker-specific bits carry over", () => {
-  it("clicking the delegated task navigates to that task", async () => {
-    __injectMockTask(mkTask({ id: "t-1", taskNo: "T-9c21", title: "查帳單" }));
-    __injectMockOutsourceWorker(
-      mkWorker({ id: "ow-1", taskId: "t-1", taskTitle: "查帳單" }),
-    );
-    const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
-    fireEvent.click(await findByTestId("worker-detail-task"));
-    await waitFor(() => expect(window.location.hash).toBe("#tasks/t-1"));
-  });
-
   it("shows the attach command the STATION served, verbatim (T-139)", async () => {
     // 🔴 A NAMESPACED station's command. The panel used to derive
     // `member-${worker.id}` itself and let the container wrap a hardcoded
@@ -806,8 +790,8 @@ describe("WorkerDetailPanel — worker-specific bits carry over", () => {
 // the server's observable outcome). jsdom scope: DOM presence + state transitions
 // are asserted; pure styling (the refocus pulse tint) is NOT (jsdom does not
 // compute it) — an honest "測不到" gap, not a decorative assertion.
-describe("WorkerDetailPanel — header matches the sidebar 外包 row (T-f190 UI spec)", () => {
-  it("header shows codename + clickable task chip + a SHORT task-type label (same as the roster row, T-b0e3) + a real (online) dot", async () => {
+describe("WorkerDetailPanel — identity card matches the worker chat header", () => {
+  it("the identity card shows codename, the clickable task chip with the SHORT task-type label, then the FULL task title on its own line (no title line at all when the title is empty), and a real (online) dot", async () => {
     // The detail page's `worker` comes from the SAME useOutsourceWorkers() join
     // the roster reads (OfficePage.tsx) — taskTypeName/Key are derived there
     // from the task's typeKey + the registered manual, overwriting anything set
@@ -836,24 +820,40 @@ describe("WorkerDetailPanel — header matches the sidebar 外包 row (T-f190 UI
         presence: "online",
       }),
     );
-    const { findByTestId, findByText } = renderOfficeAt("#office/worker/ow-1");
-    const header = await findByTestId("worker-detail-header-task");
+    const { findByTestId, findByText, unmount } = renderOfficeAt("#office/worker/ow-1");
+    const header = await findByTestId("worker-detail-task-line-ow-1");
     // The codename line shows the outsource identity label 「外包 · 代號」,
     // matching the sidebar 外包 row (T-3ed8, owner 2026-07-20 完全一致).
     await findByText("外包 · O-19");
-    expect((await findByTestId("worker-detail-header-chip")).textContent).toBe("T-e9f4");
-    // T-b0e3: the header renders the SAME short type label the roster row
-    // shows (taskTypeName), never the full title/description sentence.
-    expect(header.textContent).toContain("OffiCraft 開發");
-    expect(header.textContent).not.toContain("Planning for big change");
+    expect((await findByTestId("worker-detail-task-ow-1")).textContent).toBe("T-e9f4");
+    // The task line is the chat header's: chip then the short type label.
+    expect(header.textContent).toBe("T-e9f4OffiCraft 開發");
+    // The third line is the chat header's full title, uncut.
+    const title = await findByTestId("worker-detail-header-task-title");
+    expect(title.className).toBe("current-task-title");
+    expect(title.textContent).toBe("Planning for big change");
+    expect(title.parentElement).toBe(header.parentElement);
+    expect(title.previousElementSibling).toBe(header);
     // Real presence: online → the shared lifecycle dot's ONLINE class (the
     // colour comes from --color-dot-online, never an inline literal).
     const dot = await findByTestId("worker-detail-header-dot");
     expect(dot.className).toBe("lifecycle-dot lifecycle-dot--online-awake");
     expect(dot.getAttribute("style")).toBeNull();
     // Clicking the chip routes to the bound task.
-    fireEvent.click(await findByTestId("worker-detail-header-chip"));
+    fireEvent.click(await findByTestId("worker-detail-task-ow-1"));
     await waitFor(() => expect(window.location.hash).toBe("#tasks/t-1"));
+    unmount();
+
+    __injectMockTask(mkTask({ id: "t-2", taskNo: "T-e9f5", title: "", typeKey: "tm-officraft-dev" }));
+    __injectMockOutsourceWorker(
+      mkWorker({ id: "ow-2", codename: "O-20", taskId: "t-2", taskNo: "T-e9f5", taskTitle: "", presence: "online" }),
+    );
+    const untitled = renderOfficeAt("#office/worker/ow-2");
+    const untitledLine = await untitled.findByTestId("worker-detail-task-line-ow-2");
+    expect(untitledLine.textContent).toBe("T-e9f5OffiCraft 開發");
+    expect(untitledLine.nextElementSibling).toBeNull();
+    expect(untitled.queryByTestId("worker-detail-header-task-title")).toBeNull();
+    expect(untitled.container.textContent).not.toContain("無當前任務");
   });
 
   it("under a runtime login warning, the header's task line leads with one exclamation whose hover hint names the pending pair's machine like a current one", async () => {
@@ -869,7 +869,7 @@ describe("WorkerDetailPanel — header matches the sidebar 外包 row (T-f190 UI
       }),
     );
     const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
-    const header = await findByTestId("worker-detail-header-task");
+    const header = await findByTestId("worker-detail-task-line-ow-1");
     const marks = within(header).getAllByTestId("runtime-login-warning");
     expect(marks).toHaveLength(1);
     expect(marks[0].hasAttribute("title")).toBe(false);
@@ -902,7 +902,7 @@ describe("WorkerDetailPanel — header matches the sidebar 外包 row (T-f190 UI
       }),
     );
     const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
-    const header = await findByTestId("worker-detail-header-task");
+    const header = await findByTestId("worker-detail-task-line-ow-1");
     const marks = within(header).getAllByTestId("runtime-login-warning");
     expect(marks).toHaveLength(1);
     fireEvent.mouseEnter(marks[0]);
@@ -945,9 +945,9 @@ describe("WorkerDetailPanel — header matches the sidebar 外包 row (T-f190 UI
       }),
     );
     const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
-    const header = await findByTestId("worker-detail-header-task");
-    expect(header.textContent).toContain("自由代辦");
-    expect(header.textContent).not.toContain("隨手需求");
+    const header = await findByTestId("worker-detail-task-line-ow-1");
+    expect(header.textContent).toBe("T-adhc自由代辦");
+    expect((await findByTestId("worker-detail-header-task-title")).textContent).toBe("隨手需求");
   });
 
   // T-59d6: the header dot is the SAME shared LifecycleDot the rail row and the
@@ -1812,7 +1812,7 @@ describe("WorkerDetailPanel — Claude Account is readable, raw keys never leak 
     expect(text).toContain("shawn-claude");
     const account = await findByTestId("worker-detail-account");
     expect(account.textContent).not.toContain("raw-key");
-    const header = await findByTestId("worker-detail-header-task");
+    const header = (await findByTestId("worker-detail-account")).closest(".mp")!.querySelector(".mp-identity")!;
     expect(header.textContent ?? "").not.toContain("raw-key");
   });
 
@@ -2240,7 +2240,7 @@ describe("WorkerDetailPanel — pending launch changes (T-7f28)", () => {
     const { findByTestId, queryByTestId } = renderOfficeAt(
       "#office/worker/ow-1",
     );
-    await findByTestId("worker-detail-task");
+    await findByTestId("worker-detail-task-line-ow-1");
     for (const cell of CELLS) {
       expect(queryByTestId(`worker-detail-${cell}-pending`)).toBeNull();
     }
@@ -2268,7 +2268,7 @@ describe("WorkerDetailPanel — pending launch changes (T-7f28)", () => {
     const releaseMachineList = await holdMachineList();
 
     const { findByTestId, queryByTestId } = renderOfficeAt("#office/worker/ow-1");
-    await findByTestId("worker-detail-task");
+    await findByTestId("worker-detail-task-line-ow-1");
     expect(queryByTestId("worker-detail-machine-pending")).toBeNull();
 
     await releaseMachineList();

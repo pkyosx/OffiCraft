@@ -2301,7 +2301,7 @@ type MemberBootContextDTO struct {
 type MemberDTO struct {
 	Account *string `json:"account,omitempty"`
 
-	// Activity What the member's session is doing right now, from its own latest ``POST /api/agent/activity`` report. Filled only on the owner's reads. Null whenever ``presence`` is not ``online``, and while the member's current session has not reported yet (the reports live in memory, so a server restart also blanks it until the session reports again).
+	// Activity What the member's session is doing right now, from its own latest ``POST /api/agent/activity`` report. Filled only on the owner's reads. Null whenever ``presence`` is neither ``online`` nor ``stopping`` (a ``waking`` member reads null even with a stored report, which may be the previous session's), and while the member's current session has not reported yet (the reports live in memory, so a server restart also blanks it until the session reports again).
 	Activity *MemberActivityDTO `json:"activity,omitempty"`
 
 	// ActualEffort The effort level the member's session is REPORTED to be running at, from its own live telemetry (``AgentTelemetryIngestDTO.effort``) — durably persisted alongside ``actual_model``, so it survives a server restart and outlives the session that reported it. Empty means nothing has ever reported an effort for this member; it is separate from, and NEVER falls back to, the owner-configured ``effort`` launch setting. WAS: reported effort lived ONLY in the in-memory telemetry store, so a server restart blanked it fleet-wide and no detail panel could tell a configured effort from a running one (T-7f28).

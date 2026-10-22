@@ -27,8 +27,7 @@ for (const [kind, story] of Object.entries(stories)) {
   }) => {
     await page.setViewportSize({ width: 1200, height: 900 });
     const cmp = await mount(story);
-    // The FIRST .mp-info2 is the shared model/machine info card (AgentDetailPanel
-    // renders it before any afterInfoCards slot).
+    // The shared model/machine info card is the panel's only .mp-info2.
     const info = cmp.locator(".mp-info2").first();
     await expect(info).toBeVisible();
     const fields = info.locator(":scope > .mp-field");
@@ -44,4 +43,97 @@ for (const [kind, story] of Object.entries(stories)) {
     // (tolerance for border/rounding), which a STACKED layout could never do.
     expect(Math.abs(right!.y - left!.y)).toBeLessThan(4);
   });
+}
+
+// The 運行狀況 card's boxes: 目前狀態 first and full width, then 記憶用量 and
+// 估計$ side by side on a desktop; all three stacked in that order on a phone;
+// without activity only the two. Mutant (documented): drop the 目前狀態 box's
+// `grid-column: 1 / -1` → at 1280 it takes one column and 記憶用量 lands beside
+// it → the "full width" and "next row" assertions redden.
+const ACTIVITY = {
+  state: "busy" as const,
+  busySince: Date.now() / 1000 - 180,
+  subagents: [
+    { id: "a1", parentId: null, name: "Explore", description: "盤點 ACE-16005 的 Backlog 票，順便把重複的合併", startedTs: Date.now() / 1000 - 120 },
+  ],
+  waits: [],
+};
+const runtimeStories = {
+  member: (activity: typeof ACTIVITY | null) => <MemberDetailConvergenceStory activity={activity} />,
+  worker: (activity: typeof ACTIVITY | null) => <WorkerDetailConvergenceStory activity={activity} />,
+};
+
+for (const [kind, story] of Object.entries(runtimeStories)) {
+  for (const width of [390, 1280]) {
+    test(`${kind} width ${width}: the 運行狀況 card leads with a boxed 目前狀態 whose header starts with the state icon, then 記憶用量 and 估計$, and without activity has only the two`, async ({
+      mount,
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      const cmp = await mount(story(ACTIVITY));
+      const measure = () =>
+        page.evaluate(() => {
+          const cells = document.querySelector(".mp-runtime__cells") as HTMLElement;
+          const boxes = Array.from(cells.children).map((el) => {
+            const r = el.getBoundingClientRect();
+            const s = getComputedStyle(el);
+            return {
+              cls: el.className,
+              left: r.left,
+              right: r.right,
+              top: r.top,
+              bottom: r.bottom,
+              border: s.borderTopStyle,
+              radius: s.borderTopLeftRadius,
+            };
+          });
+          const c = cells.getBoundingClientRect();
+          const head = (sel: string) => {
+            const el = cells.querySelector(`.mp-activity__head ${sel}`);
+            return el ? el.getBoundingClientRect().toJSON() : null;
+          };
+          const nowBox = cells.querySelector(".mp-activity");
+          return {
+            icon: head(".mp-activity__state-icon"),
+            label: head(".mp-card__title"),
+            nowContentLeft: nowBox
+              ? nowBox.getBoundingClientRect().left +
+                parseFloat(getComputedStyle(nowBox).borderLeftWidth) +
+                parseFloat(getComputedStyle(nowBox).paddingLeft)
+              : null,
+            boxes,
+            cellsLeft: c.left,
+            cellsRight: c.right,
+            overflow: cells.scrollWidth - cells.clientWidth,
+            page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          };
+        });
+      const m = await measure();
+      expect(m.boxes.map((b) => b.cls)).toEqual(["mp-cell mp-activity", "mp-cell", "mp-cell"]);
+      const [now, ctx, cost] = m.boxes;
+      expect([now.border, now.radius], "目前狀態 is boxed like the others").toEqual([ctx.border, ctx.radius]);
+      expect(Math.abs(now.left - m.cellsLeft), "目前狀態 starts at the row's left").toBeLessThan(1);
+      expect(Math.abs(now.right - m.cellsRight), "目前狀態 spans the whole row").toBeLessThan(1);
+      expect(ctx.top, "記憶用量 sits below 目前狀態").toBeGreaterThanOrEqual(now.bottom);
+      expect(Math.abs(m.icon!.left - m.nowContentLeft!), "the state icon starts the 目前狀態 header").toBeLessThan(1);
+      expect(m.icon!.right, "the 目前狀態 label follows the icon").toBeLessThanOrEqual(m.label!.left);
+      expect(Math.abs(m.icon!.top + m.icon!.height / 2 - (m.label!.top + m.label!.height / 2)), "icon and label share a line").toBeLessThan(2);
+      if (width >= 720) {
+        expect(Math.abs(cost.top - ctx.top), "記憶用量 and 估計$ share a row").toBeLessThan(1);
+        expect(cost.left, "估計$ is right of 記憶用量").toBeGreaterThanOrEqual(ctx.right);
+      } else {
+        expect(cost.top, "估計$ is stacked under 記憶用量").toBeGreaterThanOrEqual(ctx.bottom);
+      }
+      expect(m.overflow, "the box row does not overflow").toBeLessThanOrEqual(0);
+      expect(m.page, "no page hscroll").toBeLessThanOrEqual(1);
+      await cmp.unmount();
+
+      await mount(story(null));
+      const bare = await measure();
+      expect(bare.boxes.map((b) => b.cls)).toEqual(["mp-cell", "mp-cell"]);
+      if (width >= 720) {
+        expect(Math.abs(bare.boxes[1].top - bare.boxes[0].top), "the two boxes share a row").toBeLessThan(1);
+      }
+    });
+  }
 }
