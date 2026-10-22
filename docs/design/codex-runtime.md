@@ -120,6 +120,13 @@ The Codex member boot sequence changes only execution ownership:
    Claude's `statusLine` reports. Existing warning/handover thresholds remain server-owned
    and unchanged.
 6. `request_user_input` is disabled and bridged to reply cards as described below.
+7. Sub-agents (any nesting level) run on their own threads over the same App Server
+   connection and send their own `turn/started`, `turn/completed`,
+   `thread/tokenUsage/updated` and `contextCompaction` items. Only the main thread's
+   (the id `thread/start` returned) drive steering, model-call outcomes, the context
+   percentage and the compaction count; sub-agent threads only feed the member's
+   activity report (`POST /api/agent/activity`), named from the parent's
+   `subAgentActivity` item. Their token usage is not counted anywhere.
 
 ### Context compaction and refocus
 
