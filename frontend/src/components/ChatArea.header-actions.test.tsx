@@ -15,12 +15,12 @@
 //      silently returns the FIRST match, so a new header button wearing that
 //      class would hijack an unrelated suite rather than fail honestly.
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, fireEvent, screen } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, fireEvent, screen, act } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { ChatArea } from "./ChatArea";
-import type { Member } from "../types";
+import type { Member, MemberActivity } from "../types";
 import type { ChatMessage } from "../api/adapter";
 
 let messages: ChatMessage[] = [];
@@ -73,6 +73,7 @@ type Wiring = {
   onOpenTasks?: () => void;
   onOpenRoleSettings?: () => void;
   member?: Member;
+  headerSub?: React.ReactNode;
 };
 
 function renderChat(w: Wiring = {}) {
@@ -83,6 +84,7 @@ function renderChat(w: Wiring = {}) {
         onOpenDetail={w.onOpenDetail}
         onOpenTasks={w.onOpenTasks}
         onOpenRoleSettings={w.onOpenRoleSettings}
+        headerSub={w.headerSub}
       />
     </I18nProvider>
   );
@@ -93,6 +95,10 @@ describe("ChatArea header 任務/角色設定 圖示 (T-dfae)", () => {
     messages = [];
     localStorage.clear();
     Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("a roster member's header grows BOTH buttons, each firing its own jump", () => {
@@ -157,6 +163,96 @@ describe("ChatArea header 任務/角色設定 圖示 (T-dfae)", () => {
       "可到「監控」頁的機器資訊，在 Claude 欄按版本號 →「登入」",
     ]);
     expect(mark.closest(".chat__header-sub")).not.toBeNull();
+  });
+
+  const NOW = 1_800_000_000;
+  const busy = (over: Partial<MemberActivity> = {}): MemberActivity => ({
+    state: "busy",
+    busySince: NOW - 180,
+    subagents: [],
+    waits: [],
+    ...over,
+  });
+  const subText = () => document.querySelector(".chat__header-sub")!.textContent;
+  const hintText = () => screen.getByRole("tooltip").textContent;
+
+  it("shows the status word after the role, and hovering it shows the one-sentence summary", () => {
+    vi.useFakeTimers({ now: NOW * 1000 });
+    renderChat({
+      member: mkMember({
+        activity: busy({
+          subagents: [{ name: "Explore", description: "", startedTs: NOW - 60 }],
+          waits: [{ kind: "schedule", description: "看 CI" }],
+        }),
+      }),
+    });
+    expect(subText()).toBe("特助·工作中");
+    fireEvent.mouseEnter(screen.getByTestId("chat-header-activity"));
+    expect(hintText()).toBe(
+      "主 agent 工作中（已 3 分鐘），另有 1 個 sub-agent 工作中，正在等 1 個背景檢查或排程",
+    );
+  });
+
+  it("names the waiting and idle states with their own words", () => {
+    const waiting = renderChat({
+      member: mkMember({
+        activity: busy({ state: "waiting", busySince: null, waits: [{ kind: "background_command", description: "" }] }),
+      }),
+    });
+    expect(subText()).toBe("特助·等待中");
+    fireEvent.mouseEnter(screen.getByTestId("chat-header-activity"));
+    expect(hintText()).toBe("主 agent 與 sub-agent 都沒有在工作，正在等 1 個背景檢查或排程");
+    waiting.unmount();
+
+    renderChat({ member: mkMember({ activity: busy({ state: "idle", busySince: null }) }) });
+    expect(subText()).toBe("特助·閒置");
+    fireEvent.mouseEnter(screen.getByTestId("chat-header-activity"));
+    expect(hintText()).toBe("主 agent 與 sub-agent 都沒有在工作");
+  });
+
+  it("renders no word and no separator when there is no activity", () => {
+    renderChat({ member: mkMember({ activity: null }) });
+    expect(subText()).toBe("特助");
+    expect(screen.queryByTestId("chat-header-activity")).toBeNull();
+  });
+
+  it("shows the word beside an outsource chat's own sub line too", () => {
+    renderChat({
+      member: mkMember({ activity: busy({ state: "idle", busySince: null }) }),
+      headerSub: <span>T-12 · 修理電梯</span>,
+    });
+    expect(subText()).toBe("T-12 · 修理電梯·閒置");
+  });
+
+  it("tapping the word pins the hint without opening the member detail", () => {
+    const onOpenDetail = vi.fn();
+    renderChat({ member: mkMember({ activity: busy() }), onOpenDetail });
+    const word = screen.getByTestId("chat-header-activity");
+    fireEvent.click(word);
+    expect(onOpenDetail).not.toHaveBeenCalled();
+    expect(screen.getByRole("tooltip").className).toContain("instant-hint--pinned");
+    fireEvent.keyDown(word, { key: "Enter" });
+    expect(onOpenDetail).not.toHaveBeenCalled();
+  });
+
+  it("moves the elapsed time on while the chat stays open, from seconds into minutes", () => {
+    vi.useFakeTimers({ now: NOW * 1000 });
+    renderChat({ member: mkMember({ activity: busy({ busySince: NOW - 50 }) }) });
+    const word = screen.getByTestId("chat-header-activity");
+    fireEvent.mouseEnter(word);
+    expect(hintText()).toBe("主 agent 工作中（已 50 秒）");
+    act(() => {
+      vi.advanceTimersByTime(5_000);
+    });
+    expect(hintText()).toBe("主 agent 工作中（已 55 秒）");
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+    expect(hintText()).toBe("主 agent 工作中（已 1 分鐘）");
+    act(() => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(hintText()).toBe("主 agent 工作中（已 2 分鐘）");
   });
 
   it("neither click bubbles into the clickable header (open detail)", () => {

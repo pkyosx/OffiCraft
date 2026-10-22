@@ -916,6 +916,7 @@ export function WorkerDetailPanel({
         lastOpReason: worker.lastOpReason,
         lastOpAt: worker.lastOpAt,
         modelCallLastSuccessTs: worker.modelCallLastSuccessTs,
+        activity: worker.activity,
         // T-139: was `member-${worker.id}` — a THIRD independent copy of the
         // session-naming rule, wrapped downstream in a hardcoded socket. The
         // station composes the whole line now.

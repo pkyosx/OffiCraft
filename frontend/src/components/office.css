@@ -554,6 +554,9 @@
   white-space: nowrap;
 }
 .chat__header-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin-top: 2px;
   min-width: 0;
   font-size: 12.5px;
@@ -565,6 +568,7 @@
  * lifecycle dot is flex:none inside the badge, so the ROLE text is what gives. */
 .chat__header-sub .presence-badge {
   max-width: 100%;
+  min-width: 0;
 }
 .chat__header-sub .presence-badge__sub {
   min-width: 0;

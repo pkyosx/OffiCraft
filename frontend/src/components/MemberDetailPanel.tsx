@@ -852,6 +852,7 @@ export function MemberDetailPanel({
         lastOpReason: member.lastOpReason,
         lastOpAt: member.lastOpAt,
         modelCallLastSuccessTs: member.modelCallLastSuccessTs,
+        activity: member.activity,
         terminalAttachCommand: member.terminalAttachCommand,
         terminalHint: t.mp.terminalHint,
         terminalUnavailable: t.mp.terminalUnavailable,

@@ -222,6 +222,44 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
     },
   );
 
+  it("an online member with activity shows it at the top of the 運行狀況 card, above the context and cost cells: the sentence, then each sub-agent earliest first, then each wait", () => {
+    const now = Date.now() / 1000;
+    const { getByTestId } = renderPanel(
+      mkMember({
+        status: "online",
+        lifecycle: "online",
+        activity: {
+          state: "busy",
+          busySince: now - 600,
+          subagents: [
+            { name: "Explore", description: "掃描程式碼", startedTs: now - 120 },
+            { name: "Plan", description: "", startedTs: now - 300 },
+          ],
+          waits: [{ kind: "background_command", description: "npm test" }],
+        },
+      }),
+    );
+    const block = getByTestId("mp-activity");
+    const card = block.closest(".mp-card")!;
+    expect(card.classList.contains("mp-runtime")).toBe(true);
+    expect(block.previousElementSibling?.textContent).toBe("運行狀況");
+    expect(block.nextElementSibling?.classList.contains("mp-runtime__cells")).toBe(true);
+    expect(Array.from(block.children).map((c) => c.textContent)).toEqual([
+      "主 agent 工作中（已 10 分鐘），另有 2 個 sub-agent 工作中，正在等 1 個背景檢查或排程",
+      "Plan · 已跑 5 分鐘",
+      "掃描程式碼（Explore）· 已跑 2 分鐘",
+      "npm test（背景指令）",
+    ]);
+  });
+
+  it("without activity the 運行狀況 card has no activity block and still shows its context and cost cells", () => {
+    const { queryByTestId, getByTestId } = renderPanel(
+      mkMember({ status: "online", lifecycle: "online", activity: null }),
+    );
+    expect(queryByTestId("mp-activity")).toBeNull();
+    expect(getByTestId("mp-context").closest(".mp-runtime")).not.toBeNull();
+  });
+
   it("awakened (online) shows the real running machine and its bound account", async () => {
     const { container } = renderPanel(
       mkMember({ status: "online", lifecycle: "online" })

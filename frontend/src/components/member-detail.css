@@ -2113,3 +2113,22 @@
   padding: 4px 0 6px;
   font-size: 12.5px;
 }
+
+/* ---- 運行狀況 (member activity) ---- */
+.mp-activity {
+  margin-top: 10px;
+}
+.mp-activity__summary {
+  margin-top: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+.mp-activity__line {
+  margin-top: 4px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}

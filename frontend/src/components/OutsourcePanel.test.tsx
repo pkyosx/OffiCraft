@@ -655,6 +655,8 @@ describe("OutsourcePanel", () => {
         taskId: "t-1",
         taskTitle: "查帳單",
         taskStatus: "waiting_external",
+        presence: "online",
+        activity: { state: "idle", busySince: null, subagents: [], waits: [] },
       })
     );
 
@@ -677,6 +679,7 @@ describe("OutsourcePanel", () => {
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
     expect(sub.querySelector(".lifecycle-dot")).toBeNull();
+    expect(sub.parentElement!.querySelector('[data-testid="chat-header-activity"]')!.textContent).toBe("閒置");
     // T-dfae: the chat header's 任務/角色設定 buttons are wired ONLY for roster
     // members. An outsource peer has no role to define, and its tasks are not
     // separable from every other worker's (all collapse to the single

@@ -69,6 +69,7 @@ function mkVM(over: Partial<AgentDetailVM> = {}): AgentDetailVM {
     terminalAttachCommand: SERVED,
     terminalHint: "hint",
     terminalUnavailable: "this server provides none",
+    activity: null,
     ...over,
   };
 }

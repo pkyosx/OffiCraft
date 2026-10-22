@@ -216,6 +216,40 @@ describe("WorkerDetailPanel — aligned real info (T-f190 item 1)", () => {
     expect((await findByTestId("worker-detail-cost")).textContent).toBe("$4");
   });
 
+  it("shows the worker's activity at the top of its 運行狀況 card, above the context and cost cells, and nothing without activity", async () => {
+    __injectMockTask(mkTask({ id: "t-1" }));
+    __injectMockOutsourceWorker(
+      mkWorker({
+        id: "ow-1",
+        taskId: "t-1",
+        presence: "online",
+        activity: {
+          state: "waiting",
+          busySince: null,
+          subagents: [],
+          waits: [{ kind: "schedule", description: "每小時看 CI" }],
+        },
+      }),
+    );
+    __injectMockOutsourceWorker(mkWorker({ id: "ow-2", taskId: "t-1", presence: "online", activity: null }));
+
+    const first = renderOfficeAt("#office/worker/ow-1");
+    const block = await first.findByTestId("worker-detail-activity");
+    expect(block.closest(".mp-card")!.classList.contains("mp-runtime")).toBe(true);
+    expect(block.previousElementSibling?.textContent).toBe("運行狀況");
+    expect(block.nextElementSibling?.classList.contains("mp-runtime__cells")).toBe(true);
+    expect(Array.from(block.children).map((c) => c.textContent)).toEqual([
+      "主 agent 與 sub-agent 都沒有在工作，正在等 1 個背景檢查或排程",
+      "每小時看 CI（排程）",
+    ]);
+    first.unmount();
+
+    const second = renderOfficeAt("#office/worker/ow-2");
+    await second.findByTestId("worker-detail-task");
+    expect(queryTestId(document.body, "worker-detail-activity")).toBeNull();
+    expect(queryTestId(document.body, "worker-detail-context")).not.toBeNull();
+  });
+
   it("shows honest dashes, never fabricated values, when nothing reported", async () => {
     __injectMockTask(mkTask({ id: "t-1" }));
     __injectMockOutsourceWorker(

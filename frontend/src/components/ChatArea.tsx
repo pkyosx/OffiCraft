@@ -49,6 +49,7 @@ import { Markdown } from "./Markdown";
 import { MarkdownPreviewOverlay } from "./MarkdownPreviewOverlay";
 import { useQuotedMessageOverlay } from "../hooks/useQuotedMessageOverlay";
 import { PresenceBadge } from "./PresenceBadge";
+import { MemberActivityWord } from "./MemberActivity";
 import { CurrentTaskTitle } from "./CurrentTaskTitle";
 import { isSyntheticSender } from "../lib/syntheticSender";
 import { docCommentRecipient, type DocCommentTarget } from "../lib/docComments";
@@ -2271,6 +2272,7 @@ export function ChatArea({
            * source + the "online yet Never online" dishonesty). */}
           <div className="chat__header-sub">
             {headerSub ?? <PresenceBadge member={member} />}
+            <MemberActivityWord activity={member.activity} />
           </div>
           {/* T-3451: the peer's CURRENT task title, FULL (no clamp) — owner 圖2.
            * Rendered only when present (a taskless / released peer grows no

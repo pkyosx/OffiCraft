@@ -1,0 +1,21 @@
+/* The chat header's status word. The header row must stay one line (see
+ * .chat__header-name in office.css): the word keeps one line at its full width
+ * (nowrap makes its min-content its whole width), and the role text beside it
+ * is what ellipsises. */
+.activity-word__sep {
+  flex: none;
+  color: var(--color-text-muted);
+}
+.activity-word {
+  white-space: nowrap;
+  cursor: default;
+  outline: none;
+  color: var(--color-text);
+}
+.activity-word:focus-visible {
+  box-shadow: 0 0 0 2px var(--color-accent-soft);
+  border-radius: 4px;
+}
+.activity-word--busy {
+  color: var(--color-accent);
+}

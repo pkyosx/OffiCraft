@@ -31,7 +31,7 @@
 // stays inside the (overridable) fragment.
 
 import type { Dict } from "./locales/zh";
-import type { Effort } from "../types";
+import type { Effort, MemberActivity } from "../types";
 import { formatResetTime } from "../lib/dateFormat";
 
 /** The UI languages a wording overlay keys on (mirrors i18n's `Language`;
@@ -101,6 +101,12 @@ export interface Messages {
   runtimeSignInHint: (runtime: "claude" | "codex") => string;
   modelCallServerWarning: (runtime: "claude" | "codex") => string;
   memberModelCallLastSuccess: (age: string) => string;
+  /** The one-sentence account of a session's activity. `now` is epoch
+   * seconds; elapsed time is measured from `busySince`. */
+  memberActivitySummary: (activity: MemberActivity, now: number) => string;
+  /** One line per running sub-agent (earliest started first), then one per
+   * wait. */
+  memberActivityDetails: (activity: MemberActivity, now: number) => string[];
   /** `by` is the deadline text, or null when the wind-down is on NO clock —
    * which since T-ed79 is every cause except the second context threshold. The
    * no-clock sentence must not contain any time at all. */
@@ -232,6 +238,17 @@ export function makeMessages(t: Dict, language: Lang): Messages {
   // Named rather than returned inline: the row summary is literally the three
   // group phrases joined, so it composes them through this same object instead
   // of keeping a second copy of the every-set/empty-set rules.
+  const act = t.activity;
+  const activityElapsed = (lead: string, since: number, now: number): string => {
+    const secs = Math.max(0, Math.floor(now - since));
+    const [n, unit] =
+      secs < 60 ? [secs, act.elapsedSeconds] : [Math.floor(secs / 60), act.elapsedMinutes];
+    return [lead, String(n), unit].filter((part) => part !== "").join(" ");
+  };
+  const counted = (n: number, one: string, many: string): string =>
+    `${n} ${n === 1 ? one : many}`;
+  const parenthesised = (head: string, inner: string): string =>
+    head ? `${head}${sp}${act.parenLead}${inner}${act.parenTail}` : inner;
   const messages: Messages = {
     // 「量於 3d 前」/「measured 3d ago」— the age rides beside the usage number
     // so a frozen snapshot can never read as a live one (T-3b90).
@@ -369,6 +386,36 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     },
     modelCallServerWarning: (runtime) => `${mcw.runtime[runtime]} ${mcw.server}`,
     memberModelCallLastSuccess: (age) => `${age} ${mp.modelCallLastSuccessAgoTail}`,
+    memberActivitySummary: (a, now) => {
+      const subs = a.subagents.length;
+      let head: string;
+      if (a.busySince !== null) {
+        head = `${act.mainBusyLead}${activityElapsed(act.elapsedLead, a.busySince, now)}${act.mainBusyTail}`;
+        if (subs > 0) {
+          head += `${act.subagentsAlsoLead} ${counted(subs, act.subagentsAlsoTailOne, act.subagentsAlsoTailMany)}`;
+        }
+      } else if (subs > 0) {
+        head = `${act.subagentsOnlyLead}${sp}${counted(subs, act.subagentsOnlyTailOne, act.subagentsOnlyTailMany)}`;
+      } else {
+        head = act.noneWorking;
+      }
+      const waits = a.waits.length;
+      return waits > 0
+        ? `${head}${act.waitsLead} ${counted(waits, act.waitsTailOne, act.waitsTailMany)}`
+        : head;
+    },
+    // zh writes 「…（Explore）· 已跑」: a fullwidth paren already carries its own
+    // spacing, so the separator loses its leading space there and only there.
+    memberActivityDetails: (a, now) => [
+      ...[...a.subagents]
+        .sort((x, y) => x.startedTs - y.startedTs)
+        .map((s) => {
+          const head = parenthesised(s.description, s.name);
+          const gap = s.description && language === "zh" ? "" : " ";
+          return `${head}${gap}· ${activityElapsed(act.subagentRanLead, s.startedTs, now)}`;
+        }),
+      ...a.waits.map((w) => parenthesised(w.description, act.waitKind[w.kind])),
+    ],
     // 「正在收尾以套用你的改動 · 最晚 14:32 生效」 — the deadline is a CEILING
     // (the collect fires as soon as the agent reports stopped), so the wording
     // says 最晚 rather than promising a time.

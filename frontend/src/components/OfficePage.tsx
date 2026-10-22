@@ -299,6 +299,7 @@ export function OfficePage({
         // live worker's server-computed badge is therefore part of the same
         // entry contract as a regular member's unreadCount.
         unreadCount: workerPeer.unreadCount ?? 0,
+        activity: workerPeer.activity ?? null,
       }
     : undefined;
 

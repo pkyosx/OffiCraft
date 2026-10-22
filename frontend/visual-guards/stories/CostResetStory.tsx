@@ -63,6 +63,7 @@ const baseVM: Omit<AgentDetailVM, "testIdPrefix"> = {
   modelCallLastSuccessTs: null,
   terminalAttachCommand: "tmux -L officraft attach -t member-mira",
   terminalHint: "hint",
+  activity: null,
 };
 
 /** The steady state: a member with spend on the clock, so the button is live. */

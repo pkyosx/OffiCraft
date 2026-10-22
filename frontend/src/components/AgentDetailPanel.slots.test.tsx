@@ -117,6 +117,7 @@ function mkVM(): AgentDetailVM {
     terminalAttachCommand: "",
     terminalHint: "",
     terminalUnavailable: "",
+    activity: null,
   };
 }
 
@@ -172,6 +173,12 @@ function mkPopulatedVM(): AgentDetailVM {
     terminalAttachCommand: "tmux -L officraft attach -t member-mira",
     terminalHint: "hint",
     terminalUnavailable: "no command",
+    activity: {
+      state: "busy",
+      busySince: 1,
+      subagents: [{ name: "Explore", description: "scan", startedTs: 1 }],
+      waits: [{ kind: "schedule", description: "check CI" }],
+    },
     prompt: {
       fetch: () => Promise.resolve("boot"),
       cacheKey: "k",

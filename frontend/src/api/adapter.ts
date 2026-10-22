@@ -11,6 +11,7 @@ import type { DiffParams } from "../lib/diffLink";
 import type { ThemeBundle } from "../lib/themeBundle";
 import type {
   Member,
+  MemberActivity,
   RuntimeLoginWarning,
   ModelCallWarning,
   MemberLifecycle,
@@ -825,6 +826,8 @@ export interface OutsourceWorkerView {
   modelCallWarnings?: ModelCallWarning[];
   /** Epoch seconds of the newest successful model call; null = none reported. */
   modelCallLastSuccessTs?: number | null;
+  /** Same projection as `Member.activity`. */
+  activity?: MemberActivity | null;
   /** Worker lifecycle status (assigned → active → released). OPTIONAL so
    * hand-built fixtures stay valid (taskTitle precedent); the mapper always
    * sets it (honest "" when absent). */
