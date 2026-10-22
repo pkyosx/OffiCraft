@@ -737,8 +737,14 @@ type AgentActivitySubagentDTO struct {
 	// Description The one-line task description the parent agent gave it; empty when the runtime does not expose one.
 	Description *string `json:"description,omitempty"`
 
+	// Id The runtime's id for this sub-agent (Claude Code agent_id, Codex thread id); unique within the report.
+	Id string `json:"id"`
+
 	// Name The sub-agent's type (Claude Code, e.g. ``Explore``) or the name its parent gave it (Codex).
 	Name string `json:"name"`
+
+	// ParentId The ``id`` of the sub-agent that started this one; null when the main agent started it or the runtime did not say.
+	ParentId *string `json:"parent_id,omitempty"`
 
 	// StartedTs Epoch seconds it started, by the reporting machine's clock.
 	StartedTs float64 `json:"started_ts"`
@@ -749,6 +755,12 @@ type AgentActivityWaitDTO struct {
 	// Description The agent's own one-line description of it (a scheduled prompt's text for ``schedule``).
 	Description *string                  `json:"description,omitempty"`
 	Kind        AgentActivityWaitDTOKind `json:"kind"`
+
+	// NextTs For ``schedule``: epoch seconds of its next run, by the reporting machine's clock; null when unknown or for other kinds.
+	NextTs *float64 `json:"next_ts,omitempty"`
+
+	// Recurring For ``schedule``: whether it repeats after ``next_ts``.
+	Recurring *bool `json:"recurring,omitempty"`
 }
 
 // AgentActivityWaitDTOKind defines model for AgentActivityWaitDTO.Kind.

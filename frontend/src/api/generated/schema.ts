@@ -4498,6 +4498,17 @@ export interface components {
          */
         AgentActivitySubagentDTO: {
             /**
+             * Id
+             * @description The runtime's id for this sub-agent (Claude Code agent_id, Codex thread id); unique within the report.
+             */
+            id: string;
+            /**
+             * Parent Id
+             * @description The ``id`` of the sub-agent that started this one; null when the main agent started it or the runtime did not say.
+             * @default null
+             */
+            parent_id: string | null;
+            /**
              * Description
              * @description The one-line task description the parent agent gave it; empty when the runtime does not expose one.
              * @default
@@ -4530,6 +4541,18 @@ export interface components {
              * @enum {string}
              */
             kind: "background_command" | "schedule";
+            /**
+             * Next Ts
+             * @description For ``schedule``: epoch seconds of its next run, by the reporting machine's clock; null when unknown or for other kinds.
+             * @default null
+             */
+            next_ts: number | null;
+            /**
+             * Recurring
+             * @description For ``schedule``: whether it repeats after ``next_ts``.
+             * @default false
+             */
+            recurring: boolean;
         };
         /**
          * AgentContextIngestDTO

@@ -120,6 +120,26 @@
         "additionalProperties": false,
         "description": "One running sub-agent. Shown to the owner as it is sent.",
         "properties": {
+          "id": {
+            "description": "The runtime's id for this sub-agent (Claude Code agent_id, Codex thread id); unique within the report.",
+            "maxLength": 80,
+            "title": "Id",
+            "type": "string"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The ``id`` of the sub-agent that started this one; null when the main agent started it or the runtime did not say.",
+            "title": "Parent Id"
+          },
           "description": {
             "default": "",
             "description": "The one-line task description the parent agent gave it; empty when the runtime does not expose one.",
@@ -140,6 +160,7 @@
           }
         },
         "required": [
+          "id",
           "name",
           "started_ts"
         ],
@@ -164,6 +185,25 @@
             ],
             "title": "Kind",
             "type": "string"
+          },
+          "next_ts": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "For ``schedule``: epoch seconds of its next run, by the reporting machine's clock; null when unknown or for other kinds.",
+            "title": "Next Ts"
+          },
+          "recurring": {
+            "default": false,
+            "description": "For ``schedule``: whether it repeats after ``next_ts``.",
+            "title": "Recurring",
+            "type": "boolean"
           }
         },
         "required": [
