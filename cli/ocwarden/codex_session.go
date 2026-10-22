@@ -1,9 +1,10 @@
 package main
 
 // codex_session.go is the Codex counterpart to Claude's direct TUI launch: an
-// ocwarden sidecar owns one stdio Codex App Server and turns `ocagent listen`
-// output into turn/start or turn/steer calls, keeping lifecycle and SSE
-// ownership identical to the Claude design.
+// ocwarden sidecar owns the member's own Codex App Server (on a unix socket in
+// the workdir), turns `ocagent listen` output into turn/start or turn/steer
+// calls, and keeps Codex's TUI attached to the same thread in the pane, keeping
+// lifecycle and SSE ownership identical to the Claude design.
 
 import (
 	"bufio"

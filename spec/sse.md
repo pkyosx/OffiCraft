@@ -504,14 +504,15 @@ data: {"topic":"warden-command","data":{"rpc":"start","args":{"member_id":"m-1a2
       inline pointer to `persona.md` instead.
     - Codex execution writes the same private `persona.md`, starts a warden-managed
       `codex app-server` sidecar, and gives App Server the whole persona (behind a
-      short header) as its developer instructions. App Server is the correctness path; an attached Codex TUI is
-      optional and may disconnect/reconnect without ending the agent.
+      short header) as its developer instructions. App Server is the correctness path; the
+      member's pane runs Codex's TUI on the same thread, which the sidecar reopens whenever it
+      exits, so the TUI may disconnect/reconnect without ending the agent.
     - Server lifecycle events are wake signals, never raw prompt interpolation. While the
       Codex thread is idle, a durable pending wake starts a turn. During an active turn,
       urgent lifecycle events may steer that turn; routine events are durably coalesced
       and start the next idle turn. The listener must retain pending work across App
       Server/TUI reconnects.
-    - Codex `item/tool/requestUserInput` never waits on the optional TUI. The sidecar
+    - Codex `item/tool/requestUserInput` never waits on the TUI. The sidecar
       does NOT open the card itself (T-18): it holds no task_id or step_id, and
       `create_reply_card` requires an explicit `linked_task`, so it immediately resolves
       the App Server request with text telling Codex to open its own card through the

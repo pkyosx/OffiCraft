@@ -30,9 +30,14 @@ warden start {runtime, model, effort, ...}
 ## Codex adapter
 
 The Codex correctness path is a warden-managed `codex app-server` plus the existing
-`ocagent listen` lifecycle listener. A TUI may attach remotely for observation or manual
-interaction, but TUI presence is not a liveness dependency. The App Server and listener
-survive TUI disconnects and preserve the same OffiCraft member identity.
+`ocagent listen` lifecycle listener. The member's tmux pane shows Codex's own TUI attached
+to the member's thread (`codex resume <thread> --remote unix://…`), so the owner can watch
+the turns and type into them; the sidecar starts it once the boot turn exists (`codex
+resume` refuses a thread with no turn) and reopens it whenever it exits. TUI presence is not
+a liveness dependency: the App Server and listener survive TUI exits and preserve the same
+OffiCraft member identity. What the owner types in the TUI is an ordinary turn on that
+thread, so OffiCraft deliveries steer it like any other; it is not recorded in OffiCraft
+chat.
 
 The adapter reuses the Claude persona mechanism:
 
@@ -47,9 +52,19 @@ No generated `AGENTS.md`, duplicate prompt fold, or per-member `CODEX_HOME` is i
 Codex uses the machine user's existing login/config, just as Claude uses the shared machine
 user's existing login.
 
-The adapter uses App Server's stdio JSON-RPC transport. App Server is still an evolving
-upstream surface, so protocol/version handling stays isolated in the sidecar and a failed
-initialize/thread start terminates the session visibly for normal OffiCraft reconciliation.
+The sidecar runs the member's own App Server (one per member, never shared) with
+`--listen unix://<workdir>/.codex-app.sock` and talks JSON-RPC to it over that socket, which
+is WebSocket-framed; the TUI is the second client of the same server. App Server and the
+listener run in their own process group, so a Ctrl-C reaching the pane between two TUI runs
+cannot end the member, and the sidecar stays the pane's main process (`exec`) so stopping
+the pane reaches it. On SIGHUP/SIGTERM the sidecar stops the App Server and removes the
+socket; in listen mode App Server does not exit when its stdin closes, so a sidecar that died
+harder than that leaves it running until warden `stop` (or the next spawn) sweeps every
+`ocagent`/`codex` process whose cwd is the member's workdir and removes a socket left behind.
+The sidecar's own progress lines go to `<workdir>/codex-session.log` (previous session in
+`.1`), not the pane. App Server is still an evolving upstream surface, so protocol/version
+handling stays isolated in the sidecar and a failed initialize/thread start terminates the
+session visibly for normal OffiCraft reconciliation.
 
 ## Global context: one policy, runtime-selected boot tails
 

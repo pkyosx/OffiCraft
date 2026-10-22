@@ -1,6 +1,6 @@
 # Codex App Server 執行環境
 
-- **執行環境**：你是由 App Server sidecar 以 headless 方式啟動的 Codex session，沒有 terminal，也沒有人在鍵盤前操作。生命週期與 SSE 連線由 sidecar 管理，需要時會再次喚醒你。
+- **執行環境**：你是由 App Server sidecar 啟動的 Codex session。成員的終端機會顯示你的 Codex 畫面，Owner 可能直接在畫面上輸入訊息。生命週期與 SSE 連線由 sidecar 管理，需要時會再次喚醒你。
 - **權限模式**：`danger-full-access`，approval policy 為 `never`。
 - **事件補送**：
   - 聊天：補送未讀訊息，由舊到新逐則送出，不需要另外查詢。
