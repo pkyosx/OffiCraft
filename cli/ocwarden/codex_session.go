@@ -162,6 +162,7 @@ type codexSession struct {
 	subagentParent     map[string]string
 	lastActivity       string
 	threadTokenTotals  map[string]map[string]any
+	lastReportedTokens string
 
 	starting bool
 	queued   []*codexDelivery
@@ -589,9 +590,15 @@ func (s *codexSession) reportIdentity() {
 
 // The station keeps identity and activity in memory only, so both go out again
 // on the heartbeat and on every listener reconnect.
+// Tokens go too when their sum changed since the last accepted report: usage
+// that landed inside the throttle window is otherwise never sent once the
+// threads go quiet, which is how a sub-agent burst ends.
 func (s *codexSession) reannounce() {
 	s.reportIdentity()
 	s.reportActivity()
+	if raw, _ := json.Marshal(s.tokenSum()); len(s.threadTokenTotals) > 0 && string(raw) != s.lastReportedTokens {
+		s.reportTokens()
+	}
 }
 
 const codexActivityNameMax = 80
@@ -927,6 +934,10 @@ func (s *codexSession) reportTokenUsage(params map[string]any) {
 			"compaction_count": s.compactions,
 		})
 	}
+	s.reportTokens()
+}
+
+func (s *codexSession) tokenSum() map[string]any {
 	tokens := map[string]any{}
 	for _, total := range s.threadTokenTotals {
 		for _, key := range codexTokenKeys {
@@ -936,6 +947,11 @@ func (s *codexSession) reportTokenUsage(params map[string]any) {
 			}
 		}
 	}
+	return tokens
+}
+
+func (s *codexSession) reportTokens() {
+	tokens := s.tokenSum()
 	body := map[string]any{
 		"runtime": "codex", "tokens": tokens, "effort": s.effort,
 		"account": s.account, "account_label": "ChatGPT",
@@ -946,7 +962,10 @@ func (s *codexSession) reportTokenUsage(params map[string]any) {
 	if m := strings.TrimSpace(s.model); m != "" {
 		body["model"] = m
 	}
-	s.post("/api/monitoring/telemetry", body)
+	raw, _ := json.Marshal(tokens)
+	if s.post("/api/monitoring/telemetry", body) {
+		s.lastReportedTokens = string(raw)
+	}
 }
 
 func (s *codexSession) reportRateLimits(snapshot map[string]any) {

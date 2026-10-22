@@ -2220,6 +2220,56 @@ func TestCodexSessionReannounce(t *testing.T) {
 			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
 		}
 	})
+
+	t.Run("token usage throttled during a sub-agent burst goes out with the next heartbeat, once", func(t *testing.T) {
+		fake := interceptCodexPosts(t, http.StatusOK, nil)
+		s := newCodexTestSession()
+		s.base, s.token, s.account, s.effort = "https://x.test", "tok", "codex:abc", "medium"
+		total := func(threadID string, input, output float64) map[string]any {
+			return map[string]any{"threadId": threadID, "tokenUsage": map[string]any{"total": map[string]any{
+				"inputTokens": input, "outputTokens": output, "totalTokens": input + output}}}
+		}
+		s.reportTokenUsage(total("th_1", 25858, 69))
+		s.reportTokenUsage(total("th_outer", 300000, 500))
+		s.reportTokenUsage(total("th_inner", 40000, 100))
+		s.reportTokenUsage(total("th_outer", 310000, 600))
+		fake.posts = nil
+
+		s.reannounce()
+		s.reannounce()
+
+		identity := codexPost{method: http.MethodPost, url: "https://x.test/api/monitoring/telemetry",
+			auth: "Bearer tok", ctype: "application/json",
+			body: map[string]any{"runtime": "codex", "account": "codex:abc", "account_label": "ChatGPT"}}
+		activity := activityPost(activitySnapshot(nil))
+		tokens := codexPost{method: http.MethodPost, url: "https://x.test/api/monitoring/telemetry",
+			auth: "Bearer tok", ctype: "application/json",
+			body: map[string]any{"runtime": "codex", "account": "codex:abc", "account_label": "ChatGPT", "effort": "medium",
+				"tokens": map[string]any{"inputTokens": float64(375858), "outputTokens": float64(769), "totalTokens": float64(376627)}}}
+		if want := []codexPost{identity, activity, tokens, identity, activity}; !reflect.DeepEqual(fake.posts, want) {
+			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
+		}
+	})
+
+	t.Run("a token report the station refused goes out again with the next heartbeat", func(t *testing.T) {
+		fake := interceptCodexPosts(t, http.StatusServiceUnavailable, nil)
+		s := newCodexTestSession()
+		s.base, s.token, s.account, s.effort = "https://x.test", "tok", "codex:abc", "medium"
+		s.reportTokenUsage(map[string]any{"threadId": "th_sub", "tokenUsage": map[string]any{"total": map[string]any{"totalTokens": float64(7)}}})
+		fake.status, fake.posts = http.StatusOK, nil
+
+		s.reannounce()
+
+		var tokenReports []any
+		for _, post := range fake.posts {
+			if tokens, ok := post.body["tokens"]; ok {
+				tokenReports = append(tokenReports, tokens)
+			}
+		}
+		if want := []any{map[string]any{"totalTokens": float64(7)}}; !reflect.DeepEqual(tokenReports, want) {
+			t.Errorf("the heartbeat reported tokens %v, want %v", tokenReports, want)
+		}
+	})
 }
 
 func TestCodexSessionRecordTurnOutcome(t *testing.T) {

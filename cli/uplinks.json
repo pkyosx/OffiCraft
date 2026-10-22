@@ -782,16 +782,30 @@
     {
       "id": "codex-hop-reannounce-activity",
       "source": "cli/ocwarden/codex_session.go",
-      "callsite": "s.reportActivity()\n}\n\nconst codexActivityNameMax",
+      "callsite": "s.reportActivity()\n\tif raw, _ := json.Marshal(s.tokenSum())",
       "kind": "seam",
       "seam_reason": "hop to the codex activity POST declared by codex-activity"
+    },
+    {
+      "id": "codex-hop-reannounce-tokens",
+      "source": "cli/ocwarden/codex_session.go",
+      "callsite": "s.lastReportedTokens {\n\t\ts.reportTokens()",
+      "kind": "seam",
+      "seam_reason": "hop: the heartbeat/reconnect sends a token sum that has changed since the last accepted report, through the codex token POST declared by codex-tokens"
+    },
+    {
+      "id": "codex-hop-usage-tokens",
+      "source": "cli/ocwarden/codex_session.go",
+      "callsite": "s.reportTokens()\n}\n\nfunc (s *codexSession) tokenSum()",
+      "kind": "seam",
+      "seam_reason": "hop: a usage update past the throttle sends the summed tokens through the codex token POST declared by codex-tokens"
     },
     {
       "id": "codex-hop-7",
       "source": "cli/ocwarden/codex_session.go",
       "callsite": "s.reportTokenUsage(params)",
       "kind": "seam",
-      "seam_reason": "hop to the codex token POST declared by codex-tokens"
+      "seam_reason": "hop to the codex token POST declared by codex-tokens (through reportTokens)"
     },
     {
       "id": "codex-hop-8",
