@@ -277,7 +277,7 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
       expect(card.querySelector(".mp-activity__state")).toBeNull();
       expect(card.querySelector(".mp-activity__summary")).toBeNull();
       expect(treeRows(card)).toEqual([
-        [0, "working", "主 agent", "已 10 分鐘"],
+        [0, "working", "主代理", "已 10 分鐘"],
         [1, "working", "Plan", "5 分鐘"],
         [1, "working", "盤點 Backlog 票Explore", "2 分鐘"],
         [2, "working", "讀取錯誤紀錄general-purpose", "40 秒"],
@@ -306,7 +306,7 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
     );
     expect(getByTestId("mp-activity").querySelector(".mp-activity__row--main .mp-activity__aside")).toBeNull();
     expect(treeRows(getByTestId("mp-activity"))).toEqual([
-      [0, "idle", "主 agent", ""],
+      [0, "idle", "主代理", ""],
       [1, "working", "Explore", "5 秒"],
       [1, "waiting", "排程", ""],
     ]);
@@ -322,7 +322,7 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
     );
     const card = getByTestId("mp-activity");
     expect(Array.from(card.children).map((c) => c.className)).toEqual(["mp-activity__head", "mp-activity__tree"]);
-    expect(treeRows(card)).toEqual([[0, "idle", "主 agent", ""]]);
+    expect(treeRows(card)).toEqual([[0, "idle", "主代理", ""]]);
     expect(card.querySelector(".mp-activity__state-icon")!.getAttribute("aria-label")).toBe("閒置");
     expect(card.querySelector(".mp-activity__state-icon .activity-icon__glyph--idle")).not.toBeNull();
   });

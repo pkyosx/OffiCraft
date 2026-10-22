@@ -270,7 +270,7 @@ describe("WorkerDetailPanel — aligned real info (T-f190 item 1)", () => {
     expect(card.querySelector(".mp-activity__summary")).toBeNull();
     expect(
       Array.from(card.querySelectorAll(".mp-activity__row")).map((r) => r.textContent),
-    ).toEqual(["主 agent", "每小時看 CI排程 · 重複"]);
+    ).toEqual(["主代理", "每小時看 CI排程 · 重複"]);
     expect(card.querySelector(".mp-activity__row--main .activity-icon__glyph")!.className).toBe(
       "activity-icon__glyph activity-icon__glyph--idle",
     );

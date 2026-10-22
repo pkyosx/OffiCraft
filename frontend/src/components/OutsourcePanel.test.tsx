@@ -252,7 +252,7 @@ describe("OutsourcePanel", () => {
     expect(icon.getAttribute("aria-label")).toBe("等待中，查看運行狀況");
     fireEvent.mouseEnter(icon);
     expect(screen.getByRole("tooltip").textContent).toBe(
-      "主 agent 與 sub-agent 都沒有在工作，正在等 1 個背景檢查或排程",
+      "主代理與子代理都沒有在工作，正在等 1 個背景檢查或排程",
     );
     await findByTestId("outsource-row-ow-off");
     expect(queryByTestId("activity-icon-ow-off")).toBeNull();
@@ -310,7 +310,7 @@ describe("OutsourcePanel", () => {
     expect(dialog.querySelector(".mp-activity__head")).toBeNull();
     expect(dialog.querySelector(".mp-activity__summary")).toBeNull();
     expect(Array.from(dialog.querySelectorAll(".mp-activity__row")).map((r) => r.textContent)).toEqual([
-      "主 agent",
+      "主代理",
       "npm test背景指令",
     ]);
     expect(dialog.querySelector(".mp-activity__row--main .activity-icon__glyph")!.className).toBe(

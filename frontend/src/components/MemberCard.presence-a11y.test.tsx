@@ -411,12 +411,12 @@ describe("MemberCard activity icon", () => {
   const renderWith = (activity: Member["activity"], onChat = vi.fn()) => render(cardWith(activity, onChat));
 
   it.each([
-    ["busy", "online", "工作中，查看運行狀況", "working", "主 agent 工作中（已 0 秒）"],
-    ["waiting", "online", "等待中，查看運行狀況", "waiting", "主 agent 與 sub-agent 都沒有在工作，正在等 1 個背景檢查或排程"],
-    ["idle", "online", "閒置，查看運行狀況", "idle", "主 agent 與 sub-agent 都沒有在工作"],
-    ["busy", "stopping", "工作中，查看運行狀況", "working", "主 agent 工作中（已 0 秒）"],
-    ["waiting", "stopping", "等待中，查看運行狀況", "waiting", "主 agent 與 sub-agent 都沒有在工作，正在等 1 個背景檢查或排程"],
-    ["idle", "stopping", "閒置，查看運行狀況", "idle", "主 agent 與 sub-agent 都沒有在工作"],
+    ["busy", "online", "工作中，查看運行狀況", "working", "主代理工作中（已 0 秒）"],
+    ["waiting", "online", "等待中，查看運行狀況", "waiting", "主代理與子代理都沒有在工作，正在等 1 個背景檢查或排程"],
+    ["idle", "online", "閒置，查看運行狀況", "idle", "主代理與子代理都沒有在工作"],
+    ["busy", "stopping", "工作中，查看運行狀況", "working", "主代理工作中（已 0 秒）"],
+    ["waiting", "stopping", "等待中，查看運行狀況", "waiting", "主代理與子代理都沒有在工作，正在等 1 個背景檢查或排程"],
+    ["idle", "stopping", "閒置，查看運行狀況", "idle", "主代理與子代理都沒有在工作"],
   ] as const)("under %s while %s, the icon right before the name is a button named %s, draws its own glyph, hints the summary and opens the 運行狀況 dialog", (state, lifecycle, name, glyph, hint) => {
     const onChat = vi.fn();
     const { getByTestId, getByRole } = render(
@@ -496,7 +496,7 @@ describe("MemberCard activity icon", () => {
       expect(d.textContent).not.toContain("目前狀態");
       expect(d.querySelector(".mp-activity__summary")).toBeNull();
       expect(rows(d)).toEqual([
-        "主 agent已 3 分鐘",
+        "主代理已 3 分鐘",
         "查 CI 結果ci-watch45 秒",
         "讀 loglog-reader12 秒",
         "每 10 秒檢查 CI排程 · 重複",
