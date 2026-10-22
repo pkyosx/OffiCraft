@@ -322,10 +322,11 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
     );
     expect(queryByTestId("mp-activity")).toBeNull();
     expect(queryByTestId("mp-identity-activity")).toBeNull();
+    expect(queryByTestId("mp-identity-activity-slot")).toBeNull();
     expect(getByTestId("mp-context").closest(".mp-runtime")).not.toBeNull();
   });
 
-  it("the identity card carries the presence dot on the avatar corner and the status icon right after the name, which pins its hint instead of opening a dialog", () => {
+  it("the identity card carries the presence dot on the avatar corner and the status icon right before the name, which pins its hint instead of opening a dialog", () => {
     const { getByTestId, container } = renderPanel(
       mkMember({
         status: "online",
@@ -338,7 +339,9 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
     expect(dot.getAttribute("aria-label")).toBe("線上");
     expect(container.querySelector(".mp-identity__status .lifecycle-dot")).toBeNull();
     const icon = getByTestId("mp-identity-activity");
-    expect(icon.parentElement!.classList.contains("mp-identity__line")).toBe(true);
+    expect(icon.parentElement!.className).toBe("activity-name");
+    expect(icon.parentElement!.parentElement!.classList.contains("mp-identity__line")).toBe(true);
+    expect(icon.nextElementSibling!.textContent).toBe("Mira");
     expect(icon.getAttribute("aria-label")).toBe("等待中");
     expect(icon.getAttribute("role")).toBe("img");
     fireEvent.click(icon);

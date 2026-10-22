@@ -35,7 +35,7 @@ import { Avatar } from "./Avatar";
 import { CurrentTaskTitle } from "./CurrentTaskTitle";
 import { RuntimeLoginWarningMark } from "./RuntimeLoginWarningMark";
 import { PresenceAvatar } from "./PresenceAvatar";
-import { ActivityStatusIcon } from "./MemberActivity";
+import { NameWithActivity } from "./MemberActivity";
 
 /** The worker's ONE-LINE task line — [task-id chip → task type], optionally
  * led by the runtime warning mark. SHARED between the rail's outsource row, the
@@ -193,14 +193,16 @@ export function OutsourcePanel({
                 {/* line 1 — the worker's name (代號; an outsource has no
                  * other name), mirroring the member card's name line. */}
                 <span className="outsource-row__line">
-                  <span className="outsource-row__codename">
-                    {msg.outsourceLabel(w.codename)}
-                  </span>
-                  <ActivityStatusIcon
+                  <NameWithActivity
                     activity={w.activity}
                     memberName={msg.outsourceLabel(w.codename)}
                     testId={`activity-icon-${w.id}`}
-                  />
+                    layout="list"
+                  >
+                    <span className="outsource-row__codename">
+                      {msg.outsourceLabel(w.codename)}
+                    </span>
+                  </NameWithActivity>
                 </span>
                 {/* line 2 — the shared OutsourceTaskLine (the worker chat
                  * header renders the same line). */}

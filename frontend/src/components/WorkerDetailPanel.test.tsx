@@ -216,7 +216,7 @@ describe("WorkerDetailPanel — aligned real info (T-f190 item 1)", () => {
     expect((await findByTestId("worker-detail-cost")).textContent).toBe("$4");
   });
 
-  it("shows the worker's 運作狀況 card right under the identity card, the dot on the avatar corner and the status icon after the codename; none of it without activity", async () => {
+  it("shows the worker's 運作狀況 card right under the identity card, the dot on the avatar corner and the status icon before the codename; none of it, not even an empty slot, without activity", async () => {
     __injectMockTask(mkTask({ id: "t-1" }));
     __injectMockOutsourceWorker(
       mkWorker({
@@ -248,7 +248,7 @@ describe("WorkerDetailPanel — aligned real info (T-f190 item 1)", () => {
     expect(dot.closest(".presence-avatar")).not.toBeNull();
     expect(queryTestId(document.body, "worker-detail-header-task")!.querySelector(".lifecycle-dot")).toBeNull();
     const icon = await first.findByTestId("worker-detail-identity-activity");
-    expect(icon.previousElementSibling!.textContent).toBe("外包 · O-7");
+    expect(icon.nextElementSibling!.textContent).toBe("外包 · O-7");
     expect(icon.getAttribute("aria-label")).toBe("等待中");
     first.unmount();
 
@@ -256,6 +256,7 @@ describe("WorkerDetailPanel — aligned real info (T-f190 item 1)", () => {
     await second.findByTestId("worker-detail-task");
     expect(queryTestId(document.body, "worker-detail-activity")).toBeNull();
     expect(queryTestId(document.body, "worker-detail-identity-activity")).toBeNull();
+    expect(queryTestId(document.body, "worker-detail-identity-activity-slot")).toBeNull();
     expect(queryTestId(document.body, "worker-detail-context")).not.toBeNull();
   });
 

@@ -5,7 +5,7 @@ import { Avatar } from "./Avatar";
 import { avatarKindForMember } from "../lib/avatarKind";
 import { PresenceBadge } from "./PresenceBadge";
 import { PresenceAvatar } from "./PresenceAvatar";
-import { ActivityStatusIcon } from "./MemberActivity";
+import { NameWithActivity } from "./MemberActivity";
 
 interface MemberCardProps {
   member: Member;
@@ -65,12 +65,14 @@ export function MemberCard({
 
       <div className="member-card__body">
         <div className="member-card__line">
-          <span className="member-card__name">{member.name}</span>
-          <ActivityStatusIcon
+          <NameWithActivity
             activity={member.activity}
             memberName={member.name}
             testId={`activity-icon-${member.id}`}
-          />
+            layout="list"
+          >
+            <span className="member-card__name">{member.name}</span>
+          </NameWithActivity>
         </div>
         {/* Line 2: the runtime warning mark and the role. Presence is the
          * avatar-corner dot (PresenceAvatar), the same on every identity

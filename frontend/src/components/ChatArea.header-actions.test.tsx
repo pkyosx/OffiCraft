@@ -178,7 +178,7 @@ describe("ChatArea header 任務/角色設定 圖示 (T-dfae)", () => {
   const glyphState = (el: HTMLElement) =>
     el.querySelector(".activity-icon__glyph")!.className.replace("activity-icon__glyph activity-icon__glyph--", "");
 
-  it("shows the status icon right after the name, named by its state, and hovering it shows the one-sentence summary", () => {
+  it("shows the status icon right before the name, named by its state, and hovering it shows the one-sentence summary", () => {
     vi.useFakeTimers({ now: NOW * 1000 });
     renderChat({
       member: mkMember({
@@ -189,7 +189,7 @@ describe("ChatArea header 任務/角色設定 圖示 (T-dfae)", () => {
       }),
     });
     expect(icon().parentElement!.className).toBe("chat__header-name");
-    expect(icon().previousElementSibling!.textContent).toBe("Mira");
+    expect(icon().nextElementSibling!.textContent).toBe("Mira");
     expect(icon().getAttribute("aria-label")).toBe("工作中，查看運作狀況");
     expect(glyphState(icon())).toBe("working");
     fireEvent.mouseEnter(icon());
@@ -221,9 +221,11 @@ describe("ChatArea header 任務/角色設定 圖示 (T-dfae)", () => {
     expect(hintText()).toBe("主 agent 與 sub-agent 都沒有在工作");
   });
 
-  it("renders no status icon when there is no activity, and the role line carries no presence dot", () => {
+  it("renders no status icon and no empty slot when there is no activity, and the role line carries no presence dot", () => {
     renderChat({ member: mkMember({ activity: null }) });
     expect(screen.queryByTestId("chat-header-activity")).toBeNull();
+    expect(screen.queryByTestId("chat-header-activity-slot")).toBeNull();
+    expect(document.querySelector(".chat__header-name")!.children.length).toBe(1);
     expect(document.querySelector(".chat__header-sub .lifecycle-dot")).toBeNull();
     expect(document.querySelector(".chat__header-sub")!.textContent).toBe("特助");
     expect(screen.getByTestId("chat-header-presence").closest(".presence-avatar")).not.toBeNull();

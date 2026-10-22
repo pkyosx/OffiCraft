@@ -409,7 +409,7 @@ describe("MemberCard activity icon", () => {
     ["busy", "工作中，查看運作狀況", "working", "主 agent 工作中（已 0 秒）"],
     ["waiting", "等待中，查看運作狀況", "waiting", "主 agent 與 sub-agent 都沒有在工作，正在等 1 個背景檢查或排程"],
     ["idle", "閒置，查看運作狀況", "idle", "主 agent 與 sub-agent 都沒有在工作"],
-  ] as const)("under %s, the icon right after the name is a button named %s, draws its own glyph and hints the summary", (state, name, glyph, hint) => {
+  ] as const)("under %s, the icon right before the name is a button named %s, draws its own glyph and hints the summary", (state, name, glyph, hint) => {
     const { getByTestId, getByRole } = renderWith({
       state,
       busySince: state === "busy" ? Date.now() / 1000 + 5 : null,
@@ -417,7 +417,7 @@ describe("MemberCard activity icon", () => {
       waits: state === "waiting" ? [{ kind: "background_command", description: "", nextTs: null, recurring: false }] : [],
     });
     const icon = getByTestId("activity-icon-mira");
-    expect(icon.previousElementSibling!.textContent).toBe("Mira");
+    expect(icon.nextElementSibling!.textContent).toBe("Mira");
     expect(getByRole("button", { name })).toBe(icon);
     expect(icon.querySelector(`.activity-icon__glyph--${glyph}`)).not.toBeNull();
     fireEvent.mouseEnter(icon);
@@ -576,9 +576,13 @@ describe("MemberCard activity icon", () => {
     });
   });
 
-  it("an offline member (no activity) has no icon and no way into the dialog", () => {
-    const { queryByTestId } = renderWith(null);
+  it("an offline member (no activity) has no icon and no way into the dialog, only an empty hidden slot before the name", () => {
+    const { queryByTestId, getByTestId } = renderWith(null);
     expect(queryByTestId("activity-icon-mira")).toBeNull();
     expect(screen.queryByRole("button", { name: /查看運作狀況/ })).toBeNull();
+    const slot = getByTestId("activity-icon-mira-slot");
+    expect(slot.getAttribute("aria-hidden")).toBe("true");
+    expect(slot.className).toBe("activity-icon activity-icon--list activity-icon--slot activity-icon--button");
+    expect(slot.nextElementSibling!.textContent).toBe("Mira");
   });
 });

@@ -49,7 +49,7 @@ import { Markdown } from "./Markdown";
 import { MarkdownPreviewOverlay } from "./MarkdownPreviewOverlay";
 import { useQuotedMessageOverlay } from "../hooks/useQuotedMessageOverlay";
 import { PresenceBadge } from "./PresenceBadge";
-import { ActivityStatusIcon } from "./MemberActivity";
+import { NameWithActivity } from "./MemberActivity";
 import { PresenceAvatar } from "./PresenceAvatar";
 import { CurrentTaskTitle } from "./CurrentTaskTitle";
 import { isSyntheticSender } from "../lib/syntheticSender";
@@ -2267,12 +2267,13 @@ export function ChatArea({
            * entry (chat__header--clickable above); its hover/focus affordance
            * carries the click hint now. */}
           <div className="chat__header-name">
-            <span>{member.name}</span>
-            <ActivityStatusIcon
+            <NameWithActivity
               activity={member.activity}
               memberName={member.name}
               testId="chat-header-activity"
-            />
+            >
+              <span>{member.name}</span>
+            </NameWithActivity>
           </div>
           {/* Presence is the avatar-corner dot; this line is the warning mark
            * and the role (or the caller's own sub line). */}

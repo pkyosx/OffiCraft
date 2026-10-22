@@ -1,4 +1,11 @@
-import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useId, useRef, useState } from "react";
+import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
 import type { MemberActivity } from "../types";
@@ -55,17 +62,56 @@ export function ActivityStateIcon({
   );
 }
 
-/** The status icon beside a member's name — list rows, chat header and detail
- * identity card all render this one. Nothing when there is no activity.
- * Given `memberName`, the icon is a button opening the 運作狀況 dialog. */
-export function ActivityStatusIcon({
+/** A member's name led by its status icon. List rows, chat header and detail
+ * identity card all render this, so the icon's place is decided here alone.
+ * `layout="list"`: a row without activity keeps an empty slot of the icon's
+ * width so the names of a list stay in one column, and the icon sits on the
+ * first line of a wrapped name. `layout="group"`: icon and name form one box,
+ * for a line that wraps its other items onto the next line. */
+export function NameWithActivity({
   activity,
   memberName,
   testId,
+  layout,
+  children,
 }: {
   activity: MemberActivity | null | undefined;
   memberName?: string;
   testId?: string;
+  layout?: "list" | "group";
+  children: ReactNode;
+}) {
+  const icon = (
+    <ActivityStatusIcon activity={activity} memberName={memberName} testId={testId} list={layout === "list"} />
+  );
+  if (layout === "group") {
+    return (
+      <span className="activity-name">
+        {icon}
+        {children}
+      </span>
+    );
+  }
+  return (
+    <>
+      {icon}
+      {children}
+    </>
+  );
+}
+
+/** Nothing when there is no activity, unless a slot is reserved. Given
+ * `memberName`, the icon is a button opening the 運作狀況 dialog. */
+function ActivityStatusIcon({
+  activity,
+  memberName,
+  testId,
+  list,
+}: {
+  activity: MemberActivity | null | undefined;
+  memberName?: string;
+  testId?: string;
+  list: boolean;
 }) {
   const { t, msg } = useI18n();
   const now = useActivityNow(activity);
@@ -75,14 +121,25 @@ export function ActivityStatusIcon({
   // Dropped rather than kept hidden: a dialog closed by the activity going away
   // must not reopen, and take focus, when the activity comes back.
   if (openFor !== null && !open) setOpenFor(null);
-  if (!activity) return null;
+  if (!activity) {
+    if (!list) return null;
+    return (
+      <span
+        className={`activity-icon activity-icon--list activity-icon--slot${memberName === undefined ? "" : " activity-icon--button"}`}
+        aria-hidden="true"
+        data-testid={testId && `${testId}-slot`}
+      >
+        <ActivityStateIcon state="idle" />
+      </span>
+    );
+  }
   const word = t.activity.state[activity.state];
   const hint = msg.memberActivitySummary(activity, now);
   if (memberName === undefined) {
     return (
       <InstantHint
         hint={hint}
-        className={`activity-icon activity-icon--${activity.state}`}
+        className={`activity-icon activity-icon--${activity.state}${list ? " activity-icon--list" : ""}`}
         role="img"
         aria-label={word}
         data-testid={testId}
@@ -95,7 +152,7 @@ export function ActivityStatusIcon({
     <>
       <InstantHint
         hint={hint}
-        className={`activity-icon activity-icon--button activity-icon--${activity.state}`}
+        className={`activity-icon activity-icon--button activity-icon--${activity.state}${list ? " activity-icon--list" : ""}`}
         aria-label={msg.memberActivityOpenLabel(activity.state)}
         aria-haspopup="dialog"
         aria-expanded={open}

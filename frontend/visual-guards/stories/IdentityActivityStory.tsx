@@ -1,16 +1,18 @@
-// CT story: the three identity surfaces that carry the
-// avatar-corner presence dot and the activity status icon — the left list
-// (real MemberCard + real OutsourcePanel rows), the chat header (built from the
-// same PresenceAvatar / ActivityStatusIcon ChatArea renders, beside its three
-// buttons) and the detail panel's 運作狀況 card (real MemberActivityCard under an
-// identity card) — at the widths the spec mounts it at.
+// CT story: the identity surfaces that carry the avatar-corner presence dot and
+// the activity status icon — the left list (real MemberCard + real
+// OutsourcePanel rows, each list with one row that has no activity), the chat
+// header and the detail identity card (built from the same PresenceAvatar /
+// NameWithActivity ChatArea and the detail panels render), and the detail
+// panel's 運作狀況 card (real MemberActivityCard) — at the widths the spec
+// mounts it at; plus the three state glyphs drawn large.
 import { I18nProvider } from "../../src/i18n";
 import { MemberCard } from "../../src/components/MemberCard";
 import { OutsourcePanel } from "../../src/components/OutsourcePanel";
 import { PresenceAvatar } from "../../src/components/PresenceAvatar";
 import { PresenceBadge } from "../../src/components/PresenceBadge";
 import { Avatar } from "../../src/components/Avatar";
-import { ActivityStatusIcon, MemberActivityCard } from "../../src/components/MemberActivity";
+import { InlineEdit } from "../../src/components/InlineEdit";
+import { ActivityStateIcon, NameWithActivity, MemberActivityCard } from "../../src/components/MemberActivity";
 import type { OutsourceWorkerView } from "../../src/api/adapter";
 import type { Member, MemberActivity } from "../../src/types";
 import "../../src/components/office.css";
@@ -70,10 +72,10 @@ function mkMember(id: string, name: string, activity: MemberActivity | null, unr
   };
 }
 
-function mkWorker(activity: MemberActivity | null): OutsourceWorkerView {
+function mkWorker(id: string, codename: string, activity: MemberActivity | null): OutsourceWorkerView {
   return {
-    id: "ow-1",
-    codename: "O-413",
+    id,
+    codename,
     model: "opus",
     effort: "high",
     taskId: "t-1",
@@ -94,7 +96,7 @@ export function IdentityActivityStory({
   mobile,
   warning = false,
 }: {
-  surface: "list" | "header" | "card";
+  surface: "list" | "header" | "detail" | "card" | "glyphs";
   state: MemberActivity["state"];
   mobile: boolean;
   warning?: boolean;
@@ -113,8 +115,9 @@ export function IdentityActivityStory({
           <aside className="office__members" data-testid="list">
             <MemberCard member={member} selected={false} onOpenDetail={noop} onChat={noop} />
             <MemberCard member={warned(mkMember("m-short", "Mira", activity, 0))} selected onOpenDetail={noop} onChat={noop} />
+            <MemberCard member={mkMember("m-none", "Jun", null, 0)} selected={false} onOpenDetail={noop} onChat={noop} />
             <OutsourcePanel
-              workers={[mkWorker(activity)]}
+              workers={[mkWorker("ow-1", "O-413", activity), mkWorker("ow-2", "O-7", null)]}
               error={false}
               maxParallel={3}
               selectedId=""
@@ -135,8 +138,9 @@ export function IdentityActivityStory({
                   </PresenceAvatar>
                   <div className="chat__header-text">
                     <div className="chat__header-name">
-                      <span>{m.name}</span>
-                      <ActivityStatusIcon activity={m.activity} memberName={m.name} testId="chat-header-activity" />
+                      <NameWithActivity activity={m.activity} memberName={m.name} testId="chat-header-activity">
+                        <span>{m.name}</span>
+                      </NameWithActivity>
                     </div>
                     <div className="chat__header-sub">
                       <PresenceBadge member={m} dot={false} />
@@ -149,6 +153,39 @@ export function IdentityActivityStory({
               ))}
             </div>
           </section>
+        )}
+        {surface === "detail" && (
+          <section className="office__chat">
+            <div className="mp" data-testid="panel">
+              {[member, mkMember("m-long-bare", LONG_NAME, null, 0)].map((m) => (
+                <div key={m.id} className="mp-card mp-identity" data-testid={`identity-${m.activity ? "with" : "without"}`}>
+                  <PresenceAvatar presence={m.lifecycle}>
+                    <Avatar size={52} kind="staff" src="" />
+                  </PresenceAvatar>
+                  <div className="mp-identity__body">
+                    <div className="mp-identity__line">
+                      <NameWithActivity activity={m.activity} testId="mp-identity-activity" layout="group">
+                        <InlineEdit value={m.name} onCommit={noop} ariaLabel="rename" displayClassName="mp-identity__name" />
+                      </NameWithActivity>
+                      <span className="badge mp-identity__id">{m.id}</span>
+                    </div>
+                    <div className="mp-identity__status">
+                      <PresenceBadge member={m} dot={false} />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+        {surface === "glyphs" && (
+          <div style={{ display: "flex", gap: 24, padding: 24 }}>
+            {(["busy", "waiting", "idle"] as const).map((s) => (
+              <span key={s} data-testid={`glyph-${s}`} style={{ display: "inline-flex", padding: 8 }}>
+                <ActivityStateIcon state={s} size={48} />
+              </span>
+            ))}
+          </div>
         )}
         {surface === "card" && (
           <section className="office__chat">

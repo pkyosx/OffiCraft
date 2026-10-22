@@ -1,4 +1,4 @@
-/* The status icon beside a member's name, and the glyphs it shares with the
+/* The status icon leading a member's name, and the glyphs it shares with the
  * 運作狀況 tree. The icon never shrinks: the name beside it is what gives. */
 .activity-icon {
   flex: none;
@@ -8,6 +8,21 @@
   cursor: default;
   outline: none;
   border-radius: 4px;
+}
+/* One box so a wrapping line cannot leave the icon alone above the name. */
+.activity-name {
+  display: inline-flex;
+  align-items: center;
+  gap: inherit;
+  min-width: 0;
+}
+/* Takes the icon's exact box (same classes, same glyph) so list names line up
+ * with the rows that have an icon; hidden also keeps it out of hit testing. */
+.activity-icon--slot {
+  visibility: hidden;
+}
+.activity-icon--slot * {
+  animation: none;
 }
 .activity-icon:focus-visible {
   box-shadow: 0 0 0 2px var(--color-accent-soft);
@@ -58,43 +73,86 @@
     opacity: 0.2;
   }
 }
+/* 等待中 and 閒置 move slower and less than the star, so 工作中 stays the one
+ * that catches the eye. The hourglass is symmetric under a half turn, so the
+ * jump back to 0deg at the loop is invisible. */
+.activity-icon__glyph--waiting svg {
+  animation: activity-waiting-flip 3s ease-in-out infinite;
+}
+@keyframes activity-waiting-flip {
+  0%,
+  80% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(180deg);
+  }
+}
+.activity-icon__glyph--idle .coffee-icon__steam {
+  animation: activity-idle-steam 2.8s ease-in-out infinite;
+}
+.activity-icon__glyph--idle .coffee-icon__steam--mid {
+  animation-delay: -0.9s;
+}
+.activity-icon__glyph--idle .coffee-icon__steam--right {
+  animation-delay: -1.8s;
+}
+@keyframes activity-idle-steam {
+  0% {
+    transform: translateY(1px);
+    opacity: 0;
+  }
+  40% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: translateY(-1.5px);
+    opacity: 0;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .activity-icon__glyph--working .sparkle-icon__star,
-  .activity-icon__glyph--working .sparkle-icon__twinkle {
+  .activity-icon__glyph--working .sparkle-icon__twinkle,
+  .activity-icon__glyph--waiting svg,
+  .activity-icon__glyph--idle .coffee-icon__steam {
     animation: none;
   }
 }
 
-/* The icon that opens the 運作狀況 dialog: a faint chip says it can be pressed.
- * Its height stays within the name's line so rows and headers keep theirs. */
+/* The icon that opens the 運作狀況 dialog. At rest it is just the glyph; the
+ * chip shows on hover and keyboard focus. The border stays, transparent, so the
+ * box does not change size. Its height stays within the name's line so rows
+ * and headers keep theirs. */
 .activity-icon--button {
   position: relative;
   margin: 0;
   padding: 1px 3px;
-  border: 1px solid color-mix(in srgb, var(--color-overlay) 12%, transparent);
+  border: 1px solid transparent;
   border-radius: 6px;
-  background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
+  background: transparent;
   color: inherit;
   font: inherit;
   line-height: 0;
   cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-.activity-icon--button.activity-icon--busy {
-  background: color-mix(in srgb, var(--color-success) 8%, var(--color-card));
-}
-.activity-icon--button.activity-icon--waiting {
-  background: color-mix(in srgb, var(--color-warn-fg) 7%, var(--color-card));
+  transition: border-color 0.15s, box-shadow 0.15s, background-color 0.15s;
 }
 .activity-icon--button:hover,
 .activity-icon--button:focus-visible {
   border-color: var(--color-success);
+  background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-success) 15%, transparent);
+}
+/* A list name may wrap; the icon stays on its first line. 1.5px centres the
+ * 18px chip on the 21px line box of the 14px name (line-height 1.5). */
+.activity-icon.activity-icon--list {
+  align-self: flex-start;
+  margin-top: 1.5px;
 }
 /* Touch area of at least 32px, grown with ::after so the chip does not change
  * size. It grows mostly upward: about 4px below the chip starts the tap area of
- * the second line's warning mark, and a short name puts that mark right under
- * the icon. */
+ * the second line's warning mark, which sits right under the icon. Leftward it
+ * stops short of the avatar's corner dot, whose own tap area reaches about 4px
+ * past the avatar into the 10-11px gap before the icon. */
 @media (hover: none) {
   .activity-icon--button::after {
     content: "";
@@ -102,7 +160,7 @@
     top: -12px;
     right: -8px;
     bottom: -4px;
-    left: -8px;
+    left: -4px;
   }
 }
 

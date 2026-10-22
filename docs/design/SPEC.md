@@ -79,7 +79,7 @@ presence 是 **server 端算出來的**，不是 agent 自報的心跳狀態。�
 - **線上（online）**：綠點（server 見 agent 正持著 SSE 連線——純看連線，非 heartbeat）
 - **stopping**：winding-down 內部衍生態（graceful-shutdown 訊號已設、SSE 未斷），由 server 算出，agent 不用管。
 
-> **單一 presence 信號、單一畫點處。** 成員的狀態點由 **LifecycleDot** 這一個 presence 信號源畫，每個畫面只畫一顆。左欄清單列、聊天室 header 與詳情面板身分卡（正職與外包）把它畫在**頭像右下角**（`PresenceAvatar`，Slack 式；owner rc-734cffef6221、c-3d68c2b097e7），名字後面接著運作狀態圖示（工作中是閃動的星芒、等待中是沙漏、閒置是咖啡杯；hover 看一句話說明；左欄清單與聊天室 header 的圖示點一下開「運作狀況」彈窗，詳情身分卡的點一下釘住那句說明；離線不畫）；監控頁仍畫在行內（PresenceBadge）。`Avatar` 元件本身不畫點。
+> **單一 presence 信號、單一畫點處。** 成員的狀態點由 **LifecycleDot** 這一個 presence 信號源畫，每個畫面只畫一顆。左欄清單列、聊天室 header 與詳情面板身分卡（正職與外包）把它畫在**頭像右下角**（`PresenceAvatar`，Slack 式；owner rc-734cffef6221、c-3d68c2b097e7），名字前面是運作狀態圖示（工作中是閃動的星芒、等待中是每 3 秒翻轉一次的沙漏、閒置是冒著熱氣的咖啡杯，後兩者比星芒慢且幅度小，減少動態設定下三者都靜止；可點的圖示平時只有字形，hover 或鍵盤 focus 才出現框；左欄清單中沒有圖示的列留同寬空位，整欄名字對齊；hover 看一句話說明；左欄清單與聊天室 header 的圖示點一下開「運作狀況」彈窗，詳情身分卡的點一下釘住那句說明；離線不畫）；監控頁仍畫在行內（PresenceBadge）。`Avatar` 元件本身不畫點。
 
 > **個人頭像優先序（2026-07-27 owner 裁定）。** owner 可在正職／外包詳情替指定 stable member id 上傳、替換或移除個人圖片；一般成員不可管理。所有主要身分露出一致採「個人圖片 → 角色／主題圖片 → 內建 glyph」，圖片載入失敗也沿同一鏈回退。個人圖片不影響 presence，亦不以可變的 display name 當 key。契約、儲存與 rollback 見 [per-member custom avatar](member-custom-avatar.md)。
 
@@ -156,7 +156,7 @@ epoch 再當場砍，**沒有重生**，所以存下的新值要等之後某一�
 - 在 **外包** → 就地打開**外包上限設定** popover（`最多雇用` 步進器 0–20、`無限` 切換、`完成`）
 
 ### 1.3 對話區（聊天）
-`ChatArea`。頭列：頭像（右下角是 presence 圓點）、名字（其後接運作狀態圖示，與左欄清單、詳情身分卡同一個元件；`activity` 為 null 即離線或未回報時不畫；hover 立即顯示一句摘要，點擊開「運作狀況」彈窗、不觸發 header 本身的點擊）、`PresenceBadge`（驚嘆號＋角色）或自訂副標、當前任務標題（有才畫）、
+`ChatArea`。頭列：頭像（右下角是 presence 圓點）、名字（前面是運作狀態圖示，與左欄清單、詳情身分卡同一個元件；`activity` 為 null 即離線或未回報時不畫、也不留空位；hover 立即顯示一句摘要，點擊開「運作狀況」彈窗、不觸發 header 本身的點擊）、`PresenceBadge`（驚嘆號＋角色）或自訂副標、當前任務標題（有才畫）、
 「查看這位成員未完成的任務」鍵（正職才有）、「開啟這個角色的定義設定」鍵（有角色才有）、
 「檔案與圖片」圖庫切換。整條頭列在可點時就是進詳情面板的入口。
 
@@ -177,7 +177,7 @@ epoch 再當場砍，**沒有重生**，所以存下的新值要等之後某一�
 **返回 → 身分卡 → overlays → afterIdentityCards → 資訊卡 → afterInfoCards → 運行狀況卡
 → 最近操作卡 → 終端卡 → extraExpandCards → 初始 PROMPT 卡 → afterPromptCards。**
 
-**身分卡** —— 頭像（owner 可上傳／替換／移除）、名字（內嵌改名）、**成員 id 徽章**、
+**身分卡** —— 頭像（owner 可上傳／替換／移除）、運作狀態圖示與名字（內嵌改名；圖示在名字前、兩者不分行，沒有 activity 時不畫也不留空位）、**成員 id 徽章**、
 `PresenceBadge`；動作列＝線上或喚醒中時多一顆**更改**，其後是停止階梯（見「停止階梯」那一節）；喚醒中只有**更改**＋**停止**，外包同（owner `rc-8b3d3a366c54`）。
 下方掛喚醒／換機器的**未派出告警**（`DispatchAlert`）。
 

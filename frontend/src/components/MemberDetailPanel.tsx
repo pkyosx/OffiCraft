@@ -37,7 +37,7 @@ import { presenceVisual } from "./LifecycleDot";
 import type { LifecycleVisualStatus } from "./LifecycleDot";
 import { PresenceBadge } from "./PresenceBadge";
 import { PresenceAvatar } from "./PresenceAvatar";
-import { ActivityStatusIcon } from "./MemberActivity";
+import { NameWithActivity } from "./MemberActivity";
 import { MemberActionButtons, stopLadderStageOf } from "./MemberActionButtons";
 import { DispatchAlert } from "./DispatchAlert";
 // 🔴 This panel renders its settings dialog with the .machine-picker* classes,
@@ -550,14 +550,15 @@ export function MemberDetailPanel({
         </PresenceAvatar>
         <div className="mp-identity__body">
           <div className="mp-identity__line">
-            <InlineEdit
-              value={member.name}
-              onCommit={(next) => onRename?.(next)}
-              placeholder={t.mp.renamePlaceholder}
-              ariaLabel={t.mp.rename}
-              displayClassName="mp-identity__name"
-            />
-            <ActivityStatusIcon activity={member.activity} testId="mp-identity-activity" />
+            <NameWithActivity activity={member.activity} testId="mp-identity-activity" layout="group">
+              <InlineEdit
+                value={member.name}
+                onCommit={(next) => onRename?.(next)}
+                placeholder={t.mp.renamePlaceholder}
+                ariaLabel={t.mp.rename}
+                displayClassName="mp-identity__name"
+              />
+            </NameWithActivity>
             {/* The STABLE member id itself — the same string that addresses this
                 member everywhere else (post_chat, resume summary, task rows).
                 It used to render the derived MB-XXX### badge, which gave one

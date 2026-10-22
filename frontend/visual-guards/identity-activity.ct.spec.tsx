@@ -1,6 +1,6 @@
-// The avatar-corner presence dot and the activity status icon on the list rows
-// and the chat header, the 運作狀況 card's tree, and the dialog the icon opens,
-// at phone and desktop widths.
+// The avatar-corner presence dot and the activity status icon leading the name
+// on the list rows, the chat header and the detail identity card, the 運作狀況
+// card's tree, and the dialog the icon opens, at phone and desktop widths.
 // Every check compares boxes with each other in a real browser (CT pages lack
 // the production fonts, so no absolute text widths).
 import { test, expect } from "@playwright/experimental-ct-react";
@@ -38,7 +38,7 @@ function expectCornerDot(dot: Box, avatar: Box, label: string) {
 
 for (const width of [390, 1280]) {
   for (const state of ["busy", "waiting", "idle"] as const) {
-    test(`width ${width}, ${state}: list rows carry the corner dot and the icon after the name without overflow`, async ({ mount, page }) => {
+    test(`width ${width}, ${state}: list rows carry the corner dot and the icon before the name without overflow`, async ({ mount, page }) => {
       await page.setViewportSize({ width, height: 900 });
       await mount(<IdentityActivityStory surface="list" state={state} mobile={width < 720} />);
       const rows = [
@@ -58,17 +58,56 @@ for (const width of [390, 1280]) {
         const rowBox = (await page.locator(r.row).first().boundingBox())!;
         const label = `${r.row}`;
         expectCornerDot(b.dot!, b.avatar!, label);
-        expect(b.icon!.left, `${label}: icon after the name`).toBeGreaterThanOrEqual(b.name!.left);
+        expect(b.icon!.right, `${label}: icon before the name`).toBeLessThanOrEqual(b.name!.left);
+        const lineHeight = await page.locator(`${r.row} ${r.name}`).first().evaluate((n) => parseFloat(getComputedStyle(n).lineHeight));
+        expect(
+          Math.abs(b.icon!.top + b.icon!.height / 2 - (b.name!.top + lineHeight / 2)),
+          `${label}: icon centred on the name's first line`,
+        ).toBeLessThanOrEqual(1);
         expect(b.icon!.width, `${label}: icon keeps its natural width`).toBeGreaterThanOrEqual(b.glyph!.width - 0.5);
         expect(b.icon!.right, `${label}: icon clear of the unread badge`).toBeLessThanOrEqual(b.unread!.left);
         expect(b.unread!.right, `${label}: unread badge inside the row`).toBeLessThanOrEqual(rowBox.x + rowBox.width + 0.5);
-        expect(b.dot!.right, `${label}: dot clear of the name`).toBeLessThanOrEqual(b.name!.left);
+        expect(b.dot!.right, `${label}: dot clear of the icon`).toBeLessThanOrEqual(b.icon!.left);
       }
       expect(await hscroll(page), "no page hscroll").toBeLessThanOrEqual(1);
     });
+
+    test(`width ${width}, ${state}: each list's icons share one x and a row without activity keeps an empty slot, so the names line up`, async ({ mount, page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await mount(<IdentityActivityStory surface="list" state={state} mobile={width < 720} />);
+      const lists = [
+        { row: ".member-card", name: ".member-card__name" },
+        { row: ".outsource-row", name: ".outsource-row__codename" },
+      ];
+      for (const l of lists) {
+        const rows = await page.evaluate(
+          ([rowSel, nameSel]) =>
+            Array.from(document.querySelectorAll(rowSel)).map((row) => {
+              const icon = row.querySelector(".activity-icon")!;
+              return {
+                slot: icon.classList.contains("activity-icon--slot"),
+                icon: icon.getBoundingClientRect().toJSON() as Box,
+                name: row.querySelector(nameSel)!.getBoundingClientRect().toJSON() as Box,
+              };
+            }),
+          [l.row, l.name] as const,
+        );
+        expect(rows.map((r) => r.slot), `${l.row}: the last row has no activity`).toEqual([
+          ...Array(rows.length - 1).fill(false),
+          true,
+        ]);
+        const [first, ...rest] = rows;
+        for (const [i, r] of rest.entries()) {
+          const label = `${l.row} ${i + 2}`;
+          expect(Math.abs(r.icon.left - first.icon.left), `${label}: icon at the first row's x`).toBeLessThanOrEqual(0.5);
+          expect(Math.abs(r.icon.width - first.icon.width), `${label}: icon or slot as wide as the first row's icon`).toBeLessThanOrEqual(0.5);
+          expect(Math.abs(r.name.left - first.name.left), `${label}: name at the first row's x`).toBeLessThanOrEqual(0.5);
+        }
+      }
+    });
   }
 
-  test(`width ${width}: the chat header keeps its height with the icon, the dot sits on the avatar corner`, async ({ mount, page }) => {
+  test(`width ${width}: the chat header keeps its height with the icon before the ellipsized name, the dot sits on the avatar corner`, async ({ mount, page }) => {
     await page.setViewportSize({ width, height: 900 });
     await mount(<IdentityActivityStory surface="header" state="busy" mobile={width < 720} />);
     const withIcon = await boxes(page, '[data-testid="header-with"]', {
@@ -77,13 +116,50 @@ for (const width of [390, 1280]) {
       dot: ".presence-avatar__dot .lifecycle-dot",
       icon: ".activity-icon",
       glyph: ".activity-icon svg",
+      name: ".chat__header-name > span:not(.activity-icon)",
       button: ".chat__header-action",
     });
-    const bare = await boxes(page, '[data-testid="header-without"]', { header: ":scope" });
+    const bare = await boxes(page, '[data-testid="header-without"]', {
+      header: ":scope",
+      name: ".chat__header-name > span",
+      avatar: ".avatar",
+    });
     expect(Math.abs(withIcon.header!.height - bare.header!.height), "header height unchanged by the icon").toBeLessThanOrEqual(0.5);
+    expect(withIcon.icon!.right, "icon before the name").toBeLessThanOrEqual(withIcon.name!.left);
+    expect(withIcon.dot!.right, "dot clear of the icon").toBeLessThanOrEqual(withIcon.icon!.left);
+    expect(bare.name!.left - bare.avatar!.right, "no slot without activity: the name sits where the icon would").toBeLessThan(
+      withIcon.icon!.right - withIcon.avatar!.right,
+    );
+    const ellipsized = await page.evaluate(() => {
+      const n = document.querySelector('[data-testid="header-with"] .chat__header-name > span:not(.activity-icon)') as HTMLElement;
+      return { cut: n.scrollWidth > n.clientWidth, ellipsis: getComputedStyle(n).textOverflow };
+    });
+    expect(ellipsized.ellipsis, "the name still ellipsizes").toBe("ellipsis");
+    if (width < 720) expect(ellipsized.cut, "the long name is cut on a phone").toBe(true);
     expectCornerDot(withIcon.dot!, withIcon.avatar!, "header");
     expect(withIcon.icon!.width, "icon keeps its natural width").toBeGreaterThanOrEqual(withIcon.glyph!.width - 0.5);
     expect(withIcon.icon!.right, "icon left of the header buttons").toBeLessThanOrEqual(withIcon.button!.left);
+    expect(await hscroll(page), "no page hscroll").toBeLessThanOrEqual(1);
+  });
+
+  test(`width ${width}: the detail identity card leads the name with the icon, and without activity the name takes its place`, async ({ mount, page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await mount(<IdentityActivityStory surface="detail" state="busy" mobile={width < 720} />);
+    const withIcon = await boxes(page, '[data-testid="identity-with"]', {
+      card: ":scope",
+      avatar: ".avatar",
+      dot: ".presence-avatar__dot .lifecycle-dot",
+      icon: ".activity-icon",
+      glyph: ".activity-icon svg",
+      name: ".mp-identity__name",
+    });
+    const bare = await boxes(page, '[data-testid="identity-without"]', { name: ".mp-identity__name", slot: ".activity-icon" });
+    expectCornerDot(withIcon.dot!, withIcon.avatar!, "identity");
+    expect(withIcon.icon!.right, "icon before the name").toBeLessThanOrEqual(withIcon.name!.left);
+    expect(withIcon.icon!.width, "icon keeps its natural width").toBeGreaterThanOrEqual(withIcon.glyph!.width - 0.5);
+    expect(Math.abs(bare.name!.left - withIcon.icon!.left), "no slot: the bare name starts where the icon does").toBeLessThanOrEqual(0.5);
+    expect(bare.slot, "no slot without activity").toBeNull();
+    expect(withIcon.name!.right, "name inside the card").toBeLessThanOrEqual(withIcon.card!.right);
     expect(await hscroll(page), "no page hscroll").toBeLessThanOrEqual(1);
   });
 
@@ -192,62 +268,139 @@ test.describe("the 運作狀況 dialog the icon opens", () => {
     await expect(page.getByRole("tooltip")).toHaveCount(1);
   });
 
-  test.describe("on a touch screen", () => {
-    test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 780 } });
+  for (const width of [390, 1280]) {
+    test.describe(`on a touch screen ${width} wide`, () => {
+      test.use({ hasTouch: true, isMobile: true, viewport: { width, height: 780 } });
 
-    test("the icon takes taps over at least 32px each way, clear of the warning mark below, while its chip stays the size it shows", async ({ mount, page }) => {
-      await mount(<IdentityActivityStory surface="list" state="busy" mobile warning />);
-      const rows = await page.evaluate(() =>
-        Array.from(document.querySelectorAll<HTMLElement>(".member-card")).map((row) => {
-          const icon = row.querySelector(".activity-icon") as HTMLElement;
-          const mark = row.querySelector(".runtime-login-warning") as HTMLElement;
-          const chip = icon.getBoundingClientRect();
-          const cx = chip.left + chip.width / 2;
-          const cy = chip.top + chip.height / 2;
-          const lands = (x: number, y: number) => icon.contains(document.elementFromPoint(x, y));
-          const reach = (dx: number, dy: number) => {
-            let d = 0;
-            while (d < 100 && lands(cx + dx * (d + 0.5), cy + dy * (d + 0.5))) d += 0.5;
-            return d;
-          };
-          const hit = { left: cx - reach(-1, 0), right: cx + reach(1, 0), top: cy - reach(0, -1), bottom: cy + reach(0, 1) };
-          const markBox = mark.getBoundingClientRect();
-          return {
-            chip: chip.toJSON() as Box,
-            hit,
-            mark: markBox.toJSON() as Box,
-            markTakesItsCentre: mark.contains(
-              document.elementFromPoint(markBox.left + markBox.width / 2, markBox.top + markBox.height / 2),
-            ),
-          };
-        }),
-      );
-      expect(rows.length).toBe(2);
-      for (const [i, m] of rows.entries()) {
-        const label = `member-card ${i + 1}`;
-        expect(m.chip.height, `${label}: the chip itself stays smaller than its tap area`).toBeLessThan(32);
-        expect(m.hit.right - m.hit.left, `${label}: tap area width`).toBeGreaterThanOrEqual(32);
-        expect(m.hit.bottom - m.hit.top, `${label}: tap area height`).toBeGreaterThanOrEqual(32);
-        const overlaps =
-          m.hit.left < m.mark.right && m.mark.left < m.hit.right && m.hit.top < m.mark.bottom && m.mark.top < m.hit.bottom;
-        expect(overlaps, `${label}: tap area clear of the warning mark's tap area`).toBe(false);
-        expect(m.hit.bottom, `${label}: tap area ends above the warning mark's`).toBeLessThanOrEqual(m.mark.top);
-        expect(m.markTakesItsCentre, `${label}: a tap on the warning mark still lands on it`).toBe(true);
-      }
+      test("the icon takes taps over at least 32px each way, clear of the warning mark below and of the avatar and its corner dot beside it, while its chip stays the size it shows", async ({ mount, page }) => {
+        await mount(<IdentityActivityStory surface="list" state="busy" mobile={width < 720} warning />);
+        const rows = await page.evaluate(() =>
+          Array.from(document.querySelectorAll<HTMLElement>(".member-card, .outsource-row"))
+            .filter((row) => row.querySelector(".activity-icon--button:not(.activity-icon--slot)"))
+            .map((row) => {
+              const icon = row.querySelector(".activity-icon") as HTMLElement;
+              const dot = row.querySelector(".presence-avatar__dot .lifecycle-dot") as HTMLElement;
+              const avatar = row.querySelector(".member-card__avatar, .outsource-row__avatar-btn") as HTMLElement;
+              const mark = row.querySelector<HTMLElement>(".runtime-login-warning");
+              const hitArea = (el: HTMLElement) => {
+                const b = el.getBoundingClientRect();
+                const cx = b.left + b.width / 2;
+                const cy = b.top + b.height / 2;
+                const lands = (x: number, y: number) => el.contains(document.elementFromPoint(x, y));
+                const reach = (dx: number, dy: number) => {
+                  let d = 0;
+                  while (d < 100 && lands(cx + dx * (d + 0.5), cy + dy * (d + 0.5))) d += 0.5;
+                  return d;
+                };
+                return {
+                  left: cx - reach(-1, 0),
+                  right: cx + reach(1, 0),
+                  top: cy - reach(0, -1),
+                  bottom: cy + reach(0, 1),
+                  centreLands: lands(cx, cy),
+                };
+              };
+              return {
+                chip: icon.getBoundingClientRect().toJSON() as Box,
+                chipAtRest: [getComputedStyle(icon).borderTopColor, getComputedStyle(icon).backgroundColor],
+                hit: hitArea(icon),
+                dotHit: hitArea(dot),
+                avatar: avatar.getBoundingClientRect().toJSON() as Box,
+                avatarCentreLands: (() => {
+                  const a = avatar.getBoundingClientRect();
+                  return avatar.contains(document.elementFromPoint(a.left + a.width / 2, a.top + a.height / 2));
+                })(),
+                mark: mark ? (mark.getBoundingClientRect().toJSON() as Box) : null,
+                markHit: mark ? hitArea(mark) : null,
+              };
+            }),
+        );
+        expect(rows.length, "two member rows and one outsource row carry the icon").toBe(3);
+        const overlap = (a: { left: number; right: number; top: number; bottom: number }, b: typeof a) =>
+          a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+        for (const [i, m] of rows.entries()) {
+          const label = `row ${i + 1}`;
+          expect(m.chipAtRest, `${label}: no chip at rest`).toEqual(["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0)"]);
+          expect(m.chip.height, `${label}: the chip itself stays smaller than its tap area`).toBeLessThan(32);
+          expect(m.hit.right - m.hit.left, `${label}: tap area width`).toBeGreaterThanOrEqual(32);
+          expect(m.hit.bottom - m.hit.top, `${label}: tap area height`).toBeGreaterThanOrEqual(32);
+          expect(m.hit.centreLands, `${label}: a tap on the icon lands on it`).toBe(true);
+          expect(overlap(m.hit, m.dotHit), `${label}: tap area clear of the corner dot's tap area`).toBe(false);
+          expect(m.hit.left, `${label}: tap area clear of the avatar`).toBeGreaterThanOrEqual(m.avatar.right);
+          expect(m.dotHit.centreLands, `${label}: a tap on the corner dot still lands on it`).toBe(true);
+          expect(m.avatarCentreLands, `${label}: a tap on the avatar still lands on it`).toBe(true);
+          if (m.mark && m.markHit) {
+            expect(overlap(m.hit, m.markHit), `${label}: tap area clear of the warning mark's tap area`).toBe(false);
+            expect(m.hit.bottom, `${label}: tap area ends above the warning mark's`).toBeLessThanOrEqual(m.mark.top);
+            expect(m.markHit.centreLands, `${label}: a tap on the warning mark still lands on it`).toBe(true);
+          }
+        }
+        expect(rows.filter((m) => m.mark).length, "both member rows carry the warning mark").toBe(2);
+      });
     });
-  });
+  }
 });
 
-test("the 工作中 sparkle animates, and stands still under reduced motion", async ({ mount, page }) => {
+test("each state glyph animates — the 工作中 sparkle, the 等待中 hourglass flip, the 閒置 steam — and all stand still under reduced motion", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await mount(<IdentityActivityStory surface="glyphs" state="busy" mobile={false} />);
+  const parts = {
+    busy: [".sparkle-icon__star", ".sparkle-icon__twinkle--top", ".sparkle-icon__twinkle--bottom"],
+    waiting: ["svg"],
+    idle: [".coffee-icon__steam--left", ".coffee-icon__steam--mid", ".coffee-icon__steam--right"],
+  };
+  const animations = () =>
+    page.evaluate(
+      (p) =>
+        Object.fromEntries(
+          Object.entries(p).map(([state, sels]) => [
+            state,
+            sels.map((sel) => {
+              const cs = getComputedStyle(document.querySelector(`[data-testid="glyph-${state}"] ${sel}`)!);
+              return { name: cs.animationName, seconds: parseFloat(cs.animationDuration) };
+            }),
+          ]),
+        ),
+      parts,
+    );
+  const moving = await animations();
+  for (const [state, list] of Object.entries(moving)) {
+    for (const a of list) {
+      expect(a.name, `${state}: animated`).not.toBe("none");
+      expect(a.seconds, `${state}: runs for a while`).toBeGreaterThan(0);
+    }
+  }
+  const slowest = (state: string) => Math.min(...moving[state].map((a) => a.seconds));
+  expect(slowest("waiting"), "等待中 calmer than 工作中").toBeGreaterThan(slowest("busy"));
+  expect(slowest("idle"), "閒置 calmer than 工作中").toBeGreaterThan(slowest("busy"));
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const still = await animations();
+  expect(Object.values(still).flat().map((a) => a.name)).toEqual(Array(7).fill("none"));
+});
+
+test("width 1280: the clickable icon shows only its glyph at rest and its chip on hover and keyboard focus", async ({ mount, page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await mount(<IdentityActivityStory surface="list" state="busy" mobile={false} />);
-  const animations = () =>
-    page.evaluate(() =>
-      [".sparkle-icon__star", ".sparkle-icon__twinkle--top", ".sparkle-icon__twinkle--bottom"].map(
-        (s) => getComputedStyle(document.querySelector(`.member-card ${s}`)!).animationName,
-      ),
-    );
-  expect(await animations()).not.toContain("none");
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  expect(await animations()).toEqual(["none", "none", "none"]);
+  const icon = page.locator(".member-card .activity-icon").first();
+  const chip = () =>
+    icon.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { border: cs.borderTopColor, background: cs.backgroundColor, ring: cs.boxShadow };
+    });
+  const TRANSPARENT = "rgba(0, 0, 0, 0)";
+  const rest = await chip();
+  expect(rest, "no chip at rest").toEqual({ border: TRANSPARENT, background: TRANSPARENT, ring: "none" });
+  const restBox = (await icon.boundingBox())!;
+  await icon.hover();
+  await expect.poll(async () => (await chip()).border, "chip border on hover").not.toBe(TRANSPARENT);
+  await expect.poll(async () => (await chip()).ring, "chip ring on hover").not.toBe("none");
+  const hoverBox = (await icon.boundingBox())!;
+  expect([hoverBox.width, hoverBox.height], "the chip does not change the box").toEqual([restBox.width, restBox.height]);
+  await page.mouse.move(0, 0);
+  await expect.poll(async () => (await chip()).border, "chip gone after hover").toBe(TRANSPARENT);
+  for (let i = 0; i < 6 && !(await icon.evaluate((el) => el === document.activeElement)); i++) {
+    await page.keyboard.press("Tab");
+  }
+  await expect(icon).toBeFocused();
+  await expect.poll(async () => (await chip()).border, "chip border on keyboard focus").not.toBe(TRANSPARENT);
 });

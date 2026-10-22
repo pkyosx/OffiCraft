@@ -30,7 +30,7 @@ import { Avatar } from "./Avatar";
 import { ResumeSummaryCard } from "./ResumeSummaryCard";
 import { RuntimeLoginWarningMark } from "./RuntimeLoginWarningMark";
 import { PresenceAvatar } from "./PresenceAvatar";
-import { ActivityStatusIcon } from "./MemberActivity";
+import { NameWithActivity } from "./MemberActivity";
 import { MemberActionButtons, stopLadderStageOf } from "./MemberActionButtons";
 import { ScheduledMessagesCard } from "./ScheduledMessagesCard";
 import { WebhooksCard } from "./WebhooksCard";
@@ -493,10 +493,11 @@ export function WorkerDetailPanel({
       </PresenceAvatar>
       <div className="mp-identity__body">
         <div className="mp-identity__line">
-          <span className="outsource-row__codename">
-            {msg.outsourceLabel(worker.codename)}
-          </span>
-          <ActivityStatusIcon activity={worker.activity} testId="worker-detail-identity-activity" />
+          <NameWithActivity activity={worker.activity} testId="worker-detail-identity-activity" layout="group">
+            <span className="outsource-row__codename">
+              {msg.outsourceLabel(worker.codename)}
+            </span>
+          </NameWithActivity>
         </div>
         <div
           className="outsource-row__task-line"

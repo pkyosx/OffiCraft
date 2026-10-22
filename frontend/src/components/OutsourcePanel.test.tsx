@@ -223,7 +223,7 @@ describe("OutsourcePanel", () => {
     },
   );
 
-  it("shows the activity icon right after the codename with its summary hint, and none for a worker without activity", async () => {
+  it("shows the activity icon right before the codename with its summary hint, and for a worker without activity only an empty slot that keeps the codename in line", async () => {
     const task = mkTask({ id: "t-i", taskNo: "T-i" });
     __injectMockTask(task);
     __injectMockOutsourceWorker(
@@ -244,7 +244,7 @@ describe("OutsourcePanel", () => {
 
     const { findByTestId, queryByTestId } = renderOutsource();
     const icon = await findByTestId("activity-icon-ow-busy");
-    expect(icon.previousElementSibling!.textContent).toBe("外包 · B-1");
+    expect(icon.nextElementSibling!.textContent).toBe("外包 · B-1");
     expect(icon.getAttribute("aria-label")).toBe("等待中，查看運作狀況");
     fireEvent.mouseEnter(icon);
     expect(screen.getByRole("tooltip").textContent).toBe(
@@ -252,6 +252,10 @@ describe("OutsourcePanel", () => {
     );
     await findByTestId("outsource-row-ow-off");
     expect(queryByTestId("activity-icon-ow-off")).toBeNull();
+    const slot = await findByTestId("activity-icon-ow-off-slot");
+    expect(slot.getAttribute("aria-hidden")).toBe("true");
+    expect(slot.tagName).toBe("SPAN");
+    expect(slot.nextElementSibling!.textContent).toBe("外包 · C-1");
   });
 
   it("tapping a worker's activity icon opens its 運作狀況 dialog, not its chat; the backdrop closes it", async () => {
