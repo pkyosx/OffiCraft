@@ -74,7 +74,7 @@ function expectStillIcons(list: Awaited<ReturnType<typeof stillIcons>>, count: n
   }
 }
 
-const UNKNOWN_HINT = "狀態未知，成員重新啟動後就會顯示";
+const UNKNOWN_HINT = "狀態未知";
 
 async function expectHintOnly(page: Page, sel: string, word: string) {
   await page.locator(sel).hover();

@@ -624,6 +624,7 @@ export function AgentDetailPanel({
           <span className="mp-card__title">{t.mp.runtime}</span>
         </div>
         <div className="mp-runtime__cells">
+          <MemberActivitySection activity={vm.activity} testId={`${p}-activity`} />
           <div className="mp-cell">
             <div className="mp-cell__head">
               <span className="mp-cell__label">🧠 {t.mp.context}</span>
@@ -668,7 +669,6 @@ export function AgentDetailPanel({
             </div>
           </div>
         </div>
-        <MemberActivitySection activity={vm.activity} testId={`${p}-activity`} />
         {refocusState === "done" && (
           <div className="mp-runtime__note" data-testid={`${p}-refocus-note`}>
             {vm.refocusSubmittedNote}

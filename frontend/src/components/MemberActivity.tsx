@@ -147,12 +147,7 @@ function ActivityStatusIcon({
     // names the presence: for the moon that is the whole story, for the unknown
     // mark the unknown hint is hover or tap only (owner asked for the moon's
     // behaviour).
-    const hint =
-      kind === "offline"
-        ? t.office.presence[presenceVisual(presence)]
-        : presence === "waking"
-          ? t.activity.unknownWakingHint
-          : t.activity.unknownHint;
+    const hint = kind === "offline" ? t.office.presence[presenceVisual(presence)] : t.activity.unknownHint;
     return (
       <InstantHint
         hint={hint}
@@ -282,7 +277,7 @@ function MemberActivityDialog({
             <CloseIcon size={16} />
           </button>
         </div>
-        <MemberActivityBody activity={activity} label={t.activity.currentState} />
+        <MemberActivityBody activity={activity} stateAs="word" />
       </div>
     </div>,
     document.body,
@@ -318,7 +313,7 @@ function SubagentNode({ node, now }: { node: ActivityTreeNode; now: number }) {
   );
 }
 
-/** The activity section inside the detail panels' 運行狀況 card; nothing when
+/** The 目前狀態 box leading the detail panels' 運行狀況 cells; nothing when
  * there is no activity. */
 export function MemberActivitySection({
   activity,
@@ -327,18 +322,18 @@ export function MemberActivitySection({
   activity: MemberActivity | null | undefined;
   testId: string;
 }) {
-  const { t } = useI18n();
   if (!activity) return null;
   return (
-    <div className="mp-activity" data-testid={testId}>
-      <MemberActivityBody activity={activity} label={t.activity.currentState} />
+    <div className="mp-cell mp-activity" data-testid={testId}>
+      <MemberActivityBody activity={activity} stateAs="icon" />
     </div>
   );
 }
 
-/** Label and state word, the one-sentence summary, then the tree — the
- * 運行狀況 card and the dialog both render exactly this. */
-function MemberActivityBody({ activity: a, label }: { activity: MemberActivity; label: string }) {
+/** The 目前狀態 label with the state, then the tree — the 運行狀況 card shows
+ * the state as the name-front glyph, the dialog as its word. Neither repeats
+ * the one-sentence summary the icon's hint carries (owner's call). */
+function MemberActivityBody({ activity: a, stateAs }: { activity: MemberActivity; stateAs: "word" | "icon" }) {
   const { t, msg } = useI18n();
   const now = useActivityNow(a);
   const tree = buildActivityTree(a.subagents);
@@ -352,12 +347,17 @@ function MemberActivityBody({ activity: a, label }: { activity: MemberActivity; 
   return (
     <>
       <div className="mp-activity__head">
-        <span className="mp-card__title">{label}</span>
-        <span className={`mp-activity__state mp-activity__state--${a.state}`}>
-          {t.activity.state[a.state]}
-        </span>
+        <span className="mp-card__title">{t.activity.currentState}</span>
+        {stateAs === "icon" ? (
+          <span className="mp-activity__state-icon" role="img" aria-label={t.activity.state[a.state]}>
+            <ActivityStateIcon state={a.state} />
+          </span>
+        ) : (
+          <span className={`mp-activity__state mp-activity__state--${a.state}`}>
+            {t.activity.state[a.state]}
+          </span>
+        )}
       </div>
-      <div className="mp-activity__summary">{msg.memberActivitySummary(a, now)}</div>
       {showTree && (
         <ul className="mp-activity__tree">
           <li className="mp-activity__node">

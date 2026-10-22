@@ -472,7 +472,7 @@ describe("MemberCard activity icon", () => {
       vi.useRealTimers();
     });
 
-    it("tapping the icon opens the dialog with the title, state, summary and tree, without opening the chat", () => {
+    it("tapping the icon opens the dialog with the title, state word and tree but no summary, without opening the chat", () => {
       const onChat = vi.fn();
       const { getByTestId } = renderWith(activity, onChat);
       fireEvent.click(getByTestId("activity-icon-mira"));
@@ -482,9 +482,7 @@ describe("MemberCard activity icon", () => {
       expect(d.getAttribute("aria-modal")).toBe("true");
       expect(d.querySelector(".mp-activity__head")!.textContent).toBe("目前狀態工作中");
       expect(d.querySelector(".mp-activity__state--busy")).not.toBeNull();
-      expect(d.querySelector(".mp-activity__summary")!.textContent).toBe(
-        "主 agent 工作中（已 3 分鐘），另有 2 個 sub-agent 工作中，正在等 1 個背景檢查或排程",
-      );
+      expect(d.querySelector(".mp-activity__summary")).toBeNull();
       expect(rows(d)).toEqual([
         "主 agent已 3 分鐘",
         "查 CI 結果ci-watch45 秒",
@@ -494,7 +492,7 @@ describe("MemberCard activity icon", () => {
       expect(document.activeElement).toBe(screen.getByRole("button", { name: "關閉" }));
     });
 
-    it("renders the very body the detail panel's 運行狀況 card renders, 目前狀態 label included", () => {
+    it("renders the very tree the detail panel's 運行狀況 card renders, under the same 目前狀態 label, with the state as a word where the card draws the glyph", () => {
       const { getByTestId } = renderWith(activity);
       fireEvent.click(getByTestId("activity-icon-mira"));
       const card = render(
@@ -503,9 +501,11 @@ describe("MemberCard activity icon", () => {
         </I18nProvider>,
       ).getByTestId("card");
       const d = screen.getByRole("dialog");
-      for (const sel of [".mp-activity__head", ".mp-activity__summary", ".mp-activity__tree"]) {
-        expect(d.querySelector(sel)!.outerHTML, sel).toBe(card.querySelector(sel)!.outerHTML);
-      }
+      expect(d.querySelector(".mp-activity__tree")!.outerHTML).toBe(card.querySelector(".mp-activity__tree")!.outerHTML);
+      expect(d.querySelector(".mp-activity__head .mp-card__title")!.textContent).toBe("目前狀態");
+      expect(card.querySelector(".mp-activity__head .mp-card__title")!.textContent).toBe("目前狀態");
+      expect(d.querySelector(".mp-activity__state-icon")).toBeNull();
+      expect(card.querySelector(".mp-activity__state")).toBeNull();
     });
 
     it("keeps counting while open", () => {
@@ -536,9 +536,9 @@ describe("MemberCard activity icon", () => {
       const onChat = vi.fn();
       const { getByTestId } = renderWith(activity, onChat);
       fireEvent.click(getByTestId("activity-icon-mira"));
-      const summary = dialog()!.querySelector(".mp-activity__summary")!;
-      fireEvent.click(summary);
-      fireEvent.keyDown(summary, { key: "Enter" });
+      const tree = dialog()!.querySelector(".mp-activity__tree")!;
+      fireEvent.click(tree);
+      fireEvent.keyDown(tree, { key: "Enter" });
       expect(dialog()).not.toBeNull();
       expect(onChat).not.toHaveBeenCalled();
     });
@@ -637,10 +637,10 @@ describe("MemberCard activity icon", () => {
 
   const stored: Member["activity"] = { state: "busy", busySince: 1_000, subagents: [], waits: [] };
   it.each([
-    ["an online member that has not reported yet", "online", null, "狀態未知，成員重新啟動後就會顯示"],
-    ["a stopping member that has not reported yet", "stopping", null, "狀態未知，成員重新啟動後就會顯示"],
-    ["a waking member that has not reported yet", "waking", null, "狀態未知，成員醒來回報後就會顯示"],
-    ["a waking member handed a stored activity", "waking", stored, "狀態未知，成員醒來回報後就會顯示"],
+    ["an online member that has not reported yet", "online", null, "狀態未知"],
+    ["a stopping member that has not reported yet", "stopping", null, "狀態未知"],
+    ["a waking member that has not reported yet", "waking", null, "狀態未知"],
+    ["a waking member handed a stored activity", "waking", stored, "狀態未知"],
   ] as const)("%s (%s) gets a still unknown mark before the name that hints when a status will show, is no button, takes no focus and opens neither dialog nor chat", (_, lifecycle, activity, hint) => {
     const onChat = vi.fn();
     const { queryByTestId, getByTestId, container } = render(cardWith(activity, onChat, "Mira", lifecycle));

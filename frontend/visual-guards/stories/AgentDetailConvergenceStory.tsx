@@ -15,6 +15,7 @@ import {
   type AgentDetailSlots,
   type AgentDetailVM,
 } from "../../src/components/AgentDetailPanel";
+import type { MemberActivity } from "../../src/types";
 
 /** Every slot declined — these stories isolate the SHARED cards, so nothing
  * kind-specific belongs on screen. Since T-0b4f the panel takes the whole slot
@@ -65,20 +66,20 @@ const baseVM: Omit<AgentDetailVM, "testIdPrefix"> = {
   activity: null,
 };
 
-export function MemberDetailConvergenceStory() {
+export function MemberDetailConvergenceStory({ activity = null }: { activity?: MemberActivity | null }) {
   return (
     <I18nProvider>
       <AgentDetailPanel
         onBack={() => {}}
         identity={<div className="mp-card mp-identity">member</div>}
         slots={NO_SLOTS}
-        vm={{ ...baseVM, testIdPrefix: "mp" }}
+        vm={{ ...baseVM, testIdPrefix: "mp", activity }}
       />
     </I18nProvider>
   );
 }
 
-export function WorkerDetailConvergenceStory() {
+export function WorkerDetailConvergenceStory({ activity = null }: { activity?: MemberActivity | null }) {
   return (
     <I18nProvider>
       <AgentDetailPanel
@@ -89,6 +90,7 @@ export function WorkerDetailConvergenceStory() {
           ...baseVM,
           testIdPrefix: "worker-detail",
           terminalAttachCommand: "tmux -L officraft attach -t member-ow-1",
+          activity,
         }}
       />
     </I18nProvider>

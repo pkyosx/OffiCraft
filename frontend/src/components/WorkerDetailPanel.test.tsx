@@ -234,7 +234,7 @@ describe("WorkerDetailPanel — aligned real info (T-f190 item 1)", () => {
     expect((await findByTestId("worker-detail-cost")).textContent).toBe("$4");
   });
 
-  it("shows the worker's 目前狀態 section inside the 運行狀況 card under its cells, the dot on the avatar corner and the status icon before the codename; no section and a still unknown mark hinting 狀態未知 for an online worker without activity; a stopped worker gets the moon instead", async () => {
+  it("shows the worker's 目前狀態 box first in the 運行狀況 card, its state as the name-front glyph and no summary, the dot on the avatar corner and the status icon before the codename; no section and a still unknown mark hinting 狀態未知 for an online worker without activity; a stopped worker gets the moon instead", async () => {
     __injectMockTask(mkTask({ id: "t-1" }));
     __injectMockOutsourceWorker(
       mkWorker({
@@ -255,12 +255,15 @@ describe("WorkerDetailPanel — aligned real info (T-f190 item 1)", () => {
 
     const first = renderOfficeAt("#office/worker/ow-1");
     const card = await first.findByTestId("worker-detail-activity");
-    expect(card.parentElement!.classList.contains("mp-runtime")).toBe(true);
-    expect(card.previousElementSibling?.classList.contains("mp-runtime__cells")).toBe(true);
-    expect(card.querySelector(".mp-activity__head")!.textContent).toBe("目前狀態等待中");
-    expect(card.querySelector(".mp-activity__summary")!.textContent).toBe(
-      "主 agent 與 sub-agent 都沒有在工作，正在等 1 個背景檢查或排程",
-    );
+    expect(card.className).toBe("mp-cell mp-activity");
+    expect(card.parentElement!.className).toBe("mp-runtime__cells");
+    expect(card.previousElementSibling).toBeNull();
+    expect(card.nextElementSibling!.contains(await first.findByTestId("worker-detail-context"))).toBe(true);
+    expect(card.querySelector(".mp-activity__head")!.textContent).toBe("目前狀態");
+    const stateIcon = card.querySelector(".mp-activity__state-icon")!;
+    expect(stateIcon.getAttribute("aria-label")).toBe("等待中");
+    expect(stateIcon.querySelector(".activity-icon__glyph--waiting")).not.toBeNull();
+    expect(card.querySelector(".mp-activity__summary")).toBeNull();
     expect(
       Array.from(card.querySelectorAll(".mp-activity__row")).map((r) => r.textContent),
     ).toEqual(["主 agent", "每小時看 CI排程 · 重複"]);
@@ -282,7 +285,7 @@ describe("WorkerDetailPanel — aligned real info (T-f190 item 1)", () => {
     expect(unknown.getAttribute("aria-hidden")).toBe("true");
     expect(unknown.querySelector(".activity-icon__glyph--unknown svg")).not.toBeNull();
     fireEvent.mouseEnter(unknown);
-    expect(screen.getByRole("tooltip").textContent).toBe("狀態未知，成員重新啟動後就會顯示");
+    expect(screen.getByRole("tooltip").textContent).toBe("狀態未知");
     fireEvent.mouseLeave(unknown);
     expect(queryTestId(document.body, "worker-detail-context")).not.toBeNull();
     second.unmount();

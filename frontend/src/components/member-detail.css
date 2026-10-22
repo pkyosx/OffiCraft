@@ -2077,13 +2077,14 @@
   font-size: 12.5px;
 }
 
-/* ---- member activity, inside the 運行狀況 card ---- */
-.mp-activity {
-  margin-top: 14px;
+/* ---- member activity: the 運行狀況 card's full-width first box ---- */
+.mp-runtime__cells > .mp-activity {
+  grid-column: 1 / -1;
+  min-width: 0;
 }
 .mp-activity__head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
@@ -2101,12 +2102,9 @@
 .mp-activity__state--idle {
   color: var(--color-text-muted);
 }
-.mp-activity__summary {
-  margin-top: 8px;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--color-text);
-  overflow-wrap: anywhere;
+.mp-activity__state-icon {
+  flex: none;
+  display: inline-flex;
 }
 .mp-activity__tree,
 .mp-activity__children {

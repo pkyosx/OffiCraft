@@ -280,7 +280,7 @@ describe("OutsourcePanel", () => {
     expect(unknown.querySelector(".activity-icon__glyph--unknown svg")).not.toBeNull();
     expect(unknown.nextElementSibling!.textContent).toBe("外包 · D-1");
     fireEvent.mouseEnter(unknown);
-    expect(screen.getByRole("tooltip").textContent).toBe("狀態未知，成員重新啟動後就會顯示");
+    expect(screen.getByRole("tooltip").textContent).toBe("狀態未知");
   });
 
   it("tapping a worker's activity icon opens its 運行狀況 dialog, not its chat; the backdrop closes it", async () => {
@@ -307,9 +307,7 @@ describe("OutsourcePanel", () => {
     expect(window.location.hash).toBe(before);
     const dialog = screen.getByRole("dialog", { name: "外包 · D-1 · 運行狀況" });
     expect(dialog.querySelector(".mp-activity__head")!.textContent).toBe("目前狀態等待中");
-    expect(dialog.querySelector(".mp-activity__summary")!.textContent).toBe(
-      "主 agent 與 sub-agent 都沒有在工作，正在等 1 個背景檢查或排程",
-    );
+    expect(dialog.querySelector(".mp-activity__summary")).toBeNull();
     expect(Array.from(dialog.querySelectorAll(".mp-activity__row")).map((r) => r.textContent)).toEqual([
       "主 agent",
       "npm test背景指令",
