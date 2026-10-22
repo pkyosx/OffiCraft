@@ -139,8 +139,10 @@ function ActivityStatusIcon({
   const listClass = list ? " activity-icon--list" : "";
   if (!activity) {
     const kind = presence === "online" ? "unknown" : "offline";
-    // Out of the tab order and the a11y tree: the corner dot beside it is the
-    // focusable element that already names this presence.
+    // Out of the tab order and the a11y tree. The focusable corner dot beside it
+    // names the presence: for the moon that is the whole story, for the unknown
+    // mark it reads online and the unknown hint is hover or tap only (owner
+    // asked for the moon's behaviour).
     return (
       <InstantHint
         hint={kind === "unknown" ? t.activity.unknownHint : t.office.presence[presenceVisual(presence)]}
