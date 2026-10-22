@@ -243,8 +243,8 @@ describe("AgentDetailPanel slot map", () => {
       </I18nProvider>,
     );
 
-    // The member panel declines two slots (委託任務 / 委託人 are outsource-only,
-    // worker-panel-parity.md C4 / C3). Their reasons are developer notes — they
+    // The member panel declines two slots (worker-panel-parity.md C4 / C3).
+    // Their reasons are developer notes — they
     // must never be rendered, or "this side has nothing here" would turn into a
     // line of internal prose on the owner's screen.
     expect(container.textContent ?? "").not.toContain("外包獨有");

@@ -718,14 +718,6 @@ export const en: Dict = {
     model: "Model",
     effort: "Effort",
     // T-7526: the 狀態 cell and its statusOf lookup are retired — see zh.ts.
-    task: "Delegated task",
-    delegator: "Delegated by",
-    // Shown only when the owner personally created the bound task (a real
-    // source, no longer an unconditional placeholder).
-    delegatorOwner: "System owner",
-    // Honest fallback when creator_id is blank (pre-column / server-scheduled),
-    // replacing the former hardcoded "System owner".
-    delegatorSystem: "System-scheduled",
     // ── T-f190: fields aligned with the member detail panel ───────────────
     machine: "Machine",
     claudeAccount: "Claude Account",
@@ -768,7 +760,6 @@ export const en: Dict = {
     initialPromptHint: "current version preview",
     initialPromptNote:
       "A preview built from the current settings — it may differ from what was sent at dispatch time.",
-    dash: "—",
   },
   lifecycle: {
     action: {

@@ -767,13 +767,6 @@ export const zh = {
     effort: "投入度",
     // T-7526（owner 2026-07-31）：狀態欄與它的 statusOf 對照表整個退場。四個狀態
     // 字與身分卡那顆 LifecycleDot 完全重複，「已釋放」則由聊天室橫幅承擔。
-    task: "委託任務",
-    delegator: "委託人",
-    // 委託人＝owner 本人建的票時顯示（真實來源，非佔位）。
-    delegatorOwner: "系統 Owner",
-    // creator_id 為空（pre-column／排程自動建票）時的誠實 fallback，取代舊的
-    // 一律假「System owner」。
-    delegatorSystem: "系統排程",
     // ── T-f190：對齊成員詳情的真實資訊欄 ──────────────────────────────────
     machine: "機器",
     claudeAccount: "Claude Account",
@@ -819,7 +812,6 @@ export const zh = {
     initialPromptHint: "目前版本預覽",
     initialPromptNote:
       "這是依目前設定產生的預覽，可能和派工當下的內容不同。",
-    dash: "—",
   },
   // ── Layer-4 lifecycle UI (aligned to backend's real five-state presence) ──
   // 5 visual-state names + 5 状态化 action-button labels + lifecycle surface

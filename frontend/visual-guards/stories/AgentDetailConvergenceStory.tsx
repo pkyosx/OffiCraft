@@ -87,9 +87,7 @@ export function WorkerDetailConvergenceStory() {
       <AgentDetailPanel
         onBack={() => {}}
         identity={<div className="mp-card mp-identity">worker</div>}
-        // The worker's own extra card is a single 委託人 field since T-7526
-        // (its 狀態 half retired — owner 2026-07-31), so it is a plain .mp-card:
-        // the assertion below deliberately reads the SHARED grid via .first(),
+        // A stand-in extra card, a plain .mp-card on purpose: the assertion below deliberately reads the SHARED grid via .first(),
         // and a second .mp-info2 here would let a regression hide behind it.
         slots={{
           ...NO_SLOTS,

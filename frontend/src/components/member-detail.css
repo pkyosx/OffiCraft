@@ -496,52 +496,14 @@
   color: var(--color-text-muted);
 }
 
-/* ---- outsource worker detail: 委託任務 link ---- */
-.mp-worker-task {
-  padding: 16px 20px 18px;
-}
-.mp-worker-task .mp-card__title {
-  display: block;
-  margin-bottom: 12px;
-}
-.mp-worker-task__link {
+/* ---- outsource worker detail: the chat header's task lines ---- */
+.mp-identity__task {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 12px 14px;
-  border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--color-overlay) 6%, transparent);
-  background: color-mix(in srgb, var(--color-overlay) 2%, transparent);
-  color: var(--color-text-strong);
-  font-size: 15px;
-  font-weight: 600;
-  text-align: left;
-  cursor: pointer;
-}
-.mp-worker-task__link:hover:not(:disabled) {
-  border-color: var(--color-accent);
-  background: var(--color-accent-soft);
-}
-.mp-worker-task__link:disabled {
-  cursor: default;
-}
-.mp-worker-task__label {
-  flex: 1;
+  flex-direction: column;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
-.mp-worker-task__status {
-  flex: none;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--color-text-muted);
-}
-.mp-worker-task__chevron {
-  flex: none;
-  color: var(--color-text-muted);
+.mp-identity__task .current-task-title {
+  color: var(--color-text);
 }
 
 /* ---- expandable rows ---- */

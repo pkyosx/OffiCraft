@@ -259,9 +259,9 @@ interface AgentDetailPanelProps {
    * ⚠️ And read the ORDER above as documentation, not as a guarantee. An earlier
    * draft of this comment claimed the positions were "pinned by the JSX below and
    * by worker-detail-task-card-order.ct.spec.tsx" — round-2 review showed that is
-   * false: that spec pins exactly ONE relation (the worker's 委託任務 sits above
-   * the 模型/機器 card) on ONE side, and it is a Playwright CT that the vitest
-   * gate never runs. SWAP TWO RENDER SITES IN THE JSX BELOW and nothing reddens
+   * false: that spec pinned exactly ONE relation on ONE side (it went with the
+   * worker's 委託任務 card), and it was a Playwright CT that the vitest gate
+   * never runs. SWAP TWO RENDER SITES IN THE JSX BELOW and nothing reddens
    * — measured (tsc rc=0, whole suite green), including the very relation that
    * spec claims to pin. A false sense of safety is worse than none, which is the
    * whole point of this ticket, so the claim is gone rather than softened.

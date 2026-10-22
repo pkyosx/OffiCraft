@@ -5,7 +5,7 @@ import { test, expect } from "@playwright/experimental-ct-react";
 import type { Locator, Page } from "@playwright/test";
 import { AvatarEditorStory } from "./stories/AvatarEditorStory";
 import { MEMBER_IMG } from "./stories/avatarKindImages";
-import { WorkerDetailPanelTaskOrderStory } from "./stories/WorkerDetailPanelTaskOrderStory";
+import { WorkerDetailPanelIdentityStory } from "./stories/WorkerDetailPanelIdentityStory";
 
 const SHOT_DIR =
   process.env.AVATAR_EDITOR_SHOT_DIR ?? "test-results/avatar-editor";
@@ -92,7 +92,7 @@ test("390px: real worker detail identity holds the avatar editor without overflo
 }) => {
   const width = 390;
   await page.setViewportSize({ width, height: 900 });
-  const cmp = await mount(<WorkerDetailPanelTaskOrderStory />);
+  const cmp = await mount(<WorkerDetailPanelIdentityStory />);
   const identity = cmp.locator(".mp-identity");
   await expect(identity).toBeVisible();
   await expect(

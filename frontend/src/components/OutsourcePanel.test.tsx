@@ -808,7 +808,7 @@ describe("OutsourcePanel", () => {
 
     // The avatar routes to the worker detail hash, NOT the chat slot.
     expect(window.location.hash).toBe("#office/worker/ow-1");
-    await findByTestId("worker-detail-task");
+    await findByTestId("worker-detail-task-line-ow-1");
     // The chat pane is not what opened.
     expect(queryByTestId("outsource-chat-sub")).toBeNull();
   });

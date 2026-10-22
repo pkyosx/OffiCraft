@@ -805,13 +805,9 @@ export function MemberDetailPanel({
       slots={{
         overlays: slot(overlayCards),
         afterIdentityCards: notHere(
-          "委託任務卡是外包獨有：外包與任務一對一綁定（任務終態即 release），" +
-            "正職沒有對應概念（docs/design/worker-panel-parity.md C4）",
+          "正職沒有綁定的任務；外包的任務畫在它自己的身分卡裡（docs/design/worker-panel-parity.md C4）",
         ),
-        afterInfoCards: notHere(
-          "委託人卡是外包獨有：外包是系統代 owner 生出來的，「誰委託的」是它才有的" +
-            "來歷資訊（docs/design/worker-panel-parity.md C3）",
-        ),
+        afterInfoCards: notHere("兩邊都沒有：外包的委託人已依 owner 拿掉（docs/design/worker-panel-parity.md C3）"),
         extraExpandCards: slot(extraExpandCards),
         afterPromptCards: slot(resumeSummaryCard),
       }}
