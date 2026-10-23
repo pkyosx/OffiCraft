@@ -78,3 +78,24 @@
 .md-mention:focus-visible {
   text-decoration: underline;
 }
+/* The composer's mention marks (MentionHighlight). The layer sits ON TOP of
+ * the textarea with transparent text, so the tint must stay translucent or it
+ * hides the glyphs underneath; it never takes pointer events, so clicks and
+ * the caret stay the textarea's. */
+.mention-highlight {
+  position: absolute;
+  z-index: 1;
+  margin: 0;
+  overflow: hidden;
+  border-style: solid;
+  border-color: transparent;
+  background: transparent;
+  color: transparent;
+  pointer-events: none;
+}
+.mention-highlight__mark {
+  border-radius: 4px;
+  background: var(--color-accent-soft);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 45%, transparent);
+  color: transparent;
+}

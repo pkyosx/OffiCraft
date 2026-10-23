@@ -162,4 +162,90 @@ describe("ReplyComposer @mention", () => {
     });
     expect(onSend.mock.calls[0][0]).toBe("@Mira 決定");
   });
+
+  it("names that match the roster → marked in the box exactly as they will be linked; other @ text is not", () => {
+    const { container, type } = renderComposer();
+    type("@Mira 和 @Bob 看 `@Mira` 跟 @Family Money Eva");
+    const marks = Array.from(
+      container.querySelectorAll(".mention-highlight__mark"),
+      (m) => m.textContent,
+    );
+    expect(marks).toEqual(["@Mira", "@Family Money Eva"]);
+    expect(container.querySelector(".mention-highlight")?.textContent).toBe(
+      "@Mira 和 @Bob 看 `@Mira` 跟 @Family Money Eva ",
+    );
+  });
+
+  it("no mention in the box → no highlight layer", () => {
+    const { container, type } = renderComposer();
+    type("@Bob 你好");
+    expect(container.querySelector(".mention-highlight")).toBeNull();
+  });
+
+  it("Backspace right after a mention → the whole @name goes and the caret sits where it began", () => {
+    const { input, type, container } = renderComposer();
+    type("請 @Family Money Eva 看");
+    input.setSelectionRange(19, 19);
+    const prevented = !fireEvent.keyDown(input, { key: "Backspace" });
+    expect(prevented).toBe(true);
+    expect(input.value).toBe("請  看");
+    expect(input.selectionStart).toBe(2);
+    expect(container.querySelector(".mention-highlight")).toBeNull();
+  });
+
+  it("Delete right before a mention → the whole @name goes", () => {
+    const { input, type } = renderComposer();
+    type("請 @Mira 看");
+    input.setSelectionRange(2, 2);
+    const prevented = !fireEvent.keyDown(input, { key: "Delete" });
+    expect(prevented).toBe(true);
+    expect(input.value).toBe("請  看");
+    expect(input.selectionStart).toBe(2);
+  });
+
+  it("Backspace away from a mention, with a modifier, or over a selection → left to the textarea", () => {
+    const { input, type } = renderComposer();
+    type("@Mira 看");
+    input.setSelectionRange(6, 6);
+    expect(fireEvent.keyDown(input, { key: "Backspace" })).toBe(true);
+    input.setSelectionRange(5, 5);
+    expect(fireEvent.keyDown(input, { key: "Backspace", altKey: true })).toBe(true);
+    input.setSelectionRange(3, 5);
+    expect(fireEvent.keyDown(input, { key: "Backspace" })).toBe(true);
+    expect(input.value).toBe("@Mira 看");
+  });
+
+  it("Backspace while the IME is composing → left to the IME", () => {
+    const { input, type } = renderComposer();
+    type("@Mira 看");
+    input.setSelectionRange(5, 5);
+    fireEvent.compositionStart(input);
+    expect(fireEvent.keyDown(input, { key: "Backspace", keyCode: 229 })).toBe(true);
+    expect(input.value).toBe("@Mira 看");
+  });
+
+  it("Backspace after a typed full name while the list is still open → the whole @name goes", () => {
+    const { input, options, type } = renderComposer();
+    type("@Mira");
+    input.setSelectionRange(5, 5);
+    expect(options()).toEqual(["Mira特助"]);
+    expect(fireEvent.keyDown(input, { key: "Backspace" })).toBe(false);
+    expect(input.value).toBe("");
+  });
+
+  it("caret placed inside a mention → moved past its end, or before its @ when it came from the right", () => {
+    const { input, type } = renderComposer();
+    type("hi @Mira ok");
+    input.focus();
+    input.setSelectionRange(1, 1);
+    fireEvent.select(input);
+    input.setSelectionRange(5, 5);
+    fireEvent.select(input);
+    expect(input.selectionStart).toBe(8);
+    input.setSelectionRange(10, 10);
+    fireEvent.select(input);
+    input.setSelectionRange(6, 6);
+    fireEvent.select(input);
+    expect(input.selectionStart).toBe(3);
+  });
 });

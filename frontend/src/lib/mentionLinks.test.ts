@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  findMentions,
   linkMentions,
   mentionHref,
   mentionTargetFromHref,
@@ -67,6 +68,16 @@ describe("linkMentions", () => {
     expect(linkMentions("@Nobody and @Family", ALL)).toBe(
       "@Nobody and [@Family](/#office/member/m-fam)",
     );
+  });
+});
+
+describe("findMentions", () => {
+  it("mentions across lines → offsets into the whole text, skipping fences, code spans and links", () => {
+    const text = "@Family hi\n```\n@Family\n```\n`@Family` [@Family](/x) @外包 · O-7";
+    expect(findMentions(text, ALL)).toEqual([
+      { start: 0, end: 7, target: FAMILY },
+      { start: 51, end: 60, target: O7 },
+    ]);
   });
 });
 
