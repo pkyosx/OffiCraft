@@ -46,8 +46,14 @@ function unescapeLabel(label: string): string {
 
 const MENTION_LINK_RE = /\[@((?:\\.|[^\]\\])+)\]\(([^)\s]+)\)/g;
 // The server cuts a quote line at a rune cap and appends "…", which can land
-// inside a mention link's destination.
-const CUT_MENTION_LINK_RE = /\[@((?:\\.|[^\]\\])+)\]\(\/#office\/[^)\s]*…$/;
+// anywhere inside a mention link: in the name, on "](", or in the destination.
+const CUT_MENTION_LINK_RE = /\[@((?:\\.|[^\]\\])+?)(?:\](?:\(([^)\s]*))?)?…$/;
+const MENTION_HREF_PREFIX = "/#office/";
+
+function isCutMentionDestination(partial: string | undefined): boolean {
+  if (partial === undefined) return true;
+  return MENTION_HREF_PREFIX.startsWith(partial) || partial.startsWith(MENTION_HREF_PREFIX);
+}
 
 function linkLine(line: string, byLongest: NamedMentionTarget[]): string {
   const ranges: Array<[number, number]> = [];
@@ -116,5 +122,7 @@ export function unlinkMentions(text: string): string {
     .replace(MENTION_LINK_RE, (whole, label: string, href: string) =>
       mentionTargetFromHref(href) ? `@${unescapeLabel(label)}` : whole,
     )
-    .replace(CUT_MENTION_LINK_RE, (_whole, label: string) => `@${unescapeLabel(label)}…`);
+    .replace(CUT_MENTION_LINK_RE, (whole, label: string, partial: string | undefined) =>
+      isCutMentionDestination(partial) ? `@${unescapeLabel(label)}…` : whole,
+    );
 }

@@ -106,9 +106,13 @@ describe("insertMention", () => {
     });
   });
 
-  it("query followed by a space → reuses it (no double space), caret after it", () => {
+  it("query followed by a space or tab → reuses it (no double space), caret after it", () => {
     expect(insertMention("hi @mi there", { start: 3, query: "mi" }, "Mira")).toEqual({
       text: "hi @Mira there",
+      caret: 9,
+    });
+    expect(insertMention("hi @mi\tthere", { start: 3, query: "mi" }, "Mira")).toEqual({
+      text: "hi @Mira\tthere",
       caret: 9,
     });
   });

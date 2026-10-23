@@ -104,9 +104,17 @@ describe("unlinkMentions", () => {
     );
   });
 
-  it("a quote cut by the server inside a mention's destination → @name and the ellipsis", () => {
+  it("a quote cut by the server anywhere inside a mention link → @name and the ellipsis", () => {
     expect(unlinkMentions("看一下 [@Mira](/#office/member/m-1) 和 [@Family](/#office/mem…")).toBe(
       "看一下 @Mira 和 @Family…",
     );
+    expect(unlinkMentions("和 [@Mira](/#off…")).toBe("和 @Mira…");
+    expect(unlinkMentions("和 [@Mira](…")).toBe("和 @Mira…");
+    expect(unlinkMentions("和 [@Mira]…")).toBe("和 @Mira…");
+    expect(unlinkMentions("和 [@Fam…")).toBe("和 @Fam…");
+  });
+
+  it("a quote cut inside a link to another destination → left as written", () => {
+    expect(unlinkMentions("見 [@doc](https://exa…")).toBe("見 [@doc](https://exa…");
   });
 });
