@@ -122,6 +122,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "chat.mdPreview.zoomIn",
   "chat.mdPreview.zoomOut",
   "chat.me",
+  "chat.mentionListLabel",
   "chat.newMsgPreviewDismiss",
   "chat.offlineHint",
   "chat.offlineQueueHintLead",

@@ -742,6 +742,22 @@
   text-decoration: underline;
   cursor: pointer;
 }
+/* A chat @mention: a <button> that opens the person's detail in place, so it
+ * reads as a name tag rather than an underlined link. */
+.doc-md .md-mention {
+  padding: 0 2px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--color-accent-soft);
+  font: inherit;
+  font-weight: 600;
+  color: var(--color-accent);
+  cursor: pointer;
+}
+.doc-md .md-mention:hover,
+.doc-md .md-mention:focus-visible {
+  text-decoration: underline;
+}
 /* T-68f1 — GitHub alert blockquotes (`> [!NOTE]`). The renderer strips the
  * marker line and leaves the severity as a class; the ONLY thing carried here
  * is the accent colour, so no label text (and therefore no i18n) is needed. */

@@ -1186,6 +1186,7 @@ export const zh = {
     imageAlt: "聊天圖片",
     viewImageLabel: "檢視原圖",
     attachLabel: "附加檔案",
+    mentionListLabel: "提及成員",
     attachTooLarge: (maxMb: number) => `檔案太大（上限 ${maxMb} MB）`,
     // 件數上限防呆:一則訊息最多帶 N 個附件(超過的不入列)。
     attachTooMany: (max: number) => `一則訊息最多附 ${max} 個檔案`,
