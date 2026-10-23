@@ -1,5 +1,5 @@
 // The avatar-corner presence dot and the activity status icon (or, for a member
-// that is offline or stopped, the moon; waking, or without a report yet, the unknown mark)
+// that is offline or stopped, the moon; without a report yet, the unknown mark)
 // leading the name on the list rows, the chat
 // header and the detail identity card, the activity tree in the 運行狀況 card, and the dialog
 // the icon opens, at phone and desktop widths.
