@@ -2169,23 +2169,111 @@ func TestCodexSessionHandleTurnCompleted(t *testing.T) {
 		}
 	})
 
-	t.Run("a v2 chain wakes the spawning sub-agent then the main thread, even after the grandchild messaged its parent", func(t *testing.T) {
-		s := newSession(t)
-		activityItem := func(on, kind, agent, path string) map[string]any {
+	const idleParentNotice = "[OffiCraft sidecar] sub-agent /root/mid 叫起的 sub-agent /root/mid/grand 已經結束，" +
+		"結果送到了 /root/mid，但 /root/mid 目前閒置、不會自己讀到；需要它接著處理時，請用 followup_task 叫 /root/mid 繼續。"
+	noticeStart := func(id float64) map[string]any {
+		return map[string]any{"id": id, "method": "turn/start", "params": map[string]any{
+			"threadId": "th_1", "effort": "medium",
+			"input": []any{map[string]any{"type": "text", "text": idleParentNotice}},
+		}}
+	}
+	noticeSteer := func(id float64, turnID string) map[string]any {
+		return map[string]any{"id": id, "method": "turn/steer", "params": map[string]any{
+			"threadId": "th_1", "expectedTurnId": turnID,
+			"input": []any{map[string]any{"type": "text", "text": idleParentNotice}},
+		}}
+	}
+	v2Tree := func(s *codexTestSession) {
+		item := func(on, kind, agent, path string) map[string]any {
 			return map[string]any{"threadId": on, "item": map[string]any{
 				"type": "subAgentActivity", "kind": kind, "agentThreadId": agent, "agentPath": path}}
 		}
+		s.trackActivity("item/completed", item("th_1", "started", "th_mid", "/root/mid"))
+		s.trackActivity("item/completed", item("th_mid", "started", "th_grand", "/root/mid/grand"))
+		s.trackActivity("item/completed", item("th_mid", "started", "th_grand2", "/root/mid/grand2"))
+		s.trackActivity("item/completed", item("th_grand", "interacted", "th_mid", "/root/mid"))
+	}
 
-		s.trackActivity("item/completed", activityItem("th_1", "started", "th_mid", "/root/mid"))
-		s.trackActivity("item/completed", activityItem("th_mid", "started", "th_grand", "/root/mid/grand"))
-		s.trackActivity("item/completed", activityItem("th_grand", "interacted", "th_mid", "/root/mid"))
+	t.Run("a v2 grandchild's end with its parent idle tells an idle main thread once, and the parent's own end later wakes it", func(t *testing.T) {
+		s := newSession(t)
+		v2Tree(s)
+
 		turnEvent(s, "turn/completed", "th_grand")
+		turnEvent(s, "turn/completed", "th_grand2")
+
+		if got, want := s.sent(t), []map[string]any{noticeStart(1)}; !reflect.DeepEqual(got, want) {
+			t.Fatalf("sent %v, want %v", got, want)
+		}
+		if got, want := s.paneLines(t), []string{
+			"a sub-agent of idle sub-agent /root/mid finished; telling the main thread", "turn started",
+		}; !reflect.DeepEqual(got, want) {
+			t.Errorf("the pane shows %q, want %q", got, want)
+		}
+
+		turnEvent(s, "turn/started", "th_1")
 		turnEvent(s, "turn/started", "th_mid")
+		turnEvent(s, "turn/completed", "th_1")
+		turnEvent(s, "turn/completed", "th_mid")
+		turnEvent(s, "turn/started", "th_1")
+		turnEvent(s, "turn/completed", "th_grand")
+
+		want := []map[string]any{noticeStart(1), mainWake(2), noticeSteer(3, "t_th_1")}
+		if got := s.sent(t); !reflect.DeepEqual(got, want) {
+			t.Errorf("sent %v, want %v", got, want)
+		}
+	})
+
+	t.Run("a v2 grandchild's end with its parent idle steers a main thread mid-turn, or waits for one starting", func(t *testing.T) {
+		chat := map[string]any{"id": float64(1), "method": "turn/start", "params": map[string]any{
+			"threadId": "th_1", "effort": "medium",
+			"input": []any{map[string]any{"type": "text", "text": "[chat] owner: 早安"}},
+		}}
+		cases := []struct {
+			name string
+			busy func(s *codexTestSession)
+			want []map[string]any
+		}{
+			{"mid-turn", func(s *codexTestSession) { turnEvent(s, "turn/started", "th_1") },
+				[]map[string]any{noticeSteer(1, "t_th_1")}},
+			{"starting a turn", func(s *codexTestSession) { s.startTurn("[chat] owner: 早安", nil) },
+				[]map[string]any{chat, noticeSteer(2, "t_th_1")}},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				s := newSession(t)
+				v2Tree(s)
+				tc.busy(s)
+
+				turnEvent(s, "turn/completed", "th_grand")
+				turnEvent(s, "turn/completed", "th_grand2")
+				if !s.active {
+					turnEvent(s, "turn/started", "th_1")
+				}
+
+				if got := s.sent(t); !reflect.DeepEqual(got, tc.want) {
+					t.Errorf("sent %v, want %v", got, tc.want)
+				}
+			})
+		}
+	})
+
+	t.Run("a v2 grandchild's end leaves its running parent and the main thread alone", func(t *testing.T) {
+		s := newSession(t)
+		v2Tree(s)
+
+		turnEvent(s, "turn/started", "th_mid")
+		turnEvent(s, "turn/completed", "th_grand")
+
+		if s.in.Len() != 0 {
+			t.Fatalf("sent %q while /root/mid was mid-turn, want nothing", s.in.String())
+		}
+
 		turnEvent(s, "turn/completed", "th_mid")
 		turnEvent(s, "turn/started", "th_1")
 		turnEvent(s, "turn/completed", "th_1")
+		turnEvent(s, "turn/completed", "th_grand")
 
-		if got, want := s.sent(t), []map[string]any{subagentWake(1, "th_mid"), mainWake(2)}; !reflect.DeepEqual(got, want) {
+		if got, want := s.sent(t), []map[string]any{mainWake(1), noticeStart(2)}; !reflect.DeepEqual(got, want) {
 			t.Errorf("sent %v, want %v", got, want)
 		}
 	})

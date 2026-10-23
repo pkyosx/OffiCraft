@@ -131,26 +131,39 @@ The Codex member boot sequence changes only execution ownership:
    the account's `tokens` (`POST /api/monitoring/telemetry`): the sidecar keeps the latest
    cumulative `total` of every thread seen this session, main and sub-agents, kept after
    a thread ends, and reports the per-key sum (owner ruling).
-   Codex writes a finished sub-agent's result into its parent's history but never starts
-   a parent turn for it, so an idle parent would sit on the result until some other input
-   woke it. When a sub-agent thread's `turn/completed` arrives with any status but
-   `interrupted` (an interrupt leaves no result), the sidecar therefore
-   sends one `turn/start` on that sub-agent's parent, a fixed sidecar-authored line saying
-   a sub-agent finished and to continue from its result — but only if the parent is idle.
-   A parent with a turn running, or already starting one (including an earlier wake not
-   yet seen as `turn/started` and not released by the thread leaving the active status),
-   gets nothing: the result reaches its running turn natively, so several children
-   ending together cost one wake and nobody is interrupted. The parent is the thread
-   that declared the spawn — the `collabAgentToolCall` `spawnAgent` item's
-   `senderThreadId` (multi-agent v1) or the thread carrying the `subAgentActivity` item
-   of kind `started` (v2; its other kinds sit on whichever thread talked to the agent) —
+   Codex writes a finished sub-agent's result into its parent's history (v1) or mailbox
+   (v2) but never starts a parent turn for it, so an idle parent would sit on the result
+   until some other input woke it. The sidecar acts on a sub-agent thread's
+   `turn/completed` with any status but `interrupted` (an interrupt leaves no result).
+   The parent is the thread that declared the spawn — the `collabAgentToolCall`
+   `spawnAgent` item's `senderThreadId` (multi-agent v1) or the thread carrying the
+   `subAgentActivity` item of kind `started` (v2; its other kinds sit on whichever thread
+   talked to the agent, and the `started` item also gives the v2 agent's `agentPath`) —
    and no recorded parent means the main thread. The first recorded parent stands, and
-   one that would close a cycle is refused. Nesting follows from the same rule: a
-   grandchild wakes its idle intermediate sub-agent, and that sub-agent's own end wakes the main thread. A main-thread
-   wake is an ordinary delivery without a listener batch, so OffiCraft events arriving
-   meanwhile wait for and steer the woken turn; a sub-agent-thread wake carries no
-   `effort` (it would override the one the sub-agent was spawned with) and never touches
-   the main thread's delivery state. A refused wake is logged in the pane and dropped.
+   one that would close a cycle is refused.
+
+   - A parent with a turn running, or already woken or reported (until its next
+     `turn/started` or its thread leaving the active status), gets nothing: the result
+     reaches its running turn natively, so several children ending together cost one
+     action and nobody is interrupted.
+   - Idle main thread: one sidecar-authored `turn/start` saying a sub-agent finished and
+     to continue from its result.
+   - Idle v1 sub-agent: the same `turn/start` sent on that sub-agent's thread, without
+     `effort` (it would override the one the sub-agent was spawned with), tracked apart
+     from the main thread's delivery state.
+   - Idle v2 sub-agent: the App Server refuses direct input to v2 sub-agents, and only
+     another agent's `followup_task` makes an idle one read its mailbox. So the sidecar
+     leaves it alone and tells the main thread instead, naming both agent paths and
+     asking it to `followup_task` the parent if the result needs handling — as a new
+     turn when the main thread is idle, steered into its running turn when busy (the one
+     case a busy main thread is sent anything, because nothing else would tell it), or
+     queued behind a turn that is starting. Members' models run v2, so this is the
+     common nested path.
+
+   Nesting follows from the same rule: once an intermediate sub-agent runs and finishes,
+   its own end wakes the main thread. Main-thread messages are ordinary deliveries without
+   a listener batch, so OffiCraft events arriving meanwhile wait for and steer the woken
+   turn. A refused wake is logged in the pane and dropped.
 
 ### Context compaction and refocus
 

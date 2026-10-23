@@ -162,7 +162,10 @@ type codexSession struct {
 	subagentNames map[string]string
 	// A missing entry means the main thread. Never forgotten: a finished
 	// sub-agent woken again later must still wake the thread that spawned it.
-	subagentParent     map[string]string
+	subagentParent map[string]string
+	// The agentPath of every multi-agent v2 sub-agent, from its spawn item.
+	// Codex refuses direct input to these, so they cannot be woken like v1 ones.
+	v2SubagentPaths    map[string]string
 	lastActivity       string
 	threadTokenTotals  map[string]map[string]any
 	lastReportedTokens string
@@ -173,9 +176,9 @@ type codexSession struct {
 	batch    *codexBatch
 	ackTo    io.Writer
 
-	// Sub-agent threads sent a wake whose turn has not started yet, and the
-	// request id of each such turn/start. The main thread's wake rides
-	// starting/pending instead.
+	// Sub-agent threads sent a wake (v1) or reported idle to the main thread
+	// (v2) whose next turn has not started yet, and the request id of each v1
+	// wake's turn/start. The main thread's wake rides starting/pending instead.
 	wakingSubagents map[string]bool
 	subagentWakes   map[int]string
 }
@@ -688,6 +691,10 @@ func (s *codexSession) trackActivity(method string, params map[string]any) {
 			if item["kind"] == "started" {
 				parent, _ := params["threadId"].(string)
 				s.recordSubagentParent(agentThreadID, parent)
+				if s.v2SubagentPaths == nil {
+					s.v2SubagentPaths = map[string]string{}
+				}
+				s.v2SubagentPaths[agentThreadID] = agentPath
 			}
 		default:
 			return
@@ -871,18 +878,31 @@ func (s *codexSession) wakeIdleParent(child string) {
 	if _, running := s.runningSubagents[parent]; running || s.wakingSubagents[parent] {
 		return
 	}
+	if s.wakingSubagents == nil {
+		s.wakingSubagents = map[string]bool{}
+		s.subagentWakes = map[int]string{}
+	}
+	s.wakingSubagents[parent] = true
+	// Only another agent's followup_task can make an idle v2 sub-agent read its
+	// mailbox, so the main agent is told even mid-turn: nothing else would tell it.
+	if parentPath, v2 := s.v2SubagentPaths[parent]; v2 {
+		s.activity("a sub-agent of idle sub-agent %s finished; telling the main thread", parentPath)
+		s.steerOrStart(codexIdleV2ParentNotice(parentPath, s.v2SubagentPaths[child]), nil)
+		return
+	}
 	s.activity("a sub-agent finished; waking its parent sub-agent %s", parent)
 	// No effort: on a sub-agent thread it would override the effort it was spawned with.
 	id := s.send("turn/start", map[string]any{
 		"threadId": parent,
 		"input":    []any{map[string]any{"type": "text", "text": codexSubagentFinishedWake}},
 	})
-	if s.wakingSubagents == nil {
-		s.wakingSubagents = map[string]bool{}
-		s.subagentWakes = map[int]string{}
-	}
-	s.wakingSubagents[parent] = true
 	s.subagentWakes[id] = parent
+}
+
+func codexIdleV2ParentNotice(parentPath, childPath string) string {
+	return "[OffiCraft sidecar] sub-agent " + parentPath + " 叫起的 sub-agent " + childPath +
+		" 已經結束，結果送到了 " + parentPath + "，但 " + parentPath + " 目前閒置、不會自己讀到；" +
+		"需要它接著處理時，請用 followup_task 叫 " + parentPath + " 繼續。"
 }
 
 func (s *codexSession) resolveSubagentWake(id int, thread string, msg appServerMessage) {
