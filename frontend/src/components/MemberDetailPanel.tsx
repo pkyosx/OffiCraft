@@ -54,6 +54,7 @@ import "./member-detail.css";
 interface MemberDetailPanelProps {
   member: Member;
   onBack: () => void;
+  backLabel?: string;
   /** Spawn / wake / respawn a member — AND permanently rebind it — via
    * activateMember(id, machineId). The panel picks the machineId per the machine
    * picker rules (0 online → disabled, 1 → auto-use, 2+ → picker), then calls this
@@ -104,6 +105,7 @@ interface MemberDetailPanelProps {
 export function MemberDetailPanel({
   member,
   onBack,
+  backLabel,
   onActivate,
   onRelocate,
   onDeactivate,
@@ -795,6 +797,7 @@ export function MemberDetailPanel({
   return (
     <AgentDetailPanel
       onBack={onBack}
+      backLabel={backLabel}
       machineName={machineDisplay}
       identity={identityCard}
       // EVERY slot the panel offers, no exceptions (T-0b4f). A slot this side

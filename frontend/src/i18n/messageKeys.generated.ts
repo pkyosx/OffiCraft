@@ -541,6 +541,8 @@ export const MESSAGE_KEYS: readonly string[] = [
   "mp.avatarTypeError",
   "mp.avatarUpload",
   "mp.back",
+  "mp.backToReplies",
+  "mp.backToTasks",
   "mp.change",
   "mp.claudeAccount",
   "mp.codexAccount",

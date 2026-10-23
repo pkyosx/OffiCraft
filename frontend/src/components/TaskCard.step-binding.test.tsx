@@ -261,6 +261,7 @@ describe("TaskCard 卡綁 step", () => {
     );
     __injectMockTask(
       mkTask({
+        id: "task-mention",
         steps: [
           mkStep({ status: "done", replyCardId: "rc-mention", orderIdx: 0 }),
         ],
@@ -281,7 +282,9 @@ describe("TaskCard 卡綁 step", () => {
 
     fireEvent.click(await findByTestId("task-reply-card-expand"));
     fireEvent.click((await findByTestId("final-answer")).querySelector("button.md-mention")!);
-    expect(window.location.hash).toBe("#office/member/mira/from/tasks");
+    expect(window.location.hash).toBe(
+      "#office/member/mira/from/tasks/task-mention"
+    );
   });
 
   it("shows the waiting badge only while the bound card is WAITING; answered/expired render their own badges", async () => {

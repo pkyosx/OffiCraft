@@ -12,12 +12,11 @@
  *                                                   with a "[<taskNo>] " prefix
  *   #office/chat/<memberId>/member/<detailId>     → member detail over that chat
  *   #office/member/<detailId>                     → member detail (no chat pick)
- *   #office/member/<detailId>/from/replies        → member detail, 返回 lands
- *                                                   on #replies instead of the
- *                                                   default chat-view reset
+ *   #office/member/<detailId>/from/replies/<id>   → member detail, 返回 lands
+ *                                                   on that reply card
  *   #office/worker/<workerId>                     → outsource worker detail
- *   #office/worker/<workerId>/from/replies        → worker detail, same 返回
- *                                                   override as above
+ *   #office/worker/<workerId>/from/replies/<id>   → worker detail, same 返回
+ *                                                   destination as above
  *   #replies                                      → awaiting-reply page
  *   #replies/card/<replyCardId>                   → awaiting-reply page,
  *                                                   FILTERED to that card
@@ -143,6 +142,8 @@ export interface HashRoute {
    * dropping the owner into an unrelated chat room instead of back where they
    * came from). Extend the union as more surfaces deep-link in. */
   backTo?: "replies" | "tasks";
+  /** replies/tasks only — the item whose deep link should be restored on return. */
+  backToId?: string;
 }
 
 /** `decodeURIComponent` THROWS on a malformed escape — a lone `%`, `%zz` — and
@@ -260,6 +261,7 @@ export function parseHash(raw: string): HashRoute {
     (rest[i + 1] === "replies" || rest[i + 1] === "tasks")
   ) {
     route.backTo = rest[i + 1] as "replies" | "tasks";
+    if (rest[i + 2]) route.backToId = rest[i + 2];
   }
   return route;
 }
@@ -317,7 +319,11 @@ export function formatHash(route: HashRoute): string {
   // backTo is meaningless without an open detail/worker panel — same
   // drop-if-dangling rule as msg/compose above.
   if ((route.detailId || route.workerId) && route.backTo)
-    segs.push("from", route.backTo);
+    segs.push(
+      "from",
+      route.backTo,
+      ...(route.backToId ? [encodeURIComponent(route.backToId)] : []),
+    );
   // Bare office is the canonical HOME → clean root (no lone "#office" clutter).
   return segs.length ? `#office/${segs.join("/")}` : "";
 }

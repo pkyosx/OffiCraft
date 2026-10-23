@@ -60,6 +60,18 @@ describe("parseHash", () => {
       workerId: "ow-7",
       backTo: "tasks",
     });
+    expect(parseHash("#office/member/kyle/from/replies/rc-1")).toEqual({
+      page: "office",
+      detailId: "kyle",
+      backTo: "replies",
+      backToId: "rc-1",
+    });
+    expect(parseHash("#office/worker/ow-7/from/tasks/task-1")).toEqual({
+      page: "office",
+      workerId: "ow-7",
+      backTo: "tasks",
+      backToId: "task-1",
+    });
     expect(parseHash("#office/member/kyle/from/foo")).toEqual({
       page: "office",
       detailId: "kyle",
@@ -245,6 +257,22 @@ describe("formatHash", () => {
     expect(formatHash({ page: "office", workerId: "ow-7", backTo: "tasks" })).toBe(
       "#office/worker/ow-7/from/tasks"
     );
+    expect(
+      formatHash({
+        page: "office",
+        detailId: "kyle",
+        backTo: "replies",
+        backToId: "rc/1",
+      })
+    ).toBe("#office/member/kyle/from/replies/rc%2F1");
+    expect(
+      formatHash({
+        page: "office",
+        workerId: "ow-7",
+        backTo: "tasks",
+        backToId: "task-1",
+      })
+    ).toBe("#office/worker/ow-7/from/tasks/task-1");
     // T-e987 settings deep-link + compose seed segments.
     expect(formatHash({ page: "settings", manualKey: "review-pr" })).toBe(
       "#settings/manuals/review-pr"
@@ -313,6 +341,18 @@ describe("formatHash", () => {
       { page: "office" as const, chatId: "mira", composeTaskNo: "T-7d40" },
       { page: "office" as const, detailId: "kyle", backTo: "tasks" as const },
       { page: "office" as const, workerId: "ow-7", backTo: "tasks" as const },
+      {
+        page: "office" as const,
+        detailId: "kyle",
+        backTo: "replies" as const,
+        backToId: "rc/1",
+      },
+      {
+        page: "office" as const,
+        workerId: "ow-7",
+        backTo: "tasks" as const,
+        backToId: "task-1",
+      },
     ];
     for (const r of routes) {
       expect(parseHash(formatHash(r))).toEqual(r);

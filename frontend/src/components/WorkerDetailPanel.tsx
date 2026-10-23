@@ -61,6 +61,7 @@ interface WorkerDetailPanelProps {
    * removing it is a separate, wider change; nothing here consumes it. */
   session?: MonSessionView;
   onBack: () => void;
+  backLabel?: string;
   /** Jump to the bound task (#tasks/<taskId>); only wired when the worker has a
    * resolvable task. */
   onOpenTask?: () => void;
@@ -127,6 +128,7 @@ interface WorkerDetailPanelProps {
 export function WorkerDetailPanel({
   worker,
   onBack,
+  backLabel,
   onOpenTask,
   onRelocate,
   onRefocus,
@@ -779,6 +781,7 @@ export function WorkerDetailPanel({
   return (
     <AgentDetailPanel
       onBack={onBack}
+      backLabel={backLabel}
       machineName={machineDisplay}
       identity={identity}
       // EVERY slot the panel offers, no exceptions (T-0b4f) — see the twin

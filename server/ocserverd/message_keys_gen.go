@@ -542,6 +542,8 @@ var messageKeys = map[string]bool{
 	"mp.avatarTypeError":                               true,
 	"mp.avatarUpload":                                  true,
 	"mp.back":                                          true,
+	"mp.backToReplies":                                 true,
+	"mp.backToTasks":                                   true,
 	"mp.change":                                        true,
 	"mp.claudeAccount":                                 true,
 	"mp.codexAccount":                                  true,

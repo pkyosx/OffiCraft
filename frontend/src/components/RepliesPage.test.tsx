@@ -352,6 +352,8 @@ describe("RepliesPage", () => {
         );
         const card = await findByTestId("expired-card");
         expect(card.querySelector(".reply-card__name")?.textContent).toBe(expected);
+        expect(card.getAttribute("aria-expanded")).toBe("true");
+        expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
         unmount();
       }
     } finally {
@@ -539,7 +541,7 @@ describe("RepliesPage", () => {
     const final = answeredCard.querySelector('[data-testid="final-answer"]')!;
     expect(final.textContent).toBe("你選的交給 @Mira 處理");
     fireEvent.click(final.querySelector("button.md-mention")!);
-    expect(window.location.hash).toBe("#office/member/mira/from/replies");
+    expect(window.location.hash).toBe("#office/member/mira/from/replies/rc-1");
   });
 
   it("arrival with every card collapsed reads only the light roster, never the outsource list", async () => {
@@ -620,7 +622,7 @@ describe("RepliesPage", () => {
     });
     const final = answeredCard.querySelector('[data-testid="final-answer"]')!;
     fireEvent.click(final.querySelector("button.md-mention")!);
-    expect(window.location.hash).toBe("#office/worker/ow-7/from/replies");
+    expect(window.location.hash).toBe("#office/worker/ow-7/from/replies/rc-done");
     expect(workersSpy).toHaveBeenCalledTimes(1);
   });
 
@@ -797,7 +799,7 @@ describe("RepliesPage", () => {
     // OfficePage's own 返回 button reset to its default chat view instead of
     // back here — see OfficePage.member-detail-backto.test.tsx for the fix
     // proven from the OTHER side of this hash contract.
-    expect(window.location.hash).toBe("#office/member/mira/from/replies");
+    expect(window.location.hash).toBe("#office/member/mira/from/replies/rc-1");
   });
 
   it("clicking an outsource asker's avatar opens the worker panel (#office/worker/<id>), not the member one, same 返回 tag", async () => {
@@ -811,7 +813,7 @@ describe("RepliesPage", () => {
       "/api/chat/attachment/ava-worker",
     );
     fireEvent.click(card.querySelector(".reply-card__avatar")!);
-    expect(window.location.hash).toBe("#office/worker/ow-rel/from/replies");
+    expect(window.location.hash).toBe("#office/worker/ow-rel/from/replies/rc-ow");
   });
 
   it("the avatar has an accessible name (aria-label) — Avatar's inner glyphs are aria-hidden", async () => {
