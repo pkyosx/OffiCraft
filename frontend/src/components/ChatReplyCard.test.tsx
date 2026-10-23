@@ -224,6 +224,26 @@ describe("ChatReplyCard", () => {
     expire.mockRestore();
   });
 
+  it.each([403, 409])(
+    "keeps a waiting card available when expiry is rejected with HTTP %i",
+    async (status) => {
+      __injectMockReplyCard(mkCard({}));
+      vi.spyOn(api, "expireReplyCard").mockRejectedValue(
+        Object.assign(new Error(`HTTP ${status}`), { status }),
+      );
+      const { findByTestId, findByText, queryByTestId } = await renderOpenCard();
+
+      fireEvent.click(await findByTestId("chat-reply-card-expire"));
+      await act(async () => {
+        fireEvent.click(await findByTestId("expire-confirm-btn"));
+      });
+
+      expect(await findByText("標為過期失敗，請稍後重試")).toBeTruthy();
+      expect(queryByTestId("expire-confirm")).toBeNull();
+      expect(await findByTestId("chat-reply-card-expire")).toBeTruthy();
+    },
+  );
+
   // The same owner-side claim on the CHAT surface: one tap on a chip and the
   // inline card is answered in place. Deliberately not "the answer POST fired"
   // — that phrasing survives a return to the two-step interaction.
