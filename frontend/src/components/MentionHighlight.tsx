@@ -66,14 +66,20 @@ export function MentionHighlight({
   const shown = ranges.length > 0;
 
   useLayoutEffect(() => {
-    if (inputRef.current && layerRef.current) mirror(inputRef.current, layerRef.current);
+    const input = inputRef.current;
+    if (!input || !layerRef.current) return;
+    mirror(input, layerRef.current);
+    // The composer sizes the textarea in its own layout effect, which runs
+    // after this one; re-read once that has landed, before the frame paints.
+    const frame = requestAnimationFrame(() => {
+      if (layerRef.current) mirror(input, layerRef.current);
+    });
+    return () => cancelAnimationFrame(frame);
   });
 
   useEffect(() => {
     const input = inputRef.current;
     if (!shown || !input) return;
-    // The composer sizes the textarea in its own layout effect, which runs
-    // after this component's, so height and scroll are re-read when they move.
     const sync = () => {
       if (layerRef.current) mirror(input, layerRef.current);
     };
