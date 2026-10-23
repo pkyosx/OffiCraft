@@ -107,6 +107,7 @@ import type {
   WireServerSettings,
   WireTask,
   WireTaskListItem,
+  WireTaskCount,
   WireTaskDepRef,
   WireTaskStep,
   WireTaskStepDetail,
@@ -137,6 +138,7 @@ import type {
   ServerSettingsView,
   OnboardingReportView,
   TaskView,
+  TaskCountView,
   TaskDepRefView,
   TaskStepView,
   TaskStepDetailView,
@@ -806,6 +808,7 @@ export function toTask(w: WireTask): TaskView {
     createdTs: w.created_ts ?? 0,
     updatedTs: w.updated_ts ?? 0,
     closedTs: w.closed_ts,
+    dueTs: w.due_ts ?? null,
     // Who forced this close and why (T-182 wire, T-192 surface). `?? ""` is
     // right HERE and would be a lie in `toTaskListItem`: `TaskDTO` always
     // declares both, so an absent value on this response means "not forced",
@@ -826,6 +829,18 @@ export function toTask(w: WireTask): TaskView {
     // empty one are the same `.length`. The light list has read the server's
     // count all along; this is the two projections finally agreeing.
     artifactCount: w.artifact_count ?? 0,
+  };
+}
+
+/** Map `GET /api/tasks/count`. The due fields are additive-optional: an older
+ * server omits them, which reads as nothing due. */
+export function toTaskCount(w: WireTaskCount): TaskCountView {
+  return {
+    open: w.open,
+    total: w.total ?? 0,
+    overdue: w.overdue ?? 0,
+    dueSoon: w.due_soon ?? 0,
+    dueNextChangeTs: w.due_next_change_ts ?? null,
   };
 }
 
@@ -871,6 +886,7 @@ export function toTaskListItem(w: WireTaskListItem): TaskView {
     createdTs: w.created_ts ?? 0,
     updatedTs: w.updated_ts ?? 0,
     closedTs: w.closed_ts,
+    dueTs: w.due_ts ?? null,
     progressDone: w.progress_done,
     progressTotal: w.progress_total,
     steps: [],

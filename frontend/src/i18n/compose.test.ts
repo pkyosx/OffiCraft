@@ -117,6 +117,12 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["zh", "taskMarkDuplicateBody", ["T-1234"], "把「T-1234」標記為某張原票的重複?任務將結案為重複、無法恢復。請選擇原票:"],
     ["zh", "taskDuplicateOf", ["T-9999"], "重複於 T-9999"],
     ["zh", "taskReassignTitle", ["T-1234"], "轉派 T-1234"],
+    ["zh", "taskDueOn", [10, 30], "10/30 到期"],
+    ["zh", "taskOverdueDays", [1], "逾期 1 天"],
+    ["zh", "taskOverdueDays", [2], "逾期 2 天"],
+    ["zh", "taskFilterOverdue", [3], "已逾期 3"],
+    ["zh", "taskFilterDueSoon", [4], "即將到期 4"],
+    ["zh", "taskDueBadgeLabel", [5], "已逾期或即將到期的任務 5"],
     // T-60 — the artifact version reader's four. The count is the `sp` case
     // again (zh runs the characters together, en needs the space), and it is
     // only ever printed for n > 1, so there is no singular rendering to pin.
@@ -276,6 +282,12 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["en", "taskMarkDuplicateBody", ["T-1234"], "Mark “T-1234” a duplicate of another task? It moves to Duplicate and cannot be resumed. Pick the original:"],
     ["en", "taskDuplicateOf", ["T-9999"], "Duplicate of T-9999"],
     ["en", "taskReassignTitle", ["T-1234"], "Reassign T-1234"],
+    ["en", "taskDueOn", [10, 30], "Due 10/30"],
+    ["en", "taskOverdueDays", [1], "Overdue 1 day"],
+    ["en", "taskOverdueDays", [2], "Overdue 2 days"],
+    ["en", "taskFilterOverdue", [3], "Overdue 3"],
+    ["en", "taskFilterDueSoon", [4], "Due soon 4"],
+    ["en", "taskDueBadgeLabel", [5], "Tasks overdue or due soon: 5"],
     ["en", "replyWaited", ["3 小時"], "Waiting 3 小時"],
     ["en", "replyOpenedAt", ["7/13 09:05"], "Opened 7/13 09:05"],
     ["en", "replyAnsweredAt", ["7/13 09:05"], "Answered 7/13 09:05"],

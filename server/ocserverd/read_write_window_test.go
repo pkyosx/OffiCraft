@@ -392,6 +392,47 @@ func TestSetTaskPriorityDecidesFromTheRowItWrites(t *testing.T) {
 	}
 }
 
+func TestSetTaskDueDecidesFromTheRowItWrites(t *testing.T) {
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": a task closed after the handler read it stays closed", func(t *testing.T) {
+			d, hook, path := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			task := dalPutTask(t, d, windowOpenTask("T-1"))
+			dashboard := apiTestListen(t, api, "")
+			hook.closeTaskAfterRead(t, path, task.ID, "FROM task WHERE id")
+
+			status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/due", owner, `{"due_ts":1790000000}`)
+
+			hook.wantFiredOnce(t)
+			if status != http.StatusConflict {
+				t.Fatalf("want 409, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "conflict", "task 'T-1' is already closed (done)")
+			dalWantTask(t, d, windowClosed(task))
+			dashboard.wantFrames()
+		})
+	}
+
+	for _, shape := range windowDALShapes {
+		t.Run(shape+": "+"a write that fails leaves the row and fans nothing", func(t *testing.T) {
+			d, _, _ := windowDAL(t, shape)
+			api, h, _, owner := newAPITestServerOn(t, d)
+			task := dalPutTask(t, d, windowOpenTask("T-1"))
+			windowRefuseTaskWrites(t, d)
+			dashboard := apiTestListen(t, api, "")
+
+			status, data := windowJSON(t, h, "POST", "/api/tasks/T-1/due", owner, `{"due_ts":1790000000}`)
+
+			if status != http.StatusInternalServerError {
+				t.Fatalf("want 500, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "internal_error", windowTaskWriteFails)
+			dalWantTask(t, d, task)
+			dashboard.wantFrames()
+		})
+	}
+}
+
 func TestSetTaskDepsDecidesFromTheRowItWrites(t *testing.T) {
 	for _, shape := range windowDALShapes {
 		t.Run(shape+": a task closed after the handler read it stays closed", func(t *testing.T) {
@@ -1316,8 +1357,9 @@ func TestAReadIsNotQueuedBehindAWriteTransactionOverSplitPools(t *testing.T) {
 				t.Fatalf("GET /api/tasks/count did not answer within %s %s: the read queued "+
 					"behind the write connection", answerWithin, tc.name)
 			}
-			if rec.Code != http.StatusOK || rec.Body.String() != `{"open":1,"total":2}` {
-				t.Fatalf("want 200 {\"open\":1,\"total\":2}, got %d %s", rec.Code, rec.Body.String())
+			const want = `{"open":1,"total":2,"overdue":1,"due_soon":0,"due_next_change_ts":null}`
+			if rec.Code != http.StatusOK || rec.Body.String() != want {
+				t.Fatalf("want 200 %s, got %d %s", want, rec.Code, rec.Body.String())
 			}
 
 			if wrote == nil {

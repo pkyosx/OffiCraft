@@ -72,7 +72,7 @@ function writeLastOfficeChat(id: string | undefined): void {
 }
 
 export default function App({ onLogout }: { onLogout?: () => void } = {}) {
-  const { t } = useI18n();
+  const { t, msg } = useI18n();
   // The studio name is server-backed (T-d693); the localized dict string is the
   // fallback until the fetch lands / when the owner has not named the studio.
   const { orgName, setOrgName } = useOrgName(t.orgName);
@@ -121,7 +121,9 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   const chatUnread = useChatUnread();
   // The 任務 nav badge: how many tasks are OPEN (non-terminal; 已完成/終止
   // never count — spec §1). Live via /api/tasks/count + "task" SSE deltas.
-  const taskCount = useTaskCount().open;
+  const taskCounts = useTaskCount();
+  const taskCount = taskCounts.open;
+  const taskDueCount = taskCounts.overdue + taskCounts.dueSoon;
   // The gear opens Settings as an OVERLAY route (#settings); clicking a nav
   // tab navigates back to that tab.
   const settingsOpen = route.page === "settings";
@@ -398,6 +400,16 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
             {taskCount > 0 && (
               <span className="nav-tab__badge" data-testid="tasks-badge">
                 {taskCount > 99 ? "99+" : taskCount}
+              </span>
+            )}
+            {taskDueCount > 0 && (
+              <span
+                className="nav-tab__badge nav-tab__badge--due"
+                data-testid="tasks-due-badge"
+                role="img"
+                aria-label={msg.taskDueBadgeLabel(taskDueCount)}
+              >
+                {taskDueCount > 99 ? "99+" : taskDueCount}
               </span>
             )}
           </button>

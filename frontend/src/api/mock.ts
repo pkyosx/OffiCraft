@@ -5,6 +5,7 @@
 // HTTP adapter will use. Honesty is preserved end-to-end: no telemetry, no fake
 // online, no fabricated timestamps.
 
+import { DUE_SOON_WINDOW_S } from "../lib/dueDate";
 import type {
   Member,
   MonitoringView,
@@ -4315,9 +4316,31 @@ const mockApiImpl = {
     // Open (non-terminal) count — computed live, same rule as the server's
     // count endpoint (done/terminated never count) — plus the unfiltered total
     // (T-a3e4), which is every task INCLUDING the terminal ones.
+    const now = Date.now() / 1000;
+    const openTasks = tasks.filter((t) => !TERMINAL_TASK_STATUSES.has(t.status));
+    let overdue = 0;
+    let dueSoon = 0;
+    let dueNextChangeTs: number | null = null;
+    for (const t of openTasks) {
+      const due = t.dueTs ?? null;
+      if (due === null) continue;
+      if (due <= now) {
+        overdue += 1;
+        continue;
+      }
+      if (due <= now + DUE_SOON_WINDOW_S) dueSoon += 1;
+      const change =
+        due - DUE_SOON_WINDOW_S > now ? due - DUE_SOON_WINDOW_S : due;
+      if (dueNextChangeTs === null || change < dueNextChangeTs) {
+        dueNextChangeTs = change;
+      }
+    }
     return {
-      open: tasks.filter((t) => !TERMINAL_TASK_STATUSES.has(t.status)).length,
+      open: openTasks.length,
       total: tasks.length,
+      overdue,
+      dueSoon,
+      dueNextChangeTs,
     };
   },
 
@@ -4565,6 +4588,27 @@ const mockApiImpl = {
       );
     }
     t.priority = priority;
+    t.updatedTs = Date.now() / 1000;
+    emitTopic("task");
+  },
+
+  async setTaskDue(id: string, dueTs: number | null): Promise<void> {
+    const t = findTask(id);
+    if (TERMINAL_TASK_STATUSES.has(t.status)) {
+      throw mockApiError(
+        `http 409 for POST /api/tasks/${id}/due`,
+        409,
+        `task '${id}' is closed`
+      );
+    }
+    if (dueTs !== null && !(dueTs > 0)) {
+      throw mockApiError(
+        `http 422 for POST /api/tasks/${id}/due`,
+        422,
+        "due_ts must be greater than 0"
+      );
+    }
+    t.dueTs = dueTs;
     t.updatedTs = Date.now() / 1000;
     emitTopic("task");
   },

@@ -1151,6 +1151,11 @@ type taskStepMutationReceiptDTO struct {
 	ReadyForDoneNote string `json:"ready_for_done_note,omitempty"`
 }
 
+type taskDueReceiptDTO struct {
+	TaskID string   `json:"task_id"`
+	DueTS  *float64 `json:"due_ts"`
+}
+
 type taskPriorityReceiptDTO struct {
 	TaskID   string `json:"task_id"`
 	Priority string `json:"priority"`
@@ -1586,6 +1591,7 @@ type taskDTO struct {
 	CreatedTS          float64       `json:"created_ts"`
 	UpdatedTS          float64       `json:"updated_ts"`
 	ClosedTS           *float64      `json:"closed_ts"`
+	DueTS              *float64      `json:"due_ts"`
 	Deps               []string      `json:"deps"`
 	Steps              []taskStepDTO `json:"steps"`
 	// DetailLevel / NotesIncluded are always "summary" / false — constants, not a
@@ -1629,6 +1635,7 @@ type taskListItemDTO struct {
 	CreatedTS          float64  `json:"created_ts"`
 	UpdatedTS          float64  `json:"updated_ts"`
 	ClosedTS           *float64 `json:"closed_ts"`
+	DueTS              *float64 `json:"due_ts"`
 	Deps               []string `json:"deps"`
 
 	DepTasks      []taskDepRefDTO `json:"dep_tasks"`
@@ -1675,6 +1682,10 @@ type taskCountDTO struct {
 	Open int `json:"open"`
 
 	Total int `json:"total"`
+
+	Overdue         int      `json:"overdue"`
+	DueSoon         int      `json:"due_soon"`
+	DueNextChangeTS *float64 `json:"due_next_change_ts"`
 }
 
 type taskManualDTO struct {
@@ -1880,7 +1891,15 @@ func newTaskDTO(t Task, steps []TaskStep, deps []string, cardStatus map[string]s
 		ts := t.ClosedTS
 		dto.ClosedTS = &ts
 	}
+	dto.DueTS = dueTSWire(t.DueTs)
 	return dto
+}
+
+func dueTSWire(due float64) *float64 {
+	if due <= 0 {
+		return nil
+	}
+	return &due
 }
 
 func newTaskArtifactDTO(a TaskArtifact, att *ChatAttachment, retained int) taskArtifactDTO {
@@ -1994,6 +2013,7 @@ func newTaskListItemDTO(
 		ts := t.ClosedTS
 		dto.ClosedTS = &ts
 	}
+	dto.DueTS = dueTSWire(t.DueTs)
 	return dto
 }
 

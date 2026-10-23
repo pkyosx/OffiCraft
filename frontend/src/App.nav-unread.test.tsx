@@ -12,14 +12,19 @@ import { render, screen } from "@testing-library/react";
 import { I18nProvider } from "./i18n";
 
 // The office badge rides useChatUnread; drive it per-test via a hoisted stub.
-const state = vi.hoisted(() => ({ chatUnread: 0 }));
+const state = vi.hoisted(() => ({
+  chatUnread: 0,
+  taskCount: { open: 0, total: 0, overdue: 0, dueSoon: 0, dueNextChangeTs: null },
+}));
 vi.mock("./hooks/useChatUnread", () => ({
   useChatUnread: () => state.chatUnread,
 }));
 // The sibling count hooks and the heavy page bodies are irrelevant to the nav
 // badge under test — stub them so App mounts without touching the api layer.
 vi.mock("./hooks/useReplyCardCount", () => ({ useReplyCardCount: () => 0 }));
-vi.mock("./hooks/useTaskCount", () => ({ useTaskCount: () => 0 }));
+vi.mock("./hooks/useTaskCount", () => ({
+  useTaskCount: () => state.taskCount,
+}));
 // Studio-name seam mount-fetches /api/settings — stub it (like the badge hooks)
 // so App mounts without touching the api layer.
 vi.mock("./hooks/useOrgName", () => ({
@@ -67,5 +72,35 @@ describe("辦公室 nav unread badge", () => {
     state.chatUnread = 0;
     renderApp();
     expect(screen.queryByTestId("office-unread-badge")).toBeNull();
+  });
+});
+
+describe("任務 nav due badge", () => {
+  beforeEach(() => {
+    window.location.hash = "";
+    state.chatUnread = 0;
+  });
+
+  it("shows overdue plus due-soon as a separate red count beside the open count", () => {
+    state.taskCount = { open: 7, total: 9, overdue: 2, dueSoon: 3, dueNextChangeTs: null };
+    renderApp();
+    expect(screen.getByTestId("tasks-badge").textContent).toBe("7");
+    const due = screen.getByTestId("tasks-due-badge");
+    expect(due.textContent).toBe("5");
+    expect(due.className).toContain("nav-tab__badge--due");
+    expect(due.getAttribute("aria-label")).toBe("已逾期或即將到期的任務 5");
+  });
+
+  it("clamps the due count above 99 to \"99+\"", () => {
+    state.taskCount = { open: 300, total: 300, overdue: 60, dueSoon: 45, dueNextChangeTs: null };
+    renderApp();
+    expect(screen.getByTestId("tasks-due-badge").textContent).toBe("99+");
+  });
+
+  it("renders no due badge when nothing is overdue or due soon", () => {
+    state.taskCount = { open: 4, total: 4, overdue: 0, dueSoon: 0, dueNextChangeTs: null };
+    renderApp();
+    expect(screen.getByTestId("tasks-badge").textContent).toBe("4");
+    expect(screen.queryByTestId("tasks-due-badge")).toBeNull();
   });
 });

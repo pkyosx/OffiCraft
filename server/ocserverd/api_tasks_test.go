@@ -419,7 +419,7 @@ func TestTaskDTOOf(t *testing.T) {
 	t.Run("the served view carries the steps, both dependency directions, the card status and the artifact count", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner,
-			`{"title":"Ship it","executor_member_id":"kip","description":"the whole story"}`)
+			`{"title":"Ship it","executor_member_id":"kip","description":"the whole story","due_ts":1790000000}`)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Blocker","executor_member_id":"kip"}`)
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Waiter","executor_member_id":"kip"}`)
 		apiJSON(t, h, "POST", "/api/tasks/T-1/deps", owner, `{"blocked_by":["T-2"]}`)
@@ -479,6 +479,7 @@ func TestTaskDTOOf(t *testing.T) {
 			"created_ts":           apiAnyNumber,
 			"updated_ts":           apiAnyNumber,
 			"closed_ts":            nil,
+			"due_ts":               float64(1790000000),
 			"deps":                 []any{"T-2"},
 			"steps": []any{
 				map[string]any{
@@ -870,6 +871,7 @@ func TestWriteTask(t *testing.T) {
 			"created_ts":           apiAnyNumber,
 			"updated_ts":           apiAnyNumber,
 			"closed_ts":            nil,
+			"due_ts":               nil,
 			"deps":                 []any{"T-2"},
 			"steps": []any{map[string]any{
 				"id":                stepID,
@@ -2575,7 +2577,7 @@ func TestHandleListTasksApiTasksGet(t *testing.T) {
 	t.Run("every task on the roster is served as a full light list row", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		apiJSON(t, h, "POST", "/api/tasks", owner,
-			`{"title":"Ship it","executor_member_id":"kip","description":"desc"}`)
+			`{"title":"Ship it","executor_member_id":"kip","description":"desc","due_ts":1790000000}`)
 		dashboard := apiTestListen(t, api, "")
 
 		rec := apiRequest(t, h, "GET", "/api/tasks", owner, "")
@@ -2605,6 +2607,7 @@ func TestHandleListTasksApiTasksGet(t *testing.T) {
 			"created_ts":           apiAnyNumber,
 			"updated_ts":           apiAnyNumber,
 			"closed_ts":            nil,
+			"due_ts":               float64(1790000000),
 			"deps":                 []any{},
 			"dep_tasks":            []any{},
 			"progress_done":        0,
@@ -2747,6 +2750,7 @@ func TestHandleListTasksApiTasksGet(t *testing.T) {
 			"created_ts":           apiAnyNumber,
 			"updated_ts":           apiAnyNumber,
 			"closed_ts":            nil,
+			"due_ts":               nil,
 			"deps":                 []any{},
 			"dep_tasks":            []any{},
 			"progress_done":        0,
@@ -2787,6 +2791,7 @@ func TestHandleListTasksApiTasksGet(t *testing.T) {
 			"created_ts":           apiAnyNumber,
 			"updated_ts":           apiAnyNumber,
 			"closed_ts":            nil,
+			"due_ts":               nil,
 			"deps":                 []any{},
 			"dep_tasks":            []any{},
 			"progress_done":        0,
@@ -2919,8 +2924,28 @@ func TestHandleTaskCountApiTasksCountGet(t *testing.T) {
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantBody(t, data, map[string]any{"open": 1, "total": 2})
+		apiWantBody(t, data, map[string]any{
+			"open": 1, "total": 2, "overdue": 0, "due_soon": 0, "due_next_change_ts": nil,
+		})
 		dashboard.wantFrames()
+	})
+
+	t.Run("open tasks past due count as overdue and the next change is the earliest open due date entering its last day", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Late","executor_member_id":"kip","due_ts":1000}`)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Later","executor_member_id":"kip","due_ts":4102444800}`)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Latest","executor_member_id":"kip","due_ts":4102531200}`)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Closed late","executor_member_id":"kip","due_ts":2000}`)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Undated","executor_member_id":"kip"}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-4/mark-terminated", owner, "")
+
+		status, data := apiJSON(t, h, "GET", "/api/tasks/count", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"open": 4, "total": 5, "overdue": 1, "due_soon": 0, "due_next_change_ts": float64(4102358400),
+		})
 	})
 
 	t.Run("an empty roster counts zero open and zero total", func(t *testing.T) {
@@ -2930,7 +2955,9 @@ func TestHandleTaskCountApiTasksCountGet(t *testing.T) {
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantBody(t, data, map[string]any{"open": 0, "total": 0})
+		apiWantBody(t, data, map[string]any{
+			"open": 0, "total": 0, "overdue": 0, "due_soon": 0, "due_next_change_ts": nil,
+		})
 	})
 
 	t.Run("a request without a token answers 401", func(t *testing.T) {
@@ -2942,6 +2969,65 @@ func TestHandleTaskCountApiTasksCountGet(t *testing.T) {
 		}
 		apiWantError(t, data, "unauthorized", "missing credentials")
 	})
+}
+
+func TestNewTaskCountDTO(t *testing.T) {
+	const now = 1000000
+	open := func(id string, due float64) Task {
+		return Task{ID: id, Status: TaskStatusInProgress, DueTs: due}
+	}
+
+	t.Run("a due date at or before now is overdue and one within the next day is due soon, both edges inclusive", func(t *testing.T) {
+		got := newTaskCountDTO([]Task{
+			open("T-1", 999000),
+			open("T-2", 1000000),
+			open("T-3", 1000001),
+			open("T-4", 1086400),
+			open("T-5", 1086401),
+			open("T-6", 0),
+		}, now)
+		next := float64(1000001)
+		want := taskCountDTO{Open: 6, Total: 6, Overdue: 2, DueSoon: 2, DueNextChangeTS: &next}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("want %+v (next %v), got %+v (next %v)", want, *want.DueNextChangeTS, got, ptrOrNil(got.DueNextChangeTS))
+		}
+	})
+
+	t.Run("the next change is a due date entering its last day when that comes before any due date passing", func(t *testing.T) {
+		got := newTaskCountDTO([]Task{open("T-1", 1200000), open("T-2", 1050000)}, now)
+		next := float64(1050000)
+		want := taskCountDTO{Open: 2, Total: 2, DueSoon: 1, DueNextChangeTS: &next}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("want %+v (next %v), got %+v (next %v)", want, *want.DueNextChangeTS, got, ptrOrNil(got.DueNextChangeTS))
+		}
+
+		got = newTaskCountDTO([]Task{open("T-1", 1200000)}, now)
+		next = float64(1113600)
+		want = taskCountDTO{Open: 1, Total: 1, DueNextChangeTS: &next}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("want %+v (next %v), got %+v (next %v)", want, *want.DueNextChangeTS, got, ptrOrNil(got.DueNextChangeTS))
+		}
+	})
+
+	t.Run("closed tasks count toward the total only, so their due dates neither count nor schedule a change", func(t *testing.T) {
+		got := newTaskCountDTO([]Task{
+			{ID: "T-1", Status: TaskStatusDone, DueTs: 999000},
+			{ID: "T-2", Status: TaskStatusTerminated, DueTs: 1000500},
+			{ID: "T-3", Status: TaskStatusDuplicated, DueTs: 1200000},
+			open("T-4", 900000),
+		}, now)
+		want := taskCountDTO{Open: 1, Total: 4, Overdue: 1}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("want %+v, got %+v (next %v)", want, got, ptrOrNil(got.DueNextChangeTS))
+		}
+	})
+}
+
+func ptrOrNil(p *float64) any {
+	if p == nil {
+		return nil
+	}
+	return *p
 }
 
 func TestHandleGetTaskApiTasksTaskIdGet(t *testing.T) {
@@ -2980,6 +3066,7 @@ func TestHandleGetTaskApiTasksTaskIdGet(t *testing.T) {
 			"created_ts":           apiAnyNumber,
 			"updated_ts":           apiAnyNumber,
 			"closed_ts":            nil,
+			"due_ts":               nil,
 			"deps":                 []any{},
 			"steps":                []any{},
 			"detail_level":         "summary",
@@ -3447,6 +3534,196 @@ func TestHandleSetTaskPriorityApiTasksTaskIdPriorityPost(t *testing.T) {
 		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
 
 		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/priority", "", `{"priority":"high"}`)
+		if status != 401 {
+			t.Fatalf("want 401, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "unauthorized", "missing credentials")
+	})
+}
+
+func TestHandleSetTaskDueApiTasksTaskIdDuePost(t *testing.T) {
+	t.Run("setting a due date answers the receipt, lands on the task and fans the task delta", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		dashboard := apiTestListen(t, api, "")
+		executor := apiTestListen(t, api, "kip")
+		bystander := apiTestListen(t, api, "mira")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/due", owner, `{"due_ts":1790000000.5}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"task_id": "T-1", "due_ts": float64(1790000000.5)})
+
+		taskFrame := map[string]any{
+			"seq":   2,
+			"topic": "task",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "task",
+				"key":     "owner::T-1",
+				"epoch":   2,
+				"deleted": false,
+				"payload": map[string]any{"id": "T-1", "priority": "mid", "status": "not_started"},
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "owner",
+		}
+		dashboard.wantFrames(taskFrame)
+		executor.wantFrames(taskFrame)
+		bystander.wantFrames()
+
+		_, got := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		if got["due_ts"] != float64(1790000000.5) {
+			t.Fatalf("want the task to carry due_ts 1790000000.5, got %v", got["due_ts"])
+		}
+	})
+
+	t.Run("a null due date clears the one the task carried", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip","due_ts":1790000000}`)
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/due", owner, `{"due_ts":null}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"task_id": "T-1", "due_ts": nil})
+		_, got := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		if v, ok := got["due_ts"]; !ok || v != nil {
+			t.Fatalf("want the task to carry due_ts null, got %v (present %v)", v, ok)
+		}
+	})
+
+	t.Run("a due date already in the past is accepted", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/due", owner, `{"due_ts":1}`)
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"task_id": "T-1", "due_ts": float64(1)})
+	})
+
+	for _, bad := range []string{"0", "-1"} {
+		t.Run("a due date of "+bad+" answers 422 and leaves the task's due date as it was", func(t *testing.T) {
+			api, h, _, owner := newAPITestServer(t)
+			apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip","due_ts":1790000000}`)
+			dashboard := apiTestListen(t, api, "")
+
+			status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/due", owner, `{"due_ts":`+bad+`}`)
+			if status != 422 {
+				t.Fatalf("want 422, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "validation_error", "due_ts must be greater than 0 (or null to clear)")
+			dashboard.wantFrames()
+			_, got := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+			if got["due_ts"] != float64(1790000000) {
+				t.Fatalf("want due_ts untouched at 1790000000, got %v", got["due_ts"])
+			}
+		})
+	}
+
+	t.Run("a body with no due_ts key answers 422 naming the missing field", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/due", owner, `{}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", "field required: due_ts")
+	})
+
+	t.Run("a due_ts that is not a number answers 422", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/due", owner, `{"due_ts":"tomorrow"}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+	})
+
+	t.Run("the executor and an admin agent may set it; another plain agent answers 403", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		executor := apiTestAgentToken(t, api, "kip", "")
+		admin := apiTestAgentToken(t, api, "mira", "")
+		other := apiTestPrincipalToken(t, api, d, principalAgent, "zed")
+
+		for _, c := range []struct {
+			who, token string
+			want       int
+		}{{"executor", executor, 200}, {"admin agent", admin, 200}, {"other agent", other, 403}} {
+			status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/due", c.token, `{"due_ts":1790000000}`)
+			if status != c.want {
+				t.Fatalf("%s: want %d, got %d (%v)", c.who, c.want, status, data)
+			}
+		}
+		_, data := apiJSON(t, h, "POST", "/api/tasks/T-1/due", other, `{"due_ts":1790000000}`)
+		apiWantError(t, data, "forbidden", "caller is not the task's executor")
+	})
+
+	t.Run("under the reassign hold the predecessor may set it and the incoming executor answers 403", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
+		successor := apiTestPrincipalToken(t, api, d, principalAgent, "zed")
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		if status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/reassign", owner,
+			`{"target":{"kind":"staff","member_id":"zed"}}`); status != 200 || data["lock"] != "reassigning" {
+			t.Fatalf("reassign: %d %v", status, data)
+		}
+		predecessor := apiTestAgentToken(t, api, "kip", "")
+
+		if status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/due", predecessor, `{"due_ts":1790000000}`); status != 200 {
+			t.Fatalf("predecessor: want 200, got %d (%v)", status, data)
+		}
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/due", successor, `{"due_ts":1790000000}`)
+		if status != 403 {
+			t.Fatalf("successor: want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden", "caller is not the task's executor")
+	})
+
+	t.Run("a closed task answers 409 naming the status it is in", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		apiJSON(t, h, "POST", "/api/tasks/T-1/mark-terminated", owner, "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/due", owner, `{"due_ts":null}`)
+		if status != 409 {
+			t.Fatalf("want 409, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "conflict", "task 'T-1' is already closed (terminated)")
+	})
+
+	t.Run("an authenticated machine identity answers 403 because this row requires agent", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+		machine := apiTestAgentToken(t, api, "m-server-self", "")
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/due", machine, `{"due_ts":1790000000}`)
+		if status != 403 {
+			t.Fatalf("want 403, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "forbidden", "principal not permitted")
+	})
+
+	t.Run("an id no task carries answers 404 naming it", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-999/due", owner, `{"due_ts":1790000000}`)
+		if status != 404 {
+			t.Fatalf("want 404, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "not_found", "task 'T-999' not found")
+	})
+
+	t.Run("a request without a token answers 401", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiJSON(t, h, "POST", "/api/tasks", owner, `{"title":"Ship it","executor_member_id":"kip"}`)
+
+		status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/due", "", `{"due_ts":1790000000}`)
 		if status != 401 {
 			t.Fatalf("want 401, got %d (%v)", status, data)
 		}
@@ -5092,6 +5369,41 @@ func TestHandleCreateTaskApiTasksPost(t *testing.T) {
 			"trigger": "owner",
 		})
 	})
+
+	t.Run("a due date lands on the created task and a null one creates it undated", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+
+		if status, data := apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"Dated","executor_member_id":"kip","due_ts":1790000000}`); status != 200 {
+			t.Fatalf("dated create: want 200, got %d (%v)", status, data)
+		}
+		if status, data := apiJSON(t, h, "POST", "/api/tasks", owner,
+			`{"title":"Undated","executor_member_id":"kip","due_ts":null}`); status != 200 {
+			t.Fatalf("undated create: want 200, got %d (%v)", status, data)
+		}
+		_, dated := apiJSON(t, h, "GET", "/api/tasks/T-1", owner, "")
+		_, undated := apiJSON(t, h, "GET", "/api/tasks/T-2", owner, "")
+		if dated["due_ts"] != float64(1790000000) || undated["due_ts"] != nil {
+			t.Fatalf("want due_ts 1790000000 and null, got %v and %v", dated["due_ts"], undated["due_ts"])
+		}
+	})
+
+	for _, bad := range []string{"0", "-5"} {
+		t.Run("a due date of "+bad+" answers 422 and creates nothing", func(t *testing.T) {
+			_, h, _, owner := newAPITestServer(t)
+
+			status, data := apiJSON(t, h, "POST", "/api/tasks", owner,
+				`{"title":"Ship it","executor_member_id":"kip","due_ts":`+bad+`}`)
+			if status != 422 {
+				t.Fatalf("want 422, got %d (%v)", status, data)
+			}
+			apiWantError(t, data, "validation_error", "due_ts must be greater than 0 (or null to clear)")
+			_, count := apiJSON(t, h, "GET", "/api/tasks/count", owner, "")
+			if count["total"] != float64(0) {
+				t.Fatalf("want no task created, got total %v", count["total"])
+			}
+		})
+	}
 
 	t.Run("the created task's ticket numbers run in the order they were opened", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)

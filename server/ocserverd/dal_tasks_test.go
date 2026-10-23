@@ -452,6 +452,7 @@ func TestPutTaskOn(t *testing.T) {
 		stale.Priority = TaskPriorityLow
 		stale.ExecutorID = "carl"
 		stale.UpdatedTS = 9999
+		stale.DueTs = 1700009999
 		if err := putTaskOn(d.wdb, stale, taskWriteUpsert); err != nil {
 			t.Fatalf("putTaskOn: %v", err)
 		}
@@ -1990,6 +1991,7 @@ func dalTestTask(id string) Task {
 		OutsourceDispatched: true,
 		FrozenBy:            "eve",
 		KickoffNotifiedTo:   "ow-1",
+		DueTs:               1700000006,
 	}
 }
 

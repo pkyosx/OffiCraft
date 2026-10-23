@@ -52,6 +52,14 @@ export function blurIdFilter() {
   fireEvent.blur(document.querySelector('[data-testid="filter-task-id"]')!);
 }
 
+/** Press (or release) the 已逾期 / 即將到期 toggle. Pressing one releases the
+ * other. */
+export function toggleDueFilter(kind: "overdue" | "soon") {
+  fireEvent.click(
+    document.querySelector(`[data-testid="filter-due-${kind}"]`)!
+  );
+}
+
 /** Every axis back to "no constraint".
  *
  * 🔴 THERE IS NO 清除全部 BUTTON ANY MORE. It lived on the 已篩選 strip and went
@@ -83,6 +91,10 @@ export function clearAllFilters() {
     if (trigger.getAttribute("aria-expanded") === "true") {
       fireEvent.click(trigger);
     }
+  }
+  for (const kind of ["overdue", "soon"] as const) {
+    const toggle = document.querySelector(`[data-testid="filter-due-${kind}"]`);
+    if (toggle?.getAttribute("aria-pressed") === "true") toggleDueFilter(kind);
   }
   const field = document.querySelector('[data-testid="filter-task-id"]');
   if (field && (field as HTMLInputElement).value !== "") {

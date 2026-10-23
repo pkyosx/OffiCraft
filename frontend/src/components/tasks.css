@@ -67,6 +67,19 @@
   border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
   color: var(--color-text-strong);
 }
+.tasks__due-filter {
+  white-space: nowrap;
+}
+.tasks__due-filter--overdue.tasks__due-filter--active {
+  color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 45%, transparent);
+  background: color-mix(in srgb, var(--color-danger) 12%, var(--color-card));
+}
+.tasks__due-filter--soon.tasks__due-filter--active {
+  color: var(--color-dot-waking);
+  border-color: color-mix(in srgb, var(--color-dot-waking) 45%, transparent);
+  background: color-mix(in srgb, var(--color-dot-waking) 12%, var(--color-card));
+}
 .tasks__ms-caret {
   flex: none;
   color: var(--color-text-muted);
@@ -860,6 +873,71 @@ button.task-card__prio-chip:hover {
   left: 0;
   right: auto;
   min-width: 96px;
+}
+
+/* 到期日 chip: gray date far out, amber within 24h, red once passed, faint
+   when unset. The soon/overdue fills keep it apart from the 中/高 priority
+   chips, which share those hues as outline-only badges. */
+.task-badge--due {
+  color: var(--color-text-muted);
+}
+.task-badge--due-soon {
+  color: var(--color-dot-waking);
+  border-color: color-mix(in srgb, var(--color-dot-waking) 45%, transparent);
+  background: color-mix(in srgb, var(--color-dot-waking) 12%, transparent);
+}
+.task-badge--due-overdue {
+  color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 45%, transparent);
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+}
+.task-badge--due-none {
+  border-style: dashed;
+  font-weight: 600;
+  opacity: 0.7;
+}
+.task-badge--due-none::before {
+  display: none;
+}
+.task-card__due {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+}
+button.task-card__due-chip {
+  margin: 0;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+button.task-card__due-chip:not(.task-badge--due-soon):not(.task-badge--due-overdue) {
+  background: transparent;
+}
+button.task-card__due-chip.task-badge--due-none {
+  font-weight: 600;
+}
+button.task-card__due-chip:hover {
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
+}
+.task-card__due-pop {
+  left: 0;
+  right: auto;
+  min-width: 160px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.task-card__due-input {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  color-scheme: inherit;
 }
 
 /* 狀態 badge → owner-action dropdown (v5): 標記重複 / 終止 (+ the 等我回覆 jump
@@ -1962,6 +2040,17 @@ button.task-card__waiting--dep:focus-visible {
     right: 0;
     width: auto;
     max-width: 340px;
+  }
+  /* Same anchoring for the due picker: from the card's left edge, never past
+     its right one. */
+  .task-card__due {
+    position: static;
+  }
+  .task-card__due-pop {
+    left: 0;
+    right: 0;
+    width: auto;
+    max-width: 240px;
   }
 }
 

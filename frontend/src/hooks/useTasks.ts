@@ -55,6 +55,8 @@ interface UseTasks {
   markDuplicate: (id: string, duplicateOf: string) => Promise<void>;
   /** Priority change incl. freeze/unfreeze, then refetch. */
   setPriority: (id: string, priority: string) => Promise<void>;
+  /** Set or clear (`null`) the due date, then refetch. */
+  setDue: (id: string, dueTs: number | null) => Promise<void>;
   /** Correct the task's description (T-e271), then refetch. Accepted on a
    * CLOSED task too — see the adapter's note on why this one write does not
    * refuse a terminal task. */
@@ -347,6 +349,18 @@ export function useTasks(
     [refetch]
   );
 
+  const setDue = useCallback(
+    async (id: string, dueTs: number | null) => {
+      await api.setTaskDue(id, dueTs);
+      try {
+        await refetch();
+      } catch (e) {
+        console.warn("useTasks: post-due refetch failed (the due date was set)", e);
+      }
+    },
+    [refetch]
+  );
+
   const updateDescription = useCallback(
     async (id: string, description: string) => {
       await api.updateTaskDescription(id, description);
@@ -432,6 +446,7 @@ export function useTasks(
     forceDone,
     markDuplicate,
     setPriority,
+    setDue,
     updateDescription,
     updateTitle,
     reassign,

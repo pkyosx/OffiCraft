@@ -1619,6 +1619,12 @@ MATRIX: dict[str, Route] = {
         path=lambda ctx, _i: f"/api/tasks/{_matrix_task(ctx)}/priority",
         body={"priority": "high"},
     ),
+    "POST /api/tasks/{task_id}/due": Route(
+        requires="agent",
+        overrides={"agent_other": 403},
+        path=lambda ctx, _i: f"/api/tasks/{_matrix_task(ctx)}/due",
+        body={"due_ts": 1790000000},
+    ),
     "POST /api/tasks/{task_id}/message": Route(
         requires="admin_agent",
         path=lambda ctx, i: (

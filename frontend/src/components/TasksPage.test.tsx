@@ -40,6 +40,7 @@ import { api } from "../api";
 // through the shared driver rather than clicking a bare dropdown.
 import {
   toggleFilter,
+  toggleDueFilter,
   clearAllFilters,
 } from "../test/tasksFilter";
 import { ApiError } from "../api/errors";
@@ -119,6 +120,29 @@ function renderPage() {
   );
 }
 
+
+function seedDueTasks() {
+  const now = Date.now() / 1000;
+  __injectMockTask(mkTask({ title: "逾期的自由代辦", dueTs: now - 3600 }));
+  __injectMockTask(
+    mkTask({ title: "逾期的手冊任務", typeKey: "deploy", dueTs: now - 7200 })
+  );
+  __injectMockTask(mkTask({ title: "快到期的", dueTs: now + 3600 }));
+  __injectMockTask(mkTask({ title: "還早的", dueTs: now + 5 * 86_400 }));
+  __injectMockTask(mkTask({ title: "沒有到期日的" }));
+  __injectMockTask(
+    mkTask({
+      title: "已完成的逾期",
+      status: "done",
+      closedTs: now - 60,
+      dueTs: now - 3600,
+    })
+  );
+}
+const openTitles = () =>
+  [...document.querySelectorAll('[data-testid="open-list"] .task-card__title')]
+    .map((el) => el.textContent)
+    .sort();
 
 beforeEach(() => {
   __resetMock();
@@ -901,6 +925,71 @@ describe("TasksPage", () => {
   // ── light list + expand hydration (T-d70f) ────────────────────────────────
   // The list serves the LIGHT projection (no steps/description); a card fetches
   // its full detail via getTask only when expanded.
+  it("saves a due date picked on a card and shows it on the card", async () => {
+    __injectMockTask(mkTask({ title: "要設到期日" }));
+    const { findByTestId } = renderPage();
+    fireEvent.click(await findByTestId("task-due"));
+    fireEvent.change(await findByTestId("task-due-input"), {
+      target: { value: "2099-10-30" },
+    });
+    await waitFor(async () =>
+      expect((await findByTestId("task-due")).textContent).toBe("10/30 到期")
+    );
+  });
+
+  it("labels each toggle with the open-task count from the count endpoint", async () => {
+    seedDueTasks();
+    const { findByTestId } = renderPage();
+    await waitFor(async () =>
+      expect((await findByTestId("filter-due-overdue")).textContent).toBe(
+        "已逾期 2"
+      )
+    );
+    expect((await findByTestId("filter-due-soon")).textContent).toBe(
+      "即將到期 1"
+    );
+  });
+
+  it("narrows to overdue tasks and restores the list on a second press", async () => {
+    seedDueTasks();
+    const { findByText } = renderPage();
+    await findByText("還早的");
+    toggleDueFilter("overdue");
+    await waitFor(() =>
+      expect(openTitles()).toEqual(["逾期的手冊任務", "逾期的自由代辦"])
+    );
+    expect(
+      document
+        .querySelector('[data-testid="filter-due-overdue"]')!
+        .getAttribute("aria-pressed")
+    ).toBe("true");
+    toggleDueFilter("overdue");
+    await waitFor(() => expect(openTitles()).toHaveLength(5));
+  });
+
+  it("pressing 即將到期 releases 已逾期", async () => {
+    seedDueTasks();
+    const { findByText } = renderPage();
+    await findByText("還早的");
+    toggleDueFilter("overdue");
+    toggleDueFilter("soon");
+    await waitFor(() => expect(openTitles()).toEqual(["快到期的"]));
+    expect(
+      document
+        .querySelector('[data-testid="filter-due-overdue"]')!
+        .getAttribute("aria-pressed")
+    ).toBe("false");
+  });
+
+  it("combines with the type filter", async () => {
+    seedDueTasks();
+    const { findByText } = renderPage();
+    await findByText("還早的");
+    toggleDueFilter("overdue");
+    toggleFilter("filter-type", "adhoc");
+    await waitFor(() => expect(openTitles()).toEqual(["逾期的自由代辦"]));
+  });
+
   describe("light list + lazy detail on expand", () => {
     it("keeps steps/description off the collapsed card and hydrates them via getTask on expand", async () => {
       __injectMockTask(

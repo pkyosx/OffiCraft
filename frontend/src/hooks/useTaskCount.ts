@@ -11,12 +11,33 @@
 // itself justify 「目前沒有任務」 — that is a claim about the whole workshop.
 // This is the cheap way to know it, and it is deliberately not a list fetch:
 // widening the list just to word a screen is the thing T-a3e4 removed.
+//
+// `overdue` / `dueSoon` also change with no task event, just because time
+// passes: the server says when (`dueNextChangeTs`) and a timer refetches then.
 
-import { useEffect, useState } from "react";
+
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
+import type { TaskCountView } from "../api/adapter";
 
-export function useTaskCount(): { open: number; total: number } {
-  const [counts, setCounts] = useState({ open: 0, total: 0 });
+// setTimeout fires immediately for delays above 2^31-1 ms (~24.8 days).
+const MAX_TIMEOUT_MS = 2_147_483_647;
+// A client clock ahead of the server's sees the change moment as already past
+// while the server still answers the same moment; without a floor that is a
+// refetch loop.
+const MIN_TIMEOUT_MS = 1_000;
+
+const EMPTY: TaskCountView = {
+  open: 0,
+  total: 0,
+  overdue: 0,
+  dueSoon: 0,
+  dueNextChangeTs: null,
+};
+
+export function useTaskCount(): TaskCountView {
+  const [counts, setCounts] = useState<TaskCountView>(EMPTY);
+  const refetchRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     let alive = true;
@@ -29,6 +50,7 @@ export function useTaskCount(): { open: number; total: number } {
         })
         .catch((e) => console.warn("useTaskCount: fetch failed", e));
     };
+    refetchRef.current = refetch;
 
     refetch();
     const unsubscribe = api.subscribeEvents((topic) => {
@@ -40,6 +62,18 @@ export function useTaskCount(): { open: number; total: number } {
       unsubscribe();
     };
   }, []);
+
+  // Keyed on the whole answer, not just the timestamp: a clamped timer that
+  // fires early gets the same timestamp back and must arm again.
+  useEffect(() => {
+    if (counts.dueNextChangeTs == null) return;
+    const delay = Math.min(
+      Math.max(MIN_TIMEOUT_MS, counts.dueNextChangeTs * 1000 - Date.now()),
+      MAX_TIMEOUT_MS
+    );
+    const timer = setTimeout(() => refetchRef.current(), delay);
+    return () => clearTimeout(timer);
+  }, [counts]);
 
   return counts;
 }

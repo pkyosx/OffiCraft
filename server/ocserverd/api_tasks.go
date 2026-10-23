@@ -844,13 +844,34 @@ func (s *apiServer) HandleTaskCountApiTasksCountGet(w http.ResponseWriter, r *ht
 		internalError(w, err)
 		return
 	}
-	open := 0
+	writeJSON(w, http.StatusOK, newTaskCountDTO(tasks, nowSecs()))
+}
+
+const taskDueSoonWindowSecs = 86400
+
+func newTaskCountDTO(tasks []Task, now float64) taskCountDTO {
+	dto := taskCountDTO{Total: len(tasks)}
 	for _, t := range tasks {
-		if !TaskIsTerminal(t.Status) {
-			open++
+		if TaskIsTerminal(t.Status) {
+			continue
+		}
+		dto.Open++
+		if t.DueTs <= 0 {
+			continue
+		}
+		if t.DueTs <= now {
+			dto.Overdue++
+		} else if t.DueTs <= now+taskDueSoonWindowSecs {
+			dto.DueSoon++
+		}
+		for _, edge := range []float64{t.DueTs - taskDueSoonWindowSecs, t.DueTs} {
+			if edge > now && (dto.DueNextChangeTS == nil || edge < *dto.DueNextChangeTS) {
+				e := edge
+				dto.DueNextChangeTS = &e
+			}
 		}
 	}
-	writeJSON(w, http.StatusOK, taskCountDTO{Open: open, Total: len(tasks)})
+	return dto
 }
 
 func (s *apiServer) HandleGetTaskApiTasksTaskIdGet(w http.ResponseWriter, r *http.Request, taskId string) {
@@ -994,6 +1015,63 @@ func (s *apiServer) HandleSetTaskPriorityApiTasksTaskIdPriorityPost(w http.Respo
 	writeJSON(w, http.StatusOK, taskPriorityReceiptDTO{
 		TaskID: saved.ID, Priority: saved.Priority, FrozenBy: saved.FrozenBy,
 	})
+}
+
+const taskDueTSPositiveMsg = "due_ts must be greater than 0 (or null to clear)"
+
+// dueTSFromWire maps the wire's null to the stored 0; ok=false for a number <= 0,
+// which would otherwise be stored as "no due date".
+func dueTSFromWire(due *float64) (float64, bool) {
+	if due == nil {
+		return 0, true
+	}
+	if !(*due > 0) {
+		return 0, false
+	}
+	return *due, true
+}
+
+func (s *apiServer) HandleSetTaskDueApiTasksTaskIdDuePost(w http.ResponseWriter, r *http.Request, taskId string) {
+	var body TaskDueUpdateDTO
+	if !decodeJSONBodyRequired(w, r, &body, "due_ts") {
+		return
+	}
+	due, ok := dueTSFromWire(body.DueTs)
+	if !ok {
+		writeError(w, http.StatusUnprocessableEntity, taskDueTSPositiveMsg)
+		return
+	}
+	t, err := s.resolveTask(taskId)
+	if err != nil {
+		writeResolveError(w, err, "task", taskId)
+		return
+	}
+	if !callerMayDriveTask(s.dal.GetMember, r, *t) {
+		writeError(w, http.StatusForbidden, taskActorRefusal)
+		return
+	}
+	if TaskIsTerminal(t.Status) {
+		writeError(w, http.StatusConflict, taskAlreadyClosedRefusal(*t))
+		return
+	}
+	now := nowSecs()
+	var saved Task
+	err = s.dal.inTx(func(tx *writeTx) error {
+		cur, err := openTaskToDriveOn(tx, r, t.ID)
+		if err != nil {
+			return err
+		}
+		cur.DueTs = due
+		cur.UpdatedTS = now
+		saved = *cur
+		return putTaskOn(tx, *cur, taskWriteUpsert)
+	})
+	if err != nil {
+		writeTxError(w, err)
+		return
+	}
+	s.publishTask(saved, requestTrigger(r))
+	writeJSON(w, http.StatusOK, taskDueReceiptDTO{TaskID: saved.ID, DueTS: dueTSWire(saved.DueTs)})
 }
 
 func (s *apiServer) HandlePostTaskMessageApiTasksTaskIdMessagePost(w http.ResponseWriter, r *http.Request, taskId string) {
@@ -1543,6 +1621,11 @@ func (s *apiServer) HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.
 			"priority must be one of high, mid, low, frozen")
 		return
 	}
+	due, ok := dueTSFromWire(body.DueTs)
+	if !ok {
+		writeError(w, http.StatusUnprocessableEntity, taskDueTSPositiveMsg)
+		return
+	}
 	inputs := map[string]any{}
 	if body.Inputs != nil {
 		inputs = *body.Inputs
@@ -1736,6 +1819,7 @@ func (s *apiServer) HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.
 		CreatorID:           currentActor(r),
 		CreatedTS:           now,
 		UpdatedTS:           now,
+		DueTs:               due,
 	}
 	trigger := requestTrigger(r)
 

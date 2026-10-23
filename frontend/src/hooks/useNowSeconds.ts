@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
 
+// setTimeout fires immediately for delays above 2^31-1 ms (~24.8 days).
+const MAX_TIMEOUT_MS = 2_147_483_647;
+
 function msUntilNextLocalMidnight(nowMs: number): number {
   const next = new Date(nowMs);
   // Local calendar math, not +24h: a DST day is 23 or 25 hours long.
@@ -9,8 +12,9 @@ function msUntilNextLocalMidnight(nowMs: number): number {
 
 /** The current time in epoch seconds, read at each render. The caller also
  * re-renders at every local midnight, so a 今天/明天 label built from it rolls
- * over even when nothing else on screen changes. */
-export function useNowSeconds(): number {
+ * over even when nothing else on screen changes — and at `wakeAt` (epoch
+ * seconds) when one is given, for a label that flips at a moment of its own. */
+export function useNowSeconds(wakeAt: number | null = null): number {
   const [, setDay] = useState(0);
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
@@ -23,5 +27,18 @@ export function useNowSeconds(): number {
     arm();
     return () => clearTimeout(timer);
   }, []);
+
+  const [woke, setWoke] = useState(0);
+  useEffect(() => {
+    if (wakeAt === null) return;
+    const remaining = wakeAt * 1000 - Date.now();
+    if (remaining <= 0) return;
+    const timer = setTimeout(
+      () => setWoke((n) => n + 1),
+      Math.min(remaining, MAX_TIMEOUT_MS)
+    );
+    return () => clearTimeout(timer);
+  }, [wakeAt, woke]);
+
   return Date.now() / 1000;
 }

@@ -581,6 +581,13 @@ export interface TaskDepRefView {
 export interface TaskCountView {
   open: number;
   total: number;
+  /** Open tasks whose due date has passed. */
+  overdue: number;
+  /** Open tasks due within the next 24 hours, not yet passed. */
+  dueSoon: number;
+  /** When `overdue`/`dueSoon` next change on their own (epoch seconds); null
+   * when no open task has a future due date. */
+  dueNextChangeTs: number | null;
 }
 
 /**
@@ -675,6 +682,9 @@ export interface TaskView {
   updatedTs: number;
   /** Epoch when the task closed (done/terminated/duplicated); null while open. */
   closedTs: number | null;
+  /** Due date, epoch seconds; null = none. Optional only so hand-built
+   * fixtures stay valid — the mappers always set it. */
+  dueTs?: number | null;
   /** Who forced this task closed and why (wire `forced_done_by` /
    * `forced_done_reason`, T-182 — surfaced on the card by T-192). Non-empty
    * ONLY on a task closed through `force_task_done`; a task that closed itself
@@ -2505,6 +2515,9 @@ export interface Api {
    * (T-a98d), so nothing is returned here — refetch, or take the SSE delta.
    */
   setTaskPriority(id: string, priority: string): Promise<void>;
+  /** Set, change or clear (`null`) a task's due date (`POST
+   * /api/tasks/{id}/due`). Closed tasks are a 409 (throws). */
+  setTaskDue(id: string, dueTs: number | null): Promise<void>;
   /**
    * Correct one task's description (`POST /api/tasks/{id}/description`, T-e271)
    * — the ticket's own text: what the task IS (scope, origin, acceptance), as

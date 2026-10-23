@@ -50,6 +50,11 @@ export interface Messages {
   taskMarkDuplicateBody: (taskNo: string) => string;
   taskDuplicateOf: (taskNo: string) => string;
   taskReassignTitle: (taskNo: string) => string;
+  taskDueOn: (month: number, day: number) => string;
+  taskOverdueDays: (days: number) => string;
+  taskFilterOverdue: (n: number) => string;
+  taskFilterDueSoon: (n: number) => string;
+  taskDueBadgeLabel: (n: number) => string;
   // ── task artifact versions (T-60) ──
   taskArtifactVersionCount: (n: number) => string;
   taskArtifactVersionLabel: (when: string) => string;
@@ -278,6 +283,17 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     // 「3版」/「3 versions」 — the artifact row's versions entry (T-60). Only
     // ever printed for n > 1 (one version is not a history), so the tail needs
     // no singular twin.
+    taskDueOn: (month, day) =>
+      [tasks.dueOnLead, `${month}/${day}`, tasks.dueOnTail]
+        .filter((part) => part !== "")
+        .join(" "),
+    taskOverdueDays: (days) =>
+      `${tasks.overdueDaysLead} ${days} ${
+        days === 1 ? tasks.overdueDaysTailOne : tasks.overdueDaysTailMany
+      }`,
+    taskFilterOverdue: (n) => `${tasks.filterOverdue} ${n}`,
+    taskFilterDueSoon: (n) => `${tasks.filterDueSoon} ${n}`,
+    taskDueBadgeLabel: (n) => `${tasks.dueBadgeLabel} ${n}`,
     taskArtifactVersionCount: (n) =>
       `${n}${sp}${tasks.artifacts.versionsCountTail}`,
     // Which version the `-` side of a comparison IS. Same reason the document

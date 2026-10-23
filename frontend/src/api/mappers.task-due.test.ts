@@ -1,0 +1,87 @@
+import { describe, it, expect } from "vitest";
+import { toTask, toTaskCount, toTaskListItem } from "./mappers";
+import type { WireTask, WireTaskCount, WireTaskListItem } from "./wire";
+
+function wireTask(over: Partial<WireTask>): WireTask {
+  return {
+    id: "t-1",
+    task_no: "T-1",
+    status: "in_progress",
+    priority: "mid",
+    executor_kind: "staff",
+    closed_ts: null,
+    deps: [],
+    steps: [],
+    progress_done: 0,
+    progress_total: 0,
+    ...over,
+  } as WireTask;
+}
+
+function wireListItem(over: Partial<WireTaskListItem>): WireTaskListItem {
+  return {
+    id: "t-1",
+    task_no: "T-1",
+    status: "in_progress",
+    priority: "mid",
+    executor_kind: "staff",
+    closed_ts: null,
+    deps: [],
+    progress_done: 0,
+    progress_total: 0,
+    ...over,
+  } as WireTaskListItem;
+}
+
+describe("toTask", () => {
+  it("carries due_ts as dueTs", () => {
+    expect(toTask(wireTask({ due_ts: 1793375999 })).dueTs).toBe(1793375999);
+  });
+
+  it("reads an absent or null due_ts as no due date", () => {
+    expect(toTask(wireTask({})).dueTs).toBeNull();
+    expect(toTask(wireTask({ due_ts: null })).dueTs).toBeNull();
+  });
+});
+
+describe("toTaskListItem", () => {
+  it("carries due_ts as dueTs", () => {
+    expect(toTaskListItem(wireListItem({ due_ts: 1793375999 })).dueTs).toBe(
+      1793375999
+    );
+  });
+
+  it("reads an absent or null due_ts as no due date", () => {
+    expect(toTaskListItem(wireListItem({})).dueTs).toBeNull();
+    expect(toTaskListItem(wireListItem({ due_ts: null })).dueTs).toBeNull();
+  });
+});
+
+describe("toTaskCount", () => {
+  it("maps the due counts and the next change moment", () => {
+    const wire: WireTaskCount = {
+      open: 4,
+      total: 9,
+      overdue: 2,
+      due_soon: 1,
+      due_next_change_ts: 1792857599,
+    };
+    expect(toTaskCount(wire)).toEqual({
+      open: 4,
+      total: 9,
+      overdue: 2,
+      dueSoon: 1,
+      dueNextChangeTs: 1792857599,
+    });
+  });
+
+  it("reads an older server's missing due fields as nothing due", () => {
+    expect(toTaskCount({ open: 4 } as WireTaskCount)).toEqual({
+      open: 4,
+      total: 0,
+      overdue: 0,
+      dueSoon: 0,
+      dueNextChangeTs: null,
+    });
+  });
+});

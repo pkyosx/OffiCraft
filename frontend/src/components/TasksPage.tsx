@@ -29,6 +29,8 @@
 
 import { useEffect, useState } from "react";
 import { useI18n } from "../i18n";
+import { useNowSeconds } from "../hooks/useNowSeconds";
+import { isDueSoon, isOverdue } from "../lib/dueDate";
 import type { TaskView } from "../api/adapter";
 import { viewerMayForceTaskDone } from "../api";
 import { useTasks } from "../hooks/useTasks";
@@ -81,8 +83,10 @@ const STATUS_OPTIONS = [
 // exclusion is visible (and undoable) right there in the 狀態 dropdown (T-be18).
 const DEFAULT_STATUS = STATUS_OPTIONS.filter((s) => !TERMINAL.has(s));
 
+type DueFilter = "overdue" | "dueSoon" | null;
+
 export function TasksPage() {
-  const { t } = useI18n();
+  const { t, msg } = useI18n();
   const {
     members,
     loading: membersLoading,
@@ -112,6 +116,7 @@ export function TasksPage() {
     forceDone,
     markDuplicate,
     setPriority,
+    setDue,
     reassign,
     sendMessage,
     getDetail,
@@ -130,7 +135,12 @@ export function TasksPage() {
   // The unfiltered task total — the only honest basis for 目前沒有任務 now that
   // the list answers a status set (see the empty states below). Same cheap
   // count endpoint the nav badge rides, refetched on the same `task` deltas.
-  const { total: taskTotal } = useTaskCount();
+  const {
+    total: taskTotal,
+    overdue: overdueCount,
+    dueSoon: dueSoonCount,
+  } = useTaskCount();
+  const nowSec = useNowSeconds();
 
   // Ticking clock (30s) — drives 已歷時 and running-step 耗時 on every card.
   const [nowTs, setNowTs] = useState(() => Date.now() / 1000);
@@ -173,6 +183,9 @@ export function TasksPage() {
     () => new Set()
   );
   const [appliedType, setAppliedType] = useState<Set<string>>(() => new Set());
+  const [appliedDue, setAppliedDue] = useState<DueFilter>(null);
+  const toggleDue = (next: Exclude<DueFilter, null>) =>
+    setAppliedDue((cur) => (cur === next ? null : next));
   const [appliedStatus, setAppliedStatus] = useState<Set<string>>(() =>
     taskIdFilter ? new Set<string>() : new Set(DEFAULT_STATUS)
   );
@@ -227,6 +240,7 @@ export function TasksPage() {
     setAppliedExecutor(new Set());
     setAppliedType(new Set());
     setAppliedStatus(new Set());
+    setAppliedDue(null);
   }, [taskIdFilter]);
 
   // ── 聊天 header 任務圖示 → #tasks/executor/<memberId> (T-dfae). Owner asked
@@ -248,6 +262,7 @@ export function TasksPage() {
     setAppliedExecutor(new Set([executorSeed]));
     setAppliedType(new Set());
     setAppliedStatus(new Set(DEFAULT_STATUS));
+    setAppliedDue(null);
     setAppliedId("");
     // 🔴 THE BOX TOO, NOT JUST THE APPLIED VALUE (T-118, found in independent
     // review). `draftId` is what the 任務編號 field DISPLAYS; leaving it behind
@@ -314,6 +329,7 @@ export function TasksPage() {
     setAppliedExecutor(new Set());
     setAppliedType(new Set());
     setAppliedStatus(new Set());
+    setAppliedDue(null);
     setAppliedId("");
     setDraftId("");
     if (taskIdFilter) setRoute({ page: "tasks" });
@@ -327,6 +343,7 @@ export function TasksPage() {
     appliedExecutor.size > 0 ||
     appliedType.size > 0 ||
     appliedStatus.size > 0 ||
+    appliedDue !== null ||
     appliedId !== "";
 
   // Executor options: 外包 / 未指派 / 各成員 (real AI members only — machine-
@@ -390,15 +407,27 @@ export function TasksPage() {
     passesExecutor(task, appliedExecutor);
   const matchesType = (task: TaskView) => passesType(task, appliedType);
   const matchesStatus = (task: TaskView) => passesStatus(task, appliedStatus);
+  // Same rule as the count endpoint behind the button's number: open tasks only.
+  const matchesDue = (task: TaskView) => {
+    if (appliedDue === null) return true;
+    const due = task.dueTs ?? null;
+    if (due === null || TERMINAL.has(task.status)) return false;
+    return appliedDue === "overdue"
+      ? isOverdue(due, nowSec)
+      : isDueSoon(due, nowSec);
+  };
   // 全部條件一起生效 (owner ①) — the non-id axes AND together, and the id (when
   // one is applied) ANDs with them too, judged on the row the server returned
   // rather than on the loaded list. See `idOutcome`.
   const matchesOthers = (task: TaskView) =>
-    matchesExecutor(task) && matchesType(task) && matchesStatus(task);
+    matchesExecutor(task) &&
+    matchesType(task) &&
+    matchesStatus(task) &&
+    matchesDue(task);
 
   // ── filter option models (labels + 負責人 counts) ──────────────────────────
   // Per-owner count basis (T-be18 #3): the tasks that WOULD show if this owner
-  // were the sole executor pick — i.e. honouring the other live axes (status,
+  // were the sole executor pick — i.e. honouring the other live axes (status, due,
   // type) but not the executor axis itself. So the default count reads as
   // "active tasks on this person", and it moves in step with the status filter
   // (add 已完成 → counts grow). taskIdFilter is ignored here (a single-task
@@ -409,7 +438,9 @@ export function TasksPage() {
   // condition — so the applied sets are the only sets, and the counts and the
   // list are now incapable of disagreeing.
   const inCountScope = (task: TaskView) =>
-    passesStatus(task, appliedStatus) && passesType(task, appliedType);
+    passesStatus(task, appliedStatus) &&
+    passesType(task, appliedType) &&
+    matchesDue(task);
   const executorCount = (pred: (t: TaskView) => boolean) =>
     tasks.filter((t) => inCountScope(t) && pred(t)).length;
   const executorOptions: MultiSelectOption[] = [
@@ -641,6 +672,7 @@ export function TasksPage() {
         canForceDone={viewerMayForceTaskDone()}
         onMarkDuplicate={markDuplicate}
         onSetPriority={setPriority}
+        onSetDue={setDue}
         onReassign={reassign}
         onSendMessage={(id, body, attachments) =>
           sendMessage(id, { body, attachments })
@@ -717,6 +749,28 @@ export function TasksPage() {
           onChange={setAppliedStatus}
           testId="filter-status"
         />
+        <button
+          type="button"
+          className={`tasks__filter tasks__due-filter tasks__due-filter--overdue${
+            appliedDue === "overdue" ? " tasks__due-filter--active" : ""
+          }`}
+          aria-pressed={appliedDue === "overdue"}
+          data-testid="filter-due-overdue"
+          onClick={() => toggleDue("overdue")}
+        >
+          {msg.taskFilterOverdue(overdueCount)}
+        </button>
+        <button
+          type="button"
+          className={`tasks__filter tasks__due-filter tasks__due-filter--soon${
+            appliedDue === "dueSoon" ? " tasks__due-filter--active" : ""
+          }`}
+          aria-pressed={appliedDue === "dueSoon"}
+          data-testid="filter-due-soon"
+          onClick={() => toggleDue("dueSoon")}
+        >
+          {msg.taskFilterDueSoon(dueSoonCount)}
+        </button>
       </FilterPanel>
 
       {/* ── empty states ×2 ── */}

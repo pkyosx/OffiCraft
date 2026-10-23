@@ -381,6 +381,22 @@ export const zh = {
     // ⋮ 本身隨後由 owner 裁示刪除);優先權改卡面 chip 就地編輯(v2)
     statusMenuLabel: "狀態操作",
     priorityLabel: "優先權",
+    dueOnLead: "",
+    dueOnTail: "到期",
+    dueToday: "今天到期",
+    dueTomorrow: "明天到期",
+    overdueDaysLead: "逾期",
+    overdueDaysTailOne: "天",
+    overdueDaysTailMany: "天",
+    overdueToday: "已逾期",
+    dueAdd: "＋到期日",
+    dueEditLabel: "設定到期日",
+    duePickerLabel: "到期日",
+    dueClear: "清除",
+    dueClearLabel: "清除到期日",
+    filterOverdue: "已逾期",
+    filterDueSoon: "即將到期",
+    dueBadgeLabel: "已逾期或即將到期的任務",
     // T-e5b1(owner 2026-08-15):任務 UI 的標題／敘述就地編輯面已移除,整族
     // 文案跟著走。能力未動 —— 移掉的是畫面的詞彙,不是能力。
     // (T-646a 已把兩支工具合併成 `update_task`。)

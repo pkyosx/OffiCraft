@@ -294,6 +294,14 @@
   outline: 1px solid var(--color-danger-badge-ring);
 }
 
+/* The 任務 tab's overdue + due-soon count sits beside the open count, which
+ * already wears the filled red pill — an outline keeps the two numbers apart. */
+.nav-tab__badge--due {
+  background: transparent;
+  color: var(--color-danger);
+  outline-color: var(--color-danger);
+}
+
 .app__main {
   flex: 1;
   min-height: 0;

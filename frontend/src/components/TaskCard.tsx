@@ -81,6 +81,13 @@ import { navigateHash } from "../lib/hashRoute";
 import { deriveTaskNo } from "../lib/taskNo";
 import { scrollParent, viewportSpanOf } from "../lib/scrollPort";
 import { useIsMobile } from "../hooks/useIsMobile";
+import { useNowSeconds } from "../hooks/useNowSeconds";
+import {
+  dueState,
+  endOfLocalDayTs,
+  nextDueChangeTs,
+  toDateInputValue,
+} from "../lib/dueDate";
 import { enterShouldSend } from "../lib/composerKeys";
 import { linkMentions } from "../lib/mentionLinks";
 import {
@@ -170,6 +177,7 @@ export function TaskCard({
   onTerminate,
   onMarkDuplicate,
   onSetPriority,
+  onSetDue,
   onReassign,
   onSendMessage,
   onHydrate,
@@ -205,6 +213,8 @@ export function TaskCard({
    * the depth-1 graph + non-terminal guard; a rejection surfaces inline. */
   onMarkDuplicate: (id: string, duplicateOf: string) => Promise<void>;
   onSetPriority: (id: string, priority: string) => Promise<void>;
+  /** Set or clear (`null`) the due date. Absent ⇒ the due chip is read-only. */
+  onSetDue?: (id: string, dueTs: number | null) => Promise<void>;
   /** 轉派 (T-160e): hand the task to a member / a freshly minted 外包. The whole
    * handover is the server's; the dialog only names the target. */
   onReassign: (id: string, input: TaskReassignInput) => Promise<void>;
@@ -744,6 +754,34 @@ export function TaskCard({
   // collapsing the card removes the thing you were looking at. Copying either
   // rule onto the other control reddens that control's guard.
   const prioRef = useRef<HTMLDivElement>(null);
+  const [dueOpen, setDueOpen] = useState(false);
+  const dueRef = useRef<HTMLDivElement>(null);
+  const dueTs = task.dueTs ?? null;
+  const dueEditable = !closed && onSetDue !== undefined;
+  const nowSec = useNowSeconds(
+    dueTs === null || closed ? null : nextDueChangeTs(dueTs, Date.now() / 1000)
+  );
+  const due = dueTs === null ? null : dueState(dueTs, nowSec);
+  const dueTone =
+    due === null
+      ? "none"
+      : due.kind === "overdue"
+        ? "overdue"
+        : due.kind === "later"
+          ? "later"
+          : "soon";
+  const dueText =
+    due === null
+      ? t.tasks.dueAdd
+      : due.kind === "later"
+        ? msg.taskDueOn(due.month, due.day)
+        : due.kind === "today"
+          ? t.tasks.dueToday
+          : due.kind === "tomorrow"
+            ? t.tasks.dueTomorrow
+            : due.days === 0
+              ? t.tasks.overdueToday
+              : msg.taskOverdueDays(due.days);
   const [confirmOpen, setConfirmOpen] = useState(false);
   // 強制結案 (T-192) gets its own confirm rather than sharing one with
   // 標記重複/終止: collapsing named closes into one dialog with a status
@@ -777,6 +815,15 @@ export function TaskCard({
   }, [prioOpen]);
 
   useEffect(() => {
+    if (!dueOpen) return;
+    function onDown(e: MouseEvent) {
+      if (!dueRef.current?.contains(e.target as Node)) setDueOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [dueOpen]);
+
+  useEffect(() => {
     if (!statusOpen) return;
     function onDown(e: MouseEvent) {
       if (!statusRef.current?.contains(e.target as Node)) setStatusOpen(false);
@@ -795,6 +842,26 @@ export function TaskCard({
       console.warn("TaskCard: priority change failed", e);
       setActionError(t.tasks.actionError);
     }
+  }
+
+  async function doSetDue(next: number | null) {
+    setDueOpen(false);
+    if (next === dueTs || !onSetDue) return;
+    try {
+      await onSetDue(task.id, next);
+      setActionError(null);
+    } catch (e) {
+      console.warn("TaskCard: due date change failed", e);
+      setActionError(t.tasks.actionError);
+    }
+  }
+
+  function onDuePicked(value: string) {
+    const next = endOfLocalDayTs(value);
+    // A typed year passes through 0002, 0020, 0202 on its way to 2026; each is
+    // a valid date the input reports as a change.
+    if (next === null || new Date(next * 1000).getFullYear() < 1970) return;
+    void doSetDue(next);
   }
 
   // 步驟備註 (T-66) — 點開才抓. The card holds only `noteSizeChars`, so the text
@@ -1349,6 +1416,70 @@ export function TaskCard({
                   </div>
                 )}
               </div>
+            )}
+            {closed ? (
+              dueTs !== null && (
+                <span
+                  className="task-badge task-badge--due"
+                  data-testid="task-due"
+                >
+                  {(() => {
+                    const d = new Date(dueTs * 1000);
+                    return msg.taskDueOn(d.getMonth() + 1, d.getDate());
+                  })()}
+                </span>
+              )
+            ) : dueEditable ? (
+              <div className="task-card__due" ref={dueRef}>
+                <button
+                  type="button"
+                  className={`task-badge task-badge--due task-badge--due-${dueTone} task-card__due-chip`}
+                  title={t.tasks.dueEditLabel}
+                  aria-haspopup="dialog"
+                  aria-expanded={dueOpen}
+                  data-testid="task-due"
+                  onClick={() => setDueOpen((o) => !o)}
+                >
+                  {dueText}
+                </button>
+                {dueOpen && (
+                  <div
+                    className="task-card__menu-pop task-card__due-pop"
+                    role="dialog"
+                    aria-label={t.tasks.dueEditLabel}
+                    data-testid="task-due-pop"
+                  >
+                    <input
+                      type="date"
+                      className="task-card__due-input"
+                      aria-label={t.tasks.duePickerLabel}
+                      data-testid="task-due-input"
+                      value={dueTs === null ? "" : toDateInputValue(dueTs)}
+                      onChange={(e) => onDuePicked(e.target.value)}
+                    />
+                    {dueTs !== null && (
+                      <button
+                        type="button"
+                        className="task-card__menu-item"
+                        aria-label={t.tasks.dueClearLabel}
+                        data-testid="task-due-clear"
+                        onClick={() => void doSetDue(null)}
+                      >
+                        {t.tasks.dueClear}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
+              dueTs !== null && (
+                <span
+                  className={`task-badge task-badge--due task-badge--due-${dueTone}`}
+                  data-testid="task-due"
+                >
+                  {dueText}
+                </span>
+              )
             )}
             <div className="task-card__status" ref={statusRef}>
               <button

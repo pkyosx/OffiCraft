@@ -162,6 +162,7 @@ import {
   toServerSettings,
   toTask,
   toTaskListItem,
+  toTaskCount,
   toTaskStepDetail,
   toTaskArtifact,
   toOutsourceWorker,
@@ -1790,11 +1791,10 @@ export const httpApi: Api = {
   },
 
   async getTaskCount(): Promise<TaskCountView> {
-    // GET /api/tasks/count -> {open, total}. The nav badge's cheap count path
+    // GET /api/tasks/count -> TaskCountDTO. The nav badge's cheap count path
     // (refetched on every "task" SSE delta without pulling the list); `total`
     // (T-a3e4) is the unfiltered count the 任務頁 words its empty state from.
-    const wire = unwrap(await client.GET("/api/tasks/count"));
-    return { open: wire.open, total: wire.total ?? 0 };
+    return toTaskCount(unwrap(await client.GET("/api/tasks/count")));
   },
 
   async terminateTask(id: string): Promise<void> {
@@ -1861,6 +1861,15 @@ export const httpApi: Api = {
       await client.POST("/api/tasks/{task_id}/priority", {
         params: { path: { task_id: id } },
         body: { priority },
+      }),
+    );
+  },
+
+  async setTaskDue(id: string, dueTs: number | null): Promise<void> {
+    unwrap(
+      await client.POST("/api/tasks/{task_id}/due", {
+        params: { path: { task_id: id } },
+        body: { due_ts: dueTs },
       }),
     );
   },

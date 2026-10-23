@@ -62,6 +62,8 @@ type Task struct {
 	// step is added). The 〈任務可結案〉 notice prints it so a second arrival does not
 	// read as a duplicate delivery. 0 on pre-column rows.
 	ReadyForDoneVisits int
+	// DueTs is epoch seconds; 0 means no due date (the wire answers null).
+	DueTs float64
 }
 
 const taskColumns = `id, type_key, title, dedupe_key, inputs, description,
@@ -72,7 +74,8 @@ const taskColumns = `id, type_key, title, dedupe_key, inputs, description,
 	outsource_runtime, outsource_model, outsource_effort, outsource_machine,
 	outsource_dispatched,
 	frozen_by, kickoff_notified_to,
-	forced_done_by, forced_done_reason, ready_for_done_visits`
+	forced_done_by, forced_done_reason, ready_for_done_visits,
+	due_ts`
 
 // sqlTaskTerminalStatuses is kept in one place so a new terminal state updates
 // every open-task filter at once.
@@ -94,6 +97,7 @@ func scanTask(row interface{ Scan(...any) error }) (Task, error) {
 		&t.FrozenBy,
 		&t.KickoffNotifiedTo,
 		&t.ForcedDoneBy, &t.ForcedDoneReason, &t.ReadyForDoneVisits,
+		&t.DueTs,
 	)
 	if err != nil {
 		return Task{}, err
@@ -237,7 +241,7 @@ func putTaskOn(ex sqlExecer, t Task, mode taskWriteMode) error {
 	}
 	stmt := `
 		INSERT INTO task (` + taskColumns + `)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	if mode == taskWriteUpsert {
 		stmt += taskUpsertConflictClause
 	}
@@ -254,6 +258,7 @@ func putTaskOn(ex sqlExecer, t Task, mode taskWriteMode) error {
 		t.FrozenBy,
 		t.KickoffNotifiedTo,
 		t.ForcedDoneBy, t.ForcedDoneReason, t.ReadyForDoneVisits,
+		t.DueTs,
 	)
 	return err
 }
@@ -293,7 +298,8 @@ const taskUpsertConflictClause = `
 			kickoff_notified_to = excluded.kickoff_notified_to,
 			forced_done_by = excluded.forced_done_by,
 			forced_done_reason = excluded.forced_done_reason,
-			ready_for_done_visits = excluded.ready_for_done_visits`
+			ready_for_done_visits = excluded.ready_for_done_visits,
+			due_ts = excluded.due_ts`
 
 func (d *DAL) ListTaskDeps(taskID string) ([]string, error) {
 	rows, err := d.rdb.Query(

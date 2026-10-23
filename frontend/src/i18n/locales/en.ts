@@ -357,6 +357,22 @@ export const en: Dict = {
     messageError: "Failed to send the message. Please try again.",
     statusMenuLabel: "Status actions",
     priorityLabel: "Priority",
+    dueOnLead: "Due",
+    dueOnTail: "",
+    dueToday: "Due today",
+    dueTomorrow: "Due tomorrow",
+    overdueDaysLead: "Overdue",
+    overdueDaysTailOne: "day",
+    overdueDaysTailMany: "days",
+    overdueToday: "Overdue",
+    dueAdd: "+ Due date",
+    dueEditLabel: "Set due date",
+    duePickerLabel: "Due date",
+    dueClear: "Clear",
+    dueClearLabel: "Clear due date",
+    filterOverdue: "Overdue",
+    filterDueSoon: "Due soon",
+    dueBadgeLabel: "Tasks overdue or due soon:",
     // T-e5b1 (owner 2026-08-15): the in-place title / description editors were
     // removed from the task UI, and their whole label family went with them.
     // The capability is untouched — this is the screen's vocabulary, not the
