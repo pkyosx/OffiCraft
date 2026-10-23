@@ -657,6 +657,7 @@ func (s *codexSession) trackActivity(method string, params map[string]any) {
 			return
 		}
 		delete(s.runningSubagents, threadID)
+		delete(s.wakingSubagents, threadID)
 	case "item/started", "item/completed":
 		item, _ := params["item"].(map[string]any)
 		switch {
@@ -682,8 +683,12 @@ func (s *codexSession) trackActivity(method string, params map[string]any) {
 				s.subagentNames = map[string]string{}
 			}
 			s.subagentNames[agentThreadID] = name
-			parent, _ := params["threadId"].(string)
-			s.recordSubagentParent(agentThreadID, parent)
+			// Interacted, interrupted and completed items sit on whichever thread
+			// talked to the agent, which need not be the one that spawned it.
+			if item["kind"] == "started" {
+				parent, _ := params["threadId"].(string)
+				s.recordSubagentParent(agentThreadID, parent)
+			}
 		default:
 			return
 		}
@@ -695,9 +700,16 @@ func (s *codexSession) trackActivity(method string, params map[string]any) {
 	}
 }
 
+// First write wins: a thread's spawner never changes. A cycle is refused
+// because wakeIdleParent would follow it forever.
 func (s *codexSession) recordSubagentParent(child, parent string) {
-	if parent == "" || parent == s.threadID || parent == child {
+	if parent == "" || parent == s.threadID || s.subagentParent[child] != "" {
 		return
+	}
+	for ancestor := parent; ancestor != ""; ancestor = s.subagentParent[ancestor] {
+		if ancestor == child {
+			return
+		}
 	}
 	if s.subagentParent == nil {
 		s.subagentParent = map[string]string{}
@@ -829,8 +841,11 @@ func (s *codexSession) handleTurnStarted(params map[string]any) {
 // Reports whether the turn that ended was the main thread's.
 func (s *codexSession) handleTurnCompleted(params map[string]any) bool {
 	if !s.isMainThread(params) {
-		threadID, _ := params["threadId"].(string)
-		s.wakeIdleParent(threadID)
+		// An interrupted sub-agent leaves no result in its parent's history.
+		if nestedString(params, "turn", "status") != "interrupted" {
+			threadID, _ := params["threadId"].(string)
+			s.wakeIdleParent(threadID)
+		}
 		return false
 	}
 	s.active = false
