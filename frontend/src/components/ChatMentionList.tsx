@@ -1,23 +1,25 @@
 import { useEffect, useRef } from "react";
 import { useI18n } from "../i18n";
-import type { MentionCandidate } from "../lib/chatMention";
+import { mentionOptionId, type MentionCandidate } from "../lib/chatMention";
 import "./chat-mention.css";
 
-export function mentionOptionId(listId: string, index: number): string {
-  return `${listId}-opt-${index}`;
+export interface ChatMentionListProps {
+  id: string;
+  items: MentionCandidate[];
+  active: number;
+  onPick: (c: MentionCandidate) => void;
 }
 
+/** `below` is for a composer in the middle of a scrolling page: a list that
+ * opens upward past the scroller's top is clipped with no way to scroll to it,
+ * while one that opens downward extends the scroll area. */
 export function ChatMentionList({
   id,
   items,
   active,
   onPick,
-}: {
-  id: string;
-  items: MentionCandidate[];
-  active: number;
-  onPick: (c: MentionCandidate) => void;
-}) {
+  placement = "above",
+}: ChatMentionListProps & { placement?: "above" | "below" }) {
   const { t } = useI18n();
   const listRef = useRef<HTMLUListElement>(null);
   useEffect(() => {
@@ -28,7 +30,7 @@ export function ChatMentionList({
       ref={listRef}
       id={id}
       role="listbox"
-      className="chat-mention"
+      className={placement === "below" ? "chat-mention chat-mention--below" : "chat-mention"}
       aria-label={t.chat.mentionListLabel}
       data-testid="chat-mention-list"
     >

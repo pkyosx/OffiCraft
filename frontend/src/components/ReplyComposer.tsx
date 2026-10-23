@@ -12,6 +12,12 @@ import type { ChatAttachmentInput } from "../api/adapter";
 import { autosizeTextarea } from "../lib/autosize";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { enterShouldSend } from "../lib/composerKeys";
+import { linkMentions } from "../lib/mentionLinks";
+import {
+  useMentionComposer,
+  useMentionRosterContext,
+} from "../hooks/useMentionComposer";
+import { ChatMentionList } from "./ChatMentionList";
 import {
   ATTACH_ACCEPT,
   useAttachmentStaging,
@@ -77,6 +83,14 @@ export function ReplyComposer({
   // T-122 建議回覆: the owner's one-click sentences, shown UNDER this box. The
   // empty list (no setting, or a failed read) renders nothing at all.
   const suggestedReplies = useSuggestedRepliesReplyCard();
+  const candidates = useMentionRosterContext()?.candidates ?? [];
+  const mention = useMentionComposer({
+    inputRef: draftRef,
+    value: draft,
+    setValue: setDraft,
+    candidates,
+    composingRef: isComposingRef,
+  });
 
   const canSend =
     !sending &&
@@ -103,7 +117,7 @@ export function ReplyComposer({
     }));
     setSending(true);
     try {
-      await onSend(body, attachments);
+      await onSend(linkMentions(body, candidates), attachments);
       // Success: the card leaves this pane (refetch) — clear for good measure.
       setDraft("");
       clearAttachments();
@@ -126,6 +140,7 @@ export function ReplyComposer({
   });
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (mention.onKeyDown(e)) return;
     // Shared send rule (IME gate + mobile-newline) — see lib/composerKeys.
     // A mobile Enter returns false and is left un-prevented so the textarea
     // inserts a native newline.
@@ -145,6 +160,7 @@ export function ReplyComposer({
         />
       )}
       <div className="chat__composer-row">
+        {mention.listProps && <ChatMentionList {...mention.listProps} placement="below" />}
         <input
           ref={fileInputRef}
           className="chat__file-input"
@@ -171,7 +187,11 @@ export function ReplyComposer({
           className="chat__input"
           rows={1}
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            mention.onChange(e);
+          }}
+          {...mention.inputProps}
           onCompositionStart={() => {
             isComposingRef.current = true;
           }}

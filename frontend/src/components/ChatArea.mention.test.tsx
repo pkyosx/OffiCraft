@@ -6,11 +6,13 @@ import type { Member } from "../types";
 import type { ChatMessage, OutsourceWorkerView } from "../api/adapter";
 import { pushEscapeLayer } from "../lib/escapeLayers";
 import { getChatDraft } from "../lib/chatDraftStore";
+import { __resetMock, __injectMockReplyCard } from "../api/mock";
+import { api } from "../api";
 
 let messages: ChatMessage[] = [];
 const send = vi.fn((_body: string, ..._rest: unknown[]) => Promise.resolve());
 vi.mock("../hooks/useChat", () => ({
-  useChat: () => ({ messages, peerLastReadTs: 0, send }),
+  useChat: () => ({ messages, peerLastReadTs: 0, send, markRead: vi.fn() }),
 }));
 let mobile = false;
 vi.mock("../hooks/useIsMobile", () => ({ useIsMobile: () => mobile }));
@@ -330,5 +332,54 @@ describe("ChatArea mention links in message bodies", () => {
     fireEvent.click(mention);
     expect(window.location.hash).toBe("#office/chat/m1/member/m-eva");
     expect(document.body.querySelector(".md-preview")).toBeNull();
+  });
+});
+
+describe("ChatArea reply card in the thread", () => {
+  it("answer box → offers this room's roster, sends the mention as a link, and the answer opens the detail over this chat", async () => {
+    __resetMock();
+    __injectMockReplyCard({
+      id: "rc-9",
+      from: "m1",
+      kind: "decision",
+      summary: "誰來接？",
+      body: "",
+      options: [],
+      selectMode: "single",
+      status: "waiting",
+      attachments: [],
+      createdTs: 1000,
+      answeredTs: null,
+      chatMessageId: "c-9",
+      answer: null,
+    });
+    messages = [
+      { id: "c-9", from: "m1", to: "owner", body: "誰來接？", ts: 1000, attachments: [], replyCardId: "rc-9" },
+    ];
+    const answerSpy = vi.spyOn(api, "answerReplyCard");
+    const { container } = renderChat();
+    fireEvent.click(container.querySelector("[data-testid='chat-reply-card-expand']")!);
+    const box = await waitFor(() => {
+      const el = container.querySelector(".reply-composer textarea") as HTMLTextAreaElement | null;
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    fireEvent.change(box, { target: { value: "@fam" } });
+    expect(
+      Array.from(container.querySelectorAll(".reply-composer [role='option']"), (o) => o.textContent),
+    ).toEqual(["Family Money Eva財務"]);
+    fireEvent.keyDown(box, { key: "Enter" });
+    expect(box.value).toBe("@Family Money Eva ");
+    await act(async () => {
+      fireEvent.keyDown(box, { key: "Enter" });
+    });
+    expect(answerSpy.mock.calls[0][1].text).toBe("[@Family Money Eva](/#office/member/m-eva)");
+    const mention = await waitFor(() => {
+      const b = container.querySelector("[data-testid='final-answer'] button.md-mention");
+      expect(b).not.toBeNull();
+      return b!;
+    });
+    fireEvent.click(mention);
+    expect(window.location.hash).toBe("#office/chat/m1/member/m-eva");
   });
 });

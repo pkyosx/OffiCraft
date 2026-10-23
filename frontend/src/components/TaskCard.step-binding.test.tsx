@@ -246,6 +246,44 @@ describe("TaskCard 卡綁 step", () => {
     });
   });
 
+  it("typed answer with mentions → a known id is its roster name opening the detail with 返回 to tasks, an unknown id plain text, and the folded row reads @name", async () => {
+    __injectMockReplyCard(
+      mkCard({
+        id: "rc-mention",
+        status: "answered",
+        answeredTs: Date.now() / 1000 - 120,
+        answer: {
+          optionIdxs: [],
+          text: "請 [@Mira 舊名](/#office/member/mira) 和 [@外包 · O-9](/#office/worker/ow-9) 處理",
+          attachments: [],
+        },
+      })
+    );
+    __injectMockTask(
+      mkTask({
+        steps: [
+          mkStep({ status: "done", replyCardId: "rc-mention", orderIdx: 0 }),
+        ],
+      })
+    );
+    const { findByTestId } = renderPage();
+    fireEvent.click(await findByTestId("task-card"));
+    fireEvent.click(await findByTestId("task-reply-card-expand"));
+    const final = await findByTestId("final-answer");
+    expect(final.textContent).toBe("你選的請 @Mira 和 @外包 · O-9 處理");
+    const buttons = final.querySelectorAll("button.md-mention");
+    expect(Array.from(buttons, (b) => b.textContent)).toEqual(["@Mira"]);
+
+    fireEvent.click(await findByTestId("task-reply-card-collapse"));
+    expect((await findByTestId("task-reply-card-expand")).textContent).toBe(
+      "已回覆要現在同步到 Jira 嗎？請 @Mira 舊名 和 @外包 · O-9 處理"
+    );
+
+    fireEvent.click(await findByTestId("task-reply-card-expand"));
+    fireEvent.click((await findByTestId("final-answer")).querySelector("button.md-mention")!);
+    expect(window.location.hash).toBe("#office/member/mira/from/tasks");
+  });
+
   it("shows the waiting badge only while the bound card is WAITING; answered/expired render their own badges", async () => {
     __injectMockReplyCard(mkCard({ id: "rc-b-wait" }));
     __injectMockReplyCard(

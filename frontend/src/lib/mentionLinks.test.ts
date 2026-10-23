@@ -3,6 +3,7 @@ import {
   linkMentions,
   mentionHref,
   mentionTargetFromHref,
+  splitMentions,
   unlinkMentions,
   type NamedMentionTarget,
 } from "./mentionLinks";
@@ -116,5 +117,22 @@ describe("unlinkMentions", () => {
 
   it("a quote cut inside a link to another destination → left as written", () => {
     expect(unlinkMentions("見 [@doc](https://exa…")).toBe("見 [@doc](https://exa…");
+  });
+});
+
+describe("splitMentions", () => {
+  it("text with mention links → plain runs and targets with the written @label; other links stay text", () => {
+    expect(
+      splitMentions("請 [@A\\[1\\]](/#office/member/m-a) 看 [doc](/docs/x) 和 [@外包 · O-7](/#office/worker/ow-7)"),
+    ).toEqual([
+      "請 ",
+      { kind: "member", id: "m-a", label: "@A[1]" },
+      " 看 [doc](/docs/x) 和 ",
+      { kind: "worker", id: "ow-7", label: "@外包 · O-7" },
+    ]);
+  });
+
+  it("text without a mention link → one plain run", () => {
+    expect(splitMentions("@Mira 在嗎")).toEqual(["@Mira 在嗎"]);
   });
 });

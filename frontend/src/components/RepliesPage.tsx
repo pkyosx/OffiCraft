@@ -52,6 +52,8 @@ import type {
 } from "../api/adapter";
 import { isHttpStatus } from "../api/errors";
 import { useMembers } from "../hooks/useMembers";
+import { useOutsourceWorkers } from "../hooks/useOutsourceWorkers";
+import { MentionRosterContext, useMentionRoster } from "../hooks/useMentionComposer";
 import { useReplyCards } from "../hooks/useReplyCards";
 import {
   useWorkerAvatarUrls,
@@ -106,6 +108,10 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     members,
     loading: membersLoading,
   } = useMembers({ light: true });
+  // The light roster carries no task number or title, which the @ list in the
+  // answer box shows and filters on for an outsource worker.
+  const { workers } = useOutsourceWorkers();
+  const mentionRoster = useMentionRoster(members, workers, { backTo: "replies" });
   const {
     waiting,
     handled,
@@ -1047,7 +1053,14 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
           * through Markdown; the light row carries it, so this costs no read. */}
         <ReplyCardLinkComments from={row.from} recipientFor={docCommentRecipientFor}>
           <Markdown source={row.summary} className="reply-card__summary doc-md" />
-          {open && (card ? opts.body(card) : renderOpenState(row.id))}
+          {open &&
+            (card ? (
+              <MentionRosterContext.Provider value={mentionRoster}>
+                {opts.body(card)}
+              </MentionRosterContext.Provider>
+            ) : (
+              renderOpenState(row.id)
+            ))}
         </ReplyCardLinkComments>
       </article>
     );

@@ -126,3 +126,23 @@ export function unlinkMentions(text: string): string {
       isCutMentionDestination(partial) ? `@${unescapeLabel(label)}…` : whole,
     );
 }
+
+export type MentionPiece = string | (MentionTarget & { label: string });
+
+/** Split a body into plain runs and the mention links in it, for a surface
+ * that shows the body as text rather than Markdown. `label` is the written
+ * `@name`. */
+export function splitMentions(text: string): MentionPiece[] {
+  if (!text.includes("[@")) return [text];
+  const pieces: MentionPiece[] = [];
+  let last = 0;
+  for (const m of text.matchAll(MENTION_LINK_RE)) {
+    const target = mentionTargetFromHref(m[2]);
+    if (!target) continue;
+    if (m.index > last) pieces.push(text.slice(last, m.index));
+    pieces.push({ ...target, label: `@${unescapeLabel(m[1])}` });
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) pieces.push(text.slice(last));
+  return pieces;
+}

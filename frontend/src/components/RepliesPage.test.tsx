@@ -471,6 +471,34 @@ describe("RepliesPage", () => {
     expect(final?.textContent).toBe("你選的收件人是誰？");
   });
 
+  it("typed answer naming a colleague → sent as a mention link, and the answer shows the name opening their detail with 返回 to 請示", async () => {
+    __injectMockReplyCard(mkCard({}));
+    const answerSpy = vi.spyOn(api, "answerReplyCard");
+    const { findAllByTestId, findByTestId, getByPlaceholderText } = renderPage();
+    await findAllByTestId("waiting-card");
+    await openCards();
+
+    const input = getByPlaceholderText("輸入回覆…");
+    await waitFor(() => {
+      fireEvent.change(input, { target: { value: "@mi" } });
+      expect(document.querySelector('[role="listbox"]')?.textContent).toBe("Mira特助");
+    });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(answerSpy).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: "交給 @Mira 處理" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(answerSpy).toHaveBeenCalledTimes(1));
+    expect(answerSpy.mock.calls[0][1].text).toBe("交給 [@Mira](/#office/member/mira) 處理");
+
+    fireEvent.click(await findByTestId("answered-toggle"));
+    const answeredCard = await findByTestId("answered-card");
+    await openCards();
+    const final = answeredCard.querySelector('[data-testid="final-answer"]')!;
+    expect(final.textContent).toBe("你選的交給 @Mira 處理");
+    fireEvent.click(final.querySelector("button.md-mention")!);
+    expect(window.location.hash).toBe("#office/member/mira/from/replies");
+  });
+
   it("近期已處理 is collapsed by default; the title row toggles it open and shut", async () => {
     __injectMockReplyCard(
       mkCard({

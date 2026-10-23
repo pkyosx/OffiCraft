@@ -2,7 +2,6 @@ import {
   Fragment,
   useCallback,
   useEffect,
-  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -33,18 +32,15 @@ import {
 } from "../hooks/useAttachmentStaging";
 import { useWindowActive } from "../hooks/useWindowActive";
 import { useIsMobile } from "../hooks/useIsMobile";
-import { enterShouldSend, isImeComposingKey } from "../lib/composerKeys";
-import {
-  activeMentionQuery,
-  filterMentionCandidates,
-  insertMention,
-  mentionCandidates,
-  type MentionCandidate,
-} from "../lib/chatMention";
+import { enterShouldSend } from "../lib/composerKeys";
 import { linkMentions, unlinkMentions } from "../lib/mentionLinks";
-import { navigateHash } from "../lib/hashRoute";
 import { MentionOpenerContext, type MentionOpener } from "../hooks/useMentionOpener";
-import { ChatMentionList, mentionOptionId } from "./ChatMentionList";
+import {
+  MentionRosterContext,
+  useMentionComposer,
+  useMentionRoster,
+} from "../hooks/useMentionComposer";
+import { ChatMentionList } from "./ChatMentionList";
 import { chatBottomAffordance } from "../lib/chatBottomAffordance";
 import { scrollToLatest, isLatestRowInView } from "../lib/scrollToLatest";
 import { AttachmentStrip } from "./AttachmentStrip";
@@ -764,56 +760,15 @@ export function ChatArea({
   // Phone viewport → Enter inserts a newline instead of sending (no physical
   // keyboard, so Shift+Enter is impossible); sending is via the send button.
   const isMobile = useIsMobile();
-  // @mention picker. `mentionCaret` is null until the textarea reports one, so
-  // a restored draft that happens to end in "@x" does not pop the list open.
-  const [mentionCaret, setMentionCaret] = useState<number | null>(null);
-  // The `@` index whose list was closed (Esc or a pick); it stays closed until
-  // the caret is in a different `@` token.
-  const [mentionDismissedAt, setMentionDismissedAt] = useState<number | null>(null);
-  const [mentionActive, setMentionActive] = useState(0);
-  const pendingCaretRef = useRef<number | null>(null);
-  const mentionListId = useId();
-  const mentionPool = useMemo(
-    () =>
-      mentionCandidates(
-        members,
-        workers,
-        msg.outsourceLabel,
-        (m) => (t.office.role as Record<string, string>)[m.role] ?? (m.roleName || ""),
-      ),
-    [members, workers, msg, t],
-  );
-  const mentionQuery =
-    mentionCaret === null ? null : activeMentionQuery(draft, mentionCaret);
-  const mentionMatches =
-    mentionQuery && mentionQuery.start !== mentionDismissedAt
-      ? filterMentionCandidates(mentionPool, mentionQuery.query)
-      : [];
-  const mentionOpen = mentionMatches.length > 0;
-  const mentionIndex = Math.min(mentionActive, mentionMatches.length - 1);
-  const openMention = useCallback<MentionOpener>(
-    (target) => {
-      const worker =
-        target.kind === "worker" ? workers.find((w) => w.id === target.id) : undefined;
-      const name =
-        target.kind === "member"
-          ? members.find((m) => m.id === target.id)?.name
-          : worker && msg.outsourceLabel(worker.codename);
-      if (name === undefined) return null;
-      return {
-        name,
-        open: () =>
-          navigateHash({
-            page: "office",
-            chatId: member.id,
-            ...(target.kind === "member"
-              ? { detailId: target.id }
-              : { workerId: target.id }),
-          }),
-      };
-    },
-    [members, workers, member.id, msg],
-  );
+  const mentionRoster = useMentionRoster(members, workers, { chatId: member.id });
+  const openMention = mentionRoster.opener;
+  const mention = useMentionComposer({
+    inputRef,
+    value: draft,
+    setValue: setDraft,
+    candidates: mentionRoster.candidates,
+    composingRef: isComposingRef,
+  });
   // The overlay is portalled above the whole page, so the detail panel the
   // mention opens would sit hidden behind it.
   const openMentionFromPreview = useCallback<MentionOpener>(
@@ -855,11 +810,6 @@ export function ChatArea({
   // scrolls its own overflow so a long draft is always fully reachable.
   useLayoutEffect(() => {
     if (inputRef.current) autosizeTextarea(inputRef.current);
-    const caret = pendingCaretRef.current;
-    if (caret !== null && inputRef.current) {
-      pendingCaretRef.current = null;
-      inputRef.current.setSelectionRange(caret, caret);
-    }
   }, [draft]);
 
   // Auto-scroll to the newest message (regression #6: the thread never scrolled,
@@ -1813,7 +1763,7 @@ export function ChatArea({
     setReplyTarget(null);
     try {
       await send(
-        linkMentions(draftSnapshot, mentionPool),
+        linkMentions(draftSnapshot, mentionRoster.candidates),
         attachments.length > 0 ? attachments : undefined,
         replyTargetSnapshot?.id,
         replyTargetSnapshot?.excerpt,
@@ -1872,46 +1822,8 @@ export function ChatArea({
     }
   }
 
-  function trackMentionCaret(text: string, caret: number) {
-    setMentionCaret(caret);
-    const q = activeMentionQuery(text, caret);
-    if (q === null || q.start !== mentionDismissedAt) setMentionDismissedAt(null);
-  }
-
-  function pickMention(c: MentionCandidate) {
-    if (!mentionQuery) return;
-    const next = insertMention(draft, mentionQuery, c.name);
-    pendingCaretRef.current = next.caret;
-    setMentionDismissedAt(mentionQuery.start);
-    setMentionCaret(next.caret);
-    setDraft(next.text);
-    inputRef.current?.focus();
-  }
-
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (mentionOpen && !isImeComposingKey(e, isComposingRef.current)) {
-      const n = mentionMatches.length;
-      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-        e.preventDefault();
-        const step = e.key === "ArrowDown" ? 1 : -1;
-        setMentionActive((mentionIndex + step + n) % n);
-        return;
-      }
-      // Enter picks on phones too: while the list is open it is never a send
-      // and never a newline.
-      if (e.key === "Enter" || (e.key === "Tab" && !e.shiftKey)) {
-        e.preventDefault();
-        pickMention(mentionMatches[mentionIndex]);
-        return;
-      }
-      if (e.key === "Escape") {
-        // Without preventDefault the window-level Esc layer would also close
-        // whatever panel hosts this chat.
-        e.preventDefault();
-        if (mentionQuery) setMentionDismissedAt(mentionQuery.start);
-        return;
-      }
-    }
+    if (mention.onKeyDown(e)) return;
     // The send decision (IME gate, mobile-newline, Shift+Enter) is the shared
     // enterShouldSend rule so all three composers stay in lockstep. When it
     // returns false on a mobile Enter we deliberately do NOT preventDefault, so
@@ -2176,12 +2088,14 @@ export function ChatArea({
     );
 
     const content = m.replyCardId ? (
-      <ChatReplyCard
-        replyCardId={m.replyCardId}
-        fallbackSummary={m.body}
-        initialStatus={m.replyCardStatus}
-        commentRecipientFor={docCommentRecipientFor}
-      />
+      <MentionRosterContext.Provider value={mentionRoster}>
+        <ChatReplyCard
+          replyCardId={m.replyCardId}
+          fallbackSummary={m.body}
+          initialStatus={m.replyCardStatus}
+          commentRecipientFor={docCommentRecipientFor}
+        />
+      </MentionRosterContext.Provider>
     ) : (
       <div
         className={
@@ -2855,14 +2769,7 @@ export function ChatArea({
               </div>
             )}
             <div className="chat__composer-row">
-              {mentionOpen && (
-                <ChatMentionList
-                  id={mentionListId}
-                  items={mentionMatches}
-                  active={mentionIndex}
-                  onPick={pickMention}
-                />
-              )}
+              {mention.listProps && <ChatMentionList {...mention.listProps} />}
               {/* Hidden native file input the attach button triggers. */}
               <input
                 ref={fileInputRef}
@@ -2894,23 +2801,9 @@ export function ChatArea({
                 value={draft}
                 onChange={(e) => {
                   setDraft(e.target.value);
-                  setMentionActive(0);
-                  trackMentionCaret(
-                    e.target.value,
-                    e.target.selectionStart ?? e.target.value.length,
-                  );
+                  mention.onChange(e);
                 }}
-                onSelect={(e) =>
-                  trackMentionCaret(
-                    e.currentTarget.value,
-                    e.currentTarget.selectionStart ?? e.currentTarget.value.length,
-                  )
-                }
-                aria-autocomplete="list"
-                aria-controls={mentionOpen ? mentionListId : undefined}
-                aria-activedescendant={
-                  mentionOpen ? mentionOptionId(mentionListId, mentionIndex) : undefined
-                }
+                {...mention.inputProps}
                 onCompositionStart={() => {
                   isComposingRef.current = true;
                 }}

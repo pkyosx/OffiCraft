@@ -32,7 +32,7 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn();
 });
 
-describe("OfficePage — 返回 from a #from/replies deep-linked detail panel", () => {
+describe("OfficePage — 返回 from a #from/<page> deep-linked detail panel", () => {
   it("member panel: 返回 lands on #replies, not the default chat view", async () => {
     window.location.hash = "#office/member/mira/from/replies";
     const { container, findByText } = renderOffice();
@@ -68,6 +68,17 @@ describe("OfficePage — 返回 from a #from/replies deep-linked detail panel", 
     fireEvent.click(container.querySelector(".mp__back")!);
 
     await waitFor(() => expect(window.location.hash).toBe("#replies"));
+  });
+
+  it("member panel tagged /from/tasks: 返回 lands on #tasks", async () => {
+    window.location.hash = "#office/member/mira/from/tasks";
+    const { container, findByText } = renderOffice();
+
+    await findByText("Mira");
+
+    fireEvent.click(container.querySelector(".mp__back")!);
+
+    await waitFor(() => expect(window.location.hash).toBe("#tasks"));
   });
 
   it("member panel opened WITHOUT the tag: 返回 keeps the old chat-view reset (no regression to the ordinary in-office flow)", async () => {

@@ -20,6 +20,10 @@ export interface MentionQuery {
 
 const MAX_QUERY_CHARS = 64;
 
+export function mentionOptionId(listId: string, index: number): string {
+  return `${listId}-opt-${index}`;
+}
+
 export function mentionCandidates(
   members: Member[],
   workers: OutsourceWorkerView[],

@@ -141,9 +141,8 @@ export interface HashRoute {
    * links straight into #office/member/<id> with no chat context of its own;
    * without this marker 返回 fell through to the roster's default chat,
    * dropping the owner into an unrelated chat room instead of back where they
-   * came from). Only "replies" exists today — extend the union as more
-   * surfaces deep-link in. */
-  backTo?: "replies";
+   * came from). Extend the union as more surfaces deep-link in. */
+  backTo?: "replies" | "tasks";
 }
 
 /** `decodeURIComponent` THROWS on a malformed escape — a lone `%`, `%zz` — and
@@ -255,8 +254,12 @@ export function parseHash(raw: string): HashRoute {
     route.workerId = rest[i + 1];
     i += 2;
   }
-  if ((route.detailId || route.workerId) && rest[i] === "from" && rest[i + 1] === "replies") {
-    route.backTo = "replies";
+  if (
+    (route.detailId || route.workerId) &&
+    rest[i] === "from" &&
+    (rest[i + 1] === "replies" || rest[i + 1] === "tasks")
+  ) {
+    route.backTo = rest[i + 1] as "replies" | "tasks";
   }
   return route;
 }

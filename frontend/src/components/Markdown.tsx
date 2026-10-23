@@ -69,6 +69,7 @@ import { useAttachmentLinkComments, useAttachmentOpener } from "../hooks/useAtta
 import type { DocCommentTarget } from "../lib/docComments";
 import { mentionTargetFromHref, type MentionTarget } from "../lib/mentionLinks";
 import { useMentionOpener } from "../hooks/useMentionOpener";
+import { MentionButton } from "./MentionText";
 
 interface MarkdownProps {
   source: string;
@@ -302,16 +303,7 @@ function MentionOrLink({
   if (openMention === null) return <ExternalOrDiffLink href={href} label={label} />;
   const known = openMention(target);
   if (known === null) return <>{label}</>;
-  return (
-    <button
-      type="button"
-      className="md-mention"
-      data-mention-kind={target.kind}
-      onClick={known.open}
-    >
-      @{known.name}
-    </button>
-  );
+  return <MentionButton target={target} known={known} />;
 }
 
 // ── Bare-URL autolinking (T-59) ─────────────────────────────────────────────

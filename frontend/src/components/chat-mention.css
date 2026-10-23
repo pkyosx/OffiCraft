@@ -1,4 +1,4 @@
-/* The @mention picker, anchored above the composer row. Its width comes from
+/* The @mention picker, anchored above (or, with --below, under) the composer row. Its width comes from
  * the row (left/right 0), never from the viewport, so a long task title can
  * only ellipsize — it cannot widen the chat pane or the page on a phone. */
 .chat-mention {
@@ -18,6 +18,10 @@
   background: var(--color-card);
   box-shadow: 0 6px 20px color-mix(in srgb, var(--color-backdrop) 35%, transparent);
   z-index: 20;
+}
+.chat-mention--below {
+  top: calc(100% + 6px);
+  bottom: auto;
 }
 .chat-mention__option {
   display: flex;
@@ -57,4 +61,20 @@
   min-width: 0;
   color: var(--color-text-muted);
   font-size: 12px;
+}
+/* A mention link drawn as the person's name: a <button> that opens their
+ * detail in place, so it reads as a name tag rather than an underlined link. */
+.md-mention {
+  padding: 0 2px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--color-accent-soft);
+  font: inherit;
+  font-weight: 600;
+  color: var(--color-accent);
+  cursor: pointer;
+}
+.md-mention:hover,
+.md-mention:focus-visible {
+  text-decoration: underline;
 }
