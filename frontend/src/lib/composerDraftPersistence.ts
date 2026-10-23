@@ -1,6 +1,6 @@
 import type { PendingAttachment } from "../hooks/useAttachmentStaging";
 
-const STORAGE_PREFIX = "oc.composerDraft.v1.";
+export const COMPOSER_DRAFT_STORAGE_PREFIX = "oc.composerDraft.v1.";
 const DATABASE_NAME = "officraft-composer-drafts";
 const STORE_NAME = "drafts";
 
@@ -100,7 +100,7 @@ function browserMetadataStorage(): MetadataStorage | null {
 }
 
 function storageKey(key: string): string {
-  return `${STORAGE_PREFIX}${encodeURIComponent(key)}`;
+  return `${COMPOSER_DRAFT_STORAGE_PREFIX}${encodeURIComponent(key)}`;
 }
 
 function emptyMetadata(): ComposerDraftMetadata {

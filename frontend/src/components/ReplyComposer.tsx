@@ -132,7 +132,10 @@ export function ReplyComposer({
     setSending(true);
     try {
       await onSend(linkMentions(body, candidates), attachments);
-      const remainingText = draftRef.current?.value === draft ? "" : draftRef.current?.value ?? draft;
+      // A successful answer can unmount this composer before onSend resolves; a
+      // missing textarea means nothing was typed after the send, not "keep draft".
+      const typedSince = draftRef.current?.value;
+      const remainingText = typedSince === undefined || typedSince === draft ? "" : typedSince;
       setDraft(remainingText);
       for (const attachment of pendingAttachments) {
         removeAttachment(attachment.key);

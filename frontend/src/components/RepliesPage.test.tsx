@@ -46,6 +46,10 @@ import {
 import { api } from "../api";
 import type { ReplyCard } from "../api/adapter";
 import { ApiError } from "../api/errors";
+import {
+  composerDraftPersistence,
+  replyCardDraftStorageKey,
+} from "../lib/composerDraftPersistence";
 
 // Unlisted-identity cache: fixed map (the hook has its own tests) — only
 // "ow-rel" (released worker) and "m-left" (dismissed staff) resolve; other ids
@@ -454,7 +458,7 @@ describe("RepliesPage", () => {
     expect(notice.textContent).toBe(zh.replies.answerError);
   });
 
-  it("answering via the typed composer closes the card with the free text as the answer", async () => {
+  it("answering via the typed composer closes the card with the free text as the answer and leaves no draft to restore", async () => {
     __injectMockReplyCard(mkCard({}));
     const { findAllByTestId, findByTestId, getByPlaceholderText } =
       renderPage();
@@ -471,6 +475,8 @@ describe("RepliesPage", () => {
     const final = answeredCard.querySelector('[data-testid="final-answer"]');
     // A free-text answer circles nothing, so it is not the AI pick either.
     expect(final?.textContent).toBe("你選的收件人是誰？");
+    await composerDraftPersistence.flush();
+    expect(composerDraftPersistence.read(replyCardDraftStorageKey("rc-1"))).toBeUndefined();
   });
 
   it("typed answer naming a colleague → sent as a mention link, and the answer shows the name opening their detail with 返回 to 請示", async () => {

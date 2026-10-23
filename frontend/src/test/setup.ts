@@ -15,6 +15,7 @@
 
 import { afterEach } from "vitest";
 import { resetChatDrafts } from "../lib/chatDraftStore";
+import { COMPOSER_DRAFT_STORAGE_PREFIX } from "../lib/composerDraftPersistence";
 import { resetAllSharedSnapshots } from "../lib/sharedSnapshot";
 
 // T-8aaa: the chat composer draft store is module-level in-memory state (it must
@@ -23,6 +24,16 @@ import { resetAllSharedSnapshots } from "../lib/sharedSnapshot";
 // id, so reset it between tests — mirrors the localStorage.clear() that
 // per-suite beforeEach hooks already do.
 afterEach(() => resetChatDrafts());
+
+// Reply Card and Task Card drafts persist to localStorage under their own keys;
+// resetChatDrafts only clears chat peers it has touched in memory.
+afterEach(() => {
+  const storage = globalThis.localStorage;
+  for (let i = storage.length - 1; i >= 0; i -= 1) {
+    const key = storage.key(i);
+    if (key?.startsWith(COMPOSER_DRAFT_STORAGE_PREFIX)) storage.removeItem(key);
+  }
+});
 
 // T-8115: hooks/sharedServerSettings caches the /api/settings snapshot at module
 // level (that IS the point — one read per cockpit load). Left alone it would

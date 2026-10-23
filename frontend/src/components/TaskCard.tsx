@@ -1024,7 +1024,8 @@ export function TaskCard({
         linkMentions(draft.trim(), mentionRoster.candidates),
         attachments,
       );
-      const remainingText = draftRef.current?.value === draft ? "" : draftRef.current?.value ?? draft;
+      const typedSince = draftRef.current?.value;
+      const remainingText = typedSince === undefined || typedSince === draft ? "" : typedSince;
       setDraft(remainingText);
       for (const attachment of pendingAttachments) {
         removeAttachment(attachment.key);
