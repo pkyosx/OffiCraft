@@ -163,25 +163,17 @@ describe("ReplyComposer @mention", () => {
     expect(onSend.mock.calls[0][0]).toBe("@Mira 決定");
   });
 
-  it("names that match the roster → marked in the box exactly as they will be linked; other @ text is not", () => {
+  it("names that match the roster → marked in the box exactly as they will be linked; other @ text, code spans and fenced blocks are not", () => {
     const { container, type } = renderComposer();
-    type("@Mira 和 @Bob 看 `@Mira` 跟 @Family Money Eva");
+    type("@Mira 和 @Bob 看 `see @Mira` 跟 @Family Money Eva\n```\n@Mira\n```");
     const marks = Array.from(
       container.querySelectorAll(".mention-highlight__mark"),
       (m) => m.textContent,
     );
     expect(marks).toEqual(["@Mira", "@Family Money Eva"]);
     expect(container.querySelector(".mention-highlight")?.textContent).toBe(
-      "@Mira 和 @Bob 看 `@Mira` 跟 @Family Money Eva ",
+      "@Mira 和 @Bob 看 `see @Mira` 跟 @Family Money Eva\n```\n@Mira\n``` ",
     );
-  });
-
-  it("mentions inside a code span or a fenced block → not marked, as they are not linked", () => {
-    const { container, type } = renderComposer();
-    type("`see @Mira` and\n```\n@Mira\n```\nthen @Mira");
-    const marks = container.querySelectorAll(".mention-highlight__mark");
-    expect(Array.from(marks, (m) => m.textContent)).toEqual(["@Mira"]);
-    expect(marks[0].previousSibling?.textContent).toBe("`see @Mira` and\n```\n@Mira\n```\nthen ");
   });
 
   it("no mention in the box → no highlight layer", () => {
