@@ -32,8 +32,18 @@ function pickSelection(root: HTMLElement | null): Picked | null {
   const sel = window.getSelection();
   if (!root || !sel || sel.isCollapsed || sel.rangeCount === 0) return null;
   const range = sel.getRangeAt(0);
-  const body = bodyOf(range.startContainer, root);
-  if (!body || bodyOf(range.endContainer, root) !== body) return null;
+  const startBody = bodyOf(range.startContainer, root);
+  const endBody = bodyOf(range.endContainer, root);
+  if (startBody && endBody && startBody !== endBody) return null;
+  const body = startBody ?? endBody;
+  if (!body) return null;
+  if (
+    Array.from(root.querySelectorAll<HTMLElement>(BODY_SELECTOR)).some(
+      (candidate) => candidate !== body && range.intersectsNode(candidate),
+    )
+  ) {
+    return null;
+  }
   const inside = rangeInside(range, body);
   if (!inside) return null;
   if (
