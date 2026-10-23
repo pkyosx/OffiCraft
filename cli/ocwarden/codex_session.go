@@ -509,6 +509,7 @@ func (s *codexSession) confirmStartedTurn() {
 }
 
 func (s *codexSession) confirmDelivered(d *codexDelivery) {
+	delete(s.v2ParentNotices, d.text)
 	s.activity("已送進對話：%s", codexDeliveryLabel(d.text))
 	s.settleBatch(d.batch)
 }
