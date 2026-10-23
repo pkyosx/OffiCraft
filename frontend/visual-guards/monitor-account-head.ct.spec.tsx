@@ -10,7 +10,7 @@
 //   phone rules dropped (one row again)        → phone tests (overlap)
 //   head not wrapping                           → phone tests (figure beside the name)
 //   name left unbreakable (`overflow-wrap` off) → the e-mail name (runs under 詳情)
-//   head wraps on the desktop too               → 1280px test
+//   figure forced onto its own line on the desktop → 1280px test
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,9 +24,9 @@ const DETAIL_LABEL: Record<AccountCardHeadWording, string> = {
 };
 
 const CASES = [
-  { displayName: "eva-claude-max", cost: 66481 },
-  { displayName: "seth-claude-enterprise", cost: 123456 },
-  { displayName: "seth.wang@gofreight.com", cost: 123456 },
+  { displayName: "eva-claude-max", cost: 66481, figure: "估計 $66,481" },
+  { displayName: "seth-claude-enterprise", cost: 123456, figure: "估計 $123,456" },
+  { displayName: "seth.wang@gofreight.com", cost: 123456, figure: "估計 $123,456" },
 ];
 
 /** The harness page loads no webfonts, so text is measured in the runner's
@@ -70,7 +70,7 @@ interface Box {
   bottom: number;
 }
 
-/** The head's four parts as drawn: the name's and the figure's TEXT boxes (not
+/** The head's parts as drawn: the name's and the figure's TEXT boxes (not
  * their containers, which can be wider than the ink), and the two buttons. The
  * figure is bare text beside 歸零, so it is read through a Range. */
 async function measureHead(page: Page) {
@@ -88,6 +88,7 @@ async function measureHead(page: Page) {
     };
     const card = document.querySelector(".mon-acct")!;
     const name = document.querySelector(".mon-acct__name")!;
+    const pencil = document.querySelector(".mon-acct__id .inline-edit__iconbtn")!;
     const detail = document.querySelector(".mon-acct__detailbtn")!;
     const reset = document.querySelector(".mon-acct__reset")!;
     const costEl = document.querySelector(".mon-acct__cost")!;
@@ -105,6 +106,7 @@ async function measureHead(page: Page) {
         bottom: cardRect.bottom,
       },
       name: textBox(name),
+      pencil: box(pencil.getBoundingClientRect()),
       detail: box(detail.getBoundingClientRect()),
       figure: box(figure.getBoundingClientRect()),
       figureText: figure.toString().trim(),
@@ -130,8 +132,8 @@ function inside(inner: Box, outer: Box) {
 }
 
 for (const wording of ["default", "halloween"] as const) {
-  for (const { displayName, cost } of CASES) {
-    test(`${wording} copy at 390px: ${displayName} with $${cost} — the four parts of the head neither overlap nor clip`, async ({
+  for (const { displayName, cost, figure } of CASES) {
+    test(`${wording} copy at 390px: ${displayName} with $${cost} — the parts of the head neither overlap nor clip`, async ({
       mount,
       page,
     }, testInfo) => {
@@ -141,9 +143,9 @@ for (const wording of ["default", "halloween"] as const) {
       await expect(cmp.locator(".mon-acct__detailbtn")).toHaveText(DETAIL_LABEL[wording]);
 
       const m = await measureHead(page);
-      expect(m.figureText).toBe(`估計 $${cost.toLocaleString("en-US")}`);
+      expect(m.figureText).toBe(figure);
 
-      const parts = { name: m.name, detail: m.detail, figure: m.figure, reset: m.reset };
+      const parts = { name: m.name, pencil: m.pencil, detail: m.detail, figure: m.figure, reset: m.reset };
       const names = Object.keys(parts) as (keyof typeof parts)[];
       for (const [i, a] of names.entries()) {
         expect(inside(parts[a], m.card), `${a} stays inside the card`).toBe(true);
@@ -176,13 +178,14 @@ test("halloween copy at 1280px: the whole head stays on one line", async ({ moun
   await expect(cmp.locator(".mon-acct__detailbtn")).toHaveText(DETAIL_LABEL.halloween);
 
   const m = await measureHead(page);
-  const parts = [m.name, m.detail, m.figure, m.reset];
+  const parts = [m.name, m.pencil, m.detail, m.figure, m.reset];
   for (const a of parts) {
     for (const b of parts) {
       expect(a.top < b.bottom && b.top < a.bottom, "every part shares one line").toBe(true);
     }
   }
-  expect(m.name.right).toBeLessThanOrEqual(m.detail.left);
+  expect(m.name.right).toBeLessThanOrEqual(m.pencil.left);
+  expect(m.pencil.right).toBeLessThanOrEqual(m.detail.left);
   expect(m.detail.right).toBeLessThanOrEqual(m.figure.left);
   expect(m.figure.right).toBeLessThanOrEqual(m.reset.left);
 
