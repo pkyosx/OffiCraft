@@ -179,6 +179,15 @@ case "$url" in
   */actions/runs/*/jobs*)
     [[ -z "${API_WIRE:-}" ]]   || echo "auth=$auth $url" >> "$API_WIRE"
     [[ -z "${ORDER_WIRE:-}" ]] || echo "ci-verdict-jobs" >> "$ORDER_WIRE"
+    # GH_JOBS_JSON_SEQ: a file of one payload per line, served in order; the
+    # last line keeps being served once it is the only one left.
+    if [[ -n "${GH_JOBS_JSON_SEQ:-}" ]]; then
+      head -n 1 "$GH_JOBS_JSON_SEQ"
+      if [[ "$(wc -l < "$GH_JOBS_JSON_SEQ")" -gt 1 ]]; then
+        tail -n +2 "$GH_JOBS_JSON_SEQ" > "$GH_JOBS_JSON_SEQ.rest" && mv "$GH_JOBS_JSON_SEQ.rest" "$GH_JOBS_JSON_SEQ"
+      fi
+      exit "${GH_JOBS_RC:-0}"
+    fi
     printf '%s' "${GH_JOBS_JSON:-}"; exit "${GH_JOBS_RC:-0}" ;;
   */actions/runs/*)
     [[ -z "${API_WIRE:-}" ]]   || echo "auth=$auth $url" >> "$API_WIRE"
@@ -705,6 +714,8 @@ API_WIRE="$WORK/.api-wire"
 # manual path.
 E_RUN_ID="8675309"
 OC_GUARD_RUN_ID="$E_RUN_ID"
+E_CI_TRIES=3
+jobs_reads() { grep -c '/jobs?per_page=100$' "$API_WIRE" || true; }
 
 # ── the two canned Actions payloads ─────────────────────────────────────────
 # MEASURED SHAPE, NOT INVENTED. Both mirror a real anonymous fetch of
@@ -728,7 +739,8 @@ print(json.dumps({"id": int(sys.argv[2]), "head_sha": sys.argv[1],
 # gh_jobs_json [name=conclusion ...] — starts from all-green over the required
 # set; each argument overrides ONE job's conclusion, and the pseudo-value
 # `absent` DROPS the job from the list entirely (a job that never ran produces no
-# entry at all — the case a "conclusions are all fine" check cannot see).
+# entry at all — the case a "conclusions are all fine" check cannot see). The
+# pseudo-value `null` keeps the job but with a JSON null conclusion.
 gh_jobs_json() {
   GH_JOBS_JSON="$(python3 - "${GATE_JOBS[@]}" -- "$@" <<'PY'
 import json, sys
@@ -740,6 +752,9 @@ jobs = []
 for i, n in enumerate(names):
     c = ov.pop(n, "success")
     if c == "absent":
+        continue
+    if c == "null":
+        jobs.append({"id": 1000 + i, "name": n, "status": "in_progress", "conclusion": None})
         continue
     jobs.append({"id": 1000 + i, "name": n, "status": "completed", "conclusion": c})
 # the two declared not-a-gate jobs really are in this payload and really are
@@ -764,6 +779,7 @@ e2e() { # e2e [extra publish args...] — env overrides come from the caller
     OC_RELEASE_GH_REPO="guard/fixture" \
     OC_RELEASE_SITE="http://127.0.0.1:1" \
     OC_RELEASE_SETTLE_TRIES=2 OC_RELEASE_SETTLE_SLEEP=0 \
+    OC_RELEASE_CI_TRIES="$E_CI_TRIES" OC_RELEASE_CI_SLEEP=0 \
     BUILD_WIRE="$BUILD_WIRE" ORDER_WIRE="$ORDER_WIRE" API_WIRE="$API_WIRE" GO_BIN="$GO" \
     GITHUB_RUN_ID="${OC_GUARD_RUN_ID:-}" \
     GITHUB_TOKEN="${OC_GUARD_GH_TOKEN:-}" GH_TOKEN="${OC_GUARD_GH_TOKEN_ALT:-}" \
@@ -881,6 +897,7 @@ STATION_VERSION_JSON="{\"git_sha\":\"$E_SHORT\"}" e2e
 named_failure "G2 a required job is ABSENT from the round → publish aborts" \
   release-ci "$RC" "$OUT"
 check "G2 …and NOTHING was built" "" "$(cat "$BUILD_WIRE")"
+check "G2 …on the FIRST read: a missing job is not waited for" "1" "$(jobs_reads)"
 check "G2 …and gh was never invoked" "" "$(cat "$GHWIRE")"
 
 # G2b — macos-e2e SPECIFICALLY, and it is not a duplicate of G2. It is the one
@@ -904,28 +921,53 @@ esac
 # three non-green outcomes that actually occur, plus `skipped`, which is what
 # every gate job reports when an earlier one went red. One case per value: they
 # are separate strings and a mutant can get any one of them wrong on its own.
+#
+# Only null is re-read (finished jobs read null while the jobs endpoint lags), and
+# only up to the budget; every non-null conclusion is final on the first read.
 for concl in skipped cancelled action_required neutral timed_out null; do
-  if [[ "$concl" == "null" ]]; then
-    gh_jobs_json 'hygiene=absent'
-    # a job still RUNNING has an entry with conclusion null — present, not green
-    GH_JOBS_JSON="$(python3 -c '
-import json,sys
-d=json.loads(sys.argv[1])
-d["jobs"].append({"id":1234,"name":"hygiene","status":"in_progress","conclusion":None})
-print(json.dumps(d))' "$GH_JOBS_JSON")"
-    export GH_JOBS_JSON
-  else
-    gh_jobs_json "hygiene=$concl"
-  fi
+  gh_jobs_json "hygiene=$concl"
   STATION_VERSION_JSON="{\"git_sha\":\"$E_SHORT\"}" e2e
   named_failure "G3 a required job with conclusion=$concl is NOT green → publish aborts" \
     release-ci "$RC" "$OUT"
   check "G3 ($concl) …and NOTHING was built" "" "$(cat "$BUILD_WIRE")"
+  if [[ "$concl" == "null" ]]; then
+    check "G3 (null) …only after re-reading the job list the whole budget" "$E_CI_TRIES" "$(jobs_reads)"
+    case "$OUT" in
+      *"after $E_CI_TRIES reads"*) ok "G3 (null) …and the failure says how many reads it waited" ;;
+      *) bad "G3 (null) …and the failure says how many reads it waited (out: $(printf '%s' "$OUT" | tail -c 400))" ;;
+    esac
+  else
+    check "G3 ($concl) …on the FIRST read, with no retry" "1" "$(jobs_reads)"
+  fi
 done
 gh_jobs_json 'go-checks=failure'
 STATION_VERSION_JSON="{\"git_sha\":\"$E_SHORT\"}" e2e
 named_failure "G3 …and an outright failure still aborts (the obvious half)" \
   release-ci "$RC" "$OUT"
+check "G3 (failure) …on the FIRST read, with no retry" "1" "$(jobs_reads)"
+gh_jobs_json 'go-checks=failure' 'hygiene=null'
+STATION_VERSION_JSON="{\"git_sha\":\"$E_SHORT\"}" e2e
+named_failure "G3 a failure alongside a null aborts" release-ci "$RC" "$OUT"
+check "G3 (failure+null) …on the FIRST read: a real red is not waited on" "1" "$(jobs_reads)"
+
+# G3a — null that turns into success within the budget is a pass, judged on the
+# LAST read, and the re-reads still happen before the build.
+JOBS_SEQ="$WORK/.jobs-seq"
+gh_jobs_json 'hygiene=null' 'bin-guards=null'; printf '%s\n' "$GH_JOBS_JSON" > "$JOBS_SEQ"
+gh_jobs_json 'hygiene=null';                   printf '%s\n' "$GH_JOBS_JSON" >> "$JOBS_SEQ"
+gh_jobs_json;                                  printf '%s\n' "$GH_JOBS_JSON" >> "$JOBS_SEQ"
+GH_JOBS_JSON_SEQ="$JOBS_SEQ" STATION_VERSION_JSON="{\"git_sha\":\"$E_SHORT\"}" STATION_HEALTH_RC=0 e2e
+check "G3a null on the first reads, success on a later read → publish proceeds" "0" "$RC"
+check "G3a …the job list was read until it concluded, all BEFORE the build" "ci-verdict-run
+ci-verdict-jobs
+ci-verdict-jobs
+ci-verdict-jobs
+build" "$(cat "$ORDER_WIRE")"
+case "$OUT" in
+  *"read 1/$E_CI_TRIES: conclusion still null on hygiene, bin-guards"*"read 2/$E_CI_TRIES: conclusion still null on hygiene"*)
+    ok "G3a …and each re-read names the jobs still null" ;;
+  *) bad "G3a …and each re-read names the jobs still null (out: $(printf '%s' "$OUT" | tail -c 600))" ;;
+esac
 
 # G3b — the two declared not-a-gate jobs are skipped on every round that reaches
 # this code (auto-beta is the job DOING the publishing, so it is in_progress;
