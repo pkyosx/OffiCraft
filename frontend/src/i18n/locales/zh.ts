@@ -632,7 +632,6 @@ export const zh = {
     redecide: "重新決定",
     redecideHint: "重新選一個，或直接打字改寫回覆",
     redecidePlaceholder: "或直接打字改寫回覆…",
-    // 回覆這段:回答引用了卡片問題的哪一段(回答框上方與已回覆的答案下方)。
     quoteLabel: "引用原文",
     quoteCancel: "取消引用",
     // §3.6 請示 → 任務：任務衍生的請示卡顯示精簡任務資訊（標題）＋跳轉;

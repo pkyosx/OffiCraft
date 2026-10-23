@@ -5470,7 +5470,7 @@ export interface components {
             answer_option_idxs?: number[] | null;
             /**
              * Answer Reply Excerpt
-             * @description The passage of the card's question the answer quotes, VERBATIM (``ReplyCardAnswerDTO.reply_excerpt``). Absent when the answer quotes nothing.
+             * @description The passage of the card's question the answer quotes, as stored: surrounding whitespace trimmed, otherwise exactly as sent (``ReplyCardAnswerDTO.reply_excerpt``). Absent when the answer quotes nothing.
              * @default
              */
             answer_reply_excerpt: string;
@@ -7873,7 +7873,7 @@ export interface components {
             option_idxs: number[] | null;
             /**
              * Reply Excerpt
-             * @description The passage of the card's question this answer quotes, VERBATIM as it was sent (``ReplyCardAnswerPostDTO.reply_excerpt``). Absent when the answer quotes nothing.
+             * @description The passage of the card's question this answer quotes, as stored: surrounding whitespace trimmed, otherwise exactly as sent (``ReplyCardAnswerPostDTO.reply_excerpt``). Absent when the answer quotes nothing.
              * @default
              */
             reply_excerpt: string;

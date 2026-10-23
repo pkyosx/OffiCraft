@@ -1458,7 +1458,7 @@
           },
           "answer_reply_excerpt": {
             "default": "",
-            "description": "The passage of the card's question the answer quotes, VERBATIM (``ReplyCardAnswerDTO.reply_excerpt``). Absent when the answer quotes nothing.",
+            "description": "The passage of the card's question the answer quotes, as stored: surrounding whitespace trimmed, otherwise exactly as sent (``ReplyCardAnswerDTO.reply_excerpt``). Absent when the answer quotes nothing.",
             "title": "Answer Reply Excerpt",
             "type": "string"
           },
@@ -4939,7 +4939,7 @@
           },
           "reply_excerpt": {
             "default": "",
-            "description": "The passage of the card's question this answer quotes, VERBATIM as it was sent (``ReplyCardAnswerPostDTO.reply_excerpt``). Absent when the answer quotes nothing.",
+            "description": "The passage of the card's question this answer quotes, as stored: surrounding whitespace trimmed, otherwise exactly as sent (``ReplyCardAnswerPostDTO.reply_excerpt``). Absent when the answer quotes nothing.",
             "title": "Reply Excerpt",
             "type": "string"
           },

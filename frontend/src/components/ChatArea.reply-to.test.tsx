@@ -1532,6 +1532,10 @@ describe("ChatArea 回覆這則", () => {
       fireEvent.click(selectionButton()!);
       expect(cardQuote()?.textContent).toBe(`${zh.replies.quoteLabel}卡片摘要`);
       expect(document.activeElement).toBe(cardInput);
+      expect(
+        (cardEl.querySelector(".chat__send") as HTMLButtonElement).disabled,
+        "a quote alone is not an answer",
+      ).toBe(true);
 
       fireEvent.click(
         cardQuote()!.querySelector(`[aria-label='${zh.replies.quoteCancel}']`)!,
@@ -1605,6 +1609,8 @@ describe("ChatArea 回覆這則", () => {
       const secondSummary = firstTextNode(
         rowOf(container, "c-two").querySelector(".reply-card__summary")!,
       );
+      selectText(firstSummary, 0, firstSummary, 2);
+      expect(selectionButton(), "positive control: inside one card").not.toBeNull();
       selectText(firstSummary, 0, secondSummary, 2);
       expect(selectionButton()).toBeNull();
 

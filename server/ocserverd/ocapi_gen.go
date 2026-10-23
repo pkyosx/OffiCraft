@@ -1250,7 +1250,7 @@ type ChatInlineReplyCardDTO struct {
 	// AnswerOptionIdxs Indices into ``options`` of every option that was circled; ``null`` when the card was answered with free text / attachments only, or is not answered yet. The server stores it DEDUPED and ASCENDING, so ``[2,0]`` and ``[0,2]`` are indistinguishable once stored. A ``single`` card accepts at most one index (two is a 400).
 	AnswerOptionIdxs *[]int `json:"answer_option_idxs,omitempty"`
 
-	// AnswerReplyExcerpt The passage of the card's question the answer quotes, VERBATIM (``ReplyCardAnswerDTO.reply_excerpt``). Absent when the answer quotes nothing.
+	// AnswerReplyExcerpt The passage of the card's question the answer quotes, as stored: surrounding whitespace trimmed, otherwise exactly as sent (``ReplyCardAnswerDTO.reply_excerpt``). Absent when the answer quotes nothing.
 	AnswerReplyExcerpt *string `json:"answer_reply_excerpt,omitempty"`
 
 	// AnswerText The free-text answer, ``""`` when none was given.
@@ -2841,7 +2841,7 @@ type ReplyCardAnswerDTO struct {
 	// OptionIdxs Indices into ``options`` of every option that was circled; ``null`` when the card was answered with free text / attachments only, or is not answered yet. The server stores it DEDUPED and ASCENDING, so ``[2,0]`` and ``[0,2]`` are indistinguishable once stored. A ``single`` card accepts at most one index (two is a 400).
 	OptionIdxs *[]int `json:"option_idxs"`
 
-	// ReplyExcerpt The passage of the card's question this answer quotes, VERBATIM as it was sent (``ReplyCardAnswerPostDTO.reply_excerpt``). Absent when the answer quotes nothing.
+	// ReplyExcerpt The passage of the card's question this answer quotes, as stored: surrounding whitespace trimmed, otherwise exactly as sent (``ReplyCardAnswerPostDTO.reply_excerpt``). Absent when the answer quotes nothing.
 	ReplyExcerpt *string `json:"reply_excerpt,omitempty"`
 	Text         *string `json:"text,omitempty"`
 }

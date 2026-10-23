@@ -2372,14 +2372,14 @@ func TestHandleAnswerReplyCardApiReplyCardsCardIdAnswerPost(t *testing.T) {
 		bystander.wantFrames()
 	})
 
-	t.Run("the circled options are stored deduped and ascending", func(t *testing.T) {
+	t.Run("the circled options are stored deduped and ascending, and a whitespace-only excerpt is stored as none", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
 		cardID := apiTestOpenReplyCard(t, h, agent,
 			`{"kind":"action","summary":"請批出貨","select_mode":"multi","options":[{"text":"甲"},{"text":"乙"},{"text":"丙"}],"linked_task":null}`)
 
 		status, data := apiJSON(t, h, "POST", "/api/reply-cards/"+cardID+"/answer", owner,
-			`{"option_idxs":[2,0,2]}`)
+			`{"option_idxs":[2,0,2],"reply_excerpt":" \n "}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -2398,18 +2398,24 @@ func TestHandleAnswerReplyCardApiReplyCardsCardIdAnswerPost(t *testing.T) {
 		})
 	})
 
-	t.Run("an answer carrying no option, no text and no attachment answers 400 and leaves the card waiting", func(t *testing.T) {
+	t.Run("an answer carrying no option, no text and no attachment answers 400 and leaves the card waiting, even with a quoted passage", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
 		cardID := openSingle(t, h, agent)
 		dashboard := apiTestListen(t, api, "")
 		wantPushed := apiTestWebPushSink(t, api)
 
-		status, data := apiJSON(t, h, "POST", "/api/reply-cards/"+cardID+"/answer", owner, `{"option_idxs":[]}`)
-		if status != 400 {
-			t.Fatalf("want 400, got %d (%v)", status, data)
+		for _, body := range []string{
+			`{"option_idxs":[]}`,
+			`{"reply_excerpt":"要不要"}`,
+			`{"reply_excerpt":"   "}`,
+		} {
+			status, data := apiJSON(t, h, "POST", "/api/reply-cards/"+cardID+"/answer", owner, body)
+			if status != 400 {
+				t.Fatalf("%s: want 400, got %d (%v)", body, status, data)
+			}
+			apiWantError(t, data, "validation_error", "answer must carry an option, text, or an attachment")
 		}
-		apiWantError(t, data, "validation_error", "answer must carry an option, text, or an attachment")
 		dashboard.wantFrames()
 		wantPushed()
 		wantWaiting(t, h, owner, cardID)
@@ -2439,8 +2445,20 @@ func TestHandleAnswerReplyCardApiReplyCardsCardIdAnswerPost(t *testing.T) {
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		apiWantValue(t, "answer.reply_excerpt",
-			data["answer"].(map[string]any)["reply_excerpt"], atLimit)
+		apiWantBody(t, data, map[string]any{
+			"id":          cardID,
+			"status":      "answered",
+			"answered_ts": apiAnyNumber,
+			"expired_ts":  nil,
+			"answer": map[string]any{
+				"option_idxs":   nil,
+				"text":          "就漲",
+				"reply_excerpt": atLimit,
+				"attachments":   []any{},
+			},
+			"task_id": "",
+			"step_id": "",
+		})
 	})
 
 	t.Run("an option index the card does not have answers 400 and leaves the card waiting", func(t *testing.T) {

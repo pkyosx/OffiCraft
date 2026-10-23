@@ -56,7 +56,6 @@ export function ReplyComposer({
    * so the callback bypasses `canSend`; the in-flight latch still holds, so a
    * second click during the POST cannot double-answer. */
   sendNowRef?: React.MutableRefObject<(() => void) | null>;
-  /** Handed a callback that puts the caret in this box. */
   focusRef?: React.MutableRefObject<(() => void) | null>;
   /** Submit the answer — the typed text and attachments, which the caller
    * combines with whatever it has staged. Never called on a wholly empty

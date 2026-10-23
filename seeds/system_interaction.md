@@ -152,7 +152,7 @@ Reply Card 回覆只適用於當時的範圍與條件，不是永久授權；若
 
 ### 2.4 收到請示卡
 
-你會從 Server 推送的 reply-card event 收到通知，其中的 card id 用來識別 Reply Card。通知只是提醒，收到後一律使用 `get_reply_card` 讀取目前的完整卡片與答案，再依內容繼續處理。
+你會從 Server 推送的 reply-card event 收到通知，其中的 card id 用來識別 Reply Card。通知只是提醒，收到後一律使用 `get_reply_card` 讀取目前的完整卡片與答案，再依內容繼續處理。若 Owner 只針對卡片中的某一段回答，讀回的答案會帶出被引用的原文，代表這個回答針對的是那一段，不是整張卡。
 
 若卡片有附件，依 attachment id 使用 `ocagent download` 下載並實際查看；圖片也必須實際查看後，才能依卡片內容與回答繼續處理。
 

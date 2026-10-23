@@ -339,7 +339,7 @@ export interface ReplyCardAnswer {
   optionIdxs: number[] | null;
   text: string;
   /** The passage of the card's question this answer quotes (「回覆這段」),
-   * verbatim as sent; absent when the answer quotes nothing. */
+   * trimmed as the server stored it; absent when the answer quotes nothing. */
   replyExcerpt?: string;
   attachments: ChatAttachmentView[];
 }

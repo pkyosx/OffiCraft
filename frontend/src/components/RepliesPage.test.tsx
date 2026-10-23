@@ -135,9 +135,14 @@ async function openCards() {
   );
 }
 
-/** Select `length` characters at the start of `el`'s first text node, the way
- * a drag leaves it, and tell the page the selection moved. */
-function selectStartOf(el: Element, length: number) {
+const originalRangeRect = Range.prototype.getBoundingClientRect;
+
+/** Select the first `length` characters of `el`, the way a drag leaves it, and
+ * press the 回覆這段 that floats over the selection. */
+function quoteStartOf(el: Element, length: number) {
+  // jsdom lays nothing out; the floating button only needs a box to sit under.
+  Range.prototype.getBoundingClientRect = () =>
+    ({ left: 10, top: 100, width: 40, height: 16, right: 50, bottom: 116 }) as DOMRect;
   const text = document.createTreeWalker(el, NodeFilter.SHOW_TEXT).nextNode()!;
   const range = document.createRange();
   range.setStart(text, 0);
@@ -148,6 +153,12 @@ function selectStartOf(el: Element, length: number) {
   act(() => {
     document.dispatchEvent(new Event("selectionchange"));
   });
+  const button = document.body.querySelector<HTMLButtonElement>(
+    "[data-testid='chat-selection-reply']",
+  );
+  expect(button, "回覆這段 floats over the selection").not.toBeNull();
+  expect(el.closest("article")?.contains(button!), "portaled out of the card").toBe(false);
+  fireEvent.click(button!);
 }
 
 beforeEach(() => {
@@ -157,6 +168,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  Range.prototype.getBoundingClientRect = originalRangeRect;
 });
 
 describe("RepliesPage", () => {
@@ -453,8 +465,8 @@ describe("RepliesPage", () => {
 
   // The regression side: a NON-409 failure keeps the retry wording — the 409
   // branch must not swallow honest transient errors.
-  it("a 500 answer keeps the retryable 回覆失敗，請稍後重試 wording", async () => {
-    __injectMockReplyCard(mkCard({}));
+  it("a 500 answer keeps the retryable 回覆失敗，請稍後重試 wording and the quoted passage", async () => {
+    __injectMockReplyCard(mkCard({ body: "收件人寫在附件裡" }));
     vi.spyOn(api, "answerReplyCard").mockRejectedValue(
       new ApiError("http 500 for POST /api/reply-cards/rc-1/answer", 500,
         "internal_error", "boom")
@@ -462,11 +474,15 @@ describe("RepliesPage", () => {
     const { findAllByTestId, findByTestId } = renderPage();
     const [card] = await findAllByTestId("waiting-card");
     await openCards();
+    quoteStartOf(card.querySelector(".reply-card__body")!, 3);
 
     fireEvent.click(card.querySelectorAll(".reply-option")[0]);
 
     const notice = await findByTestId("replies-action-error");
     expect(notice.textContent).toBe(zh.replies.answerError);
+    expect(
+      card.querySelector('[data-testid="reply-composer-quote"]')?.textContent,
+    ).toBe("引用原文收件人");
   });
 
   it("answering via the typed composer closes the card with the free text as the answer, quoting the passage selected from the question", async () => {
@@ -475,16 +491,8 @@ describe("RepliesPage", () => {
       renderPage();
     const [waiting] = await findAllByTestId("waiting-card");
     await openCards();
-    // jsdom lays nothing out; the floating button only needs a box to sit under.
-    Range.prototype.getBoundingClientRect = () =>
-      ({ left: 10, top: 100, width: 40, height: 16, right: 50, bottom: 116 }) as DOMRect;
 
-    selectStartOf(waiting.querySelector(".reply-card__body")!, 3);
-    const quoteButton = document.body.querySelector<HTMLButtonElement>(
-      "[data-testid='chat-selection-reply']",
-    )!;
-    expect(waiting.contains(quoteButton), "portaled out of the card").toBe(false);
-    fireEvent.click(quoteButton);
+    quoteStartOf(waiting.querySelector(".reply-card__body")!, 3);
     expect(waiting.getAttribute("aria-expanded")).toBe("true");
     expect(
       waiting.querySelector('[data-testid="reply-composer-quote"]')?.textContent,
@@ -670,7 +678,7 @@ describe("RepliesPage", () => {
     expect(getByText("重新決定")).toBeTruthy();
   });
 
-  it("重新決定 re-arms the options with the standing quote; picking another updates the answer in place and keeps the quote", async () => {
+  it("重新決定 re-arms the options with the standing quote; picking another updates the answer in place and keeps the quote, and its x drops the quote from the next revision", async () => {
     __injectMockReplyCard(
       mkCard({
         status: "answered",
@@ -709,6 +717,30 @@ describe("RepliesPage", () => {
       expect(
         card.querySelector('[data-testid="final-answer-quote"]')?.textContent,
       ).toBe("引用原文這封信");
+    });
+
+    const reanswer = vi.spyOn(api, "reanswerReplyCard");
+    if (!card.querySelector(".reply-card__past")) fireEvent.click(getByText("查看當初選項"));
+    fireEvent.click(getByText("重新決定"));
+    fireEvent.click(
+      card.querySelector(`[aria-label="${zh.replies.quoteCancel}"]`)!,
+    );
+    expect(card.querySelector('[data-testid="reply-composer-quote"]')).toBeNull();
+    fireEvent.click(card.querySelectorAll(".reply-option")[1]);
+
+    await waitFor(() =>
+      expect(reanswer).toHaveBeenLastCalledWith("rc-1", {
+        optionIdxs: [1],
+        text: "",
+        attachments: [],
+      }),
+    );
+    await waitFor(async () => {
+      card = await findByTestId("answered-card");
+      expect(card.querySelector('[data-testid="final-answer"]')?.textContent).toBe(
+        "你選的AI 建議先不要",
+      );
+      expect(card.querySelector('[data-testid="final-answer-quote"]')).toBeNull();
     });
   });
 

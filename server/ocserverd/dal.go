@@ -1568,9 +1568,8 @@ type ReplyCard struct {
 	ExpiredTS     float64
 	ChatMessageID string
 	// AnswerOptionIdxs are stored deduped and ascending.
-	AnswerOptionIdxs []int
-	AnswerText       string
-	// AnswerReplyExcerpt is the passage of the question the answer quotes; "" = none.
+	AnswerOptionIdxs   []int
+	AnswerText         string
 	AnswerReplyExcerpt string
 	AnswerAttachments  []any
 	Attachments        []any
