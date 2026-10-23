@@ -6,6 +6,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -1820,12 +1821,18 @@ func TestHandleGetMemberApiMembersMemberIdGet(t *testing.T) {
 				}
 				t.Fatalf("%s: the listing carries no %s row", when, kind.id)
 			}
-			previous, aborted, next := mint(now-100), mint(now-50), mint(now+1)
+			previous, aborted := mint(now-100), mint(now-50)
 			post("previous waking", previous, "/api/self/waking", `{}`)
 			post("previous report", previous, "/api/agent/activity", `{"busy": false, "subagents": []}`)
-			if err := d.SetMemberWakingSince(kind.id, nowSecs()); err != nil {
+			wakingSince := nowSecs()
+			if wakingSince == math.Floor(wakingSince) {
+				wakingSince += 0.5
+			}
+			if err := d.SetMemberWakingSince(kind.id, wakingSince); err != nil {
 				t.Fatalf("SetMemberWakingSince: %v", err)
 			}
+			nextIat := int64(math.Floor(wakingSince))
+			next := mint(nextIat)
 			readActivity("before the new session reports", nil)
 
 			post("aborted boot's report", aborted, "/api/agent/activity", `{"busy": false, "subagents": []}`)
@@ -1835,7 +1842,33 @@ func TestHandleGetMemberApiMembersMemberIdGet(t *testing.T) {
 			want := any(map[string]any{"state": "busy", "busy_since": 1000, "subagents": []any{}, "waits": []any{}, "ts": ts})
 			readActivity("before the new session reports waking", want)
 
-			post("new waking", next, "/api/self/waking", `{}`)
+			if kind.name == "outsource" {
+				// Holding a listener's lock parks the funnel's publish, so the store is
+				// read as a refetch triggered by that patch would read it.
+				parked := apiTestListen(t, api, "")
+				parked.l.mu.Lock()
+				done := make(chan int, 1)
+				go func() {
+					status, _ := apiJSON(t, h, "POST", "/api/self/waking", next, `{}`)
+					done <- status
+				}()
+				shown := false
+				for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+					if _, ok := api.activity.GetWaking(kind.id, float64(nextIat), wakingSince); ok {
+						shown = true
+						break
+					}
+				}
+				parked.l.mu.Unlock()
+				if status := <-done; status != 200 {
+					t.Fatalf("new waking: want 200, got %d", status)
+				}
+				if !shown {
+					t.Fatalf("the member patch published by report_waking must find the new session's activity already readable")
+				}
+			} else {
+				post("new waking", next, "/api/self/waking", `{}`)
+			}
 			readActivity("after the new session reports waking", want)
 		})
 	}
