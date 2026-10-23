@@ -10,6 +10,7 @@ import { Markdown } from "./Markdown";
 import { DiffOpenerContext } from "../hooks/useDiffOpener";
 import type { DiffParams } from "../lib/diffLink";
 import { AttachmentOpenerContext } from "../hooks/useAttachmentOpener";
+import { MentionOpenerContext } from "../hooks/useMentionOpener";
 
 function renderMd(source: string): HTMLElement {
   const { container } = render(<Markdown source={source} />);
@@ -270,6 +271,36 @@ describe("Markdown", () => {
       expect(c.querySelector("a")?.getAttribute("href")).toBe(
         "/#replies/card/rc-1",
       );
+    });
+
+    it("renders a mention route outside a chat room as the same plain anchor", () => {
+      const c = renderMd("hi [@Mira](/#office/member/m-1)");
+      const a = c.querySelector("a");
+      expect(a?.getAttribute("href")).toBe("/#office/member/m-1");
+      expect(a?.getAttribute("target")).toBe("_blank");
+      expect(c.querySelector("button")).toBeNull();
+      expect(c.textContent).toBe("hi @Mira");
+    });
+
+    it("inside a chat room: known id → button with the roster's name that opens it; unknown id → written label", () => {
+      const opened: string[] = [];
+      const { container } = render(
+        <MentionOpenerContext.Provider
+          value={(t) =>
+            t.id === "m-1"
+              ? { name: "Mira Chen", open: () => opened.push(`${t.kind}:${t.id}`) }
+              : null
+          }
+        >
+          <Markdown source="[@Kyle](/#office/member/m-1) and [@外包 · O-9](/#office/worker/ow-9)" />
+        </MentionOpenerContext.Provider>,
+      );
+      expect(container.textContent).toBe("@Mira Chen and @外包 · O-9");
+      expect(container.querySelector("a")).toBeNull();
+      const buttons = container.querySelectorAll("button.md-mention");
+      expect(Array.from(buttons, (b) => b.textContent)).toEqual(["@Mira Chen"]);
+      fireEvent.click(buttons[0]);
+      expect(opened).toEqual(["member:m-1"]);
     });
 
     it("renders the bare root path", () => {

@@ -25,6 +25,15 @@ export interface EnterSendContext {
   composing: boolean;
 }
 
+/** True while this keydown belongs to an IME composition (candidate pick or
+ * confirm), which no composer shortcut may act on. */
+export function isImeComposingKey(
+  e: KeyboardEvent<HTMLTextAreaElement>,
+  composing: boolean,
+): boolean {
+  return e.nativeEvent.isComposing || e.keyCode === 229 || composing;
+}
+
 /**
  * Whether this keydown should submit the composer draft. False for anything that
  * is not a bare desktop Enter — including a mobile Enter, which the caller must
@@ -34,9 +43,7 @@ export function enterShouldSend(
   e: KeyboardEvent<HTMLTextAreaElement>,
   ctx: EnterSendContext,
 ): boolean {
-  if (e.nativeEvent.isComposing || e.keyCode === 229 || ctx.composing) {
-    return false;
-  }
+  if (isImeComposingKey(e, ctx.composing)) return false;
   if (ctx.isMobile) return false;
   return e.key === "Enter" && !e.shiftKey;
 }

@@ -2145,6 +2145,8 @@ button.chat__msg-file {
   padding: 12px 8px 4px;
 }
 .chat__composer-row {
+  /* Anchors the @mention picker (chat-mention.css) to the row's width. */
+  position: relative;
   display: flex;
   /* Bottom-align: the input is a growing textarea (multi-line drafts) — the
    * attach/send buttons stay anchored to its last line, LINE-style. */

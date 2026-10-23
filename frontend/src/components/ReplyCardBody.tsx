@@ -50,6 +50,8 @@ import {
 import type { DocCommentRecipient } from "../lib/docComments";
 import { AttachmentStrip } from "./AttachmentStrip";
 import { ReplyComposer } from "./ReplyComposer";
+import { MentionText } from "./MentionText";
+import { useMentionRosterContext } from "../hooks/useMentionComposer";
 import { ChevronRightIcon } from "./icons";
 
 /** Add or remove `idx` from a MULTI card's staged selection. The result is kept
@@ -435,6 +437,7 @@ export function ReplyCardAnsweredBody({
   onReanswer: (input: ReplyCardAnswerInput) => Promise<void>;
 }) {
   const { t } = useI18n();
+  const mentionRoster = useMentionRosterContext();
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
 
@@ -490,7 +493,9 @@ export function ReplyCardAnsweredBody({
             </span>
           ))}
           {ans?.text && (
-            <span className="reply-card__answer-free">{ans.text}</span>
+            <span className="reply-card__answer-free">
+              <MentionText text={ans.text} opener={mentionRoster?.opener ?? null} />
+            </span>
           )}
         </span>
       </div>

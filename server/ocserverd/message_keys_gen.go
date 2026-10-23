@@ -123,6 +123,7 @@ var messageKeys = map[string]bool{
 	"chat.mdPreview.zoomIn":                            true,
 	"chat.mdPreview.zoomOut":                           true,
 	"chat.me":                                          true,
+	"chat.mentionListLabel":                            true,
 	"chat.newMsgPreviewDismiss":                        true,
 	"chat.offlineHint":                                 true,
 	"chat.offlineQueueHintLead":                        true,

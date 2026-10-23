@@ -1121,6 +1121,7 @@ export const en: Dict = {
     imageAlt: "Chat image",
     viewImageLabel: "View full size",
     attachLabel: "Attach a file",
+    mentionListLabel: "Mention a member",
     attachTooLarge: (maxMb: number) => `File is too large (${maxMb} MB max)`,
     attachTooMany: (max: number) => `At most ${max} attachments per message`,
     removeAttachmentLabel: "Remove attachment",

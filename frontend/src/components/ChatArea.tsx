@@ -33,6 +33,14 @@ import {
 import { useWindowActive } from "../hooks/useWindowActive";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { enterShouldSend } from "../lib/composerKeys";
+import { linkMentions, unlinkMentions } from "../lib/mentionLinks";
+import { MentionOpenerContext, type MentionOpener } from "../hooks/useMentionOpener";
+import {
+  MentionRosterContext,
+  useMentionComposer,
+  useMentionRoster,
+} from "../hooks/useMentionComposer";
+import { ChatMentionList } from "./ChatMentionList";
 import { chatBottomAffordance } from "../lib/chatBottomAffordance";
 import { scrollToLatest, isLatestRowInView } from "../lib/scrollToLatest";
 import { AttachmentStrip } from "./AttachmentStrip";
@@ -752,6 +760,31 @@ export function ChatArea({
   // Phone viewport → Enter inserts a newline instead of sending (no physical
   // keyboard, so Shift+Enter is impossible); sending is via the send button.
   const isMobile = useIsMobile();
+  const mentionRoster = useMentionRoster(members, workers, { chatId: member.id });
+  const openMention = mentionRoster.opener;
+  const mention = useMentionComposer({
+    inputRef,
+    value: draft,
+    setValue: setDraft,
+    candidates: mentionRoster.candidates,
+    composingRef: isComposingRef,
+  });
+  // The overlay is portalled above the whole page, so the detail panel the
+  // mention opens would sit hidden behind it.
+  const openMentionFromPreview = useCallback<MentionOpener>(
+    (target) => {
+      const known = openMention(target);
+      if (known === null) return null;
+      return {
+        name: known.name,
+        open: () => {
+          setMdPreview(null);
+          known.open();
+        },
+      };
+    },
+    [openMention],
+  );
   // 🔴 OVER THE COUNT CAP THE COMPOSER REFUSES THE SEND ITSELF (T-48, R11-3).
   // A draft is allowed to hold more than CHAT_MAX_ATTACHMENTS — that is R10-3's
   // fix, and files waiting in a draft are somebody's data, not a rule to
@@ -1730,7 +1763,7 @@ export function ChatArea({
     setReplyTarget(null);
     try {
       await send(
-        draftSnapshot,
+        linkMentions(draftSnapshot, mentionRoster.candidates),
         attachments.length > 0 ? attachments : undefined,
         replyTargetSnapshot?.id,
         replyTargetSnapshot?.excerpt,
@@ -1790,6 +1823,7 @@ export function ChatArea({
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (mention.onKeyDown(e)) return;
     // The send decision (IME gate, mobile-newline, Shift+Enter) is the shared
     // enterShouldSend rule so all three composers stay in lockstep. When it
     // returns false on a mobile Enter we deliberately do NOT preventDefault, so
@@ -1864,7 +1898,7 @@ export function ChatArea({
     // was nothing to quote" and "there is nothing to quote FROM" are different
     // facts about the conversation.
     const quoteText = quoted
-      ? (quoted.replyExcerpt ?? quoted.content)
+      ? (quoted.replyExcerpt ?? unlinkMentions(quoted.content))
       : t.chat.replyQuoteGone;
     const quoteLine = !m.replyTo ? null : (
       /* 🔴 THE ONE THING THIS ROW EXISTS TO SAY HAS TO REACH THE A11Y TREE TOO.
@@ -2054,12 +2088,14 @@ export function ChatArea({
     );
 
     const content = m.replyCardId ? (
-      <ChatReplyCard
-        replyCardId={m.replyCardId}
-        fallbackSummary={m.body}
-        initialStatus={m.replyCardStatus}
-        commentRecipientFor={docCommentRecipientFor}
-      />
+      <MentionRosterContext.Provider value={mentionRoster}>
+        <ChatReplyCard
+          replyCardId={m.replyCardId}
+          fallbackSummary={m.body}
+          initialStatus={m.replyCardStatus}
+          commentRecipientFor={docCommentRecipientFor}
+        />
+      </MentionRosterContext.Provider>
     ) : (
       <div
         className={
@@ -2114,11 +2150,13 @@ export function ChatArea({
          * way the bubble's pre-wrap did before. */}
         {m.body && (
           <AttachmentLinkCommentsContext.Provider value={roomDocComments}>
-            <Markdown
-              source={m.body}
-              className="chat__msg-text doc-md"
-              breaks
-            />
+            <MentionOpenerContext.Provider value={openMention}>
+              <Markdown
+                source={m.body}
+                className="chat__msg-text doc-md"
+                breaks
+              />
+            </MentionOpenerContext.Provider>
           </AttachmentLinkCommentsContext.Provider>
         )}
         {/* Stored attachments — one click target, opening the shared popup. */}
@@ -2554,7 +2592,7 @@ export function ChatArea({
         {bottomAffordance === "preview" && newMsgPreview && (
           <ChatNewMsgPreview
             who={nameOf(newMsgPreview.from)}
-            body={newMsgPreview.body}
+            body={unlinkMentions(newMsgPreview.body)}
             onJump={jumpToLatest}
             onDismiss={() => setNewMsgPreview(null)}
           />
@@ -2706,7 +2744,7 @@ export function ChatArea({
                     {/* Raw, not pre-collapsed: `white-space: nowrap` on the
                       * parent is what makes this one line — see the note where
                       * `oneLine()` used to be. */}
-                    {replyExcerpt ?? (replyQuote ? replyQuote.body : "")}
+                    {replyExcerpt ?? (replyQuote ? unlinkMentions(replyQuote.body) : "")}
                   </span>
                 </span>
                 <button
@@ -2731,6 +2769,7 @@ export function ChatArea({
               </div>
             )}
             <div className="chat__composer-row">
+              {mention.listProps && <ChatMentionList {...mention.listProps} />}
               {/* Hidden native file input the attach button triggers. */}
               <input
                 ref={fileInputRef}
@@ -2760,7 +2799,11 @@ export function ChatArea({
                 className="chat__input"
                 rows={1}
                 value={draft}
-                onChange={(e) => setDraft(e.target.value)}
+                onChange={(e) => {
+                  setDraft(e.target.value);
+                  mention.onChange(e);
+                }}
+                {...mention.inputProps}
                 onCompositionStart={() => {
                   isComposingRef.current = true;
                 }}
@@ -2802,11 +2845,13 @@ export function ChatArea({
           />
         ) : (
           <AttachmentLinkCommentsContext.Provider value={roomDocComments}>
-            <MarkdownPreviewOverlay
-              title={mdPreview.title}
-              source={mdPreview.source}
-              onClose={() => setMdPreview(null)}
-            />
+            <MentionOpenerContext.Provider value={openMentionFromPreview}>
+              <MarkdownPreviewOverlay
+                title={mdPreview.title}
+                source={mdPreview.source}
+                onClose={() => setMdPreview(null)}
+              />
+            </MentionOpenerContext.Provider>
           </AttachmentLinkCommentsContext.Provider>
         ))}
       {/* The 看原訊息 overlay is the shared exit's own — same surface, one

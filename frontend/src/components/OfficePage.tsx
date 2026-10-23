@@ -173,13 +173,9 @@ export function OfficePage({
   // which would otherwise silently drop the owner into an unrelated chat
   // room (there was never a chat selected on the way in).
   const backFromDetail = () =>
-    route.backTo === "replies"
-      ? setRoute({ page: "replies" })
-      : setDetailId(null);
+    route.backTo ? setRoute({ page: route.backTo }) : setDetailId(null);
   const backFromWorkerDetail = () =>
-    route.backTo === "replies"
-      ? setRoute({ page: "replies" })
-      : setWorkerDetailId(null);
+    route.backTo ? setRoute({ page: route.backTo }) : setWorkerDetailId(null);
   // T-e987 compose seed: a #office/chat/<id>/compose/<taskNo> deep-link (the
   // 任務卡 負責人/建立者 label) seeds that chat's composer with "[<taskNo>] ".
   // Only the EXPLICITLY routed peer gets it (never the roster[0] fallback) —
