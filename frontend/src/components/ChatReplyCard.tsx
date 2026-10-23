@@ -330,7 +330,7 @@ export function ChatReplyCard({
     );
   }
 
-  // T-a20b: summary is agent-authored free text (markdown), like body.
+  // The summary is agent-authored free text (markdown), like body.
   const summaryNode = (
     <Markdown
       source={card?.summary || fallbackSummary}

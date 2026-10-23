@@ -1728,7 +1728,7 @@
       "name": "get_diff_share_link"
     },
     {
-      "description": "Read one reply card (full context: options, status, answer). status is waiting, answered or expired; an expired card was closed without an answer. Any authenticated caller may read any card by id, not only a card it opened or one bound to its own task; an unknown id is a 404.",
+      "description": "Read one reply card (full context: options, status, answer). An answer may carry reply_excerpt: the passage of the card's question the owner selected and answered. status is waiting, answered or expired; an expired card was closed without an answer. Any authenticated caller may read any card by id, not only a card it opened or one bound to its own task; an unknown id is a 404.",
       "inputSchema": {
         "properties": {
           "card_id": {
@@ -1819,6 +1819,12 @@
             "default": null,
             "description": "Indices into the card's options of every option you circle. Omit it or send null to answer with text/attachments only; an EMPTY list is not an answer and is a 400, exactly like sending nothing. Order and duplicates do not matter - the server stores the list deduped and ascending, so [2,0] and [0,2] end up byte-identical. Every index must be in range; a single-select card accepts at most one.",
             "title": "Option Idxs"
+          },
+          "reply_excerpt": {
+            "default": "",
+            "description": "OPTIONAL - the passage of this card's question (its summary or body) your answer responds to. Whitespace around it is trimmed; it is capped at 1000 characters and a longer one is a 400, never truncated. It is not an answer by itself: you still need option_idxs, text or an attachment. The card's author reads it back as answer.reply_excerpt.",
+            "title": "Reply Excerpt",
+            "type": "string"
           },
           "text": {
             "default": "",
@@ -1912,6 +1918,12 @@
             "default": null,
             "description": "Indices into the card's options of every option you circle. Omit it or send null to answer with text/attachments only; an EMPTY list is not an answer and is a 400, exactly like sending nothing. Order and duplicates do not matter - the server stores the list deduped and ascending, so [2,0] and [0,2] end up byte-identical. Every index must be in range; a single-select card accepts at most one.",
             "title": "Option Idxs"
+          },
+          "reply_excerpt": {
+            "default": "",
+            "description": "OPTIONAL - the passage of this card's question the revised answer responds to, same rules as on answer_reply_card. The revision replaces the whole answer, so leaving it out stores an answer that quotes nothing, even if the earlier answer quoted a passage.",
+            "title": "Reply Excerpt",
+            "type": "string"
           },
           "text": {
             "default": "",

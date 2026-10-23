@@ -80,7 +80,7 @@ for (const viewport of [
 }
 
 for (const width of [390, 1280]) {
-  test(`${width}px: the chat-card expiry action and confirmation fit the viewport`, async ({
+  test(`${width}px: the chat-card expiry action sits at the card's top-right, inside the card beside a summary with an unbreakable code block, and its confirmation fits the viewport`, async ({
     mount,
     page,
   }) => {
@@ -118,6 +118,14 @@ for (const width of [390, 1280]) {
       cardBox.x + cardBox.width - (expireBox.x + expireBox.width),
       "expiry is flush with the card's right padding",
     ).toBeLessThanOrEqual(cardPaddingRight + 2);
+    const codeOver = await card
+      .locator(".reply-card__summary pre")
+      .evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(codeOver, "the code block is wider than the card and scrolls inside itself").toBeGreaterThan(0);
+    const messagesOver = await cmp
+      .getByTestId("chat-messages")
+      .evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(messagesOver, "the thread must not scroll sideways").toBeLessThanOrEqual(1);
 
     await expire.click();
     const dialog = cmp.getByTestId("expire-confirm");

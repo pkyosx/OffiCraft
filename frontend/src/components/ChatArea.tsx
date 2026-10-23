@@ -51,7 +51,10 @@ import { ChatJumpLatestButton } from "./ChatJumpLatestButton";
 import { ChatThreadLoading } from "./ChatThreadLoading";
 import { ChatNewMsgPreview } from "./ChatNewMsgPreview";
 import { ChatReplyCard } from "./ChatReplyCard";
-import { ChatSelectionReply } from "./ChatSelectionReply";
+import {
+  ChatSelectionReply,
+  ReplyCardQuoteProvider,
+} from "./ChatSelectionReply";
 import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
 import { Markdown } from "./Markdown";
 import { MarkdownPreviewOverlay } from "./MarkdownPreviewOverlay";
@@ -2426,7 +2429,7 @@ export function ChatArea({
         {initialLoading ? (
           <ChatThreadLoading />
         ) : messages.length > 0 ? (
-          <>
+          <ReplyCardQuoteProvider>
             <ChatSelectionReply
               root={messagesRef}
               onReply={(id, excerpt) => {
@@ -2510,7 +2513,7 @@ export function ChatArea({
             {bottomAffordance === "arrow" && (
               <ChatJumpLatestButton onClick={jumpToLatest} />
             )}
-          </>
+          </ReplyCardQuoteProvider>
         ) : isOffline ? (
           <div className="chat__offline">
             <span className="chat__offline-icon">

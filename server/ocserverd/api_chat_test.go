@@ -3221,6 +3221,7 @@ func TestResumeChatMessageDTO(t *testing.T) {
 			ID: "rc-1", FromMember: "mira", Status: "answered",
 			Options:          []ReplyCardOption{{Text: "出"}, {Text: "不出"}},
 			AnswerOptionIdxs: []int{0}, AnswerText: "就出", AnsweredTS: 1700000000,
+			AnswerReplyExcerpt: "請示",
 		}}
 		msg := ChatMessage{
 			ID: "c-000000000005", Sender: "mira", Recipient: "owner", Body: "請示",
@@ -3239,10 +3240,11 @@ func TestResumeChatMessageDTO(t *testing.T) {
 				map[string]any{"text": "出", "ai_pick": false},
 				map[string]any{"text": "不出", "ai_pick": false},
 			},
-			"answer_option_idxs":  []any{float64(0)},
-			"answer_text":         "就出",
-			"answered_ts":         float64(1700000000),
-			"answered_at_display": resumeDisplayTime(1700000000),
+			"answer_option_idxs":   []any{float64(0)},
+			"answer_text":          "就出",
+			"answer_reply_excerpt": "請示",
+			"answered_ts":          float64(1700000000),
+			"answered_at_display":  resumeDisplayTime(1700000000),
 		})
 
 		got, err = api.resumeChatMessageDTO("kip", msg, nil, cards)
@@ -3332,18 +3334,19 @@ func TestResumeChatMessageChars(t *testing.T) {
 		}
 	})
 
-	t.Run("a folded card bills its option texts, the answer and the rendered answer time", func(t *testing.T) {
+	t.Run("a folded card bills its option texts, the answer, its quoted passage and the rendered answer time", func(t *testing.T) {
 		got := resumeChatMessageChars(chatMessageDTO{
 			Card: &chatInlineReplyCardDTO{
-				Options:           []ReplyCardOption{{Text: "出"}, {Text: "不出"}},
-				AnswerOptionIdxs:  []int{0, 10},
-				AnswerText:        "就出",
-				AnsweredTS:        1700000000,
-				AnsweredAtDisplay: "2026-01-02 03:04:05 +08:00",
+				Options:            []ReplyCardOption{{Text: "出"}, {Text: "不出"}},
+				AnswerOptionIdxs:   []int{0, 10},
+				AnswerText:         "就出",
+				AnswerReplyExcerpt: "要不要出貨",
+				AnsweredTS:         1700000000,
+				AnsweredAtDisplay:  "2026-01-02 03:04:05 +08:00",
 			},
 		})
-		if got != 35 {
-			t.Fatalf("chars = %d, want 35", got)
+		if got != 40 {
+			t.Fatalf("chars = %d, want 40", got)
 		}
 	})
 

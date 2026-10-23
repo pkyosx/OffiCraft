@@ -1478,7 +1478,7 @@ describe("ChatArea 回覆這則", () => {
       expect(banner(container)).toBeNull();
     });
 
-    it("selections in a chat card summary and body reply to the carrying message with an excerpt", async () => {
+    it("a selection in a waiting chat card's summary or body quotes into that card's own answer box, and answering sends the card the quote", async () => {
       const card: ReplyCard = {
         id: "rc-card",
         from: "m1",
@@ -1495,6 +1495,18 @@ describe("ChatArea 回覆這則", () => {
         answer: null,
       };
       const getCard = vi.spyOn(api, "getReplyCard").mockResolvedValue(card);
+      const answer = vi.spyOn(api, "answerReplyCard").mockResolvedValue({
+        id: card.id,
+        status: "answered",
+        answeredTs: 2,
+        expiredTs: null,
+        answer: {
+          optionIdxs: null,
+          text: "請說明",
+          replyExcerpt: "卡片內文",
+          attachments: [],
+        },
+      });
       messages = [
         mkMsg({
           id: "c-card",
@@ -1509,31 +1521,51 @@ describe("ChatArea 回覆這則", () => {
       const row = rowOf(container, "c-card");
       fireEvent.click(await findByTestId("chat-reply-card-expand"));
       await findAllByTestId("reply-option");
+      const cardEl = row.querySelector("[data-testid='chat-reply-card']")!;
+      const cardInput = cardEl.querySelector(".chat__input") as HTMLTextAreaElement;
+      const cardQuote = () =>
+        cardEl.querySelector("[data-testid='reply-composer-quote']");
 
-      for (const [selector, excerpt] of [
-        [".reply-card__summary", "卡片摘要"],
-        [".reply-card__body", "卡片內文"],
-      ]) {
-        const text = firstTextNode(row.querySelector(selector)!);
-        selectText(text, 0, text, excerpt.length);
-        expect(selectionButton()?.textContent).toBe(zh.chat.replyExcerptAction);
-        fireEvent.click(selectionButton()!);
-        expect(getChatDraft(m1.id)).toMatchObject({
-          replyTo: "c-card",
-          replyExcerpt: excerpt,
-        });
+      const summary = firstTextNode(row.querySelector(".reply-card__summary")!);
+      selectText(summary, 0, summary, 4);
+      expect(selectionButton()?.textContent).toBe(zh.chat.replyExcerptAction);
+      fireEvent.click(selectionButton()!);
+      expect(cardQuote()?.textContent).toBe(`${zh.replies.quoteLabel}卡片摘要`);
+      expect(document.activeElement).toBe(cardInput);
 
-        fireEvent.change(
-          container.querySelector("footer .chat__input") as HTMLTextAreaElement,
-          { target: { value: "請說明" } },
-        );
-        fireEvent.click(container.querySelector("footer .chat__send")!);
-        await waitFor(() =>
-          expect(send).toHaveBeenCalledWith("請說明", undefined, "c-card", excerpt),
-        );
-        send.mockClear();
-      }
+      fireEvent.click(
+        cardQuote()!.querySelector(`[aria-label='${zh.replies.quoteCancel}']`)!,
+      );
+      expect(cardQuote()).toBeNull();
+      expect(document.activeElement).toBe(cardInput);
+
+      const body = firstTextNode(row.querySelector(".reply-card__body")!);
+      selectText(body, 0, body, 4);
+      fireEvent.click(selectionButton()!);
+      expect(cardQuote()?.textContent).toBe(`${zh.replies.quoteLabel}卡片內文`);
+      expect(banner(container)).toBeNull();
+
+      fireEvent.change(cardInput, { target: { value: "請說明" } });
+      fireEvent.click(cardEl.querySelector(".chat__send")!);
+      await waitFor(() =>
+        expect(answer).toHaveBeenCalledWith("rc-card", {
+          text: "請說明",
+          replyExcerpt: "卡片內文",
+          attachments: [],
+        }),
+      );
+      expect(send).not.toHaveBeenCalled();
+      await waitFor(() =>
+        expect(
+          cardEl.querySelector("[data-testid='final-answer-quote']")?.textContent,
+        ).toBe(`${zh.replies.quoteLabel}卡片內文`),
+      );
+
+      const answeredSummary = firstTextNode(row.querySelector(".reply-card__summary")!);
+      selectText(answeredSummary, 0, answeredSummary, 4);
+      expect(selectionButton(), "an answered card has no answer box to quote into").toBeNull();
       getCard.mockRestore();
+      answer.mockRestore();
     });
 
     it("does not offer a selection reply across cards or on option controls", async () => {

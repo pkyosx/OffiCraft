@@ -488,6 +488,9 @@ export function toChatInlineReplyCard(
       ? w.answer_option_idxs
       : null,
     answerText: w.answer_text ?? "",
+    ...(w.answer_reply_excerpt
+      ? { answerReplyExcerpt: w.answer_reply_excerpt }
+      : {}),
     answeredTs: w.answered_ts ?? 0,
     answeredAtDisplay: w.answered_at_display ?? "",
   };
@@ -588,6 +591,9 @@ export function toReplyCard(w: WireReplyCard): ReplyCard {
       ? {
           optionIdxs: w.answer.option_idxs,
           text: w.answer.text ?? "",
+          ...(w.answer.reply_excerpt
+            ? { replyExcerpt: w.answer.reply_excerpt }
+            : {}),
           attachments: (w.answer.attachments ?? []).map((a) => ({
             id: a.id,
             url: a.url,
@@ -624,6 +630,9 @@ export function toReplyCardWriteReceipt(
       ? {
           optionIdxs: w.answer.option_idxs,
           text: w.answer.text ?? "",
+          ...(w.answer.reply_excerpt
+            ? { replyExcerpt: w.answer.reply_excerpt }
+            : {}),
           attachments: (w.answer.attachments ?? []).map((a) => ({
             id: a.id,
             url: a.url,

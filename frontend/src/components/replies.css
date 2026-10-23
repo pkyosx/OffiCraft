@@ -449,6 +449,62 @@
      no `.doc-md` base fix to inherit. */
   overflow-wrap: anywhere;
 }
+/* 回覆這段: the passage of the question an answer quotes — above the answer
+ * box while composing, under the final answer once sent. It may be up to 1000
+ * characters of agent-written text with no break opportunity in it. */
+.reply-card__quote {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 5px 6px 5px 8px;
+  border-left: 2px solid var(--color-accent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-text-muted);
+}
+.reply-composer > .reply-card__quote {
+  margin-bottom: 6px;
+}
+.reply-card__quote-label {
+  flex: none;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.reply-card__quote-text {
+  flex: 1 1 auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* The composer keeps its height bounded while a long passage is armed; the
+ * full passage shows under the answer once it is sent. */
+.reply-composer .reply-card__quote-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+.reply-card__quote-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.reply-card__quote-x:hover,
+.reply-card__quote-x:focus-visible {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-overlay) 8%, transparent);
+}
 .reply-card__answer-atts {
   display: flex;
   align-items: center;
@@ -594,9 +650,6 @@
 .reply-card__chat-head > :first-child {
   flex: 1 1 auto;
   min-width: 0;
-}
-.reply-card__chat-head > .reply-card__jump {
-  margin-left: auto;
 }
 
 @media (max-width: 720px) {

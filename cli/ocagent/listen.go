@@ -1009,6 +1009,7 @@ func renderReplyCardAnswer(card map[string]any) string {
 				parts = append(parts, fmt.Sprintf("picked [%d]", i))
 			}
 		}
+		quotedAt := len(parts)
 		if text := strings.TrimSpace(strOrEmpty(answer["text"])); text != "" {
 			parts = append(parts, fmt.Sprintf("%q", renderMessageBody(text, replyCardFullReadTool)))
 		}
@@ -1021,6 +1022,12 @@ func renderReplyCardAnswer(card map[string]any) string {
 		}
 		if nAtts > 0 {
 			parts = append(parts, fmt.Sprintf("+%d attachment(s)", nAtts))
+		}
+		// Only beside a decision read above: an excerpt is never an answer on its
+		// own, so it must not hide a decision this build failed to read.
+		if excerpt := strings.TrimSpace(strOrEmpty(answer["reply_excerpt"])); excerpt != "" && len(parts) > 0 {
+			quote := fmt.Sprintf("quoting %q", renderMessageBody(excerpt, replyCardFullReadTool))
+			parts = append(parts[:quotedAt], append([]string{quote}, parts[quotedAt:]...)...)
 		}
 	}
 	if len(parts) == 0 {
