@@ -4,9 +4,13 @@ import { composerDraftPersistence } from "../lib/composerDraftPersistence";
 
 const reloadPage = () => window.location.reload();
 
+// Only vite.config.ts defines the constant; other Vite hosts (Playwright CT) mount
+// App without it, and a bare reference would throw and blank the whole shell.
+const compiledBuildSha = typeof __OC_BUILD_SHA__ === "string" ? __OC_BUILD_SHA__ : "";
+
 export function useAutoReloadOnVersionChange(
   reload: () => void = reloadPage,
-  buildSha = __OC_BUILD_SHA__,
+  buildSha = compiledBuildSha,
 ): void {
   useEffect(() => {
     let active = true;
