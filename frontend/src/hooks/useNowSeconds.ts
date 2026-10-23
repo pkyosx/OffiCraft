@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 // setTimeout fires immediately for delays above 2^31-1 ms (~24.8 days).
-const MAX_TIMEOUT_MS = 2_147_483_647;
+export const MAX_TIMEOUT_MS = 2_147_483_647;
 
 function msUntilNextLocalMidnight(nowMs: number): number {
   const next = new Date(nowMs);

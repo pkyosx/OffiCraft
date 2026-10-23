@@ -19,9 +19,8 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { TaskCountView } from "../api/adapter";
+import { MAX_TIMEOUT_MS } from "./useNowSeconds";
 
-// setTimeout fires immediately for delays above 2^31-1 ms (~24.8 days).
-const MAX_TIMEOUT_MS = 2_147_483_647;
 // A client clock ahead of the server's sees the change moment as already past
 // while the server still answers the same moment; without a floor that is a
 // refetch loop.

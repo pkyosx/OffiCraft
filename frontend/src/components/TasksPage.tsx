@@ -30,7 +30,7 @@
 import { useEffect, useState } from "react";
 import { useI18n } from "../i18n";
 import { useNowSeconds } from "../hooks/useNowSeconds";
-import { isDueSoon, isOverdue } from "../lib/dueDate";
+import { isDueSoon, isOverdue, nextDueChangeTs } from "../lib/dueDate";
 import type { TaskView } from "../api/adapter";
 import { viewerMayForceTaskDone } from "../api";
 import { useTasks } from "../hooks/useTasks";
@@ -84,6 +84,16 @@ const STATUS_OPTIONS = [
 const DEFAULT_STATUS = STATUS_OPTIONS.filter((s) => !TERMINAL.has(s));
 
 type DueFilter = "overdue" | "dueSoon" | null;
+
+function nextListDueChange(tasks: TaskView[], nowTs: number): number | null {
+  let next: number | null = null;
+  for (const task of tasks) {
+    if (task.dueTs == null || TERMINAL.has(task.status)) continue;
+    const at = nextDueChangeTs(task.dueTs, nowTs);
+    if (at !== null && (next === null || at < next)) next = at;
+  }
+  return next;
+}
 
 export function TasksPage() {
   const { t, msg } = useI18n();
@@ -140,7 +150,10 @@ export function TasksPage() {
     overdue: overdueCount,
     dueSoon: dueSoonCount,
   } = useTaskCount();
-  const nowSec = useNowSeconds();
+  // Woken by the loaded tasks' own next change rather than the count's: a
+  // count refetch that lands early, or answers the same numbers, must not leave
+  // the filtered list a ticker interval behind its button.
+  const nowSec = useNowSeconds(nextListDueChange(tasks, Date.now() / 1000));
 
   // Ticking clock (30s) — drives 已歷時 and running-step 耗時 on every card.
   const [nowTs, setNowTs] = useState(() => Date.now() / 1000);

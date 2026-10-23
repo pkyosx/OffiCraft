@@ -756,6 +756,12 @@ export function TaskCard({
   const prioRef = useRef<HTMLDivElement>(null);
   const [dueOpen, setDueOpen] = useState(false);
   const dueRef = useRef<HTMLDivElement>(null);
+  const duePopRef = useRef<HTMLDivElement>(null);
+  // Mirrors of the draft and the open state for the document-level mousedown
+  // listener and for blur, which can both fire for the same close.
+  const [dueDraft, setDueDraft] = useState("");
+  const dueDraftRef = useRef("");
+  const dueSessionRef = useRef(false);
   const dueTs = task.dueTs ?? null;
   const dueEditable = !closed && onSetDue !== undefined;
   const nowSec = useNowSeconds(
@@ -817,7 +823,7 @@ export function TaskCard({
   useEffect(() => {
     if (!dueOpen) return;
     function onDown(e: MouseEvent) {
-      if (!dueRef.current?.contains(e.target as Node)) setDueOpen(false);
+      if (!dueRef.current?.contains(e.target as Node)) finishDue(true);
     }
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
@@ -845,7 +851,6 @@ export function TaskCard({
   }
 
   async function doSetDue(next: number | null) {
-    setDueOpen(false);
     if (next === dueTs || !onSetDue) return;
     try {
       await onSetDue(task.id, next);
@@ -856,12 +861,36 @@ export function TaskCard({
     }
   }
 
-  function onDuePicked(value: string) {
-    const next = endOfLocalDayTs(value);
-    // A typed year passes through 0002, 0020, 0202 on its way to 2026; each is
-    // a valid date the input reports as a change.
+  function openDue() {
+    const draft = dueTs === null ? "" : toDateInputValue(dueTs);
+    dueDraftRef.current = draft;
+    setDueDraft(draft);
+    dueSessionRef.current = true;
+    setDueOpen(true);
+  }
+
+  function editDueDraft(value: string) {
+    dueDraftRef.current = value;
+    setDueDraft(value);
+  }
+
+  // 🔴 The date input reports every keyboard segment edit as a complete date
+  // (typing 1 into the month of 10/30 yields 01/30), and a calendar pick looks
+  // the same on the wire — so nothing is saved until Enter, blur or an outside
+  // click commits the draft.
+  function finishDue(commit: boolean) {
+    if (!dueSessionRef.current) return;
+    dueSessionRef.current = false;
+    setDueOpen(false);
+    if (!commit) return;
+    const next = endOfLocalDayTs(dueDraftRef.current);
     if (next === null || new Date(next * 1000).getFullYear() < 1970) return;
     void doSetDue(next);
+  }
+
+  function clearDue() {
+    finishDue(false);
+    void doSetDue(null);
   }
 
   // 步驟備註 (T-66) — 點開才抓. The card holds only `noteSizeChars`, so the text
@@ -1438,7 +1467,10 @@ export function TaskCard({
                   aria-haspopup="dialog"
                   aria-expanded={dueOpen}
                   data-testid="task-due"
-                  onClick={() => setDueOpen((o) => !o)}
+                  onMouseDown={(e) => {
+                    if (dueOpen) e.preventDefault();
+                  }}
+                  onClick={() => (dueOpen ? finishDue(true) : openDue())}
                 >
                   {dueText}
                 </button>
@@ -1448,14 +1480,28 @@ export function TaskCard({
                     role="dialog"
                     aria-label={t.tasks.dueEditLabel}
                     data-testid="task-due-pop"
+                    ref={duePopRef}
                   >
                     <input
                       type="date"
                       className="task-card__due-input"
                       aria-label={t.tasks.duePickerLabel}
                       data-testid="task-due-input"
-                      value={dueTs === null ? "" : toDateInputValue(dueTs)}
-                      onChange={(e) => onDuePicked(e.target.value)}
+                      value={dueDraft}
+                      onChange={(e) => editDueDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          finishDue(true);
+                        } else if (e.key === "Escape") {
+                          finishDue(false);
+                        }
+                      }}
+                      onBlur={(e) => {
+                        if (duePopRef.current?.contains(e.relatedTarget as Node))
+                          return;
+                        finishDue(true);
+                      }}
                     />
                     {dueTs !== null && (
                       <button
@@ -1463,7 +1509,8 @@ export function TaskCard({
                         className="task-card__menu-item"
                         aria-label={t.tasks.dueClearLabel}
                         data-testid="task-due-clear"
-                        onClick={() => void doSetDue(null)}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={clearDue}
                       >
                         {t.tasks.dueClear}
                       </button>

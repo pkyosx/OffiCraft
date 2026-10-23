@@ -22,7 +22,7 @@
 //      DISABLED while unassigned.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, fireEvent, waitFor } from "@testing-library/react";
+import { render, fireEvent, waitFor, act } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { TasksPage } from "./TasksPage";
 import {
@@ -929,9 +929,9 @@ describe("TasksPage", () => {
     __injectMockTask(mkTask({ title: "要設到期日" }));
     const { findByTestId } = renderPage();
     fireEvent.click(await findByTestId("task-due"));
-    fireEvent.change(await findByTestId("task-due-input"), {
-      target: { value: "2099-10-30" },
-    });
+    const input = await findByTestId("task-due-input");
+    fireEvent.change(input, { target: { value: "2099-10-30" } });
+    fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(async () =>
       expect((await findByTestId("task-due")).textContent).toBe("10/30 到期")
     );
@@ -950,14 +950,17 @@ describe("TasksPage", () => {
     );
   });
 
-  it("narrows to overdue tasks and restores the list on a second press", async () => {
+  it("narrows to open overdue tasks and restores the list on a second press", async () => {
     seedDueTasks();
-    const { findByText } = renderPage();
+    const { findByText, findByTestId, queryByTestId } = renderPage();
     await findByText("還早的");
+    toggleFilter("filter-status", "done");
+    await findByTestId("closed-toggle");
     toggleDueFilter("overdue");
     await waitFor(() =>
       expect(openTitles()).toEqual(["逾期的手冊任務", "逾期的自由代辦"])
     );
+    expect(queryByTestId("closed-toggle")).toBeNull();
     expect(
       document
         .querySelector('[data-testid="filter-due-overdue"]')!
@@ -979,6 +982,31 @@ describe("TasksPage", () => {
         .querySelector('[data-testid="filter-due-overdue"]')!
         .getAttribute("aria-pressed")
     ).toBe("false");
+  });
+
+  it("drops a task from 即將到期 the moment it falls due, even before the counts refetch", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const dueTs = Date.now() / 1000 + 10;
+      __injectMockTask(mkTask({ title: "十秒後到期", dueTs }));
+      vi.spyOn(api, "getTaskCount").mockResolvedValue({
+        open: 1,
+        total: 1,
+        overdue: 0,
+        dueSoon: 1,
+        dueNextChangeTs: null,
+      });
+      const { findByText, findByTestId } = renderPage();
+      await findByText("十秒後到期");
+      toggleDueFilter("soon");
+      await waitFor(() => expect(openTitles()).toEqual(["十秒後到期"]));
+      await act(async () => {
+        vi.advanceTimersByTime(10_000);
+      });
+      await findByTestId("tasks-empty-filtered");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("combines with the type filter", async () => {
