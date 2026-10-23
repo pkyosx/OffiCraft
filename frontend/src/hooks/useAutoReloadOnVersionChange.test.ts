@@ -75,7 +75,7 @@ describe("useAutoReloadOnVersionChange", () => {
     connection.getVersion.mockResolvedValue({ gitSha: "same-sha" });
     const reload = vi.fn();
 
-    renderHook(() => useAutoReloadOnVersionChange(reload));
+    renderHook(() => useAutoReloadOnVersionChange(reload, "same-sha"));
     await waitFor(() => expect(connection.getVersion).toHaveBeenCalledTimes(1));
 
     act(() => {
@@ -115,6 +115,24 @@ describe("useAutoReloadOnVersionChange", () => {
     });
     await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
     expect(connection.getVersion).toHaveBeenCalledTimes(3);
+  });
+
+  it("reloads when the first recovered version differs from the compiled build after the initial read fails", async () => {
+    connection.getVersion
+      .mockRejectedValueOnce(new Error("temporary failure"))
+      .mockResolvedValueOnce({ gitSha: "new-sha" });
+    const reload = vi.fn();
+
+    renderHook(() => useAutoReloadOnVersionChange(reload, "loaded-sha"));
+    await waitFor(() => expect(connection.getVersion).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      connection.publish("connecting");
+      connection.publish("live");
+    });
+
+    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+    expect(connection.getVersion).toHaveBeenCalledTimes(2);
   });
 
   it("rechecks the version when the initial read fails during reconnect", async () => {

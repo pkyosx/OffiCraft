@@ -21,3 +21,5 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+declare const __OC_BUILD_SHA__: string;

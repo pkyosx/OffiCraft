@@ -4,16 +4,36 @@ import { composerDraftPersistence } from "../lib/composerDraftPersistence";
 
 const reloadPage = () => window.location.reload();
 
-export function useAutoReloadOnVersionChange(reload: () => void = reloadPage): void {
+export function useAutoReloadOnVersionChange(
+  reload: () => void = reloadPage,
+  buildSha = __OC_BUILD_SHA__,
+): void {
   useEffect(() => {
     let active = true;
-    let initialSha: string | null = null;
+    let initialSha: string | null = buildSha || null;
     let initialReadFinished = false;
     let disconnected = false;
     let pendingCheck = false;
     let reloadRequested = false;
     let checking = false;
     let queuedCheck = false;
+
+    async function observeVersion(currentSha: string | null): Promise<void> {
+      if (!currentSha) return;
+      if (!initialSha) {
+        initialSha = currentSha;
+        return;
+      }
+      if (currentSha === initialSha) return;
+      reloadRequested = true;
+      try {
+        await composerDraftPersistence.flush();
+      } catch {
+        reloadRequested = false;
+        return;
+      }
+      if (active) reload();
+    }
 
     async function checkVersion(): Promise<void> {
       if (!active || reloadRequested) return;
@@ -33,18 +53,7 @@ export function useAutoReloadOnVersionChange(reload: () => void = reloadPage): v
           try {
             const current = await api.getVersion();
             if (!active) return;
-            if (!initialSha) {
-              initialSha = current.gitSha || null;
-              return;
-            }
-            if (
-              current.gitSha &&
-              current.gitSha !== initialSha
-            ) {
-              reloadRequested = true;
-              await composerDraftPersistence.flush();
-              if (active) reload();
-            }
+            await observeVersion(current.gitSha || null);
             return;
           } catch {
             if (attempt >= retryDelays.length) return;
@@ -74,11 +83,12 @@ export function useAutoReloadOnVersionChange(reload: () => void = reloadPage): v
     });
 
     void api.getVersion().then(
-      (version) => {
+      async (version) => {
         if (!active) return;
-        initialSha = version.gitSha || null;
+        await observeVersion(version.gitSha || null);
+        if (!active) return;
         initialReadFinished = true;
-        if (pendingCheck) {
+        if (pendingCheck && !reloadRequested) {
           pendingCheck = false;
           void checkVersion();
         }

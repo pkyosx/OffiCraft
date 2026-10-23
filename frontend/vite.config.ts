@@ -1,5 +1,6 @@
 /// <reference types="vitest/config" />
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig, loadEnv, type Plugin } from "vite";
+import { execFileSync } from "node:child_process";
 import react from "@vitejs/plugin-react";
 import { build as esbuild } from "esbuild";
 import { fileURLToPath } from "node:url";
@@ -52,7 +53,22 @@ function testWorkerOptions(mode: string) {
   return workers === undefined ? {} : { maxWorkers: workers };
 }
 
+function frontendBuildSha(mode: string): string {
+  const env = loadEnv(mode, process.cwd(), "VITE_");
+  if (mode !== "production" || env.VITE_USE_MOCK !== "false") return "";
+  try {
+    return execFileSync("git", ["rev-parse", "--short", "HEAD"], {
+      cwd: fileURLToPath(new URL("..", import.meta.url)),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return "";
+  }
+}
+
 export default defineConfig(({ mode }) => ({
+  define: { __OC_BUILD_SHA__: JSON.stringify(frontendBuildSha(mode)) },
   plugins: [inlinePrePaint(), react()],
   server: {
     // api/seeds.ts imports the repo-root seeds/*.md (the single source of truth)
