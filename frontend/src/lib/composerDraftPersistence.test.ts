@@ -26,6 +26,7 @@ function createMemoryStores() {
     rows,
     saves,
     storage,
+    attachments,
     persistence: createComposerDraftPersistence(() => storage, attachments),
   };
 }
@@ -76,6 +77,31 @@ describe("composer draft persistence", () => {
     expect(persistence.read(key)).toBeUndefined();
     expect(metadata.size).toBe(0);
     expect(rows.has(key)).toBe(false);
+  });
+
+  it("does not restore cleared files when IndexedDB removal fails", async () => {
+    const { metadata, rows, persistence, attachments } = createMemoryStores();
+    const key = "chat:m-1";
+    const attachment: PendingAttachment = {
+      key: "sent-file",
+      dataUri: "data:text/plain;base64,SGk=",
+      filename: "sent.txt",
+      size: 2,
+      isImage: false,
+    };
+
+    persistence.saveText(key, "sent message");
+    await persistence.saveAttachments(key, [attachment]);
+    attachments.remove = async () => {
+      throw new Error("IndexedDB delete failed");
+    };
+    persistence.saveText(key, "");
+    await persistence.saveAttachments(key, []);
+
+    expect(persistence.read(key)).toBeUndefined();
+    expect(metadata.size).toBe(0);
+    expect(rows.get(key)).toEqual([attachment]);
+    await expect(persistence.loadAttachments(key)).resolves.toEqual([]);
   });
 
   it("isolates a metadata storage refusal to the affected draft", async () => {

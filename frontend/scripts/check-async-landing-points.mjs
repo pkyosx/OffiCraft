@@ -334,6 +334,13 @@ const REGISTRY = [
   },
   {
     file: "hooks/useAttachmentStaging.ts",
+    kind: ".then/.catch/.finally",
+    count: 3,
+    verdict:
+      "chat hydration and persistent attachment restore write only while their owning effect is active; restore also checks the current draft key before replacing the visible rows, and both paths always clear their own restoring indicator while mounted",
+  },
+  {
+    file: "hooks/useAttachmentStaging.ts",
     kind: "subscribe",
     count: 1,
     verdict:
@@ -348,10 +355,45 @@ const REGISTRY = [
   },
   {
     file: "lib/chatDraftStore.ts",
+    kind: ".then/.catch/.finally",
+    count: 2,
+    verdict:
+      "attachment hydration reads and writes only the requested peer's draft; its promise is keyed by peer, merges by attachment key with the current draft, and removes only its own in-flight entry on completion",
+  },
+  {
+    file: "lib/chatDraftStore.ts",
     kind: "queueMicrotask",
     count: 1,
     verdict:
       "the chat page's notice scope closing one microtask late (R16 D-2), so StrictMode's synchronous setup→cleanup→setup cannot destroy a refusal raised before the mount. It drops only the peers that had a notice AT CLOSE TIME, so a FileReader landing in that gap is not swept up by a decision that predates it, and it bails if a surface reopened the scope",
+  },
+  {
+    file: "lib/composerDraftPersistence.ts",
+    kind: "await",
+    count: 12,
+    verdict:
+      "IndexedDB loads, saves, removals and flushes operate on an explicit draft key; attachment-write failures keep the last metadata, load failures return no attachments, and clear still removes metadata when storage is blocked",
+  },
+  {
+    file: "lib/composerDraftPersistence.ts",
+    kind: ".then/.catch/.finally",
+    count: 5,
+    verdict:
+      "the IndexedDB open promise resets its failed cache for retry, while queued attachment writes serialize by draft key, swallow storage failures, and remove only the completed operation from that key's queue",
+  },
+  {
+    file: "lib/composerDraftPersistence.ts",
+    kind: "FileReader/Image handler",
+    count: 3,
+    verdict:
+      "IndexedDB request and transaction event handlers settle only the promise for their own operation; failures reject the operation so callers can preserve prior metadata or return an empty restore",
+  },
+  {
+    file: "lib/composerDraftPersistence.ts",
+    kind: "other async primitive",
+    count: 7,
+    verdict:
+      "the IndexedDB request and transaction promises settle from their own completion events, and the database-open promise clears its cached rejection so a later draft operation can retry",
   },
 
   // ─── Rendered by ChatArea without a key of their own — they live and die
@@ -763,6 +805,18 @@ const MODULE_STATE = [
     name: "scopeEpoch",
     verdict:
       "which scope-close a deferred sweep belongs to, so StrictMode's synchronous remount cancels the sweep its own fake cleanup queued (R16 D-2); a counter, carrying no peer",
+  },
+  {
+    file: "lib/chatDraftStore.ts",
+    name: "hydrationPromises",
+    verdict:
+      "keyed by peer id, so concurrent hydration for one conversation is shared while another conversation gets a separate promise",
+  },
+  {
+    file: "lib/composerDraftPersistence.ts",
+    name: "composerDraftPersistence",
+    verdict:
+      "the shared persistence service keeps its write queue keyed by the caller's explicit draft key; each queued operation accesses only that draft's metadata and attachment record",
   },
   {
     file: "lib/escapeLayers.ts",

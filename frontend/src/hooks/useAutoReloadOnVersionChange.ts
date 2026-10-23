@@ -19,9 +19,13 @@ export function useAutoReloadOnVersionChange(reload: () => void = reloadPage): v
         pendingCheck = true;
         return;
       }
-      if (!initialSha) return;
       try {
         const current = await api.getVersion();
+        if (!active) return;
+        if (!initialSha) {
+          initialSha = current.gitSha || null;
+          return;
+        }
         if (
           active &&
           !reloadRequested &&
@@ -59,7 +63,12 @@ export function useAutoReloadOnVersionChange(reload: () => void = reloadPage): v
         }
       },
       () => {
-        if (active) initialReadFinished = true;
+        if (!active) return;
+        initialReadFinished = true;
+        if (pendingCheck) {
+          pendingCheck = false;
+          void checkVersion();
+        }
       },
     );
 

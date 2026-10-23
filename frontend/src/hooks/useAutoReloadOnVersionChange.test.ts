@@ -41,10 +41,12 @@ import { useAutoReloadOnVersionChange } from "./useAutoReloadOnVersionChange";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => {
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((done, fail) => {
     resolve = done;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 describe("useAutoReloadOnVersionChange", () => {
@@ -87,6 +89,52 @@ describe("useAutoReloadOnVersionChange", () => {
       connection.publish("live");
     });
     await waitFor(() => expect(connection.getVersion).toHaveBeenCalledTimes(3));
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("establishes a version baseline after the initial read fails", async () => {
+    connection.getVersion
+      .mockRejectedValueOnce(new Error("temporary failure"))
+      .mockResolvedValueOnce({ gitSha: "recovered-sha" })
+      .mockResolvedValueOnce({ gitSha: "new-sha" });
+    const reload = vi.fn();
+
+    renderHook(() => useAutoReloadOnVersionChange(reload));
+    await waitFor(() => expect(connection.getVersion).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      connection.publish("connecting");
+      connection.publish("live");
+    });
+    await waitFor(() => expect(connection.getVersion).toHaveBeenCalledTimes(2));
+    expect(reload).not.toHaveBeenCalled();
+
+    act(() => {
+      connection.publish("connecting");
+      connection.publish("live");
+    });
+    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+    expect(connection.getVersion).toHaveBeenCalledTimes(3);
+  });
+
+  it("rechecks the version when the initial read fails during reconnect", async () => {
+    const initialRead = deferred<{ gitSha: string }>();
+    connection.getVersion
+      .mockReturnValueOnce(initialRead.promise)
+      .mockResolvedValueOnce({ gitSha: "recovered-sha" });
+    const reload = vi.fn();
+
+    renderHook(() => useAutoReloadOnVersionChange(reload));
+    act(() => {
+      connection.publish("connecting");
+      connection.publish("live");
+    });
+
+    await act(async () => {
+      initialRead.reject(new Error("temporary failure"));
+      await initialRead.promise.catch(() => {});
+    });
+    await waitFor(() => expect(connection.getVersion).toHaveBeenCalledTimes(2));
     expect(reload).not.toHaveBeenCalled();
   });
 

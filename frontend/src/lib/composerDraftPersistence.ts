@@ -201,14 +201,14 @@ export function createComposerDraftPersistence(
         try {
           if (value.length > 0) await attachments.save(key, value);
           else await attachments.remove(key);
-          write(key, {
-            ...(read(key) ?? emptyMetadata()),
-            attachmentKeys: value.map((item) => item.key),
-          });
         } catch {
-          // Keep the last committed metadata; an attachment quota error must
-          // not interrupt the active composer or corrupt another draft.
+          if (value.length > 0) return;
+          // A failed delete must still remove metadata pointers so sent files cannot restore.
         }
+        write(key, {
+          ...(read(key) ?? emptyMetadata()),
+          attachmentKeys: value.map((item) => item.key),
+        });
       });
     },
     async loadAttachments(key: string): Promise<PendingAttachment[]> {
