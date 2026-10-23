@@ -21,11 +21,11 @@ OffiCraft 的伺服器預設只接受本機（`127.0.0.1`）的連線，所以�
 
 最省事的方式是一次性登入連結，不用在手機上打密碼和驗證碼：
 
-1. 在執行 OffiCraft 伺服器的那台電腦上，第一次使用前先執行 `ocserverd login-link enable`，開放這項功能。
-2. 執行 `ocserverd login-link --base-url https://你的tunnel網址`，畫面會印出一條登入連結。
+1. 在執行 OffiCraft 伺服器的那台電腦上，第一次使用前先執行 `~/.officraft/bin/ocserverd login-link enable`，開放這項功能。
+2. 執行 `~/.officraft/bin/ocserverd login-link --base-url https://你的tunnel網址`，畫面會印出一條登入連結。
 3. 把連結傳到手機（例如用 AirDrop 或傳給自己的訊息）並打開，就會直接登入。
 
-這條連結 10 分鐘內有效，只能用一次；再產生一條新的，舊的就失效。連結等同你的登入權限，只傳給你自己。不需要這項功能時，執行 `ocserverd login-link disable` 關閉。
+這條連結 10 分鐘內有效，只能用一次；再產生一條新的，舊的就失效。連結等同你的登入權限，只傳給你自己。不需要這項功能時，執行 `~/.officraft/bin/ocserverd login-link disable` 關閉。
 
 也可以直接在手機上用密碼登入（有開兩步驟驗證時再輸入驗證碼）。登入後，可以在手機上新增一把通行密鑰，之後用 Face ID 或指紋登入。通行密鑰綁在註冊時的網址，要在手機上用 tunnel 網址打開控制台後再新增，做法見 [保護你的工作室](security.md)。
 
