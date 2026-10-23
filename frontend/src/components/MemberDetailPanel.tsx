@@ -54,6 +54,7 @@ import "./member-detail.css";
 interface MemberDetailPanelProps {
   member: Member;
   onBack: () => void;
+  backLabel?: string;
   /** Spawn / wake / respawn a member — AND permanently rebind it — via
    * activateMember(id, machineId). The panel picks the machineId per the machine
    * picker rules (0 online → disabled, 1 → auto-use, 2+ → picker), then calls this
@@ -104,6 +105,7 @@ interface MemberDetailPanelProps {
 export function MemberDetailPanel({
   member,
   onBack,
+  backLabel,
   onActivate,
   onRelocate,
   onDeactivate,
@@ -536,19 +538,20 @@ export function MemberDetailPanel({
     <>
       {/* identity card */}
       <div className="mp-card mp-identity">
-        <PresenceAvatar presence={member.lifecycle} dotTestId="mp-identity-presence">
-          {onUpdateAvatar && onRemoveAvatar ? (
-            <AvatarEditor
-              size={52}
-              kind={avatarKindForMember(member)}
-              src={member.avatarUrl}
-              onUpload={onUpdateAvatar}
-              onRemove={onRemoveAvatar}
-            />
-          ) : (
+        {onUpdateAvatar && onRemoveAvatar ? (
+          <AvatarEditor
+            size={52}
+            kind={avatarKindForMember(member)}
+            src={member.avatarUrl}
+            onUpload={onUpdateAvatar}
+            onRemove={onRemoveAvatar}
+            presence={{ status: member.lifecycle, dotTestId: "mp-identity-presence" }}
+          />
+        ) : (
+          <PresenceAvatar presence={member.lifecycle} dotTestId="mp-identity-presence">
             <Avatar size={52} kind={avatarKindForMember(member)} src={member.avatarUrl} />
-          )}
-        </PresenceAvatar>
+          </PresenceAvatar>
+        )}
         <div className="mp-identity__body">
           <div className="mp-identity__line">
             <NameWithActivity activity={member.activity} presence={member.lifecycle} testId="mp-identity-activity" layout="group">
@@ -795,6 +798,7 @@ export function MemberDetailPanel({
   return (
     <AgentDetailPanel
       onBack={onBack}
+      backLabel={backLabel}
       machineName={machineDisplay}
       identity={identityCard}
       // EVERY slot the panel offers, no exceptions (T-0b4f). A slot this side

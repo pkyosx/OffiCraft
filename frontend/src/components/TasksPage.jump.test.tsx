@@ -246,7 +246,9 @@ describe("TasksPage 單一任務 filter (#tasks/<id>)", () => {
 
     const { findByTestId } = renderTasks();
     const openList = await findByTestId("open-list");
-    expect(openList.querySelector('[data-task-id="t-open"]')).not.toBeNull();
+    const target = openList.querySelector('[data-task-id="t-open"]');
+    expect(target).not.toBeNull();
+    expect(target?.getAttribute("aria-expanded")).toBe("true");
     // The other task is filtered out.
     expect(document.querySelector('[data-task-id="t-other"]')).toBeNull();
     // 🔁 WAS 「a filter is on, so the 已篩選 strip is there with its 清除全部

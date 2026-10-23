@@ -236,6 +236,7 @@ function slotNode(s: AgentDetailSlot): ReactNode {
 interface AgentDetailPanelProps {
   vm: AgentDetailVM;
   onBack: () => void;
+  backLabel?: string;
   /** Machine id → display name, for a 最近操作 reason that names a machine. */
   machineName?: (id: string) => string;
   /** The kind-specific identity card (member: avatar + rename + presence +
@@ -274,6 +275,7 @@ interface AgentDetailPanelProps {
 export function AgentDetailPanel({
   vm,
   onBack,
+  backLabel,
   machineName,
   identity,
   slots,
@@ -537,7 +539,7 @@ export function AgentDetailPanel({
     <div className="mp">
       <button type="button" className="mp__back" onClick={onBack}>
         <ChevronLeftIcon size={18} />
-        <span>{t.mp.back}</span>
+        <span>{backLabel ?? t.mp.back}</span>
       </button>
 
       {identity}

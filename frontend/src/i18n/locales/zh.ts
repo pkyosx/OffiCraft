@@ -1383,6 +1383,8 @@ export const zh = {
   },
   mp: {
     back: "返回",
+    backToReplies: "返回請示",
+    backToTasks: "返回任務",
     avatarUpload: "更換頭像",
     avatarRemove: "移除頭像",
     avatarBusy: "處理中…",

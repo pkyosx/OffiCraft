@@ -51,6 +51,7 @@ import type {
   ReplyCardAnswerInput,
   ReplyCardRow,
 } from "../api/adapter";
+import type { Member } from "../types";
 import { isHttpStatus } from "../api/errors";
 import { useMembers } from "../hooks/useMembers";
 import { useOutsourceWorkers } from "../hooks/useOutsourceWorkers";
@@ -104,6 +105,28 @@ function handledTsOf(card: ReplyCardRow): number | null {
     : card.answeredTs;
 }
 
+function ReplyCardMentionProvider({
+  members,
+  workers,
+  replyCardId,
+  children,
+}: {
+  members: Member[];
+  workers: OutsourceWorkerView[];
+  replyCardId: string;
+  children: ReactNode;
+}) {
+  const mentionRoster = useMentionRoster(members, workers, {
+    backTo: "replies",
+    backToId: replyCardId,
+  });
+  return (
+    <MentionRosterContext.Provider value={mentionRoster}>
+      {children}
+    </MentionRosterContext.Provider>
+  );
+}
+
 export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   const { t, msg } = useI18n();
   // Light roster (T-cf91): the page attributes each card to its asker by
@@ -118,7 +141,6 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // its member/task/chat subscriptions) is only mounted while a card is open —
   // see `OutsourceWorkersFeed` at the bottom of the page.
   const [workers, setWorkers] = useState<OutsourceWorkerView[]>([]);
-  const mentionRoster = useMentionRoster(members, workers, { backTo: "replies" });
   const {
     waiting,
     handled,
@@ -778,20 +800,30 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // carries kind='outsource' rows, so a live worker is present in the list
   // and only its kind tells the two panels apart.
   //
-  // backTo: "replies" (owner acceptance-round finding, T-a706): without it,
+  // backTo + backToId: without them,
   // OfficePage's own 返回 button resets to its default chat view (roster[0])
   // — correct when the panel was opened FROM the office page itself, but a
   // silent wrong-room landing when opened via this cross-page deep link,
   // since there was never a chat selected to return to. The marker tells
-  // OfficePage's 返回 to land back on THIS page instead.
+  // OfficePage's 返回 to reopen this exact card instead.
   function openProfile(row: ReplyCardRow) {
     const isRosterMember = members.some(
       (m) => m.id === row.from && m.kind === "staff",
     );
     setRoute(
       isRosterMember
-        ? { page: "office", detailId: row.from, backTo: "replies" }
-        : { page: "office", workerId: row.from, backTo: "replies" },
+        ? {
+            page: "office",
+            detailId: row.from,
+            backTo: "replies",
+            backToId: row.id,
+          }
+        : {
+            page: "office",
+            workerId: row.from,
+            backTo: "replies",
+            backToId: row.id,
+          },
     );
   }
 
@@ -1063,9 +1095,13 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
           <Markdown source={row.summary} className="reply-card__summary doc-md" />
           {open &&
             (card ? (
-              <MentionRosterContext.Provider value={mentionRoster}>
+              <ReplyCardMentionProvider
+                members={members}
+                workers={workers}
+                replyCardId={row.id}
+              >
                 {opts.body(card)}
-              </MentionRosterContext.Provider>
+              </ReplyCardMentionProvider>
             ) : (
               renderOpenState(row.id)
             ))}

@@ -52,10 +52,14 @@ export function useMentionRosterContext(): MentionRoster | null {
 export function useMentionRoster(
   members: Member[],
   workers: OutsourceWorkerView[],
-  at: { chatId?: string; backTo?: HashRoute["backTo"] },
+  at: {
+    chatId?: string;
+    backTo?: HashRoute["backTo"];
+    backToId?: string;
+  },
 ): MentionRoster {
   const { t, msg } = useI18n();
-  const { chatId, backTo } = at;
+  const { chatId, backTo, backToId } = at;
   const candidates = useMemo(
     () =>
       mentionCandidates(
@@ -83,10 +87,11 @@ export function useMentionRoster(
             ...(chatId ? { chatId } : {}),
             ...(target.kind === "member" ? { detailId: target.id } : { workerId: target.id }),
             ...(backTo ? { backTo } : {}),
+            ...(backTo && backToId ? { backToId } : {}),
           }),
       };
     },
-    [members, workers, msg, chatId, backTo],
+    [members, workers, msg, chatId, backTo, backToId],
   );
   return useMemo(() => ({ candidates, opener }), [candidates, opener]);
 }

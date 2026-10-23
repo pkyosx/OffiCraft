@@ -961,7 +961,10 @@ export function TaskCard({
   // empty list (no setting, or a failed read) renders nothing at all.
   const suggestedReplies = useSuggestedRepliesTaskMessage();
   const draftRef = useRef<HTMLTextAreaElement>(null);
-  const mentionRoster = useMentionRoster(members, workers, { backTo: "tasks" });
+  const mentionRoster = useMentionRoster(members, workers, {
+    backTo: "tasks",
+    backToId: task.id,
+  });
   const mention = useMentionComposer({
     inputRef: draftRef,
     value: draft,

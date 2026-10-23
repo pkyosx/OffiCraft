@@ -1354,6 +1354,8 @@ export const en: Dict = {
   },
   mp: {
     back: "Back",
+    backToReplies: "Back to Ask",
+    backToTasks: "Back to Task",
     avatarUpload: "Change avatar",
     avatarRemove: "Remove avatar",
     avatarBusy: "Working…",

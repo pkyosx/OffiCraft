@@ -168,14 +168,34 @@ export function OfficePage({
       workerId: id ?? undefined,
     });
   // 返回 from a detail/worker panel (T-a706): a panel deep-linked in from
-  // elsewhere (e.g. RepliesPage's card avatar) carries route.backTo — land
-  // there instead of falling through to this page's own chat-view reset,
+  // elsewhere (e.g. RepliesPage's card avatar) carries route.backTo and the
+  // source card/task id — restore that deep link instead of this page's reset,
   // which would otherwise silently drop the owner into an unrelated chat
   // room (there was never a chat selected on the way in).
-  const backFromDetail = () =>
-    route.backTo ? setRoute({ page: route.backTo }) : setDetailId(null);
-  const backFromWorkerDetail = () =>
-    route.backTo ? setRoute({ page: route.backTo }) : setWorkerDetailId(null);
+  const detailBackLabel =
+    route.backTo === "replies"
+      ? t.mp.backToReplies
+      : route.backTo === "tasks"
+        ? t.mp.backToTasks
+        : undefined;
+  const backFromDetail = () => {
+    if (route.backTo === "replies") {
+      setRoute({ page: "replies", replyCardId: route.backToId });
+    } else if (route.backTo === "tasks") {
+      setRoute({ page: "tasks", taskId: route.backToId });
+    } else {
+      setDetailId(null);
+    }
+  };
+  const backFromWorkerDetail = () => {
+    if (route.backTo === "replies") {
+      setRoute({ page: "replies", replyCardId: route.backToId });
+    } else if (route.backTo === "tasks") {
+      setRoute({ page: "tasks", taskId: route.backToId });
+    } else {
+      setWorkerDetailId(null);
+    }
+  };
   // T-e987 compose seed: a #office/chat/<id>/compose/<taskNo> deep-link (the
   // 任務卡 負責人/建立者 label) seeds that chat's composer with "[<taskNo>] ".
   // Only the EXPLICITLY routed peer gets it (never the roster[0] fallback) —
@@ -419,6 +439,7 @@ export function OfficePage({
         // comes from the worker DTO's reported columns, not from this session.
         session={findSessionFor(workerDetail.id, monitoring?.sessions ?? [])}
         onBack={backFromWorkerDetail}
+        backLabel={detailBackLabel}
         onOpenTask={
           workerDetail.taskId
             ? () => setRoute({ page: "tasks", taskId: workerDetail.taskId })
@@ -486,6 +507,7 @@ export function OfficePage({
       <WorkerDetailPanel
         worker={releasedWorkerDetail}
         onBack={backFromWorkerDetail}
+        backLabel={detailBackLabel}
       />
     );
   }
@@ -495,6 +517,7 @@ export function OfficePage({
       <MemberDetailPanel
         member={detail}
         onBack={backFromDetail}
+        backLabel={detailBackLabel}
         // Presence contract: activate writes desired_state=online INTENT only; we
         // refetch and let server-driven presence surface waking → online. No
         // optimistic green here.

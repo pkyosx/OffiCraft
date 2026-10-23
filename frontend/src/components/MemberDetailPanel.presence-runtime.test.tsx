@@ -5,6 +5,7 @@
 // that leaked through joinSessionRuntime. Online/waking show both; stopping
 // shows the machine only (owner ruling rc-5a126c0e1b28).
 
+import type { ComponentProps } from "react";
 import { describe, it, expect, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
@@ -58,10 +59,10 @@ function mkMember(over: Partial<Member> = {}): Member {
 
 const dash = zh.mp.dash;
 
-function renderPanel(member: Member) {
+function renderPanel(member: Member, extra: Partial<ComponentProps<typeof MemberDetailPanel>> = {}) {
   return render(
     <I18nProvider>
-      <MemberDetailPanel member={member} onBack={() => {}} />
+      <MemberDetailPanel member={member} onBack={() => {}} {...extra} />
     </I18nProvider>
   );
 }
@@ -356,6 +357,17 @@ describe("MemberDetailPanel · presence-gated machine + account", () => {
     expect(moon.querySelector(".activity-icon__glyph--offline svg")).not.toBeNull();
     fireEvent.mouseEnter(moon);
     expect(screen.getByRole("tooltip").textContent).toBe("離線");
+  });
+
+  it("with the owner's avatar editor, the identity card keeps the presence dot on the avatar image, not beside the upload button", () => {
+    const { getByTestId } = renderPanel(mkMember({ status: "online", lifecycle: "online" }), {
+      onUpdateAvatar: async () => {},
+      onRemoveAvatar: async () => {},
+    });
+    const corner = getByTestId("mp-identity-presence").closest(".presence-avatar")!;
+    expect(corner.querySelector(".avatar")).not.toBeNull();
+    expect(corner.querySelector(".avatar-editor__button")).toBeNull();
+    expect(getByTestId("mp-identity-presence").getAttribute("aria-label")).toBe("線上");
   });
 
   it("the identity card carries the presence dot on the avatar corner and the status icon right before the name, which pins its hint instead of opening a dialog", () => {

@@ -61,6 +61,7 @@ interface WorkerDetailPanelProps {
    * removing it is a separate, wider change; nothing here consumes it. */
   session?: MonSessionView;
   onBack: () => void;
+  backLabel?: string;
   /** Jump to the bound task (#tasks/<taskId>); only wired when the worker has a
    * resolvable task. */
   onOpenTask?: () => void;
@@ -127,6 +128,7 @@ interface WorkerDetailPanelProps {
 export function WorkerDetailPanel({
   worker,
   onBack,
+  backLabel,
   onOpenTask,
   onRelocate,
   onRefocus,
@@ -459,19 +461,20 @@ export function WorkerDetailPanel({
   // theme image and glyph fallbacks, plus codename + real presence. ──────────
   const identity = (
     <div className="mp-card mp-identity">
-      <PresenceAvatar presence={worker.presence} dotTestId="worker-detail-header-dot">
-        {onUpdateAvatar && onRemoveAvatar ? (
-          <AvatarEditor
-            size={52}
-            kind="outsource"
-            src={worker.avatarUrl}
-            onUpload={onUpdateAvatar}
-            onRemove={onRemoveAvatar}
-          />
-        ) : (
+      {onUpdateAvatar && onRemoveAvatar ? (
+        <AvatarEditor
+          size={52}
+          kind="outsource"
+          src={worker.avatarUrl}
+          onUpload={onUpdateAvatar}
+          onRemove={onRemoveAvatar}
+          presence={{ status: worker.presence, dotTestId: "worker-detail-header-dot" }}
+        />
+      ) : (
+        <PresenceAvatar presence={worker.presence} dotTestId="worker-detail-header-dot">
           <Avatar size={52} kind="outsource" src={worker.avatarUrl} />
-        )}
-      </PresenceAvatar>
+        </PresenceAvatar>
+      )}
       <div className="mp-identity__body">
         <div className="mp-identity__line">
           <NameWithActivity activity={worker.activity} presence={worker.presence} testId="worker-detail-identity-activity" layout="group">
@@ -750,7 +753,7 @@ export function WorkerDetailPanel({
       <div className="mp" data-testid="worker-detail-released">
         <button type="button" className="mp__back" onClick={onBack}>
           <ChevronLeftIcon size={18} />
-          <span>{t.mp.back}</span>
+          <span>{backLabel ?? t.mp.back}</span>
         </button>
         <div className="mp-card mp-identity">
           <Avatar size={52} kind="outsource" src={worker.avatarUrl} />
@@ -779,6 +782,7 @@ export function WorkerDetailPanel({
   return (
     <AgentDetailPanel
       onBack={onBack}
+      backLabel={backLabel}
       machineName={machineDisplay}
       identity={identity}
       // EVERY slot the panel offers, no exceptions (T-0b4f) — see the twin
