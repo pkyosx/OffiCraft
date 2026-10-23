@@ -42,7 +42,7 @@ import { OwnerNameProvider } from "../hooks/useOwnerName";
 import { ChatArea } from "./ChatArea";
 import { api } from "../api";
 import type { Member } from "../types";
-import type { ChatMessage } from "../api/adapter";
+import type { ChatMessage, ReplyCard } from "../api/adapter";
 import {
   resetChatDrafts,
   getChatDraft,
@@ -193,6 +193,10 @@ const bodyTextOf = (c: HTMLElement, id: string) => {
   const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
   return walker.nextNode() as Text;
 };
+
+function firstTextNode(root: Element): Text {
+  return document.createTreeWalker(root, NodeFilter.SHOW_TEXT).nextNode() as Text;
+}
 
 describe("ChatArea 回覆這則", () => {
   beforeEach(() => {
@@ -1472,6 +1476,112 @@ describe("ChatArea 回覆這則", () => {
         expect(send).toHaveBeenCalledWith("這段是指？", undefined, "c-1", "問題"),
       );
       expect(banner(container)).toBeNull();
+    });
+
+    it("selections in a chat card summary and body reply to the carrying message with an excerpt", async () => {
+      const card: ReplyCard = {
+        id: "rc-card",
+        from: "m1",
+        kind: "decision",
+        summary: "卡片摘要可選段",
+        body: "卡片內文可選段",
+        options: [{ text: "同意", aiPick: true }, { text: "不同意", aiPick: false }],
+        selectMode: "single",
+        status: "waiting",
+        attachments: [],
+        createdTs: 1,
+        answeredTs: null,
+        chatMessageId: "c-card",
+        answer: null,
+      };
+      const getCard = vi.spyOn(api, "getReplyCard").mockResolvedValue(card);
+      messages = [
+        mkMsg({
+          id: "c-card",
+          from: "m1",
+          body: "卡片摘要可選段",
+          ts: 3,
+          replyCardId: card.id,
+          replyCardStatus: "waiting",
+        }),
+      ];
+      const { container, findByTestId, findAllByTestId } = renderChat();
+      const row = rowOf(container, "c-card");
+      fireEvent.click(await findByTestId("chat-reply-card-expand"));
+      await findAllByTestId("reply-option");
+
+      for (const [selector, excerpt] of [
+        [".reply-card__summary", "卡片摘要"],
+        [".reply-card__body", "卡片內文"],
+      ]) {
+        const text = firstTextNode(row.querySelector(selector)!);
+        selectText(text, 0, text, excerpt.length);
+        expect(selectionButton()?.textContent).toBe(zh.chat.replyExcerptAction);
+        fireEvent.click(selectionButton()!);
+        expect(getChatDraft(m1.id)).toMatchObject({
+          replyTo: "c-card",
+          replyExcerpt: excerpt,
+        });
+
+        fireEvent.change(
+          container.querySelector("footer .chat__input") as HTMLTextAreaElement,
+          { target: { value: "請說明" } },
+        );
+        fireEvent.click(container.querySelector("footer .chat__send")!);
+        await waitFor(() =>
+          expect(send).toHaveBeenCalledWith("請說明", undefined, "c-card", excerpt),
+        );
+        send.mockClear();
+      }
+      getCard.mockRestore();
+    });
+
+    it("does not offer a selection reply across cards or on option controls", async () => {
+      const cardFor = (id: string): ReplyCard => ({
+        id,
+        from: "m1",
+        kind: "decision",
+        summary: `${id}摘要文字`,
+        body: "補充內容",
+        options: [{ text: "可選方案", aiPick: true }],
+        selectMode: "single",
+        status: "waiting",
+        attachments: [],
+        createdTs: 1,
+        answeredTs: null,
+        chatMessageId: id === "rc-one" ? "c-one" : "c-two",
+        answer: null,
+      });
+      const getCard = vi
+        .spyOn(api, "getReplyCard")
+        .mockImplementation(async (id) => cardFor(id));
+      messages = [
+        mkMsg({ id: "c-one", body: "一號摘要", ts: 3, replyCardId: "rc-one" }),
+        mkMsg({ id: "c-two", body: "二號摘要", ts: 4, replyCardId: "rc-two" }),
+      ];
+      const { container, findAllByTestId } = renderChat();
+      const cards = await findAllByTestId("chat-reply-card-expand");
+      fireEvent.click(cards[0]);
+      fireEvent.click(cards[1]);
+      await waitFor(() =>
+        expect(container.querySelectorAll(".reply-option__text")).toHaveLength(2),
+      );
+
+      const firstSummary = firstTextNode(
+        rowOf(container, "c-one").querySelector(".reply-card__summary")!,
+      );
+      const secondSummary = firstTextNode(
+        rowOf(container, "c-two").querySelector(".reply-card__summary")!,
+      );
+      selectText(firstSummary, 0, secondSummary, 2);
+      expect(selectionButton()).toBeNull();
+
+      const optionText = firstTextNode(
+        rowOf(container, "c-one").querySelector(".reply-option__text")!,
+      );
+      selectText(optionText, 0, optionText, 3);
+      expect(selectionButton()).toBeNull();
+      getCard.mockRestore();
     });
 
     it("a selection spanning two messages, running out of a body into its own row's name or quote, or touching no body, offers nothing", () => {

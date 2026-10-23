@@ -78,3 +78,40 @@ for (const viewport of [
     expect(chatOverflow, "chat messages must not overflow their scroll box").toBeLessThanOrEqual(1);
   });
 }
+
+for (const width of [390, 1280]) {
+  test(`${width}px: the chat-card expiry action and confirmation fit the viewport`, async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const cmp = await mount(<ChatCardTimestampStory />);
+    if (width === 1280) {
+      await page.evaluate(() => {
+        document.documentElement.dataset.layout = "wide";
+      });
+    }
+
+    await cmp.getByTestId("chat-reply-card-expand").click();
+    const card = cmp.getByTestId("chat-reply-card");
+    const expire = cmp.getByTestId("chat-reply-card-expire");
+    await expect(expire).toBeVisible();
+    const cardBox = await card.boundingBox();
+    const expireBox = await expire.boundingBox();
+    if (!cardBox || !expireBox) throw new Error("chat-card expiry action has no layout box");
+    expect(expireBox.x).toBeGreaterThanOrEqual(cardBox.x - 1);
+    expect(expireBox.x + expireBox.width).toBeLessThanOrEqual(
+      cardBox.x + cardBox.width + 1,
+    );
+
+    await expire.click();
+    const dialog = cmp.getByTestId("expire-confirm");
+    await expect(dialog).toBeVisible();
+    const dialogBox = await dialog.boundingBox();
+    if (!dialogBox) throw new Error("expiry confirmation has no layout box");
+    expect(dialogBox.x).toBeGreaterThanOrEqual(0);
+    expect(dialogBox.x + dialogBox.width).toBeLessThanOrEqual(width + 1);
+    await cmp.getByTestId("expire-confirm-btn").click();
+    await expect(expire).toHaveCount(0);
+  });
+}

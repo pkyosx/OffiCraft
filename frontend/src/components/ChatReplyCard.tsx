@@ -43,6 +43,7 @@ import {
   ReplyCardWaitingBody,
 } from "./ReplyCardBody";
 import type { DocCommentRecipient } from "../lib/docComments";
+import { ConfirmModal } from "./ConfirmModal";
 import { ChevronRightIcon } from "./icons";
 import "./replies.css";
 
@@ -67,11 +68,13 @@ export function ChatReplyCard({
    * absent ⇒ such documents open read-only. */
   commentRecipientFor?: (id: string) => DocCommentRecipient | null;
 }) {
-  const { t } = useI18n();
+  const { t, msg } = useI18n();
   const [, setRoute] = useHashRoute();
   const [card, setCard] = useState<ReplyCard | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [expireConfirmOpen, setExpireConfirmOpen] = useState(false);
+  const [expireBusy, setExpireBusy] = useState(false);
   // 🔴 EVERY CARD MOUNTS COLLAPSED, AND THAT IS WHAT REMOVED THE SHIFT (T-48,
   // owner 2026-09-04). It used to be only the terminal-hinted ones: a waiting
   // card mounted EXPANDED and empty, painted at its collapsed height, fetched,
@@ -268,6 +271,22 @@ export function ChatReplyCard({
     }
   }
 
+  async function doExpire() {
+    if (!card) return;
+    setExpireBusy(true);
+    try {
+      mergeWrite(await api.expireReplyCard(replyCardId));
+      setActionError(null);
+      setExpireConfirmOpen(false);
+    } catch (e) {
+      console.warn("ChatReplyCard: expire failed", e);
+      setActionError(t.replies.expireError);
+      setExpireConfirmOpen(false);
+    } finally {
+      setExpireBusy(false);
+    }
+  }
+
   // Collapsed stub — what EVERY card shows until it is opened (owner
   // 2026-09-04): the ask's summary (the carrying message's own body) + a
   // 待回覆／已回覆／已過期 tag on one clickable row. Nothing here is fetched, so
@@ -313,11 +332,34 @@ export function ChatReplyCard({
 
   return (
     <ReplyCardLinkComments from={card?.from} recipientFor={commentRecipientFor}>
-      <div
-        className="reply-card reply-card--chat"
-        data-testid="chat-reply-card"
-        data-reply-card-id={replyCardId}
-      >
+      <>
+        <div
+          className="reply-card reply-card--chat"
+          data-testid="chat-reply-card"
+          data-reply-card-id={replyCardId}
+          role="button"
+          tabIndex={0}
+          aria-expanded={true}
+          aria-label={t.tasks.collapseReply}
+          onClick={(e) => {
+            const target = e.target as HTMLElement;
+            const hit = target.closest(
+              "button, a, textarea, input, select, [role='button'], [role='menu'], [role='dialog'], .reply-composer",
+            );
+            if (hit && hit !== e.currentTarget) return;
+            const selection = window.getSelection();
+            if (selection && selection.rangeCount > 0 && !selection.isCollapsed)
+              return;
+            setExpanded(false);
+          }}
+          onKeyDown={(e) => {
+            if (e.target !== e.currentTarget) return;
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              setExpanded(false);
+            }
+          }}
+        >
         {/* §3.6 請示 → 任務 (chat surface): the SAME row RepliesPage renders —
          * one component, so TITLE and 查看任務詳情 can never drift between the two
          * surfaces. Only the route is ours. It leads the card (owner 2026-08-14,
@@ -325,43 +367,67 @@ export function ChatReplyCard({
          * about should not require reading the whole card first. Both surfaces
          * moved together; a lead row on one and a trailing row on the other is
          * exactly the drift this shared component exists to prevent. */}
-        {card?.task && (
-          <ReplyCardTaskRef
-            task={card.task}
-            onJump={() => setRoute({ page: "tasks", taskId: card.task!.id })}
-          />
-        )}
+          {card?.task && (
+            <ReplyCardTaskRef
+              task={card.task}
+              onJump={() => setRoute({ page: "tasks", taskId: card.task!.id })}
+            />
+          )}
 
         {/* T-a20b: summary is agent-authored free text (markdown), like body. */}
-        <Markdown
-          source={card?.summary || fallbackSummary}
-          className="reply-card__summary doc-md"
-        />
-        {card?.body && (
-          <Markdown source={card.body} className="reply-card__body doc-md" />
-        )}
+          <Markdown
+            source={card?.summary || fallbackSummary}
+            className="reply-card__summary doc-md"
+          />
+          {card?.body && (
+            <Markdown source={card.body} className="reply-card__body doc-md" />
+          )}
+          {card?.status === "waiting" && (
+            <div className="reply-card__chat-expire-row">
+              <button
+                type="button"
+                className="reply-card__jump"
+                data-testid="chat-reply-card-expire"
+                onClick={() => setExpireConfirmOpen(true)}
+              >
+                {t.replies.expire}
+              </button>
+            </div>
+          )}
         {/* QUESTION-side attachments (T-5e8a): thumbnails/chips under the body,
          * on every status — click an image to preview in the lightbox. */}
-        {card && (
-          <ReplyCardQuestionAttachments card={card} />
-        )}
+          {card && <ReplyCardQuestionAttachments card={card} />}
 
-        {loadError && (
-          <div className="reply-card__error">{t.replies.loadError}</div>
-        )}
-        {actionError && (
-          <div className="reply-card__error">{actionError}</div>
-        )}
+          {loadError && (
+            <div className="reply-card__error">{t.replies.loadError}</div>
+          )}
+          {actionError && (
+            <div className="reply-card__error">{actionError}</div>
+          )}
 
-        {card &&
-          (card.status === "waiting" ? (
-            <ReplyCardWaitingBody card={card} onAnswer={doAnswer} />
-          ) : card.status === "expired" ? (
-            <ReplyCardExpiredBody card={card} />
-          ) : (
-            <ReplyCardAnsweredBody card={card} onReanswer={doReanswer} />
-          ))}
-      </div>
+          {card &&
+            (card.status === "waiting" ? (
+              <ReplyCardWaitingBody card={card} onAnswer={doAnswer} />
+            ) : card.status === "expired" ? (
+              <ReplyCardExpiredBody card={card} />
+            ) : (
+              <ReplyCardAnsweredBody card={card} onReanswer={doReanswer} />
+            ))}
+        </div>
+        {expireConfirmOpen && card?.status === "waiting" && (
+          <ConfirmModal
+            testId="expire-confirm"
+            confirmTestId="expire-confirm-btn"
+            body={msg.replyExpireConfirmBody(card.summary)}
+            cancelLabel={t.common.cancel}
+            confirmLabel={t.replies.expireConfirm}
+            busy={expireBusy}
+            danger
+            onCancel={() => setExpireConfirmOpen(false)}
+            onConfirm={() => void doExpire()}
+          />
+        )}
+      </>
     </ReplyCardLinkComments>
   );
 }

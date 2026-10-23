@@ -175,6 +175,55 @@ describe("ChatReplyCard", () => {
     expect(row.textContent).not.toContain("略過");
   });
 
+  it("collapses to the one-line row and refetches the card when reopened", async () => {
+    const get = vi.spyOn(api, "getReplyCard").mockResolvedValue(mkCard({}));
+    const { container, findAllByText, findByTestId } = await renderOpenCard();
+    await findAllByText("寄出");
+
+    let card = container.querySelector<HTMLElement>(
+      '[data-testid="chat-reply-card"]',
+    )!;
+    expect(card.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(card.querySelector(".reply-card__summary")!);
+    fireEvent.click(await findByTestId("chat-reply-card-expand"));
+    await findAllByText("寄出");
+    expect(get).toHaveBeenCalledTimes(2);
+
+    card = container.querySelector<HTMLElement>(
+      '[data-testid="chat-reply-card"]',
+    )!;
+    card.focus();
+    fireEvent.keyDown(card, { key: "Enter" });
+    expect(await findByTestId("chat-reply-card-expand")).toBeTruthy();
+    get.mockRestore();
+  });
+
+  it("expires a waiting card only after the existing confirmation flow", async () => {
+    __injectMockReplyCard(mkCard({}));
+    const expire = vi.spyOn(api, "expireReplyCard");
+    const { container, findByTestId, queryByTestId } = await renderOpenCard();
+    const card = container.querySelector<HTMLElement>(
+      '[data-testid="chat-reply-card"]',
+    )!;
+
+    fireEvent.click(await findByTestId("chat-reply-card-expire"));
+    expect((await findByTestId("expire-confirm")).textContent).toContain(
+      "要把「要幫你寄出這封信嗎？」標為過期嗎?",
+    );
+    expect(card.getAttribute("aria-expanded")).toBe("true");
+    expect(expire).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fireEvent.click(await findByTestId("expire-confirm-btn"));
+    });
+    await waitFor(() => expect(expire).toHaveBeenCalledWith("rc-1"));
+    await waitFor(() =>
+      expect(queryByTestId("chat-reply-card-expire")).toBeNull(),
+    );
+    expect(container.textContent).toContain("已過期");
+    expire.mockRestore();
+  });
+
   // The same owner-side claim on the CHAT surface: one tap on a chip and the
   // inline card is answered in place. Deliberately not "the answer POST fired"
   // — that phrasing survives a return to the two-step interaction.

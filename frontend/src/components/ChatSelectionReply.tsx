@@ -11,7 +11,9 @@ import { placeUnderSelection, rangeInside } from "../lib/selectionFloat";
 import { ReplyIcon } from "./icons";
 import "./office.css";
 
-const BODY_SELECTOR = ".chat__msg-text";
+const BODY_SELECTOR = ".chat__msg-text, .reply-card__summary, .reply-card__body";
+const INTERACTIVE_SELECTOR =
+  "button, a, input, textarea, select, [role='button'], [role='menu'], [role='dialog']";
 
 interface Picked {
   msgId: string;
@@ -30,15 +32,21 @@ function pickSelection(root: HTMLElement | null): Picked | null {
   const sel = window.getSelection();
   if (!root || !sel || sel.isCollapsed || sel.rangeCount === 0) return null;
   const range = sel.getRangeAt(0);
-  for (const body of [bodyOf(range.startContainer, root), bodyOf(range.endContainer, root)]) {
-    const inside = body && rangeInside(range, body);
-    if (!body || !inside) continue;
-    const msgId = body.closest("[data-msg-id]")?.getAttribute("data-msg-id");
-    const excerpt = normalizeReplyExcerpt(sel.toString());
-    if (!msgId || !excerpt) return null;
-    return { msgId, excerpt, rect: inside.getBoundingClientRect() };
+  const body = bodyOf(range.startContainer, root);
+  if (!body || bodyOf(range.endContainer, root) !== body) return null;
+  const inside = rangeInside(range, body);
+  if (!inside) return null;
+  if (
+    Array.from(body.querySelectorAll(INTERACTIVE_SELECTOR)).some((element) =>
+      range.intersectsNode(element),
+    )
+  ) {
+    return null;
   }
-  return null;
+  const msgId = body.closest("[data-msg-id]")?.getAttribute("data-msg-id");
+  const excerpt = normalizeReplyExcerpt(sel.toString());
+  if (!msgId || !excerpt) return null;
+  return { msgId, excerpt, rect: inside.getBoundingClientRect() };
 }
 
 /** The floating 「回覆這段」 button for a text selection in a chat bubble body.
