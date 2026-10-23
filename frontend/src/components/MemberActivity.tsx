@@ -65,8 +65,8 @@ export function ActivityStateIcon({
 
 /** A member's name led by its status icon. List rows, chat header and detail
  * identity card all render this, so the icon's place is decided here alone.
- * Online and stopping show the reported state, or the unknown mark before a
- * report; waking always shows the unknown mark; anything else gets the moon.
+ * Waking, online and stopping show the reported state, or the unknown mark
+ * before a report; anything else gets the moon.
  * `layout="list"`: the icon sits on the first line of a wrapped name.
  * `layout="group"`: icon and name form one box, for a line that wraps its other
  * items onto the next line. */
@@ -127,9 +127,9 @@ function ActivityStatusIcon({
   const { t, msg } = useI18n();
   // Dropping a stale activity when the session stops reporting is what closes
   // an open dialog then; kept, the dialog would reopen and take focus on return.
-  // Waking drops it too: the server clears the store only on report_waking, so
-  // what it holds then may be the previous session's.
-  const reporting = presence === "online" || presence === "stopping";
+  // Waking is trusted only because the server sends a waking member's activity
+  // just when the booting session itself reported it.
+  const reporting = presence === "online" || presence === "stopping" || presence === "waking";
   const activity = reporting ? reported : null;
   const triggerRef = useRef<HTMLElement | null>(null);
   const [openFor, setOpenFor] = useState<string | null>(null);
@@ -141,7 +141,7 @@ function ActivityStatusIcon({
   const box = memberName === undefined ? "" : " activity-icon--box";
   const listClass = list ? " activity-icon--list" : "";
   if (!activity) {
-    const kind = reporting || presence === "waking" ? "unknown" : "offline";
+    const kind = reporting ? "unknown" : "offline";
     // Out of the tab order and the a11y tree. The focusable corner dot beside it
     // names the presence: for the moon that is the whole story, for the unknown
     // mark the unknown hint is hover or tap only (owner asked for the moon's
@@ -221,7 +221,7 @@ function keepTabInside(e: ReactKeyboardEvent, root: HTMLElement) {
   }
 }
 
-/** Centred on a desktop, a bottom sheet on a phone (member-activity.css). */
+/** Centred at every width, a phone included. */
 function MemberActivityDialog({
   name,
   activity,

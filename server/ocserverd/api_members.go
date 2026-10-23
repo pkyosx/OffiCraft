@@ -427,12 +427,12 @@ func (s *apiServer) HandleListMembersApiMembersGet(w http.ResponseWriter, r *htt
 				return
 			}
 			dto := s.projectWorker(worker, task, unread[m.ID], now, tele, gauge, machines, accountDisplay, typeNames, calls)
-			dto.Activity = s.ownerActivity(isOwner, dto.ID, dto.Presence)
+			dto.Activity = s.ownerActivity(isOwner, m, dto.Presence)
 			out = append(out, dto)
 			continue
 		}
 		dto := s.newMemberDTO(m, roleName, s.observedHost(m), unread[m.ID], machines, calls)
-		dto.Activity = s.ownerActivity(isOwner, dto.ID, dto.Presence)
+		dto.Activity = s.ownerActivity(isOwner, m, dto.Presence)
 		out = append(out, dto)
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -577,12 +577,12 @@ func (s *apiServer) HandleGetMemberApiMembersMemberIdGet(w http.ResponseWriter, 
 			return
 		}
 		dto := s.projectWorker(worker, task, unread[m.ID], nowSecs(), tele, gauge, machines, accountDisplay, s.taskTypeDisplayNames(), calls)
-		dto.Activity = s.ownerActivity(s.callerIsOwner(r), dto.ID, dto.Presence)
+		dto.Activity = s.ownerActivity(s.callerIsOwner(r), *m, dto.Presence)
 		writeJSON(w, http.StatusOK, dto)
 		return
 	}
 	dto := s.newMemberDTO(*m, roleName, s.observedHost(*m), unread[m.ID], machines, calls)
-	dto.Activity = s.ownerActivity(s.callerIsOwner(r), dto.ID, dto.Presence)
+	dto.Activity = s.ownerActivity(s.callerIsOwner(r), *m, dto.Presence)
 	writeJSON(w, http.StatusOK, dto)
 }
 
@@ -1201,11 +1201,14 @@ func (s *apiServer) HandleReportWakingApiSelfWakingPost(w http.ResponseWriter, r
 		writeResolveError(w, err, "member", currentActor(r))
 		return
 	}
-	s.activity.Delete(m.ID)
+	s.activity.DeleteOlderThan(m.ID, callerIat(r))
 	// A new generation counts spend from zero, so its first cost is not read as an
 	// increase over the previous session's.
 	s.startAccountSpendSession(m.ID)
 	if m.Kind == KindOutsource {
+		// Marked before the funnel publishes, so a refetch on that patch sees it. A
+		// failed wake leaves it inert: the floor never reaches this iat.
+		s.activity.MarkWoken(m.ID, callerIat(r), nowSecs())
 		// Through the worker funnel under outsourceMu: a member-path write would race
 		// the tick's read-modify-write.
 		fresh, werr := s.workerReportWaking(m.ID, body.Model, callerIat(r), requestTrigger(r),
@@ -1242,6 +1245,7 @@ func (s *apiServer) HandleReportWakingApiSelfWakingPost(w http.ResponseWriter, r
 		writeResolveTxError(w, err, "member", currentActor(r))
 		return
 	}
+	s.activity.MarkWoken(m.ID, callerIat(r), nowSecs())
 	s.publishMemberPatch(saved, requestTrigger(r))
 	s.writeSelfReportReceipt(w, saved)
 }

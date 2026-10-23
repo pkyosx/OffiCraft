@@ -388,6 +388,40 @@ func TestHandleIngestAgentActivityApiAgentActivityPost(t *testing.T) {
 		dashboard.wantFrames()
 	})
 
+	t.Run("a report on an older session's token neither replaces the newer session's activity nor publishes", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		now := time.Now().Unix()
+		mint := func(iat int64) string {
+			tok, err := mintJWT("kip", "agent", 3600, api.keys.signingSecret(), iat, "")
+			if err != nil {
+				t.Fatalf("mint: %v", err)
+			}
+			return tok
+		}
+		apiTestListen(t, api, "kip")
+		status, data := apiJSON(t, h, "POST", "/api/agent/activity", mint(now), `{"busy": true, "busy_since": 1000, "subagents": []}`)
+		if status != 200 {
+			t.Fatalf("newer report: want 200, got %d (%v)", status, data)
+		}
+		newerTS := data["ts"]
+		dashboard := apiTestListen(t, api, "")
+
+		status, data = apiJSON(t, h, "POST", "/api/agent/activity", mint(now-100), `{"busy": false, "subagents": []}`)
+		if status != 200 {
+			t.Fatalf("older report: want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"agent_id": "kip", "ts": apiAnyNumber})
+		dashboard.wantFrames()
+
+		status, data = apiJSON(t, h, "GET", "/api/members/kip", owner, "")
+		if status != 200 {
+			t.Fatalf("read back: want 200, got %d (%v)", status, data)
+		}
+		apiWantValue(t, "activity", data["activity"], any(map[string]any{
+			"state": "busy", "busy_since": 1000, "subagents": []any{}, "waits": []any{}, "ts": newerTS,
+		}))
+	})
+
 	long := func(n int) string { return strings.Repeat("字", n) }
 	tooMany := make([]string, 51)
 	for i := range tooMany {

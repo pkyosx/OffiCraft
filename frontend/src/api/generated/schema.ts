@@ -86,7 +86,8 @@ export interface paths {
          * Ingest an agent session's working state (in-memory snapshot).
          * @description - Reports the CALLER's own working state; the key is your token, so an agent can never report for another.
          *     - Sent by the runtime hooks and the Codex session runner, not by the agent itself.
-         *     - Stored in memory only — the state resets when the server restarts, and when the member reports waking.
+         *     - Stored in memory only — the state resets when the server restarts.
+         *     - Reporting waking drops only a previous session's state (one sent on an older token), or the state whatever its token when the caller's token carries no ``iat``; a report on an older token never replaces one on a newer token.
          *     - Emits a ``member`` patch to the owner when the derived ``MemberDTO.activity`` changes.
          */
         post: operations["handle_ingest_agent_activity_api_agent_activity_post"];
@@ -6860,7 +6861,7 @@ export interface components {
          */
         MemberDTO: {
             /**
-             * @description What the member's session is doing right now, from its own latest ``POST /api/agent/activity`` report. Filled only on the owner's reads. Null whenever ``presence`` is neither ``online`` nor ``stopping`` (a ``waking`` member reads null even with a stored report, which may be the previous session's), and while the member's current session has not reported yet (the reports live in memory, so a server restart also blanks it until the session reports again).
+             * @description What the member's session is doing right now, from its own latest ``POST /api/agent/activity`` report. Filled only on the owner's reads. Served while ``presence`` is ``online`` or ``stopping``, and while it is ``waking`` only when the stored report is the booting session's own: a report on an older token than the booting session's is not served (two sessions whose tokens were issued in the same second are not told apart). Null for any other ``presence``, and while the member's current session has not reported yet (the reports live in memory, so a server restart also blanks it until the session reports again).
              * @default null
              */
             activity: components["schemas"]["MemberActivityDTO"] | null;

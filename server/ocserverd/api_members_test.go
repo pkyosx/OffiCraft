@@ -6,6 +6,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -1704,7 +1705,7 @@ func TestHandleGetMemberApiMembersMemberIdGet(t *testing.T) {
 		}}))
 	})
 
-	t.Run("a member's stored activity reaches the owner while online or stopping, and no one while offline, waking or stopped", func(t *testing.T) {
+	t.Run("a member's stored activity reaches the owner while waking, online or stopping, and no one while offline or stopped", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		kip := apiTestAgentToken(t, api, "kip", "")
 		mira := apiTestAgentToken(t, api, "mira", "")
@@ -1745,10 +1746,10 @@ func TestHandleGetMemberApiMembersMemberIdGet(t *testing.T) {
 			t.Fatalf("waking: %d %v", status, data)
 		}
 		reportTS := report("waking")
-		read("waking", owner, woken(map[string]any{"presence": "waking", "desired_state": "online"}))
+		activity := map[string]any{"state": "busy", "busy_since": 1000, "subagents": []any{}, "waits": []any{}, "ts": reportTS}
+		read("waking", owner, woken(map[string]any{"presence": "waking", "desired_state": "online", "activity": activity}))
 
 		session := apiTestListen(t, api, "kip")
-		activity := map[string]any{"state": "busy", "busy_since": 1000, "subagents": []any{}, "waits": []any{}, "ts": reportTS}
 		read("online", owner, woken(map[string]any{"desired_state": "online", "activity": activity}))
 
 		if status, data := apiJSON(t, h, "POST", "/api/members/kip/deactivate", owner, `{}`); status != 200 {
@@ -1760,6 +1761,117 @@ func TestHandleGetMemberApiMembersMemberIdGet(t *testing.T) {
 		api.hub.Disconnect(session.l)
 		read("stopped", owner, woken(map[string]any{"presence": "stopped", "desired_state": "offline"}))
 	})
+
+	for _, kind := range []struct {
+		name, id string
+		setup    func(t *testing.T, h http.Handler, d *DAL, owner string)
+	}{
+		{"staff", "kip",
+			func(t *testing.T, h http.Handler, d *DAL, owner string) {
+				if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
+					t.Fatalf("activate: %d %v", status, data)
+				}
+			}},
+		{"outsource", "ow-abc123",
+			func(t *testing.T, h http.Handler, d *DAL, owner string) {
+				apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+				apiTestWorkerWantedOnline(t, d, "ow-abc123")
+			}},
+	} {
+		t.Run(kind.name+": a waking member shows, on its own read and in the listing, only the booting session's report", func(t *testing.T) {
+			api, h, d, owner := newAPITestServer(t)
+			kind.setup(t, h, d, owner)
+			now := time.Now().Unix()
+			mint := func(iat int64) string {
+				tok, err := mintJWT(kind.id, "agent", 3600, api.keys.signingSecret(), iat, "")
+				if err != nil {
+					t.Fatalf("mint: %v", err)
+				}
+				return tok
+			}
+			post := func(what, token, path, body string) any {
+				t.Helper()
+				status, data := apiJSON(t, h, "POST", path, token, body)
+				if status != 200 {
+					t.Fatalf("%s: want 200, got %d (%v)", what, status, data)
+				}
+				return data["ts"]
+			}
+			readActivity := func(when string, want any) {
+				t.Helper()
+				status, data := apiJSON(t, h, "GET", "/api/members/"+kind.id, owner, "")
+				if status != 200 {
+					t.Fatalf("%s: want 200, got %d (%v)", when, status, data)
+				}
+				apiWantValue(t, when+" presence", data["presence"], any("waking"))
+				apiWantValue(t, when+" activity", data["activity"], want)
+				rec := apiRequest(t, h, "GET", "/api/members", owner, "")
+				if rec.Code != 200 {
+					t.Fatalf("%s listing: want 200, got %d (%s)", when, rec.Code, rec.Body.String())
+				}
+				var rows []map[string]any
+				if err := json.Unmarshal(rec.Body.Bytes(), &rows); err != nil {
+					t.Fatalf("non-JSON body: %s", rec.Body.String())
+				}
+				for _, row := range rows {
+					if row["id"] == kind.id {
+						apiWantValue(t, when+" listing activity", row["activity"], want)
+						return
+					}
+				}
+				t.Fatalf("%s: the listing carries no %s row", when, kind.id)
+			}
+			previous, aborted := mint(now-100), mint(now-50)
+			post("previous waking", previous, "/api/self/waking", `{}`)
+			post("previous report", previous, "/api/agent/activity", `{"busy": false, "subagents": []}`)
+			wakingSince := nowSecs()
+			if wakingSince == math.Floor(wakingSince) {
+				wakingSince += 0.5
+			}
+			if err := d.SetMemberWakingSince(kind.id, wakingSince); err != nil {
+				t.Fatalf("SetMemberWakingSince: %v", err)
+			}
+			nextIat := int64(math.Floor(wakingSince))
+			next := mint(nextIat)
+			readActivity("before the new session reports", nil)
+
+			post("aborted boot's report", aborted, "/api/agent/activity", `{"busy": false, "subagents": []}`)
+			readActivity("after an aborted boot's report", nil)
+
+			ts := post("new report", next, "/api/agent/activity", `{"busy": true, "busy_since": 1000, "subagents": []}`)
+			want := any(map[string]any{"state": "busy", "busy_since": 1000, "subagents": []any{}, "waits": []any{}, "ts": ts})
+			readActivity("before the new session reports waking", want)
+
+			if kind.name == "outsource" {
+				// Holding a listener's lock parks the funnel's publish, so the store is
+				// read as a refetch triggered by that patch would read it.
+				parked := apiTestListen(t, api, "")
+				parked.l.mu.Lock()
+				done := make(chan int, 1)
+				go func() {
+					status, _ := apiJSON(t, h, "POST", "/api/self/waking", next, `{}`)
+					done <- status
+				}()
+				shown := false
+				for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+					if _, ok := api.activity.GetWaking(kind.id, float64(nextIat), wakingSince); ok {
+						shown = true
+						break
+					}
+				}
+				parked.l.mu.Unlock()
+				if status := <-done; status != 200 {
+					t.Fatalf("new waking: want 200, got %d", status)
+				}
+				if !shown {
+					t.Fatalf("the member patch published by report_waking must find the new session's activity already readable")
+				}
+			} else {
+				post("new waking", next, "/api/self/waking", `{}`)
+			}
+			readActivity("after the new session reports waking", want)
+		})
+	}
 
 	t.Run("a removed warden answers 404 naming it, as does an id nothing carries", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
@@ -4078,25 +4190,53 @@ func TestHandleReportWakingApiSelfWakingPost(t *testing.T) {
 		}
 	})
 
-	t.Run("a boot report drops the previous session's activity from the owner's read", func(t *testing.T) {
-		api, h, _, owner := newAPITestServer(t)
-		kip := apiTestAgentToken(t, api, "kip", "")
-		apiTestListen(t, api, "kip")
-		if status, data := apiJSON(t, h, "POST", "/api/agent/activity", kip,
-			`{"busy": true, "busy_since": 1000, "subagents": []}`); status != 200 {
-			t.Fatalf("report: %d %v", status, data)
-		}
+	t.Run("a boot report drops activity a previous session or an iat-less token left, and keeps its own session's", func(t *testing.T) {
+		now := time.Now().Unix()
+		for _, tc := range []struct {
+			name                  string
+			reporterIat, wakerIat int64
+			wantKept              bool
+		}{
+			{"previous session", now - 100, now, false},
+			{"same session", now, now, true},
+			{"waking token without iat", now, 0, false},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				api, h, _, owner := newAPITestServer(t)
+				mint := func(iat int64) string {
+					tok, err := mintJWT("kip", "agent", now+3600-iat, api.keys.signingSecret(), iat, "")
+					if err != nil {
+						t.Fatalf("mint: %v", err)
+					}
+					return tok
+				}
+				status, data := apiJSON(t, h, "POST", "/api/agent/activity", mint(tc.reporterIat),
+					`{"busy": true, "busy_since": 1000, "subagents": []}`)
+				if status != 200 {
+					t.Fatalf("report: %d %v", status, data)
+				}
+				reportTS := data["ts"]
 
-		if status, data := apiJSON(t, h, "POST", "/api/self/waking", kip, `{}`); status != 200 {
-			t.Fatalf("want 200, got %d (%v)", status, data)
-		}
+				if status, data := apiJSON(t, h, "POST", "/api/self/waking", mint(tc.wakerIat), `{}`); status != 200 {
+					t.Fatalf("want 200, got %d (%v)", status, data)
+				}
+				apiTestListen(t, api, "kip")
 
-		status, data := apiJSON(t, h, "GET", "/api/members/kip", owner, "")
-		if status != 200 {
-			t.Fatalf("read back: want 200, got %d (%v)", status, data)
-		}
-		if activity, present := data["activity"]; present {
-			t.Fatalf("a woken session has not reported yet, so the row must carry no activity, got %#v", activity)
+				status, data = apiJSON(t, h, "GET", "/api/members/kip", owner, "")
+				if status != 200 {
+					t.Fatalf("read back: want 200, got %d (%v)", status, data)
+				}
+				activity, present := data["activity"]
+				if !tc.wantKept {
+					if present {
+						t.Fatalf("the row must carry no activity, got %#v", activity)
+					}
+					return
+				}
+				apiWantValue(t, "activity", activity, any(map[string]any{
+					"state": "busy", "busy_since": 1000, "subagents": []any{}, "waits": []any{}, "ts": reportTS,
+				}))
+			})
 		}
 	})
 

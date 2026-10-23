@@ -199,18 +199,3 @@
 .activity-dialog__close:hover {
   background: color-mix(in srgb, var(--color-overlay) 4%, transparent);
 }
-/* Same 720px as useIsMobile and the office layout. */
-@media (max-width: 720px) {
-  .confirm-modal.activity-dialog {
-    align-items: flex-end;
-    padding: 0;
-  }
-  .confirm-modal__box.activity-dialog__box {
-    max-width: none;
-    max-height: 85%;
-    max-height: 85dvh;
-    border-radius: 18px 18px 0 0;
-    border-bottom: none;
-    padding-bottom: calc(22px + env(safe-area-inset-bottom));
-  }
-}
