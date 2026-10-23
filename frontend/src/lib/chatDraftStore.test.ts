@@ -25,6 +25,7 @@ import { fileURLToPath } from "node:url";
 function createMemoryIndexedDB() {
   const records = new Map<string, { key: string; attachments: unknown[] }>();
   let storeCreated = false;
+  let heldRead: { key: string; ready: (release: () => void) => void } | null = null;
   const database = {
     objectStoreNames: { contains: () => storeCreated },
     createObjectStore() {
@@ -41,15 +42,25 @@ function createMemoryIndexedDB() {
       return Object.assign(transaction, {
         objectStore: () => ({
           get(key: string) {
+            const snapshot = records.get(key);
             const request: {
               result?: { key: string; attachments: unknown[] };
               onsuccess: (() => void) | null;
               onerror: (() => void) | null;
             } = { onsuccess: null, onerror: null };
-            queueMicrotask(() => {
-              request.result = records.get(key);
+            const deliver = () => {
+              request.result = snapshot;
               request.onsuccess?.();
               finish();
+            };
+            queueMicrotask(() => {
+              if (heldRead?.key === key) {
+                const hold = heldRead;
+                heldRead = null;
+                hold.ready(deliver);
+              } else {
+                deliver();
+              }
             });
             return request;
           },
@@ -84,7 +95,18 @@ function createMemoryIndexedDB() {
       return request;
     },
   };
-  return { factory: factory as unknown as IDBFactory, records };
+  return {
+    factory: factory as unknown as IDBFactory,
+    records,
+    holdRead(key: string) {
+      let ready!: (release: () => void) => void;
+      const started = new Promise<() => void>((resolve) => {
+        ready = resolve;
+      });
+      heldRead = { key, ready };
+      return started;
+    },
+  };
 }
 
 const memoryIndexedDB = createMemoryIndexedDB();
@@ -185,6 +207,38 @@ describe("chatDraftStore", () => {
       replyExcerpt: "選取引用",
       attachments: [attachment],
     });
+  });
+
+  it("persists files added while an existing attachment list is restoring", async () => {
+    const savedAttachment = {
+      key: "pa-old",
+      dataUri: "data:text/plain;base64,b2xk",
+      filename: "old.txt",
+      size: 3,
+      isImage: false,
+    };
+    const addedAttachment = {
+      key: "pa-new",
+      dataUri: "data:text/plain;base64,bmV3",
+      filename: "new.txt",
+      size: 3,
+      isImage: false,
+    };
+    updateChatDraftAttachments(A, () => [savedAttachment]);
+    await composerDraftPersistence.flush();
+
+    resetChatDraftsInMemoryForReload();
+    const readStarted = memoryIndexedDB.holdRead("chat:m-aaa");
+    const hydrating = hydrateChatDraft(A);
+    const releaseRead = await readStarted;
+    updateChatDraftAttachments(A, () => [addedAttachment]);
+    releaseRead();
+    await hydrating;
+    await composerDraftPersistence.flush();
+
+    resetChatDraftsInMemoryForReload();
+    await hydrateChatDraft(A);
+    expect(getChatDraftAttachments(A)).toEqual([savedAttachment, addedAttachment]);
   });
 
   it("hands back one frozen empty list, so a subscriber does not re-render forever", () => {

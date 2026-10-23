@@ -138,6 +138,25 @@ describe("useAutoReloadOnVersionChange", () => {
     expect(reload).not.toHaveBeenCalled();
   });
 
+  it("retries a failed version read during reconnect", async () => {
+    connection.getVersion
+      .mockResolvedValueOnce({ gitSha: "old-sha" })
+      .mockRejectedValueOnce(new Error("temporary failure"))
+      .mockResolvedValueOnce({ gitSha: "new-sha" });
+    const reload = vi.fn();
+
+    renderHook(() => useAutoReloadOnVersionChange(reload));
+    await waitFor(() => expect(connection.getVersion).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      connection.publish("connecting");
+      connection.publish("live");
+    });
+
+    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+    expect(connection.getVersion).toHaveBeenCalledTimes(3);
+  });
+
   it("requests at most one reload after the loaded version changes", async () => {
     connection.getVersion
       .mockResolvedValueOnce({ gitSha: "old-sha" })

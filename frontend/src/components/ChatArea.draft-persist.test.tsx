@@ -21,6 +21,7 @@ import {
   resetChatDrafts,
   resetChatDraftsInMemoryForReload,
 } from "../lib/chatDraftStore";
+import { composerDraftPersistence } from "../lib/composerDraftPersistence";
 
 let messages: ChatMessage[] = [];
 const send = vi.fn(() => Promise.resolve());
@@ -172,6 +173,55 @@ describe("ChatArea draft survival", () => {
     const back = renderChat(m1);
     expect(input(back.container).value).toBe("");
     expect(previewCount(back.container)).toBe(0);
+  });
+
+  it("keeps an unsent draft through reload until an in-flight send fails", async () => {
+    let rejectSend: (error: Error) => void = () => {};
+    send.mockImplementationOnce(
+      () => new Promise((_resolve, reject) => {
+        rejectSend = reject;
+      }),
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const view = renderChat(m1);
+    fireEvent.change(input(view.container), { target: { value: "失敗後需保留" } });
+    fireEvent.click(view.container.querySelector(".chat__send") as HTMLElement);
+    await waitFor(() => expect(input(view.container).value).toBe(""));
+
+    let flushed = false;
+    const flush = composerDraftPersistence.flush().then(() => {
+      flushed = true;
+    });
+    await Promise.resolve();
+    expect(flushed).toBe(false);
+
+    await act(async () => {
+      rejectSend(new Error("temporary failure"));
+      await Promise.resolve();
+    });
+    await flush;
+
+    view.unmount();
+    resetChatDraftsInMemoryForReload();
+    const afterReload = renderChat(m1);
+    expect(input(afterReload.container).value).toBe("失敗後需保留");
+    warn.mockRestore();
+  });
+
+  it("removes attachment keys left by a failed hydration after a text send", async () => {
+    const storageKey = "oc.composerDraft.v1.chat%3Am1";
+    window.localStorage.setItem(storageKey, JSON.stringify({
+      text: "",
+      attachmentKeys: ["unavailable-file"],
+    }));
+    const view = renderChat(m1);
+    fireEvent.change(input(view.container), { target: { value: "純文字訊息" } });
+    await waitFor(() => expect(sendDisabled(view.container)).toBe(false));
+    fireEvent.click(view.container.querySelector(".chat__send") as HTMLElement);
+
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+    await composerDraftPersistence.flush();
+    expect(window.localStorage.getItem(storageKey)).toBeNull();
   });
 
   it("restores typed text after a full page reload", () => {

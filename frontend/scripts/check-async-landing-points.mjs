@@ -234,9 +234,9 @@ const REGISTRY = [
   {
     file: "components/ReplyComposer.tsx",
     kind: "await",
-    count: 1,
+    count: 2,
     verdict:
-      'send; keyed row / keyed card, and its staging declares "remounts-per-conversation"',
+      'send and persist the remaining attachments; the submission tracker holds reload until both settle, and staging declares "remounts-per-conversation"',
   },
 
   // ─── ChatArea itself. Since R13-5 `OfficePage` mounts it under

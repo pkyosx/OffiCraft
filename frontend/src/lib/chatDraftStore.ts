@@ -140,14 +140,17 @@ export function hydrateChatDraft(peerId: string): Promise<void> {
     if (saved.length === 0) return;
     const current = getChatDraft(peerId);
     if (!current) return;
-    const byKey = new Map(current.attachments.map((item) => [item.key, item]));
-    for (const attachment of saved) {
-      if (!byKey.has(attachment.key)) byKey.set(attachment.key, attachment);
+    const byKey = new Map(saved.map((item) => [item.key, item]));
+    for (const attachment of current.attachments) {
+      byKey.set(attachment.key, attachment);
     }
     const attachments = [...byKey.values()];
     if (attachments.length === current.attachments.length) return;
     drafts.set(peerId, { ...current, attachments });
     notify(peerId);
+    if (attachments.length > saved.length) {
+      void composerDraftPersistence.saveAttachments(key, attachments);
+    }
   }).finally(() => {
     if (hydrationPromises.get(peerId) === hydration) {
       hydrationPromises.delete(peerId);

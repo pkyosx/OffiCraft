@@ -73,10 +73,11 @@ export function ReplyComposer({
     onPaste,
     onPickFile,
     removeAttachment,
-    clearAttachments,
   } = useAttachmentStaging(
     draftKey ? persistentStagingTarget(draftKey) : STAGING_TARGET_PER_MOUNT,
   );
+  const pendingAttachmentsRef = useRef(pendingAttachments);
+  pendingAttachmentsRef.current = pendingAttachments;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const draftRef = useRef<HTMLTextAreaElement>(null);
   // IME composition guard — same belt-and-braces as the chat composer: an
@@ -126,17 +127,28 @@ export function ReplyComposer({
       dataB64: a.dataUri,
       ...(a.filename ? { filename: a.filename } : {}),
     }));
+    const submittedAttachmentKeys = new Set(pendingAttachments.map((a) => a.key));
+    const finishSubmission = composerDraftPersistence.beginSubmission();
     setSending(true);
     try {
       await onSend(linkMentions(body, candidates), attachments);
-      // Success: the card leaves this pane (refetch) — clear for good measure.
-      setDraft("");
-      clearAttachments();
-      if (draftKey) void composerDraftPersistence.clear(draftKey);
+      const remainingText = draftRef.current?.value === draft ? "" : draftRef.current?.value ?? draft;
+      setDraft(remainingText);
+      for (const attachment of pendingAttachments) {
+        removeAttachment(attachment.key);
+      }
+      if (draftKey) {
+        composerDraftPersistence.saveText(draftKey, remainingText);
+        const remainingAttachments = pendingAttachmentsRef.current.filter(
+          (attachment) => !submittedAttachmentKeys.has(attachment.key),
+        );
+        await composerDraftPersistence.saveAttachments(draftKey, remainingAttachments);
+      }
     } catch {
       // Failure keeps the typed content; the CALLER surfaces the error notice
       // (this component has no error strip of its own).
     } finally {
+      finishSubmission();
       setSending(false);
     }
   }

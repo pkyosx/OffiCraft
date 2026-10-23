@@ -247,6 +247,9 @@ function usePersistentSlot(draftKey: string | null): StagingSlot {
       const next = [...byKey.values()];
       latest.current = { key: draftKey, attachments: next };
       setAttachments(next);
+      if (next.length > restored.length) {
+        void composerDraftPersistence.saveAttachments(draftKey, next);
+      }
     }).finally(() => {
       if (active) setIsRestoring(false);
     });
@@ -394,7 +397,7 @@ export function useAttachmentStaging(
   }
 
   function clearAttachments() {
-    slot.update((prev) => (prev.length === 0 ? prev : []));
+    slot.update(() => []);
     slot.setError(null);
   }
 

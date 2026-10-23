@@ -51,6 +51,9 @@ const testPersistence = vi.hoisted(() => {
       rows.delete(key);
       return Promise.resolve();
     },
+    beginSubmission() {
+      return () => {};
+    },
   };
   return {
     persistence,

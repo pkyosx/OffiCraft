@@ -17,6 +17,11 @@ const testPersistence = vi.hoisted(() => {
   const metadata = new Map<string, { text: string; attachmentKeys: string[] }>();
   const rows = new Map<string, Array<Record<string, unknown>>>();
   const refusedAttachmentWrites = new Set<string>();
+  const heldLoads = new Map<string, {
+    promise: Promise<Array<Record<string, unknown>>>;
+    resolve: (value: Array<Record<string, unknown>>) => void;
+    value: Array<Record<string, unknown>>;
+  }>();
   const persistence = {
     read(key: string) {
       return metadata.get(key);
@@ -42,12 +47,21 @@ const testPersistence = vi.hoisted(() => {
     },
     loadAttachments(key: string) {
       const ids = new Set(metadata.get(key)?.attachmentKeys ?? []);
-      return Promise.resolve((rows.get(key) ?? []).filter((item) => ids.has(String(item.key))));
+      const loaded = (rows.get(key) ?? []).filter((item) => ids.has(String(item.key)));
+      const held = heldLoads.get(key);
+      if (held) {
+        heldLoads.delete(key);
+        return held.promise;
+      }
+      return Promise.resolve(loaded);
     },
     clear(key: string) {
       metadata.delete(key);
       rows.delete(key);
       return Promise.resolve();
+    },
+    beginSubmission() {
+      return () => {};
     },
   };
   return {
@@ -56,9 +70,24 @@ const testPersistence = vi.hoisted(() => {
       metadata.clear();
       rows.clear();
       refusedAttachmentWrites.clear();
+      heldLoads.clear();
     },
     refuseAttachmentWrites(key: string) {
       refusedAttachmentWrites.add(key);
+    },
+    seed(key: string, text: string, attachments: Array<Record<string, unknown>>) {
+      metadata.set(key, { text, attachmentKeys: attachments.map((item) => String(item.key)) });
+      rows.set(key, attachments);
+    },
+    holdLoad(key: string) {
+      const ids = new Set(metadata.get(key)?.attachmentKeys ?? []);
+      const value = (rows.get(key) ?? []).filter((item) => ids.has(String(item.key)));
+      let resolve!: (value: Array<Record<string, unknown>>) => void;
+      const promise = new Promise<Array<Record<string, unknown>>>((done) => {
+        resolve = done;
+      });
+      heldLoads.set(key, { promise, resolve, value });
+      return () => resolve(value);
     },
   };
 });
@@ -236,6 +265,36 @@ describe("task card message box — attachments", () => {
     const finalInput = (await afterSend.findByTestId("task-msg-input")) as HTMLTextAreaElement;
     expect(finalInput.value).toBe("");
     expect(previewCount(afterSend.container)).toBe(0);
+  });
+
+  it("keeps files added while prior attachments are restoring after reload", async () => {
+    const task = mkTask({});
+    const key = "task-message:task-att-1";
+    const savedAttachment = {
+      key: "saved-file",
+      dataUri: "data:text/plain;base64,b2xk",
+      filename: "saved.txt",
+      size: 3,
+      isImage: false,
+    };
+    __injectMockTask(task);
+    testPersistence.seed(key, "已有草稿", [savedAttachment]);
+    const finishLoad = testPersistence.holdLoad(key);
+    const beforeReload = renderPage();
+    const input = (await beforeReload.findByTestId("task-msg-input")) as HTMLTextAreaElement;
+    fireEvent.change(
+      beforeReload.container.querySelector(".chat__file-input") as HTMLInputElement,
+      { target: { files: [txtFile("new.txt")] } },
+    );
+    await waitFor(() => expect(previewCount(beforeReload.container)).toBe(1));
+    finishLoad();
+    await waitFor(() => expect(previewCount(beforeReload.container)).toBe(2));
+    expect(input.value).toBe("已有草稿");
+
+    beforeReload.unmount();
+    const afterReload = renderPage();
+    await afterReload.findByTestId("task-msg-input");
+    await waitFor(() => expect(previewCount(afterReload.container)).toBe(2));
   });
 
   it("keeps the task message input, file preview, and send usable when draft storage refuses files", async () => {

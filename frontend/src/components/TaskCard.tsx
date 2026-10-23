@@ -987,8 +987,9 @@ export function TaskCard({
     onPaste,
     onPickFile,
     removeAttachment,
-    clearAttachments,
   } = useAttachmentStaging(persistentStagingTarget(messageDraftKey));
+  const pendingAttachmentsRef = useRef(pendingAttachments);
+  pendingAttachmentsRef.current = pendingAttachments;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canSend =
     !sending &&
@@ -1014,6 +1015,8 @@ export function TaskCard({
       dataB64: a.dataUri,
       ...(a.filename ? { filename: a.filename } : {}),
     }));
+    const submittedAttachmentKeys = new Set(pendingAttachments.map((a) => a.key));
+    const finishSubmission = composerDraftPersistence.beginSubmission();
     setSending(true);
     try {
       await onSendMessage(
@@ -1021,14 +1024,22 @@ export function TaskCard({
         linkMentions(draft.trim(), mentionRoster.candidates),
         attachments,
       );
-      setDraft("");
-      clearAttachments();
-      void composerDraftPersistence.clear(messageDraftKey);
+      const remainingText = draftRef.current?.value === draft ? "" : draftRef.current?.value ?? draft;
+      setDraft(remainingText);
+      for (const attachment of pendingAttachments) {
+        removeAttachment(attachment.key);
+      }
+      composerDraftPersistence.saveText(messageDraftKey, remainingText);
+      const remainingAttachments = pendingAttachmentsRef.current.filter(
+        (attachment) => !submittedAttachmentKeys.has(attachment.key),
+      );
+      await composerDraftPersistence.saveAttachments(messageDraftKey, remainingAttachments);
       setMsgError(false);
     } catch (e) {
       console.warn("TaskCard: message send failed", e);
       setMsgError(true); // the typed content is kept — retry-friendly
     } finally {
+      finishSubmission();
       setSending(false);
     }
   }

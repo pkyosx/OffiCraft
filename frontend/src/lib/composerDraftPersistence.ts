@@ -142,6 +142,7 @@ export function createComposerDraftPersistence(
   attachments: ComposerDraftAttachmentStore,
 ) {
   const writes = new Map<string, Promise<void>>();
+  const submissions = new Set<Promise<void>>();
 
   function read(key: string): ComposerDraftMetadata | undefined {
     try {
@@ -178,6 +179,21 @@ export function createComposerDraftPersistence(
       if (writes.get(key) === next) writes.delete(key);
     });
     return next;
+  }
+
+  function beginSubmission(): () => void {
+    let resolve!: () => void;
+    const submission = new Promise<void>((done) => {
+      resolve = done;
+    });
+    submissions.add(submission);
+    let finished = false;
+    return () => {
+      if (finished) return;
+      finished = true;
+      submissions.delete(submission);
+      resolve();
+    };
   }
 
   return {
@@ -236,8 +252,11 @@ export function createComposerDraftPersistence(
         }
       });
     },
+    beginSubmission,
     async flush(): Promise<void> {
-      while (writes.size > 0) await Promise.all([...writes.values()]);
+      while (writes.size > 0 || submissions.size > 0) {
+        await Promise.all([...writes.values(), ...submissions]);
+      }
     },
   };
 }

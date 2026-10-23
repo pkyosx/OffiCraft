@@ -21,6 +21,7 @@ import {
   subscribeChatDraft,
   updateChatDraftAttachments,
 } from "../lib/chatDraftStore";
+import { composerDraftPersistence } from "../lib/composerDraftPersistence";
 import { useChat } from "../hooks/useChat";
 import { useWorkerCodenames } from "../hooks/useWorkerCodenames";
 import { useOwnerDisplayName } from "../hooks/useOwnerName";
@@ -1753,6 +1754,7 @@ export function ChatArea({
     // nothing to do with, which the recipient then reads as context. The failure
     // mode flipped from a visible refusal to a silent mis-send.
     const sendPeer = member.id;
+    const finishSubmission = composerDraftPersistence.beginSubmission();
     // ALL staged attachments ride the SAME message, in staged order.
     const attachments = attachmentsSnapshot.map((a) => ({
       dataB64: a.dataUri,
@@ -1822,6 +1824,8 @@ export function ChatArea({
       // Put the target back only if the owner has not already aimed at
       // something else while the send was in flight.
       setReplyTarget((cur) => (cur ? cur : replyTargetSnapshot));
+    } finally {
+      finishSubmission();
     }
   }
 

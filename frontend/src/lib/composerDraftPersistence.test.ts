@@ -79,6 +79,22 @@ describe("composer draft persistence", () => {
     expect(rows.has(key)).toBe(false);
   });
 
+  it("waits for submissions before flushing draft writes for reload", async () => {
+    const { persistence } = createMemoryStores();
+    const finishSubmission = persistence.beginSubmission();
+    let flushed = false;
+    const flush = persistence.flush().then(() => {
+      flushed = true;
+    });
+
+    await Promise.resolve();
+    expect(flushed).toBe(false);
+
+    finishSubmission();
+    await flush;
+    expect(flushed).toBe(true);
+  });
+
   it("does not restore cleared files when IndexedDB removal fails", async () => {
     const { metadata, rows, persistence, attachments } = createMemoryStores();
     const key = "chat:m-1";
