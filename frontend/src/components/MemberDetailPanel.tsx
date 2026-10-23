@@ -538,19 +538,20 @@ export function MemberDetailPanel({
     <>
       {/* identity card */}
       <div className="mp-card mp-identity">
-        <PresenceAvatar presence={member.lifecycle} dotTestId="mp-identity-presence">
-          {onUpdateAvatar && onRemoveAvatar ? (
-            <AvatarEditor
-              size={52}
-              kind={avatarKindForMember(member)}
-              src={member.avatarUrl}
-              onUpload={onUpdateAvatar}
-              onRemove={onRemoveAvatar}
-            />
-          ) : (
+        {onUpdateAvatar && onRemoveAvatar ? (
+          <AvatarEditor
+            size={52}
+            kind={avatarKindForMember(member)}
+            src={member.avatarUrl}
+            onUpload={onUpdateAvatar}
+            onRemove={onRemoveAvatar}
+            presence={{ status: member.lifecycle, dotTestId: "mp-identity-presence" }}
+          />
+        ) : (
+          <PresenceAvatar presence={member.lifecycle} dotTestId="mp-identity-presence">
             <Avatar size={52} kind={avatarKindForMember(member)} src={member.avatarUrl} />
-          )}
-        </PresenceAvatar>
+          </PresenceAvatar>
+        )}
         <div className="mp-identity__body">
           <div className="mp-identity__line">
             <NameWithActivity activity={member.activity} presence={member.lifecycle} testId="mp-identity-activity" layout="group">

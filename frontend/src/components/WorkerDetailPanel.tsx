@@ -461,19 +461,20 @@ export function WorkerDetailPanel({
   // theme image and glyph fallbacks, plus codename + real presence. ──────────
   const identity = (
     <div className="mp-card mp-identity">
-      <PresenceAvatar presence={worker.presence} dotTestId="worker-detail-header-dot">
-        {onUpdateAvatar && onRemoveAvatar ? (
-          <AvatarEditor
-            size={52}
-            kind="outsource"
-            src={worker.avatarUrl}
-            onUpload={onUpdateAvatar}
-            onRemove={onRemoveAvatar}
-          />
-        ) : (
+      {onUpdateAvatar && onRemoveAvatar ? (
+        <AvatarEditor
+          size={52}
+          kind="outsource"
+          src={worker.avatarUrl}
+          onUpload={onUpdateAvatar}
+          onRemove={onRemoveAvatar}
+          presence={{ status: worker.presence, dotTestId: "worker-detail-header-dot" }}
+        />
+      ) : (
+        <PresenceAvatar presence={worker.presence} dotTestId="worker-detail-header-dot">
           <Avatar size={52} kind="outsource" src={worker.avatarUrl} />
-        )}
-      </PresenceAvatar>
+        </PresenceAvatar>
+      )}
       <div className="mp-identity__body">
         <div className="mp-identity__line">
           <NameWithActivity activity={worker.activity} presence={worker.presence} testId="worker-detail-identity-activity" layout="group">

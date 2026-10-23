@@ -1,7 +1,9 @@
 import { useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import type { AvatarKind } from "../lib/themeBundle";
+import type { MemberLifecycle } from "../types";
 import { Avatar } from "./Avatar";
+import { PresenceAvatar } from "./PresenceAvatar";
 
 const MAX_AVATAR_BYTES = 64 * 1024;
 const AVATAR_MIMES = new Set(["image/png", "image/jpeg", "image/webp"]);
@@ -12,6 +14,7 @@ interface AvatarEditorProps {
   src?: string;
   onUpload: (file: File) => Promise<void>;
   onRemove: () => Promise<void>;
+  presence?: { status: MemberLifecycle | undefined; dotTestId?: string };
 }
 
 /** Owner-only editor for one stable member id's personal image. */
@@ -21,6 +24,7 @@ export function AvatarEditor({
   src,
   onUpload,
   onRemove,
+  presence,
 }: AvatarEditorProps) {
   const { t } = useI18n();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -69,7 +73,14 @@ export function AvatarEditor({
 
   return (
     <div className="avatar-editor">
-      <Avatar size={size} kind={kind} src={src} />
+      {/* The dot wraps the image only: around the whole editor it lands beside the upload button. */}
+      {presence ? (
+        <PresenceAvatar presence={presence.status} dotTestId={presence.dotTestId}>
+          <Avatar size={size} kind={kind} src={src} />
+        </PresenceAvatar>
+      ) : (
+        <Avatar size={size} kind={kind} src={src} />
+      )}
       <div className="avatar-editor__actions">
         <input
           ref={inputRef}

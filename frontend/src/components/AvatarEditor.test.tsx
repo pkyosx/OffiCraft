@@ -82,4 +82,21 @@ describe("AvatarEditor", () => {
     );
     await waitFor(() => expect(document.activeElement).toBe(upload));
   });
+
+  it("with a presence, puts the dot on the avatar image and not beside the upload button", () => {
+    const view = render(
+      <I18nProvider>
+        <AvatarEditor
+          kind="staff"
+          onUpload={vi.fn(async () => {})}
+          onRemove={vi.fn(async () => {})}
+          presence={{ status: "online", dotTestId: "editor-dot" }}
+        />
+      </I18nProvider>,
+    );
+    const corner = view.getByTestId("editor-dot").closest(".presence-avatar")!;
+    expect(view.getByTestId("editor-dot").getAttribute("aria-label")).toBe("線上");
+    expect(corner.querySelector(".avatar")).not.toBeNull();
+    expect(corner.querySelector(".avatar-editor__button")).toBeNull();
+  });
 });

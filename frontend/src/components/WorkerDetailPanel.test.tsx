@@ -275,7 +275,8 @@ describe("WorkerDetailPanel — aligned real info (T-f190 item 1)", () => {
       "activity-icon__glyph activity-icon__glyph--idle",
     );
     const dot = await first.findByTestId("worker-detail-header-dot");
-    expect(dot.closest(".presence-avatar")).not.toBeNull();
+    expect(dot.closest(".presence-avatar")!.querySelector(".avatar")).not.toBeNull();
+    expect(dot.closest(".presence-avatar")!.querySelector(".avatar-editor__button")).toBeNull();
     expect(queryTestId(document.body, "worker-detail-task-line-ow-1")!.querySelector(".lifecycle-dot")).toBeNull();
     const icon = await first.findByTestId("worker-detail-identity-activity");
     expect(icon.nextElementSibling!.textContent).toBe("外包 · O-7");
