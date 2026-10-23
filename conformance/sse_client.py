@@ -145,6 +145,36 @@ class SSEConnection:
         ev = self.wait_for(_match, timeout=timeout)
         return {"event": ev, "frame": json.loads(ev["data"])}
 
+    def wait_for_command(self, member_id: str, timeout: float = 5.0) -> dict[str, Any]:
+        """Next ``warden-command`` frame, skipping only a ``stop`` addressed
+        to a member other than ``member_id``; same return shape as
+        ``wait_for_frame``.
+
+        A STOP no warden took is parked and re-resolved every reconcile tick,
+        and with no machine to name it goes out to every online warden
+        (lifecycle.md, sse.md §7), so a fresh machine's stream can carry a
+        stop for a member an earlier test dismissed. Only that case is
+        skipped: any other command, or a malformed one, is returned so the
+        caller's assertion fails and prints it."""
+
+        def _match(ev: dict[str, Any]) -> bool:
+            if ev.get("data") is None:
+                return False
+            try:
+                frame = json.loads(ev["data"])
+            except ValueError:
+                return False
+            if not isinstance(frame, dict) or frame.get("topic") != "warden-command":
+                return False
+            try:
+                cmd = frame["data"]
+                return not (cmd["rpc"] == "stop" and cmd["args"]["member_id"] != member_id)
+            except (KeyError, TypeError):
+                return True
+
+        ev = self.wait_for(_match, timeout=timeout)
+        return {"event": ev, "frame": json.loads(ev["data"])}
+
     def drain_backlog(
         self, quiet_for: float = 1.0, timeout: float = 5.0, label: str = ""
     ) -> int:

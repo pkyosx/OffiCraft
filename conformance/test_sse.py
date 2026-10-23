@@ -637,7 +637,7 @@ def test_runtime_login_relay_flow(base_url, client, owner_token, fresh_machine) 
             "machine_id": machine, "runtime": "claude", "state": "starting",
             "auth_url": None, "account": None, "reason": None,
         }, started
-        frame = warden.wait_for_frame("warden-command")["frame"]
+        frame = warden.wait_for_command(machine)["frame"]
         assert frame["data"] == {
             "rpc": "login_start",
             "args": {"member_id": machine, "login_id": login_id, "runtime": "claude"},
@@ -658,7 +658,7 @@ def test_runtime_login_relay_flow(base_url, client, owner_token, fresh_machine) 
         r = client.post(f"{base}/{login_id}/code", json={"code": "conf-code#conf-state"}, headers=owner)
         assert r.status_code == 200, r.text
         assert r.json()["state"] == "verifying", r.json()
-        frame = warden.wait_for_frame("warden-command")["frame"]
+        frame = warden.wait_for_command(machine)["frame"]
         assert frame["data"] == {
             "rpc": "login_code",
             "args": {"member_id": machine, "login_id": login_id, "code": "conf-code#conf-state"},
@@ -667,7 +667,7 @@ def test_runtime_login_relay_flow(base_url, client, owner_token, fresh_machine) 
         r = client.post(f"{base}/{login_id}/cancel", headers=owner)
         assert r.status_code == 200, r.text
         assert (r.json()["state"], r.json()["reason"]) == ("cancelled", "cancelled by the owner"), r.json()
-        frame = warden.wait_for_frame("warden-command")["frame"]
+        frame = warden.wait_for_command(machine)["frame"]
         assert frame["data"] == {
             "rpc": "login_cancel", "args": {"member_id": machine, "login_id": login_id},
         }, frame
@@ -709,7 +709,7 @@ def test_runtime_upgrade_relay_flow(base_url, client, owner_token, fresh_machine
             "machine_id": machine, "runtime": "claude", "state": "starting",
             "from_version": None, "to_version": None, "reason": None,
         }, started
-        frame = warden.wait_for_frame("warden-command")["frame"]
+        frame = warden.wait_for_command(machine)["frame"]
         assert frame["data"] == {
             "rpc": "runtime_upgrade",
             "args": {"member_id": machine, "upgrade_id": upgrade_id, "runtime": "claude"},
@@ -1348,16 +1348,16 @@ def test_warden_command_band_start_frame(
             except ValueError:
                 return False
 
-        stop_ev = warden.wait_for(_is_cmd, timeout=8.0)
+        stop = warden.wait_for_command(member_id, timeout=8.0)
+        stop_ev, stop_frame = stop["event"], stop["frame"]
         assert stop_ev["id"] is None, f"command frames carry NO id: line: {stop_ev}"
-        stop_frame = json.loads(stop_ev["data"])
         assert stop_frame["data"] == {
             "rpc": "stop", "args": {"member_id": member_id}
         }, stop_frame
 
-        ev = warden.wait_for(_is_cmd, timeout=8.0)
+        start = warden.wait_for_command(member_id, timeout=8.0)
+        ev, frame = start["event"], start["frame"]
         assert ev["id"] is None, f"command frames carry NO id: line: {ev}"
-        frame = json.loads(ev["data"])
         assert set(frame) == {"topic", "data"}, frame
         cmd = frame["data"]
         assert cmd["rpc"] == "start", cmd
