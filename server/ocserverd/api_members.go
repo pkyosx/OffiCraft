@@ -1206,6 +1206,9 @@ func (s *apiServer) HandleReportWakingApiSelfWakingPost(w http.ResponseWriter, r
 	// increase over the previous session's.
 	s.startAccountSpendSession(m.ID)
 	if m.Kind == KindOutsource {
+		// Marked before the funnel publishes, so a refetch on that patch sees it. A
+		// failed wake leaves it inert: the floor never reaches this iat.
+		s.activity.MarkWoken(m.ID, callerIat(r), nowSecs())
 		// Through the worker funnel under outsourceMu: a member-path write would race
 		// the tick's read-modify-write.
 		fresh, werr := s.workerReportWaking(m.ID, body.Model, callerIat(r), requestTrigger(r),
@@ -1214,7 +1217,6 @@ func (s *apiServer) HandleReportWakingApiSelfWakingPost(w http.ResponseWriter, r
 			writeResolveTxError(w, werr, "member", currentActor(r))
 			return
 		}
-		s.activity.MarkWoken(m.ID, callerIat(r), nowSecs())
 		s.writeSelfReportReceipt(w, *fresh)
 		return
 	}

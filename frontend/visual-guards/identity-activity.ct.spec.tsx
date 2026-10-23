@@ -398,6 +398,18 @@ test.describe("the 運行狀況 dialog the icon opens", () => {
     expect(m.vw - m.box.right, "side margin on the right").toBeGreaterThanOrEqual(19.5);
     expect(m.boxOverflow, "dialog does not overflow sideways").toBeLessThanOrEqual(0);
     expect(m.rowsRight, "tree rows inside the dialog").toBeLessThanOrEqual(m.box.right);
+    const asides = await page.getByRole("dialog").locator(".mp-activity__aside").evaluateAll((els) =>
+      els.map((el) => {
+        const r = el.getBoundingClientRect();
+        return { left: r.left, right: r.right };
+      }),
+    );
+    expect(asides.length, "the wait rows carry their tags").toBeGreaterThan(0);
+    for (const a of asides) {
+      expect(a.left, "wait tag inside the dialog on the left").toBeGreaterThanOrEqual(m.box.left);
+      expect(a.right, "wait tag inside the dialog on the right").toBeLessThanOrEqual(m.box.right);
+      expect(a.right, "wait tag inside the viewport").toBeLessThanOrEqual(m.vw);
+    }
     const close = await page.getByRole("dialog").getByRole("button").boundingBox();
     expect(close!.x + close!.width, "close button inside the dialog").toBeLessThanOrEqual(m.box.right);
     expect(await hscroll(page), "no page hscroll while open").toBeLessThanOrEqual(1);

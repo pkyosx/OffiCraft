@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math"
 	"reflect"
 	"sort"
 
@@ -86,9 +87,10 @@ func (s *activityStore) MarkWoken(id string, iat, at float64) {
 
 // GetWaking answers the stored activity only when the booting session sent it.
 // The previous session's report_waking set floor to that session's own iat, so a
-// newer token is past it; a report at the floor is this session's only once this
-// session has itself reported waking (after the wake was dispatched at
-// wakingSince) — otherwise it is the previous session's, still stored.
+// report at the floor is this session's only once this session has itself
+// reported waking since the wake was dispatched at wakingSince. A START's token is
+// minted after the dispatch stamps waking_since, so a report on a token issued
+// before that second is an earlier, aborted boot's.
 func (s *activityStore) GetWaking(id string, floor, wakingSince float64) (memberActivityDTO, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -96,11 +98,10 @@ func (s *activityStore) GetWaking(id string, floor, wakingSince float64) (member
 	if !ok {
 		return memberActivityDTO{}, false
 	}
-	if e.iat > floor {
+	if w, woke := s.woken[id]; woke && floor > 0 && e.iat == floor && w.iat == floor && w.at >= wakingSince {
 		return e.activity, true
 	}
-	w, woke := s.woken[id]
-	if floor > 0 && e.iat == floor && woke && w.iat == floor && w.at >= wakingSince {
+	if e.iat > floor && e.iat >= math.Floor(wakingSince) {
 		return e.activity, true
 	}
 	return memberActivityDTO{}, false
@@ -138,7 +139,7 @@ func deriveMemberActivity(busy bool, busySince *float64, subagents []activitySub
 // ownerActivity answers what MemberDTO.activity carries for this read: the
 // stored activity only for the owner and only while the session is up and
 // reporting (online or stopping), or waking with a report from the booting
-// session itself — never the previous session's.
+// session itself.
 func (s *apiServer) ownerActivity(isOwner bool, m Member, presence string) *memberActivityDTO {
 	if !isOwner {
 		return nil

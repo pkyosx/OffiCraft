@@ -1761,49 +1761,84 @@ func TestHandleGetMemberApiMembersMemberIdGet(t *testing.T) {
 		read("stopped", owner, woken(map[string]any{"presence": "stopped", "desired_state": "offline"}))
 	})
 
-	t.Run("a waking member shows the booting session's own report, never the previous session's", func(t *testing.T) {
-		api, h, d, owner := newAPITestServer(t)
-		now := time.Now().Unix()
-		mint := func(iat int64) string {
-			tok, err := mintJWT("kip", "agent", 3600, api.keys.signingSecret(), iat, "")
-			if err != nil {
-				t.Fatalf("mint: %v", err)
+	for _, kind := range []struct {
+		name, id string
+		setup    func(t *testing.T, h http.Handler, d *DAL, owner string)
+	}{
+		{"staff", "kip",
+			func(t *testing.T, h http.Handler, d *DAL, owner string) {
+				if status, data := apiJSON(t, h, "POST", "/api/members/kip/activate", owner, `{}`); status != 200 {
+					t.Fatalf("activate: %d %v", status, data)
+				}
+			}},
+		{"outsource", "ow-abc123",
+			func(t *testing.T, h http.Handler, d *DAL, owner string) {
+				apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusActive)
+				apiTestWorkerWantedOnline(t, d, "ow-abc123")
+			}},
+	} {
+		t.Run(kind.name+": a waking member shows, on its own read and in the listing, only the booting session's report", func(t *testing.T) {
+			api, h, d, owner := newAPITestServer(t)
+			kind.setup(t, h, d, owner)
+			now := time.Now().Unix()
+			mint := func(iat int64) string {
+				tok, err := mintJWT(kind.id, "agent", 3600, api.keys.signingSecret(), iat, "")
+				if err != nil {
+					t.Fatalf("mint: %v", err)
+				}
+				return tok
 			}
-			return tok
-		}
-		post := func(what, token, path, body string) any {
-			t.Helper()
-			status, data := apiJSON(t, h, "POST", path, token, body)
-			if status != 200 {
-				t.Fatalf("%s: want 200, got %d (%v)", what, status, data)
+			post := func(what, token, path, body string) any {
+				t.Helper()
+				status, data := apiJSON(t, h, "POST", path, token, body)
+				if status != 200 {
+					t.Fatalf("%s: want 200, got %d (%v)", what, status, data)
+				}
+				return data["ts"]
 			}
-			return data["ts"]
-		}
-		readActivity := func(when string, want any) {
-			t.Helper()
-			status, data := apiJSON(t, h, "GET", "/api/members/kip", owner, "")
-			if status != 200 {
-				t.Fatalf("%s: want 200, got %d (%v)", when, status, data)
+			readActivity := func(when string, want any) {
+				t.Helper()
+				status, data := apiJSON(t, h, "GET", "/api/members/"+kind.id, owner, "")
+				if status != 200 {
+					t.Fatalf("%s: want 200, got %d (%v)", when, status, data)
+				}
+				apiWantValue(t, when+" presence", data["presence"], any("waking"))
+				apiWantValue(t, when+" activity", data["activity"], want)
+				rec := apiRequest(t, h, "GET", "/api/members", owner, "")
+				if rec.Code != 200 {
+					t.Fatalf("%s listing: want 200, got %d (%s)", when, rec.Code, rec.Body.String())
+				}
+				var rows []map[string]any
+				if err := json.Unmarshal(rec.Body.Bytes(), &rows); err != nil {
+					t.Fatalf("non-JSON body: %s", rec.Body.String())
+				}
+				for _, row := range rows {
+					if row["id"] == kind.id {
+						apiWantValue(t, when+" listing activity", row["activity"], want)
+						return
+					}
+				}
+				t.Fatalf("%s: the listing carries no %s row", when, kind.id)
 			}
-			apiWantValue(t, when+" presence", data["presence"], any("waking"))
-			apiWantValue(t, when+" activity", data["activity"], want)
-		}
-		previous, next := mint(now-100), mint(now)
-		post("activate", owner, "/api/members/kip/activate", `{}`)
-		post("previous waking", previous, "/api/self/waking", `{}`)
-		post("previous report", previous, "/api/agent/activity", `{"busy": false, "subagents": []}`)
-		if err := d.SetMemberWakingSince("kip", nowSecs()+1); err != nil {
-			t.Fatalf("SetMemberWakingSince: %v", err)
-		}
-		readActivity("before the new session reports", nil)
+			previous, aborted, next := mint(now-100), mint(now-50), mint(now+1)
+			post("previous waking", previous, "/api/self/waking", `{}`)
+			post("previous report", previous, "/api/agent/activity", `{"busy": false, "subagents": []}`)
+			if err := d.SetMemberWakingSince(kind.id, nowSecs()); err != nil {
+				t.Fatalf("SetMemberWakingSince: %v", err)
+			}
+			readActivity("before the new session reports", nil)
 
-		ts := post("new report", next, "/api/agent/activity", `{"busy": true, "busy_since": 1000, "subagents": []}`)
-		want := any(map[string]any{"state": "busy", "busy_since": 1000, "subagents": []any{}, "waits": []any{}, "ts": ts})
-		readActivity("before the new session reports waking", want)
+			post("aborted boot's report", aborted, "/api/agent/activity", `{"busy": false, "subagents": []}`)
+			readActivity("after an aborted boot's report", nil)
 
-		post("new waking", next, "/api/self/waking", `{}`)
-		readActivity("after the new session reports waking", want)
-	})
+			ts := post("new report", next, "/api/agent/activity", `{"busy": true, "busy_since": 1000, "subagents": []}`)
+			want := any(map[string]any{"state": "busy", "busy_since": 1000, "subagents": []any{}, "waits": []any{}, "ts": ts})
+			readActivity("before the new session reports waking", want)
+
+			post("new waking", next, "/api/self/waking", `{}`)
+			readActivity("after the new session reports waking", want)
+		})
+	}
 
 	t.Run("a removed warden answers 404 naming it, as does an id nothing carries", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)

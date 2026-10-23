@@ -27,7 +27,7 @@ const LONG_WAITS: MemberActivity["waits"] = [
   {
     kind: "background_command",
     description:
-      "cd /Users/eva/.officraft/agents/ow-691b883dc2da/work/t-492-mobile/frontend && npx vite --port 5391 --strictPort --host 127.0.0.1 > /private/tmp/claude-501/-Users-eva--officraft-agents-ow-691b883dc2da/2c6e103e-787e-4fa5-943e-148a8d6d8008/scratchpad/vite.log 2>&1",
+      "cd /home/user/projects/some-very-long-directory-name/work/feature-branch-checkout/frontend && npx vite --port 5391 --strictPort --host 127.0.0.1 > /tmp/build-cache/-home-user-projects-some-very-long-directory-name/3b7c1e0a9d4f6b2c8e5a1f7d0c9b4e6a2f8d1c3b5a7e9f0d2c4b6a8e1f3d5c7b9a/logs/vite.log 2>&1",
     nextTs: null,
     recurring: false,
   },
