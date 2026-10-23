@@ -103,6 +103,21 @@ for (const width of [390, 1280]) {
     expect(expireBox.x + expireBox.width).toBeLessThanOrEqual(
       cardBox.x + cardBox.width + 1,
     );
+    const summaryBox = await card.locator(".reply-card__summary").boundingBox();
+    const cardPaddingRight = await card.evaluate((el) =>
+      parseFloat(getComputedStyle(el).paddingRight),
+    );
+    if (!summaryBox) throw new Error("chat-card summary has no layout box");
+    expect(expireBox.y, "expiry shares the summary's first row").toBeLessThan(
+      summaryBox.y + summaryBox.height,
+    );
+    expect(expireBox.x, "expiry sits right of the summary, not over it").toBeGreaterThanOrEqual(
+      summaryBox.x + summaryBox.width - 1,
+    );
+    expect(
+      cardBox.x + cardBox.width - (expireBox.x + expireBox.width),
+      "expiry is flush with the card's right padding",
+    ).toBeLessThanOrEqual(cardPaddingRight + 2);
 
     await expire.click();
     const dialog = cmp.getByTestId("expire-confirm");

@@ -330,6 +330,14 @@ export function ChatReplyCard({
     );
   }
 
+  // T-a20b: summary is agent-authored free text (markdown), like body.
+  const summaryNode = (
+    <Markdown
+      source={card?.summary || fallbackSummary}
+      className="reply-card__summary doc-md"
+    />
+  );
+
   return (
     <ReplyCardLinkComments from={card?.from} recipientFor={commentRecipientFor}>
       <>
@@ -367,23 +375,19 @@ export function ChatReplyCard({
          * about should not require reading the whole card first. Both surfaces
          * moved together; a lead row on one and a trailing row on the other is
          * exactly the drift this shared component exists to prevent. */}
-          {card?.task && (
-            <ReplyCardTaskRef
-              task={card.task}
-              onJump={() => setRoute({ page: "tasks", taskId: card.task!.id })}
-            />
-          )}
-
-        {/* T-a20b: summary is agent-authored free text (markdown), like body. */}
-          <Markdown
-            source={card?.summary || fallbackSummary}
-            className="reply-card__summary doc-md"
-          />
-          {card?.body && (
-            <Markdown source={card.body} className="reply-card__body doc-md" />
-          )}
-          {card?.status === "waiting" && (
-            <div className="reply-card__chat-expire-row">
+          {/* 標為過期 sits at the card's top-right, where RepliesPage puts it in
+           * its header row (owner rc-07bbcbcca3cd). This card has no header row,
+           * so it shares the first row with whatever leads the card. */}
+          <div className="reply-card__chat-head">
+            {card?.task ? (
+              <ReplyCardTaskRef
+                task={card.task}
+                onJump={() => setRoute({ page: "tasks", taskId: card.task!.id })}
+              />
+            ) : (
+              summaryNode
+            )}
+            {card?.status === "waiting" && (
               <button
                 type="button"
                 className="reply-card__jump"
@@ -392,7 +396,11 @@ export function ChatReplyCard({
               >
                 {t.replies.expire}
               </button>
-            </div>
+            )}
+          </div>
+          {card?.task && summaryNode}
+          {card?.body && (
+            <Markdown source={card.body} className="reply-card__body doc-md" />
           )}
         {/* QUESTION-side attachments (T-5e8a): thumbnails/chips under the body,
          * on every status — click an image to preview in the lightbox. */}

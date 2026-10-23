@@ -586,10 +586,17 @@
   padding: 13px 15px;
   border-color: color-mix(in srgb, var(--color-accent) 30%, transparent);
 }
-.reply-card__chat-expire-row {
+.reply-card__chat-head {
   display: flex;
-  justify-content: flex-end;
-  margin-top: 8px;
+  align-items: flex-start;
+  gap: 10px;
+}
+.reply-card__chat-head > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.reply-card__chat-head > .reply-card__jump {
+  margin-left: auto;
 }
 
 @media (max-width: 720px) {
