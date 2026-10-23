@@ -55,6 +55,23 @@ describe("httpApi runtime upgrade", () => {
     });
   });
 
+  it("reads the build identity without using a cached version response", async () => {
+    fetchMock.mockImplementationOnce(async () => new Response(JSON.stringify({
+      catalog_hash: "catalog-1",
+      git_sha: "new-build-sha",
+      git_time: null,
+      latest_version: null,
+      update_available: false,
+      update_checked_ok_at: null,
+      version: "0.0.0",
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+
+    const got = await httpApi.getVersion();
+    const calls = fetchMock.mock.calls as unknown as [Request][];
+    expect(got.gitSha).toBe("new-build-sha");
+    expect(calls[calls.length - 1][0].cache).toBe("no-store");
+  });
+
   it("under a read, it gets the upgrade by machine and upgrade id with no body", async () => {
     await httpApi.getRuntimeUpgrade("m-box", "ru-1");
     expect(await requests()).toEqual([{ method: "GET", url: "/api/machines/m-box/runtime-upgrade/ru-1", body: "" }]);

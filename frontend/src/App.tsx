@@ -36,6 +36,7 @@ import { OwnerNameProvider, useOwnerName } from "./hooks/useOwnerName";
 import { useReplyCardCount } from "./hooks/useReplyCardCount";
 import { useChatUnread } from "./hooks/useChatUnread";
 import { useTaskCount } from "./hooks/useTaskCount";
+import { useAutoReloadOnVersionChange } from "./hooks/useAutoReloadOnVersionChange";
 import "./components/chrome.css";
 
 type Tab =
@@ -73,6 +74,7 @@ function writeLastOfficeChat(id: string | undefined): void {
 
 export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   const { t } = useI18n();
+  useAutoReloadOnVersionChange();
   // The studio name is server-backed (T-d693); the localized dict string is the
   // fallback until the fetch lands / when the owner has not named the studio.
   const { orgName, setOrgName } = useOrgName(t.orgName);

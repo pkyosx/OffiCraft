@@ -13,6 +13,63 @@ import { __resetMock, __injectMockTask } from "../api/mock";
 import { api } from "../api";
 import type { TaskView } from "../api/adapter";
 
+const testPersistence = vi.hoisted(() => {
+  const metadata = new Map<string, { text: string; attachmentKeys: string[] }>();
+  const rows = new Map<string, Array<Record<string, unknown>>>();
+  const refusedAttachmentWrites = new Set<string>();
+  const persistence = {
+    read(key: string) {
+      return metadata.get(key);
+    },
+    saveText(key: string, text: string) {
+      const current = metadata.get(key);
+      const next = { text, attachmentKeys: current?.attachmentKeys ?? [] };
+      if (!text && next.attachmentKeys.length === 0) metadata.delete(key);
+      else metadata.set(key, next);
+    },
+    saveAttachments(key: string, attachments: Array<Record<string, unknown>>) {
+      if (refusedAttachmentWrites.has(key)) return Promise.resolve();
+      if (attachments.length) rows.set(key, attachments);
+      else rows.delete(key);
+      const current = metadata.get(key);
+      const next = {
+        text: current?.text ?? "",
+        attachmentKeys: attachments.map((item) => String(item.key)),
+      };
+      if (!next.text && next.attachmentKeys.length === 0) metadata.delete(key);
+      else metadata.set(key, next);
+      return Promise.resolve();
+    },
+    loadAttachments(key: string) {
+      const ids = new Set(metadata.get(key)?.attachmentKeys ?? []);
+      return Promise.resolve((rows.get(key) ?? []).filter((item) => ids.has(String(item.key))));
+    },
+    clear(key: string) {
+      metadata.delete(key);
+      rows.delete(key);
+      return Promise.resolve();
+    },
+  };
+  return {
+    persistence,
+    reset() {
+      metadata.clear();
+      rows.clear();
+      refusedAttachmentWrites.clear();
+    },
+    refuseAttachmentWrites(key: string) {
+      refusedAttachmentWrites.add(key);
+    },
+  };
+});
+
+vi.mock("../lib/composerDraftPersistence", () => ({
+  composerDraftPersistence: testPersistence.persistence,
+  chatDraftStorageKey: (peerId: string) => `chat:${peerId}`,
+  replyCardDraftStorageKey: (cardId: string) => `reply-card:${cardId}`,
+  taskMessageDraftStorageKey: (taskId: string) => `task-message:${taskId}`,
+}));
+
 function mkTask(over: Partial<TaskView>): TaskView {
   return {
     id: "task-att-1",
@@ -67,6 +124,7 @@ function previewCount(container: HTMLElement): number {
 
 beforeEach(() => {
   __resetMock();
+  testPersistence.reset();
   window.location.hash = "";
 });
 
@@ -151,5 +209,56 @@ describe("task card message box — attachments", () => {
 
     await waitFor(() => expect(previewCount(container)).toBe(0));
     expect(input.value).toBe("");
+  });
+
+  it("restores a task message after reload and clears the stored draft after sending", async () => {
+    __injectMockTask(mkTask({}));
+    const beforeReload = renderPage();
+    const inputBefore = (await beforeReload.findByTestId("task-msg-input")) as HTMLTextAreaElement;
+    fireEvent.change(inputBefore, { target: { value: "重載後要保留" } });
+    fireEvent.change(
+      beforeReload.container.querySelector(".chat__file-input") as HTMLInputElement,
+      { target: { files: [pngFile("task-reload.png")] } },
+    );
+    await waitFor(() => expect(previewCount(beforeReload.container)).toBe(1));
+    beforeReload.unmount();
+
+    const afterReload = renderPage();
+    const inputAfter = (await afterReload.findByTestId("task-msg-input")) as HTMLTextAreaElement;
+    expect(inputAfter.value).toBe("重載後要保留");
+    await waitFor(() => expect(previewCount(afterReload.container)).toBe(1));
+    fireEvent.click(await afterReload.findByTestId("task-msg-send"));
+    await waitFor(() => expect(inputAfter.value).toBe(""));
+    await waitFor(() => expect(previewCount(afterReload.container)).toBe(0));
+    afterReload.unmount();
+
+    const afterSend = renderPage();
+    const finalInput = (await afterSend.findByTestId("task-msg-input")) as HTMLTextAreaElement;
+    expect(finalInput.value).toBe("");
+    expect(previewCount(afterSend.container)).toBe(0);
+  });
+
+  it("keeps the task message input, file preview, and send usable when draft storage refuses files", async () => {
+    const task = mkTask({});
+    __injectMockTask(task);
+    testPersistence.refuseAttachmentWrites("task-message:task-att-1");
+    const spy = vi.spyOn(api, "postTaskMessage");
+    const { container, findByTestId } = renderPage();
+    const input = (await findByTestId("task-msg-input")) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "仍可送出的任務訊息" } });
+    fireEvent.change(
+      container.querySelector(".chat__file-input") as HTMLInputElement,
+      { target: { files: [pngFile("task.png")] } },
+    );
+    await waitFor(() => expect(previewCount(container)).toBe(1));
+    expect(input.value).toBe("仍可送出的任務訊息");
+
+    fireEvent.click(await findByTestId("task-msg-send"));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    expect(spy.mock.calls[0][1]).toMatchObject({
+      body: "仍可送出的任務訊息",
+      attachments: [expect.objectContaining({ filename: "task.png" })],
+    });
   });
 });

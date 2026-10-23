@@ -92,8 +92,12 @@ import { ChatMentionList } from "./ChatMentionList";
 import {
   ATTACH_ACCEPT,
   useAttachmentStaging,
-  STAGING_TARGET_PER_MOUNT,
+  persistentStagingTarget,
 } from "../hooks/useAttachmentStaging";
+import {
+  composerDraftPersistence,
+  taskMessageDraftStorageKey,
+} from "../lib/composerDraftPersistence";
 import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
 import { appendSuggestion, SuggestedReplies } from "./SuggestedReplies";
 import { useSuggestedRepliesTaskMessage } from "../hooks/useSuggestedReplies";
@@ -950,7 +954,10 @@ export function TaskCard({
   }
 
   // ── message box (owner → executor) ─────────────────────────────────────────
-  const [draft, setDraft] = useState("");
+  const messageDraftKey = taskMessageDraftStorageKey(task.id);
+  const [draft, setDraft] = useState(
+    () => composerDraftPersistence.read(messageDraftKey)?.text ?? "",
+  );
   const [sending, setSending] = useState(false);
   const [msgError, setMsgError] = useState(false);
   const isComposingRef = useRef(false);
@@ -975,20 +982,18 @@ export function TaskCard({
   // SAME message (POST /api/tasks/{id}/message already carries attachments).
   const {
     pendingAttachments,
+    isRestoring,
     attachError,
     onPaste,
     onPickFile,
     removeAttachment,
     clearAttachments,
-  } = useAttachmentStaging(
-    // Mounted under a key that changes with the card/task it belongs to, so a
-    // switch UNMOUNTS this surface and nothing can outlive it (T-48, R9-1).
-    STAGING_TARGET_PER_MOUNT,
-  );
+  } = useAttachmentStaging(persistentStagingTarget(messageDraftKey));
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canSend =
     !sending &&
     !unassigned &&
+    !isRestoring &&
     (draft.trim().length > 0 || pendingAttachments.length > 0);
 
   // Multi-line message box (Enter sends, Shift+Enter breaks a line — same as
@@ -998,6 +1003,10 @@ export function TaskCard({
   useLayoutEffect(() => {
     if (draftRef.current) autosizeTextarea(draftRef.current);
   }, [draft]);
+
+  useLayoutEffect(() => {
+    composerDraftPersistence.saveText(messageDraftKey, draft);
+  }, [draft, messageDraftKey]);
 
   async function sendMessage() {
     if (!canSend) return;
@@ -1014,6 +1023,7 @@ export function TaskCard({
       );
       setDraft("");
       clearAttachments();
+      void composerDraftPersistence.clear(messageDraftKey);
       setMsgError(false);
     } catch (e) {
       console.warn("TaskCard: message send failed", e);

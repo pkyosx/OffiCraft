@@ -309,16 +309,25 @@ export function openChatAttachErrorScope(): () => void {
   };
 }
 
-/** Test-only reset so a module-level store never leaks state across tests. */
-export function resetChatDrafts(): void {
+function resetChatDraftMemory(): Set<string> {
   const touched = new Set([...drafts.keys(), ...attachErrors.keys()]);
-  for (const peerId of touched) {
-    void composerDraftPersistence.clear(chatDraftStorageKey(peerId));
-  }
   drafts.clear();
   attachErrors.clear();
   hydrationPromises.clear();
   attachErrorScopes = 0;
   scopeEpoch += 1;
   for (const peerId of touched) notify(peerId);
+  return touched;
+}
+
+/** Test-only reset so a module-level store never leaks state across tests. */
+export function resetChatDrafts(): void {
+  const touched = resetChatDraftMemory();
+  for (const peerId of touched) {
+    void composerDraftPersistence.clear(chatDraftStorageKey(peerId));
+  }
+}
+
+export function resetChatDraftsInMemoryForReload(): void {
+  resetChatDraftMemory();
 }

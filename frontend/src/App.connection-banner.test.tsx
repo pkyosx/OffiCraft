@@ -55,8 +55,12 @@ vi.mock("./components/UserGuidePage", () => ({ GuidePage: () => null }));
 vi.mock("./components/ConnectionBanner", () => ({
   ConnectionBanner: () => <div data-testid="connection-banner-mount" />,
 }));
+vi.mock("./hooks/useAutoReloadOnVersionChange", () => ({
+  useAutoReloadOnVersionChange: vi.fn(),
+}));
 
 import App from "./App";
+import { useAutoReloadOnVersionChange } from "./hooks/useAutoReloadOnVersionChange";
 
 function renderApp() {
   return render(
@@ -74,6 +78,7 @@ describe("App · ConnectionBanner wiring", () => {
   it("mounts ConnectionBanner — without this line the whole visible half of T-b0bb is gone and no unit test says so", () => {
     const { getByTestId } = renderApp();
     expect(getByTestId("connection-banner-mount")).toBeTruthy();
+    expect(useAutoReloadOnVersionChange).toHaveBeenCalled();
   });
 
   it("mounts it ABOVE the tab strip, so a stall is admitted whichever tab is open", () => {

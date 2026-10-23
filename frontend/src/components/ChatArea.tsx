@@ -646,6 +646,7 @@ export function ChatArea({
   // remember and nothing to restore.
   const {
     pendingAttachments,
+    isRestoring,
     attachError,
     stageFiles,
     onPaste,
@@ -798,6 +799,7 @@ export function ChatArea({
   const overAttachmentCap = pendingAttachments.length > CHAT_MAX_ATTACHMENTS;
   // A message may carry text and/or attachments — sendable when EITHER present.
   const canSend =
+    !isRestoring &&
     (draft.trim().length > 0 || pendingAttachments.length > 0) &&
     !overAttachmentCap;
 
@@ -884,7 +886,7 @@ export function ChatArea({
   // destroyed by the next keystroke. The files are no longer this component's
   // to write back: they live in the store, and `saveChatDraftText` leaves them
   // exactly where they are.
-  useEffect(() => {
+  useLayoutEffect(() => {
     saveChatDraftText(member.id, draft, replyToId ?? undefined, replyExcerpt);
   }, [member.id, draft, replyToId, replyExcerpt]);
 
@@ -1758,6 +1760,7 @@ export function ChatArea({
     }));
     setDraft("");
     clearAttachments();
+    saveChatDraftText(sendPeer, "");
     // Cleared with the rest of the composer: a reply target that survived its
     // own send would silently attach itself to the NEXT message too.
     setReplyTarget(null);
@@ -2801,6 +2804,12 @@ export function ChatArea({
                 value={draft}
                 onChange={(e) => {
                   setDraft(e.target.value);
+                  saveChatDraftText(
+                    member.id,
+                    e.target.value,
+                    replyToId ?? undefined,
+                    replyExcerpt,
+                  );
                   mention.onChange(e);
                 }}
                 {...mention.inputProps}

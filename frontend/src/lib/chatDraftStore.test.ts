@@ -18,21 +18,91 @@
 // register is the census over the whole chat import graph; this one is the
 // narrow rule for the file that is the exception.
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+function createMemoryIndexedDB() {
+  const records = new Map<string, { key: string; attachments: unknown[] }>();
+  let storeCreated = false;
+  const database = {
+    objectStoreNames: { contains: () => storeCreated },
+    createObjectStore() {
+      storeCreated = true;
+      return {};
+    },
+    transaction() {
+      const transaction: {
+        oncomplete: (() => void) | null;
+        onerror: (() => void) | null;
+        onabort: (() => void) | null;
+      } = { oncomplete: null, onerror: null, onabort: null };
+      const finish = () => queueMicrotask(() => transaction.oncomplete?.());
+      return Object.assign(transaction, {
+        objectStore: () => ({
+          get(key: string) {
+            const request: {
+              result?: { key: string; attachments: unknown[] };
+              onsuccess: (() => void) | null;
+              onerror: (() => void) | null;
+            } = { onsuccess: null, onerror: null };
+            queueMicrotask(() => {
+              request.result = records.get(key);
+              request.onsuccess?.();
+              finish();
+            });
+            return request;
+          },
+          put(value: { key: string; attachments: unknown[] }) {
+            queueMicrotask(() => {
+              records.set(value.key, value);
+              finish();
+            });
+          },
+          delete(key: string) {
+            queueMicrotask(() => {
+              records.delete(key);
+              finish();
+            });
+          },
+        }),
+      });
+    },
+  };
+  const factory = {
+    open() {
+      const request: {
+        result: typeof database;
+        onupgradeneeded: (() => void) | null;
+        onsuccess: (() => void) | null;
+        onerror: (() => void) | null;
+      } = { result: database, onupgradeneeded: null, onsuccess: null, onerror: null };
+      queueMicrotask(() => {
+        if (!storeCreated) request.onupgradeneeded?.();
+        request.onsuccess?.();
+      });
+      return request;
+    },
+  };
+  return { factory: factory as unknown as IDBFactory, records };
+}
+
+const memoryIndexedDB = createMemoryIndexedDB();
+
 import {
   getChatDraft,
   getChatDraftAttachments,
   getChatAttachError,
+  hydrateChatDraft,
   resetChatDrafts,
+  resetChatDraftsInMemoryForReload,
   saveChatDraftText,
   setChatAttachError,
   openChatAttachErrorScope,
   subscribeChatDraft,
   updateChatDraftAttachments,
 } from "./chatDraftStore";
+import { composerDraftPersistence } from "./composerDraftPersistence";
 
 const SOURCE = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), "chatDraftStore.ts"),
@@ -42,7 +112,14 @@ const SOURCE = readFileSync(
 const A = "m-aaa";
 const B = "m-bbb";
 
-beforeEach(() => resetChatDrafts());
+beforeEach(() => {
+  resetChatDrafts();
+  memoryIndexedDB.records.clear();
+  window.localStorage.clear();
+  vi.stubGlobal("indexedDB", memoryIndexedDB.factory);
+});
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("chatDraftStore", () => {
   it("keeps every room's draft, attachments and error to itself", () => {
@@ -73,6 +150,41 @@ describe("chatDraftStore", () => {
 
     expect(seenA).toBe(2);
     expect(seenB).toBe(0);
+  });
+
+  it("restores the reply target and selected excerpt after the in-memory store resets", () => {
+    saveChatDraftText(A, "回覆內容", "msg-1", "選取引用");
+
+    resetChatDraftsInMemoryForReload();
+
+    expect(getChatDraft(A)).toMatchObject({
+      text: "回覆內容",
+      replyTo: "msg-1",
+      replyExcerpt: "選取引用",
+    });
+  });
+
+  it("restores a staged attachment with its reply target after the in-memory store resets", async () => {
+    const attachment = {
+      key: "pa-a",
+      dataUri: "data:image/png;base64,AA==",
+      filename: "quote.png",
+      size: 1,
+      isImage: true,
+    };
+    saveChatDraftText(A, "回覆內容", "msg-1", "選取引用");
+    updateChatDraftAttachments(A, () => [attachment]);
+    await composerDraftPersistence.flush();
+
+    resetChatDraftsInMemoryForReload();
+    await hydrateChatDraft(A);
+
+    expect(getChatDraft(A)).toMatchObject({
+      text: "回覆內容",
+      replyTo: "msg-1",
+      replyExcerpt: "選取引用",
+      attachments: [attachment],
+    });
   });
 
   it("hands back one frozen empty list, so a subscriber does not re-render forever", () => {

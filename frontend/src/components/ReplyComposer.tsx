@@ -21,8 +21,10 @@ import { ChatMentionList } from "./ChatMentionList";
 import {
   ATTACH_ACCEPT,
   useAttachmentStaging,
+  persistentStagingTarget,
   STAGING_TARGET_PER_MOUNT,
 } from "../hooks/useAttachmentStaging";
+import { composerDraftPersistence } from "../lib/composerDraftPersistence";
 import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
 import { appendSuggestion, SuggestedReplies } from "./SuggestedReplies";
 import { useSuggestedRepliesReplyCard } from "../hooks/useSuggestedReplies";
@@ -30,11 +32,13 @@ import { PaperclipIcon, SendIcon } from "./icons";
 
 export function ReplyComposer({
   placeholder,
+  draftKey,
   hasSelection = false,
   sendNowRef,
   onSend,
 }: {
   placeholder: string;
+  draftKey?: string;
   /** Whether the card face has quick-reply options STAGED. This button is the
    * card's ONE send: the answer it fires carries the ticked options and the
    * typed text together, so a staged selection alone must be sendable even with
@@ -55,22 +59,23 @@ export function ReplyComposer({
   onSend: (body: string, attachments: ChatAttachmentInput[]) => Promise<void>;
 }) {
   const { t } = useI18n();
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(
+    () => (draftKey ? composerDraftPersistence.read(draftKey)?.text : undefined) ?? "",
+  );
   // Busy-latch while the answer POST is in flight: the send button disables so
   // a double Enter/click can never double-answer (the server would 409 the
   // second one — we just never fire it).
   const [sending, setSending] = useState(false);
   const {
     pendingAttachments,
+    isRestoring,
     attachError,
     onPaste,
     onPickFile,
     removeAttachment,
     clearAttachments,
   } = useAttachmentStaging(
-    // Mounted under a key that changes with the card/task it belongs to, so a
-    // switch UNMOUNTS this surface and nothing can outlive it (T-48, R9-1).
-    STAGING_TARGET_PER_MOUNT,
+    draftKey ? persistentStagingTarget(draftKey) : STAGING_TARGET_PER_MOUNT,
   );
   const fileInputRef = useRef<HTMLInputElement>(null);
   const draftRef = useRef<HTMLTextAreaElement>(null);
@@ -93,6 +98,7 @@ export function ReplyComposer({
   });
 
   const canSend =
+    !isRestoring &&
     !sending &&
     (hasSelection ||
       draft.trim().length > 0 ||
@@ -107,8 +113,13 @@ export function ReplyComposer({
     if (draftRef.current) autosizeTextarea(draftRef.current);
   }, [draft]);
 
+  useLayoutEffect(() => {
+    if (draftKey) composerDraftPersistence.saveText(draftKey, draft);
+  }, [draft, draftKey]);
+
   async function submit({ force = false }: { force?: boolean } = {}) {
     if (sending) return;
+    if (isRestoring) return;
     if (!force && !canSend) return;
     const body = draft.trim();
     const attachments: ChatAttachmentInput[] = pendingAttachments.map((a) => ({
@@ -121,6 +132,7 @@ export function ReplyComposer({
       // Success: the card leaves this pane (refetch) — clear for good measure.
       setDraft("");
       clearAttachments();
+      if (draftKey) void composerDraftPersistence.clear(draftKey);
     } catch {
       // Failure keeps the typed content; the CALLER surfaces the error notice
       // (this component has no error strip of its own).

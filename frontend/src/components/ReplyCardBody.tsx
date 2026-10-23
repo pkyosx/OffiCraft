@@ -48,6 +48,7 @@ import {
   useAttachmentLinkComments,
 } from "../hooks/useAttachmentOpener";
 import type { DocCommentRecipient } from "../lib/docComments";
+import { replyCardDraftStorageKey } from "../lib/composerDraftPersistence";
 import { AttachmentStrip } from "./AttachmentStrip";
 import { ReplyComposer } from "./ReplyComposer";
 import { MentionText } from "./MentionText";
@@ -393,6 +394,7 @@ export function ReplyCardWaitingBody({
       <ReplySelectionCount card={card} selected={selected} />
       <ReplyComposer
         placeholder={t.replies.inputPlaceholder}
+        draftKey={replyCardDraftStorageKey(card.id)}
         hasSelection={selected.length > 0}
         sendNowRef={sendNowRef}
         onSend={async (body, attachments) => {
@@ -535,6 +537,7 @@ export function ReplyCardAnsweredBody({
             <>
               <ReplyComposer
                 placeholder={t.replies.redecidePlaceholder}
+                draftKey={replyCardDraftStorageKey(card.id)}
                 hasSelection={selected.length > 0}
                 sendNowRef={sendNowRef}
                 onSend={(body, attachments) =>

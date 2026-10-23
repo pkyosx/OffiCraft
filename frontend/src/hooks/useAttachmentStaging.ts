@@ -12,7 +12,10 @@ import {
 } from "react";
 import { useI18n } from "../i18n";
 import { attachmentMimeForName, pastedImageName } from "../lib/attachmentMime";
-import { composerDraftPersistence } from "../lib/composerDraftPersistence";
+import {
+  chatDraftStorageKey,
+  composerDraftPersistence,
+} from "../lib/composerDraftPersistence";
 import {
   getChatAttachError,
   getChatDraftAttachments,
@@ -134,9 +137,8 @@ export interface AttachmentStaging {
   clearAttachments: () => void;
 }
 
-/** Where one surface's staged rows live. Two implementations, chosen by the
- * `target` overload the caller picked: a peer's slice of `chatDraftStore`, or a
- * list that dies with the mount. */
+/** Where one surface's staged rows live: a chat peer, a persistent draft key,
+ * or a list that dies with the mount. */
 interface StagingSlot {
   attachments: PendingAttachment[];
   isRestoring: boolean;
@@ -157,14 +159,18 @@ const NO_ROWS: PendingAttachment[] = [];
  * wired to nothing: no store key is subscribed and no snapshot is read, so this
  * slot is inert rather than quietly attached to a key nobody writes. */
 function useDraftStoreSlot(peerId: string | null): StagingSlot {
-  const [isRestoring, setIsRestoring] = useState(peerId !== null);
+  const [isRestoring, setIsRestoring] = useState(() =>
+    peerId !== null &&
+    (composerDraftPersistence.read(chatDraftStorageKey(peerId))?.attachmentKeys.length ?? 0) > 0,
+  );
   useEffect(() => {
     if (peerId === null) {
       setIsRestoring(false);
       return;
     }
     let active = true;
-    setIsRestoring(true);
+    const key = chatDraftStorageKey(peerId);
+    setIsRestoring((composerDraftPersistence.read(key)?.attachmentKeys.length ?? 0) > 0);
     void hydrateChatDraft(peerId).finally(() => {
       if (active) setIsRestoring(false);
     });
@@ -206,7 +212,10 @@ function useDraftStoreSlot(peerId: string | null): StagingSlot {
 
 function usePersistentSlot(draftKey: string | null): StagingSlot {
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
-  const [isRestoring, setIsRestoring] = useState(draftKey !== null);
+  const [isRestoring, setIsRestoring] = useState(() =>
+    draftKey !== null &&
+    (composerDraftPersistence.read(draftKey)?.attachmentKeys.length ?? 0) > 0,
+  );
   const [error, setError] = useState<string | null>(null);
   const latest = useRef<{ key: string | null; attachments: PendingAttachment[] }>({
     key: draftKey,
@@ -227,7 +236,7 @@ function usePersistentSlot(draftKey: string | null): StagingSlot {
         active = false;
       };
     }
-    setIsRestoring(true);
+    setIsRestoring((composerDraftPersistence.read(draftKey)?.attachmentKeys.length ?? 0) > 0);
     void composerDraftPersistence.loadAttachments(draftKey).then((restored) => {
       if (!active) return;
       const current = latest.current.key === draftKey
@@ -283,28 +292,20 @@ function useEphemeralSlot(): StagingSlot {
   };
 }
 
-/** 🔴 THE TYPE ASKS THE QUESTION BACK (T-48, R11-8, kept through R13-2).
- * `target: string` alone compiles for every caller and every mistake: pass a
- * task id where a peer id belongs and the files land in a room nobody will look
- * in. The two overloads put the choice back where the caller must answer it —
- *
- *   · a surface that is REMOUNTED with the thing it stages for says exactly
- *     that, by passing `STAGING_TARGET_PER_MOUNT`, and accepts that its staged
- *     files die with it;
- *   · a chat composer names the PEER, and its files are that peer's draft. */
+/** `target` chooses a chat peer, a durable draft key, or an ephemeral mount. */
 export function useAttachmentStaging(
   target: typeof STAGING_TARGET_PER_MOUNT,
 ): AttachmentStaging;
 export function useAttachmentStaging(target: PersistentStagingTarget): AttachmentStaging;
 export function useAttachmentStaging(target: string): AttachmentStaging;
 export function useAttachmentStaging(
+  target: typeof STAGING_TARGET_PER_MOUNT | PersistentStagingTarget,
+): AttachmentStaging;
+export function useAttachmentStaging(
   target: string | PersistentStagingTarget,
 ): AttachmentStaging {
   const { t } = useI18n();
-  // Both slots are built every render and one is used. `target` does not change
-  // over a mount's life at either kind of call site (the per-mount callers pass
-  // a literal; `ChatArea` is mounted under `key={peerId}`), so the choice is a
-  // constant and no hook is ever skipped.
+  // All slots are built every render and one is used; no hook is skipped.
   const persistentKey = typeof target === "object" ? target.draftKey : null;
   const perMount = typeof target === "string" && target === STAGING_TARGET_PER_MOUNT;
   const chatPeerId =

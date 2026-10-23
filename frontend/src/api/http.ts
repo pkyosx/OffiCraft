@@ -2429,7 +2429,7 @@ export const httpApi: Api = {
 
   async getVersion(): Promise<VersionView> {
     // GET /api/version -> VersionDTO.
-    const wire = unwrap(await client.GET("/api/version"));
+    const wire = unwrap(await client.GET("/api/version", { cache: "no-store" }));
     return toVersion(wire);
   },
 

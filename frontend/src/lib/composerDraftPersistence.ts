@@ -43,7 +43,7 @@ function createIndexedDbAttachmentStore(): ComposerDraftAttachmentStore {
 
   function open(): Promise<IDBDatabase> {
     if (database) return database;
-    database = new Promise((resolve, reject) => {
+    database = new Promise<IDBDatabase>((resolve, reject) => {
       if (typeof indexedDB === "undefined") {
         reject(new Error("IndexedDB is unavailable"));
         return;
@@ -60,7 +60,7 @@ function createIndexedDbAttachmentStore(): ComposerDraftAttachmentStore {
       database = undefined;
       throw error;
     });
-    return database;
+    return database!;
   }
 
   return {

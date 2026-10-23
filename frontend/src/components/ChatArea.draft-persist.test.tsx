@@ -7,9 +7,8 @@
 //   • the compose seed (T-e987) still only injects into a genuinely-empty
 //     restored draft, and never clobbers a restored non-empty draft.
 //
-// The persistence layer is an in-memory module store (lib/chatDraftStore), so it
-// survives an unmount/remount but NOT a full page reload — the owner's scenario
-// is跳頁, not reload. These tests drive the unmount/remount path directly.
+// The component tests replace the browser stores with isolated memory stores;
+// clearing chatDraftStore's module state between mounts models a page reload.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, render, fireEvent, waitFor } from "@testing-library/react";
@@ -17,7 +16,11 @@ import { I18nProvider } from "../i18n";
 import { ChatArea } from "./ChatArea";
 import type { Member } from "../types";
 import type { ChatMessage } from "../api/adapter";
-import { getChatDraft, resetChatDrafts } from "../lib/chatDraftStore";
+import {
+  getChatDraft,
+  resetChatDrafts,
+  resetChatDraftsInMemoryForReload,
+} from "../lib/chatDraftStore";
 
 let messages: ChatMessage[] = [];
 const send = vi.fn(() => Promise.resolve());
@@ -126,6 +129,8 @@ const attachErrorText = (c: HTMLElement) =>
 const draftNames = (peerId: string) =>
   (getChatDraft(peerId)?.attachments ?? []).map((a) => a.filename);
 
+afterEach(() => vi.unstubAllGlobals());
+
 describe("ChatArea draft survival", () => {
   const m1 = mkMember("m1", "Mira");
 
@@ -133,6 +138,7 @@ describe("ChatArea draft survival", () => {
     messages = [];
     send.mockClear();
     resetChatDrafts();
+    window.localStorage.clear();
     Element.prototype.scrollIntoView = vi.fn();
   });
 
@@ -161,16 +167,50 @@ describe("ChatArea draft survival", () => {
     await waitFor(() => expect(send).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(input(first.container).value).toBe(""));
     first.unmount();
+    resetChatDrafts();
 
     const back = renderChat(m1);
     expect(input(back.container).value).toBe("");
     expect(previewCount(back.container)).toBe(0);
   });
 
-  it("clears the draft when the composer is manually emptied", () => {
+  it("restores typed text after a full page reload", () => {
+    const first = renderChat(m1);
+    fireEvent.change(input(first.container), { target: { value: "整頁重載前的草稿" } });
+
+    first.unmount();
+    resetChatDraftsInMemoryForReload();
+    const afterReload = renderChat(m1);
+
+    expect(input(afterReload.container).value).toBe("整頁重載前的草稿");
+  });
+
+  it("keeps chat input, attachment preview, and send usable when IndexedDB is unavailable", async () => {
+    vi.stubGlobal("indexedDB", undefined);
+    const view = renderChat(m1);
+    fireEvent.change(input(view.container), { target: { value: "仍可送出的聊天訊息" } });
+    fireEvent.change(
+      view.container.querySelector(".chat__file-input") as HTMLInputElement,
+      { target: { files: [pngFile("chat.png")] } },
+    );
+    await waitFor(() => expect(previewCount(view.container)).toBe(1));
+    expect(input(view.container).value).toBe("仍可送出的聊天訊息");
+
+    fireEvent.click(view.container.querySelector(".chat__send") as HTMLElement);
+
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+    const [body, attachments] = send.mock.calls[0] as unknown as [string, { filename?: string }[]];
+    expect(body).toBe("仍可送出的聊天訊息");
+    expect(attachments.map((item) => item.filename)).toEqual(["chat.png"]);
+  });
+
+  it("clears the draft when the composer is manually emptied", async () => {
     const first = renderChat(m1);
     fireEvent.change(input(first.container), { target: { value: "先打再刪" } });
     fireEvent.change(input(first.container), { target: { value: "" } });
+    expect(input(first.container).value).toBe("");
+    expect(window.localStorage.getItem("oc.composerDraft.v1.chat%3Am1")).toBeNull();
+    expect(getChatDraft("m1")).toBeUndefined();
     first.unmount();
 
     const back = renderChat(m1);
@@ -331,6 +371,8 @@ describe("ChatArea draft survival", () => {
     fireEvent.click(first.container.querySelector(".chat__send") as HTMLElement);
     // Optimistically cleared, and the draft with it.
     await waitFor(() => expect(input(first.container).value).toBe(""));
+    expect(window.localStorage.getItem("oc.composerDraft.v1.chat%3Am1")).toBeNull();
+    expect(getChatDraft("m1")).toBeUndefined();
 
     // 跳頁 and back while the POST is still in flight: a NEW composer, empty.
     first.unmount();
