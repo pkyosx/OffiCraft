@@ -11,26 +11,33 @@ import {
 
 const label = (codename: string) => `外包 · ${codename}`;
 
-function staff(id: string, name: string, roleName: string, kind = "staff"): Member {
-  return { id, name, roleName, kind } as Member;
+function staff(id: string, name: string, roleName: string, kind = "staff", role = "custom"): Member {
+  return { id, name, roleName, kind, role } as Member;
 }
+const roleLabel = (m: Member) => (m.role === "assistant" ? "特助" : m.roleName ?? "");
 function worker(over: Partial<OutsourceWorkerView>): OutsourceWorkerView {
   return { id: "ow-1", codename: "O-7", model: "", effort: "", taskId: "", ...over };
 }
 
 describe("mentionCandidates", () => {
-  it("staff (not wardens) then outsource; task shown only for a live worker with a task number", () => {
+  it("assistant first, other staff as listed (not wardens), then outsource; role from the label; task shown only for a live worker with a task number", () => {
     const got = mentionCandidates(
-      [staff("m-1", "Mira", "助理"), staff("w-1", "Warden", "", "warden")],
+      [
+        staff("m-2", "Atlas", "記帳員"),
+        staff("m-1", "Mira", "Assistant", "staff", "assistant"),
+        staff("w-1", "Warden", "", "warden"),
+      ],
       [
         worker({ id: "ow-a", codename: "O-7", status: "active", taskNo: "T-492", taskTitle: "修聊天" }),
         worker({ id: "ow-b", codename: "S-3", status: "released", taskNo: "T-100", taskTitle: "舊票" }),
         worker({ id: "ow-c", codename: "H-1", status: "assigned", taskNo: "", taskTitle: "" }),
       ],
       label,
+      roleLabel,
     );
     expect(got).toEqual([
-      { kind: "member", id: "m-1", name: "Mira", roleName: "助理" },
+      { kind: "member", id: "m-1", name: "Mira", roleName: "特助" },
+      { kind: "member", id: "m-2", name: "Atlas", roleName: "記帳員" },
       { kind: "worker", id: "ow-a", name: "外包 · O-7", taskNo: "T-492", taskTitle: "修聊天" },
       { kind: "worker", id: "ow-b", name: "外包 · S-3" },
       { kind: "worker", id: "ow-c", name: "外包 · H-1" },

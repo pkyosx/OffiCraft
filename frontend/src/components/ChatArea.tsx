@@ -774,8 +774,14 @@ export function ChatArea({
   const pendingCaretRef = useRef<number | null>(null);
   const mentionListId = useId();
   const mentionPool = useMemo(
-    () => mentionCandidates(members, workers, msg.outsourceLabel),
-    [members, workers, msg],
+    () =>
+      mentionCandidates(
+        members,
+        workers,
+        msg.outsourceLabel,
+        (m) => (t.office.role as Record<string, string>)[m.role] ?? (m.roleName || ""),
+      ),
+    [members, workers, msg, t],
   );
   const mentionQuery =
     mentionCaret === null ? null : activeMentionQuery(draft, mentionCaret);

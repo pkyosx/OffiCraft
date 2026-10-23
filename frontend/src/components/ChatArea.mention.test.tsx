@@ -15,11 +15,11 @@ vi.mock("../hooks/useChat", () => ({
 let mobile = false;
 vi.mock("../hooks/useIsMobile", () => ({ useIsMobile: () => mobile }));
 
-function mkMember(id: string, name: string, roleName: string, kind = "staff"): Member {
+function mkMember(id: string, name: string, roleName: string, kind = "staff", role = "custom"): Member {
   return {
     id,
     name,
-    role: "assistant",
+    role,
     roleName,
     status: "online",
     lifecycle: "online",
@@ -42,7 +42,7 @@ function mkMember(id: string, name: string, roleName: string, kind = "staff"): M
   };
 }
 
-const mira = mkMember("m1", "Mira", "助理");
+const mira = mkMember("m1", "Mira", "Assistant", "staff", "assistant");
 const eva = mkMember("m-eva", "Family Money Eva", "財務");
 const warden = mkMember("w-1", "Warden", "", "warden");
 const o7: OutsourceWorkerView = {
@@ -93,12 +93,12 @@ afterEach(() => {
 });
 
 describe("ChatArea @mention picker", () => {
-  it("typing @ → lists staff (not wardens) with role, and outsource with task number and title", () => {
+  it("typing @ → lists staff (not wardens) with the same role label as the office list, and outsource with task number and title", () => {
     const { input, list, options, type } = renderChat();
     expect(list()).toBeNull();
     type("hi @");
     expect(options()).toEqual([
-      "Mira助理",
+      "Mira特助",
       "Family Money Eva財務",
       "外包 · O-7T-492Fix chat mention list",
       "外包 · S-3",
@@ -182,7 +182,7 @@ describe("ChatArea @mention picker", () => {
     fireEvent.keyDown(input, { key: "Enter", keyCode: 229 });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(input.value).toBe("@mir");
-    expect(options()).toEqual(["Mira助理"]);
+    expect(options()).toEqual(["Mira特助"]);
   });
 
   it("phone: Enter while open → picks (prevented, so no newline) and does not send", () => {

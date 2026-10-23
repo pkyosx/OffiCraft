@@ -24,15 +24,16 @@ export function mentionCandidates(
   members: Member[],
   workers: OutsourceWorkerView[],
   outsourceLabel: (codename: string) => string,
+  roleLabel: (member: Member) => string,
 ): MentionCandidate[] {
   const staff: MentionCandidate[] = members
     .filter((m) => m.kind === "staff")
-    .map((m) => ({
-      kind: "member",
-      id: m.id,
-      name: m.name,
-      ...(m.roleName ? { roleName: m.roleName } : {}),
-    }));
+    // Same order as the office rail: the seed assistant first, the rest as listed.
+    .sort((a, b) => (a.role === "assistant" ? 0 : 1) - (b.role === "assistant" ? 0 : 1))
+    .map((m) => {
+      const roleName = roleLabel(m);
+      return { kind: "member", id: m.id, name: m.name, ...(roleName ? { roleName } : {}) };
+    });
   const outsource: MentionCandidate[] = workers.map((w) => {
     // Same allowlist as the 請示卡 header: a released worker keeps its last
     // task_no, which is a record of finished work, not what it is doing now.
