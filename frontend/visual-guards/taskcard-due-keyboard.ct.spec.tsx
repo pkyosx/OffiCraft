@@ -71,3 +71,19 @@ test("清除 after a typed edit saves only the clear", async ({ mount, page }) =
   await cmp.getByTestId("task-due-clear").click();
   expect(await saves(page)).toEqual([null]);
 });
+
+test("clicking the chip again closes the popover for good and saves once", async ({
+  mount,
+  page,
+}) => {
+  const cmp = await mount(<TaskCardDueStory />);
+  const chip = cmp.getByTestId("task-due");
+  await chip.click();
+  await cmp.getByTestId("task-due-input").focus();
+  await page.keyboard.type("11");
+  await chip.click();
+  await expect(cmp.getByTestId("task-due-pop")).toHaveCount(0);
+  await page.waitForTimeout(100);
+  await expect(cmp.getByTestId("task-due-pop")).toHaveCount(0);
+  expect(await saves(page)).toEqual([await endOfDay(page, 2099, 11, 30)]);
+});

@@ -191,6 +191,7 @@ describe("TaskCard", () => {
     ).toBe("2026-10-30");
     const clear = screen.getByTestId("task-due-clear");
     expect(clear.textContent).toBe("清除");
+    expect(fireEvent.mouseDown(clear)).toBe(false);
     fireEvent.click(clear);
     expect(onSetDue).toHaveBeenCalledTimes(1);
     expect(onSetDue).toHaveBeenCalledWith("task-1", null);
