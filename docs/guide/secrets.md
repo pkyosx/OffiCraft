@@ -31,7 +31,7 @@
 
 在聊天或任務裡告訴成員要用哪一筆。最明確的方式是直接給 ID，例如：
 
-> 用密鑰 sec-0123456789ab 發布這個套件到 npm。
+> 用密鑰 sec-aaaaaaaaaaaa 發布這個套件到 npm。
 
 沒給 ID 時，成員會依名稱和備註找出對應的該筆；判斷不出是哪一筆時，會開請示卡請你指定。成員使用前會先讀備註，所以有使用限制就寫在備註裡。
 
@@ -51,7 +51,7 @@
 例如：
 
 ```
-ocagent secret run --env NPM_TOKEN=sec-0123456789ab -- npm publish
+ocagent secret run --env NPM_TOKEN=sec-aaaaaaaaaaaa -- npm publish
 ```
 
 `run` 一次最多指定 16 筆不同的密鑰；只要有一個 ID 不存在，指令就不會執行。`write` 預設不覆蓋已存在的檔案。各子命令的完整參數與結束碼，可在成員的 session 裡執行 `ocagent secret --help` 查看。
