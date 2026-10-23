@@ -131,6 +131,23 @@ The Codex member boot sequence changes only execution ownership:
    the account's `tokens` (`POST /api/monitoring/telemetry`): the sidecar keeps the latest
    cumulative `total` of every thread seen this session, main and sub-agents, kept after
    a thread ends, and reports the per-key sum (owner ruling).
+   Codex writes a finished sub-agent's result into its parent's history but never starts
+   a parent turn for it, so an idle parent would sit on the result until some other input
+   woke it. When a sub-agent thread's `turn/completed` arrives, the sidecar therefore
+   sends one `turn/start` on that sub-agent's parent, a fixed sidecar-authored line saying
+   a sub-agent finished and to continue from its result — but only if the parent is idle.
+   A parent with a turn running, or already starting one (including an earlier wake not
+   yet seen as `turn/started`), gets nothing: the result reaches its running turn
+   natively, so several children ending together cost one wake and nobody is
+   interrupted. The parent is the thread that declared the spawn — the
+   `collabAgentToolCall` `spawnAgent` item's `senderThreadId` (multi-agent v1) or the
+   thread carrying the `subAgentActivity` item (v2) — and no recorded parent means the
+   main thread. Nesting follows from the same rule: a grandchild wakes its idle
+   intermediate sub-agent, and that sub-agent's own end wakes the main thread. A main-thread
+   wake is an ordinary delivery without a listener batch, so OffiCraft events arriving
+   meanwhile wait for and steer the woken turn; a sub-agent-thread wake carries no
+   `effort` (it would override the one the sub-agent was spawned with) and never touches
+   the main thread's delivery state. A refused wake is logged in the pane and dropped.
 
 ### Context compaction and refocus
 

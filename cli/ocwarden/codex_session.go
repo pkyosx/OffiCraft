@@ -157,9 +157,11 @@ type codexSession struct {
 	busySince        float64
 	runningSubagents map[string]float64
 	// Sub-agent threads that have started a turn, kept across their turns
-	// until forgetFinishedSubagents drops their name and parent.
-	subagentsSeen      map[string]bool
-	subagentNames      map[string]string
+	// until forgetFinishedSubagents drops their name.
+	subagentsSeen map[string]bool
+	subagentNames map[string]string
+	// A missing entry means the main thread. Never forgotten: a finished
+	// sub-agent woken again later must still wake the thread that spawned it.
 	subagentParent     map[string]string
 	lastActivity       string
 	threadTokenTotals  map[string]map[string]any
@@ -170,6 +172,12 @@ type codexSession struct {
 	pending  map[int]*codexDelivery
 	batch    *codexBatch
 	ackTo    io.Writer
+
+	// Sub-agent threads sent a wake whose turn has not started yet, and the
+	// request id of each such turn/start. The main thread's wake rides
+	// starting/pending instead.
+	wakingSubagents map[string]bool
+	subagentWakes   map[int]string
 }
 
 type codexDelivery struct {
@@ -416,6 +424,10 @@ func (s *codexSession) track(id int, d *codexDelivery) {
 }
 
 func (s *codexSession) resolveResponse(id int, msg appServerMessage) {
+	if thread, ok := s.subagentWakes[id]; ok {
+		s.resolveSubagentWake(id, thread, msg)
+		return
+	}
 	d, ok := s.pending[id]
 	if !ok {
 		return
@@ -647,22 +659,33 @@ func (s *codexSession) trackActivity(method string, params map[string]any) {
 		delete(s.runningSubagents, threadID)
 	case "item/started", "item/completed":
 		item, _ := params["item"].(map[string]any)
-		if item == nil || item["type"] != "subAgentActivity" {
+		switch {
+		case item == nil:
 			return
-		}
-		agentThreadID, _ := item["agentThreadId"].(string)
-		agentPath, _ := item["agentPath"].(string)
-		name := agentPath[strings.LastIndex(agentPath, "/")+1:]
-		if agentThreadID == "" || name == "" {
+		// Multi-agent v1 declares a spawn only through this item; v2 through subAgentActivity.
+		case item["type"] == "collabAgentToolCall" && item["tool"] == "spawnAgent":
+			sender, _ := item["senderThreadId"].(string)
+			receivers, _ := item["receiverThreadIds"].([]any)
+			for _, raw := range receivers {
+				if child, _ := raw.(string); child != "" {
+					s.recordSubagentParent(child, sender)
+				}
+			}
+		case item["type"] == "subAgentActivity":
+			agentThreadID, _ := item["agentThreadId"].(string)
+			agentPath, _ := item["agentPath"].(string)
+			name := agentPath[strings.LastIndex(agentPath, "/")+1:]
+			if agentThreadID == "" || name == "" {
+				return
+			}
+			if s.subagentNames == nil {
+				s.subagentNames = map[string]string{}
+			}
+			s.subagentNames[agentThreadID] = name
+			parent, _ := params["threadId"].(string)
+			s.recordSubagentParent(agentThreadID, parent)
+		default:
 			return
-		}
-		if s.subagentNames == nil {
-			s.subagentNames = map[string]string{}
-			s.subagentParent = map[string]string{}
-		}
-		s.subagentNames[agentThreadID] = name
-		if parent, _ := params["threadId"].(string); parent != "" && parent != s.threadID && parent != agentThreadID {
-			s.subagentParent[agentThreadID] = parent
 		}
 	default:
 		return
@@ -672,9 +695,19 @@ func (s *codexSession) trackActivity(method string, params map[string]any) {
 	}
 }
 
+func (s *codexSession) recordSubagentParent(child, parent string) {
+	if parent == "" || parent == s.threadID || parent == child {
+		return
+	}
+	if s.subagentParent == nil {
+		s.subagentParent = map[string]string{}
+	}
+	s.subagentParent[child] = parent
+}
+
 // At either end of a main turn: a finished sub-agent a later main turn wakes
 // again is named afresh. One whose own child is still running is waiting on
-// it, not finished, and keeps its name and parent.
+// it, not finished, and keeps its name.
 func (s *codexSession) forgetFinishedSubagents() {
 	waiting := map[string]bool{}
 	for id := range s.runningSubagents {
@@ -686,7 +719,6 @@ func (s *codexSession) forgetFinishedSubagents() {
 		if _, running := s.runningSubagents[id]; !running && !waiting[id] {
 			delete(s.subagentsSeen, id)
 			delete(s.subagentNames, id)
-			delete(s.subagentParent, id)
 		}
 	}
 }
@@ -785,6 +817,8 @@ func (s *codexSession) isMainThread(params map[string]any) bool {
 
 func (s *codexSession) handleTurnStarted(params map[string]any) {
 	if !s.isMainThread(params) {
+		threadID, _ := params["threadId"].(string)
+		delete(s.wakingSubagents, threadID)
 		return
 	}
 	s.active = true
@@ -795,6 +829,8 @@ func (s *codexSession) handleTurnStarted(params map[string]any) {
 // Reports whether the turn that ended was the main thread's.
 func (s *codexSession) handleTurnCompleted(params map[string]any) bool {
 	if !s.isMainThread(params) {
+		threadID, _ := params["threadId"].(string)
+		s.wakeIdleParent(threadID)
 		return false
 	}
 	s.active = false
@@ -802,6 +838,47 @@ func (s *codexSession) handleTurnCompleted(params map[string]any) bool {
 	s.activity("turn completed")
 	s.recordTurnOutcome(params)
 	return true
+}
+
+// Codex puts a finished sub-agent's result into its parent's history but never
+// starts a turn for it, so an idle parent would not see it until something else
+// woke it. A busy parent needs nothing: the result lands in its running turn.
+func (s *codexSession) wakeIdleParent(child string) {
+	parent := s.subagentParent[child]
+	if parent == "" {
+		if s.active || s.starting {
+			return
+		}
+		s.activity("a sub-agent finished; waking the main thread")
+		s.startTurn(codexSubagentFinishedWake, nil)
+		return
+	}
+	if _, running := s.runningSubagents[parent]; running || s.wakingSubagents[parent] {
+		return
+	}
+	s.activity("a sub-agent finished; waking its parent sub-agent %s", parent)
+	// No effort: on a sub-agent thread it would override the effort it was spawned with.
+	id := s.send("turn/start", map[string]any{
+		"threadId": parent,
+		"input":    []any{map[string]any{"type": "text", "text": codexSubagentFinishedWake}},
+	})
+	if s.wakingSubagents == nil {
+		s.wakingSubagents = map[string]bool{}
+		s.subagentWakes = map[int]string{}
+	}
+	s.wakingSubagents[parent] = true
+	s.subagentWakes[id] = parent
+}
+
+func (s *codexSession) resolveSubagentWake(id int, thread string, msg appServerMessage) {
+	delete(s.subagentWakes, id)
+	problem, failed := msg["error"].(map[string]any)
+	if !failed {
+		return
+	}
+	delete(s.wakingSubagents, thread)
+	s.activity("⚠️ 叫不醒 sub-agent %s（%v）— 它底下 sub-agent 的結果要等它下次有一輪時才會看到",
+		thread, problem["message"])
 }
 
 // An interrupted turn counts as neither a success nor a failure.
@@ -1210,6 +1287,8 @@ func actionableCodexListenerLine(line string) bool {
 // than copying the owner's boot document, which moves.
 const codexPostBootWake = "[OffiCraft sidecar] 你的事件流（SSE）已經接上了。" +
 	"請接著做開機說明裡「接上 SSE 之後」的那些步驟（盤點你手上還沒結束的任務並開始推進）。"
+
+const codexSubagentFinishedWake = "[OffiCraft sidecar] 你叫起的一個 sub-agent 已經結束，它的結果已經在對話裡，請接著它的結果繼續做。"
 
 func runCodexSession(argv []string, env func(string) string, out io.Writer) int {
 	fs := flag.NewFlagSet("ocwarden codex-session", flag.ContinueOnError)
