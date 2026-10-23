@@ -286,8 +286,9 @@ function ExternalOrDiffLink({ href, label }: { href: string; label: string }) {
 }
 
 /** A `/#office/member|worker/<id>` link. Inside a chat room it becomes the
- * in-app mention (or bare text when the room no longer knows the id); anywhere
- * else it is the same anchor any other same-origin path gets. */
+ * in-app mention under the roster's name (or the written label as bare text
+ * when the room no longer knows the id); anywhere else it is the same anchor
+ * any other same-origin path gets. */
 function MentionOrLink({
   href,
   label,
@@ -299,16 +300,16 @@ function MentionOrLink({
 }) {
   const openMention = useMentionOpener();
   if (openMention === null) return <ExternalOrDiffLink href={href} label={label} />;
-  const open = openMention(target);
-  if (open === null) return <>{label}</>;
+  const known = openMention(target);
+  if (known === null) return <>{label}</>;
   return (
     <button
       type="button"
       className="md-mention"
       data-mention-kind={target.kind}
-      onClick={open}
+      onClick={known.open}
     >
-      {label}
+      @{known.name}
     </button>
   );
 }

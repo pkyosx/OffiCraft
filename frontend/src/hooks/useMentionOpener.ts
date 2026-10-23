@@ -9,9 +9,16 @@
 import { createContext, useContext } from "react";
 import type { MentionTarget } from "../lib/mentionLinks";
 
-/** Returns the navigation for a target the room knows, or null when it does
- * not (a released outsource worker, a removed member). */
-export type MentionOpener = (target: MentionTarget) => (() => void) | null;
+export interface KnownMention {
+  /** The roster's current display name, drawn instead of the label the
+   * message carries so a link cannot read as one person and open another. */
+  name: string;
+  open: () => void;
+}
+
+/** Returns the target as the room knows it, or null when it does not (a
+ * released outsource worker, a removed member). */
+export type MentionOpener = (target: MentionTarget) => KnownMention | null;
 
 export const MentionOpenerContext = createContext<MentionOpener | null>(null);
 

@@ -77,7 +77,7 @@ custom 不讀 hour、minute、day_of_week、day_of_month，也不把自己摘要
 
 ChatArea、ReplyComposer、TaskCard 訊息框都是 textarea，送出決策只由 lib/composerKeys.ts 的 enterShouldSend 提供：桌面 Enter 送出、Shift+Enter 換行；手機 Enter 換行、按鈕送出；IME composing 永不送出。autosize 上限 132px，超出由 textarea 自己捲動。
 
-聊天 composer 的 @ 提及清單開著時，Enter／Tab 是「選這一列」（桌面與手機都是），不送出也不換行；IME composing 的判準與送出共用 `isImeComposingKey`；Esc 要 preventDefault，否則 escapeLayers 會連宿主面一起關。草稿與送出失敗的還原一律存使用者打的 `@名字` 原文；只有送出的那份 body 經 `lib/mentionLinks.ts` 的 `linkMentions` 轉成 `[@名字](/#office/member|worker/<id>)`。那種連結只有在 ChatArea 以 `MentionOpenerContext` 包住的訊息本文裡才畫成可點的名字，id 不在目前名冊（例如已釋出的外包）就只畫文字；其他 Markdown 面沒有 provider，照舊是普通同源連結。提及不通知任何人。
+聊天 composer 的 @ 提及清單開著時，Enter／Tab 是「選這一列」（桌面與手機都是），不送出也不換行；IME composing 的判準與送出共用 `isImeComposingKey`；Esc 要 preventDefault，否則 escapeLayers 會連宿主面一起關。草稿與送出失敗的還原一律存使用者打的 `@名字` 原文；只有送出的那份 body 經 `lib/mentionLinks.ts` 的 `linkMentions` 轉成 `[@名字](/#office/member|worker/<id>)`。那種連結只有在 ChatArea 以 `MentionOpenerContext` 包住的訊息本文與放大閱讀裡才畫成可點的名字，顯示的是名冊上現在的名字、不是訊息裡寫的那段字（連結不能看起來是一個人、點開是另一個人）；id 不在目前名冊（例如已釋出的外包）就只畫訊息裡寫的字。放大閱讀那一份點下去要先關掉覆蓋層再導頁，否則成員詳情開在覆蓋層底下。其他 Markdown 面沒有 provider，照舊是普通同源連結。只畫純文字的面（訊息列的引用、回覆橫幅、新訊息預覽列）用 `unlinkMentions` 還原成 `@名字`；那只是顯示，存的與送的不動。續接摘要的引用刻意不轉，那一行是 agent 讀到的原文。提及不通知任何人。
 
 ## 回覆卡
 

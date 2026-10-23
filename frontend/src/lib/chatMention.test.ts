@@ -99,10 +99,28 @@ describe("filterMentionCandidates", () => {
 });
 
 describe("insertMention", () => {
-  it("replaces @query with @name and a space, caret after the space", () => {
-    expect(insertMention("hi @mi there", { start: 3, query: "mi" }, "Mira")).toEqual({
-      text: "hi @Mira  there",
+  it("query at the end → @name and a space, caret after the space", () => {
+    expect(insertMention("hi @mi", { start: 3, query: "mi" }, "Mira")).toEqual({
+      text: "hi @Mira ",
       caret: 9,
+    });
+  });
+
+  it("query followed by a space → reuses it (no double space), caret after it", () => {
+    expect(insertMention("hi @mi there", { start: 3, query: "mi" }, "Mira")).toEqual({
+      text: "hi @Mira there",
+      caret: 9,
+    });
+  });
+
+  it("query followed by a line break or other character → space inserted before it", () => {
+    expect(insertMention("@mi\nnext", { start: 0, query: "mi" }, "Mira")).toEqual({
+      text: "@Mira \nnext",
+      caret: 6,
+    });
+    expect(insertMention("@mi,ok", { start: 0, query: "mi" }, "Mira")).toEqual({
+      text: "@Mira ,ok",
+      caret: 6,
     });
   });
 });

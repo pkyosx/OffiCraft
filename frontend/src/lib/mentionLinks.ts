@@ -40,6 +40,15 @@ function escapeLabel(name: string): string {
   return name.replace(/[\\[\]]/g, "\\$&");
 }
 
+function unescapeLabel(label: string): string {
+  return label.replace(/\\([\\[\]])/g, "$1");
+}
+
+const MENTION_LINK_RE = /\[@((?:\\.|[^\]\\])+)\]\(([^)\s]+)\)/g;
+// The server cuts a quote line at a rune cap and appends "…", which can land
+// inside a mention link's destination.
+const CUT_MENTION_LINK_RE = /\[@((?:\\.|[^\]\\])+)\]\(\/#office\/[^)\s]*…$/;
+
 function linkLine(line: string, byLongest: NamedMentionTarget[]): string {
   const ranges: Array<[number, number]> = [];
   for (const m of line.matchAll(PROTECTED_RE)) {
@@ -96,4 +105,16 @@ export function linkMentions(text: string, targets: NamedMentionTarget[]): strin
       return inFence ? line : linkLine(line, byLongest);
     })
     .join("\n");
+}
+
+/** The plain-text reading of a body `linkMentions` wrote: every mention link
+ * becomes the `@name` it was written from. For views that show a body as text
+ * rather than Markdown; never for what is stored or sent. */
+export function unlinkMentions(text: string): string {
+  if (!text.includes("[@")) return text;
+  return text
+    .replace(MENTION_LINK_RE, (whole, label: string, href: string) =>
+      mentionTargetFromHref(href) ? `@${unescapeLabel(label)}` : whole,
+    )
+    .replace(CUT_MENTION_LINK_RE, (_whole, label: string) => `@${unescapeLabel(label)}…`);
 }

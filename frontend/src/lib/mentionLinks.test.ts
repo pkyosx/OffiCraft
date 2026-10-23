@@ -3,6 +3,7 @@ import {
   linkMentions,
   mentionHref,
   mentionTargetFromHref,
+  unlinkMentions,
   type NamedMentionTarget,
 } from "./mentionLinks";
 
@@ -76,7 +77,36 @@ describe("mentionTargetFromHref", () => {
     expect(mentionTargetFromHref("/#tasks/T-1")).toBeNull();
   });
 
-  it("round-trips what mentionHref writes", () => {
+  it("what mentionHref writes → parses back to the same target, id encoding included", () => {
     expect(mentionHref({ kind: "worker", id: "ow-o7" })).toBe("/#office/worker/ow-o7");
+    expect(mentionTargetFromHref(mentionHref({ kind: "worker", id: "ow-o7" }))).toEqual({
+      kind: "worker",
+      id: "ow-o7",
+    });
+    expect(mentionHref({ kind: "member", id: "a b/c" })).toBe("/#office/member/a%20b%2Fc");
+    expect(mentionTargetFromHref(mentionHref({ kind: "member", id: "a b/c" }))).toEqual({
+      kind: "member",
+      id: "a b/c",
+    });
+  });
+});
+
+describe("unlinkMentions", () => {
+  it("what linkMentions wrote → the @name text it was written from", () => {
+    const typed = "@Family Money Eva 請和 @外包 · O-7 對一下 @A[1]";
+    const odd: NamedMentionTarget = { kind: "member", id: "m-odd", name: "A[1]" };
+    expect(unlinkMentions(linkMentions(typed, [...ALL, odd]))).toBe(typed);
+  });
+
+  it("links to other destinations → left as written", () => {
+    expect(unlinkMentions("[@doc](https://example.com) [@x](/#tasks/T-1) [see](/#office/member/m-1)")).toBe(
+      "[@doc](https://example.com) [@x](/#tasks/T-1) [see](/#office/member/m-1)",
+    );
+  });
+
+  it("a quote cut by the server inside a mention's destination → @name and the ellipsis", () => {
+    expect(unlinkMentions("看一下 [@Mira](/#office/member/m-1) 和 [@Family](/#office/mem…")).toBe(
+      "看一下 @Mira 和 @Family…",
+    );
   });
 });

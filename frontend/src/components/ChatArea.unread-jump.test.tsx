@@ -581,6 +581,27 @@ describe("① 回到最新箭頭 + ② 新訊息預覽列", () => {
     expect(markRead).toHaveBeenCalledWith(1004);
   });
 
+  it("scrolled up + new inbound carrying a mention link → the strip shows it as plain @name", () => {
+    messages = [mkMsg("c1", "b", "owner", 1000)];
+    const { container, rerender } = renderChat(0);
+    const list = container.querySelector(".chat__messages")!;
+    setScrollGeometry(list, { scrollHeight: 1000, clientHeight: 200, scrollTop: 100 });
+    fireEvent.scroll(list);
+
+    messages = [
+      ...messages,
+      { ...mkMsg("c2", "b", "owner", 1001), body: "[@Beto](/#office/member/b) 看一下" },
+    ];
+    rerender(
+      <I18nProvider>
+        <ChatArea member={mkMember(0)} members={[mkMember(0)]} />
+      </I18nProvider>,
+    );
+    expect(
+      container.querySelector(".chat__new-msg__body")?.textContent,
+    ).toBe("@Beto 看一下");
+  });
+
   it("at the bottom + new inbound → auto-follows, NO strip and NO arrow", () => {
     messages = [mkMsg("c1", "b", "owner", 1000)];
     const { container, rerender } = renderChat(0);

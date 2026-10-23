@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, fireEvent, act } from "@testing-library/react";
+import { render, fireEvent, act, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { ChatArea } from "./ChatArea";
 import type { Member } from "../types";
@@ -224,13 +224,13 @@ describe("ChatArea @mention picker", () => {
 });
 
 describe("ChatArea mention links in message bodies", () => {
-  it("known member → button opening their detail over this chat; released worker → plain label", () => {
+  it("known member → button with their roster name opening their detail over this chat; released worker → written label", () => {
     messages = [
       {
         id: "c-1",
         from: "m1",
         to: "owner",
-        body: "問 [@Family Money Eva](/#office/member/m-eva) 和 [@外包 · O-9](/#office/worker/ow-9)",
+        body: "問 [@Eva 舊名](/#office/member/m-eva) 和 [@外包 · O-9](/#office/worker/ow-9)",
         ts: 1000,
         attachments: [],
         replyCardId: null,
@@ -246,20 +246,89 @@ describe("ChatArea mention links in message bodies", () => {
     expect(window.location.hash).toBe("#office/chat/m1/member/m-eva");
   });
 
-  it("live outsource worker link → opens the worker detail over this chat", () => {
+  it("live outsource worker link → shows its outsource label and opens the worker detail over this chat", () => {
     messages = [
       {
         id: "c-2",
         from: "owner",
         to: "m1",
-        body: "[@外包 · O-7](/#office/worker/ow-7)",
+        body: "[@O-7](/#office/worker/ow-7)",
         ts: 1000,
         attachments: [],
         replyCardId: null,
       },
     ];
     const { container } = renderChat();
-    fireEvent.click(container.querySelector("button.md-mention")!);
+    const button = container.querySelector("button.md-mention")!;
+    expect(button.textContent).toBe("@外包 · O-7");
+    fireEvent.click(button);
     expect(window.location.hash).toBe("#office/chat/m1/worker/ow-7");
+  });
+
+  it("reply quote line and reply banner → mention links shown as plain @name", () => {
+    messages = [
+      {
+        id: "c-1",
+        from: "m1",
+        to: "owner",
+        body: "[@Family Money Eva](/#office/member/m-eva) 看一下",
+        ts: 1000,
+        attachments: [],
+        replyCardId: null,
+      },
+      {
+        id: "c-2",
+        from: "owner",
+        to: "m1",
+        body: "好",
+        ts: 1001,
+        attachments: [],
+        replyCardId: null,
+        replyTo: "c-1",
+        replyToChat: {
+          id: "c-1",
+          from: "m1",
+          fromName: "",
+          to: "owner",
+          toName: "",
+          content: "[@Family Money Eva](/#office/member/m-eva) 看一下",
+        },
+      },
+    ];
+    const { container } = renderChat();
+    const quote = container.querySelector(".chat__msg-quote__body")!;
+    expect(quote.textContent).toBe("@Family Money Eva 看一下");
+    expect(quote.getAttribute("title")).toBe("@Family Money Eva 看一下");
+    fireEvent.click(
+      container.querySelector('[data-msg-id="c-1"] .chat__msg-reply')!,
+    );
+    expect(container.querySelector(".chat__reply-banner__body")!.textContent).toBe(
+      "@Family Money Eva 看一下",
+    );
+  });
+
+  it("full view of a message → mention opens the detail and the overlay closes", async () => {
+    messages = [
+      {
+        id: "c-1",
+        from: "m1",
+        to: "owner",
+        body: "問 [@Eva](/#office/member/m-eva)",
+        ts: 1000,
+        attachments: [],
+        replyCardId: null,
+      },
+    ];
+    const { container } = renderChat();
+    fireEvent.click(container.querySelector("button.chat__msg-expand")!);
+    const mention = await waitFor(() => {
+      const b = document.body.querySelector(".md-preview button.md-mention");
+      expect(b).not.toBeNull();
+      return b!;
+    });
+    expect(mention.textContent).toBe("@Family Money Eva");
+    fireEvent.click(mention);
+    expect(window.location.hash).toBe("#office/chat/m1/member/m-eva");
+    expect(document.body.querySelector(".md-preview")).toBeNull();
   });
 });

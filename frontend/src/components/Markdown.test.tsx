@@ -282,19 +282,23 @@ describe("Markdown", () => {
       expect(c.textContent).toBe("hi @Mira");
     });
 
-    it("inside a chat room: known id → mention button that opens it; unknown id → bare label", () => {
+    it("inside a chat room: known id → button with the roster's name that opens it; unknown id → written label", () => {
       const opened: string[] = [];
       const { container } = render(
         <MentionOpenerContext.Provider
-          value={(t) => (t.id === "m-1" ? () => opened.push(`${t.kind}:${t.id}`) : null)}
+          value={(t) =>
+            t.id === "m-1"
+              ? { name: "Mira Chen", open: () => opened.push(`${t.kind}:${t.id}`) }
+              : null
+          }
         >
-          <Markdown source="[@Mira](/#office/member/m-1) and [@外包 · O-9](/#office/worker/ow-9)" />
+          <Markdown source="[@Kyle](/#office/member/m-1) and [@外包 · O-9](/#office/worker/ow-9)" />
         </MentionOpenerContext.Provider>,
       );
-      expect(container.textContent).toBe("@Mira and @外包 · O-9");
+      expect(container.textContent).toBe("@Mira Chen and @外包 · O-9");
       expect(container.querySelector("a")).toBeNull();
       const buttons = container.querySelectorAll("button.md-mention");
-      expect(Array.from(buttons, (b) => b.textContent)).toEqual(["@Mira"]);
+      expect(Array.from(buttons, (b) => b.textContent)).toEqual(["@Mira Chen"]);
       fireEvent.click(buttons[0]);
       expect(opened).toEqual(["member:m-1"]);
     });

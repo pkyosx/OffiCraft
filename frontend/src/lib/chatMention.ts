@@ -90,16 +90,19 @@ export function filterMentionCandidates(
   return [...prefix, ...rest];
 }
 
-/** Replace `@query` (from its `@` up to the caret) with `@<name> `. */
+/** Replace `@query` (from its `@` up to the caret) with `@<name> `, reusing a
+ * space already after the query instead of adding a second one. The caret
+ * lands after that space. A line break is not reused: the caret would jump to
+ * the next line. */
 export function insertMention(
   text: string,
   at: MentionQuery,
   name: string,
 ): { text: string; caret: number } {
-  const inserted = `@${name} `;
   const tail = text.slice(at.start + 1 + at.query.length);
+  const inserted = /^[^\S\r\n]/.test(tail) ? `@${name}` : `@${name} `;
   return {
     text: text.slice(0, at.start) + inserted + tail,
-    caret: at.start + inserted.length,
+    caret: at.start + name.length + 2,
   };
 }

@@ -41,7 +41,7 @@ import {
   mentionCandidates,
   type MentionCandidate,
 } from "../lib/chatMention";
-import { linkMentions } from "../lib/mentionLinks";
+import { linkMentions, unlinkMentions } from "../lib/mentionLinks";
 import { navigateHash } from "../lib/hashRoute";
 import { MentionOpenerContext, type MentionOpener } from "../hooks/useMentionOpener";
 import { ChatMentionList, mentionOptionId } from "./ChatMentionList";
@@ -787,21 +787,42 @@ export function ChatArea({
   const mentionIndex = Math.min(mentionActive, mentionMatches.length - 1);
   const openMention = useCallback<MentionOpener>(
     (target) => {
-      const known =
+      const worker =
+        target.kind === "worker" ? workers.find((w) => w.id === target.id) : undefined;
+      const name =
         target.kind === "member"
-          ? members.some((m) => m.id === target.id)
-          : workers.some((w) => w.id === target.id);
-      if (!known) return null;
-      return () =>
-        navigateHash({
-          page: "office",
-          chatId: member.id,
-          ...(target.kind === "member"
-            ? { detailId: target.id }
-            : { workerId: target.id }),
-        });
+          ? members.find((m) => m.id === target.id)?.name
+          : worker && msg.outsourceLabel(worker.codename);
+      if (name === undefined) return null;
+      return {
+        name,
+        open: () =>
+          navigateHash({
+            page: "office",
+            chatId: member.id,
+            ...(target.kind === "member"
+              ? { detailId: target.id }
+              : { workerId: target.id }),
+          }),
+      };
     },
-    [members, workers, member.id],
+    [members, workers, member.id, msg],
+  );
+  // The overlay is portalled above the whole page, so the detail panel the
+  // mention opens would sit hidden behind it.
+  const openMentionFromPreview = useCallback<MentionOpener>(
+    (target) => {
+      const known = openMention(target);
+      if (known === null) return null;
+      return {
+        name: known.name,
+        open: () => {
+          setMdPreview(null);
+          known.open();
+        },
+      };
+    },
+    [openMention],
   );
   // 🔴 OVER THE COUNT CAP THE COMPOSER REFUSES THE SEND ITSELF (T-48, R11-3).
   // A draft is allowed to hold more than CHAT_MAX_ATTACHMENTS — that is R10-3's
@@ -1959,7 +1980,7 @@ export function ChatArea({
     // was nothing to quote" and "there is nothing to quote FROM" are different
     // facts about the conversation.
     const quoteText = quoted
-      ? (quoted.replyExcerpt ?? quoted.content)
+      ? (quoted.replyExcerpt ?? unlinkMentions(quoted.content))
       : t.chat.replyQuoteGone;
     const quoteLine = !m.replyTo ? null : (
       /* 🔴 THE ONE THING THIS ROW EXISTS TO SAY HAS TO REACH THE A11Y TREE TOO.
@@ -2651,7 +2672,7 @@ export function ChatArea({
         {bottomAffordance === "preview" && newMsgPreview && (
           <ChatNewMsgPreview
             who={nameOf(newMsgPreview.from)}
-            body={newMsgPreview.body}
+            body={unlinkMentions(newMsgPreview.body)}
             onJump={jumpToLatest}
             onDismiss={() => setNewMsgPreview(null)}
           />
@@ -2803,7 +2824,7 @@ export function ChatArea({
                     {/* Raw, not pre-collapsed: `white-space: nowrap` on the
                       * parent is what makes this one line — see the note where
                       * `oneLine()` used to be. */}
-                    {replyExcerpt ?? (replyQuote ? replyQuote.body : "")}
+                    {replyExcerpt ?? (replyQuote ? unlinkMentions(replyQuote.body) : "")}
                   </span>
                 </span>
                 <button
@@ -2925,11 +2946,13 @@ export function ChatArea({
           />
         ) : (
           <AttachmentLinkCommentsContext.Provider value={roomDocComments}>
-            <MarkdownPreviewOverlay
-              title={mdPreview.title}
-              source={mdPreview.source}
-              onClose={() => setMdPreview(null)}
-            />
+            <MentionOpenerContext.Provider value={openMentionFromPreview}>
+              <MarkdownPreviewOverlay
+                title={mdPreview.title}
+                source={mdPreview.source}
+                onClose={() => setMdPreview(null)}
+              />
+            </MentionOpenerContext.Provider>
           </AttachmentLinkCommentsContext.Provider>
         ))}
       {/* The 看原訊息 overlay is the shared exit's own — same surface, one
