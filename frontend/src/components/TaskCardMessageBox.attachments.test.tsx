@@ -267,6 +267,28 @@ describe("task card message box — attachments", () => {
     expect(previewCount(afterSend.container)).toBe(0);
   });
 
+  it("does not restore a sent task message when the card unmounts before the send resolves", async () => {
+    __injectMockTask(mkTask({}));
+    let finishSend!: () => void;
+    vi.spyOn(api, "postTaskMessage").mockImplementation(
+      () => new Promise((resolve) => {
+        finishSend = () => resolve(undefined as never);
+      }),
+    );
+    const beforeSend = renderPage();
+    const input = (await beforeSend.findByTestId("task-msg-input")) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "送出後卸載" } });
+    fireEvent.click(await beforeSend.findByTestId("task-msg-send"));
+    await waitFor(() => expect(finishSend).toBeTypeOf("function"));
+    beforeSend.unmount();
+    finishSend();
+    await waitFor(() => expect(testPersistence.persistence.read("task-message:task-att-1")).toBeUndefined());
+
+    const afterReload = renderPage();
+    const restored = (await afterReload.findByTestId("task-msg-input")) as HTMLTextAreaElement;
+    expect(restored.value).toBe("");
+  });
+
   it("keeps files added while prior attachments are restoring after reload", async () => {
     const task = mkTask({});
     const key = "task-message:task-att-1";
