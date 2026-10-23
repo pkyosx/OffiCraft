@@ -56,10 +56,10 @@ server 預設使用 7755 埠。7755 埠被其他程式占用時，安裝腳本�
 
 在裝 server 的那台機器上，用 `~/.officraft/bin/ocserverd` 的復原指令：
 
-- **重設密碼**：`OC_NEW_PASSWORD='新密碼' ~/.officraft/bin/ocserverd set-password`。新密碼從環境變數帶入，指令本身不接受參數。
+- **重設密碼**：`OC_NEW_PASSWORD='新密碼' ~/.officraft/bin/ocserverd set-password`，再執行 `launchctl kickstart -k gui/$(id -u)/com.officraft.serve` 重新啟動 server。新密碼從環境變數帶入，指令本身不接受參數；重新啟動之前，新密碼還不會生效。
 - **關閉兩步驟驗證**：`~/.officraft/bin/ocserverd mfa-disable`。
 - **刪除所有通行密鑰**：`~/.officraft/bin/ocserverd passkey-reset`。
-- **產生一次性登入連結**：`~/.officraft/bin/ocserverd login-link --base-url <控制台網址>`。
+- **產生一次性登入連結**：第一次使用前先執行 `~/.officraft/bin/ocserverd login-link enable`，再執行 `~/.officraft/bin/ocserverd login-link --base-url <控制台網址>`。
 
 兩步驟驗證、通行密鑰與一次性登入連結各自的注意事項在 [保護你的工作室](security.md)。
 
