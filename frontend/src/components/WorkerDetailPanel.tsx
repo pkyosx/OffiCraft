@@ -752,7 +752,7 @@ export function WorkerDetailPanel({
       <div className="mp" data-testid="worker-detail-released">
         <button type="button" className="mp__back" onClick={onBack}>
           <ChevronLeftIcon size={18} />
-          <span>{t.mp.back}</span>
+          <span>{backLabel ?? t.mp.back}</span>
         </button>
         <div className="mp-card mp-identity">
           <Avatar size={52} kind="outsource" src={worker.avatarUrl} />

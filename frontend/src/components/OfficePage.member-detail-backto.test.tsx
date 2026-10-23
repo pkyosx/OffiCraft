@@ -79,6 +79,21 @@ describe("OfficePage — 返回 from a #from/<page> deep-linked detail panel", (
     );
   });
 
+  it("released worker panel: 返回請示 lands on the source card", async () => {
+    window.location.hash = "#office/worker/ow-released-back/from/replies/rc-released-worker";
+    const { container, findByTestId } = renderOffice();
+
+    await findByTestId("worker-detail-released");
+
+    const back = container.querySelector(".mp__back")!;
+    expect(back.textContent).toContain(zh.mp.backToReplies);
+    fireEvent.click(back);
+
+    await waitFor(() =>
+      expect(window.location.hash).toBe("#replies/card/rc-released-worker")
+    );
+  });
+
   it("member panel tagged /from/tasks/<id>: 返回任務 lands on the source task", async () => {
     window.location.hash = "#office/member/mira/from/tasks/task-member";
     const { container, findByText } = renderOffice();
