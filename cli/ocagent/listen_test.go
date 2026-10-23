@@ -1538,6 +1538,20 @@ func TestRenderReplyCardAnswer(t *testing.T) {
 			want: `picked [0] "改" — "但先跑一輪" — +2 attachment(s)`,
 		},
 		{
+			name: "a quoted passage of the card sits after the options and before the text",
+			card: map[string]any{
+				"options": []any{map[string]any{"text": "改"}},
+				"answer": map[string]any{"option_idxs": []any{0.0}, "text": "但先跑一輪",
+					"reply_excerpt": " 要不要改 schema? "},
+			},
+			want: `picked [0] "改" — quoting "要不要改 schema?" — "但先跑一輪"`,
+		},
+		{
+			name: "a quoted passage alone does not pass for a readable answer",
+			card: map[string]any{"answer": map[string]any{"option_idx": 0.0, "reply_excerpt": "要不要改"}},
+			want: unreadableAnswerNotice,
+		},
+		{
 			name: "the light row's attachment COUNT is read the same way",
 			card: map[string]any{"answer": map[string]any{"text": "改", "attachments": 3.0}},
 			want: `"改" — +3 attachment(s)`,

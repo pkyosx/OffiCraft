@@ -4500,12 +4500,13 @@ func dalReplyCard(id string, createdTS float64) ReplyCard {
 		},
 		SelectMode: "multi", Status: "answered",
 		CreatedTS: createdTS, AnsweredTS: createdTS + 10, ExpiredTS: createdTS + 20,
-		ChatMessageID:     "m-" + id,
-		AnswerOptionIdxs:  []int{0, 1},
-		AnswerText:        "ship it",
-		AnswerAttachments: []any{dalAttRef("att-answer", "image/png", "a.png")},
-		Attachments:       []any{dalAttRef("att-question", "image/png", "q.png")},
-		TaskID:            "T-1", TaskStepID: "s-1",
+		ChatMessageID:      "m-" + id,
+		AnswerOptionIdxs:   []int{0, 1},
+		AnswerText:         "ship it",
+		AnswerReplyExcerpt: "of " + id,
+		AnswerAttachments:  []any{dalAttRef("att-answer", "image/png", "a.png")},
+		Attachments:        []any{dalAttRef("att-question", "image/png", "q.png")},
+		TaskID:             "T-1", TaskStepID: "s-1",
 	}
 }
 

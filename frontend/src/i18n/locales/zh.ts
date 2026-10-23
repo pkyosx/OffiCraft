@@ -632,6 +632,8 @@ export const zh = {
     redecide: "重新決定",
     redecideHint: "重新選一個，或直接打字改寫回覆",
     redecidePlaceholder: "或直接打字改寫回覆…",
+    quoteLabel: "引用原文",
+    quoteCancel: "取消引用",
     // §3.6 請示 → 任務：任務衍生的請示卡顯示精簡任務資訊（標題）＋跳轉;
     // 不露任務編號／識別鍵／類型。純聊天請示不顯示。
     viewTask: "查看任務詳情",
@@ -1186,6 +1188,7 @@ export const zh = {
     imageAlt: "聊天圖片",
     viewImageLabel: "檢視原圖",
     attachLabel: "附加檔案",
+    mentionListLabel: "提及成員",
     attachTooLarge: (maxMb: number) => `檔案太大（上限 ${maxMb} MB）`,
     // 件數上限防呆:一則訊息最多帶 N 個附件(超過的不入列)。
     attachTooMany: (max: number) => `一則訊息最多附 ${max} 個檔案`,
@@ -1698,6 +1701,7 @@ export const zh = {
       cardAiPickTag: "AI 建議",
       cardPickedTag: "已選",
       cardAnswerTextLabel: "補充文字",
+      cardAnswerExcerptLabel: "引用原文",
       cardAnsweredAtLabel: "回覆於",
       cardUnanswered: "尚未回覆",
       cardAttachmentsLabel: "附件",

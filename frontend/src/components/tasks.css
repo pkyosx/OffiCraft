@@ -1407,6 +1407,8 @@ button.task-card__waiting--dep:focus-visible {
 
 /* ── message box ── */
 .task-card__composer {
+  /* Anchors the @mention picker (chat-mention.css) to the row's width. */
+  position: relative;
   display: flex;
   /* Bottom-align: the input is a growing textarea (multi-line drafts) — the
    * send button stays anchored to its last line, like the chat composer. */

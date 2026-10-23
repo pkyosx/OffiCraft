@@ -12,6 +12,12 @@ import type { ChatAttachmentInput } from "../api/adapter";
 import { autosizeTextarea } from "../lib/autosize";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { enterShouldSend } from "../lib/composerKeys";
+import { linkMentions } from "../lib/mentionLinks";
+import {
+  useMentionComposer,
+  useMentionRosterContext,
+} from "../hooks/useMentionComposer";
+import { ChatMentionList } from "./ChatMentionList";
 import {
   ATTACH_ACCEPT,
   useAttachmentStaging,
@@ -20,15 +26,23 @@ import {
 import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
 import { appendSuggestion, SuggestedReplies } from "./SuggestedReplies";
 import { useSuggestedRepliesReplyCard } from "../hooks/useSuggestedReplies";
-import { PaperclipIcon, SendIcon } from "./icons";
+import { CloseIcon, PaperclipIcon, SendIcon } from "./icons";
 
 export function ReplyComposer({
   placeholder,
   hasSelection = false,
   sendNowRef,
+  focusRef,
+  quote = "",
+  onClearQuote,
   onSend,
 }: {
   placeholder: string;
+  /** The passage of the card's question this answer quotes (回覆這段), shown
+   * above the box; "" shows nothing. It never makes an answer sendable on its
+   * own. */
+  quote?: string;
+  onClearQuote?: () => void;
   /** Whether the card face has quick-reply options STAGED. This button is the
    * card's ONE send: the answer it fires carries the ticked options and the
    * typed text together, so a staged selection alone must be sendable even with
@@ -42,6 +56,7 @@ export function ReplyComposer({
    * so the callback bypasses `canSend`; the in-flight latch still holds, so a
    * second click during the POST cannot double-answer. */
   sendNowRef?: React.MutableRefObject<(() => void) | null>;
+  focusRef?: React.MutableRefObject<(() => void) | null>;
   /** Submit the answer — the typed text and attachments, which the caller
    * combines with whatever it has staged. Never called on a wholly empty
    * answer. The promise rejecting keeps the composer content so nothing is
@@ -77,6 +92,14 @@ export function ReplyComposer({
   // T-122 建議回覆: the owner's one-click sentences, shown UNDER this box. The
   // empty list (no setting, or a failed read) renders nothing at all.
   const suggestedReplies = useSuggestedRepliesReplyCard();
+  const candidates = useMentionRosterContext()?.candidates ?? [];
+  const mention = useMentionComposer({
+    inputRef: draftRef,
+    value: draft,
+    setValue: setDraft,
+    candidates,
+    composingRef: isComposingRef,
+  });
 
   const canSend =
     !sending &&
@@ -103,7 +126,7 @@ export function ReplyComposer({
     }));
     setSending(true);
     try {
-      await onSend(body, attachments);
+      await onSend(linkMentions(body, candidates), attachments);
       // Success: the card leaves this pane (refetch) — clear for good measure.
       setDraft("");
       clearAttachments();
@@ -125,7 +148,16 @@ export function ReplyComposer({
     };
   });
 
+  useLayoutEffect(() => {
+    if (!focusRef) return;
+    focusRef.current = () => draftRef.current?.focus();
+    return () => {
+      focusRef.current = null;
+    };
+  }, [focusRef]);
+
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (mention.onKeyDown(e)) return;
     // Shared send rule (IME gate + mobile-newline) — see lib/composerKeys.
     // A mobile Enter returns false and is left un-prevented so the textarea
     // inserts a native newline.
@@ -137,6 +169,24 @@ export function ReplyComposer({
 
   return (
     <div className="reply-composer">
+      {quote && (
+        <div className="reply-card__quote" data-testid="reply-composer-quote">
+          <span className="reply-card__quote-label">{t.replies.quoteLabel}</span>
+          <span className="reply-card__quote-text">{quote}</span>
+          <button
+            type="button"
+            className="reply-card__quote-x"
+            aria-label={t.replies.quoteCancel}
+            title={t.replies.quoteCancel}
+            onClick={() => {
+              onClearQuote?.();
+              draftRef.current?.focus();
+            }}
+          >
+            <CloseIcon size={14} />
+          </button>
+        </div>
+      )}
       {(pendingAttachments.length > 0 || attachError) && (
         <ComposerAttachmentPreview
           pendingAttachments={pendingAttachments}
@@ -145,6 +195,7 @@ export function ReplyComposer({
         />
       )}
       <div className="chat__composer-row">
+        {mention.listProps && <ChatMentionList {...mention.listProps} placement="below" />}
         <input
           ref={fileInputRef}
           className="chat__file-input"
@@ -171,7 +222,11 @@ export function ReplyComposer({
           className="chat__input"
           rows={1}
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            mention.onChange(e);
+          }}
+          {...mention.inputProps}
           onCompositionStart={() => {
             isComposingRef.current = true;
           }}

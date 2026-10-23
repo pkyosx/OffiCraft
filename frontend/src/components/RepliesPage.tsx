@@ -46,12 +46,15 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useI18n } from "../i18n";
 import { api } from "../api";
 import type {
+  OutsourceWorkerView,
   ReplyCard,
   ReplyCardAnswerInput,
   ReplyCardRow,
 } from "../api/adapter";
 import { isHttpStatus } from "../api/errors";
 import { useMembers } from "../hooks/useMembers";
+import { useOutsourceWorkers } from "../hooks/useOutsourceWorkers";
+import { MentionRosterContext, useMentionRoster } from "../hooks/useMentionComposer";
 import { useReplyCards } from "../hooks/useReplyCards";
 import {
   useWorkerAvatarUrls,
@@ -70,6 +73,10 @@ import { FilterPanel } from "./FilterPanel";
 import { IdFilterInput } from "./IdFilterInput";
 import { MultiSelectFilter, type MultiSelectOption } from "./MultiSelectFilter";
 import { ConfirmModal } from "./ConfirmModal";
+import {
+  ChatSelectionReply,
+  ReplyCardQuoteProvider,
+} from "./ChatSelectionReply";
 import { Markdown } from "./Markdown";
 import {
   ReplyCardAnsweredBody,
@@ -101,11 +108,17 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   const { t, msg } = useI18n();
   // Light roster (T-cf91): the page attributes each card to its asker by
   // name + role only, so it takes the identity-only projection AND does not
-  // refetch the roster when anyone in the company sends a chat message.
+  // refetch it when anyone in the company sends a chat message.
   const {
     members,
     loading: membersLoading,
   } = useMembers({ light: true });
+  // The @ list in an open card's answer box also needs each outsource worker's
+  // task number and title, which the light roster lacks. That full list (and
+  // its member/task/chat subscriptions) is only mounted while a card is open —
+  // see `OutsourceWorkersFeed` at the bottom of the page.
+  const [workers, setWorkers] = useState<OutsourceWorkerView[]>([]);
+  const mentionRoster = useMentionRoster(members, workers, { backTo: "replies" });
   const {
     waiting,
     handled,
@@ -479,6 +492,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // that HAS moved is fetched exactly once per move, which is what keeps this
   // from looping against a server that disagrees with the row.
   const readVersionsRef = useRef<Map<string, string>>(new Map());
+  const pageRef = useRef<HTMLDivElement>(null);
   const readCard = useCallback(
     async (row: ReplyCardRow) => {
       const { id } = row;
@@ -1047,7 +1061,14 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
           * through Markdown; the light row carries it, so this costs no read. */}
         <ReplyCardLinkComments from={row.from} recipientFor={docCommentRecipientFor}>
           <Markdown source={row.summary} className="reply-card__summary doc-md" />
-          {open && (card ? opts.body(card) : renderOpenState(row.id))}
+          {open &&
+            (card ? (
+              <MentionRosterContext.Provider value={mentionRoster}>
+                {opts.body(card)}
+              </MentionRosterContext.Provider>
+            ) : (
+              renderOpenState(row.id)
+            ))}
         </ReplyCardLinkComments>
       </article>
     );
@@ -1137,8 +1158,8 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     });
   }
 
-  return (
-    <div className="replies">
+  const page = (
+    <div className="replies" ref={pageRef}>
       {error && <div className="replies__error">{t.replies.loadError}</div>}
       {actionError && (
         <div className="replies__error" data-testid="replies-action-error">
@@ -1307,6 +1328,24 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
         />
       )}
 
+      {expandedIds.size > 0 && <OutsourceWorkersFeed onWorkers={setWorkers} />}
     </div>
   );
+
+  return (
+    <ReplyCardQuoteProvider>
+      <ChatSelectionReply root={pageRef} />
+      {page}
+    </ReplyCardQuoteProvider>
+  );
+}
+
+function OutsourceWorkersFeed({
+  onWorkers,
+}: {
+  onWorkers: (workers: OutsourceWorkerView[]) => void;
+}) {
+  const { workers } = useOutsourceWorkers();
+  useEffect(() => onWorkers(workers), [workers, onWorkers]);
+  return null;
 }

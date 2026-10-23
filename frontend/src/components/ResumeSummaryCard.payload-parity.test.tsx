@@ -153,6 +153,7 @@ const WIRE: WireResumeSummary = {
         ],
         answer_option_idxs: [0, 1],
         answer_text: "先擋著,理由寫在卡上",
+        answer_reply_excerpt: "這一輪要不要照這個形狀做",
         answered_ts: 1786000600,
         answered_at_display: "2026-08-12 22:23:20 +08:00",
       },
@@ -498,7 +499,7 @@ describe("ResumeSummaryCard renders the SAME snapshot the agent receives", () =>
     }
   });
 
-  it("draws every circled option on the card that opened it, tagging the ai_pick option and not the first", async () => {
+  it("draws every circled option on the card that opened it, tagging the ai_pick option and not the first, and the passage the answer quoted", async () => {
     const u = await open();
     // Each option chip, WHOLE — the wording plus exactly the tags it earned.
     // The AI tag rides the SECOND option here (that is where ai_pick is), and
@@ -514,6 +515,9 @@ describe("ResumeSummaryCard renders the SAME snapshot the agent receives", () =>
         .getAllByTestId("mp-resume-card-option")
         .map((el) => el.getAttribute("data-picked")),
     ).toEqual(["true", "true"]);
+    expect(txt(u.getByTestId("mp-resume-card-answer-excerpt"))).toBe(
+      "引用原文 這一輪要不要照這個形狀做",
+    );
     expect(txt(u.getByTestId("mp-resume-card-answer-text"))).toBe(
       "補充文字 先擋著,理由寫在卡上",
     );

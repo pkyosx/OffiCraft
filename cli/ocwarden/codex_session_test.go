@@ -1034,6 +1034,161 @@ func TestCodexSessionResolveResponse(t *testing.T) {
 		}
 	})
 
+	t.Run("a sub-agent wake's response leaves the main thread's delivery state alone", func(t *testing.T) {
+		s := newCodexTestSession()
+		s.subagentParent = map[string]string{"th_grand": "th_mid"}
+		s.steerOrStart("[chat] owner: 早安", s.currentBatch())
+		s.closeBatch("b-1")
+		s.handleTurnCompleted(map[string]any{"threadId": "th_grand", "turn": map[string]any{"id": "t_grand", "status": "completed"}})
+
+		s.resolveResponse(2, appServerMessage{"id": float64(2), "result": map[string]any{"turn": map[string]any{"id": "t_mid"}}})
+
+		if s.active || s.turnID != "" || !s.starting {
+			t.Errorf("active=%v turnID=%q starting=%v, want the main thread still starting its own turn", s.active, s.turnID, s.starting)
+		}
+		if len(s.pending) != 1 || s.pending[1] == nil || s.pending[1].text != "[chat] owner: 早安" {
+			t.Errorf("pending = %v, want only the main thread's turn/start", s.pending)
+		}
+		if s.acks.Len() != 0 {
+			t.Errorf("the listener was told %q, want nothing yet", s.acks.String())
+		}
+
+		s.resolveResponse(1, appServerMessage{"id": float64(1), "result": map[string]any{"turn": map[string]any{"id": "t_main"}}})
+
+		if !s.active || s.turnID != "t_main" || s.starting {
+			t.Errorf("active=%v turnID=%q starting=%v, want the main turn live as t_main", s.active, s.turnID, s.starting)
+		}
+		if got, want := s.acks.String(), "ack b-1\n"; got != want {
+			t.Errorf("the listener was told %q, want %q", got, want)
+		}
+	})
+
+	t.Run("a refused sub-agent wake is reported and dropped, and the next child's end tries again", func(t *testing.T) {
+		s := newCodexTestSession()
+		s.subagentParent = map[string]string{"th_grand": "th_mid"}
+		grandDone := map[string]any{"threadId": "th_grand", "turn": map[string]any{"id": "t_grand", "status": "completed"}}
+		s.handleTurnCompleted(grandDone)
+		s.pane.Reset()
+
+		s.resolveResponse(1, appServerMessage{"id": float64(1), "error": map[string]any{"message": "thread not found: th_mid"}})
+
+		wake := func(id float64) map[string]any {
+			return map[string]any{"id": id, "method": "turn/start", "params": map[string]any{
+				"threadId": "th_mid",
+				"input": []any{map[string]any{"type": "text",
+					"text": "[OffiCraft sidecar] 你叫起的一個 sub-agent 已經結束，它的結果已經在對話裡，請接著它的結果繼續做。"}},
+			}}
+		}
+		if got, want := s.sent(t), []map[string]any{wake(1)}; !reflect.DeepEqual(got, want) {
+			t.Fatalf("sent %v, want no retry of %v", got, want)
+		}
+		if got, want := s.paneLines(t), []string{
+			"⚠️ 叫不醒 sub-agent th_mid（thread not found: th_mid）— 它底下 sub-agent 的結果要等它下次有一輪時才會看到",
+		}; !reflect.DeepEqual(got, want) {
+			t.Errorf("the pane shows %q, want %q", got, want)
+		}
+		if s.active || s.starting || len(s.pending) != 0 || s.acks.Len() != 0 {
+			t.Errorf("active=%v starting=%v pending=%v acks=%q, want the main thread untouched",
+				s.active, s.starting, s.pending, s.acks.String())
+		}
+
+		s.handleTurnCompleted(grandDone)
+
+		if got, want := s.sent(t), []map[string]any{wake(1), wake(2)}; !reflect.DeepEqual(got, want) {
+			t.Errorf("sent %v, want %v", got, want)
+		}
+	})
+
+	t.Run("an accepted sub-agent wake still holds off a second wake until its turn starts", func(t *testing.T) {
+		s := newCodexTestSession()
+		s.subagentParent = map[string]string{"th_grand": "th_mid", "th_grand2": "th_mid"}
+		s.handleTurnCompleted(map[string]any{"threadId": "th_grand", "turn": map[string]any{"id": "t_grand", "status": "completed"}})
+
+		s.resolveResponse(1, appServerMessage{"id": float64(1), "result": map[string]any{"turn": map[string]any{"id": "t_mid"}}})
+		s.handleTurnCompleted(map[string]any{"threadId": "th_grand2", "turn": map[string]any{"id": "t_grand2", "status": "completed"}})
+
+		want := []map[string]any{{"id": float64(1), "method": "turn/start", "params": map[string]any{
+			"threadId": "th_mid",
+			"input": []any{map[string]any{"type": "text",
+				"text": "[OffiCraft sidecar] 你叫起的一個 sub-agent 已經結束，它的結果已經在對話裡，請接著它的結果繼續做。"}},
+		}}}
+		if got := s.sent(t); !reflect.DeepEqual(got, want) {
+			t.Errorf("sent %v, want %v", got, want)
+		}
+	})
+
+	t.Run("a refused main-thread wake is reported and dropped, and the next child's end tries again", func(t *testing.T) {
+		s := newCodexTestSession()
+		s.handleTurnCompleted(map[string]any{"threadId": "th_a", "turn": map[string]any{"id": "t_a", "status": "completed"}})
+		s.pane.Reset()
+
+		s.resolveResponse(1, appServerMessage{"id": float64(1), "error": map[string]any{"message": "thread is busy"}})
+
+		const text = "[OffiCraft sidecar] 你叫起的一個 sub-agent 已經結束，它的結果已經在對話裡，請接著它的結果繼續做。"
+		if got, want := s.paneLines(t), []string{
+			"⚠️ 送不進去（thread is busy）：" + text + " — 這段內容沒有進到 agent 的對話，agent 不會知道有人說過這句話",
+		}; !reflect.DeepEqual(got, want) {
+			t.Errorf("the pane shows %q, want %q", got, want)
+		}
+		if s.starting || len(s.pending) != 0 || s.acks.Len() != 0 {
+			t.Errorf("starting=%v pending=%v acks=%q, want the refused wake settled and no listener verdict",
+				s.starting, s.pending, s.acks.String())
+		}
+
+		s.handleTurnCompleted(map[string]any{"threadId": "th_b", "turn": map[string]any{"id": "t_b", "status": "completed"}})
+
+		wake := func(id float64) map[string]any {
+			return map[string]any{"id": id, "method": "turn/start", "params": map[string]any{
+				"threadId": "th_1", "effort": "medium",
+				"input": []any{map[string]any{"type": "text", "text": text}},
+			}}
+		}
+		if got, want := s.sent(t), []map[string]any{wake(1), wake(2)}; !reflect.DeepEqual(got, want) {
+			t.Errorf("sent %v, want %v", got, want)
+		}
+	})
+
+	t.Run("a refused notice about an idle v2 parent is reported, and that parent's next finished child is reported again", func(t *testing.T) {
+		interceptCodexPosts(t, http.StatusOK, nil)
+		s := newCodexTestSession()
+		item := func(on, agent, path string) map[string]any {
+			return map[string]any{"threadId": on, "item": map[string]any{
+				"type": "subAgentActivity", "kind": "started", "agentThreadId": agent, "agentPath": path}}
+		}
+		s.trackActivity("item/completed", item("th_1", "th_mid", "/root/mid"))
+		s.trackActivity("item/completed", item("th_mid", "th_grand", "/root/mid/grand"))
+		s.trackActivity("item/completed", item("th_mid", "th_grand2", "/root/mid/grand2"))
+		s.handleTurnCompleted(map[string]any{"threadId": "th_grand", "turn": map[string]any{"id": "t_grand", "status": "completed"}})
+		s.pane.Reset()
+
+		s.resolveResponse(1, appServerMessage{"id": float64(1), "error": map[string]any{"message": "thread is busy"}})
+
+		if got, want := s.paneLines(t), []string{
+			"⚠️ 送不進去（thread is busy）：[OffiCraft sidecar] sub-agent /root/mid 叫起的 sub-agent /root/mid/grand 已經結束，結果送到了…" +
+				" — 這段內容沒有進到 agent 的對話，agent 不會知道有人說過這句話",
+		}; !reflect.DeepEqual(got, want) {
+			t.Errorf("the pane shows %q, want %q", got, want)
+		}
+
+		s.handleTurnCompleted(map[string]any{"threadId": "th_grand2", "turn": map[string]any{"id": "t_grand2", "status": "completed"}})
+
+		notice := func(id float64, text string) map[string]any {
+			return map[string]any{"id": id, "method": "turn/start", "params": map[string]any{
+				"threadId": "th_1", "effort": "medium",
+				"input": []any{map[string]any{"type": "text", "text": text}},
+			}}
+		}
+		want := []map[string]any{
+			notice(1, "[OffiCraft sidecar] sub-agent /root/mid 叫起的 sub-agent /root/mid/grand 已經結束，"+
+				"結果送到了 /root/mid，但 /root/mid 目前閒置、不會自己讀到；需要它接著處理時，請用 followup_task 叫 /root/mid 繼續。"),
+			notice(2, "[OffiCraft sidecar] sub-agent /root/mid 叫起的 sub-agent /root/mid/grand2 已經結束，"+
+				"結果送到了 /root/mid，但 /root/mid 目前閒置、不會自己讀到；需要它接著處理時，請用 followup_task 叫 /root/mid 繼續。"),
+		}
+		if got := s.sent(t); !reflect.DeepEqual(got, want) {
+			t.Errorf("sent %v, want %v", got, want)
+		}
+	})
+
 }
 
 func TestCodexSessionConfirmStartedTurn(t *testing.T) {
@@ -1887,20 +2042,323 @@ func TestCodexSessionHandleTurnCompleted(t *testing.T) {
 		}
 	})
 
-	t.Run("a sub-agent thread's turn ending leaves the main agent mid-turn", func(t *testing.T) {
-		s := newCodexTestSession()
-		s.active, s.turnID = true, "t_main"
+	const finishedWake = "[OffiCraft sidecar] 你叫起的一個 sub-agent 已經結束，它的結果已經在對話裡，請接著它的結果繼續做。"
+	mainWake := func(id float64) map[string]any {
+		return map[string]any{"id": id, "method": "turn/start", "params": map[string]any{
+			"threadId": "th_1", "effort": "medium",
+			"input": []any{map[string]any{"type": "text", "text": finishedWake}},
+		}}
+	}
+	subagentWake := func(id float64, thread string) map[string]any {
+		return map[string]any{"id": id, "method": "turn/start", "params": map[string]any{
+			"threadId": thread,
+			"input":    []any{map[string]any{"type": "text", "text": finishedWake}},
+		}}
+	}
+	newSession := func(t *testing.T) *codexTestSession {
+		interceptCodexPosts(t, http.StatusOK, nil)
+		return newCodexTestSession()
+	}
+	// In the order runCodexSession hands every turn notification over.
+	turnEvent := func(s *codexTestSession, method, thread string) {
+		params := map[string]any{"threadId": thread, "turn": map[string]any{"id": "t_" + thread, "status": "completed"}}
+		s.trackActivity(method, params)
+		if method == "turn/started" {
+			s.handleTurnStarted(params)
+		} else {
+			s.handleTurnCompleted(params)
+		}
+	}
+
+	t.Run("a sub-agent's end wakes an idle main thread with one turn/start", func(t *testing.T) {
+		s := newSession(t)
 
 		mainTurn := s.handleTurnCompleted(map[string]any{"threadId": "th_sub", "turn": map[string]any{"id": "t_sub", "status": "completed"}})
 
 		if mainTurn {
 			t.Error("handleTurnCompleted = true, want false for a sub-agent thread")
 		}
-		if !s.active || s.turnID != "t_main" {
-			t.Errorf("active=%v turnID=%q, want true and t_main", s.active, s.turnID)
+		if got, want := s.sent(t), []map[string]any{mainWake(1)}; !reflect.DeepEqual(got, want) {
+			t.Errorf("sent %v, want %v", got, want)
 		}
-		if s.pane.Len() != 0 {
-			t.Errorf("the pane shows %q, want nothing", s.pane.String())
+		if got, want := s.paneLines(t), []string{"a sub-agent finished; waking the main thread", "turn started"}; !reflect.DeepEqual(got, want) {
+			t.Errorf("the pane shows %q, want %q", got, want)
+		}
+		if d := s.pending[1]; d == nil || d.method != "turn/start" || d.batch != nil {
+			t.Errorf("request 1 is tracked as %+v, want a turn/start carrying no listener batch", d)
+		}
+	})
+
+	t.Run("a sub-agent's end leaves a main thread mid-turn or starting one alone, and wakes it once that turn is over", func(t *testing.T) {
+		chat := map[string]any{"id": float64(1), "method": "turn/start", "params": map[string]any{
+			"threadId": "th_1", "effort": "medium",
+			"input": []any{map[string]any{"type": "text", "text": "[chat] owner: 早安"}},
+		}}
+		cases := []struct {
+			name   string
+			busy   func(s *codexTestSession)
+			before []map[string]any
+			wakeID float64
+		}{
+			{"mid-turn", func(s *codexTestSession) { s.active, s.turnID = true, "t_main" }, nil, 1},
+			{"starting a turn", func(s *codexTestSession) { s.startTurn("[chat] owner: 早安", nil) }, []map[string]any{chat}, 2},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				s := newSession(t)
+				tc.busy(s)
+				s.pane.Reset()
+				active, turnID, starting := s.active, s.turnID, s.starting
+
+				mainTurn := s.handleTurnCompleted(map[string]any{"threadId": "th_sub", "turn": map[string]any{"id": "t_sub", "status": "completed"}})
+
+				if mainTurn {
+					t.Error("handleTurnCompleted = true, want false for a sub-agent thread")
+				}
+				if s.active != active || s.turnID != turnID || s.starting != starting {
+					t.Errorf("active=%v turnID=%q starting=%v, want %v %q %v unchanged",
+						s.active, s.turnID, s.starting, active, turnID, starting)
+				}
+				if got := s.sent(t); !reflect.DeepEqual(got, tc.before) {
+					t.Errorf("sent %v while the main thread was busy, want %v", got, tc.before)
+				}
+				if s.pane.Len() != 0 {
+					t.Errorf("the pane shows %q, want nothing", s.pane.String())
+				}
+
+				turnEvent(s, "turn/started", "th_1")
+				turnEvent(s, "turn/completed", "th_1")
+				turnEvent(s, "turn/completed", "th_other")
+
+				if got, want := s.sent(t), append(tc.before, mainWake(tc.wakeID)); !reflect.DeepEqual(got, want) {
+					t.Errorf("sent %v, want %v", got, want)
+				}
+			})
+		}
+	})
+
+	t.Run("several sub-agents ending together wake an idle main thread once", func(t *testing.T) {
+		s := newSession(t)
+
+		turnEvent(s, "turn/completed", "th_a")
+		turnEvent(s, "turn/completed", "th_b")
+		turnEvent(s, "turn/started", "th_1")
+		turnEvent(s, "turn/completed", "th_c")
+
+		if got, want := s.sent(t), []map[string]any{mainWake(1)}; !reflect.DeepEqual(got, want) {
+			t.Errorf("sent %v, want %v", got, want)
+		}
+		if !s.active || s.turnID != "t_th_1" || len(s.pending) != 0 {
+			t.Errorf("active=%v turnID=%q pending=%v, want the wake confirmed as the main turn", s.active, s.turnID, s.pending)
+		}
+	})
+
+	t.Run("an OffiCraft event arriving while the main wake is starting steers the woken turn and is acked", func(t *testing.T) {
+		s := newSession(t)
+
+		turnEvent(s, "turn/completed", "th_sub")
+		s.openListenerTurn("[chat] owner: 早安")
+		s.closeBatch("b-1")
+
+		if got, want := s.sent(t), []map[string]any{mainWake(1)}; !reflect.DeepEqual(got, want) {
+			t.Fatalf("sent %v before the wake started, want %v", got, want)
+		}
+		if s.acks.Len() != 0 {
+			t.Fatalf("the listener was told %q before the event was delivered, want nothing", s.acks.String())
+		}
+
+		turnEvent(s, "turn/started", "th_1")
+		s.resolveResponse(2, appServerMessage{"id": float64(2), "result": map[string]any{}})
+
+		want := []map[string]any{mainWake(1), {"id": float64(2), "method": "turn/steer", "params": map[string]any{
+			"threadId": "th_1", "expectedTurnId": "t_th_1",
+			"input": []any{map[string]any{"type": "text", "text": "[chat] owner: 早安"}},
+		}}}
+		if got := s.sent(t); !reflect.DeepEqual(got, want) {
+			t.Errorf("sent %v, want %v", got, want)
+		}
+		if got, want := s.acks.String(), "ack b-1\n"; got != want {
+			t.Errorf("the listener was told %q, want %q", got, want)
+		}
+	})
+
+	t.Run("a grandchild's end wakes its idle parent sub-agent once, whose own end then wakes the idle main thread", func(t *testing.T) {
+		s := newSession(t)
+		s.subagentParent = map[string]string{"th_grand": "th_mid", "th_grand2": "th_mid"}
+
+		turnEvent(s, "turn/completed", "th_grand")
+		turnEvent(s, "turn/completed", "th_grand2")
+
+		if got, want := s.sent(t), []map[string]any{subagentWake(1, "th_mid")}; !reflect.DeepEqual(got, want) {
+			t.Fatalf("sent %v, want %v", got, want)
+		}
+		if got, want := s.paneLines(t), []string{"a sub-agent finished; waking its parent sub-agent th_mid"}; !reflect.DeepEqual(got, want) {
+			t.Errorf("the pane shows %q, want %q", got, want)
+		}
+		if s.starting || len(s.pending) != 0 {
+			t.Errorf("starting=%v pending=%v, want the main thread's delivery state untouched", s.starting, s.pending)
+		}
+
+		turnEvent(s, "turn/started", "th_mid")
+		turnEvent(s, "turn/completed", "th_mid")
+		turnEvent(s, "turn/started", "th_1")
+		turnEvent(s, "turn/completed", "th_grand")
+
+		want := []map[string]any{subagentWake(1, "th_mid"), mainWake(2), subagentWake(3, "th_mid")}
+		if got := s.sent(t); !reflect.DeepEqual(got, want) {
+			t.Errorf("sent %v, want %v", got, want)
+		}
+	})
+
+	const idleParentNotice = "[OffiCraft sidecar] sub-agent /root/mid 叫起的 sub-agent /root/mid/grand 已經結束，" +
+		"結果送到了 /root/mid，但 /root/mid 目前閒置、不會自己讀到；需要它接著處理時，請用 followup_task 叫 /root/mid 繼續。"
+	noticeStart := func(id float64) map[string]any {
+		return map[string]any{"id": id, "method": "turn/start", "params": map[string]any{
+			"threadId": "th_1", "effort": "medium",
+			"input": []any{map[string]any{"type": "text", "text": idleParentNotice}},
+		}}
+	}
+	noticeSteer := func(id float64, turnID string) map[string]any {
+		return map[string]any{"id": id, "method": "turn/steer", "params": map[string]any{
+			"threadId": "th_1", "expectedTurnId": turnID,
+			"input": []any{map[string]any{"type": "text", "text": idleParentNotice}},
+		}}
+	}
+	v2Tree := func(s *codexTestSession) {
+		item := func(on, kind, agent, path string) map[string]any {
+			return map[string]any{"threadId": on, "item": map[string]any{
+				"type": "subAgentActivity", "kind": kind, "agentThreadId": agent, "agentPath": path}}
+		}
+		s.trackActivity("item/completed", item("th_1", "started", "th_mid", "/root/mid"))
+		s.trackActivity("item/completed", item("th_mid", "started", "th_grand", "/root/mid/grand"))
+		s.trackActivity("item/completed", item("th_mid", "started", "th_grand2", "/root/mid/grand2"))
+		s.trackActivity("item/completed", item("th_grand", "interacted", "th_mid", "/root/mid"))
+	}
+
+	t.Run("a v2 grandchild's end with its parent idle tells an idle main thread once, and the parent's own end later wakes it", func(t *testing.T) {
+		s := newSession(t)
+		v2Tree(s)
+
+		turnEvent(s, "turn/completed", "th_grand")
+		turnEvent(s, "turn/completed", "th_grand2")
+
+		if got, want := s.sent(t), []map[string]any{noticeStart(1)}; !reflect.DeepEqual(got, want) {
+			t.Fatalf("sent %v, want %v", got, want)
+		}
+		if got, want := s.paneLines(t), []string{
+			"a sub-agent of idle sub-agent /root/mid finished; telling the main thread", "turn started",
+		}; !reflect.DeepEqual(got, want) {
+			t.Errorf("the pane shows %q, want %q", got, want)
+		}
+
+		turnEvent(s, "turn/started", "th_1")
+		turnEvent(s, "turn/started", "th_mid")
+		turnEvent(s, "turn/completed", "th_1")
+		turnEvent(s, "turn/completed", "th_mid")
+		turnEvent(s, "turn/started", "th_1")
+		turnEvent(s, "turn/completed", "th_grand")
+
+		want := []map[string]any{noticeStart(1), mainWake(2), noticeSteer(3, "t_th_1")}
+		if got := s.sent(t); !reflect.DeepEqual(got, want) {
+			t.Errorf("sent %v, want %v", got, want)
+		}
+	})
+
+	t.Run("a v2 grandchild's end with its parent idle steers a main thread mid-turn, or waits for one starting", func(t *testing.T) {
+		chat := map[string]any{"id": float64(1), "method": "turn/start", "params": map[string]any{
+			"threadId": "th_1", "effort": "medium",
+			"input": []any{map[string]any{"type": "text", "text": "[chat] owner: 早安"}},
+		}}
+		cases := []struct {
+			name   string
+			before func(s *codexTestSession)
+			after  func(s *codexTestSession)
+			want   []map[string]any
+		}{
+			{"mid-turn",
+				func(s *codexTestSession) { turnEvent(s, "turn/started", "th_1") },
+				func(s *codexTestSession) {},
+				[]map[string]any{noticeSteer(1, "t_th_1")}},
+			{"starting a turn",
+				func(s *codexTestSession) { s.startTurn("[chat] owner: 早安", nil) },
+				func(s *codexTestSession) { turnEvent(s, "turn/started", "th_1") },
+				[]map[string]any{chat, noticeSteer(2, "t_th_1")}},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				s := newSession(t)
+				v2Tree(s)
+				tc.before(s)
+
+				turnEvent(s, "turn/completed", "th_grand")
+				turnEvent(s, "turn/completed", "th_grand2")
+				tc.after(s)
+
+				if got := s.sent(t); !reflect.DeepEqual(got, tc.want) {
+					t.Errorf("sent %v, want %v", got, tc.want)
+				}
+			})
+		}
+	})
+
+	t.Run("a v2 grandchild's end leaves its running parent and the main thread alone", func(t *testing.T) {
+		s := newSession(t)
+		v2Tree(s)
+
+		turnEvent(s, "turn/started", "th_mid")
+		turnEvent(s, "turn/completed", "th_grand")
+
+		if s.in.Len() != 0 {
+			t.Fatalf("sent %q while /root/mid was mid-turn, want nothing", s.in.String())
+		}
+
+		turnEvent(s, "turn/completed", "th_mid")
+		turnEvent(s, "turn/started", "th_1")
+		turnEvent(s, "turn/completed", "th_1")
+		turnEvent(s, "turn/completed", "th_grand")
+
+		if got, want := s.sent(t), []map[string]any{mainWake(1), noticeStart(2)}; !reflect.DeepEqual(got, want) {
+			t.Errorf("sent %v, want %v", got, want)
+		}
+	})
+
+	t.Run("an interrupted sub-agent turn wakes nobody, while a completed or failed one does", func(t *testing.T) {
+		s := newSession(t)
+		s.subagentParent = map[string]string{"th_grand": "th_mid"}
+		end := func(thread, status string) map[string]any {
+			return map[string]any{"threadId": thread, "turn": map[string]any{"id": "t_" + thread, "status": status}}
+		}
+
+		s.handleTurnCompleted(end("th_grand", "interrupted"))
+		s.handleTurnCompleted(end("th_sub", "interrupted"))
+
+		if s.in.Len() != 0 || s.pane.Len() != 0 {
+			t.Fatalf("sent %q and logged %q for interrupted turns, want neither", s.in.String(), s.pane.String())
+		}
+
+		s.handleTurnCompleted(end("th_grand", "failed"))
+		s.handleTurnCompleted(end("th_sub", "completed"))
+
+		if got, want := s.sent(t), []map[string]any{subagentWake(1, "th_mid"), mainWake(2)}; !reflect.DeepEqual(got, want) {
+			t.Errorf("sent %v, want %v", got, want)
+		}
+	})
+
+	t.Run("a grandchild's end leaves its parent sub-agent mid-turn alone", func(t *testing.T) {
+		s := newSession(t)
+		s.subagentParent = map[string]string{"th_grand": "th_mid"}
+
+		turnEvent(s, "turn/started", "th_mid")
+		turnEvent(s, "turn/completed", "th_grand")
+
+		if s.in.Len() != 0 {
+			t.Fatalf("sent %q while th_mid was mid-turn, want nothing", s.in.String())
+		}
+
+		turnEvent(s, "turn/completed", "th_mid")
+
+		if got, want := s.sent(t), []map[string]any{mainWake(1)}; !reflect.DeepEqual(got, want) {
+			t.Errorf("sent %v, want %v", got, want)
 		}
 	})
 }
@@ -2029,7 +2487,7 @@ func TestCodexSessionTrackActivity(t *testing.T) {
 		s.lastActivity = `{"busy":false,"busy_since":null,"subagents":[],"waits":[]}`
 
 		s.trackActivity("item/started", map[string]any{"threadId": "th_1", "item": map[string]any{
-			"type": "subAgentActivity", "agentThreadId": "th_sub", "agentPath": "/root/explorer"}})
+			"type": "subAgentActivity", "kind": "started", "agentThreadId": "th_sub", "agentPath": "/root/explorer"}})
 		s.trackActivity("turn/started", map[string]any{"threadId": "th_sub"})
 		s.trackActivity("turn/started", map[string]any{"threadId": "th_other"})
 		s.trackActivity("turn/completed", map[string]any{"threadId": "th_sub"})
@@ -2085,10 +2543,10 @@ func TestCodexSessionTrackActivity(t *testing.T) {
 		s.lastActivity = `{"busy":false,"busy_since":null,"subagents":[],"waits":[]}`
 
 		s.trackActivity("item/started", map[string]any{"threadId": "th_1", "item": map[string]any{
-			"type": "subAgentActivity", "agentThreadId": "th_outer", "agentPath": "/root/outer"}})
+			"type": "subAgentActivity", "kind": "started", "agentThreadId": "th_outer", "agentPath": "/root/outer"}})
 		s.trackActivity("turn/started", map[string]any{"threadId": "th_outer"})
 		s.trackActivity("item/started", map[string]any{"threadId": "th_outer", "item": map[string]any{
-			"type": "subAgentActivity", "agentThreadId": "th_inner", "agentPath": "/root/outer/inner"}})
+			"type": "subAgentActivity", "kind": "started", "agentThreadId": "th_inner", "agentPath": "/root/outer/inner"}})
 		s.trackActivity("turn/started", map[string]any{"threadId": "th_inner"})
 		s.trackActivity("turn/completed", map[string]any{"threadId": "th_outer"})
 		s.trackActivity("turn/completed", map[string]any{"threadId": "th_1"})
@@ -2153,10 +2611,10 @@ func TestCodexSessionTrackActivity(t *testing.T) {
 		s.lastActivity = `{"busy":false,"busy_since":null,"subagents":[],"waits":[]}`
 
 		s.trackActivity("item/started", map[string]any{"threadId": "th_1", "item": map[string]any{
-			"type": "subAgentActivity", "agentThreadId": "th_sub", "agentPath": "/root/outer"}})
+			"type": "subAgentActivity", "kind": "started", "agentThreadId": "th_sub", "agentPath": "/root/outer"}})
 		s.trackActivity("turn/started", map[string]any{"threadId": "th_sub"})
 		s.trackActivity("item/completed", map[string]any{"threadId": "th_1", "item": map[string]any{
-			"type": "subAgentActivity", "agentThreadId": "th_sub", "agentPath": "/root/outer/inner"}})
+			"type": "subAgentActivity", "kind": "completed", "agentThreadId": "th_sub", "agentPath": "/root/outer/inner"}})
 		s.trackActivity("item/completed", map[string]any{"threadId": "th_1", "item": map[string]any{
 			"type": "agentMessage", "text": "OK"}})
 
@@ -2166,6 +2624,96 @@ func TestCodexSessionTrackActivity(t *testing.T) {
 		}
 		if !reflect.DeepEqual(fake.posts, want) {
 			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
+		}
+	})
+
+	t.Run("a multi-agent v1 spawn makes the spawning sub-agent the parent, and that parent outlives main turns", func(t *testing.T) {
+		s, fake, _ := newSession(t)
+		s.lastActivity = `{"busy":false,"busy_since":null,"subagents":[],"waits":[]}`
+		spawn := func(tool, sender, receiver string) map[string]any {
+			return map[string]any{"threadId": sender, "item": map[string]any{
+				"type": "collabAgentToolCall", "tool": tool, "status": "completed",
+				"senderThreadId": sender, "receiverThreadIds": []any{receiver}}}
+		}
+
+		s.trackActivity("item/completed", spawn("spawnAgent", "th_1", "th_mid"))
+		s.trackActivity("item/completed", spawn("spawnAgent", "th_mid", "th_grand"))
+		s.trackActivity("item/completed", spawn("wait", "th_mid", "th_other"))
+		s.trackActivity("turn/started", map[string]any{"threadId": "th_mid"})
+		s.trackActivity("turn/started", map[string]any{"threadId": "th_grand"})
+		s.trackActivity("turn/completed", map[string]any{"threadId": "th_grand"})
+		s.trackActivity("turn/completed", map[string]any{"threadId": "th_mid"})
+		s.trackActivity("turn/started", map[string]any{"threadId": "th_1"})
+		s.trackActivity("turn/completed", map[string]any{"threadId": "th_1"})
+		s.trackActivity("turn/started", map[string]any{"threadId": "th_grand"})
+		s.trackActivity("turn/started", map[string]any{"threadId": "th_other"})
+
+		mid := activitySubagentItem("th_mid", "sub-agent", 1720000000)
+		grand := activityChildItem("th_grand", "th_mid", "sub-agent", 1720000000)
+		want := []codexPost{
+			activityPost(activitySnapshot(nil, mid)),
+			activityPost(activitySnapshot(nil, grand, mid)),
+			activityPost(activitySnapshot(nil, mid)),
+			activityPost(activitySnapshot(nil)),
+			activityPost(activitySnapshot(float64(1720000000))),
+			activityPost(activitySnapshot(nil)),
+			activityPost(activitySnapshot(nil, grand)),
+			activityPost(activitySnapshot(nil, grand, activitySubagentItem("th_other", "sub-agent", 1720000000))),
+		}
+		if !reflect.DeepEqual(fake.posts, want) {
+			t.Errorf("the sidecar sent %+v, want %+v", fake.posts, want)
+		}
+	})
+
+	t.Run("a parent is recorded only from a started item, only once, and never into a cycle", func(t *testing.T) {
+		s, _, _ := newSession(t)
+		activityItem := func(on, kind, agent string) map[string]any {
+			return map[string]any{"threadId": on, "item": map[string]any{
+				"type": "subAgentActivity", "kind": kind, "agentThreadId": agent, "agentPath": "/root/" + agent}}
+		}
+
+		s.trackActivity("item/started", activityItem("th_1", "started", "th_mid"))
+		s.trackActivity("item/started", activityItem("th_1", "started", "th_peer"))
+		s.trackActivity("item/started", activityItem("th_mid", "started", "th_grand"))
+		s.trackActivity("item/started", activityItem("th_mid", "started", "th_deep"))
+		s.trackActivity("item/completed", activityItem("th_peer", "interacted", "th_mid"))
+		s.trackActivity("item/completed", activityItem("th_grand", "interacted", "th_mid"))
+		s.trackActivity("item/completed", activityItem("th_grand", "interrupted", "th_deep"))
+		s.trackActivity("item/completed", activityItem("th_deep", "completed", "th_grand"))
+		s.trackActivity("item/started", activityItem("th_deep", "started", "th_mid"))
+		s.trackActivity("item/started", activityItem("th_grand", "started", "th_deep"))
+
+		want := map[string]string{"th_grand": "th_mid", "th_deep": "th_mid"}
+		if !reflect.DeepEqual(s.subagentParent, want) {
+			t.Errorf("parents = %v, want %v", s.subagentParent, want)
+		}
+	})
+
+	t.Run("a sub-agent thread leaving the active status releases a wake that never started", func(t *testing.T) {
+		s, _, _ := newSession(t)
+		s.subagentParent = map[string]string{"th_grand": "th_mid"}
+		grandDone := map[string]any{"threadId": "th_grand", "turn": map[string]any{"id": "t_grand", "status": "completed"}}
+		wake := func(id float64) map[string]any {
+			return map[string]any{"id": id, "method": "turn/start", "params": map[string]any{
+				"threadId": "th_mid",
+				"input": []any{map[string]any{"type": "text",
+					"text": "[OffiCraft sidecar] 你叫起的一個 sub-agent 已經結束，它的結果已經在對話裡，請接著它的結果繼續做。"}},
+			}}
+		}
+		s.handleTurnCompleted(grandDone)
+
+		s.trackActivity("thread/status/changed", map[string]any{"threadId": "th_mid", "status": map[string]any{"type": "active"}})
+		s.handleTurnCompleted(grandDone)
+
+		if got, want := s.sent(t), []map[string]any{wake(1)}; !reflect.DeepEqual(got, want) {
+			t.Fatalf("sent %v while th_mid's wake was still pending, want %v", got, want)
+		}
+
+		s.trackActivity("thread/status/changed", map[string]any{"threadId": "th_mid", "status": map[string]any{"type": "idle"}})
+		s.handleTurnCompleted(grandDone)
+
+		if got, want := s.sent(t), []map[string]any{wake(1), wake(2)}; !reflect.DeepEqual(got, want) {
+			t.Errorf("sent %v, want %v", got, want)
 		}
 	})
 
@@ -3181,7 +3729,7 @@ func TestRunCodexSession(t *testing.T) {
 			" *'\"method\":\"turn/start\"'*) if [ \"$boot\" = 1 ]; then boot=0\n" +
 			"   echo '{\"method\":\"turn/started\",\"params\":{\"threadId\":\"th_1\",\"turn\":{\"id\":\"t1\"}}}'\n" +
 			"   echo '{\"method\":\"turn/started\",\"params\":{\"threadId\":\"th_sub\",\"turn\":{\"id\":\"ts\"}}}'\n" +
-			"   echo '{\"method\":\"item/started\",\"params\":{\"threadId\":\"th_1\",\"item\":{\"type\":\"subAgentActivity\",\"agentThreadId\":\"th_sub\",\"agentPath\":\"/root/scout\"}}}'\n" +
+			"   echo '{\"method\":\"item/started\",\"params\":{\"threadId\":\"th_1\",\"item\":{\"type\":\"subAgentActivity\",\"kind\":\"started\",\"agentThreadId\":\"th_sub\",\"agentPath\":\"/root/scout\"}}}'\n" +
 			"   echo '{\"method\":\"turn/completed\",\"params\":{\"threadId\":\"th_sub\",\"turn\":{\"id\":\"ts\",\"status\":\"completed\"}}}'\n" +
 			"   echo '{\"method\":\"turn/completed\",\"params\":{\"threadId\":\"th_1\",\"turn\":{\"id\":\"t1\",\"status\":\"interrupted\"}}}'\n" +
 			" fi ;;\n" +
@@ -3218,6 +3766,66 @@ func TestRunCodexSession(t *testing.T) {
 		}
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("the sidecar sent activity\n  %+v\nwant\n  %+v\nout=%q", got, want, out.String())
+		}
+	})
+
+	t.Run("a sub-agent finishing after the main turn ended wakes the main thread with one turn/start", func(t *testing.T) {
+		work := t.TempDir()
+		t.Setenv("HOME", work)
+		capture := filepath.Join(work, "requests")
+		app := "#!/bin/sh\nboot=1\nwhile IFS= read -r line; do\n" +
+			" id=$(printf '%s' \"$line\" | sed -E 's/.*\"id\":([0-9]+).*/\\1/')\n" +
+			" case \"$line\" in\n" +
+			" *'\"method\":\"initialize\"'*|*'\"method\":\"account/rateLimits/read\"'*) printf '{\"id\":%s,\"result\":{}}\\n' \"$id\" ;;\n" +
+			" *'\"method\":\"thread/start\"'*) printf '{\"id\":%s,\"result\":{\"thread\":{\"id\":\"th_1\"}}}\\n' \"$id\" ;;\n" +
+			" *'\"method\":\"turn/start\"'*) printf '%s\\n' \"$line\" >> " + shellQuote(capture) + "\n" +
+			"   if [ \"$boot\" = 1 ]; then boot=0\n" +
+			"   echo '{\"method\":\"turn/started\",\"params\":{\"threadId\":\"th_1\",\"turn\":{\"id\":\"t1\"}}}'\n" +
+			"   echo '{\"method\":\"item/completed\",\"params\":{\"threadId\":\"th_1\",\"item\":{\"type\":\"collabAgentToolCall\",\"tool\":\"spawnAgent\",\"senderThreadId\":\"th_1\",\"receiverThreadIds\":[\"th_sub\"]}}}'\n" +
+			"   echo '{\"method\":\"turn/started\",\"params\":{\"threadId\":\"th_sub\",\"turn\":{\"id\":\"ts\"}}}'\n" +
+			"   echo '{\"method\":\"turn/completed\",\"params\":{\"threadId\":\"th_1\",\"turn\":{\"id\":\"t1\",\"status\":\"completed\"}}}'\n" +
+			"   echo '{\"method\":\"turn/completed\",\"params\":{\"threadId\":\"th_sub\",\"turn\":{\"id\":\"ts\",\"status\":\"completed\"}}}'\n" +
+			"   else exit 0; fi ;;\n" +
+			" esac\ndone\n"
+		codexBin := filepath.Join(work, "codex")
+		for name, body := range map[string]string{codexBin: app, filepath.Join(work, "ocagent"): "#!/bin/sh\nexec sleep 30\n"} {
+			if err := os.WriteFile(name, []byte(body), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		out := &lockedBuffer{}
+
+		code := runCodexSession([]string{"--codex-bin", codexBin, "--workdir", work, "--persona", stagePersona(t, work)},
+			envMap(map[string]string{"OC_BASE": "://invalid", "OC_TOKEN": "tok"}), out)
+
+		if code != 1 {
+			t.Fatalf("code=%d, out=%q", code, out.String())
+		}
+		raw, err := os.ReadFile(capture)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []map[string]any
+		for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+			var msg map[string]any
+			if err := json.Unmarshal([]byte(line), &msg); err != nil {
+				t.Fatal(err)
+			}
+			got = append(got, msg)
+		}
+		want := []map[string]any{
+			{"id": float64(4), "method": "turn/start", "params": map[string]any{
+				"threadId": "th_1", "effort": "medium",
+				"input": []any{map[string]any{"type": "text", "text": "開始。"}},
+			}},
+			{"id": float64(5), "method": "turn/start", "params": map[string]any{
+				"threadId": "th_1", "effort": "medium",
+				"input": []any{map[string]any{"type": "text",
+					"text": "[OffiCraft sidecar] 你叫起的一個 sub-agent 已經結束，它的結果已經在對話裡，請接著它的結果繼續做。"}},
+			}},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("the app server received\n  %v\nwant\n  %v\nout=%q", got, want, out.String())
 		}
 	})
 }

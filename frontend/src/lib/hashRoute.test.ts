@@ -50,6 +50,20 @@ describe("parseHash", () => {
       chatId: "ow-7",
       workerId: "ow-7",
     });
+    expect(parseHash("#office/member/kyle/from/tasks")).toEqual({
+      page: "office",
+      detailId: "kyle",
+      backTo: "tasks",
+    });
+    expect(parseHash("#office/worker/ow-7/from/tasks")).toEqual({
+      page: "office",
+      workerId: "ow-7",
+      backTo: "tasks",
+    });
+    expect(parseHash("#office/member/kyle/from/foo")).toEqual({
+      page: "office",
+      detailId: "kyle",
+    });
   });
 
   it("restores the settings task-manual deep-link (T-e987 任務類型 label)", () => {
@@ -225,6 +239,12 @@ describe("formatHash", () => {
     expect(
       formatHash({ page: "office", chatId: "ow-7", workerId: "ow-7" })
     ).toBe("#office/chat/ow-7/worker/ow-7");
+    expect(formatHash({ page: "office", detailId: "kyle", backTo: "tasks" })).toBe(
+      "#office/member/kyle/from/tasks"
+    );
+    expect(formatHash({ page: "office", workerId: "ow-7", backTo: "tasks" })).toBe(
+      "#office/worker/ow-7/from/tasks"
+    );
     // T-e987 settings deep-link + compose seed segments.
     expect(formatHash({ page: "settings", manualKey: "review-pr" })).toBe(
       "#settings/manuals/review-pr"
@@ -291,6 +311,8 @@ describe("formatHash", () => {
         roleKey: "role-a1b2",
       },
       { page: "office" as const, chatId: "mira", composeTaskNo: "T-7d40" },
+      { page: "office" as const, detailId: "kyle", backTo: "tasks" as const },
+      { page: "office" as const, workerId: "ow-7", backTo: "tasks" as const },
     ];
     for (const r of routes) {
       expect(parseHash(formatHash(r))).toEqual(r);

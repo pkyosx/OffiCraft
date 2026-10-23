@@ -4,9 +4,11 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
+	"unicode/utf8"
 )
 
 const (
@@ -29,6 +31,9 @@ const (
 	replyCardRecentWindowSecs = 24 * 60 * 60
 
 	replyCardAnswerTextPreview = 200
+
+	replyCardExcerptTooLongMsg = "reply_excerpt is %d chars, over the %d-char limit — it is " +
+		"refused rather than shortened; quote a shorter piece of the card"
 )
 
 // The payload is a hint, never the answer (spec/sse.md §2.2). The hub always
@@ -381,11 +386,7 @@ func (s *apiServer) writeReplyCardTransitionReceipt(w http.ResponseWriter, c Rep
 	if c.Status == replyCardStatusAnswered {
 		ts := c.AnsweredTS
 		receipt.AnsweredTS = &ts
-		receipt.Answer = &replyCardAnswerDTO{
-			OptionIdxs:  c.AnswerOptionIdxs,
-			Text:        c.AnswerText,
-			Attachments: attachmentDTOsFromRefs(c.AnswerAttachments),
-		}
+		receipt.Answer = replyCardAnswerDTOOf(c)
 	}
 	writeJSON(w, http.StatusOK, receipt)
 }
@@ -556,20 +557,24 @@ func (s *apiServer) replyCardListItemOf(c ReplyCard) (replyCardListItemDTO, erro
 	if c.Status == replyCardStatusAnswered {
 		ts := c.AnsweredTS
 		dto.AnsweredTS = &ts
-		text := c.AnswerText
-		if len([]rune(text)) > replyCardAnswerTextPreview {
-			text = string([]rune(text)[:replyCardAnswerTextPreview]) + "…"
-		}
 		dto.Answer = &replyCardAnswerBriefDTO{
-			OptionIdxs:  c.AnswerOptionIdxs,
-			Options:     replyCardOptionWording(c),
-			Text:        text,
-			Attachments: len(c.AnswerAttachments),
+			OptionIdxs:   c.AnswerOptionIdxs,
+			Options:      replyCardOptionWording(c),
+			Text:         replyCardAnswerPreview(c.AnswerText),
+			ReplyExcerpt: replyCardAnswerPreview(c.AnswerReplyExcerpt),
+			Attachments:  len(c.AnswerAttachments),
 		}
 	}
 	ref, executor, err := s.cardTaskRef(c)
 	dto.Task, dto.TaskExecutor = ref, executor
 	return dto, err
+}
+
+func replyCardAnswerPreview(text string) string {
+	if len([]rune(text)) > replyCardAnswerTextPreview {
+		return string([]rune(text)[:replyCardAnswerTextPreview]) + "…"
+	}
+	return text
 }
 
 func replyCardOptionWording(c ReplyCard) []string {
@@ -718,6 +723,14 @@ func (s *apiServer) applyReplyCardAnswer(w http.ResponseWriter, r *http.Request,
 		decoded = append(decoded, att)
 	}
 	text := trimmedOrEmpty(body.Text)
+	// ⚠️ Not checked against the card's text: a selection of the rendered card
+	// need not appear verbatim in its raw markdown.
+	excerpt := trimmedOrEmpty(body.ReplyExcerpt)
+	if n := utf8.RuneCountInString(excerpt); n > chatReplyExcerptMaxChars {
+		writeError(w, http.StatusBadRequest,
+			fmt.Sprintf(replyCardExcerptTooLongMsg, n, chatReplyExcerptMaxChars))
+		return
+	}
 	if len(optionIdxs) == 0 && text == "" && len(decoded) == 0 {
 		writeError(w, http.StatusBadRequest,
 			"answer must carry an option, text, or an attachment")
@@ -740,6 +753,7 @@ func (s *apiServer) applyReplyCardAnswer(w http.ResponseWriter, r *http.Request,
 		cur.AnsweredTS = now
 		cur.AnswerOptionIdxs = optionIdxs
 		cur.AnswerText = text
+		cur.AnswerReplyExcerpt = excerpt
 		cur.AnswerAttachments = refs
 		return nil
 	})

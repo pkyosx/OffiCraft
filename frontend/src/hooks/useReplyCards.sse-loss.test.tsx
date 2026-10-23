@@ -101,17 +101,21 @@ function killEventStream() {
  * shape of an EventSource that dies right after delivering one delta. Returns
  * the captured handler. */
 function captureEventStream() {
-  let fire: ((topic: string) => void) | null = null;
+  // Every subscriber hears every frame, like the real shared downlink: the page
+  // mounts more than one subscriber, and keeping only the latest one would
+  // silently starve the reply-card hook.
+  const subscribers = new Set<(topic: string) => void>();
   vi.spyOn(api, "subscribeEvents").mockImplementation((onTopic) => {
-    fire = (topic: string) => onTopic(topic);
+    const sub = (topic: string) => onTopic(topic);
+    subscribers.add(sub);
     return () => {
-      fire = null;
+      subscribers.delete(sub);
     };
   });
   return {
     deliver: (topic: string) => {
-      if (!fire) throw new Error("nobody subscribed");
-      fire(topic);
+      if (subscribers.size === 0) throw new Error("nobody subscribed");
+      for (const sub of [...subscribers]) sub(topic);
     },
   };
 }

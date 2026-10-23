@@ -25,6 +25,13 @@ paths:
   - "visual-guards/stories/ReplyCardWorkerTaskStory*"
   - "src/hooks/useScheduledMessages.ts"
   - "src/lib/composerKeys.ts"
+  - "src/lib/chatMention*"
+  - "src/lib/mentionLinks*"
+  - "src/hooks/useMentionOpener.ts"
+  - "src/hooks/useMentionComposer.ts"
+  - "src/components/MentionText*"
+  - "src/components/TaskCard.tsx"
+  - "visual-guards/stories/ComposerMention*"
   - "src/lib/autosize.ts"
   - "src/lib/chatDraftStore.ts"
   - "src/lib/replyExcerpt.ts"
@@ -73,6 +80,8 @@ custom 不讀 hour、minute、day_of_week、day_of_month，也不把自己摘要
 帶著未讀徽章進房與否，在 render 時同步讀 member.unreadCount 決定（進房後的 mark-read 會把它清成 0）。第一則未讀由**伺服器**回答（`getFirstUnreadChat`＝`GET /api/chat?unread=true&with=<id>&limit=1`：對方送給 owner、在水位之上最舊的一則），房間以它為錨點載入（與跳到原訊息同一條 `loadAround`），divider 顯示在它上方並保留於本 session；查不到、查詢失敗或那一段讀不到就退回最新一頁、落在最底，等最新頁的期間維持轉圈（不先畫「這個範圍還沒有訊息」），那一頁也讀失敗時跟一般 load 失敗一樣記 `loadStale`，下一個聊天事件補抓。⚠️ 錨點還在路上時（帶未讀進房或跳到原訊息），SSE／focus 觸發的 `load()` 會被擋下，但要記 `loadStale`，錨點落地放掉 lease 時補一次 `load()`——錨點那一段是在新訊息到之前讀的，不補的話那一則要等下一個事件才出現。⚠️ 不能從已載入的頁面倒數：未讀超過一頁、或該成員與其他成員的往來塞滿那一頁時，第一則未讀根本不在頁裡，徽章數也可能落後伺服器。標已讀（owner 裁定）：帶未讀進房即以最新一則標已讀，不論未讀多少列、最新一則在不在畫面內，不必捲到底；落點仍停在第一則未讀。跳到原訊息進房不在此列，照舊要捲到底、按回到最新或預覽列才標。watermark 只由明確的 mark-read 推進，listChat 不寫。房內新訊息只有在 owner 不在 near-bottom 時顯示 LINE 式預覽列（寄件者＋一行內容），點擊落在**最新那一則**（T-48 前是落在第一則未見，下面還壓著沒看到的訊息）；落點**不做事後校正**（T-48 owner rc-6c27f486ef9d 具名接受「上方晚載入的內容把目標擠走」，`scrollToLatest` 只捲一次），但那句裁定點名的圖片與請示卡今天都在**來源**擋掉了——縮圖有固定框，請示卡則是**一律先收合成一列**（T-48，owner 2026-09-04 `c-6f054c1cb481`：待回覆的卡也跟已回覆一樣先不展開），那一列要顯示的東西訊息本身就帶著（summary＝訊息正文、狀態＝`reply_card_status` 提示），所以它不撈任何東西、第一幀就是最終高度；被接受的是其餘晚到內容的位移；必須真的捲到底才清除。**最新那一則不在視野內**且**沒有**新訊息時顯示回到最新箭頭，兩者不同時出現（箭頭讓位給預覽列，owner rc-72054864ff88）。⚠️ 判準量的是**最新那一列的底邊**（`lib/scrollToLatest` 的 `isLatestRowInView`），不是「容器捲到底了沒」：`.chat__messages` 是 gap 的 flex 欄且最後一列下面還有零高哨兵，所以容器底部永遠在最新那一列底下一個 gap，用容器問會在最新訊息完整可見時答「不在」（T-48：按了箭頭它不會消失，每一次）。任何把它換回 `scrollHeight - scrollTop - clientHeight <= 某個常數` 的寫法都會把那個 bug 帶回來，而且 gap 一改就沒有人會紅。
 
 ChatArea、ReplyComposer、TaskCard 訊息框都是 textarea，送出決策只由 lib/composerKeys.ts 的 enterShouldSend 提供：桌面 Enter 送出、Shift+Enter 換行；手機 Enter 換行、按鈕送出；IME composing 永不送出。autosize 上限 132px，超出由 textarea 自己捲動。
+
+@ 提及在三個框都一樣，只有一份實作 `hooks/useMentionComposer.ts`：聊天 composer、任務卡的傳訊息框（TaskCard）、請示卡的回覆框（ReplyComposer）。`useMentionRoster` 從頁面已經載好的名冊做出清單列（角色用 `t.office.role[m.role] ?? roleName`、特助置頂，跟成員清單一致）與把連結畫成人的解析器；`useMentionComposer` 是單一 textarea 的清單狀態與按鍵。名冊來源：ChatArea 與 TaskCard 用 props 的 members／workers；請示頁的 light 名冊沒有任務編號與標題，所以另掛 `useOutsourceWorkers`，但**只在至少一張卡展開時才掛**（頁底的 `OutsourceWorkersFeed`，整頁一份，不是每張卡一份；全部收合就卸掉，連同它的 member／task／chat／chat_read 訂閱）。進頁面、卡全收合時只有 light 名冊那一支，不讀完整 `GET /api/members`（T-cf91 刻意避開的全公司未讀掃描），由 `RepliesPage.test.tsx` 的「arrival with every card collapsed…」守著，陽性對照是同檔「opening cards reads the outsource list once…」。回覆框沒有自己的名冊，讀宿主提供的 `MentionRosterContext`（ChatArea 包 ChatReplyCard、TaskCard 包整張卡、RepliesPage 包卡片內文）；沒有 provider 就沒有清單、送出原文。清單開著時，Enter／Tab 是「選這一列」（桌面與手機都是），不送出也不換行；IME composing 的判準與送出共用 `isImeComposingKey`；Esc 要 preventDefault，否則 escapeLayers 會連宿主面一起關。聊天的清單往上開；任務卡與請示卡的框在捲動頁中間，清單往下開（`placement="below"`），往上開會被捲動區頂端切掉且捲不到。任務卡整張是 toggle，濾網要放行 `[role='listbox']`，否則點清單列會收合／展開卡片。草稿與送出失敗的還原一律存使用者打的 `@名字` 原文；只有送出的那份 body／回覆文字經 `lib/mentionLinks.ts` 的 `linkMentions` 轉成 `[@名字](/#office/member|worker/<id>)`。那種連結只在有解析器的面畫成可點的名字：ChatArea 以 `MentionOpenerContext` 包住的訊息本文與放大閱讀，以及請示卡的最終回覆（`MentionText`，回覆是純文字不是 Markdown）。顯示的是名冊上現在的名字、不是訊息裡寫的那段字（連結不能看起來是一個人、點開是另一個人）；id 不在目前名冊（例如已釋出的外包）就只畫寫的字。點下去：聊天裡開在那間聊天室上；任務頁與請示頁帶 `backTo`（`/from/tasks`、`/from/replies`），返回回到原頁。放大閱讀那一份點下去要先關掉覆蓋層再導頁，否則成員詳情開在覆蓋層底下。請示卡的問題本文（agent 寫的 Markdown）沒有 provider，照舊是普通同源連結；其他 Markdown 面也是。只畫純文字的面（訊息列的引用、回覆橫幅、新訊息預覽列、任務卡內收合的已回覆列）用 `unlinkMentions` 還原成 `@名字`；那只是顯示，存的與送的不動。續接摘要的引用與回覆刻意不轉，那是 agent 讀到的原文。提及不通知任何人。
 
 ## 回覆卡
 
@@ -319,7 +328,9 @@ disabled 而 blur，所以那條測試裡真正有牙的是那句 `jump.disabled
 `messageById` 還活著，但它只回答**一個**問題：composer 上方的橫幅認不認得回覆
 對象。它**不**回答「能不能看原訊息」。
 
-**「回覆這段」＝回覆對象＋一段選取原文（`reply_excerpt`）。** 選取完全落在**同一則**氣泡正文（`.chat__msg-text`）裡才浮出按鈕（`ChatSelectionReply`，portal 到 body、fixed 座標夾在視窗內）；跨兩則或落在正文外就不出現。超過 1000 字時按鈕停用並顯示上限（`lib/replyExcerpt.ts`，與 server 的 `chatReplyExcerptMaxChars` 同一個數，`mock.reply-to.test.ts` 會讀 Go 原始碼對帳）：server 是**拒絕不截斷**，所以前端也不截。excerpt 跟回覆對象**同生共死**：存在草稿、x 一起清、整則回覆會把它清掉、送出失敗一起還原。有 excerpt 時，橫幅與每一個引用面（訊息列、`ResumeSummaryCard`）畫 `replyToChat.replyExcerpt`，否則照舊畫 `content`；「已不存在」那一態不變。⚠️ server **不檢查**它是不是原文的子字串（畫面上選到的字不等於原始 markdown），不要在前端或 mock 補這個檢查。
+**「回覆這段」＝回覆對象＋一段選取原文（`reply_excerpt`）。** 選取完全落在同一個可回覆文字區塊時才浮出按鈕：一般聊天訊息的氣泡正文（`.chat__msg-text`），或等待中請示卡的摘要／內文（`.reply-card__summary`／`.reply-card__body`，見下一段，那條路不送聊天訊息）。跨兩個文字區塊（包含跨訊息、跨卡片或請示卡摘要與內文），或選到按鈕、選項、回答框等互動區域時，不浮出按鈕（`ChatSelectionReply`，portal 到 body、fixed 座標夾在視窗內）。超過 1000 字時按鈕停用並顯示上限（`lib/replyExcerpt.ts`，與 server 的 `chatReplyExcerptMaxChars` 同一個數，`mock.reply-to.test.ts` 會讀 Go 原始碼對帳）：server 是**拒絕不截斷**，所以前端也不截。excerpt 跟回覆對象**同生共死**：存在草稿、x 一起清、整則回覆會把它清掉、送出失敗一起還原。有 excerpt 時，橫幅與每一個引用面（訊息列、`ResumeSummaryCard`）畫 `replyToChat.replyExcerpt`，否則照舊畫 `content`；「已不存在」那一態不變。⚠️ server **不檢查**它是不是原文的子字串（畫面上選到的字不等於原始 markdown），不要在前端或 mock 補這個檢查。
+
+**請示卡的「回覆這段」是回答那張卡，不是送聊天訊息**（owner `rc-cf02eac19977` 圈 A：請示頁與聊天視窗都改，同一張卡兩處行為一致）。選段落在等待中卡片的摘要／內文時，按鈕把那段放進**這張卡自己的回答框上方**（`ReplyComposer` 的 `quote`，有 x），游標移進回答框；送出回答帶 `ReplyCardAnswerPostDTO.reply_excerpt`，跟聊天 excerpt 同一套 trim 與 1000 rune 上限、超過就拒絕（server 共用 `chatReplyExcerptMaxChars`）。引用不是回答：單有引用仍是「空答覆」400。路由靠 `ReplyCardQuoteProvider`：等待中卡的 `ReplyCardWaitingBody` 用 `useReplyCardQuoteTarget(card.id, …)` 登記自己，`ChatSelectionReply` 只在 `[data-reply-card-id]` 有登記時才浮出按鈕——所以已回覆／已過期的卡（沒有回答框）不浮出，宿主沒包 provider 的面（任務卡內嵌的回覆卡）也不浮出。provider 要同時包住 `ChatSelectionReply` 與選取根（ChatArea 的訊息串、RepliesPage 整頁）；`ChatSelectionReply` 要放在卡片 article **外面**，portal 的 click 會沿 React 樹冒泡，放在卡裡會翻卡。⚠️ 重新決定（PUT）是**整份換掉**答案，沒帶 `reply_excerpt` 就等於拿掉引用；所以編輯模式預設帶著原本的引用（`ReplyCardAnsweredBody` 的 `startEditing`），按 x 才拿掉。顯示引用的面從資料欄位找：`grep -rn "replyExcerpt\|answerReplyExcerpt" frontend/src`（最終答案列由 `ReplyCardBody` 給三個 wrapper 共用，另有 `ResumeSummaryCard`）；`TaskReplyCard` 收合的那一行只印選項或文字摘要，不印引用。agent 端讀得到的地方是 `get_reply_card` 的 `answer.reply_excerpt`、請示卡清單的 `answer.reply_excerpt` 預覽、喚醒快照的 `card.answer_reply_excerpt`，以及 `ocagent` 的 `reply-card … answered:` 那一行的 `quoting "…"`。
 
 **取消回覆的 x 只清回覆對象。** 不准順手清 `draft`、不准清
 `pendingAttachments`：取消回覆不是取消訊息。這條有測試釘住

@@ -133,7 +133,7 @@ describe("mock reply-card api", () => {
     expect(card.answer?.text).toBe("收件人是誰？");
   });
 
-  it("rejects an empty answer, an empty option list, an out-of-range option and a second option on a single card with 400", async () => {
+  it("rejects an empty answer, an empty option list, an out-of-range option, a second option on a single card, a quote alone and a quote over 1000 characters with 400", async () => {
     __injectMockReplyCard(mkCard({ id: "rc-1" }));
     expect(await statusOf(mockApi.answerReplyCard("rc-1", {}))).toBe(400);
     // `[]` is EMPTY, not an answer: a nil-style check would let it through and
@@ -147,6 +147,17 @@ describe("mock reply-card api", () => {
     // mkCard is a SINGLE card, so two indices is a 400 the way the server's is.
     expect(
       await statusOf(mockApi.answerReplyCard("rc-1", { optionIdxs: [0, 1] }))
+    ).toBe(400);
+    expect(
+      await statusOf(mockApi.answerReplyCard("rc-1", { replyExcerpt: "一段" }))
+    ).toBe(400);
+    expect(
+      await statusOf(
+        mockApi.answerReplyCard("rc-1", {
+          optionIdxs: [0],
+          replyExcerpt: "段".repeat(1001),
+        })
+      )
     ).toBe(400);
     // Every rejection left the card untouched.
     expect((await mockApi.getReplyCardCount()).waiting).toBe(1);
@@ -170,14 +181,26 @@ describe("mock reply-card api", () => {
 
   it("reanswer replaces the answer wholesale and stays answered", async () => {
     __injectMockReplyCard(mkCard({ id: "rc-1" }));
-    const first = await mockApi.answerReplyCard("rc-1", { optionIdxs: [0] });
+    const first = await mockApi.answerReplyCard("rc-1", {
+      optionIdxs: [0],
+      replyExcerpt: "  寄信的那段 \n",
+    });
+    expect(first.answer).toEqual({
+      optionIdxs: [0],
+      text: "",
+      replyExcerpt: "寄信的那段",
+      attachments: [],
+    });
 
     const revised = await mockApi.reanswerReplyCard("rc-1", {
       text: "改成手動寄",
     });
     expect(revised.status).toBe("answered");
-    expect(revised.answer?.optionIdxs).toBeNull();
-    expect(revised.answer?.text).toBe("改成手動寄");
+    expect(revised.answer).toEqual({
+      optionIdxs: null,
+      text: "改成手動寄",
+      attachments: [],
+    });
     expect(revised.answeredTs).toBeGreaterThanOrEqual(first.answeredTs ?? 0);
     // A revision never re-counts the badge.
     expect((await mockApi.getReplyCardCount()).waiting).toBe(0);

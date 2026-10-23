@@ -86,7 +86,8 @@ export interface paths {
          * Ingest an agent session's working state (in-memory snapshot).
          * @description - Reports the CALLER's own working state; the key is your token, so an agent can never report for another.
          *     - Sent by the runtime hooks and the Codex session runner, not by the agent itself.
-         *     - Stored in memory only — the state resets when the server restarts, and when the member reports waking.
+         *     - Stored in memory only — the state resets when the server restarts.
+         *     - Reporting waking drops only a previous session's state (one sent on an older token), or the state whatever its token when the caller's token carries no ``iat``; a report on an older token never replaces one on a newer token.
          *     - Emits a ``member`` patch to the owner when the derived ``MemberDTO.activity`` changes.
          */
         post: operations["handle_ingest_agent_activity_api_agent_activity_post"];
@@ -2727,7 +2728,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read one reply card (full context: options, status, answer). status is waiting, answered or expired; an expired card was closed without an answer. Any authenticated caller may read any card by id, not only a card it opened or one bound to its own task; an unknown id is a 404.
+         * Read one reply card (full context: options, status, answer). An answer may carry reply_excerpt: the passage of the card's question the owner selected and answered. status is waiting, answered or expired; an expired card was closed without an answer. Any authenticated caller may read any card by id, not only a card it opened or one bound to its own task; an unknown id is a 404.
          * @description - One card in full: summary, body, the original option wording, status, the linked chat message id, and the owner's answer once answered.
          *     - The pull path after a `reply_card` event, which only says the card changed.
          *     - 404 for an unknown id.
@@ -5468,6 +5469,12 @@ export interface components {
             /** @description Indices into ``options`` of every option that was circled; ``null`` when the card was answered with free text / attachments only, or is not answered yet. The server stores it DEDUPED and ASCENDING, so ``[2,0]`` and ``[0,2]`` are indistinguishable once stored. A ``single`` card accepts at most one index (two is a 400). */
             answer_option_idxs?: number[] | null;
             /**
+             * Answer Reply Excerpt
+             * @description The passage of the card's question the answer quotes, as stored: surrounding whitespace trimmed, otherwise exactly as sent (``ReplyCardAnswerDTO.reply_excerpt``). Absent when the answer quotes nothing.
+             * @default
+             */
+            answer_reply_excerpt: string;
+            /**
              * Answer Text
              * @description The free-text answer, ``""`` when none was given.
              * @default
@@ -6860,7 +6867,7 @@ export interface components {
          */
         MemberDTO: {
             /**
-             * @description What the member's session is doing right now, from its own latest ``POST /api/agent/activity`` report. Filled only on the owner's reads. Null whenever ``presence`` is neither ``online`` nor ``stopping`` (a ``waking`` member reads null even with a stored report, which may be the previous session's), and while the member's current session has not reported yet (the reports live in memory, so a server restart also blanks it until the session reports again).
+             * @description What the member's session is doing right now, from its own latest ``POST /api/agent/activity`` report. Filled only on the owner's reads. Served while ``presence`` is ``online`` or ``stopping``, and while it is ``waking`` only when the stored report is the booting session's own: a report on an older token than the booting session's is not served (two sessions whose tokens were issued in the same second are not told apart). Null for any other ``presence``, and while the member's current session has not reported yet (the reports live in memory, so a server restart also blanks it until the session reports again).
              * @default null
              */
             activity: components["schemas"]["MemberActivityDTO"] | null;
@@ -7841,6 +7848,12 @@ export interface components {
              */
             options?: string[];
             /**
+             * Reply Excerpt
+             * @description The passage of the card's question this answer quotes, truncated to a preview like ``text``. Absent when the answer quotes nothing; the full passage rides ``get_reply_card``.
+             * @default
+             */
+            reply_excerpt: string;
+            /**
              * Text
              * @default
              */
@@ -7858,6 +7871,12 @@ export interface components {
              * @description Indices into ``options`` of every option that was circled; ``null`` when the card was answered with free text / attachments only, or is not answered yet. The server stores it DEDUPED and ASCENDING, so ``[2,0]`` and ``[0,2]`` are indistinguishable once stored. A ``single`` card accepts at most one index (two is a 400).
              */
             option_idxs: number[] | null;
+            /**
+             * Reply Excerpt
+             * @description The passage of the card's question this answer quotes, as stored: surrounding whitespace trimmed, otherwise exactly as sent (``ReplyCardAnswerPostDTO.reply_excerpt``). Absent when the answer quotes nothing.
+             * @default
+             */
+            reply_excerpt: string;
             /**
              * Text
              * @default
@@ -7877,6 +7896,16 @@ export interface components {
              * @default null
              */
             option_idxs: number[] | null;
+            /**
+             * Reply Excerpt
+             * @description OPTIONAL — the PIECE of this card's question (its summary or body) the answer responds to, when the owner selected part of the card and answered that part. Surrounding whitespace is trimmed; what is empty after trimming counts as not sent. It is capped at 1000 characters (Unicode runes, counted after trimming); a longer one is REFUSED with a 400 and never truncated — the same rule as ``ChatPostDTO.reply_excerpt``.
+             *
+             *     IT IS NOT CHECKED AGAINST THE CARD'S TEXT: a selection made on the rendered card need not appear verbatim in its raw markdown, so the server stores what was sent.
+             *
+             *     It is not an answer by itself: an answer must still carry an option, text or an attachment. It belongs to the answer, so a PUT (重新決定) that omits it stores an answer that quotes nothing.
+             * @default
+             */
+            reply_excerpt: string;
             /**
              * Text
              * @default

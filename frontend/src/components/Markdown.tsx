@@ -67,6 +67,9 @@ import { useDiffOpener } from "../hooks/useDiffOpener";
 import { attachmentLinkFromHref } from "../lib/attachmentLink";
 import { useAttachmentLinkComments, useAttachmentOpener } from "../hooks/useAttachmentOpener";
 import type { DocCommentTarget } from "../lib/docComments";
+import { mentionTargetFromHref, type MentionTarget } from "../lib/mentionLinks";
+import { useMentionOpener } from "../hooks/useMentionOpener";
+import { MentionButton } from "./MentionText";
 
 interface MarkdownProps {
   source: string;
@@ -283,6 +286,26 @@ function ExternalOrDiffLink({ href, label }: { href: string; label: string }) {
   );
 }
 
+/** A `/#office/member|worker/<id>` link. Inside a chat room it becomes the
+ * in-app mention under the roster's name (or the written label as bare text
+ * when the room no longer knows the id); anywhere else it is the same anchor
+ * any other same-origin path gets. */
+function MentionOrLink({
+  href,
+  label,
+  target,
+}: {
+  href: string;
+  label: string;
+  target: MentionTarget;
+}) {
+  const openMention = useMentionOpener();
+  if (openMention === null) return <ExternalOrDiffLink href={href} label={label} />;
+  const known = openMention(target);
+  if (known === null) return <>{label}</>;
+  return <MentionButton target={target} known={known} />;
+}
+
 // ── Bare-URL autolinking (T-59) ─────────────────────────────────────────────
 // A pasted URL is the most common reference in a chat message, and it used to
 // render as dead text: only `[text](url)` ever became an <a>. Owner ruling
@@ -461,6 +484,10 @@ function renderInline(text: string, opts?: InlineOpts): ReactNode[] {
           const isImageRef = i > 0 && parts[i - 1].endsWith("!");
           const path = target.replace(URL_STRIPPED_CHARS_RE, "");
           if (!isImageRef && SAFE_PATH_RE.test(path)) {
+            const mention = mentionTargetFromHref(path);
+            if (mention) {
+              return <MentionOrLink key={i} href={path} label={label} target={mention} />;
+            }
             return <ExternalOrDiffLink key={i} href={path} label={label} />;
           }
           // Third chance, opt-in only: a repo-relative *.md reference the host

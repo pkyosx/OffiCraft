@@ -82,6 +82,13 @@ import { deriveTaskNo } from "../lib/taskNo";
 import { scrollParent, viewportSpanOf } from "../lib/scrollPort";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { enterShouldSend } from "../lib/composerKeys";
+import { linkMentions } from "../lib/mentionLinks";
+import {
+  MentionRosterContext,
+  useMentionComposer,
+  useMentionRoster,
+} from "../hooks/useMentionComposer";
+import { ChatMentionList } from "./ChatMentionList";
 import {
   ATTACH_ACCEPT,
   useAttachmentStaging,
@@ -471,7 +478,7 @@ export function TaskCard({
   function onCardToggleClick(e: React.MouseEvent<HTMLElement>) {
     const target = e.target as HTMLElement;
     const hit = target.closest(
-      "button, a, textarea, input, select, [role='button'], [role='menu'], [role='dialog']"
+      "button, a, textarea, input, select, [role='button'], [role='menu'], [role='dialog'], [role='listbox']"
     );
     if (hit && hit !== e.currentTarget) return;
     // A non-collapsed selection at click time means the click ended a drag-
@@ -954,6 +961,14 @@ export function TaskCard({
   // empty list (no setting, or a failed read) renders nothing at all.
   const suggestedReplies = useSuggestedRepliesTaskMessage();
   const draftRef = useRef<HTMLTextAreaElement>(null);
+  const mentionRoster = useMentionRoster(members, workers, { backTo: "tasks" });
+  const mention = useMentionComposer({
+    inputRef: draftRef,
+    value: draft,
+    setValue: setDraft,
+    candidates: mentionRoster.candidates,
+    composingRef: isComposingRef,
+  });
   // Attachment staging — the SHARED useAttachmentStaging state machine (same
   // caps + funnels as the chat composer / ReplyComposer): paste an image into
   // the textarea or pick files via the paperclip; all staged items ride the
@@ -992,7 +1007,11 @@ export function TaskCard({
     }));
     setSending(true);
     try {
-      await onSendMessage(task.id, draft.trim(), attachments);
+      await onSendMessage(
+        task.id,
+        linkMentions(draft.trim(), mentionRoster.candidates),
+        attachments,
+      );
       setDraft("");
       clearAttachments();
       setMsgError(false);
@@ -1005,6 +1024,7 @@ export function TaskCard({
   }
 
   function onMsgKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (mention.onKeyDown(e)) return;
     // Shared send rule (IME gate + mobile-newline) — see lib/composerKeys.
     // A mobile Enter returns false and is left un-prevented so the textarea
     // inserts a native newline.
@@ -2143,6 +2163,7 @@ export function TaskCard({
       )}
       {!executorHasLeft && (
         <div className="task-card__composer">
+          {mention.listProps && <ChatMentionList {...mention.listProps} placement="below" />}
           <input
             ref={fileInputRef}
             className="chat__file-input"
@@ -2182,7 +2203,11 @@ export function TaskCard({
                     : t.tasks.outsource
             )}
             data-testid="task-msg-input"
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              mention.onChange(e);
+            }}
+            {...mention.inputProps}
             onCompositionStart={() => {
               isComposingRef.current = true;
             }}
@@ -2499,7 +2524,7 @@ export function TaskCard({
     <AttachmentLinkCommentsContext.Provider
       value={executorRecipient === null ? null : { recipient: executorRecipient }}
     >
-      {card}
+      <MentionRosterContext.Provider value={mentionRoster}>{card}</MentionRosterContext.Provider>
     </AttachmentLinkCommentsContext.Provider>
   );
 }

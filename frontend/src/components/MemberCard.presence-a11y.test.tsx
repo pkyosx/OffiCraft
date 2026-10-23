@@ -417,6 +417,9 @@ describe("MemberCard activity icon", () => {
     ["busy", "stopping", "工作中，查看運行狀況", "working", "主代理工作中"],
     ["waiting", "stopping", "等待中，查看運行狀況", "waiting", "正在等 1 個背景檢查或排程"],
     ["idle", "stopping", "閒置，查看運行狀況", "idle", "閒置"],
+    ["busy", "waking", "工作中，查看運行狀況", "working", "主代理工作中"],
+    ["waiting", "waking", "等待中，查看運行狀況", "waiting", "正在等 1 個背景檢查或排程"],
+    ["idle", "waking", "閒置，查看運行狀況", "idle", "閒置"],
   ] as const)("under %s while %s, the icon right before the name is a button named %s, draws its own glyph, hints the summary and opens the 運行狀況 dialog", (state, lifecycle, name, glyph, hint) => {
     const onChat = vi.fn();
     const { getByTestId, getByRole } = render(
@@ -646,12 +649,10 @@ describe("MemberCard activity icon", () => {
     expect(getByTestId("activity-icon-mira-offline").querySelector(".activity-icon__glyph--offline")).not.toBeNull();
   });
 
-  const stored: Member["activity"] = { state: "busy", busySince: 1_000, subagents: [], waits: [] };
   it.each([
     ["an online member that has not reported yet", "online", null, "狀態未知"],
     ["a stopping member that has not reported yet", "stopping", null, "狀態未知"],
     ["a waking member that has not reported yet", "waking", null, "狀態未知"],
-    ["a waking member handed a stored activity", "waking", stored, "狀態未知"],
   ] as const)("%s (%s) gets a still unknown mark before the name that hints when a status will show, is no button, takes no focus and opens neither dialog nor chat", (_, lifecycle, activity, hint) => {
     const onChat = vi.fn();
     const { queryByTestId, getByTestId, container } = render(cardWith(activity, onChat, "Mira", lifecycle));

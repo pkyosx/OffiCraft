@@ -425,9 +425,10 @@ type chatInlineReplyCardDTO struct {
 	Options []ReplyCardOption `json:"options"`
 	// AnswerOptionIdxs is one of the AI's two read paths for an answer (the other
 	// is the ocagent line): a card answered with two options must show both here.
-	AnswerOptionIdxs []int   `json:"answer_option_idxs"`
-	AnswerText       string  `json:"answer_text"`
-	AnsweredTS       float64 `json:"answered_ts"`
+	AnswerOptionIdxs   []int   `json:"answer_option_idxs"`
+	AnswerText         string  `json:"answer_text"`
+	AnswerReplyExcerpt string  `json:"answer_reply_excerpt,omitempty"`
+	AnsweredTS         float64 `json:"answered_ts"`
 
 	AnsweredAtDisplay string `json:"answered_at_display"`
 }
@@ -490,6 +491,15 @@ type chatReplyQuoteDTO struct {
 // (offline preview): change both. mock.reply-to.test.ts reads THIS LINE, so
 // keep `chatReplyQuoteMaxChars = <n>` on one line.
 const chatReplyQuoteMaxChars = 60
+
+func replyCardAnswerDTOOf(c ReplyCard) *replyCardAnswerDTO {
+	return &replyCardAnswerDTO{
+		OptionIdxs:   c.AnswerOptionIdxs,
+		Text:         c.AnswerText,
+		ReplyExcerpt: c.AnswerReplyExcerpt,
+		Attachments:  attachmentDTOsFromRefs(c.AnswerAttachments),
+	}
+}
 
 func chatReplyQuoteContent(body string) string {
 	oneLine := strings.Join(strings.Fields(body), " ")
@@ -893,9 +903,10 @@ type taskStepNotePatchResultDTO struct {
 }
 
 type replyCardAnswerDTO struct {
-	OptionIdxs  []int               `json:"option_idxs"`
-	Text        string              `json:"text"`
-	Attachments []chatAttachmentDTO `json:"attachments"`
+	OptionIdxs   []int               `json:"option_idxs"`
+	Text         string              `json:"text"`
+	ReplyExcerpt string              `json:"reply_excerpt,omitempty"`
+	Attachments  []chatAttachmentDTO `json:"attachments"`
 }
 
 type replyCardDTO struct {
@@ -940,9 +951,10 @@ type replyCardListItemDTO struct {
 type replyCardAnswerBriefDTO struct {
 	OptionIdxs []int `json:"option_idxs"`
 
-	Options     []string `json:"options"`
-	Text        string   `json:"text"`
-	Attachments int      `json:"attachments"`
+	Options      []string `json:"options"`
+	Text         string   `json:"text"`
+	ReplyExcerpt string   `json:"reply_excerpt,omitempty"`
+	Attachments  int      `json:"attachments"`
 }
 
 type replyCardCountDTO struct {
@@ -2253,11 +2265,7 @@ func newReplyCardDTO(c ReplyCard) replyCardDTO {
 	if c.Status == replyCardStatusAnswered {
 		ts := c.AnsweredTS
 		dto.AnsweredTS = &ts
-		dto.Answer = &replyCardAnswerDTO{
-			OptionIdxs:  c.AnswerOptionIdxs,
-			Text:        c.AnswerText,
-			Attachments: attachmentDTOsFromRefs(c.AnswerAttachments),
-		}
+		dto.Answer = replyCardAnswerDTOOf(c)
 	}
 	return dto
 }

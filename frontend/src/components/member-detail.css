@@ -2138,6 +2138,13 @@
   gap: 2px 6px;
   color: var(--color-text);
   overflow-wrap: anywhere;
+  /* On an iPhone, anywhere alone still let a long path widen the row past the
+   * dialog, which then scrolled sideways. */
+  word-break: break-word;
+}
+.mp-activity__label > * {
+  min-width: 0;
+  max-width: 100%;
 }
 .mp-activity__chip {
   padding: 0 6px;

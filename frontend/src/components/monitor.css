@@ -77,6 +77,18 @@
   font-weight: 600;
   color: var(--color-text);
 }
+/* A phone cannot fit name + 詳情 + 估計 + 歸零 on one line (the halloween copy
+   lengthens both buttons), so the head wraps: the figure and 歸零 drop to a
+   second line instead of squeezing the name under 詳情. */
+@media (max-width: 720px) {
+  .mon-acct__head {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .mon-acct__name {
+    overflow-wrap: anywhere;
+  }
+}
 .mon-acct__limit {
   margin: -6px 0 12px;
   font-size: 12px;

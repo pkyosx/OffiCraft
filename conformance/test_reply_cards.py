@@ -381,6 +381,14 @@ def test_answer_validation_rules(client, owner_token, asker):
     assert _answer(
         client, owner_token, "rc-conf-missing", {"option_idxs": [0]}
     ).status_code == 404
+    over = _answer(client, owner_token, card["id"],
+                   {"option_idxs": [0], "reply_excerpt": "段" * 1001})
+    assert over.status_code == 400
+    assert over.json()["error"]["message"] == (
+        "reply_excerpt is 1001 chars, over the 1000-char limit — it is refused "
+        "rather than shortened; quote a shorter piece of the card"), over.text
+    assert _answer(client, owner_token, card["id"],
+                   {"reply_excerpt": "a quote alone"}).status_code == 400
     # the card is untouched by the refused answers
     assert _get_card(client, owner_token, card["id"])["status"] == "waiting"
 
@@ -514,8 +522,10 @@ def test_no_close_or_skip_surface_exists(client, owner_token, asker):
 
 def test_reanswer_replaces_answer_and_stays_answered(client, owner_token, asker):
     card = _open_card(client, asker)
-    assert _answer(client, owner_token, card["id"], {"option_idxs": [0]}).status_code == 200
+    assert _answer(client, owner_token, card["id"],
+                   {"option_idxs": [0], "reply_excerpt": "  the first part \n"}).status_code == 200
     first = _get_card(client, owner_token, card["id"])
+    assert first["answer"]["reply_excerpt"] == "the first part"
     r = _answer(client, owner_token, card["id"],
                 {"option_idxs": [1], "text": "changed my mind"}, method="PUT")
     assert r.status_code == 200, r.text
@@ -523,6 +533,9 @@ def test_reanswer_replaces_answer_and_stays_answered(client, owner_token, asker)
     assert revised["status"] == "answered"  # never reopens
     assert revised["answer"]["option_idxs"] == [1]
     assert revised["answer"]["text"] == "changed my mind"
+    # the revision replaces the whole answer: quoting nothing clears the quote
+    assert "reply_excerpt" not in revised["answer"], revised
+    assert "reply_excerpt" not in _get_card(client, owner_token, card["id"])["answer"]
     assert revised["answered_ts"] >= first["answered_ts"]  # re-enters the 24h window
     # the badge never re-counts a revised card
     waiting_ids = {

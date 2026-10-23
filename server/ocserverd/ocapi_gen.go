@@ -1250,6 +1250,9 @@ type ChatInlineReplyCardDTO struct {
 	// AnswerOptionIdxs Indices into ``options`` of every option that was circled; ``null`` when the card was answered with free text / attachments only, or is not answered yet. The server stores it DEDUPED and ASCENDING, so ``[2,0]`` and ``[0,2]`` are indistinguishable once stored. A ``single`` card accepts at most one index (two is a 400).
 	AnswerOptionIdxs *[]int `json:"answer_option_idxs,omitempty"`
 
+	// AnswerReplyExcerpt The passage of the card's question the answer quotes, as stored: surrounding whitespace trimmed, otherwise exactly as sent (``ReplyCardAnswerDTO.reply_excerpt``). Absent when the answer quotes nothing.
+	AnswerReplyExcerpt *string `json:"answer_reply_excerpt,omitempty"`
+
 	// AnswerText The free-text answer, ``""`` when none was given.
 	AnswerText *string `json:"answer_text,omitempty"`
 
@@ -2301,7 +2304,7 @@ type MemberBootContextDTO struct {
 type MemberDTO struct {
 	Account *string `json:"account,omitempty"`
 
-	// Activity What the member's session is doing right now, from its own latest ``POST /api/agent/activity`` report. Filled only on the owner's reads. Null whenever ``presence`` is neither ``online`` nor ``stopping`` (a ``waking`` member reads null even with a stored report, which may be the previous session's), and while the member's current session has not reported yet (the reports live in memory, so a server restart also blanks it until the session reports again).
+	// Activity What the member's session is doing right now, from its own latest ``POST /api/agent/activity`` report. Filled only on the owner's reads. Served while ``presence`` is ``online`` or ``stopping``, and while it is ``waking`` only when the stored report is the booting session's own: a report on an older token than the booting session's is not served (two sessions whose tokens were issued in the same second are not told apart). Null for any other ``presence``, and while the member's current session has not reported yet (the reports live in memory, so a server restart also blanks it until the session reports again).
 	Activity *MemberActivityDTO `json:"activity,omitempty"`
 
 	// ActualEffort The effort level the member's session is REPORTED to be running at, from its own live telemetry (``AgentTelemetryIngestDTO.effort``) — durably persisted alongside ``actual_model``, so it survives a server restart and outlives the session that reported it. Empty means nothing has ever reported an effort for this member; it is separate from, and NEVER falls back to, the owner-configured ``effort`` launch setting. WAS: reported effort lived ONLY in the in-memory telemetry store, so a server restart blanked it fleet-wide and no detail panel could tell a configured effort from a running one (T-7f28).
@@ -2825,7 +2828,10 @@ type ReplyCardAnswerBriefDTO struct {
 
 	// Options The circled options' ORIGINAL wording, one entry per ``option_idxs`` entry, same order.
 	Options *[]string `json:"options,omitempty"`
-	Text    *string   `json:"text,omitempty"`
+
+	// ReplyExcerpt The passage of the card's question this answer quotes, truncated to a preview like ``text``. Absent when the answer quotes nothing; the full passage rides ``get_reply_card``.
+	ReplyExcerpt *string `json:"reply_excerpt,omitempty"`
+	Text         *string `json:"text,omitempty"`
 }
 
 // ReplyCardAnswerDTO The stored answer on an answered reply card. “option_idxs“ is null for a pure free-text answer, otherwise the deduped, ascending list of every circled option's index; “attachments“ are served refs into the shared chat-attachment store.
@@ -2833,8 +2839,11 @@ type ReplyCardAnswerDTO struct {
 	Attachments *[]ChatAttachmentDTO `json:"attachments,omitempty"`
 
 	// OptionIdxs Indices into ``options`` of every option that was circled; ``null`` when the card was answered with free text / attachments only, or is not answered yet. The server stores it DEDUPED and ASCENDING, so ``[2,0]`` and ``[0,2]`` are indistinguishable once stored. A ``single`` card accepts at most one index (two is a 400).
-	OptionIdxs *[]int  `json:"option_idxs"`
-	Text       *string `json:"text,omitempty"`
+	OptionIdxs *[]int `json:"option_idxs"`
+
+	// ReplyExcerpt The passage of the card's question this answer quotes, as stored: surrounding whitespace trimmed, otherwise exactly as sent (``ReplyCardAnswerPostDTO.reply_excerpt``). Absent when the answer quotes nothing.
+	ReplyExcerpt *string `json:"reply_excerpt,omitempty"`
+	Text         *string `json:"text,omitempty"`
 }
 
 // ReplyCardAnswerPostDTO The owner's answer to a reply card: the quick-reply “option_idxs“ (a LIST of indices into the card's “options“) and/or free “text“, plus optional “attachments“ (same input shape + limits as chat attachments; blobs land in the shared chat-attachment store). An answer must carry at least one of the three — an empty answer is rejected 400, and “option_idxs: []“ counts as EMPTY, not as an answer. Every index must fall in “[0, len(options))“; a “single“ card accepts at most one (two is a 400). The stored list is deduped and sorted ascending, so “[2,0]“ and “[0,2]“ store identically. POST answers a WAITING card (the one-shot close); PUT revises an ANSWERED card's answer (重新決定 — status stays answered).
@@ -2842,8 +2851,15 @@ type ReplyCardAnswerPostDTO struct {
 	Attachments *[]ChatAttachmentInputDTO `json:"attachments,omitempty"`
 
 	// OptionIdxs Indices into the card's ``options`` of every option you circle. Omit it or send ``null`` to answer with text/attachments only; ``[]`` is NOT an answer (400). Order and duplicates do not matter — the server stores the list deduped and ascending.
-	OptionIdxs *[]int  `json:"option_idxs,omitempty"`
-	Text       *string `json:"text,omitempty"`
+	OptionIdxs *[]int `json:"option_idxs,omitempty"`
+
+	// ReplyExcerpt OPTIONAL — the PIECE of this card's question (its summary or body) the answer responds to, when the owner selected part of the card and answered that part. Surrounding whitespace is trimmed; what is empty after trimming counts as not sent. It is capped at 1000 characters (Unicode runes, counted after trimming); a longer one is REFUSED with a 400 and never truncated — the same rule as ``ChatPostDTO.reply_excerpt``.
+	//
+	// IT IS NOT CHECKED AGAINST THE CARD'S TEXT: a selection made on the rendered card need not appear verbatim in its raw markdown, so the server stores what was sent.
+	//
+	// It is not an answer by itself: an answer must still carry an option, text or an attachment. It belongs to the answer, so a PUT (重新決定) that omits it stores an answer that quotes nothing.
+	ReplyExcerpt *string `json:"reply_excerpt,omitempty"`
+	Text         *string `json:"text,omitempty"`
 }
 
 // ReplyCardCountDTO Reply-card counts. “waiting“ is the cockpit navigation badge: how many reply cards are currently WAITING for the owner (answered/expired cards never count — the badge counts 待回覆 only). “answered“ is the count of recently-answered cards (within the 24h 近期已回覆 window) and “expired“ the count of recently-expired cards (the same 24h window keyed off “expired_ts“) — together they let the 等我回覆 page render its collapsed 近期已處理 header (and hide the pane at zero) WITHOUT fetching the lists; the lists load only when the owner expands the pane.
@@ -6112,7 +6128,7 @@ type ServerInterface interface {
 	// Waiting reply-card count (the cockpit badge).
 	// (GET /api/reply-cards/count)
 	HandleReplyCardCountApiReplyCardsCountGet(w http.ResponseWriter, r *http.Request)
-	// Read one reply card (full context: options, status, answer). status is waiting, answered or expired; an expired card was closed without an answer. Any authenticated caller may read any card by id, not only a card it opened or one bound to its own task; an unknown id is a 404.
+	// Read one reply card (full context: options, status, answer). An answer may carry reply_excerpt: the passage of the card's question the owner selected and answered. status is waiting, answered or expired; an expired card was closed without an answer. Any authenticated caller may read any card by id, not only a card it opened or one bound to its own task; an unknown id is a 404.
 	// (GET /api/reply-cards/{card_id})
 	HandleGetReplyCardApiReplyCardsCardIdGet(w http.ResponseWriter, r *http.Request, cardId string)
 	// Answer a waiting reply card — the only way a card closes.

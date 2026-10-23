@@ -1,5 +1,5 @@
 // The avatar-corner presence dot and the activity status icon (or, for a member
-// that is offline or stopped, the moon; waking, or without a report yet, the unknown mark)
+// that is offline or stopped, the moon; without a report yet, the unknown mark)
 // leading the name on the list rows, the chat
 // header and the detail identity card, the activity tree in the 運行狀況 card, and the dialog
 // the icon opens, at phone and desktop widths.
@@ -352,19 +352,69 @@ test.describe("the 運行狀況 dialog the icon opens", () => {
       };
     });
 
-  test("width 390: a bottom sheet across the viewport, inside it, with no horizontal scroll", async ({ mount, page }) => {
+  test("width 390: a centred dialog with the scrim showing on every side, inside the viewport and scrolling inside when too tall, with no horizontal scroll after opening or closing", async ({ mount, page }) => {
     await page.setViewportSize({ width: 390, height: 780 });
     await mount(<IdentityActivityStory surface="list" state="busy" mobile />);
     await page.locator(".member-card .activity-icon").first().click();
     await expect(page.getByRole("dialog")).toBeVisible();
     const m = await dialogBox(page);
-    expect(Math.abs(m.box.bottom - m.vh), "sheet sits on the bottom edge").toBeLessThanOrEqual(1);
-    expect(m.box.left, "sheet spans the width").toBeLessThanOrEqual(0.5);
-    expect(Math.abs(m.box.right - m.vw), "sheet spans the width").toBeLessThanOrEqual(0.5);
-    expect(m.box.top, "sheet top inside the viewport").toBeGreaterThan(0);
-    expect(m.boxOverflow, "sheet does not overflow sideways").toBeLessThanOrEqual(0);
-    expect(m.rowsRight, "tree rows inside the sheet").toBeLessThanOrEqual(m.box.right);
-    expect(await hscroll(page), "no page hscroll").toBeLessThanOrEqual(1);
+    const cx = m.box.left + m.box.width / 2;
+    const cy = m.box.top + m.box.height / 2;
+    expect(Math.abs(cx - m.vw / 2), "centred horizontally").toBeLessThanOrEqual(1);
+    expect(Math.abs(cy - m.vh / 2), "centred vertically, not sitting on the bottom edge").toBeLessThanOrEqual(1);
+    expect(m.box.left, "side margin on the left").toBeGreaterThanOrEqual(19.5);
+    expect(m.vw - m.box.right, "side margin on the right").toBeGreaterThanOrEqual(19.5);
+    expect(m.box.top, "top inside the viewport").toBeGreaterThanOrEqual(19.5);
+    expect(m.vh - m.box.bottom, "bottom inside the viewport").toBeGreaterThanOrEqual(19.5);
+    expect(m.boxOverflow, "dialog does not overflow sideways").toBeLessThanOrEqual(0);
+    expect(m.rowsRight, "tree rows inside the dialog").toBeLessThanOrEqual(m.box.right);
+    expect(await hscroll(page), "no page hscroll while open").toBeLessThanOrEqual(1);
+    await page.getByRole("dialog").getByRole("button").click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    expect(await hscroll(page), "no page hscroll after closing").toBeLessThanOrEqual(1);
+
+    await page.setViewportSize({ width: 390, height: 240 });
+    const pageHeight = () => page.evaluate(() => document.documentElement.scrollHeight);
+    const closedHeight = await pageHeight();
+    await page.locator(".member-card .activity-icon").first().click();
+    const short = await dialogBox(page);
+    const boxScroll = await page.evaluate(() => {
+      const box = document.querySelector(".activity-dialog__box") as HTMLElement;
+      return box.scrollHeight - box.clientHeight;
+    });
+    expect(short.box.top, "too tall: top stays inside the viewport").toBeGreaterThanOrEqual(19.5);
+    expect(short.vh - short.box.bottom, "too tall: bottom stays inside the viewport").toBeGreaterThanOrEqual(19.5);
+    expect(boxScroll, "too tall: the dialog scrolls inside").toBeGreaterThan(0);
+    expect(await pageHeight(), "too tall: the page does not grow").toBe(closedHeight);
+  });
+
+  test("width 390: wait rows holding a long shell command and an unbreakable hash wrap inside the dialog, so the page never scrolls sideways", async ({ mount, page }) => {
+    await page.setViewportSize({ width: 390, height: 780 });
+    await mount(<IdentityActivityStory surface="list" state="busy" mobile longWaits />);
+    await page.locator(".member-card .activity-icon").first().click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    const m = await dialogBox(page);
+    expect(m.box.left, "side margin on the left").toBeGreaterThanOrEqual(19.5);
+    expect(m.vw - m.box.right, "side margin on the right").toBeGreaterThanOrEqual(19.5);
+    expect(m.boxOverflow, "dialog does not overflow sideways").toBeLessThanOrEqual(0);
+    expect(m.rowsRight, "tree rows inside the dialog").toBeLessThanOrEqual(m.box.right);
+    const asides = await page.getByRole("dialog").locator(".mp-activity__aside").evaluateAll((els) =>
+      els.map((el) => {
+        const r = el.getBoundingClientRect();
+        return { left: r.left, right: r.right };
+      }),
+    );
+    expect(asides.length, "the wait rows carry their tags").toBeGreaterThan(0);
+    for (const a of asides) {
+      expect(a.left, "wait tag inside the dialog on the left").toBeGreaterThanOrEqual(m.box.left);
+      expect(a.right, "wait tag inside the dialog on the right").toBeLessThanOrEqual(m.box.right);
+      expect(a.right, "wait tag inside the viewport").toBeLessThanOrEqual(m.vw);
+    }
+    const close = await page.getByRole("dialog").getByRole("button").boundingBox();
+    expect(close!.x + close!.width, "close button inside the dialog").toBeLessThanOrEqual(m.box.right);
+    expect(await hscroll(page), "no page hscroll while open").toBeLessThanOrEqual(1);
+    await page.getByRole("dialog").getByRole("button").click();
+    expect(await hscroll(page), "no page hscroll after closing").toBeLessThanOrEqual(1);
   });
 
   test("width 1280: a centred dialog about 420 wide", async ({ mount, page }) => {

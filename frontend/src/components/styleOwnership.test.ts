@@ -63,6 +63,7 @@ const OWNED_SHEETS = [
   "doc-comments.css",
   "member-activity.css",
   "presence-avatar.css",
+  "chat-mention.css",
 ] as const;
 
 /** Sheets whose BEM block is not just the filename. `member-detail.css` owns the

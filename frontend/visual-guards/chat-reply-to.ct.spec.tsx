@@ -25,6 +25,7 @@
 import { test, expect } from "@playwright/experimental-ct-react";
 import { ChatReplyToStory } from "./stories/ChatReplyToStory";
 import { ChatSelectionReplyStory } from "./stories/ChatSelectionReplyStory";
+import { ChatCardTimestampStory } from "./stories/ChatCardTimestampStory";
 import { BUILTIN_THEME_IDS, expectBuiltinApplied, selectBuiltinTheme } from "./builtinThemes";
 
 /** Parse what getComputedStyle hands back for a colour — `rgb()`, `rgba()` or
@@ -1067,5 +1068,77 @@ for (const width of [390, 1280]) {
       await page.waitForTimeout(50);
       await expect(button, "a range reaching into the next sender's name").toHaveCount(0);
     });
+  });
+}
+
+// 回覆這段 on a waiting chat card quotes into the card's own answer box (owner
+// rc-cf02eac19977). The quote is a piece of agent-written markdown and can be
+// one unbroken token, so it must wrap inside the card above the box and under
+// the sent answer, never push either wider.
+for (const width of [390, 1280]) {
+  test(`width ${width}: an unbroken quote above a chat card's answer box, and under its sent answer, wraps inside the card`, async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const cmp = await mount(<ChatCardTimestampStory />);
+    if (width === 1280) {
+      await page.evaluate(() => {
+        document.documentElement.dataset.layout = "wide";
+      });
+    }
+    await cmp.getByTestId("chat-reply-card-expand").click();
+    const card = cmp.getByTestId("chat-reply-card");
+    await expect(card.getByTestId("reply-option").first()).toBeVisible();
+
+    await page.evaluate(() => {
+      const code = document.querySelector(".reply-card__summary pre code")!;
+      const text = code.firstChild as Text;
+      const range = document.createRange();
+      range.setStart(text, 0);
+      range.setEnd(text, text.length);
+      window.getSelection()!.removeAllRanges();
+      window.getSelection()!.addRange(range);
+    });
+    const button = page.getByTestId("chat-selection-reply");
+    await expect(button).toBeVisible();
+    await button.click();
+
+    const inThread = async (label: string, quote: import("@playwright/test").Locator) => {
+      await expect(quote).toBeVisible();
+      const cardBox = (await card.boundingBox())!;
+      const quoteBox = (await quote.boundingBox())!;
+      expect(quoteBox.x, `${label}: starts inside the card`).toBeGreaterThanOrEqual(cardBox.x - 1);
+      expect(quoteBox.x + quoteBox.width, `${label}: ends inside the card`).toBeLessThanOrEqual(
+        cardBox.x + cardBox.width + 1,
+      );
+      const textOver = await quote
+        .locator(".reply-card__quote-text")
+        .evaluate((el) => el.scrollWidth - el.clientWidth);
+      expect(textOver, `${label}: the passage wraps instead of running sideways`).toBeLessThanOrEqual(1);
+      const messagesOver = await cmp
+        .getByTestId("chat-messages")
+        .evaluate((el) => el.scrollWidth - el.clientWidth);
+      expect(messagesOver, `${label}: the thread does not scroll sideways`).toBeLessThanOrEqual(1);
+      const pageOver = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      );
+      expect(pageOver, `${label}: no horizontal page scroll`).toBeLessThanOrEqual(0);
+    };
+
+    const armed = card.getByTestId("reply-composer-quote");
+    await inThread("above the answer box", armed);
+    const composerBox = (await card.locator(".reply-composer").boundingBox())!;
+    const armedBox = (await armed.boundingBox())!;
+    expect(
+      armedBox.x + armedBox.width,
+      "the quote is no wider than the answer box it sits on",
+    ).toBeLessThanOrEqual(composerBox.x + composerBox.width + 1);
+    const input = card.locator(".reply-composer .chat__input");
+    await expect(input).toBeFocused();
+
+    await input.fill("先確認欄位");
+    await card.locator(".reply-composer .chat__send").click();
+    await inThread("under the sent answer", card.getByTestId("final-answer-quote"));
   });
 }

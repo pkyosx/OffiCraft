@@ -32,6 +32,7 @@ import {
   ReplyCardWaitingBody,
 } from "./ReplyCardBody";
 import type { DocCommentRecipient } from "../lib/docComments";
+import { unlinkMentions } from "../lib/mentionLinks";
 import { ChevronRightIcon } from "./icons";
 import "./replies.css";
 
@@ -219,7 +220,7 @@ export function TaskReplyCard({
     const answerText = card
       ? pickedOptions.length > 0
         ? msg.replyPickedOptions(pickedOptions)
-        : (card.answer?.text ?? "")
+        : unlinkMentions(card.answer?.text ?? "")
       : "";
     return (
       <div
