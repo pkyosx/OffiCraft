@@ -158,7 +158,9 @@ The Codex member boot sequence changes only execution ownership:
      turn when the main thread is idle, steered into its running turn when busy (the one
      case a busy main thread is sent anything, because nothing else would tell it), or
      queued behind a turn that is starting. Members' models run v2, so this is the
-     common nested path.
+     common nested path. A v2 parent in a durable sleep is woken by Codex itself when the
+     child's mail arrives, so the notice to the main thread is then a harmless extra. A
+     refused notice releases that parent, so its next finished child is reported again.
 
    Nesting follows from the same rule: once an intermediate sub-agent runs and finishes,
    its own end wakes the main thread. Main-thread messages are ordinary deliveries without

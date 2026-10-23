@@ -181,6 +181,9 @@ type codexSession struct {
 	// wake's turn/start. The main thread's wake rides starting/pending instead.
 	wakingSubagents map[string]bool
 	subagentWakes   map[int]string
+	// Notice text → the idle v2 parent it reports, so a refused delivery
+	// releases that parent for the next notice.
+	v2ParentNotices map[string]string
 }
 
 type codexDelivery struct {
@@ -466,6 +469,10 @@ func (s *codexSession) resolveResponse(id int, msg appServerMessage) {
 		"agent 不會知道有人說過這句話", detail, codexDeliveryLabel(d.text))
 	if d.batch != nil {
 		d.batch.failed = true
+	}
+	if parent, ok := s.v2ParentNotices[d.text]; ok {
+		delete(s.v2ParentNotices, d.text)
+		delete(s.wakingSubagents, parent)
 	}
 	if d.method == "turn/start" {
 		s.starting = false
@@ -887,7 +894,12 @@ func (s *codexSession) wakeIdleParent(child string) {
 	// mailbox, so the main agent is told even mid-turn: nothing else would tell it.
 	if parentPath, v2 := s.v2SubagentPaths[parent]; v2 {
 		s.activity("a sub-agent of idle sub-agent %s finished; telling the main thread", parentPath)
-		s.steerOrStart(codexIdleV2ParentNotice(parentPath, s.v2SubagentPaths[child]), nil)
+		notice := codexIdleV2ParentNotice(parentPath, s.v2SubagentPaths[child])
+		if s.v2ParentNotices == nil {
+			s.v2ParentNotices = map[string]string{}
+		}
+		s.v2ParentNotices[notice] = parent
+		s.steerOrStart(notice, nil)
 		return
 	}
 	s.activity("a sub-agent finished; waking its parent sub-agent %s", parent)

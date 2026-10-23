@@ -1148,6 +1148,47 @@ func TestCodexSessionResolveResponse(t *testing.T) {
 		}
 	})
 
+	t.Run("a refused notice about an idle v2 parent is reported, and that parent's next finished child is reported again", func(t *testing.T) {
+		interceptCodexPosts(t, http.StatusOK, nil)
+		s := newCodexTestSession()
+		item := func(on, agent, path string) map[string]any {
+			return map[string]any{"threadId": on, "item": map[string]any{
+				"type": "subAgentActivity", "kind": "started", "agentThreadId": agent, "agentPath": path}}
+		}
+		s.trackActivity("item/completed", item("th_1", "th_mid", "/root/mid"))
+		s.trackActivity("item/completed", item("th_mid", "th_grand", "/root/mid/grand"))
+		s.trackActivity("item/completed", item("th_mid", "th_grand2", "/root/mid/grand2"))
+		s.handleTurnCompleted(map[string]any{"threadId": "th_grand", "turn": map[string]any{"id": "t_grand", "status": "completed"}})
+		s.pane.Reset()
+
+		s.resolveResponse(1, appServerMessage{"id": float64(1), "error": map[string]any{"message": "thread is busy"}})
+
+		if got, want := s.paneLines(t), []string{
+			"⚠️ 送不進去（thread is busy）：[OffiCraft sidecar] sub-agent /root/mid 叫起的 sub-agent /root/mid/grand 已經結束，結果送到了…" +
+				" — 這段內容沒有進到 agent 的對話，agent 不會知道有人說過這句話",
+		}; !reflect.DeepEqual(got, want) {
+			t.Errorf("the pane shows %q, want %q", got, want)
+		}
+
+		s.handleTurnCompleted(map[string]any{"threadId": "th_grand2", "turn": map[string]any{"id": "t_grand2", "status": "completed"}})
+
+		notice := func(id float64, text string) map[string]any {
+			return map[string]any{"id": id, "method": "turn/start", "params": map[string]any{
+				"threadId": "th_1", "effort": "medium",
+				"input": []any{map[string]any{"type": "text", "text": text}},
+			}}
+		}
+		want := []map[string]any{
+			notice(1, "[OffiCraft sidecar] sub-agent /root/mid 叫起的 sub-agent /root/mid/grand 已經結束，"+
+				"結果送到了 /root/mid，但 /root/mid 目前閒置、不會自己讀到；需要它接著處理時，請用 followup_task 叫 /root/mid 繼續。"),
+			notice(2, "[OffiCraft sidecar] sub-agent /root/mid 叫起的 sub-agent /root/mid/grand2 已經結束，"+
+				"結果送到了 /root/mid，但 /root/mid 目前閒置、不會自己讀到；需要它接著處理時，請用 followup_task 叫 /root/mid 繼續。"),
+		}
+		if got := s.sent(t); !reflect.DeepEqual(got, want) {
+			t.Errorf("sent %v, want %v", got, want)
+		}
+	})
+
 }
 
 func TestCodexSessionConfirmStartedTurn(t *testing.T) {
@@ -2229,26 +2270,29 @@ func TestCodexSessionHandleTurnCompleted(t *testing.T) {
 			"input": []any{map[string]any{"type": "text", "text": "[chat] owner: 早安"}},
 		}}
 		cases := []struct {
-			name string
-			busy func(s *codexTestSession)
-			want []map[string]any
+			name   string
+			before func(s *codexTestSession)
+			after  func(s *codexTestSession)
+			want   []map[string]any
 		}{
-			{"mid-turn", func(s *codexTestSession) { turnEvent(s, "turn/started", "th_1") },
+			{"mid-turn",
+				func(s *codexTestSession) { turnEvent(s, "turn/started", "th_1") },
+				func(s *codexTestSession) {},
 				[]map[string]any{noticeSteer(1, "t_th_1")}},
-			{"starting a turn", func(s *codexTestSession) { s.startTurn("[chat] owner: 早安", nil) },
+			{"starting a turn",
+				func(s *codexTestSession) { s.startTurn("[chat] owner: 早安", nil) },
+				func(s *codexTestSession) { turnEvent(s, "turn/started", "th_1") },
 				[]map[string]any{chat, noticeSteer(2, "t_th_1")}},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
 				s := newSession(t)
 				v2Tree(s)
-				tc.busy(s)
+				tc.before(s)
 
 				turnEvent(s, "turn/completed", "th_grand")
 				turnEvent(s, "turn/completed", "th_grand2")
-				if !s.active {
-					turnEvent(s, "turn/started", "th_1")
-				}
+				tc.after(s)
 
 				if got := s.sent(t); !reflect.DeepEqual(got, tc.want) {
 					t.Errorf("sent %v, want %v", got, tc.want)
@@ -2649,18 +2693,6 @@ func TestCodexSessionTrackActivity(t *testing.T) {
 		s, _, _ := newSession(t)
 		s.subagentParent = map[string]string{"th_grand": "th_mid"}
 		grandDone := map[string]any{"threadId": "th_grand", "turn": map[string]any{"id": "t_grand", "status": "completed"}}
-		s.handleTurnCompleted(grandDone)
-
-		s.trackActivity("thread/status/changed", map[string]any{"threadId": "th_mid", "status": map[string]any{"type": "active"}})
-		s.handleTurnCompleted(grandDone)
-
-		if got := s.sent(t); len(got) != 1 {
-			t.Fatalf("sent %v while th_mid's wake was still pending, want only the first wake", got)
-		}
-
-		s.trackActivity("thread/status/changed", map[string]any{"threadId": "th_mid", "status": map[string]any{"type": "idle"}})
-		s.handleTurnCompleted(grandDone)
-
 		wake := func(id float64) map[string]any {
 			return map[string]any{"id": id, "method": "turn/start", "params": map[string]any{
 				"threadId": "th_mid",
@@ -2668,6 +2700,18 @@ func TestCodexSessionTrackActivity(t *testing.T) {
 					"text": "[OffiCraft sidecar] 你叫起的一個 sub-agent 已經結束，它的結果已經在對話裡，請接著它的結果繼續做。"}},
 			}}
 		}
+		s.handleTurnCompleted(grandDone)
+
+		s.trackActivity("thread/status/changed", map[string]any{"threadId": "th_mid", "status": map[string]any{"type": "active"}})
+		s.handleTurnCompleted(grandDone)
+
+		if got, want := s.sent(t), []map[string]any{wake(1)}; !reflect.DeepEqual(got, want) {
+			t.Fatalf("sent %v while th_mid's wake was still pending, want %v", got, want)
+		}
+
+		s.trackActivity("thread/status/changed", map[string]any{"threadId": "th_mid", "status": map[string]any{"type": "idle"}})
+		s.handleTurnCompleted(grandDone)
+
 		if got, want := s.sent(t), []map[string]any{wake(1), wake(2)}; !reflect.DeepEqual(got, want) {
 			t.Errorf("sent %v, want %v", got, want)
 		}
