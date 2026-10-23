@@ -213,3 +213,19 @@ test("reply card answer box, width 1280: when the row around the box narrows, th
   expect(Math.abs(g.layer.width - g.input.width), "layer width matches the narrowed textarea").toBeLessThanOrEqual(0.5);
   expect(Math.abs(g.layerScrollHeight - g.inputScrollHeight), "layer wraps the same way").toBeLessThanOrEqual(1);
 });
+
+test("chat composer: Backspace removes a mention whole, and undo brings it back", async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1280, height: 844 });
+  const cmp = await mount(<ChatMentionStory withRoster={false} />);
+  const input = cmp.locator(".chat__composer-row textarea.chat__input");
+  await input.click();
+  await input.pressSequentially("hi @Family Money Eva");
+  await page.keyboard.press("Escape");
+  await expect(cmp.locator(".mention-highlight__mark")).toHaveText("@Family Money Eva");
+  await page.keyboard.press("Backspace");
+  await expect(input).toHaveValue("hi ");
+  await expect(cmp.locator(".mention-highlight")).toHaveCount(0);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(input).toHaveValue("hi @Family Money Eva");
+  await expect(cmp.locator(".mention-highlight__mark")).toHaveText("@Family Money Eva");
+});

@@ -176,6 +176,14 @@ describe("ReplyComposer @mention", () => {
     );
   });
 
+  it("mentions inside a code span or a fenced block → not marked, as they are not linked", () => {
+    const { container, type } = renderComposer();
+    type("`see @Mira` and\n```\n@Mira\n```\nthen @Mira");
+    const marks = container.querySelectorAll(".mention-highlight__mark");
+    expect(Array.from(marks, (m) => m.textContent)).toEqual(["@Mira"]);
+    expect(marks[0].previousSibling?.textContent).toBe("`see @Mira` and\n```\n@Mira\n```\nthen ");
+  });
+
   it("no mention in the box → no highlight layer", () => {
     const { container, type } = renderComposer();
     type("@Bob 你好");

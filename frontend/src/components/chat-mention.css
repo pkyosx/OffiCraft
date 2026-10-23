@@ -84,7 +84,6 @@
  * the caret stay the textarea's. */
 .mention-highlight {
   position: absolute;
-  z-index: 1;
   margin: 0;
   overflow: hidden;
   border-style: solid;

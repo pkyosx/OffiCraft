@@ -135,7 +135,12 @@ export function useMentionComposer({
     }
   }, [value, inputRef]);
 
-  function removeRange(r: MentionRange) {
+  function removeRange(el: HTMLTextAreaElement, r: MentionRange) {
+    el.setSelectionRange(r.start, r.end);
+    // A browser edit keeps Ctrl/Cmd+Z working; setting the value from React
+    // wipes the textarea's undo history. The edit's input event reaches the
+    // composer's onChange like typing does.
+    if (document.execCommand?.("delete")) return;
     pendingCaretRef.current = r.start;
     setCaret(r.start);
     setValue(value.slice(0, r.start) + value.slice(r.end));
@@ -155,7 +160,7 @@ export function useMentionComposer({
         : ranges.find((r) => r.start <= at && at < r.end);
     if (!hit) return false;
     e.preventDefault();
-    removeRange(hit);
+    removeRange(el, hit);
     return true;
   }
 
