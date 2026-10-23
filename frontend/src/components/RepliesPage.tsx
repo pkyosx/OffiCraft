@@ -73,6 +73,10 @@ import { FilterPanel } from "./FilterPanel";
 import { IdFilterInput } from "./IdFilterInput";
 import { MultiSelectFilter, type MultiSelectOption } from "./MultiSelectFilter";
 import { ConfirmModal } from "./ConfirmModal";
+import {
+  ChatSelectionReply,
+  ReplyCardQuoteProvider,
+} from "./ChatSelectionReply";
 import { Markdown } from "./Markdown";
 import {
   ReplyCardAnsweredBody,
@@ -488,6 +492,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // that HAS moved is fetched exactly once per move, which is what keeps this
   // from looping against a server that disagrees with the row.
   const readVersionsRef = useRef<Map<string, string>>(new Map());
+  const pageRef = useRef<HTMLDivElement>(null);
   const readCard = useCallback(
     async (row: ReplyCardRow) => {
       const { id } = row;
@@ -1153,8 +1158,8 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     });
   }
 
-  return (
-    <div className="replies">
+  const page = (
+    <div className="replies" ref={pageRef}>
       {error && <div className="replies__error">{t.replies.loadError}</div>}
       {actionError && (
         <div className="replies__error" data-testid="replies-action-error">
@@ -1325,6 +1330,13 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
 
       {expandedIds.size > 0 && <OutsourceWorkersFeed onWorkers={setWorkers} />}
     </div>
+  );
+
+  return (
+    <ReplyCardQuoteProvider>
+      <ChatSelectionReply root={pageRef} />
+      {page}
+    </ReplyCardQuoteProvider>
   );
 }
 

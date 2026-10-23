@@ -50,6 +50,7 @@ import {
 import type { DocCommentRecipient } from "../lib/docComments";
 import { AttachmentStrip } from "./AttachmentStrip";
 import { ReplyComposer } from "./ReplyComposer";
+import { useReplyCardQuoteTarget } from "./ChatSelectionReply";
 import { MentionText } from "./MentionText";
 import { useMentionRosterContext } from "../hooks/useMentionComposer";
 import { ChevronRightIcon } from "./icons";
@@ -99,12 +100,27 @@ function answerInput(
   selected: number[],
   text: string,
   attachments: ChatAttachmentInput[],
+  replyExcerpt: string,
 ): ReplyCardAnswerInput {
   return {
     ...(selected.length > 0 ? { optionIdxs: selected } : {}),
     text,
+    ...(replyExcerpt ? { replyExcerpt } : {}),
     attachments,
   };
+}
+
+/** The quoted passage under a card's final answer. */
+function ReplyAnswerQuote({ card }: { card: ReplyCard }) {
+  const { t } = useI18n();
+  const quote = card.answer?.replyExcerpt;
+  if (!quote) return null;
+  return (
+    <div className="reply-card__quote" data-testid="final-answer-quote">
+      <span className="reply-card__quote-label">{t.replies.quoteLabel}</span>
+      <span className="reply-card__quote-text">{quote}</span>
+    </div>
+  );
 }
 
 /** The quick-reply option chips. `pickable: false` renders them as a static
@@ -381,7 +397,13 @@ export function ReplyCardWaitingBody({
   const [selected, setSelected] = useState<number[]>(() =>
     initialSelection(card),
   );
+  const [excerpt, setExcerpt] = useState("");
+  const focusRef = useRef<(() => void) | null>(null);
   const { pick, sendNowRef, takeClicked } = useChipPick(card, setSelected);
+  useReplyCardQuoteTarget(card.id, (quoted) => {
+    setExcerpt(quoted);
+    focusRef.current?.();
+  });
   return (
     <>
       <ReplyOptionChips
@@ -395,9 +417,15 @@ export function ReplyCardWaitingBody({
         placeholder={t.replies.inputPlaceholder}
         hasSelection={selected.length > 0}
         sendNowRef={sendNowRef}
+        focusRef={focusRef}
+        quote={excerpt}
+        onClearQuote={() => setExcerpt("")}
         onSend={async (body, attachments) => {
-          await onAnswer(answerInput(takeClicked() ?? selected, body, attachments));
+          await onAnswer(
+            answerInput(takeClicked() ?? selected, body, attachments, excerpt),
+          );
           setSelected([]);
+          setExcerpt("");
         }}
       />
     </>
@@ -449,6 +477,9 @@ export function ReplyCardAnsweredBody({
   // What 重新決定 has staged. Seeded from the standing answer when edit mode
   // opens, so "change one of my three picks" does not start from nothing.
   const [selected, setSelected] = useState<number[]>([]);
+  // 重新決定 replaces the whole answer, so the standing quote rides along
+  // unless the owner removes it.
+  const [excerpt, setExcerpt] = useState("");
   const { pick, sendNowRef, takeClicked } = useChipPick(card, setSelected);
 
   async function doReanswer(input: ReplyCardAnswerInput) {
@@ -462,6 +493,7 @@ export function ReplyCardAnsweredBody({
     // sends), and a seeded set there would arm the send button to re-submit the
     // answer that is already standing.
     setSelected(card.selectMode === "multi" ? optionIdxs : []);
+    setExcerpt(ans?.replyExcerpt ?? "");
     setEditing(true);
   }
 
@@ -499,6 +531,7 @@ export function ReplyCardAnsweredBody({
           )}
         </span>
       </div>
+      <ReplyAnswerQuote card={card} />
       <ReplyAnswerAttachments card={card} />
 
       <button
@@ -537,9 +570,16 @@ export function ReplyCardAnsweredBody({
                 placeholder={t.replies.redecidePlaceholder}
                 hasSelection={selected.length > 0}
                 sendNowRef={sendNowRef}
+                quote={excerpt}
+                onClearQuote={() => setExcerpt("")}
                 onSend={(body, attachments) =>
                   doReanswer(
-                    answerInput(takeClicked() ?? selected, body, attachments),
+                    answerInput(
+                      takeClicked() ?? selected,
+                      body,
+                      attachments,
+                      excerpt,
+                    ),
                   )
                 }
               />

@@ -1300,6 +1300,7 @@ func TestNewReplyCardDTO(t *testing.T) {
 		c := base
 		c.Status = "answered"
 		c.AnswerOptionIdxs = []int{0, 1}
+		c.AnswerReplyExcerpt = "the long"
 		c.AnswerAttachments = []any{map[string]any{"id": "att-2", "mime": "text/plain"}}
 		got := newReplyCardDTO(c)
 		if got.AnsweredTS == nil || *got.AnsweredTS != 200 {
@@ -1309,7 +1310,7 @@ func TestNewReplyCardDTO(t *testing.T) {
 			t.Fatalf("newReplyCardDTO(answered).ExpiredTS = %v, want nil", got.ExpiredTS)
 		}
 		wantAnswer := &replyCardAnswerDTO{
-			OptionIdxs: []int{0, 1}, Text: "I pick A",
+			OptionIdxs: []int{0, 1}, Text: "I pick A", ReplyExcerpt: "the long",
 			Attachments: []chatAttachmentDTO{{ID: "att-2", URL: "/api/chat/attachment/att-2",
 				Mime: "text/plain"}},
 		}

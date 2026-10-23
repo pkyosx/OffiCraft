@@ -146,7 +146,7 @@ for (const viewport of WIDTHS) {
 const LEAD_WIDTHS = [320, 390];
 
 for (const viewport of LEAD_WIDTHS) {
-  test(`${viewport}px: the task row sits at the TOP of the card, above the summary`, async ({
+  test(`${viewport}px: the task row sits at the TOP of the card, above the summary, with 標為過期 at its right end`, async ({
     mount,
     page,
   }) => {
@@ -202,5 +202,25 @@ for (const viewport of LEAD_WIDTHS) {
     expect(pageOver, "the page must not pan sideways").toBeLessThanOrEqual(1);
     const rowOver = await row.evaluate((el) => el.scrollWidth - el.clientWidth);
     expect(rowOver, "the row must not overflow").toBeLessThanOrEqual(1);
+
+    // (4) 標為過期 shares the task row (the card's first row), at its right end.
+    const expire = card.getByTestId("chat-reply-card-expire");
+    await expect(expire).toBeVisible();
+    const expireBox = (await expire.boundingBox())!;
+    const expireMid = expireBox.y + expireBox.height / 2;
+    expect(expireMid, "標為過期 sits on the task row").toBeGreaterThanOrEqual(rowBox.y);
+    expect(expireMid, "標為過期 sits on the task row").toBeLessThanOrEqual(
+      rowBox.y + rowBox.height,
+    );
+    expect(expireBox.x, "標為過期 sits right of the task row").toBeGreaterThanOrEqual(
+      rowBox.x + rowBox.width - 1,
+    );
+    const cardPaddingRight = await card.evaluate((el) =>
+      parseFloat(getComputedStyle(el).paddingRight),
+    );
+    expect(
+      cardBox.x + cardBox.width - (expireBox.x + expireBox.width),
+      "標為過期 is flush with the card's right padding",
+    ).toBeLessThanOrEqual(cardPaddingRight + 2);
   });
 }

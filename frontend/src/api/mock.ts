@@ -1443,6 +1443,16 @@ function validateReplyAnswer(card: ReplyCard, answer: ReplyCardAnswerInput) {
       "this card takes at most one option"
     );
   }
+  const excerpt = normalizeReplyExcerpt(answer.replyExcerpt ?? "");
+  if (replyExcerptTooLong(excerpt)) {
+    throw mockApiError(
+      `http 400 for answer /api/reply-cards/${card.id}/answer`,
+      400,
+      `reply_excerpt is ${[...excerpt].length} chars, over the ` +
+        `${REPLY_EXCERPT_MAX_CHARS}-char limit — it is refused rather than ` +
+        "shortened; quote a shorter piece of the card"
+    );
+  }
 }
 
 /** Build the stored answer view from the input — attachments echo back as
@@ -1465,9 +1475,11 @@ function toStoredReplyAnswer(
     }
   );
   const idxs = answer.optionIdxs ?? [];
+  const replyExcerpt = normalizeReplyExcerpt(answer.replyExcerpt ?? "");
   return {
     optionIdxs: idxs.length > 0 ? storedOptionIdxs(idxs) : null,
     text: (answer.text ?? "").trim(),
+    ...(replyExcerpt ? { replyExcerpt } : {}),
     attachments,
   };
 }

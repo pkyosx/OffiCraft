@@ -78,3 +78,63 @@ for (const viewport of [
     expect(chatOverflow, "chat messages must not overflow their scroll box").toBeLessThanOrEqual(1);
   });
 }
+
+for (const width of [390, 1280]) {
+  test(`${width}px: the chat-card expiry action sits at the card's top-right, inside the card beside a summary with an unbreakable code block, and its confirmation fits the viewport`, async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const cmp = await mount(<ChatCardTimestampStory />);
+    if (width === 1280) {
+      await page.evaluate(() => {
+        document.documentElement.dataset.layout = "wide";
+      });
+    }
+
+    await cmp.getByTestId("chat-reply-card-expand").click();
+    const card = cmp.getByTestId("chat-reply-card");
+    const expire = cmp.getByTestId("chat-reply-card-expire");
+    await expect(expire).toBeVisible();
+    const cardBox = await card.boundingBox();
+    const expireBox = await expire.boundingBox();
+    if (!cardBox || !expireBox) throw new Error("chat-card expiry action has no layout box");
+    expect(expireBox.x).toBeGreaterThanOrEqual(cardBox.x - 1);
+    expect(expireBox.x + expireBox.width).toBeLessThanOrEqual(
+      cardBox.x + cardBox.width + 1,
+    );
+    const summaryBox = await card.locator(".reply-card__summary").boundingBox();
+    const cardPaddingRight = await card.evaluate((el) =>
+      parseFloat(getComputedStyle(el).paddingRight),
+    );
+    if (!summaryBox) throw new Error("chat-card summary has no layout box");
+    expect(expireBox.y, "expiry shares the summary's first row").toBeLessThan(
+      summaryBox.y + summaryBox.height,
+    );
+    expect(expireBox.x, "expiry sits right of the summary, not over it").toBeGreaterThanOrEqual(
+      summaryBox.x + summaryBox.width - 1,
+    );
+    expect(
+      cardBox.x + cardBox.width - (expireBox.x + expireBox.width),
+      "expiry is flush with the card's right padding",
+    ).toBeLessThanOrEqual(cardPaddingRight + 2);
+    const codeOver = await card
+      .locator(".reply-card__summary pre")
+      .evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(codeOver, "the code block is wider than the card and scrolls inside itself").toBeGreaterThan(0);
+    const messagesOver = await cmp
+      .getByTestId("chat-messages")
+      .evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(messagesOver, "the thread must not scroll sideways").toBeLessThanOrEqual(1);
+
+    await expire.click();
+    const dialog = cmp.getByTestId("expire-confirm");
+    await expect(dialog).toBeVisible();
+    const dialogBox = await dialog.boundingBox();
+    if (!dialogBox) throw new Error("expiry confirmation has no layout box");
+    expect(dialogBox.x).toBeGreaterThanOrEqual(0);
+    expect(dialogBox.x + dialogBox.width).toBeLessThanOrEqual(width + 1);
+    await cmp.getByTestId("expire-confirm-btn").click();
+    await expect(expire).toHaveCount(0);
+  });
+}

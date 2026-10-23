@@ -1568,18 +1568,19 @@ type ReplyCard struct {
 	ExpiredTS     float64
 	ChatMessageID string
 	// AnswerOptionIdxs are stored deduped and ascending.
-	AnswerOptionIdxs  []int
-	AnswerText        string
-	AnswerAttachments []any
-	Attachments       []any
-	TaskID            string
-	TaskStepID        string
+	AnswerOptionIdxs   []int
+	AnswerText         string
+	AnswerReplyExcerpt string
+	AnswerAttachments  []any
+	Attachments        []any
+	TaskID             string
+	TaskStepID         string
 }
 
 const replyCardColumns = `id, from_member, kind, summary, body, options,
 	select_mode, status, created_ts, answered_ts, expired_ts, chat_message_id,
 	answer_option_idxs, answer_text, answer_attachments, attachments,
-	task_id, task_step_id`
+	task_id, task_step_id, answer_reply_excerpt`
 
 func scanReplyCard(row interface{ Scan(...any) error }) (ReplyCard, error) {
 	var c ReplyCard
@@ -1590,7 +1591,7 @@ func scanReplyCard(row interface{ Scan(...any) error }) (ReplyCard, error) {
 		&c.SelectMode, &c.Status, &c.CreatedTS, &c.AnsweredTS, &c.ExpiredTS,
 		&c.ChatMessageID,
 		&optionIdxs, &c.AnswerText, &answerAttachments, &attachments,
-		&c.TaskID, &c.TaskStepID,
+		&c.TaskID, &c.TaskStepID, &c.AnswerReplyExcerpt,
 	)
 	if err != nil {
 		return ReplyCard{}, err
@@ -1815,7 +1816,7 @@ func putReplyCardOn(ex sqlExecer, c ReplyCard) error {
 	}
 	_, err = ex.Exec(`
 		INSERT INTO reply_card (`+replyCardColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET
 			from_member = excluded.from_member, kind = excluded.kind,
 			summary = excluded.summary, body = excluded.body,
@@ -1828,12 +1829,13 @@ func putReplyCardOn(ex sqlExecer, c ReplyCard) error {
 			answer_text = excluded.answer_text,
 			answer_attachments = excluded.answer_attachments,
 			attachments = excluded.attachments,
-			task_id = excluded.task_id, task_step_id = excluded.task_step_id`,
+			task_id = excluded.task_id, task_step_id = excluded.task_step_id,
+			answer_reply_excerpt = excluded.answer_reply_excerpt`,
 		c.ID, c.FromMember, c.Kind, c.Summary, c.Body, string(optionsBlob),
 		selectMode, c.Status, c.CreatedTS, c.AnsweredTS, c.ExpiredTS,
 		c.ChatMessageID,
 		optionIdxs, c.AnswerText, string(answerAttachmentsBlob),
-		string(attachmentsBlob), c.TaskID, c.TaskStepID,
+		string(attachmentsBlob), c.TaskID, c.TaskStepID, c.AnswerReplyExcerpt,
 	)
 	return err
 }

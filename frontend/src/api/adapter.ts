@@ -189,6 +189,8 @@ export interface ChatInlineReplyCardView {
   answerOptionIdxs: number[] | null;
   /** The free-text answer; "" when none was given. */
   answerText: string;
+  /** The passage of the card's question the answer quotes; absent when none. */
+  answerReplyExcerpt?: string;
   /** Epoch seconds the card was answered; 0 while still waiting. */
   answeredTs: number;
   /** `answeredTs` rendered by the SERVER in the same full date + time + offset
@@ -336,6 +338,9 @@ export interface ReplyCardOption {
 export interface ReplyCardAnswer {
   optionIdxs: number[] | null;
   text: string;
+  /** The passage of the card's question this answer quotes (「回覆這段」),
+   * trimmed as the server stored it; absent when the answer quotes nothing. */
+  replyExcerpt?: string;
   attachments: ChatAttachmentView[];
 }
 
@@ -462,6 +467,9 @@ export interface TaskRefView {
 export interface ReplyCardAnswerInput {
   optionIdxs?: number[];
   text?: string;
+  /** The selected passage of the card's question. Not an answer on its own,
+   * and a re-answer without it stores an answer that quotes nothing. */
+  replyExcerpt?: string;
   attachments?: ChatAttachmentInput[];
 }
 

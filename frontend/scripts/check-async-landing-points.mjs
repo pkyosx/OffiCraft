@@ -210,8 +210,9 @@ const REGISTRY = [
   {
     file: "components/ChatReplyCard.tsx",
     kind: "await",
-    count: 4,
-    verdict: "refetch / doAnswer / doReanswer; keyed row",
+    count: 5,
+    verdict:
+      "refetch / doAnswer / doReanswer / doExpire; local writes die with the keyed row on room switch",
   },
   {
     file: "components/ChatReplyCard.tsx",

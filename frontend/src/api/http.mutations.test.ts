@@ -642,12 +642,14 @@ describe("httpApi · reply-card answer body (ReplyCardAnswerPostDTO)", () => {
     expect(JSON.parse(String(first.body))).toEqual({
       option_idxs: [0, 2],
       text: "",
+      reply_excerpt: "",
     });
 
     await httpApi.answerReplyCard("rc-1", { optionIdxs: [0, 2] });
     expect(JSON.parse(String((await lastRequest()).body))).toEqual({
       option_idxs: [0, 2],
       text: "",
+      reply_excerpt: "",
     });
   });
 
@@ -666,18 +668,58 @@ describe("httpApi · reply-card answer body (ReplyCardAnswerPostDTO)", () => {
     expect(JSON.parse(String((await lastRequest()).body))).toEqual({
       option_idxs: null,
       text: "收件人是誰？",
+      reply_excerpt: "",
     });
   });
 
-  it("revises through PUT with the exact same body shape", async () => {
+  it("maps an answer's quoted passage on the card read and on the write receipt", async () => {
+    const answer = {
+      option_idxs: [0, 2],
+      text: "",
+      reply_excerpt: "哪幾條線",
+      attachments: [],
+    };
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({ ...WIRE_CARD, answer }),
+    );
+    expect((await httpApi.getReplyCard("rc-1")).answer).toEqual({
+      optionIdxs: [0, 2],
+      text: "",
+      replyExcerpt: "哪幾條線",
+      attachments: [],
+    });
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({
+        id: "rc-1",
+        status: "answered",
+        answered_ts: 2,
+        expired_ts: null,
+        answer,
+        task_id: "",
+        step_id: "",
+      }),
+    );
+    expect((await httpApi.answerReplyCard("rc-1", { optionIdxs: [0] })).answer).toEqual({
+      optionIdxs: [0, 2],
+      text: "",
+      replyExcerpt: "哪幾條線",
+      attachments: [],
+    });
+  });
+
+  it("revises through PUT with the exact same body shape, quoted passage included", async () => {
     fetchMock.mockImplementation(async () => jsonResponse(WIRE_CARD));
-    await httpApi.reanswerReplyCard("rc-1", { optionIdxs: [2, 0] });
+    await httpApi.reanswerReplyCard("rc-1", {
+      optionIdxs: [2, 0],
+      replyExcerpt: "哪幾條線",
+    });
     const { url, method, body } = await lastRequest();
     expect(url).toBe("/api/reply-cards/rc-1/answer");
     expect(method).toBe("PUT");
     expect(JSON.parse(String(body))).toEqual({
       option_idxs: [0, 2],
       text: "",
+      reply_excerpt: "哪幾條線",
     });
   });
 });

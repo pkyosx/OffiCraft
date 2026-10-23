@@ -1323,11 +1323,12 @@ func (s *apiServer) resumeChatMessageDTO(subject string, m ChatMessage, names ma
 					options = []ReplyCardOption{}
 				}
 				d.Card = &chatInlineReplyCardDTO{
-					Options:           options,
-					AnswerOptionIdxs:  c.AnswerOptionIdxs,
-					AnswerText:        c.AnswerText,
-					AnsweredTS:        c.AnsweredTS,
-					AnsweredAtDisplay: resumeDisplayTime(c.AnsweredTS),
+					Options:            options,
+					AnswerOptionIdxs:   c.AnswerOptionIdxs,
+					AnswerText:         c.AnswerText,
+					AnswerReplyExcerpt: c.AnswerReplyExcerpt,
+					AnsweredTS:         c.AnsweredTS,
+					AnsweredAtDisplay:  resumeDisplayTime(c.AnsweredTS),
 				}
 			}
 		}
@@ -1361,6 +1362,7 @@ func resumeChatMessageChars(d chatMessageDTO) int {
 			n += utf8.RuneCountInString(o.Text)
 		}
 		n += utf8.RuneCountInString(d.Card.AnswerText) +
+			utf8.RuneCountInString(d.Card.AnswerReplyExcerpt) +
 			utf8.RuneCountInString(d.Card.AnsweredAtDisplay)
 		for _, idx := range d.Card.AnswerOptionIdxs {
 			n += len(strconv.Itoa(idx))

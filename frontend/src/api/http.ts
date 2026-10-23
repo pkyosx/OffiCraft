@@ -885,6 +885,7 @@ function toAnswerBody(answer: ReplyCardAnswerInput) {
       ? [...new Set(answer.optionIdxs)].sort((x, y) => x - y)
       : null,
     text: answer.text ?? "",
+    reply_excerpt: answer.replyExcerpt ?? "",
     ...(attachments.length > 0
       ? {
           attachments: attachments.map((a) => ({

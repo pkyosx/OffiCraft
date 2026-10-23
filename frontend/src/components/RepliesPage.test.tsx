@@ -30,7 +30,7 @@
 // 若日後有人在聊天面單獨加條件（例如聊天面不顯示標題），不會有任何東西變紅。
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, fireEvent, waitFor } from "@testing-library/react";
+import { render, fireEvent, waitFor, act } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { RepliesPage } from "./RepliesPage";
@@ -135,6 +135,32 @@ async function openCards() {
   );
 }
 
+const originalRangeRect = Range.prototype.getBoundingClientRect;
+
+/** Select the first `length` characters of `el`, the way a drag leaves it, and
+ * press the 回覆這段 that floats over the selection. */
+function quoteStartOf(el: Element, length: number) {
+  // jsdom lays nothing out; the floating button only needs a box to sit under.
+  Range.prototype.getBoundingClientRect = () =>
+    ({ left: 10, top: 100, width: 40, height: 16, right: 50, bottom: 116 }) as DOMRect;
+  const text = document.createTreeWalker(el, NodeFilter.SHOW_TEXT).nextNode()!;
+  const range = document.createRange();
+  range.setStart(text, 0);
+  range.setEnd(text, length);
+  const sel = window.getSelection()!;
+  sel.removeAllRanges();
+  sel.addRange(range);
+  act(() => {
+    document.dispatchEvent(new Event("selectionchange"));
+  });
+  const button = document.body.querySelector<HTMLButtonElement>(
+    "[data-testid='chat-selection-reply']",
+  );
+  expect(button, "回覆這段 floats over the selection").not.toBeNull();
+  expect(el.closest("article")?.contains(button!), "portaled out of the card").toBe(false);
+  fireEvent.click(button!);
+}
+
 beforeEach(() => {
   __resetMock();
   window.location.hash = "";
@@ -142,6 +168,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  Range.prototype.getBoundingClientRect = originalRangeRect;
 });
 
 describe("RepliesPage", () => {
@@ -438,8 +465,8 @@ describe("RepliesPage", () => {
 
   // The regression side: a NON-409 failure keeps the retry wording — the 409
   // branch must not swallow honest transient errors.
-  it("a 500 answer keeps the retryable 回覆失敗，請稍後重試 wording", async () => {
-    __injectMockReplyCard(mkCard({}));
+  it("a 500 answer keeps the retryable 回覆失敗，請稍後重試 wording and the quoted passage", async () => {
+    __injectMockReplyCard(mkCard({ body: "收件人寫在附件裡" }));
     vi.spyOn(api, "answerReplyCard").mockRejectedValue(
       new ApiError("http 500 for POST /api/reply-cards/rc-1/answer", 500,
         "internal_error", "boom")
@@ -447,21 +474,32 @@ describe("RepliesPage", () => {
     const { findAllByTestId, findByTestId } = renderPage();
     const [card] = await findAllByTestId("waiting-card");
     await openCards();
+    quoteStartOf(card.querySelector(".reply-card__body")!, 3);
 
     fireEvent.click(card.querySelectorAll(".reply-option")[0]);
 
     const notice = await findByTestId("replies-action-error");
     expect(notice.textContent).toBe(zh.replies.answerError);
+    expect(
+      card.querySelector('[data-testid="reply-composer-quote"]')?.textContent,
+    ).toBe("引用原文收件人");
   });
 
-  it("answering via the typed composer closes the card with the free text as the answer", async () => {
-    __injectMockReplyCard(mkCard({}));
+  it("answering via the typed composer closes the card with the free text as the answer, quoting the passage selected from the question", async () => {
+    __injectMockReplyCard(mkCard({ body: "收件人寫在附件裡" }));
     const { findAllByTestId, findByTestId, getByPlaceholderText } =
       renderPage();
-    await findAllByTestId("waiting-card");
+    const [waiting] = await findAllByTestId("waiting-card");
     await openCards();
 
+    quoteStartOf(waiting.querySelector(".reply-card__body")!, 3);
+    expect(waiting.getAttribute("aria-expanded")).toBe("true");
+    expect(
+      waiting.querySelector('[data-testid="reply-composer-quote"]')?.textContent,
+    ).toBe("引用原文收件人");
     const input = getByPlaceholderText("輸入回覆…");
+    expect(document.activeElement).toBe(input);
+
     fireEvent.change(input, { target: { value: "收件人是誰？" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
@@ -471,6 +509,9 @@ describe("RepliesPage", () => {
     const final = answeredCard.querySelector('[data-testid="final-answer"]');
     // A free-text answer circles nothing, so it is not the AI pick either.
     expect(final?.textContent).toBe("你選的收件人是誰？");
+    expect(
+      answeredCard.querySelector('[data-testid="final-answer-quote"]')?.textContent,
+    ).toBe("引用原文收件人");
   });
 
   it("typed answer naming a colleague → sent as a mention link, and the answer shows the name opening their detail with 返回 to 請示", async () => {
@@ -637,12 +678,17 @@ describe("RepliesPage", () => {
     expect(getByText("重新決定")).toBeTruthy();
   });
 
-  it("重新決定 re-arms the options; picking another updates the answer in place", async () => {
+  it("重新決定 re-arms the options with the standing quote; picking another updates the answer in place and keeps the quote, and its x drops the quote from the next revision", async () => {
     __injectMockReplyCard(
       mkCard({
         status: "answered",
         answeredTs: Date.now() / 1000 - 60,
-        answer: { optionIdxs: [1], text: "", attachments: [] },
+        answer: {
+          optionIdxs: [1],
+          text: "",
+          replyExcerpt: "這封信",
+          attachments: [],
+        },
       })
     );
     const { findByTestId, getByText, getByPlaceholderText } = renderPage();
@@ -656,6 +702,9 @@ describe("RepliesPage", () => {
     const options = card.querySelectorAll(".reply-option");
     expect((options[0] as HTMLButtonElement).disabled).toBe(false);
     expect(getByPlaceholderText("或直接打字改寫回覆…")).toBeTruthy();
+    expect(
+      card.querySelector('[data-testid="reply-composer-quote"]')?.textContent,
+    ).toBe("引用原文這封信");
 
     // Single-select 重新決定 also lands on the click.
     fireEvent.click(options[0]);
@@ -665,6 +714,33 @@ describe("RepliesPage", () => {
       const final = card.querySelector('[data-testid="final-answer"]');
       // No longer the AI pick → the AI 建議 tag is gone; 你選的 stays.
       expect(final?.textContent).toBe("你選的寄出");
+      expect(
+        card.querySelector('[data-testid="final-answer-quote"]')?.textContent,
+      ).toBe("引用原文這封信");
+    });
+
+    const reanswer = vi.spyOn(api, "reanswerReplyCard");
+    if (!card.querySelector(".reply-card__past")) fireEvent.click(getByText("查看當初選項"));
+    fireEvent.click(getByText("重新決定"));
+    fireEvent.click(
+      card.querySelector(`[aria-label="${zh.replies.quoteCancel}"]`)!,
+    );
+    expect(card.querySelector('[data-testid="reply-composer-quote"]')).toBeNull();
+    fireEvent.click(card.querySelectorAll(".reply-option")[1]);
+
+    await waitFor(() =>
+      expect(reanswer).toHaveBeenLastCalledWith("rc-1", {
+        optionIdxs: [1],
+        text: "",
+        attachments: [],
+      }),
+    );
+    await waitFor(async () => {
+      card = await findByTestId("answered-card");
+      expect(card.querySelector('[data-testid="final-answer"]')?.textContent).toBe(
+        "你選的AI 建議先不要",
+      );
+      expect(card.querySelector('[data-testid="final-answer-quote"]')).toBeNull();
     });
   });
 

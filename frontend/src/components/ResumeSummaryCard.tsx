@@ -386,6 +386,14 @@ export function ChatRow({
               })}
             </div>
           )}
+          {card.answerReplyExcerpt && (
+            <div data-testid="mp-resume-card-answer-excerpt">
+              <span className="mp-resume__generatedlabel">
+                {r.cardAnswerExcerptLabel}
+              </span>{" "}
+              {card.answerReplyExcerpt}
+            </div>
+          )}
           {card.answerText !== "" && (
             <div data-testid="mp-resume-card-answer-text">
               <span className="mp-resume__generatedlabel">
