@@ -334,6 +334,7 @@ describe("RepliesPage", () => {
         ["rc-rel-old", "ow-rel", "外包 · R-2"],
       ] as const) {
         __resetMock();
+        vi.mocked(Element.prototype.scrollIntoView).mockClear();
         __injectMockReplyCard(
           mkCard({
             id,
