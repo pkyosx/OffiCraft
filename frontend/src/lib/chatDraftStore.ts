@@ -6,17 +6,11 @@
 // page unmounts OfficePage (and with it the single ChatArea instance), so the
 // draft was dropped; coming back showed an empty composer.
 //
-// The layer: a per-peer, module-level in-memory store. Module state outlives a
-// component unmount/remount, so a 跳頁-then-return restores the draft. It is
-// deliberately NOT persisted to localStorage:
-//   • image attachments are `data:…;base64,…` URIs — potentially MBs each;
-//     serializing every keystroke into the ~5 MB localStorage quota is a real
-//     cost and a real eviction risk, for a payload that is already sitting in JS
-//     memory anyway.
-//   • the owner's reported scenario is "跳到別頁再回來" (an in-app SPA
-//     navigation), which never tears down the module — only a full page reload
-//     does, and losing an in-progress draft across a hard reload is acceptable
-//     (documented tradeoff).
+// The layer: a per-peer in-memory store preserves drafts across SPA navigation.
+// T-505 also persists small text/reply metadata in localStorage and attachment
+// payloads in IndexedDB, so a full page reload can restore the draft without
+// copying large data URIs on every keystroke. A storage refusal only disables
+// persistence for that write; the active composer remains usable.
 //
 // Keyed by CHAT PEER id (member id / outsource worker id), matching how chat
 // history and the compose seed are keyed — so each conversation carries its own
@@ -40,6 +34,10 @@
 // a room it was not written into.
 
 import type { PendingAttachment } from "../hooks/useAttachmentStaging";
+import {
+  chatDraftStorageKey,
+  composerDraftPersistence,
+} from "./composerDraftPersistence";
 
 /** A saved composer draft for one peer: the text plus the staged attachments
  * (held as the same fully-serializable `PendingAttachment` the composer uses). */
@@ -111,7 +109,52 @@ export function subscribeChatDraft(peerId: string, cb: () => void): () => void {
 /** The saved draft for a peer, or undefined when none (never typed, no staged
  * file, no reply target). */
 export function getChatDraft(peerId: string): ChatDraft | undefined {
-  return drafts.get(peerId);
+  const current = drafts.get(peerId);
+  if (current) return current;
+  const metadata = composerDraftPersistence.read(chatDraftStorageKey(peerId));
+  if (!metadata) return undefined;
+  const restored: ChatDraft = {
+    text: metadata.text,
+    attachments: [],
+    replyTo: metadata.replyTo,
+    replyExcerpt: metadata.replyExcerpt,
+  };
+  drafts.set(peerId, restored);
+  return restored;
+}
+
+const hydrationPromises = new Map<string, Promise<void>>();
+
+/** Load the peer's large staged files after the synchronous metadata read. */
+export function hydrateChatDraft(peerId: string): Promise<void> {
+  const running = hydrationPromises.get(peerId);
+  if (running) return running;
+  const draft = getChatDraft(peerId);
+  if (!draft) return Promise.resolve();
+  const key = chatDraftStorageKey(peerId);
+  const metadata = composerDraftPersistence.read(key);
+  if (!metadata?.attachmentKeys.length || draft.attachments.length > 0) {
+    return Promise.resolve();
+  }
+  const hydration = composerDraftPersistence.loadAttachments(key).then((saved) => {
+    if (saved.length === 0) return;
+    const current = getChatDraft(peerId);
+    if (!current) return;
+    const byKey = new Map(current.attachments.map((item) => [item.key, item]));
+    for (const attachment of saved) {
+      if (!byKey.has(attachment.key)) byKey.set(attachment.key, attachment);
+    }
+    const attachments = [...byKey.values()];
+    if (attachments.length === current.attachments.length) return;
+    drafts.set(peerId, { ...current, attachments });
+    notify(peerId);
+  }).finally(() => {
+    if (hydrationPromises.get(peerId) === hydration) {
+      hydrationPromises.delete(peerId);
+    }
+  });
+  hydrationPromises.set(peerId, hydration);
+  return hydration;
 }
 
 /** A peer's staged files — the composer's live list, not a copy of it.
@@ -166,6 +209,12 @@ export function saveChatDraftText(
     replyTo,
     replyExcerpt: replyTo ? replyExcerpt : undefined,
   });
+  composerDraftPersistence.saveText(
+    chatDraftStorageKey(peerId),
+    text,
+    replyTo,
+    replyExcerpt,
+  );
 }
 
 /** Functionally update a peer's staged files. The updater sees the room's own
@@ -185,6 +234,10 @@ export function updateChatDraftAttachments(
     replyTo: cur?.replyTo,
     replyExcerpt: cur?.replyExcerpt,
   });
+  void composerDraftPersistence.saveAttachments(
+    chatDraftStorageKey(peerId),
+    next,
+  );
 }
 
 /** Raise or clear a peer's staging rejection notice. */
@@ -259,8 +312,12 @@ export function openChatAttachErrorScope(): () => void {
 /** Test-only reset so a module-level store never leaks state across tests. */
 export function resetChatDrafts(): void {
   const touched = new Set([...drafts.keys(), ...attachErrors.keys()]);
+  for (const peerId of touched) {
+    void composerDraftPersistence.clear(chatDraftStorageKey(peerId));
+  }
   drafts.clear();
   attachErrors.clear();
+  hydrationPromises.clear();
   attachErrorScopes = 0;
   scopeEpoch += 1;
   for (const peerId of touched) notify(peerId);

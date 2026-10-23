@@ -3,12 +3,20 @@
 // 等我回覆 reply cards, B3's inline chat card) stages uploads identically:
 // same size/count caps, same paste/pick funnels, same preview shape.
 
-import { useCallback, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useI18n } from "../i18n";
 import { attachmentMimeForName, pastedImageName } from "../lib/attachmentMime";
+import { composerDraftPersistence } from "../lib/composerDraftPersistence";
 import {
   getChatAttachError,
   getChatDraftAttachments,
+  hydrateChatDraft,
   setChatAttachError,
   subscribeChatDraft,
   updateChatDraftAttachments,
@@ -95,9 +103,20 @@ export function formatAttachmentSize(bytes: number): string {
  * files outlive the visit on purpose, because the draft does. */
 export const STAGING_TARGET_PER_MOUNT = "remounts-per-conversation";
 
+export interface PersistentStagingTarget {
+  kind: "persistent";
+  draftKey: string;
+}
+
+export function persistentStagingTarget(draftKey: string): PersistentStagingTarget {
+  return { kind: "persistent", draftKey };
+}
+
 export interface AttachmentStaging {
   /** The staged files for this slot. */
   pendingAttachments: PendingAttachment[];
+  /** True while a persistent slot is restoring its saved files. */
+  isRestoring: boolean;
   /** Transient rejection reason (too large / too many) raised in THIS slot;
    * null when none. */
   attachError: string | null;
@@ -120,6 +139,7 @@ export interface AttachmentStaging {
  * list that dies with the mount. */
 interface StagingSlot {
   attachments: PendingAttachment[];
+  isRestoring: boolean;
   error: string | null;
   update: (fn: (prev: PendingAttachment[]) => PendingAttachment[]) => void;
   setError: (message: string | null) => void;
@@ -137,6 +157,21 @@ const NO_ROWS: PendingAttachment[] = [];
  * wired to nothing: no store key is subscribed and no snapshot is read, so this
  * slot is inert rather than quietly attached to a key nobody writes. */
 function useDraftStoreSlot(peerId: string | null): StagingSlot {
+  const [isRestoring, setIsRestoring] = useState(peerId !== null);
+  useEffect(() => {
+    if (peerId === null) {
+      setIsRestoring(false);
+      return;
+    }
+    let active = true;
+    setIsRestoring(true);
+    void hydrateChatDraft(peerId).finally(() => {
+      if (active) setIsRestoring(false);
+    });
+    return () => {
+      active = false;
+    };
+  }, [peerId]);
   const subscribe = useCallback(
     (cb: () => void): (() => void) =>
       peerId === null ? NO_UNSUBSCRIBE : subscribeChatDraft(peerId, cb),
@@ -158,6 +193,7 @@ function useDraftStoreSlot(peerId: string | null): StagingSlot {
   );
   return {
     attachments,
+    isRestoring,
     error,
     update: (fn) => {
       if (peerId !== null) updateChatDraftAttachments(peerId, fn);
@@ -165,6 +201,70 @@ function useDraftStoreSlot(peerId: string | null): StagingSlot {
     setError: (message) => {
       if (peerId !== null) setChatAttachError(peerId, message);
     },
+  };
+}
+
+function usePersistentSlot(draftKey: string | null): StagingSlot {
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const [isRestoring, setIsRestoring] = useState(draftKey !== null);
+  const [error, setError] = useState<string | null>(null);
+  const latest = useRef<{ key: string | null; attachments: PendingAttachment[] }>({
+    key: draftKey,
+    attachments: [],
+  });
+  if (latest.current.key !== draftKey) {
+    latest.current = { key: draftKey, attachments: [] };
+  }
+
+  useEffect(() => {
+    let active = true;
+    latest.current = { key: draftKey, attachments: [] };
+    setAttachments([]);
+    setError(null);
+    if (draftKey === null) {
+      setIsRestoring(false);
+      return () => {
+        active = false;
+      };
+    }
+    setIsRestoring(true);
+    void composerDraftPersistence.loadAttachments(draftKey).then((restored) => {
+      if (!active) return;
+      const current = latest.current.key === draftKey
+        ? latest.current.attachments
+        : [];
+      const byKey = new Map(restored.map((item) => [item.key, item]));
+      for (const item of current) byKey.set(item.key, item);
+      const next = [...byKey.values()];
+      latest.current = { key: draftKey, attachments: next };
+      setAttachments(next);
+    }).finally(() => {
+      if (active) setIsRestoring(false);
+    });
+    return () => {
+      active = false;
+    };
+  }, [draftKey]);
+
+  const update = useCallback(
+    (fn: (prev: PendingAttachment[]) => PendingAttachment[]) => {
+      if (draftKey === null || latest.current.key !== draftKey) return;
+      const prev = latest.current.attachments;
+      const next = fn(prev);
+      if (next === prev) return;
+      latest.current = { key: draftKey, attachments: next };
+      setAttachments(next);
+      void composerDraftPersistence.saveAttachments(draftKey, next);
+    },
+    [draftKey],
+  );
+
+  return {
+    attachments: latest.current.key === draftKey ? attachments : NO_ROWS,
+    isRestoring,
+    error,
+    update,
+    setError,
   };
 }
 
@@ -176,6 +276,7 @@ function useEphemeralSlot(): StagingSlot {
   const [error, setError] = useState<string | null>(null);
   return {
     attachments,
+    isRestoring: false,
     error,
     update: (fn) => setAttachments((prev) => fn(prev)),
     setError,
@@ -194,17 +295,28 @@ function useEphemeralSlot(): StagingSlot {
 export function useAttachmentStaging(
   target: typeof STAGING_TARGET_PER_MOUNT,
 ): AttachmentStaging;
+export function useAttachmentStaging(target: PersistentStagingTarget): AttachmentStaging;
 export function useAttachmentStaging(target: string): AttachmentStaging;
-export function useAttachmentStaging(target: string): AttachmentStaging {
+export function useAttachmentStaging(
+  target: string | PersistentStagingTarget,
+): AttachmentStaging {
   const { t } = useI18n();
   // Both slots are built every render and one is used. `target` does not change
   // over a mount's life at either kind of call site (the per-mount callers pass
   // a literal; `ChatArea` is mounted under `key={peerId}`), so the choice is a
   // constant and no hook is ever skipped.
-  const perMount = target === STAGING_TARGET_PER_MOUNT;
+  const persistentKey = typeof target === "object" ? target.draftKey : null;
+  const perMount = typeof target === "string" && target === STAGING_TARGET_PER_MOUNT;
+  const chatPeerId =
+    typeof target === "string" && !perMount ? target : null;
   const ephemeral = useEphemeralSlot();
-  const stored = useDraftStoreSlot(perMount ? null : target);
-  const slot = perMount ? ephemeral : stored;
+  const stored = useDraftStoreSlot(chatPeerId);
+  const persistent = usePersistentSlot(persistentKey);
+  const slot = persistentKey !== null
+    ? persistent
+    : perMount
+      ? ephemeral
+      : stored;
 
   // Read a File → data-URI, size-check (image ≤ 20 MB, other ≤ 100 MB, mirroring
   // the backend), and APPEND it to the staged attachments. Over-size → surface
@@ -287,6 +399,7 @@ export function useAttachmentStaging(target: string): AttachmentStaging {
 
   return {
     pendingAttachments: slot.attachments,
+    isRestoring: slot.isRestoring,
     attachError: slot.error,
     stageFiles,
     onPaste,
