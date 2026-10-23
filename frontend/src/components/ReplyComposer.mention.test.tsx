@@ -248,4 +248,18 @@ describe("ReplyComposer @mention", () => {
     fireEvent.select(input);
     expect(input.selectionStart).toBe(3);
   });
+
+  it("Left/Right arrow at a mention's edge → the caret crosses the whole name in that one keydown", () => {
+    const { input, type } = renderComposer();
+    type("hi @Mira ok");
+    input.focus();
+    input.setSelectionRange(8, 8);
+    expect(fireEvent.keyDown(input, { key: "ArrowLeft" })).toBe(false);
+    expect(input.selectionStart).toBe(3);
+    expect(fireEvent.keyDown(input, { key: "ArrowRight" })).toBe(false);
+    expect(input.selectionStart).toBe(8);
+    expect(fireEvent.keyDown(input, { key: "ArrowRight", shiftKey: true }), "selecting is left to the textarea").toBe(true);
+    input.setSelectionRange(1, 1);
+    expect(fireEvent.keyDown(input, { key: "ArrowRight" }), "away from a mention").toBe(true);
+  });
 });

@@ -164,6 +164,25 @@ export function useMentionComposer({
     return true;
   }
 
+  /** Left/Right arrow steps over a whole mention in one press. Left to
+   * `snapOutOfMention`, the caret would be drawn inside the name for a frame
+   * before the select event moves it. */
+  function stepOverMentionKey(e: KeyboardEvent<HTMLTextAreaElement>): boolean {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return false;
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return false;
+    const el = e.currentTarget;
+    if (el.selectionStart !== el.selectionEnd) return false;
+    const at = el.selectionStart;
+    const hit =
+      e.key === "ArrowLeft" ? ranges.find((r) => r.end === at) : ranges.find((r) => r.start === at);
+    if (!hit) return false;
+    e.preventDefault();
+    const next = e.key === "ArrowLeft" ? hit.start : hit.end;
+    el.setSelectionRange(next, next);
+    track(el.value, next);
+    return true;
+  }
+
   /** Keeps a collapsed caret out of a mention's middle: moving left lands it
    * before the `@`, anything else after the name. */
   function snapOutOfMention(el: HTMLTextAreaElement): number {
@@ -197,6 +216,7 @@ export function useMentionComposer({
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>): boolean {
     if (isImeComposingKey(e, composingRef.current ?? false)) return false;
     if (deleteMentionKey(e)) return true;
+    if (stepOverMentionKey(e)) return true;
     if (!open) return false;
     const n = matches.length;
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {

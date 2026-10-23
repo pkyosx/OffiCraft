@@ -214,7 +214,10 @@ test("reply card answer box, width 1280: when the row around the box narrows, th
   expect(Math.abs(g.layerScrollHeight - g.inputScrollHeight), "layer wraps the same way").toBeLessThanOrEqual(1);
 });
 
-test("chat composer: Backspace removes a mention whole, and undo brings it back", async ({ mount, page }) => {
+test("chat composer: one arrow press crosses a mention, Backspace removes it whole, and undo brings it back", async ({
+  mount,
+  page,
+}) => {
   await page.setViewportSize({ width: 1280, height: 844 });
   const cmp = await mount(<ChatMentionStory withRoster={false} />);
   const input = cmp.locator(".chat__composer-row textarea.chat__input");
@@ -222,6 +225,11 @@ test("chat composer: Backspace removes a mention whole, and undo brings it back"
   await input.pressSequentially("hi @Family Money Eva");
   await page.keyboard.press("Escape");
   await expect(cmp.locator(".mention-highlight__mark")).toHaveText("@Family Money Eva");
+  const caret = () => input.evaluate((el: HTMLTextAreaElement) => el.selectionStart);
+  await page.keyboard.press("ArrowLeft");
+  expect(await caret()).toBe(3);
+  await page.keyboard.press("ArrowRight");
+  expect(await caret()).toBe(20);
   await page.keyboard.press("Backspace");
   await expect(input).toHaveValue("hi ");
   await expect(cmp.locator(".mention-highlight")).toHaveCount(0);
