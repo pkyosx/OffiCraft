@@ -100,6 +100,11 @@ async function measure(page: Page, inputSel: string, before: string) {
   );
 }
 
+const TINT = {
+  default: "rgba(111, 214, 176, 0.12)",
+  halloween: "rgba(255, 140, 43, 0.14)",
+};
+
 const composers = [
   {
     name: "chat composer",
@@ -141,30 +146,30 @@ for (const c of composers) {
         expect(Math.abs(g.markLeft - (g.contentLeft + g.beforeWidth)), "mark starts where the @ is drawn").toBeLessThanOrEqual(1);
         expect(Math.abs(g.markWidth - g.markTextWidth), "mark is as wide as the drawn name").toBeLessThanOrEqual(1);
         expect(Math.abs(g.markMidY - (g.contentTop + g.lineHeight * 1.5)), "mark sits on the second line").toBeLessThanOrEqual(3);
-        expect(g.markBg, "mark has a tint").not.toBe("rgba(0, 0, 0, 0)");
-        expect(g.markBg, "mark tint differs from the box").not.toBe(g.inputBg);
+        expect(g.markBg, "mark carries the theme's soft accent").toBe(TINT[theme]);
       });
     }
 
-    test(`${c.name}, width ${width}: past the height cap the mark scrolls with the text and stays on the last line`, async ({
-      mount,
-      page,
-    }) => {
+    test(`${c.name}, width ${width}: past the height cap the marks scroll with the text`, async ({ mount, page }) => {
       await page.setViewportSize({ width, height: 844 });
       await loadProductionFonts(page);
       const cmp = await mount(c.story(width));
       const input = cmp.locator(c.input);
       const lines = ["一", "二", "三", "四", "五", "六", "七", "八"].map((n) => `第${n}行`);
-      await input.fill(`${lines.join("\n")}\n@Family Money Eva`);
-      await input.evaluate((el) => (el.scrollTop = el.scrollHeight));
+      await input.fill(`${lines.join("\n")}\n@Family Money Eva\n`);
       await expect(cmp.locator(".mention-highlight__mark")).toHaveText("@Family Money Eva");
 
-      const g = await measure(page, c.input, "");
-      expect(g.inputScrollTop, "control: the textarea really scrolled").toBeGreaterThan(0);
-      expect(g.layerScrollTop, "layer scrolled with it").toBe(g.inputScrollTop);
-      expect(Math.abs(g.layerScrollHeight - g.inputScrollHeight), "same wrapped height").toBeLessThanOrEqual(1);
-      expect(Math.abs(g.markMidY - (g.contentBottom - g.lineHeight / 2)), "mark sits on the last visible line").toBeLessThanOrEqual(3);
-      expect(Math.abs(g.markLeft - (g.contentLeft + g.beforeWidth)), "mark starts where the @ is drawn").toBeLessThanOrEqual(1);
+      const bottom = await measure(page, c.input, "");
+      expect(bottom.inputScrollTop, "control: the textarea is scrolled to its trailing empty line").toBeGreaterThan(0);
+      expect(Math.abs(bottom.layerScrollHeight - bottom.inputScrollHeight), "same height, trailing empty line included").toBeLessThanOrEqual(1);
+      expect(bottom.layerScrollTop, "layer scrolled with it").toBe(bottom.inputScrollTop);
+      expect(Math.abs(bottom.markMidY - (bottom.contentBottom - bottom.lineHeight * 1.5)), "mark sits on the line above the empty last line").toBeLessThanOrEqual(3);
+      expect(Math.abs(bottom.markLeft - bottom.contentLeft), "mark starts at the line start").toBeLessThanOrEqual(1);
+
+      await input.evaluate((el) => (el.scrollTop = 10));
+      const mid = await measure(page, c.input, "");
+      expect(mid.inputScrollTop, "control: the textarea moved to the new position").toBe(10);
+      expect(mid.layerScrollTop, "layer follows a scroll made by the reader").toBe(10);
     });
   }
 }
@@ -181,5 +186,30 @@ test("chat composer, width 390: a name pushed onto a wrapped line is marked on t
   const drawnLines = Math.round((g.input.height - (g.contentTop - g.input.top) * 2) / g.lineHeight);
   expect(drawnLines, "control: the text wraps in the textarea").toBeGreaterThan(1);
   expect(Math.abs(g.layerScrollHeight - g.inputScrollHeight), "same wrapped height").toBeLessThanOrEqual(1);
-  expect(Math.abs(g.markMidY - (g.contentBottom - g.lineHeight / 2)), "the name's last part is on the textarea's last line").toBeLessThanOrEqual(3);
+  expect(g.inputScrollHeight, "control: the text now wraps").toBeGreaterThan(g.lineHeight * 2);
+  expect(Math.abs(g.layerScrollHeight - g.inputScrollHeight), "layer wraps the same way").toBeLessThanOrEqual(1);
+  expect(g.layerScrollTop, "layer scroll matches").toBe(g.inputScrollTop);
+});
+
+test("reply card answer box, width 1280: when the row around the box narrows, the mark follows the re-wrapped text", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 844 });
+  await loadProductionFonts(page);
+  const cmp = await mount(<ReplyCardMentionStory />);
+  const sel = ".reply-composer textarea.chat__input";
+  const input = cmp.locator(sel);
+  await input.fill(`${"please take a careful look at these items and reply soon ".repeat(3)}@Family Money Eva`);
+  await expect(cmp.locator(".mention-highlight__mark")).toHaveText("@Family Money Eva");
+  const wide = await measure(page, sel, "");
+  await page.evaluate(() => {
+    (document.querySelector(".reply-composer .chat__composer-row") as HTMLElement).style.width = "420px";
+  });
+
+  const g = await measure(page, sel, "");
+  expect(g.input.width, "control: the textarea really narrowed").toBeLessThan(wide.input.width - 100);
+  expect(g.inputScrollHeight, "control: the text wraps onto more lines").toBeGreaterThan(wide.inputScrollHeight);
+  expect(Math.abs(g.layer.width - g.input.width), "layer width matches the narrowed textarea").toBeLessThanOrEqual(0.5);
+  expect(Math.abs(g.layerScrollHeight - g.inputScrollHeight), "layer wraps the same way").toBeLessThanOrEqual(1);
 });

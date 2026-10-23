@@ -66,20 +66,14 @@ export function MentionHighlight({
   const shown = ranges.length > 0;
 
   useLayoutEffect(() => {
-    const input = inputRef.current;
-    if (!input || !layerRef.current) return;
-    mirror(input, layerRef.current);
-    // The composer sizes the textarea in its own layout effect, which runs
-    // after this one; re-read once that has landed, before the frame paints.
-    const frame = requestAnimationFrame(() => {
-      if (layerRef.current) mirror(input, layerRef.current);
-    });
-    return () => cancelAnimationFrame(frame);
+    if (inputRef.current && layerRef.current) mirror(inputRef.current, layerRef.current);
   });
 
   useEffect(() => {
     const input = inputRef.current;
     if (!shown || !input) return;
+    // The textarea also changes size without this component rendering: the
+    // composer's autosize runs after this layout effect, and the window resizes.
     const sync = () => {
       if (layerRef.current) mirror(input, layerRef.current);
     };
