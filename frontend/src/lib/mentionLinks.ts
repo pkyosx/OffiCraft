@@ -55,17 +55,27 @@ function isCutMentionDestination(partial: string | undefined): boolean {
   return MENTION_HREF_PREFIX.startsWith(partial) || partial.startsWith(MENTION_HREF_PREFIX);
 }
 
-function linkLine(line: string, byLongest: NamedMentionTarget[]): string {
+export interface MentionRange {
+  start: number;
+  /** Exclusive. */
+  end: number;
+  target: NamedMentionTarget;
+}
+
+function findLineMentions(
+  line: string,
+  offset: number,
+  byLongest: NamedMentionTarget[],
+  out: MentionRange[],
+): void {
   const ranges: Array<[number, number]> = [];
   for (const m of line.matchAll(PROTECTED_RE)) {
     ranges.push([m.index, m.index + m[0].length]);
   }
-  let out = "";
   let i = 0;
   let r = 0;
   while (i < line.length) {
     if (r < ranges.length && i === ranges[r][0]) {
-      out += line.slice(i, ranges[r][1]);
       i = ranges[r][1];
       r += 1;
       continue;
@@ -81,36 +91,47 @@ function linkLine(line: string, byLongest: NamedMentionTarget[]): string {
         );
       });
       if (hit) {
-        out += `[@${escapeLabel(hit.name)}](${mentionHref(hit)})`;
+        out.push({ start: offset + i, end: offset + i + 1 + hit.name.length, target: hit });
         i += 1 + hit.name.length;
         continue;
       }
     }
-    out += line[i];
     i += 1;
   }
-  return out;
 }
 
-/** Turn every `@<name>` (at line start or after whitespace) that names one of
- * `targets` into a mention link; longest name wins. Fenced blocks, code spans
- * and existing links are left untouched. */
-export function linkMentions(text: string, targets: NamedMentionTarget[]): string {
+/** Every `@<name>` (at line start or after whitespace) that names one of
+ * `targets`, in text order; longest name wins. Fenced blocks, code spans and
+ * existing links are skipped. What the composer marks is exactly what
+ * `linkMentions` turns into links. */
+export function findMentions(text: string, targets: NamedMentionTarget[]): MentionRange[] {
   const byLongest = targets
     .filter((t) => t.name !== "")
     .sort((a, b) => b.name.length - a.name.length);
-  if (byLongest.length === 0 || !text.includes("@")) return text;
+  const found: MentionRange[] = [];
+  if (byLongest.length === 0 || !text.includes("@")) return found;
   let inFence = false;
-  return text
-    .split("\n")
-    .map((line) => {
-      if (FENCE_RE.test(line.trimStart())) {
-        inFence = !inFence;
-        return line;
-      }
-      return inFence ? line : linkLine(line, byLongest);
-    })
-    .join("\n");
+  let offset = 0;
+  for (const line of text.split("\n")) {
+    if (FENCE_RE.test(line.trimStart())) {
+      inFence = !inFence;
+    } else if (!inFence) {
+      findLineMentions(line, offset, byLongest, found);
+    }
+    offset += line.length + 1;
+  }
+  return found;
+}
+
+/** Turn every mention `findMentions` sees into a mention link. */
+export function linkMentions(text: string, targets: NamedMentionTarget[]): string {
+  let out = "";
+  let last = 0;
+  for (const m of findMentions(text, targets)) {
+    out += text.slice(last, m.start) + `[@${escapeLabel(m.target.name)}](${mentionHref(m.target)})`;
+    last = m.end;
+  }
+  return out + text.slice(last);
 }
 
 /** The plain-text reading of a body `linkMentions` wrote: every mention link

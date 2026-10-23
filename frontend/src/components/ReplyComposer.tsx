@@ -18,6 +18,7 @@ import {
   useMentionRosterContext,
 } from "../hooks/useMentionComposer";
 import { ChatMentionList } from "./ChatMentionList";
+import { MentionHighlight } from "./MentionHighlight";
 import {
   ATTACH_ACCEPT,
   useAttachmentStaging,
@@ -240,6 +241,7 @@ export function ReplyComposer({
           onPaste={onPaste}
           placeholder={placeholder}
         />
+        <MentionHighlight inputRef={draftRef} text={draft} ranges={mention.ranges} />
         <button
           type="button"
           className="chat__send"

@@ -179,4 +179,15 @@ describe("task card message box @mention", () => {
     await waitFor(() => expect(input.disabled).toBe(false));
     expect(input.value).toBe("@Mira 在嗎");
   });
+
+  it("a mention in the draft → marked in the box, and Backspace after it removes it whole", async () => {
+    const { container, input, type } = await renderBox();
+    type("ask @Family Money Eva now");
+    expect(
+      Array.from(container.querySelectorAll(".mention-highlight__mark"), (m) => m.textContent),
+    ).toEqual(["@Family Money Eva"]);
+    input.setSelectionRange(21, 21);
+    expect(fireEvent.keyDown(input, { key: "Backspace" })).toBe(false);
+    expect(input.value).toBe("ask  now");
+  });
 });

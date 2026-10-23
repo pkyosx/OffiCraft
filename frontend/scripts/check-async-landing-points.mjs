@@ -280,6 +280,20 @@ const REGISTRY = [
       "\u{1F534} THE SPINNER'S SHOW-AFTER DELAY (T-48 fix12). It writes ONE boolean, `shown`, into this component's own state, and this component is mounted only while `useChat.initialLoading` is true \u2014 i.e. only while the pane it belongs to is still empty. Every way the wait can end unmounts it, and the effect's cleanup clears the timer on that same unmount, so the callback cannot run after the content it was covering has arrived. There is no room identity to get wrong either: it is rendered under `ChatArea`, which is mounted under `key={peerId}`, so a conversation switch destroys the timer with the component. \u26a0\ufe0f It is a DELAY, not a minimum display time \u2014 nothing here keeps the spinner up once the thread has landed",
   },
   {
+    file: "components/MentionHighlight.tsx",
+    kind: "Observer",
+    count: 1,
+    verdict:
+      "the mention layer's ResizeObserver on the composer textarea. Its only write is `mirror()`: inline geometry and scrollTop on this component's OWN layer node, read from the same textarea it observes, so a late callback copies the box as it is now and cannot land on another room's draft. Disconnected in the same effect's cleanup, and the layer is rendered inside ChatArea under `key={peerId}`, so a conversation switch unmounts both",
+  },
+  {
+    file: "components/MentionHighlight.tsx",
+    kind: "addEventListener",
+    count: 1,
+    verdict:
+      "the composer textarea's `scroll`, so the mention layer follows a reader's own scroll. Same single write as the observer beside it (`mirror()` onto this component's own layer node, from the element the listener sits on); removed in the same effect's cleanup and unmounted with ChatArea's `key={peerId}`",
+  },
+  {
     file: "components/ChatArea.tsx",
     kind: "Observer",
     count: 1,

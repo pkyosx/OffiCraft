@@ -41,6 +41,7 @@ import {
   useMentionRoster,
 } from "../hooks/useMentionComposer";
 import { ChatMentionList } from "./ChatMentionList";
+import { MentionHighlight } from "./MentionHighlight";
 import { chatBottomAffordance } from "../lib/chatBottomAffordance";
 import { scrollToLatest, isLatestRowInView } from "../lib/scrollToLatest";
 import { AttachmentStrip } from "./AttachmentStrip";
@@ -2821,6 +2822,7 @@ export function ChatArea({
                 onPaste={onPaste}
                 placeholder={t.chat.inputPlaceholder(member.name)}
               />
+              <MentionHighlight inputRef={inputRef} text={draft} ranges={mention.ranges} />
               <button
                 type="button"
                 className="chat__send"

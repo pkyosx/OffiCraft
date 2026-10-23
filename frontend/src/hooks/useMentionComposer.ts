@@ -29,6 +29,7 @@ import {
   mentionOptionId,
   type MentionCandidate,
 } from "../lib/chatMention";
+import { findMentions, type MentionRange } from "../lib/mentionLinks";
 import { isImeComposingKey } from "../lib/composerKeys";
 import { navigateHash, type HashRoute } from "../lib/hashRoute";
 import type { MentionOpener } from "./useMentionOpener";
@@ -119,6 +120,7 @@ export function useMentionComposer({
   const pendingCaretRef = useRef<number | null>(null);
   const listId = useId();
 
+  const ranges = useMemo(() => findMentions(value, candidates), [value, candidates]);
   const query = caret === null ? null : activeMentionQuery(value, caret);
   const matches =
     query && query.start !== dismissedAt ? filterMentionCandidates(candidates, query.query) : [];
@@ -132,6 +134,66 @@ export function useMentionComposer({
       inputRef.current.setSelectionRange(next, next);
     }
   }, [value, inputRef]);
+
+  function removeRange(el: HTMLTextAreaElement, r: MentionRange) {
+    el.setSelectionRange(r.start, r.end);
+    // A browser edit keeps Ctrl/Cmd+Z working; setting the value from React
+    // wipes the textarea's undo history. The edit's input event reaches the
+    // composer's onChange like typing does.
+    if (document.execCommand?.("delete")) return;
+    pendingCaretRef.current = r.start;
+    setCaret(r.start);
+    setValue(value.slice(0, r.start) + value.slice(r.end));
+  }
+
+  /** A mention is one unit: Backspace right after it or Delete right before
+   * it removes the whole `@name`. */
+  function deleteMentionKey(e: KeyboardEvent<HTMLTextAreaElement>): boolean {
+    if (e.key !== "Backspace" && e.key !== "Delete") return false;
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return false;
+    const el = e.currentTarget;
+    if (el.selectionStart !== el.selectionEnd) return false;
+    const at = el.selectionStart;
+    const hit =
+      e.key === "Backspace"
+        ? ranges.find((r) => r.start < at && at <= r.end)
+        : ranges.find((r) => r.start <= at && at < r.end);
+    if (!hit) return false;
+    e.preventDefault();
+    removeRange(el, hit);
+    return true;
+  }
+
+  /** Left/Right arrow steps over a whole mention in one press. Left to
+   * `snapOutOfMention`, the caret would be drawn inside the name for a frame
+   * before the select event moves it. */
+  function stepOverMentionKey(e: KeyboardEvent<HTMLTextAreaElement>): boolean {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return false;
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return false;
+    const el = e.currentTarget;
+    if (el.selectionStart !== el.selectionEnd) return false;
+    const at = el.selectionStart;
+    const hit =
+      e.key === "ArrowLeft" ? ranges.find((r) => r.end === at) : ranges.find((r) => r.start === at);
+    if (!hit) return false;
+    e.preventDefault();
+    const next = e.key === "ArrowLeft" ? hit.start : hit.end;
+    el.setSelectionRange(next, next);
+    track(el.value, next);
+    return true;
+  }
+
+  /** Keeps a collapsed caret out of a mention's middle: moving left lands it
+   * before the `@`, anything else after the name. */
+  function snapOutOfMention(el: HTMLTextAreaElement): number {
+    const at = el.selectionStart;
+    if (at !== el.selectionEnd || composingRef.current) return at;
+    const inside = findMentions(el.value, candidates).find((r) => r.start < at && at < r.end);
+    if (!inside) return at;
+    const next = caret !== null && caret >= inside.end ? inside.start : inside.end;
+    el.setSelectionRange(next, next);
+    return next;
+  }
 
   function track(text: string, at: number) {
     setCaret(at);
@@ -149,10 +211,13 @@ export function useMentionComposer({
     inputRef.current?.focus();
   }
 
-  /** True when the key belonged to the open list; the caller must then do
-   * nothing else with it (no send, no newline). */
+  /** True when the key belonged to the open list or removed a whole mention;
+   * the caller must then do nothing else with it (no send, no newline). */
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>): boolean {
-    if (!open || isImeComposingKey(e, composingRef.current ?? false)) return false;
+    if (isImeComposingKey(e, composingRef.current ?? false)) return false;
+    if (deleteMentionKey(e)) return true;
+    if (stepOverMentionKey(e)) return true;
+    if (!open) return false;
     const n = matches.length;
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
@@ -187,12 +252,14 @@ export function useMentionComposer({
     inputProps: {
       onSelect(e: SyntheticEvent<HTMLTextAreaElement>) {
         const el = e.currentTarget;
-        track(el.value, el.selectionStart ?? el.value.length);
+        track(el.value, snapOutOfMention(el));
       },
       "aria-autocomplete": "list" as const,
       "aria-controls": open ? listId : undefined,
       "aria-activedescendant": open ? mentionOptionId(listId, index) : undefined,
     },
     listProps: open ? { id: listId, items: matches, active: index, onPick: pick } : null,
+    /** The mentions in the draft, for `MentionHighlight`. */
+    ranges,
   };
 }

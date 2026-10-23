@@ -223,6 +223,18 @@ describe("ChatArea @mention picker", () => {
     expect(input.value).toBe("@Mira 在嗎");
     expect(getChatDraft("m1")?.text).toBe("@Mira 在嗎");
   });
+
+  it("a mention in the draft → marked in the box, and Backspace after it removes it whole", () => {
+    const { container, input, type } = renderChat();
+    type("ask @Mira now");
+    expect(
+      Array.from(container.querySelectorAll(".mention-highlight__mark"), (m) => m.textContent),
+    ).toEqual(["@Mira"]);
+    input.setSelectionRange(9, 9);
+    expect(fireEvent.keyDown(input, { key: "Backspace" })).toBe(false);
+    expect(input.value).toBe("ask  now");
+    expect(send).not.toHaveBeenCalled();
+  });
 });
 
 describe("ChatArea mention links in message bodies", () => {
