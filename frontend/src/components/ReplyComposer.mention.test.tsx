@@ -163,16 +163,22 @@ describe("ReplyComposer @mention", () => {
     expect(onSend.mock.calls[0][0]).toBe("@Mira 決定");
   });
 
-  it("names that match the roster → marked in the box exactly as they will be linked; other @ text, code spans and fenced blocks are not", () => {
-    const { container, type } = renderComposer();
-    type("@Mira 和 @Bob 看 `see @Mira` 跟 @Family Money Eva\n```\n@Mira\n```");
+  it("names that match the roster → marked in the box and sent as links; other @ text, code spans and fenced blocks are neither", async () => {
+    const { container, input, type } = renderComposer();
+    type("@Mira 和 @Bob 看 @Mira2 `see @Mira` 跟 @Family Money Eva\n```\n@Mira\n```");
     const marks = Array.from(
       container.querySelectorAll(".mention-highlight__mark"),
       (m) => m.textContent,
     );
     expect(marks).toEqual(["@Mira", "@Family Money Eva"]);
     expect(container.querySelector(".mention-highlight")?.textContent).toBe(
-      "@Mira 和 @Bob 看 `see @Mira` 跟 @Family Money Eva\n```\n@Mira\n``` ",
+      "@Mira 和 @Bob 看 @Mira2 `see @Mira` 跟 @Family Money Eva\n```\n@Mira\n``` ",
+    );
+    await act(async () => {
+      fireEvent.keyDown(input, { key: "Enter" });
+    });
+    expect(onSend.mock.calls[0][0]).toBe(
+      "[@Mira](/#office/member/m1) 和 @Bob 看 @Mira2 `see @Mira` 跟 [@Family Money Eva](/#office/member/m-eva)\n```\n@Mira\n```",
     );
   });
 
