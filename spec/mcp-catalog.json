@@ -2746,6 +2746,19 @@
             "description": "The task's body text - what the executor reads to learn what is actually being asked. It is stored exactly as sent, with no validation and no length limit, and omitting it is not an error: the task is created with an empty description and answers 200. Nothing downstream fills it in and title is the only other free text the executor gets, so a task created without this arrives as a one-line instruction to whoever picks it up.",
             "title": "Description"
           },
+          "due_ts": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Due date as epoch seconds; omit or null for none. Change it later with set_task_due.",
+            "title": "Due Ts"
+          },
           "executor_member_id": {
             "anyOf": [
               {
@@ -2942,6 +2955,35 @@
         "type": "object"
       },
       "name": "set_task_priority"
+    },
+    {
+      "description": "Set, change or clear a task's due date (``due_ts`` in epoch seconds; ``null`` clears it). Who may: the owner and admin agents on any task, and the task's acting executor (the predecessor while it holds the task under the reassign hold) on that task \u2014 the same rule as set_task_priority. Anyone else is a flat 403; a closed task is a 409. Answers with a bounded receipt (task_id, due_ts), not the whole task \u2014 use get_task when you need the rest.",
+      "inputSchema": {
+        "properties": {
+          "due_ts": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Epoch seconds, greater than 0. null clears the due date. A past date is accepted and reads as overdue.",
+            "title": "Due Ts"
+          },
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "due_ts"
+        ],
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "name": "set_task_due"
     },
     {
       "description": "Message the task's executor (owner/admin agent; task context auto-attached). Refused with 404, exactly like ``post_chat``, when the executor has left (a departed staff member or a released worker). Answers with a bounded receipt (``id``, ``ts``, ``to``, ``attachments``), not the message — call ``get_chat`` when you need the rest. ``to`` is the executor the server delivered to: you did not name it (you named a task), and a later read cannot recompute it, because the executor can change between two calls.",
