@@ -40,6 +40,8 @@ import {
   __injectMockMember,
   __injectMockChat,
   __injectMockReplyCard,
+  __injectMockOutsourceWorker,
+  __injectMockTask,
 } from "../api/mock";
 import { api } from "../api";
 import type { ReplyCard } from "../api/adapter";
@@ -497,6 +499,88 @@ describe("RepliesPage", () => {
     expect(final.textContent).toBe("你選的交給 @Mira 處理");
     fireEvent.click(final.querySelector("button.md-mention")!);
     expect(window.location.hash).toBe("#office/member/mira/from/replies");
+  });
+
+  it("arrival with every card collapsed reads only the light roster, never the outsource list", async () => {
+    __injectMockReplyCard(mkCard({}));
+    const membersSpy = vi.spyOn(api, "listMembers");
+    const workersSpy = vi.spyOn(api, "listOutsourceWorkers");
+    const workerSpy = vi.spyOn(api, "getOutsourceWorker");
+    const { findAllByTestId } = renderPage();
+    await findAllByTestId("waiting-card");
+    await waitFor(() => expect(membersSpy).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(membersSpy.mock.calls).toEqual([[{ light: true }]]);
+    expect(workersSpy).not.toHaveBeenCalled();
+    expect(workerSpy).not.toHaveBeenCalled();
+  });
+
+  it("opening cards reads the outsource list once for all of them, and a worker mention in an answer opens that worker", async () => {
+    __injectMockTask({
+      id: "t-492",
+      taskNo: "T-492",
+      title: "Fix chat mention list",
+      typeKey: "",
+      description: "",
+      status: "in_progress",
+      priority: "mid",
+      executorKind: "outsource",
+      executorId: "ow-7",
+      creatorId: "",
+      dedupeKey: "",
+      deps: [],
+      waitingReason: "",
+      duplicateOf: "",
+      createdTs: Date.now() / 1000 - 3600,
+      updatedTs: Date.now() / 1000 - 60,
+      closedTs: null,
+      progressDone: 0,
+      progressTotal: 0,
+      steps: [],
+    });
+    __injectMockOutsourceWorker({
+      id: "ow-7",
+      codename: "O-7",
+      model: "",
+      effort: "",
+      status: "active",
+      taskId: "t-492",
+      taskNo: "T-492",
+      taskTitle: "Fix chat mention list",
+    });
+    const now = Date.now() / 1000;
+    __injectMockReplyCard(mkCard({ id: "rc-a", createdTs: now - 25 * 60 }));
+    __injectMockReplyCard(mkCard({ id: "rc-b", createdTs: now - 26 * 60 }));
+    __injectMockReplyCard(
+      mkCard({
+        id: "rc-done",
+        status: "answered",
+        answeredTs: now - 60,
+        answer: {
+          optionIdxs: [],
+          text: "交給 [@外包 · O-7](/#office/worker/ow-7)",
+          attachments: [],
+        },
+      })
+    );
+    const workersSpy = vi.spyOn(api, "listOutsourceWorkers");
+    const { findAllByTestId, findByTestId, getAllByPlaceholderText } = renderPage();
+    await findAllByTestId("waiting-card");
+    fireEvent.click(await findByTestId("answered-toggle"));
+    const answeredCard = await findByTestId("answered-card");
+    await openCards();
+
+    await waitFor(() => expect(workersSpy).toHaveBeenCalledTimes(1));
+    const input = getAllByPlaceholderText("輸入回覆…")[0];
+    await waitFor(() => {
+      fireEvent.change(input, { target: { value: "@492" } });
+      expect(document.querySelector('[role="listbox"]')?.textContent).toContain("O-7");
+    });
+    const final = answeredCard.querySelector('[data-testid="final-answer"]')!;
+    fireEvent.click(final.querySelector("button.md-mention")!);
+    expect(window.location.hash).toBe("#office/worker/ow-7/from/replies");
+    expect(workersSpy).toHaveBeenCalledTimes(1);
   });
 
   it("近期已處理 is collapsed by default; the title row toggles it open and shut", async () => {
