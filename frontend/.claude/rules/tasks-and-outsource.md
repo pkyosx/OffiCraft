@@ -47,6 +47,8 @@ useTasks 把 statusFilter 轉成重複的 ?statuses=；執行者與類型篩選�
 
 卡內（描述、步驟、備註）的附件連結可以下註解、回給負責人，步驟內嵌的請示卡則回給開卡人；契約見 overlays-and-modals.md〈附件連結〉。
 
+到期日 popover 裡的「快到期提醒」是數字輸入框（1–30 整數天，跟設定頁 `param-due-soon-lead` 同範圍），不是預設選項的選單；空白＝跟全站設定（存 null），空白時 placeholder 顯示全站天數。跟日期一樣只在 Enter、焦點離開 popover、點外面時存檔，Escape 取消，打字途中的「1」（要打 14）不得存。不合法的值（非整數、<1、>30、或 number input 解析不了的文字——那種情況 `value` 是空字串，不可當成「跟全站設定」）不存：日期有改就照存，天數維持原值，卡上用 `task-card__error` 顯示 `dueLeadRangeError`，因為 popover 已經關了。
+
 依賴 chip 讀 task.depTasks，必須區分已解析、查無此任務與 undefined 未提供。
 
 **卡上有兩個「開／關」，owner 對它們的裁定相反，不要把其中一條套到另一條（T-6630）：備註是「不准動畫面」，整張任務卡收合是「要把畫面定位過去」。**

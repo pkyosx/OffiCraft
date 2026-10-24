@@ -5,6 +5,7 @@ import { mkTask, MIRA, NOOP, WORKERS } from "./taskFixtures";
 declare global {
   interface Window {
     __dueSaves: (number | null)[];
+    __leadSaves: (number | null | undefined)[];
   }
 }
 
@@ -20,6 +21,7 @@ const TASK = mkTask({
 
 export function TaskCardDueStory() {
   window.__dueSaves = [];
+  window.__leadSaves = [];
   return (
     <I18nProvider>
       <div className="app">
@@ -35,8 +37,9 @@ export function TaskCardDueStory() {
               onTerminate={NOOP as never}
               onMarkDuplicate={NOOP as never}
               onSetPriority={NOOP as never}
-              onSetDue={async (_id, dueTs) => {
+              onSetDue={async (_id, dueTs, lead) => {
                 window.__dueSaves.push(dueTs);
+                window.__leadSaves.push(lead);
               }}
               onSendMessage={NOOP as never}
               onReassign={NOOP as never}

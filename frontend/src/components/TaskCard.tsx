@@ -168,13 +168,14 @@ function buildTimeline(steps: TaskStepView[]): TimelineRow[] {
   return rows;
 }
 
-const DUE_LEAD_CHOICES = [1, 2, 3, 5, 7, 14, 30];
+const DUE_LEAD_MIN = 1;
+const DUE_LEAD_MAX = 30;
 
-/** A lead set through the API to a value the menu does not list still has to
- * show as selected. */
-function leadChoices(current: number | null): number[] {
-  if (current === null || DUE_LEAD_CHOICES.includes(current)) return DUE_LEAD_CHOICES;
-  return [...DUE_LEAD_CHOICES, current].sort((a, b) => a - b);
+/** "" follows the workspace setting; undefined means the draft cannot be saved. */
+function parseDueLead(draft: string): number | null | undefined {
+  if (draft === "") return null;
+  const n = Number(draft);
+  return Number.isInteger(n) && n >= DUE_LEAD_MIN && n <= DUE_LEAD_MAX ? n : undefined;
 }
 
 export function TaskCard({
@@ -778,8 +779,12 @@ export function TaskCard({
   const [dueDraft, setDueDraft] = useState("");
   const dueDraftRef = useRef("");
   const dueSessionRef = useRef(false);
-  const [dueLeadDraft, setDueLeadDraft] = useState<number | null>(null);
-  const dueLeadDraftRef = useRef<number | null>(null);
+  const [dueLeadDraft, setDueLeadDraft] = useState("");
+  const dueLeadDraftRef = useRef("");
+  // A number input holding text it cannot parse (a lone "e") reports "", which
+  // would otherwise read as "follow the workspace setting". React fires no
+  // change for it either ("" → ""), so validity is read off the element.
+  const dueLeadInputRef = useRef<HTMLInputElement>(null);
   const dueTs = task.dueTs ?? null;
   const taskLeadDays = task.dueSoonLeadDays ?? null;
   const leadDays = effectiveLeadDays(taskLeadDays, dueSoonLeadDays);
@@ -874,12 +879,16 @@ export function TaskCard({
     }
   }
 
-  async function doSetDue(next: number | null, lead?: number | null) {
+  async function doSetDue(
+    next: number | null,
+    lead?: number | null,
+    noticeOnSuccess: string | null = null
+  ) {
     if ((next === dueTs && lead === undefined) || !onSetDue) return;
     try {
       if (lead === undefined) await onSetDue(task.id, next);
       else await onSetDue(task.id, next, lead);
-      setActionError(null);
+      setActionError(noticeOnSuccess);
     } catch (e) {
       console.warn("TaskCard: due date change failed", e);
       setActionError(t.tasks.actionError);
@@ -890,16 +899,16 @@ export function TaskCard({
     const draft = dueTs === null ? "" : toDateInputValue(dueTs);
     dueDraftRef.current = draft;
     setDueDraft(draft);
-    dueLeadDraftRef.current = taskLeadDays;
-    setDueLeadDraft(taskLeadDays);
+    const leadDraft = taskLeadDays === null ? "" : String(taskLeadDays);
+    dueLeadDraftRef.current = leadDraft;
+    setDueLeadDraft(leadDraft);
     dueSessionRef.current = true;
     setDueOpen(true);
   }
 
-  function pickDueLead(value: string) {
-    const lead = value === "" ? null : Number(value);
-    dueLeadDraftRef.current = lead;
-    setDueLeadDraft(lead);
+  function editDueLead(value: string) {
+    dueLeadDraftRef.current = value;
+    setDueLeadDraft(value);
   }
 
   function editDueDraft(value: string) {
@@ -910,8 +919,8 @@ export function TaskCard({
   // 🔴 The date input reports every keyboard segment edit as a complete date
   // (typing 1 into the month of 10/30 yields 01/30), and a calendar pick looks
   // the same on the wire — so nothing is saved until Enter, blur or an outside
-  // click commits the draft. The lead <select> follows the same rule: on
-  // Windows/Linux an ArrowDown on a closed select already fires change.
+  // click commits the draft. The lead field follows the same rule, so a typed
+  // "1" on the way to "14" is never saved.
   function finishDue(commit: boolean) {
     if (!dueSessionRef.current) return;
     dueSessionRef.current = false;
@@ -924,7 +933,16 @@ export function TaskCard({
         ? dueTs
         : endOfLocalDayTs(dueDraftRef.current);
     if (next === null || new Date(next * 1000).getFullYear() < 1970) return;
-    const lead = dueLeadDraftRef.current;
+    const lead = dueLeadInputRef.current?.validity.badInput
+      ? undefined
+      : parseDueLead(dueLeadDraftRef.current.trim());
+    if (lead === undefined) {
+      // The date still saves; only the unusable lead is dropped, and the card
+      // says so because the popover that held it is gone.
+      if (next === dueTs) setActionError(t.tasks.dueLeadRangeError);
+      else void doSetDue(next, undefined, t.tasks.dueLeadRangeError);
+      return;
+    }
     void doSetDue(next, lead === taskLeadDays ? undefined : lead);
   }
 
@@ -1547,35 +1565,38 @@ export function TaskCard({
                       <span className="task-card__due-lead-label">
                         {t.tasks.dueLeadLabel}
                       </span>
-                      <select
-                        className="task-card__due-input"
-                        data-testid="task-due-lead"
-                        value={dueLeadDraft === null ? "" : String(dueLeadDraft)}
-                        disabled={dueDraft === ""}
-                        onChange={(e) => pickDueLead(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
+                      <span className="task-card__due-lead-row">
+                        <input
+                          type="number"
+                          inputMode="numeric"
+                          min={DUE_LEAD_MIN}
+                          max={DUE_LEAD_MAX}
+                          step={1}
+                          className="task-card__due-input task-card__due-lead-input"
+                          ref={dueLeadInputRef}
+                          data-testid="task-due-lead"
+                          value={dueLeadDraft}
+                          placeholder={msg.taskDueLeadWorkspace(dueSoonLeadDays)}
+                          disabled={dueDraft === ""}
+                          onChange={(e) => editDueLead(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              finishDue(true);
+                            } else if (e.key === "Escape") {
+                              finishDue(false);
+                            }
+                          }}
+                          onBlur={(e) => {
+                            if (duePopRef.current?.contains(e.relatedTarget as Node))
+                              return;
                             finishDue(true);
-                          } else if (e.key === "Escape") {
-                            finishDue(false);
-                          }
-                        }}
-                        onBlur={(e) => {
-                          if (duePopRef.current?.contains(e.relatedTarget as Node))
-                            return;
-                          finishDue(true);
-                        }}
-                      >
-                        <option value="">
-                          {msg.taskDueLeadWorkspace(dueSoonLeadDays)}
-                        </option>
-                        {leadChoices(dueLeadDraft).map((n) => (
-                          <option key={n} value={String(n)}>
-                            {msg.taskDueLeadDays(n)}
-                          </option>
-                        ))}
-                      </select>
+                          }}
+                        />
+                        <span className="task-card__due-lead-unit">
+                          {t.tasks.dueLeadUnit}
+                        </span>
+                      </span>
                     </label>
                     {dueTs !== null && (
                       <button

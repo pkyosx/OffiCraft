@@ -85,7 +85,7 @@ function renderCard(
   return { ...render(cardElement(task, onSetDue, dueSoonLeadDays)), onSetDue };
 }
 
-const leadSelect = () => screen.getByTestId("task-due-lead") as HTMLSelectElement;
+const leadInput = () => screen.getByTestId("task-due-lead") as HTMLInputElement;
 
 const chip = () => screen.getByTestId("task-due");
 
@@ -228,46 +228,45 @@ describe("TaskCard", () => {
     expect(onSetDue).toHaveBeenCalledWith("task-1", null);
   });
 
-  it("offers the workspace lead and the explicit leads, with the task's own lead selected", () => {
-    renderCard(mkTask({ dueTs: OCT_30_END, dueSoonLeadDays: 5 }), undefined, 3);
+  it("shows the task's own lead in the lead field and the workspace lead as the empty field's placeholder", () => {
+    const { unmount } = renderCard(mkTask({ dueTs: OCT_30_END, dueSoonLeadDays: 5 }), undefined, 3);
     fireEvent.click(chip());
-    expect(Array.from(leadSelect().options).map((o) => o.textContent)).toEqual([
-      "使用全站設定（3 天）",
-      "提前 1 天",
-      "提前 2 天",
-      "提前 3 天",
-      "提前 5 天",
-      "提前 7 天",
-      "提前 14 天",
-      "提前 30 天",
-    ]);
-    expect(leadSelect().value).toBe("5");
+    expect(leadInput().value).toBe("5");
+    expect(leadInput().placeholder).toBe("全站設定 3");
+    expect(screen.getByTestId("task-due-pop").textContent).toContain("天");
+    unmount();
+
+    renderCard(mkTask({ dueTs: OCT_30_END }), undefined, 3);
+    fireEvent.click(chip());
+    expect(leadInput().value).toBe("");
+    expect(leadInput().placeholder).toBe("全站設定 3");
   });
 
-  it("keeps the editor open when a lead is picked and saves it with the task's unchanged due time once focus leaves the editor", () => {
+  it("keeps the editor open while a lead is typed and saves it with the task's unchanged due time once focus leaves the editor", () => {
     const { onSetDue } = renderCard(mkTask({ dueTs: OCT_30_1000 }));
     fireEvent.click(chip());
-    expect(leadSelect().value).toBe("");
-    fireEvent.change(leadSelect(), { target: { value: "7" } });
+    expect(leadInput().value).toBe("");
+    fireEvent.change(leadInput(), { target: { value: "1" } });
+    fireEvent.change(leadInput(), { target: { value: "17" } });
     expect(onSetDue).not.toHaveBeenCalled();
     expect(screen.getByTestId("task-due-pop")).toBeTruthy();
-    fireEvent.blur(leadSelect(), {
+    fireEvent.blur(leadInput(), {
       relatedTarget: screen.getByTestId("task-due-input"),
     });
     expect(onSetDue).not.toHaveBeenCalled();
     expect(screen.getByTestId("task-due-pop")).toBeTruthy();
-    fireEvent.blur(leadSelect());
+    fireEvent.blur(leadInput());
     expect(onSetDue).toHaveBeenCalledTimes(1);
-    expect(onSetDue).toHaveBeenCalledWith("task-1", OCT_30_1000, 7);
+    expect(onSetDue).toHaveBeenCalledWith("task-1", OCT_30_1000, 17);
     expect(screen.queryByTestId("task-due-pop")).toBeNull();
   });
 
-  it("returns a task's own lead to the workspace setting with 使用全站設定 on Enter", () => {
+  it("returns a task's own lead to the workspace setting when the field is emptied and Enter is pressed", () => {
     const { onSetDue } = renderCard(mkTask({ dueTs: OCT_30_END, dueSoonLeadDays: 5 }));
     fireEvent.click(chip());
-    fireEvent.change(leadSelect(), { target: { value: "" } });
+    fireEvent.change(leadInput(), { target: { value: "" } });
     expect(onSetDue).not.toHaveBeenCalled();
-    fireEvent.keyDown(leadSelect(), { key: "Enter" });
+    fireEvent.keyDown(leadInput(), { key: "Enter" });
     expect(onSetDue).toHaveBeenCalledWith("task-1", OCT_30_END, null);
     expect(screen.queryByTestId("task-due-pop")).toBeNull();
   });
@@ -278,23 +277,50 @@ describe("TaskCard", () => {
     fireEvent.change(screen.getByTestId("task-due-input"), {
       target: { value: "2026-10-30" },
     });
-    const select = leadSelect();
-    fireEvent.change(select, { target: { value: "14" } });
+    const lead = leadInput();
+    fireEvent.change(lead, { target: { value: "14" } });
     expect(onSetDue).not.toHaveBeenCalled();
     fireEvent.mouseDown(document.body);
-    fireEvent.blur(select);
+    fireEvent.blur(lead);
     expect(onSetDue).toHaveBeenCalledTimes(1);
     expect(onSetDue).toHaveBeenCalledWith("task-1", OCT_30_END, 14);
+  });
+
+  it.each(["0", "31", "2.5", "-3"])(
+    "saves the new date but keeps the task's lead and shows a range error when the typed lead is %s",
+    async (typed) => {
+      const { onSetDue } = renderCard(mkTask({ dueTs: OCT_25_0900, dueSoonLeadDays: 5 }));
+      fireEvent.click(chip());
+      fireEvent.change(screen.getByTestId("task-due-input"), {
+        target: { value: "2026-10-30" },
+      });
+      fireEvent.change(leadInput(), { target: { value: typed } });
+      fireEvent.keyDown(leadInput(), { key: "Enter" });
+      expect(onSetDue).toHaveBeenCalledTimes(1);
+      expect(onSetDue).toHaveBeenCalledWith("task-1", OCT_30_END);
+      await act(async () => {});
+      expect(screen.getByText("快到期提醒要是 1 到 30 的整數天數，這次沒有變更")).toBeTruthy();
+    }
+  );
+
+  it("saves nothing and shows a range error when only the lead was changed to an out-of-range value", () => {
+    const { onSetDue } = renderCard(mkTask({ dueTs: OCT_30_END, dueSoonLeadDays: 5 }));
+    fireEvent.click(chip());
+    fireEvent.change(leadInput(), { target: { value: "45" } });
+    fireEvent.blur(leadInput());
+    expect(onSetDue).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("task-due-pop")).toBeNull();
+    expect(screen.getByText("快到期提醒要是 1 到 30 的整數天數，這次沒有變更")).toBeTruthy();
   });
 
   it("keeps the lead disabled until the draft has a date", () => {
     renderCard(mkTask({ dueTs: null }));
     fireEvent.click(chip());
-    expect(leadSelect().disabled).toBe(true);
+    expect(leadInput().disabled).toBe(true);
     fireEvent.change(screen.getByTestId("task-due-input"), {
       target: { value: "2026-10-30" },
     });
-    expect(leadSelect().disabled).toBe(false);
+    expect(leadInput().disabled).toBe(false);
   });
 
   it("opening the picker does not collapse or expand the card", () => {

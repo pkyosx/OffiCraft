@@ -53,7 +53,6 @@ export interface Messages {
   taskDueOn: (month: number, day: number) => string;
   taskOverdueDays: (days: number) => string;
   taskDueInDays: (days: number) => string;
-  taskDueLeadDays: (days: number) => string;
   taskDueLeadWorkspace: (days: number) => string;
   taskCountOverdue: (n: number) => string;
   taskCountDueSoon: (n: number) => string;
@@ -302,18 +301,7 @@ export function makeMessages(t: Dict, language: Lang): Messages {
       [tasks.dueInDaysLead, String(days), tasks.dueInDaysTail]
         .filter((part) => part !== "")
         .join(" "),
-    taskDueLeadDays: (days) =>
-      [
-        tasks.dueLeadDaysLead,
-        String(days),
-        days === 1 ? tasks.dueLeadDaysTailOne : tasks.dueLeadDaysTailMany,
-      ]
-        .filter((part) => part !== "")
-        .join(" "),
-    taskDueLeadWorkspace: (days) =>
-      `${tasks.dueLeadWorkspaceLead}${days} ${
-        days === 1 ? tasks.dueLeadWorkspaceTailOne : tasks.dueLeadWorkspaceTailMany
-      }`,
+    taskDueLeadWorkspace: (days) => `${tasks.dueLeadWorkspaceLead}${days}`,
     taskCountOverdue: (n) =>
       countPhrase(tasks.countOverdueLead, n, tasks.countOverdueTail),
     taskCountDueSoon: (n) =>

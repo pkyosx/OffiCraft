@@ -5,6 +5,7 @@ import { test, expect } from "@playwright/experimental-ct-react";
 import { TaskCardDueStory } from "./stories/TaskCardDueStory";
 
 const saves = (page: any) => page.evaluate(() => window.__dueSaves);
+const leadSaves = (page: any) => page.evaluate(() => window.__leadSaves);
 const endOfDay = (page: any, y: number, m: number, d: number) =>
   page.evaluate(
     ([yy, mm, dd]: number[]) =>
@@ -87,3 +88,50 @@ test("clicking the chip again closes the popover for good and saves once", async
   await expect(cmp.getByTestId("task-due-pop")).toHaveCount(0);
   expect(await saves(page)).toEqual([await endOfDay(page, 2099, 11, 30)]);
 });
+
+test("a lead typed digit by digit is saved once, on Enter", async ({
+  mount,
+  page,
+}) => {
+  const cmp = await mount(<TaskCardDueStory />);
+  await cmp.getByTestId("task-due").click();
+  await cmp.getByTestId("task-due-lead").focus();
+  await page.keyboard.type("14");
+  expect(await saves(page)).toEqual([]);
+  await page.keyboard.press("Enter");
+  expect(await saves(page)).toEqual([await endOfDay(page, 2099, 10, 30)]);
+  expect(await leadSaves(page)).toEqual([14]);
+});
+
+test("unparseable lead text is not saved as the workspace setting", async ({
+  mount,
+  page,
+}) => {
+  const cmp = await mount(<TaskCardDueStory />);
+  await cmp.getByTestId("task-due").click();
+  await cmp.getByTestId("task-due-lead").focus();
+  await page.keyboard.type("e");
+  await page.keyboard.press("Enter");
+  expect(await saves(page)).toEqual([]);
+  await expect(cmp.getByText("快到期提醒要是 1 到 30 的整數天數，這次沒有變更")).toBeVisible();
+});
+
+for (const width of [320, 390]) {
+  test(`the lead field and its unit fit inside the due popover at ${width}px`, async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 700 });
+    const cmp = await mount(<TaskCardDueStory />);
+    await cmp.getByTestId("task-due").click();
+    const pop = await cmp.getByTestId("task-due-pop").boundingBox();
+    const input = await cmp.getByTestId("task-due-lead").boundingBox();
+    const unit = await cmp.locator(".task-card__due-lead-unit").boundingBox();
+    expect(pop && input && unit).toBeTruthy();
+    expect(input!.width).toBeGreaterThanOrEqual(80);
+    expect(unit!.x).toBeGreaterThanOrEqual(input!.x + input!.width);
+    expect(Math.abs(unit!.y + unit!.height / 2 - (input!.y + input!.height / 2))).toBeLessThan(2);
+    expect(unit!.x + unit!.width).toBeLessThanOrEqual(pop!.x + pop!.width);
+    expect(pop!.x + pop!.width).toBeLessThanOrEqual(width);
+  });
+}
