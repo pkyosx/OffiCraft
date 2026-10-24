@@ -87,6 +87,22 @@
   cursor: pointer;
   transition: color 0.15s, background 0.15s;
 }
+/* With the 到期 filter, a 390px phone leaves the labelled button ~20px short of
+ * the last filter line; icon-only keeps it on that line. The label stays in the
+ * accessibility tree. */
+@media (max-width: 520px) {
+  .tasks__display-trigger {
+    padding: 6px 8px;
+  }
+  .tasks__display-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
 .tasks__display-trigger:hover,
 .tasks__display-trigger[aria-expanded="true"] {
   color: var(--color-text);

@@ -92,6 +92,11 @@ for (const width of [1280, 390, 360, 320]) {
     const trigger = cmp.getByTestId("display-options");
     await expect(trigger).toBeVisible();
 
+    await expect(trigger).toHaveAccessibleName("顯示方式");
+    const labelWidth = (await trigger.locator(".tasks__display-label").boundingBox())!.width;
+    if (width <= 390) expect(labelWidth, "phone shows the icon only").toBeLessThanOrEqual(1);
+    else expect(labelWidth).toBeGreaterThan(20);
+
     const row = (await cmp.getByTestId("tasks-filter").boundingBox())!;
     const button = (await trigger.boundingBox())!;
     expect(Math.abs(row.x + row.width - (button.x + button.width))).toBeLessThanOrEqual(1);

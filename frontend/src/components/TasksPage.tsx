@@ -197,7 +197,7 @@ function DisplayOptions({
         onClick={() => setOpen((v) => !v)}
       >
         <SlidersIcon size={14} aria-hidden="true" />
-        {t.tasks.displayOptions}
+        <span className="tasks__display-label">{t.tasks.displayOptions}</span>
       </button>
       {open && (
         <div
