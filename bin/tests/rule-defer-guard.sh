@@ -28,7 +28,7 @@ REVIEWED_RULE_HASH="5fbfa2d0afaec6d1bdd641d0e19070fe7d14577ef3d6b833d7dbc6fb5f98
 
 required_sites=(
   "AGENTS.md"
-  "docs/guide/best-practices.md"
+  "docs/guide/sop.md"
 )
 
 PASS=0

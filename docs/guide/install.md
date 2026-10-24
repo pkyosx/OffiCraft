@@ -1,68 +1,38 @@
 # 安裝、升級與移除
 
-有兩條路：**官方 release**（一般使用者走這條）與**從原始碼**（開發機）。
-兩條路的預設埠、落點、裝的 launchd job 都不一樣——這份文件分開講，不要混著讀。
+讀完這頁，你能在 Mac 上裝好 OffiCraft、之後升級或移除，並把第二台 Mac 加進同一間工作室。
+
+安裝有兩條路：一般使用者用**官方 release**；要自己改程式碼的人才用**從原始碼安裝**。兩條路裝出來的東西不同，請只照其中一條做。
 
 ---
 
 ## 前置需求
 
-需求依**機器扮演的角色**分三組，別一股腦全裝——跑官方 release 的一般使用者只碰得到前兩組，第三組是走原始碼／開發那條路才要的。
+### 裝 server 的那台 Mac
 
-### A. server 那台一定要的
+| 需求 | 說明 |
+| --- | --- |
+| **macOS，Apple Silicon** | 安裝腳本在其他平台會直接拒絕。 |
+| **7755 埠沒有被占用** | 被占用時安裝會停下來，並提示改用其他埠。 |
+| **`tmux`，以及 `claude` 或 `codex` 至少一種** | 即使這台只放 server、成員都跑在別台，安裝腳本也會檢查這兩項。缺少時會在動到任何檔案之前停下，並印出補裝的指令。 |
 
-跑 `ocserverd`（唯一真相來源）的那台主機：
+官方 release 是預先編好的程式，這台不需要 Go、node 或 python。
 
-| 需求 | 最低版本 | 為什麼 |
+### 每一台要跑成員的機器
+
+包含裝 server 的 Mac（如果也要在 server 的 Mac 上跑成員），以及之後加入的每一台：
+
+| 需求 | 最低版本 | 說明 |
 | --- | --- | --- |
-| **macOS + Apple Silicon**（darwin/arm64） | — | 安裝腳本第一道就擋，其他平台直接拒絕 |
-| **7755 埠是空的** | — | 被占用時安裝當場失敗並提示換埠，不會裝一個起不來的服務 |
+| **`claude`（Claude Code CLI）或 `codex`（Codex CLI），至少一種** | Claude Code **2.1.287** | 每位成員底下就是一個 Claude Code 或 Codex session。只裝 `codex` 也可以安裝，但出廠的助理 Mira 設定的是 Claude Code，需要改設定才能喚醒，見 [常見問題與排解](troubleshooting.md)。安裝 Claude Code：`npm install -g @anthropic-ai/claude-code`。 |
+| **`tmux`** | 3.0 | 成員的 session 跑在 tmux 裡。 |
 
-官方 release 那條路，server 這台**平台與埠只有這兩項**——binary 是預編好的，不需要 Go / node / python3。
+runtime 需要登入才能喚醒成員。你可以在那台機器的終端機登入，也可以在控制台登入：到「監控」分頁的「機器資訊」，在那台機器 Claude 或 Codex 欄的版本號上選「登入」，照畫面指示完成。
 
-> [!IMPORTANT]
-> **但安裝腳本另外硬性要求下面 B 組的東西**（T-7f38）：**`tmux` 一定要有**，而且 **`claude` 與 `codex` 至少要有一種**。缺就**在動任何東西之前停下**（沒有 `~/.officraft`、沒有 launchd plist），並印出補齊的指令。
-> 原因是缺 `tmux` 的機器以前會**整趟綠燈**——控制台打得開、成員請得到——然後成員永遠停在「waking」，而**沒有任何一處訊號指向真正的原因**。
-> `tmux` 沒有 runtime 之分：claude 與 codex 兩條啟動線都走同一個 `tmuxNewSession`（`cli/ocwarden/spawn.go:950`）。runtime 則是**二擇一**，跟 `ocwarden install` 的 `runtime_bin_unresolved` 同一條規則——**只裝 codex 的機器是合法配置，不會被擋**。
-> 代價要講清楚：**一台只當 server、成員都跑在別台**的機器，現在也要先備妥 `tmux` 與其中一種 runtime 才裝得起來。**沒有跳過的開關**（給了就等於教人回到那個沉默失敗）。
-
-### B. 任何要跑成員的機器一定要的
-
-**每一台**要 spawn 成員的機器（包含 server 那台，只要你也要它起成員；還有你之後加的每一台）都要有這兩個——成員底下就是一個跑在 tmux 裡的 Claude Code 或 Codex session：
-
-| 需求 | 最低版本 | 為什麼 |
-| --- | --- | --- |
-| **一種 agent runtime**：`claude`（Claude Code CLI）或 `codex`（Codex CLI），**至少一種，而且已登入** | 用 `claude` 的話：**不能低於 OffiCraft 通知模組需要的最低版本**（以 `cli/ocwarden/notifymod.go` 的 `notifyModMinClaudeVersion` 為準），低於它 Claude 成員起不來。這個下限是 `claude` 專屬的 | 每位成員底下就是一個 Claude Code 或 Codex session。**claude 與 codex 兩種都解析不到時，安裝腳本當場拒絕、warden 也拒絕安裝**（兩層 fail-closed，並在控制台橫幅說明原因），不會裝一個永遠起不了成員的 warden；**只裝其中一種是合法配置，不會被擋**（但若你只裝 `codex`，出廠的 Mira 仍然起不來——見下面步驟 8）。`claude` 的裝法：`npm install -g @anthropic-ai/claude-code` |
-| **`tmux`** | 3.0 以上（任何近代 3.x 都行） | 成員的 session 跑在 tmux 裡（`cli/ocwarden/spawn.go` 的 `tmux new-session`，沒有備援）。**解析不到時安裝腳本直接拒絕**，不會裝出一台成員永遠停在「waking」的機器 |
-
-> [!IMPORTANT]
-> **Claude 成員要求 `claude` 不低於通知模組需要的最低版本。** 成員到 server 的 SSE 長連線由另一個 `ocagent listen`
-> 程序持住（**持著連線＝online**，見 [架構與運作原理](architecture.md)）；這個程序由 OffiCraft 通知模組在成員的
-> Claude Code 裡當子程序起起來，模組再把每則通知送進成員自己的對話。`claude` 比這個最低版本舊時，warden 不起 Claude 成員，
-> 喚醒直接失敗，「最近操作」寫 `notify_claude_too_old`（見 [疑難排解](troubleshooting.md)）。升級：控制台 **監控 › 機器**，
-> 在那台機器 Claude 欄的版本號選單選 **升級 Claude Code**；或在那台機器上跑 `npm install -g @anthropic-ai/claude-code`。
->
-> 注意：**安裝器擋「沒裝」，但不擋「太舊」**——它確認 `tmux` 與（claude／codex 至少一種）解析得到（缺就停），但**不比對版本號**。所以裝了太舊的 `claude`，安裝照樣過，要到喚醒 Claude 成員時才會失敗；控制台 **監控 › 機器** 的 Claude 欄會在太舊的版本旁標「版本太舊」。
+安裝腳本只檢查 `claude` 或 `codex` 有沒有裝，不檢查版本。Claude Code 低於 2.1.287 時安裝照樣會成功，但 Claude 成員喚醒會失敗，「監控 › 機器資訊」的 Claude 欄會標示「版本太舊」。升級方法：在同一個版本號選單選「升級 Claude Code」，或在那台機器上執行 `npm install -g @anthropic-ai/claude-code`。
 
 > [!NOTE]
-> 用 asdf / nvm / volta 裝 `claude` 的人要注意：launchd 的 PATH 很小，找不到 shim。
-> 安裝時會解析 Claude Code 與 Codex CLI，找到的路徑都會寫進服務設定；機器只要至少有一種 runtime 即可。真的找不到時，用 `OC_CLAUDE_BIN=/絕對路徑/claude` 或 `OC_CODEX_BIN=/絕對路徑/codex` 重跑安裝（冪等）。
-
-### C. 只有走「從原始碼／開發」那條才需要的
-
-官方 release 是預編 binary，**不需要**這一組；只有用下面的**方式二（從原始碼）**自己 build 才要：
-
-| 需求 | 最低版本 | 為什麼 |
-| --- | --- | --- |
-| **Go** | 1.26 以上 | 從原始碼 build `ocserverd` / `ocwarden` / `ocagent` / `officraft` |
-| **node + npm** | node 18 以上（建議 20 LTS 以上），npm 隨 node 附帶 | build 前端控制台 |
-| **python3** | 3.11 以上 | 開發用腳本 |
-| **`cloudflared`** | — | **只有**要開對外 tunnel 才需要；不開就不裝 |
-
-> [!NOTE]
-> 版本依據：**Go 1.26** 取自 repo 的 `go.mod`（`go 1.26.10`）；**node 18** 是前端工具鏈（Vite 6）的下限，
-> 建議跟上現行 LTS；**Claude Code 2.1.98** 是 Monitor tool 首度內建的版本（成員用它等待背景工作，見上）；
-> **tmux 3.0** 是保守下限，repo 未硬性指定版本，任何近代 3.x 都可以。
+> 用 asdf、nvm、volta 這類工具安裝 `claude` 時，背景服務可能找不到它。安裝腳本找不到 runtime 時，請用 `OC_CLAUDE_BIN=/絕對路徑/claude` 或 `OC_CODEX_BIN=/絕對路徑/codex` 指定位置後重跑安裝。重跑安裝不會影響既有資料。
 
 ---
 
@@ -72,98 +42,71 @@
 curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash
 ```
 
-它會抓最新 release 的 `officraft-<tag>-darwin-arm64.tar.gz` 與 `checksums.txt`，
-**sha256 驗證通過才安裝**（驗證失敗直接中止，什麼都不裝），解到暫存目錄後委派包內的 install.sh。
+腳本會下載最新 release 的 `officraft-<tag>-darwin-arm64.tar.gz` 與 `checksums.txt`，sha256 驗證通過才安裝，驗證失敗就中止、不安裝任何東西。
 
-也可以手動：到 [GitHub Releases](https://github.com/pkyosx/OffiCraft/releases) 下載
-`officraft-<tag>-darwin-arm64.tar.gz`，解開後跑 `./install.sh`。
+也可以手動安裝：到 [GitHub Releases](https://github.com/pkyosx/OffiCraft/releases) 下載 `officraft-<tag>-darwin-arm64.tar.gz`，解開後執行 `./install.sh`。
 
-### 它做了什麼（照順序）
+### 安裝過程
 
-1. **平台閘** — 只支援 macOS Apple Silicon，其他平台直接拒絕。
-2. **既有安裝閘** — `~/.officraft/bin` 有 binary 或已有資料庫時大聲警告並要求確認（互動 y/N 預設否；非互動要 `--force`），否則中止、什麼都不動。
-3. **現役服務閘** — 見下方警告。
-4. **裝 binary + 資料庫升級** — `ocserverd` / `ocwarden` / `ocagent` / `officraft` 落到 `~/.officraft/bin`，跑 migration（資料保留、原地升級）。（`officraft` 是 warden 的固定身分錨點：launchd 起的是它、再由它把隔壁的 `ocwarden` 帶起來，好讓這台機器的隱私授權不會因為 warden 自我更新而作廢。）
-5. **埠閘** — 預設 **7755**（`$OC_CONFIG` 或當前目錄的 `./oc.toml` 可覆蓋）。
-6. **註冊背景服務** — launchd job `com.officraft.serve`（`RunAtLoad` / `KeepAlive`，log 落在 `~/.officraft/server/log/serve.log`）。**不佔用你的終端機，關掉也不會停。**
-7. **印出一次性設定連結** — `http://127.0.0.1:7755/?code=…`，打開它設定 owner 密碼。
-8. **設完密碼後 server 自己接手最後兩步** — 把這台機器的 warden 裝好、把預設助理 **Mira** 叫醒。你不用自己去機器頁按安裝，也不用自己把助理設成上線。
-   `claude` 與 `codex` **兩種都沒有**、或是缺 `tmux` 時，這一步會失敗並在控制台上方的橫幅說出原因，而不是裝一個永遠起不了 agent 的 warden。
-   ⚠️ **只裝 `codex`（沒有 `claude`）的機器不會被擋下來，但 Mira 出廠設的是 Claude Code，所以它仍然起不來**——那不是安裝失敗，橫幅也不會出現。要怎麼做見 [常見問題與排解](troubleshooting.md) 的〈出廠的 Mira 起不來，而這台機器只裝了 `codex`〉。
+1. 確認是 macOS Apple Silicon。
+2. 確認這台機器有 `tmux`，以及 `claude` 或 `codex` 至少一種。
+3. 這台已經裝過 OffiCraft 時，先警告並要求確認；用管線執行時沒辦法回答確認，需要加 `--force` 才會繼續。
+4. 把 `ocserverd`、`ocwarden`、`ocagent`、`officraft` 裝到 `~/.officraft/bin`，並升級資料庫結構，既有資料保留。
+5. 確認埠沒有被占用（預設 7755）。
+6. 註冊背景服務 `com.officraft.serve`。服務在背景執行，關掉終端機也不會停，開機後自動啟動。
+7. 印出一次性設定連結 `http://127.0.0.1:7755/?code=…`。用瀏覽器打開，設定你的登入密碼。
+8. 密碼設好後，server 自動把這台機器的 warden 裝好，並喚醒助理 Mira。其中一步失敗時，控制台上方會出現「自動設定沒有全部完成」的橫幅並寫明原因。
+
+裝好之後照 [你的第一個辦公室](quickstart.md) 走一遍。
 
 ### 常用選項
 
-| | |
+選項接在 `bash -s --` 後面，例如 `curl -fsSL … | bash -s -- --tag v0.4.1`。
+
+| 選項 | 用途 |
 | --- | --- |
-| `bash -s -- --tag v0.4.1` | 裝特定版本（或用 `OC_INSTALL_TAG=v0.4.1`） |
-| `bash -s -- --force` | 覆蓋既有安裝（**只授權覆寫檔案**） |
-| `bash -s -- --restart-live` | 額外授權「重啟一個正在服務的實例」，見下 |
-| `./install.sh --foreground` | 開發者模式：serve 跑在這個終端機裡，Ctrl-C 停止，**不裝任何 launchd job** |
-| `./install.sh --relocate` | 同意把既有服務搬到不同的埠或設定 |
-| `./install.sh --namespace <ns> --port <port>` | 在同一台機器上裝**第二個完全隔離的實例**，見下 |
+| `--tag <版本>` | 安裝指定版本（也可以設環境變數 `OC_INSTALL_TAG`）。 |
+| `--force` | 覆蓋既有安裝的檔案。 |
+| `--restart-live` | 允許重啟正在執行中的 OffiCraft 服務。 |
+| `--relocate` | 允許把既有服務搬到不同的埠或設定。 |
+| `--namespace <名稱> --port <埠>` | 在同一台機器上裝第二個獨立的工作室。 |
+| `--foreground` | 讓服務在目前的終端機前景執行，按 Ctrl-C 停止，不註冊背景服務。 |
 
 > [!WARNING]
-> **這台機器上已經有一個 OffiCraft 服務正在跑的話**，重裝會把它 bootout 再 bootstrap——
-> 那是一次**真正的重啟**，期間所有開著的控制台與連著的 agent 都會斷線（埠與資料庫會被繼承，
-> **資料不會掉，掉的是連線**）。
->
-> 這件事需要它自己的同意：`--force` 只講「覆寫檔案」，**不**授權斷線。管線安裝沒有 tty 可問，
-> 所以會直接中止。要接受重啟請明確加上：
+> 這台機器上的 OffiCraft 正在執行時，重裝會重啟服務。重啟期間所有開著的控制台與成員都會斷線，資料不會遺失。`--force` 只允許覆蓋檔案，不允許重啟；要重啟請同時加上 `--restart-live`：
 >
 > ```bash
 > curl -fsSL … | bash -s -- --force --restart-live
 > ```
->
-> 不想動到現役服務的話，用 `--namespace` 併裝（見下一節）。
->
-> ⚠️ **不要用改 `$HOME` 的方式當隔離**。launchd label 是這個 uid 的 GUI domain 裡的
-> singleton，**它不跟著 `HOME` 走**：換了 `HOME` 只是把檔案搬走，job 目標仍然解析到
-> 同一個正在服役的服務，於是「我以為我在沙箱裡」的那次執行照樣把它 bootout。
-> 只設 `OC_LAUNCHD_LABEL` 也只解決一半——job 換了，檔案還是寫進第一個實例的
-> `~/.officraft`。要隔離就用 `--namespace`，它一把鑰匙同時決定 label 與 root。
 
-### 同機第二個實例（`--namespace`）
-
-要在同一台機器上再跑一個互不干擾的 OffiCraft，用一個名字把每一項 per-instance
-資源一次決定完：
+### 同一台機器裝第二個工作室
 
 ```bash
 ./install.sh --namespace lab --port 7756
 ```
 
-| 這個名字決定了 | `--namespace lab` | 主實例（不給 `--namespace`） |
+| 項目 | `--namespace lab` | 主工作室（不加 `--namespace`） |
 | --- | --- | --- |
-| 資料根目錄 | `~/.officraft-lab` | `~/.officraft` |
-| launchd label | `com.officraft.serve.lab` | `com.officraft.serve` |
-| 設定檔 | `~/.officraft-lab/server/oc.toml`（安裝時寫入） | `$OC_CONFIG` 或 `./oc.toml` |
+| 資料目錄 | `~/.officraft-lab` | `~/.officraft` |
+| 背景服務 | `com.officraft.serve.lab` | `com.officraft.serve` |
+| 設定檔 | `~/.officraft-lab/server/oc.toml` | `$OC_CONFIG` 或目前目錄的 `./oc.toml` |
 | 資料庫 | `~/.officraft-lab/server/data/` | `~/.officraft/server/data/` |
-| 它裝出來的 warden | `com.officraft.ocwarden.lab` | `com.officraft.ocwarden` |
+| warden 背景服務 | `com.officraft.ocwarden.lab` | `com.officraft.ocwarden` |
 
-規則：
-
-- `<ns>` 必須符合 `[a-z0-9-]{1,16}`。**不合法就直接報錯中止**——絕不會默默退回主實例的
-  路徑與 label（那比報錯糟得多）。也可以用 `OC_NAMESPACE=<ns>` 給。
-- **`--port` 是必填的**。預設的 7755 是主實例的埠，沿用它不是撞在埠檢查上，就是更糟——
-  看起來裝好了，實際上兩個實例在搶同一個 socket。
-- 具名安裝**刻意忽略** `$OC_CONFIG` 與 `./oc.toml`：你已經指名要哪一個實例，
-  站在哪個目錄裡不該有權改道。
-- 跟 `--foreground` 併用時，前景跑起來的 serve 吃的是**同一份**實例設定，跟 launchd
-  裝出來的那條路一致——用的是 `~/.officraft-<ns>/` 底下的資料庫，綁的是你給的 `--port`。
-  安裝器印給你的「之後怎麼重啟」那一行也會帶著 `OC_CONFIG=`，照抄就對。
-  （在此之前這條路是壞的：前景 serve 什麼設定都沒繼承，會靜默回退去用**主實例的資料庫**
-  與 7755，而且會在那顆資料庫上跑 migration——安裝器不會報錯，畫面上還是你給的埠。
-  如果你曾經在有正式資料的機器上跑過 `--namespace … --foreground`，那顆主資料庫的
-  schema 版本可能已經被推上去了。）
-- 已存在的實例改埠是**搬遷、不是重載**，會被擋下且什麼都不動——要嘛沿用原埠重跑，
-  要嘛自己去改那個實例的 `oc.toml`。
-- 移除也吃同一把鑰匙：`--uninstall --namespace lab` 只動 `~/.officraft-lab` 與
-  `com.officraft.serve.lab`；不給就是照舊處理主實例。
+- 名稱只能用小寫英文、數字與 `-`，最長 16 個字元，不符合就報錯中止。也可以用環境變數 `OC_NAMESPACE` 指定。
+- 一定要加 `--port`，而且不能和主工作室同一個埠。
+- 已經存在的工作室要換埠時，安裝腳本會拒絕；請直接修改該工作室的 `oc.toml`。
+- 要隔離第二個工作室，請用 `--namespace`，不要用改 `$HOME` 的方式。改 `$HOME` 不會改變背景服務的名稱，重裝時仍會重啟主工作室的服務。
 
 ### 升級
 
-**之後的升級不必重跑 install.sh。** 設定 › 系統更新與備份 有「檢查更新」與一鍵升級
-（從 GitHub Releases 下載、sha256 驗證後原地抽換重啟）；打開「自動更新」則在背景自動升級。
-「接收 Beta」= 也吃 GitHub prerelease。
+升級不必重跑安裝腳本。到 **設定 › 系統更新與備份**：
+
+- 按「檢查更新」，有新版時按「升級到最新版」。server 會下載新版、驗證 sha256、替換後自動重啟，頁面也會自動重新載入。
+- 打開「自動更新」，偵測到新版時會在背景自動升級。預設關閉。
+- 打開「接收 Beta 版本」，檢查更新時也會納入 GitHub 上的預發佈版本。預設關閉。
+
+server 升級後，各台機器上的 warden 與 ocagent 會自動跟著更新。各欄位的說明見 [設定與參數](settings.md)。
 
 ### 移除
 
@@ -171,145 +114,109 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.sh | bash -s -- --uninstall
 ```
 
-**預設 = 停用 + 搬走，不是刪除**：停掉 launchd job，把 release 路徑裝的那一份
-（`bin/` 與 `server/` 裡屬於這次安裝的資料，含資料庫）連同那個 launchd plist 一起搬到
-`~/.officraft.bak-<timestamp>`，不刪。最壞情況是「東西還在，只是不跑了」，不是「資料沒了」。
-腳本會印出一行還原指令，**檔案與 launchd 註冊兩邊都會回來**（plist 留在備份裡就是為了這個）。
-這一步**不需要下載任何 tarball**——安裝器偵測到 `--uninstall` 會直接短路進移除邏輯。
+預設是**停用並搬走，不刪除**：停掉背景服務，把這次安裝的程式、資料庫與背景服務設定搬到 `~/.officraft.bak-<時間>`。腳本會印出還原指令，照著執行就能恢復。
 
-**它不會碰什麼**（這些都不是這支安裝器裝的，所以移除也不該動它們）：
+以下這些不是安裝腳本裝的，移除時不會動：
 
-| 留在原地 | 為什麼 |
-|---|---|
-| `~/.officraft/agents/` | 這台機器上**每一個 agent 的工作區**。安裝器從未建立它們 |
-| `~/.officraft/warden/` | ocwarden 常駐程式的目錄。它有**自己的** launchd job（`com.officraft.ocwarden`），移除後仍**保持註冊與執行**——要一併移除請用 `ocwarden teardown --canonical`（具名實例是 `OC_NAMESPACE=<ns> ocwarden teardown`；teardown 拒絕隱含目標，裸指令會 exit 1） |
-| `~/.officraft/server/repo/` | 方式二（從原始碼）裝的那一份，跟這條路共用同一個 `server` 根目錄 |
-| `~/.officraft` 本身 | 永遠不會被移除 |
+| 留在原處 | 說明 |
+| --- | --- |
+| `~/.officraft/agents/` | 這台機器上每位成員的工作區。 |
+| `~/.officraft/warden/` | warden 與它自己的背景服務 `com.officraft.ocwarden`，移除後仍會繼續執行。 |
+| `~/.officraft` 資料夾本身 | 不會被刪除。 |
 
-腳本執行時會把上面這份清單連同 agent 工作區的數量一起印出來，`--dry-run` 也印同一份。
+要一併移除這台機器的 warden，有兩種做法：
 
-> ⚠️ **舊版行為（v0.5.12 及更早，也就是這個修正發佈之前的每一版）**：只要 `~/.officraft/server/repo/` 不存在
-> （也就是這台機器**沒有**用方式二從原始碼裝過——release 安裝的機器都是這樣），預設就會把
-> **整個** `~/.officraft` 搬走，含 `agents/` 與 `warden/`，而訊息只說 "nothing was deleted"、
-> 一個字都沒提。反而是有 `repo/` 的機器不受影響。那是可回復的（是 `mv` 不是 `rm`），
-> 但訊息不足以讓人預判後果。**如果你手上跑的是舊版安裝腳本，這件事仍然成立。**
+- 移除 server 之前，在控制台「監控 › 機器資訊」的機器名稱選單選「解除安裝」。
+- 在那台機器上執行 `~/.officraft/warden/ocwarden teardown --canonical`。第二個工作室的 warden 改用 `OC_NAMESPACE=<名稱> ~/.officraft/warden/ocwarden teardown`。
+
+其他移除選項：
 
 ```bash
-curl -fsSL … | bash -s -- --uninstall --dry-run   # 只印出會做什麼，什麼都不動
-curl -fsSL … | bash -s -- --uninstall --purge --yes  # 真的刪光，含資料庫，不可回復
-curl -fsSL … | bash -s -- --uninstall --namespace lab  # 只移除具名的那個實例
+curl -fsSL … | bash -s -- --uninstall --dry-run          # 只列出會做什麼，不做任何變更
+curl -fsSL … | bash -s -- --uninstall --purge --yes      # 永久刪除，含資料庫，無法復原
+curl -fsSL … | bash -s -- --uninstall --namespace lab    # 只移除第二個工作室
 ```
 
-> ℹ️ **舊版會在最後多印一行紅字，那不是失敗。** 在這個修正發佈之前，用
-> `curl … | bash` 跑**提早結束**的動作（`--uninstall`、`--help`、「已經很乾淨」）
-> 常常會在自己的輸出之後，再被 curl 補上一行
-> `curl: (23|56) Failure writing output to destination, passed N returned 0`。
-> 原因與移除本身無關：**腳本在 curl 還沒送完的時候就結束了**，curl 的下一次寫入因此失敗。
-> （不是「檔案太大」——實測一個明顯小於管線緩衝區的舊版本，在慢速連線下反而每次都重現；
-> 決定性的條件是「讀的那一端先走了，而寫的那一端還有東西沒送完」。）
-> **判斷成功與否要看腳本自己印的完成行**（例如 `DRYRUN complete — nothing on the machine was changed`），
-> 不是看最後一行有沒有紅字。
-> 這個修正發佈之後，腳本的主體整個包在一個函式裡、**最後一行才呼叫它**，而在那之前的部分
-> **不會印出任何東西、也不會結束**。所以：**整份檔案被讀完之前，腳本不會有任何輸出、也不會退出**
-> ——curl 一定送得完，這行紅字不再取決於連線速度。
-> （精確一點：函式定義之前的那幾行仍然是邊讀邊執行的，只是它們不印也不退出，所以外面看不到；
-> 保證的是「讀完之前沒有可觀察的動作」，不是「讀完才開始執行」。）
-> （在此之前的做法是「結束前把剩下的內容收乾淨」，那個有時間上限——連線**非常**慢的時候
-> 那行還是會回來。收乾淨的動作保留著當第二道防線，但它已經不是主要的機制。）
-> **另外，如果你手上跑的是舊版安裝腳本（包含目前 `releases/latest` 上的那一版），上面整段都仍然成立。**
+用 `curl … | bash` 執行時，`--purge` 的確認提示無法輸入，必須同時加 `--yes` 才會刪除；沒有加 `--yes` 時什麼都不會刪。想要互動確認，請先把腳本存成檔案再執行。
 
-> ⚠️ **`--purge` 的打字確認在 `curl … | bash` 這個形式下按不下去。** 那個提示讀的是標準輸入，
-> 而標準輸入正被用來把腳本本身餵給 bash，所以你打的字送不進去、確認必定失敗 ——
-> 結果是**什麼都不會被刪**（fail-closed，而且畫面會印出中止訊息）。
-> 也就是說：走管線時 `--purge` 一定要配 `--yes` 才有作用。想要互動確認就先把腳本存成檔案再跑。
-> （這是已知限制，另案處理；在這裡寫出來是因為「以為有一道確認、其實按不到」本身就會誤導。）
-
-**所有權判斷**：只認「這支安裝器裝的那一套」（比對 launchd plist 的 `ProgramArguments[0]`
-與 release-path 專屬檔案），尊重 `OC_LAUNCHD_LABEL`（用 alt label 併裝的那一套，移除時也要
-帶同一個 label）。判斷不出是自己裝的就拒絕移除並說明原因，不會誤刪別人的東西。
+判斷移除有沒有成功，請看腳本自己印出的完成訊息。舊版安裝腳本在提早結束時，最後可能多印一行 `curl: (23)` 或 `curl: (56)` 的紅字；那一行不代表移除失敗，仍以腳本印出的完成訊息為準。
 
 ---
 
-## 方式二：從原始碼（開發機）
+## 方式二：從原始碼安裝
 
-在 repo 根目錄跑：
+要自己修改 OffiCraft 程式碼的人才需要這條路。
+
+額外需要：
+
+| 需求 | 最低版本 | 用途 |
+| --- | --- | --- |
+| Go | 1.26 | 編譯 server、warden 與 CLI |
+| node、npm | node 18（建議用目前的 LTS） | 編譯控制台前端 |
+| python3 | 3.11 | 開發用腳本 |
+| `cloudflared` | — | 只有要開對外 tunnel 時才需要 |
+
+在 repo 根目錄執行：
 
 ```bash
 bin/ocserver install
 ```
 
-裝完會印出一格 banner，裡面有一次性的**啟用碼**：打開瀏覽器、貼上啟用碼、設定 owner 密碼。
-密碼一設好啟用碼立即失效；重裝（密碼已設）不會再印任何憑證。
+裝完會印出一次性的**啟用碼**。打開控制台，在「設定管理密碼」畫面貼上啟用碼並設定密碼。密碼設好後啟用碼立即失效。
 
 ```bash
-bin/ocserver install --dry-run  # 只印出打算做什麼，什麼都不動
-bin/ocserver install --force    # 重跑每一步（不動既有密碼）
+bin/ocserver install --dry-run                       # 只列出會做什麼，不做任何變更
+bin/ocserver install --force                         # 重跑每一步，不動既有密碼
+bin/ocserver install --namespace <名稱> --port <埠>   # 同一台機器裝第二個工作室
 ```
 
-**這條路額外需要**前置需求的 **C 組**（Go 1.26+、node 18+／npm、python3 3.11+；`cloudflared` 只有要開 tunnel 才需要）——版本與依據見上面〔前置需求〕。
+預設埠同樣是 7755，可以在 `oc.toml` 或用環境變數 `OC_SERVE_PORT` 修改。
 
-> [!NOTE]
-> **標準埠是 7755，兩條路一樣。** 兩者都可以用 `oc.toml`（或 `OC_SERVE_PORT`）覆蓋。
-
-### 這條路裝完機器上多了什麼
-
-所有東西都落在 `~/.officraft/server/`：
+這條路的檔案都在 `~/.officraft/server/`：
 
 ```
 ~/.officraft/server/
-  repo/     server 程式碼（autodeploy 會自己 pull + 重建）
-  data/     SQLite 資料庫（你的所有資料都在這）
-  oc.toml   本機設定（port、DSN；重裝不會被覆蓋。密碼不在這——DB 只存雜湊）
-  log/      執行 log
+  repo/     程式碼
+  data/     資料庫（工作室的所有資料）
+  oc.toml   本機設定（埠、資料庫位置），重裝不會覆蓋
+  log/      執行紀錄
 ```
 
-外加三個 launchd job（`~/Library/LaunchAgents/`，開機自動起）：
+另外註冊三個開機自動啟動的背景服務：
 
-| job | 做什麼 |
+| 背景服務 | 用途 |
 | --- | --- |
-| `com.officraft.serve` | server 本體（預設 port 7755，`oc.toml` 可改，只綁 loopback） |
-| `com.officraft.autodeploy` | 盯 git 遠端，有新 code 自動 pull → build → 重啟 |
-| `com.officraft.tunnel` | cloudflared 對外通道（**選用**：機器上沒有 cloudflared 設定就自動略過） |
+| `com.officraft.serve` | server 本體 |
+| `com.officraft.autodeploy` | 偵測 git 遠端有新程式碼時，自動拉取、編譯、重啟 |
+| `com.officraft.tunnel` | cloudflared 對外通道；機器上沒有 cloudflared 設定時自動略過 |
 
-**除此之外不碰你機器上任何其他東西。**
+`oc.toml` 接受 `[server]`（`port`、`namespace`）與 `[storage]`（`dsn`）。拼錯的欄位或不認得的區段會讓 server 拒絕啟動，避免設定默默失效。
 
-### `oc.toml` 的設定範圍
-
-OffiCraft 接受 `[server]`（`port`、`namespace`）與 `[storage]`（`dsn`）的既定設定；舊版的 `[auth]`、`[server].host`、`[sse_context_high]` 與 `[storage].database_url` 仍可讀取以便遷移，但會提示你移除。其他拼錯欄位或未知區域會拒絕啟動，避免默默套用預設值。若是由擴充功能管理的設定，請明確放在 `[extensions]` 下，例如：
-
-```toml
-[extensions.example]
-enabled = true
-```
-
-> release tarball 那條路只落 `~/.officraft/bin` + 資料庫，並註冊 `com.officraft.serve`
-> 一個 job——**不裝 autodeploy 與 tunnel**，那兩個是原始碼路徑才有的。
-
-### 移除
+移除：
 
 ```bash
-bin/ocserver uninstall             # 卸掉三個 launchd job、刪 ~/.officraft/server
-                                   # 但保留 data/（資料庫，含密碼雜湊）與 oc.toml——之後重裝即回原狀
-bin/ocserver uninstall --purge     # 全部刪光，含資料庫與密碼（會要求輸入確認；--yes 跳過）
-bin/ocserver uninstall --dry-run   # 只印出會做什麼，什麼都不動
+bin/ocserver uninstall             # 移除背景服務與 ~/.officraft/server，保留 data/ 與 oc.toml
+bin/ocserver uninstall --purge     # 全部刪除，含資料庫與密碼（會要求確認，加 --yes 跳過）
+bin/ocserver uninstall --dry-run   # 只列出會做什麼，不做任何變更
 ```
 
 ---
 
 ## 加第二台機器
 
-控制台的 **監控 › 機器** 會給你一行指令，貼到另一台 Mac 上跑，那台就加入同一間工作室了。
-那支腳本會先檢查 `tmux` 與 `curl`——**`tmux` 缺的話，只要那台有 Homebrew 就會自動幫你裝**。
+1. 在控制台打開「監控」分頁，在「機器資訊」按「新增機器 / 上線」，輸入機器名稱後按「建立」。
+2. 在新機器的名稱選單選「安裝」，在「安裝機器」視窗按「複製安裝指令」。
+3. 到另一台 Mac 的終端機貼上指令並執行。
+4. 安裝指令會先檢查 `tmux` 與 `curl`。缺 `tmux` 時，如果那台有 Homebrew，會自動安裝。
+5. 裝好之後，那台機器出現在「機器資訊」的清單上，狀態變成「線上」。
 
-之後成員可以被派到那台機器上跑，成員之間也能跨機器互相請託。
+那台機器同樣需要 `claude` 或 `codex` 至少一種並且已登入。之後在成員詳情裡就能把成員派到那台機器上跑，成員之間也能跨機器互相請託。
 
 ---
 
-裝好之後想立刻走一遍，看 [你的第一個辦公室](quickstart.md)。安裝或起不來時，先翻 [常見問題與排解](troubleshooting.md)——埠被占用、缺 `claude`/`codex`/`tmux`、成員亮不起來、移除的怪紅字都在那裡。
+## 相關文件
 
----
-
-這兩份是給改 code 的人的開發者文件，不隨產品打包，所以只在 GitHub 上讀得到：
-
-**agent 的環境變數怎麼設** → [docs/dev/agent-env.md](https://github.com/pkyosx/OffiCraft/blob/main/docs/dev/agent-env.md)
-**技術棧、repo 結構、怎麼跑測試與 CI** → [docs/dev/](https://github.com/pkyosx/OffiCraft/tree/main/docs/dev)
+- [你的第一個辦公室](quickstart.md)
+- [保護你的工作室](security.md)
+- [設定與參數](settings.md)
+- [常見問題與排解](troubleshooting.md)
