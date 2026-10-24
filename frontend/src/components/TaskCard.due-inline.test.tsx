@@ -221,14 +221,24 @@ describe("TaskCard", () => {
     expect(onSetDue).not.toHaveBeenCalled();
   });
 
-  it("discards the draft on Escape", () => {
-    const { onSetDue } = renderCard(mkTask({ dueTs: null }));
+  it("discards the date and lead drafts on Escape", () => {
+    const { onSetDue } = renderCard(mkTask({ dueTs: OCT_25_END }));
     fireEvent.click(chip());
     const input = screen.getByTestId("task-due-input");
     fireEvent.change(input, { target: { value: "2026-10-30" } });
     fireEvent.keyDown(input, { key: "Escape" });
     expect(onSetDue).not.toHaveBeenCalled();
     expect(screen.queryByTestId("task-due-pop")).toBeNull();
+
+    fireEvent.click(chip());
+    fireEvent.change(leadInput(), { target: { value: "14" } });
+    fireEvent.keyDown(leadInput(), { key: "Escape" });
+    expect(onSetDue).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("task-due-pop")).toBeNull();
+    expect(chip().textContent).toBe("2026/10/25（日）");
+
+    fireEvent.click(chip());
+    expect(leadInput().value).toBe("");
   });
 
   it("does not store the partial year a typed date passes through", () => {
@@ -329,7 +339,7 @@ describe("TaskCard", () => {
     }
   );
 
-  it("saves nothing and shows a range error when only the lead was changed to an out-of-range value", () => {
+  it("saves nothing and shows a range error when only the lead was changed to an out-of-range value, and drops the error once the editor is reopened", () => {
     const { onSetDue } = renderCard(mkTask({ dueTs: OCT_30_END, dueSoonLeadDays: 5 }));
     fireEvent.click(chip());
     fireEvent.change(leadInput(), { target: { value: "45" } });
@@ -337,6 +347,14 @@ describe("TaskCard", () => {
     expect(onSetDue).not.toHaveBeenCalled();
     expect(screen.queryByTestId("task-due-pop")).toBeNull();
     expect(screen.getByText("快到期提醒要是 1 到 30 的整數天數，這次沒有變更")).toBeTruthy();
+
+    fireEvent.click(chip());
+    expect(leadInput().value).toBe("5");
+    expect(screen.queryByText("快到期提醒要是 1 到 30 的整數天數，這次沒有變更")).toBeNull();
+    fireEvent.mouseDown(document.body);
+    expect(onSetDue).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("task-due-pop")).toBeNull();
+    expect(screen.queryByText("快到期提醒要是 1 到 30 的整數天數，這次沒有變更")).toBeNull();
   });
 
   it("keeps the lead disabled until the draft has a date", () => {

@@ -49,7 +49,7 @@ useTasks 把 statusFilter 轉成重複的 ?statuses=；執行者與類型篩選�
 
 到期日不在卡頭徽章列（那排只剩編號／優先權／狀態／類型），是 `.task-card__meta` 裡緊接在「建立者」下面的「到期日」列，收合時也看得到。值只寫日期（`taskDueDate`：「2026/10/30（五）」／“Fri, Oct 30, 2026”），卡上任何地方都不寫「N 天後到期」「明天到期」「逾期 N 天」這種相對字樣；未結案任務已逾期時日期後面是紅色驚嘆號（`--color-danger`），在提前天數內是橘色警告（`--color-dot-waking`，跟 任務 nav 的時鐘同色），hover／點按由 `InstantHint` 顯示「已逾期 N 天」／「快到期」，同一句也是 aria-label；已結案只有日期。可編輯時點日期開到期日 popover，沒有日期時這列是「設定到期日」鈕；沒有日期又不可編輯就整列不畫。手機（≤720px）popover 從那一格的右緣往左展開，因為值欄從標籤欄後面才開始，往右展會超出卡片內容寬（CT `taskcard-due-keyboard` 在 320／390 量）。
 
-到期日 popover 裡的「快到期提醒」是數字輸入框（1–30 整數天，跟設定頁 `param-due-soon-lead` 同範圍），不是預設選項的選單；空白＝跟全站設定（存 null），空白時 placeholder 顯示全站天數。跟日期一樣只在 Enter、焦點離開 popover、點外面時存檔，Escape 取消，打字途中的「1」（要打 14）不得存。不合法的值（非整數、<1、>30、或 number input 解析不了的文字——那種情況 `value` 是空字串，不可當成「跟全站設定」）不存：日期有改就照存，天數維持原值，卡上用 `task-card__error` 顯示 `dueLeadRangeError`，因為 popover 已經關了。
+到期日 popover 裡的「快到期提醒」是數字輸入框（1–30 整數天，跟設定頁 `param-due-soon-lead` 同範圍），不是預設選項的選單；空白＝跟全站設定（存 null），空白時 placeholder 顯示全站天數。跟日期一樣只在 Enter、焦點離開 popover、點外面時存檔，Escape 取消，打字途中的「1」（要打 14）不得存。不合法的值（非整數、<1、>30、或 number input 解析不了的文字——那種情況 `value` 是空字串，不可當成「跟全站設定」）不存：日期有改就照存，天數維持原值，卡上用 `task-card__error` 顯示 `dueLeadRangeError`，因為 popover 已經關了；再打開 popover 時這句就清掉，不會在沒改任何東西之後還留著。
 
 依賴 chip 讀 task.depTasks，必須區分已解析、查無此任務與 undefined 未提供。
 

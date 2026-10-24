@@ -1263,16 +1263,19 @@ describe("TasksPage", () => {
     expect(queryByText("旁邊的")).toBeNull();
   });
 
-  it("shows a #tasks/<id> target that sat in a collapsed lane", async () => {
+  it("shows a #tasks/<id> target that sat in a collapsed lane and was hidden by 到期 = 沒有到期日, clearing the 到期 filter", async () => {
     const target = mkTask({
       title: "連結指向的",
       dueTs: Date.now() / 1000 + 3600,
     });
     __injectMockTask(target);
-    const { findByText, queryByText } = renderPage();
+    __injectMockTask(mkTask({ title: "沒有到期日的" }));
+    const { findByText, queryByText, getByTestId } = renderPage();
     await findByText("連結指向的");
     fireEvent.click(laneToggle("soon"));
     expect(queryByText("連結指向的")).toBeNull();
+    toggleFilter("filter-due", "noDue");
+    await waitFor(() => expect(laneKeys()).toEqual(["nodue"]));
 
     act(() => {
       window.location.hash = `#tasks/${target.id}`;
@@ -1280,6 +1283,7 @@ describe("TasksPage", () => {
     });
     await findByText("連結指向的");
     expect(laneToggle("soon").getAttribute("aria-expanded")).toBe("true");
+    expect(getByTestId("filter-due").textContent).toBe("所有到期");
   });
 
   it("groups by 負責人 in the filter's option order: 外包, 未指派, then each member", async () => {

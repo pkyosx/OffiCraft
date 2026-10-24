@@ -19,8 +19,17 @@ const TASK = mkTask({
   dueTs: DUE_OCT_30,
 });
 
-export function TaskCardDueStory({ dueTs = DUE_OCT_30 }: { dueTs?: number }) {
-  const task = dueTs === DUE_OCT_30 ? TASK : { ...TASK, dueTs };
+export function TaskCardDueStory({
+  dueTs = DUE_OCT_30,
+  dueSoonLeadDays,
+}: {
+  dueTs?: number;
+  dueSoonLeadDays?: number;
+}) {
+  const task =
+    dueTs === DUE_OCT_30 && dueSoonLeadDays === undefined
+      ? TASK
+      : { ...TASK, dueTs, dueSoonLeadDays };
   window.__dueSaves = [];
   window.__leadSaves = [];
   return (

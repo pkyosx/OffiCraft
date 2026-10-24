@@ -896,6 +896,7 @@ export function TaskCard({
     setDueLeadDraft(leadDraft);
     dueSessionRef.current = true;
     setDueOpen(true);
+    setActionError((cur) => (cur === t.tasks.dueLeadRangeError ? null : cur));
   }
 
   function editDueLead(value: string) {

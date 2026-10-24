@@ -103,16 +103,21 @@ test("a lead typed digit by digit is saved once, on Enter", async ({
   expect(await leadSaves(page)).toEqual([14]);
 });
 
-test("unparseable lead text is not saved as the workspace setting", async ({
+test("unparseable lead text does not replace the task's own lead with the workspace setting", async ({
   mount,
   page,
 }) => {
-  const cmp = await mount(<TaskCardDueStory />);
+  const cmp = await mount(<TaskCardDueStory dueSoonLeadDays={5} />);
   await cmp.getByTestId("task-due").click();
-  await cmp.getByTestId("task-due-lead").focus();
+  const lead = cmp.getByTestId("task-due-lead");
+  await expect(lead).toHaveValue("5");
+  await lead.focus();
+  await page.keyboard.press("ControlOrMeta+a");
   await page.keyboard.type("e");
+  expect(await lead.evaluate((el: HTMLInputElement) => el.validity.badInput)).toBe(true);
   await page.keyboard.press("Enter");
   expect(await saves(page)).toEqual([]);
+  expect(await leadSaves(page)).toEqual([]);
   await expect(cmp.getByText("快到期提醒要是 1 到 30 的整數天數，這次沒有變更")).toBeVisible();
 });
 
