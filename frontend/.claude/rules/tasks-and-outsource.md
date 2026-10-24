@@ -27,7 +27,7 @@ useTasks 把 statusFilter 轉成重複的 ?statuses=；執行者與類型篩選�
 
 四個軸**常駐可見**、選了就生效。第三輪曾把它們收進一個漏斗按鈕後的頁內展開面板，配「取消／套用篩選」與「N 筆 · 已篩選：<chip ×> · 清除全部」條；owner 當天稍晚推翻那個形狀：「不要多filter那一層了，全部拉出來，而任務編號那邊就是按enter或是點外面就視為apply了，然後也不用再顯示14筆已篩選跟那一行跟案件那個子標了，案件跟請示卡都一樣」（`c-c3d681fe05da`）。
 
-- **只剩一份狀態，除了編號**。三顆下拉直接寫 applied，點下去就重跑。**編號欄位保留 draft/applied 兩份**：`draftId` 是框裡的字，`appliedId` 是清單真的被什麼篩，**只在 Enter 或 blur 時由 `commitId()` 提交**。⚠️ 這不是殘留的面板遺跡——編號會換一次伺服器請求（`useTasks(…, appliedId)` → `GET /api/tasks/{id}`），**每按鍵提交就是每按鍵發請求**，那正是 owner 連退兩次的形狀（「每次都要全部都撈回來才濾不合理」）。**把 `onCommit` 接到 `onChange` 看起來像整理，實際上是把那個否決倒回去**；`TasksPage.id-filter.test.tsx` 有一支專門釘住「打字但未 Enter 也未 blur ⇒ 列表不動」，mutant 驗過會紅。
+- **只剩一份狀態，除了編號**。四顆下拉（負責人／類型／狀態／到期）直接寫 applied，點下去就重跑。**編號欄位保留 draft/applied 兩份**：`draftId` 是框裡的字，`appliedId` 是清單真的被什麼篩，**只在 Enter 或 blur 時由 `commitId()` 提交**。⚠️ 這不是殘留的面板遺跡——編號會換一次伺服器請求（`useTasks(…, appliedId)` → `GET /api/tasks/{id}`），**每按鍵提交就是每按鍵發請求**，那正是 owner 連退兩次的形狀（「每次都要全部都撈回來才濾不合理」）。**把 `onCommit` 接到 `onChange` 看起來像整理，實際上是把那個否決倒回去**；`TasksPage.id-filter.test.tsx` 有一支專門釘住「打字但未 Enter 也未 blur ⇒ 列表不動」，mutant 驗過會紅。
 - **shell 是 `FilterPanel`**（`components/FilterPanel.tsx`，自帶 CSS、無 `position: fixed`／scrim／z-index）。它現在只收 `testId` 與 `children`，不再持有任何狀態。欄位是 children，由頁面提供。「不是 modal」那條（`c-3b5a0aa66550`「按搜尋時不要再跳出新modal」）**沒有被推翻**，「全部拉出來」是它的同向延伸。
 - **沒有「清除全部」鈕，也沒有「案件」子標題**。清空＝逐欄清空（下拉取消勾選、編號欄清空後 Enter）。分組標題（「未結束 · 14」）**不在這次範圍，保留**。
 - 🔴 **全部條件一起生效，編號也不例外（選項①）**：applied 的編號**不篩已載入的清單**，而是走 `useTasks(DEFAULT_STATUS, appliedId)` 的 `GET /api/tasks/{id}` 拿那一張，再拿它去比其他 applied 軸。編號因此是**精準比對**，不是第二輪的 substring。
@@ -35,8 +35,9 @@ useTasks 把 statusFilter 轉成重複的 ?statuses=；執行者與類型篩選�
   - **404** 與 **抓到但被其他條件擋掉** → 都是一般的 `tasks-empty-filtered`，不得出 `tasks-empty`（那是在說工作區沒有任務）。
   - **抓到且通過** → 只顯示那一張。
   - 非 404 的失敗（500／離線）**不是 miss**：`tasks-error` 改講「沒有得到伺服器的回覆」，不得說找不到，兩個空狀態都噤聲。
-- **`#tasks/<id>` 錨點**只是「種下 applied 編號」，且**同時把其他三軸清空**——連結沒有對負責人／類型／狀態表示意見。所以「連結指向已完成任務也跳得到」仍然成立，靠的不是錨點豁免狀態軸，而是那時根本沒有狀態軸；`statusAsk` 的 effect 在有 applied 編號時**跳過**，清單 ask 才不會被清空的狀態集合擴成全歷史（432 KB 那條回歸）。`#tasks/executor/<id>` 仍照舊顯式種三軸，並清掉編號。
+- **`#tasks/<id>` 錨點**只是「種下 applied 編號」，且**同時把其他軸清空**——連結沒有對負責人／類型／狀態／到期表示意見。所以「連結指向已完成任務也跳得到」仍然成立，靠的不是錨點豁免狀態軸，而是那時根本沒有狀態軸；`statusAsk` 的 effect 在有 applied 編號時**跳過**，清單 ask 才不會被清空的狀態集合擴成全歷史（432 KB 那條回歸）。`#tasks/executor/<id>` 仍照舊顯式種負責人／類型／狀態（到期清空），並清掉編號。
 - **已結束區的自動展開吃 applied 編號**（不是 hash）：打到一張已結案任務並提交時若不展開，畫面會出現「通過了卻什麼都沒有」的第四種沉默結局。
+- **未結案依「分組依據」分成可收合的 lane**（預設到期狀態：已逾期／即將到期／之後到期／沒有到期日；另有負責人／類型／狀態／不分組）。分組依據不是篩選：它在篩選列最右端「顯示方式」按鈕打開的面板裡（owner `rc-a0fa7c9eca81` 選 B），不是 `FilterPanel` 的篩選欄位（它走 `actions`，排在欄位流的最後、靠右；放在欄位流裡是為了手機上和最後一行篩選同一行，不要搬回欄位外面自成一行），清除篩選也不重設它；因為平常看不到目前的分組，負責人／類型／狀態的 lane 標題前面帶軸名（`laneExecutorLead` 等，「負責人：Clara」），到期狀態與已結案不帶。到期分類只走 `lib/dueDate.ts`，跟卡上「到期日」列的圖示同一套，換 lane 的時刻由頁面時鐘在下一個到期邊界喚醒；篩選先套用、再分組，沒有任務的 lane 不畫。篩選列不再有已逾期／即將到期這兩顆篩選鈕；到期條件是狀態後面的「到期」多選（已逾期／快到期／有到期日／沒有到期日，勾的選項彼此 OR、再跟其他軸 AND，空集合＝不限），在前端判定：已逾期／快到期用 `lib/dueDate.ts`、頁面的 `nowSec` 與有效提前天數，跟 lane 同一套、在同一個邊界換，已結案的任務永遠不算已逾期／快到期；清除篩選也清它。加了這一格之後，帶文字的「顯示方式」在 390px 差約 20px 放不進最後一行篩選，所以 520px 以下只顯示圖示（文字留在無障礙名稱裡）；CT `tasks-display-options` 在 390／360 量它和篩選同一行、在手機寬量文字寬度為 0。任務頁頂端沒有「已逾期 N · 即將到期 N · 進行中 N」摘要行（owner 後來要求整行拿掉，連同點了跳到 lane 的功能）；伺服器計數只剩 任務 nav 分頁的數字、時鐘與提示在用，頁面只用 `useTaskCount().total` 判斷「目前沒有任務」。**只有第一個 lane 預設展開，其餘預設收合**（owner `rc-0b66903ff6b8`：一打開就看得到每一區的標題與數量）；預設展開的 lane 在套用預設的當下選定並記住 key（`defaultOpenKey`）：第一次有 lane 可畫時、換分組依據時、applied 編號清掉手動收合時，都選當下的第一區。之後新資料在它前面長出新的 lane（任務跨過到期邊界、SSE 推來新任務、全站天數載入改變分區）時，原本展開的那區保持展開、新 lane 預設收合，不會讓正在看的那區自己收起來；只有記住的那區被清空時，才改由當下的第一區展開，所以不會出現全部預設收合。手動展開／收合永遠優先。分組與收合都只是元件狀態，不持久化；applied 編號生效時清掉所有手動收合，那張任務所在的 lane 一定展開（理由同上一條的已結束區）。
 - **負責人選項的計數讀 applied**（不再有 draft 可與它矛盾）；計數 0 的選項隱藏，但**已勾選的保留**，否則取消不了。
 - 測試一律走 `src/test/tasksFilter.ts`（勾＝生效；編號用 `applyIdFilter` 打字＋Enter、`typeIdFilter` 只打字不提交、`blurIdFilter` 點外面），不要在各檔各自複製手勢。
 
@@ -45,6 +46,10 @@ useTasks 把 statusFilter 轉成重複的 ?statuses=；執行者與類型篩選�
 卡片預設收合；標題與 description 是唯讀 UI，owner 沒有要求編輯入口。進度與 gate 狀態直接使用 server 值；stepBadge 由 lib/stepBadge.ts 統一，superseded 不計入 progress。gate 預告、內嵌 TaskReplyCard、等待外部 banner 與任務訊息框都要維持原 wire 語意。
 
 卡內（描述、步驟、備註）的附件連結可以下註解、回給負責人，步驟內嵌的請示卡則回給開卡人；契約見 overlays-and-modals.md〈附件連結〉。
+
+到期日不在卡頭徽章列（那排只剩編號／優先權／狀態／類型），是 `.task-card__meta` 裡緊接在「建立者」下面的「到期日」列，收合時也看得到。值只寫日期（`taskDueDate`：「2026/10/30（五）」／“Fri, Oct 30, 2026”），卡上任何地方都不寫「N 天後到期」「明天到期」「逾期 N 天」這種相對字樣；未結案任務已逾期時日期後面是紅色驚嘆號（`--color-danger`），在提前天數內是橘色警告（`--color-dot-waking`，跟 任務 nav 的時鐘同色），hover／點按由 `InstantHint` 顯示「已逾期 N 天」／「快到期」，同一句也是 aria-label；已結案只有日期。可編輯時點日期開到期日 popover，沒有日期時這列是「設定到期日」鈕；沒有日期又不可編輯就整列不畫。手機（≤720px）popover 從那一格的右緣往左展開，因為值欄從標籤欄後面才開始，往右展會超出卡片內容寬（CT `taskcard-due-keyboard` 在 320／390 量）。
+
+到期日 popover 裡的「快到期提醒」是數字輸入框（1–30 整數天，跟設定頁 `param-due-soon-lead` 同範圍），不是預設選項的選單；空白＝跟全站設定（存 null），空白時 placeholder 顯示全站天數。跟日期一樣只在 Enter、焦點離開 popover、點外面時存檔，Escape 取消，打字途中的「1」（要打 14）不得存。不合法的值（非整數、<1、>30、或 number input 解析不了的文字——那種情況 `value` 是空字串，不可當成「跟全站設定」）不存：日期有改就照存，天數維持原值，卡上用 `task-card__error` 顯示 `dueLeadRangeError`，因為 popover 已經關了；再打開 popover 時這句就清掉，不會在沒改任何東西之後還留著。
 
 依賴 chip 讀 task.depTasks，必須區分已解析、查無此任務與 undefined 未提供。
 

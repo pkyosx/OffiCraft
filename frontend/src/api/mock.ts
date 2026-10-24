@@ -5,6 +5,7 @@
 // HTTP adapter will use. Honesty is preserved end-to-end: no telemetry, no fake
 // online, no fabricated timestamps.
 
+import { DEFAULT_DUE_SOON_LEAD_DAYS, effectiveLeadDays } from "../lib/dueDate";
 import type {
   Member,
   MonitoringView,
@@ -2269,6 +2270,7 @@ const DEFAULT_MOCK_SETTINGS = {
   warden_credential_lifetime_secs: 2592000,
   // M3 global outsource cap — mirrors the server's code-side default (3).
   outsource_max_parallel: 3,
+  task_due_soon_lead_days: DEFAULT_DUE_SOON_LEAD_DAYS,
   // T-ae38 document size caps — mirror the server's shipped defaults, which
   // this module already imports rather than restating (Duty has its own,
   // smaller one; the other three share).
@@ -4315,9 +4317,37 @@ const mockApiImpl = {
     // Open (non-terminal) count — computed live, same rule as the server's
     // count endpoint (done/terminated never count) — plus the unfiltered total
     // (T-a3e4), which is every task INCLUDING the terminal ones.
+    const now = Date.now() / 1000;
+    const openTasks = tasks.filter((t) => !TERMINAL_TASK_STATUSES.has(t.status));
+    let overdue = 0;
+    let dueSoon = 0;
+    let dueNextChangeTs: number | null = null;
+    for (const t of openTasks) {
+      const due = t.dueTs ?? null;
+      if (due === null) continue;
+      if (due <= now) {
+        overdue += 1;
+        continue;
+      }
+      const soonAt =
+        due -
+        effectiveLeadDays(
+          t.dueSoonLeadDays,
+          mockServerSettings.task_due_soon_lead_days ?? DEFAULT_DUE_SOON_LEAD_DAYS
+        ) *
+          86_400;
+      if (soonAt <= now) dueSoon += 1;
+      const change = soonAt > now ? soonAt : due;
+      if (dueNextChangeTs === null || change < dueNextChangeTs) {
+        dueNextChangeTs = change;
+      }
+    }
     return {
-      open: tasks.filter((t) => !TERMINAL_TASK_STATUSES.has(t.status)).length,
+      open: openTasks.length,
       total: tasks.length,
+      overdue,
+      dueSoon,
+      dueNextChangeTs,
     };
   },
 
@@ -4565,6 +4595,47 @@ const mockApiImpl = {
       );
     }
     t.priority = priority;
+    t.updatedTs = Date.now() / 1000;
+    emitTopic("task");
+  },
+
+  async setTaskDue(
+    id: string,
+    dueTs: number | null,
+    leadDays?: number | null
+  ): Promise<void> {
+    const t = findTask(id);
+    if (TERMINAL_TASK_STATUSES.has(t.status)) {
+      throw mockApiError(
+        `http 409 for POST /api/tasks/${id}/due`,
+        409,
+        `task '${id}' is closed`
+      );
+    }
+    if (dueTs !== null && !(dueTs > 0)) {
+      throw mockApiError(
+        `http 422 for POST /api/tasks/${id}/due`,
+        422,
+        "due_ts must be greater than 0"
+      );
+    }
+    if (leadDays != null && (leadDays < 1 || leadDays > 30)) {
+      throw mockApiError(
+        `http 422 for POST /api/tasks/${id}/due`,
+        422,
+        "due_soon_lead_days must be between 1 and 30 days (or null to follow the workspace setting)"
+      );
+    }
+    if (dueTs === null && leadDays != null) {
+      throw mockApiError(
+        `http 422 for POST /api/tasks/${id}/due`,
+        422,
+        "due_soon_lead_days needs a due_ts: a task without a due date has no lead"
+      );
+    }
+    t.dueTs = dueTs;
+    if (dueTs === null) t.dueSoonLeadDays = null;
+    else if (leadDays !== undefined) t.dueSoonLeadDays = leadDays;
     t.updatedTs = Date.now() / 1000;
     emitTopic("task");
   },
@@ -6482,6 +6553,16 @@ const mockApiImpl = {
       throw mockApiError("http 422 for PATCH /api/settings", 422, "monitoring_refresh_seconds must be between 1 and 60");
     }
     if (
+      patch.taskDueSoonLeadDays !== undefined &&
+      (patch.taskDueSoonLeadDays < 1 || patch.taskDueSoonLeadDays > 30)
+    ) {
+      throw mockApiError(
+        "http 422 for PATCH /api/settings",
+        422,
+        "task_due_soon_lead_days must be between 1 and 30 days"
+      );
+    }
+    if (
       patch.outsourceMaxParallel !== undefined &&
       (patch.outsourceMaxParallel < -1 || patch.outsourceMaxParallel > 20)
     ) {
@@ -6717,6 +6798,13 @@ const mockApiImpl = {
     }
     if (patch.outsourceMaxParallel !== undefined) {
       mockServerSettings.outsource_max_parallel = patch.outsourceMaxParallel;
+    }
+    if (
+      patch.taskDueSoonLeadDays !== undefined &&
+      patch.taskDueSoonLeadDays !== mockServerSettings.task_due_soon_lead_days
+    ) {
+      mockServerSettings.task_due_soon_lead_days = patch.taskDueSoonLeadDays;
+      emitTopic("task");
     }
     if (patch.docCapCharsDuty !== undefined) {
       mockServerSettings.doc_cap_chars_duty = patch.docCapCharsDuty;

@@ -113,13 +113,17 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
     carries the answer). `task_executor` is the acting executor of the card's task while
     that task is open, `""` otherwise
   - `task`: `{id, status, priority}` (any durable task write — status/priority/plan/
-    steps/deps/executor; one topic per task entity, the member granularity)
+    steps/deps/executor; one topic per task entity, the member granularity). One
+    exception: a change to the workspace setting `task_due_soon_lead_days` rides `task`
+    with `payload` `null`, owner-only, because it moves every task's due-soon state at
+    once without writing a task
   - `task_manual`: `payload` is `null` (manual create/edit/delete)
   - `global_context` / `role_def`: `payload` is `null`
   - `context` / `monitoring` signals: `payload` is `null`
 - `key` MUST be treated as an **opaque change hint**. Current key formats (clients MUST NOT
   parse them): `{owner}::{id}` for member/chat/reply_card/task/role_def,
-  `{owner}::{type_key}` for task_manual,
+  `{owner}::{type_key}` for task_manual, `{owner}::task.due_soon_lead_days` for the
+  due-soon lead change on task,
   `{owner}::{reader}::{peer}` for chat_read,
   `{owner}::{role_key}` for insight, the bare owner id for global_context, the bare agent id for context/monitoring signals.
 
@@ -224,7 +228,7 @@ relay; everything else is the M1 freeze):
 | `chat` | message append | patch |
 | `chat_read` | read-watermark advance | patch |
 | `reply_card` | reply-card create / answer / answer revision / expire | patch |
-| `task` | any durable task write (create / status / priority / plan / step / deps / executor assignment / terminate) | patch |
+| `task` | any durable task write (create / status / priority / plan / step / deps / executor assignment / terminate); a change to the workspace due-soon lead | patch |
 | `task_manual` | manual create / edit / delete | patch |
 | `global_context` | user-context overlay write/reset | patch |
 | `role_def` | role overlay write/reset/delete | patch |

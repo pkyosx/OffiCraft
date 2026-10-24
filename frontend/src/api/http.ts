@@ -162,6 +162,7 @@ import {
   toServerSettings,
   toTask,
   toTaskListItem,
+  toTaskCount,
   toTaskStepDetail,
   toTaskArtifact,
   toOutsourceWorker,
@@ -1790,11 +1791,10 @@ export const httpApi: Api = {
   },
 
   async getTaskCount(): Promise<TaskCountView> {
-    // GET /api/tasks/count -> {open, total}. The nav badge's cheap count path
+    // GET /api/tasks/count -> TaskCountDTO. The nav badge's cheap count path
     // (refetched on every "task" SSE delta without pulling the list); `total`
     // (T-a3e4) is the unfiltered count the 任務頁 words its empty state from.
-    const wire = unwrap(await client.GET("/api/tasks/count"));
-    return { open: wire.open, total: wire.total ?? 0 };
+    return toTaskCount(unwrap(await client.GET("/api/tasks/count")));
   },
 
   async terminateTask(id: string): Promise<void> {
@@ -1861,6 +1861,22 @@ export const httpApi: Api = {
       await client.POST("/api/tasks/{task_id}/priority", {
         params: { path: { task_id: id } },
         body: { priority },
+      }),
+    );
+  },
+
+  async setTaskDue(
+    id: string,
+    dueTs: number | null,
+    leadDays?: number | null,
+  ): Promise<void> {
+    unwrap(
+      await client.POST("/api/tasks/{task_id}/due", {
+        params: { path: { task_id: id } },
+        body:
+          leadDays === undefined
+            ? { due_ts: dueTs }
+            : { due_ts: dueTs, due_soon_lead_days: leadDays },
       }),
     );
   },
@@ -2664,6 +2680,7 @@ export const httpApi: Api = {
       disk_usage_interval_secs?: number;
       warden_credential_lifetime_secs?: number;
       outsource_max_parallel?: number;
+      task_due_soon_lead_days?: number;
       doc_cap_chars_duty?: number;
       doc_cap_chars_insight?: number;
       doc_cap_chars_manual_sop?: number;
@@ -2715,6 +2732,9 @@ export const httpApi: Api = {
       body.warden_credential_lifetime_secs = patch.wardenCredentialLifetimeSecs;
     if (patch.outsourceMaxParallel !== undefined) {
       body.outsource_max_parallel = patch.outsourceMaxParallel;
+    }
+    if (patch.taskDueSoonLeadDays !== undefined) {
+      body.task_due_soon_lead_days = patch.taskDueSoonLeadDays;
     }
     if (patch.docCapCharsDuty !== undefined) {
       body.doc_cap_chars_duty = patch.docCapCharsDuty;

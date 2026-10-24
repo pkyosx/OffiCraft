@@ -1064,6 +1064,12 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler: w.HandleSetTaskPriorityApiTasksTaskIdPriorityPost,
 			MCPTool: "set_task_priority",
 		}),
+		Gated(principalAgent, routeDef{
+			Method:  "POST",
+			Path:    "/api/tasks/{task_id}/due",
+			Handler: w.HandleSetTaskDueApiTasksTaskIdDuePost,
+			MCPTool: "set_task_due",
+		}),
 		Gated(principalAdminAgent, routeDef{
 			Method:  "POST",
 			Path:    "/api/tasks/{task_id}/message",

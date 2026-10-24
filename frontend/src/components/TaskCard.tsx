@@ -13,7 +13,7 @@
 //               the ▸/▾ expand indicator owning the top-right corner (the ⋮
 //               owner menu was deleted once its items moved to that dropdown —
 //               owner 2026-07-17); row 2 is the title; then the label column: 任務類型 /
-//               負責人 / 建立者 / 識別鍵 (URL values open target=_blank). The 負責人
+//               負責人 / 建立者 / 到期日 / 識別鍵 (URL values open target=_blank). The 負責人
 //               value carries a 轉派 icon button to its right (SwapIcon — a
 //               two-way swap glyph; click → TaskReassignDialog),
 //               owner 2026-07-18: 轉派 is a hand-over-to-a-new-executor action,
@@ -81,6 +81,15 @@ import { navigateHash } from "../lib/hashRoute";
 import { deriveTaskNo } from "../lib/taskNo";
 import { scrollParent, viewportSpanOf } from "../lib/scrollPort";
 import { useIsMobile } from "../hooks/useIsMobile";
+import { useNowSeconds } from "../hooks/useNowSeconds";
+import {
+  DEFAULT_DUE_SOON_LEAD_DAYS,
+  dueState,
+  effectiveLeadDays,
+  endOfLocalDayTs,
+  nextDueChangeTs,
+  toDateInputValue,
+} from "../lib/dueDate";
 import { enterShouldSend } from "../lib/composerKeys";
 import { linkMentions } from "../lib/mentionLinks";
 import {
@@ -99,6 +108,7 @@ import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
 import { appendSuggestion, SuggestedReplies } from "./SuggestedReplies";
 import { useSuggestedRepliesTaskMessage } from "../hooks/useSuggestedReplies";
 import { ConfirmModal } from "./ConfirmModal";
+import { InstantHint } from "./InstantHint";
 import { Markdown } from "./Markdown";
 import { MarkdownPreviewOverlay } from "./MarkdownPreviewOverlay";
 import { TaskArtifactsBadge } from "./TaskArtifactsPopover";
@@ -110,6 +120,8 @@ import { OWNER_ID } from "../lib/ownerUnread";
 import { docCommentRecipient } from "../lib/docComments";
 import { AttachmentLinkCommentsContext } from "../hooks/useAttachmentOpener";
 import {
+  AlertCircleIcon,
+  AlertTriangleIcon,
   ChatBubbleIcon,
   CheckIcon,
   ChevronDownIcon,
@@ -159,6 +171,16 @@ function buildTimeline(steps: TaskStepView[]): TimelineRow[] {
   return rows;
 }
 
+const DUE_LEAD_MIN = 1;
+const DUE_LEAD_MAX = 30;
+
+/** "" follows the workspace setting; undefined means the draft cannot be saved. */
+function parseDueLead(draft: string): number | null | undefined {
+  if (draft === "") return null;
+  const n = Number(draft);
+  return Number.isInteger(n) && n >= DUE_LEAD_MIN && n <= DUE_LEAD_MAX ? n : undefined;
+}
+
 export function TaskCard({
   task,
   allTasks,
@@ -170,6 +192,8 @@ export function TaskCard({
   onTerminate,
   onMarkDuplicate,
   onSetPriority,
+  onSetDue,
+  dueSoonLeadDays = DEFAULT_DUE_SOON_LEAD_DAYS,
   onReassign,
   onSendMessage,
   onHydrate,
@@ -205,6 +229,12 @@ export function TaskCard({
    * the depth-1 graph + non-terminal guard; a rejection surfaces inline. */
   onMarkDuplicate: (id: string, duplicateOf: string) => Promise<void>;
   onSetPriority: (id: string, priority: string) => Promise<void>;
+  /** Set or clear (`null`) the due date. `leadDays` is passed only when the
+   * lead changed (`null` = back to the workspace setting). Absent ⇒ the due
+   * chip is read-only. */
+  onSetDue?: (id: string, dueTs: number | null, leadDays?: number | null) => Promise<void>;
+  /** The workspace 快到期提前天數, for a task without its own lead. */
+  dueSoonLeadDays?: number;
   /** 轉派 (T-160e): hand the task to a member / a freshly minted 外包. The whole
    * handover is the server's; the dialog only names the target. */
   onReassign: (id: string, input: TaskReassignInput) => Promise<void>;
@@ -744,6 +774,41 @@ export function TaskCard({
   // collapsing the card removes the thing you were looking at. Copying either
   // rule onto the other control reddens that control's guard.
   const prioRef = useRef<HTMLDivElement>(null);
+  const [dueOpen, setDueOpen] = useState(false);
+  const dueRef = useRef<HTMLDivElement>(null);
+  const duePopRef = useRef<HTMLDivElement>(null);
+  // Mirrors of the draft and the open state for the document-level mousedown
+  // listener and for blur, which can both fire for the same close.
+  const [dueDraft, setDueDraft] = useState("");
+  const dueDraftRef = useRef("");
+  const dueSessionRef = useRef(false);
+  const [dueLeadDraft, setDueLeadDraft] = useState("");
+  const dueLeadDraftRef = useRef("");
+  // A number input holding text it cannot parse (a lone "e") reports "", which
+  // would otherwise read as "follow the workspace setting". React fires no
+  // change for it either ("" → ""), so validity is read off the element.
+  const dueLeadInputRef = useRef<HTMLInputElement>(null);
+  const dueTs = task.dueTs ?? null;
+  const taskLeadDays = task.dueSoonLeadDays ?? null;
+  const leadDays = effectiveLeadDays(taskLeadDays, dueSoonLeadDays);
+  const dueEditable = !closed && onSetDue !== undefined;
+  const nowSec = useNowSeconds(
+    dueTs === null || closed
+      ? null
+      : nextDueChangeTs(dueTs, Date.now() / 1000, leadDays)
+  );
+  const due = dueTs === null ? null : dueState(dueTs, nowSec, leadDays);
+  const dueDateText = dueTs === null ? null : msg.taskDueDate(dueTs);
+  const dueRowShown = dueTs !== null || dueEditable;
+  const dueAlert =
+    due === null || closed || due.kind === "later"
+      ? null
+      : due.kind === "soon"
+        ? { tone: "soon" as const, text: t.tasks.dueSoonHint }
+        : {
+            tone: "overdue" as const,
+            text: due.days === 0 ? t.tasks.overdueToday : msg.taskOverdueDays(due.days),
+          };
   const [confirmOpen, setConfirmOpen] = useState(false);
   // 強制結案 (T-192) gets its own confirm rather than sharing one with
   // 標記重複/終止: collapsing named closes into one dialog with a status
@@ -777,6 +842,15 @@ export function TaskCard({
   }, [prioOpen]);
 
   useEffect(() => {
+    if (!dueOpen) return;
+    function onDown(e: MouseEvent) {
+      if (!dueRef.current?.contains(e.target as Node)) finishDue(true);
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [dueOpen]);
+
+  useEffect(() => {
     if (!statusOpen) return;
     function onDown(e: MouseEvent) {
       if (!statusRef.current?.contains(e.target as Node)) setStatusOpen(false);
@@ -795,6 +869,79 @@ export function TaskCard({
       console.warn("TaskCard: priority change failed", e);
       setActionError(t.tasks.actionError);
     }
+  }
+
+  async function doSetDue(
+    next: number | null,
+    lead?: number | null,
+    noticeOnSuccess: string | null = null
+  ) {
+    if ((next === dueTs && lead === undefined) || !onSetDue) return;
+    try {
+      if (lead === undefined) await onSetDue(task.id, next);
+      else await onSetDue(task.id, next, lead);
+      setActionError(noticeOnSuccess);
+    } catch (e) {
+      console.warn("TaskCard: due date change failed", e);
+      setActionError(t.tasks.actionError);
+    }
+  }
+
+  function openDue() {
+    const draft = dueTs === null ? "" : toDateInputValue(dueTs);
+    dueDraftRef.current = draft;
+    setDueDraft(draft);
+    const leadDraft = taskLeadDays === null ? "" : String(taskLeadDays);
+    dueLeadDraftRef.current = leadDraft;
+    setDueLeadDraft(leadDraft);
+    dueSessionRef.current = true;
+    setDueOpen(true);
+    setActionError((cur) => (cur === t.tasks.dueLeadRangeError ? null : cur));
+  }
+
+  function editDueLead(value: string) {
+    dueLeadDraftRef.current = value;
+    setDueLeadDraft(value);
+  }
+
+  function editDueDraft(value: string) {
+    dueDraftRef.current = value;
+    setDueDraft(value);
+  }
+
+  // 🔴 The date input reports every keyboard segment edit as a complete date
+  // (typing 1 into the month of 10/30 yields 01/30), and a calendar pick looks
+  // the same on the wire — so nothing is saved until Enter, blur or an outside
+  // click commits the draft. The lead field follows the same rule, so a typed
+  // "1" on the way to "14" is never saved.
+  function finishDue(commit: boolean) {
+    if (!dueSessionRef.current) return;
+    dueSessionRef.current = false;
+    setDueOpen(false);
+    if (!commit) return;
+    // An unchanged day keeps the stored time: it may be an API-set 10:00, not
+    // the 23:59:59 this picker writes.
+    const next =
+      dueTs !== null && dueDraftRef.current === toDateInputValue(dueTs)
+        ? dueTs
+        : endOfLocalDayTs(dueDraftRef.current);
+    if (next === null || new Date(next * 1000).getFullYear() < 1970) return;
+    const lead = dueLeadInputRef.current?.validity.badInput
+      ? undefined
+      : parseDueLead(dueLeadDraftRef.current.trim());
+    if (lead === undefined) {
+      // The date still saves; only the unusable lead is dropped, and the card
+      // says so because the popover that held it is gone.
+      if (next === dueTs) setActionError(t.tasks.dueLeadRangeError);
+      else void doSetDue(next, undefined, t.tasks.dueLeadRangeError);
+      return;
+    }
+    void doSetDue(next, lead === taskLeadDays ? undefined : lead);
+  }
+
+  function clearDue() {
+    finishDue(false);
+    void doSetDue(null);
   }
 
   // 步驟備註 (T-66) — 點開才抓. The card holds only `noteSizeChars`, so the text
@@ -1695,7 +1842,7 @@ export function TaskCard({
         )}
 
         {/* Below the badge row: an aligned label column (任務類型 / 負責人 /
-            建立者 / 識別鍵) — task_no left the stack for the badge row (v2)
+            建立者 / 到期日 / 識別鍵) — task_no left the stack for the badge row (v2)
             (owner spec 2026-07-15). A CSS grid gives every label cell the same
             max-content width so the value chips line up across rows and across
             languages. Each row emits two grid children: the muted label span
@@ -1786,6 +1933,129 @@ export function TaskCard({
                   </span>
                 </span>
               )}
+            </>
+          )}
+
+          {dueRowShown && (
+            <>
+              <span className="task-card__meta-label">{t.tasks.dueLabel}</span>
+              <div className="task-card__due" ref={dueRef}>
+                {dueEditable ? (
+                  <button
+                    type="button"
+                    className="task-card__chip task-card__chip--link"
+                    title={t.tasks.dueEditLabel}
+                    aria-haspopup="dialog"
+                    aria-expanded={dueOpen}
+                    data-testid="task-due"
+                    onMouseDown={(e) => {
+                      if (dueOpen) e.preventDefault();
+                    }}
+                    onClick={() => (dueOpen ? finishDue(true) : openDue())}
+                  >
+                    {dueDateText ?? t.tasks.dueEditLabel}
+                  </button>
+                ) : (
+                  <span className="task-card__chip" data-testid="task-due">
+                    {dueDateText}
+                  </span>
+                )}
+                {dueAlert && (
+                  <InstantHint
+                    hint={dueAlert.text}
+                    role="img"
+                    aria-label={dueAlert.text}
+                    className={`task-card__due-alert task-card__due-alert--${dueAlert.tone}`}
+                    data-testid="task-due-alert"
+                  >
+                    {dueAlert.tone === "overdue" ? (
+                      <AlertCircleIcon size={15} />
+                    ) : (
+                      <AlertTriangleIcon size={15} />
+                    )}
+                  </InstantHint>
+                )}
+                {dueOpen && (
+                  <div
+                    className="task-card__menu-pop task-card__due-pop"
+                    role="dialog"
+                    aria-label={t.tasks.dueEditLabel}
+                    data-testid="task-due-pop"
+                    ref={duePopRef}
+                  >
+                    <input
+                      type="date"
+                      className="task-card__due-input"
+                      aria-label={t.tasks.duePickerLabel}
+                      data-testid="task-due-input"
+                      value={dueDraft}
+                      onChange={(e) => editDueDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          finishDue(true);
+                        } else if (e.key === "Escape") {
+                          finishDue(false);
+                        }
+                      }}
+                      onBlur={(e) => {
+                        if (duePopRef.current?.contains(e.relatedTarget as Node))
+                          return;
+                        finishDue(true);
+                      }}
+                    />
+                    <label className="task-card__due-lead">
+                      <span className="task-card__due-lead-label">
+                        {t.tasks.dueLeadLabel}
+                      </span>
+                      <span className="task-card__due-lead-row">
+                        <input
+                          type="number"
+                          inputMode="numeric"
+                          min={DUE_LEAD_MIN}
+                          max={DUE_LEAD_MAX}
+                          step={1}
+                          className="task-card__due-input task-card__due-lead-input"
+                          ref={dueLeadInputRef}
+                          data-testid="task-due-lead"
+                          value={dueLeadDraft}
+                          placeholder={msg.taskDueLeadWorkspace(dueSoonLeadDays)}
+                          disabled={dueDraft === ""}
+                          onChange={(e) => editDueLead(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              finishDue(true);
+                            } else if (e.key === "Escape") {
+                              finishDue(false);
+                            }
+                          }}
+                          onBlur={(e) => {
+                            if (duePopRef.current?.contains(e.relatedTarget as Node))
+                              return;
+                            finishDue(true);
+                          }}
+                        />
+                        <span className="task-card__due-lead-unit">
+                          {t.tasks.dueLeadUnit}
+                        </span>
+                      </span>
+                    </label>
+                    {dueTs !== null && (
+                      <button
+                        type="button"
+                        className="task-card__menu-item"
+                        aria-label={t.tasks.dueClearLabel}
+                        data-testid="task-due-clear"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={clearDue}
+                      >
+                        {t.tasks.dueClear}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
             </>
           )}
 

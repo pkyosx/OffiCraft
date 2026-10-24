@@ -50,6 +50,10 @@ export interface Messages {
   taskMarkDuplicateBody: (taskNo: string) => string;
   taskDuplicateOf: (taskNo: string) => string;
   taskReassignTitle: (taskNo: string) => string;
+  taskDueDate: (tsSeconds: number) => string;
+  taskOverdueDays: (days: number) => string;
+  taskDueLeadWorkspace: (days: number) => string;
+  taskCountSummary: (overdue: number, dueSoon: number, open: number) => string;
   // ── task artifact versions (T-60) ──
   taskArtifactVersionCount: (n: number) => string;
   taskArtifactVersionLabel: (when: string) => string;
@@ -255,6 +259,8 @@ export function makeMessages(t: Dict, language: Lang): Messages {
   };
   const counted = (n: number, one: string, many: string): string =>
     `${n} ${n === 1 ? one : many}`;
+  const countPhrase = (lead: string, n: number, tail: string): string =>
+    [lead, String(n), tail].filter((part) => part !== "").join(" ");
   const nextRunAt = (ts: number, now: number): string =>
     dayStartOf(ts) === dayStartOf(now) ? formatClock(ts) : formatAbsolute(ts, now);
   const messages: Messages = {
@@ -278,6 +284,32 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     // 「3版」/「3 versions」 — the artifact row's versions entry (T-60). Only
     // ever printed for n > 1 (one version is not a history), so the tail needs
     // no singular twin.
+    taskDueDate: (tsSeconds) => {
+      const d = new Date(tsSeconds * 1000);
+      return language === "en"
+        ? d.toLocaleDateString("en-US", {
+            weekday: "short",
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })
+        : `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}（${"日一二三四五六"[d.getDay()]}）`;
+    },
+    taskOverdueDays: (days) =>
+      `${tasks.overdueDaysLead} ${days} ${
+        days === 1 ? tasks.overdueDaysTailOne : tasks.overdueDaysTailMany
+      }`,
+    taskDueLeadWorkspace: (days) => `${tasks.dueLeadWorkspaceLead}${days}`,
+    taskCountSummary: (overdue, dueSoon, open) =>
+      [
+        overdue > 0 &&
+          countPhrase(tasks.countOverdueLead, overdue, tasks.countOverdueTail),
+        dueSoon > 0 &&
+          countPhrase(tasks.countDueSoonLead, dueSoon, tasks.countDueSoonTail),
+        countPhrase(tasks.countOpenLead, open, tasks.countOpenTail),
+      ]
+        .filter((part) => part !== false)
+        .join(tasks.countSep),
     taskArtifactVersionCount: (n) =>
       `${n}${sp}${tasks.artifacts.versionsCountTail}`,
     // Which version the `-` side of a comparison IS. Same reason the document

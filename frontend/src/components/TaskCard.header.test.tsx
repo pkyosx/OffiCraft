@@ -177,7 +177,7 @@ describe("TaskCard 卡頭對齊 owner spec (T-705e)", () => {
     const labels = Array.from(
       meta.querySelectorAll(".task-card__meta-label")
     ).map((n) => n.textContent);
-    expect(labels).toEqual(["負責人", "建立者", "識別鍵"]);
+    expect(labels).toEqual(["負責人", "建立者", "到期日", "識別鍵"]);
   });
 
   it("renders a URL 識別鍵 as an external-link chip in the head", async () => {

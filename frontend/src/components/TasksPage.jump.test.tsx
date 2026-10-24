@@ -29,6 +29,7 @@ import type { ReplyCard, TaskView } from "../api/adapter";
 import {
   toggleFilter,
   clearAllFilters,
+  chooseGroupBy,
 } from "../test/tasksFilter";
 
 let seq = 0;
@@ -437,7 +438,7 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
     expect(document.querySelector('[data-task-id="t-mira-open"]')).not.toBeNull();
   });
 
-  it("seeds the type axis EXPLICITLY — a stale 類型 filter cannot hide the member's rows", async () => {
+  it("seeds the type and due axes EXPLICITLY — a stale 類型 or 到期 filter cannot hide the member's rows", async () => {
     // The third axis the seed promises. Same shape of risk as the status one,
     // opposite direction: a live 類型 filter from an earlier visit would HIDE
     // rows the icon promised to show, so the jump lands on a list that looks
@@ -452,14 +453,25 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
     __injectMockTask(
       mkTask({ id: "t-other-review", executorId: "kyle", typeKey: "review-pr" })
     );
-    const { findByTestId } = renderTasks();
+    __injectMockTask(
+      mkTask({
+        id: "t-mira-due",
+        executorId: "mira",
+        dueTs: Date.now() / 1000 + 10 * 86400,
+      })
+    );
+    const { findByTestId, getByTestId } = renderTasks();
     await findByTestId("open-list");
+    // One flat list, so a lane collapsed by default cannot hide a row the seed let through.
+    chooseGroupBy("none");
 
     // Owner narrows 類型 to review-pr — mira's ad-hoc task is now hidden.
     toggleFilter("filter-type", "review-pr");
+    toggleFilter("filter-due", "noDue");
     await waitFor(() =>
       expect(document.querySelector('[data-task-id="t-mira-adhoc"]')).toBeNull()
     );
+    expect(document.querySelector('[data-task-id="t-mira-due"]')).toBeNull();
 
     // Header icon fires on the same live page.
     window.location.hash = "#tasks/executor/mira";
@@ -471,6 +483,8 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
         document.querySelector('[data-task-id="t-mira-adhoc"]')
       ).not.toBeNull()
     );
+    expect(document.querySelector('[data-task-id="t-mira-due"]')).not.toBeNull();
+    expect(getByTestId("filter-due").textContent).toBe("所有到期");
     // …and the executor axis still bit (this is a filter seed, not a reset).
     expect(document.querySelector('[data-task-id="t-other-review"]')).toBeNull();
   });

@@ -2746,6 +2746,32 @@
             "description": "The task's body text - what the executor reads to learn what is actually being asked. It is stored exactly as sent, with no validation and no length limit, and omitting it is not an error: the task is created with an empty description and answers 200. Nothing downstream fills it in and title is the only other free text the executor gets, so a task created without this arrives as a one-line instruction to whoever picks it up.",
             "title": "Description"
           },
+          "due_ts": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Due date as epoch seconds; omit or null for none. Change it later with set_task_due.",
+            "title": "Due Ts"
+          },
+          "due_soon_lead_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Days before due_ts the task counts as due soon, 1..30; omit or null to follow the workspace setting. Needs due_ts.",
+            "title": "Due Soon Lead Days"
+          },
           "executor_member_id": {
             "anyOf": [
               {
@@ -2942,6 +2968,47 @@
         "type": "object"
       },
       "name": "set_task_priority"
+    },
+    {
+      "description": "Set, change or clear a task's due date (``due_ts`` in epoch seconds; ``null`` clears it) and, optionally, ``due_soon_lead_days``: how many days before it the task counts as due soon (1..30; omit to keep the current lead, ``null`` to follow the workspace setting). Clearing the due date clears the lead too. Who may: the owner and admin agents on any task, and the task's acting executor (the predecessor while it holds the task under the reassign hold) on that task \u2014 the same rule as set_task_priority. Anyone else is a flat 403; a closed task is a 409. Answers with a bounded receipt (task_id, due_ts, due_soon_lead_days), not the whole task \u2014 use get_task when you need the rest.",
+      "inputSchema": {
+        "properties": {
+          "due_ts": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Epoch seconds, greater than 0. null clears the due date. A past date is accepted and reads as overdue.",
+            "title": "Due Ts"
+          },
+          "due_soon_lead_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Days before due_ts the task counts as due soon, 1..30. Omit to keep the current lead; null follows the workspace setting. Must be omitted or null when due_ts is null.",
+            "title": "Due Soon Lead Days"
+          },
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "due_ts"
+        ],
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "name": "set_task_due"
     },
     {
       "description": "Message the task's executor (owner/admin agent; task context auto-attached). Refused with 404, exactly like ``post_chat``, when the executor has left (a departed staff member or a released worker). Answers with a bounded receipt (``id``, ``ts``, ``to``, ``attachments``), not the message — call ``get_chat`` when you need the rest. ``to`` is the executor the server delivered to: you did not name it (you named a task), and a later read cannot recompute it, because the executor can change between two calls.",

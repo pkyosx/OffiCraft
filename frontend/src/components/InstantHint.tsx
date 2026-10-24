@@ -45,9 +45,11 @@ function contentRect(el: HTMLElement): { top: number; bottom: number; left: numb
  * would clip anything rendered in place.
  *
  * With `onActivate` the trigger is a button instead: a click or Enter/Space
- * calls it and no longer pins the hint; hover and focus still show it.
+ * calls it and no longer pins the hint; hover and focus still show it, and a
+ * click on a descendant marked `data-hint-pin` pins it as above.
  * `triggerRef` follows the mounted trigger, so focus can be handed back to it.
- * `focusable={false}` keeps a span trigger out of the tab order. */
+ * `focusable={false}` keeps a span trigger out of the tab order. An empty
+ * `hint` shows nothing. */
 export function InstantHint({
   hint,
   children,
@@ -71,7 +73,10 @@ export function InstantHint({
   // below. A tap fires mouseenter right before click; keeping the two apart is
   // what stops that tap from toggling the hint straight shut.
   const [state, setState] = useState<"closed" | "shown" | "pinned">("closed");
-  const open = state !== "closed";
+  // Without this, a hover or tap while the hint is empty would leave the state
+  // open, and the hint would pop up on its own once text arrives.
+  if (hint === "" && state !== "closed") setState("closed");
+  const open = state !== "closed" && hint !== "";
   const [closeSelf] = useState(() => () => setState("closed"));
 
   useEffect(() => {
@@ -147,7 +152,10 @@ export function InstantHint({
     // Enter/Space; neither may bubble, or using the hint opens the row.
     onClick: (e: ReactMouseEvent<HTMLElement>) => {
       e.stopPropagation();
-      if (onActivate) {
+      // A phone has no hover, so a tap on a `data-hint-pin` part of a button
+      // trigger pins the hint instead of activating.
+      const pinPart = (e.target as Element).closest("[data-hint-pin]");
+      if (onActivate && !(pinPart && e.currentTarget.contains(pinPart))) {
         setState("closed");
         onActivate();
       } else {

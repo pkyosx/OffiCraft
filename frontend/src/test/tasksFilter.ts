@@ -52,6 +52,23 @@ export function blurIdFilter() {
   fireEvent.blur(document.querySelector('[data-testid="filter-task-id"]')!);
 }
 
+/** Open the 顯示方式 panel unless it is already open; returns its 分組依據
+ * select. */
+export function openDisplayOptions(): HTMLSelectElement {
+  const trigger = document.querySelector('[data-testid="display-options"]')!;
+  if (trigger.getAttribute("aria-expanded") !== "true") {
+    fireEvent.click(trigger);
+  }
+  return document.querySelector<HTMLSelectElement>('[data-testid="group-by"]')!;
+}
+
+/** Pick a 分組依據 mode in the 顯示方式 panel. */
+export function chooseGroupBy(
+  mode: "due" | "executor" | "type" | "status" | "none"
+) {
+  fireEvent.change(openDisplayOptions(), { target: { value: mode } });
+}
+
 /** Every axis back to "no constraint".
  *
  * 🔴 THERE IS NO 清除全部 BUTTON ANY MORE. It lived on the 已篩選 strip and went
@@ -64,7 +81,7 @@ export function blurIdFilter() {
  * helper makes several round trips where the product's own 清除篩選 button makes
  * one. Do not use it as the basis of a request-count assertion. */
 export function clearAllFilters() {
-  for (const testId of ["filter-executor", "filter-type", "filter-status"]) {
+  for (const testId of ["filter-executor", "filter-type", "filter-status", "filter-due"]) {
     const trigger = document.querySelector(`[data-testid="${testId}"]`);
     if (!trigger) continue;
     if (trigger.getAttribute("aria-expanded") !== "true") {

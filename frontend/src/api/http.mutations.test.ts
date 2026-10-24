@@ -463,6 +463,59 @@ describe("httpApi · updateTaskTitle wire shape", () => {
 // The two body types in http.ts are hand-written inline unions with no import
 // from the generated schema, so nothing but this file notices a field that was
 // added to one and not the other.
+describe("httpApi · setTaskDue wire shape", () => {
+  it("POSTs the due route with epoch seconds in the body", async () => {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({ task_id: "t-1", due_ts: 1793375999 })
+    );
+    await httpApi.setTaskDue("t-1", 1793375999);
+    const { url, method, body } = await lastRequest();
+    expect(url).toBe("/api/tasks/t-1/due");
+    expect(method).toBe("POST");
+    expect(JSON.parse(String(body))).toEqual({ due_ts: 1793375999 });
+  });
+
+  it("sends the lead only when one is given, null included", async () => {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({ task_id: "t-1", due_ts: 1793375999, due_soon_lead_days: 7 })
+    );
+    await httpApi.setTaskDue("t-1", 1793375999, 7);
+    expect(JSON.parse(String((await lastRequest()).body))).toEqual({
+      due_ts: 1793375999,
+      due_soon_lead_days: 7,
+    });
+    await httpApi.setTaskDue("t-1", 1793375999, null);
+    expect(JSON.parse(String((await lastRequest()).body))).toEqual({
+      due_ts: 1793375999,
+      due_soon_lead_days: null,
+    });
+  });
+
+  it("sends an explicit null to clear the due date", async () => {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({ task_id: "t-1", due_ts: null })
+    );
+    await httpApi.setTaskDue("t-1", null);
+    const { body } = await lastRequest();
+    expect(JSON.parse(String(body))).toEqual({ due_ts: null });
+  });
+
+  it("rejects with the server's 409 on a closed task", async () => {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(
+        { error: { code: codeForStatus(409), message: "task 't-1' is closed" } },
+        409
+      )
+    );
+    const err = await httpApi.setTaskDue("t-1", 1793375999).then(
+      () => null,
+      (e: unknown) => e
+    );
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(409);
+  });
+});
+
 describe("httpApi · scheduled-message custom_months keeps undefined ≠ []", () => {
   const BASE = {
     body: "巡檢",

@@ -149,7 +149,7 @@ describe("T-17be ① 負責人 == 建立者 時藏掉建立者列", () => {
     const labels = Array.from(
       card.querySelectorAll(".task-card__meta-label")
     ).map((n) => n.textContent);
-    expect(labels).toEqual(["負責人"]);
+    expect(labels).toEqual(["負責人", "到期日"]);
   });
 
   it("keeps the 建立者 row when the ids differ but the DISPLAY NAMES are identical", async () => {

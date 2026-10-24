@@ -39,4 +39,9 @@ describe("toServerSettings", () => {
     expect(toServerSettings(settingsFromServer()).updaterCheckIntervalSecs).toBe(300);
     expect(toServerSettings(settingsFromServer({ updater_check_interval_secs: 900 })).updaterCheckIntervalSecs).toBe(900);
   });
+
+  it("under a server that omits the due-soon lead, it reads as the shipped 1 day; a sent value is carried as is", () => {
+    expect(toServerSettings(settingsFromServer()).taskDueSoonLeadDays).toBe(1);
+    expect(toServerSettings(settingsFromServer({ task_due_soon_lead_days: 5 })).taskDueSoonLeadDays).toBe(5);
+  });
 });

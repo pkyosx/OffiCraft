@@ -101,6 +101,18 @@ var outsourceParallelRangeMsg = fmt.Sprintf(
 	"must be between %d and %d (%d = unlimited)",
 	minOutsourceParallel, maxOutsourceParallel, minOutsourceParallel)
 
+const (
+	minDueSoonLeadDays = 1
+	maxDueSoonLeadDays = 30
+)
+
+func dueSoonLeadDaysInRange(n int) bool {
+	return n >= minDueSoonLeadDays && n <= maxDueSoonLeadDays
+}
+
+var dueSoonLeadDaysRangeMsg = fmt.Sprintf(
+	"must be between %d and %d days", minDueSoonLeadDays, maxDueSoonLeadDays)
+
 const maxOrgNameLen = 80
 
 const maxOwnerNameLen = 80
@@ -430,6 +442,12 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 			"outsource_max_parallel "+outsourceParallelRangeMsg)
 		return
 	}
+	if body.TaskDueSoonLeadDays != nil &&
+		!dueSoonLeadDaysInRange(*body.TaskDueSoonLeadDays) {
+		writeError(w, http.StatusUnprocessableEntity,
+			"task_due_soon_lead_days "+dueSoonLeadDaysRangeMsg)
+		return
+	}
 	if body.WardenCredentialLifetimeSecs != nil &&
 		!wardenCredLifetimeInRange(*body.WardenCredentialLifetimeSecs) {
 		writeError(w, http.StatusUnprocessableEntity,
@@ -651,6 +669,12 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		v := *body.OutsourceMaxParallel
 		put(settingOutsourceMaxParallel, strconv.Itoa(v), func() { s.outsourceMaxParallel = v })
 	}
+	dueSoonLeadChanged := false
+	if body.TaskDueSoonLeadDays != nil && *body.TaskDueSoonLeadDays != s.taskDueSoonLeadDaysSetting() {
+		v := *body.TaskDueSoonLeadDays
+		put(settingTaskDueSoonLeadDays, strconv.Itoa(v), func() { s.taskDueSoonLeadDays = v })
+		dueSoonLeadChanged = true
+	}
 	capWrite := []struct {
 		field *int
 		key   string
@@ -773,6 +797,9 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 	if updaterChanged {
 		s.kickUpdateCheck()
 	}
+	if dueSoonLeadChanged {
+		s.publishTaskDueSoonLeadChanged(requestTrigger(r))
+	}
 	writeJSON(w, http.StatusOK, s.settingsView())
 }
 
@@ -794,6 +821,7 @@ func (s *apiServer) settingsView() settingsDTO {
 		DiskUsageIntervalSecs:           s.diskUsageIntervalSecs,
 		WardenCredentialLifetimeSecs:    s.wardenCredLifetimeSecs,
 		OutsourceMaxParallel:            s.outsourceMaxParallel,
+		TaskDueSoonLeadDays:             s.taskDueSoonLeadDays,
 		DocCapCharsDuty:                 s.docCapCharsDuty,
 		DocCapCharsInsight:              s.docCapCharsInsight,
 		DocCapCharsManualSop:            s.docCapCharsManualSop,

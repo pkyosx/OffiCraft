@@ -12,7 +12,10 @@ import {
   KeyIcon,
   MonitorIcon,
   FileTextIcon,
+  ClockIcon,
 } from "./components/icons";
+import { InstantHint } from "./components/InstantHint";
+import { dueToneOf } from "./lib/dueDate";
 import { Avatar } from "./components/Avatar";
 import { BrandLogo } from "./components/BrandLogo";
 import { NavIcon } from "./components/NavIcon";
@@ -72,7 +75,7 @@ function writeLastOfficeChat(id: string | undefined): void {
 }
 
 export default function App({ onLogout }: { onLogout?: () => void } = {}) {
-  const { t } = useI18n();
+  const { t, msg } = useI18n();
   // The studio name is server-backed (T-d693); the localized dict string is the
   // fallback until the fetch lands / when the owner has not named the studio.
   const { orgName, setOrgName } = useOrgName(t.orgName);
@@ -119,9 +122,11 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   // separate signal from the 等我回覆 waiting-card badge (different clearing
   // rules — they never merge).
   const chatUnread = useChatUnread();
-  // The 任務 nav badge: how many tasks are OPEN (non-terminal; 已完成/終止
-  // never count — spec §1). Live via /api/tasks/count + "task" SSE deltas.
-  const taskCount = useTaskCount().open;
+  // The 任務 nav badge: OPEN tasks (non-terminal; 已完成/終止 never count —
+  // spec §1), and of those how many are due soon / overdue. Live via
+  // /api/tasks/count + "task" SSE deltas.
+  const taskCounts = useTaskCount();
+  const taskDueTone = dueToneOf(taskCounts);
   // The gear opens Settings as an OVERLAY route (#settings); clicking a nav
   // tab navigates back to that tab.
   const settingsOpen = route.page === "settings";
@@ -386,21 +391,48 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
               </span>
             )}
           </button>
-          <button
-            type="button"
+          <InstantHint
             className={`nav-tab${
               !settingsOpen && tab === "tasks" ? " nav-tab--active" : ""
             }`}
-            onClick={() => selectTab("tasks")}
+            hint={
+              taskCounts.open > 0
+                ? msg.taskCountSummary(
+                    taskCounts.overdue,
+                    taskCounts.dueSoon,
+                    taskCounts.open,
+                  )
+                : ""
+            }
+            onActivate={() => selectTab("tasks")}
           >
             <NavIcon tabKey="tasks" fallback={<TasksIcon size={15} />} />
             <span>{t.nav.tasks}</span>
-            {taskCount > 0 && (
-              <span className="nav-tab__badge" data-testid="tasks-badge">
-                {taskCount > 99 ? "99+" : taskCount}
+            {taskCounts.open > 0 && (
+              <span
+                className="nav-tab__badge"
+                data-testid="tasks-badge"
+                role="img"
+                aria-label={msg.taskCountSummary(
+                  taskCounts.overdue,
+                  taskCounts.dueSoon,
+                  taskCounts.open,
+                )}
+              >
+                {taskCounts.open > 99 ? "99+" : taskCounts.open}
               </span>
             )}
-          </button>
+            {taskDueTone && (
+              <span
+                className={`nav-tab__due-clock nav-tab__due-clock--${taskDueTone}`}
+                data-testid="tasks-due-clock"
+                data-hint-pin
+                aria-hidden="true"
+              >
+                <ClockIcon size={15} />
+              </span>
+            )}
+          </InstantHint>
           {/* 傳承 (T-33) — between 任務 and 監控. No badge: an entry sitting in
               the log is not something waiting on the owner, and a count here
               would read like one. */}

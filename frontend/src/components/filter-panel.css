@@ -26,14 +26,28 @@
  * belong to. */
 .filter-panel {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
 }
 
 .filter-panel__fields {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
+}
+
+/* Inside the fields flow, so on a phone the actions share the last line of
+ * fields instead of taking a line of their own; `margin-left: auto` keeps them
+ * on that line's right edge. */
+.filter-panel__actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 /* 🔴 NO 「ONE FIELD PER ROW ON A PHONE」 RULE HERE, AND PUTTING ONE BACK IS

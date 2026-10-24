@@ -3779,6 +3779,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tasks/{task_id}/due": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set, change or clear a task's due date (``due_ts`` in epoch seconds; ``null`` clears it) and, optionally, ``due_soon_lead_days``: how many days before it the task counts as due soon (1..30; omit to keep the current lead, ``null`` to follow the workspace setting). Clearing the due date clears the lead too. Who may: the owner and admin agents on any task, and the task's acting executor (the predecessor while it holds the task under the reassign hold) on that task — the same rule as set_task_priority. Anyone else is a flat 403; a closed task is a 409. Answers with a bounded receipt (task_id, due_ts, due_soon_lead_days), not the whole task — use get_task when you need the rest.
+         * @description - Sets, changes or clears (`null`) the due date.
+         *     - Optionally sets how many days before it the task counts as due soon (`due_soon_lead_days`, 1..30; omit to keep, `null` follows the workspace setting). Clearing the due date clears the lead.
+         *     - Owner and admin may set any task; the acting executor (the predecessor while it holds the task under the reassign hold) may set that task. Anyone else is 403.
+         *     - Closed tasks are a 409.
+         *     - Returns a bounded receipt, not the task.
+         */
+        post: operations["handle_set_task_due_api_tasks__task_id__due_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tasks/{task_id}/priority": {
         parameters: {
             query?: never;
@@ -9726,6 +9750,12 @@ export interface components {
              */
             suggested_replies_task_message?: string[];
             /**
+             * Task Due Soon Lead Days
+             * @description How many days before a task's due date it starts counting as 即將到期 (due soon) for every task that does not set its own ``due_soon_lead_days``. The adjustable range is 1..30; the shipped default is 1 (the last 24 hours).
+             * @default 1
+             */
+            task_due_soon_lead_days: number;
+            /**
              * Updater Auto Update
              * @default false
              */
@@ -9797,7 +9827,7 @@ export interface components {
          *     admits prereleases; `updater_auto_update` toggles unattended background
          *     self-upgrade to the newest admissible release (both booleans, default false;
          *     the manual upgrade endpoint is unaffected). `updater_check_interval_secs`
-         *     MUST be 60..3600. The five document caps (T-ae38;
+         *     MUST be 60..3600. `task_due_soon_lead_days` MUST be 1..30. The five document caps (T-ae38;
          *     the manual's one became two in T-30f1) are independent knobs. Each one MUST be
          *     between THAT segment's shipped default (the `default` on the matching
          *     `SettingsDTO` field — Duty's is its own, much smaller number) and 100000. The floor equalling the shipped default is the
@@ -9956,6 +9986,11 @@ export interface components {
              * @description Replace the 任務 message-box 建議回覆 list wholesale (T-122). Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list: patching one never touches the other. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].
              */
             suggested_replies_task_message?: string[] | null;
+            /**
+             * Task Due Soon Lead Days
+             * @description Days before a due date a task without its own lead counts as due soon. Must be between 1 and 30. A change makes the cockpit refetch its task counts.
+             */
+            task_due_soon_lead_days?: number | null;
             /** Updater Auto Update */
             updater_auto_update?: boolean | null;
             /**
@@ -10250,8 +10285,26 @@ export interface components {
          * @description Open (non-terminal) task count — the tasks nav badge. ``total`` (T-a3e4) is the count of ALL tasks, terminal ones included: once the list endpoint answers a status SET (``?statuses=``), an empty list no longer tells a client whether the workshop is empty or merely has nothing in those states, and 目前沒有任務 is a claim about the workshop. One grouped count, so a client never widens a list fetch just to word an empty screen.
          */
         TaskCountDTO: {
+            /**
+             * Due Next Change Ts
+             * @description The next moment ``overdue`` or ``due_soon`` changes on its own as time passes (a task entering its due-soon window, or a due date passing). ``null`` when no open task has a future due date. A client refetches at this moment so the badge does not go stale without a task event.
+             * @default null
+             */
+            due_next_change_ts: number | null;
+            /**
+             * Due Soon
+             * @description Open tasks whose due date has not passed and is at most their lead away: the task's own ``due_soon_lead_days``, else the workspace ``task_due_soon_lead_days``, in days of 86400 seconds. additive-optional (absent reads as 0 for older servers).
+             * @default 0
+             */
+            due_soon: number;
             /** Open */
             open: number;
+            /**
+             * Overdue
+             * @description Open tasks whose due date has passed. Closed tasks never count. additive-optional (absent reads as 0 for older servers).
+             * @default 0
+             */
+            overdue: number;
             /**
              * Total
              * @description Every task ever, terminal included — the honest basis for 「這個工作室一張任務都沒有」. additive-optional (absent reads as 0 for older servers).
@@ -10266,6 +10319,17 @@ export interface components {
         TaskCreateDTO: {
             /** Description */
             description?: string | null;
+            /**
+             * Due Soon Lead Days
+             * @description How many days before ``due_ts`` the task starts counting as due soon, 1..30. Omit or ``null`` to follow the workspace setting ``task_due_soon_lead_days``. Sending a number without a ``due_ts`` is a 422.
+             * @default null
+             */
+            due_soon_lead_days: number | null;
+            /**
+             * Due Ts
+             * @description Epoch seconds. ``null`` means the task has no due date. The web UI picks a calendar date and stores 23:59:59 of that day in the viewer's local time.
+             */
+            due_ts?: number | null;
             /** Executor Member Id */
             executor_member_id?: string | null;
             /** Inputs */
@@ -10393,6 +10457,16 @@ export interface components {
              * @default
              */
             description: string;
+            /**
+             * Due Soon Lead Days
+             * @description How many days before ``due_ts`` this task starts counting as due soon, 1..30. ``null`` means the task follows the workspace setting ``task_due_soon_lead_days`` (GET /api/settings). Always ``null`` when the task has no due date.
+             */
+            due_soon_lead_days?: number | null;
+            /**
+             * Due Ts
+             * @description Epoch seconds. ``null`` means the task has no due date. The web UI picks a calendar date and stores 23:59:59 of that day in the viewer's local time.
+             */
+            due_ts?: number | null;
             /**
              * Detail Level
              * @description What this response IS, said by the response itself (T-66): always ``summary``. get_task answers a SUMMARY of the task — complete in every respect EXCEPT that each step's working-note TEXT is omitted and reported only as a size (``TaskStepDTO.note_size_chars``). The counterpart read is ``get_task_step``, whose response declares ``detail_level`` = ``full`` and carries one step's note in full. The STEP LIST here is not abridged: it has no cap and no paging, so this field is a statement about note text and nothing else.
@@ -10593,6 +10667,16 @@ export interface components {
              * @default
              */
             dedupe_key: string;
+            /**
+             * Due Soon Lead Days
+             * @description How many days before ``due_ts`` this task starts counting as due soon, 1..30. ``null`` means the task follows the workspace setting ``task_due_soon_lead_days`` (GET /api/settings). Always ``null`` when the task has no due date.
+             */
+            due_soon_lead_days?: number | null;
+            /**
+             * Due Ts
+             * @description Epoch seconds. ``null`` means the task has no due date. The web UI picks a calendar date and stores 23:59:59 of that day in the viewer's local time.
+             */
+            due_ts?: number | null;
             /**
              * Dep Tasks
              * @description The DISPLAY facts for each id in ``deps``, resolved server-side against the WHOLE task table — one entry per dep, in the same order (T-a3e4). The client renders the 「等 <task_no> <標題>」 row straight from this: no follow-up fetch, and no need to download the closed population just so an already-finished dep can be named. A dep whose task no longer exists is still listed, with ``status``/``title`` empty — that is the honest 查無此任務 row. The field being ABSENT is a third, different thing (an older server that cannot resolve deps at all), so a client must not read absence as non-existence. additive-optional.
@@ -11009,6 +11093,40 @@ export interface components {
              * @default null
              */
             parallel_group: string | null;
+        };
+        /**
+         * TaskDueReceiptDTO
+         * @description Bounded receipt returned after set_task_due. Fetch GET /api/tasks/{task_id} when full task detail is needed.
+         */
+        TaskDueReceiptDTO: {
+            /**
+             * Due Soon Lead Days
+             * @description How many days before ``due_ts`` this task starts counting as due soon, 1..30. ``null`` means the task follows the workspace setting ``task_due_soon_lead_days`` (GET /api/settings). Always ``null`` when the task has no due date.
+             */
+            due_soon_lead_days: number | null;
+            /**
+             * Due Ts
+             * @description Epoch seconds. ``null`` means the task has no due date. The web UI picks a calendar date and stores 23:59:59 of that day in the viewer's local time.
+             */
+            due_ts: number | null;
+            /** Task Id */
+            task_id: string;
+        };
+        /**
+         * TaskDueUpdateDTO
+         * @description Set, change or clear a task's due date and, optionally, how many days before it the task counts as due soon. ``due_ts: null`` clears the due date and its lead; a number must be greater than 0. A date already in the past is accepted and reads as overdue.
+         */
+        TaskDueUpdateDTO: {
+            /**
+             * Due Soon Lead Days
+             * @description How many days before ``due_ts`` the task starts counting as due soon, 1..30. Omit it to keep the task's current lead; ``null`` makes the task follow the workspace setting ``task_due_soon_lead_days``. Clearing ``due_ts`` clears the lead too, so a number sent with ``due_ts: null`` is a 422.
+             */
+            due_soon_lead_days?: number | null;
+            /**
+             * Due Ts
+             * @description Epoch seconds. ``null`` means the task has no due date. The web UI picks a calendar date and stores 23:59:59 of that day in the viewer's local time.
+             */
+            due_ts: number | null;
         };
         /**
          * TaskPriorityReceiptDTO
@@ -20724,6 +20842,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskPlanReceiptDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_set_task_due_api_tasks__task_id__due_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskDueUpdateDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskDueReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */

@@ -67,6 +67,94 @@
   border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
   color: var(--color-text-strong);
 }
+/* 顯示方式: square corners and no fill, so it does not read as one more
+   filter pill. */
+.tasks__display {
+  position: relative;
+}
+.tasks__display-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 14%, transparent);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  line-height: normal;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+/* With the 到期 filter, a 390px phone leaves the labelled button ~20px short of
+ * the last filter line; icon-only keeps it on that line. The label stays in the
+ * accessibility tree. */
+@media (max-width: 520px) {
+  .tasks__display-trigger {
+    padding: 6px 8px;
+  }
+  .tasks__display-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+.tasks__display-trigger:hover,
+.tasks__display-trigger[aria-expanded="true"] {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
+}
+.tasks__display-pop {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 20;
+  width: 240px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
+  background: var(--color-card);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--color-shadow) 45%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.tasks__display-pop:focus {
+  outline: none;
+}
+.tasks__display-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+.tasks__display-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+.tasks__display-select {
+  min-width: 0;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 14%, transparent);
+  background: var(--color-card);
+  color: var(--color-text-strong);
+  font: inherit;
+  cursor: pointer;
+  color-scheme: inherit;
+}
+.tasks__display-select option {
+  background: var(--color-card);
+  color: var(--color-text);
+}
 .tasks__ms-caret {
   flex: none;
   color: var(--color-text-muted);
@@ -179,6 +267,22 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+.tasks__list[hidden] {
+  display: none;
+}
+.tasks__lanes {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.tasks__lane-toggle {
+  align-items: center;
+}
+/* The card's faint 未設定 look is for a placeholder; as a lane title it would
+   drop below AA. */
+.tasks__lane-toggle .task-badge--due-none {
+  opacity: 1;
 }
 
 /* ── one task card (全展開內嵌) ── */
@@ -860,6 +964,101 @@ button.task-card__prio-chip:hover {
   left: 0;
   right: auto;
   min-width: 96px;
+}
+
+/* 到期狀態 lane titles: gray far out, amber within the lead, red once passed,
+   faint when unset. */
+.task-badge--due {
+  color: var(--color-text-muted);
+}
+.task-badge--due-soon {
+  color: var(--color-dot-waking);
+  border-color: color-mix(in srgb, var(--color-dot-waking) 45%, transparent);
+  background: color-mix(in srgb, var(--color-dot-waking) 12%, transparent);
+}
+.task-badge--due-overdue {
+  color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 45%, transparent);
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+}
+.task-badge--due-none {
+  border-style: dashed;
+  font-weight: 600;
+  opacity: 0.7;
+}
+.task-badge--due-none::before {
+  display: none;
+}
+/* 到期日 value cell: stretched over the whole value column so the popover
+   anchored in it has the card's width to work with on a phone. */
+.task-card__due {
+  position: relative;
+  justify-self: stretch;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.task-card__due-alert {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-pill);
+}
+.task-card__due-alert svg {
+  display: block;
+}
+.task-card__due-alert--overdue {
+  color: var(--color-danger);
+}
+.task-card__due-alert--soon {
+  color: var(--color-dot-waking);
+}
+.task-card__due-pop {
+  left: 0;
+  right: auto;
+  min-width: 160px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.task-card__due-lead {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+/* The shared menu-pop floor is declared later and would otherwise win. */
+.task-card__menu-pop.task-card__due-pop {
+  min-width: 206px;
+}
+.task-card__due-lead-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+.task-card__due-lead-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.task-card__due-lead-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.task-card__due-lead-unit {
+  font-size: 13px;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+}
+.task-card__due-input {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  color-scheme: inherit;
 }
 
 /* 狀態 badge → owner-action dropdown (v5): 標記重複 / 終止 (+ the 等我回覆 jump
@@ -1962,6 +2161,13 @@ button.task-card__waiting--dep:focus-visible {
     right: 0;
     width: auto;
     max-width: 340px;
+  }
+  /* The value column starts past the label column, so the due picker opens
+     leftward from the card's right edge instead of overflowing it. */
+  .task-card__due-pop {
+    left: auto;
+    right: 0;
+    max-width: 240px;
   }
 }
 

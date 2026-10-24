@@ -581,6 +581,14 @@ export interface TaskDepRefView {
 export interface TaskCountView {
   open: number;
   total: number;
+  /** Open tasks whose due date has passed. */
+  overdue: number;
+  /** Open tasks inside their due-soon lead (the task's own, else the
+   * workspace's), not yet passed. */
+  dueSoon: number;
+  /** When `overdue`/`dueSoon` next change on their own (epoch seconds); null
+   * when no open task has a future due date. */
+  dueNextChangeTs: number | null;
 }
 
 /**
@@ -675,6 +683,12 @@ export interface TaskView {
   updatedTs: number;
   /** Epoch when the task closed (done/terminated/duplicated); null while open. */
   closedTs: number | null;
+  /** Due date, epoch seconds; null = none. Optional only so hand-built
+   * fixtures stay valid — the mappers always set it. */
+  dueTs?: number | null;
+  /** Days before `dueTs` the task counts as due soon; null = the workspace
+   * setting applies. Optional for the same reason as `dueTs`. */
+  dueSoonLeadDays?: number | null;
   /** Who forced this task closed and why (wire `forced_done_by` /
    * `forced_done_reason`, T-182 — surfaced on the card by T-192). Non-empty
    * ONLY on a task closed through `force_task_done`; a task that closed itself
@@ -1198,6 +1212,9 @@ export interface ServerSettingsView {
    * **-1 ⇒ 無限 (unlimited — no global cap)**; 0 ⇒ outsource assignment is
    * PAUSED — the panel annotates it). */
   outsourceMaxParallel: number;
+  /** Days before its due date a task without its own lead counts as 即將到期
+   * (1..30). */
+  taskDueSoonLeadDays: number;
   /** T-3aeb / T-ae38 / T-30f1: the independent size caps on the accumulating
    * documents, in CHARACTERS (runes) — a role's Duty (role definition), its
    * Insight, and a task manual's sop_md, which answer to one cap EACH. The
@@ -1361,6 +1378,8 @@ export interface ServerSettingsPatch {
    * attempts to renew before the intended end of life. */
   wardenCredentialLifetimeSecs?: number;
   outsourceMaxParallel?: number;
+  /** 1..30. */
+  taskDueSoonLeadDays?: number;
   /** T-ae38 document size caps, in characters. Each must be between
    * `DOC_CAP_CHARS_MIN` (100 since owner 2026-09-07) and 100000 — one shared
    * floor, so every one of them may be lowered as well as raised. */
@@ -2505,6 +2524,11 @@ export interface Api {
    * (T-a98d), so nothing is returned here — refetch, or take the SSE delta.
    */
   setTaskPriority(id: string, priority: string): Promise<void>;
+  /** Set, change or clear (`null`) a task's due date (`POST
+   * /api/tasks/{id}/due`). `leadDays` omitted keeps the task's lead, `null`
+   * returns it to the workspace setting; clearing the date clears the lead.
+   * Closed tasks are a 409 (throws). */
+  setTaskDue(id: string, dueTs: number | null, leadDays?: number | null): Promise<void>;
   /**
    * Correct one task's description (`POST /api/tasks/{id}/description`, T-e271)
    * — the ticket's own text: what the task IS (scope, origin, acceptance), as

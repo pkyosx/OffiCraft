@@ -542,9 +542,9 @@ const REGISTRY = [
   {
     file: "hooks/useNowSeconds.ts",
     kind: "setTimeout/setInterval",
-    count: 1,
+    count: 2,
     verdict:
-      "the local-midnight re-render; it only bumps this mount's own counter so the next render re-reads the clock, reads no server data and carries no conversation's value, and is cleared on unmount",
+      "the local-midnight re-render and the caller's optional wake-at re-render; each only bumps this mount's own counter so the next render re-reads the clock, reads no server data and carries no conversation's value, and is cleared on unmount (the wake-at timer also when wakeAt changes)",
   },
   {
     file: "hooks/useOwnerName.tsx",

@@ -12,9 +12,14 @@
 //      in every theme. It used to be a hard-coded color-mix off --color-text,
 //      which no light theme could lift past ~3.3:1.
 //   ③ each built-in's main text-on-surface token pairs clear AA.
+//   ④ the 任務 nav tab's red / amber due clock stands out (≥3:1, the non-text
+//      threshold) from the tab it sits on, idle and active.
+//   ⑤ the task card's red overdue / orange due-soon icon beside the 到期日 date
+//      stands out (≥3:1, non-text) from the card it sits on.
 import { test, expect } from "@playwright/experimental-ct-react";
 import type { Page } from "@playwright/test";
 import { ThemeContrastStory } from "./stories/ThemeContrastStory";
+import { TaskCardDueStory } from "./stories/TaskCardDueStory";
 import {
   BUILTIN_THEME_IDS,
   expectBuiltinApplied,
@@ -217,5 +222,56 @@ for (const theme of BUILTIN_THEME_IDS) {
       if (ratio < floor) failures.push(`${fg} on ${bg}: ${ratio.toFixed(2)}:1 < ${floor}`);
     }
     expect(failures).toEqual([]);
+  });
+}
+
+for (const theme of BUILTIN_THEME_IDS) {
+  test(`${theme}: the 任務 nav due clock clears 3:1 against an idle and an active tab`, async ({
+    mount,
+    page,
+  }) => {
+    const cmp = await mountUnder(mount, page, theme);
+    const ratios: Record<string, string> = {};
+    for (const tone of ["overdue", "soon"]) {
+      for (const state of ["idle", "active"]) {
+        const s = await sample(cmp.getByTestId(`clock-${tone}-${state}`));
+        const zone = foldZone(s.layers);
+        ratios[`${tone}/${state}`] = contrast(over(parseColor(s.color), zone), zone).toFixed(2);
+      }
+    }
+    await expectBuiltinApplied(page, theme);
+    console.log(`${theme} 任務 due clock contrast: ${JSON.stringify(ratios)}`);
+    for (const [which, ratio] of Object.entries(ratios)) {
+      expect(Number(ratio), `${which}: ${ratio}:1`).toBeGreaterThanOrEqual(3);
+    }
+  });
+}
+
+for (const theme of BUILTIN_THEME_IDS) {
+  test(`${theme}: the task card's overdue and due-soon icons clear 3:1 against the card`, async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 600 });
+    await selectBuiltinTheme(page, theme);
+    const now = Math.floor(Date.now() / 1000);
+    const cmp = await mount(<TaskCardDueStory dueTs={now - 3600} />);
+    const ratios: Record<string, string> = {};
+    for (const [tone, dueTs] of [
+      ["overdue", now - 3600],
+      ["soon", now + 3600],
+    ] as const) {
+      await cmp.update(<TaskCardDueStory dueTs={dueTs} />);
+      const icon = cmp.locator(`.task-card__due-alert--${tone} svg`);
+      await expect(icon).toBeVisible();
+      const s = await sample(icon);
+      const zone = foldZone(s.layers);
+      ratios[tone] = contrast(over(parseColor(s.color), zone), zone).toFixed(2);
+    }
+    await expectBuiltinApplied(page, theme);
+    console.log(`${theme} task card due icon contrast: ${JSON.stringify(ratios)}`);
+    for (const [which, ratio] of Object.entries(ratios)) {
+      expect(Number(ratio), `${which}: ${ratio}:1`).toBeGreaterThanOrEqual(3);
+    }
   });
 }

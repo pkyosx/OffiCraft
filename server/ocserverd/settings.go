@@ -92,6 +92,9 @@ const (
 	// settingOutsourceMaxParallel is the GLOBAL cap on live (assigned + active)
 	// outsource workers; member tasks never count (owner ruling ③).
 	settingOutsourceMaxParallel = "task.outsource_max_parallel"
+	// settingTaskDueSoonLeadDays is how many days before its due date a task
+	// counts as due soon when the task does not carry its own lead.
+	settingTaskDueSoonLeadDays = "task.due_soon_lead_days"
 	// settingReassignHandoverTimeoutSecs is how long an OUTSOURCE predecessor under
 	// the reassign hold may go without a change to the task's updated time before
 	// the handover-timeout reaper reclaims it.
@@ -171,6 +174,7 @@ var displayThemeAllowed = map[string]bool{"office": true, "office-light": true}
 var displayLanguageAllowed = map[string]bool{"zh": true, "en": true}
 
 const defaultOutsourceMaxParallel = 3
+const defaultTaskDueSoonLeadDays = 1
 const defaultCodexCompactionThreshold = 3
 const defaultMonitoringRefreshSeconds = 5
 
@@ -248,6 +252,7 @@ type authSettings struct {
 	acceleratedGraceSecs            int
 	wardenCredLifetimeSecs          int
 	outsourceMaxParallel            int
+	taskDueSoonLeadDays             int
 	reassignHandoverTimeoutSecs     int
 	runtimeLoginCheckIntervalSecs   int
 	runtimeLoginRecheckIntervalSecs int
@@ -593,6 +598,18 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 				settingOutsourceMaxParallel, outsourceParallelRangeMsg, *v)
 		}
 		out.outsourceMaxParallel = n
+	}
+
+	out.taskDueSoonLeadDays = defaultTaskDueSoonLeadDays
+	if v, err := d.GetSetting(settingTaskDueSoonLeadDays); err != nil {
+		return out, err
+	} else if v != nil {
+		n, err := strconv.Atoi(*v)
+		if err != nil || !dueSoonLeadDaysInRange(n) {
+			return out, fmt.Errorf("settings %s: %s: %q",
+				settingTaskDueSoonLeadDays, dueSoonLeadDaysRangeMsg, *v)
+		}
+		out.taskDueSoonLeadDays = n
 	}
 
 	loadCap := func(key string, min, max int, dst *int, def int) error {
