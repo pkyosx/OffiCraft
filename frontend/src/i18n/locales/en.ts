@@ -393,13 +393,13 @@ export const en: Dict = {
     laneDueSoon: "Due soon",
     laneDueLater: "Due later",
     laneNoDue: "No due date",
-    navBadgeOpenLead: "",
-    navBadgeOpenTail: "open",
-    navBadgeDueSoonLead: "",
-    navBadgeDueSoonTail: "due soon",
-    navBadgeOverdueLead: "",
-    navBadgeOverdueTail: "overdue",
-    navBadgeSep: ", ",
+    countOverdueLead: "",
+    countOverdueTail: "overdue",
+    countDueSoonLead: "",
+    countDueSoonTail: "due soon",
+    countOpenLead: "",
+    countOpenTail: "open",
+    countSep: " · ",
     // T-e5b1 (owner 2026-08-15): the in-place title / description editors were
     // removed from the task UI, and their whole label family went with them.
     // The capability is untouched — this is the screen's vocabulary, not the

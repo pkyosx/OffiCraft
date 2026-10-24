@@ -12,7 +12,10 @@ import {
   KeyIcon,
   MonitorIcon,
   FileTextIcon,
+  ClockIcon,
 } from "./components/icons";
+import { InstantHint } from "./components/InstantHint";
+import { dueToneOf } from "./lib/dueDate";
 import { Avatar } from "./components/Avatar";
 import { BrandLogo } from "./components/BrandLogo";
 import { NavIcon } from "./components/NavIcon";
@@ -123,6 +126,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   // spec §1), and of those how many are due soon / overdue. Live via
   // /api/tasks/count + "task" SSE deltas.
   const taskCounts = useTaskCount();
+  const taskDueTone = dueToneOf(taskCounts);
   // The gear opens Settings as an OVERLAY route (#settings); clicking a nav
   // tab navigates back to that tab.
   const settingsOpen = route.page === "settings";
@@ -387,45 +391,47 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
               </span>
             )}
           </button>
-          <button
-            type="button"
+          <InstantHint
             className={`nav-tab${
               !settingsOpen && tab === "tasks" ? " nav-tab--active" : ""
             }`}
-            onClick={() => selectTab("tasks")}
+            hint={
+              taskCounts.open > 0
+                ? msg.taskCountSummary(
+                    taskCounts.overdue,
+                    taskCounts.dueSoon,
+                    taskCounts.open,
+                  )
+                : ""
+            }
+            onActivate={() => selectTab("tasks")}
           >
             <NavIcon tabKey="tasks" fallback={<TasksIcon size={15} />} />
             <span>{t.nav.tasks}</span>
             {taskCounts.open > 0 && (
               <span
-                className="nav-tab__seg-badge"
+                className="nav-tab__badge"
                 data-testid="tasks-badge"
                 role="img"
-                aria-label={msg.taskNavBadgeLabel(
-                  taskCounts.open,
-                  taskCounts.dueSoon,
+                aria-label={msg.taskCountSummary(
                   taskCounts.overdue,
+                  taskCounts.dueSoon,
+                  taskCounts.open,
                 )}
               >
-                {(
-                  [
-                    ["open", taskCounts.open],
-                    ["due-soon", taskCounts.dueSoon],
-                    ["overdue", taskCounts.overdue],
-                  ] as const
-                )
-                  .filter(([, n]) => n > 0)
-                  .map(([kind, n]) => (
-                    <span
-                      key={kind}
-                      className={`nav-tab__seg nav-tab__seg--${kind}`}
-                    >
-                      {n > 99 ? "99+" : n}
-                    </span>
-                  ))}
+                {taskCounts.open > 99 ? "99+" : taskCounts.open}
               </span>
             )}
-          </button>
+            {taskDueTone && (
+              <span
+                className={`nav-tab__due-clock nav-tab__due-clock--${taskDueTone}`}
+                data-testid="tasks-due-clock"
+                aria-hidden="true"
+              >
+                <ClockIcon size={15} />
+              </span>
+            )}
+          </InstantHint>
           {/* 傳承 (T-33) — between 任務 and 監控. No badge: an entry sitting in
               the log is not something waiting on the owner, and a count here
               would read like one. */}

@@ -7,15 +7,16 @@
 // box that never moves, which is the shape of a guard that passes on every
 // implementation including none.
 //
-// 🔴 This module exists for ONE caller: collapsing a whole task card
-// (TaskCard, T-6630 ③ — owner:「收和整個任務時,最後應該要定位到那則任務」).
-// It is NOT a licence to re-add a scroll correction to the step-note
+// Callers: collapsing a whole task card (TaskCard, T-6630 ③ — owner:「收和整個
+// 任務時,最後應該要定位到那則任務」), and the 任務頁 summary line's jump to a
+// 到期狀態 lane.
+// 🔴 It is NOT a licence to re-add a scroll correction to the step-note
 // disclosure: opening and closing a NOTE must leave the scrollport untouched
 // (same ticket, ①). The two live in the same component and pull in opposite
 // directions, on purpose, because they are answers to two different questions
 // the owner asked.
 //
-// `scrollIntoView` is deliberately not used by that caller: its block/nearest
+// `scrollIntoView` is deliberately not used by either caller: its block/nearest
 // handling differs between engines and it re-targets every scrollport on the
 // ancestor chain, which is a different action from "put this one card back".
 

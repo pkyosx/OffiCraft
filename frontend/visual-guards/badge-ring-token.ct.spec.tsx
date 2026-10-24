@@ -30,7 +30,7 @@
 import { test, expect } from "@playwright/experimental-ct-react";
 import { BadgeRingStory } from "./stories/BadgeRingStory";
 
-const RING_IDS = ["ring-nav", "ring-seg", "ring-tab", "ring-card"] as const;
+const RING_IDS = ["ring-nav", "ring-tab", "ring-card"] as const;
 
 /** outlineColor as the browser resolved it, per badge rule. */
 async function ringColours(cmp: { getByTestId: (id: string) => { evaluate: (fn: (e: Element) => string) => Promise<string> } }) {
@@ -43,7 +43,7 @@ async function ringColours(cmp: { getByTestId: (id: string) => { evaluate: (fn: 
   return out;
 }
 
-test("default: every badge rule paints the ring in the page colour (existing themes unchanged)", async ({ mount, page }) => {
+test("default: all three badge rules paint the ring in the page colour (existing themes unchanged)", async ({ mount, page }) => {
   const cmp = await mount(<BadgeRingStory />);
   const pageColour = await page.evaluate(() =>
     getComputedStyle(
@@ -70,7 +70,7 @@ test("default: every badge rule paints the ring in the page colour (existing the
   }
 });
 
-test("the ring slot repaints EVERY badge rule (this is the assertion the pre-change tree fails)", async ({ mount, page }) => {
+test("the ring slot repaints ALL THREE rules (this is the assertion the pre-change tree fails)", async ({ mount, page }) => {
   const cmp = await mount(<BadgeRingStory />);
   const before = await ringColours(cmp as never);
 

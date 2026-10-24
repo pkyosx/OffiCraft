@@ -25,10 +25,9 @@ import { fileURLToPath } from "node:url";
 
 const RING_TOKEN = "--color-danger-badge-ring";
 
-/** The badge classes, and the file whose rule defines each. */
+/** The three badge classes, and the file whose rule defines each. */
 const BADGE_RULES: Array<{ cls: string; sheet: string }> = [
   { cls: "nav-tab__badge", sheet: "chrome.css" },
-  { cls: "nav-tab__seg-badge", sheet: "chrome.css" },
   { cls: "office__tab-badge", sheet: "office.css" },
   { cls: "member-card__unread", sheet: "office.css" },
 ];
@@ -44,7 +43,7 @@ const BADGE_RULES: Array<{ cls: string; sheet: string }> = [
 const RENDER_SITES: Array<{ file: string; cls: string; what: string }> = [
   { file: "../App.tsx", cls: "nav-tab__badge", what: "nav tab — office unread" },
   { file: "../App.tsx", cls: "nav-tab__badge", what: "nav tab — replies waiting" },
-  { file: "../App.tsx", cls: "nav-tab__seg-badge", what: "nav tab — open / due-soon / overdue tasks" },
+  { file: "../App.tsx", cls: "nav-tab__badge", what: "nav tab — open tasks" },
   { file: "./OfficeSidebarTabs.tsx", cls: "office__tab-badge", what: "sidebar tab — staff unread" },
   { file: "./OfficeSidebarTabs.tsx", cls: "office__tab-badge", what: "sidebar tab — outsource unread" },
   { file: "./MemberCard.tsx", cls: "member-card__unread", what: "roster row — member unread" },
@@ -53,8 +52,7 @@ const RENDER_SITES: Array<{ file: string; cls: string; what: string }> = [
 
 /** How many literal `className="…"` occurrences each file is expected to carry. */
 const LITERALS_PER_FILE: Array<{ file: string; cls: string; count: number; note?: string }> = [
-  { file: "../App.tsx", cls: "nav-tab__badge", count: 2 },
-  { file: "../App.tsx", cls: "nav-tab__seg-badge", count: 1 },
+  { file: "../App.tsx", cls: "nav-tab__badge", count: 3 },
   {
     file: "./OfficeSidebarTabs.tsx",
     cls: "office__tab-badge",
@@ -100,7 +98,7 @@ describe("unread badge ring — one themeable slot, all render sites", () => {
     }
   });
 
-  it("all seven render sites wear one of the badge classes", () => {
+  it("all seven render sites wear one of the three badge classes", () => {
     const known = new Set(BADGE_RULES.map((r) => r.cls));
     for (const site of RENDER_SITES) {
       expect(known.has(site.cls), `${site.what}: unknown badge class ${site.cls}`).toBe(true);

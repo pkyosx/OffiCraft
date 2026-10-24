@@ -47,7 +47,8 @@ function contentRect(el: HTMLElement): { top: number; bottom: number; left: numb
  * With `onActivate` the trigger is a button instead: a click or Enter/Space
  * calls it and no longer pins the hint; hover and focus still show it.
  * `triggerRef` follows the mounted trigger, so focus can be handed back to it.
- * `focusable={false}` keeps a span trigger out of the tab order. */
+ * `focusable={false}` keeps a span trigger out of the tab order. An empty
+ * `hint` shows nothing. */
 export function InstantHint({
   hint,
   children,
@@ -71,7 +72,7 @@ export function InstantHint({
   // below. A tap fires mouseenter right before click; keeping the two apart is
   // what stops that tap from toggling the hint straight shut.
   const [state, setState] = useState<"closed" | "shown" | "pinned">("closed");
-  const open = state !== "closed";
+  const open = state !== "closed" && hint !== "";
   const [closeSelf] = useState(() => () => setState("closed"));
 
   useEffect(() => {

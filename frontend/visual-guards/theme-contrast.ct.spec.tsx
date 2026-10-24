@@ -12,7 +12,8 @@
 //      in every theme. It used to be a hard-coded color-mix off --color-text,
 //      which no light theme could lift past ~3.3:1.
 //   ③ each built-in's main text-on-surface token pairs clear AA.
-//   ④ each segment of the 任務 nav pill: its count clears AA on its own fill.
+//   ④ the 任務 nav tab's red / amber due clock stands out (≥3:1, the non-text
+//      threshold) from the tab it sits on, idle and active.
 import { test, expect } from "@playwright/experimental-ct-react";
 import type { Page } from "@playwright/test";
 import { ThemeContrastStory } from "./stories/ThemeContrastStory";
@@ -222,21 +223,23 @@ for (const theme of BUILTIN_THEME_IDS) {
 }
 
 for (const theme of BUILTIN_THEME_IDS) {
-  test(`${theme}: every 任務 nav pill segment's count clears AA (≥4.5:1) on its fill`, async ({
+  test(`${theme}: the 任務 nav due clock clears 3:1 against an idle and an active tab`, async ({
     mount,
     page,
   }) => {
     const cmp = await mountUnder(mount, page, theme);
     const ratios: Record<string, string> = {};
-    for (const kind of ["open", "due-soon", "overdue"]) {
-      const s = await sample(cmp.locator(`.nav-tab__seg--${kind}`));
-      const fill = parseColor(s.background);
-      expect(fill.a, `${kind} segment must paint an opaque fill`).toBe(1);
-      ratios[kind] = contrast(over(parseColor(s.color), fill), fill).toFixed(2);
+    for (const tone of ["overdue", "soon"]) {
+      for (const state of ["idle", "active"]) {
+        const s = await sample(cmp.getByTestId(`clock-${tone}-${state}`));
+        const zone = foldZone(s.layers);
+        ratios[`${tone}/${state}`] = contrast(over(parseColor(s.color), zone), zone).toFixed(2);
+      }
     }
     await expectBuiltinApplied(page, theme);
-    for (const [kind, ratio] of Object.entries(ratios)) {
-      expect(Number(ratio), `${kind}: ${ratio}:1`).toBeGreaterThanOrEqual(4.5);
+    console.log(`${theme} 任務 due clock contrast: ${JSON.stringify(ratios)}`);
+    for (const [which, ratio] of Object.entries(ratios)) {
+      expect(Number(ratio), `${which}: ${ratio}:1`).toBeGreaterThanOrEqual(3);
     }
   });
 }

@@ -8,7 +8,7 @@
 //   3. count 0 → NOT RENDERED at all (no empty pill).
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { I18nProvider } from "./i18n";
 
 // The office badge rides useChatUnread; drive it per-test via a hoisted stub.
@@ -75,58 +75,74 @@ describe("辦公室 nav unread badge", () => {
   });
 });
 
-const segmentsOf = (pill: HTMLElement) =>
-  Array.from(pill.children, (seg) => [seg.className, seg.textContent]);
-
 describe("任務 nav badge", () => {
   beforeEach(() => {
     window.location.hash = "";
     state.chatUnread = 0;
   });
 
-  it("shows open, due-soon and overdue as gray, amber and red segments of one labelled pill", () => {
+  const tasksTab = () => screen.getByRole("button", { name: /^任務/ });
+
+  it("shows the open count in the plain red pill, labelled with all three counts", () => {
     state.taskCount = { open: 12, total: 15, overdue: 2, dueSoon: 1, dueNextChangeTs: null };
     renderApp();
-    const pill = screen.getByTestId("tasks-badge");
-    expect(segmentsOf(pill)).toEqual([
-      ["nav-tab__seg nav-tab__seg--open", "12"],
-      ["nav-tab__seg nav-tab__seg--due-soon", "1"],
-      ["nav-tab__seg nav-tab__seg--overdue", "2"],
-    ]);
-    expect(pill.getAttribute("role")).toBe("img");
-    expect(pill.getAttribute("aria-label")).toBe("進行中 12 個，即將到期 1 個，已逾期 2 個");
+    const badge = screen.getByTestId("tasks-badge");
+    expect(badge.textContent).toBe("12");
+    expect(badge.className).toBe("nav-tab__badge");
+    expect(screen.getByRole("button", { name: "任務 已逾期 2 · 即將到期 1 · 進行中 12" })).toBe(tasksTab());
   });
 
-  it("leaves out a segment whose count is zero, in the pill and its label", () => {
-    state.taskCount = { open: 4, total: 4, overdue: 3, dueSoon: 0, dueNextChangeTs: null };
+  it("paints the clock red when any task is overdue", () => {
+    state.taskCount = { open: 12, total: 15, overdue: 2, dueSoon: 1, dueNextChangeTs: null };
     renderApp();
-    const pill = screen.getByTestId("tasks-badge");
-    expect(segmentsOf(pill)).toEqual([
-      ["nav-tab__seg nav-tab__seg--open", "4"],
-      ["nav-tab__seg nav-tab__seg--overdue", "3"],
-    ]);
-    expect(pill.getAttribute("aria-label")).toBe("進行中 4 個，已逾期 3 個");
+    expect(screen.getByTestId("tasks-due-clock").className).toBe(
+      "nav-tab__due-clock nav-tab__due-clock--overdue",
+    );
   });
 
-  it("shows only the gray segment when nothing is due soon or overdue", () => {
+  it("paints the clock amber when tasks are due soon but none is overdue", () => {
+    state.taskCount = { open: 4, total: 4, overdue: 0, dueSoon: 3, dueNextChangeTs: null };
+    renderApp();
+    expect(screen.getByTestId("tasks-due-clock").className).toBe(
+      "nav-tab__due-clock nav-tab__due-clock--soon",
+    );
+    expect(screen.getByRole("button", { name: "任務 即將到期 3 · 進行中 4" })).toBe(tasksTab());
+  });
+
+  it("shows no clock when nothing is overdue or due soon", () => {
     state.taskCount = { open: 4, total: 4, overdue: 0, dueSoon: 0, dueNextChangeTs: null };
     renderApp();
-    const pill = screen.getByTestId("tasks-badge");
-    expect(segmentsOf(pill)).toEqual([["nav-tab__seg nav-tab__seg--open", "4"]]);
-    expect(pill.getAttribute("aria-label")).toBe("進行中 4 個");
+    expect(screen.getByTestId("tasks-badge").textContent).toBe("4");
+    expect(screen.queryByTestId("tasks-due-clock")).toBeNull();
   });
 
-  it("renders no pill when no task is open", () => {
+  it("hovering the tab shows the three counts, leaving out a zero due part", () => {
+    state.taskCount = { open: 4, total: 4, overdue: 3, dueSoon: 0, dueNextChangeTs: null };
+    renderApp();
+    fireEvent.mouseEnter(tasksTab());
+    expect(screen.getByRole("tooltip").textContent).toBe("已逾期 3 · 進行中 4");
+  });
+
+  it("renders no pill, clock or tooltip when no task is open", () => {
     state.taskCount = { open: 0, total: 6, overdue: 0, dueSoon: 0, dueNextChangeTs: null };
     renderApp();
     expect(screen.queryByTestId("tasks-badge")).toBeNull();
+    expect(screen.queryByTestId("tasks-due-clock")).toBeNull();
+    fireEvent.mouseEnter(tasksTab());
+    expect(screen.queryByRole("tooltip")).toBeNull();
   });
 
-  it("clamps each segment above 99 to \"99+\" while the label keeps the real counts", () => {
+  it("clamps the open count above 99 to \"99+\" while the label keeps the real counts", () => {
     state.taskCount = { open: 300, total: 300, overdue: 120, dueSoon: 99, dueNextChangeTs: null };
     renderApp();
-    const pill = screen.getByTestId("tasks-badge");
-    expect(segmentsOf(pill).map(([, text]) => text)).toEqual(["99+", "99", "99+"]);
-    expect(pill.getAttribute("aria-label")).toBe("進行中 300 個，即將到期 99 個，已逾期 120 個");
+    expect(screen.getByTestId("tasks-badge").textContent).toBe("99+");
+    expect(screen.getByRole("button", { name: "任務 已逾期 120 · 即將到期 99 · 進行中 300" })).toBe(tasksTab());
+  });
+
+  it("clicking the tab opens the 任務 page", () => {
+    state.taskCount = { open: 4, total: 4, overdue: 0, dueSoon: 0, dueNextChangeTs: null };
+    renderApp();
+    fireEvent.click(tasksTab());
+    expect(window.location.hash).toBe("#tasks");
   });
 });

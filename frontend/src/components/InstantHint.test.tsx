@@ -44,6 +44,14 @@ describe("InstantHint", () => {
     expect(hint.className).toBe("instant-hint");
   });
 
+  it("an empty hint shows nothing on hover or click", () => {
+    const trigger = renderHint("");
+    fireEvent.mouseEnter(trigger);
+    fireEvent.click(trigger);
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    expect(trigger.hasAttribute("aria-describedby")).toBe(false);
+  });
+
   it("under mouseleave after mouseenter, the hint is gone and the trigger no longer points at it", () => {
     const trigger = renderHint("Claude 未登入");
     fireEvent.mouseEnter(trigger);

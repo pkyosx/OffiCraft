@@ -81,3 +81,12 @@ export function toDateInputValue(tsSeconds: number): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
+
+export type DueTone = "overdue" | "soon";
+
+/** The most urgent due state among the open tasks (the 任務 tab's clock). */
+export function dueToneOf(counts: { overdue: number; dueSoon: number }): DueTone | null {
+  if (counts.overdue > 0) return "overdue";
+  if (counts.dueSoon > 0) return "soon";
+  return null;
+}

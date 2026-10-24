@@ -22,7 +22,7 @@
 //      DISABLED while unassigned.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, fireEvent, waitFor, act } from "@testing-library/react";
+import { render, fireEvent, waitFor, act, cleanup } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { TasksPage } from "./TasksPage";
 import {
@@ -1373,6 +1373,71 @@ describe("TasksPage", () => {
       "剛好到期",
     ]);
     expect(laneTitles("nodue")).toEqual([]);
+  });
+
+  it("summarises 已逾期 · 即將到期 · 進行中 above the filter row from the server counts", async () => {
+    seedDueTasks(Date.now() / 1000);
+    const { findByTestId, getByTestId } = renderPage();
+    const summary = await findByTestId("tasks-summary");
+    await waitFor(() =>
+      expect(summary.textContent).toBe("已逾期 3 · 即將到期 2 · 進行中 8")
+    );
+    expect(getByTestId("tasks-summary-overdue").className).toBe(
+      "tasks__summary-jump tasks__summary-jump--overdue"
+    );
+    expect(getByTestId("tasks-summary-soon").className).toBe(
+      "tasks__summary-jump tasks__summary-jump--soon"
+    );
+    expect(getByTestId("tasks-summary-open").tagName).toBe("SPAN");
+    expect(
+      summary.compareDocumentPosition(getByTestId("tasks-filter")) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it("leaves zero due parts out of the summary, and shows no summary when nothing is open", async () => {
+    __injectMockTask(mkTask({ title: "沒有到期日的" }));
+    const done = mkTask({ title: "做完的", status: "done", closedTs: Date.now() / 1000 - 60 });
+    __injectMockTask(done);
+    const { findByTestId, queryByTestId } = renderPage();
+    expect((await findByTestId("tasks-summary")).textContent).toBe("進行中 1");
+    expect(queryByTestId("tasks-summary-overdue")).toBeNull();
+    expect(queryByTestId("tasks-summary-soon")).toBeNull();
+    cleanup();
+
+    __resetMock();
+    __injectMockTask(done);
+    const second = renderPage();
+    await second.findByTestId("tasks-empty-filtered");
+    expect(second.queryByTestId("tasks-summary")).toBeNull();
+  });
+
+  it("clicking 即將到期 in the summary switches to 到期狀態 grouping and opens that lane", async () => {
+    seedDueTasks(Date.now() / 1000);
+    const { findByText, findByRole } = renderPage();
+    await findByText("逾期的手冊任務");
+    chooseGroupBy("executor");
+    await waitFor(() => expect(laneKeys()).toEqual(["mira"]));
+
+    fireEvent.click(await findByRole("button", { name: "即將到期 2" }));
+    await waitFor(() =>
+      expect(laneKeys()).toEqual(["overdue", "soon", "later", "nodue"])
+    );
+    expect(openDisplayOptions().value).toBe("due");
+    expect(laneToggle("soon").getAttribute("aria-expanded")).toBe("true");
+    expect(laneTitles("soon")).toEqual(["快到期的", "整整一天後"]);
+  });
+
+  it("clicking 已逾期 in the summary reopens a lane the owner had collapsed", async () => {
+    seedDueTasks(Date.now() / 1000);
+    const { findByText, findByRole } = renderPage();
+    await findByText("逾期的手冊任務");
+    fireEvent.click(laneToggle("overdue"));
+    expect(laneToggle("overdue").getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(await findByRole("button", { name: "已逾期 3" }));
+    expect(laneToggle("overdue").getAttribute("aria-expanded")).toBe("true");
+    expect(laneTitles("overdue")).toHaveLength(3);
   });
 
   describe("light list + lazy detail on expand", () => {
