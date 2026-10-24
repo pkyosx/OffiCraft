@@ -52,13 +52,21 @@ export function blurIdFilter() {
   fireEvent.blur(document.querySelector('[data-testid="filter-task-id"]')!);
 }
 
-/** Pick a 分組依據 mode. */
+/** Open the 顯示方式 panel unless it is already open; returns its 分組依據
+ * select. */
+export function openDisplayOptions(): HTMLSelectElement {
+  const trigger = document.querySelector('[data-testid="display-options"]')!;
+  if (trigger.getAttribute("aria-expanded") !== "true") {
+    fireEvent.click(trigger);
+  }
+  return document.querySelector<HTMLSelectElement>('[data-testid="group-by"]')!;
+}
+
+/** Pick a 分組依據 mode in the 顯示方式 panel. */
 export function chooseGroupBy(
   mode: "due" | "executor" | "type" | "status" | "none"
 ) {
-  fireEvent.change(document.querySelector('[data-testid="group-by"]')!, {
-    target: { value: mode },
-  });
+  fireEvent.change(openDisplayOptions(), { target: { value: mode } });
 }
 
 /** Every axis back to "no constraint".

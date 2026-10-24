@@ -67,29 +67,72 @@
   border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
   color: var(--color-text-strong);
 }
-/* 分組依據: a native select inside the pill, so the pill draws the frame. */
-.tasks__group-by {
+/* 顯示方式: square corners and no fill, so it does not read as one more
+   filter pill. */
+.tasks__display {
+  position: relative;
+}
+.tasks__display-trigger {
   display: inline-flex;
-  /* The label span would inherit body line-height 1.5 and stand taller than
-     the button-based pills beside it. */
-  line-height: normal;
   align-items: center;
   gap: 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 14%, transparent);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  line-height: normal;
   white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
 }
-.tasks__group-by-label {
+.tasks__display-trigger:hover,
+.tasks__display-trigger[aria-expanded="true"] {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
+}
+.tasks__display-pop {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 20;
+  width: 240px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
+  background: var(--color-card);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--color-shadow) 45%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.tasks__display-title {
+  font-size: 12.5px;
+  font-weight: 600;
   color: var(--color-text-muted);
 }
-.tasks__group-by-select {
-  border: none;
-  background: transparent;
+.tasks__display-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+.tasks__display-select {
+  min-width: 0;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 14%, transparent);
+  background: var(--color-card);
   color: var(--color-text-strong);
   font: inherit;
-  padding: 0;
   cursor: pointer;
   color-scheme: inherit;
 }
-.tasks__group-by-select option {
+.tasks__display-select option {
   background: var(--color-card);
   color: var(--color-text);
 }

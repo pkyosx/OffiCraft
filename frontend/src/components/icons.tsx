@@ -106,6 +106,19 @@ export function FunnelIcon({ size = 16, className }: IconProps) {
   );
 }
 
+export function SlidersIcon({
+  size = 16,
+  className,
+  "aria-hidden": ariaHidden,
+}: IconProps) {
+  return (
+    <svg {...base(size)} className={className} aria-hidden={ariaHidden}>
+      <path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3" />
+      <path d="M14 2v4M8 10v4M16 18v4" />
+    </svg>
+  );
+}
+
 export function ChevronDownIcon({ size = 16, className }: IconProps) {
   return (
     <svg {...base(size)} className={className}>

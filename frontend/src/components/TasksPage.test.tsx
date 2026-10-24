@@ -43,6 +43,7 @@ import {
   applyIdFilter,
   chooseGroupBy,
   clearAllFilters,
+  openDisplayOptions,
 } from "../test/tasksFilter";
 import { ApiError } from "../api/errors";
 import { codeForStatus } from "../api/errorCodes";
@@ -967,10 +968,7 @@ describe("TasksPage", () => {
       toggleFilter("filter-status", "done");
       await findByTestId("closed-toggle");
 
-      expect(
-        (document.querySelector('[data-testid="group-by"]') as HTMLSelectElement)
-          .value
-      ).toBe("due");
+      expect(openDisplayOptions().value).toBe("due");
       expect(laneKeys()).toEqual(["overdue", "soon", "later", "nodue"]);
       expect(laneTitles("overdue")).toEqual([
         "逾期的手冊任務",
@@ -1143,10 +1141,10 @@ describe("TasksPage", () => {
     await waitFor(() =>
       expect(laneKeys()).toEqual(["outsource", "unassigned", "mira", "kai"])
     );
-    expect(laneToggle("outsource").textContent).toBe("外包 · 1");
-    expect(laneToggle("unassigned").textContent).toBe("未指派 · 1");
-    expect(laneToggle("mira").textContent).toBe("Mira · 2");
-    expect(laneToggle("kai").textContent).toBe("Kai · 1");
+    expect(laneToggle("outsource").textContent).toBe("負責人：外包 · 1");
+    expect(laneToggle("unassigned").textContent).toBe("負責人：未指派 · 1");
+    expect(laneToggle("mira").textContent).toBe("負責人：Mira · 2");
+    expect(laneToggle("kai").textContent).toBe("負責人：Kai · 1");
     expect(laneTitles("mira")).toEqual(["Mira 的高", "Mira 的低"]);
   });
 
@@ -1162,9 +1160,9 @@ describe("TasksPage", () => {
     await waitFor(() =>
       expect(laneKeys()).toEqual(["audit", "deploy", "adhoc"])
     );
-    expect(laneToggle("audit").textContent).toBe("稽核 · 1");
-    expect(laneToggle("deploy").textContent).toBe("部署 · 1");
-    expect(laneToggle("adhoc").textContent).toBe("自由代辦 · 1");
+    expect(laneToggle("audit").textContent).toBe("類型：稽核 · 1");
+    expect(laneToggle("deploy").textContent).toBe("類型：部署 · 1");
+    expect(laneToggle("adhoc").textContent).toBe("類型：自由代辦 · 1");
   });
 
   it("groups by 狀態 in the 狀態 filter's order, never with a closed lane", async () => {
@@ -1182,12 +1180,73 @@ describe("TasksPage", () => {
     await waitFor(() =>
       expect(laneKeys()).toEqual(["not_started", "in_progress", "waiting_owner"])
     );
-    expect(laneToggle("waiting_owner").textContent).toBe("等我回覆 · 1");
+    expect(laneToggle("waiting_owner").textContent).toBe("狀態：等我回覆 · 1");
     expect(
       laneToggle("waiting_owner")
         .querySelector(".task-badge")!
         .classList.contains("task-badge--status-waiting_owner")
     ).toBe(true);
+  });
+
+  it("opens 顯示方式 at the end of the filter row, outside the filter fields, and closes it on an outside click or Esc", async () => {
+    seedDueTasks(Date.now() / 1000);
+    const { findByText, getByTestId, queryByTestId } = renderPage();
+    await findByText("還早的");
+    const fields = getByTestId("tasks-filter-fields");
+    const trigger = getByTestId("display-options");
+    expect(trigger.textContent).toBe("顯示方式");
+    expect(fields.contains(trigger)).toBe(false);
+    expect(getByTestId("tasks-filter").contains(trigger)).toBe(true);
+    expect(queryByTestId("group-by")).toBeNull();
+    expect(queryByTestId("display-options-panel")).toBeNull();
+
+    fireEvent.click(trigger);
+    const panel = getByTestId("display-options-panel");
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(trigger.getAttribute("aria-controls")).toBe(panel.id);
+    expect(panel.textContent).toContain("顯示方式");
+    expect(panel.textContent).toContain("分組依據");
+    const select = getByTestId("group-by");
+    expect(panel.contains(select)).toBe(true);
+    expect(fields.contains(select)).toBe(false);
+    expect(document.activeElement).toBe(select);
+
+    chooseGroupBy("executor");
+    await waitFor(() => expect(laneKeys()).toEqual(["mira"]));
+    expect(queryByTestId("display-options-panel")).not.toBeNull();
+
+    fireEvent.mouseDown(panel);
+    expect(queryByTestId("display-options-panel")).not.toBeNull();
+    fireEvent.mouseDown(document.body);
+    expect(queryByTestId("display-options-panel")).toBeNull();
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(trigger);
+    expect(queryByTestId("display-options-panel")).not.toBeNull();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(queryByTestId("display-options-panel")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    expect(laneKeys()).toEqual(["mira"]);
+  });
+
+  it("keeps the chosen 分組依據 when 清除篩選 is pressed", async () => {
+    __injectMockTask(mkTask({ title: "跑著的" }));
+    __injectMockTask(mkTask({ title: "等我的", status: "waiting_owner" }));
+    const { findByText, getByTestId } = renderPage();
+    await findByText("跑著的");
+    chooseGroupBy("status");
+    toggleFilter("filter-type", "adhoc");
+    await waitFor(() =>
+      expect(laneKeys()).toEqual(["in_progress", "waiting_owner"])
+    );
+
+    fireEvent.click(getByTestId("tasks-filter-clear"));
+    await waitFor(() =>
+      expect(getByTestId("filter-type").textContent).toBe("所有類型")
+    );
+    expect(laneKeys()).toEqual(["in_progress", "waiting_owner"]);
+    expect(laneToggle("in_progress").textContent).toBe("狀態：進行中 · 1");
+    expect(openDisplayOptions().value).toBe("status");
   });
 
   it("starts every lane expanded again after a switch of 分組依據", async () => {

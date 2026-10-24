@@ -29,7 +29,7 @@
 // The 30s ticking clock drives every card's 已歷時 / step 耗時 counters (same
 // cadence as RepliesPage's 已等你).
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { useNowSeconds } from "../hooks/useNowSeconds";
 import { isDueSoon, isOverdue, nextDueChangeTs } from "../lib/dueDate";
@@ -39,11 +39,12 @@ import { useTasks } from "../hooks/useTasks";
 import { useTaskCount } from "../hooks/useTaskCount";
 import { useMembers } from "../hooks/useMembers";
 import { useHashRoute } from "../lib/hashRoute";
+import { useEscapeLayer } from "../lib/useEscapeLayer";
 import { TaskCard } from "./TaskCard";
 import { IdFilterInput } from "./IdFilterInput";
 import { MultiSelectFilter, type MultiSelectOption } from "./MultiSelectFilter";
 import { FilterPanel } from "./FilterPanel";
-import { ChevronRightIcon } from "./icons";
+import { ChevronRightIcon, SlidersIcon } from "./icons";
 import "./office.css"; // chat composer classes the embedded ReplyComposer reuses
 import "./replies.css"; // shared reply-card interior styles (embedded cards)
 import "./tasks.css";
@@ -132,6 +133,92 @@ function lanesInOrder(
     lanes.push({ key, title: fallbackTitle(key), tasks: list });
   }
   return lanes;
+}
+
+/** The 顯示方式 button and its panel: the 分組依據 select lives here, apart
+ * from the filters. Dismissal follows GallerySenderFilter (outside mousedown,
+ * Esc through the layer stack). */
+function DisplayOptions({
+  groupBy,
+  labels,
+  onGroupByChange,
+}: {
+  groupBy: GroupBy;
+  labels: Record<GroupBy, string>;
+  onGroupByChange: (next: GroupBy) => void;
+}) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const selectRef = useRef<HTMLSelectElement>(null);
+  const panelId = useId();
+
+  useEscapeLayer(
+    () => {
+      setOpen(false);
+      triggerRef.current?.focus();
+    },
+    boxRef,
+    open
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    selectRef.current?.focus();
+    const onDocDown = (e: MouseEvent) => {
+      if (!boxRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDocDown, true);
+    return () => document.removeEventListener("mousedown", onDocDown, true);
+  }, [open]);
+
+  return (
+    <div className="tasks__display" ref={boxRef}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="tasks__display-trigger"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-controls={open ? panelId : undefined}
+        data-testid="display-options"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <SlidersIcon size={14} aria-hidden="true" />
+        {t.tasks.displayOptions}
+      </button>
+      {open && (
+        <div
+          id={panelId}
+          className="tasks__display-pop"
+          role="dialog"
+          aria-labelledby={`${panelId}-title`}
+          data-testid="display-options-panel"
+        >
+          <div id={`${panelId}-title`} className="tasks__display-title">
+            {t.tasks.displayOptions}
+          </div>
+          <label className="tasks__display-row">
+            <span>{t.tasks.groupByLabel}</span>
+            <select
+              ref={selectRef}
+              className="tasks__display-select"
+              value={groupBy}
+              onChange={(e) => onGroupByChange(e.target.value as GroupBy)}
+              data-testid="group-by"
+            >
+              {GROUP_BY_OPTIONS.map((g) => (
+                <option key={g} value={g}>
+                  {labels[g]}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function nextListDueChange(tasks: TaskView[], nowTs: number): number | null {
@@ -677,6 +764,13 @@ export function TasksPage() {
     }
   }
   const lanes = buildLanes();
+  const laneLead: string | undefined = {
+    due: undefined,
+    executor: t.tasks.laneExecutorLead,
+    type: t.tasks.laneTypeLead,
+    status: t.tasks.laneStatusLead,
+    none: undefined,
+  }[groupBy];
 
   // A #tasks/<id> whose task does not exist USED TO self-heal: an effect here
   // stripped the hash and the page settled on the ordinary filtered list, with
@@ -848,11 +942,14 @@ export function TasksPage() {
               expanded ? " reply-card__caret--open" : ""
             }`}
           />
-          {lane.chipClass ? (
-            <span className={lane.chipClass}>{lane.title}</span>
-          ) : (
-            <span>{lane.title}</span>
-          )}
+          <span>
+            {laneLead}
+            {lane.chipClass ? (
+              <span className={lane.chipClass}>{lane.title}</span>
+            ) : (
+              lane.title
+            )}
+          </span>
           <span data-testid={`lane-count-${lane.key}`}>
             {` · ${lane.tasks.length}`}
           </span>
@@ -886,6 +983,13 @@ export function TasksPage() {
         testId="tasks-filter"
         clearLabel={t.tasks.clearFilters}
         onClear={anyFilter ? clearFilters : undefined}
+        actions={
+          <DisplayOptions
+            groupBy={groupBy}
+            labels={groupByLabels}
+            onGroupByChange={setGroupBy}
+          />
+        }
       >
         {/* 🔴 A second comment used to sit here saying the count was 10, set by
           * hand, and that the canonical 任務 id was `t-` + 12 hex. BOTH halves
@@ -936,21 +1040,6 @@ export function TasksPage() {
           onChange={setAppliedStatus}
           testId="filter-status"
         />
-        <label className="tasks__filter tasks__group-by">
-          <span className="tasks__group-by-label">{t.tasks.groupByLabel}</span>
-          <select
-            className="tasks__group-by-select"
-            value={groupBy}
-            onChange={(e) => setGroupBy(e.target.value as GroupBy)}
-            data-testid="group-by"
-          >
-            {GROUP_BY_OPTIONS.map((g) => (
-              <option key={g} value={g}>
-                {groupByLabels[g]}
-              </option>
-            ))}
-          </select>
-        </label>
       </FilterPanel>
 
       {/* ── empty states ×2 ── */}
