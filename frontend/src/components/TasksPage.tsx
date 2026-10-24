@@ -664,22 +664,19 @@ export function TasksPage() {
   const [closedOpen, setClosedOpen] = useState(false);
 
   // Like the filters, the grouping and the lane collapse state live only in
-  // this mount. Every open lane starts expanded, and again on a mode switch.
+  // this mount. Only the first lane starts expanded (owner `rc-0b66903ff6b8`),
+  // and again on a mode switch. The default is positional, not stored, so when
+  // the first lane empties out the next one becomes first and opens.
   const [groupBy, setGroupByState] = useState<GroupBy>("due");
-  const [collapsedLanes, setCollapsedLanes] = useState<Set<string>>(
-    () => new Set()
-  );
+  const [laneOpenOverrides, setLaneOpenOverrides] = useState<
+    Map<string, boolean>
+  >(() => new Map());
   function setGroupBy(next: GroupBy) {
     setGroupByState(next);
-    setCollapsedLanes(new Set());
+    setLaneOpenOverrides(new Map());
   }
-  function toggleLane(key: string) {
-    setCollapsedLanes((cur) => {
-      const next = new Set(cur);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
+  function toggleLane(key: string, expandedNow: boolean) {
+    setLaneOpenOverrides((cur) => new Map(cur).set(key, !expandedNow));
   }
   const laneIdBase = useId();
   const groupByLabels: Record<GroupBy, string> = {
@@ -812,7 +809,7 @@ export function TasksPage() {
   useEffect(() => {
     if (appliedId === "") return;
     setClosedOpen(true);
-    setCollapsedLanes(new Set());
+    setLaneOpenOverrides(new Map());
   }, [appliedId]);
 
   // ── empty states, re-derived for the server-side ask (T-a3e4) ─────────────
@@ -918,8 +915,8 @@ export function TasksPage() {
     );
   }
 
-  function renderLane(lane: Lane) {
-    const expanded = !collapsedLanes.has(lane.key);
+  function renderLane(lane: Lane, index: number) {
+    const expanded = laneOpenOverrides.get(lane.key) ?? index === 0;
     const regionId = `${laneIdBase}-lane-${lane.key}`;
     return (
       <section
@@ -934,7 +931,7 @@ export function TasksPage() {
           aria-expanded={expanded}
           aria-controls={regionId}
           data-testid={`lane-toggle-${lane.key}`}
-          onClick={() => toggleLane(lane.key)}
+          onClick={() => toggleLane(lane.key, expanded)}
         >
           <ChevronRightIcon
             size={13}
