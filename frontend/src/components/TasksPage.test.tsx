@@ -40,7 +40,8 @@ import { api } from "../api";
 // through the shared driver rather than clicking a bare dropdown.
 import {
   toggleFilter,
-  toggleDueFilter,
+  applyIdFilter,
+  chooseGroupBy,
   clearAllFilters,
 } from "../test/tasksFilter";
 import { ApiError } from "../api/errors";
@@ -121,13 +122,15 @@ function renderPage() {
 }
 
 
-function seedDueTasks() {
-  const now = Date.now() / 1000;
+function seedDueTasks(now: number) {
   __injectMockTask(mkTask({ title: "逾期的自由代辦", dueTs: now - 3600 }));
   __injectMockTask(
     mkTask({ title: "逾期的手冊任務", typeKey: "deploy", dueTs: now - 7200 })
   );
+  __injectMockTask(mkTask({ title: "剛好到期", dueTs: now }));
   __injectMockTask(mkTask({ title: "快到期的", dueTs: now + 3600 }));
+  __injectMockTask(mkTask({ title: "整整一天後", dueTs: now + 86_400 }));
+  __injectMockTask(mkTask({ title: "一天又一秒後", dueTs: now + 86_401 }));
   __injectMockTask(mkTask({ title: "還早的", dueTs: now + 5 * 86_400 }));
   __injectMockTask(mkTask({ title: "沒有到期日的" }));
   __injectMockTask(
@@ -139,10 +142,20 @@ function seedDueTasks() {
     })
   );
 }
-const openTitles = () =>
-  [...document.querySelectorAll('[data-testid="open-list"] .task-card__title')]
-    .map((el) => el.textContent)
-    .sort();
+const laneKeys = () =>
+  [...document.querySelectorAll('[data-testid^="lane-toggle-"]')].map((el) =>
+    el.getAttribute("data-testid")!.slice("lane-toggle-".length)
+  );
+const laneTitles = (key: string) =>
+  [
+    ...document.querySelectorAll(
+      `[data-testid="lane-${key}"] .task-card__title`
+    ),
+  ].map((el) => el.textContent);
+const laneCount = (key: string) =>
+  document.querySelector(`[data-testid="lane-count-${key}"]`)?.textContent;
+const laneToggle = (key: string) =>
+  document.querySelector(`[data-testid="lane-toggle-${key}"]`)!;
 
 beforeEach(() => {
   __resetMock();
@@ -275,18 +288,25 @@ describe("TasksPage", () => {
       mkTask({ title: "中的", priority: "mid", createdTs: now - 7000 })
     );
 
-    const { findAllByTestId } = renderPage();
+    const expected = ["高的晚建", "高的早建", "中的", "低的", "凍結的"];
+    const { findAllByTestId, findByText } = renderPage();
     const cards = await findAllByTestId("task-card");
     const titles = cards.map(
       (c) => c.querySelector(".task-card__title")?.textContent
     );
-    expect(titles).toEqual([
-      "高的晚建",
-      "高的早建",
-      "中的",
-      "低的",
-      "凍結的",
-    ]);
+    expect(titles).toEqual(expected);
+    expect(laneTitles("nodue")).toEqual(expected);
+
+    chooseGroupBy("none");
+    await findByText("未結案 · 5");
+    expect(laneKeys()).toEqual([]);
+    expect(
+      [
+        ...document.querySelectorAll(
+          '[data-testid="open-list"] .task-card__title'
+        ),
+      ].map((el) => el.textContent)
+    ).toEqual(expected);
   });
 
   it("已結案 collects done+terminated (once their statuses are picked), collapsed by default, toggling open/shut", async () => {
@@ -937,85 +957,247 @@ describe("TasksPage", () => {
     );
   });
 
-  it("labels each toggle with the open-task count from the count endpoint", async () => {
-    seedDueTasks();
-    const { findByTestId } = renderPage();
-    await waitFor(async () =>
-      expect((await findByTestId("filter-due-overdue")).textContent).toBe(
-        "已逾期 2"
-      )
-    );
-    expect((await findByTestId("filter-due-soon")).textContent).toBe(
-      "即將到期 1"
-    );
-  });
-
-  it("narrows to open overdue tasks and restores the list on a second press", async () => {
-    seedDueTasks();
-    const { findByText, findByTestId, queryByTestId } = renderPage();
-    await findByText("還早的");
-    toggleFilter("filter-status", "done");
-    await findByTestId("closed-toggle");
-    toggleDueFilter("overdue");
-    await waitFor(() =>
-      expect(openTitles()).toEqual(["逾期的手冊任務", "逾期的自由代辦"])
-    );
-    expect(queryByTestId("closed-toggle")).toBeNull();
-    expect(
-      document
-        .querySelector('[data-testid="filter-due-overdue"]')!
-        .getAttribute("aria-pressed")
-    ).toBe("true");
-    toggleDueFilter("overdue");
-    await waitFor(() => expect(openTitles()).toHaveLength(5));
-  });
-
-  it("pressing 即將到期 releases 已逾期", async () => {
-    seedDueTasks();
-    const { findByText } = renderPage();
-    await findByText("還早的");
-    toggleDueFilter("overdue");
-    toggleDueFilter("soon");
-    await waitFor(() => expect(openTitles()).toEqual(["快到期的"]));
-    expect(
-      document
-        .querySelector('[data-testid="filter-due-overdue"]')!
-        .getAttribute("aria-pressed")
-    ).toBe("false");
-  });
-
-  it("drops a task from 即將到期 the moment it falls due, even before the counts refetch", async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
+  it("groups open tasks into 已逾期 / 即將到期 / 之後到期 / 沒有到期日 lanes, most urgent first, and keeps closed tasks out of them", async () => {
+    const now = 1_900_000_000;
+    vi.useFakeTimers({ now: now * 1000, toFake: ["Date"] });
     try {
-      const dueTs = Date.now() / 1000 + 10;
-      __injectMockTask(mkTask({ title: "十秒後到期", dueTs }));
-      vi.spyOn(api, "getTaskCount").mockResolvedValue({
-        open: 1,
-        total: 1,
-        overdue: 0,
-        dueSoon: 1,
-        dueNextChangeTs: null,
-      });
+      seedDueTasks(now);
       const { findByText, findByTestId } = renderPage();
-      await findByText("十秒後到期");
-      toggleDueFilter("soon");
-      await waitFor(() => expect(openTitles()).toEqual(["十秒後到期"]));
-      await act(async () => {
-        vi.advanceTimersByTime(10_000);
-      });
-      await findByTestId("tasks-empty-filtered");
+      await findByText("還早的");
+      toggleFilter("filter-status", "done");
+      await findByTestId("closed-toggle");
+
+      expect(
+        (document.querySelector('[data-testid="group-by"]') as HTMLSelectElement)
+          .value
+      ).toBe("due");
+      expect(laneKeys()).toEqual(["overdue", "soon", "later", "nodue"]);
+      expect(laneTitles("overdue")).toEqual([
+        "逾期的手冊任務",
+        "逾期的自由代辦",
+        "剛好到期",
+      ]);
+      expect(laneTitles("soon")).toEqual(["快到期的", "整整一天後"]);
+      expect(laneTitles("later")).toEqual(["一天又一秒後", "還早的"]);
+      expect(laneTitles("nodue")).toEqual(["沒有到期日的"]);
+      expect(laneToggle("overdue").textContent).toBe("已逾期 · 3");
+      expect(laneToggle("soon").textContent).toBe("即將到期 · 2");
+      expect(laneToggle("later").textContent).toBe("之後到期 · 2");
+      expect(laneToggle("nodue").textContent).toBe("沒有到期日 · 1");
+      for (const key of ["overdue", "soon", "later", "nodue"]) {
+        expect(laneToggle(key).getAttribute("aria-expanded")).toBe("true");
+      }
+
+      for (const [lane, tone] of [
+        ["overdue", "overdue"],
+        ["soon", "soon"],
+        ["later", "later"],
+        ["nodue", "none"],
+      ]) {
+        expect(
+          laneToggle(lane)
+            .querySelector(".task-badge")!
+            .classList.contains(`task-badge--due-${tone}`)
+        ).toBe(true);
+        if (lane === "nodue") continue;
+        const chips = document.querySelectorAll(
+          `[data-testid="lane-${lane}"] [data-testid="task-due"]`
+        );
+        expect(chips.length).toBeGreaterThan(0);
+        for (const chip of chips) {
+          expect(chip.classList.contains(`task-badge--due-${tone}`)).toBe(true);
+        }
+      }
+
+      fireEvent.click(await findByTestId("closed-toggle"));
+      await findByText("已完成的逾期");
+      expect(
+        document.querySelector(
+          '[data-testid="open-list"] [data-testid="closed-list"]'
+        )
+      ).toBeNull();
+      expect(laneCount("overdue")).toBe(" · 3");
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("combines with the type filter", async () => {
-    seedDueTasks();
+  it("applies the filters before grouping and leaves out a lane the filters emptied", async () => {
+    seedDueTasks(Date.now() / 1000);
     const { findByText } = renderPage();
     await findByText("還早的");
-    toggleDueFilter("overdue");
-    toggleFilter("filter-type", "adhoc");
-    await waitFor(() => expect(openTitles()).toEqual(["逾期的自由代辦"]));
+    toggleFilter("filter-type", "deploy");
+    await waitFor(() => expect(laneKeys()).toEqual(["overdue"]));
+    expect(laneTitles("overdue")).toEqual(["逾期的手冊任務"]);
+    expect(laneCount("overdue")).toBe(" · 1");
+  });
+
+  it("collapses a lane from its header and expands it again, leaving the other lanes open", async () => {
+    seedDueTasks(Date.now() / 1000);
+    const { findByText, queryByText } = renderPage();
+    await findByText("還早的");
+    const toggle = laneToggle("later");
+    const region = document.getElementById(
+      toggle.getAttribute("aria-controls")!
+    )!;
+    expect(region.getAttribute("role")).toBe("region");
+    expect(region.hidden).toBe(false);
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(region.hidden).toBe(true);
+    expect(queryByText("還早的")).toBeNull();
+    expect(laneCount("later")).toBe(" · 2");
+    expect(laneToggle("nodue").getAttribute("aria-expanded")).toBe("true");
+    expect(laneTitles("nodue")).toEqual(["沒有到期日的"]);
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    await findByText("還早的");
+  });
+
+  it("moves a task to 即將到期 and then 已逾期 as the clock passes each boundary, even before the counts refetch", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const dueTs = Date.now() / 1000 + 86_400 + 10;
+      __injectMockTask(mkTask({ title: "一天後到期", dueTs }));
+      vi.spyOn(api, "getTaskCount").mockResolvedValue({
+        open: 1,
+        total: 1,
+        overdue: 0,
+        dueSoon: 0,
+        dueNextChangeTs: null,
+      });
+      const { findByText } = renderPage();
+      await findByText("一天後到期");
+      expect(laneKeys()).toEqual(["later"]);
+      await act(async () => {
+        vi.advanceTimersByTime(10_000);
+      });
+      await waitFor(() => expect(laneKeys()).toEqual(["soon"]));
+      await act(async () => {
+        vi.advanceTimersByTime(86_400_000);
+      });
+      await waitFor(() => expect(laneKeys()).toEqual(["overdue"]));
+      expect(laneTitles("overdue")).toEqual(["一天後到期"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows an id-filtered task that sits in a collapsed lane", async () => {
+    const target = mkTask({
+      title: "收起來的那張",
+      dueTs: Date.now() / 1000 + 5 * 86_400,
+    });
+    __injectMockTask(target);
+    __injectMockTask(mkTask({ title: "旁邊的" }));
+    const { findByText, queryByText } = renderPage();
+    await findByText("收起來的那張");
+    fireEvent.click(laneToggle("later"));
+    expect(queryByText("收起來的那張")).toBeNull();
+
+    applyIdFilter(target.id);
+    await findByText("收起來的那張");
+    expect(laneToggle("later").getAttribute("aria-expanded")).toBe("true");
+    expect(queryByText("旁邊的")).toBeNull();
+  });
+
+  it("shows a #tasks/<id> target that sat in a collapsed lane", async () => {
+    const target = mkTask({
+      title: "連結指向的",
+      dueTs: Date.now() / 1000 + 3600,
+    });
+    __injectMockTask(target);
+    const { findByText, queryByText } = renderPage();
+    await findByText("連結指向的");
+    fireEvent.click(laneToggle("soon"));
+    expect(queryByText("連結指向的")).toBeNull();
+
+    act(() => {
+      window.location.hash = `#tasks/${target.id}`;
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    await findByText("連結指向的");
+  });
+
+  it("groups by 負責人 in the filter's option order: 外包, 未指派, then each member", async () => {
+    __injectMockMember({ id: "kai", kind: "staff", name: "Kai" });
+    __injectMockTask(mkTask({ title: "Kai 的", executorId: "kai" }));
+    __injectMockTask(mkTask({ title: "Mira 的高", priority: "high" }));
+    __injectMockTask(mkTask({ title: "Mira 的低", priority: "low" }));
+    __injectMockTask(
+      mkTask({ title: "沒人接", executorKind: "outsource", executorId: "" })
+    );
+    __injectMockTask(
+      mkTask({ title: "外包的", executorKind: "outsource", executorId: "ow-x" })
+    );
+    const { findByText } = renderPage();
+    await findByText("Kai 的");
+    chooseGroupBy("executor");
+    await waitFor(() =>
+      expect(laneKeys()).toEqual(["outsource", "unassigned", "mira", "kai"])
+    );
+    expect(laneToggle("outsource").textContent).toBe("外包 · 1");
+    expect(laneToggle("unassigned").textContent).toBe("未指派 · 1");
+    expect(laneToggle("mira").textContent).toBe("Mira · 2");
+    expect(laneToggle("kai").textContent).toBe("Kai · 1");
+    expect(laneTitles("mira")).toEqual(["Mira 的高", "Mira 的低"]);
+  });
+
+  it("groups by 類型 under each manual's display name, 自由代辦 last", async () => {
+    __injectMockTaskType({ typeKey: "deploy", displayName: "部署", purpose: "" });
+    __injectMockTaskType({ typeKey: "audit", displayName: "稽核", purpose: "" });
+    __injectMockTask(mkTask({ title: "部署甲", typeKey: "deploy" }));
+    __injectMockTask(mkTask({ title: "稽核甲", typeKey: "audit" }));
+    __injectMockTask(mkTask({ title: "隨手的" }));
+    const { findByText } = renderPage();
+    await findByText("部署甲");
+    chooseGroupBy("type");
+    await waitFor(() =>
+      expect(laneKeys()).toEqual(["audit", "deploy", "adhoc"])
+    );
+    expect(laneToggle("audit").textContent).toBe("稽核 · 1");
+    expect(laneToggle("deploy").textContent).toBe("部署 · 1");
+    expect(laneToggle("adhoc").textContent).toBe("自由代辦 · 1");
+  });
+
+  it("groups by 狀態 in the 狀態 filter's order, never with a closed lane", async () => {
+    __injectMockTask(mkTask({ title: "等我的", status: "waiting_owner" }));
+    __injectMockTask(mkTask({ title: "還沒開始", status: "not_started" }));
+    __injectMockTask(mkTask({ title: "跑著的" }));
+    __injectMockTask(
+      mkTask({ title: "結掉的", status: "done", closedTs: Date.now() / 1000 })
+    );
+    const { findByText, findByTestId } = renderPage();
+    await findByText("跑著的");
+    toggleFilter("filter-status", "done");
+    await findByTestId("closed-toggle");
+    chooseGroupBy("status");
+    await waitFor(() =>
+      expect(laneKeys()).toEqual(["not_started", "in_progress", "waiting_owner"])
+    );
+    expect(laneToggle("waiting_owner").textContent).toBe("等我回覆 · 1");
+    expect(
+      laneToggle("waiting_owner")
+        .querySelector(".task-badge")!
+        .classList.contains("task-badge--status-waiting_owner")
+    ).toBe(true);
+  });
+
+  it("starts every lane expanded again after a switch of 分組依據", async () => {
+    seedDueTasks(Date.now() / 1000);
+    const { findByText } = renderPage();
+    await findByText("還早的");
+    fireEvent.click(laneToggle("nodue"));
+    expect(laneToggle("nodue").getAttribute("aria-expanded")).toBe("false");
+    chooseGroupBy("executor");
+    await waitFor(() => expect(laneKeys()).toEqual(["mira"]));
+    chooseGroupBy("due");
+    await waitFor(() =>
+      expect(laneToggle("nodue").getAttribute("aria-expanded")).toBe("true")
+    );
+    expect(laneTitles("nodue")).toEqual(["沒有到期日的"]);
   });
 
   describe("light list + lazy detail on expand", () => {

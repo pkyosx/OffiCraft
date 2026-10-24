@@ -52,8 +52,6 @@ export interface Messages {
   taskReassignTitle: (taskNo: string) => string;
   taskDueOn: (month: number, day: number) => string;
   taskOverdueDays: (days: number) => string;
-  taskFilterOverdue: (n: number) => string;
-  taskFilterDueSoon: (n: number) => string;
   taskNavBadgeLabel: (open: number, dueSoon: number, overdue: number) => string;
   // ── task artifact versions (T-60) ──
   taskArtifactVersionCount: (n: number) => string;
@@ -291,8 +289,6 @@ export function makeMessages(t: Dict, language: Lang): Messages {
       `${tasks.overdueDaysLead} ${days} ${
         days === 1 ? tasks.overdueDaysTailOne : tasks.overdueDaysTailMany
       }`,
-    taskFilterOverdue: (n) => `${tasks.filterOverdue} ${n}`,
-    taskFilterDueSoon: (n) => `${tasks.filterDueSoon} ${n}`,
     taskNavBadgeLabel: (open, dueSoon, overdue) =>
       (
         [

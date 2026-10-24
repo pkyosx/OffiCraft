@@ -14,9 +14,11 @@
 //             狀態 is asked of the SERVER (T-a3e4: the fetch carries the applied
 //             set, see the setStatuses effect); 負責人 / 類型 stay client-side
 //             over the already status-narrowed list.
-//   未結案  — every NON-terminal task in ONE list (狀態不分組 — the status
-//             badge differentiates), ordered by priority 高→中→低→凍結 (凍結
-//             永遠最後), createdTs newest-first within a level.
+//   未結案  — every NON-terminal task, ordered by priority 高→中→低→凍結 (凍結
+//             永遠最後), createdTs newest-first within a level, then split into
+//             collapsible lanes by the 分組依據 selector (default 到期狀態:
+//             已逾期 / 即將到期 / 之後到期 / 沒有到期日, due-ascending in the
+//             first three). 不分組 is the one flat list.
 //   已結案  — 已完成 + 終止, COLLAPSED BY DEFAULT (the RepliesPage answered-
 //             toggle pattern), newest close first. Both section titles carry
 //             counts.
@@ -27,7 +29,7 @@
 // The 30s ticking clock drives every card's 已歷時 / step 耗時 counters (same
 // cadence as RepliesPage's 已等你).
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useI18n } from "../i18n";
 import { useNowSeconds } from "../hooks/useNowSeconds";
 import { isDueSoon, isOverdue, nextDueChangeTs } from "../lib/dueDate";
@@ -83,7 +85,54 @@ const STATUS_OPTIONS = [
 // exclusion is visible (and undoable) right there in the 狀態 dropdown (T-be18).
 const DEFAULT_STATUS = STATUS_OPTIONS.filter((s) => !TERMINAL.has(s));
 
-type DueFilter = "overdue" | "dueSoon" | null;
+const GROUP_BY_OPTIONS = ["due", "executor", "type", "status", "none"] as const;
+type GroupBy = (typeof GROUP_BY_OPTIONS)[number];
+
+interface Lane {
+  key: string;
+  title: string;
+  /** Badge classes for the title chip, so a lane reads like the chips on its
+   * cards; plain text when absent. */
+  chipClass?: string;
+  tasks: TaskView[];
+}
+
+function dueLaneKey(task: TaskView, nowTs: number): string {
+  const due = task.dueTs ?? null;
+  if (due === null) return "nodue";
+  if (isOverdue(due, nowTs)) return "overdue";
+  if (isDueSoon(due, nowTs)) return "soon";
+  return "later";
+}
+
+/** Buckets `tasks` (order kept) under `heads`, in `heads` order; a key no head
+ * names gets a lane of its own after them, titled by `fallbackTitle`. Lanes
+ * with no task are dropped. */
+function lanesInOrder(
+  tasks: TaskView[],
+  keyOf: (task: TaskView) => string,
+  heads: Omit<Lane, "tasks">[],
+  fallbackTitle: (key: string) => string
+): Lane[] {
+  const byKey = new Map<string, TaskView[]>();
+  for (const task of tasks) {
+    const key = keyOf(task);
+    const list = byKey.get(key);
+    if (list) list.push(task);
+    else byKey.set(key, [task]);
+  }
+  const lanes: Lane[] = [];
+  for (const head of heads) {
+    const list = byKey.get(head.key);
+    if (!list) continue;
+    lanes.push({ ...head, tasks: list });
+    byKey.delete(head.key);
+  }
+  for (const [key, list] of byKey) {
+    lanes.push({ key, title: fallbackTitle(key), tasks: list });
+  }
+  return lanes;
+}
 
 function nextListDueChange(tasks: TaskView[], nowTs: number): number | null {
   let next: number | null = null;
@@ -96,7 +145,7 @@ function nextListDueChange(tasks: TaskView[], nowTs: number): number | null {
 }
 
 export function TasksPage() {
-  const { t, msg } = useI18n();
+  const { t } = useI18n();
   const {
     members,
     loading: membersLoading,
@@ -145,14 +194,9 @@ export function TasksPage() {
   // The unfiltered task total — the only honest basis for 目前沒有任務 now that
   // the list answers a status set (see the empty states below). Same cheap
   // count endpoint the nav badge rides, refetched on the same `task` deltas.
-  const {
-    total: taskTotal,
-    overdue: overdueCount,
-    dueSoon: dueSoonCount,
-  } = useTaskCount();
-  // Woken by the loaded tasks' own next change rather than the count's: a
-  // count refetch that lands early, or answers the same numbers, must not leave
-  // the filtered list a ticker interval behind its button.
+  const { total: taskTotal } = useTaskCount();
+  // Woken by the loaded tasks' own next due boundary, so a task changes lane at
+  // the same moment its card's chip changes colour.
   const nowSec = useNowSeconds(nextListDueChange(tasks, Date.now() / 1000));
 
   // Ticking clock (30s) — drives 已歷時 and running-step 耗時 on every card.
@@ -196,9 +240,6 @@ export function TasksPage() {
     () => new Set()
   );
   const [appliedType, setAppliedType] = useState<Set<string>>(() => new Set());
-  const [appliedDue, setAppliedDue] = useState<DueFilter>(null);
-  const toggleDue = (next: Exclude<DueFilter, null>) =>
-    setAppliedDue((cur) => (cur === next ? null : next));
   const [appliedStatus, setAppliedStatus] = useState<Set<string>>(() =>
     taskIdFilter ? new Set<string>() : new Set(DEFAULT_STATUS)
   );
@@ -253,7 +294,6 @@ export function TasksPage() {
     setAppliedExecutor(new Set());
     setAppliedType(new Set());
     setAppliedStatus(new Set());
-    setAppliedDue(null);
   }, [taskIdFilter]);
 
   // ── 聊天 header 任務圖示 → #tasks/executor/<memberId> (T-dfae). Owner asked
@@ -275,7 +315,6 @@ export function TasksPage() {
     setAppliedExecutor(new Set([executorSeed]));
     setAppliedType(new Set());
     setAppliedStatus(new Set(DEFAULT_STATUS));
-    setAppliedDue(null);
     setAppliedId("");
     // 🔴 THE BOX TOO, NOT JUST THE APPLIED VALUE (T-118, found in independent
     // review). `draftId` is what the 任務編號 field DISPLAYS; leaving it behind
@@ -342,7 +381,6 @@ export function TasksPage() {
     setAppliedExecutor(new Set());
     setAppliedType(new Set());
     setAppliedStatus(new Set());
-    setAppliedDue(null);
     setAppliedId("");
     setDraftId("");
     if (taskIdFilter) setRoute({ page: "tasks" });
@@ -356,7 +394,6 @@ export function TasksPage() {
     appliedExecutor.size > 0 ||
     appliedType.size > 0 ||
     appliedStatus.size > 0 ||
-    appliedDue !== null ||
     appliedId !== "";
 
   // Executor options: 外包 / 未指派 / 各成員 (real AI members only — machine-
@@ -420,27 +457,15 @@ export function TasksPage() {
     passesExecutor(task, appliedExecutor);
   const matchesType = (task: TaskView) => passesType(task, appliedType);
   const matchesStatus = (task: TaskView) => passesStatus(task, appliedStatus);
-  // Same rule as the count endpoint behind the button's number: open tasks only.
-  const matchesDue = (task: TaskView) => {
-    if (appliedDue === null) return true;
-    const due = task.dueTs ?? null;
-    if (due === null || TERMINAL.has(task.status)) return false;
-    return appliedDue === "overdue"
-      ? isOverdue(due, nowSec)
-      : isDueSoon(due, nowSec);
-  };
   // 全部條件一起生效 (owner ①) — the non-id axes AND together, and the id (when
   // one is applied) ANDs with them too, judged on the row the server returned
   // rather than on the loaded list. See `idOutcome`.
   const matchesOthers = (task: TaskView) =>
-    matchesExecutor(task) &&
-    matchesType(task) &&
-    matchesStatus(task) &&
-    matchesDue(task);
+    matchesExecutor(task) && matchesType(task) && matchesStatus(task);
 
   // ── filter option models (labels + 負責人 counts) ──────────────────────────
   // Per-owner count basis (T-be18 #3): the tasks that WOULD show if this owner
-  // were the sole executor pick — i.e. honouring the other live axes (status, due,
+  // were the sole executor pick — i.e. honouring the other live axes (status,
   // type) but not the executor axis itself. So the default count reads as
   // "active tasks on this person", and it moves in step with the status filter
   // (add 已完成 → counts grow). taskIdFilter is ignored here (a single-task
@@ -451,9 +476,7 @@ export function TasksPage() {
   // condition — so the applied sets are the only sets, and the counts and the
   // list are now incapable of disagreeing.
   const inCountScope = (task: TaskView) =>
-    passesStatus(task, appliedStatus) &&
-    passesType(task, appliedType) &&
-    matchesDue(task);
+    passesStatus(task, appliedStatus) && passesType(task, appliedType);
   const executorCount = (pred: (t: TaskView) => boolean) =>
     tasks.filter((t) => inCountScope(t) && pred(t)).length;
   const executorOptions: MultiSelectOption[] = [
@@ -553,6 +576,108 @@ export function TasksPage() {
   // tasks are reference material. Plain component state — never persisted.
   const [closedOpen, setClosedOpen] = useState(false);
 
+  // Like the filters, the grouping and the lane collapse state live only in
+  // this mount. Every open lane starts expanded, and again on a mode switch.
+  const [groupBy, setGroupByState] = useState<GroupBy>("due");
+  const [collapsedLanes, setCollapsedLanes] = useState<Set<string>>(
+    () => new Set()
+  );
+  function setGroupBy(next: GroupBy) {
+    setGroupByState(next);
+    setCollapsedLanes(new Set());
+  }
+  function toggleLane(key: string) {
+    setCollapsedLanes((cur) => {
+      const next = new Set(cur);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+  const laneIdBase = useId();
+  const groupByLabels: Record<GroupBy, string> = {
+    due: t.tasks.groupByDue,
+    executor: t.tasks.groupByExecutor,
+    type: t.tasks.groupByType,
+    status: t.tasks.groupByStatus,
+    none: t.tasks.groupByNone,
+  };
+
+  // Lane order follows the matching filter dropdown's option order.
+  function buildLanes(): Lane[] {
+    switch (groupBy) {
+      case "due": {
+        const byDue = (a: TaskView, b: TaskView) =>
+          (a.dueTs ?? 0) - (b.dueTs ?? 0);
+        return lanesInOrder(
+          open,
+          (task) => dueLaneKey(task, nowSec),
+          [
+            {
+              key: "overdue",
+              title: t.tasks.laneOverdue,
+              chipClass: "task-badge task-badge--due task-badge--due-overdue",
+            },
+            {
+              key: "soon",
+              title: t.tasks.laneDueSoon,
+              chipClass: "task-badge task-badge--due task-badge--due-soon",
+            },
+            {
+              key: "later",
+              title: t.tasks.laneDueLater,
+              chipClass: "task-badge task-badge--due task-badge--due-later",
+            },
+            {
+              key: "nodue",
+              title: t.tasks.laneNoDue,
+              chipClass: "task-badge task-badge--due task-badge--due-none",
+            },
+          ],
+          (key) => key
+        ).map((lane) =>
+          lane.key === "nodue"
+            ? lane
+            : { ...lane, tasks: [...lane.tasks].sort(byDue) }
+        );
+      }
+      case "executor":
+        return lanesInOrder(
+          open,
+          executorKeyOf,
+          [
+            { key: "outsource", title: t.tasks.outsource },
+            { key: "unassigned", title: t.tasks.unassigned },
+            ...memberOptions.map((m) => ({ key: m.id, title: m.name })),
+          ],
+          (key) => key
+        );
+      case "type":
+        return lanesInOrder(
+          open,
+          (task) => (task.typeKey === "" ? "adhoc" : task.typeKey),
+          typeFilterOptions.map((o) => ({ key: o.value, title: o.label })),
+          (key) => typeNames.get(key) ?? key
+        );
+      case "status":
+        return lanesInOrder(
+          open,
+          (task) => task.status,
+          STATUS_OPTIONS.filter(
+            (s) => s !== "reassigning" && !TERMINAL.has(s)
+          ).map((s) => ({
+            key: s,
+            title: t.tasks.status[s],
+            chipClass: `task-badge task-badge--status-${s}`,
+          })),
+          (key) => t.tasks.status[key] ?? key
+        );
+      case "none":
+        return [];
+    }
+  }
+  const lanes = buildLanes();
+
   // A #tasks/<id> whose task does not exist USED TO self-heal: an effect here
   // stripped the hash and the page settled on the ordinary filtered list, with
   // nothing said. That is the defect owner 2026-09-05 ruled on (rc-428906235337,
@@ -589,8 +714,11 @@ export function TasksPage() {
   // closed task exactly as often as a link does, and if 已結案 stays collapsed
   // the page has "found and passes" as its verdict while showing no row at all —
   // a fourth, silent outcome, which is the failure mode this ticket is about.
+  // Same for a target sitting in a collapsed lane.
   useEffect(() => {
-    if (appliedId !== "") setClosedOpen(true);
+    if (appliedId === "") return;
+    setClosedOpen(true);
+    setCollapsedLanes(new Set());
   }, [appliedId]);
 
   // ── empty states, re-derived for the server-side ask (T-a3e4) ─────────────
@@ -696,6 +824,52 @@ export function TasksPage() {
     );
   }
 
+  function renderLane(lane: Lane) {
+    const expanded = !collapsedLanes.has(lane.key);
+    const regionId = `${laneIdBase}-lane-${lane.key}`;
+    return (
+      <section
+        key={lane.key}
+        className="tasks__section"
+        data-testid={`lane-${lane.key}`}
+      >
+        <button
+          type="button"
+          id={`${regionId}-toggle`}
+          className="tasks__section-toggle tasks__lane-toggle"
+          aria-expanded={expanded}
+          aria-controls={regionId}
+          data-testid={`lane-toggle-${lane.key}`}
+          onClick={() => toggleLane(lane.key)}
+        >
+          <ChevronRightIcon
+            size={13}
+            className={`reply-card__caret${
+              expanded ? " reply-card__caret--open" : ""
+            }`}
+          />
+          {lane.chipClass ? (
+            <span className={lane.chipClass}>{lane.title}</span>
+          ) : (
+            <span>{lane.title}</span>
+          )}
+          <span data-testid={`lane-count-${lane.key}`}>
+            {` · ${lane.tasks.length}`}
+          </span>
+        </button>
+        <div
+          id={regionId}
+          role="region"
+          aria-labelledby={`${regionId}-toggle`}
+          className="tasks__list"
+          hidden={!expanded}
+        >
+          {expanded && lane.tasks.map(renderCard)}
+        </div>
+      </section>
+    );
+  }
+
   return (
     <div className="tasks">
       {(error || anchorFailed) && (
@@ -762,28 +936,21 @@ export function TasksPage() {
           onChange={setAppliedStatus}
           testId="filter-status"
         />
-        <button
-          type="button"
-          className={`tasks__filter tasks__due-filter tasks__due-filter--overdue${
-            appliedDue === "overdue" ? " tasks__due-filter--active" : ""
-          }`}
-          aria-pressed={appliedDue === "overdue"}
-          data-testid="filter-due-overdue"
-          onClick={() => toggleDue("overdue")}
-        >
-          {msg.taskFilterOverdue(overdueCount)}
-        </button>
-        <button
-          type="button"
-          className={`tasks__filter tasks__due-filter tasks__due-filter--soon${
-            appliedDue === "dueSoon" ? " tasks__due-filter--active" : ""
-          }`}
-          aria-pressed={appliedDue === "dueSoon"}
-          data-testid="filter-due-soon"
-          onClick={() => toggleDue("dueSoon")}
-        >
-          {msg.taskFilterDueSoon(dueSoonCount)}
-        </button>
+        <label className="tasks__filter tasks__group-by">
+          <span className="tasks__group-by-label">{t.tasks.groupByLabel}</span>
+          <select
+            className="tasks__group-by-select"
+            value={groupBy}
+            onChange={(e) => setGroupBy(e.target.value as GroupBy)}
+            data-testid="group-by"
+          >
+            {GROUP_BY_OPTIONS.map((g) => (
+              <option key={g} value={g}>
+                {groupByLabels[g]}
+              </option>
+            ))}
+          </select>
+        </label>
       </FilterPanel>
 
       {/* ── empty states ×2 ── */}
@@ -799,7 +966,12 @@ export function TasksPage() {
       )}
 
       {/* ── 未結案 ── */}
-      {open.length > 0 && (
+      {groupBy !== "none" && lanes.length > 0 && (
+        <div className="tasks__lanes" data-testid="open-list">
+          {lanes.map(renderLane)}
+        </div>
+      )}
+      {groupBy === "none" && open.length > 0 && (
         <section className="tasks__section">
           <div className="tasks__section-title">
             {t.tasks.openTitle}
