@@ -14,6 +14,7 @@ vi.mock("../api", () => ({
 // 2026-10-24 10:00:00 Asia/Taipei (the suite's TZ).
 const NOW = 1792807200;
 const OCT_30_END = 1793375999;
+const OCT_30_1000 = 1793325600;
 const OCT_29_END = 1793289599;
 const OCT_25_END = 1792943999;
 const OCT_25_0900 = 1792890000;
@@ -243,30 +244,45 @@ describe("TaskCard", () => {
     expect(leadSelect().value).toBe("5");
   });
 
-  it("saves a picked lead with the task's date and closes the editor", () => {
-    const { onSetDue } = renderCard(mkTask({ dueTs: OCT_30_END }));
+  it("keeps the editor open when a lead is picked and saves it with the task's unchanged due time once focus leaves the editor", () => {
+    const { onSetDue } = renderCard(mkTask({ dueTs: OCT_30_1000 }));
     fireEvent.click(chip());
     expect(leadSelect().value).toBe("");
     fireEvent.change(leadSelect(), { target: { value: "7" } });
+    expect(onSetDue).not.toHaveBeenCalled();
+    expect(screen.getByTestId("task-due-pop")).toBeTruthy();
+    fireEvent.blur(leadSelect(), {
+      relatedTarget: screen.getByTestId("task-due-input"),
+    });
+    expect(onSetDue).not.toHaveBeenCalled();
+    expect(screen.getByTestId("task-due-pop")).toBeTruthy();
+    fireEvent.blur(leadSelect());
     expect(onSetDue).toHaveBeenCalledTimes(1);
-    expect(onSetDue).toHaveBeenCalledWith("task-1", OCT_30_END, 7);
+    expect(onSetDue).toHaveBeenCalledWith("task-1", OCT_30_1000, 7);
     expect(screen.queryByTestId("task-due-pop")).toBeNull();
   });
 
-  it("returns a task's own lead to the workspace setting with 使用全站設定", () => {
+  it("returns a task's own lead to the workspace setting with 使用全站設定 on Enter", () => {
     const { onSetDue } = renderCard(mkTask({ dueTs: OCT_30_END, dueSoonLeadDays: 5 }));
     fireEvent.click(chip());
     fireEvent.change(leadSelect(), { target: { value: "" } });
+    expect(onSetDue).not.toHaveBeenCalled();
+    fireEvent.keyDown(leadSelect(), { key: "Enter" });
     expect(onSetDue).toHaveBeenCalledWith("task-1", OCT_30_END, null);
+    expect(screen.queryByTestId("task-due-pop")).toBeNull();
   });
 
-  it("saves a new date and a picked lead together in one write", () => {
-    const { onSetDue } = renderCard(mkTask({ dueTs: OCT_25_END }));
+  it("saves a new date and a picked lead together in one write on an outside click", () => {
+    const { onSetDue } = renderCard(mkTask({ dueTs: OCT_25_0900 }));
     fireEvent.click(chip());
     fireEvent.change(screen.getByTestId("task-due-input"), {
       target: { value: "2026-10-30" },
     });
-    fireEvent.change(leadSelect(), { target: { value: "14" } });
+    const select = leadSelect();
+    fireEvent.change(select, { target: { value: "14" } });
+    expect(onSetDue).not.toHaveBeenCalled();
+    fireEvent.mouseDown(document.body);
+    fireEvent.blur(select);
     expect(onSetDue).toHaveBeenCalledTimes(1);
     expect(onSetDue).toHaveBeenCalledWith("task-1", OCT_30_END, 14);
   });

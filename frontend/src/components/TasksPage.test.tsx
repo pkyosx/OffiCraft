@@ -1126,37 +1126,58 @@ describe("TasksPage", () => {
     expect(queryByText("還早的")).toBeNull();
   });
 
-  it("moves a task to 即將到期 and then 已逾期 as the clock passes each boundary, even before the counts refetch, expanding whichever lane is first", async () => {
+  it("moves tasks to 即將到期 and then 已逾期 as the clock passes each boundary, even before the counts refetch, keeping the open lane open until it empties and then opening the new first lane", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
-      const dueTs = Date.now() / 1000 + 86_400 + 10;
-      __injectMockTask(mkTask({ title: "一天後到期", dueTs }));
+      const now = Date.now() / 1000;
+      __injectMockTask(mkTask({ title: "先到期的", dueTs: now + 86_400 + 10 }));
+      __injectMockTask(mkTask({ title: "後到期的", dueTs: now + 86_400 + 40 }));
       __injectMockTask(mkTask({ title: "沒有期限的" }));
       vi.spyOn(api, "getTaskCount").mockResolvedValue({
-        open: 2,
-        total: 2,
+        open: 3,
+        total: 3,
         overdue: 0,
         dueSoon: 0,
         dueNextChangeTs: null,
       });
       const { findByText } = renderPage();
-      await findByText("一天後到期");
+      await findByText("先到期的");
       const expandedStates = () =>
         laneKeys().map((key) => laneToggle(key).getAttribute("aria-expanded"));
       expect(laneKeys()).toEqual(["later", "nodue"]);
       expect(expandedStates()).toEqual(["true", "false"]);
+
       await act(async () => {
-        vi.advanceTimersByTime(10_000);
+        vi.advanceTimersByTime(20_000);
+      });
+      await waitFor(() =>
+        expect(laneKeys()).toEqual(["soon", "later", "nodue"])
+      );
+      expect(expandedStates()).toEqual(["false", "true", "false"]);
+      expect(laneTitles("later")).toEqual(["後到期的"]);
+
+      await act(async () => {
+        vi.advanceTimersByTime(30_000);
       });
       await waitFor(() => expect(laneKeys()).toEqual(["soon", "nodue"]));
       expect(expandedStates()).toEqual(["true", "false"]);
-      expect(laneTitles("soon")).toEqual(["一天後到期"]);
+      expect(laneTitles("soon")).toEqual(["先到期的", "後到期的"]);
+
       await act(async () => {
-        vi.advanceTimersByTime(86_400_000);
+        vi.advanceTimersByTime(86_400_000 - 30_000);
+      });
+      await waitFor(() =>
+        expect(laneKeys()).toEqual(["overdue", "soon", "nodue"])
+      );
+      expect(expandedStates()).toEqual(["false", "true", "false"]);
+      expect(laneTitles("soon")).toEqual(["後到期的"]);
+
+      await act(async () => {
+        vi.advanceTimersByTime(30_000);
       });
       await waitFor(() => expect(laneKeys()).toEqual(["overdue", "nodue"]));
       expect(expandedStates()).toEqual(["true", "false"]);
-      expect(laneTitles("overdue")).toEqual(["一天後到期"]);
+      expect(laneTitles("overdue")).toEqual(["先到期的", "後到期的"]);
     } finally {
       vi.useRealTimers();
     }

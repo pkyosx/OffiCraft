@@ -900,7 +900,6 @@ export function TaskCard({
     const lead = value === "" ? null : Number(value);
     dueLeadDraftRef.current = lead;
     setDueLeadDraft(lead);
-    finishDue(true);
   }
 
   function editDueDraft(value: string) {
@@ -911,13 +910,19 @@ export function TaskCard({
   // 🔴 The date input reports every keyboard segment edit as a complete date
   // (typing 1 into the month of 10/30 yields 01/30), and a calendar pick looks
   // the same on the wire — so nothing is saved until Enter, blur or an outside
-  // click commits the draft.
+  // click commits the draft. The lead <select> follows the same rule: on
+  // Windows/Linux an ArrowDown on a closed select already fires change.
   function finishDue(commit: boolean) {
     if (!dueSessionRef.current) return;
     dueSessionRef.current = false;
     setDueOpen(false);
     if (!commit) return;
-    const next = endOfLocalDayTs(dueDraftRef.current);
+    // An unchanged day keeps the stored time: it may be an API-set 10:00, not
+    // the 23:59:59 this picker writes.
+    const next =
+      dueTs !== null && dueDraftRef.current === toDateInputValue(dueTs)
+        ? dueTs
+        : endOfLocalDayTs(dueDraftRef.current);
     if (next === null || new Date(next * 1000).getFullYear() < 1970) return;
     const lead = dueLeadDraftRef.current;
     void doSetDue(next, lead === taskLeadDays ? undefined : lead);
@@ -1549,7 +1554,17 @@ export function TaskCard({
                         disabled={dueDraft === ""}
                         onChange={(e) => pickDueLead(e.target.value)}
                         onKeyDown={(e) => {
-                          if (e.key === "Escape") finishDue(false);
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            finishDue(true);
+                          } else if (e.key === "Escape") {
+                            finishDue(false);
+                          }
+                        }}
+                        onBlur={(e) => {
+                          if (duePopRef.current?.contains(e.relatedTarget as Node))
+                            return;
+                          finishDue(true);
                         }}
                       >
                         <option value="">

@@ -682,16 +682,19 @@ export function TasksPage() {
   const [closedOpen, setClosedOpen] = useState(false);
 
   // Like the filters, the grouping and the lane collapse state live only in
-  // this mount. Only the first lane starts expanded (owner `rc-0b66903ff6b8`),
-  // and again on a mode switch. The default is positional, not stored, so when
-  // the first lane empties out the next one becomes first and opens.
+  // this mount. The default-open lane is picked when the default is applied
+  // and then held by key: a lane that appears ahead of it later (a task ticks
+  // overdue, an SSE arrival) must not collapse the one being read. Only when
+  // that lane empties out does the default move to whatever lane is first.
   const [groupBy, setGroupByState] = useState<GroupBy>("due");
   const [laneOpenOverrides, setLaneOpenOverrides] = useState<
     Map<string, boolean>
   >(() => new Map());
+  const [defaultOpenKey, setDefaultOpenKey] = useState<string | null>(null);
   function setGroupBy(next: GroupBy) {
     setGroupByState(next);
     setLaneOpenOverrides(new Map());
+    setDefaultOpenKey(null);
   }
   function toggleLane(key: string, expandedNow: boolean) {
     setLaneOpenOverrides((cur) => new Map(cur).set(key, !expandedNow));
@@ -779,6 +782,14 @@ export function TasksPage() {
     }
   }
   const lanes = buildLanes();
+  if (
+    lanes.length > 0 &&
+    !lanes.some((lane) => lane.key === defaultOpenKey)
+  ) {
+    setDefaultOpenKey(lanes[0].key);
+  }
+  const openByDefault =
+    lanes.find((lane) => lane.key === defaultOpenKey)?.key ?? lanes[0]?.key;
   const laneLead: string | undefined = {
     due: undefined,
     executor: t.tasks.laneExecutorLead,
@@ -828,6 +839,7 @@ export function TasksPage() {
     if (appliedId === "") return;
     setClosedOpen(true);
     setLaneOpenOverrides(new Map());
+    setDefaultOpenKey(null);
   }, [appliedId]);
 
   // ── empty states, re-derived for the server-side ask (T-a3e4) ─────────────
@@ -934,8 +946,9 @@ export function TasksPage() {
     );
   }
 
-  function renderLane(lane: Lane, index: number) {
-    const expanded = laneOpenOverrides.get(lane.key) ?? index === 0;
+  function renderLane(lane: Lane) {
+    const expanded =
+      laneOpenOverrides.get(lane.key) ?? lane.key === openByDefault;
     const regionId = `${laneIdBase}-lane-${lane.key}`;
     return (
       <section
