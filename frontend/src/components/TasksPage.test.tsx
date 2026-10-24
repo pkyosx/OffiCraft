@@ -1313,7 +1313,7 @@ describe("TasksPage", () => {
     const select = getByTestId("group-by");
     expect(panel.contains(select)).toBe(true);
     expect(select.closest(".filter-panel__actions")).not.toBeNull();
-    expect(document.activeElement).toBe(select);
+    expect(document.activeElement).toBe(panel);
 
     chooseGroupBy("executor");
     await waitFor(() => expect(laneKeys()).toEqual(["mira"]));

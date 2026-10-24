@@ -161,7 +161,7 @@ function DisplayOptions({
   const [open, setOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const selectRef = useRef<HTMLSelectElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const panelId = useId();
 
   useEscapeLayer(
@@ -175,7 +175,9 @@ function DisplayOptions({
 
   useEffect(() => {
     if (!open) return;
-    selectRef.current?.focus();
+    // Focusing the select itself makes phone browsers pop its picker open the
+    // moment the panel appears.
+    panelRef.current?.focus();
     const onDocDown = (e: MouseEvent) => {
       if (!boxRef.current?.contains(e.target as Node)) setOpen(false);
     };
@@ -200,7 +202,9 @@ function DisplayOptions({
       </button>
       {open && (
         <div
+          ref={panelRef}
           id={panelId}
+          tabIndex={-1}
           className="tasks__display-pop"
           role="dialog"
           aria-labelledby={`${panelId}-title`}
@@ -212,7 +216,6 @@ function DisplayOptions({
           <label className="tasks__display-row">
             <span>{t.tasks.groupByLabel}</span>
             <select
-              ref={selectRef}
               className="tasks__display-select"
               value={groupBy}
               onChange={(e) => onGroupByChange(e.target.value as GroupBy)}

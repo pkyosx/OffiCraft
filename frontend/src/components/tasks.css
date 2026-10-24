@@ -133,6 +133,9 @@
   flex-direction: column;
   gap: 10px;
 }
+.tasks__display-pop:focus {
+  outline: none;
+}
 .tasks__display-title {
   font-size: 12.5px;
   font-weight: 600;
