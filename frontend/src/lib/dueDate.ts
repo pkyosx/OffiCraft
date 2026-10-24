@@ -1,4 +1,4 @@
-// Due-date math for the task card chip and the 任務頁 due filters. All day
+// Due-date math for the task card chip and the 任務頁 due lanes. All day
 // math is the viewer's LOCAL calendar; every "now" is a parameter.
 
 export const DUE_SOON_WINDOW_S = 86_400;

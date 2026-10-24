@@ -1016,6 +1016,11 @@ describe("TasksPage", () => {
           '[data-testid="open-list"] [data-testid="closed-list"]'
         )
       ).toBeNull();
+      const lanes = await findByTestId("open-list");
+      expect(
+        lanes.compareDocumentPosition(await findByTestId("closed-list")) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy();
       expect(laneCount("overdue")).toBe(" · 3");
     } finally {
       vi.useRealTimers();

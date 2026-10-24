@@ -70,6 +70,9 @@
 /* 分組依據: a native select inside the pill, so the pill draws the frame. */
 .tasks__group-by {
   display: inline-flex;
+  /* The label span would inherit body line-height 1.5 and stand taller than
+     the button-based pills beside it. */
+  line-height: normal;
   align-items: center;
   gap: 6px;
   white-space: nowrap;
@@ -213,6 +216,11 @@
 }
 .tasks__lane-toggle {
   align-items: center;
+}
+/* The card's faint 未設定 look is for a placeholder; as a lane title it would
+   drop below AA. */
+.tasks__lane-toggle .task-badge--due-none {
+  opacity: 1;
 }
 
 /* ── one task card (全展開內嵌) ── */
