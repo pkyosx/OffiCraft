@@ -302,7 +302,7 @@ export function TasksPage() {
   // list answers a status set (see the empty states).
   const taskTotal = useTaskCount().total;
   // Woken by the loaded tasks' own next due boundary, so a task changes lane at
-  // the same moment its card's chip changes colour.
+  // the same moment its card's 到期日 icon changes.
   const dueSoonLeadDays = useDueSoonLeadDays();
   const nowSec = useNowSeconds(
     nextListDueChange(tasks, Date.now() / 1000, dueSoonLeadDays)

@@ -50,9 +50,8 @@ export interface Messages {
   taskMarkDuplicateBody: (taskNo: string) => string;
   taskDuplicateOf: (taskNo: string) => string;
   taskReassignTitle: (taskNo: string) => string;
-  taskDueOn: (month: number, day: number) => string;
+  taskDueDate: (tsSeconds: number) => string;
   taskOverdueDays: (days: number) => string;
-  taskDueInDays: (days: number) => string;
   taskDueLeadWorkspace: (days: number) => string;
   taskCountSummary: (overdue: number, dueSoon: number, open: number) => string;
   // ── task artifact versions (T-60) ──
@@ -285,19 +284,21 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     // 「3版」/「3 versions」 — the artifact row's versions entry (T-60). Only
     // ever printed for n > 1 (one version is not a history), so the tail needs
     // no singular twin.
-    taskDueOn: (month, day) =>
-      [tasks.dueOnLead, `${month}/${day}`, tasks.dueOnTail]
-        .filter((part) => part !== "")
-        .join(" "),
+    taskDueDate: (tsSeconds) => {
+      const d = new Date(tsSeconds * 1000);
+      return language === "en"
+        ? d.toLocaleDateString("en-US", {
+            weekday: "short",
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })
+        : `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}（${"日一二三四五六"[d.getDay()]}）`;
+    },
     taskOverdueDays: (days) =>
       `${tasks.overdueDaysLead} ${days} ${
         days === 1 ? tasks.overdueDaysTailOne : tasks.overdueDaysTailMany
       }`,
-    // Only ever printed for 2+ days (0 and 1 are 今天／明天), so no singular.
-    taskDueInDays: (days) =>
-      [tasks.dueInDaysLead, String(days), tasks.dueInDaysTail]
-        .filter((part) => part !== "")
-        .join(" "),
     taskDueLeadWorkspace: (days) => `${tasks.dueLeadWorkspaceLead}${days}`,
     taskCountSummary: (overdue, dueSoon, open) =>
       [

@@ -24,8 +24,10 @@ describe("isDueSoon", () => {
 });
 
 describe("dueState", () => {
-  it("names the calendar days left once inside a lead longer than a day", () => {
-    expect(dueState(OCT_30_END, NOW, 7)).toEqual({ kind: "inDays", days: 6 });
+  it("is soon inside the lead, later outside it, and counts calendar days once overdue", () => {
+    expect(dueState(OCT_30_END, NOW, 7)).toEqual({ kind: "soon" });
+    expect(dueState(OCT_30_END, NOW, 3)).toEqual({ kind: "later" });
+    expect(dueState(OCT_30_END, OCT_30_END + 2 * 86_400, 3)).toEqual({ kind: "overdue", days: 2 });
   });
 });
 

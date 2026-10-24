@@ -116,22 +116,36 @@ test("unparseable lead text is not saved as the workspace setting", async ({
   await expect(cmp.getByText("快到期提醒要是 1 到 30 的整數天數，這次沒有變更")).toBeVisible();
 });
 
+const OVERDUE_2020 = Math.floor(new Date(2020, 0, 1, 23, 59, 59).getTime() / 1000);
+
 for (const width of [320, 390]) {
-  test(`the lead field and its unit fit inside the due popover at ${width}px`, async ({
+  test(`the 到期日 row with its overdue icon, and the due popover, stay inside the card at ${width}px`, async ({
     mount,
     page,
   }) => {
     await page.setViewportSize({ width, height: 700 });
-    const cmp = await mount(<TaskCardDueStory />);
+    const cmp = await mount(<TaskCardDueStory dueTs={OVERDUE_2020} />);
+    const card = (await cmp.locator(".task-card").boundingBox())!;
+    const content = (await cmp.locator(".task-card__meta").boundingBox())!;
+    const date = (await cmp.getByTestId("task-due").boundingBox())!;
+    const icon = (await cmp.getByTestId("task-due-alert").boundingBox())!;
+    expect(icon.x).toBeGreaterThanOrEqual(date.x + date.width);
+    expect(Math.abs(icon.y + icon.height / 2 - (date.y + date.height / 2))).toBeLessThan(2);
+    expect(icon.x + icon.width).toBeLessThanOrEqual(content.x + content.width);
+    expect(
+      await cmp.locator(".task-card").evaluate((el) => el.scrollWidth - el.clientWidth)
+    ).toBe(0);
+
     await cmp.getByTestId("task-due").click();
-    const pop = await cmp.getByTestId("task-due-pop").boundingBox();
-    const input = await cmp.getByTestId("task-due-lead").boundingBox();
-    const unit = await cmp.locator(".task-card__due-lead-unit").boundingBox();
-    expect(pop && input && unit).toBeTruthy();
-    expect(input!.width).toBeGreaterThanOrEqual(80);
-    expect(unit!.x).toBeGreaterThanOrEqual(input!.x + input!.width);
-    expect(Math.abs(unit!.y + unit!.height / 2 - (input!.y + input!.height / 2))).toBeLessThan(2);
-    expect(unit!.x + unit!.width).toBeLessThanOrEqual(pop!.x + pop!.width);
-    expect(pop!.x + pop!.width).toBeLessThanOrEqual(width);
+    const pop = (await cmp.getByTestId("task-due-pop").boundingBox())!;
+    const input = (await cmp.getByTestId("task-due-lead").boundingBox())!;
+    const unit = (await cmp.locator(".task-card__due-lead-unit").boundingBox())!;
+    expect(pop.x).toBeGreaterThanOrEqual(card.x);
+    expect(pop.x + pop.width).toBeLessThanOrEqual(content.x + content.width);
+    expect(pop.y).toBeGreaterThan(date.y);
+    expect(input.width).toBeGreaterThanOrEqual(80);
+    expect(unit.x).toBeGreaterThanOrEqual(input.x + input.width);
+    expect(Math.abs(unit.y + unit.height / 2 - (input.y + input.height / 2))).toBeLessThan(2);
+    expect(unit.x + unit.width).toBeLessThanOrEqual(pop.x + pop.width);
   });
 }

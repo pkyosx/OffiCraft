@@ -19,7 +19,8 @@ const TASK = mkTask({
   dueTs: DUE_OCT_30,
 });
 
-export function TaskCardDueStory() {
+export function TaskCardDueStory({ dueTs = DUE_OCT_30 }: { dueTs?: number }) {
+  const task = dueTs === DUE_OCT_30 ? TASK : { ...TASK, dueTs };
   window.__dueSaves = [];
   window.__leadSaves = [];
   return (
@@ -29,8 +30,8 @@ export function TaskCardDueStory() {
           <div className="tasks">
             <div data-testid="outside" style={{ height: 40 }} />
             <TaskCard
-              task={TASK}
-              allTasks={[TASK]}
+              task={task}
+              allTasks={[task]}
               members={[MIRA]}
               workers={WORKERS}
               nowTs={Date.now() / 1000}
@@ -43,7 +44,7 @@ export function TaskCardDueStory() {
               }}
               onSendMessage={NOOP as never}
               onReassign={NOOP as never}
-              onHydrate={(async () => TASK) as never}
+              onHydrate={(async () => task) as never}
             />
           </div>
         </main>
