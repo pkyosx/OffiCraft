@@ -372,7 +372,13 @@ export const en: Dict = {
     dueClearLabel: "Clear due date",
     filterOverdue: "Overdue",
     filterDueSoon: "Due soon",
-    dueBadgeLabel: "Tasks overdue or due soon:",
+    navBadgeOpenLead: "",
+    navBadgeOpenTail: "open",
+    navBadgeDueSoonLead: "",
+    navBadgeDueSoonTail: "due soon",
+    navBadgeOverdueLead: "",
+    navBadgeOverdueTail: "overdue",
+    navBadgeSep: ", ",
     // T-e5b1 (owner 2026-08-15): the in-place title / description editors were
     // removed from the task UI, and their whole label family went with them.
     // The capability is untouched — this is the screen's vocabulary, not the

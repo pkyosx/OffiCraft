@@ -119,11 +119,10 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   // separate signal from the 等我回覆 waiting-card badge (different clearing
   // rules — they never merge).
   const chatUnread = useChatUnread();
-  // The 任務 nav badge: how many tasks are OPEN (non-terminal; 已完成/終止
-  // never count — spec §1). Live via /api/tasks/count + "task" SSE deltas.
+  // The 任務 nav badge: OPEN tasks (non-terminal; 已完成/終止 never count —
+  // spec §1), and of those how many are due soon / overdue. Live via
+  // /api/tasks/count + "task" SSE deltas.
   const taskCounts = useTaskCount();
-  const taskCount = taskCounts.open;
-  const taskDueCount = taskCounts.overdue + taskCounts.dueSoon;
   // The gear opens Settings as an OVERLAY route (#settings); clicking a nav
   // tab navigates back to that tab.
   const settingsOpen = route.page === "settings";
@@ -397,19 +396,33 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
           >
             <NavIcon tabKey="tasks" fallback={<TasksIcon size={15} />} />
             <span>{t.nav.tasks}</span>
-            {taskCount > 0 && (
-              <span className="nav-tab__badge" data-testid="tasks-badge">
-                {taskCount > 99 ? "99+" : taskCount}
-              </span>
-            )}
-            {taskDueCount > 0 && (
+            {taskCounts.open > 0 && (
               <span
-                className="nav-tab__badge nav-tab__badge--due"
-                data-testid="tasks-due-badge"
+                className="nav-tab__seg-badge"
+                data-testid="tasks-badge"
                 role="img"
-                aria-label={msg.taskDueBadgeLabel(taskDueCount)}
+                aria-label={msg.taskNavBadgeLabel(
+                  taskCounts.open,
+                  taskCounts.dueSoon,
+                  taskCounts.overdue,
+                )}
               >
-                {taskDueCount > 99 ? "99+" : taskDueCount}
+                {(
+                  [
+                    ["open", taskCounts.open],
+                    ["due-soon", taskCounts.dueSoon],
+                    ["overdue", taskCounts.overdue],
+                  ] as const
+                )
+                  .filter(([, n]) => n > 0)
+                  .map(([kind, n]) => (
+                    <span
+                      key={kind}
+                      className={`nav-tab__seg nav-tab__seg--${kind}`}
+                    >
+                      {n > 99 ? "99+" : n}
+                    </span>
+                  ))}
               </span>
             )}
           </button>

@@ -8,6 +8,7 @@
 //      collapses to ~1.11:1. What keeps the field visible is its BORDER, so the
 //      border is what the guard measures.
 //   ② the 登入 / 首啟 hint line (.login__hint) on the login card.
+//   ③ the 任務 nav tab's segmented count pill.
 //
 // A theme is applied the way the product applies one: --color-* custom
 // properties set on documentElement. `light` seeds LIGHT_PACK below, which is
@@ -53,6 +54,11 @@ export function ThemeContrastStory() {
           />
         </div>
       </header>
+      <span className="nav-tab__seg-badge">
+        <span className="nav-tab__seg nav-tab__seg--open">12</span>
+        <span className="nav-tab__seg nav-tab__seg--due-soon">1</span>
+        <span className="nav-tab__seg nav-tab__seg--overdue">2</span>
+      </span>
       <div className="login">
         <div className="login__card">
           <p className="login__hint">提示文字</p>

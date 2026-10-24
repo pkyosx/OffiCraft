@@ -3,7 +3,7 @@
 // Locked here:
 //   1. COUNT, NOT A DOT: the office tab renders the actual total chat unread
 //      as a number (owner request), reusing the same .nav-tab__badge pill as
-//      the 等我回覆/任務 tabs.
+//      the 等我回覆 tab.
 //   2. > 99 clamps to "99+" (the shared badge convention).
 //   3. count 0 → NOT RENDERED at all (no empty pill).
 
@@ -75,32 +75,58 @@ describe("辦公室 nav unread badge", () => {
   });
 });
 
-describe("任務 nav due badge", () => {
+const segmentsOf = (pill: HTMLElement) =>
+  Array.from(pill.children, (seg) => [seg.className, seg.textContent]);
+
+describe("任務 nav badge", () => {
   beforeEach(() => {
     window.location.hash = "";
     state.chatUnread = 0;
   });
 
-  it("shows overdue plus due-soon as a separate red count beside the open count", () => {
-    state.taskCount = { open: 7, total: 9, overdue: 2, dueSoon: 3, dueNextChangeTs: null };
+  it("shows open, due-soon and overdue as gray, amber and red segments of one labelled pill", () => {
+    state.taskCount = { open: 12, total: 15, overdue: 2, dueSoon: 1, dueNextChangeTs: null };
     renderApp();
-    expect(screen.getByTestId("tasks-badge").textContent).toBe("7");
-    const due = screen.getByTestId("tasks-due-badge");
-    expect(due.textContent).toBe("5");
-    expect(due.className).toContain("nav-tab__badge--due");
-    expect(due.getAttribute("aria-label")).toBe("已逾期或即將到期的任務 5");
+    const pill = screen.getByTestId("tasks-badge");
+    expect(segmentsOf(pill)).toEqual([
+      ["nav-tab__seg nav-tab__seg--open", "12"],
+      ["nav-tab__seg nav-tab__seg--due-soon", "1"],
+      ["nav-tab__seg nav-tab__seg--overdue", "2"],
+    ]);
+    expect(pill.getAttribute("role")).toBe("img");
+    expect(pill.getAttribute("aria-label")).toBe("進行中 12 個，即將到期 1 個，已逾期 2 個");
   });
 
-  it("clamps the due count above 99 to \"99+\"", () => {
-    state.taskCount = { open: 300, total: 300, overdue: 60, dueSoon: 45, dueNextChangeTs: null };
+  it("leaves out a segment whose count is zero, in the pill and its label", () => {
+    state.taskCount = { open: 4, total: 4, overdue: 3, dueSoon: 0, dueNextChangeTs: null };
     renderApp();
-    expect(screen.getByTestId("tasks-due-badge").textContent).toBe("99+");
+    const pill = screen.getByTestId("tasks-badge");
+    expect(segmentsOf(pill)).toEqual([
+      ["nav-tab__seg nav-tab__seg--open", "4"],
+      ["nav-tab__seg nav-tab__seg--overdue", "3"],
+    ]);
+    expect(pill.getAttribute("aria-label")).toBe("進行中 4 個，已逾期 3 個");
   });
 
-  it("renders no due badge when nothing is overdue or due soon", () => {
+  it("shows only the gray segment when nothing is due soon or overdue", () => {
     state.taskCount = { open: 4, total: 4, overdue: 0, dueSoon: 0, dueNextChangeTs: null };
     renderApp();
-    expect(screen.getByTestId("tasks-badge").textContent).toBe("4");
-    expect(screen.queryByTestId("tasks-due-badge")).toBeNull();
+    const pill = screen.getByTestId("tasks-badge");
+    expect(segmentsOf(pill)).toEqual([["nav-tab__seg nav-tab__seg--open", "4"]]);
+    expect(pill.getAttribute("aria-label")).toBe("進行中 4 個");
+  });
+
+  it("renders no pill when no task is open", () => {
+    state.taskCount = { open: 0, total: 6, overdue: 0, dueSoon: 0, dueNextChangeTs: null };
+    renderApp();
+    expect(screen.queryByTestId("tasks-badge")).toBeNull();
+  });
+
+  it("clamps each segment above 99 to \"99+\" while the label keeps the real counts", () => {
+    state.taskCount = { open: 300, total: 300, overdue: 120, dueSoon: 99, dueNextChangeTs: null };
+    renderApp();
+    const pill = screen.getByTestId("tasks-badge");
+    expect(segmentsOf(pill).map(([, text]) => text)).toEqual(["99+", "99", "99+"]);
+    expect(pill.getAttribute("aria-label")).toBe("進行中 300 個，即將到期 99 個，已逾期 120 個");
   });
 });

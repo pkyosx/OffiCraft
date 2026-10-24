@@ -396,7 +396,13 @@ export const zh = {
     dueClearLabel: "清除到期日",
     filterOverdue: "已逾期",
     filterDueSoon: "即將到期",
-    dueBadgeLabel: "已逾期或即將到期的任務",
+    navBadgeOpenLead: "進行中",
+    navBadgeOpenTail: "個",
+    navBadgeDueSoonLead: "即將到期",
+    navBadgeDueSoonTail: "個",
+    navBadgeOverdueLead: "已逾期",
+    navBadgeOverdueTail: "個",
+    navBadgeSep: "，",
     // T-e5b1(owner 2026-08-15):任務 UI 的標題／敘述就地編輯面已移除,整族
     // 文案跟著走。能力未動 —— 移掉的是畫面的詞彙,不是能力。
     // (T-646a 已把兩支工具合併成 `update_task`。)

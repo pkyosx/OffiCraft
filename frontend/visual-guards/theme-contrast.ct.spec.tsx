@@ -12,6 +12,7 @@
 //      in every theme. It used to be a hard-coded color-mix off --color-text,
 //      which no light theme could lift past ~3.3:1.
 //   ③ each built-in's main text-on-surface token pairs clear AA.
+//   ④ each segment of the 任務 nav pill: its count clears AA on its own fill.
 import { test, expect } from "@playwright/experimental-ct-react";
 import type { Page } from "@playwright/test";
 import { ThemeContrastStory } from "./stories/ThemeContrastStory";
@@ -217,5 +218,25 @@ for (const theme of BUILTIN_THEME_IDS) {
       if (ratio < floor) failures.push(`${fg} on ${bg}: ${ratio.toFixed(2)}:1 < ${floor}`);
     }
     expect(failures).toEqual([]);
+  });
+}
+
+for (const theme of BUILTIN_THEME_IDS) {
+  test(`${theme}: every 任務 nav pill segment's count clears AA (≥4.5:1) on its fill`, async ({
+    mount,
+    page,
+  }) => {
+    const cmp = await mountUnder(mount, page, theme);
+    const ratios: Record<string, string> = {};
+    for (const kind of ["open", "due-soon", "overdue"]) {
+      const s = await sample(cmp.locator(`.nav-tab__seg--${kind}`));
+      const fill = parseColor(s.background);
+      expect(fill.a, `${kind} segment must paint an opaque fill`).toBe(1);
+      ratios[kind] = contrast(over(parseColor(s.color), fill), fill).toFixed(2);
+    }
+    await expectBuiltinApplied(page, theme);
+    for (const [kind, ratio] of Object.entries(ratios)) {
+      expect(Number(ratio), `${kind}: ${ratio}:1`).toBeGreaterThanOrEqual(4.5);
+    }
   });
 }

@@ -122,7 +122,9 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["zh", "taskOverdueDays", [2], "逾期 2 天"],
     ["zh", "taskFilterOverdue", [3], "已逾期 3"],
     ["zh", "taskFilterDueSoon", [4], "即將到期 4"],
-    ["zh", "taskDueBadgeLabel", [5], "已逾期或即將到期的任務 5"],
+    ["zh", "taskNavBadgeLabel", [12, 1, 2], "進行中 12 個，即將到期 1 個，已逾期 2 個"],
+    ["zh", "taskNavBadgeLabel", [4, 0, 3], "進行中 4 個，已逾期 3 個"],
+    ["zh", "taskNavBadgeLabel", [4, 0, 0], "進行中 4 個"],
     // T-60 — the artifact version reader's four. The count is the `sp` case
     // again (zh runs the characters together, en needs the space), and it is
     // only ever printed for n > 1, so there is no singular rendering to pin.
@@ -287,7 +289,9 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["en", "taskOverdueDays", [2], "Overdue 2 days"],
     ["en", "taskFilterOverdue", [3], "Overdue 3"],
     ["en", "taskFilterDueSoon", [4], "Due soon 4"],
-    ["en", "taskDueBadgeLabel", [5], "Tasks overdue or due soon: 5"],
+    ["en", "taskNavBadgeLabel", [12, 1, 2], "12 open, 1 due soon, 2 overdue"],
+    ["en", "taskNavBadgeLabel", [4, 0, 3], "4 open, 3 overdue"],
+    ["en", "taskNavBadgeLabel", [4, 0, 0], "4 open"],
     ["en", "replyWaited", ["3 小時"], "Waiting 3 小時"],
     ["en", "replyOpenedAt", ["7/13 09:05"], "Opened 7/13 09:05"],
     ["en", "replyAnsweredAt", ["7/13 09:05"], "Answered 7/13 09:05"],

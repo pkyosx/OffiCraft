@@ -54,7 +54,7 @@ export interface Messages {
   taskOverdueDays: (days: number) => string;
   taskFilterOverdue: (n: number) => string;
   taskFilterDueSoon: (n: number) => string;
-  taskDueBadgeLabel: (n: number) => string;
+  taskNavBadgeLabel: (open: number, dueSoon: number, overdue: number) => string;
   // ── task artifact versions (T-60) ──
   taskArtifactVersionCount: (n: number) => string;
   taskArtifactVersionLabel: (when: string) => string;
@@ -293,7 +293,19 @@ export function makeMessages(t: Dict, language: Lang): Messages {
       }`,
     taskFilterOverdue: (n) => `${tasks.filterOverdue} ${n}`,
     taskFilterDueSoon: (n) => `${tasks.filterDueSoon} ${n}`,
-    taskDueBadgeLabel: (n) => `${tasks.dueBadgeLabel} ${n}`,
+    taskNavBadgeLabel: (open, dueSoon, overdue) =>
+      (
+        [
+          [open, tasks.navBadgeOpenLead, tasks.navBadgeOpenTail],
+          [dueSoon, tasks.navBadgeDueSoonLead, tasks.navBadgeDueSoonTail],
+          [overdue, tasks.navBadgeOverdueLead, tasks.navBadgeOverdueTail],
+        ] as const
+      )
+        .filter(([n]) => n > 0)
+        .map(([n, lead, tail]) =>
+          [lead, String(n), tail].filter((part) => part !== "").join(" ")
+        )
+        .join(tasks.navBadgeSep),
     taskArtifactVersionCount: (n) =>
       `${n}${sp}${tasks.artifacts.versionsCountTail}`,
     // Which version the `-` side of a comparison IS. Same reason the document
