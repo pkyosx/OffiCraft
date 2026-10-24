@@ -90,8 +90,8 @@ export function FilterPanel({
             {clearLabel}
           </button>
         )}
+        {actions && <div className="filter-panel__actions">{actions}</div>}
       </div>
-      {actions && <div className="filter-panel__actions">{actions}</div>}
     </div>
   );
 }

@@ -40,8 +40,9 @@
   gap: 10px;
 }
 
-/* `margin-left: auto` keeps the actions on the right edge after they wrap onto
- * a line of their own on a phone. */
+/* Inside the fields flow, so on a phone the actions share the last line of
+ * fields instead of taking a line of their own; `margin-left: auto` keeps them
+ * on that line's right edge. */
 .filter-panel__actions {
   margin-left: auto;
   display: flex;

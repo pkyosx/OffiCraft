@@ -82,8 +82,8 @@ for (const theme of BUILTIN_THEME_IDS) {
   });
 }
 
-for (const width of [1280, 390, 320]) {
-  test(`width ${width}: 顯示方式 holds the filter row's right edge and its panel stays on screen`, async ({
+for (const width of [1280, 390, 360, 320]) {
+  test(`width ${width}: 顯示方式 holds the filter row's right edge beside the last filter (from 360 up), and its panel stays on screen`, async ({
     mount,
     page,
   }) => {
@@ -95,6 +95,19 @@ for (const width of [1280, 390, 320]) {
     const row = (await cmp.getByTestId("tasks-filter").boundingBox())!;
     const button = (await trigger.boundingBox())!;
     expect(Math.abs(row.x + row.width - (button.x + button.width))).toBeLessThanOrEqual(1);
+    const sharesLine = await cmp.getByTestId("tasks-filter-fields").evaluate((fields, mid) => {
+      return Array.from(fields.children)
+        .filter((c) => !c.classList.contains("filter-panel__actions"))
+        .some((c) => {
+          const r = c.getBoundingClientRect();
+          return r.top <= mid && mid <= r.bottom;
+        });
+    }, button.y + button.height / 2);
+    // At 320 the last line of filters is already full, so the button wrapping
+    // alone there is expected; from 360 up it must share the last line.
+    if (width >= 360) {
+      expect(sharesLine, "顯示方式 sits on a line with a filter, not on a line of its own").toBe(true);
+    }
 
     await trigger.click();
     const panel = (await cmp.getByTestId("display-options-panel").boundingBox())!;

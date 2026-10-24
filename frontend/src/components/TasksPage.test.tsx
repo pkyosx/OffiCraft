@@ -1289,15 +1289,18 @@ describe("TasksPage", () => {
     ).toBe(true);
   });
 
-  it("opens 顯示方式 at the end of the filter row, outside the filter fields, and closes it on an outside click or Esc", async () => {
+  it("opens 顯示方式 at the end of the filter row, after 清除篩選, and closes it on an outside click or Esc", async () => {
     seedDueTasks(Date.now() / 1000);
     const { findByText, getByTestId, queryByTestId } = renderPage();
     await findByText("逾期的手冊任務");
     const fields = getByTestId("tasks-filter-fields");
     const trigger = getByTestId("display-options");
     expect(trigger.textContent).toBe("顯示方式");
-    expect(fields.contains(trigger)).toBe(false);
-    expect(getByTestId("tasks-filter").contains(trigger)).toBe(true);
+    expect(fields.lastElementChild!.contains(trigger)).toBe(true);
+    expect(
+      getByTestId("tasks-filter-clear").compareDocumentPosition(trigger) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
     expect(queryByTestId("group-by")).toBeNull();
     expect(queryByTestId("display-options-panel")).toBeNull();
 
@@ -1309,7 +1312,7 @@ describe("TasksPage", () => {
     expect(panel.textContent).toContain("分組依據");
     const select = getByTestId("group-by");
     expect(panel.contains(select)).toBe(true);
-    expect(fields.contains(select)).toBe(false);
+    expect(select.closest(".filter-panel__actions")).not.toBeNull();
     expect(document.activeElement).toBe(select);
 
     chooseGroupBy("executor");
