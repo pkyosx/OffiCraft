@@ -1,0 +1,118 @@
+# Daily govulncheck of every Go module. When a newer patch release of the pinned
+# Go minor fixes a reached standard-library vulnerability, opens one PR that does
+# the whole bump (go.mod, ci.yml, install guide, dist/officraft anchor). Dependabot
+# cannot do this: GitHub's advisory database files Go stdlib CVEs under no package.
+#
+# ⚠️ This workflow's triggers are pinned by bin/tests/auto-beta-guard.sh (W4c/W4f).
+# A push or pull_request trigger here would add checks auto-beta cannot wait for.
+name: go-security-bump
+
+on:
+  schedule:
+    - cron: '17 1 * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: go-security-bump
+  cancel-in-progress: false
+
+jobs:
+  go-security-bump:
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      # A fine-grained PAT (Contents, Pull requests, Workflows: read/write), not
+      # GITHUB_TOKEN: GITHUB_TOKEN may not push a change to ci.yml, and a PR it
+      # opens does not start the ci workflow, so the bump would arrive unchecked.
+      GH_TOKEN: ${{ secrets.GO_SECURITY_BUMP_TOKEN }}
+      BUMP_BRANCH: go-security-bump
+    steps:
+      - name: Require the bump token
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::repo secret GO_SECURITY_BUMP_TOKEN is not set (or has been removed)"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.GO_SECURITY_BUMP_TOKEN }}
+
+      - name: Skip while a bump PR is open
+        id: open
+        run: |
+          n="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BUMP_BRANCH" --state open \
+                 --json number,headRepositoryOwner \
+                 --jq "[.[] | select(.headRepositoryOwner.login == \"$GITHUB_REPOSITORY_OWNER\")] | length")"
+          echo "count=$n" >> "$GITHUB_OUTPUT"
+          if [ "$n" != 0 ]; then
+            echo "A $BUMP_BRANCH PR is already open; not opening another." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/setup-go@v6
+        if: steps.open.outputs.count == '0'
+        with:
+          go-version-file: server/ocserverd/go.mod
+          check-latest: false
+          cache-dependency-path: server/ocserverd/go.sum
+
+      - name: Scan
+        id: scan
+        if: steps.open.outputs.count == '0'
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+          plan="$(python3 bin/go-security-bump.py scan)"
+          echo "plan=$plan" >> "$GITHUB_OUTPUT"
+          if [ -z "$plan" ]; then
+            echo "No fixable Go vulnerability; nothing to do." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/setup-go@v6
+        if: steps.scan.outputs.plan != ''
+        with:
+          go-version: ${{ fromJSON(steps.scan.outputs.plan).to }}
+          check-latest: false
+          cache-dependency-path: server/ocserverd/go.sum
+
+      - name: Open the bump PR
+        if: steps.scan.outputs.plan != ''
+        env:
+          PLAN: ${{ steps.scan.outputs.plan }}
+          BASE: ${{ github.event.repository.default_branch }}
+        run: |
+          from="$(jq -r .from <<<"$PLAN")"
+          to="$(jq -r .to <<<"$PLAN")"
+          vulns="$(jq -r '.vulns | join(", ")' <<<"$PLAN")"
+          links="$(jq -r '.vulns[] | "- [\(.)](https://pkg.go.dev/vuln/\(.))"' <<<"$PLAN")"
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898168+github-actions[bot]@users.noreply.github.com'
+          git switch -C "$BUMP_BRANCH"
+
+          python3 bin/go-security-bump.py apply "$from" "$to"
+          git commit -qam "chore(go): bump Go to $to for $vulns" \
+            -m "[why] govulncheck found Go standard-library vulnerabilities reached at go $from that go $to fixes." \
+            -m "[how] bin/go-security-bump.py apply: every go.mod, every setup-go pin in ci.yml, docs/guide/install.md."
+
+          python3 bin/go-security-bump.py anchor "$(git rev-parse HEAD)"
+          git add dist/officraft
+          git commit -qm "chore(dist): rebuild the officraft TCC anchor with Go $to" \
+            -m "[why] The go.mod bump changes cli/officraft's source hash, and a new toolchain changes the anchor's bytes." \
+            -m "[how] Rebuilt per dist/officraft/BUILD.md; bin/check-officraft-dist passes."
+
+          # No bump PR is open (checked above), so a remote branch of this name is a
+          # leftover of a closed one and is safe to overwrite.
+          git fetch -q origin "+refs/heads/$BUMP_BRANCH:refs/remotes/origin/$BUMP_BRANCH" || true
+          git push --force-with-lease origin "$BUMP_BRANCH"
+
+          gh pr create --repo "$GITHUB_REPOSITORY" --base "$BASE" --head "$BUMP_BRANCH" \
+            --title "chore(go): bump Go to $to (security)" \
+            --body "$(printf '%s\n' \
+              "govulncheck found Go standard-library vulnerabilities that go $from reaches and go $to fixes:" \
+              "" "$links" "" \
+              "Opened by the go-security-bump workflow ([run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID))." \
+              "" \
+              "The rebuilt dist/officraft anchor is a new TCC identity: each machine sees one macOS authorization prompt after updating.")"
+          echo "Opened a PR bumping go $from -> $to." >> "$GITHUB_STEP_SUMMARY"

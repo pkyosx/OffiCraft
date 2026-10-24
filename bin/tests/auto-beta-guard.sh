@@ -1882,7 +1882,9 @@ check "W4dtpc the W4dt grep is alive (it finds the planted single-line local ref
 # request. It contributes no check run to any trunk commit, so the set W1 reasons
 # about and the set GitHub actually produces stay identical, and every W1 assertion
 # means exactly what it meant before. That — not the filename — is the precondition,
-# and W4f pins it directly.
+# and W4f pins it directly. A `schedule` trigger meets it too: a scheduled run is
+# its own event on the default branch's head, and auto-beta (which runs on push)
+# and bin/release (which reads only its own run's jobs) never look at it.
 #
 # ⚠️ THE WEAKENING THIS DOES ACCEPT, stated rather than buried: `on:` is now the
 # only thing standing between a second file and W1's blind spot. Add `push:` to
@@ -1893,11 +1895,11 @@ check "W4dtpc the W4dt grep is alive (it finds the planted single-line local ref
 # fold the job into ci.yml, or rework W1 to read every file — NOT a matter of
 # adding a key to the allowlist below.
 WF_FILES="$(cd "$WF_DIR" && ls -1 2>/dev/null | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
-check "W4c the workflow directory holds exactly ci.yml and the one actor-gated GA workflow" \
-  "ci.yml ga-promote.yml" "$WF_FILES"
+check "W4c the workflow directory holds exactly ci.yml, the one actor-gated GA workflow and the Go security bump" \
+  "ci.yml ga-promote.yml go-security-bump.yml" "$WF_FILES"
 
-# W4f: …and everything that is NOT ci.yml fires on manual dispatch and nothing
-# else. Read from the PARSED document, per file, so a trigger written in any legal
+# W4f: …and everything that is NOT ci.yml fires on manual dispatch or a schedule
+# and nothing else. Read from the PARSED document, per file, so a trigger written in any legal
 # spelling is seen; a file that cannot be parsed is reported, never skipped.
 WF_TRIGGERS=""
 for f in "$WF_DIR"/*; do
@@ -1924,8 +1926,8 @@ PY
   fi
   WF_TRIGGERS+="$b=$t "
 done
-check "W4f every workflow other than ci.yml is workflow_dispatch-ONLY (that is what keeps it out of every push/PR run, and therefore out of the job universe W1 reasons about)" \
-  "ga-promote.yml=workflow_dispatch " "$WF_TRIGGERS"
+check "W4f every workflow other than ci.yml fires only on workflow_dispatch or schedule (that is what keeps it out of every push/PR run, and therefore out of the job universe W1 reasons about)" \
+  "ga-promote.yml=workflow_dispatch go-security-bump.yml=schedule,workflow_dispatch " "$WF_TRIGGERS"
 
 # ── W5: the publish invocation's shape ─────────────────────────────────────
 check "W5 exactly one step invokes bin/release publish" "1" "$(q publish-call-count)"
