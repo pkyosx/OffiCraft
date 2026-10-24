@@ -8,7 +8,10 @@ package main
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"reflect"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 )
@@ -1992,6 +1995,7 @@ func dalTestTask(id string) Task {
 		FrozenBy:            "eve",
 		KickoffNotifiedTo:   "ow-1",
 		DueTs:               1700000006,
+		DueSoonLeadDays:     4,
 	}
 }
 
@@ -2320,3 +2324,101 @@ func dalTestOffTheHolder[T any](t *testing.T, read func() (T, error)) (T, error)
 }
 
 const dalTestOffTheHolderLimit = 2 * time.Second
+
+func TestTaskCountFacts(t *testing.T) {
+	t.Run("the total counts every task and the facts are the open tasks' due dates and leads", func(t *testing.T) {
+		d := newAPITestDAL(t)
+		task := func(id, status string, due float64, lead int) Task {
+			return Task{ID: id, Status: status, Priority: TaskPriorityMid, ExecutorKind: "staff",
+				DueTs: due, DueSoonLeadDays: lead}
+		}
+		dalPutTask(t, d, task("T-1", TaskStatusInProgress, 1200000, 3))
+		dalPutTask(t, d, task("T-2", TaskStatusNotStarted, 0, 0))
+		dalPutTask(t, d, task("T-3", TaskStatusDone, 1100000, 2))
+		dalPutTask(t, d, task("T-4", TaskStatusTerminated, 1000500, 0))
+		dalPutTask(t, d, task("T-5", TaskStatusDuplicated, 900000, 5))
+
+		total, open, err := d.TaskCountFacts()
+		if err != nil {
+			t.Fatalf("TaskCountFacts: %v", err)
+		}
+		sort.Slice(open, func(i, j int) bool { return open[i].DueTs < open[j].DueTs })
+		want := []taskDueFact{{DueTs: 0, DueSoonLeadDays: 0}, {DueTs: 1200000, DueSoonLeadDays: 3}}
+		if total != 5 || !reflect.DeepEqual(open, want) {
+			t.Fatalf("want total 5 and %+v, got total %d and %+v", want, total, open)
+		}
+	})
+
+	t.Run("the open-task read is served by the open-task index alone, never by scanning the task table", func(t *testing.T) {
+		d := newAPITestDAL(t)
+
+		var id, parent, notUsed int
+		var detail string
+		if err := d.rdb.QueryRow(`EXPLAIN QUERY PLAN `+sqlOpenTaskDueFacts).Scan(&id, &parent, &notUsed, &detail); err != nil {
+			t.Fatalf("explain: %v", err)
+		}
+		if detail != "SCAN task USING COVERING INDEX idx_task_open_due" {
+			t.Fatalf("want the covering open-task index, got %q", detail)
+		}
+	})
+
+	t.Run("an empty table answers zero and an empty fact list", func(t *testing.T) {
+		d := newAPITestDAL(t)
+
+		total, open, err := d.TaskCountFacts()
+		if err != nil {
+			t.Fatalf("TaskCountFacts: %v", err)
+		}
+		if total != 0 || !reflect.DeepEqual(open, []taskDueFact{}) {
+			t.Fatalf("want 0 and [], got %d and %+v", total, open)
+		}
+	})
+}
+
+// seedTaskCountPopulation writes a long-lived station's shape: few open tasks,
+// many closed ones, half of each dated, the dated open ones on mixed leads.
+func seedTaskCountPopulation(tb testing.TB, d *DAL, openN, closedN int) {
+	tb.Helper()
+	tx, err := d.wdb.Begin()
+	if err != nil {
+		tb.Fatalf("begin: %v", err)
+	}
+	description := strings.Repeat("a realistic task body of a few hundred characters. ", 10)
+	leads := []int{0, 0, 1, 2, 3, 5, 7, 14, 30}
+	for i := 0; i < openN+closedN; i++ {
+		status := TaskStatusInProgress
+		if i >= openN {
+			status = []string{TaskStatusDone, TaskStatusTerminated, TaskStatusDuplicated}[i%3]
+		}
+		task := Task{
+			ID: fmt.Sprintf("T-%d", i+1), Title: "seeded task", Description: description,
+			Inputs: map[string]any{"ref": i}, Status: status, Priority: TaskPriorityMid,
+			ExecutorKind: "staff", ExecutorID: "kip", CreatedTS: float64(1700000000 + i),
+		}
+		if i%2 == 0 {
+			task.DueTs = float64(1800000000 + (i%60)*secondsPerDay)
+			task.DueSoonLeadDays = leads[i%len(leads)]
+		}
+		if err := putTaskOn(tx, task, taskWriteInsertOnly); err != nil {
+			tx.Rollback()
+			tb.Fatalf("seed %s: %v", task.ID, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		tb.Fatalf("commit: %v", err)
+	}
+}
+
+func BenchmarkTaskCountFacts(b *testing.B) {
+	d := newAPITestDAL(b)
+	seedTaskCountPopulation(b, d, 2000, 50000)
+	const now = 1800000000 + 20*secondsPerDay
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		total, open, err := d.TaskCountFacts()
+		if err != nil {
+			b.Fatalf("TaskCountFacts: %v", err)
+		}
+		newTaskCountDTO(total, open, defaultTaskDueSoonLeadDays, now)
+	}
+}

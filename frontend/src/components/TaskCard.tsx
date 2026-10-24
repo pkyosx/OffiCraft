@@ -83,7 +83,9 @@ import { scrollParent, viewportSpanOf } from "../lib/scrollPort";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { useNowSeconds } from "../hooks/useNowSeconds";
 import {
+  DEFAULT_DUE_SOON_LEAD_DAYS,
   dueState,
+  effectiveLeadDays,
   endOfLocalDayTs,
   nextDueChangeTs,
   toDateInputValue,
@@ -166,6 +168,15 @@ function buildTimeline(steps: TaskStepView[]): TimelineRow[] {
   return rows;
 }
 
+const DUE_LEAD_CHOICES = [1, 2, 3, 5, 7, 14, 30];
+
+/** A lead set through the API to a value the menu does not list still has to
+ * show as selected. */
+function leadChoices(current: number | null): number[] {
+  if (current === null || DUE_LEAD_CHOICES.includes(current)) return DUE_LEAD_CHOICES;
+  return [...DUE_LEAD_CHOICES, current].sort((a, b) => a - b);
+}
+
 export function TaskCard({
   task,
   allTasks,
@@ -178,6 +189,7 @@ export function TaskCard({
   onMarkDuplicate,
   onSetPriority,
   onSetDue,
+  dueSoonLeadDays = DEFAULT_DUE_SOON_LEAD_DAYS,
   onReassign,
   onSendMessage,
   onHydrate,
@@ -213,8 +225,12 @@ export function TaskCard({
    * the depth-1 graph + non-terminal guard; a rejection surfaces inline. */
   onMarkDuplicate: (id: string, duplicateOf: string) => Promise<void>;
   onSetPriority: (id: string, priority: string) => Promise<void>;
-  /** Set or clear (`null`) the due date. Absent ⇒ the due chip is read-only. */
-  onSetDue?: (id: string, dueTs: number | null) => Promise<void>;
+  /** Set or clear (`null`) the due date. `leadDays` is passed only when the
+   * lead changed (`null` = back to the workspace setting). Absent ⇒ the due
+   * chip is read-only. */
+  onSetDue?: (id: string, dueTs: number | null, leadDays?: number | null) => Promise<void>;
+  /** The workspace 快到期提前天數, for a task without its own lead. */
+  dueSoonLeadDays?: number;
   /** 轉派 (T-160e): hand the task to a member / a freshly minted 外包. The whole
    * handover is the server's; the dialog only names the target. */
   onReassign: (id: string, input: TaskReassignInput) => Promise<void>;
@@ -762,12 +778,18 @@ export function TaskCard({
   const [dueDraft, setDueDraft] = useState("");
   const dueDraftRef = useRef("");
   const dueSessionRef = useRef(false);
+  const [dueLeadDraft, setDueLeadDraft] = useState<number | null>(null);
+  const dueLeadDraftRef = useRef<number | null>(null);
   const dueTs = task.dueTs ?? null;
+  const taskLeadDays = task.dueSoonLeadDays ?? null;
+  const leadDays = effectiveLeadDays(taskLeadDays, dueSoonLeadDays);
   const dueEditable = !closed && onSetDue !== undefined;
   const nowSec = useNowSeconds(
-    dueTs === null || closed ? null : nextDueChangeTs(dueTs, Date.now() / 1000)
+    dueTs === null || closed
+      ? null
+      : nextDueChangeTs(dueTs, Date.now() / 1000, leadDays)
   );
-  const due = dueTs === null ? null : dueState(dueTs, nowSec);
+  const due = dueTs === null ? null : dueState(dueTs, nowSec, leadDays);
   const dueTone =
     due === null
       ? "none"
@@ -785,7 +807,9 @@ export function TaskCard({
           ? t.tasks.dueToday
           : due.kind === "tomorrow"
             ? t.tasks.dueTomorrow
-            : due.days === 0
+            : due.kind === "inDays"
+              ? msg.taskDueInDays(due.days)
+              : due.days === 0
               ? t.tasks.overdueToday
               : msg.taskOverdueDays(due.days);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -850,10 +874,11 @@ export function TaskCard({
     }
   }
 
-  async function doSetDue(next: number | null) {
-    if (next === dueTs || !onSetDue) return;
+  async function doSetDue(next: number | null, lead?: number | null) {
+    if ((next === dueTs && lead === undefined) || !onSetDue) return;
     try {
-      await onSetDue(task.id, next);
+      if (lead === undefined) await onSetDue(task.id, next);
+      else await onSetDue(task.id, next, lead);
       setActionError(null);
     } catch (e) {
       console.warn("TaskCard: due date change failed", e);
@@ -865,8 +890,17 @@ export function TaskCard({
     const draft = dueTs === null ? "" : toDateInputValue(dueTs);
     dueDraftRef.current = draft;
     setDueDraft(draft);
+    dueLeadDraftRef.current = taskLeadDays;
+    setDueLeadDraft(taskLeadDays);
     dueSessionRef.current = true;
     setDueOpen(true);
+  }
+
+  function pickDueLead(value: string) {
+    const lead = value === "" ? null : Number(value);
+    dueLeadDraftRef.current = lead;
+    setDueLeadDraft(lead);
+    finishDue(true);
   }
 
   function editDueDraft(value: string) {
@@ -885,7 +919,8 @@ export function TaskCard({
     if (!commit) return;
     const next = endOfLocalDayTs(dueDraftRef.current);
     if (next === null || new Date(next * 1000).getFullYear() < 1970) return;
-    void doSetDue(next);
+    const lead = dueLeadDraftRef.current;
+    void doSetDue(next, lead === taskLeadDays ? undefined : lead);
   }
 
   function clearDue() {
@@ -1503,6 +1538,30 @@ export function TaskCard({
                         finishDue(true);
                       }}
                     />
+                    <label className="task-card__due-lead">
+                      <span className="task-card__due-lead-label">
+                        {t.tasks.dueLeadLabel}
+                      </span>
+                      <select
+                        className="task-card__due-input"
+                        data-testid="task-due-lead"
+                        value={dueLeadDraft === null ? "" : String(dueLeadDraft)}
+                        disabled={dueDraft === ""}
+                        onChange={(e) => pickDueLead(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape") finishDue(false);
+                        }}
+                      >
+                        <option value="">
+                          {msg.taskDueLeadWorkspace(dueSoonLeadDays)}
+                        </option>
+                        {leadChoices(dueLeadDraft).map((n) => (
+                          <option key={n} value={String(n)}>
+                            {msg.taskDueLeadDays(n)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                     {dueTs !== null && (
                       <button
                         type="button"

@@ -55,8 +55,9 @@ interface UseTasks {
   markDuplicate: (id: string, duplicateOf: string) => Promise<void>;
   /** Priority change incl. freeze/unfreeze, then refetch. */
   setPriority: (id: string, priority: string) => Promise<void>;
-  /** Set or clear (`null`) the due date, then refetch. */
-  setDue: (id: string, dueTs: number | null) => Promise<void>;
+  /** Set or clear (`null`) the due date — and, when given, its lead — then
+   * refetch. */
+  setDue: (id: string, dueTs: number | null, leadDays?: number | null) => Promise<void>;
   /** Correct the task's description (T-e271), then refetch. Accepted on a
    * CLOSED task too — see the adapter's note on why this one write does not
    * refuse a terminal task. */
@@ -350,8 +351,9 @@ export function useTasks(
   );
 
   const setDue = useCallback(
-    async (id: string, dueTs: number | null) => {
-      await api.setTaskDue(id, dueTs);
+    async (id: string, dueTs: number | null, leadDays?: number | null) => {
+      if (leadDays === undefined) await api.setTaskDue(id, dueTs);
+      else await api.setTaskDue(id, dueTs, leadDays);
       try {
         await refetch();
       } catch (e) {

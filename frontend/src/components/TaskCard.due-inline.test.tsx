@@ -14,6 +14,7 @@ vi.mock("../api", () => ({
 // 2026-10-24 10:00:00 Asia/Taipei (the suite's TZ).
 const NOW = 1792807200;
 const OCT_30_END = 1793375999;
+const OCT_29_END = 1793289599;
 const OCT_25_END = 1792943999;
 const OCT_25_0900 = 1792890000;
 const OCT_24_END = 1792857599;
@@ -49,7 +50,11 @@ function mkTask(over: Partial<TaskView>): TaskView {
 
 const NOOP = async () => {};
 
-function cardElement(task: TaskView, onSetDue = vi.fn(async () => {})) {
+function cardElement(
+  task: TaskView,
+  onSetDue = vi.fn(async () => {}),
+  dueSoonLeadDays?: number
+) {
   return (
     <I18nProvider>
       <TaskCard
@@ -62,6 +67,7 @@ function cardElement(task: TaskView, onSetDue = vi.fn(async () => {})) {
         onMarkDuplicate={NOOP as never}
         onSetPriority={NOOP as never}
         onSetDue={onSetDue}
+        dueSoonLeadDays={dueSoonLeadDays}
         onReassign={NOOP as never}
         onSendMessage={NOOP as never}
         onHydrate={(async () => task) as never}
@@ -70,9 +76,15 @@ function cardElement(task: TaskView, onSetDue = vi.fn(async () => {})) {
   );
 }
 
-function renderCard(task: TaskView, onSetDue = vi.fn(async () => {})) {
-  return { ...render(cardElement(task, onSetDue)), onSetDue };
+function renderCard(
+  task: TaskView,
+  onSetDue = vi.fn(async () => {}),
+  dueSoonLeadDays?: number
+) {
+  return { ...render(cardElement(task, onSetDue, dueSoonLeadDays)), onSetDue };
 }
+
+const leadSelect = () => screen.getByTestId("task-due-lead") as HTMLSelectElement;
 
 const chip = () => screen.getByTestId("task-due");
 
@@ -105,6 +117,24 @@ describe("TaskCard", () => {
     renderCard(mkTask({ dueTs: OCT_25_0900 }));
     expect(chip().textContent).toBe("明天到期");
     expect(chip().className).toContain("task-badge--due-soon");
+  });
+
+  it("shows an orange 5 天後到期 when the task's own lead reaches a date five days out", () => {
+    renderCard(mkTask({ dueTs: OCT_29_END, dueSoonLeadDays: 7 }));
+    expect(chip().textContent).toBe("5 天後到期");
+    expect(chip().className).toContain("task-badge--due-soon");
+  });
+
+  it("judges a task without its own lead by the workspace lead", () => {
+    renderCard(mkTask({ dueTs: OCT_30_END }), undefined, 7);
+    expect(chip().textContent).toBe("6 天後到期");
+    expect(chip().className).toContain("task-badge--due-soon");
+  });
+
+  it("keeps a gray date when the task's own lead is shorter than the workspace lead", () => {
+    renderCard(mkTask({ dueTs: OCT_30_END, dueSoonLeadDays: 1 }), undefined, 7);
+    expect(chip().textContent).toBe("10/30 到期");
+    expect(chip().className).toContain("task-badge--due-later");
   });
 
   it("shows a red 逾期 2 天 two calendar days after the due date", () => {
@@ -197,6 +227,60 @@ describe("TaskCard", () => {
     expect(onSetDue).toHaveBeenCalledWith("task-1", null);
   });
 
+  it("offers the workspace lead and the explicit leads, with the task's own lead selected", () => {
+    renderCard(mkTask({ dueTs: OCT_30_END, dueSoonLeadDays: 5 }), undefined, 3);
+    fireEvent.click(chip());
+    expect(Array.from(leadSelect().options).map((o) => o.textContent)).toEqual([
+      "使用全站設定（3 天）",
+      "提前 1 天",
+      "提前 2 天",
+      "提前 3 天",
+      "提前 5 天",
+      "提前 7 天",
+      "提前 14 天",
+      "提前 30 天",
+    ]);
+    expect(leadSelect().value).toBe("5");
+  });
+
+  it("saves a picked lead with the task's date and closes the editor", () => {
+    const { onSetDue } = renderCard(mkTask({ dueTs: OCT_30_END }));
+    fireEvent.click(chip());
+    expect(leadSelect().value).toBe("");
+    fireEvent.change(leadSelect(), { target: { value: "7" } });
+    expect(onSetDue).toHaveBeenCalledTimes(1);
+    expect(onSetDue).toHaveBeenCalledWith("task-1", OCT_30_END, 7);
+    expect(screen.queryByTestId("task-due-pop")).toBeNull();
+  });
+
+  it("returns a task's own lead to the workspace setting with 使用全站設定", () => {
+    const { onSetDue } = renderCard(mkTask({ dueTs: OCT_30_END, dueSoonLeadDays: 5 }));
+    fireEvent.click(chip());
+    fireEvent.change(leadSelect(), { target: { value: "" } });
+    expect(onSetDue).toHaveBeenCalledWith("task-1", OCT_30_END, null);
+  });
+
+  it("saves a new date and a picked lead together in one write", () => {
+    const { onSetDue } = renderCard(mkTask({ dueTs: OCT_25_END }));
+    fireEvent.click(chip());
+    fireEvent.change(screen.getByTestId("task-due-input"), {
+      target: { value: "2026-10-30" },
+    });
+    fireEvent.change(leadSelect(), { target: { value: "14" } });
+    expect(onSetDue).toHaveBeenCalledTimes(1);
+    expect(onSetDue).toHaveBeenCalledWith("task-1", OCT_30_END, 14);
+  });
+
+  it("keeps the lead disabled until the draft has a date", () => {
+    renderCard(mkTask({ dueTs: null }));
+    fireEvent.click(chip());
+    expect(leadSelect().disabled).toBe(true);
+    fireEvent.change(screen.getByTestId("task-due-input"), {
+      target: { value: "2026-10-30" },
+    });
+    expect(leadSelect().disabled).toBe(false);
+  });
+
   it("opening the picker does not collapse or expand the card", () => {
     const { container } = renderCard(mkTask({ dueTs: OCT_30_END }));
     const card = container.querySelector(".task-card")!;
@@ -229,6 +313,16 @@ describe("TaskCard", () => {
       vi.advanceTimersByTime((OCT_24_END - NOW) * 1000);
     });
     expect(chip().textContent).toBe("明天到期");
+    expect(chip().className).toContain("task-badge--due-soon");
+  });
+
+  it("turns orange the moment the due date enters the task's own lead window", () => {
+    renderCard(mkTask({ dueTs: OCT_30_END, dueSoonLeadDays: 3 }));
+    expect(chip().textContent).toBe("10/30 到期");
+    act(() => {
+      vi.advanceTimersByTime((OCT_30_END - 3 * 86400 - NOW) * 1000);
+    });
+    expect(chip().textContent).toBe("3 天後到期");
     expect(chip().className).toContain("task-badge--due-soon");
   });
 

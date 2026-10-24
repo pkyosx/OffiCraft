@@ -1456,6 +1456,7 @@ function ServerParams({
   >({});
   const [chatBudgetDraft, setChatBudgetDraft] = useState<string | null>(null);
   const [stepNoteCapDraft, setStepNoteCapDraft] = useState<string | null>(null);
+  const [dueSoonLeadDraft, setDueSoonLeadDraft] = useState<string | null>(null);
   // T-33: four independent 傳承 caps, so four independent drafts — a shared
   // draft would make typing in one field snap the other three back.
   const [loreCapDrafts, setLoreCapDrafts] = useState<
@@ -1642,6 +1643,14 @@ function ServerParams({
     }
     setStepNoteCapDraft(null);
     if (n !== settings.stepNoteCapChars) void onSave({ stepNoteCapChars: n });
+  }
+
+  function commitDueSoonLead() {
+    if (!settings || dueSoonLeadDraft === null) return;
+    const n = Number(dueSoonLeadDraft);
+    if (!Number.isInteger(n) || n < 1 || n > 30) { setRangeError(true); setDueSoonLeadDraft(null); return; }
+    setDueSoonLeadDraft(null);
+    if (n !== settings.taskDueSoonLeadDays) void onSave({ taskDueSoonLeadDays: n });
   }
 
   // T-33: the four 傳承 caps. One commit for all four because the row that is
@@ -2002,6 +2011,21 @@ function ServerParams({
                 onChange={(e) => { setRangeError(false); onClearSaveError(); setStepNoteCapDraft(e.target.value); }}
                 onBlur={commitStepNoteCap} onKeyDown={(e) => { if (e.key === "Enter") commitStepNoteCap(); }} />
               <span className="param-pct__sign">{t.settings.chars}</span>
+            </div>
+          </div>
+
+          <div className="param-row">
+            <div className="param-row__body">
+              <div className="param-row__name">{t.settings.dueSoonLeadDays}</div>
+              <div className="param-row__sub">{t.settings.dueSoonLeadDaysSub}</div>
+            </div>
+            <div className="param-pct">
+              <input id="param-due-soon-lead" className="param-input" type="number" min={1} max={30}
+                aria-label={t.settings.dueSoonLeadDays}
+                value={dueSoonLeadDraft ?? String(settings.taskDueSoonLeadDays)}
+                onChange={(e) => { setRangeError(false); onClearSaveError(); setDueSoonLeadDraft(e.target.value); }}
+                onBlur={commitDueSoonLead} onKeyDown={(e) => { if (e.key === "Enter") commitDueSoonLead(); }} />
+              <span className="param-pct__sign">{t.settings.days}</span>
             </div>
           </div>
 

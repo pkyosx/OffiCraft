@@ -69,6 +69,7 @@ describe("SettingsPage · 參數調整", () => {
     const diskUsage = utils.getByLabelText(s.diskUsageInterval) as HTMLInputElement;
     expect(diskUsage.value).toBe("3600");
     expect(rows.indexOf(diskUsage)).toBe(rows.indexOf(loginRecheck) + 1);
+    expect((utils.getByLabelText(s.dueSoonLeadDays) as HTMLInputElement).value).toBe("1");
   });
 
   it("changing the login TTL patches the server immediately", async () => {
@@ -240,6 +241,26 @@ describe("SettingsPage · 參數調整", () => {
     await utils.findByText(s.paramsSaveError);
     expect((await api.getServerSettings()).monitoringRefreshSeconds).toBe(12);
     expect(patch).toHaveBeenCalledTimes(1);
+    patch.mockRestore();
+  });
+
+  it("persists the 快到期提前天數 within 1..30 and snaps back outside it without a write", async () => {
+    const patch = vi.spyOn(api, "patchServerSettings");
+    const utils = await openParams();
+    const days = utils.getByLabelText(s.dueSoonLeadDays) as HTMLInputElement;
+    for (const edge of [30, 1, 7]) {
+      fireEvent.change(days, { target: { value: String(edge) } });
+      fireEvent.keyDown(days, { key: "Enter" });
+      await waitFor(async () => expect((await api.getServerSettings()).taskDueSoonLeadDays).toBe(edge));
+      expect(patch).toHaveBeenLastCalledWith({ taskDueSoonLeadDays: edge });
+    }
+    for (const outside of ["0", "31", "2.5"]) {
+      fireEvent.change(days, { target: { value: outside } });
+      fireEvent.blur(days);
+      await utils.findByText(s.paramsSaveError);
+      expect(days.value).toBe("7");
+    }
+    expect(patch).toHaveBeenCalledTimes(3);
     patch.mockRestore();
   });
 });

@@ -63,6 +63,37 @@ describe("mockApi.getTaskCount", () => {
     seedTask({ dueTs: NOW + 86_400 + 600 });
     expect((await mockApi.getTaskCount()).dueNextChangeTs).toBe(NOW + 600);
   });
+
+  it("judges each task by its own lead, else the workspace lead", async () => {
+    await mockApi.patchServerSettings({ taskDueSoonLeadDays: 3 });
+    seedTask({ dueTs: NOW + 2 * 86_400 });
+    seedTask({ dueTs: NOW + 5 * 86_400, dueSoonLeadDays: 7 });
+    seedTask({ dueTs: NOW + 2 * 86_400, dueSoonLeadDays: 1 });
+    expect(await mockApi.getTaskCount()).toEqual({
+      open: 3,
+      total: 3,
+      overdue: 0,
+      dueSoon: 2,
+      dueNextChangeTs: NOW + 86_400,
+    });
+  });
+});
+
+describe("mockApi.patchServerSettings", () => {
+  it("announces a changed workspace lead on the task topic", async () => {
+    const topics: string[] = [];
+    const off = mockApi.subscribeEvents((topic) => topics.push(topic));
+    await mockApi.patchServerSettings({ taskDueSoonLeadDays: 5 });
+    off();
+    expect(topics).toEqual(["task"]);
+  });
+
+  it("refuses a workspace lead outside 1..30 with a 422", async () => {
+    const err = await mockApi
+      .patchServerSettings({ taskDueSoonLeadDays: 31 })
+      .catch((e) => e);
+    expect(isHttpStatus(err, 422)).toBe(true);
+  });
 });
 
 describe("mockApi.setTaskDue", () => {
@@ -72,6 +103,15 @@ describe("mockApi.setTaskDue", () => {
     expect((await mockApi.getTask(id)).dueTs).toBe(1793375999);
     await mockApi.setTaskDue(id, null);
     expect((await mockApi.getTask(id)).dueTs).toBeNull();
+  });
+
+  it("keeps the lead when only the date is sent and clears it with the date", async () => {
+    const id = seedTask();
+    await mockApi.setTaskDue(id, 1793375999, 7);
+    await mockApi.setTaskDue(id, 1793462399);
+    expect((await mockApi.getTask(id)).dueSoonLeadDays).toBe(7);
+    await mockApi.setTaskDue(id, null);
+    expect((await mockApi.getTask(id)).dueSoonLeadDays).toBeNull();
   });
 
   it("refuses a closed task with a 409", async () => {

@@ -1865,11 +1865,18 @@ export const httpApi: Api = {
     );
   },
 
-  async setTaskDue(id: string, dueTs: number | null): Promise<void> {
+  async setTaskDue(
+    id: string,
+    dueTs: number | null,
+    leadDays?: number | null,
+  ): Promise<void> {
     unwrap(
       await client.POST("/api/tasks/{task_id}/due", {
         params: { path: { task_id: id } },
-        body: { due_ts: dueTs },
+        body:
+          leadDays === undefined
+            ? { due_ts: dueTs }
+            : { due_ts: dueTs, due_soon_lead_days: leadDays },
       }),
     );
   },
@@ -2673,6 +2680,7 @@ export const httpApi: Api = {
       disk_usage_interval_secs?: number;
       warden_credential_lifetime_secs?: number;
       outsource_max_parallel?: number;
+      task_due_soon_lead_days?: number;
       doc_cap_chars_duty?: number;
       doc_cap_chars_insight?: number;
       doc_cap_chars_manual_sop?: number;
@@ -2724,6 +2732,9 @@ export const httpApi: Api = {
       body.warden_credential_lifetime_secs = patch.wardenCredentialLifetimeSecs;
     if (patch.outsourceMaxParallel !== undefined) {
       body.outsource_max_parallel = patch.outsourceMaxParallel;
+    }
+    if (patch.taskDueSoonLeadDays !== undefined) {
+      body.task_due_soon_lead_days = patch.taskDueSoonLeadDays;
     }
     if (patch.docCapCharsDuty !== undefined) {
       body.doc_cap_chars_duty = patch.docCapCharsDuty;

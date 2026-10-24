@@ -5,6 +5,7 @@
 // backend only has to return the frozen wire shape — the UI never changes.
 
 import type { ThemeBundle } from "../lib/themeBundle";
+import { DEFAULT_DUE_SOON_LEAD_DAYS } from "../lib/dueDate";
 import type { components } from "./generated/schema";
 import { DOC_CAP_CHARS_DEFAULTS } from "./docCap";
 import { CHAT_BUDGET_CHARS_DEFAULT } from "./chatBudget";
@@ -809,6 +810,7 @@ export function toTask(w: WireTask): TaskView {
     updatedTs: w.updated_ts ?? 0,
     closedTs: w.closed_ts,
     dueTs: w.due_ts ?? null,
+    dueSoonLeadDays: w.due_soon_lead_days ?? null,
     // Who forced this close and why (T-182 wire, T-192 surface). `?? ""` is
     // right HERE and would be a lie in `toTaskListItem`: `TaskDTO` always
     // declares both, so an absent value on this response means "not forced",
@@ -887,6 +889,7 @@ export function toTaskListItem(w: WireTaskListItem): TaskView {
     updatedTs: w.updated_ts ?? 0,
     closedTs: w.closed_ts,
     dueTs: w.due_ts ?? null,
+    dueSoonLeadDays: w.due_soon_lead_days ?? null,
     progressDone: w.progress_done,
     progressTotal: w.progress_total,
     steps: [],
@@ -1369,6 +1372,7 @@ export function toServerSettings(w: WireServerSettings): ServerSettingsView {
     // would now show the owner a lifetime no machine on that station keeps.
     wardenCredentialLifetimeSecs: w.warden_credential_lifetime_secs ?? 2592000,
     outsourceMaxParallel: w.outsource_max_parallel ?? 0,
+    taskDueSoonLeadDays: w.task_due_soon_lead_days ?? DEFAULT_DUE_SOON_LEAD_DAYS,
     // ?? that segment's shipped default, not 0: a server too old to send the
     // field still caps at it, and a 0 here would read as "no cap" to every
     // caller. Duty has its own, smaller default; every other segment shares one

@@ -52,6 +52,9 @@ export interface Messages {
   taskReassignTitle: (taskNo: string) => string;
   taskDueOn: (month: number, day: number) => string;
   taskOverdueDays: (days: number) => string;
+  taskDueInDays: (days: number) => string;
+  taskDueLeadDays: (days: number) => string;
+  taskDueLeadWorkspace: (days: number) => string;
   taskNavBadgeLabel: (open: number, dueSoon: number, overdue: number) => string;
   // ── task artifact versions (T-60) ──
   taskArtifactVersionCount: (n: number) => string;
@@ -288,6 +291,23 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     taskOverdueDays: (days) =>
       `${tasks.overdueDaysLead} ${days} ${
         days === 1 ? tasks.overdueDaysTailOne : tasks.overdueDaysTailMany
+      }`,
+    // Only ever printed for 2+ days (0 and 1 are 今天／明天), so no singular.
+    taskDueInDays: (days) =>
+      [tasks.dueInDaysLead, String(days), tasks.dueInDaysTail]
+        .filter((part) => part !== "")
+        .join(" "),
+    taskDueLeadDays: (days) =>
+      [
+        tasks.dueLeadDaysLead,
+        String(days),
+        days === 1 ? tasks.dueLeadDaysTailOne : tasks.dueLeadDaysTailMany,
+      ]
+        .filter((part) => part !== "")
+        .join(" "),
+    taskDueLeadWorkspace: (days) =>
+      `${tasks.dueLeadWorkspaceLead}${days} ${
+        days === 1 ? tasks.dueLeadWorkspaceTailOne : tasks.dueLeadWorkspaceTailMany
       }`,
     taskNavBadgeLabel: (open, dueSoon, overdue) =>
       (

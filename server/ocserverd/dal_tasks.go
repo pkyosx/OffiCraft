@@ -64,6 +64,9 @@ type Task struct {
 	ReadyForDoneVisits int
 	// DueTs is epoch seconds; 0 means no due date (the wire answers null).
 	DueTs float64
+	// DueSoonLeadDays is how many days before DueTs the task counts as due soon;
+	// 0 means the workspace setting applies (the wire answers null).
+	DueSoonLeadDays int
 }
 
 const taskColumns = `id, type_key, title, dedupe_key, inputs, description,
@@ -75,11 +78,14 @@ const taskColumns = `id, type_key, title, dedupe_key, inputs, description,
 	outsource_dispatched,
 	frozen_by, kickoff_notified_to,
 	forced_done_by, forced_done_reason, ready_for_done_visits,
-	due_ts`
+	due_ts, due_soon_lead_days`
 
 // sqlTaskTerminalStatuses is kept in one place so a new terminal state updates
 // every open-task filter at once.
 const sqlTaskTerminalStatuses = `'done', 'terminated', 'duplicated'`
+
+const sqlOpenTaskDueFacts = `SELECT due_ts, due_soon_lead_days FROM task
+	WHERE status NOT IN (` + sqlTaskTerminalStatuses + `)`
 
 func scanTask(row interface{ Scan(...any) error }) (Task, error) {
 	var t Task
@@ -97,7 +103,7 @@ func scanTask(row interface{ Scan(...any) error }) (Task, error) {
 		&t.FrozenBy,
 		&t.KickoffNotifiedTo,
 		&t.ForcedDoneBy, &t.ForcedDoneReason, &t.ReadyForDoneVisits,
-		&t.DueTs,
+		&t.DueTs, &t.DueSoonLeadDays,
 	)
 	if err != nil {
 		return Task{}, err
@@ -125,6 +131,36 @@ func (d *DAL) ListTasks() ([]Task, error) {
 		out = append(out, t)
 	}
 	return out, rows.Err()
+}
+
+// taskDueFact is what the task count needs from one open task.
+type taskDueFact struct {
+	DueTs           float64
+	DueSoonLeadDays int
+}
+
+// TaskCountFacts answers the whole population's size and the due facts of the
+// open tasks only, so the count never loads closed rows (they outnumber open
+// ones by far on a long-lived station).
+func (d *DAL) TaskCountFacts() (int, []taskDueFact, error) {
+	var total int
+	if err := d.rdb.QueryRow(`SELECT COUNT(*) FROM task`).Scan(&total); err != nil {
+		return 0, nil, err
+	}
+	rows, err := d.rdb.Query(sqlOpenTaskDueFacts)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer rows.Close()
+	open := []taskDueFact{}
+	for rows.Next() {
+		var f taskDueFact
+		if err := rows.Scan(&f.DueTs, &f.DueSoonLeadDays); err != nil {
+			return 0, nil, err
+		}
+		open = append(open, f)
+	}
+	return total, open, rows.Err()
 }
 
 func (d *DAL) GetTask(id string) (*Task, error) { return getTaskOn(d.rdb, id) }
@@ -241,7 +277,7 @@ func putTaskOn(ex sqlExecer, t Task, mode taskWriteMode) error {
 	}
 	stmt := `
 		INSERT INTO task (` + taskColumns + `)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	if mode == taskWriteUpsert {
 		stmt += taskUpsertConflictClause
 	}
@@ -258,7 +294,7 @@ func putTaskOn(ex sqlExecer, t Task, mode taskWriteMode) error {
 		t.FrozenBy,
 		t.KickoffNotifiedTo,
 		t.ForcedDoneBy, t.ForcedDoneReason, t.ReadyForDoneVisits,
-		t.DueTs,
+		t.DueTs, t.DueSoonLeadDays,
 	)
 	return err
 }
@@ -299,7 +335,8 @@ const taskUpsertConflictClause = `
 			forced_done_by = excluded.forced_done_by,
 			forced_done_reason = excluded.forced_done_reason,
 			ready_for_done_visits = excluded.ready_for_done_visits,
-			due_ts = excluded.due_ts`
+			due_ts = excluded.due_ts,
+			due_soon_lead_days = excluded.due_soon_lead_days`
 
 func (d *DAL) ListTaskDeps(taskID string) ([]string, error) {
 	rows, err := d.rdb.Query(

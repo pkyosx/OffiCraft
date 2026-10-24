@@ -475,6 +475,22 @@ describe("httpApi · setTaskDue wire shape", () => {
     expect(JSON.parse(String(body))).toEqual({ due_ts: 1793375999 });
   });
 
+  it("sends the lead only when one is given, null included", async () => {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({ task_id: "t-1", due_ts: 1793375999, due_soon_lead_days: 7 })
+    );
+    await httpApi.setTaskDue("t-1", 1793375999, 7);
+    expect(JSON.parse(String((await lastRequest()).body))).toEqual({
+      due_ts: 1793375999,
+      due_soon_lead_days: 7,
+    });
+    await httpApi.setTaskDue("t-1", 1793375999, null);
+    expect(JSON.parse(String((await lastRequest()).body))).toEqual({
+      due_ts: 1793375999,
+      due_soon_lead_days: null,
+    });
+  });
+
   it("sends an explicit null to clear the due date", async () => {
     fetchMock.mockImplementation(async () =>
       jsonResponse({ task_id: "t-1", due_ts: null })

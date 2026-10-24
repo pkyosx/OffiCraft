@@ -90,6 +90,7 @@ type apiServer struct {
 	agentTokenTTL    int64
 
 	outsourceMaxParallel int
+	taskDueSoonLeadDays  int
 
 	docCapCharsDuty      int
 	docCapCharsInsight   int
@@ -411,6 +412,12 @@ func (s *apiServer) outsourceParallelCap() int {
 	s.settingsMu.RLock()
 	defer s.settingsMu.RUnlock()
 	return s.outsourceMaxParallel
+}
+
+func (s *apiServer) taskDueSoonLeadDaysSetting() int {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.taskDueSoonLeadDays
 }
 
 // One accessor per segment and no generic docCap(segment) on purpose: a

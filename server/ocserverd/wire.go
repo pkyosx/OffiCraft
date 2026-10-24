@@ -79,6 +79,7 @@ type settingsDTO struct {
 	CodexNoticeRound         int `json:"codex_notice_round"`
 	MonitoringRefreshSeconds int `json:"monitoring_refresh_seconds"`
 	OutsourceMaxParallel     int `json:"outsource_max_parallel"`
+	TaskDueSoonLeadDays      int `json:"task_due_soon_lead_days"`
 	// AcceleratedGraceSecs is ONE number on purpose: every clocked cause reads it
 	// through recycleGraceFor, so the agent notice's countdown and the reconcile
 	// tick's deadline are the same value. It says HOW LONG; winddownKindFor still
@@ -1152,8 +1153,9 @@ type taskStepMutationReceiptDTO struct {
 }
 
 type taskDueReceiptDTO struct {
-	TaskID string   `json:"task_id"`
-	DueTS  *float64 `json:"due_ts"`
+	TaskID          string   `json:"task_id"`
+	DueTS           *float64 `json:"due_ts"`
+	DueSoonLeadDays *int     `json:"due_soon_lead_days"`
 }
 
 type taskPriorityReceiptDTO struct {
@@ -1592,6 +1594,7 @@ type taskDTO struct {
 	UpdatedTS          float64       `json:"updated_ts"`
 	ClosedTS           *float64      `json:"closed_ts"`
 	DueTS              *float64      `json:"due_ts"`
+	DueSoonLeadDays    *int          `json:"due_soon_lead_days"`
 	Deps               []string      `json:"deps"`
 	Steps              []taskStepDTO `json:"steps"`
 	// DetailLevel / NotesIncluded are always "summary" / false — constants, not a
@@ -1636,6 +1639,7 @@ type taskListItemDTO struct {
 	UpdatedTS          float64  `json:"updated_ts"`
 	ClosedTS           *float64 `json:"closed_ts"`
 	DueTS              *float64 `json:"due_ts"`
+	DueSoonLeadDays    *int     `json:"due_soon_lead_days"`
 	Deps               []string `json:"deps"`
 
 	DepTasks      []taskDepRefDTO `json:"dep_tasks"`
@@ -1892,6 +1896,7 @@ func newTaskDTO(t Task, steps []TaskStep, deps []string, cardStatus map[string]s
 		dto.ClosedTS = &ts
 	}
 	dto.DueTS = dueTSWire(t.DueTs)
+	dto.DueSoonLeadDays = dueSoonLeadDaysWire(t.DueSoonLeadDays)
 	return dto
 }
 
@@ -1900,6 +1905,13 @@ func dueTSWire(due float64) *float64 {
 		return nil
 	}
 	return &due
+}
+
+func dueSoonLeadDaysWire(days int) *int {
+	if days <= 0 {
+		return nil
+	}
+	return &days
 }
 
 func newTaskArtifactDTO(a TaskArtifact, att *ChatAttachment, retained int) taskArtifactDTO {
@@ -2014,6 +2026,7 @@ func newTaskListItemDTO(
 		dto.ClosedTS = &ts
 	}
 	dto.DueTS = dueTSWire(t.DueTs)
+	dto.DueSoonLeadDays = dueSoonLeadDaysWire(t.DueSoonLeadDays)
 	return dto
 }
 

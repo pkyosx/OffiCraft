@@ -1029,6 +1029,30 @@ describe("TasksPage", () => {
     }
   });
 
+  it("files a task under 即將到期 by its own lead, else by the workspace lead", async () => {
+    const now = 1_900_000_000;
+    vi.useFakeTimers({ now: now * 1000, toFake: ["Date"] });
+    try {
+      await api.patchServerSettings({ taskDueSoonLeadDays: 3 });
+      __injectMockTask(mkTask({ title: "全站三天內", dueTs: now + 2 * 86_400 }));
+      __injectMockTask(
+        mkTask({ title: "自己七天內", dueTs: now + 5 * 86_400, dueSoonLeadDays: 7 })
+      );
+      __injectMockTask(
+        mkTask({ title: "自己只提前一天", dueTs: now + 2 * 86_400, dueSoonLeadDays: 1 })
+      );
+      __injectMockTask(mkTask({ title: "全站三天外", dueTs: now + 10 * 86_400 }));
+      const { findByText } = renderPage();
+      await findByText("全站三天內");
+      fireEvent.click(laneToggle("later"));
+      expect(laneKeys()).toEqual(["soon", "later"]);
+      expect(laneTitles("soon")).toEqual(["全站三天內", "自己七天內"]);
+      expect(laneTitles("later")).toEqual(["自己只提前一天", "全站三天外"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("applies the filters before grouping and leaves out a lane the filters emptied", async () => {
     seedDueTasks(Date.now() / 1000);
     renderPage();

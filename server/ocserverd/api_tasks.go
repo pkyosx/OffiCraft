@@ -87,6 +87,14 @@ func defaultedDispatchSpec(spec dispatchSpec) dispatchSpec {
 	return spec
 }
 
+// publishTaskDueSoonLeadChanged tells the cockpit its task counts and due
+// lanes are stale: the workspace lead moves every task that follows it at once,
+// with no task row written.
+func (s *apiServer) publishTaskDueSoonLeadChanged(trigger string) {
+	s.hub.Publish("task", "patch", "task", wireOwnerID+"::"+settingTaskDueSoonLeadDays,
+		nil, audienceOwnerOnly(), trigger)
+}
+
 func (s *apiServer) publishOutsourceWorker(w OutsourceWorker, trigger string) {
 	s.publishMemberPatch(memberFromWorker(w), trigger)
 }
@@ -839,32 +847,33 @@ func taskStatusSetMatch(t Task, set map[string]bool) bool {
 }
 
 func (s *apiServer) HandleTaskCountApiTasksCountGet(w http.ResponseWriter, r *http.Request) {
-	tasks, err := s.dal.ListTasks()
+	total, open, err := s.dal.TaskCountFacts()
 	if err != nil {
 		internalError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, newTaskCountDTO(tasks, nowSecs()))
+	writeJSON(w, http.StatusOK, newTaskCountDTO(total, open, s.taskDueSoonLeadDaysSetting(), nowSecs()))
 }
 
-const taskDueSoonWindowSecs = 86400
+const secondsPerDay = 86400
 
-func newTaskCountDTO(tasks []Task, now float64) taskCountDTO {
-	dto := taskCountDTO{Total: len(tasks)}
-	for _, t := range tasks {
-		if TaskIsTerminal(t.Status) {
-			continue
-		}
-		dto.Open++
+func newTaskCountDTO(total int, open []taskDueFact, globalLeadDays int, now float64) taskCountDTO {
+	dto := taskCountDTO{Total: total, Open: len(open)}
+	for _, t := range open {
 		if t.DueTs <= 0 {
 			continue
 		}
+		lead := t.DueSoonLeadDays
+		if lead <= 0 {
+			lead = globalLeadDays
+		}
+		soonFrom := t.DueTs - float64(lead)*secondsPerDay
 		if t.DueTs <= now {
 			dto.Overdue++
-		} else if t.DueTs <= now+taskDueSoonWindowSecs {
+		} else if soonFrom <= now {
 			dto.DueSoon++
 		}
-		for _, edge := range []float64{t.DueTs - taskDueSoonWindowSecs, t.DueTs} {
+		for _, edge := range []float64{soonFrom, t.DueTs} {
 			if edge > now && (dto.DueNextChangeTS == nil || edge < *dto.DueNextChangeTS) {
 				e := edge
 				dto.DueNextChangeTS = &e
@@ -1031,9 +1040,26 @@ func dueTSFromWire(due *float64) (float64, bool) {
 	return *due, true
 }
 
+var taskDueSoonLeadDaysRangeMsg = "due_soon_lead_days " + dueSoonLeadDaysRangeMsg + " (or null to follow the workspace setting)"
+
+const taskDueSoonLeadNeedsDueMsg = "due_soon_lead_days needs a due_ts: a task without a due date has no lead"
+
+// dueSoonLeadDaysFromWire maps the wire's null to the stored 0 ("follow the
+// workspace setting"); ok=false outside 1..30.
+func dueSoonLeadDaysFromWire(lead *int) (int, bool) {
+	if lead == nil {
+		return 0, true
+	}
+	if !dueSoonLeadDaysInRange(*lead) {
+		return 0, false
+	}
+	return *lead, true
+}
+
 func (s *apiServer) HandleSetTaskDueApiTasksTaskIdDuePost(w http.ResponseWriter, r *http.Request, taskId string) {
 	var body TaskDueUpdateDTO
-	if !decodeJSONBodyRequired(w, r, &body, "due_ts") {
+	sent, ok := decodeJSONBodyPresent(w, r, &body, "due_ts")
+	if !ok {
 		return
 	}
 	due, ok := dueTSFromWire(body.DueTs)
@@ -1041,6 +1067,16 @@ func (s *apiServer) HandleSetTaskDueApiTasksTaskIdDuePost(w http.ResponseWriter,
 		writeError(w, http.StatusUnprocessableEntity, taskDueTSPositiveMsg)
 		return
 	}
+	lead, ok := dueSoonLeadDaysFromWire(body.DueSoonLeadDays)
+	if !ok {
+		writeError(w, http.StatusUnprocessableEntity, taskDueSoonLeadDaysRangeMsg)
+		return
+	}
+	if due == 0 && lead != 0 {
+		writeError(w, http.StatusUnprocessableEntity, taskDueSoonLeadNeedsDueMsg)
+		return
+	}
+	leadSent := sent["due_soon_lead_days"]
 	t, err := s.resolveTask(taskId)
 	if err != nil {
 		writeResolveError(w, err, "task", taskId)
@@ -1062,6 +1098,9 @@ func (s *apiServer) HandleSetTaskDueApiTasksTaskIdDuePost(w http.ResponseWriter,
 			return err
 		}
 		cur.DueTs = due
+		if leadSent || due == 0 {
+			cur.DueSoonLeadDays = lead
+		}
 		cur.UpdatedTS = now
 		saved = *cur
 		return putTaskOn(tx, *cur, taskWriteUpsert)
@@ -1071,7 +1110,11 @@ func (s *apiServer) HandleSetTaskDueApiTasksTaskIdDuePost(w http.ResponseWriter,
 		return
 	}
 	s.publishTask(saved, requestTrigger(r))
-	writeJSON(w, http.StatusOK, taskDueReceiptDTO{TaskID: saved.ID, DueTS: dueTSWire(saved.DueTs)})
+	writeJSON(w, http.StatusOK, taskDueReceiptDTO{
+		TaskID:          saved.ID,
+		DueTS:           dueTSWire(saved.DueTs),
+		DueSoonLeadDays: dueSoonLeadDaysWire(saved.DueSoonLeadDays),
+	})
 }
 
 func (s *apiServer) HandlePostTaskMessageApiTasksTaskIdMessagePost(w http.ResponseWriter, r *http.Request, taskId string) {
@@ -1626,6 +1669,15 @@ func (s *apiServer) HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.
 		writeError(w, http.StatusUnprocessableEntity, taskDueTSPositiveMsg)
 		return
 	}
+	dueLead, ok := dueSoonLeadDaysFromWire(body.DueSoonLeadDays)
+	if !ok {
+		writeError(w, http.StatusUnprocessableEntity, taskDueSoonLeadDaysRangeMsg)
+		return
+	}
+	if due == 0 && dueLead != 0 {
+		writeError(w, http.StatusUnprocessableEntity, taskDueSoonLeadNeedsDueMsg)
+		return
+	}
 	inputs := map[string]any{}
 	if body.Inputs != nil {
 		inputs = *body.Inputs
@@ -1820,6 +1872,7 @@ func (s *apiServer) HandleCreateTaskApiTasksPost(w http.ResponseWriter, r *http.
 		CreatedTS:           now,
 		UpdatedTS:           now,
 		DueTs:               due,
+		DueSoonLeadDays:     dueLead,
 	}
 	trigger := requestTrigger(r)
 

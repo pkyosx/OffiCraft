@@ -32,11 +32,17 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { useNowSeconds } from "../hooks/useNowSeconds";
-import { isDueSoon, isOverdue, nextDueChangeTs } from "../lib/dueDate";
+import {
+  effectiveLeadDays,
+  isDueSoon,
+  isOverdue,
+  nextDueChangeTs,
+} from "../lib/dueDate";
 import type { TaskView } from "../api/adapter";
 import { viewerMayForceTaskDone } from "../api";
 import { useTasks } from "../hooks/useTasks";
 import { useTaskCount } from "../hooks/useTaskCount";
+import { useDueSoonLeadDays } from "../hooks/useDueSoonLeadDays";
 import { useMembers } from "../hooks/useMembers";
 import { useHashRoute } from "../lib/hashRoute";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
@@ -98,11 +104,12 @@ interface Lane {
   tasks: TaskView[];
 }
 
-function dueLaneKey(task: TaskView, nowTs: number): string {
+function dueLaneKey(task: TaskView, nowTs: number, workspaceLeadDays: number): string {
   const due = task.dueTs ?? null;
   if (due === null) return "nodue";
   if (isOverdue(due, nowTs)) return "overdue";
-  if (isDueSoon(due, nowTs)) return "soon";
+  if (isDueSoon(due, nowTs, effectiveLeadDays(task.dueSoonLeadDays, workspaceLeadDays)))
+    return "soon";
   return "later";
 }
 
@@ -221,11 +228,19 @@ function DisplayOptions({
   );
 }
 
-function nextListDueChange(tasks: TaskView[], nowTs: number): number | null {
+function nextListDueChange(
+  tasks: TaskView[],
+  nowTs: number,
+  workspaceLeadDays: number
+): number | null {
   let next: number | null = null;
   for (const task of tasks) {
     if (task.dueTs == null || TERMINAL.has(task.status)) continue;
-    const at = nextDueChangeTs(task.dueTs, nowTs);
+    const at = nextDueChangeTs(
+      task.dueTs,
+      nowTs,
+      effectiveLeadDays(task.dueSoonLeadDays, workspaceLeadDays)
+    );
     if (at !== null && (next === null || at < next)) next = at;
   }
   return next;
@@ -284,7 +299,10 @@ export function TasksPage() {
   const { total: taskTotal } = useTaskCount();
   // Woken by the loaded tasks' own next due boundary, so a task changes lane at
   // the same moment its card's chip changes colour.
-  const nowSec = useNowSeconds(nextListDueChange(tasks, Date.now() / 1000));
+  const dueSoonLeadDays = useDueSoonLeadDays();
+  const nowSec = useNowSeconds(
+    nextListDueChange(tasks, Date.now() / 1000, dueSoonLeadDays)
+  );
 
   // Ticking clock (30s) — drives 已歷時 and running-step 耗時 on every card.
   const [nowTs, setNowTs] = useState(() => Date.now() / 1000);
@@ -695,7 +713,7 @@ export function TasksPage() {
           (a.dueTs ?? 0) - (b.dueTs ?? 0);
         return lanesInOrder(
           open,
-          (task) => dueLaneKey(task, nowSec),
+          (task) => dueLaneKey(task, nowSec, dueSoonLeadDays),
           [
             {
               key: "overdue",
@@ -905,6 +923,7 @@ export function TasksPage() {
         onMarkDuplicate={markDuplicate}
         onSetPriority={setPriority}
         onSetDue={setDue}
+        dueSoonLeadDays={dueSoonLeadDays}
         onReassign={reassign}
         onSendMessage={(id, body, attachments) =>
           sendMessage(id, { body, attachments })
