@@ -69,7 +69,7 @@ export function ThemeContrastStory() {
                   className={`nav-tab__due-clock nav-tab__due-clock--${tone}`}
                   data-testid={`clock-${tone}-${state}`}
                 >
-                  <ClockIcon size={14} />
+                  <ClockIcon size={15} />
                 </span>
               ))}
             </button>

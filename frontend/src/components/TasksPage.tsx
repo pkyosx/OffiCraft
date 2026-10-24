@@ -709,6 +709,11 @@ export function TasksPage() {
   // re-targets every scrollport on the ancestor chain.
   const laneEls = useRef(new Map<string, HTMLElement>());
   const [laneJump, setLaneJump] = useState<{ key: string } | null>(null);
+  // The summary counts ignore the filters; a lane exists only for what they
+  // let through, so an item with nothing behind it would jump nowhere.
+  const dueKeysInOpen = new Set(
+    open.map((task) => dueLaneKey(task, nowSec, dueSoonLeadDays))
+  );
   function jumpToDueLane(key: "overdue" | "soon") {
     if (groupBy !== "due") setGroupBy("due");
     setLaneOpenOverrides((cur) => new Map(cur).set(key, true));
@@ -1037,27 +1042,45 @@ export function TasksPage() {
         <p className="tasks__summary" data-testid="tasks-summary">
           {taskCounts.overdue > 0 && (
             <>
-              <button
-                type="button"
-                className="tasks__summary-jump tasks__summary-jump--overdue"
-                data-testid="tasks-summary-overdue"
-                onClick={() => jumpToDueLane("overdue")}
-              >
-                {msg.taskCountOverdue(taskCounts.overdue)}
-              </button>
+              {dueKeysInOpen.has("overdue") ? (
+                <button
+                  type="button"
+                  className="tasks__summary-due tasks__summary-due--overdue tasks__summary-jump"
+                  data-testid="tasks-summary-overdue"
+                  onClick={() => jumpToDueLane("overdue")}
+                >
+                  {msg.taskCountOverdue(taskCounts.overdue)}
+                </button>
+              ) : (
+                <span
+                  className="tasks__summary-due tasks__summary-due--overdue"
+                  data-testid="tasks-summary-overdue"
+                >
+                  {msg.taskCountOverdue(taskCounts.overdue)}
+                </span>
+              )}
               {t.tasks.countSep}
             </>
           )}
           {taskCounts.dueSoon > 0 && (
             <>
-              <button
-                type="button"
-                className="tasks__summary-jump tasks__summary-jump--soon"
-                data-testid="tasks-summary-soon"
-                onClick={() => jumpToDueLane("soon")}
-              >
-                {msg.taskCountDueSoon(taskCounts.dueSoon)}
-              </button>
+              {dueKeysInOpen.has("soon") ? (
+                <button
+                  type="button"
+                  className="tasks__summary-due tasks__summary-due--soon tasks__summary-jump"
+                  data-testid="tasks-summary-soon"
+                  onClick={() => jumpToDueLane("soon")}
+                >
+                  {msg.taskCountDueSoon(taskCounts.dueSoon)}
+                </button>
+              ) : (
+                <span
+                  className="tasks__summary-due tasks__summary-due--soon"
+                  data-testid="tasks-summary-soon"
+                >
+                  {msg.taskCountDueSoon(taskCounts.dueSoon)}
+                </span>
+              )}
               {t.tasks.countSep}
             </>
           )}

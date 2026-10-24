@@ -1383,10 +1383,10 @@ describe("TasksPage", () => {
       expect(summary.textContent).toBe("已逾期 3 · 即將到期 2 · 進行中 8")
     );
     expect(getByTestId("tasks-summary-overdue").className).toBe(
-      "tasks__summary-jump tasks__summary-jump--overdue"
+      "tasks__summary-due tasks__summary-due--overdue tasks__summary-jump"
     );
     expect(getByTestId("tasks-summary-soon").className).toBe(
-      "tasks__summary-jump tasks__summary-jump--soon"
+      "tasks__summary-due tasks__summary-due--soon tasks__summary-jump"
     );
     expect(getByTestId("tasks-summary-open").tagName).toBe("SPAN");
     expect(
@@ -1438,6 +1438,29 @@ describe("TasksPage", () => {
     fireEvent.click(await findByRole("button", { name: "已逾期 3" }));
     expect(laneToggle("overdue").getAttribute("aria-expanded")).toBe("true");
     expect(laneTitles("overdue")).toHaveLength(3);
+  });
+
+  it("shows 即將到期 as plain text that changes nothing when the filters let no due-soon task through, while 已逾期 stays a jump", async () => {
+    seedDueTasks(Date.now() / 1000);
+    const { findByText, getByTestId, queryByRole } = renderPage();
+    await findByText("逾期的手冊任務");
+    toggleFilter("filter-type", "deploy");
+    chooseGroupBy("executor");
+    await waitFor(() => expect(laneKeys()).toEqual(["mira"]));
+
+    const soon = getByTestId("tasks-summary-soon");
+    expect(soon.tagName).toBe("SPAN");
+    expect(soon.className).toBe("tasks__summary-due tasks__summary-due--soon");
+    expect(soon.textContent).toBe("即將到期 2");
+    expect(queryByRole("button", { name: "即將到期 2" })).toBeNull();
+    fireEvent.click(soon);
+    expect(openDisplayOptions().value).toBe("executor");
+    expect(laneKeys()).toEqual(["mira"]);
+
+    fireEvent.click(getByTestId("tasks-summary-overdue"));
+    await waitFor(() => expect(laneKeys()).toEqual(["overdue"]));
+    expect(laneToggle("overdue").getAttribute("aria-expanded")).toBe("true");
+    expect(laneTitles("overdue")).toEqual(["逾期的手冊任務"]);
   });
 
   describe("light list + lazy detail on expand", () => {

@@ -28,7 +28,7 @@ for (const { name, w, h } of [
     });
     expect(before.offset, "the lane must start below the fold").toBeGreaterThan(before.portHeight);
 
-    await jump.evaluate((el) => (el as HTMLButtonElement).click());
+    await jump.click();
 
     await expect(head).toHaveAttribute("aria-expanded", "true");
     const after = await head.evaluate((el) => {

@@ -132,11 +132,14 @@ describe("任務 nav badge", () => {
     expect(screen.queryByRole("tooltip")).toBeNull();
   });
 
-  it("clamps the open count above 99 to \"99+\" while the label keeps the real counts", () => {
-    state.taskCount = { open: 300, total: 300, overdue: 120, dueSoon: 99, dueNextChangeTs: null };
+  it.each([
+    { open: 99, overdue: 40, dueSoon: 9, badge: "99", label: "任務 已逾期 40 · 即將到期 9 · 進行中 99" },
+    { open: 300, overdue: 120, dueSoon: 99, badge: "99+", label: "任務 已逾期 120 · 即將到期 99 · 進行中 300" },
+  ])("shows an open count of $open as \"$badge\" while the label keeps the real counts", ({ open, overdue, dueSoon, badge, label }) => {
+    state.taskCount = { open, total: open, overdue, dueSoon, dueNextChangeTs: null };
     renderApp();
-    expect(screen.getByTestId("tasks-badge").textContent).toBe("99+");
-    expect(screen.getByRole("button", { name: "任務 已逾期 120 · 即將到期 99 · 進行中 300" })).toBe(tasksTab());
+    expect(screen.getByTestId("tasks-badge").textContent).toBe(badge);
+    expect(screen.getByRole("button", { name: label })).toBe(tasksTab());
   });
 
   it("clicking the tab opens the 任務 page", () => {

@@ -14,9 +14,12 @@
 //   ③ each built-in's main text-on-surface token pairs clear AA.
 //   ④ the 任務 nav tab's red / amber due clock stands out (≥3:1, the non-text
 //      threshold) from the tab it sits on, idle and active.
+//   ⑤ the 任務頁 summary line's red 已逾期 / amber 即將到期 (13px text) clear AA
+//      (≥4.5:1) on the page they sit on, in the production shell.
 import { test, expect } from "@playwright/experimental-ct-react";
 import type { Page } from "@playwright/test";
 import { ThemeContrastStory } from "./stories/ThemeContrastStory";
+import { TasksDueSummaryStory } from "./stories/TasksDueSummaryStory";
 import {
   BUILTIN_THEME_IDS,
   expectBuiltinApplied,
@@ -240,6 +243,28 @@ for (const theme of BUILTIN_THEME_IDS) {
     console.log(`${theme} 任務 due clock contrast: ${JSON.stringify(ratios)}`);
     for (const [which, ratio] of Object.entries(ratios)) {
       expect(Number(ratio), `${which}: ${ratio}:1`).toBeGreaterThanOrEqual(3);
+    }
+  });
+}
+
+for (const theme of BUILTIN_THEME_IDS) {
+  test(`${theme}: the 任務頁 summary's 已逾期 and 即將到期 texts clear AA (≥4.5:1)`, async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const cmp = await mount(<TasksDueSummaryStory theme={theme} />);
+    await expect(cmp.getByTestId("tasks-summary")).toHaveText("已逾期 6 · 即將到期 2 · 進行中 14");
+    const ratios: Record<string, string> = {};
+    for (const tone of ["overdue", "soon"]) {
+      const s = await sample(cmp.getByTestId(`tasks-summary-${tone}`));
+      const zone = foldZone(s.layers);
+      ratios[tone] = contrast(over(parseColor(s.color), zone), zone).toFixed(2);
+    }
+    await expectBuiltinApplied(page, theme);
+    console.log(`${theme} 任務頁 summary contrast: ${JSON.stringify(ratios)}`);
+    for (const [which, ratio] of Object.entries(ratios)) {
+      expect(Number(ratio), `${which}: ${ratio}:1`).toBeGreaterThanOrEqual(4.5);
     }
   });
 }

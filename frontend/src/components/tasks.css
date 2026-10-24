@@ -67,12 +67,19 @@
   border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
   color: var(--color-text-strong);
 }
-/* 顯示方式: square corners and no fill, so it does not read as one more
-   filter pill. */
 .tasks__summary {
   margin: 0 0 -12px;
   color: var(--color-text-muted);
   font-size: 13px;
+}
+.tasks__summary-due {
+  font-weight: 600;
+}
+.tasks__summary-due--overdue {
+  color: var(--color-danger);
+}
+.tasks__summary-due--soon {
+  color: var(--color-dot-waking);
 }
 .tasks__summary-jump {
   padding: 0;
@@ -85,13 +92,9 @@
 .tasks__summary-jump:hover {
   text-decoration: underline;
 }
-.tasks__summary-jump--overdue {
-  color: var(--color-danger);
-}
-.tasks__summary-jump--soon {
-  color: var(--color-dot-waking);
-}
 
+/* 顯示方式: square corners and no fill, so it does not read as one more
+   filter pill. */
 .tasks__display {
   position: relative;
 }

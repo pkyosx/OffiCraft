@@ -72,6 +72,9 @@ export function InstantHint({
   // below. A tap fires mouseenter right before click; keeping the two apart is
   // what stops that tap from toggling the hint straight shut.
   const [state, setState] = useState<"closed" | "shown" | "pinned">("closed");
+  // Without this, a hover or tap while the hint is empty would leave the state
+  // open, and the hint would pop up on its own once text arrives.
+  if (hint === "" && state !== "closed") setState("closed");
   const open = state !== "closed" && hint !== "";
   const [closeSelf] = useState(() => () => setState("closed"));
 

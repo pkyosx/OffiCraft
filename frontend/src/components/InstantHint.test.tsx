@@ -44,12 +44,29 @@ describe("InstantHint", () => {
     expect(hint.className).toBe("instant-hint");
   });
 
-  it("an empty hint shows nothing on hover or click", () => {
-    const trigger = renderHint("");
+  it("an empty hint shows nothing on hover or click, and filling it in later does not open it until a new hover", () => {
+    const view = (hint: string) => (
+      <InstantHint hint={hint} data-testid="trigger">
+        !
+      </InstantHint>
+    );
+    const { rerender } = render(view(""));
+    const trigger = screen.getByTestId("trigger");
     fireEvent.mouseEnter(trigger);
     fireEvent.click(trigger);
     expect(screen.queryByRole("tooltip")).toBeNull();
     expect(trigger.hasAttribute("aria-describedby")).toBe(false);
+    rerender(view("已逾期 3 · 進行中 8"));
+    expect(screen.queryByRole("tooltip")).toBeNull();
+
+    rerender(view(""));
+    fireEvent.mouseEnter(trigger);
+    rerender(view("已逾期 3 · 進行中 8"));
+    expect(screen.queryByRole("tooltip")).toBeNull();
+
+    fireEvent.mouseLeave(trigger);
+    fireEvent.mouseEnter(trigger);
+    expect(lines(screen.getByRole("tooltip"))).toEqual(["已逾期 3 · 進行中 8"]);
   });
 
   it("under mouseleave after mouseenter, the hint is gone and the trigger no longer points at it", () => {
