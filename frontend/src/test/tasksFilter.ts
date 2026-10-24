@@ -81,7 +81,7 @@ export function chooseGroupBy(
  * helper makes several round trips where the product's own 清除篩選 button makes
  * one. Do not use it as the basis of a request-count assertion. */
 export function clearAllFilters() {
-  for (const testId of ["filter-executor", "filter-type", "filter-status"]) {
+  for (const testId of ["filter-executor", "filter-type", "filter-status", "filter-due"]) {
     const trigger = document.querySelector(`[data-testid="${testId}"]`);
     if (!trigger) continue;
     if (trigger.getAttribute("aria-expanded") !== "true") {

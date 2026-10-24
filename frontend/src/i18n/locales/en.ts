@@ -245,10 +245,16 @@ export const en: Dict = {
     filterExecutorAll: "Everyone",
     filterTypeAll: "All types",
     filterStatusAll: "All statuses",
+    filterDueAll: "Any due date",
     // Multi-select summary nouns — the "· N" form when 2+ are picked (T-be18).
     filterExecutorNoun: "Assignees",
     filterTypeNoun: "Types",
     filterStatusNoun: "Statuses",
+    filterDueNoun: "Due",
+    filterDueOverdue: "Overdue",
+    filterDueSoon: "Due soon",
+    filterDueHas: "Has a due date",
+    filterDueNone: "No due date",
     // The chip's own word for the id axis — short, because the value sits right
     // next to it. The FIELD keeps the longer "Task ID" placeholder.
     // A non-404 failure: the question never got an answer, so "not found" would

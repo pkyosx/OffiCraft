@@ -250,10 +250,16 @@ export const zh = {
     filterExecutorAll: "所有負責人",
     filterTypeAll: "所有類型",
     filterStatusAll: "所有狀態",
+    filterDueAll: "所有到期",
     // 多選摘要用的量詞 — 選 2 項以上時顯「量詞 · N」(T-be18)
     filterExecutorNoun: "負責人",
     filterTypeNoun: "類型",
     filterStatusNoun: "狀態",
+    filterDueNoun: "到期",
+    filterDueOverdue: "已逾期",
+    filterDueSoon: "快到期",
+    filterDueHas: "有到期日",
+    filterDueNone: "沒有到期日",
     // 非 404 的失敗:根本沒問到,所以不能說「找不到」。
     idUnreached: (id: string) =>
       `暫時無法確認「${id}」是否存在，請稍後再試。`,

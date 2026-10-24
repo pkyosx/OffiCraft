@@ -338,6 +338,7 @@ export function TasksPage() {
   //   executor keys: "outsource" | "unassigned" | <member id>
   //   type keys:     "adhoc" | <type_key>
   //   status keys:   <one of STATUS_OPTIONS>
+  //   due keys:      <one of DUE_FILTER_OPTIONS>, OR'd together
   //
   // 狀態 opens at DEFAULT_STATUS — EXCEPT when the page opens on a #tasks/<id>
   // link. A jump means 「給我看這一張」, so it lands with no other axis narrowing
@@ -349,6 +350,7 @@ export function TasksPage() {
     () => new Set()
   );
   const [appliedType, setAppliedType] = useState<Set<string>>(() => new Set());
+  const [appliedDue, setAppliedDue] = useState<Set<string>>(() => new Set());
   const [appliedStatus, setAppliedStatus] = useState<Set<string>>(() =>
     taskIdFilter ? new Set<string>() : new Set(DEFAULT_STATUS)
   );
@@ -402,6 +404,7 @@ export function TasksPage() {
     // from the status axis, there simply is no status axis to fail.
     setAppliedExecutor(new Set());
     setAppliedType(new Set());
+    setAppliedDue(new Set());
     setAppliedStatus(new Set());
   }, [taskIdFilter]);
 
@@ -423,6 +426,7 @@ export function TasksPage() {
     if (!executorSeed) return;
     setAppliedExecutor(new Set([executorSeed]));
     setAppliedType(new Set());
+    setAppliedDue(new Set());
     setAppliedStatus(new Set(DEFAULT_STATUS));
     setAppliedId("");
     // 🔴 THE BOX TOO, NOT JUST THE APPLIED VALUE (T-118, found in independent
@@ -489,6 +493,7 @@ export function TasksPage() {
     // EMPTIES too (所有狀態, 已完成/終止 included), NOT back to the default four.
     setAppliedExecutor(new Set());
     setAppliedType(new Set());
+    setAppliedDue(new Set());
     setAppliedStatus(new Set());
     setAppliedId("");
     setDraftId("");
@@ -502,6 +507,7 @@ export function TasksPage() {
   const anyFilter =
     appliedExecutor.size > 0 ||
     appliedType.size > 0 ||
+    appliedDue.size > 0 ||
     appliedStatus.size > 0 ||
     appliedId !== "";
 
@@ -562,15 +568,33 @@ export function TasksPage() {
     }
     return false;
   }
+  // Judged on the page clock and the effective lead, the same as the lanes, so a
+  // task leaves 快到期 for 已逾期 at the moment it changes lane.
+  function passesDue(task: TaskView, set: Set<string>): boolean {
+    if (set.size === 0) return true;
+    const due = task.dueTs ?? null;
+    if (due === null) return set.has("noDue");
+    if (set.has("hasDue")) return true;
+    if (TERMINAL.has(task.status)) return false;
+    if (isOverdue(due, nowSec)) return set.has("overdue");
+    return (
+      set.has("soon") &&
+      isDueSoon(due, nowSec, effectiveLeadDays(task.dueSoonLeadDays, dueSoonLeadDays))
+    );
+  }
   const matchesExecutor = (task: TaskView) =>
     passesExecutor(task, appliedExecutor);
   const matchesType = (task: TaskView) => passesType(task, appliedType);
   const matchesStatus = (task: TaskView) => passesStatus(task, appliedStatus);
+  const matchesDue = (task: TaskView) => passesDue(task, appliedDue);
   // 全部條件一起生效 (owner ①) — the non-id axes AND together, and the id (when
   // one is applied) ANDs with them too, judged on the row the server returned
   // rather than on the loaded list. See `idOutcome`.
   const matchesOthers = (task: TaskView) =>
-    matchesExecutor(task) && matchesType(task) && matchesStatus(task);
+    matchesExecutor(task) &&
+    matchesType(task) &&
+    matchesStatus(task) &&
+    matchesDue(task);
 
   // ── filter option models (labels + 負責人 counts) ──────────────────────────
   // Per-owner count basis (T-be18 #3): the tasks that WOULD show if this owner
@@ -585,7 +609,9 @@ export function TasksPage() {
   // condition — so the applied sets are the only sets, and the counts and the
   // list are now incapable of disagreeing.
   const inCountScope = (task: TaskView) =>
-    passesStatus(task, appliedStatus) && passesType(task, appliedType);
+    passesStatus(task, appliedStatus) &&
+    passesType(task, appliedType) &&
+    passesDue(task, appliedDue);
   const executorCount = (pred: (t: TaskView) => boolean) =>
     tasks.filter((t) => inCountScope(t) && pred(t)).length;
   const executorOptions: MultiSelectOption[] = [
@@ -618,6 +644,12 @@ export function TasksPage() {
   const typeFilterOptions: MultiSelectOption[] = [
     ...typeOptions.map((k) => ({ value: k, label: typeNames.get(k) ?? k })),
     { value: "adhoc", label: t.tasks.adhoc },
+  ];
+  const dueFilterOptions: MultiSelectOption[] = [
+    { value: "overdue", label: t.tasks.filterDueOverdue },
+    { value: "soon", label: t.tasks.filterDueSoon },
+    { value: "hasDue", label: t.tasks.filterDueHas },
+    { value: "noDue", label: t.tasks.filterDueNone },
   ];
   const statusFilterOptions: MultiSelectOption[] = STATUS_OPTIONS.map((s) => ({
     value: s,
@@ -1072,6 +1104,14 @@ export function TasksPage() {
           selected={appliedStatus}
           onChange={setAppliedStatus}
           testId="filter-status"
+        />
+        <MultiSelectFilter
+          noun={t.tasks.filterDueNoun}
+          allLabel={t.tasks.filterDueAll}
+          options={dueFilterOptions}
+          selected={appliedDue}
+          onChange={setAppliedDue}
+          testId="filter-due"
         />
       </FilterPanel>
 

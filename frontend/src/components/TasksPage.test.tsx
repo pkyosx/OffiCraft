@@ -1104,6 +1104,58 @@ describe("TasksPage", () => {
     expect(laneCount("overdue")).toBe(" · 1");
   });
 
+  it("filters by 到期 with the picked options OR'd, ANDed with the other axes, never counting a closed task as overdue, and 清除篩選 clears it", async () => {
+    const now = 1_900_000_000;
+    vi.useFakeTimers({ now: now * 1000, toFake: ["Date"] });
+    try {
+      seedDueTasks(now);
+      __injectMockTask(
+        mkTask({ title: "自己提前七天", dueTs: now + 5 * 86_400 + 60, dueSoonLeadDays: 7 })
+      );
+      const { findByText, findByTestId, getByTestId } = renderPage();
+      await findByText("逾期的手冊任務");
+      toggleFilter("filter-status", "done");
+      chooseGroupBy("none");
+      fireEvent.click(await findByTestId("closed-toggle"));
+      await findByText("已完成的逾期");
+      const shown = () =>
+        [...document.querySelectorAll(".task-card__title")].map((el) => el.textContent).sort();
+
+      toggleFilter("filter-due", "overdue");
+      await waitFor(() =>
+        expect(shown()).toEqual(["剛好到期", "逾期的手冊任務", "逾期的自由代辦"].sort())
+      );
+      expect(getByTestId("filter-due").textContent).toContain("已逾期");
+
+      toggleFilter("filter-due", "soon");
+      await waitFor(() =>
+        expect(shown()).toEqual(
+          ["剛好到期", "逾期的手冊任務", "逾期的自由代辦", "快到期的", "整整一天後", "自己提前七天"].sort()
+        )
+      );
+
+      toggleFilter("filter-type", "deploy");
+      await waitFor(() => expect(shown()).toEqual(["逾期的手冊任務"]));
+      toggleFilter("filter-type", "deploy");
+
+      toggleFilter("filter-due", "overdue");
+      toggleFilter("filter-due", "soon");
+      toggleFilter("filter-due", "noDue");
+      await waitFor(() => expect(shown()).toEqual(["沒有到期日的"]));
+
+      toggleFilter("filter-due", "noDue");
+      toggleFilter("filter-due", "hasDue");
+      await waitFor(() => expect(shown()).toHaveLength(9));
+      expect(shown()).toContain("已完成的逾期");
+      expect(shown()).not.toContain("沒有到期日的");
+
+      fireEvent.click(getByTestId("tasks-filter-clear"));
+      await waitFor(() => expect(getByTestId("filter-due").textContent).toBe("所有到期"));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("expands a collapsed lane from its header and collapses it again, and collapses the first lane, leaving the other lanes as they were", async () => {
     seedDueTasks(Date.now() / 1000);
     const { findByText, queryByText } = renderPage();
