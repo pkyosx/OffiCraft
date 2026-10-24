@@ -67,32 +67,6 @@
   border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
   color: var(--color-text-strong);
 }
-.tasks__summary {
-  margin: 0 0 -12px;
-  color: var(--color-text-muted);
-  font-size: 13px;
-}
-.tasks__summary-due {
-  font-weight: 600;
-}
-.tasks__summary-due--overdue {
-  color: var(--color-danger);
-}
-.tasks__summary-due--soon {
-  color: var(--color-dot-waking);
-}
-.tasks__summary-jump {
-  padding: 0;
-  border: none;
-  background: none;
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-}
-.tasks__summary-jump:hover {
-  text-decoration: underline;
-}
-
 /* 顯示方式: square corners and no fill, so it does not read as one more
    filter pill. */
 .tasks__display {

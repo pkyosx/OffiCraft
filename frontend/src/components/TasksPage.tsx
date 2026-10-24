@@ -31,7 +31,7 @@
 // The 30s ticking clock drives every card's 已歷時 / step 耗時 counters (same
 // cadence as RepliesPage's 已等你).
 
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { useNowSeconds } from "../hooks/useNowSeconds";
 import {
@@ -48,7 +48,6 @@ import { useDueSoonLeadDays } from "../hooks/useDueSoonLeadDays";
 import { useMembers } from "../hooks/useMembers";
 import { useHashRoute } from "../lib/hashRoute";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
-import { scrollParent, viewportSpanOf } from "../lib/scrollPort";
 import { TaskCard } from "./TaskCard";
 import { IdFilterInput } from "./IdFilterInput";
 import { MultiSelectFilter, type MultiSelectOption } from "./MultiSelectFilter";
@@ -253,7 +252,7 @@ function nextListDueChange(
 }
 
 export function TasksPage() {
-  const { t, msg } = useI18n();
+  const { t } = useI18n();
   const {
     members,
     loading: membersLoading,
@@ -299,11 +298,9 @@ export function TasksPage() {
     // on the very first pass, not one commit later.
   } = useTasks(DEFAULT_STATUS, appliedId === "" ? undefined : appliedId);
 
-  // The same server counts the 任務 nav tab shows, so the summary line and the
-  // tab never disagree. `total` is unfiltered — the only honest basis for
-  // 目前沒有任務 now that the list answers a status set (see the empty states).
-  const taskCounts = useTaskCount();
-  const taskTotal = taskCounts.total;
+  // `total` is unfiltered — the only honest basis for 目前沒有任務 now that the
+  // list answers a status set (see the empty states).
+  const taskTotal = useTaskCount().total;
   // Woken by the loaded tasks' own next due boundary, so a task changes lane at
   // the same moment its card's chip changes colour.
   const dueSoonLeadDays = useDueSoonLeadDays();
@@ -706,29 +703,6 @@ export function TasksPage() {
   function toggleLane(key: string, expandedNow: boolean) {
     setLaneOpenOverrides((cur) => new Map(cur).set(key, !expandedNow));
   }
-  // The summary line's 已逾期 / 即將到期 open their 到期狀態 lane and bring its
-  // head to the top of the scrollport. Written as a scrollTop on the port
-  // (lib/scrollPort.ts) for the reason TaskCard's collapse is: scrollIntoView
-  // re-targets every scrollport on the ancestor chain.
-  const laneEls = useRef(new Map<string, HTMLElement>());
-  const [laneJump, setLaneJump] = useState<{ key: string } | null>(null);
-  // The summary counts ignore the filters; a lane exists only for what they
-  // let through, so an item with nothing behind it would jump nowhere.
-  const dueKeysInOpen = new Set(
-    open.map((task) => dueLaneKey(task, nowSec, dueSoonLeadDays))
-  );
-  function jumpToDueLane(key: "overdue" | "soon") {
-    if (groupBy !== "due") setGroupBy("due");
-    setLaneOpenOverrides((cur) => new Map(cur).set(key, true));
-    setLaneJump({ key });
-  }
-  useLayoutEffect(() => {
-    if (!laneJump) return;
-    const el = laneEls.current.get(laneJump.key);
-    if (!el) return;
-    const port = scrollParent(el);
-    port.scrollTop += el.getBoundingClientRect().top - viewportSpanOf(port).top;
-  }, [laneJump]);
   const laneIdBase = useId();
   const groupByLabels: Record<GroupBy, string> = {
     due: t.tasks.groupByDue,
@@ -985,10 +959,6 @@ export function TasksPage() {
         key={lane.key}
         className="tasks__section"
         data-testid={`lane-${lane.key}`}
-        ref={(el) => {
-          if (el) laneEls.current.set(lane.key, el);
-          else laneEls.current.delete(lane.key);
-        }}
       >
         <button
           type="button"
@@ -1039,58 +1009,6 @@ export function TasksPage() {
             * server as a deleted task. */}
           {anchorFailed ? t.tasks.idUnreached(appliedId) : t.tasks.loadError}
         </div>
-      )}
-
-      {taskCounts.open > 0 && (
-        <p className="tasks__summary" data-testid="tasks-summary">
-          {taskCounts.overdue > 0 && (
-            <>
-              {dueKeysInOpen.has("overdue") ? (
-                <button
-                  type="button"
-                  className="tasks__summary-due tasks__summary-due--overdue tasks__summary-jump"
-                  data-testid="tasks-summary-overdue"
-                  onClick={() => jumpToDueLane("overdue")}
-                >
-                  {msg.taskCountOverdue(taskCounts.overdue)}
-                </button>
-              ) : (
-                <span
-                  className="tasks__summary-due tasks__summary-due--overdue"
-                  data-testid="tasks-summary-overdue"
-                >
-                  {msg.taskCountOverdue(taskCounts.overdue)}
-                </span>
-              )}
-              {t.tasks.countSep}
-            </>
-          )}
-          {taskCounts.dueSoon > 0 && (
-            <>
-              {dueKeysInOpen.has("soon") ? (
-                <button
-                  type="button"
-                  className="tasks__summary-due tasks__summary-due--soon tasks__summary-jump"
-                  data-testid="tasks-summary-soon"
-                  onClick={() => jumpToDueLane("soon")}
-                >
-                  {msg.taskCountDueSoon(taskCounts.dueSoon)}
-                </button>
-              ) : (
-                <span
-                  className="tasks__summary-due tasks__summary-due--soon"
-                  data-testid="tasks-summary-soon"
-                >
-                  {msg.taskCountDueSoon(taskCounts.dueSoon)}
-                </span>
-              )}
-              {t.tasks.countSep}
-            </>
-          )}
-          <span data-testid="tasks-summary-open">
-            {msg.taskCountOpen(taskCounts.open)}
-          </span>
-        </p>
       )}
 
       {/* ── 篩選列 (T-118) — 四個軸,常駐可見,選了就生效 ── */}

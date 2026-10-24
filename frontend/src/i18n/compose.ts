@@ -54,9 +54,6 @@ export interface Messages {
   taskOverdueDays: (days: number) => string;
   taskDueInDays: (days: number) => string;
   taskDueLeadWorkspace: (days: number) => string;
-  taskCountOverdue: (n: number) => string;
-  taskCountDueSoon: (n: number) => string;
-  taskCountOpen: (n: number) => string;
   taskCountSummary: (overdue: number, dueSoon: number, open: number) => string;
   // ── task artifact versions (T-60) ──
   taskArtifactVersionCount: (n: number) => string;
@@ -302,12 +299,6 @@ export function makeMessages(t: Dict, language: Lang): Messages {
         .filter((part) => part !== "")
         .join(" "),
     taskDueLeadWorkspace: (days) => `${tasks.dueLeadWorkspaceLead}${days}`,
-    taskCountOverdue: (n) =>
-      countPhrase(tasks.countOverdueLead, n, tasks.countOverdueTail),
-    taskCountDueSoon: (n) =>
-      countPhrase(tasks.countDueSoonLead, n, tasks.countDueSoonTail),
-    taskCountOpen: (n) =>
-      countPhrase(tasks.countOpenLead, n, tasks.countOpenTail),
     taskCountSummary: (overdue, dueSoon, open) =>
       [
         overdue > 0 &&
