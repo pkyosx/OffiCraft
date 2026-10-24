@@ -300,7 +300,10 @@
 .nav-tab__due-clock {
   flex: none;
   display: inline-flex;
-  margin-left: -4px;
+  /* Tapping the clock pins the summary on phones; the padding widens that tap
+   * target and the negative margin keeps the tab's layout unchanged. */
+  padding: 6px;
+  margin: -6px -6px -6px -10px;
 }
 
 .nav-tab__due-clock--overdue {

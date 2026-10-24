@@ -45,7 +45,8 @@ function contentRect(el: HTMLElement): { top: number; bottom: number; left: numb
  * would clip anything rendered in place.
  *
  * With `onActivate` the trigger is a button instead: a click or Enter/Space
- * calls it and no longer pins the hint; hover and focus still show it.
+ * calls it and no longer pins the hint; hover and focus still show it, and a
+ * click on a descendant marked `data-hint-pin` pins it as above.
  * `triggerRef` follows the mounted trigger, so focus can be handed back to it.
  * `focusable={false}` keeps a span trigger out of the tab order. An empty
  * `hint` shows nothing. */
@@ -151,7 +152,10 @@ export function InstantHint({
     // Enter/Space; neither may bubble, or using the hint opens the row.
     onClick: (e: ReactMouseEvent<HTMLElement>) => {
       e.stopPropagation();
-      if (onActivate) {
+      // A phone has no hover, so a tap on a `data-hint-pin` part of a button
+      // trigger pins the hint instead of activating.
+      const pinPart = (e.target as Element).closest("[data-hint-pin]");
+      if (onActivate && !(pinPart && e.currentTarget.contains(pinPart))) {
         setState("closed");
         onActivate();
       } else {

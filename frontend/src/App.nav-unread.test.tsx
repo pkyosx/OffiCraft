@@ -148,4 +148,18 @@ describe("任務 nav badge", () => {
     fireEvent.click(tasksTab());
     expect(window.location.hash).toBe("#tasks");
   });
+
+  it("tapping the clock pins the three counts open instead of opening the 任務 page", () => {
+    window.location.hash = "#office";
+    state.taskCount = { open: 4, total: 4, overdue: 3, dueSoon: 0, dueNextChangeTs: null };
+    renderApp();
+    const clock = screen.getByTestId("tasks-due-clock");
+    fireEvent.mouseEnter(tasksTab());
+    fireEvent.click(clock);
+    expect(window.location.hash).toBe("#office");
+    fireEvent.mouseLeave(tasksTab());
+    expect(screen.getByRole("tooltip").textContent).toBe("已逾期 3 · 進行中 4");
+    fireEvent.click(clock);
+    expect(screen.queryByRole("tooltip")).toBeNull();
+  });
 });

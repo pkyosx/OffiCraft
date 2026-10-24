@@ -426,6 +426,7 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
               <span
                 className={`nav-tab__due-clock nav-tab__due-clock--${taskDueTone}`}
                 data-testid="tasks-due-clock"
+                data-hint-pin
                 aria-hidden="true"
               >
                 <ClockIcon size={15} />
