@@ -1053,6 +1053,35 @@ describe("TasksPage", () => {
     }
   });
 
+  it("moves a task into 即將到期 and turns its chip orange when another tab raises the workspace lead", async () => {
+    const now = 1_900_000_000;
+    vi.useFakeTimers({ now: now * 1000, toFake: ["Date"] });
+    try {
+      __injectMockTask(mkTask({ title: "兩天後到期", dueTs: now + 2 * 86_400 }));
+      const { findByText } = renderPage();
+      await findByText("兩天後到期");
+      expect(laneKeys()).toEqual(["later"]);
+      expect(
+        (await findByText("兩天後到期"))
+          .closest(".task-card")!
+          .querySelector('[data-testid="task-due"]')!
+          .classList.contains("task-badge--due-later")
+      ).toBe(true);
+
+      await act(async () => {
+        await mockApi.patchServerSettings({ taskDueSoonLeadDays: 3 });
+      });
+
+      await waitFor(() => expect(laneKeys()).toEqual(["soon"]));
+      const chip = (await findByText("兩天後到期"))
+        .closest(".task-card")!
+        .querySelector('[data-testid="task-due"]')!;
+      expect(chip.classList.contains("task-badge--due-soon")).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("applies the filters before grouping and leaves out a lane the filters emptied", async () => {
     seedDueTasks(Date.now() / 1000);
     renderPage();
