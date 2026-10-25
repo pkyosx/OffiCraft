@@ -233,6 +233,12 @@ for (const width of [320, 390]) {
       expect(sameLine(before, input)).toBeLessThan(2);
       expect(before.x + before.width).toBeLessThanOrEqual(pop.x + pop.width);
       expect(before.x + before.width).toBeLessThanOrEqual(content.x + content.width);
+      const apply = (await cmp.getByTestId("task-due-apply").boundingBox())!;
+      const cancel = (await cmp.getByTestId("task-due-cancel").boundingBox())!;
+      expect(sameLine(cancel, apply)).toBeLessThan(2);
+      expect(cancel.x).toBeGreaterThanOrEqual(apply.x + apply.width);
+      expect(cancel.x + cancel.width).toBeLessThanOrEqual(pop.x + pop.width);
+      expect(apply.y).toBeGreaterThan(input.y + input.height);
       expect(
         await cmp.locator(".task-card").evaluate((el) => el.scrollWidth - el.clientWidth)
       ).toBe(0);

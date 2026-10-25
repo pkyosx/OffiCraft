@@ -132,6 +132,7 @@ import {
   CheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  CloseIcon,
   FileTextIcon,
   ClockIcon,
   ExternalLinkIcon,
@@ -141,6 +142,7 @@ import {
   SwapIcon,
   TasksIcon,
 } from "./icons";
+import "./inline-edit.css";
 
 /** Terminal statuses (已完成/終止/重複) — owner actions and ticking stop here. */
 const TERMINAL = new Set(["done", "terminated", "duplicated"]);
@@ -2176,18 +2178,42 @@ export function TaskCard({
                         {msg.taskDueLeadWorkspace(dueSoonLeadMinutes)}
                       </span>
                     )}
-                    {dueTs !== null && (
+                    <div className="task-card__due-actions">
+                      {dueTs !== null && (
+                        <button
+                          type="button"
+                          className="task-card__menu-item"
+                          aria-label={t.tasks.dueClearLabel}
+                          data-testid="task-due-clear"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={clearDue}
+                        >
+                          {t.tasks.dueClear}
+                        </button>
+                      )}
                       <button
                         type="button"
-                        className="task-card__menu-item"
-                        aria-label={t.tasks.dueClearLabel}
-                        data-testid="task-due-clear"
+                        className="inline-edit__iconbtn inline-edit__iconbtn--apply"
+                        aria-label={t.common.apply}
+                        title={t.common.apply}
+                        data-testid="task-due-apply"
                         onMouseDown={(e) => e.preventDefault()}
-                        onClick={clearDue}
+                        onClick={() => finishDue(true)}
                       >
-                        {t.tasks.dueClear}
+                        <CheckIcon size={14} />
                       </button>
-                    )}
+                      <button
+                        type="button"
+                        className="inline-edit__iconbtn inline-edit__iconbtn--cancel"
+                        aria-label={t.common.cancel}
+                        title={t.common.cancel}
+                        data-testid="task-due-cancel"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => finishDue(false)}
+                      >
+                        <CloseIcon size={14} />
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>

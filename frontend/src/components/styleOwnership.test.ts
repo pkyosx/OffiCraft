@@ -64,6 +64,8 @@ const OWNED_SHEETS = [
   "member-activity.css",
   "presence-avatar.css",
   "chat-mention.css",
+  // The task card's 到期日 popover borrows the ✓ / ✗ icon buttons.
+  "inline-edit.css",
 ] as const;
 
 /** Sheets whose BEM block is not just the filename. `member-detail.css` owns the

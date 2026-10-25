@@ -1050,6 +1050,22 @@ button.task-card__prio-chip:hover {
   cursor: inherit;
   font: inherit;
 }
+/* 清除 on the left, the inline-edit ✓ / ✗ pair on the right. */
+.task-card__due-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.task-card__due-actions .task-card__menu-item {
+  flex: 1 1 auto;
+  width: auto;
+}
+.task-card__due-actions .inline-edit__iconbtn {
+  cursor: pointer;
+}
+.task-card__due-actions > .inline-edit__iconbtn--apply {
+  margin-left: auto;
+}
 .task-card__due-lead {
   display: flex;
   flex-direction: column;

@@ -353,6 +353,23 @@ describe("TaskCard", () => {
     expect(onSetDue).not.toHaveBeenCalled();
   });
 
+  it("saves the drafts with the ✓ button and discards them with the ✗ button", () => {
+    const { onSetDue } = renderCard(mkTask({ dueTs: OCT_25_END }));
+    fireEvent.click(chip());
+    fireEvent.change(dateInput(), { target: { value: "2026-10-30" } });
+    fireEvent.click(screen.getByTestId("task-due-cancel"));
+    expect(screen.queryByTestId("task-due-pop")).toBeNull();
+    expect(chip().textContent).toBe("2026/10/25（日）");
+
+    fireEvent.click(chip());
+    fireEvent.change(dateInput(), { target: { value: "2026-10-30" } });
+    fireEvent.change(timeInput(), { target: { value: "10:00" } });
+    fireEvent.click(screen.getByTestId("task-due-apply"));
+    expect(onSetDue).toHaveBeenCalledTimes(1);
+    expect(onSetDue).toHaveBeenCalledWith("task-1", OCT_30_1000);
+    expect(screen.queryByTestId("task-due-pop")).toBeNull();
+  });
+
   it("discards the date and lead drafts on Escape", () => {
     const { onSetDue } = renderCard(mkTask({ dueTs: OCT_25_END }));
     fireEvent.click(chip());
