@@ -19,10 +19,11 @@
 //             in one go (owner rc-ceb98bb8884f). Open tasks come first, ordered
 //             by priority 高→中→低→凍結 (凍結永遠最後), createdTs newest-first
 //             within a level; closed tasks follow, newest close first. The list
-//             is split into collapsible lanes by the 分組依據 selector (default
-//             到期狀態: 已逾期 / 即將到期 / 之後到期 / 沒有到期日, closed tasks
-//             included by their date, due-ascending in the first three).
-//             不分組 is the one flat list.
+//             is one flat list by default (不分組); the 分組依據 selector can
+//             split it into collapsible lanes (到期狀態: 已逾期 / 即將到期 /
+//             之後到期 / 沒有到期日, closed tasks included by their date,
+//             due-ascending in the first three). The chosen grouping is
+//             remembered in this browser (`oc_tasks_group_by`).
 //
 // Empty states ×2 (spec §2.3): no tasks at all vs filters matching nothing —
 // plus the THREE by-id outcomes below, which replace both while an id is
@@ -99,6 +100,27 @@ const DEFAULT_STATUS = STATUS_OPTIONS.filter((s) => !TERMINAL.has(s));
 
 const GROUP_BY_OPTIONS = ["due", "executor", "type", "status", "none"] as const;
 type GroupBy = (typeof GROUP_BY_OPTIONS)[number];
+
+const GROUP_BY_KEY = "oc_tasks_group_by";
+
+function readGroupBy(): GroupBy {
+  try {
+    const stored = window.localStorage.getItem(GROUP_BY_KEY);
+    return (GROUP_BY_OPTIONS as readonly string[]).includes(stored ?? "")
+      ? (stored as GroupBy)
+      : "none";
+  } catch {
+    return "none";
+  }
+}
+
+function writeGroupBy(next: GroupBy): void {
+  try {
+    window.localStorage.setItem(GROUP_BY_KEY, next);
+  } catch {
+    /* storage unavailable — the choice still holds for this mount */
+  }
+}
 
 interface Lane {
   key: string;
@@ -341,7 +363,7 @@ export function TasksPage() {
   //   executor keys: "outsource" | "unassigned" | <member id>
   //   type keys:     "adhoc" | <type_key>
   //   status keys:   <one of STATUS_OPTIONS>
-  //   due keys:      <one of DUE_FILTER_OPTIONS>, OR'd together
+  //   due keys:      "overdue" | "soon", OR'd together
   //
   // 狀態 opens at DEFAULT_STATUS — EXCEPT when the page opens on a #tasks/<id>
   // link. A jump means 「給我看這一張」, so it lands with no other axis narrowing
@@ -576,9 +598,7 @@ export function TasksPage() {
   function passesDue(task: TaskView, set: Set<string>): boolean {
     if (set.size === 0) return true;
     const due = task.dueTs ?? null;
-    if (due === null) return set.has("noDue");
-    if (set.has("hasDue")) return true;
-    if (TERMINAL.has(task.status)) return false;
+    if (due === null || TERMINAL.has(task.status)) return false;
     if (isOverdue(due, nowSec)) return set.has("overdue");
     return (
       set.has("soon") &&
@@ -651,8 +671,6 @@ export function TasksPage() {
   const dueFilterOptions: MultiSelectOption[] = [
     { value: "overdue", label: t.tasks.filterDueOverdue },
     { value: "soon", label: t.tasks.filterDueSoon },
-    { value: "hasDue", label: t.tasks.filterDueHas },
-    { value: "noDue", label: t.tasks.filterDueNone },
   ];
   const statusGroups: MultiSelectGroup[] = [
     { value: "open", label: t.tasks.openTitle, members: DEFAULT_STATUS },
@@ -721,18 +739,20 @@ export function TasksPage() {
     .sort((a, b) => (b.closedTs ?? 0) - (a.closedTs ?? 0));
   const shown = [...open, ...closed];
 
-  // Like the filters, the grouping and the lane collapse state live only in
-  // this mount. The default-open lane is picked when the default is applied
-  // and then held by key: a lane that appears ahead of it later (a task ticks
+  // The grouping is remembered per browser; the lane collapse state, like the
+  // filters, lives only in this mount. The default-open lane is picked when
+  // the default is applied and then held by key: a lane that appears ahead of
+  // it later (a task ticks
   // overdue, an SSE arrival) must not collapse the one being read. Only when
   // that lane empties out does the default move to whatever lane is first.
-  const [groupBy, setGroupByState] = useState<GroupBy>("due");
+  const [groupBy, setGroupByState] = useState<GroupBy>(readGroupBy);
   const [laneOpenOverrides, setLaneOpenOverrides] = useState<
     Map<string, boolean>
   >(() => new Map());
   const [defaultOpenKey, setDefaultOpenKey] = useState<string | null>(null);
   function setGroupBy(next: GroupBy) {
     setGroupByState(next);
+    writeGroupBy(next);
     setLaneOpenOverrides(new Map());
     setDefaultOpenKey(null);
   }

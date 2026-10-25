@@ -1990,7 +1990,9 @@ export function TaskCard({
                 {dueEditable ? (
                   <button
                     type="button"
-                    className={`task-card__chip task-card__chip--link${dueToneClass}`}
+                    className={`task-card__chip task-card__chip--link${
+                      dueDateText === null ? " task-card__due-date--unset" : dueToneClass
+                    }`}
                     title={t.tasks.dueEditLabel}
                     aria-describedby={dueAlert ? dueAlertId : undefined}
                     aria-haspopup="dialog"
@@ -2001,7 +2003,7 @@ export function TaskCard({
                     }}
                     onClick={() => (dueOpen ? finishDue(true) : openDue())}
                   >
-                    {dueDateText ?? t.tasks.dueEditLabel}
+                    {dueDateText ?? t.tasks.dueUnset}
                   </button>
                 ) : (
                   <span

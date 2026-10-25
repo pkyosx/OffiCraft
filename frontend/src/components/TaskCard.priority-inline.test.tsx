@@ -15,7 +15,7 @@ import { TasksPage } from "./TasksPage";
 import { __resetMock, __injectMockTask } from "../api/mock";
 import type { TaskView } from "../api/adapter";
 // 篩選 moved into the FilterPanel and only bites on 套用篩選 (T-93 round 3).
-import { expandLane, toggleFilter } from "../test/tasksFilter";
+import { toggleFilter, waitForListedCards } from "../test/tasksFilter";
 
 let seq = 0;
 
@@ -134,10 +134,9 @@ describe("TaskCard in-place priority editing (v2)", () => {
       })
     );
     const { findAllByTestId } = renderPage();
-    // Terminal tasks hide behind the 狀態 filter → tick 終止 to surface it in
-    // the 沒有到期日 lane, then make sure that lane is open.
+    // Terminal tasks hide behind the 狀態 filter → tick 終止 to surface it.
     toggleFilter("filter-status", "terminated");
-    await expandLane("nodue", 1);
+    await waitForListedCards(1);
 
     const chips = await findAllByTestId("task-priority");
     expect(chips[0].tagName).toBe("SPAN");

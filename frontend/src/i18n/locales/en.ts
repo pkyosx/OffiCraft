@@ -253,8 +253,6 @@ export const en: Dict = {
     filterDueNoun: "Due",
     filterDueOverdue: "Overdue",
     filterDueSoon: "Due soon",
-    filterDueHas: "Has a due date",
-    filterDueNone: "No due date",
     // The chip's own word for the id axis — short, because the value sits right
     // next to it. The FIELD keeps the longer "Task ID" placeholder.
     // A non-404 failure: the question never got an answer, so "not found" would
@@ -380,6 +378,7 @@ export const en: Dict = {
     overdueDaysTailMany: "days",
     overdueToday: "Overdue",
     dueEditLabel: "Set due date",
+    dueUnset: "Not set",
     duePickerLabel: "Due date",
     dueTimeLabel: "Due time",
     dueClear: "Clear",

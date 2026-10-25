@@ -70,6 +70,18 @@ export function chooseGroupBy(
   fireEvent.change(openDisplayOptions(), { target: { value: mode } });
 }
 
+/** Wait until the 不分組 list holds exactly `count` cards. A 狀態 tick only
+ * starts the fetch, so the closed rows it asked for land a moment later. */
+export async function waitForListedCards(count: number) {
+  await waitFor(() =>
+    expect(
+      screen
+        .getByTestId("task-list")
+        .querySelectorAll('[data-testid="task-card"]').length
+    ).toBe(count)
+  );
+}
+
 /** Expand one 分組 lane (e.g. `nodue` for 沒有到期日) unless it is already
  * open. Clicking blindly would COLLAPSE a lane that opened by default as the
  * first one. Waits for the lane to exist, since it renders only once a task is

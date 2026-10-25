@@ -4,7 +4,7 @@
 //      (adjudicated). A pure chat ask shows nothing.
 //   2. Clicking 查看任務詳情 routes to #tasks/<taskId>.
 //   3. Arriving at #tasks/<id> narrows the page to that ONE task in the normal
-//      layout (a closed target's due-date lane is expanded); emptying the 編號 field
+//      layout (a closed target included); emptying the 編號 field
 //      returns to the full list; an unknown id KEEPS its anchor and the page
 //      says THAT ID DOES NOT EXIST — the server was asked (owner 2026-09-05
 //      rc-428906235337 stopped the silent self-heal; owner 2026-09-06 option ①
@@ -29,8 +29,7 @@ import type { ReplyCard, TaskView } from "../api/adapter";
 import {
   toggleFilter,
   clearAllFilters,
-  chooseGroupBy,
-  expandLane,
+  waitForListedCards,
 } from "../test/tasksFilter";
 
 let seq = 0;
@@ -108,6 +107,7 @@ function renderTasks() {
 beforeEach(() => {
   __resetMock();
   window.location.hash = "";
+  localStorage.clear();
 });
 
 /** Open every card the 請示 page is showing. Every card starts COLLAPSED (owner
@@ -264,7 +264,7 @@ describe("TasksPage 單一任務 filter (#tasks/<id>)", () => {
     ).not.toBe("");
   });
 
-  it("a CLOSED target is visible in its expanded 沒有到期日 lane, the only lane on the page", async () => {
+  it("a CLOSED target is the one card in the list", async () => {
     __injectMockTask(mkTask({ id: "t-open" }));
     __injectMockTask(
       mkTask({ id: "t-closed", status: "done", closedTs: Date.now() / 1000 - 60 })
@@ -272,16 +272,11 @@ describe("TasksPage 單一任務 filter (#tasks/<id>)", () => {
     window.location.hash = "#tasks/t-closed";
 
     const { findByTestId } = renderTasks();
-    const lane = await findByTestId("lane-nodue");
-    expect(lane.querySelector('[data-task-id="t-closed"]')).not.toBeNull();
-    const toggle = await findByTestId("lane-toggle-nodue");
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(toggle.textContent).toBe("沒有到期日 · 1");
-    expect(
-      [...document.querySelectorAll('[data-testid^="lane-toggle-"]')].map((el) =>
-        el.getAttribute("data-testid")
-      )
-    ).toEqual(["lane-toggle-nodue"]);
+    const list = await findByTestId("task-list");
+    await waitFor(() =>
+      expect(list.querySelector('[data-task-id="t-closed"]')).not.toBeNull()
+    );
+    await waitForListedCards(1);
     expect(document.querySelector('[data-task-id="t-open"]')).toBeNull();
   });
 
@@ -302,8 +297,8 @@ describe("TasksPage 單一任務 filter (#tasks/<id>)", () => {
     );
     expect(document.querySelector('[data-task-id="t-open"]')).not.toBeNull();
     // The anchor is a filter axis: clearing it goes to 顯示全部, so the done
-    // task is in the 沒有到期日 lane too (open it only if still collapsed).
-    await expandLane("nodue", 3);
+    // task is listed too.
+    await waitForListedCards(3);
     await waitFor(() =>
       expect(document.querySelector('[data-task-id="t-done"]')).not.toBeNull()
     );
@@ -363,17 +358,13 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
     __injectMockTask(mkTask({ id: "t-kyle-open", executorId: "kyle" }));
     window.location.hash = "#tasks/executor/mira";
 
-    const { findByTestId, queryByTestId } = renderTasks();
+    const { findByTestId } = renderTasks();
     const list = await findByTestId("task-list");
     // executor half: mira's task is here, kyle's is not.
     expect(list.querySelector('[data-task-id="t-mira-open"]')).not.toBeNull();
     expect(document.querySelector('[data-task-id="t-kyle-open"]')).toBeNull();
-    // 還沒完成 half: mira's DONE task is nowhere on the page — the status
-    // filter removes terminals from the filtered set, so it is in no lane,
-    // collapsed or not. Contrast the #tasks/<id> anchor, which deliberately
-    // expands the target's lane to guarantee visibility; this seed promises
-    // the opposite.
-    expect(queryByTestId("lane-count-nodue")?.textContent).toBe(" · 1");
+    // 還沒完成 half: mira's DONE task is nowhere on the page.
+    await waitForListedCards(1);
     expect(document.querySelector('[data-task-id="t-mira-done"]')).toBeNull();
   });
 
@@ -402,10 +393,8 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
     // status set survives and the jump shows DONE tasks — silently breaking
     // half of what the icon promises.
     //
-    // Mutant-proven (M13 "seed drops the status axis"): asserting the done task
-    // is absent from an EXPANDED lane is dead — a done task can sit in a
-    // collapsed lane, absent from the DOM no matter what the filter does.
-    // The assertion has to be document-wide, plus the lane's own count.
+    // Mutant-proven (M13 "seed drops the status axis"). The assertion is
+    // document-wide, plus the listed-card count.
     __injectMockTask(mkTask({ id: "t-mira-open", executorId: "mira" }));
     __injectMockTask(
       mkTask({
@@ -415,12 +404,12 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
         closedTs: Date.now() / 1000 - 60,
       })
     );
-    const { queryByTestId } = renderTasks();
+    renderTasks();
 
     // Widen 狀態 to 所有狀態 the way the owner would: 清空每一軸 = 顯示全部
     // (T-50bb), which EMPTIES the status set — terminals included.
     clearAllFilters();
-    await expandLane("nodue", 2);
+    await waitForListedCards(2);
     await waitFor(() =>
       expect(
         document.querySelector('[data-task-id="t-mira-done"]')
@@ -431,13 +420,11 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
     window.location.hash = "#tasks/executor/mira";
     await waitFor(() => expect(window.location.hash).toBe("#tasks"));
 
-    // The stale 所有狀態 must have been overwritten by the seed. Document-wide:
-    // the done task is nowhere, and its lane counts only the open one (a
-    // collapsed lane would hide the card but not its count).
+    // The stale 所有狀態 must have been overwritten by the seed.
     await waitFor(() =>
       expect(document.querySelector('[data-task-id="t-mira-done"]')).toBeNull()
     );
-    expect(queryByTestId("lane-count-nodue")?.textContent).toBe(" · 1");
+    await waitForListedCards(1);
     // Positive control: the seed really did run and the page is not just empty.
     expect(document.querySelector('[data-task-id="t-mira-open"]')).not.toBeNull();
   });
@@ -466,12 +453,10 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
     );
     const { findByTestId, getByTestId } = renderTasks();
     await findByTestId("task-list");
-    // One flat list, so a lane collapsed by default cannot hide a row the seed let through.
-    chooseGroupBy("none");
 
     // Owner narrows 類型 to review-pr — mira's ad-hoc task is now hidden.
     toggleFilter("filter-type", "review-pr");
-    toggleFilter("filter-due", "noDue");
+    toggleFilter("filter-due", "overdue");
     await waitFor(() =>
       expect(document.querySelector('[data-task-id="t-mira-adhoc"]')).toBeNull()
     );

@@ -979,6 +979,9 @@ button.task-card__prio-chip:hover {
 .task-card__due-date--soon {
   color: var(--color-dot-waking);
 }
+.task-card__due-date--unset {
+  color: var(--color-text-muted);
+}
 /* Only the colour says overdue / due soon on screen; this carries the words
    to screen readers. */
 .task-card__due-status {

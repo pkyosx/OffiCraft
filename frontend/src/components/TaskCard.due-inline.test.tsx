@@ -169,13 +169,16 @@ describe("TaskCard", () => {
     expect(dueStatus()!.textContent).toBe("已逾期");
   });
 
-  it("offers 設定到期日 in the 到期日 row of an open task with no due date", () => {
+  it("shows a muted 未設定 in the 到期日 row of an open task with no due date, which opens the picker", () => {
     renderCard(mkTask({ dueTs: null }));
     expect(chip().tagName).toBe("BUTTON");
-    expect(chip().textContent).toBe("設定到期日");
+    expect(chip().textContent).toBe("未設定");
+    expect(chip().className).toContain("task-card__due-date--unset");
+    expect(chip().getAttribute("title")).toBe("設定到期日");
     expect(metaLabels()).toContain("到期日");
-    expect(toneOf(chip())).toBeNull();
     expect(dueStatus()).toBeNull();
+    fireEvent.click(chip());
+    expect(screen.getByTestId("task-due-pop")).toBeTruthy();
   });
 
   it("shows no 到期日 row on a task with no due date that cannot be edited", () => {

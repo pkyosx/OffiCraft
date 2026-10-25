@@ -258,8 +258,6 @@ export const zh = {
     filterDueNoun: "到期",
     filterDueOverdue: "已逾期",
     filterDueSoon: "快到期",
-    filterDueHas: "有到期日",
-    filterDueNone: "沒有到期日",
     // 非 404 的失敗:根本沒問到,所以不能說「找不到」。
     idUnreached: (id: string) =>
       `暫時無法確認「${id}」是否存在，請稍後再試。`,
@@ -404,6 +402,7 @@ export const zh = {
     overdueDaysTailMany: "天",
     overdueToday: "已逾期",
     dueEditLabel: "設定到期日",
+    dueUnset: "未設定",
     duePickerLabel: "到期日",
     dueTimeLabel: "到期時間",
     dueClear: "清除",
