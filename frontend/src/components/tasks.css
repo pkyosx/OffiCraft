@@ -1050,18 +1050,6 @@ button.task-card__prio-chip:hover {
   cursor: inherit;
   font: inherit;
 }
-.task-card__due-time-clear {
-  flex: none;
-  margin: 0;
-  padding: 2px 4px;
-  border: 0;
-  background: transparent;
-  font: inherit;
-  font-size: 12px;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  white-space: nowrap;
-}
 .task-card__due-lead {
   display: flex;
   flex-direction: column;

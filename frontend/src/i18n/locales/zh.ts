@@ -407,7 +407,6 @@ export const zh = {
     duePickerLabel: "到期日",
     dueTimeLabel: "到期時間",
     dueTimeUnset: "不指定時間",
-    dueTimeClear: "不指定",
     dueClear: "清除",
     dueClearLabel: "清除到期日",
     groupByLabel: "分組依據",

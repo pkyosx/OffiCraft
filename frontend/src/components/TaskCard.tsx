@@ -966,11 +966,6 @@ export function TaskCard({
     setDueTimeDraft(value);
   }
 
-  function clearDueTime() {
-    editDueTimeDraft("");
-    dueTimeInputRef.current?.focus();
-  }
-
   // 🔴 Nothing is saved until Enter, blur or an outside click commits the
   // draft: a picker reports each choice as a complete value while the user may
   // still be choosing, and a typed "1" on the way to "14" in the lead must
@@ -1012,14 +1007,19 @@ export function TaskCard({
       }
     },
     onBlur: (e: React.FocusEvent<HTMLElement>) => {
+      // A phone's own date / time picker takes focus to nowhere when it opens
+      // or closes; committing then would close the popover mid-edit. A tap
+      // outside still commits through the document mousedown listener.
+      if (e.relatedTarget === null) return;
       if (duePopRef.current?.contains(e.relatedTarget as Node)) return;
       finishDue(true);
     },
   };
 
   // The date and time are set only through the browser's calendar and clock:
-  // the native inputs take no typing, Space opens their picker, and Enter /
-  // Escape / Tab keep the popover's commit rules.
+  // the native inputs take no typing, Space opens their picker, Delete or
+  // Backspace on the time takes the time off, and Enter / Escape / Tab keep the
+  // popover's commit rules.
   const duePickerField = {
     onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (e.key === "Enter" || e.key === "Escape" || e.key === "Tab") {
@@ -1027,6 +1027,12 @@ export function TaskCard({
       } else if (e.key === " ") {
         e.preventDefault();
         openDuePicker(e.currentTarget);
+      } else if (
+        (e.key === "Delete" || e.key === "Backspace") &&
+        e.currentTarget === dueTimeInputRef.current
+      ) {
+        e.preventDefault();
+        editDueTimeDraft("");
       } else if (!e.metaKey && !e.ctrlKey) {
         e.preventDefault();
       }
@@ -2123,22 +2129,6 @@ export function TaskCard({
                           {...duePickerField}
                         />
                       </span>
-                      {dueTimeDraft !== "" && (
-                        <button
-                          type="button"
-                          className="task-card__due-time-clear"
-                          aria-label={t.tasks.dueTimeUnset}
-                          data-testid="task-due-time-clear"
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={clearDueTime}
-                          onKeyDown={(e) => {
-                            if (e.key === "Escape") finishDue(false);
-                          }}
-                          onBlur={dueFieldCommit.onBlur}
-                        >
-                          {t.tasks.dueTimeClear}
-                        </button>
-                      )}
                     </div>
                     <label className="task-card__due-lead">
                       <span className="task-card__due-lead-label">

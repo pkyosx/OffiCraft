@@ -1461,7 +1461,6 @@ var messageKeys = map[string]bool{
 	"tasks.dueLeadWorkspaceLead":                       true,
 	"tasks.duePickerLabel":                             true,
 	"tasks.dueSoonHint":                                true,
-	"tasks.dueTimeClear":                               true,
 	"tasks.dueTimeLabel":                               true,
 	"tasks.dueTimeUnset":                               true,
 	"tasks.dueUnset":                                   true,

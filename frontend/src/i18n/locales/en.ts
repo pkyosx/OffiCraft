@@ -383,7 +383,6 @@ export const en: Dict = {
     duePickerLabel: "Due date",
     dueTimeLabel: "Due time",
     dueTimeUnset: "No time",
-    dueTimeClear: "None",
     dueClear: "Clear",
     dueClearLabel: "Clear due date",
     groupByLabel: "Group by",

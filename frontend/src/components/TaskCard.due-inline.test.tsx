@@ -20,6 +20,7 @@ const OCT_30_0900 = 1793322000;
 const OCT_29_END = 1793289599;
 const OCT_25_END = 1792943999;
 const OCT_25_0900 = 1792890000;
+const OCT_25_1541 = 1792914060;
 const OCT_24_END = 1792857599;
 const OCT_24_0800 = 1792800000;
 const OCT_22_END = 1792684799;
@@ -263,11 +264,11 @@ describe("TaskCard", () => {
     expect(showPicker.mock.contexts).toEqual([dateInput(), timeInput()]);
   });
 
-  it("opens the picker on Space and swallows digits, Backspace and arrows typed into the date and time inputs", () => {
+  it("opens the picker on Space and swallows digits, letters and arrows typed into the date and time inputs", () => {
     const showPicker = mockShowPicker();
     const { onSetDue } = renderCard(mkTask({ dueTs: OCT_30_1430 }));
     fireEvent.click(chip());
-    for (const key of ["1", "Backspace", "Delete", "ArrowUp", "p"]) {
+    for (const key of ["1", "ArrowUp", "p"]) {
       expect(fireEvent.keyDown(dateInput(), { key })).toBe(false);
       expect(fireEvent.keyDown(timeInput(), { key })).toBe(false);
     }
@@ -292,25 +293,35 @@ describe("TaskCard", () => {
     expect(document.activeElement).toBe(dateInput());
   });
 
-  it("returns a timed due date to 不指定時間 with 不指定 and stores 23:59:59 of that date on Enter", () => {
+  it.each(["Delete", "Backspace"])(
+    "takes the time off with %s on the time field, keeps the editor open, and stores 23:59:59 of that date on Enter",
+    (key) => {
+      const { onSetDue } = renderCard(mkTask({ dueTs: OCT_25_0900 }));
+      fireEvent.click(chip());
+      fireEvent.keyDown(timeInput(), { key });
+      expect(timePick().textContent).toBe("不指定時間");
+      expect(dateInput().value).toBe("2026-10-25");
+      expect(screen.getByTestId("task-due-pop")).toBeTruthy();
+      fireEvent.keyDown(timeInput(), { key: "Enter" });
+      expect(onSetDue).toHaveBeenCalledWith("task-1", OCT_25_END);
+    }
+  );
+
+  it("keeps the editor open when a phone's own picker takes focus away, and saves on the next tap outside", () => {
     const { onSetDue } = renderCard(mkTask({ dueTs: OCT_25_0900 }));
     fireEvent.click(chip());
-    const clearTime = screen.getByTestId("task-due-time-clear");
-    expect(clearTime.textContent).toBe("不指定");
-    expect(fireEvent.mouseDown(clearTime)).toBe(false);
-    fireEvent.click(clearTime);
-    expect(timePick().textContent).toBe("不指定時間");
-    expect(document.activeElement).toBe(timeInput());
+    fireEvent.change(timeInput(), { target: { value: "15:41" } });
+    fireEvent.blur(timeInput(), { relatedTarget: null });
     expect(screen.getByTestId("task-due-pop")).toBeTruthy();
-    fireEvent.keyDown(timeInput(), { key: "Enter" });
-    expect(onSetDue).toHaveBeenCalledWith("task-1", OCT_25_END);
+    fireEvent.mouseDown(document.body);
+    expect(onSetDue).toHaveBeenCalledWith("task-1", OCT_25_1541);
   });
 
   it("stores 23:59:59 of the same date when the time of a timed due date is emptied", () => {
     const { onSetDue } = renderCard(mkTask({ dueTs: OCT_25_0900 }));
     fireEvent.click(chip());
     fireEvent.change(timeInput(), { target: { value: "" } });
-    fireEvent.blur(timeInput());
+    fireEvent.blur(timeInput(), { relatedTarget: document.body });
     expect(onSetDue).toHaveBeenCalledWith("task-1", OCT_25_END);
   });
 
@@ -319,7 +330,7 @@ describe("TaskCard", () => {
     fireEvent.click(chip());
     const input = screen.getByTestId("task-due-input");
     fireEvent.change(input, { target: { value: "2026-10-30" } });
-    fireEvent.blur(input);
+    fireEvent.blur(input, { relatedTarget: document.body });
     expect(onSetDue).toHaveBeenCalledWith("task-1", OCT_30_END);
   });
 
@@ -329,7 +340,7 @@ describe("TaskCard", () => {
     const input = screen.getByTestId("task-due-input");
     fireEvent.change(input, { target: { value: "2026-10-30" } });
     fireEvent.mouseDown(document.body);
-    fireEvent.blur(input);
+    fireEvent.blur(input, { relatedTarget: document.body });
     expect(onSetDue).toHaveBeenCalledTimes(1);
     expect(onSetDue).toHaveBeenCalledWith("task-1", OCT_30_END);
     expect(screen.queryByTestId("task-due-pop")).toBeNull();
@@ -432,7 +443,7 @@ describe("TaskCard", () => {
     fireEvent.change(leadUnit(), { target: { value: "hour" } });
     expect(onSetDue).not.toHaveBeenCalled();
     expect(screen.getByTestId("task-due-pop")).toBeTruthy();
-    fireEvent.blur(leadUnit());
+    fireEvent.blur(leadUnit(), { relatedTarget: document.body });
     expect(onSetDue).toHaveBeenCalledTimes(1);
     expect(onSetDue).toHaveBeenCalledWith("task-1", OCT_30_END, 120);
     expect(screen.queryByTestId("task-due-pop")).toBeNull();
@@ -467,7 +478,7 @@ describe("TaskCard", () => {
     });
     expect(onSetDue).not.toHaveBeenCalled();
     expect(screen.getByTestId("task-due-pop")).toBeTruthy();
-    fireEvent.blur(leadInput());
+    fireEvent.blur(leadInput(), { relatedTarget: document.body });
     expect(onSetDue).toHaveBeenCalledTimes(1);
     expect(onSetDue).toHaveBeenCalledWith("task-1", OCT_30_1000, 24480);
     expect(screen.queryByTestId("task-due-pop")).toBeNull();
@@ -498,7 +509,7 @@ describe("TaskCard", () => {
     fireEvent.change(lead, { target: { value: "14" } });
     expect(onSetDue).not.toHaveBeenCalled();
     fireEvent.mouseDown(document.body);
-    fireEvent.blur(lead);
+    fireEvent.blur(lead, { relatedTarget: document.body });
     expect(onSetDue).toHaveBeenCalledTimes(1);
     expect(onSetDue).toHaveBeenCalledWith("task-1", OCT_30_0900, 20160);
   });
@@ -532,7 +543,7 @@ describe("TaskCard", () => {
     const { onSetDue } = renderCard(mkTask({ dueTs: OCT_30_END, dueSoonLeadMinutes: 7200 }));
     fireEvent.click(chip());
     fireEvent.change(leadInput(), { target: { value: "45" } });
-    fireEvent.blur(leadInput());
+    fireEvent.blur(leadInput(), { relatedTarget: document.body });
     expect(onSetDue).not.toHaveBeenCalled();
     expect(screen.queryByTestId("task-due-pop")).toBeNull();
     expect(screen.getByText("快到期提醒要是 1 分鐘到 30 天之間的整數，這次沒有變更")).toBeTruthy();

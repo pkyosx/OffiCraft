@@ -191,7 +191,7 @@ const sameLine = (a: { y: number; height: number }, b: { y: number; height: numb
 for (const width of [320, 390]) {
   for (const [label, dueTs] of [
     ["without a time", OVERDUE_2020],
-    ["with 15:41 and 不指定", OVERDUE_2020_1541],
+    ["with 15:41", OVERDUE_2020_1541],
   ] as const) {
     test(`at ${width}px the 到期日 row with its red date, and the due popover ${label} with date and time on one line and 「[n] [unit] 前」 on one line, stay inside the card`, async ({
       mount,
