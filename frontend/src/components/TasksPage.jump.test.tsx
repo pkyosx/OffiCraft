@@ -4,7 +4,7 @@
 //      (adjudicated). A pure chat ask shows nothing.
 //   2. Clicking 查看任務詳情 routes to #tasks/<taskId>.
 //   3. Arriving at #tasks/<id> narrows the page to that ONE task in the normal
-//      layout (a closed target auto-expands 已結案); emptying the 編號 field
+//      layout (a closed target's 已結案 lane is expanded); emptying the 編號 field
 //      returns to the full list; an unknown id KEEPS its anchor and the page
 //      says THAT ID DOES NOT EXIST — the server was asked (owner 2026-09-05
 //      rc-428906235337 stopped the silent self-heal; owner 2026-09-06 option ①
@@ -246,8 +246,8 @@ describe("TasksPage 單一任務 filter (#tasks/<id>)", () => {
     window.location.hash = "#tasks/t-open";
 
     const { findByTestId } = renderTasks();
-    const openList = await findByTestId("open-list");
-    const target = openList.querySelector('[data-task-id="t-open"]');
+    const list = await findByTestId("task-list");
+    const target = list.querySelector('[data-task-id="t-open"]');
     expect(target).not.toBeNull();
     expect(target?.getAttribute("aria-expanded")).toBe("true");
     // The other task is filtered out.
@@ -263,7 +263,7 @@ describe("TasksPage 單一任務 filter (#tasks/<id>)", () => {
     ).not.toBe("");
   });
 
-  it("a CLOSED target shows up with 已結案 auto-expanded", async () => {
+  it("a CLOSED target is visible in an expanded 已結案 lane, the only lane on the page", async () => {
     __injectMockTask(mkTask({ id: "t-open" }));
     __injectMockTask(
       mkTask({ id: "t-closed", status: "done", closedTs: Date.now() / 1000 - 60 })
@@ -271,8 +271,16 @@ describe("TasksPage 單一任務 filter (#tasks/<id>)", () => {
     window.location.hash = "#tasks/t-closed";
 
     const { findByTestId } = renderTasks();
-    const closedList = await findByTestId("closed-list");
-    expect(closedList.querySelector('[data-task-id="t-closed"]')).not.toBeNull();
+    const lane = await findByTestId("lane-closed");
+    expect(lane.querySelector('[data-task-id="t-closed"]')).not.toBeNull();
+    const toggle = await findByTestId("lane-toggle-closed");
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(toggle.textContent).toBe("已結案 · 1");
+    expect(
+      [...document.querySelectorAll('[data-testid^="lane-toggle-"]')].map((el) =>
+        el.getAttribute("data-testid")
+      )
+    ).toEqual(["lane-toggle-closed"]);
     expect(document.querySelector('[data-task-id="t-open"]')).toBeNull();
   });
 
@@ -293,9 +301,8 @@ describe("TasksPage 單一任務 filter (#tasks/<id>)", () => {
     );
     expect(document.querySelector('[data-task-id="t-open"]')).not.toBeNull();
     // The anchor is a filter axis: clearing it goes to 顯示全部, so the done
-    // task's 已結案 section is there too (the anchor visit already auto-
-    // expanded it — open it only if still collapsed).
-    const toggle = await findByTestId("closed-toggle");
+    // task's 已結案 lane is there too (open it only if still collapsed).
+    const toggle = await findByTestId("lane-toggle-closed");
     if (toggle.getAttribute("aria-expanded") !== "true") {
       fireEvent.click(toggle);
     }
@@ -325,13 +332,13 @@ describe("TasksPage 單一任務 filter (#tasks/<id>)", () => {
     await findByTestId("tasks-empty-filtered");
     // Non-vacuity: the task that DOES exist is not on screen — the anchor is
     // still narrowing, rather than the page being empty for some other reason.
-    expect(queryByTestId("open-list")).toBeNull();
+    expect(queryByTestId("task-list")).toBeNull();
     // The anchor stays put — that is the visible difference from before.
     expect(window.location.hash).toBe("#tasks/t-gone");
     // Emptying the 編號 field is the way back, and it restores the list AND
     // the hash (T-118: the 清除全部 button went with the 已篩選 strip).
     clearAllFilters();
-    await findByTestId("open-list");
+    await findByTestId("task-list");
     expect(window.location.hash).toBe("#tasks");
   });
 });
@@ -359,17 +366,16 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
     window.location.hash = "#tasks/executor/mira";
 
     const { findByTestId, queryByTestId } = renderTasks();
-    const openList = await findByTestId("open-list");
+    const list = await findByTestId("task-list");
     // executor half: mira's task is here, kyle's is not.
-    expect(openList.querySelector('[data-task-id="t-mira-open"]')).not.toBeNull();
+    expect(list.querySelector('[data-task-id="t-mira-open"]')).not.toBeNull();
     expect(document.querySelector('[data-task-id="t-kyle-open"]')).toBeNull();
     // 還沒完成 half: mira's DONE task is nowhere on the page. Stronger than
-    // "已結案 stays collapsed" — the status filter removes terminals from the
-    // filtered set, so the 已結案 section does not render at all (it is gated
-    // on closed.length > 0 over the FILTERED list). Contrast the #tasks/<id>
-    // anchor, which deliberately auto-expands 已結案 to guarantee visibility;
-    // this seed promises the opposite.
-    expect(queryByTestId("closed-toggle")).toBeNull();
+    // "the 已結案 lane stays collapsed" — the status filter removes terminals
+    // from the filtered set, so the 已結案 lane does not render at all. Contrast
+    // the #tasks/<id> anchor, which deliberately expands the target's lane to
+    // guarantee visibility; this seed promises the opposite.
+    expect(queryByTestId("lane-closed")).toBeNull();
     expect(document.querySelector('[data-task-id="t-mira-done"]')).toBeNull();
   });
 
@@ -399,9 +405,9 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
     // half of what the icon promises.
     //
     // Mutant-proven (M13 "seed drops the status axis"): asserting the done task
-    // is absent from OPEN-LIST is dead — a done task lands in the CLOSED list,
-    // so it is absent from the open list no matter what the filter does. The
-    // assertion has to be document-wide.
+    // is absent from an open lane is dead — a done task lands in the 已結案
+    // lane, so it is absent from the open lanes no matter what the filter does.
+    // The assertion has to be document-wide.
     __injectMockTask(mkTask({ id: "t-mira-open", executorId: "mira" }));
     __injectMockTask(
       mkTask({
@@ -416,7 +422,7 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
     // Widen 狀態 to 所有狀態 the way the owner would: 清空每一軸 = 顯示全部
     // (T-50bb), which EMPTIES the status set — terminals included.
     clearAllFilters();
-    fireEvent.click(await findByTestId("closed-toggle"));
+    fireEvent.click(await findByTestId("lane-toggle-closed"));
     await waitFor(() =>
       expect(
         document.querySelector('[data-task-id="t-mira-done"]')
@@ -428,12 +434,12 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
     await waitFor(() => expect(window.location.hash).toBe("#tasks"));
 
     // The stale 所有狀態 must have been overwritten by the seed. Document-wide:
-    // the done task is nowhere, and 已結案 is gone entirely (it renders only
-    // when the FILTERED closed set is non-empty).
+    // the done task is nowhere, and the 已結案 lane is gone entirely (it
+    // renders only when the FILTERED closed set is non-empty).
     await waitFor(() =>
       expect(document.querySelector('[data-task-id="t-mira-done"]')).toBeNull()
     );
-    expect(queryByTestId("closed-toggle")).toBeNull();
+    expect(queryByTestId("lane-closed")).toBeNull();
     // Positive control: the seed really did run and the page is not just empty.
     expect(document.querySelector('[data-task-id="t-mira-open"]')).not.toBeNull();
   });
@@ -461,7 +467,7 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
       })
     );
     const { findByTestId, getByTestId } = renderTasks();
-    await findByTestId("open-list");
+    await findByTestId("task-list");
     // One flat list, so a lane collapsed by default cannot hide a row the seed let through.
     chooseGroupBy("none");
 
@@ -526,7 +532,7 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
     window.location.hash = "#tasks/executor/mira";
 
     const { findByTestId } = renderTasks();
-    await findByTestId("open-list");
+    await findByTestId("task-list");
 
     // Three gestures, not one: the panel expands, then the 負責人 DROPDOWN has
     // to be opened before its option rows exist at all, and the roster they are
@@ -566,7 +572,7 @@ describe("TasksPage executor seed (#tasks/executor/<id>, T-dfae)", () => {
     __injectMockTask(mkTask({ id: "t-mira-all", executorId: "mira" }));
 
     const { findByTestId } = renderTasks();
-    await findByTestId("open-list");
+    await findByTestId("task-list");
 
     const pill = () =>
       document.querySelector('[data-testid="filter-executor"] .tasks__ms-summary')

@@ -1,5 +1,5 @@
 // TaskCard — the duplicated terminal status + 原票指向 (T-02c9). Locked:
-//   1. a duplicated task is terminal (sits in 已結案) and renders the 重複
+//   1. a duplicated task is terminal (sits in the 已結案 lane) and renders the 重複
 //      status badge + a 重複於 <task id> link that jumps to the original;
 //   2. the ⋮ menu's 標記重複 opens a picker; confirming a chosen original marks
 //      the task duplicated through the seam — it then leaves the live list
@@ -65,12 +65,12 @@ describe("TaskCard duplicated 終態 + 原票指向 (T-02c9)", () => {
     });
     __injectMockTask(original);
     __injectMockTask(dup);
-    // A duplicated task is terminal → jump straight to it so 已結案 auto-expands.
+    // A duplicated task is terminal → jump straight to it so its 已結案 lane is expanded.
     window.location.hash = `#tasks/${dup.id}`;
     const { findByTestId } = renderPage();
 
-    const closedList = await findByTestId("closed-list");
-    const card = within(closedList).getByTestId("task-card");
+    const closedLane = await findByTestId("lane-closed");
+    const card = within(closedLane).getByTestId("task-card");
     // the 重複 status badge …
     expect(within(card).getByTestId("task-status").textContent).toContain("重複");
     // … and a link naming the original's task_no.
@@ -88,10 +88,10 @@ describe("TaskCard duplicated 終態 + 原票指向 (T-02c9)", () => {
     __injectMockTask(shell);
     const { findByTestId } = renderPage();
 
-    const openList = await findByTestId("open-list");
+    const list = await findByTestId("task-list");
     // the shell's live card carries 標記重複 on its 狀態 badge dropdown (v5 —
     // the action moved off the ⋮ menu).
-    const shellCard = within(openList)
+    const shellCard = within(list)
       .getAllByTestId("task-card")
       .find((c) =>
         within(c).getByTestId("task-no").textContent?.includes(shell.taskNo)
@@ -108,12 +108,12 @@ describe("TaskCard duplicated 終態 + 原票指向 (T-02c9)", () => {
 
     // the shell is now terminal (duplicated) and drops out of the live list.
     await waitFor(() => {
-      const live = within(findByTestIdSync("open-list")).queryByText(shell.title);
+      const live = within(findByTestIdSync("task-list")).queryByText(shell.title);
       expect(live).toBeNull();
     });
     // the original stays live.
     expect(
-      within(findByTestIdSync("open-list")).getByText(original.title)
+      within(findByTestIdSync("task-list")).getByText(original.title)
     ).toBeTruthy();
   });
 });

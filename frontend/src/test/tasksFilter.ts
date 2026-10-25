@@ -15,7 +15,7 @@
 // server request. A test that types into that box and asserts the list changed
 // is asserting the behaviour the owner rejected — the Enter is not decoration.
 
-import { fireEvent } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 
 /** Tick/untick ONE option of one multi-select axis. It takes effect on the
  * click — there is no Apply. */
@@ -67,6 +67,14 @@ export function chooseGroupBy(
   mode: "due" | "executor" | "type" | "status" | "none"
 ) {
   fireEvent.change(openDisplayOptions(), { target: { value: mode } });
+}
+
+/** Expand one 分組 lane (e.g. `closed` for 已結案) unless it is already open.
+ * Clicking blindly would COLLAPSE a lane that opened by default as the first
+ * one. Waits for the lane to exist, since it renders only once a task is in it. */
+export async function expandLane(key: string) {
+  const toggle = await screen.findByTestId(`lane-toggle-${key}`);
+  if (toggle.getAttribute("aria-expanded") !== "true") fireEvent.click(toggle);
 }
 
 /** Every axis back to "no constraint".

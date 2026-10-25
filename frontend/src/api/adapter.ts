@@ -2400,8 +2400,8 @@ export interface Api {
    * List tasks as LIGHT list items (the collapsed card's fields +
    * server-computed progress + deps, WITHOUT the heavy steps/description/inputs
    * — those hydrate on expand via getTask; the returned TaskView carries
-   * `steps: []` and `description: ""` until then). Partitioning (未結案/已結案),
-   * priority ordering AND the page's 篩選列 are applied CLIENT-SIDE.
+   * `steps: []` and `description: ""` until then). Priority ordering AND the
+   * page's 篩選列 are applied CLIENT-SIDE.
    *
    * `opts.open` (T-2b9d) sends `GET /api/tasks?open=true` — the server drops
    * the terminal (done/terminated/duplicated) rows so the DEFAULT 任務頁 view,

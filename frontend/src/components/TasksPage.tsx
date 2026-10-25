@@ -1,7 +1,5 @@
-// TasksPage — the 任務 page (M3, SPEC §2): 摘要 → 篩選列 → 任務清單.
+// TasksPage — the 任務 page (M3, SPEC §2): 篩選列 → 任務清單.
 //
-//   摘要    — 已逾期 N · 即將到期 N · 進行中 N from the server counts (unfiltered);
-//             the two due parts jump to their 到期狀態 lane.
 //   篩選列   — a FilterPanel (T-118). Four axes, ALWAYS VISIBLE, each taking
 //             effect as soon as it is set. owner 2026-09-06 20:07
 //             (c-c3d681fe05da):「不要多filter那一層了,全部拉出來」— so round 3's
@@ -16,14 +14,14 @@
 //             狀態 is asked of the SERVER (T-a3e4: the fetch carries the applied
 //             set, see the setStatuses effect); 負責人 / 類型 stay client-side
 //             over the already status-narrowed list.
-//   未結案  — every NON-terminal task, ordered by priority 高→中→低→凍結 (凍結
-//             永遠最後), createdTs newest-first within a level, then split into
-//             collapsible lanes by the 分組依據 selector (default 到期狀態:
-//             已逾期 / 即將到期 / 之後到期 / 沒有到期日, due-ascending in the
-//             first three). 不分組 is the one flat list.
-//   已結案  — 已完成 + 終止, COLLAPSED BY DEFAULT (the RepliesPage answered-
-//             toggle pattern), newest close first. Both section titles carry
-//             counts.
+//   任務清單 — one list, no 未結案 / 已結案 sections: which side shows is the
+//             狀態 filter's job, and its 未結案 / 已結案 rows tick either side
+//             in one go (owner rc-ceb98bb8884f). Open tasks come first, ordered
+//             by priority 高→中→低→凍結 (凍結永遠最後), createdTs newest-first
+//             within a level; closed tasks follow, newest close first. The list
+//             is split into collapsible lanes by the 分組依據 selector (default
+//             到期狀態: 已逾期 / 即將到期 / 之後到期 / 沒有到期日 / 已結案,
+//             due-ascending in the first three). 不分組 is the one flat list.
 //
 // Empty states ×2 (spec §2.3): no tasks at all vs filters matching nothing —
 // plus the THREE by-id outcomes below, which replace both while an id is
@@ -50,7 +48,11 @@ import { useHashRoute } from "../lib/hashRoute";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
 import { TaskCard } from "./TaskCard";
 import { IdFilterInput } from "./IdFilterInput";
-import { MultiSelectFilter, type MultiSelectOption } from "./MultiSelectFilter";
+import {
+  MultiSelectFilter,
+  type MultiSelectGroup,
+  type MultiSelectOption,
+} from "./MultiSelectFilter";
 import { FilterPanel } from "./FilterPanel";
 import { ChevronRightIcon, SlidersIcon } from "./icons";
 import "./office.css"; // chat composer classes the embedded ReplyComposer reuses
@@ -651,6 +653,10 @@ export function TasksPage() {
     { value: "hasDue", label: t.tasks.filterDueHas },
     { value: "noDue", label: t.tasks.filterDueNone },
   ];
+  const statusGroups: MultiSelectGroup[] = [
+    { value: "open", label: t.tasks.openTitle, members: DEFAULT_STATUS },
+    { value: "closed", label: t.tasks.closedTitle, members: [...TERMINAL] },
+  ];
   const statusFilterOptions: MultiSelectOption[] = STATUS_OPTIONS.map((s) => ({
     value: s,
     // reassigning is a lock, not a status — its label lives under lockReassigning.
@@ -712,10 +718,7 @@ export function TasksPage() {
   const closed = filtered
     .filter((x) => TERMINAL.has(x.status))
     .sort((a, b) => (b.closedTs ?? 0) - (a.closedTs ?? 0));
-
-  // 已結案 collapses by default (RepliesPage answered-toggle pattern): closed
-  // tasks are reference material. Plain component state — never persisted.
-  const [closedOpen, setClosedOpen] = useState(false);
+  const shown = [...open, ...closed];
 
   // Like the filters, the grouping and the lane collapse state live only in
   // this mount. The default-open lane is picked when the default is applied
@@ -751,8 +754,13 @@ export function TasksPage() {
         const byDue = (a: TaskView, b: TaskView) =>
           (a.dueTs ?? 0) - (b.dueTs ?? 0);
         return lanesInOrder(
-          open,
-          (task) => dueLaneKey(task, nowSec, dueSoonLeadDays),
+          shown,
+          // A closed task is never overdue or due soon, so it gets a lane of
+          // its own rather than landing in 之後到期 by its past date.
+          (task) =>
+            TERMINAL.has(task.status)
+              ? "closed"
+              : dueLaneKey(task, nowSec, dueSoonLeadDays),
           [
             {
               key: "overdue",
@@ -774,17 +782,18 @@ export function TasksPage() {
               title: t.tasks.laneNoDue,
               chipClass: "task-badge task-badge--due task-badge--due-none",
             },
+            { key: "closed", title: t.tasks.closedTitle },
           ],
           (key) => key
         ).map((lane) =>
-          lane.key === "nodue"
+          lane.key === "nodue" || lane.key === "closed"
             ? lane
             : { ...lane, tasks: [...lane.tasks].sort(byDue) }
         );
       }
       case "executor":
         return lanesInOrder(
-          open,
+          shown,
           executorKeyOf,
           [
             { key: "outsource", title: t.tasks.outsource },
@@ -795,18 +804,16 @@ export function TasksPage() {
         );
       case "type":
         return lanesInOrder(
-          open,
+          shown,
           (task) => (task.typeKey === "" ? "adhoc" : task.typeKey),
           typeFilterOptions.map((o) => ({ key: o.value, title: o.label })),
           (key) => typeNames.get(key) ?? key
         );
       case "status":
         return lanesInOrder(
-          open,
+          shown,
           (task) => task.status,
-          STATUS_OPTIONS.filter(
-            (s) => s !== "reassigning" && !TERMINAL.has(s)
-          ).map((s) => ({
+          STATUS_OPTIONS.filter((s) => s !== "reassigning").map((s) => ({
             key: s,
             title: t.tasks.status[s],
             chipClass: `task-badge task-badge--status-${s}`,
@@ -865,15 +872,13 @@ export function TasksPage() {
   // on a strip, and both helpers came back with it. Do not restore the older
   // wording — read lines 298 and 313.
   //
-  // A closed target still auto-expands 已結案 so the one match is visible.
+  // The target's lane is expanded so the one match is visible.
   // 🔴 Keyed on the APPLIED id, not the hash: an id TYPED into the field names a
-  // closed task exactly as often as a link does, and if 已結案 stays collapsed
-  // the page has "found and passes" as its verdict while showing no row at all —
+  // task exactly as often as a link does, and if its lane stays collapsed the
+  // page has "found and passes" as its verdict while showing no row at all —
   // a fourth, silent outcome, which is the failure mode this ticket is about.
-  // Same for a target sitting in a collapsed lane.
   useEffect(() => {
     if (appliedId === "") return;
-    setClosedOpen(true);
     setLaneOpenOverrides(new Map());
     setDefaultOpenKey(null);
   }, [appliedId]);
@@ -1101,6 +1106,7 @@ export function TasksPage() {
           noun={t.tasks.filterStatusNoun}
           allLabel={t.tasks.filterStatusAll}
           options={statusFilterOptions}
+          groups={statusGroups}
           selected={appliedStatus}
           onChange={setAppliedStatus}
           testId="filter-status"
@@ -1127,48 +1133,15 @@ export function TasksPage() {
         </div>
       )}
 
-      {/* ── 未結案 ── */}
       {groupBy !== "none" && lanes.length > 0 && (
-        <div className="tasks__lanes" data-testid="open-list">
+        <div className="tasks__lanes" data-testid="task-list">
           {lanes.map(renderLane)}
         </div>
       )}
-      {groupBy === "none" && open.length > 0 && (
-        <section className="tasks__section">
-          <div className="tasks__section-title">
-            {t.tasks.openTitle}
-            {` · ${open.length}`}
-          </div>
-          <div className="tasks__list" data-testid="open-list">
-            {open.map(renderCard)}
-          </div>
-        </section>
-      )}
-
-      {/* ── 已結案 (collapsible, default collapsed) ── */}
-      {closed.length > 0 && (
-        <section className="tasks__section">
-          <button
-            type="button"
-            className="tasks__section-toggle"
-            aria-expanded={closedOpen}
-            data-testid="closed-toggle"
-            onClick={() => setClosedOpen((v) => !v)}
-          >
-            <ChevronRightIcon
-              size={13}
-              className={`reply-card__caret${
-                closedOpen ? " reply-card__caret--open" : ""
-              }`}
-            />
-            {`${t.tasks.closedTitle} · ${closed.length}`}
-          </button>
-          {closedOpen && (
-            <div className="tasks__list" data-testid="closed-list">
-              {closed.map(renderCard)}
-            </div>
-          )}
-        </section>
+      {groupBy === "none" && shown.length > 0 && (
+        <div className="tasks__list" data-testid="task-list">
+          {shown.map(renderCard)}
+        </div>
       )}
     </div>
   );

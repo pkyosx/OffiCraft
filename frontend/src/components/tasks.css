@@ -195,6 +195,14 @@
 .tasks__ms-opt:hover {
   background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
 }
+.tasks__ms-opt--group {
+  font-weight: 600;
+}
+.tasks__ms-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--color-border);
+}
 .tasks__ms-check {
   flex: none;
   width: 14px;
@@ -223,15 +231,6 @@
 }
 
 /* ── sections / empty states ── */
-.tasks__section-title {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 0 2px 12px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--color-text-muted);
-}
 .tasks__section-toggle {
   display: flex;
   align-items: baseline;

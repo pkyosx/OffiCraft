@@ -378,10 +378,12 @@ describe("T-17be ③ 執行者篩選文案「所有負責人」", () => {
     expect((await findByTestId("filter-type")).textContent?.trim()).toBe(
       "所有類型"
     );
-    // 狀態 opens with 4 statuses preselected, so its trigger shows the
-    // multi-select summary (「狀態 · 4」) rather than the all-label. 清除全部 on
-    // the 已篩選 strip makes it fall back to the label this test is about — and
-    // it closes nothing, so the panel has to be reopened to read the trigger.
+    // 狀態 opens with the 未結案 group preselected, so its trigger names that
+    // group rather than the all-label. Emptying every axis makes it fall back to
+    // the label this test is about.
+    expect((await findByTestId("filter-status")).textContent?.trim()).toBe(
+      "未結案"
+    );
     clearAllFilters();
     expect((await findByTestId("filter-status")).textContent?.trim()).toBe(
       "所有狀態"

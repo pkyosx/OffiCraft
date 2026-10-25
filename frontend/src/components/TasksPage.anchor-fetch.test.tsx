@@ -87,9 +87,9 @@ describe("#tasks/<id> 直跳:只補抓那一張", () => {
     const { findByTestId } = renderTasks();
 
     // 驗收條件: the 已結案 target the owner followed the link to is on screen.
-    const closedList = await findByTestId("closed-list");
+    const closedLane = await findByTestId("lane-closed");
     expect(
-      closedList.querySelector('[data-task-id="t-closed"]')
+      closedLane.querySelector('[data-task-id="t-closed"]')
     ).not.toBeNull();
 
     // 🔴 …and it got there WITHOUT the archive. Every list request carried a
@@ -118,7 +118,7 @@ describe("#tasks/<id> 直跳:只補抓那一張", () => {
     window.location.hash = "#tasks/t-done";
 
     const { findByTestId } = renderTasks();
-    await findByTestId("closed-list");
+    await findByTestId("lane-closed");
 
     const firstAsk = listTasks.mock.calls[0][0];
     const rows = await api.listTasks(firstAsk);
@@ -157,8 +157,8 @@ describe("#tasks/<id> 直跳:只補抓那一張", () => {
     await act(async () => {
       release(await real("t-slow"));
     });
-    const closedList = await findByTestId("closed-list");
-    expect(closedList.querySelector('[data-task-id="t-slow"]')).not.toBeNull();
+    const closedLane = await findByTestId("lane-closed");
+    expect(closedLane.querySelector('[data-task-id="t-slow"]')).not.toBeNull();
   });
 
   it("a hydrate that failed for a NON-404 reason shows the load error, not an empty state", async () => {
