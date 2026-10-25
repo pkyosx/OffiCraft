@@ -83,12 +83,19 @@ import { scrollParent, viewportSpanOf } from "../lib/scrollPort";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { useNowSeconds } from "../hooks/useNowSeconds";
 import {
-  DEFAULT_DUE_SOON_LEAD_DAYS,
+  DEFAULT_DUE_SOON_LEAD_MINUTES,
+  DUE_SOON_LEAD_MINUTES_MAX,
+  DUE_SOON_LEAD_MINUTES_MIN,
+  LEAD_UNIT_MINUTES,
+  LEAD_UNITS,
+  type LeadUnit,
   dueState,
-  effectiveLeadDays,
+  effectiveLeadMinutes,
   dueTsFromInputs,
   hasDueTime,
+  leadMinutesFromDraft,
   nextDueChangeTs,
+  splitLeadMinutes,
   toDateInputValue,
   toTimeInputValue,
 } from "../lib/dueDate";
@@ -170,16 +177,6 @@ function buildTimeline(steps: TaskStepView[]): TimelineRow[] {
   return rows;
 }
 
-const DUE_LEAD_MIN = 1;
-const DUE_LEAD_MAX = 30;
-
-/** "" follows the workspace setting; undefined means the draft cannot be saved. */
-function parseDueLead(draft: string): number | null | undefined {
-  if (draft === "") return null;
-  const n = Number(draft);
-  return Number.isInteger(n) && n >= DUE_LEAD_MIN && n <= DUE_LEAD_MAX ? n : undefined;
-}
-
 export function TaskCard({
   task,
   allTasks,
@@ -192,7 +189,7 @@ export function TaskCard({
   onMarkDuplicate,
   onSetPriority,
   onSetDue,
-  dueSoonLeadDays = DEFAULT_DUE_SOON_LEAD_DAYS,
+  dueSoonLeadMinutes = DEFAULT_DUE_SOON_LEAD_MINUTES,
   onReassign,
   onSendMessage,
   onHydrate,
@@ -228,12 +225,12 @@ export function TaskCard({
    * the depth-1 graph + non-terminal guard; a rejection surfaces inline. */
   onMarkDuplicate: (id: string, duplicateOf: string) => Promise<void>;
   onSetPriority: (id: string, priority: string) => Promise<void>;
-  /** Set or clear (`null`) the due date. `leadDays` is passed only when the
+  /** Set or clear (`null`) the due date. `leadMinutes` is passed only when the
    * lead changed (`null` = back to the workspace setting). Absent ⇒ the due
    * chip is read-only. */
-  onSetDue?: (id: string, dueTs: number | null, leadDays?: number | null) => Promise<void>;
-  /** The workspace 快到期提前天數, for a task without its own lead. */
-  dueSoonLeadDays?: number;
+  onSetDue?: (id: string, dueTs: number | null, leadMinutes?: number | null) => Promise<void>;
+  /** The workspace 快到期提醒 in minutes, for a task without its own lead. */
+  dueSoonLeadMinutes?: number;
   /** 轉派 (T-160e): hand the task to a member / a freshly minted 外包. The whole
    * handover is the server's; the dialog only names the target. */
   onReassign: (id: string, input: TaskReassignInput) => Promise<void>;
@@ -785,20 +782,27 @@ export function TaskCard({
   const dueSessionRef = useRef(false);
   const [dueLeadDraft, setDueLeadDraft] = useState("");
   const dueLeadDraftRef = useRef("");
+  const [dueLeadUnit, setDueLeadUnit] = useState<LeadUnit>("day");
+  const dueLeadUnitRef = useRef<LeadUnit>("day");
   // A number input holding text it cannot parse (a lone "e") reports "", which
   // would otherwise read as "follow the workspace setting". React fires no
   // change for it either ("" → ""), so validity is read off the element.
   const dueLeadInputRef = useRef<HTMLInputElement>(null);
   const dueTs = task.dueTs ?? null;
-  const taskLeadDays = task.dueSoonLeadDays ?? null;
-  const leadDays = effectiveLeadDays(taskLeadDays, dueSoonLeadDays);
+  const taskLeadMinutes = task.dueSoonLeadMinutes ?? null;
+  const leadMinutes = effectiveLeadMinutes(taskLeadMinutes, dueSoonLeadMinutes);
+  const leadUnitText: Record<LeadUnit, string> = {
+    day: t.tasks.dueLeadDayMany,
+    hour: t.tasks.dueLeadHourMany,
+    minute: t.tasks.dueLeadMinuteMany,
+  };
   const dueEditable = !closed && onSetDue !== undefined;
   const nowSec = useNowSeconds(
     dueTs === null || closed
       ? null
-      : nextDueChangeTs(dueTs, Date.now() / 1000, leadDays)
+      : nextDueChangeTs(dueTs, Date.now() / 1000, leadMinutes)
   );
-  const due = dueTs === null ? null : dueState(dueTs, nowSec, leadDays);
+  const due = dueTs === null ? null : dueState(dueTs, nowSec, leadMinutes);
   const dueDateText =
     dueTs === null
       ? null
@@ -902,9 +906,14 @@ export function TaskCard({
     const timeDraft = dueTs === null ? "" : toTimeInputValue(dueTs);
     dueTimeDraftRef.current = timeDraft;
     setDueTimeDraft(timeDraft);
-    const leadDraft = taskLeadDays === null ? "" : String(taskLeadDays);
+    // A task following the workspace offers the workspace's unit, so the
+    // number typed reads in the same unit as the placeholder beside it.
+    const lead = splitLeadMinutes(taskLeadMinutes ?? dueSoonLeadMinutes);
+    const leadDraft = taskLeadMinutes === null ? "" : String(lead.amount);
     dueLeadDraftRef.current = leadDraft;
     setDueLeadDraft(leadDraft);
+    dueLeadUnitRef.current = lead.unit;
+    setDueLeadUnit(lead.unit);
     dueSessionRef.current = true;
     setDueOpen(true);
     setActionError((cur) => (cur === t.tasks.dueLeadRangeError ? null : cur));
@@ -913,6 +922,11 @@ export function TaskCard({
   function editDueLead(value: string) {
     dueLeadDraftRef.current = value;
     setDueLeadDraft(value);
+  }
+
+  function editDueLeadUnit(unit: LeadUnit) {
+    dueLeadUnitRef.current = unit;
+    setDueLeadUnit(unit);
   }
 
   function editDueDraft(value: string) {
@@ -946,7 +960,7 @@ export function TaskCard({
     if (next === null || new Date(next * 1000).getFullYear() < 1970) return;
     const lead = dueLeadInputRef.current?.validity.badInput
       ? undefined
-      : parseDueLead(dueLeadDraftRef.current.trim());
+      : leadMinutesFromDraft(dueLeadDraftRef.current.trim(), dueLeadUnitRef.current);
     if (lead === undefined) {
       // The date still saves; only the unusable lead is dropped, and the card
       // says so because the popover that held it is gone.
@@ -954,11 +968,11 @@ export function TaskCard({
       else void doSetDue(next, undefined, t.tasks.dueLeadRangeError);
       return;
     }
-    void doSetDue(next, lead === taskLeadDays ? undefined : lead);
+    void doSetDue(next, lead === taskLeadMinutes ? undefined : lead);
   }
 
   const dueFieldCommit = {
-    onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
+    onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => {
       if (e.key === "Enter") {
         e.preventDefault();
         finishDue(true);
@@ -966,7 +980,7 @@ export function TaskCard({
         finishDue(false);
       }
     },
-    onBlur: (e: React.FocusEvent<HTMLInputElement>) => {
+    onBlur: (e: React.FocusEvent<HTMLElement>) => {
       if (duePopRef.current?.contains(e.relatedTarget as Node)) return;
       finishDue(true);
     },
@@ -2044,21 +2058,33 @@ export function TaskCard({
                         <input
                           type="number"
                           inputMode="numeric"
-                          min={DUE_LEAD_MIN}
-                          max={DUE_LEAD_MAX}
+                          min={DUE_SOON_LEAD_MINUTES_MIN}
+                          max={DUE_SOON_LEAD_MINUTES_MAX / LEAD_UNIT_MINUTES[dueLeadUnit]}
                           step={1}
                           className="task-card__due-input task-card__due-lead-input"
                           ref={dueLeadInputRef}
                           data-testid="task-due-lead"
                           value={dueLeadDraft}
-                          placeholder={msg.taskDueLeadWorkspace(dueSoonLeadDays)}
+                          placeholder={msg.taskDueLeadWorkspace(dueSoonLeadMinutes)}
                           disabled={dueDraft === ""}
                           onChange={(e) => editDueLead(e.target.value)}
                           {...dueFieldCommit}
                         />
-                        <span className="task-card__due-lead-unit">
-                          {t.tasks.dueLeadUnit}
-                        </span>
+                        <select
+                          className="task-card__due-input task-card__due-lead-unit"
+                          aria-label={t.tasks.dueLeadUnitLabel}
+                          data-testid="task-due-lead-unit"
+                          value={dueLeadUnit}
+                          disabled={dueDraft === ""}
+                          onChange={(e) => editDueLeadUnit(e.target.value as LeadUnit)}
+                          {...dueFieldCommit}
+                        >
+                          {LEAD_UNITS.map((unit) => (
+                            <option key={unit} value={unit}>
+                              {leadUnitText[unit]}
+                            </option>
+                          ))}
+                        </select>
                       </span>
                     </label>
                     {dueTs !== null && (

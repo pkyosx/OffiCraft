@@ -21,15 +21,15 @@ const TASK = mkTask({
 
 export function TaskCardDueStory({
   dueTs = DUE_OCT_30,
-  dueSoonLeadDays,
+  dueSoonLeadMinutes,
 }: {
   dueTs?: number;
-  dueSoonLeadDays?: number;
+  dueSoonLeadMinutes?: number;
 }) {
   const task =
-    dueTs === DUE_OCT_30 && dueSoonLeadDays === undefined
+    dueTs === DUE_OCT_30 && dueSoonLeadMinutes === undefined
       ? TASK
-      : { ...TASK, dueTs, dueSoonLeadDays };
+      : { ...TASK, dueTs, dueSoonLeadMinutes };
   window.__dueSaves = [];
   window.__leadSaves = [];
   return (

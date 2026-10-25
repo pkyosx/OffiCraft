@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type FocusEvent, type ReactNode } from "react";
 import { useI18n } from "../i18n";
 import type { Dict } from "../i18n/locales/zh";
 import type {
@@ -18,6 +18,15 @@ import {
   backupReasonText,
 } from "../lib/backupHealth";
 import { formatDuration } from "../lib/duration";
+import {
+  DUE_SOON_LEAD_MINUTES_MAX,
+  DUE_SOON_LEAD_MINUTES_MIN,
+  LEAD_UNIT_MINUTES,
+  LEAD_UNITS,
+  type LeadUnit,
+  leadMinutesFromDraft,
+  splitLeadMinutes,
+} from "../lib/dueDate";
 import { formatBuildVersion } from "../lib/versionFormat";
 import { useGlobalContext } from "../hooks/useGlobalContext";
 import { useRole, useRoles } from "../hooks/useRoles";
@@ -1457,6 +1466,8 @@ function ServerParams({
   const [chatBudgetDraft, setChatBudgetDraft] = useState<string | null>(null);
   const [stepNoteCapDraft, setStepNoteCapDraft] = useState<string | null>(null);
   const [dueSoonLeadDraft, setDueSoonLeadDraft] = useState<string | null>(null);
+  const [dueSoonLeadUnitDraft, setDueSoonLeadUnitDraft] = useState<LeadUnit | null>(null);
+  const dueSoonLeadPairRef = useRef<HTMLDivElement>(null);
   // T-33: four independent 傳承 caps, so four independent drafts — a shared
   // draft would make typing in one field snap the other three back.
   const [loreCapDrafts, setLoreCapDrafts] = useState<
@@ -1645,12 +1656,20 @@ function ServerParams({
     if (n !== settings.stepNoteCapChars) void onSave({ stepNoteCapChars: n });
   }
 
-  function commitDueSoonLead() {
-    if (!settings || dueSoonLeadDraft === null) return;
-    const n = Number(dueSoonLeadDraft);
-    if (!Number.isInteger(n) || n < 1 || n > 30) { setRangeError(true); setDueSoonLeadDraft(null); return; }
+  // The number and its unit are one value, so moving between the two is not
+  // leaving the field: only focus leaving the pair (or Enter) commits it.
+  function commitDueSoonLead(e?: FocusEvent<HTMLElement>) {
+    if (e && dueSoonLeadPairRef.current?.contains(e.relatedTarget as Node)) return;
+    if (!settings || (dueSoonLeadDraft === null && dueSoonLeadUnitDraft === null)) return;
+    const shown = splitLeadMinutes(settings.taskDueSoonLeadMinutes);
+    const n = leadMinutesFromDraft(
+      (dueSoonLeadDraft ?? String(shown.amount)).trim(),
+      dueSoonLeadUnitDraft ?? shown.unit
+    );
     setDueSoonLeadDraft(null);
-    if (n !== settings.taskDueSoonLeadDays) void onSave({ taskDueSoonLeadDays: n });
+    setDueSoonLeadUnitDraft(null);
+    if (n == null) { setRangeError(true); return; }
+    if (n !== settings.taskDueSoonLeadMinutes) void onSave({ taskDueSoonLeadMinutes: n });
   }
 
   // T-33: the four 傳承 caps. One commit for all four because the row that is
@@ -1716,6 +1735,13 @@ function ServerParams({
     clear();
     if (n !== settings[field]) void onSave({ [field]: n });
   }
+
+  const shownDueSoonLead = splitLeadMinutes(settings?.taskDueSoonLeadMinutes ?? 0);
+  const dueLeadUnitText: Record<LeadUnit, string> = {
+    day: t.tasks.dueLeadDayMany,
+    hour: t.tasks.dueLeadHourMany,
+    minute: t.tasks.dueLeadMinuteMany,
+  };
 
   return (
     <div className="settings">
@@ -2016,16 +2042,26 @@ function ServerParams({
 
           <div className="param-row">
             <div className="param-row__body">
-              <div className="param-row__name">{t.settings.dueSoonLeadDays}</div>
-              <div className="param-row__sub">{t.settings.dueSoonLeadDaysSub}</div>
+              <div className="param-row__name">{t.settings.dueSoonLead}</div>
+              <div className="param-row__sub">{t.settings.dueSoonLeadSub}</div>
             </div>
-            <div className="param-pct">
-              <input id="param-due-soon-lead" className="param-input" type="number" min={1} max={30}
-                aria-label={t.settings.dueSoonLeadDays}
-                value={dueSoonLeadDraft ?? String(settings.taskDueSoonLeadDays)}
+            <div className="param-pct" ref={dueSoonLeadPairRef}>
+              <input id="param-due-soon-lead" className="param-input" type="number"
+                min={DUE_SOON_LEAD_MINUTES_MIN}
+                max={DUE_SOON_LEAD_MINUTES_MAX / LEAD_UNIT_MINUTES[dueSoonLeadUnitDraft ?? shownDueSoonLead.unit]}
+                aria-label={t.settings.dueSoonLead}
+                value={dueSoonLeadDraft ?? String(shownDueSoonLead.amount)}
                 onChange={(e) => { setRangeError(false); onClearSaveError(); setDueSoonLeadDraft(e.target.value); }}
                 onBlur={commitDueSoonLead} onKeyDown={(e) => { if (e.key === "Enter") commitDueSoonLead(); }} />
-              <span className="param-pct__sign">{t.settings.days}</span>
+              <select id="param-due-soon-lead-unit" className="param-select param-select--unit"
+                aria-label={t.tasks.dueLeadUnitLabel}
+                value={dueSoonLeadUnitDraft ?? shownDueSoonLead.unit}
+                onChange={(e) => { setRangeError(false); onClearSaveError(); setDueSoonLeadUnitDraft(e.target.value as LeadUnit); }}
+                onBlur={commitDueSoonLead} onKeyDown={(e) => { if (e.key === "Enter") commitDueSoonLead(); }}>
+                {LEAD_UNITS.map((unit) => (
+                  <option key={unit} value={unit}>{dueLeadUnitText[unit]}</option>
+                ))}
+              </select>
             </div>
           </div>
 

@@ -126,14 +126,37 @@ test("a lead typed digit by digit is saved once, on Enter", async ({
   expect(await saves(page)).toEqual([]);
   await page.keyboard.press("Enter");
   expect(await saves(page)).toEqual([await endOfDay(page, 2099, 10, 30)]);
-  expect(await leadSaves(page)).toEqual([14]);
+  expect(await leadSaves(page)).toEqual([20160]);
+});
+
+test("picking 小時 in the unit select keeps the popover open and saves nothing; Enter then saves 2 小時 as 120 minutes", async ({
+  mount,
+  page,
+}) => {
+  const cmp = await mount(<TaskCardDueStory />);
+  await cmp.getByTestId("task-due").click();
+  const lead = cmp.getByTestId("task-due-lead");
+  const unit = cmp.getByTestId("task-due-lead-unit");
+  await lead.focus();
+  await page.keyboard.type("2");
+  await page.keyboard.press("Tab");
+  await expect(unit).toBeFocused();
+  await unit.selectOption("hour");
+  await expect(unit).toHaveValue("hour");
+  await expect(cmp.getByTestId("task-due-pop")).toBeVisible();
+  expect(await saves(page)).toEqual([]);
+
+  await lead.focus();
+  await page.keyboard.press("Enter");
+  expect(await leadSaves(page)).toEqual([120]);
+  await expect(cmp.getByTestId("task-due-pop")).toHaveCount(0);
 });
 
 test("unparseable lead text does not replace the task's own lead with the workspace setting", async ({
   mount,
   page,
 }) => {
-  const cmp = await mount(<TaskCardDueStory dueSoonLeadDays={5} />);
+  const cmp = await mount(<TaskCardDueStory dueSoonLeadMinutes={7200} />);
   await cmp.getByTestId("task-due").click();
   const lead = cmp.getByTestId("task-due-lead");
   await expect(lead).toHaveValue("5");
@@ -144,13 +167,13 @@ test("unparseable lead text does not replace the task's own lead with the worksp
   await page.keyboard.press("Enter");
   expect(await saves(page)).toEqual([]);
   expect(await leadSaves(page)).toEqual([]);
-  await expect(cmp.getByText("快到期提醒要是 1 到 30 的整數天數，這次沒有變更")).toBeVisible();
+  await expect(cmp.getByText("快到期提醒要是 1 分鐘到 30 天之間的整數，這次沒有變更")).toBeVisible();
 });
 
 const OVERDUE_2020 = Math.floor(new Date(2020, 0, 1, 23, 59, 59).getTime() / 1000);
 
 for (const width of [320, 390]) {
-  test(`the 到期日 row with its red overdue date, and the due popover with its date and time on one line, stay inside the card at ${width}px`, async ({
+  test(`the 到期日 row with its red overdue date, and the due popover with its date and time on one line and its lead unit select, stay inside the card at ${width}px`, async ({
     mount,
     page,
   }) => {
@@ -169,7 +192,7 @@ for (const width of [320, 390]) {
     const date = (await cmp.getByTestId("task-due-input").boundingBox())!;
     const time = (await cmp.getByTestId("task-due-time-input").boundingBox())!;
     const input = (await cmp.getByTestId("task-due-lead").boundingBox())!;
-    const unit = (await cmp.locator(".task-card__due-lead-unit").boundingBox())!;
+    const unit = (await cmp.getByTestId("task-due-lead-unit").boundingBox())!;
     expect(pop.x).toBeGreaterThanOrEqual(card.x);
     expect(pop.x + pop.width).toBeLessThanOrEqual(content.x + content.width);
     expect(pop.y).toBeGreaterThan(chip.y);
@@ -182,5 +205,9 @@ for (const width of [320, 390]) {
     expect(unit.x).toBeGreaterThanOrEqual(input.x + input.width);
     expect(Math.abs(unit.y + unit.height / 2 - (input.y + input.height / 2))).toBeLessThan(2);
     expect(unit.x + unit.width).toBeLessThanOrEqual(pop.x + pop.width);
+    expect(unit.x + unit.width).toBeLessThanOrEqual(content.x + content.width);
+    expect(
+      await cmp.locator(".task-card").evaluate((el) => el.scrollWidth - el.clientWidth)
+    ).toBe(0);
   });
 }

@@ -1676,17 +1676,17 @@ def test_set_task_due_via_mcp_loopback_sets_reads_back_and_clears(client, execut
             headers=_auth(executor.token))
 
     r = _call(1, "set_task_due",
-              {"task_id": task["id"], "due_ts": 1790000000, "due_soon_lead_days": 5})
+              {"task_id": task["id"], "due_ts": 1790000000, "due_soon_lead_minutes": 90})
     assert r.status_code == 200, f"{r.status_code} {r.text}"
     result = r.json()["result"]
     assert result.get("isError") is not True, r.text
     assert result["structuredContent"] == {
-        "task_id": task["id"], "due_ts": 1790000000, "due_soon_lead_days": 5}
+        "task_id": task["id"], "due_ts": 1790000000, "due_soon_lead_minutes": 90}
 
     r = _call(2, "get_task", {"task_id": task["id"]})
     assert r.status_code == 200, f"{r.status_code} {r.text}"
     got = r.json()["result"]["structuredContent"]
-    assert (got["due_ts"], got["due_soon_lead_days"]) == (1790000000, 5)
+    assert (got["due_ts"], got["due_soon_lead_minutes"]) == (1790000000, 90)
 
     r = _call(3, "set_task_due", {"task_id": task["id"], "due_ts": 0})
     assert r.status_code == 200, f"{r.status_code} {r.text}"
@@ -1697,7 +1697,7 @@ def test_set_task_due_via_mcp_loopback_sets_reads_back_and_clears(client, execut
     result = r.json()["result"]
     assert result.get("isError") is not True, r.text
     assert result["structuredContent"] == {
-        "task_id": task["id"], "due_ts": None, "due_soon_lead_days": None}
+        "task_id": task["id"], "due_ts": None, "due_soon_lead_minutes": None}
 
 
 def test_task_count_counts_an_open_past_due_task_as_overdue(client, owner_token, executor):

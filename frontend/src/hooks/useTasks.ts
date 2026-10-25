@@ -57,7 +57,7 @@ interface UseTasks {
   setPriority: (id: string, priority: string) => Promise<void>;
   /** Set or clear (`null`) the due date — and, when given, its lead — then
    * refetch. */
-  setDue: (id: string, dueTs: number | null, leadDays?: number | null) => Promise<void>;
+  setDue: (id: string, dueTs: number | null, leadMinutes?: number | null) => Promise<void>;
   /** Correct the task's description (T-e271), then refetch. Accepted on a
    * CLOSED task too — see the adapter's note on why this one write does not
    * refuse a terminal task. */
@@ -351,9 +351,9 @@ export function useTasks(
   );
 
   const setDue = useCallback(
-    async (id: string, dueTs: number | null, leadDays?: number | null) => {
-      if (leadDays === undefined) await api.setTaskDue(id, dueTs);
-      else await api.setTaskDue(id, dueTs, leadDays);
+    async (id: string, dueTs: number | null, leadMinutes?: number | null) => {
+      if (leadMinutes === undefined) await api.setTaskDue(id, dueTs);
+      else await api.setTaskDue(id, dueTs, leadMinutes);
       try {
         await refetch();
       } catch (e) {

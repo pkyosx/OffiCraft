@@ -4,7 +4,8 @@
 // 抄一份到測試裡，改字就紅、漏字卻不一定紅。這裡釘的是三條性質：
 //
 //   1) 每一個帶數字輸入的參數列（.param-pct）都必須渲染得出一個單位標記
-//      （.param-pct__sign），而且它不是空字串。漏字 ⇒ 紅。
+//      （.param-pct__sign，或可選單位的列裡那個單位 <select> 選中的字），
+//      而且它不是空字串。漏字 ⇒ 紅。
 //   2) 那個單位是「從 i18n 解出來的」——用 zh 與 en 兩本**真的字典**各渲染
 //      一次，同一格的文字必須不同；相同就只有一種情況可以放行：它整串
 //      **不含任何文字字元**（`%` 這種跨語言符號）。繞過字典的英文字面
@@ -39,7 +40,7 @@ const MIN_UNIT_ROWS = 11;
 /** 一格單位：它所屬參數列的標題（給失敗訊息用）＋ 單位標記的文字。 */
 interface UnitCell {
   label: string;
-  /** null = 這一列根本沒渲染出 .param-pct__sign。 */
+  /** null = 這一列根本沒渲染出 .param-pct__sign 或單位 <select>。 */
   sign: string | null;
 }
 
@@ -48,11 +49,17 @@ function readUnitCells(utils: RenderResult): UnitCell[] {
     utils.container.querySelectorAll<HTMLElement>(".param-pct")
   ).map((cell, i) => {
     const sign = cell.querySelector<HTMLElement>(".param-pct__sign");
+    const unitSelect = cell.querySelector<HTMLSelectElement>("select");
+    const text = sign
+      ? sign.textContent
+      : unitSelect
+        ? unitSelect.selectedOptions[0]?.textContent
+        : null;
     return {
       label:
         cell.closest(".param-row")?.querySelector(".param-row__name")
           ?.textContent?.trim() ?? `#${i}`,
-      sign: sign ? (sign.textContent ?? "").trim() : null,
+      sign: text == null ? null : text.trim(),
     };
   });
 }

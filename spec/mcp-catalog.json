@@ -2759,7 +2759,7 @@
             "description": "Due date as epoch seconds; omit or null for none. Change it later with set_task_due.",
             "title": "Due Ts"
           },
-          "due_soon_lead_days": {
+          "due_soon_lead_minutes": {
             "anyOf": [
               {
                 "type": "integer"
@@ -2769,8 +2769,8 @@
               }
             ],
             "default": null,
-            "description": "Days before due_ts the task counts as due soon, 1..30; omit or null to follow the workspace setting. Needs due_ts.",
-            "title": "Due Soon Lead Days"
+            "description": "Minutes before due_ts the task counts as due soon, 1..43200 (30 days); omit or null to follow the workspace setting. Needs due_ts.",
+            "title": "Due Soon Lead Minutes"
           },
           "executor_member_id": {
             "anyOf": [
@@ -2970,7 +2970,7 @@
       "name": "set_task_priority"
     },
     {
-      "description": "Set, change or clear a task's due date (``due_ts`` in epoch seconds; ``null`` clears it) and, optionally, ``due_soon_lead_days``: how many days before it the task counts as due soon (1..30; omit to keep the current lead, ``null`` to follow the workspace setting). Clearing the due date clears the lead too. Who may: the owner and admin agents on any task, and the task's acting executor (the predecessor while it holds the task under the reassign hold) on that task \u2014 the same rule as set_task_priority. Anyone else is a flat 403; a closed task is a 409. Answers with a bounded receipt (task_id, due_ts, due_soon_lead_days), not the whole task \u2014 use get_task when you need the rest.",
+      "description": "Set, change or clear a task's due date (``due_ts`` in epoch seconds; ``null`` clears it) and, optionally, ``due_soon_lead_minutes``: how many minutes before it the task counts as due soon (1..43200 = 1 minute to 30 days; omit to keep the current lead, ``null`` to follow the workspace setting). Clearing the due date clears the lead too. Who may: the owner and admin agents on any task, and the task's acting executor (the predecessor while it holds the task under the reassign hold) on that task \u2014 the same rule as set_task_priority. Anyone else is a flat 403; a closed task is a 409. Answers with a bounded receipt (task_id, due_ts, due_soon_lead_minutes), not the whole task \u2014 use get_task when you need the rest.",
       "inputSchema": {
         "properties": {
           "due_ts": {
@@ -2985,7 +2985,7 @@
             "description": "Epoch seconds, greater than 0. null clears the due date. A past date is accepted and reads as overdue.",
             "title": "Due Ts"
           },
-          "due_soon_lead_days": {
+          "due_soon_lead_minutes": {
             "anyOf": [
               {
                 "type": "integer"
@@ -2994,8 +2994,8 @@
                 "type": "null"
               }
             ],
-            "description": "Days before due_ts the task counts as due soon, 1..30. Omit to keep the current lead; null follows the workspace setting. Must be omitted or null when due_ts is null.",
-            "title": "Due Soon Lead Days"
+            "description": "Minutes before due_ts the task counts as due soon, 1..43200 (30 days). Omit to keep the current lead; null follows the workspace setting. Must be omitted or null when due_ts is null.",
+            "title": "Due Soon Lead Minutes"
           },
           "task_id": {
             "type": "string"

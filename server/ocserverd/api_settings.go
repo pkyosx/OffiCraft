@@ -102,16 +102,16 @@ var outsourceParallelRangeMsg = fmt.Sprintf(
 	minOutsourceParallel, maxOutsourceParallel, minOutsourceParallel)
 
 const (
-	minDueSoonLeadDays = 1
-	maxDueSoonLeadDays = 30
+	minDueSoonLeadMinutes = 1
+	maxDueSoonLeadMinutes = 30 * 24 * 60
 )
 
-func dueSoonLeadDaysInRange(n int) bool {
-	return n >= minDueSoonLeadDays && n <= maxDueSoonLeadDays
+func dueSoonLeadMinutesInRange(n int) bool {
+	return n >= minDueSoonLeadMinutes && n <= maxDueSoonLeadMinutes
 }
 
-var dueSoonLeadDaysRangeMsg = fmt.Sprintf(
-	"must be between %d and %d days", minDueSoonLeadDays, maxDueSoonLeadDays)
+var dueSoonLeadMinutesRangeMsg = fmt.Sprintf(
+	"must be between %d and %d minutes (30 days)", minDueSoonLeadMinutes, maxDueSoonLeadMinutes)
 
 const maxOrgNameLen = 80
 
@@ -442,10 +442,10 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 			"outsource_max_parallel "+outsourceParallelRangeMsg)
 		return
 	}
-	if body.TaskDueSoonLeadDays != nil &&
-		!dueSoonLeadDaysInRange(*body.TaskDueSoonLeadDays) {
+	if body.TaskDueSoonLeadMinutes != nil &&
+		!dueSoonLeadMinutesInRange(*body.TaskDueSoonLeadMinutes) {
 		writeError(w, http.StatusUnprocessableEntity,
-			"task_due_soon_lead_days "+dueSoonLeadDaysRangeMsg)
+			"task_due_soon_lead_minutes "+dueSoonLeadMinutesRangeMsg)
 		return
 	}
 	if body.WardenCredentialLifetimeSecs != nil &&
@@ -670,9 +670,9 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		put(settingOutsourceMaxParallel, strconv.Itoa(v), func() { s.outsourceMaxParallel = v })
 	}
 	dueSoonLeadChanged := false
-	if body.TaskDueSoonLeadDays != nil && *body.TaskDueSoonLeadDays != s.taskDueSoonLeadDaysSetting() {
-		v := *body.TaskDueSoonLeadDays
-		put(settingTaskDueSoonLeadDays, strconv.Itoa(v), func() { s.taskDueSoonLeadDays = v })
+	if body.TaskDueSoonLeadMinutes != nil && *body.TaskDueSoonLeadMinutes != s.taskDueSoonLeadMinutesSetting() {
+		v := *body.TaskDueSoonLeadMinutes
+		put(settingTaskDueSoonLeadMinutes, strconv.Itoa(v), func() { s.taskDueSoonLeadMinutes = v })
 		dueSoonLeadChanged = true
 	}
 	capWrite := []struct {
@@ -821,7 +821,7 @@ func (s *apiServer) settingsView() settingsDTO {
 		DiskUsageIntervalSecs:           s.diskUsageIntervalSecs,
 		WardenCredentialLifetimeSecs:    s.wardenCredLifetimeSecs,
 		OutsourceMaxParallel:            s.outsourceMaxParallel,
-		TaskDueSoonLeadDays:             s.taskDueSoonLeadDays,
+		TaskDueSoonLeadMinutes:          s.taskDueSoonLeadMinutes,
 		DocCapCharsDuty:                 s.docCapCharsDuty,
 		DocCapCharsInsight:              s.docCapCharsInsight,
 		DocCapCharsManualSop:            s.docCapCharsManualSop,

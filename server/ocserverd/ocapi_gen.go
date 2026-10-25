@@ -3988,9 +3988,9 @@ type SettingsDTO struct {
 	// SuggestedRepliesTaskMessage The one-click 建議回覆 offered under a 任務 message box (T-122). A SEPARATE list from suggested_replies_reply_card by owner ruling: answering a 請示卡 and writing to a task in progress are different conversations, so one list's sentences are wrong in the other's box. [] (the default) means no chips are drawn there.
 	SuggestedRepliesTaskMessage *[]string `json:"suggested_replies_task_message,omitempty"`
 
-	// TaskDueSoonLeadDays How many days before a task's due date it starts counting as 即將到期 (due soon) for every task that does not set its own ``due_soon_lead_days``. The adjustable range is 1..30; the shipped default is 1 (the last 24 hours).
-	TaskDueSoonLeadDays *int  `json:"task_due_soon_lead_days,omitempty"`
-	UpdaterAutoUpdate   *bool `json:"updater_auto_update,omitempty"`
+	// TaskDueSoonLeadMinutes How many minutes before a task's due date it starts counting as 即將到期 (due soon) for every task that does not set its own ``due_soon_lead_minutes``. The adjustable range is 1..43200 (1 minute to 30 days); the shipped default is 1440 (the last 24 hours).
+	TaskDueSoonLeadMinutes *int  `json:"task_due_soon_lead_minutes,omitempty"`
+	UpdaterAutoUpdate      *bool `json:"updater_auto_update,omitempty"`
 
 	// UpdaterCheckIntervalSecs How often, in seconds (60 through 3600), the server re-reads GitHub's release pages in the background to refresh `update_available`. The 檢查更新 button and an upgrade always read fresh and do not wait for it.
 	UpdaterCheckIntervalSecs *int  `json:"updater_check_interval_secs,omitempty"`
@@ -4018,7 +4018,7 @@ type SettingsDTO struct {
 // admits prereleases; `updater_auto_update` toggles unattended background
 // self-upgrade to the newest admissible release (both booleans, default false;
 // the manual upgrade endpoint is unaffected). `updater_check_interval_secs`
-// MUST be 60..3600. `task_due_soon_lead_days` MUST be 1..30. The five document caps (T-ae38;
+// MUST be 60..3600. `task_due_soon_lead_minutes` MUST be 1..43200. The five document caps (T-ae38;
 // the manual's one became two in T-30f1) are independent knobs. Each one MUST be
 // between THAT segment's shipped default (the `default` on the matching
 // `SettingsDTO` field — Duty's is its own, much smaller number) and 100000. The floor equalling the shipped default is the
@@ -4130,9 +4130,9 @@ type SettingsUpdateDTO struct {
 	// SuggestedRepliesTaskMessage Replace the 任務 message-box 建議回覆 list wholesale (T-122). Same bounds as suggested_replies_reply_card — at most 20 entries, each trimmed and at most 120 runes, over either is a 422 that writes nothing, and an explicit empty array is legal — but a SEPARATE list: patching one never touches the other. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THIS LIST UNCHANGED, so an agent that sends null to empty the list gets a 200 and no change at all. To clear it, send [].
 	SuggestedRepliesTaskMessage *[]string `json:"suggested_replies_task_message,omitempty"`
 
-	// TaskDueSoonLeadDays Days before a due date a task without its own lead counts as due soon. Must be between 1 and 30. A change makes the cockpit refetch its task counts.
-	TaskDueSoonLeadDays *int  `json:"task_due_soon_lead_days,omitempty"`
-	UpdaterAutoUpdate   *bool `json:"updater_auto_update,omitempty"`
+	// TaskDueSoonLeadMinutes Minutes before a due date a task without its own lead counts as due soon. Must be between 1 and 43200 (30 days). A change makes the cockpit refetch its task counts.
+	TaskDueSoonLeadMinutes *int  `json:"task_due_soon_lead_minutes,omitempty"`
+	UpdaterAutoUpdate      *bool `json:"updater_auto_update,omitempty"`
 
 	// UpdaterCheckIntervalSecs How often, in seconds, the server re-reads GitHub's release pages in the background. Must be 60 through 3600.
 	UpdaterCheckIntervalSecs *int  `json:"updater_check_interval_secs,omitempty"`
@@ -4267,7 +4267,7 @@ type TaskCountDTO struct {
 	// DueNextChangeTs The next moment ``overdue`` or ``due_soon`` changes on its own as time passes (a task entering its due-soon window, or a due date passing). ``null`` when no open task has a future due date. A client refetches at this moment so the badge does not go stale without a task event.
 	DueNextChangeTs *float64 `json:"due_next_change_ts,omitempty"`
 
-	// DueSoon Open tasks whose due date has not passed and is at most their lead away: the task's own ``due_soon_lead_days``, else the workspace ``task_due_soon_lead_days``, in days of 86400 seconds. additive-optional (absent reads as 0 for older servers).
+	// DueSoon Open tasks whose due date has not passed and is at most their lead away: the task's own ``due_soon_lead_minutes``, else the workspace ``task_due_soon_lead_minutes``, in minutes. additive-optional (absent reads as 0 for older servers).
 	DueSoon *int `json:"due_soon,omitempty"`
 	Open    int  `json:"open"`
 
@@ -4282,8 +4282,8 @@ type TaskCountDTO struct {
 type TaskCreateDTO struct {
 	Description *string `json:"description,omitempty"`
 
-	// DueSoonLeadDays How many days before ``due_ts`` the task starts counting as due soon, 1..30. Omit or ``null`` to follow the workspace setting ``task_due_soon_lead_days``. Sending a number without a ``due_ts`` is a 422.
-	DueSoonLeadDays *int `json:"due_soon_lead_days,omitempty"`
+	// DueSoonLeadMinutes How many minutes before ``due_ts`` the task starts counting as due soon, 1..43200 (1 minute to 30 days). Omit or ``null`` to follow the workspace setting ``task_due_soon_lead_minutes``. Sending a number without a ``due_ts`` is a 422.
+	DueSoonLeadMinutes *int `json:"due_soon_lead_minutes,omitempty"`
 
 	// DueTs Epoch seconds. ``null`` means the task has no due date. The web UI picks a calendar date and stores 23:59:59 of that day in the viewer's local time.
 	DueTs            *float64                `json:"due_ts,omitempty"`
@@ -4349,8 +4349,8 @@ type TaskDTO struct {
 	// DetailLevel What this response IS, said by the response itself (T-66): always ``summary``. get_task answers a SUMMARY of the task — complete in every respect EXCEPT that each step's working-note TEXT is omitted and reported only as a size (``TaskStepDTO.note_size_chars``). The counterpart read is ``get_task_step``, whose response declares ``detail_level`` = ``full`` and carries one step's note in full. The STEP LIST here is not abridged: it has no cap and no paging, so this field is a statement about note text and nothing else.
 	DetailLevel *string `json:"detail_level,omitempty"`
 
-	// DueSoonLeadDays How many days before ``due_ts`` this task starts counting as due soon, 1..30. ``null`` means the task follows the workspace setting ``task_due_soon_lead_days`` (GET /api/settings). Always ``null`` when the task has no due date.
-	DueSoonLeadDays *int `json:"due_soon_lead_days,omitempty"`
+	// DueSoonLeadMinutes How many minutes before ``due_ts`` this task starts counting as due soon, 1..43200 (1 minute to 30 days). ``null`` means the task follows the workspace setting ``task_due_soon_lead_minutes`` (GET /api/settings). Always ``null`` when the task has no due date.
+	DueSoonLeadMinutes *int `json:"due_soon_lead_minutes,omitempty"`
 
 	// DueTs Epoch seconds. ``null`` means the task has no due date. The web UI picks a calendar date and stores 23:59:59 of that day in the viewer's local time.
 	DueTs            *float64 `json:"due_ts,omitempty"`
@@ -4415,18 +4415,18 @@ type TaskDescriptionDTO struct {
 
 // TaskDueReceiptDTO Bounded receipt returned after set_task_due. Fetch GET /api/tasks/{task_id} when full task detail is needed.
 type TaskDueReceiptDTO struct {
-	// DueSoonLeadDays How many days before ``due_ts`` this task starts counting as due soon, 1..30. ``null`` means the task follows the workspace setting ``task_due_soon_lead_days`` (GET /api/settings). Always ``null`` when the task has no due date.
-	DueSoonLeadDays *int `json:"due_soon_lead_days"`
+	// DueSoonLeadMinutes How many minutes before ``due_ts`` this task starts counting as due soon, 1..43200 (1 minute to 30 days). ``null`` means the task follows the workspace setting ``task_due_soon_lead_minutes`` (GET /api/settings). Always ``null`` when the task has no due date.
+	DueSoonLeadMinutes *int `json:"due_soon_lead_minutes"`
 
 	// DueTs Epoch seconds. ``null`` means the task has no due date. The web UI picks a calendar date and stores 23:59:59 of that day in the viewer's local time.
 	DueTs  *float64 `json:"due_ts"`
 	TaskId string   `json:"task_id"`
 }
 
-// TaskDueUpdateDTO Set, change or clear a task's due date and, optionally, how many days before it the task counts as due soon. “due_ts: null“ clears the due date and its lead; a number must be greater than 0. A date already in the past is accepted and reads as overdue.
+// TaskDueUpdateDTO Set, change or clear a task's due date and, optionally, how many minutes before it the task counts as due soon. “due_ts: null“ clears the due date and its lead; a number must be greater than 0. A date already in the past is accepted and reads as overdue.
 type TaskDueUpdateDTO struct {
-	// DueSoonLeadDays How many days before ``due_ts`` the task starts counting as due soon, 1..30. Omit it to keep the task's current lead; ``null`` makes the task follow the workspace setting ``task_due_soon_lead_days``. Clearing ``due_ts`` clears the lead too, so a number sent with ``due_ts: null`` is a 422.
-	DueSoonLeadDays *int `json:"due_soon_lead_days,omitempty"`
+	// DueSoonLeadMinutes How many minutes before ``due_ts`` the task starts counting as due soon, 1..43200 (1 minute to 30 days). Omit it to keep the task's current lead; ``null`` makes the task follow the workspace setting ``task_due_soon_lead_minutes``. Clearing ``due_ts`` clears the lead too, so a number sent with ``due_ts: null`` is a 422.
+	DueSoonLeadMinutes *int `json:"due_soon_lead_minutes,omitempty"`
 
 	// DueTs Epoch seconds. ``null`` means the task has no due date. The web UI picks a calendar date and stores 23:59:59 of that day in the viewer's local time.
 	DueTs *float64 `json:"due_ts"`
@@ -4463,8 +4463,8 @@ type TaskListItemDTO struct {
 	DepTasks *[]TaskDepRefDTO `json:"dep_tasks,omitempty"`
 	Deps     []string         `json:"deps"`
 
-	// DueSoonLeadDays How many days before ``due_ts`` this task starts counting as due soon, 1..30. ``null`` means the task follows the workspace setting ``task_due_soon_lead_days`` (GET /api/settings). Always ``null`` when the task has no due date.
-	DueSoonLeadDays *int `json:"due_soon_lead_days,omitempty"`
+	// DueSoonLeadMinutes How many minutes before ``due_ts`` this task starts counting as due soon, 1..43200 (1 minute to 30 days). ``null`` means the task follows the workspace setting ``task_due_soon_lead_minutes`` (GET /api/settings). Always ``null`` when the task has no due date.
+	DueSoonLeadMinutes *int `json:"due_soon_lead_minutes,omitempty"`
 
 	// DueTs Epoch seconds. ``null`` means the task has no due date. The web UI picks a calendar date and stores 23:59:59 of that day in the viewer's local time.
 	DueTs         *float64 `json:"due_ts,omitempty"`
@@ -6372,7 +6372,7 @@ type ServerInterface interface {
 	// Correct THIS task's description — the ticket's own text (what the task IS: scope, origin, acceptance). T-e271: until this tool existed there was NO way to change a description after creation — create_task takes one only at birth, submit_plan writes steps, update_task_manual writes the TYPE's manual — so a decision to reword a card had nowhere to land. WHO: the task's acting executor (its executor, or the predecessor while it holds the task under the reassign hold — see reassign_task), or an admin/owner; anyone else is a flat 403. Creating a task grants NO standing to keep rewriting it. If you handed the task over, you keep this right until the successor claims it or you leave; from then on it is the successor's text. ⚠️ ONE STRUCTURAL EXCEPTION (T-52, owner 2026-09-02): while the task has NO executor AT ALL and is not under the reassign hold (`executor_id` empty — where a 發包票 sits between create_task and the moment the scheduler binds a worker to it), its CREATOR may correct the text here, because otherwise nobody who is awake could fix the brief the contractor reads on arrival and that window has no upper bound. It SHUTS the instant an executor is bound — from then on the creator is a flat 403 again, even though it opened the ticket. TEXT ONLY: the same window opens add_task_artifact, remove_task_artifact, replace_task_artifact, update_step_note, patch_step_note and the task_title / task_description restores, and nothing else — never freeze, terminate, reassign, claim, plan, step status, deps or any of the four closes. `replace_task_artifact` sits in the same window as add/remove by owner ruling (card rc-09367ed77bc2, 2026-09-03, option [0]), given with these facts in front of him: replace OVERWRITES in place what someone else pinned, and remove_task_artifact deletes that artifact's every retained version together with their blobs. PARTIAL like update_task_manual: omitting `description` changes nothing (a safe no-op), while an explicit "" CLEARS it — absent and empty are different on purpose; unknown keys are refused rather than dropped. The write is wholesale within that field: the value replaces whatever was there, so send the full corrected text, not a fragment. ⚠️ Division of labour with update_step_note: the DESCRIPTION says what this task IS (stable); the step NOTE says where a step is RIGHT NOW (volatile, handover-facing) — do not put progress here. A CLOSED task (completed / terminated / duplicated) is STILL editable, on the same terms — unlike its artifact set, which freezes at close. The reason they differ: artifacts are the record of what the task PRODUCED and must stop moving, while a ticket worded wrongly is usually found to be wrong after it closed, and freezing the text would preserve a known falsehood in the permanent record. Every change that actually alters the text retains the previous one as a document version (kind `task_description`, key = the task id) — list it with list_document_history, so a correction is recoverable and the older wording is never simply gone.
 	// (POST /api/tasks/{task_id}/description)
 	HandleUpdateTaskDescriptionApiTasksTaskIdDescriptionPost(w http.ResponseWriter, r *http.Request, taskId string)
-	// Set, change or clear a task's due date (“due_ts“ in epoch seconds; “null“ clears it) and, optionally, “due_soon_lead_days“: how many days before it the task counts as due soon (1..30; omit to keep the current lead, “null“ to follow the workspace setting). Clearing the due date clears the lead too. Who may: the owner and admin agents on any task, and the task's acting executor (the predecessor while it holds the task under the reassign hold) on that task — the same rule as set_task_priority. Anyone else is a flat 403; a closed task is a 409. Answers with a bounded receipt (task_id, due_ts, due_soon_lead_days), not the whole task — use get_task when you need the rest.
+	// Set, change or clear a task's due date (“due_ts“ in epoch seconds; “null“ clears it) and, optionally, “due_soon_lead_minutes“: how many minutes before it the task counts as due soon (1..43200 = 1 minute to 30 days; omit to keep the current lead, “null“ to follow the workspace setting). Clearing the due date clears the lead too. Who may: the owner and admin agents on any task, and the task's acting executor (the predecessor while it holds the task under the reassign hold) on that task — the same rule as set_task_priority. Anyone else is a flat 403; a closed task is a 409. Answers with a bounded receipt (task_id, due_ts, due_soon_lead_minutes), not the whole task — use get_task when you need the rest.
 	// (POST /api/tasks/{task_id}/due)
 	HandleSetTaskDueApiTasksTaskIdDuePost(w http.ResponseWriter, r *http.Request, taskId string)
 	// Close this task as done OVER its own precondition — the exit for a task that is never going to be closed by the agent holding it. Two shapes reach it: one sitting in “ready_for_done“ whose executor is gone, and one still mid-plan whose remaining steps will never be reported. WHO: the OWNER and the ADMIN ASSISTANT only. Every other principal is a 403, the task's own executor INCLUDED — an executor that can force its own task simply has “mark_task_done“ without a precondition, and the precondition is the whole point. “reason“ is OPTIONAL — omitted, blank or whitespace-only all close the task (owner ruling rc-a92a6252c3bd). A forced close is the one close nobody can reconstruct afterwards from the steps, because the steps do not agree that the work is finished, so a reason is worth giving: it is asked for, not demanded. The forcing principal and the reason are recorded on the task and come back on every read as “forced_done_by“ / “forced_done_reason“, so a done task always says whether it got there by itself. ANY NON-TERMINAL STATUS IS ACCEPTED. Already terminal is a 409 — this forces the precondition, not the terminal wall. Answers with a bounded receipt (“artifact_count“, “closed_ts“, “deps“, “description_sha256“, “description_size_chars“, “duplicate_of“, “executor_id“, “executor_kind“, “lock“, “progress_done“, “progress_total“, “status“, “task_id“, “title“), not the task — call “get_task“ when you need the rest. THE BOUND OUTSOURCE WORKER IS DISMISSED HERE, and here is the only place it happens: the row releases AND the session is reclaimed at once, on all four closes alike. It used to wait for a separate close-out report, which is gone — the close-out now happens while the task is still open, so once a close lands there is nothing the worker is still allowed to do on it.

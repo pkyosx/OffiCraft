@@ -1030,9 +1030,7 @@ button.task-card__prio-chip:hover {
   min-width: 0;
 }
 .task-card__due-lead-unit {
-  font-size: 13px;
-  white-space: nowrap;
-  color: var(--color-text-muted);
+  flex: none;
 }
 .task-card__due-input {
   font: inherit;

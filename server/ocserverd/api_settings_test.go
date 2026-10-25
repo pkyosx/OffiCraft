@@ -53,7 +53,7 @@ func apiTestShippedSettings() map[string]any {
 		"codex_notice_round":                  2,
 		"monitoring_refresh_seconds":          5,
 		"outsource_max_parallel":              3,
-		"task_due_soon_lead_days":             1,
+		"task_due_soon_lead_minutes":          1440,
 		"accelerated_grace_secs":              120,
 		"reassign_handover_timeout_secs":      1800,
 		"runtime_login_check_interval_secs":   300,
@@ -616,7 +616,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 			"disk_usage_interval_secs":86400,
 			"warden_credential_lifetime_secs":864000,
 			"outsource_max_parallel":-1,
-			"task_due_soon_lead_days":7,
+			"task_due_soon_lead_minutes":90,
 			"doc_cap_chars_duty":2000,
 			"doc_cap_chars_insight":20000,
 			"doc_cap_chars_manual_sop":20000,
@@ -646,7 +646,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		want["disk_usage_interval_secs"] = 86400
 		want["warden_credential_lifetime_secs"] = 864000
 		want["outsource_max_parallel"] = -1
-		want["task_due_soon_lead_days"] = 7
+		want["task_due_soon_lead_minutes"] = 90
 		want["doc_cap_chars_duty"] = 2000
 		want["doc_cap_chars_insight"] = 20000
 		want["doc_cap_chars_manual_sop"] = 20000
@@ -663,7 +663,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 	t.Run("under a restart on the same database, the patched login, disk-usage and update-check intervals, the due-soon lead and the seasonal-theme opt-out are still reported", func(t *testing.T) {
 		_, h, d, owner := newAPITestServer(t)
 		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner,
-			`{"runtime_login_check_interval_secs":600,"runtime_login_recheck_interval_secs":45,"disk_usage_interval_secs":600,"updater_check_interval_secs":60,"task_due_soon_lead_days":14,"display_seasonal_theme":false}`)
+			`{"runtime_login_check_interval_secs":600,"runtime_login_recheck_interval_secs":45,"disk_usage_interval_secs":600,"updater_check_interval_secs":60,"task_due_soon_lead_minutes":43200,"display_seasonal_theme":false}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
@@ -678,20 +678,20 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		want["runtime_login_recheck_interval_secs"] = 45
 		want["disk_usage_interval_secs"] = 600
 		want["updater_check_interval_secs"] = 60
-		want["task_due_soon_lead_days"] = 14
+		want["task_due_soon_lead_minutes"] = 43200
 		want["display_seasonal_theme"] = false
 		apiWantBody(t, data, want)
 	})
 
-	t.Run("a changed task_due_soon_lead_days fans one owner-only task delta and an unchanged one fans none", func(t *testing.T) {
+	t.Run("a changed task_due_soon_lead_minutes fans one owner-only task delta and an unchanged one fans none", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		dashboard := apiTestListen(t, api, "")
 		agent := apiTestListen(t, api, "kip")
 
-		if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"task_due_soon_lead_days":3}`); status != 200 {
+		if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"task_due_soon_lead_minutes":3}`); status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
-		if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"task_due_soon_lead_days":3}`); status != 200 {
+		if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"task_due_soon_lead_minutes":3}`); status != 200 {
 			t.Fatalf("repeat: want 200, got %d (%v)", status, data)
 		}
 		dashboard.wantFrames(map[string]any{
@@ -700,7 +700,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 			"op":    "patch",
 			"data": map[string]any{
 				"entity":  "task",
-				"key":     "owner::task.due_soon_lead_days",
+				"key":     "owner::task.due_soon_lead_minutes",
 				"epoch":   1,
 				"deleted": false,
 				"payload": nil,
@@ -956,18 +956,18 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		apiWantBody(t, served, apiTestShippedSettings())
 	})
 
-	t.Run("a task_due_soon_lead_days outside 1..30 answers 422 and writes nothing", func(t *testing.T) {
+	t.Run("a task_due_soon_lead_minutes outside 1..43200 answers 422 and writes nothing", func(t *testing.T) {
 		_, h, d, owner := newAPITestServer(t)
 
-		for _, value := range []string{"0", "31"} {
-			body := `{"task_due_soon_lead_days":` + value + `}`
+		for _, value := range []string{"0", "43201"} {
+			body := `{"task_due_soon_lead_minutes":` + value + `}`
 			status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, body)
 			if status != 422 {
 				t.Fatalf("%s: want 422, got %d (%v)", body, status, data)
 			}
-			apiWantError(t, data, "validation_error", "task_due_soon_lead_days must be between 1 and 30 days")
+			apiWantError(t, data, "validation_error", "task_due_soon_lead_minutes must be between 1 and 43200 minutes (30 days)")
 		}
-		if stored, err := d.GetSetting("task.due_soon_lead_days"); err != nil || stored != nil {
+		if stored, err := d.GetSetting("task.due_soon_lead_minutes"); err != nil || stored != nil {
 			t.Fatalf("a refused value must not be stored, got %v %v", stored, err)
 		}
 		_, served := apiJSON(t, h, "GET", "/api/settings", owner, "")
@@ -1256,7 +1256,7 @@ func TestSettingsView(t *testing.T) {
 		StepNoteCapChars:                10000,
 		BackupRetain:                    5,
 		UpdaterCheckIntervalSecs:        300,
-		TaskDueSoonLeadDays:             1,
+		TaskDueSoonLeadMinutes:          1440,
 		OrgName:                         "",
 		OwnerName:                       "",
 		PushContactEmail:                "",

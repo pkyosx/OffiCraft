@@ -20,7 +20,7 @@ vi.mock("./sharedServerSettings", () => ({
   refreshServerSettings: () => refresh(),
 }));
 
-import { useDueSoonLeadDays } from "./useDueSoonLeadDays";
+import { useDueSoonLeadMinutes } from "./useDueSoonLeadMinutes";
 
 const delta = (ids: string[]): SseDelta => ({
   topic: "task",
@@ -30,27 +30,27 @@ const delta = (ids: string[]): SseDelta => ({
 
 beforeEach(() => {
   listeners.length = 0;
-  load.mockReset().mockResolvedValue({ taskDueSoonLeadDays: 1 });
-  refresh.mockReset().mockResolvedValue({ taskDueSoonLeadDays: 5 });
+  load.mockReset().mockResolvedValue({ taskDueSoonLeadMinutes: 1440 });
+  refresh.mockReset().mockResolvedValue({ taskDueSoonLeadMinutes: 120 });
 });
 
-describe("useDueSoonLeadDays", () => {
+describe("useDueSoonLeadMinutes", () => {
   it("re-reads the workspace lead on a task delta that names no task", async () => {
-    const { result } = renderHook(() => useDueSoonLeadDays());
+    const { result } = renderHook(() => useDueSoonLeadMinutes());
     await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
     act(() => listeners.forEach((cb) => cb("task", delta([]))));
-    await waitFor(() => expect(result.current).toBe(5));
+    await waitFor(() => expect(result.current).toBe(120));
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
   it("leaves the lead alone on a delta that names a task or belongs to another topic", async () => {
-    const { result } = renderHook(() => useDueSoonLeadDays());
+    const { result } = renderHook(() => useDueSoonLeadMinutes());
     await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
     act(() => {
       listeners.forEach((cb) => cb("task", delta(["T-1"])));
       listeners.forEach((cb) => cb("member", delta([])));
     });
     expect(refresh).not.toHaveBeenCalled();
-    expect(result.current).toBe(1);
+    expect(result.current).toBe(1440);
   });
 });

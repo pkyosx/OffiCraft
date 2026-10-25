@@ -8,8 +8,8 @@
 // keeps this tab's copy true (it is also the ONLY thing that does: the server
 // pushes no settings delta, so another tab's save is invisible here until a
 // reload, a known and accepted boundary). One exception: a change to
-// `task_due_soon_lead_days` rides a nameless `task` delta, and
-// useDueSoonLeadDays answers it with `refreshServerSettings`.
+// `task_due_soon_lead_minutes` rides a nameless `task` delta, and
+// useDueSoonLeadMinutes answers it with `refreshServerSettings`.
 //
 // Two callers deliberately do NOT read from the cache and use
 // `refreshServerSettings`:

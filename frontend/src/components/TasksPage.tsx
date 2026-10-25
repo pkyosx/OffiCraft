@@ -33,7 +33,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { useNowSeconds } from "../hooks/useNowSeconds";
 import {
-  effectiveLeadDays,
+  effectiveLeadMinutes,
   isDueSoon,
   isOverdue,
   nextDueChangeTs,
@@ -42,7 +42,7 @@ import type { TaskView } from "../api/adapter";
 import { viewerMayForceTaskDone } from "../api";
 import { useTasks } from "../hooks/useTasks";
 import { useTaskCount } from "../hooks/useTaskCount";
-import { useDueSoonLeadDays } from "../hooks/useDueSoonLeadDays";
+import { useDueSoonLeadMinutes } from "../hooks/useDueSoonLeadMinutes";
 import { useMembers } from "../hooks/useMembers";
 import { useHashRoute } from "../lib/hashRoute";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
@@ -108,11 +108,11 @@ interface Lane {
   tasks: TaskView[];
 }
 
-function dueLaneKey(task: TaskView, nowTs: number, workspaceLeadDays: number): string {
+function dueLaneKey(task: TaskView, nowTs: number, workspaceLeadMinutes: number): string {
   const due = task.dueTs ?? null;
   if (due === null) return "nodue";
   if (isOverdue(due, nowTs)) return "overdue";
-  if (isDueSoon(due, nowTs, effectiveLeadDays(task.dueSoonLeadDays, workspaceLeadDays)))
+  if (isDueSoon(due, nowTs, effectiveLeadMinutes(task.dueSoonLeadMinutes, workspaceLeadMinutes)))
     return "soon";
   return "later";
 }
@@ -238,7 +238,7 @@ function DisplayOptions({
 function nextListDueChange(
   tasks: TaskView[],
   nowTs: number,
-  workspaceLeadDays: number
+  workspaceLeadMinutes: number
 ): number | null {
   let next: number | null = null;
   for (const task of tasks) {
@@ -246,7 +246,7 @@ function nextListDueChange(
     const at = nextDueChangeTs(
       task.dueTs,
       nowTs,
-      effectiveLeadDays(task.dueSoonLeadDays, workspaceLeadDays)
+      effectiveLeadMinutes(task.dueSoonLeadMinutes, workspaceLeadMinutes)
     );
     if (at !== null && (next === null || at < next)) next = at;
   }
@@ -305,9 +305,9 @@ export function TasksPage() {
   const taskTotal = useTaskCount().total;
   // Woken by the loaded tasks' own next due boundary, so a task changes lane at
   // the same moment its card's 到期日 icon changes.
-  const dueSoonLeadDays = useDueSoonLeadDays();
+  const dueSoonLeadMinutes = useDueSoonLeadMinutes();
   const nowSec = useNowSeconds(
-    nextListDueChange(tasks, Date.now() / 1000, dueSoonLeadDays)
+    nextListDueChange(tasks, Date.now() / 1000, dueSoonLeadMinutes)
   );
 
   // Ticking clock (30s) — drives 已歷時 and running-step 耗時 on every card.
@@ -581,7 +581,7 @@ export function TasksPage() {
     if (isOverdue(due, nowSec)) return set.has("overdue");
     return (
       set.has("soon") &&
-      isDueSoon(due, nowSec, effectiveLeadDays(task.dueSoonLeadDays, dueSoonLeadDays))
+      isDueSoon(due, nowSec, effectiveLeadMinutes(task.dueSoonLeadMinutes, dueSoonLeadMinutes))
     );
   }
   const matchesExecutor = (task: TaskView) =>
@@ -760,7 +760,7 @@ export function TasksPage() {
           (task) =>
             TERMINAL.has(task.status)
               ? "closed"
-              : dueLaneKey(task, nowSec, dueSoonLeadDays),
+              : dueLaneKey(task, nowSec, dueSoonLeadMinutes),
           [
             { key: "overdue", title: t.tasks.laneOverdue },
             { key: "soon", title: t.tasks.laneDueSoon },
@@ -960,7 +960,7 @@ export function TasksPage() {
         onMarkDuplicate={markDuplicate}
         onSetPriority={setPriority}
         onSetDue={setDue}
-        dueSoonLeadDays={dueSoonLeadDays}
+        dueSoonLeadMinutes={dueSoonLeadMinutes}
         onReassign={reassign}
         onSendMessage={(id, body, attachments) =>
           sendMessage(id, { body, attachments })

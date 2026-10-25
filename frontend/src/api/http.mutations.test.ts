@@ -477,17 +477,17 @@ describe("httpApi · setTaskDue wire shape", () => {
 
   it("sends the lead only when one is given, null included", async () => {
     fetchMock.mockImplementation(async () =>
-      jsonResponse({ task_id: "t-1", due_ts: 1793375999, due_soon_lead_days: 7 })
+      jsonResponse({ task_id: "t-1", due_ts: 1793375999, due_soon_lead_minutes: 90 })
     );
-    await httpApi.setTaskDue("t-1", 1793375999, 7);
+    await httpApi.setTaskDue("t-1", 1793375999, 90);
     expect(JSON.parse(String((await lastRequest()).body))).toEqual({
       due_ts: 1793375999,
-      due_soon_lead_days: 7,
+      due_soon_lead_minutes: 90,
     });
     await httpApi.setTaskDue("t-1", 1793375999, null);
     expect(JSON.parse(String((await lastRequest()).body))).toEqual({
       due_ts: 1793375999,
-      due_soon_lead_days: null,
+      due_soon_lead_minutes: null,
     });
   });
 

@@ -1995,7 +1995,7 @@ func dalTestTask(id string) Task {
 		FrozenBy:            "eve",
 		KickoffNotifiedTo:   "ow-1",
 		DueTs:               1700000006,
-		DueSoonLeadDays:     4,
+		DueSoonLeadMinutes:  4,
 	}
 }
 
@@ -2330,7 +2330,7 @@ func TestTaskCountFacts(t *testing.T) {
 		d := newAPITestDAL(t)
 		task := func(id, status string, due float64, lead int) Task {
 			return Task{ID: id, Status: status, Priority: TaskPriorityMid, ExecutorKind: "staff",
-				DueTs: due, DueSoonLeadDays: lead}
+				DueTs: due, DueSoonLeadMinutes: lead}
 		}
 		dalPutTask(t, d, task("T-1", TaskStatusInProgress, 1200000, 3))
 		dalPutTask(t, d, task("T-2", TaskStatusNotStarted, 0, 0))
@@ -2343,7 +2343,7 @@ func TestTaskCountFacts(t *testing.T) {
 			t.Fatalf("TaskCountFacts: %v", err)
 		}
 		sort.Slice(open, func(i, j int) bool { return open[i].DueTs < open[j].DueTs })
-		want := []taskDueFact{{DueTs: 0, DueSoonLeadDays: 0}, {DueTs: 1200000, DueSoonLeadDays: 3}}
+		want := []taskDueFact{{DueTs: 0, DueSoonLeadMinutes: 0}, {DueTs: 1200000, DueSoonLeadMinutes: 3}}
 		if total != 5 || !reflect.DeepEqual(open, want) {
 			t.Fatalf("want total 5 and %+v, got total %d and %+v", want, total, open)
 		}
@@ -2384,7 +2384,7 @@ func seedTaskCountPopulation(tb testing.TB, d *DAL, openN, closedN int) {
 		tb.Fatalf("begin: %v", err)
 	}
 	description := strings.Repeat("a realistic task body of a few hundred characters. ", 10)
-	leads := []int{0, 0, 1, 2, 3, 5, 7, 14, 30}
+	leads := []int{0, 0, 60, 120, 1440, 4320, 10080, 20160, 43200}
 	for i := 0; i < openN+closedN; i++ {
 		status := TaskStatusInProgress
 		if i >= openN {
@@ -2396,8 +2396,8 @@ func seedTaskCountPopulation(tb testing.TB, d *DAL, openN, closedN int) {
 			ExecutorKind: "staff", ExecutorID: "kip", CreatedTS: float64(1700000000 + i),
 		}
 		if i%2 == 0 {
-			task.DueTs = float64(1800000000 + (i%60)*secondsPerDay)
-			task.DueSoonLeadDays = leads[i%len(leads)]
+			task.DueTs = float64(1800000000 + (i%60)*86400)
+			task.DueSoonLeadMinutes = leads[i%len(leads)]
 		}
 		if err := putTaskOn(tx, task, taskWriteInsertOnly); err != nil {
 			tx.Rollback()
@@ -2412,13 +2412,13 @@ func seedTaskCountPopulation(tb testing.TB, d *DAL, openN, closedN int) {
 func BenchmarkTaskCountFacts(b *testing.B) {
 	d := newAPITestDAL(b)
 	seedTaskCountPopulation(b, d, 2000, 50000)
-	const now = 1800000000 + 20*secondsPerDay
+	const now = 1800000000 + 20*86400
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		total, open, err := d.TaskCountFacts()
 		if err != nil {
 			b.Fatalf("TaskCountFacts: %v", err)
 		}
-		newTaskCountDTO(total, open, defaultTaskDueSoonLeadDays, now)
+		newTaskCountDTO(total, open, defaultTaskDueSoonLeadMinutes, now)
 	}
 }

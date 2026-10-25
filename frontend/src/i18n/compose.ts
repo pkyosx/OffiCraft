@@ -33,6 +33,7 @@
 import type { Dict } from "./locales/zh";
 import type { ActivityWait, Effort, MemberActivity } from "../types";
 import { dayStartOf, formatAbsolute, formatClock, formatResetTime } from "../lib/dateFormat";
+import { splitLeadMinutes } from "../lib/dueDate";
 
 /** The UI languages a wording overlay keys on (mirrors i18n's `Language`;
  * declared locally so this module never imports the provider back). */
@@ -53,7 +54,8 @@ export interface Messages {
   taskDueDate: (tsSeconds: number) => string;
   taskDueDateTime: (tsSeconds: number) => string;
   taskOverdueDays: (days: number) => string;
-  taskDueLeadWorkspace: (days: number) => string;
+  taskDueLead: (minutes: number) => string;
+  taskDueLeadWorkspace: (minutes: number) => string;
   taskCountSummary: (overdue: number, dueSoon: number, open: number) => string;
   // ── task artifact versions (T-60) ──
   taskArtifactVersionCount: (n: number) => string;
@@ -305,7 +307,17 @@ export function makeMessages(t: Dict, language: Lang): Messages {
       `${tasks.overdueDaysLead} ${days} ${
         days === 1 ? tasks.overdueDaysTailOne : tasks.overdueDaysTailMany
       }`,
-    taskDueLeadWorkspace: (days) => `${tasks.dueLeadWorkspaceLead}${days}`,
+    taskDueLead: (minutes) => {
+      const { amount, unit } = splitLeadMinutes(minutes);
+      const [one, many] = {
+        day: [tasks.dueLeadDayOne, tasks.dueLeadDayMany],
+        hour: [tasks.dueLeadHourOne, tasks.dueLeadHourMany],
+        minute: [tasks.dueLeadMinuteOne, tasks.dueLeadMinuteMany],
+      }[unit];
+      return counted(amount, one, many);
+    },
+    taskDueLeadWorkspace: (minutes) =>
+      `${tasks.dueLeadWorkspaceLead}${messages.taskDueLead(minutes)}`,
     taskCountSummary: (overdue, dueSoon, open) =>
       [
         overdue > 0 &&

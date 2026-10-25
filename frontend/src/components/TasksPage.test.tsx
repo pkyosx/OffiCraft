@@ -1066,13 +1066,13 @@ describe("TasksPage", () => {
     const now = 1_900_000_000;
     vi.useFakeTimers({ now: now * 1000, toFake: ["Date"] });
     try {
-      await api.patchServerSettings({ taskDueSoonLeadDays: 3 });
+      await api.patchServerSettings({ taskDueSoonLeadMinutes: 4320 });
       __injectMockTask(mkTask({ title: "全站三天內", dueTs: now + 2 * 86_400 }));
       __injectMockTask(
-        mkTask({ title: "自己七天內", dueTs: now + 5 * 86_400, dueSoonLeadDays: 7 })
+        mkTask({ title: "自己七天內", dueTs: now + 5 * 86_400, dueSoonLeadMinutes: 10080 })
       );
       __injectMockTask(
-        mkTask({ title: "自己只提前一天", dueTs: now + 2 * 86_400, dueSoonLeadDays: 1 })
+        mkTask({ title: "自己只提前一天", dueTs: now + 2 * 86_400, dueSoonLeadMinutes: 1440 })
       );
       __injectMockTask(mkTask({ title: "全站三天外", dueTs: now + 10 * 86_400 }));
       const { findByText } = renderPage();
@@ -1101,7 +1101,7 @@ describe("TasksPage", () => {
       ).not.toContain("task-card__due-date--");
 
       await act(async () => {
-        await mockApi.patchServerSettings({ taskDueSoonLeadDays: 3 });
+        await mockApi.patchServerSettings({ taskDueSoonLeadMinutes: 4320 });
       });
 
       await waitFor(() => expect(laneKeys()).toEqual(["soon"]));
@@ -1141,7 +1141,7 @@ describe("TasksPage", () => {
     try {
       seedDueTasks(now);
       __injectMockTask(
-        mkTask({ title: "自己提前七天", dueTs: now + 5 * 86_400 + 60, dueSoonLeadDays: 7 })
+        mkTask({ title: "自己提前七天", dueTs: now + 5 * 86_400 + 60, dueSoonLeadMinutes: 10080 })
       );
       const { findByText, getByTestId } = renderPage();
       await findByText("逾期的手冊任務");

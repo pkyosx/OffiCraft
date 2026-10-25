@@ -3789,9 +3789,9 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Set, change or clear a task's due date (``due_ts`` in epoch seconds; ``null`` clears it) and, optionally, ``due_soon_lead_days``: how many days before it the task counts as due soon (1..30; omit to keep the current lead, ``null`` to follow the workspace setting). Clearing the due date clears the lead too. Who may: the owner and admin agents on any task, and the task's acting executor (the predecessor while it holds the task under the reassign hold) on that task — the same rule as set_task_priority. Anyone else is a flat 403; a closed task is a 409. Answers with a bounded receipt (task_id, due_ts, due_soon_lead_days), not the whole task — use get_task when you need the rest.
+         * Set, change or clear a task's due date (``due_ts`` in epoch seconds; ``null`` clears it) and, optionally, ``due_soon_lead_minutes``: how many minutes before it the task counts as due soon (1..43200 = 1 minute to 30 days; omit to keep the current lead, ``null`` to follow the workspace setting). Clearing the due date clears the lead too. Who may: the owner and admin agents on any task, and the task's acting executor (the predecessor while it holds the task under the reassign hold) on that task — the same rule as set_task_priority. Anyone else is a flat 403; a closed task is a 409. Answers with a bounded receipt (task_id, due_ts, due_soon_lead_minutes), not the whole task — use get_task when you need the rest.
          * @description - Sets, changes or clears (`null`) the due date.
-         *     - Optionally sets how many days before it the task counts as due soon (`due_soon_lead_days`, 1..30; omit to keep, `null` follows the workspace setting). Clearing the due date clears the lead.
+         *     - Optionally sets how many minutes before it the task counts as due soon (`due_soon_lead_minutes`, 1..43200 = 1 minute to 30 days; omit to keep, `null` follows the workspace setting). Clearing the due date clears the lead.
          *     - Owner and admin may set any task; the acting executor (the predecessor while it holds the task under the reassign hold) may set that task. Anyone else is 403.
          *     - Closed tasks are a 409.
          *     - Returns a bounded receipt, not the task.
@@ -9750,11 +9750,11 @@ export interface components {
              */
             suggested_replies_task_message?: string[];
             /**
-             * Task Due Soon Lead Days
-             * @description How many days before a task's due date it starts counting as 即將到期 (due soon) for every task that does not set its own ``due_soon_lead_days``. The adjustable range is 1..30; the shipped default is 1 (the last 24 hours).
-             * @default 1
+             * Task Due Soon Lead Minutes
+             * @description How many minutes before a task's due date it starts counting as 即將到期 (due soon) for every task that does not set its own ``due_soon_lead_minutes``. The adjustable range is 1..43200 (1 minute to 30 days); the shipped default is 1440 (the last 24 hours).
+             * @default 1440
              */
-            task_due_soon_lead_days: number;
+            task_due_soon_lead_minutes: number;
             /**
              * Updater Auto Update
              * @default false
@@ -9827,7 +9827,7 @@ export interface components {
          *     admits prereleases; `updater_auto_update` toggles unattended background
          *     self-upgrade to the newest admissible release (both booleans, default false;
          *     the manual upgrade endpoint is unaffected). `updater_check_interval_secs`
-         *     MUST be 60..3600. `task_due_soon_lead_days` MUST be 1..30. The five document caps (T-ae38;
+         *     MUST be 60..3600. `task_due_soon_lead_minutes` MUST be 1..43200. The five document caps (T-ae38;
          *     the manual's one became two in T-30f1) are independent knobs. Each one MUST be
          *     between THAT segment's shipped default (the `default` on the matching
          *     `SettingsDTO` field — Duty's is its own, much smaller number) and 100000. The floor equalling the shipped default is the
@@ -9987,10 +9987,10 @@ export interface components {
              */
             suggested_replies_task_message?: string[] | null;
             /**
-             * Task Due Soon Lead Days
-             * @description Days before a due date a task without its own lead counts as due soon. Must be between 1 and 30. A change makes the cockpit refetch its task counts.
+             * Task Due Soon Lead Minutes
+             * @description Minutes before a due date a task without its own lead counts as due soon. Must be between 1 and 43200 (30 days). A change makes the cockpit refetch its task counts.
              */
-            task_due_soon_lead_days?: number | null;
+            task_due_soon_lead_minutes?: number | null;
             /** Updater Auto Update */
             updater_auto_update?: boolean | null;
             /**
@@ -10293,7 +10293,7 @@ export interface components {
             due_next_change_ts: number | null;
             /**
              * Due Soon
-             * @description Open tasks whose due date has not passed and is at most their lead away: the task's own ``due_soon_lead_days``, else the workspace ``task_due_soon_lead_days``, in days of 86400 seconds. additive-optional (absent reads as 0 for older servers).
+             * @description Open tasks whose due date has not passed and is at most their lead away: the task's own ``due_soon_lead_minutes``, else the workspace ``task_due_soon_lead_minutes``, in minutes. additive-optional (absent reads as 0 for older servers).
              * @default 0
              */
             due_soon: number;
@@ -10320,11 +10320,11 @@ export interface components {
             /** Description */
             description?: string | null;
             /**
-             * Due Soon Lead Days
-             * @description How many days before ``due_ts`` the task starts counting as due soon, 1..30. Omit or ``null`` to follow the workspace setting ``task_due_soon_lead_days``. Sending a number without a ``due_ts`` is a 422.
+             * Due Soon Lead Minutes
+             * @description How many minutes before ``due_ts`` the task starts counting as due soon, 1..43200 (1 minute to 30 days). Omit or ``null`` to follow the workspace setting ``task_due_soon_lead_minutes``. Sending a number without a ``due_ts`` is a 422.
              * @default null
              */
-            due_soon_lead_days: number | null;
+            due_soon_lead_minutes: number | null;
             /**
              * Due Ts
              * @description Epoch seconds. ``null`` means the task has no due date. The web UI picks a calendar date and stores 23:59:59 of that day in the viewer's local time.
@@ -10458,10 +10458,10 @@ export interface components {
              */
             description: string;
             /**
-             * Due Soon Lead Days
-             * @description How many days before ``due_ts`` this task starts counting as due soon, 1..30. ``null`` means the task follows the workspace setting ``task_due_soon_lead_days`` (GET /api/settings). Always ``null`` when the task has no due date.
+             * Due Soon Lead Minutes
+             * @description How many minutes before ``due_ts`` this task starts counting as due soon, 1..43200 (1 minute to 30 days). ``null`` means the task follows the workspace setting ``task_due_soon_lead_minutes`` (GET /api/settings). Always ``null`` when the task has no due date.
              */
-            due_soon_lead_days?: number | null;
+            due_soon_lead_minutes?: number | null;
             /**
              * Due Ts
              * @description Epoch seconds. ``null`` means the task has no due date. The web UI picks a calendar date and stores 23:59:59 of that day in the viewer's local time.
@@ -10668,10 +10668,10 @@ export interface components {
              */
             dedupe_key: string;
             /**
-             * Due Soon Lead Days
-             * @description How many days before ``due_ts`` this task starts counting as due soon, 1..30. ``null`` means the task follows the workspace setting ``task_due_soon_lead_days`` (GET /api/settings). Always ``null`` when the task has no due date.
+             * Due Soon Lead Minutes
+             * @description How many minutes before ``due_ts`` this task starts counting as due soon, 1..43200 (1 minute to 30 days). ``null`` means the task follows the workspace setting ``task_due_soon_lead_minutes`` (GET /api/settings). Always ``null`` when the task has no due date.
              */
-            due_soon_lead_days?: number | null;
+            due_soon_lead_minutes?: number | null;
             /**
              * Due Ts
              * @description Epoch seconds. ``null`` means the task has no due date. The web UI picks a calendar date and stores 23:59:59 of that day in the viewer's local time.
@@ -11100,10 +11100,10 @@ export interface components {
          */
         TaskDueReceiptDTO: {
             /**
-             * Due Soon Lead Days
-             * @description How many days before ``due_ts`` this task starts counting as due soon, 1..30. ``null`` means the task follows the workspace setting ``task_due_soon_lead_days`` (GET /api/settings). Always ``null`` when the task has no due date.
+             * Due Soon Lead Minutes
+             * @description How many minutes before ``due_ts`` this task starts counting as due soon, 1..43200 (1 minute to 30 days). ``null`` means the task follows the workspace setting ``task_due_soon_lead_minutes`` (GET /api/settings). Always ``null`` when the task has no due date.
              */
-            due_soon_lead_days: number | null;
+            due_soon_lead_minutes: number | null;
             /**
              * Due Ts
              * @description Epoch seconds. ``null`` means the task has no due date. The web UI picks a calendar date and stores 23:59:59 of that day in the viewer's local time.
@@ -11114,14 +11114,14 @@ export interface components {
         };
         /**
          * TaskDueUpdateDTO
-         * @description Set, change or clear a task's due date and, optionally, how many days before it the task counts as due soon. ``due_ts: null`` clears the due date and its lead; a number must be greater than 0. A date already in the past is accepted and reads as overdue.
+         * @description Set, change or clear a task's due date and, optionally, how many minutes before it the task counts as due soon. ``due_ts: null`` clears the due date and its lead; a number must be greater than 0. A date already in the past is accepted and reads as overdue.
          */
         TaskDueUpdateDTO: {
             /**
-             * Due Soon Lead Days
-             * @description How many days before ``due_ts`` the task starts counting as due soon, 1..30. Omit it to keep the task's current lead; ``null`` makes the task follow the workspace setting ``task_due_soon_lead_days``. Clearing ``due_ts`` clears the lead too, so a number sent with ``due_ts: null`` is a 422.
+             * Due Soon Lead Minutes
+             * @description How many minutes before ``due_ts`` the task starts counting as due soon, 1..43200 (1 minute to 30 days). Omit it to keep the task's current lead; ``null`` makes the task follow the workspace setting ``task_due_soon_lead_minutes``. Clearing ``due_ts`` clears the lead too, so a number sent with ``due_ts: null`` is a 422.
              */
-            due_soon_lead_days?: number | null;
+            due_soon_lead_minutes?: number | null;
             /**
              * Due Ts
              * @description Epoch seconds. ``null`` means the task has no due date. The web UI picks a calendar date and stores 23:59:59 of that day in the viewer's local time.

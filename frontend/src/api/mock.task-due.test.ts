@@ -65,16 +65,16 @@ describe("mockApi.getTaskCount", () => {
   });
 
   it("judges each task by its own lead, else the workspace lead", async () => {
-    await mockApi.patchServerSettings({ taskDueSoonLeadDays: 3 });
-    seedTask({ dueTs: NOW + 2 * 86_400 });
-    seedTask({ dueTs: NOW + 5 * 86_400, dueSoonLeadDays: 7 });
-    seedTask({ dueTs: NOW + 2 * 86_400, dueSoonLeadDays: 1 });
+    await mockApi.patchServerSettings({ taskDueSoonLeadMinutes: 120 });
+    seedTask({ dueTs: NOW + 90 * 60 });
+    seedTask({ dueTs: NOW + 5 * 86_400, dueSoonLeadMinutes: 10080 });
+    seedTask({ dueTs: NOW + 90 * 60, dueSoonLeadMinutes: 60 });
     expect(await mockApi.getTaskCount()).toEqual({
       open: 3,
       total: 3,
       overdue: 0,
       dueSoon: 2,
-      dueNextChangeTs: NOW + 86_400,
+      dueNextChangeTs: NOW + 30 * 60,
     });
   });
 });
@@ -83,16 +83,23 @@ describe("mockApi.patchServerSettings", () => {
   it("announces a changed workspace lead on the task topic", async () => {
     const topics: string[] = [];
     const off = mockApi.subscribeEvents((topic) => topics.push(topic));
-    await mockApi.patchServerSettings({ taskDueSoonLeadDays: 5 });
+    await mockApi.patchServerSettings({ taskDueSoonLeadMinutes: 5 });
     off();
     expect(topics).toEqual(["task"]);
   });
 
-  it("refuses a workspace lead outside 1..30 with a 422", async () => {
-    const err = await mockApi
-      .patchServerSettings({ taskDueSoonLeadDays: 31 })
-      .catch((e) => e);
-    expect(isHttpStatus(err, 422)).toBe(true);
+  it("accepts a workspace lead of 1 to 43200 minutes and refuses one outside it with a 422", async () => {
+    for (const minutes of [1, 43200]) {
+      await mockApi.patchServerSettings({ taskDueSoonLeadMinutes: minutes });
+      expect((await mockApi.getServerSettings()).taskDueSoonLeadMinutes).toBe(minutes);
+    }
+    for (const minutes of [0, 43201]) {
+      const err = await mockApi
+        .patchServerSettings({ taskDueSoonLeadMinutes: minutes })
+        .catch((e) => e);
+      expect(isHttpStatus(err, 422)).toBe(true);
+    }
+    expect((await mockApi.getServerSettings()).taskDueSoonLeadMinutes).toBe(43200);
   });
 });
 
@@ -107,11 +114,11 @@ describe("mockApi.setTaskDue", () => {
 
   it("keeps the lead when only the date is sent and clears it with the date", async () => {
     const id = seedTask();
-    await mockApi.setTaskDue(id, 1793375999, 7);
+    await mockApi.setTaskDue(id, 1793375999, 90);
     await mockApi.setTaskDue(id, 1793462399);
-    expect((await mockApi.getTask(id)).dueSoonLeadDays).toBe(7);
+    expect((await mockApi.getTask(id)).dueSoonLeadMinutes).toBe(90);
     await mockApi.setTaskDue(id, null);
-    expect((await mockApi.getTask(id)).dueSoonLeadDays).toBeNull();
+    expect((await mockApi.getTask(id)).dueSoonLeadMinutes).toBeNull();
   });
 
   it("refuses a closed task with a 409", async () => {

@@ -1,10 +1,41 @@
 // Due-date math for the task card's 到期日 row and the 任務頁 due lanes. All day
 // math is the viewer's LOCAL calendar; every "now" is a parameter.
 
-/** The server's shipped `task_due_soon_lead_days`. */
-export const DEFAULT_DUE_SOON_LEAD_DAYS = 1;
+/** The server's shipped `task_due_soon_lead_minutes`. */
+export const DEFAULT_DUE_SOON_LEAD_MINUTES = 1440;
 
-const DAY_S = 86_400;
+export const DUE_SOON_LEAD_MINUTES_MIN = 1;
+export const DUE_SOON_LEAD_MINUTES_MAX = 30 * 1440;
+
+const MINUTE_S = 60;
+
+export type LeadUnit = "day" | "hour" | "minute";
+
+export const LEAD_UNITS: readonly LeadUnit[] = ["day", "hour", "minute"];
+
+export const LEAD_UNIT_MINUTES: Record<LeadUnit, number> = { day: 1440, hour: 60, minute: 1 };
+
+/** A lead in the largest unit that divides it exactly (90 → 90 minutes). */
+export function splitLeadMinutes(minutes: number): { amount: number; unit: LeadUnit } {
+  const unit = LEAD_UNITS.find((u) => minutes % LEAD_UNIT_MINUTES[u] === 0) ?? "minute";
+  return { amount: minutes / LEAD_UNIT_MINUTES[unit], unit };
+}
+
+/** A whole-number amount draft in `unit` as minutes: "" is null, and
+ * undefined means the draft cannot be saved (not a whole number, or outside
+ * 1 minute..30 days). */
+export function leadMinutesFromDraft(
+  amountDraft: string,
+  unit: LeadUnit
+): number | null | undefined {
+  if (amountDraft === "") return null;
+  const amount = Number(amountDraft);
+  if (!Number.isInteger(amount)) return undefined;
+  const minutes = amount * LEAD_UNIT_MINUTES[unit];
+  return minutes >= DUE_SOON_LEAD_MINUTES_MIN && minutes <= DUE_SOON_LEAD_MINUTES_MAX
+    ? minutes
+    : undefined;
+}
 
 export type DueState =
   | { kind: "later" }
@@ -12,11 +43,11 @@ export type DueState =
   | { kind: "overdue"; days: number };
 
 /** The lead a task is judged by: its own, else the workspace's. */
-export function effectiveLeadDays(
-  taskLeadDays: number | null | undefined,
-  workspaceLeadDays: number
+export function effectiveLeadMinutes(
+  taskLeadMinutes: number | null | undefined,
+  workspaceLeadMinutes: number
 ): number {
-  return taskLeadDays != null && taskLeadDays > 0 ? taskLeadDays : workspaceLeadDays;
+  return taskLeadMinutes != null && taskLeadMinutes > 0 ? taskLeadMinutes : workspaceLeadMinutes;
 }
 
 function localDayNumber(tsSeconds: number): number {
@@ -33,15 +64,15 @@ export function isOverdue(dueTs: number, nowTs: number): boolean {
   return dueTs <= nowTs;
 }
 
-export function isDueSoon(dueTs: number, nowTs: number, leadDays: number): boolean {
-  return nowTs < dueTs && dueTs <= nowTs + leadDays * DAY_S;
+export function isDueSoon(dueTs: number, nowTs: number, leadMinutes: number): boolean {
+  return nowTs < dueTs && dueTs <= nowTs + leadMinutes * MINUTE_S;
 }
 
-export function dueState(dueTs: number, nowTs: number, leadDays: number): DueState {
+export function dueState(dueTs: number, nowTs: number, leadMinutes: number): DueState {
   if (isOverdue(dueTs, nowTs)) {
     return { kind: "overdue", days: calendarDayDiff(dueTs, nowTs) };
   }
-  if (isDueSoon(dueTs, nowTs, leadDays)) return { kind: "soon" };
+  if (isDueSoon(dueTs, nowTs, leadMinutes)) return { kind: "soon" };
   return { kind: "later" };
 }
 
@@ -51,9 +82,9 @@ export function dueState(dueTs: number, nowTs: number, leadDays: number): DueSta
 export function nextDueChangeTs(
   dueTs: number,
   nowTs: number,
-  leadDays: number
+  leadMinutes: number
 ): number | null {
-  const soonAt = dueTs - leadDays * DAY_S;
+  const soonAt = dueTs - leadMinutes * MINUTE_S;
   if (nowTs < soonAt) return soonAt;
   if (nowTs < dueTs) return dueTs;
   return null;

@@ -64,9 +64,9 @@ type Task struct {
 	ReadyForDoneVisits int
 	// DueTs is epoch seconds; 0 means no due date (the wire answers null).
 	DueTs float64
-	// DueSoonLeadDays is how many days before DueTs the task counts as due soon;
+	// DueSoonLeadMinutes is how many minutes before DueTs the task counts as due soon;
 	// 0 means the workspace setting applies (the wire answers null).
-	DueSoonLeadDays int
+	DueSoonLeadMinutes int
 }
 
 const taskColumns = `id, type_key, title, dedupe_key, inputs, description,
@@ -78,13 +78,13 @@ const taskColumns = `id, type_key, title, dedupe_key, inputs, description,
 	outsource_dispatched,
 	frozen_by, kickoff_notified_to,
 	forced_done_by, forced_done_reason, ready_for_done_visits,
-	due_ts, due_soon_lead_days`
+	due_ts, due_soon_lead_minutes`
 
 // sqlTaskTerminalStatuses is kept in one place so a new terminal state updates
 // every open-task filter at once.
 const sqlTaskTerminalStatuses = `'done', 'terminated', 'duplicated'`
 
-const sqlOpenTaskDueFacts = `SELECT due_ts, due_soon_lead_days FROM task
+const sqlOpenTaskDueFacts = `SELECT due_ts, due_soon_lead_minutes FROM task
 	WHERE status NOT IN (` + sqlTaskTerminalStatuses + `)`
 
 func scanTask(row interface{ Scan(...any) error }) (Task, error) {
@@ -103,7 +103,7 @@ func scanTask(row interface{ Scan(...any) error }) (Task, error) {
 		&t.FrozenBy,
 		&t.KickoffNotifiedTo,
 		&t.ForcedDoneBy, &t.ForcedDoneReason, &t.ReadyForDoneVisits,
-		&t.DueTs, &t.DueSoonLeadDays,
+		&t.DueTs, &t.DueSoonLeadMinutes,
 	)
 	if err != nil {
 		return Task{}, err
@@ -135,8 +135,8 @@ func (d *DAL) ListTasks() ([]Task, error) {
 
 // taskDueFact is what the task count needs from one open task.
 type taskDueFact struct {
-	DueTs           float64
-	DueSoonLeadDays int
+	DueTs              float64
+	DueSoonLeadMinutes int
 }
 
 // TaskCountFacts answers the whole population's size and the due facts of the
@@ -155,7 +155,7 @@ func (d *DAL) TaskCountFacts() (int, []taskDueFact, error) {
 	open := []taskDueFact{}
 	for rows.Next() {
 		var f taskDueFact
-		if err := rows.Scan(&f.DueTs, &f.DueSoonLeadDays); err != nil {
+		if err := rows.Scan(&f.DueTs, &f.DueSoonLeadMinutes); err != nil {
 			return 0, nil, err
 		}
 		open = append(open, f)
@@ -294,7 +294,7 @@ func putTaskOn(ex sqlExecer, t Task, mode taskWriteMode) error {
 		t.FrozenBy,
 		t.KickoffNotifiedTo,
 		t.ForcedDoneBy, t.ForcedDoneReason, t.ReadyForDoneVisits,
-		t.DueTs, t.DueSoonLeadDays,
+		t.DueTs, t.DueSoonLeadMinutes,
 	)
 	return err
 }
@@ -336,7 +336,7 @@ const taskUpsertConflictClause = `
 			forced_done_reason = excluded.forced_done_reason,
 			ready_for_done_visits = excluded.ready_for_done_visits,
 			due_ts = excluded.due_ts,
-			due_soon_lead_days = excluded.due_soon_lead_days`
+			due_soon_lead_minutes = excluded.due_soon_lead_minutes`
 
 func (d *DAL) ListTaskDeps(taskID string) ([]string, error) {
 	rows, err := d.rdb.Query(

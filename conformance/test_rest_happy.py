@@ -3099,11 +3099,11 @@ HAPPY: dict[str, Happy] = {
     ),
     "POST /api/tasks/{task_id}/due": Happy(
         path=lambda ctx: f"/api/tasks/{_happy_task(ctx)}/due",
-        body={"due_ts": 1790000000, "due_soon_lead_days": 3},
+        body={"due_ts": 1790000000, "due_soon_lead_minutes": 3},
         check=lambda _c, r: _expect(
             r,
             lambda d: d
-            == {"task_id": d["task_id"], "due_ts": 1790000000, "due_soon_lead_days": 3},
+            == {"task_id": d["task_id"], "due_ts": 1790000000, "due_soon_lead_minutes": 3},
         ),
     ),
     "POST /api/tasks/{task_id}/message": Happy(

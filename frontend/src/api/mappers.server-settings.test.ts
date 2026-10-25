@@ -41,7 +41,7 @@ describe("toServerSettings", () => {
   });
 
   it("under a server that omits the due-soon lead, it reads as the shipped 1 day; a sent value is carried as is", () => {
-    expect(toServerSettings(settingsFromServer()).taskDueSoonLeadDays).toBe(1);
-    expect(toServerSettings(settingsFromServer({ task_due_soon_lead_days: 5 })).taskDueSoonLeadDays).toBe(5);
+    expect(toServerSettings(settingsFromServer()).taskDueSoonLeadMinutes).toBe(1440);
+    expect(toServerSettings(settingsFromServer({ task_due_soon_lead_minutes: 90 })).taskDueSoonLeadMinutes).toBe(90);
   });
 });

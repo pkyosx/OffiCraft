@@ -34,33 +34,33 @@ function wireListItem(over: Partial<WireTaskListItem>): WireTaskListItem {
 }
 
 describe("toTask", () => {
-  it("carries due_ts as dueTs and due_soon_lead_days as dueSoonLeadDays", () => {
-    const task = toTask(wireTask({ due_ts: 1793375999, due_soon_lead_days: 7 }));
+  it("carries due_ts as dueTs and due_soon_lead_minutes as dueSoonLeadMinutes", () => {
+    const task = toTask(wireTask({ due_ts: 1793375999, due_soon_lead_minutes: 10080 }));
     expect(task.dueTs).toBe(1793375999);
-    expect(task.dueSoonLeadDays).toBe(7);
+    expect(task.dueSoonLeadMinutes).toBe(10080);
   });
 
   it("reads an absent or null due_ts as no due date and an absent lead as the workspace setting", () => {
     expect(toTask(wireTask({})).dueTs).toBeNull();
     expect(toTask(wireTask({ due_ts: null })).dueTs).toBeNull();
-    expect(toTask(wireTask({})).dueSoonLeadDays).toBeNull();
+    expect(toTask(wireTask({})).dueSoonLeadMinutes).toBeNull();
   });
 });
 
 describe("toTaskListItem", () => {
-  it("carries due_ts as dueTs and due_soon_lead_days as dueSoonLeadDays", () => {
+  it("carries due_ts as dueTs and due_soon_lead_minutes as dueSoonLeadMinutes", () => {
     const item = toTaskListItem(
-      wireListItem({ due_ts: 1793375999, due_soon_lead_days: 3 })
+      wireListItem({ due_ts: 1793375999, due_soon_lead_minutes: 90 })
     );
     expect(item.dueTs).toBe(1793375999);
-    expect(item.dueSoonLeadDays).toBe(3);
+    expect(item.dueSoonLeadMinutes).toBe(90);
   });
 
   it("reads an absent or null due_ts as no due date and a null lead as the workspace setting", () => {
     expect(toTaskListItem(wireListItem({})).dueTs).toBeNull();
     expect(toTaskListItem(wireListItem({ due_ts: null })).dueTs).toBeNull();
     expect(
-      toTaskListItem(wireListItem({ due_soon_lead_days: null })).dueSoonLeadDays
+      toTaskListItem(wireListItem({ due_soon_lead_minutes: null })).dueSoonLeadMinutes
     ).toBeNull();
   });
 });
