@@ -986,25 +986,31 @@ button.task-card__prio-chip:hover {
   clip-path: inset(50%);
   white-space: nowrap;
 }
+/* A fixed width: left to shrink-to-fit, the date and lead inputs stretch the
+   picker across the whole card on desktop. */
 .task-card__due-pop {
   left: 0;
   right: auto;
+  width: 280px;
   min-width: 160px;
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
+/* Date and time share a line while both fit whole; on the phone's narrower
+   picker the time drops to its own line instead of cutting the year off. */
 .task-card__due-when {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 4px;
 }
 .task-card__due-date-input {
-  flex: 1 1 auto;
+  flex: 1 1 140px;
   min-width: 0;
 }
 .task-card__due-time-input {
-  flex: none;
+  flex: 1 1 100px;
 }
 .task-card__due-lead {
   display: flex;

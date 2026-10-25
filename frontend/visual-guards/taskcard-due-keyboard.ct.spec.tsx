@@ -173,7 +173,7 @@ test("unparseable lead text does not replace the task's own lead with the worksp
 const OVERDUE_2020 = Math.floor(new Date(2020, 0, 1, 23, 59, 59).getTime() / 1000);
 
 for (const width of [320, 390]) {
-  test(`the 到期日 row with its red overdue date, and the due popover with its date and time on one line and its lead unit select, stay inside the card at ${width}px`, async ({
+  test(`the 到期日 row with its red overdue date, and the due popover with its whole date, its time below it and its lead unit select, stay inside the card at ${width}px`, async ({
     mount,
     page,
   }) => {
@@ -197,8 +197,9 @@ for (const width of [320, 390]) {
     expect(pop.x + pop.width).toBeLessThanOrEqual(content.x + content.width);
     expect(pop.y).toBeGreaterThan(chip.y);
     expect(date.x).toBeGreaterThanOrEqual(pop.x);
-    expect(time.x).toBeGreaterThanOrEqual(date.x + date.width);
-    expect(Math.abs(time.y - date.y)).toBeLessThan(2);
+    expect(date.width).toBeGreaterThanOrEqual(140);
+    expect(time.y).toBeGreaterThanOrEqual(date.y + date.height);
+    expect(time.width).toBeGreaterThanOrEqual(100);
     expect(time.x + time.width).toBeLessThanOrEqual(pop.x + pop.width);
     expect(time.x + time.width).toBeLessThanOrEqual(content.x + content.width);
     expect(input.width).toBeGreaterThanOrEqual(80);
@@ -211,3 +212,20 @@ for (const width of [320, 390]) {
     ).toBe(0);
   });
 }
+
+test("on a desktop-wide card the due popover keeps a picker's width, with date and time on one line", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 700 });
+  const cmp = await mount(<TaskCardDueStory dueTs={OVERDUE_2020} />);
+  await cmp.getByTestId("task-due").click();
+  const pop = (await cmp.getByTestId("task-due-pop").boundingBox())!;
+  const date = (await cmp.getByTestId("task-due-input").boundingBox())!;
+  const time = (await cmp.getByTestId("task-due-time-input").boundingBox())!;
+  expect(pop.width).toBeLessThanOrEqual(300);
+  expect(date.width).toBeGreaterThanOrEqual(140);
+  expect(Math.abs(time.y - date.y)).toBeLessThan(2);
+  expect(time.x).toBeGreaterThanOrEqual(date.x + date.width);
+  expect(time.x + time.width).toBeLessThanOrEqual(pop.x + pop.width);
+});
