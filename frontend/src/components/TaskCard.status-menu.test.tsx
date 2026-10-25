@@ -65,9 +65,6 @@ function renderPage() {
   );
 }
 
-/** Terminals are hidden by default — tick one in the 狀態 filter to reveal the
- * 已結案 lane (same helper shape as TasksPage.test.tsx). */
-
 beforeEach(() => {
   __resetMock();
   vi.restoreAllMocks();
@@ -344,9 +341,9 @@ describe("spec ② 狀態 badge → 下拉選單", () => {
     );
     const { findByTestId } = renderPage();
     // Terminals are hidden by default: tick the 狀態 filter AND open the
-    // 已結案 lane (same two-step the existing closed-card test uses).
+    // 沒有到期日 lane it lands in (same two-step the other closed-card tests use).
     toggleFilter("filter-status", "terminated");
-    await expandLane("closed");
+    await expandLane("nodue", 1);
     const card = await findByTestId("task-card");
     fireEvent.click(card.querySelector(".task-card__head")!);
     await waitFor(() => {
@@ -526,7 +523,7 @@ describe("spec ② 狀態 badge → 下拉選單", () => {
 
     const { findAllByTestId, findByTestId } = renderPage();
     for (const s of closedStatuses) toggleFilter("filter-status", s);
-    await expandLane("closed");
+    await expandLane("nodue", closedStatuses.length + 1);
     const cards = await findAllByTestId("task-card");
     expect(cards).toHaveLength(closedStatuses.length + 1);
     const byTitle = (s: string) =>
@@ -681,7 +678,7 @@ describe("spec ④ 右上三角展開指示器", () => {
     );
     const { findAllByTestId } = renderPage();
     toggleFilter("filter-status", "terminated");
-    await expandLane("closed");
+    await expandLane("nodue", 2);
     const cards = await findAllByTestId("task-card");
     expect(cards).toHaveLength(2);
 
@@ -709,8 +706,8 @@ describe("spec ④ 右上三角展開指示器", () => {
     );
     const { findByTestId } = renderPage();
     toggleFilter("filter-status", "terminated");
-    await expandLane("closed");
-    const card = (await findByTestId("lane-closed")).querySelector(
+    await expandLane("nodue", 1);
+    const card = (await findByTestId("lane-nodue")).querySelector(
       '[data-testid="task-card"]'
     )!;
     const mark = card.querySelector('[data-testid="task-expand-mark"]')!;

@@ -132,9 +132,9 @@ describe("TaskCard 轉派 entry + dialog", () => {
     );
     const { findByTestId } = renderPage();
     // Terminals are filtered out of the default view — reveal via the status
-    // filter + the 已結案 lane (same path as the status-menu suite).
+    // filter + its 沒有到期日 lane (same path as the status-menu suite).
     toggleFilter("filter-status", "terminated");
-    await expandLane("closed");
+    await expandLane("nodue", 1);
 
     const card = await findByTestId("task-card");
     // The card renders (its status badge is there) but the 轉派 icon is gone.

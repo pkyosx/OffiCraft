@@ -134,10 +134,10 @@ describe("TaskCard in-place priority editing (v2)", () => {
       })
     );
     const { findAllByTestId } = renderPage();
-    // Terminal tasks hide behind the 狀態 filter → tick 終止 to surface the
-    // 已結案 lane, then make sure it is open.
+    // Terminal tasks hide behind the 狀態 filter → tick 終止 to surface it in
+    // the 沒有到期日 lane, then make sure that lane is open.
     toggleFilter("filter-status", "terminated");
-    await expandLane("closed");
+    await expandLane("nodue", 1);
 
     const chips = await findAllByTestId("task-priority");
     expect(chips[0].tagName).toBe("SPAN");

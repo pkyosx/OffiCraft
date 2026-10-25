@@ -1,5 +1,5 @@
 // TaskCard — the duplicated terminal status + 原票指向 (T-02c9). Locked:
-//   1. a duplicated task is terminal (sits in the 已結案 lane) and renders the 重複
+//   1. a duplicated task is terminal (sits in its due-date lane) and renders the 重複
 //      status badge + a 重複於 <task id> link that jumps to the original;
 //   2. the ⋮ menu's 標記重複 opens a picker; confirming a chosen original marks
 //      the task duplicated through the seam — it then leaves the live list
@@ -65,12 +65,12 @@ describe("TaskCard duplicated 終態 + 原票指向 (T-02c9)", () => {
     });
     __injectMockTask(original);
     __injectMockTask(dup);
-    // A duplicated task is terminal → jump straight to it so its 已結案 lane is expanded.
+    // A duplicated task is terminal → jump straight to it so its lane (沒有到期日) is expanded.
     window.location.hash = `#tasks/${dup.id}`;
     const { findByTestId } = renderPage();
 
-    const closedLane = await findByTestId("lane-closed");
-    const card = within(closedLane).getByTestId("task-card");
+    const lane = await findByTestId("lane-nodue");
+    const card = within(lane).getByTestId("task-card");
     // the 重複 status badge …
     expect(within(card).getByTestId("task-status").textContent).toContain("重複");
     // … and a link naming the original's task_no.

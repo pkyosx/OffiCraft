@@ -20,8 +20,9 @@
 //             by priority 高→中→低→凍結 (凍結永遠最後), createdTs newest-first
 //             within a level; closed tasks follow, newest close first. The list
 //             is split into collapsible lanes by the 分組依據 selector (default
-//             到期狀態: 已逾期 / 即將到期 / 之後到期 / 沒有到期日 / 已結案,
-//             due-ascending in the first three). 不分組 is the one flat list.
+//             到期狀態: 已逾期 / 即將到期 / 之後到期 / 沒有到期日, closed tasks
+//             included by their date, due-ascending in the first three).
+//             不分組 is the one flat list.
 //
 // Empty states ×2 (spec §2.3): no tasks at all vs filters matching nothing —
 // plus the THREE by-id outcomes below, which replace both while an id is
@@ -755,22 +756,19 @@ export function TasksPage() {
           (a.dueTs ?? 0) - (b.dueTs ?? 0);
         return lanesInOrder(
           shown,
-          // A closed task is never overdue or due soon, so it gets a lane of
-          // its own rather than landing in 之後到期 by its past date.
-          (task) =>
-            TERMINAL.has(task.status)
-              ? "closed"
-              : dueLaneKey(task, nowSec, dueSoonLeadMinutes),
+          // A closed task goes by its date alone, like an open one (owner
+          // rc-4911902c169c), so 已逾期 here can hold more than the nav's
+          // overdue count, which leaves closed tasks out.
+          (task) => dueLaneKey(task, nowSec, dueSoonLeadMinutes),
           [
             { key: "overdue", title: t.tasks.laneOverdue },
             { key: "soon", title: t.tasks.laneDueSoon },
             { key: "later", title: t.tasks.laneDueLater },
             { key: "nodue", title: t.tasks.laneNoDue },
-            { key: "closed", title: t.tasks.closedTitle },
           ],
           (key) => key
         ).map((lane) =>
-          lane.key === "nodue" || lane.key === "closed"
+          lane.key === "nodue"
             ? lane
             : { ...lane, tasks: [...lane.tasks].sort(byDue) }
         );

@@ -102,10 +102,9 @@ function renderPage() {
  *
  * ⚠️ TWO GESTURES, NOT ONE, and the second is easy to miss: ticking 已完成 in
  * the 狀態 filter only makes the page FETCH the closed rows — they land in the
- * 已結案 lane, which is COLLAPSED while an open lane comes first, so the card is
- * in the DOM's mind but not on screen. `expandLane("closed")` is the click that
- * actually shows it, and it can only be made once the lane exists (i.e. after
- * something closed). */
+ * lane of their due date (沒有到期日 here), which is COLLAPSED whenever another
+ * lane comes first. `expandLane("nodue", 1)` is the click that makes sure it
+ * is shown. */
 function showDone() {
   toggleFilter("filter-status", "done");
 }
@@ -115,7 +114,7 @@ function showDone() {
  * 🔴 REQUIRED BEFORE READING THE 強制結案 ROW, and the reason is a WIRE FACT
  * rather than a test convenience: `forced_done_by` / `forced_done_reason` are
  * declared on `TaskDTO` and NOT on `TaskListItemDTO` (spec/openapi.json), so the
- * light list row the 已結案 lane renders from cannot carry them. The card
+ * light list row the lane renders from cannot carry them. The card
  * learns them by hydrating the ONE task on expand — which is the same reason
  * the card must not print 「不是強制結案」 from a collapsed row either: it has
  * not been told. */
@@ -314,7 +313,7 @@ describe("② 強制結案 is offered to the principals the route floor admits �
     __injectMockTask(mkTask({ title: "已經結案了", status: "done", closedTs: 1 }));
     const { findByTestId } = renderPage();
     showDone();
-    await expandLane("closed");
+    await expandLane("nodue", 1);
 
     fireEvent.click(await findByTestId("task-status"));
     const force = within(await findByTestId("task-status-options")).getByTestId(
@@ -493,18 +492,18 @@ describe("④ what the server recorded comes back onto the card", () => {
       target: { value: "負責人已退場,活早就交付了" },
     });
     fireEvent.click(await findByTestId("force-done-confirm-btn"));
-    await expandLane("closed");
-    expandCard(await findByTestId("task-card"));
-
-    const row = await findByTestId("task-forced-done");
-    expect(row.textContent).toContain(zh.tasks.forcedDoneLabel);
-    expect(row.textContent).toContain("負責人已退場,活早就交付了");
-    // The card also actually moved — the row is not decoration on an open task.
+    await expandLane("nodue", 1);
+    // The card actually moved — the row below is not decoration on an open task.
     await waitFor(() =>
       expect(
         within(document.body).getByTestId("task-status").textContent?.trim()
       ).toBe(zh.tasks.status.done)
     );
+    expandCard(await findByTestId("task-card"));
+
+    const row = await findByTestId("task-forced-done");
+    expect(row.textContent).toContain(zh.tasks.forcedDoneLabel);
+    expect(row.textContent).toContain("負責人已退場,活早就交付了");
   });
 
   it("a forced close by a member since dismissed names them, not their id", async () => {
@@ -525,7 +524,7 @@ describe("④ what the server recorded comes back onto the card", () => {
     );
     const { findByTestId } = renderPage();
     showDone();
-    await expandLane("closed");
+    await expandLane("nodue", 1);
     expandCard(await findByTestId("task-card"));
 
     const row = await findByTestId("task-forced-done");
@@ -544,7 +543,12 @@ describe("④ what the server recorded comes back onto the card", () => {
     fireEvent.click(await findByTestId("task-status"));
     fireEvent.click(await findByTestId("task-force-done"));
     fireEvent.click(await findByTestId("force-done-confirm-btn"));
-    await expandLane("closed");
+    await expandLane("nodue", 1);
+    await waitFor(() =>
+      expect(
+        within(document.body).getByTestId("task-status").textContent?.trim()
+      ).toBe(zh.tasks.status.done)
+    );
     expandCard(await findByTestId("task-card"));
 
     const reason = await findByTestId("task-forced-done-reason");
@@ -573,7 +577,7 @@ describe("④ what the server recorded comes back onto the card", () => {
     );
     const { findByTestId } = renderPage();
     showDone();
-    await expandLane("closed");
+    await expandLane("nodue", 1);
     // Expanded, so the card HAS the projection that could show a 強制結案 row —
     // this is the arm where the absence is evidence rather than ignorance.
     expandCard(await findByTestId("task-card"));

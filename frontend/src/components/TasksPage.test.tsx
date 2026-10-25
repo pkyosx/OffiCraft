@@ -6,7 +6,8 @@
 //   2. Every task is in ONE list: open tasks ordered 高→中→低→凍結 (凍結永遠
 //      最後), createdTs newest-first within a level, then closed tasks
 //      (已完成+終止+重複) newest close first. There is no 未結案 / 已結案
-//      section; under 到期 grouping the closed tasks form a last 已結案 lane.
+//      section; under 到期 grouping a closed task goes into the lane of its
+//      due date like an open one.
 //   3. The 狀態 filter's 未結案 / 已結案 group rows tick either side at once.
 //   4. Filters: 執行者 (外包/未指派/各成員) · 類型 (各手冊類型/自由代辦) ·
 //      狀態 (六態全部).
@@ -15,8 +16,8 @@
 //      passthrough, transitional states (未指派→等待指派, 有執行者無節點→
 //      規劃中), gate projection (announced dashed vs armed solid), parallel
 //      stage label, deps chips, waiting_external reason row.
-//   6. 終止 is double-confirmed (ConfirmModal), non-terminal only, and moves
-//      the task into the 已結案 lane.
+//   6. 終止 is double-confirmed (ConfirmModal), non-terminal only, and keeps
+//      the task in its due-date lane once 終止 is ticked.
 //   7. The embedded reply card is the SHARED M2 interior: answering by option
 //      flips it to answered in place.
 //   8. The message box posts one ordinary chat message to the executor and is
@@ -247,10 +248,9 @@ describe("TasksPage", () => {
     // The page's own copy, isolated by making the fetch return the residue row
     // regardless — which is also the real transient case: rows from an earlier,
     // wider ask are still in state while a narrower refetch is in flight.
-    // 🔴 The observable is the 已結案 LANE HEADER, not a rendered card: that
-    // lane is collapsed behind the open one, so a residue row that wrongly passes
-    // matchesStatus renders no card and an assertion on cards alone cannot see
-    // it (measured — the card-only version stayed green under this mutant).
+    // 🔴 The observable is the LANE COUNT as well as the rendered cards: a
+    // residue row that wrongly passes matchesStatus can land in a collapsed lane
+    // and render no card, which an assertion on cards alone cannot see.
     const residue = mkTask({
       title: "反悔終止的",
       status: "terminated",
@@ -269,8 +269,8 @@ describe("TasksPage", () => {
     expect(titles.some((t) => t.includes("真的在轉派"))).toBe(true);
     expect(titles.some((t) => t.includes("反悔終止的"))).toBe(false);
     // The residue row must not have survived the filter at all: if it had, it
-    // would form the 已結案 lane and its toggle would exist (「已結案 · 1」).
-    expect(queryByTestId("lane-closed")).toBeNull();
+    // would share the 沒有到期日 lane and count there (「沒有到期日 · 2」).
+    expect(queryByTestId("lane-count-nodue")?.textContent).toBe(" · 1");
   });
 
   it("lists open tasks by priority 高→中→低→凍結 (凍結墊底), createdTs newest-first within a level, and under 不分組 the closed ones after them in one untitled list", async () => {
@@ -308,7 +308,7 @@ describe("TasksPage", () => {
     );
 
     const expected = ["高的晚建", "高的早建", "中的", "低的", "凍結的"];
-    const { findAllByTestId, findByTestId } = renderPage();
+    const { findAllByTestId } = renderPage();
     const cards = await findAllByTestId("task-card");
     const titles = cards.map(
       (c) => c.querySelector(".task-card__title")?.textContent
@@ -319,7 +319,7 @@ describe("TasksPage", () => {
     toggleFilter("filter-status", "done");
     toggleFilter("filter-status", "terminated");
     fireEvent.click(document.querySelector('[data-testid="filter-status"]')!);
-    await findByTestId("lane-closed");
+    await waitFor(() => expect(laneCount("nodue")).toBe(" · 7"));
     chooseGroupBy("none");
     const listTitles = () =>
       [
@@ -334,8 +334,10 @@ describe("TasksPage", () => {
     expect(document.body.textContent).not.toContain("已結案");
   });
 
-  it("puts picked done+terminated tasks in a last 已結案 lane, newest close first and collapsed behind the open lane; ticking only the 已結案 group leaves only closed tasks", async () => {
-    __injectMockTask(mkTask({ title: "還在跑" }));
+  it("puts picked done+terminated tasks in the lane of their due date, newest close first and collapsed behind the open task's lane; ticking only the 已結案 group leaves only closed tasks", async () => {
+    __injectMockTask(
+      mkTask({ title: "還在跑", dueTs: Date.now() / 1000 + 10 * 86_400 })
+    );
     __injectMockTask(
       mkTask({
         title: "做完的",
@@ -354,27 +356,27 @@ describe("TasksPage", () => {
     const { findByTestId, queryByTestId, findAllByTestId, getByTestId, queryByText } =
       renderPage();
     // Default view EXCLUDES the two terminal states (T-be18 #2): only the live
-    // task shows and there is no 已結案 lane yet.
+    // task shows and there is no 沒有到期日 lane for the closed ones yet.
     expect((await findAllByTestId("task-card")).length).toBe(1);
-    expect(queryByTestId("lane-closed")).toBeNull();
+    expect(queryByTestId("lane-nodue")).toBeNull();
 
     toggleFilter("filter-status", "done");
     toggleFilter("filter-status", "terminated");
 
-    const toggle = await findByTestId("lane-toggle-closed");
-    await waitFor(() => expect(toggle.textContent).toBe("已結案 · 2"));
-    expect(laneKeys()).toEqual(["nodue", "closed"]);
-    expect(toggle.querySelector(".task-badge")).toBeNull();
+    const toggle = await findByTestId("lane-toggle-nodue");
+    await waitFor(() => expect(toggle.textContent).toBe("沒有到期日 · 2"));
+    expect(laneKeys()).toEqual(["later", "nodue"]);
+    expect(queryByTestId("lane-closed")).toBeNull();
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    expect(laneTitles("closed")).toEqual([]);
+    expect(laneTitles("nodue")).toEqual([]);
     expect((await findAllByTestId("task-card")).length).toBe(1);
 
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(laneTitles("closed")).toEqual(["被終止的", "做完的"]);
+    expect(laneTitles("nodue")).toEqual(["被終止的", "做完的"]);
 
     fireEvent.click(toggle);
-    expect(laneTitles("closed")).toEqual([]);
+    expect(laneTitles("nodue")).toEqual([]);
 
     const groupBox = (g: string) =>
       document.querySelector<HTMLInputElement>(
@@ -388,9 +390,9 @@ describe("TasksPage", () => {
     expect(groupBox("open").checked).toBe(false);
     expect(groupBox("closed").checked).toBe(true);
     expect(getByTestId("filter-status").textContent?.trim()).toBe("已結案");
-    await waitFor(() => expect(laneKeys()).toEqual(["closed"]));
-    await expandLane("closed");
-    expect(laneTitles("closed")).toEqual(["被終止的", "做完的"]);
+    await waitFor(() => expect(laneKeys()).toEqual(["nodue"]));
+    await expandLane("nodue", 2);
+    expect(laneTitles("nodue")).toEqual(["被終止的", "做完的"]);
     expect(queryByText("還在跑")).toBeNull();
   });
 
@@ -536,10 +538,10 @@ describe("TasksPage", () => {
     }
     renderPage();
     // Terminals are hidden by default — tick 已完成 + 終止 so all six render,
-    // then open the 已結案 lane that now holds the two terminal cards.
+    // then make sure the 沒有到期日 lane holding all six is open.
     toggleFilter("filter-status", "done");
     toggleFilter("filter-status", "terminated");
-    await expandLane("closed");
+    await expandLane("nodue", 6);
     await waitFor(() => {
       const badges = [
         ...document.querySelectorAll('[data-testid="task-status"]'),
@@ -817,7 +819,7 @@ describe("TasksPage", () => {
     ).toBe("等我回覆");
   });
 
-  it("終止 double-confirms; the terminated task leaves the default view, and 終止 reveals it in 已結案 (action hidden on closed tasks)", async () => {
+  it("終止 double-confirms; the terminated task leaves the default view, and 終止 reveals it in its 沒有到期日 lane (action hidden on closed tasks)", async () => {
     __injectMockTask(mkTask({ title: "要被終止的" }));
     const { findByTestId, queryByTestId } = renderPage();
 
@@ -830,22 +832,22 @@ describe("TasksPage", () => {
     fireEvent.click(await findByTestId("terminate-confirm-btn"));
 
     // Its new 終止 state is excluded by the default filter → the task drops out
-    // of view entirely (no card, no 已結案 lane yet).
+    // of view entirely (no card, no lane at all).
     await waitFor(() =>
       expect(document.querySelectorAll('[data-testid="task-card"]')).toHaveLength(
         0
       )
     );
-    expect(queryByTestId("lane-closed")).toBeNull();
+    expect(queryByTestId("lane-nodue")).toBeNull();
 
-    // Tick 終止 in the 狀態 filter → it surfaces in the 已結案 lane, which as
-    // the only lane is open.
+    // Tick 終止 in the 狀態 filter → it surfaces in the 沒有到期日 lane, which
+    // as the only lane is open.
     toggleFilter("filter-status", "terminated");
-    const toggle = await findByTestId("lane-toggle-closed");
-    await waitFor(() => expect(toggle.textContent).toBe("已結案 · 1"));
+    const toggle = await findByTestId("lane-toggle-nodue");
+    await waitFor(() => expect(toggle.textContent).toBe("沒有到期日 · 1"));
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    const closedLane = await findByTestId("lane-closed");
-    const card = closedLane.querySelector('[data-testid="task-card"]')!;
+    const lane = await findByTestId("lane-nodue");
+    const card = lane.querySelector('[data-testid="task-card"]')!;
     expect(
       card.querySelector('[data-testid="task-status"]')?.textContent
     ).toBe("終止");
@@ -1000,21 +1002,31 @@ describe("TasksPage", () => {
     );
   });
 
-  it("groups open tasks into 已逾期 / 即將到期 / 之後到期 / 沒有到期日 lanes, most urgent first, titled in plain text with no icon, then a collapsed 已結案 lane holding the closed ones", async () => {
+  it("groups tasks into 已逾期 / 即將到期 / 之後到期 / 沒有到期日 lanes by due date alone, closed ones included, most urgent first, titled in plain text with no icon", async () => {
     const now = 1_900_000_000;
     vi.useFakeTimers({ now: now * 1000, toFake: ["Date"] });
     try {
       seedDueTasks(now);
-      const { findByText, findByTestId } = renderPage();
+      __injectMockTask(
+        mkTask({
+          title: "已終止沒到期日",
+          status: "terminated",
+          closedTs: now - 30,
+        })
+      );
+      const { findByText, queryByTestId } = renderPage();
       await findByText("逾期的手冊任務");
       toggleFilter("filter-status", "done");
-      await findByTestId("lane-closed");
+      toggleFilter("filter-status", "terminated");
+      await waitFor(() => expect(laneCount("overdue")).toBe(" · 4"));
+      await waitFor(() => expect(laneCount("nodue")).toBe(" · 2"));
 
       expect(openDisplayOptions().value).toBe("due");
-      expect(laneKeys()).toEqual(["overdue", "soon", "later", "nodue", "closed"]);
+      expect(laneKeys()).toEqual(["overdue", "soon", "later", "nodue"]);
+      expect(queryByTestId("lane-closed")).toBeNull();
       expect(
         laneKeys().map((key) => laneToggle(key).getAttribute("aria-expanded"))
-      ).toEqual(["true", "false", "false", "false", "false"]);
+      ).toEqual(["true", "false", "false", "false"]);
       expect(laneTitles("soon")).toEqual([]);
       for (const key of ["soon", "later", "nodue"]) {
         fireEvent.click(laneToggle(key));
@@ -1022,16 +1034,18 @@ describe("TasksPage", () => {
       expect(laneTitles("overdue")).toEqual([
         "逾期的手冊任務",
         "逾期的自由代辦",
+        "已完成的逾期",
         "剛好到期",
       ]);
       expect(laneTitles("soon")).toEqual(["快到期的", "整整一天後"]);
       expect(laneTitles("later")).toEqual(["一天又一秒後", "還早的"]);
-      expect(laneTitles("nodue")).toEqual(["沒有到期日的"]);
-      expect(laneToggle("overdue").textContent).toBe("已逾期 · 3");
+      expect(laneTitles("nodue")).toEqual(["沒有到期日的", "已終止沒到期日"]);
+      expect(laneToggle("overdue").textContent).toBe("已逾期 · 4");
       expect(laneToggle("soon").textContent).toBe("即將到期 · 2");
       expect(laneToggle("later").textContent).toBe("之後到期 · 2");
-      expect(laneToggle("nodue").textContent).toBe("沒有到期日 · 1");
+      expect(laneToggle("nodue").textContent).toBe("沒有到期日 · 2");
 
+      const closedTitles = new Set(["已完成的逾期", "已終止沒到期日"]);
       for (const [lane, tone] of [
         ["overdue", "overdue"],
         ["soon", "soon"],
@@ -1041,8 +1055,11 @@ describe("TasksPage", () => {
         expect(laneToggle(lane).querySelector(".task-badge")).toBeNull();
         expect(laneToggle(lane).querySelectorAll("svg").length).toBe(1);
         if (lane === "nodue") continue;
-        const cards = document.querySelectorAll(
-          `[data-testid="lane-${lane}"] .task-card`
+        const cards = [
+          ...document.querySelectorAll(`[data-testid="lane-${lane}"] .task-card`),
+        ].filter(
+          (card) =>
+            !closedTitles.has(card.querySelector(".task-card__title")!.textContent!)
         );
         expect(cards.length).toBeGreaterThan(0);
         for (const card of cards) {
@@ -1052,11 +1069,15 @@ describe("TasksPage", () => {
         }
       }
 
-      expect(laneToggle("closed").textContent).toBe("已結案 · 1");
-      expect(laneToggle("closed").querySelector(".task-badge")).toBeNull();
-      fireEvent.click(laneToggle("closed"));
-      expect(laneTitles("closed")).toEqual(["已完成的逾期"]);
-      expect(laneCount("overdue")).toBe(" · 3");
+      const closedOverdue = [
+        ...document.querySelectorAll('[data-testid="lane-overdue"] .task-card'),
+      ].find(
+        (card) =>
+          card.querySelector(".task-card__title")!.textContent === "已完成的逾期"
+      )!;
+      expect(
+        closedOverdue.querySelector('[data-testid="task-due"]')!.className
+      ).not.toContain("task-card__due-date--");
     } finally {
       vi.useRealTimers();
     }
@@ -1335,10 +1356,10 @@ describe("TasksPage", () => {
         closedTs: Date.now() / 1000 - 60,
       })
     );
-    const { findByText, findByTestId } = renderPage();
+    const { findByText } = renderPage();
     await findByText("Kai 的");
     toggleFilter("filter-status", "done");
-    await findByTestId("lane-closed");
+    await waitFor(() => expect(laneCount("nodue")).toBe(" · 6"));
     chooseGroupBy("executor");
     await waitFor(() =>
       expect(laneKeys()).toEqual(["outsource", "unassigned", "mira", "kai"])
@@ -1386,11 +1407,11 @@ describe("TasksPage", () => {
         closedTs: Date.now() / 1000 - 60,
       })
     );
-    const { findByText, findByTestId } = renderPage();
+    const { findByText } = renderPage();
     await findByText("跑著的");
     toggleFilter("filter-status", "terminated");
     toggleFilter("filter-status", "done");
-    await findByTestId("lane-closed");
+    await waitFor(() => expect(laneCount("nodue")).toBe(" · 5"));
     chooseGroupBy("status");
     await waitFor(() =>
       expect(laneKeys()).toEqual([
@@ -1540,7 +1561,7 @@ describe("TasksPage", () => {
       getTaskSpy.mockRestore();
     });
 
-    it("manually expanding a DONE task in the 已結案 lane hydrates its steps via getTask", async () => {
+    it("manually expanding a DONE task in its 沒有到期日 lane hydrates its steps via getTask", async () => {
       __injectMockTask(
         mkTask({
           title: "已完成有步驟",
@@ -1558,9 +1579,9 @@ describe("TasksPage", () => {
       const { getByTestId, findByText, queryByText } = renderPage();
 
       // Terminals are filtered out by default — tick 已完成 so the done task's
-      // 已結案 lane exists, and make sure it is open.
+      // 沒有到期日 lane exists, and make sure it is open.
       toggleFilter("filter-status", "done");
-      await expandLane("closed");
+      await expandLane("nodue", 1);
       await findByText("已完成有步驟");
       // Light list → no steps in the DOM yet.
       expect(queryByText("完成節點甲")).toBeNull();
@@ -1577,7 +1598,7 @@ describe("TasksPage", () => {
     it("auto-expands and hydrates a DONE task jumped to via #tasks/<id> (T-4108 regression)", async () => {
       // The real report: a reply card's 查看任務詳情 (or the 外包 panel task chip)
       // routes to #tasks/<id>. For a CLOSED task that filters the list to one
-      // card in an open 已結案 lane — but the card itself must ALSO auto-expand
+      // card in an open lane — but the card itself must ALSO auto-expand
       // (located → setExpanded), otherwise the owner lands on the task they
       // asked to see and its steps/details are hidden behind a collapsed card.
       __injectMockTask(
@@ -1762,11 +1783,11 @@ describe("TasksPage filter enhancements (T-be18)", () => {
 
     const { findByText, findByTestId, queryByText, queryByTestId } = renderPage();
     // Default view: the live task only; neither terminal task is anywhere, and
-    // there is no 已結案 lane standing in for them.
+    // they are not hiding in a collapsed lane either.
     await findByText("活的");
     expect(queryByText("完成的")).toBeNull();
     expect(queryByText("終止的")).toBeNull();
-    expect(queryByTestId("lane-closed")).toBeNull();
+    expect(queryByTestId("lane-count-nodue")?.textContent).toBe(" · 1");
     expect((await findByTestId("filter-status")).textContent?.trim()).toBe("未結案");
 
     // The exclusion is expressed IN the filter UI: 已完成/終止 start unchecked
@@ -1930,8 +1951,8 @@ describe("TasksPage filter enhancements (T-be18)", () => {
     expect(queryByText("收工的")).toBeNull();
 
     toggleFilter("filter-status", "done");
-    // The 已結案 lane now carries the done task — expand it to see the card.
-    await expandLane("closed");
+    // The 沒有到期日 lane now carries the done task too — make sure it is open.
+    await expandLane("nodue", 2);
     await findByText("收工的");
     // The live task is still there — the tick added a status, it didn't replace.
     expect((await findByText("跑著的")).textContent).toContain("跑著的");
@@ -1973,11 +1994,11 @@ describe("TasksPage 顯示全部 semantics (T-50bb)", () => {
     expect(queryByText("完成的")).toBeNull();
 
     clearAllFilters();
-    // Terminals now pass the (emptied) status filter → the 已結案 lane
-    // appears with both closed tasks; expand it to see the cards.
-    const toggle = await findByTestId("lane-toggle-closed");
-    await waitFor(() => expect(toggle.textContent).toBe("已結案 · 2"));
-    await expandLane("closed");
+    // Terminals now pass the (emptied) status filter → the 沒有到期日 lane
+    // holds both closed tasks beside the live one; make sure it is open.
+    const toggle = await findByTestId("lane-toggle-nodue");
+    await waitFor(() => expect(toggle.textContent).toBe("沒有到期日 · 3"));
+    await expandLane("nodue");
     await findByText("完成的");
     await findByText("終止的");
     expect((await findByText("活的")).textContent).toContain("活的");
@@ -2006,9 +2027,9 @@ describe("TasksPage 顯示全部 semantics (T-50bb)", () => {
 
     clearAllFilters();
     // Straight to 顯示全部: the live task is back AND the terminals surface in
-    // the 已結案 lane — proof it did not stop at the terminal-hiding default view.
+    // its lane — proof it did not stop at the terminal-hiding default view.
     await findByText("活的");
-    await expandLane("closed");
+    await expandLane("nodue", 3);
     await findByText("完成的");
     expect(queryByText("終止的")).not.toBeNull();
   });
