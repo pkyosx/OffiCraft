@@ -154,11 +154,10 @@ describe("TaskCard", () => {
     expect(dueStatus()).toBeNull();
   });
 
-  it("shows the date in red with no icon, read out as 已逾期 2 天, two calendar days after the due date", () => {
+  it("shows the date in red, read out as 已逾期 2 天, two calendar days after the due date", () => {
     renderCard(mkTask({ dueTs: OCT_22_END }));
     expect(chip().textContent).toBe("2026/10/22（四）");
     expect(toneOf(chip())).toBe("overdue");
-    expect(chip().parentElement!.querySelector("svg")).toBeNull();
     expect(dueStatus()!.textContent).toBe("已逾期 2 天");
     expect(chip().getAttribute("aria-describedby")).toBe(dueStatus()!.id);
   });

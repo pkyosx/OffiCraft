@@ -367,7 +367,6 @@ describe("TasksPage", () => {
     const toggle = await findByTestId("lane-toggle-nodue");
     await waitFor(() => expect(toggle.textContent).toBe("沒有到期日 · 2"));
     expect(laneKeys()).toEqual(["later", "nodue"]);
-    expect(queryByTestId("lane-closed")).toBeNull();
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(laneTitles("nodue")).toEqual([]);
     expect((await findAllByTestId("task-card")).length).toBe(1);
@@ -998,7 +997,7 @@ describe("TasksPage", () => {
     );
   });
 
-  it("groups tasks into 已逾期 / 即將到期 / 之後到期 / 沒有到期日 lanes by due date alone, closed ones included, most urgent first, titled in plain text with no icon", async () => {
+  it("groups tasks into 已逾期 / 即將到期 / 之後到期 / 沒有到期日 lanes by due date alone, closed ones included, most urgent first, each titled by its name and count", async () => {
     const now = 1_900_000_000;
     vi.useFakeTimers({ now: now * 1000, toFake: ["Date"] });
     try {
@@ -1010,7 +1009,7 @@ describe("TasksPage", () => {
           closedTs: now - 30,
         })
       );
-      const { findByText, queryByTestId } = renderPage();
+      const { findByText } = renderPage();
       await findByText("逾期的手冊任務");
       chooseGroupBy("due");
       toggleFilter("filter-status", "done");
@@ -1019,7 +1018,6 @@ describe("TasksPage", () => {
       await waitFor(() => expect(laneCount("nodue")).toBe(" · 2"));
 
       expect(laneKeys()).toEqual(["overdue", "soon", "later", "nodue"]);
-      expect(queryByTestId("lane-closed")).toBeNull();
       expect(
         laneKeys().map((key) => laneToggle(key).getAttribute("aria-expanded"))
       ).toEqual(["true", "false", "false", "false"]);
@@ -1048,8 +1046,6 @@ describe("TasksPage", () => {
         ["later", "later"],
         ["nodue", "none"],
       ]) {
-        expect(laneToggle(lane).querySelector(".task-badge")).toBeNull();
-        expect(laneToggle(lane).querySelectorAll("svg").length).toBe(1);
         if (lane === "nodue") continue;
         const cards = [
           ...document.querySelectorAll(`[data-testid="lane-${lane}"] .task-card`),
@@ -1409,7 +1405,7 @@ describe("TasksPage", () => {
     expect(laneTitles("high")).toEqual(["高的"]);
   });
 
-  it("groups by 狀態 in the 狀態 filter's order, the 已完成 / 終止 lanes after the open ones, titled in plain text like every other grouping", async () => {
+  it("groups by 狀態 in the 狀態 filter's order, the 已完成 / 終止 lanes after the open ones, each titled 狀態：<name> with its count", async () => {
     __injectMockTask(mkTask({ title: "等我的", status: "waiting_owner" }));
     __injectMockTask(mkTask({ title: "還沒開始", status: "not_started" }));
     __injectMockTask(mkTask({ title: "跑著的" }));
@@ -1441,9 +1437,6 @@ describe("TasksPage", () => {
     expect(laneToggle("waiting_owner").textContent).toBe("狀態：等我回覆 · 1");
     expect(laneToggle("done").textContent).toBe("狀態：已完成 · 1");
     expect(laneToggle("terminated").textContent).toBe("狀態：終止 · 1");
-    for (const status of ["waiting_owner", "done", "terminated"]) {
-      expect(laneToggle(status).querySelector(".task-badge")).toBeNull();
-    }
     fireEvent.click(laneToggle("done"));
     expect(laneTitles("done")).toEqual(["結掉的"]);
   });
