@@ -149,17 +149,31 @@ describe("任務 nav badge", () => {
     expect(window.location.hash).toBe("#tasks");
   });
 
-  it("tapping the warning triangle pins the three counts open instead of opening the 任務 page", () => {
+  it("tapping the warning triangle pins the three counts open instead of opening the 任務 page, while a mouse click on it opens the page", () => {
     window.location.hash = "#office";
     state.taskCount = { open: 4, total: 4, overdue: 3, dueSoon: 0, dueNextChangeTs: null };
     renderApp();
     const warning = screen.getByTestId("tasks-due-warning");
+    // jsdom has no PointerEvent, so fireEvent.pointerDown drops pointerType.
+    const pointerDown = (pointerType: string) => {
+      const ev = new MouseEvent("pointerdown", { bubbles: true });
+      Object.defineProperty(ev, "pointerType", { value: pointerType });
+      fireEvent(warning, ev);
+    };
+    const tap = () => {
+      pointerDown("touch");
+      fireEvent.click(warning);
+    };
     fireEvent.mouseEnter(tasksTab());
-    fireEvent.click(warning);
+    tap();
     expect(window.location.hash).toBe("#office");
     fireEvent.mouseLeave(tasksTab());
     expect(screen.getByRole("tooltip").textContent).toBe("已逾期 3 · 進行中 4");
-    fireEvent.click(warning);
+    tap();
     expect(screen.queryByRole("tooltip")).toBeNull();
+
+    pointerDown("mouse");
+    fireEvent.click(warning);
+    expect(window.location.hash).toBe("#tasks");
   });
 });

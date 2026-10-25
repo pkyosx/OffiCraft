@@ -9,6 +9,7 @@
 //      border is what the guard measures.
 //   ② the 登入 / 首啟 hint line (.login__hint) on the login card.
 //   ③ the 任務 nav tab's due warning triangle, red and amber, on an idle and an active tab.
+//   ④ the line under the 狀態 filter's 未結案／已結案 group rows, on its dropdown.
 //
 // A theme is applied the way the product applies one: --color-* custom
 // properties set on documentElement. `light` seeds LIGHT_PACK below, which is
@@ -20,6 +21,7 @@ import { InlineEdit } from "../../src/components/InlineEdit";
 import { I18nProvider } from "../../src/i18n";
 import { AlertTriangleIcon } from "../../src/components/icons";
 import "../../src/components/login.css";
+import "../../src/components/tasks.css";
 
 export const LIGHT_PACK: Record<string, string> = {
   "--color-bg": "#c2d492",
@@ -76,6 +78,11 @@ export function ThemeContrastStory() {
           ))}
         </div>
       </nav>
+      <div style={{ position: "relative", height: 40 }}>
+        <div className="tasks__ms-pop">
+          <div className="tasks__ms-sep" data-testid="ms-group-sep" />
+        </div>
+      </div>
       <div className="login">
         <div className="login__card">
           <p className="login__hint">提示文字</p>
