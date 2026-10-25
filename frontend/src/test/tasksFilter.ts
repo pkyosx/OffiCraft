@@ -65,7 +65,7 @@ export function openDisplayOptions(): HTMLSelectElement {
 
 /** Pick a 分組依據 mode in the 顯示方式 panel. */
 export function chooseGroupBy(
-  mode: "due" | "executor" | "type" | "status" | "none"
+  mode: "due" | "priority" | "executor" | "type" | "status" | "none"
 ) {
   fireEvent.change(openDisplayOptions(), { target: { value: mode } });
 }

@@ -1393,6 +1393,22 @@ describe("TasksPage", () => {
     expect(laneToggle("adhoc").textContent).toBe("類型：自由代辦 · 1");
   });
 
+  it("groups by 優先權 高 → 中 → 低 → 凍結, titled 優先權：高 and so on", async () => {
+    __injectMockTask(mkTask({ title: "凍住的", priority: "frozen" }));
+    __injectMockTask(mkTask({ title: "低的", priority: "low" }));
+    __injectMockTask(mkTask({ title: "高的", priority: "high" }));
+    __injectMockTask(mkTask({ title: "中的", priority: "mid" }));
+    const { findByText } = renderPage();
+    await findByText("高的");
+    chooseGroupBy("priority");
+    await waitFor(() =>
+      expect(laneKeys()).toEqual(["high", "mid", "low", "frozen"])
+    );
+    expect(laneToggle("high").textContent).toBe("優先權：高 · 1");
+    expect(laneToggle("frozen").textContent).toBe("優先權：凍結 · 1");
+    expect(laneTitles("high")).toEqual(["高的"]);
+  });
+
   it("groups by 狀態 in the 狀態 filter's order, the 已完成 / 終止 lanes after the open ones, titled in plain text like every other grouping", async () => {
     __injectMockTask(mkTask({ title: "等我的", status: "waiting_owner" }));
     __injectMockTask(mkTask({ title: "還沒開始", status: "not_started" }));
@@ -1453,7 +1469,15 @@ describe("TasksPage", () => {
     expect(trigger.getAttribute("aria-controls")).toBe(panel.id);
     expect(panel.textContent).toContain("顯示方式");
     expect(panel.textContent).toContain("分組依據");
-    const select = getByTestId("group-by");
+    const select = getByTestId("group-by") as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.textContent)).toEqual([
+      "不分組",
+      "到期狀態",
+      "優先權",
+      "負責人",
+      "類型",
+      "狀態",
+    ]);
     expect(panel.contains(select)).toBe(true);
     expect(select.closest(".filter-panel__actions")).not.toBeNull();
     expect(document.activeElement).toBe(panel);
@@ -1512,7 +1536,7 @@ describe("TasksPage", () => {
   });
 
   it("opens ungrouped when the stored 分組依據 is not one it knows", async () => {
-    localStorage.setItem("oc_tasks_group_by", "priority");
+    localStorage.setItem("oc_tasks_group_by", "deadline");
     __injectMockTask(mkTask({ title: "跑著的" }));
     const { findByText } = renderPage();
     await findByText("跑著的");

@@ -98,7 +98,7 @@ const STATUS_OPTIONS = [
 // exclusion is visible (and undoable) right there in the 狀態 dropdown (T-be18).
 const DEFAULT_STATUS = STATUS_OPTIONS.filter((s) => !TERMINAL.has(s));
 
-const GROUP_BY_OPTIONS = ["none", "due", "executor", "type", "status"] as const;
+const GROUP_BY_OPTIONS = ["none", "due", "priority", "executor", "type", "status"] as const;
 type GroupBy = (typeof GROUP_BY_OPTIONS)[number];
 
 const GROUP_BY_KEY = "oc_tasks_group_by";
@@ -762,6 +762,7 @@ export function TasksPage() {
     executor: t.tasks.groupByExecutor,
     type: t.tasks.groupByType,
     status: t.tasks.groupByStatus,
+    priority: t.tasks.groupByPriority,
     none: t.tasks.groupByNone,
   };
 
@@ -790,6 +791,16 @@ export function TasksPage() {
             : { ...lane, tasks: [...lane.tasks].sort(byDue) }
         );
       }
+      case "priority":
+        return lanesInOrder(
+          shown,
+          (task) => task.priority,
+          Object.keys(PRIORITY_RANK).map((p) => ({
+            key: p,
+            title: t.tasks.priority[p],
+          })),
+          (key) => t.tasks.priority[key] ?? key
+        );
       case "executor":
         return lanesInOrder(
           shown,
@@ -836,6 +847,7 @@ export function TasksPage() {
     executor: t.tasks.laneExecutorLead,
     type: t.tasks.laneTypeLead,
     status: t.tasks.laneStatusLead,
+    priority: t.tasks.lanePriorityLead,
     none: undefined,
   }[groupBy];
 
