@@ -164,6 +164,34 @@ test("the unit select is in the muted 前 colour while the lead follows the work
   expect(await colour(unit)).toBe(await colour(lead));
 });
 
+test("with no due date, the date, time, lead and unit fields share one muted text colour, one background and full opacity", async ({
+  mount,
+}) => {
+  const cmp = await mount(<TaskCardDueStory dueTs={null as never} />);
+  await cmp.getByTestId("task-due").click();
+  const look = (loc: any) =>
+    loc.evaluate((el: Element) => {
+      const s = getComputedStyle(el);
+      return {
+        text: s.getPropertyValue("-webkit-text-fill-color"),
+        background: s.backgroundColor,
+        opacity: s.opacity,
+      };
+    });
+  const leadPlaceholder = await cmp
+    .getByTestId("task-due-lead")
+    .evaluate((el: Element) => getComputedStyle(el, "::placeholder").getPropertyValue("-webkit-text-fill-color"));
+  const muted = await cmp
+    .locator(".task-card__due-lead-before")
+    .evaluate((el: Element) => getComputedStyle(el).color);
+  const date = await look(cmp.getByTestId("task-due-date-pick"));
+  expect(date).toEqual({ text: muted, background: date.background, opacity: "1" });
+  expect(await look(cmp.getByTestId("task-due-time-pick"))).toEqual(date);
+  expect(await look(cmp.getByTestId("task-due-lead"))).toEqual(date);
+  expect(await look(cmp.getByTestId("task-due-lead-unit"))).toEqual(date);
+  expect(leadPlaceholder).toBe(muted);
+});
+
 test("unparseable lead text does not replace the task's own lead with the workspace setting", async ({
   mount,
   page,

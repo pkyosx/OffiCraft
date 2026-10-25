@@ -1026,10 +1026,21 @@ button.task-card__prio-chip:hover {
 }
 .task-card__due-pick:has(:disabled) {
   cursor: default;
-  opacity: 0.55;
 }
-.task-card__due-input.task-card__due-pick--unset {
+/* Every field with no value of its own reads the same: muted text on the
+   field background. A field disabled because there is no date yet must not
+   fade further — iOS Safari dims a disabled input's text and background on
+   its own unless all three are set here. */
+.task-card__due-input.task-card__due-pick--unset,
+.task-card__due-input.task-card__due-lead-unit--default,
+.task-card__due-input:disabled {
   color: var(--color-text-muted);
+  -webkit-text-fill-color: var(--color-text-muted);
+}
+.task-card__due-input:disabled {
+  opacity: 1;
+  background: var(--color-bg);
+  cursor: default;
 }
 .task-card__due-date-pick {
   flex: 1 1 auto;
@@ -1092,9 +1103,6 @@ button.task-card__prio-chip:hover {
 .task-card__due-lead-unit {
   flex: none;
 }
-.task-card__due-input.task-card__due-lead-unit--default {
-  color: var(--color-text-muted);
-}
 .task-card__due-lead-before {
   flex: none;
   font-size: 13px;
@@ -1112,6 +1120,7 @@ button.task-card__prio-chip:hover {
 }
 .task-card__due-input::placeholder {
   color: var(--color-text-muted);
+  -webkit-text-fill-color: var(--color-text-muted);
   opacity: 1;
 }
 
