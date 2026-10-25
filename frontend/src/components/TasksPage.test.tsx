@@ -1000,7 +1000,7 @@ describe("TasksPage", () => {
     );
   });
 
-  it("groups open tasks into 已逾期 / 即將到期 / 之後到期 / 沒有到期日 lanes, most urgent first, then a collapsed 已結案 lane holding the closed ones", async () => {
+  it("groups open tasks into 已逾期 / 即將到期 / 之後到期 / 沒有到期日 lanes, most urgent first, titled in plain text with no icon, then a collapsed 已結案 lane holding the closed ones", async () => {
     const now = 1_900_000_000;
     vi.useFakeTimers({ now: now * 1000, toFake: ["Date"] });
     try {
@@ -1038,20 +1038,17 @@ describe("TasksPage", () => {
         ["later", "later"],
         ["nodue", "none"],
       ]) {
-        expect(
-          laneToggle(lane)
-            .querySelector(".task-badge")!
-            .classList.contains(`task-badge--due-${tone}`)
-        ).toBe(true);
+        expect(laneToggle(lane).querySelector(".task-badge")).toBeNull();
+        expect(laneToggle(lane).querySelectorAll("svg").length).toBe(1);
         if (lane === "nodue") continue;
         const cards = document.querySelectorAll(
           `[data-testid="lane-${lane}"] .task-card`
         );
         expect(cards.length).toBeGreaterThan(0);
         for (const card of cards) {
-          const icon = card.querySelector('[data-testid="task-due-alert"]');
-          if (tone === "later") expect(icon).toBeNull();
-          else expect(icon!.classList.contains(`task-card__due-alert--${tone}`)).toBe(true);
+          const date = card.querySelector('[data-testid="task-due"]')!;
+          if (tone === "later") expect(date.className).not.toContain("task-card__due-date--");
+          else expect(date.classList.contains(`task-card__due-date--${tone}`)).toBe(true);
         }
       }
 
@@ -1089,7 +1086,7 @@ describe("TasksPage", () => {
     }
   });
 
-  it("moves a task into 即將到期 and gives its card the 快到期 icon when another tab raises the workspace lead", async () => {
+  it("moves a task into 即將到期 and turns its card's date orange when another tab raises the workspace lead", async () => {
     const now = 1_900_000_000;
     vi.useFakeTimers({ now: now * 1000, toFake: ["Date"] });
     try {
@@ -1100,18 +1097,18 @@ describe("TasksPage", () => {
       expect(
         (await findByText("兩天後到期"))
           .closest(".task-card")!
-          .querySelector('[data-testid="task-due-alert"]')
-      ).toBeNull();
+          .querySelector('[data-testid="task-due"]')!.className
+      ).not.toContain("task-card__due-date--");
 
       await act(async () => {
         await mockApi.patchServerSettings({ taskDueSoonLeadDays: 3 });
       });
 
       await waitFor(() => expect(laneKeys()).toEqual(["soon"]));
-      const icon = (await findByText("兩天後到期"))
+      const date = (await findByText("兩天後到期"))
         .closest(".task-card")!
-        .querySelector('[data-testid="task-due-alert"]')!;
-      expect(icon.classList.contains("task-card__due-alert--soon")).toBe(true);
+        .querySelector('[data-testid="task-due"]')!;
+      expect(date.classList.contains("task-card__due-date--soon")).toBe(true);
     } finally {
       vi.useRealTimers();
     }

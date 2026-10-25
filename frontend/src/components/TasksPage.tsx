@@ -762,26 +762,10 @@ export function TasksPage() {
               ? "closed"
               : dueLaneKey(task, nowSec, dueSoonLeadDays),
           [
-            {
-              key: "overdue",
-              title: t.tasks.laneOverdue,
-              chipClass: "task-badge task-badge--due task-badge--due-overdue",
-            },
-            {
-              key: "soon",
-              title: t.tasks.laneDueSoon,
-              chipClass: "task-badge task-badge--due task-badge--due-soon",
-            },
-            {
-              key: "later",
-              title: t.tasks.laneDueLater,
-              chipClass: "task-badge task-badge--due task-badge--due-later",
-            },
-            {
-              key: "nodue",
-              title: t.tasks.laneNoDue,
-              chipClass: "task-badge task-badge--due task-badge--due-none",
-            },
+            { key: "overdue", title: t.tasks.laneOverdue },
+            { key: "soon", title: t.tasks.laneDueSoon },
+            { key: "later", title: t.tasks.laneDueLater },
+            { key: "nodue", title: t.tasks.laneNoDue },
             { key: "closed", title: t.tasks.closedTitle },
           ],
           (key) => key

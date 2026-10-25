@@ -54,7 +54,7 @@
 //               progress says a plan exists, so the empty state would lie
 //               (T-71e8, aligned with the detailPending/detailFailed guards).
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import {
   useWorkerAvatarUrls,
   useWorkerCodenames,
@@ -108,7 +108,6 @@ import { ComposerAttachmentPreview } from "./ComposerAttachmentPreview";
 import { appendSuggestion, SuggestedReplies } from "./SuggestedReplies";
 import { useSuggestedRepliesTaskMessage } from "../hooks/useSuggestedReplies";
 import { ConfirmModal } from "./ConfirmModal";
-import { InstantHint } from "./InstantHint";
 import { Markdown } from "./Markdown";
 import { MarkdownPreviewOverlay } from "./MarkdownPreviewOverlay";
 import { TaskArtifactsBadge } from "./TaskArtifactsPopover";
@@ -120,7 +119,6 @@ import { OWNER_ID } from "../lib/ownerUnread";
 import { docCommentRecipient } from "../lib/docComments";
 import { AttachmentLinkCommentsContext } from "../hooks/useAttachmentOpener";
 import {
-  AlertTriangleIcon,
   ChatBubbleIcon,
   CheckIcon,
   ChevronDownIcon,
@@ -808,6 +806,8 @@ export function TaskCard({
             tone: "overdue" as const,
             text: due.days === 0 ? t.tasks.overdueToday : msg.taskOverdueDays(due.days),
           };
+  const dueToneClass = dueAlert ? ` task-card__due-date--${dueAlert.tone}` : "";
+  const dueAlertId = useId();
   const [confirmOpen, setConfirmOpen] = useState(false);
   // 強制結案 (T-192) gets its own confirm rather than sharing one with
   // 標記重複/終止: collapsing named closes into one dialog with a status
@@ -1942,8 +1942,9 @@ export function TaskCard({
                 {dueEditable ? (
                   <button
                     type="button"
-                    className="task-card__chip task-card__chip--link"
+                    className={`task-card__chip task-card__chip--link${dueToneClass}`}
                     title={t.tasks.dueEditLabel}
+                    aria-describedby={dueAlert ? dueAlertId : undefined}
                     aria-haspopup="dialog"
                     aria-expanded={dueOpen}
                     data-testid="task-due"
@@ -1955,20 +1956,22 @@ export function TaskCard({
                     {dueDateText ?? t.tasks.dueEditLabel}
                   </button>
                 ) : (
-                  <span className="task-card__chip" data-testid="task-due">
+                  <span
+                    className={`task-card__chip${dueToneClass}`}
+                    aria-describedby={dueAlert ? dueAlertId : undefined}
+                    data-testid="task-due"
+                  >
                     {dueDateText}
                   </span>
                 )}
                 {dueAlert && (
-                  <InstantHint
-                    hint={dueAlert.text}
-                    role="img"
-                    aria-label={dueAlert.text}
-                    className={`task-card__due-alert task-card__due-alert--${dueAlert.tone}`}
+                  <span
+                    id={dueAlertId}
+                    className="task-card__due-status"
                     data-testid="task-due-alert"
                   >
-                    <AlertTriangleIcon size={14} />
-                  </InstantHint>
+                    {dueAlert.text}
+                  </span>
                 )}
                 {dueOpen && (
                   <div

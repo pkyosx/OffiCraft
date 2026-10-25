@@ -38,7 +38,7 @@ paths:
 
 presenceVisual 是唯一視覺映射，顏色只來自 CSS token，不准在元件裡塞色值；inline 色值會繞過 token guard，讓不同 lifecycle 共用錯誤顏色。toPresence 是 member 與 worker 共用的唯一 wire seam：未知 member wire 值落到 offline；未知 worker 值保持 undefined 並誠實畫 offline。不要加 default 把未知值偽裝成線上；否則會繞過 no-default 的錯誤訊號，畫面可能只剩沒有顏色或可及性名稱的假元件。
 
-任務 nav 分頁的 badge 跟其他分頁一樣是紅色 `nav-tab__badge`，只顯示進行中任務數；旁邊的警示圖案（`nav-tab__due-warning`）有已逾期時紅（`--color-danger`）、只有即將到期時橘（`--color-dot-waking`），兩者皆 0 不畫。到期警示一律用聊天室成員名單同款的三角形驚嘆號（AlertTriangleIcon 14px），任務卡「到期日」那一列也是；owner 要求同一個概念只用同一個符號（`rc-16deee08e16e`），不要換回時鐘或另做圖案，顏色只用來分逾期（紅）與快到期（橘）（`rc-be9b6bbfce3e`）。hover 整顆分頁走 InstantHint 顯示「已逾期 N · 即將到期 N · 進行中 N」，同一句也是 badge 的 aria-label；手機點三角形會釘住同一句提示、不切頁。三角形對 nav 底色（閒置與作用中分頁）的 3:1 由 `theme-contrast` 守衛實量。
+任務 nav 分頁的 badge 跟其他分頁一樣是紅色 `nav-tab__badge`，只顯示進行中任務數；旁邊的警示圖案（`nav-tab__due-warning`）有已逾期時紅（`--color-danger`）、只有即將到期時橘（`--color-dot-waking`），兩者皆 0 不畫。這個警示是聊天室成員名單同款的三角形驚嘆號（AlertTriangleIcon 14px）；owner 要求同一個概念只用同一個符號（`rc-16deee08e16e`），不要換回時鐘或另做圖案，顏色只用來分逾期（紅）與快到期（橘）（`rc-be9b6bbfce3e`）。任務卡「到期日」那一列不放圖示，是日期文字本身變紅／橘（`rc-6795d312d76a`）。hover 整顆分頁走 InstantHint 顯示「已逾期 N · 即將到期 N · 進行中 N」，同一句也是 badge 的 aria-label；手機點三角形會釘住同一句提示、不切頁。三角形對 nav 底色（閒置與作用中分頁）的 3:1 由 `theme-contrast` 守衛實量。
 
 badge 的三個色槽要分清 danger badge、on-danger 文字與 ring；ring 預設沿用 var(--color-bg)。不要重新加已撤回的 ring 對比下限；只有文字對填色的可讀性契約仍有效。視覺守衛要讀 computed color 並掃 source，不能只看 class。
 

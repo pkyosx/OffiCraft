@@ -88,7 +88,9 @@ function renderCard(
 const leadInput = () => screen.getByTestId("task-due-lead") as HTMLInputElement;
 
 const chip = () => screen.getByTestId("task-due");
-const alertIcon = () => screen.queryByTestId("task-due-alert");
+const dueStatus = () => screen.queryByTestId("task-due-alert");
+const toneOf = (el: HTMLElement) =>
+  el.className.match(/task-card__due-date--(\w+)/)?.[1] ?? null;
 const metaLabels = () =>
   Array.from(document.querySelectorAll(".task-card__meta > .task-card__meta-label")).map(
     (el) => el.textContent
@@ -102,65 +104,64 @@ afterEach(() => {
 });
 
 describe("TaskCard", () => {
-  it("shows the due date with its weekday in a 到期日 row right below 建立者, with no icon while the date is beyond the lead", () => {
+  it("shows the due date with its weekday in a 到期日 row right below 建立者, in the plain text colour while the date is beyond the lead", () => {
     renderCard(mkTask({ dueTs: OCT_30_END }));
     expect(metaLabels()).toEqual(["負責人", "建立者", "到期日"]);
     expect(chip().closest(".task-card__meta")).not.toBeNull();
     expect(chip().previousElementSibling).toBeNull();
     expect(chip().parentElement!.previousElementSibling!.textContent).toBe("到期日");
     expect(chip().textContent).toBe("2026/10/30（五）");
-    expect(alertIcon()).toBeNull();
+    expect(toneOf(chip())).toBeNull();
+    expect(dueStatus()).toBeNull();
   });
 
-  it("shows the date and no icon for tomorrow 23:59:59 while it is still 38 hours away", () => {
+  it("shows the date in the plain text colour for tomorrow 23:59:59 while it is still 38 hours away", () => {
     renderCard(mkTask({ dueTs: OCT_25_END }));
     expect(chip().textContent).toBe("2026/10/25（日）");
-    expect(alertIcon()).toBeNull();
+    expect(toneOf(chip())).toBeNull();
+    expect(dueStatus()).toBeNull();
   });
 
   it.each([
     ["later today", OCT_24_END, "2026/10/24（六）"],
     ["within 24 hours on the next calendar day", OCT_25_0900, "2026/10/25（日）"],
-  ])("shows the date with an orange 快到期 warning triangle for a due date %s", (_when, dueTs, date) => {
+  ])("shows the date in orange, read out as 快到期, for a due date %s", (_when, dueTs, date) => {
     renderCard(mkTask({ dueTs }));
     expect(chip().textContent).toBe(date);
-    expect(alertIcon()!.className).toContain("task-card__due-alert--soon");
-    expect(alertIcon()!.querySelector("path")!.getAttribute("d")).toBe("M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z");
-    expect(alertIcon()!.getAttribute("aria-label")).toBe("快到期");
+    expect(toneOf(chip())).toBe("soon");
+    expect(dueStatus()!.textContent).toBe("快到期");
   });
 
-  it("shows the 快到期 icon when the task's own lead reaches a date five days out", () => {
+  it("turns the date orange when the task's own lead reaches a date five days out", () => {
     renderCard(mkTask({ dueTs: OCT_29_END, dueSoonLeadDays: 7 }));
     expect(chip().textContent).toBe("2026/10/29（四）");
-    expect(alertIcon()!.getAttribute("aria-label")).toBe("快到期");
+    expect(dueStatus()!.textContent).toBe("快到期");
   });
 
   it("judges a task without its own lead by the workspace lead", () => {
     renderCard(mkTask({ dueTs: OCT_30_END }), undefined, 7);
-    expect(alertIcon()!.getAttribute("aria-label")).toBe("快到期");
+    expect(dueStatus()!.textContent).toBe("快到期");
   });
 
-  it("shows no icon when the task's own lead is shorter than the workspace lead", () => {
+  it("keeps the date uncoloured when the task's own lead is shorter than the workspace lead", () => {
     renderCard(mkTask({ dueTs: OCT_30_END, dueSoonLeadDays: 1 }), undefined, 7);
-    expect(alertIcon()).toBeNull();
+    expect(toneOf(chip())).toBeNull();
+    expect(dueStatus()).toBeNull();
   });
 
-  it("shows the date with a red warning triangle whose hint and label read 已逾期 2 天 two calendar days after the due date", () => {
+  it("shows the date in red with no icon, read out as 已逾期 2 天, two calendar days after the due date", () => {
     renderCard(mkTask({ dueTs: OCT_22_END }));
     expect(chip().textContent).toBe("2026/10/22（四）");
-    const icon = alertIcon()!;
-    expect(icon.className).toContain("task-card__due-alert--overdue");
-    expect(icon.querySelector("path")!.getAttribute("d")).toBe("M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z");
-    expect(icon.getAttribute("aria-label")).toBe("已逾期 2 天");
-    expect(icon.parentElement!.textContent).toBe("2026/10/22（四）");
-    fireEvent.mouseEnter(icon);
-    expect(screen.getByRole("tooltip").textContent).toBe("已逾期 2 天");
+    expect(toneOf(chip())).toBe("overdue");
+    expect(chip().parentElement!.querySelector("svg")).toBeNull();
+    expect(dueStatus()!.textContent).toBe("已逾期 2 天");
+    expect(chip().getAttribute("aria-describedby")).toBe(dueStatus()!.id);
   });
 
-  it("labels the red icon 已逾期 when the due date passed earlier the same day", () => {
+  it("reads the red date out as 已逾期 when the due date passed earlier the same day", () => {
     renderCard(mkTask({ dueTs: OCT_24_0800 }));
-    expect(alertIcon()!.className).toContain("task-card__due-alert--overdue");
-    expect(alertIcon()!.getAttribute("aria-label")).toBe("已逾期");
+    expect(toneOf(chip())).toBe("overdue");
+    expect(dueStatus()!.textContent).toBe("已逾期");
   });
 
   it("offers 設定到期日 in the 到期日 row of an open task with no due date", () => {
@@ -168,7 +169,8 @@ describe("TaskCard", () => {
     expect(chip().tagName).toBe("BUTTON");
     expect(chip().textContent).toBe("設定到期日");
     expect(metaLabels()).toContain("到期日");
-    expect(alertIcon()).toBeNull();
+    expect(toneOf(chip())).toBeNull();
+    expect(dueStatus()).toBeNull();
   });
 
   it("shows no 到期日 row on a task with no due date that cannot be edited", () => {
@@ -177,11 +179,12 @@ describe("TaskCard", () => {
     expect(metaLabels()).not.toContain("到期日");
   });
 
-  it("shows an uneditable open task's date and its icon without a button", () => {
+  it("shows an uneditable open task's date in red without a button", () => {
     renderCard(mkTask({ dueTs: OCT_22_END }), null);
     expect(chip().tagName).toBe("SPAN");
     expect(chip().textContent).toBe("2026/10/22（四）");
-    expect(alertIcon()!.getAttribute("aria-label")).toBe("已逾期 2 天");
+    expect(toneOf(chip())).toBe("overdue");
+    expect(dueStatus()!.textContent).toBe("已逾期 2 天");
   });
 
   it("stores 23:59:59 local of the picked date when Enter commits it", () => {
@@ -378,13 +381,14 @@ describe("TaskCard", () => {
     expect(card.getAttribute("aria-expanded")).toBe(before);
   });
 
-  it("shows a closed task's due date without an icon and cannot be edited", () => {
+  it("shows a closed task's due date uncoloured and cannot be edited", () => {
     renderCard(
       mkTask({ status: "done", closedTs: NOW - 10, dueTs: OCT_22_END })
     );
     expect(chip().tagName).toBe("SPAN");
     expect(chip().textContent).toBe("2026/10/22（四）");
-    expect(alertIcon()).toBeNull();
+    expect(toneOf(chip())).toBeNull();
+    expect(dueStatus()).toBeNull();
     fireEvent.click(chip());
     expect(screen.queryByTestId("task-due-pop")).toBeNull();
   });
@@ -395,33 +399,35 @@ describe("TaskCard", () => {
     expect(metaLabels()).not.toContain("到期日");
   });
 
-  it("shows the 快到期 icon the moment the due date enters the 24-hour window", () => {
+  it("turns the date orange the moment the due date enters the 24-hour window", () => {
     renderCard(mkTask({ dueTs: OCT_25_END }));
-    expect(alertIcon()).toBeNull();
+    expect(toneOf(chip())).toBeNull();
+    expect(dueStatus()).toBeNull();
     act(() => {
       vi.advanceTimersByTime((OCT_24_END - NOW) * 1000);
     });
-    expect(alertIcon()!.getAttribute("aria-label")).toBe("快到期");
+    expect(dueStatus()!.textContent).toBe("快到期");
     expect(chip().textContent).toBe("2026/10/25（日）");
   });
 
-  it("shows the 快到期 icon the moment the due date enters the task's own lead window", () => {
+  it("turns the date orange the moment the due date enters the task's own lead window", () => {
     renderCard(mkTask({ dueTs: OCT_30_END, dueSoonLeadDays: 3 }));
-    expect(alertIcon()).toBeNull();
+    expect(toneOf(chip())).toBeNull();
+    expect(dueStatus()).toBeNull();
     act(() => {
       vi.advanceTimersByTime((OCT_30_END - 3 * 86400 - NOW) * 1000);
     });
-    expect(alertIcon()!.getAttribute("aria-label")).toBe("快到期");
+    expect(dueStatus()!.textContent).toBe("快到期");
   });
 
-  it("turns the icon red the moment the due date passes", () => {
+  it("turns the date from orange to red the moment the due date passes", () => {
     const noon = NOW + 2 * 3600;
     renderCard(mkTask({ dueTs: noon }));
-    expect(alertIcon()!.className).toContain("task-card__due-alert--soon");
+    expect(toneOf(chip())).toBe("soon");
     act(() => {
       vi.advanceTimersByTime(2 * 3600 * 1000);
     });
-    expect(alertIcon()!.className).toContain("task-card__due-alert--overdue");
-    expect(alertIcon()!.getAttribute("aria-label")).toBe("已逾期");
+    expect(toneOf(chip())).toBe("overdue");
+    expect(dueStatus()!.textContent).toBe("已逾期");
   });
 });

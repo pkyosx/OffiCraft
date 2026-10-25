@@ -14,8 +14,8 @@
 //   ③ each built-in's main text-on-surface token pairs clear AA.
 //   ④ the 任務 nav tab's red / amber due warning triangle stands out (≥3:1, the non-text
 //      threshold) from the tab it sits on, idle and active.
-//   ⑤ the task card's red overdue / orange due-soon icon beside the 到期日 date
-//      stands out (≥3:1, non-text) from the card it sits on.
+//   ⑤ the task card's red overdue / orange due-soon 到期日 date clears AA
+//      (≥4.5:1) as text on its chip.
 import { test, expect } from "@playwright/experimental-ct-react";
 import type { Page } from "@playwright/test";
 import { ThemeContrastStory } from "./stories/ThemeContrastStory";
@@ -248,7 +248,7 @@ for (const theme of BUILTIN_THEME_IDS) {
 }
 
 for (const theme of BUILTIN_THEME_IDS) {
-  test(`${theme}: the task card's overdue and due-soon icons clear 3:1 against the card`, async ({
+  test(`${theme}: the task card's red overdue and orange due-soon date clears AA (≥4.5:1) on its chip`, async ({
     mount,
     page,
   }) => {
@@ -262,16 +262,16 @@ for (const theme of BUILTIN_THEME_IDS) {
       ["soon", now + 3600],
     ] as const) {
       await cmp.update(<TaskCardDueStory dueTs={dueTs} />);
-      const icon = cmp.locator(`.task-card__due-alert--${tone} svg`);
-      await expect(icon).toBeVisible();
-      const s = await sample(icon);
-      const zone = foldZone(s.layers);
-      ratios[tone] = contrast(over(parseColor(s.color), zone), zone).toFixed(2);
+      const date = cmp.locator(`.task-card__due-date--${tone}`);
+      await expect(date).toBeVisible();
+      const s = await sample(date);
+      const chipFill = foldZone([s.background, ...s.layers]);
+      ratios[tone] = contrast(over(parseColor(s.color), chipFill), chipFill).toFixed(2);
     }
     await expectBuiltinApplied(page, theme);
-    console.log(`${theme} task card due icon contrast: ${JSON.stringify(ratios)}`);
+    console.log(`${theme} task card due date contrast: ${JSON.stringify(ratios)}`);
     for (const [which, ratio] of Object.entries(ratios)) {
-      expect(Number(ratio), `${which}: ${ratio}:1`).toBeGreaterThanOrEqual(3);
+      expect(Number(ratio), `${which}: ${ratio}:1`).toBeGreaterThanOrEqual(4.5);
     }
   });
 }

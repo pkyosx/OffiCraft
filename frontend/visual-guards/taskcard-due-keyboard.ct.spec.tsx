@@ -124,7 +124,7 @@ test("unparseable lead text does not replace the task's own lead with the worksp
 const OVERDUE_2020 = Math.floor(new Date(2020, 0, 1, 23, 59, 59).getTime() / 1000);
 
 for (const width of [320, 390]) {
-  test(`the 到期日 row with its overdue icon, and the due popover, stay inside the card at ${width}px`, async ({
+  test(`the 到期日 row with its red overdue date, and the due popover, stay inside the card at ${width}px`, async ({
     mount,
     page,
   }) => {
@@ -133,10 +133,7 @@ for (const width of [320, 390]) {
     const card = (await cmp.locator(".task-card").boundingBox())!;
     const content = (await cmp.locator(".task-card__meta").boundingBox())!;
     const date = (await cmp.getByTestId("task-due").boundingBox())!;
-    const icon = (await cmp.getByTestId("task-due-alert").boundingBox())!;
-    expect(icon.x).toBeGreaterThanOrEqual(date.x + date.width);
-    expect(Math.abs(icon.y + icon.height / 2 - (date.y + date.height / 2))).toBeLessThan(2);
-    expect(icon.x + icon.width).toBeLessThanOrEqual(content.x + content.width);
+    expect(date.x + date.width).toBeLessThanOrEqual(content.x + content.width);
     expect(
       await cmp.locator(".task-card").evaluate((el) => el.scrollWidth - el.clientWidth)
     ).toBe(0);
