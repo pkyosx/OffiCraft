@@ -92,28 +92,28 @@ describe("任務 nav badge", () => {
     expect(screen.getByRole("button", { name: "任務 已逾期 2 · 即將到期 1 · 進行中 12" })).toBe(tasksTab());
   });
 
-  it("paints the clock red when any task is overdue", () => {
+  it("shows the chat list's warning triangle in red when any task is overdue", () => {
     state.taskCount = { open: 12, total: 15, overdue: 2, dueSoon: 1, dueNextChangeTs: null };
     renderApp();
-    expect(screen.getByTestId("tasks-due-clock").className).toBe(
-      "nav-tab__due-clock nav-tab__due-clock--overdue",
-    );
+    const warning = screen.getByTestId("tasks-due-warning");
+    expect(warning.className).toBe("nav-tab__due-warning nav-tab__due-warning--overdue");
+    expect(warning.querySelector("path")!.getAttribute("d")).toBe("M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z");
   });
 
-  it("paints the clock amber when tasks are due soon but none is overdue", () => {
+  it("paints the warning triangle amber when tasks are due soon but none is overdue", () => {
     state.taskCount = { open: 4, total: 4, overdue: 0, dueSoon: 3, dueNextChangeTs: null };
     renderApp();
-    expect(screen.getByTestId("tasks-due-clock").className).toBe(
-      "nav-tab__due-clock nav-tab__due-clock--soon",
+    expect(screen.getByTestId("tasks-due-warning").className).toBe(
+      "nav-tab__due-warning nav-tab__due-warning--soon",
     );
     expect(screen.getByRole("button", { name: "任務 即將到期 3 · 進行中 4" })).toBe(tasksTab());
   });
 
-  it("shows no clock when nothing is overdue or due soon", () => {
+  it("shows no warning triangle when nothing is overdue or due soon", () => {
     state.taskCount = { open: 4, total: 4, overdue: 0, dueSoon: 0, dueNextChangeTs: null };
     renderApp();
     expect(screen.getByTestId("tasks-badge").textContent).toBe("4");
-    expect(screen.queryByTestId("tasks-due-clock")).toBeNull();
+    expect(screen.queryByTestId("tasks-due-warning")).toBeNull();
   });
 
   it("hovering the tab shows the three counts, leaving out a zero due part", () => {
@@ -123,11 +123,11 @@ describe("任務 nav badge", () => {
     expect(screen.getByRole("tooltip").textContent).toBe("已逾期 3 · 進行中 4");
   });
 
-  it("renders no pill, clock or tooltip when no task is open", () => {
+  it("renders no pill, warning triangle or tooltip when no task is open", () => {
     state.taskCount = { open: 0, total: 6, overdue: 0, dueSoon: 0, dueNextChangeTs: null };
     renderApp();
     expect(screen.queryByTestId("tasks-badge")).toBeNull();
-    expect(screen.queryByTestId("tasks-due-clock")).toBeNull();
+    expect(screen.queryByTestId("tasks-due-warning")).toBeNull();
     fireEvent.mouseEnter(tasksTab());
     expect(screen.queryByRole("tooltip")).toBeNull();
   });
@@ -149,17 +149,17 @@ describe("任務 nav badge", () => {
     expect(window.location.hash).toBe("#tasks");
   });
 
-  it("tapping the clock pins the three counts open instead of opening the 任務 page", () => {
+  it("tapping the warning triangle pins the three counts open instead of opening the 任務 page", () => {
     window.location.hash = "#office";
     state.taskCount = { open: 4, total: 4, overdue: 3, dueSoon: 0, dueNextChangeTs: null };
     renderApp();
-    const clock = screen.getByTestId("tasks-due-clock");
+    const warning = screen.getByTestId("tasks-due-warning");
     fireEvent.mouseEnter(tasksTab());
-    fireEvent.click(clock);
+    fireEvent.click(warning);
     expect(window.location.hash).toBe("#office");
     fireEvent.mouseLeave(tasksTab());
     expect(screen.getByRole("tooltip").textContent).toBe("已逾期 3 · 進行中 4");
-    fireEvent.click(clock);
+    fireEvent.click(warning);
     expect(screen.queryByRole("tooltip")).toBeNull();
   });
 });

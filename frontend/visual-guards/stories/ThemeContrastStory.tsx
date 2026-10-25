@@ -8,7 +8,7 @@
 //      collapses to ~1.11:1. What keeps the field visible is its BORDER, so the
 //      border is what the guard measures.
 //   ② the 登入 / 首啟 hint line (.login__hint) on the login card.
-//   ③ the 任務 nav tab's due clock, red and amber, on an idle and an active tab.
+//   ③ the 任務 nav tab's due warning triangle, red and amber, on an idle and an active tab.
 //
 // A theme is applied the way the product applies one: --color-* custom
 // properties set on documentElement. `light` seeds LIGHT_PACK below, which is
@@ -18,7 +18,7 @@
 // hand-tuned, the guard stops measuring anything a user can actually ship.
 import { InlineEdit } from "../../src/components/InlineEdit";
 import { I18nProvider } from "../../src/i18n";
-import { ClockIcon } from "../../src/components/icons";
+import { AlertTriangleIcon } from "../../src/components/icons";
 import "../../src/components/login.css";
 
 export const LIGHT_PACK: Record<string, string> = {
@@ -66,10 +66,10 @@ export function ThemeContrastStory() {
               {(["overdue", "soon"] as const).map((tone) => (
                 <span
                   key={tone}
-                  className={`nav-tab__due-clock nav-tab__due-clock--${tone}`}
-                  data-testid={`clock-${tone}-${state}`}
+                  className={`nav-tab__due-warning nav-tab__due-warning--${tone}`}
+                  data-testid={`due-warning-${tone}-${state}`}
                 >
-                  <ClockIcon size={15} />
+                  <AlertTriangleIcon size={14} />
                 </span>
               ))}
             </button>

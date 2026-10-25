@@ -12,7 +12,7 @@
 //      in every theme. It used to be a hard-coded color-mix off --color-text,
 //      which no light theme could lift past ~3.3:1.
 //   ③ each built-in's main text-on-surface token pairs clear AA.
-//   ④ the 任務 nav tab's red / amber due clock stands out (≥3:1, the non-text
+//   ④ the 任務 nav tab's red / amber due warning triangle stands out (≥3:1, the non-text
 //      threshold) from the tab it sits on, idle and active.
 //   ⑤ the task card's red overdue / orange due-soon icon beside the 到期日 date
 //      stands out (≥3:1, non-text) from the card it sits on.
@@ -226,7 +226,7 @@ for (const theme of BUILTIN_THEME_IDS) {
 }
 
 for (const theme of BUILTIN_THEME_IDS) {
-  test(`${theme}: the 任務 nav due clock clears 3:1 against an idle and an active tab`, async ({
+  test(`${theme}: the 任務 nav due warning clears 3:1 against an idle and an active tab`, async ({
     mount,
     page,
   }) => {
@@ -234,13 +234,13 @@ for (const theme of BUILTIN_THEME_IDS) {
     const ratios: Record<string, string> = {};
     for (const tone of ["overdue", "soon"]) {
       for (const state of ["idle", "active"]) {
-        const s = await sample(cmp.getByTestId(`clock-${tone}-${state}`));
+        const s = await sample(cmp.getByTestId(`due-warning-${tone}-${state}`));
         const zone = foldZone(s.layers);
         ratios[`${tone}/${state}`] = contrast(over(parseColor(s.color), zone), zone).toFixed(2);
       }
     }
     await expectBuiltinApplied(page, theme);
-    console.log(`${theme} 任務 due clock contrast: ${JSON.stringify(ratios)}`);
+    console.log(`${theme} 任務 due warning contrast: ${JSON.stringify(ratios)}`);
     for (const [which, ratio] of Object.entries(ratios)) {
       expect(Number(ratio), `${which}: ${ratio}:1`).toBeGreaterThanOrEqual(3);
     }

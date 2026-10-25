@@ -294,23 +294,24 @@
   outline: 1px solid var(--color-danger-badge-ring);
 }
 
-/* 任務 tab: beside the open count, a clock when any open task is overdue (red)
- * or, failing that, due soon (amber). Same colour tokens as the due chips on
- * the cards; visual-guards/theme-contrast measures them on the nav. */
-.nav-tab__due-clock {
+/* 任務 tab: beside the open count, the chat list's warning triangle when any
+ * open task is overdue (red) or, failing that, due soon (amber). Same colour
+ * tokens as the card's due-date warning; visual-guards/theme-contrast measures
+ * them on the nav. */
+.nav-tab__due-warning {
   flex: none;
   display: inline-flex;
-  /* Tapping the clock pins the summary on phones; the padding widens that tap
-   * target and the negative margin keeps the tab's layout unchanged. */
+  /* Tapping the triangle pins the summary on phones; the padding widens that
+   * tap target and the negative margin keeps the tab's layout unchanged. */
   padding: 6px;
   margin: -6px -6px -6px -10px;
 }
 
-.nav-tab__due-clock--overdue {
+.nav-tab__due-warning--overdue {
   color: var(--color-danger);
 }
 
-.nav-tab__due-clock--soon {
+.nav-tab__due-warning--soon {
   color: var(--color-dot-waking);
 }
 

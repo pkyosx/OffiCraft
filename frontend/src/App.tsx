@@ -12,7 +12,7 @@ import {
   KeyIcon,
   MonitorIcon,
   FileTextIcon,
-  ClockIcon,
+  AlertTriangleIcon,
 } from "./components/icons";
 import { InstantHint } from "./components/InstantHint";
 import { dueToneOf } from "./lib/dueDate";
@@ -424,12 +424,12 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
             )}
             {taskDueTone && (
               <span
-                className={`nav-tab__due-clock nav-tab__due-clock--${taskDueTone}`}
-                data-testid="tasks-due-clock"
+                className={`nav-tab__due-warning nav-tab__due-warning--${taskDueTone}`}
+                data-testid="tasks-due-warning"
                 data-hint-pin
                 aria-hidden="true"
               >
-                <ClockIcon size={15} />
+                <AlertTriangleIcon size={14} />
               </span>
             )}
           </InstantHint>

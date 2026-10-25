@@ -121,10 +121,11 @@ describe("TaskCard", () => {
   it.each([
     ["later today", OCT_24_END, "2026/10/24（六）"],
     ["within 24 hours on the next calendar day", OCT_25_0900, "2026/10/25（日）"],
-  ])("shows the date with an orange 快到期 warning icon for a due date %s", (_when, dueTs, date) => {
+  ])("shows the date with an orange 快到期 warning triangle for a due date %s", (_when, dueTs, date) => {
     renderCard(mkTask({ dueTs }));
     expect(chip().textContent).toBe(date);
     expect(alertIcon()!.className).toContain("task-card__due-alert--soon");
+    expect(alertIcon()!.querySelector("path")!.getAttribute("d")).toBe("M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z");
     expect(alertIcon()!.getAttribute("aria-label")).toBe("快到期");
   });
 
@@ -144,11 +145,12 @@ describe("TaskCard", () => {
     expect(alertIcon()).toBeNull();
   });
 
-  it("shows the date with a red icon whose hint and label read 已逾期 2 天 two calendar days after the due date", () => {
+  it("shows the date with a red warning triangle whose hint and label read 已逾期 2 天 two calendar days after the due date", () => {
     renderCard(mkTask({ dueTs: OCT_22_END }));
     expect(chip().textContent).toBe("2026/10/22（四）");
     const icon = alertIcon()!;
     expect(icon.className).toContain("task-card__due-alert--overdue");
+    expect(icon.querySelector("path")!.getAttribute("d")).toBe("M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z");
     expect(icon.getAttribute("aria-label")).toBe("已逾期 2 天");
     expect(icon.parentElement!.textContent).toBe("2026/10/22（四）");
     fireEvent.mouseEnter(icon);

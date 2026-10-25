@@ -120,7 +120,6 @@ import { OWNER_ID } from "../lib/ownerUnread";
 import { docCommentRecipient } from "../lib/docComments";
 import { AttachmentLinkCommentsContext } from "../hooks/useAttachmentOpener";
 import {
-  AlertCircleIcon,
   AlertTriangleIcon,
   ChatBubbleIcon,
   CheckIcon,
@@ -1968,11 +1967,7 @@ export function TaskCard({
                     className={`task-card__due-alert task-card__due-alert--${dueAlert.tone}`}
                     data-testid="task-due-alert"
                   >
-                    {dueAlert.tone === "overdue" ? (
-                      <AlertCircleIcon size={15} />
-                    ) : (
-                      <AlertTriangleIcon size={15} />
-                    )}
+                    <AlertTriangleIcon size={14} />
                   </InstantHint>
                 )}
                 {dueOpen && (
