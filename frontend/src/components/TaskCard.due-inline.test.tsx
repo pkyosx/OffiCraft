@@ -15,6 +15,8 @@ vi.mock("../api", () => ({
 const NOW = 1792807200;
 const OCT_30_END = 1793375999;
 const OCT_30_1000 = 1793325600;
+const OCT_30_1430 = 1793341800;
+const OCT_30_0900 = 1793322000;
 const OCT_29_END = 1793289599;
 const OCT_25_END = 1792943999;
 const OCT_25_0900 = 1792890000;
@@ -86,6 +88,8 @@ function renderCard(
 }
 
 const leadInput = () => screen.getByTestId("task-due-lead") as HTMLInputElement;
+const dateInput = () => screen.getByTestId("task-due-input") as HTMLInputElement;
+const timeInput = () => screen.getByTestId("task-due-time-input") as HTMLInputElement;
 
 const chip = () => screen.getByTestId("task-due");
 const dueStatus = () => screen.queryByTestId("task-due-alert");
@@ -124,7 +128,7 @@ describe("TaskCard", () => {
 
   it.each([
     ["later today", OCT_24_END, "2026/10/24（六）"],
-    ["within 24 hours on the next calendar day", OCT_25_0900, "2026/10/25（日）"],
+    ["within 24 hours on the next calendar day", OCT_25_0900, "2026/10/25（日） 09:00"],
   ])("shows the date in orange, read out as 快到期, for a due date %s", (_when, dueTs, date) => {
     renderCard(mkTask({ dueTs }));
     expect(chip().textContent).toBe(date);
@@ -187,15 +191,40 @@ describe("TaskCard", () => {
     expect(dueStatus()!.textContent).toBe("已逾期 2 天");
   });
 
-  it("stores 23:59:59 local of the picked date when Enter commits it", () => {
+  it("stores 23:59:59 local of the picked date when Enter commits it with the time left empty", () => {
     const { onSetDue } = renderCard(mkTask({ dueTs: null }));
     fireEvent.click(chip());
     const input = screen.getByTestId("task-due-input");
+    expect(timeInput().value).toBe("");
     fireEvent.change(input, { target: { value: "2026-10-30" } });
     expect(onSetDue).not.toHaveBeenCalled();
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onSetDue).toHaveBeenCalledWith("task-1", OCT_30_END);
     expect(screen.queryByTestId("task-due-pop")).toBeNull();
+  });
+
+  it("keeps the editor open when focus moves from the date to the time, and stores that local minute on Enter", () => {
+    const { onSetDue } = renderCard(mkTask({ dueTs: null }));
+    fireEvent.click(chip());
+    fireEvent.change(dateInput(), { target: { value: "2026-10-30" } });
+    fireEvent.blur(dateInput(), { relatedTarget: timeInput() });
+    expect(onSetDue).not.toHaveBeenCalled();
+    expect(screen.getByTestId("task-due-pop")).toBeTruthy();
+    expect(timeInput().getAttribute("aria-label")).toBe("到期時間");
+    fireEvent.change(timeInput(), { target: { value: "14:30" } });
+    expect(onSetDue).not.toHaveBeenCalled();
+    fireEvent.keyDown(timeInput(), { key: "Enter" });
+    expect(onSetDue).toHaveBeenCalledTimes(1);
+    expect(onSetDue).toHaveBeenCalledWith("task-1", OCT_30_1430);
+    expect(screen.queryByTestId("task-due-pop")).toBeNull();
+  });
+
+  it("stores 23:59:59 of the same date when the time of a timed due date is emptied", () => {
+    const { onSetDue } = renderCard(mkTask({ dueTs: OCT_25_0900 }));
+    fireEvent.click(chip());
+    fireEvent.change(timeInput(), { target: { value: "" } });
+    fireEvent.blur(timeInput());
+    expect(onSetDue).toHaveBeenCalledWith("task-1", OCT_25_END);
   });
 
   it("commits the draft when the input loses focus", () => {
@@ -261,6 +290,7 @@ describe("TaskCard", () => {
     expect(
       (screen.getByTestId("task-due-input") as HTMLInputElement).value
     ).toBe("2026-10-30");
+    expect(timeInput().value).toBe("");
     const clear = screen.getByTestId("task-due-clear");
     expect(clear.textContent).toBe("清除");
     expect(fireEvent.mouseDown(clear)).toBe(false);
@@ -285,7 +315,9 @@ describe("TaskCard", () => {
 
   it("keeps the editor open while a lead is typed and saves it with the task's unchanged due time once focus leaves the editor", () => {
     const { onSetDue } = renderCard(mkTask({ dueTs: OCT_30_1000 }));
+    expect(chip().textContent).toBe("2026/10/30（五） 10:00");
     fireEvent.click(chip());
+    expect(timeInput().value).toBe("10:00");
     expect(leadInput().value).toBe("");
     fireEvent.change(leadInput(), { target: { value: "1" } });
     fireEvent.change(leadInput(), { target: { value: "17" } });
@@ -324,7 +356,7 @@ describe("TaskCard", () => {
     fireEvent.mouseDown(document.body);
     fireEvent.blur(lead);
     expect(onSetDue).toHaveBeenCalledTimes(1);
-    expect(onSetDue).toHaveBeenCalledWith("task-1", OCT_30_END, 14);
+    expect(onSetDue).toHaveBeenCalledWith("task-1", OCT_30_0900, 14);
   });
 
   it.each(["0", "31", "2.5", "-3"])(
@@ -338,7 +370,7 @@ describe("TaskCard", () => {
       fireEvent.change(leadInput(), { target: { value: typed } });
       fireEvent.keyDown(leadInput(), { key: "Enter" });
       expect(onSetDue).toHaveBeenCalledTimes(1);
-      expect(onSetDue).toHaveBeenCalledWith("task-1", OCT_30_END);
+      expect(onSetDue).toHaveBeenCalledWith("task-1", OCT_30_0900);
       await act(async () => {});
       expect(screen.getByText("快到期提醒要是 1 到 30 的整數天數，這次沒有變更")).toBeTruthy();
     }
@@ -362,13 +394,15 @@ describe("TaskCard", () => {
     expect(screen.queryByText("快到期提醒要是 1 到 30 的整數天數，這次沒有變更")).toBeNull();
   });
 
-  it("keeps the lead disabled until the draft has a date", () => {
+  it("keeps the time and the lead disabled until the draft has a date", () => {
     renderCard(mkTask({ dueTs: null }));
     fireEvent.click(chip());
+    expect(timeInput().disabled).toBe(true);
     expect(leadInput().disabled).toBe(true);
     fireEvent.change(screen.getByTestId("task-due-input"), {
       target: { value: "2026-10-30" },
     });
+    expect(timeInput().disabled).toBe(false);
     expect(leadInput().disabled).toBe(false);
   });
 
@@ -420,12 +454,17 @@ describe("TaskCard", () => {
     expect(dueStatus()!.textContent).toBe("快到期");
   });
 
-  it("turns the date from orange to red the moment the due date passes", () => {
+  it("turns a timed date from orange to red at that minute, not at the end of the day", () => {
     const noon = NOW + 2 * 3600;
     renderCard(mkTask({ dueTs: noon }));
+    expect(chip().textContent).toBe("2026/10/24（六） 12:00");
     expect(toneOf(chip())).toBe("soon");
     act(() => {
-      vi.advanceTimersByTime(2 * 3600 * 1000);
+      vi.advanceTimersByTime((2 * 3600 - 1) * 1000);
+    });
+    expect(toneOf(chip())).toBe("soon");
+    act(() => {
+      vi.advanceTimersByTime(1000);
     });
     expect(toneOf(chip())).toBe("overdue");
     expect(dueStatus()!.textContent).toBe("已逾期");

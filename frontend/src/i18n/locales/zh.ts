@@ -399,6 +399,7 @@ export const zh = {
     overdueToday: "已逾期",
     dueEditLabel: "設定到期日",
     duePickerLabel: "到期日",
+    dueTimeLabel: "到期時間",
     dueClear: "清除",
     dueClearLabel: "清除到期日",
     groupByLabel: "分組依據",

@@ -375,6 +375,7 @@ export const en: Dict = {
     overdueToday: "Overdue",
     dueEditLabel: "Set due date",
     duePickerLabel: "Due date",
+    dueTimeLabel: "Due time",
     dueClear: "Clear",
     dueClearLabel: "Clear due date",
     groupByLabel: "Group by",

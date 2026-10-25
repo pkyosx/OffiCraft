@@ -86,9 +86,11 @@ import {
   DEFAULT_DUE_SOON_LEAD_DAYS,
   dueState,
   effectiveLeadDays,
-  endOfLocalDayTs,
+  dueTsFromInputs,
+  hasDueTime,
   nextDueChangeTs,
   toDateInputValue,
+  toTimeInputValue,
 } from "../lib/dueDate";
 import { enterShouldSend } from "../lib/composerKeys";
 import { linkMentions } from "../lib/mentionLinks";
@@ -778,6 +780,8 @@ export function TaskCard({
   // listener and for blur, which can both fire for the same close.
   const [dueDraft, setDueDraft] = useState("");
   const dueDraftRef = useRef("");
+  const [dueTimeDraft, setDueTimeDraft] = useState("");
+  const dueTimeDraftRef = useRef("");
   const dueSessionRef = useRef(false);
   const [dueLeadDraft, setDueLeadDraft] = useState("");
   const dueLeadDraftRef = useRef("");
@@ -795,7 +799,12 @@ export function TaskCard({
       : nextDueChangeTs(dueTs, Date.now() / 1000, leadDays)
   );
   const due = dueTs === null ? null : dueState(dueTs, nowSec, leadDays);
-  const dueDateText = dueTs === null ? null : msg.taskDueDate(dueTs);
+  const dueDateText =
+    dueTs === null
+      ? null
+      : hasDueTime(dueTs)
+        ? msg.taskDueDateTime(dueTs)
+        : msg.taskDueDate(dueTs);
   const dueRowShown = dueTs !== null || dueEditable;
   const dueAlert =
     due === null || closed || due.kind === "later"
@@ -890,6 +899,9 @@ export function TaskCard({
     const draft = dueTs === null ? "" : toDateInputValue(dueTs);
     dueDraftRef.current = draft;
     setDueDraft(draft);
+    const timeDraft = dueTs === null ? "" : toTimeInputValue(dueTs);
+    dueTimeDraftRef.current = timeDraft;
+    setDueTimeDraft(timeDraft);
     const leadDraft = taskLeadDays === null ? "" : String(taskLeadDays);
     dueLeadDraftRef.current = leadDraft;
     setDueLeadDraft(leadDraft);
@@ -908,22 +920,29 @@ export function TaskCard({
     setDueDraft(value);
   }
 
-  // 🔴 The date input reports every keyboard segment edit as a complete date
-  // (typing 1 into the month of 10/30 yields 01/30), and a calendar pick looks
-  // the same on the wire — so nothing is saved until Enter, blur or an outside
-  // click commits the draft. The lead field follows the same rule, so a typed
-  // "1" on the way to "14" is never saved.
+  function editDueTimeDraft(value: string) {
+    dueTimeDraftRef.current = value;
+    setDueTimeDraft(value);
+  }
+
+  // 🔴 The date and time inputs report every keyboard segment edit as a
+  // complete value (typing 1 into the month of 10/30 yields 01/30), and a
+  // calendar pick looks the same on the wire — so nothing is saved until Enter,
+  // blur or an outside click commits the draft. The lead field follows the
+  // same rule, so a typed "1" on the way to "14" is never saved.
   function finishDue(commit: boolean) {
     if (!dueSessionRef.current) return;
     dueSessionRef.current = false;
     setDueOpen(false);
     if (!commit) return;
-    // An unchanged day keeps the stored time: it may be an API-set 10:00, not
-    // the 23:59:59 this picker writes.
+    // An untouched date and time keep the stored moment: an API-set due time
+    // can carry seconds the HH:MM box cannot show.
     const next =
-      dueTs !== null && dueDraftRef.current === toDateInputValue(dueTs)
+      dueTs !== null &&
+      dueDraftRef.current === toDateInputValue(dueTs) &&
+      dueTimeDraftRef.current === toTimeInputValue(dueTs)
         ? dueTs
-        : endOfLocalDayTs(dueDraftRef.current);
+        : dueTsFromInputs(dueDraftRef.current, dueTimeDraftRef.current);
     if (next === null || new Date(next * 1000).getFullYear() < 1970) return;
     const lead = dueLeadInputRef.current?.validity.badInput
       ? undefined
@@ -937,6 +956,21 @@ export function TaskCard({
     }
     void doSetDue(next, lead === taskLeadDays ? undefined : lead);
   }
+
+  const dueFieldCommit = {
+    onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        finishDue(true);
+      } else if (e.key === "Escape") {
+        finishDue(false);
+      }
+    },
+    onBlur: (e: React.FocusEvent<HTMLInputElement>) => {
+      if (duePopRef.current?.contains(e.relatedTarget as Node)) return;
+      finishDue(true);
+    },
+  };
 
   function clearDue() {
     finishDue(false);
@@ -1981,27 +2015,27 @@ export function TaskCard({
                     data-testid="task-due-pop"
                     ref={duePopRef}
                   >
-                    <input
-                      type="date"
-                      className="task-card__due-input"
-                      aria-label={t.tasks.duePickerLabel}
-                      data-testid="task-due-input"
-                      value={dueDraft}
-                      onChange={(e) => editDueDraft(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          finishDue(true);
-                        } else if (e.key === "Escape") {
-                          finishDue(false);
-                        }
-                      }}
-                      onBlur={(e) => {
-                        if (duePopRef.current?.contains(e.relatedTarget as Node))
-                          return;
-                        finishDue(true);
-                      }}
-                    />
+                    <div className="task-card__due-when">
+                      <input
+                        type="date"
+                        className="task-card__due-input task-card__due-date-input"
+                        aria-label={t.tasks.duePickerLabel}
+                        data-testid="task-due-input"
+                        value={dueDraft}
+                        onChange={(e) => editDueDraft(e.target.value)}
+                        {...dueFieldCommit}
+                      />
+                      <input
+                        type="time"
+                        className="task-card__due-input task-card__due-time-input"
+                        aria-label={t.tasks.dueTimeLabel}
+                        data-testid="task-due-time-input"
+                        value={dueTimeDraft}
+                        disabled={dueDraft === ""}
+                        onChange={(e) => editDueTimeDraft(e.target.value)}
+                        {...dueFieldCommit}
+                      />
+                    </div>
                     <label className="task-card__due-lead">
                       <span className="task-card__due-lead-label">
                         {t.tasks.dueLeadLabel}
@@ -2020,19 +2054,7 @@ export function TaskCard({
                           placeholder={msg.taskDueLeadWorkspace(dueSoonLeadDays)}
                           disabled={dueDraft === ""}
                           onChange={(e) => editDueLead(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              finishDue(true);
-                            } else if (e.key === "Escape") {
-                              finishDue(false);
-                            }
-                          }}
-                          onBlur={(e) => {
-                            if (duePopRef.current?.contains(e.relatedTarget as Node))
-                              return;
-                            finishDue(true);
-                          }}
+                          {...dueFieldCommit}
                         />
                         <span className="task-card__due-lead-unit">
                           {t.tasks.dueLeadUnit}

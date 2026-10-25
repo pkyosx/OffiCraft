@@ -1454,6 +1454,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "tasks.dueLeadWorkspaceLead",
   "tasks.duePickerLabel",
   "tasks.dueSoonHint",
+  "tasks.dueTimeLabel",
   "tasks.duplicateJump",
   "tasks.duplicateOfLabel",
   "tasks.effortOf.high",

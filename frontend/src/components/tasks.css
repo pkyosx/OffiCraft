@@ -994,6 +994,18 @@ button.task-card__prio-chip:hover {
   flex-direction: column;
   gap: 4px;
 }
+.task-card__due-when {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.task-card__due-date-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.task-card__due-time-input {
+  flex: none;
+}
 .task-card__due-lead {
   display: flex;
   flex-direction: column;

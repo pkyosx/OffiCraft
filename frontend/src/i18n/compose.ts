@@ -51,6 +51,7 @@ export interface Messages {
   taskDuplicateOf: (taskNo: string) => string;
   taskReassignTitle: (taskNo: string) => string;
   taskDueDate: (tsSeconds: number) => string;
+  taskDueDateTime: (tsSeconds: number) => string;
   taskOverdueDays: (days: number) => string;
   taskDueLeadWorkspace: (days: number) => string;
   taskCountSummary: (overdue: number, dueSoon: number, open: number) => string;
@@ -294,6 +295,11 @@ export function makeMessages(t: Dict, language: Lang): Messages {
             year: "numeric",
           })
         : `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}（${"日一二三四五六"[d.getDay()]}）`;
+    },
+    taskDueDateTime: (tsSeconds) => {
+      const d = new Date(tsSeconds * 1000);
+      const pad = (n: number) => String(n).padStart(2, "0");
+      return `${messages.taskDueDate(tsSeconds)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
     },
     taskOverdueDays: (days) =>
       `${tasks.overdueDaysLead} ${days} ${

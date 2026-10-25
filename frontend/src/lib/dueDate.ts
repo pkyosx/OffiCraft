@@ -59,19 +59,37 @@ export function nextDueChangeTs(
   return null;
 }
 
-/** 23:59:59 local of a `YYYY-MM-DD` date-input value, as epoch seconds. */
-export function endOfLocalDayTs(dateValue: string): number | null {
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+/** A date input's `YYYY-MM-DD` plus an optional time input's `HH:MM`, as
+ * local epoch seconds; an empty time is the end of that day (23:59:59). */
+export function dueTsFromInputs(dateValue: string, timeValue: string): number | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateValue);
   if (!m) return null;
-  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 23, 59, 59);
+  const t = timeValue === "" ? null : /^(\d{2}):(\d{2})(?::\d{2})?$/.exec(timeValue);
+  if (timeValue !== "" && t === null) return null;
+  const [h, min, sec] = t ? [Number(t[1]), Number(t[2]), 0] : [23, 59, 59];
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), h, min, sec);
   return Math.floor(d.getTime() / 1000);
+}
+
+/** Whether a due moment carries a time of its own, i.e. is not 23:59:59 local. */
+export function hasDueTime(tsSeconds: number): boolean {
+  const d = new Date(tsSeconds * 1000);
+  return !(d.getHours() === 23 && d.getMinutes() === 59 && d.getSeconds() === 59);
 }
 
 /** The local `YYYY-MM-DD` of an epoch, for a date input's value. */
 export function toDateInputValue(tsSeconds: number): string {
   const d = new Date(tsSeconds * 1000);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+/** The local `HH:MM` of an epoch for a time input's value; "" for 23:59:59. */
+export function toTimeInputValue(tsSeconds: number): string {
+  if (!hasDueTime(tsSeconds)) return "";
+  const d = new Date(tsSeconds * 1000);
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
 export type DueTone = "overdue" | "soon";

@@ -89,6 +89,32 @@ test("clicking the chip again closes the popover for good and saves once", async
   expect(await saves(page)).toEqual([await endOfDay(page, 2099, 11, 30)]);
 });
 
+test("a time typed after tabbing over from the date is saved once, on Enter, as that local minute", async ({
+  mount,
+  page,
+}) => {
+  const cmp = await mount(<TaskCardDueStory />);
+  await cmp.getByTestId("task-due").click();
+  await cmp.getByTestId("task-due-input").focus();
+  const time = cmp.getByTestId("task-due-time-input");
+  // Tab walks the date's segments and its picker button before leaving it.
+  for (let i = 0; i < 6; i++) {
+    if (await time.evaluate((el) => el === document.activeElement)) break;
+    await page.keyboard.press("Tab");
+  }
+  await expect(time).toBeFocused();
+  await expect(cmp.getByTestId("task-due-pop")).toBeVisible();
+  await page.keyboard.type("0230P");
+  await expect(time).toHaveValue("14:30");
+  expect(await saves(page)).toEqual([]);
+
+  await page.keyboard.press("Enter");
+  expect(await saves(page)).toEqual([
+    await page.evaluate(() => Math.floor(new Date(2099, 9, 30, 14, 30, 0).getTime() / 1000)),
+  ]);
+  await expect(cmp.getByTestId("task-due-pop")).toHaveCount(0);
+});
+
 test("a lead typed digit by digit is saved once, on Enter", async ({
   mount,
   page,
@@ -124,7 +150,7 @@ test("unparseable lead text does not replace the task's own lead with the worksp
 const OVERDUE_2020 = Math.floor(new Date(2020, 0, 1, 23, 59, 59).getTime() / 1000);
 
 for (const width of [320, 390]) {
-  test(`the 到期日 row with its red overdue date, and the due popover, stay inside the card at ${width}px`, async ({
+  test(`the 到期日 row with its red overdue date, and the due popover with its date and time on one line, stay inside the card at ${width}px`, async ({
     mount,
     page,
   }) => {
@@ -132,19 +158,26 @@ for (const width of [320, 390]) {
     const cmp = await mount(<TaskCardDueStory dueTs={OVERDUE_2020} />);
     const card = (await cmp.locator(".task-card").boundingBox())!;
     const content = (await cmp.locator(".task-card__meta").boundingBox())!;
-    const date = (await cmp.getByTestId("task-due").boundingBox())!;
-    expect(date.x + date.width).toBeLessThanOrEqual(content.x + content.width);
+    const chip = (await cmp.getByTestId("task-due").boundingBox())!;
+    expect(chip.x + chip.width).toBeLessThanOrEqual(content.x + content.width);
     expect(
       await cmp.locator(".task-card").evaluate((el) => el.scrollWidth - el.clientWidth)
     ).toBe(0);
 
     await cmp.getByTestId("task-due").click();
     const pop = (await cmp.getByTestId("task-due-pop").boundingBox())!;
+    const date = (await cmp.getByTestId("task-due-input").boundingBox())!;
+    const time = (await cmp.getByTestId("task-due-time-input").boundingBox())!;
     const input = (await cmp.getByTestId("task-due-lead").boundingBox())!;
     const unit = (await cmp.locator(".task-card__due-lead-unit").boundingBox())!;
     expect(pop.x).toBeGreaterThanOrEqual(card.x);
     expect(pop.x + pop.width).toBeLessThanOrEqual(content.x + content.width);
-    expect(pop.y).toBeGreaterThan(date.y);
+    expect(pop.y).toBeGreaterThan(chip.y);
+    expect(date.x).toBeGreaterThanOrEqual(pop.x);
+    expect(time.x).toBeGreaterThanOrEqual(date.x + date.width);
+    expect(Math.abs(time.y - date.y)).toBeLessThan(2);
+    expect(time.x + time.width).toBeLessThanOrEqual(pop.x + pop.width);
+    expect(time.x + time.width).toBeLessThanOrEqual(content.x + content.width);
     expect(input.width).toBeGreaterThanOrEqual(80);
     expect(unit.x).toBeGreaterThanOrEqual(input.x + input.width);
     expect(Math.abs(unit.y + unit.height / 2 - (input.y + input.height / 2))).toBeLessThan(2);
