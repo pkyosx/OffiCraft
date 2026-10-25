@@ -115,7 +115,8 @@ describe("prePaint", () => {
       expect(root.dataset.theme).toBe("office");
       expect(root.style.getPropertyValue("--color-bg")).toBe("#15101f");
       expect(root.style.getPropertyValue("--color-accent")).toBe("#ff8c2b");
-      expect(window.__ocPaintTokens).toEqual(["--color-bg", "--color-accent"]);
+      expect(window.__ocPaintTokens).toEqual(["--color-bg", "--color-accent", "color-scheme"]);
+      expect(root.style.getPropertyValue("color-scheme")).toBe("dark");
     });
 
     it("at the window's end, paints the display theme again", async () => {

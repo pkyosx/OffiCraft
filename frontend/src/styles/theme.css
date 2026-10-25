@@ -4,6 +4,9 @@
  * in this file — comments included — is hand-written. */
 :root {
   --color-bg: #191c24;
+  /* office is dark: native controls (the date picker icon, select menus) are
+     drawn for a dark page only when this says so. */
+  color-scheme: dark;
   /* T-081b 版面分區:在此之前整個座艙只有「頁底」與「卡片底」兩層可被主題換色
    * ——.topbar / .nav-tabs / .app__main 都沒有自己的 background,一律吃 body 的
    * --color-bg,所以主題只有「底色多深/多綠」這一個旋鈕,做不出區域層次。

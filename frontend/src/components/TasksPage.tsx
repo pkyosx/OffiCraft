@@ -98,7 +98,7 @@ const STATUS_OPTIONS = [
 // exclusion is visible (and undoable) right there in the 狀態 dropdown (T-be18).
 const DEFAULT_STATUS = STATUS_OPTIONS.filter((s) => !TERMINAL.has(s));
 
-const GROUP_BY_OPTIONS = ["due", "executor", "type", "status", "none"] as const;
+const GROUP_BY_OPTIONS = ["none", "due", "executor", "type", "status"] as const;
 type GroupBy = (typeof GROUP_BY_OPTIONS)[number];
 
 const GROUP_BY_KEY = "oc_tasks_group_by";

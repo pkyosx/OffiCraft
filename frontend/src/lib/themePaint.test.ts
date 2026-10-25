@@ -194,14 +194,31 @@ describe("applyThemeToRoot — POSITIVE: every branch actually reaches the DOM",
     expect(el.style.getPropertyValue("--canvas-bg-repeat")).toBe("repeat");
   });
 
-  it("a colours-only bundle writes exactly the colour tokens and nothing else", () => {
+  it("a colours-only bundle writes exactly the colour tokens and the colour scheme they imply, nothing else", () => {
     const el = document.createElement("div");
     const ledger = applyThemeToRoot(el, {
       id: "x",
       name: "x",
       colors: { "--color-bg": "#010203" },
     });
-    expect(ledger).toEqual(["--color-bg"]);
+    expect(ledger).toEqual(["--color-bg", "color-scheme"]);
     expect(el.style.getPropertyValue("--canvas-bg-image")).toBe("");
+  });
+
+  it("marks a dark-background theme dark and a light one light, so native controls such as the date picker icon stay visible", () => {
+    const dark = document.createElement("div");
+    applyThemeToRoot(dark, { id: "d", name: "d", colors: { "--color-bg": "#15101f" } });
+    expect(dark.style.getPropertyValue("color-scheme")).toBe("dark");
+    const light = document.createElement("div");
+    applyThemeToRoot(light, { id: "l", name: "l", colors: { "--color-bg": "#b8d8e3" } });
+    expect(light.style.getPropertyValue("color-scheme")).toBe("light");
+    const unreadable = document.createElement("div");
+    const ledger = applyThemeToRoot(unreadable, {
+      id: "u",
+      name: "u",
+      colors: { "--color-bg": "color-mix(in srgb, red 50%, blue)" },
+    });
+    expect(unreadable.style.getPropertyValue("color-scheme")).toBe("");
+    expect(ledger).toEqual(["--color-bg"]);
   });
 });
