@@ -201,9 +201,10 @@
 /* Off the muted text colour: office's --color-border is its card colour and an
    overlay veil fades on light themes, so either one loses this line somewhere. */
 .tasks__ms-sep {
+  flex: none;
   height: 1px;
-  margin: 4px 6px;
-  background: color-mix(in srgb, var(--color-text-muted) 40%, transparent);
+  margin: 4px 0;
+  background: color-mix(in srgb, var(--color-text-muted) 60%, transparent);
 }
 .tasks__ms-check {
   flex: none;

@@ -15,7 +15,7 @@
 //   ④ the 任務 nav tab's red / amber due warning triangle stands out (≥3:1, the non-text
 //      threshold) from the tab it sits on, idle and active.
 //   ⑥ the line under the 狀態 filter's group rows is visible on its dropdown
-//      (≥1.5:1: a hairline, not a control; the border token measures 1:1 in office
+//      (≥2.5:1: a hairline, not a control; the border token measures 1:1 in office
 //      and an overlay veil about 1.3:1 in office-light).
 //   ⑤ the task card's red overdue / orange due-soon 到期日 date clears AA
 //      (≥4.5:1) as text on its chip.
@@ -290,6 +290,6 @@ for (const theme of THEMES) {
     const line = over(parseColor(s.background), pop);
     const ratio = contrast(line, pop);
     console.log(`${theme} status filter group line contrast: ${ratio.toFixed(2)}`);
-    expect(ratio).toBeGreaterThanOrEqual(1.5);
+    expect(ratio).toBeGreaterThanOrEqual(2.5);
   });
 }
