@@ -148,6 +148,27 @@ const TERMINAL = new Set(["done", "terminated", "duplicated"]);
 const PRIORITIES = ["high", "mid", "low", "frozen"] as const;
 
 /** True when the 識別鍵 value is a link → the badge renders target=_blank. */
+// showPicker() is missing in older browsers and throws without a user
+// activation; focusing the input is the fallback that still lets a touch
+// browser offer its own picker.
+function openDuePicker(input: HTMLInputElement | null) {
+  if (!input || input.disabled) return;
+  if (typeof input.showPicker === "function") {
+    try {
+      input.showPicker();
+      return;
+    } catch {
+      // fall through to focus
+    }
+  }
+  input.focus();
+}
+
+function leadAmountText(minutes: number, unit: LeadUnit): string {
+  const amount = minutes / LEAD_UNIT_MINUTES[unit];
+  return String(Number.isInteger(amount) ? amount : Number(amount.toFixed(2)));
+}
+
 function isUrl(v: string): boolean {
   return /^https?:\/\//i.test(v);
 }
@@ -788,6 +809,9 @@ export function TaskCard({
   // would otherwise read as "follow the workspace setting". React fires no
   // change for it either ("" → ""), so validity is read off the element.
   const dueLeadInputRef = useRef<HTMLInputElement>(null);
+  const dueDateInputRef = useRef<HTMLInputElement>(null);
+  const dueTimeInputRef = useRef<HTMLInputElement>(null);
+  const dueLeadDefaultId = useId();
   const dueTs = task.dueTs ?? null;
   const taskLeadMinutes = task.dueSoonLeadMinutes ?? null;
   const leadMinutes = effectiveLeadMinutes(taskLeadMinutes, dueSoonLeadMinutes);
@@ -922,6 +946,9 @@ export function TaskCard({
   function editDueLead(value: string) {
     dueLeadDraftRef.current = value;
     setDueLeadDraft(value);
+    if (value === "" && !dueLeadInputRef.current?.validity.badInput) {
+      editDueLeadUnit(splitLeadMinutes(dueSoonLeadMinutes).unit);
+    }
   }
 
   function editDueLeadUnit(unit: LeadUnit) {
@@ -939,11 +966,15 @@ export function TaskCard({
     setDueTimeDraft(value);
   }
 
-  // 🔴 The date and time inputs report every keyboard segment edit as a
-  // complete value (typing 1 into the month of 10/30 yields 01/30), and a
-  // calendar pick looks the same on the wire — so nothing is saved until Enter,
-  // blur or an outside click commits the draft. The lead field follows the
-  // same rule, so a typed "1" on the way to "14" is never saved.
+  function clearDueTime() {
+    editDueTimeDraft("");
+    dueTimeInputRef.current?.focus();
+  }
+
+  // 🔴 Nothing is saved until Enter, blur or an outside click commits the
+  // draft: a picker reports each choice as a complete value while the user may
+  // still be choosing, and a typed "1" on the way to "14" in the lead must
+  // never be saved.
   function finishDue(commit: boolean) {
     if (!dueSessionRef.current) return;
     dueSessionRef.current = false;
@@ -984,6 +1015,23 @@ export function TaskCard({
       if (duePopRef.current?.contains(e.relatedTarget as Node)) return;
       finishDue(true);
     },
+  };
+
+  // The date and time are set only through the browser's calendar and clock:
+  // the native inputs take no typing, Space opens their picker, and Enter /
+  // Escape / Tab keep the popover's commit rules.
+  const duePickerField = {
+    onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "Enter" || e.key === "Escape" || e.key === "Tab") {
+        dueFieldCommit.onKeyDown(e);
+      } else if (e.key === " ") {
+        e.preventDefault();
+        openDuePicker(e.currentTarget);
+      } else if (!e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+      }
+    },
+    onBlur: dueFieldCommit.onBlur,
   };
 
   function clearDue() {
@@ -2032,25 +2080,65 @@ export function TaskCard({
                     ref={duePopRef}
                   >
                     <div className="task-card__due-when">
-                      <input
-                        type="date"
-                        className="task-card__due-input task-card__due-date-input"
-                        aria-label={t.tasks.duePickerLabel}
-                        data-testid="task-due-input"
-                        value={dueDraft}
-                        onChange={(e) => editDueDraft(e.target.value)}
-                        {...dueFieldCommit}
-                      />
-                      <input
-                        type="time"
-                        className="task-card__due-input task-card__due-time-input"
-                        aria-label={t.tasks.dueTimeLabel}
-                        data-testid="task-due-time-input"
-                        value={dueTimeDraft}
-                        disabled={dueDraft === ""}
-                        onChange={(e) => editDueTimeDraft(e.target.value)}
-                        {...dueFieldCommit}
-                      />
+                      <span
+                        className={`task-card__due-input task-card__due-pick task-card__due-date-pick${
+                          dueDraft === "" ? " task-card__due-pick--unset" : ""
+                        }`}
+                        data-testid="task-due-date-pick"
+                        onClick={() => openDuePicker(dueDateInputRef.current)}
+                      >
+                        <span aria-hidden="true">
+                          {dueDraft === "" ? t.tasks.dueUnset : dueDraft.replace(/-/g, "/")}
+                        </span>
+                        <input
+                          type="date"
+                          className="task-card__due-pick-input"
+                          ref={dueDateInputRef}
+                          aria-label={t.tasks.duePickerLabel}
+                          data-testid="task-due-input"
+                          value={dueDraft}
+                          onChange={(e) => editDueDraft(e.target.value)}
+                          {...duePickerField}
+                        />
+                      </span>
+                      <span
+                        className={`task-card__due-input task-card__due-pick task-card__due-time-pick${
+                          dueTimeDraft === "" ? " task-card__due-pick--unset" : ""
+                        }`}
+                        data-testid="task-due-time-pick"
+                        onClick={() => openDuePicker(dueTimeInputRef.current)}
+                      >
+                        <span aria-hidden="true">
+                          {dueTimeDraft === "" ? t.tasks.dueTimeUnset : dueTimeDraft}
+                        </span>
+                        <input
+                          type="time"
+                          className="task-card__due-pick-input"
+                          ref={dueTimeInputRef}
+                          aria-label={t.tasks.dueTimeLabel}
+                          data-testid="task-due-time-input"
+                          value={dueTimeDraft}
+                          disabled={dueDraft === ""}
+                          onChange={(e) => editDueTimeDraft(e.target.value)}
+                          {...duePickerField}
+                        />
+                      </span>
+                      {dueTimeDraft !== "" && (
+                        <button
+                          type="button"
+                          className="task-card__due-time-clear"
+                          aria-label={t.tasks.dueTimeUnset}
+                          data-testid="task-due-time-clear"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={clearDueTime}
+                          onKeyDown={(e) => {
+                            if (e.key === "Escape") finishDue(false);
+                          }}
+                          onBlur={dueFieldCommit.onBlur}
+                        >
+                          {t.tasks.dueTimeClear}
+                        </button>
+                      )}
                     </div>
                     <label className="task-card__due-lead">
                       <span className="task-card__due-lead-label">
@@ -2067,13 +2155,16 @@ export function TaskCard({
                           ref={dueLeadInputRef}
                           data-testid="task-due-lead"
                           value={dueLeadDraft}
-                          placeholder={msg.taskDueLeadWorkspace(dueSoonLeadMinutes)}
+                          placeholder={leadAmountText(dueSoonLeadMinutes, dueLeadUnit)}
+                          aria-describedby={dueLeadDraft === "" ? dueLeadDefaultId : undefined}
                           disabled={dueDraft === ""}
                           onChange={(e) => editDueLead(e.target.value)}
                           {...dueFieldCommit}
                         />
                         <select
-                          className="task-card__due-input task-card__due-lead-unit"
+                          className={`task-card__due-input task-card__due-lead-unit${
+                            dueLeadDraft === "" ? " task-card__due-lead-unit--default" : ""
+                          }`}
                           aria-label={t.tasks.dueLeadUnitLabel}
                           data-testid="task-due-lead-unit"
                           value={dueLeadUnit}
@@ -2087,8 +2178,14 @@ export function TaskCard({
                             </option>
                           ))}
                         </select>
+                        <span className="task-card__due-lead-before">{t.tasks.dueLeadBefore}</span>
                       </span>
                     </label>
+                    {dueLeadDraft === "" && (
+                      <span id={dueLeadDefaultId} className="task-card__due-status">
+                        {msg.taskDueLeadWorkspace(dueSoonLeadMinutes)}
+                      </span>
+                    )}
                     {dueTs !== null && (
                       <button
                         type="button"

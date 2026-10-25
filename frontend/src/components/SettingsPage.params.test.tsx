@@ -70,7 +70,9 @@ describe("SettingsPage · 參數調整", () => {
     expect(diskUsage.value).toBe("3600");
     expect(rows.indexOf(diskUsage)).toBe(rows.indexOf(loginRecheck) + 1);
     expect((utils.getByLabelText(s.dueSoonLead) as HTMLInputElement).value).toBe("1");
-    expect((utils.getByLabelText(zh.tasks.dueLeadUnitLabel) as HTMLSelectElement).value).toBe("day");
+    const leadUnit = utils.getByLabelText(zh.tasks.dueLeadUnitLabel) as HTMLSelectElement;
+    expect(leadUnit.value).toBe("day");
+    expect(leadUnit.nextElementSibling!.textContent).toBe("前");
   });
 
   it("changing the login TTL patches the server immediately", async () => {

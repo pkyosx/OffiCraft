@@ -91,6 +91,8 @@ const leadInput = () => screen.getByTestId("task-due-lead") as HTMLInputElement;
 const leadUnit = () => screen.getByTestId("task-due-lead-unit") as HTMLSelectElement;
 const dateInput = () => screen.getByTestId("task-due-input") as HTMLInputElement;
 const timeInput = () => screen.getByTestId("task-due-time-input") as HTMLInputElement;
+const datePick = () => screen.getByTestId("task-due-date-pick");
+const timePick = () => screen.getByTestId("task-due-time-pick");
 
 const chip = () => screen.getByTestId("task-due");
 const dueStatus = () => screen.queryByTestId("task-due-alert");
@@ -106,7 +108,17 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.useRealTimers();
+  delete (HTMLInputElement.prototype as { showPicker?: unknown }).showPicker;
 });
+
+function mockShowPicker() {
+  const showPicker = vi.fn(function (this: HTMLInputElement) {});
+  Object.defineProperty(HTMLInputElement.prototype, "showPicker", {
+    configurable: true,
+    value: showPicker,
+  });
+  return showPicker;
+}
 
 describe("TaskCard", () => {
   it("shows the due date with its weekday in a 到期日 row right below 建立者, in the plain text colour while the date is beyond the lead", () => {
@@ -222,6 +234,78 @@ describe("TaskCard", () => {
     expect(screen.queryByTestId("task-due-pop")).toBeNull();
   });
 
+  it("shows the draft date as 2026/10/30 and its time as 14:30 on the picker fields, and a picked date and time replace them", () => {
+    renderCard(mkTask({ dueTs: OCT_30_1430 }));
+    fireEvent.click(chip());
+    expect(datePick().textContent).toBe("2026/10/30");
+    expect(timePick().textContent).toBe("14:30");
+    fireEvent.change(dateInput(), { target: { value: "2026-12-31" } });
+    fireEvent.change(timeInput(), { target: { value: "15:41" } });
+    expect(datePick().textContent).toBe("2026/12/31");
+    expect(timePick().textContent).toBe("15:41");
+  });
+
+  it("shows 未設定 on the date field and 不指定時間 on the time field of a task without a due date", () => {
+    renderCard(mkTask({ dueTs: null }));
+    fireEvent.click(chip());
+    expect(datePick().textContent).toBe("未設定");
+    expect(timePick().textContent).toBe("不指定時間");
+    expect(timePick().className).toContain("task-card__due-pick--unset");
+  });
+
+  it("opens the date input's picker when the date field is clicked and the time input's picker when the time field is clicked", () => {
+    const showPicker = mockShowPicker();
+    renderCard(mkTask({ dueTs: OCT_30_END }));
+    fireEvent.click(chip());
+    fireEvent.click(datePick());
+    expect(showPicker.mock.contexts).toEqual([dateInput()]);
+    fireEvent.click(timePick());
+    expect(showPicker.mock.contexts).toEqual([dateInput(), timeInput()]);
+  });
+
+  it("opens the picker on Space and swallows digits, Backspace and arrows typed into the date and time inputs", () => {
+    const showPicker = mockShowPicker();
+    const { onSetDue } = renderCard(mkTask({ dueTs: OCT_30_1430 }));
+    fireEvent.click(chip());
+    for (const key of ["1", "Backspace", "Delete", "ArrowUp", "p"]) {
+      expect(fireEvent.keyDown(dateInput(), { key })).toBe(false);
+      expect(fireEvent.keyDown(timeInput(), { key })).toBe(false);
+    }
+    expect(showPicker).toHaveBeenCalledTimes(0);
+    expect(fireEvent.keyDown(timeInput(), { key: " " })).toBe(false);
+    expect(showPicker.mock.contexts).toEqual([timeInput()]);
+    expect(fireEvent.keyDown(dateInput(), { key: "Tab" })).toBe(true);
+    expect(dateInput().value).toBe("2026-10-30");
+    expect(timeInput().value).toBe("14:30");
+    fireEvent.keyDown(dateInput(), { key: "Enter" });
+    expect(onSetDue).toHaveBeenCalledTimes(0);
+    expect(screen.queryByTestId("task-due-pop")).toBeNull();
+  });
+
+  it("focuses the input instead when its picker cannot be shown", () => {
+    mockShowPicker().mockImplementationOnce(() => {
+      throw new DOMException("no activation", "NotAllowedError");
+    });
+    renderCard(mkTask({ dueTs: OCT_30_END }));
+    fireEvent.click(chip());
+    fireEvent.click(datePick());
+    expect(document.activeElement).toBe(dateInput());
+  });
+
+  it("returns a timed due date to 不指定時間 with 不指定 and stores 23:59:59 of that date on Enter", () => {
+    const { onSetDue } = renderCard(mkTask({ dueTs: OCT_25_0900 }));
+    fireEvent.click(chip());
+    const clearTime = screen.getByTestId("task-due-time-clear");
+    expect(clearTime.textContent).toBe("不指定");
+    expect(fireEvent.mouseDown(clearTime)).toBe(false);
+    fireEvent.click(clearTime);
+    expect(timePick().textContent).toBe("不指定時間");
+    expect(document.activeElement).toBe(timeInput());
+    expect(screen.getByTestId("task-due-pop")).toBeTruthy();
+    fireEvent.keyDown(timeInput(), { key: "Enter" });
+    expect(onSetDue).toHaveBeenCalledWith("task-1", OCT_25_END);
+  });
+
   it("stores 23:59:59 of the same date when the time of a timed due date is emptied", () => {
     const { onSetDue } = renderCard(mkTask({ dueTs: OCT_25_0900 }));
     fireEvent.click(chip());
@@ -309,7 +393,7 @@ describe("TaskCard", () => {
     fireEvent.click(chip());
     expect(leadInput().value).toBe("5");
     expect(leadUnit().value).toBe("day");
-    expect(leadInput().placeholder).toBe("全站設定 3 天");
+    expect(leadInput().placeholder).toBe("3");
     expect(Array.from(leadUnit().options).map((o) => o.textContent)).toEqual(["天", "小時", "分鐘"]);
     unmount();
 
@@ -317,7 +401,15 @@ describe("TaskCard", () => {
     fireEvent.click(chip());
     expect(leadInput().value).toBe("");
     expect(leadUnit().value).toBe("hour");
-    expect(leadInput().placeholder).toBe("全站設定 2 小時");
+    expect(leadInput().placeholder).toBe("2");
+    expect(leadUnit().className).toBe(
+      "task-card__due-input task-card__due-lead-unit task-card__due-lead-unit--default"
+    );
+    expect(leadUnit().nextElementSibling!.textContent).toBe("前");
+    const description = document.getElementById(leadInput().getAttribute("aria-describedby")!)!;
+    expect(description.textContent).toBe("全站設定 2 小時");
+    fireEvent.change(leadInput(), { target: { value: "5" } });
+    expect(leadUnit().className).toBe("task-card__due-input task-card__due-lead-unit");
   });
 
   it.each([
@@ -381,10 +473,15 @@ describe("TaskCard", () => {
     expect(screen.queryByTestId("task-due-pop")).toBeNull();
   });
 
-  it("returns a task's own lead to the workspace setting when the field is emptied and Enter is pressed", () => {
+  it("returns a task's own lead and its unit to the workspace setting when the field is emptied, and saves that on Enter", () => {
     const { onSetDue } = renderCard(mkTask({ dueTs: OCT_30_END, dueSoonLeadMinutes: 7200 }));
     fireEvent.click(chip());
+    fireEvent.change(leadInput(), { target: { value: "2" } });
+    fireEvent.change(leadUnit(), { target: { value: "hour" } });
     fireEvent.change(leadInput(), { target: { value: "" } });
+    expect(leadUnit().value).toBe("day");
+    expect(leadUnit().className).toContain("task-card__due-lead-unit--default");
+    expect(leadInput().placeholder).toBe("1");
     expect(onSetDue).not.toHaveBeenCalled();
     fireEvent.keyDown(leadInput(), { key: "Enter" });
     expect(onSetDue).toHaveBeenCalledWith("task-1", OCT_30_END, null);

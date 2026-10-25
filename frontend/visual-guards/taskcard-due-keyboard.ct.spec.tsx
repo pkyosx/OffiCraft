@@ -1,6 +1,6 @@
-// The date input reports each keyboard segment edit as a complete date, so a
-// guard in jsdom (where fireEvent.change hands over a finished value) cannot
-// see a partial edit being saved. This drives Chromium's real segmented input.
+// Drives Chromium's real date and time inputs: they take no typing, a picker
+// choice (simulated with fill) is saved only on Enter, blur or an outside
+// click, and the picker fields share one line at phone widths.
 import { test, expect } from "@playwright/experimental-ct-react";
 import { TaskCardDueStory } from "./stories/TaskCardDueStory";
 
@@ -15,60 +15,59 @@ const endOfDay = (page: any, y: number, m: number, d: number) =>
 
 test.use({ locale: "en-US" });
 
-test("typing a date segment by segment saves nothing until Enter", async ({
+test("digits typed into the date and time keep their values, and a picked date is saved once, on Enter", async ({
   mount,
   page,
 }) => {
   const cmp = await mount(<TaskCardDueStory />);
   await cmp.getByTestId("task-due").click();
   const input = cmp.getByTestId("task-due-input");
+  const time = cmp.getByTestId("task-due-time-input");
   await expect(input).toHaveValue("2099-10-30");
   await input.focus();
-
-  await page.keyboard.type("1");
-  await expect(input).toHaveValue("2099-01-30");
-  await page.keyboard.type("1");
-  await expect(input).toHaveValue("2099-11-30");
-  await page.keyboard.type("15");
-  await expect(input).toHaveValue("2099-11-15");
-  expect(await saves(page)).toEqual([]);
+  await page.keyboard.type("1115");
+  await page.keyboard.press("Backspace");
+  await page.keyboard.press("ArrowUp");
+  await expect(input).toHaveValue("2099-10-30");
+  await time.focus();
+  await page.keyboard.type("0230P");
+  await expect(time).toHaveValue("");
   await expect(cmp.getByTestId("task-due-pop")).toBeVisible();
 
+  await input.fill("2099-11-15");
+  await expect(cmp.getByTestId("task-due-date-pick")).toHaveText("2099/11/15");
+  expect(await saves(page)).toEqual([]);
   await page.keyboard.press("Enter");
   expect(await saves(page)).toEqual([await endOfDay(page, 2099, 11, 15)]);
   await expect(cmp.getByTestId("task-due-pop")).toHaveCount(0);
 });
 
-test("a partial edit is committed once by clicking outside", async ({
+test("a picked date is committed once by clicking outside", async ({
   mount,
   page,
 }) => {
   const cmp = await mount(<TaskCardDueStory />);
   await cmp.getByTestId("task-due").click();
-  const input = cmp.getByTestId("task-due-input");
-  await input.focus();
-  await page.keyboard.type("1");
+  await cmp.getByTestId("task-due-input").fill("2099-01-30");
   expect(await saves(page)).toEqual([]);
 
   await cmp.getByTestId("outside").click();
   expect(await saves(page)).toEqual([await endOfDay(page, 2099, 1, 30)]);
 });
 
-test("Escape discards a typed edit", async ({ mount, page }) => {
+test("Escape discards a picked date", async ({ mount, page }) => {
   const cmp = await mount(<TaskCardDueStory />);
   await cmp.getByTestId("task-due").click();
-  await cmp.getByTestId("task-due-input").focus();
-  await page.keyboard.type("11");
+  await cmp.getByTestId("task-due-input").fill("2099-11-30");
   await page.keyboard.press("Escape");
   expect(await saves(page)).toEqual([]);
   await expect(cmp.getByTestId("task-due-pop")).toHaveCount(0);
 });
 
-test("清除 after a typed edit saves only the clear", async ({ mount, page }) => {
+test("清除 after a picked date saves only the clear", async ({ mount, page }) => {
   const cmp = await mount(<TaskCardDueStory />);
   await cmp.getByTestId("task-due").click();
-  await cmp.getByTestId("task-due-input").focus();
-  await page.keyboard.type("11");
+  await cmp.getByTestId("task-due-input").fill("2099-11-30");
   await cmp.getByTestId("task-due-clear").click();
   expect(await saves(page)).toEqual([null]);
 });
@@ -80,8 +79,7 @@ test("clicking the chip again closes the popover for good and saves once", async
   const cmp = await mount(<TaskCardDueStory />);
   const chip = cmp.getByTestId("task-due");
   await chip.click();
-  await cmp.getByTestId("task-due-input").focus();
-  await page.keyboard.type("11");
+  await cmp.getByTestId("task-due-input").fill("2099-11-30");
   await chip.click();
   await expect(cmp.getByTestId("task-due-pop")).toHaveCount(0);
   await page.waitForTimeout(100);
@@ -89,7 +87,7 @@ test("clicking the chip again closes the popover for good and saves once", async
   expect(await saves(page)).toEqual([await endOfDay(page, 2099, 11, 30)]);
 });
 
-test("a time typed after tabbing over from the date is saved once, on Enter, as that local minute", async ({
+test("a time picked after tabbing over from the date is saved once, on Enter, as that local minute", async ({
   mount,
   page,
 }) => {
@@ -104,8 +102,8 @@ test("a time typed after tabbing over from the date is saved once, on Enter, as 
   }
   await expect(time).toBeFocused();
   await expect(cmp.getByTestId("task-due-pop")).toBeVisible();
-  await page.keyboard.type("0230P");
-  await expect(time).toHaveValue("14:30");
+  await time.fill("14:30");
+  await expect(cmp.getByTestId("task-due-time-pick")).toHaveText("14:30");
   expect(await saves(page)).toEqual([]);
 
   await page.keyboard.press("Enter");
@@ -152,6 +150,20 @@ test("picking 小時 in the unit select keeps the popover open and saves nothing
   await expect(cmp.getByTestId("task-due-pop")).toHaveCount(0);
 });
 
+test("the unit select is in the muted 前 colour while the lead follows the workspace, and in the field text colour once a number is typed", async ({
+  mount,
+}) => {
+  const cmp = await mount(<TaskCardDueStory />);
+  await cmp.getByTestId("task-due").click();
+  const colour = (loc: any) => loc.evaluate((el: Element) => getComputedStyle(el).color);
+  const lead = cmp.getByTestId("task-due-lead");
+  const unit = cmp.getByTestId("task-due-lead-unit");
+  const muted = await colour(cmp.locator(".task-card__due-lead-before"));
+  expect(await colour(unit)).toBe(muted);
+  await lead.fill("3");
+  expect(await colour(unit)).toBe(await colour(lead));
+});
+
 test("unparseable lead text does not replace the task's own lead with the workspace setting", async ({
   mount,
   page,
@@ -171,46 +183,61 @@ test("unparseable lead text does not replace the task's own lead with the worksp
 });
 
 const OVERDUE_2020 = Math.floor(new Date(2020, 0, 1, 23, 59, 59).getTime() / 1000);
+const OVERDUE_2020_1541 = Math.floor(new Date(2020, 0, 1, 15, 41, 0).getTime() / 1000);
+
+const sameLine = (a: { y: number; height: number }, b: { y: number; height: number }) =>
+  Math.abs(a.y + a.height / 2 - (b.y + b.height / 2));
 
 for (const width of [320, 390]) {
-  test(`the 到期日 row with its red overdue date, and the due popover with its whole date, its time below it and its lead unit select, stay inside the card at ${width}px`, async ({
-    mount,
-    page,
-  }) => {
-    await page.setViewportSize({ width, height: 700 });
-    const cmp = await mount(<TaskCardDueStory dueTs={OVERDUE_2020} />);
-    const card = (await cmp.locator(".task-card").boundingBox())!;
-    const content = (await cmp.locator(".task-card__meta").boundingBox())!;
-    const chip = (await cmp.getByTestId("task-due").boundingBox())!;
-    expect(chip.x + chip.width).toBeLessThanOrEqual(content.x + content.width);
-    expect(
-      await cmp.locator(".task-card").evaluate((el) => el.scrollWidth - el.clientWidth)
-    ).toBe(0);
+  for (const [label, dueTs] of [
+    ["without a time", OVERDUE_2020],
+    ["with 15:41 and 不指定", OVERDUE_2020_1541],
+  ] as const) {
+    test(`at ${width}px the 到期日 row with its red date, and the due popover ${label} with date and time on one line and 「[n] [unit] 前」 on one line, stay inside the card`, async ({
+      mount,
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 700 });
+      const cmp = await mount(<TaskCardDueStory dueTs={dueTs} />);
+      const card = (await cmp.locator(".task-card").boundingBox())!;
+      const content = (await cmp.locator(".task-card__meta").boundingBox())!;
+      const chip = (await cmp.getByTestId("task-due").boundingBox())!;
+      expect(chip.x + chip.width).toBeLessThanOrEqual(content.x + content.width);
+      expect(
+        await cmp.locator(".task-card").evaluate((el) => el.scrollWidth - el.clientWidth)
+      ).toBe(0);
 
-    await cmp.getByTestId("task-due").click();
-    const pop = (await cmp.getByTestId("task-due-pop").boundingBox())!;
-    const date = (await cmp.getByTestId("task-due-input").boundingBox())!;
-    const time = (await cmp.getByTestId("task-due-time-input").boundingBox())!;
-    const input = (await cmp.getByTestId("task-due-lead").boundingBox())!;
-    const unit = (await cmp.getByTestId("task-due-lead-unit").boundingBox())!;
-    expect(pop.x).toBeGreaterThanOrEqual(card.x);
-    expect(pop.x + pop.width).toBeLessThanOrEqual(content.x + content.width);
-    expect(pop.y).toBeGreaterThan(chip.y);
-    expect(date.x).toBeGreaterThanOrEqual(pop.x);
-    expect(date.width).toBeGreaterThanOrEqual(140);
-    expect(time.y).toBeGreaterThanOrEqual(date.y + date.height);
-    expect(time.width).toBeGreaterThanOrEqual(100);
-    expect(time.x + time.width).toBeLessThanOrEqual(pop.x + pop.width);
-    expect(time.x + time.width).toBeLessThanOrEqual(content.x + content.width);
-    expect(input.width).toBeGreaterThanOrEqual(80);
-    expect(unit.x).toBeGreaterThanOrEqual(input.x + input.width);
-    expect(Math.abs(unit.y + unit.height / 2 - (input.y + input.height / 2))).toBeLessThan(2);
-    expect(unit.x + unit.width).toBeLessThanOrEqual(pop.x + pop.width);
-    expect(unit.x + unit.width).toBeLessThanOrEqual(content.x + content.width);
-    expect(
-      await cmp.locator(".task-card").evaluate((el) => el.scrollWidth - el.clientWidth)
-    ).toBe(0);
-  });
+      await cmp.getByTestId("task-due").click();
+      const pop = (await cmp.getByTestId("task-due-pop").boundingBox())!;
+      const datePick = cmp.getByTestId("task-due-date-pick");
+      await expect(datePick).toHaveText("2020/01/01");
+      const date = (await datePick.boundingBox())!;
+      const time = (await cmp.getByTestId("task-due-time-pick").boundingBox())!;
+      const last = (await cmp.locator(".task-card__due-when > :last-child").boundingBox())!;
+      const input = (await cmp.getByTestId("task-due-lead").boundingBox())!;
+      const unit = (await cmp.getByTestId("task-due-lead-unit").boundingBox())!;
+      const before = (await cmp.locator(".task-card__due-lead-before").boundingBox())!;
+      expect(pop.x).toBeGreaterThanOrEqual(card.x);
+      expect(pop.x + pop.width).toBeLessThanOrEqual(content.x + content.width);
+      expect(pop.y).toBeGreaterThan(chip.y);
+      expect(date.x).toBeGreaterThanOrEqual(pop.x);
+      expect(await datePick.evaluate((el) => el.clientWidth - el.scrollWidth)).toBeGreaterThanOrEqual(0);
+      expect(sameLine(time, date)).toBeLessThan(2);
+      expect(time.x).toBeGreaterThanOrEqual(date.x + date.width);
+      expect(sameLine(last, date)).toBeLessThan(2);
+      expect(last.x + last.width).toBeLessThanOrEqual(pop.x + pop.width);
+      expect(input.width).toBeGreaterThanOrEqual(60);
+      expect(unit.x).toBeGreaterThanOrEqual(input.x + input.width);
+      expect(before.x).toBeGreaterThanOrEqual(unit.x + unit.width);
+      expect(sameLine(unit, input)).toBeLessThan(2);
+      expect(sameLine(before, input)).toBeLessThan(2);
+      expect(before.x + before.width).toBeLessThanOrEqual(pop.x + pop.width);
+      expect(before.x + before.width).toBeLessThanOrEqual(content.x + content.width);
+      expect(
+        await cmp.locator(".task-card").evaluate((el) => el.scrollWidth - el.clientWidth)
+      ).toBe(0);
+    });
+  }
 }
 
 test("on a desktop-wide card the due popover keeps a picker's width, with date and time on one line", async ({
@@ -218,14 +245,14 @@ test("on a desktop-wide card the due popover keeps a picker's width, with date a
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 700 });
-  const cmp = await mount(<TaskCardDueStory dueTs={OVERDUE_2020} />);
+  const cmp = await mount(<TaskCardDueStory dueTs={OVERDUE_2020_1541} />);
   await cmp.getByTestId("task-due").click();
   const pop = (await cmp.getByTestId("task-due-pop").boundingBox())!;
-  const date = (await cmp.getByTestId("task-due-input").boundingBox())!;
-  const time = (await cmp.getByTestId("task-due-time-input").boundingBox())!;
+  const date = (await cmp.getByTestId("task-due-date-pick").boundingBox())!;
+  const time = (await cmp.getByTestId("task-due-time-pick").boundingBox())!;
+  await expect(cmp.getByTestId("task-due-time-pick")).toHaveText("15:41");
   expect(pop.width).toBeLessThanOrEqual(300);
-  expect(date.width).toBeGreaterThanOrEqual(140);
-  expect(Math.abs(time.y - date.y)).toBeLessThan(2);
+  expect(sameLine(time, date)).toBeLessThan(2);
   expect(time.x).toBeGreaterThanOrEqual(date.x + date.width);
   expect(time.x + time.width).toBeLessThanOrEqual(pop.x + pop.width);
 });

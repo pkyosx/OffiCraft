@@ -2062,6 +2062,7 @@ function ServerParams({
                   <option key={unit} value={unit}>{dueLeadUnitText[unit]}</option>
                 ))}
               </select>
+              <span className="param-pct__sign">{t.tasks.dueLeadBefore}</span>
             </div>
           </div>
 

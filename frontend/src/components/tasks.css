@@ -1003,20 +1003,64 @@ button.task-card__prio-chip:hover {
   flex-direction: column;
   gap: 4px;
 }
-/* Date and time share a line while both fit whole; on the phone's narrower
-   picker the time drops to its own line instead of cutting the year off. */
+/* One line on every width: the date and time are compact picker fields, not
+   the wide native controls, so nothing has to wrap. */
 .task-card__due-when {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 4px;
 }
-.task-card__due-date-input {
-  flex: 1 1 140px;
+/* The native input lies transparently over its field, so a tap reaches it
+   directly and a touch browser opens its own picker. */
+.task-card__due-pick {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.task-card__due-pick:focus-within {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+.task-card__due-pick:has(:disabled) {
+  cursor: default;
+  opacity: 0.55;
+}
+.task-card__due-input.task-card__due-pick--unset {
+  color: var(--color-text-muted);
+}
+.task-card__due-date-pick {
+  flex: 1 1 auto;
   min-width: 0;
 }
-.task-card__due-time-input {
-  flex: 1 1 100px;
+.task-card__due-time-pick {
+  flex: none;
+}
+.task-card__due-pick-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: inherit;
+  font: inherit;
+}
+.task-card__due-time-clear {
+  flex: none;
+  margin: 0;
+  padding: 2px 4px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  white-space: nowrap;
 }
 .task-card__due-lead {
   display: flex;
@@ -1044,6 +1088,14 @@ button.task-card__prio-chip:hover {
 .task-card__due-lead-unit {
   flex: none;
 }
+.task-card__due-input.task-card__due-lead-unit--default {
+  color: var(--color-text-muted);
+}
+.task-card__due-lead-before {
+  flex: none;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
 .task-card__due-input {
   font: inherit;
   font-size: 13px;
@@ -1053,6 +1105,10 @@ button.task-card__prio-chip:hover {
   background: var(--color-bg);
   color: var(--color-text);
   color-scheme: inherit;
+}
+.task-card__due-input::placeholder {
+  color: var(--color-text-muted);
+  opacity: 1;
 }
 
 /* 狀態 badge → owner-action dropdown (v5): 標記重複 / 終止 (+ the 等我回覆 jump
