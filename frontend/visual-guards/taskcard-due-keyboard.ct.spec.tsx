@@ -64,12 +64,25 @@ test("Escape discards a picked date", async ({ mount, page }) => {
   await expect(cmp.getByTestId("task-due-pop")).toHaveCount(0);
 });
 
-test("清除 after a picked date saves only the clear", async ({ mount, page }) => {
+test("the date's ✕ after a picked date keeps the popover open, and ✓ then saves only the clear", async ({ mount, page }) => {
   const cmp = await mount(<TaskCardDueStory />);
   await cmp.getByTestId("task-due").click();
   await cmp.getByTestId("task-due-input").fill("2099-11-30");
-  await cmp.getByTestId("task-due-clear").click();
+  await cmp.getByTestId("task-due-date-clear").click();
+  await expect(cmp.getByTestId("task-due-pop")).toHaveCount(1);
+  expect(await saves(page)).toEqual([]);
+  await cmp.getByTestId("task-due-apply").click();
   expect(await saves(page)).toEqual([null]);
+});
+
+test("the time's ✕ takes the picked time off and leaves the date", async ({ mount, page }) => {
+  const cmp = await mount(<TaskCardDueStory />);
+  await cmp.getByTestId("task-due").click();
+  await cmp.getByTestId("task-due-time-input").fill("15:41");
+  await cmp.getByTestId("task-due-time-clear").click();
+  await expect(cmp.getByTestId("task-due-time-pick")).toHaveText("不指定時間");
+  await cmp.getByTestId("task-due-apply").click();
+  expect(await saves(page)).toEqual([]);
 });
 
 test("clicking the chip again closes the popover for good and saves once", async ({

@@ -977,6 +977,10 @@ export function TaskCard({
     dueSessionRef.current = false;
     setDueOpen(false);
     if (!commit) return;
+    if (dueDraftRef.current === "") {
+      if (dueTs !== null) void doSetDue(null);
+      return;
+    }
     // An untouched date and time keep the stored moment: an API-set due time
     // can carry seconds the HH:MM box cannot show.
     const next =
@@ -1042,9 +1046,9 @@ export function TaskCard({
     onBlur: dueFieldCommit.onBlur,
   };
 
-  function clearDue() {
-    finishDue(false);
-    void doSetDue(null);
+  function clearDueDraft() {
+    editDueDraft("");
+    editDueTimeDraft("");
   }
 
   // 步驟備註 (T-66) — 點開才抓. The card holds only `noteSizeChars`, so the text
@@ -2108,6 +2112,22 @@ export function TaskCard({
                           onChange={(e) => editDueDraft(e.target.value)}
                           {...duePickerField}
                         />
+                        {dueDraft !== "" && (
+                          <button
+                            type="button"
+                            className="task-card__due-pick-clear"
+                            aria-label={t.tasks.dueClearLabel}
+                            title={t.tasks.dueClearLabel}
+                            data-testid="task-due-date-clear"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              clearDueDraft();
+                            }}
+                          >
+                            <CloseIcon size={12} />
+                          </button>
+                        )}
                       </span>
                       <span
                         className={`task-card__due-input task-card__due-pick task-card__due-time-pick${
@@ -2130,6 +2150,22 @@ export function TaskCard({
                           onChange={(e) => editDueTimeDraft(e.target.value)}
                           {...duePickerField}
                         />
+                        {dueTimeDraft !== "" && (
+                          <button
+                            type="button"
+                            className="task-card__due-pick-clear"
+                            aria-label={t.tasks.dueTimeClearLabel}
+                            title={t.tasks.dueTimeClearLabel}
+                            data-testid="task-due-time-clear"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              editDueTimeDraft("");
+                            }}
+                          >
+                            <CloseIcon size={12} />
+                          </button>
+                        )}
                       </span>
                     </div>
                     <label className="task-card__due-lead">
@@ -2179,18 +2215,6 @@ export function TaskCard({
                       </span>
                     )}
                     <div className="task-card__due-actions">
-                      {dueTs !== null && (
-                        <button
-                          type="button"
-                          className="task-card__menu-item"
-                          aria-label={t.tasks.dueClearLabel}
-                          data-testid="task-due-clear"
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={clearDue}
-                        >
-                          {t.tasks.dueClear}
-                        </button>
-                      )}
                       <button
                         type="button"
                         className="inline-edit__iconbtn inline-edit__iconbtn--apply"

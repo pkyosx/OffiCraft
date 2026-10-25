@@ -401,19 +401,45 @@ describe("TaskCard", () => {
     expect(onSetDue).not.toHaveBeenCalled();
   });
 
-  it("clears the due date with 清除", () => {
-    const { onSetDue } = renderCard(mkTask({ dueTs: OCT_30_END }));
+  it("clears the date and its time with the date's ✕, keeps the popover open, and saves the clear only on ✓", () => {
+    const { onSetDue } = renderCard(mkTask({ dueTs: OCT_30_1430 }));
     fireEvent.click(chip());
-    expect(
-      (screen.getByTestId("task-due-input") as HTMLInputElement).value
-    ).toBe("2026-10-30");
-    expect(timeInput().value).toBe("");
-    const clear = screen.getByTestId("task-due-clear");
-    expect(clear.textContent).toBe("清除");
+    const clear = screen.getByTestId("task-due-date-clear");
+    expect(clear.getAttribute("aria-label")).toBe("清除到期日");
     expect(fireEvent.mouseDown(clear)).toBe(false);
     fireEvent.click(clear);
+    expect((screen.getByTestId("task-due-input") as HTMLInputElement).value).toBe("");
+    expect(timeInput().value).toBe("");
+    expect(screen.getByTestId("task-due-date-pick").textContent).toBe("未設定");
+    expect(screen.getByTestId("task-due-pop")).toBeTruthy();
+    expect(onSetDue).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("task-due-apply"));
     expect(onSetDue).toHaveBeenCalledTimes(1);
     expect(onSetDue).toHaveBeenCalledWith("task-1", null);
+  });
+
+  it("clears only the time with the time's ✕, and ✓ saves the date at the end of its day", () => {
+    const { onSetDue } = renderCard(mkTask({ dueTs: OCT_30_1430 }));
+    fireEvent.click(chip());
+    const clear = screen.getByTestId("task-due-time-clear");
+    expect(clear.getAttribute("aria-label")).toBe("清除時間");
+    fireEvent.click(clear);
+    expect(timeInput().value).toBe("");
+    expect((screen.getByTestId("task-due-input") as HTMLInputElement).value).toBe("2026-10-30");
+    expect(onSetDue).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("task-due-apply"));
+    expect(onSetDue).toHaveBeenCalledWith("task-1", OCT_30_END);
+  });
+
+  it("offers the date's ✕ as soon as a date is picked on a task with none, and ✗ after it saves nothing", () => {
+    const { onSetDue } = renderCard(mkTask({ dueTs: null }));
+    fireEvent.click(chip());
+    expect(screen.queryByTestId("task-due-date-clear")).toBeNull();
+    fireEvent.change(screen.getByTestId("task-due-input"), { target: { value: "2026-10-30" } });
+    fireEvent.click(screen.getByTestId("task-due-date-clear"));
+    expect(screen.getByTestId("task-due-date-pick").textContent).toBe("未設定");
+    fireEvent.click(screen.getByTestId("task-due-cancel"));
+    expect(onSetDue).not.toHaveBeenCalled();
   });
 
   it("shows the task's own lead in the lead field and the workspace lead in its own unit as the empty field's placeholder", () => {

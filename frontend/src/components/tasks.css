@@ -1061,15 +1061,27 @@ button.task-card__prio-chip:hover {
   cursor: inherit;
   font: inherit;
 }
-/* 清除 on the left, the inline-edit ✓ / ✗ pair on the right. */
+/* Sits above the transparent native input, which covers the whole field. */
+.task-card__due-pick-clear {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  margin: 0 0 0 auto;
+  padding: 0 0 0 6px;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.task-card__due-pick-clear:hover {
+  color: var(--color-text);
+}
 .task-card__due-actions {
   display: flex;
   align-items: center;
   gap: 4px;
-}
-.task-card__due-actions .task-card__menu-item {
-  flex: 1 1 auto;
-  width: auto;
 }
 .task-card__due-actions .inline-edit__iconbtn {
   cursor: pointer;
