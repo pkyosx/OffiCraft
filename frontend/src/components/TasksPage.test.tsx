@@ -1393,7 +1393,7 @@ describe("TasksPage", () => {
     expect(laneToggle("adhoc").textContent).toBe("類型：自由代辦 · 1");
   });
 
-  it("groups by 狀態 in the 狀態 filter's order, the 已完成 / 終止 lanes after the open ones", async () => {
+  it("groups by 狀態 in the 狀態 filter's order, the 已完成 / 終止 lanes after the open ones, titled in plain text like every other grouping", async () => {
     __injectMockTask(mkTask({ title: "等我的", status: "waiting_owner" }));
     __injectMockTask(mkTask({ title: "還沒開始", status: "not_started" }));
     __injectMockTask(mkTask({ title: "跑著的" }));
@@ -1426,11 +1426,7 @@ describe("TasksPage", () => {
     expect(laneToggle("done").textContent).toBe("狀態：已完成 · 1");
     expect(laneToggle("terminated").textContent).toBe("狀態：終止 · 1");
     for (const status of ["waiting_owner", "done", "terminated"]) {
-      expect(
-        laneToggle(status)
-          .querySelector(".task-badge")!
-          .classList.contains(`task-badge--status-${status}`)
-      ).toBe(true);
+      expect(laneToggle(status).querySelector(".task-badge")).toBeNull();
     }
     fireEvent.click(laneToggle("done"));
     expect(laneTitles("done")).toEqual(["結掉的"]);

@@ -125,9 +125,6 @@ function writeGroupBy(next: GroupBy): void {
 interface Lane {
   key: string;
   title: string;
-  /** Badge classes for the title chip, so a lane reads like the chips on its
-   * cards; plain text when absent. */
-  chipClass?: string;
   tasks: TaskView[];
 }
 
@@ -818,7 +815,6 @@ export function TasksPage() {
           STATUS_OPTIONS.filter((s) => s !== "reassigning").map((s) => ({
             key: s,
             title: t.tasks.status[s],
-            chipClass: `task-badge task-badge--status-${s}`,
           })),
           (key) => t.tasks.status[key] ?? key
         );
@@ -1016,11 +1012,7 @@ export function TasksPage() {
           />
           <span>
             {laneLead}
-            {lane.chipClass ? (
-              <span className={lane.chipClass}>{lane.title}</span>
-            ) : (
-              lane.title
-            )}
+            {lane.title}
           </span>
           <span data-testid={`lane-count-${lane.key}`}>
             {` · ${lane.tasks.length}`}
