@@ -315,4 +315,9 @@ test("on a desktop-wide card the due popover keeps a picker's width, with date a
   await expect(cmp.getByTestId("task-due-time-pick")).toHaveText("09:05");
   expect((await cmp.getByTestId("task-due-time-pick").boundingBox())!).toEqual(time);
   expect((await cmp.getByTestId("task-due-date-pick").boundingBox())!).toEqual(date);
+  // iOS Safari draws the unit select narrower than 「不指定時間」.
+  await page.addStyleTag({ content: ".task-card__due-lead-unit { flex: none; width: 40px; }" });
+  const narrowWithTime = (await cmp.getByTestId("task-due-time-pick").boundingBox())!;
+  await cmp.getByTestId("task-due-time-clear").click();
+  expect((await cmp.getByTestId("task-due-time-pick").boundingBox())!).toEqual(narrowWithTime);
 });

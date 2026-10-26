@@ -2136,8 +2136,12 @@ export function TaskCard({
                         data-testid="task-due-time-pick"
                         onClick={() => openDuePicker(dueTimeInputRef.current)}
                       >
-                        <span aria-hidden="true">
-                          {dueTimeDraft === "" ? t.tasks.dueTimeUnset : dueTimeDraft}
+                        <span
+                          className="task-card__due-time-text"
+                          data-unset={t.tasks.dueTimeUnset}
+                          aria-hidden="true"
+                        >
+                          <span>{dueTimeDraft === "" ? t.tasks.dueTimeUnset : dueTimeDraft}</span>
                         </span>
                         <input
                           type="time"

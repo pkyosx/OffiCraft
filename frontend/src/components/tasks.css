@@ -1054,6 +1054,20 @@ button.task-card__prio-chip:hover {
 .task-card__due-time-pick {
   padding-right: 26px;
 }
+/* A hidden copy of 「不指定時間」 keeps the time field at least that wide, so
+   where the unit select is narrower (iOS Safari) picking a time does not
+   shrink the shared column. */
+.task-card__due-time-text {
+  display: inline-grid;
+}
+.task-card__due-time-text > span,
+.task-card__due-time-text::after {
+  grid-area: 1 / 1;
+}
+.task-card__due-time-text::after {
+  content: attr(data-unset);
+  visibility: hidden;
+}
 .task-card__due-pick-input {
   position: absolute;
   inset: 0;
