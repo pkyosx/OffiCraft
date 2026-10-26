@@ -337,13 +337,21 @@ describe("TaskCard", () => {
     expect(onSetDue).toHaveBeenCalledWith("task-1", OCT_25_END);
   });
 
-  it("commits the draft when the input loses focus", () => {
+  it("commits the draft when the input, or a button in the popover, loses focus to the page", () => {
     const { onSetDue } = renderCard(mkTask({ dueTs: null }));
     fireEvent.click(chip());
     const input = screen.getByTestId("task-due-input");
     fireEvent.change(input, { target: { value: "2026-10-30" } });
     fireEvent.blur(input, { relatedTarget: document.body });
     expect(onSetDue).toHaveBeenCalledWith("task-1", OCT_30_END);
+    expect(screen.queryByTestId("task-due-pop")).toBeNull();
+
+    fireEvent.click(chip());
+    fireEvent.change(dateInput(), { target: { value: "2026-10-30" } });
+    fireEvent.change(timeInput(), { target: { value: "10:00" } });
+    fireEvent.blur(screen.getByTestId("task-due-cancel"), { relatedTarget: document.body });
+    expect(onSetDue).toHaveBeenLastCalledWith("task-1", OCT_30_1000);
+    expect(screen.queryByTestId("task-due-pop")).toBeNull();
   });
 
   it("commits the draft once on an outside click", () => {
@@ -382,7 +390,7 @@ describe("TaskCard", () => {
     expect(screen.queryByTestId("task-due-pop")).toBeNull();
   });
 
-  it("discards the date and lead drafts on Escape", () => {
+  it("discards the date and lead drafts on Escape, from a field or a popover button", () => {
     const { onSetDue } = renderCard(mkTask({ dueTs: OCT_25_END }));
     fireEvent.click(chip());
     const input = screen.getByTestId("task-due-input");
@@ -402,6 +410,11 @@ describe("TaskCard", () => {
     fireEvent.click(chip());
     expect(leadInput().value).toBe("");
     expect(leadUnit().value).toBe("day");
+
+    fireEvent.change(dateInput(), { target: { value: "2026-10-30" } });
+    fireEvent.keyDown(screen.getByTestId("task-due-apply"), { key: "Escape" });
+    expect(onSetDue).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("task-due-pop")).toBeNull();
   });
 
   it("does not store the partial year a typed date passes through", () => {
@@ -413,7 +426,7 @@ describe("TaskCard", () => {
     expect(onSetDue).not.toHaveBeenCalled();
   });
 
-  it("clears the date and its time with the date's ✕, keeps the popover open, and saves the clear only on ✓", () => {
+  it("clears the date and its time with the date's ✕, keeps the popover open with focus on the date when pressed from the keyboard, and saves the clear only on ✓", () => {
     const { onSetDue } = renderCard(mkTask({ dueTs: OCT_30_1430 }));
     fireEvent.click(chip());
     const clear = screen.getByTestId("task-due-date-clear");
@@ -424,18 +437,20 @@ describe("TaskCard", () => {
     expect(timeInput().value).toBe("");
     expect(screen.getByTestId("task-due-date-pick").textContent).toBe("未設定");
     expect(screen.getByTestId("task-due-pop")).toBeTruthy();
+    expect(document.activeElement).toBe(screen.getByTestId("task-due-input"));
     expect(onSetDue).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId("task-due-apply"));
     expect(onSetDue).toHaveBeenCalledTimes(1);
     expect(onSetDue).toHaveBeenCalledWith("task-1", null);
   });
 
-  it("clears only the time with the time's ✕, and ✓ saves the date at the end of its day", () => {
+  it("clears only the time with a tap on the time's ✕, leaving focus where it was so a phone opens no picker, and ✓ saves the date at the end of its day", () => {
     const { onSetDue } = renderCard(mkTask({ dueTs: OCT_30_1430 }));
     fireEvent.click(chip());
     const clear = screen.getByTestId("task-due-time-clear");
     expect(clear.getAttribute("aria-label")).toBe("清除時間");
-    fireEvent.click(clear);
+    fireEvent.click(clear, { detail: 1 });
+    expect(document.activeElement).toBe(document.body);
     expect(timeInput().value).toBe("");
     expect((screen.getByTestId("task-due-input") as HTMLInputElement).value).toBe("2026-10-30");
     expect(onSetDue).not.toHaveBeenCalled();

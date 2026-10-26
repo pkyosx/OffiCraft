@@ -1290,6 +1290,34 @@ describe("TasksPage", () => {
     }
   });
 
+  it("moves a closed task picked in 狀態 to 即將到期 as the clock passes its boundary, like an open one", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const now = Date.now() / 1000;
+      __injectMockTask(
+        mkTask({ title: "做完的", status: "done", closedTs: now - 60, dueTs: now + 86_400 + 10 })
+      );
+      vi.spyOn(api, "getTaskCount").mockResolvedValue({
+        open: 0,
+        total: 1,
+        overdue: 0,
+        dueSoon: 0,
+        dueNextChangeTs: null,
+      });
+      renderPage();
+      chooseGroupBy("due");
+      toggleFilter("filter-status", "done");
+      await waitFor(() => expect(laneKeys()).toEqual(["later"]));
+
+      await act(async () => {
+        vi.advanceTimersByTime(20_000);
+      });
+      await waitFor(() => expect(laneKeys()).toEqual(["soon"]));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("shows an id-filtered task that sits in a collapsed lane", async () => {
     const target = mkTask({
       title: "收起來的那張",

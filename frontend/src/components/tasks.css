@@ -980,7 +980,10 @@ button.task-card__prio-chip:hover {
   color: var(--color-text-muted);
   white-space: nowrap;
 }
+/* The plain declaration is the fallback for Safari before 17.4, which drops
+   the alt-text form and would lose the separator. */
 .task-card__due-remaining::before {
+  content: "· ";
   content: "· " / "";
 }
 .task-card__due-date--overdue {

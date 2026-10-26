@@ -262,7 +262,7 @@ function nextListDueChange(
 ): number | null {
   let next: number | null = null;
   for (const task of tasks) {
-    if (task.dueTs == null || TERMINAL.has(task.status)) continue;
+    if (task.dueTs == null) continue;
     const at = nextDueChangeTs(
       task.dueTs,
       nowTs,

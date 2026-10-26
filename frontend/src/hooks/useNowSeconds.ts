@@ -31,8 +31,9 @@ export function useNowSeconds(wakeAt: number | null = null): number {
   const [woke, setWoke] = useState(0);
   useEffect(() => {
     if (wakeAt === null) return;
-    const remaining = wakeAt * 1000 - Date.now();
-    if (remaining <= 0) return;
+    // wakeAt was worked out at render; a render just before the moment can
+    // reach this effect after it, and that render's label is already stale.
+    const remaining = Math.max(0, wakeAt * 1000 - Date.now());
     const timer = setTimeout(
       () => setWoke((n) => n + 1),
       Math.min(remaining, MAX_TIMEOUT_MS)

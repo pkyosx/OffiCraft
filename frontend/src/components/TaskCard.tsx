@@ -150,7 +150,6 @@ const TERMINAL = new Set(["done", "terminated", "duplicated"]);
 
 const PRIORITIES = ["high", "mid", "low", "frozen"] as const;
 
-/** True when the 識別鍵 value is a link → the badge renders target=_blank. */
 // showPicker() is missing in older browsers and throws without a user
 // activation; focusing the input is the fallback that still lets a touch
 // browser offer its own picker.
@@ -172,6 +171,7 @@ function leadAmountText(minutes: number, unit: LeadUnit): string {
   return String(Number.isInteger(amount) ? amount : Number(amount.toFixed(2)));
 }
 
+/** True when the 識別鍵 value is a link → the badge renders target=_blank. */
 function isUrl(v: string): boolean {
   return /^https?:\/\//i.test(v);
 }
@@ -1008,9 +1008,15 @@ export function TaskCard({
       if (e.key === "Enter") {
         e.preventDefault();
         finishDue(true);
-      } else if (e.key === "Escape") {
-        finishDue(false);
       }
+    },
+  };
+
+  // On the popover itself, so its ✕ / ✓ / ✗ buttons follow the same rules as
+  // its fields.
+  const duePopCommit = {
+    onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => {
+      if (e.key === "Escape") finishDue(false);
     },
     onBlur: (e: React.FocusEvent<HTMLElement>) => {
       // A phone's own date / time picker takes focus to nowhere when it opens
@@ -1028,7 +1034,7 @@ export function TaskCard({
   // popover's commit rules.
   const duePickerField = {
     onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (e.key === "Enter" || e.key === "Escape" || e.key === "Tab") {
+      if (e.key === "Enter") {
         dueFieldCommit.onKeyDown(e);
       } else if (e.key === " ") {
         e.preventDefault();
@@ -1039,12 +1045,18 @@ export function TaskCard({
       ) {
         e.preventDefault();
         editDueTimeDraft("");
-      } else if (!e.metaKey && !e.ctrlKey) {
+      } else if (e.key !== "Escape" && e.key !== "Tab" && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
       }
     },
-    onBlur: dueFieldCommit.onBlur,
   };
+
+  // A ✕ unmounts once its field is empty; a keyboard press (detail 0) would
+  // otherwise drop focus to the page, out of reach of Enter and Escape. A tap
+  // is left alone: focusing a phone's date input opens its picker.
+  function refocusAfterClear(e: React.MouseEvent<HTMLButtonElement>, input: HTMLInputElement | null) {
+    if (e.detail === 0) input?.focus();
+  }
 
   function clearDueDraft() {
     editDueDraft("");
@@ -2095,6 +2107,7 @@ export function TaskCard({
                     aria-label={t.tasks.dueEditLabel}
                     data-testid="task-due-pop"
                     ref={duePopRef}
+                    {...duePopCommit}
                   >
                     <div className="task-card__due-when">
                       <span
@@ -2128,6 +2141,7 @@ export function TaskCard({
                             onClick={(e) => {
                               e.stopPropagation();
                               clearDueDraft();
+                              refocusAfterClear(e, dueDateInputRef.current);
                             }}
                           >
                             <CloseIcon size={12} />
@@ -2170,6 +2184,7 @@ export function TaskCard({
                             onClick={(e) => {
                               e.stopPropagation();
                               editDueTimeDraft("");
+                              refocusAfterClear(e, dueTimeInputRef.current);
                             }}
                           >
                             <CloseIcon size={12} />
