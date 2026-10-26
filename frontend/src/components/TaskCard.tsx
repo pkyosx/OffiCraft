@@ -2189,24 +2189,26 @@ export function TaskCard({
                           onChange={(e) => editDueLead(e.target.value)}
                           {...dueFieldCommit}
                         />
-                        <select
-                          className={`task-card__due-input task-card__due-lead-unit${
-                            dueLeadDraft === "" ? " task-card__due-lead-unit--default" : ""
-                          }`}
-                          aria-label={t.tasks.dueLeadUnitLabel}
-                          data-testid="task-due-lead-unit"
-                          value={dueLeadUnit}
-                          disabled={dueDraft === ""}
-                          onChange={(e) => editDueLeadUnit(e.target.value as LeadUnit)}
-                          {...dueFieldCommit}
-                        >
-                          {LEAD_UNITS.map((unit) => (
-                            <option key={unit} value={unit}>
-                              {leadUnitText[unit]}
-                            </option>
-                          ))}
-                        </select>
-                        <span className="task-card__due-lead-before">{t.tasks.dueLeadBefore}</span>
+                        <span className="task-card__due-lead-tail">
+                          <select
+                            className={`task-card__due-input task-card__due-lead-unit${
+                              dueLeadDraft === "" ? " task-card__due-lead-unit--default" : ""
+                            }`}
+                            aria-label={t.tasks.dueLeadUnitLabel}
+                            data-testid="task-due-lead-unit"
+                            value={dueLeadUnit}
+                            disabled={dueDraft === ""}
+                            onChange={(e) => editDueLeadUnit(e.target.value as LeadUnit)}
+                            {...dueFieldCommit}
+                          >
+                            {LEAD_UNITS.map((unit) => (
+                              <option key={unit} value={unit}>
+                                {leadUnitText[unit]}
+                              </option>
+                            ))}
+                          </select>
+                          <span className="task-card__due-lead-before">{t.tasks.dueLeadBefore}</span>
+                        </span>
                       </span>
                     </label>
                     {dueLeadDraft === "" && (

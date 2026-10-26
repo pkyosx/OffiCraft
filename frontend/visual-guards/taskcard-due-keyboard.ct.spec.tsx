@@ -274,6 +274,8 @@ for (const width of [320, 390]) {
       expect(sameLine(before, input)).toBeLessThan(2);
       expect(before.x + before.width).toBeLessThanOrEqual(pop.x + pop.width);
       expect(before.x + before.width).toBeLessThanOrEqual(content.x + content.width);
+      expect(Math.abs(time.x - unit.x)).toBeLessThan(1);
+      expect(Math.abs(time.x + time.width - (before.x + before.width))).toBeLessThan(1);
       const apply = (await cmp.getByTestId("task-due-apply").boundingBox())!;
       const cancel = (await cmp.getByTestId("task-due-cancel").boundingBox())!;
       expect(sameLine(cancel, apply)).toBeLessThan(2);
@@ -287,7 +289,7 @@ for (const width of [320, 390]) {
   }
 }
 
-test("on a desktop-wide card the due popover keeps a picker's width, with date and time on one line", async ({
+test("on a desktop-wide card the due popover keeps a picker's width, with date and time on one line, and the time field lined up over 「[unit] 前」 at one width with or without a time", async ({
   mount,
   page,
 }) => {
@@ -302,4 +304,15 @@ test("on a desktop-wide card the due popover keeps a picker's width, with date a
   expect(sameLine(time, date)).toBeLessThan(2);
   expect(time.x).toBeGreaterThanOrEqual(date.x + date.width);
   expect(time.x + time.width).toBeLessThanOrEqual(pop.x + pop.width);
+  const unit = (await cmp.getByTestId("task-due-lead-unit").boundingBox())!;
+  const before = (await cmp.locator(".task-card__due-lead-before").boundingBox())!;
+  expect(Math.abs(time.x - unit.x)).toBeLessThan(1);
+  expect(Math.abs(time.x + time.width - (before.x + before.width))).toBeLessThan(1);
+  await cmp.getByTestId("task-due-time-clear").click();
+  await expect(cmp.getByTestId("task-due-time-pick")).toHaveText("不指定時間");
+  expect((await cmp.getByTestId("task-due-time-pick").boundingBox())!).toEqual(time);
+  await cmp.getByTestId("task-due-time-input").fill("09:05");
+  await expect(cmp.getByTestId("task-due-time-pick")).toHaveText("09:05");
+  expect((await cmp.getByTestId("task-due-time-pick").boundingBox())!).toEqual(time);
+  expect((await cmp.getByTestId("task-due-date-pick").boundingBox())!).toEqual(date);
 });

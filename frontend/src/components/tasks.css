@@ -999,16 +999,19 @@ button.task-card__prio-chip:hover {
   right: auto;
   width: 280px;
   min-width: 160px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
 }
-/* One line on every width: the date and time are compact picker fields, not
-   the wide native controls, so nothing has to wrap. */
-.task-card__due-when {
-  display: flex;
+.task-card__due-pop > * {
+  grid-column: 1 / -1;
+}
+/* The time field and the lead unit share the right-hand column, so their
+   edges line up whichever of them is wider. */
+.task-card__due-when,
+.task-card__due-lead,
+.task-card__due-lead-row {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
   align-items: center;
-  gap: 4px;
 }
 /* The native input lies transparently over its field, so a tap reaches it
    directly and a touch browser opens its own picker. */
@@ -1043,11 +1046,13 @@ button.task-card__prio-chip:hover {
   cursor: default;
 }
 .task-card__due-date-pick {
-  flex: 1 1 auto;
   min-width: 0;
 }
+/* The ✕ sits in a slot kept free on every field, so showing it never pushes
+   the text. */
+.task-card__due-date-pick,
 .task-card__due-time-pick {
-  flex: none;
+  padding-right: 26px;
 }
 .task-card__due-pick-input {
   position: absolute;
@@ -1063,13 +1068,15 @@ button.task-card__prio-chip:hover {
 }
 /* Sits above the transparent native input, which covers the whole field. */
 .task-card__due-pick-clear {
-  position: relative;
+  position: absolute;
   z-index: 1;
-  flex: none;
+  top: 0;
+  right: 0;
+  bottom: 0;
   display: inline-flex;
   align-items: center;
-  margin: 0 0 0 auto;
-  padding: 0 0 0 6px;
+  margin: 0;
+  padding: 0 8px 0 6px;
   border: 0;
   background: transparent;
   color: var(--color-text-muted);
@@ -1090,30 +1097,32 @@ button.task-card__prio-chip:hover {
   margin-left: auto;
 }
 .task-card__due-lead {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  row-gap: 2px;
 }
-/* The shared menu-pop floor is declared later and would otherwise win. */
+/* The shared menu-pop floor and flex column are declared later and would
+   otherwise win. */
 .task-card__menu-pop.task-card__due-pop {
   min-width: 206px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 6px;
 }
 .task-card__due-lead-label {
+  grid-column: 1 / -1;
   font-size: 11.5px;
   font-weight: 600;
   color: var(--color-text-muted);
 }
-.task-card__due-lead-row {
+.task-card__due-lead-input {
+  min-width: 0;
+}
+.task-card__due-lead-tail {
   display: flex;
   align-items: center;
   gap: 6px;
 }
-.task-card__due-lead-input {
-  flex: 1 1 auto;
-  min-width: 0;
-}
 .task-card__due-lead-unit {
-  flex: none;
+  flex: 1 1 auto;
 }
 .task-card__due-lead-before {
   flex: none;
