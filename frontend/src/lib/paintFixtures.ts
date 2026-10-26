@@ -97,6 +97,7 @@ export const EXPECT_APPLIED_VALUES: Readonly<Record<string, string>> = {
   "--canvas-bg-position": "center center",
   "--canvas-bg-size": "cover",
   "--canvas-bg-attachment": "fixed",
+  "color-scheme": "dark",
 };
 
 /** The CSS custom properties the valid record must put on the ledger. */
@@ -108,6 +109,7 @@ export const EXPECT_APPLIED_TOKENS: readonly string[] = [
   "--canvas-bg-position",
   "--canvas-bg-size",
   "--canvas-bg-attachment",
+  "color-scheme",
 ];
 
 export interface MaliciousPaintCase {

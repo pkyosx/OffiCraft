@@ -13,7 +13,7 @@
 //               the ▸/▾ expand indicator owning the top-right corner (the ⋮
 //               owner menu was deleted once its items moved to that dropdown —
 //               owner 2026-07-17); row 2 is the title; then the label column: 任務類型 /
-//               負責人 / 建立者 / 識別鍵 (URL values open target=_blank). The 負責人
+//               負責人 / 建立者 / 到期日 / 識別鍵 (URL values open target=_blank). The 負責人
 //               value carries a 轉派 icon button to its right (SwapIcon — a
 //               two-way swap glyph; click → TaskReassignDialog),
 //               owner 2026-07-18: 轉派 is a hand-over-to-a-new-executor action,
@@ -54,7 +54,7 @@
 //               progress says a plan exists, so the empty state would lie
 //               (T-71e8, aligned with the detailPending/detailFailed guards).
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import {
   useWorkerAvatarUrls,
   useWorkerCodenames,
@@ -81,6 +81,25 @@ import { navigateHash } from "../lib/hashRoute";
 import { deriveTaskNo } from "../lib/taskNo";
 import { scrollParent, viewportSpanOf } from "../lib/scrollPort";
 import { useIsMobile } from "../hooks/useIsMobile";
+import { useNowSeconds } from "../hooks/useNowSeconds";
+import {
+  DEFAULT_DUE_SOON_LEAD_MINUTES,
+  DUE_SOON_LEAD_MINUTES_MAX,
+  DUE_SOON_LEAD_MINUTES_MIN,
+  LEAD_UNIT_MINUTES,
+  LEAD_UNITS,
+  type LeadUnit,
+  dueRemaining,
+  dueState,
+  effectiveLeadMinutes,
+  dueTsFromInputs,
+  hasDueTime,
+  leadMinutesFromDraft,
+  nextDueWake,
+  splitLeadMinutes,
+  toDateInputValue,
+  toTimeInputValue,
+} from "../lib/dueDate";
 import { enterShouldSend } from "../lib/composerKeys";
 import { linkMentions } from "../lib/mentionLinks";
 import {
@@ -114,6 +133,7 @@ import {
   CheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  CloseIcon,
   FileTextIcon,
   ClockIcon,
   ExternalLinkIcon,
@@ -123,11 +143,33 @@ import {
   SwapIcon,
   TasksIcon,
 } from "./icons";
+import "./inline-edit.css";
 
 /** Terminal statuses (已完成/終止/重複) — owner actions and ticking stop here. */
 const TERMINAL = new Set(["done", "terminated", "duplicated"]);
 
 const PRIORITIES = ["high", "mid", "low", "frozen"] as const;
+
+// showPicker() is missing in older browsers and throws without a user
+// activation; focusing the input is the fallback that still lets a touch
+// browser offer its own picker.
+function openDuePicker(input: HTMLInputElement | null) {
+  if (!input || input.disabled) return;
+  if (typeof input.showPicker === "function") {
+    try {
+      input.showPicker();
+      return;
+    } catch {
+      // fall through to focus
+    }
+  }
+  input.focus();
+}
+
+function leadAmountText(minutes: number, unit: LeadUnit): string {
+  const amount = minutes / LEAD_UNIT_MINUTES[unit];
+  return String(Number.isInteger(amount) ? amount : Number(amount.toFixed(2)));
+}
 
 /** True when the 識別鍵 value is a link → the badge renders target=_blank. */
 function isUrl(v: string): boolean {
@@ -170,6 +212,8 @@ export function TaskCard({
   onTerminate,
   onMarkDuplicate,
   onSetPriority,
+  onSetDue,
+  dueSoonLeadMinutes = DEFAULT_DUE_SOON_LEAD_MINUTES,
   onReassign,
   onSendMessage,
   onHydrate,
@@ -205,6 +249,12 @@ export function TaskCard({
    * the depth-1 graph + non-terminal guard; a rejection surfaces inline. */
   onMarkDuplicate: (id: string, duplicateOf: string) => Promise<void>;
   onSetPriority: (id: string, priority: string) => Promise<void>;
+  /** Set or clear (`null`) the due date. `leadMinutes` is passed only when the
+   * lead changed (`null` = back to the workspace setting). Absent ⇒ the due
+   * chip is read-only. */
+  onSetDue?: (id: string, dueTs: number | null, leadMinutes?: number | null) => Promise<void>;
+  /** The workspace 快到期提醒 in minutes, for a task without its own lead. */
+  dueSoonLeadMinutes?: number;
   /** 轉派 (T-160e): hand the task to a member / a freshly minted 外包. The whole
    * handover is the server's; the dialog only names the target. */
   onReassign: (id: string, input: TaskReassignInput) => Promise<void>;
@@ -744,6 +794,59 @@ export function TaskCard({
   // collapsing the card removes the thing you were looking at. Copying either
   // rule onto the other control reddens that control's guard.
   const prioRef = useRef<HTMLDivElement>(null);
+  const [dueOpen, setDueOpen] = useState(false);
+  const dueRef = useRef<HTMLDivElement>(null);
+  const duePopRef = useRef<HTMLDivElement>(null);
+  // Mirrors of the draft and the open state for the document-level mousedown
+  // listener and for blur, which can both fire for the same close.
+  const [dueDraft, setDueDraft] = useState("");
+  const dueDraftRef = useRef("");
+  const [dueTimeDraft, setDueTimeDraft] = useState("");
+  const dueTimeDraftRef = useRef("");
+  const dueSessionRef = useRef(false);
+  const [dueLeadDraft, setDueLeadDraft] = useState("");
+  const dueLeadDraftRef = useRef("");
+  const [dueLeadUnit, setDueLeadUnit] = useState<LeadUnit>("day");
+  const dueLeadUnitRef = useRef<LeadUnit>("day");
+  // A number input holding text it cannot parse (a lone "e") reports "", which
+  // would otherwise read as "follow the workspace setting". React fires no
+  // change for it either ("" → ""), so validity is read off the element.
+  const dueLeadInputRef = useRef<HTMLInputElement>(null);
+  const dueDateInputRef = useRef<HTMLInputElement>(null);
+  const dueTimeInputRef = useRef<HTMLInputElement>(null);
+  const dueLeadDefaultId = useId();
+  const dueTs = task.dueTs ?? null;
+  const taskLeadMinutes = task.dueSoonLeadMinutes ?? null;
+  const leadMinutes = effectiveLeadMinutes(taskLeadMinutes, dueSoonLeadMinutes);
+  const leadUnitText: Record<LeadUnit, string> = {
+    day: t.tasks.dueLeadDayMany,
+    hour: t.tasks.dueLeadHourMany,
+    minute: t.tasks.dueLeadMinuteMany,
+  };
+  const dueEditable = !closed && onSetDue !== undefined;
+  const nowSec = useNowSeconds(
+    dueTs === null || closed ? null : nextDueWake(dueTs, Date.now() / 1000, leadMinutes)
+  );
+  const due = dueTs === null ? null : dueState(dueTs, nowSec, leadMinutes);
+  const dueRemainingText =
+    dueTs === null || closed ? null : msg.taskDueRemaining(dueRemaining(dueTs, nowSec));
+  const dueDateText =
+    dueTs === null
+      ? null
+      : hasDueTime(dueTs)
+        ? msg.taskDueDateTime(dueTs)
+        : msg.taskDueDate(dueTs);
+  const dueRowShown = dueTs !== null || dueEditable;
+  const dueTone = due === null || closed || due.kind === "later" ? null : due.kind;
+  const dueToneClass = dueTone ? ` task-card__due-date--${dueTone}` : "";
+  const dueRemainingId = useId();
+  const dueSoonId = useId();
+  const dueDescribedBy =
+    dueRemainingText === null
+      ? undefined
+      : dueTone === "soon"
+        ? `${dueRemainingId} ${dueSoonId}`
+        : dueRemainingId;
   const [confirmOpen, setConfirmOpen] = useState(false);
   // 強制結案 (T-192) gets its own confirm rather than sharing one with
   // 標記重複/終止: collapsing named closes into one dialog with a status
@@ -777,6 +880,15 @@ export function TaskCard({
   }, [prioOpen]);
 
   useEffect(() => {
+    if (!dueOpen) return;
+    function onDown(e: MouseEvent) {
+      if (!dueRef.current?.contains(e.target as Node)) finishDue(true);
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [dueOpen]);
+
+  useEffect(() => {
     if (!statusOpen) return;
     function onDown(e: MouseEvent) {
       if (!statusRef.current?.contains(e.target as Node)) setStatusOpen(false);
@@ -795,6 +907,160 @@ export function TaskCard({
       console.warn("TaskCard: priority change failed", e);
       setActionError(t.tasks.actionError);
     }
+  }
+
+  async function doSetDue(
+    next: number | null,
+    lead?: number | null,
+    noticeOnSuccess: string | null = null
+  ) {
+    if ((next === dueTs && lead === undefined) || !onSetDue) return;
+    try {
+      if (lead === undefined) await onSetDue(task.id, next);
+      else await onSetDue(task.id, next, lead);
+      setActionError(noticeOnSuccess);
+    } catch (e) {
+      console.warn("TaskCard: due date change failed", e);
+      setActionError(t.tasks.actionError);
+    }
+  }
+
+  function openDue() {
+    const draft = dueTs === null ? "" : toDateInputValue(dueTs);
+    dueDraftRef.current = draft;
+    setDueDraft(draft);
+    const timeDraft = dueTs === null ? "" : toTimeInputValue(dueTs);
+    dueTimeDraftRef.current = timeDraft;
+    setDueTimeDraft(timeDraft);
+    // A task following the workspace offers the workspace's unit, so the
+    // number typed reads in the same unit as the placeholder beside it.
+    const lead = splitLeadMinutes(taskLeadMinutes ?? dueSoonLeadMinutes);
+    const leadDraft = taskLeadMinutes === null ? "" : String(lead.amount);
+    dueLeadDraftRef.current = leadDraft;
+    setDueLeadDraft(leadDraft);
+    dueLeadUnitRef.current = lead.unit;
+    setDueLeadUnit(lead.unit);
+    dueSessionRef.current = true;
+    setDueOpen(true);
+    setActionError((cur) => (cur === t.tasks.dueLeadRangeError ? null : cur));
+  }
+
+  function editDueLead(value: string) {
+    dueLeadDraftRef.current = value;
+    setDueLeadDraft(value);
+    if (value === "" && !dueLeadInputRef.current?.validity.badInput) {
+      editDueLeadUnit(splitLeadMinutes(dueSoonLeadMinutes).unit);
+    }
+  }
+
+  function editDueLeadUnit(unit: LeadUnit) {
+    dueLeadUnitRef.current = unit;
+    setDueLeadUnit(unit);
+  }
+
+  function editDueDraft(value: string) {
+    dueDraftRef.current = value;
+    setDueDraft(value);
+  }
+
+  function editDueTimeDraft(value: string) {
+    dueTimeDraftRef.current = value;
+    setDueTimeDraft(value);
+  }
+
+  // 🔴 Nothing is saved until Enter, blur or an outside click commits the
+  // draft: a picker reports each choice as a complete value while the user may
+  // still be choosing, and a typed "1" on the way to "14" in the lead must
+  // never be saved.
+  function finishDue(commit: boolean) {
+    if (!dueSessionRef.current) return;
+    dueSessionRef.current = false;
+    setDueOpen(false);
+    if (!commit) return;
+    if (dueDraftRef.current === "") {
+      if (dueTs !== null) void doSetDue(null);
+      return;
+    }
+    // An untouched date and time keep the stored moment: an API-set due time
+    // can carry seconds the HH:MM box cannot show.
+    const next =
+      dueTs !== null &&
+      dueDraftRef.current === toDateInputValue(dueTs) &&
+      dueTimeDraftRef.current === toTimeInputValue(dueTs)
+        ? dueTs
+        : dueTsFromInputs(dueDraftRef.current, dueTimeDraftRef.current);
+    if (next === null || new Date(next * 1000).getFullYear() < 1970) return;
+    const lead = dueLeadInputRef.current?.validity.badInput
+      ? undefined
+      : leadMinutesFromDraft(dueLeadDraftRef.current.trim(), dueLeadUnitRef.current);
+    if (lead === undefined) {
+      // The date still saves; only the unusable lead is dropped, and the card
+      // says so because the popover that held it is gone.
+      if (next === dueTs) setActionError(t.tasks.dueLeadRangeError);
+      else void doSetDue(next, undefined, t.tasks.dueLeadRangeError);
+      return;
+    }
+    void doSetDue(next, lead === taskLeadMinutes ? undefined : lead);
+  }
+
+  const dueFieldCommit = {
+    onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        finishDue(true);
+      }
+    },
+  };
+
+  // On the popover itself, so its ✕ / ✓ / ✗ buttons follow the same rules as
+  // its fields.
+  const duePopCommit = {
+    onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => {
+      if (e.key === "Escape") finishDue(false);
+    },
+    onBlur: (e: React.FocusEvent<HTMLElement>) => {
+      // A phone's own date / time picker takes focus to nowhere when it opens
+      // or closes; committing then would close the popover mid-edit. A tap
+      // outside still commits through the document mousedown listener.
+      if (e.relatedTarget === null) return;
+      if (duePopRef.current?.contains(e.relatedTarget as Node)) return;
+      finishDue(true);
+    },
+  };
+
+  // The date and time are set only through the browser's calendar and clock:
+  // the native inputs take no typing, Space opens their picker, Delete or
+  // Backspace on the time takes the time off, and Enter / Escape / Tab keep the
+  // popover's commit rules.
+  const duePickerField = {
+    onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "Enter") {
+        dueFieldCommit.onKeyDown(e);
+      } else if (e.key === " ") {
+        e.preventDefault();
+        openDuePicker(e.currentTarget);
+      } else if (
+        (e.key === "Delete" || e.key === "Backspace") &&
+        e.currentTarget === dueTimeInputRef.current
+      ) {
+        e.preventDefault();
+        editDueTimeDraft("");
+      } else if (e.key !== "Escape" && e.key !== "Tab" && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+      }
+    },
+  };
+
+  // A ✕ unmounts once its field is empty; a keyboard press (detail 0) would
+  // otherwise drop focus to the page, out of reach of Enter and Escape. A tap
+  // is left alone: focusing a phone's date input opens its picker.
+  function refocusAfterClear(e: React.MouseEvent<HTMLButtonElement>, input: HTMLInputElement | null) {
+    if (e.detail === 0) input?.focus();
+  }
+
+  function clearDueDraft() {
+    editDueDraft("");
+    editDueTimeDraft("");
   }
 
   // 步驟備註 (T-66) — 點開才抓. The card holds only `noteSizeChars`, so the text
@@ -1695,7 +1961,7 @@ export function TaskCard({
         )}
 
         {/* Below the badge row: an aligned label column (任務類型 / 負責人 /
-            建立者 / 識別鍵) — task_no left the stack for the badge row (v2)
+            建立者 / 到期日 / 識別鍵) — task_no left the stack for the badge row (v2)
             (owner spec 2026-07-15). A CSS grid gives every label cell the same
             max-content width so the value chips line up across rows and across
             languages. Each row emits two grid children: the muted label span
@@ -1786,6 +2052,221 @@ export function TaskCard({
                   </span>
                 </span>
               )}
+            </>
+          )}
+
+          {dueRowShown && (
+            <>
+              <span className="task-card__meta-label">{t.tasks.dueLabel}</span>
+              <div className="task-card__due" ref={dueRef}>
+                {dueEditable ? (
+                  <button
+                    type="button"
+                    className={`task-card__chip task-card__chip--link${
+                      dueDateText === null ? " task-card__due-date--unset" : dueToneClass
+                    }`}
+                    title={t.tasks.dueEditLabel}
+                    aria-describedby={dueDescribedBy}
+                    aria-haspopup="dialog"
+                    aria-expanded={dueOpen}
+                    data-testid="task-due"
+                    onMouseDown={(e) => {
+                      if (dueOpen) e.preventDefault();
+                    }}
+                    onClick={() => (dueOpen ? finishDue(true) : openDue())}
+                  >
+                    {dueDateText ?? t.tasks.dueUnset}
+                  </button>
+                ) : (
+                  <span
+                    className={`task-card__chip${dueToneClass}`}
+                    aria-describedby={dueDescribedBy}
+                    data-testid="task-due"
+                  >
+                    {dueDateText}
+                  </span>
+                )}
+                {dueRemainingText !== null && (
+                  <span
+                    id={dueRemainingId}
+                    className={`task-card__due-remaining${dueToneClass}`}
+                    data-testid="task-due-remaining"
+                  >
+                    {dueRemainingText}
+                  </span>
+                )}
+                {dueTone === "soon" && (
+                  <span id={dueSoonId} className="task-card__due-status" data-testid="task-due-alert">
+                    {t.tasks.dueSoonHint}
+                  </span>
+                )}
+                {dueOpen && (
+                  <div
+                    className="task-card__menu-pop task-card__due-pop"
+                    role="dialog"
+                    aria-label={t.tasks.dueEditLabel}
+                    data-testid="task-due-pop"
+                    ref={duePopRef}
+                    {...duePopCommit}
+                  >
+                    <div className="task-card__due-when">
+                      <span
+                        className={`task-card__due-input task-card__due-pick task-card__due-date-pick${
+                          dueDraft === "" ? " task-card__due-pick--unset" : ""
+                        }`}
+                        data-testid="task-due-date-pick"
+                        onClick={() => openDuePicker(dueDateInputRef.current)}
+                      >
+                        <span aria-hidden="true">
+                          {dueDraft === "" ? t.tasks.dueUnset : dueDraft.replace(/-/g, "/")}
+                        </span>
+                        <input
+                          type="date"
+                          className="task-card__due-pick-input"
+                          ref={dueDateInputRef}
+                          aria-label={t.tasks.duePickerLabel}
+                          data-testid="task-due-input"
+                          value={dueDraft}
+                          onChange={(e) => editDueDraft(e.target.value)}
+                          {...duePickerField}
+                        />
+                        {dueDraft !== "" && (
+                          <button
+                            type="button"
+                            className="task-card__due-pick-clear"
+                            aria-label={t.tasks.dueClearLabel}
+                            title={t.tasks.dueClearLabel}
+                            data-testid="task-due-date-clear"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              clearDueDraft();
+                              refocusAfterClear(e, dueDateInputRef.current);
+                            }}
+                          >
+                            <CloseIcon size={12} />
+                          </button>
+                        )}
+                      </span>
+                      <span
+                        className={`task-card__due-input task-card__due-pick task-card__due-time-pick${
+                          dueTimeDraft === "" ? " task-card__due-pick--unset" : ""
+                        }`}
+                        data-testid="task-due-time-pick"
+                        onClick={() => openDuePicker(dueTimeInputRef.current)}
+                      >
+                        <span
+                          className="task-card__due-time-text"
+                          data-unset={t.tasks.dueTimeUnset}
+                          aria-hidden="true"
+                        >
+                          <span>{dueTimeDraft === "" ? t.tasks.dueTimeUnset : dueTimeDraft}</span>
+                        </span>
+                        <input
+                          type="time"
+                          className="task-card__due-pick-input"
+                          ref={dueTimeInputRef}
+                          aria-label={t.tasks.dueTimeLabel}
+                          data-testid="task-due-time-input"
+                          value={dueTimeDraft}
+                          disabled={dueDraft === ""}
+                          onChange={(e) => editDueTimeDraft(e.target.value)}
+                          {...duePickerField}
+                        />
+                        {dueTimeDraft !== "" && (
+                          <button
+                            type="button"
+                            className="task-card__due-pick-clear"
+                            aria-label={t.tasks.dueTimeClearLabel}
+                            title={t.tasks.dueTimeClearLabel}
+                            data-testid="task-due-time-clear"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              editDueTimeDraft("");
+                              refocusAfterClear(e, dueTimeInputRef.current);
+                            }}
+                          >
+                            <CloseIcon size={12} />
+                          </button>
+                        )}
+                      </span>
+                    </div>
+                    <label className="task-card__due-lead">
+                      <span className="task-card__due-lead-label">
+                        {t.tasks.dueLeadLabel}
+                      </span>
+                      <span className="task-card__due-lead-row">
+                        <input
+                          type="number"
+                          inputMode="numeric"
+                          min={DUE_SOON_LEAD_MINUTES_MIN}
+                          max={DUE_SOON_LEAD_MINUTES_MAX / LEAD_UNIT_MINUTES[dueLeadUnit]}
+                          step={1}
+                          className="task-card__due-input task-card__due-lead-input"
+                          ref={dueLeadInputRef}
+                          data-testid="task-due-lead"
+                          value={dueLeadDraft}
+                          placeholder={leadAmountText(dueSoonLeadMinutes, dueLeadUnit)}
+                          aria-describedby={dueLeadDraft === "" ? dueLeadDefaultId : undefined}
+                          disabled={dueDraft === ""}
+                          onChange={(e) => editDueLead(e.target.value)}
+                          {...dueFieldCommit}
+                        />
+                        <span className="task-card__due-lead-tail">
+                          <select
+                            className={`task-card__due-input task-card__due-lead-unit${
+                              dueLeadDraft === "" ? " task-card__due-lead-unit--default" : ""
+                            }`}
+                            aria-label={t.tasks.dueLeadUnitLabel}
+                            data-testid="task-due-lead-unit"
+                            value={dueLeadUnit}
+                            disabled={dueDraft === ""}
+                            onChange={(e) => editDueLeadUnit(e.target.value as LeadUnit)}
+                            {...dueFieldCommit}
+                          >
+                            {LEAD_UNITS.map((unit) => (
+                              <option key={unit} value={unit}>
+                                {leadUnitText[unit]}
+                              </option>
+                            ))}
+                          </select>
+                          <span className="task-card__due-lead-before">{t.tasks.dueLeadBefore}</span>
+                        </span>
+                      </span>
+                    </label>
+                    {dueLeadDraft === "" && (
+                      <span id={dueLeadDefaultId} className="task-card__due-status">
+                        {msg.taskDueLeadWorkspace(dueSoonLeadMinutes)}
+                      </span>
+                    )}
+                    <div className="task-card__due-actions">
+                      <button
+                        type="button"
+                        className="inline-edit__iconbtn inline-edit__iconbtn--apply"
+                        aria-label={t.common.apply}
+                        title={t.common.apply}
+                        data-testid="task-due-apply"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => finishDue(true)}
+                      >
+                        <CheckIcon size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-edit__iconbtn inline-edit__iconbtn--cancel"
+                        aria-label={t.common.cancel}
+                        title={t.common.cancel}
+                        data-testid="task-due-cancel"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => finishDue(false)}
+                      >
+                        <CloseIcon size={14} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </>
           )}
 

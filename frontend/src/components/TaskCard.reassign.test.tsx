@@ -20,7 +20,7 @@ import { __resetMock, __injectMockTask, mockApi } from "../api/mock";
 import { ApiError } from "../api/errors";
 import type { TaskView } from "../api/adapter";
 // 篩選 moved into the FilterPanel and only bites on 套用篩選 (T-93 round 3).
-import { toggleFilter } from "../test/tasksFilter";
+import { toggleFilter, waitForListedCards } from "../test/tasksFilter";
 
 let seq = 0;
 
@@ -132,10 +132,9 @@ describe("TaskCard 轉派 entry + dialog", () => {
     );
     const { findByTestId } = renderPage();
     // Terminals are filtered out of the default view — reveal via the status
-    // filter + the closed toggle (same path as the status-menu suite). The
-    // filter lives in the FilterPanel now, so this is open → tick → apply.
+    // filter (same path as the status-menu suite).
     toggleFilter("filter-status", "terminated");
-    fireEvent.click(await findByTestId("closed-toggle"));
+    await waitForListedCards(1);
 
     const card = await findByTestId("task-card");
     // The card renders (its status badge is there) but the 轉派 icon is gone.
@@ -184,7 +183,7 @@ describe("TaskCard 轉派 commit", () => {
       "進行中"
     );
     // 轉派中 is NOT terminal — the card stays in the live list.
-    expect(within(await findByTestId("open-list")).getByText("轉給 Mira")).toBeTruthy();
+    expect(within(await findByTestId("task-list")).getByText("轉給 Mira")).toBeTruthy();
     // The new executor is on the card.
     expect(card.textContent).toContain("Mira");
   });

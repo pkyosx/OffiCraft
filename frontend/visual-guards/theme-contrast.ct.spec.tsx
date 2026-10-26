@@ -12,9 +12,18 @@
 //      in every theme. It used to be a hard-coded color-mix off --color-text,
 //      which no light theme could lift past ~3.3:1.
 //   ③ each built-in's main text-on-surface token pairs clear AA.
+//   ④ the 任務 nav tab's red / amber due warning triangle stands out (≥3:1, the non-text
+//      threshold) from the tab it sits on, idle and active.
+//   ⑥ the line under the 狀態 filter's group rows is visible on its dropdown
+//      (≥2.5:1: a hairline, not a control; the border token measures 1:1 in office
+//      and an overlay veil about 1.3:1 in office-light).
+//   ⑤ the task card's red overdue / orange due-soon 到期日 date clears AA
+//      (≥4.5:1) as text on its chip, and so does the time left beside it, in
+//      those tones and in the muted grey, on the card.
 import { test, expect } from "@playwright/experimental-ct-react";
 import type { Page } from "@playwright/test";
 import { ThemeContrastStory } from "./stories/ThemeContrastStory";
+import { TaskCardDueStory } from "./stories/TaskCardDueStory";
 import {
   BUILTIN_THEME_IDS,
   expectBuiltinApplied,
@@ -217,5 +226,77 @@ for (const theme of BUILTIN_THEME_IDS) {
       if (ratio < floor) failures.push(`${fg} on ${bg}: ${ratio.toFixed(2)}:1 < ${floor}`);
     }
     expect(failures).toEqual([]);
+  });
+}
+
+for (const theme of BUILTIN_THEME_IDS) {
+  test(`${theme}: the 任務 nav due warning clears 3:1 against an idle and an active tab`, async ({
+    mount,
+    page,
+  }) => {
+    const cmp = await mountUnder(mount, page, theme);
+    const ratios: Record<string, string> = {};
+    for (const tone of ["overdue", "soon"]) {
+      for (const state of ["idle", "active"]) {
+        const s = await sample(cmp.getByTestId(`due-warning-${tone}-${state}`));
+        const zone = foldZone(s.layers);
+        ratios[`${tone}/${state}`] = contrast(over(parseColor(s.color), zone), zone).toFixed(2);
+      }
+    }
+    await expectBuiltinApplied(page, theme);
+    console.log(`${theme} 任務 due warning contrast: ${JSON.stringify(ratios)}`);
+    for (const [which, ratio] of Object.entries(ratios)) {
+      expect(Number(ratio), `${which}: ${ratio}:1`).toBeGreaterThanOrEqual(3);
+    }
+  });
+}
+
+for (const theme of BUILTIN_THEME_IDS) {
+  test(`${theme}: the task card's red overdue and orange due-soon date, and the time left beside it, clear AA (≥4.5:1)`, async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 600 });
+    await selectBuiltinTheme(page, theme);
+    const now = Math.floor(Date.now() / 1000);
+    const cmp = await mount(<TaskCardDueStory dueTs={now - 3600} />);
+    const ratios: Record<string, string> = {};
+    for (const [tone, dueTs] of [
+      ["overdue", now - 3600],
+      ["soon", now + 3600],
+      ["later", now + 30 * 86400],
+    ] as const) {
+      await cmp.update(<TaskCardDueStory dueTs={dueTs} />);
+      for (const [part, loc] of [
+        ["date", cmp.getByTestId("task-due")],
+        ["left", cmp.getByTestId("task-due-remaining")],
+      ] as const) {
+        if (tone === "later" && part === "date") continue;
+        await expect(loc).toBeVisible();
+        const s = await sample(loc);
+        const fill = foldZone([s.background, ...s.layers]);
+        ratios[`${tone} ${part}`] = contrast(over(parseColor(s.color), fill), fill).toFixed(2);
+      }
+    }
+    await expectBuiltinApplied(page, theme);
+    console.log(`${theme} task card due date contrast: ${JSON.stringify(ratios)}`);
+    for (const [which, ratio] of Object.entries(ratios)) {
+      expect(Number(ratio), `${which}: ${ratio}:1`).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+}
+
+for (const theme of THEMES) {
+  test(`${theme}: the line under the 狀態 filter's group rows shows on its dropdown`, async ({
+    mount,
+    page,
+  }) => {
+    await mountUnder(mount, page, theme);
+    const s = await sample(page.getByTestId("ms-group-sep"));
+    const pop = foldZone(s.layers);
+    const line = over(parseColor(s.background), pop);
+    const ratio = contrast(line, pop);
+    console.log(`${theme} status filter group line contrast: ${ratio.toFixed(2)}`);
+    expect(ratio).toBeGreaterThanOrEqual(2.5);
   });
 }

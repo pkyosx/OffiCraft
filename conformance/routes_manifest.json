@@ -939,6 +939,13 @@
   },
   {
     "auth": "gated",
+    "mcp_tool": "set_task_due",
+    "method": "POST",
+    "path": "/api/tasks/{task_id}/due",
+    "requires": "agent"
+  },
+  {
+    "auth": "gated",
     "mcp_tool": "post_task_message",
     "method": "POST",
     "path": "/api/tasks/{task_id}/message",

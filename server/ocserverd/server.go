@@ -324,6 +324,7 @@ func (s *apiServer) adoptSettings(auth authSettings) {
 	s.diskUsageIntervalSecs = auth.diskUsageIntervalSecs
 	s.wardenCredLifetimeSecs = auth.wardenCredLifetimeSecs
 	s.outsourceMaxParallel = auth.outsourceMaxParallel
+	s.taskDueSoonLeadMinutes = auth.taskDueSoonLeadMinutes
 	s.docCapCharsDuty = auth.docCapCharsDuty
 	s.docCapCharsInsight = auth.docCapCharsInsight
 	s.docCapCharsManualSop = auth.docCapCharsManualSop
@@ -384,6 +385,7 @@ func newAPIServer(dal *DAL, hub *Hub, keys *keyring, tokenTTL int64, root assetR
 		updaterCheckIntervalSecs:        updaterCheckIntervalSecsDefault,
 		wardenCredLifetimeSecs:          wardenCredLifetimeSecsDefault,
 		outsourceMaxParallel:            defaultOutsourceMaxParallel,
+		taskDueSoonLeadMinutes:          defaultTaskDueSoonLeadMinutes,
 		docCapCharsDuty:                 dutyCapCharsDefault,
 		docCapCharsInsight:              contextDocMaxCharsDefault,
 		docCapCharsManualSop:            contextDocMaxCharsDefault,

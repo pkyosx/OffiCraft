@@ -14,12 +14,16 @@
 //             狀態 is asked of the SERVER (T-a3e4: the fetch carries the applied
 //             set, see the setStatuses effect); 負責人 / 類型 stay client-side
 //             over the already status-narrowed list.
-//   未結案  — every NON-terminal task in ONE list (狀態不分組 — the status
-//             badge differentiates), ordered by priority 高→中→低→凍結 (凍結
-//             永遠最後), createdTs newest-first within a level.
-//   已結案  — 已完成 + 終止, COLLAPSED BY DEFAULT (the RepliesPage answered-
-//             toggle pattern), newest close first. Both section titles carry
-//             counts.
+//   任務清單 — one list, no 未結案 / 已結案 sections: which side shows is the
+//             狀態 filter's job, and its 未結案 / 已結案 rows tick either side
+//             in one go (owner rc-ceb98bb8884f). Open tasks come first, ordered
+//             by priority 高→中→低→凍結 (凍結永遠最後), createdTs newest-first
+//             within a level; closed tasks follow, newest close first. The list
+//             is one flat list by default (不分組); the 分組依據 selector can
+//             split it into collapsible lanes (到期狀態: 已逾期 / 即將到期 /
+//             之後到期 / 沒有到期日, closed tasks included by their date,
+//             due-ascending in the first three). The chosen grouping is
+//             remembered in this browser (`oc_tasks_group_by`).
 //
 // Empty states ×2 (spec §2.3): no tasks at all vs filters matching nothing —
 // plus the THREE by-id outcomes below, which replace both while an id is
@@ -27,19 +31,32 @@
 // The 30s ticking clock drives every card's 已歷時 / step 耗時 counters (same
 // cadence as RepliesPage's 已等你).
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useI18n } from "../i18n";
+import { useNowSeconds } from "../hooks/useNowSeconds";
+import {
+  effectiveLeadMinutes,
+  isDueSoon,
+  isOverdue,
+  nextDueChangeTs,
+} from "../lib/dueDate";
 import type { TaskView } from "../api/adapter";
 import { viewerMayForceTaskDone } from "../api";
 import { useTasks } from "../hooks/useTasks";
 import { useTaskCount } from "../hooks/useTaskCount";
+import { useDueSoonLeadMinutes } from "../hooks/useDueSoonLeadMinutes";
 import { useMembers } from "../hooks/useMembers";
 import { useHashRoute } from "../lib/hashRoute";
+import { useEscapeLayer } from "../lib/useEscapeLayer";
 import { TaskCard } from "./TaskCard";
 import { IdFilterInput } from "./IdFilterInput";
-import { MultiSelectFilter, type MultiSelectOption } from "./MultiSelectFilter";
+import {
+  MultiSelectFilter,
+  type MultiSelectGroup,
+  type MultiSelectOption,
+} from "./MultiSelectFilter";
 import { FilterPanel } from "./FilterPanel";
-import { ChevronRightIcon } from "./icons";
+import { ChevronRightIcon, SlidersIcon } from "./icons";
 import "./office.css"; // chat composer classes the embedded ReplyComposer reuses
 import "./replies.css"; // shared reply-card interior styles (embedded cards)
 import "./tasks.css";
@@ -81,6 +98,181 @@ const STATUS_OPTIONS = [
 // exclusion is visible (and undoable) right there in the 狀態 dropdown (T-be18).
 const DEFAULT_STATUS = STATUS_OPTIONS.filter((s) => !TERMINAL.has(s));
 
+const GROUP_BY_OPTIONS = ["none", "due", "priority", "executor", "type", "status"] as const;
+type GroupBy = (typeof GROUP_BY_OPTIONS)[number];
+
+const GROUP_BY_KEY = "oc_tasks_group_by";
+
+function readGroupBy(): GroupBy {
+  try {
+    const stored = window.localStorage.getItem(GROUP_BY_KEY);
+    return (GROUP_BY_OPTIONS as readonly string[]).includes(stored ?? "")
+      ? (stored as GroupBy)
+      : "none";
+  } catch {
+    return "none";
+  }
+}
+
+function writeGroupBy(next: GroupBy): void {
+  try {
+    window.localStorage.setItem(GROUP_BY_KEY, next);
+  } catch {
+    /* storage unavailable — the choice still holds for this mount */
+  }
+}
+
+interface Lane {
+  key: string;
+  title: string;
+  tasks: TaskView[];
+}
+
+function dueLaneKey(task: TaskView, nowTs: number, workspaceLeadMinutes: number): string {
+  const due = task.dueTs ?? null;
+  if (due === null) return "nodue";
+  if (isOverdue(due, nowTs)) return "overdue";
+  if (isDueSoon(due, nowTs, effectiveLeadMinutes(task.dueSoonLeadMinutes, workspaceLeadMinutes)))
+    return "soon";
+  return "later";
+}
+
+/** Buckets `tasks` (order kept) under `heads`, in `heads` order; a key no head
+ * names gets a lane of its own after them, titled by `fallbackTitle`. Lanes
+ * with no task are dropped. */
+function lanesInOrder(
+  tasks: TaskView[],
+  keyOf: (task: TaskView) => string,
+  heads: Omit<Lane, "tasks">[],
+  fallbackTitle: (key: string) => string
+): Lane[] {
+  const byKey = new Map<string, TaskView[]>();
+  for (const task of tasks) {
+    const key = keyOf(task);
+    const list = byKey.get(key);
+    if (list) list.push(task);
+    else byKey.set(key, [task]);
+  }
+  const lanes: Lane[] = [];
+  for (const head of heads) {
+    const list = byKey.get(head.key);
+    if (!list) continue;
+    lanes.push({ ...head, tasks: list });
+    byKey.delete(head.key);
+  }
+  for (const [key, list] of byKey) {
+    lanes.push({ key, title: fallbackTitle(key), tasks: list });
+  }
+  return lanes;
+}
+
+/** The 顯示方式 button and its panel: the 分組依據 select lives here, apart
+ * from the filters. Dismissal follows GallerySenderFilter (outside mousedown,
+ * Esc through the layer stack). */
+function DisplayOptions({
+  groupBy,
+  labels,
+  onGroupByChange,
+}: {
+  groupBy: GroupBy;
+  labels: Record<GroupBy, string>;
+  onGroupByChange: (next: GroupBy) => void;
+}) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const panelId = useId();
+
+  useEscapeLayer(
+    () => {
+      setOpen(false);
+      triggerRef.current?.focus();
+    },
+    boxRef,
+    open
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    // Focusing the select itself makes phone browsers pop its picker open the
+    // moment the panel appears.
+    panelRef.current?.focus();
+    const onDocDown = (e: MouseEvent) => {
+      if (!boxRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDocDown, true);
+    return () => document.removeEventListener("mousedown", onDocDown, true);
+  }, [open]);
+
+  return (
+    <div className="tasks__display" ref={boxRef}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="tasks__display-trigger"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-controls={open ? panelId : undefined}
+        data-testid="display-options"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <SlidersIcon size={14} aria-hidden="true" />
+        <span className="tasks__display-label">{t.tasks.displayOptions}</span>
+      </button>
+      {open && (
+        <div
+          ref={panelRef}
+          id={panelId}
+          tabIndex={-1}
+          className="tasks__display-pop"
+          role="dialog"
+          aria-labelledby={`${panelId}-title`}
+          data-testid="display-options-panel"
+        >
+          <div id={`${panelId}-title`} className="tasks__display-title">
+            {t.tasks.displayOptions}
+          </div>
+          <label className="tasks__display-row">
+            <span>{t.tasks.groupByLabel}</span>
+            <select
+              className="tasks__display-select"
+              value={groupBy}
+              onChange={(e) => onGroupByChange(e.target.value as GroupBy)}
+              data-testid="group-by"
+            >
+              {GROUP_BY_OPTIONS.map((g) => (
+                <option key={g} value={g}>
+                  {labels[g]}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function nextListDueChange(
+  tasks: TaskView[],
+  nowTs: number,
+  workspaceLeadMinutes: number
+): number | null {
+  let next: number | null = null;
+  for (const task of tasks) {
+    if (task.dueTs == null) continue;
+    const at = nextDueChangeTs(
+      task.dueTs,
+      nowTs,
+      effectiveLeadMinutes(task.dueSoonLeadMinutes, workspaceLeadMinutes)
+    );
+    if (at !== null && (next === null || at < next)) next = at;
+  }
+  return next;
+}
+
 export function TasksPage() {
   const { t } = useI18n();
   const {
@@ -112,6 +304,7 @@ export function TasksPage() {
     forceDone,
     markDuplicate,
     setPriority,
+    setDue,
     reassign,
     sendMessage,
     getDetail,
@@ -127,10 +320,15 @@ export function TasksPage() {
     // on the very first pass, not one commit later.
   } = useTasks(DEFAULT_STATUS, appliedId === "" ? undefined : appliedId);
 
-  // The unfiltered task total — the only honest basis for 目前沒有任務 now that
-  // the list answers a status set (see the empty states below). Same cheap
-  // count endpoint the nav badge rides, refetched on the same `task` deltas.
-  const { total: taskTotal } = useTaskCount();
+  // `total` is unfiltered — the only honest basis for 目前沒有任務 now that the
+  // list answers a status set (see the empty states).
+  const taskTotal = useTaskCount().total;
+  // Woken by the loaded tasks' own next due boundary, so a task changes lane at
+  // the same moment its card's 到期日 icon changes.
+  const dueSoonLeadMinutes = useDueSoonLeadMinutes();
+  const nowSec = useNowSeconds(
+    nextListDueChange(tasks, Date.now() / 1000, dueSoonLeadMinutes)
+  );
 
   // Ticking clock (30s) — drives 已歷時 and running-step 耗時 on every card.
   const [nowTs, setNowTs] = useState(() => Date.now() / 1000);
@@ -162,6 +360,7 @@ export function TasksPage() {
   //   executor keys: "outsource" | "unassigned" | <member id>
   //   type keys:     "adhoc" | <type_key>
   //   status keys:   <one of STATUS_OPTIONS>
+  //   due keys:      "overdue" | "soon", OR'd together
   //
   // 狀態 opens at DEFAULT_STATUS — EXCEPT when the page opens on a #tasks/<id>
   // link. A jump means 「給我看這一張」, so it lands with no other axis narrowing
@@ -173,6 +372,7 @@ export function TasksPage() {
     () => new Set()
   );
   const [appliedType, setAppliedType] = useState<Set<string>>(() => new Set());
+  const [appliedDue, setAppliedDue] = useState<Set<string>>(() => new Set());
   const [appliedStatus, setAppliedStatus] = useState<Set<string>>(() =>
     taskIdFilter ? new Set<string>() : new Set(DEFAULT_STATUS)
   );
@@ -226,6 +426,7 @@ export function TasksPage() {
     // from the status axis, there simply is no status axis to fail.
     setAppliedExecutor(new Set());
     setAppliedType(new Set());
+    setAppliedDue(new Set());
     setAppliedStatus(new Set());
   }, [taskIdFilter]);
 
@@ -247,6 +448,7 @@ export function TasksPage() {
     if (!executorSeed) return;
     setAppliedExecutor(new Set([executorSeed]));
     setAppliedType(new Set());
+    setAppliedDue(new Set());
     setAppliedStatus(new Set(DEFAULT_STATUS));
     setAppliedId("");
     // 🔴 THE BOX TOO, NOT JUST THE APPLIED VALUE (T-118, found in independent
@@ -313,6 +515,7 @@ export function TasksPage() {
     // EMPTIES too (所有狀態, 已完成/終止 included), NOT back to the default four.
     setAppliedExecutor(new Set());
     setAppliedType(new Set());
+    setAppliedDue(new Set());
     setAppliedStatus(new Set());
     setAppliedId("");
     setDraftId("");
@@ -326,6 +529,7 @@ export function TasksPage() {
   const anyFilter =
     appliedExecutor.size > 0 ||
     appliedType.size > 0 ||
+    appliedDue.size > 0 ||
     appliedStatus.size > 0 ||
     appliedId !== "";
 
@@ -386,15 +590,31 @@ export function TasksPage() {
     }
     return false;
   }
+  // Judged on the page clock and the effective lead, the same as the lanes, so a
+  // task leaves 快到期 for 已逾期 at the moment it changes lane.
+  function passesDue(task: TaskView, set: Set<string>): boolean {
+    if (set.size === 0) return true;
+    const due = task.dueTs ?? null;
+    if (due === null || TERMINAL.has(task.status)) return false;
+    if (isOverdue(due, nowSec)) return set.has("overdue");
+    return (
+      set.has("soon") &&
+      isDueSoon(due, nowSec, effectiveLeadMinutes(task.dueSoonLeadMinutes, dueSoonLeadMinutes))
+    );
+  }
   const matchesExecutor = (task: TaskView) =>
     passesExecutor(task, appliedExecutor);
   const matchesType = (task: TaskView) => passesType(task, appliedType);
   const matchesStatus = (task: TaskView) => passesStatus(task, appliedStatus);
+  const matchesDue = (task: TaskView) => passesDue(task, appliedDue);
   // 全部條件一起生效 (owner ①) — the non-id axes AND together, and the id (when
   // one is applied) ANDs with them too, judged on the row the server returned
   // rather than on the loaded list. See `idOutcome`.
   const matchesOthers = (task: TaskView) =>
-    matchesExecutor(task) && matchesType(task) && matchesStatus(task);
+    matchesExecutor(task) &&
+    matchesType(task) &&
+    matchesStatus(task) &&
+    matchesDue(task);
 
   // ── filter option models (labels + 負責人 counts) ──────────────────────────
   // Per-owner count basis (T-be18 #3): the tasks that WOULD show if this owner
@@ -409,7 +629,9 @@ export function TasksPage() {
   // condition — so the applied sets are the only sets, and the counts and the
   // list are now incapable of disagreeing.
   const inCountScope = (task: TaskView) =>
-    passesStatus(task, appliedStatus) && passesType(task, appliedType);
+    passesStatus(task, appliedStatus) &&
+    passesType(task, appliedType) &&
+    passesDue(task, appliedDue);
   const executorCount = (pred: (t: TaskView) => boolean) =>
     tasks.filter((t) => inCountScope(t) && pred(t)).length;
   const executorOptions: MultiSelectOption[] = [
@@ -442,6 +664,14 @@ export function TasksPage() {
   const typeFilterOptions: MultiSelectOption[] = [
     ...typeOptions.map((k) => ({ value: k, label: typeNames.get(k) ?? k })),
     { value: "adhoc", label: t.tasks.adhoc },
+  ];
+  const dueFilterOptions: MultiSelectOption[] = [
+    { value: "overdue", label: t.tasks.filterDueOverdue },
+    { value: "soon", label: t.tasks.filterDueSoon },
+  ];
+  const statusGroups: MultiSelectGroup[] = [
+    { value: "open", label: t.tasks.openTitle, members: DEFAULT_STATUS },
+    { value: "closed", label: t.tasks.closedTitle, members: [...TERMINAL] },
   ];
   const statusFilterOptions: MultiSelectOption[] = STATUS_OPTIONS.map((s) => ({
     value: s,
@@ -504,10 +734,122 @@ export function TasksPage() {
   const closed = filtered
     .filter((x) => TERMINAL.has(x.status))
     .sort((a, b) => (b.closedTs ?? 0) - (a.closedTs ?? 0));
+  const shown = [...open, ...closed];
 
-  // 已結案 collapses by default (RepliesPage answered-toggle pattern): closed
-  // tasks are reference material. Plain component state — never persisted.
-  const [closedOpen, setClosedOpen] = useState(false);
+  // The grouping is remembered per browser; the lane collapse state, like the
+  // filters, lives only in this mount. The default-open lane is picked when
+  // the default is applied and then held by key: a lane that appears ahead of
+  // it later (a task ticks
+  // overdue, an SSE arrival) must not collapse the one being read. Only when
+  // that lane empties out does the default move to whatever lane is first.
+  const [groupBy, setGroupByState] = useState<GroupBy>(readGroupBy);
+  const [laneOpenOverrides, setLaneOpenOverrides] = useState<
+    Map<string, boolean>
+  >(() => new Map());
+  const [defaultOpenKey, setDefaultOpenKey] = useState<string | null>(null);
+  function setGroupBy(next: GroupBy) {
+    setGroupByState(next);
+    writeGroupBy(next);
+    setLaneOpenOverrides(new Map());
+    setDefaultOpenKey(null);
+  }
+  function toggleLane(key: string, expandedNow: boolean) {
+    setLaneOpenOverrides((cur) => new Map(cur).set(key, !expandedNow));
+  }
+  const laneIdBase = useId();
+  const groupByLabels: Record<GroupBy, string> = {
+    due: t.tasks.groupByDue,
+    executor: t.tasks.groupByExecutor,
+    type: t.tasks.groupByType,
+    status: t.tasks.groupByStatus,
+    priority: t.tasks.groupByPriority,
+    none: t.tasks.groupByNone,
+  };
+
+  // Lane order follows the matching filter dropdown's option order.
+  function buildLanes(): Lane[] {
+    switch (groupBy) {
+      case "due": {
+        const byDue = (a: TaskView, b: TaskView) =>
+          (a.dueTs ?? 0) - (b.dueTs ?? 0);
+        return lanesInOrder(
+          shown,
+          // A closed task goes by its date alone, like an open one (owner
+          // rc-4911902c169c), so 已逾期 here can hold more than the nav's
+          // overdue count, which leaves closed tasks out.
+          (task) => dueLaneKey(task, nowSec, dueSoonLeadMinutes),
+          [
+            { key: "overdue", title: t.tasks.laneOverdue },
+            { key: "soon", title: t.tasks.laneDueSoon },
+            { key: "later", title: t.tasks.laneDueLater },
+            { key: "nodue", title: t.tasks.laneNoDue },
+          ],
+          (key) => key
+        ).map((lane) =>
+          lane.key === "nodue"
+            ? lane
+            : { ...lane, tasks: [...lane.tasks].sort(byDue) }
+        );
+      }
+      case "priority":
+        return lanesInOrder(
+          shown,
+          (task) => task.priority,
+          Object.keys(PRIORITY_RANK).map((p) => ({
+            key: p,
+            title: t.tasks.priority[p],
+          })),
+          (key) => t.tasks.priority[key] ?? key
+        );
+      case "executor":
+        return lanesInOrder(
+          shown,
+          executorKeyOf,
+          [
+            { key: "outsource", title: t.tasks.outsource },
+            { key: "unassigned", title: t.tasks.unassigned },
+            ...memberOptions.map((m) => ({ key: m.id, title: m.name })),
+          ],
+          (key) => key
+        );
+      case "type":
+        return lanesInOrder(
+          shown,
+          (task) => (task.typeKey === "" ? "adhoc" : task.typeKey),
+          typeFilterOptions.map((o) => ({ key: o.value, title: o.label })),
+          (key) => typeNames.get(key) ?? key
+        );
+      case "status":
+        return lanesInOrder(
+          shown,
+          (task) => task.status,
+          STATUS_OPTIONS.filter((s) => s !== "reassigning").map((s) => ({
+            key: s,
+            title: t.tasks.status[s],
+          })),
+          (key) => t.tasks.status[key] ?? key
+        );
+      case "none":
+        return [];
+    }
+  }
+  const lanes = buildLanes();
+  if (
+    lanes.length > 0 &&
+    !lanes.some((lane) => lane.key === defaultOpenKey)
+  ) {
+    setDefaultOpenKey(lanes[0].key);
+  }
+  const openByDefault =
+    lanes.find((lane) => lane.key === defaultOpenKey)?.key ?? lanes[0]?.key;
+  const laneLead: string | undefined = {
+    due: undefined,
+    executor: t.tasks.laneExecutorLead,
+    type: t.tasks.laneTypeLead,
+    status: t.tasks.laneStatusLead,
+    priority: t.tasks.lanePriorityLead,
+    none: undefined,
+  }[groupBy];
 
   // A #tasks/<id> whose task does not exist USED TO self-heal: an effect here
   // stripped the hash and the page settled on the ordinary filtered list, with
@@ -540,13 +882,15 @@ export function TasksPage() {
   // on a strip, and both helpers came back with it. Do not restore the older
   // wording — read lines 298 and 313.
   //
-  // A closed target still auto-expands 已結案 so the one match is visible.
+  // The target's lane is expanded so the one match is visible.
   // 🔴 Keyed on the APPLIED id, not the hash: an id TYPED into the field names a
-  // closed task exactly as often as a link does, and if 已結案 stays collapsed
-  // the page has "found and passes" as its verdict while showing no row at all —
+  // task exactly as often as a link does, and if its lane stays collapsed the
+  // page has "found and passes" as its verdict while showing no row at all —
   // a fourth, silent outcome, which is the failure mode this ticket is about.
   useEffect(() => {
-    if (appliedId !== "") setClosedOpen(true);
+    if (appliedId === "") return;
+    setLaneOpenOverrides(new Map());
+    setDefaultOpenKey(null);
   }, [appliedId]);
 
   // ── empty states, re-derived for the server-side ask (T-a3e4) ─────────────
@@ -641,6 +985,8 @@ export function TasksPage() {
         canForceDone={viewerMayForceTaskDone()}
         onMarkDuplicate={markDuplicate}
         onSetPriority={setPriority}
+        onSetDue={setDue}
+        dueSoonLeadMinutes={dueSoonLeadMinutes}
         onReassign={reassign}
         onSendMessage={(id, body, attachments) =>
           sendMessage(id, { body, attachments })
@@ -648,6 +994,52 @@ export function TasksPage() {
         onHydrate={getDetail}
         onRemoveArtifact={removeArtifact}
       />
+    );
+  }
+
+  function renderLane(lane: Lane) {
+    const expanded =
+      laneOpenOverrides.get(lane.key) ?? lane.key === openByDefault;
+    const regionId = `${laneIdBase}-lane-${lane.key}`;
+    return (
+      <section
+        key={lane.key}
+        className="tasks__section"
+        data-testid={`lane-${lane.key}`}
+      >
+        <button
+          type="button"
+          id={`${regionId}-toggle`}
+          className="tasks__section-toggle tasks__lane-toggle"
+          aria-expanded={expanded}
+          aria-controls={regionId}
+          data-testid={`lane-toggle-${lane.key}`}
+          onClick={() => toggleLane(lane.key, expanded)}
+        >
+          <ChevronRightIcon
+            size={13}
+            className={`reply-card__caret${
+              expanded ? " reply-card__caret--open" : ""
+            }`}
+          />
+          <span>
+            {laneLead}
+            {lane.title}
+          </span>
+          <span data-testid={`lane-count-${lane.key}`}>
+            {` · ${lane.tasks.length}`}
+          </span>
+        </button>
+        <div
+          id={regionId}
+          role="region"
+          aria-labelledby={`${regionId}-toggle`}
+          className="tasks__list"
+          hidden={!expanded}
+        >
+          {expanded && lane.tasks.map(renderCard)}
+        </div>
+      </section>
     );
   }
 
@@ -667,6 +1059,13 @@ export function TasksPage() {
         testId="tasks-filter"
         clearLabel={t.tasks.clearFilters}
         onClear={anyFilter ? clearFilters : undefined}
+        actions={
+          <DisplayOptions
+            groupBy={groupBy}
+            labels={groupByLabels}
+            onGroupByChange={setGroupBy}
+          />
+        }
       >
         {/* 🔴 A second comment used to sit here saying the count was 10, set by
           * hand, and that the canonical 任務 id was `t-` + 12 hex. BOTH halves
@@ -713,9 +1112,18 @@ export function TasksPage() {
           noun={t.tasks.filterStatusNoun}
           allLabel={t.tasks.filterStatusAll}
           options={statusFilterOptions}
+          groups={statusGroups}
           selected={appliedStatus}
           onChange={setAppliedStatus}
           testId="filter-status"
+        />
+        <MultiSelectFilter
+          noun={t.tasks.filterDueNoun}
+          allLabel={t.tasks.filterDueAll}
+          options={dueFilterOptions}
+          selected={appliedDue}
+          onChange={setAppliedDue}
+          testId="filter-due"
         />
       </FilterPanel>
 
@@ -731,43 +1139,15 @@ export function TasksPage() {
         </div>
       )}
 
-      {/* ── 未結案 ── */}
-      {open.length > 0 && (
-        <section className="tasks__section">
-          <div className="tasks__section-title">
-            {t.tasks.openTitle}
-            {` · ${open.length}`}
-          </div>
-          <div className="tasks__list" data-testid="open-list">
-            {open.map(renderCard)}
-          </div>
-        </section>
+      {groupBy !== "none" && lanes.length > 0 && (
+        <div className="tasks__lanes" data-testid="task-list">
+          {lanes.map(renderLane)}
+        </div>
       )}
-
-      {/* ── 已結案 (collapsible, default collapsed) ── */}
-      {closed.length > 0 && (
-        <section className="tasks__section">
-          <button
-            type="button"
-            className="tasks__section-toggle"
-            aria-expanded={closedOpen}
-            data-testid="closed-toggle"
-            onClick={() => setClosedOpen((v) => !v)}
-          >
-            <ChevronRightIcon
-              size={13}
-              className={`reply-card__caret${
-                closedOpen ? " reply-card__caret--open" : ""
-              }`}
-            />
-            {`${t.tasks.closedTitle} · ${closed.length}`}
-          </button>
-          {closedOpen && (
-            <div className="tasks__list" data-testid="closed-list">
-              {closed.map(renderCard)}
-            </div>
-          )}
-        </section>
+      {groupBy === "none" && shown.length > 0 && (
+        <div className="tasks__list" data-testid="task-list">
+          {shown.map(renderCard)}
+        </div>
       )}
     </div>
   );

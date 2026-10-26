@@ -106,6 +106,19 @@ export function FunnelIcon({ size = 16, className }: IconProps) {
   );
 }
 
+export function SlidersIcon({
+  size = 16,
+  className,
+  "aria-hidden": ariaHidden,
+}: IconProps) {
+  return (
+    <svg {...base(size)} className={className} aria-hidden={ariaHidden}>
+      <path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3" />
+      <path d="M14 2v4M8 10v4M16 18v4" />
+    </svg>
+  );
+}
+
 export function ChevronDownIcon({ size = 16, className }: IconProps) {
   return (
     <svg {...base(size)} className={className}>
@@ -536,6 +549,17 @@ export function AlertTriangleIcon({ size = 16, className }: IconProps) {
       <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
       <path d="M12 9v4" />
       <path d="M12 17h.01" />
+    </svg>
+  );
+}
+
+/** Circle-exclamation glyph (lucide "alert-circle"). */
+export function AlertCircleIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 8v4" />
+      <path d="M12 16h.01" />
     </svg>
   );
 }

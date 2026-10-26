@@ -79,6 +79,7 @@ type settingsDTO struct {
 	CodexNoticeRound         int `json:"codex_notice_round"`
 	MonitoringRefreshSeconds int `json:"monitoring_refresh_seconds"`
 	OutsourceMaxParallel     int `json:"outsource_max_parallel"`
+	TaskDueSoonLeadMinutes   int `json:"task_due_soon_lead_minutes"`
 	// AcceleratedGraceSecs is ONE number on purpose: every clocked cause reads it
 	// through recycleGraceFor, so the agent notice's countdown and the reconcile
 	// tick's deadline are the same value. It says HOW LONG; winddownKindFor still
@@ -1151,6 +1152,12 @@ type taskStepMutationReceiptDTO struct {
 	ReadyForDoneNote string `json:"ready_for_done_note,omitempty"`
 }
 
+type taskDueReceiptDTO struct {
+	TaskID             string   `json:"task_id"`
+	DueTS              *float64 `json:"due_ts"`
+	DueSoonLeadMinutes *int     `json:"due_soon_lead_minutes"`
+}
+
 type taskPriorityReceiptDTO struct {
 	TaskID   string `json:"task_id"`
 	Priority string `json:"priority"`
@@ -1586,6 +1593,8 @@ type taskDTO struct {
 	CreatedTS          float64       `json:"created_ts"`
 	UpdatedTS          float64       `json:"updated_ts"`
 	ClosedTS           *float64      `json:"closed_ts"`
+	DueTS              *float64      `json:"due_ts"`
+	DueSoonLeadMinutes *int          `json:"due_soon_lead_minutes"`
 	Deps               []string      `json:"deps"`
 	Steps              []taskStepDTO `json:"steps"`
 	// DetailLevel / NotesIncluded are always "summary" / false — constants, not a
@@ -1629,6 +1638,8 @@ type taskListItemDTO struct {
 	CreatedTS          float64  `json:"created_ts"`
 	UpdatedTS          float64  `json:"updated_ts"`
 	ClosedTS           *float64 `json:"closed_ts"`
+	DueTS              *float64 `json:"due_ts"`
+	DueSoonLeadMinutes *int     `json:"due_soon_lead_minutes"`
 	Deps               []string `json:"deps"`
 
 	DepTasks      []taskDepRefDTO `json:"dep_tasks"`
@@ -1675,6 +1686,10 @@ type taskCountDTO struct {
 	Open int `json:"open"`
 
 	Total int `json:"total"`
+
+	Overdue         int      `json:"overdue"`
+	DueSoon         int      `json:"due_soon"`
+	DueNextChangeTS *float64 `json:"due_next_change_ts"`
 }
 
 type taskManualDTO struct {
@@ -1880,7 +1895,23 @@ func newTaskDTO(t Task, steps []TaskStep, deps []string, cardStatus map[string]s
 		ts := t.ClosedTS
 		dto.ClosedTS = &ts
 	}
+	dto.DueTS = dueTSWire(t.DueTs)
+	dto.DueSoonLeadMinutes = dueSoonLeadMinutesWire(t.DueSoonLeadMinutes)
 	return dto
+}
+
+func dueTSWire(due float64) *float64 {
+	if due <= 0 {
+		return nil
+	}
+	return &due
+}
+
+func dueSoonLeadMinutesWire(minutes int) *int {
+	if minutes <= 0 {
+		return nil
+	}
+	return &minutes
 }
 
 func newTaskArtifactDTO(a TaskArtifact, att *ChatAttachment, retained int) taskArtifactDTO {
@@ -1994,6 +2025,8 @@ func newTaskListItemDTO(
 		ts := t.ClosedTS
 		dto.ClosedTS = &ts
 	}
+	dto.DueTS = dueTSWire(t.DueTs)
+	dto.DueSoonLeadMinutes = dueSoonLeadMinutesWire(t.DueSoonLeadMinutes)
 	return dto
 }
 

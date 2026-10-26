@@ -15,7 +15,7 @@ import { TasksPage } from "./TasksPage";
 import { __resetMock, __injectMockTask } from "../api/mock";
 import type { TaskView } from "../api/adapter";
 // 篩選 moved into the FilterPanel and only bites on 套用篩選 (T-93 round 3).
-import { toggleFilter } from "../test/tasksFilter";
+import { toggleFilter, waitForListedCards } from "../test/tasksFilter";
 
 let seq = 0;
 
@@ -133,12 +133,10 @@ describe("TaskCard in-place priority editing (v2)", () => {
         closedTs: Date.now() / 1000 - 10,
       })
     );
-    const { findAllByTestId, findByTestId } = renderPage();
-    // Terminal tasks hide behind the 狀態 filter → tick 終止 to surface the
-    // (collapsed) 已結案 section, then open it. The filter is inside the
-    // FilterPanel now, so the driver opens it and presses 套用篩選 (T-93 r3).
+    const { findAllByTestId } = renderPage();
+    // Terminal tasks hide behind the 狀態 filter → tick 終止 to surface it.
     toggleFilter("filter-status", "terminated");
-    fireEvent.click(await findByTestId("closed-toggle"));
+    await waitForListedCards(1);
 
     const chips = await findAllByTestId("task-priority");
     expect(chips[0].tagName).toBe("SPAN");

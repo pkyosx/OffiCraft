@@ -33,6 +33,7 @@
 import type { Dict } from "./locales/zh";
 import type { ActivityWait, Effort, MemberActivity } from "../types";
 import { dayStartOf, formatAbsolute, formatClock, formatResetTime } from "../lib/dateFormat";
+import { splitLeadMinutes, type DueRemaining, type LeadUnit } from "../lib/dueDate";
 
 /** The UI languages a wording overlay keys on (mirrors i18n's `Language`;
  * declared locally so this module never imports the provider back). */
@@ -50,6 +51,13 @@ export interface Messages {
   taskMarkDuplicateBody: (taskNo: string) => string;
   taskDuplicateOf: (taskNo: string) => string;
   taskReassignTitle: (taskNo: string) => string;
+  taskDueDate: (tsSeconds: number) => string;
+  taskDueDateTime: (tsSeconds: number) => string;
+  taskOverdueDays: (days: number) => string;
+  taskDueRemaining: (remaining: DueRemaining) => string;
+  taskDueLead: (minutes: number) => string;
+  taskDueLeadWorkspace: (minutes: number) => string;
+  taskCountSummary: (overdue: number, dueSoon: number, open: number) => string;
   // ── task artifact versions (T-60) ──
   taskArtifactVersionCount: (n: number) => string;
   taskArtifactVersionLabel: (when: string) => string;
@@ -255,6 +263,13 @@ export function makeMessages(t: Dict, language: Lang): Messages {
   };
   const counted = (n: number, one: string, many: string): string =>
     `${n} ${n === 1 ? one : many}`;
+  const leadUnitWords: Record<LeadUnit, [string, string]> = {
+    day: [tasks.dueLeadDayOne, tasks.dueLeadDayMany],
+    hour: [tasks.dueLeadHourOne, tasks.dueLeadHourMany],
+    minute: [tasks.dueLeadMinuteOne, tasks.dueLeadMinuteMany],
+  };
+  const countPhrase = (lead: string, n: number, tail: string): string =>
+    [lead, String(n), tail].filter((part) => part !== "").join(" ");
   const nextRunAt = (ts: number, now: number): string =>
     dayStartOf(ts) === dayStartOf(now) ? formatClock(ts) : formatAbsolute(ts, now);
   const messages: Messages = {
@@ -278,6 +293,50 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     // 「3版」/「3 versions」 — the artifact row's versions entry (T-60). Only
     // ever printed for n > 1 (one version is not a history), so the tail needs
     // no singular twin.
+    taskDueDate: (tsSeconds) => {
+      const d = new Date(tsSeconds * 1000);
+      return language === "en"
+        ? d.toLocaleDateString("en-US", {
+            weekday: "short",
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })
+        : `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}（${"日一二三四五六"[d.getDay()]}）`;
+    },
+    taskDueDateTime: (tsSeconds) => {
+      const d = new Date(tsSeconds * 1000);
+      const pad = (n: number) => String(n).padStart(2, "0");
+      return `${messages.taskDueDate(tsSeconds)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    },
+    taskOverdueDays: (days) =>
+      `${tasks.overdueDaysLead} ${days} ${
+        days === 1 ? tasks.overdueDaysTailOne : tasks.overdueDaysTailMany
+      }`,
+    taskDueRemaining: ({ overdue, amount, unit }) => {
+      if (overdue && unit === "day") return messages.taskOverdueDays(amount);
+      const span = counted(amount, ...leadUnitWords[unit]);
+      const parts = overdue
+        ? [tasks.overdueDaysLead, span]
+        : [tasks.dueRemainingLead, span, tasks.dueRemainingTail];
+      return parts.filter((part) => part !== "").join(" ");
+    },
+    taskDueLead: (minutes) => {
+      const { amount, unit } = splitLeadMinutes(minutes);
+      return counted(amount, ...leadUnitWords[unit]);
+    },
+    taskDueLeadWorkspace: (minutes) =>
+      `${tasks.dueLeadWorkspaceLead}${messages.taskDueLead(minutes)}`,
+    taskCountSummary: (overdue, dueSoon, open) =>
+      [
+        overdue > 0 &&
+          countPhrase(tasks.countOverdueLead, overdue, tasks.countOverdueTail),
+        dueSoon > 0 &&
+          countPhrase(tasks.countDueSoonLead, dueSoon, tasks.countDueSoonTail),
+        countPhrase(tasks.countOpenLead, open, tasks.countOpenTail),
+      ]
+        .filter((part) => part !== false)
+        .join(tasks.countSep),
     taskArtifactVersionCount: (n) =>
       `${n}${sp}${tasks.artifacts.versionsCountTail}`,
     // Which version the `-` side of a comparison IS. Same reason the document

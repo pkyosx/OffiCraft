@@ -73,6 +73,25 @@ export function readValidatedPaint(key: string = LS_THEME_PAINT): ThemeBundle | 
   return r.bundle as ThemeBundle;
 }
 
+/** "dark" or "light" from a `#rrggbb` / `rgb()` page background; null when the
+ * value cannot be read. */
+export function colorSchemeForBackground(bg: string | undefined): "dark" | "light" | null {
+  if (!bg) return null;
+  const hex = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(bg.trim());
+  const rgb = /^rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)/i.exec(bg.trim());
+  const parts = hex
+    ? hex.slice(1, 4).map((h) => parseInt(h, 16))
+    : rgb
+      ? rgb.slice(1, 4).map(Number)
+      : null;
+  if (!parts) return null;
+  const [r, g, b] = parts.map((c) => {
+    const v = c / 255;
+    return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.2 ? "dark" : "light";
+}
+
 /** The single DOM applier — used by BOTH the pre-React script and the React
  * apply effect. Returns the token names pushed (the ledger entry). */
 export function applyThemeToRoot(root: HTMLElement, bundle: ThemeBundle): string[] {
@@ -80,6 +99,15 @@ export function applyThemeToRoot(root: HTMLElement, bundle: ThemeBundle): string
   for (const [tok, val] of Object.entries(bundle.colors)) {
     root.style.setProperty(tok, val);
     applied.push(tok);
+  }
+  // Native controls (the date input's calendar icon, select menus, scrollbars)
+  // follow color-scheme, not the colour tokens: without it a dark pack gets a
+  // black calendar icon on its dark field. It rides the ledger so the next
+  // theme's clear removes it with the tokens.
+  const scheme = colorSchemeForBackground(bundle.colors["--color-bg"]);
+  if (scheme) {
+    root.style.setProperty("color-scheme", scheme);
+    applied.push("color-scheme");
   }
   for (const [tok, val] of Object.entries(bundle.fonts ?? {})) {
     root.style.setProperty(tok, val);

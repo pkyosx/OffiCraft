@@ -1104,6 +1104,9 @@
 .param-select {
   min-width: 120px;
 }
+.param-select--unit {
+  min-width: 0;
+}
 
 .param-pct {
   display: flex;

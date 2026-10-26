@@ -14,6 +14,7 @@ import { makeMessages, effortText } from "./compose";
 import { applyWording } from "./wording";
 import { MESSAGE_KEYS } from "./messageKeys.generated";
 import type { ActivityWait, Effort, MemberActivity } from "../types";
+import type { DueRemaining } from "../lib/dueDate";
 
 type Lang = "zh" | "en";
 const DICTS: Record<Lang, Dict> = { zh, en };
@@ -56,7 +57,15 @@ const WAIT_CRON = { kind: "schedule" as const, description: "每小時看 CI", n
 const NEXT = at(2026, 10, 4, 12, 15);
 const cron = (nextTs: number | null, recurring: boolean) => ({ ...WAIT_CRON, nextTs, recurring });
 
-type Arg = string | number | string[] | number[] | null | MemberActivity | ActivityWait;
+type Arg =
+  | string
+  | number
+  | string[]
+  | number[]
+  | null
+  | MemberActivity
+  | ActivityWait
+  | DueRemaining;
 /** [language, message, arguments, the text that must appear on screen]. */
 const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["zh", "memberActivitySummary", [act({ busySince: T - 180 })], "主代理工作中"],
@@ -117,6 +126,23 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["zh", "taskMarkDuplicateBody", ["T-1234"], "把「T-1234」標記為某張原票的重複?任務將結案為重複、無法恢復。請選擇原票:"],
     ["zh", "taskDuplicateOf", ["T-9999"], "重複於 T-9999"],
     ["zh", "taskReassignTitle", ["T-1234"], "轉派 T-1234"],
+    ["zh", "taskDueDate", [1793375999], "2026/10/30（五）"],
+    ["zh", "taskDueDateTime", [1792650600], "2026/10/22（四） 14:30"],
+    ["zh", "taskOverdueDays", [1], "已逾期 1 天"],
+    ["zh", "taskOverdueDays", [2], "已逾期 2 天"],
+    ["zh", "taskDueRemaining", [{ overdue: false, amount: 5, unit: "day" }], "還有 5 天"],
+    ["zh", "taskDueRemaining", [{ overdue: false, amount: 19, unit: "hour" }], "還有 19 小時"],
+    ["zh", "taskDueRemaining", [{ overdue: false, amount: 25, unit: "minute" }], "還有 25 分鐘"],
+    ["zh", "taskDueRemaining", [{ overdue: true, amount: 2, unit: "day" }], "已逾期 2 天"],
+    ["zh", "taskDueRemaining", [{ overdue: true, amount: 3, unit: "hour" }], "已逾期 3 小時"],
+    ["zh", "taskDueLead", [1440], "1 天"],
+    ["zh", "taskDueLead", [120], "2 小時"],
+    ["zh", "taskDueLead", [90], "90 分鐘"],
+    ["zh", "taskDueLeadWorkspace", [1440], "全站設定 1 天"],
+    ["zh", "taskDueLeadWorkspace", [120], "全站設定 2 小時"],
+    ["zh", "taskCountSummary", [2, 1, 12], "已逾期 2 · 即將到期 1 · 進行中 12"],
+    ["zh", "taskCountSummary", [3, 0, 4], "已逾期 3 · 進行中 4"],
+    ["zh", "taskCountSummary", [0, 0, 4], "進行中 4"],
     // T-60 — the artifact version reader's four. The count is the `sp` case
     // again (zh runs the characters together, en needs the space), and it is
     // only ever printed for n > 1, so there is no singular rendering to pin.
@@ -276,6 +302,24 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["en", "taskMarkDuplicateBody", ["T-1234"], "Mark “T-1234” a duplicate of another task? It moves to Duplicate and cannot be resumed. Pick the original:"],
     ["en", "taskDuplicateOf", ["T-9999"], "Duplicate of T-9999"],
     ["en", "taskReassignTitle", ["T-1234"], "Reassign T-1234"],
+    ["en", "taskDueDate", [1793375999], "Fri, Oct 30, 2026"],
+    ["en", "taskDueDateTime", [1792631100], "Thu, Oct 22, 2026 09:05"],
+    ["en", "taskOverdueDays", [1], "Overdue 1 day"],
+    ["en", "taskOverdueDays", [2], "Overdue 2 days"],
+    ["en", "taskDueRemaining", [{ overdue: false, amount: 1, unit: "day" }], "1 day left"],
+    ["en", "taskDueRemaining", [{ overdue: false, amount: 19, unit: "hour" }], "19 hours left"],
+    ["en", "taskDueRemaining", [{ overdue: true, amount: 2, unit: "day" }], "Overdue 2 days"],
+    ["en", "taskDueRemaining", [{ overdue: true, amount: 1, unit: "minute" }], "Overdue 1 minute"],
+    ["en", "taskDueLead", [1440], "1 day"],
+    ["en", "taskDueLead", [2880], "2 days"],
+    ["en", "taskDueLead", [60], "1 hour"],
+    ["en", "taskDueLead", [1], "1 minute"],
+    ["en", "taskDueLead", [90], "90 minutes"],
+    ["en", "taskDueLeadWorkspace", [1440], "Workspace 1 day"],
+    ["en", "taskDueLeadWorkspace", [120], "Workspace 2 hours"],
+    ["en", "taskCountSummary", [2, 1, 12], "2 overdue · 1 due soon · 12 open"],
+    ["en", "taskCountSummary", [3, 0, 4], "3 overdue · 4 open"],
+    ["en", "taskCountSummary", [0, 0, 4], "4 open"],
     ["en", "replyWaited", ["3 小時"], "Waiting 3 小時"],
     ["en", "replyOpenedAt", ["7/13 09:05"], "Opened 7/13 09:05"],
     ["en", "replyAnsweredAt", ["7/13 09:05"], "Answered 7/13 09:05"],

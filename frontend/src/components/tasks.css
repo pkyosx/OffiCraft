@@ -67,6 +67,94 @@
   border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
   color: var(--color-text-strong);
 }
+/* 顯示方式: square corners and no fill, so it does not read as one more
+   filter pill. */
+.tasks__display {
+  position: relative;
+}
+.tasks__display-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 14%, transparent);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  line-height: normal;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+/* With the 到期 filter, a 390px phone leaves the labelled button ~20px short of
+ * the last filter line; icon-only keeps it on that line. The label stays in the
+ * accessibility tree. */
+@media (max-width: 520px) {
+  .tasks__display-trigger {
+    padding: 6px 8px;
+  }
+  .tasks__display-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+.tasks__display-trigger:hover,
+.tasks__display-trigger[aria-expanded="true"] {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
+}
+.tasks__display-pop {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 20;
+  width: 240px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
+  background: var(--color-card);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--color-shadow) 45%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.tasks__display-pop:focus {
+  outline: none;
+}
+.tasks__display-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+.tasks__display-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+.tasks__display-select {
+  min-width: 0;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 14%, transparent);
+  background: var(--color-card);
+  color: var(--color-text-strong);
+  font: inherit;
+  cursor: pointer;
+  color-scheme: inherit;
+}
+.tasks__display-select option {
+  background: var(--color-card);
+  color: var(--color-text);
+}
 .tasks__ms-caret {
   flex: none;
   color: var(--color-text-muted);
@@ -107,6 +195,17 @@
 .tasks__ms-opt:hover {
   background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
 }
+.tasks__ms-opt--group {
+  font-weight: 600;
+}
+/* Off the muted text colour: office's --color-border is its card colour and an
+   overlay veil fades on light themes, so either one loses this line somewhere. */
+.tasks__ms-sep {
+  flex: none;
+  height: 1px;
+  margin: 4px 0;
+  background: color-mix(in srgb, var(--color-text-muted) 60%, transparent);
+}
 .tasks__ms-check {
   flex: none;
   width: 14px;
@@ -135,15 +234,6 @@
 }
 
 /* ── sections / empty states ── */
-.tasks__section-title {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 0 2px 12px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--color-text-muted);
-}
 .tasks__section-toggle {
   display: flex;
   align-items: baseline;
@@ -179,6 +269,17 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+.tasks__list[hidden] {
+  display: none;
+}
+.tasks__lanes {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.tasks__lane-toggle {
+  align-items: center;
 }
 
 /* ── one task card (全展開內嵌) ── */
@@ -860,6 +961,215 @@ button.task-card__prio-chip:hover {
   left: 0;
   right: auto;
   min-width: 96px;
+}
+
+/* 到期日 value cell: stretched over the whole value column so the popover
+   anchored in it has the card's width to work with on a phone. */
+.task-card__due {
+  position: relative;
+  justify-self: stretch;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 6px;
+}
+/* Declared before the tone classes so a due-soon or overdue tone wins. */
+.task-card__due-remaining {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+/* The plain declaration is the fallback for Safari before 17.4, which drops
+   the alt-text form and would lose the separator. */
+.task-card__due-remaining::before {
+  content: "· ";
+  content: "· " / "";
+}
+.task-card__due-date--overdue {
+  color: var(--color-danger);
+}
+.task-card__due-date--soon {
+  color: var(--color-dot-waking);
+}
+.task-card__due-date--unset {
+  color: var(--color-text-muted);
+}
+/* Only the colour says due soon on screen; this carries the words to screen
+   readers. */
+.task-card__due-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+/* A fixed width: left to shrink-to-fit, the date and lead inputs stretch the
+   picker across the whole card on desktop. */
+.task-card__due-pop {
+  left: 0;
+  right: auto;
+  width: 280px;
+  min-width: 160px;
+}
+.task-card__due-pop > * {
+  grid-column: 1 / -1;
+}
+/* The time field and the lead unit share the right-hand column, so their
+   edges line up whichever of them is wider. */
+.task-card__due-when,
+.task-card__due-lead,
+.task-card__due-lead-row {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
+}
+/* The native input lies transparently over its field, so a tap reaches it
+   directly and a touch browser opens its own picker. */
+.task-card__due-pick {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.task-card__due-pick:focus-within {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+.task-card__due-pick:has(:disabled) {
+  cursor: default;
+}
+/* Every field with no value of its own reads the same: muted text on the
+   field background. A field disabled because there is no date yet must not
+   fade further — iOS Safari dims a disabled input's text and background on
+   its own unless all three are set here. */
+.task-card__due-input.task-card__due-pick--unset,
+.task-card__due-input.task-card__due-lead-unit--default,
+.task-card__due-input:disabled {
+  color: var(--color-text-muted);
+  -webkit-text-fill-color: var(--color-text-muted);
+}
+.task-card__due-input:disabled {
+  opacity: 1;
+  background: var(--color-bg);
+  cursor: default;
+}
+.task-card__due-date-pick {
+  min-width: 0;
+}
+/* The ✕ sits in a slot kept free on every field, so showing it never pushes
+   the text. */
+.task-card__due-date-pick,
+.task-card__due-time-pick {
+  padding-right: 26px;
+}
+/* A hidden copy of 「不指定時間」 keeps the time field at least that wide, so
+   where the unit select is narrower (iOS Safari) picking a time does not
+   shrink the shared column. */
+.task-card__due-time-text {
+  display: inline-grid;
+}
+.task-card__due-time-text > span,
+.task-card__due-time-text::after {
+  grid-area: 1 / 1;
+}
+.task-card__due-time-text::after {
+  content: attr(data-unset);
+  visibility: hidden;
+}
+.task-card__due-pick-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: inherit;
+  font: inherit;
+}
+/* Sits above the transparent native input, which covers the whole field. */
+.task-card__due-pick-clear {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  padding: 0 8px 0 6px;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.task-card__due-pick-clear:hover {
+  color: var(--color-text);
+}
+.task-card__due-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.task-card__due-actions .inline-edit__iconbtn {
+  cursor: pointer;
+}
+.task-card__due-actions > .inline-edit__iconbtn--apply {
+  margin-left: auto;
+}
+.task-card__due-lead {
+  row-gap: 2px;
+}
+/* The shared menu-pop floor and flex column are declared later and would
+   otherwise win. */
+.task-card__menu-pop.task-card__due-pop {
+  min-width: 206px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 6px;
+}
+.task-card__due-lead-label {
+  grid-column: 1 / -1;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+.task-card__due-lead-input {
+  min-width: 0;
+}
+.task-card__due-lead-tail {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.task-card__due-lead-unit {
+  flex: 1 1 auto;
+}
+.task-card__due-lead-before {
+  flex: none;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+.task-card__due-input {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  color-scheme: inherit;
+}
+.task-card__due-input::placeholder {
+  color: var(--color-text-muted);
+  -webkit-text-fill-color: var(--color-text-muted);
+  opacity: 1;
 }
 
 /* 狀態 badge → owner-action dropdown (v5): 標記重複 / 終止 (+ the 等我回覆 jump
@@ -1962,6 +2272,13 @@ button.task-card__waiting--dep:focus-visible {
     right: 0;
     width: auto;
     max-width: 340px;
+  }
+  /* The value column starts past the label column, so the due picker opens
+     leftward from the card's right edge instead of overflowing it. */
+  .task-card__due-pop {
+    left: auto;
+    right: 0;
+    max-width: 240px;
   }
 }
 

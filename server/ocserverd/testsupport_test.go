@@ -39,14 +39,14 @@ func dalTestDeleteMemberRow(t *testing.T, d *DAL, id string) {
 
 // newAPITestDAL opens a fresh migrated SQLite database for one test, over the
 // two pools serve time uses: writes on one connection, reads on several.
-func newAPITestDAL(t *testing.T) *DAL {
+func newAPITestDAL(t testing.TB) *DAL {
 	t.Helper()
 	return newAPITestDALAt(t, filepath.Join(t.TempDir(), "api-test.db"))
 }
 
 // newAPITestDALAt is newAPITestDAL over a database file the caller names, for a
 // test that also drives a host subcommand against the same file.
-func newAPITestDALAt(t *testing.T, path string) *DAL {
+func newAPITestDALAt(t testing.TB, path string) *DAL {
 	t.Helper()
 	wdb, err := openMigratedSQLite(t, path)
 	if err != nil {
@@ -89,7 +89,7 @@ var migratedTemplate = sync.OnceValues(func() ([]byte, error) {
 // runMigrations on it is a no-op). A test that needs an empty or partially
 // migrated file — the migration tests, a pre-migration backup — must keep
 // calling openSQLite and goose itself.
-func openMigratedSQLite(t *testing.T, path string) (*sql.DB, error) {
+func openMigratedSQLite(t testing.TB, path string) (*sql.DB, error) {
 	t.Helper()
 	image, err := migratedTemplate()
 	if err != nil {

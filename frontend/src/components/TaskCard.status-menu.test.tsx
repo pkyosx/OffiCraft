@@ -26,7 +26,7 @@ import { __resetMock, __injectMockTask, mockApi } from "../api/mock";
 import type { TaskView } from "../api/adapter";
 // 篩選 now lives inside the FilterPanel and only bites on 套用篩選 (T-93
 // round 3) — the shared driver does open → tick → apply.
-import { toggleFilter } from "../test/tasksFilter";
+import { toggleFilter, waitForListedCards } from "../test/tasksFilter";
 
 let seq = 0;
 
@@ -64,9 +64,6 @@ function renderPage() {
     </I18nProvider>
   );
 }
-
-/** Terminals are hidden by default — tick one in the 狀態 filter to reveal the
- * 已結案 section (same helper shape as TasksPage.test.tsx). */
 
 beforeEach(() => {
   __resetMock();
@@ -343,10 +340,9 @@ describe("spec ② 狀態 badge → 下拉選單", () => {
       })
     );
     const { findByTestId } = renderPage();
-    // Terminals are hidden by default: tick the 狀態 filter AND open the
-    // 已結案 section (same two-step the existing closed-card test uses).
+    // Terminals are hidden by default: tick the 狀態 filter and wait for the row.
     toggleFilter("filter-status", "terminated");
-    fireEvent.click(await findByTestId("closed-toggle"));
+    await waitForListedCards(1);
     const card = await findByTestId("task-card");
     fireEvent.click(card.querySelector(".task-card__head")!);
     await waitFor(() => {
@@ -526,7 +522,7 @@ describe("spec ② 狀態 badge → 下拉選單", () => {
 
     const { findAllByTestId, findByTestId } = renderPage();
     for (const s of closedStatuses) toggleFilter("filter-status", s);
-    fireEvent.click(await findByTestId("closed-toggle"));
+    await waitForListedCards(closedStatuses.length + 1);
     const cards = await findAllByTestId("task-card");
     expect(cards).toHaveLength(closedStatuses.length + 1);
     const byTitle = (s: string) =>
@@ -679,9 +675,9 @@ describe("spec ④ 右上三角展開指示器", () => {
         closedTs: Date.now() / 1000 - 60,
       })
     );
-    const { findAllByTestId, findByTestId } = renderPage();
+    const { findAllByTestId } = renderPage();
     toggleFilter("filter-status", "terminated");
-    fireEvent.click(await findByTestId("closed-toggle"));
+    await waitForListedCards(2);
     const cards = await findAllByTestId("task-card");
     expect(cards).toHaveLength(2);
 
@@ -709,8 +705,8 @@ describe("spec ④ 右上三角展開指示器", () => {
     );
     const { findByTestId } = renderPage();
     toggleFilter("filter-status", "terminated");
-    fireEvent.click(await findByTestId("closed-toggle"));
-    const card = (await findByTestId("closed-list")).querySelector(
+    await waitForListedCards(1);
+    const card = (await findByTestId("task-list")).querySelector(
       '[data-testid="task-card"]'
     )!;
     const mark = card.querySelector('[data-testid="task-expand-mark"]')!;

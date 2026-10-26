@@ -101,6 +101,18 @@ var outsourceParallelRangeMsg = fmt.Sprintf(
 	"must be between %d and %d (%d = unlimited)",
 	minOutsourceParallel, maxOutsourceParallel, minOutsourceParallel)
 
+const (
+	minDueSoonLeadMinutes = 1
+	maxDueSoonLeadMinutes = 30 * 24 * 60
+)
+
+func dueSoonLeadMinutesInRange(n int) bool {
+	return n >= minDueSoonLeadMinutes && n <= maxDueSoonLeadMinutes
+}
+
+var dueSoonLeadMinutesRangeMsg = fmt.Sprintf(
+	"must be between %d and %d minutes (30 days)", minDueSoonLeadMinutes, maxDueSoonLeadMinutes)
+
 const maxOrgNameLen = 80
 
 const maxOwnerNameLen = 80
@@ -430,6 +442,12 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 			"outsource_max_parallel "+outsourceParallelRangeMsg)
 		return
 	}
+	if body.TaskDueSoonLeadMinutes != nil &&
+		!dueSoonLeadMinutesInRange(*body.TaskDueSoonLeadMinutes) {
+		writeError(w, http.StatusUnprocessableEntity,
+			"task_due_soon_lead_minutes "+dueSoonLeadMinutesRangeMsg)
+		return
+	}
 	if body.WardenCredentialLifetimeSecs != nil &&
 		!wardenCredLifetimeInRange(*body.WardenCredentialLifetimeSecs) {
 		writeError(w, http.StatusUnprocessableEntity,
@@ -651,6 +669,12 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		v := *body.OutsourceMaxParallel
 		put(settingOutsourceMaxParallel, strconv.Itoa(v), func() { s.outsourceMaxParallel = v })
 	}
+	dueSoonLeadChanged := false
+	if body.TaskDueSoonLeadMinutes != nil && *body.TaskDueSoonLeadMinutes != s.taskDueSoonLeadMinutesSetting() {
+		v := *body.TaskDueSoonLeadMinutes
+		put(settingTaskDueSoonLeadMinutes, strconv.Itoa(v), func() { s.taskDueSoonLeadMinutes = v })
+		dueSoonLeadChanged = true
+	}
 	capWrite := []struct {
 		field *int
 		key   string
@@ -773,6 +797,9 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 	if updaterChanged {
 		s.kickUpdateCheck()
 	}
+	if dueSoonLeadChanged {
+		s.publishTaskDueSoonLeadChanged(requestTrigger(r))
+	}
 	writeJSON(w, http.StatusOK, s.settingsView())
 }
 
@@ -794,6 +821,7 @@ func (s *apiServer) settingsView() settingsDTO {
 		DiskUsageIntervalSecs:           s.diskUsageIntervalSecs,
 		WardenCredentialLifetimeSecs:    s.wardenCredLifetimeSecs,
 		OutsourceMaxParallel:            s.outsourceMaxParallel,
+		TaskDueSoonLeadMinutes:          s.taskDueSoonLeadMinutes,
 		DocCapCharsDuty:                 s.docCapCharsDuty,
 		DocCapCharsInsight:              s.docCapCharsInsight,
 		DocCapCharsManualSop:            s.docCapCharsManualSop,

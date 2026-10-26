@@ -11,6 +11,9 @@ playwright/.cache
 test-results/
 dist-paint-guard/
 
+# tsc's incremental build state; written beside the tsconfig on every run.
+*.tsbuildinfo
+
 # Screenshots written by the recon specs in visual-guards/ (te4ae-recon writes
 # recon-out/<story>-<width>-<variant>.png on every run). Throwaway measurement
 # output that lands in the working tree UNIGNORED, so a routine `git add -A`

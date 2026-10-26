@@ -15,7 +15,8 @@
 // server request. A test that types into that box and asserts the list changed
 // is asserting the behaviour the owner rejected — the Enter is not decoration.
 
-import { fireEvent } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { expect } from "vitest";
 
 /** Tick/untick ONE option of one multi-select axis. It takes effect on the
  * click — there is no Apply. */
@@ -52,6 +53,54 @@ export function blurIdFilter() {
   fireEvent.blur(document.querySelector('[data-testid="filter-task-id"]')!);
 }
 
+/** Open the 顯示方式 panel unless it is already open; returns its 分組依據
+ * select. */
+export function openDisplayOptions(): HTMLSelectElement {
+  const trigger = document.querySelector('[data-testid="display-options"]')!;
+  if (trigger.getAttribute("aria-expanded") !== "true") {
+    fireEvent.click(trigger);
+  }
+  return document.querySelector<HTMLSelectElement>('[data-testid="group-by"]')!;
+}
+
+/** Pick a 分組依據 mode in the 顯示方式 panel. */
+export function chooseGroupBy(
+  mode: "due" | "priority" | "executor" | "type" | "status" | "none"
+) {
+  fireEvent.change(openDisplayOptions(), { target: { value: mode } });
+}
+
+/** Wait until the 不分組 list holds exactly `count` cards. A 狀態 tick only
+ * starts the fetch, so the closed rows it asked for land a moment later. */
+export async function waitForListedCards(count: number) {
+  await waitFor(() =>
+    expect(
+      screen
+        .getByTestId("task-list")
+        .querySelectorAll('[data-testid="task-card"]').length
+    ).toBe(count)
+  );
+}
+
+/** Expand one 分組 lane (e.g. `nodue` for 沒有到期日) unless it is already
+ * open. Clicking blindly would COLLAPSE a lane that opened by default as the
+ * first one. Waits for the lane to exist, since it renders only once a task is
+ * in it — and, given `taskCount`, until it holds exactly that many: a closed
+ * task shares its due lane with open ones, so the lane existing does not mean
+ * the closed rows a status tick asked for have landed in it yet. */
+export async function expandLane(key: string, taskCount?: number) {
+  await screen.findByTestId(`lane-toggle-${key}`);
+  if (taskCount !== undefined) {
+    await waitFor(() =>
+      expect(screen.getByTestId(`lane-count-${key}`).textContent).toBe(
+        ` · ${taskCount}`
+      )
+    );
+  }
+  const toggle = screen.getByTestId(`lane-toggle-${key}`);
+  if (toggle.getAttribute("aria-expanded") !== "true") fireEvent.click(toggle);
+}
+
 /** Every axis back to "no constraint".
  *
  * 🔴 THERE IS NO 清除全部 BUTTON ANY MORE. It lived on the 已篩選 strip and went
@@ -64,7 +113,7 @@ export function blurIdFilter() {
  * helper makes several round trips where the product's own 清除篩選 button makes
  * one. Do not use it as the basis of a request-count assertion. */
 export function clearAllFilters() {
-  for (const testId of ["filter-executor", "filter-type", "filter-status"]) {
+  for (const testId of ["filter-executor", "filter-type", "filter-status", "filter-due"]) {
     const trigger = document.querySelector(`[data-testid="${testId}"]`);
     if (!trigger) continue;
     if (trigger.getAttribute("aria-expanded") !== "true") {

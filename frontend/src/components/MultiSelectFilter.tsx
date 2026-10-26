@@ -47,6 +47,13 @@ export interface MultiSelectOption {
   count?: number;
 }
 
+/** A row above the options that ticks or unticks several of them at once. */
+export interface MultiSelectGroup {
+  value: string;
+  label: string;
+  members: string[];
+}
+
 interface MultiSelectFilterProps {
   /** aria-label + the "· N" summary noun (e.g. 負責人 / 類型 / 狀態). */
   noun: string;
@@ -54,6 +61,10 @@ interface MultiSelectFilterProps {
    * A full set is a constraint and renders as such; see this file's header. */
   allLabel: string;
   options: MultiSelectOption[];
+  /** Shortcut rows above the options. A group reads as checked only when every
+   * member is selected; the summary names a group when the selection is
+   * exactly its members. */
+  groups?: MultiSelectGroup[];
   selected: Set<string>;
   onChange: (next: Set<string>) => void;
   /** data-testid on the trigger; each option row gets `${testId}-opt-<value>`. */
@@ -64,6 +75,7 @@ export function MultiSelectFilter({
   noun,
   allLabel,
   options,
+  groups = [],
   selected,
   onChange,
   testId,
@@ -87,11 +99,25 @@ export function MultiSelectFilter({
     onChange(next);
   }
 
+  function toggleGroup(g: MultiSelectGroup) {
+    const next = new Set(selected);
+    if (g.members.every((m) => next.has(m))) g.members.forEach((m) => next.delete(m));
+    else g.members.forEach((m) => next.add(m));
+    onChange(next);
+  }
+
   // Summary — count only options that still exist (a stale key never inflates N).
   const present = options.filter((o) => selected.has(o.value));
+  const exactGroup = groups.find(
+    (g) =>
+      g.members.length === present.length &&
+      g.members.every((m) => selected.has(m)),
+  );
   let summary: string;
   if (present.length === 0) {
     summary = allLabel;
+  } else if (exactGroup) {
+    summary = exactGroup.label;
   } else if (present.length === 1) {
     summary = present[0].label;
   } else {
@@ -120,6 +146,22 @@ export function MultiSelectFilter({
       </button>
       {open && (
         <div className="tasks__ms-pop" role="group" aria-label={noun}>
+          {groups.map((g) => (
+            <label
+              key={g.value}
+              className="tasks__ms-opt tasks__ms-opt--group"
+              data-testid={`${testId}-group-${g.value}`}
+            >
+              <input
+                type="checkbox"
+                className="tasks__ms-check"
+                checked={g.members.every((m) => selected.has(m))}
+                onChange={() => toggleGroup(g)}
+              />
+              <span className="tasks__ms-opt-label">{g.label}</span>
+            </label>
+          ))}
+          {groups.length > 0 && <div className="tasks__ms-sep" role="separator" />}
           {options.map((o) => (
             <label
               key={o.value}

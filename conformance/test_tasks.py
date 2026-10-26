@@ -1664,6 +1664,51 @@ def test_set_task_priority_via_mcp_loopback(client, executor):
     assert result["structuredContent"]["frozen_by"] == executor.member_id, r.text
 
 
+def test_set_task_due_via_mcp_loopback_sets_reads_back_and_clears(client, executor):
+    task = _create_task(client, executor)["task"]
+    assert task["due_ts"] is None
+
+    def _call(id_, tool, arguments):
+        return client.post(
+            "/api/mcp",
+            json={"jsonrpc": "2.0", "id": id_, "method": "tools/call",
+                  "params": {"name": tool, "arguments": arguments}},
+            headers=_auth(executor.token))
+
+    r = _call(1, "set_task_due",
+              {"task_id": task["id"], "due_ts": 1790000000, "due_soon_lead_minutes": 90})
+    assert r.status_code == 200, f"{r.status_code} {r.text}"
+    result = r.json()["result"]
+    assert result.get("isError") is not True, r.text
+    assert result["structuredContent"] == {
+        "task_id": task["id"], "due_ts": 1790000000, "due_soon_lead_minutes": 90}
+
+    r = _call(2, "get_task", {"task_id": task["id"]})
+    assert r.status_code == 200, f"{r.status_code} {r.text}"
+    got = r.json()["result"]["structuredContent"]
+    assert (got["due_ts"], got["due_soon_lead_minutes"]) == (1790000000, 90)
+
+    r = _call(3, "set_task_due", {"task_id": task["id"], "due_ts": 0})
+    assert r.status_code == 200, f"{r.status_code} {r.text}"
+    assert r.json()["result"]["isError"] is True, "due_ts 0 over MCP must be refused"
+
+    r = _call(4, "set_task_due", {"task_id": task["id"], "due_ts": None})
+    assert r.status_code == 200, f"{r.status_code} {r.text}"
+    result = r.json()["result"]
+    assert result.get("isError") is not True, r.text
+    assert result["structuredContent"] == {
+        "task_id": task["id"], "due_ts": None, "due_soon_lead_minutes": None}
+
+
+def test_task_count_counts_an_open_past_due_task_as_overdue(client, owner_token, executor):
+    before = client.get("/api/tasks/count", headers=_auth(owner_token)).json()
+    _create_task(client, executor, due_ts=1000)
+
+    after = client.get("/api/tasks/count", headers=_auth(owner_token)).json()
+    assert after["overdue"] == before["overdue"] + 1, (before, after)
+    assert after["due_soon"] == before["due_soon"], (before, after)
+
+
 # ── §6.2 resume-summary task block ───────────────────────────────────────────
 
 

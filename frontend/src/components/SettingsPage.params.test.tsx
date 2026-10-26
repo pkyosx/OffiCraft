@@ -69,6 +69,10 @@ describe("SettingsPage · 參數調整", () => {
     const diskUsage = utils.getByLabelText(s.diskUsageInterval) as HTMLInputElement;
     expect(diskUsage.value).toBe("3600");
     expect(rows.indexOf(diskUsage)).toBe(rows.indexOf(loginRecheck) + 1);
+    expect((utils.getByLabelText(s.dueSoonLead) as HTMLInputElement).value).toBe("1");
+    const leadUnit = utils.getByLabelText(zh.tasks.dueLeadUnitLabel) as HTMLSelectElement;
+    expect(leadUnit.value).toBe("day");
+    expect(leadUnit.nextElementSibling!.textContent).toBe("前");
   });
 
   it("changing the login TTL patches the server immediately", async () => {
@@ -240,6 +244,59 @@ describe("SettingsPage · 參數調整", () => {
     await utils.findByText(s.paramsSaveError);
     expect((await api.getServerSettings()).monitoringRefreshSeconds).toBe(12);
     expect(patch).toHaveBeenCalledTimes(1);
+    patch.mockRestore();
+  });
+
+  it("persists the 快到期提醒 as minutes through its unit and shows it back in the largest exact unit", async () => {
+    const patch = vi.spyOn(api, "patchServerSettings");
+    const utils = await openParams();
+    const amount = utils.getByLabelText(s.dueSoonLead) as HTMLInputElement;
+    const unit = utils.getByLabelText(zh.tasks.dueLeadUnitLabel) as HTMLSelectElement;
+    const saved = async (minutes: number) => {
+      await waitFor(async () => expect((await api.getServerSettings()).taskDueSoonLeadMinutes).toBe(minutes));
+      expect(patch).toHaveBeenLastCalledWith({ taskDueSoonLeadMinutes: minutes });
+    };
+
+    fireEvent.change(amount, { target: { value: "30" } });
+    fireEvent.keyDown(amount, { key: "Enter" });
+    await saved(43200);
+
+    fireEvent.change(unit, { target: { value: "hour" } });
+    fireEvent.change(amount, { target: { value: "2" } });
+    fireEvent.keyDown(amount, { key: "Enter" });
+    await saved(120);
+    expect([amount.value, unit.value]).toEqual(["2", "hour"]);
+
+    fireEvent.change(amount, { target: { value: "90" } });
+    fireEvent.blur(amount, { relatedTarget: unit });
+    fireEvent.change(unit, { target: { value: "minute" } });
+    expect(patch).toHaveBeenCalledTimes(2);
+    fireEvent.blur(unit);
+    await saved(90);
+
+    fireEvent.change(amount, { target: { value: "24" } });
+    fireEvent.change(unit, { target: { value: "hour" } });
+    fireEvent.blur(unit);
+    await saved(1440);
+    expect([amount.value, unit.value]).toEqual(["1", "day"]);
+    expect(patch).toHaveBeenCalledTimes(4);
+    patch.mockRestore();
+  });
+
+  it("snaps the 快到期提醒 back without a write outside 1 minute..30 days or when not a whole number", async () => {
+    const patch = vi.spyOn(api, "patchServerSettings");
+    const utils = await openParams();
+    const amount = utils.getByLabelText(s.dueSoonLead) as HTMLInputElement;
+    const unit = utils.getByLabelText(zh.tasks.dueLeadUnitLabel) as HTMLSelectElement;
+    for (const [value, unitValue] of [["0", "minute"], ["43201", "minute"], ["31", "day"], ["2.5", "hour"], ["", "day"]]) {
+      fireEvent.change(unit, { target: { value: unitValue } });
+      fireEvent.change(amount, { target: { value } });
+      fireEvent.blur(amount);
+      await utils.findByText(s.paramsSaveError);
+      expect([amount.value, unit.value]).toEqual(["1", "day"]);
+    }
+    expect(patch).not.toHaveBeenCalled();
+    expect((await api.getServerSettings()).taskDueSoonLeadMinutes).toBe(1440);
     patch.mockRestore();
   });
 });

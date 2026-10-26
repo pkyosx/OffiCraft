@@ -52,6 +52,7 @@ export function FilterPanel({
   clearLabel,
   onClear,
   children,
+  actions,
 }: {
   testId?: string;
   /** Wording for the 清除篩選 control. Each page supplies its own. */
@@ -71,6 +72,9 @@ export function FilterPanel({
   onClear?: () => void;
   /** The filter fields. Always visible — there is no collapsed state. */
   children: ReactNode;
+  /** Controls that are not filters (the 任務頁's 顯示方式), held at the row's
+   * right end, outside the fields and outside what 清除篩選 clears. */
+  actions?: ReactNode;
 }) {
   return (
     <div className="filter-panel" data-testid={testId}>
@@ -86,6 +90,7 @@ export function FilterPanel({
             {clearLabel}
           </button>
         )}
+        {actions && <div className="filter-panel__actions">{actions}</div>}
       </div>
     </div>
   );

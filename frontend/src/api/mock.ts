@@ -5,6 +5,12 @@
 // HTTP adapter will use. Honesty is preserved end-to-end: no telemetry, no fake
 // online, no fabricated timestamps.
 
+import {
+  DEFAULT_DUE_SOON_LEAD_MINUTES,
+  DUE_SOON_LEAD_MINUTES_MAX,
+  DUE_SOON_LEAD_MINUTES_MIN,
+  effectiveLeadMinutes,
+} from "../lib/dueDate";
 import type {
   Member,
   MonitoringView,
@@ -2269,6 +2275,7 @@ const DEFAULT_MOCK_SETTINGS = {
   warden_credential_lifetime_secs: 2592000,
   // M3 global outsource cap — mirrors the server's code-side default (3).
   outsource_max_parallel: 3,
+  task_due_soon_lead_minutes: DEFAULT_DUE_SOON_LEAD_MINUTES,
   // T-ae38 document size caps — mirror the server's shipped defaults, which
   // this module already imports rather than restating (Duty has its own,
   // smaller one; the other three share).
@@ -4315,9 +4322,37 @@ const mockApiImpl = {
     // Open (non-terminal) count — computed live, same rule as the server's
     // count endpoint (done/terminated never count) — plus the unfiltered total
     // (T-a3e4), which is every task INCLUDING the terminal ones.
+    const now = Date.now() / 1000;
+    const openTasks = tasks.filter((t) => !TERMINAL_TASK_STATUSES.has(t.status));
+    let overdue = 0;
+    let dueSoon = 0;
+    let dueNextChangeTs: number | null = null;
+    for (const t of openTasks) {
+      const due = t.dueTs ?? null;
+      if (due === null) continue;
+      if (due <= now) {
+        overdue += 1;
+        continue;
+      }
+      const soonAt =
+        due -
+        effectiveLeadMinutes(
+          t.dueSoonLeadMinutes,
+          mockServerSettings.task_due_soon_lead_minutes ?? DEFAULT_DUE_SOON_LEAD_MINUTES
+        ) *
+          60;
+      if (soonAt <= now) dueSoon += 1;
+      const change = soonAt > now ? soonAt : due;
+      if (dueNextChangeTs === null || change < dueNextChangeTs) {
+        dueNextChangeTs = change;
+      }
+    }
     return {
-      open: tasks.filter((t) => !TERMINAL_TASK_STATUSES.has(t.status)).length,
+      open: openTasks.length,
       total: tasks.length,
+      overdue,
+      dueSoon,
+      dueNextChangeTs,
     };
   },
 
@@ -4565,6 +4600,50 @@ const mockApiImpl = {
       );
     }
     t.priority = priority;
+    t.updatedTs = Date.now() / 1000;
+    emitTopic("task");
+  },
+
+  async setTaskDue(
+    id: string,
+    dueTs: number | null,
+    leadMinutes?: number | null
+  ): Promise<void> {
+    const t = findTask(id);
+    if (TERMINAL_TASK_STATUSES.has(t.status)) {
+      throw mockApiError(
+        `http 409 for POST /api/tasks/${id}/due`,
+        409,
+        `task '${id}' is closed`
+      );
+    }
+    if (dueTs !== null && !(dueTs > 0)) {
+      throw mockApiError(
+        `http 422 for POST /api/tasks/${id}/due`,
+        422,
+        "due_ts must be greater than 0"
+      );
+    }
+    if (
+      leadMinutes != null &&
+      (leadMinutes < DUE_SOON_LEAD_MINUTES_MIN || leadMinutes > DUE_SOON_LEAD_MINUTES_MAX)
+    ) {
+      throw mockApiError(
+        `http 422 for POST /api/tasks/${id}/due`,
+        422,
+        "due_soon_lead_minutes must be between 1 and 43200 minutes (30 days), or null to follow the workspace setting"
+      );
+    }
+    if (dueTs === null && leadMinutes != null) {
+      throw mockApiError(
+        `http 422 for POST /api/tasks/${id}/due`,
+        422,
+        "due_soon_lead_minutes needs a due_ts: a task without a due date has no lead"
+      );
+    }
+    t.dueTs = dueTs;
+    if (dueTs === null) t.dueSoonLeadMinutes = null;
+    else if (leadMinutes !== undefined) t.dueSoonLeadMinutes = leadMinutes;
     t.updatedTs = Date.now() / 1000;
     emitTopic("task");
   },
@@ -6482,6 +6561,17 @@ const mockApiImpl = {
       throw mockApiError("http 422 for PATCH /api/settings", 422, "monitoring_refresh_seconds must be between 1 and 60");
     }
     if (
+      patch.taskDueSoonLeadMinutes !== undefined &&
+      (patch.taskDueSoonLeadMinutes < DUE_SOON_LEAD_MINUTES_MIN ||
+        patch.taskDueSoonLeadMinutes > DUE_SOON_LEAD_MINUTES_MAX)
+    ) {
+      throw mockApiError(
+        "http 422 for PATCH /api/settings",
+        422,
+        "task_due_soon_lead_minutes must be between 1 and 43200 minutes (30 days)"
+      );
+    }
+    if (
       patch.outsourceMaxParallel !== undefined &&
       (patch.outsourceMaxParallel < -1 || patch.outsourceMaxParallel > 20)
     ) {
@@ -6717,6 +6807,13 @@ const mockApiImpl = {
     }
     if (patch.outsourceMaxParallel !== undefined) {
       mockServerSettings.outsource_max_parallel = patch.outsourceMaxParallel;
+    }
+    if (
+      patch.taskDueSoonLeadMinutes !== undefined &&
+      patch.taskDueSoonLeadMinutes !== mockServerSettings.task_due_soon_lead_minutes
+    ) {
+      mockServerSettings.task_due_soon_lead_minutes = patch.taskDueSoonLeadMinutes;
+      emitTopic("task");
     }
     if (patch.docCapCharsDuty !== undefined) {
       mockServerSettings.doc_cap_chars_duty = patch.docCapCharsDuty;

@@ -16,8 +16,12 @@
 //
 // So: N > 1, and the class, tested where both pages inherit them at once.
 import { describe, it, expect, vi } from "vitest";
-import { render } from "@testing-library/react";
-import { MultiSelectFilter, type MultiSelectOption } from "./MultiSelectFilter";
+import { fireEvent, render } from "@testing-library/react";
+import {
+  MultiSelectFilter,
+  type MultiSelectGroup,
+  type MultiSelectOption,
+} from "./MultiSelectFilter";
 
 const OPTIONS: MultiSelectOption[] = [
   { value: "mira", label: "Mira" },
@@ -25,13 +29,18 @@ const OPTIONS: MultiSelectOption[] = [
   { value: "penny", label: "Penny" },
 ];
 
-function renderFilter(selected: string[]) {
+const GROUPS: MultiSelectGroup[] = [
+  { value: "staff", label: "正職", members: ["mira", "kyle"] },
+];
+
+function renderFilter(selected: string[], groups?: MultiSelectGroup[]) {
   const onChange = vi.fn();
   const r = render(
     <MultiSelectFilter
       noun="負責人"
       allLabel="所有負責人"
       options={OPTIONS}
+      groups={groups}
       selected={new Set(selected)}
       onChange={onChange}
       testId="ms"
@@ -161,5 +170,49 @@ describe("MultiSelectFilter 的摘要規則 (T-118, owner rc-33dfe1ff14cb)", () 
       mixed.active(),
       "a surviving tick is a constraint, stale company or not"
     ).toBe(true);
+  });
+
+  it("names the group when the selection is exactly its members, and counts otherwise", () => {
+    const exact = renderFilter(["mira", "kyle"], GROUPS);
+    expect(exact.summary()).toBe("正職");
+    expect(exact.active()).toBe(true);
+    exact.unmount();
+
+    const more = renderFilter(["mira", "kyle", "penny"], GROUPS);
+    expect(more.summary()).toBe("負責人 · 3");
+    more.unmount();
+
+    const part = renderFilter(["kyle", "penny"], GROUPS);
+    expect(part.summary()).toBe("負責人 · 2");
+  });
+});
+
+describe("MultiSelectFilter 的群組列", () => {
+  function groupBox(f: ReturnType<typeof renderFilter>) {
+    fireEvent.click(f.trigger());
+    return f.getByTestId("ms-group-staff").querySelector("input")!;
+  }
+
+  it("ticks every member when only some are ticked, keeping the other ticks", () => {
+    const f = renderFilter(["kyle", "penny"], GROUPS);
+    const box = groupBox(f);
+    expect(box.checked).toBe(false);
+    fireEvent.click(box);
+    expect([...f.onChange.mock.calls[0][0]].sort()).toEqual(["kyle", "mira", "penny"]);
+  });
+
+  it("unticks every member when all are ticked, keeping the other ticks", () => {
+    const f = renderFilter(["mira", "kyle", "penny"], GROUPS);
+    const box = groupBox(f);
+    expect(box.checked).toBe(true);
+    fireEvent.click(box);
+    expect([...f.onChange.mock.calls[0][0]]).toEqual(["penny"]);
+  });
+
+  it("renders no group row or separator when no group is given", () => {
+    const f = renderFilter(["kyle"]);
+    fireEvent.click(f.trigger());
+    expect(f.queryByTestId("ms-group-staff")).toBeNull();
+    expect(f.queryByRole("separator")).toBeNull();
   });
 });
