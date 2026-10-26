@@ -34,7 +34,7 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 
 ## 從手機或外面用
 
-server 只綁 `127.0.0.1`，預設不對外。要從手機或外面連，開一條你自己的 tunnel（如 cloudflared，會給你一個公開 HTTPS 網址）或走 VPN，設一組夠強的密碼即可。完整步驟（含加到手機主畫面）見 [在手機上用](docs/guide/mobile.md)；對外開放前該設好的保護見 [保護你的工作室](docs/guide/security.md)。
+server 只綁 `127.0.0.1`，這一點不能改。要從手機或外面連，把本機的 7755 埠轉出去：開一條你自己的 tunnel（如 cloudflared，會給你一個公開 HTTPS 網址），或用 Tailscale 這類私有網路的轉發功能（如 `tailscale serve`）；只加入私有網路、不做轉發是連不到的。開放前先設好夠強的密碼與兩步驟驗證或通行密鑰。完整步驟（含加到手機主畫面）見 [在手機上用](docs/guide/mobile.md)；對外開放前該設好的保護見 [保護你的工作室](docs/guide/security.md)。
 
 ---
 
@@ -64,7 +64,7 @@ server 只綁 `127.0.0.1`，預設不對外。要從手機或外面連，開一�
 想把重複、定時或從外部來的工作交出去，或想增加成員時讀。
 
 - [讓 AI 照 SOP 做重複的事](docs/guide/sop.md) — 寫任務手冊，決定哪些步驟要停下來等你。
-- [每天固定做某件事](docs/guide/schedule.md) — 設定期訊息，讓成員到時間自動開工。
+- [每天固定做某件事](docs/guide/schedule.md) — 設定期訊息，讓成員在固定時刻收到預先寫好的交代（成員要在線上才會處理）。
 - [讓外部事件自動送給成員](docs/guide/webhook.md) — 建回呼端點，把 GitHub、Slack 的事件送給負責的成員。
 - [讓成員記住你教過的事](docs/guide/lore.md) — 傳承、角色定義與全域情境。
 - [把帳號金鑰交給成員用](docs/guide/secrets.md) — 存密鑰，讓成員取用而不必貼進聊天。
