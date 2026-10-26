@@ -97,6 +97,7 @@ const timePick = () => screen.getByTestId("task-due-time-pick");
 
 const chip = () => screen.getByTestId("task-due");
 const dueStatus = () => screen.queryByTestId("task-due-alert");
+const remaining = () => screen.queryByTestId("task-due-remaining");
 const toneOf = (el: HTMLElement) =>
   el.className.match(/task-card__due-date--(\w+)/)?.[1] ?? null;
 const metaLabels = () =>
@@ -122,7 +123,7 @@ function mockShowPicker() {
 }
 
 describe("TaskCard", () => {
-  it("shows the due date with its weekday in a 到期日 row right below 建立者, in the plain text colour while the date is beyond the lead", () => {
+  it("shows the due date with its weekday in a 到期日 row right below 建立者, in the plain text colour while the date is beyond the lead, followed by the calendar days left", () => {
     renderCard(mkTask({ dueTs: OCT_30_END }));
     expect(metaLabels()).toEqual(["負責人", "建立者", "到期日"]);
     expect(chip().closest(".task-card__meta")).not.toBeNull();
@@ -131,23 +132,31 @@ describe("TaskCard", () => {
     expect(chip().textContent).toBe("2026/10/30（五）");
     expect(toneOf(chip())).toBeNull();
     expect(dueStatus()).toBeNull();
+    expect(chip().nextElementSibling).toBe(remaining());
+    expect(remaining()!.textContent).toBe("還有 6 天");
+    expect(toneOf(remaining()!)).toBeNull();
+    expect(chip().getAttribute("aria-describedby")).toBe(remaining()!.id);
   });
 
-  it("shows the date in the plain text colour for tomorrow 23:59:59 while it is still 38 hours away", () => {
+  it("shows the date in the plain text colour for tomorrow 23:59:59 while it is still 38 hours away, with 1 day left", () => {
     renderCard(mkTask({ dueTs: OCT_25_END }));
     expect(chip().textContent).toBe("2026/10/25（日）");
     expect(toneOf(chip())).toBeNull();
     expect(dueStatus()).toBeNull();
+    expect(remaining()!.textContent).toBe("還有 1 天");
   });
 
   it.each([
-    ["later today", OCT_24_END, "2026/10/24（六）"],
-    ["within 24 hours on the next calendar day", OCT_25_0900, "2026/10/25（日） 09:00"],
-  ])("shows the date in orange, read out as 快到期, for a due date %s", (_when, dueTs, date) => {
+    ["later today", OCT_24_END, "2026/10/24（六）", "還有 13 小時"],
+    ["within 24 hours on the next calendar day", OCT_25_0900, "2026/10/25（日） 09:00", "還有 23 小時"],
+  ])("shows the date and the hours left in orange, read out with 快到期, for a due date %s", (_when, dueTs, date, left) => {
     renderCard(mkTask({ dueTs }));
     expect(chip().textContent).toBe(date);
     expect(toneOf(chip())).toBe("soon");
+    expect(remaining()!.textContent).toBe(left);
+    expect(toneOf(remaining()!)).toBe("soon");
     expect(dueStatus()!.textContent).toBe("快到期");
+    expect(chip().getAttribute("aria-describedby")).toBe(`${remaining()!.id} ${dueStatus()!.id}`);
   });
 
   it("turns the date orange when the task's own lead reaches a date five days out", () => {
@@ -167,18 +176,20 @@ describe("TaskCard", () => {
     expect(dueStatus()).toBeNull();
   });
 
-  it("shows the date in red, read out as 已逾期 2 天, two calendar days after the due date", () => {
+  it("shows the date and 已逾期 2 天 in red two calendar days after the due date", () => {
     renderCard(mkTask({ dueTs: OCT_22_END }));
     expect(chip().textContent).toBe("2026/10/22（四）");
     expect(toneOf(chip())).toBe("overdue");
-    expect(dueStatus()!.textContent).toBe("已逾期 2 天");
-    expect(chip().getAttribute("aria-describedby")).toBe(dueStatus()!.id);
+    expect(remaining()!.textContent).toBe("已逾期 2 天");
+    expect(toneOf(remaining()!)).toBe("overdue");
+    expect(dueStatus()).toBeNull();
+    expect(chip().getAttribute("aria-describedby")).toBe(remaining()!.id);
   });
 
-  it("reads the red date out as 已逾期 when the due date passed earlier the same day", () => {
+  it("counts the hours overdue when the due date passed earlier the same day", () => {
     renderCard(mkTask({ dueTs: OCT_24_0800 }));
     expect(toneOf(chip())).toBe("overdue");
-    expect(dueStatus()!.textContent).toBe("已逾期");
+    expect(remaining()!.textContent).toBe("已逾期 2 小時");
   });
 
   it("shows a muted 未設定 in the 到期日 row of an open task with no due date, which opens the picker", () => {
@@ -189,6 +200,7 @@ describe("TaskCard", () => {
     expect(chip().getAttribute("title")).toBe("設定到期日");
     expect(metaLabels()).toContain("到期日");
     expect(dueStatus()).toBeNull();
+    expect(remaining()).toBeNull();
     fireEvent.click(chip());
     expect(screen.getByTestId("task-due-pop")).toBeTruthy();
   });
@@ -204,7 +216,7 @@ describe("TaskCard", () => {
     expect(chip().tagName).toBe("SPAN");
     expect(chip().textContent).toBe("2026/10/22（四）");
     expect(toneOf(chip())).toBe("overdue");
-    expect(dueStatus()!.textContent).toBe("已逾期 2 天");
+    expect(remaining()!.textContent).toBe("已逾期 2 天");
   });
 
   it("stores 23:59:59 local of the picked date when Enter commits it with the time left empty", () => {
@@ -623,7 +635,7 @@ describe("TaskCard", () => {
     expect(card.getAttribute("aria-expanded")).toBe(before);
   });
 
-  it("shows a closed task's due date uncoloured and cannot be edited", () => {
+  it("shows a closed task's due date uncoloured, without the time left, and cannot be edited", () => {
     renderCard(
       mkTask({ status: "done", closedTs: NOW - 10, dueTs: OCT_22_END })
     );
@@ -631,6 +643,7 @@ describe("TaskCard", () => {
     expect(chip().textContent).toBe("2026/10/22（四）");
     expect(toneOf(chip())).toBeNull();
     expect(dueStatus()).toBeNull();
+    expect(remaining()).toBeNull();
     fireEvent.click(chip());
     expect(screen.queryByTestId("task-due-pop")).toBeNull();
   });
@@ -662,19 +675,33 @@ describe("TaskCard", () => {
     expect(dueStatus()!.textContent).toBe("快到期");
   });
 
-  it("turns a timed date from orange to red at that minute, not at the end of the day", () => {
+  it("turns a timed date from orange to red at that minute, not at the end of the day, stepping the time left from hours to minutes on the way", () => {
     const noon = NOW + 2 * 3600;
     renderCard(mkTask({ dueTs: noon }));
     expect(chip().textContent).toBe("2026/10/24（六） 12:00");
     expect(toneOf(chip())).toBe("soon");
+    expect(remaining()!.textContent).toBe("還有 2 小時");
     act(() => {
-      vi.advanceTimersByTime((2 * 3600 - 1) * 1000);
+      vi.advanceTimersByTime(1000);
+    });
+    expect(remaining()!.textContent).toBe("還有 1 小時");
+    act(() => {
+      vi.advanceTimersByTime(3600 * 1000);
+    });
+    expect(remaining()!.textContent).toBe("還有 59 分鐘");
+    act(() => {
+      vi.advanceTimersByTime((3600 - 2) * 1000);
     });
     expect(toneOf(chip())).toBe("soon");
+    expect(remaining()!.textContent).toBe("還有 1 分鐘");
     act(() => {
       vi.advanceTimersByTime(1000);
     });
     expect(toneOf(chip())).toBe("overdue");
-    expect(dueStatus()!.textContent).toBe("已逾期");
+    expect(remaining()!.textContent).toBe("已逾期 1 分鐘");
+    act(() => {
+      vi.advanceTimersByTime(3600 * 1000);
+    });
+    expect(remaining()!.textContent).toBe("已逾期 1 小時");
   });
 });

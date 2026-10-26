@@ -234,7 +234,7 @@ for (const width of [320, 390]) {
     ["without a time", OVERDUE_2020],
     ["with 15:41", OVERDUE_2020_1541],
   ] as const) {
-    test(`at ${width}px the 到期日 row with its red date, and the due popover ${label} with date and time on one line and 「[n] [unit] 前」 on one line, stay inside the card`, async ({
+    test(`at ${width}px the 到期日 row with its red date and the days overdue, and the due popover ${label} with date and time on one line and 「[n] [unit] 前」 on one line, stay inside the card`, async ({
       mount,
       page,
     }) => {
@@ -244,6 +244,8 @@ for (const width of [320, 390]) {
       const content = (await cmp.locator(".task-card__meta").boundingBox())!;
       const chip = (await cmp.getByTestId("task-due").boundingBox())!;
       expect(chip.x + chip.width).toBeLessThanOrEqual(content.x + content.width);
+      const left = (await cmp.getByTestId("task-due-remaining").boundingBox())!;
+      expect(left.x + left.width).toBeLessThanOrEqual(content.x + content.width);
       expect(
         await cmp.locator(".task-card").evaluate((el) => el.scrollWidth - el.clientWidth)
       ).toBe(0);

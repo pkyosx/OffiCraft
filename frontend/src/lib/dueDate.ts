@@ -90,6 +90,48 @@ export function nextDueChangeTs(
   return null;
 }
 
+const HOUR_S = 3600;
+const DAY_S = 86_400;
+
+/** How far off the due moment is, in one unit: calendar days from a full day
+ * out (and once overdue past local midnight), whole hours under a day, whole
+ * minutes (at least 1) under an hour. */
+export type DueRemaining = { overdue: boolean; amount: number; unit: LeadUnit };
+
+export function dueRemaining(dueTs: number, nowTs: number): DueRemaining {
+  const overdue = isOverdue(dueTs, nowTs);
+  const gap = overdue ? nowTs - dueTs : dueTs - nowTs;
+  const days = overdue ? calendarDayDiff(dueTs, nowTs) : gap >= DAY_S ? calendarDayDiff(nowTs, dueTs) : 0;
+  if (days > 0) return { overdue, amount: days, unit: "day" };
+  if (gap >= HOUR_S) return { overdue, amount: Math.floor(gap / HOUR_S), unit: "hour" };
+  return { overdue, amount: Math.max(1, Math.floor(gap / MINUTE_S)), unit: "minute" };
+}
+
+/** The next moment `dueRemaining`'s answer changes, other than at local
+ * midnight (useNowSeconds wakes there anyway); null when only midnight
+ * changes it. A second past each boundary, so a timer landing exactly on it
+ * already reads the new value. */
+export function nextDueRemainingChangeTs(dueTs: number, nowTs: number): number | null {
+  if (isOverdue(dueTs, nowTs)) {
+    if (calendarDayDiff(dueTs, nowTs) > 0) return null;
+    const gap = nowTs - dueTs;
+    if (gap >= HOUR_S) return dueTs + (Math.floor(gap / HOUR_S) + 1) * HOUR_S;
+    return dueTs + Math.max(2, Math.floor(gap / MINUTE_S) + 1) * MINUTE_S;
+  }
+  const gap = dueTs - nowTs;
+  if (gap >= DAY_S) return dueTs - DAY_S + 1;
+  if (gap >= HOUR_S) return dueTs - Math.floor(gap / HOUR_S) * HOUR_S + 1;
+  if (gap >= 2 * MINUTE_S) return dueTs - Math.floor(gap / MINUTE_S) * MINUTE_S + 1;
+  return dueTs;
+}
+
+/** The next moment a card's due colour or remaining time changes. */
+export function nextDueWake(dueTs: number, nowTs: number, leadMinutes: number): number | null {
+  const wakes = [nextDueChangeTs(dueTs, nowTs, leadMinutes), nextDueRemainingChangeTs(dueTs, nowTs)];
+  const pending = wakes.filter((ts): ts is number => ts !== null);
+  return pending.length === 0 ? null : Math.min(...pending);
+}
+
 const pad2 = (n: number) => String(n).padStart(2, "0");
 
 /** A date input's `YYYY-MM-DD` plus an optional time input's `HH:MM`, as

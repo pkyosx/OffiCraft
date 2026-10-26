@@ -970,8 +970,18 @@ button.task-card__prio-chip:hover {
   justify-self: stretch;
   min-width: 0;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 2px 6px;
+}
+/* Declared before the tone classes so a due-soon or overdue tone wins. */
+.task-card__due-remaining {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.task-card__due-remaining::before {
+  content: "· " / "";
 }
 .task-card__due-date--overdue {
   color: var(--color-danger);
@@ -982,8 +992,8 @@ button.task-card__prio-chip:hover {
 .task-card__due-date--unset {
   color: var(--color-text-muted);
 }
-/* Only the colour says overdue / due soon on screen; this carries the words
-   to screen readers. */
+/* Only the colour says due soon on screen; this carries the words to screen
+   readers. */
 .task-card__due-status {
   position: absolute;
   width: 1px;

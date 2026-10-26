@@ -18,7 +18,8 @@
 //      (≥2.5:1: a hairline, not a control; the border token measures 1:1 in office
 //      and an overlay veil about 1.3:1 in office-light).
 //   ⑤ the task card's red overdue / orange due-soon 到期日 date clears AA
-//      (≥4.5:1) as text on its chip.
+//      (≥4.5:1) as text on its chip, and so does the time left beside it, in
+//      those tones and in the muted grey, on the card.
 import { test, expect } from "@playwright/experimental-ct-react";
 import type { Page } from "@playwright/test";
 import { ThemeContrastStory } from "./stories/ThemeContrastStory";
@@ -251,7 +252,7 @@ for (const theme of BUILTIN_THEME_IDS) {
 }
 
 for (const theme of BUILTIN_THEME_IDS) {
-  test(`${theme}: the task card's red overdue and orange due-soon date clears AA (≥4.5:1) on its chip`, async ({
+  test(`${theme}: the task card's red overdue and orange due-soon date, and the time left beside it, clear AA (≥4.5:1)`, async ({
     mount,
     page,
   }) => {
@@ -263,13 +264,19 @@ for (const theme of BUILTIN_THEME_IDS) {
     for (const [tone, dueTs] of [
       ["overdue", now - 3600],
       ["soon", now + 3600],
+      ["later", now + 30 * 86400],
     ] as const) {
       await cmp.update(<TaskCardDueStory dueTs={dueTs} />);
-      const date = cmp.locator(`.task-card__due-date--${tone}`);
-      await expect(date).toBeVisible();
-      const s = await sample(date);
-      const chipFill = foldZone([s.background, ...s.layers]);
-      ratios[tone] = contrast(over(parseColor(s.color), chipFill), chipFill).toFixed(2);
+      for (const [part, loc] of [
+        ["date", cmp.getByTestId("task-due")],
+        ["left", cmp.getByTestId("task-due-remaining")],
+      ] as const) {
+        if (tone === "later" && part === "date") continue;
+        await expect(loc).toBeVisible();
+        const s = await sample(loc);
+        const fill = foldZone([s.background, ...s.layers]);
+        ratios[`${tone} ${part}`] = contrast(over(parseColor(s.color), fill), fill).toFixed(2);
+      }
     }
     await expectBuiltinApplied(page, theme);
     console.log(`${theme} task card due date contrast: ${JSON.stringify(ratios)}`);

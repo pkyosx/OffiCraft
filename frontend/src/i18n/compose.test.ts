@@ -14,6 +14,7 @@ import { makeMessages, effortText } from "./compose";
 import { applyWording } from "./wording";
 import { MESSAGE_KEYS } from "./messageKeys.generated";
 import type { ActivityWait, Effort, MemberActivity } from "../types";
+import type { DueRemaining } from "../lib/dueDate";
 
 type Lang = "zh" | "en";
 const DICTS: Record<Lang, Dict> = { zh, en };
@@ -56,7 +57,15 @@ const WAIT_CRON = { kind: "schedule" as const, description: "每小時看 CI", n
 const NEXT = at(2026, 10, 4, 12, 15);
 const cron = (nextTs: number | null, recurring: boolean) => ({ ...WAIT_CRON, nextTs, recurring });
 
-type Arg = string | number | string[] | number[] | null | MemberActivity | ActivityWait;
+type Arg =
+  | string
+  | number
+  | string[]
+  | number[]
+  | null
+  | MemberActivity
+  | ActivityWait
+  | DueRemaining;
 /** [language, message, arguments, the text that must appear on screen]. */
 const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["zh", "memberActivitySummary", [act({ busySince: T - 180 })], "主代理工作中"],
@@ -121,6 +130,11 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["zh", "taskDueDateTime", [1792650600], "2026/10/22（四） 14:30"],
     ["zh", "taskOverdueDays", [1], "已逾期 1 天"],
     ["zh", "taskOverdueDays", [2], "已逾期 2 天"],
+    ["zh", "taskDueRemaining", [{ overdue: false, amount: 5, unit: "day" }], "還有 5 天"],
+    ["zh", "taskDueRemaining", [{ overdue: false, amount: 19, unit: "hour" }], "還有 19 小時"],
+    ["zh", "taskDueRemaining", [{ overdue: false, amount: 25, unit: "minute" }], "還有 25 分鐘"],
+    ["zh", "taskDueRemaining", [{ overdue: true, amount: 2, unit: "day" }], "已逾期 2 天"],
+    ["zh", "taskDueRemaining", [{ overdue: true, amount: 3, unit: "hour" }], "已逾期 3 小時"],
     ["zh", "taskDueLead", [1440], "1 天"],
     ["zh", "taskDueLead", [120], "2 小時"],
     ["zh", "taskDueLead", [90], "90 分鐘"],
@@ -292,6 +306,10 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["en", "taskDueDateTime", [1792631100], "Thu, Oct 22, 2026 09:05"],
     ["en", "taskOverdueDays", [1], "Overdue 1 day"],
     ["en", "taskOverdueDays", [2], "Overdue 2 days"],
+    ["en", "taskDueRemaining", [{ overdue: false, amount: 1, unit: "day" }], "1 day left"],
+    ["en", "taskDueRemaining", [{ overdue: false, amount: 19, unit: "hour" }], "19 hours left"],
+    ["en", "taskDueRemaining", [{ overdue: true, amount: 2, unit: "day" }], "Overdue 2 days"],
+    ["en", "taskDueRemaining", [{ overdue: true, amount: 1, unit: "minute" }], "Overdue 1 minute"],
     ["en", "taskDueLead", [1440], "1 day"],
     ["en", "taskDueLead", [2880], "2 days"],
     ["en", "taskDueLead", [60], "1 hour"],

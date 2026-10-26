@@ -89,12 +89,13 @@ import {
   LEAD_UNIT_MINUTES,
   LEAD_UNITS,
   type LeadUnit,
+  dueRemaining,
   dueState,
   effectiveLeadMinutes,
   dueTsFromInputs,
   hasDueTime,
   leadMinutesFromDraft,
-  nextDueChangeTs,
+  nextDueWake,
   splitLeadMinutes,
   toDateInputValue,
   toTimeInputValue,
@@ -824,11 +825,11 @@ export function TaskCard({
   };
   const dueEditable = !closed && onSetDue !== undefined;
   const nowSec = useNowSeconds(
-    dueTs === null || closed
-      ? null
-      : nextDueChangeTs(dueTs, Date.now() / 1000, leadMinutes)
+    dueTs === null || closed ? null : nextDueWake(dueTs, Date.now() / 1000, leadMinutes)
   );
   const due = dueTs === null ? null : dueState(dueTs, nowSec, leadMinutes);
+  const dueRemainingText =
+    dueTs === null || closed ? null : msg.taskDueRemaining(dueRemaining(dueTs, nowSec));
   const dueDateText =
     dueTs === null
       ? null
@@ -836,17 +837,16 @@ export function TaskCard({
         ? msg.taskDueDateTime(dueTs)
         : msg.taskDueDate(dueTs);
   const dueRowShown = dueTs !== null || dueEditable;
-  const dueAlert =
-    due === null || closed || due.kind === "later"
-      ? null
-      : due.kind === "soon"
-        ? { tone: "soon" as const, text: t.tasks.dueSoonHint }
-        : {
-            tone: "overdue" as const,
-            text: due.days === 0 ? t.tasks.overdueToday : msg.taskOverdueDays(due.days),
-          };
-  const dueToneClass = dueAlert ? ` task-card__due-date--${dueAlert.tone}` : "";
-  const dueAlertId = useId();
+  const dueTone = due === null || closed || due.kind === "later" ? null : due.kind;
+  const dueToneClass = dueTone ? ` task-card__due-date--${dueTone}` : "";
+  const dueRemainingId = useId();
+  const dueSoonId = useId();
+  const dueDescribedBy =
+    dueRemainingText === null
+      ? undefined
+      : dueTone === "soon"
+        ? `${dueRemainingId} ${dueSoonId}`
+        : dueRemainingId;
   const [confirmOpen, setConfirmOpen] = useState(false);
   // 強制結案 (T-192) gets its own confirm rather than sharing one with
   // 標記重複/終止: collapsing named closes into one dialog with a status
@@ -2054,7 +2054,7 @@ export function TaskCard({
                       dueDateText === null ? " task-card__due-date--unset" : dueToneClass
                     }`}
                     title={t.tasks.dueEditLabel}
-                    aria-describedby={dueAlert ? dueAlertId : undefined}
+                    aria-describedby={dueDescribedBy}
                     aria-haspopup="dialog"
                     aria-expanded={dueOpen}
                     data-testid="task-due"
@@ -2068,19 +2068,24 @@ export function TaskCard({
                 ) : (
                   <span
                     className={`task-card__chip${dueToneClass}`}
-                    aria-describedby={dueAlert ? dueAlertId : undefined}
+                    aria-describedby={dueDescribedBy}
                     data-testid="task-due"
                   >
                     {dueDateText}
                   </span>
                 )}
-                {dueAlert && (
+                {dueRemainingText !== null && (
                   <span
-                    id={dueAlertId}
-                    className="task-card__due-status"
-                    data-testid="task-due-alert"
+                    id={dueRemainingId}
+                    className={`task-card__due-remaining${dueToneClass}`}
+                    data-testid="task-due-remaining"
                   >
-                    {dueAlert.text}
+                    {dueRemainingText}
+                  </span>
+                )}
+                {dueTone === "soon" && (
+                  <span id={dueSoonId} className="task-card__due-status" data-testid="task-due-alert">
+                    {t.tasks.dueSoonHint}
                   </span>
                 )}
                 {dueOpen && (

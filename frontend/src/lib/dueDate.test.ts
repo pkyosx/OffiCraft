@@ -1,11 +1,14 @@
 import { describe, it, expect } from "vitest";
 import {
+  dueRemaining,
   dueState,
   dueTsFromInputs,
   effectiveLeadMinutes,
   isDueSoon,
   leadMinutesFromDraft,
   nextDueChangeTs,
+  nextDueRemainingChangeTs,
+  nextDueWake,
   splitLeadMinutes,
   toTimeInputValue,
 } from "./dueDate";
@@ -76,6 +79,51 @@ describe("nextDueChangeTs", () => {
   it("is the start of the lead window, then the due moment", () => {
     expect(nextDueChangeTs(OCT_30_END, NOW, 4320)).toBe(OCT_30_END - 3 * 86_400);
     expect(nextDueChangeTs(OCT_30_END, OCT_30_END - 60, 4320)).toBe(OCT_30_END);
+  });
+});
+
+describe("dueRemaining", () => {
+  const left = (amount: number, unit: string) => ({ overdue: false, amount, unit });
+  const over = (amount: number, unit: string) => ({ overdue: true, amount, unit });
+
+  it("counts calendar days from a full day out, whole hours under a day and whole minutes under an hour", () => {
+    expect(dueRemaining(OCT_30_END, NOW)).toEqual(left(6, "day"));
+    expect(dueRemaining(NOW + 86_400, NOW)).toEqual(left(1, "day"));
+    expect(dueRemaining(NOW + 86_399, NOW)).toEqual(left(23, "hour"));
+    expect(dueRemaining(NOW + 3600, NOW)).toEqual(left(1, "hour"));
+    expect(dueRemaining(NOW + 3599, NOW)).toEqual(left(59, "minute"));
+    expect(dueRemaining(NOW + 30, NOW)).toEqual(left(1, "minute"));
+  });
+
+  it("counts calendar days once overdue past local midnight, and hours or minutes earlier the same day", () => {
+    expect(dueRemaining(OCT_22_1430, NOW)).toEqual(over(2, "day"));
+    expect(dueRemaining(NOW - 5 * 3600 - 1, NOW)).toEqual(over(5, "hour"));
+    expect(dueRemaining(NOW - 25 * 60, NOW)).toEqual(over(25, "minute"));
+    expect(dueRemaining(NOW, NOW)).toEqual(over(1, "minute"));
+  });
+});
+
+describe("nextDueRemainingChangeTs", () => {
+  it("is the first second the remaining time reads differently", () => {
+    expect(nextDueRemainingChangeTs(OCT_30_END, NOW)).toBe(OCT_30_END - 86_400 + 1);
+    expect(nextDueRemainingChangeTs(NOW + 5 * 3600 + 10, NOW)).toBe(NOW + 11);
+    expect(nextDueRemainingChangeTs(NOW + 25 * 60 + 10, NOW)).toBe(NOW + 11);
+    expect(nextDueRemainingChangeTs(NOW + 90, NOW)).toBe(NOW + 90);
+    expect(nextDueRemainingChangeTs(NOW - 30, NOW)).toBe(NOW + 90);
+    expect(nextDueRemainingChangeTs(NOW - 25 * 60 - 10, NOW)).toBe(NOW + 50);
+    expect(nextDueRemainingChangeTs(NOW - 5 * 3600 - 10, NOW)).toBe(NOW + 3590);
+  });
+
+  it("is null once overdue past local midnight, which useNowSeconds already wakes for", () => {
+    expect(nextDueRemainingChangeTs(OCT_22_1430, NOW)).toBeNull();
+  });
+});
+
+describe("nextDueWake", () => {
+  it("is the earlier of the colour change and the remaining-time change", () => {
+    expect(nextDueWake(OCT_30_END, NOW, 4320)).toBe(OCT_30_END - 3 * 86_400);
+    expect(nextDueWake(OCT_30_END, NOW, 60)).toBe(OCT_30_END - 86_400 + 1);
+    expect(nextDueWake(OCT_22_1430, NOW, 60)).toBeNull();
   });
 });
 
