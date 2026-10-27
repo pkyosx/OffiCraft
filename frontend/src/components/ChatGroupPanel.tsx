@@ -23,6 +23,8 @@ import { CheckIcon, ChevronRightIcon, ChevronLeftIcon, PlusIcon } from "./icons"
 import "./chat-groups.css";
 
 const EDGE = 8;
+// The submenu overlaps the main menu by this much, like a native cascade.
+const SUB_OVERLAP = 2;
 const ITEM = "[role='menuitem'], [role='menuitemcheckbox'], [role='menuitemradio']";
 
 type Update = (change: (current: readonly ChatGroup[]) => ChatGroup[]) => void;
@@ -131,6 +133,9 @@ function MenuList({
   onOpenSub,
   onBack,
   showBack = false,
+  header,
+  boxes = false,
+  activeSub = null,
   testId,
   boxRef,
 }: {
@@ -140,6 +145,12 @@ function MenuList({
   onBack?: () => void;
   /** The phone sheet shows a back row; on desktop ArrowLeft goes back. */
   showBack?: boolean;
+  /** A title and explanation at the top of the panel, above a separator. */
+  header?: { title?: string; lines: string[] };
+  /** Square checkboxes instead of a bare check mark. */
+  boxes?: boolean;
+  /** The submenu currently open from this panel, if any. */
+  activeSub?: "move" | "autojoin" | null;
   testId: string;
   boxRef?: React.RefObject<HTMLDivElement>;
 }) {
@@ -166,7 +177,7 @@ function MenuList({
       ref={boxRef}
       role="menu"
       aria-label={label}
-      className="chat-groups__menu-panel"
+      className={`chat-groups__menu-panel${header ? " chat-groups__menu-panel--headed" : ""}`}
       data-testid={`${testId}-panel`}
       onKeyDown={onKeyDown}
     >
@@ -176,6 +187,19 @@ function MenuList({
           <span>{label}</span>
         </button>
       )}
+      {header && (
+        <>
+          <div className="chat-groups__menu-head" data-testid={`${testId}-head`}>
+            {header.title && <div className="chat-groups__menu-head-title">{header.title}</div>}
+            <div className="chat-groups__menu-head-text">
+              {header.lines.map((line) => (
+                <span key={line}>{line}</span>
+              ))}
+            </div>
+          </div>
+          <div className="chat-groups__menu-sep" />
+        </>
+      )}
       {items.map((it) => (
         <button
           key={it.key}
@@ -184,6 +208,7 @@ function MenuList({
           aria-checked={it.checked}
           aria-disabled={it.disabled || undefined}
           aria-haspopup={it.submenu ? "menu" : undefined}
+          aria-expanded={it.submenu ? it.submenu === activeSub : undefined}
           className={`chat-groups__menu-item${it.danger ? " chat-groups__menu-item--danger" : ""}`}
           data-testid={`${testId}-${it.key}`}
           onClick={(e) => {
@@ -200,8 +225,11 @@ function MenuList({
           }}
         >
           {it.checked !== undefined && (
-            <span className="chat-groups__menu-check" aria-hidden="true">
-              {it.checked && <CheckIcon size={14} />}
+            <span
+              className={`chat-groups__menu-check${boxes ? " chat-groups__menu-check--box" : ""}`}
+              aria-hidden="true"
+            >
+              {it.checked && <CheckIcon size={boxes ? 12 : 14} />}
             </span>
           )}
           <span className="chat-groups__menu-text">
@@ -231,7 +259,9 @@ function Menu({
   mobile: boolean;
   title: string;
   main: MenuItem[];
-  subs: Partial<Record<"move" | "autojoin", { label: string; items: MenuItem[]; hint?: string }>>;
+  subs: Partial<
+    Record<"move" | "autojoin", { label: string; items: MenuItem[]; hintLines?: string[]; boxes?: boolean }>
+  >;
   initialSub?: "move" | "autojoin";
   /** A confirmation shown in place of the menu (delete). */
   confirm: ReactNode | null;
@@ -243,7 +273,10 @@ function Menu({
   const mainRef = useRef<HTMLDivElement>(null);
   const subRef = useRef<HTMLDivElement>(null);
   const subFrom = useRef<HTMLElement | null>(null);
-  const [pos, setPos] = useState<{ left: number; top: number; flip: boolean } | null>(null);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  // Where the open submenu sits against the main menu (desktop): cascaded off
+  // the opener row, on the side it fits.
+  const [subPos, setSubPos] = useState<{ left: number; top: number; flip: boolean } | null>(null);
 
   useEscapeLayer(() => {
     if (sub && !mobile) closeSub();
@@ -256,8 +289,35 @@ function Menu({
     if (!box) return;
     const left = Math.min(Math.max(EDGE, anchor.x), window.innerWidth - EDGE - box.width);
     const top = Math.min(Math.max(EDGE, anchor.y), window.innerHeight - EDGE - box.height);
-    setPos({ left, top, flip: left + box.width * 2 + 4 > window.innerWidth - EDGE });
+    setPos({ left, top });
   }, [anchor, mobile]);
+
+  // Measured with the submenu's own size: it can be wider than the main menu.
+  useLayoutEffect(() => {
+    setSubPos(null);
+    if (mobile || !sub || !pos) return;
+    const main = mainRef.current?.getBoundingClientRect();
+    const panel = subRef.current?.getBoundingClientRect();
+    const opener = subFrom.current?.getBoundingClientRect();
+    const firstItem = subRef.current?.querySelector<HTMLElement>(ITEM);
+    if (!main || !panel || !opener || !firstItem) return;
+    const firstItemOffset = firstItem.getBoundingClientRect().top - panel.top;
+    const limit = window.innerWidth - EDGE;
+    const fitsRight = main.right - SUB_OVERLAP + panel.width <= limit;
+    const fitsLeft = main.left + SUB_OVERLAP - panel.width >= EDGE;
+    const wanted = opener.top - firstItemOffset;
+    const top = Math.max(EDGE, Math.min(wanted, window.innerHeight - EDGE - panel.height)) - main.top;
+    if (!fitsRight && fitsLeft) {
+      setSubPos({ left: SUB_OVERLAP - panel.width, top, flip: true });
+      return;
+    }
+    if (!fitsRight) {
+      // Room on neither side: slide the whole cascade left until it fits.
+      const shift = Math.min(main.right - SUB_OVERLAP + panel.width - limit, main.left - EDGE);
+      setPos((p) => (p ? { ...p, left: p.left - shift } : p));
+    }
+    setSubPos({ left: main.width - SUB_OVERLAP, top, flip: false });
+  }, [sub, pos?.top, mobile]);
 
   const confirming = confirm !== null;
   // Tab leaves a menu (closing it) but moves between the confirm's buttons.
@@ -302,20 +362,40 @@ function Menu({
   const body = confirm ?? (
     <>
       {(!mobile || !sub) && (
-        <MenuList label={title} items={main} onOpenSub={openSub} testId={testId} boxRef={mainRef} />
+        <MenuList
+          label={title}
+          items={main}
+          onOpenSub={openSub}
+          activeSub={mobile ? null : sub}
+          testId={testId}
+          boxRef={mainRef}
+        />
       )}
       {subMenu && (
         <div
-          className={`chat-groups__menu-sub${pos?.flip ? " chat-groups__menu-sub--flip" : ""}`}
+          className="chat-groups__menu-sub"
           ref={subRef}
+          data-flip={subPos?.flip || undefined}
+          style={
+            mobile
+              ? undefined
+              : subPos
+                ? { left: subPos.left, top: subPos.top }
+                : { left: 0, top: 0, visibility: "hidden" }
+          }
         >
-          {subMenu.hint && <div className="chat-groups__menu-note">{subMenu.hint}</div>}
           <MenuList
             label={subMenu.label}
             items={subMenu.items}
             onOpenSub={openSub}
             onBack={closeSub}
             showBack={mobile}
+            header={
+              subMenu.hintLines
+                ? { title: mobile ? undefined : subMenu.label, lines: subMenu.hintLines }
+                : undefined
+            }
+            boxes={subMenu.boxes}
             testId={`${testId}-${sub}`}
           />
         </div>
@@ -583,7 +663,12 @@ export function ChatGroupPanel({
               { key: "delete", label: t.office.groups.delete, danger: true, onSelect: () => setConfirmDelete(true) },
             ]}
             subs={{
-              autojoin: { label: t.office.groups.autoJoin, items: autoJoinItems(group), hint: t.office.groups.autoJoinHint },
+              autojoin: {
+                label: t.office.groups.autoJoin,
+                items: autoJoinItems(group),
+                hintLines: [t.office.groups.autoJoinHintLead, t.office.groups.autoJoinHintTail],
+                boxes: true,
+              },
             }}
             confirm={
               confirmDelete ? (

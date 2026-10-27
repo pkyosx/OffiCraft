@@ -86,6 +86,7 @@ export interface Messages {
   outsourceLabel: (codename: string) => string;
   groupHeading: (name: string, count: number) => string;
   groupDeleteConfirm: (name: string) => string;
+  groupOptions: (name: string) => string;
   groupCurrentlyIn: (name: string) => string;
   groupBringIn: (count: number, typeName: string, groupName: string) => string;
   groupDragPickedUp: (name: string) => string;
@@ -428,6 +429,7 @@ export function makeMessages(t: Dict, language: Lang): Messages {
 
     groupHeading: (name, count) => `${name}${t.office.groups.countSep}${count}`,
     groupDeleteConfirm: (name) => `${t.office.groups.deleteConfirmLead}${name}${t.office.groups.deleteConfirmTail}`,
+    groupOptions: (name) => `${t.office.groups.optionsLead}${name}`,
     groupCurrentlyIn: (name) => `${t.office.groups.currentlyInLead}${name}${t.office.groups.currentlyInTail}`,
     groupBringIn: (count, typeName, groupName) =>
       `${t.office.groups.bringInLead}${count}${t.office.groups.bringInMid}${typeName}${t.office.groups.bringInMid2}${groupName}${t.office.groups.bringInTail}`,

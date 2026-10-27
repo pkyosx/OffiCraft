@@ -1,8 +1,6 @@
 /* Office chat list groups (ChatGroupList / ChatGroupPanel). */
 
-/* Group heading: 群組名 · N in bold over a full-width line, collapsing its
- * section. The line is mixed from the muted text colour so it keeps the same
- * weight against the page in light and dark themes alike. */
+/* Group heading: 群組名 · N in bold, collapsing its section. */
 .chat-groups__heading {
   flex: none;
   display: flex;
@@ -12,8 +10,7 @@
   min-height: 30px;
   padding: 4px 8px 6px;
   border: 1px solid transparent;
-  border-bottom-color: color-mix(in srgb, var(--color-text-muted) 50%, transparent);
-  border-radius: 0;
+  border-radius: 6px;
   background: none;
   font-size: 14px;
   font-weight: 600;
@@ -24,7 +21,7 @@
 }
 .chat-groups__heading:hover,
 .chat-groups__heading:focus-visible {
-  border-bottom-color: color-mix(in srgb, var(--color-text-muted) 75%, transparent);
+  background: color-mix(in srgb, var(--color-overlay) 5%, transparent);
 }
 .chat-groups__heading-label {
   min-width: 0;
@@ -42,10 +39,65 @@
 .chat-groups__heading-unread {
   margin-left: auto;
 }
-.chat-groups__section + .chat-groups__heading,
-.chat-groups__heading + .chat-groups__heading,
-.chat-groups__entry + .chat-groups__heading {
+.chat-groups__section + .chat-groups__heading-row,
+.chat-groups__heading-row + .chat-groups__heading-row,
+.chat-groups__entry + .chat-groups__heading-row {
   margin-top: 12px;
+}
+/* The heading and, for a real group, its 「⋯」 options button. */
+.chat-groups__heading-row {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.chat-groups__heading-row > .chat-groups__heading {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+/* The whole 32px (44px on phones) box takes taps; only a small glyph shows,
+ * with a quiet chip behind it on hover or keyboard focus. The box is not
+ * enlarged with an overflowing pseudo-element because the scrolling list
+ * clips anything past its edge, and this button sits on that edge. */
+.chat-groups__more {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.chat-groups__more::before {
+  content: "";
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+}
+.chat-groups__more > svg {
+  position: relative;
+}
+@media (max-width: 720px), (hover: none) {
+  .chat-groups__more {
+    width: 44px;
+    height: 44px;
+  }
+}
+.chat-groups__more:hover,
+.chat-groups__more:focus-visible {
+  outline: none;
+  color: var(--color-accent);
+}
+.chat-groups__more:hover::before,
+.chat-groups__more:focus-visible::before {
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
 }
 .chat-groups__section + .chat-groups__entry {
   margin-top: 6px;
@@ -56,16 +108,19 @@
 }
 .chat-groups__heading--overlay {
   padding: 6px 12px;
-  border-bottom-color: transparent;
 }
 
+/* A group's rows hang off its heading on a thin guide line, indented 13px.
+ * The line is mixed from the muted text colour so it keeps the same weight
+ * against the page in every theme. */
 .chat-groups__section {
   flex: none;
   display: flex;
   flex-direction: column;
   gap: inherit;
   min-height: 8px;
-  border-radius: var(--radius-card);
+  margin-left: 13px;
+  border-left: 1px solid color-mix(in srgb, var(--color-text-muted) 28%, transparent);
 }
 .chat-groups__section--over {
   background: color-mix(in srgb, var(--color-accent) 7%, transparent);
@@ -164,8 +219,6 @@
 .chat-groups__menu {
   position: fixed;
   z-index: 60;
-  display: flex;
-  align-items: flex-start;
 }
 .chat-groups__menu-panel,
 .chat-groups__menu > .chat-groups__confirm {
@@ -177,17 +230,42 @@
   background: var(--color-card);
   box-shadow: 0 10px 24px color-mix(in srgb, var(--color-shadow) 40%, transparent);
 }
+/* Cascades off the opener row and overlaps the main menu a little, so the
+ * two read as one menu; placed by ChatGroupPanel's Menu. */
 .chat-groups__menu-sub {
-  margin-left: 4px;
-  display: flex;
-  flex-direction: column;
+  position: absolute;
+  /* Its own width wherever it is placed: an absolute box otherwise shrinks
+   * to the room left in the main menu, and is measured too narrow. */
+  width: max-content;
 }
-.chat-groups__menu-sub--flip {
-  order: -1;
-  margin: 0 4px 0 0;
+.chat-groups__menu-panel--headed {
+  min-width: 260px;
 }
-.chat-groups__menu-sub > .chat-groups__menu-note {
-  max-width: 280px;
+.chat-groups__menu-head {
+  padding: 8px 10px 10px;
+}
+.chat-groups__menu-head-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.chat-groups__menu-head-text {
+  margin-top: 4px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--color-text);
+}
+.chat-groups__menu-head-text > span {
+  display: block;
+}
+.chat-groups__menu-head-title + .chat-groups__menu-head-text {
+  margin-top: 4px;
+}
+/* Not --color-border: in the office theme that equals the menu surface. */
+.chat-groups__menu-sep {
+  height: 1px;
+  margin: 0 6px 4px;
+  background: color-mix(in srgb, var(--color-text-muted) 40%, transparent);
 }
 .chat-groups__menu-item {
   display: flex;
@@ -205,7 +283,8 @@
   cursor: pointer;
 }
 .chat-groups__menu-item:hover,
-.chat-groups__menu-item:focus-visible {
+.chat-groups__menu-item:focus-visible,
+.chat-groups__menu-item[aria-expanded="true"] {
   outline: none;
   background: color-mix(in srgb, var(--color-overlay) 7%, transparent);
 }
@@ -222,6 +301,19 @@
   width: 14px;
   color: var(--color-accent);
 }
+.chat-groups__menu-check--box {
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--color-text-muted);
+  border-radius: 4px;
+  color: var(--color-on-accent);
+}
+[aria-checked="true"] > .chat-groups__menu-check--box {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+}
 .chat-groups__menu-text {
   flex: 1;
   min-width: 0;
@@ -230,7 +322,7 @@
   overflow-wrap: anywhere;
 }
 .chat-groups__menu-hint {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--color-text-muted);
 }
 .chat-groups__menu-more {
@@ -240,11 +332,6 @@
 .chat-groups__menu-back {
   color: var(--color-text-muted);
   font-size: 12px;
-}
-.chat-groups__menu-note {
-  padding: 6px 10px 2px;
-  font-size: 11.5px;
-  color: var(--color-text-muted);
 }
 .chat-groups__menu-empty {
   padding: 8px 10px;
@@ -279,7 +366,8 @@
   min-height: 44px;
 }
 .chat-groups__sheet .chat-groups__menu-sub {
-  margin: 0;
+  position: static;
+  width: auto;
 }
 .chat-groups__sheet-title {
   padding: 0 10px 8px;

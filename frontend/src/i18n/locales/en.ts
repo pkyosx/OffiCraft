@@ -712,7 +712,8 @@ export const en: Dict = {
       deleteConfirmTail: "”? Its members go back to Ungrouped.",
       deleteConfirm: "Delete",
       autoJoin: "Auto-join",
-      autoJoinHint: "New outsource workers assigned a ticked task type join this group",
+      autoJoinHintLead: "Tick task types:",
+      autoJoinHintTail: "new outsource workers assigned one join this group.",
       autoJoinNone: "No task types",
       currentlyInLead: "Now in “",
       currentlyInTail: "”",
@@ -726,6 +727,7 @@ export const en: Dict = {
       bringInDecline: "Only new workers from now on",
       roleDescription: "draggable chat",
       groupRoleDescription: "draggable group",
+      optionsLead: "Group options: ",
       instructions:
         "Press and hold a row or a group heading for half a second to lift it, then drag: members into another group or Ungrouped, group headings to reorder groups. Keyboard: press Space to pick up, move with the up and down arrow keys, press Space again to drop, or Escape to cancel. Right-click or the menu key opens options.",
       pickedUpLead: "Picked up ",

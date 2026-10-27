@@ -507,6 +507,17 @@ export function TrashIcon({ size = 16, className }: IconProps) {
   );
 }
 
+/** Three-dot glyph (lucide "ellipsis"): a row's options menu. */
+export function MoreIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <circle cx="12" cy="12" r="1" />
+      <circle cx="19" cy="12" r="1" />
+      <circle cx="5" cy="12" r="1" />
+    </svg>
+  );
+}
+
 /** Plus glyph (lucide "plus"): the office chat list's 新增群組. */
 export function PlusIcon({ size = 16, className }: IconProps) {
   return (

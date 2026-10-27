@@ -191,6 +191,26 @@ describe("ChatGroupPanel", () => {
     expect(document.activeElement).toBe(row);
   });
 
+  it("a group heading's 「⋯」 opens that group's menu without folding the group, and closing the menu gives focus back to it; 未分組's row is its heading alone", () => {
+    mount("staff", ["mira", "beto"], [g("a", "staff", "核心", ["beto"])]);
+    const more = screen.getByTestId("chat-group-more-a");
+    const rowButtons = (heading: HTMLElement) =>
+      Array.from(heading.parentElement!.querySelectorAll("button"), (b) => b.getAttribute("aria-label") ?? b.textContent);
+    expect(rowButtons(screen.getByTestId("chat-group-heading-a"))).toEqual(["核心 · 1", "群組選項：核心"]);
+    expect(rowButtons(screen.getByTestId("chat-group-heading-ungrouped"))).toEqual(["未分組 · 1"]);
+
+    more.focus();
+    fireEvent.click(more);
+    const menu = screen.getByRole("menu", { name: "核心" });
+    expect(within(menu).getAllByRole("menuitem").map((i) => i.textContent)).toEqual(["重新命名", "刪除群組"]);
+    expect(screen.getByTestId("chat-group-heading-a").getAttribute("aria-expanded")).toBe("true");
+    expect(rows()).toEqual(["beto", "mira"]);
+
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(more);
+  });
+
   it("a group's menu renames it inline and deletes it after confirming, its members going back to 未分組; from the keyboard the confirmation takes focus and 取消 gives it back to the heading", () => {
     mount("staff", ["mira", "beto"], [g("a", "staff", "核心", ["beto"]), g("b", "staff", "工程", [])]);
     fireEvent.contextMenu(screen.getByTestId("chat-group-heading-a"));

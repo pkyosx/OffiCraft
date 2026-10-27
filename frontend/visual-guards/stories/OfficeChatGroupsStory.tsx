@@ -2,8 +2,10 @@
 // OutsourcePanel rows, inside the real ancestor chain
 // (.app > .app__main > .office). Group state is local to the story, the same
 // complete-state updates the panel hands useChatGroups.
-import { useRef, useState } from "react";
-import { I18nProvider } from "../../src/i18n";
+import { useEffect, useRef, useState } from "react";
+import { I18nProvider, useI18n } from "../../src/i18n";
+import type { ThemeBundle } from "../../src/lib/themeBundle";
+import halloweenTheme from "../../../themes/halloween-2026.theme.json";
 import { MemberCard } from "../../src/components/MemberCard";
 import { OfficeSidebarTabs } from "../../src/components/OfficeSidebarTabs";
 import { OutsourcePanel } from "../../src/components/OutsourcePanel";
@@ -224,12 +226,34 @@ function Sidebar({
   );
 }
 
+// The shipped Halloween bundle under a custom id (the seasonal id is reserved
+// and CT runs with no seasonal schedule), worn through the provider like any
+// saved theme.
+const HALLOWEEN: ThemeBundle = { ...(halloweenTheme as unknown as ThemeBundle), id: "halloween-preview" };
+
+/** Select the theme, then save its bundle once it is the one being worn (the
+ * provider adopts a saved bundle only for the active theme; see AvatarKindStory). */
+function ThemeDriver({ theme: want }: { theme: "dark" | "light" | "halloween" }) {
+  const { theme, setTheme, saveTheme } = useI18n();
+  const id = want === "dark" ? "office" : want === "light" ? "office-light" : HALLOWEEN.id;
+  useEffect(() => {
+    setTheme(id);
+  }, [setTheme, id]);
+  useEffect(() => {
+    if (want === "halloween" && theme === HALLOWEEN.id) void saveTheme(HALLOWEEN);
+  }, [theme, saveTheme, want]);
+  return null;
+}
+
 export function OfficeChatGroupsStory({
   mobile = false,
   initialGroups = [],
   initialTab = "staff",
   initialCollapsed = {},
+  theme,
 }: {
+  /** Omitted: the default (dark) theme, without touching the provider. */
+  theme?: "dark" | "light" | "halloween";
   mobile?: boolean;
   initialGroups?: ChatGroup[];
   initialTab?: "staff" | "outsource";
@@ -237,6 +261,7 @@ export function OfficeChatGroupsStory({
 }) {
   return (
     <I18nProvider>
+      {theme && <ThemeDriver theme={theme} />}
       <div className="app" style={mobile ? { height: 900 } : { height: 860 }}>
         <main className="app__main">
           <div className={`office${mobile ? " office--mobile" : ""}`}>

@@ -32,7 +32,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { useI18n } from "../i18n";
 import { layoutTab } from "../lib/chatGroups";
 import type { ChatGroup, ChatTab } from "../lib/chatGroups";
-import { ChevronDownIcon } from "./icons";
+import { ChevronDownIcon, MoreIcon } from "./icons";
 import "./chat-groups.css";
 
 // Same hold on mouse and touch (owner: like rearranging the iPhone home
@@ -151,39 +151,56 @@ function GroupHeading({
   onToggle: () => void;
   openMenu: (target: MenuTarget, at: MenuAnchor) => void;
 }) {
-  const { t } = useI18n();
+  const { t, msg } = useI18n();
   const s = useSortable({ id: gid(group.id), attributes: { roleDescription: t.office.groups.groupRoleDescription } });
+  const options = msg.groupOptions(group.name);
   return (
-    <button
+    <div
       ref={s.setNodeRef}
-      {...s.attributes}
-      {...s.listeners}
-      type="button"
-      className={`chat-groups__heading chat-groups__row${s.isDragging ? " chat-groups__row--placeholder" : ""}${
-        over ? " chat-groups__heading--over" : ""
-      }`}
+      className={`chat-groups__heading-row chat-groups__row${s.isDragging ? " chat-groups__row--placeholder" : ""}`}
       style={{ transform: CSS.Translate.toString(s.transform), transition: s.transition }}
-      aria-expanded={!collapsed}
-      data-testid={`chat-group-heading-${group.id}`}
-      onClick={() => {
-        if (canActivate()) onToggle();
-      }}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        if (fromTouch(e)) return;
-        openMenu({ kind: "group", id: group.id }, { x: e.clientX, y: e.clientY });
-      }}
-      onKeyDown={(e) => {
-        if (isMenuKey(e)) {
-          e.preventDefault();
-          openMenu({ kind: "group", id: group.id }, anchorOf(e.currentTarget));
-          return;
-        }
-        s.listeners?.onKeyDown?.(e);
-      }}
     >
-      <HeadingBody label={label} collapsed={collapsed} unread={unread} />
-    </button>
+      <button
+        ref={s.setActivatorNodeRef}
+        {...s.attributes}
+        {...s.listeners}
+        type="button"
+        className={`chat-groups__heading${over ? " chat-groups__heading--over" : ""}`}
+        aria-expanded={!collapsed}
+        data-testid={`chat-group-heading-${group.id}`}
+        onClick={() => {
+          if (canActivate()) onToggle();
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          if (fromTouch(e)) return;
+          openMenu({ kind: "group", id: group.id }, { x: e.clientX, y: e.clientY });
+        }}
+        onKeyDown={(e) => {
+          if (isMenuKey(e)) {
+            e.preventDefault();
+            openMenu({ kind: "group", id: group.id }, anchorOf(e.currentTarget));
+            return;
+          }
+          s.listeners?.onKeyDown?.(e);
+        }}
+      >
+        <HeadingBody label={label} collapsed={collapsed} unread={unread} />
+      </button>
+      {/* Outside the heading (the drag handle), so pressing it never lifts the
+          group, and its click never reaches the collapse toggle. */}
+      <button
+        type="button"
+        className="chat-groups__more"
+        aria-label={options}
+        aria-haspopup="menu"
+        title={options}
+        data-testid={`chat-group-more-${group.id}`}
+        onClick={(e) => openMenu({ kind: "group", id: group.id }, anchorOf(e.currentTarget))}
+      >
+        <MoreIcon size={16} />
+      </button>
+    </div>
   );
 }
 
@@ -201,17 +218,20 @@ function UngroupedHeading({
   onToggle: () => void;
 }) {
   const d = useDroppable({ id: `h:${UNGROUPED}` });
+  // 未分組 cannot be renamed, deleted or given auto-join, so it has no menu.
   return (
-    <button
-      ref={d.setNodeRef}
-      type="button"
-      className={`chat-groups__heading${over ? " chat-groups__heading--over" : ""}`}
-      aria-expanded={!collapsed}
-      data-testid="chat-group-heading-ungrouped"
-      onClick={onToggle}
-    >
-      <HeadingBody label={label} collapsed={collapsed} unread={unread} />
-    </button>
+    <div className="chat-groups__heading-row">
+      <button
+        ref={d.setNodeRef}
+        type="button"
+        className={`chat-groups__heading${over ? " chat-groups__heading--over" : ""}`}
+        aria-expanded={!collapsed}
+        data-testid="chat-group-heading-ungrouped"
+        onClick={onToggle}
+      >
+        <HeadingBody label={label} collapsed={collapsed} unread={unread} />
+      </button>
+    </div>
   );
 }
 

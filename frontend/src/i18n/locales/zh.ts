@@ -745,7 +745,8 @@ export const zh = {
       deleteConfirmTail: "」？成員會回到未分組。",
       deleteConfirm: "刪除",
       autoJoin: "自動加入",
-      autoJoinHint: "勾選的任務類型，之後指派的新外包會自動加入這個群組",
+      autoJoinHintLead: "勾選的任務類型，",
+      autoJoinHintTail: "之後指派的新外包會自動加入這個群組。",
       autoJoinNone: "沒有任務類型",
       currentlyInLead: "目前在「",
       currentlyInTail: "」",
@@ -759,6 +760,7 @@ export const zh = {
       bringInDecline: "只套用到之後的新外包",
       roleDescription: "可拖曳的對話",
       groupRoleDescription: "可拖曳的群組",
+      optionsLead: "群組選項：",
       instructions:
         "按住一列或群組標題約半秒會浮起，就能拖曳：成員可拖進其他群組或未分組，群組標題可調整群組順序。鍵盤：按空白鍵拿起，用上下方向鍵移動，再按空白鍵放下，按 Esc 取消。右鍵或選單鍵開啟選項。",
       pickedUpLead: "已拿起 ",
