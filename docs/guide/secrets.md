@@ -1,4 +1,4 @@
-# 把帳號金鑰交給成員用
+# 把帳號金鑰交給成員用（密鑰）
 
 讀完這頁，你能把 API token、部署金鑰這類機密存進 OffiCraft，讓成員在需要時取用，而值不會出現在聊天、請示卡或任務紀錄裡。
 
@@ -68,11 +68,7 @@ ocagent secret run --env NPM_TOKEN=sec-aaaaaaaaaaaa -- npm publish
 
 ## 備份 vault.key
 
-密鑰的值用資料目錄裡的 `vault.key` 加密。預設位置是 `~/.officraft/server/data/vault.key`，和資料庫 `officraft.db` 在同一個資料夾，在你第一次新增密鑰時產生。
-
-`ocserverd backup` 和排程備份都只備份資料庫，不包含 `vault.key`。請另外保存一份 `vault.key`，放在和資料庫備份分開、只有你能讀的地方。
-
-沒有 `vault.key` 時，從備份還原回來的密鑰無法取用，也無法修改或新增密鑰；只能在密鑰分頁把現有的密鑰刪掉，再重新建立。備份與搬移資料庫的完整步驟見 [常見問題與排解](troubleshooting.md)；`vault.key` 和其他憑證要怎麼保護，見 [保護你的工作室](security.md)。
+密鑰的值用資料目錄裡的 `vault.key` 加密，資料庫備份不包含它，請另外保存；少了它，還原後的密鑰無法取用。保存、還原與遺失時的處理見 [保護你的工作室](security.md) 的「密鑰與 vault.key」。
 
 ## 相關文件
 

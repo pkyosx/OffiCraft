@@ -1,6 +1,6 @@
 # 安裝、升級與移除
 
-讀完這頁，你能在 Mac 上裝好 OffiCraft、之後升級或移除，並把第二台 Mac 加進同一間工作室。
+讀完這頁，你能在 Mac 上裝好 OffiCraft、之後升級或移除，把第二台 Mac 加進同一間工作室，以及從工作室移除一台機器。
 
 安裝有兩條路：一般使用者用**官方 release**；要自己改程式碼的人才用**從原始碼安裝**。兩條路裝出來的東西不同，請只照其中一條做。
 
@@ -102,11 +102,14 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 
 升級不必重跑安裝腳本。到 **設定 › 系統更新與備份**：
 
-- 按「檢查更新」，有新版時按「升級到最新版」。server 會下載新版、驗證 sha256、替換後自動重啟，頁面也會自動重新載入。
-- 打開「自動更新」，偵測到新版時會在背景自動升級。預設關閉。
-- 打開「接收 Beta 版本」，檢查更新時也會納入 GitHub 上的預發佈版本。預設關閉。
+- **目前版本**：這台 server 正在跑的版本，旁邊是「檢查更新」與「查看 release」。狀態寫「尚未確認最新版本」代表 server 啟動後還沒成功連上 GitHub 查過，不代表已是最新版。
+- 按「檢查更新」，有新版時按「升級到最新版」。server 會下載新版、用 release 附的 sha256 檢查碼驗證、確認新程式能執行後才替換自己並重新啟動，控制台頁面會自動重新載入。
+- 出現「檢查更新失敗」時，多半是連不到 GitHub（網路或 proxy 問題），稍後再試。
+- **自動更新**：打開後，偵測到新版時會在背景自動升級並重新啟動。預設關閉。
+- **接收 Beta 版本**：打開後，檢查更新時也會納入 GitHub 上的預發佈版本。預設關閉。
+- **更新檢查間隔**：背景多久向 GitHub 確認一次，1–60 分鐘，預設 5 分鐘。按「檢查更新」與升級一律當場查，不受這一格影響。
 
-server 升級後，各台機器上的 warden 與 ocagent 會自動跟著更新。各欄位的說明見 [設定與參數](settings.md)。
+server 升級後，各台機器上的 warden 與 ocagent 會自動跟著更新，不需要到每台機器上操作。新版的 warden 與 ocagent 包含在 server 裡；各台 warden 每 15 分鐘向 server 確認一次，重新連上 server 或收到 server 的指令時也會立即確認，發現新版就自我更新，通常在 15 分鐘內完成。
 
 ### 移除
 
@@ -127,7 +130,7 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 要一併移除這台機器的 warden，有兩種做法：
 
 - 移除 server 之前，在控制台「監控 › 機器資訊」的機器名稱選單選「解除安裝」。
-- 在那台機器上執行 `~/.officraft/warden/ocwarden teardown --canonical`。第二個工作室的 warden 改用 `OC_NAMESPACE=<名稱> ~/.officraft/warden/ocwarden teardown`。
+- 在那台機器上執行 `~/.officraft/warden/ocwarden teardown --canonical`。第二個工作室的 warden 改用 `OC_NAMESPACE=<名稱> ~/.officraft-<名稱>/warden/ocwarden teardown`。
 
 其他移除選項：
 
@@ -153,7 +156,7 @@ curl -fsSL … | bash -s -- --uninstall --namespace lab    # 只移除第二個�
 | --- | --- | --- |
 | Go | 1.26 | 編譯 server、warden 與 CLI |
 | node、npm | node 18（建議用目前的 LTS） | 編譯控制台前端 |
-| python3 | 3.11 | 開發用腳本 |
+| python3 | 3.11 | 安裝時產生並檢查 `oc.toml`，以及開發用腳本；沒有 3.11 以上時 `bin/ocserver install` 會停下 |
 | `cloudflared` | — | 只有要開對外 tunnel 時才需要 |
 
 在 repo 根目錄執行：
@@ -202,7 +205,9 @@ bin/ocserver uninstall --dry-run   # 只列出會做什麼，不做任何變更
 
 ---
 
-## 加第二台機器
+## 加入或移除機器
+
+### 加第二台機器
 
 另一台 Mac 必須連得到這個 server。請先用那台 Mac 連得到的網址（tunnel 或私有網路轉發的網址）打開控制台，再複製安裝指令；用 `localhost` 打開時複製出來的指令，在別台機器上連不到。見 [保護你的工作室](security.md)。
 
@@ -213,6 +218,15 @@ bin/ocserver uninstall --dry-run   # 只列出會做什麼，不做任何變更
 5. 裝好之後，那台機器出現在「機器資訊」的清單上，狀態變成「線上」。
 
 那台機器同樣需要 `claude` 或 `codex` 至少一種並且已登入。之後在成員詳情裡就能把成員派到那台機器上跑，成員之間也能跨機器互相請託。
+
+### 從控制台移除一台機器
+
+到 監控 › 機器資訊，在機器名稱的選單選：
+
+- **解除安裝**：請那台機器的 warden 移除自己。成功後機器變成離線，紀錄保留，之後可以再「安裝」。只有線上的機器可以解除安裝；那台機器上還有成員在線時，會先跳出警告，建議先讓那些成員停止。
+- **刪除**：把機器從清單移除，它的憑證立即失效，在該機器上的成員也會斷線。機器上的程式不會被移除。刪除無法復原，要恢復只能重新安裝。
+
+要完整移除一台機器，先解除安裝，再刪除。
 
 ---
 
