@@ -720,19 +720,99 @@ describe("OutsourcePanel", () => {
     await waitFor(() => expect(within(list).getAllByTestId(/^outsource-row-/)).toHaveLength(2));
     const order = () =>
       within(list).getAllByTestId(/^outsource-row-/).map((r) => r.getAttribute("data-testid"));
-    expect(within(list).queryByText("已置頂")).toBeNull();
-    expect(within(list).queryByTestId("chat-pins-divider")).toBeNull();
+    const headings = () =>
+      Array.from(list.querySelectorAll(".chat-pins__heading"), (h) => h.textContent);
+    expect(headings()).toEqual([]);
 
     fireEvent.click(getByTestId("chat-pin-ow-old"));
     expect(order()).toEqual(["outsource-row-ow-old", "outsource-row-ow-new"]);
-    expect(within(list).getByText("已置頂")).toBeTruthy();
+    expect(headings()).toEqual(["已置頂 · 1", "所有外包 · 1"]);
     expect(within(getByTestId("chat-pins-section")).getByTestId("outsource-row-ow-old")).toBeTruthy();
     expect(getByTestId("chat-pin-ow-old").getAttribute("aria-label")).toBe("取消置頂");
     expect(window.location.hash).not.toContain("ow-old");
 
     fireEvent.click(getByTestId("chat-pin-ow-old"));
     expect(order()).toEqual(["outsource-row-ow-new", "outsource-row-ow-old"]);
-    expect(within(list).queryByTestId("chat-pins-divider")).toBeNull();
+    expect(headings()).toEqual([]);
+  });
+
+  it("each heading collapses and expands its own section; a collapsed section shows its summed unread, and pinning opens a collapsed 已置頂", async () => {
+    const now = Date.now() / 1000;
+    for (const [id, t] of [
+      ["ow-a", now - 9000],
+      ["ow-b", now - 50],
+      ["ow-c", now - 10],
+    ] as const) {
+      __injectMockTask(mkTask({ id: `t-${id}`, createdTs: t }));
+      __injectMockOutsourceWorker(mkWorker({ id, codename: id.toUpperCase(), taskId: `t-${id}` }));
+    }
+    for (const [mid, from] of [
+      ["u-1", "ow-b"],
+      ["u-2", "ow-b"],
+      ["u-3", "ow-c"],
+    ]) {
+      __injectMockChat({
+        id: mid,
+        from,
+        to: "owner",
+        body: "回報",
+        ts: now - 30,
+        attachments: [],
+        replyCardId: null,
+      });
+    }
+    const { findByTestId, getByTestId } = renderOutsource();
+    const list = await findByTestId("outsource-list");
+    await waitFor(() => expect(within(list).getAllByTestId(/^outsource-row-/)).toHaveLength(3));
+    const rows = () =>
+      within(list).queryAllByTestId(/^outsource-row-/).map((r) => r.getAttribute("data-testid"));
+    fireEvent.click(getByTestId("chat-pin-ow-a"));
+    const pinnedHead = getByTestId("chat-pins-heading-pinned");
+    const restHead = getByTestId("chat-pins-heading-rest");
+    expect(restHead.getAttribute("aria-expanded")).toBe("true");
+    expect(restHead.querySelector(".member-card__unread")).toBeNull();
+
+    fireEvent.click(restHead);
+    expect(restHead.getAttribute("aria-expanded")).toBe("false");
+    expect(rows()).toEqual(["outsource-row-ow-a"]);
+    expect(restHead.querySelector(".member-card__unread")?.textContent).toBe("3");
+    expect(pinnedHead.querySelector(".member-card__unread")).toBeNull();
+
+    fireEvent.click(restHead);
+    expect(restHead.getAttribute("aria-expanded")).toBe("true");
+    expect(rows()).toEqual(["outsource-row-ow-a", "outsource-row-ow-c", "outsource-row-ow-b"]);
+    expect(restHead.querySelector(".member-card__unread")).toBeNull();
+
+    fireEvent.click(pinnedHead);
+    expect(pinnedHead.getAttribute("aria-expanded")).toBe("false");
+    expect(rows()).toEqual(["outsource-row-ow-c", "outsource-row-ow-b"]);
+
+    fireEvent.click(getByTestId("chat-pin-ow-b"));
+    expect(getByTestId("chat-pins-heading-pinned").getAttribute("aria-expanded")).toBe("true");
+    expect(rows()).toEqual(["outsource-row-ow-a", "outsource-row-ow-b", "outsource-row-ow-c"]);
+    expect(getByTestId("chat-pins-heading-pinned").textContent).toBe("已置頂 · 2");
+  });
+
+  it("collapsing a section on one tab leaves the other tab's sections as they were, and survives switching tabs", async () => {
+    __injectMockTask(mkTask({ id: "t-x", createdTs: 80 }));
+    __injectMockOutsourceWorker(mkWorker({ id: "ow-x", taskId: "t-x" }));
+    __injectMockTask(mkTask({ id: "t-y", createdTs: 70 }));
+    __injectMockOutsourceWorker(mkWorker({ id: "ow-y", taskId: "t-y" }));
+    const { findByTestId, getByTestId } = renderOutsource();
+    await findByTestId("outsource-row-ow-y");
+    fireEvent.click(getByTestId("chat-pin-ow-x"));
+    fireEvent.click(getByTestId("chat-pins-heading-rest"));
+    expect(getByTestId("chat-pins-heading-rest").getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(getByTestId("office-tab-staff"));
+    await waitFor(() =>
+      expect(getByTestId("chat-pins-heading-pinned").textContent).toBe("已置頂 · 1"),
+    );
+    expect(getByTestId("chat-pins-heading-pinned").getAttribute("aria-expanded")).toBe("true");
+
+    fireEvent.click(getByTestId("office-tab-outsource"));
+    expect(getByTestId("chat-pins-heading-rest").getAttribute("aria-expanded")).toBe("false");
+    expect(getByTestId("chat-pins-heading-pinned").getAttribute("aria-expanded")).toBe("true");
   });
 
   it("a pin the server refuses comes back off, with 置頂沒有存成 shown above the list", async () => {

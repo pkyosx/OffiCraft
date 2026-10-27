@@ -729,6 +729,9 @@ export const zh = {
     // 調整順序。後面幾片是拖曳時給螢幕閱讀器的句子，由 compose.ts 組裝。
     pins: {
       title: "已置頂",
+      restStaffTitle: "所有成員",
+      restOutsourceTitle: "所有外包",
+      countSep: " · ",
       pin: "置頂",
       unpin: "取消置頂",
       saveError: "置頂沒有存成，請再試一次",

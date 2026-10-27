@@ -2,11 +2,12 @@
 // ChatPinList) over the REAL MemberCard / OutsourcePanel rows, inside the
 // real ancestor chain (.app > .app__main > .office).
 import { useState } from "react";
-import { I18nProvider } from "../../src/i18n";
+import { I18nProvider, useI18n } from "../../src/i18n";
 import { MemberCard } from "../../src/components/MemberCard";
 import { OfficeSidebarTabs } from "../../src/components/OfficeSidebarTabs";
 import { OutsourcePanel } from "../../src/components/OutsourcePanel";
 import { ChatPinList } from "../../src/components/ChatPinList";
+import type { ChatPinCollapsed } from "../../src/components/ChatPinList";
 import { PersonPlusIcon } from "../../src/components/icons";
 import { orderByPins, pinAt, togglePin } from "../../src/lib/chatPins";
 import type { Member } from "../../src/types";
@@ -114,9 +115,14 @@ export const workers: OutsourceWorkerView[] = [
 ];
 
 function Sidebar({ mobile }: { mobile: boolean }) {
+  const { t } = useI18n();
   const [tab, setTab] = useState<"staff" | "outsource">("staff");
   const [chatId, setChatId] = useState("");
   const [detailId, setDetailId] = useState("");
+  const [sections, setSections] = useState<Record<"staff" | "outsource", ChatPinCollapsed>>({
+    staff: { pinned: false, rest: false },
+    outsource: { pinned: false, rest: false },
+  });
   // Local state over the same pure helpers useChatPins writes through: the
   // story's fixture members are not on the mock server's roster.
   const [pins, setPins] = useState<string[]>(["mira"]);
@@ -147,6 +153,10 @@ function Sidebar({ mobile }: { mobile: boolean }) {
           pinnedCount={staffList.pinnedIds.length}
           nameOf={(id) => byId(id).name}
           onReorder={(id, index) => reorder(id, index, staffList.pinnedIds)}
+          restTitle={t.office.pins.restStaffTitle}
+          unreadOf={(id) => byId(id).unreadCount}
+          collapsed={sections.staff}
+          onCollapsedChange={(next) => setSections((x) => ({ ...x, staff: next }))}
           renderRow={(id, sortable) => (
             <MemberCard
               member={byId(id)}
@@ -183,6 +193,8 @@ function Sidebar({ mobile }: { mobile: boolean }) {
             pinnedCount: outsourceList.pinnedIds.length,
             onToggle: (id) => toggle(id, outsourceList.pinnedIds),
             onReorder: (id, index) => reorder(id, index, outsourceList.pinnedIds),
+            collapsed: sections.outsource,
+            onCollapsedChange: (next) => setSections((x) => ({ ...x, outsource: next })),
           }}
         />
       )}

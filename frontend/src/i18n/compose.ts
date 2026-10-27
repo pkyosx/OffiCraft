@@ -84,6 +84,7 @@ export interface Messages {
   secretDeleteConfirmBody: (name: string) => string;
   // ── office ──
   outsourceLabel: (codename: string) => string;
+  pinSectionHeading: (title: string, count: number) => string;
   pinDragPickedUp: (name: string) => string;
   pinDragOverPinned: (name: string, position: number) => string;
   pinDragDroppedPinned: (name: string, position: number) => string;
@@ -420,6 +421,7 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     outsourceLabel: (codename) =>
       `${t.office.outsource.title} · ${codename}`,
 
+    pinSectionHeading: (title, count) => `${title}${t.office.pins.countSep}${count}`,
     pinDragPickedUp: (name) =>
       `${t.office.pins.pickedUpLead}${name}${t.office.pins.pickedUpTail}`,
     pinDragOverPinned: (name, position) =>

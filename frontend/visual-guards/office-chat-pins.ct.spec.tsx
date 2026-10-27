@@ -39,7 +39,10 @@ for (const width of [1280, 390, 320]) {
     await cmp.getByTestId("chat-pin-clara").click();
 
     for (const tab of ["staff", "outsource"]) {
-      if (tab === "outsource") await cmp.getByTestId("office-tab-outsource").click();
+      if (tab === "outsource") {
+        await cmp.getByTestId("office-tab-outsource").click();
+        await cmp.getByTestId("chat-pin-ow-71d0").click();
+      }
       const m = await page.evaluate(() => ({
         pageOver: document.documentElement.scrollWidth - document.documentElement.clientWidth,
         rows: Array.from(document.querySelectorAll(".member-card, .outsource-row")).map((row) => {
@@ -64,35 +67,51 @@ for (const width of [1280, 390, 320]) {
           expect(pin!.right, `${at} row ${i} pin runs into the pill`).toBeLessThanOrEqual(pill.left);
         }
       }
+
+      // Collapsed, the rest heading carries its rows' unread (the 99+ row on
+      // the staff tab, the outsource rows' 2 on the other).
+      await cmp.getByTestId("chat-pins-heading-rest").click();
+      const h = await page.evaluate(() => {
+        const head = document.querySelector('[data-testid="chat-pins-heading-rest"]')!;
+        const pill = head.querySelector(".member-card__unread");
+        return {
+          pageOver: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          head: head.getBoundingClientRect(),
+          list: head.parentElement!.getBoundingClientRect(),
+          pill: pill ? pill.getBoundingClientRect() : null,
+        };
+      });
+      expect(h.pageOver, `${at} page scrolls sideways with a collapsed heading`).toBeLessThanOrEqual(1);
+      expect(h.head.right, `${at} heading past the list`).toBeLessThanOrEqual(h.list.right + 0.5);
+      expect(h.pill, `${at} collapsed heading lost its unread pill`).not.toBeNull();
+      expect(h.pill!.left, `${at} heading pill`).toBeGreaterThanOrEqual(h.head.left);
+      expect(h.pill!.right, `${at} heading pill`).toBeLessThanOrEqual(h.head.right);
+      await cmp.getByTestId("chat-pins-heading-rest").click();
     }
   });
 }
 
-test("the divider under the pinned section is a solid line that stands out from the page", async ({ mount, page }) => {
+test("the section headings read at the muted-text floor (4.5:1) against the page", async ({ mount, page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   const cmp = await mount(<OfficeChatPinsStory />);
-  const divider = cmp.getByTestId("chat-pins-divider");
-  const m = await divider.evaluate((el) => {
-    const parse = (c: string) => c.match(/[\d.]+/g)!.map(Number);
-    const lum = ([r, g, b]: number[]) => {
-      const f = (v: number) => {
-        const s = v / 255;
-        return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  for (const key of ["pinned", "rest"]) {
+    const contrast = await cmp.getByTestId(`chat-pins-heading-${key}`).evaluate((el) => {
+      const parse = (c: string) => c.match(/[\d.]+/g)!.map(Number);
+      const lum = ([r, g, b]: number[]) => {
+        const f = (v: number) => {
+          const x = v / 255;
+          return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+        };
+        return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
       };
-      return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
-    };
-    const line = parse(getComputedStyle(el).backgroundColor);
-    const page = parse(getComputedStyle(document.body).backgroundColor);
-    const [hi, lo] = [lum(line), lum(page)].sort((a, b) => b - a);
-    return {
-      height: el.getBoundingClientRect().height,
-      alpha: line.length > 3 ? line[3] : 1,
-      contrast: (hi + 0.05) / (lo + 0.05),
-    };
-  });
-  expect(m.height).toBeGreaterThanOrEqual(2);
-  expect(m.alpha).toBe(1);
-  expect(m.contrast).toBeGreaterThanOrEqual(2.5);
+      const [hi, lo] = [
+        lum(parse(getComputedStyle(el).color)),
+        lum(parse(getComputedStyle(document.body).backgroundColor)),
+      ].sort((a, b) => b - a);
+      return (hi + 0.05) / (lo + 0.05);
+    });
+    expect(contrast, `${key} heading contrast`).toBeGreaterThanOrEqual(4.5);
+  }
 });
 
 test("a long press on a pinned row lifts it, and dropping it one row up reorders without opening a chat", async ({

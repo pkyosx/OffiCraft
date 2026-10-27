@@ -1,4 +1,4 @@
-import { Fragment, useId, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import {
   DndContext,
@@ -26,7 +26,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useI18n } from "../i18n";
-import { PinIcon } from "./icons";
+import { ChevronDownIcon, PinIcon } from "./icons";
 import "./chat-pins.css";
 
 // Same hold on mouse and touch (owner: like rearranging the iPhone home
@@ -46,6 +46,12 @@ const withinSection: Modifier = ({ transform, draggingNodeRect, containerNodeRec
   const maxY = containerNodeRect.bottom - draggingNodeRect.bottom;
   return { ...transform, x: 0, y: Math.min(Math.max(transform.y, minY), maxY) };
 };
+
+/** Which of a tab's two sections are collapsed. */
+export interface ChatPinCollapsed {
+  pinned: boolean;
+  rest: boolean;
+}
 
 export interface ChatPinRow {
   ref: (el: HTMLElement | null) => void;
@@ -137,9 +143,9 @@ function SortableRow({
   );
 }
 
-/** One tab's chat list. The first `pinnedCount` ids form a 已置頂 section that
- * can be reordered by long-press drag; the rest render as plain rows. With
- * nothing pinned the list is just the plain rows. */
+/** One tab's chat list. With pins, two collapsible sections: 已置頂 (the first
+ * `pinnedCount` ids, reorderable by long-press drag) and the rest. With
+ * nothing pinned the list is just the plain rows, no headings. */
 export function ChatPinList({
   ids,
   pinnedCount,
@@ -149,6 +155,10 @@ export function ChatPinList({
   renderOverlay,
   className,
   testId,
+  restTitle,
+  unreadOf,
+  collapsed,
+  onCollapsedChange,
 }: {
   ids: readonly string[];
   pinnedCount: number;
@@ -158,6 +168,11 @@ export function ChatPinList({
   renderOverlay: (id: string) => ReactNode;
   className: string;
   testId?: string;
+  /** Heading of the unpinned section (所有成員 / 所有外包). */
+  restTitle: string;
+  unreadOf: (id: string) => number;
+  collapsed: ChatPinCollapsed;
+  onCollapsedChange: (next: ChatPinCollapsed) => void;
 }) {
   const { t, msg } = useI18n();
   const pinned = ids.slice(0, pinnedCount);
@@ -168,6 +183,17 @@ export function ChatPinList({
   const draggingRef = useRef(false);
   const canActivate = () => !draggingRef.current;
   const titleId = useId();
+  const pinnedSectionId = useId();
+  const restSectionId = useId();
+
+  // A newly pinned row must be seen landing, so a collapsed 已置頂 opens.
+  const prevPinnedRef = useRef(pinnedCount);
+  useEffect(() => {
+    if (pinnedCount > prevPinnedRef.current && collapsed.pinned) {
+      onCollapsedChange({ ...collapsed, pinned: false });
+    }
+    prevPinnedRef.current = pinnedCount;
+  });
 
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: LONG_PRESS }),
@@ -201,65 +227,108 @@ export function ChatPinList({
     setActiveId(null);
   };
 
+  const heading = (
+    key: keyof ChatPinCollapsed,
+    label: string,
+    sectionIds: readonly string[],
+    controls: string,
+    id?: string,
+  ) => {
+    const isCollapsed = collapsed[key];
+    const unread = isCollapsed ? sectionIds.reduce((n, x) => n + unreadOf(x), 0) : 0;
+    return (
+      <button
+        type="button"
+        className="chat-pins__heading"
+        id={id}
+        aria-expanded={!isCollapsed}
+        aria-controls={controls}
+        data-testid={`chat-pins-heading-${key}`}
+        onClick={() => onCollapsedChange({ ...collapsed, [key]: !isCollapsed })}
+      >
+        <span className="chat-pins__heading-label">
+          {msg.pinSectionHeading(label, sectionIds.length)}
+        </span>
+        <ChevronDownIcon size={14} className="chat-pins__chevron" />
+        {unread > 0 && (
+          <span className="member-card__unread chat-pins__heading-unread">
+            {unread > 99 ? "99+" : unread}
+          </span>
+        )}
+      </button>
+    );
+  };
+  const section = (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      modifiers={[withinSection]}
+      accessibility={{
+        announcements,
+        screenReaderInstructions: { draggable: t.office.pins.instructions },
+      }}
+      onDragStart={({ active }) => {
+        draggingRef.current = true;
+        setActiveId(String(active.id));
+      }}
+      onDragCancel={finish}
+      onDragEnd={({ active, over }) => {
+        if (over && active.id !== over.id) {
+          onReorder(String(active.id), landing(active.id, over.id));
+        }
+        finish();
+      }}
+    >
+      <div
+        className="chat-pins__section"
+        id={pinnedSectionId}
+        role="group"
+        aria-labelledby={titleId}
+        data-testid="chat-pins-section"
+      >
+        <SortableContext items={pinned} strategy={verticalListSortingStrategy}>
+          {pinned.map((id) => (
+            <SortableRow
+              key={id}
+              id={id}
+              canActivate={canActivate}
+              render={(row) => renderRow(id, row)}
+            />
+          ))}
+        </SortableContext>
+      </div>
+      <DragOverlay modifiers={[withinSection]}>
+        {activeId !== null && (
+          <div className="chat-pins__lifted" data-testid="chat-pins-lifted">
+            <div className="chat-pins__wobble">{renderOverlay(activeId)}</div>
+          </div>
+        )}
+      </DragOverlay>
+    </DndContext>
+  );
+
+  if (pinnedCount === 0) {
+    return (
+      <div className={className} data-testid={testId}>
+        {rest.map((id) => (
+          <Fragment key={id}>{renderRow(id, undefined)}</Fragment>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div className={className} data-testid={testId}>
-      {pinnedCount > 0 && (
-        <>
-          <div className="chat-pins__title" id={titleId}>
-            <PinIcon size={12} />
-            <span>{t.office.pins.title}</span>
-          </div>
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            modifiers={[withinSection]}
-            accessibility={{
-              announcements,
-              screenReaderInstructions: { draggable: t.office.pins.instructions },
-            }}
-            onDragStart={({ active }) => {
-              draggingRef.current = true;
-              setActiveId(String(active.id));
-            }}
-            onDragCancel={finish}
-            onDragEnd={({ active, over }) => {
-              if (over && active.id !== over.id) {
-                onReorder(String(active.id), landing(active.id, over.id));
-              }
-              finish();
-            }}
-          >
-            <div
-              className="chat-pins__section"
-              role="group"
-              aria-labelledby={titleId}
-              data-testid="chat-pins-section"
-            >
-              <SortableContext items={pinned} strategy={verticalListSortingStrategy}>
-                {pinned.map((id) => (
-                  <SortableRow
-                    key={id}
-                    id={id}
-                    canActivate={canActivate}
-                    render={(row) => renderRow(id, row)}
-                  />
-                ))}
-              </SortableContext>
-            </div>
-            <DragOverlay modifiers={[withinSection]}>
-              {activeId !== null && (
-                <div className="chat-pins__lifted" data-testid="chat-pins-lifted">
-                  <div className="chat-pins__wobble">{renderOverlay(activeId)}</div>
-                </div>
-              )}
-            </DragOverlay>
-          </DndContext>
-          <div className="chat-pins__rule" data-testid="chat-pins-divider" />
-        </>
+      {heading("pinned", t.office.pins.title, pinned, pinnedSectionId, titleId)}
+      {!collapsed.pinned && section}
+      {rest.length > 0 && heading("rest", restTitle, rest, restSectionId)}
+      {!collapsed.rest && (
+        <div className="chat-pins__section" id={restSectionId} data-testid="chat-pins-rest">
+          {rest.map((id) => (
+            <Fragment key={id}>{renderRow(id, undefined)}</Fragment>
+          ))}
+        </div>
       )}
-      {rest.map((id) => (
-        <Fragment key={id}>{renderRow(id, undefined)}</Fragment>
-      ))}
     </div>
   );
 }

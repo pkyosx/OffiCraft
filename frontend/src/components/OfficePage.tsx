@@ -26,6 +26,7 @@ import { OutsourcePanel, OutsourceTaskLine } from "./OutsourcePanel";
 import { OfficeSidebarTabs } from "./OfficeSidebarTabs";
 import { OutsourceCapPopover } from "./OutsourceCapPopover";
 import { ChatPinList } from "./ChatPinList";
+import type { ChatPinCollapsed } from "./ChatPinList";
 import { ChevronLeftIcon, PersonPlusIcon } from "./icons";
 import "./office.css";
 
@@ -102,6 +103,13 @@ export function OfficePage({
   // 2026-07-18), replacing the old two-stacked-groups rail. Plain component
   // state (not persisted) — the tab is a view toggle, not a route.
   const [activeTab, setActiveTab] = useState<"staff" | "outsource">("staff");
+  // Per tab, for this mount only (like the task page's lanes).
+  const [pinSections, setPinSections] = useState<
+    Record<"staff" | "outsource", ChatPinCollapsed>
+  >({
+    staff: { pinned: false, rest: false },
+    outsource: { pinned: false, rest: false },
+  });
   // The 外包上限設定 popover, opened by the 招攬新成員 button at the sidebar
   // bottom while the 外包 tab is active. OfficePage owns the open state + the
   // outside-click dismissal (the button and popover share an anchor wrapper).
@@ -817,6 +825,10 @@ export function OfficePage({
               pinnedCount={staffList.pinnedIds.length}
               nameOf={(id) => roster.find((m) => m.id === id)?.name ?? id}
               onReorder={(id, index) => reorder(id, index, staffList.pinnedIds)}
+              restTitle={t.office.pins.restStaffTitle}
+              unreadOf={(id) => roster.find((m) => m.id === id)?.unreadCount ?? 0}
+              collapsed={pinSections.staff}
+              onCollapsedChange={(next) => setPinSections((s) => ({ ...s, staff: next }))}
               renderRow={(id, sortable) => {
                 const member = roster.find((m) => m.id === id)!;
                 return (
@@ -870,6 +882,9 @@ export function OfficePage({
                 pinnedCount: outsourceList.pinnedIds.length,
                 onToggle: (id) => toggle(id, outsourceList.pinnedIds),
                 onReorder: (id, index) => reorder(id, index, outsourceList.pinnedIds),
+                collapsed: pinSections.outsource,
+                onCollapsedChange: (next) =>
+                  setPinSections((s) => ({ ...s, outsource: next })),
               }}
             />
           )}

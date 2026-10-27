@@ -1,13 +1,45 @@
 /* Office chat list 已置頂 section + long-press drag (ChatPinList). */
-.chat-pins__title {
+/* Section heading: 已置頂 · N / 所有成員 · M, each collapsing its section. */
+.chat-pins__heading {
+  flex: none;
   display: flex;
   align-items: center;
-  gap: 5px;
-  flex: none;
-  padding: 0 12px;
+  gap: 4px;
+  width: 100%;
+  min-height: 24px;
+  padding: 2px 12px;
+  border: none;
+  border-radius: 6px;
+  background: none;
   font-size: 12px;
   font-weight: 600;
+  letter-spacing: 0.04em;
   color: var(--color-text-muted);
+  text-align: left;
+  cursor: pointer;
+}
+.chat-pins__heading:hover,
+.chat-pins__heading:focus-visible {
+  color: var(--color-text-strong);
+}
+.chat-pins__heading-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.chat-pins__chevron {
+  flex: none;
+  transition: transform 0.15s;
+}
+.chat-pins__heading[aria-expanded="false"] .chat-pins__chevron {
+  transform: rotate(-90deg);
+}
+.chat-pins__heading-unread {
+  margin-left: auto;
+}
+/* Space between the pinned rows and the next heading. */
+.chat-pins__section + .chat-pins__heading,
+.chat-pins__heading + .chat-pins__heading {
+  margin-top: 6px;
 }
 
 .chat-pins__section {
@@ -16,16 +48,6 @@
   gap: inherit;
   flex: none;
 }
-/* --color-text-muted, not --color-border: the office theme's border token is
- * the card colour, so a border-coloured line all but vanishes. */
-.chat-pins__rule {
-  flex: none;
-  height: 2px;
-  margin: 6px 0;
-  border-radius: 1px;
-  background: var(--color-text-muted);
-}
-
 /* Sits on the name's first line; the negative margins keep a 24px box from
  * growing the 21px line. */
 .chat-pins__toggle {

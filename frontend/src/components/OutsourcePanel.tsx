@@ -37,7 +37,7 @@ import { RuntimeLoginWarningMark } from "./RuntimeLoginWarningMark";
 import { PresenceAvatar } from "./PresenceAvatar";
 import { NameWithActivity } from "./MemberActivity";
 import { ChatPinList, ChatPinToggle } from "./ChatPinList";
-import type { ChatPinRow } from "./ChatPinList";
+import type { ChatPinCollapsed, ChatPinRow } from "./ChatPinList";
 
 /** The worker's ONE-LINE task line — [task-id chip → task type], optionally
  * led by the runtime warning mark. SHARED between the rail's outsource row, the
@@ -137,6 +137,8 @@ export function OutsourcePanel({
     pinnedCount: number;
     onToggle: (id: string) => void;
     onReorder: (id: string, index: number) => void;
+    collapsed: ChatPinCollapsed;
+    onCollapsedChange: (next: ChatPinCollapsed) => void;
   };
 }) {
   const { t, msg } = useI18n();
@@ -171,6 +173,10 @@ export function OutsourcePanel({
           pinnedCount={pins.pinnedCount}
           nameOf={(id) => msg.outsourceLabel(byId.get(id)?.codename ?? id)}
           onReorder={pins.onReorder}
+          restTitle={t.office.pins.restOutsourceTitle}
+          unreadOf={(id) => byId.get(id)?.unreadCount ?? 0}
+          collapsed={pins.collapsed}
+          onCollapsedChange={pins.onCollapsedChange}
           renderRow={(id, sortable) => (
             <OutsourceRow
               {...rowProps(byId.get(id)!)}

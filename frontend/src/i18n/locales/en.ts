@@ -696,6 +696,9 @@ export const en: Dict = {
     backToMembers: "Back to members",
     pins: {
       title: "Pinned",
+      restStaffTitle: "All staff",
+      restOutsourceTitle: "All outsource",
+      countSep: " · ",
       pin: "Pin",
       unpin: "Unpin",
       saveError: "Couldn't save the pins. Please try again.",
