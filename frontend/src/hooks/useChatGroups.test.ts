@@ -71,23 +71,23 @@ describe("useChatGroups", () => {
       ),
     );
     expect(putChatGroups).toHaveBeenCalledWith([
-      { id: "cg-1", tab: "staff", name: "核心", memberIds: ["mira"], taskTypeKeys: [] },
       { id: null, tab: "staff", name: "工程", memberIds: ["beto"], taskTypeKeys: [] },
+      { id: "cg-1", tab: "staff", name: "核心", memberIds: ["mira"], taskTypeKeys: [] },
     ]);
-    expect(result.current.groups).toEqual([CORE, g("cg-local-1", "工程", ["beto"])]);
+    expect(result.current.groups).toEqual([g("cg-local-1", "工程", ["beto"]), CORE]);
 
-    await act(async () => put.resolve([CORE, g("cg-9", "工程", ["beto"])]));
-    expect(result.current.groups).toEqual([CORE, g("cg-local-1", "工程", ["beto"])]);
+    await act(async () => put.resolve([g("cg-9", "工程", ["beto"]), CORE]));
+    expect(result.current.groups).toEqual([g("cg-local-1", "工程", ["beto"]), CORE]);
     expect(result.current.error).toBe(null);
 
-    putChatGroups.mockResolvedValue([g("cg-1", "核心", []), g("cg-9", "工程", ["beto", "mira"])]);
+    putChatGroups.mockResolvedValue([g("cg-9", "工程", ["beto", "mira"]), g("cg-1", "核心", [])]);
     act(() => result.current.update((s) => moveMember(s, "mira", "cg-local-1")));
     expect(putChatGroups).toHaveBeenLastCalledWith([
-      { id: "cg-1", tab: "staff", name: "核心", memberIds: [], taskTypeKeys: [] },
       { id: "cg-9", tab: "staff", name: "工程", memberIds: ["beto", "mira"], taskTypeKeys: [] },
+      { id: "cg-1", tab: "staff", name: "核心", memberIds: [], taskTypeKeys: [] },
     ]);
     await waitFor(() =>
-      expect(result.current.groups).toEqual([g("cg-1", "核心", []), g("cg-local-1", "工程", ["beto", "mira"])]),
+      expect(result.current.groups).toEqual([g("cg-local-1", "工程", ["beto", "mira"]), g("cg-1", "核心", [])]),
     );
   });
 
@@ -161,21 +161,21 @@ describe("useChatGroups", () => {
     act(() => result.current.update((s) => moveMember(s, "mira", "cg-local-1")));
     act(() => result.current.update((s) => renameGroup(s, "cg-local-1", "後端")));
     expect(putChatGroups).toHaveBeenCalledTimes(1);
-    expect(result.current.groups).toEqual([g("cg-1", "核心", []), g("cg-local-1", "後端", ["beto", "mira"])]);
+    expect(result.current.groups).toEqual([g("cg-local-1", "後端", ["beto", "mira"]), g("cg-1", "核心", [])]);
 
-    await act(async () => put1.resolve([CORE, g("cg-A", "工程", ["beto"])]));
+    await act(async () => put1.resolve([g("cg-A", "工程", ["beto"]), CORE]));
     expect(putChatGroups).toHaveBeenCalledTimes(2);
     expect(putChatGroups.mock.calls[1][0]).toEqual([
-      { id: "cg-1", tab: "staff", name: "核心", memberIds: [], taskTypeKeys: [] },
       { id: "cg-A", tab: "staff", name: "後端", memberIds: ["beto", "mira"], taskTypeKeys: [] },
+      { id: "cg-1", tab: "staff", name: "核心", memberIds: [], taskTypeKeys: [] },
     ]);
-    expect(result.current.groups).toEqual([g("cg-1", "核心", []), g("cg-local-1", "後端", ["beto", "mira"])]);
+    expect(result.current.groups).toEqual([g("cg-local-1", "後端", ["beto", "mira"]), g("cg-1", "核心", [])]);
 
-    await act(async () => put2.resolve([g("cg-1", "核心", []), g("cg-A", "後端", ["beto", "mira"])]));
-    expect(result.current.groups).toEqual([g("cg-1", "核心", []), g("cg-local-1", "後端", ["beto", "mira"])]);
-    putChatGroups.mockResolvedValue([g("cg-1", "核心", ["mira"]), g("cg-A", "後端", ["beto"])]);
+    await act(async () => put2.resolve([g("cg-A", "後端", ["beto", "mira"]), g("cg-1", "核心", [])]));
+    expect(result.current.groups).toEqual([g("cg-local-1", "後端", ["beto", "mira"]), g("cg-1", "核心", [])]);
+    putChatGroups.mockResolvedValue([g("cg-A", "後端", ["beto"]), g("cg-1", "核心", ["mira"])]);
     act(() => result.current.update((s) => moveMember(s, "mira", "cg-1")));
-    expect(putChatGroups.mock.calls[2][0].map((x) => x.id)).toEqual(["cg-1", "cg-A"]);
+    expect(putChatGroups.mock.calls[2][0].map((x) => x.id)).toEqual(["cg-A", "cg-1"]);
   });
 
   it("a chat_group event during a save is read once the save settles, and the next save keeps what it brought", async () => {

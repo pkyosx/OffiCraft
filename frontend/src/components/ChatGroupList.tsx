@@ -278,7 +278,8 @@ export function ChatGroupList({
   onCloseMenu,
   creating,
   editorFor,
-  footer,
+  filtering = false,
+  empty,
   className,
   testId,
 }: {
@@ -302,8 +303,11 @@ export function ChatGroupList({
   creating?: ReactNode;
   /** An inline rename editor that stands in for a group's heading. */
   editorFor?: (groupId: string) => ReactNode | null;
-  /** Rendered last inside the list (the 新增群組 button). */
-  footer?: ReactNode;
+  /** `ids` are a filter's matches: groups without one are left out, the rest
+   * show open (the saved folding is untouched), and nothing can be dragged. */
+  filtering?: boolean;
+  /** Shown instead of the list when filtering leaves no row. */
+  empty?: ReactNode;
   className: string;
   testId?: string;
 }) {
@@ -313,6 +317,8 @@ export function ChatGroupList({
   const [preview, setPreview] = useState<readonly ChatGroup[] | null>(null);
   const { sections, ungrouped } = layoutTab(preview ?? groups, tab, ids, (x) => x);
   const hasGroups = sections.length > 0;
+  const shownSections = filtering ? sections.filter((x) => x.items.length > 0) : sections;
+  const showUngrouped = !filtering || ungrouped.length > 0;
   const [active, setActive] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
   // Enter both drops a keyboard drag and opens a row's chat; the row checks
@@ -330,6 +336,7 @@ export function ChatGroupList({
     return { ...transform, y: transform.y + shiftRef.current };
   };
 
+  const noSensors = useSensors();
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: LONG_PRESS }),
     useSensor(TouchSensor, { activationConstraint: LONG_PRESS }),
@@ -449,7 +456,7 @@ export function ChatGroupList({
     return landing.group ?? UNGROUPED;
   })();
   const draggingGroup = active !== null && kindOf(active) === "g";
-  const isCollapsed = (key: string) => collapsed[key] === true;
+  const isCollapsed = (key: string) => !filtering && collapsed[key] === true;
   const toggle = (key: string) => onCollapsedChange({ ...collapsed, [key]: !isCollapsed(key) });
   const sum = (list: readonly string[]) => list.reduce((n, x) => n + unreadOf(x), 0);
 
@@ -469,7 +476,7 @@ export function ChatGroupList({
 
   return (
     <DndContext
-      sensors={sensors}
+      sensors={filtering ? noSensors : sensors}
       collisionDetection={collision}
       modifiers={[verticalOnly, followStart]}
       measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
@@ -532,10 +539,13 @@ export function ChatGroupList({
       }}
     >
       <div className={className} data-testid={testId}>
-        {hasGroups ? (
+        {creating}
+        {filtering && ids.length === 0 ? (
+          empty
+        ) : hasGroups ? (
           <>
             <SortableContext items={tabGroupIds.map(gid)} strategy={verticalListSortingStrategy}>
-              {sections.map(({ group, items }) => (
+              {shownSections.map(({ group, items }) => (
                 <Fragment key={group.id}>
                   {editorFor?.(group.id) ?? (
                   <GroupHeading
@@ -557,27 +567,24 @@ export function ChatGroupList({
                 </Fragment>
               ))}
             </SortableContext>
-            {creating}
-            <UngroupedHeading
-              label={msg.groupHeading(t.office.groups.ungrouped, ungrouped.length)}
-              collapsed={isCollapsed(UNGROUPED)}
-              unread={sum(ungrouped)}
-              over={overSection === UNGROUPED}
-              onToggle={() => toggle(UNGROUPED)}
-            />
-            {!isCollapsed(UNGROUPED) && !draggingGroup && (
+            {showUngrouped && (
+              <UngroupedHeading
+                label={msg.groupHeading(t.office.groups.ungrouped, ungrouped.length)}
+                collapsed={isCollapsed(UNGROUPED)}
+                unread={sum(ungrouped)}
+                over={overSection === UNGROUPED}
+                onToggle={() => toggle(UNGROUPED)}
+              />
+            )}
+            {showUngrouped && !isCollapsed(UNGROUPED) && !draggingGroup && (
               <Section id={UNGROUPED} over={overSection === UNGROUPED}>
                 {rows(ungrouped, keepOrder)}
               </Section>
             )}
           </>
         ) : (
-          <>
-            {creating}
-            {rows(ungrouped, keepOrder)}
-          </>
+          rows(ungrouped, keepOrder)
         )}
-        {footer}
         <DragOverlay modifiers={[verticalOnly]}>
           {active !== null && (
             <div className="chat-groups__lifted" data-testid="chat-groups-lifted">

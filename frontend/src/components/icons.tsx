@@ -518,12 +518,33 @@ export function MoreIcon({ size = 16, className }: IconProps) {
   );
 }
 
-/** Plus glyph (lucide "plus"): the office chat list's 新增群組. */
-export function PlusIcon({ size = 16, className }: IconProps) {
+/** Folder with a plus (lucide "folder-plus"): the chat list toolbar's 新增群組. */
+export function FolderPlusIcon({ size = 16, className }: IconProps) {
   return (
     <svg {...base(size)} className={className}>
-      <path d="M5 12h14" />
-      <path d="M12 5v14" />
+      <path d="M12 10v6" />
+      <path d="M9 13h6" />
+      <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
+    </svg>
+  );
+}
+
+/** Two chevrons closing in (lucide "chevrons-down-up"): 全部收合. */
+export function ChevronsDownUpIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="m7 20 5-5 5 5" />
+      <path d="m7 4 5 5 5-5" />
+    </svg>
+  );
+}
+
+/** Two chevrons opening out (lucide "chevrons-up-down"): 全部展開. */
+export function ChevronsUpDownIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="m7 15 5 5 5-5" />
+      <path d="m7 9 5-5 5 5" />
     </svg>
   );
 }

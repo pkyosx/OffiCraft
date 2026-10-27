@@ -68,6 +68,7 @@ export function OfficeSidebarTabs({
   activeTab,
   onSelect,
   staffCount,
+  staffGroupCount,
   staffUnread,
   staffReady,
   outsourceCount,
@@ -78,6 +79,8 @@ export function OfficeSidebarTabs({
   activeTab: "staff" | "outsource";
   onSelect: (tab: "staff" | "outsource") => void;
   staffCount: number;
+  /** Shown after the head count when there are any (「6 人 · 3 個群組」). */
+  staffGroupCount: number;
   staffUnread: number;
   /** false while the roster is loading or its fetch rejected → suppress the
    * 正職 count sub-line (never render a dead load as 「0 人」). */
@@ -90,7 +93,7 @@ export function OfficeSidebarTabs({
    * are not loaded → the 「· 上限 M」 suffix is omitted (no fabricated limit). */
   capText: string | null;
 }) {
-  const { t } = useI18n();
+  const { t, msg } = useI18n();
   const outsourceSub = outsourceReady
     ? t.office.outsource.workerSub(outsourceCount) +
       (capText !== null ? t.office.outsource.capSuffix(capText) : "")
@@ -103,7 +106,7 @@ export function OfficeSidebarTabs({
         onSelect={onSelect}
         label={t.office.staffTitle}
         unread={staffUnread}
-        sub={staffReady ? t.office.staffSub(staffCount) : ""}
+        sub={staffReady ? t.office.staffSub(staffCount) + msg.groupCountSuffix(staffGroupCount) : ""}
         testid="office-tab-staff"
         unreadTestid="staff-tab-unread"
         subTestid="staff-tab-sub"

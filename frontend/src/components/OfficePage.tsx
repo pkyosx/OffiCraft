@@ -10,7 +10,7 @@ import { useMonitoring } from "../hooks/useMonitoring";
 import { useOutsourceWorkers } from "../hooks/useOutsourceWorkers";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { useChatGroups } from "../hooks/useChatGroups";
-import { layoutTab } from "../lib/chatGroups";
+import { layoutTab, tabGroups } from "../lib/chatGroups";
 import type { TaskTypeView } from "../api/adapter";
 import { joinSessionRuntime, findSessionFor } from "../lib/runtime";
 import { useHashRoute } from "../lib/hashRoute";
@@ -19,7 +19,7 @@ import {
   updateCachedWorkerAvatar,
   useWorkerCodenames,
 } from "../hooks/useWorkerCodenames";
-import { MemberCard } from "./MemberCard";
+import { MemberCard, memberRowFacts } from "./MemberCard";
 import { ChatArea } from "./ChatArea";
 import { MemberDetailPanel } from "./MemberDetailPanel";
 import { WorkerDetailPanel } from "./WorkerDetailPanel";
@@ -810,6 +810,7 @@ export function OfficePage({
             activeTab={activeTab}
             onSelect={selectTab}
             staffCount={roster.length}
+            staffGroupCount={tabGroups(chatGroups.groups, "staff").length}
             staffUnread={staffUnread}
             staffReady={!loading && !error}
             outsourceCount={outsource.workers.length}
@@ -839,6 +840,7 @@ export function OfficePage({
               mobile={isMobile}
               nameOf={(id) => roster.find((m) => m.id === id)?.name ?? id}
               unreadOf={(id) => roster.find((m) => m.id === id)?.unreadCount ?? 0}
+              factsOf={(id) => memberRowFacts(t, roster.find((m) => m.id === id)!)}
               collapsed={groupCollapsed.staff}
               onCollapsedChange={(next) => setGroupCollapsed((s) => ({ ...s, staff: next }))}
               renderRow={(id, sortable) => {

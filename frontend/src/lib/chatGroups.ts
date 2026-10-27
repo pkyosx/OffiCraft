@@ -58,7 +58,7 @@ export function groupNameProblem(
   return null;
 }
 
-/** Add a group at the end of its tab; the members leave any group they were in. */
+/** Add a group at the top of its tab; the members leave any group they were in. */
 export function createGroup(
   groups: readonly ChatGroup[],
   group: { id: string; tab: ChatTab; name: string; memberIds?: string[] },
@@ -75,7 +75,7 @@ export function createGroup(
     memberIds: [...memberIds],
     taskTypeKeys: [],
   };
-  return withTab(rest, group.tab, [...tabGroups(rest, group.tab), created]);
+  return withTab(rest, group.tab, [created, ...tabGroups(rest, group.tab)]);
 }
 
 export function renameGroup(groups: readonly ChatGroup[], id: string, name: string): ChatGroup[] {

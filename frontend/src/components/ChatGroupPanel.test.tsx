@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { render, fireEvent, screen, within } from "@testing-library/react";
+import { act, render, fireEvent, screen, within } from "@testing-library/react";
 import { useState } from "react";
 import { I18nProvider } from "../i18n";
 import { ChatGroupPanel } from "./ChatGroupPanel";
@@ -9,11 +9,17 @@ const NAMES: Record<string, string> = {
   mira: "Mira",
   beto: "Beto",
   clara: "Clara",
+  dora: "Dora",
+  evan: "Evan",
   "ow-1": "O-1",
   "ow-2": "O-2",
   "ow-3": "O-3",
 };
 const UNREAD: Record<string, number> = { clara: 3, beto: 1 };
+const ROLES: Record<string, string> = { mira: "特助", beto: "後端", clara: "前端", dora: "QA 測試", evan: "產品經理" };
+type Live = { unread: Record<string, number>; online: string[]; busy: string[] };
+const LIVE: Live = { unread: UNREAD, online: ["mira", "clara", "dora"], busy: ["clara", "evan"] };
+let setLive: (change: (l: Live) => Live) => void = () => {};
 const TYPES = [
   { typeKey: "review", displayName: "PR 審查", purpose: "" },
   { typeKey: "bugfix", displayName: "修 bug", purpose: "" },
@@ -30,6 +36,8 @@ let latest: readonly ChatGroup[] = [];
 function Harness({ tab, ids, initial }: { tab: ChatTab; ids: string[]; initial: ChatGroup[] }) {
   const [groups, setGroups] = useState<readonly ChatGroup[]>(initial);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [live, changeLive] = useState(LIVE);
+  setLive = changeLive;
   latest = groups;
   let n = 0;
   return (
@@ -40,7 +48,12 @@ function Harness({ tab, ids, initial }: { tab: ChatTab; ids: string[]; initial: 
       update={(change) => setGroups((g) => change(g))}
       newGroupId={() => `cg-new-${++n}`}
       nameOf={(id) => NAMES[id]}
-      unreadOf={(id) => UNREAD[id] ?? 0}
+      unreadOf={(id) => live.unread[id] ?? 0}
+      factsOf={(id) => ({
+        online: live.online.includes(id),
+        busy: live.busy.includes(id),
+        names: [NAMES[id], ROLES[id] ?? ""],
+      })}
       collapsed={collapsed}
       onCollapsedChange={setCollapsed}
       mobile={false}
@@ -85,16 +98,20 @@ const rows = () => Array.from(document.querySelectorAll("[data-chat-row]"), (r) 
 
 beforeEach(() => {
   latest = [];
+  localStorage.clear();
 });
 
 describe("ChatGroupPanel", () => {
-  it("with no groups shows the rows without headings; 新增群組 asks for a name, refuses a blank or taken one, and creates the group", () => {
+  it("with no groups shows the rows without headings and 全部收合 greyed out; the toolbar's 新增群組 asks for a name at the top of the list, refuses a blank or taken one, and creates the group first", () => {
     mount("staff", ["mira", "beto"], [g("o", "outsource", "前端", [])]);
     expect(headings()).toEqual([]);
     expect(rows()).toEqual(["mira", "beto"]);
+    expect((screen.getByTestId("chat-groups-collapse-all") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("chat-group-new").getAttribute("aria-label")).toBe("新增群組");
 
     fireEvent.click(screen.getByTestId("chat-group-new"));
     const entry = screen.getByTestId("chat-group-new-entry");
+    expect(screen.getByTestId("list").firstElementChild).toBe(entry);
     const input = within(entry).getByRole("textbox");
     expect(document.activeElement).toBe(input);
     fireEvent.submit(entry);
@@ -113,8 +130,10 @@ describe("ChatGroupPanel", () => {
     fireEvent.change(within(again).getByRole("textbox"), { target: { value: "前端" } });
     fireEvent.submit(again);
     expect(within(again).getByRole("alert").textContent).toBe("這個分頁已經有同名的群組");
-    fireEvent.keyDown(within(again).getByRole("textbox"), { key: "Escape" });
-    expect(screen.queryByTestId("chat-group-new-entry")).toBeNull();
+    fireEvent.change(within(again).getByRole("textbox"), { target: { value: "後端" } });
+    fireEvent.submit(again);
+    expect(headings()).toEqual(["後端 · 0", "前端 · 0", "未分組 · 2"]);
+    expect((screen.getByTestId("chat-groups-collapse-all") as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("each heading collapses and expands its own rows; a collapsed section shows its rows' summed unread", () => {
@@ -132,6 +151,135 @@ describe("ChatGroupPanel", () => {
     expect(head.getAttribute("aria-expanded")).toBe("true");
     expect(rows()).toEqual(["clara", "beto"]);
     expect(headings()).toEqual(["核心 · 2", "未分組 · 1"]);
+
+    const all = screen.getByTestId("chat-groups-collapse-all");
+    expect(all.getAttribute("aria-label")).toBe("全部收合");
+    fireEvent.click(all);
+    expect(rows()).toEqual([]);
+    expect(headings()).toEqual(["核心 · 24", "未分組 · 1"]);
+    expect(all.getAttribute("aria-label")).toBe("全部展開");
+    expect(all.getAttribute("title")).toBe("全部展開");
+    fireEvent.click(all);
+    expect(rows()).toEqual(["clara", "beto", "mira"]);
+    expect(all.getAttribute("aria-label")).toBe("全部收合");
+    fireEvent.click(screen.getByTestId("chat-group-heading-ungrouped"));
+    expect(all.getAttribute("aria-label")).toBe("全部收合");
+    fireEvent.click(all);
+    expect(rows()).toEqual([]);
+  });
+
+  const STAFF = ["mira", "beto", "clara", "dora", "evan"];
+  const STAFF_GROUPS = () => [g("a", "staff", "核心", ["clara", "beto"]), g("b", "staff", "工程", ["dora"])];
+  const filterButton = () => screen.getByTestId("chat-filter");
+  const filterItems = () =>
+    Array.from(
+      screen.getByRole("menu", { name: "篩選" }).querySelectorAll(".chat-groups__menu-item"),
+      (i) =>
+        `${i.querySelector(".chat-groups__menu-text")!.textContent}${i.getAttribute("aria-checked") === "true" ? "✓" : ""} ${i.querySelector(".chat-groups__menu-count")?.textContent ?? ""}`.trim(),
+    );
+  const tick = (key: string) => fireEvent.click(screen.getByTestId(`chat-filter-menu-${key}`));
+
+  it("篩選 shows only the rows matching every ticked item and the name search, with each item's own count: groups without a match are left out, the rest open, and 清除 brings everything back as it was", () => {
+    mount("staff", STAFF, STAFF_GROUPS());
+    fireEvent.click(screen.getByTestId("chat-group-heading-a"));
+    expect(rows()).toEqual(["dora", "mira", "evan"]);
+    expect(filterButton().textContent).toBe("篩選");
+
+    fireEvent.click(filterButton());
+    expect(document.activeElement).toBe(screen.getByTestId("chat-filter-search"));
+    expect(screen.getByTestId("chat-filter-search").getAttribute("placeholder")).toBe("搜尋名稱…");
+    expect(filterItems()).toEqual(["有未讀 2", "線上 3", "工作中 2"]);
+
+    tick("unread");
+    expect(rows()).toEqual(["clara", "beto"]);
+    expect(headings()).toEqual(["核心 · 2"]);
+    expect(screen.getByTestId("chat-group-heading-a").getAttribute("aria-expanded")).toBe("true");
+    expect(filterButton().textContent).toBe("篩選 · 1");
+    expect(filterButton().className).toContain("chat-groups__filter--on");
+    expect(filterItems()).toEqual(["有未讀✓ 2", "線上 3", "工作中 2", "清除"]);
+    expect((screen.getByTestId("chat-groups-collapse-all") as HTMLButtonElement).disabled).toBe(true);
+
+    tick("unread");
+    tick("online");
+    expect(rows()).toEqual(["clara", "dora", "mira"]);
+    expect(headings()).toEqual(["核心 · 1", "工程 · 1", "未分組 · 1"]);
+
+    tick("online");
+    tick("busy");
+    expect(rows()).toEqual(["clara", "evan"]);
+    expect(headings()).toEqual(["核心 · 1", "未分組 · 1"]);
+
+    tick("busy");
+    tick("unread");
+    tick("online");
+    expect(rows()).toEqual(["clara"]);
+    expect(headings()).toEqual(["核心 · 1"]);
+    expect(filterButton().textContent).toBe("篩選 · 2");
+
+    fireEvent.change(screen.getByTestId("chat-filter-search"), { target: { value: "qa" } });
+    expect(rows()).toEqual([]);
+    expect(headings()).toEqual([]);
+    expect(screen.getByTestId("chat-groups-empty").textContent).toBe("沒有符合篩選的成員");
+    expect(filterButton().textContent).toBe("篩選 · 3");
+
+    tick("unread");
+    expect(rows()).toEqual(["dora"]);
+    expect(headings()).toEqual(["工程 · 1"]);
+    fireEvent.change(screen.getByTestId("chat-filter-search"), { target: { value: "EVA" } });
+    tick("online");
+    expect(rows()).toEqual(["evan"]);
+    fireEvent.change(screen.getByTestId("chat-filter-search"), { target: { value: "後端" } });
+    expect(rows()).toEqual(["beto"]);
+    expect(filterButton().textContent).toBe("篩選 · 1");
+
+    tick("clear");
+    expect(filterButton().textContent).toBe("篩選");
+    expect((screen.getByTestId("chat-filter-search") as HTMLInputElement).value).toBe("");
+    expect(filterItems()).toEqual(["有未讀 2", "線上 3", "工作中 2"]);
+    expect(rows()).toEqual(["dora", "mira", "evan"]);
+    expect(screen.getByTestId("chat-group-heading-a").getAttribute("aria-expanded")).toBe("false");
+    expect(latest).toEqual(STAFF_GROUPS());
+
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(filterButton());
+  });
+
+  it("this browser keeps each tab's ticked items across a remount, but not the name search", () => {
+    const first = mount("staff", STAFF, STAFF_GROUPS());
+    fireEvent.click(filterButton());
+    tick("online");
+    fireEvent.change(screen.getByTestId("chat-filter-search"), { target: { value: "mira" } });
+    expect(rows()).toEqual(["mira"]);
+    first.unmount();
+
+    const second = mount("staff", STAFF, STAFF_GROUPS());
+    expect(filterButton().textContent).toBe("篩選 · 1");
+    expect(rows()).toEqual(["clara", "dora", "mira"]);
+    second.unmount();
+
+    mount("outsource", ["ow-1", "ow-2"]);
+    expect(filterButton().textContent).toBe("篩選");
+    expect(rows()).toEqual(["ow-1", "ow-2"]);
+  });
+
+  it("with the 篩選 open, the counts and the list follow the rows' unread, presence and activity as they change", () => {
+    mount("staff", STAFF, STAFF_GROUPS());
+    fireEvent.click(filterButton());
+    tick("busy");
+    expect(rows()).toEqual(["clara", "evan"]);
+
+    act(() =>
+      setLive((l) => ({
+        unread: { ...l.unread, evan: 2 },
+        online: ["mira", "dora"],
+        busy: [...l.busy, "dora"],
+      })),
+    );
+    expect(filterItems()).toEqual(["有未讀 3", "線上 2", "工作中✓ 3", "清除"]);
+    expect(rows()).toEqual(["clara", "dora", "evan"]);
+    tick("online");
+    expect(rows()).toEqual(["dora"]);
   });
 
   it("a right-click on a row is left to the browser; a member's menu (the menu key or Shift+F10 on the focused row) moves it to another group, to 未分組, or into a new group", () => {
@@ -172,9 +320,9 @@ describe("ChatGroupPanel", () => {
     fireEvent.change(within(entry).getByRole("textbox"), { target: { value: "新" } });
     fireEvent.submit(entry);
     expect(latest.map((x) => [x.name, x.memberIds])).toEqual([
+      ["新", ["beto"]],
       ["核心", []],
       ["工程", ["mira"]],
-      ["新", ["beto"]],
     ]);
   });
 

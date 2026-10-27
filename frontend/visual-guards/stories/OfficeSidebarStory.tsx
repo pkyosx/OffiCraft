@@ -84,6 +84,7 @@ export function OfficeSidebarStory() {
             activeTab={tab}
             onSelect={setTab}
             staffCount={roster.length}
+            staffGroupCount={0}
             staffUnread={staffUnread}
             staffReady
             outsourceCount={1}

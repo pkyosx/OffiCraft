@@ -52,11 +52,11 @@ describe("groupNameProblem", () => {
 });
 
 describe("createGroup", () => {
-  it("adds the group at the end of its tab, trimmed, taking its members out of their old group", () => {
+  it("adds the group at the top of its tab, trimmed, taking its members out of their old group", () => {
     expect(createGroup(STATE, { id: "s3", tab: "staff", name: " 新 ", memberIds: ["beto"] })).toEqual([
+      g("s3", "staff", "新", ["beto"]),
       g("s1", "staff", "前端", ["clara"]),
       g("s2", "staff", "後端", ["dora"]),
-      g("s3", "staff", "新", ["beto"]),
       g("o1", "outsource", "審查", ["ow-1"], ["review"]),
       g("o2", "outsource", "修 bug", [], ["bugfix"]),
     ]);

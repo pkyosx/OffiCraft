@@ -19,7 +19,18 @@ import type { ChatGroup, ChatTab, GroupNameProblem } from "../lib/chatGroups";
 import type { TaskTypeView } from "../api/adapter";
 import { ChatGroupList } from "./ChatGroupList";
 import type { ChatGroupRow, MenuAnchor, MenuTarget } from "./ChatGroupList";
-import { CheckIcon, ChevronRightIcon, ChevronLeftIcon, PlusIcon } from "./icons";
+import { UNGROUPED } from "./ChatGroupList";
+import {
+  CheckIcon,
+  ChevronRightIcon,
+  ChevronLeftIcon,
+  ChevronsDownUpIcon,
+  ChevronsUpDownIcon,
+  FolderPlusIcon,
+  FunnelIcon,
+} from "./icons";
+import { FILTER_CHECKS, matchesFilter, readFilterChecks, writeFilterChecks } from "../lib/chatFilter";
+import type { FilterCheck, RowFacts } from "../lib/chatFilter";
 import "./chat-groups.css";
 
 const EDGE = 8;
@@ -120,6 +131,8 @@ interface MenuItem {
   key: string;
   label: string;
   hint?: string;
+  /** A number at the row's end (the filter's per-item match count). */
+  count?: number;
   checked?: boolean;
   disabled?: boolean;
   danger?: boolean;
@@ -142,9 +155,12 @@ function MenuList({
   activeSub = null,
   testId,
   boxRef,
+  lead,
 }: {
   label: string;
   items: MenuItem[];
+  /** Above the items (the filter's name search). */
+  lead?: ReactNode;
   onOpenSub: (sub: "move" | "autojoin", from: HTMLElement) => void;
   onBack?: () => void;
   /** The phone sheet shows a back row; on desktop ArrowLeft goes back. */
@@ -167,7 +183,7 @@ function MenuList({
       e.stopPropagation();
       const step = e.key === "ArrowDown" ? 1 : -1;
       list[(at + step + list.length) % list.length]?.focus();
-    } else if (e.key === "Home" || e.key === "End") {
+    } else if ((e.key === "Home" || e.key === "End") && !(e.target instanceof HTMLInputElement)) {
       e.preventDefault();
       (e.key === "Home" ? list[0] : list[list.length - 1])?.focus();
     } else if (e.key === "ArrowLeft" && onBack) {
@@ -191,6 +207,7 @@ function MenuList({
           <span>{label}</span>
         </button>
       )}
+      {lead}
       {header && (
         <>
           <div className="chat-groups__menu-head" data-testid={`${testId}-head`}>
@@ -240,6 +257,7 @@ function MenuList({
             <span>{it.label}</span>
             {it.hint && <span className="chat-groups__menu-hint">{it.hint}</span>}
           </span>
+          {it.count !== undefined && <span className="chat-groups__menu-count">{it.count}</span>}
           {it.submenu && <ChevronRightIcon size={14} className="chat-groups__menu-more" />}
         </button>
       ))}
@@ -258,6 +276,7 @@ function Menu({
   confirm,
   onClose,
   testId,
+  lead,
 }: {
   anchor: MenuAnchor;
   mobile: boolean;
@@ -271,6 +290,8 @@ function Menu({
   confirm: ReactNode | null;
   onClose: (refocus: boolean) => void;
   testId: string;
+  /** Above the main items; its text field takes focus and Tab stays inside. */
+  lead?: ReactNode;
 }) {
   // Opened from a touch-lifted row: floats beside the row, and behaves like
   // the phone sheet otherwise (a submenu replaces the list, with a back row).
@@ -347,7 +368,7 @@ function Menu({
   const onTab = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== "Tab") return;
     if (!confirming) {
-      onClose(false);
+      if (!lead) onClose(false);
       return;
     }
     const buttons = Array.from(rootRef.current?.querySelectorAll<HTMLElement>(".chat-groups__confirm button") ?? []);
@@ -361,7 +382,7 @@ function Menu({
       return;
     }
     const target = sub ? subRef.current : mainRef.current;
-    focusItems(target)[0]?.focus();
+    (target?.querySelector("input") ?? focusItems(target)[0])?.focus();
   }, [sub, pos, confirming]);
 
   useEffect(() => {
@@ -392,6 +413,7 @@ function Menu({
           activeSub={inline ? null : sub}
           testId={testId}
           boxRef={mainRef}
+          lead={lead}
         />
       )}
       {subMenu && (
@@ -536,6 +558,7 @@ export function ChatGroupPanel({
   newGroupId,
   nameOf,
   unreadOf,
+  factsOf,
   renderRow,
   renderOverlay,
   collapsed,
@@ -553,6 +576,9 @@ export function ChatGroupPanel({
   newGroupId: () => string;
   nameOf: (id: string) => string;
   unreadOf: (id: string) => number;
+  /** What the 篩選 reads for a row besides its unread count: the same
+   * presence and activity the row shows, and the names it is searched by. */
+  factsOf: (id: string) => Omit<RowFacts, "unread">;
   renderRow: (id: string, row: ChatGroupRow) => ReactNode;
   renderOverlay: (id: string) => ReactNode;
   collapsed: Readonly<Record<string, boolean>>;
@@ -575,6 +601,27 @@ export function ChatGroupPanel({
   );
   const returnTo = useRef<HTMLElement | null>(null);
   const mine = tabGroups(groups, tab);
+
+  const [checks, setChecks] = useState<FilterCheck[]>(() => readFilterChecks(tab));
+  const [query, setQuery] = useState("");
+  const [filterAt, setFilterAt] = useState<MenuAnchor | null>(null);
+  const filterRef = useRef<HTMLButtonElement>(null);
+  const changeChecks = (next: FilterCheck[]) => {
+    setChecks(next);
+    writeFilterChecks(tab, next);
+  };
+  const facts = (id: string): RowFacts => ({ unread: unreadOf(id) > 0, ...factsOf(id) });
+  const activeFilters = checks.length + (query.trim() === "" ? 0 : 1);
+  const filtering = activeFilters > 0;
+  const shownIds = filtering ? ids.filter((id) => matchesFilter(facts(id), checks, query)) : ids;
+  const checkLabel: Record<FilterCheck, string> = {
+    unread: t.office.groups.filterUnread,
+    online: t.office.groups.filterOnline,
+    busy: t.office.groups.filterBusy,
+  };
+
+  const sectionKeys = [...mine.map((g) => g.id), UNGROUPED];
+  const anyExpanded = sectionKeys.some((k) => collapsed[k] !== true);
 
   const openMenu = (target: MenuTarget, anchor: MenuAnchor) => {
     returnTo.current = document.activeElement as HTMLElement | null;
@@ -730,11 +777,104 @@ export function ChatGroupPanel({
     }
   }
 
+  const filterMenu = filterAt && (
+    <Menu
+      anchor={filterAt}
+      mobile={mobile}
+      title={t.office.groups.filter}
+      lead={
+        <input
+          type="search"
+          className="chat-groups__menu-search"
+          data-testid="chat-filter-search"
+          placeholder={t.office.groups.filterSearch}
+          aria-label={t.office.groups.filterSearch}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      }
+      main={[
+        ...FILTER_CHECKS.map((c) => ({
+          key: c,
+          label: checkLabel[c],
+          checked: checks.includes(c),
+          count: ids.filter((id) => facts(id)[c]).length,
+          onSelect: () => changeChecks(checks.includes(c) ? checks.filter((x) => x !== c) : [...checks, c]),
+        })),
+        ...(filtering
+          ? [
+              {
+                key: "clear",
+                label: t.office.groups.filterClear,
+                onSelect: () => {
+                  changeChecks([]);
+                  setQuery("");
+                },
+              },
+            ]
+          : []),
+      ]}
+      subs={{}}
+      confirm={null}
+      onClose={(refocus) => {
+        setFilterAt(null);
+        if (refocus) filterRef.current?.focus();
+      }}
+      testId="chat-filter-menu"
+    />
+  );
+  const collapseLabel = anyExpanded ? t.office.groups.collapseAll : t.office.groups.expandAll;
+
   return (
     <>
+      <div className="chat-groups__toolbar" data-testid="chat-groups-toolbar">
+        <button
+          ref={filterRef}
+          type="button"
+          className={`chat-groups__tool chat-groups__filter${filtering ? " chat-groups__filter--on" : ""}`}
+          aria-haspopup="menu"
+          aria-expanded={filterAt !== null}
+          data-testid="chat-filter"
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            setFilterAt(filterAt ? null : { x: r.left, y: r.bottom + 4 });
+          }}
+        >
+          <FunnelIcon size={15} />
+          <span>{msg.groupFilterLabel(activeFilters)}</span>
+        </button>
+        <span className="chat-groups__toolbar-gap" />
+        <button
+          type="button"
+          className="chat-groups__tool chat-groups__tool--icon"
+          aria-label={collapseLabel}
+          title={collapseLabel}
+          disabled={mine.length === 0 || filtering}
+          data-testid="chat-groups-collapse-all"
+          onClick={() => onCollapsedChange(anyExpanded ? Object.fromEntries(sectionKeys.map((k) => [k, true])) : {})}
+        >
+          {anyExpanded ? <ChevronsDownUpIcon size={16} /> : <ChevronsUpDownIcon size={16} />}
+        </button>
+        <button
+          type="button"
+          className="chat-groups__tool chat-groups__tool--icon"
+          aria-label={t.office.groups.newGroup}
+          title={t.office.groups.newGroup}
+          data-testid="chat-group-new"
+          onClick={() => setCreating({})}
+        >
+          <FolderPlusIcon size={16} />
+        </button>
+      </div>
       <ChatGroupList
         tab={tab}
-        ids={ids}
+        ids={shownIds}
+        filtering={filtering}
+        empty={
+          <div className="chat-groups__empty" data-testid="chat-groups-empty">
+            {t.office.groups.filterEmpty}
+          </div>
+        }
         groups={groups}
         nameOf={nameOf}
         unreadOf={unreadOf}
@@ -783,21 +923,9 @@ export function ChatGroupPanel({
             />
           ) : null
         }
-        footer={
-          !creating && (
-            <button
-              type="button"
-              className="chat-groups__new"
-              data-testid="chat-group-new"
-              onClick={() => setCreating({})}
-            >
-              <PlusIcon size={14} />
-              <span>{t.office.groups.newGroup}</span>
-            </button>
-          )
-        }
       />
       {menuNode}
+      {filterMenu}
       {bringIn && (
         <BringInDialog
           text={msg.groupBringIn(
