@@ -92,7 +92,8 @@ export interface Messages {
   /** 「篩選」, or 「篩選 · N」 with N filters on. */
   groupFilterLabel: (active: number) => string;
   groupCurrentlyIn: (name: string) => string;
-  groupBringIn: (count: number, typeName: string, groupName: string) => string;
+  /** 「要把目前的「PR 審查」外包搬進「審查」嗎？」 */
+  groupBringInTitle: (typeName: string, groupName: string) => string;
   groupDragPickedUp: (name: string) => string;
   groupDragOverGroup: (name: string, group: string) => string;
   groupDragDroppedGroup: (name: string, group: string) => string;
@@ -438,8 +439,8 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     groupFilterLabel: (active) =>
       active === 0 ? t.office.groups.filter : `${t.office.groups.filterActiveLead}${active}`,
     groupCurrentlyIn: (name) => `${t.office.groups.currentlyInLead}${name}${t.office.groups.currentlyInTail}`,
-    groupBringIn: (count, typeName, groupName) =>
-      `${t.office.groups.bringInLead}${count}${t.office.groups.bringInMid}${typeName}${t.office.groups.bringInMid2}${groupName}${t.office.groups.bringInTail}`,
+    groupBringInTitle: (typeName, groupName) =>
+      `${t.office.groups.bringInTitleLead}${typeName}${t.office.groups.bringInTitleMid}${groupName}${t.office.groups.bringInTitleTail}`,
     groupDragPickedUp: (name) => `${t.office.groups.pickedUpLead}${name}${t.office.groups.pickedUpTail}`,
     groupDragOverGroup: (name, group) => `${name}${t.office.groups.overGroupMid}${group}${t.office.groups.overGroupTail}`,
     groupDragDroppedGroup: (name, group) =>

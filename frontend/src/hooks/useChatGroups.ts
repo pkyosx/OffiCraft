@@ -18,6 +18,9 @@ interface UseChatGroups {
   update: (change: (current: readonly ChatGroup[]) => ChatGroup[]) => void;
   /** An id for a group about to be created; the server mints the real one. */
   newGroupId: () => string;
+  /** The server's id for a group on screen (a new group keeps its local id
+   * there); null while a new group's first save has not come back. */
+  serverId: (id: string) => string | null;
 }
 
 const LOCAL = "cg-local-";
@@ -170,5 +173,5 @@ export function useChatGroups(knownIds: ReadonlySet<string> | null): UseChatGrou
   );
 
   const newGroupId = useCallback(() => `${LOCAL}${++seq.current}`, []);
-  return { groups, settled, error, update, newGroupId };
+  return { groups, settled, error, update, newGroupId, serverId: toServerId };
 }

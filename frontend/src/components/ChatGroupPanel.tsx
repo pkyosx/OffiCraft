@@ -13,7 +13,7 @@ import {
   reorderGroup,
   setGroupTaskTypes,
   tabGroups,
-  ungroupedOfType,
+  outsideOfType,
 } from "../lib/chatGroups";
 import type { ChatGroup, ChatTab, GroupNameProblem } from "../lib/chatGroups";
 import type { TaskTypeView } from "../api/adapter";
@@ -421,21 +421,25 @@ function AutoJoinDialog({
   );
 }
 
+/** The move-in question when a ticked type has workers outside the group:
+ * each one ticked by default, its current place on the right. Answers with the
+ * ids to move, or none (都不搬 or Esc). */
 function BringInDialog({
-  text,
-  names,
+  title,
+  workers,
   onAnswer,
 }: {
-  text: string;
-  names: string[];
-  onAnswer: (bring: boolean) => void;
+  title: string;
+  workers: { id: string; name: string; place: string }[];
+  onAnswer: (moving: string[]) => void;
 }) {
   const { t } = useI18n();
   const boxRef = useRef<HTMLDivElement>(null);
   const titleId = "chat-groups-bring-in-title";
-  useEscapeLayer(() => onAnswer(false), boxRef);
+  const [ticked, setTicked] = useState<string[]>(() => workers.map((w) => w.id));
+  useEscapeLayer(() => onAnswer([]), boxRef);
   useEffect(() => {
-    boxRef.current?.querySelector<HTMLElement>("button")?.focus();
+    boxRef.current?.querySelector<HTMLElement>(".chat-groups__entry-btn--primary")?.focus();
   }, []);
   return createPortal(
     <div className="chat-groups__dialog-backdrop">
@@ -448,19 +452,47 @@ function BringInDialog({
         data-testid="chat-groups-bring-in"
         onKeyDown={(e) => trapTab(e, boxRef.current)}
       >
-        <p id={titleId} className="chat-groups__dialog-text">
-          {text}
-        </p>
-        <ul className="chat-groups__dialog-list">
-          {names.map((n) => (
-            <li key={n}>{n}</li>
-          ))}
-        </ul>
-        <div className="chat-groups__dialog-actions">
-          <button type="button" className="chat-groups__entry-btn chat-groups__entry-btn--primary" onClick={() => onAnswer(true)}>
-            {t.office.groups.bringInAccept}
+        <h2 id={titleId} className="chat-groups__dialog-title">
+          {title}
+        </h2>
+        <div className="chat-groups__autojoin-list" role="group" aria-labelledby={titleId}>
+          {workers.map((w) => {
+            const on = ticked.includes(w.id);
+            return (
+              <button
+                key={w.id}
+                type="button"
+                role="checkbox"
+                aria-checked={on}
+                className="chat-groups__menu-item"
+                data-testid={`chat-groups-bring-in-${w.id}`}
+                onClick={() => setTicked(on ? ticked.filter((x) => x !== w.id) : [...ticked, w.id])}
+              >
+                <span className="chat-groups__menu-check chat-groups__menu-check--box" aria-hidden="true">
+                  {on && <CheckIcon size={12} />}
+                </span>
+                <span className="chat-groups__autojoin-label">{w.name}</span>
+                <span className="chat-groups__autojoin-owner">{w.place}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="chat-groups__dialog-actions chat-groups__dialog-actions--end">
+          <button
+            type="button"
+            className="chat-groups__entry-btn chat-groups__entry-btn--primary"
+            data-testid="chat-groups-bring-in-move"
+            disabled={ticked.length === 0}
+            onClick={() => onAnswer(workers.map((w) => w.id).filter((id) => ticked.includes(id)))}
+          >
+            {t.office.groups.bringInMoveTicked}
           </button>
-          <button type="button" className="chat-groups__entry-btn" onClick={() => onAnswer(false)}>
+          <button
+            type="button"
+            className="chat-groups__entry-btn"
+            data-testid="chat-groups-bring-in-none"
+            onClick={() => onAnswer([])}
+          >
             {t.office.groups.bringInDecline}
           </button>
         </div>
@@ -527,9 +559,12 @@ export function ChatGroupPanel({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [creating, setCreating] = useState<{ memberId?: string } | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
-  const [bringIn, setBringIn] = useState<{ groupId: string; keys: string[]; typeName: string; ids: string[] } | null>(
-    null,
-  );
+  const [bringIn, setBringIn] = useState<{
+    groupId: string;
+    keys: string[];
+    typeName: string;
+    workers: { id: string; from: string | null }[];
+  } | null>(null);
   const returnTo = useRef<HTMLElement | null>(null);
   // The group whose 自動加入 dialog is open, and the box the move-in
   // question was asked from (focus goes back to it).
@@ -627,10 +662,10 @@ export function ChatGroupPanel({
           const keys = on
             ? group.taskTypeKeys.filter((k) => k !== tt.typeKey)
             : [...group.taskTypeKeys, tt.typeKey];
-          const candidates = on ? [] : ungroupedOfType(groups, workers ?? [], tt.typeKey);
-          if (candidates.length > 0) {
+          const outside = on ? [] : outsideOfType(groups, workers ?? [], tt.typeKey, group.id);
+          if (outside.length > 0) {
             bringInFrom.current = document.activeElement as HTMLElement | null;
-            setBringIn({ groupId: group.id, keys, typeName: tt.displayName, ids: candidates });
+            setBringIn({ groupId: group.id, keys, typeName: tt.displayName, workers: outside });
             return;
           }
           update((s) => setGroupTaskTypes(s, group.id, keys));
@@ -885,18 +920,18 @@ export function ChatGroupPanel({
       )}
       {bringIn && (
         <BringInDialog
-          text={msg.groupBringIn(
-            bringIn.ids.length,
-            bringIn.typeName,
-            mine.find((g) => g.id === bringIn.groupId)?.name ?? "",
-          )}
-          names={bringIn.ids.map(nameOf)}
-          onAnswer={(bring) => {
-            const { groupId, keys, ids: joining } = bringIn;
-            update((s) => {
-              const ruled = setGroupTaskTypes(s, groupId, keys);
-              return bring ? appendMembers(ruled, groupId, joining) : ruled;
-            });
+          title={msg.groupBringInTitle(bringIn.typeName, mine.find((g) => g.id === bringIn.groupId)?.name ?? "")}
+          workers={bringIn.workers.map((w) => ({
+            id: w.id,
+            name: nameOf(w.id),
+            place:
+              w.from === null
+                ? t.office.groups.ungrouped
+                : msg.groupCurrentlyIn(mine.find((g) => g.id === w.from)?.name ?? ""),
+          }))}
+          onAnswer={(moving) => {
+            const { groupId, keys } = bringIn;
+            update((s) => appendMembers(setGroupTaskTypes(s, groupId, keys), groupId, moving));
             setBringIn(null);
             bringInFrom.current?.focus();
           }}

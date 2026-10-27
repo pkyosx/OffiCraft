@@ -10,7 +10,9 @@ import { useMonitoring } from "../hooks/useMonitoring";
 import { useOutsourceWorkers } from "../hooks/useOutsourceWorkers";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { useChatGroups } from "../hooks/useChatGroups";
-import { layoutTab } from "../lib/chatGroups";
+import { layoutTab, tabGroups } from "../lib/chatGroups";
+import type { ChatTab } from "../lib/chatGroups";
+import { readCollapsed, writeCollapsed } from "../lib/chatGroupCollapse";
 import type { TaskTypeView } from "../api/adapter";
 import { joinSessionRuntime, findSessionFor } from "../lib/runtime";
 import { useHashRoute } from "../lib/hashRoute";
@@ -27,6 +29,7 @@ import { OutsourcePanel, OutsourceTaskLine } from "./OutsourcePanel";
 import { OfficeSidebarTabs } from "./OfficeSidebarTabs";
 import { OutsourceCapPopover } from "./OutsourceCapPopover";
 import { ChatGroupPanel } from "./ChatGroupPanel";
+import { UNGROUPED } from "./ChatGroupList";
 import { ChevronLeftIcon, PersonPlusIcon } from "./icons";
 import "./office.css";
 
@@ -103,10 +106,11 @@ export function OfficePage({
   // 2026-07-18), replacing the old two-stacked-groups rail. Plain component
   // state (not persisted) — the tab is a view toggle, not a route.
   const [activeTab, setActiveTab] = useState<"staff" | "outsource">("staff");
-  // Per tab, for this mount only (like the task page's lanes).
-  const [groupCollapsed, setGroupCollapsed] = useState<
-    Record<"staff" | "outsource", Record<string, boolean>>
-  >({ staff: {}, outsource: {} });
+  // Per tab, remembered in this browser (lib/chatGroupCollapse).
+  const [groupCollapsed, setGroupCollapsed] = useState<Record<ChatTab, Record<string, boolean>>>(() => ({
+    staff: readCollapsed("staff"),
+    outsource: readCollapsed("outsource"),
+  }));
   // The 外包上限設定 popover, opened by the 招攬新成員 button at the sidebar
   // bottom while the 外包 tab is active. OfficePage owns the open state + the
   // outside-click dismissal (the button and popover share an anchor wrapper).
@@ -237,6 +241,10 @@ export function OfficePage({
       ? new Set([...roster.map((m) => m.id), ...outsource.workers.map((w) => w.id)])
       : null,
   );
+  const changeCollapsed = (tab: ChatTab, next: Record<string, boolean>) => {
+    setGroupCollapsed((s) => ({ ...s, [tab]: next }));
+    writeCollapsed(tab, next, [...tabGroups(chatGroups.groups, tab).map((g) => g.id), UNGROUPED], chatGroups.serverId);
+  };
   const staffLayout = layoutTab(chatGroups.groups, "staff", roster, (m) => m.id);
   const staffShown = [...staffLayout.sections.flatMap((x) => x.items), ...staffLayout.ungrouped];
   // The 自動加入 checklist's task types; a failed read leaves it empty.
@@ -841,7 +849,7 @@ export function OfficePage({
               unreadOf={(id) => roster.find((m) => m.id === id)?.unreadCount ?? 0}
               factsOf={(id) => memberRowFacts(t, roster.find((m) => m.id === id)!)}
               collapsed={groupCollapsed.staff}
-              onCollapsedChange={(next) => setGroupCollapsed((s) => ({ ...s, staff: next }))}
+              onCollapsedChange={(next) => changeCollapsed("staff", next)}
               renderRow={(id, sortable) => {
                 const member = roster.find((m) => m.id === id)!;
                 return (
@@ -893,8 +901,7 @@ export function OfficePage({
                 mobile: isMobile,
                 taskTypes,
                 collapsed: groupCollapsed.outsource,
-                onCollapsedChange: (next) =>
-                  setGroupCollapsed((s) => ({ ...s, outsource: next })),
+                onCollapsedChange: (next) => changeCollapsed("outsource", next),
               }}
             />
           )}

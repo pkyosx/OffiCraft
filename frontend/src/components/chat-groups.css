@@ -466,6 +466,11 @@
 .chat-groups__sheet .chat-groups__menu-item {
   min-height: 44px;
 }
+@media (max-width: 720px), (hover: none) {
+  .chat-groups__dialog .chat-groups__menu-item {
+    min-height: 44px;
+  }
+}
 .chat-groups__sheet-title {
   padding: 0 10px 8px;
   font-size: 12.5px;
@@ -501,12 +506,6 @@
   line-height: 1.5;
   color: var(--color-text-strong);
   overflow-wrap: anywhere;
-}
-.chat-groups__dialog-list {
-  margin: 0 0 14px;
-  padding-left: 18px;
-  font-size: 13px;
-  color: var(--color-text);
 }
 .chat-groups__dialog-actions {
   display: flex;

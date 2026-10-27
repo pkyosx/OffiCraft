@@ -754,6 +754,26 @@ test("1280px: 自動加入… opens a 400px dialog centred in the window, titled
     return document.elementFromPoint(b.left + b.width / 2, b.top + 10)?.closest("[role='dialog']")?.getAttribute("data-testid");
   });
   expect(top).toBe("chat-groups-bring-in");
+  expect(
+    await ask.evaluate((el) => ({
+      title: el.querySelector("h2")!.textContent,
+      rows: Array.from(el.querySelectorAll("[role='checkbox']"), (row) => {
+        const place = row.querySelector(".chat-groups__autojoin-owner")!;
+        return [
+          row.querySelector(".chat-groups__autojoin-label")!.textContent,
+          place.textContent,
+          row.getAttribute("aria-checked"),
+          Math.round(row.getBoundingClientRect().right - place.getBoundingClientRect().right),
+        ];
+      }),
+    })),
+  ).toEqual({
+    title: "要把目前的「OffiCraft · PR 審查（含外部 PR 接待）」外包搬進「前端外包」嗎？",
+    rows: [
+      ["外包 · O-158", "未分組", "true", 10],
+      ["外包 · O-154", "未分組", "true", 10],
+    ],
+  });
   await page.keyboard.press("Escape");
   await expect(ask).toHaveCount(0);
   await expect(page.getByTestId("chat-group-autojoin-tm-review")).toHaveAttribute("aria-checked", "true");
@@ -764,7 +784,7 @@ test("1280px: 自動加入… opens a 400px dialog centred in the window, titled
   await expect(more).toBeFocused();
 });
 
-test("390px: 自動加入… opens as a bottom sheet the width of the window with 44px rows, and 完成 closes it", async ({
+test("390px: 自動加入… opens as a bottom sheet the width of the window with 44px rows, its move-in question has 44px rows too, and 完成 closes it", async ({
   mount,
   page,
 }) => {
@@ -780,6 +800,14 @@ test("390px: 自動加入… opens as a bottom sheet the width of the window wit
     right: 390,
     bottom: 900,
   });
+  await page.getByTestId("chat-group-autojoin-tm-review").click();
+  expect(
+    await page
+      .getByTestId("chat-groups-bring-in")
+      .locator("[role='checkbox']")
+      .evaluateAll((rows) => rows.map((r) => Math.round(r.getBoundingClientRect().height))),
+  ).toEqual([44, 44]);
+  await page.getByTestId("chat-groups-bring-in-none").click();
   await page.getByTestId("chat-group-autojoin-done").click();
   await expect(page.getByTestId("chat-group-autojoin")).toHaveCount(0);
 });

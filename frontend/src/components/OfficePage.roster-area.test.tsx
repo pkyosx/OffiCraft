@@ -197,7 +197,7 @@ describe("OfficePage — chat groups", () => {
     ).toEqual(["核心 · 1", "未分組 · 1"]);
   });
 
-  it("collapsing a group on one tab leaves the other tab's groups as they were, and survives switching tabs", async () => {
+  it("collapsing a group on one tab leaves the other tab's groups as they were, survives switching tabs, and is remembered by this browser for each tab", async () => {
     __injectMockOutsourceWorker({
       id: "ow-1",
       codename: "O-1",
@@ -208,7 +208,7 @@ describe("OfficePage — chat groups", () => {
       taskStatus: "in_progress",
       createdTs: Date.now() / 1000,
     });
-    const { container, getByTestId, findByTestId } = renderOffice();
+    const { container, getByTestId, findByTestId, unmount } = renderOffice();
     await waitFor(() => expect(container.querySelector('[data-chat-row="mira"]')).not.toBeNull());
     await groupIntoNew(container.querySelector('[data-chat-row="mira"]')!, "核心");
     const staffHead = () => container.querySelector(".chat-groups__heading")!;
@@ -230,6 +230,49 @@ describe("OfficePage — chat groups", () => {
     await waitFor(() => expect(staffHead().textContent).toBe("核心 · 1"));
     expect(staffHead().getAttribute("aria-expanded")).toBe("false");
     expect(ungroupedHead().getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(getByTestId("office-tab-outsource"));
+    await waitFor(() => expect(staffHead().textContent).toBe("外包組 · 1"));
+    fireEvent.click(staffHead());
+    expect(JSON.parse(localStorage.getItem("oc_chat_group_collapsed_staff")!)).toEqual(["cg-000000000001", "__ungrouped"]);
+    expect(JSON.parse(localStorage.getItem("oc_chat_group_collapsed_outsource")!)).toEqual(["cg-000000000002"]);
+    unmount();
+
+    const again = renderOffice();
+    await waitFor(() => expect(again.container.querySelector(".chat-groups__heading")?.textContent).toBe("核心 · 1"));
+    expect(again.getByTestId("chat-group-heading-ungrouped").getAttribute("aria-expanded")).toBe("false");
+    expect(again.container.querySelector(".chat-groups__heading")!.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(again.getByTestId("office-tab-outsource"));
+    await waitFor(() => expect(again.container.querySelector(".chat-groups__heading")?.textContent).toBe("外包組 · 1"));
+    expect(again.container.querySelector(".chat-groups__heading")!.getAttribute("aria-expanded")).toBe("false");
+    expect(again.getByTestId("chat-group-heading-ungrouped").getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("this browser's folding forgets a deleted group, follows 全部收合／展開, and reads a broken saved value as nothing folded", async () => {
+    localStorage.setItem("oc_chat_group_collapsed_staff", "{not json");
+    localStorage.setItem("oc_chat_group_collapsed_outsource", JSON.stringify({ a: 1 }));
+    const { container, getByTestId } = renderOffice();
+    await waitFor(() => expect(container.querySelector('[data-chat-row="mira"]')).not.toBeNull());
+    await groupIntoNew(container.querySelector('[data-chat-row="mira"]')!, "核心");
+    const head = () => container.querySelector(".chat-groups__heading")!;
+    await waitFor(() => expect(head().textContent).toBe("核心 · 1"));
+    expect(head().getAttribute("aria-expanded")).toBe("true");
+
+    fireEvent.click(getByTestId("chat-groups-collapse-all"));
+    expect(JSON.parse(localStorage.getItem("oc_chat_group_collapsed_staff")!)).toEqual(["cg-000000000001", "__ungrouped"]);
+    fireEvent.click(getByTestId("chat-groups-collapse-all"));
+    expect(JSON.parse(localStorage.getItem("oc_chat_group_collapsed_staff")!)).toEqual([]);
+
+    fireEvent.click(head());
+    expect(JSON.parse(localStorage.getItem("oc_chat_group_collapsed_staff")!)).toEqual(["cg-000000000001"]);
+    fireEvent.click(container.querySelector('[data-testid^="chat-group-more-"]')!);
+    fireEvent.click(await screen.findByTestId("chat-group-menu-delete"));
+    fireEvent.click(await screen.findByTestId("chat-group-delete-confirm"));
+    await waitFor(() => expect(container.querySelectorAll(".chat-groups__heading")).toHaveLength(0));
+    await groupIntoNew(container.querySelector('[data-chat-row="mira"]')!, "工程");
+    await waitFor(() => expect(head().textContent).toBe("工程 · 1"));
+    fireEvent.click(getByTestId("chat-group-heading-ungrouped"));
+    expect(JSON.parse(localStorage.getItem("oc_chat_group_collapsed_staff")!)).toEqual(["__ungrouped"]);
   });
 
   it("grouping a later staff member and a later outsource worker moves them first in the sidebar but leaves the @-mention picker in its default order", async () => {

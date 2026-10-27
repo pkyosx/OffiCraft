@@ -129,15 +129,19 @@ export function setGroupTaskTypes(
   });
 }
 
-/** Ungrouped outsource workers with this task type, in `workers` order (the
- * tab's default order): the ones a newly ticked rule can offer to bring in. */
-export function ungroupedOfType(
+/** Outsource workers with this task type that are not in `groupId` — in
+ * 未分組 or in another group (`from`) — in `workers` order (the tab's default
+ * order): the ones a newly ticked rule offers to move in. */
+export function outsideOfType(
   groups: readonly ChatGroup[],
   workers: readonly { id: string; taskTypeKey?: string }[],
   typeKey: string,
-): string[] {
-  const grouped = new Set(tabGroups(groups, "outsource").flatMap((g) => g.memberIds));
-  return workers.filter((w) => w.taskTypeKey === typeKey && !grouped.has(w.id)).map((w) => w.id);
+  groupId: string,
+): { id: string; from: string | null }[] {
+  const groupOf = new Map(tabGroups(groups, "outsource").flatMap((g) => g.memberIds.map((m) => [m, g.id] as const)));
+  return workers
+    .filter((w) => w.taskTypeKey === typeKey && groupOf.get(w.id) !== groupId)
+    .map((w) => ({ id: w.id, from: groupOf.get(w.id) ?? null }));
 }
 
 /** Append members to the end of a group (they leave any other group). */

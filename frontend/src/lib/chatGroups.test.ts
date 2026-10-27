@@ -9,7 +9,7 @@ import {
   reorderGroup,
   setGroupTaskTypes,
   appendMembers,
-  ungroupedOfType,
+  outsideOfType,
 } from "./chatGroups";
 import type { ChatGroup } from "./chatGroups";
 
@@ -98,7 +98,7 @@ describe("setGroupTaskTypes", () => {
   });
 });
 
-describe("ungroupedOfType / appendMembers", () => {
+describe("outsideOfType / appendMembers", () => {
   const workers = [
     { id: "ow-3", taskTypeKey: "bugfix" },
     { id: "ow-1", taskTypeKey: "bugfix" },
@@ -106,9 +106,17 @@ describe("ungroupedOfType / appendMembers", () => {
     { id: "ow-4", taskTypeKey: "bugfix" },
   ];
 
-  it("offers only the ungrouped workers of that type, in the given order", () => {
-    expect(ungroupedOfType(STATE, workers, "bugfix")).toEqual(["ow-3", "ow-4"]);
-    expect(ungroupedOfType(STATE, workers, "design")).toEqual([]);
+  it("offers the workers of that type outside the group, ungrouped or in another group, in the given order", () => {
+    expect(outsideOfType(STATE, workers, "bugfix", "o2")).toEqual([
+      { id: "ow-3", from: null },
+      { id: "ow-1", from: "o1" },
+      { id: "ow-4", from: null },
+    ]);
+    expect(outsideOfType(STATE, workers, "bugfix", "o1")).toEqual([
+      { id: "ow-3", from: null },
+      { id: "ow-4", from: null },
+    ]);
+    expect(outsideOfType(STATE, workers, "design", "o1")).toEqual([]);
   });
 
   it("appends the brought-in workers to the end of the group", () => {

@@ -41,6 +41,8 @@ const WORKERS = [
 ];
 
 let latest: readonly ChatGroup[] = [];
+// Each update is one save (useChatGroups sends one PUT per update).
+let saves = 0;
 
 function Harness({ tab, ids, initial }: { tab: ChatTab; ids: string[]; initial: ChatGroup[] }) {
   const [groups, setGroups] = useState<readonly ChatGroup[]>(initial);
@@ -54,7 +56,10 @@ function Harness({ tab, ids, initial }: { tab: ChatTab; ids: string[]; initial: 
       tab={tab}
       ids={ids}
       groups={groups}
-      update={(change) => setGroups((g) => change(g))}
+      update={(change) => {
+        saves += 1;
+        setGroups((g) => change(g));
+      }}
       newGroupId={() => `cg-new-${++n}`}
       nameOf={(id) => NAMES[id]}
       unreadOf={(id) => live.unread[id] ?? 0}
@@ -107,6 +112,7 @@ const rows = () => Array.from(document.querySelectorAll("[data-chat-row]"), (r) 
 
 beforeEach(() => {
   latest = [];
+  saves = 0;
   localStorage.clear();
 });
 
@@ -456,7 +462,7 @@ describe("ChatGroupPanel", () => {
       i.getAttribute("aria-checked"),
     ]);
 
-  it("自動加入… opens a dialog titled with the group, its sentence and every task type, a type owned by another group saying where it is; a tick saves at once and moves the rule there, and 完成 closes it with focus back on the 「⋯」", () => {
+  it("自動加入… opens a dialog titled with the group, its sentence and every task type, a type owned by another group saying where it is; a tick (after 都不搬 for that group's workers) moves the rule there, an untick saves at once, and 完成 closes it with focus back on the 「⋯」", () => {
     mount(
       "outsource",
       ["ow-1", "ow-2", "ow-3"],
@@ -478,6 +484,7 @@ describe("ChatGroupPanel", () => {
     expect(document.activeElement).toBe(screen.getByTestId("chat-group-autojoin-review"));
 
     fireEvent.click(screen.getByTestId("chat-group-autojoin-bugfix"));
+    fireEvent.click(screen.getByTestId("chat-groups-bring-in-none"));
     expect(latest).toEqual([
       g("x", "outsource", "審查", ["ow-1"], ["bugfix"]),
       g("y", "outsource", "修復", ["ow-2"], []),
@@ -513,18 +520,32 @@ describe("ChatGroupPanel", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("ticking a type that ungrouped workers have asks, over the 自動加入 dialog, whether to bring them in: yes appends them, Escape only saves the rule, and either way the dialog stays with focus back on that box", () => {
+  it("ticking a type asks, over the 自動加入 dialog, about every worker of that type outside the group, ungrouped or in another group, all ticked; 搬進勾選的 moves the ticked ones out of where they were with the rule in one save, 都不搬 or Escape only saves the rule, the dialog stays with focus back on the box, and once they are all in no question is asked", () => {
     mount("outsource", ["ow-1", "ow-2", "ow-3"], [g("x", "outsource", "審查", []), g("y", "outsource", "修復", ["ow-1"])]);
     expect(screen.getByTestId("chat-group-drop-x").textContent).toBe("把成員拖曳到這裡");
     fireEvent.click(screen.getByTestId("chat-group-more-x"));
     fireEvent.click(screen.getByTestId("chat-group-menu-autojoin"));
     const review = screen.getByTestId("chat-group-autojoin-review");
+    const asked = () =>
+      Array.from(screen.getByTestId("chat-groups-bring-in").querySelectorAll("[role='checkbox']"), (row) => [
+        row.querySelector(".chat-groups__autojoin-label")!.textContent,
+        row.querySelector(".chat-groups__autojoin-owner")!.textContent,
+        row.getAttribute("aria-checked"),
+      ]);
+
     fireEvent.click(review);
     const ask = screen.getByTestId("chat-groups-bring-in");
-    expect(within(ask).getByText("未分組裡有 1 位符合「PR 審查」的外包，要一起搬進「審查」嗎？")).toBeTruthy();
-    expect(within(ask).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["O-3"]);
-    expect(document.activeElement?.textContent).toBe("一起搬進來");
-    expect(latest[0].taskTypeKeys).toEqual([]);
+    expect(within(ask).getByRole("heading").textContent).toBe("要把目前的「PR 審查」外包搬進「審查」嗎？");
+    expect(asked()).toEqual([
+      ["O-1", "目前在「修復」", "true"],
+      ["O-3", "未分組", "true"],
+    ]);
+    expect(within(ask).getAllByRole("button", { name: /搬/ }).map((b) => b.textContent)).toEqual([
+      "搬進勾選的",
+      "都不搬，只套用到之後的新外包",
+    ]);
+    expect(document.activeElement).toBe(screen.getByTestId("chat-groups-bring-in-move"));
+    expect(saves).toBe(0);
     expect(screen.getAllByRole("dialog").map((d) => d.getAttribute("data-testid"))).toEqual([
       "chat-group-autojoin",
       "chat-groups-bring-in",
@@ -535,13 +556,39 @@ describe("ChatGroupPanel", () => {
     expect(screen.getByTestId("chat-group-autojoin")).toBeTruthy();
     expect(document.activeElement).toBe(review);
     expect(latest).toEqual([g("x", "outsource", "審查", [], ["review"]), g("y", "outsource", "修復", ["ow-1"])]);
+    expect(saves).toBe(1);
 
     fireEvent.click(review);
     expect(latest[0].taskTypeKeys).toEqual([]);
     fireEvent.click(review);
-    fireEvent.click(within(screen.getByTestId("chat-groups-bring-in")).getByText("一起搬進來"));
-    expect(latest).toEqual([g("x", "outsource", "審查", ["ow-3"], ["review"]), g("y", "outsource", "修復", ["ow-1"])]);
+    fireEvent.click(screen.getByTestId("chat-groups-bring-in-ow-3"));
+    expect(asked()).toEqual([
+      ["O-1", "目前在「修復」", "true"],
+      ["O-3", "未分組", "false"],
+    ]);
+    fireEvent.click(screen.getByTestId("chat-groups-bring-in-move"));
+    expect(latest).toEqual([g("x", "outsource", "審查", ["ow-1"], ["review"]), g("y", "outsource", "修復", [])]);
+    expect(saves).toBe(3);
     expect(document.activeElement).toBe(review);
+
+    fireEvent.click(review);
+    fireEvent.click(review);
+    expect(asked()).toEqual([["O-3", "未分組", "true"]]);
+    fireEvent.click(screen.getByTestId("chat-groups-bring-in-ow-3"));
+    expect((screen.getByTestId("chat-groups-bring-in-move") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("chat-groups-bring-in-none"));
+    expect(latest).toEqual([g("x", "outsource", "審查", ["ow-1"], ["review"]), g("y", "outsource", "修復", [])]);
+
+    fireEvent.click(review);
+    fireEvent.click(review);
+    fireEvent.click(screen.getByTestId("chat-groups-bring-in-move"));
+    expect(latest).toEqual([g("x", "outsource", "審查", ["ow-1", "ow-3"], ["review"]), g("y", "outsource", "修復", [])]);
+    fireEvent.click(review);
+    const before = saves;
+    fireEvent.click(review);
+    expect(screen.queryByTestId("chat-groups-bring-in")).toBeNull();
+    expect(saves).toBe(before + 1);
+    expect(latest[0].taskTypeKeys).toEqual(["review"]);
     expect(autoJoinRows()).toEqual([
       ["PR 審查", "true"],
       ["修 bug", "false"],
