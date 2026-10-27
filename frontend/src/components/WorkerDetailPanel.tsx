@@ -342,12 +342,17 @@ export function WorkerDetailPanel({
   // the panel shows is a prop change, not a remount: an open dialog would
   // survive holding the PREVIOUS worker's draft, and one confirm would write
   // those values onto someone else. (The member panel's `[member.id]` effect.)
-  useEffect(() => {
+  // 🔴 Reset during render on an actual id change, not in a mount effect: a
+  // click landing between the mount commit and the passive-effect flush would
+  // open the dialog and then have the mount effect close it again.
+  const [resetForWorkerId, setResetForWorkerId] = useState(worker.id);
+  if (resetForWorkerId !== worker.id) {
+    setResetForWorkerId(worker.id);
     setSettingsOpen(false);
     setSettingsError("");
     setWakeUndispatched(false);
     setRelocateUndispatched(false);
-  }, [worker.id]);
+  }
   // …and that reset is a RESET, not a CANCEL: a submit still in flight resolves
   // after it. Same render-time ref discipline the member panel uses.
   const shownWorkerIdRef = useRef(worker.id);

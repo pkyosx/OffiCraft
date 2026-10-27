@@ -36,7 +36,7 @@
 .chat-groups__heading--overlay .chat-groups__chevron {
   transform: rotate(-90deg);
 }
-.chat-groups__heading-unread {
+.chat-groups__pill-slot {
   margin-left: auto;
 }
 .chat-groups__section + .chat-groups__heading-row,
@@ -44,30 +44,64 @@
 .chat-groups__entry + .chat-groups__heading-row {
   margin-top: 12px;
 }
-/* The heading and, for a real group, its 「⋯」 options button. */
+/* The heading and, for a real group, its 「⋯」 options button. The heading
+ * (the fold toggle and drag handle) spans the whole row; the columns are
+ * label, chevron, free space, 「⋯」 and the unread pill slot, and the heading
+ * lays its own parts on them (subgrid). The pill slot is kept whether or not
+ * there is unread (owner), so 「⋯」 sits at the same x on every heading and
+ * the slot covers the same x-range as the member rows' (13px in from the
+ * right, 6px right of 「⋯」). */
 .chat-groups__heading-row {
+  --more-size: 32px;
   flex: none;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, max-content) auto 1fr auto auto;
   align-items: center;
-  gap: 2px;
+}
+@media (max-width: 720px), (hover: none) {
+  .chat-groups__heading-row {
+    --more-size: 44px;
+  }
 }
 .chat-groups__heading-row > .chat-groups__heading {
-  flex: 1;
-  min-width: 0;
+  grid-row: 1;
+  grid-column: 1 / -1;
+  align-self: stretch;
+  display: grid;
+  grid-template-columns: subgrid;
+  gap: 0;
+  align-items: center;
   width: auto;
+  min-width: 0;
+}
+.chat-groups__heading-row .chat-groups__heading-label {
+  grid-column: 1;
+}
+.chat-groups__heading-row .chat-groups__chevron {
+  grid-column: 2;
+  margin-left: 4px;
+}
+/* 13px from the row's right edge, counting the heading's 1px border and
+ * 8px padding. */
+.chat-groups__heading-row .chat-groups__pill-slot {
+  grid-column: 5;
+  margin: 0 4px 0 6px;
+}
+.chat-groups__heading-row > .chat-groups__more {
+  grid-row: 1;
+  grid-column: 4;
 }
 /* The whole 32px (44px on phones) box takes taps; only a small glyph shows,
- * with a quiet chip behind it on hover or keyboard focus. The box is not
- * enlarged with an overflowing pseudo-element because the scrolling list
- * clips anything past its edge, and this button sits on that edge. */
+ * at its right end next to the pill, with a quiet chip behind it on hover or
+ * keyboard focus. */
 .chat-groups__more {
   position: relative;
   flex: none;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
+  justify-content: flex-end;
+  width: var(--more-size, 32px);
+  height: var(--more-size, 32px);
   padding: 0;
   border: none;
   background: none;
@@ -77,18 +111,13 @@
 .chat-groups__more::before {
   content: "";
   position: absolute;
+  right: -6px;
   width: 28px;
   height: 28px;
   border-radius: 6px;
 }
 .chat-groups__more > svg {
   position: relative;
-}
-@media (max-width: 720px), (hover: none) {
-  .chat-groups__more {
-    width: 44px;
-    height: 44px;
-  }
 }
 .chat-groups__more:hover,
 .chat-groups__more:focus-visible {
@@ -110,7 +139,8 @@
   padding: 6px 12px;
 }
 
-/* A group's rows hang off its heading on a thin guide line, indented 13px.
+/* A group's rows hang off its heading on a thin guide line 6px in, with 9px
+ * clear between the line and the rows (a selected row's box must not touch it).
  * The line is mixed from the muted text colour so it keeps the same weight
  * against the page in every theme. */
 .chat-groups__section {
@@ -119,7 +149,8 @@
   flex-direction: column;
   gap: inherit;
   min-height: 8px;
-  margin-left: 13px;
+  margin-left: 6px;
+  padding-left: 9px;
   border-left: 1px solid color-mix(in srgb, var(--color-text-muted) 28%, transparent);
 }
 .chat-groups__section--over {
@@ -339,6 +370,10 @@
   color: var(--color-text-muted);
 }
 
+.chat-groups__menu--float .chat-groups__menu-item {
+  min-height: 44px;
+}
+
 .chat-groups__sheet-backdrop {
   position: fixed;
   inset: 0;
@@ -365,7 +400,8 @@
 .chat-groups__sheet .chat-groups__menu-item {
   min-height: 44px;
 }
-.chat-groups__sheet .chat-groups__menu-sub {
+.chat-groups__sheet .chat-groups__menu-sub,
+.chat-groups__menu--float .chat-groups__menu-sub {
   position: static;
   width: auto;
 }

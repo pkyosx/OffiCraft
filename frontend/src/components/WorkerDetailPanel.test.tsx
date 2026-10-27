@@ -613,6 +613,30 @@ describe("WorkerDetailPanel — 設定改走喚醒區 (T-7526 parity)", () => {
     await findByTestId("worker-detail-change");
   });
 
+  it("更改 clicked the moment the panel first appears opens the settings dialog", async () => {
+    __injectMockTask(mkTask({ id: "t-1" }));
+    __injectMockOutsourceWorker(
+      mkWorker({ id: "ow-1", taskId: "t-1", presence: "online" }),
+    );
+    const clicked: string[] = [];
+    const observer = new MutationObserver(() => {
+      const change = queryTestId(document.body, "worker-detail-change");
+      if (change && clicked.length === 0) {
+        clicked.push(change.textContent ?? "");
+        fireEvent.click(change);
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    try {
+      const { findByTestId } = renderOfficeAt("#office/worker/ow-1");
+      const dialog = await findByTestId("worker-detail-settings-dialog");
+      expect(clicked).toStrictEqual(["更改"]);
+      expect(dialog.querySelector(".machine-picker__title")?.textContent).toBe("更改");
+    } finally {
+      observer.disconnect();
+    }
+  });
+
   it("更改 → changing the machine reaches relocateMember and the 機器 cell adopts it", async () => {
     __setMockMemberOnline("warden-mbp5", true);
     __injectMockTask(mkTask({ id: "t-1" }));

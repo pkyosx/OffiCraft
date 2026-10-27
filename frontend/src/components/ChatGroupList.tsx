@@ -21,6 +21,7 @@ import type {
   Modifier,
   UniqueIdentifier,
 } from "@dnd-kit/core";
+import type { SortingStrategy } from "@dnd-kit/sortable";
 import {
   SortableContext,
   arrayMove,
@@ -30,7 +31,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useI18n } from "../i18n";
-import { layoutTab } from "../lib/chatGroups";
+import { layoutTab, moveMember, tabGroups } from "../lib/chatGroups";
 import type { ChatGroup, ChatTab } from "../lib/chatGroups";
 import { ChevronDownIcon, MoreIcon } from "./icons";
 import "./chat-groups.css";
@@ -39,7 +40,8 @@ import "./chat-groups.css";
 // screen). Moving past the tolerance before the hold ends cancels it, so a
 // press-and-move is a scroll / text gesture, never a drag.
 const LONG_PRESS = { delay: 450, tolerance: 6 };
-// A touch lift released within this distance opens the menu instead.
+// A touch hold opens the item's menu as it lifts; the finger travelling this
+// far afterwards turns it into a drag and closes the menu.
 const STILL_PX = 6;
 export const UNGROUPED = "__ungrouped";
 
@@ -51,11 +53,16 @@ const sid = (id: string) => `s:${id}`;
 const kindOf = (id: UniqueIdentifier) => String(id)[0];
 const bare = (id: UniqueIdentifier) => String(id).slice(2);
 
+// 未分組 has no order of its own (owner): its rows never make room for a drag.
+const keepOrder: SortingStrategy = () => null;
+
 const verticalOnly: Modifier = ({ transform }) => ({ ...transform, x: 0 });
 
 
 export type MenuTarget = { kind: "member" | "group"; id: string };
-export type MenuAnchor = { x: number; y: number };
+/** `row`: the lifted row a touch hold opened the menu from; the menu then
+ * floats beside it instead of filling the bottom sheet. */
+export type MenuAnchor = { x: number; y: number; row?: { top: number; bottom: number; left: number; right: number } };
 
 export interface ChatGroupRow {
   /** Put on the row as `data-chat-row`, so a touch menu can anchor to it. */
@@ -67,14 +74,19 @@ export interface ChatGroupRow {
   listeners: DraggableSyntheticListeners;
   /** False during a drag: the row must not navigate. */
   canActivate: () => boolean;
+  /** Keeps Android's own long-press menu off a touch lift; a mouse right-click
+   * gets the browser's menu (owner: no app menu on right-click). */
   onContextMenu: (e: MouseEvent) => void;
   /** Opens the menu on the context-menu key or Shift+F10; true when it did. */
   menuKey: (e: KeyboardEvent) => boolean;
 }
 
 // Android fires contextmenu on a long press, which here is a lift; a touch
-// opens the menu on release instead (onDragEnd).
+// opens the menu from the lift instead (onDragStart).
 const fromTouch = (e: MouseEvent) => (e.nativeEvent as PointerEvent).pointerType === "touch";
+const keepTouchLift = (e: MouseEvent) => {
+  if (fromTouch(e)) e.preventDefault();
+};
 const isMenuKey = (e: KeyboardEvent) => e.key === "ContextMenu" || (e.shiftKey && e.key === "F10");
 const anchorOf = (el: Element): MenuAnchor => {
   const r = el.getBoundingClientRect();
@@ -104,11 +116,7 @@ function SortableRow({
         attributes: s.attributes,
         listeners: s.listeners,
         canActivate,
-        onContextMenu: (e) => {
-          e.preventDefault();
-          if (fromTouch(e)) return;
-          openMenu({ kind: "member", id }, { x: e.clientX, y: e.clientY });
-        },
+        onContextMenu: keepTouchLift,
         menuKey: (e) => {
           if (!isMenuKey(e)) return false;
           e.preventDefault();
@@ -125,9 +133,11 @@ function HeadingBody({ label, collapsed, unread }: { label: string; collapsed: b
     <>
       <span className="chat-groups__heading-label">{label}</span>
       <ChevronDownIcon size={14} className="chat-groups__chevron" />
-      {collapsed && unread > 0 && (
-        <span className="member-card__unread chat-groups__heading-unread">{unread > 99 ? "99+" : unread}</span>
-      )}
+      <span className="member-card__unread-slot chat-groups__pill-slot">
+        {collapsed && unread > 0 && (
+          <span className="member-card__unread chat-groups__heading-unread">{unread > 99 ? "99+" : unread}</span>
+        )}
+      </span>
     </>
   );
 }
@@ -171,11 +181,7 @@ function GroupHeading({
         onClick={() => {
           if (canActivate()) onToggle();
         }}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          if (fromTouch(e)) return;
-          openMenu({ kind: "group", id: group.id }, { x: e.clientX, y: e.clientY });
-        }}
+        onContextMenu={keepTouchLift}
         onKeyDown={(e) => {
           if (isMenuKey(e)) {
             e.preventDefault();
@@ -253,7 +259,8 @@ function Section({ id, over, children }: { id: string; over: boolean; children: 
  * and rows, then 未分組 with every other row in the tab's default order. With
  * no groups in the tab it is just the rows, no headings. Rows and group
  * headings lift on a long press: rows move between groups, headings reorder
- * groups. A touch lift released without moving opens the item's menu.
+ * groups. A touch hold also opens the item's menu while the finger is still
+ * down: lifting in place keeps it open, moving on closes it and drags.
  */
 export function ChatGroupList({
   tab,
@@ -268,6 +275,7 @@ export function ChatGroupList({
   onMoveMember,
   onReorderGroup,
   onOpenMenu,
+  onCloseMenu,
   creating,
   editorFor,
   footer,
@@ -288,6 +296,8 @@ export function ChatGroupList({
   onMoveMember: (memberId: string, groupId: string | null, index?: number) => void;
   onReorderGroup: (groupId: string, index: number) => void;
   onOpenMenu: (target: MenuTarget, at: MenuAnchor) => void;
+  /** A touch hold that opened a menu moved on into a drag. */
+  onCloseMenu: () => void;
   /** The inline 新增群組 entry, shown where the new group will appear. */
   creating?: ReactNode;
   /** An inline rename editor that stands in for a group's heading. */
@@ -298,7 +308,10 @@ export function ChatGroupList({
   testId?: string;
 }) {
   const { t, msg } = useI18n();
-  const { sections, ungrouped } = layoutTab(groups, tab, ids, (x) => x);
+  // While a member is dragged over another group, it is shown in that group
+  // (the rows there make room); nothing is written until the drop.
+  const [preview, setPreview] = useState<readonly ChatGroup[] | null>(null);
+  const { sections, ungrouped } = layoutTab(preview ?? groups, tab, ids, (x) => x);
   const hasGroups = sections.length > 0;
   const [active, setActive] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
@@ -310,6 +323,7 @@ export function ChatGroupList({
   // keep the lifted heading (and its collision box) under the pointer.
   const startTopRef = useRef<number | null>(null);
   const shiftRef = useRef(0);
+  const heldMenuRef = useRef(false);
   const followStart: Modifier = ({ transform, activeNodeRect }) => {
     if (startTopRef.current === null || !activeNodeRect) return transform;
     shiftRef.current = startTopRef.current - activeNodeRect.top;
@@ -325,6 +339,8 @@ export function ChatGroupList({
     }),
   );
 
+  const savedGroupOf = (memberId: string): string | null =>
+    tabGroups(groups, tab).find((g) => g.memberIds.includes(memberId))?.id ?? null;
   const groupOf = (memberId: string): string | null =>
     sections.find((s) => s.items.includes(memberId))?.group.id ?? null;
   const groupName = (g: string | null) =>
@@ -353,9 +369,7 @@ export function ChatGroupList({
 
   const collision: CollisionDetection = (args) => {
     const dragKind = kindOf(args.active.id);
-    const droppableContainers = args.droppableContainers.filter((c) =>
-      dragKind === "g" ? kindOf(c.id) === "g" : c.id !== args.active.id,
-    );
+    const droppableContainers = args.droppableContainers.filter((c) => dragKind !== "g" || kindOf(c.id) === "g");
     // A lifted group folds the sections away and moves its own heading, so
     // judge by the pointer, not by the heading's (moved) box.
     if (dragKind === "g" && args.pointerCoordinates) {
@@ -395,7 +409,32 @@ export function ChatGroupList({
     onDragCancel: ({ active: a }) => msg.groupDragCancelled(name(a.id)),
   };
 
+  const closeHeldMenu = () => {
+    if (!heldMenuRef.current) return;
+    heldMenuRef.current = false;
+    onCloseMenu();
+  };
+  /** Show a dragged member in the group it is over, at the hovered row (or
+   * the end of the group's empty area); 未分組 keeps its default order. */
+  const previewOver = (activeId: UniqueIdentifier, over: UniqueIdentifier) => {
+    if (kindOf(activeId) !== "m") return;
+    const member = bare(activeId);
+    const k = kindOf(over);
+    let target: string | null;
+    let index: number | undefined;
+    if (k === "m") {
+      target = groupOf(bare(over));
+      if (target !== null) index = sections.find((x) => x.group.id === target)!.items.indexOf(bare(over));
+    } else if (k === "s") {
+      target = bare(over) === UNGROUPED ? null : bare(over);
+    } else {
+      return;
+    }
+    if (target === groupOf(member)) return;
+    setPreview(moveMember(preview ?? groups, member, target, index));
+  };
   const finish = () => {
+    setPreview(null);
     draggingRef.current = false;
     startTopRef.current = null;
     shiftRef.current = 0;
@@ -414,8 +453,8 @@ export function ChatGroupList({
   const toggle = (key: string) => onCollapsedChange({ ...collapsed, [key]: !isCollapsed(key) });
   const sum = (list: readonly string[]) => list.reduce((n, x) => n + unreadOf(x), 0);
 
-  const rows = (list: readonly string[]) => (
-    <SortableContext items={list.map(mid)} strategy={verticalListSortingStrategy}>
+  const rows = (list: readonly string[], strategy: SortingStrategy = verticalListSortingStrategy) => (
+    <SortableContext items={list.map(mid)} strategy={strategy}>
       {list.map((id) => (
         <SortableRow
           key={id}
@@ -438,41 +477,57 @@ export function ChatGroupList({
         announcements,
         screenReaderInstructions: { draggable: t.office.groups.instructions },
       }}
-      onDragStart={({ active: a }) => {
+      onDragStart={({ active: a, activatorEvent }) => {
         draggingRef.current = true;
-        startTopRef.current =
-          kindOf(a.id) === "g"
-            ? (document
-                .querySelector(`[data-testid="chat-group-heading-${bare(a.id)}"]`)
-                ?.getBoundingClientRect().top ?? null)
-            : null;
+        const heading =
+          kindOf(a.id) === "g" ? document.querySelector(`[data-testid="chat-group-heading-${bare(a.id)}"]`) : null;
+        startTopRef.current = heading?.getBoundingClientRect().top ?? null;
+        if (typeof TouchEvent !== "undefined" && activatorEvent instanceof TouchEvent) {
+          // Measured before the lift re-renders: lifting a group folds the
+          // sections and moves its heading, but the lifted copy stays here.
+          const el =
+            heading?.closest(".chat-groups__heading-row") ??
+            document.querySelector(`[data-chat-row="${window.CSS.escape(bare(a.id))}"]`);
+          if (el) {
+            const r = el.getBoundingClientRect();
+            heldMenuRef.current = true;
+            onOpenMenu(
+              { kind: kindOf(a.id) === "g" ? "group" : "member", id: bare(a.id) },
+              { ...anchorOf(el), row: { top: r.top, bottom: r.bottom, left: r.left, right: r.right } },
+            );
+          }
+        }
         setActive(String(a.id));
       }}
-      onDragOver={({ over }) => setOverId(over ? String(over.id) : null)}
-      onDragCancel={finish}
-      onDragEnd={({ active: a, over, delta, activatorEvent }) => {
-        const shift = shiftRef.current;
-        finish();
+      onDragMove={({ delta }) => {
         // `delta` includes the lifted group's shift; the finger's own travel is
-        // what decides "released in place".
-        const still = Math.abs(delta.x) < STILL_PX && Math.abs(delta.y - shift) < STILL_PX;
-        if (still && typeof TouchEvent !== "undefined" && activatorEvent instanceof TouchEvent) {
-          const el = document.querySelector(
-            kindOf(a.id) === "g"
-              ? `[data-testid="chat-group-heading-${bare(a.id)}"]`
-              : `[data-chat-row="${window.CSS.escape(bare(a.id))}"]`,
-          );
-          onOpenMenu({ kind: kindOf(a.id) === "g" ? "group" : "member", id: bare(a.id) }, el ? anchorOf(el) : { x: 16, y: 16 });
+        // what decides "moved on".
+        if (Math.abs(delta.x) >= STILL_PX || Math.abs(delta.y - shiftRef.current) >= STILL_PX) closeHeldMenu();
+      }}
+      onDragOver={({ active: a, over }) => {
+        setOverId(over ? String(over.id) : null);
+        if (over) previewOver(a.id, over.id);
+      }}
+      onDragCancel={() => {
+        closeHeldMenu();
+        finish();
+      }}
+      onDragEnd={({ active: a, over }) => {
+        finish();
+        if (heldMenuRef.current) {
+          heldMenuRef.current = false;
           return;
         }
-        if (!over || over.id === a.id) return;
+        // Over its own place is a no-op, unless that place is in the group the
+        // member was previewed into.
+        if (!over || (over.id === a.id && preview === null)) return;
         if (kindOf(a.id) === "g") {
           if (kindOf(over.id) === "g") onReorderGroup(bare(a.id), groupLanding(bare(a.id), over.id));
           return;
         }
         const member = bare(a.id);
         const landing = memberLanding(member, over.id);
-        if (landing.group === null && groupOf(member) === null) return;
+        if (landing.group === null && savedGroupOf(member) === null) return;
         onMoveMember(member, landing.group, landing.index);
       }}
     >
@@ -512,14 +567,14 @@ export function ChatGroupList({
             />
             {!isCollapsed(UNGROUPED) && !draggingGroup && (
               <Section id={UNGROUPED} over={overSection === UNGROUPED}>
-                {rows(ungrouped)}
+                {rows(ungrouped, keepOrder)}
               </Section>
             )}
           </>
         ) : (
           <>
             {creating}
-            {rows(ungrouped)}
+            {rows(ungrouped, keepOrder)}
           </>
         )}
         {footer}

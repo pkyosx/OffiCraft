@@ -129,7 +129,7 @@ describe("OfficePage — 招攬新成員 routing (T-66a8 req 4)", () => {
 });
 
 async function groupIntoNew(row: Element, name: string) {
-  fireEvent.contextMenu(row);
+  fireEvent.keyDown(row, { key: "ContextMenu" });
   fireEvent.click(await screen.findByTestId("chat-member-menu-move"));
   fireEvent.click(await screen.findByTestId("chat-member-menu-move-new"));
   const entry = await screen.findByTestId("chat-group-new-entry");

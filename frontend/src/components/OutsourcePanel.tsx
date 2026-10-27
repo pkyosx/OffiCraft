@@ -289,15 +289,17 @@ function OutsourceRow({
          * unread_count, same watermark inverse), same flex-end slot,
          * same suppression: the open, watched chat never accumulates
          * (owner report 2026-07-14: 外包有未讀也要有紅點). */}
-        {(w.unreadCount ?? 0) > 0 &&
-          !(selected && windowActive) && (
-            <span
-              className="member-card__unread"
-              data-testid={`outsource-unread-${w.id}`}
-            >
-              {(w.unreadCount ?? 0) > 99 ? "99+" : w.unreadCount}
-            </span>
-          )}
+        <span className="member-card__unread-slot">
+          {(w.unreadCount ?? 0) > 0 &&
+            !(selected && windowActive) && (
+              <span
+                className="member-card__unread"
+                data-testid={`outsource-unread-${w.id}`}
+              >
+                {(w.unreadCount ?? 0) > 99 ? "99+" : w.unreadCount}
+              </span>
+            )}
+        </span>
       </div>
   );
 }

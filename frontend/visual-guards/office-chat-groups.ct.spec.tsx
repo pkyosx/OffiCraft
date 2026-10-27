@@ -20,6 +20,13 @@ const sectionNames = (cmp: Locator, id: string) =>
   cmp.getByTestId(`chat-group-section-${id}`).locator(".member-card__name").allTextContents();
 const headings = (cmp: Locator) => cmp.locator(".chat-groups__heading").allTextContents();
 
+const tops = async (cmp: Locator, names: string[]) => {
+  const out: Record<string, number> = {};
+  for (const n of names) out[n] = (await row(cmp, n).boundingBox())!.y;
+  return out;
+};
+const writes = (cmp: Locator) => cmp.locator("aside.office__members").getAttribute("data-writes");
+
 async function touch(page: Page) {
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
@@ -75,9 +82,10 @@ for (const width of [1280, 390, 320]) {
       await t("touchStart", g.x, g.y);
       await page.waitForTimeout(HOLD_MS);
       await t("touchEnd");
-      await expect(page.getByTestId("chat-member-menu-sheet")).toBeVisible();
+      await expect(page.getByTestId("chat-member-menu-float")).toBeVisible();
     } else {
-      await row(cmp, "Evan").click({ button: "right", position: { x: 120, y: 20 } });
+      await row(cmp, "Evan").focus();
+      await page.keyboard.press("ContextMenu");
       await page.getByTestId("chat-member-menu-move").click();
     }
     m = await measure(page);
@@ -120,7 +128,7 @@ test("the group headings read at the muted-text floor (4.5:1) against the page",
 });
 
 for (const theme of ["dark", "light", "halloween"] as const) {
-  test(`${theme}: an expanded group's rows hang 13px in on a 1px guide line running from under its heading to its last row; a collapsed group is its bold heading with the summed unread`, async ({
+  test(`${theme}: an expanded group's rows sit 9px right of a 1px guide line 6px in, running from under its heading to its last row; a collapsed group is its bold heading with the summed unread`, async ({
     mount,
     page,
   }) => {
@@ -165,7 +173,7 @@ for (const theme of ["dark", "light", "halloween"] as const) {
           startsBelowHeading: box.top >= heading.bottom,
           topAtFirstRow: Math.round(rows[0].getBoundingClientRect().top - box.top),
           bottomAtLastRow: Math.round(box.bottom - rows[rows.length - 1].getBoundingClientRect().bottom),
-          rowsInside: Array.from(rows).every((row) => row.getBoundingClientRect().left >= box.left + 1),
+          lineToRows: Array.from(rows, (row) => Math.round(row.getBoundingClientRect().left - box.left - 1)),
           contrast: (hi + 0.05) / (lo + 0.05),
         };
       });
@@ -181,23 +189,23 @@ for (const theme of ["dark", "light", "halloween"] as const) {
     expect(m.sections.map(({ contrast: _c, ...rest }) => rest)).toEqual([
       {
         group: "chat-group-section-g-eng",
-        indent: 13,
+        indent: 6,
         lineWidth: "1px",
         lineStyle: "solid",
         startsBelowHeading: true,
         topAtFirstRow: 0,
         bottomAtLastRow: 0,
-        rowsInside: true,
+        lineToRows: [9, 9],
       },
       {
         group: "chat-group-section-ungrouped",
-        indent: 13,
+        indent: 6,
         lineWidth: "1px",
         lineStyle: "solid",
         startsBelowHeading: true,
         topAtFirstRow: 0,
         bottomAtLastRow: 0,
-        rowsInside: true,
+        lineToRows: [9, 9],
       },
     ]);
     for (const sec of m.sections) {
@@ -206,7 +214,7 @@ for (const theme of ["dark", "light", "halloween"] as const) {
   });
 }
 
-test("a long press lifts an ungrouped member and dropping it on a row of another group puts it there, without opening a chat", async ({
+test("a long press lifts an ungrouped member; over a row of another group that group's rows make room for it; Escape puts everything back unsaved, and dropping it there saves it once, without opening a chat", async ({
   mount,
   page,
 }) => {
@@ -214,17 +222,61 @@ test("a long press lifts an ungrouped member and dropping it on a row of another
   const cmp = await mount(<OfficeChatGroupsStory initialGroups={sampleGroups} />);
   const from = await grip(row(cmp, "Evan"));
   const to = await grip(row(cmp, "Dora"));
-  await page.mouse.move(from.x, from.y);
-  await page.mouse.down();
-  await page.waitForTimeout(HOLD_MS);
-  await expect(cmp.getByTestId("chat-groups-lifted")).toHaveCount(1);
-  await page.mouse.move(from.x, to.y - 6, { steps: 12 });
-  await page.waitForTimeout(300);
+  const before = await tops(cmp, ["Beto", "Dora"]);
+  const lift = async () => {
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.waitForTimeout(HOLD_MS);
+    await expect(cmp.getByTestId("chat-groups-lifted")).toHaveCount(1);
+    await page.mouse.move(from.x, to.y - 6, { steps: 12 });
+    await page.waitForTimeout(300);
+  };
+
+  await lift();
+  const during = await tops(cmp, ["Beto", "Dora"]);
+  expect({ beto: Math.round(during.Beto - before.Beto), dora: Math.round(during.Dora - before.Dora) }).toEqual({
+    beto: 0,
+    dora: Math.round(before.Dora - before.Beto),
+  });
+  expect(Math.round(before.Dora - before.Beto)).toBe(77);
+  await page.keyboard.press("Escape");
+  await page.mouse.up();
+  await page.waitForTimeout(400);
+  expect(await sectionNames(cmp, "g-eng")).toEqual(["Beto", "Dora"]);
+  expect(await sectionNames(cmp, "ungrouped")).toEqual(["Evan", "EvaRhapsodyInboxForwarderStandbyRelay"]);
+  expect(await writes(cmp)).toBe("0");
+
+  await lift();
   await page.mouse.up();
   await page.waitForTimeout(400);
   expect(await sectionNames(cmp, "g-eng")).toEqual(["Beto", "Evan", "Dora"]);
   expect(await sectionNames(cmp, "ungrouped")).toEqual(["EvaRhapsodyInboxForwarderStandbyRelay"]);
+  expect(await writes(cmp)).toBe("1");
   await expect(cmp.locator("aside.office__members")).toHaveAttribute("data-chat", "");
+});
+
+test("a member dragged into 未分組 is shown at its default-order place there, not under the pointer, and lands there", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const cmp = await mount(<OfficeChatGroupsStory initialGroups={sampleGroups} />);
+  const from = await grip(row(cmp, "Clara"));
+  const relay = await grip(row(cmp, "EvaRhapsody"));
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.waitForTimeout(HOLD_MS);
+  await page.mouse.move(from.x, relay.y, { steps: 16 });
+  await page.waitForTimeout(300);
+  const placeholder = (await cmp.locator(".chat-groups__row--placeholder").boundingBox())!;
+  expect(await sectionNames(cmp, "ungrouped")).toEqual(["Clara", "Evan", "EvaRhapsodyInboxForwarderStandbyRelay"]);
+  const evanNow = (await row(cmp, "Evan").boundingBox())!.y;
+  expect(Math.round(placeholder.y - evanNow)).toBe(-77);
+  await page.mouse.up();
+  await page.waitForTimeout(400);
+  expect(await sectionNames(cmp, "g-lead")).toEqual(["Mira"]);
+  expect(await sectionNames(cmp, "ungrouped")).toEqual(["Clara", "Evan", "EvaRhapsodyInboxForwarderStandbyRelay"]);
+  expect(await writes(cmp)).toBe("1");
 });
 
 test("a long press on a group heading lifts the group, and dropping it above the first reorders the groups", async ({
@@ -259,32 +311,103 @@ test("a press that moves before the hold ends lifts nothing", async ({ mount, pa
   expect(await sectionNames(cmp, "ungrouped")).toEqual(["Evan", "EvaRhapsodyInboxForwarderStandbyRelay"]);
 });
 
-test("390px touch: a long press released in place opens the heading's menu; a long press then a drag moves the member instead", async ({
+test("390px touch: a long press opens the menu beside the lifted row while the finger is still down; lifting in place keeps it usable, moving on closes it and drags instead", async ({
   mount,
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   const cmp = await mount(<OfficeChatGroupsStory mobile initialGroups={sampleGroups} />);
   const t = await touch(page);
+  const items = (id: string) => page.getByTestId(id).locator(".chat-groups__menu-item").allTextContents();
+
   const head = await grip(cmp.getByTestId("chat-group-heading-g-eng"));
   await t("touchStart", head.x, head.y - 6);
   await page.waitForTimeout(HOLD_MS);
+  await expect(page.getByTestId("chat-group-menu-float")).toBeVisible();
+  await expect(cmp.getByTestId("chat-groups-lifted")).toHaveText("工程 · 2");
   await t("touchEnd");
-  await expect(page.getByTestId("chat-group-menu-sheet")).toBeVisible();
-  await expect(page.getByTestId("chat-group-menu-rename")).toBeVisible();
+  await page.waitForTimeout(300);
+  await expect(page.getByTestId("chat-group-menu-float")).toBeVisible();
+  expect(await items("chat-group-menu-float")).toEqual(["重新命名", "刪除群組"]);
+  await expect(cmp.getByTestId("chat-groups-lifted")).toHaveCount(0);
+  await expect(cmp.getByTestId("chat-group-heading-g-eng")).toHaveAttribute("aria-expanded", "true");
+  expect(await sectionNames(cmp, "g-eng")).toEqual(["Beto", "Dora"]);
+  const rename = (await page.getByTestId("chat-group-menu-rename").boundingBox())!;
+  await t("touchStart", rename.x + 20, rename.y + rename.height / 2);
+  await t("touchEnd");
+  await expect(page.getByTestId("chat-group-menu-float")).toHaveCount(0);
+  await expect(cmp.getByTestId("chat-group-rename").locator("input")).toHaveValue("工程");
   await page.keyboard.press("Escape");
-  await expect(page.getByTestId("chat-group-menu-sheet")).toHaveCount(0);
 
   const from = await grip(row(cmp, "Evan"));
   const to = await grip(row(cmp, "Dora"));
+  const before = await tops(cmp, ["Beto", "Dora"]);
   await t("touchStart", from.x, from.y);
   await page.waitForTimeout(HOLD_MS);
-  for (let i = 1; i <= 12; i++) await t("touchMove", from.x, from.y + ((to.y - 6 - from.y) * i) / 12);
+  await expect(page.getByTestId("chat-member-menu-float")).toBeVisible();
+  expect(await items("chat-member-menu-float")).toEqual(["核心", "工程", "未分組", "新群組…"]);
+  for (let i = 1; i <= 3; i++) await t("touchMove", from.x, from.y + ((to.y - 6 - from.y) * i) / 12);
+  await expect(page.getByTestId("chat-member-menu-float")).toHaveCount(0);
+  await expect(cmp.getByTestId("chat-groups-lifted")).toHaveCount(1);
+  for (let i = 4; i <= 12; i++) await t("touchMove", from.x, from.y + ((to.y - 6 - from.y) * i) / 12);
   await page.waitForTimeout(300);
+  const during = await tops(cmp, ["Beto", "Dora"]);
+  expect({ beto: Math.round(during.Beto - before.Beto), dora: Math.round(during.Dora - before.Dora) }).toEqual({
+    beto: 0,
+    dora: 77,
+  });
   await t("touchEnd");
   await page.waitForTimeout(400);
-  await expect(page.getByTestId("chat-member-menu-sheet")).toHaveCount(0);
+  await expect(page.getByTestId("chat-member-menu-float")).toHaveCount(0);
   expect(await sectionNames(cmp, "g-eng")).toEqual(["Beto", "Evan", "Dora"]);
+  expect(await sectionNames(cmp, "ungrouped")).toEqual(["EvaRhapsodyInboxForwarderStandbyRelay"]);
+});
+
+test("375×812 touch: the hold menu floats 8px below the lifted row, or above it when there is no room below, never over it and 12px inside the window; tapping outside closes it", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  const cmp = await mount(<OfficeChatGroupsStory mobile initialGroups={sampleGroups} />);
+  const t = await touch(page);
+  const cases = [
+    { what: "Mira", el: row(cmp, "Mira"), menu: "chat-member-menu-float" },
+    { what: "EvaRhapsody", el: row(cmp, "EvaRhapsody"), menu: "chat-member-menu-float" },
+    { what: "工程", el: cmp.getByTestId("chat-group-heading-g-eng"), menu: "chat-group-menu-float" },
+  ];
+  const seen: Record<string, unknown> = {};
+  for (const c of cases) {
+    const before = (await c.el.boundingBox())!;
+    const at = await grip(c.el);
+    await t("touchStart", at.x, at.y - (c.what === "工程" ? 6 : 0));
+    await page.waitForTimeout(HOLD_MS);
+    const panel = (await page.getByTestId(c.menu).boundingBox())!;
+    const lifted = (await cmp.getByTestId("chat-groups-lifted").boundingBox())!;
+    const apart =
+      panel.y >= lifted.y + lifted.height ||
+      panel.y + panel.height <= lifted.y ||
+      panel.x >= lifted.x + lifted.width ||
+      panel.x + panel.width <= lifted.x;
+    const below = panel.y >= lifted.y + lifted.height;
+    seen[c.what] = {
+      side: below ? "below" : "above",
+      apart,
+      gap: Math.round(below ? panel.y - (before.y + before.height) : before.y - (panel.y + panel.height)),
+      inside: panel.x >= 12 && panel.y >= 12 && panel.x + panel.width <= 363 && panel.y + panel.height <= 800,
+    };
+    await t("touchEnd");
+    await page.waitForTimeout(200);
+    await expect(page.getByTestId(c.menu)).toBeVisible();
+    const tab = (await page.getByTestId("office-tab-staff").boundingBox())!;
+    await t("touchStart", tab.x + 10, tab.y + 10);
+    await t("touchEnd");
+    await expect(page.getByTestId(c.menu)).toHaveCount(0);
+  }
+  expect(seen).toEqual({
+    Mira: { side: "below", apart: true, gap: 8, inside: true },
+    EvaRhapsody: { side: "above", apart: true, gap: 8, inside: true },
+    工程: { side: "below", apart: true, gap: 8, inside: true },
+  });
 });
 
 test("from the keyboard, Space lifts a member, ArrowUp moves it and Enter drops it there without opening its chat", async ({
@@ -346,13 +469,41 @@ async function cascade(page: Page) {
   });
 }
 
+// The 「⋯」 is the menu's only mouse opener; a sidebar widened here puts it
+// close enough to the window's right edge to leave the submenu short of room.
+const wideSidebar = (px: number) =>
+  `.office__members { width: ${px}px !important; max-width: none !important; flex: none !important; }`;
+
+test("1280px: a right-click on a group heading or a member row gets the browser's own menu: the event is not cancelled and no app menu opens", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const cmp = await mount(<OfficeChatGroupsStory initialGroups={sampleGroups} />);
+  await page.evaluate(() => {
+    (window as unknown as { seen: string[] }).seen = [];
+    window.addEventListener("contextmenu", (e) => {
+      (window as unknown as { seen: string[] }).seen.push(`${(e.target as Element).closest("[data-testid], .member-card")?.className.split(" ")[0]}:${e.defaultPrevented}`);
+    });
+  });
+  await cmp.getByTestId("chat-group-heading-g-eng").click({ button: "right", position: { x: 40, y: 12 } });
+  await page.keyboard.press("Escape");
+  await row(cmp, "Evan").click({ button: "right", position: { x: 120, y: 20 } });
+  await page.keyboard.press("Escape");
+  expect(await page.evaluate(() => (window as unknown as { seen: string[] }).seen)).toEqual([
+    "chat-groups__heading:false",
+    "member-card:false",
+  ]);
+  await expect(page.getByRole("menu")).toHaveCount(0);
+});
+
 test("1280px: the 自動加入 submenu hangs off its row like one menu, overlapping the main menu by 2px, with its explanation inside its own opaque surface", async ({
   mount,
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   const cmp = await mount(<OfficeChatGroupsStory initialGroups={sampleGroups} initialTab="outsource" />);
-  await cmp.getByTestId("chat-group-heading-g-ui").click({ button: "right", position: { x: 20, y: 12 } });
+  await cmp.getByTestId("chat-group-more-g-ui").click();
   await page.getByTestId("chat-group-menu-autojoin").click();
   const m = await cascade(page);
 
@@ -374,9 +525,8 @@ test("721px: when the 自動加入 submenu fits on neither side, the menu slides
 }) => {
   await page.setViewportSize({ width: 721, height: 900 });
   const cmp = await mount(<OfficeChatGroupsStory initialGroups={sampleGroups} initialTab="outsource" />);
-  const heading = cmp.getByTestId("chat-group-heading-g-ui");
-  const hb = (await heading.boundingBox())!;
-  await heading.click({ button: "right", position: { x: hb.width - 4, y: 12 } });
+  await page.addStyleTag({ content: wideSidebar(330) });
+  await cmp.getByTestId("chat-group-more-g-ui").click();
   await page.getByTestId("chat-group-menu-autojoin").click();
   const m = await cascade(page);
 
@@ -393,13 +543,8 @@ test("1280px: opened near the window's right edge, the 自動加入 submenu flip
 }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   const cmp = await mount(<OfficeChatGroupsStory initialGroups={sampleGroups} initialTab="outsource" />);
-  const heading = cmp.getByTestId("chat-group-heading-g-ui");
-  const hb = (await heading.boundingBox())!;
-  await heading.evaluate(
-    (el, y) =>
-      el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, clientX: 1240, clientY: y })),
-    hb.y + 12,
-  );
+  await page.addStyleTag({ content: wideSidebar(1150) });
+  await cmp.getByTestId("chat-group-more-g-ui").click();
   await page.getByTestId("chat-group-menu-autojoin").click();
   const m = await cascade(page);
 
@@ -414,34 +559,69 @@ for (const [width, reach] of [
   [1280, 15],
   [390, 21],
 ] as const) {
-  test(`${width}px: each group heading ends in a 「⋯」 at the list's right edge, a collapsed group's unread pill sits 11px left of it, and the ⋯ answers taps ${reach * 2 + 2}px wide`, async ({
+  test(`${width}px: every heading keeps a 「⋯」 slot and an unread pill slot, so 「⋯」 sits at one x with or without a pill, the pill slot is the member rows' pill slot, and no name widens or narrows with unread; each 「⋯」 answers taps ${reach * 2 + 2}px wide`, async ({
     mount,
     page,
   }) => {
     await page.setViewportSize({ width, height: 900 });
+    // Touch emulation left on by an earlier test in this worker would make the
+    // desktop width read as a touch screen ((hover: none)).
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: false });
     const cmp = await mount(
       <OfficeChatGroupsStory mobile={width < 720} initialGroups={sampleGroups} initialCollapsed={{ "g-lead": true }} />,
     );
-    const m = await cmp.getByTestId("chat-group-more-g-lead").evaluate((more, reach) => {
-      const r = more.getBoundingClientRect();
-      const list = more.closest(".office__members-list")!.getBoundingClientRect();
-      const pill = more.parentElement!.querySelector(".member-card__unread")!.getBoundingClientRect();
-      const cx = r.left + r.width / 2;
-      const cy = r.top + r.height / 2;
-      const hits = [
-        [cx - reach, cy],
-        [cx + reach, cy],
-        [cx, cy - reach],
-        [cx, cy + reach],
-      ].map(([x, y]) => document.elementFromPoint(x, y)?.closest(".chat-groups__more") === more);
+    const m = await cmp.locator(".office__members-list").evaluate((list, reach) => {
+      const box = (el: Element) => el.getBoundingClientRect();
+      const edge = box(list).right;
+      const span = (el: Element) => `${Math.round(edge - box(el).right)}–${Math.round(edge - box(el).left)}`;
+      const heading = (row: Element) => {
+        const more = row.querySelector(".chat-groups__more");
+        const pill = row.querySelector(".chat-groups__heading-unread");
+        let hits: boolean[] | null = null;
+        if (more) {
+          const r = box(more);
+          const cx = r.left + r.width / 2;
+          const cy = r.top + r.height / 2;
+          hits = [
+            [cx - reach, cy],
+            [cx + reach, cy],
+            [cx, cy - reach],
+            [cx, cy + reach],
+          ].map(([x, y]) => document.elementFromPoint(x, y)?.closest(".chat-groups__more") === more);
+        }
+        return {
+          text: row.querySelector(".chat-groups__heading-label")!.textContent,
+          more: more ? span(more) : null,
+          slot: span(row.querySelector(".chat-groups__pill-slot")!),
+          pill: pill ? `${pill.textContent}@${span(pill)}` : null,
+          hits,
+        };
+      };
       return {
-        rightEdge: Math.round(list.right - r.right),
-        pillGap: Math.round(r.left - pill.right),
-        pillText: more.parentElement!.querySelector(".member-card__unread")!.textContent,
-        hits,
+        headings: Array.from(list.querySelectorAll(".chat-groups__heading-row"), heading),
+        rows: Array.from(list.querySelectorAll(".member-card"), (row) => ({
+          name: row.querySelector(".member-card__name")!.textContent,
+          body: Math.round(box(row.querySelector(".member-card__body")!).width),
+          slot: span(row.querySelector(".member-card__unread-slot")!),
+          pill: row.querySelector(".member-card__unread")?.textContent ?? null,
+        })),
       };
     }, reach);
-    expect(m).toEqual({ rightEdge: 0, pillGap: 11, pillText: "3", hits: [true, true, true, true] });
+    const all = [true, true, true, true];
+    const more = width < 720 ? "53–97" : "53–85";
+    expect(m.headings).toEqual([
+      { text: "核心 · 2", more, slot: "13–47", pill: "3@13–31", hits: all },
+      { text: "工程 · 2", more, slot: "13–47", pill: null, hits: all },
+      { text: "未分組 · 2", more: null, slot: "13–47", pill: null, hits: null },
+    ]);
+    const body = m.rows[0].body;
+    expect(m.rows).toEqual([
+      { name: "Beto", body, slot: "13–47", pill: null },
+      { name: "Dora", body, slot: "13–47", pill: null },
+      { name: "Evan", body, slot: "13–47", pill: null },
+      { name: "EvaRhapsodyInboxForwarderStandbyRelay", body, slot: "13–47", pill: "99+" },
+    ]);
   });
 }
 

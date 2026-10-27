@@ -729,7 +729,7 @@ export const en: Dict = {
       groupRoleDescription: "draggable group",
       optionsLead: "Group options: ",
       instructions:
-        "Press and hold a row or a group heading for half a second to lift it, then drag: members into another group or Ungrouped, group headings to reorder groups. Keyboard: press Space to pick up, move with the up and down arrow keys, press Space again to drop, or Escape to cancel. Right-click or the menu key opens options.",
+        "Press and hold a row or a group heading for half a second to lift it, then drag: members into another group or Ungrouped, group headings to reorder groups. Keyboard: press Space to pick up, move with the up and down arrow keys, press Space again to drop, or Escape to cancel. The menu key or Shift+F10 opens options.",
       pickedUpLead: "Picked up ",
       pickedUpTail: ".",
       overGroupMid: " will move to “",

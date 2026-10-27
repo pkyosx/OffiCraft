@@ -25,6 +25,10 @@ import "./chat-groups.css";
 const EDGE = 8;
 // The submenu overlaps the main menu by this much, like a native cascade.
 const SUB_OVERLAP = 2;
+// A menu floating beside a lifted row: this far from the row, and at least
+// this far inside the window.
+const ROW_GAP = 8;
+const FLOAT_MARGIN = 12;
 const ITEM = "[role='menuitem'], [role='menuitemcheckbox'], [role='menuitemradio']";
 
 type Update = (change: (current: readonly ChatGroup[]) => ChatGroup[]) => void;
@@ -268,6 +272,10 @@ function Menu({
   onClose: (refocus: boolean) => void;
   testId: string;
 }) {
+  // Opened from a touch-lifted row: floats beside the row, and behaves like
+  // the phone sheet otherwise (a submenu replaces the list, with a back row).
+  const float = anchor.row !== undefined;
+  const inline = mobile || float;
   const [sub, setSub] = useState<"move" | "autojoin" | null>(initialSub ?? null);
   const rootRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLDivElement>(null);
@@ -279,23 +287,39 @@ function Menu({
   const [subPos, setSubPos] = useState<{ left: number; top: number; flip: boolean } | null>(null);
 
   useEscapeLayer(() => {
-    if (sub && !mobile) closeSub();
+    if (sub && !inline) closeSub();
     else onClose(true);
   }, rootRef);
 
+  const confirming = confirm !== null;
+  // Below the row when it fits, otherwise above it; never over it.
   useLayoutEffect(() => {
-    if (mobile) return;
+    const row = anchor.row;
+    if (!row) return;
+    const box = rootRef.current?.getBoundingClientRect();
+    if (!box) return;
+    const below = row.bottom + ROW_GAP;
+    const top =
+      below + box.height <= window.innerHeight - FLOAT_MARGIN
+        ? below
+        : Math.max(FLOAT_MARGIN, row.top - ROW_GAP - box.height);
+    const left = Math.min(Math.max(FLOAT_MARGIN, row.left), window.innerWidth - FLOAT_MARGIN - box.width);
+    setPos({ left, top });
+  }, [anchor, sub, confirming]);
+
+  useLayoutEffect(() => {
+    if (inline) return;
     const box = mainRef.current?.getBoundingClientRect();
     if (!box) return;
     const left = Math.min(Math.max(EDGE, anchor.x), window.innerWidth - EDGE - box.width);
     const top = Math.min(Math.max(EDGE, anchor.y), window.innerHeight - EDGE - box.height);
     setPos({ left, top });
-  }, [anchor, mobile]);
+  }, [anchor, inline]);
 
   // Measured with the submenu's own size: it can be wider than the main menu.
   useLayoutEffect(() => {
     setSubPos(null);
-    if (mobile || !sub || !pos) return;
+    if (inline || !sub || !pos) return;
     const main = mainRef.current?.getBoundingClientRect();
     const panel = subRef.current?.getBoundingClientRect();
     const opener = subFrom.current?.getBoundingClientRect();
@@ -317,9 +341,8 @@ function Menu({
       setPos((p) => (p ? { ...p, left: p.left - shift } : p));
     }
     setSubPos({ left: main.width - SUB_OVERLAP, top, flip: false });
-  }, [sub, pos?.top, mobile]);
+  }, [sub, pos?.top, inline]);
 
-  const confirming = confirm !== null;
   // Tab leaves a menu (closing it) but moves between the confirm's buttons.
   const onTab = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== "Tab") return;
@@ -361,12 +384,12 @@ function Menu({
 
   const body = confirm ?? (
     <>
-      {(!mobile || !sub) && (
+      {(!inline || !sub) && (
         <MenuList
           label={title}
           items={main}
           onOpenSub={openSub}
-          activeSub={mobile ? null : sub}
+          activeSub={inline ? null : sub}
           testId={testId}
           boxRef={mainRef}
         />
@@ -377,7 +400,7 @@ function Menu({
           ref={subRef}
           data-flip={subPos?.flip || undefined}
           style={
-            mobile
+            inline
               ? undefined
               : subPos
                 ? { left: subPos.left, top: subPos.top }
@@ -389,10 +412,10 @@ function Menu({
             items={subMenu.items}
             onOpenSub={openSub}
             onBack={closeSub}
-            showBack={mobile}
+            showBack={inline && !(float && sub === initialSub)}
             header={
               subMenu.hintLines
-                ? { title: mobile ? undefined : subMenu.label, lines: subMenu.hintLines }
+                ? { title: inline ? undefined : subMenu.label, lines: subMenu.hintLines }
                 : undefined
             }
             boxes={subMenu.boxes}
@@ -404,7 +427,7 @@ function Menu({
   );
 
   return createPortal(
-    mobile ? (
+    mobile && !float ? (
       <div className="chat-groups__sheet-backdrop">
         <div
           ref={rootRef}
@@ -424,7 +447,8 @@ function Menu({
     ) : (
       <div
         ref={rootRef}
-        className="chat-groups__menu"
+        className={`chat-groups__menu${float ? " chat-groups__menu--float" : ""}`}
+        data-testid={float ? `${testId}-float` : undefined}
         style={pos ? { left: pos.left, top: pos.top } : { left: -9999, top: 0 }}
         onKeyDown={(e) => {
           onTab(e);
@@ -500,8 +524,8 @@ export type ChatGrouping = Pick<
 
 /**
  * One tab's grouped chat list with everything that edits the groups: the
- * 新增群組 entry, the group and member menus (right-click, the menu key, or a
- * touch long-press released in place), inline rename, delete confirmation and
+ * 新增群組 entry, the group and member menus (a heading's 「⋯」, the menu key,
+ * or a touch long-press), inline rename, delete confirmation and
  * the auto-join bring-in question.
  */
 export function ChatGroupPanel({
@@ -634,7 +658,7 @@ export function ChatGroupPanel({
           title={nameOf(target.id)}
           main={[{ key: "move", label: t.office.groups.moveTo, submenu: "move" }]}
           subs={{ move: { label: t.office.groups.moveTo, items: memberItems(target.id) } }}
-          initialSub={mobile ? "move" : undefined}
+          initialSub={mobile || menu.anchor.row ? "move" : undefined}
           confirm={null}
           onClose={closeMenu}
           testId="chat-member-menu"
@@ -721,6 +745,7 @@ export function ChatGroupPanel({
         onMoveMember={(m, g, i) => update((s) => moveMember(s, m, g, i))}
         onReorderGroup={(g, i) => update((s) => reorderGroup(s, g, i))}
         onOpenMenu={openMenu}
+        onCloseMenu={() => closeMenu(false)}
         className={className}
         testId={testId}
         editorFor={(groupId) =>

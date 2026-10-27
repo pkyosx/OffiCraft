@@ -152,6 +152,8 @@ function Sidebar({
   const [detailId, setDetailId] = useState("");
   const [groups, setGroups] = useState<readonly ChatGroup[]>(initialGroups);
   const seq = useRef(0);
+  // Each update stands for one save (useChatGroups sends one PUT per update).
+  const [writes, setWrites] = useState(0);
   const [collapsed, setCollapsed] = useState<Record<"staff" | "outsource", Record<string, boolean>>>({
     staff: initialCollapsed,
     outsource: {},
@@ -159,12 +161,15 @@ function Sidebar({
   const byId = (id: string) => roster.find((m) => m.id === id)!;
   const grouping = {
     groups,
-    update: (change: (g: readonly ChatGroup[]) => ChatGroup[]) => setGroups((g) => change(g)),
+    update: (change: (g: readonly ChatGroup[]) => ChatGroup[]) => {
+      setWrites((n) => n + 1);
+      setGroups((g) => change(g));
+    },
     newGroupId: () => `cg-story-${++seq.current}`,
     mobile,
   };
   return (
-    <aside className="office__members" data-chat={chatId} data-detail={detailId}>
+    <aside className="office__members" data-chat={chatId} data-detail={detailId} data-writes={writes}>
       <OfficeSidebarTabs
         activeTab={tab}
         onSelect={setTab}

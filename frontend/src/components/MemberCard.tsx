@@ -119,11 +119,13 @@ export function MemberCard({
        * INDEPENDENT of the PresenceBadge — an offline member can be unread.
        * No handler of its own: the badge sits inside the row (= the chat
        * entry), so tapping it IS tapping the row = opening the chat. */}
-      {member.unreadCount > 0 && !(selected && windowActive) && (
-        <span className="member-card__unread" data-testid="unread-badge">
-          {member.unreadCount > 99 ? "99+" : member.unreadCount}
-        </span>
-      )}
+      <span className="member-card__unread-slot">
+        {member.unreadCount > 0 && !(selected && windowActive) && (
+          <span className="member-card__unread" data-testid="unread-badge">
+            {member.unreadCount > 99 ? "99+" : member.unreadCount}
+          </span>
+        )}
+      </span>
     </div>
   );
 }

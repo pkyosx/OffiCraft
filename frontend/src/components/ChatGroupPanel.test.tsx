@@ -134,9 +134,14 @@ describe("ChatGroupPanel", () => {
     expect(headings()).toEqual(["核心 · 2", "未分組 · 1"]);
   });
 
-  it("a member's menu (right-click, or Shift+F10 on the focused row) moves it to another group, to 未分組, or into a new group", () => {
+  it("a right-click on a row is left to the browser; a member's menu (the menu key or Shift+F10 on the focused row) moves it to another group, to 未分組, or into a new group", () => {
     mount("staff", ["mira", "beto", "clara"], [g("a", "staff", "核心", ["clara"]), g("b", "staff", "工程", [])]);
-    fireEvent.contextMenu(screen.getByTestId("row-mira"));
+    const mira = screen.getByTestId("row-mira");
+    const notPrevented = fireEvent.contextMenu(mira);
+    expect(notPrevented).toBe(true);
+    expect(screen.queryByRole("menu")).toBeNull();
+    mira.focus();
+    fireEvent.keyDown(mira, { key: "ContextMenu" });
     expect(screen.getByRole("menu", { name: "Mira" })).toBeTruthy();
     fireEvent.click(screen.getByTestId("chat-member-menu-move"));
     const sub = screen.getByRole("menu", { name: "移到群組" });
@@ -160,7 +165,7 @@ describe("ChatGroupPanel", () => {
     fireEvent.click(screen.getByTestId("chat-member-menu-move-ungrouped"));
     expect(latest.map((x) => x.memberIds)).toEqual([[], ["mira"]]);
 
-    fireEvent.contextMenu(screen.getByTestId("row-beto"));
+    fireEvent.keyDown(screen.getByTestId("row-beto"), { key: "ContextMenu" });
     fireEvent.click(screen.getByTestId("chat-member-menu-move"));
     fireEvent.click(screen.getByTestId("chat-member-menu-move-new"));
     const entry = screen.getByTestId("chat-group-new-entry");
@@ -211,9 +216,12 @@ describe("ChatGroupPanel", () => {
     expect(document.activeElement).toBe(more);
   });
 
-  it("a group's menu renames it inline and deletes it after confirming, its members going back to 未分組; from the keyboard the confirmation takes focus and 取消 gives it back to the heading", () => {
+  it("a right-click on a group heading is left to the browser; a group's menu renames it inline and deletes it after confirming, its members going back to 未分組; from the keyboard the confirmation takes focus and 取消 gives it back to the heading", () => {
     mount("staff", ["mira", "beto"], [g("a", "staff", "核心", ["beto"]), g("b", "staff", "工程", [])]);
-    fireEvent.contextMenu(screen.getByTestId("chat-group-heading-a"));
+    const notPrevented = fireEvent.contextMenu(screen.getByTestId("chat-group-heading-a"));
+    expect(notPrevented).toBe(true);
+    expect(screen.queryByRole("menu")).toBeNull();
+    fireEvent.click(screen.getByTestId("chat-group-more-a"));
     fireEvent.click(screen.getByTestId("chat-group-menu-rename"));
     const entry = screen.getByTestId("chat-group-rename");
     const input = within(entry).getByRole("textbox") as HTMLInputElement;
@@ -239,7 +247,7 @@ describe("ChatGroupPanel", () => {
     expect(document.activeElement).toBe(heading);
     expect(headings()).toEqual(["主力 · 1", "工程 · 0", "未分組 · 1"]);
 
-    fireEvent.contextMenu(heading);
+    fireEvent.click(screen.getByTestId("chat-group-more-a"));
     fireEvent.click(screen.getByTestId("chat-group-menu-delete"));
     fireEvent.click(screen.getByTestId("chat-group-delete-confirm"));
     expect(headings()).toEqual(["工程 · 0", "未分組 · 2"]);
@@ -252,7 +260,7 @@ describe("ChatGroupPanel", () => {
       ["ow-1", "ow-2", "ow-3"],
       [g("x", "outsource", "審查", ["ow-1"]), g("y", "outsource", "修復", ["ow-2"], ["bugfix"])],
     );
-    fireEvent.contextMenu(screen.getByTestId("chat-group-heading-x"));
+    fireEvent.click(screen.getByTestId("chat-group-more-x"));
     fireEvent.click(screen.getByTestId("chat-group-menu-autojoin"));
     const sub = screen.getByRole("menu", { name: "自動加入" });
     expect(
@@ -275,7 +283,7 @@ describe("ChatGroupPanel", () => {
   it("ticking a type that ungrouped workers have asks whether to bring them in: yes appends them, Escape only saves the rule", () => {
     mount("outsource", ["ow-1", "ow-2", "ow-3"], [g("x", "outsource", "審查", []), g("y", "outsource", "修復", ["ow-1"])]);
     const tick = () => {
-      fireEvent.contextMenu(screen.getByTestId("chat-group-heading-x"));
+      fireEvent.click(screen.getByTestId("chat-group-more-x"));
       fireEvent.click(screen.getByTestId("chat-group-menu-autojoin"));
       fireEvent.click(screen.getByTestId("chat-group-menu-autojoin-review"));
     };
@@ -289,7 +297,7 @@ describe("ChatGroupPanel", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(latest).toEqual([g("x", "outsource", "審查", [], ["review"]), g("y", "outsource", "修復", ["ow-1"])]);
 
-    fireEvent.contextMenu(screen.getByTestId("chat-group-heading-x"));
+    fireEvent.click(screen.getByTestId("chat-group-more-x"));
     fireEvent.click(screen.getByTestId("chat-group-menu-autojoin"));
     fireEvent.click(screen.getByTestId("chat-group-menu-autojoin-review"));
     expect(latest[0].taskTypeKeys).toEqual([]);
