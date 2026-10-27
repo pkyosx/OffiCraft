@@ -40,9 +40,6 @@ import "./chat-groups.css";
 // screen). Moving past the tolerance before the hold ends cancels it, so a
 // press-and-move is a scroll / text gesture, never a drag.
 const LONG_PRESS = { delay: 450, tolerance: 6 };
-// A touch hold opens the item's menu as it lifts; the finger travelling this
-// far afterwards turns it into a drag and closes the menu.
-const STILL_PX = 6;
 export const UNGROUPED = "__ungrouped";
 
 // Draggable / droppable ids carry their kind: m: member row, g: group heading,
@@ -60,12 +57,10 @@ const verticalOnly: Modifier = ({ transform }) => ({ ...transform, x: 0 });
 
 
 export type MenuTarget = { kind: "member" | "group"; id: string };
-/** `row`: the lifted row a touch hold opened the menu from; the menu then
- * floats beside it instead of filling the bottom sheet. */
-export type MenuAnchor = { x: number; y: number; row?: { top: number; bottom: number; left: number; right: number } };
+export type MenuAnchor = { x: number; y: number };
 
 export interface ChatGroupRow {
-  /** Put on the row as `data-chat-row`, so a touch menu can anchor to it. */
+  /** The row's id, put on the row as `data-chat-row`. */
   rowId: string;
   ref: (el: HTMLElement | null) => void;
   style: CSSProperties;
@@ -81,8 +76,7 @@ export interface ChatGroupRow {
   menuKey: (e: KeyboardEvent) => boolean;
 }
 
-// Android fires contextmenu on a long press, which here is a lift; a touch
-// opens the menu from the lift instead (onDragStart).
+// Android fires contextmenu on a long press, which here is a lift.
 const fromTouch = (e: MouseEvent) => (e.nativeEvent as PointerEvent).pointerType === "touch";
 const keepTouchLift = (e: MouseEvent) => {
   if (fromTouch(e)) e.preventDefault();
@@ -277,8 +271,7 @@ function Section({
  * and rows, then 未分組 with every other row in the tab's default order. With
  * no groups in the tab it is just the rows, no headings. Rows and group
  * headings lift on a long press: rows move between groups, headings reorder
- * groups. A touch hold also opens the item's menu while the finger is still
- * down: lifting in place keeps it open, moving on closes it and drags.
+ * groups.
  */
 export function ChatGroupList({
   tab,
@@ -293,7 +286,6 @@ export function ChatGroupList({
   onMoveMember,
   onReorderGroup,
   onOpenMenu,
-  onCloseMenu,
   creating,
   editorFor,
   filtering = false,
@@ -315,8 +307,6 @@ export function ChatGroupList({
   onMoveMember: (memberId: string, groupId: string | null, index?: number) => void;
   onReorderGroup: (groupId: string, index: number) => void;
   onOpenMenu: (target: MenuTarget, at: MenuAnchor) => void;
-  /** A touch hold that opened a menu moved on into a drag. */
-  onCloseMenu: () => void;
   /** The inline 新增群組 entry, shown where the new group will appear. */
   creating?: ReactNode;
   /** An inline rename editor that stands in for a group's heading. */
@@ -347,7 +337,6 @@ export function ChatGroupList({
   // keep the lifted heading (and its collision box) under the pointer.
   const startTopRef = useRef<number | null>(null);
   const shiftRef = useRef(0);
-  const heldMenuRef = useRef(false);
   const followStart: Modifier = ({ transform, activeNodeRect }) => {
     if (startTopRef.current === null || !activeNodeRect) return transform;
     shiftRef.current = startTopRef.current - activeNodeRect.top;
@@ -434,11 +423,6 @@ export function ChatGroupList({
     onDragCancel: ({ active: a }) => msg.groupDragCancelled(name(a.id)),
   };
 
-  const closeHeldMenu = () => {
-    if (!heldMenuRef.current) return;
-    heldMenuRef.current = false;
-    onCloseMenu();
-  };
   /** Show a dragged member in the group it is over, at the hovered row (or
    * the end of the group's empty area); 未分組 keeps its default order. */
   const previewOver = (activeId: UniqueIdentifier, over: UniqueIdentifier) => {
@@ -502,47 +486,23 @@ export function ChatGroupList({
         announcements,
         screenReaderInstructions: { draggable: t.office.groups.instructions },
       }}
-      onDragStart={({ active: a, activatorEvent }) => {
+      onDragStart={({ active: a }) => {
         draggingRef.current = true;
-        const heading =
-          kindOf(a.id) === "g" ? document.querySelector(`[data-testid="chat-group-heading-${bare(a.id)}"]`) : null;
-        startTopRef.current = heading?.getBoundingClientRect().top ?? null;
-        if (typeof TouchEvent !== "undefined" && activatorEvent instanceof TouchEvent) {
-          // Measured before the lift re-renders: lifting a group folds the
-          // sections and moves its heading, but the lifted copy stays here.
-          const el =
-            heading?.closest(".chat-groups__heading-row") ??
-            document.querySelector(`[data-chat-row="${window.CSS.escape(bare(a.id))}"]`);
-          if (el) {
-            const r = el.getBoundingClientRect();
-            heldMenuRef.current = true;
-            onOpenMenu(
-              { kind: kindOf(a.id) === "g" ? "group" : "member", id: bare(a.id) },
-              { ...anchorOf(el), row: { top: r.top, bottom: r.bottom, left: r.left, right: r.right } },
-            );
-          }
-        }
+        startTopRef.current =
+          kindOf(a.id) === "g"
+            ? (document
+                .querySelector(`[data-testid="chat-group-heading-${bare(a.id)}"]`)
+                ?.getBoundingClientRect().top ?? null)
+            : null;
         setActive(String(a.id));
-      }}
-      onDragMove={({ delta }) => {
-        // `delta` includes the lifted group's shift; the finger's own travel is
-        // what decides "moved on".
-        if (Math.abs(delta.x) >= STILL_PX || Math.abs(delta.y - shiftRef.current) >= STILL_PX) closeHeldMenu();
       }}
       onDragOver={({ active: a, over }) => {
         setOverId(over ? String(over.id) : null);
         if (over) previewOver(a.id, over.id);
       }}
-      onDragCancel={() => {
-        closeHeldMenu();
-        finish();
-      }}
+      onDragCancel={finish}
       onDragEnd={({ active: a, over }) => {
         finish();
-        if (heldMenuRef.current) {
-          heldMenuRef.current = false;
-          return;
-        }
         // Over its own place is a no-op, unless that place is in the group the
         // member was previewed into.
         if (!over || (over.id === a.id && preview === null)) return;

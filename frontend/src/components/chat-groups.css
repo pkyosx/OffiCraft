@@ -436,9 +436,6 @@
   color: var(--color-text-muted);
   font-variant-numeric: tabular-nums;
 }
-.chat-groups__menu--float .chat-groups__menu-item {
-  min-height: 44px;
-}
 
 .chat-groups__sheet-backdrop {
   position: fixed;

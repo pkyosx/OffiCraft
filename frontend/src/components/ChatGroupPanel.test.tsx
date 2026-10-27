@@ -341,11 +341,16 @@ describe("ChatGroupPanel", () => {
     expect(rows()).toEqual([]);
   });
 
-  it("a right-click on a row is left to the browser; a member's menu (the menu key or Shift+F10 on the focused row) lists the groups under 移到群組 and moves it to another group, to 未分組, or into a new group", () => {
+  it("a right-click on a row is left to the browser and a touch long-press's own menu is held off; a member's menu (the menu key or Shift+F10 on the focused row) lists the groups under 移到群組 and moves it to another group, to 未分組, or into a new group", () => {
     mount("staff", ["mira", "beto", "clara"], [g("a", "staff", "核心", ["clara"]), g("b", "staff", "工程", [])]);
     const mira = screen.getByTestId("row-mira");
     const notPrevented = fireEvent.contextMenu(mira);
     expect(notPrevented).toBe(true);
+    expect(screen.queryByRole("menu")).toBeNull();
+    const touchHold = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    Object.defineProperty(touchHold, "pointerType", { value: "touch" });
+    mira.dispatchEvent(touchHold);
+    expect(touchHold.defaultPrevented).toBe(true);
     expect(screen.queryByRole("menu")).toBeNull();
     mira.focus();
     fireEvent.keyDown(mira, { key: "ContextMenu" });

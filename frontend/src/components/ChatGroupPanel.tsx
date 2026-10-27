@@ -32,10 +32,6 @@ import type { FilterCheck, FilterSection, RowFacts } from "../lib/chatFilter";
 import "./chat-groups.css";
 
 const EDGE = 8;
-// A menu floating beside a lifted row: this far from the row, and at least
-// this far inside the window.
-const ROW_GAP = 8;
-const FLOAT_MARGIN = 12;
 const ITEM = "[role='menuitem'], [role='menuitemcheckbox'], [role='menuitemradio']";
 
 type Update = (change: (current: readonly ChatGroup[]) => ChatGroup[]) => void;
@@ -232,8 +228,6 @@ function Menu({
   /** Above the main items; its text field takes focus and Tab stays inside. */
   lead?: ReactNode;
 }) {
-  // Opened from a touch-lifted row: floats beside the row.
-  const float = anchor.row !== undefined;
   const rootRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
@@ -241,29 +235,14 @@ function Menu({
   useEscapeLayer(() => onClose(true), rootRef);
 
   const confirming = confirm !== null;
-  // Below the row when it fits, otherwise above it; never over it.
   useLayoutEffect(() => {
-    const row = anchor.row;
-    if (!row) return;
-    const box = rootRef.current?.getBoundingClientRect();
-    if (!box) return;
-    const below = row.bottom + ROW_GAP;
-    const top =
-      below + box.height <= window.innerHeight - FLOAT_MARGIN
-        ? below
-        : Math.max(FLOAT_MARGIN, row.top - ROW_GAP - box.height);
-    const left = Math.min(Math.max(FLOAT_MARGIN, row.left), window.innerWidth - FLOAT_MARGIN - box.width);
-    setPos({ left, top });
-  }, [anchor, confirming]);
-
-  useLayoutEffect(() => {
-    if (mobile || float) return;
+    if (mobile) return;
     const box = mainRef.current?.getBoundingClientRect();
     if (!box) return;
     const left = Math.min(Math.max(EDGE, anchor.x), window.innerWidth - EDGE - box.width);
     const top = Math.min(Math.max(EDGE, anchor.y), window.innerHeight - EDGE - box.height);
     setPos({ left, top });
-  }, [anchor, mobile, float]);
+  }, [anchor, mobile]);
 
   // Tab leaves a menu (closing it) but moves between the confirm's buttons.
   const onTab = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -297,7 +276,7 @@ function Menu({
   const body = confirm ?? <MenuList label={title} items={main} testId={testId} boxRef={mainRef} lead={lead} />;
 
   return createPortal(
-    mobile && !float ? (
+    mobile ? (
       <div className="chat-groups__sheet-backdrop">
         <div
           ref={rootRef}
@@ -317,8 +296,7 @@ function Menu({
     ) : (
       <div
         ref={rootRef}
-        className={`chat-groups__menu${float ? " chat-groups__menu--float" : ""}`}
-        data-testid={float ? `${testId}-float` : undefined}
+        className="chat-groups__menu"
         style={pos ? { left: pos.left, top: pos.top } : { left: -9999, top: 0 }}
         onKeyDown={(e) => {
           onTab(e);
@@ -509,8 +487,8 @@ export type ChatGrouping = Pick<
 
 /**
  * One tab's grouped chat list with everything that edits the groups: the
- * 新增群組 entry, the group and member menus (a heading's 「⋯」, the menu key,
- * or a touch long-press), inline rename, delete confirmation, the 自動加入
+ * 新增群組 entry, the group and member menus (a heading's 「⋯」 or the menu
+ * key), inline rename, delete confirmation, the 自動加入
  * dialog and its bring-in question.
  */
 export function ChatGroupPanel({
@@ -866,7 +844,6 @@ export function ChatGroupPanel({
         onMoveMember={(m, g, i) => update((s) => moveMember(s, m, g, i))}
         onReorderGroup={(g, i) => update((s) => reorderGroup(s, g, i))}
         onOpenMenu={openMenu}
-        onCloseMenu={() => closeMenu(false)}
         className={className}
         testId={testId}
         editorFor={(groupId) =>

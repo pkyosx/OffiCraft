@@ -53,7 +53,7 @@ async function measure(page: Page) {
 }
 
 for (const width of [1280, 390, 320]) {
-  test(`${width}px: with groups, a collapsed group's pill, the member menu and the new-group entry all fit with no sideways scroll`, async ({
+  test(`${width}px: with groups, a collapsed group's pill, a menu and the new-group entry all fit with no sideways scroll`, async ({
     mount,
     page,
   }) => {
@@ -77,12 +77,8 @@ for (const width of [1280, 390, 320]) {
     }
 
     if (mobile) {
-      const t = await touch(page);
-      const g = await grip(row(cmp, "Evan"));
-      await t("touchStart", g.x, g.y);
-      await page.waitForTimeout(HOLD_MS);
-      await t("touchEnd");
-      await expect(page.getByTestId("chat-member-menu-float")).toBeVisible();
+      await cmp.getByTestId("chat-group-more-g-eng").click();
+      await expect(page.getByTestId("chat-group-menu-sheet")).toBeVisible();
     } else {
       await row(cmp, "Evan").focus();
       await page.keyboard.press("ContextMenu");
@@ -362,45 +358,50 @@ test("a press that moves before the hold ends lifts nothing", async ({ mount, pa
   expect(await sectionNames(cmp, "ungrouped")).toEqual(["Evan", "EvaRhapsodyInboxForwarderStandbyRelay"]);
 });
 
-test("390px touch: a long press opens the menu beside the lifted row while the finger is still down; lifting in place keeps it usable, moving on closes it and drags instead", async ({
+test("390px touch: a long press lifts a heading or a row and lifting the finger in place leaves the order and folding as they were with no menu; a long press then a drag moves the member", async ({
   mount,
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   const cmp = await mount(<OfficeChatGroupsStory mobile initialGroups={sampleGroups} />);
   const t = await touch(page);
-  const items = (id: string) => page.getByTestId(id).locator(".chat-groups__menu-item").allTextContents();
+  const state = async () => ({
+    headings: await headings(cmp),
+    expanded: await cmp.locator(".chat-groups__heading").evaluateAll((hs) => hs.map((h) => h.getAttribute("aria-expanded"))),
+    eng: await sectionNames(cmp, "g-eng"),
+    ungrouped: await sectionNames(cmp, "ungrouped"),
+    menus: await page.locator("[role='menu'], [role='dialog']").count(),
+  });
+  const untouched = {
+    headings: ["核心 · 2", "工程 · 2", "未分組 · 2"],
+    expanded: ["true", "true", "true"],
+    eng: ["Beto", "Dora"],
+    ungrouped: ["Evan", "EvaRhapsodyInboxForwarderStandbyRelay"],
+    menus: 0,
+  };
 
   const head = await grip(cmp.getByTestId("chat-group-heading-g-eng"));
   await t("touchStart", head.x, head.y - 6);
   await page.waitForTimeout(HOLD_MS);
-  await expect(page.getByTestId("chat-group-menu-float")).toBeVisible();
   await expect(cmp.getByTestId("chat-groups-lifted")).toHaveText("工程 · 2");
   await t("touchEnd");
   await page.waitForTimeout(300);
-  await expect(page.getByTestId("chat-group-menu-float")).toBeVisible();
-  expect(await items("chat-group-menu-float")).toEqual(["重新命名", "刪除群組"]);
   await expect(cmp.getByTestId("chat-groups-lifted")).toHaveCount(0);
-  await expect(cmp.getByTestId("chat-group-heading-g-eng")).toHaveAttribute("aria-expanded", "true");
-  expect(await sectionNames(cmp, "g-eng")).toEqual(["Beto", "Dora"]);
-  const rename = (await page.getByTestId("chat-group-menu-rename").boundingBox())!;
-  await t("touchStart", rename.x + 20, rename.y + rename.height / 2);
-  await t("touchEnd");
-  await expect(page.getByTestId("chat-group-menu-float")).toHaveCount(0);
-  await expect(cmp.getByTestId("chat-group-rename").locator("input")).toHaveValue("工程");
-  await page.keyboard.press("Escape");
+  expect(await state()).toEqual(untouched);
 
   const from = await grip(row(cmp, "Evan"));
+  await t("touchStart", from.x, from.y);
+  await page.waitForTimeout(HOLD_MS);
+  await expect(cmp.getByTestId("chat-groups-lifted")).toHaveCount(1);
+  await t("touchEnd");
+  await page.waitForTimeout(300);
+  expect(await state()).toEqual(untouched);
+
   const to = await grip(row(cmp, "Dora"));
   const before = await tops(cmp, ["Beto", "Dora"]);
   await t("touchStart", from.x, from.y);
   await page.waitForTimeout(HOLD_MS);
-  await expect(page.getByTestId("chat-member-menu-float")).toBeVisible();
-  expect(await items("chat-member-menu-float")).toEqual(["核心", "工程", "未分組", "新群組…"]);
-  for (let i = 1; i <= 3; i++) await t("touchMove", from.x, from.y + ((to.y - 6 - from.y) * i) / 12);
-  await expect(page.getByTestId("chat-member-menu-float")).toHaveCount(0);
-  await expect(cmp.getByTestId("chat-groups-lifted")).toHaveCount(1);
-  for (let i = 4; i <= 12; i++) await t("touchMove", from.x, from.y + ((to.y - 6 - from.y) * i) / 12);
+  for (let i = 1; i <= 12; i++) await t("touchMove", from.x, from.y + ((to.y - 6 - from.y) * i) / 12);
   await page.waitForTimeout(300);
   const during = await tops(cmp, ["Beto", "Dora"]);
   expect({ beto: Math.round(during.Beto - before.Beto), dora: Math.round(during.Dora - before.Dora) }).toEqual({
@@ -409,55 +410,11 @@ test("390px touch: a long press opens the menu beside the lifted row while the f
   });
   await t("touchEnd");
   await page.waitForTimeout(400);
-  await expect(page.getByTestId("chat-member-menu-float")).toHaveCount(0);
-  expect(await sectionNames(cmp, "g-eng")).toEqual(["Beto", "Evan", "Dora"]);
-  expect(await sectionNames(cmp, "ungrouped")).toEqual(["EvaRhapsodyInboxForwarderStandbyRelay"]);
-});
-
-test("375×812 touch: the hold menu floats 8px below the lifted row, or above it when there is no room below, never over it and 12px inside the window; tapping outside closes it", async ({
-  mount,
-  page,
-}) => {
-  await page.setViewportSize({ width: 375, height: 812 });
-  const cmp = await mount(<OfficeChatGroupsStory mobile initialGroups={sampleGroups} />);
-  const t = await touch(page);
-  const cases = [
-    { what: "Mira", el: row(cmp, "Mira"), menu: "chat-member-menu-float" },
-    { what: "EvaRhapsody", el: row(cmp, "EvaRhapsody"), menu: "chat-member-menu-float" },
-    { what: "工程", el: cmp.getByTestId("chat-group-heading-g-eng"), menu: "chat-group-menu-float" },
-  ];
-  const seen: Record<string, unknown> = {};
-  for (const c of cases) {
-    const before = (await c.el.boundingBox())!;
-    const at = await grip(c.el);
-    await t("touchStart", at.x, at.y - (c.what === "工程" ? 6 : 0));
-    await page.waitForTimeout(HOLD_MS);
-    const panel = (await page.getByTestId(c.menu).boundingBox())!;
-    const lifted = (await cmp.getByTestId("chat-groups-lifted").boundingBox())!;
-    const apart =
-      panel.y >= lifted.y + lifted.height ||
-      panel.y + panel.height <= lifted.y ||
-      panel.x >= lifted.x + lifted.width ||
-      panel.x + panel.width <= lifted.x;
-    const below = panel.y >= lifted.y + lifted.height;
-    seen[c.what] = {
-      side: below ? "below" : "above",
-      apart,
-      gap: Math.round(below ? panel.y - (before.y + before.height) : before.y - (panel.y + panel.height)),
-      inside: panel.x >= 12 && panel.y >= 12 && panel.x + panel.width <= 363 && panel.y + panel.height <= 800,
-    };
-    await t("touchEnd");
-    await page.waitForTimeout(200);
-    await expect(page.getByTestId(c.menu)).toBeVisible();
-    const tab = (await page.getByTestId("office-tab-staff").boundingBox())!;
-    await t("touchStart", tab.x + 10, tab.y + 10);
-    await t("touchEnd");
-    await expect(page.getByTestId(c.menu)).toHaveCount(0);
-  }
-  expect(seen).toEqual({
-    Mira: { side: "below", apart: true, gap: 8, inside: true },
-    EvaRhapsody: { side: "above", apart: true, gap: 8, inside: true },
-    工程: { side: "below", apart: true, gap: 8, inside: true },
+  expect(await state()).toEqual({
+    ...untouched,
+    headings: ["核心 · 2", "工程 · 3", "未分組 · 1"],
+    eng: ["Beto", "Evan", "Dora"],
+    ungrouped: ["EvaRhapsodyInboxForwarderStandbyRelay"],
   });
 });
 
