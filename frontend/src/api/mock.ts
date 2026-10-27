@@ -1057,6 +1057,17 @@ let tasks: MockTaskRow[] = [];
 // artifact drops its versions the way the server's transaction does.
 let artifactVersions = new Map<string, TaskArtifactVersionView[]>();
 let outsourceWorkers: OutsourceWorkerView[] = [];
+// The owner's chat-list pins; the server seeds Mira pinned on every station.
+const MOCK_DEFAULT_CHAT_PINS = ["mira"];
+let chatPins: string[] = [...MOCK_DEFAULT_CHAT_PINS];
+/** Server parity (isPinnableMember): an active staff member or a live outsource
+ * worker. */
+function isPinnable(id: string): boolean {
+  if (outsourceWorkers.some((w) => w.id === id && w.status !== "released")) return true;
+  return wireMembers.some(
+    (m) => m.id === id && m.kind === "staff" && m.roster_status !== "removed"
+  );
+}
 /** What the mock STORES for a manual: the whole view MINUS the four size/cap
  * fields (T-100). They are DERIVED on every read, which is what the server
  * does — `newTaskManualDTO` measures the stored row with
@@ -3982,6 +3993,34 @@ const mockApiImpl = {
     // no fabricated member read), so a member's "read ✓" appears only if a real
     // watermark was recorded for it — which the single-owner mock never is.
     return [...chatReads.values()].filter((r) => r.peerId === peer);
+  },
+
+  async getChatPins(): Promise<string[]> {
+    return chatPins.filter(isPinnable);
+  },
+
+  async putChatPins(memberIds: string[]): Promise<string[]> {
+    const seen = new Set<string>();
+    for (const id of memberIds) {
+      if (seen.has(id)) {
+        throw mockApiError(
+          "http 422 for PUT /api/chat/pins",
+          422,
+          `member_ids lists '${id}' more than once`
+        );
+      }
+      seen.add(id);
+      if (!isPinnable(id)) {
+        throw mockApiError(
+          "http 422 for PUT /api/chat/pins",
+          422,
+          `member_ids: '${id}' is not an active staff or outsource member`
+        );
+      }
+    }
+    chatPins = [...memberIds];
+    emitTopic("chat_pin");
+    return [...chatPins];
   },
 
   async listReplyCards(
@@ -7714,6 +7753,7 @@ export function __resetMock(): void {
   tasks = [];
   artifactVersions = new Map();
   outsourceWorkers = [];
+  chatPins = [...MOCK_DEFAULT_CHAT_PINS];
   taskManuals = structuredClone([...MOCK_TASK_MANUAL_SEEDS]);
   mockPasswordSet = true;
   mockPassword = "mock-password";

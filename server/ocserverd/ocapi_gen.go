@@ -1338,6 +1338,18 @@ type ChatMessageDTO struct {
 	TsDisplay *string `json:"ts_display,omitempty"`
 }
 
+// ChatPinsDTO The owner's pinned chat-list members. Only members still on the roster (active staff or outsource) are listed: a removed staff member or a released outsource worker leaves the list in the same write that removes it.
+type ChatPinsDTO struct {
+	// MemberIds Pinned members in pin order, staff and outsource in ONE list; the cockpit shows each tab's pinned rows in this relative order above that tab's default-ordered rows.
+	MemberIds []string `json:"member_ids"`
+}
+
+// ChatPinsUpdateDTO The complete new pin list, in order; it replaces the stored list wholesale (pin, unpin and reorder are all this one write).
+type ChatPinsUpdateDTO struct {
+	// MemberIds Pinned members in pin order, staff and outsource in ONE list; the cockpit shows each tab's pinned rows in this relative order above that tab's default-ordered rows. Each id must be an active staff or outsource member and appear once; an empty list unpins everyone.
+	MemberIds []string `json:"member_ids"`
+}
+
 // ChatPostDTO Post one chat message (§3.4 #16). “to“ is the addressee. The sender / “id“ /
 // “ts“ are NEVER trusted from the client: the server stamps the sender from the
 // verified JWT “sub“ (anti-spoof — identity from token), mints the “id“, and
@@ -5330,6 +5342,9 @@ type HandlePostChatApiChatPostJSONRequestBody = ChatPostDTO
 // HandleMarkChatReadApiChatMarkReadPostJSONRequestBody defines body for HandleMarkChatReadApiChatMarkReadPost for application/json ContentType.
 type HandleMarkChatReadApiChatMarkReadPostJSONRequestBody = MarkChatReadDTO
 
+// HandleUpdateChatPinsApiChatPinsPutJSONRequestBody defines body for HandleUpdateChatPinsApiChatPinsPut for application/json ContentType.
+type HandleUpdateChatPinsApiChatPinsPutJSONRequestBody = ChatPinsUpdateDTO
+
 // HandleReplaceGlobalContextApiGlobalContextPostJSONRequestBody defines body for HandleReplaceGlobalContextApiGlobalContextPost for application/json ContentType.
 type HandleReplaceGlobalContextApiGlobalContextPostJSONRequestBody = GlobalContextReplaceDTO
 
@@ -5863,6 +5878,12 @@ type ServerInterface interface {
 	// Mark a conversation read up to a watermark (reader = verified sub). Answers with a bounded receipt (“peer_id“, “last_read_ts“, “advanced“), not the stored entry echoed back — call “get_chat_reads“ when you need the rest.
 	// (POST /api/chat/mark-read)
 	HandleMarkChatReadApiChatMarkReadPost(w http.ResponseWriter, r *http.Request)
+	// Get the owner's pinned chat-list members.
+	// (GET /api/chat/pins)
+	HandleGetChatPinsApiChatPinsGet(w http.ResponseWriter, r *http.Request)
+	// Replace the owner's pinned chat-list members.
+	// (PUT /api/chat/pins)
+	HandleUpdateChatPinsApiChatPinsPut(w http.ResponseWriter, r *http.Request)
 	// List chat read receipts (?with=<peer>; per-conversation watermark).
 	// (GET /api/chat/reads)
 	HandleListChatReadsApiChatReadsGet(w http.ResponseWriter, r *http.Request, params HandleListChatReadsApiChatReadsGetParams)
@@ -7360,6 +7381,34 @@ func (siw *ServerInterfaceWrapper) HandleMarkChatReadApiChatMarkReadPost(w http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleMarkChatReadApiChatMarkReadPost(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleGetChatPinsApiChatPinsGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleGetChatPinsApiChatPinsGet(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleGetChatPinsApiChatPinsGet(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleUpdateChatPinsApiChatPinsPut operation middleware
+func (siw *ServerInterfaceWrapper) HandleUpdateChatPinsApiChatPinsPut(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleUpdateChatPinsApiChatPinsPut(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -11865,6 +11914,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/chat/attachments", wrapper.HandleUploadChatAttachmentApiChatAttachmentsPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/chat/attachments/{attachment_id}/share-link", wrapper.HandleGetChatAttachmentShareLinkApiChatAttachmentsAttachmentIdShareLinkGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/chat/mark-read", wrapper.HandleMarkChatReadApiChatMarkReadPost)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/chat/pins", wrapper.HandleGetChatPinsApiChatPinsGet)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/chat/pins", wrapper.HandleUpdateChatPinsApiChatPinsPut)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/chat/reads", wrapper.HandleListChatReadsApiChatReadsGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/chat/unread-count", wrapper.HandleChatUnreadCountApiChatUnreadCountGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/diff", wrapper.HandleGetDiffApiDiffGet)

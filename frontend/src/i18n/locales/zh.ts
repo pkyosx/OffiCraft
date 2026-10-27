@@ -725,6 +725,25 @@ export const zh = {
     // Mobile single-page-nav back control: returns from a member's chat to the
     // roster (desktop keeps both panes, so this never shows there).
     backToMembers: "返回成員",
+    // 左欄聊天清單的置頂：名字後的圖釘切換置頂；已置頂的列長按浮起後可拖曳
+    // 調整順序。後面幾片是拖曳時給螢幕閱讀器的句子，由 compose.ts 組裝。
+    pins: {
+      title: "已置頂",
+      pin: "置頂",
+      unpin: "取消置頂",
+      saveError: "置頂沒有存成，請再試一次",
+      roleDescription: "可拖曳排序的對話",
+      instructions:
+        "按住已置頂的一列約半秒會浮起，就能拖曳調整順序。鍵盤：按空白鍵拿起，用上下方向鍵移動，再按空白鍵放下，按 Esc 取消。",
+      pickedUpLead: "已拿起 ",
+      pickedUpTail: "。",
+      overPinnedMid: " 會移到置頂第 ",
+      overPinnedTail: " 位。",
+      droppedPinnedMid: " 已移到置頂第 ",
+      droppedPinnedTail: " 位。",
+      cancelledLead: "已取消拖曳，",
+      cancelledTail: " 回到原位。",
+    },
     // Honest load-failure notice — shown when the roster fetch REJECTED, so a
     // failed load never masquerades as an empty office (「成員 · 0」).
     loadError: "載入辦公室成員失敗，請稍後重試",

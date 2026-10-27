@@ -932,7 +932,10 @@ func releaseWorkerOn(ex sqlExecer, workerID string, now float64) error {
 		UPDATE member SET roster_status = ?, released_ts = ?
 		WHERE id = ? AND kind = 'outsource'`,
 		RosterStatusRemoved, now, workerID)
-	return err
+	if err != nil {
+		return err
+	}
+	return deleteChatPinOn(ex, workerID)
 }
 
 // IsSeed and IsDefault are not columns: FoldTaskManual sets them. A row read

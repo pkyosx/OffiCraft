@@ -708,6 +708,52 @@ describe("OutsourcePanel", () => {
     });
   });
 
+  it("tapping a worker's pin moves it under the 已置頂 heading without opening its chat; tapping again restores the plain list", async () => {
+    const now = Date.now() / 1000;
+    __injectMockTask(mkTask({ id: "t-old", createdTs: now - 9000 }));
+    __injectMockTask(mkTask({ id: "t-new", createdTs: now - 10 }));
+    __injectMockOutsourceWorker(mkWorker({ id: "ow-old", codename: "S-1", taskId: "t-old" }));
+    __injectMockOutsourceWorker(mkWorker({ id: "ow-new", codename: "O-2", taskId: "t-new" }));
+
+    const { findByTestId, getByTestId } = renderOutsource();
+    const list = await findByTestId("outsource-list");
+    await waitFor(() => expect(within(list).getAllByTestId(/^outsource-row-/)).toHaveLength(2));
+    const order = () =>
+      within(list).getAllByTestId(/^outsource-row-/).map((r) => r.getAttribute("data-testid"));
+    expect(within(list).queryByText("已置頂")).toBeNull();
+    expect(within(list).queryByTestId("chat-pins-divider")).toBeNull();
+
+    fireEvent.click(getByTestId("chat-pin-ow-old"));
+    expect(order()).toEqual(["outsource-row-ow-old", "outsource-row-ow-new"]);
+    expect(within(list).getByText("已置頂")).toBeTruthy();
+    expect(within(getByTestId("chat-pins-section")).getByTestId("outsource-row-ow-old")).toBeTruthy();
+    expect(getByTestId("chat-pin-ow-old").getAttribute("aria-label")).toBe("取消置頂");
+    expect(window.location.hash).not.toContain("ow-old");
+
+    fireEvent.click(getByTestId("chat-pin-ow-old"));
+    expect(order()).toEqual(["outsource-row-ow-new", "outsource-row-ow-old"]);
+    expect(within(list).queryByTestId("chat-pins-divider")).toBeNull();
+  });
+
+  it("a pin the server refuses comes back off, with 置頂沒有存成 shown above the list", async () => {
+    __injectMockTask(mkTask({ id: "t-r", createdTs: 80 }));
+    __injectMockOutsourceWorker(mkWorker({ id: "ow-r", taskId: "t-r" }));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const put = vi.spyOn(api, "putChatPins").mockRejectedValueOnce(new Error("http 422"));
+
+    const { findByTestId, getByTestId, queryByTestId } = renderOutsource();
+    await findByTestId("outsource-row-ow-r");
+    await waitFor(() => expect(getByTestId("chat-pin-ow-r")).toBeTruthy());
+    expect(queryByTestId("chat-pins-save-error")).toBeNull();
+
+    fireEvent.click(getByTestId("chat-pin-ow-r"));
+    expect(put).toHaveBeenCalledWith(["mira", "ow-r"]);
+    expect((await findByTestId("chat-pins-save-error")).textContent).toBe("置頂沒有存成，請再試一次");
+    expect(getByTestId("chat-pin-ow-r").getAttribute("aria-pressed")).toBe("false");
+    expect(queryByTestId("chat-pins-section")).toBeNull();
+    put.mockRestore();
+  });
+
   it("the 外包 tab carries the count sub-line 「N 人 · 上限 M」; the tab switch shows/hides the list", async () => {
     // T-66a8: the old head 「N / 上限」 + collapse toggle are gone. The count
     // moved to the tab sub-line, and the 正職/外包 tab IS the switcher.

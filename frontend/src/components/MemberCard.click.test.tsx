@@ -79,4 +79,68 @@ describe("MemberCard click semantics", () => {
     expect(onOpenDetail).toHaveBeenCalledTimes(1);
     expect(onChat).not.toHaveBeenCalled();
   });
+
+  it("tapping the pin toggles it without opening the chat or the detail", () => {
+    const onChat = vi.fn();
+    const onOpenDetail = vi.fn();
+    const onToggle = vi.fn();
+    const { getByRole } = render(
+      <I18nProvider>
+        <MemberCard
+          member={mkMember()}
+          selected={false}
+          onOpenDetail={onOpenDetail}
+          onChat={onChat}
+          pin={{ pinned: false, onToggle }}
+        />
+      </I18nProvider>,
+    );
+    const pin = getByRole("button", { name: "置頂" });
+    expect(pin.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(pin);
+    fireEvent.keyDown(pin, { key: "Enter" });
+    expect(onToggle).toHaveBeenCalledTimes(1);
+    expect(onChat).not.toHaveBeenCalled();
+    expect(onOpenDetail).not.toHaveBeenCalled();
+  });
+
+  it("with drag wiring, Enter still opens the chat, Space does not, and nothing opens while a drag is in progress", () => {
+    const onChat = vi.fn();
+    let dragging = false;
+    const { container } = render(
+      <I18nProvider>
+        <MemberCard
+          member={mkMember()}
+          selected={false}
+          onOpenDetail={() => {}}
+          onChat={onChat}
+          sortable={{
+            ref: () => {},
+            style: {},
+            className: "chat-pins__row",
+            attributes: {
+              role: "button",
+              tabIndex: 0,
+              "aria-disabled": false,
+              "aria-pressed": undefined,
+              "aria-roledescription": "可拖曳的對話",
+              "aria-describedby": "",
+            },
+            listeners: undefined,
+            canActivate: () => !dragging,
+          }}
+        />
+      </I18nProvider>,
+    );
+    const row = container.querySelector(".member-card")!;
+    fireEvent.keyDown(row, { key: " " });
+    expect(onChat).not.toHaveBeenCalled();
+    fireEvent.keyDown(row, { key: "Enter" });
+    expect(onChat).toHaveBeenCalledTimes(1);
+
+    dragging = true;
+    fireEvent.keyDown(row, { key: "Enter" });
+    fireEvent.click(row);
+    expect(onChat).toHaveBeenCalledTimes(1);
+  });
 });

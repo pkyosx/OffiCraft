@@ -404,6 +404,9 @@ def test_every_closed_topic_emits(
             "/api/chat/mark-read",
             json={"peer": agent_a.member_id, "last_read_ts": time.time()},
             headers=_auth(owner_token))),
+        ("chat_pin", lambda: client.put(
+            "/api/chat/pins", json={"member_ids": [agent_a.member_id]},
+            headers=_auth(owner_token))),
         ("reply_card", lambda: client.post(
             "/api/reply-cards",
             json={"kind": "decision", "summary": f"topic probe {tag}",
@@ -444,7 +447,7 @@ def test_every_closed_topic_emits(
         ("runtime_upgrade", start_upgrade),
     ]
     expected_op = {
-        "member": "patch", "chat": "patch", "chat_read": "patch",
+        "member": "patch", "chat": "patch", "chat_read": "patch", "chat_pin": "patch",
         "reply_card": "patch",
         "task": "patch", "task_manual": "patch",
         "global_context": "patch", "role_def": "patch",

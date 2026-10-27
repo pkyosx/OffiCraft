@@ -2323,6 +2323,13 @@ export interface Api {
    * The UI reads the PEER's receipt to know how far the peer has read the owner's
    * messages (drives the per-message "read ✓" badge). */
   listChatReads(peer: string): Promise<ChatReadReceipt[]>;
+  /** The owner's pinned chat-list member ids, staff and outsource in ONE list,
+   * in pin order (`GET /api/chat/pins`). */
+  getChatPins(): Promise<string[]>;
+  /** Replace the whole pin list (`PUT /api/chat/pins`) and answer the stored
+   * list. 422 when an id repeats or is not an active staff / outsource member;
+   * nothing is written then. */
+  putChatPins(memberIds: string[]): Promise<string[]>;
   /**
    * List reply cards (`GET /api/reply-cards?status=`). `waiting` returns every
    * card still waiting for the owner, LONGEST-WAITING FIRST (created_ts

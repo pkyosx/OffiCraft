@@ -694,6 +694,23 @@ export const en: Dict = {
     },
     viewProfile: "Member details",
     backToMembers: "Back to members",
+    pins: {
+      title: "Pinned",
+      pin: "Pin",
+      unpin: "Unpin",
+      saveError: "Couldn't save the pins. Please try again.",
+      roleDescription: "reorderable chat",
+      instructions:
+        "Press and hold a pinned row for half a second to lift it, then drag to reorder. Keyboard: press Space to pick a row up, move it with the up and down arrow keys, press Space again to drop it, or Escape to cancel.",
+      pickedUpLead: "Picked up ",
+      pickedUpTail: ".",
+      overPinnedMid: " will move to pinned position ",
+      overPinnedTail: ".",
+      droppedPinnedMid: " moved to pinned position ",
+      droppedPinnedTail: ".",
+      cancelledLead: "Drag cancelled. ",
+      cancelledTail: " is back in place.",
+    },
     loadError: "Failed to load office members. Please try again.",
     chatUnavailableTitle: "This conversation partner is no longer listed",
     chatUnavailableSub:

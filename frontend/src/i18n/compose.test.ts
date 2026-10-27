@@ -171,6 +171,10 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["zh", "secretCopyId", ["sec-00000000000a"], "複製密鑰 ID sec-00000000000a"],
     ["zh", "secretDeleteConfirmBody", ["部署權杖"], "要刪除「部署權杖」嗎？刪除後無法復原。"],
     ["zh", "outsourceLabel", ["O-7"], "外包 · O-7"],
+    ["zh", "pinDragPickedUp", ["Mira"], "已拿起 Mira。"],
+    ["zh", "pinDragOverPinned", ["Mira", 2], "Mira 會移到置頂第 2 位。"],
+    ["zh", "pinDragDroppedPinned", ["Mira", 2], "Mira 已移到置頂第 2 位。"],
+    ["zh", "pinDragCancelled", ["Mira"], "已取消拖曳，Mira 回到原位。"],
     // 🔴 折疊,不是截斷。這一句只可以講「這則還在、只是折起來了」;
     // 「更早的訊息沒有被帶進來」是另一件事,而且刻意沒有 composer——
     // 共用一個組裝器正是兩者會開始共用詞彙的那條路。
@@ -338,6 +342,10 @@ const EXPECTED: [Lang, string, Arg[], string | string[]][] = [
     ["en", "secretCopyId", ["sec-00000000000a"], "Copy secret ID sec-00000000000a"],
     ["en", "secretDeleteConfirmBody", ["Deploy token"], "Delete \u201cDeploy token\u201d? This cannot be undone."],
     ["en", "outsourceLabel", ["O-7"], "Outsource · O-7"],
+    ["en", "pinDragPickedUp", ["Mira"], "Picked up Mira."],
+    ["en", "pinDragOverPinned", ["Mira", 2], "Mira will move to pinned position 2."],
+    ["en", "pinDragDroppedPinned", ["Mira", 2], "Mira moved to pinned position 2."],
+    ["en", "pinDragCancelled", ["Mira"], "Drag cancelled. Mira is back in place."],
     ["en", "resumeBodyOmitted", [1284], "folded 1284"],
     ["en", "chatOfflineTitle", ["Mira"], "Mira is offline"],
     ["en", "chatOfflineQueueHint", ["Mira"], "You can still leave a message — Mira will read it once back online."],
@@ -574,6 +582,10 @@ describe("makeMessages", () => {
       "replies.expireConfirmBodyLead",
       "replies.expireConfirmBodyTail",
       "office.outsource.title",
+      "office.pins.pickedUpLead",
+      "office.pins.overPinnedMid",
+      "office.pins.droppedPinnedMid",
+      "office.pins.cancelledLead",
       "chat.offlineTitleSuffix",
       "chat.offlineQueueHintLead",
       "chat.offlineQueueHintTail",

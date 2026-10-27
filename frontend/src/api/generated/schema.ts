@@ -926,6 +926,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/chat/pins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the owner's pinned chat-list members.
+         * @description - The owner's pinned chat-list members, in pin order.
+         *     - Mira starts pinned on every station and stays unpinned once the owner unpins Mira.
+         */
+        get: operations["handle_get_chat_pins_api_chat_pins_get"];
+        /**
+         * Replace the owner's pinned chat-list members.
+         * @description - Replaces the whole pin list; pin, unpin and reorder are all this one write.
+         *     - 422 when an id repeats or is not an active staff or outsource member; nothing is written.
+         *     - Emits a `chat_pin` event to the owner, so another open browser updates without reloading.
+         *     - No overwrite protection: concurrent writes are last-writer-wins.
+         */
+        put: operations["handle_update_chat_pins_api_chat_pins_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/chat/reads": {
         parameters: {
             query?: never;
@@ -5644,6 +5672,28 @@ export interface components {
              * @default
              */
             ts_display: string;
+        };
+        /**
+         * ChatPinsDTO
+         * @description The owner's pinned chat-list members. Only members still on the roster (active staff or outsource) are listed: a removed staff member or a released outsource worker leaves the list in the same write that removes it.
+         */
+        ChatPinsDTO: {
+            /**
+             * Member Ids
+             * @description Pinned members in pin order, staff and outsource in ONE list; the cockpit shows each tab's pinned rows in this relative order above that tab's default-ordered rows.
+             */
+            member_ids: string[];
+        };
+        /**
+         * ChatPinsUpdateDTO
+         * @description The complete new pin list, in order; it replaces the stored list wholesale (pin, unpin and reorder are all this one write).
+         */
+        ChatPinsUpdateDTO: {
+            /**
+             * Member Ids
+             * @description Pinned members in pin order, staff and outsource in ONE list; the cockpit shows each tab's pinned rows in this relative order above that tab's default-ordered rows. Each id must be an active staff or outsource member and appear once; an empty list unpins everyone.
+             */
+            member_ids: string[];
         };
         /**
          * ChatPostDTO
@@ -14235,6 +14285,95 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChatMarkReadReceiptDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_get_chat_pins_api_chat_pins_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatPinsDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_update_chat_pins_api_chat_pins_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatPinsUpdateDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatPinsDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */

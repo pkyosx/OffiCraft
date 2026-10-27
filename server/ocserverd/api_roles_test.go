@@ -1087,6 +1087,26 @@ func TestHandleDeleteRoleApiRolesRoleDelete(t *testing.T) {
 		}
 	})
 
+	t.Run("deleting a role deletes its members' chat pins and leaves the other pins in order", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		if err := d.PutRoleDef(RoleDef{RoleKey: "r-design", Name: "Design", DefinitionMD: "# Duty"}); err != nil {
+			t.Fatalf("PutRoleDef: %v", err)
+		}
+		if err := d.putMemberWholeRowForTest(Member{
+			ID: "m-zed", Name: "Zed", Kind: KindStaff, RoleKey: "r-design", RosterStatus: RosterStatusActive,
+		}); err != nil {
+			t.Fatalf("PutMember: %v", err)
+		}
+		if status, data := apiJSON(t, h, "PUT", "/api/chat/pins", owner, `{"member_ids":["kip","m-zed","mira"]}`); status != 200 {
+			t.Fatalf("pin: %d %v", status, data)
+		}
+
+		if status, data := apiJSON(t, h, "DELETE", "/api/roles/r-design", owner, ""); status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		chatPinWantRows(t, d, "kip", "mira")
+	})
+
 	t.Run("an already-removed member of the role is announced again to its own connection and nobody else's, and its session is sent a stop", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		if err := d.PutRoleDef(RoleDef{RoleKey: "r-design", Name: "Design", DefinitionMD: "# Duty"}); err != nil {

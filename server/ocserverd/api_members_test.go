@@ -3936,6 +3936,18 @@ func TestHandleDismissMemberApiMembersMemberIdDelete(t *testing.T) {
 		bystander.wantFrames()
 	})
 
+	t.Run("a dismissal deletes the member's chat pin and leaves the other pins in order", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		if status, data := apiJSON(t, h, "PUT", "/api/chat/pins", owner, `{"member_ids":["mira","kip"]}`); status != 200 {
+			t.Fatalf("pin: %d %v", status, data)
+		}
+
+		if status, data := apiJSON(t, h, "DELETE", "/api/members/kip", owner, ""); status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		chatPinWantRows(t, d, "mira")
+	})
+
 	t.Run("a member id nothing carries answers 404 naming it and fans nothing", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		dashboard := apiTestListen(t, api, "")

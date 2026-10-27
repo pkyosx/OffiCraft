@@ -84,6 +84,10 @@ export interface Messages {
   secretDeleteConfirmBody: (name: string) => string;
   // ── office ──
   outsourceLabel: (codename: string) => string;
+  pinDragPickedUp: (name: string) => string;
+  pinDragOverPinned: (name: string, position: number) => string;
+  pinDragDroppedPinned: (name: string, position: number) => string;
+  pinDragCancelled: (name: string) => string;
   // ── chat ──
   chatOfflineTitle: (name: string) => string;
   chatOfflineQueueHint: (name: string) => string;
@@ -415,6 +419,15 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     // worded template), so a theme could re-word one and not the other.
     outsourceLabel: (codename) =>
       `${t.office.outsource.title} · ${codename}`,
+
+    pinDragPickedUp: (name) =>
+      `${t.office.pins.pickedUpLead}${name}${t.office.pins.pickedUpTail}`,
+    pinDragOverPinned: (name, position) =>
+      `${name}${t.office.pins.overPinnedMid}${position}${t.office.pins.overPinnedTail}`,
+    pinDragDroppedPinned: (name, position) =>
+      `${name}${t.office.pins.droppedPinnedMid}${position}${t.office.pins.droppedPinnedTail}`,
+    pinDragCancelled: (name) =>
+      `${t.office.pins.cancelledLead}${name}${t.office.pins.cancelledTail}`,
 
     chatOfflineTitle: (name) => `${name} ${chat.offlineTitleSuffix}`,
     chatOfflineQueueHint: (name) =>

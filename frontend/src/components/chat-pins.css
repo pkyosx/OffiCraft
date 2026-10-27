@@ -1,0 +1,121 @@
+/* Office chat list 已置頂 section + long-press drag (ChatPinList). */
+.chat-pins__title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.chat-pins__section {
+  display: flex;
+  flex-direction: column;
+  gap: inherit;
+  flex: none;
+}
+/* --color-text-muted, not --color-border: the office theme's border token is
+ * the card colour, so a border-coloured line all but vanishes. */
+.chat-pins__rule {
+  flex: none;
+  height: 2px;
+  margin: 6px 0;
+  border-radius: 1px;
+  background: var(--color-text-muted);
+}
+
+/* Sits on the name's first line; the negative margins keep a 24px box from
+ * growing the 21px line. */
+.chat-pins__toggle {
+  position: relative;
+  flex: none;
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin: -1.5px -4px -1.5px -2px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--color-text-muted);
+  opacity: 0.7;
+  cursor: pointer;
+}
+.chat-pins__toggle:hover,
+.chat-pins__toggle:focus-visible {
+  opacity: 1;
+  color: var(--color-text-strong);
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
+}
+.chat-pins__toggle--on,
+.chat-pins__toggle--on:hover,
+.chat-pins__toggle--on:focus-visible {
+  opacity: 1;
+  color: var(--color-accent);
+}
+.chat-pins__toggle--on svg {
+  fill: currentColor;
+}
+@media (hover: none) {
+  .chat-pins__toggle::after {
+    content: "";
+    position: absolute;
+    inset: -4px;
+  }
+}
+
+/* The long-press would otherwise also open iOS's callout / text selection. */
+.chat-pins__row {
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+.chat-pins__row.chat-pins__row--placeholder {
+  border: 1px dashed color-mix(in srgb, var(--color-accent) 55%, transparent);
+  background: var(--color-accent-soft);
+}
+.chat-pins__row.chat-pins__row--placeholder > * {
+  visibility: hidden;
+}
+
+.chat-pins__lifted {
+  border-radius: var(--radius-card);
+  transform: scale(1.04);
+  animation: chat-pins-lift 160ms ease-out;
+  cursor: grabbing;
+}
+.chat-pins__wobble {
+  border-radius: var(--radius-card);
+  background: var(--color-card);
+  outline: 1px solid color-mix(in srgb, var(--color-accent) 40%, transparent);
+  box-shadow:
+    0 10px 24px color-mix(in srgb, var(--color-shadow) 45%, transparent),
+    0 2px 6px color-mix(in srgb, var(--color-shadow) 30%, transparent);
+  animation: chat-pins-wobble 0.32s ease-in-out infinite alternate;
+}
+@keyframes chat-pins-lift {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(1.04);
+  }
+}
+@keyframes chat-pins-wobble {
+  from {
+    transform: rotate(-0.6deg);
+  }
+  to {
+    transform: rotate(0.6deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-pins__lifted,
+  .chat-pins__wobble {
+    animation: none;
+  }
+}

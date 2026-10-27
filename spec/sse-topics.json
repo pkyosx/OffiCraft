@@ -3,6 +3,7 @@
   "source": "server/ocserverd/hub.go (sseTopics)",
   "topics": [
     "chat",
+    "chat_pin",
     "chat_read",
     "context",
     "global_context",

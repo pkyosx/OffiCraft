@@ -337,6 +337,44 @@ describe("httpApi · perf-light query contracts (T-2b9d/cf91/ec2c)", () => {
   });
 });
 
+describe("httpApi · chat pins wire shape", () => {
+  it("getChatPins GETs /api/chat/pins and answers its member_ids in order", async () => {
+    fetchMock.mockImplementation(async () => jsonResponse({ member_ids: ["mira", "ow-1"] }));
+    expect(await httpApi.getChatPins()).toEqual(["mira", "ow-1"]);
+    expect(await lastRequest()).toEqual({ url: "/api/chat/pins", method: "GET", body: undefined });
+  });
+
+  it("putChatPins PUTs the whole list as {member_ids} and answers the stored list", async () => {
+    fetchMock.mockImplementation(async () => jsonResponse({ member_ids: ["ow-1", "mira"] }));
+    expect(await httpApi.putChatPins(["ow-1", "mira"])).toEqual(["ow-1", "mira"]);
+    expect(await lastRequest()).toEqual({
+      url: "/api/chat/pins",
+      method: "PUT",
+      body: '{"member_ids":["ow-1","mira"]}',
+    });
+  });
+
+  it("putChatPins rejects with the server's 422 envelope", async () => {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(
+        {
+          error: {
+            code: codeForStatus(422),
+            message: "member_ids: 'gone' is not an active staff or outsource member",
+          },
+        },
+        422,
+      ),
+    );
+    const err = await httpApi.putChatPins(["gone"]).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(422);
+    expect((err as ApiError).serverMessage).toBe(
+      "member_ids: 'gone' is not an active staff or outsource member",
+    );
+  });
+});
+
 describe("httpApi · deleteRole 409 error contract (unified envelope)", () => {
   it("rejects with an ApiError carrying the envelope on member-online", async () => {
     fetchMock.mockImplementation(async () =>

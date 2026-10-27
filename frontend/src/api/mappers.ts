@@ -1459,6 +1459,11 @@ type WireThemeBundle = components["schemas"]["ThemeBundleDTO"];
 type WireThemeListItem = components["schemas"]["ThemeListItemDTO"];
 type WireThemeWriteReceipt = components["schemas"]["ThemeWriteReceiptDTO"];
 type WireThemeDeleteResult = components["schemas"]["ThemeDeleteResultDTO"];
+type WireChatPins = components["schemas"]["ChatPinsDTO"];
+
+export function toChatPins(w: WireChatPins): string[] {
+  return [...w.member_ids];
+}
 
 /** ThemeBundleDTO → ThemeBundle. Every optional overlay is carried through
  * VERBATIM when present and left ABSENT when absent — never fabricated to an

@@ -6,6 +6,8 @@ import { avatarKindForMember } from "../lib/avatarKind";
 import { PresenceBadge } from "./PresenceBadge";
 import { PresenceAvatar } from "./PresenceAvatar";
 import { NameWithActivity } from "./MemberActivity";
+import { ChatPinToggle } from "./ChatPinList";
+import type { ChatPinRow } from "./ChatPinList";
 
 interface MemberCardProps {
   member: Member;
@@ -14,6 +16,9 @@ interface MemberCardProps {
   onOpenDetail: () => void;
   /** row click (anywhere but the avatar) → open the chat room for this member */
   onChat: () => void;
+  /** Drag wiring from ChatPinList (the office sidebar); absent elsewhere. */
+  sortable?: ChatPinRow;
+  pin?: { pinned: boolean; onToggle: () => void };
 }
 
 export function MemberCard({
@@ -21,6 +26,8 @@ export function MemberCard({
   selected,
   onOpenDetail,
   onChat,
+  sortable,
+  pin,
 }: MemberCardProps) {
   const { t } = useI18n();
   // Is the owner actually looking at the cockpit (window focused + tab
@@ -34,10 +41,21 @@ export function MemberCard({
     // it opens the member detail panel (the old row-body behaviour), with
     // stopPropagation so it never also triggers the row's chat jump.
     <div
-      className={`member-card${selected ? " member-card--selected" : ""}`}
-      onClick={onChat}
+      {...sortable?.attributes}
+      {...sortable?.listeners}
+      ref={sortable?.ref}
+      style={sortable?.style}
+      className={`member-card${selected ? " member-card--selected" : ""}${
+        sortable ? ` ${sortable.className}` : ""
+      }`}
+      onClick={() => {
+        if (!sortable || sortable.canActivate()) onChat();
+      }}
       onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
+        sortable?.listeners?.onKeyDown?.(e);
+        if (e.defaultPrevented || (sortable && !sortable.canActivate())) return;
+        // With drag wiring, Space belongs to the keyboard drag.
+        if (e.key === "Enter" || (!sortable && e.key === " ")) {
           e.preventDefault();
           onChat();
         }
@@ -74,6 +92,13 @@ export function MemberCard({
           >
             <span className="member-card__name">{member.name}</span>
           </NameWithActivity>
+          {pin && (
+            <ChatPinToggle
+              pinned={pin.pinned}
+              onToggle={pin.onToggle}
+              testId={`chat-pin-${member.id}`}
+            />
+          )}
         </div>
         {/* Line 2: the runtime warning mark and the role. Presence is the
          * avatar-corner dot (PresenceAvatar), the same on every identity

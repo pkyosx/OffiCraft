@@ -139,7 +139,7 @@ export function useOutsourceWorkers(): UseOutsourceWorkers {
           return refetch().catch(() => {});
         });
 
-    // ONE decision per burst of deltas: a resync fans 13 topics synchronously
+    // ONE decision per burst of deltas: a resync fans 14 topics synchronously
     // and this hook listens to four of them — that used to be four identical
     // list re-pulls for one reconnect.
     const unsubscribe = api.subscribeEvents(

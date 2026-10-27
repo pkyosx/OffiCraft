@@ -9,6 +9,8 @@ import { useMembers } from "../hooks/useMembers";
 import { useMonitoring } from "../hooks/useMonitoring";
 import { useOutsourceWorkers } from "../hooks/useOutsourceWorkers";
 import { useIsMobile } from "../hooks/useIsMobile";
+import { useChatPins } from "../hooks/useChatPins";
+import { orderByPins } from "../lib/chatPins";
 import { joinSessionRuntime, findSessionFor } from "../lib/runtime";
 import { useHashRoute } from "../lib/hashRoute";
 import { openChatAttachErrorScope } from "../lib/chatDraftStore";
@@ -23,6 +25,7 @@ import { WorkerDetailPanel } from "./WorkerDetailPanel";
 import { OutsourcePanel, OutsourceTaskLine } from "./OutsourcePanel";
 import { OfficeSidebarTabs } from "./OfficeSidebarTabs";
 import { OutsourceCapPopover } from "./OutsourceCapPopover";
+import { ChatPinList } from "./ChatPinList";
 import { ChevronLeftIcon, PersonPlusIcon } from "./icons";
 import "./office.css";
 
@@ -222,6 +225,16 @@ export function OfficePage({
   // the outsource chat peers — a worker id rides the SAME chatId hash slot).
   const outsource = useOutsourceWorkers();
 
+  // Sidebar display order (and the desktop default chat below); the
+  // @-mention picker keeps its own order.
+  const { pins, saveFailed: pinSaveFailed, toggle, reorder } = useChatPins(
+    !loading && !error && !outsource.loading && !outsource.error
+      ? new Set([...roster.map((m) => m.id), ...outsource.workers.map((w) => w.id)])
+      : null,
+  );
+  const staffList = orderByPins(roster, pins, (m) => m.id);
+  const outsourceList = orderByPins(outsource.workers, pins, (w) => w.id);
+
   // T-66a8 tab badges — each tab's area unread TOTAL (the red count pill; 0 →
   // no badge). A member/worker whose chat is open + watched already reads to
   // 0 server-side, so it naturally drops out of the sum — no per-row
@@ -328,7 +341,7 @@ export function OfficePage({
   // the origin conversation (T-661b). Only the empty-selection default falls back.
   const selected = selectedId
     ? roster.find((m) => m.id === selectedId)
-    : roster[0];
+    : staffList.ordered[0];
 
   // The chat history is keyed by PEER ID (listChat/adapter), independent of the
   // peer still being live — so an EXPLICIT chatId that resolves to neither a
@@ -782,25 +795,51 @@ export function OfficePage({
           {activeTab === "staff" && error && (
             <div className="office__error">{t.office.loadError}</div>
           )}
-          {activeTab === "staff" ? (
-            <div className="office__members-list">
-              {roster.map((member) => (
-                <MemberCard
-                  key={member.id}
-                  member={member}
-                  // On mobile the roster stands alone (no persistent chat), so no
-                  // fallback highlight; on desktop the roster[0] fallback stays lit
-                  // next to its open chat — unless an OUTSOURCE chat is open (the
-                  // highlight then belongs to the worker row below, never both).
-                  selected={
-                    !workerPeer &&
-                    member.id === (isMobile ? selectedId : (selected?.id ?? ""))
-                  }
-                  onOpenDetail={() => setDetailId(member.id)}
-                  onChat={() => setSelectedId(member.id)}
-                />
-              ))}
+          {pinSaveFailed && (
+            <div className="office__error" role="alert" data-testid="chat-pins-save-error">
+              {t.office.pins.saveError}
             </div>
+          )}
+          {activeTab === "staff" ? (
+            <ChatPinList
+              className="office__members-list"
+              ids={staffList.ordered.map((m) => m.id)}
+              pinnedCount={staffList.pinnedIds.length}
+              nameOf={(id) => roster.find((m) => m.id === id)?.name ?? id}
+              onReorder={(id, index) => reorder(id, index, staffList.pinnedIds)}
+              renderRow={(id, sortable) => {
+                const member = roster.find((m) => m.id === id)!;
+                return (
+                  <MemberCard
+                    member={member}
+                    // On mobile the roster stands alone (no persistent chat), so no
+                    // fallback highlight; on desktop the default (first shown) row stays
+                    // lit next to its open chat — unless an OUTSOURCE chat is open (the
+                    // highlight then belongs to the worker row below, never both).
+                    selected={
+                      !workerPeer &&
+                      member.id === (isMobile ? selectedId : (selected?.id ?? ""))
+                    }
+                    onOpenDetail={() => setDetailId(member.id)}
+                    onChat={() => setSelectedId(member.id)}
+                    sortable={sortable}
+                    pin={{
+                      pinned: staffList.pinnedIds.includes(member.id),
+                      onToggle: () => toggle(member.id, staffList.pinnedIds),
+                    }}
+                  />
+                );
+              }}
+              renderOverlay={(id) => (
+                <MemberCard
+                  member={roster.find((m) => m.id === id)!}
+                  selected={false}
+                  onOpenDetail={() => {}}
+                  onChat={() => {}}
+                  pin={{ pinned: true, onToggle: () => {} }}
+                />
+              )}
+            />
           ) : (
             // M3 §4: the 外包 worker list (list-only since T-66a8 — the tab
             // owns the switch, the count moved to the tab sub-line, and the
@@ -808,7 +847,7 @@ export function OfficePage({
             // opens the worker's chat channel (the worker id rides the SAME
             // chatId hash slot as a member chat).
             <OutsourcePanel
-              workers={outsource.workers}
+              workers={outsourceList.ordered}
               error={outsource.error}
               maxParallel={outsource.maxParallel}
               selectedId={workerPeer?.id ?? ""}
@@ -817,6 +856,11 @@ export function OfficePage({
               // The row's task-id chip jumps to the bound task's card — the same
               // #tasks/<id> locate-anchor route the reply cards use.
               onOpenTask={(taskId) => setRoute({ page: "tasks", taskId })}
+              pins={{
+                pinnedCount: outsourceList.pinnedIds.length,
+                onToggle: (id) => toggle(id, outsourceList.pinnedIds),
+                onReorder: (id, index) => reorder(id, index, outsourceList.pinnedIds),
+              }}
             />
           )}
           {/* 招攬新成員 — pinned at the sidebar bottom (owner mockup

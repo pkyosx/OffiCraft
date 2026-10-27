@@ -568,6 +568,18 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Path:    "/api/chat/reads",
 			Handler: w.HandleListChatReadsApiChatReadsGet,
 		}),
+		Gated(principalOwner, routeDef{
+			Method:     "GET",
+			Path:       "/api/chat/pins",
+			Handler:    w.HandleGetChatPinsApiChatPinsGet,
+			MCPExclude: true,
+		}),
+		Gated(principalOwner, routeDef{
+			Method:     "PUT",
+			Path:       "/api/chat/pins",
+			Handler:    w.HandleUpdateChatPinsApiChatPinsPut,
+			MCPExclude: true,
+		}),
 		Gated(principalMachine, routeDef{
 			Method:  "POST",
 			Path:    "/api/reply-cards",

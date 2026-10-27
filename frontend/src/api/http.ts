@@ -129,6 +129,7 @@ import {
   toChatMessage,
   toChatRead,
   toChatMarkReadReceipt,
+  toChatPins,
   toGalleryAttachment,
   toReplyCard,
   toReplyCardRow,
@@ -435,6 +436,7 @@ export const SSE_RESYNC_TOPICS = [
   "member",
   "chat",
   "chat_read",
+  "chat_pin",
   "reply_card",
   "task",
   "task_manual",
@@ -484,7 +486,7 @@ export function toSseDelta(topic: string, payload: unknown): SseDelta {
 // callback may (un)subscribe during the fan-out.
 // A resync NAMES NOTHING on purpose: the stream has no replay, so what was
 // missed is unknowable and every subscriber has to re-pull its whole snapshot.
-// The whole fan is SYNCHRONOUS, which is what lets a subscriber coalesce the 13
+// The whole fan is SYNCHRONOUS, which is what lets a subscriber coalesce the 14
 // topics into one refetch (lib/deltaSink.ts) — do not make this loop async.
 //
 // 🔴 EVERY CALL IS ISOLATED, and the comment this replaced is why. It used to
@@ -1615,6 +1617,16 @@ export const httpApi: Api = {
       }),
     );
     return wire.map(toChatRead);
+  },
+
+  async getChatPins(): Promise<string[]> {
+    return toChatPins(unwrap(await client.GET("/api/chat/pins")));
+  },
+
+  async putChatPins(memberIds: string[]): Promise<string[]> {
+    return toChatPins(
+      unwrap(await client.PUT("/api/chat/pins", { body: { member_ids: memberIds } })),
+    );
   },
 
   async listReplyCards(
