@@ -982,6 +982,20 @@ export interface OutsourceWorkerView {
 /** One task type (任務手冊) in the LIGHT list shape the tasks page needs for
  * its type filter (所有 ／ 各手冊類型 ／ 自由代辦). The full manual editor
  * (設定 › 任務手冊) reads the FULL `TaskManualView` instead. */
+/** One of the owner's chat-list groups (GET /api/chat/groups). */
+export interface ChatGroupView {
+  id: string;
+  tab: "staff" | "outsource";
+  name: string;
+  memberIds: string[];
+  /** Outsource groups only: task types whose new workers join this group. */
+  taskTypeKeys: string[];
+}
+
+/** A group in the complete state PUT /api/chat/groups replaces; `id` is null
+ * for a group the server has not created yet. */
+export type ChatGroupWrite = Omit<ChatGroupView, "id"> & { id: string | null };
+
 export interface TaskTypeView {
   typeKey: string;
   displayName: string;
@@ -2323,13 +2337,13 @@ export interface Api {
    * The UI reads the PEER's receipt to know how far the peer has read the owner's
    * messages (drives the per-message "read ✓" badge). */
   listChatReads(peer: string): Promise<ChatReadReceipt[]>;
-  /** The owner's pinned chat-list member ids, staff and outsource in ONE list,
-   * in pin order (`GET /api/chat/pins`). */
-  getChatPins(): Promise<string[]>;
-  /** Replace the whole pin list (`PUT /api/chat/pins`) and answer the stored
-   * list. 422 when an id repeats or is not an active staff / outsource member;
-   * nothing is written then. */
-  putChatPins(memberIds: string[]): Promise<string[]>;
+  /** The owner's chat-list groups, staff groups first, each tab in display order. */
+  getChatGroups(): Promise<ChatGroupView[]>;
+  /** Replace both tabs' groups (`PUT /api/chat/groups`) and answer the stored
+   * state, with server ids for the new groups. 422 on a bad name, a repeated
+   * or wrong-tab member, a staff group with task types, an unknown group or
+   * task type; nothing is written then. */
+  putChatGroups(groups: ChatGroupWrite[]): Promise<ChatGroupView[]>;
   /**
    * List reply cards (`GET /api/reply-cards?status=`). `waiting` returns every
    * card still waiting for the owner, LONGEST-WAITING FIRST (created_ts

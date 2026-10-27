@@ -1654,19 +1654,17 @@ func TestReleaseWorkersForTask(t *testing.T) {
 		dalWantWorker(t, d, dalReleasedWorker(worker, 1800000000))
 	})
 
-	t.Run("each released worker's chat pin is deleted and a pin on a worker elsewhere stays", func(t *testing.T) {
+	t.Run("each released worker leaves its chat group and a worker on another task stays", func(t *testing.T) {
 		d := newAPITestDAL(t)
 		dalWorkerOnTask(t, d, "ow-1", "O-1", "T-1", 100)
 		dalWorkerOnTask(t, d, "ow-2", "O-2", "T-1", 200)
 		dalWorkerOnTask(t, d, "ow-9", "O-9", "T-2", 300)
-		if err := replaceChatPinsOn(d.wdb, []string{"ow-2", "ow-9", "ow-1"}); err != nil {
-			t.Fatalf("replaceChatPinsOn: %v", err)
-		}
+		chatGroupSeed(t, d, chatGroupWrite("cg-ops", "outsource", "Ops", []string{"ow-2", "ow-9", "ow-1"}, nil))
 
 		if _, err := d.ReleaseWorkersForTask("T-1", 1800000000); err != nil {
 			t.Fatalf("ReleaseWorkersForTask: %v", err)
 		}
-		chatPinWantRows(t, d, "ow-9")
+		chatGroupWantMemberRows(t, d, "ow-9")
 	})
 
 	t.Run("a task nobody works on flips nothing", func(t *testing.T) {
@@ -1701,18 +1699,16 @@ func TestReleaseWorkerByID(t *testing.T) {
 		dalWantWorker(t, d, successor)
 	})
 
-	t.Run("the released worker's chat pin is deleted and the other worker's stays", func(t *testing.T) {
+	t.Run("the released worker leaves its chat group and the other worker stays", func(t *testing.T) {
 		d := newAPITestDAL(t)
 		dalWorkerOnTask(t, d, "ow-1", "O-1", "T-1", 100)
 		dalWorkerOnTask(t, d, "ow-2", "O-2", "T-1", 200)
-		if err := replaceChatPinsOn(d.wdb, []string{"ow-1", "ow-2"}); err != nil {
-			t.Fatalf("replaceChatPinsOn: %v", err)
-		}
+		chatGroupSeed(t, d, chatGroupWrite("cg-ops", "outsource", "Ops", []string{"ow-1", "ow-2"}, nil))
 
 		if _, err := d.ReleaseWorkerByID("ow-1", 1800000000); err != nil {
 			t.Fatalf("ReleaseWorkerByID: %v", err)
 		}
-		chatPinWantRows(t, d, "ow-2")
+		chatGroupWantMemberRows(t, d, "ow-2")
 	})
 
 	t.Run("an already-released worker is a nil no-op that does not restamp it", func(t *testing.T) {

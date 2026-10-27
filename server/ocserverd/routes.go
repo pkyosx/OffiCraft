@@ -570,14 +570,14 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 		}),
 		Gated(principalOwner, routeDef{
 			Method:     "GET",
-			Path:       "/api/chat/pins",
-			Handler:    w.HandleGetChatPinsApiChatPinsGet,
+			Path:       "/api/chat/groups",
+			Handler:    w.HandleGetChatGroupsApiChatGroupsGet,
 			MCPExclude: true,
 		}),
 		Gated(principalOwner, routeDef{
 			Method:     "PUT",
-			Path:       "/api/chat/pins",
-			Handler:    w.HandleUpdateChatPinsApiChatPinsPut,
+			Path:       "/api/chat/groups",
+			Handler:    w.HandleUpdateChatGroupsApiChatGroupsPut,
 			MCPExclude: true,
 		}),
 		Gated(principalMachine, routeDef{

@@ -9,8 +9,9 @@ import { useMembers } from "../hooks/useMembers";
 import { useMonitoring } from "../hooks/useMonitoring";
 import { useOutsourceWorkers } from "../hooks/useOutsourceWorkers";
 import { useIsMobile } from "../hooks/useIsMobile";
-import { useChatPins } from "../hooks/useChatPins";
-import { orderByPins } from "../lib/chatPins";
+import { useChatGroups } from "../hooks/useChatGroups";
+import { layoutTab } from "../lib/chatGroups";
+import type { TaskTypeView } from "../api/adapter";
 import { joinSessionRuntime, findSessionFor } from "../lib/runtime";
 import { useHashRoute } from "../lib/hashRoute";
 import { openChatAttachErrorScope } from "../lib/chatDraftStore";
@@ -25,8 +26,7 @@ import { WorkerDetailPanel } from "./WorkerDetailPanel";
 import { OutsourcePanel, OutsourceTaskLine } from "./OutsourcePanel";
 import { OfficeSidebarTabs } from "./OfficeSidebarTabs";
 import { OutsourceCapPopover } from "./OutsourceCapPopover";
-import { ChatPinList } from "./ChatPinList";
-import type { ChatPinCollapsed } from "./ChatPinList";
+import { ChatGroupPanel } from "./ChatGroupPanel";
 import { ChevronLeftIcon, PersonPlusIcon } from "./icons";
 import "./office.css";
 
@@ -104,12 +104,9 @@ export function OfficePage({
   // state (not persisted) — the tab is a view toggle, not a route.
   const [activeTab, setActiveTab] = useState<"staff" | "outsource">("staff");
   // Per tab, for this mount only (like the task page's lanes).
-  const [pinSections, setPinSections] = useState<
-    Record<"staff" | "outsource", ChatPinCollapsed>
-  >({
-    staff: { pinned: false, rest: false },
-    outsource: { pinned: false, rest: false },
-  });
+  const [groupCollapsed, setGroupCollapsed] = useState<
+    Record<"staff" | "outsource", Record<string, boolean>>
+  >({ staff: {}, outsource: {} });
   // The 外包上限設定 popover, opened by the 招攬新成員 button at the sidebar
   // bottom while the 外包 tab is active. OfficePage owns the open state + the
   // outside-click dismissal (the button and popover share an anchor wrapper).
@@ -235,19 +232,25 @@ export function OfficePage({
 
   // Sidebar display order (and the desktop default chat below); the
   // @-mention picker keeps its own order.
-  const {
-    pins,
-    settled: pinsSettled,
-    error: pinError,
-    toggle,
-    reorder,
-  } = useChatPins(
+  const chatGroups = useChatGroups(
     !loading && !error && !outsource.loading && !outsource.error
       ? new Set([...roster.map((m) => m.id), ...outsource.workers.map((w) => w.id)])
       : null,
   );
-  const staffList = orderByPins(roster, pins, (m) => m.id);
-  const outsourceList = orderByPins(outsource.workers, pins, (w) => w.id);
+  const staffLayout = layoutTab(chatGroups.groups, "staff", roster, (m) => m.id);
+  const staffShown = [...staffLayout.sections.flatMap((x) => x.items), ...staffLayout.ungrouped];
+  // The 自動加入 checklist's task types; a failed read leaves it empty.
+  const [taskTypes, setTaskTypes] = useState<TaskTypeView[]>([]);
+  useEffect(() => {
+    let alive = true;
+    api
+      .listTaskTypes()
+      .then((list) => alive && setTaskTypes(list))
+      .catch((e) => console.warn("OfficePage: task types load failed", e));
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // T-66a8 tab badges — each tab's area unread TOTAL (the red count pill; 0 →
   // no badge). A member/worker whose chat is open + watched already reads to
@@ -355,10 +358,10 @@ export function OfficePage({
   // the origin conversation (T-661b). Only the empty-selection default falls back.
   const selected = selectedId
     ? roster.find((m) => m.id === selectedId)
-    : // Wait for the pins so the default chat is not first roster[0] and then
-      // the first pin (opening a chat marks it read).
-      pinsSettled
-      ? staffList.ordered[0]
+    : // Wait for the groups so the default chat is not first roster[0] and
+      // then the first grouped row (opening a chat marks it read).
+      chatGroups.settled
+      ? staffShown[0]
       : undefined;
 
   // The chat history is keyed by PEER ID (listChat/adapter), independent of the
@@ -813,22 +816,24 @@ export function OfficePage({
           {activeTab === "staff" && error && (
             <div className="office__error">{t.office.loadError}</div>
           )}
-          {pinError && (
-            <div className="office__error" role="alert" data-testid="chat-pins-error">
-              {pinError === "load" ? t.office.pins.loadError : t.office.pins.saveError}
+          {chatGroups.error && (
+            <div className="office__error" role="alert" data-testid="chat-groups-error">
+              {chatGroups.error === "load" ? t.office.groups.loadError : t.office.groups.saveError}
             </div>
           )}
           {activeTab === "staff" ? (
-            <ChatPinList
+            <ChatGroupPanel
+              tab="staff"
               className="office__members-list"
-              ids={staffList.ordered.map((m) => m.id)}
-              pinnedCount={staffList.pinnedIds.length}
+              ids={roster.map((m) => m.id)}
+              groups={chatGroups.groups}
+              update={chatGroups.update}
+              newGroupId={chatGroups.newGroupId}
+              mobile={isMobile}
               nameOf={(id) => roster.find((m) => m.id === id)?.name ?? id}
-              onReorder={(id, index) => reorder(id, index, staffList.pinnedIds)}
-              restTitle={t.office.pins.restStaffTitle}
               unreadOf={(id) => roster.find((m) => m.id === id)?.unreadCount ?? 0}
-              collapsed={pinSections.staff}
-              onCollapsedChange={(next) => setPinSections((s) => ({ ...s, staff: next }))}
+              collapsed={groupCollapsed.staff}
+              onCollapsedChange={(next) => setGroupCollapsed((s) => ({ ...s, staff: next }))}
               renderRow={(id, sortable) => {
                 const member = roster.find((m) => m.id === id)!;
                 return (
@@ -845,10 +850,6 @@ export function OfficePage({
                     onOpenDetail={() => setDetailId(member.id)}
                     onChat={() => setSelectedId(member.id)}
                     sortable={sortable}
-                    pin={{
-                      pinned: staffList.pinnedIds.includes(member.id),
-                      onToggle: () => toggle(member.id, staffList.pinnedIds),
-                    }}
                   />
                 );
               }}
@@ -858,7 +859,6 @@ export function OfficePage({
                   selected={false}
                   onOpenDetail={() => {}}
                   onChat={() => {}}
-                  pin={{ pinned: true, onToggle: () => {} }}
                 />
               )}
             />
@@ -869,7 +869,7 @@ export function OfficePage({
             // opens the worker's chat channel (the worker id rides the SAME
             // chatId hash slot as a member chat).
             <OutsourcePanel
-              workers={outsourceList.ordered}
+              workers={outsource.workers}
               error={outsource.error}
               maxParallel={outsource.maxParallel}
               selectedId={workerPeer?.id ?? ""}
@@ -878,13 +878,15 @@ export function OfficePage({
               // The row's task-id chip jumps to the bound task's card — the same
               // #tasks/<id> locate-anchor route the reply cards use.
               onOpenTask={(taskId) => setRoute({ page: "tasks", taskId })}
-              pins={{
-                pinnedCount: outsourceList.pinnedIds.length,
-                onToggle: (id) => toggle(id, outsourceList.pinnedIds),
-                onReorder: (id, index) => reorder(id, index, outsourceList.pinnedIds),
-                collapsed: pinSections.outsource,
+              grouping={{
+                groups: chatGroups.groups,
+                update: chatGroups.update,
+                newGroupId: chatGroups.newGroupId,
+                mobile: isMobile,
+                taskTypes,
+                collapsed: groupCollapsed.outsource,
                 onCollapsedChange: (next) =>
-                  setPinSections((s) => ({ ...s, outsource: next })),
+                  setGroupCollapsed((s) => ({ ...s, outsource: next })),
               }}
             />
           )}

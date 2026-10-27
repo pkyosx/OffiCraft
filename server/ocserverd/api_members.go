@@ -1138,7 +1138,7 @@ func dismissStaffOn(tx *writeTx, m *Member, now float64) error {
 	before := *m
 	applyStopVerbRow(stopVerbRowOfMember(m), *m, now)
 	m.RosterStatus = RosterStatusRemoved
-	if err := deleteChatPinOn(tx, m.ID); err != nil {
+	if err := deleteChatGroupMemberOn(tx, m.ID); err != nil {
 		return err
 	}
 	return persistMemberRowOn(tx, before, *m)

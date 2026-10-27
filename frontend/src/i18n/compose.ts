@@ -84,11 +84,16 @@ export interface Messages {
   secretDeleteConfirmBody: (name: string) => string;
   // ── office ──
   outsourceLabel: (codename: string) => string;
-  pinSectionHeading: (title: string, count: number) => string;
-  pinDragPickedUp: (name: string) => string;
-  pinDragOverPinned: (name: string, position: number) => string;
-  pinDragDroppedPinned: (name: string, position: number) => string;
-  pinDragCancelled: (name: string) => string;
+  groupHeading: (name: string, count: number) => string;
+  groupDeleteConfirm: (name: string) => string;
+  groupCurrentlyIn: (name: string) => string;
+  groupBringIn: (count: number, typeName: string, groupName: string) => string;
+  groupDragPickedUp: (name: string) => string;
+  groupDragOverGroup: (name: string, group: string) => string;
+  groupDragDroppedGroup: (name: string, group: string) => string;
+  groupDragOverPosition: (name: string, position: number) => string;
+  groupDragDroppedPosition: (name: string, position: number) => string;
+  groupDragCancelled: (name: string) => string;
   // ── chat ──
   chatOfflineTitle: (name: string) => string;
   chatOfflineQueueHint: (name: string) => string;
@@ -421,15 +426,20 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     outsourceLabel: (codename) =>
       `${t.office.outsource.title} · ${codename}`,
 
-    pinSectionHeading: (title, count) => `${title}${t.office.pins.countSep}${count}`,
-    pinDragPickedUp: (name) =>
-      `${t.office.pins.pickedUpLead}${name}${t.office.pins.pickedUpTail}`,
-    pinDragOverPinned: (name, position) =>
-      `${name}${t.office.pins.overPinnedMid}${position}${t.office.pins.overPinnedTail}`,
-    pinDragDroppedPinned: (name, position) =>
-      `${name}${t.office.pins.droppedPinnedMid}${position}${t.office.pins.droppedPinnedTail}`,
-    pinDragCancelled: (name) =>
-      `${t.office.pins.cancelledLead}${name}${t.office.pins.cancelledTail}`,
+    groupHeading: (name, count) => `${name}${t.office.groups.countSep}${count}`,
+    groupDeleteConfirm: (name) => `${t.office.groups.deleteConfirmLead}${name}${t.office.groups.deleteConfirmTail}`,
+    groupCurrentlyIn: (name) => `${t.office.groups.currentlyInLead}${name}${t.office.groups.currentlyInTail}`,
+    groupBringIn: (count, typeName, groupName) =>
+      `${t.office.groups.bringInLead}${count}${t.office.groups.bringInMid}${typeName}${t.office.groups.bringInMid2}${groupName}${t.office.groups.bringInTail}`,
+    groupDragPickedUp: (name) => `${t.office.groups.pickedUpLead}${name}${t.office.groups.pickedUpTail}`,
+    groupDragOverGroup: (name, group) => `${name}${t.office.groups.overGroupMid}${group}${t.office.groups.overGroupTail}`,
+    groupDragDroppedGroup: (name, group) =>
+      `${name}${t.office.groups.droppedGroupMid}${group}${t.office.groups.droppedGroupTail}`,
+    groupDragOverPosition: (name, position) =>
+      `${name}${t.office.groups.overPositionMid}${position}${t.office.groups.overPositionTail}`,
+    groupDragDroppedPosition: (name, position) =>
+      `${name}${t.office.groups.droppedPositionMid}${position}${t.office.groups.droppedPositionTail}`,
+    groupDragCancelled: (name) => `${t.office.groups.cancelledLead}${name}${t.office.groups.cancelledTail}`,
 
     chatOfflineTitle: (name) => `${name} ${chat.offlineTitleSuffix}`,
     chatOfflineQueueHint: (name) =>

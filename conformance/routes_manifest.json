@@ -500,14 +500,14 @@
     "auth": "gated",
     "mcp_tool": null,
     "method": "GET",
-    "path": "/api/chat/pins",
+    "path": "/api/chat/groups",
     "requires": "owner"
   },
   {
     "auth": "gated",
     "mcp_tool": null,
     "method": "PUT",
-    "path": "/api/chat/pins",
+    "path": "/api/chat/groups",
     "requires": "owner"
   },
   {

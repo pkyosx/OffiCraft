@@ -1097,8 +1097,8 @@ MATRIX: dict[str, Route] = {
         body={"peer": "owner", "last_read_ts": 1.0},
     ),
     "GET /api/chat/reads": Route(requires="machine"),
-    "GET /api/chat/pins": Route(requires="owner"),
-    "PUT /api/chat/pins": Route(requires="owner", body={"member_ids": ["mira"]}),
+    "GET /api/chat/groups": Route(requires="owner"),
+    "PUT /api/chat/groups": Route(requires="owner", body={"groups": []}),
     "GET /api/chat/unread-count": Route(requires="machine"),
     # ── reply cards ──────────────────────────────────────────────────────────
     "POST /api/reply-cards": Route(

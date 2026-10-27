@@ -10,7 +10,7 @@
 //     正職 → #settings/roles/new (角色誌 create mode), 外包 → the cap popover.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, waitFor, fireEvent } from "@testing-library/react";
+import { render, waitFor, fireEvent, screen, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
 import { OfficePage } from "./OfficePage";
 import {
@@ -20,7 +20,6 @@ import {
   __injectMockOutsourceWorker,
   __injectMockTask,
 } from "../api/mock";
-import { api } from "../api";
 import type { TaskView } from "../api/adapter";
 
 function renderOffice() {
@@ -129,33 +128,70 @@ describe("OfficePage — 招攬新成員 routing (T-66a8 req 4)", () => {
   });
 });
 
-describe("OfficePage — pinned chats", () => {
-  it("on desktop the chat opens on the first pinned member once the pins have loaded, never on roster[0] before them", async () => {
-    __injectMockMember({ id: "beto", kind: "staff", name: "Beto" });
-    await api.putChatPins(["beto", "mira"]);
-    let releasePins!: () => void;
-    const pinsRead = new Promise<void>((r) => (releasePins = r));
-    const realGet = api.getChatPins.bind(api);
-    const get = vi.spyOn(api, "getChatPins").mockImplementation(async () => {
-      await pinsRead;
-      return realGet();
-    });
-    const markRead = vi.spyOn(api, "markChatRead");
+async function groupIntoNew(row: Element, name: string) {
+  fireEvent.contextMenu(row);
+  fireEvent.click(await screen.findByTestId("chat-member-menu-move"));
+  fireEvent.click(await screen.findByTestId("chat-member-menu-move-new"));
+  const entry = await screen.findByTestId("chat-group-new-entry");
+  fireEvent.change(within(entry).getByRole("textbox"), { target: { value: name } });
+  fireEvent.submit(entry);
+}
 
+describe("OfficePage — chat groups", () => {
+  it("on desktop the default chat is the first row shown: grouping a later member puts that member first and opens its chat", async () => {
+    __injectMockMember({ id: "beto", kind: "staff", name: "Beto" });
     const { container, findAllByText } = renderOffice();
     await findAllByText("Beto");
-    expect(container.querySelector(".chat__header-name")).toBeNull();
+    await waitFor(() =>
+      expect(container.querySelector(".chat__header-name")?.textContent).toContain("Mira"),
+    );
 
-    releasePins();
+    await groupIntoNew(container.querySelector('[data-chat-row="beto"]')!, "核心");
+
     await waitFor(() =>
       expect(container.querySelector(".chat__header-name")?.textContent).toContain("Beto"),
     );
-    expect(markRead.mock.calls.map(([m]) => m.peer)).not.toContain("mira");
-    get.mockRestore();
-    markRead.mockRestore();
+    expect(
+      Array.from(container.querySelectorAll(".chat-groups__heading"), (h) => h.textContent),
+    ).toEqual(["核心 · 1", "未分組 · 1"]);
   });
 
-  it("pinning a later outsource worker moves it first in the sidebar but leaves the @-mention picker in its default order", async () => {
+  it("collapsing a group on one tab leaves the other tab's groups as they were, and survives switching tabs", async () => {
+    __injectMockOutsourceWorker({
+      id: "ow-1",
+      codename: "O-1",
+      model: "",
+      effort: "",
+      taskId: "t-1",
+      taskTitle: "",
+      taskStatus: "in_progress",
+      createdTs: Date.now() / 1000,
+    });
+    const { container, getByTestId, findByTestId } = renderOffice();
+    await waitFor(() => expect(container.querySelector('[data-chat-row="mira"]')).not.toBeNull());
+    await groupIntoNew(container.querySelector('[data-chat-row="mira"]')!, "核心");
+    const staffHead = () => container.querySelector(".chat-groups__heading")!;
+    const ungroupedHead = () => getByTestId("chat-group-heading-ungrouped");
+    fireEvent.click(staffHead());
+    fireEvent.click(ungroupedHead());
+    expect(staffHead().getAttribute("aria-expanded")).toBe("false");
+    expect(ungroupedHead().getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(getByTestId("office-tab-outsource"));
+    await findByTestId("outsource-row-ow-1");
+    expect(container.querySelectorAll(".chat-groups__heading")).toHaveLength(0);
+    await groupIntoNew(getByTestId("outsource-row-ow-1"), "外包組");
+    expect(staffHead().textContent).toBe("外包組 · 1");
+    expect(staffHead().getAttribute("aria-expanded")).toBe("true");
+    expect(ungroupedHead().getAttribute("aria-expanded")).toBe("true");
+
+    fireEvent.click(getByTestId("office-tab-staff"));
+    await waitFor(() => expect(staffHead().textContent).toBe("核心 · 1"));
+    expect(staffHead().getAttribute("aria-expanded")).toBe("false");
+    expect(ungroupedHead().getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("grouping a later outsource worker moves it first in the sidebar but leaves the @-mention picker in its default order", async () => {
     const now = Date.now() / 1000;
     const task = (id: string, createdTs: number) =>
       ({
@@ -197,16 +233,15 @@ describe("OfficePage — pinned chats", () => {
         createdTs: now,
       });
     }
-    await api.putChatPins(["mira", "ow-old"]);
 
     const { container, findByTestId, getByTestId } = renderOffice();
     fireEvent.click(getByTestId("office-tab-outsource"));
     const list = await findByTestId("outsource-list");
-    await waitFor(() =>
-      expect(
-        Array.from(list.querySelectorAll(".outsource-row"), (r) => r.getAttribute("data-testid")),
-      ).toEqual(["outsource-row-ow-old", "outsource-row-ow-new"]),
-    );
+    const order = () =>
+      Array.from(list.querySelectorAll(".outsource-row"), (r) => r.getAttribute("data-testid"));
+    await waitFor(() => expect(order()).toEqual(["outsource-row-ow-new", "outsource-row-ow-old"]));
+    await groupIntoNew(getByTestId("outsource-row-ow-old"), "舊單");
+    await waitFor(() => expect(order()).toEqual(["outsource-row-ow-old", "outsource-row-ow-new"]));
 
     const input = container.querySelector("textarea.chat__input") as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: "@" } });

@@ -89,6 +89,42 @@ func (e BootDocKind) Valid() bool {
 	}
 }
 
+// Defines values for ChatGroupDTOTab.
+const (
+	ChatGroupDTOTabOutsource ChatGroupDTOTab = "outsource"
+	ChatGroupDTOTabStaff     ChatGroupDTOTab = "staff"
+)
+
+// Valid indicates whether the value is a known member of the ChatGroupDTOTab enum.
+func (e ChatGroupDTOTab) Valid() bool {
+	switch e {
+	case ChatGroupDTOTabOutsource:
+		return true
+	case ChatGroupDTOTabStaff:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ChatGroupWriteDTOTab.
+const (
+	ChatGroupWriteDTOTabOutsource ChatGroupWriteDTOTab = "outsource"
+	ChatGroupWriteDTOTabStaff     ChatGroupWriteDTOTab = "staff"
+)
+
+// Valid indicates whether the value is a known member of the ChatGroupWriteDTOTab enum.
+func (e ChatGroupWriteDTOTab) Valid() bool {
+	switch e {
+	case ChatGroupWriteDTOTabOutsource:
+		return true
+	case ChatGroupWriteDTOTabStaff:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for MachineDiskUsageMemberDTORosterStatus.
 const (
 	Active  MachineDiskUsageMemberDTORosterStatus = "active"
@@ -1234,6 +1270,60 @@ type ChatGalleryEntryDTO struct {
 	Url       string   `json:"url"`
 }
 
+// ChatGroupDTO One of the owner's chat-list groups. Each cockpit tab (staff, outsource) has its own ordered groups; a member of that tab in no group is ungrouped, which is not stored — the cockpit shows ungrouped members after the groups, in the tab's default order.
+type ChatGroupDTO struct {
+	// Id Server-minted group id, `cg-` followed by hex; stable across renames and reorders.
+	Id string `json:"id"`
+
+	// MemberIds The group's members in display order. Only current members of the tab's kind are listed (active staff on the staff tab, active outsource workers on the outsource tab): a dismissed staff member or a released worker leaves its group in the same write that removes it. A member is in at most one group.
+	MemberIds []string `json:"member_ids"`
+
+	// Name The group's display name, trimmed, unique within its tab.
+	Name string `json:"name"`
+
+	// Tab The cockpit tab the group belongs to; fixed when the group is created.
+	Tab ChatGroupDTOTab `json:"tab"`
+
+	// TaskTypeKeys Auto-join rules (outsource groups only; always empty on a staff group): task manual type keys, in the order the owner set. A new outsource worker whose task has one of these types joins the end of this group when it is assigned. A type belongs to at most one group. Only keys that still name a task manual are listed.
+	TaskTypeKeys []string `json:"task_type_keys"`
+}
+
+// ChatGroupDTOTab The cockpit tab the group belongs to; fixed when the group is created.
+type ChatGroupDTOTab string
+
+// ChatGroupWriteDTO One group in the complete desired state sent to `PUT /api/chat/groups`.
+type ChatGroupWriteDTO struct {
+	// Id An existing group's id, or null to create a new group (the server mints its id). An id that names no current group, appears twice, or names a group of the other tab is a 422.
+	Id *string `json:"id"`
+
+	// MemberIds The group's members in display order. Each must be a current member of the tab's kind (active staff for a staff group, active outsource worker for an outsource group; never a machine) and appear once across the whole request.
+	MemberIds []string `json:"member_ids"`
+
+	// Name Display name; stored trimmed. Blank after trimming, longer than 40 characters after trimming, or equal (case-sensitive, after trimming) to another group's name in the same tab is a 422.
+	Name string `json:"name"`
+
+	// Tab The tab the group belongs to. For an existing group it must equal the group's current tab.
+	Tab ChatGroupWriteDTOTab `json:"tab"`
+
+	// TaskTypeKeys Auto-join rules, outsource groups only: a staff group must send an empty list. Each key must name a task manual (a built-in one included) and appear once across the whole request. Rules apply only to workers assigned after the write; workers already on the roster join a group only through its member_ids, which the cockpit fills when the owner chooses to move the existing ones.
+	TaskTypeKeys []string `json:"task_type_keys"`
+}
+
+// ChatGroupWriteDTOTab The tab the group belongs to. For an existing group it must equal the group's current tab.
+type ChatGroupWriteDTOTab string
+
+// ChatGroupsDTO The owner's chat-list groups for both cockpit tabs.
+type ChatGroupsDTO struct {
+	// Groups Staff groups first, then outsource groups; within each tab in display order.
+	Groups []ChatGroupDTO `json:"groups"`
+}
+
+// ChatGroupsUpdateDTO The complete desired group state for both tabs; it replaces the stored state wholesale. A stored group not listed here is deleted: its members become ungrouped and its auto-join rules are dropped.
+type ChatGroupsUpdateDTO struct {
+	// Groups Every group the owner keeps, staff and outsource together; list order is display order within each tab. More than 50 groups in one tab is a 422.
+	Groups []ChatGroupWriteDTO `json:"groups"`
+}
+
 // ChatInlineReplyCardDTO One reply card FOLDED IN PLACE onto the chat message that opened it
 // (“ChatMessageDTO.card“), so the wake snapshot reads as a single stream and
 // not as a chat list plus a card list to be joined by hand.
@@ -1336,18 +1426,6 @@ type ChatMessageDTO struct {
 
 	// TsDisplay ``ts`` rendered for a READER as ``YYYY-MM-DD HH:MM:SS ±HH:MM`` in the SERVER's local zone, e.g. ``2026-08-13 09:47:11 +08:00``. The offset is part of the string because the studio has no configured timezone setting — the string must carry its own zone or it cannot be read. The DATE IS ALWAYS WRITTEN, including for messages sent today: an agent reading a hand-off must be able to tell 「昨天」 from 「上週」 without knowing what day the snapshot was taken. ``ts`` (epoch seconds) is untouched and stays the machine-readable field.
 	TsDisplay *string `json:"ts_display,omitempty"`
-}
-
-// ChatPinsDTO The owner's pinned chat-list members. Only members still on the roster (active staff or outsource) are listed: a removed staff member or a released outsource worker leaves the list in the same write that removes it.
-type ChatPinsDTO struct {
-	// MemberIds Pinned members in pin order, staff and outsource in ONE list; the cockpit shows each tab's pinned rows in this relative order above that tab's default-ordered rows.
-	MemberIds []string `json:"member_ids"`
-}
-
-// ChatPinsUpdateDTO The complete new pin list, in order; it replaces the stored list wholesale (pin, unpin and reorder are all this one write).
-type ChatPinsUpdateDTO struct {
-	// MemberIds Pinned members in pin order, staff and outsource in ONE list; the cockpit shows each tab's pinned rows in this relative order above that tab's default-ordered rows. Each id must be an active staff or outsource member and appear once; an empty list unpins everyone.
-	MemberIds []string `json:"member_ids"`
 }
 
 // ChatPostDTO Post one chat message (§3.4 #16). “to“ is the addressee. The sender / “id“ /
@@ -5339,11 +5417,11 @@ type HandleBootstrapApiBootstrapPostJSONRequestBody = BootstrapRequestDTO
 // HandlePostChatApiChatPostJSONRequestBody defines body for HandlePostChatApiChatPost for application/json ContentType.
 type HandlePostChatApiChatPostJSONRequestBody = ChatPostDTO
 
+// HandleUpdateChatGroupsApiChatGroupsPutJSONRequestBody defines body for HandleUpdateChatGroupsApiChatGroupsPut for application/json ContentType.
+type HandleUpdateChatGroupsApiChatGroupsPutJSONRequestBody = ChatGroupsUpdateDTO
+
 // HandleMarkChatReadApiChatMarkReadPostJSONRequestBody defines body for HandleMarkChatReadApiChatMarkReadPost for application/json ContentType.
 type HandleMarkChatReadApiChatMarkReadPostJSONRequestBody = MarkChatReadDTO
-
-// HandleUpdateChatPinsApiChatPinsPutJSONRequestBody defines body for HandleUpdateChatPinsApiChatPinsPut for application/json ContentType.
-type HandleUpdateChatPinsApiChatPinsPutJSONRequestBody = ChatPinsUpdateDTO
 
 // HandleReplaceGlobalContextApiGlobalContextPostJSONRequestBody defines body for HandleReplaceGlobalContextApiGlobalContextPost for application/json ContentType.
 type HandleReplaceGlobalContextApiGlobalContextPostJSONRequestBody = GlobalContextReplaceDTO
@@ -5875,15 +5953,15 @@ type ServerInterface interface {
 	// Mint a single-file share link (?sig= HMAC; grants read of this one attachment only). Returns {url} as a SERVER-RELATIVE path — prefix it with the origin you reach this server on to get a link you can paste to someone. The sig carries NO identity and NO expiry: whoever holds the link reads that one blob without signing in, for as long as the key that signed it is still in the server's signing-key ring. No single link can be withdrawn; the only way to void one is to remove that key (POST /api/auth/signing-keys/{key_id}/remove), which voids every link it signed at once. Mint it for deliverables you meant to hand over; do not paste it anywhere the blob itself would not belong.
 	// (GET /api/chat/attachments/{attachment_id}/share-link)
 	HandleGetChatAttachmentShareLinkApiChatAttachmentsAttachmentIdShareLinkGet(w http.ResponseWriter, r *http.Request, attachmentId string)
+	// Get the owner's chat-list groups.
+	// (GET /api/chat/groups)
+	HandleGetChatGroupsApiChatGroupsGet(w http.ResponseWriter, r *http.Request)
+	// Replace the owner's chat-list groups.
+	// (PUT /api/chat/groups)
+	HandleUpdateChatGroupsApiChatGroupsPut(w http.ResponseWriter, r *http.Request)
 	// Mark a conversation read up to a watermark (reader = verified sub). Answers with a bounded receipt (“peer_id“, “last_read_ts“, “advanced“), not the stored entry echoed back — call “get_chat_reads“ when you need the rest.
 	// (POST /api/chat/mark-read)
 	HandleMarkChatReadApiChatMarkReadPost(w http.ResponseWriter, r *http.Request)
-	// Get the owner's pinned chat-list members.
-	// (GET /api/chat/pins)
-	HandleGetChatPinsApiChatPinsGet(w http.ResponseWriter, r *http.Request)
-	// Replace the owner's pinned chat-list members.
-	// (PUT /api/chat/pins)
-	HandleUpdateChatPinsApiChatPinsPut(w http.ResponseWriter, r *http.Request)
 	// List chat read receipts (?with=<peer>; per-conversation watermark).
 	// (GET /api/chat/reads)
 	HandleListChatReadsApiChatReadsGet(w http.ResponseWriter, r *http.Request, params HandleListChatReadsApiChatReadsGetParams)
@@ -7376,39 +7454,39 @@ func (siw *ServerInterfaceWrapper) HandleGetChatAttachmentShareLinkApiChatAttach
 	handler.ServeHTTP(w, r)
 }
 
+// HandleGetChatGroupsApiChatGroupsGet operation middleware
+func (siw *ServerInterfaceWrapper) HandleGetChatGroupsApiChatGroupsGet(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleGetChatGroupsApiChatGroupsGet(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HandleUpdateChatGroupsApiChatGroupsPut operation middleware
+func (siw *ServerInterfaceWrapper) HandleUpdateChatGroupsApiChatGroupsPut(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleUpdateChatGroupsApiChatGroupsPut(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // HandleMarkChatReadApiChatMarkReadPost operation middleware
 func (siw *ServerInterfaceWrapper) HandleMarkChatReadApiChatMarkReadPost(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.HandleMarkChatReadApiChatMarkReadPost(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// HandleGetChatPinsApiChatPinsGet operation middleware
-func (siw *ServerInterfaceWrapper) HandleGetChatPinsApiChatPinsGet(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.HandleGetChatPinsApiChatPinsGet(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// HandleUpdateChatPinsApiChatPinsPut operation middleware
-func (siw *ServerInterfaceWrapper) HandleUpdateChatPinsApiChatPinsPut(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.HandleUpdateChatPinsApiChatPinsPut(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -11913,9 +11991,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/chat/attachments", wrapper.HandleListChatAttachmentsApiChatAttachmentsGet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/chat/attachments", wrapper.HandleUploadChatAttachmentApiChatAttachmentsPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/chat/attachments/{attachment_id}/share-link", wrapper.HandleGetChatAttachmentShareLinkApiChatAttachmentsAttachmentIdShareLinkGet)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/chat/groups", wrapper.HandleGetChatGroupsApiChatGroupsGet)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/chat/groups", wrapper.HandleUpdateChatGroupsApiChatGroupsPut)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/chat/mark-read", wrapper.HandleMarkChatReadApiChatMarkReadPost)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/chat/pins", wrapper.HandleGetChatPinsApiChatPinsGet)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/chat/pins", wrapper.HandleUpdateChatPinsApiChatPinsPut)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/chat/reads", wrapper.HandleListChatReadsApiChatReadsGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/chat/unread-count", wrapper.HandleChatUnreadCountApiChatUnreadCountGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/diff", wrapper.HandleGetDiffApiDiffGet)

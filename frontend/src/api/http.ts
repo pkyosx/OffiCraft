@@ -123,13 +123,16 @@ import type {
   AccountCostResetReceipt,
   CostResetReceipt,
   TaskArtifactVersionView,
+  ChatGroupView,
+  ChatGroupWrite,
 } from "./adapter";
 import {
   toMember,
   toChatMessage,
   toChatRead,
   toChatMarkReadReceipt,
-  toChatPins,
+  toChatGroups,
+  toChatGroupWrite,
   toGalleryAttachment,
   toReplyCard,
   toReplyCardRow,
@@ -436,7 +439,7 @@ export const SSE_RESYNC_TOPICS = [
   "member",
   "chat",
   "chat_read",
-  "chat_pin",
+  "chat_group",
   "reply_card",
   "task",
   "task_manual",
@@ -1619,13 +1622,13 @@ export const httpApi: Api = {
     return wire.map(toChatRead);
   },
 
-  async getChatPins(): Promise<string[]> {
-    return toChatPins(unwrap(await client.GET("/api/chat/pins")));
+  async getChatGroups(): Promise<ChatGroupView[]> {
+    return toChatGroups(unwrap(await client.GET("/api/chat/groups")));
   },
 
-  async putChatPins(memberIds: string[]): Promise<string[]> {
-    return toChatPins(
-      unwrap(await client.PUT("/api/chat/pins", { body: { member_ids: memberIds } })),
+  async putChatGroups(groups: ChatGroupWrite[]): Promise<ChatGroupView[]> {
+    return toChatGroups(
+      unwrap(await client.PUT("/api/chat/groups", { body: { groups: groups.map(toChatGroupWrite) } })),
     );
   },
 

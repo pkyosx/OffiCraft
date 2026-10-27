@@ -935,7 +935,7 @@ func releaseWorkerOn(ex sqlExecer, workerID string, now float64) error {
 	if err != nil {
 		return err
 	}
-	return deleteChatPinOn(ex, workerID)
+	return deleteChatGroupMemberOn(ex, workerID)
 }
 
 // IsSeed and IsDefault are not columns: FoldTaskManual sets them. A row read

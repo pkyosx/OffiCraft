@@ -419,13 +419,16 @@ func (s *apiServer) runOutsourceTick(now float64) {
 		// The worker and the bind land together, on the task row as it is now: a
 		// task closed or taken since the read above is left alone, and a bind
 		// that fails leaves no worker behind.
-		bound := false
+		bound, grouped := false, false
 		if err := s.dal.inTx(func(tx *writeTx) error {
 			cur, err := getTaskOn(tx, t.ID)
 			if err != nil || cur == nil || !outsourceAwaitingAssignment(*cur) {
 				return err
 			}
 			if err := createMemberOn(tx, memberFromWorker(worker)); err != nil {
+				return err
+			}
+			if grouped, err = joinChatGroupByTaskTypeOn(tx, worker.ID, cur.TypeKey); err != nil {
 				return err
 			}
 			cur.ExecutorID = worker.ID
@@ -449,6 +452,9 @@ func (s *apiServer) runOutsourceTick(now float64) {
 		// boot context already carries this task.
 		s.publishOutsourceWorker(worker, triggerServer)
 		s.publishTask(*t, triggerServer)
+		if grouped {
+			s.publishChatGroups(triggerServer)
+		}
 		outsourceLog("assigned %s (%s) → task %s (type %q, model %q)",
 			worker.ID, worker.Codename, t.ID, t.TypeKey, worker.Model)
 		s.notifyWorkerSpawn(worker, now)

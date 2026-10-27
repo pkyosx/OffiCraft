@@ -6,8 +6,7 @@ import { avatarKindForMember } from "../lib/avatarKind";
 import { PresenceBadge } from "./PresenceBadge";
 import { PresenceAvatar } from "./PresenceAvatar";
 import { NameWithActivity } from "./MemberActivity";
-import { ChatPinToggle } from "./ChatPinList";
-import type { ChatPinRow } from "./ChatPinList";
+import type { ChatGroupRow } from "./ChatGroupList";
 
 interface MemberCardProps {
   member: Member;
@@ -16,9 +15,8 @@ interface MemberCardProps {
   onOpenDetail: () => void;
   /** row click (anywhere but the avatar) → open the chat room for this member */
   onChat: () => void;
-  /** Drag wiring from ChatPinList (the office sidebar); absent elsewhere. */
-  sortable?: ChatPinRow;
-  pin?: { pinned: boolean; onToggle: () => void };
+  /** Drag and menu wiring from ChatGroupList (the office sidebar); absent elsewhere. */
+  sortable?: ChatGroupRow;
 }
 
 export function MemberCard({
@@ -27,7 +25,6 @@ export function MemberCard({
   onOpenDetail,
   onChat,
   sortable,
-  pin,
 }: MemberCardProps) {
   const { t } = useI18n();
   // Is the owner actually looking at the cockpit (window focused + tab
@@ -45,6 +42,8 @@ export function MemberCard({
       {...sortable?.listeners}
       ref={sortable?.ref}
       style={sortable?.style}
+      data-chat-row={sortable?.rowId}
+      onContextMenu={sortable?.onContextMenu}
       className={`member-card${selected ? " member-card--selected" : ""}${
         sortable ? ` ${sortable.className}` : ""
       }`}
@@ -52,6 +51,7 @@ export function MemberCard({
         if (!sortable || sortable.canActivate()) onChat();
       }}
       onKeyDown={(e) => {
+        if (sortable?.menuKey(e)) return;
         sortable?.listeners?.onKeyDown?.(e);
         if (e.defaultPrevented || (sortable && !sortable.canActivate())) return;
         // With drag wiring, Space belongs to the keyboard drag.
@@ -92,14 +92,6 @@ export function MemberCard({
           >
             <span className="member-card__name">{member.name}</span>
           </NameWithActivity>
-          {pin && (
-            <ChatPinToggle
-              pinned={pin.pinned}
-              onToggle={pin.onToggle}
-              focusKey={`chat-pin-${member.id}`}
-              testId={`chat-pin-${member.id}`}
-            />
-          )}
         </div>
         {/* Line 2: the runtime warning mark and the role. Presence is the
          * avatar-corner dot (PresenceAvatar), the same on every identity

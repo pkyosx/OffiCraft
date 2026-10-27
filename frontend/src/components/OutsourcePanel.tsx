@@ -36,8 +36,9 @@ import { CurrentTaskTitle } from "./CurrentTaskTitle";
 import { RuntimeLoginWarningMark } from "./RuntimeLoginWarningMark";
 import { PresenceAvatar } from "./PresenceAvatar";
 import { NameWithActivity } from "./MemberActivity";
-import { ChatPinList, ChatPinToggle } from "./ChatPinList";
-import type { ChatPinCollapsed, ChatPinRow } from "./ChatPinList";
+import { ChatGroupPanel } from "./ChatGroupPanel";
+import type { ChatGrouping } from "./ChatGroupPanel";
+import type { ChatGroupRow } from "./ChatGroupList";
 
 /** The worker's ONE-LINE task line — [task-id chip → task type], optionally
  * led by the runtime warning mark. SHARED between the rail's outsource row, the
@@ -111,10 +112,10 @@ export function OutsourcePanel({
   onOpenChat,
   onOpenDetail,
   onOpenTask,
-  pins,
+  grouping,
 }: {
-  /** LIVE workers in display order (the office puts pinned rows first, the
-   * rest in useOutsourceWorkers' 任務建立新→舊 order), chip-joined. */
+  /** LIVE workers, already sorted 任務建立新→舊 + chip-joined
+   * (useOutsourceWorkers). */
   workers: OutsourceWorkerView[];
   /** Honest load-failure flag — never render a dead fetch as an empty panel. */
   error: boolean;
@@ -131,15 +132,8 @@ export function OutsourcePanel({
   /** Jump to the bound task's card (#tasks/<taskId>) — the row's task-id chip
    * (owner report 2026-07-14: 點 task id 連到該任務頁). */
   onOpenTask: (taskId: string) => void;
-  /** 置頂 wiring: the first `pinnedCount` workers are pinned; every row gets
-   * a pin toggle and the pinned ones can be reordered by drag. */
-  pins?: {
-    pinnedCount: number;
-    onToggle: (id: string) => void;
-    onReorder: (id: string, index: number) => void;
-    collapsed: ChatPinCollapsed;
-    onCollapsedChange: (next: ChatPinCollapsed) => void;
-  };
+  /** The owner's groups for this tab; without it the list is plain rows. */
+  grouping?: ChatGrouping;
 }) {
   const { t, msg } = useI18n();
   const byId = new Map(workers.map((w) => [w.id, w]));
@@ -165,35 +159,18 @@ export function OutsourcePanel({
         <div className="office__error">{t.office.outsource.loadError}</div>
       )}
 
-      {pins ? (
-        <ChatPinList
+      {grouping ? (
+        <ChatGroupPanel
+          {...grouping}
+          tab="outsource"
           className="outsource-panel__list"
           testId="outsource-list"
           ids={workers.map((w) => w.id)}
-          pinnedCount={pins.pinnedCount}
+          workers={workers}
           nameOf={(id) => msg.outsourceLabel(byId.get(id)?.codename ?? id)}
-          onReorder={pins.onReorder}
-          restTitle={t.office.pins.restOutsourceTitle}
           unreadOf={(id) => byId.get(id)?.unreadCount ?? 0}
-          collapsed={pins.collapsed}
-          onCollapsedChange={pins.onCollapsedChange}
-          renderRow={(id, sortable) => (
-            <OutsourceRow
-              {...rowProps(byId.get(id)!)}
-              sortable={sortable}
-              pin={{
-                pinned: workers.findIndex((w) => w.id === id) < pins.pinnedCount,
-                onToggle: () => pins.onToggle(id),
-              }}
-            />
-          )}
-          renderOverlay={(id) => (
-            <OutsourceRow
-              {...rowProps(byId.get(id)!)}
-              testId={undefined}
-              pin={{ pinned: true, onToggle: () => {} }}
-            />
-          )}
+          renderRow={(id, sortable) => <OutsourceRow {...rowProps(byId.get(id)!)} sortable={sortable} />}
+          renderOverlay={(id) => <OutsourceRow {...rowProps(byId.get(id)!)} testId={undefined} />}
         />
       ) : (
         <div className="outsource-panel__list" data-testid="outsource-list">
@@ -214,7 +191,6 @@ function OutsourceRow({
   onOpenDetail,
   onOpenTask,
   sortable,
-  pin,
 }: {
   worker: OutsourceWorkerView;
   selected: boolean;
@@ -222,8 +198,7 @@ function OutsourceRow({
   onOpenChat: (workerId: string) => void;
   onOpenDetail: (workerId: string) => void;
   onOpenTask: (taskId: string) => void;
-  sortable?: ChatPinRow;
-  pin?: { pinned: boolean; onToggle: () => void };
+  sortable?: ChatGroupRow;
 }) {
   const { t, msg } = useI18n();
   // Badge suppression parity with MemberCard: the open, WATCHED conversation
@@ -236,6 +211,8 @@ function OutsourceRow({
         {...sortable?.listeners}
         ref={sortable?.ref}
         style={sortable?.style}
+        data-chat-row={sortable?.rowId}
+        onContextMenu={sortable?.onContextMenu}
         role="button"
         tabIndex={0}
         className={`outsource-row${selected ? " outsource-row--selected" : ""}${
@@ -246,6 +223,7 @@ function OutsourceRow({
           if (!sortable || sortable.canActivate()) onOpenChat(w.id);
         }}
         onKeyDown={(e) => {
+          if (sortable?.menuKey(e)) return;
           sortable?.listeners?.onKeyDown?.(e);
           if (e.defaultPrevented || (sortable && !sortable.canActivate())) return;
           if (e.key === "Enter" || (!sortable && e.key === " ")) {
@@ -288,14 +266,6 @@ function OutsourceRow({
                 {msg.outsourceLabel(w.codename)}
               </span>
             </NameWithActivity>
-            {pin && (
-              <ChatPinToggle
-                pinned={pin.pinned}
-                onToggle={pin.onToggle}
-                focusKey={`chat-pin-${w.id}`}
-                testId={`chat-pin-${w.id}`}
-              />
-            )}
           </span>
           {/* line 2 — the shared OutsourceTaskLine (the worker chat
            * header renders the same line). */}

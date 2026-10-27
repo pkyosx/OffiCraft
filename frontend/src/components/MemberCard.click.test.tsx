@@ -80,32 +80,10 @@ describe("MemberCard click semantics", () => {
     expect(onChat).not.toHaveBeenCalled();
   });
 
-  it("tapping the pin toggles it without opening the chat or the detail", () => {
+  it("with drag wiring, Enter still opens the chat, Space does not, nothing opens while a drag is in progress, and right-click or the menu key opens the row's menu instead", () => {
     const onChat = vi.fn();
-    const onOpenDetail = vi.fn();
-    const onToggle = vi.fn();
-    const { getByRole } = render(
-      <I18nProvider>
-        <MemberCard
-          member={mkMember()}
-          selected={false}
-          onOpenDetail={onOpenDetail}
-          onChat={onChat}
-          pin={{ pinned: false, onToggle }}
-        />
-      </I18nProvider>,
-    );
-    const pin = getByRole("button", { name: "置頂" });
-    expect(pin.getAttribute("aria-pressed")).toBe("false");
-    fireEvent.click(pin);
-    fireEvent.keyDown(pin, { key: "Enter" });
-    expect(onToggle).toHaveBeenCalledTimes(1);
-    expect(onChat).not.toHaveBeenCalled();
-    expect(onOpenDetail).not.toHaveBeenCalled();
-  });
-
-  it("with drag wiring, Enter still opens the chat, Space does not, and nothing opens while a drag is in progress", () => {
-    const onChat = vi.fn();
+    const onContextMenu = vi.fn((e: { preventDefault: () => void }) => e.preventDefault());
+    const menuKey = vi.fn((e: { key: string; shiftKey: boolean }) => e.key === "ContextMenu" || (e.shiftKey && e.key === "F10"));
     let dragging = false;
     const { container } = render(
       <I18nProvider>
@@ -115,9 +93,10 @@ describe("MemberCard click semantics", () => {
           onOpenDetail={() => {}}
           onChat={onChat}
           sortable={{
+            rowId: "mira",
             ref: () => {},
             style: {},
-            className: "chat-pins__row",
+            className: "chat-groups__row",
             attributes: {
               role: "button",
               tabIndex: 0,
@@ -128,6 +107,8 @@ describe("MemberCard click semantics", () => {
             },
             listeners: undefined,
             canActivate: () => !dragging,
+            onContextMenu,
+            menuKey,
           }}
         />
       </I18nProvider>,
@@ -137,6 +118,14 @@ describe("MemberCard click semantics", () => {
     expect(onChat).not.toHaveBeenCalled();
     fireEvent.keyDown(row, { key: "Enter" });
     expect(onChat).toHaveBeenCalledTimes(1);
+
+    fireEvent.contextMenu(row);
+    fireEvent.keyDown(row, { key: "ContextMenu" });
+    fireEvent.keyDown(row, { key: "F10", shiftKey: true });
+    expect(onContextMenu).toHaveBeenCalledTimes(1);
+    expect(menuKey.mock.results.map((r) => r.value)).toEqual([false, false, true, true]);
+    expect(onChat).toHaveBeenCalledTimes(1);
+    expect(row.getAttribute("data-chat-row")).toBe("mira");
 
     dragging = true;
     fireEvent.keyDown(row, { key: "Enter" });

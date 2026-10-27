@@ -1,17 +1,17 @@
-// The office sidebar's 置頂 drag wiring (useChatPins + orderByPins +
-// ChatPinList) over the REAL MemberCard / OutsourcePanel rows, inside the
-// real ancestor chain (.app > .app__main > .office).
-import { useState } from "react";
-import { I18nProvider, useI18n } from "../../src/i18n";
+// The office sidebar's chat groups (ChatGroupPanel) over the REAL MemberCard /
+// OutsourcePanel rows, inside the real ancestor chain
+// (.app > .app__main > .office). Group state is local to the story, the same
+// complete-state updates the panel hands useChatGroups.
+import { useRef, useState } from "react";
+import { I18nProvider } from "../../src/i18n";
 import { MemberCard } from "../../src/components/MemberCard";
 import { OfficeSidebarTabs } from "../../src/components/OfficeSidebarTabs";
 import { OutsourcePanel } from "../../src/components/OutsourcePanel";
-import { ChatPinList } from "../../src/components/ChatPinList";
-import type { ChatPinCollapsed } from "../../src/components/ChatPinList";
+import { ChatGroupPanel } from "../../src/components/ChatGroupPanel";
 import { PersonPlusIcon } from "../../src/components/icons";
-import { orderByPins, pinAt, togglePin } from "../../src/lib/chatPins";
+import type { ChatGroup } from "../../src/lib/chatGroups";
 import type { Member } from "../../src/types";
-import type { OutsourceWorkerView } from "../../src/api/adapter";
+import type { OutsourceWorkerView, TaskTypeView } from "../../src/api/adapter";
 
 function mkMember(over: Partial<Member>): Member {
   return {
@@ -76,14 +76,22 @@ export const roster: Member[] = [
   }),
 ];
 
+export const taskTypes: TaskTypeView[] = [
+  { typeKey: "tm-fe", displayName: "OffiCraft · 前端 UI", purpose: "" },
+  { typeKey: "tm-review", displayName: "OffiCraft · PR 審查（含外部 PR 接待）", purpose: "" },
+  { typeKey: "tm-eva", displayName: "Eva GF VE Tickets", purpose: "" },
+  { typeKey: "tm-lessons", displayName: "Long-term Context · Lessons Refine", purpose: "" },
+];
+
 export const workers: OutsourceWorkerView[] = [
   mkWorker({
     id: "ow-a18f",
     codename: "O-161",
     taskId: "t-529a",
     taskNo: "t-529a",
+    taskTypeKey: "tm-fe",
     taskTypeName: "OffiCraft · 前端 UI",
-    taskTitle: "聊天清單置頂與排序（UI 原型）",
+    taskTitle: "聊天清單群組（UI 原型）",
     unreadCount: 2,
   }),
   mkWorker({
@@ -91,55 +99,75 @@ export const workers: OutsourceWorkerView[] = [
     codename: "O-158",
     taskId: "t-4f84",
     taskNo: "t-4f84",
+    taskTypeKey: "tm-review",
     taskTypeName: "OffiCraft · PR 審查（含外部 PR 接待）",
-    taskTitle: "審查 PR #212：chat pins migration",
+    taskTitle: "審查 PR #212：chat groups migration",
   }),
   mkWorker({
     id: "ow-71d0",
     codename: "O-155",
     taskId: "t-ee95",
     taskNo: "t-ee95",
+    taskTypeKey: "tm-eva",
     taskTypeName: "Eva GF VE Tickets",
     taskTitle: "ACE-13048 W/H Receiving",
     presence: "waking",
+  }),
+  mkWorker({
+    id: "ow-5e21",
+    codename: "O-154",
+    taskId: "t-5e21",
+    taskNo: "t-5e21",
+    taskTypeKey: "tm-review",
+    taskTypeName: "OffiCraft · PR 審查（含外部 PR 接待）",
+    taskTitle: "審查 PR #209：任務到期日",
   }),
   mkWorker({
     id: "ow-3b6a",
     codename: "O-153",
     taskId: "t-07c1",
     taskNo: "t-07c1",
+    taskTypeKey: "tm-lessons",
     taskTypeName: "Long-term Context · Lessons Refine",
     taskTitle: "整理上週的 lessons",
     presence: "offline",
   }),
 ];
 
-function Sidebar({ mobile }: { mobile: boolean }) {
-  const { t } = useI18n();
-  const [tab, setTab] = useState<"staff" | "outsource">("staff");
+function Sidebar({
+  mobile,
+  initialGroups,
+  initialTab,
+  initialCollapsed,
+}: {
+  mobile: boolean;
+  initialGroups: ChatGroup[];
+  initialTab: "staff" | "outsource";
+  initialCollapsed: Record<string, boolean>;
+}) {
+  const [tab, setTab] = useState(initialTab);
   const [chatId, setChatId] = useState("");
   const [detailId, setDetailId] = useState("");
-  const [sections, setSections] = useState<Record<"staff" | "outsource", ChatPinCollapsed>>({
-    staff: { pinned: false, rest: false },
-    outsource: { pinned: false, rest: false },
+  const [groups, setGroups] = useState<readonly ChatGroup[]>(initialGroups);
+  const seq = useRef(0);
+  const [collapsed, setCollapsed] = useState<Record<"staff" | "outsource", Record<string, boolean>>>({
+    staff: initialCollapsed,
+    outsource: {},
   });
-  // Local state over the same pure helpers useChatPins writes through: the
-  // story's fixture members are not on the mock server's roster.
-  const [pins, setPins] = useState<string[]>(["mira"]);
-  const toggle = (id: string, kind: readonly string[]) => setPins((p) => togglePin(p, id, kind));
-  const reorder = (id: string, index: number, kind: readonly string[]) =>
-    setPins((p) => pinAt(p, id, index, kind));
-  const staffList = orderByPins(roster, pins, (m) => m.id);
-  const outsourceList = orderByPins(workers, pins, (w) => w.id);
   const byId = (id: string) => roster.find((m) => m.id === id)!;
-  const selected = mobile ? chatId : chatId || staffList.ordered[0]?.id;
+  const grouping = {
+    groups,
+    update: (change: (g: readonly ChatGroup[]) => ChatGroup[]) => setGroups((g) => change(g)),
+    newGroupId: () => `cg-story-${++seq.current}`,
+    mobile,
+  };
   return (
     <aside className="office__members" data-chat={chatId} data-detail={detailId}>
       <OfficeSidebarTabs
         activeTab={tab}
         onSelect={setTab}
         staffCount={roster.length}
-        staffUnread={3}
+        staffUnread={131}
         staffReady
         outsourceCount={workers.length}
         outsourceUnread={2}
@@ -147,54 +175,42 @@ function Sidebar({ mobile }: { mobile: boolean }) {
         capText="10"
       />
       {tab === "staff" ? (
-        <ChatPinList
+        <ChatGroupPanel
+          {...grouping}
+          tab="staff"
           className="office__members-list"
-          ids={staffList.ordered.map((m) => m.id)}
-          pinnedCount={staffList.pinnedIds.length}
+          ids={roster.map((m) => m.id)}
           nameOf={(id) => byId(id).name}
-          onReorder={(id, index) => reorder(id, index, staffList.pinnedIds)}
-          restTitle={t.office.pins.restStaffTitle}
           unreadOf={(id) => byId(id).unreadCount}
-          collapsed={sections.staff}
-          onCollapsedChange={(next) => setSections((x) => ({ ...x, staff: next }))}
+          collapsed={collapsed.staff}
+          onCollapsedChange={(next) => setCollapsed((x) => ({ ...x, staff: next }))}
           renderRow={(id, sortable) => (
             <MemberCard
               member={byId(id)}
-              selected={id === selected}
+              selected={!mobile && id === chatId}
               onOpenDetail={() => setDetailId(id)}
               onChat={() => setChatId(id)}
               sortable={sortable}
-              pin={{
-                pinned: staffList.pinnedIds.includes(id),
-                onToggle: () => toggle(id, staffList.pinnedIds),
-              }}
             />
           )}
           renderOverlay={(id) => (
-            <MemberCard
-              member={byId(id)}
-              selected={false}
-              onOpenDetail={() => {}}
-              onChat={() => {}}
-              pin={{ pinned: true, onToggle: () => {} }}
-            />
+            <MemberCard member={byId(id)} selected={false} onOpenDetail={() => {}} onChat={() => {}} />
           )}
         />
       ) : (
         <OutsourcePanel
-          workers={outsourceList.ordered}
+          workers={workers}
           error={false}
           maxParallel={10}
           selectedId={chatId}
           onOpenChat={setChatId}
           onOpenDetail={setDetailId}
           onOpenTask={() => {}}
-          pins={{
-            pinnedCount: outsourceList.pinnedIds.length,
-            onToggle: (id) => toggle(id, outsourceList.pinnedIds),
-            onReorder: (id, index) => reorder(id, index, outsourceList.pinnedIds),
-            collapsed: sections.outsource,
-            onCollapsedChange: (next) => setSections((x) => ({ ...x, outsource: next })),
+          grouping={{
+            ...grouping,
+            taskTypes,
+            collapsed: collapsed.outsource,
+            onCollapsedChange: (next) => setCollapsed((x) => ({ ...x, outsource: next })),
           }}
         />
       )}
@@ -208,13 +224,28 @@ function Sidebar({ mobile }: { mobile: boolean }) {
   );
 }
 
-export function OfficeChatPinsStory({ mobile = false }: { mobile?: boolean }) {
+export function OfficeChatGroupsStory({
+  mobile = false,
+  initialGroups = [],
+  initialTab = "staff",
+  initialCollapsed = {},
+}: {
+  mobile?: boolean;
+  initialGroups?: ChatGroup[];
+  initialTab?: "staff" | "outsource";
+  initialCollapsed?: Record<string, boolean>;
+}) {
   return (
     <I18nProvider>
-      <div className="app" style={mobile ? undefined : { height: 860 }}>
+      <div className="app" style={mobile ? { height: 900 } : { height: 860 }}>
         <main className="app__main">
           <div className={`office${mobile ? " office--mobile" : ""}`}>
-            <Sidebar mobile={mobile} />
+            <Sidebar
+              mobile={mobile}
+              initialGroups={initialGroups}
+              initialTab={initialTab}
+              initialCollapsed={initialCollapsed}
+            />
             {!mobile && <section className="office__chat" />}
           </div>
         </main>
