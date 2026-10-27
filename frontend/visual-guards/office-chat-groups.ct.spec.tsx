@@ -119,6 +119,50 @@ test("the group headings read at the muted-text floor (4.5:1) against the page",
   for (const r of ratios) expect(r).toBeGreaterThanOrEqual(4.5);
 });
 
+test("every group heading has a bold label over a line that spans the list and stands out from the page (2:1), collapsed ones included", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const cmp = await mount(<OfficeChatGroupsStory initialGroups={sampleGroups} initialCollapsed={{ "g-lead": true }} />);
+  const headings = await cmp.locator(".chat-groups__heading").evaluateAll((els) => {
+    const channels = (c: string) => {
+      const n = c.match(/[\d.]+/g)!.map(Number);
+      // color(srgb r g b / a) is 0–1; rgb()/rgba() is 0–255.
+      return c.startsWith("color(") ? [n[0] * 255, n[1] * 255, n[2] * 255, n[3] ?? 1] : [n[0], n[1], n[2], n[3] ?? 1];
+    };
+    const lum = ([r, g, b]: number[]) => {
+      const f = (v: number) => {
+        const x = v / 255;
+        return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+      };
+      return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+    };
+    const bg = channels(getComputedStyle(document.body).backgroundColor);
+    return els.map((el) => {
+      const cs = getComputedStyle(el);
+      const [r, g, b, a] = channels(cs.borderBottomColor);
+      const line = [r * a + bg[0] * (1 - a), g * a + bg[1] * (1 - a), b * a + bg[2] * (1 - a)];
+      const [hi, lo] = [lum(line), lum(bg)].sort((x, y) => y - x);
+      const box = el.getBoundingClientRect();
+      const list = el.parentElement!.getBoundingClientRect();
+      return {
+        text: el.textContent,
+        lineWidth: cs.borderBottomWidth,
+        contrast: Math.round(((hi + 0.05) / (lo + 0.05)) * 100) / 100,
+        spans: Math.abs(box.left - list.left) <= 0.5 && Math.abs(box.right - list.right) <= 0.5,
+        labelWeight: getComputedStyle(el.querySelector(".chat-groups__heading-label")!).fontWeight,
+      };
+    });
+  });
+  expect(headings.map((h) => [h.text, h.lineWidth, h.spans, h.labelWeight])).toEqual([
+    ["核心 · 23", "1px", true, "700"],
+    ["工程 · 2", "1px", true, "700"],
+    ["未分組 · 2", "1px", true, "700"],
+  ]);
+  for (const h of headings) expect(h.contrast, `${h.text} line contrast`).toBeGreaterThanOrEqual(2);
+});
+
 test("a long press lifts an ungrouped member and dropping it on a row of another group puts it there, without opening a chat", async ({
   mount,
   page,
