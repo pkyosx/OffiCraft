@@ -1,19 +1,34 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { render, fireEvent, screen, within } from "@testing-library/react";
+import { act, render, fireEvent, screen, within } from "@testing-library/react";
 import { useState } from "react";
 import { I18nProvider } from "../i18n";
 import { ChatGroupPanel } from "./ChatGroupPanel";
 import type { ChatGroup, ChatTab } from "../lib/chatGroups";
+import type { RowFacts } from "../lib/chatFilter";
 
 const NAMES: Record<string, string> = {
   mira: "Mira",
   beto: "Beto",
   clara: "Clara",
+  dora: "Dora",
+  evan: "Evan",
   "ow-1": "O-1",
   "ow-2": "O-2",
   "ow-3": "O-3",
 };
 const UNREAD: Record<string, number> = { clara: 3, beto: 1 };
+const ROLES: Record<string, string> = { mira: "特助", beto: "後端", clara: "前端", dora: "QA 測試", evan: "產品經理" };
+type Live = {
+  unread: Record<string, number>;
+  presence: Record<string, RowFacts["presence"]>;
+  activity: Record<string, RowFacts["activity"]>;
+};
+const LIVE: Live = {
+  unread: UNREAD,
+  presence: { mira: "online-awake", beto: "offline", clara: "online-awake", dora: "waking", evan: "stopped" },
+  activity: { mira: "idle", clara: "busy", dora: "waiting" },
+};
+let setLive: (change: (l: Live) => Live) => void = () => {};
 const TYPES = [
   { typeKey: "review", displayName: "PR 審查", purpose: "" },
   { typeKey: "bugfix", displayName: "修 bug", purpose: "" },
@@ -30,6 +45,8 @@ let latest: readonly ChatGroup[] = [];
 function Harness({ tab, ids, initial }: { tab: ChatTab; ids: string[]; initial: ChatGroup[] }) {
   const [groups, setGroups] = useState<readonly ChatGroup[]>(initial);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [live, changeLive] = useState(LIVE);
+  setLive = changeLive;
   latest = groups;
   let n = 0;
   return (
@@ -40,7 +57,12 @@ function Harness({ tab, ids, initial }: { tab: ChatTab; ids: string[]; initial: 
       update={(change) => setGroups((g) => change(g))}
       newGroupId={() => `cg-new-${++n}`}
       nameOf={(id) => NAMES[id]}
-      unreadOf={(id) => UNREAD[id] ?? 0}
+      unreadOf={(id) => live.unread[id] ?? 0}
+      factsOf={(id) => ({
+        presence: live.presence[id] ?? "offline",
+        activity: live.activity[id] ?? null,
+        names: [NAMES[id], ROLES[id] ?? ""],
+      })}
       collapsed={collapsed}
       onCollapsedChange={setCollapsed}
       mobile={false}
@@ -85,6 +107,7 @@ const rows = () => Array.from(document.querySelectorAll("[data-chat-row]"), (r) 
 
 beforeEach(() => {
   latest = [];
+  localStorage.clear();
 });
 
 describe("ChatGroupPanel", () => {
@@ -151,6 +174,163 @@ describe("ChatGroupPanel", () => {
     fireEvent.click(screen.getByTestId("chat-group-heading-ungrouped"));
     expect(all.getAttribute("aria-label")).toBe("全部收合");
     fireEvent.click(all);
+    expect(rows()).toEqual([]);
+  });
+
+  const STAFF = ["mira", "beto", "clara", "dora", "evan"];
+  const STAFF_GROUPS = () => [g("a", "staff", "核心", ["clara", "beto"]), g("b", "staff", "工程", ["dora"])];
+  const filterButton = () => screen.getByTestId("chat-filter");
+  const filterItems = () =>
+    Array.from(
+      screen.getByRole("menu", { name: "篩選" }).querySelectorAll(".chat-groups__menu-item"),
+      (i) =>
+        `${i.querySelector(".chat-groups__menu-text")!.textContent}${i.getAttribute("aria-checked") === "true" ? "✓" : ""} ${i.querySelector(".chat-groups__menu-count")?.textContent ?? ""}`.trim(),
+    );
+  const tick = (key: string) => fireEvent.click(screen.getByTestId(`chat-filter-menu-${key}`));
+
+  const sections = () =>
+    Array.from(screen.getByRole("menu", { name: "篩選" }).querySelectorAll(".chat-groups__menu-section"), (h) => h.textContent);
+  const ALL = ["有未讀 2", "線上 2", "喚醒中 1", "停止中 0", "已停止 1", "離線 1", "工作中 1", "等待中 1", "閒置 1"];
+
+  it("篩選 shows the rows matching any tick within a section and every section that has one, and the name search; each option shows its own count, groups without a match are left out, the rest open, and 清除 brings everything back as it was", () => {
+    mount("staff", STAFF, STAFF_GROUPS());
+    fireEvent.click(screen.getByTestId("chat-group-heading-a"));
+    expect(rows()).toEqual(["dora", "mira", "evan"]);
+    expect(filterButton().textContent).toBe("篩選");
+
+    fireEvent.click(filterButton());
+    expect(document.activeElement).toBe(screen.getByTestId("chat-filter-search"));
+    expect(screen.getByTestId("chat-filter-search").getAttribute("placeholder")).toBe("搜尋名稱…");
+    expect(sections()).toEqual(["未讀", "連線", "狀態"]);
+    expect(filterItems()).toEqual(ALL);
+
+    tick("unread");
+    expect(rows()).toEqual(["clara", "beto"]);
+    expect(headings()).toEqual(["核心 · 2"]);
+    expect(screen.getByTestId("chat-group-heading-a").getAttribute("aria-expanded")).toBe("true");
+    expect(filterButton().textContent).toBe("篩選 · 1");
+    expect(filterButton().className).toContain("chat-groups__filter--on");
+    expect((screen.getByTestId("chat-groups-collapse-all") as HTMLButtonElement).disabled).toBe(true);
+    tick("unread");
+
+    tick("online-awake");
+    tick("waking");
+    expect(rows()).toEqual(["clara", "dora", "mira"]);
+    expect(headings()).toEqual(["核心 · 1", "工程 · 1", "未分組 · 1"]);
+    expect(filterButton().textContent).toBe("篩選 · 2");
+
+    tick("busy");
+    expect(rows()).toEqual(["clara"]);
+    tick("waiting");
+    expect(rows()).toEqual(["clara", "dora"]);
+    expect(filterButton().textContent).toBe("篩選 · 4");
+
+    tick("unread");
+    expect(rows()).toEqual(["clara"]);
+    expect(filterItems()).toEqual([
+      "有未讀✓ 2",
+      "線上✓ 2",
+      "喚醒中✓ 1",
+      "停止中 0",
+      "已停止 1",
+      "離線 1",
+      "工作中✓ 1",
+      "等待中✓ 1",
+      "閒置 1",
+      "清除",
+    ]);
+
+    fireEvent.change(screen.getByTestId("chat-filter-search"), { target: { value: "qa" } });
+    expect(rows()).toEqual([]);
+    expect(headings()).toEqual([]);
+    expect(screen.getByTestId("chat-groups-empty").textContent).toBe("沒有符合篩選的成員");
+    expect(filterButton().textContent).toBe("篩選 · 6");
+
+    tick("unread");
+    expect(rows()).toEqual(["dora"]);
+    expect(headings()).toEqual(["工程 · 1"]);
+    tick("online-awake");
+    tick("waking");
+    tick("busy");
+    tick("waiting");
+    tick("stopped");
+    tick("offline");
+    fireEvent.change(screen.getByTestId("chat-filter-search"), { target: { value: "EVA" } });
+    expect(rows()).toEqual(["evan"]);
+    fireEvent.change(screen.getByTestId("chat-filter-search"), { target: { value: "後端" } });
+    expect(rows()).toEqual(["beto"]);
+    tick("stopped");
+    tick("offline");
+    tick("idle");
+    fireEvent.change(screen.getByTestId("chat-filter-search"), { target: { value: "" } });
+    expect(rows()).toEqual(["mira"]);
+    expect(filterButton().textContent).toBe("篩選 · 1");
+
+    tick("clear");
+    expect(filterButton().textContent).toBe("篩選");
+    expect((screen.getByTestId("chat-filter-search") as HTMLInputElement).value).toBe("");
+    expect(filterItems()).toEqual(ALL);
+    expect(rows()).toEqual(["dora", "mira", "evan"]);
+    expect(screen.getByTestId("chat-group-heading-a").getAttribute("aria-expanded")).toBe("false");
+    expect(latest).toEqual(STAFF_GROUPS());
+
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(filterButton());
+  });
+
+  it("this browser keeps each tab's ticks across a remount but not the name search, and reads a tick list saved by the first version (線上 becomes the dot's online state; unknown entries are dropped)", () => {
+    localStorage.setItem("oc_chat_filter_staff", JSON.stringify(["busy", "online", "unread", "away", 7]));
+    const first = mount("staff", STAFF, STAFF_GROUPS());
+    expect(filterButton().textContent).toBe("篩選 · 3");
+    expect(rows()).toEqual(["clara"]);
+    fireEvent.click(filterButton());
+    tick("busy");
+    tick("unread");
+    fireEvent.change(screen.getByTestId("chat-filter-search"), { target: { value: "mira" } });
+    expect(rows()).toEqual(["mira"]);
+    first.unmount();
+
+    const second = mount("staff", STAFF, STAFF_GROUPS());
+    expect(filterButton().textContent).toBe("篩選 · 1");
+    expect(rows()).toEqual(["clara", "mira"]);
+    second.unmount();
+
+    localStorage.setItem("oc_chat_filter_outsource", "not json");
+    mount("outsource", ["ow-1", "ow-2"]);
+    expect(filterButton().textContent).toBe("篩選");
+    expect(rows()).toEqual(["ow-1", "ow-2"]);
+  });
+
+  it("with the 篩選 open, the counts and the list follow the rows' unread, presence and activity as they change", () => {
+    mount("staff", STAFF, STAFF_GROUPS());
+    fireEvent.click(filterButton());
+    tick("waiting");
+    expect(rows()).toEqual(["dora"]);
+
+    act(() =>
+      setLive((l) => ({
+        unread: { ...l.unread, evan: 2 },
+        presence: { ...l.presence, dora: "offline", evan: "online-awake" },
+        activity: { mira: "waiting", clara: "idle", evan: "idle" },
+      })),
+    );
+    expect(filterItems()).toEqual([
+      "有未讀 3",
+      "線上 3",
+      "喚醒中 0",
+      "停止中 0",
+      "已停止 0",
+      "離線 2",
+      "工作中 0",
+      "等待中✓ 1",
+      "閒置 2",
+      "清除",
+    ]);
+    expect(rows()).toEqual(["mira"]);
+    tick("idle");
+    expect(rows()).toEqual(["clara", "mira", "evan"]);
+    tick("offline");
     expect(rows()).toEqual([]);
   });
 

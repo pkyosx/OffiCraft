@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { I18nProvider, useI18n } from "../../src/i18n";
 import type { ThemeBundle } from "../../src/lib/themeBundle";
 import halloweenTheme from "../../../themes/halloween-2026.theme.json";
-import { MemberCard } from "../../src/components/MemberCard";
+import { MemberCard, memberRowFacts } from "../../src/components/MemberCard";
 import { OfficeSidebarTabs } from "../../src/components/OfficeSidebarTabs";
 import { OutsourcePanel } from "../../src/components/OutsourcePanel";
 import { ChatGroupPanel } from "../../src/components/ChatGroupPanel";
@@ -159,6 +159,7 @@ function Sidebar({
     staff: initialCollapsed,
     outsource: {},
   });
+  const { t } = useI18n();
   const byId = (id: string) => roster.find((m) => m.id === id)!;
   const grouping = {
     groups,
@@ -191,6 +192,7 @@ function Sidebar({
           ids={roster.map((m) => m.id)}
           nameOf={(id) => byId(id).name}
           unreadOf={(id) => byId(id).unreadCount}
+          factsOf={(id) => memberRowFacts(t, byId(id))}
           collapsed={collapsed.staff}
           onCollapsedChange={(next) => setCollapsed((x) => ({ ...x, staff: next }))}
           renderRow={(id, sortable) => (

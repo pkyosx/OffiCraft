@@ -35,7 +35,8 @@ import { Avatar } from "./Avatar";
 import { CurrentTaskTitle } from "./CurrentTaskTitle";
 import { RuntimeLoginWarningMark } from "./RuntimeLoginWarningMark";
 import { PresenceAvatar } from "./PresenceAvatar";
-import { NameWithActivity } from "./MemberActivity";
+import { NameWithActivity, shownActivity } from "./MemberActivity";
+import { presenceVisual } from "./LifecycleDot";
 import { ChatGroupPanel } from "./ChatGroupPanel";
 import type { ChatGrouping } from "./ChatGroupPanel";
 import type { ChatGroupRow } from "./ChatGroupList";
@@ -169,6 +170,14 @@ export function OutsourcePanel({
           workers={workers}
           nameOf={(id) => msg.outsourceLabel(byId.get(id)?.codename ?? id)}
           unreadOf={(id) => byId.get(id)?.unreadCount ?? 0}
+          factsOf={(id) => {
+            const w = byId.get(id)!;
+            return {
+              presence: presenceVisual(w.presence),
+              activity: shownActivity(w.activity, w.presence)?.state ?? null,
+              names: [msg.outsourceLabel(w.codename), w.taskTypeName || w.taskTypeKey || t.tasks.adhoc],
+            };
+          }}
           renderRow={(id, sortable) => <OutsourceRow {...rowProps(byId.get(id)!)} sortable={sortable} />}
           renderOverlay={(id) => <OutsourceRow {...rowProps(byId.get(id)!)} testId={undefined} />}
         />

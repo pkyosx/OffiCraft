@@ -16,6 +16,7 @@
  * The member's name is rendered on the identity line by the caller (not here).
  */
 import { useI18n } from "../i18n";
+import type { Dict } from "../i18n/locales/zh";
 import type { Member } from "../types";
 import { LifecycleDot, presenceVisual } from "./LifecycleDot";
 import type { LifecycleVisualStatus } from "./LifecycleDot";
@@ -29,17 +30,19 @@ export function lifecycleVisual(member: Member): LifecycleVisualStatus {
   return presenceVisual(member.lifecycle);
 }
 
+// i18n label for a known seed key; a CUSTOM role (M2-2, open key space)
+// falls back to its server-resolved title, then the raw key (honest, never
+// blank chrome).
+export function roleLabel(t: Dict, member: Pick<Member, "role" | "roleName">): string {
+  return (t.office.role as Record<string, string>)[member.role] ?? (member.roleName || member.role);
+}
+
 /** `dot={false}` on the surfaces whose avatar carries the dot (PresenceAvatar):
  * the badge is then only the warning mark and the role. */
 export function PresenceBadge({ member, dot = true }: { member: Member; dot?: boolean }) {
   const { t } = useI18n();
   const visual = lifecycleVisual(member);
-  // i18n label for a known seed key; a CUSTOM role (M2-2, open key space)
-  // falls back to its server-resolved title, then the raw key (honest, never
-  // blank chrome).
-  const role =
-    (t.office.role as Record<string, string>)[member.role] ??
-    (member.roleName || member.role);
+  const role = roleLabel(t, member);
   return (
     <span className="presence-badge">
       {dot && <LifecycleDot status={visual} />}

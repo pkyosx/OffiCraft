@@ -7996,6 +7996,15 @@ export function __setMockMemberOnline(id: string, online: boolean): void {
   w.presence = online ? "online" : "offline";
 }
 
+// Test-only hook: change a mock member the way a member SSE delta would, and
+// tell subscribers (the sidebar's live presence, activity and unread).
+export function __updateMockMember(id: string, patch: Partial<WireMember>): void {
+  const w = wireMembers.find((m) => m.id === id);
+  if (!w) throw new Error(`mock: no member ${id}`);
+  Object.assign(w, patch);
+  emitTopic("member");
+}
+
 // Test/dev-only hook (T-7fa1): stage the "nothing was dispatched" answer so the
 // wake-failure UI is reachable without an actually-unreachable warden. Sticky
 // until flipped back or __resetMock — the condition it models (a machine whose

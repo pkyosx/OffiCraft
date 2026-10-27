@@ -158,35 +158,45 @@
   outline: 1px dashed color-mix(in srgb, var(--color-accent) 45%, transparent);
 }
 
-/* The toolbar under the 正職/外包 tabs: 全部收合／展開 and 新增群組 at its
- * right, as plain buttons with no frame (owner). */
+/* The toolbar under the 正職/外包 tabs: 篩選 on the left, 全部收合／展開 and
+ * 新增群組 on the right, as plain buttons with no frame (owner). The 1px
+ * inset puts 篩選's icon on the group labels' left edge. */
 .chat-groups__toolbar {
   flex: none;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   gap: 2px;
   min-height: 44px;
   margin-bottom: 8px;
+  padding: 0 0 0 1px;
+}
+.chat-groups__toolbar-gap {
+  flex: 1;
 }
 .chat-groups__tool {
   flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
+  gap: 6px;
   height: 36px;
-  padding: 0;
+  min-width: 36px;
+  padding: 0 8px;
   border: none;
   border-radius: 8px;
   background: none;
   color: var(--color-text-muted);
+  font-size: 13px;
+  white-space: nowrap;
   cursor: pointer;
+}
+.chat-groups__tool--icon {
+  padding: 0;
 }
 @media (max-width: 720px), (hover: none) {
   .chat-groups__tool {
-    width: 44px;
     height: 44px;
+    min-width: 44px;
   }
 }
 .chat-groups__tool:hover:not(:disabled),
@@ -198,6 +208,17 @@
 .chat-groups__tool:disabled {
   cursor: default;
   opacity: 0.4;
+}
+.chat-groups__filter--on,
+.chat-groups__filter--on:hover,
+.chat-groups__filter--on:focus-visible {
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+.chat-groups__empty {
+  padding: 16px 12px;
+  font-size: 13px;
+  color: var(--color-text-muted);
 }
 
 .chat-groups__entry {
@@ -388,6 +409,43 @@
   color: var(--color-text-muted);
 }
 
+.chat-groups__menu-search {
+  display: block;
+  width: calc(100% - 8px);
+  margin: 4px 4px 6px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 12%, transparent);
+  border-radius: 8px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 13px;
+}
+.chat-groups__menu-search::placeholder {
+  color: var(--color-text-muted);
+}
+.chat-groups__menu-search:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
+  outline-offset: -1px;
+}
+.chat-groups__menu-section {
+  padding: 8px 10px 2px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+/* A long menu (the 篩選) scrolls inside itself rather than run off a short
+ * window. */
+.chat-groups__menu > .chat-groups__menu-panel {
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+}
+.chat-groups__menu-count {
+  margin-left: auto;
+  padding-left: 12px;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
 .chat-groups__menu--float .chat-groups__menu-item {
   min-height: 44px;
 }

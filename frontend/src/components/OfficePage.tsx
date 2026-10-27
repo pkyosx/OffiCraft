@@ -19,7 +19,7 @@ import {
   updateCachedWorkerAvatar,
   useWorkerCodenames,
 } from "../hooks/useWorkerCodenames";
-import { MemberCard } from "./MemberCard";
+import { MemberCard, memberRowFacts } from "./MemberCard";
 import { ChatArea } from "./ChatArea";
 import { MemberDetailPanel } from "./MemberDetailPanel";
 import { WorkerDetailPanel } from "./WorkerDetailPanel";
@@ -840,6 +840,7 @@ export function OfficePage({
               mobile={isMobile}
               nameOf={(id) => roster.find((m) => m.id === id)?.name ?? id}
               unreadOf={(id) => roster.find((m) => m.id === id)?.unreadCount ?? 0}
+              factsOf={(id) => memberRowFacts(t, roster.find((m) => m.id === id)!)}
               collapsed={groupCollapsed.staff}
               onCollapsedChange={(next) => setGroupCollapsed((s) => ({ ...s, staff: next }))}
               renderRow={(id, sortable) => {
