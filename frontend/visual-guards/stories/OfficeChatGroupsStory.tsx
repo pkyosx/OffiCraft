@@ -11,7 +11,6 @@ import { OfficeSidebarTabs } from "../../src/components/OfficeSidebarTabs";
 import { OutsourcePanel } from "../../src/components/OutsourcePanel";
 import { ChatGroupPanel } from "../../src/components/ChatGroupPanel";
 import { PersonPlusIcon } from "../../src/components/icons";
-import { tabGroups } from "../../src/lib/chatGroups";
 import type { ChatGroup } from "../../src/lib/chatGroups";
 import type { Member } from "../../src/types";
 import type { OutsourceWorkerView, TaskTypeView } from "../../src/api/adapter";
@@ -176,7 +175,6 @@ function Sidebar({
         activeTab={tab}
         onSelect={setTab}
         staffCount={roster.length}
-        staffGroupCount={tabGroups(groups, "staff").length}
         staffUnread={131}
         staffReady
         outsourceCount={workers.length}

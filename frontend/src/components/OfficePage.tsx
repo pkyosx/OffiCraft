@@ -10,7 +10,7 @@ import { useMonitoring } from "../hooks/useMonitoring";
 import { useOutsourceWorkers } from "../hooks/useOutsourceWorkers";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { useChatGroups } from "../hooks/useChatGroups";
-import { layoutTab, tabGroups } from "../lib/chatGroups";
+import { layoutTab } from "../lib/chatGroups";
 import type { TaskTypeView } from "../api/adapter";
 import { joinSessionRuntime, findSessionFor } from "../lib/runtime";
 import { useHashRoute } from "../lib/hashRoute";
@@ -810,7 +810,6 @@ export function OfficePage({
             activeTab={activeTab}
             onSelect={selectTab}
             staffCount={roster.length}
-            staffGroupCount={tabGroups(chatGroups.groups, "staff").length}
             staffUnread={staffUnread}
             staffReady={!loading && !error}
             outsourceCount={outsource.workers.length}

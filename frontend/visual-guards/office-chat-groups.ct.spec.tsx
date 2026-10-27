@@ -86,7 +86,6 @@ for (const width of [1280, 390, 320]) {
     } else {
       await row(cmp, "Evan").focus();
       await page.keyboard.press("ContextMenu");
-      await page.getByTestId("chat-member-menu-move").click();
     }
     m = await measure(page);
     expect(m.pageOver, `${at} page scrolls sideways with the menu open`).toBeLessThanOrEqual(1);
@@ -276,6 +275,58 @@ test("a member dragged into 未分組 is shown at its default-order place there,
   await page.waitForTimeout(400);
   expect(await sectionNames(cmp, "g-lead")).toEqual(["Mira"]);
   expect(await sectionNames(cmp, "ungrouped")).toEqual(["Clara", "Evan", "EvaRhapsodyInboxForwarderStandbyRelay"]);
+  expect(await writes(cmp)).toBe("1");
+});
+
+test("an expanded empty group shows a 44px dashed 「把成員拖曳到這裡」 box where its first row would be, with no guide line; a member dragged over it takes its place in the lit group and dropping it there saves once; folded, the group is its heading alone", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const groups = [...sampleGroups, { id: "g-t2", tab: "staff" as const, name: "T2", memberIds: [], taskTypeKeys: [] }];
+  const cmp = await mount(<OfficeChatGroupsStory initialGroups={groups} />);
+  const drop = cmp.getByTestId("chat-group-drop-g-t2");
+  const m = await drop.evaluate((box) => {
+    const r = (el: Element) => el.getBoundingClientRect();
+    const list = r(box.closest(".office__members-list")!);
+    const section = box.parentElement!;
+    const cs = getComputedStyle(box);
+    const row = r(document.querySelector('[data-testid="chat-group-section-g-eng"] .member-card')!);
+    return {
+      text: box.textContent,
+      left: Math.round(r(box).left - list.left),
+      rowLeft: Math.round(row.left - list.left),
+      height: Math.round(r(box).height),
+      border: `${cs.borderTopWidth} ${cs.borderTopStyle}`,
+      guideLine: getComputedStyle(section).borderLeftColor,
+    };
+  });
+  expect(m).toEqual({
+    text: "把成員拖曳到這裡",
+    left: 16,
+    rowLeft: 16,
+    height: 44,
+    border: "1px dashed",
+    guideLine: "rgba(0, 0, 0, 0)",
+  });
+
+  await cmp.getByTestId("chat-group-heading-g-t2").click();
+  await expect(cmp.getByTestId("chat-group-section-g-t2")).toHaveCount(0);
+  await expect(cmp.getByTestId("chat-group-heading-g-t2")).toHaveText("T2 · 0");
+  await cmp.getByTestId("chat-group-heading-g-t2").click();
+
+  const from = await grip(row(cmp, "Evan"));
+  const to = (await drop.boundingBox())!;
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.waitForTimeout(HOLD_MS);
+  await page.mouse.move(from.x, to.y + to.height / 2, { steps: 14 });
+  await page.waitForTimeout(300);
+  await expect(cmp.getByTestId("chat-group-section-g-t2")).toHaveClass(/chat-groups__section--over/);
+  expect(await sectionNames(cmp, "g-t2")).toEqual(["Evan"]);
+  await page.mouse.up();
+  await page.waitForTimeout(400);
+  expect(await sectionNames(cmp, "g-t2")).toEqual(["Evan"]);
   expect(await writes(cmp)).toBe("1");
 });
 
@@ -598,51 +649,6 @@ test("from the keyboard, Space lifts a member, ArrowUp moves it and Enter drops 
   await expect(cmp.locator("aside.office__members")).toHaveAttribute("data-chat", "");
 });
 
-/** The open 自動加入 cascade: main menu, submenu, the row it hangs off, and
- * its header block. */
-async function cascade(page: Page) {
-  return page.evaluate(() => {
-    const box = (el: Element) => {
-      const r = el.getBoundingClientRect();
-      return { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
-    };
-    const main = document.querySelector('[data-testid="chat-group-menu-panel"]')!;
-    const sub = document.querySelector('[data-testid="chat-group-menu-autojoin-panel"]')!;
-    const head = sub.querySelector(".chat-groups__menu-head")!;
-    const firstItem = sub.querySelector("[role='menuitemcheckbox']")!;
-    const opener = document.querySelector('[data-testid="chat-group-menu-autojoin"]')!;
-    const parse = (c: string) => c.match(/[\d.]+/g)!.map(Number);
-    const lum = ([r, g, b]: number[]) => {
-      const f = (v: number) => {
-        const x = v / 255;
-        return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
-      };
-      return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
-    };
-    const subBg = getComputedStyle(sub).backgroundColor;
-    const text = head.querySelector(".chat-groups__menu-head-text")!;
-    const [hi, lo] = [lum(parse(getComputedStyle(text).color)), lum(parse(subBg))].sort((a, b) => b - a);
-    return {
-      main: box(main),
-      sub: box(sub),
-      head: box(head),
-      firstItemTop: box(firstItem).top,
-      openerTop: box(opener).top,
-      subBgAlpha: parse(subBg)[3] ?? 1,
-      headText: head.textContent,
-      lines: Array.from(text.children, (c) => c.textContent),
-      textContrast: (hi + 0.05) / (lo + 0.05),
-      flip: sub.parentElement!.hasAttribute("data-flip"),
-      viewport: window.innerWidth,
-    };
-  });
-}
-
-// The 「⋯」 is the menu's only mouse opener; a sidebar widened here puts it
-// close enough to the window's right edge to leave the submenu short of room.
-const wideSidebar = (px: number) =>
-  `.office__members { width: ${px}px !important; max-width: none !important; flex: none !important; }`;
-
 test("1280px: a right-click on a group heading or a member row gets the browser's own menu: the event is not cancelled and no app menu opens", async ({
   mount,
   page,
@@ -666,62 +672,116 @@ test("1280px: a right-click on a group heading or a member row gets the browser'
   await expect(page.getByRole("menu")).toHaveCount(0);
 });
 
-test("1280px: the 自動加入 submenu hangs off its row like one menu, overlapping the main menu by 2px, with its explanation inside its own opaque surface", async ({
+/** The open 自動加入 dialog: its box, the window, its rows and how its words read. */
+async function autoJoinDialog(page: Page) {
+  return page.getByTestId("chat-group-autojoin").evaluate((box) => {
+    const r = (el: Element) => el.getBoundingClientRect();
+    const parse = (c: string) => c.match(/[\d.]+/g)!.map(Number);
+    const lum = ([red, g, b]: number[]) => {
+      const f = (v: number) => {
+        const x = v / 255;
+        return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+      };
+      return 0.2126 * f(red) + 0.7152 * f(g) + 0.0722 * f(b);
+    };
+    const bg = parse(getComputedStyle(box).backgroundColor);
+    const ratio = (el: Element) => {
+      const [hi, lo] = [lum(parse(getComputedStyle(el).color)), lum(bg)].sort((a, b) => b - a);
+      return (hi + 0.05) / (lo + 0.05);
+    };
+    const b = r(box);
+    const hint = box.querySelector(".chat-groups__dialog-hint")!;
+    const owner = box.querySelector(".chat-groups__autojoin-owner")!;
+    const ownerRow = owner.closest("button")!;
+    return {
+      title: box.querySelector("h2")!.textContent,
+      hint: hint.textContent,
+      rows: Array.from(box.querySelectorAll("[role='checkbox']"), (row) => [
+        row.querySelector(".chat-groups__autojoin-label")!.textContent,
+        row.querySelector(".chat-groups__autojoin-owner")?.textContent ?? "",
+        row.getAttribute("aria-checked"),
+      ]),
+      rowHeights: Array.from(box.querySelectorAll("[role='checkbox']"), (row) => Math.round(r(row).height)),
+      ownerToRowEnd: Math.round(r(ownerRow).right - r(owner).right),
+      done: box.querySelector('[data-testid="chat-group-autojoin-done"]')!.textContent,
+      opaque: (bg[3] ?? 1) === 1,
+      hintReadable: ratio(hint) >= 4.5,
+      ownerReadable: ratio(owner) >= 4.5,
+      box: { left: Math.round(b.left), top: Math.round(b.top), right: Math.round(b.right), bottom: Math.round(b.bottom) },
+      window: { width: window.innerWidth, height: window.innerHeight },
+    };
+  });
+}
+
+const AUTO_JOIN_ROWS = [
+  ["OffiCraft · 前端 UI", "", "true"],
+  ["OffiCraft · PR 審查（含外部 PR 接待）", "", "false"],
+  ["Eva GF VE Tickets", "目前在「營運」", "false"],
+  ["Long-term Context · Lessons Refine", "", "false"],
+];
+
+test("1280px: 自動加入… opens a 400px dialog centred in the window, titled with the group, its sentence and the task types readable on an opaque card, 「目前在」 at each row's right end; a tick with ungrouped workers asks over it, and a click outside closes it back to the 「⋯」", async ({
   mount,
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   const cmp = await mount(<OfficeChatGroupsStory initialGroups={sampleGroups} initialTab="outsource" />);
-  await cmp.getByTestId("chat-group-more-g-ui").click();
+  const more = cmp.getByTestId("chat-group-more-g-ui");
+  await more.click();
   await page.getByTestId("chat-group-menu-autojoin").click();
-  const m = await cascade(page);
+  const m = await autoJoinDialog(page);
+  expect(m).toEqual({
+    title: "自動加入 · 前端外包",
+    hint: "勾選的任務類型，該類型的外包會自動加入這個群組。",
+    rows: AUTO_JOIN_ROWS,
+    rowHeights: [32, 32, 32, 32],
+    ownerToRowEnd: 10,
+    done: "完成",
+    opaque: true,
+    hintReadable: true,
+    ownerReadable: true,
+    box: { left: 440, top: m.box.top, right: 840, bottom: m.box.bottom },
+    window: { width: 1280, height: 900 },
+  });
+  expect(Math.round((m.box.top + m.box.bottom) / 2)).toBe(450);
+  await expect(page.getByTestId("chat-group-autojoin-tm-fe")).toBeFocused();
 
-  expect(m.flip).toBe(false);
-  expect(Math.round((m.sub.left - m.main.right) * 10) / 10).toBe(-2);
-  expect(Math.round(m.firstItemTop - m.openerTop)).toBe(0);
-  expect(m.headText).toBe("自動加入勾選的任務類型，之後指派的新外包會自動加入這個群組。");
-  expect(m.lines).toEqual(["勾選的任務類型，", "之後指派的新外包會自動加入這個群組。"]);
-  expect(m.subBgAlpha).toBe(1);
-  expect(m.head.left).toBeGreaterThanOrEqual(m.sub.left);
-  expect(m.head.right).toBeLessThanOrEqual(m.sub.right);
-  expect(m.head.top).toBeGreaterThanOrEqual(m.sub.top);
-  expect(m.textContrast).toBeGreaterThanOrEqual(4.5);
+  await page.getByTestId("chat-group-autojoin-tm-review").click();
+  const ask = page.getByTestId("chat-groups-bring-in");
+  await expect(ask).toBeVisible();
+  const top = await ask.evaluate((el) => {
+    const b = el.getBoundingClientRect();
+    return document.elementFromPoint(b.left + b.width / 2, b.top + 10)?.closest("[role='dialog']")?.getAttribute("data-testid");
+  });
+  expect(top).toBe("chat-groups-bring-in");
+  await page.keyboard.press("Escape");
+  await expect(ask).toHaveCount(0);
+  await expect(page.getByTestId("chat-group-autojoin-tm-review")).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByTestId("chat-group-autojoin-tm-review")).toBeFocused();
+
+  await page.mouse.click(20, 20);
+  await expect(page.getByTestId("chat-group-autojoin")).toHaveCount(0);
+  await expect(more).toBeFocused();
 });
 
-test("721px: when the 自動加入 submenu fits on neither side, the menu slides left so the cascade fits, judged by the submenu's own width", async ({
+test("390px: 自動加入… opens as a bottom sheet the width of the window with 44px rows, and 完成 closes it", async ({
   mount,
   page,
 }) => {
-  await page.setViewportSize({ width: 721, height: 900 });
-  const cmp = await mount(<OfficeChatGroupsStory initialGroups={sampleGroups} initialTab="outsource" />);
-  await page.addStyleTag({ content: wideSidebar(330) });
+  await page.setViewportSize({ width: 390, height: 900 });
+  const cmp = await mount(<OfficeChatGroupsStory mobile initialGroups={sampleGroups} initialTab="outsource" />);
   await cmp.getByTestId("chat-group-more-g-ui").click();
   await page.getByTestId("chat-group-menu-autojoin").click();
-  const m = await cascade(page);
-
-  expect(m.flip).toBe(false);
-  expect(Math.round((m.sub.left - m.main.right) * 10) / 10).toBe(-2);
-  expect(Math.round(m.firstItemTop - m.openerTop)).toBe(0);
-  expect(m.sub.right).toBeLessThanOrEqual(m.viewport - 8);
-  expect(m.main.left).toBeGreaterThanOrEqual(8);
-});
-
-test("1280px: opened near the window's right edge, the 自動加入 submenu flips to the left of the main menu, overlapping it by 2px", async ({
-  mount,
-  page,
-}) => {
-  await page.setViewportSize({ width: 1280, height: 900 });
-  const cmp = await mount(<OfficeChatGroupsStory initialGroups={sampleGroups} initialTab="outsource" />);
-  await page.addStyleTag({ content: wideSidebar(1150) });
-  await cmp.getByTestId("chat-group-more-g-ui").click();
-  await page.getByTestId("chat-group-menu-autojoin").click();
-  const m = await cascade(page);
-
-  expect(m.flip).toBe(true);
-  expect(Math.round((m.main.left - m.sub.right) * 10) / 10).toBe(-2);
-  expect(Math.round(m.firstItemTop - m.openerTop)).toBe(0);
-  expect(m.main.right).toBeLessThanOrEqual(m.viewport - 8);
-  expect(m.sub.left).toBeGreaterThanOrEqual(8);
+  const m = await autoJoinDialog(page);
+  expect({ rows: m.rows, rowHeights: m.rowHeights, left: m.box.left, right: m.box.right, bottom: m.box.bottom }).toEqual({
+    rows: AUTO_JOIN_ROWS,
+    rowHeights: [44, 44, 44, 44],
+    left: 0,
+    right: 390,
+    bottom: 900,
+  });
+  await page.getByTestId("chat-group-autojoin-done").click();
+  await expect(page.getByTestId("chat-group-autojoin")).toHaveCount(0);
 });
 
 for (const [width, reach] of [

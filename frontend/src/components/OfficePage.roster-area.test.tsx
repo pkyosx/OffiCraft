@@ -39,13 +39,10 @@ beforeEach(() => {
 });
 
 describe("OfficePage — 正職 tab (T-66a8)", () => {
-  it("shows the 「N 人」 count sub-line (seed roster = 1 assistant), followed by 「· N 個群組」 once there are staff groups", async () => {
-    const { findByTestId, container } = renderOffice();
+  it("shows the 「N 人」 count sub-line (seed roster = 1 assistant)", async () => {
+    const { findByTestId } = renderOffice();
     const sub = await findByTestId("staff-tab-sub");
     await waitFor(() => expect(sub.textContent).toBe("1 人"));
-    await groupIntoNew(container.querySelector('[data-chat-row="mira"]')!, "核心");
-    await waitFor(() => expect(sub.textContent).toBe("1 人 · 1 個群組"));
-    expect((await findByTestId("outsource-tab-sub")).textContent).toBe("0 人 · 上限 3");
   });
 
   it("renders NO unread badge when the 正職 area has no unread", async () => {
@@ -135,7 +132,6 @@ describe("OfficePage — 招攬新成員 routing (T-66a8 req 4)", () => {
 
 async function groupIntoNew(row: Element, name: string) {
   fireEvent.keyDown(row, { key: "ContextMenu" });
-  fireEvent.click(await screen.findByTestId("chat-member-menu-move"));
   fireEvent.click(await screen.findByTestId("chat-member-menu-move-new"));
   const entry = await screen.findByTestId("chat-group-new-entry");
   fireEvent.change(within(entry).getByRole("textbox"), { target: { value: name } });

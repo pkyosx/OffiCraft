@@ -241,15 +241,33 @@ function UngroupedHeading({
   );
 }
 
-function Section({ id, over, children }: { id: string; over: boolean; children: ReactNode }) {
+/** A group's rows; an empty group shows where to drop instead (no guide
+ * line), and the whole section stays the drop target. */
+function Section({
+  id,
+  over,
+  empty,
+  children,
+}: {
+  id: string;
+  over: boolean;
+  empty?: ReactNode;
+  children: ReactNode;
+}) {
   const d = useDroppable({ id: sid(id) });
   return (
     <div
       ref={d.setNodeRef}
-      className={`chat-groups__section${over ? " chat-groups__section--over" : ""}`}
+      className={`chat-groups__section${over ? " chat-groups__section--over" : ""}${empty ? " chat-groups__section--empty" : ""}`}
       data-testid={`chat-group-section-${id === UNGROUPED ? "ungrouped" : id}`}
     >
-      {children}
+      {empty ? (
+        <div className="chat-groups__drop-here" data-testid={`chat-group-drop-${id}`}>
+          {empty}
+        </div>
+      ) : (
+        children
+      )}
     </div>
   );
 }
@@ -560,7 +578,11 @@ export function ChatGroupList({
                   />
                   )}
                   {!isCollapsed(group.id) && !draggingGroup && (
-                    <Section id={group.id} over={overSection === group.id}>
+                    <Section
+                      id={group.id}
+                      over={overSection === group.id}
+                      empty={items.length === 0 ? t.office.groups.dropHere : undefined}
+                    >
                       {rows(items)}
                     </Section>
                   )}

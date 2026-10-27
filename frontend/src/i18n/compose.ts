@@ -87,10 +87,10 @@ export interface Messages {
   groupHeading: (name: string, count: number) => string;
   groupDeleteConfirm: (name: string) => string;
   groupOptions: (name: string) => string;
+  /** 「自動加入 · 前端」: the auto-join dialog's title. */
+  groupAutoJoinTitle: (name: string) => string;
   /** 「篩選」, or 「篩選 · N」 with N filters on. */
   groupFilterLabel: (active: number) => string;
-  /** 「 · 3 個群組」 after the staff head count; "" with no groups. */
-  groupCountSuffix: (n: number) => string;
   groupCurrentlyIn: (name: string) => string;
   groupBringIn: (count: number, typeName: string, groupName: string) => string;
   groupDragPickedUp: (name: string) => string;
@@ -434,10 +434,9 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     groupHeading: (name, count) => `${name}${t.office.groups.countSep}${count}`,
     groupDeleteConfirm: (name) => `${t.office.groups.deleteConfirmLead}${name}${t.office.groups.deleteConfirmTail}`,
     groupOptions: (name) => `${t.office.groups.optionsLead}${name}`,
+    groupAutoJoinTitle: (name) => `${t.office.groups.autoJoin}${t.office.groups.countSep}${name}`,
     groupFilterLabel: (active) =>
       active === 0 ? t.office.groups.filter : `${t.office.groups.filterActiveLead}${active}`,
-    groupCountSuffix: (n) =>
-      n === 0 ? "" : `${t.office.groups.countLead}${n}${n === 1 ? t.office.groups.countOne : t.office.groups.countMany}`,
     groupCurrentlyIn: (name) => `${t.office.groups.currentlyInLead}${name}${t.office.groups.currentlyInTail}`,
     groupBringIn: (count, typeName, groupName) =>
       `${t.office.groups.bringInLead}${count}${t.office.groups.bringInMid}${typeName}${t.office.groups.bringInMid2}${groupName}${t.office.groups.bringInTail}`,

@@ -132,6 +132,7 @@ describe("ChatGroupPanel", () => {
     fireEvent.change(input, { target: { value: " 前端 " } });
     fireEvent.submit(entry);
     expect(headings()).toEqual(["前端 · 0", "未分組 · 2"]);
+    expect(screen.getByTestId("chat-group-drop-cg-new-1").textContent).toBe("把成員拖曳到這裡");
     expect(latest).toEqual([g("cg-new-1", "staff", "前端", []), g("o", "outsource", "前端", [])]);
 
     fireEvent.click(screen.getByTestId("chat-group-new"));
@@ -334,7 +335,7 @@ describe("ChatGroupPanel", () => {
     expect(rows()).toEqual([]);
   });
 
-  it("a right-click on a row is left to the browser; a member's menu (the menu key or Shift+F10 on the focused row) moves it to another group, to 未分組, or into a new group", () => {
+  it("a right-click on a row is left to the browser; a member's menu (the menu key or Shift+F10 on the focused row) lists the groups under 移到群組 and moves it to another group, to 未分組, or into a new group", () => {
     mount("staff", ["mira", "beto", "clara"], [g("a", "staff", "核心", ["clara"]), g("b", "staff", "工程", [])]);
     const mira = screen.getByTestId("row-mira");
     const notPrevented = fireEvent.contextMenu(mira);
@@ -342,17 +343,15 @@ describe("ChatGroupPanel", () => {
     expect(screen.queryByRole("menu")).toBeNull();
     mira.focus();
     fireEvent.keyDown(mira, { key: "ContextMenu" });
-    expect(screen.getByRole("menu", { name: "Mira" })).toBeTruthy();
-    fireEvent.click(screen.getByTestId("chat-member-menu-move"));
-    const sub = screen.getByRole("menu", { name: "移到群組" });
+    const menu = screen.getByRole("menu", { name: "Mira" });
+    expect(Array.from(menu.children, (c) => c.textContent)).toEqual(["移到群組", "核心", "工程", "未分組", "", "新群組…"]);
     expect(
-      within(sub)
-        .getAllByRole("menuitemcheckbox")
-        .map((i) => [i.textContent, i.getAttribute("aria-checked")]),
+      Array.from(menu.querySelectorAll(".chat-groups__menu-item"), (i) => [i.textContent, i.getAttribute("aria-checked")]),
     ).toEqual([
       ["核心", "false"],
       ["工程", "false"],
       ["未分組", "true"],
+      ["新群組…", null],
     ]);
     fireEvent.click(screen.getByTestId("chat-member-menu-move-b"));
     expect(screen.queryByRole("menu")).toBeNull();
@@ -361,12 +360,10 @@ describe("ChatGroupPanel", () => {
     const clara = screen.getByTestId("row-clara");
     clara.focus();
     fireEvent.keyDown(clara, { key: "F10", shiftKey: true });
-    fireEvent.click(screen.getByTestId("chat-member-menu-move"));
     fireEvent.click(screen.getByTestId("chat-member-menu-move-ungrouped"));
     expect(latest.map((x) => x.memberIds)).toEqual([[], ["mira"]]);
 
     fireEvent.keyDown(screen.getByTestId("row-beto"), { key: "ContextMenu" });
-    fireEvent.click(screen.getByTestId("chat-member-menu-move"));
     fireEvent.click(screen.getByTestId("chat-member-menu-move-new"));
     const entry = screen.getByTestId("chat-group-new-entry");
     fireEvent.change(within(entry).getByRole("textbox"), { target: { value: "新" } });
@@ -378,19 +375,18 @@ describe("ChatGroupPanel", () => {
     ]);
   });
 
-  it("the menu moves focus with the arrow keys, opens the submenu with ArrowRight, and Escape closes it back to where it was opened", () => {
+  it("the menu takes focus on its first group, moves it with the arrow keys and Home/End, and Escape closes it back to where it was opened", () => {
     mount("staff", ["mira"], [g("a", "staff", "核心", [])]);
     const row = screen.getByTestId("row-mira");
     row.focus();
     fireEvent.keyDown(row, { key: "ContextMenu" });
-    const move = screen.getByTestId("chat-member-menu-move");
-    expect(document.activeElement).toBe(move);
-    fireEvent.keyDown(move, { key: "ArrowRight" });
     expect(document.activeElement).toBe(screen.getByTestId("chat-member-menu-move-a"));
     fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
     expect(document.activeElement).toBe(screen.getByTestId("chat-member-menu-move-ungrouped"));
-    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
-    expect(screen.queryByRole("menu", { name: "移到群組" })).toBeNull();
+    fireEvent.keyDown(document.activeElement!, { key: "End" });
+    expect(document.activeElement).toBe(screen.getByTestId("chat-member-menu-move-new"));
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(screen.getByTestId("chat-member-menu-move-a"));
     fireEvent.keyDown(document.activeElement!, { key: "Escape" });
     expect(screen.queryByRole("menu")).toBeNull();
     expect(document.activeElement).toBe(row);
@@ -454,55 +450,102 @@ describe("ChatGroupPanel", () => {
     expect(latest).toEqual([g("b", "staff", "工程", [])]);
   });
 
-  it("自動加入 lists every task type, marks one used by another group with where it is, and ticking it moves the rule there", () => {
+  const autoJoinRows = () =>
+    Array.from(screen.getByTestId("chat-group-autojoin").querySelectorAll("[role='checkbox']"), (i) => [
+      i.textContent,
+      i.getAttribute("aria-checked"),
+    ]);
+
+  it("自動加入… opens a dialog titled with the group, its sentence and every task type, a type owned by another group saying where it is; a tick saves at once and moves the rule there, and 完成 closes it with focus back on the 「⋯」", () => {
     mount(
       "outsource",
       ["ow-1", "ow-2", "ow-3"],
       [g("x", "outsource", "審查", ["ow-1"]), g("y", "outsource", "修復", ["ow-2"], ["bugfix"])],
     );
-    fireEvent.click(screen.getByTestId("chat-group-more-x"));
+    const more = screen.getByTestId("chat-group-more-x");
+    more.focus();
+    fireEvent.click(more);
+    expect(screen.getByTestId("chat-group-menu-autojoin").textContent).toBe("自動加入…");
     fireEvent.click(screen.getByTestId("chat-group-menu-autojoin"));
-    const sub = screen.getByRole("menu", { name: "自動加入" });
-    expect(
-      within(sub)
-        .getAllByRole("menuitemcheckbox")
-        .map((i) => [i.textContent, i.getAttribute("aria-checked")]),
-    ).toEqual([
+    expect(screen.queryByRole("menu")).toBeNull();
+    const dialog = screen.getByRole("dialog", { name: "自動加入 · 審查" });
+    expect(within(dialog).getByText("勾選的任務類型，該類型的外包會自動加入這個群組。")).toBeTruthy();
+    expect(autoJoinRows()).toEqual([
       ["PR 審查", "false"],
       ["修 bug目前在「修復」", "false"],
       ["文件", "false"],
     ]);
-    fireEvent.click(screen.getByTestId("chat-group-menu-autojoin-bugfix"));
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(screen.getByTestId("chat-group-autojoin-review"));
+
+    fireEvent.click(screen.getByTestId("chat-group-autojoin-bugfix"));
     expect(latest).toEqual([
       g("x", "outsource", "審查", ["ow-1"], ["bugfix"]),
       g("y", "outsource", "修復", ["ow-2"], []),
     ]);
+    expect(autoJoinRows()).toEqual([
+      ["PR 審查", "false"],
+      ["修 bug", "true"],
+      ["文件", "false"],
+    ]);
+    fireEvent.click(screen.getByTestId("chat-group-autojoin-bugfix"));
+    expect(latest[0].taskTypeKeys).toEqual([]);
+
+    fireEvent.keyDown(document.activeElement!, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(screen.getByTestId("chat-group-autojoin-done"));
+    fireEvent.keyDown(document.activeElement!, { key: "Tab" });
+    expect(document.activeElement).toBe(screen.getByTestId("chat-group-autojoin-review"));
+    fireEvent.keyDown(document.activeElement!, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(screen.getByTestId("chat-group-autojoin-done"));
+    fireEvent.click(screen.getByTestId("chat-group-autojoin-done"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(more);
+
+    fireEvent.click(more);
+    fireEvent.click(screen.getByTestId("chat-group-menu-autojoin"));
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(more);
+
+    fireEvent.click(more);
+    fireEvent.click(screen.getByTestId("chat-group-menu-autojoin"));
+    const backdrop = screen.getByTestId("chat-group-autojoin").parentElement!;
+    fireEvent.mouseDown(backdrop);
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("ticking a type that ungrouped workers have asks whether to bring them in: yes appends them, Escape only saves the rule", () => {
+  it("ticking a type that ungrouped workers have asks, over the 自動加入 dialog, whether to bring them in: yes appends them, Escape only saves the rule, and either way the dialog stays with focus back on that box", () => {
     mount("outsource", ["ow-1", "ow-2", "ow-3"], [g("x", "outsource", "審查", []), g("y", "outsource", "修復", ["ow-1"])]);
-    const tick = () => {
-      fireEvent.click(screen.getByTestId("chat-group-more-x"));
-      fireEvent.click(screen.getByTestId("chat-group-menu-autojoin"));
-      fireEvent.click(screen.getByTestId("chat-group-menu-autojoin-review"));
-    };
-    tick();
-    const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByText("未分組裡有 1 位符合「PR 審查」的外包，要一起搬進「審查」嗎？")).toBeTruthy();
-    expect(within(dialog).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["O-3"]);
-    expect(document.activeElement?.textContent).toBe("一起搬進來");
-    expect(latest[0].taskTypeKeys).toEqual([]);
-    fireEvent.keyDown(dialog, { key: "Escape" });
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect(latest).toEqual([g("x", "outsource", "審查", [], ["review"]), g("y", "outsource", "修復", ["ow-1"])]);
-
+    expect(screen.getByTestId("chat-group-drop-x").textContent).toBe("把成員拖曳到這裡");
     fireEvent.click(screen.getByTestId("chat-group-more-x"));
     fireEvent.click(screen.getByTestId("chat-group-menu-autojoin"));
-    fireEvent.click(screen.getByTestId("chat-group-menu-autojoin-review"));
+    const review = screen.getByTestId("chat-group-autojoin-review");
+    fireEvent.click(review);
+    const ask = screen.getByTestId("chat-groups-bring-in");
+    expect(within(ask).getByText("未分組裡有 1 位符合「PR 審查」的外包，要一起搬進「審查」嗎？")).toBeTruthy();
+    expect(within(ask).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["O-3"]);
+    expect(document.activeElement?.textContent).toBe("一起搬進來");
     expect(latest[0].taskTypeKeys).toEqual([]);
-    tick();
-    fireEvent.click(within(screen.getByRole("dialog")).getByText("一起搬進來"));
+    expect(screen.getAllByRole("dialog").map((d) => d.getAttribute("data-testid"))).toEqual([
+      "chat-group-autojoin",
+      "chat-groups-bring-in",
+    ]);
+
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(screen.queryByTestId("chat-groups-bring-in")).toBeNull();
+    expect(screen.getByTestId("chat-group-autojoin")).toBeTruthy();
+    expect(document.activeElement).toBe(review);
+    expect(latest).toEqual([g("x", "outsource", "審查", [], ["review"]), g("y", "outsource", "修復", ["ow-1"])]);
+
+    fireEvent.click(review);
+    expect(latest[0].taskTypeKeys).toEqual([]);
+    fireEvent.click(review);
+    fireEvent.click(within(screen.getByTestId("chat-groups-bring-in")).getByText("一起搬進來"));
     expect(latest).toEqual([g("x", "outsource", "審查", ["ow-3"], ["review"]), g("y", "outsource", "修復", ["ow-1"])]);
+    expect(document.activeElement).toBe(review);
+    expect(autoJoinRows()).toEqual([
+      ["PR 審查", "true"],
+      ["修 bug", "false"],
+      ["文件", "false"],
+    ]);
   });
 });

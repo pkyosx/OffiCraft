@@ -149,7 +149,6 @@ export function OfficeRosterOverflowStory({
                 activeTab={tab}
                 onSelect={() => {}}
                 staffCount={roster.length}
-                staffGroupCount={0}
                 staffUnread={141}
                 staffReady
                 outsourceCount={workers.length}
@@ -211,7 +210,6 @@ export function OfficeRosterDesktopStory({
                 activeTab={tab}
                 onSelect={() => {}}
                 staffCount={roster.length}
-                staffGroupCount={0}
                 staffUnread={141}
                 staffReady
                 outsourceCount={workers.length}

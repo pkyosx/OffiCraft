@@ -153,6 +153,25 @@
   padding-left: 9px;
   border-left: 1px solid color-mix(in srgb, var(--color-text-muted) 28%, transparent);
 }
+.chat-groups__section--empty {
+  border-left-color: transparent;
+}
+.chat-groups__drop-here {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 6px 10px;
+  border: 1px dashed color-mix(in srgb, var(--color-text-muted) 45%, transparent);
+  border-radius: var(--radius-card);
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+.chat-groups__section--over .chat-groups__drop-here {
+  border-color: color-mix(in srgb, var(--color-accent) 60%, transparent);
+  color: var(--color-accent);
+}
 .chat-groups__section--over {
   background: color-mix(in srgb, var(--color-accent) 7%, transparent);
   outline: 1px dashed color-mix(in srgb, var(--color-accent) 45%, transparent);
@@ -317,37 +336,6 @@
   background: var(--color-card);
   box-shadow: 0 10px 24px color-mix(in srgb, var(--color-shadow) 40%, transparent);
 }
-/* Cascades off the opener row and overlaps the main menu a little, so the
- * two read as one menu; placed by ChatGroupPanel's Menu. */
-.chat-groups__menu-sub {
-  position: absolute;
-  /* Its own width wherever it is placed: an absolute box otherwise shrinks
-   * to the room left in the main menu, and is measured too narrow. */
-  width: max-content;
-}
-.chat-groups__menu-panel--headed {
-  min-width: 260px;
-}
-.chat-groups__menu-head {
-  padding: 8px 10px 10px;
-}
-.chat-groups__menu-head-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--color-text-strong);
-}
-.chat-groups__menu-head-text {
-  margin-top: 4px;
-  font-size: 12.5px;
-  line-height: 1.55;
-  color: var(--color-text);
-}
-.chat-groups__menu-head-text > span {
-  display: block;
-}
-.chat-groups__menu-head-title + .chat-groups__menu-head-text {
-  margin-top: 4px;
-}
 /* Not --color-border: in the office theme that equals the menu surface. */
 .chat-groups__menu-sep {
   height: 1px;
@@ -370,8 +358,7 @@
   cursor: pointer;
 }
 .chat-groups__menu-item:hover,
-.chat-groups__menu-item:focus-visible,
-.chat-groups__menu-item[aria-expanded="true"] {
+.chat-groups__menu-item:focus-visible {
   outline: none;
   background: color-mix(in srgb, var(--color-overlay) 7%, transparent);
 }
@@ -404,21 +391,7 @@
 .chat-groups__menu-text {
   flex: 1;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
   overflow-wrap: anywhere;
-}
-.chat-groups__menu-hint {
-  font-size: 12px;
-  color: var(--color-text-muted);
-}
-.chat-groups__menu-more {
-  flex: none;
-  color: var(--color-text-muted);
-}
-.chat-groups__menu-back {
-  color: var(--color-text-muted);
-  font-size: 12px;
 }
 .chat-groups__menu-empty {
   padding: 8px 10px;
@@ -493,11 +466,6 @@
 .chat-groups__sheet .chat-groups__menu-item {
   min-height: 44px;
 }
-.chat-groups__sheet .chat-groups__menu-sub,
-.chat-groups__menu--float .chat-groups__menu-sub {
-  position: static;
-  width: auto;
-}
 .chat-groups__sheet-title {
   padding: 0 10px 8px;
   font-size: 12.5px;
@@ -544,6 +512,50 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+.chat-groups__dialog-actions--end {
+  justify-content: flex-end;
+}
+
+/* 自動加入: a title, one muted sentence, the task types, 完成. */
+.chat-groups__dialog-title {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-text-strong);
+  overflow-wrap: anywhere;
+}
+.chat-groups__dialog-hint {
+  margin: 0 0 12px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--color-text-muted);
+}
+.chat-groups__autojoin-list {
+  margin: 0 -6px 14px;
+}
+.chat-groups__sheet .chat-groups__dialog-title,
+.chat-groups__sheet .chat-groups__dialog-hint {
+  padding: 0 10px;
+}
+.chat-groups__sheet .chat-groups__autojoin-list {
+  margin: 0 0 12px;
+}
+.chat-groups__sheet .chat-groups__dialog-actions {
+  padding: 0 10px;
+}
+.chat-groups__autojoin-label {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.chat-groups__autojoin-owner {
+  flex: none;
+  max-width: 45%;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  text-align: right;
+  overflow-wrap: anywhere;
 }
 
 /* The long-press would otherwise also open iOS's callout / text selection. */
