@@ -828,6 +828,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "office.pins.droppedPinnedMid",
   "office.pins.droppedPinnedTail",
   "office.pins.instructions",
+  "office.pins.loadError",
   "office.pins.overPinnedMid",
   "office.pins.overPinnedTail",
   "office.pins.pickedUpLead",

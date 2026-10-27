@@ -227,7 +227,13 @@ export function OfficePage({
 
   // Sidebar display order (and the desktop default chat below); the
   // @-mention picker keeps its own order.
-  const { pins, saveFailed: pinSaveFailed, toggle, reorder } = useChatPins(
+  const {
+    pins,
+    settled: pinsSettled,
+    error: pinError,
+    toggle,
+    reorder,
+  } = useChatPins(
     !loading && !error && !outsource.loading && !outsource.error
       ? new Set([...roster.map((m) => m.id), ...outsource.workers.map((w) => w.id)])
       : null,
@@ -341,7 +347,11 @@ export function OfficePage({
   // the origin conversation (T-661b). Only the empty-selection default falls back.
   const selected = selectedId
     ? roster.find((m) => m.id === selectedId)
-    : staffList.ordered[0];
+    : // Wait for the pins so the default chat is not first roster[0] and then
+      // the first pin (opening a chat marks it read).
+      pinsSettled
+      ? staffList.ordered[0]
+      : undefined;
 
   // The chat history is keyed by PEER ID (listChat/adapter), independent of the
   // peer still being live — so an EXPLICIT chatId that resolves to neither a
@@ -795,9 +805,9 @@ export function OfficePage({
           {activeTab === "staff" && error && (
             <div className="office__error">{t.office.loadError}</div>
           )}
-          {pinSaveFailed && (
-            <div className="office__error" role="alert" data-testid="chat-pins-save-error">
-              {t.office.pins.saveError}
+          {pinError && (
+            <div className="office__error" role="alert" data-testid="chat-pins-error">
+              {pinError === "load" ? t.office.pins.loadError : t.office.pins.saveError}
             </div>
           )}
           {activeTab === "staff" ? (

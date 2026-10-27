@@ -732,6 +732,7 @@ export const zh = {
       pin: "置頂",
       unpin: "取消置頂",
       saveError: "置頂沒有存成，請再試一次",
+      loadError: "置頂清單載入失敗，點圖釘再試一次",
       roleDescription: "可拖曳排序的對話",
       instructions:
         "按住已置頂的一列約半秒會浮起，就能拖曳調整順序。鍵盤：按空白鍵拿起，用上下方向鍵移動，再按空白鍵放下，按 Esc 取消。",

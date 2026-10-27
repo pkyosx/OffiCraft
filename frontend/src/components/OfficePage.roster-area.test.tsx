@@ -16,8 +16,12 @@ import { OfficePage } from "./OfficePage";
 import {
   __resetMock,
   __injectMockChat,
+  __injectMockMember,
   __injectMockOutsourceWorker,
+  __injectMockTask,
 } from "../api/mock";
+import { api } from "../api";
+import type { TaskView } from "../api/adapter";
 
 function renderOffice() {
   return render(
@@ -122,5 +126,92 @@ describe("OfficePage — 招攬新成員 routing (T-66a8 req 4)", () => {
       "外包上限設定"
     );
     expect(window.location.hash).toBe("");
+  });
+});
+
+describe("OfficePage — pinned chats", () => {
+  it("on desktop the chat opens on the first pinned member once the pins have loaded, never on roster[0] before them", async () => {
+    __injectMockMember({ id: "beto", kind: "staff", name: "Beto" });
+    await api.putChatPins(["beto", "mira"]);
+    let releasePins!: () => void;
+    const pinsRead = new Promise<void>((r) => (releasePins = r));
+    const realGet = api.getChatPins.bind(api);
+    const get = vi.spyOn(api, "getChatPins").mockImplementation(async () => {
+      await pinsRead;
+      return realGet();
+    });
+    const markRead = vi.spyOn(api, "markChatRead");
+
+    const { container, findAllByText } = renderOffice();
+    await findAllByText("Beto");
+    expect(container.querySelector(".chat__header-name")).toBeNull();
+
+    releasePins();
+    await waitFor(() =>
+      expect(container.querySelector(".chat__header-name")?.textContent).toContain("Beto"),
+    );
+    expect(markRead.mock.calls.map(([m]) => m.peer)).not.toContain("mira");
+    get.mockRestore();
+    markRead.mockRestore();
+  });
+
+  it("pinning a later outsource worker moves it first in the sidebar but leaves the @-mention picker in its default order", async () => {
+    const now = Date.now() / 1000;
+    const task = (id: string, createdTs: number) =>
+      ({
+        id,
+        taskNo: id.toUpperCase(),
+        title: "",
+        typeKey: "",
+        description: "",
+        status: "in_progress",
+        priority: "mid",
+        executorKind: "outsource",
+        executorId: "",
+        creatorId: "",
+        dedupeKey: "",
+        deps: [],
+        waitingReason: "",
+        duplicateOf: "",
+        createdTs,
+        updatedTs: createdTs,
+        closedTs: null,
+        progressDone: 0,
+        progressTotal: 0,
+        steps: [],
+      }) as TaskView;
+    __injectMockTask(task("t-old", now - 9000));
+    __injectMockTask(task("t-new", now - 10));
+    for (const [id, codename, taskId] of [
+      ["ow-old", "O-1", "t-old"],
+      ["ow-new", "O-2", "t-new"],
+    ]) {
+      __injectMockOutsourceWorker({
+        id,
+        codename,
+        model: "",
+        effort: "",
+        taskId,
+        taskTitle: "",
+        taskStatus: "in_progress",
+        createdTs: now,
+      });
+    }
+    await api.putChatPins(["mira", "ow-old"]);
+
+    const { container, findByTestId, getByTestId } = renderOffice();
+    fireEvent.click(getByTestId("office-tab-outsource"));
+    const list = await findByTestId("outsource-list");
+    await waitFor(() =>
+      expect(
+        Array.from(list.querySelectorAll(".outsource-row"), (r) => r.getAttribute("data-testid")),
+      ).toEqual(["outsource-row-ow-old", "outsource-row-ow-new"]),
+    );
+
+    const input = container.querySelector("textarea.chat__input") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "@" } });
+    expect(
+      Array.from(container.querySelectorAll('[role="option"]'), (o) => o.textContent),
+    ).toEqual(["Mira特助", "外包 · O-2", "外包 · O-1"]);
   });
 });

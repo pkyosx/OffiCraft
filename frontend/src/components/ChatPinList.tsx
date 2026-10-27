@@ -1,4 +1,4 @@
-import { Fragment, useRef, useState } from "react";
+import { Fragment, useId, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import {
   DndContext,
@@ -33,9 +33,10 @@ import "./chat-pins.css";
 // screen). Moving past the tolerance before the hold ends cancels it, so a
 // press-and-move is a scroll / text gesture, never a drag.
 const LONG_PRESS = { delay: 450, tolerance: 6 };
-// A drag ends on mouseup, and the browser may still deliver the click that
-// follows it to the row.
-const CLICK_AFTER_DRAG_MS = 300;
+// A toggle moves its row between the pinned section and the plain list, so
+// React remounts the row and the focused button with it. The remounted button
+// takes focus back by this key.
+let refocusToggle: string | null = null;
 
 /** Vertical only, and never out of the pinned section (the dragged row's
  * parent). */
@@ -60,17 +61,28 @@ export interface ChatPinRow {
 export function ChatPinToggle({
   pinned,
   onToggle,
+  focusKey,
   testId,
 }: {
   pinned: boolean;
   onToggle: () => void;
+  /** Unique per row; keeps keyboard focus on this toggle across the move. */
+  focusKey: string;
   testId?: string;
 }) {
   const { t } = useI18n();
+  const ref = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => {
+    if (refocusToggle === focusKey) {
+      refocusToggle = null;
+      ref.current?.focus();
+    }
+  });
   const label = pinned ? t.office.pins.unpin : t.office.pins.pin;
   const stop = (e: { stopPropagation: () => void }) => e.stopPropagation();
   return (
     <button
+      ref={ref}
       type="button"
       className={`chat-pins__toggle${pinned ? " chat-pins__toggle--on" : ""}`}
       aria-pressed={pinned}
@@ -79,7 +91,13 @@ export function ChatPinToggle({
       data-testid={testId}
       onClick={(e) => {
         e.stopPropagation();
+        if (document.activeElement === e.currentTarget) refocusToggle = focusKey;
         onToggle();
+        // Nothing remounted (the write was ignored): do not let a later mount
+        // of this row steal focus.
+        queueMicrotask(() => {
+          if (refocusToggle === focusKey) refocusToggle = null;
+        });
       }}
       // Keep the row's chat entry and its drag sensors out of it.
       onKeyDown={stop}
@@ -145,10 +163,11 @@ export function ChatPinList({
   const pinned = ids.slice(0, pinnedCount);
   const rest = ids.slice(pinnedCount);
   const [activeId, setActiveId] = useState<string | null>(null);
+  // Enter both drops a keyboard drag and opens a row's chat; the row checks
+  // this so a drop never also opens the chat.
   const draggingRef = useRef(false);
-  const quietUntilRef = useRef(0);
-  const canActivate = () =>
-    !draggingRef.current && performance.now() > quietUntilRef.current;
+  const canActivate = () => !draggingRef.current;
+  const titleId = useId();
 
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: LONG_PRESS }),
@@ -179,24 +198,14 @@ export function ChatPinList({
 
   const finish = () => {
     draggingRef.current = false;
-    quietUntilRef.current = performance.now() + CLICK_AFTER_DRAG_MS;
     setActiveId(null);
   };
 
   return (
-    <div
-      className={className}
-      data-testid={testId}
-      onClickCapture={(e) => {
-        if (!canActivate()) {
-          e.preventDefault();
-          e.stopPropagation();
-        }
-      }}
-    >
+    <div className={className} data-testid={testId}>
       {pinnedCount > 0 && (
         <>
-          <div className="chat-pins__title">
+          <div className="chat-pins__title" id={titleId}>
             <PinIcon size={12} />
             <span>{t.office.pins.title}</span>
           </div>
@@ -220,7 +229,12 @@ export function ChatPinList({
               finish();
             }}
           >
-            <div className="chat-pins__section" data-testid="chat-pins-section">
+            <div
+              className="chat-pins__section"
+              role="group"
+              aria-labelledby={titleId}
+              data-testid="chat-pins-section"
+            >
               <SortableContext items={pinned} strategy={verticalListSortingStrategy}>
                 {pinned.map((id) => (
                   <SortableRow

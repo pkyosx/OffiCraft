@@ -744,11 +744,11 @@ describe("OutsourcePanel", () => {
     const { findByTestId, getByTestId, queryByTestId } = renderOutsource();
     await findByTestId("outsource-row-ow-r");
     await waitFor(() => expect(getByTestId("chat-pin-ow-r")).toBeTruthy());
-    expect(queryByTestId("chat-pins-save-error")).toBeNull();
+    expect(queryByTestId("chat-pins-error")).toBeNull();
 
     fireEvent.click(getByTestId("chat-pin-ow-r"));
     expect(put).toHaveBeenCalledWith(["mira", "ow-r"]);
-    expect((await findByTestId("chat-pins-save-error")).textContent).toBe("置頂沒有存成，請再試一次");
+    expect((await findByTestId("chat-pins-error")).textContent).toBe("置頂沒有存成，請再試一次");
     expect(getByTestId("chat-pin-ow-r").getAttribute("aria-pressed")).toBe("false");
     expect(queryByTestId("chat-pins-section")).toBeNull();
     put.mockRestore();

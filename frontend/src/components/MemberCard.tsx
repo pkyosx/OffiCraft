@@ -96,6 +96,7 @@ export function MemberCard({
             <ChatPinToggle
               pinned={pin.pinned}
               onToggle={pin.onToggle}
+              focusKey={`chat-pin-${member.id}`}
               testId={`chat-pin-${member.id}`}
             />
           )}

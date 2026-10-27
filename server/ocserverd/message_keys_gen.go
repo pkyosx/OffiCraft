@@ -829,6 +829,7 @@ var messageKeys = map[string]bool{
 	"office.pins.droppedPinnedMid":                     true,
 	"office.pins.droppedPinnedTail":                    true,
 	"office.pins.instructions":                         true,
+	"office.pins.loadError":                            true,
 	"office.pins.overPinnedMid":                        true,
 	"office.pins.overPinnedTail":                       true,
 	"office.pins.pickedUpLead":                         true,

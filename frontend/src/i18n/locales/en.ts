@@ -699,6 +699,7 @@ export const en: Dict = {
       pin: "Pin",
       unpin: "Unpin",
       saveError: "Couldn't save the pins. Please try again.",
+      loadError: "Couldn't load the pins. Tap a pin to try again.",
       roleDescription: "reorderable chat",
       instructions:
         "Press and hold a pinned row for half a second to lift it, then drag to reorder. Keyboard: press Space to pick a row up, move it with the up and down arrow keys, press Space again to drop it, or Escape to cancel.",

@@ -174,3 +174,59 @@ test("390px touch: a long press then a drag reorders the pinned rows", async ({ 
 
   expect((await names(cmp)).slice(0, 2)).toEqual(["Evan", "Mira"]);
 });
+
+test("from the keyboard, Enter on a pin pins the row and keeps focus on that pin, so Enter again unpins it", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const cmp = await mount(<OfficeChatPinsStory />);
+  const pin = cmp.getByTestId("chat-pin-clara");
+  await pin.focus();
+
+  await page.keyboard.press("Enter");
+  expect(await names(cmp)).toEqual(["Mira", "Clara", "Beto", "Dora", "Evan", "EvaRhapsodyInboxForwarderStandbyRelay"]);
+  await expect(pin).toBeFocused();
+  await expect(pin).toHaveAttribute("aria-pressed", "true");
+
+  await page.keyboard.press("Enter");
+  expect(await names(cmp)).toEqual(["Mira", "Beto", "Clara", "Dora", "Evan", "EvaRhapsodyInboxForwarderStandbyRelay"]);
+  await expect(pin).toBeFocused();
+  await expect(pin).toHaveAttribute("aria-pressed", "false");
+  await expect(cmp.locator("aside.office__members")).toHaveAttribute("data-chat", "");
+});
+
+test("from the keyboard, Space lifts a pinned row, ArrowUp moves it and Enter drops it there without opening its chat; Escape puts it back", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const cmp = await mount(<OfficeChatPinsStory />);
+  const aside = cmp.locator("aside.office__members");
+  await cmp.getByTestId("chat-pin-clara").click();
+  await cmp.getByTestId("chat-pin-dora").click();
+  const dora = cmp.locator(".chat-pins__section .member-card", { hasText: "Dora" });
+
+  // The sensor starts listening for the move keys a tick after it lifts.
+  await dora.focus();
+  await page.keyboard.press("Space");
+  await expect(cmp.getByTestId("chat-pins-lifted")).toHaveCount(1);
+  await page.waitForTimeout(100);
+  await page.keyboard.press("ArrowUp");
+  await page.waitForTimeout(300);
+  await page.keyboard.press("Escape");
+  await expect(cmp.getByTestId("chat-pins-lifted")).toHaveCount(0);
+  await page.waitForTimeout(300);
+  expect((await names(cmp)).slice(0, 3)).toEqual(["Mira", "Clara", "Dora"]);
+
+  await dora.focus();
+  await page.keyboard.press("Space");
+  await expect(cmp.getByTestId("chat-pins-lifted")).toHaveCount(1);
+  await page.waitForTimeout(100);
+  await page.keyboard.press("ArrowUp");
+  await page.waitForTimeout(300);
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(300);
+  expect((await names(cmp)).slice(0, 3)).toEqual(["Mira", "Dora", "Clara"]);
+  await expect(aside).toHaveAttribute("data-chat", "");
+});

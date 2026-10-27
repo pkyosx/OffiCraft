@@ -286,6 +286,7 @@ function OutsourceRow({
               <ChatPinToggle
                 pinned={pin.pinned}
                 onToggle={pin.onToggle}
+                focusKey={`chat-pin-${w.id}`}
                 testId={`chat-pin-${w.id}`}
               />
             )}
