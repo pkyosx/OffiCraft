@@ -108,7 +108,7 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
     connection, which reads no key of it.
   - `chat` (new message): `{id, from, to}`
   - `chat_read`: `{reader, peer, last_read_ts}`
-  - `chat_pin`: `{member_ids}`, the stored pin list in order
+  - `chat_group`: `payload` is `null`; refetch `GET /api/chat/groups`
   - `reply_card`: `{id, from, status, task_executor}` (create / answer / answer revision /
     expire all ride `patch`; refetch the card for the full context — the payload never
     carries the answer). `task_executor` is the acting executor of the card's task while
@@ -125,7 +125,7 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
   parse them): `{owner}::{id}` for member/chat/reply_card/task/role_def,
   `{owner}::{type_key}` for task_manual, `{owner}::task.due_soon_lead_minutes` for the
   due-soon lead change on task,
-  `{owner}::{reader}::{peer}` for chat_read, the bare owner id for chat_pin,
+  `{owner}::{reader}::{peer}` for chat_read, the bare owner id for chat_group,
   `{owner}::{role_key}` for insight, the bare owner id for global_context, the bare agent id for context/monitoring signals.
 
 ### 2.3 `trigger` — actor attribution (and the client-side echo rules)
@@ -221,14 +221,14 @@ delta topics; `insight` joined in T-3809, which split the role journal's judgeme
 block into its own document and therefore needed its own delta rather than
 riding a topic that names a different document; `runtime_login` joined in T-309, the
 machine runtime-login relay; `runtime_upgrade` joined with the machine runtime-upgrade
-relay; `chat_pin` joined with the owner's chat-list pins; everything else is the M1 freeze):
+relay; `chat_group` joined with the owner's chat-list groups; everything else is the M1 freeze):
 
 | topic | trigger | op |
 |---|---|---|
 | `member` | any roster write, including outsource assignment / claim / release; a telemetry ingest that changes a member's derived warnings (`runtime_login_warnings`, `model_call_warnings`); an activity report that changes a member's derived `activity` (owner-only); a usage-limit reset timer firing at a reported `resets_at` | patch / remove |
 | `chat` | message append | patch |
 | `chat_read` | read-watermark advance | patch |
-| `chat_pin` | pin list replaced (`PUT /api/chat/pins`) | patch |
+| `chat_group` | group set replaced (`PUT /api/chat/groups`); a new outsource worker auto-joined to a group by its task type | patch |
 | `reply_card` | reply-card create / answer / answer revision / expire | patch |
 | `task` | any durable task write (create / status / priority / plan / step / deps / executor assignment / terminate); a change to the workspace due-soon lead | patch |
 | `task_manual` | manual create / edit / delete | patch |
@@ -293,7 +293,7 @@ server's own deps-fulfill, not by eavesdropping on another member's stream):
 | `member` | the subject member, including an outsource worker (its own delta drives the wind-down / recycle hooks) — **except** while the subject is wanted online and its `refocus_since` is earlier than the `iat` of the credential that opened the stream holding it online (§5.3): the frame is then owner-only, because that hand-off belongs to the generation the connected session replaces |
 | `chat` | the sender and the recipient |
 | `chat_read` | — (no agent consumes it; owner cockpit only) |
-| `chat_pin` | — (owner cockpit only) |
+| `chat_group` | — (owner cockpit only) |
 | `reply_card` | the initiator (`from`) and, while the card's task is open, that task's acting executor (`task_executor`) — the one audience read from another row: the card stores only the task id, and a stored executor would go stale on reassignment |
 | `task` | the executor ONLY (NOT the creator, NOT dependents); a reassign additionally fans one delta to the OLD executor — the row's executor just changed, so the person unassigned would otherwise be silently dropped from the audience |
 | `task_manual` | — (owner cockpit only) |

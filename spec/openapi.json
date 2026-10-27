@@ -1438,6 +1438,152 @@
         "title": "ChatGalleryEntryDTO",
         "type": "object"
       },
+      "ChatGroupDTO": {
+        "additionalProperties": false,
+        "description": "One of the owner's chat-list groups. Each cockpit tab (staff, outsource) has its own ordered groups; a member of that tab in no group is ungrouped, which is not stored — the cockpit shows ungrouped members after the groups, in the tab's default order.",
+        "properties": {
+          "id": {
+            "description": "Server-minted group id, `cg-` followed by hex; stable across renames and reorders.",
+            "title": "Id",
+            "type": "string"
+          },
+          "member_ids": {
+            "description": "The group's members in display order. Only current members of the tab's kind are listed (active staff on the staff tab, active outsource workers on the outsource tab): a dismissed staff member or a released worker leaves its group in the same write that removes it. A member is in at most one group.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Member Ids",
+            "type": "array"
+          },
+          "name": {
+            "description": "The group's display name, trimmed, unique within its tab.",
+            "maxLength": 40,
+            "title": "Name",
+            "type": "string"
+          },
+          "tab": {
+            "description": "The cockpit tab the group belongs to; fixed when the group is created.",
+            "enum": [
+              "staff",
+              "outsource"
+            ],
+            "title": "Tab",
+            "type": "string"
+          },
+          "task_type_keys": {
+            "description": "Auto-join rules (outsource groups only; always empty on a staff group): task manual type keys, in the order the owner set. A new outsource worker whose task has one of these types joins the end of this group when it is assigned. A type belongs to at most one group. Only keys that still name a task manual are listed.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Task Type Keys",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "member_ids",
+          "name",
+          "tab",
+          "task_type_keys"
+        ],
+        "title": "ChatGroupDTO",
+        "type": "object"
+      },
+      "ChatGroupWriteDTO": {
+        "additionalProperties": false,
+        "description": "One group in the complete desired state sent to `PUT /api/chat/groups`.",
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "An existing group's id, or null to create a new group (the server mints its id). An id that names no current group, appears twice, or names a group of the other tab is a 422.",
+            "title": "Id"
+          },
+          "member_ids": {
+            "description": "The group's members in display order. Each must be a current member of the tab's kind (active staff for a staff group, active outsource worker for an outsource group; never a machine) and appear once across the whole request.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Member Ids",
+            "type": "array"
+          },
+          "name": {
+            "description": "Display name; stored trimmed. Blank after trimming, longer than 40 characters after trimming, or equal (case-sensitive, after trimming) to another group's name in the same tab is a 422.",
+            "title": "Name",
+            "type": "string"
+          },
+          "tab": {
+            "description": "The tab the group belongs to. For an existing group it must equal the group's current tab.",
+            "enum": [
+              "staff",
+              "outsource"
+            ],
+            "title": "Tab",
+            "type": "string"
+          },
+          "task_type_keys": {
+            "description": "Auto-join rules, outsource groups only: a staff group must send an empty list. Each key must name a task manual (a built-in one included) and appear once across the whole request. Rules apply only to workers assigned after the write; workers already on the roster join a group only through its member_ids, which the cockpit fills when the owner chooses to move the existing ones.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Task Type Keys",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "member_ids",
+          "name",
+          "tab",
+          "task_type_keys"
+        ],
+        "title": "ChatGroupWriteDTO",
+        "type": "object"
+      },
+      "ChatGroupsDTO": {
+        "additionalProperties": false,
+        "description": "The owner's chat-list groups for both cockpit tabs.",
+        "properties": {
+          "groups": {
+            "description": "Staff groups first, then outsource groups; within each tab in display order.",
+            "items": {
+              "$ref": "#/components/schemas/ChatGroupDTO"
+            },
+            "title": "Groups",
+            "type": "array"
+          }
+        },
+        "required": [
+          "groups"
+        ],
+        "title": "ChatGroupsDTO",
+        "type": "object"
+      },
+      "ChatGroupsUpdateDTO": {
+        "additionalProperties": false,
+        "description": "The complete desired group state for both tabs; it replaces the stored state wholesale. A stored group not listed here is deleted: its members become ungrouped and its auto-join rules are dropped.",
+        "properties": {
+          "groups": {
+            "description": "Every group the owner keeps, staff and outsource together; list order is display order within each tab. More than 50 groups in one tab is a 422.",
+            "items": {
+              "$ref": "#/components/schemas/ChatGroupWriteDTO"
+            },
+            "title": "Groups",
+            "type": "array"
+          }
+        },
+        "required": [
+          "groups"
+        ],
+        "title": "ChatGroupsUpdateDTO",
+        "type": "object"
+      },
       "ChatInlineReplyCardDTO": {
         "additionalProperties": false,
         "description": "One reply card FOLDED IN PLACE onto the chat message that opened it\n(``ChatMessageDTO.card``), so the wake snapshot reads as a single stream and\nnot as a chat list plus a card list to be joined by hand.\n\nThis is deliberately NOT a second top-level ``cards`` section: a card already\nHAS a home in the stream (its ``chat_message_id``), and giving it a second one\nwould carry the same decision twice in one payload.\n\nIt carries the DECISION and nothing else — the options offered, which ones were\ncircled, the free text, and when. The card's ``summary`` / ``body`` / kind /\nattachments are NOT here: the chat message this rides on already carries the\nask, and ``get_reply_card`` serves the rest.",
@@ -1647,44 +1793,6 @@
           "to"
         ],
         "title": "ChatMessageDTO",
-        "type": "object"
-      },
-      "ChatPinsDTO": {
-        "additionalProperties": false,
-        "description": "The owner's pinned chat-list members. Only members still on the roster (active staff or outsource) are listed: a removed staff member or a released outsource worker leaves the list in the same write that removes it.",
-        "properties": {
-          "member_ids": {
-            "description": "Pinned members in pin order, staff and outsource in ONE list; the cockpit shows each tab's pinned rows in this relative order above that tab's default-ordered rows.",
-            "items": {
-              "type": "string"
-            },
-            "title": "Member Ids",
-            "type": "array"
-          }
-        },
-        "required": [
-          "member_ids"
-        ],
-        "title": "ChatPinsDTO",
-        "type": "object"
-      },
-      "ChatPinsUpdateDTO": {
-        "additionalProperties": false,
-        "description": "The complete new pin list, in order; it replaces the stored list wholesale (pin, unpin and reorder are all this one write).",
-        "properties": {
-          "member_ids": {
-            "description": "Pinned members in pin order, staff and outsource in ONE list; the cockpit shows each tab's pinned rows in this relative order above that tab's default-ordered rows. Each id must be an active staff or outsource member and appear once; an empty list unpins everyone.",
-            "items": {
-              "type": "string"
-            },
-            "title": "Member Ids",
-            "type": "array"
-          }
-        },
-        "required": [
-          "member_ids"
-        ],
-        "title": "ChatPinsUpdateDTO",
         "type": "object"
       },
       "ChatPostDTO": {
@@ -14675,6 +14783,108 @@
         }
       }
     },
+    "/api/chat/groups": {
+      "get": {
+        "description": "- The owner's chat-list groups for the staff and outsource tabs, each tab's groups in display order.\n- A member in no group is ungrouped; ungrouped members are not listed here.",
+        "operationId": "handle_get_chat_groups_api_chat_groups_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatGroupsDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Get the owner's chat-list groups.",
+        "x-mcp": {
+          "include": false
+        }
+      },
+      "put": {
+        "description": "- Replaces the whole group state of both tabs; create, rename, delete, reorder, moving members and setting auto-join task types are all this one write.\n- A group left out is deleted; its members become ungrouped.\n- Auto-join task types apply to workers assigned later; this write moves no member it does not list.\n- 422 when a group id is unknown, listed twice or changes tab; a name is blank, longer than 40 characters or repeats within a tab; a member repeats or does not belong in that tab; a staff group has task types; a task type repeats or names no task manual; or a tab has more than 50 groups. Nothing is written.\n- Emits a `chat_group` event to the owner, so another open browser refetches without reloading.\n- No overwrite protection: concurrent writes are last-writer-wins.",
+        "operationId": "handle_update_chat_groups_api_chat_groups_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatGroupsUpdateDTO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatGroupsDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Replace the owner's chat-list groups.",
+        "x-mcp": {
+          "include": false
+        }
+      }
+    },
     "/api/chat/mark-read": {
       "post": {
         "description": "- The ONLY way to clear unread; reading a chat list or thread marks nothing.\n- `peer` is the other participant, `last_read_ts` the newest message you have seen; a blank `peer` is 422.\n- The watermark only ever ADVANCES, so a stale report never rewinds it.\n- Emits a `chat_read` event; a client holding the stream learns of this without polling.",
@@ -14740,108 +14950,6 @@
           },
           "name": "post_chat_mark-read",
           "order": 29
-        }
-      }
-    },
-    "/api/chat/pins": {
-      "get": {
-        "description": "- The owner's pinned chat-list members, in pin order.\n- Mira starts pinned on every station and stays unpinned once the owner unpins Mira.",
-        "operationId": "handle_get_chat_pins_api_chat_pins_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ChatPinsDTO"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "4XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Client error (unified error envelope)."
-          },
-          "5XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Server error (unified error envelope)."
-          }
-        },
-        "summary": "Get the owner's pinned chat-list members.",
-        "x-mcp": {
-          "include": false
-        }
-      },
-      "put": {
-        "description": "- Replaces the whole pin list; pin, unpin and reorder are all this one write.\n- 422 when an id repeats or is not an active staff or outsource member; nothing is written.\n- Emits a `chat_pin` event to the owner, so another open browser updates without reloading.\n- No overwrite protection: concurrent writes are last-writer-wins.",
-        "operationId": "handle_update_chat_pins_api_chat_pins_put",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ChatPinsUpdateDTO"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ChatPinsDTO"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Validation error (unified error envelope)."
-          },
-          "4XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Client error (unified error envelope)."
-          },
-          "5XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
-                }
-              }
-            },
-            "description": "Server error (unified error envelope)."
-          }
-        },
-        "summary": "Replace the owner's pinned chat-list members.",
-        "x-mcp": {
-          "include": false
         }
       }
     },
