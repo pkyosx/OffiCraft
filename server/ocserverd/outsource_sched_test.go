@@ -522,6 +522,79 @@ func TestRunOutsourceTick(t *testing.T) {
 		}
 	})
 
+	t.Run("a worker minted for a task whose type a group's rule names joins the end of that group and the owner is told once; a worker of another type stays ungrouped", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		for _, key := range []string{"tm-grouped", "tm-loose"} {
+			dalPutManual(t, d, TaskManual{TypeKey: key, DisplayName: key, Fields: "[]",
+				Assignee: `{"kind":"outsource","runtime":"claude","model":"sonnet","effort":"medium"}`})
+		}
+		dalWorkerOnTask(t, d, "ow-old", "O-1", "T-old", 100)
+		dalPutTask(t, d, Task{ID: "T-old", TypeKey: "tm-old", Title: "Earlier work", Inputs: map[string]any{},
+			Status: TaskStatusInProgress, Priority: TaskPriorityMid, ExecutorKind: TaskExecutorOutsource,
+			ExecutorID: "ow-old", CreatorID: wireOwnerID, CreatedTS: 100, UpdatedTS: 100})
+		chatGroupSeed(t, d, chatGroupWrite("cg-ops", "outsource", "Ops", []string{"ow-old"}, []string{"tm-grouped"}))
+		grouped := outsourceSchedTestQueuedTask(t, d, "T-grouped", "tm-grouped")
+		loose := outsourceSchedTestQueuedTask(t, d, "T-loose", "tm-loose")
+		dashboard := apiTestListen(t, api, "")
+
+		api.runOutsourceTick(1700000100)
+
+		executor := func(id string) string {
+			got, err := d.GetTask(id)
+			if err != nil || got == nil || !strings.HasPrefix(got.ExecutorID, "ow-") {
+				t.Fatalf("GetTask(%s): want a minted worker, got %+v (%v)", id, got, err)
+			}
+			return got.ExecutorID
+		}
+		joined, ungrouped := executor(grouped.ID), executor(loose.ID)
+		chatGroupWantMemberRows(t, d, "ow-old", joined)
+		if ungrouped == joined {
+			t.Fatalf("want two workers, got one %q", joined)
+		}
+		var groupFrames []any
+		for raw := dashboard.l.pop(); raw != nil; raw = dashboard.l.pop() {
+			if frame := apiDecodeSSEFrame(t, raw); frame["topic"] == "chat_group" {
+				groupFrames = append(groupFrames, frame)
+			}
+		}
+		apiWantValue(t, "chat_group frames", any(groupFrames), any([]any{map[string]any{
+			"seq":   apiAnyNumber,
+			"topic": "chat_group",
+			"op":    "patch",
+			"data": map[string]any{
+				"entity":  "chat_group",
+				"key":     "owner",
+				"epoch":   apiAnyNumber,
+				"deleted": false,
+				"payload": nil,
+			},
+			"ts":      apiAnyNumber,
+			"trigger": "server",
+		}}))
+	})
+
+	t.Run("a worker minted for a task whose type no group's rule names joins no group and fans no chat_group frame", func(t *testing.T) {
+		api, _, d, _ := newAPITestServer(t)
+		dalPutManual(t, d, TaskManual{TypeKey: "tm-loose", DisplayName: "tm-loose", Fields: "[]",
+			Assignee: `{"kind":"outsource","runtime":"claude","model":"sonnet","effort":"medium"}`})
+		dalPutManual(t, d, TaskManual{TypeKey: "tm-other", DisplayName: "tm-other", Fields: "[]", Assignee: "{}"})
+		chatGroupSeed(t, d, chatGroupWrite("cg-ops", "outsource", "Ops", nil, []string{"tm-other"}))
+		task := outsourceSchedTestQueuedTask(t, d, "T-loose", "tm-loose")
+		dashboard := apiTestListen(t, api, "")
+
+		api.runOutsourceTick(1700000100)
+
+		if got, err := d.GetTask(task.ID); err != nil || got == nil || !strings.HasPrefix(got.ExecutorID, "ow-") {
+			t.Fatalf("GetTask: want a minted worker, got %+v (%v)", got, err)
+		}
+		chatGroupWantMemberRows(t, d)
+		for raw := dashboard.l.pop(); raw != nil; raw = dashboard.l.pop() {
+			if frame := apiDecodeSSEFrame(t, raw); frame["topic"] == "chat_group" {
+				t.Fatalf("want no chat_group frame, got %v", frame)
+			}
+		}
+	})
+
 	t.Run("a queued task of an unedited built-in type gets a worker launched as that manual ships", func(t *testing.T) {
 		api, _, d, _ := newAPITestServer(t)
 		apiTestShipBuiltinAssignee(t, "builtin-role-design", map[string]any{

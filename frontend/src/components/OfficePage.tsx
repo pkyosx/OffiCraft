@@ -9,6 +9,11 @@ import { useMembers } from "../hooks/useMembers";
 import { useMonitoring } from "../hooks/useMonitoring";
 import { useOutsourceWorkers } from "../hooks/useOutsourceWorkers";
 import { useIsMobile } from "../hooks/useIsMobile";
+import { useChatGroups } from "../hooks/useChatGroups";
+import { layoutTab, tabGroups } from "../lib/chatGroups";
+import type { ChatTab } from "../lib/chatGroups";
+import { readCollapsed, writeCollapsed } from "../lib/chatGroupCollapse";
+import type { TaskTypeView } from "../api/adapter";
 import { joinSessionRuntime, findSessionFor } from "../lib/runtime";
 import { useHashRoute } from "../lib/hashRoute";
 import { openChatAttachErrorScope } from "../lib/chatDraftStore";
@@ -16,13 +21,15 @@ import {
   updateCachedWorkerAvatar,
   useWorkerCodenames,
 } from "../hooks/useWorkerCodenames";
-import { MemberCard } from "./MemberCard";
+import { MemberCard, memberRowFacts } from "./MemberCard";
 import { ChatArea } from "./ChatArea";
 import { MemberDetailPanel } from "./MemberDetailPanel";
 import { WorkerDetailPanel } from "./WorkerDetailPanel";
 import { OutsourcePanel, OutsourceTaskLine } from "./OutsourcePanel";
 import { OfficeSidebarTabs } from "./OfficeSidebarTabs";
 import { OutsourceCapPopover } from "./OutsourceCapPopover";
+import { ChatGroupPanel } from "./ChatGroupPanel";
+import { UNGROUPED } from "./ChatGroupList";
 import { ChevronLeftIcon, PersonPlusIcon } from "./icons";
 import "./office.css";
 
@@ -99,6 +106,11 @@ export function OfficePage({
   // 2026-07-18), replacing the old two-stacked-groups rail. Plain component
   // state (not persisted) — the tab is a view toggle, not a route.
   const [activeTab, setActiveTab] = useState<"staff" | "outsource">("staff");
+  // Per tab, remembered in this browser (lib/chatGroupCollapse).
+  const [groupCollapsed, setGroupCollapsed] = useState<Record<ChatTab, Record<string, boolean>>>(() => ({
+    staff: readCollapsed("staff"),
+    outsource: readCollapsed("outsource"),
+  }));
   // The 外包上限設定 popover, opened by the 招攬新成員 button at the sidebar
   // bottom while the 外包 tab is active. OfficePage owns the open state + the
   // outside-click dismissal (the button and popover share an anchor wrapper).
@@ -222,6 +234,48 @@ export function OfficePage({
   // the outsource chat peers — a worker id rides the SAME chatId hash slot).
   const outsource = useOutsourceWorkers();
 
+  // Sidebar display order (and the desktop default chat below); the
+  // @-mention picker keeps its own order.
+  const chatGroups = useChatGroups(
+    !loading && !error && !outsource.loading && !outsource.error
+      ? new Set([...roster.map((m) => m.id), ...outsource.workers.map((w) => w.id)])
+      : null,
+  );
+  const saveCollapsed = (tab: ChatTab, folded: Record<string, boolean>) =>
+    writeCollapsed(tab, folded, [...tabGroups(chatGroups.groups, tab).map((g) => g.id), UNGROUPED], chatGroups.serverId);
+  const changeCollapsed = (tab: ChatTab, next: Record<string, boolean>) => {
+    setGroupCollapsed((s) => ({ ...s, [tab]: next }));
+    saveCollapsed(tab, next);
+  };
+  // A group folded before its first save has answered has no server id to
+  // be saved under yet; the groups changing is when that id arrives.
+  useEffect(() => {
+    if (!chatGroups.settled || chatGroups.error === "load") return;
+    saveCollapsed("staff", groupCollapsed.staff);
+    saveCollapsed("outsource", groupCollapsed.outsource);
+  }, [chatGroups.groups]);
+  const staffLayout = layoutTab(chatGroups.groups, "staff", roster, (m) => m.id);
+  const staffShown = [...staffLayout.sections.flatMap((x) => x.items), ...staffLayout.ungrouped];
+  // The 自動加入 checklist's task types; a failed read leaves it empty.
+  const [taskTypes, setTaskTypes] = useState<TaskTypeView[]>([]);
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      api
+        .listTaskTypes()
+        .then((list) => alive && setTaskTypes(list))
+        .catch((e) => console.warn("OfficePage: task types load failed", e));
+    load();
+    // A manual deleted elsewhere must not stay tickable in 自動加入.
+    const unsubscribe = api.subscribeEvents((topic) => {
+      if (topic === "task_manual") load();
+    });
+    return () => {
+      alive = false;
+      unsubscribe();
+    };
+  }, []);
+
   // T-66a8 tab badges — each tab's area unread TOTAL (the red count pill; 0 →
   // no badge). A member/worker whose chat is open + watched already reads to
   // 0 server-side, so it naturally drops out of the sum — no per-row
@@ -328,7 +382,11 @@ export function OfficePage({
   // the origin conversation (T-661b). Only the empty-selection default falls back.
   const selected = selectedId
     ? roster.find((m) => m.id === selectedId)
-    : roster[0];
+    : // Wait for the groups so the default chat is not first roster[0] and
+      // then the first grouped row (opening a chat marks it read).
+      chatGroups.settled
+      ? staffShown[0]
+      : undefined;
 
   // The chat history is keyed by PEER ID (listChat/adapter), independent of the
   // peer still being live — so an EXPLICIT chatId that resolves to neither a
@@ -782,25 +840,53 @@ export function OfficePage({
           {activeTab === "staff" && error && (
             <div className="office__error">{t.office.loadError}</div>
           )}
-          {activeTab === "staff" ? (
-            <div className="office__members-list">
-              {roster.map((member) => (
-                <MemberCard
-                  key={member.id}
-                  member={member}
-                  // On mobile the roster stands alone (no persistent chat), so no
-                  // fallback highlight; on desktop the roster[0] fallback stays lit
-                  // next to its open chat — unless an OUTSOURCE chat is open (the
-                  // highlight then belongs to the worker row below, never both).
-                  selected={
-                    !workerPeer &&
-                    member.id === (isMobile ? selectedId : (selected?.id ?? ""))
-                  }
-                  onOpenDetail={() => setDetailId(member.id)}
-                  onChat={() => setSelectedId(member.id)}
-                />
-              ))}
+          {chatGroups.error && (
+            <div className="office__error" role="alert" data-testid="chat-groups-error">
+              {chatGroups.error === "load" ? t.office.groups.loadError : t.office.groups.saveError}
             </div>
+          )}
+          {activeTab === "staff" ? (
+            <ChatGroupPanel
+              tab="staff"
+              className="office__members-list"
+              ids={roster.map((m) => m.id)}
+              groups={chatGroups.groups}
+              update={chatGroups.update}
+              newGroupId={chatGroups.newGroupId}
+              mobile={isMobile}
+              nameOf={(id) => roster.find((m) => m.id === id)?.name ?? id}
+              unreadOf={(id) => roster.find((m) => m.id === id)?.unreadCount ?? 0}
+              factsOf={(id) => memberRowFacts(t, roster.find((m) => m.id === id)!)}
+              collapsed={groupCollapsed.staff}
+              onCollapsedChange={(next) => changeCollapsed("staff", next)}
+              renderRow={(id, sortable) => {
+                const member = roster.find((m) => m.id === id)!;
+                return (
+                  <MemberCard
+                    member={member}
+                    // On mobile the roster stands alone (no persistent chat), so no
+                    // fallback highlight; on desktop the default (first shown) row stays
+                    // lit next to its open chat — unless an OUTSOURCE chat is open (the
+                    // highlight then belongs to the worker row below, never both).
+                    selected={
+                      !workerPeer &&
+                      member.id === (isMobile ? selectedId : (selected?.id ?? ""))
+                    }
+                    onOpenDetail={() => setDetailId(member.id)}
+                    onChat={() => setSelectedId(member.id)}
+                    sortable={sortable}
+                  />
+                );
+              }}
+              renderOverlay={(id) => (
+                <MemberCard
+                  member={roster.find((m) => m.id === id)!}
+                  selected={false}
+                  onOpenDetail={() => {}}
+                  onChat={() => {}}
+                />
+              )}
+            />
           ) : (
             // M3 §4: the 外包 worker list (list-only since T-66a8 — the tab
             // owns the switch, the count moved to the tab sub-line, and the
@@ -817,6 +903,15 @@ export function OfficePage({
               // The row's task-id chip jumps to the bound task's card — the same
               // #tasks/<id> locate-anchor route the reply cards use.
               onOpenTask={(taskId) => setRoute({ page: "tasks", taskId })}
+              grouping={{
+                groups: chatGroups.groups,
+                update: chatGroups.update,
+                newGroupId: chatGroups.newGroupId,
+                mobile: isMobile,
+                taskTypes,
+                collapsed: groupCollapsed.outsource,
+                onCollapsedChange: (next) => changeCollapsed("outsource", next),
+              }}
             />
           )}
           {/* 招攬新成員 — pinned at the sidebar bottom (owner mockup

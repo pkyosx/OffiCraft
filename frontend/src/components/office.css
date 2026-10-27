@@ -419,6 +419,15 @@
    * just on the page colour; a theme may now repaint or hide it. */
   outline: 1px solid var(--color-danger-badge-ring);
 }
+/* The pill's place is kept whether or not there is unread, wide enough for
+ * "99+", so a row's name never gets wider or narrower as messages arrive
+ * (owner). The pill sits at its right end. */
+.member-card__unread-slot {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  min-width: 34px;
+}
 /* Roster presence line — hosts the SHARED PresenceBadge (single presence truth,
  * same component as the monitor session row + detail panel). Replaces the old
  * bespoke role / last-seen lines. */

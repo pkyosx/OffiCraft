@@ -16,11 +16,13 @@
 
 import { describe, it, expect, afterEach, beforeEach, vi, onTestFinished, type MockInstance } from "vitest";
 import { act, render, fireEvent, screen, waitFor, configure, within } from "@testing-library/react";
+import { useLayoutEffect } from "react";
 import { I18nProvider } from "../i18n";
 import { api } from "../api";
 import { zh } from "../i18n/locales/zh";
 import { ApiError } from "../api/errors";
 import { OfficePage } from "./OfficePage";
+import { WorkerDetailPanel } from "./WorkerDetailPanel";
 import {
   __resetMock,
   __injectMockTask,
@@ -611,6 +613,33 @@ describe("WorkerDetailPanel — 設定改走喚醒區 (T-7526 parity)", () => {
     expect(cell.textContent).toContain("Opus 4.6");
     expect(await findByTestId("worker-detail-machine")).toBeTruthy();
     await findByTestId("worker-detail-change");
+  });
+
+  it("更改 clicked the moment the panel first appears opens the settings dialog", async () => {
+    // The click lands in the commit that mounts the panel, before its passive
+    // effects run: a mount effect closing the dialog would run after it.
+    function ClickWhenMounted() {
+      useLayoutEffect(() => {
+        fireEvent.click(queryTestId(document.body, "worker-detail-change")!);
+      }, []);
+      return null;
+    }
+    const { findByTestId } = render(
+      <I18nProvider>
+        <WorkerDetailPanel
+          worker={mkWorker({ id: "ow-1", taskId: "t-1", presence: "online" })}
+          onBack={() => {}}
+          onSetModel={async () => {}}
+        />
+        <ClickWhenMounted />
+      </I18nProvider>,
+    );
+    await findByTestId("worker-detail-settings-dialog");
+    // Let every pending effect and update settle before judging.
+    await act(async () => {});
+    expect(queryTestId(document.body, "worker-detail-settings-dialog")?.querySelector(".machine-picker__title")?.textContent).toBe(
+      "更改",
+    );
   });
 
   it("更改 → changing the machine reaches relocateMember and the 機器 cell adopts it", async () => {

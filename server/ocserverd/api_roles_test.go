@@ -1087,6 +1087,24 @@ func TestHandleDeleteRoleApiRolesRoleDelete(t *testing.T) {
 		}
 	})
 
+	t.Run("deleting a role takes its members out of their chat groups and leaves the rest in order", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		if err := d.PutRoleDef(RoleDef{RoleKey: "r-design", Name: "Design", DefinitionMD: "# Duty"}); err != nil {
+			t.Fatalf("PutRoleDef: %v", err)
+		}
+		if err := d.putMemberWholeRowForTest(Member{
+			ID: "m-zed", Name: "Zed", Kind: KindStaff, RoleKey: "r-design", RosterStatus: RosterStatusActive,
+		}); err != nil {
+			t.Fatalf("PutMember: %v", err)
+		}
+		chatGroupSeed(t, d, chatGroupWrite("cg-core", "staff", "Core", []string{"kip", "m-zed", "mira"}, nil))
+
+		if status, data := apiJSON(t, h, "DELETE", "/api/roles/r-design", owner, ""); status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		chatGroupWantMemberRows(t, d, "kip", "mira")
+	})
+
 	t.Run("an already-removed member of the role is announced again to its own connection and nobody else's, and its session is sent a stop", func(t *testing.T) {
 		api, h, d, owner := newAPITestServer(t)
 		if err := d.PutRoleDef(RoleDef{RoleKey: "r-design", Name: "Design", DefinitionMD: "# Duty"}); err != nil {

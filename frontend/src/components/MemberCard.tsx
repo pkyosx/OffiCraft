@@ -1,11 +1,15 @@
 import { useI18n } from "../i18n";
+import type { Dict } from "../i18n/locales/zh";
 import type { Member } from "../types";
+import type { RowFacts } from "../lib/chatFilter";
 import { useWindowActive } from "../hooks/useWindowActive";
 import { Avatar } from "./Avatar";
 import { avatarKindForMember } from "../lib/avatarKind";
-import { PresenceBadge } from "./PresenceBadge";
+import { PresenceBadge, roleLabel } from "./PresenceBadge";
 import { PresenceAvatar } from "./PresenceAvatar";
-import { NameWithActivity } from "./MemberActivity";
+import { NameWithActivity, shownActivity } from "./MemberActivity";
+import { presenceVisual } from "./LifecycleDot";
+import type { ChatGroupRow } from "./ChatGroupList";
 
 interface MemberCardProps {
   member: Member;
@@ -14,6 +18,18 @@ interface MemberCardProps {
   onOpenDetail: () => void;
   /** row click (anywhere but the avatar) → open the chat room for this member */
   onChat: () => void;
+  /** Drag and menu wiring from ChatGroupList (the office sidebar); absent elsewhere. */
+  sortable?: ChatGroupRow;
+}
+
+/** What the chat list's 篩選 reads off this row: the presence its corner dot
+ * shows, the activity its icon shows, and the name and role it prints. */
+export function memberRowFacts(t: Dict, member: Member): Omit<RowFacts, "unread"> {
+  return {
+    presence: presenceVisual(member.lifecycle),
+    activity: shownActivity(member.activity, member.lifecycle)?.state ?? null,
+    names: [member.name, roleLabel(t, member)],
+  };
 }
 
 export function MemberCard({
@@ -21,6 +37,7 @@ export function MemberCard({
   selected,
   onOpenDetail,
   onChat,
+  sortable,
 }: MemberCardProps) {
   const { t } = useI18n();
   // Is the owner actually looking at the cockpit (window focused + tab
@@ -34,10 +51,24 @@ export function MemberCard({
     // it opens the member detail panel (the old row-body behaviour), with
     // stopPropagation so it never also triggers the row's chat jump.
     <div
-      className={`member-card${selected ? " member-card--selected" : ""}`}
-      onClick={onChat}
+      {...sortable?.attributes}
+      {...sortable?.listeners}
+      ref={sortable?.ref}
+      style={sortable?.style}
+      data-chat-row={sortable?.rowId}
+      onContextMenu={sortable?.onContextMenu}
+      className={`member-card${selected ? " member-card--selected" : ""}${
+        sortable ? ` ${sortable.className}` : ""
+      }`}
+      onClick={() => {
+        if (!sortable || sortable.canActivate()) onChat();
+      }}
       onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
+        if (sortable?.menuKey(e)) return;
+        sortable?.listeners?.onKeyDown?.(e);
+        if (e.defaultPrevented || (sortable && !sortable.canActivate())) return;
+        // With drag wiring, Space belongs to the keyboard drag.
+        if (e.key === "Enter" || (!sortable && e.key === " ")) {
           e.preventDefault();
           onChat();
         }
@@ -101,11 +132,13 @@ export function MemberCard({
        * INDEPENDENT of the PresenceBadge — an offline member can be unread.
        * No handler of its own: the badge sits inside the row (= the chat
        * entry), so tapping it IS tapping the row = opening the chat. */}
-      {member.unreadCount > 0 && !(selected && windowActive) && (
-        <span className="member-card__unread" data-testid="unread-badge">
-          {member.unreadCount > 99 ? "99+" : member.unreadCount}
-        </span>
-      )}
+      <span className="member-card__unread-slot">
+        {member.unreadCount > 0 && !(selected && windowActive) && (
+          <span className="member-card__unread" data-testid="unread-badge">
+            {member.unreadCount > 99 ? "99+" : member.unreadCount}
+          </span>
+        )}
+      </span>
     </div>
   );
 }

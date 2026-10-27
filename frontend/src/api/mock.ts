@@ -116,6 +116,8 @@ import type {
   LoreType,
   LoreListOptions,
   LoreScopeKind,
+  ChatGroupView,
+  ChatGroupWrite,
 } from "./adapter";
 import type {
   WireMember,
@@ -1057,6 +1059,24 @@ let tasks: MockTaskRow[] = [];
 // artifact drops its versions the way the server's transaction does.
 let artifactVersions = new Map<string, TaskArtifactVersionView[]>();
 let outsourceWorkers: OutsourceWorkerView[] = [];
+// The owner's chat-list groups; none on a fresh station.
+let chatGroups: ChatGroupView[] = [];
+let chatGroupSeq = 0;
+/** Server parity (belongsOnChatGroupTab): an active member of the tab's kind. */
+function onChatGroupTab(id: string, tab: ChatGroupView["tab"]): boolean {
+  if (tab === "outsource") return outsourceWorkers.some((w) => w.id === id && w.status !== "released");
+  return wireMembers.some((m) => m.id === id && m.kind === "staff" && m.roster_status !== "removed");
+}
+/** Server parity (listChatGroups): members who left and types whose manual is
+ * gone are left out of the answer. */
+function readChatGroups(): ChatGroupView[] {
+  const manuals = new Set(taskManuals.map((m) => m.typeKey));
+  return chatGroups.map((g) => ({
+    ...g,
+    memberIds: g.memberIds.filter((id) => onChatGroupTab(id, g.tab)),
+    taskTypeKeys: g.taskTypeKeys.filter((k) => manuals.has(k)),
+  }));
+}
 /** What the mock STORES for a manual: the whole view MINUS the four size/cap
  * fields (T-100). They are DERIVED on every read, which is what the server
  * does — `newTaskManualDTO` measures the stored row with
@@ -3982,6 +4002,74 @@ const mockApiImpl = {
     // no fabricated member read), so a member's "read ✓" appears only if a real
     // watermark was recorded for it — which the single-owner mock never is.
     return [...chatReads.values()].filter((r) => r.peerId === peer);
+  },
+
+  async getChatGroups(): Promise<ChatGroupView[]> {
+    return readChatGroups();
+  },
+
+  async putChatGroups(groups: ChatGroupWrite[]): Promise<ChatGroupView[]> {
+    // Server parity: the request-only checks in order (chatGroupsWriteRefusal),
+    // then the ones that need the store (checkChatGroupsAgainstStore).
+    const refuse = (message: string): never => {
+      throw mockApiError("http 422 for PUT /api/chat/groups", 422, message);
+    };
+    const perTab = { staff: 0, outsource: 0 };
+    const names = { staff: new Set<string>(), outsource: new Set<string>() };
+    const ids = new Set<string>();
+    const members = new Set<string>();
+    const types = new Set<string>();
+    groups.forEach((g, i) => {
+      const at = `groups[${i}]`;
+      if (g.tab !== "staff" && g.tab !== "outsource") refuse(`${at}.tab must be 'staff' or 'outsource'`);
+      if (++perTab[g.tab] > 50) refuse(`the ${g.tab} tab has more than 50 groups`);
+      const name = g.name.trim();
+      if (name === "") refuse(`${at}.name is blank`);
+      if ([...name].length > 40) refuse(`${at}.name is longer than 40 characters`);
+      if (names[g.tab].has(name)) refuse(`the ${g.tab} tab has two groups named '${name}'`);
+      names[g.tab].add(name);
+      if (g.id !== null) {
+        if (ids.has(g.id)) refuse(`group '${g.id}' is listed more than once`);
+        ids.add(g.id);
+      }
+      for (const id of g.memberIds) {
+        if (members.has(id)) refuse(`member '${id}' is listed more than once`);
+        members.add(id);
+      }
+      if (g.tab === "staff" && g.taskTypeKeys.length > 0) {
+        refuse(`${at} is a staff group; task_type_keys must be empty`);
+      }
+      for (const key of g.taskTypeKeys) {
+        if (types.has(key)) refuse(`task type '${key}' is listed more than once`);
+        types.add(key);
+      }
+    });
+    const manuals = new Set(taskManuals.map((m) => m.typeKey));
+    for (const g of groups) {
+      if (g.id !== null) {
+        const stored = chatGroups.find((s) => s.id === g.id);
+        if (!stored) refuse(`group '${g.id}' does not exist`);
+        if (stored!.tab !== g.tab) {
+          refuse(`group '${g.id}' is on the ${stored!.tab} tab and cannot move to the ${g.tab} tab`);
+        }
+      }
+      for (const id of g.memberIds) {
+        if (!onChatGroupTab(id, g.tab)) refuse(`member '${id}' is not an active member of the ${g.tab} tab`);
+      }
+      for (const key of g.taskTypeKeys) {
+        if (!manuals.has(key)) refuse(`task type '${key}' names no task manual`);
+      }
+    }
+    const stored = groups.map((g) => ({
+      id: g.id ?? `cg-${(++chatGroupSeq).toString(16).padStart(12, "0")}`,
+      tab: g.tab,
+      name: g.name.trim(),
+      memberIds: [...g.memberIds],
+      taskTypeKeys: [...g.taskTypeKeys],
+    }));
+    chatGroups = [...stored.filter((g) => g.tab === "staff"), ...stored.filter((g) => g.tab === "outsource")];
+    emitTopic("chat_group");
+    return readChatGroups();
   },
 
   async listReplyCards(
@@ -7714,6 +7802,8 @@ export function __resetMock(): void {
   tasks = [];
   artifactVersions = new Map();
   outsourceWorkers = [];
+  chatGroups = [];
+  chatGroupSeq = 0;
   taskManuals = structuredClone([...MOCK_TASK_MANUAL_SEEDS]);
   mockPasswordSet = true;
   mockPassword = "mock-password";
@@ -7832,6 +7922,13 @@ export function __injectMockMonitoringSession(s: WireMonSession): void {
 export function __injectMockOutsourceWorker(w: OutsourceWorkerView): void {
   outsourceWorkers.push(w);
       emitTopic("member");
+  // Server parity (joinChatGroupByTaskTypeOn): a new worker whose task type a
+  // group's auto-join rule names joins the end of that group.
+  const rule = chatGroups.find((g) => w.taskTypeKey && g.taskTypeKeys.includes(w.taskTypeKey));
+  if (rule) {
+    rule.memberIds.push(w.id);
+    emitTopic("chat_group");
+  }
 }
 
 // Test-only hook: inject a row as GET /api/members would return it.  Keeping
@@ -7897,6 +7994,15 @@ export function __setMockMemberOnline(id: string, online: boolean): void {
   const w = wireMembers.find((m) => m.id === id);
   if (!w) throw new Error(`mock: no member ${id}`);
   w.presence = online ? "online" : "offline";
+}
+
+// Test-only hook: change a mock member the way a member SSE delta would, and
+// tell subscribers (the sidebar's live presence, activity and unread).
+export function __updateMockMember(id: string, patch: Partial<WireMember>): void {
+  const w = wireMembers.find((m) => m.id === id);
+  if (!w) throw new Error(`mock: no member ${id}`);
+  Object.assign(w, patch);
+  emitTopic("member");
 }
 
 // Test/dev-only hook (T-7fa1): stage the "nothing was dispatched" answer so the

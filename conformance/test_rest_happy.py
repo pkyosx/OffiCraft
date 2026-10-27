@@ -2587,6 +2587,21 @@ HAPPY: dict[str, Happy] = {
         ),
     ),
     "GET /api/chat/reads": Happy(),
+    "GET /api/chat/groups": Happy(
+        check=lambda _c, r: _expect(r, lambda d: isinstance(d["groups"], list)),
+    ),
+    "PUT /api/chat/groups": Happy(
+        body={"groups": [{"id": None, "tab": "staff", "name": "conf happy",
+                          "member_ids": ["mira"], "task_type_keys": []}]},
+        check=lambda _c, r: _expect(
+            r,
+            lambda d: len(d["groups"]) == 1
+            and d["groups"][0]["id"].startswith("cg-")
+            and {k: v for k, v in d["groups"][0].items() if k != "id"}
+            == {"tab": "staff", "name": "conf happy", "member_ids": ["mira"],
+                "task_type_keys": []},
+        ),
+    ),
     "GET /api/chat/unread-count": Happy(
         check=lambda _c, r: _expect(r, lambda d: isinstance(d["unread"], int)),
     ),

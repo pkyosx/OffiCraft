@@ -84,6 +84,22 @@ export interface Messages {
   secretDeleteConfirmBody: (name: string) => string;
   // ── office ──
   outsourceLabel: (codename: string) => string;
+  groupHeading: (name: string, count: number) => string;
+  groupDeleteConfirm: (name: string) => string;
+  groupOptions: (name: string) => string;
+  /** 「自動加入 · 前端」: the auto-join dialog's title. */
+  groupAutoJoinTitle: (name: string) => string;
+  /** 「篩選」, or 「篩選 · N」 with N filters on. */
+  groupFilterLabel: (active: number) => string;
+  groupCurrentlyIn: (name: string) => string;
+  /** 「要把目前的「PR 審查」外包搬進「審查」嗎？」 */
+  groupBringInTitle: (typeName: string, groupName: string) => string;
+  groupDragPickedUp: (name: string) => string;
+  groupDragOverGroup: (name: string, group: string) => string;
+  groupDragDroppedGroup: (name: string, group: string) => string;
+  groupDragOverPosition: (name: string, position: number) => string;
+  groupDragDroppedPosition: (name: string, position: number) => string;
+  groupDragCancelled: (name: string) => string;
   // ── chat ──
   chatOfflineTitle: (name: string) => string;
   chatOfflineQueueHint: (name: string) => string;
@@ -415,6 +431,25 @@ export function makeMessages(t: Dict, language: Lang): Messages {
     // worded template), so a theme could re-word one and not the other.
     outsourceLabel: (codename) =>
       `${t.office.outsource.title} · ${codename}`,
+
+    groupHeading: (name, count) => `${name}${t.office.groups.countSep}${count}`,
+    groupDeleteConfirm: (name) => `${t.office.groups.deleteConfirmLead}${name}${t.office.groups.deleteConfirmTail}`,
+    groupOptions: (name) => `${t.office.groups.optionsLead}${name}`,
+    groupAutoJoinTitle: (name) => `${t.office.groups.autoJoin}${t.office.groups.countSep}${name}`,
+    groupFilterLabel: (active) =>
+      active === 0 ? t.office.groups.filter : `${t.office.groups.filterActiveLead}${active}`,
+    groupCurrentlyIn: (name) => `${t.office.groups.currentlyInLead}${name}${t.office.groups.currentlyInTail}`,
+    groupBringInTitle: (typeName, groupName) =>
+      `${t.office.groups.bringInTitleLead}${typeName}${t.office.groups.bringInTitleMid}${groupName}${t.office.groups.bringInTitleTail}`,
+    groupDragPickedUp: (name) => `${t.office.groups.pickedUpLead}${name}${t.office.groups.pickedUpTail}`,
+    groupDragOverGroup: (name, group) => `${name}${t.office.groups.overGroupMid}${group}${t.office.groups.overGroupTail}`,
+    groupDragDroppedGroup: (name, group) =>
+      `${name}${t.office.groups.droppedGroupMid}${group}${t.office.groups.droppedGroupTail}`,
+    groupDragOverPosition: (name, position) =>
+      `${name}${t.office.groups.overPositionMid}${position}${t.office.groups.overPositionTail}`,
+    groupDragDroppedPosition: (name, position) =>
+      `${name}${t.office.groups.droppedPositionMid}${position}${t.office.groups.droppedPositionTail}`,
+    groupDragCancelled: (name) => `${t.office.groups.cancelledLead}${name}${t.office.groups.cancelledTail}`,
 
     chatOfflineTitle: (name) => `${name} ${chat.offlineTitleSuffix}`,
     chatOfflineQueueHint: (name) =>

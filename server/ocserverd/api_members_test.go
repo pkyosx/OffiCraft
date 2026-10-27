@@ -3936,6 +3936,16 @@ func TestHandleDismissMemberApiMembersMemberIdDelete(t *testing.T) {
 		bystander.wantFrames()
 	})
 
+	t.Run("a dismissal takes the member out of its chat group and leaves the rest of the group in order", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		chatGroupSeed(t, d, chatGroupWrite("cg-core", "staff", "Core", []string{"mira", "kip"}, nil))
+
+		if status, data := apiJSON(t, h, "DELETE", "/api/members/kip", owner, ""); status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		chatGroupWantMemberRows(t, d, "mira")
+	})
+
 	t.Run("a member id nothing carries answers 404 naming it and fans nothing", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		dashboard := apiTestListen(t, api, "")

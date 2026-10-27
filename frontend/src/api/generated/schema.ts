@@ -903,6 +903,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/chat/groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the owner's chat-list groups.
+         * @description - The owner's chat-list groups for the staff and outsource tabs, each tab's groups in display order.
+         *     - A member in no group is ungrouped; ungrouped members are not listed here.
+         */
+        get: operations["handle_get_chat_groups_api_chat_groups_get"];
+        /**
+         * Replace the owner's chat-list groups.
+         * @description - Replaces the whole group state of both tabs; create, rename, delete, reorder, moving members and setting auto-join task types are all this one write.
+         *     - A group left out is deleted; its members become ungrouped.
+         *     - Auto-join task types apply to workers assigned later; this write moves no member it does not list.
+         *     - 422 when a group id is unknown, listed twice or changes tab; a name is blank, longer than 40 characters or repeats within a tab; a member repeats or does not belong in that tab; a staff group has task types; a task type repeats or names no task manual; or a tab has more than 50 groups. Nothing is written.
+         *     - Emits a `chat_group` event to the owner, so another open browser refetches without reloading.
+         *     - No overwrite protection: concurrent writes are last-writer-wins.
+         */
+        put: operations["handle_update_chat_groups_api_chat_groups_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/chat/mark-read": {
         parameters: {
             query?: never;
@@ -5473,6 +5503,92 @@ export interface components {
             ts: number;
             /** Url */
             url: string;
+        };
+        /**
+         * ChatGroupDTO
+         * @description One of the owner's chat-list groups. Each cockpit tab (staff, outsource) has its own ordered groups; a member of that tab in no group is ungrouped, which is not stored — the cockpit shows ungrouped members after the groups, in the tab's default order.
+         */
+        ChatGroupDTO: {
+            /**
+             * Id
+             * @description Server-minted group id, `cg-` followed by hex; stable across renames and reorders.
+             */
+            id: string;
+            /**
+             * Member Ids
+             * @description The group's members in display order. Only current members of the tab's kind are listed (active staff on the staff tab, active outsource workers on the outsource tab): a dismissed staff member or a released worker leaves its group in the same write that removes it. A member is in at most one group.
+             */
+            member_ids: string[];
+            /**
+             * Name
+             * @description The group's display name, trimmed, unique within its tab.
+             */
+            name: string;
+            /**
+             * Tab
+             * @description The cockpit tab the group belongs to; fixed when the group is created.
+             * @enum {string}
+             */
+            tab: "staff" | "outsource";
+            /**
+             * Task Type Keys
+             * @description Auto-join rules (outsource groups only; always empty on a staff group): task manual type keys, in the order the owner set. A new outsource worker whose task has one of these types joins the end of this group when it is assigned. A type belongs to at most one group. Only keys that still name a task manual are listed.
+             */
+            task_type_keys: string[];
+        };
+        /**
+         * ChatGroupWriteDTO
+         * @description One group in the complete desired state sent to `PUT /api/chat/groups`.
+         */
+        ChatGroupWriteDTO: {
+            /**
+             * Id
+             * @description An existing group's id, or null to create a new group (the server mints its id). An id that names no current group, appears twice, or names a group of the other tab is a 422.
+             */
+            id: string | null;
+            /**
+             * Member Ids
+             * @description The group's members in display order. Each must be a current member of the tab's kind (active staff for a staff group, active outsource worker for an outsource group; never a machine) and appear once across the whole request.
+             */
+            member_ids: string[];
+            /**
+             * Name
+             * @description Display name; stored trimmed. Blank after trimming, longer than 40 characters after trimming, or equal (case-sensitive, after trimming) to another group's name in the same tab is a 422.
+             */
+            name: string;
+            /**
+             * Tab
+             * @description The tab the group belongs to. For an existing group it must equal the group's current tab.
+             * @enum {string}
+             */
+            tab: "staff" | "outsource";
+            /**
+             * Task Type Keys
+             * @description Auto-join rules, outsource groups only: a staff group must send an empty list. Each key must name a task manual (a built-in one included) and appear once across the whole request. Rules apply only to workers assigned after the write; workers already on the roster join a group only through its member_ids, which the cockpit fills when the owner chooses to move the existing ones.
+             */
+            task_type_keys: string[];
+        };
+        /**
+         * ChatGroupsDTO
+         * @description The owner's chat-list groups for both cockpit tabs.
+         */
+        ChatGroupsDTO: {
+            /**
+             * Groups
+             * @description Staff groups first, then outsource groups; within each tab in display order.
+             */
+            groups: components["schemas"]["ChatGroupDTO"][];
+        };
+        /**
+         * ChatGroupsUpdateDTO
+         * @description The complete desired group state for both tabs; it replaces the stored state wholesale. A stored group not listed here is deleted: its members become ungrouped and its auto-join rules are dropped.
+         */
+        ChatGroupsUpdateDTO: {
+            /**
+             * Groups
+             * @description Every group the owner keeps, staff and outsource together; list order is display order within each tab. More than 50 groups in one tab is a 422.
+             */
+            groups: components["schemas"]["ChatGroupWriteDTO"][];
         };
         /**
          * ChatInlineReplyCardDTO
@@ -14184,6 +14300,95 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChatAttachmentShareLinkDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_get_chat_groups_api_chat_groups_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatGroupsDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_update_chat_groups_api_chat_groups_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatGroupsUpdateDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatGroupsDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */

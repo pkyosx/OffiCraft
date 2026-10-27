@@ -35,7 +35,11 @@ import { Avatar } from "./Avatar";
 import { CurrentTaskTitle } from "./CurrentTaskTitle";
 import { RuntimeLoginWarningMark } from "./RuntimeLoginWarningMark";
 import { PresenceAvatar } from "./PresenceAvatar";
-import { NameWithActivity } from "./MemberActivity";
+import { NameWithActivity, shownActivity } from "./MemberActivity";
+import { presenceVisual } from "./LifecycleDot";
+import { ChatGroupPanel } from "./ChatGroupPanel";
+import type { ChatGrouping } from "./ChatGroupPanel";
+import type { ChatGroupRow } from "./ChatGroupList";
 
 /** The worker's ONE-LINE task line — [task-id chip → task type], optionally
  * led by the runtime warning mark. SHARED between the rail's outsource row, the
@@ -109,6 +113,7 @@ export function OutsourcePanel({
   onOpenChat,
   onOpenDetail,
   onOpenTask,
+  grouping,
 }: {
   /** LIVE workers, already sorted 任務建立新→舊 + chip-joined
    * (useOutsourceWorkers). */
@@ -128,12 +133,19 @@ export function OutsourcePanel({
   /** Jump to the bound task's card (#tasks/<taskId>) — the row's task-id chip
    * (owner report 2026-07-14: 點 task id 連到該任務頁). */
   onOpenTask: (taskId: string) => void;
+  /** The owner's groups for this tab; without it the list is plain rows. */
+  grouping?: ChatGrouping;
 }) {
   const { t, msg } = useI18n();
-  // Badge suppression parity with MemberCard: the open, WATCHED conversation
-  // consumes reads immediately, so its row never accumulates a badge — but a
-  // backgrounded window genuinely accumulates unread and must show it.
-  const windowActive = useWindowActive();
+  const byId = new Map(workers.map((w) => [w.id, w]));
+  const rowProps = (w: OutsourceWorkerView) => ({
+    worker: w,
+    selected: w.id === selectedId,
+    testId: `outsource-row-${w.id}`,
+    onOpenChat,
+    onOpenDetail,
+    onOpenTask,
+  });
 
   return (
     <section className="outsource-panel" data-testid="outsource-panel">
@@ -148,97 +160,155 @@ export function OutsourcePanel({
         <div className="office__error">{t.office.outsource.loadError}</div>
       )}
 
-      <div className="outsource-panel__list" data-testid="outsource-list">
+      {grouping ? (
+        <ChatGroupPanel
+          {...grouping}
+          tab="outsource"
+          className="outsource-panel__list"
+          testId="outsource-list"
+          ids={workers.map((w) => w.id)}
+          workers={workers}
+          nameOf={(id) => msg.outsourceLabel(byId.get(id)?.codename ?? id)}
+          unreadOf={(id) => byId.get(id)?.unreadCount ?? 0}
+          factsOf={(id) => {
+            const w = byId.get(id)!;
+            return {
+              presence: presenceVisual(w.presence),
+              activity: shownActivity(w.activity, w.presence)?.state ?? null,
+              names: [msg.outsourceLabel(w.codename), w.taskTypeName || w.taskTypeKey || t.tasks.adhoc],
+            };
+          }}
+          renderRow={(id, sortable) => <OutsourceRow {...rowProps(byId.get(id)!)} sortable={sortable} />}
+          renderOverlay={(id) => <OutsourceRow {...rowProps(byId.get(id)!)} testId={undefined} />}
+        />
+      ) : (
+        <div className="outsource-panel__list" data-testid="outsource-list">
           {workers.map((w) => (
-            // Click semantics mirror MemberCard: the row body opens the CHAT;
-            // the avatar alone opens the worker DETAIL panel (stopPropagation so
-            // it never also fires the row's chat jump). A row is a div-button so
-            // the avatar button can nest inside it.
-            <div
-              key={w.id}
-              role="button"
-              tabIndex={0}
-              className={`outsource-row${
-                w.id === selectedId ? " outsource-row--selected" : ""
-              }`}
-              data-testid={`outsource-row-${w.id}`}
-              onClick={() => onOpenChat(w.id)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  onOpenChat(w.id);
-                }
-              }}
-            >
-              {/* kind="outsource" renders the active theme's 外包 image; the
-               * button mirrors MemberCard's avatar-as-detail-target so the two
-               * rails read identically. */}
-              <PresenceAvatar presence={w.presence} dotTestId={`outsource-presence-${w.id}`}>
-                <button
-                  type="button"
-                  className="outsource-row__avatar-btn"
-                  aria-label={t.office.outsource.viewDetail}
-                  title={t.office.outsource.viewDetail}
-                  data-testid={`outsource-detail-${w.id}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onOpenDetail(w.id);
-                  }}
-                  onKeyDown={(e) => e.stopPropagation()}
-                >
-                  <Avatar size={40} kind="outsource" src={w.avatarUrl} />
-                </button>
-              </PresenceAvatar>
-              <span className="outsource-row__body">
-                {/* line 1 — the worker's name (代號; an outsource has no
-                 * other name), mirroring the member card's name line. */}
-                <span className="outsource-row__line">
-                  <NameWithActivity
-                    activity={w.activity}
-                    presence={w.presence}
-                    memberName={msg.outsourceLabel(w.codename)}
-                    testId={`activity-icon-${w.id}`}
-                    layout="list"
-                  >
-                    <span className="outsource-row__codename">
-                      {msg.outsourceLabel(w.codename)}
-                    </span>
-                  </NameWithActivity>
-                </span>
-                {/* line 2 — the shared OutsourceTaskLine (the worker chat
-                 * header renders the same line). */}
-                <OutsourceTaskLine
-                  worker={w}
-                  onOpenTask={onOpenTask}
-                  mark
-                  idPrefix="outsource"
-                />
-                {/* line 3 (T-3451) — the bound task's real TITLE (not its type,
-                 * which line 2 already shows): 2-line clamp + hover full. The
-                 * wire already echoes it (OutsourceWorkerView.taskTitle); "" (a
-                 * task that could not resolve) shows the muted empty state. */}
-                <CurrentTaskTitle
-                  title={w.taskTitle ?? ""}
-                  clamp
-                  testid={`outsource-task-title-${w.id}`}
-                />
-              </span>
-              {/* Unread badge — the EXACT member-card signal (wire
-               * unread_count, same watermark inverse), same flex-end slot,
-               * same suppression: the open, watched chat never accumulates
-               * (owner report 2026-07-14: 外包有未讀也要有紅點). */}
-              {(w.unreadCount ?? 0) > 0 &&
-                !(w.id === selectedId && windowActive) && (
-                  <span
-                    className="member-card__unread"
-                    data-testid={`outsource-unread-${w.id}`}
-                  >
-                    {(w.unreadCount ?? 0) > 99 ? "99+" : w.unreadCount}
-                  </span>
-                )}
-            </div>
+            <OutsourceRow key={w.id} {...rowProps(w)} />
           ))}
         </div>
+      )}
     </section>
+  );
+}
+
+function OutsourceRow({
+  worker: w,
+  selected,
+  testId,
+  onOpenChat,
+  onOpenDetail,
+  onOpenTask,
+  sortable,
+}: {
+  worker: OutsourceWorkerView;
+  selected: boolean;
+  testId: string | undefined;
+  onOpenChat: (workerId: string) => void;
+  onOpenDetail: (workerId: string) => void;
+  onOpenTask: (taskId: string) => void;
+  sortable?: ChatGroupRow;
+}) {
+  const { t, msg } = useI18n();
+  // Badge suppression parity with MemberCard: the open, WATCHED conversation
+  // consumes reads immediately, so its row never accumulates a badge — but a
+  // backgrounded window genuinely accumulates unread and must show it.
+  const windowActive = useWindowActive();
+  return (
+      <div
+        {...sortable?.attributes}
+        {...sortable?.listeners}
+        ref={sortable?.ref}
+        style={sortable?.style}
+        data-chat-row={sortable?.rowId}
+        onContextMenu={sortable?.onContextMenu}
+        role="button"
+        tabIndex={0}
+        className={`outsource-row${selected ? " outsource-row--selected" : ""}${
+          sortable ? ` ${sortable.className}` : ""
+        }`}
+        data-testid={testId}
+        onClick={() => {
+          if (!sortable || sortable.canActivate()) onOpenChat(w.id);
+        }}
+        onKeyDown={(e) => {
+          if (sortable?.menuKey(e)) return;
+          sortable?.listeners?.onKeyDown?.(e);
+          if (e.defaultPrevented || (sortable && !sortable.canActivate())) return;
+          if (e.key === "Enter" || (!sortable && e.key === " ")) {
+            e.preventDefault();
+            onOpenChat(w.id);
+          }
+        }}
+      >
+        {/* kind="outsource" renders the active theme's 外包 image; the
+         * button mirrors MemberCard's avatar-as-detail-target so the two
+         * rails read identically. */}
+        <PresenceAvatar presence={w.presence} dotTestId={`outsource-presence-${w.id}`}>
+          <button
+            type="button"
+            className="outsource-row__avatar-btn"
+            aria-label={t.office.outsource.viewDetail}
+            title={t.office.outsource.viewDetail}
+            data-testid={`outsource-detail-${w.id}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenDetail(w.id);
+            }}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            <Avatar size={40} kind="outsource" src={w.avatarUrl} />
+          </button>
+        </PresenceAvatar>
+        <span className="outsource-row__body">
+          {/* line 1 — the worker's name (代號; an outsource has no
+           * other name), mirroring the member card's name line. */}
+          <span className="outsource-row__line">
+            <NameWithActivity
+              activity={w.activity}
+              presence={w.presence}
+              memberName={msg.outsourceLabel(w.codename)}
+              testId={`activity-icon-${w.id}`}
+              layout="list"
+            >
+              <span className="outsource-row__codename">
+                {msg.outsourceLabel(w.codename)}
+              </span>
+            </NameWithActivity>
+          </span>
+          {/* line 2 — the shared OutsourceTaskLine (the worker chat
+           * header renders the same line). */}
+          <OutsourceTaskLine
+            worker={w}
+            onOpenTask={onOpenTask}
+            mark
+            idPrefix="outsource"
+          />
+          {/* line 3 (T-3451) — the bound task's real TITLE (not its type,
+           * which line 2 already shows): 2-line clamp + hover full. The
+           * wire already echoes it (OutsourceWorkerView.taskTitle); "" (a
+           * task that could not resolve) shows the muted empty state. */}
+          <CurrentTaskTitle
+            title={w.taskTitle ?? ""}
+            clamp
+            testid={`outsource-task-title-${w.id}`}
+          />
+        </span>
+        {/* Unread badge — the EXACT member-card signal (wire
+         * unread_count, same watermark inverse), same flex-end slot,
+         * same suppression: the open, watched chat never accumulates
+         * (owner report 2026-07-14: 外包有未讀也要有紅點). */}
+        <span className="member-card__unread-slot">
+          {(w.unreadCount ?? 0) > 0 &&
+            !(selected && windowActive) && (
+              <span
+                className="member-card__unread"
+                data-testid={`outsource-unread-${w.id}`}
+              >
+                {(w.unreadCount ?? 0) > 99 ? "99+" : w.unreadCount}
+              </span>
+            )}
+        </span>
+      </div>
   );
 }

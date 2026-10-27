@@ -123,12 +123,16 @@ import type {
   AccountCostResetReceipt,
   CostResetReceipt,
   TaskArtifactVersionView,
+  ChatGroupView,
+  ChatGroupWrite,
 } from "./adapter";
 import {
   toMember,
   toChatMessage,
   toChatRead,
   toChatMarkReadReceipt,
+  toChatGroups,
+  toChatGroupWrite,
   toGalleryAttachment,
   toReplyCard,
   toReplyCardRow,
@@ -435,6 +439,7 @@ export const SSE_RESYNC_TOPICS = [
   "member",
   "chat",
   "chat_read",
+  "chat_group",
   "reply_card",
   "task",
   "task_manual",
@@ -484,7 +489,7 @@ export function toSseDelta(topic: string, payload: unknown): SseDelta {
 // callback may (un)subscribe during the fan-out.
 // A resync NAMES NOTHING on purpose: the stream has no replay, so what was
 // missed is unknowable and every subscriber has to re-pull its whole snapshot.
-// The whole fan is SYNCHRONOUS, which is what lets a subscriber coalesce the 13
+// The whole fan is SYNCHRONOUS, which is what lets a subscriber coalesce the 14
 // topics into one refetch (lib/deltaSink.ts) — do not make this loop async.
 //
 // 🔴 EVERY CALL IS ISOLATED, and the comment this replaced is why. It used to
@@ -1615,6 +1620,16 @@ export const httpApi: Api = {
       }),
     );
     return wire.map(toChatRead);
+  },
+
+  async getChatGroups(): Promise<ChatGroupView[]> {
+    return toChatGroups(unwrap(await client.GET("/api/chat/groups")));
+  },
+
+  async putChatGroups(groups: ChatGroupWrite[]): Promise<ChatGroupView[]> {
+    return toChatGroups(
+      unwrap(await client.PUT("/api/chat/groups", { body: { groups: groups.map(toChatGroupWrite) } })),
+    );
   },
 
   async listReplyCards(

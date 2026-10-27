@@ -537,6 +537,12 @@ var identityGateExpectedCount = map[string]int{
 // The fix applied here was to put the predicate back where the scanners can see
 // it (at each call site) and re-register it, not to widen the scanners.
 var identityGateLedger = map[string]string{
+	"api_chat_groups.go :: belongsOnChatGroupTab :: m.Kind == chatGroupTabKind[tab]": "" +
+		"a display projection, not a difference in treatment: the cockpit lists 正職 " +
+		"and 外包 on two tabs, and a chat-list group lives on one tab, so a member " +
+		"can only be grouped on the tab that lists it (owner-approved groups spec, " +
+		"2026-10-27). Both kinds are grouped, ordered, cleaned up on leaving the roster " +
+		"and shown the same way; a warden matches neither tab.",
 	"api_helpers.go :: resolveMemberForItemRead :: m.Kind == KindWarden": "" +
 		"machine-vs-person on the read-only durable-identity exception: a released " +
 		"outsource worker and a dismissed staff member both stay readable so chats, " +

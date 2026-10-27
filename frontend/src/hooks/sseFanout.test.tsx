@@ -745,7 +745,7 @@ describe("one delta re-pulls only what it named (T-8115)", () => {
 });
 
 describe("one resync costs one refetch per hook (T-8115)", () => {
-  it("fans 13 topics and every hook refetches exactly once", async () => {
+  it("fans 14 topics and every hook refetches exactly once", async () => {
     const view = await mountedCockpit();
     h.members = [member(OPEN_PEER, 8), member("m-other"), member("m-third")];
 
@@ -756,7 +756,7 @@ describe("one resync costs one refetch per hook (T-8115)", () => {
     // re-pulled — this is not a "do less" assertion in disguise.
     expect(view.result.current.members[0].unreadCount).toBe(8);
 
-    // COST: useMembers listens to 4 of the 13 topics, useOutsourceWorkers to 4,
+    // COST: useMembers listens to 4 of the 14 topics, useOutsourceWorkers to 4,
     // useChatUnread to 4, useTasks to 3, useChat to 2. One each.
     expect(h.counts.listMembers).toBe(1);
     expect(h.counts.getChatUnreadCount).toBe(1);

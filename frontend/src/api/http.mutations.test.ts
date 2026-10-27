@@ -337,6 +337,39 @@ describe("httpApi · perf-light query contracts (T-2b9d/cf91/ec2c)", () => {
   });
 });
 
+describe("httpApi · chat groups wire shape", () => {
+  const WIRE = {
+    groups: [
+      { id: "cg-1", tab: "staff", name: "核心", member_ids: ["mira"], task_type_keys: [] },
+      { id: "cg-2", tab: "outsource", name: "審查", member_ids: ["ow-1"], task_type_keys: ["review"] },
+    ],
+  };
+
+  it("getChatGroups GETs /api/chat/groups and maps every group", async () => {
+    fetchMock.mockImplementation(async () => jsonResponse(WIRE));
+    expect(await httpApi.getChatGroups()).toEqual([
+      { id: "cg-1", tab: "staff", name: "核心", memberIds: ["mira"], taskTypeKeys: [] },
+      { id: "cg-2", tab: "outsource", name: "審查", memberIds: ["ow-1"], taskTypeKeys: ["review"] },
+    ]);
+    expect(await lastRequest()).toEqual({ url: "/api/chat/groups", method: "GET", body: undefined });
+  });
+
+  it("putChatGroups PUTs the whole state with snake_case fields and a null id for a new group", async () => {
+    fetchMock.mockImplementation(async () => jsonResponse(WIRE));
+    await httpApi.putChatGroups([
+      { id: "cg-1", tab: "staff", name: "核心", memberIds: ["mira", "beto"], taskTypeKeys: [] },
+      { id: null, tab: "outsource", name: "審查", memberIds: ["ow-1"], taskTypeKeys: ["review"] },
+    ]);
+    expect(await lastRequest()).toEqual({
+      url: "/api/chat/groups",
+      method: "PUT",
+      body:
+        '{"groups":[{"id":"cg-1","tab":"staff","name":"核心","member_ids":["mira","beto"],"task_type_keys":[]},' +
+        '{"id":null,"tab":"outsource","name":"審查","member_ids":["ow-1"],"task_type_keys":["review"]}]}',
+    });
+  });
+});
+
 describe("httpApi · deleteRole 409 error contract (unified envelope)", () => {
   it("rejects with an ApiError carrying the envelope on member-online", async () => {
     fetchMock.mockImplementation(async () =>

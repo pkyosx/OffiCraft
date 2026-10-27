@@ -170,6 +170,8 @@ import type {
   LoreEntryState,
   LoreEntryPageView,
   LoreScopeKind,
+  ChatGroupView,
+  ChatGroupWrite,
 } from "./adapter";
 
 /** The five real presence words, as a runtime set — the type union's twin. */
@@ -1459,6 +1461,28 @@ type WireThemeBundle = components["schemas"]["ThemeBundleDTO"];
 type WireThemeListItem = components["schemas"]["ThemeListItemDTO"];
 type WireThemeWriteReceipt = components["schemas"]["ThemeWriteReceiptDTO"];
 type WireThemeDeleteResult = components["schemas"]["ThemeDeleteResultDTO"];
+type WireChatGroups = components["schemas"]["ChatGroupsDTO"];
+type WireChatGroupWrite = components["schemas"]["ChatGroupWriteDTO"];
+
+export function toChatGroups(w: WireChatGroups): ChatGroupView[] {
+  return w.groups.map((g) => ({
+    id: g.id,
+    tab: g.tab,
+    name: g.name,
+    memberIds: [...g.member_ids],
+    taskTypeKeys: [...g.task_type_keys],
+  }));
+}
+
+export function toChatGroupWrite(g: ChatGroupWrite): WireChatGroupWrite {
+  return {
+    id: g.id,
+    tab: g.tab,
+    name: g.name,
+    member_ids: [...g.memberIds],
+    task_type_keys: [...g.taskTypeKeys],
+  };
+}
 
 /** ThemeBundleDTO → ThemeBundle. Every optional overlay is carried through
  * VERBATIM when present and left ABSENT when absent — never fabricated to an
