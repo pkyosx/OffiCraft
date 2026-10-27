@@ -160,7 +160,8 @@
 
 /* 新增群組 */
 /* The toolbar under the 正職/外包 tabs: 篩選 on the left, 全部收合／展開 and
- * 新增群組 on the right, on one input-like strip. */
+ * 新增群組 on the right, as plain buttons with no frame (owner). The 1px
+ * inset puts 篩選's icon on the group labels' left edge. */
 .chat-groups__toolbar {
   flex: none;
   display: flex;
@@ -168,10 +169,7 @@
   gap: 2px;
   min-height: 44px;
   margin-bottom: 8px;
-  padding: 0 4px;
-  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
-  border-radius: 10px;
-  background: var(--color-card);
+  padding: 0 0 0 1px;
 }
 .chat-groups__toolbar-gap {
   flex: 1;

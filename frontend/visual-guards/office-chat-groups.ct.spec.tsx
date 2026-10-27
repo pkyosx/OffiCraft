@@ -414,7 +414,7 @@ for (const [width, target] of [
   [1280, 36],
   [375, 44],
 ] as const) {
-  test(`${width}px: the toolbar is one ${width < 720 ? 46 : 44}px strip right under the tabs, 篩選 at its left and 全部收合 and 新增群組 at its right, each answering taps ${target}px tall`, async ({
+  test(`${width}px: the toolbar is a frameless 44px row right under the tabs, 篩選's icon on the group labels' edge at its left and 全部收合 and 新增群組 at its right, each answering taps ${target}px tall`, async ({
     mount,
     page,
   }) => {
@@ -435,18 +435,26 @@ for (const [width, target] of [
           oneRow: Math.round(r(b).top + r(b).height / 2) === Math.round(box.top + box.height / 2),
           inside: r(b).left >= box.left && r(b).right <= box.right,
         })),
-        filterLeft: Math.round(r(bar.querySelector('[data-testid="chat-filter"]')!).left - box.left),
-        newRight: Math.round(box.right - r(bar.querySelector('[data-testid="chat-group-new"]')!).right),
+        filterIconToLabel: Math.round(
+          r(bar.querySelector('[data-testid="chat-filter"] svg')!).left -
+            r(document.querySelector(".chat-groups__heading-label")!).left,
+        ),
+        newRightToList: Math.round(
+          r(document.querySelector(".office__members-list")!).right -
+            r(bar.querySelector('[data-testid="chat-group-new"]')!).right,
+        ),
+        frame: [getComputedStyle(bar).borderTopWidth, getComputedStyle(bar).backgroundColor],
         pageOver: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       };
     });
     const control = (name: string) => ({ name, height: target, oneRow: true, inside: true });
     expect(m).toEqual({
       gapUnderTabs: 12,
-      height: width < 720 ? 46 : 44,
+      height: 44,
       controls: [control("篩選"), control("全部收合"), control("新增群組")],
-      filterLeft: 5,
-      newRight: 5,
+      filterIconToLabel: 0,
+      newRightToList: 0,
+      frame: ["0px", "rgba(0, 0, 0, 0)"],
       pageOver: 0,
     });
   });
