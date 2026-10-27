@@ -706,8 +706,6 @@ export const en: Dict = {
       nameBlank: "Enter a group name",
       nameTooLong: "Group names are at most 40 characters",
       nameTaken: "This tab already has a group with that name",
-      groupMenu: "Group options",
-      memberMenu: "Member options",
       rename: "Rename",
       delete: "Delete group",
       deleteConfirmLead: "Delete “",

@@ -259,10 +259,27 @@ function Menu({
     setPos({ left, top, flip: left + box.width * 2 + 4 > window.innerWidth - EDGE });
   }, [anchor, mobile]);
 
+  const confirming = confirm !== null;
+  // Tab leaves a menu (closing it) but moves between the confirm's buttons.
+  const onTab = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "Tab") return;
+    if (!confirming) {
+      onClose(false);
+      return;
+    }
+    const buttons = Array.from(rootRef.current?.querySelectorAll<HTMLElement>(".chat-groups__confirm button") ?? []);
+    const i = buttons.indexOf(document.activeElement as HTMLElement);
+    e.preventDefault();
+    buttons[(i + (e.shiftKey ? -1 : 1) + buttons.length) % buttons.length]?.focus();
+  };
   useEffect(() => {
+    if (confirming) {
+      rootRef.current?.querySelector<HTMLElement>(".chat-groups__confirm button")?.focus();
+      return;
+    }
     const target = sub ? subRef.current : mainRef.current;
     focusItems(target)[0]?.focus();
-  }, [sub, pos, confirm]);
+  }, [sub, pos, confirming]);
 
   useEffect(() => {
     const onDown = (e: PointerEvent) => {
@@ -311,10 +328,13 @@ function Menu({
       <div className="chat-groups__sheet-backdrop">
         <div
           ref={rootRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label={title}
           className="chat-groups__sheet"
           data-testid={`${testId}-sheet`}
           onKeyDown={(e) => {
-            if (e.key === "Tab") onClose(false);
+            onTab(e);
           }}
         >
           <div className="chat-groups__sheet-title">{title}</div>
@@ -327,7 +347,7 @@ function Menu({
         className="chat-groups__menu"
         style={pos ? { left: pos.left, top: pos.top } : { left: -9999, top: 0 }}
         onKeyDown={(e) => {
-          if (e.key === "Tab") onClose(false);
+          onTab(e);
         }}
       >
         {body}
@@ -572,7 +592,6 @@ export function ChatGroupPanel({
                   <div className="chat-groups__dialog-actions">
                     <button
                       type="button"
-                      role="menuitem"
                       className="chat-groups__entry-btn chat-groups__entry-btn--danger"
                       data-testid="chat-group-delete-confirm"
                       onClick={() => {
@@ -582,7 +601,12 @@ export function ChatGroupPanel({
                     >
                       {t.office.groups.deleteConfirm}
                     </button>
-                    <button type="button" role="menuitem" className="chat-groups__entry-btn" onClick={() => closeMenu(true)}>
+                    <button
+                      type="button"
+                      className="chat-groups__entry-btn"
+                      data-testid="chat-group-delete-cancel"
+                      onClick={() => closeMenu(true)}
+                    >
                       {t.office.groups.cancel}
                     </button>
                   </div>

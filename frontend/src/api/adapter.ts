@@ -979,9 +979,6 @@ export interface OutsourceWorkerView {
    * If you need "was this move dispatched?", read the relocate's own answer. */
 }
 
-/** One task type (任務手冊) in the LIGHT list shape the tasks page needs for
- * its type filter (所有 ／ 各手冊類型 ／ 自由代辦). The full manual editor
- * (設定 › 任務手冊) reads the FULL `TaskManualView` instead. */
 /** One of the owner's chat-list groups (GET /api/chat/groups). */
 export interface ChatGroupView {
   id: string;
@@ -996,6 +993,9 @@ export interface ChatGroupView {
  * for a group the server has not created yet. */
 export type ChatGroupWrite = Omit<ChatGroupView, "id"> & { id: string | null };
 
+/** One task type (任務手冊) in the LIGHT list shape the tasks page needs for
+ * its type filter (所有 ／ 各手冊類型 ／ 自由代辦). The full manual editor
+ * (設定 › 任務手冊) reads the FULL `TaskManualView` instead. */
 export interface TaskTypeView {
   typeKey: string;
   displayName: string;

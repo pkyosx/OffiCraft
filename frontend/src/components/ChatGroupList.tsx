@@ -72,6 +72,9 @@ export interface ChatGroupRow {
   menuKey: (e: KeyboardEvent) => boolean;
 }
 
+// Android fires contextmenu on a long press, which here is a lift; a touch
+// opens the menu on release instead (onDragEnd).
+const fromTouch = (e: MouseEvent) => (e.nativeEvent as PointerEvent).pointerType === "touch";
 const isMenuKey = (e: KeyboardEvent) => e.key === "ContextMenu" || (e.shiftKey && e.key === "F10");
 const anchorOf = (el: Element): MenuAnchor => {
   const r = el.getBoundingClientRect();
@@ -103,6 +106,7 @@ function SortableRow({
         canActivate,
         onContextMenu: (e) => {
           e.preventDefault();
+          if (fromTouch(e)) return;
           openMenu({ kind: "member", id }, { x: e.clientX, y: e.clientY });
         },
         menuKey: (e) => {
@@ -166,6 +170,7 @@ function GroupHeading({
       }}
       onContextMenu={(e) => {
         e.preventDefault();
+        if (fromTouch(e)) return;
         openMenu({ kind: "group", id: group.id }, { x: e.clientX, y: e.clientY });
       }}
       onKeyDown={(e) => {

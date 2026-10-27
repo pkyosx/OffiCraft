@@ -191,7 +191,7 @@ describe("ChatGroupPanel", () => {
     expect(document.activeElement).toBe(row);
   });
 
-  it("a group's menu renames it inline and deletes it after confirming, its members going back to 未分組", () => {
+  it("a group's menu renames it inline and deletes it after confirming, its members going back to 未分組; from the keyboard the confirmation takes focus and 取消 gives it back to the heading", () => {
     mount("staff", ["mira", "beto"], [g("a", "staff", "核心", ["beto"]), g("b", "staff", "工程", [])]);
     fireEvent.contextMenu(screen.getByTestId("chat-group-heading-a"));
     fireEvent.click(screen.getByTestId("chat-group-menu-rename"));
@@ -205,10 +205,22 @@ describe("ChatGroupPanel", () => {
     fireEvent.submit(entry);
     expect(headings()).toEqual(["主力 · 1", "工程 · 0", "未分組 · 1"]);
 
-    fireEvent.contextMenu(screen.getByTestId("chat-group-heading-a"));
+    const heading = screen.getByTestId("chat-group-heading-a");
+    heading.focus();
+    fireEvent.keyDown(heading, { key: "F10", shiftKey: true });
     expect(screen.queryByTestId("chat-group-menu-autojoin")).toBeNull();
     fireEvent.click(screen.getByTestId("chat-group-menu-delete"));
     expect(screen.getByRole("alertdialog").textContent).toContain("刪除「主力」？成員會回到未分組。");
+    expect(document.activeElement).toBe(screen.getByTestId("chat-group-delete-confirm"));
+    fireEvent.keyDown(document.activeElement!, { key: "Tab" });
+    expect(document.activeElement).toBe(screen.getByTestId("chat-group-delete-cancel"));
+    fireEvent.click(screen.getByTestId("chat-group-delete-cancel"));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(document.activeElement).toBe(heading);
+    expect(headings()).toEqual(["主力 · 1", "工程 · 0", "未分組 · 1"]);
+
+    fireEvent.contextMenu(heading);
+    fireEvent.click(screen.getByTestId("chat-group-menu-delete"));
     fireEvent.click(screen.getByTestId("chat-group-delete-confirm"));
     expect(headings()).toEqual(["工程 · 0", "未分組 · 2"]);
     expect(latest).toEqual([g("b", "staff", "工程", [])]);

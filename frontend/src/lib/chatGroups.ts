@@ -1,4 +1,4 @@
-// Office sidebar chat-list groups. The state mirrors the planned
+// Office sidebar chat-list groups. The state is that of
 // GET/PUT /api/chat/groups: both tabs' groups in one list, staff first, each
 // tab's groups in display order. A member in no group is ungrouped; ungrouped
 // members are not stored and show after the groups in the tab's default order.

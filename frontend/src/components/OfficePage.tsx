@@ -243,12 +243,19 @@ export function OfficePage({
   const [taskTypes, setTaskTypes] = useState<TaskTypeView[]>([]);
   useEffect(() => {
     let alive = true;
-    api
-      .listTaskTypes()
-      .then((list) => alive && setTaskTypes(list))
-      .catch((e) => console.warn("OfficePage: task types load failed", e));
+    const load = () =>
+      api
+        .listTaskTypes()
+        .then((list) => alive && setTaskTypes(list))
+        .catch((e) => console.warn("OfficePage: task types load failed", e));
+    load();
+    // A manual deleted elsewhere must not stay tickable in 自動加入.
+    const unsubscribe = api.subscribeEvents((topic) => {
+      if (topic === "task_manual") load();
+    });
     return () => {
       alive = false;
+      unsubscribe();
     };
   }, []);
 

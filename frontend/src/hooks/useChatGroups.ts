@@ -42,26 +42,31 @@ export function useChatGroups(knownIds: ReadonlySet<string> | null): UseChatGrou
   knownRef.current = knownIds;
   const aliveRef = useRef(true);
   const seq = useRef(0);
-  // One counter orders reads and writes. A write answer lands only if it is
-  // the latest write. A read answer lands only if, when the read was SENT, no
-  // write was in flight (it could not see that write), no write has been sent
-  // since, and it is the newest read. Dropping the others loses nothing: every
-  // write is followed by a read (its own chat_group echo, or the re-read after
-  // a failure).
+  // One PUT at a time. Changes made while it is out are shown at once and sent
+  // together when it answers, so the next body can name a group the answer
+  // just minted. A chat_group event during a PUT is not read right away (that
+  // read could not see the PUT); it is read once the PUT has settled.
+  const inFlightRef = useRef(false);
+  const dirtyRef = useRef(false);
+  const rereadRef = useRef(false);
+  // One counter orders reads and writes: a read answer lands only if it is
+  // the newest read and no PUT was sent after it.
   const opRef = useRef(0);
   const lastWriteRef = useRef(0);
-  const lastWriteSettledRef = useRef(true);
   const latestReadRef = useRef(0);
   const loadRef = useRef<() => void>(() => {});
   // A group created here keeps its local id on screen after the server mints
   // its own, so state keyed by group id (collapsed sections, an open menu)
-  // survives the echo. server id → local id.
+  // survives the echo. local id → server id.
   const aliasRef = useRef(new Map<string, string>());
-  const toView = (list: readonly ChatGroup[]) =>
-    list.map((g) => (aliasRef.current.has(g.id) ? { ...g, id: aliasRef.current.get(g.id)! } : g));
-  const toServerId = (id: string) => {
-    for (const [server, local] of aliasRef.current) if (local === id) return server;
-    return id.startsWith(LOCAL) ? null : id;
+  const toView = (list: readonly ChatGroup[]) => {
+    const local = new Map([...aliasRef.current].map(([l, srv]) => [srv, l]));
+    return list.map((g) => (local.has(g.id) ? { ...g, id: local.get(g.id)! } : g));
+  };
+  const toServerId = (id: string) => aliasRef.current.get(id) ?? (id.startsWith(LOCAL) ? null : id);
+  const knownOnly = (list: readonly ChatGroup[]) => {
+    const known = knownRef.current;
+    return known ? list.map((g) => ({ ...g, memberIds: g.memberIds.filter((id) => known.has(id)) })) : list;
   };
 
   const show = (next: readonly ChatGroup[]) => {
@@ -72,16 +77,19 @@ export function useChatGroups(knownIds: ReadonlySet<string> | null): UseChatGrou
   useEffect(() => {
     aliveRef.current = true;
     const load = () => {
+      if (inFlightRef.current) {
+        rereadRef.current = true;
+        return;
+      }
       const op = ++opRef.current;
       latestReadRef.current = op;
-      const sentClean = lastWriteSettledRef.current;
       api
         .getChatGroups()
         .then((list) => {
           if (!aliveRef.current) return;
           loadedRef.current = true;
           setSettled(true);
-          if (!sentClean || op !== latestReadRef.current || op < lastWriteRef.current) return;
+          if (op !== latestReadRef.current || op < lastWriteRef.current) return;
           show(toView(list));
           setError((e) => (e === "load" ? null : e));
         })
@@ -103,49 +111,63 @@ export function useChatGroups(knownIds: ReadonlySet<string> | null): UseChatGrou
     };
   }, []);
 
-  const update = useCallback((change: (current: readonly ChatGroup[]) => ChatGroup[]) => {
-    // Without the server's groups any write would be a guess; read again.
-    if (!loadedRef.current) {
-      loadRef.current();
-      return;
-    }
-    const known = knownRef.current;
-    const current = known
-      ? groupsRef.current.map((g) => ({ ...g, memberIds: g.memberIds.filter((id) => known.has(id)) }))
-      : groupsRef.current;
-    const next = change(current);
-    const op = ++opRef.current;
-    lastWriteRef.current = op;
-    lastWriteSettledRef.current = false;
-    show(next);
-    setError(null);
-    const body = next.map((g) => ({ ...g, id: toServerId(g.id) }));
-    api
-      .putChatGroups(body)
-      .then(
-        (list) => {
-          // Names are unique within a tab, so they pair each new group with
-          // the id the server minted for it.
-          body.forEach((sent, i) => {
-            if (sent.id !== null) return;
-            const minted = list.find((g) => g.tab === sent.tab && g.name === sent.name.trim());
-            if (minted && !aliasRef.current.has(minted.id)) aliasRef.current.set(minted.id, next[i].id);
-          });
-          if (!aliveRef.current || op !== lastWriteRef.current) return;
-          lastWriteSettledRef.current = true;
-          show(toView(list));
-        },
-        (e) => {
-          console.warn("useChatGroups: save failed", e);
-          if (!aliveRef.current || op !== lastWriteRef.current) return;
-          lastWriteSettledRef.current = true;
-          // An earlier write may have landed, so the last state we adopted can
-          // be stale: ask the server what it holds now.
-          setError("save");
+  const send = useCallback(() => {
+    const sent = knownOnly(groupsRef.current);
+    const body = sent.map((g) => ({ ...g, id: toServerId(g.id) }));
+    lastWriteRef.current = ++opRef.current;
+    inFlightRef.current = true;
+    dirtyRef.current = false;
+    api.putChatGroups(body).then(
+      (list) => {
+        // Names are unique within a tab, so they pair each new group with the
+        // id the server minted for it.
+        body.forEach((b, i) => {
+          if (b.id !== null) return;
+          const minted = list.find((g) => g.tab === b.tab && g.name === b.name.trim());
+          if (minted) aliasRef.current.set(sent[i].id, minted.id);
+        });
+        if (!aliveRef.current) return;
+        if (dirtyRef.current) {
+          send();
+          return;
+        }
+        inFlightRef.current = false;
+        show(toView(list));
+        if (rereadRef.current) {
+          rereadRef.current = false;
           loadRef.current();
-        },
-      );
+        }
+      },
+      (e) => {
+        console.warn("useChatGroups: save failed", e);
+        if (!aliveRef.current) return;
+        inFlightRef.current = false;
+        dirtyRef.current = false;
+        rereadRef.current = false;
+        // What reached the server is unknown: ask it what it holds now.
+        setError("save");
+        loadRef.current();
+      },
+    );
   }, []);
+
+  const update = useCallback(
+    (change: (current: readonly ChatGroup[]) => ChatGroup[]) => {
+      // Without the server's groups any write would be a guess; read again.
+      if (!loadedRef.current) {
+        loadRef.current();
+        return;
+      }
+      const current = knownOnly(groupsRef.current);
+      const next = change(current);
+      if (JSON.stringify(next) === JSON.stringify(current)) return;
+      show(next);
+      setError(null);
+      if (inFlightRef.current) dirtyRef.current = true;
+      else send();
+    },
+    [send],
+  );
 
   const newGroupId = useCallback(() => `${LOCAL}${++seq.current}`, []);
   return { groups, settled, error, update, newGroupId };

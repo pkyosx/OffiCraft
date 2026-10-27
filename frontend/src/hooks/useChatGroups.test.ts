@@ -19,7 +19,7 @@ vi.mock("../api", () => ({
 }));
 
 import { useChatGroups } from "./useChatGroups";
-import { createGroup, moveMember } from "../lib/chatGroups";
+import { createGroup, moveMember, renameGroup } from "../lib/chatGroups";
 
 const emit = (topic: string) => act(() => listeners.forEach((cb) => cb(topic)));
 const g = (id: string, name: string, memberIds: string[]): ChatGroupView => ({
@@ -146,40 +146,64 @@ describe("useChatGroups", () => {
     expect(result.current.error).toBe("save");
   });
 
-  it("when a read sent during the latest write answers first and that write then fails, the failure still shows", async () => {
+  it("changes made while a save is out wait for it and go in one PUT that names the group the first one created; ids on screen stay put", async () => {
     const put1 = deferred<ChatGroupView[]>();
     const put2 = deferred<ChatGroupView[]>();
     putChatGroups.mockReturnValueOnce(put1.promise).mockReturnValueOnce(put2.promise);
     const { result } = renderHook(() => useChatGroups(null));
     await waitFor(() => expect(result.current.groups).toEqual([CORE]));
 
-    act(() => result.current.update(addBeto));
-    act(() => result.current.update((s) => moveMember(s, "clara", "cg-1")));
-    await act(async () => put1.resolve([CORE_BETO]));
-    getChatGroups.mockResolvedValue([CORE_BETO]);
-    emit("chat_group");
-    await waitFor(() => expect(getChatGroups).toHaveBeenCalledTimes(2));
-    expect(result.current.groups).toEqual([g("cg-1", "核心", ["mira", "beto", "clara"])]);
+    act(() =>
+      result.current.update((s) =>
+        createGroup(s, { id: result.current.newGroupId(), tab: "staff", name: "工程", memberIds: ["beto"] }),
+      ),
+    );
+    act(() => result.current.update((s) => moveMember(s, "mira", "cg-local-1")));
+    act(() => result.current.update((s) => renameGroup(s, "cg-local-1", "後端")));
+    expect(putChatGroups).toHaveBeenCalledTimes(1);
+    expect(result.current.groups).toEqual([g("cg-1", "核心", []), g("cg-local-1", "後端", ["beto", "mira"])]);
 
-    await act(async () => put2.reject(new Error("http 500")));
-    await waitFor(() => expect(result.current.error).toBe("save"));
-    await waitFor(() => expect(result.current.groups).toEqual([CORE_BETO]));
+    await act(async () => put1.resolve([CORE, g("cg-A", "工程", ["beto"])]));
+    expect(putChatGroups).toHaveBeenCalledTimes(2);
+    expect(putChatGroups.mock.calls[1][0]).toEqual([
+      { id: "cg-1", tab: "staff", name: "核心", memberIds: [], taskTypeKeys: [] },
+      { id: "cg-A", tab: "staff", name: "後端", memberIds: ["beto", "mira"], taskTypeKeys: [] },
+    ]);
+    expect(result.current.groups).toEqual([g("cg-1", "核心", []), g("cg-local-1", "後端", ["beto", "mira"])]);
+
+    await act(async () => put2.resolve([g("cg-1", "核心", []), g("cg-A", "後端", ["beto", "mira"])]));
+    expect(result.current.groups).toEqual([g("cg-1", "核心", []), g("cg-local-1", "後端", ["beto", "mira"])]);
+    putChatGroups.mockResolvedValue([g("cg-1", "核心", ["mira"]), g("cg-A", "後端", ["beto"])]);
+    act(() => result.current.update((s) => moveMember(s, "mira", "cg-1")));
+    expect(putChatGroups.mock.calls[2][0].map((x) => x.id)).toEqual(["cg-1", "cg-A"]);
   });
 
-  it("a read sent while a write is in flight does not replace the write's answer, even when it answers last", async () => {
+  it("a chat_group event during a save is read once the save settles, and the next save keeps what it brought", async () => {
     const put = deferred<ChatGroupView[]>();
     putChatGroups.mockReturnValueOnce(put.promise);
     const { result } = renderHook(() => useChatGroups(null));
     await waitFor(() => expect(result.current.groups).toEqual([CORE]));
 
     act(() => result.current.update(addBeto));
-    const staleGet = deferred<ChatGroupView[]>();
-    getChatGroups.mockReturnValueOnce(staleGet.promise);
     emit("chat_group");
+    expect(getChatGroups).toHaveBeenCalledTimes(1);
+    getChatGroups.mockResolvedValue([g("cg-1", "核心", ["mira", "beto", "ow-new"])]);
     await act(async () => put.resolve([CORE_BETO]));
-    await act(async () => staleGet.resolve([CORE]));
+    await waitFor(() => expect(result.current.groups).toEqual([g("cg-1", "核心", ["mira", "beto", "ow-new"])]));
+    expect(getChatGroups).toHaveBeenCalledTimes(2);
 
-    expect(result.current.groups).toEqual([CORE_BETO]);
+    putChatGroups.mockResolvedValue([g("cg-1", "核心", ["beto", "ow-new"])]);
+    act(() => result.current.update((s) => moveMember(s, "mira", null)));
+    expect(putChatGroups).toHaveBeenLastCalledWith([
+      { id: "cg-1", tab: "staff", name: "核心", memberIds: ["beto", "ow-new"], taskTypeKeys: [] },
+    ]);
+  });
+
+  it("a change that changes nothing sends nothing", async () => {
+    const { result } = renderHook(() => useChatGroups(null));
+    await waitFor(() => expect(result.current.groups).toEqual([CORE]));
+    act(() => result.current.update((s) => moveMember(s, "mira", "cg-1")));
+    expect(putChatGroups).not.toHaveBeenCalled();
   });
 
   it("when two reads answer out of order, the newer read's groups stay", async () => {

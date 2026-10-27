@@ -191,7 +191,7 @@ describe("OfficePage — chat groups", () => {
     expect(ungroupedHead().getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("grouping a later outsource worker moves it first in the sidebar but leaves the @-mention picker in its default order", async () => {
+  it("grouping a later staff member and a later outsource worker moves them first in the sidebar but leaves the @-mention picker in its default order", async () => {
     const now = Date.now() / 1000;
     const task = (id: string, createdTs: number) =>
       ({
@@ -234,7 +234,19 @@ describe("OfficePage — chat groups", () => {
       });
     }
 
+    __injectMockMember({ id: "beto", kind: "staff", name: "Beto", role_key: "backend", role_name: "後端" });
+    __injectMockMember({ id: "clara", kind: "staff", name: "Clara", role_key: "frontend", role_name: "前端" });
+
     const { container, findByTestId, getByTestId } = renderOffice();
+    await waitFor(() => expect(container.querySelector('[data-chat-row="clara"]')).not.toBeNull());
+    await groupIntoNew(container.querySelector('[data-chat-row="clara"]')!, "前端");
+    await waitFor(() =>
+      expect(Array.from(container.querySelectorAll("[data-chat-row]"), (r) => r.getAttribute("data-chat-row"))).toEqual([
+        "clara",
+        "mira",
+        "beto",
+      ]),
+    );
     fireEvent.click(getByTestId("office-tab-outsource"));
     const list = await findByTestId("outsource-list");
     const order = () =>
@@ -247,6 +259,6 @@ describe("OfficePage — chat groups", () => {
     fireEvent.change(input, { target: { value: "@" } });
     expect(
       Array.from(container.querySelectorAll('[role="option"]'), (o) => o.textContent),
-    ).toEqual(["Mira特助", "外包 · O-2", "外包 · O-1"]);
+    ).toEqual(["Mira特助", "Beto後端", "Clara前端", "外包 · O-2", "外包 · O-1"]);
   });
 });

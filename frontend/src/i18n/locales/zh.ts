@@ -739,8 +739,6 @@ export const zh = {
       nameBlank: "請輸入群組名稱",
       nameTooLong: "群組名稱最多 40 字",
       nameTaken: "這個分頁已經有同名的群組",
-      groupMenu: "群組選項",
-      memberMenu: "成員選項",
       rename: "重新命名",
       delete: "刪除群組",
       deleteConfirmLead: "刪除「",
