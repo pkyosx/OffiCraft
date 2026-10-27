@@ -2,7 +2,7 @@
 // office CSS: the layout at phone widths (no sideways scroll, pills inside
 // their headings, menus inside the window), and the gestures jsdom cannot
 // drive (long-press lift and drag, a touch long-press released in place
-// opening the menu, keyboard drag).
+// leaving everything as it was, keyboard drag).
 import { test, expect } from "@playwright/experimental-ct-react";
 import type { Locator, Page } from "@playwright/test";
 import { OfficeChatGroupsStory } from "./stories/OfficeChatGroupsStory";

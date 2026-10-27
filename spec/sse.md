@@ -731,7 +731,7 @@ news that every write it makes from now on will 409.
 - The internal buffer/queue/poll mechanics and the 0.25 s poll cadence
   — implementation-free (any concurrency model is fine) provided §1–§8 hold.
 - Topic-list validation as a mechanism — an implementation MAY enforce the closed set at
-  the publish seam (recommended), so long as all 13 topics of §3.1 pass.
+  the publish seam (recommended), so long as all 14 topics of §3.1 pass.
 - Frame ordering **across** connections, and timing between a durable commit and its frame's
   arrival (only per-connection publish order is contract, §4).
 

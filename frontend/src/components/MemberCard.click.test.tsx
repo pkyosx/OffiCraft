@@ -80,9 +80,9 @@ describe("MemberCard click semantics", () => {
     expect(onChat).not.toHaveBeenCalled();
   });
 
-  it("with drag wiring, Enter still opens the chat, Space does not, nothing opens while a drag is in progress, and right-click or the menu key opens the row's menu instead", () => {
+  it("with drag wiring, Enter still opens the chat, Space does not, nothing opens while a drag is in progress, and contextmenu and the menu key are handed to the drag wiring", () => {
     const onChat = vi.fn();
-    const onContextMenu = vi.fn((e: { preventDefault: () => void }) => e.preventDefault());
+    const onContextMenu = vi.fn();
     const menuKey = vi.fn((e: { key: string; shiftKey: boolean }) => e.key === "ContextMenu" || (e.shiftKey && e.key === "F10"));
     let dragging = false;
     const { container } = render(
