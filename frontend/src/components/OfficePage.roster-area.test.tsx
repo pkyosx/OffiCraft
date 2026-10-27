@@ -19,7 +19,6 @@ import {
   __injectMockMember,
   __injectMockOutsourceWorker,
   __injectMockTask,
-  __updateMockMember,
 } from "../api/mock";
 import type { TaskView } from "../api/adapter";
 
@@ -32,7 +31,6 @@ function renderOffice() {
 }
 
 beforeEach(() => {
-  localStorage.clear();
   __resetMock();
   window.location.hash = "";
   Element.prototype.scrollIntoView = vi.fn();
@@ -143,35 +141,6 @@ async function groupIntoNew(row: Element, name: string) {
 }
 
 describe("OfficePage — chat groups", () => {
-  it("the 篩選 counts and list follow the members' live unread, presence and activity (member SSE) while the dropdown is open", async () => {
-    __injectMockMember({ id: "beto", kind: "staff", name: "Beto", presence: "offline" });
-    __injectMockMember({ id: "clara", kind: "staff", name: "Clara", presence: "online" });
-    const { container, findByTestId } = renderOffice();
-    await waitFor(() => expect(container.querySelector('[data-chat-row="clara"]')).not.toBeNull());
-    fireEvent.click(await findByTestId("chat-filter"));
-    const items = () =>
-      Array.from(screen.getByRole("menu", { name: "篩選" }).querySelectorAll(".chat-groups__menu-item"), (i) =>
-        `${i.querySelector(".chat-groups__menu-text")!.textContent} ${i.querySelector(".chat-groups__menu-count")?.textContent ?? ""}`.trim(),
-      );
-    const rows = () => Array.from(container.querySelectorAll("[data-chat-row]"), (r) => r.getAttribute("data-chat-row"));
-    await waitFor(() => expect(items()).toEqual(["有未讀 0", "線上 1", "工作中 0"]));
-    fireEvent.click(screen.getByTestId("chat-filter-menu-online"));
-    expect(rows()).toEqual(["clara"]);
-
-    __updateMockMember("beto", { presence: "online", activity: { state: "busy", busy_since: null, subagents: [], waits: [], ts: Date.now() / 1000 } });
-    await waitFor(() => expect(items()).toEqual(["有未讀 0", "線上 2", "工作中 1", "清除"]));
-    expect(rows()).toEqual(["beto", "clara"]);
-
-    __injectMockChat({ id: "m-1", from: "clara", to: "owner", body: "嗨", ts: Date.now() / 1000, attachments: [], replyCardId: null });
-    __updateMockMember("clara", { presence: "offline" });
-    await waitFor(() => expect(items()).toEqual(["有未讀 1", "線上 1", "工作中 1", "清除"]));
-    expect(rows()).toEqual(["beto"]);
-
-    __updateMockMember("beto", { presence: "offline" });
-    await waitFor(() => expect(items()).toEqual(["有未讀 1", "線上 0", "工作中 0", "清除"]));
-    expect(screen.getByTestId("chat-groups-empty").textContent).toBe("沒有符合篩選的成員");
-  });
-
   it("on desktop the default chat is the first row shown: grouping a later member puts that member first and opens its chat", async () => {
     __injectMockMember({ id: "beto", kind: "staff", name: "Beto" });
     const { container, findAllByText } = renderOffice();

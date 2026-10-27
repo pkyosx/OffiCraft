@@ -414,7 +414,7 @@ for (const [width, target] of [
   [1280, 36],
   [375, 44],
 ] as const) {
-  test(`${width}px: the toolbar is a frameless 44px row right under the tabs, 篩選's icon on the group labels' edge at its left and 全部收合 and 新增群組 at its right, each answering taps ${target}px tall`, async ({
+  test(`${width}px: the toolbar is a frameless 44px row right under the tabs with 全部收合 and 新增群組 at its right end, each a ${target}px square`, async ({
     mount,
     page,
   }) => {
@@ -431,14 +431,10 @@ for (const [width, target] of [
         height: Math.round(box.height),
         controls: Array.from(bar.querySelectorAll("button"), (b) => ({
           name: b.getAttribute("aria-label") ?? b.textContent,
-          height: Math.round(r(b).height),
+          size: `${Math.round(r(b).width)}×${Math.round(r(b).height)}`,
           oneRow: Math.round(r(b).top + r(b).height / 2) === Math.round(box.top + box.height / 2),
           inside: r(b).left >= box.left && r(b).right <= box.right,
         })),
-        filterIconToLabel: Math.round(
-          r(bar.querySelector('[data-testid="chat-filter"] svg')!).left -
-            r(document.querySelector(".chat-groups__heading-label")!).left,
-        ),
         newRightToList: Math.round(
           r(document.querySelector(".office__members-list")!).right -
             r(bar.querySelector('[data-testid="chat-group-new"]')!).right,
@@ -447,77 +443,17 @@ for (const [width, target] of [
         pageOver: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       };
     });
-    const control = (name: string) => ({ name, height: target, oneRow: true, inside: true });
+    const control = (name: string) => ({ name, size: `${target}×${target}`, oneRow: true, inside: true });
     expect(m).toEqual({
       gapUnderTabs: 12,
       height: 44,
-      controls: [control("篩選"), control("全部收合"), control("新增群組")],
-      filterIconToLabel: 0,
+      controls: [control("全部收合"), control("新增群組")],
       newRightToList: 0,
       frame: ["0px", "rgba(0, 0, 0, 0)"],
       pageOver: 0,
     });
   });
 }
-
-test("1280px: while 篩選 is on, a long press lifts nothing and the matching groups stay as they are, but a heading's 「⋯」 still opens its menu", async ({
-  mount,
-  page,
-}) => {
-  await page.setViewportSize({ width: 1280, height: 900 });
-  const cmp = await mount(<OfficeChatGroupsStory initialGroups={sampleGroups} />);
-  await cmp.getByTestId("chat-filter").click();
-  await page.getByTestId("chat-filter-menu-unread").click();
-  await page.keyboard.press("Escape");
-  await expect(cmp.getByTestId("chat-filter")).toHaveText("篩選 · 1");
-  expect(await headings(cmp)).toEqual(["核心 · 1", "未分組 · 1"]);
-
-  const from = await grip(row(cmp, "Clara"));
-  const to = await grip(row(cmp, "EvaRhapsody"));
-  await page.mouse.move(from.x, from.y);
-  await page.mouse.down();
-  await page.waitForTimeout(HOLD_MS);
-  await page.mouse.move(from.x, to.y, { steps: 12 });
-  await page.waitForTimeout(300);
-  await expect(cmp.getByTestId("chat-groups-lifted")).toHaveCount(0);
-  await page.mouse.up();
-  await page.waitForTimeout(300);
-  expect(await sectionNames(cmp, "g-lead")).toEqual(["Clara"]);
-  expect(await writes(cmp)).toBe("0");
-
-  await cmp.getByTestId("chat-group-more-g-lead").click();
-  await expect(page.getByRole("menu", { name: "核心" })).toBeVisible();
-});
-
-test("375px: 篩選 opens as the bottom sheet, its search field first, and ticking an item there filters the list behind it", async ({
-  mount,
-  page,
-}) => {
-  await page.setViewportSize({ width: 375, height: 812 });
-  const cmp = await mount(<OfficeChatGroupsStory mobile initialGroups={sampleGroups} />);
-  await cmp.getByTestId("chat-filter").click();
-  const sheet = page.getByTestId("chat-filter-menu-sheet");
-  await expect(sheet).toBeVisible();
-  await expect(sheet.getByTestId("chat-filter-search")).toBeFocused();
-  expect(await sheet.locator(".chat-groups__menu-item").allTextContents()).toEqual(["有未讀2", "線上3", "工作中0"]);
-  await sheet.getByTestId("chat-filter-search").fill("後端");
-  expect(await headings(cmp)).toEqual(["工程 · 1"]);
-  expect(await sectionNames(cmp, "g-eng")).toEqual(["Beto"]);
-  await sheet.getByTestId("chat-filter-search").fill("");
-  await sheet.getByTestId("chat-filter-menu-online").click();
-  expect(await headings(cmp)).toEqual(["核心 · 2", "工程 · 1"]);
-  await expect(cmp.getByTestId("chat-filter")).toHaveText("篩選 · 1");
-});
-
-test("1280px: on the 外包 tab 篩選 reads each worker's own unread, presence dot and task type", async ({ mount, page }) => {
-  await page.setViewportSize({ width: 1280, height: 900 });
-  const cmp = await mount(<OfficeChatGroupsStory initialGroups={sampleGroups} initialTab="outsource" />);
-  await cmp.getByTestId("chat-filter").click();
-  const menu = page.getByRole("menu", { name: "篩選" });
-  expect(await menu.locator(".chat-groups__menu-item").allTextContents()).toEqual(["有未讀1", "線上3", "工作中0"]);
-  await page.getByTestId("chat-filter-search").fill("lessons");
-  expect(await cmp.locator(".outsource-row__codename").allTextContents()).toEqual(["外包 · O-153"]);
-});
 
 test("from the keyboard, Space lifts a member, ArrowUp moves it and Enter drops it there without opening its chat", async ({
   mount,

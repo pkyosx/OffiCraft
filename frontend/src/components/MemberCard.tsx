@@ -1,14 +1,11 @@
 import { useI18n } from "../i18n";
-import type { Dict } from "../i18n/locales/zh";
 import type { Member } from "../types";
-import type { RowFacts } from "../lib/chatFilter";
 import { useWindowActive } from "../hooks/useWindowActive";
 import { Avatar } from "./Avatar";
 import { avatarKindForMember } from "../lib/avatarKind";
-import { PresenceBadge, roleLabel } from "./PresenceBadge";
+import { PresenceBadge } from "./PresenceBadge";
 import { PresenceAvatar } from "./PresenceAvatar";
-import { NameWithActivity, shownActivity } from "./MemberActivity";
-import { presenceVisual } from "./LifecycleDot";
+import { NameWithActivity } from "./MemberActivity";
 import type { ChatGroupRow } from "./ChatGroupList";
 
 interface MemberCardProps {
@@ -20,16 +17,6 @@ interface MemberCardProps {
   onChat: () => void;
   /** Drag and menu wiring from ChatGroupList (the office sidebar); absent elsewhere. */
   sortable?: ChatGroupRow;
-}
-
-/** What the chat list's 篩選 reads off this row: the presence its corner dot
- * shows, the activity its icon shows, and the name and role it prints. */
-export function memberRowFacts(t: Dict, member: Member): Omit<RowFacts, "unread"> {
-  return {
-    online: presenceVisual(member.lifecycle) === "online-awake",
-    busy: shownActivity(member.activity, member.lifecycle)?.state === "busy",
-    names: [member.name, roleLabel(t, member)],
-  };
 }
 
 export function MemberCard({

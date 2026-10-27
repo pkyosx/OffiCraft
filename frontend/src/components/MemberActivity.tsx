@@ -110,19 +110,6 @@ export function NameWithActivity({
   );
 }
 
-/** The activity a row's icon shows: only a session that is reporting has one.
- * Waking is trusted only because the server sends a waking member's activity
- * just when the booting session itself reported it. */
-export function shownActivity(
-  activity: MemberActivity | null | undefined,
-  presence: MemberLifecycle | undefined,
-): MemberActivity | null {
-  return isReporting(presence) ? (activity ?? null) : null;
-}
-
-const isReporting = (presence: MemberLifecycle | undefined) =>
-  presence === "online" || presence === "stopping" || presence === "waking";
-
 /** Given `memberName`, the icon is a button opening the 運行狀況 dialog. */
 function ActivityStatusIcon({
   activity: reported,
@@ -140,8 +127,10 @@ function ActivityStatusIcon({
   const { t, msg } = useI18n();
   // Dropping a stale activity when the session stops reporting is what closes
   // an open dialog then; kept, the dialog would reopen and take focus on return.
-  const activity = shownActivity(reported, presence);
-  const reporting = isReporting(presence);
+  // Waking is trusted only because the server sends a waking member's activity
+  // just when the booting session itself reported it.
+  const reporting = presence === "online" || presence === "stopping" || presence === "waking";
+  const activity = reporting ? reported : null;
   const triggerRef = useRef<HTMLElement | null>(null);
   const [openFor, setOpenFor] = useState<string | null>(null);
   const open = activity != null && openFor !== null && openFor === memberName;
