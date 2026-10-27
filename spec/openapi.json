@@ -1649,6 +1649,44 @@
         "title": "ChatMessageDTO",
         "type": "object"
       },
+      "ChatPinsDTO": {
+        "additionalProperties": false,
+        "description": "The owner's pinned chat-list members. Only members still on the roster (active staff or outsource) are listed: a removed staff member or a released outsource worker leaves the list in the same write that removes it.",
+        "properties": {
+          "member_ids": {
+            "description": "Pinned members in pin order, staff and outsource in ONE list; the cockpit shows each tab's pinned rows in this relative order above that tab's default-ordered rows.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Member Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "member_ids"
+        ],
+        "title": "ChatPinsDTO",
+        "type": "object"
+      },
+      "ChatPinsUpdateDTO": {
+        "additionalProperties": false,
+        "description": "The complete new pin list, in order; it replaces the stored list wholesale (pin, unpin and reorder are all this one write).",
+        "properties": {
+          "member_ids": {
+            "description": "Pinned members in pin order, staff and outsource in ONE list; the cockpit shows each tab's pinned rows in this relative order above that tab's default-ordered rows. Each id must be an active staff or outsource member and appear once; an empty list unpins everyone.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Member Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "member_ids"
+        ],
+        "title": "ChatPinsUpdateDTO",
+        "type": "object"
+      },
       "ChatPostDTO": {
         "additionalProperties": false,
         "description": "Post one chat message (§3.4 #16). ``to`` is the addressee. The sender / ``id`` /\n``ts`` are NEVER trusted from the client: the server stamps the sender from the\nverified JWT ``sub`` (anti-spoof — identity from token), mints the ``id``, and\ntimestamps. The client-supplied ``from`` field was REMOVED entirely (it was a\ncaller-self-identity param and always ignored).",
@@ -14702,6 +14740,108 @@
           },
           "name": "post_chat_mark-read",
           "order": 29
+        }
+      }
+    },
+    "/api/chat/pins": {
+      "get": {
+        "description": "- The owner's pinned chat-list members, in pin order.\n- Mira starts pinned on every station and stays unpinned once the owner unpins Mira.",
+        "operationId": "handle_get_chat_pins_api_chat_pins_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatPinsDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Get the owner's pinned chat-list members.",
+        "x-mcp": {
+          "include": false
+        }
+      },
+      "put": {
+        "description": "- Replaces the whole pin list; pin, unpin and reorder are all this one write.\n- 422 when an id repeats or is not an active staff or outsource member; nothing is written.\n- Emits a `chat_pin` event to the owner, so another open browser updates without reloading.\n- No overwrite protection: concurrent writes are last-writer-wins.",
+        "operationId": "handle_update_chat_pins_api_chat_pins_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatPinsUpdateDTO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatPinsDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Replace the owner's pinned chat-list members.",
+        "x-mcp": {
+          "include": false
         }
       }
     },
