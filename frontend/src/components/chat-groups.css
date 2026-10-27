@@ -166,37 +166,54 @@
   display: flex;
   align-items: center;
   gap: 2px;
-  min-height: 44px;
-  margin-bottom: 8px;
+  height: 32px;
+  /* Snug under the tabs' 12px bottom margin and right against the first
+   * heading: 4px + 32px between the tab line and the list. */
+  margin: -8px 0 0;
   padding: 0 0 0 1px;
 }
 .chat-groups__toolbar-gap {
   flex: 1;
 }
 .chat-groups__tool {
+  position: relative;
   flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  height: 36px;
-  min-width: 36px;
+  height: 28px;
+  min-width: 28px;
   padding: 0 8px;
   border: none;
-  border-radius: 8px;
+  border-radius: 7px;
   background: none;
   color: var(--color-text-muted);
-  font-size: 13px;
+  font-size: 12.5px;
   white-space: nowrap;
   cursor: pointer;
 }
 .chat-groups__tool--icon {
   padding: 0;
 }
+/* Touch keeps the compact look but answers taps 44px tall (and 44px wide for
+ * the icons) through an invisible box; the row keeps 6px clear above and
+ * below so that box never reaches the tabs or the first heading, and the
+ * icons sit far enough apart that their boxes do not overlap. */
 @media (max-width: 720px), (hover: none) {
-  .chat-groups__tool {
-    height: 44px;
-    min-width: 44px;
+  .chat-groups__toolbar {
+    margin: -6px 0 6px;
+  }
+  .chat-groups__toolbar .chat-groups__tool--icon {
+    margin-left: 14px;
+  }
+  .chat-groups__tool::after {
+    content: "";
+    position: absolute;
+    inset: -8px 0;
+  }
+  .chat-groups__tool--icon::after {
+    inset: -8px;
   }
 }
 .chat-groups__tool:hover:not(:disabled),

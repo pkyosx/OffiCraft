@@ -410,11 +410,11 @@ test("375×812 touch: the hold menu floats 8px below the lifted row, or above it
   });
 });
 
-for (const [width, target] of [
-  [1280, 36],
-  [375, 44],
+for (const [width, reach] of [
+  [1280, 13],
+  [375, 21],
 ] as const) {
-  test(`${width}px: the toolbar is a frameless 44px row right under the tabs, 篩選's icon on the group labels' edge at its left and 全部收合 and 新增群組 at its right, each answering taps ${target}px tall`, async ({
+  test(`${width}px: the toolbar is a frameless 32px row between the tabs and the first heading (${width < 720 ? 44 : 36}px apart), 篩選's icon on the group labels' edge at its left and 全部收合 and 新增群組 at its right, each drawn 28px tall and answering taps ${reach * 2 + 2}px tall`, async ({
     mount,
     page,
   }) => {
@@ -422,19 +422,31 @@ for (const [width, target] of [
     const cdp = await page.context().newCDPSession(page);
     await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: false });
     const cmp = await mount(<OfficeChatGroupsStory mobile={width < 720} initialGroups={sampleGroups} />);
-    const m = await cmp.getByTestId("chat-groups-toolbar").evaluate((bar) => {
+    const m = await cmp.getByTestId("chat-groups-toolbar").evaluate((bar, reach) => {
       const r = (el: Element) => el.getBoundingClientRect();
       const box = r(bar);
       const tabs = r(document.querySelector(".office__tabs")!);
+      const heading = r(document.querySelector(".chat-groups__heading-row")!);
+      const buttons = Array.from(bar.querySelectorAll("button"));
+      const answers = (b: Element, x: number, y: number) => document.elementFromPoint(x, y)?.closest("button") === b;
       return {
-        gapUnderTabs: Math.round(box.top - tabs.bottom),
+        tabsToHeading: Math.round(heading.top - tabs.bottom),
         height: Math.round(box.height),
-        controls: Array.from(bar.querySelectorAll("button"), (b) => ({
-          name: b.getAttribute("aria-label") ?? b.textContent,
-          height: Math.round(r(b).height),
-          oneRow: Math.round(r(b).top + r(b).height / 2) === Math.round(box.top + box.height / 2),
-          inside: r(b).left >= box.left && r(b).right <= box.right,
-        })),
+        controls: buttons.map((b) => {
+          const c = r(b);
+          const cx = c.left + c.width / 2;
+          const cy = c.top + c.height / 2;
+          const icon = b.getAttribute("aria-label") !== null;
+          return {
+            name: b.getAttribute("aria-label") ?? b.textContent,
+            drawn: icon ? `${Math.round(c.width)}×${Math.round(c.height)}` : `h${Math.round(c.height)}`,
+            glyph: Math.round(r(b.querySelector("svg")!).width),
+            oneRow: Math.round(cy) === Math.round(box.top + box.height / 2),
+            tallTaps: answers(b, cx, cy - reach) && answers(b, cx, cy + reach),
+            wideTaps: !icon || (answers(b, cx - reach, cy) && answers(b, cx + reach, cy)),
+          };
+        }),
+        iconPitch: Math.round(r(buttons[2]).left - r(buttons[1]).left),
         filterIconToLabel: Math.round(
           r(bar.querySelector('[data-testid="chat-filter"] svg')!).left -
             r(document.querySelector(".chat-groups__heading-label")!).left,
@@ -446,12 +458,20 @@ for (const [width, target] of [
         frame: [getComputedStyle(bar).borderTopWidth, getComputedStyle(bar).backgroundColor],
         pageOver: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       };
+    }, reach);
+    const control = (name: string, drawn: string, glyph: number) => ({
+      name,
+      drawn,
+      glyph,
+      oneRow: true,
+      tallTaps: true,
+      wideTaps: true,
     });
-    const control = (name: string) => ({ name, height: target, oneRow: true, inside: true });
     expect(m).toEqual({
-      gapUnderTabs: 12,
-      height: 44,
-      controls: [control("篩選"), control("全部收合"), control("新增群組")],
+      tabsToHeading: width < 720 ? 44 : 36,
+      height: 32,
+      controls: [control("篩選", "h28", 14), control("全部收合", "28×28", 16), control("新增群組", "28×28", 16)],
+      iconPitch: width < 720 ? 44 : 30,
       filterIconToLabel: 0,
       newRightToList: 0,
       frame: ["0px", "rgba(0, 0, 0, 0)"],

@@ -856,7 +856,7 @@ export function ChatGroupPanel({
             setFilterAt(filterAt ? null : { x: r.left, y: r.bottom + 4 });
           }}
         >
-          <FunnelIcon size={15} />
+          <FunnelIcon size={14} />
           <span>{msg.groupFilterLabel(activeFilters)}</span>
         </button>
         <span className="chat-groups__toolbar-gap" />
