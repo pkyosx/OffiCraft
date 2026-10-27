@@ -143,6 +143,7 @@ function GroupHeading({
   unread,
   over,
   canActivate,
+  locked,
   onToggle,
   openMenu,
 }: {
@@ -152,6 +153,8 @@ function GroupHeading({
   unread: number;
   over: boolean;
   canActivate: () => boolean;
+  /** 篩選 is on: the heading shows its group open and does not fold. */
+  locked: boolean;
   onToggle: () => void;
   openMenu: (target: MenuTarget, at: MenuAnchor) => void;
 }) {
@@ -171,9 +174,10 @@ function GroupHeading({
         type="button"
         className={`chat-groups__heading${over ? " chat-groups__heading--over" : ""}`}
         aria-expanded={!collapsed}
+        aria-disabled={locked || undefined}
         data-testid={`chat-group-heading-${group.id}`}
         onClick={() => {
-          if (canActivate()) onToggle();
+          if (canActivate() && !locked) onToggle();
         }}
         onContextMenu={keepTouchLift}
         onKeyDown={(e) => {
@@ -209,12 +213,14 @@ function UngroupedHeading({
   collapsed,
   unread,
   over,
+  locked,
   onToggle,
 }: {
   label: string;
   collapsed: boolean;
   unread: number;
   over: boolean;
+  locked: boolean;
   onToggle: () => void;
 }) {
   const d = useDroppable({ id: `h:${UNGROUPED}` });
@@ -226,8 +232,11 @@ function UngroupedHeading({
         type="button"
         className={`chat-groups__heading${over ? " chat-groups__heading--over" : ""}`}
         aria-expanded={!collapsed}
+        aria-disabled={locked || undefined}
         data-testid="chat-group-heading-ungrouped"
-        onClick={onToggle}
+        onClick={() => {
+          if (!locked) onToggle();
+        }}
       >
         <HeadingBody label={label} collapsed={collapsed} unread={unread} />
       </button>
@@ -343,7 +352,6 @@ export function ChatGroupList({
     return { ...transform, y: transform.y + shiftRef.current };
   };
 
-  const noSensors = useSensors();
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: LONG_PRESS }),
     useSensor(TouchSensor, { activationConstraint: LONG_PRESS }),
@@ -463,7 +471,7 @@ export function ChatGroupList({
   const sum = (list: readonly string[]) => list.reduce((n, x) => n + unreadOf(x), 0);
 
   const rows = (list: readonly string[], strategy: SortingStrategy = verticalListSortingStrategy) => (
-    <SortableContext items={list.map(mid)} strategy={strategy}>
+    <SortableContext items={list.map(mid)} strategy={strategy} disabled={filtering}>
       {list.map((id) => (
         <SortableRow
           key={id}
@@ -478,7 +486,7 @@ export function ChatGroupList({
 
   return (
     <DndContext
-      sensors={filtering ? noSensors : sensors}
+      sensors={sensors}
       collisionDetection={collision}
       modifiers={[verticalOnly, followStart]}
       measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
@@ -522,7 +530,7 @@ export function ChatGroupList({
           empty
         ) : hasGroups ? (
           <>
-            <SortableContext items={tabGroupIds.map(gid)} strategy={verticalListSortingStrategy}>
+            <SortableContext items={tabGroupIds.map(gid)} strategy={verticalListSortingStrategy} disabled={filtering}>
               {shownSections.map(({ group, items }) => (
                 <Fragment key={group.id}>
                   {editorFor?.(group.id) ?? (
@@ -533,6 +541,7 @@ export function ChatGroupList({
                     unread={sum(items)}
                     over={overSection === group.id}
                     canActivate={canActivate}
+                    locked={filtering}
                     onToggle={() => toggle(group.id)}
                     openMenu={onOpenMenu}
                   />
@@ -555,6 +564,7 @@ export function ChatGroupList({
                 collapsed={isCollapsed(UNGROUPED)}
                 unread={sum(ungrouped)}
                 over={overSection === UNGROUPED}
+                locked={filtering}
                 onToggle={() => toggle(UNGROUPED)}
               />
             )}

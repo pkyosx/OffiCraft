@@ -12,6 +12,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, waitFor, fireEvent, screen, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n";
+import { api } from "../api";
 import { OfficePage } from "./OfficePage";
 import {
   __resetMock,
@@ -246,6 +247,41 @@ describe("OfficePage — chat groups", () => {
     await waitFor(() => expect(again.container.querySelector(".chat-groups__heading")?.textContent).toBe("外包組 · 1"));
     expect(again.container.querySelector(".chat-groups__heading")!.getAttribute("aria-expanded")).toBe("false");
     expect(again.getByTestId("chat-group-heading-ungrouped").getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("this browser saves a group folded before its first save has answered, once the group's id comes back, and a heading clicked while 篩選 is on neither folds nor saves anything", async () => {
+    const putChatGroups = api.putChatGroups.bind(api);
+    let answer = () => {};
+    const answered = new Promise<void>((resolve) => (answer = resolve));
+    vi.spyOn(api, "putChatGroups").mockImplementationOnce(async (body) => {
+      await answered;
+      return putChatGroups(body);
+    });
+    const { container, getByTestId } = renderOffice();
+    await waitFor(() => expect(container.querySelector('[data-chat-row="mira"]')).not.toBeNull());
+    await groupIntoNew(container.querySelector('[data-chat-row="mira"]')!, "核心");
+    const head = () => container.querySelector<HTMLElement>(".chat-groups__heading")!;
+    fireEvent.click(head());
+    expect(head().getAttribute("aria-expanded")).toBe("false");
+    expect(JSON.parse(localStorage.getItem("oc_chat_group_collapsed_staff")!)).toEqual([]);
+    answer();
+    await waitFor(() =>
+      expect(JSON.parse(localStorage.getItem("oc_chat_group_collapsed_staff")!)).toEqual(["cg-000000000001"]),
+    );
+
+    fireEvent.click(head());
+    expect(JSON.parse(localStorage.getItem("oc_chat_group_collapsed_staff")!)).toEqual([]);
+    fireEvent.click(getByTestId("chat-filter"));
+    fireEvent.change(await screen.findByTestId("chat-filter-search"), { target: { value: "mira" } });
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(getByTestId("chat-filter").textContent).toBe("篩選 · 1");
+    fireEvent.click(head());
+    fireEvent.click(head());
+    expect([head().getAttribute("aria-expanded"), head().getAttribute("aria-disabled")]).toEqual(["true", "true"]);
+    expect(JSON.parse(localStorage.getItem("oc_chat_group_collapsed_staff")!)).toEqual([]);
+    fireEvent.click(getByTestId("chat-filter"));
+    fireEvent.click(await screen.findByTestId("chat-filter-menu-clear"));
+    expect(head().getAttribute("aria-expanded")).toBe("true");
   });
 
   it("this browser's folding forgets a deleted group, follows 全部收合／展開, and reads a broken saved value as nothing folded", async () => {

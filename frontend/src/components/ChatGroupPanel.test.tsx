@@ -208,6 +208,11 @@ describe("ChatGroupPanel", () => {
     fireEvent.click(filterButton());
     expect(document.activeElement).toBe(screen.getByTestId("chat-filter-search"));
     expect(screen.getByTestId("chat-filter-search").getAttribute("placeholder")).toBe("搜尋名稱…");
+    const panel = screen.getByRole("dialog", { name: "篩選" });
+    expect(Array.from(panel.querySelectorAll("input, [role='menu']"), (el) => el.getAttribute("role") ?? el.tagName)).toEqual([
+      "INPUT",
+      "menu",
+    ]);
     expect(sections()).toEqual(["未讀", "連線", "狀態"]);
     expect(filterItems()).toEqual(ALL);
 
@@ -225,6 +230,15 @@ describe("ChatGroupPanel", () => {
     expect(rows()).toEqual(["clara", "dora", "mira"]);
     expect(headings()).toEqual(["核心 · 1", "工程 · 1", "未分組 · 1"]);
     expect(filterButton().textContent).toBe("篩選 · 2");
+    const eng = screen.getByTestId("chat-group-heading-b");
+    const loose = screen.getByTestId("chat-group-heading-ungrouped");
+    fireEvent.click(eng);
+    fireEvent.click(loose);
+    expect([eng, loose].map((h) => [h.getAttribute("aria-expanded"), h.getAttribute("aria-disabled")])).toEqual([
+      ["true", "true"],
+      ["true", "true"],
+    ]);
+    expect(rows()).toEqual(["clara", "dora", "mira"]);
 
     tick("busy");
     expect(rows()).toEqual(["clara"]);
@@ -279,15 +293,31 @@ describe("ChatGroupPanel", () => {
     expect(filterItems()).toEqual(ALL);
     expect(rows()).toEqual(["dora", "mira", "evan"]);
     expect(screen.getByTestId("chat-group-heading-a").getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getByTestId("chat-group-heading-b").getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByTestId("chat-group-heading-ungrouped").getAttribute("aria-expanded")).toBe("true");
     expect(latest).toEqual(STAFF_GROUPS());
 
     fireEvent.keyDown(document.activeElement!, { key: "Escape" });
     expect(screen.queryByRole("menu")).toBeNull();
     expect(document.activeElement).toBe(filterButton());
+
+    fireEvent.click(filterButton());
+    fireEvent.keyDown(screen.getByTestId("chat-filter-search"), { key: "Tab" });
+    expect(screen.getByRole("dialog", { name: "篩選" })).toBeTruthy();
+    fireEvent.keyDown(screen.getByTestId("chat-filter-search"), { key: "Tab", shiftKey: true });
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    fireEvent.click(filterButton());
+    tick("idle");
+    expect(rows()).toEqual(["mira"]);
+    fireEvent.click(screen.getByTestId("chat-group-new"));
+    expect(filterButton().textContent).toBe("篩選");
+    expect(rows()).toEqual(["dora", "mira", "evan"]);
+    expect(screen.getByTestId("list").firstElementChild).toBe(screen.getByTestId("chat-group-new-entry"));
   });
 
-  it("this browser keeps each tab's ticks across a remount but not the name search, and reads a tick list saved by the first version (線上 becomes the dot's online state; unknown entries are dropped)", () => {
-    localStorage.setItem("oc_chat_filter_staff", JSON.stringify(["busy", "online", "unread", "away", 7]));
+  it("this browser keeps each tab's ticks across a remount but not the name search, and drops saved entries it does not know", () => {
+    localStorage.setItem("oc_chat_filter_staff", JSON.stringify(["busy", "online-awake", "unread", "online", 7]));
     const first = mount("staff", STAFF, STAFF_GROUPS());
     expect(filterButton().textContent).toBe("篩選 · 3");
     expect(rows()).toEqual(["clara"]);
@@ -523,9 +553,21 @@ describe("ChatGroupPanel", () => {
     const backdrop = screen.getByTestId("chat-group-autojoin").parentElement!;
     fireEvent.pointerDown(backdrop);
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(fireEvent.click(document.body)).toBe(false);
-    expect(fireEvent.click(more)).toBe(true);
+    expect(fireEvent.click(document.body, { detail: 1 })).toBe(false);
+    expect(fireEvent.click(more, { detail: 1 })).toBe(true);
     expect(screen.getByTestId("chat-group-menu-autojoin")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("chat-group-menu-autojoin"));
+    fireEvent.pointerDown(screen.getByTestId("chat-group-autojoin").parentElement!);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(fireEvent.click(more, { detail: 0 })).toBe(true);
+    expect(screen.getByTestId("chat-group-menu-autojoin")).toBeTruthy();
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole("menu")).toBeNull();
+    fireEvent.pointerDown(more);
+    expect(fireEvent.click(more, { detail: 1 })).toBe(true);
+    expect(screen.getByTestId("chat-group-menu-autojoin")).toBeTruthy();
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
   });
 
   it("ticking a type asks, over the 自動加入 dialog, about every worker of that type outside the group, ungrouped or in another group, all ticked; 搬進勾選的 moves the ticked ones out of where they were with the rule in one save, 都不搬 or Escape only saves the rule, the dialog stays with focus back on the box, and once they are all in no question is asked", () => {

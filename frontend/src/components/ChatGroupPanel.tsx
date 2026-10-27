@@ -136,21 +136,23 @@ interface MenuItem {
 
 /** A press outside a menu or dialog only closes it: the click that follows
  * the press must not reach whatever was under it (a row would open its chat,
- * a heading would fold). Dropped at the next press, or after a second. */
+ * a heading would fold). */
 function swallowNextClick() {
   const done = () => {
     document.removeEventListener("click", stop, true);
     document.removeEventListener("pointerdown", done, true);
-    window.clearTimeout(timer);
   };
-  const stop = (e: Event) => {
+  const stop = (e: MouseEvent) => {
+    // A keyboard activation (detail 0) is not the press's click.
+    if (e.detail === 0) return;
     e.preventDefault();
     e.stopPropagation();
     done();
   };
   document.addEventListener("click", stop, true);
+  // A press that never became a click (it turned into a scroll) is over by
+  // the next one.
   document.addEventListener("pointerdown", done, true);
-  const timer = window.setTimeout(done, 1000);
 }
 
 /** For a backdrop: a press on the backdrop itself closes, and only closes. */
@@ -195,18 +197,7 @@ function MenuList({
       (e.key === "Home" ? list[0] : list[list.length - 1])?.focus();
     }
   };
-  return (
-    <div
-      ref={boxRef}
-      role="menu"
-      aria-label={label}
-      className="chat-groups__menu-panel"
-      data-testid={`${testId}-panel`}
-      onKeyDown={onKeyDown}
-    >
-      {lead}
-
-      {items.map((it, i) => (
+  const list = items.map((it, i) => (
         <Fragment key={it.key}>
           {it.section !== undefined && it.section !== items[i - 1]?.section && (
             <div className="chat-groups__menu-section">{it.section}</div>
@@ -232,7 +223,26 @@ function MenuList({
             {it.count !== undefined && <span className="chat-groups__menu-count">{it.count}</span>}
           </button>
         </Fragment>
-      ))}
+      ));
+  // A text field cannot sit inside a menu: with one, the panel holds the field
+  // and a menu of the items.
+  return lead ? (
+    <div ref={boxRef} className="chat-groups__menu-panel" data-testid={`${testId}-panel`} onKeyDown={onKeyDown}>
+      {lead}
+      <div role="menu" aria-label={label}>
+        {list}
+      </div>
+    </div>
+  ) : (
+    <div
+      ref={boxRef}
+      role="menu"
+      aria-label={label}
+      className="chat-groups__menu-panel"
+      data-testid={`${testId}-panel`}
+      onKeyDown={onKeyDown}
+    >
+      {list}
     </div>
   );
 }
@@ -278,7 +288,11 @@ function Menu({
   const onTab = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== "Tab") return;
     if (!confirming) {
-      if (!lead) onClose(false);
+      // With a text field, Tab moves between it and the items, and closes the
+      // menu only when it leaves them.
+      const stops = Array.from(rootRef.current?.querySelectorAll<HTMLElement>("input, button") ?? []);
+      const edge = e.shiftKey ? stops[0] : stops[stops.length - 1];
+      if (!lead || document.activeElement === edge) onClose(false);
       return;
     }
     const buttons = Array.from(rootRef.current?.querySelectorAll<HTMLElement>(".chat-groups__confirm button") ?? []);
@@ -320,7 +334,7 @@ function Menu({
           onKeyDown={(e) => {
             onTab(e);
           }}
-        >
+          >
           <div className="chat-groups__sheet-title">{title}</div>
           {body}
         </div>
@@ -328,6 +342,8 @@ function Menu({
     ) : (
       <div
         ref={rootRef}
+        role={lead ? "dialog" : undefined}
+        aria-label={lead ? title : undefined}
         className="chat-groups__menu"
         style={pos ? { left: pos.left, top: pos.top } : { left: -9999, top: 0 }}
         onKeyDown={(e) => {
@@ -847,7 +863,12 @@ export function ChatGroupPanel({
           aria-label={t.office.groups.newGroup}
           title={t.office.groups.newGroup}
           data-testid="chat-group-new"
-          onClick={() => setCreating({})}
+          onClick={() => {
+            // A new group has no rows, so a filter would hide it at once.
+            changeChecks([]);
+            setQuery("");
+            setCreating({});
+          }}
         >
           <FolderPlusIcon size={16} />
         </button>

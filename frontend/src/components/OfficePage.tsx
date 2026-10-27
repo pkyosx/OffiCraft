@@ -241,10 +241,19 @@ export function OfficePage({
       ? new Set([...roster.map((m) => m.id), ...outsource.workers.map((w) => w.id)])
       : null,
   );
+  const saveCollapsed = (tab: ChatTab, folded: Record<string, boolean>) =>
+    writeCollapsed(tab, folded, [...tabGroups(chatGroups.groups, tab).map((g) => g.id), UNGROUPED], chatGroups.serverId);
   const changeCollapsed = (tab: ChatTab, next: Record<string, boolean>) => {
     setGroupCollapsed((s) => ({ ...s, [tab]: next }));
-    writeCollapsed(tab, next, [...tabGroups(chatGroups.groups, tab).map((g) => g.id), UNGROUPED], chatGroups.serverId);
+    saveCollapsed(tab, next);
   };
+  // A group folded before its first save has answered has no server id to
+  // be saved under yet; the groups changing is when that id arrives.
+  useEffect(() => {
+    if (!chatGroups.settled || chatGroups.error === "load") return;
+    saveCollapsed("staff", groupCollapsed.staff);
+    saveCollapsed("outsource", groupCollapsed.outsource);
+  }, [chatGroups.groups]);
   const staffLayout = layoutTab(chatGroups.groups, "staff", roster, (m) => m.id);
   const staffShown = [...staffLayout.sections.flatMap((x) => x.items), ...staffLayout.ungrouped];
   // The 自動加入 checklist's task types; a failed read leaves it empty.

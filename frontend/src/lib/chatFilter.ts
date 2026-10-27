@@ -50,15 +50,12 @@ export function matchesFilter(facts: RowFacts, checks: readonly FilterCheck[], q
 }
 
 const storageKey = (tab: ChatTab) => `oc_chat_filter_${tab}`;
-// The first version's ticks; anything else not known is dropped.
-const LEGACY: Record<string, FilterCheck> = { online: "online-awake" };
 
 export function readFilterChecks(tab: ChatTab): FilterCheck[] {
   try {
     const parsed: unknown = JSON.parse(window.localStorage.getItem(storageKey(tab)) ?? "[]");
     if (!Array.isArray(parsed)) return [];
-    const known: string[] = parsed.map((c) => (typeof c === "string" ? (LEGACY[c] ?? c) : ""));
-    return [...SECTION_OF.keys()].filter((c): c is FilterCheck => known.includes(c));
+    return [...SECTION_OF.keys()].filter((c): c is FilterCheck => parsed.includes(c));
   } catch {
     return [];
   }

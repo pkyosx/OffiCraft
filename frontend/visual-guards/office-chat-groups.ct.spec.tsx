@@ -567,6 +567,21 @@ for (const [height, scrolls] of [
   });
 }
 
+test("1280px: in the 篩選 dropdown Tab moves from the search field through the options, and Tab past the last one closes it", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const cmp = await mount(<OfficeChatGroupsStory initialGroups={sampleGroups} />);
+  await cmp.getByTestId("chat-filter").click();
+  await expect(page.getByTestId("chat-filter-search")).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.getByTestId("chat-filter-menu-unread")).toBeFocused();
+  await page.getByTestId("chat-filter-menu-idle").focus();
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("dialog", { name: "篩選" })).toHaveCount(0);
+});
+
 test("1280px: on the 外包 tab 篩選 reads each worker's own unread, presence dot and task type", async ({ mount, page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   const cmp = await mount(<OfficeChatGroupsStory initialGroups={sampleGroups} initialTab="outsource" />);
