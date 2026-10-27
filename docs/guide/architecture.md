@@ -44,14 +44,17 @@ warden 在 macOS 上由一支叫 `officraft` 的小程式啟動。`officraft` �
 
 新增的正職和出廠的 Mira 一開始沒有選定 AI 執行環境。啟動設定裡顯示的「Claude Code」只是預設顯示值，原封不動送出不會存下來。
 
-真正的執行環境在成員第一次被派到機器上時決定：該機器裝好了 Claude Code 就用 Claude Code，只裝了 Codex 就用 Codex，決定後就固定在該成員身上。以下情況成員會被當成 Claude Code：
+真正的執行環境在成員被派到機器上啟動時決定：該機器的 Claude Code 可用就用 Claude Code，Claude Code 不可用而 Codex 可用就用 Codex，決定後就固定在該成員身上。
+
+下列情況，成員這次會以 Claude Code 啟動，但不會存下來，下一次啟動會重新判斷：
 
 - 那台機器的 warden 還沒回報過能力。
 - `codex` 裝了但沒登入，所以不算可用。
-- 有人在啟動設定裡明確選了 Claude Code。
 - 那台機器的 Claude Code 已安裝但登出。這時不會自動改用 Codex，因為選擇一旦存下就不會再自動改；在那台機器重新登入 Claude 就能解決。
 
-在啟動設定裡明確選一次，就會照你選的執行環境。只裝了 Codex 的機器上有成員起不來時的處理，見 [常見問題與排解](troubleshooting.md) 的「機器只裝了 Codex，Mira 或新成員起不來」。
+從舊版升級上來的成員，執行環境已經存成 Claude Code，不會自動改。
+
+要指定執行環境，在啟動設定裡把「AI 執行環境」換成另一個選項再確認，就會固定用你選的執行環境。尚未選定的成員，畫面上本來就顯示 Claude Code，原封不動確認不會存下來。只裝了 Codex 的機器上有成員起不來時的處理，見 [常見問題與排解](troubleshooting.md) 的「機器只裝了 Codex，Mira 或新成員起不來」。
 
 ## 成員的狀態怎麼判定
 

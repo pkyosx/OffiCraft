@@ -23,7 +23,7 @@ npm install -g @anthropic-ai/claude-code
 
 **Claude Code 或 Codex 要先登入，成員才能工作。** 可以在終端機登入，也可以裝好 OffiCraft 之後在控制台登入：到「監控」分頁的「機器資訊」，在那台 Mac 的 Claude 或 Codex 欄的版本號上選「登入」，照畫面指示完成。
 
-只裝 Codex 也可以。助理 Mira 和新成員第一次啟動時，會依那台 Mac 裝了哪一種自動選用。Mira 起不來時，見 [常見問題與排解](troubleshooting.md) 的「機器只裝了 Codex，Mira 或新成員起不來」。
+只裝 Codex 也可以：Codex 登入後，助理 Mira 和新成員第一次啟動時會自動改用 Codex。兩種都裝時用 Claude Code。Mira 起不來時，見 [常見問題與排解](troubleshooting.md) 的「機器只裝了 Codex，Mira 或新成員起不來」。
 
 ---
 
@@ -90,10 +90,10 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 
 1. 在控制台打開「監控」分頁，在「機器資訊」按「新增機器 / 上線」，輸入機器名稱後按「建立」。
 2. 在新機器的名稱選單選「安裝」，在「安裝機器」視窗按「複製安裝指令」。
-3. 到另一台 Mac 的終端機貼上指令並執行。缺 `tmux` 時，如果那台 Mac 有 Homebrew，會自動安裝。
+3. 到另一台 Mac 的終端機貼上指令並執行。安裝指令會先檢查 `tmux` 與 `curl`；缺 `tmux` 時，如果那台 Mac 有 Homebrew，會自動安裝。
 4. 裝好之後，那台機器出現在「機器資訊」的清單上，狀態變成「線上」。
 
-那台 Mac 同樣需要 Claude Code 或 Codex 至少一種，並且已經登入。之後在成員詳情裡就能把成員派到那台 Mac 上工作，成員之間也能跨機器互相幫忙。
+那台 Mac 同樣要符合「安裝前要準備的東西」表格裡的版本需求（`tmux` 3.0 以上；Claude Code 2.1.287 以上，或改用 Codex），並且已經登入。之後在成員詳情裡就能把成員派到那台 Mac 上工作，成員之間也能跨機器互相幫忙。
 
 ### 從控制台移除一台機器
 
@@ -135,8 +135,8 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 
 1. 確認是 macOS Apple Silicon。
 2. 確認這台 Mac 有 `tmux`，以及 `claude` 或 `codex` 至少一種。即使這台只放 server、成員都跑在別台，也會檢查這兩項；缺少時會在動到任何檔案之前停下，並印出補裝的指令。安裝腳本只檢查有沒有裝，不檢查版本：Claude Code 低於 2.1.287 時安裝照樣會成功，但 Claude 成員喚醒會失敗，「監控 › 機器資訊」的 Claude 欄會標示「版本太舊」。升級方法：在同一個版本號選單選「升級 Claude Code」，或在那台 Mac 上執行 `npm install -g @anthropic-ai/claude-code`。
-3. 這台已經裝過 OffiCraft 時，先警告並要求確認。
-4. 下載最新 release 的 `officraft-<tag>-darwin-arm64.tar.gz` 與 `checksums.txt`，sha256 驗證通過才繼續，驗證失敗就中止、不安裝任何東西。
+3. 下載最新 release 的 `officraft-<tag>-darwin-arm64.tar.gz` 與 `checksums.txt`，sha256 驗證通過才繼續，驗證失敗就中止、不安裝任何東西。
+4. 這台已經裝過 OffiCraft 時，先警告並要求確認。
 5. 把 `ocserverd`、`ocwarden`、`ocagent`、`officraft` 裝到 `~/.officraft/bin`，並升級資料庫結構，既有資料保留。
 6. 確認埠沒有被占用（預設 7755）。
 7. 註冊背景服務 `com.officraft.serve`。服務在背景執行，關掉終端機也不會停，開機後自動啟動。
