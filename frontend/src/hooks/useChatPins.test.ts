@@ -133,6 +133,37 @@ describe("useChatPins", () => {
     await waitFor(() => expect(result.current.pins).toEqual(["mira", "beto", "ow-1"]));
   });
 
+  it("a read sent while a write is in flight does not replace the write's answer, even when it answers last", async () => {
+    const put = deferred<string[]>();
+    putChatPins.mockReturnValueOnce(put.promise);
+    const { result } = renderHook(() => useChatPins(null));
+    await waitFor(() => expect(result.current.pins).toEqual(["mira", "ow-1"]));
+
+    act(() => result.current.toggle("beto", ["mira"]));
+    const staleGet = deferred<string[]>();
+    getChatPins.mockReturnValueOnce(staleGet.promise);
+    emit("chat_pin");
+    await act(async () => put.resolve(["mira", "beto", "ow-1"]));
+    await act(async () => staleGet.resolve(["mira", "ow-1"]));
+
+    expect(result.current.pins).toEqual(["mira", "beto", "ow-1"]);
+  });
+
+  it("when two reads answer out of order, the newer read's list stays", async () => {
+    const { result } = renderHook(() => useChatPins(null));
+    await waitFor(() => expect(result.current.pins).toEqual(["mira", "ow-1"]));
+    const older = deferred<string[]>();
+    const newer = deferred<string[]>();
+    getChatPins.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
+    emit("chat_pin");
+    emit("chat_pin");
+
+    await act(async () => newer.resolve(["clara", "mira"]));
+    await act(async () => older.resolve(["clara"]));
+
+    expect(result.current.pins).toEqual(["clara", "mira"]);
+  });
+
   it("when the first read fails, the failure shows and a toggle reads again instead of writing", async () => {
     getChatPins.mockRejectedValueOnce(new Error("http 500"));
     const { result } = renderHook(() => useChatPins(null));

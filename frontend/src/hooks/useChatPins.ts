@@ -11,7 +11,8 @@ interface UseChatPins {
   settled: boolean;
   /** "load": the list could not be read, so pins cannot be changed yet (the
    * next toggle reads again). "save": the latest write failed and the list was
-   * re-read from the server. Cleared by the next successful read or write. */
+   * re-read from the server. A read the hook adopts clears "load"; "save"
+   * stays until the next write starts. */
   error: ChatPinsError | null;
   toggle: (id: string, kindPinnedIds: readonly string[]) => void;
   reorder: (id: string, index: number, kindPinnedIds: readonly string[]) => void;
@@ -35,11 +36,15 @@ export function useChatPins(knownIds: ReadonlySet<string> | null): UseChatPins {
   knownRef.current = knownIds;
   const aliveRef = useRef(true);
   // One counter orders reads and writes. A write answer lands only if it is
-  // the latest write; a read answer only if it was sent after the latest write
-  // and that write has been answered (the read cannot know about it before).
+  // the latest write. A read answer lands only if, when the read was SENT, no
+  // write was in flight (it could not see that write), no write has been sent
+  // since, and it is the newest read. Dropping the others loses nothing: every
+  // write is followed by a read (its own chat_pin echo, or the re-read after a
+  // failure).
   const opRef = useRef(0);
   const lastWriteRef = useRef(0);
   const lastWriteSettledRef = useRef(true);
+  const latestReadRef = useRef(0);
   const loadRef = useRef<() => void>(() => {});
 
   const show = (list: readonly string[]) => {
@@ -51,13 +56,15 @@ export function useChatPins(knownIds: ReadonlySet<string> | null): UseChatPins {
     aliveRef.current = true;
     const load = () => {
       const op = ++opRef.current;
+      latestReadRef.current = op;
+      const sentClean = lastWriteSettledRef.current;
       api
         .getChatPins()
         .then((list) => {
           if (!aliveRef.current) return;
           loadedRef.current = true;
           setSettled(true);
-          if (op < lastWriteRef.current || !lastWriteSettledRef.current) return;
+          if (!sentClean || op !== latestReadRef.current || op < lastWriteRef.current) return;
           show(list);
           setError((e) => (e === "load" ? null : e));
         })
