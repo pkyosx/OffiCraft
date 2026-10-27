@@ -281,6 +281,15 @@
   color: var(--color-text-strong);
   font-size: 13px;
 }
+/* Under 16px, iOS zooms the page in on focus. On touch the entry row is a
+ * heading's 44px. */
+.chat-groups__entry--touch .chat-groups__entry-input {
+  height: 40px;
+  font-size: 16px;
+}
+.chat-groups__entry--touch .chat-groups__entry-btn {
+  min-height: 40px;
+}
 .chat-groups__entry-input:focus {
   outline: none;
   border-color: var(--color-accent);

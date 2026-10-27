@@ -43,6 +43,17 @@ function useProblemText() {
     p === "blank" ? t.office.groups.nameBlank : p === "long" ? t.office.groups.nameTooLong : t.office.groups.nameTaken;
 }
 
+/** Scrolls the nearest scrolling box around `el` just enough to show it. */
+function revealInList(el: HTMLElement) {
+  let box = el.parentElement;
+  while (box && !/(auto|scroll)/.test(getComputedStyle(box).overflowY)) box = box.parentElement;
+  if (!box) return;
+  const at = el.getBoundingClientRect();
+  const view = box.getBoundingClientRect();
+  if (at.top < view.top) box.scrollTop -= view.top - at.top;
+  else if (at.bottom > view.bottom) box.scrollTop += Math.min(at.bottom - view.bottom, at.top - view.top);
+}
+
 /** Inline group-name entry: new group, or a rename standing in for a heading. */
 function NameEntry({
   initial,
@@ -50,12 +61,14 @@ function NameEntry({
   onDone,
   onCancel,
   testId,
+  mobile,
 }: {
   initial: string;
   problemOf: (name: string) => GroupNameProblem | null;
   onDone: (name: string) => void;
   onCancel: () => void;
   testId: string;
+  mobile: boolean;
 }) {
   const { t } = useI18n();
   const text = useProblemText();
@@ -63,8 +76,12 @@ function NameEntry({
   const [shown, setShown] = useState<GroupNameProblem | null>(null);
   const ref = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    ref.current?.focus();
-    ref.current?.select();
+    const input = ref.current;
+    if (!input) return;
+    // Focus alone may scroll the page itself; only the list should move.
+    input.focus({ preventScroll: true });
+    input.select();
+    revealInList(input.closest("form") ?? input);
   }, []);
   const submit = () => {
     const p = problemOf(name);
@@ -77,7 +94,7 @@ function NameEntry({
   };
   return (
     <form
-      className="chat-groups__entry"
+      className={`chat-groups__entry${mobile ? " chat-groups__entry--touch" : ""}`}
       data-testid={testId}
       onSubmit={(e) => {
         e.preventDefault();
@@ -1012,6 +1029,7 @@ export function ChatGroupPanel({
               }}
               onCancel={() => setRenaming(null)}
               testId="chat-group-rename"
+              mobile={mobile}
             />
           ) : null
         }
@@ -1033,6 +1051,7 @@ export function ChatGroupPanel({
               }}
               onCancel={() => setCreating(null)}
               testId="chat-group-new-entry"
+              mobile={mobile}
             />
           ) : null
         }

@@ -667,7 +667,7 @@ test("375×667 touch: opening 篩選 focuses the sheet, not its search field, wh
   await expect.poll(scrolled).toEqual({ page: 60, list: 0 });
 });
 
-test("375×667 with the on-screen part of the page cut to 222px (as by a keyboard): with the search field focused, the 篩選 sheet fits that part and its 完成 stays inside it", async ({
+test("375×667 with the on-screen part of the page cut to 222px (as by a keyboard) and panned down 50px: with the search field focused, the 篩選 sheet fits that part and its 完成 stays inside it", async ({
   mount,
   page,
 }) => {
@@ -675,16 +675,37 @@ test("375×667 with the on-screen part of the page cut to 222px (as by a keyboar
   const cmp = await mount(<OfficeChatGroupsStory mobile initialGroups={sampleGroups} />);
   await cmp.getByTestId("chat-filter").click();
   await page.getByTestId("chat-filter-search").focus();
+  await page.getByTestId("chat-filter-search").fill("後端");
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("Emulation.setPageScaleFactor", { pageScaleFactor: 3 });
-  await expect.poll(() => page.evaluate(() => Math.round(window.visualViewport!.height))).toBe(222);
-  await page.getByTestId("chat-filter-search").fill("後端");
-  expect(await sheetBoxes(page)).toEqual({
+  const onScreen = () =>
+    page.evaluate(() => {
+      const vv = window.visualViewport!;
+      const box = (sel: string) => {
+        const b = document.querySelector(sel)!.getBoundingClientRect();
+        return { top: Math.round(b.top - vv.offsetTop), bottom: Math.round(b.bottom - vv.offsetTop) };
+      };
+      return {
+        pan: Math.round(vv.offsetTop),
+        height: Math.round(vv.height),
+        sheet: box(".chat-groups__sheet"),
+        done: box("[data-testid='chat-filter-menu-done']"),
+        clear: box("[data-testid='chat-filter-menu-clear']"),
+      };
+    });
+  // The sheet follows visualViewport's resize and scroll events, which
+  // Chromium fires at its next frame.
+  const fitted = {
+    height: 222,
     sheet: { top: 67, bottom: 222 },
     done: { top: 79, bottom: 119 },
     clear: { top: 79, bottom: 119 },
-    bodyScrolled: 0,
-  });
+  };
+  await expect.poll(async () => ({ ...(await onScreen()), pan: undefined })).toEqual({ ...fitted, pan: undefined });
+  const before = (await onScreen()).pan;
+  await page.mouse.move(60, 20);
+  await page.mouse.wheel(0, 150);
+  await expect.poll(onScreen).toEqual({ ...fitted, pan: before + 50 });
   await cdp.send("Emulation.setPageScaleFactor", { pageScaleFactor: 1 });
   await page.getByTestId("chat-filter-menu-done").click();
   await expect(page.getByTestId("chat-filter-menu-sheet")).toHaveCount(0);
@@ -711,6 +732,61 @@ test("375×667: the 「⋯」 sheet and the 自動加入 sheet each keep 完成 
   expect(join.sheet!.bottom).toBe(667);
   await page.getByTestId("chat-group-autojoin-done").click();
   await expect(page.getByTestId("chat-group-autojoin")).toHaveCount(0);
+});
+
+test("375×667 touch: 新增群組 and 重新命名 focus a 16px name box on a 44px row, a heading's height; with the list scrolled, 新增群組 scrolls only the list to show its box and the page stays put", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 667 });
+  await page.addStyleTag({ content: ".office__members-list { max-height: 300px; }" });
+  const cmp = await mount(<OfficeChatGroupsStory mobile initialGroups={sampleGroups} />);
+  const t = await touch(page);
+  const tap = async (l: Locator) => {
+    const b = (await l.boundingBox())!;
+    await t("touchStart", b.x + b.width / 2, b.y + b.height / 2);
+    await t("touchEnd");
+  };
+  const entry = (testId: string) =>
+    page.evaluate((testId) => {
+      const box = document.querySelector(`[data-testid='${testId}']`)!;
+      const input = box.querySelector("input")!;
+      const list = document.querySelector(".office__members-list")!;
+      return {
+        focused: document.activeElement === input,
+        font: getComputedStyle(input).fontSize,
+        row: Math.round(box.getBoundingClientRect().height),
+        heading: Math.round(document.querySelector(".chat-groups__heading-row")!.getBoundingClientRect().height),
+        belowListTop: Math.round(box.getBoundingClientRect().top - list.getBoundingClientRect().top),
+        page: window.scrollY,
+        list: list.scrollTop,
+      };
+    }, testId);
+  await cmp.locator(".office__members-list").evaluate((l) => (l.scrollTop = 100));
+
+  await tap(cmp.getByTestId("chat-group-new"));
+  expect(await entry("chat-group-new-entry")).toEqual({
+    focused: true,
+    font: "16px",
+    row: 44,
+    heading: 44,
+    belowListTop: 0,
+    page: 0,
+    list: 0,
+  });
+  await page.keyboard.press("Escape");
+
+  await tap(cmp.getByTestId("chat-group-more-g-eng"));
+  await page.getByTestId("chat-group-menu-rename").click();
+  expect(await entry("chat-group-rename")).toEqual({
+    focused: true,
+    font: "16px",
+    row: 44,
+    heading: 44,
+    belowListTop: 212,
+    page: 0,
+    list: 0,
+  });
 });
 
 for (const [height, scrolls] of [
