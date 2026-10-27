@@ -747,7 +747,7 @@ export const zh = {
       autoJoin: "自動加入",
       autoJoinOpen: "自動加入…",
       autoJoinHint: "勾選的任務類型，該類型的外包會自動加入這個群組。",
-      autoJoinDone: "完成",
+      done: "完成",
       autoJoinNone: "沒有任務類型",
       currentlyInLead: "目前在「",
       currentlyInTail: "」",

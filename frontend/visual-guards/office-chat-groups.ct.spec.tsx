@@ -34,6 +34,12 @@ async function touch(page: Page) {
     cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y }] });
 }
 
+// The page outlives a test, and so would its touch emulation.
+test.afterEach(async ({ page }) => {
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: false });
+});
+
 async function measure(page: Page) {
   return page.evaluate(() => {
     const r = (el: Element) => el.getBoundingClientRect();
@@ -517,7 +523,7 @@ test("1280px: while 篩選 is on, a long press lifts nothing and the matching gr
   await expect(page.getByRole("menu", { name: "核心" })).toBeVisible();
 });
 
-test("375px: 篩選 opens as the bottom sheet, its search field first, and ticking an item there filters the list behind it", async ({
+test("375px: 篩選 opens as the bottom sheet with its search field first but not focused, and ticking an item there filters the list behind it", async ({
   mount,
   page,
 }) => {
@@ -526,7 +532,7 @@ test("375px: 篩選 opens as the bottom sheet, its search field first, and ticki
   await cmp.getByTestId("chat-filter").click();
   const sheet = page.getByTestId("chat-filter-menu-sheet");
   await expect(sheet).toBeVisible();
-  await expect(sheet.getByTestId("chat-filter-search")).toBeFocused();
+  await expect(sheet).toBeFocused();
   expect(await sheet.locator(".chat-groups__menu-item").allTextContents()).toEqual([
     "有未讀2",
     "線上3",
@@ -545,6 +551,166 @@ test("375px: 篩選 opens as the bottom sheet, its search field first, and ticki
   await sheet.getByTestId("chat-filter-menu-online-awake").click();
   expect(await headings(cmp)).toEqual(["核心 · 2", "工程 · 1"]);
   await expect(cmp.getByTestId("chat-filter")).toHaveText("篩選 · 1");
+});
+
+const sheetBoxes = (page: Page) =>
+  page.evaluate(() => {
+    const box = (sel: string) => {
+      const el = document.querySelector(sel);
+      if (!el) return null;
+      const b = el.getBoundingClientRect();
+      return { top: Math.round(b.top), bottom: Math.round(b.bottom) };
+    };
+    return {
+      sheet: box(".chat-groups__sheet"),
+      done: box("[data-testid$='-done']"),
+      clear: box("[data-testid='chat-filter-menu-clear']"),
+      bodyScrolled: document.querySelector(".chat-groups__sheet-body")?.scrollTop ?? null,
+    };
+  });
+
+for (const [height, sheetTop, bodyEnd] of [
+  [667, 200, 129],
+  [812, 244, 27],
+] as const) {
+  test(`375×${height} touch: the 篩選 sheet stops at 70% of the window (top ${sheetTop}) under a dimmed strip, with 清除 and 完成 in its header 12px down, staying there while the list scrolls inside the sheet; 完成 closes it, and a tap on the strip over a heading only closes it`, async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 375, height });
+    const cmp = await mount(<OfficeChatGroupsStory mobile initialGroups={sampleGroups} />);
+    const t = await touch(page);
+    const tap = async (x: number, y: number) => {
+      await t("touchStart", x, y);
+      await t("touchEnd");
+    };
+    const openFilter = async () => {
+      const b = (await cmp.getByTestId("chat-filter").boundingBox())!;
+      await tap(b.x + b.width / 2, b.y + b.height / 2);
+      await expect(page.getByTestId("chat-filter-menu-sheet")).toBeVisible();
+    };
+
+    await openFilter();
+    await page.getByTestId("chat-filter-menu-unread").click();
+    expect(await sheetBoxes(page)).toEqual({
+      sheet: { top: sheetTop, bottom: height },
+      done: { top: sheetTop + 12, bottom: sheetTop + 52 },
+      clear: { top: sheetTop + 12, bottom: sheetTop + 52 },
+      bodyScrolled: 0,
+    });
+    await expect(page.locator(".chat-groups__sheet-backdrop")).toHaveCSS("background-color", "color(srgb 0 0 0 / 0.45)");
+    await page.mouse.move(187, sheetTop + 150);
+    await page.mouse.wheel(0, 1000);
+    await expect.poll(async () => (await sheetBoxes(page)).bodyScrolled).toBe(bodyEnd);
+    expect((await sheetBoxes(page)).done).toEqual({ top: sheetTop + 12, bottom: sheetTop + 52 });
+    await page.getByTestId("chat-filter-menu-clear").click();
+    await expect(cmp.getByTestId("chat-filter")).toHaveText("篩選");
+    await page.getByTestId("chat-filter-menu-done").click();
+    await expect(page.getByTestId("chat-filter-menu-sheet")).toHaveCount(0);
+
+    await openFilter();
+    const lead = cmp.getByTestId("chat-group-heading-g-lead");
+    const spot = (await lead.boundingBox())!;
+    expect(spot.y + spot.height / 2).toBeLessThan(sheetTop);
+    await tap(spot.x + spot.width * 0.4, spot.y + spot.height / 2);
+    await expect(page.getByTestId("chat-filter-menu-sheet")).toHaveCount(0);
+    await page.waitForTimeout(200);
+    await expect(lead).toHaveAttribute("aria-expanded", "true");
+    await tap(spot.x + spot.width * 0.4, spot.y + spot.height / 2);
+    await expect(lead).toHaveAttribute("aria-expanded", "false");
+  });
+}
+
+test("375×667 touch: opening 篩選 focuses the sheet, not its search field, whose text is 16px; while it is open neither the page nor the list behind it scrolls, and after 完成 both are where they were and scroll again", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 667 });
+  await page.addStyleTag({ content: ".office__members-list { max-height: 300px; }" });
+  const cmp = await mount(<OfficeChatGroupsStory mobile initialGroups={sampleGroups} />);
+  const t = await touch(page);
+  const scrolled = () =>
+    page.evaluate(() => ({ page: window.scrollY, list: document.querySelector(".office__members-list")!.scrollTop }));
+  await cmp.locator(".office__members-list").evaluate((l) => (l.scrollTop = 40));
+  await page.evaluate(() => window.scrollTo(0, 60));
+  expect(await scrolled()).toEqual({ page: 60, list: 40 });
+
+  const f = (await cmp.getByTestId("chat-filter").boundingBox())!;
+  await t("touchStart", f.x + f.width / 2, f.y + f.height / 2);
+  await t("touchEnd");
+  const sheet = page.getByTestId("chat-filter-menu-sheet");
+  await expect(sheet).toBeFocused();
+  await expect(page.getByTestId("chat-filter-search")).toHaveCSS("font-size", "16px");
+
+  await page.mouse.move(180, 60);
+  await page.mouse.wheel(0, 300);
+  const head = (await sheet.locator(".chat-groups__sheet-title").boundingBox())!;
+  await page.mouse.move(head.x + 10, head.y + 5);
+  await page.mouse.wheel(0, -300);
+  await t("touchStart", head.x + 10, head.y + 5);
+  await t("touchMove", head.x + 10, head.y + 205);
+  await t("touchEnd");
+  await page.waitForTimeout(200);
+  expect(await scrolled()).toEqual({ page: 60, list: 40 });
+
+  await page.getByTestId("chat-filter-menu-done").click();
+  await expect(sheet).toHaveCount(0);
+  expect(await scrolled()).toEqual({ page: 60, list: 40 });
+  expect(
+    await page.evaluate(() => [
+      document.documentElement.style.overflow,
+      (document.querySelector(".office__members-list") as HTMLElement).style.overflow,
+    ]),
+  ).toEqual(["", ""]);
+  await page.mouse.move(180, 60);
+  await page.mouse.wheel(0, -300);
+  await expect.poll(scrolled).toEqual({ page: 60, list: 0 });
+});
+
+test("375×667 with the on-screen part of the page cut to 222px (as by a keyboard): with the search field focused, the 篩選 sheet fits that part and its 完成 stays inside it", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 667 });
+  const cmp = await mount(<OfficeChatGroupsStory mobile initialGroups={sampleGroups} />);
+  await cmp.getByTestId("chat-filter").click();
+  await page.getByTestId("chat-filter-search").focus();
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Emulation.setPageScaleFactor", { pageScaleFactor: 3 });
+  await expect.poll(() => page.evaluate(() => Math.round(window.visualViewport!.height))).toBe(222);
+  await page.getByTestId("chat-filter-search").fill("後端");
+  expect(await sheetBoxes(page)).toEqual({
+    sheet: { top: 67, bottom: 222 },
+    done: { top: 79, bottom: 119 },
+    clear: { top: 79, bottom: 119 },
+    bodyScrolled: 0,
+  });
+  await cdp.send("Emulation.setPageScaleFactor", { pageScaleFactor: 1 });
+  await page.getByTestId("chat-filter-menu-done").click();
+  await expect(page.getByTestId("chat-filter-menu-sheet")).toHaveCount(0);
+  expect(await headings(cmp)).toEqual(["工程 · 1"]);
+});
+
+test("375×667: the 「⋯」 sheet and the 自動加入 sheet each keep 完成 in their header 12px below their top, and 完成 closes them", async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 667 });
+  const cmp = await mount(<OfficeChatGroupsStory mobile initialGroups={sampleGroups} initialTab="outsource" />);
+  await cmp.getByTestId("chat-group-more-g-ui").click();
+  const menu = await sheetBoxes(page);
+  expect(menu.done!.top - menu.sheet!.top).toBe(12);
+  expect(menu.sheet!.bottom).toBe(667);
+  await page.getByTestId("chat-group-menu-done").click();
+  await expect(page.getByTestId("chat-group-menu-sheet")).toHaveCount(0);
+
+  await cmp.getByTestId("chat-group-more-g-ui").click();
+  await page.getByTestId("chat-group-menu-autojoin").click();
+  const join = await sheetBoxes(page);
+  expect(join.done!.top - join.sheet!.top).toBe(12);
+  expect(join.sheet!.bottom).toBe(667);
+  await page.getByTestId("chat-group-autojoin-done").click();
+  await expect(page.getByTestId("chat-group-autojoin")).toHaveCount(0);
 });
 
 for (const [height, scrolls] of [

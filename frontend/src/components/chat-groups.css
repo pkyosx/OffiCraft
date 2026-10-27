@@ -410,6 +410,13 @@
   color: var(--color-text);
   font-size: 13px;
 }
+/* Under 16px, iOS zooms the page in on focus. */
+.chat-groups__sheet .chat-groups__menu-search {
+  font-size: 16px;
+}
+.chat-groups__sheet:focus {
+  outline: none;
+}
 .chat-groups__menu-search::placeholder {
   color: var(--color-text-muted);
 }
@@ -445,13 +452,38 @@
   align-items: flex-end;
   background: color-mix(in srgb, var(--color-backdrop) 45%, transparent);
 }
+/* A phone sheet never takes more than 70% of what is on screen (the backdrop
+ * is sized to the visible part of the window, keyboard excluded), so the
+ * dimmed strip above it is always there to tap; its header with 完成 stays
+ * put while the body scrolls. */
 .chat-groups__sheet {
+  display: flex;
+  flex-direction: column;
   width: 100%;
-  max-height: 70vh;
-  overflow-y: auto;
+  max-height: 70%;
   padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
   border-radius: 14px 14px 0 0;
   background: var(--color-card);
+}
+.chat-groups__sheet-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 0 8px 10px;
+}
+.chat-groups__sheet-head > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+.chat-groups__sheet-head .chat-groups__entry-btn {
+  min-height: 40px;
+}
+.chat-groups__sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .chat-groups__sheet .chat-groups__menu-panel {
   max-width: none;
@@ -469,7 +501,6 @@
   }
 }
 .chat-groups__sheet-title {
-  padding: 0 10px 8px;
   font-size: 12.5px;
   font-weight: 600;
   color: var(--color-text-muted);
@@ -530,15 +561,14 @@
 .chat-groups__autojoin-list {
   margin: 0 -6px 14px;
 }
-.chat-groups__sheet .chat-groups__dialog-title,
+.chat-groups__sheet .chat-groups__dialog-title {
+  margin: 0;
+}
 .chat-groups__sheet .chat-groups__dialog-hint {
   padding: 0 10px;
 }
 .chat-groups__sheet .chat-groups__autojoin-list {
   margin: 0 0 12px;
-}
-.chat-groups__sheet .chat-groups__dialog-actions {
-  padding: 0 10px;
 }
 .chat-groups__autojoin-label {
   flex: 1;

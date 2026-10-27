@@ -199,7 +199,7 @@ describe("ChatGroupPanel", () => {
     Array.from(screen.getByRole("menu", { name: "篩選" }).querySelectorAll(".chat-groups__menu-section"), (h) => h.textContent);
   const ALL = ["有未讀 2", "線上 2", "喚醒中 1", "停止中 0", "已停止 1", "離線 1", "工作中 1", "等待中 1", "閒置 1"];
 
-  it("篩選 shows the rows matching any tick within a section and every section that has one, and the name search; each option shows its own count, groups without a match are left out, the rest open, and 清除 brings everything back as it was", () => {
+  it("篩選 shows the rows matching any tick within a section and every section that has one, and the name search; each option shows its own count, groups without a match are left out, the rest fold and unfold as usual (a folded one showing its matching count and their unread), 全部收合／展開 acts on the groups shown, and 清除 brings everything back with the folding as left", () => {
     mount("staff", STAFF, STAFF_GROUPS());
     fireEvent.click(screen.getByTestId("chat-group-heading-a"));
     expect(rows()).toEqual(["dora", "mira", "evan"]);
@@ -217,12 +217,19 @@ describe("ChatGroupPanel", () => {
     expect(filterItems()).toEqual(ALL);
 
     tick("unread");
-    expect(rows()).toEqual(["clara", "beto"]);
-    expect(headings()).toEqual(["核心 · 2"]);
-    expect(screen.getByTestId("chat-group-heading-a").getAttribute("aria-expanded")).toBe("true");
+    const all = screen.getByTestId("chat-groups-collapse-all") as HTMLButtonElement;
+    expect(rows()).toEqual([]);
+    expect(headings()).toEqual(["核心 · 24"]);
     expect(filterButton().textContent).toBe("篩選 · 1");
     expect(filterButton().className).toContain("chat-groups__filter--on");
-    expect((screen.getByTestId("chat-groups-collapse-all") as HTMLButtonElement).disabled).toBe(true);
+    expect([all.disabled, all.getAttribute("aria-label")]).toEqual([false, "全部展開"]);
+    fireEvent.click(all);
+    expect(rows()).toEqual(["clara", "beto"]);
+    expect(all.getAttribute("aria-label")).toBe("全部收合");
+    fireEvent.click(all);
+    expect(rows()).toEqual([]);
+    fireEvent.click(screen.getByTestId("chat-group-heading-a"));
+    expect(rows()).toEqual(["clara", "beto"]);
     tick("unread");
 
     tick("online-awake");
@@ -235,9 +242,13 @@ describe("ChatGroupPanel", () => {
     fireEvent.click(eng);
     fireEvent.click(loose);
     expect([eng, loose].map((h) => [h.getAttribute("aria-expanded"), h.getAttribute("aria-disabled")])).toEqual([
-      ["true", "true"],
-      ["true", "true"],
+      ["false", "false"],
+      ["false", null],
     ]);
+    expect(rows()).toEqual(["clara"]);
+    fireEvent.click(all);
+    expect(headings()).toEqual(["核心 · 13", "工程 · 1", "未分組 · 1"]);
+    fireEvent.click(all);
     expect(rows()).toEqual(["clara", "dora", "mira"]);
 
     tick("busy");
@@ -286,15 +297,17 @@ describe("ChatGroupPanel", () => {
     fireEvent.change(screen.getByTestId("chat-filter-search"), { target: { value: "" } });
     expect(rows()).toEqual(["mira"]);
     expect(filterButton().textContent).toBe("篩選 · 1");
+    fireEvent.click(screen.getByTestId("chat-group-heading-ungrouped"));
+    expect(rows()).toEqual([]);
 
     tick("clear");
     expect(filterButton().textContent).toBe("篩選");
     expect((screen.getByTestId("chat-filter-search") as HTMLInputElement).value).toBe("");
     expect(filterItems()).toEqual(ALL);
-    expect(rows()).toEqual(["dora", "mira", "evan"]);
-    expect(screen.getByTestId("chat-group-heading-a").getAttribute("aria-expanded")).toBe("false");
+    expect(rows()).toEqual(["clara", "beto", "dora"]);
+    expect(screen.getByTestId("chat-group-heading-a").getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByTestId("chat-group-heading-b").getAttribute("aria-expanded")).toBe("true");
-    expect(screen.getByTestId("chat-group-heading-ungrouped").getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByTestId("chat-group-heading-ungrouped").getAttribute("aria-expanded")).toBe("false");
     expect(latest).toEqual(STAFF_GROUPS());
 
     fireEvent.keyDown(document.activeElement!, { key: "Escape" });
@@ -309,10 +322,10 @@ describe("ChatGroupPanel", () => {
 
     fireEvent.click(filterButton());
     tick("idle");
-    expect(rows()).toEqual(["mira"]);
+    expect([headings(), rows()]).toEqual([["未分組 · 1"], []]);
     fireEvent.click(screen.getByTestId("chat-group-new"));
     expect(filterButton().textContent).toBe("篩選");
-    expect(rows()).toEqual(["dora", "mira", "evan"]);
+    expect(rows()).toEqual(["clara", "beto", "dora"]);
     expect(screen.getByTestId("list").firstElementChild).toBe(screen.getByTestId("chat-group-new-entry"));
   });
 

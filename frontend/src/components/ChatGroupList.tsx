@@ -59,6 +59,10 @@ const verticalOnly: Modifier = ({ transform }) => ({ ...transform, x: 0 });
 export type MenuTarget = { kind: "member" | "group"; id: string };
 export type MenuAnchor = { x: number; y: number };
 
+/** dnd-kit marks a row aria-disabled while sorting is off (篩選), but the row
+ * and heading still open and fold. */
+const stillActive = (a: DraggableAttributes): DraggableAttributes => ({ ...a, "aria-disabled": false });
+
 export interface ChatGroupRow {
   /** The row's id, put on the row as `data-chat-row`. */
   rowId: string;
@@ -107,7 +111,7 @@ function SortableRow({
         ref: s.setNodeRef,
         style: { transform: CSS.Translate.toString(s.transform), transition: s.transition },
         className: `chat-groups__row${s.isDragging ? " chat-groups__row--placeholder" : ""}`,
-        attributes: s.attributes,
+        attributes: stillActive(s.attributes),
         listeners: s.listeners,
         canActivate,
         onContextMenu: keepTouchLift,
@@ -143,7 +147,6 @@ function GroupHeading({
   unread,
   over,
   canActivate,
-  locked,
   onToggle,
   openMenu,
 }: {
@@ -153,8 +156,6 @@ function GroupHeading({
   unread: number;
   over: boolean;
   canActivate: () => boolean;
-  /** 篩選 is on: the heading shows its group open and does not fold. */
-  locked: boolean;
   onToggle: () => void;
   openMenu: (target: MenuTarget, at: MenuAnchor) => void;
 }) {
@@ -169,15 +170,14 @@ function GroupHeading({
     >
       <button
         ref={s.setActivatorNodeRef}
-        {...s.attributes}
+        {...stillActive(s.attributes)}
         {...s.listeners}
         type="button"
         className={`chat-groups__heading${over ? " chat-groups__heading--over" : ""}`}
         aria-expanded={!collapsed}
-        aria-disabled={locked || undefined}
         data-testid={`chat-group-heading-${group.id}`}
         onClick={() => {
-          if (canActivate() && !locked) onToggle();
+          if (canActivate()) onToggle();
         }}
         onContextMenu={keepTouchLift}
         onKeyDown={(e) => {
@@ -213,14 +213,12 @@ function UngroupedHeading({
   collapsed,
   unread,
   over,
-  locked,
   onToggle,
 }: {
   label: string;
   collapsed: boolean;
   unread: number;
   over: boolean;
-  locked: boolean;
   onToggle: () => void;
 }) {
   const d = useDroppable({ id: `h:${UNGROUPED}` });
@@ -232,11 +230,8 @@ function UngroupedHeading({
         type="button"
         className={`chat-groups__heading${over ? " chat-groups__heading--over" : ""}`}
         aria-expanded={!collapsed}
-        aria-disabled={locked || undefined}
         data-testid="chat-group-heading-ungrouped"
-        onClick={() => {
-          if (!locked) onToggle();
-        }}
+        onClick={onToggle}
       >
         <HeadingBody label={label} collapsed={collapsed} unread={unread} />
       </button>
@@ -466,7 +461,7 @@ export function ChatGroupList({
     return landing.group ?? UNGROUPED;
   })();
   const draggingGroup = active !== null && kindOf(active) === "g";
-  const isCollapsed = (key: string) => !filtering && collapsed[key] === true;
+  const isCollapsed = (key: string) => collapsed[key] === true;
   const toggle = (key: string) => onCollapsedChange({ ...collapsed, [key]: !isCollapsed(key) });
   const sum = (list: readonly string[]) => list.reduce((n, x) => n + unreadOf(x), 0);
 
@@ -541,7 +536,6 @@ export function ChatGroupList({
                     unread={sum(items)}
                     over={overSection === group.id}
                     canActivate={canActivate}
-                    locked={filtering}
                     onToggle={() => toggle(group.id)}
                     openMenu={onOpenMenu}
                   />
@@ -564,7 +558,6 @@ export function ChatGroupList({
                 collapsed={isCollapsed(UNGROUPED)}
                 unread={sum(ungrouped)}
                 over={overSection === UNGROUPED}
-                locked={filtering}
                 onToggle={() => toggle(UNGROUPED)}
               />
             )}

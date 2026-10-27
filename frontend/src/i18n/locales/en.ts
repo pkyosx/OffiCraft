@@ -714,7 +714,7 @@ export const en: Dict = {
       autoJoin: "Auto-join",
       autoJoinOpen: "Auto-join…",
       autoJoinHint: "Outsource members on the ticked task types join this group automatically.",
-      autoJoinDone: "Done",
+      done: "Done",
       autoJoinNone: "No task types",
       currentlyInLead: "Now in “",
       currentlyInTail: "”",

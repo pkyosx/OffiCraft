@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
+import type { CSSProperties, KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode, RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
@@ -8,6 +8,7 @@ import {
   createGroup,
   deleteGroup,
   groupNameProblem,
+  layoutTab,
   moveMember,
   renameGroup,
   reorderGroup,
@@ -247,6 +248,48 @@ function MenuList({
   );
 }
 
+/** The part of the window that is on screen, for a phone sheet: with the
+ * on-screen keyboard up it is shorter than the window, and a sheet sized to
+ * the window would keep its 完成 under the keyboard. */
+function useVisibleBox(on: boolean): CSSProperties | undefined {
+  const [box, setBox] = useState<CSSProperties | undefined>(undefined);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!on || !vv) return;
+    const fit = () => setBox({ top: vv.offsetTop, height: vv.height, bottom: "auto" });
+    fit();
+    vv.addEventListener("resize", fit);
+    vv.addEventListener("scroll", fit);
+    return () => {
+      vv.removeEventListener("resize", fit);
+      vv.removeEventListener("scroll", fit);
+    };
+  }, [on]);
+  return box;
+}
+
+/** Holds still everything that would scroll behind a phone sheet: the
+ * document, the boxes around `from` and the ones beside it (the list). */
+function useScrollLock(on: boolean, from: RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const parent = from.current?.parentElement;
+    if (!on || !parent) return;
+    const around: HTMLElement[] = Array.from(parent.children) as HTMLElement[];
+    for (let el: HTMLElement | null = parent; el; el = el.parentElement) around.push(el);
+    const locked: [HTMLElement, string][] = [];
+    for (const el of around) {
+      const { overflowY } = getComputedStyle(el);
+      if (el === document.documentElement || overflowY === "auto" || overflowY === "scroll") {
+        locked.push([el, el.style.overflow]);
+      }
+    }
+    for (const [el] of locked) el.style.overflow = "hidden";
+    return () => {
+      for (const [el, was] of locked) el.style.overflow = was;
+    };
+  }, [on, from]);
+}
+
 function Menu({
   anchor,
   mobile,
@@ -256,6 +299,7 @@ function Menu({
   onClose,
   testId,
   lead,
+  sheetActions,
 }: {
   anchor: MenuAnchor;
   mobile: boolean;
@@ -267,7 +311,11 @@ function Menu({
   testId: string;
   /** Above the main items; its text field takes focus and Tab stays inside. */
   lead?: ReactNode;
+  /** On a phone sheet, before 完成 in its header (the filter's 清除). */
+  sheetActions?: ReactNode;
 }) {
+  const { t } = useI18n();
+  const visible = useVisibleBox(mobile);
   const rootRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
@@ -306,8 +354,11 @@ function Menu({
       return;
     }
     const target = mainRef.current;
-    (target?.querySelector("input") ?? focusItems(target)[0])?.focus();
-  }, [pos, confirming]);
+    const input = target?.querySelector("input");
+    // On a phone a focused field brings the keyboard up before the owner asks.
+    if (input && mobile) rootRef.current?.focus();
+    else (input ?? focusItems(target)[0])?.focus();
+  }, [pos, confirming, mobile]);
 
   useEffect(() => {
     const onDown = (e: PointerEvent) => {
@@ -323,20 +374,32 @@ function Menu({
 
   return createPortal(
     mobile ? (
-      <div className="chat-groups__sheet-backdrop">
+      <div className="chat-groups__sheet-backdrop" style={visible}>
         <div
           ref={rootRef}
           role="dialog"
           aria-modal="true"
           aria-label={title}
+          tabIndex={-1}
           className="chat-groups__sheet"
           data-testid={`${testId}-sheet`}
           onKeyDown={(e) => {
             onTab(e);
           }}
-          >
-          <div className="chat-groups__sheet-title">{title}</div>
-          {body}
+        >
+          <div className="chat-groups__sheet-head">
+            <div className="chat-groups__sheet-title">{title}</div>
+            {sheetActions}
+            <button
+              type="button"
+              className="chat-groups__entry-btn chat-groups__entry-btn--primary"
+              data-testid={`${testId}-done`}
+              onClick={() => onClose(true)}
+            >
+              {t.office.groups.done}
+            </button>
+          </div>
+          <div className="chat-groups__sheet-body">{body}</div>
         </div>
       </div>
     ) : (
@@ -384,13 +447,55 @@ function AutoJoinDialog({
   const { t } = useI18n();
   const boxRef = useRef<HTMLDivElement>(null);
   const titleId = "chat-groups-autojoin-title";
+  const visible = useVisibleBox(mobile);
   useEscapeLayer(onDone, boxRef);
   useEffect(() => {
-    boxRef.current?.querySelector<HTMLElement>("button")?.focus();
+    boxRef.current?.querySelector<HTMLElement>("[role='checkbox']")?.focus();
   }, []);
+  const done = (
+    <button
+      type="button"
+      className="chat-groups__entry-btn chat-groups__entry-btn--primary"
+      data-testid="chat-group-autojoin-done"
+      onClick={onDone}
+    >
+      {t.office.groups.done}
+    </button>
+  );
+  const heading = (
+    <h2 id={titleId} className="chat-groups__dialog-title">
+      {title}
+    </h2>
+  );
+  const content = (
+    <>
+      <p className="chat-groups__dialog-hint">{t.office.groups.autoJoinHint}</p>
+      <div className="chat-groups__autojoin-list" role="group" aria-labelledby={titleId}>
+        {items.map((it) => (
+          <button
+            key={it.key}
+            type="button"
+            role="checkbox"
+            aria-checked={it.checked}
+            className="chat-groups__menu-item"
+            data-testid={`chat-group-autojoin-${it.key}`}
+            onClick={it.onSelect}
+          >
+            <span className="chat-groups__menu-check chat-groups__menu-check--box" aria-hidden="true">
+              {it.checked && <CheckIcon size={12} />}
+            </span>
+            <span className="chat-groups__autojoin-label">{it.label}</span>
+            {it.hint && <span className="chat-groups__autojoin-owner">{it.hint}</span>}
+          </button>
+        ))}
+        {items.length === 0 && <div className="chat-groups__menu-empty">{t.office.groups.autoJoinNone}</div>}
+      </div>
+    </>
+  );
   return createPortal(
     <div
       className={mobile ? "chat-groups__sheet-backdrop" : "chat-groups__dialog-backdrop"}
+      style={visible}
       onPointerDown={closeOnBackdrop(onDone)}
     >
       <div
@@ -402,40 +507,21 @@ function AutoJoinDialog({
         data-testid="chat-group-autojoin"
         onKeyDown={(e) => trapTab(e, boxRef.current)}
       >
-        <h2 id={titleId} className="chat-groups__dialog-title">
-          {title}
-        </h2>
-        <p className="chat-groups__dialog-hint">{t.office.groups.autoJoinHint}</p>
-        <div className="chat-groups__autojoin-list" role="group" aria-labelledby={titleId}>
-          {items.map((it) => (
-            <button
-              key={it.key}
-              type="button"
-              role="checkbox"
-              aria-checked={it.checked}
-              className="chat-groups__menu-item"
-              data-testid={`chat-group-autojoin-${it.key}`}
-              onClick={it.onSelect}
-            >
-              <span className="chat-groups__menu-check chat-groups__menu-check--box" aria-hidden="true">
-                {it.checked && <CheckIcon size={12} />}
-              </span>
-              <span className="chat-groups__autojoin-label">{it.label}</span>
-              {it.hint && <span className="chat-groups__autojoin-owner">{it.hint}</span>}
-            </button>
-          ))}
-          {items.length === 0 && <div className="chat-groups__menu-empty">{t.office.groups.autoJoinNone}</div>}
-        </div>
-        <div className="chat-groups__dialog-actions chat-groups__dialog-actions--end">
-          <button
-            type="button"
-            className="chat-groups__entry-btn chat-groups__entry-btn--primary"
-            data-testid="chat-group-autojoin-done"
-            onClick={onDone}
-          >
-            {t.office.groups.autoJoinDone}
-          </button>
-        </div>
+        {mobile ? (
+          <>
+            <div className="chat-groups__sheet-head">
+              {heading}
+              {done}
+            </div>
+            <div className="chat-groups__sheet-body">{content}</div>
+          </>
+        ) : (
+          <>
+            {heading}
+            {content}
+            <div className="chat-groups__dialog-actions chat-groups__dialog-actions--end">{done}</div>
+          </>
+        )}
       </div>
     </div>,
     document.body,
@@ -597,6 +683,7 @@ export function ChatGroupPanel({
   const [query, setQuery] = useState("");
   const [filterAt, setFilterAt] = useState<MenuAnchor | null>(null);
   const filterRef = useRef<HTMLButtonElement>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
   const changeChecks = (next: FilterCheck[]) => {
     setChecks(next);
     writeFilterChecks(tab, next);
@@ -616,7 +703,14 @@ export function ChatGroupPanel({
     activity: t.office.groups.filterSectionActivity,
   };
 
-  const sectionKeys = [...mine.map((g) => g.id), UNGROUPED];
+  const shown = layoutTab(groups, tab, shownIds, (x) => x);
+  // While filtering, 全部收合／展開 acts on the groups on screen only.
+  const sectionKeys = filtering
+    ? [
+        ...shown.sections.filter((x) => x.items.length > 0).map((x) => x.group.id),
+        ...(shown.ungrouped.length > 0 ? [UNGROUPED] : []),
+      ]
+    : [...mine.map((g) => g.id), UNGROUPED];
   const anyExpanded = sectionKeys.some((k) => collapsed[k] !== true);
 
   const openMenu = (target: MenuTarget, anchor: MenuAnchor) => {
@@ -694,6 +788,7 @@ export function ChatGroupPanel({
       };
     });
   const autoJoinGroup = autoJoin ? mine.find((g) => g.id === autoJoin) : undefined;
+  useScrollLock(mobile && (menu !== null || filterAt !== null || autoJoinGroup !== undefined), toolbarRef);
 
   let menuNode: ReactNode = null;
   if (menu) {
@@ -777,6 +872,10 @@ export function ChatGroupPanel({
     }
   }
 
+  const clearFilter = () => {
+    changeChecks([]);
+    setQuery("");
+  };
   const filterMenu = filterAt && (
     <Menu
       anchor={filterAt}
@@ -804,19 +903,20 @@ export function ChatGroupPanel({
             onSelect: () => changeChecks(checks.includes(c) ? checks.filter((x) => x !== c) : [...checks, c]),
           })),
         ),
-        ...(filtering
-          ? [
-              {
-                key: "clear",
-                label: t.office.groups.filterClear,
-                onSelect: () => {
-                  changeChecks([]);
-                  setQuery("");
-                },
-              },
-            ]
-          : []),
+        ...(filtering && !mobile ? [{ key: "clear", label: t.office.groups.filterClear, onSelect: clearFilter }] : []),
       ]}
+      sheetActions={
+        filtering && (
+          <button
+            type="button"
+            className="chat-groups__entry-btn"
+            data-testid="chat-filter-menu-clear"
+            onClick={clearFilter}
+          >
+            {t.office.groups.filterClear}
+          </button>
+        )
+      }
       confirm={null}
       onClose={(refocus) => {
         setFilterAt(null);
@@ -829,7 +929,7 @@ export function ChatGroupPanel({
 
   return (
     <>
-      <div className="chat-groups__toolbar" data-testid="chat-groups-toolbar">
+      <div ref={toolbarRef} className="chat-groups__toolbar" data-testid="chat-groups-toolbar">
         <button
           ref={filterRef}
           type="button"
@@ -851,9 +951,16 @@ export function ChatGroupPanel({
           className="chat-groups__tool chat-groups__tool--icon"
           aria-label={collapseLabel}
           title={collapseLabel}
-          disabled={mine.length === 0 || filtering}
+          disabled={mine.length === 0 || sectionKeys.length === 0}
           data-testid="chat-groups-collapse-all"
-          onClick={() => onCollapsedChange(anyExpanded ? Object.fromEntries(sectionKeys.map((k) => [k, true])) : {})}
+          onClick={() => {
+            const next = { ...collapsed };
+            for (const k of sectionKeys) {
+              if (anyExpanded) next[k] = true;
+              else delete next[k];
+            }
+            onCollapsedChange(next);
+          }}
         >
           {anyExpanded ? <ChevronsDownUpIcon size={16} /> : <ChevronsUpDownIcon size={16} />}
         </button>
