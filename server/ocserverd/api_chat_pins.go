@@ -54,15 +54,13 @@ func (s *apiServer) HandleUpdateChatPinsApiChatPinsPut(w http.ResponseWriter, r 
 		writeTxError(w, err)
 		return
 	}
-	// Owner-only: no agent consumes chat_pin.
 	s.hub.Publish("chat_pin", "patch", "chat_pin", wireOwnerID,
 		map[string]any{"member_ids": stored}, audienceOwnerOnly(), requestTrigger(r))
 	writeJSON(w, http.StatusOK, ChatPinsDTO{MemberIds: stored})
 }
 
 func isPinnableMember(m *Member) bool {
-	return m != nil && (m.Kind == KindStaff || m.Kind == KindOutsource) &&
-		m.RosterStatus != RosterStatusRemoved
+	return m != nil && m.Kind != machineKind && m.RosterStatus != RosterStatusRemoved
 }
 
 // The join keeps a row whose member has since left the roster off the list
@@ -71,8 +69,8 @@ func listChatPinsOn(q sqlQuerier) ([]string, error) {
 	rows, err := q.Query(`
 		SELECT p.member_id FROM chat_pin p
 		JOIN member m ON m.id = p.member_id
-		WHERE m.kind IN (?, ?) AND m.roster_status != ?
-		ORDER BY p.position`, KindStaff, KindOutsource, RosterStatusRemoved)
+		WHERE m.kind != ? AND m.roster_status != ?
+		ORDER BY p.position`, machineKind, RosterStatusRemoved)
 	if err != nil {
 		return nil, err
 	}

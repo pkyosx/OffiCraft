@@ -537,6 +537,10 @@ var identityGateExpectedCount = map[string]int{
 // The fix applied here was to put the predicate back where the scanners can see
 // it (at each call site) and re-register it, not to widen the scanners.
 var identityGateLedger = map[string]string{
+	"api_chat_pins.go :: isPinnableMember :: m.Kind != machineKind": "" +
+		"machine-vs-person on the owner's chat-list pins: the chat list shows people, " +
+		"and a warden row is a machine with no conversation to pin. 正職 and 外包 are " +
+		"pinned the same way. Machine-vs-person axis.",
 	"api_helpers.go :: resolveMemberForItemRead :: m.Kind == KindWarden": "" +
 		"machine-vs-person on the read-only durable-identity exception: a released " +
 		"outsource worker and a dismissed staff member both stay readable so chats, " +
