@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { KeyboardEvent, ReactNode } from "react";
+import type { KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
@@ -132,6 +132,36 @@ interface MenuItem {
   disabled?: boolean;
   danger?: boolean;
   onSelect?: () => void;
+}
+
+/** A press outside a menu or dialog only closes it: the click that follows
+ * the press must not reach whatever was under it (a row would open its chat,
+ * a heading would fold). Dropped at the next press, or after a second. */
+function swallowNextClick() {
+  const done = () => {
+    document.removeEventListener("click", stop, true);
+    document.removeEventListener("pointerdown", done, true);
+    window.clearTimeout(timer);
+  };
+  const stop = (e: Event) => {
+    e.preventDefault();
+    e.stopPropagation();
+    done();
+  };
+  document.addEventListener("click", stop, true);
+  document.addEventListener("pointerdown", done, true);
+  const timer = window.setTimeout(done, 1000);
+}
+
+/** For a backdrop: a press on the backdrop itself closes, and only closes. */
+function closeOnBackdrop(close: () => void) {
+  return (e: ReactPointerEvent<HTMLElement>) => {
+    if (e.target !== e.currentTarget) return;
+    // Also keeps the press from taking focus off where `close` puts it.
+    e.preventDefault();
+    swallowNextClick();
+    close();
+  };
 }
 
 function focusItems(box: HTMLElement | null) {
@@ -267,7 +297,9 @@ function Menu({
 
   useEffect(() => {
     const onDown = (e: PointerEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) onClose(false);
+      if (rootRef.current?.contains(e.target as Node)) return;
+      swallowNextClick();
+      onClose(false);
     };
     document.addEventListener("pointerdown", onDown, true);
     return () => document.removeEventListener("pointerdown", onDown, true);
@@ -343,12 +375,7 @@ function AutoJoinDialog({
   return createPortal(
     <div
       className={mobile ? "chat-groups__sheet-backdrop" : "chat-groups__dialog-backdrop"}
-      onMouseDown={(e) => {
-        if (e.target !== e.currentTarget) return;
-        // Keeps the click from taking focus off the 「⋯」 onDone hands it to.
-        e.preventDefault();
-        onDone();
-      }}
+      onPointerDown={closeOnBackdrop(onDone)}
     >
       <div
         ref={boxRef}
@@ -420,7 +447,7 @@ function BringInDialog({
     boxRef.current?.querySelector<HTMLElement>(".chat-groups__entry-btn--primary")?.focus();
   }, []);
   return createPortal(
-    <div className="chat-groups__dialog-backdrop">
+    <div className="chat-groups__dialog-backdrop" onPointerDown={closeOnBackdrop(() => onAnswer([]))}>
       <div
         ref={boxRef}
         role="dialog"

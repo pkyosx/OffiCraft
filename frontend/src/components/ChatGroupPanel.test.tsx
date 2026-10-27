@@ -521,8 +521,11 @@ describe("ChatGroupPanel", () => {
     fireEvent.click(more);
     fireEvent.click(screen.getByTestId("chat-group-menu-autojoin"));
     const backdrop = screen.getByTestId("chat-group-autojoin").parentElement!;
-    fireEvent.mouseDown(backdrop);
+    fireEvent.pointerDown(backdrop);
     expect(screen.queryByRole("dialog")).toBeNull();
+    expect(fireEvent.click(document.body)).toBe(false);
+    expect(fireEvent.click(more)).toBe(true);
+    expect(screen.getByTestId("chat-group-menu-autojoin")).toBeTruthy();
   });
 
   it("ticking a type asks, over the 自動加入 dialog, about every worker of that type outside the group, ungrouped or in another group, all ticked; 搬進勾選的 moves the ticked ones out of where they were with the rule in one save, 都不搬 or Escape only saves the rule, the dialog stays with focus back on the box, and once they are all in no question is asked", () => {

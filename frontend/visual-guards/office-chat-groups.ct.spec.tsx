@@ -677,7 +677,7 @@ const AUTO_JOIN_ROWS = [
   ["Long-term Context · Lessons Refine", "", "false"],
 ];
 
-test("1280px: 自動加入… opens a 400px dialog centred in the window, titled with the group, its sentence and the task types readable on an opaque card, 「目前在」 at each row's right end; a tick with ungrouped workers asks over it, and a click outside closes it back to the 「⋯」", async ({
+test("1280px: 自動加入… opens a 400px dialog centred in the window, titled with the group, its sentence and the task types readable on an opaque card, 「目前在」 at each row's right end; a tick with ungrouped workers asks over it, and a click outside (over a worker row) only closes the question, then the dialog back to the 「⋯」, opening no chat", async ({
   mount,
   page,
 }) => {
@@ -731,17 +731,22 @@ test("1280px: 自動加入… opens a 400px dialog centred in the window, titled
       ["外包 · O-154", "未分組", "true", 10],
     ],
   });
-  await page.keyboard.press("Escape");
+  // A click outside lands over a worker row: it only answers 都不搬.
+  const rowSpot = (await cmp.getByTestId("outsource-row-ow-71d0").boundingBox())!;
+  await page.mouse.click(rowSpot.x + rowSpot.width * 0.6, rowSpot.y + rowSpot.height / 2);
   await expect(ask).toHaveCount(0);
+  await expect(page.getByTestId("chat-group-autojoin")).toHaveCount(1);
   await expect(page.getByTestId("chat-group-autojoin-tm-review")).toHaveAttribute("aria-checked", "true");
   await expect(page.getByTestId("chat-group-autojoin-tm-review")).toBeFocused();
 
-  await page.mouse.click(20, 20);
+  await page.mouse.click(rowSpot.x + rowSpot.width * 0.6, rowSpot.y + rowSpot.height / 2);
   await expect(page.getByTestId("chat-group-autojoin")).toHaveCount(0);
+  await page.waitForTimeout(200);
+  await expect(cmp.locator("aside.office__members")).toHaveAttribute("data-chat", "");
   await expect(more).toBeFocused();
 });
 
-test("390px: 自動加入… opens as a bottom sheet the width of the window with 44px rows, its move-in question has 44px rows too, and 完成 closes it", async ({
+test("390px: 自動加入… opens as a bottom sheet the width of the window with 44px rows, its move-in question has 44px rows too, 完成 closes it, and a tap outside (over a worker row) only closes it", async ({
   mount,
   page,
 }) => {
@@ -767,6 +772,16 @@ test("390px: 自動加入… opens as a bottom sheet the width of the window wit
   await page.getByTestId("chat-groups-bring-in-none").click();
   await page.getByTestId("chat-group-autojoin-done").click();
   await expect(page.getByTestId("chat-group-autojoin")).toHaveCount(0);
+
+  await cmp.getByTestId("chat-group-more-g-ui").click();
+  await page.getByTestId("chat-group-menu-autojoin").click();
+  const t = await touch(page);
+  const rowSpot = (await cmp.getByTestId("outsource-row-ow-a18f").boundingBox())!;
+  await t("touchStart", rowSpot.x + rowSpot.width * 0.6, rowSpot.y + rowSpot.height / 2);
+  await t("touchEnd");
+  await expect(page.getByTestId("chat-group-autojoin")).toHaveCount(0);
+  await page.waitForTimeout(200);
+  await expect(cmp.locator("aside.office__members")).toHaveAttribute("data-chat", "");
 });
 
 for (const [width, reach] of [
@@ -865,6 +880,54 @@ test("1280px: holding the 「⋯」 lifts nothing and its click opens the group 
   await page.keyboard.press("Escape");
   await expect(cmp.getByTestId("chat-group-more-g-lead")).toBeFocused();
 });
+
+for (const [width, by] of [
+  [1280, "mouse"],
+  [390, "touch"],
+] as const) {
+  test(`${width}px ${by}: with a 「⋯」 menu open, a ${by === "mouse" ? "click" : "tap"} on a member row or on a heading outside it only closes the menu: no chat opens and nothing folds`, async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const cmp = await mount(<OfficeChatGroupsStory mobile={width < 720} initialGroups={sampleGroups} />);
+    const t = by === "touch" ? await touch(page) : null;
+    const press = async (x: number, y: number) => {
+      if (t) {
+        await t("touchStart", x, y);
+        await t("touchEnd");
+      } else {
+        await page.mouse.click(x, y);
+      }
+    };
+    const menu = page.locator(".chat-groups__menu, .chat-groups__sheet");
+    const open = async () => {
+      const b = (await cmp.getByTestId("chat-group-more-g-eng").boundingBox())!;
+      await press(b.x + b.width / 2, b.y + b.height / 2);
+      await expect(menu).toHaveCount(1);
+    };
+    // Clear of the avatar (which opens the member's details instead).
+    const center = async (l: ReturnType<typeof row>) => {
+      const b = (await l.boundingBox())!;
+      return [b.x + b.width * 0.6, b.y + b.height / 2] as const;
+    };
+
+    await open();
+    await press(...(await center(row(cmp, "Clara"))));
+    await expect(menu).toHaveCount(0);
+    await page.waitForTimeout(200);
+    await expect(cmp.locator("aside.office__members")).toHaveAttribute("data-chat", "");
+
+    await open();
+    await press(...(await center(cmp.getByTestId("chat-group-heading-g-lead"))));
+    await expect(menu).toHaveCount(0);
+    await page.waitForTimeout(200);
+    await expect(cmp.getByTestId("chat-group-heading-g-lead")).toHaveAttribute("aria-expanded", "true");
+
+    await press(...(await center(row(cmp, "Clara"))));
+    await expect(cmp.locator("aside.office__members")).toHaveAttribute("data-chat", "clara");
+  });
+}
 
 test("390px: tapping a group heading's 「⋯」 opens the group's options as the bottom sheet", async ({ mount, page }) => {
   await page.setViewportSize({ width: 390, height: 900 });
