@@ -934,6 +934,36 @@ const AUTO_JOIN_ROWS = [
   ["Long-term Context · Lessons Refine", "", "false"],
 ];
 
+for (const [height, scrolls] of [
+  [900, false],
+  [240, true],
+] as const) {
+  test(`1280×${height}: the 自動加入 dialog stops at 70% of the window's height with its title and 完成 in view${scrolls ? ", its task types scrolling between them" : ", its task types without scrolling"}`, async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height });
+    const cmp = await mount(<OfficeChatGroupsStory initialGroups={sampleGroups} initialTab="outsource" />);
+    await cmp.getByTestId("chat-group-more-g-ui").click();
+    await page.getByTestId("chat-group-menu-autojoin").click();
+    const m = await page.getByTestId("chat-group-autojoin").evaluate((box) => {
+      const b = box.getBoundingClientRect();
+      const within = (el: Element) => {
+        const r = el.getBoundingClientRect();
+        return r.top >= b.top && r.bottom <= b.bottom;
+      };
+      const list = box.querySelector(".chat-groups__autojoin-list")!;
+      return {
+        capped: b.height <= window.innerHeight * 0.7 + 0.5,
+        title: within(box.querySelector("h2")!),
+        done: within(box.querySelector('[data-testid="chat-group-autojoin-done"]')!),
+        scrolls: list.scrollHeight > list.clientHeight,
+      };
+    });
+    expect(m).toEqual({ capped: true, title: true, done: true, scrolls });
+  });
+}
+
 test("1280px: 自動加入… opens a 400px dialog centred in the window, titled with the group, its sentence and the task types readable on an opaque card, 「目前在」 at each row's right end; a tick with ungrouped workers asks over it, and a click outside (over a worker row) only closes the question, then the dialog back to the 「⋯」, opening no chat", async ({
   mount,
   page,
