@@ -36,10 +36,11 @@ import type { ChatGroup, ChatTab } from "../lib/chatGroups";
 import { ChevronDownIcon, MoreIcon } from "./icons";
 import "./chat-groups.css";
 
-// Same hold on mouse and touch (owner: like rearranging the iPhone home
-// screen). Moving past the tolerance before the hold ends cancels it, so a
-// press-and-move is a scroll / text gesture, never a drag.
-const LONG_PRESS = { delay: 450, tolerance: 6 };
+// A mouse drag starts once the pressed pointer moves, so a still click still
+// opens or folds. Touch needs a hold: a finger that moves before it ends is
+// scrolling the list, never dragging.
+const MOUSE_DRAG = { distance: 5 };
+const TOUCH_HOLD = { delay: 250, tolerance: 6 };
 export const UNGROUPED = "__ungrouped";
 
 // Draggable / droppable ids carry their kind: m: member row, g: group heading,
@@ -348,8 +349,8 @@ export function ChatGroupList({
   };
 
   const sensors = useSensors(
-    useSensor(MouseSensor, { activationConstraint: LONG_PRESS }),
-    useSensor(TouchSensor, { activationConstraint: LONG_PRESS }),
+    useSensor(MouseSensor, { activationConstraint: MOUSE_DRAG }),
+    useSensor(TouchSensor, { activationConstraint: TOUCH_HOLD }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
       keyboardCodes: { start: ["Space"], cancel: ["Escape"], end: ["Space", "Enter", "Tab"] },

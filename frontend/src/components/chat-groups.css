@@ -530,8 +530,11 @@
   background: color-mix(in srgb, var(--color-backdrop) 55%, transparent);
 }
 .chat-groups__dialog {
+  display: flex;
+  flex-direction: column;
   width: 100%;
   max-width: 400px;
+  max-height: 70vh;
   padding: 18px;
   border: 1px solid var(--color-border);
   border-radius: 12px;
@@ -569,6 +572,14 @@
 }
 .chat-groups__autojoin-list {
   margin: 0 -6px 14px;
+}
+/* A long list scrolls between the title and 完成 rather than run off a short
+ * window. */
+.chat-groups__dialog .chat-groups__autojoin-list {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .chat-groups__sheet .chat-groups__dialog-title {
   margin: 0;

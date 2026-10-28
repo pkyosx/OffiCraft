@@ -725,7 +725,7 @@ export const en: Dict = {
       bringInTitleMid: "” outsource workers into “",
       bringInTitleTail: "”?",
       bringInMoveTicked: "Move the ticked ones",
-      bringInDecline: "Move none, only new workers from now on",
+      bringInDecline: "Apply to new workers only",
       roleDescription: "draggable chat",
       groupRoleDescription: "draggable group",
       optionsLead: "Group options: ",
@@ -741,7 +741,7 @@ export const en: Dict = {
       collapseAll: "Collapse all",
       expandAll: "Expand all",
       instructions:
-        "Press and hold a row or a group heading for half a second to lift it, then drag: members into another group or Ungrouped, group headings to reorder groups. Keyboard: press Space to pick up, move with the up and down arrow keys, press Space again to drop, or Escape to cancel. The menu key or Shift+F10 opens options.",
+        "With a mouse, press a row or a group heading and move to drag it; on a touch screen, hold it for about a quarter of a second until it lifts, then drag. Members go into another group or Ungrouped, group headings reorder groups. Keyboard: press Space to pick up, move with the up and down arrow keys, press Space again to drop, or Escape to cancel. The menu key or Shift+F10 opens options.",
       pickedUpLead: "Picked up ",
       pickedUpTail: ".",
       overGroupMid: " will move to “",

@@ -1,15 +1,16 @@
 // Office sidebar chat groups, measured in real Chromium against the real
 // office CSS: the layout at phone widths (no sideways scroll, pills inside
 // their headings, menus inside the window), and the gestures jsdom cannot
-// drive (long-press lift and drag, a touch long-press released in place
+// drive (mouse drag, touch hold and drag, a touch hold released in place
 // leaving everything as it was, keyboard drag).
 import { test, expect } from "@playwright/experimental-ct-react";
 import type { Locator, Page } from "@playwright/test";
 import { OfficeChatGroupsStory } from "./stories/OfficeChatGroupsStory";
 import { sampleGroups } from "./stories/chatGroupsFixtures";
 
-// Comfortably past ChatGroupList's 450ms hold.
-const HOLD_MS = 650;
+// Past ChatGroupList's 250ms touch hold; the lift is read right after it
+// without retrying, so a longer hold fails the touch test.
+const TOUCH_HOLD_MS = 380;
 
 const row = (cmp: Locator, name: string) => cmp.locator(".member-card", { hasText: name }).first();
 async function grip(l: Locator) {
@@ -215,7 +216,7 @@ for (const theme of ["dark", "light", "halloween"] as const) {
   });
 }
 
-test("a long press lifts an ungrouped member; over a row of another group that group's rows make room for it; Escape puts everything back unsaved, and dropping it there saves it once, without opening a chat", async ({
+test("1280px mouse: a press that moves 8px lifts an ungrouped member at once; over a row of another group that group's rows make room for it; Escape puts everything back unsaved, and dropping it there saves it once, without opening a chat; a press held still opens the member's chat", async ({
   mount,
   page,
 }) => {
@@ -227,7 +228,7 @@ test("a long press lifts an ungrouped member; over a row of another group that g
   const lift = async () => {
     await page.mouse.move(from.x, from.y);
     await page.mouse.down();
-    await page.waitForTimeout(HOLD_MS);
+    await page.mouse.move(from.x, from.y + 8, { steps: 2 });
     await expect(cmp.getByTestId("chat-groups-lifted")).toHaveCount(1);
     await page.mouse.move(from.x, to.y - 6, { steps: 12 });
     await page.waitForTimeout(300);
@@ -254,6 +255,15 @@ test("a long press lifts an ungrouped member; over a row of another group that g
   expect(await sectionNames(cmp, "ungrouped")).toEqual(["EvaRhapsodyInboxForwarderStandbyRelay"]);
   expect(await writes(cmp)).toBe("1");
   await expect(cmp.locator("aside.office__members")).toHaveAttribute("data-chat", "");
+
+  const beto = (await row(cmp, "Beto").boundingBox())!;
+  await page.mouse.move(beto.x + beto.width * 0.6, beto.y + beto.height / 2);
+  await page.mouse.down();
+  await page.waitForTimeout(600);
+  await expect(cmp.getByTestId("chat-groups-lifted")).toHaveCount(0);
+  await page.mouse.up();
+  await expect(cmp.locator("aside.office__members")).toHaveAttribute("data-chat", "beto");
+  expect(await sectionNames(cmp, "g-eng")).toEqual(["Beto", "Evan", "Dora"]);
 });
 
 test("a member dragged into 未分組 is shown at its default-order place there, not under the pointer, and lands there", async ({
@@ -266,7 +276,6 @@ test("a member dragged into 未分組 is shown at its default-order place there,
   const relay = await grip(row(cmp, "EvaRhapsody"));
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
-  await page.waitForTimeout(HOLD_MS);
   await page.mouse.move(from.x, relay.y, { steps: 16 });
   await page.waitForTimeout(300);
   const placeholder = (await cmp.locator(".chat-groups__row--placeholder").boundingBox())!;
@@ -321,7 +330,6 @@ test("an expanded empty group shows a 44px dashed 「把成員拖曳到這裡」
   const to = (await drop.boundingBox())!;
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
-  await page.waitForTimeout(HOLD_MS);
   await page.mouse.move(from.x, to.y + to.height / 2, { steps: 14 });
   await page.waitForTimeout(300);
   await expect(cmp.getByTestId("chat-group-section-g-t2")).toHaveClass(/chat-groups__section--over/);
@@ -332,7 +340,7 @@ test("an expanded empty group shows a 44px dashed 「把成員拖曳到這裡」
   expect(await writes(cmp)).toBe("1");
 });
 
-test("a long press on a group heading lifts the group, and dropping it above the first reorders the groups", async ({
+test("a press-and-drag on a group heading lifts the group, and dropping it above the first reorders the groups", async ({
   mount,
   page,
 }) => {
@@ -342,7 +350,6 @@ test("a long press on a group heading lifts the group, and dropping it above the
   const top = (await cmp.getByTestId("chat-group-heading-g-lead").boundingBox())!;
   await page.mouse.move(h.x + 60, h.y + h.height / 2);
   await page.mouse.down();
-  await page.waitForTimeout(HOLD_MS);
   await page.mouse.move(h.x + 60, top.y - 12, { steps: 12 });
   await page.waitForTimeout(300);
   await page.mouse.up();
@@ -351,20 +358,7 @@ test("a long press on a group heading lifts the group, and dropping it above the
   expect(await sectionNames(cmp, "g-lead")).toEqual(["Mira", "Clara"]);
 });
 
-test("a press that moves before the hold ends lifts nothing", async ({ mount, page }) => {
-  await page.setViewportSize({ width: 1280, height: 900 });
-  const cmp = await mount(<OfficeChatGroupsStory initialGroups={sampleGroups} />);
-  const g = await grip(row(cmp, "Evan"));
-  await page.mouse.move(g.x, g.y);
-  await page.mouse.down();
-  await page.mouse.move(g.x, g.y - 80, { steps: 4 });
-  await page.waitForTimeout(HOLD_MS);
-  await expect(cmp.getByTestId("chat-groups-lifted")).toHaveCount(0);
-  await page.mouse.up();
-  expect(await sectionNames(cmp, "ungrouped")).toEqual(["Evan", "EvaRhapsodyInboxForwarderStandbyRelay"]);
-});
-
-test("390px touch: a long press lifts a heading or a row and lifting the finger in place leaves the order and folding as they were with no menu; a long press then a drag moves the member", async ({
+test("390px touch: a 250ms hold lifts a heading or a row and lifting the finger in place leaves the order and folding as they were with no menu; a finger that moves before the hold ends lifts nothing; a hold then a drag moves the member", async ({
   mount,
   page,
 }) => {
@@ -388,8 +382,8 @@ test("390px touch: a long press lifts a heading or a row and lifting the finger 
 
   const head = await grip(cmp.getByTestId("chat-group-heading-g-eng"));
   await t("touchStart", head.x, head.y - 6);
-  await page.waitForTimeout(HOLD_MS);
-  await expect(cmp.getByTestId("chat-groups-lifted")).toHaveText("工程 · 2");
+  await page.waitForTimeout(TOUCH_HOLD_MS);
+  expect(await cmp.getByTestId("chat-groups-lifted").allTextContents()).toEqual(["工程 · 2"]);
   await t("touchEnd");
   await page.waitForTimeout(300);
   await expect(cmp.getByTestId("chat-groups-lifted")).toHaveCount(0);
@@ -397,8 +391,16 @@ test("390px touch: a long press lifts a heading or a row and lifting the finger 
 
   const from = await grip(row(cmp, "Evan"));
   await t("touchStart", from.x, from.y);
-  await page.waitForTimeout(HOLD_MS);
-  await expect(cmp.getByTestId("chat-groups-lifted")).toHaveCount(1);
+  await page.waitForTimeout(TOUCH_HOLD_MS);
+  expect(await cmp.getByTestId("chat-groups-lifted").count()).toBe(1);
+  await t("touchEnd");
+  await page.waitForTimeout(300);
+  expect(await state()).toEqual(untouched);
+
+  await t("touchStart", from.x, from.y);
+  for (let i = 1; i <= 4; i++) await t("touchMove", from.x, from.y - 20 * i);
+  await page.waitForTimeout(TOUCH_HOLD_MS);
+  await expect(cmp.getByTestId("chat-groups-lifted")).toHaveCount(0);
   await t("touchEnd");
   await page.waitForTimeout(300);
   expect(await state()).toEqual(untouched);
@@ -406,7 +408,7 @@ test("390px touch: a long press lifts a heading or a row and lifting the finger 
   const to = await grip(row(cmp, "Dora"));
   const before = await tops(cmp, ["Beto", "Dora"]);
   await t("touchStart", from.x, from.y);
-  await page.waitForTimeout(HOLD_MS);
+  await page.waitForTimeout(TOUCH_HOLD_MS);
   for (let i = 1; i <= 12; i++) await t("touchMove", from.x, from.y + ((to.y - 6 - from.y) * i) / 12);
   await page.waitForTimeout(300);
   const during = await tops(cmp, ["Beto", "Dora"]);
@@ -494,7 +496,7 @@ for (const [width, reach] of [
   });
 }
 
-test("1280px: while 篩選 is on, a long press lifts nothing and the matching groups stay as they are, but a heading's 「⋯」 still opens its menu", async ({
+test("1280px: while 篩選 is on, a press-and-drag lifts nothing and the matching groups stay as they are, but a heading's 「⋯」 still opens its menu", async ({
   mount,
   page,
 }) => {
@@ -510,7 +512,6 @@ test("1280px: while 篩選 is on, a long press lifts nothing and the matching gr
   const to = await grip(row(cmp, "EvaRhapsody"));
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
-  await page.waitForTimeout(HOLD_MS);
   await page.mouse.move(from.x, to.y, { steps: 12 });
   await page.waitForTimeout(300);
   await expect(cmp.getByTestId("chat-groups-lifted")).toHaveCount(0);
@@ -934,6 +935,36 @@ const AUTO_JOIN_ROWS = [
   ["Long-term Context · Lessons Refine", "", "false"],
 ];
 
+for (const [height, scrolls] of [
+  [900, false],
+  [240, true],
+] as const) {
+  test(`1280×${height}: the 自動加入 dialog stops at 70% of the window's height with its title and 完成 in view${scrolls ? ", its task types scrolling between them" : ", its task types without scrolling"}`, async ({
+    mount,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height });
+    const cmp = await mount(<OfficeChatGroupsStory initialGroups={sampleGroups} initialTab="outsource" />);
+    await cmp.getByTestId("chat-group-more-g-ui").click();
+    await page.getByTestId("chat-group-menu-autojoin").click();
+    const m = await page.getByTestId("chat-group-autojoin").evaluate((box) => {
+      const b = box.getBoundingClientRect();
+      const within = (el: Element) => {
+        const r = el.getBoundingClientRect();
+        return r.top >= b.top && r.bottom <= b.bottom;
+      };
+      const list = box.querySelector(".chat-groups__autojoin-list")!;
+      return {
+        capped: b.height <= window.innerHeight * 0.7 + 0.5,
+        title: within(box.querySelector("h2")!),
+        done: within(box.querySelector('[data-testid="chat-group-autojoin-done"]')!),
+        scrolls: list.scrollHeight > list.clientHeight,
+      };
+    });
+    expect(m).toEqual({ capped: true, title: true, done: true, scrolls });
+  });
+}
+
 test("1280px: 自動加入… opens a 400px dialog centred in the window, titled with the group, its sentence and the task types readable on an opaque card, 「目前在」 at each row's right end; a tick with ungrouped workers asks over it, and a click outside (over a worker row) only closes the question, then the dialog back to the 「⋯」, opening no chat", async ({
   mount,
   page,
@@ -1111,7 +1142,7 @@ for (const [width, reach] of [
   });
 }
 
-test("1280px: holding the 「⋯」 lifts nothing and its click opens the group menu with the group still open; Tab reaches it and Escape hands focus back", async ({
+test("1280px: a press held on the 「⋯」 lifts nothing and its release opens the group menu with the group still open; Tab reaches it and Escape hands focus back", async ({
   mount,
   page,
 }) => {
@@ -1121,7 +1152,8 @@ test("1280px: holding the 「⋯」 lifts nothing and its click opens the group 
   const b = (await more.boundingBox())!;
   await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
   await page.mouse.down();
-  await page.waitForTimeout(HOLD_MS);
+  await page.waitForTimeout(600);
+  await expect(cmp.getByTestId("chat-groups-lifted")).toHaveCount(0);
   await page.mouse.up();
   await expect(page.getByRole("menu", { name: "工程" })).toBeVisible();
   await expect(cmp.getByTestId("chat-group-heading-g-eng")).toHaveAttribute("aria-expanded", "true");

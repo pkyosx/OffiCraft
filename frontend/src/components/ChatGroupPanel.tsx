@@ -787,7 +787,7 @@ export function ChatGroupPanel({
       const on = owner?.id === group.id;
       return {
         key: tt.typeKey,
-        label: tt.displayName,
+        label: tt.displayName || tt.typeKey,
         hint: owner && !on ? msg.groupCurrentlyIn(owner.name) : undefined,
         checked: on,
         onSelect: () => {
@@ -797,7 +797,7 @@ export function ChatGroupPanel({
           const outside = on ? [] : outsideOfType(groups, workers ?? [], tt.typeKey, group.id);
           if (outside.length > 0) {
             bringInFrom.current = document.activeElement as HTMLElement | null;
-            setBringIn({ groupId: group.id, keys, typeName: tt.displayName, workers: outside });
+            setBringIn({ groupId: group.id, keys, typeName: tt.displayName || tt.typeKey, workers: outside });
             return;
           }
           update((s) => setGroupTaskTypes(s, group.id, keys));
