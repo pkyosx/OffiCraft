@@ -725,7 +725,7 @@ export const en: Dict = {
       bringInTitleMid: "” outsource workers into “",
       bringInTitleTail: "”?",
       bringInMoveTicked: "Move the ticked ones",
-      bringInDecline: "Move none, only new workers from now on",
+      bringInDecline: "Apply to new workers only",
       roleDescription: "draggable chat",
       groupRoleDescription: "draggable group",
       optionsLead: "Group options: ",
