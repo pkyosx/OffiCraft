@@ -46,6 +46,7 @@ import { codeForStatus } from "../api/errorCodes";
 // The action-error copy is asserted by VALUE, not by "is non-empty": an error
 // line saying the wrong sentence is a line that passed a non-empty check.
 import { zh } from "../i18n/locales/zh";
+import { clearLocale, useEnglishLocale } from "../test/effortOptions";
 import type {
   ChatAttachmentInput,
   LoreEntryPageView,
@@ -114,6 +115,7 @@ function rowById(container: HTMLElement, id: string): HTMLElement {
 
 beforeEach(() => {
   __resetMock();
+  clearLocale();
 });
 
 afterEach(() => {
@@ -359,18 +361,19 @@ async function scopePillFor(
 }
 
 describe("LorePage — 屬於", () => {
-  it("names the manual and jumps to it; a member names but does not jump", async () => {
+  it("names the manual, a built-in one in the UI language, and jumps to it; a member names but does not jump", async () => {
+    useEnglishLocale();
     vi.spyOn(api, "listTaskManuals").mockResolvedValue([
-      { typeKey: "review-pr", displayName: "PR 審查", purpose: "", fields: [] },
+      { typeKey: "builtin-role-design", displayName: "建立／修改角色", purpose: "", fields: [] },
     ] as never);
 
-    const manual = await scopePillFor("manual", "review-pr");
+    const manual = await scopePillFor("manual", "builtin-role-design");
     expect(manual.tagName).toBe("BUTTON");
-    expect(manual.textContent).toContain("PR 審查");
+    expect(manual.textContent).toContain("Create / edit role");
     window.location.hash = "";
     fireEvent.click(manual);
     // The SAME jump the 任務卡's 類型 chip makes.
-    expect(window.location.hash).toBe("#settings/manuals/review-pr");
+    expect(window.location.hash).toBe("#settings/manuals/builtin-role-design");
   });
 
   it("renders a member scope as plain text, never as a dead button", async () => {
@@ -1180,10 +1183,12 @@ describe("LorePage — 篩選器複選", () => {
     expect(labelOf("lore-filter-state")).toContain("所有狀態");
   });
 
-  it("offers every manual and NO members — the member axis is 撰寫人", async () => {
+  it("offers every manual, a built-in one named in the UI language, and NO members — the member axis is 撰寫人", async () => {
+    useEnglishLocale();
     vi.spyOn(api, "listTaskManuals").mockResolvedValue([
       { typeKey: "review-pr", displayName: "PR 審查", purpose: "", fields: [] },
       { typeKey: "deploy", displayName: "上線", purpose: "", fields: [] },
+      { typeKey: "builtin-role-design", displayName: "建立／修改角色", purpose: "", fields: [] },
     ] as never);
     // 🔴 A LIVE WORKER AND A STAFF MEMBER ARE STUBBED IN ON PURPOSE, and they
     // are the discriminating half of this test. The assertion below is that
@@ -1216,6 +1221,7 @@ describe("LorePage — 篩選器複選", () => {
         `[data-testid="lore-filter-belongs-opt-${value}"]`,
       )!.textContent!;
     expect(label("manual:review-pr")).toContain("PR 審查");
+    expect(label("manual:builtin-role-design")).toContain("Create / edit role");
   });
 });
 

@@ -265,10 +265,7 @@ function OutsourceRow({
           </button>
         </PresenceAvatar>
         <span className="outsource-row__body">
-          {/* line 1 — the bare codename: the tab already says 外包, and the
-           * full 「外包 · 代號」 wraps in English beside the unread slot.
-           * Every other surface (chat header, task chips, mentions, the
-           * activity dialog via memberName) keeps msg.outsourceLabel. */}
+          {/* line 1 — the bare codename; other surfaces keep msg.outsourceLabel. */}
           <span className="outsource-row__line">
             <NameWithActivity
               activity={w.activity}

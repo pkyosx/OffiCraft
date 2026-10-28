@@ -50,6 +50,7 @@ import {
   clearAllFilters,
   openDisplayOptions,
 } from "../test/tasksFilter";
+import { useEnglishLocale } from "../test/effortOptions";
 import { ApiError } from "../api/errors";
 import { codeForStatus } from "../api/errorCodes";
 import type { TaskView, TaskStepView, ReplyCard } from "../api/adapter";
@@ -484,7 +485,8 @@ describe("TasksPage", () => {
     );
   });
 
-  it("類型篩選 option shows the manual's DISPLAY name; a deleted manual's key falls back to itself (T-fa76)", async () => {
+  it("類型篩選 option shows the manual's DISPLAY name, a built-in one in the UI language; a deleted manual's key falls back to itself (T-fa76)", async () => {
+    useEnglishLocale();
     __injectMockTaskType({
       typeKey: "tm-aaaabbbbcccc",
       displayName: "審查 PR",
@@ -494,6 +496,7 @@ describe("TasksPage", () => {
       mkTask({ title: "有顯示名", typeKey: "tm-aaaabbbbcccc" })
     );
     __injectMockTask(mkTask({ title: "手冊已刪", typeKey: "gone-type" }));
+    __injectMockTask(mkTask({ title: "內建", typeKey: "builtin-role-design" }));
 
     const { findAllByTestId, getByTestId } = renderPage();
     await findAllByTestId("task-card");
@@ -505,6 +508,9 @@ describe("TasksPage", () => {
     // …and a type whose manual is gone honestly shows its raw key.
     expect(getByTestId("filter-type-opt-gone-type").textContent).toContain(
       "gone-type"
+    );
+    expect(getByTestId("filter-type-opt-builtin-role-design").textContent).toContain(
+      "Create / edit role"
     );
     // Picking by display label still filters by the underlying key.
     toggleFilter("filter-type", "tm-aaaabbbbcccc");
