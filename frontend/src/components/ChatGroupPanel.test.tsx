@@ -32,7 +32,7 @@ let setLive: (change: (l: Live) => Live) => void = () => {};
 const TYPES = [
   { typeKey: "review", displayName: "PR 審查", purpose: "" },
   { typeKey: "bugfix", displayName: "修 bug", purpose: "" },
-  { typeKey: "docs", displayName: "文件", purpose: "" },
+  { typeKey: "docs", displayName: "", purpose: "" },
 ];
 const WORKERS = [
   { id: "ow-1", taskTypeKey: "review" },
@@ -527,7 +527,7 @@ describe("ChatGroupPanel", () => {
     expect(autoJoinRows()).toEqual([
       ["PR 審查", "false"],
       ["修 bug目前在「修復」", "false"],
-      ["文件", "false"],
+      ["docs", "false"],
     ]);
     expect(document.activeElement).toBe(screen.getByTestId("chat-group-autojoin-review"));
 
@@ -540,7 +540,7 @@ describe("ChatGroupPanel", () => {
     expect(autoJoinRows()).toEqual([
       ["PR 審查", "false"],
       ["修 bug", "true"],
-      ["文件", "false"],
+      ["docs", "false"],
     ]);
     fireEvent.click(screen.getByTestId("chat-group-autojoin-bugfix"));
     expect(latest[0].taskTypeKeys).toEqual([]);
@@ -655,7 +655,7 @@ describe("ChatGroupPanel", () => {
     expect(autoJoinRows()).toEqual([
       ["PR 審查", "true"],
       ["修 bug", "false"],
-      ["文件", "false"],
+      ["docs", "false"],
     ]);
   });
 });
