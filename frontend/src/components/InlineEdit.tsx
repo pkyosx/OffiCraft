@@ -6,6 +6,8 @@ import "./inline-edit.css";
 interface InlineEditProps {
   /** Current committed value (always shown fresh in the display state). */
   value: string;
+  /** Shown instead of `value` while not editing; the field still starts from `value`. */
+  displayValue?: string;
   /** Called only for a real, non-empty change (trimmed !== value). */
   onCommit: (next: string) => void;
   placeholder?: string;
@@ -35,6 +37,7 @@ interface InlineEditProps {
  */
 export function InlineEdit({
   value,
+  displayValue = value,
   onCommit,
   placeholder,
   ariaLabel,
@@ -77,7 +80,7 @@ export function InlineEdit({
   if (!editing) {
     return (
       <span className={`inline-edit${className ? ` ${className}` : ""}`}>
-        <span className={displayClassName}>{value}</span>
+        <span className={displayClassName}>{displayValue}</span>
         <button
           type="button"
           className="inline-edit__iconbtn"

@@ -2,6 +2,7 @@ import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode, RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
+import { taskTypeLabel } from "../lib/taskTypeLabel";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
 import {
   appendMembers,
@@ -787,7 +788,7 @@ export function ChatGroupPanel({
       const on = owner?.id === group.id;
       return {
         key: tt.typeKey,
-        label: tt.displayName || tt.typeKey,
+        label: taskTypeLabel(t, tt.typeKey, tt.displayName),
         hint: owner && !on ? msg.groupCurrentlyIn(owner.name) : undefined,
         checked: on,
         onSelect: () => {
@@ -797,7 +798,7 @@ export function ChatGroupPanel({
           const outside = on ? [] : outsideOfType(groups, workers ?? [], tt.typeKey, group.id);
           if (outside.length > 0) {
             bringInFrom.current = document.activeElement as HTMLElement | null;
-            setBringIn({ groupId: group.id, keys, typeName: tt.displayName || tt.typeKey, workers: outside });
+            setBringIn({ groupId: group.id, keys, typeName: taskTypeLabel(t, tt.typeKey, tt.displayName), workers: outside });
             return;
           }
           update((s) => setGroupTaskTypes(s, group.id, keys));

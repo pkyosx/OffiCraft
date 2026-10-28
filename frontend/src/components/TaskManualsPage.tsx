@@ -38,6 +38,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useI18n } from "../i18n";
+import { taskTypeLabel } from "../lib/taskTypeLabel";
 import { effortText } from "../i18n/compose";
 import type { Effort, Member } from "../types";
 import type {
@@ -164,7 +165,7 @@ export function TaskManualsList({
           >
             <span className="set-entry__body">
               <span className="set-entry__name manual-key">
-                {m.displayName || m.typeKey}
+                {taskTypeLabel(t, m.typeKey, m.displayName)}
               </span>
             </span>
             <ChevronRightIcon size={18} className="set-entry__chev" />
@@ -323,8 +324,11 @@ export function TaskManualsList({
           danger
           // The modal names the type by its DISPLAY face (fallback = key).
           body={msg.deleteManualConfirm(
-            manuals.find((m) => m.typeKey === confirmKey)?.displayName ||
-              confirmKey
+            taskTypeLabel(
+              t,
+              confirmKey,
+              manuals.find((m) => m.typeKey === confirmKey)?.displayName ?? ""
+            )
           )}
           error={deleteError}
           busy={deleteBusy}
@@ -368,12 +372,14 @@ export function TaskManualHub({
     <div className="settings">
       <Breadcrumbs items={crumbs} />
       {/* 顯示名稱 — edited IN PLACE on the title (owner T-8a4a), the SAME pencil
-       * inline-edit affordance as the 角色設定 role title. Value shows the
-       * display name (or the typeKey when unset); commit patches displayName.
+       * inline-edit affordance as the 角色設定 role title. The field edits the
+       * stored display name (or the typeKey when unset), never the translated
+       * built-in label; commit patches displayName.
        * This is the ONLY rename affordance now (moved out of 任務定義). */}
       <h1 className="settings__title settings__title--doc">
         <InlineEdit
           value={manual.displayName || manual.typeKey}
+          displayValue={taskTypeLabel(t, manual.typeKey, manual.displayName)}
           onCommit={(next) => void onSave({ displayName: next })}
           ariaLabel={t.settings.manualDisplayName}
           placeholder={t.settings.manualDisplayNamePlaceholder}

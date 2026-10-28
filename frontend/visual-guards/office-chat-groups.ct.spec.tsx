@@ -842,7 +842,24 @@ test("1280px: on the 外包 tab 篩選 reads each worker's own unread, presence 
     "閒置0",
   ]);
   await page.getByTestId("chat-filter-search").fill("lessons");
-  expect(await cmp.locator(".outsource-row__codename").allTextContents()).toEqual(["外包 · O-153"]);
+  expect(await cmp.locator(".outsource-row__codename").allTextContents()).toEqual(["O-153"]);
+});
+
+test("1280px English: a grouped outsource row names the worker by its codename alone, on one line", async ({
+  mount,
+  page,
+}) => {
+  await page.evaluate(() => localStorage.setItem("oc.language", "en"));
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const cmp = await mount(<OfficeChatGroupsStory initialGroups={sampleGroups} initialTab="outsource" />);
+  const name = cmp.getByTestId("outsource-row-ow-a18f").locator(".outsource-row__codename");
+  await expect(name).toHaveText("O-161");
+  const lines = await name.evaluate((el) => {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    return new Set(Array.from(range.getClientRects(), (r) => Math.round(r.top))).size;
+  });
+  expect(lines).toBe(1);
 });
 
 test("from the keyboard, Space lifts a member, ArrowUp moves it and Enter drops it there without opening its chat", async ({

@@ -74,6 +74,7 @@ import {
   type ReactNode,
 } from "react";
 import { useI18n } from "../i18n";
+import { taskTypeLabel } from "../lib/taskTypeLabel";
 import { api, viewerMaySetLoreScope } from "../api";
 import type {
   ChatAttachmentInput,
@@ -629,7 +630,7 @@ export function LorePage({
         const m = manuals.find((x) => x.typeKey === entry.scopeKey);
         return {
           kind: "manual",
-          label: m?.displayName || entry.scopeKey,
+          label: taskTypeLabel(t, entry.scopeKey, m?.displayName ?? ""),
           manualKey: entry.scopeKey,
         };
       }
@@ -644,14 +645,16 @@ export function LorePage({
         manualKey: "",
       };
     },
-    [manuals, resolveAuthor, t.lore.scopeUnknown, t.lore.scopeEveryone]
+    [manuals, resolveAuthor, t]
   );
 
   const resolveScopeMenu = useCallback(
     (entry: LoreEntryView): ScopeMenu => {
-      const manualName =
-        manuals.find((x) => x.typeKey === entry.taskTypeKey)?.displayName ||
-        entry.taskTypeKey;
+      const manualName = taskTypeLabel(
+        t,
+        entry.taskTypeKey,
+        manuals.find((x) => x.typeKey === entry.taskTypeKey)?.displayName ?? ""
+      );
       const authorName = resolveAuthor(entry.authorId).text;
       const choices = entry.scopeOptions.map(
         (kind): ScopeChoice => ({
@@ -668,7 +671,7 @@ export function LorePage({
         entry.sourceTaskId !== "" && entry.taskTypeKey !== "" ? "manual" : "agent";
       return { choices, defaultKind };
     },
-    [manuals, resolveAuthor, msg, t.lore.scopeEveryone]
+    [manuals, resolveAuthor, msg, t]
   );
 
   const authorAvatar = useCallback(
@@ -808,7 +811,7 @@ export function LorePage({
       : soleKind === "manual"
         ? t.lore.scopeKindManual +
           t.lore.capLineSep +
-          (manuals.find((x) => x.typeKey === soleKey)?.displayName || soleKey)
+          taskTypeLabel(t, soleKey, manuals.find((x) => x.typeKey === soleKey)?.displayName ?? "")
         : t.lore.scopeKindAgent +
           t.lore.capLineSep +
           resolveAuthor(soleKey).text;
@@ -824,7 +827,7 @@ export function LorePage({
   // `ticksOfKind`).
   const belongsOptions = manuals.map((m) => ({
     value: belongsValue("manual", m.typeKey),
-    label: m.displayName || m.typeKey,
+    label: taskTypeLabel(t, m.typeKey, m.displayName),
   }));
   // 🔴 THE LIVE ROSTER, BUILT ONCE AND READ BY TWO CONTROLS. 撰寫人 and
   // 成員傳承 offer the SAME people — they differ in which wire axis the tick

@@ -29,6 +29,7 @@
 // panel itself has NO management actions (the server owns assignment).
 
 import { useI18n } from "../i18n";
+import { taskTypeLabel } from "../lib/taskTypeLabel";
 import { useWindowActive } from "../hooks/useWindowActive";
 import type { OutsourceWorkerView } from "../api/adapter";
 import { Avatar } from "./Avatar";
@@ -99,7 +100,7 @@ export function OutsourceTaskLine({
         className="outsource-row__type"
         data-testid={`${idPrefix}-type-${w.id}`}
       >
-        {w.taskTypeName || w.taskTypeKey || t.tasks.adhoc}
+        {taskTypeLabel(t, w.taskTypeKey ?? "", w.taskTypeName ?? "") || t.tasks.adhoc}
       </span>
     </span>
   );
@@ -175,7 +176,10 @@ export function OutsourcePanel({
             return {
               presence: presenceVisual(w.presence),
               activity: shownActivity(w.activity, w.presence)?.state ?? null,
-              names: [msg.outsourceLabel(w.codename), w.taskTypeName || w.taskTypeKey || t.tasks.adhoc],
+              names: [
+                msg.outsourceLabel(w.codename),
+                taskTypeLabel(t, w.taskTypeKey ?? "", w.taskTypeName ?? "") || t.tasks.adhoc,
+              ],
             };
           }}
           renderRow={(id, sortable) => <OutsourceRow {...rowProps(byId.get(id)!)} sortable={sortable} />}
@@ -261,8 +265,10 @@ function OutsourceRow({
           </button>
         </PresenceAvatar>
         <span className="outsource-row__body">
-          {/* line 1 — the worker's name (代號; an outsource has no
-           * other name), mirroring the member card's name line. */}
+          {/* line 1 — the bare codename: the tab already says 外包, and the
+           * full 「外包 · 代號」 wraps in English beside the unread slot.
+           * Every other surface (chat header, task chips, mentions, the
+           * activity dialog via memberName) keeps msg.outsourceLabel. */}
           <span className="outsource-row__line">
             <NameWithActivity
               activity={w.activity}
@@ -271,9 +277,7 @@ function OutsourceRow({
               testId={`activity-icon-${w.id}`}
               layout="list"
             >
-              <span className="outsource-row__codename">
-                {msg.outsourceLabel(w.codename)}
-              </span>
+              <span className="outsource-row__codename">{w.codename}</span>
             </NameWithActivity>
           </span>
           {/* line 2 — the shared OutsourceTaskLine (the worker chat

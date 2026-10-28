@@ -262,6 +262,10 @@ export const en: Dict = {
     outsource: "Outsource",
     unassigned: "Unassigned",
     adhoc: "Ad-hoc",
+    builtinTypeName: {
+      roleDesign: "Create / edit role",
+      taskManualDesign: "Create / edit task manual",
+    },
     // Card-head label column (T-705e): equal-width labels, chip values. The
     // ☑ #<task id> badge sits on the badge row (v2) — no field label.
     typeLabel: "Task type",
@@ -765,11 +769,11 @@ export const en: Dict = {
       // (omitted when settings are not loaded).
       workerSub: (n: number) => `${n} ${n === 1 ? "person" : "people"}`,
       capSuffix: (cap: string) => ` · cap ${cap}`,
-      // Single source of the outsource identity label (T-3ed8): chat header /
-      // sender label, task-card chips, sidebar 外包 row and monitor session row
-      // all render through compose.ts's outsourceLabel, which composes THIS
-      // title so 「Outsource · 代號」never drifts (T-081b removed the second,
-      // identically-worded template that used to live here).
+      // compose.ts's outsourceLabel composes THIS title into the one outsource
+      // identity label 「Outsource · 代號」 (chat header / sender label,
+      // task-card chips, monitor session row). The one exception, an owner
+      // ruling: the sidebar 外包 tab's rows show the bare codename — the tab
+      // already says Outsource, and the full label wraps there in English.
       paused: "Assignment paused",
       capTitle: "Outsource cap",
       capHint:

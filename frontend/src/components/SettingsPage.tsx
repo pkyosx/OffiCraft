@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useRef, useState, type FocusEvent, type ReactNode } from "react";
 import { useI18n } from "../i18n";
+import { taskTypeLabel } from "../lib/taskTypeLabel";
 import type { Dict } from "../i18n/locales/zh";
 import type {
   BootDocKind,
@@ -651,7 +652,7 @@ export function SettingsPage({
           // T-fa76: the crumb shows the human label (mono only when falling
           // back to the raw type_key).
           {
-            label: manual.displayName || manual.typeKey,
+            label: taskTypeLabel(t, manual.typeKey, manual.displayName),
             mono: !manual.displayName,
           },
         ]}
@@ -684,7 +685,7 @@ export function SettingsPage({
       crumbRoot,
       { label: t.settings.manuals, onClick: () => setView({ kind: "manuals" }) },
       {
-        label: manual.displayName || manual.typeKey,
+        label: taskTypeLabel(t, manual.typeKey, manual.displayName),
         mono: !manual.displayName,
         onClick: () => setView({ kind: "manual", key }),
       },
