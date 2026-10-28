@@ -42,6 +42,7 @@ import {
   useEnglishLocale,
 } from "../test/effortOptions";
 import type { TaskManualView, TaskView } from "../api/adapter";
+import { en } from "../i18n/locales/en";
 
 let seq = 0;
 
@@ -145,6 +146,25 @@ describe("設定 › 任務手冊 — list", () => {
     }
     expect(queryByTestId("manual-group-custom")).toBeNull();
     expect(queryByTestId("manuals-empty")).toBeNull();
+  });
+
+  it("in English names the built-in manuals in English on the list, the hub title and its crumb, while renaming starts from the stored name; a renamed one shows as stored", async () => {
+    useEnglishLocale();
+    await api.updateTaskManual("builtin-role-design", { displayName: "Hire a role" });
+    const { findByTestId, findByLabelText, container } = await renderManualsList();
+    const builtin = (await findByTestId("manual-group-builtin")).parentElement as HTMLElement;
+    expect(
+      [...builtin.querySelectorAll(".set-entry__name")].map((n) => n.textContent)
+    ).toEqual(["Hire a role", "Create / edit task manual"]);
+
+    fireEvent.click(await findByTestId("manual-open-builtin-task-manual-design"));
+    const title = container.querySelector("h1.settings__title") as HTMLElement;
+    await waitFor(() => expect(title.textContent).toBe("Create / edit task manual"));
+    expect(container.querySelector("nav.crumbs")?.textContent).toContain("Create / edit task manual");
+    fireEvent.click(await findByLabelText(en.settings.manualDisplayName));
+    expect((container.querySelector("input.inline-edit__input") as HTMLInputElement).value).toBe(
+      "建立／修改任務手冊"
+    );
   });
 
   it("says the list is empty, with no group headings, when the server lists nothing", async () => {

@@ -852,8 +852,8 @@ describe("WorkerDetailPanel — identity card matches the worker chat header", (
     );
     const { findByTestId, findByText, unmount } = renderOfficeAt("#office/worker/ow-1");
     const header = await findByTestId("worker-detail-task-line-ow-1");
-    // The codename line shows the outsource identity label 「外包 · 代號」,
-    // matching the sidebar 外包 row (T-3ed8, owner 2026-07-20 完全一致).
+    // The codename line shows the full outsource identity label 「外包 · 代號」
+    // (only the sidebar row drops the 外包 prefix).
     await findByText("外包 · O-19");
     expect((await findByTestId("worker-detail-task-ow-1")).textContent).toBe("T-e9f4");
     // The task line is the chat header's: chip then the short type label.

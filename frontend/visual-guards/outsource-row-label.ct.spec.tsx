@@ -1,15 +1,14 @@
-// HOTSPOT — 外包 side row shows 「外包 · 代號」 (T-3ed8) and stays inside the rail.
+// HOTSPOT — 外包 side row shows the bare codename and stays inside the rail.
 //
-// Line 1 of an outsource row widened from the bare codename ("O-30") to the
-// outsource identity label ("外包 · O-30"). The rail is a fixed 264px grid
-// track (.office__members); a label that spilled past its right edge, or forced
-// a page-level horizontal scrollbar, is a CSS-layout regression jsdom cannot
-// see. Measured here in a real browser at desktop AND phone widths.
+// The rail is a fixed 264px grid track (.office__members); a line 1 that
+// spilled past its right edge, or forced a page-level horizontal scrollbar, is
+// a CSS-layout regression jsdom cannot see. Measured here in a real browser at
+// desktop AND phone widths.
 import { test, expect } from "@playwright/experimental-ct-react";
 import { OutsourceRowLabelStory } from "./stories/OutsourceRowLabelStory";
 
 for (const width of [1280, 390]) {
-  test(`width ${width}: 外包 rows show 「外包 · 代號」 and never overflow the rail`, async ({
+  test(`width ${width}: 外包 rows show the bare codename and never overflow the rail`, async ({
     mount,
     page,
   }) => {
@@ -20,11 +19,8 @@ for (const width of [1280, 390]) {
     const n = await rows.count();
     expect(n).toBeGreaterThan(0);
 
-    // (1) the label is the 「外包 · 代號」 form, not the bare codename — the
-    // behavior this guard exists to hold.
-    await expect(rows.first().locator(".outsource-row__codename")).toHaveText(
-      "外包 · O-30"
-    );
+    // (1) the tab already says 外包, so line 1 is the codename alone.
+    await expect(rows.first().locator(".outsource-row__codename")).toHaveText("O-30");
 
     // (2) every row stays within the rail's right edge (no line-1 blow-out).
     const rail = cmp.locator(".office__members");

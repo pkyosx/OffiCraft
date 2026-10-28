@@ -1,12 +1,11 @@
 // CT story: the office rail's 外包 worker LIST rows in their REAL layout.
 //
-// T-3ed8 (owner 2026-07-20 裁決 ②): line 1 of an outsource row now renders the
-// outsource identity label 「外包 · 代號」 (was the bare codename). That widened
-// line-1 lives in the SAME fixed-width rail as the roster (.office__members, a
-// 264px grid track). jsdom resolves no grid, so a row whose label spilled past
-// the rail's right edge, or forced a page-level horizontal scrollbar, is
-// invisible to the unit suite — this story reproduces the real rail skeleton
-// (the classes OfficePage emits) and fills it with the REAL <OutsourcePanel>.
+// Line 1 of an outsource row lives in the SAME fixed-width rail as the roster
+// (.office__members, a 264px grid track). jsdom resolves no grid, so a row that
+// spilled past the rail's right edge, or forced a page-level horizontal
+// scrollbar, is invisible to the unit suite — this story reproduces the real
+// rail skeleton (the classes OfficePage emits) and fills it with the REAL
+// <OutsourcePanel>.
 import { I18nProvider } from "../../src/i18n";
 import { OutsourcePanel } from "../../src/components/OutsourcePanel";
 import type { OutsourceWorkerView } from "../../src/api/adapter";

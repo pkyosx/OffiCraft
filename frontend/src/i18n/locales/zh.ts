@@ -264,6 +264,12 @@ export const zh = {
     outsource: "外包",
     unassigned: "未指派",
     adhoc: "自由代辦",
+    // 這兩個值必須逐字等於 server 出貨的內建任務類型名稱（assets.go）：
+    // taskTypeLabel 只在存的名稱仍是出貨原名時才換成目前語系的這一格。
+    builtinTypeName: {
+      roleDesign: "建立／修改角色",
+      taskManualDesign: "建立／修改任務手冊",
+    },
     // 卡頭 label column(T-705e):欄名等寬對齊,值以 chip 呈現。☑ #任務編號
     // 徽章移居徽章列(v2),不再帶欄名。
     typeLabel: "任務類型",
@@ -804,10 +810,10 @@ export const zh = {
       // tab 下小字計數:外包「N 人」+「· 上限 M」後綴(cap 未載到則省略後綴)。
       workerSub: (n: number) => `${n} 人`,
       capSuffix: (cap: string) => ` · 上限 ${cap}`,
-      // 外包身分標籤的單一來源(T-3ed8,owner 2026-07-20 裁決 完全一致):聊天
-      // header/寄件者標籤、任務卡 chip、側欄外包列、監控頁 session 全走這支
-      // (compose.ts 的 outsourceLabel,「外包 · 代號」四處一致、不漂移)——
-      // T-081b 起那支直接組上面的 title,不再另存一份同字的模板。
+      // 外包身分標籤「外包 · 代號」的單一來源是 compose.ts 的 outsourceLabel(直接組
+      // 上面的 title,不另存同字模板):聊天 header/寄件者標籤、任務卡 chip、
+      // 監控頁 session 全走它。唯一例外(owner 裁定):側欄外包分頁的列只顯示
+      // 代號——分頁本身已寫「外包」,英文的完整標籤在側欄會換行。
       // 並行上限;0 ＝ 暫停指派（要註明）
       paused: "已暫停指派",
       // 上限 popover（照 seth-member-2 mockup，owner 2026-07-13）；

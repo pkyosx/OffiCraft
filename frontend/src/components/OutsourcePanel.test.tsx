@@ -39,6 +39,7 @@ import {
 } from "../api/mock";
 import { api } from "../api";
 import type { TaskView, OutsourceWorkerView } from "../api/adapter";
+import { clearLocale, useEnglishLocale } from "../test/effortOptions";
 
 let seq = 0;
 
@@ -104,6 +105,7 @@ function renderOutsource() {
 
 beforeEach(() => {
   __resetMock();
+  clearLocale();
   window.location.hash = "";
   // jsdom has no scrollIntoView; ChatArea's entry positioning calls it once a
   // thread renders (the worker-chat tests) — stub like the ChatArea suites.
@@ -111,7 +113,7 @@ beforeEach(() => {
 });
 
 describe("OutsourcePanel", () => {
-  it("renders the avatar with its corner presence 點, 代號 / [task-id chip → task type] one line + the task TITLE line (T-3451) — NO model·識別鍵·狀態字", async () => {
+  it("renders the avatar with its corner presence 點, 代號 / [task-id chip → task type] one line + the task TITLE line (T-3451) — NO model·識別鍵·狀態字; a built-in type reads in English in the English UI", async () => {
     const now = Date.now() / 1000;
     const task = mkTask({
       id: "t-a",
@@ -134,11 +136,10 @@ describe("OutsourcePanel", () => {
       })
     );
 
-    const { findByTestId } = renderOutsource();
+    const { findByTestId, unmount } = renderOutsource();
     const row = await findByTestId("outsource-row-ow-a");
-    // line 1 — the worker's name is the outsource identity label 「外包 · 代號」
-    // (T-3ed8, owner 2026-07-20: consistent with the chat header / task chips).
-    expect(row.textContent).toContain("外包 · O-7");
+    // line 1 is the bare codename; the activity dialog and chat header keep 「外包 · 代號」.
+    expect(row.querySelector(".outsource-row__codename")!.textContent).toBe("O-7");
     // The PRESENCE dot is on the avatar's corner (PresenceAvatar, the same on
     // every identity surface), beside the detail button rather than inside it;
     // line 2 is the task-id chip then the bound task's TYPE.
@@ -173,6 +174,13 @@ describe("OutsourcePanel", () => {
     expect(row.textContent).not.toContain("Opus");
     expect(row.textContent).not.toContain("github.com");
     expect(row.textContent).not.toContain("進行中");
+
+    unmount();
+    useEnglishLocale();
+    __injectMockTask(mkTask({ id: "t-b", typeKey: "builtin-role-design" }));
+    __injectMockOutsourceWorker(mkWorker({ id: "ow-b", taskId: "t-b" }));
+    renderOutsource();
+    expect((await screen.findByTestId("outsource-type-ow-b")).textContent).toBe("Create / edit role");
   });
 
   // ── presence dot (T-59d6) ────────────────────────────────────────────────
@@ -248,7 +256,7 @@ describe("OutsourcePanel", () => {
 
     const { findByTestId, queryByTestId } = renderOutsource();
     const icon = await findByTestId("activity-icon-ow-busy");
-    expect(icon.nextElementSibling!.textContent).toBe("外包 · B-1");
+    expect(icon.nextElementSibling!.textContent).toBe("B-1");
     expect(icon.getAttribute("aria-label")).toBe("等待中，查看運行狀況");
     fireEvent.mouseEnter(icon);
     expect(screen.getByRole("tooltip").textContent).toBe(
@@ -261,14 +269,14 @@ describe("OutsourcePanel", () => {
     expect(moon.tagName).toBe("SPAN");
     expect(moon.hasAttribute("tabindex")).toBe(false);
     expect(moon.querySelector(".activity-icon__glyph--offline svg")).not.toBeNull();
-    expect(moon.nextElementSibling!.textContent).toBe("外包 · C-1");
+    expect(moon.nextElementSibling!.textContent).toBe("C-1");
     fireEvent.mouseEnter(moon);
     expect(screen.getByRole("tooltip").textContent).toBe("離線");
     fireEvent.mouseLeave(moon);
     expect(queryByTestId("activity-icon-ow-none")).toBeNull();
     const noPresenceMoon = await findByTestId("activity-icon-ow-none-offline");
     expect(noPresenceMoon.querySelector(".activity-icon__glyph--offline svg")).not.toBeNull();
-    expect(noPresenceMoon.nextElementSibling!.textContent).toBe("外包 · E-1");
+    expect(noPresenceMoon.nextElementSibling!.textContent).toBe("E-1");
     fireEvent.mouseEnter(noPresenceMoon);
     expect(screen.getByRole("tooltip").textContent).toBe("離線");
     expect(queryByTestId("activity-icon-ow-quiet")).toBeNull();
@@ -278,7 +286,7 @@ describe("OutsourcePanel", () => {
     expect(unknown.tagName).toBe("SPAN");
     expect(unknown.hasAttribute("tabindex")).toBe(false);
     expect(unknown.querySelector(".activity-icon__glyph--unknown svg")).not.toBeNull();
-    expect(unknown.nextElementSibling!.textContent).toBe("外包 · D-1");
+    expect(unknown.nextElementSibling!.textContent).toBe("D-1");
     fireEvent.mouseEnter(unknown);
     expect(screen.getByRole("tooltip").textContent).toBe("狀態未知");
   });

@@ -33,6 +33,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { useI18n } from "../i18n";
+import { taskTypeLabel } from "../lib/taskTypeLabel";
 import { useNowSeconds } from "../hooks/useNowSeconds";
 import {
   effectiveLeadMinutes,
@@ -550,7 +551,7 @@ export function TasksPage() {
   const typeNames = new Map(
     taskTypes
       .filter((x) => x.displayName !== "")
-      .map((x) => [x.typeKey, x.displayName])
+      .map((x) => [x.typeKey, taskTypeLabel(t, x.typeKey, x.displayName)])
   );
 
   // The executor key a task filters under (mirrors matchesExecutor's mapping).

@@ -5,6 +5,7 @@ import { I18nProvider } from "../i18n";
 import { ChatGroupPanel } from "./ChatGroupPanel";
 import type { ChatGroup, ChatTab } from "../lib/chatGroups";
 import type { RowFacts } from "../lib/chatFilter";
+import { useEnglishLocale } from "../test/effortOptions";
 
 const NAMES: Record<string, string> = {
   mira: "Mira",
@@ -44,7 +45,19 @@ let latest: readonly ChatGroup[] = [];
 // Each update is one save (useChatGroups sends one PUT per update).
 let saves = 0;
 
-function Harness({ tab, ids, initial }: { tab: ChatTab; ids: string[]; initial: ChatGroup[] }) {
+function Harness({
+  tab,
+  ids,
+  initial,
+  types = TYPES,
+  workers = WORKERS,
+}: {
+  tab: ChatTab;
+  ids: string[];
+  initial: ChatGroup[];
+  types?: typeof TYPES;
+  workers?: typeof WORKERS;
+}) {
   const [groups, setGroups] = useState<readonly ChatGroup[]>(initial);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [live, changeLive] = useState(LIVE);
@@ -71,8 +84,8 @@ function Harness({ tab, ids, initial }: { tab: ChatTab; ids: string[]; initial: 
       collapsed={collapsed}
       onCollapsedChange={setCollapsed}
       mobile={false}
-      taskTypes={TYPES}
-      workers={WORKERS}
+      taskTypes={types}
+      workers={workers}
       className="list"
       testId="list"
       renderRow={(id, row) => (
@@ -100,10 +113,15 @@ const g = (id: string, tab: ChatTab, name: string, memberIds: string[], taskType
   taskTypeKeys,
 });
 
-function mount(tab: ChatTab, ids: string[], initial: ChatGroup[] = []) {
+function mount(
+  tab: ChatTab,
+  ids: string[],
+  initial: ChatGroup[] = [],
+  data: { types?: typeof TYPES; workers?: typeof WORKERS } = {},
+) {
   return render(
     <I18nProvider>
-      <Harness tab={tab} ids={ids} initial={initial} />
+      <Harness tab={tab} ids={ids} initial={initial} {...data} />
     </I18nProvider>,
   );
 }
@@ -657,5 +675,20 @@ describe("ChatGroupPanel", () => {
       ["修 bug", "false"],
       ["docs", "false"],
     ]);
+  });
+
+  it("in English names a built-in task type in English in the 自動加入 list and in the move-in question", () => {
+    useEnglishLocale();
+    mount("outsource", ["ow-1"], [g("x", "outsource", "Design", [])], {
+      types: [{ typeKey: "builtin-role-design", displayName: "建立／修改角色", purpose: "" }],
+      workers: [{ id: "ow-1", taskTypeKey: "builtin-role-design" }],
+    });
+    fireEvent.click(screen.getByTestId("chat-group-more-x"));
+    fireEvent.click(screen.getByTestId("chat-group-menu-autojoin"));
+    expect(autoJoinRows()).toEqual([["Create / edit role", "false"]]);
+    fireEvent.click(screen.getByTestId("chat-group-autojoin-builtin-role-design"));
+    expect(within(screen.getByTestId("chat-groups-bring-in")).getByRole("heading").textContent).toBe(
+      "Move the current “Create / edit role” outsource workers into “Design”?",
+    );
   });
 });

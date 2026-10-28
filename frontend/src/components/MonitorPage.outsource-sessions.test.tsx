@@ -27,6 +27,7 @@ import { I18nProvider } from "../i18n";
 import { MonitorPage } from "./MonitorPage";
 import type { Member, MonSessionView } from "../types";
 import type { OutsourceWorkerView } from "../api/adapter";
+import { clearLocale, useEnglishLocale } from "../test/effortOptions";
 
 const listMembers = vi.fn(async (): Promise<Member[]> => []);
 const getMonitoring = vi.fn(async () => ({
@@ -105,6 +106,7 @@ describe("MonitorPage AI Sessions — outsource workers", () => {
     listMembers.mockResolvedValue([]);
     getMonitoring.mockResolvedValue({ accounts: [], sessions: [], machines: [] });
     listOutsourceWorkers.mockResolvedValue([]);
+    clearLocale();
     // Routing rides on the real window.location.hash (lib/hashRoute.ts) — reset
     // it so a route left by a previous test cannot leak into the next.
     window.location.hash = "";
@@ -200,6 +202,23 @@ describe("MonitorPage AI Sessions — outsource workers", () => {
     const dashCells = within(row).getAllByText("—");
     // machine, account, model, context, est.$, and the task-context sub-line
     expect(dashCells.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("in English names an untitled task by its built-in type in English, ahead of the task number", async () => {
+    useEnglishLocale();
+    listOutsourceWorkers.mockResolvedValue([
+      worker({
+        taskTitle: "",
+        taskTypeKey: "builtin-role-design",
+        taskTypeName: "建立／修改角色",
+        taskNo: "T-1",
+      }),
+    ]);
+    renderMonitor();
+
+    const row = await screen.findByTestId("mon-outsource-row");
+    expect(within(row).getByText("Create / edit role")).toBeTruthy();
+    expect(within(row).queryByText("T-1")).toBeNull();
   });
 
   it("adds outsource rows WITHOUT disturbing the existing member rows", async () => {

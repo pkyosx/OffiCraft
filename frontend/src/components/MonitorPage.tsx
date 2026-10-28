@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { useI18n } from "../i18n";
+import { taskTypeLabel } from "../lib/taskTypeLabel";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
 import { api } from "../api";
 import { ApiError } from "../api/errors";
@@ -2533,10 +2534,13 @@ function OutsourceSessionRow({
   const { t } = useI18n();
 
   // Task context for the sub-line: the bound task's title first, then its type
-  // name, then the task number (the full id since T-5291, not a four-hex short
-  // form) — honest dash when none resolved. Not a sortable column.
+  // label (the type key when the name is empty), then the task number — honest
+  // dash when none resolved. Not a sortable column.
   const context =
-    worker.taskTitle || worker.taskTypeName || worker.taskNo || dash;
+    worker.taskTitle ||
+    taskTypeLabel(t, worker.taskTypeKey ?? "", worker.taskTypeName ?? "") ||
+    worker.taskNo ||
+    dash;
 
   return (
     <tr
