@@ -587,6 +587,21 @@ func TestModelCallWarningPushes(t *testing.T) {
 		f.wantModelCall(t, "m-bob", t0+20)
 	})
 
+	t.Run("a success on the limited account by a member whose last success was on another account patches the account's members", func(t *testing.T) {
+		f := newModelCallFixture(t)
+		ann := f.staff(t, Member{ID: "m-ann"}, "", "acct-2")
+		bob := f.staff(t, Member{ID: "m-bob", Runtime: RuntimeCodex}, "", "acct-1")
+		f.report(t, bob, `{"runtime":"codex","account":"acct-1"}`)
+		f.fail(t, bob, t0+10, "rate_limit", "rate_limit", t0+3600)
+		f.succeed(t, ann, t0+30)
+		f.report(t, ann, `{"runtime":"codex","account":"acct-1"}`)
+		dashboard := apiTestListen(t, f.api, "")
+
+		f.succeed(t, ann, t0+40)
+		dashboard.wantFrames(modelCallMonitoringSignal("m-ann", "m-ann"), modelCallPatch("m-bob", "m-ann"))
+		f.wantModelCall(t, "m-bob", 0)
+	})
+
 	t.Run("the reset time of a usage limit patches the account's members and signals monitoring once, past the reset", func(t *testing.T) {
 		f := newModelCallFixture(t)
 		ann := f.staff(t, Member{ID: "m-ann"}, "", "acct-1")

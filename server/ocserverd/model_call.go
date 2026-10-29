@@ -65,10 +65,8 @@ func validModelCallReport(report *ModelCallReportDTO) bool {
 // report's account pairing is applied: the failure is pinned to that pairing.
 func mergeModelCall(entry map[string]any, report *ModelCallReportDTO) (bool, *modelCallFailureDTO) {
 	changed := false
-	if report.LastSuccessTs != nil {
-		recordAccountSuccess(entry, *report.LastSuccessTs)
-	}
 	if report.LastSuccessTs != nil && *report.LastSuccessTs > modelCallSuccessOf(entry) {
+		recordAccountSuccess(entry, *report.LastSuccessTs)
 		entry[modelCallSuccessKey] = *report.LastSuccessTs
 		changed = true
 	}
@@ -251,6 +249,11 @@ func (s *apiServer) modelCallMayChangeWarnings(entry map[string]any, report *Mod
 	account, _ := entry["account"].(string)
 	if account == "" {
 		return false
+	}
+	// The account's own record can be older than the member's newest success,
+	// which may have been on another account.
+	if ts := modelCallAccountSuccessesOf(entry)[account]; ts < since {
+		since = ts
 	}
 	now := s.modelCallClock()
 	return s.telemetry.Any(func(other map[string]any) bool {
