@@ -234,6 +234,62 @@ func TestModelCallWarnings(t *testing.T) {
 		apiWantValue(t, "acct-1.limit_reached", f.accountLimit(t, "acct-1"), nil)
 	})
 
+	t.Run("a usage limit stays on the account it was hit on, and only there, while its members move to another runtime and account", func(t *testing.T) {
+		f := newModelCallFixture(t)
+		x := f.staff(t, Member{ID: "m-x", Runtime: RuntimeCodex}, "", "acct-codex")
+		peer := f.staff(t, Member{ID: "m-peer", Runtime: RuntimeCodex}, "", "acct-codex")
+		for _, token := range []string{x, peer} {
+			f.report(t, token, `{"runtime":"codex","account":"acct-codex"}`)
+		}
+		f.staff(t, Member{ID: "m-cat"}, "", "acct-claude")
+		codexWarning := func(accountWide bool) map[string]any {
+			w := modelCallWarning("rate_limit", "usageLimitExceeded", t0+10, t0+3600, accountWide)
+			w["runtime"] = RuntimeCodex
+			return w
+		}
+		codexLimit := map[string]any{"code": "usageLimitExceeded", "kind": "rate_limit", "resets_at": t0 + 3600, "ts": t0 + 10}
+		moveToClaude := func(id, token string) {
+			f.report(t, token, `{"runtime":"claude","account":"acct-claude"}`)
+			if err := f.api.dal.SetMemberRuntime(id, RuntimeClaude); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		f.fail(t, x, t0+10, "rate_limit", "usageLimitExceeded", t0+3600)
+		f.wantModelCall(t, "m-x", 0, codexWarning(false))
+
+		moveToClaude("m-x", x)
+		f.wantModelCall(t, "m-x", 0)
+		f.wantModelCall(t, "m-cat", 0)
+		apiWantValue(t, "acct-claude.limit_reached", f.accountLimit(t, "acct-claude"), nil)
+		f.wantModelCall(t, "m-peer", 0, codexWarning(true))
+		apiWantValue(t, "acct-codex.limit_reached", f.accountLimit(t, "acct-codex"), any(codexLimit))
+
+		moveToClaude("m-peer", peer)
+		f.wantModelCall(t, "m-peer", 0)
+		apiWantValue(t, "acct-claude.limit_reached", f.accountLimit(t, "acct-claude"), nil)
+		apiWantValue(t, "acct-codex.limit_reached", f.accountLimit(t, "acct-codex"), any(codexLimit))
+	})
+
+	t.Run("a member's runtime switch reported before its roster row follows leaves the usage limit on the account it was hit on", func(t *testing.T) {
+		f := newModelCallFixture(t)
+		x := f.staff(t, Member{ID: "m-x", Runtime: RuntimeCodex}, "", "acct-codex")
+		peer := f.staff(t, Member{ID: "m-peer", Runtime: RuntimeCodex}, "", "acct-codex")
+		for _, token := range []string{x, peer} {
+			f.report(t, token, `{"runtime":"codex","account":"acct-codex"}`)
+		}
+		f.fail(t, x, t0+10, "rate_limit", "usageLimitExceeded", t0+3600)
+
+		f.report(t, x, `{"runtime":"claude","account":"acct-claude"}`)
+		f.wantModelCall(t, "m-x", 0)
+		w := modelCallWarning("rate_limit", "usageLimitExceeded", t0+10, t0+3600, true)
+		w["runtime"] = RuntimeCodex
+		f.wantModelCall(t, "m-peer", 0, w)
+		apiWantValue(t, "acct-codex.limit_reached", f.accountLimit(t, "acct-codex"), any(map[string]any{
+			"code": "usageLimitExceeded", "kind": "rate_limit", "resets_at": t0 + 3600, "ts": t0 + 10,
+		}))
+	})
+
 	t.Run("a usage limit without a reset time stays on the member that hit it", func(t *testing.T) {
 		f := newModelCallFixture(t)
 		ann := f.staff(t, Member{ID: "m-ann"}, "", "acct-1")
@@ -476,6 +532,22 @@ func TestModelCallWarningPushes(t *testing.T) {
 		f.succeed(t, bob, t0+20)
 		dashboard.wantFrames(modelCallMonitoringSignal("m-bob", "m-bob"),
 			modelCallPatch("m-ann", "m-bob"), modelCallPatch("m-bob", "m-bob"))
+	})
+
+	t.Run("a success on the limited account patches its members after the member that hit the limit moved to another account", func(t *testing.T) {
+		f := newModelCallFixture(t)
+		ann := f.staff(t, Member{ID: "m-ann"}, "", "acct-1")
+		bob := f.staff(t, Member{ID: "m-bob"}, "", "acct-1")
+		f.fail(t, ann, t0+10, "rate_limit", "rate_limit", t0+3600)
+		dashboard := apiTestListen(t, f.api, "")
+
+		f.report(t, ann, `{"runtime":"claude","account":"acct-2"}`)
+		dashboard.wantFrames(modelCallMonitoringSignal("m-ann", "m-ann"), modelCallPatch("m-ann", "m-ann"))
+		f.wantModelCall(t, "m-bob", 0, modelCallWarning("rate_limit", "rate_limit", t0+10, t0+3600, true))
+
+		f.succeed(t, bob, t0+20)
+		dashboard.wantFrames(modelCallMonitoringSignal("m-bob", "m-bob"), modelCallPatch("m-bob", "m-bob"))
+		f.wantModelCall(t, "m-bob", t0+20)
 	})
 
 	t.Run("the reset time of a usage limit patches the account's members and signals monitoring once, past the reset", func(t *testing.T) {

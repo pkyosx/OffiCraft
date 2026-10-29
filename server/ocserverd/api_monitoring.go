@@ -1415,6 +1415,10 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 		}
 	}
 	calls := newModelCallBoard(all, telemetry, s.modelCallClock())
+	// A limit outlives its account's last member: whoever hit it may have moved on.
+	for account := range accountLimits(calls) {
+		accountKeys[account] = true
+	}
 	sortedAccounts := make([]string, 0, len(accountKeys))
 	for account := range accountKeys {
 		sortedAccounts = append(sortedAccounts, account)

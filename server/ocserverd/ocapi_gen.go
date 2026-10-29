@@ -2442,7 +2442,7 @@ type MemberDTO struct {
 	// ModelCallLastSuccessTs Epoch seconds of this member's newest model call that ended normally, as last reported; 0 = none reported since the server started (the times live in memory).
 	ModelCallLastSuccessTs *float64 `json:"model_call_last_success_ts,omitempty"`
 
-	// ModelCallWarnings Why this member's model calls are not working right now, judged ONLY by comparing times: a failure shows while it is newer than the member's newest success; a ``rate_limit`` failure that carries a reset time also shows on every member reporting the same account, until any member of that account succeeds after it or the reset time passes. An ``auth`` failure is left out while ``runtime_login_warnings`` already carries a current (non-pending) entry for the same runtime, so the same cause is not listed twice. Empty on a ``fields=light`` row, where it is not computed.
+	// ModelCallWarnings Why this member's model calls are not working right now, judged ONLY by comparing times: a failure shows while it is newer than the member's newest success and the member still reports the runtime and account it reported the failure on; a ``rate_limit`` failure that carries a reset time also shows on every member reporting the account it was reported on, until any member of that account succeeds after it or the reset time passes. An ``auth`` failure is left out while ``runtime_login_warnings`` already carries a current (non-pending) entry for the same runtime, so the same cause is not listed twice. Empty on a ``fields=light`` row, where it is not computed.
 	ModelCallWarnings *[]ModelCallWarningDTO `json:"model_call_warnings,omitempty"`
 	Name              string                 `json:"name"`
 	OwnerId           *string                `json:"owner_id,omitempty"`
@@ -2650,7 +2650,7 @@ type MonitoringAccountDTO struct {
 	DisplayName  *string                 `json:"display_name,omitempty"`
 	FiveHour     *map[string]interface{} `json:"five_hour,omitempty"`
 
-	// LimitReached The account's usage limit refusal that is in force right now: the newest ``rate_limit`` failure any member on this account reported with a reset time, while no member of the account has succeeded after it and the reset time has not passed. null = no limit in force.
+	// LimitReached The account's usage limit refusal that is in force right now: the newest ``rate_limit`` failure any member reported with a reset time while on this account, also after that member has moved to another account, while no member of the account has succeeded after it and the reset time has not passed. null = no limit in force.
 	LimitReached *ModelCallFailureDTO    `json:"limit_reached,omitempty"`
 	Machine      *string                 `json:"machine,omitempty"`
 	SevenDay     *map[string]interface{} `json:"seven_day,omitempty"`
