@@ -2,7 +2,7 @@
 //
 // 13_reply_cards.spec.js owns the larger historical loop and remains behaviorally
 // unchanged; this file adds the single-card draft-preservation checks on every
-// ReplyCardBody caller so the two sentences in docs/guide/quickstart.md:88 do not
+// ReplyCardBody caller so the two sentences in docs/guide/quickstart.md:95 and :97 do not
 // share one vague assertion.
 const { test, expect } = require('@playwright/test');
 const {

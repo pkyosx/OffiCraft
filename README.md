@@ -34,24 +34,54 @@ curl -fsSL https://github.com/pkyosx/OffiCraft/releases/latest/download/install.
 
 ## 從手機或外面用
 
-server 只綁 `127.0.0.1`，預設不對外。要從手機或外面連，開一條你自己的 tunnel（如 cloudflared，會給你一個公開 HTTPS 網址）或走 VPN，設一組夠強的密碼即可。完整步驟（含加到手機主畫面）見 [在手機上用控制台](docs/guide/mobile.md)。
+server 只綁 `127.0.0.1`，這一點不能改。要從手機或外面連，把本機的 7755 埠轉出去：開一條你自己的 tunnel（如 cloudflared，會給你一個公開 HTTPS 網址），或用 Tailscale 這類私有網路的轉發功能（如 `tailscale serve`）；只加入私有網路、不做轉發是連不到的。開放前先設好夠強的密碼與兩步驟驗證或通行密鑰。完整步驟（含加到手機主畫面）見 [在手機上用](docs/guide/mobile.md)；對外開放前該設好的保護見 [保護你的工作室](docs/guide/security.md)。
 
 ---
 
 ## 使用說明
 
-完整的使用者文件在 **[docs/guide/](docs/guide/)**，控制台裡的「使用說明」分頁讀的也是同一份：
+完整的使用說明在 **[docs/guide/](docs/guide/)**，控制台的「使用說明」分頁讀的也是同一份。依你現在要做的事，從對應的一組開始讀。
 
-- **為什麼是 OffiCraft（從這裡開始）** → [為什麼是 OffiCraft](docs/guide/why.md)
-- **十分鐘走完第一次** → [你的第一個辦公室](docs/guide/quickstart.md)
-- **安裝、升級與移除** → [安裝、升級與移除](docs/guide/install.md)
-- **介面每個欄位是什麼** → [介面說明](docs/guide/interface.md)
-- **任務怎麼運作** → [任務是怎麼運作的](docs/guide/tasks.md)
-- **成員與外包** → [成員與外包](docs/guide/members.md)
-- **主題（外觀與用語）** → [主題（外觀與用語）](docs/guide/theme.md)
-- **設定與參數** → [設定與參數](docs/guide/settings.md)
-- **建議用法** → [建議用法](docs/guide/best-practices.md)
-- **在手機上用** → [在手機上用控制台](docs/guide/mobile.md)
-- **底下怎麼運作** → [架構與運作原理](docs/guide/architecture.md)
-- **卡住了** → [常見問題與排解](docs/guide/troubleshooting.md)
-- **名詞表** → [名詞表](docs/guide/glossary.md)
+### 開始使用
+
+第一次接觸 OffiCraft、準備安裝，或剛裝好想走一遍時讀。
+
+- [為什麼是 OffiCraft](docs/guide/why.md) — 判斷 OffiCraft 適不適合你。
+- [安裝、升級與移除](docs/guide/install.md) — 前置需求、安裝、升級、移除，以及加入或移除其他機器。
+- [你的第一個辦公室](docs/guide/quickstart.md) — 十分鐘走完設密碼、交出第一件事、回覆第一張請示卡。
+- [保護你的工作室](docs/guide/security.md) — 從手機或外面連進來之前，該設好的密碼、兩步驟驗證與通行密鑰。
+
+### 日常使用
+
+每天交代工作、回覆請示卡、看進度時讀。
+
+- [交代工作與回覆請示卡](docs/guide/daily.md) — 聊天、附件、@ 成員、回覆請示卡、在成員交來的文件上寫註解，以及看用量與花費。
+- [追蹤任務進度](docs/guide/tasks.md) — 看懂任務的狀態、步驟與關卡，驗收成果或強制結案。
+- [在手機上用](docs/guide/mobile.md) — 從手機連上控制台、加到主畫面、開推播通知。
+
+### 讓工作室自己運轉
+
+想把重複、定時或從外部來的工作交出去，或想增加成員時讀。
+
+- [讓 AI 照 SOP 做重複的事（任務手冊）](docs/guide/sop.md) — 寫任務手冊，決定哪些步驟要停下來等你。
+- [定時做某件事（定期訊息）](docs/guide/schedule.md) — 設定期訊息，讓成員在固定時刻收到預先寫好的交代（成員要在線上才會處理）。
+- [讓外部事件自動送給成員（回呼端點）](docs/guide/webhook.md) — 建回呼端點，把 GitHub、Slack 的事件送給負責的成員。
+- [讓成員記住你教過的事（傳承）](docs/guide/lore.md) — 寫下你是誰、哪些事不能碰（使用者自訂）、各角色職責，以及成員學到的經驗（傳承）。
+- [把帳號金鑰交給成員用（密鑰）](docs/guide/secrets.md) — 存密鑰，讓成員取用而不必貼進聊天。
+- [增加成員與發外包](docs/guide/members.md) — 新增正職、發外包、喚醒與停止成員、換模型與機器、看懂狀態圖示，以及判斷該外包還是加常駐成員。
+
+### 查詢與參考
+
+想查某個欄位、參數或名詞，或想知道底層怎麼運作時讀。
+
+- [介面說明](docs/guide/interface.md) — 每個分頁與欄位的對照。
+- [設定與參數](docs/guide/settings.md) — 設定的六個子頁與每格參數的範圍。
+- [主題（外觀與用語）](docs/guide/theme.md) — 換外觀、做自訂主題、應景主題。
+- [架構與運作原理](docs/guide/architecture.md) — server、機器與成員怎麼分工。
+- [名詞表](docs/guide/glossary.md) — OffiCraft 用到的名詞。
+
+### 遇到問題
+
+安裝或使用時遇到問題，或要自己備份、還原資料庫時讀。
+
+- [常見問題與排解](docs/guide/troubleshooting.md) — 安裝失敗、成員起不來、連不上、升級沒生效，以及備份與還原。
