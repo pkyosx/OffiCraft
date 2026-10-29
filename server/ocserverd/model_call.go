@@ -8,8 +8,9 @@ import (
 // Both live on the member's telemetry entry, so a re-exec forgets them like
 // every other telemetry block (MemberDTO.model_call_last_success_ts says so).
 const (
-	modelCallSuccessKey = "model_call_last_success_ts"
-	modelCallFailureKey = "model_call_last_failure"
+	modelCallSuccessKey          = "model_call_last_success_ts"
+	modelCallFailureKey          = "model_call_last_failure"
+	modelCallAccountSuccessesKey = "model_call_last_success_by_account"
 )
 
 func modelCallSuccessOf(entry map[string]any) float64 {
@@ -17,8 +18,40 @@ func modelCallSuccessOf(entry map[string]any) float64 {
 	return ts
 }
 
-func modelCallFailureOf(entry map[string]any) (modelCallFailureDTO, bool) {
-	f, ok := entry[modelCallFailureKey].(modelCallFailureDTO)
+// modelCallAccountSuccessesOf remembers each account's success after the
+// member has moved on, so a limit already lifted on an account it left stays
+// lifted.
+func modelCallAccountSuccessesOf(entry map[string]any) map[string]float64 {
+	m, _ := entry[modelCallAccountSuccessesKey].(map[string]float64)
+	return m
+}
+
+// recordAccountSuccess replaces the map instead of writing into it: telemetry
+// snapshots copy entries shallowly, and the pre-report snapshot must keep the
+// old map for the warning diff.
+func recordAccountSuccess(entry map[string]any, ts float64) {
+	account, _ := entry["account"].(string)
+	old := modelCallAccountSuccessesOf(entry)
+	if account == "" || ts <= old[account] {
+		return
+	}
+	next := make(map[string]float64, len(old)+1)
+	for k, v := range old {
+		next[k] = v
+	}
+	next[account] = ts
+	entry[modelCallAccountSuccessesKey] = next
+}
+
+// storedModelCallFailure keeps the account the failure was reported on: a
+// member that later moves to another account must not carry the failure there.
+type storedModelCallFailure struct {
+	modelCallFailureDTO
+	pairing modelCallPairing
+}
+
+func modelCallFailureOf(entry map[string]any) (storedModelCallFailure, bool) {
+	f, ok := entry[modelCallFailureKey].(storedModelCallFailure)
 	return f, ok
 }
 
@@ -28,10 +61,12 @@ func validModelCallReport(report *ModelCallReportDTO) bool {
 
 // mergeModelCall keeps the LARGEST time of each kind, which is what makes a
 // repeated, reordered or lost report harmless. It answers whether anything
-// was stored, and the failure when that was stored.
+// was stored, and the failure when that was stored. It must run after the
+// report's account pairing is applied: the failure is pinned to that pairing.
 func mergeModelCall(entry map[string]any, report *ModelCallReportDTO) (bool, *modelCallFailureDTO) {
 	changed := false
 	if report.LastSuccessTs != nil && *report.LastSuccessTs > modelCallSuccessOf(entry) {
+		recordAccountSuccess(entry, *report.LastSuccessTs)
 		entry[modelCallSuccessKey] = *report.LastSuccessTs
 		changed = true
 	}
@@ -41,7 +76,7 @@ func mergeModelCall(entry map[string]any, report *ModelCallReportDTO) (bool, *mo
 			next := modelCallFailureDTO{
 				Ts: f.Ts, Kind: string(f.Kind), Code: f.Code, ResetsAt: copyFloat(f.ResetsAt),
 			}
-			entry[modelCallFailureKey] = next
+			entry[modelCallFailureKey] = storedModelCallFailure{modelCallFailureDTO: next, pairing: modelCallPairingOf(entry)}
 			return true, &next
 		}
 	}
@@ -82,17 +117,14 @@ func newModelCallBoard(members []Member, tele map[string]map[string]any, now flo
 	var candidates []limitCandidate
 	for _, m := range members {
 		entry := tele[m.ID]
-		account := telemetryAccount(entry, m.Runtime)
-		if account == "" {
-			continue
+		if f, ok := modelCallFailureOf(entry); ok && f.pairing.account != "" && f.carriesReset() && now < *f.ResetsAt {
+			candidates = append(candidates, limitCandidate{account: f.pairing.account, f: f.modelCallFailureDTO})
 		}
-		acct := b.accounts[account]
-		if ts := modelCallSuccessOf(entry); ts > acct.lastSuccess {
-			acct.lastSuccess = ts
+		for account, ts := range modelCallAccountSuccessesOf(entry) {
+			b.noteSuccess(account, ts)
 		}
-		b.accounts[account] = acct
-		if f, ok := modelCallFailureOf(entry); ok && f.carriesReset() && now < *f.ResetsAt {
-			candidates = append(candidates, limitCandidate{account: account, f: f})
+		if account := telemetryAccount(entry, m.Runtime); account != "" {
+			b.noteSuccess(account, modelCallSuccessOf(entry))
 		}
 	}
 	for _, c := range candidates {
@@ -107,6 +139,14 @@ func newModelCallBoard(members []Member, tele map[string]map[string]any, now flo
 		b.accounts[c.account] = acct
 	}
 	return b
+}
+
+func (b modelCallBoard) noteSuccess(account string, ts float64) {
+	acct := b.accounts[account]
+	if ts > acct.lastSuccess {
+		acct.lastSuccess = ts
+	}
+	b.accounts[account] = acct
 }
 
 func (b modelCallBoard) lastSuccess(memberID string) float64 {
@@ -133,9 +173,10 @@ func (b modelCallBoard) warnings(m Member, login []RuntimeLoginWarningDTO) []mod
 	account := telemetryAccount(entry, m.Runtime)
 	runtime := b.runtimeOf(m)
 	ownLimit := false
-	if f, ok := modelCallFailureOf(entry); ok && f.Ts > modelCallSuccessOf(entry) && b.ownFailureShows(f, account, runtime, login) {
+	if f, ok := modelCallFailureOf(entry); ok && f.pairing == modelCallPairingOf(entry) &&
+		f.Ts > modelCallSuccessOf(entry) && b.ownFailureShows(f.modelCallFailureDTO, account, runtime, login) {
 		ownLimit = f.carriesReset()
-		out = append(out, modelCallWarningOf(f, runtime, false))
+		out = append(out, modelCallWarningOf(f.modelCallFailureDTO, runtime, false))
 	}
 	if limit := b.limit(account); limit != nil && !ownLimit {
 		out = append(out, modelCallWarningOf(*limit, runtime, true))
@@ -196,8 +237,7 @@ func (s *apiServer) modelCallAfter(d time.Duration, fire func()) {
 // success time forward can change a warning only
 // through a failure newer than the old success: the reporter's own, or an
 // account limit in force. Every context report is such a report, so this is
-// what keeps the roster diff off the common path. The account match is on the
-// raw key, a superset of the board's runtime-checked pairing.
+// what keeps the roster diff off the common path.
 func (s *apiServer) modelCallMayChangeWarnings(entry map[string]any, report *ModelCallReportDTO) bool {
 	if report.LastFailure != nil {
 		return true
@@ -210,13 +250,15 @@ func (s *apiServer) modelCallMayChangeWarnings(entry map[string]any, report *Mod
 	if account == "" {
 		return false
 	}
+	// The account's own record can be older than the member's newest success,
+	// which may have been on another account.
+	if ts := modelCallAccountSuccessesOf(entry)[account]; ts < since {
+		since = ts
+	}
 	now := s.modelCallClock()
 	return s.telemetry.Any(func(other map[string]any) bool {
-		if raw, _ := other["account"].(string); raw != account {
-			return false
-		}
 		f, ok := modelCallFailureOf(other)
-		return ok && f.carriesReset() && f.Ts > since && now < *f.ResetsAt
+		return ok && f.pairing.account == account && f.carriesReset() && f.Ts > since && now < *f.ResetsAt
 	})
 }
 

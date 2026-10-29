@@ -7132,7 +7132,7 @@ export interface components {
             model: string;
             /**
              * Model Call Warnings
-             * @description Why this member's model calls are not working right now, judged ONLY by comparing times: a failure shows while it is newer than the member's newest success; a ``rate_limit`` failure that carries a reset time also shows on every member reporting the same account, until any member of that account succeeds after it or the reset time passes. An ``auth`` failure is left out while ``runtime_login_warnings`` already carries a current (non-pending) entry for the same runtime, so the same cause is not listed twice. Empty on a ``fields=light`` row, where it is not computed.
+             * @description Why this member's model calls are not working right now, judged ONLY by comparing times: a failure shows while it is newer than the member's newest success and the member still reports the runtime and account it reported the failure on; a ``rate_limit`` failure that carries a reset time also shows on every member reporting the account it was reported on, until any member of that account succeeds after it or the reset time passes. An ``auth`` failure is left out while ``runtime_login_warnings`` already carries a current (non-pending) entry for the same runtime, so the same cause is not listed twice. Empty on a ``fields=light`` row, where it is not computed.
              * @default []
              */
             model_call_warnings: components["schemas"]["ModelCallWarningDTO"][];
@@ -7496,7 +7496,7 @@ export interface components {
             } | null;
             /**
              * Limit Reached
-             * @description The account's usage limit refusal that is in force right now: the newest ``rate_limit`` failure any member on this account reported with a reset time, while no member of the account has succeeded after it and the reset time has not passed. null = no limit in force.
+             * @description The account's usage limit refusal that is in force right now: the newest ``rate_limit`` failure any member reported with a reset time while on this account, also after that member has moved to another account, while no member of the account has succeeded after it and the reset time has not passed. null = no limit in force.
              * @default null
              */
             limit_reached: components["schemas"]["ModelCallFailureDTO"] | null;
