@@ -57,7 +57,7 @@
 #                     premise was that both went through ONE gate, so relaxing
 #                     the background would have relaxed the avatar too — which
 #                     is exactly what the per-purpose split removes.
-#                     Raised from 512 KiB to 1 MiB by owner ruling 2026-11-04.
+#                     The 1 MiB background cap is an owner ruling; do not lower it.
 #
 # The caps are read from the four `# <name><TAB><n>` lines below, so neither
 # implementation's constant is a third copy of itself.
