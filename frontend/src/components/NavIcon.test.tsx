@@ -21,6 +21,8 @@ function b64(bytes: number[]): string {
 }
 const OFFICE_IMG =
   "data:image/png;base64," + b64([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0]);
+const SECRETS_IMG =
+  "data:image/png;base64," + b64([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]);
 
 let ctx = null as unknown as ReturnType<typeof useI18n>;
 function Capture() {
@@ -69,7 +71,7 @@ describe("NavIcon", () => {
       id: "icons",
       name: "Icons",
       colors: { "--color-bg": "#101018" },
-      navIcons: { office: OFFICE_IMG, secrets: OFFICE_IMG },
+      navIcons: { office: OFFICE_IMG, secrets: SECRETS_IMG },
     });
     const { getByTestId } = await mount(
       <>
@@ -90,7 +92,7 @@ describe("NavIcon", () => {
     ).toBe(OFFICE_IMG);
     expect(
       getByTestId("secrets").querySelector("img.nav-tab__icon-img")?.getAttribute("src")
-    ).toBe(OFFICE_IMG);
+    ).toBe(SECRETS_IMG);
     expect(getByTestId("secrets").querySelector("svg")).toBeNull();
     // tasks has no themed icon → built-in fallback svg, no img
     expect(getByTestId("tasks").querySelector("img.nav-tab__icon-img")).toBeNull();

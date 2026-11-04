@@ -821,6 +821,38 @@ describe("ThemeSettings · alias-default colours", () => {
   });
 });
 
+describe("ThemeSettings · nav icon uploads", () => {
+  it("labels an upload control for every navigation tab", async () => {
+    setToken("owner-token");
+    const utils = await renderManage();
+    await importBundle(utils, {
+      id: "nav-icons",
+      name: "導覽圖示測試",
+      colors: { "--color-bg": "#101018" },
+    });
+    await openEditor(utils, "導覽圖示測試");
+
+    const labels = [
+      "辦公室圖示",
+      "請示圖示",
+      "任務圖示",
+      "傳承圖示",
+      "密鑰圖示",
+      "監控圖示",
+      "使用說明圖示",
+    ];
+    const navSection = Array.from(
+      utils.container.querySelectorAll(".ts-section-label"),
+    ).find((section) => section.textContent === "導覽圖示");
+    const navSlots = navSection?.nextElementSibling?.nextElementSibling;
+    expect(navSlots?.classList.contains("ts-avatar-slots")).toBe(true);
+    const uploadLabels = Array.from(
+      navSlots?.querySelectorAll<HTMLInputElement>("input.ts-file") ?? [],
+    ).map((input) => input.getAttribute("aria-label"));
+    expect(uploadLabels).toEqual(labels);
+  });
+});
+
 describe("ThemeSettings · outer-canvas background", () => {
   const png =
     "data:image/png;base64," +

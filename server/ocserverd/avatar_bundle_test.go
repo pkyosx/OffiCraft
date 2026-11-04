@@ -183,6 +183,28 @@ func TestValidateNavIcons(t *testing.T) {
 	}
 }
 
+func TestNavIconKeyAllowedSet(t *testing.T) {
+	want := map[string]bool{
+		"office": true, "replies": true, "tasks": true, "lore": true,
+		"secrets": true, "monitor": true, "guide": true,
+	}
+	if !reflect.DeepEqual(navIconKeyAllowed, want) {
+		t.Fatalf("navIconKeyAllowed = %v, want %v", navIconKeyAllowed, want)
+	}
+}
+
+func TestNavIconRefusalMessageListsTheAllowedKeys(t *testing.T) {
+	data := map[string]string{"settings": "not-an-image"}
+	err := validateNavIcons(&data, "theme[0]")
+	if err == nil {
+		t.Fatal("an unknown tab key must be refused")
+	}
+	want := "(only " + strings.Join(navIconAllowedKeys(), ", ") + ")"
+	if !strings.Contains(err.Error(), want) {
+		t.Fatalf("refusal = %v, want allowed keys %q derived from navIconKeyAllowed", err, want)
+	}
+}
+
 func imageDataURI(mime string, raw []byte) string {
 	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(raw)
 }

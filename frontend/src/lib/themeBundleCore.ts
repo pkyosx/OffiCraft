@@ -37,10 +37,9 @@ export interface ThemeBundle {
   /** Optional studio logo image (T-ea81). A single EMBEDDED base64 `data:` URI
    * that replaces the built-in top-bar logo mark. Absent → the built-in mark. */
   logo?: string;
-  /** Optional per-nav-tab icon images (T-ea81) for office, replies, tasks, lore,
-   * secrets, monitor and guide. Each value is an EMBEDDED base64 data: URI
-   * replacing that tab's built-in icon. An omitted key keeps the built-in icon
-   * (office never degrades). */
+  /** Optional per-nav-tab icon images. Each value is an EMBEDDED base64 data:
+   * URI replacing that tab's built-in icon. An omitted key keeps the built-in
+   * icon (office never degrades). */
   navIcons?: Partial<Record<NavIconKey, string>>;
   /** Optional background images for the cockpit chrome (T-081b). Keyed on the
    * ZONE the image tiles across — a CLOSED set holding exactly `canvas`, the
@@ -65,11 +64,8 @@ export interface ThemeBundle {
 export const AVATAR_KINDS = ["staff", "outsource", "owner", "assistant"] as const;
 export type AvatarKind = (typeof AVATAR_KINDS)[number];
 
-/** The nav tabs a navIcons overlay may key on — the closed set of the main nav
- * tabs, identical to App.tsx's `Tab` type (T-ea81). T-33 added `lore`; its twin
- * `navIconKeyAllowed` in server/ocserverd/avatar_bundle.go was widened in the
- * same change, because a key this side accepts and that side 422s is a theme
- * pack that imports on one screen and not the other. */
+/** The nav tabs a navIcons overlay may key on. The Go allowlist is covered by
+ * the frontend parity test. */
 export const NAV_ICON_KEYS = [
   "office",
   "replies",
