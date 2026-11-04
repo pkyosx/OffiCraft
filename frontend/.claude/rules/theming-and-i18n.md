@@ -75,6 +75,12 @@ stub server 的埠不可寫死：playwright-paint.config.ts 用 allocateFreePort
 
 注入案例要用 server 不認得任何主題的 stub，否則合法的 server theme 會偽裝成 pre-paint 洩漏。paint 記錄只在真的拿到 bundle 之後才寫；拿不到就不動它——用空值覆蓋等於自己清掉快取的畫面，下一次 pre-auth 載入就會閃。pre-paint 與 i18n 只能透過 api/auth 的 TOKEN_KEY 與 themePaint 的 LS_THEME、LS_THEME_PAINT、LS_SEASONAL_THEME、LS_SEASONAL_PAINT 取儲存鍵，不可在 source 或探針硬寫 key。
 
+## 主題時段
+
+主題可帶 `dayparts`：2～6 個時段（觀看者當地時間 `HH:MM`）與過渡分鐘數；每個時段只寫跟最上層不同的 colors／backgrounds／backgroundModes，頭像、Logo、導覽圖示、字型、用語所有時段共用一份（owner 裁定）。某一刻的樣子只由 `lib/themeDayparts.ts` 的 `daypartFrameAt` 算出，pre-paint 與 React 都經 `applyThemeToRoot(root, bundle, now)` 套用，不要在別處另算。這兩個檔與 `lib/themeColor.ts` 會被 pre-paint 打包，同樣不可用 Vite 專屬語法。
+
+兩時段一深一淺時，配色在過渡中點約 3 秒內換完，同深淺才全程內插（owner 裁定，理由是內插中段文字與底色亮度幾乎相同）。背景淡入淡出靠 `body::before` 第二層與 `--canvas-overlay-*`：每次更新先寫當下 opacity、強制讀一次 `::before` 的 computed style，再寫下一次更新時的 opacity 與 `--canvas-overlay-fade`；少了那次讀取，淡出開始時舊圖會先消失再慢慢回來，jsdom 看不出來，只有 paint guard 抓得到。provider 套用時一律用當下時間，`clock` 只當觸發器——切換主題時 `clock` 可能是幾小時前的值。
+
 ## 應景主題
 
 應景主題的檔案與時段是資料，放在 repo 根目錄 `themes/`（`seasonal-schedule.json` 與它指名的 `*.theme.json`）；TS 不寫日期或 id。時段以觀看者當地時間計，起點含、終點不含。時段重疊時，以 seasonal-schedule.json 裡排在前面的那一筆為準（owner 裁定）。畫面上的主題 = 時段內且 `display_seasonal_theme` 為 true 時是應景主題，否則是 display_theme；display_theme 從不被改寫，應景主題不進主題清單，server 也不接受它當 display_theme。邊界由排到下一個邊界的 timer 切換，不輪詢；頁面重新可見或取得焦點時也重讀時鐘（timer 不計睡眠時間）。應景主題檔載入失敗就在這次頁面期間一直顯示 display_theme，不重試、也不再經過應景路徑（瀏覽器對同一個 URL 的失敗 dynamic import 會快取，重試只會立刻再失敗；只有重新整理能恢復）；載入中則不顯示 display_theme 的自訂主題。應景主題的 id 在前端的 RESERVED_THEME_IDS 裡：新增與匯入的自訂主題不可用它；但 server 不保留它，所以已存在 server 上、用這個 id 的自訂主題仍可編輯儲存——驗證文法（validateThemeBundle／validateThemeBundleWith）只擋內建 id，應景主題自己的 paint 記錄也要經過它。
