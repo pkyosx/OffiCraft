@@ -233,7 +233,7 @@ describe("applyThemeToRoot — POSITIVE: every branch actually reaches the DOM",
     expect(ledger).toEqual(["--color-bg"]);
   });
 
-  it("paints a bundle with time-of-day parts as it looks at the given moment, with the incoming image faded over the outgoing one", () => {
+  it("paints a bundle with time-of-day parts as it looks at the given moment, with the incoming image fading over the outgoing one toward its next-update value", () => {
     const TINY_WEBP = "data:image/webp;base64,UklGRgAAAABXRUJQ";
     const root = document.createElement("div");
     const ledger = applyThemeToRoot(
@@ -268,7 +268,8 @@ describe("applyThemeToRoot — POSITIVE: every branch actually reaches the DOM",
       "--canvas-overlay-position": "center center",
       "--canvas-overlay-size": "cover",
       "--canvas-overlay-attachment": "fixed",
-      "--canvas-overlay-opacity": "0.25",
+      "--canvas-overlay-opacity": "0.25625",
+      "--canvas-overlay-fade": "15000ms",
     });
   });
 });

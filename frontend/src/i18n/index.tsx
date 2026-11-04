@@ -324,12 +324,15 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   // documentElement via setProperty (the value is NEVER concatenated into a
   // stylesheet — the security boundary). A dangling id (bundle not yet
   // reconciled / deleted) falls back to the office base.
-  // Only a theme with time-of-day parts looks different from one moment to the next.
-  const daypartClock = shownBundle?.dayparts ? clock : 0;
+  // Only a theme with time-of-day parts looks different from one moment to the
+  // next, so only it re-applies on each tick. The tick is a trigger, not the
+  // time: `clock` is only refreshed by timers and visibility, so a theme
+  // switched to hours after the last tick must still be painted for now.
+  const daypartTick = shownBundle?.dayparts ? clock : 0;
 
   useEffect(() => {
     const root = document.documentElement;
-    const now = new Date(daypartClock || Date.now());
+    const now = new Date();
     for (const tok of appliedTokensRef.current) root.style.removeProperty(tok);
     appliedTokensRef.current = [];
 
@@ -359,18 +362,19 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         appliedTokensRef.current = applyThemeToRoot(root, cached, now);
       }
     }
-  }, [theme, shownTheme, shownBundle, seasonalWindow, themesLoaded, daypartClock]);
+  }, [theme, shownTheme, shownBundle, seasonalWindow, themesLoaded, daypartTick]);
 
   useEffect(() => {
-    if (!daypartClock || !shownBundle) return;
-    const frame = daypartFrameAt(shownBundle, new Date(daypartClock));
+    if (!daypartTick || !shownBundle) return;
+    const now = Date.now();
+    const frame = daypartFrameAt(shownBundle, new Date(now));
     if (!frame) return;
     const id = window.setTimeout(
       () => setClock(Date.now()),
-      Math.min(Math.max(0, frame.nextUpdate.getTime() - daypartClock), MAX_TIMER_DELAY_MS)
+      Math.min(Math.max(0, frame.nextUpdate.getTime() - now), MAX_TIMER_DELAY_MS)
     );
     return () => window.clearTimeout(id);
-  }, [daypartClock, shownBundle]);
+  }, [daypartTick, shownBundle]);
 
   useEffect(() => {
     const next = nextSeasonalBoundary(new Date(clock), SEASONAL_WINDOWS);

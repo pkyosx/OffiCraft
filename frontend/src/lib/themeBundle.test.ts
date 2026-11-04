@@ -606,6 +606,9 @@ describe("validateDayparts", () => {
     expect(validateDayparts(undefined, top)).toBeNull();
     expect(validateDayparts(null, top)).toBeNull();
     expect(validateDayparts(dayparts, top)).toBeNull();
+    expect(
+      validateDayparts({ transitionMinutes: 40, parts: [{ start: "06:30", colors: null }, { start: "18:00" }] }, top)
+    ).toBeNull();
   });
 
   it.each([

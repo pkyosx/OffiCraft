@@ -354,6 +354,31 @@ describe("I18nProvider custom theme apply", () => {
     expect(root.style.getPropertyValue("--color-bg")).toBe("");
   });
 
+  it("paints a theme with time-of-day parts for the time it is switched to, however long the page has been open", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["Date", "setTimeout", "clearTimeout"] });
+    try {
+      vi.setSystemTime(new Date(2030, 0, 10, 9, 0));
+      await mockApi.putTheme(MIDNIGHT);
+      await mockApi.putTheme({
+        ...SUNRISE,
+        colors: { "--color-bg": "#f4efe6" },
+        dayparts: {
+          transitionMinutes: 10,
+          parts: [{ start: "06:00" }, { start: "17:00", colors: { "--color-bg": "#101018" } }],
+        },
+      });
+      await mountCapture(2);
+      await activate("midnight");
+
+      vi.setSystemTime(new Date(2030, 0, 10, 18, 0));
+      await activate("sunrise");
+
+      expect(root.style.getPropertyValue("--color-bg")).toBe("#101018");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("falls back to the office base for a dangling custom id", async () => {
     await mountCapture(0);
     // Nothing is saved under this id — the fetch 404s and the picker keeps the
@@ -843,13 +868,13 @@ describe("I18nProvider seasonal theme", () => {
     expect(root.style.getPropertyValue("--color-bg")).toBe("rgba(13, 8, 31, 1)");
     expect(root.style.getPropertyValue("--color-accent")).toBe("#ff8c2b");
 
-    vi.setSystemTime(new Date(2030, 9, 26, 6, 5));
+    vi.setSystemTime(new Date(2030, 9, 26, 6, 2));
     const visible = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
     await act(async () => {
       document.dispatchEvent(new Event("visibilitychange"));
     });
     visible.mockRestore();
-    expect(root.style.getPropertyValue("--color-bg")).toBe("rgba(13, 8, 31, 1)");
+    expect(root.style.getPropertyValue("--color-bg")).toBe("rgba(8, 3, 31, 1)");
     expect(ctx.t.nav.office).toBe("鬼屋辦公室");
   });
 

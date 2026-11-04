@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  compositeOver,
   contrastRatio,
   formatColor,
   isDarkColor,
@@ -74,16 +73,5 @@ describe("isDarkColor", () => {
   it("splits at relative luminance 0.2", () => {
     expect(isDarkColor(parseColor("#767676")!)).toBe(true);
     expect(isDarkColor(parseColor("#7c7c7c")!)).toBe(false);
-  });
-});
-
-describe("compositeOver", () => {
-  it("blends a translucent colour over an opaque backdrop", () => {
-    expect(compositeOver({ r: 255, g: 0, b: 0, a: 0.5 }, { r: 0, g: 0, b: 255, a: 1 })).toEqual({
-      r: 127.5,
-      g: 0,
-      b: 127.5,
-      a: 1,
-    });
   });
 });

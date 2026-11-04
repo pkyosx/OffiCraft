@@ -3,9 +3,9 @@ import { formatColor, isDarkColor, mixColor, parseColor } from "./themeColor";
 import type { BackgroundKey, BackgroundMode, ThemeBundle, ThemeDaypart } from "./themeBundleCore";
 
 const MS_PER_MINUTE = 60_000;
-/** Owner ruling rc-eb8b78674007: a dark↔light move switches colours within
- * about 3 s at the middle of the transition, so text never sits on a
- * background of nearly its own luminance for minutes. */
+/** Owner ruling: a dark↔light move switches colours within about 3 s at the
+ * middle of the transition, so text never sits on a background of nearly its
+ * own luminance for minutes. */
 export const SCHEME_SWAP_MS = 3_000;
 
 const HHMM_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -126,20 +126,22 @@ export interface DaypartFrame {
   /** The look to apply now: interpolated colours, the outgoing part's background. */
   base: ThemeBundle;
   /** A second canvas layer drawn over the base background during a move
-   * between two different images; null when settled or the image does not change. */
-  overlay: { canvas: string; mode: BackgroundMode | undefined; opacity: number } | null;
+   * between two different images; null when settled or the image does not
+   * change. `opacity` is the value due at `nextUpdate`, reached by a linear CSS
+   * fade lasting `fadeMs`, so the image moves continuously between updates. */
+  overlay: { canvas: string; mode: BackgroundMode | undefined; opacity: number; fadeMs: number } | null;
   /** When the frame needs recomputing next. */
   nextUpdate: Date;
 }
 
-/** Colour refresh cadence during a same-scheme transition. */
+/** Longest gap between two updates while a transition runs. */
 export const GRADUAL_COLOR_STEP_MS = 15_000;
 /** Colour refresh cadence inside the 3-second dark↔light swap. */
 export const SWAP_COLOR_STEP_MS = 100;
 
 const CANVAS: BackgroundKey = "canvas";
 
-/** The bundle with its parts resolved for `now`; the bundle itself when it has no parts. */
+/** The bundle with its parts resolved for `now`; null when it has no parts. */
 export function daypartFrameAt(bundle: ThemeBundle, now: Date): DaypartFrame | null {
   const pos = daypartPositionAt(bundle, now);
   if (!pos) return null;
@@ -157,7 +159,23 @@ export function daypartFrameAt(bundle: ThemeBundle, now: Date): DaypartFrame | n
   const toCanvas = toLook.backgrounds?.[CANVAS];
   const sameBackground =
     fromCanvas === toCanvas && fromLook.backgroundModes?.[CANVAS] === toLook.backgroundModes?.[CANVAS];
-  const fade = pos.elapsedMs / pos.transitionMs;
+  const nowMs = now.getTime();
+  const end = pos.startedAt.getTime() + pos.transitionMs;
+  let nextUpdate: Date;
+  if (settled) {
+    nextUpdate = pos.nextStart;
+  } else {
+    let step = GRADUAL_COLOR_STEP_MS;
+    if (flips) {
+      const swapStart = pos.startedAt.getTime() + pos.transitionMs / 2 - SCHEME_SWAP_MS / 2;
+      const swapEnd = swapStart + SCHEME_SWAP_MS;
+      if (nowMs < swapStart) step = Math.min(step, swapStart - nowMs);
+      else if (nowMs < swapEnd) step = SWAP_COLOR_STEP_MS;
+    }
+    nextUpdate = new Date(Math.min(end, nowMs + Math.max(1, step)));
+  }
+  const fadeMs = nextUpdate.getTime() - nowMs;
+  const fadeAtNext = (nextUpdate.getTime() - pos.startedAt.getTime()) / pos.transitionMs;
   // The image being faded in rides the overlay; when the incoming part has no
   // image, the outgoing one rides it instead and fades out.
   const fadeOut = !settled && !sameBackground && !toCanvas;
@@ -174,22 +192,8 @@ export function daypartFrameAt(bundle: ThemeBundle, now: Date): DaypartFrame | n
     settled || sameBackground
       ? null
       : fadeOut
-        ? { canvas: fromCanvas!, mode: fromLook.backgroundModes?.[CANVAS], opacity: 1 - fade }
-        : { canvas: toCanvas!, mode: toLook.backgroundModes?.[CANVAS], opacity: fade };
+        ? { canvas: fromCanvas!, mode: fromLook.backgroundModes?.[CANVAS], opacity: 1 - fadeAtNext, fadeMs }
+        : { canvas: toCanvas!, mode: toLook.backgroundModes?.[CANVAS], opacity: fadeAtNext, fadeMs };
 
-  let nextUpdate: Date;
-  if (settled) {
-    nextUpdate = pos.nextStart;
-  } else {
-    const end = pos.startedAt.getTime() + pos.transitionMs;
-    let step = GRADUAL_COLOR_STEP_MS;
-    if (flips) {
-      const swapStart = pos.startedAt.getTime() + pos.transitionMs / 2 - SCHEME_SWAP_MS / 2;
-      const swapEnd = swapStart + SCHEME_SWAP_MS;
-      const t = now.getTime();
-      step = t < swapStart ? swapStart - t : t < swapEnd ? SWAP_COLOR_STEP_MS : end - t;
-    }
-    nextUpdate = new Date(Math.min(end, now.getTime() + Math.max(1, step)));
-  }
   return { base, overlay, nextUpdate };
 }

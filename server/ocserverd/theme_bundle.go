@@ -210,7 +210,7 @@ const (
 var daypartStartRe = regexp.MustCompile(`^([01]\d|2[0-3]):([0-5]\d)$`)
 
 // Twin of validateDayparts in frontend/src/lib/themeBundleCore.ts: same rules,
-// same order, the same dayparts messages; change both.
+// same order; change both. Part colour and image errors reuse the Go messages.
 func validateDayparts(
 	dayparts *ThemeDaypartsDTO, topBackgrounds *map[string]string, where string,
 ) error {

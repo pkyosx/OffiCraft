@@ -162,7 +162,8 @@ export function applyThemeToRoot(
     const mode = overlay.mode ?? DEFAULT_BACKGROUND_MODE;
     setCanvasLayer(root, "--canvas-overlay", canvasLayout(overlay.canvas, mode), applied);
     root.style.setProperty("--canvas-overlay-opacity", String(overlay.opacity));
-    applied.push("--canvas-overlay-opacity");
+    root.style.setProperty("--canvas-overlay-fade", `${Math.round(overlay.fadeMs)}ms`);
+    applied.push("--canvas-overlay-opacity", "--canvas-overlay-fade");
   }
   return applied;
 }

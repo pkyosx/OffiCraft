@@ -48,6 +48,7 @@ body::before {
   background-size: var(--canvas-overlay-size, auto);
   background-attachment: var(--canvas-overlay-attachment, scroll);
   opacity: var(--canvas-overlay-opacity, 0);
+  transition: opacity var(--canvas-overlay-fade, 0s) linear;
 }
 
 /* Dark, subtle scrollbar (ported from the vibe-clicking dark design system).

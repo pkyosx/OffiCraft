@@ -124,12 +124,6 @@ export function isDarkColor(c: Rgba): boolean {
   return relativeLuminance(c) < DARK_LUMINANCE_BELOW;
 }
 
-/** Composites a translucent foreground over an opaque backdrop. */
-export function compositeOver(fg: Rgba, backdrop: Rgba): Rgba {
-  const mix = (f: number, b: number) => f * fg.a + b * (1 - fg.a);
-  return { r: mix(fg.r, backdrop.r), g: mix(fg.g, backdrop.g), b: mix(fg.b, backdrop.b), a: 1 };
-}
-
 export function contrastRatio(x: Rgba, y: Rgba): number {
   const [hi, lo] = [relativeLuminance(x), relativeLuminance(y)].sort((p, q) => q - p);
   return (hi + 0.05) / (lo + 0.05);

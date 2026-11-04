@@ -56,6 +56,21 @@ describe("daypartPositionAt", () => {
     });
   });
 
+  it("handles a part starting at midnight", () => {
+    const midnight: ThemeBundle = {
+      ...bundle,
+      dayparts: { transitionMinutes: 10, parts: [{ start: "00:00" }, { start: "12:00" }] },
+    };
+    expect(daypartPositionAt(midnight, at(0, 5))).toMatchObject({
+      from: 1,
+      to: 0,
+      startedAt: at(0, 0),
+      elapsedMs: 5 * 60_000,
+      nextStart: at(12, 0),
+    });
+    expect(daypartPositionAt(midnight, at(23, 59))).toMatchObject({ to: 1, nextStart: at(0, 0, 0, 6) });
+  });
+
   it("treats the start minute itself as the beginning of the move", () => {
     expect(daypartPositionAt(bundle, at(17, 0))).toMatchObject({ from: 0, to: 1, elapsedMs: 0 });
   });
@@ -76,7 +91,7 @@ describe("daypartFrameAt", () => {
     });
   });
 
-  it("keeps the old colours before the middle of a dark↔light move and fades the new image in", () => {
+  it("keeps the old colours before the middle of a dark↔light move and fades the new image toward its next-update value", () => {
     expect(daypartFrameAt(bundle, at(17, 10))).toEqual({
       base: {
         id: "desk",
@@ -85,8 +100,19 @@ describe("daypartFrameAt", () => {
         backgrounds: { canvas: DAY_BG },
         backgroundModes: { canvas: "cover" },
       },
-      overlay: { canvas: DUSK_BG, mode: "cover", opacity: 0.25 },
-      nextUpdate: at(17, 19, 58.5),
+      overlay: { canvas: DUSK_BG, mode: "cover", opacity: 0.25625, fadeMs: 15_000 },
+      nextUpdate: at(17, 10, 15),
+    });
+  });
+
+  it("lands an update exactly on the start of the 3-second swap and on the end of the move", () => {
+    expect(daypartFrameAt(bundle, at(17, 19, 50))!.nextUpdate).toEqual(at(17, 19, 58.5));
+    expect(daypartFrameAt(bundle, at(17, 39, 50))!.nextUpdate).toEqual(at(17, 40));
+    expect(daypartFrameAt(bundle, at(17, 39, 50))!.overlay).toEqual({
+      canvas: DUSK_BG,
+      mode: "cover",
+      opacity: 1,
+      fadeMs: 10_000,
     });
   });
 
@@ -106,7 +132,7 @@ describe("daypartFrameAt", () => {
         backgrounds: { canvas: DUSK_BG },
         backgroundModes: { canvas: "cover" },
       },
-      overlay: { canvas: DAY_BG, mode: "cover", opacity: 0.25 },
+      overlay: { canvas: DAY_BG, mode: "cover", opacity: 0.25625, fadeMs: 15_000 },
       nextUpdate: at(19, 10, 15),
     });
   });
@@ -117,7 +143,7 @@ describe("daypartFrameAt", () => {
     void _m;
     expect(daypartFrameAt(noTopImage, at(19, 30))).toMatchObject({
       base: { colors: { "--color-bg": "rgba(24, 22, 28, 1)" } },
-      overlay: { canvas: DUSK_BG, mode: undefined, opacity: 0.25 },
+      overlay: { canvas: DUSK_BG, mode: undefined, opacity: expect.closeTo(0.24375, 10), fadeMs: 15_000 },
     });
     expect(daypartFrameAt(noTopImage, at(19, 30))!.base.backgrounds).toBeUndefined();
   });

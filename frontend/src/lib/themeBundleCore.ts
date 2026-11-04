@@ -602,7 +602,7 @@ export function validateDayparts(
       return `${at}.start must be later than the part before it`;
     }
     starts.push(minute);
-    if (part.colors !== undefined) {
+    if (part.colors !== undefined && part.colors !== null) {
       if (!isPlainObject(part.colors)) return `${at}.colors must be an object`;
       const cErr = validateColorEntries(part.colors, 0, at);
       if (cErr) return cErr;
