@@ -106,7 +106,6 @@ background-small	background	1024	true
 background-at-avatar-cap	background	65536	true
 background-one-past-avatar-cap	background	65537	true
 background-well-past-avatar-cap	background	262144	true
-background-one-past-previous-cap	background	524289	true
 background-at-cap	background	1048576	true
 background-one-past-cap	background	1048577	false
 avatar-at-background-cap	avatar	1048576	false
