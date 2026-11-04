@@ -154,6 +154,17 @@ describe("readValidatedPaint — ACCEPTS the valid rich record", () => {
     // …and the pruned record passes the wordingFn=null path.
     expect(readValidatedPaint()).toEqual(VALID_RICH_BUNDLE);
   });
+  it("keeps time-of-day parts through paintRecordFor → readValidatedPaint", () => {
+    const withParts = {
+      ...VALID_RICH_BUNDLE,
+      dayparts: {
+        transitionMinutes: 30,
+        parts: [{ start: "07:00" }, { start: "18:00", colors: { "--color-bg": "#101018" } }],
+      },
+    };
+    seed(JSON.stringify(paintRecordFor(withParts)));
+    expect(readValidatedPaint()).toEqual(withParts);
+  });
 });
 
 describe("applyThemeToRoot — POSITIVE: every branch actually reaches the DOM", () => {
@@ -220,5 +231,44 @@ describe("applyThemeToRoot — POSITIVE: every branch actually reaches the DOM",
     });
     expect(unreadable.style.getPropertyValue("color-scheme")).toBe("");
     expect(ledger).toEqual(["--color-bg"]);
+  });
+
+  it("paints a bundle with time-of-day parts as it looks at the given moment, with the incoming image faded over the outgoing one", () => {
+    const TINY_WEBP = "data:image/webp;base64,UklGRgAAAABXRUJQ";
+    const root = document.createElement("div");
+    const ledger = applyThemeToRoot(
+      root,
+      {
+        id: "desk",
+        name: "Desk",
+        colors: { "--color-bg": "#f4efe6", "--color-text": "#1f1b16" },
+        backgrounds: { canvas: TINY_PNG },
+        backgroundModes: { canvas: "cover" },
+        dayparts: {
+          transitionMinutes: 40,
+          parts: [
+            { start: "06:30" },
+            { start: "17:00", colors: { "--color-bg": "#e4ded6" }, backgrounds: { canvas: TINY_WEBP } },
+          ],
+        },
+      },
+      new Date(2026, 10, 5, 17, 10)
+    );
+    expect(Object.fromEntries(ledger.map((k) => [k, root.style.getPropertyValue(k)]))).toEqual({
+      "--color-bg": "rgba(240, 235, 226, 1)",
+      "--color-text": "#1f1b16",
+      "color-scheme": "light",
+      "--canvas-bg-image": `url("${TINY_PNG}")`,
+      "--canvas-bg-repeat": "no-repeat",
+      "--canvas-bg-position": "center center",
+      "--canvas-bg-size": "cover",
+      "--canvas-bg-attachment": "fixed",
+      "--canvas-overlay-image": `url("${TINY_WEBP}")`,
+      "--canvas-overlay-repeat": "no-repeat",
+      "--canvas-overlay-position": "center center",
+      "--canvas-overlay-size": "cover",
+      "--canvas-overlay-attachment": "fixed",
+      "--canvas-overlay-opacity": "0.25",
+    });
   });
 });

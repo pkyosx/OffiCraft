@@ -822,6 +822,37 @@ describe("I18nProvider seasonal theme", () => {
     expect(localStorage.getItem("oc.seasonalPaint")).toBeNull();
   });
 
+  it("inside the window, moves a seasonal theme's time-of-day parts by itself and shows the current part when the page is shown again", async () => {
+    load.mockResolvedValue({
+      ...HARVEST,
+      dayparts: {
+        transitionMinutes: 10,
+        parts: [{ start: "06:00" }, { start: "17:00", colors: { "--color-bg": "#05001f" } }],
+      },
+    });
+    at(new Date(2030, 9, 25, 17, 0));
+    await mount();
+    await waitFor(() => expect(ctx.t.nav.office).toBe("鬼屋辦公室"));
+    expect(root.style.getPropertyValue("--color-bg")).toBe("#15101f");
+
+    for (let i = 0; i < 20; i++) {
+      await act(async () => {
+        vi.advanceTimersByTime(15_000);
+      });
+    }
+    expect(root.style.getPropertyValue("--color-bg")).toBe("rgba(13, 8, 31, 1)");
+    expect(root.style.getPropertyValue("--color-accent")).toBe("#ff8c2b");
+
+    vi.setSystemTime(new Date(2030, 9, 26, 6, 5));
+    const visible = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    visible.mockRestore();
+    expect(root.style.getPropertyValue("--color-bg")).toBe("rgba(13, 8, 31, 1)");
+    expect(ctx.t.nav.office).toBe("鬼屋辦公室");
+  });
+
   it("inside the window, turning it off shows the selected theme and saves the choice; turning it on brings it back", async () => {
     localStorage.setItem(TOKEN_KEY, "live-owner-token");
     at(new Date(2030, 9, 28, 12, 0));

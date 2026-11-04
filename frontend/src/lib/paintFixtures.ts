@@ -128,6 +128,40 @@ export interface MaliciousPaintCase {
 /** Every record the paint reader must reject WHOLE (never field-by-field). */
 export const MALICIOUS_PAINT_CASES: readonly MaliciousPaintCase[] = [
   {
+    // Every part carries the payload, so whichever part the clock lands on
+    // would paint it if the record were not validated.
+    name: "off-whitelist-token-in-daypart",
+    bundle: {
+      id: PAINT_THEME_ID,
+      name: "M",
+      colors: { "--color-bg": CACHED_BG_HEX },
+      dayparts: {
+        transitionMinutes: 1,
+        parts: [
+          { start: "00:00", colors: { "--evil": "#ff0000" } },
+          { start: "12:00", colors: { "--evil": "#ff0000" } },
+        ],
+      },
+    },
+    forbidden: ["--evil"],
+  },
+  {
+    name: "svg-canvas-bg-in-daypart",
+    bundle: {
+      id: PAINT_THEME_ID,
+      name: "M",
+      colors: { "--color-bg": CACHED_BG_HEX },
+      dayparts: {
+        transitionMinutes: 1,
+        parts: [
+          { start: "00:00", backgrounds: { canvas: EVIL_SVG } },
+          { start: "12:00", backgrounds: { canvas: EVIL_SVG } },
+        ],
+      },
+    },
+    forbidden: ["svg+xml"],
+  },
+  {
     name: "off-whitelist-token",
     bundle: {
       id: PAINT_THEME_ID,
