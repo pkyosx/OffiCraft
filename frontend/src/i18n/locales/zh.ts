@@ -2282,6 +2282,8 @@ export const zh = {
     themeNavOffice: "辦公室圖示",
     themeNavReplies: "請示圖示",
     themeNavTasks: "任務圖示",
+    themeNavLore: "傳承圖示",
+    themeNavSecrets: "密鑰圖示",
     themeNavMonitor: "監控圖示",
     themeNavGuide: "使用說明圖示",
     // ── 外框背景圖 (T-081b) ──

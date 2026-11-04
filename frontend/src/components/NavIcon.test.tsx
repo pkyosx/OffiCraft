@@ -14,7 +14,7 @@ import { I18nProvider, useI18n } from "../i18n";
 import { mockApi, __resetMock } from "../api/mock";
 import { TOKEN_KEY } from "../api/auth";
 import { NavIcon } from "./NavIcon";
-import { OfficeIcon, TasksIcon } from "./icons";
+import { KeyIcon, OfficeIcon, TasksIcon } from "./icons";
 
 function b64(bytes: number[]): string {
   return btoa(String.fromCharCode(...bytes));
@@ -56,9 +56,9 @@ describe("NavIcon", () => {
     localStorage.setItem(TOKEN_KEY, "live-owner-token");
   });
 
-  it("renders the built-in fallback icon (an svg, no img) under the office theme", async () => {
+  it("renders the built-in secrets fallback icon (an svg, no img) under the office theme", async () => {
     const { container } = await mount(
-      <NavIcon tabKey="office" fallback={<OfficeIcon size={15} />} />
+      <NavIcon tabKey="secrets" fallback={<KeyIcon size={15} />} />
     );
     expect(container.querySelector("img.nav-tab__icon-img")).toBeNull();
     expect(container.querySelector("svg")).not.toBeNull();
@@ -69,7 +69,7 @@ describe("NavIcon", () => {
       id: "icons",
       name: "Icons",
       colors: { "--color-bg": "#101018" },
-      navIcons: { office: OFFICE_IMG },
+      navIcons: { office: OFFICE_IMG, secrets: OFFICE_IMG },
     });
     const { getByTestId } = await mount(
       <>
@@ -79,12 +79,19 @@ describe("NavIcon", () => {
         <div data-testid="tasks">
           <NavIcon tabKey="tasks" fallback={<TasksIcon size={15} />} />
         </div>
+        <div data-testid="secrets">
+          <NavIcon tabKey="secrets" fallback={<KeyIcon size={15} />} />
+        </div>
       </>
     );
     await activate("icons");
     expect(
       getByTestId("office").querySelector("img.nav-tab__icon-img")?.getAttribute("src")
     ).toBe(OFFICE_IMG);
+    expect(
+      getByTestId("secrets").querySelector("img.nav-tab__icon-img")?.getAttribute("src")
+    ).toBe(OFFICE_IMG);
+    expect(getByTestId("secrets").querySelector("svg")).toBeNull();
     // tasks has no themed icon → built-in fallback svg, no img
     expect(getByTestId("tasks").querySelector("img.nav-tab__icon-img")).toBeNull();
     expect(getByTestId("tasks").querySelector("svg")).not.toBeNull();

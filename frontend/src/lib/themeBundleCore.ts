@@ -37,10 +37,10 @@ export interface ThemeBundle {
   /** Optional studio logo image (T-ea81). A single EMBEDDED base64 `data:` URI
    * that replaces the built-in top-bar logo mark. Absent → the built-in mark. */
   logo?: string;
-  /** Optional per-nav-tab icon images (T-ea81), keyed on the five nav tabs
-   * (office / replies / tasks / monitor / guide). Each value is an EMBEDDED
-   * base64 `data:` URI that replaces that tab's built-in icon. A tab the map
-   * omits keeps its built-in icon (office never degrades). */
+  /** Optional per-nav-tab icon images (T-ea81) for office, replies, tasks, lore,
+   * secrets, monitor and guide. Each value is an EMBEDDED base64 data: URI
+   * replacing that tab's built-in icon. An omitted key keeps the built-in icon
+   * (office never degrades). */
   navIcons?: Partial<Record<NavIconKey, string>>;
   /** Optional background images for the cockpit chrome (T-081b). Keyed on the
    * ZONE the image tiles across — a CLOSED set holding exactly `canvas`, the
@@ -75,6 +75,7 @@ export const NAV_ICON_KEYS = [
   "replies",
   "tasks",
   "lore",
+  "secrets",
   "monitor",
   "guide",
 ] as const;
@@ -442,9 +443,8 @@ export function validateLogo(logo: unknown, where = "theme"): string | null {
 }
 
 /** Validate a bundle's optional `navIcons` overlay (T-ea81) — the twin of the
- * Go validateNavIcons. Key ∈ {office, replies, tasks, monitor, guide}, value ∈
- * {whitelisted-raster base64 data URI, via the SAME gate as avatars}. Returns an
- * error message, or null when admissible (an absent overlay is admissible). */
+ * Go validateNavIcons. Keys come from NAV_ICON_KEYS; values use the same
+ * whitelisted-raster base64 data-URI gate as avatars. */
 export function validateNavIcons(navIcons: unknown, where = "theme"): string | null {
   if (navIcons === undefined || navIcons === null) return null;
   if (typeof navIcons !== "object" || Array.isArray(navIcons)) {
@@ -452,7 +452,7 @@ export function validateNavIcons(navIcons: unknown, where = "theme"): string | n
   }
   for (const [key, value] of Object.entries(navIcons as Record<string, unknown>)) {
     if (!NAV_ICON_KEY_SET.has(key)) {
-      return `${where}: nav icon key "${key}" is not allowed (only office, replies, tasks, monitor, guide)`;
+      return `${where}: nav icon key "${key}" is not allowed (only ${NAV_ICON_KEYS.join(", ")})`;
     }
     if (typeof value !== "string" || !isValidAvatarValue(value)) {
       return `${where}: navIcons[${key}] is not a valid image — only a base64 data: URI of a PNG / JPEG / WEBP (≤ 64 KiB) is accepted`;

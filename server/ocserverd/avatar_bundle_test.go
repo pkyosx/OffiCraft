@@ -160,7 +160,10 @@ func TestValidateNavIcons(t *testing.T) {
 	if err := validateNavIcons(nil, "theme[0]"); err != nil {
 		t.Fatalf("validateNavIcons(nil): %v", err)
 	}
-	icons := map[string]string{"office": valid, "replies": valid, "tasks": valid, "monitor": valid, "guide": valid}
+	icons := map[string]string{
+		"office": valid, "replies": valid, "tasks": valid, "lore": valid,
+		"secrets": valid, "monitor": valid, "guide": valid,
+	}
 	if err := validateNavIcons(&icons, "theme[0]"); err != nil {
 		t.Fatalf("validateNavIcons(valid): %v", err)
 	}
