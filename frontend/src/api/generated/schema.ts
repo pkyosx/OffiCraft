@@ -11845,6 +11845,11 @@ export interface components {
                 [key: string]: string;
             };
             /**
+             * Dayparts
+             * @description Optional time-of-day parts. When present, the viewer's LOCAL clock picks which part is shown and the cockpit moves between parts at their boundaries; absent = the theme looks the same all day, exactly as before this field existed. The top-level `colors` / `backgrounds` / `backgroundModes` stay the BASE look: each part only lists what differs from it, and a client that does not understand this field shows the base look all day.
+             */
+            dayparts?: components["schemas"]["ThemeDaypartsDTO"] | null;
+            /**
              * Fonts
              * @description Optional font-family choices (T-16a1 P4). Maps a `--font-*` token name (`--font-sans` / `--font-title` only) to a font-family stack string. The value is NOT an arbitrary string: it must be one of a small CLOSED allowlist of safe, built-in font-family stacks (themeFonts.source.json — the same set the theme editor's font dropdown offers); no url(), no @font-face, no external font, no CSS structure characters. Absent = the theme keeps the default fonts. The server 422s any fonts that violates the token set or the safe-family allowlist.
              */
@@ -11876,6 +11881,36 @@ export interface components {
                     [key: string]: string;
                 };
             };
+        };
+        /**
+         * ThemeDaypartDTO
+         * @description One time-of-day part of a theme. `start` is a local wall-clock time `HH:MM` (24-hour, `00:00`..`23:59`); the part is shown from `start` until the next part's `start`, wrapping past midnight. `colors`, `backgrounds` and `backgroundModes` follow the SAME rules as the theme's top-level fields of the same name (token whitelist, colour grammar, closed zone set, image gate and caps) and are layered OVER the top-level values: a token or zone this part omits keeps the top-level value. All three are optional, so a part with only `start` shows the base look. A `backgroundModes` zone needs an image for that zone in this part or in the top-level `backgrounds`.
+         */
+        ThemeDaypartDTO: {
+            /** Background Modes */
+            backgroundModes?: {
+                [key: string]: string;
+            };
+            /** Backgrounds */
+            backgrounds?: {
+                [key: string]: string;
+            };
+            /** Colors */
+            colors?: {
+                [key: string]: string;
+            };
+            /** Start */
+            start: string;
+        };
+        /**
+         * ThemeDaypartsDTO
+         * @description Time-of-day parts of a theme and how long the move between two parts takes. `parts` holds 2..6 parts with DISTINCT `start` times, listed in ascending `start` order. `transitionMinutes` (integer, 1..120) is how long the move into a part lasts, beginning at that part's `start`: the background image cross-fades over the whole duration; the colours move gradually over the whole duration when both parts are dark or both are light, and switch within about 3 seconds at the middle of the duration when one is dark and the other light (dark = relative luminance of the part's effective `--color-bg` below 0.2), so text never sits on a background of nearly its own luminance. `transitionMinutes` must be shorter than the gap between every two consecutive parts, counted around midnight. The server 422s a bundle that breaks any of these rules.
+         */
+        ThemeDaypartsDTO: {
+            /** Parts */
+            parts: components["schemas"]["ThemeDaypartDTO"][];
+            /** Transition Minutes */
+            transitionMinutes: number;
         };
         /**
          * ThemeDeleteResultDTO

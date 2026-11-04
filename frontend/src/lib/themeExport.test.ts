@@ -350,6 +350,23 @@ describe("parseImportedBundle", () => {
     expect("bundle" in res && res.bundle.colors["--color-bg"]).toBe("#0b1020");
   });
 
+  it("round-trips time-of-day parts through serialize → import", () => {
+    const dayparts = {
+      transitionMinutes: 45,
+      parts: [
+        { start: "06:00" },
+        { start: "18:00", colors: { "--color-bg": "#101018" }, backgroundModes: { canvas: "cover" as const } },
+      ],
+    };
+    const png =
+      "data:image/png;base64," +
+      btoa(String.fromCharCode(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01));
+    const res = parseImportedBundle(
+      serializeBundle({ id: "desk", name: "Desk", colors: { "--color-bg": "#f4efe6" }, backgrounds: { canvas: png }, dayparts })
+    );
+    expect("bundle" in res && res.bundle.dayparts).toEqual(dayparts);
+  });
+
   it("round-trips the badge ring slot, and keeps a still-unset one deferred (T-d593)", () => {
     // DoD 3. The ring got its own slot in T-d593, and the whole point of that
     // slot is that a theme author can carry it to another install. Until this

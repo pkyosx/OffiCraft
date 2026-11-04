@@ -216,6 +216,9 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
   const [editCanvasBgMode, setEditCanvasBgMode] = useState<BackgroundMode>(
     DEFAULT_BACKGROUND_MODE
   );
+  // Time-of-day parts have no editor; whatever the opened bundle carried is
+  // written back unchanged so saving other fields never drops them.
+  const [editDayparts, setEditDayparts] = useState<ThemeBundle["dayparts"]>(undefined);
   const [brandError, setBrandError] = useState("");
   const logoInputRef = useRef<HTMLInputElement>(null);
   const canvasBgInputRef = useRef<HTMLInputElement>(null);
@@ -478,6 +481,7 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
     setEditNavIcons({ ...(bundle.navIcons ?? {}) });
     setEditCanvasBg(bundle.backgrounds?.canvas ?? "");
     setEditCanvasBgMode(bundle.backgroundModes?.canvas ?? DEFAULT_BACKGROUND_MODE);
+    setEditDayparts(bundle.dayparts);
     setBrandError("");
     setWordingLang(language);
     setWordingSearch("");
@@ -691,6 +695,8 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
         bundle.backgroundModes = { canvas: editCanvasBgMode };
       }
     }
+
+    if (editDayparts) bundle.dayparts = editDayparts;
 
     const err = validateThemeBundle(bundle);
     if (err) {

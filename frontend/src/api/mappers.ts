@@ -1510,6 +1510,7 @@ export function toThemeBundle(w: WireThemeBundle): ThemeBundle {
           backgroundModes: w.backgroundModes as ThemeBundle["backgroundModes"],
         }
       : {}),
+    ...(w.dayparts ? { dayparts: w.dayparts as ThemeBundle["dayparts"] } : {}),
   };
 }
 

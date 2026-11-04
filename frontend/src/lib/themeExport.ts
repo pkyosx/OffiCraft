@@ -153,6 +153,7 @@ export function parseImportedBundle(
   // …and its display mode beside it (T-081b) — dropping it would round-trip a
   // "sides" theme back as a tiled one, i.e. silently change how it looks.
   if (b.backgroundModes !== undefined) bundle.backgroundModes = b.backgroundModes;
+  if (b.dayparts !== undefined && b.dayparts !== null) bundle.dayparts = b.dayparts;
   return { bundle, skippedWording };
 }
 

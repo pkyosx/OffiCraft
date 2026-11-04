@@ -465,13 +465,18 @@ describe("ThemeSettings · colour editing", () => {
     expect(utils.queryByText("--color-accent")).toBeNull();
   });
 
-  it("round-trips an edited colour value through save", async () => {
+  it("round-trips an edited colour value through save and keeps the time-of-day parts", async () => {
     setToken("owner-token");
     const utils = await renderManage();
+    const dayparts = {
+      transitionMinutes: 30,
+      parts: [{ start: "07:00" }, { start: "18:30", colors: { "--color-accent": "#223344" } }],
+    };
     await importBundle(utils, {
       id: "midnight",
       name: "午夜藍",
       colors: { "--color-accent": "#0b1020" },
+      dayparts,
     });
     await openEditor(utils, "午夜藍");
     // The value text field carries the friendly label as its accessible name.
@@ -482,6 +487,7 @@ describe("ThemeSettings · colour editing", () => {
 
     const b = await savedTheme("midnight");
     expect(b?.colors["--color-accent"]).toBe("#ffffff");
+    expect(b?.dayparts).toEqual(dayparts);
   });
 
   it("saves an edit to a theme the server already stores under a seasonal theme's id", async () => {
