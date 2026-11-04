@@ -951,7 +951,7 @@ describe("ThemeSettings · outer-canvas background", () => {
     await openEditor(utils, "午夜藍");
 
     // A real PNG signature + padding: past the 64 KiB avatar cap, inside the
-    // 512 KiB background cap. Only the SIZE distinguishes these two outcomes —
+    // 1 MiB background cap. Only the SIZE distinguishes these two outcomes —
     // the mime and magic bytes are valid either way, so neither assertion can
     // pass for some unrelated reason.
     const bytes = new Uint8Array(MAX_AVATAR_BYTES + 1);

@@ -2300,11 +2300,11 @@ export const en: Dict = {
     // ── outer-canvas background image (T-081b) ──
     themeCanvasBgSection: "Outer canvas",
     themeCanvasBgHint:
-      "Upload an image to lay over the background colour (PNG / JPEG / WEBP, max 512 KB); leave empty for the plain colour. Tile and Sides only paint the canvas beside the content column, so they are invisible on phones, in narrow windows, and in the wide layout; Cover fills the whole window.",
-    // The background has its own cap (512 KB), so it cannot reuse the shared
+      "Upload an image to lay over the background colour (PNG / JPEG / WEBP, max 1 MB); leave empty for the plain colour. Tile and Sides only paint the canvas beside the content column, so they are invisible on phones, in narrow windows, and in the wide layout; Cover fills the whole window.",
+    // The background has its own cap (1 MB), so it cannot reuse the shared
     // themeAvatarInvalid — that one says 64 KB, which is false here (T-72da).
     themeCanvasBgInvalid:
-      "Invalid image — only a PNG / JPEG / WEBP file up to 512 KB is accepted.",
+      "Invalid image — only a PNG / JPEG / WEBP file up to 1 MB is accepted.",
     themeCanvasBg: "Canvas tile",
     themeCanvasBgMode: "How to lay it down",
     themeCanvasBgModeTile: "Tile — repeat over the whole canvas",

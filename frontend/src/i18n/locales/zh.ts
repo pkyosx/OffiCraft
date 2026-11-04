@@ -2319,10 +2319,10 @@ export const zh = {
     // ── 外框背景圖 (T-081b) ──
     themeCanvasBgSection: "外框背景",
     themeCanvasBgHint:
-      "上傳疊在底色之上的圖(PNG / JPEG / WEBP,上限 512 KB),留空則只有純底色。平鋪與貼邊只畫在內容欄兩側的外框,因此在手機、窄視窗與寬版版面都看不到;滿版則畫滿整個視窗。",
-    // 背景圖有自己的上限(512 KB),所以不能沿用共用的 themeAvatarInvalid
+      "上傳疊在底色之上的圖(PNG / JPEG / WEBP,上限 1 MB),留空則只有純底色。平鋪與貼邊只畫在內容欄兩側的外框,因此在手機、窄視窗與寬版版面都看不到;滿版則畫滿整個視窗。",
+    // 背景圖有自己的上限(1 MB),所以不能沿用共用的 themeAvatarInvalid
     // ——那句寫著 64 KB,對背景圖是假的(T-72da)。
-    themeCanvasBgInvalid: "圖片無效——僅接受 512 KB 以內的 PNG / JPEG / WEBP 檔。",
+    themeCanvasBgInvalid: "圖片無效——僅接受 1 MB 以內的 PNG / JPEG / WEBP 檔。",
     themeCanvasBg: "外框底圖",
     themeCanvasBgMode: "鋪法",
     themeCanvasBgModeTile: "平鋪 — 重複鋪滿整個外框",

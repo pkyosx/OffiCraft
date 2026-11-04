@@ -20,7 +20,7 @@ import (
 var (
 	// Matched to updateCheckTimeout; a var so a test can shrink it.
 	themeFetchTimeout = 8 * time.Second
-	// Generous on purpose: one legitimate bundle carries a 512 KiB background data
+	// Generous on purpose: one legitimate bundle carries a 1 MiB background data
 	// URI plus avatars, logo and nav icons.
 	themeFetchMaxBytes int64 = 4 << 20
 )

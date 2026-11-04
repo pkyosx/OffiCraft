@@ -108,6 +108,23 @@ func TestValidateBackgrounds(t *testing.T) {
 	if err := validateBackgrounds(&backgrounds, "theme[0]"); err != nil {
 		t.Fatalf("validateBackgrounds(valid large image): %v", err)
 	}
+	const backgroundCap = 1024 * 1024
+	pngOfSize := func(n int) string {
+		return imageDataURI("image/png", append(append([]byte{}, png...), make([]byte, n-len(png))...))
+	}
+	t.Run("an image exactly at the background cap is accepted", func(t *testing.T) {
+		atCap := map[string]string{"canvas": pngOfSize(backgroundCap)}
+		if err := validateBackgrounds(&atCap, "theme[0]"); err != nil {
+			t.Fatalf("validateBackgrounds(%d bytes): %v", backgroundCap, err)
+		}
+	})
+	t.Run("an image one byte past the background cap is refused", func(t *testing.T) {
+		pastCap := map[string]string{"canvas": pngOfSize(backgroundCap + 1)}
+		err := validateBackgrounds(&pastCap, "theme[0]")
+		if err == nil || !strings.Contains(err.Error(), "decoded image is too large") {
+			t.Fatalf("validateBackgrounds(%d bytes) error = %v, want decoded-size refusal", backgroundCap+1, err)
+		}
+	})
 	for _, tt := range []struct {
 		name string
 		data map[string]string
