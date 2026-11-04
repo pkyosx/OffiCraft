@@ -4271,6 +4271,11 @@
             "description": "Optional per-zone display mode for `backgrounds`: `tile` (the default), `sides` or `cover`. A mode for a zone that carries no image is a 422.",
             "title": "Background Modes",
             "type": "object"
+          },
+          "dayparts": {
+            "description": "Optional time-of-day parts: `transitionMinutes` (whole minutes 1..120, shorter than every gap between two parts) and 2..6 `parts` in ascending `start` order, each `{start: \"HH:MM\", colors?, backgrounds?, backgroundModes?}` layered over the top-level look with the same rules as the top-level fields; any violation is a 422.",
+            "title": "Dayparts",
+            "type": "object"
           }
         },
         "required": [
