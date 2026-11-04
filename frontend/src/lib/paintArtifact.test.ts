@@ -140,7 +140,8 @@ describe("no second source of truth for the theme storage keys", () => {
   // the values have already diverged (a two-step regression: re-hardcode, then
   // change the constant). This catches step one — the moment a literal is
   // reintroduced — which is while a reviewer can still act on it.
-  const THEME_KEY_LITERALS = /"(oc\.theme|oc\.themePaint|oc\.seasonalTheme|oc\.seasonalPaint)"/g;
+  const THEME_KEY_LITERALS =
+    /"(oc\.theme|oc\.themePaint|oc\.seasonalTheme|oc\.seasonalPaint|oc\.themeSchedule|oc\.schedulePaint)"/g;
   const SOURCES = ["src/paint/prePaint.ts", "src/i18n/index.tsx"] as const;
 
   for (const rel of SOURCES) {

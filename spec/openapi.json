@@ -7951,6 +7951,14 @@
             "title": "Display Theme",
             "type": "string"
           },
+          "display_theme_schedule": {
+            "description": "The cockpit's time-of-day theme schedule: each entry names the theme shown from its `start` (viewer-local wall clock, `HH:MM`) until the next entry's start, wrapping past midnight to the last entry. [] (the default) = no schedule, display_theme is shown. Otherwise 2 to 6 entries, sorted by start, starts unique. Precedence on screen: the seasonal theme (inside its window with display_seasonal_theme true) over this schedule over display_theme; display_theme itself is never rewritten by it. Deleting a custom theme removes the entries naming it in the same request, and clears the whole schedule when fewer than 2 would remain (see ThemeDeleteResultDTO.display_theme_schedule).",
+            "items": {
+              "$ref": "#/components/schemas/ThemeScheduleEntryDTO"
+            },
+            "title": "Display Theme Schedule",
+            "type": "array"
+          },
           "display_wide": {
             "default": false,
             "description": "Whether the cockpit uses the WIDE layout — the centred ~1040px content column is lifted, the side gutters stay (T-756f). false (the default) = the narrow centred column, the shipped look. Same dual-layer contract as display_theme: the frontend keeps a localStorage cache for the pre-auth paint and reconciles this server value in at login as the cross-device source of truth.",
@@ -8294,6 +8302,21 @@
             ],
             "description": "The owner's cockpit visual theme (T-0b41-p2) — trimmed; \"\" clears it back to unset. Accepted values are \"\", a built-in theme id (`office` dark, `office-light` light), or the id of a theme that ALREADY EXISTS (T-83ef); anything else is a 422 reading `display_theme must be \"\", office, office-light, or an existing custom theme id`. The existence half is why this can no longer create a theme on the way past: themes are their own resource now, so save it with PUT /api/themes/{theme_id} first and select it here second.",
             "title": "Display Theme"
+          },
+          "display_theme_schedule": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ThemeScheduleEntryDTO"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Replace the time-of-day theme schedule wholesale. [] turns it off. Otherwise 2 to 6 entries; each `start` must be `HH:MM` (00:00 through 23:59) and unique, each `theme` a built-in theme id (office, office-light) or the id of a custom theme that ALREADY EXISTS. Anything else is a 422 that writes nothing. Stored and returned sorted by start. 🔴 null is NOT \"clear\": an omitted field and an explicit null both mean LEAVE THE SCHEDULE UNCHANGED. To turn it off, send [].",
+            "title": "Display Theme Schedule"
           },
           "display_wide": {
             "anyOf": [
@@ -11440,6 +11463,14 @@
             "title": "Display Theme Reset",
             "type": "boolean"
           },
+          "display_theme_schedule": {
+            "description": "The schedule as it stands after the delete. The server removes every entry naming the deleted theme and clears the schedule when fewer than 2 entries would remain, in the same transaction; this is that result, so the cockpit can adopt it without re-reading settings.",
+            "items": {
+              "$ref": "#/components/schemas/ThemeScheduleEntryDTO"
+            },
+            "title": "Display Theme Schedule",
+            "type": "array"
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -11451,6 +11482,27 @@
           "id"
         ],
         "title": "ThemeDeleteResultDTO",
+        "type": "object"
+      },
+      "ThemeScheduleEntryDTO": {
+        "additionalProperties": false,
+        "description": "One row of display_theme_schedule: from `start` (viewer-local wall clock) until the next row's start, the cockpit shows `theme`.",
+        "properties": {
+          "start": {
+            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+            "title": "Start",
+            "type": "string"
+          },
+          "theme": {
+            "title": "Theme",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "theme"
+        ],
+        "title": "ThemeScheduleEntryDTO",
         "type": "object"
       },
       "ThemeFetchDTO": {

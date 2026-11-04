@@ -30,11 +30,20 @@ import {
   LS_THEME_PAINT,
   LS_SEASONAL_THEME,
   LS_SEASONAL_PAINT,
+  LS_THEME_SCHEDULE,
+  LS_SCHEDULE_PAINT,
   paintRecordFor,
   applyThemeToRoot,
   readValidatedPaint,
+  readValidatedSchedulePaint,
+  readThemeSchedule,
 } from "../lib/themePaint";
 import { activeSeasonalWindow, nextSeasonalBoundary } from "../lib/seasonalSchedule";
+import {
+  activeScheduleEntry,
+  nextScheduleBoundary,
+  type ThemeScheduleEntry,
+} from "../lib/themeSchedule";
 import { SEASONAL_WINDOWS } from "../lib/seasonalTheme";
 import { applyWording } from "./wording";
 import { makeMessages, type Messages } from "./compose";
@@ -123,6 +132,10 @@ function readStoredSeasonalTheme(): boolean {
 // boundary further out is reached in steps.
 const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
 
+function scheduledCustomThemes(schedule: readonly ThemeScheduleEntry[]): string[] {
+  return [...new Set(schedule.map((e) => e.theme).filter((id) => !isBuiltinTheme(id)))];
+}
+
 function writeStored(key: string, value: string | null) {
   try {
     if (value == null) localStorage.removeItem(key);
@@ -157,6 +170,13 @@ interface I18nContextValue {
    * it. */
   seasonalTheme: boolean;
   setSeasonalTheme: (next: boolean) => void;
+  /** display_theme_schedule, sorted by start; [] = off. Below the seasonal
+   * theme and above `theme`, which it never rewrites. */
+  themeSchedule: ThemeScheduleEntry[];
+  /** Save the schedule ([] turns it off). Not optimistic: rejects with the
+   * server's refusal, and takes effect only once saved and its custom themes
+   * are in hand. */
+  setThemeSchedule: (next: ThemeScheduleEntry[]) => Promise<void>;
   /** The shown theme's per-role avatar images (T-16a1 P5; T-ea81) — the
    * seasonal theme's inside its window, else the active custom theme's — or
    * undefined when the shown theme carries none (the built-in office, or a
@@ -215,6 +235,14 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   // Re-read at each window boundary (the timer below) and whenever the page is
   // shown or focused again: a timer does not count time the machine slept.
   const [clock, setClock] = useState(() => Date.now());
+  const [themeSchedule, setThemeScheduleState] = useState<ThemeScheduleEntry[]>(() =>
+    readThemeSchedule()
+  );
+  const themeScheduleRef = useRef(themeSchedule);
+  // Every scheduled custom theme is held in full while the page is open, so a
+  // boundary never waits on the network.
+  const [scheduleBundles, setScheduleBundles] = useState<Record<string, ThemeBundle>>({});
+  const scheduleBundlesRef = useRef(scheduleBundles);
   const [seasonalBundle, setSeasonalBundle] = useState<ThemeBundle | null>(null);
   // ⚠️ No retry: browsers cache a failed dynamic import per URL, so importing
   // the same chunk again rejects at once; only a reload can recover it.
@@ -267,14 +295,22 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const seasonalWindow =
     seasonalTheme && openSeasonalWindow?.id !== seasonalLoadFailedId ? openSeasonalWindow : null;
   // The theme on screen: the seasonal one while its window is open and the
-  // owner has not turned it off, otherwise the selected theme. Inside the window
-  // a bundle still in flight resolves to null, never to the selected theme's.
-  const shownTheme = seasonalWindow ? seasonalWindow.id : theme;
-  const shownBundle = seasonalWindow
-    ? seasonalBundle && seasonalBundle.id === seasonalWindow.id
-      ? seasonalBundle
-      : null
-    : bundleForTheme;
+  // owner has not turned it off, otherwise the schedule's current entry, else
+  // the selected theme. A seasonal or scheduled bundle still in flight resolves
+  // to null, never to the selected theme's.
+  const scheduledTheme = seasonalWindow
+    ? null
+    : (activeScheduleEntry(new Date(clock), themeSchedule)?.theme ?? null);
+  const shownTheme = seasonalWindow ? seasonalWindow.id : (scheduledTheme ?? theme);
+  const shownBundle = useMemo(() => {
+    if (seasonalWindow) {
+      return seasonalBundle && seasonalBundle.id === seasonalWindow.id ? seasonalBundle : null;
+    }
+    if (scheduledTheme && scheduledTheme !== theme) {
+      return scheduleBundles[scheduledTheme] ?? null;
+    }
+    return bundleForTheme;
+  }, [seasonalWindow, seasonalBundle, scheduledTheme, theme, scheduleBundles, bundleForTheme]);
 
   const t = useMemo(() => {
     const base = DICTS[locale];
@@ -344,6 +380,11 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       }
       return;
     }
+    if (scheduledTheme && scheduledTheme !== theme) {
+      const cached = readValidatedSchedulePaint(scheduledTheme);
+      if (cached) appliedTokensRef.current = applyThemeToRoot(root, cached);
+      return;
+    }
     // [T-1500] the bundle is unresolved AND reconcile has not spoken: keep
     // the cached picture standing (it is already on the DOM when the pre-React
     // applier ran; re-applying the same values is a visual no-op and covers the
@@ -354,17 +395,21 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         appliedTokensRef.current = applyThemeToRoot(root, cached);
       }
     }
-  }, [theme, shownTheme, shownBundle, seasonalWindow, themesLoaded]);
+  }, [theme, shownTheme, shownBundle, seasonalWindow, scheduledTheme, themesLoaded]);
 
   useEffect(() => {
-    const next = nextSeasonalBoundary(new Date(clock), SEASONAL_WINDOWS);
+    const now = new Date(clock);
+    const next = [
+      nextSeasonalBoundary(now, SEASONAL_WINDOWS),
+      nextScheduleBoundary(now, themeSchedule),
+    ].reduce<Date | null>((a, b) => (b && (!a || b < a) ? b : a), null);
     if (!next) return;
     const id = window.setTimeout(
       () => setClock(Date.now()),
       Math.min(next.getTime() - clock, MAX_TIMER_DELAY_MS)
     );
     return () => window.clearTimeout(id);
-  }, [clock]);
+  }, [clock, themeSchedule]);
 
   useEffect(() => {
     const reread = () => {
@@ -507,6 +552,40 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     writeStored(LS_SEASONAL_THEME, next ? "true" : "false");
   }, []);
 
+  const cacheThemeSchedule = useCallback((next: ThemeScheduleEntry[]) => {
+    setThemeScheduleState(next);
+    themeScheduleRef.current = next;
+    // `clock` may be hours old on a page with no pending boundary.
+    setClock(Date.now());
+    writeStored(LS_THEME_SCHEDULE, next.length ? JSON.stringify(next) : null);
+  }, []);
+
+  // A theme whose fetch failed keeps the record already cached for it: writing
+  // without it would hand the next page load a flash.
+  const adoptScheduleBundles = useCallback(
+    (schedule: ThemeScheduleEntry[], bundles: Record<string, ThemeBundle>) => {
+      setScheduleBundles(bundles);
+      scheduleBundlesRef.current = bundles;
+      const records = scheduledCustomThemes(schedule)
+        .map((id) => bundles[id] ?? readValidatedSchedulePaint(id))
+        .filter((b): b is ThemeBundle => b !== null)
+        .map(paintRecordFor);
+      writeStored(LS_SCHEDULE_PAINT, records.length ? JSON.stringify(records) : null);
+    },
+    []
+  );
+
+  const loadScheduleBundles = useCallback(async (schedule: ThemeScheduleEntry[]) => {
+    const ids = scheduledCustomThemes(schedule);
+    const results = await Promise.allSettled(ids.map((id) => api.getTheme(id)));
+    const bundles: Record<string, ThemeBundle> = {};
+    results.forEach((r, i) => {
+      if (r.status === "fulfilled" && r.value.id === ids[i]) bundles[ids[i]] = r.value;
+      else if (r.status === "rejected") console.warn("theme schedule: bundle load failed", r.reason);
+    });
+    return bundles;
+  }, []);
+
   // Public setters (owner edits from ProfileDropdown): apply locally at once
   // (instant, and the pre-auth cache for next load) AND push to the server so
   // the choice syncs to the owner's other devices. Server sync is best-effort:
@@ -588,6 +667,17 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     [cacheSeasonalTheme]
   );
 
+  const setThemeSchedule = useCallback(
+    async (next: ThemeScheduleEntry[]) => {
+      const s = await api.patchServerSettings({ displayThemeSchedule: next });
+      adoptServerSettings(s);
+      const bundles = await loadScheduleBundles(s.displayThemeSchedule);
+      cacheThemeSchedule(s.displayThemeSchedule);
+      adoptScheduleBundles(s.displayThemeSchedule, bundles);
+    },
+    [loadScheduleBundles, cacheThemeSchedule, adoptScheduleBundles]
+  );
+
   // [T-83ef] The whole-set write is GONE. It re-sent every theme, with every
   // embedded image, to change one colour — that is the cost this ticket exists
   // to remove, and there is no per-theme door it could keep using.
@@ -615,8 +705,14 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         setActiveThemeBundle(bundle);
         writePaint(bundle);
       }
+      if (scheduledCustomThemes(themeScheduleRef.current).includes(bundle.id)) {
+        adoptScheduleBundles(themeScheduleRef.current, {
+          ...scheduleBundlesRef.current,
+          [bundle.id]: bundle,
+        });
+      }
     },
-    [writePaint]
+    [writePaint, adoptScheduleBundles]
   );
 
   const removeTheme = useCallback(
@@ -635,8 +731,14 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         setActiveThemeBundle(null);
         writePaint(null);
       }
+      if (result.displayThemeSchedule) {
+        const kept = { ...scheduleBundlesRef.current };
+        delete kept[id];
+        cacheThemeSchedule(result.displayThemeSchedule);
+        adoptScheduleBundles(result.displayThemeSchedule, kept);
+      }
     },
-    [cacheTheme, writePaint]
+    [cacheTheme, writePaint, cacheThemeSchedule, adoptScheduleBundles]
   );
 
   // Login reconcile (server = cross-device truth): pull /api/settings and adopt
@@ -673,6 +775,11 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         // wide OFF on one device and have the others follow.
         cacheWide(s.displayWide);
         cacheSeasonalTheme(s.displaySeasonalTheme);
+        const schedule = s.displayThemeSchedule;
+        cacheThemeSchedule(schedule);
+        void loadScheduleBundles(schedule).then((bundles) => {
+          if (themeScheduleRef.current === schedule) adoptScheduleBundles(schedule, bundles);
+        });
         // [T-1500] never leave a picture the server no longer recognises.
         // The active id AFTER this reconcile: the server's when selectable,
         // else the local one that survived above.
@@ -712,7 +819,16 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         });
       })
       .catch((e) => console.warn("i18n reconcile: load failed", e));
-  }, [cacheTheme, cacheLanguage, cacheWide, cacheSeasonalTheme, writePaint]);
+  }, [
+    cacheTheme,
+    cacheLanguage,
+    cacheWide,
+    cacheSeasonalTheme,
+    cacheThemeSchedule,
+    loadScheduleBundles,
+    adoptScheduleBundles,
+    writePaint,
+  ]);
 
   useEffect(() => {
     // Reconcile now if a token already exists (a returning session / reload
@@ -735,12 +851,14 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     writeStored(LS_THEME_PAINT, null);
     cacheWide(false);
     cacheSeasonalTheme(true);
+    cacheThemeSchedule([]);
+    adoptScheduleBundles([], {});
     // The themes are server-backed — clear only the LOCAL mirror so the next
     // owner's paint is not tinted; the server copy is untouched (re-adopted at
     // that owner's reconcile).
     setThemeList([]);
     setActiveThemeBundle(null);
-  }, [cacheLanguage, cacheTheme, cacheWide, cacheSeasonalTheme]);
+  }, [cacheLanguage, cacheTheme, cacheWide, cacheSeasonalTheme, cacheThemeSchedule, adoptScheduleBundles]);
 
   const value = useMemo<I18nContextValue>(
     () => ({
@@ -755,6 +873,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       setWide,
       seasonalTheme,
       setSeasonalTheme,
+      themeSchedule,
+      setThemeSchedule,
       activeAvatars,
       activeLogo,
       activeNavIcons,
@@ -777,6 +897,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       setWide,
       seasonalTheme,
       setSeasonalTheme,
+      themeSchedule,
+      setThemeSchedule,
       activeAvatars,
       activeLogo,
       activeNavIcons,

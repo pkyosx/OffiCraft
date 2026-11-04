@@ -12,8 +12,11 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -155,6 +158,8 @@ const (
 	settingDisplayWide = "display.wide"
 
 	settingDisplaySeasonalTheme = "display.seasonal_theme"
+
+	settingDisplayThemeSchedule = "display.theme_schedule"
 	// suggested_replies.*: ONE KEY PER BOX (owner ruling) — the three boxes are
 	// different conversations, and separate rows keep changing one list a single
 	// write instead of an unlocked read-modify-write over a shared blob.
@@ -280,6 +285,7 @@ type authSettings struct {
 	displayLanguage                 string
 	displayWide                     bool
 	displaySeasonalTheme            bool
+	displayThemeSchedule            []ThemeScheduleEntryDTO
 
 	suggestedRepliesReplyCard   []string
 	suggestedRepliesTaskMessage []string
@@ -313,6 +319,94 @@ func canonicalSuggestedReplies(in []string) ([]string, error) {
 		return nil, fmt.Errorf("must be at most %d entries", maxSuggestedReplies)
 	}
 	return out, nil
+}
+
+const (
+	minThemeScheduleEntries = 2
+	maxThemeScheduleEntries = 6
+)
+
+var themeScheduleStartRE = regexp.MustCompile(`^([01][0-9]|2[0-3]):[0-5][0-9]$`)
+
+const themeScheduleCountRefusal = "display_theme_schedule must have 0 entries, or 2 to 6"
+
+// canonicalThemeSchedule checks the shape and sorts by start (HH:MM sorts as
+// text). Whether each theme exists is a TABLE question: themeScheduleRefusalOn.
+func canonicalThemeSchedule(in []ThemeScheduleEntryDTO) ([]ThemeScheduleEntryDTO, error) {
+	if len(in) == 0 {
+		return []ThemeScheduleEntryDTO{}, nil
+	}
+	if len(in) < minThemeScheduleEntries || len(in) > maxThemeScheduleEntries {
+		return nil, errors.New(themeScheduleCountRefusal)
+	}
+	out := append([]ThemeScheduleEntryDTO{}, in...)
+	seen := map[string]bool{}
+	for _, e := range out {
+		if !themeScheduleStartRE.MatchString(e.Start) {
+			return nil, fmt.Errorf("display_theme_schedule start must be HH:MM, 00:00 through 23:59: %q", e.Start)
+		}
+		if seen[e.Start] {
+			return nil, fmt.Errorf("display_theme_schedule starts must be unique: %q appears twice", e.Start)
+		}
+		seen[e.Start] = true
+		if e.Theme == "" {
+			return nil, errors.New("display_theme_schedule theme must not be empty")
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Start < out[j].Start })
+	return out, nil
+}
+
+// themeScheduleRefusalOn returns "" when every entry's theme is a built-in or
+// a stored custom theme, else the 422 message naming the first that is not.
+func themeScheduleRefusalOn(q sqlRowQuerier, list []ThemeScheduleEntryDTO) (string, error) {
+	for _, e := range list {
+		if displayThemeAllowed[e.Theme] {
+			continue
+		}
+		row, err := getCustomThemeOn(q, e.Theme)
+		if err != nil {
+			return "", err
+		}
+		if row == nil {
+			return fmt.Sprintf("display_theme_schedule theme must be office, office-light, or an existing custom theme id: %q", e.Theme), nil
+		}
+	}
+	return "", nil
+}
+
+// themeScheduleWithout drops the entries naming themeID; fewer than two left
+// is no schedule at all.
+func themeScheduleWithout(list []ThemeScheduleEntryDTO, themeID string) []ThemeScheduleEntryDTO {
+	out := []ThemeScheduleEntryDTO{}
+	for _, e := range list {
+		if e.Theme != themeID {
+			out = append(out, e)
+		}
+	}
+	if len(out) < minThemeScheduleEntries {
+		return []ThemeScheduleEntryDTO{}
+	}
+	return out
+}
+
+func encodeThemeSchedule(list []ThemeScheduleEntryDTO) string {
+	if list == nil {
+		list = []ThemeScheduleEntryDTO{}
+	}
+	b, err := json.Marshal(list)
+	if err != nil {
+		return "[]"
+	}
+	return string(b)
+}
+
+func decodeThemeSchedule(raw string) ([]ThemeScheduleEntryDTO, error) {
+	var list []ThemeScheduleEntryDTO
+	if err := json.Unmarshal([]byte(raw), &list); err != nil {
+		return nil, fmt.Errorf("must be a JSON array of {start, theme}: %q", raw)
+	}
+	return canonicalThemeSchedule(list)
 }
 
 func encodeSuggestedReplies(list []string) string {
@@ -357,6 +451,7 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 		diskUsageIntervalSecs:           diskUsageIntervalSecsDefault,
 		updaterCheckIntervalSecs:        updaterCheckIntervalSecsDefault,
 		displaySeasonalTheme:            true,
+		displayThemeSchedule:            []ThemeScheduleEntryDTO{},
 	}
 
 	stored, err := d.GetSetting(settingJWTSecret)
@@ -742,6 +837,15 @@ func loadAuthSettings(d *DAL, cfg Config, logf func(string)) (authSettings, erro
 	}
 	if err := getBool(settingDisplaySeasonalTheme, &out.displaySeasonalTheme); err != nil {
 		return out, err
+	}
+	if v, err := d.GetSetting(settingDisplayThemeSchedule); err != nil {
+		return out, err
+	} else if v != nil {
+		list, derr := decodeThemeSchedule(*v)
+		if derr != nil {
+			return out, fmt.Errorf("settings %s: %v", settingDisplayThemeSchedule, derr)
+		}
+		out.displayThemeSchedule = list
 	}
 	if v, err := d.GetSetting(settingOrgName); err != nil {
 		return out, err

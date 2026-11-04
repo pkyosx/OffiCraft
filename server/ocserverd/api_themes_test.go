@@ -497,6 +497,7 @@ func TestHandleDeleteThemeApiThemesThemeIdDelete(t *testing.T) {
 		}
 		apiWantBody(t, data, map[string]any{
 			"id": "dusk", "deleted": true, "display_theme_reset": false,
+			"display_theme_schedule": []any{},
 		})
 		dashboard.wantFrames()
 		apiThemeAbsent(t, h, owner, "dusk")
@@ -517,6 +518,7 @@ func TestHandleDeleteThemeApiThemesThemeIdDelete(t *testing.T) {
 		}
 		apiWantBody(t, data, map[string]any{
 			"id": "dusk", "deleted": true, "display_theme_reset": true,
+			"display_theme_schedule": []any{},
 		})
 		dashboard.wantFrames()
 		if got := apiDisplayTheme(t, h, owner); got != "" {
@@ -539,11 +541,57 @@ func TestHandleDeleteThemeApiThemesThemeIdDelete(t *testing.T) {
 		}
 		apiWantBody(t, data, map[string]any{
 			"id": "dawn", "deleted": true, "display_theme_reset": false,
+			"display_theme_schedule": []any{},
 		})
 		dashboard.wantFrames()
 		if got := apiDisplayTheme(t, h, owner); got != "dusk" {
 			t.Fatalf("display_theme should still be dusk, got %q", got)
 		}
+	})
+
+	t.Run("deleting a scheduled theme removes its entries in the same request and the receipt carries what is left", func(t *testing.T) {
+		_, h, _, owner := newAPITestServer(t)
+		apiPutTheme(t, h, owner, "dusk", `{"id":"dusk","name":"Dusk","colors":{"--color-bg":"#101418"}}`)
+		if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner,
+			`{"display_theme_schedule":[{"start":"07:00","theme":"office-light"},{"start":"12:00","theme":"dusk"},{"start":"19:00","theme":"office"},{"start":"22:00","theme":"dusk"}]}`); status != 200 {
+			t.Fatalf("schedule: %d %v", status, data)
+		}
+
+		status, data := apiJSON(t, h, "DELETE", "/api/themes/dusk", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		left := []any{
+			map[string]any{"start": "07:00", "theme": "office-light"},
+			map[string]any{"start": "19:00", "theme": "office"},
+		}
+		apiWantBody(t, data, map[string]any{
+			"id": "dusk", "deleted": true, "display_theme_reset": false,
+			"display_theme_schedule": left,
+		})
+		_, view := apiJSON(t, h, "GET", "/api/settings", owner, "")
+		apiWantValue(t, "display_theme_schedule", view["display_theme_schedule"], any(left))
+	})
+
+	t.Run("deleting a scheduled theme that leaves fewer than two entries clears the schedule, also after a restart", func(t *testing.T) {
+		_, h, d, owner := newAPITestServer(t)
+		apiPutTheme(t, h, owner, "dusk", `{"id":"dusk","name":"Dusk","colors":{"--color-bg":"#101418"}}`)
+		if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner,
+			`{"display_theme_schedule":[{"start":"07:00","theme":"dusk"},{"start":"19:00","theme":"office"}]}`); status != 200 {
+			t.Fatalf("schedule: %d %v", status, data)
+		}
+
+		status, data := apiJSON(t, h, "DELETE", "/api/themes/dusk", owner, "")
+		if status != 200 {
+			t.Fatalf("want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{
+			"id": "dusk", "deleted": true, "display_theme_reset": false,
+			"display_theme_schedule": []any{},
+		})
+		_, restarted, _, _ := apiTestStackOn(t, d, true)
+		_, view := apiJSON(t, restarted, "GET", "/api/settings", owner, "")
+		apiWantValue(t, "display_theme_schedule", view["display_theme_schedule"], any([]any{}))
 	})
 
 	t.Run("an id nothing carries answers 404 naming it and deletes nothing", func(t *testing.T) {
@@ -599,6 +647,7 @@ func TestHandleDeleteThemeApiThemesThemeIdDelete(t *testing.T) {
 		}
 		apiWantBody(t, data, map[string]any{
 			"id": "dusk", "deleted": true, "display_theme_reset": false,
+			"display_theme_schedule": []any{},
 		})
 		apiThemeAbsent(t, h, owner, "dusk")
 	})
@@ -629,7 +678,7 @@ func TestHandleDeleteThemeApiThemesThemeIdDelete(t *testing.T) {
 			if status != http.StatusOK {
 				t.Fatalf("retry: want 200, got %d (%v)", status, data)
 			}
-			apiWantBody(t, data, map[string]any{"id": "dusk", "deleted": true, "display_theme_reset": true})
+			apiWantBody(t, data, map[string]any{"id": "dusk", "deleted": true, "display_theme_reset": true, "display_theme_schedule": []any{}})
 		})
 	}
 
@@ -665,7 +714,7 @@ func TestHandleDeleteThemeApiThemesThemeIdDelete(t *testing.T) {
 			if status != http.StatusOK {
 				t.Fatalf("want 200, got %d (%v)", status, data)
 			}
-			apiWantBody(t, data, map[string]any{"id": "dusk", "deleted": true, "display_theme_reset": false})
+			apiWantBody(t, data, map[string]any{"id": "dusk", "deleted": true, "display_theme_reset": false, "display_theme_schedule": []any{}})
 			<-patched
 			apiThemeAbsent(t, h, owner, "dusk")
 		})

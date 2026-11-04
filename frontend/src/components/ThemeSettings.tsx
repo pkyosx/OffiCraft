@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useI18n } from "../i18n";
 import { en } from "../i18n/locales/en";
 import { zh } from "../i18n/locales/zh";
@@ -20,6 +20,12 @@ import {
   type NavIconKey,
   type ThemeBundle,
 } from "../lib/themeBundle";
+import {
+  MAX_SCHEDULE_ENTRIES,
+  MIN_SCHEDULE_ENTRIES,
+  themeScheduleProblem,
+  type ThemeScheduleEntry,
+} from "../lib/themeSchedule";
 import { SAFE_FONT_FAMILIES } from "../styles/themeFonts.generated";
 import { THEME_ALIAS_DEFAULT_TOKENS } from "../styles/themeTokens.generated";
 import {
@@ -1487,6 +1493,8 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
         </div>
       )}
 
+      <ThemeScheduleSection />
+
       {(() => {
         // The confirm only ever needed the NAME, which the list line carries.
         const target = themeList.find((b) => b.id === confirmDeleteId);
@@ -1504,6 +1512,165 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
           />
         );
       })()}
+    </div>
+  );
+}
+
+const DEFAULT_SCHEDULE_DRAFT: ThemeScheduleEntry[] = [
+  { start: "08:00", theme: "office-light" },
+  { start: "18:00", theme: "office" },
+];
+
+function ThemeScheduleSection() {
+  const { t, themeList, themeSchedule, setThemeSchedule } = useI18n();
+  // null = the switch is off. A draft with rows is on but maybe unsaved; the
+  // server only accepts it once there are 2..6 rows, so turning on saves nothing.
+  const [draft, setDraft] = useState<ThemeScheduleEntry[] | null>(() =>
+    themeSchedule.length ? themeSchedule : null
+  );
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<"" | "saved" | "start" | "duplicate" | "failed">("");
+  const savedKey = JSON.stringify(themeSchedule);
+  useEffect(() => {
+    setDraft(themeSchedule.length ? themeSchedule : null);
+    // Keyed on the content: a reconcile re-delivering the same schedule must
+    // not throw away rows being edited.
+  }, [savedKey]);
+
+  const save = async (next: ThemeScheduleEntry[]) => {
+    const problem = themeScheduleProblem(next);
+    if (problem === "start" || problem === "duplicate") {
+      setStatus(problem);
+      return;
+    }
+    setBusy(true);
+    setStatus("");
+    try {
+      await setThemeSchedule(next);
+      setStatus(next.length ? "saved" : "");
+    } catch (e) {
+      console.warn("theme schedule: save failed", e);
+      setStatus("failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // A saved schedule switches off when the server has cleared it (the effect
+  // above); a failed clear leaves the switch on.
+  const turnOff = () => {
+    if (themeSchedule.length) {
+      void save([]);
+    } else {
+      setDraft(null);
+      setStatus("");
+    }
+  };
+
+  const editRow = (i: number, patch: Partial<ThemeScheduleEntry>) => {
+    setStatus("");
+    setDraft((rows) => rows && rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  };
+
+  return (
+    <div className="ts-schedule" data-testid="theme-schedule">
+      <div className="ts-section-label">{t.settings.themeSchedule}</div>
+      <div className="ts-wording-sub">{t.settings.themeScheduleHint}</div>
+      <div className="ts-wording-tabs" role="group" aria-label={t.settings.themeSchedule}>
+        <button
+          type="button"
+          aria-pressed={draft !== null}
+          className={`ts-tab${draft !== null ? " ts-tab--active" : ""}`}
+          disabled={busy}
+          onClick={() => {
+            setStatus("");
+            if (draft === null) setDraft(DEFAULT_SCHEDULE_DRAFT);
+          }}
+        >
+          {t.settings.themeScheduleOn}
+        </button>
+        <button
+          type="button"
+          aria-pressed={draft === null}
+          className={`ts-tab${draft === null ? " ts-tab--active" : ""}`}
+          disabled={busy}
+          onClick={turnOff}
+        >
+          {t.settings.themeScheduleOff}
+        </button>
+      </div>
+      {draft && (
+        <div className="ts-list">
+          {draft.map((row, i) => (
+            <div key={i} className="ts-row ts-schedule-row">
+              <input
+                type="time"
+                className="ts-input ts-schedule-start"
+                aria-label={`${t.settings.themeScheduleStart} ${i + 1}`}
+                value={row.start}
+                onChange={(e) => editRow(i, { start: e.target.value })}
+              />
+              <select
+                className="ts-input"
+                aria-label={`${t.settings.themeScheduleTheme} ${i + 1}`}
+                value={row.theme}
+                onChange={(e) => editRow(i, { theme: e.target.value })}
+              >
+                {BUILTIN_THEMES.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {t.themeIdentity[b.nameKey]}
+                  </option>
+                ))}
+                {themeList.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="ts-icon-btn ts-icon-btn--danger"
+                aria-label={`${t.settings.themeScheduleRemove} ${i + 1}`}
+                title={t.settings.themeScheduleRemove}
+                disabled={draft.length <= MIN_SCHEDULE_ENTRIES}
+                onClick={() => {
+                  setStatus("");
+                  setDraft(draft.filter((_, j) => j !== i));
+                }}
+              >
+                <TrashIcon size={15} />
+              </button>
+            </div>
+          ))}
+          <div className="ts-toolbar">
+            <button
+              type="button"
+              className="doc-btn"
+              disabled={draft.length >= MAX_SCHEDULE_ENTRIES}
+              onClick={() => {
+                setStatus("");
+                setDraft([...draft, { start: "", theme: "office" }]);
+              }}
+            >
+              {t.settings.themeScheduleAdd}
+            </button>
+            <button
+              type="button"
+              className="doc-btn doc-btn--accent"
+              disabled={busy}
+              onClick={() => void save(draft)}
+            >
+              {t.settings.themeScheduleSave}
+            </button>
+          </div>
+        </div>
+      )}
+      {status === "saved" && <div className="ts-link-note">{t.settings.themeScheduleSaved}</div>}
+      {status === "start" && <div className="set-error">{t.settings.themeScheduleErrorStart}</div>}
+      {status === "duplicate" && (
+        <div className="set-error">{t.settings.themeScheduleErrorDuplicate}</div>
+      )}
+      {status === "failed" && <div className="set-error">{t.settings.themeScheduleSaveFailed}</div>}
     </div>
   );
 }

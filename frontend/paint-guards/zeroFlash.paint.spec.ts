@@ -30,7 +30,8 @@
 // `custom_themes`. Nothing was dropped; only where each fact is read moved.
 
 import { expect, test } from "@playwright/test";
-import { LS_SEASONAL_PAINT, paintRecordFor } from "../src/lib/themePaint";
+import { LS_SCHEDULE_PAINT, LS_SEASONAL_PAINT, paintRecordFor } from "../src/lib/themePaint";
+import { activeScheduleEntry } from "../src/lib/themeSchedule";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
@@ -53,6 +54,7 @@ import {
   frameCarrying,
   frameCarryingBeforeMount,
   installFrameSampler,
+  OUTSIDE_SEASONAL_WINDOWS,
   pinClock,
   pinClockOutsideSeasonalWindows,
   readStoredPaint,
@@ -361,5 +363,89 @@ for (const profile of ["fourg", "loopback"] as NetProfile[]) {
     expect((JSON.parse(storedPaint as string) as { bundle: { name: string } }).bundle.name).toBe(
       VALID_RICH_BUNDLE.name
     );
+  });
+}
+
+const SCHEDULE = [
+  { start: "06:00", theme: "office-light" },
+  { start: "11:00", theme: PAINT_THEME_ID },
+  { start: "20:00", theme: "office" },
+];
+
+for (const profile of ["fourg", "loopback"] as NetProfile[]) {
+  test(`with a theme schedule: no frame is anything but the current entry's cached colour — authenticated (${profile})`, async ({
+    page,
+  }) => {
+    expect(
+      activeScheduleEntry(OUTSIDE_SEASONAL_WINDOWS, SCHEDULE)?.theme,
+      "setup error: the pinned clock does not fall in the custom theme's entry"
+    ).toBe(PAINT_THEME_ID);
+    const pageErrors = collectPageErrors(page);
+    const settingsBodies = captureSettingsResponses(page);
+    const themeBundleBodies = captureThemeBundleResponses(page);
+    // The stub's settings answer (and its delay) with the selected theme a
+    // built-in and the schedule naming the custom theme the stub serves, so
+    // only the schedule can put that colour on screen.
+    await page.route("**/api/settings", async (route) => {
+      if (route.request().method() !== "GET") return route.continue();
+      const response = await route.fetch();
+      const body = (await response.json()) as Record<string, unknown>;
+      await route.fulfill({
+        response,
+        json: { ...body, display_theme: "office-light", display_theme_schedule: SCHEDULE },
+      });
+    });
+
+    await page.goto(OK_SERVER);
+    await seedSession(page, {
+      token: TOKEN,
+      themeId: "office-light",
+      paintRecord: null,
+      schedule: JSON.stringify(SCHEDULE),
+      schedulePaintRecords: `[${STALE_RECORD}]`,
+    });
+
+    await installFrameSampler(page);
+    await applyNetProfile(page, profile);
+    await page.reload({ waitUntil: "load" });
+    await page.waitForTimeout(3000);
+
+    const { samples } = await collect(page);
+
+    expect(settingsBodies.length, "GET /api/settings never answered 200").toBeGreaterThan(0);
+    const settings = (await settingsBodies[0]) as {
+      display_theme?: string;
+      display_theme_schedule?: unknown;
+    } | null;
+    expect(settings?.display_theme).toBe("office-light");
+    expect(settings?.display_theme_schedule, "the server did not report the schedule").toEqual(SCHEDULE);
+    const bundles = (await Promise.all(themeBundleBodies)) as { id?: string }[];
+    expect(
+      bundles.map((b) => b?.id),
+      "the scheduled custom theme was never fetched"
+    ).toContain(PAINT_THEME_ID);
+    const stored = JSON.parse(
+      (await page.evaluate((k) => localStorage.getItem(k), LS_SCHEDULE_PAINT)) ?? "null"
+    ) as { bundle: { name: string } }[] | null;
+    expect(
+      stored?.map((r) => r.bundle.name),
+      "the schedule's picture still carries the SEEDED name, so the app never adopted the server copy"
+    ).toEqual([VALID_RICH_BUNDLE.name]);
+
+    expect(samples.length).toBeGreaterThanOrEqual(MIN_SAMPLES);
+    expect(samples.some((f) => f.mounted), "React never mounted").toBe(true);
+    expect(pageErrors, "uncaught page errors").toEqual([]);
+
+    const painted = profile === "fourg" ? frameCarryingBeforeMount : frameCarrying;
+    expect(
+      painted(samples, `--color-bg: ${VALID_RICH_BUNDLE.colors["--color-bg"]}`),
+      `the schedule's cached record was never painted\n${summarize(samples)}`
+    ).toBeTruthy();
+    const bad = badFrames(samples, CACHED_BG_RGB);
+    expect(
+      bad.length,
+      `${bad.length}/${samples.length} frames were not the scheduled theme's colour; first at ` +
+        `${bad[0]?.t}ms bg=${bad[0]?.bg}\n${summarize(samples)}`
+    ).toBe(0);
   });
 }

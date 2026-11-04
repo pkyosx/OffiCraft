@@ -263,6 +263,8 @@ import {
   MAX_CUSTOM_THEMES,
 } from "../lib/themeBundle";
 import type { ThemeBundle } from "../lib/themeBundle";
+import { isBuiltinTheme } from "../lib/themeBundleCore";
+import { MIN_SCHEDULE_ENTRIES, themeScheduleProblem } from "../lib/themeSchedule";
 
 // The always-present server-self machine id (mirrors the server seed):
 // the warden for the host running the server itself — listed FIRST, is_self, NOT
@@ -2354,6 +2356,7 @@ const DEFAULT_MOCK_SETTINGS = {
   // cockpit ships with the narrow centred column).
   display_wide: false,
   display_seasonal_theme: true,
+  display_theme_schedule: [] as { start: string; theme: string }[],
   // The first-run onboarding report (T-ba62). Null in the mock and staying
   // that way: mock mode is a healthy studio, and a seeded FAILED report would
   // hang the "your studio is broken" banner over every mock page. Declared
@@ -6538,7 +6541,14 @@ const mockApiImpl = {
     // caller learns its theme changed without re-reading settings.
     const displayThemeReset = mockServerSettings.display_theme === id;
     if (displayThemeReset) mockServerSettings.display_theme = "";
-    return { id, deleted: true, displayThemeReset };
+    const left = mockServerSettings.display_theme_schedule.filter((e) => e.theme !== id);
+    mockServerSettings.display_theme_schedule = left.length < MIN_SCHEDULE_ENTRIES ? [] : left;
+    return {
+      id,
+      deleted: true,
+      displayThemeReset,
+      displayThemeSchedule: structuredClone(mockServerSettings.display_theme_schedule),
+    };
   },
 
   async getServerSettings(): Promise<ServerSettingsView> {
@@ -7021,6 +7031,21 @@ const mockApiImpl = {
     }
     if (patch.displaySeasonalTheme !== undefined) {
       mockServerSettings.display_seasonal_theme = patch.displaySeasonalTheme;
+    }
+    if (patch.displayThemeSchedule !== undefined) {
+      const list = patch.displayThemeSchedule.map((e) => ({ start: e.start, theme: e.theme }));
+      if (themeScheduleProblem(list) !== null) {
+        throw mockApiError("http 422 for PATCH /api/settings", 422, "display_theme_schedule breaks a rule");
+      }
+      const missing = list.find((e) => !isBuiltinTheme(e.theme) && !mockThemes.has(e.theme));
+      if (missing) {
+        throw mockApiError(
+          "http 422 for PATCH /api/settings",
+          422,
+          `display_theme_schedule theme must be office, office-light, or an existing custom theme id: "${missing.theme}"`
+        );
+      }
+      mockServerSettings.display_theme_schedule = list.sort((a, b) => (a.start < b.start ? -1 : 1));
     }
     // onboarding_dismissed (T-0648) — server parity: the stamp lives ON the
     // report row, and only a `failed` report has a banner up to close. Every

@@ -35,6 +35,23 @@ describe("toServerSettings", () => {
     expect(toServerSettings(settingsFromServer({ display_seasonal_theme: false })).displaySeasonalTheme).toBe(false);
   });
 
+  it("under a server that omits display_theme_schedule, it reads as no schedule; a sent one is carried entry for entry", () => {
+    expect(toServerSettings(settingsFromServer()).displayThemeSchedule).toEqual([]);
+    expect(
+      toServerSettings(
+        settingsFromServer({
+          display_theme_schedule: [
+            { start: "07:00", theme: "office-light" },
+            { start: "19:00", theme: "dusk" },
+          ],
+        })
+      ).displayThemeSchedule
+    ).toEqual([
+      { start: "07:00", theme: "office-light" },
+      { start: "19:00", theme: "dusk" },
+    ]);
+  });
+
   it("under a server that omits the update check interval, it reads as the 300s shipped default; a sent value is carried as is", () => {
     expect(toServerSettings(settingsFromServer()).updaterCheckIntervalSecs).toBe(300);
     expect(toServerSettings(settingsFromServer({ updater_check_interval_secs: 900 })).updaterCheckIntervalSecs).toBe(900);

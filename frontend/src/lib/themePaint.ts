@@ -7,6 +7,7 @@ import {
   type BackgroundMode,
   type ThemeBundle,
 } from "./themeBundleCore";
+import { parseThemeSchedule, type ThemeScheduleEntry } from "./themeSchedule";
 
 /** The paint path's entry into the SHARED grammar: the same
  * validateThemeBundleWith every other caller runs, with the wording validator
@@ -29,6 +30,10 @@ export const LS_THEME_PAINT = "oc.themePaint";
  * the display theme's cached picture survives the seasonal window. */
 export const LS_SEASONAL_THEME = "oc.seasonalTheme";
 export const LS_SEASONAL_PAINT = "oc.seasonalPaint";
+/** The display_theme_schedule cache (the server's JSON list) and one paint
+ * record per scheduled custom theme, as a JSON array of PaintRecord. */
+export const LS_THEME_SCHEDULE = "oc.themeSchedule";
+export const LS_SCHEDULE_PAINT = "oc.schedulePaint";
 export const PAINT_CACHE_VERSION = 1;
 
 export interface PaintRecord {
@@ -49,28 +54,44 @@ export function paintRecordFor(b: ThemeBundle): PaintRecord {
   return { v: PAINT_CACHE_VERSION, bundle: pruned };
 }
 
-/** Read + fully validate the cached picture. Any failure → null (today's
- * behaviour). Never throws. */
-export function readValidatedPaint(key: string = LS_THEME_PAINT): ThemeBundle | null {
-  let raw: string | null = null;
+function readJSON(key: string): unknown {
   try {
-    raw = localStorage.getItem(key);
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
   }
-  if (!raw) return null;
-  let rec: unknown;
-  try {
-    rec = JSON.parse(raw);
-  } catch {
-    return null;
-  }
+}
+
+function validatedPaintBundle(rec: unknown): ThemeBundle | null {
   if (typeof rec !== "object" || rec === null) return null;
   const r = rec as Record<string, unknown>;
   if (r.v !== PAINT_CACHE_VERSION) return null;
   // ONE call, the same validator the import UI / picker / mock parity use.
   if (validatePaintBundle(r.bundle) !== null) return null;
   return r.bundle as ThemeBundle;
+}
+
+/** Read + fully validate the cached picture. Any failure → null (today's
+ * behaviour). Never throws. */
+export function readValidatedPaint(key: string = LS_THEME_PAINT): ThemeBundle | null {
+  return validatedPaintBundle(readJSON(key));
+}
+
+/** The scheduled custom theme `id`'s cached picture, each record through the
+ * same validator; null when absent or invalid. Never throws. */
+export function readValidatedSchedulePaint(id: string): ThemeBundle | null {
+  const recs = readJSON(LS_SCHEDULE_PAINT);
+  if (!Array.isArray(recs)) return null;
+  for (const rec of recs) {
+    const b = validatedPaintBundle(rec);
+    if (b && b.id === id) return b;
+  }
+  return null;
+}
+
+export function readThemeSchedule(): ThemeScheduleEntry[] {
+  return parseThemeSchedule(readJSON(LS_THEME_SCHEDULE));
 }
 
 /** "dark" or "light" from a `#rrggbb` / `rgb()` page background; null when the

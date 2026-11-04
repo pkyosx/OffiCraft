@@ -28,11 +28,15 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  LS_SCHEDULE_PAINT,
   LS_THEME_PAINT,
+  LS_THEME_SCHEDULE,
   PAINT_CACHE_VERSION,
   applyThemeToRoot,
   paintRecordFor,
+  readThemeSchedule,
   readValidatedPaint,
+  readValidatedSchedulePaint,
 } from "./themePaint";
 import {
   CACHED_BG_HEX,
@@ -153,6 +157,66 @@ describe("readValidatedPaint — ACCEPTS the valid rich record", () => {
     seed(JSON.stringify(rec));
     // …and the pruned record passes the wordingFn=null path.
     expect(readValidatedPaint()).toEqual(VALID_RICH_BUNDLE);
+  });
+});
+
+describe("readValidatedSchedulePaint", () => {
+  const DUSK = { id: "dusk", name: "Dusk", colors: { "--color-bg": "#101418" } };
+
+  it("answers the record carrying the asked-for id, through the same validator", () => {
+    localStorage.setItem(
+      LS_SCHEDULE_PAINT,
+      JSON.stringify([paintRecordFor(DUSK), paintRecordFor(VALID_RICH_BUNDLE)])
+    );
+    expect(readValidatedSchedulePaint(PAINT_THEME_ID)).toEqual(VALID_RICH_BUNDLE);
+    expect(readValidatedSchedulePaint("dusk")).toEqual(DUSK);
+    expect(readValidatedSchedulePaint("dawn")).toBeNull();
+  });
+
+  for (const c of MALICIOUS_PAINT_CASES.filter((m) => !m.notGuardedByValidator)) {
+    it(`a ${c.name} record is null while a valid neighbour still reads`, () => {
+      localStorage.setItem(
+        LS_SCHEDULE_PAINT,
+        `[${paintRecordJSON(c.bundle)},${JSON.stringify(paintRecordFor(DUSK))}]`
+      );
+      expect(readValidatedSchedulePaint(PAINT_THEME_ID)).toBeNull();
+      expect(readValidatedSchedulePaint("dusk")).toEqual(DUSK);
+    });
+  }
+
+  it("a store that is not a list of records, or a record of another version, is null, not a throw", () => {
+    for (const raw of [
+      "not json",
+      "{}",
+      paintRecordJSON(VALID_RICH_BUNDLE),
+      "[null,42,\"x\"]",
+      `[${paintRecordJSON(VALID_RICH_BUNDLE, PAINT_CACHE_VERSION + 1)}]`,
+    ]) {
+      localStorage.setItem(LS_SCHEDULE_PAINT, raw);
+      expect(readValidatedSchedulePaint(PAINT_THEME_ID), raw).toBeNull();
+    }
+    localStorage.removeItem(LS_SCHEDULE_PAINT);
+    expect(readValidatedSchedulePaint(PAINT_THEME_ID)).toBeNull();
+  });
+});
+
+describe("readThemeSchedule", () => {
+  it("reads the cached schedule back sorted, and a tampered one as no schedule", () => {
+    localStorage.setItem(
+      LS_THEME_SCHEDULE,
+      JSON.stringify([
+        { start: "19:00", theme: "office" },
+        { start: "07:00", theme: PAINT_THEME_ID },
+      ])
+    );
+    expect(readThemeSchedule()).toEqual([
+      { start: "07:00", theme: PAINT_THEME_ID },
+      { start: "19:00", theme: "office" },
+    ]);
+    localStorage.setItem(LS_THEME_SCHEDULE, `[{"start":"07:00","theme":"a b"},{"start":"19:00","theme":"office"}]`);
+    expect(readThemeSchedule()).toEqual([]);
+    localStorage.setItem(LS_THEME_SCHEDULE, "not json");
+    expect(readThemeSchedule()).toEqual([]);
   });
 });
 

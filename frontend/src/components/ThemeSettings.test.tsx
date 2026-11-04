@@ -1559,3 +1559,167 @@ describe("ThemeSettings · a refused write is visible", () => {
     vi.restoreAllMocks();
   });
 });
+
+describe("ThemeSettings · switch by time of day", () => {
+  const section = (utils: ReturnType<typeof render>) => within(utils.getByTestId("theme-schedule"));
+  const startInputs = (utils: ReturnType<typeof render>) =>
+    section(utils).queryAllByLabelText(new RegExp(`^${s.themeScheduleStart} \\d$`)) as HTMLInputElement[];
+  const rows = (utils: ReturnType<typeof render>) =>
+    startInputs(utils).map((input, i) => [
+      input.value,
+      (section(utils).getByLabelText(`${s.themeScheduleTheme} ${i + 1}`) as HTMLSelectElement).value,
+    ]);
+
+  async function renderWithDusk() {
+    setToken("owner-token");
+    await api.putTheme({ id: "dusk", name: "黃昏", colors: { "--color-bg": "#0a0b0c" } });
+    return renderManage();
+  }
+
+  it("turning it on offers two rows to edit and saves nothing until the schedule is saved", async () => {
+    const utils = await renderWithDusk();
+    expect(startInputs(utils)).toEqual([]);
+    const patch = vi.spyOn(api, "patchServerSettings");
+
+    fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleOn }));
+
+    expect(rows(utils)).toEqual([
+      ["08:00", "office-light"],
+      ["18:00", "office"],
+    ]);
+    const options = Array.from(
+      (section(utils).getByLabelText(`${s.themeScheduleTheme} 1`) as HTMLSelectElement).options
+    ).map((o) => [o.value, o.textContent]);
+    expect(options).toEqual([
+      ["office", zh.themeIdentity.office],
+      ["office-light", zh.themeIdentity.officeLight],
+      ["dusk", "黃昏"],
+    ]);
+    expect(patch).not.toHaveBeenCalled();
+    expect((await api.getServerSettings()).displayThemeSchedule).toEqual([]);
+  });
+
+  it("adds rows up to six and removes rows down to two", async () => {
+    const utils = await renderWithDusk();
+    fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleOn }));
+    const add = section(utils).getByRole("button", { name: s.themeScheduleAdd });
+
+    for (let i = 0; i < 4; i++) fireEvent.click(add);
+
+    expect(startInputs(utils)).toHaveLength(6);
+    expect((add as HTMLButtonElement).disabled).toBe(true);
+    for (let i = 6; i > 2; i--) {
+      fireEvent.click(section(utils).getByRole("button", { name: `${s.themeScheduleRemove} ${i}` }));
+    }
+    expect(rows(utils)).toEqual([
+      ["08:00", "office-light"],
+      ["18:00", "office"],
+    ]);
+    expect(
+      (section(utils).getByRole("button", { name: `${s.themeScheduleRemove} 1` }) as HTMLButtonElement)
+        .disabled
+    ).toBe(true);
+  });
+
+  it("saves the rows through the settings patch and shows the server's copy sorted by start", async () => {
+    const utils = await renderWithDusk();
+    fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleOn }));
+    fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleAdd }));
+    fireEvent.change(startInputs(utils)[2], { target: { value: "06:30" } });
+    fireEvent.change(section(utils).getByLabelText(`${s.themeScheduleTheme} 3`), {
+      target: { value: "dusk" },
+    });
+
+    fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleSave }));
+    await settle();
+    await settle();
+
+    expect((await api.getServerSettings()).displayThemeSchedule).toEqual([
+      { start: "06:30", theme: "dusk" },
+      { start: "08:00", theme: "office-light" },
+      { start: "18:00", theme: "office" },
+    ]);
+    expect(rows(utils)).toEqual([
+      ["06:30", "dusk"],
+      ["08:00", "office-light"],
+      ["18:00", "office"],
+    ]);
+    expect(section(utils).getByText(s.themeScheduleSaved)).toBeTruthy();
+  });
+
+  it("a repeated or missing start time is refused on screen and nothing is sent", async () => {
+    const utils = await renderWithDusk();
+    fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleOn }));
+    const patch = vi.spyOn(api, "patchServerSettings");
+
+    fireEvent.change(startInputs(utils)[1], { target: { value: "08:00" } });
+    fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleSave }));
+    await settle();
+    expect(section(utils).getByText(s.themeScheduleErrorDuplicate)).toBeTruthy();
+
+    fireEvent.change(startInputs(utils)[1], { target: { value: "" } });
+    fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleSave }));
+    await settle();
+    expect(section(utils).getByText(s.themeScheduleErrorStart)).toBeTruthy();
+
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it("a save the server refuses says so and keeps the rows", async () => {
+    const utils = await renderWithDusk();
+    fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleOn }));
+    vi.spyOn(api, "patchServerSettings").mockRejectedValue(
+      new ApiError("http 422", 422, codeForStatus(422), "display_theme_schedule theme must be …")
+    );
+
+    fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleSave }));
+    await settle();
+
+    expect(section(utils).getByText(s.themeScheduleSaveFailed)).toBeTruthy();
+    expect(rows(utils)).toEqual([
+      ["08:00", "office-light"],
+      ["18:00", "office"],
+    ]);
+  });
+
+  it("turning it off clears the saved schedule and hides the rows", async () => {
+    const utils = await renderWithDusk();
+    fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleOn }));
+    fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleSave }));
+    await settle();
+    await settle();
+    expect((await api.getServerSettings()).displayThemeSchedule).toHaveLength(2);
+
+    fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleOff }));
+    await settle();
+    await settle();
+
+    expect((await api.getServerSettings()).displayThemeSchedule).toEqual([]);
+    expect(startInputs(utils)).toEqual([]);
+    expect(
+      section(utils).getByRole("button", { name: s.themeScheduleOff }).getAttribute("aria-pressed")
+    ).toBe("true");
+  });
+
+  it("deleting a theme the schedule uses drops the schedule when fewer than two rows would be left", async () => {
+    const utils = await renderWithDusk();
+    fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleOn }));
+    fireEvent.change(section(utils).getByLabelText(`${s.themeScheduleTheme} 2`), {
+      target: { value: "dusk" },
+    });
+    fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleSave }));
+    await settle();
+    await settle();
+    expect(rows(utils)).toEqual([
+      ["08:00", "office-light"],
+      ["18:00", "dusk"],
+    ]);
+
+    fireEvent.click(await utils.findByLabelText(`${p.themeDelete} 黃昏`));
+    fireEvent.click(utils.getByTestId("theme-delete-confirm-btn"));
+    await settle();
+
+    expect((await api.getServerSettings()).displayThemeSchedule).toEqual([]);
+    expect(startInputs(utils)).toEqual([]);
+  });
+});

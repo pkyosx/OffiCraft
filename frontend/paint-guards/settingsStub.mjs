@@ -114,6 +114,7 @@ function settingsDTO() {
     display_language: "zh",
     display_wide: false,
     display_seasonal_theme: true,
+    display_theme_schedule: [],
     // The real settingsDTO carries no `omitempty`, so this key is ALWAYS on the
     // wire — null once onboarding has finished, which is every installation the
     // owner reloads. Absent and null map to the same `null` in the FE mapper, so

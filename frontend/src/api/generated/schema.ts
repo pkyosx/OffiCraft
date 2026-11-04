@@ -9755,6 +9755,11 @@ export interface components {
              */
             display_theme: string;
             /**
+             * Display Theme Schedule
+             * @description The cockpit's time-of-day theme schedule: each entry names the theme shown from its `start` (viewer-local wall clock, `HH:MM`) until the next entry's start, wrapping past midnight to the last entry. [] (the default) = no schedule, display_theme is shown. Otherwise 2 to 6 entries, sorted by start, starts unique. Precedence on screen: the seasonal theme (inside its window with display_seasonal_theme true) over this schedule over display_theme; display_theme itself is never rewritten by it. Deleting a custom theme removes the entries naming it in the same request, and clears the whole schedule when fewer than 2 would remain (see ThemeDeleteResultDTO.display_theme_schedule).
+             */
+            display_theme_schedule?: components["schemas"]["ThemeScheduleEntryDTO"][];
+            /**
              * Display Wide
              * @description Whether the cockpit uses the WIDE layout — the centred ~1040px content column is lifted, the side gutters stay (T-756f). false (the default) = the narrow centred column, the shipped look. Same dual-layer contract as display_theme: the frontend keeps a localStorage cache for the pre-auth paint and reconciles this server value in at login as the cross-device source of truth.
              * @default false
@@ -10008,6 +10013,11 @@ export interface components {
              * @description The owner's cockpit visual theme (T-0b41-p2) — trimmed; "" clears it back to unset. Accepted values are "", a built-in theme id (`office` dark, `office-light` light), or the id of a theme that ALREADY EXISTS (T-83ef); anything else is a 422 reading `display_theme must be "", office, office-light, or an existing custom theme id`. The existence half is why this can no longer create a theme on the way past: themes are their own resource now, so save it with PUT /api/themes/{theme_id} first and select it here second.
              */
             display_theme?: string | null;
+            /**
+             * Display Theme Schedule
+             * @description Replace the time-of-day theme schedule wholesale. [] turns it off. Otherwise 2 to 6 entries; each `start` must be `HH:MM` (00:00 through 23:59) and unique, each `theme` a built-in theme id (office, office-light) or the id of a custom theme that ALREADY EXISTS. Anything else is a 422 that writes nothing. Stored and returned sorted by start. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THE SCHEDULE UNCHANGED. To turn it off, send [].
+             */
+            display_theme_schedule?: components["schemas"]["ThemeScheduleEntryDTO"][] | null;
             /**
              * Display Wide
              * @description Turn the WIDE cockpit layout on/off (T-756f) — true lifts the centred ~1040px content column (the side gutters stay), false restores it. A plain boolean with no unset state: omit the field to leave it unchanged.
@@ -11886,8 +11896,23 @@ export interface components {
             deleted: boolean;
             /** Display Theme Reset */
             display_theme_reset: boolean;
+            /**
+             * Display Theme Schedule
+             * @description The schedule as it stands after the delete. The server removes every entry naming the deleted theme and clears the schedule when fewer than 2 entries would remain, in the same transaction; this is that result, so the cockpit can adopt it without re-reading settings.
+             */
+            display_theme_schedule?: components["schemas"]["ThemeScheduleEntryDTO"][];
             /** Id */
             id: string;
+        };
+        /**
+         * ThemeScheduleEntryDTO
+         * @description One row of display_theme_schedule: from `start` (viewer-local wall clock) until the next row's start, the cockpit shows `theme`.
+         */
+        ThemeScheduleEntryDTO: {
+            /** Start */
+            start: string;
+            /** Theme */
+            theme: string;
         };
         /**
          * ThemeFetchDTO

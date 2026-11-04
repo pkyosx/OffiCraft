@@ -548,6 +548,8 @@ DB 三個 key（`suggested_replies.reply_card` / `suggested_replies.task_message
 一套主題管得到：**顏色**（含不透明度與跟隨）、**用詞**（可覆蓋介面字，連英文標籤也能換）、
 **字型**（安全白名單，內文／標題各一）、**頭像**（正職／外包／CEO／助理各一張）、
 **工作室 Logo**、**導覽圖示**（七個主導覽頁籤各一張）、**外框背景圖**（平鋪／貼邊／滿版）。
+同一頁還有 **依時間切換**（server `display_theme_schedule`）：開了之後是 2～6 列「開始時間 ＋ 主題」，
+依觀看者當地時間到點直接換；應景主題期間仍顯示應景主題，關掉就回到偏好裡選的主題。
 玩法見 [docs/guide/theme.md](../guide/theme.md)。
 
 ---

@@ -102,6 +102,33 @@ describe("mock settings — display prefs (display_theme / display_language)", (
     expect((await mockApi.getServerSettings()).displaySeasonalTheme).toBe(true);
   });
 
+  it("PATCHes display_theme_schedule, reads it back sorted, and refuses one the server would refuse", async () => {
+    await mockApi.putTheme({ id: "dusk", name: "Dusk", colors: { "--color-bg": "#101418" } });
+    const s = await mockApi.patchServerSettings({
+      displayThemeSchedule: [
+        { start: "19:00", theme: "dusk" },
+        { start: "07:00", theme: "office-light" },
+      ],
+    });
+    const sorted = [
+      { start: "07:00", theme: "office-light" },
+      { start: "19:00", theme: "dusk" },
+    ];
+    expect(s.displayThemeSchedule).toEqual(sorted);
+    expect((await mockApi.getServerSettings()).displayThemeSchedule).toEqual(sorted);
+
+    for (const bad of [
+      [{ start: "07:00", theme: "office" }],
+      [{ start: "07:00", theme: "office" }, { start: "07:00", theme: "dusk" }],
+      [{ start: "07:00", theme: "office" }, { start: "19:00", theme: "ghost" }],
+    ]) {
+      await expect(mockApi.patchServerSettings({ displayThemeSchedule: bad })).rejects.toMatchObject({
+        status: 422,
+      });
+    }
+    expect((await mockApi.getServerSettings()).displayThemeSchedule).toEqual(sorted);
+  });
+
   it("leaves display_wide and display_seasonal_theme alone when the patch omits them (PATCH semantics)", async () => {
     await mockApi.patchServerSettings({ displayWide: true, displaySeasonalTheme: false });
     const s = await mockApi.patchServerSettings({ displayLanguage: "en" });

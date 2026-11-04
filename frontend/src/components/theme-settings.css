@@ -409,3 +409,17 @@
     flex-basis: 38%;
   }
 }
+
+.ts-schedule {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ts-schedule-start {
+  flex: 0 0 8.5em;
+  width: auto;
+}
+.ts-schedule-row > select {
+  flex: 1 1 auto;
+  min-width: 0;
+}

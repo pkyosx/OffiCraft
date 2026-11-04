@@ -9,6 +9,7 @@
 
 import type { DiffParams } from "../lib/diffLink";
 import type { ThemeBundle } from "../lib/themeBundle";
+import type { ThemeScheduleEntry } from "../lib/themeSchedule";
 import type {
   Member,
   MemberActivity,
@@ -1175,6 +1176,9 @@ export interface ThemeDeleteResult {
   id: string;
   deleted: boolean;
   displayThemeReset: boolean;
+  /** The schedule after the server pruned the deleted theme out of it;
+   * undefined from a server that has no schedule. */
+  displayThemeSchedule?: ThemeScheduleEntry[];
 }
 
 /** The owner-adjustable server settings in view-model form (`/api/settings`). */
@@ -1328,6 +1332,8 @@ export interface ServerSettingsView {
    * open; display_theme is never rewritten by it. Same dual-layer contract as
    * displayWide; true is the shipped default. */
   displaySeasonalTheme: boolean;
+  /** display_theme_schedule, sorted by start; [] = no schedule. */
+  displayThemeSchedule: ThemeScheduleEntry[];
   /** The automatic first-run onboarding report (T-ba62), or null when
    * onboarding never ran on this server (an install predating it, or a
    * database that already had a password). This is how the cockpit can say
@@ -1461,6 +1467,8 @@ export interface ServerSettingsPatch {
   displayWide?: boolean;
   /** Turn the built-in seasonal theme on/off. Omit to leave it unchanged. */
   displaySeasonalTheme?: boolean;
+  /** Replace the schedule wholesale; [] turns it off. */
+  displayThemeSchedule?: ThemeScheduleEntry[];
   /** Dismiss (true) or un-dismiss (false) the first-run onboarding banner
    * (T-0648) — it stamps / clears `dismissedAt` on the ONE onboarding report,
    * so 「不再顯示」 outlives the tab it was pressed in. 409 when there is no

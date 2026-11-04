@@ -140,6 +140,8 @@ func (s *apiServer) HandleDeleteThemeApiThemesThemeIdDelete(w http.ResponseWrite
 	unlockMu := s.settingsWriteMu.Acquire()
 	defer unlockMu()
 	reset := s.displayTheme == themeID
+	schedule := themeScheduleWithout(s.displayThemeSchedule, themeID)
+	scheduleChanged := len(schedule) != len(s.displayThemeSchedule)
 	err := s.dal.inTx(func(tx *writeTx) error {
 		deleted, err := deleteCustomThemeOn(tx, themeID)
 		if err != nil {
@@ -149,7 +151,12 @@ func (s *apiServer) HandleDeleteThemeApiThemesThemeIdDelete(w http.ResponseWrite
 			return refuseInTx(http.StatusNotFound, "theme '"+themeID+"' not found")
 		}
 		if reset {
-			return putSettingOn(tx, settingDisplayTheme, "")
+			if err := putSettingOn(tx, settingDisplayTheme, ""); err != nil {
+				return err
+			}
+		}
+		if scheduleChanged {
+			return putSettingOn(tx, settingDisplayThemeSchedule, encodeThemeSchedule(schedule))
 		}
 		return nil
 	})
@@ -158,13 +165,19 @@ func (s *apiServer) HandleDeleteThemeApiThemesThemeIdDelete(w http.ResponseWrite
 		writeTxError(w, err)
 		return
 	}
-	if reset {
-		s.applySettings(func() { s.displayTheme = "" })
-	}
+	s.applySettings(func() {
+		if reset {
+			s.displayTheme = ""
+		}
+		if scheduleChanged {
+			s.displayThemeSchedule = schedule
+		}
+	})
 	unlockMu()
 
 	writeJSON(w, http.StatusOK, themeDeleteResultDTO{
 		ID: themeID, Deleted: true, DisplayThemeReset: reset,
+		DisplayThemeSchedule: append([]ThemeScheduleEntryDTO{}, schedule...),
 	})
 }
 

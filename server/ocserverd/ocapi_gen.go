@@ -3999,6 +3999,9 @@ type SettingsDTO struct {
 	// DisplayTheme The owner's cockpit visual theme (T-0b41-p2). "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login as the cross-device source of truth.
 	DisplayTheme *string `json:"display_theme,omitempty"`
 
+	// DisplayThemeSchedule The cockpit's time-of-day theme schedule: each entry names the theme shown from its `start` (viewer-local wall clock, `HH:MM`) until the next entry's start, wrapping past midnight to the last entry. [] (the default) = no schedule, display_theme is shown. Otherwise 2 to 6 entries, sorted by start, starts unique. Precedence on screen: the seasonal theme (inside its window with display_seasonal_theme true) over this schedule over display_theme; display_theme itself is never rewritten by it. Deleting a custom theme removes the entries naming it in the same request, and clears the whole schedule when fewer than 2 would remain (see ThemeDeleteResultDTO.display_theme_schedule).
+	DisplayThemeSchedule *[]ThemeScheduleEntryDTO `json:"display_theme_schedule,omitempty"`
+
 	// DisplayWide Whether the cockpit uses the WIDE layout — the centred ~1040px content column is lifted, the side gutters stay (T-756f). false (the default) = the narrow centred column, the shipped look. Same dual-layer contract as display_theme: the frontend keeps a localStorage cache for the pre-auth paint and reconciles this server value in at login as the cross-device source of truth.
 	DisplayWide *bool `json:"display_wide,omitempty"`
 
@@ -4142,6 +4145,9 @@ type SettingsUpdateDTO struct {
 
 	// DisplayTheme The owner's cockpit visual theme (T-0b41-p2) — trimmed; "" clears it back to unset. Accepted values are "", a built-in theme id (`office` dark, `office-light` light), or the id of a theme that ALREADY EXISTS (T-83ef); anything else is a 422 reading `display_theme must be "", office, office-light, or an existing custom theme id`. The existence half is why this can no longer create a theme on the way past: themes are their own resource now, so save it with PUT /api/themes/{theme_id} first and select it here second.
 	DisplayTheme *string `json:"display_theme,omitempty"`
+
+	// DisplayThemeSchedule Replace the time-of-day theme schedule wholesale. [] turns it off. Otherwise 2 to 6 entries; each `start` must be `HH:MM` (00:00 through 23:59) and unique, each `theme` a built-in theme id (office, office-light) or the id of a custom theme that ALREADY EXISTS. Anything else is a 422 that writes nothing. Stored and returned sorted by start. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THE SCHEDULE UNCHANGED. To turn it off, send [].
+	DisplayThemeSchedule *[]ThemeScheduleEntryDTO `json:"display_theme_schedule,omitempty"`
 
 	// DisplayWide Turn the WIDE cockpit layout on/off (T-756f) — true lifts the centred ~1040px content column (the side gutters stay), false restores it. A plain boolean with no unset state: omit the field to leave it unchanged.
 	DisplayWide *bool `json:"display_wide,omitempty"`
@@ -5037,9 +5043,12 @@ type ThemeBundleDTO struct {
 
 // ThemeDeleteResultDTO Receipt for deleting one custom theme (T-83ef). “display_theme_reset“ is the part a caller cannot work out on its own: deleting the ACTIVE theme resets “display_theme“ back to “""“ in the same request — the coupling the whole-array settings write used to perform — and this field says whether that happened, so the cockpit does not have to re-read settings to discover its theme changed under it.
 type ThemeDeleteResultDTO struct {
-	Deleted           bool   `json:"deleted"`
-	DisplayThemeReset bool   `json:"display_theme_reset"`
-	Id                string `json:"id"`
+	Deleted           bool `json:"deleted"`
+	DisplayThemeReset bool `json:"display_theme_reset"`
+
+	// DisplayThemeSchedule The schedule as it stands after the delete. The server removes every entry naming the deleted theme and clears the schedule when fewer than 2 entries would remain, in the same transaction; this is that result, so the cockpit can adopt it without re-reading settings.
+	DisplayThemeSchedule *[]ThemeScheduleEntryDTO `json:"display_theme_schedule,omitempty"`
+	Id                   string                   `json:"id"`
 }
 
 // ThemeFetchDTO One link to pull a theme bundle from (T-29c7). “url“ must be an absolute “http“/“https“ URL — that FORMAT check is the only thing asked of the address. The link's ORIGIN is deliberately unconstrained (owner ruling 2026-08-03: "不要限制 link 是哪邊來的", "不用驗證"): there is no host allowlist, no private-address refusal and no per-hop redirect re-check. What IS checked is the ANSWER — see ThemeFetchResultDTO.
@@ -5056,6 +5065,12 @@ type ThemeFetchResultDTO struct {
 type ThemeListItemDTO struct {
 	Id   string `json:"id"`
 	Name string `json:"name"`
+}
+
+// ThemeScheduleEntryDTO One row of display_theme_schedule: from `start` (viewer-local wall clock) until the next row's start, the cockpit shows `theme`.
+type ThemeScheduleEntryDTO struct {
+	Start string `json:"start"`
+	Theme string `json:"theme"`
 }
 
 // ThemeWriteReceiptDTO Receipt for a single-theme write (T-83ef). It is a RECEIPT rather than the stored bundle echoed back on purpose: a bundle carries its images embedded, so echoing it would send hundreds of kilobytes a second time — the payload this split exists to remove. “created“ distinguishes a theme that did not exist before from one that was replaced; “order_idx“ is its position in the owner's list, which a replace KEEPS (re-colouring a theme does not move it to the bottom); “updated_at“ is when this write landed.
