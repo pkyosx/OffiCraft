@@ -89,4 +89,4 @@ stub server 的埠不可寫死：playwright-paint.config.ts 用 allocateFreePort
 
 時間表沒有「未設定」的第三態，登入 reconcile 一律採用 server 的值。`setThemeSchedule` 不是樂觀寫入：server 收下、表中的自訂主題取回之後才切換，所以存檔當下不會閃內建主題；被拒就 reject，畫面照舊。
 
-pre-paint 讀 `LS_THEME_SCHEDULE`（`parseThemeSchedule` 驗過，不合格就當沒有時間表）挑出當下那列；自訂主題的畫面在 `LS_SCHEDULE_PAINT`（PaintRecord 陣列，一套一筆），每筆都經 `readValidatedSchedulePaint` 走同一個驗證器，id 對不上就不畫。頁面開著時表中每個自訂主題都先取回放在 provider（`scheduleBundles`），到點不等網路；某套取不到就保留它已快取的那筆，不用空值覆蓋。`lib/themeSchedule.ts` 會被 pre-paint 打包，同樣不可放 Vite 專屬語法。
+pre-paint 讀 `LS_THEME_SCHEDULE`（`parseThemeSchedule` 驗過，不合格就當沒有時間表）挑出當下那列；自訂主題的畫面在 `LS_SCHEDULE_PAINT`（PaintRecord 陣列，一套一筆），每筆都經 `readValidatedSchedulePaint` 走同一個驗證器，id 對不上就不畫。頁面開著時表中每個自訂主題都先取回放在 provider（`scheduleBundles`），到點不等網路；某套取不到就保留它已快取的那筆，不用空值覆蓋；但整筆寫入被拒（容量滿）時要移除這個 key，因為留下的舊紀錄可能早於上次編輯，下次開頁會先畫改之前的顏色——寧可不畫。時間表開著時，偏好設定的主題選單下方要提示「這裡選的要等關掉時間表才會顯示」，否則選了沒反應看起來像壞掉。`lib/themeSchedule.ts` 會被 pre-paint 打包，同樣不可放 Vite 專屬語法。

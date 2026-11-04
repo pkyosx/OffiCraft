@@ -239,7 +239,7 @@ const COLOR_RGB_RE = /^rgba?\(\s*[0-9.,%/\s]+\)$/;
 // (deg/grad/rad/turn) on the hue — a closed set that cannot form url/var/
 // expression/color-mix/javascript (all need a paren or colon this class forbids).
 const COLOR_HSL_RE = /^hsla?\(\s*[0-9.,%/\sdegratun]+\)$/;
-const THEME_ID_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
+export const THEME_ID_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
 
 // Structure-breaking substrings a concrete colour can never legitimately hold.
 // The grammar already rejects them; this yields a SPECIFIC "you pasted CSS" error.

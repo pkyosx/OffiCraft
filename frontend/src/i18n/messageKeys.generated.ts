@@ -1020,6 +1020,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "profile.themeLimitReached",
   "profile.themeManageHint",
   "profile.themeNameLabel",
+  "profile.themeScheduleNote",
   "profile.title",
   "replies.aiPick",
   "replies.answerError",

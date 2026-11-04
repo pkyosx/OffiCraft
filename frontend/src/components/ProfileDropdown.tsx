@@ -83,6 +83,7 @@ export function ProfileDropdown({
     setWide,
     seasonalTheme,
     setSeasonalTheme,
+    themeSchedule,
     resetPreferences, msg } = useI18n();
 
   const [view, setView] = useState<View>("main");
@@ -567,6 +568,9 @@ export function ProfileDropdown({
               ))}
               {themeList.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
+            {themeSchedule.length > 0 && (
+              <div className="profile-dd__hint">{t.profile.themeScheduleNote}</div>
+            )}
           </div>
 
           <div className="profile-dd__section">

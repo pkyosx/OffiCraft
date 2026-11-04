@@ -1204,6 +1204,126 @@ describe("I18nProvider theme schedule", () => {
     expect(localStorage.getItem("oc.schedulePaint")).toBeNull();
   });
 
+  it("saving a schedule ahead of a custom theme's start fetches it at once, so that start switches with no fetch and its colour", async () => {
+    await mockApi.putTheme(DUSK);
+    localStorage.setItem("oc.theme", "office");
+    localStorage.setItem(TOKEN_KEY, "live-owner-token");
+    at(new Date(2030, 0, 15, 12, 0));
+    await mount();
+    await waitFor(() => expect(ctx.themeList).toEqual([{ id: "dusk", name: "Dusk" }]));
+
+    await act(async () => {
+      await ctx.setThemeSchedule(SCHEDULE);
+    });
+    expect(root.dataset.theme).toBe("office-light");
+    expect(JSON.parse(localStorage.getItem("oc.schedulePaint") ?? "null")).toEqual([
+      { v: 1, bundle: { id: "dusk", name: "Dusk", colors: { "--color-bg": "#0a0b0c" } } },
+    ]);
+    const getTheme = vi.spyOn(api, "getTheme");
+
+    await act(async () => {
+      vi.advanceTimersByTime(7 * 60 * 60 * 1000);
+    });
+
+    expect(root.dataset.theme).toBe("office");
+    expect(root.style.getPropertyValue("--color-bg")).toBe("#0a0b0c");
+    expect(getTheme).not.toHaveBeenCalled();
+  });
+
+  it("saving on a page left open since the morning shows the entry for now, not for when the page last read the clock", async () => {
+    await mockApi.putTheme(DUSK);
+    localStorage.setItem("oc.theme", "office");
+    localStorage.setItem(TOKEN_KEY, "live-owner-token");
+    at(new Date(2030, 0, 15, 8, 0));
+    await mount();
+    await waitFor(() => expect(ctx.themeList).toEqual([{ id: "dusk", name: "Dusk" }]));
+    vi.setSystemTime(new Date(2030, 0, 15, 20, 0));
+
+    await act(async () => {
+      await ctx.setThemeSchedule(SCHEDULE);
+    });
+
+    expect(root.dataset.theme).toBe("office");
+    expect(root.style.getPropertyValue("--color-bg")).toBe("#0a0b0c");
+  });
+
+  it("a scheduled theme whose fetch fails keeps its cached picture, and is shown from it", async () => {
+    await signedInWithSchedule();
+    const cached = { v: 1, bundle: { id: "dusk", name: "Dusk", colors: { "--color-bg": "#0a0b0c" } } };
+    localStorage.setItem("oc.themeSchedule", JSON.stringify(SCHEDULE));
+    localStorage.setItem("oc.schedulePaint", JSON.stringify([cached]));
+    vi.spyOn(api, "getTheme").mockRejectedValue(new Error("offline"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    at(new Date(2030, 0, 15, 20, 0));
+    await mount();
+
+    await waitFor(() =>
+      expect(warn).toHaveBeenCalledWith("theme schedule: bundle load failed", expect.any(Error))
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(JSON.parse(localStorage.getItem("oc.schedulePaint") ?? "null")).toEqual([cached]);
+    expect(root.style.getPropertyValue("--color-bg")).toBe("#0a0b0c");
+  });
+
+  it("a login reconcile that lands after a save does not bring back the replaced schedule's themes", async () => {
+    const DAWN = { id: "dawn", name: "Dawn", colors: { "--color-bg": "#fafaf0" } };
+    await signedInWithSchedule();
+    await mockApi.putTheme(DAWN);
+    const realGetTheme = api.getTheme.bind(api);
+    let releaseDusk: (() => void) | null = null;
+    vi.spyOn(api, "getTheme").mockImplementation((id: string) =>
+      id === "dusk"
+        ? new Promise((resolve) => {
+            releaseDusk = () => resolve(realGetTheme(id));
+          })
+        : realGetTheme(id)
+    );
+    at(new Date(2030, 0, 15, 20, 0));
+    await mount();
+    await waitFor(() => expect(releaseDusk).not.toBeNull());
+    const next = [
+      { start: "07:00", theme: "office-light" },
+      { start: "19:00", theme: "dawn" },
+    ];
+
+    await act(async () => {
+      await ctx.setThemeSchedule(next);
+    });
+    expect(root.style.getPropertyValue("--color-bg")).toBe("#fafaf0");
+    await act(async () => {
+      releaseDusk?.();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    expect(ctx.themeSchedule).toEqual(next);
+    expect(root.style.getPropertyValue("--color-bg")).toBe("#fafaf0");
+    expect(JSON.parse(localStorage.getItem("oc.schedulePaint") ?? "null")).toEqual([
+      { v: 1, bundle: DAWN },
+    ]);
+  });
+
+  it("when storage refuses the scheduled themes' pictures, the older pictures are removed rather than left for the next page load", async () => {
+    await signedInWithSchedule();
+    localStorage.setItem("oc.themeSchedule", JSON.stringify(SCHEDULE));
+    localStorage.setItem(
+      "oc.schedulePaint",
+      JSON.stringify([{ v: 1, bundle: { id: "dusk", name: "Dusk", colors: { "--color-bg": "#111111" } } }])
+    );
+    const setItem = localStorage.setItem.bind(localStorage);
+    vi.spyOn(localStorage, "setItem").mockImplementation((key: string, value: string) => {
+      if (key === "oc.schedulePaint") throw new DOMException("full", "QuotaExceededError");
+      setItem(key, value);
+    });
+    at(new Date(2030, 0, 15, 20, 0));
+    await mount();
+
+    await waitFor(() => expect(localStorage.getItem("oc.schedulePaint")).toBeNull());
+    expect(root.style.getPropertyValue("--color-bg")).toBe("#0a0b0c");
+  });
+
   it("a refused save rejects and leaves the schedule as it was", async () => {
     localStorage.setItem(TOKEN_KEY, "live-owner-token");
     at(new Date(2030, 0, 15, 20, 0));

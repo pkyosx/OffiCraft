@@ -95,8 +95,17 @@ describe("themeScheduleProblem", () => {
 });
 
 describe("parseThemeSchedule", () => {
-  it("reads a valid list back sorted by start", () => {
+  it("reads a valid list back sorted by start, custom ids as the theme grammar accepts them", () => {
     expect(parseThemeSchedule([DAY[2], DAY[0], DAY[1]])).toEqual(DAY);
+    expect(
+      parseThemeSchedule([
+        { start: "20:00", theme: "studio-9" },
+        { start: "08:00", theme: "2026-spring" },
+      ])
+    ).toEqual([
+      { start: "08:00", theme: "2026-spring" },
+      { start: "20:00", theme: "studio-9" },
+    ]);
   });
 
   it("reads anything malformed as no schedule at all", () => {

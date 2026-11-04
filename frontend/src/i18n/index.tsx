@@ -136,12 +136,14 @@ function scheduledCustomThemes(schedule: readonly ThemeScheduleEntry[]): string[
   return [...new Set(schedule.map((e) => e.theme).filter((id) => !isBuiltinTheme(id)))];
 }
 
-function writeStored(key: string, value: string | null) {
+function writeStored(key: string, value: string | null): boolean {
   try {
     if (value == null) localStorage.removeItem(key);
     else localStorage.setItem(key, value);
+    return true;
   } catch {
     // ignore — best-effort persistence
+    return false;
   }
 }
 
@@ -570,7 +572,12 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         .map((id) => bundles[id] ?? readValidatedSchedulePaint(id))
         .filter((b): b is ThemeBundle => b !== null)
         .map(paintRecordFor);
-      writeStored(LS_SCHEDULE_PAINT, records.length ? JSON.stringify(records) : null);
+      // A refused write (storage full) leaves the previous records standing,
+      // which may predate the last edit: the next pre-paint would draw the old
+      // colours. Drawing nothing is the lesser flash.
+      if (!writeStored(LS_SCHEDULE_PAINT, records.length ? JSON.stringify(records) : null)) {
+        writeStored(LS_SCHEDULE_PAINT, null);
+      }
     },
     []
   );

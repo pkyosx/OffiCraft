@@ -86,6 +86,25 @@ describe("ProfileDropdown · preferences scope", () => {
     expect(utils.getByText(p.themeManageHint)).toBeTruthy();
   });
 
+  it("while a theme schedule is on, says the picked theme waits for the schedule to be off; without one, says nothing", async () => {
+    await api.patchServerSettings({
+      displayThemeSchedule: [
+        { start: "07:00", theme: "office-light" },
+        { start: "19:00", theme: "office" },
+      ],
+    });
+    setToken("owner-token");
+    const utils = await openPreferences();
+    expect(await utils.findByText(p.themeScheduleNote)).toBeTruthy();
+
+    await api.patchServerSettings({ displayThemeSchedule: [] });
+    localStorage.removeItem("oc.themeSchedule");
+    clearToken();
+    utils.unmount();
+    const fresh = await openPreferences();
+    expect(fresh.queryByText(p.themeScheduleNote)).toBeNull();
+  });
+
   it("cannot be made to show two identical built-in rows by a theme's NAME", async () => {
     // The owner's original symptom, re-entered through the other door (T-081b
     // review round 3, BLOCKER-2): while the marker was TEXT — 「辦公室」 + 「(內建)」 —

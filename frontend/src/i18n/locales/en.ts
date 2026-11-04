@@ -1115,6 +1115,8 @@ export const en: Dict = {
     layout: "Layout",
     layoutNarrow: "Narrow",
     layoutWide: "Wide",
+    themeScheduleNote:
+      "The theme is switching by time of day, so a theme picked here shows once the schedule is off. Change it in Settings › Theme.",
     seasonalTheme: "Show seasonal theme",
     seasonalThemeOn: "On",
     seasonalThemeOff: "Off",

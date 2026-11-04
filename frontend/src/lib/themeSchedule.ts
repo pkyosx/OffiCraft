@@ -1,7 +1,7 @@
 // The time-of-day theme schedule (display_theme_schedule). The pre-paint script
 // bundles this module with esbuild on its own: no import.meta or other
 // Vite-only syntax here.
-import { isBuiltinTheme } from "./themeBundleCore";
+import { THEME_ID_RE, isBuiltinTheme } from "./themeBundleCore";
 
 export interface ThemeScheduleEntry {
   /** "HH:MM", viewer-local wall clock. */
@@ -13,7 +13,6 @@ export const MIN_SCHEDULE_ENTRIES = 2;
 export const MAX_SCHEDULE_ENTRIES = 6;
 
 const START_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
-const CUSTOM_THEME_ID_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
 
 export type ThemeScheduleProblem = "count" | "start" | "duplicate" | "theme";
 
@@ -47,7 +46,7 @@ export function parseThemeSchedule(raw: unknown): ThemeScheduleEntry[] {
     if (typeof e !== "object" || e === null) return [];
     const { start, theme } = e as Record<string, unknown>;
     if (typeof start !== "string" || typeof theme !== "string") return [];
-    if (!isBuiltinTheme(theme) && !CUSTOM_THEME_ID_RE.test(theme)) return [];
+    if (!isBuiltinTheme(theme) && !THEME_ID_RE.test(theme)) return [];
     out.push({ start, theme });
   }
   if (themeScheduleProblem(out) !== null) return [];

@@ -1021,6 +1021,7 @@ var messageKeys = map[string]bool{
 	"profile.themeLimitReached":                        true,
 	"profile.themeManageHint":                          true,
 	"profile.themeNameLabel":                           true,
+	"profile.themeScheduleNote":                        true,
 	"profile.title":                                    true,
 	"replies.aiPick":                                   true,
 	"replies.answerError":                              true,

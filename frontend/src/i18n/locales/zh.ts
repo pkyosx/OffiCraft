@@ -1190,6 +1190,7 @@ export const zh = {
     layout: "版面",
     layoutNarrow: "窄版",
     layoutWide: "寬版",
+    themeScheduleNote: "目前依時間切換主題，這裡選的主題要等關掉時間表才會顯示。到「設定 › 主題」調整。",
     seasonalTheme: "顯示應景主題",
     seasonalThemeOn: "開",
     seasonalThemeOff: "關",
