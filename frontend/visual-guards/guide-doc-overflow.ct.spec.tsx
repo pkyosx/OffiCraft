@@ -47,6 +47,7 @@ const DOCS = [
   "security",
   "daily",
   "tasks",
+  "usage",
   "mobile",
   "sop",
   "schedule",

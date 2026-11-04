@@ -46,6 +46,7 @@ var docReadingOrder = []string{
 	"security",
 	"daily",
 	"tasks",
+	"usage",
 	"mobile",
 	"sop",
 	"schedule",
