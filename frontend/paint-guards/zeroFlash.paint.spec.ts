@@ -242,6 +242,39 @@ test("server no longer knows the theme → the stale picture is dropped (documen
   expect(samples[samples.length - 1].bg).not.toBe(CACHED_BG_RGB);
 });
 
+test("a cached theme with time-of-day parts is painted as it looks now, mid-transition, from the first frame", async ({
+  page,
+}) => {
+  // The pinned clock is 12:00; the move into the 11:30 part runs 11:30–12:30,
+  // so the page opens exactly halfway between #010203 and #212223.
+  const pageErrors = collectPageErrors(page);
+  const record = paintRecordJSON({
+    ...VALID_RICH_BUNDLE,
+    dayparts: {
+      transitionMinutes: 60,
+      parts: [{ start: "00:00" }, { start: "11:30", colors: { "--color-bg": "#212223" } }],
+    },
+  });
+
+  await page.goto(OK_SERVER);
+  await seedSession(page, { token: TOKEN, themeId: PAINT_THEME_ID, paintRecord: record });
+  await installFrameSampler(page);
+  await applyNetProfile(page, "fourg");
+  await page.reload({ waitUntil: "load" });
+  await page.waitForTimeout(3000);
+
+  const { samples } = await collect(page);
+  expect(samples.length).toBeGreaterThanOrEqual(MIN_SAMPLES);
+  expect(pageErrors).toEqual([]);
+
+  const beforeReact = samples.filter((f) => !f.mounted && f.bg !== "NOBODY");
+  expect(beforeReact.length, `no frame was sampled before React mounted\n${summarize(samples)}`).toBeGreaterThan(0);
+  expect(
+    beforeReact.filter((f) => f.bg !== "rgb(17, 18, 19)"),
+    `a frame before React mounted was not the halfway colour\n${summarize(samples)}`
+  ).toEqual([]);
+});
+
 const BUILTIN_SERVER = stubURL("PAINT_GUARD_BUILTIN_URL");
 
 /** office-light's --color-bg as getComputedStyle reports it, read from theme.css
