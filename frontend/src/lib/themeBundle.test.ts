@@ -24,6 +24,7 @@ import {
   validateNavIcons,
   validateBackgrounds,
   validateBackgroundModes,
+  validateDayparts,
   validateThemeBundle,
   validateThemeBundles,
   validateWording,
@@ -589,6 +590,83 @@ describe("validateBackgroundModes", () => {
         backgroundModes: { canvas: "sides" },
       })
     ).toMatch(/has no image in backgrounds/);
+  });
+});
+
+describe("validateDayparts", () => {
+  const parts = [
+    { start: "06:30" },
+    { start: "17:00", colors: { [aToken]: "#2a1d1a" }, backgrounds: { canvas: okWebp } },
+    { start: "19:00", colors: { [aToken]: "#12141c" }, backgroundModes: { canvas: "cover" } },
+  ];
+  const dayparts = { transitionMinutes: 40, parts };
+  const top = { canvas: okPng };
+
+  it("accepts absent dayparts and parts layered over the top-level images", () => {
+    expect(validateDayparts(undefined, top)).toBeNull();
+    expect(validateDayparts(null, top)).toBeNull();
+    expect(validateDayparts(dayparts, top)).toBeNull();
+  });
+
+  it.each([
+    [[], "theme: dayparts must be an object"],
+    [{ ...dayparts, extra: 1 }, 'theme: dayparts has an unknown field "extra"'],
+    [{ ...dayparts, transitionMinutes: 0 }, "theme: dayparts.transitionMinutes must be a whole number 1..120"],
+    [{ ...dayparts, transitionMinutes: 121 }, "theme: dayparts.transitionMinutes must be a whole number 1..120"],
+    [{ ...dayparts, transitionMinutes: 2.5 }, "theme: dayparts.transitionMinutes must be a whole number 1..120"],
+    [{ ...dayparts, parts: parts.slice(0, 1) }, "theme: dayparts.parts must hold 2..6 parts"],
+    [
+      { ...dayparts, parts: Array.from({ length: 7 }, (_, i) => ({ start: `0${i}:00` })) },
+      "theme: dayparts.parts must hold 2..6 parts",
+    ],
+    [{ ...dayparts, parts: [parts[0], "x"] }, "theme: dayparts.parts[1] must be an object"],
+    [{ ...dayparts, parts: [parts[0], { start: "18:00", wording: {} }] }, 'theme: dayparts.parts[1] has an unknown field "wording"'],
+    [{ ...dayparts, parts: [parts[0], { start: "24:00" }] }, "theme: dayparts.parts[1].start must be HH:MM (00:00..23:59)"],
+    [{ ...dayparts, parts: [parts[0], { start: "7:00" }] }, "theme: dayparts.parts[1].start must be HH:MM (00:00..23:59)"],
+    [{ ...dayparts, parts: [parts[1], parts[0]] }, "theme: dayparts.parts[1].start must be later than the part before it"],
+    [{ ...dayparts, parts: [parts[0], { start: "06:30" }] }, "theme: dayparts.parts[1].start must be later than the part before it"],
+    [{ ...dayparts, parts: [parts[0], { start: "18:00", colors: [] }] }, "theme: dayparts.parts[1].colors must be an object"],
+    [
+      { ...dayparts, parts: [parts[0], { start: "18:00", colors: { "--not-a-token": "#000" } }] },
+      'theme: dayparts.parts[1]: "--not-a-token" is not a theme colour token (see theme.css)',
+    ],
+    [
+      { ...dayparts, parts: [parts[0], { start: "18:00", colors: { [aToken]: "var(--x)" } }] },
+      `theme: dayparts.parts[1]: "${aToken}" has an invalid colour value — only concrete hex / rgb() / rgba() / hsl() / hsla() / transparent are accepted`,
+    ],
+    [
+      { ...dayparts, parts: [parts[0], { start: "18:00", backgrounds: { topbar: okPng } }] },
+      'theme: dayparts.parts[1]: background zone "topbar" is not allowed (only canvas)',
+    ],
+    [
+      { ...dayparts, parts: [parts[0], { start: "18:00", backgroundModes: { canvas: "contain" } }] },
+      "theme: dayparts.parts[1]: backgroundModes[canvas] is not a valid mode (only tile, sides, cover)",
+    ],
+    [{ ...dayparts, transitionMinutes: 120 }, "theme: dayparts.transitionMinutes must be shorter than the gap between every two consecutive parts"],
+  ])("rejects %j", (input, message) => {
+    expect(validateDayparts(input, top)).toBe(message);
+  });
+
+  it("measures the gap from the last part to the first around midnight", () => {
+    const late = { transitionMinutes: 60, parts: [{ start: "00:30" }, { start: "12:00" }, { start: "23:30" }] };
+    expect(validateDayparts(late, top)).toBe(
+      "theme: dayparts.transitionMinutes must be shorter than the gap between every two consecutive parts"
+    );
+    expect(validateDayparts({ ...late, transitionMinutes: 59 }, top)).toBeNull();
+  });
+
+  it("rejects a part's mode when neither the part nor the top level has an image", () => {
+    expect(validateDayparts(dayparts, undefined)).toBe(
+      "theme: dayparts.parts[2]: backgroundModes[canvas] has no image in backgrounds[canvas]"
+    );
+  });
+
+  it("flows through validateThemeBundle", () => {
+    const good = { id: "desk", name: "Desk", colors: { [aToken]: "#f4efe6" }, backgrounds: top, dayparts };
+    expect(validateThemeBundle(good)).toBeNull();
+    expect(validateThemeBundle({ ...good, dayparts: { ...dayparts, transitionMinutes: 0 } })).toBe(
+      "theme: dayparts.transitionMinutes must be a whole number 1..120"
+    );
   });
 });
 

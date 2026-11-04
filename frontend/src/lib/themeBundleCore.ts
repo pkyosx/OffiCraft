@@ -532,6 +532,99 @@ export function validateBackgroundModes(
   return null;
 }
 
+function validateColorEntries(
+  colors: Record<string, unknown>,
+  min: number,
+  where: string
+): string | null {
+  const entries = Object.entries(colors);
+  if (entries.length < min || entries.length > MAX_THEME_COLORS) {
+    return `${where}: colors must hold ${min}..${MAX_THEME_COLORS} entries`;
+  }
+  for (const [token, value] of entries) {
+    if (!THEME_TOKEN_SET.has(token)) {
+      return `${where}: "${token}" is not a theme colour token (see theme.css)`;
+    }
+    if (typeof value !== "string" || !isValidColorValue(value)) {
+      return `${where}: "${token}" has an invalid colour value — only concrete hex / rgb() / rgba() / hsl() / hsla() / transparent are accepted`;
+    }
+  }
+  return null;
+}
+
+export const MIN_DAYPARTS = 2;
+export const MAX_DAYPARTS = 6;
+export const MIN_TRANSITION_MINUTES = 1;
+export const MAX_TRANSITION_MINUTES = 120;
+const DAYPART_START_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
+const DAYPART_KEYS = new Set(["start", "colors", "backgrounds", "backgroundModes"]);
+const DAYPARTS_KEYS = new Set(["transitionMinutes", "parts"]);
+const MINUTES_PER_DAY = 24 * 60;
+
+const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
+/** Validate a bundle's optional `dayparts` — the twin of the Go validateDayparts. */
+export function validateDayparts(
+  dayparts: unknown,
+  topBackgrounds: unknown,
+  where = "theme"
+): string | null {
+  if (dayparts === undefined || dayparts === null) return null;
+  if (!isPlainObject(dayparts)) return `${where}: dayparts must be an object`;
+  for (const k of Object.keys(dayparts)) {
+    if (!DAYPARTS_KEYS.has(k)) return `${where}: dayparts has an unknown field "${k}"`;
+  }
+  const minutes = dayparts.transitionMinutes;
+  if (
+    typeof minutes !== "number" ||
+    !Number.isInteger(minutes) ||
+    minutes < MIN_TRANSITION_MINUTES ||
+    minutes > MAX_TRANSITION_MINUTES
+  ) {
+    return `${where}: dayparts.transitionMinutes must be a whole number ${MIN_TRANSITION_MINUTES}..${MAX_TRANSITION_MINUTES}`;
+  }
+  const parts = dayparts.parts;
+  if (!Array.isArray(parts) || parts.length < MIN_DAYPARTS || parts.length > MAX_DAYPARTS) {
+    return `${where}: dayparts.parts must hold ${MIN_DAYPARTS}..${MAX_DAYPARTS} parts`;
+  }
+  const starts: number[] = [];
+  for (const [i, part] of parts.entries()) {
+    const at = `${where}: dayparts.parts[${i}]`;
+    if (!isPlainObject(part)) return `${at} must be an object`;
+    for (const k of Object.keys(part)) {
+      if (!DAYPART_KEYS.has(k)) return `${at} has an unknown field "${k}"`;
+    }
+    const m = typeof part.start === "string" ? DAYPART_START_RE.exec(part.start) : null;
+    if (!m) return `${at}.start must be HH:MM (00:00..23:59)`;
+    const minute = Number(m[1]) * 60 + Number(m[2]);
+    if (starts.length && minute <= starts[starts.length - 1]) {
+      return `${at}.start must be later than the part before it`;
+    }
+    starts.push(minute);
+    if (part.colors !== undefined) {
+      if (!isPlainObject(part.colors)) return `${at}.colors must be an object`;
+      const cErr = validateColorEntries(part.colors, 0, at);
+      if (cErr) return cErr;
+    }
+    const bgErr = validateBackgrounds(part.backgrounds, at);
+    if (bgErr) return bgErr;
+    const images = {
+      ...(isPlainObject(topBackgrounds) ? topBackgrounds : {}),
+      ...(isPlainObject(part.backgrounds) ? part.backgrounds : {}),
+    };
+    const mErr = validateBackgroundModes(part.backgroundModes, images, at);
+    if (mErr) return mErr;
+  }
+  for (const [i, s] of starts.entries()) {
+    const next = i + 1 < starts.length ? starts[i + 1] : starts[0] + MINUTES_PER_DAY;
+    if (minutes >= next - s) {
+      return `${where}: dayparts.transitionMinutes must be shorter than the gap between every two consecutive parts`;
+    }
+  }
+  return null;
+}
+
 export function runeCount(s: string): number {
   return [...s].length;
 }
@@ -671,19 +764,8 @@ export function validateThemeBundleWith(
   ) {
     return `${where}: colors must be an object`;
   }
-  const colors = bundle.colors as Record<string, unknown>;
-  const entries = Object.entries(colors);
-  if (entries.length < MIN_THEME_COLORS || entries.length > MAX_THEME_COLORS) {
-    return `${where}: colors must hold ${MIN_THEME_COLORS}..${MAX_THEME_COLORS} entries`;
-  }
-  for (const [token, value] of entries) {
-    if (!THEME_TOKEN_SET.has(token)) {
-      return `${where}: "${token}" is not a theme colour token (see theme.css)`;
-    }
-    if (typeof value !== "string" || !isValidColorValue(value)) {
-      return `${where}: "${token}" has an invalid colour value — only concrete hex / rgb() / rgba() / hsl() / hsla() / transparent are accepted`;
-    }
-  }
+  const cErr = validateColorEntries(bundle.colors as Record<string, unknown>, MIN_THEME_COLORS, where);
+  if (cErr) return cErr;
   // wording (T-16a1 P3) is an optional per-language text-override overlay.
   if (validateWordingFn === null) {
     // The paint path (lib/themePaint.ts) has no wording sink at all, so the
@@ -721,8 +803,14 @@ export function validateThemeBundleWith(
   );
   if (bgErr) return bgErr;
   // backgroundModes (T-081b) says HOW each of those images is laid down.
-  return validateBackgroundModes(
+  const mErr = validateBackgroundModes(
     (bundle as { backgroundModes?: unknown }).backgroundModes,
+    (bundle as { backgrounds?: unknown }).backgrounds,
+    where
+  );
+  if (mErr) return mErr;
+  return validateDayparts(
+    (bundle as { dayparts?: unknown }).dayparts,
     (bundle as { backgrounds?: unknown }).backgrounds,
     where
   );
