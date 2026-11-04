@@ -125,7 +125,9 @@ func TestHandleListThemesApiThemesGet(t *testing.T) {
 func TestHandleGetThemeApiThemesThemeIdGet(t *testing.T) {
 	t.Run("the stored bundle comes back whole, carrying exactly the fields it was filed with", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
-		apiPutTheme(t, h, owner, "dusk", `{"id":"dusk","name":"Dusk","colors":{"--color-bg":"#101418","--color-text":"rgba(255, 255, 255, 0.9)"},"fonts":{"--font-sans":"\"Yuanti TC\", \"Yuanti SC\", sans-serif"}}`)
+		night := imageDataURI("image/png", []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a})
+		apiPutTheme(t, h, owner, "dusk", `{"id":"dusk","name":"Dusk","colors":{"--color-bg":"#101418","--color-text":"rgba(255, 255, 255, 0.9)"},"fonts":{"--font-sans":"\"Yuanti TC\", \"Yuanti SC\", sans-serif"},`+
+			`"dayparts":{"transitionMinutes":30,"parts":[{"start":"06:00","colors":{"--color-bg":"#fffdf7"}},{"start":"19:30","backgrounds":{"canvas":"`+night+`"},"backgroundModes":{"canvas":"cover"}}]}}`)
 		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "GET", "/api/themes/dusk", owner, "")
@@ -140,6 +142,17 @@ func TestHandleGetThemeApiThemesThemeIdGet(t *testing.T) {
 				"--color-text": "rgba(255, 255, 255, 0.9)",
 			},
 			"fonts": map[string]any{"--font-sans": `"Yuanti TC", "Yuanti SC", sans-serif`},
+			"dayparts": map[string]any{
+				"transitionMinutes": float64(30),
+				"parts": []any{
+					map[string]any{"start": "06:00", "colors": map[string]any{"--color-bg": "#fffdf7"}},
+					map[string]any{
+						"start":           "19:30",
+						"backgrounds":     map[string]any{"canvas": night},
+						"backgroundModes": map[string]any{"canvas": "cover"},
+					},
+				},
+			},
 		})
 		dashboard.wantFrames()
 	})
@@ -309,6 +322,35 @@ func TestHandlePutThemeApiThemesThemeIdPut(t *testing.T) {
 		apiWantError(t, data, "validation_error",
 			`theme "dusk": "--color-bg" has an invalid colour value "url(x)" — `+
 				`only concrete hex / rgb() / rgba() / hsl() / hsla() / transparent are accepted`)
+		dashboard.wantFrames()
+		apiThemeAbsent(t, h, owner, "dusk")
+	})
+
+	t.Run("time-of-day parts whose transition outlasts the gap across midnight are refused 422, and nothing is filed", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "PUT", "/api/themes/dusk", owner,
+			`{"id":"dusk","name":"Dusk","colors":{"--color-bg":"#101418"},"dayparts":{"transitionMinutes":60,"parts":[{"start":"00:30"},{"start":"23:45"}]}}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error",
+			`theme "dusk": dayparts.transitionMinutes must be shorter than the gap between every two consecutive parts`)
+		dashboard.wantFrames()
+		apiThemeAbsent(t, h, owner, "dusk")
+	})
+
+	t.Run("a time-of-day part carrying a field the wire does not define is refused 422, and nothing is filed", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+
+		status, data := apiJSON(t, h, "PUT", "/api/themes/dusk", owner,
+			`{"id":"dusk","name":"Dusk","colors":{"--color-bg":"#101418"},"dayparts":{"transitionMinutes":30,"parts":[{"start":"06:00","fonts":{}},{"start":"18:00"}]}}`)
+		if status != 422 {
+			t.Fatalf("want 422, got %d (%v)", status, data)
+		}
+		apiWantError(t, data, "validation_error", `invalid request body: json: unknown field "fonts"`)
 		dashboard.wantFrames()
 		apiThemeAbsent(t, h, owner, "dusk")
 	})

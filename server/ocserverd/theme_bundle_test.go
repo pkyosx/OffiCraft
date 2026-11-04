@@ -263,3 +263,173 @@ func TestValidateThemeBundle(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateDayparts(t *testing.T) {
+	image := imageDataURI("image/png", []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a})
+	strs := func(m map[string]string) *map[string]string { return &m }
+	two := func(a, b ThemeDaypartDTO) []ThemeDaypartDTO { return []ThemeDaypartDTO{a, b} }
+	at := func(start string) ThemeDaypartDTO { return ThemeDaypartDTO{Start: start} }
+	tooManyColors := map[string]string{}
+	for i := 0; i < 201; i++ {
+		tooManyColors[fmt.Sprintf("--color-%03d", i)] = "#101018"
+	}
+
+	for _, tc := range []struct {
+		name     string
+		dayparts *ThemeDaypartsDTO
+		top      *map[string]string
+		want     string
+	}{
+		{name: "absent parts are accepted", dayparts: nil},
+		{
+			name: "two parts with their own colours, image and mode are accepted",
+			dayparts: &ThemeDaypartsDTO{TransitionMinutes: 120, Parts: two(
+				ThemeDaypartDTO{Start: "06:00", Colors: strs(map[string]string{"--color-bg": "#fffdf7"})},
+				ThemeDaypartDTO{
+					Start:           "18:00",
+					Colors:          strs(map[string]string{}),
+					Backgrounds:     strs(map[string]string{"canvas": image}),
+					BackgroundModes: strs(map[string]string{"canvas": "cover"}),
+				},
+			)},
+		},
+		{
+			name: "a part mode may lay down the top-level image",
+			dayparts: &ThemeDaypartsDTO{TransitionMinutes: 30, Parts: two(
+				ThemeDaypartDTO{Start: "06:00", BackgroundModes: strs(map[string]string{"canvas": "sides"})},
+				at("18:00"),
+			)},
+			top: strs(map[string]string{"canvas": image}),
+		},
+		{
+			name: "a part mode with no image in the part or at the top is refused",
+			dayparts: &ThemeDaypartsDTO{TransitionMinutes: 30, Parts: two(
+				ThemeDaypartDTO{Start: "06:00", BackgroundModes: strs(map[string]string{"canvas": "sides"})},
+				at("18:00"),
+			)},
+			want: "theme: dayparts.parts[0]: backgroundModes[canvas] has no image in backgrounds[canvas]",
+		},
+		{
+			name: "six parts are accepted",
+			dayparts: &ThemeDaypartsDTO{TransitionMinutes: 60, Parts: []ThemeDaypartDTO{
+				at("00:00"), at("04:00"), at("08:00"), at("12:00"), at("16:00"), at("20:00"),
+			}},
+		},
+		{
+			name:     "a transition of zero minutes is refused",
+			dayparts: &ThemeDaypartsDTO{TransitionMinutes: 0, Parts: two(at("06:00"), at("18:00"))},
+			want:     "theme: dayparts.transitionMinutes must be a whole number 1..120",
+		},
+		{
+			name:     "a transition over two hours is refused",
+			dayparts: &ThemeDaypartsDTO{TransitionMinutes: 121, Parts: two(at("06:00"), at("18:00"))},
+			want:     "theme: dayparts.transitionMinutes must be a whole number 1..120",
+		},
+		{
+			name:     "a single part is refused",
+			dayparts: &ThemeDaypartsDTO{TransitionMinutes: 30, Parts: []ThemeDaypartDTO{at("06:00")}},
+			want:     "theme: dayparts.parts must hold 2..6 parts",
+		},
+		{
+			name: "seven parts are refused",
+			dayparts: &ThemeDaypartsDTO{TransitionMinutes: 30, Parts: []ThemeDaypartDTO{
+				at("00:00"), at("03:00"), at("06:00"), at("09:00"), at("12:00"), at("15:00"), at("18:00"),
+			}},
+			want: "theme: dayparts.parts must hold 2..6 parts",
+		},
+		{
+			name:     "an hour past 23 is refused",
+			dayparts: &ThemeDaypartsDTO{TransitionMinutes: 30, Parts: two(at("06:00"), at("24:00"))},
+			want:     "theme: dayparts.parts[1].start must be HH:MM (00:00..23:59)",
+		},
+		{
+			name:     "a start without a leading zero is refused",
+			dayparts: &ThemeDaypartsDTO{TransitionMinutes: 30, Parts: two(at("6:00"), at("18:00"))},
+			want:     "theme: dayparts.parts[0].start must be HH:MM (00:00..23:59)",
+		},
+		{
+			name:     "parts listed out of order are refused",
+			dayparts: &ThemeDaypartsDTO{TransitionMinutes: 30, Parts: two(at("18:00"), at("06:00"))},
+			want:     "theme: dayparts.parts[1].start must be later than the part before it",
+		},
+		{
+			name:     "two parts starting at the same minute are refused",
+			dayparts: &ThemeDaypartsDTO{TransitionMinutes: 30, Parts: two(at("06:00"), at("06:00"))},
+			want:     "theme: dayparts.parts[1].start must be later than the part before it",
+		},
+		{
+			name:     "a transition as long as the gap between two parts is refused",
+			dayparts: &ThemeDaypartsDTO{TransitionMinutes: 30, Parts: two(at("06:00"), at("06:30"))},
+			want:     "theme: dayparts.transitionMinutes must be shorter than the gap between every two consecutive parts",
+		},
+		{
+			name:     "a transition one minute shorter than the gap across midnight is accepted",
+			dayparts: &ThemeDaypartsDTO{TransitionMinutes: 44, Parts: two(at("00:30"), at("23:45"))},
+		},
+		{
+			name:     "a transition as long as the gap across midnight is refused",
+			dayparts: &ThemeDaypartsDTO{TransitionMinutes: 45, Parts: two(at("00:30"), at("23:45"))},
+			want:     "theme: dayparts.transitionMinutes must be shorter than the gap between every two consecutive parts",
+		},
+		{
+			name: "an unknown colour token in a part is refused",
+			dayparts: &ThemeDaypartsDTO{TransitionMinutes: 30, Parts: two(
+				ThemeDaypartDTO{Start: "06:00", Colors: strs(map[string]string{"--not-a-color": "#101018"})},
+				at("18:00"),
+			)},
+			want: `theme: dayparts.parts[0]: "--not-a-color" is not a theme colour token (see theme.css)`,
+		},
+		{
+			name: "a non-concrete colour in a part is refused",
+			dayparts: &ThemeDaypartsDTO{TransitionMinutes: 30, Parts: two(
+				at("06:00"),
+				ThemeDaypartDTO{Start: "18:00", Colors: strs(map[string]string{"--color-bg": "var(--x)"})},
+			)},
+			want: `theme: dayparts.parts[1]: "--color-bg" has an invalid colour value "var(--x)" — only concrete hex / rgb() / rgba() / hsl() / hsla() / transparent are accepted`,
+		},
+		{
+			name: "a part over two hundred colours is refused",
+			dayparts: &ThemeDaypartsDTO{TransitionMinutes: 30, Parts: two(
+				ThemeDaypartDTO{Start: "06:00", Colors: &tooManyColors},
+				at("18:00"),
+			)},
+			want: "theme: dayparts.parts[0]: colors must hold 0..200 entries (got 201)",
+		},
+		{
+			name: "a part image outside the canvas zone is refused",
+			dayparts: &ThemeDaypartsDTO{TransitionMinutes: 30, Parts: two(
+				ThemeDaypartDTO{Start: "06:00", Backgrounds: strs(map[string]string{"topbar": image})},
+				at("18:00"),
+			)},
+			want: `theme: dayparts.parts[0]: background zone "topbar" is not allowed (only canvas)`,
+		},
+		{
+			name: "a part image that is not an embedded raster is refused",
+			dayparts: &ThemeDaypartsDTO{TransitionMinutes: 30, Parts: two(
+				ThemeDaypartDTO{Start: "06:00", Backgrounds: strs(map[string]string{"canvas": "https://example.com/x.png"})},
+				at("18:00"),
+			)},
+			want: "theme: dayparts.parts[0]: backgrounds[canvas] must be a base64 data: URI",
+		},
+		{
+			name: "an unknown part mode is refused",
+			dayparts: &ThemeDaypartsDTO{TransitionMinutes: 30, Parts: two(
+				ThemeDaypartDTO{Start: "06:00", BackgroundModes: strs(map[string]string{"canvas": "stretch"})},
+				at("18:00"),
+			)},
+			top:  strs(map[string]string{"canvas": image}),
+			want: `theme: dayparts.parts[0]: backgroundModes[canvas] "stretch" is not a valid mode (only tile, sides, cover)`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateDayparts(tc.dayparts, tc.top, "theme")
+			got := ""
+			if err != nil {
+				got = err.Error()
+			}
+			if got != tc.want {
+				t.Fatalf("validateDayparts error = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

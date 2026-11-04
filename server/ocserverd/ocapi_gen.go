@@ -5020,6 +5020,9 @@ type ThemeBundleDTO struct {
 	Backgrounds *map[string]string `json:"backgrounds,omitempty"`
 	Colors      map[string]string  `json:"colors"`
 
+	// Dayparts Optional time-of-day parts. When present, the viewer's LOCAL clock picks which part is shown and the cockpit moves between parts at their boundaries; absent = the theme looks the same all day, exactly as before this field existed. The top-level `colors` / `backgrounds` / `backgroundModes` stay the BASE look: each part only lists what differs from it, and a client that does not understand this field shows the base look all day.
+	Dayparts *ThemeDaypartsDTO `json:"dayparts,omitempty"`
+
 	// Fonts Optional font-family choices (T-16a1 P4). Maps a `--font-*` token name (`--font-sans` / `--font-title` only) to a font-family stack string. The value is NOT an arbitrary string: it must be one of a small CLOSED allowlist of safe, built-in font-family stacks (themeFonts.source.json — the same set the theme editor's font dropdown offers); no url(), no @font-face, no external font, no CSS structure characters. Absent = the theme keeps the default fonts. The server 422s any fonts that violates the token set or the safe-family allowlist.
 	Fonts *map[string]string `json:"fonts,omitempty"`
 	Id    string             `json:"id"`
@@ -5033,6 +5036,20 @@ type ThemeBundleDTO struct {
 
 	// Wording Optional per-language wording overrides (T-16a1 P3). Outer key = UI language (`zh` / `en` only); inner map = an i18n message-key (an internal code path such as `nav.tasks`, drawn from the generated messageKeys whitelist) -> the owner's replacement PLAIN TEXT. Values are plain text only (trimmed, <=200 runes, control chars / newlines rejected, per-language entry count capped); no HTML/CSS. Absent = no overrides. The server 422s any wording that violates the language set or the value rules. A code OUTSIDE the messageKeys whitelist is NOT a 422: it is DROPPED from the overlay and the request succeeds, so only the surviving codes are stored - and NOTHING IN THE RESPONSE SAYS WHICH. This used to read 'the response echoes a pruned `wording`', which was true while put_theme answered the theme; T-91 made it answer ThemeWriteReceiptDTO (`created`, `id`, `order_idx`, `updated_at`), so the pruned overlay is no longer visible on the write. GET the theme back to see which codes survived (an already-imported theme pack stays usable when the whitelist shrinks; the accepted cost is that a typo'd code silently does nothing).
 	Wording *map[string]map[string]string `json:"wording,omitempty"`
+}
+
+// ThemeDaypartDTO One time-of-day part of a theme. `start` is a local wall-clock time `HH:MM` (24-hour, `00:00`..`23:59`); the part is shown from `start` until the next part's `start`, wrapping past midnight. `colors`, `backgrounds` and `backgroundModes` follow the SAME rules as the theme's top-level fields of the same name (token whitelist, colour grammar, closed zone set, image gate and caps) and are layered OVER the top-level values: a token or zone this part omits keeps the top-level value. All three are optional, so a part with only `start` shows the base look. A `backgroundModes` zone needs an image for that zone in this part or in the top-level `backgrounds`.
+type ThemeDaypartDTO struct {
+	BackgroundModes *map[string]string `json:"backgroundModes,omitempty"`
+	Backgrounds     *map[string]string `json:"backgrounds,omitempty"`
+	Colors          *map[string]string `json:"colors,omitempty"`
+	Start           string             `json:"start"`
+}
+
+// ThemeDaypartsDTO Time-of-day parts of a theme and how long the move between two parts takes. `parts` holds 2..6 parts with DISTINCT `start` times, listed in ascending `start` order. `transitionMinutes` (integer, 1..120) is how long the move into a part lasts, beginning at that part's `start`: the background image cross-fades over the whole duration; the colours move gradually over the whole duration when both parts are dark or both are light, and switch within about 3 seconds at the middle of the duration when one is dark and the other light (dark = relative luminance of the part's effective `--color-bg` below 0.2), so text never sits on a background of nearly its own luminance. `transitionMinutes` must be shorter than the gap between every two consecutive parts, counted around midnight. The server 422s a bundle that breaks any of these rules.
+type ThemeDaypartsDTO struct {
+	Parts             []ThemeDaypartDTO `json:"parts"`
+	TransitionMinutes int               `json:"transitionMinutes"`
 }
 
 // ThemeDeleteResultDTO Receipt for deleting one custom theme (T-83ef). “display_theme_reset“ is the part a caller cannot work out on its own: deleting the ACTIVE theme resets “display_theme“ back to “""“ in the same request — the coupling the whole-array settings write used to perform — and this field says whether that happened, so the cockpit does not have to re-read settings to discover its theme changed under it.
