@@ -193,15 +193,15 @@ func TestNavIconKeyAllowedSet(t *testing.T) {
 	}
 }
 
-func TestNavIconRefusalMessageListsTheAllowedKeys(t *testing.T) {
+func TestNavIconRefusalMessageListsApprovedNavIconKeys(t *testing.T) {
 	data := map[string]string{"settings": "not-an-image"}
 	err := validateNavIcons(&data, "theme[0]")
 	if err == nil {
 		t.Fatal("an unknown tab key must be refused")
 	}
-	want := "(only " + strings.Join(navIconAllowedKeys(), ", ") + ")"
-	if !strings.Contains(err.Error(), want) {
-		t.Fatalf("refusal = %v, want allowed keys %q derived from navIconKeyAllowed", err, want)
+	want := `theme[0]: nav icon key "settings" is not allowed (only office, replies, tasks, lore, secrets, monitor, guide)`
+	if err.Error() != want {
+		t.Fatalf("refusal = %q, want %q", err, want)
 	}
 }
 

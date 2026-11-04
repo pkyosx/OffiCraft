@@ -93,7 +93,7 @@ const FONT_SLOTS = [
   { token: "--font-title", labelKey: "themeFontTitle" },
 ] as const;
 
-// The four avatar slots the editor offers (T-16a1 P5; T-ea81): 正職 staff /
+// The four avatar slots the editor offers: 正職 staff /
 // 外包 outsource / owner CEO / assistant 助理. Each accepts one uploaded image
 // (validated client-side, embedded as a base64 data URI so it travels inside
 // the bundle).
@@ -109,7 +109,7 @@ const AVATAR_SLOTS: { kind: AvatarKind; labelKey: AvatarLabelKey }[] = [
   { kind: "assistant", labelKey: "themeAvatarAssistant" },
 ];
 
-// The nav-tab icon slots the editor offers (T-ea81), keyed by tab. Same upload
+// The nav-tab icon slots the editor offers, keyed by tab. Same upload
 // flow as avatars (shared image gate); stored on
 // bundle.navIcons[key].
 type NavIconLabelKey =
