@@ -121,7 +121,7 @@ describe("daypartFrameAt", () => {
     expect(daypartFrameAt(bundle, at(17, 19, 59.5))!.base.colors["--color-bg"]).toBe("#f4efe6");
     expect(daypartFrameAt(bundle, at(17, 20, 0))!.base.colors["--color-bg"]).toBe("rgba(143, 134, 128, 1)");
     expect(daypartFrameAt(bundle, at(17, 20, 0.5))!.base.colors["--color-bg"]).toBe("#2a1d1a");
-    expect(daypartFrameAt(bundle, at(17, 20, 0))!.nextUpdate).toEqual(new Date(at(17, 20).getTime() + 100));
+    expect(daypartFrameAt(bundle, at(17, 20, 0))!.nextUpdate).toEqual(new Date(at(17, 20).getTime() + 16));
   });
 
   it("moves same-scheme colours gradually and cross-fades to the image the new part inherits", () => {

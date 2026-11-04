@@ -143,8 +143,9 @@ export interface DaypartFrame {
 
 /** Longest gap between two updates while a transition runs. */
 export const GRADUAL_COLOR_STEP_MS = 15_000;
-/** Colour refresh cadence inside the dark↔light swap. */
-export const SWAP_COLOR_STEP_MS = 100;
+/** Colour refresh cadence inside the dark↔light swap: one display frame, so
+ * the switch reads as one continuous darkening rather than visible steps. */
+export const SWAP_COLOR_STEP_MS = 16;
 
 const CANVAS: BackgroundKey = "canvas";
 
