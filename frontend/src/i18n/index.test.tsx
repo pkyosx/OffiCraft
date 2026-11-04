@@ -354,7 +354,7 @@ describe("I18nProvider custom theme apply", () => {
     expect(root.style.getPropertyValue("--color-bg")).toBe("");
   });
 
-  it("paints a theme with time-of-day parts for the time it is switched to, however long the page has been open", async () => {
+  it("paints a theme with time-of-day parts for the time it is switched to, however long the page has been open, and moves to its next part on time", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["Date", "setTimeout", "clearTimeout"] });
     try {
       vi.setSystemTime(new Date(2030, 0, 10, 9, 0));
@@ -372,7 +372,16 @@ describe("I18nProvider custom theme apply", () => {
 
       vi.setSystemTime(new Date(2030, 0, 10, 18, 0));
       await activate("sunrise");
+      expect(root.style.getPropertyValue("--color-bg")).toBe("#101018");
 
+      await activate("midnight");
+      vi.setSystemTime(new Date(2030, 0, 11, 16, 55));
+      await activate("sunrise");
+      expect(root.style.getPropertyValue("--color-bg")).toBe("#f4efe6");
+
+      await act(async () => {
+        vi.advanceTimersByTime(15 * 60_000);
+      });
       expect(root.style.getPropertyValue("--color-bg")).toBe("#101018");
     } finally {
       vi.useRealTimers();

@@ -37,6 +37,7 @@ import {
   CACHED_BG_RGB,
   EXPECT_APPLIED,
   PAINT_THEME_ID,
+  TINY_PNG,
   VALID_RICH_BUNDLE,
   paintRecordJSON,
 } from "../src/lib/paintFixtures";
@@ -273,6 +274,69 @@ test("a cached theme with time-of-day parts is painted as it looks now, mid-tran
     beforeReact.filter((f) => f.bg !== "rgb(17, 18, 19)"),
     `a frame before React mounted was not the halfway colour\n${summarize(samples)}`
   ).toEqual([]);
+});
+
+test("on an open page, an image starting to fade out at a part's start fades from full, not from nothing", async ({
+  page,
+}) => {
+  // The clock runs from 11:58:58; at 11:59 the move into a part without an
+  // image begins, so the outgoing image leaves the base layer for the overlay
+  // at opacity 1 and fades toward 0.875 over the next 15 s.
+  const pageErrors = collectPageErrors(page);
+  const { backgrounds: _bg, backgroundModes: _mode, ...noTopImage } = VALID_RICH_BUNDLE;
+  void _bg;
+  void _mode;
+  const bundle: ThemeBundle = {
+    ...noTopImage,
+    dayparts: {
+      transitionMinutes: 2,
+      parts: [{ start: "00:00", backgrounds: { canvas: TINY_PNG } }, { start: "11:59" }],
+    },
+  };
+  // The stub serves the theme without parts; the page must keep this one after
+  // the reconcile, or no transition ever starts on the open page.
+  await page.route(`**/api/themes/${PAINT_THEME_ID}`, (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(bundle) })
+  );
+
+  await page.goto(OK_SERVER);
+  await seedSession(page, { token: TOKEN, themeId: PAINT_THEME_ID, paintRecord: paintRecordJSON(bundle) });
+  // Replaces the beforeEach pin, which stops the clock; this one runs.
+  await page.addInitScript((startAt: number) => {
+    const BaseDate = Date;
+    const at = () => startAt + performance.now();
+    class RunningDate extends BaseDate {
+      constructor(...args: ConstructorParameters<DateConstructor> | []) {
+        if (args.length === 0) super(at());
+        else super(...(args as ConstructorParameters<DateConstructor>));
+      }
+      static now(): number {
+        return at();
+      }
+    }
+    globalThis.Date = RunningDate as DateConstructor;
+    const seen: number[] = [];
+    (window as unknown as { __overlaySamples: number[] }).__overlaySamples = seen;
+    const tick = () => {
+      if (document.body) {
+        const layer = getComputedStyle(document.body, "::before");
+        if (layer.backgroundImage !== "none") seen.push(Number(layer.opacity));
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }, new Date(2026, 8, 1, 11, 58, 58).getTime());
+  await page.reload({ waitUntil: "load" });
+  await page.waitForTimeout(5000);
+
+  const samples = await page.evaluate(
+    () => (window as unknown as { __overlaySamples: number[] }).__overlaySamples
+  );
+  expect(pageErrors).toEqual([]);
+  expect(samples.length, "the overlay never appeared after 11:59").toBeGreaterThanOrEqual(MIN_SAMPLES);
+  expect(samples[0], "the fade did not start from the full image").toBeGreaterThan(0.99);
+  expect(Math.min(...samples), "the fading image dropped below its 15-second target").toBeGreaterThan(0.874);
+  expect(samples[samples.length - 1], "the image did not keep fading").toBeLessThan(0.995);
 });
 
 const BUILTIN_SERVER = stubURL("PAINT_GUARD_BUILTIN_URL");

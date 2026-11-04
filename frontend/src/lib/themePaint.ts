@@ -7,6 +7,7 @@ import {
   type BackgroundMode,
   type ThemeBundle,
 } from "./themeBundleCore";
+import { isDarkColor, parseColor } from "./themeColor";
 import { daypartFrameAt } from "./themeDayparts";
 
 /** The paint path's entry into the SHARED grammar: the same
@@ -75,23 +76,12 @@ export function readValidatedPaint(key: string = LS_THEME_PAINT): ThemeBundle | 
   return r.bundle as ThemeBundle;
 }
 
-/** "dark" or "light" from a `#rrggbb` / `rgb()` page background; null when the
- * value cannot be read. */
+/** "dark" or "light" from a page background in any accepted colour form; null
+ * when the value cannot be read. */
 export function colorSchemeForBackground(bg: string | undefined): "dark" | "light" | null {
-  if (!bg) return null;
-  const hex = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(bg.trim());
-  const rgb = /^rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)/i.exec(bg.trim());
-  const parts = hex
-    ? hex.slice(1, 4).map((h) => parseInt(h, 16))
-    : rgb
-      ? rgb.slice(1, 4).map(Number)
-      : null;
-  if (!parts) return null;
-  const [r, g, b] = parts.map((c) => {
-    const v = c / 255;
-    return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
-  });
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.2 ? "dark" : "light";
+  const c = bg ? parseColor(bg) : null;
+  if (!c) return null;
+  return isDarkColor(c) ? "dark" : "light";
 }
 
 type CanvasLayout = Record<"image" | "repeat" | "position" | "size" | "attachment", string>;
@@ -162,8 +152,19 @@ export function applyThemeToRoot(
     const mode = overlay.mode ?? DEFAULT_BACKGROUND_MODE;
     setCanvasLayer(root, "--canvas-overlay", canvasLayout(overlay.canvas, mode), applied);
     root.style.setProperty("--canvas-overlay-opacity", String(overlay.opacity));
-    root.style.setProperty("--canvas-overlay-fade", `${Math.round(overlay.fadeMs)}ms`);
+    root.style.setProperty("--canvas-overlay-fade", "0s");
     applied.push("--canvas-overlay-opacity", "--canvas-overlay-fade");
+    // Without this style read the jump to the current value and the fade to the
+    // target land in one style change, and the fade starts from whatever the
+    // layer showed before — 0 when the overlay just appeared, or a value from
+    // before the machine slept — instead of from now. Before <body> exists
+    // (the pre-paint) there is nothing to fade yet: the current value stands.
+    const body = root.ownerDocument.body;
+    if (body) {
+      void getComputedStyle(body, "::before").opacity;
+      root.style.setProperty("--canvas-overlay-opacity", String(overlay.targetOpacity));
+      root.style.setProperty("--canvas-overlay-fade", `${Math.round(overlay.fadeMs)}ms`);
+    }
   }
   return applied;
 }

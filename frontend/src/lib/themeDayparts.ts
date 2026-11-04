@@ -127,9 +127,16 @@ export interface DaypartFrame {
   base: ThemeBundle;
   /** A second canvas layer drawn over the base background during a move
    * between two different images; null when settled or the image does not
-   * change. `opacity` is the value due at `nextUpdate`, reached by a linear CSS
-   * fade lasting `fadeMs`, so the image moves continuously between updates. */
-  overlay: { canvas: string; mode: BackgroundMode | undefined; opacity: number; fadeMs: number } | null;
+   * change. `opacity` is the value now and `targetOpacity` the value due at
+   * `nextUpdate`, reached by a linear CSS fade lasting `fadeMs`, so the image
+   * moves continuously between updates. */
+  overlay: {
+    canvas: string;
+    mode: BackgroundMode | undefined;
+    opacity: number;
+    targetOpacity: number;
+    fadeMs: number;
+  } | null;
   /** When the frame needs recomputing next. */
   nextUpdate: Date;
 }
@@ -175,6 +182,7 @@ export function daypartFrameAt(bundle: ThemeBundle, now: Date): DaypartFrame | n
     nextUpdate = new Date(Math.min(end, nowMs + Math.max(1, step)));
   }
   const fadeMs = nextUpdate.getTime() - nowMs;
+  const fadeNow = pos.elapsedMs / pos.transitionMs;
   const fadeAtNext = (nextUpdate.getTime() - pos.startedAt.getTime()) / pos.transitionMs;
   // The image being faded in rides the overlay; when the incoming part has no
   // image, the outgoing one rides it instead and fades out.
@@ -192,8 +200,20 @@ export function daypartFrameAt(bundle: ThemeBundle, now: Date): DaypartFrame | n
     settled || sameBackground
       ? null
       : fadeOut
-        ? { canvas: fromCanvas!, mode: fromLook.backgroundModes?.[CANVAS], opacity: 1 - fadeAtNext, fadeMs }
-        : { canvas: toCanvas!, mode: toLook.backgroundModes?.[CANVAS], opacity: fadeAtNext, fadeMs };
+        ? {
+            canvas: fromCanvas!,
+            mode: fromLook.backgroundModes?.[CANVAS],
+            opacity: 1 - fadeNow,
+            targetOpacity: 1 - fadeAtNext,
+            fadeMs,
+          }
+        : {
+            canvas: toCanvas!,
+            mode: toLook.backgroundModes?.[CANVAS],
+            opacity: fadeNow,
+            targetOpacity: fadeAtNext,
+            fadeMs,
+          };
 
   return { base, overlay, nextUpdate };
 }

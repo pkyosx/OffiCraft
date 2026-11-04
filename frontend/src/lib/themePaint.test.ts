@@ -223,6 +223,15 @@ describe("applyThemeToRoot — POSITIVE: every branch actually reaches the DOM",
     const light = document.createElement("div");
     applyThemeToRoot(light, { id: "l", name: "l", colors: { "--color-bg": "#b8d8e3" } });
     expect(light.style.getPropertyValue("color-scheme")).toBe("light");
+    for (const [bg, scheme] of [
+      ["hsl(260 30% 9%)", "dark"],
+      ["#15101fcc", "dark"],
+      ["#eee", "light"],
+    ] as const) {
+      const el = document.createElement("div");
+      applyThemeToRoot(el, { id: "x", name: "x", colors: { "--color-bg": bg } });
+      expect(el.style.getPropertyValue("color-scheme"), bg).toBe(scheme);
+    }
     const unreadable = document.createElement("div");
     const ledger = applyThemeToRoot(unreadable, {
       id: "u",
