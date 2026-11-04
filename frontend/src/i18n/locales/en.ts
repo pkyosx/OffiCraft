@@ -2263,6 +2263,8 @@ export const en: Dict = {
     themeNavOffice: "Office icon",
     themeNavReplies: "Replies icon",
     themeNavTasks: "Tasks icon",
+    themeNavLore: "Lore icon",
+    themeNavSecrets: "Secrets icon",
     themeNavMonitor: "Monitor icon",
     themeNavGuide: "User guide icon",
     // ── outer-canvas background image (T-081b) ──

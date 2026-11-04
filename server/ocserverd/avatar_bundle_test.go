@@ -160,7 +160,10 @@ func TestValidateNavIcons(t *testing.T) {
 	if err := validateNavIcons(nil, "theme[0]"); err != nil {
 		t.Fatalf("validateNavIcons(nil): %v", err)
 	}
-	icons := map[string]string{"office": valid, "replies": valid, "tasks": valid, "monitor": valid, "guide": valid}
+	icons := map[string]string{
+		"office": valid, "replies": valid, "tasks": valid, "lore": valid,
+		"secrets": valid, "monitor": valid, "guide": valid,
+	}
 	if err := validateNavIcons(&icons, "theme[0]"); err != nil {
 		t.Fatalf("validateNavIcons(valid): %v", err)
 	}
@@ -177,6 +180,28 @@ func TestValidateNavIcons(t *testing.T) {
 				t.Fatalf("validateNavIcons() error = %v, want substring %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestNavIconKeyAllowedSet(t *testing.T) {
+	want := map[string]bool{
+		"office": true, "replies": true, "tasks": true, "lore": true,
+		"secrets": true, "monitor": true, "guide": true,
+	}
+	if !reflect.DeepEqual(navIconKeyAllowed, want) {
+		t.Fatalf("navIconKeyAllowed = %v, want %v", navIconKeyAllowed, want)
+	}
+}
+
+func TestNavIconRefusalMessageListsApprovedNavIconKeys(t *testing.T) {
+	data := map[string]string{"settings": "not-an-image"}
+	err := validateNavIcons(&data, "theme[0]")
+	if err == nil {
+		t.Fatal("an unknown tab key must be refused")
+	}
+	want := `theme[0]: nav icon key "settings" is not allowed (only office, replies, tasks, lore, secrets, monitor, guide)`
+	if err.Error() != want {
+		t.Fatalf("refusal = %q, want %q", err, want)
 	}
 }
 

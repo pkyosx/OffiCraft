@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, type RefObject } from "react";
 import { useI18n } from "../i18n";
 import { en } from "../i18n/locales/en";
 import { zh } from "../i18n/locales/zh";
@@ -93,7 +93,7 @@ const FONT_SLOTS = [
   { token: "--font-title", labelKey: "themeFontTitle" },
 ] as const;
 
-// The four avatar slots the editor offers (T-16a1 P5; T-ea81): 正職 staff /
+// The four avatar slots the editor offers: 正職 staff /
 // 外包 outsource / owner CEO / assistant 助理. Each accepts one uploaded image
 // (validated client-side, embedded as a base64 data URI so it travels inside
 // the bundle).
@@ -109,22 +109,30 @@ const AVATAR_SLOTS: { kind: AvatarKind; labelKey: AvatarLabelKey }[] = [
   { kind: "assistant", labelKey: "themeAvatarAssistant" },
 ];
 
-// The five nav-tab icon slots the editor offers (T-ea81), keyed on the five
-// main nav tabs. Same upload flow as avatars (shared image gate); stored on
+// The nav-tab icon slots the editor offers, keyed by tab. Same upload
+// flow as avatars (shared image gate); stored on
 // bundle.navIcons[key].
 type NavIconLabelKey =
   | "themeNavOffice"
   | "themeNavReplies"
   | "themeNavTasks"
+  | "themeNavLore"
+  | "themeNavSecrets"
   | "themeNavMonitor"
   | "themeNavGuide";
-const NAV_ICON_SLOTS: { key: NavIconKey; labelKey: NavIconLabelKey }[] = [
-  { key: "office", labelKey: "themeNavOffice" },
-  { key: "replies", labelKey: "themeNavReplies" },
-  { key: "tasks", labelKey: "themeNavTasks" },
-  { key: "monitor", labelKey: "themeNavMonitor" },
-  { key: "guide", labelKey: "themeNavGuide" },
-];
+const NAV_ICON_LABEL_KEYS: Record<NavIconKey, NavIconLabelKey> = {
+  office: "themeNavOffice",
+  replies: "themeNavReplies",
+  tasks: "themeNavTasks",
+  lore: "themeNavLore",
+  secrets: "themeNavSecrets",
+  monitor: "themeNavMonitor",
+  guide: "themeNavGuide",
+};
+const NAV_ICON_SLOTS = NAV_ICON_KEYS.map((key) => ({
+  key,
+  labelKey: NAV_ICON_LABEL_KEYS[key],
+}));
 
 /**
  * 主題管理 — the SettingsPage 主題 sub-section (T-16a1 P3b). All theme MANAGEMENT
@@ -190,8 +198,8 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
     owner: useRef<HTMLInputElement>(null),
     assistant: useRef<HTMLInputElement>(null),
   };
-  // Studio logo (T-ea81): a single embedded base64 data URI ("" = none, falls
-  // back to the built-in mark). Per-nav-tab icons: key → embedded data URI.
+  // Studio logo: a single embedded base64 data URI ("" = none, falls back to
+  // the built-in mark). Per-nav-tab icons: key → embedded data URI.
   // Both go through the SAME image gate as avatars; upload errors surfaced
   // inline in their own section.
   const [editLogo, setEditLogo] = useState<string>("");
@@ -215,13 +223,11 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
     office: useRef<HTMLInputElement>(null),
     replies: useRef<HTMLInputElement>(null),
     tasks: useRef<HTMLInputElement>(null),
-    // T-33 added the 傳承 tab to NAV_ICON_KEYS; this map is keyed by that set,
-    // so a missing entry is a compile error rather than a nav row whose 上傳
-    // button silently does nothing.
     lore: useRef<HTMLInputElement>(null),
+    secrets: useRef<HTMLInputElement>(null),
     monitor: useRef<HTMLInputElement>(null),
     guide: useRef<HTMLInputElement>(null),
-  };
+  } satisfies Record<NavIconKey, RefObject<HTMLInputElement>>;
   const [wordingLang, setWordingLang] = useState<"zh" | "en">("zh");
   const [wordingSearch, setWordingSearch] = useState("");
   // Only so a new search result set can be scrolled back to the top; the list

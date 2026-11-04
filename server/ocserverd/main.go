@@ -19,6 +19,7 @@ var subcommands = []struct{ name, help string }{
 	{"login-link", "[--base-url URL] | enable | disable: mint a one-time 10-minute owner login link (exit 3 while disabled)"},
 	{"migration-lock", "--write / --check server/ocserverd/migration.lock (run from that directory)"},
 	{"theme-name-verdicts", "<cases.json> <verdicts.json>: this side of the Go/TS theme-name parity check"},
+	{"nav-icon-keys", "prints the Go nav-icon allowlist for the frontend parity test"},
 	{"sse-topics", "<out.json>: render hub.go's closed SSE topic vocabulary (spec/sse-topics.json)"},
 }
 
@@ -112,12 +113,15 @@ func realMain(argv []string, env func(string) string, out io.Writer) int {
 	// here because they need package-main-only code (the go:embed migration
 	// FS and this package's AST; the theme-bundle validator; the sseTopics
 	// map). Callers: bin/gen-migration-lock, bin/check-migration-lock,
-	// frontend/src/lib/themeName.parity.test.ts, bin/gen-sse-topics.
+	// frontend parity tests, bin/gen-sse-topics.
 	case "migration-lock":
 		return cmdMigrationLock(rest, out)
 
 	case "theme-name-verdicts":
 		return cmdThemeNameVerdicts(rest, out)
+
+	case "nav-icon-keys":
+		return cmdNavIconKeys(rest, out)
 
 	case "sse-topics":
 		return cmdSSETopics(rest, out)

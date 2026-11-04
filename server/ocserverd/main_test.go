@@ -22,6 +22,7 @@ subcommands:
   login-link           [--base-url URL] | enable | disable: mint a one-time 10-minute owner login link (exit 3 while disabled)
   migration-lock       --write / --check server/ocserverd/migration.lock (run from that directory)
   theme-name-verdicts  <cases.json> <verdicts.json>: this side of the Go/TS theme-name parity check
+  nav-icon-keys        prints the Go nav-icon allowlist for the frontend parity test
   sse-topics           <out.json>: render hub.go's closed SSE topic vocabulary (spec/sse-topics.json)
 
 flags (serve):

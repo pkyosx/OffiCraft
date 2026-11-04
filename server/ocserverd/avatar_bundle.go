@@ -156,10 +156,21 @@ func validateAvatars(avatars *map[string]string, where string) error {
 	return nil
 }
 
-// Twin of NAV_ICON_KEYS in frontend/src/lib/themeBundleCore.ts (the App.tsx nav
-// tabs): a key one side accepts and the other rejects half-imports a theme pack.
-var navIconKeyAllowed = map[string]bool{
-	"office": true, "replies": true, "tasks": true, "lore": true, "monitor": true, "guide": true,
+// The frontend parity test compares this order with NAV_ICON_KEYS.
+var navIconKeys = []string{
+	"office", "replies", "tasks", "lore", "secrets", "monitor", "guide",
+}
+
+var navIconKeyAllowed = func() map[string]bool {
+	allowed := make(map[string]bool, len(navIconKeys))
+	for _, key := range navIconKeys {
+		allowed[key] = true
+	}
+	return allowed
+}()
+
+func navIconAllowedKeys() []string {
+	return append([]string(nil), navIconKeys...)
 }
 
 func validateLogo(logo *string, where string) error {
@@ -229,7 +240,7 @@ func validateNavIcons(navIcons *map[string]string, where string) error {
 	for key, value := range *navIcons {
 		if !navIconKeyAllowed[key] {
 			return fmt.Errorf(
-				"%s: nav icon key %q is not allowed (only office, replies, tasks, monitor, guide)", where, key)
+				"%s: nav icon key %q is not allowed (only %s)", where, key, strings.Join(navIconAllowedKeys(), ", "))
 		}
 		if err := validAvatarValue(value); err != nil {
 			return fmt.Errorf("%s: navIcons[%s] %v", where, key, err)
