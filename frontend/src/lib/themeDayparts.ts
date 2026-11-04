@@ -3,10 +3,10 @@ import { formatColor, isDarkColor, mixColor, parseColor } from "./themeColor";
 import type { BackgroundKey, BackgroundMode, ThemeBundle, ThemeDaypart } from "./themeBundleCore";
 
 const MS_PER_MINUTE = 60_000;
-/** Owner ruling: a dark↔light move switches colours within about 3 s at the
- * middle of the transition, so text never sits on a background of nearly its
- * own luminance for minutes. */
-export const SCHEME_SWAP_MS = 3_000;
+/** Owner ruling: a dark↔light move switches colours within 1 s at the middle
+ * of the transition. Interpolating dark↔light passes text over a background of
+ * nearly its own luminance; 1 s keeps that under a second. */
+export const SCHEME_SWAP_MS = 1_000;
 
 const HHMM_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
@@ -87,7 +87,7 @@ export function inTransition(pos: DaypartPosition): boolean {
 }
 
 /** Colour progress 0..1: the whole transition for same-scheme parts, the
- * 3-second window at its middle for a dark↔light move. */
+ * 1-second window at its middle for a dark↔light move. */
 export function colorProgress(pos: DaypartPosition, schemeFlips: boolean): number {
   if (!inTransition(pos)) return 1;
   if (!schemeFlips) return pos.elapsedMs / pos.transitionMs;
@@ -143,7 +143,7 @@ export interface DaypartFrame {
 
 /** Longest gap between two updates while a transition runs. */
 export const GRADUAL_COLOR_STEP_MS = 15_000;
-/** Colour refresh cadence inside the 3-second dark↔light swap. */
+/** Colour refresh cadence inside the dark↔light swap. */
 export const SWAP_COLOR_STEP_MS = 100;
 
 const CANVAS: BackgroundKey = "canvas";

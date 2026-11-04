@@ -79,7 +79,7 @@ stub server 的埠不可寫死：playwright-paint.config.ts 用 allocateFreePort
 
 主題可帶 `dayparts`：2～6 個時段（觀看者當地時間 `HH:MM`）與過渡分鐘數；每個時段只寫跟最上層不同的 colors／backgrounds／backgroundModes，頭像、Logo、導覽圖示、字型、用語所有時段共用一份（owner 裁定）。某一刻的樣子只由 `lib/themeDayparts.ts` 的 `daypartFrameAt` 算出，pre-paint 與 React 都經 `applyThemeToRoot(root, bundle, now)` 套用，不要在別處另算。這兩個檔與 `lib/themeColor.ts` 會被 pre-paint 打包，同樣不可用 Vite 專屬語法。
 
-兩時段一深一淺時，配色在過渡中點約 3 秒內換完，同深淺才全程內插（owner 裁定，理由是內插中段文字與底色亮度幾乎相同）。背景淡入淡出靠 `body::before` 第二層與 `--canvas-overlay-*`：每次更新先寫當下 opacity、強制讀一次 `::before` 的 computed style，再寫下一次更新時的 opacity 與 `--canvas-overlay-fade`；少了那次讀取，淡出開始時舊圖會先消失再慢慢回來，jsdom 看不出來，只有 paint guard 抓得到。provider 套用時一律用當下時間，`clock` 只當觸發器——切換主題時 `clock` 可能是幾小時前的值。
+兩時段一深一淺時，配色在過渡中點 1 秒內換完，同深淺才全程內插（owner 裁定：內插中段文字與底色亮度幾乎相同，換色時間越長字看不清楚越久）。背景淡入淡出靠 `body::before` 第二層與 `--canvas-overlay-*`：每次更新先寫當下 opacity、強制讀一次 `::before` 的 computed style，再寫下一次更新時的 opacity 與 `--canvas-overlay-fade`；少了那次讀取，淡出開始時舊圖會先消失再慢慢回來，jsdom 看不出來，只有 paint guard 抓得到。provider 套用時一律用當下時間，`clock` 只當觸發器——切換主題時 `clock` 可能是幾小時前的值。
 
 ## 應景主題
 

@@ -105,8 +105,8 @@ describe("daypartFrameAt", () => {
     });
   });
 
-  it("lands an update exactly on the start of the 3-second swap and on the end of the move", () => {
-    expect(daypartFrameAt(bundle, at(17, 19, 50))!.nextUpdate).toEqual(at(17, 19, 58.5));
+  it("lands an update exactly on the start of the 1-second swap and on the end of the move", () => {
+    expect(daypartFrameAt(bundle, at(17, 19, 50))!.nextUpdate).toEqual(at(17, 19, 59.5));
     expect(daypartFrameAt(bundle, at(17, 39, 50))!.nextUpdate).toEqual(at(17, 40));
     expect(daypartFrameAt(bundle, at(17, 39, 50))!.overlay).toEqual({
       canvas: DUSK_BG,
@@ -117,10 +117,10 @@ describe("daypartFrameAt", () => {
     });
   });
 
-  it("switches a dark↔light move's colours within 3 seconds at the middle", () => {
-    expect(daypartFrameAt(bundle, at(17, 19, 58.5))!.base.colors["--color-bg"]).toBe("#f4efe6");
+  it("switches a dark↔light move's colours within 1 second at the middle", () => {
+    expect(daypartFrameAt(bundle, at(17, 19, 59.5))!.base.colors["--color-bg"]).toBe("#f4efe6");
     expect(daypartFrameAt(bundle, at(17, 20, 0))!.base.colors["--color-bg"]).toBe("rgba(143, 134, 128, 1)");
-    expect(daypartFrameAt(bundle, at(17, 20, 1.5))!.base.colors["--color-bg"]).toBe("#2a1d1a");
+    expect(daypartFrameAt(bundle, at(17, 20, 0.5))!.base.colors["--color-bg"]).toBe("#2a1d1a");
     expect(daypartFrameAt(bundle, at(17, 20, 0))!.nextUpdate).toEqual(new Date(at(17, 20).getTime() + 100));
   });
 
@@ -149,10 +149,10 @@ describe("daypartFrameAt", () => {
     expect(daypartFrameAt(noTopImage, at(19, 30))!.base.backgrounds).toBeUndefined();
   });
 
-  it("keeps main text readable against the page background outside the 3-second swap", () => {
+  it("keeps main text readable against the page background outside the 1-second swap", () => {
     const start = at(17, 0).getTime();
-    const swapFrom = start + 20 * 60_000 - 1_500;
-    const swapTo = start + 20 * 60_000 + 1_500;
+    const swapFrom = start + 20 * 60_000 - 500;
+    const swapTo = start + 20 * 60_000 + 500;
     for (let t = start; t <= start + 40 * 60_000; t += 1_000) {
       if (t > swapFrom && t < swapTo) continue;
       const c = daypartFrameAt(bundle, new Date(t))!.base.colors;
