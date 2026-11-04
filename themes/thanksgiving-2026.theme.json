@@ -2417,7 +2417,7 @@
       "tasks.status.in_progress": "Tilling in progress",
       "tasks.status.not_started": "Not started in field",
       "tasks.status.ready_for_done": "Ready to harvest",
-      "tasks.status.terminated": "Tilling stopped",
+      "tasks.status.terminated": "Terminated",
       "tasks.status.waiting_external": "Waiting on external hands",
       "tasks.status.waiting_owner": "Awaiting my letter",
       "tasks.statusJump": "Show the letter home awaiting my reply 🍂",
