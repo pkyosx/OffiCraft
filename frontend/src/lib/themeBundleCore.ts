@@ -54,6 +54,21 @@ export interface ThemeBundle {
    * each viewport edge) or `cover` (one copy scaled to fill the viewport).
    * Absent → every zone tiles, so an older bundle renders identically. */
   backgroundModes?: Partial<Record<BackgroundKey, BackgroundMode>>;
+  /** Optional time-of-day parts; each part layers over the top-level look. */
+  dayparts?: ThemeDayparts;
+}
+
+export interface ThemeDaypart {
+  /** Viewer-local `HH:MM`. */
+  start: string;
+  colors?: Record<string, string>;
+  backgrounds?: Partial<Record<BackgroundKey, string>>;
+  backgroundModes?: Partial<Record<BackgroundKey, BackgroundMode>>;
+}
+
+export interface ThemeDayparts {
+  transitionMinutes: number;
+  parts: ThemeDaypart[];
 }
 
 /** The roles an avatars overlay may key on (正職 / 外包 / owner / assistant) —
