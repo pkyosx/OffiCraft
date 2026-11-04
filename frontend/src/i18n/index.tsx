@@ -36,6 +36,7 @@ import {
 } from "../lib/themePaint";
 import { activeSeasonalWindow, nextSeasonalBoundary } from "../lib/seasonalSchedule";
 import { SEASONAL_WINDOWS } from "../lib/seasonalTheme";
+import { daypartFrameAt } from "../lib/themeDayparts";
 import { applyWording } from "./wording";
 import { makeMessages, type Messages } from "./compose";
 
@@ -323,8 +324,12 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   // documentElement via setProperty (the value is NEVER concatenated into a
   // stylesheet — the security boundary). A dangling id (bundle not yet
   // reconciled / deleted) falls back to the office base.
+  // Only a theme with time-of-day parts looks different from one moment to the next.
+  const daypartClock = shownBundle?.dayparts ? clock : 0;
+
   useEffect(() => {
     const root = document.documentElement;
+    const now = new Date(daypartClock || Date.now());
     for (const tok of appliedTokensRef.current) root.style.removeProperty(tok);
     appliedTokensRef.current = [];
 
@@ -334,13 +339,13 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     }
     root.dataset.theme = "office";
     if (shownBundle) {
-      appliedTokensRef.current = applyThemeToRoot(root, shownBundle);
+      appliedTokensRef.current = applyThemeToRoot(root, shownBundle, now);
       return;
     }
     if (seasonalWindow) {
       const cached = readValidatedPaint(LS_SEASONAL_PAINT);
       if (cached && cached.id === seasonalWindow.id) {
-        appliedTokensRef.current = applyThemeToRoot(root, cached);
+        appliedTokensRef.current = applyThemeToRoot(root, cached, now);
       }
       return;
     }
@@ -351,10 +356,21 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     if (!themesLoaded) {
       const cached = readValidatedPaint();
       if (cached && cached.id === theme) {
-        appliedTokensRef.current = applyThemeToRoot(root, cached);
+        appliedTokensRef.current = applyThemeToRoot(root, cached, now);
       }
     }
-  }, [theme, shownTheme, shownBundle, seasonalWindow, themesLoaded]);
+  }, [theme, shownTheme, shownBundle, seasonalWindow, themesLoaded, daypartClock]);
+
+  useEffect(() => {
+    if (!daypartClock || !shownBundle) return;
+    const frame = daypartFrameAt(shownBundle, new Date(daypartClock));
+    if (!frame) return;
+    const id = window.setTimeout(
+      () => setClock(Date.now()),
+      Math.min(Math.max(0, frame.nextUpdate.getTime() - daypartClock), MAX_TIMER_DELAY_MS)
+    );
+    return () => window.clearTimeout(id);
+  }, [daypartClock, shownBundle]);
 
   useEffect(() => {
     const next = nextSeasonalBoundary(new Date(clock), SEASONAL_WINDOWS);

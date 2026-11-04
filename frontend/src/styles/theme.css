@@ -35,6 +35,14 @@
   --canvas-bg-position: 0 0;
   --canvas-bg-size: auto;
   --canvas-bg-attachment: scroll;
+  /* 主題時段過渡時疊在畫布背景上的第二層：淡入新時段的圖（或淡出舊時段的圖）。
+   * 不在過渡中時 opacity 為 0，這一層不畫任何東西。 */
+  --canvas-overlay-image: none;
+  --canvas-overlay-repeat: repeat;
+  --canvas-overlay-position: 0 0;
+  --canvas-overlay-size: auto;
+  --canvas-overlay-attachment: scroll;
+  --canvas-overlay-opacity: 0;
   --color-topbar-bg: var(--color-bg); /* 頂列 */
   --color-nav-bg: var(--color-bg);    /* 頁籤列 */
   --color-main-bg: var(--color-bg);   /* 內容區 */

@@ -7,6 +7,7 @@ import {
   type BackgroundMode,
   type ThemeBundle,
 } from "./themeBundleCore";
+import { daypartFrameAt } from "./themeDayparts";
 
 /** The paint path's entry into the SHARED grammar: the same
  * validateThemeBundleWith every other caller runs, with the wording validator
@@ -46,6 +47,7 @@ export function paintRecordFor(b: ThemeBundle): PaintRecord {
       pruned.backgroundModes = { canvas: b.backgroundModes.canvas };
     }
   }
+  if (b.dayparts) pruned.dayparts = b.dayparts;
   return { v: PAINT_CACHE_VERSION, bundle: pruned };
 }
 
@@ -92,11 +94,48 @@ export function colorSchemeForBackground(bg: string | undefined): "dark" | "ligh
   return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.2 ? "dark" : "light";
 }
 
+type CanvasLayout = Record<"image" | "repeat" | "position" | "size" | "attachment", string>;
+
+function canvasLayout(canvas: string, mode: BackgroundMode): CanvasLayout {
+  const url = `url("${canvas}")`;
+  return {
+    tile: { image: url, repeat: "repeat", position: "0 0", size: "auto", attachment: "scroll" },
+    sides: {
+      image: `${url}, ${url}`,
+      repeat: "no-repeat, no-repeat",
+      position: "left bottom, right bottom",
+      size: "auto, auto",
+      attachment: "fixed, fixed",
+    },
+    cover: {
+      image: url,
+      repeat: "no-repeat",
+      position: "center center",
+      size: "cover",
+      attachment: "fixed",
+    },
+  }[mode];
+}
+
+function setCanvasLayer(root: HTMLElement, prefix: string, lay: CanvasLayout, applied: string[]) {
+  for (const prop of ["image", "repeat", "position", "size", "attachment"] as const) {
+    root.style.setProperty(`${prefix}-${prop}`, lay[prop]);
+    applied.push(`${prefix}-${prop}`);
+  }
+}
+
 /** The single DOM applier — used by BOTH the pre-React script and the React
- * apply effect. Returns the token names pushed (the ledger entry). */
-export function applyThemeToRoot(root: HTMLElement, bundle: ThemeBundle): string[] {
+ * apply effect. A bundle with time-of-day parts is applied as it looks at
+ * `now`. Returns the token names pushed (the ledger entry). */
+export function applyThemeToRoot(
+  root: HTMLElement,
+  bundle: ThemeBundle,
+  now: Date = new Date()
+): string[] {
+  const frame = bundle.dayparts ? daypartFrameAt(bundle, now) : null;
+  const shown = frame ? frame.base : bundle;
   const applied: string[] = [];
-  for (const [tok, val] of Object.entries(bundle.colors)) {
+  for (const [tok, val] of Object.entries(shown.colors)) {
     root.style.setProperty(tok, val);
     applied.push(tok);
   }
@@ -104,49 +143,26 @@ export function applyThemeToRoot(root: HTMLElement, bundle: ThemeBundle): string
   // follow color-scheme, not the colour tokens: without it a dark pack gets a
   // black calendar icon on its dark field. It rides the ledger so the next
   // theme's clear removes it with the tokens.
-  const scheme = colorSchemeForBackground(bundle.colors["--color-bg"]);
+  const scheme = colorSchemeForBackground(shown.colors["--color-bg"]);
   if (scheme) {
     root.style.setProperty("color-scheme", scheme);
     applied.push("color-scheme");
   }
-  for (const [tok, val] of Object.entries(bundle.fonts ?? {})) {
+  for (const [tok, val] of Object.entries(shown.fonts ?? {})) {
     root.style.setProperty(tok, val);
     applied.push(tok);
   }
-  const canvas = bundle.backgrounds?.canvas;
+  const canvas = shown.backgrounds?.canvas;
   if (canvas) {
-    const url = `url("${canvas}")`;
-    const mode: BackgroundMode =
-      bundle.backgroundModes?.canvas ?? DEFAULT_BACKGROUND_MODE;
-    const lay = {
-      tile: { image: url, repeat: "repeat", position: "0 0", size: "auto", attachment: "scroll" },
-      sides: {
-        image: `${url}, ${url}`,
-        repeat: "no-repeat, no-repeat",
-        position: "left bottom, right bottom",
-        size: "auto, auto",
-        attachment: "fixed, fixed",
-      },
-      cover: {
-        image: url,
-        repeat: "no-repeat",
-        position: "center center",
-        size: "cover",
-        attachment: "fixed",
-      },
-    }[mode];
-    root.style.setProperty("--canvas-bg-image", lay.image);
-    root.style.setProperty("--canvas-bg-repeat", lay.repeat);
-    root.style.setProperty("--canvas-bg-position", lay.position);
-    root.style.setProperty("--canvas-bg-size", lay.size);
-    root.style.setProperty("--canvas-bg-attachment", lay.attachment);
-    applied.push(
-      "--canvas-bg-image",
-      "--canvas-bg-repeat",
-      "--canvas-bg-position",
-      "--canvas-bg-size",
-      "--canvas-bg-attachment"
-    );
+    const mode = shown.backgroundModes?.canvas ?? DEFAULT_BACKGROUND_MODE;
+    setCanvasLayer(root, "--canvas-bg", canvasLayout(canvas, mode), applied);
+  }
+  const overlay = frame?.overlay;
+  if (overlay) {
+    const mode = overlay.mode ?? DEFAULT_BACKGROUND_MODE;
+    setCanvasLayer(root, "--canvas-overlay", canvasLayout(overlay.canvas, mode), applied);
+    root.style.setProperty("--canvas-overlay-opacity", String(overlay.opacity));
+    applied.push("--canvas-overlay-opacity");
   }
   return applied;
 }
