@@ -2162,8 +2162,8 @@ button.chat__msg-file {
   align-items: flex-end;
   gap: 10px;
 }
-/* Sits just above the attach button. Invisible and never a click target; only
- * its box matters (see the input in ChatArea). */
+/* Sits just above the row, at its left edge. Invisible and never a click target;
+ * only its box matters (see the input in ChatArea). */
 .chat__file-input--menu-anchor {
   position: absolute;
   bottom: 100%;
