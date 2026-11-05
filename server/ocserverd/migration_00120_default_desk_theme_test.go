@@ -8,7 +8,7 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
-const deskDefaultSchedule00120 = `[{"start":"06:00","theme":"modern-office-desk-day"},{"start":"16:30","theme":"modern-office-desk-dusk"},{"start":"18:30","theme":"modern-office-desk-night"}]`
+const deskDefaultSchedule00120 = `[{"start":"06:00","theme":"modern-office-desk-day"},{"start":"16:00","theme":"modern-office-desk-dusk"},{"start":"18:30","theme":"modern-office-desk-night"}]`
 
 func openAt119(t *testing.T) *sql.DB {
 	t.Helper()

@@ -1705,7 +1705,7 @@ describe("ThemeSettings · appearance", () => {
     expect(saved.displaySeasonalTheme).toBe(true);
     expect(saved.displayThemeSchedule).toEqual([
       { start: "06:00", theme: "modern-office-desk-day" },
-      { start: "16:30", theme: "modern-office-desk-dusk" },
+      { start: "16:00", theme: "modern-office-desk-dusk" },
       { start: "18:30", theme: "modern-office-desk-night" },
     ]);
     expect(dialog.getByRole("switch", { name: s.themeSchedule }).getAttribute("aria-checked")).toBe("true");
@@ -1777,7 +1777,7 @@ describe("ThemeSettings · switch by time of day", () => {
     expect(utils.queryByRole("combobox", { name: s.themePick })).toBeNull();
     expect(rows(utils)).toEqual([
       ["06:00", "modern-office-desk-day"],
-      ["16:30", "modern-office-desk-dusk"],
+      ["16:00", "modern-office-desk-dusk"],
       ["18:30", "modern-office-desk-night"],
     ]);
     const options = Array.from(
@@ -1810,7 +1810,7 @@ describe("ThemeSettings · switch by time of day", () => {
     }
     expect(rows(utils)).toEqual([
       ["06:00", "modern-office-desk-day"],
-      ["16:30", "modern-office-desk-dusk"],
+      ["16:00", "modern-office-desk-dusk"],
     ]);
     expect(
       (section(utils).getByRole("button", { name: `${s.themeScheduleRemove} 1` }) as HTMLButtonElement)
@@ -1834,13 +1834,13 @@ describe("ThemeSettings · switch by time of day", () => {
     expect((await api.getServerSettings()).displayThemeSchedule).toEqual([
       { start: "05:30", theme: "dusk" },
       { start: "06:00", theme: "modern-office-desk-day" },
-      { start: "16:30", theme: "modern-office-desk-dusk" },
+      { start: "16:00", theme: "modern-office-desk-dusk" },
       { start: "18:30", theme: "modern-office-desk-night" },
     ]);
     expect(rows(utils)).toEqual([
       ["05:30", "dusk"],
       ["06:00", "modern-office-desk-day"],
-      ["16:30", "modern-office-desk-dusk"],
+      ["16:00", "modern-office-desk-dusk"],
       ["18:30", "modern-office-desk-night"],
     ]);
     expect(section(utils).getByText(s.themeScheduleSaved)).toBeTruthy();
@@ -1877,7 +1877,7 @@ describe("ThemeSettings · switch by time of day", () => {
     expect(section(utils).getByText(s.themeScheduleSaveFailed)).toBeTruthy();
     expect(rows(utils)).toEqual([
       ["06:00", "modern-office-desk-day"],
-      ["16:30", "modern-office-desk-dusk"],
+      ["16:00", "modern-office-desk-dusk"],
       ["18:30", "modern-office-desk-night"],
     ]);
   });
@@ -1910,7 +1910,7 @@ describe("ThemeSettings · switch by time of day", () => {
 
     expect(rows(utils)).toEqual([
       ["07:15", "modern-office-desk-day"],
-      ["16:30", "modern-office-desk-dusk"],
+      ["16:00", "modern-office-desk-dusk"],
       ["18:30", "modern-office-desk-night"],
     ]);
   });
@@ -1927,7 +1927,7 @@ describe("ThemeSettings · switch by time of day", () => {
     await settle();
     expect(rows(utils)).toEqual([
       ["06:00", "modern-office-desk-day"],
-      ["16:30", "dusk"],
+      ["16:00", "dusk"],
     ]);
     fireEvent.click(await utils.findByLabelText(`${p.themeDelete} 黃昏`));
     fireEvent.click(utils.getByTestId("theme-delete-confirm-btn"));

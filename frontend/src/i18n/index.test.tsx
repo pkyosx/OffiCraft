@@ -1780,7 +1780,7 @@ describe("I18nProvider under the desk default", () => {
   });
 
   it("keeps the picture only for the slot on screen and the next one, colours for the rest, well under Safari's 2.5M-character storage", async () => {
-    at(new Date(2030, 0, 15, 16, 25));
+    at(new Date(2030, 0, 15, 15, 55));
     await mount();
     await waitFor(() => expect(builtinLoads.sort()).toEqual([DAY, DUSK]));
     await waitFor(() => expect(withImage("oc.schedulePaint")).toEqual({ [DAY]: true, [DUSK]: true }));
@@ -1788,7 +1788,7 @@ describe("I18nProvider under the desk default", () => {
 
     // One boundary per step: the next timer is armed only once React has
     // rendered the boundary before it.
-    for (const minutes of [5, 110]) {
+    for (const minutes of [5, 140]) {
       await act(async () => {
         vi.advanceTimersByTime(minutes * 60 * 1000);
       });

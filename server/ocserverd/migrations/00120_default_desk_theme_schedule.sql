@@ -1,6 +1,6 @@
 -- +goose Up
 -- The office desk themes ship as built-ins and become the default appearance:
--- switch by time of day (06:00 day, 16:30 dusk, 18:30 night) with the seasonal
+-- switch by time of day (06:00 day, 16:00 dusk, 18:30 night) with the seasonal
 -- theme on. A station still on the old built-in default (display.theme unset,
 -- "", office or office-light) moves to it ONCE, here; choosing office again
 -- afterwards sticks. On a fresh install this is what writes the default.
@@ -9,7 +9,7 @@
 -- before display.theme, because both test display.theme's old value.
 INSERT INTO setting (key, value, updated_at)
 SELECT 'display.theme_schedule',
-       '[{"start":"06:00","theme":"modern-office-desk-day"},{"start":"16:30","theme":"modern-office-desk-dusk"},{"start":"18:30","theme":"modern-office-desk-night"}]',
+       '[{"start":"06:00","theme":"modern-office-desk-day"},{"start":"16:00","theme":"modern-office-desk-dusk"},{"start":"18:30","theme":"modern-office-desk-night"}]',
        0
 WHERE COALESCE((SELECT value FROM setting WHERE key = 'display.theme'), '')
       IN ('', 'office', 'office-light')

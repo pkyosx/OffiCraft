@@ -91,7 +91,7 @@ seasonal-schedule.json 每一筆是 `{id, start, end}` 加上二選一：`theme`
 
 時間表 `display_theme_schedule` 是 `{start: "HH:MM", theme}` 的清單，空清單是關閉；否則 2～6 列、start 不重複，theme 是內建 id 或已存在的自訂主題，server 依 start 排序存。畫面上的主題 = 應景主題（時段內且開著）＞ 時間表當下那一列（start 最晚且不晚於觀看者當地時間的那列；當天第一個 start 之前是前一天最後一列）＞ display_theme；display_theme 不被時間表改寫。到點切換與應景主題共用同一個 timer 與 visibilitychange／focus 重讀。刪除自訂主題時 server 在同一個 transaction 移除用到它的列、剩不到 2 列就清空，收據的 `display_theme_schedule` 是刪完的結果，前端照收，不自己重算。
 
-預設外觀是時間表 06:00 白天／16:30 黃昏／18:30 晚上（辦公桌三套）、應景主題開著，display_theme 是 `modern-office-desk-day`（關掉時間表時顯示的那套）；前端在 `lib/themeSchedule.ts` 的 `DEFAULT_THEME_SCHEDULE`／`DEFAULT_DISPLAY_THEME`，server 端唯一的寫入者是 migration 00120：全新安裝與當時還在 office／office-light（或沒選過）的站各換一次，之後再選回 office 就留著；同一個 migration 刪掉以辦公桌 id 存成自訂主題的舊匯入。兩邊的字面值是雙胞胎，改一邊要改另一邊（已釋出的 migration 不能改，要開新號）。「主題設定」的「恢復預設」先確認，再以一次 settings PATCH 寫回這三項（`restoreDefaultAppearance`），不動自訂主題。mock 的新站跟真的新站一樣是這份預設；要舊樣子（沒選過主題、沒有時間表）的測試在 `__resetMock()` 後呼叫 `__setMockNoAppearance()`。
+預設外觀是時間表 06:00 白天／16:00 黃昏／18:30 晚上（辦公桌三套）、應景主題開著，display_theme 是 `modern-office-desk-day`（關掉時間表時顯示的那套）；前端在 `lib/themeSchedule.ts` 的 `DEFAULT_THEME_SCHEDULE`／`DEFAULT_DISPLAY_THEME`，server 端唯一的寫入者是 migration 00120：全新安裝與當時還在 office／office-light（或沒選過）的站各換一次，之後再選回 office 就留著；同一個 migration 刪掉以辦公桌 id 存成自訂主題的舊匯入。兩邊的字面值是雙胞胎，改一邊要改另一邊（已釋出的 migration 不能改，要開新號）。「主題設定」的「恢復預設」先確認，再以一次 settings PATCH 寫回這三項（`restoreDefaultAppearance`），不動自訂主題。mock 的新站跟真的新站一樣是這份預設；要舊樣子（沒選過主題、沒有時間表）的測試在 `__resetMock()` 後呼叫 `__setMockNoAppearance()`。
 
 時間表沒有「未設定」的第三態，登入 reconcile 一律採用 server 的值。`setThemeSchedule` 不是樂觀寫入：server 收下、當下那一格的主題取回之後才切換，所以存檔當下不會閃內建主題；被拒就 reject，畫面照舊。
 

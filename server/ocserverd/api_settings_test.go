@@ -95,7 +95,7 @@ func apiTestShippedSettings() map[string]any {
 func apiTestDefaultThemeSchedule() []any {
 	return []any{
 		map[string]any{"start": "06:00", "theme": "modern-office-desk-day"},
-		map[string]any{"start": "16:30", "theme": "modern-office-desk-dusk"},
+		map[string]any{"start": "16:00", "theme": "modern-office-desk-dusk"},
 		map[string]any{"start": "18:30", "theme": "modern-office-desk-night"},
 	}
 }
@@ -1356,7 +1356,7 @@ func TestSettingsView(t *testing.T) {
 		DisplaySeasonalTheme:            true,
 		DisplayThemeSchedule: []ThemeScheduleEntryDTO{
 			{Start: "06:00", Theme: "modern-office-desk-day"},
-			{Start: "16:30", Theme: "modern-office-desk-dusk"},
+			{Start: "16:00", Theme: "modern-office-desk-dusk"},
 			{Start: "18:30", Theme: "modern-office-desk-night"},
 		},
 		SuggestedRepliesReplyCard:   []string{},

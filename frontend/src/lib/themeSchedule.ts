@@ -22,7 +22,7 @@ export interface ThemeScheduleEntry {
  * wrote it onto every station still on office / office-light. */
 export const DEFAULT_THEME_SCHEDULE: readonly ThemeScheduleEntry[] = [
   { start: "06:00", theme: "modern-office-desk-day" },
-  { start: "16:30", theme: "modern-office-desk-dusk" },
+  { start: "16:00", theme: "modern-office-desk-dusk" },
   { start: "18:30", theme: "modern-office-desk-night" },
 ];
 /** display_theme under the default: what shows if the schedule is turned off. */

@@ -2241,7 +2241,7 @@ export const en: Dict = {
     themeDialogClose: "Close",
     themeRestoreDefault: "Restore default",
     themeRestoreConfirm:
-      "Go back to the default appearance: switch by time of day (the office desk themes for day at 06:00, dusk at 16:30 and night at 18:30) and show seasonal themes. Your custom themes are kept.",
+      "Go back to the default appearance: switch by time of day (the office desk themes for day at 06:00, dusk at 16:00 and night at 18:30) and show seasonal themes. Your custom themes are kept.",
     themeRestoreFailed: "Couldn't restore the default. Please try again.",
     themePick: "Theme",
     themeScheduleStart: "Starts at",
