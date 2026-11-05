@@ -238,15 +238,7 @@
   cursor: default;
 }
 
-/* ---- theme picker (T-16a1 P2b) ---- */
-.profile-dd__section-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
+/* ---- theme (read-only here; chosen in 設定 › 主題) ---- */
 .profile-dd__theme-actions {
   display: flex;
   gap: 4px;

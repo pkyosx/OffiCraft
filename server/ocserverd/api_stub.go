@@ -130,8 +130,10 @@ type apiServer struct {
 	displayWide bool
 
 	displaySeasonalTheme bool
-	// suggestedReplies* are REPLACED wholesale on a patch, never mutated in place,
-	// so a reader holding a slice under settingsMu can keep it.
+	// displayThemeSchedule and suggestedReplies* are REPLACED wholesale on a
+	// patch, never mutated in place, so a reader holding a slice under
+	// settingsMu can keep it.
+	displayThemeSchedule        []ThemeScheduleEntryDTO
 	suggestedRepliesReplyCard   []string
 	suggestedRepliesTaskMessage []string
 	suggestedRepliesLoreMessage []string

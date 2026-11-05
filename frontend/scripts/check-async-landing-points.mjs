@@ -817,6 +817,12 @@ const MODULE_STATE = [
   },
   {
     file: "lib/themeBundleCore.ts",
+    name: "PICKER_BUILTIN_THEMES",
+    verdict:
+      "the built-in theme ids and name keys, fixed at build time and only read for the pickers; read-only, no room in it",
+  },
+  {
+    file: "lib/themeBundleCore.ts",
     name: "SAFE_FONT_STACK_SET",
     verdict:
       "the same, over SAFE_FONT_FAMILIES' stacks; the font-injection allowlist, read-only",

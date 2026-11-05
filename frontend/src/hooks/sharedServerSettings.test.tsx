@@ -69,6 +69,7 @@ const SETTINGS = {
   displayLanguage: "",
   displayWide: false,
   displaySeasonalTheme: true,
+  displayThemeSchedule: [],
   pushContactEmail: "",
   onboarding: null,
 };

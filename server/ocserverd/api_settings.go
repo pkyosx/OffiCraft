@@ -560,6 +560,24 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 			return
 		}
 	}
+	var displayThemeSchedule []ThemeScheduleEntryDTO
+	if body.DisplayThemeSchedule != nil {
+		list, err := canonicalThemeSchedule(*body.DisplayThemeSchedule)
+		if err != nil {
+			writeError(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
+		refusal, err := themeScheduleRefusalOn(s.dal.rdb, list)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		if refusal != "" {
+			writeError(w, http.StatusUnprocessableEntity, refusal)
+			return
+		}
+		displayThemeSchedule = list
+	}
 	var displayLanguage string
 	if body.DisplayLanguage != nil {
 		displayLanguage = strings.TrimSpace(*body.DisplayLanguage)
@@ -742,6 +760,10 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 		v := *body.DisplaySeasonalTheme
 		put(settingDisplaySeasonalTheme, strconv.FormatBool(v), func() { s.displaySeasonalTheme = v })
 	}
+	if body.DisplayThemeSchedule != nil {
+		put(settingDisplayThemeSchedule, encodeThemeSchedule(displayThemeSchedule),
+			func() { s.displayThemeSchedule = displayThemeSchedule })
+	}
 	if body.SuggestedRepliesReplyCard != nil {
 		put(settingSuggestedRepliesReplyCard, encodeSuggestedReplies(suggestedRepliesReplyCard),
 			func() { s.suggestedRepliesReplyCard = suggestedRepliesReplyCard })
@@ -762,6 +784,17 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 			}
 			if !ok {
 				return refuseInTx(http.StatusUnprocessableEntity, displayThemeRefusal)
+			}
+		}
+		// Asked again under the lock DELETE /api/themes/{id} holds, so a theme
+		// deleted since the pre-check cannot land in the schedule.
+		if body.DisplayThemeSchedule != nil {
+			refusal, err := themeScheduleRefusalOn(tx, displayThemeSchedule)
+			if err != nil {
+				return err
+			}
+			if refusal != "" {
+				return refuseInTx(http.StatusUnprocessableEntity, refusal)
 			}
 		}
 		for _, sw := range writes {
@@ -845,6 +878,7 @@ func (s *apiServer) settingsView() settingsDTO {
 		DisplayLanguage:                 s.displayLanguage,
 		DisplayWide:                     s.displayWide,
 		DisplaySeasonalTheme:            s.displaySeasonalTheme,
+		DisplayThemeSchedule:            append([]ThemeScheduleEntryDTO{}, s.displayThemeSchedule...),
 		// Never null on the wire (spec types these as arrays); copied so no response
 		// shares a slice with the live snapshot.
 		SuggestedRepliesReplyCard:   append([]string{}, s.suggestedRepliesReplyCard...),

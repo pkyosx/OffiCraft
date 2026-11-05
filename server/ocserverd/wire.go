@@ -146,6 +146,8 @@ type settingsDTO struct {
 	DisplayWide bool `json:"display_wide"`
 
 	DisplaySeasonalTheme bool `json:"display_seasonal_theme"`
+	// Never null on the wire: [] is "no schedule".
+	DisplayThemeSchedule []ThemeScheduleEntryDTO `json:"display_theme_schedule"`
 	// 🔴 SuggestedReplies* are never null on the wire (the spec types them as
 	// array); settingsView normalizes them to [].
 	SuggestedRepliesReplyCard   []string `json:"suggested_replies_reply_card"`
@@ -1748,11 +1750,13 @@ type themeWriteReceiptDTO struct {
 }
 
 // themeDeleteResultDTO: deleting the ACTIVE theme resets display.theme to ""
-// in the same request; DisplayThemeReset says so.
+// in the same request; DisplayThemeReset says so. DisplayThemeSchedule is the
+// schedule after the same request pruned the deleted theme out of it.
 type themeDeleteResultDTO struct {
-	ID                string `json:"id"`
-	Deleted           bool   `json:"deleted"`
-	DisplayThemeReset bool   `json:"display_theme_reset"`
+	ID                   string                  `json:"id"`
+	Deleted              bool                    `json:"deleted"`
+	DisplayThemeReset    bool                    `json:"display_theme_reset"`
+	DisplayThemeSchedule []ThemeScheduleEntryDTO `json:"display_theme_schedule"`
 }
 
 type docSummaryDTO struct {

@@ -185,6 +185,8 @@ export interface Messages {
   // ── settings ──
   themeImportSkipped: (count: number, sample: string[]) => string;
   themeDeleteConfirm: (name: string) => string;
+  /** `tag` is the 依時段 / 應景 note the row shows, when it shows one. */
+  themeEntryLabel: (name: string, tag?: string | null) => string;
   deleteRoleConfirm: (name: string) => string;
   docHistoryRestoreConfirm: (when: string) => string;
   docHistoryBlockedReason: (fields: string[], cap: number) => string;
@@ -669,6 +671,10 @@ export function makeMessages(t: Dict, language: Lang): Messages {
 
     themeDeleteConfirm: (name) =>
       `${set.themeDeleteConfirmLead}${name}${set.themeDeleteConfirmTail}`,
+    themeEntryLabel: (name, tag) =>
+      `${prof.themeEntryLabelLead}${name}${
+        tag ? `${prof.themeEntryLabelTagLead}${tag}${prof.themeEntryLabelTagTail}` : ""
+      }${prof.themeEntryLabelTail}`,
     deleteRoleConfirm: (name) =>
       `${set.deleteRoleConfirmLead}${name}${set.deleteRoleConfirmTail}`,
     // `when` is the revision's own timestamp — the only thing that tells two

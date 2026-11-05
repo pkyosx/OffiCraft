@@ -40,7 +40,7 @@ const AURORA: ThemeBundle = {
 export function ThemeSettingsListStory({ builtin = "office" }: { builtin?: string }) {
   const seed = async () => {
     await mockApi.putTheme(AURORA);
-    await mockApi.patchServerSettings({ displayTheme: builtin });
+    await mockApi.patchServerSettings({ displayTheme: builtin, displayThemeSchedule: [] });
     setToken("ct-owner-token");
   };
   return (

@@ -117,6 +117,56 @@ describe("httpApi · PATCH bodies carry ONLY the supplied fields", () => {
   });
 });
 
+describe("httpApi · theme schedule wire shape", () => {
+  it("patchServerSettings {displayThemeSchedule} sends {display_theme_schedule} only, and [] as []", async () => {
+    const schedule = [
+      { start: "07:00", theme: "office-light" },
+      { start: "19:00", theme: "dusk" },
+    ];
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({ owner_token_ttl: 86400, agent_token_ttl: 604800, display_theme_schedule: schedule })
+    );
+    const s = await httpApi.patchServerSettings({ displayThemeSchedule: schedule });
+    expect(JSON.parse(String((await lastRequest()).body))).toEqual({ display_theme_schedule: schedule });
+    expect(s.displayThemeSchedule).toEqual(schedule);
+
+    await httpApi.patchServerSettings({ displayThemeSchedule: [] });
+    expect(JSON.parse(String((await lastRequest()).body))).toEqual({ display_theme_schedule: [] });
+  });
+
+  it("deleteTheme carries the schedule the server left, and nothing when an older server sends none", async () => {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({
+        id: "dusk",
+        deleted: true,
+        display_theme_reset: false,
+        display_theme_schedule: [
+          { start: "07:00", theme: "office-light" },
+          { start: "19:00", theme: "office" },
+        ],
+      })
+    );
+    expect(await httpApi.deleteTheme("dusk")).toEqual({
+      id: "dusk",
+      deleted: true,
+      displayThemeReset: false,
+      displayThemeSchedule: [
+        { start: "07:00", theme: "office-light" },
+        { start: "19:00", theme: "office" },
+      ],
+    });
+
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({ id: "dusk", deleted: true, display_theme_reset: false })
+    );
+    expect(await httpApi.deleteTheme("dusk")).toEqual({
+      id: "dusk",
+      deleted: true,
+      displayThemeReset: false,
+    });
+  });
+});
+
 describe("httpApi · activateMember body (MemberActivateDTO)", () => {
   it("sends the honest {} when no machineId is given", async () => {
     await httpApi.activateMember("m-1");

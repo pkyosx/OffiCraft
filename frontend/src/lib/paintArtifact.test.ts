@@ -140,7 +140,8 @@ describe("no second source of truth for the theme storage keys", () => {
   // the values have already diverged (a two-step regression: re-hardcode, then
   // change the constant). This catches step one — the moment a literal is
   // reintroduced — which is while a reviewer can still act on it.
-  const THEME_KEY_LITERALS = /"(oc\.theme|oc\.themePaint|oc\.seasonalTheme|oc\.seasonalPaint)"/g;
+  const THEME_KEY_LITERALS =
+    /"(oc\.theme|oc\.themePaint|oc\.seasonalTheme|oc\.seasonalPaint|oc\.themeSchedule|oc\.schedulePaint)"/g;
   const SOURCES = ["src/paint/prePaint.ts", "src/i18n/index.tsx"] as const;
 
   for (const rel of SOURCES) {
@@ -159,10 +160,11 @@ describe("dist/ — every seasonal theme file ships as its own lazily loaded chu
   const themesDir = resolve(FE_ROOT, "../themes");
   const schedule = JSON.parse(
     readFileSync(resolve(themesDir, "seasonal-schedule.json"), "utf8")
-  ) as { theme: string }[];
+  ) as { theme?: string; schedule?: { theme: string }[] }[];
+  const files = schedule.flatMap((e) => (e.schedule ? e.schedule.map((r) => r.theme) : [e.theme!]));
   const assetsDir = resolve(FE_ROOT, OUT_DIR, "assets");
 
-  for (const { theme } of schedule) {
+  for (const theme of files) {
     it(`${theme} is in no script the page loads up front, and in exactly one other chunk`, () => {
       const bundle = JSON.parse(readFileSync(resolve(themesDir, theme), "utf8")) as {
         backgrounds?: { canvas?: string };

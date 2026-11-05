@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useI18n } from "../i18n";
 import { api } from "../api";
 import { isHttpStatus, retryAfterSeconds } from "../api/errors";
@@ -19,7 +19,7 @@ import {
 import { InlineEdit } from "./InlineEdit";
 import { PasskeysPanel } from "./PasskeysPanel";
 import { qrSvg } from "../lib/qrSvg";
-import { BUILTIN_THEMES } from "../lib/themeBundle";
+import { ThemeAppearanceDialog, ThemeEntryRow } from "./ThemeAppearanceDialog";
 import "./profile-dropdown.css";
 
 interface ProfileDropdownProps {
@@ -47,18 +47,18 @@ type View =
 /**
  * Profile menu that drops from the topbar profile pill.
  *  - main view: profile header (inline rename), Preferences row, Log out.
- *  - preferences view: Theme SELECTOR (辦公室 / custom) + Language
- *    (中文 / English) + Layout (窄版 / 寬版) + Show seasonal theme (開 / 關).
+ *  - preferences view: which theme is on screen + 主題設定… (the same dialog
+ *    設定 › 主題 opens) + Language (中文 / English) + Layout (窄版 / 寬版).
  *  - main view rows: preferences, notification email, 帳號安全.
  *  - 帳號安全 (security) view: change password, two-step verification,
  *    passkeys; their Back returns here, and this view's Back returns to main.
  *  - password view: current / new / repeat → POST /api/auth/change-password.
  *
  * Scope (owner 2026-07-12): this menu holds APPEARANCE + ACCOUNT IDENTITY only.
- * T-16a1 P3b narrowed 外觀 further: this dropdown now only SELECTS a theme; all
- * theme MANAGEMENT (add / edit colours / 用詞 / import / export / delete)
- * moved to the 設定 page's 主題 sub-section (SettingsPage → ThemeSettings)
- * so selection stays a quick flip here and management lives in one place. The
+ * Choosing a theme, the time-of-day schedule and the seasonal switch live in the
+ * 主題設定 dialog, opened from here and from 設定 › 主題 › 外觀; theme MANAGEMENT
+ * (add / edit colours / 用詞 / import / export / delete) lives in 設定 › 主題 ›
+ * 主題庫 (owner 2026-11-05). The
  * server PARAMETER knobs likewise live in 設定/參數調整 — all of them, which
  * is why this line names none of them.
  *
@@ -72,18 +72,19 @@ export function ProfileDropdown({
   userName,
   setOwnerName,
 }: ProfileDropdownProps) {
-  const {
-    t,
-    theme,
-    setTheme,
-    themeList,
-    language,
-    setLanguage,
-    wide,
-    setWide,
-    seasonalTheme,
-    setSeasonalTheme,
-    resetPreferences, msg } = useI18n();
+  const { t, language, setLanguage, wide, setWide, resetPreferences, msg } = useI18n();
+
+  const [themeDialogOpen, setThemeDialogOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  // The menu closes as the dialog opens (it would sit on top of it), taking the
+  // dialog's opener with it; focus goes back to the menu's own trigger instead.
+  const themeDialogReturn = useRef<HTMLElement | null>(null);
+  const themeDialog = themeDialogOpen && (
+    <ThemeAppearanceDialog
+      returnFocusTo={themeDialogReturn.current}
+      onClose={() => setThemeDialogOpen(false)}
+    />
+  );
 
   const [view, setView] = useState<View>("main");
 
@@ -190,7 +191,7 @@ export function ProfileDropdown({
     }
   }, [mfaPending?.otpauthUri, t.profile.mfaQrAlt]);
 
-  if (!open) return null;
+  if (!open) return themeDialog || null;
 
   function handleLogout() {
     // Resets local preferences to their initial state (theme/language). The
@@ -421,7 +422,7 @@ export function ProfileDropdown({
   }
 
   return (
-    <div className="profile-dd" role="menu">
+    <div className="profile-dd" role="menu" ref={rootRef}>
       {view === "main" && (
         <>
           {/* profile header — inline rename (Enter save / Esc cancel) */}
@@ -539,34 +540,17 @@ export function ProfileDropdown({
           </button>
 
           <div className="profile-dd__section">
-            <div className="profile-dd__section-head">
-              <div className="profile-dd__section-label">{t.profile.theme}</div>
-              {/* Manage lives in 設定/主題 now — this hint points there rather
-               * than carrying import/export/edit chips in the quick menu. */}
-              <div className="profile-dd__section-hint">
-                {t.profile.themeManageHint}
-              </div>
-            </div>
-
-            {/* A flat list, built-ins first (owner 2026-07-27: 「下拉式選單不用
-              * 使用分區」/「就算真的沒有顯示內建或自訂也沒關係,只要設定有標示出來
-              * 就好」). 內建 / 自訂 is shown in 設定 › 主題 only — this quick picker
-              * is a plain ordered list.
-              *
-              * What must NOT come back is a TEXT marker on the option itself: a
-              * pack naming itself 「辦公室(內建)」 then puts a second,
-              * byte-identical built-in-looking row here (T-081b review round 3,
-              * BLOCKER-2). Each option's text is the theme's own name and
-              * nothing else; the only thing this picker asserts is ORDER, and
-              * order comes from the rendering below — the built-ins are written
-              * out first, the packs follow — so no field of a bundle can move a
-              * row ahead of the built-ins. */}
-            <select className="profile-dd__input" aria-label={t.profile.theme} value={theme} onChange={(e) => setTheme(e.target.value)}>
-              {BUILTIN_THEMES.map((b) => (
-                <option key={b.id} value={b.id}>{t.themeIdentity[b.nameKey]}</option>
-              ))}
-              {themeList.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
+            <div className="profile-dd__section-label">{t.profile.theme}</div>
+            <ThemeEntryRow
+              onOpen={() => {
+                themeDialogReturn.current =
+                  rootRef.current?.parentElement?.querySelector<HTMLElement>(
+                    '[aria-haspopup="menu"]'
+                  ) ?? null;
+                setThemeDialogOpen(true);
+                onClose();
+              }}
+            />
           </div>
 
           <div className="profile-dd__section">
@@ -615,30 +599,6 @@ export function ProfileDropdown({
                 onClick={() => setWide(true)}
               >
                 {t.profile.layoutWide}
-              </button>
-            </div>
-          </div>
-
-          <div className="profile-dd__section">
-            <div className="profile-dd__section-label">{t.profile.seasonalTheme}</div>
-            <div className="profile-dd__seg">
-              <button
-                type="button"
-                className={`profile-dd__seg-btn${
-                  seasonalTheme ? " profile-dd__seg-btn--active" : ""
-                }`}
-                onClick={() => setSeasonalTheme(true)}
-              >
-                {t.profile.seasonalThemeOn}
-              </button>
-              <button
-                type="button"
-                className={`profile-dd__seg-btn${
-                  !seasonalTheme ? " profile-dd__seg-btn--active" : ""
-                }`}
-                onClick={() => setSeasonalTheme(false)}
-              >
-                {t.profile.seasonalThemeOff}
               </button>
             </div>
           </div>

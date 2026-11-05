@@ -34,7 +34,7 @@ export function AccountCardHeadStory({
       __resetMock();
       if (wording === "halloween") {
         await mockApi.putTheme(halloween as ThemeBundle);
-        await mockApi.patchServerSettings({ displayTheme: halloween.id });
+        await mockApi.patchServerSettings({ displayTheme: halloween.id, displayThemeSchedule: [] });
         setToken("ct-owner-token");
       }
       setReady(true);

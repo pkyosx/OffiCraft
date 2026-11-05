@@ -15,7 +15,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { render, act, waitFor, fireEvent } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { I18nProvider, useI18n } from "../i18n";
-import { mockApi, __resetMock } from "../api/mock";
+import { mockApi, __resetMock, __setMockNoAppearance } from "../api/mock";
 import type { ThemeBundle } from "../lib/themeBundle";
 import { TOKEN_KEY } from "../api/auth";
 import { Avatar } from "./Avatar";
@@ -77,6 +77,7 @@ async function seed(bundle: ThemeBundle) {
 describe("Avatar avatars-by-kind (T-16a1 P5)", () => {
   beforeEach(() => {
     __resetMock();
+    __setMockNoAppearance();
     localStorage.clear();
     // Signed in: a signed-out cockpit never fetches a bundle, so there would be
     // no theme avatars to assert on.

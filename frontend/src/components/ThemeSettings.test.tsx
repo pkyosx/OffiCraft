@@ -28,12 +28,18 @@ import { makeMessages } from "../i18n/compose";
 import { ThemeSettings } from "./ThemeSettings";
 import { tokenMeta } from "../lib/themeTokenMeta";
 import { MAX_AVATAR_BYTES, MAX_CUSTOM_THEMES } from "../lib/themeBundleCore";
-import { __resetMock } from "../api/mock";
+import { __resetMock, __setMockNoAppearance } from "../api/mock";
 import { api } from "../api";
 import { ApiError } from "../api/errors";
 import { codeForStatus } from "../api/errorCodes";
 import type { ThemeBundle } from "../lib/themeBundle";
+import officeLightTheme from "../../../themes/office-light.theme.json" with { type: "json" };
 import { setToken, clearToken } from "../api/auth";
+
+/** The 主題庫 block — theme names also appear as options in 外觀's select. */
+function library(utils: ReturnType<typeof render>) {
+  return within(utils.getByTestId("theme-library"));
+}
 
 const SENTINEL = "偽造";
 
@@ -202,7 +208,7 @@ async function openEditor(
 
 // Let the provider's mount reconcile (getServerSettings) settle BEFORE we touch
 // the custom-theme set — otherwise its late-resolving GET overwrites an import
-// with the (still-empty) server value.
+// with the (still-empty) server value. 外觀 and 主題庫 are both on the page.
 async function renderManage() {
   let utils!: ReturnType<typeof render>;
   await act(async () => {
@@ -216,8 +222,26 @@ async function renderManage() {
   return utils;
 }
 
+const themeSelect = (utils: ReturnType<typeof render>) =>
+  utils.getByRole("combobox", { name: s.themePick }) as HTMLSelectElement;
+
+// The 外觀 block.
+const appearancePanel = (utils: ReturnType<typeof render>) =>
+  utils.getByTestId("theme-appearance-panel");
+
+/** Make `id` the selected theme through 外觀's 主題 select. */
+async function pickTheme(utils: ReturnType<typeof render>, id: string) {
+  fireEvent.change(themeSelect(utils), { target: { value: id } });
+  await settle();
+}
+
+async function selectedTheme(utils: ReturnType<typeof render>): Promise<string> {
+  return themeSelect(utils).value;
+}
+
 beforeEach(() => {
   __resetMock();
+  __setMockNoAppearance();
   clearToken();
   // Several tests below stand a seam up on purpose (a rejecting putTheme, a
   // getTheme that never resolves). A spy that outlived its test would make the
@@ -251,7 +275,7 @@ describe("ThemeSettings · import", () => {
       name: "午夜藍",
       colors: { "--color-accent": "#0b1020" },
     });
-    expect(await utils.findByText("午夜藍")).toBeTruthy();
+    expect(await library(utils).findByText("午夜藍")).toBeTruthy();
     expect(await savedIds()).toContain("midnight");
 
     // WHICH KIND a theme is comes from the group it sits in.
@@ -281,7 +305,7 @@ describe("ThemeSettings · import", () => {
       name: "午夜藍",
       colors: { "--color-accent": "#0b1020" },
     });
-    await utils.findByText("午夜藍");
+    await library(utils).findByText("午夜藍");
 
     const groupOf = (name: string) => {
       const row = Array.from(utils.container.querySelectorAll(".ts-row")).find(
@@ -337,20 +361,22 @@ describe("ThemeSettings · import", () => {
     expect(rowsNamedOffice().length).toBe(2);
 
     // Make the forging pack the ACTIVE theme, so its wording overlay is live.
-    fireEvent.click(rowsNamedOffice()[1].querySelector("button.ts-pick")!);
-    await settle();
+    await pickTheme(utils, "forge");
     // The overlay really IS live — without this the assertion below would pass
     // on a page where no wording was applied at all.
     expect(utils.getByTestId("ts-group-builtin").textContent).toBe(SENTINEL);
 
     // …and yet the built-in row STILL says 辦公室 — the overlay never reached
-    // themeIdentity, so the shipped theme is still findable and still
-    // selectable, which is the whole of the guarantee that remains.
+    // themeIdentity, so the shipped theme is still findable, which is the
+    // whole of the guarantee that remains.
     const builtinList = utils.getByTestId("ts-group-builtin").closest(".ts-list");
     const builtinRows = Array.from(builtinList?.querySelectorAll(".ts-row") ?? []);
-    expect(builtinRows.map((r) => r.querySelector("button.ts-pick")?.textContent)).toEqual([
+    expect(builtinRows.map((r) => r.querySelector(".ts-name")?.textContent)).toEqual([
       zh.themeIdentity.office,
       zh.themeIdentity.officeLight,
+      zh.themeIdentity.deskDay,
+      zh.themeIdentity.deskDusk,
+      zh.themeIdentity.deskNight,
     ]);
     for (const row of builtinRows) expect(row.textContent).not.toContain(SENTINEL);
   });
@@ -399,7 +425,7 @@ describe("ThemeSettings · import", () => {
       },
     });
     // The import SUCCEEDED — the pack is listed and landed on the server.
-    expect(await utils.findByText("精靈村")).toBeTruthy();
+    expect(await library(utils).findByText("精靈村")).toBeTruthy();
     expect(await savedIds()).toContain("elfvillage");
     // …and the recognised override survived while the unknown ones did not.
     expect((await savedTheme("elfvillage")).wording).toEqual({
@@ -425,7 +451,7 @@ describe("ThemeSettings · import", () => {
       colors: { "--color-accent": "#0b1020" },
       wording: { zh: junk },
     });
-    expect(await utils.findByText("吵雜")).toBeTruthy();
+    expect(await library(utils).findByText("吵雜")).toBeTruthy();
     expect(utils.getByTestId("theme-import-skipped").textContent).toBe(
       makeMessages(zh, "zh").themeImportSkipped(30, [
         "junk.key.1",
@@ -492,7 +518,7 @@ describe("ThemeSettings · colour editing", () => {
       colors: { "--color-accent": "#0b1020" },
     });
     const utils = await renderManage();
-    await utils.findByText("豐收");
+    await library(utils).findByText("豐收");
     await openEditor(utils, "豐收");
     fireEvent.change(within(colourRow(utils, "主色")).getByLabelText("主色"), {
       target: { value: "#ffffff" },
@@ -979,7 +1005,7 @@ describe("ThemeSettings · delete", () => {
     fireEvent.click(utils.getByTestId("theme-delete-confirm-btn"));
     await settle();
 
-    expect(utils.queryByText("午夜藍")).toBeNull();
+    expect(library(utils).queryByText("午夜藍")).toBeNull();
     expect(await savedIds()).toEqual([]);
   });
 
@@ -998,26 +1024,21 @@ describe("ThemeSettings · delete", () => {
       name: "午夜藍",
       colors: { "--color-accent": "#0b1020" },
     });
-    await utils.findByText("午夜藍");
+    await library(utils).findByText("午夜藍");
 
     // Make it the ACTIVE theme — that is the case with something to get wrong.
-    fireEvent.click(utils.getByText("午夜藍"));
-    await settle();
-    const activePicks = () =>
-      Array.from(utils.container.querySelectorAll(".ts-pick--active")).map(
-        (b) => b.textContent
-      );
-    expect(activePicks()).toEqual(["午夜藍"]);
+    await pickTheme(utils, "midnight");
+    expect(await selectedTheme(utils)).toBe("midnight");
 
     fireEvent.click(await utils.findByLabelText(`${p.themeDelete} 午夜藍`));
     fireEvent.click(utils.getByTestId("theme-delete-confirm-btn"));
     await settle();
 
     // Gone from the list AND from the server…
-    expect(utils.queryByText("午夜藍")).toBeNull();
+    expect(library(utils).queryByText("午夜藍")).toBeNull();
     expect(await savedIds()).toEqual([]);
     // …and the built-in is what the cockpit is showing, not a dangling id.
-    expect(activePicks()).toEqual([zh.themeIdentity.office]);
+    expect(await selectedTheme(utils)).toBe("office");
     expect(document.documentElement.dataset.theme).toBe("office");
   });
 });
@@ -1128,10 +1149,11 @@ describe("ThemeSettings · fetching a bundle to edit or export", () => {
   const editNameField = (utils: ReturnType<typeof render>) =>
     utils.container.querySelector("#ts-edit-name") as HTMLInputElement;
 
-  /** Make `id` the ACTIVE theme through the row's own picker (the seam
-   * production uses), and wait for its bundle to arrive. */
+  /** Make the theme called `name` the ACTIVE one through 外觀's select (the
+   * seam production uses), and wait for its bundle to arrive. */
   async function activate(utils: ReturnType<typeof render>, name: string) {
-    fireEvent.click(await utils.findByText(name));
+    const option = Array.from(themeSelect(utils).options).find((o) => o.textContent === name)!;
+    fireEvent.change(themeSelect(utils), { target: { value: option.value } });
     await settle();
   }
 
@@ -1140,7 +1162,7 @@ describe("ThemeSettings · fetching a bundle to edit or export", () => {
     await seed(AURORA);
     await seed(MIDNIGHT);
     const utils = await renderManage();
-    await utils.findByText("極光");
+    await library(utils).findByText("極光");
     await activate(utils, "極光");
 
     const spy = vi.spyOn(api, "getTheme");
@@ -1171,7 +1193,7 @@ describe("ThemeSettings · fetching a bundle to edit or export", () => {
     await seed(AURORA);
     await seed(MIDNIGHT);
     const utils = await renderManage();
-    await utils.findByText("極光");
+    await library(utils).findByText("極光");
     await activate(utils, "極光");
 
     await openEditor(utils, "午夜藍");
@@ -1192,7 +1214,7 @@ describe("ThemeSettings · fetching a bundle to edit or export", () => {
     setToken("owner-token");
     await seed(AURORA);
     const utils = await renderManage();
-    await utils.findByText("極光");
+    await library(utils).findByText("極光");
     await activate(utils, "極光");
 
     const spy = vi.spyOn(api, "getTheme");
@@ -1209,7 +1231,7 @@ describe("ThemeSettings · fetching a bundle to edit or export", () => {
     await seed(AURORA);
     await seed(MIDNIGHT);
     const utils = await renderManage();
-    await utils.findByText("午夜藍");
+    await library(utils).findByText("午夜藍");
     await activate(utils, "極光");
 
     const createFn = vi.fn().mockReturnValue("blob:x");
@@ -1243,7 +1265,7 @@ describe("ThemeSettings · fetching a bundle to edit or export", () => {
     setToken("owner-token");
     await seed(MIDNIGHT);
     const utils = await renderManage();
-    await utils.findByText("午夜藍");
+    await library(utils).findByText("午夜藍");
 
     vi.spyOn(api, "getTheme").mockRejectedValue(
       new ApiError("http 404", 404, codeForStatus(404), "theme not found")
@@ -1256,7 +1278,7 @@ describe("ThemeSettings · fetching a bundle to edit or export", () => {
     // …and we are still on the LIST — no half-open editor over a bundle that
     // never arrived.
     expect(utils.container.querySelector(".ts-form-actions")).toBeNull();
-    expect(utils.getByText("午夜藍")).toBeTruthy();
+    expect(library(utils).getByText("午夜藍")).toBeTruthy();
     // 🔴 …and the row is LIVE AGAIN. `busyId` is both the in-flight signal and
     // the one-request-at-a-time lock, so a release that does not happen on the
     // failure path leaves every row's 匯出/編輯 permanently dead — the owner's
@@ -1280,7 +1302,7 @@ describe("ThemeSettings · fetching a bundle to edit or export", () => {
     setToken("owner-token");
     await seed(MIDNIGHT);
     const utils = await renderManage();
-    await utils.findByText("午夜藍");
+    await library(utils).findByText("午夜藍");
 
     vi.spyOn(api, "getTheme").mockRejectedValue(new Error("boom"));
     await openEditor(utils, "午夜藍");
@@ -1301,7 +1323,7 @@ describe("ThemeSettings · fetching a bundle to edit or export", () => {
     await seed(AURORA);
     await seed(MIDNIGHT);
     const utils = await renderManage();
-    await utils.findByText("午夜藍");
+    await library(utils).findByText("午夜藍");
 
     let release!: (b: ThemeBundle) => void;
     vi.spyOn(api, "getTheme").mockReturnValue(
@@ -1353,7 +1375,7 @@ describe("ThemeSettings · refusals that still stand", () => {
     setToken("owner-token");
     await seedMany(MAX_CUSTOM_THEMES);
     const utils = await renderManage();
-    await utils.findByText(`包 ${MAX_CUSTOM_THEMES - 1}`);
+    await library(utils).findByText(`包 ${MAX_CUSTOM_THEMES - 1}`);
 
     fireEvent.click(utils.getByText(p.themeAdd));
     await settle();
@@ -1375,7 +1397,7 @@ describe("ThemeSettings · refusals that still stand", () => {
       colors: { "--color-accent": "#aa0011" },
     });
     const utils = await renderManage();
-    await utils.findByText("午夜藍");
+    await library(utils).findByText("午夜藍");
 
     await importBundle(utils, {
       id: "midnight",
@@ -1417,7 +1439,7 @@ describe("ThemeSettings · refusals that still stand", () => {
     setToken("owner-token");
     await seedMany(MAX_CUSTOM_THEMES);
     const utils = await renderManage();
-    await utils.findByText(`包 ${MAX_CUSTOM_THEMES - 1}`);
+    await library(utils).findByText(`包 ${MAX_CUSTOM_THEMES - 1}`);
 
     await importBundle(utils, {
       id: "one-too-many",
@@ -1466,7 +1488,7 @@ describe("ThemeSettings · a refused write is visible", () => {
       colors: { "--color-accent": "#aa0011" },
     });
     const utils = await renderManage();
-    await utils.findByText("午夜藍");
+    await library(utils).findByText("午夜藍");
     await openEditor(utils, "午夜藍");
 
     const label = tokenMeta("--color-accent", "zh").label;
@@ -1506,7 +1528,7 @@ describe("ThemeSettings · a refused write is visible", () => {
       colors: { "--color-accent": "#aa0011" },
     });
     const utils = await renderManage();
-    await utils.findByText("午夜藍");
+    await library(utils).findByText("午夜藍");
 
     vi.spyOn(api, "deleteTheme").mockRejectedValue(
       new ApiError("http 404", 404, codeForStatus(404), "theme not found")
@@ -1522,7 +1544,7 @@ describe("ThemeSettings · a refused write is visible", () => {
     );
     expect(utils.queryByTestId("theme-delete-confirm-btn")).toBeNull();
     // The row is STILL THERE, ready for a second attempt…
-    expect(utils.getByText("午夜藍")).toBeTruthy();
+    expect(library(utils).getByText("午夜藍")).toBeTruthy();
     vi.restoreAllMocks();
     // …and so is the theme itself.
     expect(await savedIds()).toEqual(["midnight"]);
@@ -1540,7 +1562,7 @@ describe("ThemeSettings · a refused write is visible", () => {
       colors: { "--color-accent": "#aa0011" },
     });
     const utils = await renderManage();
-    await utils.findByText("午夜藍");
+    await library(utils).findByText("午夜藍");
 
     const spy = vi
       .spyOn(api, "deleteTheme")
@@ -1557,5 +1579,363 @@ describe("ThemeSettings · a refused write is visible", () => {
     await settle();
     expect(spy).toHaveBeenCalledTimes(2);
     vi.restoreAllMocks();
+  });
+});
+
+describe("ThemeSettings · appearance", () => {
+  it("shows 外觀 then 主題庫 as two titled blocks: 恢復預設 in 外觀's header, 匯入 and 新增 in 主題庫's", async () => {
+    const utils = await renderManage();
+    const [appearance, library] = utils.getAllByRole("region");
+    expect(appearance.getAttribute("aria-labelledby")).toBeTruthy();
+    expect(within(appearance).getByRole("heading", { name: s.themeTabAppearance })).toBeTruthy();
+    expect(within(library).getByRole("heading", { name: s.themeTabLibrary })).toBeTruthy();
+
+    const appearanceHead = within(appearance).getByRole("heading").parentElement!;
+    expect(within(appearanceHead).getByRole("button", { name: s.themeRestoreDefault })).toBeTruthy();
+    expect(within(appearance).getByRole("switch", { name: s.themeSchedule })).toBeTruthy();
+    expect(within(appearance).getByRole("combobox", { name: s.themePick })).toBeTruthy();
+    expect(within(appearance).getByRole("switch", { name: p.seasonalTheme })).toBeTruthy();
+
+    const libraryHead = within(library).getByRole("heading").parentElement!;
+    expect(
+      within(libraryHead).getAllByRole("button").map((b) => b.textContent)
+    ).toEqual([p.themeImport, p.themeAdd]);
+    expect(within(library).getByTestId("ts-group-builtin")).toBeTruthy();
+    expect(within(library).queryAllByTestId("ts-thumb")).toEqual([]);
+  });
+
+  it("lists the built-ins first, then the custom themes by their own names, and applies a pick at once", async () => {
+    setToken("owner-token");
+    const spoof = `${zh.themeIdentity.office}(${zh.themeMarkers.builtinGroup})`;
+    await api.putTheme({ id: "aaa", name: spoof, colors: { "--color-bg": "#101018" } });
+    await api.putTheme({ id: "zzz", name: "000 更前面", colors: { "--color-bg": "#181018" } });
+    const utils = await renderManage();
+
+    expect(Array.from(themeSelect(utils).options).map((o) => [o.value, o.textContent])).toEqual([
+      ["office", zh.themeIdentity.office],
+      ["office-light", zh.themeIdentity.officeLight],
+      ["modern-office-desk-day", zh.themeIdentity.deskDay],
+      ["modern-office-desk-dusk", zh.themeIdentity.deskDusk],
+      ["modern-office-desk-night", zh.themeIdentity.deskNight],
+      ["aaa", spoof],
+      ["zzz", "000 更前面"],
+    ]);
+
+    fireEvent.change(themeSelect(utils), { target: { value: "office-light" } });
+    expect(document.documentElement.dataset.theme).toBe("office-light");
+    fireEvent.change(themeSelect(utils), { target: { value: "office" } });
+    expect(document.documentElement.dataset.theme).toBe("office");
+  });
+
+  it("shows a built-in's own colours and a custom theme's canvas image as the thumbnail, fetching each custom theme once", async () => {
+    setToken("owner-token");
+    const png =
+      "data:image/png;base64," +
+      btoa(String.fromCharCode(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01));
+    await api.putTheme({
+      id: "midnight",
+      name: "午夜藍",
+      colors: { "--color-card": "#202030" },
+      backgrounds: { canvas: png },
+    });
+    const utils = await renderManage();
+    const thumb = () => within(appearancePanel(utils)).getByTestId("ts-thumb");
+    const card = () => thumb().querySelector<HTMLElement>(".ts-thumb__card")!;
+    const cssColor = (value: string) => {
+      const probe = document.createElement("span");
+      probe.style.backgroundColor = value;
+      return probe.style.backgroundColor;
+    };
+
+    fireEvent.change(themeSelect(utils), { target: { value: "office-light" } });
+    expect(thumb().style.backgroundColor).toBe(cssColor(officeLightTheme.colors["--color-bg"]));
+    expect(card().style.backgroundColor).toBe(cssColor(officeLightTheme.colors["--color-card"]));
+
+    const getTheme = vi.spyOn(api, "getTheme");
+    fireEvent.click(utils.getByRole("switch", { name: s.themeSchedule }));
+    const rowTheme = (n: number) => utils.getByLabelText(`${s.themeScheduleTheme} ${n}`);
+    const rowThumb = (n: number) =>
+      rowTheme(n).closest(".ts-schedule-row")!.querySelector<HTMLElement>(".ts-thumb")!;
+    fireEvent.change(rowTheme(2), { target: { value: "midnight" } });
+    await settle();
+    expect(rowThumb(2).style.backgroundImage).toContain(png);
+    expect(rowThumb(2).querySelector<HTMLElement>(".ts-thumb__card")!.style.backgroundColor).toBe(
+      cssColor("#202030")
+    );
+
+    fireEvent.change(rowTheme(1), { target: { value: "midnight" } });
+    await settle();
+    expect(rowThumb(1).style.backgroundImage).toContain(png);
+    expect(getTheme.mock.calls.map((c) => c[0])).toEqual(["midnight"]);
+  });
+
+  it("draws a blank thumbnail when a custom theme cannot be fetched", async () => {
+    setToken("owner-token");
+    await api.putTheme({ id: "midnight", name: "午夜藍", colors: { "--color-bg": "#101018" } });
+    const utils = await renderManage();
+    vi.spyOn(api, "getTheme").mockRejectedValue(new Error("boom"));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    fireEvent.change(themeSelect(utils), { target: { value: "midnight" } });
+    await settle();
+
+    expect(within(appearancePanel(utils)).getByTestId("ts-thumb").classList.contains("ts-thumb--blank")).toBe(true);
+    expect(themeSelect(utils).value).toBe("midnight");
+  });
+
+  it("恢復預設 asks first, then restores the desk schedule, the seasonal theme and the desk display theme, keeping custom themes", async () => {
+    setToken("owner-token");
+    await api.putTheme({ id: "midnight", name: "午夜藍", colors: { "--color-bg": "#101018" } });
+    await api.patchServerSettings({ displayTheme: "midnight", displaySeasonalTheme: false });
+    const utils = await renderManage();
+    const dialog = within(appearancePanel(utils));
+
+    fireEvent.click(dialog.getByRole("button", { name: s.themeRestoreDefault }));
+    expect(utils.getByTestId("theme-restore-confirm").textContent).toContain(s.themeRestoreConfirm);
+    fireEvent.click(utils.getByRole("button", { name: s.cancel }));
+    expect((await api.getServerSettings()).displayTheme).toBe("midnight");
+
+    const patch = vi.spyOn(api, "patchServerSettings");
+    fireEvent.click(dialog.getByRole("button", { name: s.themeRestoreDefault }));
+    fireEvent.click(utils.getByTestId("theme-restore-confirm-btn"));
+    await waitFor(() => expect(utils.queryByTestId("theme-restore-confirm")).toBeNull());
+    expect(patch).toHaveBeenCalledTimes(1);
+
+    const saved = await api.getServerSettings();
+    expect(saved.displayTheme).toBe("modern-office-desk-day");
+    expect(saved.displaySeasonalTheme).toBe(true);
+    expect(saved.displayThemeSchedule).toEqual([
+      { start: "06:00", theme: "modern-office-desk-day" },
+      { start: "16:00", theme: "modern-office-desk-dusk" },
+      { start: "18:30", theme: "modern-office-desk-night" },
+    ]);
+    expect(dialog.getByRole("switch", { name: s.themeSchedule }).getAttribute("aria-checked")).toBe("true");
+    expect(dialog.getByRole("switch", { name: p.seasonalTheme }).getAttribute("aria-checked")).toBe("true");
+    expect(await savedIds()).toEqual(["midnight"]);
+  });
+
+  it("恢復預設 that the server refuses says so and keeps the confirm open", async () => {
+    setToken("owner-token");
+    const utils = await renderManage();
+    vi.spyOn(api, "patchServerSettings").mockRejectedValue(new Error("boom"));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    fireEvent.click(within(appearancePanel(utils)).getByRole("button", { name: s.themeRestoreDefault }));
+    fireEvent.click(utils.getByTestId("theme-restore-confirm-btn"));
+    await settle();
+
+    expect(utils.getByTestId("theme-restore-confirm").textContent).toContain(s.themeRestoreFailed);
+  });
+
+  it("the 顯示應景主題 switch is on by default and saves each flip to the server", async () => {
+    setToken("owner-token");
+    const utils = await renderManage();
+    const seasonal = utils.getByRole("switch", { name: p.seasonalTheme });
+    expect(seasonal.getAttribute("aria-checked")).toBe("true");
+
+    fireEvent.click(seasonal);
+    expect(seasonal.getAttribute("aria-checked")).toBe("false");
+    await waitFor(async () =>
+      expect((await api.getServerSettings()).displaySeasonalTheme).toBe(false)
+    );
+
+    fireEvent.click(seasonal);
+    expect(seasonal.getAttribute("aria-checked")).toBe("true");
+    await waitFor(async () =>
+      expect((await api.getServerSettings()).displaySeasonalTheme).toBe(true)
+    );
+  });
+});
+
+describe("ThemeSettings · switch by time of day", () => {
+  const section = (utils: ReturnType<typeof render>) => within(utils.getByTestId("theme-schedule"));
+  const scheduleSwitch = (utils: ReturnType<typeof render>) =>
+    utils.getByRole("switch", { name: s.themeSchedule });
+  const startInputs = (utils: ReturnType<typeof render>) =>
+    utils.queryAllByLabelText(new RegExp(`^${s.themeScheduleStart} \\d$`)) as HTMLInputElement[];
+  const rows = (utils: ReturnType<typeof render>) =>
+    startInputs(utils).map((input, i) => [
+      input.value,
+      (section(utils).getByLabelText(`${s.themeScheduleTheme} ${i + 1}`) as HTMLSelectElement).value,
+    ]);
+
+  async function renderWithDusk() {
+    setToken("owner-token");
+    await api.putTheme({ id: "dusk", name: "黃昏", colors: { "--color-bg": "#0a0b0c" } });
+    return renderManage();
+  }
+
+  it("turning it on swaps the 主題 select for the default desk schedule to edit and saves nothing until the schedule is saved", async () => {
+    const utils = await renderWithDusk();
+    expect(scheduleSwitch(utils).getAttribute("aria-checked")).toBe("false");
+    expect(startInputs(utils)).toEqual([]);
+    expect(themeSelect(utils)).toBeTruthy();
+    const patch = vi.spyOn(api, "patchServerSettings");
+
+    fireEvent.click(scheduleSwitch(utils));
+
+    expect(scheduleSwitch(utils).getAttribute("aria-checked")).toBe("true");
+    expect(utils.queryByRole("combobox", { name: s.themePick })).toBeNull();
+    expect(rows(utils)).toEqual([
+      ["06:00", "modern-office-desk-day"],
+      ["16:00", "modern-office-desk-dusk"],
+      ["18:30", "modern-office-desk-night"],
+    ]);
+    const options = Array.from(
+      (section(utils).getByLabelText(`${s.themeScheduleTheme} 1`) as HTMLSelectElement).options
+    ).map((o) => [o.value, o.textContent]);
+    expect(options).toEqual([
+      ["office", zh.themeIdentity.office],
+      ["office-light", zh.themeIdentity.officeLight],
+      ["modern-office-desk-day", zh.themeIdentity.deskDay],
+      ["modern-office-desk-dusk", zh.themeIdentity.deskDusk],
+      ["modern-office-desk-night", zh.themeIdentity.deskNight],
+      ["dusk", "黃昏"],
+    ]);
+    expect(section(utils).getAllByTestId("ts-thumb")).toHaveLength(3);
+    expect(patch).not.toHaveBeenCalled();
+    expect((await api.getServerSettings()).displayThemeSchedule).toEqual([]);
+  });
+
+  it("adds rows up to six and removes rows down to two", async () => {
+    const utils = await renderWithDusk();
+    fireEvent.click(scheduleSwitch(utils));
+    const add = section(utils).getByRole("button", { name: s.themeScheduleAdd });
+
+    for (let i = 0; i < 3; i++) fireEvent.click(add);
+
+    expect(startInputs(utils)).toHaveLength(6);
+    expect((add as HTMLButtonElement).disabled).toBe(true);
+    for (let i = 6; i > 2; i--) {
+      fireEvent.click(section(utils).getByRole("button", { name: `${s.themeScheduleRemove} ${i}` }));
+    }
+    expect(rows(utils)).toEqual([
+      ["06:00", "modern-office-desk-day"],
+      ["16:00", "modern-office-desk-dusk"],
+    ]);
+    expect(
+      (section(utils).getByRole("button", { name: `${s.themeScheduleRemove} 1` }) as HTMLButtonElement)
+        .disabled
+    ).toBe(true);
+  });
+
+  it("saves the rows through the settings patch and shows the server's copy sorted by start", async () => {
+    const utils = await renderWithDusk();
+    fireEvent.click(scheduleSwitch(utils));
+    fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleAdd }));
+    fireEvent.change(startInputs(utils)[3], { target: { value: "05:30" } });
+    fireEvent.change(section(utils).getByLabelText(`${s.themeScheduleTheme} 4`), {
+      target: { value: "dusk" },
+    });
+
+    fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleSave }));
+    await settle();
+    await settle();
+
+    expect((await api.getServerSettings()).displayThemeSchedule).toEqual([
+      { start: "05:30", theme: "dusk" },
+      { start: "06:00", theme: "modern-office-desk-day" },
+      { start: "16:00", theme: "modern-office-desk-dusk" },
+      { start: "18:30", theme: "modern-office-desk-night" },
+    ]);
+    expect(rows(utils)).toEqual([
+      ["05:30", "dusk"],
+      ["06:00", "modern-office-desk-day"],
+      ["16:00", "modern-office-desk-dusk"],
+      ["18:30", "modern-office-desk-night"],
+    ]);
+    expect(section(utils).getByText(s.themeScheduleSaved)).toBeTruthy();
+  });
+
+  it("a repeated or missing start time is refused on screen and nothing is sent", async () => {
+    const utils = await renderWithDusk();
+    fireEvent.click(scheduleSwitch(utils));
+    const patch = vi.spyOn(api, "patchServerSettings");
+
+    fireEvent.change(startInputs(utils)[1], { target: { value: "06:00" } });
+    fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleSave }));
+    await settle();
+    expect(section(utils).getByText(s.themeScheduleErrorDuplicate)).toBeTruthy();
+
+    fireEvent.change(startInputs(utils)[1], { target: { value: "" } });
+    fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleSave }));
+    await settle();
+    expect(section(utils).getByText(s.themeScheduleErrorStart)).toBeTruthy();
+
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it("a save the server refuses says so and keeps the rows", async () => {
+    const utils = await renderWithDusk();
+    fireEvent.click(scheduleSwitch(utils));
+    vi.spyOn(api, "patchServerSettings").mockRejectedValue(
+      new ApiError("http 422", 422, codeForStatus(422), "display_theme_schedule theme must be …")
+    );
+
+    fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleSave }));
+    await settle();
+
+    expect(section(utils).getByText(s.themeScheduleSaveFailed)).toBeTruthy();
+    expect(rows(utils)).toEqual([
+      ["06:00", "modern-office-desk-day"],
+      ["16:00", "modern-office-desk-dusk"],
+      ["18:30", "modern-office-desk-night"],
+    ]);
+  });
+
+  it("turning it off clears the saved schedule and brings back the 主題 select", async () => {
+    const utils = await renderWithDusk();
+    fireEvent.click(scheduleSwitch(utils));
+    fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleSave }));
+    await section(utils).findByText(s.themeScheduleSaved);
+    expect((await api.getServerSettings()).displayThemeSchedule).toHaveLength(3);
+
+    fireEvent.click(scheduleSwitch(utils));
+    await waitFor(async () =>
+      expect((await api.getServerSettings()).displayThemeSchedule).toEqual([])
+    );
+    await waitFor(() => expect(scheduleSwitch(utils).getAttribute("aria-checked")).toBe("false"));
+
+    expect(startInputs(utils)).toEqual([]);
+    expect(scheduleSwitch(utils).getAttribute("aria-checked")).toBe("false");
+    expect(themeSelect(utils).value).toBe("office");
+  });
+
+  it("keeps unsaved rows across a visit to the import view", async () => {
+    const utils = await renderWithDusk();
+    fireEvent.click(scheduleSwitch(utils));
+    fireEvent.change(startInputs(utils)[0], { target: { value: "07:15" } });
+
+    fireEvent.click(utils.getByRole("button", { name: p.themeImport }));
+    fireEvent.click(utils.container.querySelector(".ts-back")!);
+
+    expect(rows(utils)).toEqual([
+      ["07:15", "modern-office-desk-day"],
+      ["16:00", "modern-office-desk-dusk"],
+      ["18:30", "modern-office-desk-night"],
+    ]);
+  });
+
+  it("deleting a theme the schedule uses drops the schedule when fewer than two rows would be left", async () => {
+    const utils = await renderWithDusk();
+    fireEvent.click(scheduleSwitch(utils));
+    fireEvent.click(section(utils).getByRole("button", { name: `${s.themeScheduleRemove} 3` }));
+    fireEvent.change(section(utils).getByLabelText(`${s.themeScheduleTheme} 2`), {
+      target: { value: "dusk" },
+    });
+    fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleSave }));
+    await settle();
+    await settle();
+    expect(rows(utils)).toEqual([
+      ["06:00", "modern-office-desk-day"],
+      ["16:00", "dusk"],
+    ]);
+    fireEvent.click(await utils.findByLabelText(`${p.themeDelete} 黃昏`));
+    fireEvent.click(utils.getByTestId("theme-delete-confirm-btn"));
+    await settle();
+
+    expect((await api.getServerSettings()).displayThemeSchedule).toEqual([]);
+    expect(startInputs(utils)).toEqual([]);
+    expect(scheduleSwitch(utils).getAttribute("aria-checked")).toBe("false");
   });
 });

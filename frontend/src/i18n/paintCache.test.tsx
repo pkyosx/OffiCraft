@@ -3,7 +3,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, waitFor, act } from "@testing-library/react";
 import { I18nProvider, useI18n } from "./index";
-import { mockApi, __resetMock } from "../api/mock";
+import { mockApi, __resetMock, __setMockNoAppearance } from "../api/mock";
 import { TOKEN_KEY } from "../api/auth";
 
 function bg(): string {
@@ -40,6 +40,7 @@ function seedPaint(bundle: unknown, v = 1) {
 describe("D2 paint cache", () => {
   beforeEach(() => {
     __resetMock();
+    __setMockNoAppearance();
     localStorage.clear();
     document.documentElement.removeAttribute("style");
     delete document.documentElement.dataset.theme;
@@ -250,6 +251,7 @@ describe("D2 paint cache", () => {
 describe("D2 paint cache — themesLoaded is not redundant", () => {
   beforeEach(() => {
     __resetMock();
+    __setMockNoAppearance();
     localStorage.clear();
     document.documentElement.removeAttribute("style");
     delete document.documentElement.dataset.theme;

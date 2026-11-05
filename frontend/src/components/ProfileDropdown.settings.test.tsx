@@ -1,36 +1,54 @@
 // ProfileDropdown change-password (B3): the main menu owns the account
 // sub-views while preferences keeps only appearance controls.
 //
-// T-83ef: the themes the picker lists no longer ride on /api/settings — they
-// are their own resource, so the seeding below writes them ONE AT A TIME
-// through api.putTheme. The picker itself reads `themeList` (id + name), which
-// is all it ever rendered.
+// T-83ef: themes are their own resource, so the seeding below writes them ONE
+// AT A TIME through api.putTheme; the status line reads `themeList` (id + name).
 //
 // The /api/settings parameter knobs (登入有效期 / 自動換手門檻) MOVED to the
 // 設定 page's 參數調整 entry (owner 2026-07-12), and theme MANAGEMENT (import /
 // export / edit / delete) MOVED to 設定/主題 (T-16a1 P3b →
-// ThemeSettings.test.tsx). Here we pin that the dropdown kept only selection.
+// ThemeSettings.test.tsx), and so did choosing one (owner 2026-11-05): the
+// dropdown only names the theme on screen.
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, fireEvent, waitFor } from "@testing-library/react";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { useState } from "react";
+import { render, fireEvent, waitFor, within } from "@testing-library/react";
+import type { LoadableSeasonalWindow } from "../lib/seasonalTheme";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
+import { makeMessages } from "../i18n/compose";
 import { ProfileDropdown } from "./ProfileDropdown";
-import { __resetMock } from "../api/mock";
+import { __resetMock, __setMockNoAppearance } from "../api/mock";
 import { api } from "../api";
+
+const seasonalWindows = vi.hoisted(() => [] as LoadableSeasonalWindow[]);
+vi.mock("../lib/seasonalTheme", () => ({ SEASONAL_WINDOWS: seasonalWindows }));
 import { setToken, clearToken } from "../api/auth";
 
 const p = zh.profile;
 
-async function openPreferences() {
-  const utils = render(
-    <I18nProvider>
+/** The menu with its trigger, the way App mounts it: onClose really closes it. */
+function MenuWithTrigger() {
+  const [open, setOpen] = useState(true);
+  return (
+    <div>
+      <button type="button" aria-haspopup="menu" onClick={() => setOpen((o) => !o)}>
+        pill
+      </button>
       <ProfileDropdown
-        open
-        onClose={vi.fn()}
+        open={open}
+        onClose={() => setOpen(false)}
         userName="使用者"
         setOwnerName={vi.fn()}
       />
+    </div>
+  );
+}
+
+async function openPreferences() {
+  const utils = render(
+    <I18nProvider>
+      <MenuWithTrigger />
     </I18nProvider>
   );
   fireEvent.click(utils.getByText(p.preferences));
@@ -40,8 +58,9 @@ async function openPreferences() {
 
 beforeEach(() => {
   __resetMock();
+  __setMockNoAppearance();
   clearToken();
-  // The theme-selector test writes oc.theme to localStorage; clear it so a
+  // Some cases seed oc.theme in localStorage; clear it so a
   // later test's first paint is not tinted (and stays on the zh default dict).
   localStorage.clear();
   delete document.documentElement.dataset.theme;
@@ -49,117 +68,129 @@ beforeEach(() => {
 });
 
 describe("ProfileDropdown · preferences scope", () => {
-  it("renders the theme selector and language", async () => {
+  const themeStatus = (utils: ReturnType<typeof render>) => {
+    const entry = utils.getByTestId("theme-entry");
+    return [
+      within(entry).getByTestId("theme-entry-name").textContent,
+      within(entry).queryByTestId("theme-entry-tag")?.textContent,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  };
+
+  it("renders the theme status and language", async () => {
     const utils = await openPreferences();
     expect(utils.getByText(p.theme)).toBeTruthy();
     expect(utils.getByText(p.language)).toBeTruthy();
   });
 
-  it("offers the theme SELECTOR and points to 設定/主題 for management", async () => {
+  it("names the selected theme in one row; the row closes the menu and opens the dialog that sets it, and closing returns focus to the menu's trigger", async () => {
     setToken("owner-token");
     await api.putTheme({
       id: "midnight",
       name: "午夜藍",
       colors: { "--color-bg": "#101018" },
     });
+    await api.patchServerSettings({ displayTheme: "midnight" });
     const utils = await openPreferences();
-    const select = utils.getByLabelText(p.theme);
-    const custom = await waitFor(() => {
-      const o = Array.from(select.querySelectorAll("option")).find(
-        (x) => x.value === "midnight"
-      );
-      expect(o).toBeTruthy();
-      return o!;
-    });
-    // Every option's text is the theme's own name and nothing else; the 內建 /
-    // 自訂 marking lives in 設定 › 主題 (ThemeSettings.test.tsx).
-    const builtin = Array.from(select.querySelectorAll("option")).find(
-      (o) => o.value === "office"
-    )!;
-    expect(builtin.textContent).toBe(zh.themeIdentity.office);
-    const builtinLight = Array.from(select.querySelectorAll("option")).find(
-      (o) => o.value === "office-light"
-    )!;
-    expect(builtinLight.textContent).toBe(zh.themeIdentity.officeLight);
-    expect(custom.textContent).toBe("午夜藍");
-    // A hint points the owner to the settings page instead.
-    expect(utils.getByText(p.themeManageHint)).toBeTruthy();
-  });
+    await waitFor(() => expect(themeStatus(utils)).toBe("午夜藍"));
 
-  it("cannot be made to show two identical built-in rows by a theme's NAME", async () => {
-    // The owner's original symptom, re-entered through the other door (T-081b
-    // review round 3, BLOCKER-2): while the marker was TEXT — 「辦公室」 + 「(內建)」 —
-    // a pack simply naming itself 「辦公室(內建)」 produced two byte-identical rows
-    // and the shipped theme became unfindable again. Both names are legal (neither
-    // equals the reserved 「辦公室」), so the fix cannot be a name rule: the marker
-    // has to be structure the name cannot reach.
-    setToken("owner-token");
-    const spoof = `${zh.themeIdentity.office}(${zh.themeMarkers.builtinGroup})`;
-    await api.putTheme({
-      id: "spoofpack",
-      name: spoof,
-      colors: { "--color-bg": "#101018" },
-    });
-    const utils = await openPreferences();
-    const select = utils.getByLabelText(p.theme);
-    await waitFor(() => {
-      expect(
-        Array.from(select.querySelectorAll("option")).some((o) => o.value === "spoofpack")
-      ).toBe(true);
-    });
-    const options = Array.from(select.querySelectorAll("option"));
-    const builtin = options.find((o) => o.value === "office")!;
-    const forged = options.find((o) => o.value === "spoofpack")!;
-    // The spoof keeps its own name (it is legal), but it is NOT the built-in row:
-    // the built-in's text is the bare identity name, so no pack name can be
-    // byte-identical to it while also carrying a 內建 marker — the picker prints
-    // no marker at all.
-    expect(forged.textContent).toBe(spoof);
-    expect(builtin.textContent).toBe(zh.themeIdentity.office);
-    expect(builtin.textContent).not.toBe(forged.textContent);
-    expect(select.textContent).not.toContain(
-      `${zh.themeIdentity.office}${zh.themeMarkers.builtinGroup}`
+    fireEvent.click(
+      utils.getByRole("button", { name: makeMessages(zh, "zh").themeEntryLabel("午夜藍") })
     );
-    // And the pack cannot buy the built-in's place in the list by its name.
-    expect(options.indexOf(builtin)).toBe(0);
+    expect(utils.queryByRole("menu")).toBeNull();
+    const dialog = utils.getByRole("dialog", { name: zh.settings.themeDialogTitle });
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+    expect(document.activeElement).toBe(dialog);
+    expect(within(dialog).getByRole("switch", { name: p.seasonalTheme })).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: zh.settings.themeRestoreDefault })).toBeTruthy();
+    const select = within(dialog).getByRole("combobox", { name: zh.settings.themePick }) as HTMLSelectElement;
+    expect(select.value).toBe("midnight");
+
+    fireEvent.change(select, { target: { value: "office-light" } });
+    await waitFor(async () =>
+      expect((await api.getServerSettings()).displayTheme).toBe("office-light")
+    );
+    fireEvent.click(within(dialog).getByRole("switch", { name: zh.settings.themeSchedule }));
+    fireEvent.click(within(dialog).getByRole("button", { name: zh.settings.themeScheduleSave }));
+    await waitFor(async () =>
+      expect((await api.getServerSettings()).displayThemeSchedule).toHaveLength(3)
+    );
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(utils.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(utils.getByRole("button", { name: "pill" }));
+
+    fireEvent.click(utils.getByRole("button", { name: "pill" }));
+    fireEvent.click(utils.getByText(p.preferences));
+    await waitFor(() => expect(themeStatus(utils)).toContain(p.themeEntryScheduled));
+    fireEvent.click(utils.getByTestId("theme-entry"));
+    const firstStart = async () =>
+      (await within(utils.getByRole("dialog")).findByLabelText(
+        `${zh.settings.themeScheduleStart} 1`
+      )) as HTMLInputElement;
+    fireEvent.change(await firstStart(), { target: { value: "07:15" } });
+    fireEvent.click(
+      within(utils.getByRole("dialog")).getByRole("button", { name: zh.settings.themeDialogClose })
+    );
+    expect(utils.queryByRole("dialog")).toBeNull();
+
+    fireEvent.click(utils.getByRole("button", { name: "pill" }));
+    fireEvent.click(utils.getByText(p.preferences));
+    fireEvent.click(utils.getByTestId("theme-entry"));
+    expect((await firstStart()).value).toBe("06:00");
   });
 
-  it("keeps the built-ins first and the packs after, whatever they are named", async () => {
-    // The one thing the flat picker still asserts is ORDER (owner 2026-07-27).
-    // It has to come from the rendering, not from the data: neither a name that
-    // sorts first nor the order the packs were imported in may push a pack
-    // ahead of the built-in.
+  it("names a built-in theme by its own identity name", async () => {
+    localStorage.setItem("oc.theme", "office-light");
+    const utils = await openPreferences();
+    expect(themeStatus(utils)).toBe(zh.themeIdentity.officeLight);
+  });
+
+  it("while a theme schedule is on, says so and names the theme it shows now", async () => {
+    await api.patchServerSettings({
+      displayThemeSchedule: [
+        { start: "00:00", theme: "office-light" },
+        { start: "12:00", theme: "office-light" },
+      ],
+    });
     setToken("owner-token");
-    // Saved one at a time — that is the only door there is now. The ORDER the
-    // picker must respect is the order the server keeps them in, which is the
-    // order they were created in, so seeding them in sequence is also what
-    // makes the assertion below about the render rather than about the data.
-    await api.putTheme({
-      id: "aaa",
-      name: "AAA 最前面",
-      colors: { "--color-bg": "#101018" },
-    });
-    await api.putTheme({
-      id: "zzz",
-      name: "000 更前面",
-      colors: { "--color-bg": "#181018" },
-    });
     const utils = await openPreferences();
-    const select = utils.getByLabelText(p.theme);
-    await waitFor(() => {
-      expect(select.querySelectorAll("option").length).toBe(4);
-    });
+    await waitFor(() =>
+      expect(themeStatus(utils)).toBe(`${zh.themeIdentity.officeLight} · ${p.themeEntryScheduled}`)
+    );
     expect(
-      Array.from(select.querySelectorAll("option")).map((o) => o.value)
-    ).toEqual(["office", "office-light", "aaa", "zzz"]);
+      utils.getByRole("button", {
+        name: makeMessages(zh, "zh").themeEntryLabel(zh.themeIdentity.officeLight, p.themeEntryScheduled),
+      })
+    ).toBeTruthy();
   });
 
-  it("applies whichever built-in the quick picker selects as <html data-theme>", async () => {
-    const utils = await openPreferences();
-    fireEvent.change(utils.getByLabelText(p.theme), { target: { value: "office-light" } });
-    expect(document.documentElement.dataset.theme).toBe("office-light");
-    fireEvent.change(utils.getByLabelText(p.theme), { target: { value: "office" } });
-    expect(document.documentElement.dataset.theme).toBe("office");
+  describe("inside a seasonal window", () => {
+    afterEach(() => {
+      seasonalWindows.length = 0;
+      vi.useRealTimers();
+    });
+
+    it("names the seasonal theme on screen even while a theme schedule is on", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["Date", "setTimeout", "clearTimeout"] });
+      vi.setSystemTime(new Date(2030, 9, 28, 12, 0));
+      seasonalWindows.push({
+        id: "harvest",
+        start: new Date(2030, 9, 24, 0, 0),
+        end: new Date(2030, 10, 1, 0, 0),
+        load: () => Promise.resolve({ id: "harvest", name: "豐收", colors: { "--color-bg": "#15101f" } }),
+      });
+      await api.patchServerSettings({
+        displayThemeSchedule: [
+          { start: "00:00", theme: "office-light" },
+          { start: "12:00", theme: "office" },
+        ],
+      });
+      setToken("owner-token");
+      const utils = await openPreferences();
+      await waitFor(() => expect(themeStatus(utils)).toBe(`豐收 · ${p.themeEntrySeasonal}`));
+    });
   });
 
   it("offers the 版面 segmented control and flips the layout both ways (T-756f)", async () => {
@@ -173,29 +204,6 @@ describe("ProfileDropdown · preferences scope", () => {
 
     fireEvent.click(utils.getByText(p.layoutNarrow));
     expect(document.documentElement.hasAttribute("data-layout")).toBe(false);
-  });
-
-  it("offers the 顯示應景主題 control on by default, and saves each flip to the server", async () => {
-    setToken("owner-token");
-    const utils = await openPreferences();
-    expect(utils.getByText("顯示應景主題")).toBeTruthy();
-    const on = utils.getByText("開");
-    const off = utils.getByText("關");
-    expect(on.className).toBe("profile-dd__seg-btn profile-dd__seg-btn--active");
-    expect(off.className).toBe("profile-dd__seg-btn");
-
-    fireEvent.click(off);
-    expect(on.className).toBe("profile-dd__seg-btn");
-    expect(off.className).toBe("profile-dd__seg-btn profile-dd__seg-btn--active");
-    await waitFor(async () =>
-      expect((await api.getServerSettings()).displaySeasonalTheme).toBe(false)
-    );
-
-    fireEvent.click(on);
-    expect(on.className).toBe("profile-dd__seg-btn profile-dd__seg-btn--active");
-    await waitFor(async () =>
-      expect((await api.getServerSettings()).displaySeasonalTheme).toBe(true)
-    );
   });
 });
 

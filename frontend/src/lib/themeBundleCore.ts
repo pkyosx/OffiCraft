@@ -10,7 +10,7 @@
 // and constrain the token NAME to the generated theme.css whitelist.
 
 import { THEME_COLOR_TOKENS } from "../styles/themeTokens.generated";
-import { SEASONAL_SCHEDULE } from "./seasonalSchedule";
+import { SEASONAL_SCHEDULE, seasonalThemeIds } from "./seasonalSchedule";
 import {
   THEME_FONT_TOKENS,
   SAFE_FONT_FAMILIES,
@@ -198,14 +198,29 @@ const AVATAR_MIME_SET = new Set<string>(AVATAR_MIME_WHITELIST);
 
 /** The built-in themes in picker order, each a block in styles/theme.css whose
  * colours are generated from themes/<id>.theme.json (scripts/gen-builtin-themes.mjs).
- * `nameKey` is its name's leaf in the locales' themeIdentity subtree. */
+ * `nameKey` / `shortKey` are its full and timeline names in the locales'
+ * themeIdentity subtree. */
 export const BUILTIN_THEMES = [
-  { id: "office", nameKey: "office" },
-  { id: "office-light", nameKey: "officeLight" },
+  { id: "office", nameKey: "office", shortKey: "officeShort" },
+  { id: "office-light", nameKey: "officeLight", shortKey: "officeLightShort" },
 ] as const;
 export type BuiltinThemeId = (typeof BUILTIN_THEMES)[number]["id"];
 
 export const BUILTIN_THEME_IDS: readonly BuiltinThemeId[] = BUILTIN_THEMES.map((b) => b.id);
+
+/** Built-in themes shipped as whole bundles (themes/<id>.theme.json, loaded
+ * lazily by lib/bundledBuiltinThemes.ts) rather than as theme.css blocks: they
+ * carry images, so they paint like a custom theme over the office base. The
+ * server accepts them wherever it accepts a built-in (displayThemeAllowed). */
+export const BUNDLED_BUILTIN_THEMES = [
+  { id: "modern-office-desk-day", nameKey: "deskDay", shortKey: "deskDayShort" },
+  { id: "modern-office-desk-dusk", nameKey: "deskDusk", shortKey: "deskDuskShort" },
+  { id: "modern-office-desk-night", nameKey: "deskNight", shortKey: "deskNightShort" },
+] as const;
+export type BundledBuiltinThemeId = (typeof BUNDLED_BUILTIN_THEMES)[number]["id"];
+
+/** Every built-in, in picker order: the theme.css ones, then the bundled ones. */
+export const PICKER_BUILTIN_THEMES = [...BUILTIN_THEMES, ...BUNDLED_BUILTIN_THEMES] as const;
 
 /** The ids a NEW custom bundle (created or imported) must not take: the
  * built-in themes and every seasonal theme in the schedule. Only the built-in
@@ -214,11 +229,17 @@ export const BUILTIN_THEME_IDS: readonly BuiltinThemeId[] = BUILTIN_THEMES.map((
  * seasonal id stays editable. */
 export const RESERVED_THEME_IDS: readonly string[] = [
   ...BUILTIN_THEME_IDS,
-  ...SEASONAL_SCHEDULE.map((e) => e.id),
+  ...BUNDLED_BUILTIN_THEMES.map((b) => b.id),
+  ...SEASONAL_SCHEDULE.flatMap((e) => [e.id, ...seasonalThemeIds(e)]),
 ];
 
+/** A theme.css built-in: painted by <html data-theme>, no bundle. */
 export function isBuiltinTheme(v: string): v is BuiltinThemeId {
   return (BUILTIN_THEME_IDS as readonly string[]).includes(v);
+}
+
+export function isBundledBuiltinTheme(v: string): v is BundledBuiltinThemeId {
+  return BUNDLED_BUILTIN_THEMES.some((b) => b.id === v);
 }
 
 /** The override languages a wording overlay may key on. */
@@ -239,7 +260,7 @@ const COLOR_RGB_RE = /^rgba?\(\s*[0-9.,%/\s]+\)$/;
 // (deg/grad/rad/turn) on the hue — a closed set that cannot form url/var/
 // expression/color-mix/javascript (all need a paren or colon this class forbids).
 const COLOR_HSL_RE = /^hsla?\(\s*[0-9.,%/\sdegratun]+\)$/;
-const THEME_ID_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
+export const THEME_ID_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
 
 // Structure-breaking substrings a concrete colour can never legitimately hold.
 // The grammar already rejects them; this yields a SPECIFIC "you pasted CSS" error.
@@ -627,7 +648,8 @@ export function validateThemeBundleWith(
   b: unknown,
   where: string,
   skipped: string[] | undefined,
-  validateWordingFn: WordingValidator | null
+  validateWordingFn: WordingValidator | null,
+  { allowBundledBuiltinId = false }: { allowBundledBuiltinId?: boolean } = {}
 ): string | null {
   if (typeof b !== "object" || b === null) {
     return `${where}: must be an object`;
@@ -636,7 +658,7 @@ export function validateThemeBundleWith(
   if (typeof bundle.id !== "string" || !THEME_ID_RE.test(bundle.id)) {
     return `${where}: id must match ^[a-z0-9][a-z0-9-]{1,63}$`;
   }
-  if (isBuiltinTheme(bundle.id)) {
+  if (isBuiltinTheme(bundle.id) || (isBundledBuiltinTheme(bundle.id) && !allowBundledBuiltinId)) {
     return `${where}: id "${bundle.id}" is reserved for a built-in theme`;
   }
   if (typeof bundle.name !== "string") {
@@ -742,6 +764,7 @@ export function isValidDisplayTheme(theme: string, customIds: Set<string>): bool
   return (
     theme === "" ||
     isBuiltinTheme(theme) ||
+    isBundledBuiltinTheme(theme) ||
     customIds.has(theme)
   );
 }
