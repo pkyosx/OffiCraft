@@ -4,7 +4,7 @@
 //   待回覆    — cards still waiting, newest ask first unless the owner picks
 //              another 排序依據 under 顯示方式 (remembered per browser); every
 //              card wears the SAME style — no longest-waiting highlight (owner
-//              ruled it out, T-9ea9).
+//              ruled it out).
 //   已延後    — waiting cards the owner put aside with 稍後再看; each returns
 //              to 待回覆 by itself at its time. Collapsed by default.
 //   近期已處理 — cards answered OR expired within 24h, merged newest-handled
@@ -374,7 +374,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // typed content; the option chips can simply be clicked again.
   const [actionError, setActionError] = useState<string | null>(null);
 
-  // 標為過期 double-confirm (T-1aa4): expiring is terminal with no undo, so a
+  // 標為過期 double-confirm: expiring is terminal with no undo, so a
   // single mis-click must never close a card — the button only OPENS this
   // modal; the modal's confirm fires the action.
   const [expireTarget, setExpireTarget] = useState<ReplyCardRow | null>(null);
@@ -432,7 +432,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
 
   // Display order = the owner's 排序依據 (`sortWaitingRows`; default 開卡時間
   // newest first). No per-card highlight: the owner ruled the longest-waiting
-  // accent ring out (T-9ea9) — every card wears the same face.
+  // accent ring out — every card wears the same face.
   //
   // With an id applied the panes hold exactly what the SERVER returned
   // for that id — one card, in whichever pane its status belongs to — not a
@@ -1209,7 +1209,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
             {t.replies.jumpToChat}
           </button>
           {actions}
-          {/* T-1aa4: 標為過期 shares .reply-card__jump with 跳到原訊息 — one
+          {/* 標為過期 shares .reply-card__jump with 跳到原訊息 — one
               outlined style for both header actions, so they can never drift. */}
           {expirable && (
             <button

@@ -297,7 +297,7 @@ describe("mock reply-card api", () => {
     expect((await mockApi.getReplyCardCount()).waitingNextChangeTs).toBeNull();
   });
 
-  it("snooze refuses a past time or one past 90 days with 422, a settled card with 409, an unknown id with 404; null brings a card back", async () => {
+  it("snooze refuses a past time or one past 90 days with 422, a settled card with 409, an unknown id with 404, checked in the server's order 404 → 409 → 422; null brings a card back", async () => {
     const now = Math.floor(Date.now() / 1000);
     __injectMockReplyCard(mkCard({ id: "rc-1" }));
     __injectMockReplyCard(mkCard({ id: "rc-2" }));
@@ -307,6 +307,8 @@ describe("mock reply-card api", () => {
     expect(await statusOf(mockApi.snoozeReplyCard("rc-1", now + 90 * 86_400 - 60))).toBe(0);
     await mockApi.expireReplyCard("rc-2");
     expect(await statusOf(mockApi.snoozeReplyCard("rc-2", now + 60))).toBe(409);
+    expect(await statusOf(mockApi.snoozeReplyCard("rc-2", now - 1))).toBe(409);
+    expect(await statusOf(mockApi.snoozeReplyCard("nope", now - 1))).toBe(404);
 
     await mockApi.snoozeReplyCard("rc-1", null);
     expect((await mockApi.getReplyCardCount()).waiting).toBe(1);

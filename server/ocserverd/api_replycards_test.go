@@ -3243,7 +3243,7 @@ func TestHandleSnoozeReplyCardApiReplyCardsCardIdSnoozePut(t *testing.T) {
 		}
 	})
 
-	t.Run("a second snooze replaces the time and null brings the card back now", func(t *testing.T) {
+	t.Run("a second snooze replaces the time, null brings the card back now, and null again is still 200", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		agent := apiTestAgentToken(t, api, apiTestPlainAgentID, "")
 		cardID := openCard(t, h, agent)
@@ -3268,8 +3268,15 @@ func TestHandleSnoozeReplyCardApiReplyCardsCardIdSnoozePut(t *testing.T) {
 		wantNotSnoozed(t, h, owner, cardID)
 		_, counts := apiJSON(t, h, "GET", "/api/reply-cards/count", owner, "")
 		apiWantBody(t, counts, map[string]any{"waiting": 1, "answered": 0, "expired": 0, "waiting_next_change_ts": nil})
+
+		status, data = apiJSON(t, h, "PUT", "/api/reply-cards/"+cardID+"/snooze", owner, `{"snoozed_until_ts":null}`)
+		if status != 200 {
+			t.Fatalf("unsnoozing a card that is not snoozed: want 200, got %d (%v)", status, data)
+		}
+		apiWantBody(t, data, map[string]any{"id": cardID, "snoozed_until_ts": nil})
+		wantNotSnoozed(t, h, owner, cardID)
 		frame := apiTestAboutCardFrame(cardID, apiTestPlainAgentID, "waiting", "owner", "")
-		dashboard.wantFrames(frame, frame)
+		dashboard.wantFrames(frame, frame, frame)
 		asker.wantFrames()
 	})
 

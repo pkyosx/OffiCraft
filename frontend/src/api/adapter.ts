@@ -2377,7 +2377,7 @@ export interface Api {
   /**
    * List reply cards (`GET /api/reply-cards?status=`). `waiting` returns every
    * card still waiting for the owner, LONGEST-WAITING FIRST (created_ts
-   * ascending — the 待回覆 pane order); `answered` returns cards answered
+   * ascending); `answered` returns cards answered
    * within the last 24 hours, newest answer first; `expired` returns cards that
    * were marked expired within the last 24 hours, newest first (older
    * answered/expired cards drop off these lists but live forever in chat

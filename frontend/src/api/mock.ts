@@ -4317,22 +4317,22 @@ const mockApiImpl = {
     id: string,
     untilTs: number | null
   ): Promise<ReplyCardSnoozeReceipt> {
-    // Mirrors handle_snooze_reply_card's refusals, in the server's order.
+    // Mirrors the server's snooze refusals, in its order: 404 → 409 → 422.
     const path = `PUT /api/reply-cards/${id}/snooze`;
-    const now = Date.now() / 1000;
-    if (untilTs !== null && (untilTs <= now || untilTs > now + REPLY_SNOOZE_MAX_SECONDS)) {
-      throw mockApiError(
-        `http 422 for ${path}`,
-        422,
-        "snoozed_until_ts must be later than now and at most 90 days ahead"
-      );
-    }
     const card = findReplyCard(id);
     if (card.status !== "waiting") {
       throw mockApiError(
         `http 409 for ${path}`,
         409,
         `reply card '${id}' is already ${card.status}`
+      );
+    }
+    const now = Date.now() / 1000;
+    if (untilTs !== null && (untilTs <= now || untilTs > now + REPLY_SNOOZE_MAX_SECONDS)) {
+      throw mockApiError(
+        `http 422 for ${path}`,
+        422,
+        "snoozed_until_ts must be later than now and at most 90 days ahead"
       );
     }
     card.snoozedUntilTs = untilTs;

@@ -107,7 +107,7 @@ function renderPage() {
 }
 
 /** Ids of the cards in one pane, in screen order. */
-function paneIds(testId: "waiting-card" | "snoozed-card"): string[] {
+function paneIds(testId: "waiting-card" | "snoozed-card" | "answered-card"): string[] {
   return [...document.querySelectorAll<HTMLElement>(`[data-testid="${testId}"]`)].map(
     (el) => el.dataset.replyCardId!
   );
@@ -1184,7 +1184,7 @@ describe("RepliesPage", () => {
     expect(queryByTestId("reply-task-ref")).toBeNull();
   });
 
-  it("顯示方式 › 排序依據 → each order re-sorts 待回覆, a non-default one is named beside the title, and the choice survives a remount", async () => {
+  it("顯示方式 › 排序依據 → each order re-sorts 待回覆 only (已延後 stays by return time, 近期已處理 by handled time), a non-default one is named beside the title, and the choice survives a remount", async () => {
     const now = Date.now() / 1000;
     const task = (id: string, priority: string, dueTs: number | null = null) => ({ id, typeKey: "", title: id, priority, dueTs });
     __injectMockReplyCard(mkCard({ id: "rc-notask", createdTs: now - 10 * 60, task: null }));
@@ -1195,10 +1195,25 @@ describe("RepliesPage", () => {
     __injectMockReplyCard(
       mkCard({ id: "rc-handled", status: "answered", answeredTs: now - 60, answer: { optionIdxs: [0], text: "", attachments: [] } })
     );
+    __injectMockReplyCard(
+      mkCard({
+        id: "rc-handled-early",
+        createdTs: now - 30,
+        status: "answered",
+        answeredTs: now - 3600,
+        answer: { optionIdxs: [0], text: "", attachments: [] },
+        task: task("T-5", "high", now - 60),
+      })
+    );
+    __injectMockReplyCard(mkCard({ id: "rc-snz-late", createdTs: now - 30, snoozedUntilTs: now + 7200, task: task("T-6", "high", now - 60) }));
+    __injectMockReplyCard(mkCard({ id: "rc-snz-soon", createdTs: now - 5 * 3600, snoozedUntilTs: now + 3600, task: task("T-7", "low") }));
     localStorage.removeItem("oc_replies_sort");
     const first = renderPage();
     await waitFor(() => expect(paneIds("waiting-card")).toHaveLength(5));
     expect(paneIds("waiting-card")).toEqual(["rc-notask", "rc-low", "rc-mid", "rc-high", "rc-frozen"]);
+    fireEvent.click(await first.findByTestId("snoozed-toggle"));
+    fireEvent.click(await first.findByTestId("answered-toggle"));
+    await waitFor(() => expect(paneIds("answered-card")).toHaveLength(2));
     expect(first.queryByTestId("replies-sort-active")).toBeNull();
 
     fireEvent.click(first.getByTestId("display-options"));
@@ -1218,6 +1233,8 @@ describe("RepliesPage", () => {
     for (const [value, order] of Object.entries(expected)) {
       fireEvent.change(select, { target: { value } });
       expect(paneIds("waiting-card")).toEqual(order);
+      expect(paneIds("snoozed-card")).toEqual(["rc-snz-soon", "rc-snz-late"]);
+      expect(paneIds("answered-card")).toEqual(["rc-handled", "rc-handled-early"]);
       expect(localStorage.getItem("oc_replies_sort")).toBe(value);
     }
     expect(first.queryByTestId("replies-sort-active")).toBeNull();
@@ -1462,17 +1479,31 @@ describe("RepliesPage", () => {
     await waitFor(() => expect(listSpy.mock.calls.length).toBeGreaterThan(before));
   });
 
-  it("a failed 取消延後 → an error on that card, which stays in 已延後", async () => {
+  it("a failed 取消延後 → an error on that card, which stays in 已延後; a 409 instead says the card was already handled and re-reads the panes", async () => {
     const now = Date.now() / 1000;
     __injectMockReplyCard(mkCard({ id: "rc-1", snoozedUntilTs: now + 3600 }));
-    vi.spyOn(api, "snoozeReplyCard").mockRejectedValue(new Error("offline"));
-    const { findByTestId, getByTestId } = renderPage();
+    vi.spyOn(api, "snoozeReplyCard")
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockRejectedValueOnce(
+        new ApiError("http 409 for PUT /api/reply-cards/rc-1/snooze", 409, "conflict", "already answered")
+      );
+    const listSpy = vi.spyOn(api, "listReplyCards");
+    const { findByTestId, getByTestId, queryByTestId } = renderPage();
     fireEvent.click(await findByTestId("snoozed-toggle"));
     fireEvent.click(getByTestId("unsnooze-card"));
     const err = await findByTestId("unsnooze-error");
     expect(err.textContent).toBe("取消延後失敗，請稍後重試");
     expect(err.closest("[data-reply-card-id]")?.getAttribute("data-reply-card-id")).toBe("rc-1");
     expect(paneIds("snoozed-card")).toEqual(["rc-1"]);
+    expect(queryByTestId("replies-action-error")).toBeNull();
+
+    const before = listSpy.mock.calls.length;
+    fireEvent.click(getByTestId("unsnooze-card"));
+    expect((await findByTestId("replies-action-error")).textContent).toBe(
+      "這張卡已經回覆或標為過期，不能再延後"
+    );
+    expect(queryByTestId("unsnooze-error")).toBeNull();
+    await waitFor(() => expect(listSpy.mock.calls.length).toBeGreaterThan(before));
   });
 
   it("on a phone 稍後再看 opens as a bottom sheet; tapping the dimmed backdrop closes it without opening the card", async () => {

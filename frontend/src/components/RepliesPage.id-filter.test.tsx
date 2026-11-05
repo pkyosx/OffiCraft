@@ -762,20 +762,37 @@ describe("請示卡 優先序／期限 篩選", () => {
     await waitFor(() => expect(shownIds()).toEqual(["rc-high-over", "rc-notask"]));
   });
 
-  it("期限 → 已逾期, 快到期, 有期限 and 沒有期限 each keep their cards (no task counts as 沒有期限); ticked together they OR", async () => {
+  it("期限 → 已逾期, 快到期, 有期限 and 沒有期限 each keep their cards (no task counts as 沒有期限; 快到期 follows the task's own lead, else the workspace's); ticked together they OR", async () => {
     seed();
+    const now = Date.now() / 1000;
+    __injectMockReplyCard(
+      mkCard({
+        id: "rc-own-long",
+        createdTs: now - 6 * 60,
+        task: { id: "T-6", typeKey: "", title: "", priority: "mid", dueTs: now + 5 * 24 * H, dueSoonLeadMinutes: 7 * 24 * 60 },
+      })
+    );
+    __injectMockReplyCard(
+      mkCard({
+        id: "rc-own-short",
+        createdTs: now - 7 * 60,
+        task: { id: "T-7", typeKey: "", title: "", priority: "mid", dueTs: now + 5 * H, dueSoonLeadMinutes: 60 },
+      })
+    );
     const { findAllByTestId } = renderPage();
-    await waitFor(async () => expect(await findAllByTestId("waiting-card")).toHaveLength(5));
-    expect(optionCounts("filter-due")).toEqual({ overdue: "1", soon: "1", dated: "3", undated: "2" });
+    await waitFor(async () => expect(await findAllByTestId("waiting-card")).toHaveLength(7));
+    expect(optionCounts("filter-due")).toEqual({ overdue: "1", soon: "2", dated: "5", undated: "2" });
 
     tick("filter-due", "overdue");
     await waitFor(() => expect(shownIds()).toEqual(["rc-high-over"]));
     tick("filter-due", "overdue");
     tick("filter-due", "soon");
-    await waitFor(() => expect(shownIds()).toEqual(["rc-mid-soon"]));
+    await waitFor(() => expect(shownIds()).toEqual(["rc-mid-soon", "rc-own-long"]));
     tick("filter-due", "soon");
     tick("filter-due", "dated");
-    await waitFor(() => expect(shownIds()).toEqual(["rc-high-over", "rc-mid-soon", "rc-low-later"]));
+    await waitFor(() =>
+      expect(shownIds()).toEqual(["rc-high-over", "rc-mid-soon", "rc-low-later", "rc-own-long", "rc-own-short"])
+    );
     tick("filter-due", "dated");
     tick("filter-due", "undated");
     await waitFor(() => expect(shownIds()).toEqual(["rc-frozen-undated", "rc-notask"]));

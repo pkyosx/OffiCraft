@@ -312,6 +312,30 @@ describe("useReplyCards snooze", () => {
     expect(ids()).toEqual({ waiting: "A,B", snoozed: "", badge: "2" });
   });
 
+  it("a snooze longer than one setTimeout can span (60 days) → still out of the badge a second before its time, back at that second", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    vi.setSystemTime(new Date(1_800_000_000_000));
+    const now = 1_800_000_000;
+    const sixtyDays = 60 * 86400;
+    h.listReplyCards.mockResolvedValue([card("A", now + sixtyDays), card("B")]);
+    h.getReplyCardCount.mockResolvedValue({ waiting: 1, answered: 0, expired: 0, waitingNextChangeTs: null });
+
+    renderProvider();
+    await act(async () => {});
+    expect(ids()).toEqual({ waiting: "B", snoozed: "A", badge: "1" });
+
+    await act(async () => {
+      vi.advanceTimersByTime((sixtyDays - 1) * 1000);
+    });
+    expect(ids()).toEqual({ waiting: "B", snoozed: "A", badge: "1" });
+
+    await act(async () => {
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(ids()).toEqual({ waiting: "A,B", snoozed: "", badge: "2" });
+    expect(h.listReplyCards).toHaveBeenCalledTimes(1);
+  });
+
   it("a `task` event → the waiting list is re-read (its rows carry the task's priority and due date); an unrelated topic is not", async () => {
     h.listReplyCards.mockResolvedValue([card("A")]);
     renderProvider();
