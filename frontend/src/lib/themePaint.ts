@@ -14,9 +14,10 @@ import { parseThemeSchedule, type ThemeScheduleEntry } from "./themeSchedule";
  * passed as null — the paint record structurally has no wording (paintRecordFor
  * prunes it) and the applier has no wording sink, so a record carrying wording
  * is rejected outright. Colour / font / image / mode rules are byte-identical to
- * the non-paint path because they are the same function. */
+ * the non-paint path because they are the same function. A bundled built-in's
+ * id is admitted: its picture is cached exactly like a custom theme's. */
 function validatePaintBundle(b: unknown): string | null {
-  return validateThemeBundleWith(b, "themePaint", undefined, null);
+  return validateThemeBundleWith(b, "themePaint", undefined, null, { allowBundledBuiltinId: true });
 }
 
 /** The localStorage key holding the SELECTED theme id. It lives here, next to

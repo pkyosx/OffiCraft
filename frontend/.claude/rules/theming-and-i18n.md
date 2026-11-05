@@ -55,7 +55,9 @@ wording 值逐字保存，只對「是否為空」做 trim 判斷；句子片段
 
 ## 內建主題的來源
 
-內建主題（office、office-light）的顏色以 repo 根目錄 `themes/<id>.theme.json` 為唯一來源；`theme.css` 各內建區塊裡的 `--color-*` 宣告是 `scripts/gen-builtin-themes.mjs` 產生的，只改值、補缺、刪多餘，註解與非顏色的行（canvas、radius、font、color-scheme）照手寫保留。改顏色就改 JSON 再跑 `npm run gen:builtin-themes`、`npm run gen:tokens`；直接改 theme.css 的值會被 drift-builtin-themes 擋下。theme.css 仍是 token 白名單與各 lint 讀的那份文字，所以白名單照舊從它產生。office 以外的內建主題不可用 `var()`（gen-theme-tokens 會把它收成假的 alias），產生器會拒絕。內建主題檔不會被 seasonal 的 glob 打包成 chunk。
+theme.css 內建主題（office、office-light）的顏色以 repo 根目錄 `themes/<id>.theme.json` 為唯一來源；`theme.css` 各內建區塊裡的 `--color-*` 宣告是 `scripts/gen-builtin-themes.mjs` 產生的，只改值、補缺、刪多餘，註解與非顏色的行（canvas、radius、font、color-scheme）照手寫保留。改顏色就改 JSON 再跑 `npm run gen:builtin-themes`、`npm run gen:tokens`；直接改 theme.css 的值會被 drift-builtin-themes 擋下。theme.css 仍是 token 白名單與各 lint 讀的那份文字，所以白名單照舊從它產生。office 以外的內建主題不可用 `var()`（gen-theme-tokens 會把它收成假的 alias），產生器會拒絕。內建主題檔不會被 seasonal 的 glob 打包成 chunk。
+
+辦公桌三套（`modern-office-desk-day`／`-dusk`／`-night`，`BUNDLED_BUILTIN_THEMES`）也是內建主題，但不是 theme.css 區塊：它們帶背景圖與頭像，以整份 `themes/<id>.theme.json` 出貨，由 `lib/bundledBuiltinThemes.ts` 的 lazy glob 各自成一個 chunk、第一次要畫或預覽時才抓（seasonal 的 glob 把它們排除），畫法跟自訂主題一樣疊在 office 底上，pre-paint 也一樣讀 `LS_THEME_PAINT`／`LS_SCHEDULE_PAINT`。`isBuiltinTheme` 只指 theme.css 那兩套（`data-theme` 畫的）；辦公桌三套用 `isBundledBuiltinTheme`，選單與主題庫用 `PICKER_BUILTIN_THEMES`。它們的 id 是保留 id：前端 RESERVED_THEME_IDS 與驗證文法、server 的 displayThemeAllowed／reservedThemeIDs 都擋自訂主題用它；只有 paint 記錄的驗證（`allowBundledBuiltinId`）放行，否則它們的快取畫面永遠過不了驗證。
 
 瀏覽器原生控制項（日期輸入的日曆圖示、下拉選單、捲軸）跟著 `color-scheme` 畫，不讀顏色 token：office 區塊寫 `color-scheme: dark`、office-light 寫 `light`；主題包沒有這個欄位，`applyThemeToRoot` 依包裡的 `--color-bg` 亮度在根元素寫 `color-scheme`（讀不出顏色就不寫），並記進 ledger，換主題時跟 token 一起清掉。少了它，深色主題上的日曆圖示是黑色、看不到（owner `c-fc36b24d278c`）。
 
@@ -86,6 +88,8 @@ stub server 的埠不可寫死：playwright-paint.config.ts 用 allocateFreePort
 ## 依時間切換主題
 
 時間表 `display_theme_schedule` 是 `{start: "HH:MM", theme}` 的清單，空清單是關閉；否則 2～6 列、start 不重複，theme 是內建 id 或已存在的自訂主題，server 依 start 排序存。畫面上的主題 = 應景主題（時段內且開著）＞ 時間表當下那一列（start 最晚且不晚於觀看者當地時間的那列；當天第一個 start 之前是前一天最後一列）＞ display_theme；display_theme 不被時間表改寫。到點切換與應景主題共用同一個 timer 與 visibilitychange／focus 重讀。刪除自訂主題時 server 在同一個 transaction 移除用到它的列、剩不到 2 列就清空，收據的 `display_theme_schedule` 是刪完的結果，前端照收，不自己重算。
+
+預設外觀是時間表 06:00 白天／16:30 黃昏／18:30 晚上（辦公桌三套）、應景主題開著，display_theme 是 `modern-office-desk-day`（關掉時間表時顯示的那套）；前端在 `lib/themeSchedule.ts` 的 `DEFAULT_THEME_SCHEDULE`／`DEFAULT_DISPLAY_THEME`，server 端唯一的寫入者是 migration 00120：全新安裝與當時還在 office／office-light（或沒選過）的站各換一次，之後再選回 office 就留著；同一個 migration 刪掉以辦公桌 id 存成自訂主題的舊匯入。兩邊的字面值是雙胞胎，改一邊要改另一邊（已釋出的 migration 不能改，要開新號）。「主題設定」的「恢復預設」先確認，再以一次 settings PATCH 寫回這三項（`restoreDefaultAppearance`），不動自訂主題。mock 不模擬這個 migration：mock 的新站仍是空時間表、display_theme ""。
 
 時間表沒有「未設定」的第三態，登入 reconcile 一律採用 server 的值。`setThemeSchedule` 不是樂觀寫入：server 收下、表中的自訂主題取回之後才切換，所以存檔當下不會閃內建主題；被拒就 reject，畫面照舊。
 

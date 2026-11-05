@@ -682,12 +682,12 @@ func TestOrgNameSnapshot(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 
 		apiWantValue(t, "display prefs", any(asDisplayPrefs(api)), any(map[string]any{
-			"org": "", "owner": "", "theme": "", "language": "", "wide": false, "seasonal": true,
+			"org": "", "owner": "", "theme": "modern-office-desk-day", "language": "", "wide": false, "seasonal": true,
 		}))
 
 		asPatchSettings(t, h, owner, `{"org_name":"  Studio Nine  "}`)
 		apiWantValue(t, "display prefs", any(asDisplayPrefs(api)), any(map[string]any{
-			"org": "Studio Nine", "owner": "", "theme": "", "language": "", "wide": false, "seasonal": true,
+			"org": "Studio Nine", "owner": "", "theme": "modern-office-desk-day", "language": "", "wide": false, "seasonal": true,
 		}))
 
 		asPatchSettings(t, h, owner, `{"org_name":""}`)
@@ -703,7 +703,7 @@ func TestOwnerNameSnapshot(t *testing.T) {
 
 		asPatchSettings(t, h, owner, `{"owner_name":"  Eva  "}`)
 		apiWantValue(t, "display prefs", any(asDisplayPrefs(api)), any(map[string]any{
-			"org": "", "owner": "Eva", "theme": "", "language": "", "wide": false, "seasonal": true,
+			"org": "", "owner": "Eva", "theme": "modern-office-desk-day", "language": "", "wide": false, "seasonal": true,
 		}))
 
 		asPatchSettings(t, h, owner, `{"owner_name":""}`)
@@ -712,10 +712,10 @@ func TestOwnerNameSnapshot(t *testing.T) {
 }
 
 func TestDisplayThemeSnapshot(t *testing.T) {
-	t.Run("an unset theme reads empty so the frontend keeps its own default, and a patch takes effect live", func(t *testing.T) {
+	t.Run("a fresh install reads the default desk theme, a patch takes effect live, and \"\" unsets it", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 
-		apiWantValue(t, "cockpit theme", any(api.displayThemeSnapshot()), any(""))
+		apiWantValue(t, "cockpit theme", any(api.displayThemeSnapshot()), any("modern-office-desk-day"))
 
 		asPatchSettings(t, h, owner, `{"display_theme":"office"}`)
 		apiWantValue(t, "display prefs", any(asDisplayPrefs(api)), any(map[string]any{
@@ -735,7 +735,7 @@ func TestDisplayLanguageSnapshot(t *testing.T) {
 
 		asPatchSettings(t, h, owner, `{"display_language":"en"}`)
 		apiWantValue(t, "display prefs", any(asDisplayPrefs(api)), any(map[string]any{
-			"org": "", "owner": "", "theme": "", "language": "en", "wide": false, "seasonal": true,
+			"org": "", "owner": "", "theme": "modern-office-desk-day", "language": "en", "wide": false, "seasonal": true,
 		}))
 
 		asPatchSettings(t, h, owner, `{"display_language":""}`)
@@ -751,7 +751,7 @@ func TestDisplayWideSnapshot(t *testing.T) {
 
 		asPatchSettings(t, h, owner, `{"display_wide":true}`)
 		apiWantValue(t, "display prefs", any(asDisplayPrefs(api)), any(map[string]any{
-			"org": "", "owner": "", "theme": "", "language": "", "wide": true, "seasonal": true,
+			"org": "", "owner": "", "theme": "modern-office-desk-day", "language": "", "wide": true, "seasonal": true,
 		}))
 
 		asPatchSettings(t, h, owner, `{"display_wide":false}`)
@@ -767,7 +767,7 @@ func TestDisplaySeasonalThemeSnapshot(t *testing.T) {
 
 		asPatchSettings(t, h, owner, `{"display_seasonal_theme":false}`)
 		apiWantValue(t, "display prefs", any(asDisplayPrefs(api)), any(map[string]any{
-			"org": "", "owner": "", "theme": "", "language": "", "wide": false, "seasonal": false,
+			"org": "", "owner": "", "theme": "modern-office-desk-day", "language": "", "wide": false, "seasonal": false,
 		}))
 
 		asPatchSettings(t, h, owner, `{"display_seasonal_theme":true}`)

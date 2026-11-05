@@ -7,8 +7,10 @@ import { MESSAGE_KEYS } from "../i18n/messageKeys.generated";
 import {
   MAX_CUSTOM_THEMES,
   AVATAR_KINDS,
-  BUILTIN_THEMES,
+  PICKER_BUILTIN_THEMES,
   RESERVED_THEME_IDS,
+  isBuiltinTheme,
+  isBundledBuiltinTheme,
   NAV_ICON_KEYS,
   isValidAvatarValue,
   isValidBackgroundValue,
@@ -336,6 +338,21 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
   async function handleExportTheme(id: string) {
     const bundle = await bundleFor(id);
     if (bundle) downloadBundle(bundle);
+  }
+
+  // Re-id'd like the theme.css built-ins' export, so the file can be imported
+  // back as a custom theme.
+  async function handleExportBundledBuiltin(id: string, name: string) {
+    if (busyId !== null) return;
+    setBusyId(id);
+    setListError("");
+    try {
+      downloadBundle({ ...(await loadTheme(id)), id: `${id}-base`, name });
+    } catch (e) {
+      setListError(failureText(e));
+    } finally {
+      setBusyId(null);
+    }
   }
 
   async function handleEditTheme(id: string) {
@@ -1451,7 +1468,7 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
              * applied right now (owner: 辦公室主題不用擋下載); the edit/delete icons
              * stay inert-disabled so built-in and custom rows line up their right
              * edge at every width (owner: 內建列與自訂列對齊). */}
-            {BUILTIN_THEMES.map((b) => {
+            {PICKER_BUILTIN_THEMES.map((b) => {
               const name = t.themeIdentity[b.nameKey];
               return (
                 <div key={b.id} className="ts-row">
@@ -1461,8 +1478,11 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
                     className="ts-icon-btn"
                     aria-label={`${t.profile.themeExport} ${name}`}
                     title={t.profile.themeExport}
+                    disabled={isBundledBuiltinTheme(b.id) && busyId !== null}
                     onClick={() =>
-                      downloadBundle(exportBuiltinTheme(b.id, `${b.id}-base`, name))
+                      isBuiltinTheme(b.id)
+                        ? downloadBundle(exportBuiltinTheme(b.id, `${b.id}-base`, name))
+                        : void handleExportBundledBuiltin(b.id, name)
                     }
                   >
                     <DownloadIcon size={15} />

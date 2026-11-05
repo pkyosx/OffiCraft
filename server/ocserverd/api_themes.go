@@ -206,7 +206,7 @@ func marshalThemeBundle(b ThemeBundleDTO) (string, error) {
 	return string(raw), nil
 }
 
-const displayThemeRefusal = `display_theme must be "", office, office-light, or an existing custom theme id`
+const displayThemeRefusal = `display_theme must be "", a built-in theme id, or an existing custom theme id`
 
 // displayThemeExistsOn asks the TABLE; never keep a copy of the id set
 // elsewhere. The patch asks again inside the transaction that sets the theme,

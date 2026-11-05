@@ -400,6 +400,9 @@ describe("ThemeSettings · import", () => {
     expect(builtinRows.map((r) => r.querySelector(".ts-name")?.textContent)).toEqual([
       zh.themeIdentity.office,
       zh.themeIdentity.officeLight,
+      zh.themeIdentity.deskDay,
+      zh.themeIdentity.deskDusk,
+      zh.themeIdentity.deskNight,
     ]);
     for (const row of builtinRows) expect(row.textContent).not.toContain(SENTINEL);
   });
@@ -1661,6 +1664,9 @@ describe("ThemeSettings · appearance", () => {
     expect(Array.from(themeSelect(utils).options).map((o) => [o.value, o.textContent])).toEqual([
       ["office", zh.themeIdentity.office],
       ["office-light", zh.themeIdentity.officeLight],
+      ["modern-office-desk-day", zh.themeIdentity.deskDay],
+      ["modern-office-desk-dusk", zh.themeIdentity.deskDusk],
+      ["modern-office-desk-night", zh.themeIdentity.deskNight],
       ["aaa", spoof],
       ["zzz", "000 更前面"],
     ]);
@@ -1728,6 +1734,48 @@ describe("ThemeSettings · appearance", () => {
     expect(themeSelect(utils).value).toBe("midnight");
   });
 
+  it("恢復預設 asks first, then restores the desk schedule, the seasonal theme and the desk display theme, keeping custom themes", async () => {
+    setToken("owner-token");
+    await api.putTheme({ id: "midnight", name: "午夜藍", colors: { "--color-bg": "#101018" } });
+    await api.patchServerSettings({ displayTheme: "midnight", displaySeasonalTheme: false });
+    const utils = await renderAppearanceDialog();
+    const dialog = within(appearanceDialog(utils));
+
+    fireEvent.click(dialog.getByRole("button", { name: s.themeRestoreDefault }));
+    expect(utils.getByTestId("theme-restore-confirm").textContent).toContain(s.themeRestoreConfirm);
+    fireEvent.click(utils.getByRole("button", { name: s.cancel }));
+    expect((await api.getServerSettings()).displayTheme).toBe("midnight");
+
+    fireEvent.click(dialog.getByRole("button", { name: s.themeRestoreDefault }));
+    fireEvent.click(utils.getByTestId("theme-restore-confirm-btn"));
+    await waitFor(() => expect(utils.queryByTestId("theme-restore-confirm")).toBeNull());
+
+    const saved = await api.getServerSettings();
+    expect(saved.displayTheme).toBe("modern-office-desk-day");
+    expect(saved.displaySeasonalTheme).toBe(true);
+    expect(saved.displayThemeSchedule).toEqual([
+      { start: "06:00", theme: "modern-office-desk-day" },
+      { start: "16:30", theme: "modern-office-desk-dusk" },
+      { start: "18:30", theme: "modern-office-desk-night" },
+    ]);
+    expect(dialog.getByRole("switch", { name: s.themeSchedule }).getAttribute("aria-checked")).toBe("true");
+    expect(dialog.getByRole("switch", { name: p.seasonalTheme }).getAttribute("aria-checked")).toBe("true");
+    expect(await savedIds()).toEqual(["midnight"]);
+  });
+
+  it("恢復預設 that the server refuses says so and keeps the confirm open", async () => {
+    setToken("owner-token");
+    const utils = await renderAppearanceDialog();
+    vi.spyOn(api, "patchServerSettings").mockRejectedValue(new Error("boom"));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    fireEvent.click(within(appearanceDialog(utils)).getByRole("button", { name: s.themeRestoreDefault }));
+    fireEvent.click(utils.getByTestId("theme-restore-confirm-btn"));
+    await settle();
+
+    expect(utils.getByTestId("theme-restore-confirm").textContent).toContain(s.themeRestoreFailed);
+  });
+
   it("the 顯示應景主題 switch is on by default and saves each flip to the server", async () => {
     setToken("owner-token");
     const utils = await renderAppearanceDialog();
@@ -1770,7 +1818,7 @@ describe("ThemeSettings · switch by time of day", () => {
     return renderAppearanceDialog();
   }
 
-  it("turning it on swaps the 主題 select for two rows to edit and saves nothing until the schedule is saved", async () => {
+  it("turning it on swaps the 主題 select for the default desk schedule to edit and saves nothing until the schedule is saved", async () => {
     const utils = await renderWithDusk();
     expect(scheduleSwitch(utils).getAttribute("aria-checked")).toBe("false");
     expect(startInputs(utils)).toEqual([]);
@@ -1782,8 +1830,9 @@ describe("ThemeSettings · switch by time of day", () => {
     expect(scheduleSwitch(utils).getAttribute("aria-checked")).toBe("true");
     expect(utils.queryByRole("combobox", { name: s.themePick })).toBeNull();
     expect(rows(utils)).toEqual([
-      ["08:00", "office-light"],
-      ["18:00", "office"],
+      ["06:00", "modern-office-desk-day"],
+      ["16:30", "modern-office-desk-dusk"],
+      ["18:30", "modern-office-desk-night"],
     ]);
     const options = Array.from(
       (section(utils).getByLabelText(`${s.themeScheduleTheme} 1`) as HTMLSelectElement).options
@@ -1791,10 +1840,13 @@ describe("ThemeSettings · switch by time of day", () => {
     expect(options).toEqual([
       ["office", zh.themeIdentity.office],
       ["office-light", zh.themeIdentity.officeLight],
+      ["modern-office-desk-day", zh.themeIdentity.deskDay],
+      ["modern-office-desk-dusk", zh.themeIdentity.deskDusk],
+      ["modern-office-desk-night", zh.themeIdentity.deskNight],
       ["dusk", "黃昏"],
     ]);
-    expect(section(utils).getAllByTestId("ts-thumb")).toHaveLength(2);
-    expect(timelineLabels(utils)).toEqual(["08:00", "18:00"]);
+    expect(section(utils).getAllByTestId("ts-thumb")).toHaveLength(3);
+    expect(timelineLabels(utils)).toEqual(["06:00", "16:30", "18:30"]);
     expect(patch).not.toHaveBeenCalled();
     expect((await api.getServerSettings()).displayThemeSchedule).toEqual([]);
   });
@@ -1804,7 +1856,7 @@ describe("ThemeSettings · switch by time of day", () => {
     fireEvent.click(scheduleSwitch(utils));
     const add = section(utils).getByRole("button", { name: s.themeScheduleAdd });
 
-    for (let i = 0; i < 4; i++) fireEvent.click(add);
+    for (let i = 0; i < 3; i++) fireEvent.click(add);
 
     expect(startInputs(utils)).toHaveLength(6);
     expect((add as HTMLButtonElement).disabled).toBe(true);
@@ -1812,8 +1864,8 @@ describe("ThemeSettings · switch by time of day", () => {
       fireEvent.click(section(utils).getByRole("button", { name: `${s.themeScheduleRemove} ${i}` }));
     }
     expect(rows(utils)).toEqual([
-      ["08:00", "office-light"],
-      ["18:00", "office"],
+      ["06:00", "modern-office-desk-day"],
+      ["16:30", "modern-office-desk-dusk"],
     ]);
     expect(
       (section(utils).getByRole("button", { name: `${s.themeScheduleRemove} 1` }) as HTMLButtonElement)
@@ -1825,8 +1877,8 @@ describe("ThemeSettings · switch by time of day", () => {
     const utils = await renderWithDusk();
     fireEvent.click(scheduleSwitch(utils));
     fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleAdd }));
-    fireEvent.change(startInputs(utils)[2], { target: { value: "06:30" } });
-    fireEvent.change(section(utils).getByLabelText(`${s.themeScheduleTheme} 3`), {
+    fireEvent.change(startInputs(utils)[3], { target: { value: "05:30" } });
+    fireEvent.change(section(utils).getByLabelText(`${s.themeScheduleTheme} 4`), {
       target: { value: "dusk" },
     });
 
@@ -1835,16 +1887,18 @@ describe("ThemeSettings · switch by time of day", () => {
     await settle();
 
     expect((await api.getServerSettings()).displayThemeSchedule).toEqual([
-      { start: "06:30", theme: "dusk" },
-      { start: "08:00", theme: "office-light" },
-      { start: "18:00", theme: "office" },
+      { start: "05:30", theme: "dusk" },
+      { start: "06:00", theme: "modern-office-desk-day" },
+      { start: "16:30", theme: "modern-office-desk-dusk" },
+      { start: "18:30", theme: "modern-office-desk-night" },
     ]);
     expect(rows(utils)).toEqual([
-      ["06:30", "dusk"],
-      ["08:00", "office-light"],
-      ["18:00", "office"],
+      ["05:30", "dusk"],
+      ["06:00", "modern-office-desk-day"],
+      ["16:30", "modern-office-desk-dusk"],
+      ["18:30", "modern-office-desk-night"],
     ]);
-    expect(timelineLabels(utils)).toEqual(["06:30", "08:00", "18:00"]);
+    expect(timelineLabels(utils)).toEqual(["05:30", "06:00", "16:30", "18:30"]);
     expect(section(utils).getByText(s.themeScheduleSaved)).toBeTruthy();
   });
 
@@ -1853,7 +1907,7 @@ describe("ThemeSettings · switch by time of day", () => {
     fireEvent.click(scheduleSwitch(utils));
     const patch = vi.spyOn(api, "patchServerSettings");
 
-    fireEvent.change(startInputs(utils)[1], { target: { value: "08:00" } });
+    fireEvent.change(startInputs(utils)[1], { target: { value: "06:00" } });
     fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleSave }));
     await settle();
     expect(section(utils).getByText(s.themeScheduleErrorDuplicate)).toBeTruthy();
@@ -1878,8 +1932,9 @@ describe("ThemeSettings · switch by time of day", () => {
 
     expect(section(utils).getByText(s.themeScheduleSaveFailed)).toBeTruthy();
     expect(rows(utils)).toEqual([
-      ["08:00", "office-light"],
-      ["18:00", "office"],
+      ["06:00", "modern-office-desk-day"],
+      ["16:30", "modern-office-desk-dusk"],
+      ["18:30", "modern-office-desk-night"],
     ]);
   });
 
@@ -1889,7 +1944,7 @@ describe("ThemeSettings · switch by time of day", () => {
     fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleSave }));
     await settle();
     await settle();
-    expect((await api.getServerSettings()).displayThemeSchedule).toHaveLength(2);
+    expect((await api.getServerSettings()).displayThemeSchedule).toHaveLength(3);
 
     fireEvent.click(scheduleSwitch(utils));
     await settle();
@@ -1913,30 +1968,35 @@ describe("ThemeSettings · switch by time of day", () => {
     openAppearanceDialog(utils);
 
     expect(rows(utils)).toEqual([
-      ["08:00", "office-light"],
-      ["18:00", "office"],
+      ["06:00", "modern-office-desk-day"],
+      ["16:30", "modern-office-desk-dusk"],
+      ["18:30", "modern-office-desk-night"],
     ]);
   });
 
   it("draws each row as a solid segment in its theme's colour, with its short name and start", async () => {
-    const utils = await renderWithDusk();
+    setToken("owner-token");
+    await api.putTheme({ id: "midnight", name: "午夜藍", colors: { "--color-bg": "#0a0b0c" } });
+    const utils = await renderAppearanceDialog();
     fireEvent.click(scheduleSwitch(utils));
-    fireEvent.change(section(utils).getByLabelText(`${s.themeScheduleTheme} 2`), {
-      target: { value: "dusk" },
+    fireEvent.change(section(utils).getByLabelText(`${s.themeScheduleTheme} 3`), {
+      target: { value: "midnight" },
     });
 
     const segments = utils.getAllByTestId("ts-timeline-seg");
     expect(segments.map((seg) => seg.textContent)).toEqual([
-      "黃昏",
-      `${zh.themeIdentity.officeLightShort}08:00`,
-      "黃昏18:00",
+      "午夜藍",
+      `${zh.themeIdentity.deskDayShort}06:00`,
+      `${zh.themeIdentity.deskDuskShort}16:30`,
+      "午夜藍18:30",
     ]);
     expect(segments.map((seg) => seg.style.width)).toEqual([
-      `${(8 / 24) * 100}%`,
-      `${(10 / 24) * 100}%`,
       `${(6 / 24) * 100}%`,
+      `${(10.5 / 24) * 100}%`,
+      `${(2 / 24) * 100}%`,
+      `${(5.5 / 24) * 100}%`,
     ]);
-    await settle();
+    await waitFor(() => expect(segments[1].style.backgroundColor).toBe("rgb(235, 229, 218)"));
     expect(segments[0].style.backgroundColor).toBe("rgb(10, 11, 12)");
     expect(utils.getByTestId("ts-timeline").getAttribute("aria-hidden")).toBe("true");
   });
@@ -1944,6 +2004,7 @@ describe("ThemeSettings · switch by time of day", () => {
   it("deleting a theme the schedule uses drops the schedule when fewer than two rows would be left", async () => {
     const utils = await renderWithDusk();
     fireEvent.click(scheduleSwitch(utils));
+    fireEvent.click(section(utils).getByRole("button", { name: `${s.themeScheduleRemove} 3` }));
     fireEvent.change(section(utils).getByLabelText(`${s.themeScheduleTheme} 2`), {
       target: { value: "dusk" },
     });
@@ -1951,8 +2012,8 @@ describe("ThemeSettings · switch by time of day", () => {
     await settle();
     await settle();
     expect(rows(utils)).toEqual([
-      ["08:00", "office-light"],
-      ["18:00", "dusk"],
+      ["06:00", "modern-office-desk-day"],
+      ["16:30", "dusk"],
     ]);
 
     closeAppearanceDialog(utils);

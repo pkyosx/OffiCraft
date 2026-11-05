@@ -1133,6 +1133,12 @@ export const zh = {
     officeLight: "辦公室（淺色）",
     officeShort: "深色",
     officeLightShort: "淺色",
+    deskDay: "現代質感辦公室・辦公桌白天",
+    deskDayShort: "白天",
+    deskDusk: "現代質感辦公室・辦公桌黃昏",
+    deskDuskShort: "黃昏",
+    deskNight: "現代質感辦公室・辦公桌晚上",
+    deskNightShort: "晚上",
     newTheme: "新主題",
   },
   // ── 「內建 / 自訂」標籤 ────────────────────────────────────────────────────
@@ -2257,6 +2263,10 @@ export const zh = {
     themeDialogTitle: "主題設定",
     themeDialogClose: "關閉",
     themeDialogOpen: "主題設定…",
+    themeRestoreDefault: "恢復預設",
+    themeRestoreConfirm:
+      "改回預設的外觀：依時段切換（06:00 白天、16:30 黃昏、18:30 晚上的辦公桌主題），並顯示應景主題。自訂主題不會被刪除。",
+    themeRestoreFailed: "恢復預設失敗，請再試一次。",
     themePick: "主題",
     themePickHint: "選了立刻套用到整個畫面",
     themeScheduleStart: "開始時間",

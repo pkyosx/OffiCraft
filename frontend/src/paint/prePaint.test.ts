@@ -1,4 +1,7 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ThemeBundle } from "../lib/themeBundleCore";
 import {
   LS_SCHEDULE_PAINT,
   LS_SEASONAL_PAINT,
@@ -33,6 +36,10 @@ const HARVEST_BUNDLE = {
   name: "Harvest",
   colors: { "--color-bg": "#15101f", "--color-accent": "#ff8c2b" },
 };
+
+const DESK_NIGHT = JSON.parse(
+  readFileSync(resolve(__dirname, "../../../themes/modern-office-desk-night.theme.json"), "utf8")
+) as ThemeBundle;
 
 async function runPrePaint() {
   vi.resetModules();
@@ -79,6 +86,18 @@ describe("prePaint", () => {
     expect(root.dataset.theme).toBe("office");
     expect(root.style.getPropertyValue("--color-bg")).toBe(VALID_RICH_BUNDLE.colors["--color-bg"]);
     expect(window.__ocPaintTokens).toContain("--color-bg");
+  });
+
+  it("a selected bundled built-in paints its cached record over the office base, image included", async () => {
+    localStorage.setItem(LS_THEME, DESK_NIGHT.id);
+    localStorage.setItem(LS_THEME_PAINT, JSON.stringify(paintRecordFor(DESK_NIGHT)));
+
+    await runPrePaint();
+
+    expect(root.dataset.theme).toBe("office");
+    expect(root.style.getPropertyValue("--color-bg")).toBe(DESK_NIGHT.colors["--color-bg"]);
+    expect(root.style.getPropertyValue("--canvas-bg-image")).toContain(DESK_NIGHT.backgrounds!.canvas);
+    expect(root.style.getPropertyValue("color-scheme")).toBe("dark");
   });
 
   it("an unknown stored id leaves the document untouched", async () => {
@@ -199,6 +218,23 @@ describe("prePaint", () => {
       expect(root.dataset.theme).toBe("office");
       expect(root.style.getPropertyValue("--color-bg")).toBe(VALID_RICH_BUNDLE.colors["--color-bg"]);
       expect(window.__ocPaintTokens).toContain("--color-bg");
+    });
+
+    it("paints a bundled built-in entry from its cached record", async () => {
+      localStorage.setItem(
+        LS_THEME_SCHEDULE,
+        JSON.stringify([
+          { start: "06:00", theme: "modern-office-desk-day" },
+          { start: "18:30", theme: DESK_NIGHT.id },
+        ])
+      );
+      localStorage.setItem(LS_SCHEDULE_PAINT, JSON.stringify([paintRecordFor(DESK_NIGHT)]));
+      at(new Date(2030, 0, 15, 21, 0));
+
+      await runPrePaint();
+
+      expect(root.dataset.theme).toBe("office");
+      expect(root.style.getPropertyValue("--color-bg")).toBe(DESK_NIGHT.colors["--color-bg"]);
     });
 
     it("before the day's first start, paints the previous day's last entry, a built-in", async () => {

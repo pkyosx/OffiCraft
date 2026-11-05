@@ -1058,6 +1058,12 @@ export const en: Dict = {
     officeLight: "Office (Light)",
     officeShort: "Dark",
     officeLightShort: "Light",
+    deskDay: "Modern office desk · Day",
+    deskDayShort: "Day",
+    deskDusk: "Modern office desk · Dusk",
+    deskDuskShort: "Dusk",
+    deskNight: "Modern office desk · Night",
+    deskNightShort: "Night",
     newTheme: "New theme",
   },
   // ── The 內建 / 自訂 labels ─────────────────────────────────────────────────
@@ -2235,6 +2241,10 @@ export const en: Dict = {
     themeDialogTitle: "Theme settings",
     themeDialogClose: "Close",
     themeDialogOpen: "Theme settings…",
+    themeRestoreDefault: "Restore default",
+    themeRestoreConfirm:
+      "Go back to the default appearance: switch by time of day (the office desk themes for day at 06:00, dusk at 16:30 and night at 18:30) and show seasonal themes. Your custom themes are kept.",
+    themeRestoreFailed: "Couldn't restore the default. Please try again.",
     themePick: "Theme",
     themePickHint: "Applies to the whole screen as soon as you pick it",
     themeScheduleStart: "Starts at",

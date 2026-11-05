@@ -9,6 +9,17 @@ export interface ThemeScheduleEntry {
   theme: string;
 }
 
+/** The appearance a fresh install gets and 恢復預設 restores, with the
+ * seasonal theme on. ⚠️ Twin of the literals in server migration 00120, which
+ * wrote it onto every station still on office / office-light. */
+export const DEFAULT_THEME_SCHEDULE: readonly ThemeScheduleEntry[] = [
+  { start: "06:00", theme: "modern-office-desk-day" },
+  { start: "16:30", theme: "modern-office-desk-dusk" },
+  { start: "18:30", theme: "modern-office-desk-night" },
+];
+/** display_theme under the default: what shows if the schedule is turned off. */
+export const DEFAULT_DISPLAY_THEME = "modern-office-desk-day";
+
 export const MIN_SCHEDULE_ENTRIES = 2;
 export const MAX_SCHEDULE_ENTRIES = 6;
 

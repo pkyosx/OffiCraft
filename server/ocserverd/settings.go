@@ -173,9 +173,16 @@ const (
 	// itself on purpose: it must describe the schema at its own version.
 )
 
-// The built-in theme ids. Twin of RESERVED_THEME_IDS in frontend/src/lib/themeBundleCore.ts.
-// The seasonal theme (themes/ at the repo root) is never selectable and is not one of them.
-var displayThemeAllowed = map[string]bool{"office": true, "office-light": true}
+// The built-in theme ids: BUILTIN_THEMES + BUNDLED_BUILTIN_THEMES in
+// frontend/src/lib/themeBundleCore.ts. The seasonal theme (themes/ at the repo
+// root) is never selectable and is not one of them.
+var displayThemeAllowed = map[string]bool{
+	"office":                   true,
+	"office-light":             true,
+	"modern-office-desk-day":   true,
+	"modern-office-desk-dusk":  true,
+	"modern-office-desk-night": true,
+}
 var displayLanguageAllowed = map[string]bool{"zh": true, "en": true}
 
 const defaultOutsourceMaxParallel = 3
@@ -369,7 +376,7 @@ func themeScheduleRefusalOn(q sqlRowQuerier, list []ThemeScheduleEntryDTO) (stri
 			return "", err
 		}
 		if row == nil {
-			return fmt.Sprintf("display_theme_schedule theme must be office, office-light, or an existing custom theme id: %q", e.Theme), nil
+			return fmt.Sprintf("display_theme_schedule theme must be a built-in theme id or an existing custom theme id: %q", e.Theme), nil
 		}
 	}
 	return "", nil

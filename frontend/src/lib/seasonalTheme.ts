@@ -6,13 +6,15 @@ import {
 } from "./seasonalSchedule";
 
 // A lazy glob keeps every theme file in its own chunk: nothing is fetched until
-// a window opens and load() is called. The built-in themes' files feed
-// theme.css through gen-builtin-themes.mjs and must not ship as chunks.
+// a window opens and load() is called. The theme.css built-ins' files feed
+// theme.css through gen-builtin-themes.mjs and must not ship as chunks; the
+// bundled built-ins are lib/bundledBuiltinThemes.ts's.
 const THEME_FILES = import.meta.glob<ThemeBundle>(
   [
     "../../../themes/*.theme.json",
     "!../../../themes/office.theme.json",
     "!../../../themes/office-light.theme.json",
+    "!../../../themes/modern-office-desk-*.theme.json",
   ],
   { import: "default" }
 );

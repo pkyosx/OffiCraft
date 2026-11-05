@@ -85,7 +85,7 @@ describe("ProfileDropdown · preferences scope", () => {
     fireEvent.click(within(dialog).getByRole("switch", { name: zh.settings.themeSchedule }));
     fireEvent.click(within(dialog).getByRole("button", { name: zh.settings.themeScheduleSave }));
     await waitFor(async () =>
-      expect((await api.getServerSettings()).displayThemeSchedule).toHaveLength(2)
+      expect((await api.getServerSettings()).displayThemeSchedule).toHaveLength(3)
     );
   });
 

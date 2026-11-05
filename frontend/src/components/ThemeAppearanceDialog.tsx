@@ -2,11 +2,13 @@ import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
 import {
-  BUILTIN_THEMES,
+  PICKER_BUILTIN_THEMES,
+  isBundledBuiltinTheme,
   isValidBackgroundValue,
   type ThemeBundle,
 } from "../lib/themeBundle";
 import {
+  DEFAULT_THEME_SCHEDULE,
   MAX_SCHEDULE_ENTRIES,
   MIN_SCHEDULE_ENTRIES,
   themeScheduleProblem,
@@ -14,16 +16,12 @@ import {
 } from "../lib/themeSchedule";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
 import { CloseIcon, TrashIcon } from "./icons";
+import { ConfirmModal } from "./ConfirmModal";
 import officeTheme from "../../../themes/office.theme.json" with { type: "json" };
 import officeLightTheme from "../../../themes/office-light.theme.json" with { type: "json" };
 import "./confirm-modal.css";
 import "./settings.css";
 import "./theme-settings.css";
-
-const DEFAULT_SCHEDULE_DRAFT: ThemeScheduleEntry[] = [
-  { start: "08:00", theme: "office-light" },
-  { start: "18:00", theme: "office" },
-];
 
 function useThemeScheduleDraft() {
   const { themeSchedule } = useI18n();
@@ -76,9 +74,10 @@ function swatchOfBundle(bundle: ThemeBundle): ThemeSwatch {
   };
 }
 
-/** Thumbnail colours per theme id. Built-ins are known up front; a custom theme
- * is fetched once per mount when one of `wanted` names it, and a failed fetch
- * stays a blank placeholder rather than being retried. */
+/** Thumbnail colours per theme id. theme.css built-ins are known up front; a
+ * custom or bundled built-in theme is loaded once per mount when one of `wanted`
+ * names it, and a failed load stays a blank placeholder rather than being
+ * retried. */
 export function useThemeSwatches(wanted: string[]) {
   const { themeList, loadTheme, activeThemeBundle } = useI18n();
   const [loaded, setLoaded] = useState<Record<string, ThemeSwatch | null>>({});
@@ -92,7 +91,8 @@ export function useThemeSwatches(wanted: string[]) {
 
   const customIds = new Set(themeList.map((b) => b.id));
   const missing = [...new Set(wanted)].filter(
-    (id) => customIds.has(id) && !(id in loaded) && !inFlight.current.has(id)
+    (id) =>
+      (customIds.has(id) || isBundledBuiltinTheme(id)) && !(id in loaded) && !inFlight.current.has(id)
   );
   const missingKey = missing.join("\n");
 
@@ -156,7 +156,7 @@ export function ThemeThumb({ swatch }: { swatch: ThemeSwatch | null }) {
 
 function useThemeNames() {
   const { t, themeList } = useI18n();
-  const builtinOf = (id: string) => BUILTIN_THEMES.find((b) => b.id === id);
+  const builtinOf = (id: string) => PICKER_BUILTIN_THEMES.find((b) => b.id === id);
   return {
     full: (id: string) => {
       const b = builtinOf(id);
@@ -191,7 +191,7 @@ function ThemeOptions() {
   const { t, themeList } = useI18n();
   return (
     <>
-      {BUILTIN_THEMES.map((b) => (
+      {PICKER_BUILTIN_THEMES.map((b) => (
         <option key={b.id} value={b.id}>
           {t.themeIdentity[b.nameKey]}
         </option>
@@ -362,7 +362,7 @@ function ThemeAppearance({
   const toggleSchedule = () => {
     setStatus("");
     if (draft === null) {
-      setDraft(DEFAULT_SCHEDULE_DRAFT);
+      setDraft([...DEFAULT_THEME_SCHEDULE]);
     } else if (themeSchedule.length) {
       void save([]);
     } else {
@@ -506,12 +506,29 @@ function ThemeAppearance({
  * 設定 › 主題 › 外觀. Portalled to <body>; App's click-outside for the profile
  * menu recognises it by `.ts-modal`. */
 export function ThemeAppearanceDialog({ onClose }: { onClose: () => void }) {
-  const { t, theme } = useI18n();
+  const { t, theme, restoreDefaultAppearance } = useI18n();
+  const [confirmRestore, setConfirmRestore] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const [restoreError, setRestoreError] = useState("");
   const schedule = useThemeScheduleDraft();
   const swatches = useThemeSwatches(schedule.draft?.map((r) => r.theme) ?? [theme]);
   const rootRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   useEscapeLayer(onClose, rootRef);
+
+  const restore = async () => {
+    setRestoring(true);
+    setRestoreError("");
+    try {
+      await restoreDefaultAppearance();
+      setConfirmRestore(false);
+    } catch (e) {
+      console.warn("theme appearance: restore default failed", e);
+      setRestoreError(t.settings.themeRestoreFailed);
+    } finally {
+      setRestoring(false);
+    }
+  };
 
   // Focus goes in and comes back (the MarkdownPreviewOverlay contract); not a trap.
   useEffect(() => {
@@ -548,12 +565,35 @@ export function ThemeAppearanceDialog({ onClose }: { onClose: () => void }) {
           </button>
         </div>
         <ThemeAppearance {...schedule} swatchOf={swatches.swatchOf} />
-        <div className="confirm-modal__actions">
+        <div className="confirm-modal__actions ts-modal__actions">
+          <button
+            type="button"
+            className="confirm-modal__btn"
+            onClick={() => {
+              setRestoreError("");
+              setConfirmRestore(true);
+            }}
+          >
+            {t.settings.themeRestoreDefault}
+          </button>
           <button type="button" className="confirm-modal__btn" onClick={onClose}>
             {t.settings.themeDialogClose}
           </button>
         </div>
       </div>
+      {confirmRestore && (
+        <ConfirmModal
+          testId="theme-restore-confirm"
+          confirmTestId="theme-restore-confirm-btn"
+          body={t.settings.themeRestoreConfirm}
+          error={restoreError}
+          busy={restoring}
+          cancelLabel={t.settings.cancel}
+          confirmLabel={t.settings.themeRestoreDefault}
+          onCancel={() => setConfirmRestore(false)}
+          onConfirm={() => void restore()}
+        />
+      )}
     </div>,
     document.body
   );

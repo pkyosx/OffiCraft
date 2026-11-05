@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_THEME_SCHEDULE,
   activeScheduleEntry,
   nextScheduleBoundary,
   parseThemeSchedule,
@@ -106,6 +107,7 @@ describe("parseThemeSchedule", () => {
       { start: "08:00", theme: "2026-spring" },
       { start: "20:00", theme: "studio-9" },
     ]);
+    expect(parseThemeSchedule(DEFAULT_THEME_SCHEDULE)).toEqual(DEFAULT_THEME_SCHEDULE);
   });
 
   it("reads anything malformed as no schedule at all", () => {

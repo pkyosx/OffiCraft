@@ -19,6 +19,7 @@ import {
 } from "../hooks/sharedServerSettings";
 import {
   isBuiltinTheme,
+  isBundledBuiltinTheme,
   isValidDisplayTheme,
   type BuiltinThemeId,
   type ThemeBundle,
@@ -40,11 +41,14 @@ import {
 } from "../lib/themePaint";
 import { activeSeasonalWindow, nextSeasonalBoundary } from "../lib/seasonalSchedule";
 import {
+  DEFAULT_DISPLAY_THEME,
+  DEFAULT_THEME_SCHEDULE,
   activeScheduleEntry,
   nextScheduleBoundary,
   type ThemeScheduleEntry,
 } from "../lib/themeSchedule";
 import { SEASONAL_WINDOWS } from "../lib/seasonalTheme";
+import { loadBundledBuiltinTheme } from "../lib/bundledBuiltinThemes";
 import { applyWording } from "./wording";
 import { makeMessages, type Messages } from "./compose";
 
@@ -132,6 +136,11 @@ function readStoredSeasonalTheme(): boolean {
 // boundary further out is reached in steps.
 const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
 
+/** A theme's bundle: a bundled built-in from its own chunk, else the server's. */
+function fetchThemeBundle(id: string): Promise<ThemeBundle> {
+  return isBundledBuiltinTheme(id) ? loadBundledBuiltinTheme(id) : api.getTheme(id);
+}
+
 function scheduledCustomThemes(schedule: readonly ThemeScheduleEntry[]): string[] {
   return [...new Set(schedule.map((e) => e.theme).filter((id) => !isBuiltinTheme(id)))];
 }
@@ -179,6 +188,10 @@ interface I18nContextValue {
    * server's refusal, and takes effect only once saved and its custom themes
    * are in hand. */
   setThemeSchedule: (next: ThemeScheduleEntry[]) => Promise<void>;
+  /** 恢復預設: the default schedule, the seasonal theme on, and display_theme
+   * DEFAULT_DISPLAY_THEME, in one settings write. Custom themes are untouched.
+   * Not optimistic, like setThemeSchedule. */
+  restoreDefaultAppearance: () => Promise<void>;
   /** The schedule row's theme on screen now; null without a schedule or while
    * the seasonal theme is shown. */
   scheduledTheme: string | null;
@@ -596,7 +609,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   const loadScheduleBundles = useCallback(async (schedule: ThemeScheduleEntry[]) => {
     const ids = scheduledCustomThemes(schedule);
-    const results = await Promise.allSettled(ids.map((id) => api.getTheme(id)));
+    const results = await Promise.allSettled(ids.map((id) => fetchThemeBundle(id)));
     const bundles: Record<string, ThemeBundle> = {};
     results.forEach((r, i) => {
       if (r.status === "fulfilled" && r.value.id === ids[i]) bundles[ids[i]] = r.value;
@@ -643,18 +656,17 @@ export function I18nProvider({ children }: { children: ReactNode }) {
           .patchServerSettings({ displayTheme: next })
           .then(adoptServerSettings) // shared snapshot (T-8115)
           .catch((e) => console.warn("setTheme: server sync failed", e));
-        if (!isBuiltinTheme(next)) {
-          api
-            .getTheme(next)
-            .then((b) => {
-              // Ignore a fetch that lost a race to a later switch — otherwise a
-              // slow response could repaint a theme the owner already left.
-              if (themeRef.current !== next) return;
-              setActiveThemeBundle(b);
-              writePaint(b);
-            })
-            .catch((e) => console.warn("setTheme: bundle load failed", e));
-        }
+      }
+      if (!isBuiltinTheme(next) && (hasToken() || isBundledBuiltinTheme(next))) {
+        fetchThemeBundle(next)
+          .then((b) => {
+            // Ignore a fetch that lost a race to a later switch — otherwise a
+            // slow response could repaint a theme the owner already left.
+            if (themeRef.current !== next) return;
+            setActiveThemeBundle(b);
+            writePaint(b);
+          })
+          .catch((e) => console.warn("setTheme: bundle load failed", e));
       }
     },
     [cacheTheme, writePaint]
@@ -697,13 +709,40 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     [loadScheduleBundles, cacheThemeSchedule, adoptScheduleBundles]
   );
 
+  const restoreDefaultAppearance = useCallback(async () => {
+    const s = await api.patchServerSettings({
+      displayTheme: DEFAULT_DISPLAY_THEME,
+      displayThemeSchedule: [...DEFAULT_THEME_SCHEDULE],
+      displaySeasonalTheme: true,
+    });
+    adoptServerSettings(s);
+    const bundles = await loadScheduleBundles(s.displayThemeSchedule);
+    cacheSeasonalTheme(s.displaySeasonalTheme);
+    cacheThemeSchedule(s.displayThemeSchedule);
+    adoptScheduleBundles(s.displayThemeSchedule, bundles);
+    cacheTheme(s.displayTheme);
+    const own = bundles[s.displayTheme];
+    if (own) {
+      setActiveThemeBundle(own);
+      writePaint(own);
+    } else {
+      fetchThemeBundle(s.displayTheme)
+        .then((b) => {
+          if (themeRef.current !== s.displayTheme) return;
+          setActiveThemeBundle(b);
+          writePaint(b);
+        })
+        .catch((e) => console.warn("restoreDefaultAppearance: bundle load failed", e));
+    }
+  }, [loadScheduleBundles, cacheSeasonalTheme, cacheThemeSchedule, adoptScheduleBundles, cacheTheme, writePaint]);
+
   // [T-83ef] The whole-set write is GONE. It re-sent every theme, with every
   // embedded image, to change one colour — that is the cost this ticket exists
   // to remove, and there is no per-theme door it could keep using.
 
   /** Fetch ONE theme in full. Editing and exporting are the only things that
    * need a bundle, and they are always about one theme. */
-  const loadTheme = useCallback((id: string) => api.getTheme(id), []);
+  const loadTheme = useCallback((id: string) => fetchThemeBundle(id), []);
 
   const saveTheme = useCallback(
     async (bundle: ThemeBundle) => {
@@ -813,13 +852,13 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         // No ref fix-up needed here: whichever branch above settled `active`
         // either called cacheTheme (which moves the ref with the decision) or
         // kept themeRef.current itself.
-        if (isBuiltinTheme(active) || !ids.has(active)) {
+        if (isBuiltinTheme(active) || (!ids.has(active) && !isBundledBuiltinTheme(active))) {
           setActiveThemeBundle(null);
           writePaint(null);
           setThemesLoaded(true);
           return;
         }
-        return api.getTheme(active).then((b) => {
+        return fetchThemeBundle(active).then((b) => {
           // Same guard `setTheme` carries, for the same reason and it was
           // missing here: reconcile fires on login/reload, so its fetch is in
           // flight while the owner is free to pick a different theme. Without
@@ -894,6 +933,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       setSeasonalTheme,
       themeSchedule,
       setThemeSchedule,
+      restoreDefaultAppearance,
       scheduledTheme,
       seasonalThemeName,
       shownTheme,
@@ -922,6 +962,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       setSeasonalTheme,
       themeSchedule,
       setThemeSchedule,
+      restoreDefaultAppearance,
       scheduledTheme,
       seasonalThemeName,
       shownTheme,

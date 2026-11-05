@@ -263,7 +263,7 @@ import {
   MAX_CUSTOM_THEMES,
 } from "../lib/themeBundle";
 import type { ThemeBundle } from "../lib/themeBundle";
-import { isBuiltinTheme } from "../lib/themeBundleCore";
+import { isBuiltinTheme, isBundledBuiltinTheme } from "../lib/themeBundleCore";
 import { MIN_SCHEDULE_ENTRIES, themeScheduleProblem } from "../lib/themeSchedule";
 
 // The always-present server-self machine id (mirrors the server seed):
@@ -6849,7 +6849,7 @@ const mockApiImpl = {
       throw mockApiError(
         "http 422 for PATCH /api/settings",
         422,
-        'display_theme must be "", office, office-light, or an existing custom theme id'
+        'display_theme must be "", a built-in theme id, or an existing custom theme id'
       );
     }
     if (
@@ -7037,12 +7037,14 @@ const mockApiImpl = {
       if (themeScheduleProblem(list) !== null) {
         throw mockApiError("http 422 for PATCH /api/settings", 422, "display_theme_schedule breaks a rule");
       }
-      const missing = list.find((e) => !isBuiltinTheme(e.theme) && !mockThemes.has(e.theme));
+      const missing = list.find(
+        (e) => !isBuiltinTheme(e.theme) && !isBundledBuiltinTheme(e.theme) && !mockThemes.has(e.theme)
+      );
       if (missing) {
         throw mockApiError(
           "http 422 for PATCH /api/settings",
           422,
-          `display_theme_schedule theme must be office, office-light, or an existing custom theme id: "${missing.theme}"`
+          `display_theme_schedule theme must be a built-in theme id or an existing custom theme id: "${missing.theme}"`
         );
       }
       mockServerSettings.display_theme_schedule = list.sort((a, b) => (a.start < b.start ? -1 : 1));
