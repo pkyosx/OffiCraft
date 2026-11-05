@@ -833,7 +833,14 @@ func (s *apiServer) HandleUpdateSettingsApiSettingsPatch(w http.ResponseWriter, 
 	if dueSoonLeadChanged {
 		s.publishTaskDueSoonLeadChanged(requestTrigger(r))
 	}
+	if len(writes) > 0 || body.OnboardingDismissed != nil {
+		s.publishSettings(requestTrigger(r))
+	}
 	writeJSON(w, http.StatusOK, s.settingsView())
+}
+
+func (s *apiServer) publishSettings(trigger string) {
+	s.hub.Publish("settings", "patch", "settings", wireOwnerID, nil, audienceOwnerOnly(), trigger)
 }
 
 func (s *apiServer) settingsView() settingsDTO {

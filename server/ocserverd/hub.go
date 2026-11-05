@@ -280,6 +280,7 @@ var sseTopics = map[string]bool{
 	"chat":            true,
 	"chat_read":       true,
 	"chat_group":      true,
+	"settings":        true,
 	"reply_card":      true,
 	"task":            true,
 	"task_manual":     true,

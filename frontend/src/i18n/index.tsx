@@ -16,6 +16,7 @@ import { hasToken, AUTH_LOGIN_EVENT } from "../api/auth";
 import {
   adoptServerSettings,
   loadServerSettings,
+  refreshServerSettings,
 } from "../hooks/sharedServerSettings";
 import {
   isBuiltinTheme,
@@ -201,11 +202,11 @@ interface I18nContextValue {
   /** Save the schedule ([] turns it off). Not optimistic: rejects with the
    * server's refusal, and takes effect only once saved and its custom themes
    * are in hand. */
-  setThemeSchedule: (next: ThemeScheduleEntry[]) => Promise<void>;
+  setThemeSchedule: (next: ThemeScheduleEntry[]) => Promise<ThemeScheduleEntry[]>;
   /** 恢復預設: the default schedule, the seasonal theme on, and display_theme
    * DEFAULT_DISPLAY_THEME, in one settings write. Custom themes are untouched.
    * Not optimistic, like setThemeSchedule. */
-  restoreDefaultAppearance: () => Promise<void>;
+  restoreDefaultAppearance: () => Promise<ThemeScheduleEntry[]>;
   /** The schedule row's theme on screen now; null without a schedule or while
    * the seasonal theme is shown. */
   scheduledTheme: string | null;
@@ -253,6 +254,9 @@ interface I18nContextValue {
    * display_theme and says so; this switches the cockpit back to the default built-in (office)
    * so the owner is never looking at a theme that no longer exists. */
   removeTheme: (id: string) => Promise<void>;
+  /** Re-read the theme list. A theme added or deleted elsewhere is not pushed;
+   * the theme settings call this when they open. */
+  refreshThemeList: () => void;
   /** Reset local preferences to initial (used by the honest M1 "logout").
    * Covers only the client-persisted prefs (theme/language); the owner
    * nickname is server-backed now (T-0b41) and is left untouched. */
@@ -288,6 +292,32 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   // the same chunk again rejects at once; only a reload can recover it.
   const [seasonalLoadFailedId, setSeasonalLoadFailedId] = useState<string | null>(null);
   const [themeList, setThemeList] = useState<ThemeListItem[]>([]);
+  // A settings or theme-list read that overlaps any part of one of this tab's
+  // own writes may carry the value from before it. Such a read is not adopted; the reread
+  // waits until every write has settled.
+  const writesInFlightRef = useRef(0);
+  const writeEpochRef = useRef(0);
+  const rereadAfterWritesRef = useRef(false);
+  const rereadRef = useRef<() => void>(() => {});
+  const trackWrite = useCallback(function trackWrite<T>(write: () => Promise<T>): Promise<T> {
+    writeEpochRef.current += 1;
+    writesInFlightRef.current += 1;
+    return write().finally(() => {
+      writeEpochRef.current += 1;
+      writesInFlightRef.current -= 1;
+      if (writesInFlightRef.current === 0 && rereadAfterWritesRef.current) {
+        rereadAfterWritesRef.current = false;
+        rereadRef.current();
+      }
+    });
+  }, []);
+  /** True when a read issued at `epoch` must not be adopted; schedules the reread. */
+  const readCrossedWrite = useCallback((epoch: number) => {
+    if (writesInFlightRef.current === 0 && epoch === writeEpochRef.current) return false;
+    if (writesInFlightRef.current > 0) rereadAfterWritesRef.current = true;
+    else rereadRef.current();
+    return true;
+  }, []);
   const [activeThemeBundle, setActiveThemeBundle] = useState<ThemeBundle | null>(
     null
   );
@@ -752,7 +782,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       scheduleInFlight.current.add(id);
       fetchThemeBundle(id)
         .then((b) => {
-          if (b.id !== id || themeScheduleRef.current !== schedule) return;
+          // Compared by content: a re-read delivers an equal schedule as a new
+          // array, and dropping this fetch for it would leave the slot unloaded.
+          if (b.id !== id || JSON.stringify(themeScheduleRef.current) !== JSON.stringify(schedule)) return;
           adoptScheduleBundles(schedule, { ...scheduleBundlesRef.current, [id]: b });
         })
         .catch((e) => console.warn("theme schedule: bundle load failed", e))
@@ -809,8 +841,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     (next: Language) => {
       cacheLanguage(next);
       if (hasToken()) {
-        api
-          .patchServerSettings({ displayLanguage: next })
+        trackWrite(() => api.patchServerSettings({ displayLanguage: next }))
           .then(adoptServerSettings) // shared snapshot (T-8115)
           .catch((e) => console.warn("setLanguage: server sync failed", e));
       }
@@ -899,8 +930,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         writePaint(null);
       }
       if (hasToken()) {
-        api
-          .patchServerSettings({ displayTheme: next })
+        trackWrite(() => api.patchServerSettings({ displayTheme: next }))
           .then(adoptServerSettings) // shared snapshot (T-8115)
           .catch((e) => console.warn("setTheme: server sync failed", e));
       }
@@ -919,8 +949,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     (next: boolean) => {
       cacheWide(next);
       if (hasToken()) {
-        api
-          .patchServerSettings({ displayWide: next })
+        trackWrite(() => api.patchServerSettings({ displayWide: next }))
           .then(adoptServerSettings) // shared snapshot (T-8115)
           .catch((e) => console.warn("setWide: server sync failed", e));
       }
@@ -932,8 +961,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     (next: boolean) => {
       cacheSeasonalTheme(next);
       if (hasToken()) {
-        api
-          .patchServerSettings({ displaySeasonalTheme: next })
+        trackWrite(() => api.patchServerSettings({ displaySeasonalTheme: next }))
           .then(adoptServerSettings)
           .catch((e) => console.warn("setSeasonalTheme: server sync failed", e));
       }
@@ -942,17 +970,19 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   );
 
   const setThemeSchedule = useCallback(
-    async (next: ThemeScheduleEntry[]) => {
-      const s = await api.patchServerSettings({ displayThemeSchedule: next });
-      adoptServerSettings(s);
-      const bundles = await loadScheduleBundles(s.displayThemeSchedule);
-      cacheThemeSchedule(s.displayThemeSchedule);
-      adoptScheduleBundles(s.displayThemeSchedule, bundles);
-    },
-    [loadScheduleBundles, cacheThemeSchedule, adoptScheduleBundles]
+    (next: ThemeScheduleEntry[]) =>
+      trackWrite(async () => {
+        const s = await api.patchServerSettings({ displayThemeSchedule: next });
+        adoptServerSettings(s);
+        const bundles = await loadScheduleBundles(s.displayThemeSchedule);
+        cacheThemeSchedule(s.displayThemeSchedule);
+        adoptScheduleBundles(s.displayThemeSchedule, bundles);
+        return s.displayThemeSchedule;
+      }),
+    [trackWrite, loadScheduleBundles, cacheThemeSchedule, adoptScheduleBundles]
   );
 
-  const restoreDefaultAppearance = useCallback(async () => {
+  const restoreDefaultAppearance = useCallback(() => trackWrite(async () => {
     const s = await api.patchServerSettings({
       displayTheme: DEFAULT_DISPLAY_THEME,
       displayThemeSchedule: [...DEFAULT_THEME_SCHEDULE],
@@ -967,7 +997,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     // The schedule is on screen, not display_theme: its bundle is fetched when
     // it is shown (the display-bundle effect), not now.
     setActiveThemeBundle(bundles[s.displayTheme] ?? null);
-  }, [loadScheduleBundles, cacheSeasonalTheme, cacheThemeSchedule, adoptScheduleBundles, cacheTheme]);
+    return s.displayThemeSchedule;
+  }), [trackWrite, loadScheduleBundles, cacheSeasonalTheme, cacheThemeSchedule, adoptScheduleBundles, cacheTheme]);
 
   // [T-83ef] The whole-set write is GONE. It re-sent every theme, with every
   // embedded image, to change one colour — that is the cost this ticket exists
@@ -979,7 +1010,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   const saveTheme = useCallback(
     async (bundle: ThemeBundle) => {
-      await api.putTheme(bundle);
+      await trackWrite(() => api.putTheme(bundle));
       // The list carries the NAME, so a rename has to land here too. A replace
       // keeps its position (the server does not move an edited theme to the
       // bottom); a create appends, which is the position the server gives it.
@@ -1003,11 +1034,11 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         });
       }
     },
-    [writePaint, adoptScheduleBundles]
+    [trackWrite, writePaint, adoptScheduleBundles]
   );
 
   const removeTheme = useCallback(
-    async (id: string) => {
+    (id: string) => trackWrite(async () => {
       const result = await api.deleteTheme(id);
       setThemeList((prev) => prev.filter((x) => x.id !== id));
       // ⚠️ The server stores "" for the reset and the cockpit shows the default built-in (office).
@@ -1028,22 +1059,25 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         cacheThemeSchedule(result.displayThemeSchedule);
         adoptScheduleBundles(result.displayThemeSchedule, kept);
       }
-    },
-    [cacheTheme, writePaint, cacheThemeSchedule, adoptScheduleBundles]
+    }),
+    [trackWrite, cacheTheme, writePaint, cacheThemeSchedule, adoptScheduleBundles]
   );
 
-  // Login reconcile (server = cross-device truth): pull /api/settings and adopt
+  // Login and `settings`-delta reconcile (server = cross-device truth;
+  // `fresh` bypasses the shared settings cache): pull /api/settings and adopt
   // a real, valid display pref that the server has stored, writing it back to
   // the localStorage cache so the NEXT pre-auth first paint is already correct.
   // "" (never set) or an unreachable/failing load keeps the cache showing — a
   // failed load must never masquerade as "reset to default". Applying an equal
   // value is a React state no-op, so the common (cache == server) case does not
   // repaint — no flash.
-  const reconcileFromServer = useCallback(() => {
+  const reconcileFromServer = useCallback((fresh = false) => {
+    const epoch = writeEpochRef.current;
     // Both faces at once: settings still owns WHICH theme is active, the theme
     // resource now owns what themes there are.
-    Promise.all([loadServerSettings(), api.listThemes()])
+    Promise.all([fresh ? refreshServerSettings() : loadServerSettings(), api.listThemes()])
       .then(([s, list]) => {
+        if (readCrossedWrite(epoch)) return;
         // [T-83ef] The set arrives as ONE LINE EACH; the bundles are fetched
         // per theme. Only ONE bundle is ever needed to paint — the active one —
         // so this is two small requests instead of one that carried every image
@@ -1103,10 +1137,17 @@ export function I18nProvider({ children }: { children: ReactNode }) {
           setThemesLoaded(true);
           return;
         }
+        // A delta re-read keeps the bundle in hand: no delta announces an edit
+        // to a theme's content, and this tab's own echo must not re-download it.
+        if (fresh && activeThemeBundleRef.current?.id === active) {
+          setThemesLoaded(true);
+          return;
+        }
         return loadDisplayBundle(active).then(() => setThemesLoaded(true));
       })
       .catch((e) => console.warn("i18n reconcile: load failed", e));
   }, [
+    readCrossedWrite,
     cacheTheme,
     cacheLanguage,
     cacheWide,
@@ -1116,16 +1157,42 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     writePaint,
     loadDisplayBundle,
   ]);
+  rereadRef.current = () => reconcileFromServer(true);
+
+  const refreshThemeList = useCallback(() => {
+    if (!hasToken()) return;
+    const epoch = writeEpochRef.current;
+    api
+      .listThemes()
+      .then((list) => {
+        if (readCrossedWrite(epoch)) return;
+        setThemeList(list);
+      })
+      .catch((e) => console.warn("theme list: reload failed", e));
+  }, [readCrossedWrite]);
 
   useEffect(() => {
     // Reconcile now if a token already exists (a returning session / reload
     // lands straight on the app wall), and again the instant one is minted (a
     // fresh login fires oc-auth-login from setToken). /api/settings is
-    // owner-gated, so this is the earliest the server value is reachable.
-    if (hasToken()) reconcileFromServer();
-    const onLogin = () => reconcileFromServer();
-    window.addEventListener(AUTH_LOGIN_EVENT, onLogin);
-    return () => window.removeEventListener(AUTH_LOGIN_EVENT, onLogin);
+    // owner-gated, so this is the earliest the server value is reachable. A
+    // `settings` delta (another tab or device saved, or the resync after a
+    // connection gap) reads it again. The subscription is taken at the same two
+    // moments because without a token it is a no-op.
+    let unsubscribe = () => {};
+    const follow = () => {
+      reconcileFromServer();
+      unsubscribe();
+      unsubscribe = api.subscribeEvents((topic) => {
+        if (topic === "settings" && hasToken()) reconcileFromServer(true);
+      });
+    };
+    if (hasToken()) follow();
+    window.addEventListener(AUTH_LOGIN_EVENT, follow);
+    return () => {
+      window.removeEventListener(AUTH_LOGIN_EVENT, follow);
+      unsubscribe();
+    };
   }, [reconcileFromServer]);
 
   const resetPreferences = useCallback(() => {
@@ -1175,6 +1242,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       loadTheme,
       saveTheme,
       removeTheme,
+      refreshThemeList,
       resetPreferences,
     }),
     [
@@ -1204,6 +1272,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       loadTheme,
       saveTheme,
       removeTheme,
+      refreshThemeList,
       resetPreferences,
     ]
   );

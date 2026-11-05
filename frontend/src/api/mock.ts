@@ -6627,7 +6627,11 @@ const mockApiImpl = {
     const displayThemeReset = mockServerSettings.display_theme === id;
     if (displayThemeReset) mockServerSettings.display_theme = "";
     const left = mockServerSettings.display_theme_schedule.filter((e) => e.theme !== id);
+    const scheduleBefore = mockServerSettings.display_theme_schedule.length;
     mockServerSettings.display_theme_schedule = left.length < MIN_SCHEDULE_ENTRIES ? [] : left;
+    if (displayThemeReset || mockServerSettings.display_theme_schedule.length !== scheduleBefore) {
+      emitTopic("settings");
+    }
     return {
       id,
       deleted: true,
@@ -7174,6 +7178,7 @@ const mockApiImpl = {
         dismissed_at: patch.onboardingDismissed ? Date.now() / 1000 : 0,
       };
     }
+    if (Object.values(patch).some((v) => v !== undefined)) emitTopic("settings");
     return toServerSettings(structuredClone(mockServerSettings));
   },
 

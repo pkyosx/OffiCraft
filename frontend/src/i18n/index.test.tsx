@@ -175,6 +175,224 @@ describe("I18nProvider dual-layer theme/language", () => {
   });
 });
 
+describe("I18nProvider following another tab's settings", () => {
+  beforeEach(() => {
+    __resetMock();
+    __setMockNoAppearance();
+    localStorage.clear();
+    delete document.documentElement.dataset.theme;
+    localStorage.setItem(TOKEN_KEY, "live-owner-token");
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  async function mountSettled() {
+    render(
+      <I18nProvider>
+        <Probe />
+        <Capture />
+      </I18nProvider>
+    );
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+  }
+
+  it("adopts the theme and language another tab saves, without a reload", async () => {
+    await mountSettled();
+
+    await act(async () => {
+      await mockApi.patchServerSettings({ displayTheme: "office-light", displayLanguage: "en" });
+    });
+
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe("office-light"));
+    expect(screen.getByTestId("probe").dataset.lang).toBe("en");
+    expect(localStorage.getItem("oc.theme")).toBe("office-light");
+  });
+
+  it("adopts the schedule another tab saves", async () => {
+    await mountSettled();
+
+    await act(async () => {
+      await mockApi.patchServerSettings({
+        displayThemeSchedule: [
+          { start: "19:00", theme: "office" },
+          { start: "07:00", theme: "office-light" },
+        ],
+      });
+    });
+
+    await waitFor(() =>
+      expect(ctx.themeSchedule).toEqual([
+        { start: "07:00", theme: "office-light" },
+        { start: "19:00", theme: "office" },
+      ])
+    );
+  });
+
+  it("a settings read answered after this tab's own switch does not undo it", async () => {
+    await mountSettled();
+    const read = api.getServerSettings.bind(api);
+    let release = () => {};
+    vi.spyOn(api, "getServerSettings").mockImplementationOnce(async () => {
+      const before = await read();
+      await new Promise<void>((r) => (release = r));
+      return before;
+    });
+
+    await act(async () => {
+      await mockApi.patchServerSettings({ displayTheme: "office-light" });
+    });
+    await act(async () => {
+      ctx.setTheme("office");
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    await act(async () => {
+      release();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    await waitFor(async () => expect((await mockApi.getServerSettings()).displayTheme).toBe("office"));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(screen.getByTestId("probe").dataset.theme).toBe("office");
+    expect(document.documentElement.dataset.theme).toBe("office");
+  });
+
+  it("another tab's theme set while this tab's own save is pending still shows once the save lands", async () => {
+    await mountSettled();
+    const write = api.patchServerSettings.bind(api);
+    let release = () => {};
+    vi.spyOn(api, "patchServerSettings").mockImplementationOnce(async (patch) => {
+      await new Promise<void>((r) => (release = r));
+      return write(patch);
+    });
+
+    await act(async () => {
+      ctx.setLanguage("en");
+      await mockApi.patchServerSettings({ displayTheme: "office-light" });
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    await act(async () => {
+      release();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe("office-light"));
+    expect(screen.getByTestId("probe").dataset.lang).toBe("en");
+  });
+
+  it("a settings read that this tab's own save overtook is read again", async () => {
+    await mountSettled();
+    const read = api.getServerSettings.bind(api);
+    let release = () => {};
+    vi.spyOn(api, "getServerSettings").mockImplementationOnce(async () => {
+      const before = await read();
+      await new Promise<void>((r) => (release = r));
+      return before;
+    });
+
+    await act(async () => {
+      await mockApi.patchServerSettings({ displayTheme: "office-light" });
+    });
+    await act(async () => {
+      await ctx.setThemeSchedule([
+        { start: "07:00", theme: "office-light" },
+        { start: "19:00", theme: "office" },
+      ]);
+    });
+    await act(async () => {
+      await mockApi.patchServerSettings({ displayLanguage: "en" });
+    });
+    vi.mocked(api.getServerSettings).mockImplementation(async () => {
+      const now = await read();
+      return { ...now, displayLanguage: "zh" };
+    });
+    await act(async () => {
+      release();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    await waitFor(() => expect(screen.getByTestId("probe").dataset.lang).toBe("zh"));
+  });
+
+  it("a re-read delivering the same schedule while its slot's theme is loading still caches that theme's picture", async () => {
+    const SCHEDULE = [
+      { start: "00:00", theme: "midnight" },
+      { start: "23:59", theme: "office" },
+    ];
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2030, 2, 10, 12, 0));
+    await mockApi.putTheme(MIDNIGHT);
+    await mockApi.patchServerSettings({ displayThemeSchedule: SCHEDULE });
+    const fetchTheme = api.getTheme.bind(api);
+    let release = () => {};
+    vi.spyOn(api, "getTheme").mockImplementationOnce(async (id) => {
+      await new Promise<void>((r) => (release = r));
+      return fetchTheme(id);
+    });
+    await mountSettled();
+
+    await act(async () => {
+      await mockApi.patchServerSettings({ displayThemeSchedule: SCHEDULE });
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    await act(async () => {
+      release();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    await waitFor(() =>
+      expect(
+        (JSON.parse(localStorage.getItem("oc.schedulePaint") ?? "null") as { bundle: unknown }[] | null)?.map(
+          (r) => r.bundle
+        )
+      ).toEqual([MIDNIGHT])
+    );
+  });
+
+  it("a theme list read issued while this tab is saving a theme does not drop the theme it saved", async () => {
+    await mountSettled();
+    const put = api.putTheme.bind(api);
+    const list = api.listThemes.bind(api);
+    let releasePut = () => {};
+    let releaseList = () => {};
+    vi.spyOn(api, "putTheme").mockImplementationOnce(async (bundle) => {
+      await new Promise<void>((r) => (releasePut = r));
+      return put(bundle);
+    });
+    vi.spyOn(api, "listThemes").mockImplementationOnce(async () => {
+      const before = await list();
+      await new Promise<void>((r) => (releaseList = r));
+      return before;
+    });
+
+    let saved!: Promise<void>;
+    await act(async () => {
+      saved = ctx.saveTheme(SUNRISE as ThemeBundle);
+      ctx.refreshThemeList();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    await act(async () => {
+      releasePut();
+      await saved;
+    });
+    await act(async () => {
+      releaseList();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    await waitFor(() => expect(ctx.themeList).toEqual([{ id: "sunrise", name: "Sunrise" }]));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(ctx.themeList).toEqual([{ id: "sunrise", name: "Sunrise" }]);
+  });
+});
+
 describe("I18nProvider layout width (T-756f)", () => {
   const root = document.documentElement;
 

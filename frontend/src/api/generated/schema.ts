@@ -3237,6 +3237,7 @@ export interface paths {
          *     - `lore_cap_chars_title`, `lore_cap_chars_body`: Max title / body length of one new 傳承 entry; entries are immutable, so lowering never affects stored ones.
          * @description - Owner or admin agent; only the fields you send change.
          *     - Changes are durable and take effect at the next use: `owner_token_ttl` from the next login, `agent_token_ttl` from the next spawn or reconcile, offboard points from the next context report.
+         *     - The owner's other open browsers and devices re-read settings at once, so a `display_*` change shows there without a reload.
          *     - A TTL outside 12h/24h/7d/30d, `handover_pct` outside 40..90, or a notice point not strictly below its final one is a 422 and writes nothing.
          */
         patch: operations["handle_update_settings_api_settings_patch"];
@@ -4216,6 +4217,7 @@ export interface paths {
         /**
          * Delete one custom theme; deleting the active one resets display_theme to "".
          * @description - Deleting the ACTIVE theme also resets `display_theme` back to `""` in the same request, and the receipt says whether that happened — no need to re-read settings.
+         *     - When it resets `display_theme` or rewrites `display_theme_schedule`, the owner's other open browsers and devices follow at once.
          *     - Unknown id: 404.
          */
         delete: operations["handle_delete_theme_api_themes__theme_id__delete"];
@@ -9804,13 +9806,13 @@ export interface components {
             codex_notice_round: number;
             /**
              * Display Language
-             * @description The owner's cockpit language (T-0b41-p2). "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login as the cross-device source of truth.
+             * @description The owner's cockpit language (T-0b41-p2). "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login and on every `settings` event as the cross-device source of truth.
              * @default
              */
             display_language: string;
             /**
              * Display Theme
-             * @description The owner's cockpit visual theme (T-0b41-p2). "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login as the cross-device source of truth.
+             * @description The owner's cockpit visual theme (T-0b41-p2). "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login and on every `settings` event as the cross-device source of truth.
              * @default
              */
             display_theme: string;
@@ -9821,7 +9823,7 @@ export interface components {
             display_theme_schedule?: components["schemas"]["ThemeScheduleEntryDTO"][];
             /**
              * Display Wide
-             * @description Whether the cockpit uses the WIDE layout — the centred ~1040px content column is lifted, the side gutters stay (T-756f). false (the default) = the narrow centred column, the shipped look. Same dual-layer contract as display_theme: the frontend keeps a localStorage cache for the pre-auth paint and reconciles this server value in at login as the cross-device source of truth.
+             * @description Whether the cockpit uses the WIDE layout — the centred ~1040px content column is lifted, the side gutters stay (T-756f). false (the default) = the narrow centred column, the shipped look. Same dual-layer contract as display_theme: the frontend keeps a localStorage cache for the pre-auth paint and reconciles this server value in at login and on every `settings` event as the cross-device source of truth.
              * @default false
              */
             display_wide: boolean;

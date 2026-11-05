@@ -174,6 +174,9 @@ func (s *apiServer) HandleDeleteThemeApiThemesThemeIdDelete(w http.ResponseWrite
 		}
 	})
 	unlockMu()
+	if reset || scheduleChanged {
+		s.publishSettings(requestTrigger(r))
+	}
 
 	writeJSON(w, http.StatusOK, themeDeleteResultDTO{
 		ID: themeID, Deleted: true, DisplayThemeReset: reset,

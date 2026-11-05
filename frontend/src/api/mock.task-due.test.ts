@@ -80,12 +80,12 @@ describe("mockApi.getTaskCount", () => {
 });
 
 describe("mockApi.patchServerSettings", () => {
-  it("announces a changed workspace lead on the task topic", async () => {
+  it("announces a changed workspace lead on the task topic and the settings topic", async () => {
     const topics: string[] = [];
     const off = mockApi.subscribeEvents((topic) => topics.push(topic));
     await mockApi.patchServerSettings({ taskDueSoonLeadMinutes: 5 });
     off();
-    expect(topics).toEqual(["task"]);
+    expect(topics).toEqual(["task", "settings"]);
   });
 
   it("accepts a workspace lead of 1 to 43200 minutes and refuses one outside it with a 422", async () => {

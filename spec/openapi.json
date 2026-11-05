@@ -8032,13 +8032,13 @@
           },
           "display_language": {
             "default": "",
-            "description": "The owner's cockpit language (T-0b41-p2). \"\" = never set — the frontend keeps its localStorage cache / default; reconciled in at login as the cross-device source of truth.",
+            "description": "The owner's cockpit language (T-0b41-p2). \"\" = never set — the frontend keeps its localStorage cache / default; reconciled in at login and on every `settings` event as the cross-device source of truth.",
             "title": "Display Language",
             "type": "string"
           },
           "display_theme": {
             "default": "",
-            "description": "The owner's cockpit visual theme (T-0b41-p2). \"\" = never set — the frontend keeps its localStorage cache / default; reconciled in at login as the cross-device source of truth.",
+            "description": "The owner's cockpit visual theme (T-0b41-p2). \"\" = never set — the frontend keeps its localStorage cache / default; reconciled in at login and on every `settings` event as the cross-device source of truth.",
             "title": "Display Theme",
             "type": "string"
           },
@@ -8052,7 +8052,7 @@
           },
           "display_wide": {
             "default": false,
-            "description": "Whether the cockpit uses the WIDE layout — the centred ~1040px content column is lifted, the side gutters stay (T-756f). false (the default) = the narrow centred column, the shipped look. Same dual-layer contract as display_theme: the frontend keeps a localStorage cache for the pre-auth paint and reconciles this server value in at login as the cross-device source of truth.",
+            "description": "Whether the cockpit uses the WIDE layout — the centred ~1040px content column is lifted, the side gutters stay (T-756f). false (the default) = the narrow centred column, the shipped look. Same dual-layer contract as display_theme: the frontend keeps a localStorage cache for the pre-auth paint and reconciles this server value in at login and on every `settings` event as the cross-device source of truth.",
             "title": "Display Wide",
             "type": "boolean"
           },
@@ -22187,7 +22187,7 @@
         }
       },
       "patch": {
-        "description": "- Owner or admin agent; only the fields you send change.\n- Changes are durable and take effect at the next use: `owner_token_ttl` from the next login, `agent_token_ttl` from the next spawn or reconcile, offboard points from the next context report.\n- A TTL outside 12h/24h/7d/30d, `handover_pct` outside 40..90, or a notice point not strictly below its final one is a 422 and writes nothing.",
+        "description": "- Owner or admin agent; only the fields you send change.\n- Changes are durable and take effect at the next use: `owner_token_ttl` from the next login, `agent_token_ttl` from the next spawn or reconcile, offboard points from the next context report.\n- The owner's other open browsers and devices re-read settings at once, so a `display_*` change shows there without a reload.\n- A TTL outside 12h/24h/7d/30d, `handover_pct` outside 40..90, or a notice point not strictly below its final one is a 422 and writes nothing.",
         "operationId": "handle_update_settings_api_settings_patch",
         "requestBody": {
           "content": {
@@ -25690,7 +25690,7 @@
     },
     "/api/themes/{theme_id}": {
       "delete": {
-        "description": "- Deleting the ACTIVE theme also resets `display_theme` back to `\"\"` in the same request, and the receipt says whether that happened — no need to re-read settings.\n- Unknown id: 404.",
+        "description": "- Deleting the ACTIVE theme also resets `display_theme` back to `\"\"` in the same request, and the receipt says whether that happened — no need to re-read settings.\n- When it resets `display_theme` or rewrites `display_theme_schedule`, the owner's other open browsers and devices follow at once.\n- Unknown id: 404.",
         "operationId": "handle_delete_theme_api_themes__theme_id__delete",
         "parameters": [
           {
