@@ -17,10 +17,9 @@ for (const width of [390, 1280]) {
   }) => {
     await page.setViewportSize({ width, height: 900 });
     const cmp = await mount(<ThemeSettingsAddStory />);
-    await cmp.getByRole("tab", { name: "主題庫" }).click();
 
     // Before: only the built-in rows (theme.css and bundled), and no 自訂 group at all.
-    await expect(cmp.locator(".ts-list > .ts-row")).toHaveCount(PICKER_BUILTIN_THEMES.length);
+    await expect(cmp.locator(".ts-library .ts-list > .ts-row")).toHaveCount(PICKER_BUILTIN_THEMES.length);
     await expect(cmp.getByTestId("ts-group-custom")).toHaveCount(0);
 
     await cmp.getByRole("button", { name: "新增" }).click();
@@ -36,8 +35,8 @@ for (const width of [390, 1280]) {
     // Back to the list: the theme list grew by one, and the new row lands in
     // the 自訂 group.
     await cmp.getByRole("button", { name: "取消" }).click();
-    await expect(cmp.locator(".ts-list > .ts-row")).toHaveCount(PICKER_BUILTIN_THEMES.length + 1);
-    const customGroup = cmp.locator(".ts-list:has(#ts-group-custom)");
+    await expect(cmp.locator(".ts-library .ts-list > .ts-row")).toHaveCount(PICKER_BUILTIN_THEMES.length + 1);
+    const customGroup = cmp.locator(".ts-library .ts-list:has(#ts-group-custom)");
     await expect(customGroup.locator(".ts-row")).toHaveCount(1);
     await expect(customGroup.locator(".ts-row")).toContainText("新主題");
   });

@@ -115,7 +115,6 @@ async function mountSeeded(
 ) {
   await page.setViewportSize({ width, height: 900 });
   const cmp = await mount(<ThemeSettingsListStory builtin={builtin} />);
-  await cmp.getByRole("tab", { name: "主題庫" }).click();
   await cmp.getByTestId("seed").click();
   // The reconcile adds the custom row, which is what mints the 自訂 group.
   await expect(cmp.locator(".ts-group-head")).toHaveCount(2);
@@ -140,7 +139,7 @@ for (const width of [390, 1280]) {
 
   test(`width ${width}: built-in and custom rows align their action column`, async ({ mount, page }) => {
     const cmp = await mountSeeded(mount, page, width);
-    const rows = cmp.locator(".ts-list > .ts-row");
+    const rows = cmp.locator(".ts-library .ts-list > .ts-row");
     await expect(rows).toHaveCount(PICKER_BUILTIN_THEMES.length + 1);
 
     const rects = await rows.evaluateAll((els) =>
@@ -175,7 +174,7 @@ for (const width of [390, 1280]) {
   test(`width ${width}: built-in downloads are active; edit/delete stay inert placeholders`, async ({ mount, page }) => {
     const cmp = await mountSeeded(mount, page, width);
     for (let row = 0; row < PICKER_BUILTIN_THEMES.length; row++) {
-      const builtinBtns = cmp.locator(".ts-list > .ts-row").nth(row).locator(".ts-icon-btn");
+      const builtinBtns = cmp.locator(".ts-library .ts-list > .ts-row").nth(row).locator(".ts-icon-btn");
       await expect(builtinBtns).toHaveCount(3);
       // The download icon is an active export now (owner: 辦公室主題不用擋下載)…
       await expect(builtinBtns.nth(0)).toBeEnabled();
@@ -186,7 +185,7 @@ for (const width of [390, 1280]) {
     // The custom row's buttons stay enabled (the placeholders must not have
     // disabled the real actions).
     const customBtns = cmp
-      .locator(".ts-list > .ts-row")
+      .locator(".ts-library .ts-list > .ts-row")
       .nth(PICKER_BUILTIN_THEMES.length)
       .locator(".ts-icon-btn");
     await expect(customBtns).toHaveCount(3);

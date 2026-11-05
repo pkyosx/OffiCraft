@@ -57,12 +57,6 @@ import "./theme-settings.css";
 
 type View = "list" | "import" | "edit";
 
-type PageTab = "appearance" | "library";
-const PAGE_TABS = [
-  { id: "appearance", labelKey: "themeTabAppearance" },
-  { id: "library", labelKey: "themeTabLibrary" },
-] as const;
-
 const DICTS_BY_LANG = { zh, en } as const;
 
 // How many skipped wording codes the import warning names before the count
@@ -145,9 +139,10 @@ const NAV_ICON_SLOTS = NAV_ICON_KEYS.map((key) => ({
 }));
 
 /**
- * 主題 — the SettingsPage 主題 sub-section. 外觀 says what is shown and opens the
- * 主題設定 dialog (also opened from 偏好設定); 主題庫 manages the set:
- * add / import / export / edit (friendly colours + 用詞 overlay) / delete.
+ * 主題 — the SettingsPage 主題 sub-section: two cards. 外觀 chooses what is
+ * shown (ThemeAppearancePanel, also the 主題設定 dialog's content); 主題庫
+ * manages the set: add / import / export / edit (friendly colours + 用詞
+ * overlay) / delete.
  */
 export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
   // [T-83ef] The set arrives as ONE LINE EACH (id + name) and a bundle is
@@ -166,7 +161,6 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
   } = useI18n();
 
   const [view, setView] = useState<View>("list");
-  const [tab, setTab] = useState<PageTab>("appearance");
   const appearanceDraft = useThemeScheduleDraft();
 
   // ── import state ──
@@ -1371,43 +1365,23 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
         {t.settings.themeManage}
       </h1>
 
-      <div
-        className="ts-wording-tabs ts-page-tabs"
-        role="tablist"
-        aria-label={t.settings.themeManage}
-        onKeyDown={(e) => {
-          if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-          const next = tab === "appearance" ? "library" : "appearance";
-          setTab(next);
-          document.getElementById(`ts-tab-${next}`)?.focus();
-        }}
-      >
-        {PAGE_TABS.map(({ id, labelKey }) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            id={`ts-tab-${id}`}
-            aria-selected={tab === id}
-            aria-controls={`ts-panel-${id}`}
-            tabIndex={tab === id ? 0 : -1}
-            className={`ts-tab${tab === id ? " ts-tab--active" : ""}`}
-            onClick={() => setTab(id)}
-          >
-            {t.settings[labelKey]}
-          </button>
-        ))}
+      <div data-testid="theme-appearance-panel">
+        <ThemeAppearancePanel schedule={appearanceDraft} />
       </div>
 
-      {tab === "appearance" ? (
-        <div role="tabpanel" id="ts-panel-appearance" aria-labelledby="ts-tab-appearance">
-          <div className="ts-appearance-inline" data-testid="theme-appearance-panel">
-            <ThemeAppearancePanel schedule={appearanceDraft} />
-          </div>
-        </div>
-      ) : (
-        <div role="tabpanel" id="ts-panel-library" aria-labelledby="ts-tab-library">
-          <div className="ts-toolbar">
+      <section
+        className="param-card ts-block"
+        aria-labelledby="ts-library-title"
+        data-testid="theme-library"
+      >
+        <div className="doc-card__head ts-block__head">
+          <h2 className="ts-block__title" id="ts-library-title">
+            {t.settings.themeTabLibrary}
+          </h2>
+          <div className="ts-block__actions">
+            <button type="button" className="doc-btn" onClick={openImport}>
+              {t.profile.themeImport}
+            </button>
             <button
               type="button"
               className="doc-btn doc-btn--accent"
@@ -1415,10 +1389,9 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
             >
               {t.profile.themeAdd}
             </button>
-            <button type="button" className="doc-btn" onClick={openImport}>
-              {t.profile.themeImport}
-            </button>
           </div>
+        </div>
+        <div className="ts-block__body ts-library">
           {listError && <div className="set-error">{listError}</div>}
           {importSkipped.length > 0 && (
             <div className="set-warn" data-testid="theme-import-skipped">
@@ -1537,7 +1510,7 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
             </div>
           )}
         </div>
-      )}
+      </section>
 
       {(() => {
         // The confirm only ever needed the NAME, which the list line carries.

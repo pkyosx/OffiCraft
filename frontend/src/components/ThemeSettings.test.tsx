@@ -36,6 +36,11 @@ import type { ThemeBundle } from "../lib/themeBundle";
 import officeLightTheme from "../../../themes/office-light.theme.json" with { type: "json" };
 import { setToken, clearToken } from "../api/auth";
 
+/** The 主題庫 block — theme names also appear as options in 外觀's select. */
+function library(utils: ReturnType<typeof render>) {
+  return within(utils.getByTestId("theme-library"));
+}
+
 const SENTINEL = "偽造";
 
 // ── Why this file never runs a *ByLabelText / *ByRole query against the whole
@@ -201,15 +206,10 @@ async function openEditor(
   await settle();
 }
 
-function openTab(utils: ReturnType<typeof render>, name: string) {
-  fireEvent.click(utils.getByRole("tab", { name }));
-}
-
 // Let the provider's mount reconcile (getServerSettings) settle BEFORE we touch
 // the custom-theme set — otherwise its late-resolving GET overwrites an import
-// with the (still-empty) server value. Most cases manage themes, so they start
-// on 主題庫.
-async function renderManage({ tab = s.themeTabLibrary }: { tab?: string } = {}) {
+// with the (still-empty) server value. 外觀 and 主題庫 are both on the page.
+async function renderManage() {
   let utils!: ReturnType<typeof render>;
   await act(async () => {
     utils = render(
@@ -219,41 +219,24 @@ async function renderManage({ tab = s.themeTabLibrary }: { tab?: string } = {}) 
     );
     await new Promise((r) => setTimeout(r, 0));
   });
-  if (tab !== s.themeTabAppearance) openTab(utils, tab);
   return utils;
 }
 
 const themeSelect = (utils: ReturnType<typeof render>) =>
   utils.getByRole("combobox", { name: s.themePick }) as HTMLSelectElement;
 
-// 外觀 hosts the 主題設定 content inline.
+// The 外觀 block.
 const appearancePanel = (utils: ReturnType<typeof render>) =>
   utils.getByTestId("theme-appearance-panel");
 
-function openAppearance(utils: ReturnType<typeof render>) {
-  openTab(utils, s.themeTabAppearance);
-  return appearancePanel(utils);
-}
-
-function renderAppearance() {
-  return renderManage({ tab: s.themeTabAppearance });
-}
-
-/** Make `id` the selected theme through 主題設定's 主題 select, then come back
- * to 主題庫. */
+/** Make `id` the selected theme through 外觀's 主題 select. */
 async function pickTheme(utils: ReturnType<typeof render>, id: string) {
-  openAppearance(utils);
   fireEvent.change(themeSelect(utils), { target: { value: id } });
   await settle();
-  // By id: the picked theme's wording overlay may have re-worded the tab.
-  fireEvent.click(utils.container.querySelector("#ts-tab-library")!);
 }
 
 async function selectedTheme(utils: ReturnType<typeof render>): Promise<string> {
-  openAppearance(utils);
-  const value = themeSelect(utils).value;
-  openTab(utils, s.themeTabLibrary);
-  return value;
+  return themeSelect(utils).value;
 }
 
 beforeEach(() => {
@@ -292,7 +275,7 @@ describe("ThemeSettings · import", () => {
       name: "午夜藍",
       colors: { "--color-accent": "#0b1020" },
     });
-    expect(await utils.findByText("午夜藍")).toBeTruthy();
+    expect(await library(utils).findByText("午夜藍")).toBeTruthy();
     expect(await savedIds()).toContain("midnight");
 
     // WHICH KIND a theme is comes from the group it sits in.
@@ -322,7 +305,7 @@ describe("ThemeSettings · import", () => {
       name: "午夜藍",
       colors: { "--color-accent": "#0b1020" },
     });
-    await utils.findByText("午夜藍");
+    await library(utils).findByText("午夜藍");
 
     const groupOf = (name: string) => {
       const row = Array.from(utils.container.querySelectorAll(".ts-row")).find(
@@ -442,7 +425,7 @@ describe("ThemeSettings · import", () => {
       },
     });
     // The import SUCCEEDED — the pack is listed and landed on the server.
-    expect(await utils.findByText("精靈村")).toBeTruthy();
+    expect(await library(utils).findByText("精靈村")).toBeTruthy();
     expect(await savedIds()).toContain("elfvillage");
     // …and the recognised override survived while the unknown ones did not.
     expect((await savedTheme("elfvillage")).wording).toEqual({
@@ -468,7 +451,7 @@ describe("ThemeSettings · import", () => {
       colors: { "--color-accent": "#0b1020" },
       wording: { zh: junk },
     });
-    expect(await utils.findByText("吵雜")).toBeTruthy();
+    expect(await library(utils).findByText("吵雜")).toBeTruthy();
     expect(utils.getByTestId("theme-import-skipped").textContent).toBe(
       makeMessages(zh, "zh").themeImportSkipped(30, [
         "junk.key.1",
@@ -535,7 +518,7 @@ describe("ThemeSettings · colour editing", () => {
       colors: { "--color-accent": "#0b1020" },
     });
     const utils = await renderManage();
-    await utils.findByText("豐收");
+    await library(utils).findByText("豐收");
     await openEditor(utils, "豐收");
     fireEvent.change(within(colourRow(utils, "主色")).getByLabelText("主色"), {
       target: { value: "#ffffff" },
@@ -1022,7 +1005,7 @@ describe("ThemeSettings · delete", () => {
     fireEvent.click(utils.getByTestId("theme-delete-confirm-btn"));
     await settle();
 
-    expect(utils.queryByText("午夜藍")).toBeNull();
+    expect(library(utils).queryByText("午夜藍")).toBeNull();
     expect(await savedIds()).toEqual([]);
   });
 
@@ -1041,7 +1024,7 @@ describe("ThemeSettings · delete", () => {
       name: "午夜藍",
       colors: { "--color-accent": "#0b1020" },
     });
-    await utils.findByText("午夜藍");
+    await library(utils).findByText("午夜藍");
 
     // Make it the ACTIVE theme — that is the case with something to get wrong.
     await pickTheme(utils, "midnight");
@@ -1052,7 +1035,7 @@ describe("ThemeSettings · delete", () => {
     await settle();
 
     // Gone from the list AND from the server…
-    expect(utils.queryByText("午夜藍")).toBeNull();
+    expect(library(utils).queryByText("午夜藍")).toBeNull();
     expect(await savedIds()).toEqual([]);
     // …and the built-in is what the cockpit is showing, not a dangling id.
     expect(await selectedTheme(utils)).toBe("office");
@@ -1169,11 +1152,9 @@ describe("ThemeSettings · fetching a bundle to edit or export", () => {
   /** Make the theme called `name` the ACTIVE one through 外觀's select (the
    * seam production uses), and wait for its bundle to arrive. */
   async function activate(utils: ReturnType<typeof render>, name: string) {
-    openAppearance(utils);
     const option = Array.from(themeSelect(utils).options).find((o) => o.textContent === name)!;
     fireEvent.change(themeSelect(utils), { target: { value: option.value } });
     await settle();
-    openTab(utils, s.themeTabLibrary);
   }
 
   it("fetches the bundle of a theme that is NOT the active one before editing it", async () => {
@@ -1181,7 +1162,7 @@ describe("ThemeSettings · fetching a bundle to edit or export", () => {
     await seed(AURORA);
     await seed(MIDNIGHT);
     const utils = await renderManage();
-    await utils.findByText("極光");
+    await library(utils).findByText("極光");
     await activate(utils, "極光");
 
     const spy = vi.spyOn(api, "getTheme");
@@ -1212,7 +1193,7 @@ describe("ThemeSettings · fetching a bundle to edit or export", () => {
     await seed(AURORA);
     await seed(MIDNIGHT);
     const utils = await renderManage();
-    await utils.findByText("極光");
+    await library(utils).findByText("極光");
     await activate(utils, "極光");
 
     await openEditor(utils, "午夜藍");
@@ -1233,7 +1214,7 @@ describe("ThemeSettings · fetching a bundle to edit or export", () => {
     setToken("owner-token");
     await seed(AURORA);
     const utils = await renderManage();
-    await utils.findByText("極光");
+    await library(utils).findByText("極光");
     await activate(utils, "極光");
 
     const spy = vi.spyOn(api, "getTheme");
@@ -1250,7 +1231,7 @@ describe("ThemeSettings · fetching a bundle to edit or export", () => {
     await seed(AURORA);
     await seed(MIDNIGHT);
     const utils = await renderManage();
-    await utils.findByText("午夜藍");
+    await library(utils).findByText("午夜藍");
     await activate(utils, "極光");
 
     const createFn = vi.fn().mockReturnValue("blob:x");
@@ -1284,7 +1265,7 @@ describe("ThemeSettings · fetching a bundle to edit or export", () => {
     setToken("owner-token");
     await seed(MIDNIGHT);
     const utils = await renderManage();
-    await utils.findByText("午夜藍");
+    await library(utils).findByText("午夜藍");
 
     vi.spyOn(api, "getTheme").mockRejectedValue(
       new ApiError("http 404", 404, codeForStatus(404), "theme not found")
@@ -1297,7 +1278,7 @@ describe("ThemeSettings · fetching a bundle to edit or export", () => {
     // …and we are still on the LIST — no half-open editor over a bundle that
     // never arrived.
     expect(utils.container.querySelector(".ts-form-actions")).toBeNull();
-    expect(utils.getByText("午夜藍")).toBeTruthy();
+    expect(library(utils).getByText("午夜藍")).toBeTruthy();
     // 🔴 …and the row is LIVE AGAIN. `busyId` is both the in-flight signal and
     // the one-request-at-a-time lock, so a release that does not happen on the
     // failure path leaves every row's 匯出/編輯 permanently dead — the owner's
@@ -1321,7 +1302,7 @@ describe("ThemeSettings · fetching a bundle to edit or export", () => {
     setToken("owner-token");
     await seed(MIDNIGHT);
     const utils = await renderManage();
-    await utils.findByText("午夜藍");
+    await library(utils).findByText("午夜藍");
 
     vi.spyOn(api, "getTheme").mockRejectedValue(new Error("boom"));
     await openEditor(utils, "午夜藍");
@@ -1342,7 +1323,7 @@ describe("ThemeSettings · fetching a bundle to edit or export", () => {
     await seed(AURORA);
     await seed(MIDNIGHT);
     const utils = await renderManage();
-    await utils.findByText("午夜藍");
+    await library(utils).findByText("午夜藍");
 
     let release!: (b: ThemeBundle) => void;
     vi.spyOn(api, "getTheme").mockReturnValue(
@@ -1394,7 +1375,7 @@ describe("ThemeSettings · refusals that still stand", () => {
     setToken("owner-token");
     await seedMany(MAX_CUSTOM_THEMES);
     const utils = await renderManage();
-    await utils.findByText(`包 ${MAX_CUSTOM_THEMES - 1}`);
+    await library(utils).findByText(`包 ${MAX_CUSTOM_THEMES - 1}`);
 
     fireEvent.click(utils.getByText(p.themeAdd));
     await settle();
@@ -1416,7 +1397,7 @@ describe("ThemeSettings · refusals that still stand", () => {
       colors: { "--color-accent": "#aa0011" },
     });
     const utils = await renderManage();
-    await utils.findByText("午夜藍");
+    await library(utils).findByText("午夜藍");
 
     await importBundle(utils, {
       id: "midnight",
@@ -1458,7 +1439,7 @@ describe("ThemeSettings · refusals that still stand", () => {
     setToken("owner-token");
     await seedMany(MAX_CUSTOM_THEMES);
     const utils = await renderManage();
-    await utils.findByText(`包 ${MAX_CUSTOM_THEMES - 1}`);
+    await library(utils).findByText(`包 ${MAX_CUSTOM_THEMES - 1}`);
 
     await importBundle(utils, {
       id: "one-too-many",
@@ -1507,7 +1488,7 @@ describe("ThemeSettings · a refused write is visible", () => {
       colors: { "--color-accent": "#aa0011" },
     });
     const utils = await renderManage();
-    await utils.findByText("午夜藍");
+    await library(utils).findByText("午夜藍");
     await openEditor(utils, "午夜藍");
 
     const label = tokenMeta("--color-accent", "zh").label;
@@ -1547,7 +1528,7 @@ describe("ThemeSettings · a refused write is visible", () => {
       colors: { "--color-accent": "#aa0011" },
     });
     const utils = await renderManage();
-    await utils.findByText("午夜藍");
+    await library(utils).findByText("午夜藍");
 
     vi.spyOn(api, "deleteTheme").mockRejectedValue(
       new ApiError("http 404", 404, codeForStatus(404), "theme not found")
@@ -1563,7 +1544,7 @@ describe("ThemeSettings · a refused write is visible", () => {
     );
     expect(utils.queryByTestId("theme-delete-confirm-btn")).toBeNull();
     // The row is STILL THERE, ready for a second attempt…
-    expect(utils.getByText("午夜藍")).toBeTruthy();
+    expect(library(utils).getByText("午夜藍")).toBeTruthy();
     vi.restoreAllMocks();
     // …and so is the theme itself.
     expect(await savedIds()).toEqual(["midnight"]);
@@ -1581,7 +1562,7 @@ describe("ThemeSettings · a refused write is visible", () => {
       colors: { "--color-accent": "#aa0011" },
     });
     const utils = await renderManage();
-    await utils.findByText("午夜藍");
+    await library(utils).findByText("午夜藍");
 
     const spy = vi
       .spyOn(api, "deleteTheme")
@@ -1602,27 +1583,26 @@ describe("ThemeSettings · a refused write is visible", () => {
 });
 
 describe("ThemeSettings · appearance", () => {
-  it("opens on 外觀, which shows the 主題設定 content inline, and the tabs swap 外觀 and 主題庫", async () => {
-    const utils = await renderManage({ tab: s.themeTabAppearance });
-    const appearance = utils.getByRole("tab", { name: s.themeTabAppearance });
-    const library = utils.getByRole("tab", { name: s.themeTabLibrary });
-    expect(appearance.getAttribute("aria-selected")).toBe("true");
-    expect(utils.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(appearance.id);
-    const panel = within(appearancePanel(utils));
-    expect(panel.getByRole("switch", { name: s.themeSchedule })).toBeTruthy();
-    expect(panel.getByRole("combobox", { name: s.themePick })).toBeTruthy();
-    expect(panel.getByRole("switch", { name: p.seasonalTheme })).toBeTruthy();
-    expect(panel.getByRole("button", { name: s.themeRestoreDefault })).toBeTruthy();
-    expect(utils.queryByRole("dialog")).toBeNull();
-    expect(utils.queryByText(p.themeImport)).toBeNull();
+  it("shows 外觀 then 主題庫 as two titled blocks: 恢復預設 in 外觀's header, 匯入 and 新增 in 主題庫's", async () => {
+    const utils = await renderManage();
+    const [appearance, library] = utils.getAllByRole("region");
+    expect(appearance.getAttribute("aria-labelledby")).toBeTruthy();
+    expect(within(appearance).getByRole("heading", { name: s.themeTabAppearance })).toBeTruthy();
+    expect(within(library).getByRole("heading", { name: s.themeTabLibrary })).toBeTruthy();
 
-    fireEvent.click(library);
+    const appearanceHead = within(appearance).getByRole("heading").parentElement!;
+    expect(within(appearanceHead).getByRole("button", { name: s.themeRestoreDefault })).toBeTruthy();
+    expect(within(appearance).getByRole("switch", { name: s.themeSchedule })).toBeTruthy();
+    expect(within(appearance).getByRole("combobox", { name: s.themePick })).toBeTruthy();
+    expect(within(appearance).getByRole("switch", { name: p.seasonalTheme })).toBeTruthy();
 
-    expect(library.getAttribute("aria-selected")).toBe("true");
-    expect(appearance.getAttribute("aria-selected")).toBe("false");
-    expect(utils.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(library.id);
-    expect(utils.getByText(p.themeImport)).toBeTruthy();
-    expect(utils.queryByTestId("theme-appearance-panel")).toBeNull();
+    const libraryHead = within(library).getByRole("heading").parentElement!;
+    expect(
+      within(libraryHead).getAllByRole("button").map((b) => b.textContent)
+    ).toEqual([p.themeImport, p.themeAdd]);
+    expect(within(library).getByTestId("ts-group-builtin")).toBeTruthy();
+    expect(within(library).queryAllByTestId("ts-thumb")).toEqual([]);
+    expect(utils.queryByRole("tab")).toBeNull();
   });
 
   it("lists the built-ins first, then the custom themes by their own names, and applies a pick at once", async () => {
@@ -1630,7 +1610,7 @@ describe("ThemeSettings · appearance", () => {
     const spoof = `${zh.themeIdentity.office}(${zh.themeMarkers.builtinGroup})`;
     await api.putTheme({ id: "aaa", name: spoof, colors: { "--color-bg": "#101018" } });
     await api.putTheme({ id: "zzz", name: "000 更前面", colors: { "--color-bg": "#181018" } });
-    const utils = await renderAppearance();
+    const utils = await renderManage();
 
     expect(Array.from(themeSelect(utils).options).map((o) => [o.value, o.textContent])).toEqual([
       ["office", zh.themeIdentity.office],
@@ -1659,7 +1639,7 @@ describe("ThemeSettings · appearance", () => {
       colors: { "--color-card": "#202030" },
       backgrounds: { canvas: png },
     });
-    const utils = await renderAppearance();
+    const utils = await renderManage();
     const thumb = () => within(appearancePanel(utils)).getByTestId("ts-thumb");
     const card = () => thumb().querySelector<HTMLElement>(".ts-thumb__card")!;
     const cssColor = (value: string) => {
@@ -1693,7 +1673,7 @@ describe("ThemeSettings · appearance", () => {
   it("draws a blank thumbnail when a custom theme cannot be fetched", async () => {
     setToken("owner-token");
     await api.putTheme({ id: "midnight", name: "午夜藍", colors: { "--color-bg": "#101018" } });
-    const utils = await renderAppearance();
+    const utils = await renderManage();
     vi.spyOn(api, "getTheme").mockRejectedValue(new Error("boom"));
     vi.spyOn(console, "warn").mockImplementation(() => {});
 
@@ -1708,7 +1688,7 @@ describe("ThemeSettings · appearance", () => {
     setToken("owner-token");
     await api.putTheme({ id: "midnight", name: "午夜藍", colors: { "--color-bg": "#101018" } });
     await api.patchServerSettings({ displayTheme: "midnight", displaySeasonalTheme: false });
-    const utils = await renderAppearance();
+    const utils = await renderManage();
     const dialog = within(appearancePanel(utils));
 
     fireEvent.click(dialog.getByRole("button", { name: s.themeRestoreDefault }));
@@ -1735,7 +1715,7 @@ describe("ThemeSettings · appearance", () => {
 
   it("恢復預設 that the server refuses says so and keeps the confirm open", async () => {
     setToken("owner-token");
-    const utils = await renderAppearance();
+    const utils = await renderManage();
     vi.spyOn(api, "patchServerSettings").mockRejectedValue(new Error("boom"));
     vi.spyOn(console, "warn").mockImplementation(() => {});
 
@@ -1748,7 +1728,7 @@ describe("ThemeSettings · appearance", () => {
 
   it("the 顯示應景主題 switch is on by default and saves each flip to the server", async () => {
     setToken("owner-token");
-    const utils = await renderAppearance();
+    const utils = await renderManage();
     const seasonal = utils.getByRole("switch", { name: p.seasonalTheme });
     expect(seasonal.getAttribute("aria-checked")).toBe("true");
 
@@ -1781,7 +1761,7 @@ describe("ThemeSettings · switch by time of day", () => {
   async function renderWithDusk() {
     setToken("owner-token");
     await api.putTheme({ id: "dusk", name: "黃昏", colors: { "--color-bg": "#0a0b0c" } });
-    return renderAppearance();
+    return renderManage();
   }
 
   it("turning it on swaps the 主題 select for the default desk schedule to edit and saves nothing until the schedule is saved", async () => {
@@ -1920,13 +1900,13 @@ describe("ThemeSettings · switch by time of day", () => {
     expect(themeSelect(utils).value).toBe("office");
   });
 
-  it("keeps unsaved rows across a visit to 主題庫", async () => {
+  it("keeps unsaved rows across a visit to the import view", async () => {
     const utils = await renderWithDusk();
     fireEvent.click(scheduleSwitch(utils));
     fireEvent.change(startInputs(utils)[0], { target: { value: "07:15" } });
 
-    openTab(utils, s.themeTabLibrary);
-    openAppearance(utils);
+    fireEvent.click(utils.getByRole("button", { name: p.themeImport }));
+    fireEvent.click(utils.container.querySelector(".ts-back")!);
 
     expect(rows(utils)).toEqual([
       ["07:15", "modern-office-desk-day"],
@@ -1949,13 +1929,11 @@ describe("ThemeSettings · switch by time of day", () => {
       ["06:00", "modern-office-desk-day"],
       ["16:30", "dusk"],
     ]);
-    openTab(utils, s.themeTabLibrary);
     fireEvent.click(await utils.findByLabelText(`${p.themeDelete} 黃昏`));
     fireEvent.click(utils.getByTestId("theme-delete-confirm-btn"));
     await settle();
 
     expect((await api.getServerSettings()).displayThemeSchedule).toEqual([]);
-    openAppearance(utils);
     expect(startInputs(utils)).toEqual([]);
     expect(scheduleSwitch(utils).getAttribute("aria-checked")).toBe("false");
   });

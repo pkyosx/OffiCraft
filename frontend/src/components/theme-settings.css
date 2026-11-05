@@ -401,8 +401,31 @@
   }
 }
 
-.ts-page-tabs {
-  margin-bottom: 16px;
+/* 設定 › 主題 is two cards, 外觀 then 主題庫, each with a header bar (the
+ * .doc-card__head chrome) carrying its title and actions. */
+.ts-block + .ts-block {
+  margin-top: 16px;
+}
+.ts-block__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+  white-space: nowrap;
+}
+.ts-block__head--untitled {
+  justify-content: flex-end;
+}
+.ts-block__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ts-block__body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 18px;
 }
 
 .ts-schedule {
@@ -518,11 +541,6 @@
   flex: none;
   color: var(--color-text-muted);
 }
-/* 外觀 hosts 主題設定 inline; its button row sits under the card. */
-.ts-appearance-inline .ts-modal__actions {
-  margin-top: 12px;
-}
-
 /* 主題設定 sits on the shared confirm-modal scrim and box, widened for the
  * schedule rows. */
 .ts-modal__box.confirm-modal__box {
@@ -532,6 +550,7 @@
   outline: none;
 }
 .ts-modal__head {
+  margin-bottom: 4px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -542,9 +561,6 @@
   font-size: 15px;
   font-weight: 600;
   color: var(--color-text-strong);
-}
-.ts-modal__actions {
-  justify-content: space-between;
 }
 
 /* A phone has no room for time + thumbnail + full theme name on one line, and

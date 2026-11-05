@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
 import {
@@ -274,7 +274,7 @@ function ThemeAppearance({
   };
 
   return (
-    <div className="param-card ts-appearance">
+    <>
       <div className="param-row">
         <div className="param-row__body">
           <span className="param-row__name">{t.settings.themeSchedule}</span>
@@ -392,24 +392,25 @@ function ThemeAppearance({
           <span className="set-toggle__knob" />
         </button>
       </div>
-    </div>
+    </>
   );
 }
 
 export type ThemeScheduleDraft = ReturnType<typeof useThemeScheduleDraft>;
 export { useThemeScheduleDraft };
 
-/** 主題設定's content — a single theme or a time-of-day schedule, the seasonal
- * switch, and 恢復預設. Hosted by the dialog (偏好設定) and inline by
- * 設定 › 主題 › 外觀; the inline host passes `schedule` so unsaved rows live as
- * long as the page, not the tab. `actions` adds buttons beside 恢復預設. */
+/** The 外觀 block — a single theme or a time-of-day schedule, the seasonal
+ * switch, and 恢復預設 in its header. Shown on 設定 › 主題 and inside the
+ * 主題設定 dialog (偏好設定), untitled there since the dialog names it. The
+ * page passes `schedule` so unsaved rows outlive a re-render of the block. */
 export function ThemeAppearancePanel({
   schedule: hosted,
-  actions,
+  titled = true,
 }: {
   schedule?: ThemeScheduleDraft;
-  actions?: ReactNode;
+  titled?: boolean;
 }) {
+  const titleId = useId();
   const { t, theme, restoreDefaultAppearance } = useI18n();
   const [confirmRestore, setConfirmRestore] = useState(false);
   const [restoring, setRestoring] = useState(false);
@@ -433,12 +434,20 @@ export function ThemeAppearancePanel({
   };
 
   return (
-    <>
-      <ThemeAppearance {...schedule} swatchOf={swatches.swatchOf} />
-      <div className="confirm-modal__actions ts-modal__actions">
+    <section
+      className="param-card ts-block ts-appearance"
+      aria-labelledby={titled ? titleId : undefined}
+      aria-label={titled ? undefined : t.settings.themeTabAppearance}
+    >
+      <div className={`doc-card__head ts-block__head${titled ? "" : " ts-block__head--untitled"}`}>
+        {titled && (
+          <h2 className="ts-block__title" id={titleId}>
+            {t.settings.themeTabAppearance}
+          </h2>
+        )}
         <button
           type="button"
-          className="confirm-modal__btn"
+          className="doc-btn"
           onClick={() => {
             setRestoreError("");
             setConfirmRestore(true);
@@ -446,8 +455,8 @@ export function ThemeAppearancePanel({
         >
           {t.settings.themeRestoreDefault}
         </button>
-        {actions}
       </div>
+      <ThemeAppearance {...schedule} swatchOf={swatches.swatchOf} />
       {confirmRestore && (
         <ConfirmModal
           testId="theme-restore-confirm"
@@ -461,7 +470,7 @@ export function ThemeAppearancePanel({
           onConfirm={() => void restore()}
         />
       )}
-    </>
+    </section>
   );
 }
 
@@ -515,13 +524,7 @@ export function ThemeAppearanceDialog({
             <CloseIcon size={15} />
           </button>
         </div>
-        <ThemeAppearancePanel
-          actions={
-            <button type="button" className="confirm-modal__btn" onClick={onClose}>
-              {t.settings.themeDialogClose}
-            </button>
-          }
-        />
+        <ThemeAppearancePanel titled={false} />
       </div>
     </div>,
     document.body
