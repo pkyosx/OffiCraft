@@ -462,38 +462,73 @@
   width: 55%;
 }
 
-/* Today at a glance: one segment per row, 00:00 → 24:00. Decorative — the rows
- * below carry the same information for assistive tech. */
+/* Today at a glance: one solid segment per row, 00:00 → 24:00, carrying the
+ * row's short name and start. Decorative — the rows below carry the same
+ * information for assistive tech. */
 .ts-timeline {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.ts-timeline__bar {
-  display: flex;
-  height: 18px;
+  height: 32px;
   border-radius: 6px;
   overflow: hidden;
   border: 1px solid var(--color-border);
 }
 .ts-timeline__seg {
+  container-type: inline-size;
   height: 100%;
-  background-size: cover;
-  background-position: center;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 0 6px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
 }
 .ts-timeline__seg + .ts-timeline__seg {
   border-left: 1px solid var(--color-border);
 }
-.ts-timeline__labels {
-  position: relative;
-  height: 14px;
+.ts-timeline__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
   font-size: 11px;
-  color: var(--color-text-muted);
+  line-height: 13px;
 }
-.ts-timeline__label {
-  position: absolute;
-  top: 0;
+.ts-timeline__name,
+.ts-timeline__time {
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ts-timeline__name {
+  font-weight: 600;
+}
+@container (max-width: 36px) {
+  .ts-timeline__text {
+    display: none;
+  }
+}
+
+/* 主題設定 sits on the shared confirm-modal scrim and box, widened for the
+ * schedule rows. */
+.ts-modal__box.confirm-modal__box {
+  max-width: 600px;
+}
+.ts-modal:focus {
+  outline: none;
+}
+.ts-modal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ts-modal__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.ts-modal__actions {
+  justify-content: space-between;
 }
 
 /* A phone has no room for time + thumbnail + full theme name on one line, and
@@ -508,9 +543,6 @@
   }
   .ts-schedule-row > .ts-schedule-start {
     flex: 1 1 auto;
-  }
-  .ts-timeline__labels {
-    display: none;
   }
   /* Same trap as .param-input--wide: the label column takes all the shrink and
    * stacks one CJK character per line unless the select gets its own line. */

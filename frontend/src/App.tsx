@@ -242,6 +242,8 @@ export default function App({ onLogout }: { onLogout?: () => void } = {}) {
   useEffect(() => {
     if (!profileOpen) return;
     function onDown(e: MouseEvent) {
+      // The 主題設定 dialog opened from the menu is portalled outside it.
+      if ((e.target as Element).closest?.(".ts-modal")) return;
       if (!profileMenuRef.current?.contains(e.target as Node)) {
         setProfileOpen(false);
       }

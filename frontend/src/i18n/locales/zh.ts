@@ -1131,6 +1131,8 @@ export const zh = {
   themeIdentity: {
     office: "辦公室（深色）",
     officeLight: "辦公室（淺色）",
+    officeShort: "深色",
+    officeLightShort: "淺色",
     newTheme: "新主題",
   },
   // ── 「內建 / 自訂」標籤 ────────────────────────────────────────────────────
@@ -1154,7 +1156,6 @@ export const zh = {
     logout: "登出",
     back: "偏好設定",
     theme: "主題",
-    themeManageHint: "到「設定 › 主題」更換。",
     themeStatusScheduledLead: "依時段切換（現在是 ",
     themeStatusScheduledTail: "）",
     themeStatusSeasonalLead: "應景主題（",
@@ -2252,6 +2253,10 @@ export const zh = {
     themeSchedule: "依時段切換",
     themeScheduleHint:
       "到了設定的時間自動換主題（依這台裝置的時間）。應景主題期間仍顯示應景主題。",
+    themeShown: "畫面上的主題",
+    themeDialogTitle: "主題設定",
+    themeDialogClose: "關閉",
+    themeDialogOpen: "主題設定…",
     themePick: "主題",
     themePickHint: "選了立刻套用到整個畫面",
     themeScheduleStart: "開始時間",

@@ -246,6 +246,20 @@
   overflow-wrap: anywhere;
 }
 
+.profile-dd__theme-open {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 10%, transparent);
+  background: transparent;
+  color: var(--color-text);
+  font-size: 13px;
+  cursor: pointer;
+}
+.profile-dd__theme-open:hover {
+  background: color-mix(in srgb, var(--color-overlay) 5%, transparent);
+}
+
 .profile-dd__theme-actions {
   display: flex;
   gap: 4px;

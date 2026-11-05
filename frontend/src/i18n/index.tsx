@@ -184,6 +184,10 @@ interface I18nContextValue {
   scheduledTheme: string | null;
   /** The seasonal theme's name while it is on screen and loaded, else null. */
   seasonalThemeName: string | null;
+  /** The id of the theme on screen: seasonal, else the schedule's row, else `theme`. */
+  shownTheme: string;
+  /** The bundle painted on screen; null for a CSS built-in or while it loads. */
+  shownThemeBundle: ThemeBundle | null;
   /** The shown theme's per-role avatar images (T-16a1 P5; T-ea81) — the
    * seasonal theme's inside its window, else the active custom theme's — or
    * undefined when the shown theme carries none (the built-in office, or a
@@ -892,6 +896,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       setThemeSchedule,
       scheduledTheme,
       seasonalThemeName,
+      shownTheme,
+      shownThemeBundle: shownBundle,
       activeAvatars,
       activeLogo,
       activeNavIcons,
@@ -918,6 +924,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       setThemeSchedule,
       scheduledTheme,
       seasonalThemeName,
+      shownTheme,
+      shownBundle,
       activeAvatars,
       activeLogo,
       activeNavIcons,

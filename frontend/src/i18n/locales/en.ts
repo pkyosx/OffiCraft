@@ -1056,6 +1056,8 @@ export const en: Dict = {
   themeIdentity: {
     office: "Office (Dark)",
     officeLight: "Office (Light)",
+    officeShort: "Dark",
+    officeLightShort: "Light",
     newTheme: "New theme",
   },
   // ── The 內建 / 自訂 labels ─────────────────────────────────────────────────
@@ -1079,7 +1081,6 @@ export const en: Dict = {
     logout: "Log out",
     back: "Preferences",
     theme: "Theme",
-    themeManageHint: "Change it in Settings › Theme.",
     themeStatusScheduledLead: "Switching by time of day (now ",
     themeStatusScheduledTail: ")",
     themeStatusSeasonalLead: "Seasonal theme (",
@@ -2230,6 +2231,10 @@ export const en: Dict = {
     themeSchedule: "Switch by time of day",
     themeScheduleHint:
       "Changes the theme automatically at the times you set (by this device's clock). A seasonal theme still shows during its season.",
+    themeShown: "Theme on screen",
+    themeDialogTitle: "Theme settings",
+    themeDialogClose: "Close",
+    themeDialogOpen: "Theme settings…",
     themePick: "Theme",
     themePickHint: "Applies to the whole screen as soon as you pick it",
     themeScheduleStart: "Starts at",

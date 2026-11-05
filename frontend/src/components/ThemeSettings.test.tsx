@@ -226,19 +226,42 @@ async function renderManage({ tab = s.themeTabLibrary }: { tab?: string } = {}) 
 const themeSelect = (utils: ReturnType<typeof render>) =>
   utils.getByRole("combobox", { name: s.themePick }) as HTMLSelectElement;
 
-/** Make `id` the selected theme through 外觀's 主題 select, then come back to
- * 主題庫. */
-async function pickTheme(utils: ReturnType<typeof render>, id: string) {
+// Structural, not by name: a picked theme's wording overlay may re-word the title.
+const appearanceDialog = (utils: ReturnType<typeof render>) =>
+  utils.getByTestId("theme-appearance-dialog");
+
+/** 外觀 › 主題設定… */
+function openAppearanceDialog(utils: ReturnType<typeof render>) {
   openTab(utils, s.themeTabAppearance);
+  fireEvent.click(utils.getByRole("button", { name: s.themeDialogOpen }));
+  return appearanceDialog(utils);
+}
+
+function closeAppearanceDialog(utils: ReturnType<typeof render>) {
+  fireEvent.click(appearanceDialog(utils).querySelector(".confirm-modal__actions button:last-child")!);
+}
+
+async function renderAppearanceDialog() {
+  const utils = await renderManage({ tab: s.themeTabAppearance });
+  openAppearanceDialog(utils);
+  return utils;
+}
+
+/** Make `id` the selected theme through 主題設定's 主題 select, then come back
+ * to 主題庫. */
+async function pickTheme(utils: ReturnType<typeof render>, id: string) {
+  openAppearanceDialog(utils);
   fireEvent.change(themeSelect(utils), { target: { value: id } });
   await settle();
+  closeAppearanceDialog(utils);
   // By id: the picked theme's wording overlay may have re-worded the tab.
   fireEvent.click(utils.container.querySelector("#ts-tab-library")!);
 }
 
 async function selectedTheme(utils: ReturnType<typeof render>): Promise<string> {
-  openTab(utils, s.themeTabAppearance);
+  openAppearanceDialog(utils);
   const value = themeSelect(utils).value;
+  closeAppearanceDialog(utils);
   openTab(utils, s.themeTabLibrary);
   return value;
 }
@@ -1152,10 +1175,11 @@ describe("ThemeSettings · fetching a bundle to edit or export", () => {
   /** Make the theme called `name` the ACTIVE one through 外觀's select (the
    * seam production uses), and wait for its bundle to arrive. */
   async function activate(utils: ReturnType<typeof render>, name: string) {
-    openTab(utils, s.themeTabAppearance);
+    openAppearanceDialog(utils);
     const option = Array.from(themeSelect(utils).options).find((o) => o.textContent === name)!;
     fireEvent.change(themeSelect(utils), { target: { value: option.value } });
     await settle();
+    closeAppearanceDialog(utils);
     openTab(utils, s.themeTabLibrary);
   }
 
@@ -1585,13 +1609,16 @@ describe("ThemeSettings · a refused write is visible", () => {
 });
 
 describe("ThemeSettings · appearance", () => {
-  it("opens on 外觀 and the tabs swap 外觀 and 主題庫", async () => {
+  it("opens on 外觀, which names the theme on screen with its thumbnail, and the tabs swap 外觀 and 主題庫", async () => {
+    localStorage.setItem("oc.theme", "office-light");
     const utils = await renderManage({ tab: s.themeTabAppearance });
     const appearance = utils.getByRole("tab", { name: s.themeTabAppearance });
     const library = utils.getByRole("tab", { name: s.themeTabLibrary });
     expect(appearance.getAttribute("aria-selected")).toBe("true");
     expect(utils.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(appearance.id);
-    expect(utils.getByRole("switch", { name: s.themeSchedule })).toBeTruthy();
+    expect(utils.getByTestId("ts-theme-status").textContent).toBe(zh.themeIdentity.officeLight);
+    expect(within(utils.getByRole("tabpanel")).getByTestId("ts-thumb").style.backgroundColor).not.toBe("");
+    expect(utils.getByRole("button", { name: s.themeDialogOpen })).toBeTruthy();
     expect(utils.queryByText(p.themeImport)).toBeNull();
 
     fireEvent.click(library);
@@ -1600,7 +1627,28 @@ describe("ThemeSettings · appearance", () => {
     expect(appearance.getAttribute("aria-selected")).toBe("false");
     expect(utils.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(library.id);
     expect(utils.getByText(p.themeImport)).toBeTruthy();
-    expect(utils.queryByRole("switch", { name: s.themeSchedule })).toBeNull();
+    expect(utils.queryByRole("button", { name: s.themeDialogOpen })).toBeNull();
+  });
+
+  it("主題設定… opens the 主題設定 dialog, focused and labelled, and Esc or 關閉 closes it back onto the button", async () => {
+    const utils = await renderManage({ tab: s.themeTabAppearance });
+    const opener = utils.getByRole("button", { name: s.themeDialogOpen });
+    opener.focus();
+    fireEvent.click(opener);
+
+    const dialog = utils.getByRole("dialog", { name: s.themeDialogTitle });
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+    expect(document.activeElement).toBe(dialog);
+    expect(within(dialog).getByRole("switch", { name: s.themeSchedule })).toBeTruthy();
+    expect(within(dialog).getByRole("switch", { name: p.seasonalTheme })).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(utils.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(opener);
+
+    fireEvent.click(opener);
+    fireEvent.click(within(appearanceDialog(utils)).getAllByRole("button", { name: s.themeDialogClose })[0]);
+    expect(utils.queryByRole("dialog")).toBeNull();
   });
 
   it("lists the built-ins first, then the custom themes by their own names, and applies a pick at once", async () => {
@@ -1608,7 +1656,7 @@ describe("ThemeSettings · appearance", () => {
     const spoof = `${zh.themeIdentity.office}(${zh.themeMarkers.builtinGroup})`;
     await api.putTheme({ id: "aaa", name: spoof, colors: { "--color-bg": "#101018" } });
     await api.putTheme({ id: "zzz", name: "000 更前面", colors: { "--color-bg": "#181018" } });
-    const utils = await renderManage({ tab: s.themeTabAppearance });
+    const utils = await renderAppearanceDialog();
 
     expect(Array.from(themeSelect(utils).options).map((o) => [o.value, o.textContent])).toEqual([
       ["office", zh.themeIdentity.office],
@@ -1635,8 +1683,8 @@ describe("ThemeSettings · appearance", () => {
       colors: { "--color-card": "#202030" },
       backgrounds: { canvas: png },
     });
-    const utils = await renderManage({ tab: s.themeTabAppearance });
-    const thumb = () => utils.getByTestId("ts-thumb");
+    const utils = await renderAppearanceDialog();
+    const thumb = () => within(appearanceDialog(utils)).getByTestId("ts-thumb");
     const card = () => thumb().querySelector<HTMLElement>(".ts-thumb__card")!;
     const cssColor = (value: string) => {
       const probe = document.createElement("span");
@@ -1660,8 +1708,6 @@ describe("ThemeSettings · appearance", () => {
       cssColor("#202030")
     );
 
-    openTab(utils, s.themeTabLibrary);
-    openTab(utils, s.themeTabAppearance);
     fireEvent.change(rowTheme(1), { target: { value: "midnight" } });
     await settle();
     expect(rowThumb(1).style.backgroundImage).toContain(png);
@@ -1671,20 +1717,20 @@ describe("ThemeSettings · appearance", () => {
   it("draws a blank thumbnail when a custom theme cannot be fetched", async () => {
     setToken("owner-token");
     await api.putTheme({ id: "midnight", name: "午夜藍", colors: { "--color-bg": "#101018" } });
-    const utils = await renderManage({ tab: s.themeTabAppearance });
+    const utils = await renderAppearanceDialog();
     vi.spyOn(api, "getTheme").mockRejectedValue(new Error("boom"));
     vi.spyOn(console, "warn").mockImplementation(() => {});
 
     fireEvent.change(themeSelect(utils), { target: { value: "midnight" } });
     await settle();
 
-    expect(utils.getByTestId("ts-thumb").classList.contains("ts-thumb--blank")).toBe(true);
+    expect(within(appearanceDialog(utils)).getByTestId("ts-thumb").classList.contains("ts-thumb--blank")).toBe(true);
     expect(themeSelect(utils).value).toBe("midnight");
   });
 
   it("the 顯示應景主題 switch is on by default and saves each flip to the server", async () => {
     setToken("owner-token");
-    const utils = await renderManage({ tab: s.themeTabAppearance });
+    const utils = await renderAppearanceDialog();
     const seasonal = utils.getByRole("switch", { name: p.seasonalTheme });
     expect(seasonal.getAttribute("aria-checked")).toBe("true");
 
@@ -1714,14 +1760,14 @@ describe("ThemeSettings · switch by time of day", () => {
       (section(utils).getByLabelText(`${s.themeScheduleTheme} ${i + 1}`) as HTMLSelectElement).value,
     ]);
   const timelineLabels = (utils: ReturnType<typeof render>) =>
-    Array.from(utils.getByTestId("ts-timeline").querySelectorAll(".ts-timeline__label")).map(
+    Array.from(utils.getByTestId("ts-timeline").querySelectorAll(".ts-timeline__time")).map(
       (l) => l.textContent
     );
 
   async function renderWithDusk() {
     setToken("owner-token");
     await api.putTheme({ id: "dusk", name: "黃昏", colors: { "--color-bg": "#0a0b0c" } });
-    return renderManage({ tab: s.themeTabAppearance });
+    return renderAppearanceDialog();
   }
 
   it("turning it on swaps the 主題 select for two rows to edit and saves nothing until the schedule is saved", async () => {
@@ -1855,18 +1901,44 @@ describe("ThemeSettings · switch by time of day", () => {
     expect(themeSelect(utils).value).toBe("office");
   });
 
-  it("keeps unsaved rows across a visit to 主題庫", async () => {
+  it("reopening the dialog shows the saved schedule, not the edits it was closed on", async () => {
     const utils = await renderWithDusk();
     fireEvent.click(scheduleSwitch(utils));
+    fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleSave }));
+    await settle();
+    await settle();
     fireEvent.change(startInputs(utils)[0], { target: { value: "07:15" } });
 
-    openTab(utils, s.themeTabLibrary);
-    openTab(utils, s.themeTabAppearance);
+    closeAppearanceDialog(utils);
+    openAppearanceDialog(utils);
 
     expect(rows(utils)).toEqual([
-      ["07:15", "office-light"],
+      ["08:00", "office-light"],
       ["18:00", "office"],
     ]);
+  });
+
+  it("draws each row as a solid segment in its theme's colour, with its short name and start", async () => {
+    const utils = await renderWithDusk();
+    fireEvent.click(scheduleSwitch(utils));
+    fireEvent.change(section(utils).getByLabelText(`${s.themeScheduleTheme} 2`), {
+      target: { value: "dusk" },
+    });
+
+    const segments = utils.getAllByTestId("ts-timeline-seg");
+    expect(segments.map((seg) => seg.textContent)).toEqual([
+      "黃昏",
+      `${zh.themeIdentity.officeLightShort}08:00`,
+      "黃昏18:00",
+    ]);
+    expect(segments.map((seg) => seg.style.width)).toEqual([
+      `${(8 / 24) * 100}%`,
+      `${(10 / 24) * 100}%`,
+      `${(6 / 24) * 100}%`,
+    ]);
+    await settle();
+    expect(segments[0].style.backgroundColor).toBe("rgb(10, 11, 12)");
+    expect(utils.getByTestId("ts-timeline").getAttribute("aria-hidden")).toBe("true");
   });
 
   it("deleting a theme the schedule uses drops the schedule when fewer than two rows would be left", async () => {
@@ -1883,13 +1955,14 @@ describe("ThemeSettings · switch by time of day", () => {
       ["18:00", "dusk"],
     ]);
 
+    closeAppearanceDialog(utils);
     openTab(utils, s.themeTabLibrary);
     fireEvent.click(await utils.findByLabelText(`${p.themeDelete} 黃昏`));
     fireEvent.click(utils.getByTestId("theme-delete-confirm-btn"));
     await settle();
 
     expect((await api.getServerSettings()).displayThemeSchedule).toEqual([]);
-    openTab(utils, s.themeTabAppearance);
+    openAppearanceDialog(utils);
     expect(startInputs(utils)).toEqual([]);
     expect(scheduleSwitch(utils).getAttribute("aria-checked")).toBe("false");
   });

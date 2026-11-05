@@ -11,7 +11,7 @@
 // dropdown only names the theme on screen.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, fireEvent, waitFor } from "@testing-library/react";
+import { render, fireEvent, waitFor, within } from "@testing-library/react";
 import type { LoadableSeasonalWindow } from "../lib/seasonalTheme";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
@@ -61,7 +61,7 @@ describe("ProfileDropdown · preferences scope", () => {
     expect(utils.getByText(p.language)).toBeTruthy();
   });
 
-  it("names the selected theme and points to 設定 › 主題 to change it", async () => {
+  it("names the selected theme, and 主題設定… opens the dialog that sets it", async () => {
     setToken("owner-token");
     await api.putTheme({
       id: "midnight",
@@ -71,7 +71,22 @@ describe("ProfileDropdown · preferences scope", () => {
     await api.patchServerSettings({ displayTheme: "midnight" });
     const utils = await openPreferences();
     await waitFor(() => expect(themeStatus(utils)).toBe("午夜藍"));
-    expect(utils.getByText(p.themeManageHint)).toBeTruthy();
+
+    fireEvent.click(utils.getByRole("button", { name: zh.settings.themeDialogOpen }));
+    const dialog = utils.getByRole("dialog", { name: zh.settings.themeDialogTitle });
+    const select = within(dialog).getByRole("combobox", { name: zh.settings.themePick }) as HTMLSelectElement;
+    expect(select.value).toBe("midnight");
+
+    fireEvent.change(select, { target: { value: "office-light" } });
+    await waitFor(async () =>
+      expect((await api.getServerSettings()).displayTheme).toBe("office-light")
+    );
+    expect(themeStatus(utils)).toBe(zh.themeIdentity.officeLight);
+    fireEvent.click(within(dialog).getByRole("switch", { name: zh.settings.themeSchedule }));
+    fireEvent.click(within(dialog).getByRole("button", { name: zh.settings.themeScheduleSave }));
+    await waitFor(async () =>
+      expect((await api.getServerSettings()).displayThemeSchedule).toHaveLength(2)
+    );
   });
 
   it("names a built-in theme by its own identity name", async () => {

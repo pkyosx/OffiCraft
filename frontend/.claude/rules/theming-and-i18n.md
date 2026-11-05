@@ -25,7 +25,7 @@ paths:
 
 real mode 的 AuthGate：有 token 直接進 App；無 token 先打一次公開 auth/status，未設密碼進 FirstRunPage，已設密碼進 LoginPage。啟用碼可由 query 預填，set-password 成功後直接保存新 token，並以 history.replaceState 移除網址中的 code。網址帶 `?login=`（host 上 `ocserverd login-link` 印的一次性登入連結）時，掛載當下就移除它，並在 "checking" 兌換——已有 token 也照樣兌換（手機上殘留的舊 token 不可默默吞掉有效連結）：成功換上新 token 進 App；失敗時原本有 token 就保留它進 App、不顯示提示，沒有 token 才回登入牆並顯示失效提示（429 顯示節流訊息）。兌換一次頁面載入只送一次——碼是一次性的，StrictMode 重跑 effect 再送一次會把好連結變成拒絕。mock mode 不走這面牆。
 
-ProfileDropdown 的 preferences 只顯示畫面上現在是哪一套主題（依時段切換時寫明，應景主題蓋過時寫應景主題）並指向「設定 › 主題」，另有語言與版面；選主題、時間表與應景主題開關都在設定 › 主題的「外觀」分頁，新增／匯入／編輯／刪除在「主題庫」分頁，主題庫的列不能點選套用（owner 2026-11-05）。settings 經 getServerSettings/patchServerSettings 即時生效，載入失敗就不渲染設定區，不捏預設。settings 只帶「現在選哪一套主題」（display_theme）、是否顯示應景主題（display_seasonal_theme）與依時間切換的時間表（display_theme_schedule），主題本身不在其中——見「主題編輯與清單」。密碼 set/change 不走會把 401 轉成登出的 typed client，而走 credentialPost；成功後換上 server 新 token。
+選主題、時間表與應景主題開關只在「主題設定」對話框（`ThemeAppearanceDialog`）；ProfileDropdown 的 preferences 與設定 › 主題的「外觀」分頁都只顯示畫面上現在是哪一套主題（依時段切換時寫明，應景主題蓋過時寫應景主題）並各有一顆「主題設定…」開同一個對話框，preferences 另有語言與版面。新增／匯入／編輯／刪除在「主題庫」分頁，主題庫的列不能點選套用（owner 2026-11-05）。對話框 portal 到 body，App 收 profile 選單的 click-outside 以 `.ts-modal` 辨識它，否則在對話框裡點一下就會把選單連同對話框一起收掉。settings 經 getServerSettings/patchServerSettings 即時生效，載入失敗就不渲染設定區，不捏預設。settings 只帶「現在選哪一套主題」（display_theme）、是否顯示應景主題（display_seasonal_theme）與依時間切換的時間表（display_theme_schedule），主題本身不在其中——見「主題編輯與清單」。密碼 set/change 不走會把 401 轉成登出的 typed client，而走 credentialPost；成功後換上 server 新 token。
 
 ## i18n
 
@@ -89,4 +89,4 @@ stub server 的埠不可寫死：playwright-paint.config.ts 用 allocateFreePort
 
 時間表沒有「未設定」的第三態，登入 reconcile 一律採用 server 的值。`setThemeSchedule` 不是樂觀寫入：server 收下、表中的自訂主題取回之後才切換，所以存檔當下不會閃內建主題；被拒就 reject，畫面照舊。
 
-pre-paint 讀 `LS_THEME_SCHEDULE`（`parseThemeSchedule` 驗過，不合格就當沒有時間表）挑出當下那列；自訂主題的畫面在 `LS_SCHEDULE_PAINT`（PaintRecord 陣列，一套一筆），每筆都經 `readValidatedSchedulePaint` 走同一個驗證器，id 對不上就不畫。頁面開著時表中每個自訂主題都先取回放在 provider（`scheduleBundles`），到點不等網路；某套取不到就保留它已快取的那筆，不用空值覆蓋；但整筆寫入被拒（容量滿）時要移除這個 key，因為留下的舊紀錄可能早於上次編輯，下次開頁會先畫改之前的顏色——寧可不畫。「外觀」分頁裡「依時段切換」開著時只顯示時間表、不顯示單選的「主題」選單，兩者不會同時出現，所以不會有「選了沒反應」的狀態。外觀分頁的縮圖要自訂主題的 bundle：一套只取一次、整頁共用（`useThemeSwatches`），失敗就畫空白，不重試。`lib/themeSchedule.ts` 會被 pre-paint 打包，同樣不可放 Vite 專屬語法。
+pre-paint 讀 `LS_THEME_SCHEDULE`（`parseThemeSchedule` 驗過，不合格就當沒有時間表）挑出當下那列；自訂主題的畫面在 `LS_SCHEDULE_PAINT`（PaintRecord 陣列，一套一筆），每筆都經 `readValidatedSchedulePaint` 走同一個驗證器，id 對不上就不畫。頁面開著時表中每個自訂主題都先取回放在 provider（`scheduleBundles`），到點不等網路；某套取不到就保留它已快取的那筆，不用空值覆蓋；但整筆寫入被拒（容量滿）時要移除這個 key，因為留下的舊紀錄可能早於上次編輯，下次開頁會先畫改之前的顏色——寧可不畫。「主題設定」對話框裡「依時段切換」開著時只顯示時間表、不顯示單選的「主題」選單，兩者不會同時出現，所以不會有「選了沒反應」的狀態；關掉對話框就丟掉沒存的列。對話框的縮圖要自訂主題的 bundle：每次開啟一套只取一次（`useThemeSwatches`），失敗就畫空白，不重試；外觀分頁的縮圖直接用 provider 手上畫在畫面上的那套（`shownThemeBundle`），不另取。時間色條每段是實心色：有背景圖時取圖的平均色（同底色、只差圖的兩套才分得出來），否則 `--color-bg`，字用該主題的 `--color-text`。`lib/themeSchedule.ts` 會被 pre-paint 打包，同樣不可放 Vite 專屬語法。

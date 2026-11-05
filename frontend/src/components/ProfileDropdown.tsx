@@ -19,7 +19,7 @@ import {
 import { InlineEdit } from "./InlineEdit";
 import { PasskeysPanel } from "./PasskeysPanel";
 import { qrSvg } from "../lib/qrSvg";
-import { BUILTIN_THEMES } from "../lib/themeBundle";
+import { ThemeAppearanceDialog, useThemeStatusText } from "./ThemeAppearanceDialog";
 import "./profile-dropdown.css";
 
 interface ProfileDropdownProps {
@@ -47,18 +47,18 @@ type View =
 /**
  * Profile menu that drops from the topbar profile pill.
  *  - main view: profile header (inline rename), Preferences row, Log out.
- *  - preferences view: which theme is on screen (read-only, chosen in
- *    設定 › 主題) + Language (中文 / English) + Layout (窄版 / 寬版).
+ *  - preferences view: which theme is on screen + 主題設定… (the same dialog
+ *    設定 › 主題 opens) + Language (中文 / English) + Layout (窄版 / 寬版).
  *  - main view rows: preferences, notification email, 帳號安全.
  *  - 帳號安全 (security) view: change password, two-step verification,
  *    passkeys; their Back returns here, and this view's Back returns to main.
  *  - password view: current / new / repeat → POST /api/auth/change-password.
  *
  * Scope (owner 2026-07-12): this menu holds APPEARANCE + ACCOUNT IDENTITY only.
- * Choosing a theme, the time-of-day schedule, the seasonal switch and all theme
- * MANAGEMENT (add / edit colours / 用詞 / import / export / delete) live in the
- * 設定 page's 主題 sub-section (SettingsPage → ThemeSettings); this dropdown
- * only says which theme is showing and points there (owner 2026-11-05). The
+ * Choosing a theme, the time-of-day schedule and the seasonal switch live in the
+ * 主題設定 dialog, opened from here and from 設定 › 主題 › 外觀; theme MANAGEMENT
+ * (add / edit colours / 用詞 / import / export / delete) lives in 設定 › 主題 ›
+ * 主題庫 (owner 2026-11-05). The
  * server PARAMETER knobs likewise live in 設定/參數調整 — all of them, which
  * is why this line names none of them.
  *
@@ -72,28 +72,10 @@ export function ProfileDropdown({
   userName,
   setOwnerName,
 }: ProfileDropdownProps) {
-  const {
-    t,
-    theme,
-    themeList,
-    language,
-    setLanguage,
-    wide,
-    setWide,
-    scheduledTheme,
-    seasonalThemeName,
-    resetPreferences, msg } = useI18n();
+  const { t, language, setLanguage, wide, setWide, resetPreferences, msg } = useI18n();
 
-  const themeName = (id: string) => {
-    const builtin = BUILTIN_THEMES.find((b) => b.id === id);
-    if (builtin) return t.themeIdentity[builtin.nameKey];
-    return themeList.find((b) => b.id === id)?.name ?? id;
-  };
-  const themeStatus = seasonalThemeName
-    ? msg.themeStatusSeasonal(seasonalThemeName)
-    : scheduledTheme
-      ? msg.themeStatusScheduled(themeName(scheduledTheme))
-      : themeName(theme);
+  const themeStatus = useThemeStatusText();
+  const [themeDialogOpen, setThemeDialogOpen] = useState(false);
 
   const [view, setView] = useState<View>("main");
 
@@ -553,7 +535,16 @@ export function ProfileDropdown({
             <div className="profile-dd__theme-status" data-testid="profile-dd-theme-status">
               {themeStatus}
             </div>
-            <div className="profile-dd__hint">{t.profile.themeManageHint}</div>
+            <button
+              type="button"
+              className="profile-dd__theme-open"
+              onClick={() => setThemeDialogOpen(true)}
+            >
+              {t.settings.themeDialogOpen}
+            </button>
+            {themeDialogOpen && (
+              <ThemeAppearanceDialog onClose={() => setThemeDialogOpen(false)} />
+            )}
           </div>
 
           <div className="profile-dd__section">
