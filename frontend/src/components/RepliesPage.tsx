@@ -964,9 +964,9 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     );
   }
 
-  // §3.6 請示 → 任務: an ask that names a task shows the task row directly
-  // under the head, ahead of the summary — #number, priority, due date, title,
-  // and the jump. The route carries the task id so the tasks page can locate
+  // §3.6 請示 → 任務: an ask that names a task shows the task row at the very
+  // top of the card, above the head — #number, priority, due date, title, and
+  // the jump. The route carries the task id so the tasks page can locate
   // the card. A pure chat ask renders nothing here.
   function renderTaskRef(row: ReplyCardRow) {
     const task = row.task;
@@ -1264,7 +1264,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
         id={`reply-card-${row.id}`}
         // 🔴 NOT `reply-card--collapsed`: that modifier zeroes the card's
         // padding for ChatReplyCard's bare one-line stub, and this page's
-        // collapsed card is a REAL card (head + task row) that keeps its box.
+        // collapsed card is a REAL card (task row + head) that keeps its box.
         className={opts.className}
         data-testid={opts.testId}
         data-reply-card-id={row.id}
