@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
 import {
@@ -169,10 +169,9 @@ function useThemeNames() {
   };
 }
 
-/** The one row both entry points show: the theme on screen (thumbnail and
- * name, tagged when the schedule or a seasonal theme put it there), opening
- * 主題設定. */
-export function ThemeEntryRow({ onOpen, large = false }: { onOpen: () => void; large?: boolean }) {
+/** 偏好設定's row: the theme on screen (thumbnail and name, tagged when the
+ * schedule or a seasonal theme put it there), opening 主題設定. */
+export function ThemeEntryRow({ onOpen }: { onOpen: () => void }) {
   const { t, msg, theme, scheduledTheme, seasonalThemeName, shownTheme, shownThemeBundle } =
     useI18n();
   const names = useThemeNames();
@@ -188,7 +187,7 @@ export function ThemeEntryRow({ onOpen, large = false }: { onOpen: () => void; l
   return (
     <button
       type="button"
-      className={`ts-entry${large ? " ts-entry--large" : ""}`}
+      className="ts-entry"
       aria-label={msg.themeEntryLabel(name, tag)}
       data-testid="theme-entry"
       onClick={onOpen}
@@ -399,26 +398,27 @@ function ThemeAppearance({
   );
 }
 
-/** 主題設定: the one place the theme on screen is chosen — a single theme or a
- * time-of-day schedule, and the seasonal switch. Opened from 偏好設定 and from
- * 設定 › 主題 › 外觀. Portalled to <body>. */
-export function ThemeAppearanceDialog({
-  onClose,
-  returnFocusTo,
+export type ThemeScheduleDraft = ReturnType<typeof useThemeScheduleDraft>;
+export { useThemeScheduleDraft };
+
+/** 主題設定's content — a single theme or a time-of-day schedule, the seasonal
+ * switch, and 恢復預設. Hosted by the dialog (偏好設定) and inline by
+ * 設定 › 主題 › 外觀; the inline host passes `schedule` so unsaved rows live as
+ * long as the page, not the tab. `actions` adds buttons beside 恢復預設. */
+export function ThemeAppearancePanel({
+  schedule: hosted,
+  actions,
 }: {
-  onClose: () => void;
-  /** Where focus goes on close when the opener itself is gone. */
-  returnFocusTo?: HTMLElement | null;
+  schedule?: ThemeScheduleDraft;
+  actions?: ReactNode;
 }) {
   const { t, theme, restoreDefaultAppearance } = useI18n();
   const [confirmRestore, setConfirmRestore] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [restoreError, setRestoreError] = useState("");
-  const schedule = useThemeScheduleDraft();
+  const own = useThemeScheduleDraft();
+  const schedule = hosted ?? own;
   const swatches = useThemeSwatches(schedule.draft?.map((r) => r.theme) ?? [theme]);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const titleId = useId();
-  useEscapeLayer(onClose, rootRef);
 
   const restore = async () => {
     setRestoring(true);
@@ -433,6 +433,53 @@ export function ThemeAppearanceDialog({
       setRestoring(false);
     }
   };
+
+  return (
+    <>
+      <ThemeAppearance {...schedule} swatchOf={swatches.swatchOf} />
+      <div className="confirm-modal__actions ts-modal__actions">
+        <button
+          type="button"
+          className="confirm-modal__btn"
+          onClick={() => {
+            setRestoreError("");
+            setConfirmRestore(true);
+          }}
+        >
+          {t.settings.themeRestoreDefault}
+        </button>
+        {actions}
+      </div>
+      {confirmRestore && (
+        <ConfirmModal
+          testId="theme-restore-confirm"
+          confirmTestId="theme-restore-confirm-btn"
+          body={t.settings.themeRestoreConfirm}
+          error={restoreError}
+          busy={restoring}
+          cancelLabel={t.settings.cancel}
+          confirmLabel={t.settings.themeRestoreDefault}
+          onCancel={() => setConfirmRestore(false)}
+          onConfirm={() => void restore()}
+        />
+      )}
+    </>
+  );
+}
+
+/** 主題設定 as a dialog, opened from 偏好設定. Portalled to <body>. */
+export function ThemeAppearanceDialog({
+  onClose,
+  returnFocusTo,
+}: {
+  onClose: () => void;
+  /** Where focus goes on close when the opener itself is gone. */
+  returnFocusTo?: HTMLElement | null;
+}) {
+  const { t } = useI18n();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  useEscapeLayer(onClose, rootRef);
 
   // Focus goes in and comes back (the MarkdownPreviewOverlay contract); not a trap.
   useEffect(() => {
@@ -470,36 +517,14 @@ export function ThemeAppearanceDialog({
             <CloseIcon size={15} />
           </button>
         </div>
-        <ThemeAppearance {...schedule} swatchOf={swatches.swatchOf} />
-        <div className="confirm-modal__actions ts-modal__actions">
-          <button
-            type="button"
-            className="confirm-modal__btn"
-            onClick={() => {
-              setRestoreError("");
-              setConfirmRestore(true);
-            }}
-          >
-            {t.settings.themeRestoreDefault}
-          </button>
-          <button type="button" className="confirm-modal__btn" onClick={onClose}>
-            {t.settings.themeDialogClose}
-          </button>
-        </div>
-      </div>
-      {confirmRestore && (
-        <ConfirmModal
-          testId="theme-restore-confirm"
-          confirmTestId="theme-restore-confirm-btn"
-          body={t.settings.themeRestoreConfirm}
-          error={restoreError}
-          busy={restoring}
-          cancelLabel={t.settings.cancel}
-          confirmLabel={t.settings.themeRestoreDefault}
-          onCancel={() => setConfirmRestore(false)}
-          onConfirm={() => void restore()}
+        <ThemeAppearancePanel
+          actions={
+            <button type="button" className="confirm-modal__btn" onClick={onClose}>
+              {t.settings.themeDialogClose}
+            </button>
+          }
         />
-      )}
+      </div>
     </div>,
     document.body
   );

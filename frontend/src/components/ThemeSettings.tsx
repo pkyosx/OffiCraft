@@ -51,7 +51,7 @@ import {
   UserIcon,
 } from "./icons";
 import { ConfirmModal } from "./ConfirmModal";
-import { ThemeAppearanceDialog, ThemeEntryRow } from "./ThemeAppearanceDialog";
+import { ThemeAppearancePanel, useThemeScheduleDraft } from "./ThemeAppearanceDialog";
 import "./settings.css";
 import "./theme-settings.css";
 
@@ -167,7 +167,7 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
 
   const [view, setView] = useState<View>("list");
   const [tab, setTab] = useState<PageTab>("appearance");
-  const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const appearanceDraft = useThemeScheduleDraft();
 
   // ── import state ──
   const [importText, setImportText] = useState("");
@@ -1401,11 +1401,9 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
 
       {tab === "appearance" ? (
         <div role="tabpanel" id="ts-panel-appearance" aria-labelledby="ts-tab-appearance">
-          <div className="ts-entry-wrap">
-            <div className="ts-entry-label">{t.profile.theme}</div>
-            <ThemeEntryRow large onOpen={() => setAppearanceOpen(true)} />
+          <div className="ts-appearance-inline" data-testid="theme-appearance-panel">
+            <ThemeAppearancePanel schedule={appearanceDraft} />
           </div>
-          {appearanceOpen && <ThemeAppearanceDialog onClose={() => setAppearanceOpen(false)} />}
         </div>
       ) : (
         <div role="tabpanel" id="ts-panel-library" aria-labelledby="ts-tab-library">

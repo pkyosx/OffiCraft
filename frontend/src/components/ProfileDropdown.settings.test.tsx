@@ -100,6 +100,10 @@ describe("ProfileDropdown · preferences scope", () => {
     );
     expect(utils.queryByRole("menu")).toBeNull();
     const dialog = utils.getByRole("dialog", { name: zh.settings.themeDialogTitle });
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+    expect(document.activeElement).toBe(dialog);
+    expect(within(dialog).getByRole("switch", { name: p.seasonalTheme })).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: zh.settings.themeRestoreDefault })).toBeTruthy();
     const select = within(dialog).getByRole("combobox", { name: zh.settings.themePick }) as HTMLSelectElement;
     expect(select.value).toBe("midnight");
 
@@ -116,6 +120,14 @@ describe("ProfileDropdown · preferences scope", () => {
     fireEvent.keyDown(window, { key: "Escape" });
     expect(utils.queryByRole("dialog")).toBeNull();
     expect(document.activeElement).toBe(utils.getByRole("button", { name: "pill" }));
+
+    fireEvent.click(utils.getByRole("button", { name: "pill" }));
+    fireEvent.click(utils.getByText(p.preferences));
+    fireEvent.click(utils.getByTestId("theme-entry"));
+    fireEvent.click(
+      within(utils.getByRole("dialog")).getAllByRole("button", { name: zh.settings.themeDialogClose })[0]
+    );
+    expect(utils.queryByRole("dialog")).toBeNull();
   });
 
   it("names a built-in theme by its own identity name", async () => {
