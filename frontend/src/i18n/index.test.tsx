@@ -1115,6 +1115,28 @@ describe("I18nProvider seasonal theme with day parts", () => {
     ).toEqual(["harvest-night", "harvest-day"]);
   });
 
+  it("prefetches the next day part ten minutes before its start and switches to it with no further load", async () => {
+    at(new Date(2030, 9, 25, 5, 40));
+    await mount();
+    await waitFor(() => expect(ctx.seasonalThemeName).toBe("豐收之夜"));
+    expect(load.mock.calls).toEqual([["harvest-night.theme.json"]]);
+
+    await act(async () => {
+      vi.advanceTimersByTime(10 * 60 * 1000);
+    });
+    await waitFor(() =>
+      expect(load.mock.calls).toEqual([["harvest-night.theme.json"], ["harvest-day.theme.json"]])
+    );
+    expect(ctx.seasonalThemeName).toBe("豐收之夜");
+
+    await act(async () => {
+      vi.advanceTimersByTime(10 * 60 * 1000);
+    });
+    expect(ctx.seasonalThemeName).toBe("豐收白天");
+    expect(root.style.getPropertyValue("--color-bg")).toBe("#f5f0e6");
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
   it("with the seasonal theme turned off, shows the user's own schedule and loads no day part", async () => {
     localStorage.setItem("oc.seasonalTheme", "false");
     at(new Date(2030, 9, 25, 9, 0));
@@ -1319,30 +1341,96 @@ describe("I18nProvider theme schedule", () => {
     expect(localStorage.getItem("oc.schedulePaint")).toBeNull();
   });
 
-  it("saving a schedule ahead of a custom theme's start fetches it at once, so that start switches with no fetch and its colour", async () => {
-    await mockApi.putTheme(DUSK);
-    localStorage.setItem("oc.theme", "office");
-    localStorage.setItem(TOKEN_KEY, "live-owner-token");
-    at(new Date(2030, 0, 15, 12, 0));
-    await mount();
-    await waitFor(() => expect(ctx.themeList).toEqual([{ id: "dusk", name: "Dusk" }]));
+  describe("loading only the slot it needs", () => {
+    const DAWN = { id: "dawn", name: "Dawn", colors: { "--color-bg": "#fafaf0" } };
+    const TWO = [
+      { start: "07:00", theme: "dawn" },
+      { start: "19:00", theme: "dusk" },
+    ];
+    const recordIds = () =>
+      (JSON.parse(localStorage.getItem("oc.schedulePaint") ?? "[]") as { bundle: { id: string } }[])
+        .map((r) => r.bundle.id)
+        .sort();
 
-    await act(async () => {
-      await ctx.setThemeSchedule(SCHEDULE);
+    async function signedInWithTwo() {
+      await mockApi.putTheme(DUSK);
+      await mockApi.putTheme(DAWN);
+      await mockApi.patchServerSettings({ displayTheme: "office", displayThemeSchedule: TWO });
+      localStorage.setItem("oc.theme", "office");
+      localStorage.setItem(TOKEN_KEY, "live-owner-token");
+    }
+
+    it("opening in a slot fetches only that slot's theme, keeps the records of slots seen before and drops a removed slot's", async () => {
+      await signedInWithTwo();
+      localStorage.setItem(
+        "oc.schedulePaint",
+        JSON.stringify([
+          { v: 1, bundle: { id: "dusk", name: "Dusk", colors: { "--color-bg": "#0a0b0c" } } },
+          { v: 1, bundle: { id: "gone", name: "Gone", colors: { "--color-bg": "#123456" } } },
+        ])
+      );
+      const getTheme = vi.spyOn(api, "getTheme");
+      at(new Date(2030, 0, 15, 12, 0));
+      await mount();
+
+      await waitFor(() => expect(root.style.getPropertyValue("--color-bg")).toBe("#fafaf0"));
+      expect(getTheme.mock.calls.map((c) => c[0])).toEqual(["dawn"]);
+      await waitFor(() => expect(recordIds()).toEqual(["dawn", "dusk"]));
     });
-    expect(root.dataset.theme).toBe("office-light");
-    expect(JSON.parse(localStorage.getItem("oc.schedulePaint") ?? "null")).toEqual([
-      { v: 1, bundle: { id: "dusk", name: "Dusk", colors: { "--color-bg": "#0a0b0c" } } },
-    ]);
-    const getTheme = vi.spyOn(api, "getTheme");
 
-    await act(async () => {
-      vi.advanceTimersByTime(7 * 60 * 60 * 1000);
+    it("prefetches the next slot ten minutes before its start, and switches at the start with that bundle and no fetch", async () => {
+      await signedInWithTwo();
+      at(new Date(2030, 0, 15, 18, 0));
+      await mount();
+      await waitFor(() => expect(root.style.getPropertyValue("--color-bg")).toBe("#fafaf0"));
+      const getTheme = vi.spyOn(api, "getTheme");
+
+      await act(async () => {
+        vi.advanceTimersByTime(49 * 60 * 1000);
+      });
+      expect(getTheme).not.toHaveBeenCalled();
+
+      await act(async () => {
+        vi.advanceTimersByTime(60 * 1000);
+      });
+      await waitFor(() => expect(recordIds()).toEqual(["dawn", "dusk"]));
+      expect(getTheme.mock.calls.map((c) => c[0])).toEqual(["dusk"]);
+      expect(root.style.getPropertyValue("--color-bg")).toBe("#fafaf0");
+
+      await act(async () => {
+        vi.advanceTimersByTime(10 * 60 * 1000);
+      });
+      expect(root.style.getPropertyValue("--color-bg")).toBe("#0a0b0c");
+      expect(ctx.t.nav.office).toBe("黃昏辦公室");
+      expect(getTheme).toHaveBeenCalledTimes(1);
     });
 
-    expect(root.dataset.theme).toBe("office");
-    expect(root.style.getPropertyValue("--color-bg")).toBe("#0a0b0c");
-    expect(getTheme).not.toHaveBeenCalled();
+    it("opening within ten minutes of the next start prefetches it at once", async () => {
+      await signedInWithTwo();
+      const getTheme = vi.spyOn(api, "getTheme");
+      at(new Date(2030, 0, 15, 18, 55));
+      await mount();
+
+      await waitFor(() => expect(getTheme.mock.calls.map((c) => c[0]).sort()).toEqual(["dawn", "dusk"]));
+    });
+
+    it("saving a schedule fetches the theme of the slot it lands in before switching, and not the others", async () => {
+      await mockApi.putTheme(DUSK);
+      await mockApi.putTheme(DAWN);
+      localStorage.setItem("oc.theme", "office");
+      localStorage.setItem(TOKEN_KEY, "live-owner-token");
+      at(new Date(2030, 0, 15, 12, 0));
+      await mount();
+      await waitFor(() => expect(ctx.themeList).toHaveLength(2));
+      const getTheme = vi.spyOn(api, "getTheme");
+
+      await act(async () => {
+        await ctx.setThemeSchedule(TWO);
+      });
+
+      expect(root.style.getPropertyValue("--color-bg")).toBe("#fafaf0");
+      expect(getTheme.mock.calls.map((c) => c[0])).toEqual(["dawn"]);
+    });
   });
 
   it("saving on a page left open since the morning shows the entry for now, not for when the page last read the clock", async () => {

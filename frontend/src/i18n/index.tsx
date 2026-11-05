@@ -46,7 +46,9 @@ import {
   nextSeasonalBoundary,
   seasonalPickAt,
   seasonalThemeIds,
+  themeIdOfFile,
 } from "../lib/seasonalSchedule";
+import { nextDayPart } from "../lib/dayParts";
 import {
   DEFAULT_DISPLAY_THEME,
   DEFAULT_THEME_SCHEDULE,
@@ -142,6 +144,10 @@ function readStoredSeasonalTheme(): boolean {
 // setTimeout fires at once for any delay above 2^31-1 ms (~24.8 days), so a
 // boundary further out is reached in steps.
 const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
+
+/** How long before a schedule slot's (or seasonal day part's) start its bundle
+ * is fetched. */
+const SCHEDULE_PREFETCH_LEAD_MS = 10 * 60 * 1000;
 
 /** A theme's bundle: a bundled built-in from its own chunk, else the server's. */
 function fetchThemeBundle(id: string): Promise<ThemeBundle> {
@@ -270,8 +276,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     readThemeSchedule()
   );
   const themeScheduleRef = useRef(themeSchedule);
-  // Every scheduled custom theme is held in full while the page is open, so a
-  // boundary never waits on the network.
+  // The scheduled themes fetched so far: the current slot's, and the next one's
+  // from SCHEDULE_PREFETCH_LEAD_MS before its start, so a boundary does not wait
+  // on the network.
   const [scheduleBundles, setScheduleBundles] = useState<Record<string, ThemeBundle>>({});
   const scheduleBundlesRef = useRef(scheduleBundles);
   // The open window's day parts seen so far, by bundle id.
@@ -283,6 +290,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const [activeThemeBundle, setActiveThemeBundle] = useState<ThemeBundle | null>(
     null
   );
+  const activeThemeBundleRef = useRef(activeThemeBundle);
+  activeThemeBundleRef.current = activeThemeBundle;
   // [T-1500] "the server has spoken". Flipped in reconcile's .then only.
   const [themesLoaded, setThemesLoaded] = useState(false);
   // Effective copy locale: the user's language toggle. Themes are copy-neutral
@@ -503,6 +512,23 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     }
   }, [seasonalId]);
 
+  // The next day part is prefetched like the next schedule slot.
+  useEffect(() => {
+    const w = openSeasonalWindow;
+    if (!seasonalId || !w?.schedule?.length) return;
+    const next = nextDayPart(new Date(clock), w.schedule);
+    if (!next || next.at.getTime() >= w.end.getTime()) return;
+    const pick = { id: themeIdOfFile(next.row.theme), file: next.row.theme };
+    if (seasonalBundles[pick.id]) return;
+    const lead = next.at.getTime() - SCHEDULE_PREFETCH_LEAD_MS - Date.now();
+    if (lead <= 0) {
+      loadSeasonalPick(w, pick);
+      return;
+    }
+    const timer = window.setTimeout(() => loadSeasonalPick(w, pick), Math.min(lead, MAX_TIMER_DELAY_MS));
+    return () => window.clearTimeout(timer);
+  }, [clock, seasonalId, openSeasonalWindow, seasonalBundles, loadSeasonalPick]);
+
   useEffect(() => {
     if (!openSeasonalWindow) {
       setSeasonalBundles({});
@@ -641,16 +667,74 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     []
   );
 
+  /** The bundles already in hand that `schedule` still names, plus the one its
+   * slot shows now when that needs fetching. Only the current slot is fetched
+   * here; the next one is prefetched shortly before its start (below). */
   const loadScheduleBundles = useCallback(async (schedule: ThemeScheduleEntry[]) => {
     const ids = scheduledCustomThemes(schedule);
-    const results = await Promise.allSettled(ids.map((id) => fetchThemeBundle(id)));
     const bundles: Record<string, ThemeBundle> = {};
-    results.forEach((r, i) => {
-      if (r.status === "fulfilled" && r.value.id === ids[i]) bundles[ids[i]] = r.value;
-      else if (r.status === "rejected") console.warn("theme schedule: bundle load failed", r.reason);
-    });
+    for (const id of ids) {
+      const held = scheduleBundlesRef.current[id];
+      if (held) bundles[id] = held;
+    }
+    const now = activeScheduleEntry(new Date(), schedule)?.theme;
+    if (now && ids.includes(now) && !bundles[now]) {
+      try {
+        const b = await fetchThemeBundle(now);
+        if (b.id === now) bundles[now] = b;
+      } catch (e) {
+        console.warn("theme schedule: bundle load failed", e);
+      }
+    }
     return bundles;
   }, []);
+
+  const scheduleInFlight = useRef(new Set<string>());
+  /** Fetch one scheduled theme into the held set, keeping its paint record. */
+  const loadScheduleBundle = useCallback(
+    (id: string) => {
+      if (scheduleBundlesRef.current[id] || scheduleInFlight.current.has(id)) return;
+      const schedule = themeScheduleRef.current;
+      if (!scheduledCustomThemes(schedule).includes(id)) return;
+      const active = activeThemeBundleRef.current;
+      if (active && active.id === id) {
+        adoptScheduleBundles(schedule, { ...scheduleBundlesRef.current, [id]: active });
+        return;
+      }
+      scheduleInFlight.current.add(id);
+      fetchThemeBundle(id)
+        .then((b) => {
+          if (b.id !== id || themeScheduleRef.current !== schedule) return;
+          adoptScheduleBundles(schedule, { ...scheduleBundlesRef.current, [id]: b });
+        })
+        .catch((e) => console.warn("theme schedule: bundle load failed", e))
+        .finally(() => scheduleInFlight.current.delete(id));
+    },
+    [adoptScheduleBundles]
+  );
+
+  // The slot on screen loads when it is reached (open, reconcile, wake,
+  // boundary); until it lands the apply effect paints its cached record.
+  useEffect(() => {
+    if (scheduledTheme) loadScheduleBundle(scheduledTheme);
+  }, [scheduledTheme, activeThemeBundle, themeSchedule, loadScheduleBundle]);
+
+  // The next slot is fetched SCHEDULE_PREFETCH_LEAD_MS before its start (at
+  // once when the page opens inside that lead), so the switch needs no fetch.
+  useEffect(() => {
+    if (seasonalId) return;
+    const next = nextDayPart(new Date(clock), themeSchedule);
+    if (!next) return;
+    const id = next.row.theme;
+    if (!scheduledCustomThemes(themeSchedule).includes(id) || scheduleBundles[id]) return;
+    const lead = next.at.getTime() - SCHEDULE_PREFETCH_LEAD_MS - Date.now();
+    if (lead <= 0) {
+      loadScheduleBundle(id);
+      return;
+    }
+    const timer = window.setTimeout(() => loadScheduleBundle(id), Math.min(lead, MAX_TIMER_DELAY_MS));
+    return () => window.clearTimeout(timer);
+  }, [clock, themeSchedule, scheduleBundles, seasonalId, loadScheduleBundle]);
 
   // Public setters (owner edits from ProfileDropdown): apply locally at once
   // (instant, and the pre-auth cache for next load) AND push to the server so
@@ -869,9 +953,11 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         cacheSeasonalTheme(s.displaySeasonalTheme);
         const schedule = s.displayThemeSchedule;
         cacheThemeSchedule(schedule);
-        void loadScheduleBundles(schedule).then((bundles) => {
-          if (themeScheduleRef.current === schedule) adoptScheduleBundles(schedule, bundles);
-        });
+        const held = scheduledCustomThemes(schedule).filter((id) => scheduleBundlesRef.current[id]);
+        adoptScheduleBundles(
+          schedule,
+          Object.fromEntries(held.map((id) => [id, scheduleBundlesRef.current[id]]))
+        );
         // [T-1500] never leave a picture the server no longer recognises.
         // The active id AFTER this reconcile: the server's when selectable,
         // else the local one that survived above.
@@ -917,7 +1003,6 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     cacheWide,
     cacheSeasonalTheme,
     cacheThemeSchedule,
-    loadScheduleBundles,
     adoptScheduleBundles,
     writePaint,
   ]);
