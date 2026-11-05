@@ -1,6 +1,7 @@
 // Reply-card seam of the mock adapter (M2 回覆卡 B2). Locked here — mirroring
 // the server contract the http adapter rides:
-//   1. waiting list = longest-waiting first; answered list = 24h window,
+//   1. waiting list = priority, then due date, then longest-waiting first
+//      (the rank half is pinned in lib/replyCardRank.test.ts); answered list = 24h window,
 //      newest answer first; the badge count = WAITING only.
 //   2. Answering is the ONLY close: a real answer (option / text / attachments
 //      — a typed counter-question included) flips waiting→answered; an empty

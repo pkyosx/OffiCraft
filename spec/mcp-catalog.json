@@ -1666,7 +1666,7 @@
       "name": "create_reply_card"
     },
     {
-      "description": "List light reply-card rows (summary and decision digest, without the full body/options). status is waiting (the default, longest-waiting first), answered (the last 24 hours) or expired (the last 24 hours); a positive limit is applied after each pane is ordered. Every pane covers every card on the station, not only the cards you opened — pass opened_by to narrow a pane to the cards ONE member opened. Read one card in full with get_reply_card.",
+      "description": "List light reply-card rows (summary and decision digest, without the full body/options). status is waiting (the default, by priority, then due date, then longest-waiting first), answered (the last 24 hours) or expired (the last 24 hours); a positive limit is applied after each pane is ordered. Every pane covers every card on the station, not only the cards you opened — pass opened_by to narrow a pane to the cards ONE member opened. Read one card in full with get_reply_card.",
       "inputSchema": {
         "properties": {
           "limit": {

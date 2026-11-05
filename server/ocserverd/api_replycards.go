@@ -94,7 +94,9 @@ func replyCardPriorityOrMid(p string) string {
 const replyCardPriorityMsg = "priority must be one of high, mid, low"
 
 // replyCardPriorityAndDue: what the caller sent wins; a field left out on a card
-// bound to a task step is copied from the task as it stands now.
+// bound to a task step is copied from the task as the handler resolved it, so a
+// priority change landing in the same instant can be missed — that costs only
+// the card's starting place in the queue.
 func replyCardPriorityAndDue(body ReplyCardCreateDTO, bound *Task) (string, float64, string) {
 	priority, due := TaskPriorityMid, 0.0
 	if bound != nil {

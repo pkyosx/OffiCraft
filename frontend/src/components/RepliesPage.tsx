@@ -1,9 +1,10 @@
 // RepliesPage — the 等我回覆 page (SPEC §2, M2 reply cards B2): every member's
 // pending asks in one place, two panes.
 //
-//   待回覆    — cards still waiting, NEWEST ASK FIRST (createdTs desc, FE
-//              display sort over the server's longest-waiting-first list —
-//              T-b07f); every card wears the SAME style — no longest-waiting
+//   待回覆    — cards still waiting, by priority, then due date, then NEWEST
+//              ASK FIRST (createdTs desc, FE display sort — the server breaks
+//              the same tie oldest first, T-b07f); every card wears the SAME
+//              style — no longest-waiting
 //              highlight (owner ruled it out, T-9ea9).
 //   近期已處理 — cards answered OR expired within 24h, merged newest-handled
 //              first. The PANE is collapsed by default (vibe-clicking style)
@@ -376,8 +377,8 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     });
   }
 
-  // Display order = 開卡時間 newest first (stable sort over the server's
-  // longest-waiting-first list). No per-card highlight: the owner ruled the
+  // Display order = priority, then due date, then 開卡時間 newest first (the
+  // server breaks that last tie oldest first). No per-card highlight: the owner ruled the
   // longest-waiting accent ring out (T-9ea9) — every card wears the same face.
   //
   // With a filter applied the two panes hold exactly what the SERVER returned

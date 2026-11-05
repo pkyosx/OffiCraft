@@ -104,4 +104,25 @@ func TestReplyCardPriorityAndDue(t *testing.T) {
 			t.Fatalf("waiting pane = %v, want %v", got, want)
 		}
 	})
+
+	t.Run("answering or expiring a card keeps its priority and due date", func(t *testing.T) {
+		body := `{"kind":"decision","summary":"g","options":[{"text":"x"}],"linked_task":null,` +
+			`"priority":"high","due_ts":1850000000}`
+		answered := open(agent, body)
+		if status, data := apiJSON(t, h, "POST", "/api/reply-cards/"+answered["id"].(string)+"/answer", owner,
+			`{"option_idxs":[0]}`); status != 200 {
+			t.Fatalf("answer: %d %v", status, data)
+		}
+		expired := open(agent, body)
+		if status, data := apiJSON(t, h, "POST", "/api/reply-cards/"+expired["id"].(string)+"/expire", owner, ""); status != 200 {
+			t.Fatalf("expire: %d %v", status, data)
+		}
+		for _, id := range []string{answered["id"].(string), expired["id"].(string)} {
+			_, card := apiJSON(t, h, "GET", "/api/reply-cards/"+id, owner, "")
+			if card["status"] == "waiting" {
+				t.Fatalf("card %s still waiting", id)
+			}
+			want(card, "high", float64(1850000000))
+		}
+	})
 }

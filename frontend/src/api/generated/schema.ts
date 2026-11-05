@@ -2696,9 +2696,9 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List light reply-card rows (summary and decision digest, without the full body/options). status is waiting (the default, longest-waiting first), answered (the last 24 hours) or expired (the last 24 hours); a positive limit is applied after each pane is ordered. Every pane covers every card on the station, not only the cards you opened — pass opened_by to narrow a pane to the cards ONE member opened. Read one card in full with get_reply_card.
+         * List light reply-card rows (summary and decision digest, without the full body/options). status is waiting (the default, by priority, then due date, then longest-waiting first), answered (the last 24 hours) or expired (the last 24 hours); a positive limit is applied after each pane is ordered. Every pane covers every card on the station, not only the cards you opened — pass opened_by to narrow a pane to the cards ONE member opened. Read one card in full with get_reply_card.
          * @description - Light rows only: the summary, plus on an answered row the decision digest — never the body or full options.
-         *     - ?status=waiting (default): waiting on the owner, longest-waiting first.
+         *     - ?status=waiting (default): waiting on the owner, by priority (high, mid, low), then due date (cards with one first, soonest first), then longest-waiting first.
          *     - ?status=answered / ?status=expired: the last 24 hours only, newest first.
          *     - ?limit=N caps rows AFTER the pane is ordered; absent or non-positive returns the whole pane.
          *     - Read one card in full with get_reply_card.

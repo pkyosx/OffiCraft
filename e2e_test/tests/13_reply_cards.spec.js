@@ -4,7 +4,7 @@
 //
 // One agent-opened ask must travel the WHOLE circuit:
 //   agent opens (POST /api/reply-cards, agent token) → cockpit badge +1,
-//   等我回覆 page lists it (longest-waiting first), the SAME ask renders as an
+//   等我回覆 page lists it (priority, then due date, then longest-waiting first), the SAME ask renders as an
 //   inline card in the chat thread → the owner answers on EITHER surface
 //   (ONE TAP on a chip on the page / typed text in the chat — a
 //   counter-question included) → both surfaces converge, badge −1 live, and the

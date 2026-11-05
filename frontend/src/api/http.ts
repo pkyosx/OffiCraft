@@ -1641,9 +1641,10 @@ export const httpApi: Api = {
     // owner opens through `getReplyCard`, so a whole pane is one request and an
     // unopened card is none.
     //
-    // The server order is preserved (waiting = longest-waiting first, answered =
-    // last-24h newest answer first). RepliesPage re-sorts the waiting pane
-    // newest-first for DISPLAY only (T-b07f) — the adapter still hands over
+    // The server order is preserved (waiting = priority, then due date, then
+    // longest-waiting first; answered = last-24h newest answer first).
+    // RepliesPage breaks the waiting pane's last tie newest-first for DISPLAY
+    // only (T-b07f) — the adapter still hands over
     // server order.
     const rows = unwrap(
       await client.GET("/api/reply-cards", {
