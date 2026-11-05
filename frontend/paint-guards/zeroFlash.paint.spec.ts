@@ -360,10 +360,11 @@ for (const profile of ["fourg", "loopback"] as NetProfile[]) {
         `${bad[0]?.t}ms bg=${bad[0]?.bg}\n${summarize(samples)}`
     ).toBe(0);
 
-    // The selected theme's own cached picture is kept, refreshed by the reconcile.
+    // The selected theme is off screen, so it is not downloaded (owner rc-56f6d5f48fe1):
+    // its cached picture stays as it was, for when the window ends.
     expect(storedPaint, "the selected theme's picture was dropped during the window").not.toBeNull();
     expect((JSON.parse(storedPaint as string) as { bundle: { name: string } }).bundle.name).toBe(
-      VALID_RICH_BUNDLE.name
+      STALE_NAME
     );
   });
 }
