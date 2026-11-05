@@ -160,10 +160,11 @@ describe("dist/ — every seasonal theme file ships as its own lazily loaded chu
   const themesDir = resolve(FE_ROOT, "../themes");
   const schedule = JSON.parse(
     readFileSync(resolve(themesDir, "seasonal-schedule.json"), "utf8")
-  ) as { theme: string }[];
+  ) as { theme?: string; schedule?: { theme: string }[] }[];
+  const files = schedule.flatMap((e) => (e.schedule ? e.schedule.map((r) => r.theme) : [e.theme!]));
   const assetsDir = resolve(FE_ROOT, OUT_DIR, "assets");
 
-  for (const { theme } of schedule) {
+  for (const theme of files) {
     it(`${theme} is in no script the page loads up front, and in exactly one other chunk`, () => {
       const bundle = JSON.parse(readFileSync(resolve(themesDir, theme), "utf8")) as {
         backgrounds?: { canvas?: string };
