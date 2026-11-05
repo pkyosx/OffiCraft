@@ -110,7 +110,7 @@ data: {"seq":42,"topic":"member","op":"patch","data":{"entity":"member","key":"o
   - `chat_read`: `{reader, peer, last_read_ts}`
   - `chat_group`: `payload` is `null`; refetch `GET /api/chat/groups`
   - `reply_card`: `{id, from, status, task_executor}` (create / answer / answer revision /
-    expire all ride `patch`; refetch the card for the full context — the payload never
+    expire / the owner's snooze all ride `patch`; refetch the card for the full context — the payload never
     carries the answer). `task_executor` is the acting executor of the card's task while
     that task is open, `""` otherwise
   - `task`: `{id, status, priority}` (any durable task write — status/priority/plan/
@@ -229,7 +229,7 @@ relay; `chat_group` joined with the owner's chat-list groups; everything else is
 | `chat` | message append | patch |
 | `chat_read` | read-watermark advance | patch |
 | `chat_group` | group set replaced (`PUT /api/chat/groups`); a new outsource worker auto-joined to a group by its task type | patch |
-| `reply_card` | reply-card create / answer / answer revision / expire | patch |
+| `reply_card` | reply-card create / answer / answer revision / expire / the owner's snooze or unsnooze | patch |
 | `task` | any durable task write (create / status / priority / plan / step / deps / executor assignment / terminate); a change to the workspace due-soon lead | patch |
 | `task_manual` | manual create / edit / delete | patch |
 | `global_context` | user-context overlay write/reset | patch |
@@ -294,7 +294,7 @@ server's own deps-fulfill, not by eavesdropping on another member's stream):
 | `chat` | the sender and the recipient |
 | `chat_read` | — (no agent consumes it; owner cockpit only) |
 | `chat_group` | — (owner cockpit only) |
-| `reply_card` | the initiator (`from`) and, while the card's task is open, that task's acting executor (`task_executor`) — the one audience read from another row: the card stores only the task id, and a stored executor would go stale on reassignment |
+| `reply_card` | the initiator (`from`) and, while the card's task is open, that task's acting executor (`task_executor`) — the one audience read from another row: the card stores only the task id, and a stored executor would go stale on reassignment. The owner's snooze or unsnooze is owner cockpit only: it changes nothing an agent acts on. A snooze running out writes nothing and emits nothing; the cockpit refetches at `waiting_next_change_ts` |
 | `task` | the executor ONLY (NOT the creator, NOT dependents); a reassign additionally fans one delta to the OLD executor — the row's executor just changed, so the person unassigned would otherwise be silently dropped from the audience |
 | `task_manual` | — (owner cockpit only) |
 | `global_context` / `role_def` / `insight` | — (owner cockpit only) |
