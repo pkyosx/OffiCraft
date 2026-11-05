@@ -124,10 +124,20 @@ describe("ProfileDropdown · preferences scope", () => {
     fireEvent.click(utils.getByRole("button", { name: "pill" }));
     fireEvent.click(utils.getByText(p.preferences));
     fireEvent.click(utils.getByTestId("theme-entry"));
+    const firstStart = async () =>
+      (await within(utils.getByRole("dialog")).findByLabelText(
+        `${zh.settings.themeScheduleStart} 1`
+      )) as HTMLInputElement;
+    fireEvent.change(await firstStart(), { target: { value: "07:15" } });
     fireEvent.click(
-      within(utils.getByRole("dialog")).getAllByRole("button", { name: zh.settings.themeDialogClose })[0]
+      within(utils.getByRole("dialog")).getByRole("button", { name: zh.settings.themeDialogClose })
     );
     expect(utils.queryByRole("dialog")).toBeNull();
+
+    fireEvent.click(utils.getByRole("button", { name: "pill" }));
+    fireEvent.click(utils.getByText(p.preferences));
+    fireEvent.click(utils.getByTestId("theme-entry"));
+    expect((await firstStart()).value).toBe("06:00");
   });
 
   it("names a built-in theme by its own identity name", async () => {

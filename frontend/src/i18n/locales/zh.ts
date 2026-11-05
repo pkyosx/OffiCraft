@@ -2263,7 +2263,7 @@ export const zh = {
     themeDialogClose: "關閉",
     themeRestoreDefault: "恢復預設",
     themeRestoreConfirm:
-      "改回預設的外觀：依時段切換（06:00 白天、16:00 黃昏、18:30 晚上的辦公桌主題），並顯示應景主題。自訂主題不會被刪除。",
+      "改回預設的外觀：依時段切換（06:00 辦公室・晨光、16:00 辦公室・暮色、18:30 辦公室・夜燈），並顯示應景主題。自訂主題不會被刪除。",
     themeRestoreFailed: "恢復預設失敗，請再試一次。",
     themePick: "主題",
     themeScheduleStart: "開始時間",

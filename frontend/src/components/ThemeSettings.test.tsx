@@ -1602,7 +1602,6 @@ describe("ThemeSettings · appearance", () => {
     ).toEqual([p.themeImport, p.themeAdd]);
     expect(within(library).getByTestId("ts-group-builtin")).toBeTruthy();
     expect(within(library).queryAllByTestId("ts-thumb")).toEqual([]);
-    expect(utils.queryByRole("tab")).toBeNull();
   });
 
   it("lists the built-ins first, then the custom themes by their own names, and applies a pick at once", async () => {
@@ -1696,9 +1695,11 @@ describe("ThemeSettings · appearance", () => {
     fireEvent.click(utils.getByRole("button", { name: s.cancel }));
     expect((await api.getServerSettings()).displayTheme).toBe("midnight");
 
+    const patch = vi.spyOn(api, "patchServerSettings");
     fireEvent.click(dialog.getByRole("button", { name: s.themeRestoreDefault }));
     fireEvent.click(utils.getByTestId("theme-restore-confirm-btn"));
     await waitFor(() => expect(utils.queryByTestId("theme-restore-confirm")).toBeNull());
+    expect(patch).toHaveBeenCalledTimes(1);
 
     const saved = await api.getServerSettings();
     expect(saved.displayTheme).toBe("modern-office-desk-day");

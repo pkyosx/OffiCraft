@@ -563,8 +563,7 @@
   color: var(--color-text-strong);
 }
 
-/* A phone has no room for time + thumbnail + full theme name on one line, and
- * start labels two hours apart collide; the rows below carry the times. */
+/* A phone has no room for time + thumbnail + full theme name on one line. */
 @media (max-width: 720px) {
   .ts-schedule-row {
     flex-wrap: wrap;
