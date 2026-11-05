@@ -30,6 +30,8 @@ export function SettingsSuggestedRepliesStory() {
     await mockApi.patchServerSettings({
       suggestedRepliesReplyCard: [SENTENCE],
       suggestedRepliesTaskMessage: [SENTENCE],
+      displayTheme: "",
+      displayThemeSchedule: [],
     });
     setToken("ct-owner-token");
     setReady(true);

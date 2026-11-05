@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useI18n } from "../i18n";
 import { api } from "../api";
 import { isHttpStatus, retryAfterSeconds } from "../api/errors";
@@ -76,6 +76,16 @@ export function ProfileDropdown({
 
   const themeStatus = useThemeStatusText();
   const [themeDialogOpen, setThemeDialogOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  // The menu closes as the dialog opens (it would sit on top of it), taking the
+  // dialog's opener with it; focus goes back to the menu's own trigger instead.
+  const themeDialogReturn = useRef<HTMLElement | null>(null);
+  const themeDialog = themeDialogOpen && (
+    <ThemeAppearanceDialog
+      returnFocusTo={themeDialogReturn.current}
+      onClose={() => setThemeDialogOpen(false)}
+    />
+  );
 
   const [view, setView] = useState<View>("main");
 
@@ -182,7 +192,7 @@ export function ProfileDropdown({
     }
   }, [mfaPending?.otpauthUri, t.profile.mfaQrAlt]);
 
-  if (!open) return null;
+  if (!open) return themeDialog || null;
 
   function handleLogout() {
     // Resets local preferences to their initial state (theme/language). The
@@ -413,7 +423,7 @@ export function ProfileDropdown({
   }
 
   return (
-    <div className="profile-dd" role="menu">
+    <div className="profile-dd" role="menu" ref={rootRef}>
       {view === "main" && (
         <>
           {/* profile header — inline rename (Enter save / Esc cancel) */}
@@ -538,13 +548,17 @@ export function ProfileDropdown({
             <button
               type="button"
               className="profile-dd__theme-open"
-              onClick={() => setThemeDialogOpen(true)}
+              onClick={() => {
+                themeDialogReturn.current =
+                  rootRef.current?.parentElement?.querySelector<HTMLElement>(
+                    '[aria-haspopup="menu"]'
+                  ) ?? null;
+                setThemeDialogOpen(true);
+                onClose();
+              }}
             >
               {t.settings.themeDialogOpen}
             </button>
-            {themeDialogOpen && (
-              <ThemeAppearanceDialog onClose={() => setThemeDialogOpen(false)} />
-            )}
           </div>
 
           <div className="profile-dd__section">

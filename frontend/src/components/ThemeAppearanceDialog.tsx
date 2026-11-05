@@ -503,9 +503,15 @@ function ThemeAppearance({
 
 /** 主題設定: the one place the theme on screen is chosen — a single theme or a
  * time-of-day schedule, and the seasonal switch. Opened from 偏好設定 and from
- * 設定 › 主題 › 外觀. Portalled to <body>; App's click-outside for the profile
- * menu recognises it by `.ts-modal`. */
-export function ThemeAppearanceDialog({ onClose }: { onClose: () => void }) {
+ * 設定 › 主題 › 外觀. Portalled to <body>. */
+export function ThemeAppearanceDialog({
+  onClose,
+  returnFocusTo,
+}: {
+  onClose: () => void;
+  /** Where focus goes on close when the opener itself is gone. */
+  returnFocusTo?: HTMLElement | null;
+}) {
   const { t, theme, restoreDefaultAppearance } = useI18n();
   const [confirmRestore, setConfirmRestore] = useState(false);
   const [restoring, setRestoring] = useState(false);
@@ -535,7 +541,9 @@ export function ThemeAppearanceDialog({ onClose }: { onClose: () => void }) {
     const opener = document.activeElement as HTMLElement | null;
     rootRef.current?.focus();
     return () => {
-      if (opener && opener.isConnected) opener.focus();
+      const target =
+        opener && opener !== document.body && opener.isConnected ? opener : returnFocusTo;
+      if (target && target.isConnected) target.focus();
     };
   }, []);
 

@@ -9,6 +9,7 @@ import {
   LS_THEME,
   LS_THEME_PAINT,
   LS_THEME_SCHEDULE,
+  colourPaintRecordFor,
   paintRecordFor,
 } from "../lib/themePaint";
 import {
@@ -295,6 +296,24 @@ describe("prePaint", () => {
 
       expect(root.dataset.theme).toBe("office");
       expect(root.style.getPropertyValue("--color-bg")).toBe(DESK_NIGHT.colors["--color-bg"]);
+    });
+
+    it("a colours-only record paints the entry's colours and color-scheme at once, without a picture", async () => {
+      localStorage.setItem(
+        LS_THEME_SCHEDULE,
+        JSON.stringify([
+          { start: "06:00", theme: "modern-office-desk-day" },
+          { start: "18:30", theme: DESK_NIGHT.id },
+        ])
+      );
+      localStorage.setItem(LS_SCHEDULE_PAINT, JSON.stringify([colourPaintRecordFor(DESK_NIGHT)]));
+      at(new Date(2030, 0, 15, 21, 0));
+
+      await runPrePaint();
+
+      expect(root.style.getPropertyValue("--color-bg")).toBe(DESK_NIGHT.colors["--color-bg"]);
+      expect(root.style.getPropertyValue("color-scheme")).toBe("dark");
+      expect(root.style.getPropertyValue("--canvas-bg-image")).toBe("");
     });
 
     it("before the day's first start, paints the previous day's last entry, a built-in", async () => {

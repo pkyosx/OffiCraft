@@ -264,7 +264,12 @@ import {
 } from "../lib/themeBundle";
 import type { ThemeBundle } from "../lib/themeBundle";
 import { isBuiltinTheme, isBundledBuiltinTheme } from "../lib/themeBundleCore";
-import { MIN_SCHEDULE_ENTRIES, themeScheduleProblem } from "../lib/themeSchedule";
+import {
+  DEFAULT_DISPLAY_THEME,
+  DEFAULT_THEME_SCHEDULE,
+  MIN_SCHEDULE_ENTRIES,
+  themeScheduleProblem,
+} from "../lib/themeSchedule";
 
 // The always-present server-self machine id (mirrors the server seed):
 // the warden for the host running the server itself — listed FIRST, is_self, NOT
@@ -2348,15 +2353,19 @@ const DEFAULT_MOCK_SETTINGS = {
   [SUGGESTED_REPLIES_TASK_MESSAGE_FIELD]: [] as string[],
   [SUGGESTED_REPLIES_LORE_MESSAGE_FIELD]: [] as string[],
   push_contact_email: "",
-  // Cockpit display prefs (T-0b41-p2) — "" out of the box, mirroring the server
-  // (the frontend keeps its localStorage cache / default until the owner picks).
-  display_theme: "",
+  // Cockpit display prefs — mirroring a fresh server: migration 00120 writes
+  // the desk default (display theme, schedule, seasonal on); the language is
+  // "" (the frontend keeps its localStorage cache / default).
+  display_theme: DEFAULT_DISPLAY_THEME as string,
   display_language: "",
   // Layout width (T-756f) — OFF out of the box, mirroring the server (the
   // cockpit ships with the narrow centred column).
   display_wide: false,
   display_seasonal_theme: true,
-  display_theme_schedule: [] as { start: string; theme: string }[],
+  display_theme_schedule: DEFAULT_THEME_SCHEDULE.map((e) => ({ ...e })) as {
+    start: string;
+    theme: string;
+  }[],
   // The first-run onboarding report (T-ba62). Null in the mock and staying
   // that way: mock mode is a healthy studio, and a seeded FAILED report would
   // hang the "your studio is broken" banner over every mock page. Declared
@@ -7802,6 +7811,13 @@ function afterMockForcedDisconnect(stillDown: () => boolean, land: () => void): 
 /** Verbatim the server's acceleratedStopAlreadyForcedMsg. */
 const MOCK_ACCELERATED_STOP_ALREADY_FORCED =
   "加速停止 has nothing to escalate — this member was already force-stopped (強制停止): its session was cut off and no wind-down is open";
+
+/** Test seam: a server whose owner never chose a theme and has no schedule —
+ * what a station looked like before the desk default. */
+export function __setMockNoAppearance(): void {
+  mockServerSettings.display_theme = "";
+  mockServerSettings.display_theme_schedule = [];
+}
 
 export function __resetMock(): void {
   // The ring is MUTATED by rotate/remove, so it belongs here: without this a

@@ -10010,12 +10010,12 @@ export interface components {
             display_language?: string | null;
             /**
              * Display Theme
-             * @description The owner's cockpit visual theme (T-0b41-p2) — trimmed; "" clears it back to unset. Accepted values are "", a built-in theme id (`office` dark, `office-light` light), or the id of a theme that ALREADY EXISTS (T-83ef); anything else is a 422 reading `display_theme must be "", office, office-light, or an existing custom theme id`. The existence half is why this can no longer create a theme on the way past: themes are their own resource now, so save it with PUT /api/themes/{theme_id} first and select it here second.
+             * @description The owner's cockpit visual theme (T-0b41-p2) — trimmed; "" clears it back to unset. Accepted values are "", a built-in theme id (`office` dark, `office-light` light, `modern-office-desk-day` / `-dusk` / `-night`), or the id of a theme that ALREADY EXISTS (T-83ef); anything else is a 422 reading `display_theme must be "", a built-in theme id, or an existing custom theme id`. The existence half is why this can no longer create a theme on the way past: themes are their own resource now, so save it with PUT /api/themes/{theme_id} first and select it here second.
              */
             display_theme?: string | null;
             /**
              * Display Theme Schedule
-             * @description Replace the time-of-day theme schedule wholesale. [] turns it off. Otherwise 2 to 6 entries; each `start` must be `HH:MM` (00:00 through 23:59) and unique, each `theme` a built-in theme id (office, office-light) or the id of a custom theme that ALREADY EXISTS. Anything else is a 422 that writes nothing. Stored and returned sorted by start. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THE SCHEDULE UNCHANGED. To turn it off, send [].
+             * @description Replace the time-of-day theme schedule wholesale. [] turns it off. Otherwise 2 to 6 entries; each `start` must be `HH:MM` (00:00 through 23:59) and unique, each `theme` a built-in theme id (office, office-light, modern-office-desk-day / -dusk / -night) or the id of a custom theme that ALREADY EXISTS. Anything else is a 422 that writes nothing. Stored and returned sorted by start. 🔴 null is NOT "clear": an omitted field and an explicit null both mean LEAVE THE SCHEDULE UNCHANGED. To turn it off, send [].
              */
             display_theme_schedule?: components["schemas"]["ThemeScheduleEntryDTO"][] | null;
             /**
@@ -11826,7 +11826,7 @@ export interface components {
         };
         /**
          * ThemeBundleDTO
-         * @description One owner-authored theme colour bundle (T-16a1 P2). `id` is a client-generated stable slug (`^[a-z0-9][a-z0-9-]{1,63}$`), unique within the owner's set and never a built-in name (`office` / `office-light`). `name` is the display label (trimmed, 1..80 runes). `colors` maps `--color-*` token names — each MUST be a token defined in styles/theme.css — to CONCRETE colour values (hex / rgb() / rgba() / hsl() / hsla() / transparent only; no var(), no color-mix(), no arbitrary CSS). 1..200 pairs. The server 422s any bundle that violates the shape, the token whitelist, or the colour grammar. `wording` (optional, T-16a1 P3) carries per-language message-key text overrides; see its own description. `fonts` (optional, T-16a1 P4) carries font-family choices; see its own description.
+         * @description One owner-authored theme colour bundle (T-16a1 P2). `id` is a client-generated stable slug (`^[a-z0-9][a-z0-9-]{1,63}$`), unique within the owner's set and never a built-in id (`office` / `office-light` / `modern-office-desk-day` / `-dusk` / `-night`). `name` is the display label (trimmed, 1..80 runes). `colors` maps `--color-*` token names — each MUST be a token defined in styles/theme.css — to CONCRETE colour values (hex / rgb() / rgba() / hsl() / hsla() / transparent only; no var(), no color-mix(), no arbitrary CSS). 1..200 pairs. The server 422s any bundle that violates the shape, the token whitelist, or the colour grammar. `wording` (optional, T-16a1 P3) carries per-language message-key text overrides; see its own description. `fonts` (optional, T-16a1 P4) carries font-family choices; see its own description.
          */
         ThemeBundleDTO: {
             /**

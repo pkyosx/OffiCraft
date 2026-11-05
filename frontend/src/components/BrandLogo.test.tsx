@@ -9,7 +9,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, act, waitFor } from "@testing-library/react";
 import { I18nProvider, useI18n } from "../i18n";
-import { mockApi, __resetMock } from "../api/mock";
+import { mockApi, __resetMock, __setMockNoAppearance } from "../api/mock";
 import { TOKEN_KEY } from "../api/auth";
 import { BrandLogo } from "./BrandLogo";
 
@@ -51,6 +51,7 @@ async function activate(id: string) {
 describe("BrandLogo", () => {
   beforeEach(() => {
     __resetMock();
+    __setMockNoAppearance();
     localStorage.clear();
     localStorage.setItem(TOKEN_KEY, "live-owner-token");
   });

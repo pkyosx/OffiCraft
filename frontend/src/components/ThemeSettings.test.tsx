@@ -28,7 +28,7 @@ import { makeMessages } from "../i18n/compose";
 import { ThemeSettings } from "./ThemeSettings";
 import { tokenMeta } from "../lib/themeTokenMeta";
 import { MAX_AVATAR_BYTES, MAX_CUSTOM_THEMES } from "../lib/themeBundleCore";
-import { __resetMock } from "../api/mock";
+import { __resetMock, __setMockNoAppearance } from "../api/mock";
 import { api } from "../api";
 import { ApiError } from "../api/errors";
 import { codeForStatus } from "../api/errorCodes";
@@ -268,6 +268,7 @@ async function selectedTheme(utils: ReturnType<typeof render>): Promise<string> 
 
 beforeEach(() => {
   __resetMock();
+  __setMockNoAppearance();
   clearToken();
   // Several tests below stand a seam up on purpose (a rejecting putTheme, a
   // getTheme that never resolves). A spy that outlived its test would make the

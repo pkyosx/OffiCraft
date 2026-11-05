@@ -17,9 +17,9 @@ import { ApiError } from "./errors";
 describe("mock settings — display prefs (display_theme / display_language)", () => {
   beforeEach(() => __resetMock());
 
-  it("defaults both display prefs to \"\"", async () => {
+  it("starts like a fresh server: the desk display theme, and language \"\"", async () => {
     const s = await mockApi.getServerSettings();
-    expect(s.displayTheme).toBe("");
+    expect(s.displayTheme).toBe("modern-office-desk-day");
     expect(s.displayLanguage).toBe("");
   });
 
@@ -40,7 +40,7 @@ describe("mock settings — display prefs (display_theme / display_language)", (
       mockApi.patchServerSettings({ displayTheme: "neon" })
     ).rejects.toBeInstanceOf(ApiError);
     const s = await mockApi.getServerSettings();
-    expect(s.displayTheme).toBe(""); // unchanged
+    expect(s.displayTheme).toBe("modern-office-desk-day"); // unchanged
   });
 
   it("422s an out-of-enum display_language, writing nothing", async () => {

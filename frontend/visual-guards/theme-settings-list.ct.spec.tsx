@@ -25,7 +25,7 @@ import {
 import type { Page } from "@playwright/test";
 import { ThemeSettingsListStory } from "./stories/ThemeSettingsListStory";
 import { BUILTIN_THEME_IDS, expectBuiltinApplied } from "./builtinThemes";
-import type { BuiltinThemeId } from "../src/lib/themeBundleCore";
+import { PICKER_BUILTIN_THEMES, type BuiltinThemeId } from "../src/lib/themeBundleCore";
 
 // ── colour helpers (run in Node, on strings pulled from getComputedStyle) ──
 type Rgba = { r: number; g: number; b: number; a: number };
@@ -141,7 +141,7 @@ for (const width of [390, 1280]) {
   test(`width ${width}: built-in and custom rows align their action column`, async ({ mount, page }) => {
     const cmp = await mountSeeded(mount, page, width);
     const rows = cmp.locator(".ts-list > .ts-row");
-    await expect(rows).toHaveCount(BUILTIN_THEME_IDS.length + 1);
+    await expect(rows).toHaveCount(PICKER_BUILTIN_THEMES.length + 1);
 
     const rects = await rows.evaluateAll((els) =>
       els.map((row) =>
@@ -174,7 +174,7 @@ for (const width of [390, 1280]) {
 
   test(`width ${width}: built-in downloads are active; edit/delete stay inert placeholders`, async ({ mount, page }) => {
     const cmp = await mountSeeded(mount, page, width);
-    for (let row = 0; row < BUILTIN_THEME_IDS.length; row++) {
+    for (let row = 0; row < PICKER_BUILTIN_THEMES.length; row++) {
       const builtinBtns = cmp.locator(".ts-list > .ts-row").nth(row).locator(".ts-icon-btn");
       await expect(builtinBtns).toHaveCount(3);
       // The download icon is an active export now (owner: 辦公室主題不用擋下載)…
@@ -187,7 +187,7 @@ for (const width of [390, 1280]) {
     // disabled the real actions).
     const customBtns = cmp
       .locator(".ts-list > .ts-row")
-      .nth(BUILTIN_THEME_IDS.length)
+      .nth(PICKER_BUILTIN_THEMES.length)
       .locator(".ts-icon-btn");
     await expect(customBtns).toHaveCount(3);
     for (let i = 0; i < 3; i++) {

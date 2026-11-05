@@ -33,8 +33,10 @@ import {
   LS_THEME_SCHEDULE,
   PAINT_CACHE_VERSION,
   applyThemeToRoot,
+  colourPaintRecordFor,
   paintRecordFor,
   readThemeSchedule,
+  tieredPaintRecords,
   readValidatedPaint,
   readValidatedSchedulePaint,
 } from "./themePaint";
@@ -197,6 +199,29 @@ describe("readValidatedSchedulePaint", () => {
     }
     localStorage.removeItem(LS_SCHEDULE_PAINT);
     expect(readValidatedSchedulePaint(PAINT_THEME_ID)).toBeNull();
+  });
+});
+
+describe("tieredPaintRecords", () => {
+  const plain = { id: "plain", name: "Plain", colors: { "--color-bg": "#101018" } };
+
+  it("keeps the whole record for the ids in full and drops only the picture for the rest, one record per id with a source", () => {
+    const recs = tieredPaintRecords(
+      [PAINT_THEME_ID, "plain", "never-seen"],
+      new Set(["plain"]),
+      (id) => (id === PAINT_THEME_ID ? VALID_RICH_BUNDLE : id === "plain" ? plain : null)
+    );
+
+    expect(recs).toEqual([colourPaintRecordFor(VALID_RICH_BUNDLE), paintRecordFor(plain)]);
+    expect(recs[0].bundle.backgrounds).toBeUndefined();
+    expect(recs[0].bundle.backgroundModes).toBeUndefined();
+    expect(recs[0].bundle.colors).toEqual(VALID_RICH_BUNDLE.colors);
+    expect(recs[0].bundle.fonts).toEqual(VALID_RICH_BUNDLE.fonts);
+  });
+
+  it("a colours-only record still passes the paint validator", () => {
+    localStorage.setItem(LS_SCHEDULE_PAINT, JSON.stringify([colourPaintRecordFor(VALID_RICH_BUNDLE)]));
+    expect(readValidatedSchedulePaint(PAINT_THEME_ID)?.colors).toEqual(VALID_RICH_BUNDLE.colors);
   });
 });
 

@@ -11,12 +11,13 @@
 // dropdown only names the theme on screen.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { useState } from "react";
 import { render, fireEvent, waitFor, within } from "@testing-library/react";
 import type { LoadableSeasonalWindow } from "../lib/seasonalTheme";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { ProfileDropdown } from "./ProfileDropdown";
-import { __resetMock } from "../api/mock";
+import { __resetMock, __setMockNoAppearance } from "../api/mock";
 import { api } from "../api";
 
 const seasonalWindows = vi.hoisted(() => [] as LoadableSeasonalWindow[]);
@@ -25,15 +26,28 @@ import { setToken, clearToken } from "../api/auth";
 
 const p = zh.profile;
 
-async function openPreferences() {
-  const utils = render(
-    <I18nProvider>
+/** The menu with its trigger, the way App mounts it: onClose really closes it. */
+function MenuWithTrigger() {
+  const [open, setOpen] = useState(true);
+  return (
+    <div>
+      <button type="button" aria-haspopup="menu" onClick={() => setOpen((o) => !o)}>
+        pill
+      </button>
       <ProfileDropdown
-        open
-        onClose={vi.fn()}
+        open={open}
+        onClose={() => setOpen(false)}
         userName="使用者"
         setOwnerName={vi.fn()}
       />
+    </div>
+  );
+}
+
+async function openPreferences() {
+  const utils = render(
+    <I18nProvider>
+      <MenuWithTrigger />
     </I18nProvider>
   );
   fireEvent.click(utils.getByText(p.preferences));
@@ -43,6 +57,7 @@ async function openPreferences() {
 
 beforeEach(() => {
   __resetMock();
+  __setMockNoAppearance();
   clearToken();
   // Some cases seed oc.theme in localStorage; clear it so a
   // later test's first paint is not tinted (and stays on the zh default dict).
@@ -61,7 +76,7 @@ describe("ProfileDropdown · preferences scope", () => {
     expect(utils.getByText(p.language)).toBeTruthy();
   });
 
-  it("names the selected theme, and 主題設定… opens the dialog that sets it", async () => {
+  it("names the selected theme; 主題設定… closes the menu and opens the dialog that sets it, and closing returns focus to the menu's trigger", async () => {
     setToken("owner-token");
     await api.putTheme({
       id: "midnight",
@@ -73,6 +88,7 @@ describe("ProfileDropdown · preferences scope", () => {
     await waitFor(() => expect(themeStatus(utils)).toBe("午夜藍"));
 
     fireEvent.click(utils.getByRole("button", { name: zh.settings.themeDialogOpen }));
+    expect(utils.queryByRole("menu")).toBeNull();
     const dialog = utils.getByRole("dialog", { name: zh.settings.themeDialogTitle });
     const select = within(dialog).getByRole("combobox", { name: zh.settings.themePick }) as HTMLSelectElement;
     expect(select.value).toBe("midnight");
@@ -81,12 +97,15 @@ describe("ProfileDropdown · preferences scope", () => {
     await waitFor(async () =>
       expect((await api.getServerSettings()).displayTheme).toBe("office-light")
     );
-    expect(themeStatus(utils)).toBe(zh.themeIdentity.officeLight);
     fireEvent.click(within(dialog).getByRole("switch", { name: zh.settings.themeSchedule }));
     fireEvent.click(within(dialog).getByRole("button", { name: zh.settings.themeScheduleSave }));
     await waitFor(async () =>
       expect((await api.getServerSettings()).displayThemeSchedule).toHaveLength(3)
     );
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(utils.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(utils.getByRole("button", { name: "pill" }));
   });
 
   it("names a built-in theme by its own identity name", async () => {

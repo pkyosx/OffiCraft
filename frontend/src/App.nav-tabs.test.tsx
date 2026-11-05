@@ -20,7 +20,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, fireEvent, screen, waitFor, act } from "@testing-library/react";
 import { I18nProvider, useI18n } from "./i18n";
 import { zh } from "./i18n/locales/zh";
-import { mockApi, __resetMock } from "./api/mock";
+import { mockApi, __resetMock, __setMockNoAppearance } from "./api/mock";
 import { TOKEN_KEY } from "./api/auth";
 
 // Count hooks + heavy page bodies are irrelevant to the tab strip — stub them
@@ -75,6 +75,7 @@ describe("主導覽分頁", () => {
     history.replaceState(null, "", window.location.pathname);
     localStorage.clear();
     __resetMock();
+    __setMockNoAppearance();
   });
 
   it("shows the active theme's secrets image in App's secrets tab", async () => {

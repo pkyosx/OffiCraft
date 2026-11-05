@@ -10,7 +10,7 @@ import { render, screen, waitFor, act } from "@testing-library/react";
 import { I18nProvider, useI18n } from "./index";
 import { zh } from "./locales/zh";
 import { readDictMessage } from "./wording";
-import { mockApi, __resetMock } from "../api/mock";
+import { mockApi, __resetMock, __setMockNoAppearance } from "../api/mock";
 import { api } from "../api";
 import { setToken, TOKEN_KEY } from "../api/auth";
 import type { LoadableSeasonalWindow } from "../lib/seasonalTheme";
@@ -18,6 +18,17 @@ import type { ThemeBundle } from "../lib/themeBundleCore";
 
 const seasonalWindows = vi.hoisted(() => [] as LoadableSeasonalWindow[]);
 vi.mock("../lib/seasonalTheme", () => ({ SEASONAL_WINDOWS: seasonalWindows }));
+const builtinLoads = vi.hoisted(() => [] as string[]);
+vi.mock("../lib/bundledBuiltinThemes", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../lib/bundledBuiltinThemes")>();
+  return {
+    ...real,
+    loadBundledBuiltinTheme: (id: string) => {
+      builtinLoads.push(id);
+      return real.loadBundledBuiltinTheme(id);
+    },
+  };
+});
 
 function Probe() {
   const { theme, language } = useI18n();
@@ -44,6 +55,7 @@ const SUNRISE = {
 describe("I18nProvider dual-layer theme/language", () => {
   beforeEach(() => {
     __resetMock();
+    __setMockNoAppearance();
     localStorage.clear();
     delete document.documentElement.dataset.theme;
   });
@@ -161,6 +173,7 @@ describe("I18nProvider layout width (T-756f)", () => {
 
   beforeEach(() => {
     __resetMock();
+    __setMockNoAppearance();
     localStorage.clear();
     delete root.dataset.layout;
   });
@@ -311,6 +324,7 @@ describe("I18nProvider custom theme apply", () => {
 
   beforeEach(() => {
     __resetMock();
+    __setMockNoAppearance();
     localStorage.clear();
     root.removeAttribute("style");
     delete root.dataset.theme;
@@ -462,6 +476,7 @@ describe("I18nProvider custom theme wording overlay", () => {
 
   beforeEach(() => {
     __resetMock();
+    __setMockNoAppearance();
     localStorage.clear();
     document.documentElement.removeAttribute("style");
     delete document.documentElement.dataset.theme;
@@ -550,6 +565,7 @@ describe("I18nProvider · the switch window", () => {
 
   beforeEach(() => {
     __resetMock();
+    __setMockNoAppearance();
     localStorage.clear();
     document.documentElement.removeAttribute("style");
     delete document.documentElement.dataset.theme;
@@ -734,6 +750,7 @@ describe("I18nProvider seasonal theme", () => {
 
   beforeEach(() => {
     __resetMock();
+    __setMockNoAppearance();
     localStorage.clear();
     root.removeAttribute("style");
     delete root.dataset.theme;
@@ -995,7 +1012,7 @@ describe("I18nProvider seasonal theme", () => {
     setTimeoutSpy.mockRestore();
   });
 
-  it("inside the window, while the seasonal theme is still loading, shows none of the selected custom theme", async () => {
+  it("inside the window, while the seasonal theme is still loading, shows none of the selected custom theme and does not fetch it", async () => {
     const DUSK = {
       id: "dusk",
       name: "Dusk",
@@ -1008,10 +1025,13 @@ describe("I18nProvider seasonal theme", () => {
     localStorage.setItem(TOKEN_KEY, "live-owner-token");
     load.mockReset();
     load.mockReturnValue(new Promise(() => {}));
+    const getTheme = vi.spyOn(api, "getTheme");
     at(new Date(2030, 9, 28, 12, 0));
     await mount();
 
-    await waitFor(() => expect(ctx.activeThemeBundle?.id).toBe("dusk"));
+    await waitFor(() => expect(ctx.themeList).toHaveLength(1));
+    expect(getTheme).not.toHaveBeenCalled();
+    expect(ctx.activeThemeBundle).toBeNull();
     expect(ctx.theme).toBe("dusk");
     expect(ctx.t.nav.office).toBe(zh.nav.office);
     expect(root.dataset.theme).toBe("office");
@@ -1050,6 +1070,7 @@ describe("I18nProvider seasonal theme with day parts", () => {
 
   beforeEach(() => {
     __resetMock();
+    __setMockNoAppearance();
     localStorage.clear();
     root.removeAttribute("style");
     delete root.dataset.theme;
@@ -1112,7 +1133,7 @@ describe("I18nProvider seasonal theme with day parts", () => {
       (JSON.parse(localStorage.getItem("oc.seasonalPaint") ?? "[]") as { bundle: { id: string } }[]).map(
         (r) => r.bundle.id
       )
-    ).toEqual(["harvest-night", "harvest-day"]);
+    ).toEqual(["harvest-day", "harvest-night"]);
   });
 
   it("prefetches the next day part ten minutes before its start and switches to it with no further load", async () => {
@@ -1135,6 +1156,55 @@ describe("I18nProvider seasonal theme with day parts", () => {
     expect(ctx.seasonalThemeName).toBe("豐收白天");
     expect(root.style.getPropertyValue("--color-bg")).toBe("#f5f0e6");
     expect(load).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps records only for this window's day parts, dropping any other window's", async () => {
+    localStorage.setItem(
+      "oc.seasonalPaint",
+      JSON.stringify([{ v: 1, bundle: { id: "frost-night", name: "Frost", colors: { "--color-bg": "#000010" } } }])
+    );
+    at(new Date(2030, 9, 25, 21, 0));
+    await mount();
+
+    await waitFor(() => expect(ctx.seasonalThemeName).toBe("豐收之夜"));
+    expect(
+      (JSON.parse(localStorage.getItem("oc.seasonalPaint") ?? "[]") as { bundle: { id: string } }[]).map(
+        (r) => r.bundle.id
+      )
+    ).toEqual(["harvest-night"]);
+  });
+
+  it("prefetches the window's first day part ten minutes before the window opens, and opens on it with no further load", async () => {
+    at(new Date(2030, 9, 23, 23, 55));
+    await mount();
+
+    await waitFor(() => expect(load.mock.calls).toEqual([["harvest-night.theme.json"]]));
+    expect(ctx.seasonalThemeName).toBeNull();
+
+    await act(async () => {
+      vi.advanceTimersByTime(5 * 60 * 1000);
+    });
+    await waitFor(() => expect(ctx.seasonalThemeName).toBe("豐收之夜"));
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
+  it("prefetches the user's slot ten minutes before the window ends", async () => {
+    await mockApi.putTheme({ id: "dusk", name: "Dusk", colors: { "--color-bg": "#0a0b0c" } });
+    await mockApi.patchServerSettings({
+      displayTheme: "office",
+      displayThemeSchedule: [
+        { start: "00:00", theme: "dusk" },
+        { start: "12:00", theme: "office-light" },
+      ],
+    });
+    localStorage.setItem(TOKEN_KEY, "live-owner-token");
+    const getTheme = vi.spyOn(api, "getTheme");
+    at(new Date(2030, 9, 31, 23, 55));
+    await mount();
+
+    await waitFor(() => expect(getTheme.mock.calls.map((c) => c[0])).toEqual(["dusk"]));
+    expect(ctx.seasonalThemeName).toBe("豐收之夜");
+    getTheme.mockRestore();
   });
 
   it("with the seasonal theme turned off, shows the user's own schedule and loads no day part", async () => {
@@ -1188,6 +1258,7 @@ describe("I18nProvider theme schedule", () => {
 
   beforeEach(() => {
     __resetMock();
+    __setMockNoAppearance();
     localStorage.clear();
     root.removeAttribute("style");
     delete root.dataset.theme;
@@ -1573,5 +1644,127 @@ describe("I18nProvider theme schedule", () => {
     expect(ctx.themeSchedule).toEqual([]);
     expect(localStorage.getItem("oc.themeSchedule")).toBeNull();
     expect(localStorage.getItem("oc.schedulePaint")).toBeNull();
+  });
+});
+
+describe("I18nProvider under the desk default", () => {
+  const root = document.documentElement;
+  const DAY = "modern-office-desk-day";
+  const DUSK = "modern-office-desk-dusk";
+  const NIGHT = "modern-office-desk-night";
+  type Rec = { bundle: { id: string; backgrounds?: unknown } };
+  const records = (key: string) => JSON.parse(localStorage.getItem(key) ?? "[]") as Rec[];
+  const withImage = (key: string) =>
+    Object.fromEntries(records(key).map((r) => [r.bundle.id, r.bundle.backgrounds !== undefined]));
+  const storedChars = () => {
+    let n = 0;
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i)!;
+      n += k.length + (localStorage.getItem(k) ?? "").length;
+    }
+    return n;
+  };
+
+  function at(date: Date) {
+    vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["Date", "setTimeout", "clearTimeout"] });
+    vi.setSystemTime(date);
+  }
+  async function mount() {
+    await act(async () => {
+      render(
+        <I18nProvider>
+          <Capture />
+        </I18nProvider>
+      );
+    });
+  }
+
+  beforeEach(() => {
+    __resetMock();
+    localStorage.clear();
+    root.removeAttribute("style");
+    delete root.dataset.theme;
+    builtinLoads.length = 0;
+    localStorage.setItem(TOKEN_KEY, "live-owner-token");
+  });
+  afterEach(() => {
+    seasonalWindows.length = 0;
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("opening at night loads only the night slot, not display_theme's desk-day, and keeps no display picture", async () => {
+    at(new Date(2030, 0, 15, 20, 0));
+    await mount();
+
+    await waitFor(() => expect(ctx.shownThemeBundle?.id).toBe(NIGHT));
+    expect(ctx.theme).toBe(DAY);
+    expect(builtinLoads).toEqual([NIGHT]);
+    expect(localStorage.getItem("oc.themePaint")).toBeNull();
+  });
+
+  it("恢復預設 at night loads only the night slot", async () => {
+    __setMockNoAppearance();
+    at(new Date(2030, 0, 15, 20, 0));
+    await mount();
+    await waitFor(() => expect(ctx.themeSchedule).toEqual([]));
+    builtinLoads.length = 0;
+
+    await act(async () => {
+      await ctx.restoreDefaultAppearance();
+    });
+
+    await waitFor(() => expect(ctx.shownThemeBundle?.id).toBe(NIGHT));
+    expect(builtinLoads).toEqual([NIGHT]);
+    expect(localStorage.getItem("oc.themePaint")).toBeNull();
+  });
+
+  it("with a custom display theme and a schedule showing another one, fetches only the slot's", async () => {
+    await mockApi.putTheme({ id: "dawn", name: "Dawn", colors: { "--color-bg": "#fafaf0" } });
+    await mockApi.putTheme({ id: "dusk", name: "Dusk", colors: { "--color-bg": "#0a0b0c" } });
+    await mockApi.patchServerSettings({
+      displayTheme: "dusk",
+      displayThemeSchedule: [
+        { start: "07:00", theme: "dawn" },
+        { start: "19:00", theme: "dusk" },
+      ],
+    });
+    const getTheme = vi.spyOn(api, "getTheme");
+    at(new Date(2030, 0, 15, 12, 0));
+    await mount();
+
+    await waitFor(() => expect(root.style.getPropertyValue("--color-bg")).toBe("#fafaf0"));
+    expect(getTheme.mock.calls.map((c) => c[0])).toEqual(["dawn"]);
+  });
+
+  it("keeps the picture only for the slot on screen and the next one, colours for the rest, well under Safari's 2.5M-character storage", async () => {
+    at(new Date(2030, 0, 15, 16, 25));
+    await mount();
+    await waitFor(() => expect(builtinLoads.sort()).toEqual([DAY, DUSK]));
+    await waitFor(() => expect(withImage("oc.schedulePaint")).toEqual({ [DAY]: true, [DUSK]: true }));
+    const sizes = [storedChars()];
+
+    // One boundary per step: the next timer is armed only once React has
+    // rendered the boundary before it.
+    for (const minutes of [5, 110]) {
+      await act(async () => {
+        vi.advanceTimersByTime(minutes * 60 * 1000);
+      });
+    }
+    await waitFor(() =>
+      expect(withImage("oc.schedulePaint")).toEqual({ [DAY]: false, [DUSK]: true, [NIGHT]: true })
+    );
+    sizes.push(storedChars());
+
+    await act(async () => {
+      vi.advanceTimersByTime(10 * 60 * 1000);
+    });
+    await waitFor(() =>
+      expect(withImage("oc.schedulePaint")).toEqual({ [DAY]: true, [DUSK]: false, [NIGHT]: true })
+    );
+    sizes.push(storedChars());
+    expect(localStorage.getItem("oc.themePaint")).toBeNull();
+    expect(Math.min(...sizes)).toBeGreaterThan(1_000_000);
+    expect(Math.max(...sizes)).toBeLessThan(1_600_000);
   });
 });

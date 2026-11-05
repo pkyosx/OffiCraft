@@ -56,6 +56,33 @@ export function paintRecordFor(b: ThemeBundle): PaintRecord {
   return { v: PAINT_CACHE_VERSION, bundle: pruned };
 }
 
+/** The record of a theme that is neither on screen nor next: its colours and
+ * fonts without the background image, which is the bulk of a record. Pre-paint
+ * still paints the right colours (and color-scheme); the picture follows when
+ * the bundle loads. */
+export function colourPaintRecordFor(b: ThemeBundle): PaintRecord {
+  const rec = paintRecordFor(b);
+  delete rec.bundle.backgrounds;
+  delete rec.bundle.backgroundModes;
+  return rec;
+}
+
+/** One record per id in `ids` that has a source (the bundle in hand, else the
+ * record already cached): whole for the ids in `full`, colours-only otherwise.
+ * localStorage holds about 2.5M characters on Safari and a refused write
+ * clears the key, so only the current and next slot keep their pictures. */
+export function tieredPaintRecords(
+  ids: readonly string[],
+  full: ReadonlySet<string>,
+  source: (id: string) => ThemeBundle | null
+): PaintRecord[] {
+  return ids.flatMap((id) => {
+    const b = source(id);
+    if (!b) return [];
+    return [full.has(id) ? paintRecordFor(b) : colourPaintRecordFor(b)];
+  });
+}
+
 function readJSON(key: string): unknown {
   try {
     const raw = localStorage.getItem(key);
