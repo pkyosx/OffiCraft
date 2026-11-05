@@ -471,13 +471,15 @@
 }
 .ts-timeline__bar {
   display: flex;
-  height: 10px;
-  border-radius: 5px;
+  height: 18px;
+  border-radius: 6px;
   overflow: hidden;
   border: 1px solid var(--color-border);
 }
 .ts-timeline__seg {
   height: 100%;
+  background-size: cover;
+  background-position: center;
 }
 .ts-timeline__seg + .ts-timeline__seg {
   border-left: 1px solid var(--color-border);
@@ -492,4 +494,22 @@
   position: absolute;
   top: 0;
   white-space: nowrap;
+}
+
+/* A phone has no room for time + thumbnail + full theme name on one line, and
+ * start labels two hours apart collide; the rows below carry the times. */
+@media (max-width: 720px) {
+  .ts-schedule-row {
+    flex-wrap: wrap;
+  }
+  .ts-schedule-row > select {
+    order: 3;
+    flex: 1 1 100%;
+  }
+  .ts-schedule-row > .ts-schedule-start {
+    flex: 1 1 auto;
+  }
+  .ts-timeline__labels {
+    display: none;
+  }
 }

@@ -1732,6 +1732,9 @@ function ScheduleTimeline({
             style={{
               width: `${((seg.to - seg.from) / DAY) * 100}%`,
               backgroundColor: swatchOf(seg.theme)?.bg,
+              backgroundImage: swatchOf(seg.theme)?.image
+                ? `url("${swatchOf(seg.theme)?.image}")`
+                : undefined,
             }}
           />
         ))}
