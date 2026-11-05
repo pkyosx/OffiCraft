@@ -134,7 +134,11 @@ test.describe('C2 · reply cards stamp the WAIT as a relative counter, with no a
       if (!head) return null;
       const kids = [...head.children];
       return {
-        expire: kids.findIndex((k) => k.dataset.testid === 'expire-card'),
+        expire: kids.findIndex(
+          (k) =>
+            k.dataset.testid === 'expire-card' ||
+            k.querySelector('[data-testid="expire-card"]') !== null,
+        ),
         waited: kids.findIndex((k) => k.dataset.testid === 'waited'),
       };
     });

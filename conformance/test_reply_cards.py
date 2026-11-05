@@ -41,6 +41,7 @@ window cutoff (boundary inclusive) is pinned by the server's unit tests
 from __future__ import annotations
 
 import base64
+import time
 
 import pytest
 
@@ -1007,3 +1008,152 @@ def test_expired_delta_reaches_the_initiating_agent(
         full = _get_card(client, asker.token, card["id"])
         assert full["status"] == "expired" and full["expired_ts"]
         assert full["answer"] is None
+
+
+# ── the named task's priority and due date, read live ────────────────────────
+
+
+def _task_standing(ref: dict) -> tuple:
+    return (ref["priority"], ref["due_ts"], ref["due_soon_lead_minutes"])
+
+
+def _set_task(client, owner_token, task_id: str, path: str, body: dict):
+    r = client.post(f"/api/tasks/{task_id}/{path}", json=body, headers=_auth(owner_token))
+    assert r.status_code == 200, r.text
+
+
+def _waiting_rows(client, owner_token) -> dict:
+    r = client.get("/api/reply-cards?status=waiting", headers=_auth(owner_token))
+    assert r.status_code == 200, r.text
+    return {row["id"]: row for row in r.json()}
+
+
+def test_a_card_naming_a_task_carries_the_tasks_current_priority_and_due(client, owner_token, asker):
+    task_id, step_ids = _task_with_steps(client, asker, "conf card standing", 1)
+    _set_task(client, owner_token, task_id, "priority", {"priority": "high"})
+    _set_task(client, owner_token, task_id, "due", {"due_ts": 1800000000, "due_soon_lead_minutes": 90})
+    h = _auth(asker.token)
+    bound = client.post("/api/reply-cards", json={
+        "kind": "decision", "summary": "bound", "options": [{"text": "A"}],
+        "linked_task": {"task_id": task_id, "step_id": step_ids[0]}}, headers=h).json()["id"]
+    about = client.post("/api/reply-cards", json={
+        "kind": "decision", "summary": "about", "options": [{"text": "A"}],
+        "linked_task": None, "about_task_id": task_id}, headers=h).json()["id"]
+    plain = _open_card(client, asker, summary="names no task")["id"]
+
+    rows = _waiting_rows(client, owner_token)
+    for card_id in (bound, about):
+        assert _task_standing(rows[card_id]["task"]) == ("high", 1800000000, 90), rows[card_id]
+        assert _task_standing(_get_card(client, owner_token, card_id)["task"]) == ("high", 1800000000, 90)
+    assert rows[plain]["task"] is None
+    assert _get_card(client, owner_token, plain)["task"] is None
+
+    _set_task(client, owner_token, task_id, "priority", {"priority": "low"})
+    _set_task(client, owner_token, task_id, "due", {"due_ts": None})
+    rows = _waiting_rows(client, owner_token)
+    for card_id in (bound, about):
+        assert _task_standing(rows[card_id]["task"]) == ("low", None, None), rows[card_id]
+        assert _task_standing(_get_card(client, owner_token, card_id)["task"]) == ("low", None, None)
+    for card_id in (bound, about, plain):
+        assert _expire(client, owner_token, card_id).status_code == 200
+
+
+# ── 稍後再看: the owner's snooze ──────────────────────────────────────────────
+
+
+def _snooze(client, token, card_id: str, until):
+    return client.put(f"/api/reply-cards/{card_id}/snooze",
+                      json={"snoozed_until_ts": until}, headers=_auth(token))
+
+
+def _counts(client, owner_token) -> dict:
+    r = client.get("/api/reply-cards/count", headers=_auth(owner_token))
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_a_snoozed_card_stays_waiting_in_place_but_leaves_the_badge(client, owner_token, asker):
+    task_id, step_ids = _task_with_steps(client, asker, "conf snooze task", 1)
+    bound = client.post("/api/reply-cards", json={
+        "kind": "decision", "summary": "bound snooze", "options": [{"text": "A"}],
+        "linked_task": {"task_id": task_id, "step_id": step_ids[0]}},
+        headers=_auth(asker.token)).json()["id"]
+    plain = _open_card(client, asker, summary="plain snooze")["id"]
+    now = int(time.time())
+    before = _counts(client, owner_token)
+    order_before = list(_waiting_rows(client, owner_token))
+
+    r = _snooze(client, owner_token, bound, now + 7200)
+    assert r.status_code == 200, r.text
+    assert r.json() == {"id": bound, "snoozed_until_ts": now + 7200}
+    assert _snooze(client, owner_token, plain, now + 3600).status_code == 200
+
+    rows = _waiting_rows(client, owner_token)
+    assert list(rows) == order_before
+    assert rows[bound]["snoozed_until_ts"] == now + 7200
+    assert rows[plain]["snoozed_until_ts"] == now + 3600
+    assert _get_card(client, owner_token, bound)["snoozed_until_ts"] == now + 7200
+    after = _counts(client, owner_token)
+    assert after["waiting"] == before["waiting"] - 2
+    assert after["waiting_next_change_ts"] == now + 3600
+    task = client.get(f"/api/tasks/{task_id}", headers=_auth(owner_token)).json()
+    assert task["status"] == "waiting_owner"
+    assert task["steps"][0]["status"] == "waiting_owner"
+
+    r = _snooze(client, owner_token, plain, None)
+    assert r.status_code == 200 and r.json() == {"id": plain, "snoozed_until_ts": None}, r.text
+    assert _waiting_rows(client, owner_token)[plain]["snoozed_until_ts"] is None
+    assert _counts(client, owner_token)["waiting_next_change_ts"] == now + 7200
+
+    assert _answer(client, owner_token, bound, {"option_idxs": [0]}).status_code == 200
+    answered = {row["id"]: row for row in client.get(
+        "/api/reply-cards?status=answered", headers=_auth(owner_token)).json()}
+    assert answered[bound]["snoozed_until_ts"] is None
+    assert _get_card(client, owner_token, bound)["snoozed_until_ts"] is None
+    final = _counts(client, owner_token)
+    assert final["waiting"] == before["waiting"] - 1
+    assert final["waiting_next_change_ts"] == before["waiting_next_change_ts"]
+    assert _expire(client, owner_token, plain).status_code == 200
+
+
+def test_snooze_refusals(client, owner_token, asker):
+    card = _open_card(client, asker, summary="snooze refusals")["id"]
+    now = time.time()
+    for until in (now - 60, now + 7776000 + 3600):
+        r = _snooze(client, owner_token, card, until)
+        assert r.status_code == 422, (until, r.text)
+        assert r.json()["error"]["code"] == "validation_error"
+    for body in ({}, {"snoozed_until_ts": None, "id": card}):
+        r = client.put(f"/api/reply-cards/{card}/snooze", json=body, headers=_auth(owner_token))
+        assert r.status_code == 422, (body, r.text)
+    assert _snooze(client, asker.token, card, now + 3600).status_code == 403
+    assert _snooze(client, owner_token, "rc-conf-no-such-card", now + 3600).status_code == 404
+    assert _get_card(client, owner_token, card)["snoozed_until_ts"] is None
+
+    assert _expire(client, owner_token, card).status_code == 200
+    assert _snooze(client, owner_token, card, now + 3600).status_code == 409
+    answered = _open_card(client, asker, summary="snooze an answered card")["id"]
+    assert _answer(client, owner_token, answered, {"text": "ok"}).status_code == 200
+    assert _snooze(client, owner_token, answered, None).status_code == 409
+
+
+def test_the_snooze_delta_reaches_the_owner_cockpit_but_not_the_author(
+    base_url, client, owner_token, asker
+):
+    with SSEConnection(base_url, owner_token) as cockpit, \
+            SSEConnection(base_url, asker.token) as agent_sse:
+        assert cockpit.status_code == 200, cockpit.error_body
+        assert agent_sse.status_code == 200, agent_sse.error_body
+        card = _open_card(client, asker, summary="snooze delta")["id"]
+        cockpit.wait_for_frame("reply_card")
+        agent_sse.wait_for_frame("reply_card")
+
+        assert _snooze(client, owner_token, card, int(time.time()) + 3600).status_code == 200
+        frame = cockpit.wait_for_frame("reply_card")["frame"]
+        assert frame["op"] == "patch"
+        assert frame["data"]["payload"] == {"id": card, "from": asker.member_id,
+                                            "status": "waiting", "task_executor": ""}
+
+        assert _expire(client, owner_token, card).status_code == 200
+        first = agent_sse.wait_for_frame("reply_card")["frame"]["data"]["payload"]
+        assert first["status"] == "expired", first

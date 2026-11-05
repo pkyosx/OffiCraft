@@ -646,6 +646,12 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler: w.HandleExpireReplyCardApiReplyCardsCardIdExpirePost,
 			MCPTool: "expire_reply_card",
 		}),
+		Gated(principalOwner, routeDef{
+			Method:     "PUT",
+			Path:       "/api/reply-cards/{card_id}/snooze",
+			Handler:    w.HandleSnoozeReplyCardApiReplyCardsCardIdSnoozePut,
+			MCPExclude: true,
+		}),
 		Gated(principalMachine, routeDef{
 			Method:  "POST",
 			Path:    "/api/agent/context",

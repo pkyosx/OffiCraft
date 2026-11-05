@@ -88,6 +88,7 @@ import type {
   ReplyCardWriteReceipt,
   ReplyCardAnswerInput,
   ReplyCardCounts,
+  ReplyCardSnoozeReceipt,
   ServerSettingsView,
   ServerSettingsPatch,
   TaskView,
@@ -137,6 +138,8 @@ import {
   toReplyCard,
   toReplyCardRow,
   toReplyCardWriteReceipt,
+  toReplyCardCounts,
+  toReplyCardSnoozeReceipt,
   toMonitoring,
   toVersion,
   toReleaseCheck,
@@ -1642,9 +1645,8 @@ export const httpApi: Api = {
     // unopened card is none.
     //
     // The server order is preserved (waiting = longest-waiting first, answered =
-    // last-24h newest answer first). RepliesPage re-sorts the waiting pane
-    // newest-first for DISPLAY only (T-b07f) — the adapter still hands over
-    // server order.
+    // last-24h newest answer first); RepliesPage orders the waiting pane by the
+    // owner's 排序依據 for display.
     const rows = unwrap(
       await client.GET("/api/reply-cards", {
         params: { query: { status } },
@@ -1669,12 +1671,7 @@ export const httpApi: Api = {
     // GET /api/reply-cards/count -> {waiting, answered, expired}. Cheap counts
     // (the nav badge's waiting; the 等我回覆 page's recently-handled header
     // sum), refetched on every reply_card SSE delta without pulling the lists.
-    const wire = unwrap(await client.GET("/api/reply-cards/count"));
-    return {
-      waiting: wire.waiting,
-      answered: wire.answered,
-      expired: wire.expired,
-    };
+    return toReplyCardCounts(unwrap(await client.GET("/api/reply-cards/count")));
   },
 
   async getChatUnreadCount(): Promise<number> {
@@ -1737,6 +1734,19 @@ export const httpApi: Api = {
       }),
     );
     return toReplyCardWriteReceipt(wire);
+  },
+
+  async snoozeReplyCard(
+    id: string,
+    untilTs: number | null,
+  ): Promise<ReplyCardSnoozeReceipt> {
+    const wire = unwrap(
+      await client.PUT("/api/reply-cards/{card_id}/snooze", {
+        params: { path: { card_id: id } },
+        body: { snoozed_until_ts: untilTs },
+      }),
+    );
+    return toReplyCardSnoozeReceipt(wire);
   },
 
   async listTasks(opts?: {

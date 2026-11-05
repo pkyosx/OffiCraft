@@ -2698,9 +2698,10 @@ export interface paths {
         /**
          * List light reply-card rows (summary and decision digest, without the full body/options). status is waiting (the default, longest-waiting first), answered (the last 24 hours) or expired (the last 24 hours); a positive limit is applied after each pane is ordered. Every pane covers every card on the station, not only the cards you opened — pass opened_by to narrow a pane to the cards ONE member opened. Read one card in full with get_reply_card.
          * @description - Light rows only: the summary, plus on an answered row the decision digest — never the body or full options.
-         *     - ?status=waiting (default): waiting on the owner, longest-waiting first.
+         *     - ?status=waiting (default): waiting on the owner, longest-waiting first. A card the owner has snoozed stays in this pane, in the same order, with `snoozed_until_ts` set.
          *     - ?status=answered / ?status=expired: the last 24 hours only, newest first.
          *     - ?limit=N caps rows AFTER the pane is ordered; absent or non-positive returns the whole pane.
+         *     - A row naming a task carries that task's current priority and due date on `task`, read at this moment.
          *     - Read one card in full with get_reply_card.
          */
         get: operations["handle_list_reply_cards_api_reply_cards_get"];
@@ -2738,7 +2739,8 @@ export interface paths {
         };
         /**
          * Waiting reply-card count (the cockpit badge).
-         * @description - The number of reply cards still `waiting`, for the navigation badge.
+         * @description - The number of reply cards still `waiting`, for the navigation badge; a card the owner has snoozed is left out until its `snoozed_until_ts` passes.
+         *     - `waiting_next_change_ts` is when that number next changes on its own (a snooze running out): refetch then.
          *     - Cheap to refetch alone on a `reply_card` event, without pulling the card list.
          */
         get: operations["handle_reply_card_count_api_reply_cards_count_get"];
@@ -2819,6 +2821,30 @@ export interface paths {
          *     - Emits a `reply_card` event; a client holding the stream learns of this without polling.
          */
         post: operations["handle_expire_reply_card_api_reply_cards__card_id__expire_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reply-cards/{card_id}/snooze": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Snooze or unsnooze a waiting reply card (owner only).
+         * @description - Owner only: puts a WAITING card aside until `snoozed_until_ts` (稍後再看), or with `null` brings it back now. Any waiting card, bound to a task step or not.
+         *     - The card stays waiting: it can still be answered or expired, and its task and step are untouched. Until the time passes it is left out of the badge count; it returns by itself, and nothing is written when the time passes.
+         *     - Answering or expiring a snoozed card clears the snooze.
+         *     - 422 when `snoozed_until_ts` is not later than now or is more than 90 days ahead, or the body is malformed (missing `snoozed_until_ts`, an unknown key such as `id`); 403 not the owner; 404 unknown; 409 the card is answered or expired.
+         *     - Emits a `reply_card` event to the owner cockpit only; the card's author and its task's executor are not told.
+         */
+        put: operations["handle_snooze_reply_card_api_reply_cards__card_id__snooze_put"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -8043,7 +8069,7 @@ export interface components {
         };
         /**
          * ReplyCardCountDTO
-         * @description Reply-card counts. ``waiting`` is the cockpit navigation badge: how many reply cards are currently WAITING for the owner (answered/expired cards never count — the badge counts 待回覆 only). ``answered`` is the count of recently-answered cards (within the 24h 近期已回覆 window) and ``expired`` the count of recently-expired cards (the same 24h window keyed off ``expired_ts``) — together they let the 等我回覆 page render its collapsed 近期已處理 header (and hide the pane at zero) WITHOUT fetching the lists; the lists load only when the owner expands the pane.
+         * @description Reply-card counts. ``waiting`` is the cockpit navigation badge: how many reply cards are currently WAITING for the owner (answered/expired cards never count — the badge counts 待回覆 only), leaving out a card the owner has snoozed until its ``snoozed_until_ts`` passes. ``answered`` is the count of recently-answered cards (within the 24h 近期已回覆 window) and ``expired`` the count of recently-expired cards (the same 24h window keyed off ``expired_ts``) — together they let the 等我回覆 page render its collapsed 近期已處理 header (and hide the pane at zero) WITHOUT fetching the lists; the lists load only when the owner expands the pane.
          */
         ReplyCardCountDTO: {
             /** Answered */
@@ -8052,6 +8078,12 @@ export interface components {
             expired: number;
             /** Waiting */
             waiting: number;
+            /**
+             * Waiting Next Change Ts
+             * @description The next moment ``waiting`` changes on its own as time passes: the earliest ``snoozed_until_ts`` among snoozed waiting cards. ``null`` when no card is snoozed. A client refetches at this moment so the badge does not go stale without a ``reply_card`` event — nothing is written when a snooze runs out.
+             * @default null
+             */
+            waiting_next_change_ts: number | null;
         };
         /**
          * ReplyCardCreateDTO
@@ -8164,6 +8196,12 @@ export interface components {
              * @enum {string}
              */
             select_mode: "single" | "multi";
+            /**
+             * Snoozed Until Ts
+             * @description Epoch seconds until which the owner has put this waiting card aside (稍後再看). Non-null only while the card is ``waiting`` and that time is still ahead when the response is built; ``null`` on a card that was never snoozed, whose snooze has passed, or that is answered or expired. A snoozed card is still waiting: it stays in ``?status=waiting`` and can be answered or expired as usual, but ``GET /api/reply-cards/count`` leaves it out of ``waiting`` until the time passes. Set by the owner only (``PUT /api/reply-cards/{card_id}/snooze``); it changes nothing on the card's task or step.
+             * @default null
+             */
+            snoozed_until_ts: number | null;
             /** Status */
             status: string;
             /**
@@ -8211,6 +8249,12 @@ export interface components {
             id: string;
             /** Kind */
             kind: string;
+            /**
+             * Snoozed Until Ts
+             * @description Epoch seconds until which the owner has put this waiting card aside (稍後再看). Non-null only while the card is ``waiting`` and that time is still ahead when the response is built; ``null`` on a card that was never snoozed, whose snooze has passed, or that is answered or expired. A snoozed card is still waiting: it stays in ``?status=waiting`` and can be answered or expired as usual, but ``GET /api/reply-cards/count`` leaves it out of ``waiting`` until the time passes. Set by the owner only (``PUT /api/reply-cards/{card_id}/snooze``); it changes nothing on the card's task or step.
+             * @default null
+             */
+            snoozed_until_ts: number | null;
             /** Status */
             status: string;
             /**
@@ -8282,6 +8326,33 @@ export interface components {
              * @default
              */
             task_id: string;
+        };
+        /**
+         * ReplyCardSnoozeReceiptDTO
+         * @description Bounded receipt returned after the owner snoozes or unsnoozes a card. The card's status, task and step are untouched by this write, so only what it decided rides back. Fetch GET /api/reply-cards/{card_id} when the full card is needed.
+         */
+        ReplyCardSnoozeReceiptDTO: {
+            /**
+             * Id
+             * @description The card written.
+             */
+            id: string;
+            /**
+             * Snoozed Until Ts
+             * @description The snooze as stored after this write; ``null`` after an unsnooze.
+             */
+            snoozed_until_ts: number | null;
+        };
+        /**
+         * ReplyCardSnoozeUpdateDTO
+         * @description The owner's 稍後再看 on a waiting card (``PUT /api/reply-cards/{card_id}/snooze``). ``snoozed_until_ts`` is epoch seconds, later than now and at most 90 days (7776000 seconds) ahead; snoozing an already-snoozed card replaces the time. ``null`` brings the card back now. The page turns its relative presets (1 hour, 3 hours, 1 day, 3 days, N hours, N days) into this absolute time.
+         */
+        ReplyCardSnoozeUpdateDTO: {
+            /**
+             * Snoozed Until Ts
+             * @description Epoch seconds, or ``null`` to unsnooze.
+             */
+            snoozed_until_ts: number | null;
         };
         /**
          * ReportWakingDTO
@@ -11311,11 +11382,29 @@ export interface components {
         };
         /**
          * TaskRefDTO
-         * @description The light task reference a reply card carries when it was armed from a task gate (請示 → 任務 jump, SPEC §3.6): id (the jump anchor), the type, and the title.
+         * @description The light task reference a reply card carries when it names a task — bound to one of its steps, or naming it through ``about_task_id`` (請示 → 任務 jump, SPEC §3.6): id (the jump anchor), the type, and the title. ``priority``, ``due_ts`` and ``due_soon_lead_minutes`` are the task's own values read when the response is built, with the same names and meaning as on TaskDTO: a later change to the task shows on the card, and the card stores none of them. Opening a card cannot set them. A card that names no task has no reference, and so no priority or due date.
          */
         TaskRefDTO: {
+            /**
+             * Due Soon Lead Minutes
+             * @description The task's own due-soon lead in minutes (TaskDTO.due_soon_lead_minutes). ``null`` when the task follows the workspace setting ``task_due_soon_lead_minutes`` (GET /api/settings) or has no due date.
+             * @default null
+             */
+            due_soon_lead_minutes: number | null;
+            /**
+             * Due Ts
+             * @description The task's current due date, epoch seconds (TaskDTO.due_ts). ``null`` when the task has no due date.
+             * @default null
+             */
+            due_ts: number | null;
             /** Id */
             id: string;
+            /**
+             * Priority
+             * @description The task's current priority: ``high`` | ``mid`` | ``low`` | ``frozen`` (TaskDTO.priority).
+             * @default
+             */
+            priority: string;
             /**
              * Title
              * @default
@@ -18585,6 +18674,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReplyCardReceiptDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_snooze_reply_card_api_reply_cards__card_id__snooze_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                card_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplyCardSnoozeUpdateDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplyCardSnoozeReceiptDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */

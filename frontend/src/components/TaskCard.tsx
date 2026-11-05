@@ -81,7 +81,9 @@ import { navigateHash } from "../lib/hashRoute";
 import { deriveTaskNo } from "../lib/taskNo";
 import { scrollParent, viewportSpanOf } from "../lib/scrollPort";
 import { useIsMobile } from "../hooks/useIsMobile";
-import { useNowSeconds } from "../hooks/useNowSeconds";
+import { useDueState } from "../hooks/useDueState";
+import { TaskPriorityBadge } from "./TaskChips";
+import { PRIORITIES } from "../lib/taskPriority";
 import {
   DEFAULT_DUE_SOON_LEAD_MINUTES,
   DUE_SOON_LEAD_MINUTES_MAX,
@@ -90,12 +92,10 @@ import {
   LEAD_UNITS,
   type LeadUnit,
   dueRemaining,
-  dueState,
   effectiveLeadMinutes,
   dueTsFromInputs,
   hasDueTime,
   leadMinutesFromDraft,
-  nextDueWake,
   splitLeadMinutes,
   toDateInputValue,
   toTimeInputValue,
@@ -148,7 +148,6 @@ import "./inline-edit.css";
 /** Terminal statuses (已完成/終止/重複) — owner actions and ticking stop here. */
 const TERMINAL = new Set(["done", "terminated", "duplicated"]);
 
-const PRIORITIES = ["high", "mid", "low", "frozen"] as const;
 
 // showPicker() is missing in older browsers and throws without a user
 // activation; focusing the input is the fallback that still lets a touch
@@ -824,10 +823,7 @@ export function TaskCard({
     minute: t.tasks.dueLeadMinuteMany,
   };
   const dueEditable = !closed && onSetDue !== undefined;
-  const nowSec = useNowSeconds(
-    dueTs === null || closed ? null : nextDueWake(dueTs, Date.now() / 1000, leadMinutes)
-  );
-  const due = dueTs === null ? null : dueState(dueTs, nowSec, leadMinutes);
+  const { nowSec, due } = useDueState(dueTs, leadMinutes, !closed);
   const dueRemainingText =
     dueTs === null || closed ? null : msg.taskDueRemaining(dueRemaining(dueTs, nowSec));
   const dueDateText =
@@ -1569,12 +1565,7 @@ export function TaskCard({
               )}
             </button>
             {closed ? (
-              <span
-                className={`task-badge task-badge--prio-${task.priority}`}
-                data-testid="task-priority"
-              >
-                {t.tasks.priority[task.priority] ?? task.priority}
-              </span>
+              <TaskPriorityBadge priority={task.priority} testId="task-priority" />
             ) : (
               <div className="task-card__prio" ref={prioRef}>
                 <button

@@ -11,6 +11,7 @@ import {
   DUE_SOON_LEAD_MINUTES_MIN,
   effectiveLeadMinutes,
 } from "../lib/dueDate";
+import { REPLY_SNOOZE_MAX_SECONDS } from "../lib/replySnooze";
 import type {
   Member,
   MonitoringView,
@@ -75,6 +76,7 @@ import type {
   ReplyCard,
   ReplyCardRow,
   ReplyCardWriteReceipt,
+  ReplyCardSnoozeReceipt,
   ReplyCardAnswerInput,
   ReplyCardCounts,
   RolePatch,
@@ -1527,6 +1529,39 @@ function findReplyCard(id: string): ReplyCard {
     );
   }
   return card;
+}
+
+/** Read-time join mirroring the server: a card's snooze shows only while the
+ * card waits and the time is still ahead. */
+function mockSnoozeOf(card: ReplyCard): number | null {
+  const until = card.snoozedUntilTs ?? null;
+  return card.status === "waiting" && until !== null && until > Date.now() / 1000
+    ? until
+    : null;
+}
+
+/** Read-time join mirroring the server's TaskRefDTO: the named task's CURRENT
+ * title, priority and due date, so a task edit shows on the next card read. A
+ * ref whose task is not in the mock store keeps what it was injected with. */
+function mockTaskRefOf(card: ReplyCard): ReplyCard["task"] {
+  const ref = card.task ?? null;
+  if (!ref) return null;
+  const live = tasks.find((x) => x.id === ref.id);
+  if (!live) {
+    return {
+      ...ref,
+      priority: ref.priority ?? "",
+      dueTs: ref.dueTs ?? null,
+      dueSoonLeadMinutes: ref.dueSoonLeadMinutes ?? null,
+    };
+  }
+  return {
+    ...ref,
+    title: live.title,
+    priority: live.priority,
+    dueTs: live.dueTs ?? null,
+    dueSoonLeadMinutes: live.dueSoonLeadMinutes ?? null,
+  };
 }
 
 /** Project a stored mock card down to what the three WRITES answer (T-91,
@@ -4105,7 +4140,8 @@ const mockApiImpl = {
       createdTs: c.createdTs,
       answeredTs: c.answeredTs,
       expiredTs: c.expiredTs ?? null,
-      task: c.task ?? null,
+      task: mockTaskRefOf(c),
+      snoozedUntilTs: mockSnoozeOf(c),
     });
     const cutoff = Date.now() / 1000 - 24 * 3600;
     if (status === "waiting") {
@@ -4135,7 +4171,12 @@ const mockApiImpl = {
     // The single-card read behind B3's inline chat card (mirrors
     // handle_get_reply_card): unknown id → 404. Clone so callers never mutate
     // mock state.
-    return structuredClone(findReplyCard(id));
+    const card = findReplyCard(id);
+    return structuredClone({
+      ...card,
+      task: mockTaskRefOf(card),
+      snoozedUntilTs: mockSnoozeOf(card),
+    });
   },
 
   async getReplyCardCount(): Promise<ReplyCardCounts> {
@@ -4144,8 +4185,14 @@ const mockApiImpl = {
     // count the 等我回覆 page uses for its collapsed header, matching the
     // listReplyCards("answered") window.
     const cutoff = Date.now() / 1000 - 24 * 3600;
+    const snoozes = replyCards
+      .map(mockSnoozeOf)
+      .filter((ts): ts is number => ts !== null);
     return {
-      waiting: replyCards.filter((c) => c.status === "waiting").length,
+      waiting: replyCards.filter(
+        (c) => c.status === "waiting" && mockSnoozeOf(c) === null
+      ).length,
+      waitingNextChangeTs: snoozes.length ? Math.min(...snoozes) : null,
       answered: replyCards.filter(
         (c) =>
           c.status === "answered" &&
@@ -4192,6 +4239,7 @@ const mockApiImpl = {
     card.status = "answered";
     card.answeredTs = stamp / 1000;
     card.answer = toStoredReplyAnswer(answer, stamp);
+    card.snoozedUntilTs = null;
     emitTopic("reply_card");
     return mockReplyCardWriteReceipt(card);
   },
@@ -4243,6 +4291,7 @@ const mockApiImpl = {
     }
     card.status = "expired";
     card.expiredTs = Date.now() / 1000;
+    card.snoozedUntilTs = null;
     for (const task of tasks) {
       const step = task.steps.find((st) => st.replyCardId === id);
       if (!step) continue;
@@ -4262,6 +4311,33 @@ const mockApiImpl = {
     }
     emitTopic("reply_card");
     return mockReplyCardWriteReceipt(card);
+  },
+
+  async snoozeReplyCard(
+    id: string,
+    untilTs: number | null
+  ): Promise<ReplyCardSnoozeReceipt> {
+    // Mirrors the server's snooze refusals, in its order: 404 → 409 → 422.
+    const path = `PUT /api/reply-cards/${id}/snooze`;
+    const card = findReplyCard(id);
+    if (card.status !== "waiting") {
+      throw mockApiError(
+        `http 409 for ${path}`,
+        409,
+        `reply card '${id}' is already ${card.status}`
+      );
+    }
+    const now = Date.now() / 1000;
+    if (untilTs !== null && (untilTs <= now || untilTs > now + REPLY_SNOOZE_MAX_SECONDS)) {
+      throw mockApiError(
+        `http 422 for ${path}`,
+        422,
+        "snoozed_until_ts must be later than now and at most 90 days ahead"
+      );
+    }
+    card.snoozedUntilTs = untilTs;
+    emitTopic("reply_card");
+    return { id, snoozedUntilTs: untilTs };
   },
 
   async listTasks(opts?: {

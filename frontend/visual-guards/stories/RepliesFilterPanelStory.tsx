@@ -110,10 +110,8 @@ export function AppPageStory({
  * at the narrowest phone width, must WRAP inside the column rather than run out
  * of it — and the thing that now carries several conditions is the FIELDS.
  *
- * Why this exists beside the real page: 請示 filters on ONE axis, so its page can
- * never produce a multi-field row. The 任務頁 can (編號 + 執行者 + 狀態 + 類型)
- * and wears this same `FilterPanel` — but driving four dropdowns through the
- * real 任務頁 would make a wrapping guard depend on that page's data. Both
+ * Why this exists beside the real page: driving several dropdowns through a
+ * real list page would make a wrapping guard depend on that page's data. Both
  * components are the shipped ones; only the option lists are dictated. */
 export function FilterFieldsStory({ theme }: { theme: BuiltinThemeId }) {
   window.localStorage.setItem(LS_THEME, theme);

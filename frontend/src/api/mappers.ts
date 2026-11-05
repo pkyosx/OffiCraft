@@ -102,6 +102,9 @@ import type {
   WireReplyCardRow,
   WireReplyCardReceipt,
   WireReplyCardOption,
+  WireReplyCardCount,
+  WireReplyCardSnoozeReceipt,
+  WireTaskRef,
   WireWebhookEndpoint,
   WireWebhookRequestLog,
   WireScheduledMessage,
@@ -136,6 +139,9 @@ import type {
   ReplyCardRow,
   ReplyCardWriteReceipt,
   ReplyCardOption,
+  ReplyCardCounts,
+  ReplyCardSnoozeReceipt,
+  TaskRefView,
   ServerSettingsView,
   OnboardingReportView,
   TaskView,
@@ -532,6 +538,33 @@ export function toReplyCardOption(w: WireReplyCardOption): ReplyCardOption {
   return { text: w.text, aiPick: w.ai_pick ?? false };
 }
 
+/** The task a reply card names, with the task's current priority and due date. */
+export function toTaskRef(w: WireTaskRef): TaskRefView {
+  return {
+    id: w.id,
+    typeKey: w.type_key ?? "",
+    title: w.title ?? "",
+    priority: w.priority ?? "",
+    dueTs: w.due_ts ?? null,
+    dueSoonLeadMinutes: w.due_soon_lead_minutes ?? null,
+  };
+}
+
+export function toReplyCardCounts(w: WireReplyCardCount): ReplyCardCounts {
+  return {
+    waiting: w.waiting,
+    answered: w.answered,
+    expired: w.expired,
+    waitingNextChangeTs: w.waiting_next_change_ts ?? null,
+  };
+}
+
+export function toReplyCardSnoozeReceipt(
+  w: WireReplyCardSnoozeReceipt
+): ReplyCardSnoozeReceipt {
+  return { id: w.id, snoozedUntilTs: w.snoozed_until_ts ?? null };
+}
+
 /** Map one wire LIGHT list row → the view-model `ReplyCardRow`. It maps only
  * what the pane draws collapsed (title, who asked, status + its stamps, the
  * task ref); the answered row's decision digest is deliberately dropped —
@@ -550,13 +583,8 @@ export function toReplyCardRow(w: WireReplyCardRow): ReplyCardRow {
     createdTs: w.created_ts ?? 0,
     answeredTs: w.answered_ts,
     expiredTs: w.expired_ts,
-    task: w.task
-      ? {
-          id: w.task.id,
-          typeKey: w.task.type_key ?? "",
-          title: w.task.title ?? "",
-        }
-      : null,
+    task: w.task ? toTaskRef(w.task) : null,
+    snoozedUntilTs: w.snoozed_until_ts ?? null,
   };
 }
 
@@ -583,15 +611,10 @@ export function toReplyCard(w: WireReplyCard): ReplyCard {
     answeredTs: w.answered_ts,
     expiredTs: w.expired_ts,
     chatMessageId: w.chat_message_id,
+    snoozedUntilTs: w.snoozed_until_ts ?? null,
     // The task the ask was armed from (SPEC §3.6 請示 → 任務): the honest null
     // for a pure chat ask — the UI then shows no task info and no jump.
-    task: w.task
-      ? {
-          id: w.task.id,
-          typeKey: w.task.type_key ?? "",
-          title: w.task.title ?? "",
-        }
-      : null,
+    task: w.task ? toTaskRef(w.task) : null,
     answer: w.answer
       ? {
           optionIdxs: w.answer.option_idxs,

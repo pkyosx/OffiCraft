@@ -31,16 +31,20 @@
 // The 30s ticking clock drives every card's 已歷時 / step 耗時 counters (same
 // cadence as RepliesPage's 已等你).
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useI18n } from "../i18n";
 import { taskTypeLabel } from "../lib/taskTypeLabel";
 import { useNowSeconds } from "../hooks/useNowSeconds";
 import {
+  DUE_FILTER_KEYS,
+  type DueBucket,
+  dueBucketOf,
+  dueFilterLabel,
   effectiveLeadMinutes,
-  isDueSoon,
-  isOverdue,
-  nextDueChangeTs,
+  nextDueChangeAmong,
 } from "../lib/dueDate";
+import { PRIORITIES, priorityRank } from "../lib/taskPriority";
+import { readStoredChoice, writeStoredChoice } from "../lib/storedChoice";
 import type { TaskView } from "../api/adapter";
 import { viewerMayForceTaskDone } from "../api";
 import { useTasks } from "../hooks/useTasks";
@@ -48,7 +52,6 @@ import { useTaskCount } from "../hooks/useTaskCount";
 import { useDueSoonLeadMinutes } from "../hooks/useDueSoonLeadMinutes";
 import { useMembers } from "../hooks/useMembers";
 import { useHashRoute } from "../lib/hashRoute";
-import { useEscapeLayer } from "../lib/useEscapeLayer";
 import { TaskCard } from "./TaskCard";
 import { IdFilterInput } from "./IdFilterInput";
 import {
@@ -57,21 +60,13 @@ import {
   type MultiSelectOption,
 } from "./MultiSelectFilter";
 import { FilterPanel } from "./FilterPanel";
-import { ChevronRightIcon, SlidersIcon } from "./icons";
+import { DisplayOptions } from "./DisplayOptions";
+import { ChevronRightIcon } from "./icons";
 import "./office.css"; // chat composer classes the embedded ReplyComposer reuses
 import "./replies.css"; // shared reply-card interior styles (embedded cards)
 import "./tasks.css";
 
 const TERMINAL = new Set(["done", "terminated", "duplicated"]);
-
-// 凍結永遠最後 (spec §2.2); an out-of-vocabulary priority sorts with low —
-// never ahead of real high/mid, never displacing frozen's tail position.
-const PRIORITY_RANK: Record<string, number> = {
-  high: 0,
-  mid: 1,
-  low: 2,
-  frozen: 4,
-};
 
 const STATUS_OPTIONS = [
   "not_started",
@@ -104,38 +99,18 @@ type GroupBy = (typeof GROUP_BY_OPTIONS)[number];
 
 const GROUP_BY_KEY = "oc_tasks_group_by";
 
-function readGroupBy(): GroupBy {
-  try {
-    const stored = window.localStorage.getItem(GROUP_BY_KEY);
-    return (GROUP_BY_OPTIONS as readonly string[]).includes(stored ?? "")
-      ? (stored as GroupBy)
-      : "none";
-  } catch {
-    return "none";
-  }
-}
-
-function writeGroupBy(next: GroupBy): void {
-  try {
-    window.localStorage.setItem(GROUP_BY_KEY, next);
-  } catch {
-    /* storage unavailable — the choice still holds for this mount */
-  }
-}
-
 interface Lane {
   key: string;
   title: string;
   tasks: TaskView[];
 }
 
-function dueLaneKey(task: TaskView, nowTs: number, workspaceLeadMinutes: number): string {
-  const due = task.dueTs ?? null;
-  if (due === null) return "nodue";
-  if (isOverdue(due, nowTs)) return "overdue";
-  if (isDueSoon(due, nowTs, effectiveLeadMinutes(task.dueSoonLeadMinutes, workspaceLeadMinutes)))
-    return "soon";
-  return "later";
+function dueLaneKey(task: TaskView, nowTs: number, workspaceLeadMinutes: number): DueBucket {
+  return dueBucketOf(
+    task.dueTs,
+    nowTs,
+    effectiveLeadMinutes(task.dueSoonLeadMinutes, workspaceLeadMinutes)
+  );
 }
 
 /** Buckets `tasks` (order kept) under `heads`, in `heads` order; a key no head
@@ -165,113 +140,6 @@ function lanesInOrder(
     lanes.push({ key, title: fallbackTitle(key), tasks: list });
   }
   return lanes;
-}
-
-/** The 顯示方式 button and its panel: the 分組依據 select lives here, apart
- * from the filters. Dismissal follows GallerySenderFilter (outside mousedown,
- * Esc through the layer stack). */
-function DisplayOptions({
-  groupBy,
-  labels,
-  onGroupByChange,
-}: {
-  groupBy: GroupBy;
-  labels: Record<GroupBy, string>;
-  onGroupByChange: (next: GroupBy) => void;
-}) {
-  const { t } = useI18n();
-  const [open, setOpen] = useState(false);
-  const boxRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
-  const panelId = useId();
-
-  useEscapeLayer(
-    () => {
-      setOpen(false);
-      triggerRef.current?.focus();
-    },
-    boxRef,
-    open
-  );
-
-  useEffect(() => {
-    if (!open) return;
-    // Focusing the select itself makes phone browsers pop its picker open the
-    // moment the panel appears.
-    panelRef.current?.focus();
-    const onDocDown = (e: MouseEvent) => {
-      if (!boxRef.current?.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDocDown, true);
-    return () => document.removeEventListener("mousedown", onDocDown, true);
-  }, [open]);
-
-  return (
-    <div className="tasks__display" ref={boxRef}>
-      <button
-        ref={triggerRef}
-        type="button"
-        className="tasks__display-trigger"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-controls={open ? panelId : undefined}
-        data-testid="display-options"
-        onClick={() => setOpen((v) => !v)}
-      >
-        <SlidersIcon size={14} aria-hidden="true" />
-        <span className="tasks__display-label">{t.tasks.displayOptions}</span>
-      </button>
-      {open && (
-        <div
-          ref={panelRef}
-          id={panelId}
-          tabIndex={-1}
-          className="tasks__display-pop"
-          role="dialog"
-          aria-labelledby={`${panelId}-title`}
-          data-testid="display-options-panel"
-        >
-          <div id={`${panelId}-title`} className="tasks__display-title">
-            {t.tasks.displayOptions}
-          </div>
-          <label className="tasks__display-row">
-            <span>{t.tasks.groupByLabel}</span>
-            <select
-              className="tasks__display-select"
-              value={groupBy}
-              onChange={(e) => onGroupByChange(e.target.value as GroupBy)}
-              data-testid="group-by"
-            >
-              {GROUP_BY_OPTIONS.map((g) => (
-                <option key={g} value={g}>
-                  {labels[g]}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function nextListDueChange(
-  tasks: TaskView[],
-  nowTs: number,
-  workspaceLeadMinutes: number
-): number | null {
-  let next: number | null = null;
-  for (const task of tasks) {
-    if (task.dueTs == null) continue;
-    const at = nextDueChangeTs(
-      task.dueTs,
-      nowTs,
-      effectiveLeadMinutes(task.dueSoonLeadMinutes, workspaceLeadMinutes)
-    );
-    if (at !== null && (next === null || at < next)) next = at;
-  }
-  return next;
 }
 
 export function TasksPage() {
@@ -328,7 +196,7 @@ export function TasksPage() {
   // the same moment its card's 到期日 icon changes.
   const dueSoonLeadMinutes = useDueSoonLeadMinutes();
   const nowSec = useNowSeconds(
-    nextListDueChange(tasks, Date.now() / 1000, dueSoonLeadMinutes)
+    nextDueChangeAmong(tasks, Date.now() / 1000, dueSoonLeadMinutes)
   );
 
   // Ticking clock (30s) — drives 已歷時 and running-step 耗時 on every card.
@@ -595,13 +463,8 @@ export function TasksPage() {
   // task leaves 快到期 for 已逾期 at the moment it changes lane.
   function passesDue(task: TaskView, set: Set<string>): boolean {
     if (set.size === 0) return true;
-    const due = task.dueTs ?? null;
-    if (due === null || TERMINAL.has(task.status)) return false;
-    if (isOverdue(due, nowSec)) return set.has("overdue");
-    return (
-      set.has("soon") &&
-      isDueSoon(due, nowSec, effectiveLeadMinutes(task.dueSoonLeadMinutes, dueSoonLeadMinutes))
-    );
+    if (TERMINAL.has(task.status)) return false;
+    return set.has(dueLaneKey(task, nowSec, dueSoonLeadMinutes));
   }
   const matchesExecutor = (task: TaskView) =>
     passesExecutor(task, appliedExecutor);
@@ -666,10 +529,10 @@ export function TasksPage() {
     ...typeOptions.map((k) => ({ value: k, label: typeNames.get(k) ?? k })),
     { value: "adhoc", label: t.tasks.adhoc },
   ];
-  const dueFilterOptions: MultiSelectOption[] = [
-    { value: "overdue", label: t.tasks.filterDueOverdue },
-    { value: "soon", label: t.tasks.filterDueSoon },
-  ];
+  const dueFilterOptions: MultiSelectOption[] = DUE_FILTER_KEYS.map((k) => ({
+    value: k,
+    label: dueFilterLabel(t.tasks, k),
+  }));
   const statusGroups: MultiSelectGroup[] = [
     { value: "open", label: t.tasks.openTitle, members: DEFAULT_STATUS },
     { value: "closed", label: t.tasks.closedTitle, members: [...TERMINAL] },
@@ -729,7 +592,7 @@ export function TasksPage() {
     .filter((x) => !TERMINAL.has(x.status))
     .sort(
       (a, b) =>
-        (PRIORITY_RANK[a.priority] ?? 2) - (PRIORITY_RANK[b.priority] ?? 2) ||
+        priorityRank(a.priority) - priorityRank(b.priority) ||
         b.createdTs - a.createdTs
     );
   const closed = filtered
@@ -743,14 +606,16 @@ export function TasksPage() {
   // it later (a task ticks
   // overdue, an SSE arrival) must not collapse the one being read. Only when
   // that lane empties out does the default move to whatever lane is first.
-  const [groupBy, setGroupByState] = useState<GroupBy>(readGroupBy);
+  const [groupBy, setGroupByState] = useState<GroupBy>(() =>
+    readStoredChoice(GROUP_BY_KEY, GROUP_BY_OPTIONS, "none")
+  );
   const [laneOpenOverrides, setLaneOpenOverrides] = useState<
     Map<string, boolean>
   >(() => new Map());
   const [defaultOpenKey, setDefaultOpenKey] = useState<string | null>(null);
   function setGroupBy(next: GroupBy) {
     setGroupByState(next);
-    writeGroupBy(next);
+    writeStoredChoice(GROUP_BY_KEY, next);
     setLaneOpenOverrides(new Map());
     setDefaultOpenKey(null);
   }
@@ -796,7 +661,7 @@ export function TasksPage() {
         return lanesInOrder(
           shown,
           (task) => task.priority,
-          Object.keys(PRIORITY_RANK).map((p) => ({
+          PRIORITIES.map((p) => ({
             key: p,
             title: t.tasks.priority[p],
           })),
@@ -1062,9 +927,11 @@ export function TasksPage() {
         onClear={anyFilter ? clearFilters : undefined}
         actions={
           <DisplayOptions
-            groupBy={groupBy}
-            labels={groupByLabels}
-            onGroupByChange={setGroupBy}
+            label={t.tasks.groupByLabel}
+            value={groupBy}
+            options={GROUP_BY_OPTIONS.map((g) => ({ value: g, label: groupByLabels[g] }))}
+            onChange={setGroupBy}
+            selectTestId="group-by"
           />
         }
       >

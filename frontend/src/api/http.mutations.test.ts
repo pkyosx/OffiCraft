@@ -858,4 +858,21 @@ describe("httpApi · reply-card answer body (ReplyCardAnswerPostDTO)", () => {
       reply_excerpt: "哪幾條線",
     });
   });
+
+  it("snoozes with PUT …/snooze carrying the absolute time, and unsnoozes with null", async () => {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({ id: "rc-1", snoozed_until_ts: 1793000000 }),
+    );
+    expect(await httpApi.snoozeReplyCard("rc-1", 1793000000)).toEqual({
+      id: "rc-1",
+      snoozedUntilTs: 1793000000,
+    });
+    const snoozed = await lastRequest();
+    expect([snoozed.url, snoozed.method]).toEqual(["/api/reply-cards/rc-1/snooze", "PUT"]);
+    expect(JSON.parse(String(snoozed.body))).toEqual({ snoozed_until_ts: 1793000000 });
+
+    fetchMock.mockImplementation(async () => jsonResponse({ id: "rc-1", snoozed_until_ts: null }));
+    expect(await httpApi.snoozeReplyCard("rc-1", null)).toEqual({ id: "rc-1", snoozedUntilTs: null });
+    expect(JSON.parse(String((await lastRequest()).body))).toEqual({ snoozed_until_ts: null });
+  });
 });

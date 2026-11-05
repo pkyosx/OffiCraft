@@ -1,11 +1,13 @@
 import { describe, it, expect } from "vitest";
 import {
+  dueBucketOf,
   dueRemaining,
   dueState,
   dueTsFromInputs,
   effectiveLeadMinutes,
   isDueSoon,
   leadMinutesFromDraft,
+  nextDueChangeAmong,
   nextDueChangeTs,
   nextDueRemainingChangeTs,
   nextDueWake,
@@ -72,6 +74,32 @@ describe("dueState", () => {
     expect(dueState(OCT_30_END, NOW, 4320)).toEqual({ kind: "later" });
     expect(dueState(OCT_30_END, OCT_30_END + 2 * 86_400, 4320)).toEqual({ kind: "overdue", days: 2 });
     expect(dueState(OCT_22_1430, NOW, 4320)).toEqual({ kind: "overdue", days: 2 });
+  });
+});
+
+describe("dueBucketOf", () => {
+  it("is nodue without a date, later before the lead, soon from the lead's first second, overdue from the due second", () => {
+    const due = NOW + 2 * 3600;
+    expect([
+      dueBucketOf(null, NOW, 60),
+      dueBucketOf(due, due - 3601, 60),
+      dueBucketOf(due, due - 3600, 60),
+      dueBucketOf(due, due - 1, 60),
+      dueBucketOf(due, due, 60),
+    ]).toEqual(["nodue", "later", "soon", "soon", "overdue"]);
+  });
+});
+
+describe("nextDueChangeAmong", () => {
+  it("is the earliest band change across the items, each judged by its own lead else the workspace's, skipping undated ones", () => {
+    const items = [
+      { dueTs: null },
+      { dueTs: NOW + 10 * 3600, dueSoonLeadMinutes: null },
+      { dueTs: NOW + 10 * 3600, dueSoonLeadMinutes: 300 },
+    ];
+    expect(nextDueChangeAmong(items, NOW, 60)).toBe(NOW + 5 * 3600);
+    expect(nextDueChangeAmong(items.slice(0, 2), NOW, 60)).toBe(NOW + 9 * 3600);
+    expect(nextDueChangeAmong([{ dueTs: null }], NOW, 60)).toBeNull();
   });
 });
 

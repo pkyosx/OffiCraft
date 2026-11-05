@@ -53,5 +53,7 @@ export function mergeReplyCardRowWrite(
     status: receipt.status,
     answeredTs: receipt.answeredTs,
     expiredTs: receipt.expiredTs,
+    // Answering or expiring clears a snooze server-side.
+    snoozedUntilTs: null,
   };
 }
