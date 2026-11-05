@@ -706,7 +706,7 @@ export const zh = {
     sortDue: "任務期限（早到晚）",
     filterPriorityNoun: "任務優先序",
     filterPriorityAll: "所有任務優先序",
-    filterPriorityNoTask: "沒有任務的卡",
+    filterPriorityNoTask: "無任務",
     filterDueNoun: "任務到期",
     filterDueAll: "所有任務到期",
     // 稍後再看：卡片先收進「已延後」，時間到自動回到請示，也不算進導覽列的數字。

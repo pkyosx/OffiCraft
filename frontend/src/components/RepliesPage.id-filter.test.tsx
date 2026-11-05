@@ -752,7 +752,7 @@ describe("請示卡 任務優先序／任務到期 篩選", () => {
     __injectMockReplyCard(mkCard({ id: "rc-notask", from: "kyle", createdTs: now - 5 * 60, task: null }));
   }
 
-  it("任務優先序 → each option with its count from the panes; ticking 高 and 沒有任務的卡 keeps exactly those cards", async () => {
+  it("任務優先序 → each option with its count from the panes; ticking 高 and 無任務 keeps exactly those cards", async () => {
     seed();
     const { findAllByTestId } = renderPage();
     await waitFor(async () => expect(await findAllByTestId("waiting-card")).toHaveLength(5));
@@ -761,7 +761,7 @@ describe("請示卡 任務優先序／任務到期 篩選", () => {
     expect(trigger.textContent).toBe("所有任務優先序");
     expect(trigger.getAttribute("aria-label")).toBe("任務優先序");
     expect(optionCounts("filter-priority")).toEqual({ high: "1", mid: "1", low: "1", frozen: "1", notask: "1" });
-    expect(optionLabels("filter-priority")).toEqual(["高1", "中1", "低1", "凍結1", "沒有任務的卡1"]);
+    expect(optionLabels("filter-priority")).toEqual(["高1", "中1", "低1", "凍結1", "無任務1"]);
 
     tick("filter-priority", "high");
     tick("filter-priority", "notask");

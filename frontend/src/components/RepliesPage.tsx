@@ -311,7 +311,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // and the handled pane's force-expand, and an 開卡人 tick must not switch
   // those on (there is no id to have found, missed, or failed to reach).
   // 任務優先序 / 任務到期 — same empty-set convention; a card with no task
-  // counts as 沒有任務的卡 on the first and matches no option on the second.
+  // counts as 無任務 on the first and matches no option on the second.
   const [priorityFilter, setPriorityFilter] = useState<Set<string>>(() => new Set());
   const [dueFilter, setDueFilter] = useState<Set<string>>(() => new Set());
   const anyFilter =
