@@ -812,13 +812,13 @@ describe("請示卡 任務優先序／任務到期 篩選", () => {
 
     tick("filter-opener", "kyle");
     await waitFor(() => expect(shownIds()).toEqual(["rc-mid-soon", "rc-low-later", "rc-notask"]));
-    expect(optionCounts("filter-priority")).toEqual({ mid: "1", low: "1", notask: "1" });
-    expect(optionCounts("filter-due")).toEqual({ soon: "1" });
+    expect(optionCounts("filter-priority")).toEqual({ high: "0", mid: "1", low: "1", frozen: "0", notask: "1" });
+    expect(optionCounts("filter-due")).toEqual({ overdue: "0", soon: "1" });
 
     tick("filter-due", "soon");
     await waitFor(() => expect(shownIds()).toEqual(["rc-mid-soon"]));
-    expect(optionCounts("filter-priority")).toEqual({ mid: "1" });
-    expect(optionCounts("filter-due")).toEqual({ soon: "1" });
+    expect(optionCounts("filter-priority")).toEqual({ high: "0", mid: "1", low: "0", frozen: "0", notask: "0" });
+    expect(optionCounts("filter-due")).toEqual({ overdue: "0", soon: "1" });
 
     tick("filter-priority", "mid");
     await waitFor(() => expect(shownIds()).toEqual(["rc-mid-soon"]));

@@ -725,19 +725,13 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   const fixedOptions = (
     keys: readonly string[],
     counts: Map<string, number>,
-    selected: Set<string>,
     labelOf: (k: string) => string
   ): MultiSelectOption[] =>
-    keys
-      .filter((k) => (counts.get(k) ?? 0) > 0 || selected.has(k))
-      .map((k) => ({ value: k, label: labelOf(k), count: counts.get(k) ?? 0 }));
-  const priorityOptions = fixedOptions(
-    PRIORITY_FILTER_KEYS,
-    priorityCounts,
-    priorityFilter,
-    (k) => (k === NO_TASK ? t.replies.filterPriorityNoTask : (t.tasks.priority[k] ?? k))
+    keys.map((k) => ({ value: k, label: labelOf(k), count: counts.get(k) ?? 0 }));
+  const priorityOptions = fixedOptions(PRIORITY_FILTER_KEYS, priorityCounts, (k) =>
+    k === NO_TASK ? t.replies.filterPriorityNoTask : (t.tasks.priority[k] ?? k)
   );
-  const dueOptions = fixedOptions(DUE_FILTER_KEYS, dueCounts, dueFilter, (k) =>
+  const dueOptions = fixedOptions(DUE_FILTER_KEYS, dueCounts, (k) =>
     dueFilterLabel(t.tasks, k as DueFilterKey)
   );
   // 開卡人 下拉的選項在 `whoOf` 之後才建得起來（它要用 `askerNames`），見下方。
