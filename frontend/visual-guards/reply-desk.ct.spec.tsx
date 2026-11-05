@@ -68,6 +68,7 @@ for (const width of [390, 1440]) {
         expect(inside(b, cardBox)).toBe(true);
         tops.push(b.top);
       }
+      expect(inside(await box(card.getByTestId("waited")), cardBox), "the waited stamp inside the card").toBe(true);
       expect(Math.max(...tops) - Math.min(...tops), "跳到原訊息, 稍後再看 and 標為過期 share one line").toBeLessThanOrEqual(1);
       const row = card.getByTestId("reply-task-ref");
       if ((await row.count()) === 0) continue;
@@ -113,4 +114,40 @@ for (const width of [390, 1440]) {
     expect(await textLines(menu.getByTestId("snooze-preview"))).toBe(1);
     await noPageOverflow(page);
   });
+}
+
+for (const width of [1440, 1728]) {
+  for (const language of ["zh", "en"]) {
+    test(`width ${width}, ${language}: 跳到原訊息 and 標為過期 sit at the same x on every waiting card whatever the waited stamp's length, and the snoozed card's return date stays inside its card`, async ({
+      mount,
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.evaluate((lang) => localStorage.setItem("oc.language", lang), language);
+      const cmp = await mount(<ReplyDeskStory />);
+      const cards = cmp.getByTestId("waiting-card");
+      await expect(cards).toHaveCount(3);
+      const lead = language === "zh" ? "已等你" : "Waiting";
+      expect(await cmp.getByTestId("waited").allTextContents()).toEqual([`${lead} 5m`, `${lead} 2h 57m`, `${lead} 12d 23h`]);
+
+      const jumpLefts: number[] = [];
+      const expireLefts: number[] = [];
+      for (const card of await cards.all()) {
+        jumpLefts.push((await box(card.locator(".reply-card__actions > .reply-card__jump").first())).left);
+        expireLefts.push((await box(card.getByTestId("expire-card"))).left);
+      }
+      expect(Math.max(...jumpLefts) - Math.min(...jumpLefts), `跳到原訊息 lefts ${jumpLefts}`).toBeLessThanOrEqual(0.5);
+      expect(Math.max(...expireLefts) - Math.min(...expireLefts), `標為過期 lefts ${expireLefts}`).toBeLessThanOrEqual(0.5);
+
+      await cmp.getByTestId("snoozed-toggle").click();
+      const snoozed = cmp.getByTestId("snoozed-card");
+      await expect(snoozed).toHaveCount(1);
+      const snoozedBox = await box(snoozed);
+      for (const part of await snoozed.locator(".reply-card__head .reply-card__jump, [data-testid='snoozed-until']").all()) {
+        expect(inside(await box(part), snoozedBox), `${await part.textContent()} inside the snoozed card`).toBe(true);
+        expect(await textLines(part), `${await part.textContent()} on one line`).toBe(1);
+      }
+      await noPageOverflow(page);
+    });
+  }
 }

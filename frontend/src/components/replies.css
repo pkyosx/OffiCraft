@@ -184,6 +184,16 @@
   color: var(--color-text-muted);
   white-space: nowrap;
 }
+/* Fixed width so the buttons beside it line up from card to card; sized for
+ * the longest waited stamp, en 「Waiting 23h 59m」 (~99–100px at 12.5px).
+ * Phones put the stamp on the name line instead. */
+@media (min-width: 721px) {
+  .reply-card__waited {
+    min-width: 8.25em;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+}
 .reply-card__answered-at {
   flex: none;
   font-size: 12.5px;

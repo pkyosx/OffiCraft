@@ -1,7 +1,9 @@
 // The 請示 page itself, in the app's content column (`.app > .app__main` with
 // chrome.css — the real width cap and gutters), over mock cards that carry the
 // longest things a card head and its task row hold: an outsource asker, a high
-// priority overdue task with a long title, and a timed due date.
+// priority overdue task with a long title, a timed due date, waited stamps from
+// the shortest (5m) to the longest (12d 23h) shape, and a snoozed card whose
+// stamp is a full return date.
 import { I18nProvider } from "../../src/i18n";
 import { RepliesPage } from "../../src/components/RepliesPage";
 import { ReplyCardsProvider } from "../../src/hooks/useReplyCards";
@@ -39,6 +41,7 @@ function seed() {
     card({
       id: "rc-desk-1",
       from: "ow-desk",
+      createdTs: NOW - 5 * 60 - 30,
       summary: "這個版本的設定頁要不要先上線，還是等下一輪一起？",
       task: {
         id: "T-58412",
@@ -52,7 +55,7 @@ function seed() {
   __injectMockReplyCard(
     card({
       id: "rc-desk-2",
-      createdTs: NOW - 3 * 3600,
+      createdTs: NOW - (2 * 3600 + 57 * 60 + 30),
       task: {
         id: "T-9",
         typeKey: "",
@@ -62,7 +65,17 @@ function seed() {
       },
     })
   );
-  __injectMockReplyCard(card({ id: "rc-desk-3", createdTs: NOW - 4 * 3600, task: null }));
+  __injectMockReplyCard(
+    card({ id: "rc-desk-3", createdTs: NOW - (12 * 86_400 + 23 * 3600 + 30 * 60), task: null })
+  );
+  __injectMockReplyCard(
+    card({
+      id: "rc-desk-snoozed",
+      createdTs: NOW - 86_400,
+      snoozedUntilTs: NOW + 40 * 86_400,
+      task: null,
+    })
+  );
 }
 
 export function ReplyDeskStory() {

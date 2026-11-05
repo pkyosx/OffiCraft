@@ -101,6 +101,7 @@ ChatReplyCard 的 doReanswer 保留單卡 refetch：終態 delta 可能被刻意
 ## 請示卡頁的排序、任務列與稍後再看
 
 - 待回覆預設依開卡時間新到舊；「顯示方式」的排序依據（`lib/replyCardSort.ts`，localStorage `oc_replies_sort`）只排待回覆，已延後依回來時間、近期已處理依處理時間，都不受它影響。任務優先序的順序取 `lib/taskPriority.ts` 的 `priorityRank`（跟任務頁同一份），沒有任務的卡排在凍結後面。
+- 目前的排序依據永遠印在「請示 · N」旁（`replies-sort-active`），預設的開卡時間也照印。桌面（>720px）的 `.reply-card__waited` 有固定 min-width，夠放最長的 en「Waiting 23h 59m」，讓每張卡的抬頭按鈕對齊在同一個 x；改字或字級要重量，守衛在 `visual-guards/reply-desk.ct.spec.tsx`。
 - 任務列的優先序／期限是 server 在回應當下讀任務本身的值（`TaskRefDTO`），卡片不存。⇒ `useReplyCards` 除了 `reply_card` 也要在 `task` delta 重抓，否則改任務的優先序或期限，請示頁要等下一張卡變動才跟上。期限顏色走 `TaskDueChip`（`useDueState`，在跨過邊界的那一刻重繪，不是輪詢）。任務列畫在卡片最上方、抬頭之上；外包的「目前任務」那一行永遠照畫，即使跟任務列是同一個任務。
 - 優先序／期限篩選跟開卡人軸同一套：選項與張數從 pane 資料算，每一軸的張數只套用**其他**軸；三軸彼此 AND、也跟 id AND，同時作用在待回覆、已延後、近期已處理。
 - 🔴 稍後再看的卡仍是 waiting：`listReplyCards("waiting")` 照列、帶 `snoozedUntilTs`；provider 依自己的時鐘把它分到 `snoozed`，`waiting`（也就是徽章）不含它。到時間 server 什麼都不寫、不發事件，所以 provider 自己在最早的 `snoozedUntilTs` 設 timer 讓卡回來，並在 `count.waiting_next_change_ts` 重抓一次。

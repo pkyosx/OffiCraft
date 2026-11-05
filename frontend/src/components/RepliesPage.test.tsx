@@ -1116,7 +1116,7 @@ describe("RepliesPage", () => {
       answered.querySelector(".reply-card__answered-at")?.textContent
     ).toMatch(/^已回覆 (?:\d{4}\/)?\d{1,2}\/\d{1,2} \d{2}:\d{2}$/);
     expect(container.querySelector(".replies__section-title")?.textContent).toBe(
-      "請示 · 0"
+      "請示 · 0開卡時間（新到舊）"
     );
     const handledToggle = await findByTestId("answered-toggle");
     expect(handledToggle.textContent).toContain("近期已處理 · 1");
@@ -1156,7 +1156,7 @@ describe("RepliesPage", () => {
       expired.querySelector(".reply-card__answered-at")?.textContent
     ).toMatch(/^已過期 (?:\d{4}\/)?\d{1,2}\/\d{1,2} \d{2}:\d{2}$/);
     expect(container.querySelector(".replies__section-title")?.textContent).toBe(
-      "請示 · 0"
+      "請示 · 0開卡時間（新到舊）"
     );
     const handledToggle = await findByTestId("answered-toggle");
     expect(handledToggle.textContent).toContain("近期已處理 · 1");
@@ -1196,7 +1196,7 @@ describe("RepliesPage", () => {
     expect(queryByTestId("reply-task-ref")).toBeNull();
   });
 
-  it("顯示方式 › 排序依據 → each order re-sorts 待回覆 only (已延後 stays by return time, 近期已處理 by handled time), a non-default one is named beside the title, and the choice survives a remount", async () => {
+  it("顯示方式 › 排序依據 → each order re-sorts 待回覆 only (已延後 stays by return time, 近期已處理 by handled time), the active one is named beside the title, and the choice survives a remount", async () => {
     const now = Date.now() / 1000;
     const task = (id: string, priority: string, dueTs: number | null = null) => ({ id, typeKey: "", title: id, priority, dueTs });
     __injectMockReplyCard(mkCard({ id: "rc-notask", createdTs: now - 10 * 60, task: null }));
@@ -1235,7 +1235,7 @@ describe("RepliesPage", () => {
     fireEvent.click(await first.findByTestId("snoozed-toggle"));
     fireEvent.click(await first.findByTestId("answered-toggle"));
     await waitFor(() => expect(paneIds("answered-card")).toHaveLength(3));
-    expect(first.queryByTestId("replies-sort-active")).toBeNull();
+    expect(first.getByTestId("replies-sort-active").textContent).toBe("開卡時間（新到舊）");
 
     fireEvent.click(first.getByTestId("display-options"));
     const select = first.getByTestId("replies-sort") as HTMLSelectElement;
@@ -1258,7 +1258,7 @@ describe("RepliesPage", () => {
       expect(paneIds("answered-card")).toEqual(["rc-handled", "rc-handled-mid", "rc-handled-early"]);
       expect(localStorage.getItem("oc_replies_sort")).toBe(value);
     }
-    expect(first.queryByTestId("replies-sort-active")).toBeNull();
+    expect(first.getByTestId("replies-sort-active").textContent).toBe("開卡時間（新到舊）");
 
     fireEvent.change(select, { target: { value: "priority" } });
     expect(first.getByTestId("replies-sort-active").textContent).toBe("任務優先序（高到低）");

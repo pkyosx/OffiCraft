@@ -1483,11 +1483,9 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
             {t.replies.waitingTitle}
             {!loading && !error && ` · ${waitingSorted.length}`}
           </span>
-          {waitingSort !== "createdDesc" && (
-            <span className="replies__section-hint" data-testid="replies-sort-active">
-              {sortLabels[waitingSort]}
-            </span>
-          )}
+          <span className="replies__section-hint" data-testid="replies-sort-active">
+            {sortLabels[waitingSort]}
+          </span>
         </div>
         {!loading && !error && waitingSorted.length === 0 ? (
           /* THREE, and the split that survives is 「we have an answer」 vs
