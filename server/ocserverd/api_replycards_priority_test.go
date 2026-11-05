@@ -58,9 +58,9 @@ func TestReplyCardPriorityAndDue(t *testing.T) {
 		want(open(agent, `{"kind":"decision","summary":"b","options":[{"text":"x"}],"linked_task":null,`+
 			`"priority":"low","due_ts":1800000000}`), "low", float64(1800000000))
 	})
-	t.Run("a card about a task without binding a step does not take the task's values", func(t *testing.T) {
+	t.Run("a card naming a task with about_task_id takes the task's priority and due date when it names neither", func(t *testing.T) {
 		want(open(agent, `{"kind":"decision","summary":"c","options":[{"text":"x"}],"linked_task":null,`+
-			`"about_task_id":"T-1"}`), "mid", nil)
+			`"about_task_id":"T-1"}`), "high", float64(1900000000))
 	})
 	t.Run("a card bound to a step takes the task's priority and due date when it names neither", func(t *testing.T) {
 		want(open(executor, `{"kind":"decision","summary":"d","options":[{"text":"x"}],`+
@@ -99,7 +99,7 @@ func TestReplyCardPriorityAndDue(t *testing.T) {
 			}
 			got = append(got, r["summary"].(string))
 		}
-		want := []string{"d", "a", "c", "e", "b"}
+		want := []string{"c", "d", "a", "e", "b"}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("waiting pane = %v, want %v", got, want)
 		}

@@ -1032,7 +1032,7 @@ def test_card_priority_and_due_default_and_round_trip(client, asker):
         assert r.status_code == 400, (bad, r.status_code, r.text)
 
 
-def test_card_bound_to_a_step_takes_the_tasks_priority_and_due(client, owner_token, asker):
+def test_card_about_a_task_takes_the_tasks_priority_and_due(client, owner_token, asker):
     task_id, step_ids = _task_with_steps(client, asker, "conf ranked task", 2)
     assert client.post(f"/api/tasks/{task_id}/priority", json={"priority": "low"},
                        headers=_auth(owner_token)).status_code == 200
@@ -1042,8 +1042,10 @@ def test_card_bound_to_a_step_takes_the_tasks_priority_and_due(client, owner_tok
                              linked_task={"task_id": task_id, "step_id": step_ids[0]})
     assert (inherited["priority"], inherited["due_ts"]) == ("low", 1800000000), inherited
     about = _open_ranked(client, asker, "about only", about_task_id=task_id)
-    assert (about["priority"], about["due_ts"]) == ("mid", None), about
-    for card in (inherited, about):
+    assert (about["priority"], about["due_ts"]) == ("low", 1800000000), about
+    unrelated = _open_ranked(client, asker, "about nothing")
+    assert (unrelated["priority"], unrelated["due_ts"]) == ("mid", None), unrelated
+    for card in (inherited, about, unrelated):
         _expire(client, owner_token, card["id"])
 
 

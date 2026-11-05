@@ -2966,7 +2966,7 @@ type ReplyCardCreateDTO struct {
 	Attachments *[]ChatAttachmentInputDTO `json:"attachments,omitempty"`
 	Body        *string                   `json:"body,omitempty"`
 
-	// DueTs Optional. Epoch seconds; must be greater than 0. Omit or ``null`` and a card bound to a task step takes that task's due date (none if the task has none); any other card has no due date. The card counts as due soon by the workspace setting ``task_due_soon_lead_minutes``.
+	// DueTs Optional. Epoch seconds; must be greater than 0. Omit or ``null`` and a card about a task (bound to its step, or naming it with ``about_task_id``) takes that task's due date (none if the task has none); any other card has no due date. The card counts as due soon by the workspace setting ``task_due_soon_lead_minutes``.
 	DueTs *float64               `json:"due_ts,omitempty"`
 	Kind  ReplyCardCreateDTOKind `json:"kind"`
 
@@ -2974,7 +2974,7 @@ type ReplyCardCreateDTO struct {
 	LinkedTask *ReplyCardLinkDTO    `json:"linked_task"`
 	Options    []ReplyCardOptionDTO `json:"options"`
 
-	// Priority Optional. ``high``, ``mid`` or ``low``. Omit or ``null`` and a card bound to a task step takes that task's priority (a frozen task counts as ``mid``); any other card is ``mid``. Any other value is a 400.
+	// Priority Optional. ``high``, ``mid`` or ``low``. Omit or ``null`` and a card about a task (bound to its step, or naming it with ``about_task_id``) takes that task's priority (a frozen task counts as ``mid``); any other card is ``mid``. Any other value is a 400.
 	Priority *string `json:"priority,omitempty"`
 
 	// SelectMode How many options the owner may circle: ``single`` (the default — at most one, and at most one option may carry ``ai_pick``) or ``multi`` (any number). It is a SEPARATE axis from ``kind``: ``kind`` says what the owner must DO (decide / act), ``select_mode`` says how many choices the answer may carry.

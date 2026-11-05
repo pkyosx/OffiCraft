@@ -8072,7 +8072,7 @@ export interface components {
             body: string;
             /**
              * Due Ts
-             * @description Optional. Epoch seconds; must be greater than 0. Omit or ``null`` and a card bound to a task step takes that task's due date (none if the task has none); any other card has no due date. The card counts as due soon by the workspace setting ``task_due_soon_lead_minutes``.
+             * @description Optional. Epoch seconds; must be greater than 0. Omit or ``null`` and a card about a task (bound to its step, or naming it with ``about_task_id``) takes that task's due date (none if the task has none); any other card has no due date. The card counts as due soon by the workspace setting ``task_due_soon_lead_minutes``.
              * @default null
              */
             due_ts: number | null;
@@ -8090,7 +8090,7 @@ export interface components {
             options: components["schemas"]["ReplyCardOptionDTO"][];
             /**
              * Priority
-             * @description Optional. ``high``, ``mid`` or ``low``. Omit or ``null`` and a card bound to a task step takes that task's priority (a frozen task counts as ``mid``); any other card is ``mid``. Any other value is a 400.
+             * @description Optional. ``high``, ``mid`` or ``low``. Omit or ``null`` and a card about a task (bound to its step, or naming it with ``about_task_id``) takes that task's priority (a frozen task counts as ``mid``); any other card is ``mid``. Any other value is a 400.
              * @default null
              */
             priority: string | null;
