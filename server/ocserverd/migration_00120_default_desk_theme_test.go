@@ -77,18 +77,19 @@ func customThemeIDs00120(t *testing.T, db *sql.DB) []string {
 
 func TestMigration00120(t *testing.T) {
 	type want struct{ theme, schedule, seasonal string }
-	moved := want{"modern-office-desk-day", deskDefaultSchedule00120, "true"}
+	moved := want{"modern-office-desk-day", deskDefaultSchedule00120, "<absent>"}
 
 	for _, tc := range []struct {
 		name   string
 		before map[string]string
 		want   want
 	}{
-		{"a fresh install gets the desk schedule with the seasonal theme on", nil, moved},
+		{"a fresh install gets the desk schedule and leaves the seasonal theme at its default", nil, moved},
 		{"a station that never chose a theme moves to the default",
 			map[string]string{"display.theme": ""}, moved},
-		{"a station on office moves to the default, seasonal back on",
-			map[string]string{"display.theme": "office", "display.seasonal_theme": "false"}, moved},
+		{"a station on office moves to the default and keeps the seasonal theme off",
+			map[string]string{"display.theme": "office", "display.seasonal_theme": "false"},
+			want{"modern-office-desk-day", deskDefaultSchedule00120, "false"}},
 		{"a station on office-light replaces the schedule it had",
 			map[string]string{"display.theme": "office-light", "display.theme_schedule": `[{"start":"08:00","theme":"office-light"},{"start":"20:00","theme":"office"}]`}, moved},
 		{"a station on a custom theme keeps it, its schedule and its seasonal choice",
