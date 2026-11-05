@@ -612,6 +612,7 @@ export const en: Dict = {
     // overturned rule; zh.ts carried the correction and en.ts did not.
     filterOpenerNoun: "Opener",
     filterOpenerAll: "All openers",
+    filterPriorityAll: "All priorities",
     filterIdLabel: "Reply-card id",
     clearFilters: "Clear filters",
     // ── Filter panel (T-93 round 2) ──

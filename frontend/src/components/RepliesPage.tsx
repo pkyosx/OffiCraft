@@ -90,7 +90,7 @@ import {
 } from "./ReplyCardBody";
 import { formatDuration } from "../lib/duration";
 import { formatAbsolute } from "../lib/dateFormat";
-import { dueRemaining, dueState, hasDueTime } from "../lib/dueDate";
+import { dueRemaining, dueState, hasDueTime, isDueSoon, isOverdue } from "../lib/dueDate";
 import { compareReplyCardRank } from "../lib/replyCardRank";
 import { useDueSoonLeadMinutes } from "../hooks/useDueSoonLeadMinutes";
 import "./office.css"; // chat composer classes the ReplyComposer reuses, AND
@@ -259,6 +259,8 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     setAppliedId("");
     setDraftId("");
     setOpenerFilter(new Set());
+    setPriorityFilter(new Set());
+    setDueFilter(new Set());
     if (replyCardId) setRoute({ page: "replies" });
   }
 
@@ -286,7 +288,12 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // stays id-only on purpose: it also gates the by-id lookup's three outcomes
   // and the handled pane's force-expand, and an 開卡人 tick must not switch
   // those on (there is no id to have found, missed, or failed to reach).
-  const anyFilter = idQuery !== "" || openerFilter.size > 0;
+  // 優先權 and 到期 axes: empty = no constraint, like 開卡人. 到期 offers the
+  // task page's two values, 已逾期 and 快到期.
+  const [priorityFilter, setPriorityFilter] = useState<Set<string>>(() => new Set());
+  const [dueFilter, setDueFilter] = useState<Set<string>>(() => new Set());
+  const anyFilter =
+    idQuery !== "" || openerFilter.size > 0 || priorityFilter.size > 0 || dueFilter.size > 0;
 
   /** Enter or blur on the 編號 field — the only two events that turn typed text
    * into a filter (owner 2026-09-06:「按enter或是點外面就視為apply了」). */
@@ -399,6 +406,18 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   const passesOpener = (c: ReplyCardRow) =>
     openerFilter.size === 0 || openerFilter.has(c.from);
 
+  // 到期 is judged on the page clock, as the card's own tone is, and only a
+  // card still waiting can be due soon or overdue — same as a closed task.
+  const passesRank = (c: ReplyCardRow) => {
+    if (priorityFilter.size > 0 && !priorityFilter.has(c.priority ?? "mid")) return false;
+    if (dueFilter.size === 0) return true;
+    const due = c.dueTs ?? null;
+    if (due === null || c.status !== "waiting") return false;
+    if (isOverdue(due, nowTs)) return dueFilter.has("overdue");
+    return dueFilter.has("soon") && isDueSoon(due, nowTs, dueSoonLeadMinutes);
+  };
+  const passesFilters = (c: ReplyCardRow) => passesOpener(c) && passesRank(c);
+
   const displayedWaiting = waiting.filter((row) => !settledRows.has(row.id));
   const handledById = new Map<string, ReplyCardRow>();
   for (const row of handled) handledById.set(row.id, row);
@@ -416,11 +435,11 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // id win would make 「找到了，但不是這個人開的」 render as a hit, which is the
   // same class of merged-silence defect the id lookup exists to remove.
   const waitingSorted = filtering
-    ? foundCard && foundCard.status === "waiting" && passesOpener(foundCard)
+    ? foundCard && foundCard.status === "waiting" && passesFilters(foundCard)
       ? [foundCard]
       : []
     : displayedWaiting
-        .filter(passesOpener)
+        .filter(passesFilters)
         .sort((a, b) => compareReplyCardRank(a, b) || b.createdTs - a.createdTs);
 
   const visibleHandled = filtering
@@ -429,11 +448,11 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
       // server would re-create the exact hole this round removes — the owner
       // asks for a card, the server hands it over, and the page drops it for
       // being old.
-      foundCard && foundCard.status !== "waiting" && passesOpener(foundCard)
+      foundCard && foundCard.status !== "waiting" && passesFilters(foundCard)
       ? [foundCard]
       : []
     : displayedHandled
-        .filter((c) => passesOpener(c) && isVisibleHandled(c))
+        .filter((c) => passesFilters(c) && isVisibleHandled(c))
         .sort((a, b) => (handledTsOf(b) ?? 0) - (handledTsOf(a) ?? 0));
   // ── 開卡了哪一張 (owner 2026-09-07) ─────────────────────────────────────────
   // A row is a TITLE, not a card: since `?view=full` left the wire the panes
@@ -1290,6 +1309,28 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
           selected={openerFilter}
           onChange={setOpenerFilter}
           testId="filter-opener"
+        />
+        <MultiSelectFilter
+          noun={t.tasks.priorityLabel}
+          allLabel={t.replies.filterPriorityAll}
+          options={(["high", "mid", "low"] as const).map((p) => ({
+            value: p,
+            label: t.tasks.priority[p] ?? p,
+          }))}
+          selected={priorityFilter}
+          onChange={setPriorityFilter}
+          testId="filter-reply-priority"
+        />
+        <MultiSelectFilter
+          noun={t.tasks.filterDueNoun}
+          allLabel={t.tasks.filterDueAll}
+          options={[
+            { value: "overdue", label: t.tasks.filterDueOverdue },
+            { value: "soon", label: t.tasks.filterDueSoon },
+          ]}
+          selected={dueFilter}
+          onChange={setDueFilter}
+          testId="filter-reply-due"
         />
       </FilterPanel>
 

@@ -266,6 +266,35 @@ describe("RepliesPage", () => {
     expect(due(3)).toBeNull();
   });
 
+  it("filters waiting cards by priority and by 快到期／已逾期, and 清除篩選 brings them all back", async () => {
+    const now = Date.now() / 1000;
+    __injectMockReplyCard(mkCard({ id: "high", summary: "高", priority: "high" }));
+    __injectMockReplyCard(mkCard({ id: "low", summary: "低", priority: "low", dueTs: now + 3600 }));
+    __injectMockReplyCard(mkCard({ id: "over", summary: "逾期", priority: "mid", dueTs: now - 60 }));
+    __injectMockReplyCard(mkCard({ id: "later", summary: "還早", priority: "mid", dueTs: now + 10 * 86400 }));
+
+    const { findAllByTestId, findByTestId } = renderPage();
+    const ids = async () =>
+      (await findAllByTestId("waiting-card")).map((c) => c.getAttribute("data-reply-card-id"));
+    expect(await ids()).toEqual(["high", "over", "later", "low"]);
+    const tick = (testId: string, value: string) => {
+      const trigger = document.querySelector(`[data-testid="${testId}"]`) as HTMLElement;
+      if (trigger.getAttribute("aria-expanded") !== "true") fireEvent.click(trigger);
+      fireEvent.click(document.querySelector(`[data-testid="${testId}-opt-${value}"] input`)!);
+    };
+
+    tick("filter-reply-priority", "mid");
+    await waitFor(async () => expect(await ids()).toEqual(["over", "later"]));
+    tick("filter-reply-priority", "mid");
+    tick("filter-reply-due", "soon");
+    await waitFor(async () => expect(await ids()).toEqual(["low"]));
+    tick("filter-reply-due", "overdue");
+    await waitFor(async () => expect(await ids()).toEqual(["over", "low"]));
+
+    fireEvent.click(await findByTestId("replies-filter-clear"));
+    await waitFor(async () => expect(await ids()).toEqual(["high", "over", "later", "low"]));
+  });
+
   it("resolves an outsource asker to its 外包 代號, not the raw ow- id", async () => {
     // Default GET /api/members now contains outsource rows; that must not turn
     // the card into a salaried-member identity.

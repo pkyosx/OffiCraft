@@ -1046,6 +1046,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "replies.filterIdLabel",
   "replies.filterOpenerAll",
   "replies.filterOpenerNoun",
+  "replies.filterPriorityAll",
   "replies.handledHint",
   "replies.handledTitle",
   "replies.inputPlaceholder",

@@ -632,6 +632,7 @@ export const zh = {
     // 生效的無限制，全集合只是當下那批名字的快照。
     filterOpenerNoun: "開卡人",
     filterOpenerAll: "所有開卡人",
+    filterPriorityAll: "所有優先權",
     filterIdLabel: "請示卡編號",
     clearFilters: "清除篩選",
     // ── 篩選面板（T-93 第二輪）──

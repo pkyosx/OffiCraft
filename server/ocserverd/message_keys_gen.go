@@ -1047,6 +1047,7 @@ var messageKeys = map[string]bool{
 	"replies.filterIdLabel":                            true,
 	"replies.filterOpenerAll":                          true,
 	"replies.filterOpenerNoun":                         true,
+	"replies.filterPriorityAll":                        true,
 	"replies.handledHint":                              true,
 	"replies.handledTitle":                             true,
 	"replies.inputPlaceholder":                         true,
