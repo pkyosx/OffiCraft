@@ -93,6 +93,10 @@ RepliesPage 與 ChatReplyCard 共用 ReplyCardBody、ReplyComposer；兩者訂 r
 
 ChatReplyCard 的 doReanswer 保留單卡 refetch：終態 delta 可能被刻意丟棄，拿掉會留下舊答案。不要把它和 doAnswer 對齊，也不要把「delta 是唯一 reconcile trigger」寫回規則。
 
+## 請示卡的優先序與期限
+
+待回覆列的順序是「優先序 → 期限（有期限的在前、早到期的在前）→ 開卡時間新到舊」，比較式在 `lib/replyCardRank.ts`，server 的 `sortReplyCardQueue` 與 mock 的 waiting pane 用同一個前兩段（兩者最後一段是舊到新，頁面自己再排一次）。卡頭的優先序徽章與期限沿用任務卡的 `.task-badge--prio-*`、`.task-card__due-*`，所以 RepliesPage 要 import `tasks.css`；快到期／已逾期的色調與剩餘時間只在卡片還在等回覆時出現。快到期的提前量是工作區設定 `task_due_soon_lead_minutes`，請示卡沒有自己的提前量。
+
 ## 請示卡頁的 ID 篩選（T-118，owner 2026-09-06 20:07／20:19）
 
 編號欄位**常駐在列表上方**，沒有漏斗、沒有展開面板、沒有取消／套用兩顆鈕、沒有「N 筆 已篩選」摘要列，也**沒有「請示卡」子標題那一行**。演進史：第一輪是常駐列但**每敲一個字元就篩一次已載入的那批卡**，owner 兩次否決（「很常我們要找一張任務或票而已，但每次都要全部都撈回來才濾不合理 你可以設計成要給完搜尋條件要再按 search 的版本嗎」、「按搜尋時不要再跳出新modal」）；第二輪改成面板＋Apply；**T-118 又把那一層拿掉**（`c-c3d681fe05da`「不要多filter那一層了，全部拉出來」，`c-38c7759e6377`「請示卡跟任務都要改成一樣的呈現方式，一樣請示卡的子標題拿掉」）。殼仍是共用的 `FilterPanel`（讀 `FilterPanel.tsx` 的檔頭，那份契約不在這裡重述），`testId="replies-filter"` 以免和任務頁的控制項撞名。

@@ -151,6 +151,19 @@
   min-width: 0;
 }
 /* Jump-to-origin — a quiet text button (secondary action). */
+.reply-card__rank {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* A due-soon or overdue card outlines its date in the tone colour, so the
+ * urgency shows while the card is collapsed. */
+.reply-card__due.task-card__due-date--soon,
+.reply-card__due.task-card__due-date--overdue {
+  border-color: currentColor;
+  font-weight: 600;
+}
 .reply-card__jump {
   flex: none;
   padding: 5px 10px;

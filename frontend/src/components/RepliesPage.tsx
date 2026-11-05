@@ -89,11 +89,17 @@ import {
 } from "./ReplyCardBody";
 import { formatDuration } from "../lib/duration";
 import { formatAbsolute } from "../lib/dateFormat";
+import { dueRemaining, dueState, hasDueTime } from "../lib/dueDate";
+import { compareReplyCardRank } from "../lib/replyCardRank";
+import { useDueSoonLeadMinutes } from "../hooks/useDueSoonLeadMinutes";
 import "./office.css"; // chat composer classes the ReplyComposer reuses, AND
 // the rail's `.outsource-row__*` / `.current-task-title` rules the asker's
 // current-task line is drawn with (T-196) — removing this import as an
 // unused-looking tidy-up unstyles that line, and no vitest test can see it.
 import "./replies.css";
+// The priority badge and the due-date tones are the task card's own
+// (.task-badge--prio-*, .task-card__due-*), so a card reads the same as a task.
+import "./tasks.css";
 
 const HANDLED_WINDOW_SECONDS = 24 * 3600;
 
@@ -304,6 +310,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // already windows the lists per fetch; without the tick an aging card would
   // linger until the next SSE-driven refetch).
   const [nowTs, setNowTs] = useState(() => Date.now() / 1000);
+  const dueSoonLeadMinutes = useDueSoonLeadMinutes();
   useEffect(() => {
     const timer = window.setInterval(
       () => setNowTs(Date.now() / 1000),
@@ -413,7 +420,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
       : []
     : displayedWaiting
         .filter(passesOpener)
-        .sort((a, b) => b.createdTs - a.createdTs);
+        .sort((a, b) => compareReplyCardRank(a, b) || b.createdTs - a.createdTs);
 
   const visibleHandled = filtering
     ? // 🔴 NO 24h PRUNE on a card fetched by id. The window is what makes the
@@ -1010,6 +1017,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
           {who.role && <span className="reply-card__role">{who.role}</span>}
           {renderAskerCurrentTask(row)}
         </div>
+        {renderRank(row)}
         <button
           type="button"
           className="reply-card__jump"
@@ -1031,6 +1039,46 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
         )}
         {stampNode}
       </header>
+    );
+  }
+
+  /** Priority badge + due date. The due-soon / overdue tone and the time left
+   * only mean something while the card still waits on the owner. */
+  function renderRank(row: ReplyCardRow) {
+    const priority = row.priority ?? "mid";
+    const dueTs = row.dueTs ?? null;
+    const waiting = row.status === "waiting";
+    const due = dueTs === null ? null : dueState(dueTs, nowTs, dueSoonLeadMinutes);
+    const tone = !waiting || due === null || due.kind === "later" ? null : due.kind;
+    const toneClass = tone ? ` task-card__due-date--${tone}` : "";
+    return (
+      <span className="reply-card__rank">
+        <span
+          className={`task-badge task-badge--prio-${priority}`}
+          title={t.tasks.priorityLabel}
+          data-testid="reply-card-priority"
+        >
+          {t.tasks.priority[priority] ?? priority}
+        </span>
+        {dueTs !== null && (
+          <span
+            className={`task-card__chip reply-card__due${toneClass}`}
+            data-testid="reply-card-due"
+            data-due-tone={tone ?? undefined}
+          >
+            {t.tasks.dueLabel}{" "}
+            {hasDueTime(dueTs) ? msg.taskDueDateTime(dueTs) : msg.taskDueDate(dueTs)}
+            {waiting && (
+              <span className={`task-card__due-remaining${toneClass}`}>
+                {msg.taskDueRemaining(dueRemaining(dueTs, nowTs))}
+              </span>
+            )}
+            {tone === "soon" && (
+              <span className="task-card__due-status">{t.tasks.dueSoonHint}</span>
+            )}
+          </span>
+        )}
+      </span>
     );
   }
 

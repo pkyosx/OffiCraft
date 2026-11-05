@@ -270,6 +270,7 @@ import {
   MIN_SCHEDULE_ENTRIES,
   themeScheduleProblem,
 } from "../lib/themeSchedule";
+import { compareReplyCardRank } from "../lib/replyCardRank";
 
 // The always-present server-self machine id (mirrors the server seed):
 // the warden for the host running the server itself — listed FIRST, is_self, NOT
@@ -4106,12 +4107,14 @@ const mockApiImpl = {
       answeredTs: c.answeredTs,
       expiredTs: c.expiredTs ?? null,
       task: c.task ?? null,
+      priority: c.priority ?? "mid",
+      dueTs: c.dueTs ?? null,
     });
     const cutoff = Date.now() / 1000 - 24 * 3600;
     if (status === "waiting") {
       return replyCards
         .filter((c) => c.status === "waiting")
-        .sort((a, b) => a.createdTs - b.createdTs)
+        .sort((a, b) => compareReplyCardRank(a, b) || a.createdTs - b.createdTs)
         .map(rowOf);
     }
     if (status === "expired") {

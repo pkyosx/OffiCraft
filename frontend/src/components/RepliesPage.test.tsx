@@ -1,6 +1,8 @@
 // 請示 page (M2 回覆卡 B2). Locked here — the SPEC §2 acceptance behaviors:
 //   1. Empty 請示 list → the ✓ 目前沒有待處理的請示 state.
-//   2. Waiting cards render newest ask first (createdTs desc); the LONGEST-
+//   2. Waiting cards render by priority, then due date (dated cards first),
+//      then newest ask first (createdTs desc); each shows its priority and,
+//      when it has one, its due date toned due-soon / overdue. The LONGEST-
 //      waiting one keeps the highlight, each card with initiator identity,
 //      已等你 {t}, and the ai_pick option tagged AI 建議 (position means nothing).
 //   3. Answering (option click OR typed reply) moves the card 請示 →
@@ -231,6 +233,37 @@ describe("RepliesPage", () => {
       expect(card.querySelector('[data-testid="opened-at"]')).toBeNull();
       expect(card.textContent).not.toContain("開卡");
     }
+  });
+
+  it("ranks waiting cards by priority, then due date, then newest, and tones a due-soon or overdue date", async () => {
+    const now = Date.now() / 1000;
+    __injectMockReplyCard(mkCard({ id: "young", summary: "新的中", createdTs: now - 60 }));
+    __injectMockReplyCard(mkCard({ id: "low", summary: "低", priority: "low", createdTs: now - 30 }));
+    __injectMockReplyCard(
+      mkCard({ id: "overdue", summary: "逾期的中", priority: "mid", dueTs: now - 3600, createdTs: now - 9000 })
+    );
+    __injectMockReplyCard(
+      mkCard({ id: "later", summary: "還早的中", priority: "mid", dueTs: now + 10 * 86400, createdTs: now - 120 })
+    );
+    __injectMockReplyCard(
+      mkCard({ id: "high", summary: "高", priority: "high", dueTs: now + 3600, createdTs: now - 8000 })
+    );
+
+    const { findAllByTestId } = renderPage();
+    const cards = await findAllByTestId("waiting-card");
+    expect(cards.map((c) => c.getAttribute("data-reply-card-id"))).toEqual([
+      "high", "overdue", "later", "young", "low",
+    ]);
+    const badge = (i: number) => cards[i].querySelector('[data-testid="reply-card-priority"]');
+    const due = (i: number) => cards[i].querySelector('[data-testid="reply-card-due"]');
+    expect(badge(0)?.textContent).toBe("高");
+    expect(badge(3)?.textContent).toBe("中");
+    expect(badge(4)?.textContent).toBe("低");
+    expect(due(0)?.getAttribute("data-due-tone")).toBe("soon");
+    expect(due(1)?.getAttribute("data-due-tone")).toBe("overdue");
+    expect(due(2)?.hasAttribute("data-due-tone")).toBe(false);
+    expect(due(2)?.textContent).toContain("到期日");
+    expect(due(3)).toBeNull();
   });
 
   it("resolves an outsource asker to its 外包 代號, not the raw ow- id", async () => {

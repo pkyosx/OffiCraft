@@ -393,6 +393,11 @@ export interface ReplyCard {
    * hand-built test fixtures stay valid (same precedent as Member.roleName);
    * the mapper always sets it (null when the wire carries none). */
   task?: TaskRefView | null;
+  /** "high" | "mid" | "low" — the owner's queue sorts on it. OPTIONAL so
+   * hand-built test fixtures stay valid; the mapper always sets it. */
+  priority?: string;
+  /** Epoch seconds; null = no due date. OPTIONAL for the same reason. */
+  dueTs?: number | null;
 }
 
 /**
@@ -428,6 +433,11 @@ export interface ReplyCardRow {
   expiredTs?: number | null;
   /** The task this ask was armed from; null/absent ⇒ a pure chat ask. */
   task?: TaskRefView | null;
+  /** "high" | "mid" | "low" — the owner's queue sorts on it. OPTIONAL so
+   * hand-built test fixtures stay valid; the mapper always sets it. */
+  priority?: string;
+  /** Epoch seconds; null = no due date. OPTIONAL for the same reason. */
+  dueTs?: number | null;
 }
 
 /** What the three reply-card WRITES answer (wire `ReplyCardReceiptDTO`, T-91):
