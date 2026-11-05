@@ -1404,6 +1404,7 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
                 type="button"
                 className={`ts-pick${!scheduling && theme === b.id ? " ts-pick--active" : ""}`}
                 disabled={scheduling}
+                aria-describedby={scheduling ? "ts-schedule-hint" : undefined}
                 onClick={() => setTheme(b.id)}
               >
                 {name}
@@ -1461,6 +1462,7 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
               type="button"
               className={`ts-pick${!scheduling && theme === b.id ? " ts-pick--active" : ""}`}
               disabled={scheduling}
+              aria-describedby={scheduling ? "ts-schedule-hint" : undefined}
               onClick={() => setTheme(b.id)}
             >
               {b.name}
@@ -1525,8 +1527,6 @@ const DEFAULT_SCHEDULE_DRAFT: ThemeScheduleEntry[] = [
   { start: "18:00", theme: "office" },
 ];
 
-// The draft lives on the page, not in the section: while it is non-null the
-// theme list above cannot pick a theme, so the two never both claim the screen.
 function useThemeScheduleDraft() {
   const { themeSchedule } = useI18n();
   // null = 固定一套. A draft with rows is 依時間切換 but maybe unsaved; the
@@ -1612,7 +1612,11 @@ function ThemeScheduleSection({
           {t.settings.themeScheduleOn}
         </button>
       </div>
-      {draft && <div className="ts-wording-sub">{t.settings.themeScheduleHint}</div>}
+      {draft && (
+        <div className="ts-wording-sub" id="ts-schedule-hint">
+          {t.settings.themeScheduleHint}
+        </div>
+      )}
       {draft && (
         <div className="ts-list">
           {draft.map((row, i) => (
