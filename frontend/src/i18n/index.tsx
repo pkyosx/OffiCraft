@@ -782,7 +782,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       scheduleInFlight.current.add(id);
       fetchThemeBundle(id)
         .then((b) => {
-          if (b.id !== id || themeScheduleRef.current !== schedule) return;
+          // Compared by content: a re-read delivers an equal schedule as a new
+          // array, and dropping this fetch for it would leave the slot unloaded.
+          if (b.id !== id || JSON.stringify(themeScheduleRef.current) !== JSON.stringify(schedule)) return;
           adoptScheduleBundles(schedule, { ...scheduleBundlesRef.current, [id]: b });
         })
         .catch((e) => console.warn("theme schedule: bundle load failed", e))

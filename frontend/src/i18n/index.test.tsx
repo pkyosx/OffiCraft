@@ -183,7 +183,10 @@ describe("I18nProvider following another tab's settings", () => {
     delete document.documentElement.dataset.theme;
     localStorage.setItem(TOKEN_KEY, "live-owner-token");
   });
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
 
   async function mountSettled() {
     render(
@@ -314,6 +317,41 @@ describe("I18nProvider following another tab's settings", () => {
     });
 
     await waitFor(() => expect(screen.getByTestId("probe").dataset.lang).toBe("zh"));
+  });
+
+  it("a re-read delivering the same schedule while its slot's theme is loading still caches that theme's picture", async () => {
+    const SCHEDULE = [
+      { start: "00:00", theme: "midnight" },
+      { start: "23:59", theme: "office" },
+    ];
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2030, 2, 10, 12, 0));
+    await mockApi.putTheme(MIDNIGHT);
+    await mockApi.patchServerSettings({ displayThemeSchedule: SCHEDULE });
+    const fetchTheme = api.getTheme.bind(api);
+    let release = () => {};
+    vi.spyOn(api, "getTheme").mockImplementationOnce(async (id) => {
+      await new Promise<void>((r) => (release = r));
+      return fetchTheme(id);
+    });
+    await mountSettled();
+
+    await act(async () => {
+      await mockApi.patchServerSettings({ displayThemeSchedule: SCHEDULE });
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    await act(async () => {
+      release();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    await waitFor(() =>
+      expect(
+        (JSON.parse(localStorage.getItem("oc.schedulePaint") ?? "null") as { bundle: unknown }[] | null)?.map(
+          (r) => r.bundle
+        )
+      ).toEqual([MIDNIGHT])
+    );
   });
 
   it("a theme list read issued while this tab is saving a theme does not drop the theme it saved", async () => {
