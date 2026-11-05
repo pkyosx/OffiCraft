@@ -187,9 +187,9 @@ describe("theme-bundle image caps · the shared cap table", () => {
 
   it("carries rows proving the split in BOTH directions", () => {
     // Without both, the table could not tell a split gate from a single one:
-    // only-relaxed rows pass with every cap raised to 512 KiB (avatars relaxed
-    // too — the exact thing the split exists to prevent), and only-refused rows
-    // pass with nothing relaxed at all.
+    // only-relaxed rows pass with every cap raised to the background cap
+    // (avatars relaxed too — the exact thing the split exists to prevent), and
+    // only-refused rows pass with nothing relaxed at all.
     const pastAvatarCap = rows.filter((r) => r.decoded > decls.avatar_bytes);
     expect(
       pastAvatarCap.some((r) => r.accepted),

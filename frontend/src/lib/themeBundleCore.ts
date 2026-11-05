@@ -180,12 +180,12 @@ export const MAX_FONT_VALUE_LEN = 128;
 // nothing in Go reads it, so drift against the Go side is not caught.
 export const MAX_AVATAR_BYTES = 64 * 1024;
 export const MAX_AVATAR_VALUE_LEN = 96 * 1024;
-export const MAX_BACKGROUND_BYTES = 512 * 1024;
-// 512 KiB decoded ≈ 682.7 KiB encoded; 704 KiB sits above that with margin. It
+export const MAX_BACKGROUND_BYTES = 1024 * 1024;
+// 1 MiB decoded ≈ 1365.4 KiB encoded; 1400 KiB sits above that with margin. It
 // MUST move with MAX_BACKGROUND_BYTES: it is checked before the decode, so
 // leaving it at MAX_AVATAR_VALUE_LEN would reject every large background and
 // the decoded cap would never be reached.
-export const MAX_BACKGROUND_VALUE_LEN = 704 * 1024;
+export const MAX_BACKGROUND_VALUE_LEN = 1400 * 1024;
 
 /** The closed RASTER mime whitelist an avatar image may declare. SVG
  * (image/svg+xml) is DELIBERATELY absent — it can carry <script>/onload (XSS). */
@@ -414,7 +414,7 @@ export function isValidAvatarValue(v: string): boolean {
   return isValidImageValue(v, MAX_AVATAR_BYTES, MAX_AVATAR_VALUE_LEN);
 }
 
-/** The same image gate at the BACKGROUND caps (512 KiB) — only `backgrounds`
+/** The same image gate at the BACKGROUND caps (1 MiB) — only `backgrounds`
  * values come through here. The twin of validBackgroundValue in
  * avatar_bundle.go. See the const block for why a full-viewport image is
  * allowed more room than a 30–40 px glyph. */
@@ -482,7 +482,7 @@ export function validateNavIcons(navIcons: unknown, where = "theme"): string | n
  * Go validateBackgrounds. Key ∈ {canvas}, value ∈ {whitelisted-raster base64
  * data URI via isValidBackgroundValue: the same mime allowlist, SVG refusal and
  * magic-byte check as an avatar — those are the security boundary and are shared
- * — but at the 512 KiB decoded cap rather than the avatar's 64 KiB.
+ * — but at the 1 MiB decoded cap rather than the avatar's 64 KiB.
  *
  * T-081b ruled the opposite ("the cap is NOT raised for backgrounds"). The owner
  * overturned that on 2026-08-03: a canvas background covers the whole viewport
@@ -502,7 +502,7 @@ export function validateBackgrounds(backgrounds: unknown, where = "theme"): stri
       return `${where}: background zone "${key}" is not allowed (only canvas)`;
     }
     if (typeof value !== "string" || !isValidBackgroundValue(value)) {
-      return `${where}: backgrounds[${key}] is not a valid image — only a base64 data: URI of a PNG / JPEG / WEBP (≤ 512 KiB) is accepted`;
+      return `${where}: backgrounds[${key}] is not a valid image — only a base64 data: URI of a PNG / JPEG / WEBP (≤ 1 MiB) is accepted`;
     }
   }
   return null;

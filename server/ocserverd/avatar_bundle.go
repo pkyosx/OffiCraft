@@ -38,10 +38,10 @@ const (
 
 	maxAvatarValueLen = 96 * 1024
 
-	maxBackgroundBytes = 512 * 1024
+	maxBackgroundBytes = 1024 * 1024
 	// MUST move with maxBackgroundBytes: it runs before the decode, so leaving it
 	// at the avatar value cap would reject every large background.
-	maxBackgroundValueLen = 704 * 1024
+	maxBackgroundValueLen = 1400 * 1024
 )
 
 var avatarKindAllowed = map[string]bool{

@@ -507,7 +507,7 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
   // client validator (mime whitelist + size + magic bytes — the same gate the
   // server enforces). `validate` selects WHICH size caps apply and defaults to
   // the avatar caps (64 KiB), which is what avatars / logo / nav-icons want; the
-  // canvas background passes isValidBackgroundValue instead (512 KiB, T-72da).
+  // canvas background passes isValidBackgroundValue instead (1 MiB).
   // The SAFETY half of the gate — raster mime allowlist, SVG refusal, magic
   // bytes — is identical either way and is never relaxed. If a caller forgets to
   // pass its validator the cockpit would reject an image the server accepts, and
