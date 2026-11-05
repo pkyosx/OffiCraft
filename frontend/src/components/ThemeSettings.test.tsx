@@ -1685,7 +1685,7 @@ describe("ThemeSettings · appearance", () => {
   it("the 顯示應景主題 switch is on by default and saves each flip to the server", async () => {
     setToken("owner-token");
     const utils = await renderManage({ tab: s.themeTabAppearance });
-    const seasonal = utils.getByRole("switch", { name: s.themeSeasonal });
+    const seasonal = utils.getByRole("switch", { name: p.seasonalTheme });
     expect(seasonal.getAttribute("aria-checked")).toBe("true");
 
     fireEvent.click(seasonal);

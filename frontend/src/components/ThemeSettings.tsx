@@ -1910,13 +1910,13 @@ function ThemeAppearance({
 
       <div className="param-row">
         <div className="param-row__body">
-          <span className="param-row__name">{t.settings.themeSeasonal}</span>
+          <span className="param-row__name">{t.profile.seasonalTheme}</span>
         </div>
         <button
           type="button"
           role="switch"
           aria-checked={seasonalTheme}
-          aria-label={t.settings.themeSeasonal}
+          aria-label={t.profile.seasonalTheme}
           className={`set-toggle${seasonalTheme ? " set-toggle--on" : ""}`}
           onClick={() => setSeasonalTheme(!seasonalTheme)}
         >
