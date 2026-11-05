@@ -292,8 +292,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   // the same chunk again rejects at once; only a reload can recover it.
   const [seasonalLoadFailedId, setSeasonalLoadFailedId] = useState<string | null>(null);
   const [themeList, setThemeList] = useState<ThemeListItem[]>([]);
-  // A settings or theme-list read that overlaps one of this tab's own writes
-  // may carry the value from before it. Such a read is not adopted; the reread
+  // A settings or theme-list read that overlaps any part of one of this tab's
+  // own writes may carry the value from before it. Such a read is not adopted; the reread
   // waits until every write has settled.
   const writesInFlightRef = useRef(0);
   const writeEpochRef = useRef(0);
@@ -303,6 +303,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     writeEpochRef.current += 1;
     writesInFlightRef.current += 1;
     return write().finally(() => {
+      writeEpochRef.current += 1;
       writesInFlightRef.current -= 1;
       if (writesInFlightRef.current === 0 && rereadAfterWritesRef.current) {
         rereadAfterWritesRef.current = false;
