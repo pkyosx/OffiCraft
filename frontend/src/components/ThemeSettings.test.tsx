@@ -1887,15 +1887,15 @@ describe("ThemeSettings · switch by time of day", () => {
     const utils = await renderWithDusk();
     fireEvent.click(scheduleSwitch(utils));
     fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleSave }));
-    await settle();
-    await settle();
+    await section(utils).findByText(s.themeScheduleSaved);
     expect((await api.getServerSettings()).displayThemeSchedule).toHaveLength(3);
 
     fireEvent.click(scheduleSwitch(utils));
-    await settle();
-    await settle();
+    await waitFor(async () =>
+      expect((await api.getServerSettings()).displayThemeSchedule).toEqual([])
+    );
+    await waitFor(() => expect(scheduleSwitch(utils).getAttribute("aria-checked")).toBe("false"));
 
-    expect((await api.getServerSettings()).displayThemeSchedule).toEqual([]);
     expect(startInputs(utils)).toEqual([]);
     expect(scheduleSwitch(utils).getAttribute("aria-checked")).toBe("false");
     expect(themeSelect(utils).value).toBe("office");
