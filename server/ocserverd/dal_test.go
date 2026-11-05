@@ -2575,7 +2575,7 @@ func TestScanReplyCard(t *testing.T) {
 	want := ReplyCard{
 		ID: "rc-2", FromMember: "bob", Kind: "action", SelectMode: replyCardSelectModeSingle,
 		Status: "waiting", Options: []ReplyCardOption{},
-		AnswerAttachments: []any{}, Attachments: []any{}, Priority: "mid",
+		AnswerAttachments: []any{}, Attachments: []any{},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("a card with no options, no answer and no refs:\n got %+v\nwant %+v", got, want)
@@ -3108,7 +3108,6 @@ func TestPutReplyCardOn(t *testing.T) {
 		ID: "rc-2", FromMember: "bob", Kind: "action", Status: "waiting",
 		SelectMode: replyCardSelectModeSingle, Options: []ReplyCardOption{},
 		AnswerAttachments: []any{}, Attachments: []any{},
-		Priority: "mid",
 	})
 
 	failed := errors.New("the rest of the transaction refused")
@@ -4508,7 +4507,6 @@ func dalReplyCard(id string, createdTS float64) ReplyCard {
 		AnswerAttachments:  []any{dalAttRef("att-answer", "image/png", "a.png")},
 		Attachments:        []any{dalAttRef("att-question", "image/png", "q.png")},
 		TaskID:             "T-1", TaskStepID: "s-1",
-		Priority: "high", DueTS: createdTS + 30,
 	}
 }
 

@@ -41,7 +41,8 @@ const (
 // executor of the card's open task, and ocagent handleReplyCard keeps a card
 // whose from or task_executor is itself.
 func (s *apiServer) publishReplyCard(c ReplyCard, trigger string) {
-	_, executor, err := s.cardTaskRef(c)
+	ct, err := s.cardTask(c)
+	executor := ct.executor
 	if err != nil {
 		taskLog("reply card %s: task executor lookup failed (only the author is told): %v", c.ID, err)
 	}
@@ -57,66 +58,35 @@ func waitingReplyCards(cards []ReplyCard) []ReplyCard {
 			out = append(out, c)
 		}
 	}
-	sortReplyCardQueue(out)
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].CreatedTS < out[j].CreatedTS
+	})
 	return out
 }
 
 // sortReplyCardQueue orders the owner's waiting queue: priority, then due date
-// (a card with one before a card without), then oldest first.
-func sortReplyCardQueue(cards []ReplyCard) {
-	sort.SliceStable(cards, func(i, j int) bool {
-		a, b := cards[i], cards[j]
-		ra, rb := taskPriorityRank(replyCardPriorityOrMid(a.Priority)), taskPriorityRank(replyCardPriorityOrMid(b.Priority))
-		if ra != rb {
+// (a card with one before a card without), then oldest first. A card about no
+// task ranks as mid with no due date.
+func sortReplyCardQueue(rows []replyCardListItemDTO) {
+	rank := func(p *string) int {
+		if p == nil {
+			return taskPriorityRank(TaskPriorityMid)
+		}
+		return taskPriorityRank(*p)
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		a, b := rows[i], rows[j]
+		if ra, rb := rank(a.Priority), rank(b.Priority); ra != rb {
 			return ra < rb
 		}
-		if (a.DueTS > 0) != (b.DueTS > 0) {
-			return a.DueTS > 0
+		if (a.DueTS != nil) != (b.DueTS != nil) {
+			return a.DueTS != nil
 		}
-		if a.DueTS != b.DueTS {
-			return a.DueTS < b.DueTS
+		if a.DueTS != nil && *a.DueTS != *b.DueTS {
+			return *a.DueTS < *b.DueTS
 		}
 		return a.CreatedTS < b.CreatedTS
 	})
-}
-
-func validReplyCardPriority(p string) bool {
-	return p == TaskPriorityHigh || p == TaskPriorityMid || p == TaskPriorityLow
-}
-
-func replyCardPriorityOrMid(p string) string {
-	if validReplyCardPriority(p) {
-		return p
-	}
-	return TaskPriorityMid
-}
-
-const replyCardPriorityMsg = "priority must be one of high, mid, low"
-
-// replyCardPriorityAndDue: what the caller sent wins; a field left out on a card
-// about a task (bound to its step, or naming it with about_task_id) is copied from
-// the task as the handler resolved it, so a
-// priority change landing in the same instant can be missed — that costs only
-// the card's starting place in the queue.
-func replyCardPriorityAndDue(body ReplyCardCreateDTO, task *Task) (string, float64, string) {
-	priority, due := TaskPriorityMid, 0.0
-	if task != nil {
-		priority, due = replyCardPriorityOrMid(task.Priority), task.DueTs
-	}
-	if p := trimmedOrEmpty(body.Priority); p != "" {
-		if !validReplyCardPriority(p) {
-			return "", 0, replyCardPriorityMsg
-		}
-		priority = p
-	}
-	if body.DueTs != nil {
-		d, ok := dueTSFromWire(body.DueTs)
-		if !ok {
-			return "", 0, taskDueTSPositiveMsg
-		}
-		due = d
-	}
-	return priority, due, ""
 }
 
 func recentAnsweredReplyCards(cards []ReplyCard, now float64) []ReplyCard {
@@ -251,14 +221,6 @@ func (s *apiServer) openReplyCard(
 	if problem != "" {
 		return nil, problem, nil
 	}
-	source := t
-	if about != nil {
-		source = about
-	}
-	priority, due, problem := replyCardPriorityAndDue(body, source)
-	if problem != "" {
-		return nil, problem, nil
-	}
 	var inputs []ChatAttachmentInputDTO
 	if body.Attachments != nil {
 		inputs = *body.Attachments
@@ -305,8 +267,6 @@ func (s *apiServer) openReplyCard(
 		Attachments:   refs,
 		TaskID:        taskID,
 		TaskStepID:    taskStepID,
-		Priority:      priority,
-		DueTS:         due,
 	}
 	if about != nil {
 		card.TaskID = about.ID
@@ -375,26 +335,43 @@ func (s *apiServer) openReplyCard(
 
 func (s *apiServer) replyCardDTOOf(c ReplyCard) (replyCardDTO, error) {
 	dto := newReplyCardDTO(c)
-	ref, executor, err := s.cardTaskRef(c)
-	dto.Task, dto.TaskExecutor = ref, executor
+	ct, err := s.cardTask(c)
+	dto.Task, dto.TaskExecutor, dto.replyCardTaskStanding = ct.ref, ct.executor, ct.standing
 	return dto, err
 }
 
-// The executor is read live rather than stored on the card so that the
-// notifications follow a reassignment. A closed task has no one left to tell.
-func (s *apiServer) cardTaskRef(c ReplyCard) (*taskRefDTO, string, error) {
+type cardTaskInfo struct {
+	ref      *taskRefDTO
+	executor string
+	standing replyCardTaskStanding
+}
+
+// Read live rather than stored on the card: the executor so that the
+// notifications follow a reassignment, the priority and due date so that the
+// card ranks and shows as its task does now. A closed task has no one left to
+// tell.
+func (s *apiServer) cardTask(c ReplyCard) (cardTaskInfo, error) {
 	if c.TaskID == "" {
-		return nil, "", nil
+		return cardTaskInfo{}, nil
 	}
 	t, err := s.dal.GetTask(c.TaskID)
 	if err != nil || t == nil {
-		return nil, "", err
+		return cardTaskInfo{}, err
 	}
 	executor := ""
 	if !TaskIsTerminal(t.Status) {
 		executor = actingExecutorOf(s.dal.GetMember, *t)
 	}
-	return &taskRefDTO{ID: t.ID, TypeKey: t.TypeKey, Title: t.Title}, executor, nil
+	priority := t.Priority
+	return cardTaskInfo{
+		ref:      &taskRefDTO{ID: t.ID, TypeKey: t.TypeKey, Title: t.Title},
+		executor: executor,
+		standing: replyCardTaskStanding{
+			Priority:           &priority,
+			DueTS:              dueTSWire(t.DueTs),
+			DueSoonLeadMinutes: dueSoonLeadMinutesWire(t.DueSoonLeadMinutes),
+		},
+	}, nil
 }
 
 func (s *apiServer) writeReplyCard(w http.ResponseWriter, c ReplyCard) {
@@ -425,7 +402,8 @@ func (s *apiServer) unheldCardNote(c ReplyCard) string {
 	note := "This card is about task '" + c.TaskID + "' but holds none of its steps, so that " +
 		"task keeps running and will NOT wait for this answer. When the owner answers, whoever " +
 		"executes the task at that moment is told as well as you"
-	_, executor, err := s.cardTaskRef(c)
+	ct, err := s.cardTask(c)
+	executor := ct.executor
 	if err != nil {
 		taskLog("reply card %s: task executor lookup failed for hold_note: %v", c.ID, err)
 		return note + "."
@@ -615,8 +593,6 @@ func (s *apiServer) replyCardListItemOf(c ReplyCard) (replyCardListItemDTO, erro
 		Summary:   c.Summary,
 		Status:    c.Status,
 		CreatedTS: c.CreatedTS,
-		Priority:  replyCardPriorityOrMid(c.Priority),
-		DueTS:     dueTSWire(c.DueTS),
 	}
 	if c.Status == replyCardStatusExpired {
 		ts := c.ExpiredTS
@@ -633,8 +609,8 @@ func (s *apiServer) replyCardListItemOf(c ReplyCard) (replyCardListItemDTO, erro
 			Attachments:  len(c.AnswerAttachments),
 		}
 	}
-	ref, executor, err := s.cardTaskRef(c)
-	dto.Task, dto.TaskExecutor = ref, executor
+	ct, err := s.cardTask(c)
+	dto.Task, dto.TaskExecutor, dto.replyCardTaskStanding = ct.ref, ct.executor, ct.standing
 	return dto, err
 }
 
@@ -691,9 +667,6 @@ func (s *apiServer) HandleListReplyCardsApiReplyCardsGet(w http.ResponseWriter, 
 		}
 		pane = kept
 	}
-	if params.Limit != nil && *params.Limit > 0 && *params.Limit < len(pane) {
-		pane = pane[:*params.Limit]
-	}
 	out := []replyCardListItemDTO{}
 	for _, c := range pane {
 		dto, err := s.replyCardListItemOf(c)
@@ -702,6 +675,12 @@ func (s *apiServer) HandleListReplyCardsApiReplyCardsGet(w http.ResponseWriter, 
 			return
 		}
 		out = append(out, dto)
+	}
+	if status == replyCardStatusWaiting {
+		sortReplyCardQueue(out)
+	}
+	if params.Limit != nil && *params.Limit > 0 && *params.Limit < len(out) {
+		out = out[:*params.Limit]
 	}
 	writeJSON(w, http.StatusOK, out)
 }

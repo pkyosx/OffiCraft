@@ -4088,8 +4088,8 @@ const mockApiImpl = {
   async listReplyCards(
     status: "waiting" | "answered" | "expired"
   ): Promise<ReplyCardRow[]> {
-    // Mirror the server's list contract: waiting = priority, then due date,
-    // then longest-waiting first
+    // Mirror the server's list contract: waiting = the task's priority, then its
+    // due date, then longest-waiting first
     // (created asc); answered = last-24h window, newest answer first; expired
     // = last-24h window keyed off expiredTs, newest first.
     //
@@ -4108,8 +4108,10 @@ const mockApiImpl = {
       answeredTs: c.answeredTs,
       expiredTs: c.expiredTs ?? null,
       task: c.task ?? null,
-      priority: c.priority ?? "mid",
+      // A mock card's own fields stand in for what the server reads off its task.
+      priority: c.priority ?? null,
       dueTs: c.dueTs ?? null,
+      dueSoonLeadMinutes: c.dueSoonLeadMinutes ?? null,
     });
     const cutoff = Date.now() / 1000 - 24 * 3600;
     if (status === "waiting") {

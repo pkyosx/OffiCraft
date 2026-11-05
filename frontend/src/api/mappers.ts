@@ -550,8 +550,9 @@ export function toReplyCardRow(w: WireReplyCardRow): ReplyCardRow {
     createdTs: w.created_ts ?? 0,
     answeredTs: w.answered_ts,
     expiredTs: w.expired_ts,
-    priority: w.priority ?? "mid",
+    priority: w.priority ?? null,
     dueTs: w.due_ts ?? null,
+    dueSoonLeadMinutes: w.due_soon_lead_minutes ?? null,
     task: w.task
       ? {
           id: w.task.id,
@@ -584,8 +585,9 @@ export function toReplyCard(w: WireReplyCard): ReplyCard {
     createdTs: w.created_ts ?? 0,
     answeredTs: w.answered_ts,
     expiredTs: w.expired_ts,
-    priority: w.priority ?? "mid",
+    priority: w.priority ?? null,
     dueTs: w.due_ts ?? null,
+    dueSoonLeadMinutes: w.due_soon_lead_minutes ?? null,
     chatMessageId: w.chat_message_id,
     // The task the ask was armed from (SPEC §3.6 請示 → 任務): the honest null
     // for a pure chat ask — the UI then shows no task info and no jump.

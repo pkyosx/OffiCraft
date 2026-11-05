@@ -1286,7 +1286,7 @@ func TestNewReplyCardDTO(t *testing.T) {
 		want := replyCardDTO{
 			ID: "rc-1", From: "ann", Kind: "decision", Summary: "Which one?",
 			Body: "the long question", Options: []ReplyCardOption{{Text: "A", AIPick: true}, {Text: "B"}},
-			SelectMode: "multi", Status: "waiting", CreatedTS: 100, Priority: "mid",
+			SelectMode: "multi", Status: "waiting", CreatedTS: 100,
 			Attachments: []chatAttachmentDTO{{ID: "att-1", URL: "/api/chat/attachment/att-1",
 				Filename: "q.png", Mime: "image/png", IsImage: true}},
 			AnsweredTS: nil, ExpiredTS: nil, ChatMessageID: "c-1", Answer: nil, Task: nil,

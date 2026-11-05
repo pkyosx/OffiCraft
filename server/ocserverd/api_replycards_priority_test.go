@@ -6,123 +6,114 @@ import (
 )
 
 func TestSortReplyCardQueue(t *testing.T) {
-	cards := []ReplyCard{
-		{ID: "low", Priority: "low", CreatedTS: 1},
-		{ID: "mid-old", CreatedTS: 2},
-		{ID: "mid-due-late", Priority: "mid", DueTS: 900, CreatedTS: 9},
-		{ID: "high", Priority: "high", CreatedTS: 50},
-		{ID: "mid-due-soon", Priority: "mid", DueTS: 500, CreatedTS: 8},
-		{ID: "mid-new", Priority: "mid", CreatedTS: 3},
+	str := func(s string) *string { return &s }
+	num := func(f float64) *float64 { return &f }
+	rows := []replyCardListItemDTO{
+		{ID: "low", CreatedTS: 1, replyCardTaskStanding: replyCardTaskStanding{Priority: str("low")}},
+		{ID: "no-task-old", CreatedTS: 2},
+		{ID: "mid-due-late", CreatedTS: 9, replyCardTaskStanding: replyCardTaskStanding{Priority: str("mid"), DueTS: num(900)}},
+		{ID: "frozen", CreatedTS: 0, replyCardTaskStanding: replyCardTaskStanding{Priority: str("frozen")}},
+		{ID: "high", CreatedTS: 50, replyCardTaskStanding: replyCardTaskStanding{Priority: str("high")}},
+		{ID: "mid-due-soon", CreatedTS: 8, replyCardTaskStanding: replyCardTaskStanding{Priority: str("mid"), DueTS: num(500)}},
+		{ID: "mid-new", CreatedTS: 3, replyCardTaskStanding: replyCardTaskStanding{Priority: str("mid")}},
 	}
-	sortReplyCardQueue(cards)
+	sortReplyCardQueue(rows)
 	var got []string
-	for _, c := range cards {
-		got = append(got, c.ID)
+	for _, r := range rows {
+		got = append(got, r.ID)
 	}
-	want := []string{"high", "mid-due-soon", "mid-due-late", "mid-old", "mid-new", "low"}
+	want := []string{"high", "mid-due-soon", "mid-due-late", "no-task-old", "mid-new", "low", "frozen"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("queue order = %v, want %v", got, want)
 	}
 }
 
-func TestReplyCardPriorityAndDue(t *testing.T) {
+func TestReplyCardShowsItsTasksPriorityAndDue(t *testing.T) {
 	api, h, _, owner := newAPITestServer(t)
 	executor, steps := apiTestTwoStepTask(t, api, h, owner)
-	if status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/priority", owner, `{"priority":"high"}`); status != 200 {
-		t.Fatalf("set priority: %d %v", status, data)
-	}
-	if status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/due", owner, `{"due_ts":1900000000}`); status != 200 {
-		t.Fatalf("set due: %d %v", status, data)
-	}
-	agent := apiTestAgentToken(t, api, "mira", "")
-	open := func(token, body string) map[string]any {
+	setTask := func(path, body string) {
 		t.Helper()
-		id := apiTestOpenReplyCard(t, h, token, body)
+		if status, data := apiJSON(t, h, "POST", "/api/tasks/T-1/"+path, owner, body); status != 200 {
+			t.Fatalf("set %s: %d %v", path, status, data)
+		}
+	}
+	setTask("priority", `{"priority":"high"}`)
+	setTask("due", `{"due_ts":1900000000,"due_soon_lead_minutes":90}`)
+	agent := apiTestAgentToken(t, api, "mira", "")
+	get := func(id string) map[string]any {
+		t.Helper()
 		status, card := apiJSON(t, h, "GET", "/api/reply-cards/"+id, owner, "")
 		if status != 200 {
 			t.Fatalf("get card: %d %v", status, card)
 		}
 		return card
 	}
-	want := func(card map[string]any, priority string, due any) {
+	want := func(card map[string]any, priority, due, lead any) {
 		t.Helper()
-		if card["priority"] != priority || !reflect.DeepEqual(card["due_ts"], due) {
-			t.Fatalf("card priority/due = %v/%v, want %v/%v", card["priority"], card["due_ts"], priority, due)
+		got := []any{card["priority"], card["due_ts"], card["due_soon_lead_minutes"]}
+		if !reflect.DeepEqual(got, []any{priority, due, lead}) {
+			t.Fatalf("card priority/due_ts/due_soon_lead_minutes = %v, want %v", got, []any{priority, due, lead})
 		}
 	}
 
-	t.Run("an unbound card that names neither field is mid with no due date", func(t *testing.T) {
-		want(open(agent, `{"kind":"decision","summary":"a","options":[{"text":"x"}],"linked_task":null}`), "mid", nil)
-	})
-	t.Run("an unbound card keeps the priority and due date it was sent", func(t *testing.T) {
-		want(open(agent, `{"kind":"decision","summary":"b","options":[{"text":"x"}],"linked_task":null,`+
-			`"priority":"low","due_ts":1800000000}`), "low", float64(1800000000))
-	})
-	t.Run("a card naming a task with about_task_id takes the task's priority and due date when it names neither", func(t *testing.T) {
-		want(open(agent, `{"kind":"decision","summary":"c","options":[{"text":"x"}],"linked_task":null,`+
-			`"about_task_id":"T-1"}`), "high", float64(1900000000))
-	})
-	t.Run("a card bound to a step takes the task's priority and due date when it names neither", func(t *testing.T) {
-		want(open(executor, `{"kind":"decision","summary":"d","options":[{"text":"x"}],`+
-			`"linked_task":{"task_id":"T-1","step_id":"`+steps[0]+`"}}`), "high", float64(1900000000))
-	})
-	t.Run("a card bound to a step keeps what it was sent over the task's values", func(t *testing.T) {
-		want(open(executor, `{"kind":"decision","summary":"e","options":[{"text":"x"}],`+
-			`"linked_task":{"task_id":"T-1","step_id":"`+steps[1]+`"},"priority":"low","due_ts":1700000000}`),
-			"low", float64(1700000000))
-	})
+	plain := apiTestOpenReplyCard(t, h, agent,
+		`{"kind":"decision","summary":"plain","options":[{"text":"x"}],"linked_task":null}`)
+	about := apiTestOpenReplyCard(t, h, agent,
+		`{"kind":"decision","summary":"about","options":[{"text":"x"}],"linked_task":null,"about_task_id":"T-1"}`)
+	bound := apiTestOpenReplyCard(t, h, executor,
+		`{"kind":"decision","summary":"bound","options":[{"text":"x"}],`+
+			`"linked_task":{"task_id":"T-1","step_id":"`+steps[0]+`"}}`)
 
-	for _, tc := range []struct{ name, extra, msg string }{
-		{"a priority outside high, mid and low answers 400", `"priority":"frozen"`, replyCardPriorityMsg},
-		{"a due_ts that is not greater than 0 answers 400", `"due_ts":0`, taskDueTSPositiveMsg},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			before := len(apiTestReplyCardPane(t, h, owner, ""))
-			status, data := apiJSON(t, h, "POST", "/api/reply-cards", agent,
-				`{"kind":"decision","summary":"f","options":[{"text":"x"}],"linked_task":null,`+tc.extra+`}`)
-			if status != 400 {
-				t.Fatalf("want 400, got %d (%v)", status, data)
-			}
-			apiWantError(t, data, "validation_error", tc.msg)
-			if after := len(apiTestReplyCardPane(t, h, owner, "")); after != before {
-				t.Fatalf("a refused card was opened: %d -> %d", before, after)
-			}
-		})
-	}
-
-	t.Run("the waiting pane lists by priority, then due date, then age, and each row carries both fields", func(t *testing.T) {
+	t.Run("a card naming no task has no priority, no due date and no lead", func(t *testing.T) {
+		want(get(plain), nil, nil, nil)
+	})
+	t.Run("a card naming a task shows the task's priority, due date and lead", func(t *testing.T) {
+		want(get(about), "high", float64(1900000000), float64(90))
+		want(get(bound), "high", float64(1900000000), float64(90))
+	})
+	t.Run("the waiting pane ranks task cards by the task and a card naming no task as mid with no due date", func(t *testing.T) {
 		var got []string
 		for _, row := range apiTestReplyCardPane(t, h, owner, "") {
-			r := row.(map[string]any)
-			if _, ok := r["due_ts"]; !ok || r["priority"] == nil {
-				t.Fatalf("row lacks priority/due_ts: %v", r)
-			}
-			got = append(got, r["summary"].(string))
+			got = append(got, row.(map[string]any)["summary"].(string))
 		}
-		want := []string{"c", "d", "a", "e", "b"}
-		if !reflect.DeepEqual(got, want) {
+		if want := []string{"about", "bound", "plain"}; !reflect.DeepEqual(got, want) {
 			t.Fatalf("waiting pane = %v, want %v", got, want)
 		}
 	})
 
-	t.Run("answering or expiring a card keeps its priority and due date", func(t *testing.T) {
-		body := `{"kind":"decision","summary":"g","options":[{"text":"x"}],"linked_task":null,` +
-			`"priority":"high","due_ts":1850000000}`
-		answered := open(agent, body)
-		if status, data := apiJSON(t, h, "POST", "/api/reply-cards/"+answered["id"].(string)+"/answer", owner,
-			`{"option_idxs":[0]}`); status != 200 {
-			t.Fatalf("answer: %d %v", status, data)
-		}
-		expired := open(agent, body)
-		if status, data := apiJSON(t, h, "POST", "/api/reply-cards/"+expired["id"].(string)+"/expire", owner, ""); status != 200 {
-			t.Fatalf("expire: %d %v", status, data)
-		}
-		for _, id := range []string{answered["id"].(string), expired["id"].(string)} {
-			_, card := apiJSON(t, h, "GET", "/api/reply-cards/"+id, owner, "")
-			if card["status"] == "waiting" {
-				t.Fatalf("card %s still waiting", id)
+	setTask("priority", `{"priority":"low"}`)
+	setTask("due", `{"due_ts":null}`)
+
+	t.Run("a later change to the task shows on its cards", func(t *testing.T) {
+		want(get(about), "low", nil, nil)
+		want(get(bound), "low", nil, nil)
+		want(get(plain), nil, nil, nil)
+	})
+	t.Run("and moves them in the waiting pane", func(t *testing.T) {
+		var got []string
+		for _, row := range apiTestReplyCardPane(t, h, owner, "") {
+			r := row.(map[string]any)
+			got = append(got, r["summary"].(string))
+			if r["summary"] == "about" && r["priority"] != "low" {
+				t.Fatalf("list row did not follow the task: %v", r)
 			}
-			want(card, "high", float64(1850000000))
+		}
+		if want := []string{"plain", "about", "bound"}; !reflect.DeepEqual(got, want) {
+			t.Fatalf("waiting pane = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("create_reply_card has no priority or due_ts to send", func(t *testing.T) {
+		for _, extra := range []string{`"priority":"high"`, `"due_ts":1800000000`} {
+			before := len(apiTestReplyCardPane(t, h, owner, ""))
+			status, data := apiJSON(t, h, "POST", "/api/reply-cards", agent,
+				`{"kind":"decision","summary":"f","options":[{"text":"x"}],"linked_task":null,`+extra+`}`)
+			if status != 422 {
+				t.Fatalf("%s: want 422, got %d (%v)", extra, status, data)
+			}
+			if after := len(apiTestReplyCardPane(t, h, owner, "")); after != before {
+				t.Fatalf("%s: a refused card was opened: %d -> %d", extra, before, after)
+			}
 		}
 	})
 }

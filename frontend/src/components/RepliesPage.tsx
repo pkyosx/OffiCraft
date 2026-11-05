@@ -1,10 +1,10 @@
 // RepliesPage — the 等我回覆 page (SPEC §2, M2 reply cards B2): every member's
 // pending asks in one place, two panes.
 //
-//   待回覆    — cards still waiting, by priority, then due date, then NEWEST
-//              ASK FIRST (createdTs desc, FE display sort — the server breaks
-//              the same tie oldest first, T-b07f); every card wears the SAME
-//              style — no longest-waiting
+//   待回覆    — cards still waiting, by the named task's priority, then its
+//              due date, then NEWEST ASK FIRST (createdTs desc, FE display
+//              sort — the server breaks the same tie oldest first, T-b07f);
+//              every card wears the SAME style — no longest-waiting
 //              highlight (owner ruled it out, T-9ea9).
 //   近期已處理 — cards answered OR expired within 24h, merged newest-handled
 //              first. The PANE is collapsed by default (vibe-clicking style)
@@ -90,7 +90,14 @@ import {
 } from "./ReplyCardBody";
 import { formatDuration } from "../lib/duration";
 import { formatAbsolute } from "../lib/dateFormat";
-import { dueRemaining, dueState, hasDueTime, isDueSoon, isOverdue } from "../lib/dueDate";
+import {
+  dueRemaining,
+  dueState,
+  effectiveLeadMinutes,
+  hasDueTime,
+  isDueSoon,
+  isOverdue,
+} from "../lib/dueDate";
 import { compareReplyCardRank } from "../lib/replyCardRank";
 import { useDueSoonLeadMinutes } from "../hooks/useDueSoonLeadMinutes";
 import "./office.css"; // chat composer classes the ReplyComposer reuses, AND
@@ -384,9 +391,10 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     });
   }
 
-  // Display order = priority, then due date, then 開卡時間 newest first (the
-  // server breaks that last tie oldest first). No per-card highlight: the owner ruled the
-  // longest-waiting accent ring out (T-9ea9) — every card wears the same face.
+  // Display order = the named task's priority, then its due date, then 開卡時間
+  // newest first (the server breaks that last tie oldest first). No per-card
+  // highlight: the owner ruled the longest-waiting accent ring out (T-9ea9) —
+  // every card wears the same face.
   //
   // With a filter applied the two panes hold exactly what the SERVER returned
   // for that id — one card, in whichever pane its status belongs to — not a
@@ -406,15 +414,22 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   const passesOpener = (c: ReplyCardRow) =>
     openerFilter.size === 0 || openerFilter.has(c.from);
 
-  // 到期 is judged on the page clock, as the card's own tone is, and only a
-  // card still waiting can be due soon or overdue — same as a closed task.
+  // Priority and due date are the named task's, so a card naming no task
+  // matches no 優先權 or 到期 value (it still ranks as mid in the queue). 到期 is
+  // judged on the page clock and the task's effective lead, as the card's own
+  // tone is, and only a card still waiting can be due soon or overdue — same
+  // as a closed task.
   const passesRank = (c: ReplyCardRow) => {
-    if (priorityFilter.size > 0 && !priorityFilter.has(c.priority ?? "mid")) return false;
+    if (priorityFilter.size > 0 && !(c.priority != null && priorityFilter.has(c.priority)))
+      return false;
     if (dueFilter.size === 0) return true;
     const due = c.dueTs ?? null;
     if (due === null || c.status !== "waiting") return false;
     if (isOverdue(due, nowTs)) return dueFilter.has("overdue");
-    return dueFilter.has("soon") && isDueSoon(due, nowTs, dueSoonLeadMinutes);
+    return (
+      dueFilter.has("soon") &&
+      isDueSoon(due, nowTs, effectiveLeadMinutes(c.dueSoonLeadMinutes, dueSoonLeadMinutes))
+    );
   };
   const passesFilters = (c: ReplyCardRow) => passesOpener(c) && passesRank(c);
 
@@ -1062,13 +1077,16 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     );
   }
 
-  /** Priority badge + due date. The due-soon / overdue tone and the time left
-   * only mean something while the card still waits on the owner. */
+  /** The named task's priority badge + due date; nothing on a card naming no
+   * task. The due-soon / overdue tone and the time left only mean something
+   * while the card still waits on the owner. */
   function renderRank(row: ReplyCardRow) {
-    const priority = row.priority ?? "mid";
+    const priority = row.priority ?? null;
+    if (priority === null) return null;
     const dueTs = row.dueTs ?? null;
     const waiting = row.status === "waiting";
-    const due = dueTs === null ? null : dueState(dueTs, nowTs, dueSoonLeadMinutes);
+    const lead = effectiveLeadMinutes(row.dueSoonLeadMinutes, dueSoonLeadMinutes);
+    const due = dueTs === null ? null : dueState(dueTs, nowTs, lead);
     const tone = !waiting || due === null || due.kind === "later" ? null : due.kind;
     const toneClass = tone ? ` task-card__due-date--${tone}` : "";
     return (
@@ -1313,7 +1331,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
         <MultiSelectFilter
           noun={t.tasks.priorityLabel}
           allLabel={t.replies.filterPriorityAll}
-          options={(["high", "mid", "low"] as const).map((p) => ({
+          options={(["high", "mid", "low", "frozen"] as const).map((p) => ({
             value: p,
             label: t.tasks.priority[p] ?? p,
           }))}

@@ -920,11 +920,9 @@ type replyCardDTO struct {
 	Body    string            `json:"body"`
 	Options []ReplyCardOption `json:"options"`
 
-	SelectMode string   `json:"select_mode"`
-	Status     string   `json:"status"`
-	CreatedTS  float64  `json:"created_ts"`
-	Priority   string   `json:"priority"`
-	DueTS      *float64 `json:"due_ts"`
+	SelectMode string  `json:"select_mode"`
+	Status     string  `json:"status"`
+	CreatedTS  float64 `json:"created_ts"`
 
 	Attachments   []chatAttachmentDTO `json:"attachments"`
 	AnsweredTS    *float64            `json:"answered_ts"`
@@ -933,6 +931,17 @@ type replyCardDTO struct {
 	Answer        *replyCardAnswerDTO `json:"answer"`
 	Task          *taskRefDTO         `json:"task"`
 	TaskExecutor  string              `json:"task_executor"`
+
+	replyCardTaskStanding
+}
+
+// replyCardTaskStanding is not stored on the card: it is the named task's, read
+// on every get and list, so changing the task's priority or due date moves the
+// card too. All three are null on a card that names no task.
+type replyCardTaskStanding struct {
+	Priority           *string  `json:"priority"`
+	DueTS              *float64 `json:"due_ts"`
+	DueSoonLeadMinutes *int     `json:"due_soon_lead_minutes"`
 }
 
 // replyCardListItemDTO is a LIGHT row: summary plus, when answered, the
@@ -944,13 +953,13 @@ type replyCardListItemDTO struct {
 	Summary      string                   `json:"summary"`
 	Status       string                   `json:"status"`
 	CreatedTS    float64                  `json:"created_ts"`
-	Priority     string                   `json:"priority"`
-	DueTS        *float64                 `json:"due_ts"`
 	AnsweredTS   *float64                 `json:"answered_ts"`
 	ExpiredTS    *float64                 `json:"expired_ts"`
 	Answer       *replyCardAnswerBriefDTO `json:"answer"`
 	Task         *taskRefDTO              `json:"task"`
 	TaskExecutor string                   `json:"task_executor"`
+
+	replyCardTaskStanding
 }
 
 // replyCardAnswerBriefDTO: Text is preview-truncated and attachments are a
@@ -2296,8 +2305,6 @@ func newReplyCardDTO(c ReplyCard) replyCardDTO {
 		SelectMode:    selectMode,
 		Status:        c.Status,
 		CreatedTS:     c.CreatedTS,
-		Priority:      replyCardPriorityOrMid(c.Priority),
-		DueTS:         dueTSWire(c.DueTS),
 		Attachments:   attachmentDTOsFromRefs(c.Attachments),
 		ChatMessageID: c.ChatMessageID,
 	}

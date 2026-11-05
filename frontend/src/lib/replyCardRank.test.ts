@@ -2,20 +2,21 @@ import { describe, expect, it } from "vitest";
 import { compareReplyCardRank } from "./replyCardRank";
 
 describe("compareReplyCardRank", () => {
-  it("orders by priority, then due date with dated cards first, and treats a missing priority as mid", () => {
+  it("orders by priority, then due date with dated cards first; a card naming no task ranks as mid with no due date", () => {
     const cards = [
+      { id: "frozen", priority: "frozen" },
       { id: "low", priority: "low" },
-      { id: "mid-none" },
+      { id: "no-task", priority: null, dueTs: null },
       { id: "mid-late", priority: "mid", dueTs: 900 },
       { id: "high", priority: "high", dueTs: null },
       { id: "mid-soon", priority: "mid", dueTs: 500 },
     ];
     expect([...cards].sort(compareReplyCardRank).map((c) => c.id)).toEqual([
-      "high", "mid-soon", "mid-late", "mid-none", "low",
+      "high", "mid-soon", "mid-late", "no-task", "low", "frozen",
     ]);
   });
 
-  it("calls two cards of the same priority and no due date a tie, leaving age to the caller", () => {
-    expect(compareReplyCardRank({ priority: "mid" }, {})).toBe(0);
+  it("calls a mid card with no due date and a card naming no task a tie, leaving age to the caller", () => {
+    expect(compareReplyCardRank({ priority: "mid" }, { priority: null })).toBe(0);
   });
 });

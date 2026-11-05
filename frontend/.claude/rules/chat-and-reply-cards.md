@@ -95,9 +95,11 @@ ChatReplyCard 的 doReanswer 保留單卡 refetch：終態 delta 可能被刻意
 
 ## 請示卡的優先序與期限
 
-待回覆列的順序是「優先序 → 期限（有期限的在前、早到期的在前）→ 開卡時間新到舊」，比較式在 `lib/replyCardRank.ts`，server 的 `sortReplyCardQueue` 與 mock 的 waiting pane 用同一個前兩段（兩者最後一段是舊到新，頁面自己再排一次）。卡頭的優先序徽章與期限沿用任務卡的 `.task-badge--prio-*`、`.task-card__due-*`，所以 RepliesPage 要 import `tasks.css`；快到期／已逾期的色調與剩餘時間只在卡片還在等回覆時出現。快到期的提前量是工作區設定 `task_due_soon_lead_minutes`，請示卡沒有自己的提前量。
+請示卡本身沒有優先序與期限。wire 上的 `priority`、`due_ts`、`due_soon_lead_minutes` 是 server 在每次 get／list 時從卡所指的任務（`task`）讀出來的，任務改了卡就跟著變；卡沒指任務時三者都是 null。不要在前端或 DB 替卡另存一份，也不要把 null 補成 `"mid"`——「沒任務」與「任務是中」在畫面與篩選上不同。
 
-篩選列的「優先權」「到期」兩軸跟「開卡人」同一套：空集合＝不限，各軸 AND，同時套在待回覆與已處理兩段（`passesFilters`）。「到期」只有已逾期／快到期兩個值，依頁面時鐘判斷，跟卡上的色調同一個判準；已處理的卡永遠不中，跟已結束的任務一樣。
+待回覆列的順序是「優先序 → 期限（有期限的在前、早到期的在前）→ 開卡時間新到舊」，沒指任務的卡排序時當成「中、無期限」。比較式在 `lib/replyCardRank.ts`，server 的 `sortReplyCardQueue` 與 mock 的 waiting pane 用同一個前兩段（兩者最後一段是舊到新，頁面自己再排一次）。卡頭的優先序徽章與期限沿用任務卡的 `.task-badge--prio-*`、`.task-card__due-*`，所以 RepliesPage 要 import `tasks.css`；沒指任務的卡兩者都不顯示。快到期／已逾期的色調與剩餘時間只在卡片還在等回覆時出現。快到期的提前量跟任務卡同一套：任務自己的 `due_soon_lead_minutes`，沒有就用工作區設定 `task_due_soon_lead_minutes`（`effectiveLeadMinutes`）。
+
+篩選列的「優先權」「到期」兩軸跟「開卡人」同一套：空集合＝不限，各軸 AND，同時套在待回覆與已處理兩段（`passesFilters`）。沒指任務的卡不符合任何優先權或到期值，所以只要這兩軸有勾選就會被濾掉。「到期」只有已逾期／快到期兩個值，依頁面時鐘判斷，跟卡上的色調同一個判準；已處理的卡永遠不中，跟已結束的任務一樣。
 
 ## 請示卡頁的 ID 篩選（T-118，owner 2026-09-06 20:07／20:19）
 

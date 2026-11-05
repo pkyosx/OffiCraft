@@ -1,8 +1,10 @@
 // 請示 page (M2 回覆卡 B2). Locked here — the SPEC §2 acceptance behaviors:
 //   1. Empty 請示 list → the ✓ 目前沒有待處理的請示 state.
-//   2. Waiting cards render by priority, then due date (dated cards first),
-//      then newest ask first (createdTs desc); each shows its priority and,
-//      when it has one, its due date toned due-soon / overdue. The LONGEST-
+//   2. Waiting cards render by their task's priority, then due date (dated
+//      cards first; a card naming no task ranks as mid, undated), then newest
+//      ask first (createdTs desc); a task card shows the task's priority and,
+//      when it has one, its due date toned due-soon / overdue by the task's
+//      effective lead; a card naming no task shows neither. The LONGEST-
 //      waiting one keeps the highlight, each card with initiator identity,
 //      已等你 {t}, and the ai_pick option tagged AI 建議 (position means nothing).
 //   3. Answering (option click OR typed reply) moves the card 請示 →
@@ -235,9 +237,9 @@ describe("RepliesPage", () => {
     }
   });
 
-  it("ranks waiting cards by priority, then due date, then newest, and tones a due-soon or overdue date", async () => {
+  it("ranks waiting cards by their task's priority, then due date, then newest, and tones a due-soon or overdue date", async () => {
     const now = Date.now() / 1000;
-    __injectMockReplyCard(mkCard({ id: "young", summary: "新的中", createdTs: now - 60 }));
+    __injectMockReplyCard(mkCard({ id: "no-task", summary: "沒任務", createdTs: now - 60 }));
     __injectMockReplyCard(mkCard({ id: "low", summary: "低", priority: "low", createdTs: now - 30 }));
     __injectMockReplyCard(
       mkCard({ id: "overdue", summary: "逾期的中", priority: "mid", dueTs: now - 3600, createdTs: now - 9000 })
@@ -248,35 +250,42 @@ describe("RepliesPage", () => {
     __injectMockReplyCard(
       mkCard({ id: "high", summary: "高", priority: "high", dueTs: now + 3600, createdTs: now - 8000 })
     );
+    // An hour out is inside the workspace's lead but outside the task's own 30 minutes.
+    __injectMockReplyCard(
+      mkCard({ id: "own-lead", summary: "自訂提前量", priority: "low", dueTs: now + 3600, dueSoonLeadMinutes: 30, createdTs: now - 10 })
+    );
 
     const { findAllByTestId } = renderPage();
     const cards = await findAllByTestId("waiting-card");
     expect(cards.map((c) => c.getAttribute("data-reply-card-id"))).toEqual([
-      "high", "overdue", "later", "young", "low",
+      "high", "overdue", "later", "no-task", "own-lead", "low",
     ]);
     const badge = (i: number) => cards[i].querySelector('[data-testid="reply-card-priority"]');
     const due = (i: number) => cards[i].querySelector('[data-testid="reply-card-due"]');
     expect(badge(0)?.textContent).toBe("高");
-    expect(badge(3)?.textContent).toBe("中");
-    expect(badge(4)?.textContent).toBe("低");
+    expect(badge(2)?.textContent).toBe("中");
+    expect(badge(5)?.textContent).toBe("低");
     expect(due(0)?.getAttribute("data-due-tone")).toBe("soon");
     expect(due(1)?.getAttribute("data-due-tone")).toBe("overdue");
     expect(due(2)?.hasAttribute("data-due-tone")).toBe(false);
     expect(due(2)?.textContent).toContain("到期日");
+    expect(due(4)?.hasAttribute("data-due-tone")).toBe(false);
+    expect(badge(3)).toBeNull();
     expect(due(3)).toBeNull();
   });
 
-  it("filters waiting cards by priority and by 快到期／已逾期, and 清除篩選 brings them all back", async () => {
+  it("filters waiting cards by their task's priority and by 快到期／已逾期, never matching a card naming no task, and 清除篩選 brings them all back", async () => {
     const now = Date.now() / 1000;
     __injectMockReplyCard(mkCard({ id: "high", summary: "高", priority: "high" }));
     __injectMockReplyCard(mkCard({ id: "low", summary: "低", priority: "low", dueTs: now + 3600 }));
     __injectMockReplyCard(mkCard({ id: "over", summary: "逾期", priority: "mid", dueTs: now - 60 }));
     __injectMockReplyCard(mkCard({ id: "later", summary: "還早", priority: "mid", dueTs: now + 10 * 86400 }));
+    __injectMockReplyCard(mkCard({ id: "no-task", summary: "沒任務", priority: null }));
 
     const { findAllByTestId, findByTestId } = renderPage();
     const ids = async () =>
       (await findAllByTestId("waiting-card")).map((c) => c.getAttribute("data-reply-card-id"));
-    expect(await ids()).toEqual(["high", "over", "later", "low"]);
+    expect(await ids()).toEqual(["high", "over", "later", "no-task", "low"]);
     const tick = (testId: string, value: string) => {
       const trigger = document.querySelector(`[data-testid="${testId}"]`) as HTMLElement;
       if (trigger.getAttribute("aria-expanded") !== "true") fireEvent.click(trigger);
@@ -292,7 +301,7 @@ describe("RepliesPage", () => {
     await waitFor(async () => expect(await ids()).toEqual(["over", "low"]));
 
     fireEvent.click(await findByTestId("replies-filter-clear"));
-    await waitFor(async () => expect(await ids()).toEqual(["high", "over", "later", "low"]));
+    await waitFor(async () => expect(await ids()).toEqual(["high", "over", "later", "no-task", "low"]));
   });
 
   it("resolves an outsource asker to its 外包 代號, not the raw ow- id", async () => {

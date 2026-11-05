@@ -1009,7 +1009,7 @@ def test_expired_delta_reaches_the_initiating_agent(
         assert full["answer"] is None
 
 
-# ── priority and due date ────────────────────────────────────────────────────
+# ── priority and due date: the named task's, read live ───────────────────────
 
 
 def _open_ranked(client, asker: AgentIdentity, summary: str, **extra) -> dict:
@@ -1020,44 +1020,65 @@ def _open_ranked(client, asker: AgentIdentity, summary: str, **extra) -> dict:
     return _get_card(client, asker.token, r.json()["id"])
 
 
-def test_card_priority_and_due_default_and_round_trip(client, asker):
+def _standing(card: dict) -> tuple:
+    return (card["priority"], card["due_ts"], card["due_soon_lead_minutes"])
+
+
+def _set_task(client, owner_token, task_id: str, path: str, body: dict):
+    r = client.post(f"/api/tasks/{task_id}/{path}", json=body, headers=_auth(owner_token))
+    assert r.status_code == 200, r.text
+
+
+def test_a_card_naming_no_task_has_no_priority_or_due_and_cannot_be_given_one(client, owner_token, asker):
     plain = _open_ranked(client, asker, "plain ask")
-    assert (plain["priority"], plain["due_ts"]) == ("mid", None), plain
-    ranked = _open_ranked(client, asker, "ranked ask", priority="high", due_ts=1900000000)
-    assert (ranked["priority"], ranked["due_ts"]) == ("high", 1900000000), ranked
-    for bad in ({"priority": "frozen"}, {"priority": "urgent"}, {"due_ts": 0}, {"due_ts": -5}):
+    assert _standing(plain) == (None, None, None), plain
+    for extra in ({"priority": "high"}, {"due_ts": 1900000000}):
         r = client.post("/api/reply-cards", json={
-            "kind": "decision", "summary": "bad rank", "options": list(DEFAULT_OPTIONS),
-            "linked_task": None, **bad}, headers=_auth(asker.token))
-        assert r.status_code == 400, (bad, r.status_code, r.text)
+            "kind": "decision", "summary": "self-ranked", "options": list(DEFAULT_OPTIONS),
+            "linked_task": None, **extra}, headers=_auth(asker.token))
+        assert r.status_code == 422, (extra, r.status_code, r.text)
+    _expire(client, owner_token, plain["id"])
 
 
-def test_card_about_a_task_takes_the_tasks_priority_and_due(client, owner_token, asker):
+def test_a_task_card_shows_the_tasks_current_priority_and_due(client, owner_token, asker):
     task_id, step_ids = _task_with_steps(client, asker, "conf ranked task", 2)
-    assert client.post(f"/api/tasks/{task_id}/priority", json={"priority": "low"},
-                       headers=_auth(owner_token)).status_code == 200
-    assert client.post(f"/api/tasks/{task_id}/due", json={"due_ts": 1800000000},
-                       headers=_auth(owner_token)).status_code == 200
-    inherited = _open_ranked(client, asker, "inherits",
-                             linked_task={"task_id": task_id, "step_id": step_ids[0]})
-    assert (inherited["priority"], inherited["due_ts"]) == ("low", 1800000000), inherited
+    _set_task(client, owner_token, task_id, "priority", {"priority": "high"})
+    _set_task(client, owner_token, task_id, "due", {"due_ts": 1800000000, "due_soon_lead_minutes": 90})
+    bound = _open_ranked(client, asker, "bound",
+                         linked_task={"task_id": task_id, "step_id": step_ids[0]})
     about = _open_ranked(client, asker, "about only", about_task_id=task_id)
-    assert (about["priority"], about["due_ts"]) == ("low", 1800000000), about
-    unrelated = _open_ranked(client, asker, "about nothing")
-    assert (unrelated["priority"], unrelated["due_ts"]) == ("mid", None), unrelated
-    for card in (inherited, about, unrelated):
+    for card in (bound, about):
+        assert _standing(card) == ("high", 1800000000, 90), card
+
+    _set_task(client, owner_token, task_id, "priority", {"priority": "low"})
+    _set_task(client, owner_token, task_id, "due", {"due_ts": None})
+    rows = {r["id"]: r for r in
+            client.get("/api/reply-cards?status=waiting", headers=_auth(owner_token)).json()}
+    for card in (bound, about):
+        assert _standing(_get_card(client, owner_token, card["id"])) == ("low", None, None)
+        assert _standing(rows[card["id"]]) == ("low", None, None), rows[card["id"]]
         _expire(client, owner_token, card["id"])
 
 
-def test_waiting_pane_sorts_by_priority_then_due_then_age(client, owner_token, asker):
-    low = _open_ranked(client, asker, "low ask", priority="low")
-    mid_old = _open_ranked(client, asker, "mid no due")
-    mid_late = _open_ranked(client, asker, "mid due late", due_ts=1900000000)
-    mid_soon = _open_ranked(client, asker, "mid due soon", due_ts=1800000000)
-    high = _open_ranked(client, asker, "high ask", priority="high")
-    mine = [high["id"], mid_soon["id"], mid_late["id"], mid_old["id"], low["id"]]
-    rows = client.get("/api/reply-cards?status=waiting", headers=_auth(owner_token)).json()
-    order = [r["id"] for r in rows if r["id"] in mine]
-    assert order == mine, order
-    row = next(r for r in rows if r["id"] == mid_soon["id"])
-    assert (row["priority"], row["due_ts"]) == ("mid", 1800000000), row
+def test_waiting_pane_sorts_by_the_tasks_priority_then_due_then_age(client, owner_token, asker):
+    urgent, _ = _task_with_steps(client, asker, "conf urgent task", 1)
+    slow, _ = _task_with_steps(client, asker, "conf slow task", 1)
+    _set_task(client, owner_token, urgent, "priority", {"priority": "high"})
+    _set_task(client, owner_token, slow, "priority", {"priority": "low"})
+    _set_task(client, owner_token, slow, "due", {"due_ts": 1800000000})
+    on_urgent = _open_ranked(client, asker, "on urgent", about_task_id=urgent)
+    no_task = _open_ranked(client, asker, "no task")
+    on_slow = _open_ranked(client, asker, "on slow", about_task_id=slow)
+    mine = [on_urgent["id"], no_task["id"], on_slow["id"]]
+
+    def order():
+        rows = client.get("/api/reply-cards?status=waiting", headers=_auth(owner_token)).json()
+        return [r["id"] for r in rows if r["id"] in mine]
+
+    # A card naming no task ranks as mid with no due date.
+    assert order() == mine
+    # Lowering the task moves its card; low with a due date goes before low without.
+    _set_task(client, owner_token, urgent, "priority", {"priority": "low"})
+    assert order() == [no_task["id"], on_slow["id"], on_urgent["id"]]
+    for card_id in mine:
+        _expire(client, owner_token, card_id)

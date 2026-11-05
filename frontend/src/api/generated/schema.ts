@@ -2698,7 +2698,7 @@ export interface paths {
         /**
          * List light reply-card rows (summary and decision digest, without the full body/options). status is waiting (the default, by priority, then due date, then longest-waiting first), answered (the last 24 hours) or expired (the last 24 hours); a positive limit is applied after each pane is ordered. Every pane covers every card on the station, not only the cards you opened — pass opened_by to narrow a pane to the cards ONE member opened. Read one card in full with get_reply_card.
          * @description - Light rows only: the summary, plus on an answered row the decision digest — never the body or full options.
-         *     - ?status=waiting (default): waiting on the owner, by priority (high, mid, low), then due date (cards with one first, soonest first), then longest-waiting first.
+         *     - ?status=waiting (default): waiting on the owner, by the priority of the task each card names (high, mid, low, frozen; a card naming no task counts as mid), then that task's due date (cards with one first, soonest first; a card naming no task has none), then longest-waiting first. Both are read from the task when the list is asked for.
          *     - ?status=answered / ?status=expired: the last 24 hours only, newest first.
          *     - ?limit=N caps rows AFTER the pane is ordered; absent or non-positive returns the whole pane.
          *     - Read one card in full with get_reply_card.
@@ -8071,12 +8071,6 @@ export interface components {
              */
             body: string;
             /**
-             * Due Ts
-             * @description Optional. Epoch seconds; must be greater than 0. Omit or ``null`` and a card about a task (bound to its step, or naming it with ``about_task_id``) takes that task's due date (none if the task has none); any other card has no due date. The card counts as due soon by the workspace setting ``task_due_soon_lead_minutes``.
-             * @default null
-             */
-            due_ts: number | null;
-            /**
              * Kind
              * @enum {string}
              */
@@ -8088,12 +8082,6 @@ export interface components {
             linked_task: components["schemas"]["ReplyCardLinkDTO"] | null;
             /** Options */
             options: components["schemas"]["ReplyCardOptionDTO"][];
-            /**
-             * Priority
-             * @description Optional. ``high``, ``mid`` or ``low``. Omit or ``null`` and a card about a task (bound to its step, or naming it with ``about_task_id``) takes that task's priority (a frozen task counts as ``mid``); any other card is ``mid``. Any other value is a 400.
-             * @default null
-             */
-            priority: string | null;
             /**
              * Select Mode
              * @description How many options the owner may circle: ``single`` (the default — at most one, and at most one option may carry ``ai_pick``) or ``multi`` (any number). It is a SEPARATE axis from ``kind``: ``kind`` says what the owner must DO (decide / act), ``select_mode`` says how many choices the answer may carry.
@@ -8161,8 +8149,13 @@ export interface components {
              */
             created_ts: number;
             /**
+             * Due Soon Lead Minutes
+             * @description Read-only, derived: the named task's own ``due_soon_lead_minutes``, read when the card is fetched. ``null`` when the task follows the workspace setting ``task_due_soon_lead_minutes``, has no due date, or the card names no task.
+             */
+            due_soon_lead_minutes?: number | null;
+            /**
              * Due Ts
-             * @description Epoch seconds, or ``null`` when the card has no due date. Cards stored before this field existed read ``null``.
+             * @description Read-only, derived: the named task's current ``due_ts`` (epoch seconds), read when the card is fetched, so a later change to the task's due date shows here. ``null`` when the task has no due date or the card names no task. A card has no due date of its own.
              */
             due_ts?: number | null;
             /** Expired Ts */
@@ -8177,10 +8170,9 @@ export interface components {
             options?: components["schemas"]["ReplyCardOptionDTO"][];
             /**
              * Priority
-             * @description ``high``, ``mid`` or ``low``. Cards stored before this field existed read ``mid``.
-             * @default mid
+             * @description Read-only, derived: the named task's current priority (``high``, ``mid``, ``low`` or ``frozen``), read when the card is fetched, so a later change to the task's priority shows here. ``null`` when the card names no task. A card has no priority of its own.
              */
-            priority: string;
+            priority?: string | null;
             /**
              * Select Mode
              * @description How many options the owner may circle: ``single`` (the default — at most one, and at most one option may carry ``ai_pick``) or ``multi`` (any number). It is a SEPARATE axis from ``kind``: ``kind`` says what the owner must DO (decide / act), ``select_mode`` says how many choices the answer may carry.
@@ -8227,8 +8219,13 @@ export interface components {
              */
             created_ts: number;
             /**
+             * Due Soon Lead Minutes
+             * @description Read-only, derived: the named task's own ``due_soon_lead_minutes``, read when the card is fetched. ``null`` when the task follows the workspace setting ``task_due_soon_lead_minutes``, has no due date, or the card names no task.
+             */
+            due_soon_lead_minutes?: number | null;
+            /**
              * Due Ts
-             * @description Epoch seconds, or ``null`` when the card has no due date. Cards stored before this field existed read ``null``.
+             * @description Read-only, derived: the named task's current ``due_ts`` (epoch seconds), read when the card is fetched, so a later change to the task's due date shows here. ``null`` when the task has no due date or the card names no task. A card has no due date of its own.
              */
             due_ts?: number | null;
             /** Expired Ts */
@@ -8241,10 +8238,9 @@ export interface components {
             kind: string;
             /**
              * Priority
-             * @description ``high``, ``mid`` or ``low``. Cards stored before this field existed read ``mid``.
-             * @default mid
+             * @description Read-only, derived: the named task's current priority (``high``, ``mid``, ``low`` or ``frozen``), read when the card is fetched, so a later change to the task's priority shows here. ``null`` when the card names no task. A card has no priority of its own.
              */
-            priority: string;
+            priority?: string | null;
             /** Status */
             status: string;
             /**

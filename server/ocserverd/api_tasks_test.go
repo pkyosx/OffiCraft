@@ -1736,8 +1736,8 @@ func TestCloseTask(t *testing.T) {
 			t.Fatalf("ListReplyCards: %v", err)
 		}
 		want := []ReplyCard{
-			{ID: "rc-worker", FromMember: "ow-abc123", Kind: "decision", SelectMode: "single", Status: "expired", CreatedTS: 10, ExpiredTS: 1750000000, AnswerAttachments: []any{}, Attachments: []any{}, Options: []ReplyCardOption{}, Priority: "mid"},
-			{ID: "rc-bystander", FromMember: "mira", Kind: "decision", SelectMode: "single", Status: "waiting", CreatedTS: 11, AnswerAttachments: []any{}, Attachments: []any{}, Options: []ReplyCardOption{}, Priority: "mid"},
+			{ID: "rc-worker", FromMember: "ow-abc123", Kind: "decision", SelectMode: "single", Status: "expired", CreatedTS: 10, ExpiredTS: 1750000000, AnswerAttachments: []any{}, Attachments: []any{}, Options: []ReplyCardOption{}},
+			{ID: "rc-bystander", FromMember: "mira", Kind: "decision", SelectMode: "single", Status: "waiting", CreatedTS: 11, AnswerAttachments: []any{}, Attachments: []any{}, Options: []ReplyCardOption{}},
 		}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("reply cards after the close = %#v, want %#v", got, want)
@@ -1841,8 +1841,8 @@ func TestCloseTask(t *testing.T) {
 			t.Fatalf("ListReplyCards: %v", err)
 		}
 		want := []ReplyCard{
-			{ID: "rc-worker", FromMember: "ow-abc123", Kind: "decision", SelectMode: "single", Status: "expired", CreatedTS: 10, ExpiredTS: 1750000000, AnswerAttachments: []any{}, Attachments: []any{}, Options: []ReplyCardOption{}, Priority: "mid"},
-			{ID: "rc-bystander", FromMember: "mira", Kind: "decision", SelectMode: "single", Status: "waiting", CreatedTS: 11, AnswerAttachments: []any{}, Attachments: []any{}, Options: []ReplyCardOption{}, Priority: "mid"},
+			{ID: "rc-worker", FromMember: "ow-abc123", Kind: "decision", SelectMode: "single", Status: "expired", CreatedTS: 10, ExpiredTS: 1750000000, AnswerAttachments: []any{}, Attachments: []any{}, Options: []ReplyCardOption{}},
+			{ID: "rc-bystander", FromMember: "mira", Kind: "decision", SelectMode: "single", Status: "waiting", CreatedTS: 11, AnswerAttachments: []any{}, Attachments: []any{}, Options: []ReplyCardOption{}},
 		}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("reply cards after the close = %#v, want %#v", got, want)

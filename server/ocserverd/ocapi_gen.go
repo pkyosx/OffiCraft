@@ -2965,17 +2965,11 @@ type ReplyCardCreateDTO struct {
 	AboutTaskId *string                   `json:"about_task_id,omitempty"`
 	Attachments *[]ChatAttachmentInputDTO `json:"attachments,omitempty"`
 	Body        *string                   `json:"body,omitempty"`
-
-	// DueTs Optional. Epoch seconds; must be greater than 0. Omit or ``null`` and a card about a task (bound to its step, or naming it with ``about_task_id``) takes that task's due date (none if the task has none); any other card has no due date. The card counts as due soon by the workspace setting ``task_due_soon_lead_minutes``.
-	DueTs *float64               `json:"due_ts,omitempty"`
-	Kind  ReplyCardCreateDTOKind `json:"kind"`
+	Kind        ReplyCardCreateDTOKind    `json:"kind"`
 
 	// LinkedTask REQUIRED — declare, do not leave it to be inferred. Send ``null`` when the ask is NOT about a task (a plain unbound 請示), or ``{"task_id": ..., "step_id": ...}`` to bind the ask to the step it is about: that step (and its task) enters waiting_owner until the owner answers. BOTH ids are required in the object form; a task_id with no step_id is a 400, because binding a task without a step places no 等我回覆 hold — the task would finish underneath your question and the owner's answer would then be rejected for good. Omitting the field entirely is a 400 that names both legal shapes: silence used to mean 'the server guesses', and a guess that missed sent a hold-less card with no error at all.
 	LinkedTask *ReplyCardLinkDTO    `json:"linked_task"`
 	Options    []ReplyCardOptionDTO `json:"options"`
-
-	// Priority Optional. ``high``, ``mid`` or ``low``. Omit or ``null`` and a card about a task (bound to its step, or naming it with ``about_task_id``) takes that task's priority (a frozen task counts as ``mid``); any other card is ``mid``. Any other value is a 400.
-	Priority *string `json:"priority,omitempty"`
 
 	// SelectMode How many options the owner may circle: ``single`` (the default — at most one, and at most one option may carry ``ai_pick``) or ``multi`` (any number). It is a SEPARATE axis from ``kind``: ``kind`` says what the owner must DO (decide / act), ``select_mode`` says how many choices the answer may carry.
 	SelectMode *ReplyCardCreateDTOSelectMode `json:"select_mode,omitempty"`
@@ -3017,7 +3011,10 @@ type ReplyCardDTO struct {
 	ChatMessageId string               `json:"chat_message_id"`
 	CreatedTs     *float64             `json:"created_ts,omitempty"`
 
-	// DueTs Epoch seconds, or ``null`` when the card has no due date. Cards stored before this field existed read ``null``.
+	// DueSoonLeadMinutes Read-only, derived: the named task's own ``due_soon_lead_minutes``, read when the card is fetched. ``null`` when the task follows the workspace setting ``task_due_soon_lead_minutes``, has no due date, or the card names no task.
+	DueSoonLeadMinutes *int `json:"due_soon_lead_minutes,omitempty"`
+
+	// DueTs Read-only, derived: the named task's current ``due_ts`` (epoch seconds), read when the card is fetched, so a later change to the task's due date shows here. ``null`` when the task has no due date or the card names no task. A card has no due date of its own.
 	DueTs     *float64              `json:"due_ts,omitempty"`
 	ExpiredTs *float64              `json:"expired_ts"`
 	From      string                `json:"from"`
@@ -3025,7 +3022,7 @@ type ReplyCardDTO struct {
 	Kind      string                `json:"kind"`
 	Options   *[]ReplyCardOptionDTO `json:"options,omitempty"`
 
-	// Priority ``high``, ``mid`` or ``low``. Cards stored before this field existed read ``mid``.
+	// Priority Read-only, derived: the named task's current priority (``high``, ``mid``, ``low`` or ``frozen``), read when the card is fetched, so a later change to the task's priority shows here. ``null`` when the card names no task. A card has no priority of its own.
 	Priority *string `json:"priority,omitempty"`
 
 	// SelectMode How many options the owner may circle: ``single`` (the default — at most one, and at most one option may carry ``ai_pick``) or ``multi`` (any number). It is a SEPARATE axis from ``kind``: ``kind`` says what the owner must DO (decide / act), ``select_mode`` says how many choices the answer may carry.
@@ -3053,14 +3050,17 @@ type ReplyCardListItemDTO struct {
 	AnsweredTs *float64                 `json:"answered_ts"`
 	CreatedTs  *float64                 `json:"created_ts,omitempty"`
 
-	// DueTs Epoch seconds, or ``null`` when the card has no due date. Cards stored before this field existed read ``null``.
+	// DueSoonLeadMinutes Read-only, derived: the named task's own ``due_soon_lead_minutes``, read when the card is fetched. ``null`` when the task follows the workspace setting ``task_due_soon_lead_minutes``, has no due date, or the card names no task.
+	DueSoonLeadMinutes *int `json:"due_soon_lead_minutes,omitempty"`
+
+	// DueTs Read-only, derived: the named task's current ``due_ts`` (epoch seconds), read when the card is fetched, so a later change to the task's due date shows here. ``null`` when the task has no due date or the card names no task. A card has no due date of its own.
 	DueTs     *float64 `json:"due_ts,omitempty"`
 	ExpiredTs *float64 `json:"expired_ts"`
 	From      string   `json:"from"`
 	Id        string   `json:"id"`
 	Kind      string   `json:"kind"`
 
-	// Priority ``high``, ``mid`` or ``low``. Cards stored before this field existed read ``mid``.
+	// Priority Read-only, derived: the named task's current priority (``high``, ``mid``, ``low`` or ``frozen``), read when the card is fetched, so a later change to the task's priority shows here. ``null`` when the card names no task. A card has no priority of its own.
 	Priority *string     `json:"priority,omitempty"`
 	Status   string      `json:"status"`
 	Summary  *string     `json:"summary,omitempty"`
