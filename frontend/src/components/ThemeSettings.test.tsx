@@ -233,7 +233,7 @@ const appearanceDialog = (utils: ReturnType<typeof render>) =>
 /** 外觀 › 主題設定… */
 function openAppearanceDialog(utils: ReturnType<typeof render>) {
   openTab(utils, s.themeTabAppearance);
-  fireEvent.click(utils.getByRole("button", { name: s.themeDialogOpen }));
+  fireEvent.click(utils.getByTestId("theme-entry"));
   return appearanceDialog(utils);
 }
 
@@ -1620,9 +1620,12 @@ describe("ThemeSettings · appearance", () => {
     const library = utils.getByRole("tab", { name: s.themeTabLibrary });
     expect(appearance.getAttribute("aria-selected")).toBe("true");
     expect(utils.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(appearance.id);
-    expect(utils.getByTestId("ts-theme-status").textContent).toBe(zh.themeIdentity.officeLight);
-    expect(within(utils.getByRole("tabpanel")).getByTestId("ts-thumb").style.backgroundColor).not.toBe("");
-    expect(utils.getByRole("button", { name: s.themeDialogOpen })).toBeTruthy();
+    const entry = utils.getByRole("button", {
+      name: makeMessages(zh, "zh").themeEntryLabel(zh.themeIdentity.officeLight),
+    });
+    expect(within(entry).getByTestId("theme-entry-name").textContent).toBe(zh.themeIdentity.officeLight);
+    expect(within(entry).queryByTestId("theme-entry-tag")).toBeNull();
+    expect(within(entry).getByTestId("ts-thumb").style.backgroundColor).not.toBe("");
     expect(utils.queryByText(p.themeImport)).toBeNull();
 
     fireEvent.click(library);
@@ -1631,12 +1634,12 @@ describe("ThemeSettings · appearance", () => {
     expect(appearance.getAttribute("aria-selected")).toBe("false");
     expect(utils.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(library.id);
     expect(utils.getByText(p.themeImport)).toBeTruthy();
-    expect(utils.queryByRole("button", { name: s.themeDialogOpen })).toBeNull();
+    expect(utils.queryByTestId("theme-entry")).toBeNull();
   });
 
-  it("主題設定… opens the 主題設定 dialog, focused and labelled, and Esc or 關閉 closes it back onto the button", async () => {
+  it("the theme row opens the 主題設定 dialog, focused and labelled, and Esc or 關閉 closes it back onto the row", async () => {
     const utils = await renderManage({ tab: s.themeTabAppearance });
-    const opener = utils.getByRole("button", { name: s.themeDialogOpen });
+    const opener = utils.getByTestId("theme-entry");
     opener.focus();
     fireEvent.click(opener);
 

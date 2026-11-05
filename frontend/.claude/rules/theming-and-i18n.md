@@ -25,7 +25,7 @@ paths:
 
 real mode 的 AuthGate：有 token 直接進 App；無 token 先打一次公開 auth/status，未設密碼進 FirstRunPage，已設密碼進 LoginPage。啟用碼可由 query 預填，set-password 成功後直接保存新 token，並以 history.replaceState 移除網址中的 code。網址帶 `?login=`（host 上 `ocserverd login-link` 印的一次性登入連結）時，掛載當下就移除它，並在 "checking" 兌換——已有 token 也照樣兌換（手機上殘留的舊 token 不可默默吞掉有效連結）：成功換上新 token 進 App；失敗時原本有 token 就保留它進 App、不顯示提示，沒有 token 才回登入牆並顯示失效提示（429 顯示節流訊息）。兌換一次頁面載入只送一次——碼是一次性的，StrictMode 重跑 effect 再送一次會把好連結變成拒絕。mock mode 不走這面牆。
 
-選主題、時間表與應景主題開關只在「主題設定」對話框（`ThemeAppearanceDialog`）；ProfileDropdown 的 preferences 與設定 › 主題的「外觀」分頁都只顯示畫面上現在是哪一套主題（依時段切換時寫明，應景主題蓋過時寫應景主題）並各有一顆「主題設定…」開同一個對話框，preferences 另有語言與版面。新增／匯入／編輯／刪除在「主題庫」分頁，主題庫的列不能點選套用（owner 2026-11-05）。對話框 portal 到 body；從 preferences 開時選單同時收起（不然它疊在對話框上），對話框由 ProfileDropdown 在收起狀態下繼續 render，關閉時焦點回到頭像按鈕。settings 經 getServerSettings/patchServerSettings 即時生效，載入失敗就不渲染設定區，不捏預設。settings 只帶「現在選哪一套主題」（display_theme）、是否顯示應景主題（display_seasonal_theme）與依時間切換的時間表（display_theme_schedule），主題本身不在其中——見「主題編輯與清單」。密碼 set/change 不走會把 401 轉成登出的 typed client，而走 credentialPost；成功後換上 server 新 token。
+選主題、時間表與應景主題開關只在「主題設定」對話框（`ThemeAppearanceDialog`）；ProfileDropdown 的 preferences（「主題」標籤下）與設定 › 主題的「外觀」分頁都只放同一個 `ThemeEntryRow`：一整列可點的按鈕，畫面上那套的縮圖、名稱、名稱下一行的小標（時間表那一格就是「依時段」，應景主題蓋過時是「應景」）與箭頭，點了開同一個對話框；外觀分頁用大一號（`large`）。preferences 另有語言與版面。新增／匯入／編輯／刪除在「主題庫」分頁，主題庫的列不能點選套用（owner 2026-11-05）。對話框 portal 到 body；從 preferences 開時選單同時收起（不然它疊在對話框上），對話框由 ProfileDropdown 在收起狀態下繼續 render，關閉時焦點回到頭像按鈕。settings 經 getServerSettings/patchServerSettings 即時生效，載入失敗就不渲染設定區，不捏預設。settings 只帶「現在選哪一套主題」（display_theme）、是否顯示應景主題（display_seasonal_theme）與依時間切換的時間表（display_theme_schedule），主題本身不在其中——見「主題編輯與清單」。密碼 set/change 不走會把 401 轉成登出的 typed client，而走 credentialPost；成功後換上 server 新 token。
 
 ## i18n
 

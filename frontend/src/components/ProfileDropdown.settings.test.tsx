@@ -16,6 +16,7 @@ import { render, fireEvent, waitFor, within } from "@testing-library/react";
 import type { LoadableSeasonalWindow } from "../lib/seasonalTheme";
 import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
+import { makeMessages } from "../i18n/compose";
 import { ProfileDropdown } from "./ProfileDropdown";
 import { __resetMock, __setMockNoAppearance } from "../api/mock";
 import { api } from "../api";
@@ -67,8 +68,15 @@ beforeEach(() => {
 });
 
 describe("ProfileDropdown · preferences scope", () => {
-  const themeStatus = (utils: ReturnType<typeof render>) =>
-    utils.getByTestId("profile-dd-theme-status").textContent;
+  const themeStatus = (utils: ReturnType<typeof render>) => {
+    const entry = utils.getByTestId("theme-entry");
+    return [
+      within(entry).getByTestId("theme-entry-name").textContent,
+      within(entry).queryByTestId("theme-entry-tag")?.textContent,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  };
 
   it("renders the theme status and language", async () => {
     const utils = await openPreferences();
@@ -76,7 +84,7 @@ describe("ProfileDropdown · preferences scope", () => {
     expect(utils.getByText(p.language)).toBeTruthy();
   });
 
-  it("names the selected theme; 主題設定… closes the menu and opens the dialog that sets it, and closing returns focus to the menu's trigger", async () => {
+  it("names the selected theme in one row; the row closes the menu and opens the dialog that sets it, and closing returns focus to the menu's trigger", async () => {
     setToken("owner-token");
     await api.putTheme({
       id: "midnight",
@@ -87,7 +95,9 @@ describe("ProfileDropdown · preferences scope", () => {
     const utils = await openPreferences();
     await waitFor(() => expect(themeStatus(utils)).toBe("午夜藍"));
 
-    fireEvent.click(utils.getByRole("button", { name: zh.settings.themeDialogOpen }));
+    fireEvent.click(
+      utils.getByRole("button", { name: makeMessages(zh, "zh").themeEntryLabel("午夜藍") })
+    );
     expect(utils.queryByRole("menu")).toBeNull();
     const dialog = utils.getByRole("dialog", { name: zh.settings.themeDialogTitle });
     const select = within(dialog).getByRole("combobox", { name: zh.settings.themePick }) as HTMLSelectElement;
@@ -124,7 +134,7 @@ describe("ProfileDropdown · preferences scope", () => {
     setToken("owner-token");
     const utils = await openPreferences();
     await waitFor(() =>
-      expect(themeStatus(utils)).toBe(`依時段切換（現在是 ${zh.themeIdentity.officeLight}）`)
+      expect(themeStatus(utils)).toBe(`${zh.themeIdentity.officeLight} · ${p.themeEntryScheduled}`)
     );
   });
 
@@ -151,7 +161,7 @@ describe("ProfileDropdown · preferences scope", () => {
       });
       setToken("owner-token");
       const utils = await openPreferences();
-      await waitFor(() => expect(themeStatus(utils)).toBe(`應景主題（豐收）`));
+      await waitFor(() => expect(themeStatus(utils)).toBe(`豐收 · ${p.themeEntrySeasonal}`));
     });
   });
 

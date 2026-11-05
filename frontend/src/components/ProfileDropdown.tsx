@@ -19,7 +19,7 @@ import {
 import { InlineEdit } from "./InlineEdit";
 import { PasskeysPanel } from "./PasskeysPanel";
 import { qrSvg } from "../lib/qrSvg";
-import { ThemeAppearanceDialog, useThemeStatusText } from "./ThemeAppearanceDialog";
+import { ThemeAppearanceDialog, ThemeEntryRow } from "./ThemeAppearanceDialog";
 import "./profile-dropdown.css";
 
 interface ProfileDropdownProps {
@@ -74,7 +74,6 @@ export function ProfileDropdown({
 }: ProfileDropdownProps) {
   const { t, language, setLanguage, wide, setWide, resetPreferences, msg } = useI18n();
 
-  const themeStatus = useThemeStatusText();
   const [themeDialogOpen, setThemeDialogOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   // The menu closes as the dialog opens (it would sit on top of it), taking the
@@ -542,13 +541,8 @@ export function ProfileDropdown({
 
           <div className="profile-dd__section">
             <div className="profile-dd__section-label">{t.profile.theme}</div>
-            <div className="profile-dd__theme-status" data-testid="profile-dd-theme-status">
-              {themeStatus}
-            </div>
-            <button
-              type="button"
-              className="profile-dd__theme-open"
-              onClick={() => {
+            <ThemeEntryRow
+              onOpen={() => {
                 themeDialogReturn.current =
                   rootRef.current?.parentElement?.querySelector<HTMLElement>(
                     '[aria-haspopup="menu"]'
@@ -556,9 +550,7 @@ export function ProfileDropdown({
                 setThemeDialogOpen(true);
                 onClose();
               }}
-            >
-              {t.settings.themeDialogOpen}
-            </button>
+            />
           </div>
 
           <div className="profile-dd__section">

@@ -185,8 +185,7 @@ export interface Messages {
   // ── settings ──
   themeImportSkipped: (count: number, sample: string[]) => string;
   themeDeleteConfirm: (name: string) => string;
-  themeStatusScheduled: (name: string) => string;
-  themeStatusSeasonal: (name: string) => string;
+  themeEntryLabel: (name: string) => string;
   deleteRoleConfirm: (name: string) => string;
   docHistoryRestoreConfirm: (when: string) => string;
   docHistoryBlockedReason: (fields: string[], cap: number) => string;
@@ -671,10 +670,7 @@ export function makeMessages(t: Dict, language: Lang): Messages {
 
     themeDeleteConfirm: (name) =>
       `${set.themeDeleteConfirmLead}${name}${set.themeDeleteConfirmTail}`,
-    themeStatusScheduled: (name) =>
-      `${prof.themeStatusScheduledLead}${name}${prof.themeStatusScheduledTail}`,
-    themeStatusSeasonal: (name) =>
-      `${prof.themeStatusSeasonalLead}${name}${prof.themeStatusSeasonalTail}`,
+    themeEntryLabel: (name) => `${prof.themeEntryLabelLead}${name}${prof.themeEntryLabelTail}`,
     deleteRoleConfirm: (name) =>
       `${set.deleteRoleConfirmLead}${name}${set.deleteRoleConfirmTail}`,
     // `when` is the revision's own timestamp — the only thing that tells two

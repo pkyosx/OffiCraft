@@ -15,7 +15,7 @@ import {
   type ThemeScheduleEntry,
 } from "../lib/themeSchedule";
 import { useEscapeLayer } from "../lib/useEscapeLayer";
-import { CloseIcon, TrashIcon } from "./icons";
+import { ChevronRightIcon, CloseIcon, TrashIcon } from "./icons";
 import { ConfirmModal } from "./ConfirmModal";
 import officeTheme from "../../../themes/office.theme.json" with { type: "json" };
 import officeLightTheme from "../../../themes/office-light.theme.json" with { type: "json" };
@@ -169,22 +169,44 @@ function useThemeNames() {
   };
 }
 
-/** What is on screen, in words: the seasonal theme while it shows, else the
- * schedule's row (saying it is scheduled), else the selected theme. */
-export function useThemeStatusText(): string {
-  const { msg, theme, scheduledTheme, seasonalThemeName } = useI18n();
+/** The one row both entry points show: the theme on screen (thumbnail and
+ * name, tagged when the schedule or a seasonal theme put it there), opening
+ * 主題設定. */
+export function ThemeEntryRow({ onOpen, large = false }: { onOpen: () => void; large?: boolean }) {
+  const { t, msg, theme, scheduledTheme, seasonalThemeName, shownTheme, shownThemeBundle } =
+    useI18n();
   const names = useThemeNames();
-  return seasonalThemeName
-    ? msg.themeStatusSeasonal(seasonalThemeName)
+  const name = seasonalThemeName ?? names.full(scheduledTheme ?? theme);
+  const tag = seasonalThemeName
+    ? t.profile.themeEntrySeasonal
     : scheduledTheme
-      ? msg.themeStatusScheduled(names.full(scheduledTheme))
-      : names.full(theme);
-}
-
-/** The thumbnail of the theme on screen, from the bundle already painted. */
-export function useShownThemeSwatch(): ThemeSwatch | null {
-  const { shownTheme, shownThemeBundle } = useI18n();
-  return shownThemeBundle ? swatchOfBundle(shownThemeBundle) : (BUILTIN_SWATCHES[shownTheme] ?? null);
+      ? t.profile.themeEntryScheduled
+      : null;
+  const swatch = shownThemeBundle
+    ? swatchOfBundle(shownThemeBundle)
+    : (BUILTIN_SWATCHES[shownTheme] ?? null);
+  return (
+    <button
+      type="button"
+      className={`ts-entry${large ? " ts-entry--large" : ""}`}
+      aria-label={msg.themeEntryLabel(name)}
+      data-testid="theme-entry"
+      onClick={onOpen}
+    >
+      <ThemeThumb swatch={swatch} />
+      <span className="ts-entry__text">
+        <span className="ts-entry__name" data-testid="theme-entry-name">
+          {name}
+        </span>
+        {tag && (
+          <span className="ts-entry__tag" data-testid="theme-entry-tag">
+            {tag}
+          </span>
+        )}
+      </span>
+      <ChevronRightIcon size={15} className="ts-entry__chevron" />
+    </button>
+  );
 }
 
 function ThemeOptions() {

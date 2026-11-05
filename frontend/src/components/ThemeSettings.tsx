@@ -51,12 +51,7 @@ import {
   UserIcon,
 } from "./icons";
 import { ConfirmModal } from "./ConfirmModal";
-import {
-  ThemeAppearanceDialog,
-  ThemeThumb,
-  useShownThemeSwatch,
-  useThemeStatusText,
-} from "./ThemeAppearanceDialog";
+import { ThemeAppearanceDialog, ThemeEntryRow } from "./ThemeAppearanceDialog";
 import "./settings.css";
 import "./theme-settings.css";
 
@@ -173,8 +168,6 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
   const [view, setView] = useState<View>("list");
   const [tab, setTab] = useState<PageTab>("appearance");
   const [appearanceOpen, setAppearanceOpen] = useState(false);
-  const themeStatus = useThemeStatusText();
-  const shownSwatch = useShownThemeSwatch();
 
   // ── import state ──
   const [importText, setImportText] = useState("");
@@ -1408,23 +1401,9 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
 
       {tab === "appearance" ? (
         <div role="tabpanel" id="ts-panel-appearance" aria-labelledby="ts-tab-appearance">
-          <div className="param-card">
-            <div className="param-row ts-pick-row">
-              <div className="param-row__body">
-                <span className="param-row__name">{t.settings.themeShown}</span>
-                <div className="param-row__sub" data-testid="ts-theme-status">
-                  {themeStatus}
-                </div>
-              </div>
-              <ThemeThumb swatch={shownSwatch} />
-              <button
-                type="button"
-                className="doc-btn"
-                onClick={() => setAppearanceOpen(true)}
-              >
-                {t.settings.themeDialogOpen}
-              </button>
-            </div>
+          <div className="ts-entry-wrap">
+            <div className="ts-entry-label">{t.profile.theme}</div>
+            <ThemeEntryRow large onOpen={() => setAppearanceOpen(true)} />
           </div>
           {appearanceOpen && <ThemeAppearanceDialog onClose={() => setAppearanceOpen(false)} />}
         </div>
