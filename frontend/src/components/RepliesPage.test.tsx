@@ -1241,6 +1241,8 @@ describe("RepliesPage", () => {
     fireEvent.click(waitingToggle);
     expect(waitingToggle.getAttribute("aria-expanded")).toBe("false");
     expect(paneIds("waiting-card")).toEqual([]);
+    expect(paneIds("snoozed-card")).toEqual(["rc-snz-soon", "rc-snz-late"]);
+    expect(paneIds("answered-card")).toEqual(["rc-handled", "rc-handled-mid", "rc-handled-early"]);
     expect(waitingToggle.textContent).toBe("請示 · 5開卡時間（新到舊）");
     fireEvent.click(waitingToggle);
     expect(paneIds("waiting-card")).toEqual(["rc-notask", "rc-low", "rc-mid", "rc-high", "rc-frozen"]);
