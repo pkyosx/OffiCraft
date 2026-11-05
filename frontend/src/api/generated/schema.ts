@@ -7451,7 +7451,7 @@ export interface components {
         /**
          * MonitoringAccountDTO
          * @description One account's usage. One row per account that reports telemetry carrying an
-         *     ``account`` tag: each ``five_hour``/``seven_day`` window is selected
+         *     ``account`` tag: the ``seven_day`` window is selected
          *     independently from that account's valid ``rate_limits`` reports: reports
          *     sampled within the telemetry freshness window come first, and among them the
          *     later ``resets_at`` wins (ties use the report's rate-limit sample time); when
@@ -7470,7 +7470,7 @@ export interface components {
          *     boxes, so when it spans >1 machine the distinct hosts are comma-joined
          *     (single-machine → just that host; honest-empty "" when no agent reports one).
          *
-         *     Each shaped window additionally carries ``measured_at`` — the epoch second the winning report's ``used_percentage`` was taken. It is not decoration: ``used_pct`` is a SNAPSHOT that freezes the moment the last agent on that account goes away, while ``elapsed_pct`` is recomputed from the request's ``now`` every single time, so without the stamp a days-old figure and a live one render byte-identically. The stamp is PER WINDOW because the two windows are selected independently — a fresh 5h window must never vouch for a frozen 7d one. Honest-null when nothing stamped the sample; NEVER back-filled with the serving time.
+         *     Each shaped window additionally carries ``measured_at`` — the epoch second the winning report's ``used_percentage`` was taken. It is not decoration: ``used_pct`` is a SNAPSHOT that freezes the moment the last agent on that account goes away, while ``elapsed_pct`` is recomputed from the request's ``now`` every single time, so without the stamp a days-old figure and a live one render byte-identically. The stamp is PER WINDOW because each window is selected independently — a fresh sample of one window must never vouch for a frozen one. Honest-null when nothing stamped the sample; NEVER back-filled with the serving time.
          *
          *     For the same reason ``pace`` is withheld (null) once a snapshot has gone unrefreshed past the telemetry freshness window, or is of unknown age: the verdict compares a frozen number against a moving clock, so it would appear and clear itself purely as time passes, with no new data and nothing the owner could do about it. The NUMBER is still served — only the present-tense judgement is withheld.
          */
@@ -7490,7 +7490,11 @@ export interface components {
              * @default
              */
             display_name: string;
-            /** Five Hour */
+            /**
+             * Five Hour
+             * @deprecated
+             * @description Always null since T-222: Claude and Codex dropped the 5-hour limit, so the server no longer shapes a 5-hour window. Kept on the wire so existing readers do not break.
+             */
             five_hour?: {
                 [key: string]: unknown;
             } | null;

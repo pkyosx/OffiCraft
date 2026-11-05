@@ -1914,11 +1914,10 @@ func TestCodexSessionReportRateLimits(t *testing.T) {
 		want     map[string]any
 	}{
 		{
-			name: "a five-hour window at the boundary",
+			// T-222: the 5-hour limit is gone, so a short window is not reported.
+			name: "a five-hour window at the boundary reports nothing",
 			snapshot: map[string]any{"primary": map[string]any{
 				"windowDurationMins": float64(360), "usedPercent": float64(12), "resetsAt": "2026-09-07T17:00:00Z"}},
-			want: map[string]any{"five_hour": map[string]any{
-				"used_percentage": float64(12), "resets_at": "2026-09-07T17:00:00Z"}},
 		},
 		{
 			name: "one minute past the boundary is the weekly window",
@@ -1928,9 +1927,9 @@ func TestCodexSessionReportRateLimits(t *testing.T) {
 				"used_percentage": float64(12), "resets_at": nil}},
 		},
 		{
-			name: "weekly only leaves five_hour absent rather than fabricated",
+			name: "a short primary next to a weekly secondary reports only the weekly",
 			snapshot: map[string]any{
-				"primary":   map[string]any{"windowDurationMins": float64(0), "usedPercent": float64(3)},
+				"primary":   map[string]any{"windowDurationMins": float64(300), "usedPercent": float64(3)},
 				"secondary": map[string]any{"windowDurationMins": float64(10080), "usedPercent": float64(40)},
 			},
 			want: map[string]any{"seven_day": map[string]any{
@@ -1939,10 +1938,10 @@ func TestCodexSessionReportRateLimits(t *testing.T) {
 		{
 			name: "the later window wins when both map to the same name",
 			snapshot: map[string]any{
-				"primary":   map[string]any{"windowDurationMins": float64(300), "usedPercent": float64(1)},
-				"secondary": map[string]any{"windowDurationMins": float64(60), "usedPercent": float64(2)},
+				"primary":   map[string]any{"windowDurationMins": float64(10080), "usedPercent": float64(1)},
+				"secondary": map[string]any{"windowDurationMins": float64(20160), "usedPercent": float64(2)},
 			},
-			want: map[string]any{"five_hour": map[string]any{
+			want: map[string]any{"seven_day": map[string]any{
 				"used_percentage": float64(2), "resets_at": nil}},
 		},
 		{name: "an empty snapshot reports nothing", snapshot: map[string]any{}},

@@ -67,7 +67,6 @@ const staleAcct = (ageSecs: number, overheated: boolean): MonAccountView => ({
   machine: "seth-m5",
   cost: null,
   limitReached: null,
-  fiveHour: null,
   sevenDay: {
     usagePct: 43,
     timePct: 15.15,

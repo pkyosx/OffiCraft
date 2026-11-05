@@ -1111,11 +1111,11 @@ func (s *codexSession) reportRateLimits(snapshot map[string]any) {
 		if w == nil || mins <= 0 {
 			continue
 		}
-		name := "seven_day"
+		// The 5-hour limit is gone (T-222): a short window is not reported.
 		if mins <= 360 {
-			name = "five_hour"
+			continue
 		}
-		windows[name] = map[string]any{"used_percentage": used, "resets_at": w["resetsAt"]}
+		windows["seven_day"] = map[string]any{"used_percentage": used, "resets_at": w["resetsAt"]}
 	}
 	if len(windows) == 0 {
 		return

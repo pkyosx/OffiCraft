@@ -36,8 +36,9 @@ type rlWindow struct {
 	ResetsAt       any `json:"resets_at"`
 }
 
+// Only the 7-day window is forwarded: the 5-hour limit is gone (T-222), so a
+// five_hour value in the statusLine payload is dropped.
 type rateLimits struct {
-	FiveHour *rlWindow `json:"five_hour,omitempty"`
 	SevenDay *rlWindow `json:"seven_day,omitempty"`
 }
 
@@ -317,15 +318,6 @@ func rateLimitSegment(obj map[string]any, now float64) string {
 		return ""
 	}
 	var parts []string
-	if w, ok := rlm["five_hour"].(map[string]any); ok {
-		if up, ra, ok := rlWindowFields(w); ok {
-			label := fmt.Sprintf("5h:%d%%", int(math.RoundToEven(up)))
-			if rem := ra - now; rem > 0 {
-				label += "(rst:" + compactDuration(rem) + ")"
-			}
-			parts = append(parts, label)
-		}
-	}
 	if w, ok := rlm["seven_day"].(map[string]any); ok {
 		if up, ra, ok := rlWindowFields(w); ok {
 			const window = 7 * 24 * 3600.0
@@ -350,15 +342,6 @@ func rlWindowFields(w map[string]any) (used, resetsAt float64, ok bool) {
 		return 0, 0, false
 	}
 	return up, ra, true
-}
-
-func compactDuration(seconds float64) string {
-	total := int(seconds)
-	h, m := total/3600, (total%3600)/60
-	if h > 0 {
-		return fmt.Sprintf("%dh%dm", h, m)
-	}
-	return fmt.Sprintf("%dm", m)
 }
 
 func statuslinePct(payload string) (float64, bool) {
@@ -656,10 +639,6 @@ func buildTelemetry(payload string) (rl *rateLimits, cost *float64, tokens *toke
 	if rlm, ok := obj["rate_limits"].(map[string]any); ok {
 		var acc rateLimits
 		set := false
-		if w, ok := rlm["five_hour"].(map[string]any); ok {
-			acc.FiveHour = &rlWindow{UsedPercentage: w["used_percentage"], ResetsAt: w["resets_at"]}
-			set = true
-		}
 		if w, ok := rlm["seven_day"].(map[string]any); ok {
 			acc.SevenDay = &rlWindow{UsedPercentage: w["used_percentage"], ResetsAt: w["resets_at"]}
 			set = true

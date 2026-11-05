@@ -2721,18 +2721,6 @@ export function AccountCard({
       )}
 
       <UsageBar
-        label={t.monitor.fiveHour}
-        usagePct={account.fiveHour?.usagePct ?? null}
-        timePct={account.fiveHour?.timePct ?? null}
-        measuredAt={account.fiveHour?.measuredAt ?? null}
-        overheated={false}
-        dash={dash}
-        usageLabel={t.monitor.usage}
-        timeLabel={t.monitor.time}
-        overheatedLabel={t.monitor.overheated}
-        measuredAgo={msg.monitorMeasuredAgo}
-      />
-      <UsageBar
         label={t.monitor.sevenDay}
         usagePct={account.sevenDay?.usagePct ?? null}
         timePct={account.sevenDay?.timePct ?? null}

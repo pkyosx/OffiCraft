@@ -360,7 +360,6 @@ export const MESSAGE_KEYS: readonly string[] = [
   "monitor.diskUsage.total",
   "monitor.diskUsage.workspaces",
   "monitor.estimate",
-  "monitor.fiveHour",
   "monitor.limitReached",
   "monitor.machine.bootstrapBusy",
   "monitor.machine.bootstrapConfirm",

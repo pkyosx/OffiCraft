@@ -48,7 +48,6 @@ export function AccountCardHeadStory({
     displayName,
     machine: "MBP 5",
     cost,
-    fiveHour: null,
     sevenDay: null,
     limitReached: null,
   };

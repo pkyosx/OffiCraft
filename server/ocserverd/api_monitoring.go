@@ -1452,7 +1452,7 @@ func (s *apiServer) HandleGetMonitoringApiMonitoringGet(w http.ResponseWriter, r
 			DisplayName:  displayName,
 			Machine:      strings.Join(hostLabels, ", "),
 			Cost:         cost,
-			FiveHour:     windows["five_hour"],
+			FiveHour:     nil, // T-222: always null, kept for wire compatibility
 			SevenDay:     windows["seven_day"],
 			LimitReached: calls.limit(account),
 		})

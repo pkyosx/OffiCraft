@@ -1895,7 +1895,6 @@ export const zh = {
     costResetConfirmBodyTail:
       " 歸零，從 0 重新開始累積。底下成員各自的數字不會被動到。這個數字沒有留在任何其他地方，清掉就回不來了。",
     estimate: "估計",
-    fiveHour: "5 小時窗",
     sevenDay: "7 天窗",
     usage: "用量",
     time: "時間",

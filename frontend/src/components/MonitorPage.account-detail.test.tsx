@@ -58,7 +58,6 @@ const acct = (over: Partial<MonAccountView> = {}): MonAccountView => ({
   machine: "mbp5",
   limitReached: null,
   cost: 1234.5,
-  fiveHour: null,
   sevenDay: null,
   ...over,
 });

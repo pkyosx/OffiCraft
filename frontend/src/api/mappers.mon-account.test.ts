@@ -79,11 +79,11 @@ describe("toMonitoring usage-window measured_at (T-3b90)", () => {
       { used_pct: 10, elapsed_pct: 40, pace: "ok", measured_at: 1_700_000_000 },
       { used_pct: 43, elapsed_pct: 15.15, pace: null, measured_at: 1_699_000_000 }
     );
-    // Asserted as exact numbers, per window. "Not undefined" would pass on a
-    // mapper that collapsed both windows onto one account-wide stamp — which
-    // is precisely the confusion this ticket was filed about.
-    expect(a.fiveHour?.measuredAt).toBe(1_700_000_000);
+    // Asserted as an exact number. The five_hour stamp differs on purpose:
+    // the 7-day window must carry its own, never the other window's.
     expect(a.sevenDay?.measuredAt).toBe(1_699_000_000);
+    // T-222: the 5-hour window is no longer mapped, even if the wire carries one.
+    expect("fiveHour" in a).toBe(false);
   });
 
   it("honest-null when the server did not stamp the sample", () => {

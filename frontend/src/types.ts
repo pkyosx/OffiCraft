@@ -703,11 +703,6 @@ export interface MonAccountView {
    * current). The card renders the age whenever it has one, at every moment,
    * so the answer to "is this number old?" never depends on catching the page
    * at the right time. */
-  fiveHour: {
-    usagePct: number | null;
-    timePct: number | null;
-    measuredAt: number | null;
-  } | null;
   sevenDay: {
     usagePct: number | null;
     timePct: number | null;

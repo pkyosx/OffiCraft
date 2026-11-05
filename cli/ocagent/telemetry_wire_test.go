@@ -58,8 +58,9 @@ func TestContextReportUplinkBodies(t *testing.T) {
 				`"effort":{"level":"high"},"transcript_path":"` + transcript + `"}`,
 			wantPaths:   []string{"/api/agent/context", "/api/monitoring/telemetry"},
 			wantContext: `{"context_pct":41.5}`,
-			wantTelemetry: `{"runtime":"claude","rate_limits":{"five_hour":{"used_percentage":30,` +
-				`"resets_at":1720000000},"seven_day":{"used_percentage":60,"resets_at":1720500000}},` +
+			// five_hour in the payload is not forwarded (T-222).
+			wantTelemetry: `{"runtime":"claude","rate_limits":` +
+				`{"seven_day":{"used_percentage":60,"resets_at":1720500000}},` +
 				`"cost":1.25,"tokens":{"burned":12,"output":3,"cache_read":11},` +
 				`"account":"au-1/org-1","account_label":"kyle@x.io(OffiCraft)",` +
 				`"machine":"lab-1","effort":"high","model":"claude-opus-5"}`,

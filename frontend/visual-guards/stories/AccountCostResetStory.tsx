@@ -20,7 +20,6 @@ const baseAccount: MonAccountView = {
   displayName: "Eva 的帳號",
   machine: "MBP 5",
   cost: 37,
-  fiveHour: null,
   sevenDay: null,
   limitReached: null,
 };

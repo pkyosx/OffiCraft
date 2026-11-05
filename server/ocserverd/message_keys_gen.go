@@ -361,7 +361,6 @@ var messageKeys = map[string]bool{
 	"monitor.diskUsage.total":                          true,
 	"monitor.diskUsage.workspaces":                     true,
 	"monitor.estimate":                                 true,
-	"monitor.fiveHour":                                 true,
 	"monitor.limitReached":                             true,
 	"monitor.machine.bootstrapBusy":                    true,
 	"monitor.machine.bootstrapConfirm":                 true,

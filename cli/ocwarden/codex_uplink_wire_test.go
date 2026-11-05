@@ -127,8 +127,6 @@ func TestCodexUplinkBodies(t *testing.T) {
 			body: map[string]any{
 				"runtime": "codex", "account": "codex:wire", "account_label": "ChatGPT",
 				"rate_limits": map[string]any{
-					"five_hour": map[string]any{
-						"used_percentage": float64(1), "resets_at": float64(1720000000)},
 					"seven_day": map[string]any{
 						"used_percentage": float64(0), "resets_at": float64(1720500000)},
 				},

@@ -1862,7 +1862,6 @@ export const en: Dict = {
     costResetConfirmBodyTail:
       " to zero and starts counting again from 0. No member's own figure is touched. The figure is not kept anywhere else, so it cannot be recovered.",
     estimate: "est.",
-    fiveHour: "5-hour window",
     sevenDay: "7-day window",
     usage: "usage",
     time: "time",

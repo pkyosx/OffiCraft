@@ -2438,7 +2438,8 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		warden := apiTestAgentToken(t, api, "m-server-self", "m-server-self")
 		apiJSON(t, h, "POST", "/api/monitoring/telemetry", warden,
 			`{"runtime":"claude","account":"eva-m5-claude","account_label":"eva@example.com","cost":3.5,`+
-				`"rate_limits":{"five_hour":{"used_pct":10,"resets_at":`+strconv.FormatInt(time.Now().Unix()+3600, 10)+`}}}`)
+				`"rate_limits":{"five_hour":{"used_percentage":10,"resets_at":`+strconv.FormatInt(time.Now().Unix()+3600, 10)+`},`+
+				`"seven_day":{"used_percentage":20,"resets_at":`+strconv.FormatInt(time.Now().Unix()+86400, 10)+`}}}`)
 
 		status, data := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
 		if status != 200 {
@@ -2449,9 +2450,9 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 			t.Fatalf("accounts: want 1 row, got %v", data["accounts"])
 		}
 		account, _ := accounts[0].(map[string]any)
-		window, _ := account["five_hour"].(map[string]any)
+		window, _ := account["seven_day"].(map[string]any)
 		if window == nil {
-			t.Fatalf("accounts[0].five_hour: want the reported window, got %v", account["five_hour"])
+			t.Fatalf("accounts[0].seven_day: want the reported window, got %v", account["seven_day"])
 		}
 		apiWantBody(t, account, map[string]any{
 			"account":       "eva-m5-claude",
@@ -2459,8 +2460,8 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 			"display_name":  "eva@example.com",
 			"machine":       "m-server-self",
 			"cost":          3.5,
-			"five_hour":     account["five_hour"],
-			"seven_day":     nil,
+			"five_hour":     nil, // T-222: a reported five_hour window is ignored; the field stays on the wire as null
+			"seven_day":     account["seven_day"],
 			"limit_reached": nil,
 		})
 		sessions := apiTestSessionsByID(t, data, "mira", "kip", "m-server-self")
@@ -2567,7 +2568,7 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		resetsAt := time.Now().Unix() + 3600
 		apiJSON(t, h, "POST", "/api/monitoring/telemetry", kip,
 			`{"runtime":"claude","account":"kip-claude","account_label":"kip@example.com","cost":2,`+
-				`"rate_limits":{"five_hour":{"used_percentage":10,"resets_at":`+strconv.FormatInt(resetsAt, 10)+`}}}`)
+				`"rate_limits":{"seven_day":{"used_percentage":10,"resets_at":`+strconv.FormatInt(resetsAt, 10)+`}}}`)
 		if status, data := apiJSON(t, h, "DELETE", "/api/members/kip", owner, ""); status != 200 {
 			t.Fatalf("dismiss kip: want 200, got %d (%v)", status, data)
 		}
@@ -2588,14 +2589,14 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 				"display_name":  "kip@example.com",
 				"machine":       "m-server-self",
 				"cost":          2,
-				"five_hour": map[string]any{
+				"five_hour":     nil,
+				"seven_day": map[string]any{
 					"used_pct":    10,
 					"resets_at":   float64(resetsAt),
 					"elapsed_pct": apiAnyNumber,
 					"measured_at": apiAnyNumber,
 					"pace":        "ok",
 				},
-				"seven_day":     nil,
 				"limit_reached": nil,
 			}},
 		})
@@ -2608,7 +2609,7 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		resetsAt := time.Now().Unix() + 3600
 		apiJSON(t, h, "POST", "/api/monitoring/telemetry", worker,
 			`{"runtime":"claude","account":"ow-claude","account_label":"ow@example.com","cost":3,`+
-				`"rate_limits":{"five_hour":{"used_percentage":10,"resets_at":`+strconv.FormatInt(resetsAt, 10)+`}}}`)
+				`"rate_limits":{"seven_day":{"used_percentage":10,"resets_at":`+strconv.FormatInt(resetsAt, 10)+`}}}`)
 		released, err := d.GetOutsourceWorker("ow-abc123")
 		if err != nil || released == nil {
 			t.Fatalf("GetOutsourceWorker: %v (%v)", released, err)
@@ -2634,25 +2635,25 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 				"display_name":  "ow@example.com",
 				"machine":       "m-server-self",
 				"cost":          3,
-				"five_hour": map[string]any{
+				"five_hour":     nil,
+				"seven_day": map[string]any{
 					"used_pct":    10,
 					"resets_at":   float64(resetsAt),
 					"elapsed_pct": apiAnyNumber,
 					"measured_at": apiAnyNumber,
 					"pace":        "ok",
 				},
-				"seven_day":     nil,
 				"limit_reached": nil,
 			}},
 		})
 	})
 
-	reportFiveHour := func(t *testing.T, api *apiServer, h http.Handler, id string, usedPct int, resetsAt int64) {
+	reportSevenDay := func(t *testing.T, api *apiServer, h http.Handler, id string, usedPct int, resetsAt int64) {
 		t.Helper()
 		token := apiTestAgentToken(t, api, id, "m-server-self")
 		if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", token,
 			`{"runtime":"claude","account":"shared-claude",`+
-				`"rate_limits":{"five_hour":{"used_percentage":`+strconv.Itoa(usedPct)+
+				`"rate_limits":{"seven_day":{"used_percentage":`+strconv.Itoa(usedPct)+
 				`,"resets_at":`+strconv.FormatInt(resetsAt, 10)+`}}}`); status != 200 {
 			t.Fatalf("%s telemetry: want 200, got %d (%v)", id, status, data)
 		}
@@ -2662,14 +2663,14 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		entry["rate_limits_ts"] = stamp
 		api.telemetry.Set(id, entry)
 	}
-	sharedAccountRow := func(fiveHour map[string]any) map[string]any {
+	sharedAccountRow := func(sevenDay map[string]any) map[string]any {
 		return map[string]any{
 			"account":       "shared-claude",
 			"display_name":  "shared-claude",
 			"machine":       "m-server-self",
 			"cost":          nil,
-			"five_hour":     fiveHour,
-			"seven_day":     nil,
+			"five_hour":     nil,
+			"seven_day":     sevenDay,
 			"limit_reached": nil,
 		}
 	}
@@ -2677,9 +2678,9 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 	t.Run("a fresh report and an older one with a later reset answer 200 with the fresh report's window", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		now := time.Now().Unix()
-		reportFiveHour(t, api, h, "mira", 10, now+4000)
+		reportSevenDay(t, api, h, "mira", 10, now+4000)
 		ageRateLimits(api, "mira", float64(now)-telemetryFreshSecs-60)
-		reportFiveHour(t, api, h, "kip", 60, now+3000)
+		reportSevenDay(t, api, h, "kip", 60, now+3000)
 
 		status, data := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
 		if status != 200 {
@@ -2701,8 +2702,8 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 	t.Run("fresh reports from the previous and the new window answer 200 with the new window", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		now := time.Now().Unix()
-		reportFiveHour(t, api, h, "mira", 90, now+100)
-		reportFiveHour(t, api, h, "kip", 5, now+3600)
+		reportSevenDay(t, api, h, "mira", 90, now+100)
+		reportSevenDay(t, api, h, "kip", 5, now+3600)
 		ageRateLimits(api, "kip", float64(now)-30)
 
 		status, data := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
@@ -2726,8 +2727,8 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		now := time.Now().Unix()
 		olderStamp := float64(now) - 30
-		reportFiveHour(t, api, h, "kip", 60, now+3000)
-		reportFiveHour(t, api, h, "mira", 20, now+3000)
+		reportSevenDay(t, api, h, "kip", 60, now+3000)
+		reportSevenDay(t, api, h, "mira", 20, now+3000)
 		ageRateLimits(api, "kip", olderStamp)
 
 		status, data := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
@@ -2758,26 +2759,27 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 			t.Fatalf("kip telemetry: want 200, got %d (%v)", status, data)
 		}
 		ageRateLimits(api, "kip", staleStamp)
-		reportFiveHour(t, api, h, "mira", 60, now+3000)
+		// mira's fresh report carries only a five_hour window, which is no
+		// longer shaped (T-222): it neither fills five_hour nor hides kip's
+		// stale seven_day window.
+		mira := apiTestAgentToken(t, api, "mira", "m-server-self")
+		if status, data := apiJSON(t, h, "POST", "/api/monitoring/telemetry", mira,
+			`{"runtime":"claude","account":"shared-claude",`+
+				`"rate_limits":{"five_hour":{"used_percentage":60,"resets_at":`+strconv.FormatInt(now+3000, 10)+`}}}`); status != 200 {
+			t.Fatalf("mira telemetry: want 200, got %d (%v)", status, data)
+		}
 
 		status, data := apiJSON(t, h, "GET", "/api/monitoring", owner, "")
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		row := sharedAccountRow(map[string]any{
-			"used_pct":    60,
-			"resets_at":   float64(now + 3000),
-			"elapsed_pct": apiAnyNumber,
-			"measured_at": apiAnyNumber,
-			"pace":        "ok",
-		})
-		row["seven_day"] = map[string]any{
 			"used_pct":    40,
 			"resets_at":   float64(now + 86400),
 			"elapsed_pct": apiAnyNumber,
 			"measured_at": staleStamp,
 			"pace":        nil,
-		}
+		})
 		apiWantBody(t, data, map[string]any{
 			"sessions": data["sessions"],
 			"machines": data["machines"],
@@ -2789,8 +2791,8 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		now := time.Now().Unix()
 		staleStamp := float64(now) - telemetryFreshSecs - 60
-		reportFiveHour(t, api, h, "mira", 10, now+4000)
-		reportFiveHour(t, api, h, "kip", 60, now+3000)
+		reportSevenDay(t, api, h, "mira", 10, now+4000)
+		reportSevenDay(t, api, h, "kip", 60, now+3000)
 		ageRateLimits(api, "mira", staleStamp)
 		ageRateLimits(api, "kip", staleStamp+30)
 
@@ -2816,9 +2818,9 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		apiTestWorkerFixture(t, h, d, owner, "ow-abc123", WorkerStatusAssigned)
 		now := time.Now().Unix()
 		staleStamp := float64(now) - telemetryFreshSecs - 60
-		reportFiveHour(t, api, h, "kip", 60, now+3000)
-		reportFiveHour(t, api, h, "mira", 10, now+4000)
-		reportFiveHour(t, api, h, "ow-abc123", 30, now+2000)
+		reportSevenDay(t, api, h, "kip", 60, now+3000)
+		reportSevenDay(t, api, h, "mira", 10, now+4000)
+		reportSevenDay(t, api, h, "ow-abc123", 30, now+2000)
 		ageRateLimits(api, "kip", staleStamp)
 		ageRateLimits(api, "mira", staleStamp)
 		ageRateLimits(api, "ow-abc123", staleStamp)
@@ -2844,8 +2846,8 @@ func TestHandleGetMonitoringApiMonitoringGet(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		now := time.Now().Unix()
 		staleStamp := float64(now) - telemetryFreshSecs - 60
-		reportFiveHour(t, api, h, "mira", 10, now+4000)
-		reportFiveHour(t, api, h, "kip", 60, now-30)
+		reportSevenDay(t, api, h, "mira", 10, now+4000)
+		reportSevenDay(t, api, h, "kip", 60, now-30)
 		ageRateLimits(api, "mira", staleStamp)
 		ageRateLimits(api, "kip", staleStamp+30)
 

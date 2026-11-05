@@ -174,14 +174,15 @@ func TestShapeWindow(t *testing.T) {
 
 func TestShapeWindows(t *testing.T) {
 	now := 10_000_000.0
-	fiveHour := WindowSeconds["five_hour"]
 	sevenDay := WindowSeconds["seven_day"]
 	fiveMeasuredAt := now - 1
 	sevenMeasuredAt := now - 100
+	// T-222: a reported five_hour window (with a fresh stamp) is ignored, and
+	// its fresh stamp must not vouch for the stale seven_day one.
 	got := ShapeWindows(map[string]any{
 		"five_hour": map[string]any{
 			"used_percentage": 70.0,
-			"resets_at":       now + fiveHour/2,
+			"resets_at":       now + 5*3600/2,
 		},
 		"seven_day": map[string]any{
 			"used_percentage": 40.0,
@@ -191,9 +192,8 @@ func TestShapeWindows(t *testing.T) {
 		"five_hour": fiveMeasuredAt,
 		"seven_day": sevenMeasuredAt,
 	}, 50)
-	five := got["five_hour"]
-	if five == nil || !sameFloatPtr(five.UsedPct, floatPtr(70)) || !sameFloatPtr(five.ElapsedPct, floatPtr(50)) || !sameStringPtr(five.Pace, stringPtr(PaceHot)) {
-		t.Fatalf("five_hour = %#v, want measured hot window", five)
+	if _, has := got["five_hour"]; has || len(got) != 1 {
+		t.Fatalf("ShapeWindows = %#v, want only seven_day (five_hour is no longer shaped)", got)
 	}
 	seven := got["seven_day"]
 	if seven == nil || !sameFloatPtr(seven.UsedPct, floatPtr(40)) || !sameFloatPtr(seven.ElapsedPct, floatPtr(50)) || seven.Pace != nil {
@@ -201,8 +201,8 @@ func TestShapeWindows(t *testing.T) {
 	}
 
 	missing := ShapeWindows(nil, now, nil, 50)
-	if len(missing) != 2 || missing["five_hour"] != nil || missing["seven_day"] != nil {
-		t.Fatalf("ShapeWindows(missing) = %#v, want both named windows nil", missing)
+	if len(missing) != 1 || missing["seven_day"] != nil {
+		t.Fatalf("ShapeWindows(missing) = %#v, want the seven_day window nil", missing)
 	}
 }
 

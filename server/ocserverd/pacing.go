@@ -1,8 +1,9 @@
 package main
 
 // pacing.go — shapes the Claude Code statusLine rate_limits payload
-// (five_hour / seven_day, each used_percentage + resets_at) into used% vs
-// elapsed%. Honest-null: an unmeasurable value is nil, NEVER 0 — the panel
+// (seven_day: used_percentage + resets_at) into used% vs elapsed%. The
+// five_hour window is no longer shaped (T-222): Claude and Codex dropped the
+// 5-hour limit, so a reported five_hour value is ignored. Honest-null: an unmeasurable value is nil, NEVER 0 — the panel
 // must never render a fake 0%. The payload is untrusted free-form JSON.
 
 import (
@@ -12,7 +13,6 @@ import (
 )
 
 var WindowSeconds = map[string]float64{
-	"five_hour": 5 * 3600,
 	"seven_day": 7 * 24 * 3600,
 }
 
@@ -133,10 +133,10 @@ func ShapeWindow(raw any, windowSec, now float64, measuredAt *float64, freshSecs
 }
 
 // measuredAt is PER WINDOW: the fold picks each window independently
-// (pickRateLimitWindow), so one account-wide stamp would let a fresh 5h window
-// vouch for a frozen 7d one.
+// (pickRateLimitWindow), so one account-wide stamp would let a fresh window
+// vouch for a frozen one.
 func ShapeWindows(rateLimits any, now float64, measuredAt map[string]float64, freshSecs float64) map[string]*PaceWindow {
-	out := map[string]*PaceWindow{"five_hour": nil, "seven_day": nil}
+	out := map[string]*PaceWindow{"seven_day": nil}
 	obj, ok := rateLimits.(map[string]any)
 	if !ok {
 		return out

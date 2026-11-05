@@ -45,7 +45,6 @@ const acct = (account: string, limitReached: MonAccountView["limitReached"]): Mo
   displayName: account,
   machine: "seth-m5",
   cost: null,
-  fiveHour: null,
   sevenDay: null,
   limitReached,
 });

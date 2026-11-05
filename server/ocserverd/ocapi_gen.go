@@ -2619,7 +2619,7 @@ type ModelCallWarningDTOKind string
 type ModelCallWarningDTORuntime string
 
 // MonitoringAccountDTO One account's usage. One row per account that reports telemetry carrying an
-// “account“ tag: each “five_hour“/“seven_day“ window is selected
+// “account“ tag: the “seven_day“ window is selected
 // independently from that account's valid “rate_limits“ reports: reports
 // sampled within the telemetry freshness window come first, and among them the
 // later “resets_at“ wins (ties use the report's rate-limit sample time); when
@@ -2638,17 +2638,20 @@ type ModelCallWarningDTORuntime string
 // boxes, so when it spans >1 machine the distinct hosts are comma-joined
 // (single-machine → just that host; honest-empty "" when no agent reports one).
 //
-// Each shaped window additionally carries “measured_at“ — the epoch second the winning report's “used_percentage“ was taken. It is not decoration: “used_pct“ is a SNAPSHOT that freezes the moment the last agent on that account goes away, while “elapsed_pct“ is recomputed from the request's “now“ every single time, so without the stamp a days-old figure and a live one render byte-identically. The stamp is PER WINDOW because the two windows are selected independently — a fresh 5h window must never vouch for a frozen 7d one. Honest-null when nothing stamped the sample; NEVER back-filled with the serving time.
+// Each shaped window additionally carries “measured_at“ — the epoch second the winning report's “used_percentage“ was taken. It is not decoration: “used_pct“ is a SNAPSHOT that freezes the moment the last agent on that account goes away, while “elapsed_pct“ is recomputed from the request's “now“ every single time, so without the stamp a days-old figure and a live one render byte-identically. The stamp is PER WINDOW because each window is selected independently — a fresh sample of one window must never vouch for a frozen one. Honest-null when nothing stamped the sample; NEVER back-filled with the serving time.
 //
 // For the same reason “pace“ is withheld (null) once a snapshot has gone unrefreshed past the telemetry freshness window, or is of unknown age: the verdict compares a frozen number against a moving clock, so it would appear and clear itself purely as time passes, with no new data and nothing the owner could do about it. The NUMBER is still served — only the present-tense judgement is withheld.
 type MonitoringAccountDTO struct {
 	Account string `json:"account"`
 
 	// AccountLabel Reporter-supplied human label 'email(org)' (T-260e). OWNER-ONLY: omitted/null for any non-owner caller — same privacy gate as the display_name label fold. Independent of display_name so an owner alias no longer hides the real identity.
-	AccountLabel *string                 `json:"account_label,omitempty"`
-	Cost         *float64                `json:"cost,omitempty"`
-	DisplayName  *string                 `json:"display_name,omitempty"`
-	FiveHour     *map[string]interface{} `json:"five_hour,omitempty"`
+	AccountLabel *string  `json:"account_label,omitempty"`
+	Cost         *float64 `json:"cost,omitempty"`
+	DisplayName  *string  `json:"display_name,omitempty"`
+
+	// FiveHour Always null since T-222: Claude and Codex dropped the 5-hour limit, so the server no longer shapes a 5-hour window. Kept on the wire so existing readers do not break.
+	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
+	FiveHour *map[string]interface{} `json:"five_hour,omitempty"`
 
 	// LimitReached The account's usage limit refusal that is in force right now: the newest ``rate_limit`` failure any member reported with a reset time while on this account, also after that member has moved to another account, while no member of the account has succeeded after it and the reset time has not passed. null = no limit in force.
 	LimitReached *ModelCallFailureDTO    `json:"limit_reached,omitempty"`

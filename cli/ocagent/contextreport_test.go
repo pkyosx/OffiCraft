@@ -479,7 +479,7 @@ func TestRenderStatusline(t *testing.T) {
 				"\x1b[90m | \x1b[0m\x1b[90m████░░░░░░\x1b[0m \x1b[32m42%\x1b[0m" +
 				"\x1b[90m | \x1b[0m\x1b[33m$1.25\x1b[0m" +
 				"\x1b[90m | \x1b[0m\x1b[90m1h02m\x1b[0m" +
-				"\x1b[90m | \x1b[0m\x1b[90m5h:30%(rst:1h0m) 7d:60%(50%elapsed)\x1b[0m",
+				"\x1b[90m | \x1b[0m\x1b[90m7d:60%(50%elapsed)\x1b[0m", // five_hour in the payload is ignored (T-222)
 		},
 		{
 			name:    "one measured source renders alone, with no separators",
@@ -676,30 +676,32 @@ func TestDurationSegment(t *testing.T) {
 }
 
 func TestRateLimitSegment(t *testing.T) {
-	both := map[string]any{"rate_limits": map[string]any{
-		"five_hour": map[string]any{"used_percentage": 30.0, "resets_at": 1720003600.0},
-		"seven_day": map[string]any{"used_percentage": 60.0, "resets_at": 1720300000.0},
-	}}
 	cases := []struct {
 		name string
 		obj  map[string]any
 		want string
 	}{
-		{"both windows join into one segment", both, "5h:30%(rst:1h0m) 7d:60%(50%elapsed)"},
 		{
-			name: "a window missing resets_at is skipped whole",
+			name: "only the 7-day window renders; a five_hour value is ignored (T-222)",
 			obj: map[string]any{"rate_limits": map[string]any{
-				"five_hour": map[string]any{"used_percentage": 30.0},
+				"five_hour": map[string]any{"used_percentage": 30.0, "resets_at": 1720003600.0},
 				"seven_day": map[string]any{"used_percentage": 60.0, "resets_at": 1720300000.0},
 			}},
 			want: "7d:60%(50%elapsed)",
 		},
 		{
-			name: "a 5h window already past its reset drops the countdown",
+			name: "a five_hour-only payload renders nothing",
 			obj: map[string]any{"rate_limits": map[string]any{
-				"five_hour": map[string]any{"used_percentage": 90.0, "resets_at": 1719999000.0},
+				"five_hour": map[string]any{"used_percentage": 90.0, "resets_at": 1720003600.0},
 			}},
-			want: "5h:90%",
+			want: "",
+		},
+		{
+			name: "a window missing resets_at is skipped whole",
+			obj: map[string]any{"rate_limits": map[string]any{
+				"seven_day": map[string]any{"used_percentage": 60.0},
+			}},
+			want: "",
 		},
 		{name: "no rate_limits renders nothing", obj: map[string]any{}, want: ""},
 	}
@@ -731,27 +733,6 @@ func TestRlWindowFields(t *testing.T) {
 			if used != tc.wantUsed || resets != tc.wantResets || ok != tc.wantOK {
 				t.Errorf("rlWindowFields = (%v, %v, %v), want (%v, %v, %v)",
 					used, resets, ok, tc.wantUsed, tc.wantResets, tc.wantOK)
-			}
-		})
-	}
-}
-
-func TestCompactDuration(t *testing.T) {
-	cases := []struct {
-		seconds float64
-		want    string
-	}{
-		{0, "0m"},
-		{59, "0m"},
-		{60, "1m"},
-		{3599, "59m"},
-		{3600, "1h0m"},
-		{11220, "3h7m"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.want, func(t *testing.T) {
-			if got := compactDuration(tc.seconds); got != tc.want {
-				t.Errorf("compactDuration(%v) = %q, want %q", tc.seconds, got, tc.want)
 			}
 		})
 	}
@@ -1162,7 +1143,7 @@ func TestClaudeAccountUUID(t *testing.T) {
 }
 
 func TestBuildTelemetry(t *testing.T) {
-	t.Run("every measured piece comes back", func(t *testing.T) {
+	t.Run("every measured piece comes back, five_hour dropped (T-222)", func(t *testing.T) {
 		transcript := todayTranscript(t)
 		rl, cost, tokens := buildTelemetry(
 			`{"rate_limits":{"five_hour":{"used_percentage":30,"resets_at":1720000000},` +
@@ -1170,7 +1151,6 @@ func TestBuildTelemetry(t *testing.T) {
 				`"cost":{"total_cost_usd":1.25},"transcript_path":"` + transcript + `"}`)
 
 		wantRL := &rateLimits{
-			FiveHour: &rlWindow{UsedPercentage: 30.0, ResetsAt: 1720000000.0},
 			SevenDay: &rlWindow{UsedPercentage: 60.0, ResetsAt: 1720500000.0},
 		}
 		if !reflect.DeepEqual(rl, wantRL) {

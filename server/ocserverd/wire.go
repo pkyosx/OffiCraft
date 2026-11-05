@@ -718,7 +718,7 @@ type monitoringAccountDTO struct {
 	DisplayName  string      `json:"display_name"`
 	Machine      string      `json:"machine"`
 	Cost         *float64    `json:"cost"`
-	FiveHour     *PaceWindow `json:"five_hour"`
+	FiveHour     *PaceWindow `json:"five_hour"` // T-222: always null (5-hour limit is gone), kept for wire compatibility
 	SevenDay     *PaceWindow `json:"seven_day"`
 
 	LimitReached *modelCallFailureDTO `json:"limit_reached"`
