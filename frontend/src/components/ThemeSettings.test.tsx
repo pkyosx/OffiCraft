@@ -1564,6 +1564,12 @@ describe("ThemeSettings · switch by time of day", () => {
   const section = (utils: ReturnType<typeof render>) => within(utils.getByTestId("theme-schedule"));
   const startInputs = (utils: ReturnType<typeof render>) =>
     section(utils).queryAllByLabelText(new RegExp(`^${s.themeScheduleStart} \\d$`)) as HTMLInputElement[];
+  const listPicks = (utils: ReturnType<typeof render>) =>
+    Array.from(utils.container.querySelectorAll<HTMLButtonElement>("button.ts-pick")).map((b) => [
+      b.textContent,
+      b.disabled,
+      b.classList.contains("ts-pick--active"),
+    ]);
   const rows = (utils: ReturnType<typeof render>) =>
     startInputs(utils).map((input, i) => [
       input.value,
@@ -1594,6 +1600,11 @@ describe("ThemeSettings · switch by time of day", () => {
       ["office", zh.themeIdentity.office],
       ["office-light", zh.themeIdentity.officeLight],
       ["dusk", "黃昏"],
+    ]);
+    expect(listPicks(utils)).toEqual([
+      [zh.themeIdentity.office, true, false],
+      [zh.themeIdentity.officeLight, true, false],
+      ["黃昏", true, false],
     ]);
     expect(patch).not.toHaveBeenCalled();
     expect((await api.getServerSettings()).displayThemeSchedule).toEqual([]);
@@ -1699,6 +1710,11 @@ describe("ThemeSettings · switch by time of day", () => {
     expect(
       section(utils).getByRole("button", { name: s.themeScheduleOff }).getAttribute("aria-pressed")
     ).toBe("true");
+    expect(listPicks(utils)).toEqual([
+      [zh.themeIdentity.office, false, true],
+      [zh.themeIdentity.officeLight, false, false],
+      ["黃昏", false, false],
+    ]);
   });
 
   it("deleting a theme the schedule uses drops the schedule when fewer than two rows would be left", async () => {

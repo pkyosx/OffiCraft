@@ -1116,7 +1116,7 @@ export const en: Dict = {
     layoutNarrow: "Narrow",
     layoutWide: "Wide",
     themeScheduleNote:
-      "The theme is switching by time of day, so a theme picked here shows once the schedule is off. Change it in Settings › Theme.",
+      "The theme is switching by time of day. To go back to one fixed theme, change it in Settings › Theme.",
     seasonalTheme: "Show seasonal theme",
     seasonalThemeOn: "On",
     seasonalThemeOff: "Off",
@@ -2225,11 +2225,11 @@ export const en: Dict = {
     params: "Parameters",
     // ── theme management (T-16a1 P3b): moved here from the profile dropdown ──
     themeManage: "Theme",
-    themeSchedule: "Switch by time of day",
+    themeSchedule: "Theme mode",
     themeScheduleHint:
       "At each time you set, the screen switches to that row's theme (by this device's clock). A seasonal theme still shows during its season.",
-    themeScheduleOn: "On",
-    themeScheduleOff: "Off",
+    themeScheduleOn: "Switch by time of day",
+    themeScheduleOff: "One fixed theme",
     themeScheduleStart: "Starts at",
     themeScheduleTheme: "Theme",
     themeScheduleAdd: "Add a time",

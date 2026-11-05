@@ -165,6 +165,8 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
   } = useI18n();
 
   const [view, setView] = useState<View>("list");
+  const schedule = useThemeScheduleDraft();
+  const scheduling = schedule.draft !== null;
 
   // ── import state ──
   const [importText, setImportText] = useState("");
@@ -1353,6 +1355,8 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
         {t.settings.themeManage}
       </h1>
 
+      <ThemeScheduleSection {...schedule} />
+
       <div className="ts-toolbar">
         <button
           type="button"
@@ -1398,7 +1402,8 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
             <div key={b.id} className="ts-row">
               <button
                 type="button"
-                className={`ts-pick${theme === b.id ? " ts-pick--active" : ""}`}
+                className={`ts-pick${!scheduling && theme === b.id ? " ts-pick--active" : ""}`}
+                disabled={scheduling}
                 onClick={() => setTheme(b.id)}
               >
                 {name}
@@ -1454,7 +1459,8 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
           <div key={b.id} className="ts-row">
             <button
               type="button"
-              className={`ts-pick${theme === b.id ? " ts-pick--active" : ""}`}
+              className={`ts-pick${!scheduling && theme === b.id ? " ts-pick--active" : ""}`}
+              disabled={scheduling}
               onClick={() => setTheme(b.id)}
             >
               {b.name}
@@ -1493,8 +1499,6 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
         </div>
       )}
 
-      <ThemeScheduleSection />
-
       {(() => {
         // The confirm only ever needed the NAME, which the list line carries.
         const target = themeList.find((b) => b.id === confirmDeleteId);
@@ -1521,21 +1525,31 @@ const DEFAULT_SCHEDULE_DRAFT: ThemeScheduleEntry[] = [
   { start: "18:00", theme: "office" },
 ];
 
-function ThemeScheduleSection() {
-  const { t, themeList, themeSchedule, setThemeSchedule } = useI18n();
-  // null = the switch is off. A draft with rows is on but maybe unsaved; the
-  // server only accepts it once there are 2..6 rows, so turning on saves nothing.
+// The draft lives on the page, not in the section: while it is non-null the
+// theme list above cannot pick a theme, so the two never both claim the screen.
+function useThemeScheduleDraft() {
+  const { themeSchedule } = useI18n();
+  // null = 固定一套. A draft with rows is 依時間切換 but maybe unsaved; the
+  // server only accepts it once there are 2..6 rows, so switching mode saves nothing.
   const [draft, setDraft] = useState<ThemeScheduleEntry[] | null>(() =>
     themeSchedule.length ? themeSchedule : null
   );
-  const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState<"" | "saved" | "start" | "duplicate" | "failed">("");
   const savedKey = JSON.stringify(themeSchedule);
   useEffect(() => {
     setDraft(themeSchedule.length ? themeSchedule : null);
     // Keyed on the content: a reconcile re-delivering the same schedule must
     // not throw away rows being edited.
   }, [savedKey]);
+  return { draft, setDraft };
+}
+
+function ThemeScheduleSection({
+  draft,
+  setDraft,
+}: ReturnType<typeof useThemeScheduleDraft>) {
+  const { t, themeList, themeSchedule, setThemeSchedule } = useI18n();
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<"" | "saved" | "start" | "duplicate" | "failed">("");
 
   const save = async (next: ThemeScheduleEntry[]) => {
     const problem = themeScheduleProblem(next);
@@ -1575,8 +1589,16 @@ function ThemeScheduleSection() {
   return (
     <div className="ts-schedule" data-testid="theme-schedule">
       <div className="ts-section-label">{t.settings.themeSchedule}</div>
-      <div className="ts-wording-sub">{t.settings.themeScheduleHint}</div>
       <div className="ts-wording-tabs" role="group" aria-label={t.settings.themeSchedule}>
+        <button
+          type="button"
+          aria-pressed={draft === null}
+          className={`ts-tab${draft === null ? " ts-tab--active" : ""}`}
+          disabled={busy}
+          onClick={turnOff}
+        >
+          {t.settings.themeScheduleOff}
+        </button>
         <button
           type="button"
           aria-pressed={draft !== null}
@@ -1589,16 +1611,8 @@ function ThemeScheduleSection() {
         >
           {t.settings.themeScheduleOn}
         </button>
-        <button
-          type="button"
-          aria-pressed={draft === null}
-          className={`ts-tab${draft === null ? " ts-tab--active" : ""}`}
-          disabled={busy}
-          onClick={turnOff}
-        >
-          {t.settings.themeScheduleOff}
-        </button>
       </div>
+      {draft && <div className="ts-wording-sub">{t.settings.themeScheduleHint}</div>}
       {draft && (
         <div className="ts-list">
           {draft.map((row, i) => (

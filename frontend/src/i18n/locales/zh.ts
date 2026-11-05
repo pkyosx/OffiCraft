@@ -1190,7 +1190,7 @@ export const zh = {
     layout: "版面",
     layoutNarrow: "窄版",
     layoutWide: "寬版",
-    themeScheduleNote: "目前依時間切換主題，這裡選的主題要等關掉時間表才會顯示。到「設定 › 主題」調整。",
+    themeScheduleNote: "目前依時間切換主題。要改回固定一套，到「設定 › 主題」調整。",
     seasonalTheme: "顯示應景主題",
     seasonalThemeOn: "開",
     seasonalThemeOff: "關",
@@ -2246,11 +2246,11 @@ export const zh = {
     params: "參數調整",
     // ── 主題管理 (T-16a1 P3b): moved here from the profile dropdown ──
     themeManage: "主題",
-    themeSchedule: "依時間切換",
+    themeSchedule: "套用方式",
     themeScheduleHint:
       "到了設定的時間，畫面自動換成那一列的主題（依這台裝置的時間）。應景主題期間仍顯示應景主題。",
-    themeScheduleOn: "開",
-    themeScheduleOff: "關",
+    themeScheduleOn: "依時間切換",
+    themeScheduleOff: "固定一套",
     themeScheduleStart: "開始時間",
     themeScheduleTheme: "主題",
     themeScheduleAdd: "新增時間",

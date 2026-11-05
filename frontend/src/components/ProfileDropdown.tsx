@@ -562,7 +562,7 @@ export function ProfileDropdown({
               * order comes from the rendering below — the built-ins are written
               * out first, the packs follow — so no field of a bundle can move a
               * row ahead of the built-ins. */}
-            <select className="profile-dd__input" aria-label={t.profile.theme} value={theme} onChange={(e) => setTheme(e.target.value)}>
+            <select className="profile-dd__input" aria-label={t.profile.theme} value={theme} disabled={themeSchedule.length > 0} onChange={(e) => setTheme(e.target.value)}>
               {BUILTIN_THEMES.map((b) => (
                 <option key={b.id} value={b.id}>{t.themeIdentity[b.nameKey]}</option>
               ))}

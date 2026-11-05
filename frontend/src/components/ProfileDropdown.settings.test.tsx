@@ -86,7 +86,7 @@ describe("ProfileDropdown · preferences scope", () => {
     expect(utils.getByText(p.themeManageHint)).toBeTruthy();
   });
 
-  it("while a theme schedule is on, says the picked theme waits for the schedule to be off; without one, says nothing", async () => {
+  it("while a theme schedule is on, the theme picker is locked and points to the settings page; without one, it picks", async () => {
     await api.patchServerSettings({
       displayThemeSchedule: [
         { start: "07:00", theme: "office-light" },
@@ -96,13 +96,14 @@ describe("ProfileDropdown · preferences scope", () => {
     setToken("owner-token");
     const utils = await openPreferences();
     expect(await utils.findByText(p.themeScheduleNote)).toBeTruthy();
+    expect((utils.getByLabelText(p.theme) as HTMLSelectElement).disabled).toBe(true);
 
     await api.patchServerSettings({ displayThemeSchedule: [] });
     localStorage.removeItem("oc.themeSchedule");
     clearToken();
     utils.unmount();
     const fresh = await openPreferences();
-    expect(fresh.queryByText(p.themeScheduleNote)).toBeNull();
+    expect((fresh.getByLabelText(p.theme) as HTMLSelectElement).disabled).toBe(false);
   });
 
   it("cannot be made to show two identical built-in rows by a theme's NAME", async () => {

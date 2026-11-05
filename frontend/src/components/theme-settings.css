@@ -52,8 +52,13 @@
   font-size: 14px;
   cursor: pointer;
 }
-.ts-pick:hover {
+.ts-pick:hover:enabled {
   border-color: var(--color-accent);
+}
+/* 依時間切換 owns the active theme; the list stays readable for its
+ * download/edit/delete icons but no longer picks. */
+.ts-pick:disabled {
+  cursor: default;
 }
 .ts-pick--active {
   border-color: var(--color-accent);
@@ -414,6 +419,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  margin-bottom: 16px;
 }
 .ts-schedule-start {
   flex: 0 0 8.5em;
