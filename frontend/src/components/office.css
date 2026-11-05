@@ -2162,6 +2162,19 @@ button.chat__msg-file {
   align-items: flex-end;
   gap: 10px;
 }
+/* Occupies the 8px composer gap above the attach button. Invisible and never a
+ * click target; only its box matters (see the input in ChatArea). */
+.chat__file-input--menu-anchor {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  width: 44px;
+  height: 8px;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+  pointer-events: none;
+}
 /* The composer input is a TEXTAREA (Enter sends, Shift+Enter breaks a line).
  * One line reads exactly like the old 44px input (min-height + padding);
  * JS autosize (lib/autosize.ts) grows it with the draft up to max-height,

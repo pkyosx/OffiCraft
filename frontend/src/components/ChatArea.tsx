@@ -746,8 +746,8 @@ export function ChatArea({
       return next;
     });
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  // Hidden native file input the attach button triggers (the iPhone fix — no
-  // Cmd+V needed; tap the paperclip → OS file/photo picker).
+  // Native file input the attach button triggers (the iPhone fix — no Cmd+V
+  // needed; tap the paperclip → OS file/photo picker).
   const fileInputRef = useRef<HTMLInputElement>(null);
   // IME composition guard. While a CJK (中/日/韓) candidate is being composed the
   // input fires keydown with keyCode 229 and a final Enter that CONFIRMS the
@@ -2774,15 +2774,19 @@ export function ChatArea({
             )}
             <div className="chat__composer-row">
               {mention.listProps && <ChatMentionList {...mention.listProps} />}
-              {/* Hidden native file input the attach button triggers. */}
+              {/* iOS anchors its photo/camera/file menu to this input's own box
+               * (WebKit 3511efda2e), so it needs a real box above the row;
+               * `hidden` removes the box and the menu falls back to the tap
+               * point, on top of the attach button and the textarea. */}
               <input
                 ref={fileInputRef}
-                className="chat__file-input"
+                className="chat__file-input chat__file-input--menu-anchor"
                 type="file"
                 accept={ATTACH_ACCEPT}
                 multiple
                 onChange={onPickFile}
-                hidden
+                tabIndex={-1}
+                aria-hidden="true"
               />
               <button
                 type="button"
