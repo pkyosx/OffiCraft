@@ -1,6 +1,8 @@
 // Due-date math for the task card's 到期日 row and the 任務頁 due lanes. All day
 // math is the viewer's LOCAL calendar; every "now" is a parameter.
 
+import type { Dict } from "../i18n/locales/zh";
+
 /** The server's shipped `task_due_soon_lead_minutes`. */
 export const DEFAULT_DUE_SOON_LEAD_MINUTES = 1440;
 
@@ -79,6 +81,14 @@ export function dueState(dueTs: number, nowTs: number, leadMinutes: number): Due
 /** Which due band a due date sits in right now: the 任務頁 due lanes and both
  * pages' 到期 filters. */
 export type DueBucket = "overdue" | "soon" | "later" | "nodue";
+
+/** The 到期 filter's options, in order — shared by 任務頁 and 請示頁. */
+export const DUE_FILTER_KEYS = ["overdue", "soon"] as const satisfies readonly DueBucket[];
+export type DueFilterKey = (typeof DUE_FILTER_KEYS)[number];
+
+export function dueFilterLabel(tasks: Dict["tasks"], key: DueFilterKey): string {
+  return key === "overdue" ? tasks.filterDueOverdue : tasks.filterDueSoon;
+}
 
 export function dueBucketOf(
   dueTs: number | null | undefined,

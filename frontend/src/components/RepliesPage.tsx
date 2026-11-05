@@ -61,7 +61,14 @@ import { MentionRosterContext, useMentionRoster } from "../hooks/useMentionCompo
 import { useReplyCards } from "../hooks/useReplyCards";
 import { useDueSoonLeadMinutes } from "../hooks/useDueSoonLeadMinutes";
 import { useNowSeconds } from "../hooks/useNowSeconds";
-import { dueBucketOf, effectiveLeadMinutes, nextDueChangeAmong } from "../lib/dueDate";
+import {
+  DUE_FILTER_KEYS,
+  dueBucketOf,
+  dueFilterLabel,
+  effectiveLeadMinutes,
+  nextDueChangeAmong,
+  type DueFilterKey,
+} from "../lib/dueDate";
 import { PRIORITIES } from "../lib/taskPriority";
 import { readStoredChoice, writeStoredChoice } from "../lib/storedChoice";
 import {
@@ -115,7 +122,6 @@ const HANDLED_WINDOW_SECONDS = 24 * 3600;
 
 const NO_TASK = "notask";
 const PRIORITY_FILTER_KEYS = [...PRIORITIES, NO_TASK] as const;
-const DUE_FILTER_KEYS = ["overdue", "soon", "dated", "undated"] as const;
 
 /** A handled card's pane stamp (answeredTs / expiredTs — whichever its
  * terminal state carries). */
@@ -304,8 +310,8 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // stays id-only on purpose: it also gates the by-id lookup's three outcomes
   // and the handled pane's force-expand, and an 開卡人 tick must not switch
   // those on (there is no id to have found, missed, or failed to reach).
-  // 優先序 / 期限 — same empty-set convention; a card with no task counts as
-  // 沒有任務的卡 on the first and as 沒有期限 on the second.
+  // 任務優先序 / 任務到期 — same empty-set convention; a card with no task
+  // counts as 沒有任務的卡 on the first and matches no option on the second.
   const [priorityFilter, setPriorityFilter] = useState<Set<string>>(() => new Set());
   const [dueFilter, setDueFilter] = useState<Set<string>>(() => new Set());
   const anyFilter =
@@ -456,14 +462,12 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   const passesPriority = (c: ReplyCardRow) =>
     priorityFilter.size === 0 || priorityFilter.has(priorityKeyOf(c));
   const dueKeysOf = (c: ReplyCardRow): string[] => {
-    const dueTs = c.task?.dueTs ?? null;
-    if (dueTs === null) return ["undated"];
     const bucket = dueBucketOf(
-      dueTs,
+      c.task?.dueTs,
       dueNow,
       effectiveLeadMinutes(c.task?.dueSoonLeadMinutes, workspaceLeadMinutes)
     );
-    return bucket === "overdue" || bucket === "soon" ? ["dated", bucket] : ["dated"];
+    return bucket === "overdue" || bucket === "soon" ? [bucket] : [];
   };
   const passesDue = (c: ReplyCardRow) =>
     dueFilter.size === 0 || dueKeysOf(c).some((k) => dueFilter.has(k));
@@ -733,17 +737,8 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     priorityFilter,
     (k) => (k === NO_TASK ? t.replies.filterPriorityNoTask : (t.tasks.priority[k] ?? k))
   );
-  const dueLabels: Record<(typeof DUE_FILTER_KEYS)[number], string> = {
-    overdue: t.tasks.filterDueOverdue,
-    soon: t.tasks.filterDueSoon,
-    dated: t.replies.filterDueDated,
-    undated: t.replies.filterDueUndated,
-  };
-  const dueOptions = fixedOptions(
-    DUE_FILTER_KEYS,
-    dueCounts,
-    dueFilter,
-    (k) => dueLabels[k as (typeof DUE_FILTER_KEYS)[number]]
+  const dueOptions = fixedOptions(DUE_FILTER_KEYS, dueCounts, dueFilter, (k) =>
+    dueFilterLabel(t.tasks, k as DueFilterKey)
   );
   // 開卡人 下拉的選項在 `whoOf` 之後才建得起來（它要用 `askerNames`），見下方。
 

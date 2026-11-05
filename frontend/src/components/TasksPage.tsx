@@ -36,8 +36,10 @@ import { useI18n } from "../i18n";
 import { taskTypeLabel } from "../lib/taskTypeLabel";
 import { useNowSeconds } from "../hooks/useNowSeconds";
 import {
+  DUE_FILTER_KEYS,
   type DueBucket,
   dueBucketOf,
+  dueFilterLabel,
   effectiveLeadMinutes,
   nextDueChangeAmong,
 } from "../lib/dueDate";
@@ -527,10 +529,10 @@ export function TasksPage() {
     ...typeOptions.map((k) => ({ value: k, label: typeNames.get(k) ?? k })),
     { value: "adhoc", label: t.tasks.adhoc },
   ];
-  const dueFilterOptions: MultiSelectOption[] = [
-    { value: "overdue", label: t.tasks.filterDueOverdue },
-    { value: "soon", label: t.tasks.filterDueSoon },
-  ];
+  const dueFilterOptions: MultiSelectOption[] = DUE_FILTER_KEYS.map((k) => ({
+    value: k,
+    label: dueFilterLabel(t.tasks, k),
+  }));
   const statusGroups: MultiSelectGroup[] = [
     { value: "open", label: t.tasks.openTitle, members: DEFAULT_STATUS },
     { value: "closed", label: t.tasks.closedTitle, members: [...TERMINAL] },
