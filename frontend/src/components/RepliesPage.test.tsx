@@ -962,32 +962,44 @@ describe("RepliesPage", () => {
   // been read. Judged by DOM order, not by geometry: a rendered-later row can
   // still be painted high by CSS, and then the reading order screen readers and
   // keyboards follow would disagree with the picture.
-  it("puts the task row ahead of the summary on both a waiting and a handled card", async () => {
+  it("puts the task row at the top of the card, above the head and the summary, on waiting, snoozed and handled cards", async () => {
     __injectMockReplyCard(
-      mkCard({ task: { id: "t-4", typeKey: "review-pr", title: "改設定頁" } }),
+      mkCard({ id: "rc-w", task: { id: "t-4", typeKey: "review-pr", title: "改設定頁" } }),
     );
     __injectMockReplyCard(
       mkCard({
+        id: "rc-a",
         status: "answered",
         answer: { optionIdxs: [0], text: "好", attachments: [] },
         answeredTs: Date.now() / 1000 - 60,
         task: { id: "t-5", typeKey: "review-pr", title: "改開機說明" },
       }),
     );
+    __injectMockReplyCard(
+      mkCard({
+        id: "rc-s",
+        snoozedUntilTs: Date.now() / 1000 + 3600,
+        task: { id: "t-6", typeKey: "review-pr", title: "改主題" },
+      }),
+    );
     const { findByTestId } = renderPage();
     fireEvent.click(await findByTestId("answered-toggle"));
+    fireEvent.click(await findByTestId("snoozed-toggle"));
     await findByTestId("answered-card");
+    await findByTestId("snoozed-card");
     await openCards();
 
-    for (const testId of ["waiting-card", "answered-card"]) {
+    for (const testId of ["waiting-card", "snoozed-card", "answered-card"]) {
       const card = await findByTestId(testId);
       const ref = card.querySelector('[data-testid="reply-task-ref"]')!;
+      const head = card.querySelector(".reply-card__head")!;
       const summary = card.querySelector(".reply-card__summary")!;
-      expect(ref).toBeTruthy();
-      expect(summary).toBeTruthy();
+      expect(card.firstElementChild).toBe(ref);
       expect(
-        ref.compareDocumentPosition(summary) &
-          Node.DOCUMENT_POSITION_FOLLOWING,
+        ref.compareDocumentPosition(head) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      expect(
+        head.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING,
       ).toBeTruthy();
     }
   });
@@ -1205,6 +1217,15 @@ describe("RepliesPage", () => {
         task: task("T-5", "high", now - 60),
       })
     );
+    __injectMockReplyCard(
+      mkCard({
+        id: "rc-handled-mid",
+        createdTs: now - 5 * 3600,
+        status: "answered",
+        answeredTs: now - 1800,
+        answer: { optionIdxs: [0], text: "", attachments: [] },
+      })
+    );
     __injectMockReplyCard(mkCard({ id: "rc-snz-late", createdTs: now - 30, snoozedUntilTs: now + 7200, task: task("T-6", "high", now - 60) }));
     __injectMockReplyCard(mkCard({ id: "rc-snz-soon", createdTs: now - 5 * 3600, snoozedUntilTs: now + 3600, task: task("T-7", "low") }));
     localStorage.removeItem("oc_replies_sort");
@@ -1213,7 +1234,7 @@ describe("RepliesPage", () => {
     expect(paneIds("waiting-card")).toEqual(["rc-notask", "rc-low", "rc-mid", "rc-high", "rc-frozen"]);
     fireEvent.click(await first.findByTestId("snoozed-toggle"));
     fireEvent.click(await first.findByTestId("answered-toggle"));
-    await waitFor(() => expect(paneIds("answered-card")).toHaveLength(2));
+    await waitFor(() => expect(paneIds("answered-card")).toHaveLength(3));
     expect(first.queryByTestId("replies-sort-active")).toBeNull();
 
     fireEvent.click(first.getByTestId("display-options"));
@@ -1234,7 +1255,7 @@ describe("RepliesPage", () => {
       fireEvent.change(select, { target: { value } });
       expect(paneIds("waiting-card")).toEqual(order);
       expect(paneIds("snoozed-card")).toEqual(["rc-snz-soon", "rc-snz-late"]);
-      expect(paneIds("answered-card")).toEqual(["rc-handled", "rc-handled-early"]);
+      expect(paneIds("answered-card")).toEqual(["rc-handled", "rc-handled-mid", "rc-handled-early"]);
       expect(localStorage.getItem("oc_replies_sort")).toBe(value);
     }
     expect(first.queryByTestId("replies-sort-active")).toBeNull();
@@ -1249,7 +1270,7 @@ describe("RepliesPage", () => {
     localStorage.removeItem("oc_replies_sort");
   });
 
-  it("a card naming a task → one task row between head and question: #number, priority, due date in its tone, title, 查看任務 → #tasks/<id>", async () => {
+  it("a card naming a task → one task row at the top, above the head: #number, priority, due date in its tone, title, 查看任務 → #tasks/<id>", async () => {
     const now = Date.now() / 1000;
     __injectMockReplyCard(
       mkCard({
@@ -1309,8 +1330,9 @@ describe("RepliesPage", () => {
     const card = document.querySelector('[data-reply-card-id="rc-over"]')!;
     const head = card.querySelector(".reply-card__head")!;
     const summary = card.querySelector(".reply-card__summary")!;
-    expect(head.compareDocumentPosition(over) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(over.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(card.firstElementChild).toBe(over);
+    expect(over.compareDocumentPosition(head) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(head.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     const tone = (id: string) => rowOf(id).querySelector('[data-testid="reply-task-due"]')!.className;
     expect(tone("rc-own-lead")).toBe("task-card__chip task-card__due-date--soon");
@@ -1500,7 +1522,7 @@ describe("RepliesPage", () => {
     const before = listSpy.mock.calls.length;
     fireEvent.click(getByTestId("unsnooze-card"));
     expect((await findByTestId("replies-action-error")).textContent).toBe(
-      "這張卡已經回覆或標為過期，不能再延後"
+      "這張卡已經回覆或標為過期，不用再取消延後"
     );
     expect(queryByTestId("unsnooze-error")).toBeNull();
     await waitFor(() => expect(listSpy.mock.calls.length).toBeGreaterThan(before));

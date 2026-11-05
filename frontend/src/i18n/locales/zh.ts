@@ -731,6 +731,7 @@ export const zh = {
     snoozedHint: "時間到會自動回到請示",
     unsnooze: "取消延後",
     unsnoozeError: "取消延後失敗，請稍後重試",
+    unsnoozeStale: "這張卡已經回覆或標為過期，不用再取消延後",
   },
   office: {
     membersTitle: "辦公室成員",

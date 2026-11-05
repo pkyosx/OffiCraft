@@ -706,6 +706,7 @@ export const en: Dict = {
     snoozedHint: "Each comes back to Ask at its time",
     unsnooze: "Bring back now",
     unsnoozeError: "Couldn't bring it back. Please try again.",
+    unsnoozeStale: "This card was already answered or expired, so there is nothing to bring back.",
   },
   office: {
     membersTitle: "Office members",

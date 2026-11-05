@@ -1095,6 +1095,7 @@ var messageKeys = map[string]bool{
 	"replies.sortPriority":                             true,
 	"replies.unsnooze":                                 true,
 	"replies.unsnoozeError":                            true,
+	"replies.unsnoozeStale":                            true,
 	"replies.viewOptions":                              true,
 	"replies.viewTask":                                 true,
 	"replies.waitedLabel":                              true,

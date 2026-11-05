@@ -730,14 +730,14 @@
   text-decoration: underline;
 }
 
-/* The 請示 page's task row: ruled off from the head and the question. It wraps
- * on a narrow card — chips first, then the title, the jump held at the end. */
+/* The 請示 page's task row: the card's top line, ruled off from the head below
+ * it. It wraps on a narrow card — chips first, then the title, the jump held at
+ * the end. */
 .reply-card__task--row {
   flex-wrap: wrap;
   gap: 6px 10px;
-  margin-top: 10px;
-  padding: 7px 0;
-  border-top: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
+  margin: 0;
+  padding: 0 0 10px;
   border-bottom: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
 }
 .reply-card__task-chips {

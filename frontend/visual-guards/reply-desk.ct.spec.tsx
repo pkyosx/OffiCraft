@@ -73,6 +73,7 @@ for (const width of [390, 1440]) {
       if ((await row.count()) === 0) continue;
       const rowBox = await box(row);
       expect(inside(rowBox, cardBox), "task row inside the card").toBe(true);
+      expect(rowBox.bottom, "task row above the head").toBeLessThanOrEqual((await box(card.locator(".reply-card__head"))).top);
       for (const part of await row.locator(".reply-card__task-chips > *, .reply-card__task-title, .reply-card__task-jump").all()) {
         expect(inside(await box(part), rowBox), `${await part.textContent()} inside the task row`).toBe(true);
       }

@@ -1056,8 +1056,8 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
 
   // A 409 is the server saying the card is no longer waiting (answered or
   // expired elsewhere): say so and re-read, like a stale answer.
-  async function reportStaleSnooze() {
-    setActionError(t.replies.snoozeStale);
+  async function reportStaleSnooze(message: string) {
+    setActionError(message);
     await refresh().catch((err) =>
       console.warn("RepliesPage: stale-snooze refresh failed", err)
     );
@@ -1072,7 +1072,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     } catch (e) {
       console.warn("RepliesPage: snooze failed", e);
       if (!isHttpStatus(e, 409)) return "failed";
-      await reportStaleSnooze();
+      await reportStaleSnooze(t.replies.snoozeStale);
       return "stale";
     }
   }
@@ -1090,7 +1090,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
       setLookupNonce((n) => n + 1);
     } catch (e) {
       console.warn("RepliesPage: unsnooze failed", e);
-      if (isHttpStatus(e, 409)) await reportStaleSnooze();
+      if (isHttpStatus(e, 409)) await reportStaleSnooze(t.replies.unsnoozeStale);
       else setUnsnoozeErrors((prev) => new Set(prev).add(id));
     }
   }
@@ -1109,7 +1109,8 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
    * 🔴 NOT `row.task`: that is the task the CARD is bound to, which the owner
    * explicitly ruled out of this ticket (the binding logic is untouched) and
    * which is null on a plain chat ask. This line is the WORKER's, so it shows
-   * even on a card bound to nothing, and it shows the SAME task the rail does.
+   * even on a card bound to nothing — and also when the card's task row names
+   * the same task — and it shows the SAME task the rail does.
    *
    * A staff asker renders nothing here: `MemberDTO` carries no task at all, so
    * there is no such fact to tell for a member — see the ResumeRoster ruling
@@ -1140,8 +1141,6 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     // this check exists for. An absent status (an older server) falls on the
     // silent side too: not knowing is not evidence of current work.
     if (worker.status !== "assigned" && worker.status !== "active") return null;
-    // The card's own task row already names this task, with more detail.
-    if (row.task && worker.taskId === row.task.id) return null;
     // An empty taskId is the other honest nothing: the worker holds no task, or
     // the server could not resolve the one it holds. `OutsourceTaskLine` always
     // draws its type slot, falling back to 自由代辦 — true on the rail, where a
@@ -1242,7 +1241,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     );
   }
 
-  /** One card. The head + task row are ALWAYS drawn (that is the collapsed
+  /** One card. The task row + head are ALWAYS drawn (that is the collapsed
    * line); opening adds the QUESTION under them. The whole article is the
    * toggle — see `onCardToggleClick`. */
   function renderCard(
@@ -1276,9 +1275,9 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
         onClick={(e) => onCardToggleClick(e, row.id)}
         onKeyDown={(e) => onCardToggleKeyDown(e, row.id)}
       >
+        {renderTaskRef(row)}
         {renderHead(row, opts.stamp, opts.expirable, opts.actions)}
         {opts.notice}
-        {renderTaskRef(row)}
         {/* The ask's TITLE, drawn once and in ONE place — always visible, above
           * the fold of a collapsed card. It is the third line of the head strip
           * the collapsed row copies (owner 2026-09-11「折疊起來那一列的內容不要另外

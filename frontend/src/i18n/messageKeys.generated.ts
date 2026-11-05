@@ -1094,6 +1094,7 @@ export const MESSAGE_KEYS: readonly string[] = [
   "replies.sortPriority",
   "replies.unsnooze",
   "replies.unsnoozeError",
+  "replies.unsnoozeStale",
   "replies.viewOptions",
   "replies.viewTask",
   "replies.waitedLabel",
