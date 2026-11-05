@@ -123,6 +123,7 @@ describe("ProfileDropdown · preferences scope", () => {
 
     fireEvent.click(utils.getByRole("button", { name: "pill" }));
     fireEvent.click(utils.getByText(p.preferences));
+    await waitFor(() => expect(themeStatus(utils)).toContain(p.themeEntryScheduled));
     fireEvent.click(utils.getByTestId("theme-entry"));
     const firstStart = async () =>
       (await within(utils.getByRole("dialog")).findByLabelText(
