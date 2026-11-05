@@ -15,6 +15,10 @@
     "id": "thanksgiving-2026",
     "start": "2026-11-16T00:00",
     "end": "2026-11-27T00:00",
-    "theme": "thanksgiving-2026.theme.json"
+    "schedule": [
+      { "start": "06:00", "theme": "thanksgiving-2026-day.theme.json" },
+      { "start": "16:00", "theme": "thanksgiving-2026-dusk.theme.json" },
+      { "start": "18:30", "theme": "thanksgiving-2026-night.theme.json" }
+    ]
   }
 ]
