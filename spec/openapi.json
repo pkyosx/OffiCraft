@@ -5145,7 +5145,7 @@
       },
       "ReplyCardCountDTO": {
         "additionalProperties": false,
-        "description": "Reply-card counts. ``waiting`` is the cockpit navigation badge: how many reply cards are currently WAITING for the owner (answered/expired cards never count — the badge counts 待回覆 only). ``answered`` is the count of recently-answered cards (within the 24h 近期已回覆 window) and ``expired`` the count of recently-expired cards (the same 24h window keyed off ``expired_ts``) — together they let the 等我回覆 page render its collapsed 近期已處理 header (and hide the pane at zero) WITHOUT fetching the lists; the lists load only when the owner expands the pane.",
+        "description": "Reply-card counts. ``waiting`` is the cockpit navigation badge: how many reply cards are currently WAITING for the owner (answered/expired cards never count — the badge counts 待回覆 only), leaving out a card the owner has snoozed until its ``snoozed_until_ts`` passes. ``answered`` is the count of recently-answered cards (within the 24h 近期已回覆 window) and ``expired`` the count of recently-expired cards (the same 24h window keyed off ``expired_ts``) — together they let the 等我回覆 page render its collapsed 近期已處理 header (and hide the pane at zero) WITHOUT fetching the lists; the lists load only when the owner expands the pane.",
         "properties": {
           "answered": {
             "title": "Answered",
@@ -5553,6 +5553,18 @@
             "description": "Read-only, derived: the named task's current priority (``high``, ``mid``, ``low`` or ``frozen``), read when the card is fetched, so a later change to the task's priority shows here. ``null`` when the card names no task. A card has no priority of its own.",
             "title": "Priority"
           },
+          "snoozed_until_ts": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Epoch seconds until which the owner has put this waiting card aside (稍後再看). Non-null only while that time is still ahead when the list is read; ``null`` on a card that was never snoozed, whose snooze has passed, or that is no longer waiting. A snoozed card is still waiting: it stays in ``?status=waiting`` and can be answered or expired as usual, but the owner's badge count (``GET /api/reply-cards/count``) leaves it out until the time passes.",
+            "title": "Snoozed Until Ts"
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -5683,6 +5695,33 @@
           "status"
         ],
         "title": "ReplyCardReceiptDTO",
+        "type": "object"
+      },
+      "ReplyCardSnoozeDTO": {
+        "additionalProperties": false,
+        "description": "The owner's 稍後再看 on a waiting card that names no task (``PUT /api/reply-cards/{card_id}/snooze``), and that write's receipt. ``snoozed_until_ts`` is epoch seconds and must be in the future; ``null`` takes the card out of 已延後 now.",
+        "properties": {
+          "id": {
+            "description": "Receipt only: the card written. Ignored on the request.",
+            "title": "Id",
+            "type": "string"
+          },
+          "snoozed_until_ts": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snoozed Until Ts"
+          }
+        },
+        "required": [
+          "snoozed_until_ts"
+        ],
+        "title": "ReplyCardSnoozeDTO",
         "type": "object"
       },
       "ReportWakingDTO": {
@@ -20345,7 +20384,7 @@
     },
     "/api/reply-cards": {
       "get": {
-        "description": "- Light rows only: the summary, plus on an answered row the decision digest — never the body or full options.\n- ?status=waiting (default): waiting on the owner, by the priority of the task each card names (high, mid, low, frozen; a card naming no task counts as mid), then that task's due date (cards with one first, soonest first; a card naming no task has none), then longest-waiting first. Both are read from the task when the list is asked for.\n- ?status=answered / ?status=expired: the last 24 hours only, newest first.\n- ?limit=N caps rows AFTER the pane is ordered; absent or non-positive returns the whole pane.\n- Read one card in full with get_reply_card.",
+        "description": "- Light rows only: the summary, plus on an answered row the decision digest — never the body or full options.\n- ?status=waiting (default): waiting on the owner, by the priority of the task each card names (high, mid, low, frozen; a card naming no task counts as mid), then that task's due date (cards with one first, soonest first; a card naming no task has none), then longest-waiting first. Both are read from the task when the list is asked for. A card the owner has snoozed stays in this pane with ``snoozed_until_ts`` set.\n- ?status=answered / ?status=expired: the last 24 hours only, newest first.\n- ?limit=N caps rows AFTER the pane is ordered; absent or non-positive returns the whole pane.\n- Read one card in full with get_reply_card.",
         "operationId": "handle_list_reply_cards_api_reply_cards_get",
         "parameters": [
           {
@@ -20864,6 +20903,79 @@
           },
           "name": "expire_reply_card",
           "order": 37
+        }
+      }
+    },
+    "/api/reply-cards/{card_id}/snooze": {
+      "put": {
+        "description": "- Owner only, from the 請示 page: puts a WAITING card that names no task aside until ``snoozed_until_ts`` (稍後再看), or with ``null`` brings it back now.\n- The card stays waiting and can still be answered or expired; until the time passes it is left out of the owner's badge count and the page shows it under 已延後. It returns by itself — nothing is written when the time passes.\n- 400 when the time is not in the future, 404 unknown, 409 when the card names a task (its urgency is the task's) or is no longer waiting.\n- Emits a `reply_card` event to the owner only; the card's author is not told.",
+        "operationId": "handle_snooze_reply_card_api_reply_cards__card_id__snooze_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "card_id",
+            "required": true,
+            "schema": {
+              "title": "Card Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplyCardSnoozeDTO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReplyCardSnoozeDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Validation error (unified error envelope)."
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Client error (unified error envelope)."
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelopeDTO"
+                }
+              }
+            },
+            "description": "Server error (unified error envelope)."
+          }
+        },
+        "summary": "Snooze or unsnooze a waiting card that names no task (owner only).",
+        "x-mcp": {
+          "include": false
         }
       }
     },

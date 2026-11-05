@@ -726,3 +726,13 @@
 .reply-card__task-jump:hover {
   text-decoration: underline;
 }
+
+/* 稍後再看: the menu hangs under its button, using the task card's menu look. */
+.reply-card__snooze {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+}
+.reply-card__snooze-pop {
+  min-width: 140px;
+}

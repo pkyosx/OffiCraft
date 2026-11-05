@@ -2952,7 +2952,7 @@ type ReplyCardAnswerPostDTO struct {
 	Text         *string `json:"text,omitempty"`
 }
 
-// ReplyCardCountDTO Reply-card counts. “waiting“ is the cockpit navigation badge: how many reply cards are currently WAITING for the owner (answered/expired cards never count — the badge counts 待回覆 only). “answered“ is the count of recently-answered cards (within the 24h 近期已回覆 window) and “expired“ the count of recently-expired cards (the same 24h window keyed off “expired_ts“) — together they let the 等我回覆 page render its collapsed 近期已處理 header (and hide the pane at zero) WITHOUT fetching the lists; the lists load only when the owner expands the pane.
+// ReplyCardCountDTO Reply-card counts. “waiting“ is the cockpit navigation badge: how many reply cards are currently WAITING for the owner (answered/expired cards never count — the badge counts 待回覆 only), leaving out a card the owner has snoozed until its “snoozed_until_ts“ passes. “answered“ is the count of recently-answered cards (within the 24h 近期已回覆 window) and “expired“ the count of recently-expired cards (the same 24h window keyed off “expired_ts“) — together they let the 等我回覆 page render its collapsed 近期已處理 header (and hide the pane at zero) WITHOUT fetching the lists; the lists load only when the owner expands the pane.
 type ReplyCardCountDTO struct {
 	Answered int `json:"answered"`
 	Expired  int `json:"expired"`
@@ -3061,10 +3061,13 @@ type ReplyCardListItemDTO struct {
 	Kind      string   `json:"kind"`
 
 	// Priority Read-only, derived: the named task's current priority (``high``, ``mid``, ``low`` or ``frozen``), read when the card is fetched, so a later change to the task's priority shows here. ``null`` when the card names no task. A card has no priority of its own.
-	Priority *string     `json:"priority,omitempty"`
-	Status   string      `json:"status"`
-	Summary  *string     `json:"summary,omitempty"`
-	Task     *TaskRefDTO `json:"task,omitempty"`
+	Priority *string `json:"priority,omitempty"`
+
+	// SnoozedUntilTs Epoch seconds until which the owner has put this waiting card aside (稍後再看). Non-null only while that time is still ahead when the list is read; ``null`` on a card that was never snoozed, whose snooze has passed, or that is no longer waiting. A snoozed card is still waiting: it stays in ``?status=waiting`` and can be answered or expired as usual, but the owner's badge count (``GET /api/reply-cards/count``) leaves it out until the time passes.
+	SnoozedUntilTs *float64    `json:"snoozed_until_ts,omitempty"`
+	Status         string      `json:"status"`
+	Summary        *string     `json:"summary,omitempty"`
+	Task           *TaskRefDTO `json:"task,omitempty"`
 
 	// TaskExecutor The acting executor of the card's task, read when this response is built (it follows a reassignment), so the reader can tell an answer that concerns its own task from one that concerns somebody else's. Empty when the card names no task, when that task has no executor, or when the task is closed. A member's listener treats a card as its own when ``from`` OR ``task_executor`` is that member.
 	TaskExecutor *string `json:"task_executor,omitempty"`
@@ -3099,6 +3102,13 @@ type ReplyCardReceiptDTO struct {
 
 	// TaskId The task this card was bound to, empty for an unbound chat 請示. Present because answering or expiring a bound card RELEASES that task's step from waiting_owner - that release is what the write DID, and it is the caller's next place to act.
 	TaskId *string `json:"task_id,omitempty"`
+}
+
+// ReplyCardSnoozeDTO The owner's 稍後再看 on a waiting card that names no task (“PUT /api/reply-cards/{card_id}/snooze“), and that write's receipt. “snoozed_until_ts“ is epoch seconds and must be in the future; “null“ takes the card out of 已延後 now.
+type ReplyCardSnoozeDTO struct {
+	// Id Receipt only: the card written. Ignored on the request.
+	Id             *string  `json:"id,omitempty"`
+	SnoozedUntilTs *float64 `json:"snoozed_until_ts"`
 }
 
 // ReportWakingDTO Body for “report_waking()“ — the boot report (identity from token, NO
@@ -5549,6 +5559,9 @@ type HandleAnswerReplyCardApiReplyCardsCardIdAnswerPostJSONRequestBody = ReplyCa
 // HandleReanswerReplyCardApiReplyCardsCardIdAnswerPutJSONRequestBody defines body for HandleReanswerReplyCardApiReplyCardsCardIdAnswerPut for application/json ContentType.
 type HandleReanswerReplyCardApiReplyCardsCardIdAnswerPutJSONRequestBody = ReplyCardAnswerPostDTO
 
+// HandleSnoozeReplyCardApiReplyCardsCardIdSnoozePutJSONRequestBody defines body for HandleSnoozeReplyCardApiReplyCardsCardIdSnoozePut for application/json ContentType.
+type HandleSnoozeReplyCardApiReplyCardsCardIdSnoozePutJSONRequestBody = ReplyCardSnoozeDTO
+
 // HandleCreateRoleApiRolesPostJSONRequestBody defines body for HandleCreateRoleApiRolesPost for application/json ContentType.
 type HandleCreateRoleApiRolesPostJSONRequestBody = RoleCreateDTO
 
@@ -6326,6 +6339,9 @@ type ServerInterface interface {
 	// Mark a waiting card expired (its author, the owner, or an admin agent; not an answer; terminal).
 	// (POST /api/reply-cards/{card_id}/expire)
 	HandleExpireReplyCardApiReplyCardsCardIdExpirePost(w http.ResponseWriter, r *http.Request, cardId string)
+	// Snooze or unsnooze a waiting card that names no task (owner only).
+	// (PUT /api/reply-cards/{card_id}/snooze)
+	HandleSnoozeReplyCardApiReplyCardsCardIdSnoozePut(w http.ResponseWriter, r *http.Request, cardId string)
 	// Bounded LIGHT wake snapshot for the caller (identity-locked; recent chat + light open-task rows + size overview — peek sizes first, pull detail via get_task). CHAT is packed newest-first under a CHARACTER BUDGET, not a fixed message count, and stopping at the last message that still fits; each message carries from_name/to_name beside the ids and ts_display (full date + time + zone offset) beside the epoch ts, and folds in its reply card as `card` when it has one — read every ts_display against the top-level `generated_at`. TWO DIFFERENT things can be missing and they are marked DIFFERENTLY: `body_omitted_chars` > 0 means THAT message is here with that many characters COLLAPSED away (another agent's line — the owner's line and your own hand-off notes to yourself are carried in full), re-read it with get_chat; `chat_earlier_omitted` is the other kind and it is a MAYBE, not a fact: that line was cut at a read or budget limit and nothing looked past the cut, so whole messages may be missing from this payload entirely — it is raised even when there is in fact nothing older. Its hint tells you how to CHECK and fetch them. The two are asymmetric ON PURPOSE: the collapse marker is CERTAIN (that message IS here, shortened, exact count); this one is not, and only the fetch settles it. Also carries the STUDIO FLOOR you wake up onto: roster (every member and contractor, each with online/offline status, the machine it runs on, and its duty capped at 1000 chars with `…` marking a cut, the cap applied after the doc's own leading title line is removed — who to ask for help; no insight by owner ruling. Contractors additionally carry their bound task's status, waiting_reason, and step progress (progress_done/progress_total) — members leave these at their zero value; a contractor's 0/0 is ambiguous (a task with no steps yet, or no task at all) and task_status is what tells them apart, non-empty vs empty) and machines (the machine list plus you_are_on, your server-recorded machine binding — never derive it from a hostname).
 	// (GET /api/resume-summary)
 	HandleResumeSummaryApiResumeSummaryGet(w http.ResponseWriter, r *http.Request)
@@ -9991,6 +10007,32 @@ func (siw *ServerInterfaceWrapper) HandleExpireReplyCardApiReplyCardsCardIdExpir
 	handler.ServeHTTP(w, r)
 }
 
+// HandleSnoozeReplyCardApiReplyCardsCardIdSnoozePut operation middleware
+func (siw *ServerInterfaceWrapper) HandleSnoozeReplyCardApiReplyCardsCardIdSnoozePut(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "card_id" -------------
+	var cardId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "card_id", r.PathValue("card_id"), &cardId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "card_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleSnoozeReplyCardApiReplyCardsCardIdSnoozePut(w, r, cardId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // HandleResumeSummaryApiResumeSummaryGet operation middleware
 func (siw *ServerInterfaceWrapper) HandleResumeSummaryApiResumeSummaryGet(w http.ResponseWriter, r *http.Request) {
 
@@ -12107,6 +12149,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/reply-cards/{card_id}/answer", wrapper.HandleAnswerReplyCardApiReplyCardsCardIdAnswerPost)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/reply-cards/{card_id}/answer", wrapper.HandleReanswerReplyCardApiReplyCardsCardIdAnswerPut)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/reply-cards/{card_id}/expire", wrapper.HandleExpireReplyCardApiReplyCardsCardIdExpirePost)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/reply-cards/{card_id}/snooze", wrapper.HandleSnoozeReplyCardApiReplyCardsCardIdSnoozePut)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/resume-summary", wrapper.HandleResumeSummaryApiResumeSummaryGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/resume-summary-size", wrapper.HandlePeekResumeSummarySizeApiResumeSummarySizeGet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/roles", wrapper.HandleListRolesApiRolesGet)

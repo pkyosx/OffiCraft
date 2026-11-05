@@ -101,6 +101,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -120,10 +121,18 @@ function handledTs(c: ReplyCardRow): number {
 }
 
 interface UseReplyCards {
-  /** Cards still waiting for the owner — server-ordered LONGEST-WAITING FIRST.
+  /** Cards still waiting for the owner — server-ordered LONGEST-WAITING FIRST —
+   * minus the ones the owner snoozed until a time still ahead (`snoozed`).
    * This IS the single authoritative waiting source: the nav badge counts its
    * length, the page renders it, the title reads its length. */
   waiting: ReplyCardRow[];
+  /** Waiting cards the owner put aside with 稍後再看, soonest back first. Each
+   * moves back into `waiting` by itself when its time passes — this provider
+   * re-evaluates at the earliest return time, with no refetch. */
+  snoozed: ReplyCardRow[];
+  /** Snooze a task-less waiting card until `untilTs` (epoch seconds), or bring
+   * it back with null. Folds the write's receipt into the row, like `answer`. */
+  snooze: (id: string, untilTs: number | null) => Promise<void>;
   /** Cards answered OR expired within the last 24h — merged, newest handled
    * first. EMPTY until `loadHandled()` is called (the pane is collapsed by
    * default). */
@@ -176,7 +185,10 @@ export function ReplyCardsProvider({ children }: { children: ReactNode }) {
 }
 
 function useReplyCardsState(): UseReplyCards {
+  // EVERY waiting row the server listed, snoozed ones included; the split into
+  // `waiting` / `snoozed` happens at return, against `clock`.
   const [waiting, setWaiting] = useState<ReplyCardRow[]>([]);
+  const [clock, setClock] = useState(() => Date.now() / 1000);
   const [handled, setHandled] = useState<ReplyCardRow[]>([]);
   const [handledCount, setHandledCount] = useState(0);
   const [handledLoaded, setHandledLoaded] = useState(false);
@@ -245,6 +257,7 @@ function useReplyCardsState(): UseReplyCards {
       const next = heldBack.length ? w.filter((c) => !adopted.has(c.id)) : w;
       setWaiting(next);
       waitingRef.current = next;
+      setClock(Date.now() / 1000);
       // The counts came from the SAME (pre-write) snapshot as the rows we just
       // held back, so add them: otherwise the 近期已處理 header would drop by
       // one for as long as the hold lasts.
@@ -484,8 +497,42 @@ function useReplyCardsState(): UseReplyCards {
     [adoptWrite]
   );
 
+  const snooze = useCallback(async (id: string, untilTs: number | null) => {
+    const r = await api.snoozeReplyCard(id, untilTs);
+    const next = waitingRef.current.map((c) =>
+      c.id === r.id ? { ...c, snoozedUntilTs: r.snoozedUntilTs } : c
+    );
+    waitingRef.current = next;
+    setWaiting(next);
+    setClock(Date.now() / 1000);
+  }, []);
+
+  const visibleWaiting = useMemo(
+    () => waiting.filter((c) => !((c.snoozedUntilTs ?? 0) > clock)),
+    [waiting, clock]
+  );
+  const snoozed = useMemo(
+    () =>
+      waiting
+        .filter((c) => (c.snoozedUntilTs ?? 0) > clock)
+        .sort((a, b) => (a.snoozedUntilTs ?? 0) - (b.snoozedUntilTs ?? 0)),
+    [waiting, clock]
+  );
+  // Wake at the earliest return so the card (and the badge) come back on time
+  // even with the page closed. Capped because setTimeout overflows past ~24.8
+  // days; an early wake moves `clock`, which re-arms.
+  const nextReturn = snoozed[0]?.snoozedUntilTs ?? null;
+  useEffect(() => {
+    if (nextReturn === null) return;
+    const ms = Math.min((nextReturn - Date.now() / 1000) * 1000 + 250, 24 * 3600 * 1000);
+    const timer = window.setTimeout(() => setClock(Date.now() / 1000), Math.max(0, ms));
+    return () => window.clearTimeout(timer);
+  }, [nextReturn, clock]);
+
   return {
-    waiting,
+    waiting: visibleWaiting,
+    snoozed,
+    snooze,
     handled,
     refresh,
     handledCount,

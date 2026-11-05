@@ -1255,7 +1255,7 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 				"answer":        nil,
 				"task":          map[string]any{"id": "T-1", "type_key": "", "title": "Ship it"},
 				"task_executor": "kip",
-				"priority":      "mid", "due_ts": nil, "due_soon_lead_minutes": nil,
+				"priority":      "mid", "due_ts": nil, "due_soon_lead_minutes": nil, "snoozed_until_ts": nil,
 			},
 		}))
 		status, card := apiJSON(t, h, "GET", "/api/reply-cards/"+cardID, owner, "")
@@ -1306,7 +1306,7 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 				"answer":        nil,
 				"task":          nil,
 				"task_executor": "",
-				"priority":      nil, "due_ts": nil, "due_soon_lead_minutes": nil,
+				"priority":      nil, "due_ts": nil, "due_soon_lead_minutes": nil, "snoozed_until_ts": nil,
 			},
 			map[string]any{
 				"id":            second,
@@ -1320,7 +1320,7 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 				"answer":        nil,
 				"task":          nil,
 				"task_executor": "",
-				"priority":      nil, "due_ts": nil, "due_soon_lead_minutes": nil,
+				"priority":      nil, "due_ts": nil, "due_soon_lead_minutes": nil, "snoozed_until_ts": nil,
 			},
 		}))
 		dashboard.wantFrames()
@@ -1347,7 +1347,7 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 				"answer":        nil,
 				"task":          nil,
 				"task_executor": "",
-				"priority":      nil, "due_ts": nil, "due_soon_lead_minutes": nil,
+				"priority":      nil, "due_ts": nil, "due_soon_lead_minutes": nil, "snoozed_until_ts": nil,
 			},
 		}))
 	})
@@ -1379,7 +1379,7 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 					"answer":        nil,
 					"task":          nil,
 					"task_executor": "",
-					"priority":      nil, "due_ts": nil, "due_soon_lead_minutes": nil,
+					"priority":      nil, "due_ts": nil, "due_soon_lead_minutes": nil, "snoozed_until_ts": nil,
 				},
 				map[string]any{
 					"id":            third,
@@ -1393,7 +1393,7 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 					"answer":        nil,
 					"task":          nil,
 					"task_executor": "",
-					"priority":      nil, "due_ts": nil, "due_soon_lead_minutes": nil,
+					"priority":      nil, "due_ts": nil, "due_soon_lead_minutes": nil, "snoozed_until_ts": nil,
 				},
 			}))
 	})
@@ -1422,7 +1422,7 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 						"answer":        nil,
 						"task":          nil,
 						"task_executor": "",
-						"priority":      nil, "due_ts": nil, "due_soon_lead_minutes": nil,
+						"priority":      nil, "due_ts": nil, "due_soon_lead_minutes": nil, "snoozed_until_ts": nil,
 					},
 					map[string]any{
 						"id":            second,
@@ -1436,7 +1436,7 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 						"answer":        nil,
 						"task":          nil,
 						"task_executor": "",
-						"priority":      nil, "due_ts": nil, "due_soon_lead_minutes": nil,
+						"priority":      nil, "due_ts": nil, "due_soon_lead_minutes": nil, "snoozed_until_ts": nil,
 					},
 				}))
 		}
@@ -1480,7 +1480,7 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 				},
 				"task":          nil,
 				"task_executor": "",
-				"priority":      nil, "due_ts": nil, "due_soon_lead_minutes": nil,
+				"priority":      nil, "due_ts": nil, "due_soon_lead_minutes": nil, "snoozed_until_ts": nil,
 			},
 			map[string]any{
 				"id":          single,
@@ -1499,7 +1499,7 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 				},
 				"task":          nil,
 				"task_executor": "",
-				"priority":      nil, "due_ts": nil, "due_soon_lead_minutes": nil,
+				"priority":      nil, "due_ts": nil, "due_soon_lead_minutes": nil, "snoozed_until_ts": nil,
 			},
 		}))
 	})
@@ -1530,7 +1530,7 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 				},
 				"task":          nil,
 				"task_executor": "",
-				"priority":      nil, "due_ts": nil, "due_soon_lead_minutes": nil,
+				"priority":      nil, "due_ts": nil, "due_soon_lead_minutes": nil, "snoozed_until_ts": nil,
 			},
 		}))
 	})
@@ -1555,7 +1555,7 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 				"answer":        nil,
 				"task":          nil,
 				"task_executor": "",
-				"priority":      nil, "due_ts": nil, "due_soon_lead_minutes": nil,
+				"priority":      nil, "due_ts": nil, "due_soon_lead_minutes": nil, "snoozed_until_ts": nil,
 			},
 		}))
 		apiWantValue(t, "waiting pane", any(apiTestReplyCardPane(t, h, owner, "")), any([]any{}))

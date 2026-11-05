@@ -958,8 +958,15 @@ type replyCardListItemDTO struct {
 	Answer       *replyCardAnswerBriefDTO `json:"answer"`
 	Task         *taskRefDTO              `json:"task"`
 	TaskExecutor string                   `json:"task_executor"`
+	// Null unless the card still waits and its snooze is ahead of now.
+	SnoozedUntilTS *float64 `json:"snoozed_until_ts"`
 
 	replyCardTaskStanding
+}
+
+type replyCardSnoozeReceiptDTO struct {
+	ID             string   `json:"id"`
+	SnoozedUntilTS *float64 `json:"snoozed_until_ts"`
 }
 
 // replyCardAnswerBriefDTO: Text is preview-truncated and attachments are a

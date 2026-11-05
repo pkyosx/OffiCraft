@@ -51,6 +51,12 @@ func (s *apiServer) publishReplyCard(c ReplyCard, trigger string) {
 		audienceMembers(c.FromMember, executor), trigger)
 }
 
+// A snooze is never cleared by a write when it runs out: the stamp just falls
+// behind the clock, so the card is back in the owner's queue the moment it does.
+func replyCardSnoozed(c ReplyCard, now float64) bool {
+	return c.Status == replyCardStatusWaiting && c.SnoozedUntilTS > now
+}
+
 func waitingReplyCards(cards []ReplyCard) []ReplyCard {
 	out := []ReplyCard{}
 	for _, c := range cards {
@@ -609,6 +615,10 @@ func (s *apiServer) replyCardListItemOf(c ReplyCard) (replyCardListItemDTO, erro
 			Attachments:  len(c.AnswerAttachments),
 		}
 	}
+	if replyCardSnoozed(c, nowSecs()) {
+		ts := c.SnoozedUntilTS
+		dto.SnoozedUntilTS = &ts
+	}
 	ct, err := s.cardTask(c)
 	dto.Task, dto.TaskExecutor, dto.replyCardTaskStanding = ct.ref, ct.executor, ct.standing
 	return dto, err
@@ -692,8 +702,14 @@ func (s *apiServer) HandleReplyCardCountApiReplyCardsCountGet(w http.ResponseWri
 		return
 	}
 	now := nowSecs()
+	waiting := 0
+	for _, c := range waitingReplyCards(cards) {
+		if !replyCardSnoozed(c, now) {
+			waiting++
+		}
+	}
 	writeJSON(w, http.StatusOK, replyCardCountDTO{
-		Waiting:  len(waitingReplyCards(cards)),
+		Waiting:  waiting,
 		Answered: len(recentAnsweredReplyCards(cards, now)),
 		Expired:  len(recentExpiredReplyCards(cards, now)),
 	})
@@ -1156,4 +1172,60 @@ func expireGate(card ReplyCard) error {
 			"reply card '"+card.ID+"' is already "+card.Status+" — only a waiting card can expire")
 	}
 	return nil
+}
+
+// HandleSnoozeReplyCardApiReplyCardsCardIdSnoozePut is the owner's 稍後再看
+// (owner ruling rc-0bbd7867b5f7: the owner sets it, not the agent that opened
+// the card). Only a card naming no task can be snoozed: a task card's urgency
+// is that task's priority and due date.
+func (s *apiServer) HandleSnoozeReplyCardApiReplyCardsCardIdSnoozePut(w http.ResponseWriter, r *http.Request, cardId string) {
+	var body HandleSnoozeReplyCardApiReplyCardsCardIdSnoozePutJSONRequestBody
+	if !decodeJSONBodyRequired(w, r, &body, "snoozed_until_ts") {
+		return
+	}
+	now := nowSecs()
+	until := 0.0
+	if body.SnoozedUntilTs != nil {
+		until = *body.SnoozedUntilTs
+		if until <= now {
+			writeError(w, http.StatusBadRequest,
+				"snoozed_until_ts must be in the future; send null to unsnooze")
+			return
+		}
+	}
+	var saved ReplyCard
+	err := s.dal.inTx(func(tx *writeTx) error {
+		cur, err := getReplyCardOn(tx, cardId)
+		if err != nil {
+			return err
+		}
+		if cur == nil {
+			return refuseInTx(http.StatusNotFound, "reply card '"+cardId+"' not found")
+		}
+		if cur.TaskID != "" {
+			return refuseInTx(http.StatusConflict,
+				"reply card '"+cardId+"' is about task '"+cur.TaskID+
+					"' — a task card is never snoozed; its urgency is that task's priority and due date")
+		}
+		if cur.Status != replyCardStatusWaiting {
+			return refuseInTx(http.StatusConflict,
+				"reply card '"+cardId+"' is already "+cur.Status+" — only a waiting card can be snoozed")
+		}
+		cur.SnoozedUntilTS = until
+		saved = *cur
+		return putReplyCardOn(tx, *cur)
+	})
+	if err != nil {
+		writeTxError(w, err)
+		return
+	}
+	// Owner only: the author's listener has nothing to do with a snooze.
+	s.hub.Publish("reply_card", "patch", "reply_card", wireOwnerID+"::"+saved.ID,
+		map[string]any{"id": saved.ID, "from": saved.FromMember, "status": saved.Status, "task_executor": ""},
+		audienceOwnerOnly(), requestTrigger(r))
+	receipt := replyCardSnoozeReceiptDTO{ID: saved.ID}
+	if replyCardSnoozed(saved, now) {
+		receipt.SnoozedUntilTS = &saved.SnoozedUntilTS
+	}
+	writeJSON(w, http.StatusOK, receipt)
 }

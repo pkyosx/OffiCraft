@@ -99,6 +99,7 @@ import {
   isOverdue,
 } from "../lib/dueDate";
 import { compareReplyCardRank } from "../lib/replyCardRank";
+import { SNOOZE_CHOICES, snoozeUntil, type SnoozeChoice } from "../lib/replySnooze";
 import { useDueSoonLeadMinutes } from "../hooks/useDueSoonLeadMinutes";
 import "./office.css"; // chat composer classes the ReplyComposer reuses, AND
 // the rail's `.outsource-row__*` / `.current-task-title` rules the asker's
@@ -157,6 +158,8 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   const [workers, setWorkers] = useState<OutsourceWorkerView[]>([]);
   const {
     waiting,
+    snoozed,
+    snooze,
     handled,
     handledCount,
     handledLoaded,
@@ -251,6 +254,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   const foundCard: ReplyCardRow | null =
     lookup.state === "found"
       ? (waiting.find((c) => c.id === lookup.card.id) ??
+        snoozed.find((c) => c.id === lookup.card.id) ??
         handled.find((c) => c.id === lookup.card.id) ??
         lookup.card)
       : null;
@@ -351,6 +355,18 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // collapsed — expanding pulls them (loadHandled); the header 「· N」 comes
   // from the counts.
   const [handledOpen, setHandledOpen] = useState(false);
+  // 已延後 folds the same way and is not persisted either.
+  const [snoozedOpen, setSnoozedOpen] = useState(false);
+  // The card whose 稍後再看 menu is open; one at a time.
+  const [snoozeMenuFor, setSnoozeMenuFor] = useState<string | null>(null);
+  useEffect(() => {
+    if (snoozeMenuFor === null) return;
+    function onDown(e: MouseEvent) {
+      if (!(e.target as HTMLElement).closest?.("[data-snooze-menu]")) setSnoozeMenuFor(null);
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [snoozeMenuFor]);
   const [handledLoadError, setHandledLoadError] = useState(false);
   const [settledRows, setSettledRows] = useState<Map<string, ReplyCardRow>>(
     () => new Map()
@@ -434,6 +450,10 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   const passesFilters = (c: ReplyCardRow) => passesOpener(c) && passesRank(c);
 
   const displayedWaiting = waiting.filter((row) => !settledRows.has(row.id));
+  // 已延後 has no by-id branch: a card asked for by its id shows in 請示 above.
+  const snoozedShown = filtering
+    ? []
+    : snoozed.filter((row) => !settledRows.has(row.id) && passesFilters(row));
   const handledById = new Map<string, ReplyCardRow>();
   for (const row of handled) handledById.set(row.id, row);
   for (const row of settledRows.values()) {
@@ -548,7 +568,8 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     `${row.status}:${row.answeredTs ?? 0}:${row.expiredTs ?? 0}`;
 
   const rowsById = new Map<string, ReplyCardRow>();
-  for (const row of [...displayedWaiting, ...displayedHandled]) rowsById.set(row.id, row);
+  for (const row of [...displayedWaiting, ...snoozed, ...displayedHandled])
+    rowsById.set(row.id, row);
   if (foundCard) rowsById.set(foundCard.id, foundCard);
 
   // Which version of each open id has been READ (or is being read). One entry
@@ -645,6 +666,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   //
   const openerBasis = [
     ...displayedWaiting,
+    ...snoozed,
     ...displayedHandled.filter(isVisibleHandled),
   ];
   const openerCounts = new Map<string, number>();
@@ -706,6 +728,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // card whose pane was never fetched), so its asker is named here too.
   const askerIds = [
     ...displayedWaiting,
+    ...snoozed,
     ...displayedHandled,
     ...(foundCard ? [foundCard] : []),
   ].map(
@@ -950,6 +973,67 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     }
   }
 
+  async function doSnooze(id: string, untilTs: number | null) {
+    setSnoozeMenuFor(null);
+    try {
+      await snooze(id, untilTs);
+      setActionError(null);
+    } catch (e) {
+      console.warn("RepliesPage: snooze failed", e);
+      setActionError(t.replies.snoozeError);
+    }
+  }
+
+  const snoozeLabels: Record<SnoozeChoice, string> = {
+    "1h": t.replies.snooze1h,
+    "3h": t.replies.snooze3h,
+    tomorrow: t.replies.snoozeTomorrow,
+    nextMonday: t.replies.snoozeNextMonday,
+  };
+
+  /** 稍後再看 — only on a waiting card naming no task (owner rc-0bbd7867b5f7):
+   * a task card's urgency is its task's, and the server refuses it (409). The
+   * times are computed when picked, in the browser's timezone. */
+  function renderSnoozeMenu(row: ReplyCardRow) {
+    if (row.task) return null;
+    const open = snoozeMenuFor === row.id;
+    return (
+      <div className="reply-card__snooze" data-snooze-menu>
+        <button
+          type="button"
+          className="reply-card__jump"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          data-testid="snooze-card"
+          onClick={() => setSnoozeMenuFor(open ? null : row.id)}
+        >
+          {t.replies.snooze}
+        </button>
+        {open && (
+          <div
+            className="task-card__menu-pop reply-card__snooze-pop"
+            role="menu"
+            aria-label={t.replies.snooze}
+            data-testid="snooze-menu"
+          >
+            {SNOOZE_CHOICES.map((choice) => (
+              <button
+                key={choice}
+                type="button"
+                role="menuitem"
+                className="task-card__menu-item"
+                data-testid={`snooze-${choice}`}
+                onClick={() => void doSnooze(row.id, snoozeUntil(choice, new Date()))}
+              >
+                {snoozeLabels[choice]}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   /** The asking OUTSOURCE worker's current task, under its 代號 (T-196).
    *
    * owner rc-dce285c5274c, on a card whose weight he could not judge:「我覺得只在
@@ -1031,7 +1115,8 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   function renderHead(
     row: ReplyCardRow,
     stampNode?: ReactNode,
-    expirable = false
+    expirable = false,
+    actions?: ReactNode
   ) {
     const who = whoOf(row);
     const asker = members.find((x) => x.id === row.from);
@@ -1060,6 +1145,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
         >
           {t.replies.jumpToChat}
         </button>
+        {actions}
         {/* T-1aa4: 標為過期 shares .reply-card__jump with 跳到原訊息 — one
             outlined style for both header actions, so they can never drift. */}
         {expirable && (
@@ -1145,6 +1231,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
       className: string;
       stamp: ReactNode;
       expirable?: boolean;
+      actions?: ReactNode;
       body: (card: ReplyCard) => ReactNode;
     }
   ) {
@@ -1167,7 +1254,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
         onClick={(e) => onCardToggleClick(e, row.id)}
         onKeyDown={(e) => onCardToggleKeyDown(e, row.id)}
       >
-        {renderHead(row, opts.stamp, opts.expirable)}
+        {renderHead(row, opts.stamp, opts.expirable, opts.actions)}
         {renderTaskRef(row)}
         {/* The ask's TITLE, drawn once and in ONE place — always visible, above
           * the fold of a collapsed card. It is the third line of the head strip
@@ -1196,7 +1283,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
     );
   }
 
-  function renderWaitingCard(row: ReplyCardRow) {
+  function renderWaitingCard(row: ReplyCardRow, asSnoozed = false) {
     const opened = openCards.get(row.id);
     if (opened && opened.status !== "waiting") {
       return renderHandledCard({
@@ -1207,17 +1294,34 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
       });
     }
     return renderCard(row, {
-      testId: "waiting-card",
+      testId: asSnoozed ? "snoozed-card" : "waiting-card",
       className: "reply-card",
       // ONE stamp, at the head's right edge, AFTER 標為過期 (owner 2026-09-11).
       // 🔴 No absolute 開卡 stamp beside it — owner saw one on this very head and
-      // answered「我不想知道絕對時間 相對時間已經夠了」.
-      stamp: (
+      // answered「我不想知道絕對時間 相對時間已經夠了」. A snoozed card says when
+      // it comes back instead.
+      stamp: asSnoozed ? (
+        <span className="reply-card__waited" data-testid="snoozed-until">
+          {`${t.replies.snoozedUntilLabel} ${formatAbsolute(row.snoozedUntilTs ?? 0, nowTs)}`}
+        </span>
+      ) : (
         <span className="reply-card__waited" data-testid="waited">
           {msg.replyWaited(formatDuration(nowTs - row.createdTs))}
         </span>
       ),
       expirable: true,
+      actions: asSnoozed ? (
+        <button
+          type="button"
+          className="reply-card__jump"
+          data-testid="unsnooze-card"
+          onClick={() => void doSnooze(row.id, null)}
+        >
+          {t.replies.unsnooze}
+        </button>
+      ) : (
+        renderSnoozeMenu(row)
+      ),
       body: (card) => (
         <>
           {card.body && (
@@ -1407,6 +1511,30 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
           </div>
         )}
       </section>
+
+      {snoozedShown.length > 0 && (
+        <section className="replies__section" data-testid="snoozed-section">
+          <button
+            type="button"
+            className="replies__section-toggle"
+            aria-expanded={snoozedOpen}
+            onClick={() => setSnoozedOpen((o) => !o)}
+            data-testid="snoozed-toggle"
+          >
+            <ChevronRightIcon
+              size={13}
+              className={`reply-card__caret${snoozedOpen ? " reply-card__caret--open" : ""}`}
+            />
+            {`${t.replies.snoozedTitle} · ${snoozedShown.length}`}
+            <span className="replies__section-hint">{t.replies.snoozedHint}</span>
+          </button>
+          {snoozedOpen && (
+            <div className="replies__list">
+              {snoozedShown.map((card) => renderWaitingCard(card, true))}
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Zero-hide, EXCEPT while a filter is on. With a filter the section is
         * the answer to a question the owner asked, so it has to stay on screen

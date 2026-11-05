@@ -647,6 +647,16 @@ export const en: Dict = {
     expireConfirmBodyTail:
       '" as expired? This cannot be undone and does not count as an answer — the member is notified and will open a fresh card if the question still matters.',
     expireError: "Marking expired failed. Please try again.",
+    snooze: "Later",
+    snooze1h: "1 hour",
+    snooze3h: "3 hours",
+    snoozeTomorrow: "Tomorrow 09:00",
+    snoozeNextMonday: "Next Monday 09:00",
+    snoozeError: "Snoozing failed. Please try again.",
+    snoozedTitle: "Snoozed",
+    snoozedHint: "Each comes back by itself when its time is up",
+    snoozedUntilLabel: "Back",
+    unsnooze: "Unsnooze",
     expiredTag: "Expired",
     expiredNote:
       "Expired without an answer; the member will re-ask if it still matters",

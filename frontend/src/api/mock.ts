@@ -1035,6 +1035,12 @@ const chatReads = new Map<string, ChatReadReceipt>();
 // honest ✓ empty state). Tests inject cards via __injectMockReplyCard to
 // exercise the answer / re-answer seam.
 let replyCards: ReplyCard[] = [];
+// The owner's 稍後再看 stamps by card id (the server's reply_card.snoozed_until_ts).
+let replyCardSnoozes = new Map<string, number>();
+const snoozedUntil = (c: ReplyCard): number | null => {
+  const until = replyCardSnoozes.get(c.id) ?? 0;
+  return c.status === "waiting" && until > Date.now() / 1000 ? until : null;
+};
 
 // In-memory tasks (M3 任務卡) + live outsource workers + task manuals. SAME
 // honest hard line as chatLog / replyCards: a real task is created by an agent
@@ -4112,6 +4118,7 @@ const mockApiImpl = {
       priority: c.priority ?? null,
       dueTs: c.dueTs ?? null,
       dueSoonLeadMinutes: c.dueSoonLeadMinutes ?? null,
+      snoozedUntilTs: snoozedUntil(c),
     });
     const cutoff = Date.now() / 1000 - 24 * 3600;
     if (status === "waiting") {
@@ -4151,7 +4158,8 @@ const mockApiImpl = {
     // listReplyCards("answered") window.
     const cutoff = Date.now() / 1000 - 24 * 3600;
     return {
-      waiting: replyCards.filter((c) => c.status === "waiting").length,
+      waiting: replyCards.filter((c) => c.status === "waiting" && snoozedUntil(c) === null)
+        .length,
       answered: replyCards.filter(
         (c) =>
           c.status === "answered" &&
@@ -4268,6 +4276,25 @@ const mockApiImpl = {
     }
     emitTopic("reply_card");
     return mockReplyCardWriteReceipt(card);
+  },
+
+  async snoozeReplyCard(id: string, untilTs: number | null) {
+    // Mirrors handle_snooze_reply_card's refusals.
+    const card = findReplyCard(id);
+    const path = `PUT /api/reply-cards/${id}/snooze`;
+    if (untilTs !== null && untilTs <= Date.now() / 1000) {
+      throw mockApiError(`http 400 for ${path}`, 400, "snoozed_until_ts must be in the future");
+    }
+    if (card.task) {
+      throw mockApiError(`http 409 for ${path}`, 409, `reply card '${id}' is about a task`);
+    }
+    if (card.status !== "waiting") {
+      throw mockApiError(`http 409 for ${path}`, 409, `reply card '${id}' is already ${card.status}`);
+    }
+    if (untilTs === null) replyCardSnoozes.delete(id);
+    else replyCardSnoozes.set(id, untilTs);
+    emitTopic("reply_card");
+    return { id, snoozedUntilTs: untilTs };
   },
 
   async listTasks(opts?: {
@@ -7848,6 +7875,7 @@ export function __resetMock(): void {
   chatReplyExcerpts = new Map();
   chatReads.clear();
   replyCards = [];
+  replyCardSnoozes = new Map();
   tasks = [];
   artifactVersions = new Map();
   outsourceWorkers = [];

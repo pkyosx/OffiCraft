@@ -1740,6 +1740,16 @@ export const httpApi: Api = {
     return toReplyCardWriteReceipt(wire);
   },
 
+  async snoozeReplyCard(id: string, untilTs: number | null) {
+    const wire = unwrap(
+      await client.PUT("/api/reply-cards/{card_id}/snooze", {
+        params: { path: { card_id: id } },
+        body: { snoozed_until_ts: untilTs },
+      }),
+    );
+    return { id: wire.id ?? id, snoozedUntilTs: wire.snoozed_until_ts ?? null };
+  },
+
   async listTasks(opts?: {
     open?: boolean;
     statuses?: string[];

@@ -39,6 +39,7 @@ import { I18nProvider } from "../i18n";
 import { zh } from "../i18n/locales/zh";
 import { RepliesPage } from "./RepliesPage";
 import { ReplyCardsProvider } from "../hooks/useReplyCards";
+import { useReplyCardCount } from "../hooks/useReplyCardCount";
 import {
   __resetMock,
   __injectMockMember,
@@ -272,6 +273,67 @@ describe("RepliesPage", () => {
     expect(due(4)?.hasAttribute("data-due-tone")).toBe(false);
     expect(badge(3)).toBeNull();
     expect(due(3)).toBeNull();
+  });
+
+  it("稍後再看 sits only on a card naming no task, hides it from the list and the badge until its time, and 取消延後 brings it back", async () => {
+    // Thursday 2026-11-05 22:30 local; only the clock is faked, timers run.
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(2026, 10, 5, 22, 30));
+    try {
+      const now = Date.now() / 1000;
+      __injectMockReplyCard(mkCard({ id: "plain", summary: "沒任務", createdTs: now - 60 }));
+      __injectMockReplyCard(
+        mkCard({ id: "tasked", summary: "有任務", priority: "mid", task: { id: "T-1", typeKey: "", title: "任務" } })
+      );
+      const snoozeSpy = vi.spyOn(api, "snoozeReplyCard");
+      function Badge() {
+        return <span data-testid="badge">{useReplyCardCount()}</span>;
+      }
+      const { findAllByTestId, findByTestId, queryByTestId } = render(
+        <I18nProvider>
+          <ReplyCardsProvider>
+            <Badge />
+            <RepliesPage />
+          </ReplyCardsProvider>
+        </I18nProvider>
+      );
+      const waitingIds = async () =>
+        (await findAllByTestId("waiting-card")).map((c) => c.getAttribute("data-reply-card-id"));
+      const card = (id: string) => document.querySelector(`[data-reply-card-id="${id}"]`)!;
+      expect(await waitingIds()).toEqual(["plain", "tasked"]);
+      expect(card("tasked").querySelector('[data-testid="snooze-card"]')).toBeNull();
+
+      fireEvent.click(card("plain").querySelector('[data-testid="snooze-card"]')!);
+      const menu = await findByTestId("snooze-menu");
+      expect([...menu.querySelectorAll("[role=menuitem]")].map((b) => b.textContent)).toEqual([
+        "1 小時", "3 小時", "明天 09:00", "下週一 09:00",
+      ]);
+      fireEvent.click(await findByTestId("snooze-tomorrow"));
+      expect(snoozeSpy).toHaveBeenCalledWith("plain", new Date(2026, 10, 6, 9).getTime() / 1000);
+      await waitFor(async () => expect(await waitingIds()).toEqual(["tasked"]));
+      expect((await findByTestId("badge")).textContent).toBe("1");
+      const toggle = await findByTestId("snoozed-toggle");
+      expect(toggle.textContent).toContain("已延後 · 1");
+      expect(queryByTestId("snoozed-card")).toBeNull();
+      fireEvent.click(toggle);
+      expect((await findByTestId("snoozed-card")).getAttribute("data-reply-card-id")).toBe("plain");
+
+      fireEvent.click(await findByTestId("unsnooze-card"));
+      await waitFor(async () => expect(await waitingIds()).toEqual(["plain", "tasked"]));
+      expect(queryByTestId("snoozed-section")).toBeNull();
+      expect((await findByTestId("badge")).textContent).toBe("2");
+
+      fireEvent.click(card("plain").querySelector('[data-testid="snooze-card"]')!);
+      fireEvent.click(await findByTestId("snooze-1h"));
+      await waitFor(async () => expect(await waitingIds()).toEqual(["tasked"]));
+      act(() => {
+        vi.advanceTimersByTime(3601 * 1000);
+      });
+      await waitFor(async () => expect(await waitingIds()).toEqual(["plain", "tasked"]));
+      expect((await findByTestId("badge")).textContent).toBe("2");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("filters waiting cards by their task's priority and by 快到期／已逾期, never matching a card naming no task, and 清除篩選 brings them all back", async () => {

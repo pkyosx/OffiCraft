@@ -553,6 +553,7 @@ export function toReplyCardRow(w: WireReplyCardRow): ReplyCardRow {
     priority: w.priority ?? null,
     dueTs: w.due_ts ?? null,
     dueSoonLeadMinutes: w.due_soon_lead_minutes ?? null,
+    snoozedUntilTs: w.snoozed_until_ts ?? null,
     task: w.task
       ? {
           id: w.task.id,

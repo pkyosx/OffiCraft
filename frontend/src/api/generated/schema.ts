@@ -2698,7 +2698,7 @@ export interface paths {
         /**
          * List light reply-card rows (summary and decision digest, without the full body/options). status is waiting (the default, by priority, then due date, then longest-waiting first), answered (the last 24 hours) or expired (the last 24 hours); a positive limit is applied after each pane is ordered. Every pane covers every card on the station, not only the cards you opened — pass opened_by to narrow a pane to the cards ONE member opened. Read one card in full with get_reply_card.
          * @description - Light rows only: the summary, plus on an answered row the decision digest — never the body or full options.
-         *     - ?status=waiting (default): waiting on the owner, by the priority of the task each card names (high, mid, low, frozen; a card naming no task counts as mid), then that task's due date (cards with one first, soonest first; a card naming no task has none), then longest-waiting first. Both are read from the task when the list is asked for.
+         *     - ?status=waiting (default): waiting on the owner, by the priority of the task each card names (high, mid, low, frozen; a card naming no task counts as mid), then that task's due date (cards with one first, soonest first; a card naming no task has none), then longest-waiting first. Both are read from the task when the list is asked for. A card the owner has snoozed stays in this pane with ``snoozed_until_ts`` set.
          *     - ?status=answered / ?status=expired: the last 24 hours only, newest first.
          *     - ?limit=N caps rows AFTER the pane is ordered; absent or non-positive returns the whole pane.
          *     - Read one card in full with get_reply_card.
@@ -2819,6 +2819,29 @@ export interface paths {
          *     - Emits a `reply_card` event; a client holding the stream learns of this without polling.
          */
         post: operations["handle_expire_reply_card_api_reply_cards__card_id__expire_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reply-cards/{card_id}/snooze": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Snooze or unsnooze a waiting card that names no task (owner only).
+         * @description - Owner only, from the 請示 page: puts a WAITING card that names no task aside until ``snoozed_until_ts`` (稍後再看), or with ``null`` brings it back now.
+         *     - The card stays waiting and can still be answered or expired; until the time passes it is left out of the owner's badge count and the page shows it under 已延後. It returns by itself — nothing is written when the time passes.
+         *     - 400 when the time is not in the future, 404 unknown, 409 when the card names a task (its urgency is the task's) or is no longer waiting.
+         *     - Emits a `reply_card` event to the owner only; the card's author is not told.
+         */
+        put: operations["handle_snooze_reply_card_api_reply_cards__card_id__snooze_put"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -8043,7 +8066,7 @@ export interface components {
         };
         /**
          * ReplyCardCountDTO
-         * @description Reply-card counts. ``waiting`` is the cockpit navigation badge: how many reply cards are currently WAITING for the owner (answered/expired cards never count — the badge counts 待回覆 only). ``answered`` is the count of recently-answered cards (within the 24h 近期已回覆 window) and ``expired`` the count of recently-expired cards (the same 24h window keyed off ``expired_ts``) — together they let the 等我回覆 page render its collapsed 近期已處理 header (and hide the pane at zero) WITHOUT fetching the lists; the lists load only when the owner expands the pane.
+         * @description Reply-card counts. ``waiting`` is the cockpit navigation badge: how many reply cards are currently WAITING for the owner (answered/expired cards never count — the badge counts 待回覆 only), leaving out a card the owner has snoozed until its ``snoozed_until_ts`` passes. ``answered`` is the count of recently-answered cards (within the 24h 近期已回覆 window) and ``expired`` the count of recently-expired cards (the same 24h window keyed off ``expired_ts``) — together they let the 等我回覆 page render its collapsed 近期已處理 header (and hide the pane at zero) WITHOUT fetching the lists; the lists load only when the owner expands the pane.
          */
         ReplyCardCountDTO: {
             /** Answered */
@@ -8241,6 +8264,11 @@ export interface components {
              * @description Read-only, derived: the named task's current priority (``high``, ``mid``, ``low`` or ``frozen``), read when the card is fetched, so a later change to the task's priority shows here. ``null`` when the card names no task. A card has no priority of its own.
              */
             priority?: string | null;
+            /**
+             * Snoozed Until Ts
+             * @description Epoch seconds until which the owner has put this waiting card aside (稍後再看). Non-null only while that time is still ahead when the list is read; ``null`` on a card that was never snoozed, whose snooze has passed, or that is no longer waiting. A snoozed card is still waiting: it stays in ``?status=waiting`` and can be answered or expired as usual, but the owner's badge count (``GET /api/reply-cards/count``) leaves it out until the time passes.
+             */
+            snoozed_until_ts?: number | null;
             /** Status */
             status: string;
             /**
@@ -8312,6 +8340,19 @@ export interface components {
              * @default
              */
             task_id: string;
+        };
+        /**
+         * ReplyCardSnoozeDTO
+         * @description The owner's 稍後再看 on a waiting card that names no task (``PUT /api/reply-cards/{card_id}/snooze``), and that write's receipt. ``snoozed_until_ts`` is epoch seconds and must be in the future; ``null`` takes the card out of 已延後 now.
+         */
+        ReplyCardSnoozeDTO: {
+            /**
+             * Id
+             * @description Receipt only: the card written. Ignored on the request.
+             */
+            id?: string;
+            /** Snoozed Until Ts */
+            snoozed_until_ts: number | null;
         };
         /**
          * ReportWakingDTO
@@ -18615,6 +18656,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReplyCardReceiptDTO"];
+                };
+            };
+            /** @description Validation error (unified error envelope). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Client error (unified error envelope). */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+            /** @description Server error (unified error envelope). */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelopeDTO"];
+                };
+            };
+        };
+    };
+    handle_snooze_reply_card_api_reply_cards__card_id__snooze_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                card_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplyCardSnoozeDTO"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplyCardSnoozeDTO"];
                 };
             };
             /** @description Validation error (unified error envelope). */

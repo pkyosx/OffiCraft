@@ -49,6 +49,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -1132,6 +1133,17 @@ MATRIX: dict[str, Route] = {
             "/answer"
         ),
         body={"text": "conf matrix revised answer"},
+    ),
+    "PUT /api/reply-cards/{card_id}/snooze": Route(
+        # Owner only (owner ruling rc-0bbd7867b5f7); only the owner face burns a
+        # fresh task-less waiting card, the rest are refused before lookup.
+        requires="owner",
+        path=lambda ctx, i: (
+            "/api/reply-cards/"
+            + (_matrix_card(ctx) if i == "owner" else "rc-conf-missing")
+            + "/snooze"
+        ),
+        body=lambda _ctx, _i: {"snoozed_until_ts": time.time() + 3600},
     ),
     "POST /api/reply-cards/{card_id}/expire": Route(
         # T-1b88 (owner 2026-08-07, card rc-3ff94b116970) revised T-6020 for THIS

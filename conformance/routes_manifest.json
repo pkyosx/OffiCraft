@@ -582,6 +582,13 @@
   },
   {
     "auth": "gated",
+    "mcp_tool": null,
+    "method": "PUT",
+    "path": "/api/reply-cards/{card_id}/snooze",
+    "requires": "owner"
+  },
+  {
+    "auth": "gated",
     "mcp_tool": "ingest_agent_context",
     "method": "POST",
     "path": "/api/agent/context",

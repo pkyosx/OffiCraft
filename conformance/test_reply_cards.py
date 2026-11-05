@@ -41,6 +41,7 @@ window cutoff (boundary inclusive) is pinned by the server's unit tests
 from __future__ import annotations
 
 import base64
+import time
 
 import pytest
 
@@ -1082,3 +1083,44 @@ def test_waiting_pane_sorts_by_the_tasks_priority_then_due_then_age(client, owne
     assert order() == [no_task["id"], on_slow["id"], on_urgent["id"]]
     for card_id in mine:
         _expire(client, owner_token, card_id)
+
+
+# ── 稍後再看: the owner's snooze on a card naming no task ─────────────────────
+
+
+def _snooze(client, token, card_id: str, until):
+    return client.put(f"/api/reply-cards/{card_id}/snooze",
+                      json={"snoozed_until_ts": until}, headers=_auth(token))
+
+
+def test_owner_snoozes_a_task_less_card_out_of_the_badge_until_unsnoozed(client, owner_token, asker):
+    plain = _open_ranked(client, asker, "snooze me")
+    task_id, _ = _task_with_steps(client, asker, "conf snooze task", 1)
+    about = _open_ranked(client, asker, "about a task", about_task_id=task_id)
+    until = time.time() + 3600
+
+    def row(card_id):
+        rows = client.get("/api/reply-cards?status=waiting", headers=_auth(owner_token)).json()
+        return next(r for r in rows if r["id"] == card_id)
+
+    before = _waiting_count(client, owner_token)
+    r = _snooze(client, owner_token, plain["id"], until)
+    assert r.status_code == 200, r.text
+    assert r.json() == {"id": plain["id"], "snoozed_until_ts": until}
+    # Still waiting and still listed, flagged; the badge leaves it out.
+    assert row(plain["id"])["snoozed_until_ts"] == until
+    assert row(about["id"])["snoozed_until_ts"] is None
+    assert _waiting_count(client, owner_token) == before - 1
+
+    assert _snooze(client, owner_token, about["id"], until).status_code == 409
+    assert _snooze(client, owner_token, plain["id"], time.time() - 60).status_code == 400
+    assert _snooze(client, asker.token, plain["id"], None).status_code == 403
+
+    r = _snooze(client, owner_token, plain["id"], None)
+    assert r.status_code == 200 and r.json()["snoozed_until_ts"] is None, r.text
+    assert row(plain["id"])["snoozed_until_ts"] is None
+    assert _waiting_count(client, owner_token) == before
+
+    _expire(client, owner_token, plain["id"])
+    assert _snooze(client, owner_token, plain["id"], until).status_code == 409
+    _expire(client, owner_token, about["id"])

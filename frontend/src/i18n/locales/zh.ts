@@ -662,6 +662,17 @@ export const zh = {
     expireConfirmBodyTail:
       "」標為過期嗎?此動作不可復原、也不算回答——成員會收到通知,問題還在的話他會重新開一張新卡。",
     expireError: "標為過期失敗，請稍後重試",
+    // 稍後再看:只有沒指任務的待回覆卡有這顆(owner rc-0bbd7867b5f7);時間以瀏覽器時區算。
+    snooze: "稍後再看",
+    snooze1h: "1 小時",
+    snooze3h: "3 小時",
+    snoozeTomorrow: "明天 09:00",
+    snoozeNextMonday: "下週一 09:00",
+    snoozeError: "延後失敗，請稍後重試",
+    snoozedTitle: "已延後",
+    snoozedHint: "時間到會自動回到請示",
+    snoozedUntilLabel: "回來於",
+    unsnooze: "取消延後",
     expiredTag: "已過期",
     expiredNote: "未被回答、已標為過期;若問題還在,成員會重新開卡",
     // 帶 ai_pick 的那個選項才是 AI 的建議;位置不再有任何意義。

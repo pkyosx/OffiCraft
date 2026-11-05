@@ -99,6 +99,8 @@ ChatReplyCard 的 doReanswer 保留單卡 refetch：終態 delta 可能被刻意
 
 待回覆列的順序是「優先序 → 期限（有期限的在前、早到期的在前）→ 開卡時間新到舊」，沒指任務的卡排序時當成「中、無期限」。比較式在 `lib/replyCardRank.ts`，server 的 `sortReplyCardQueue` 與 mock 的 waiting pane 用同一個前兩段（兩者最後一段是舊到新，頁面自己再排一次）。卡頭的優先序徽章與期限沿用任務卡的 `.task-badge--prio-*`、`.task-card__due-*`，所以 RepliesPage 要 import `tasks.css`；沒指任務的卡兩者都不顯示。快到期／已逾期的色調與剩餘時間只在卡片還在等回覆時出現。快到期的提前量跟任務卡同一套：任務自己的 `due_soon_lead_minutes`，沒有就用工作區設定 `task_due_soon_lead_minutes`（`effectiveLeadMinutes`）。
 
+「稍後再看」只長在沒指任務的待回覆卡上（owner `rc-0bbd7867b5f7`：owner 在這頁設定，不是 AI 開卡時帶）。server 存 `reply_card.snoozed_until_ts`，list 列只在時間還沒到時帶出來，卡**照樣留在** `?status=waiting` 裡；`/api/reply-cards/count` 的 `waiting` 不算它。前端的切分在 `useReplyCards`：`waiting` 已扣掉延後中的卡（導覽列數字就是它的長度），`snoozed` 是另一份，provider 在最早回來的時間點設一個 timer 重算，所以頁面沒開時數字也會準時回來——不要改成靠頁面的 30 秒時鐘。選單的四個時間在 `lib/replySnooze.ts`。寫入是 owner 專用、`x-mcp.include=false`，不要把它開成 agent 工具。
+
 篩選列的「優先權」「到期」兩軸跟「開卡人」同一套：空集合＝不限，各軸 AND，同時套在待回覆與已處理兩段（`passesFilters`）。沒指任務的卡不符合任何優先權或到期值，所以只要這兩軸有勾選就會被濾掉。「到期」只有已逾期／快到期兩個值，依頁面時鐘判斷，跟卡上的色調同一個判準；已處理的卡永遠不中，跟已結束的任務一樣。
 
 ## 請示卡頁的 ID 篩選（T-118，owner 2026-09-06 20:07／20:19）

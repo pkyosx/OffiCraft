@@ -646,6 +646,14 @@ func routeSpecs(w *ServerInterfaceWrapper) []RouteSpec {
 			Handler: w.HandleExpireReplyCardApiReplyCardsCardIdExpirePost,
 			MCPTool: "expire_reply_card",
 		}),
+		// Owner ruling rc-0bbd7867b5f7: snoozing is the owner's, from the 請示
+		// page, and never an agent tool.
+		Gated(principalOwner, routeDef{
+			Method:     "PUT",
+			Path:       "/api/reply-cards/{card_id}/snooze",
+			Handler:    w.HandleSnoozeReplyCardApiReplyCardsCardIdSnoozePut,
+			MCPExclude: true,
+		}),
 		Gated(principalMachine, routeDef{
 			Method:  "POST",
 			Path:    "/api/agent/context",

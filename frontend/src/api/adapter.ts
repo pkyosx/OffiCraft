@@ -440,6 +440,10 @@ export interface ReplyCardRow {
   priority?: string | null;
   dueTs?: number | null;
   dueSoonLeadMinutes?: number | null;
+  /** When the owner's 稍後再看 ends (epoch seconds). The server sends it only
+   * while that time is still ahead; the page still compares it with its own
+   * clock, so a card comes back without a refetch. OPTIONAL for fixtures. */
+  snoozedUntilTs?: number | null;
 }
 
 /** What the three reply-card WRITES answer (wire `ReplyCardReceiptDTO`, T-91):
@@ -2436,6 +2440,16 @@ export interface Api {
    * fans).
    */
   expireReplyCard(id: string): Promise<ReplyCardWriteReceipt>;
+  /**
+   * The owner's 稍後再看 on a WAITING card that names no task: hide it from the
+   * waiting list and the badge until `untilTs` (epoch seconds, in the future),
+   * or `null` to bring it back now. A task card or a settled card → 409, a
+   * past time → 400. Owner only; not an agent tool.
+   */
+  snoozeReplyCard(
+    id: string,
+    untilTs: number | null
+  ): Promise<{ id: string; snoozedUntilTs: number | null }>;
   // ── Tasks (M3 任務頁 + 任務卡) ──────────────────────────────────────────────
   /**
    * List tasks as LIGHT list items (the collapsed card's fields +
