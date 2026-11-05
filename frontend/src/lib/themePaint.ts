@@ -27,8 +27,9 @@ function validatePaintBundle(b: unknown): string | null {
 export const LS_THEME = "oc.theme";
 export const LS_THEME_PAINT = "oc.themePaint";
 /** The display_seasonal_theme cache ("true"/"false", absent = the shipped true)
- * and the seasonal theme's own paint record, kept apart from LS_THEME_PAINT so
- * the display theme's cached picture survives the seasonal window. */
+ * and the seasonal themes' own paint records (a JSON array of PaintRecord, one
+ * per day part seen; a lone record is read too), kept apart from
+ * LS_THEME_PAINT so the display theme's cached picture survives the window. */
 export const LS_SEASONAL_THEME = "oc.seasonalTheme";
 export const LS_SEASONAL_PAINT = "oc.seasonalPaint";
 /** The display_theme_schedule cache (the server's JSON list) and one paint
@@ -79,16 +80,30 @@ export function readValidatedPaint(key: string = LS_THEME_PAINT): ThemeBundle | 
   return validatedPaintBundle(readJSON(key));
 }
 
-/** The scheduled custom theme `id`'s cached picture, each record through the
- * same validator; null when absent or invalid. Never throws. */
+/** Every valid record under `key`, a JSON array of them. The seasonal key also
+ * admits a lone record, the shape it had before seasonal day parts. */
+export function readPaintRecords(key: string): PaintRecord[] {
+  const raw = readJSON(key);
+  const recs = Array.isArray(raw) ? raw : raw && key === LS_SEASONAL_PAINT ? [raw] : [];
+  return recs.flatMap((rec) => {
+    const bundle = validatedPaintBundle(rec);
+    return bundle ? [{ v: PAINT_CACHE_VERSION, bundle }] : [];
+  });
+}
+
+function readValidatedPaintFrom(key: string, id: string): ThemeBundle | null {
+  return readPaintRecords(key).find((r) => r.bundle.id === id)?.bundle ?? null;
+}
+
+/** The scheduled theme `id`'s cached picture, each record through the same
+ * validator; null when absent or invalid. Never throws. */
 export function readValidatedSchedulePaint(id: string): ThemeBundle | null {
-  const recs = readJSON(LS_SCHEDULE_PAINT);
-  if (!Array.isArray(recs)) return null;
-  for (const rec of recs) {
-    const b = validatedPaintBundle(rec);
-    if (b && b.id === id) return b;
-  }
-  return null;
+  return readValidatedPaintFrom(LS_SCHEDULE_PAINT, id);
+}
+
+/** The seasonal theme `id`'s cached picture; same rules. */
+export function readValidatedSeasonalPaint(id: string): ThemeBundle | null {
+  return readValidatedPaintFrom(LS_SEASONAL_PAINT, id);
 }
 
 export function readThemeSchedule(): ThemeScheduleEntry[] {

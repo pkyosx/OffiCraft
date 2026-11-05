@@ -14,6 +14,7 @@ import { mockApi, __resetMock } from "../api/mock";
 import { api } from "../api";
 import { setToken, TOKEN_KEY } from "../api/auth";
 import type { LoadableSeasonalWindow } from "../lib/seasonalTheme";
+import type { ThemeBundle } from "../lib/themeBundleCore";
 
 const seasonalWindows = vi.hoisted(() => [] as LoadableSeasonalWindow[]);
 vi.mock("../lib/seasonalTheme", () => ({ SEASONAL_WINDOWS: seasonalWindows }));
@@ -771,14 +772,16 @@ describe("I18nProvider seasonal theme", () => {
     expect(ctx.activeNavIcons).toEqual({ office: PNG });
     expect(ctx.theme).toBe("office-light");
     expect(localStorage.getItem("oc.theme")).toBe("office-light");
-    expect(JSON.parse(localStorage.getItem("oc.seasonalPaint") ?? "null")).toEqual({
-      v: 1,
-      bundle: {
-        id: "harvest",
-        name: "Harvest",
-        colors: { "--color-bg": "#15101f", "--color-accent": "#ff8c2b" },
+    expect(JSON.parse(localStorage.getItem("oc.seasonalPaint") ?? "null")).toEqual([
+      {
+        v: 1,
+        bundle: {
+          id: "harvest",
+          name: "Harvest",
+          colors: { "--color-bg": "#15101f", "--color-accent": "#ff8c2b" },
+        },
       },
-    });
+    ]);
   });
 
   it("inside the window, never lists the seasonal theme among the owner's themes", async () => {
@@ -1013,6 +1016,113 @@ describe("I18nProvider seasonal theme", () => {
     expect(ctx.t.nav.office).toBe(zh.nav.office);
     expect(root.dataset.theme).toBe("office");
     expect(root.style.getPropertyValue("--color-bg")).toBe("");
+  });
+});
+
+describe("I18nProvider seasonal theme with day parts", () => {
+  const root = document.documentElement;
+  const NIGHT = {
+    id: "harvest-night",
+    name: "豐收之夜",
+    colors: { "--color-bg": "#101014", "--color-hot": "#ff5a36" },
+    backgrounds: { canvas: PNG },
+  };
+  const DAY = { id: "harvest-day", name: "豐收白天", colors: { "--color-bg": "#f5f0e6" } };
+  let load: Mock<(file?: string) => Promise<ThemeBundle>>;
+
+  function at(date: Date) {
+    vi.useFakeTimers({
+      shouldAdvanceTime: true,
+      toFake: ["Date", "setTimeout", "clearTimeout"],
+    });
+    vi.setSystemTime(date);
+  }
+
+  async function mount() {
+    await act(async () => {
+      render(
+        <I18nProvider>
+          <Capture />
+        </I18nProvider>
+      );
+    });
+  }
+
+  beforeEach(() => {
+    __resetMock();
+    localStorage.clear();
+    root.removeAttribute("style");
+    delete root.dataset.theme;
+    localStorage.setItem("oc.theme", "office-light");
+    localStorage.setItem(
+      "oc.themeSchedule",
+      JSON.stringify([
+        { start: "00:00", theme: "office" },
+        { start: "12:00", theme: "office-light" },
+      ])
+    );
+    load = vi.fn((file?: string) =>
+      Promise.resolve(file === "harvest-day.theme.json" ? DAY : NIGHT)
+    );
+    seasonalWindows.push({
+      id: "harvest",
+      start: new Date(2030, 9, 24, 0, 0),
+      end: new Date(2030, 10, 1, 0, 0),
+      schedule: [
+        { start: "06:00", theme: "harvest-day.theme.json" },
+        { start: "18:00", theme: "harvest-night.theme.json" },
+      ],
+      load,
+    });
+  });
+  afterEach(() => {
+    seasonalWindows.length = 0;
+    vi.useRealTimers();
+  });
+
+  it("shows the day part for the local time over the user's schedule, loading only its file", async () => {
+    at(new Date(2030, 9, 25, 21, 0));
+    await mount();
+
+    await waitFor(() => expect(ctx.seasonalThemeName).toBe("豐收之夜"));
+    expect(load.mock.calls).toEqual([["harvest-night.theme.json"]]);
+    expect(ctx.scheduledTheme).toBeNull();
+    expect(ctx.shownTheme).toBe("harvest-night");
+    expect(root.style.getPropertyValue("--color-bg")).toBe("#101014");
+  });
+
+  it("switches from the dark day part to the light one at its start with no reload: light color-scheme, nothing of the dark one left inline", async () => {
+    at(new Date(2030, 9, 25, 5, 59, 59));
+    await mount();
+    await waitFor(() => expect(root.style.getPropertyValue("--color-bg")).toBe("#101014"));
+    expect(root.style.getPropertyValue("color-scheme")).toBe("dark");
+    expect(root.style.getPropertyValue("--canvas-bg-image")).not.toBe("");
+
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    await waitFor(() => expect(root.style.getPropertyValue("--color-bg")).toBe("#f5f0e6"));
+    expect(root.style.getPropertyValue("color-scheme")).toBe("light");
+    expect(root.style.getPropertyValue("--color-hot")).toBe("");
+    expect(root.style.getPropertyValue("--canvas-bg-image")).toBe("");
+    expect(ctx.seasonalThemeName).toBe("豐收白天");
+    expect(load.mock.calls).toEqual([["harvest-night.theme.json"], ["harvest-day.theme.json"]]);
+    expect(
+      (JSON.parse(localStorage.getItem("oc.seasonalPaint") ?? "[]") as { bundle: { id: string } }[]).map(
+        (r) => r.bundle.id
+      )
+    ).toEqual(["harvest-night", "harvest-day"]);
+  });
+
+  it("with the seasonal theme turned off, shows the user's own schedule and loads no day part", async () => {
+    localStorage.setItem("oc.seasonalTheme", "false");
+    at(new Date(2030, 9, 25, 9, 0));
+    await mount();
+
+    expect(ctx.scheduledTheme).toBe("office");
+    expect(root.dataset.theme).toBe("office");
+    expect(load).not.toHaveBeenCalled();
   });
 });
 

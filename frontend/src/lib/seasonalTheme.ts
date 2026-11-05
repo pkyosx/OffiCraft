@@ -1,6 +1,7 @@
 import type { ThemeBundle } from "./themeBundleCore";
 import {
   SEASONAL_SCHEDULE,
+  type SeasonalDayPart,
   type SeasonalScheduleEntry,
   type SeasonalWindow,
 } from "./seasonalSchedule";
@@ -20,7 +21,9 @@ const THEME_FILES = import.meta.glob<ThemeBundle>(
 );
 
 export interface LoadableSeasonalWindow extends SeasonalWindow {
-  load: () => Promise<ThemeBundle>;
+  schedule?: readonly SeasonalDayPart[];
+  /** Loads `file` (a day part's), or the window's own theme file without one. */
+  load: (file?: string) => Promise<ThemeBundle>;
 }
 
 export function seasonalWindowsFrom(
@@ -31,11 +34,12 @@ export function seasonalWindowsFrom(
     id: e.id,
     start: e.start,
     end: e.end,
-    load: () => {
-      const file = files[`../../../themes/${e.theme}`];
+    ...(e.schedule ? { schedule: e.schedule } : {}),
+    load: (name = e.theme) => {
+      const file = name ? files[`../../../themes/${name}`] : undefined;
       return file
         ? file()
-        : Promise.reject(new Error(`seasonal theme file not found: themes/${e.theme}`));
+        : Promise.reject(new Error(`seasonal theme file not found: themes/${name}`));
     },
   }));
 }

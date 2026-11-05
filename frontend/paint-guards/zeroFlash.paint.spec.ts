@@ -77,8 +77,10 @@ const STALE_RECORD = paintRecordJSON({ ...VALID_RICH_BUNDLE, name: STALE_NAME })
 const OK_SERVER = stubURL("PAINT_GUARD_OK_URL");
 
 const SEASON = SEASONAL_SCHEDULE[0];
+// The guard measures a one-file window; a day-part window would need its row picked.
+const SEASON_FILE = SEASON.theme ?? "";
 const SEASONAL_BUNDLE = JSON.parse(
-  readFileSync(fileURLToPath(new URL(`../../themes/${SEASON.theme}`, import.meta.url)), "utf8")
+  readFileSync(fileURLToPath(new URL(`../../themes/${SEASON_FILE}`, import.meta.url)), "utf8")
 ) as ThemeBundle;
 const SEASONAL_RECORD = JSON.stringify(paintRecordFor(SEASONAL_BUNDLE));
 
@@ -309,7 +311,7 @@ for (const profile of ["fourg", "loopback"] as NetProfile[]) {
     const settingsBodies = captureSettingsResponses(page);
     const seasonalChunks = captureSeasonalChunkRequests(page);
     const seasonalBg = SEASONAL_BUNDLE.colors["--color-bg"];
-    expect(seasonalBg, `setup error: ${SEASON.theme} changed its --color-bg`).toBe("#15101f");
+    expect(seasonalBg, `setup error: ${SEASON_FILE} changed its --color-bg`).toBe("#15101f");
 
     await pinClock(page, SEASON.start);
     await page.goto(OK_SERVER);
@@ -341,7 +343,7 @@ for (const profile of ["fourg", "loopback"] as NetProfile[]) {
     expect(pageErrors, "uncaught page errors").toEqual([]);
 
     expect(
-      seasonalChunks.filter((u) => u.includes(SEASON.theme.replace(/\.json$/, ""))),
+      seasonalChunks.filter((u) => u.includes(SEASON_FILE.replace(/\.json$/, ""))),
       "the seasonal theme chunk was never fetched inside its window"
     ).not.toEqual([]);
     // Unthrottled, React mounts before the first sampled frame, so only the

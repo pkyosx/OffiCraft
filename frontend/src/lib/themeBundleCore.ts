@@ -10,7 +10,7 @@
 // and constrain the token NAME to the generated theme.css whitelist.
 
 import { THEME_COLOR_TOKENS } from "../styles/themeTokens.generated";
-import { SEASONAL_SCHEDULE } from "./seasonalSchedule";
+import { SEASONAL_SCHEDULE, seasonalThemeIds } from "./seasonalSchedule";
 import {
   THEME_FONT_TOKENS,
   SAFE_FONT_FAMILIES,
@@ -230,7 +230,7 @@ export const PICKER_BUILTIN_THEMES = [...BUILTIN_THEMES, ...BUNDLED_BUILTIN_THEM
 export const RESERVED_THEME_IDS: readonly string[] = [
   ...BUILTIN_THEME_IDS,
   ...BUNDLED_BUILTIN_THEMES.map((b) => b.id),
-  ...SEASONAL_SCHEDULE.map((e) => e.id),
+  ...SEASONAL_SCHEDULE.flatMap((e) => [e.id, ...seasonalThemeIds(e)]),
 ];
 
 /** A theme.css built-in: painted by <html data-theme>, no bundle. */

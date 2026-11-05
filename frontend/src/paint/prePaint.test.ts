@@ -190,6 +190,66 @@ describe("prePaint", () => {
     });
   });
 
+  describe("with a seasonal window that has day parts", () => {
+    const NIGHT = {
+      id: "harvest-night",
+      name: "Harvest night",
+      colors: { "--color-bg": "#101014", "--color-hot": "#ff5a36" },
+      backgrounds: { canvas: VALID_RICH_BUNDLE.backgrounds!.canvas },
+    };
+    const DAY = { id: "harvest-day", name: "Harvest day", colors: { "--color-bg": "#f5f0e6" } };
+    function seed(records: unknown[]) {
+      schedule.push({
+        ...HARVEST_WINDOW,
+        theme: undefined,
+        schedule: [
+          { start: "06:00", theme: "harvest-day.theme.json" },
+          { start: "18:00", theme: "harvest-night.theme.json" },
+        ],
+      });
+      localStorage.setItem(LS_THEME, PAINT_THEME_ID);
+      localStorage.setItem(LS_THEME_PAINT, JSON.stringify(paintRecordFor(VALID_RICH_BUNDLE)));
+      localStorage.setItem(LS_SEASONAL_PAINT, JSON.stringify(records));
+    }
+    function at(date: Date) {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(date);
+    }
+
+    it("paints the dark day part's record by night", async () => {
+      seed([paintRecordFor(DAY), paintRecordFor(NIGHT)]);
+      at(new Date(2030, 9, 25, 21, 0));
+
+      await runPrePaint();
+
+      expect(root.style.getPropertyValue("--color-bg")).toBe(NIGHT.colors["--color-bg"]);
+      expect(root.style.getPropertyValue("color-scheme")).toBe("dark");
+    });
+
+    it("by day paints the light day part's record alone: light color-scheme and nothing of the dark one", async () => {
+      seed([paintRecordFor(NIGHT), paintRecordFor(DAY)]);
+      at(new Date(2030, 9, 25, 9, 0));
+
+      await runPrePaint();
+
+      expect(root.dataset.theme).toBe("office");
+      expect(root.style.getPropertyValue("--color-bg")).toBe(DAY.colors["--color-bg"]);
+      expect(root.style.getPropertyValue("color-scheme")).toBe("light");
+      expect(root.style.getPropertyValue("--color-hot")).toBe("");
+      expect(root.style.getPropertyValue("--canvas-bg-image")).toBe("");
+    });
+
+    it("with only another day part's record cached, paints nothing rather than the display theme", async () => {
+      seed([paintRecordFor(NIGHT)]);
+      at(new Date(2030, 9, 25, 9, 0));
+
+      await runPrePaint();
+
+      expect(root.hasAttribute("data-theme")).toBe(false);
+      expect(root.getAttribute("style")).toBeNull();
+    });
+  });
+
   describe("with a theme schedule cached", () => {
     const DUSK = { id: "dusk", name: "Dusk", colors: { "--color-bg": "#101418" } };
     function seed(schedulePaint: string | null) {

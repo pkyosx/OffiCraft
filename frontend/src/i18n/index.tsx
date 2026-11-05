@@ -37,9 +37,16 @@ import {
   applyThemeToRoot,
   readValidatedPaint,
   readValidatedSchedulePaint,
+  readValidatedSeasonalPaint,
+  readPaintRecords,
   readThemeSchedule,
 } from "../lib/themePaint";
-import { activeSeasonalWindow, nextSeasonalBoundary } from "../lib/seasonalSchedule";
+import {
+  activeSeasonalWindow,
+  nextSeasonalBoundary,
+  seasonalPickAt,
+  seasonalThemeIds,
+} from "../lib/seasonalSchedule";
 import {
   DEFAULT_DISPLAY_THEME,
   DEFAULT_THEME_SCHEDULE,
@@ -47,7 +54,7 @@ import {
   nextScheduleBoundary,
   type ThemeScheduleEntry,
 } from "../lib/themeSchedule";
-import { SEASONAL_WINDOWS } from "../lib/seasonalTheme";
+import { SEASONAL_WINDOWS, type LoadableSeasonalWindow } from "../lib/seasonalTheme";
 import { loadBundledBuiltinTheme } from "../lib/bundledBuiltinThemes";
 import { applyWording } from "./wording";
 import { makeMessages, type Messages } from "./compose";
@@ -267,7 +274,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   // boundary never waits on the network.
   const [scheduleBundles, setScheduleBundles] = useState<Record<string, ThemeBundle>>({});
   const scheduleBundlesRef = useRef(scheduleBundles);
-  const [seasonalBundle, setSeasonalBundle] = useState<ThemeBundle | null>(null);
+  // The open window's day parts seen so far, by bundle id.
+  const [seasonalBundles, setSeasonalBundles] = useState<Record<string, ThemeBundle>>({});
   // ⚠️ No retry: browsers cache a failed dynamic import per URL, so importing
   // the same chunk again rejects at once; only a reload can recover it.
   const [seasonalLoadFailedId, setSeasonalLoadFailedId] = useState<string | null>(null);
@@ -316,28 +324,34 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     () => activeSeasonalWindow(new Date(clock), SEASONAL_WINDOWS),
     [clock]
   );
-  const seasonalWindow =
-    seasonalTheme && openSeasonalWindow?.id !== seasonalLoadFailedId ? openSeasonalWindow : null;
+  const openSeasonalPick = openSeasonalWindow
+    ? seasonalPickAt(new Date(clock), openSeasonalWindow)
+    : null;
+  // The seasonal bundle id on screen (this day part's), or null.
+  const seasonalId =
+    seasonalTheme && openSeasonalPick && openSeasonalPick.id !== seasonalLoadFailedId
+      ? openSeasonalPick.id
+      : null;
   // The theme on screen: the seasonal one while its window is open and the
   // owner has not turned it off, otherwise the schedule's current entry, else
   // the selected theme. A seasonal or scheduled bundle still in flight resolves
   // to null, never to the selected theme's.
-  const scheduledTheme = seasonalWindow
+  const scheduledTheme = seasonalId
     ? null
     : (activeScheduleEntry(new Date(clock), themeSchedule)?.theme ?? null);
-  const shownTheme = seasonalWindow ? seasonalWindow.id : (scheduledTheme ?? theme);
+  const shownTheme = seasonalId ?? scheduledTheme ?? theme;
   const shownBundle = useMemo(() => {
-    if (seasonalWindow) {
-      return seasonalBundle && seasonalBundle.id === seasonalWindow.id ? seasonalBundle : null;
+    if (seasonalId) {
+      return seasonalBundles[seasonalId] ?? null;
     }
     if (scheduledTheme && scheduledTheme !== theme) {
       return scheduleBundles[scheduledTheme] ?? null;
     }
     return bundleForTheme;
-  }, [seasonalWindow, seasonalBundle, scheduledTheme, theme, scheduleBundles, bundleForTheme]);
+  }, [seasonalId, seasonalBundles, scheduledTheme, theme, scheduleBundles, bundleForTheme]);
 
   const seasonalThemeName =
-    seasonalWindow && seasonalBundle?.id === seasonalWindow.id ? seasonalBundle.name : null;
+    (seasonalId && seasonalBundles[seasonalId]?.name) || null;
 
   const t = useMemo(() => {
     const base = DICTS[locale];
@@ -400,9 +414,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       appliedTokensRef.current = applyThemeToRoot(root, shownBundle);
       return;
     }
-    if (seasonalWindow) {
-      const cached = readValidatedPaint(LS_SEASONAL_PAINT);
-      if (cached && cached.id === seasonalWindow.id) {
+    if (seasonalId) {
+      const cached = readValidatedSeasonalPaint(seasonalId);
+      if (cached) {
         appliedTokensRef.current = applyThemeToRoot(root, cached);
       }
       return;
@@ -422,7 +436,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         appliedTokensRef.current = applyThemeToRoot(root, cached);
       }
     }
-  }, [theme, shownTheme, shownBundle, seasonalWindow, scheduledTheme, themesLoaded]);
+  }, [theme, shownTheme, shownBundle, seasonalId, scheduledTheme, themesLoaded]);
 
   useEffect(() => {
     const now = new Date(clock);
@@ -450,28 +464,48 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const seasonalBundlesRef = useRef(seasonalBundles);
+  seasonalBundlesRef.current = seasonalBundles;
+  const seasonalInFlight = useRef(new Set<string>());
+
+  // Loads the day part `pick` of the open window once; a record is kept per
+  // day part seen in this window, so a later page load in any of them paints.
+  const loadSeasonalPick = useCallback(
+    (w: LoadableSeasonalWindow, pick: { id: string; file: string | undefined }) => {
+      if (seasonalBundlesRef.current[pick.id] || seasonalInFlight.current.has(pick.id)) return;
+      seasonalInFlight.current.add(pick.id);
+      w.load(pick.file)
+        .then((b) => {
+          if (b.id !== pick.id) throw new Error(`seasonal theme file carries id ${b.id}, not ${pick.id}`);
+          setSeasonalBundles((m) => ({ ...m, [b.id]: b }));
+          const keep = new Set(seasonalThemeIds(w));
+          const records = [
+            ...readPaintRecords(LS_SEASONAL_PAINT).filter(
+              (r) => keep.has(r.bundle.id) && r.bundle.id !== b.id
+            ),
+            paintRecordFor(b),
+          ];
+          if (!writeStored(LS_SEASONAL_PAINT, JSON.stringify(records))) {
+            writeStored(LS_SEASONAL_PAINT, null);
+          }
+        })
+        .catch((e) => {
+          console.warn("seasonal theme: load failed", e);
+          setSeasonalLoadFailedId(pick.id);
+        })
+        .finally(() => seasonalInFlight.current.delete(pick.id));
+    },
+    []
+  );
   useEffect(() => {
-    if (!seasonalWindow) return;
-    let current = true;
-    seasonalWindow
-      .load()
-      .then((b) => {
-        if (!current || b.id !== seasonalWindow.id) return;
-        setSeasonalBundle(b);
-        writeStored(LS_SEASONAL_PAINT, JSON.stringify(paintRecordFor(b)));
-      })
-      .catch((e) => {
-        console.warn("seasonal theme: load failed", e);
-        if (current) setSeasonalLoadFailedId(seasonalWindow.id);
-      });
-    return () => {
-      current = false;
-    };
-  }, [seasonalWindow]);
+    if (seasonalId && openSeasonalWindow && openSeasonalPick) {
+      loadSeasonalPick(openSeasonalWindow, openSeasonalPick);
+    }
+  }, [seasonalId]);
 
   useEffect(() => {
     if (!openSeasonalWindow) {
-      setSeasonalBundle(null);
+      setSeasonalBundles({});
       writeStored(LS_SEASONAL_PAINT, null);
     }
   }, [openSeasonalWindow]);
