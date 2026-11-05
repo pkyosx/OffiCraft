@@ -486,14 +486,13 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   // Loads the day part `pick` of the open window once; a record is kept per
   // day part seen in this window, so a later page load in any of them paints.
-  // Whole for the day part shown now, colours-only for the others seen (the
+  // Whole for the day part on screen, colours-only for the others seen (the
   // next one's bundle is still prefetched into memory), none for other windows;
-  // all colours-only while the window is open but the seasonal theme is not
-  // shown.
+  // all colours-only while the seasonal theme is not on screen, the window's
+  // first part prefetched before it opens included.
   const writeSeasonalRecords = useCallback((w: LoadableSeasonalWindow) => {
     const at = new Date(Math.max(Date.now(), w.start.getTime()));
-    const hidden = !seasonalShownRef.current && Date.now() >= w.start.getTime();
-    const full = new Set(hidden ? [] : [seasonalPickAt(at, w).id]);
+    const full = new Set(seasonalShownRef.current ? [seasonalPickAt(at, w).id] : []);
     const records = tieredPaintRecords(
       seasonalThemeIds(w),
       full,

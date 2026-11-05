@@ -1871,12 +1871,14 @@ describe("I18nProvider under the desk default", () => {
     const themeRecord = () =>
       JSON.parse(localStorage.getItem("oc.themePaint") ?? "null") as Rec | null;
 
+    const tgLoad = vi.fn(async (file?: string) => themeFile(file!));
     function openThanksgiving() {
+      tgLoad.mockClear();
       const raw = JSON.parse(
         readFileSync(resolve(THEMES_DIR, "seasonal-schedule.json"), "utf8")
       ) as Parameters<typeof scheduleFrom>[0];
       const [w] = scheduleFrom(raw.filter((e) => e.id === "thanksgiving-2026"));
-      seasonalWindows.push({ ...w, load: async (file?: string) => themeFile(file!) });
+      seasonalWindows.push({ ...w, load: tgLoad });
     }
     function storeWholeRecords(key: string, ids: string[]) {
       localStorage.setItem(
@@ -1929,6 +1931,36 @@ describe("I18nProvider under the desk default", () => {
         expect(storedChars()).toBeLessThanOrEqual(SAFARI_QUOTA);
       });
     }
+
+    it("ten minutes before the window opens, the prefetched first day part keeps only colours and everything stored fits Safari's 2,500,000 characters", async () => {
+      localStorage.removeItem("oc.seasonalPaint");
+      storeWholeRecords("oc.schedulePaint", [DAY, DUSK, NIGHT]);
+      at(new Date(2026, 10, 15, 23, 55));
+      await mount();
+
+      await waitFor(() => expect(withImage("oc.seasonalPaint")).toEqual({ [TG_NIGHT]: false }));
+      await waitFor(() => expect(withImage("oc.schedulePaint")).toEqual({ [DAY]: true, [DUSK]: false, [NIGHT]: true }));
+      expect(ctx.shownThemeBundle?.id).toBe(NIGHT);
+      expect(storedChars()).toBeLessThanOrEqual(SAFARI_QUOTA);
+    });
+
+    it("at the window's start on an open page, switches to the prefetched first day part with no load, then gives it the picture and the schedule only colours", async () => {
+      localStorage.removeItem("oc.seasonalPaint");
+      storeWholeRecords("oc.schedulePaint", [DAY, DUSK, NIGHT]);
+      at(new Date(2026, 10, 15, 23, 55));
+      await mount();
+      await waitFor(() => expect(tgLoad.mock.calls).toEqual([["thanksgiving-2026-night.theme.json"]]));
+      await waitFor(() => expect(withImage("oc.seasonalPaint")).toEqual({ [TG_NIGHT]: false }));
+
+      await act(async () => {
+        vi.advanceTimersByTime(5 * 60 * 1000);
+      });
+      expect(ctx.shownThemeBundle?.id).toBe(TG_NIGHT);
+      expect(tgLoad).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(withImage("oc.seasonalPaint")).toEqual({ [TG_NIGHT]: true }));
+      expect(withImage("oc.schedulePaint")).toEqual({ [DAY]: false, [DUSK]: false, [NIGHT]: false });
+      expect(storedChars()).toBeLessThanOrEqual(SAFARI_QUOTA);
+    });
 
     it("when the window ends, the user's slot gets its picture back for the next page load, and the next slot its own before it starts", async () => {
       storeWholeRecords("oc.schedulePaint", [DAY, DUSK, NIGHT]);
