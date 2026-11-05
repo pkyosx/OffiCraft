@@ -484,9 +484,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   seasonalBundlesRef.current = seasonalBundles;
   const seasonalInFlight = useRef(new Set<string>());
 
-  // Loads the day part `pick` of the open window once; a record is kept per
-  // day part seen in this window, so a later page load in any of them paints.
-  // Whole for the day part on screen, colours-only for the others seen (the
+  // One record per day part seen in this window, so a later page load in any
+  // of them paints. Whole for the day part on screen, colours-only for the others seen (the
   // next one's bundle is still prefetched into memory), none for other windows;
   // all colours-only while the seasonal theme is not on screen, the window's
   // first part prefetched before it opens included.
