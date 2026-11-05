@@ -172,7 +172,7 @@ func TestHandleFetchThemeApiThemeFetchPost(t *testing.T) {
 
 	t.Run("a body one byte past the four-megabyte ceiling is refused 422 rather than handed back truncated", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
-		apiTestFarSide(t, 200, strings.Repeat("x", int(themeFetchMaxBytes)+1))
+		apiTestFarSide(t, 200, strings.Repeat("x", int(themeFileMaxBytes)+1))
 		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "POST", "/api/theme/fetch", owner,

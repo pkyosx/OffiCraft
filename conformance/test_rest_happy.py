@@ -1255,6 +1255,19 @@ def _happy_theme(ctx: HCtx) -> str:
     return theme_id
 
 
+def _happy_theme_file(ctx: HCtx) -> str:
+    """An uploaded theme file; returns its attachment id."""
+    theme_id = f"conf-happy-import-{uuid.uuid4().hex[:8]}"
+    r = ctx.client.post(
+        "/api/chat/attachments?filename=theme.json",
+        content=json.dumps({"id": theme_id, "name": "conf happy import",
+                            "colors": {"--color-bg": "#101018"}}).encode(),
+        headers=_auth(ctx.owner_token),
+    )
+    assert r.status_code == 200, f"happy theme file failed: {r.status_code} {r.text}"
+    return r.json()["id"]
+
+
 def _happy_theme_for_put(ctx: HCtx) -> str:
     """The theme the PUT row replaces — created once and CACHED, because that
     row's path and its body have to name the SAME theme and are evaluated
@@ -3564,6 +3577,10 @@ HAPPY: dict[str, Happy] = {
         check=lambda _c, r: _expect(
             r, lambda d: len(d) >= 1 and set(d[0]) == {"id", "name"}
         ),
+    ),
+    "POST /api/themes/import": Happy(
+        body=lambda ctx: {"attachment_id": _happy_theme_file(ctx)},
+        check=lambda _c, r: _expect(r, lambda d: d["created"] is True),
     ),
     "GET /api/themes/{theme_id}": Happy(
         path=lambda ctx: f"/api/themes/{_happy_theme(ctx)}",

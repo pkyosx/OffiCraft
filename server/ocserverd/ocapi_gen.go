@@ -5069,7 +5069,7 @@ type ThemeBundleDTO struct {
 	// NavIcons Optional per-tab navigation icon images (T-ea81). Keys are the closed set of the seven nav tabs `office` (辦公室) / `replies` (請示) / `tasks` (任務) / `lore` (傳承) / `secrets` (密鑰) / `monitor` (監控) / `guide` (使用說明); each value is an EMBEDDED image encoded as a base64 `data:` URI that replaces that tab's built-in icon. Same strict image gate as `avatars`: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted; SVG (`image/svg+xml`) is REJECTED (script/onload XSS); the base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`). Absent = that tab falls back to its built-in icon (office never degrades). The server 422s any navIcons that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.
 	NavIcons *map[string]string `json:"navIcons,omitempty"`
 
-	// Wording Optional per-language wording overrides (T-16a1 P3). Outer key = UI language (`zh` / `en` only); inner map = an i18n message-key (an internal code path such as `nav.tasks`, drawn from the generated messageKeys whitelist) -> the owner's replacement PLAIN TEXT. Values are plain text only (trimmed, <=200 runes, control chars / newlines rejected, per-language entry count capped); no HTML/CSS. Absent = no overrides. The server 422s any wording that violates the language set or the value rules. A code OUTSIDE the messageKeys whitelist is NOT a 422: it is DROPPED from the overlay and the request succeeds, so only the surviving codes are stored - and NOTHING IN THE RESPONSE SAYS WHICH. This used to read 'the response echoes a pruned `wording`', which was true while put_theme answered the theme; T-91 made it answer ThemeWriteReceiptDTO (`created`, `id`, `order_idx`, `updated_at`), so the pruned overlay is no longer visible on the write. GET the theme back to see which codes survived (an already-imported theme pack stays usable when the whitelist shrinks; the accepted cost is that a typo'd code silently does nothing).
+	// Wording Optional per-language wording overrides (T-16a1 P3). Outer key = UI language (`zh` / `en` only); inner map = an i18n message-key (an internal code path such as `nav.tasks`, drawn from the generated messageKeys whitelist) -> the owner's replacement PLAIN TEXT. Values are plain text only (trimmed, <=200 runes, control chars / newlines rejected, per-language entry count capped); no HTML/CSS. Absent = no overrides. The server 422s any wording that violates the language set or the value rules. A code OUTSIDE the messageKeys whitelist is NOT a 422: it is DROPPED from the overlay and the request succeeds, so only the surviving codes are stored - and NOTHING IN THE RESPONSE SAYS WHICH. GET the theme back to see which codes survived (an already-imported theme pack stays usable when the whitelist shrinks; the accepted cost is that a typo'd code silently does nothing).
 	Wording *map[string]map[string]string `json:"wording,omitempty"`
 }
 
@@ -5091,6 +5091,12 @@ type ThemeFetchDTO struct {
 // ThemeFetchResultDTO The fetched theme bundle, handed back as the RAW response text in “content“ (T-29c7). It is verbatim on purpose: the cockpit feeds it into the very same “parseImportedBundle“ that a pasted / file-picked bundle goes through, so a link-imported theme and a hand-pasted one cannot diverge. The server has already proved the body parses as JSON and passes the shared theme-bundle validator, so “content“ is never arbitrary bytes.
 type ThemeFetchResultDTO struct {
 	Content string `json:"content"`
+}
+
+// ThemeImportDTO Which uploaded file to import as a custom theme.
+type ThemeImportDTO struct {
+	// AttachmentId The id `ocagent upload` returned for the theme file.
+	AttachmentId string `json:"attachment_id"`
 }
 
 // ThemeListItemDTO One row of GET /api/themes (T-83ef): a saved theme's identity and its display name, and nothing else. It is a LIST ITEM rather than the bundle on purpose — see that endpoint's description for why a list of whole bundles is the payload this resource exists to stop serving. `name` is what the cockpit's theme list and the profile picker render; `id` is what selects it, edits it, or fetches it in full.
@@ -5661,6 +5667,9 @@ type HandleUpdateTaskTitleApiTasksTaskIdTitlePostJSONRequestBody = TaskTitleDTO
 
 // HandleFetchThemeApiThemeFetchPostJSONRequestBody defines body for HandleFetchThemeApiThemeFetchPost for application/json ContentType.
 type HandleFetchThemeApiThemeFetchPostJSONRequestBody = ThemeFetchDTO
+
+// HandleImportThemeApiThemesImportPostJSONRequestBody defines body for HandleImportThemeApiThemesImportPost for application/json ContentType.
+type HandleImportThemeApiThemesImportPostJSONRequestBody = ThemeImportDTO
 
 // HandlePutThemeApiThemesThemeIdPutJSONRequestBody defines body for HandlePutThemeApiThemesThemeIdPut for application/json ContentType.
 type HandlePutThemeApiThemesThemeIdPutJSONRequestBody = ThemeBundleDTO
@@ -6570,6 +6579,9 @@ type ServerInterface interface {
 	// List the saved custom themes — id and name only, in list order (owner/admin agent).
 	// (GET /api/themes)
 	HandleListThemesApiThemesGet(w http.ResponseWriter, r *http.Request)
+	// Import ONE custom theme from an already-uploaded file; it is filed under the id inside the file and replaces any existing theme with that id (owner/admin agent).
+	// (POST /api/themes/import)
+	HandleImportThemeApiThemesImportPost(w http.ResponseWriter, r *http.Request)
 	// Delete one custom theme; deleting the active one resets display_theme to "".
 	// (DELETE /api/themes/{theme_id})
 	HandleDeleteThemeApiThemesThemeIdDelete(w http.ResponseWriter, r *http.Request, themeId string)
@@ -6577,14 +6589,6 @@ type ServerInterface interface {
 	// (GET /api/themes/{theme_id})
 	HandleGetThemeApiThemesThemeIdGet(w http.ResponseWriter, r *http.Request, themeId string)
 	// Create or replace ONE custom theme; the bundle's id must match the path (owner/admin agent).
-	//
-	// PARAMETER NOTES. In the input schema the parameters below carry only a short summary; these are their full rules.
-	// - `wording`: Optional per-language wording overrides (T-16a1 P3). Outer key = UI language (`zh` / `en` only); inner map = an i18n message-key (an internal code path such as `nav.tasks`, drawn from the generated messageKeys whitelist) -> the owner's replacement PLAIN TEXT. Values are plain text only (trimmed, <=200 runes, control chars / newlines rejected, per-language entry count capped); no HTML/CSS. Absent = no overrides. The server 422s any wording that violates the language set or the value rules. A code OUTSIDE the messageKeys whitelist is NOT a 422: it is DROPPED from the overlay and the request succeeds, so only the surviving codes are stored - and NOTHING IN THE RESPONSE SAYS WHICH. This used to read 'the response echoes a pruned `wording`', which was true while put_theme answered the theme; T-91 made it answer ThemeWriteReceiptDTO (`created`, `id`, `order_idx`, `updated_at`), so the pruned overlay is no longer visible on the write. GET the theme back to see which codes survived (an already-imported theme pack stays usable when the whitelist shrinks; the accepted cost is that a typo'd code silently does nothing).
-	// - `avatars`: Optional per-role avatar images (T-16a1 P5; extended per role in T-ea81). Keys are the closed set `staff` (一般正職 staff; this key was called `member` until T-57 renamed it. The rename is a HARD CUT: a bundle exported before it carries `member` and is REFUSED with a 422 naming the rename, never silently defaulted to the built-in glyph) / `outsource` (外包 outsource worker) / `owner` (the human CEO / owner) / `assistant` (a member whose role is `assistant`, e.g. Mira). Each value is an EMBEDDED image encoded as a base64 `data:` URI so the image travels inside the bundle on export/import. The value is NOT arbitrary: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted. SVG (`image/svg+xml`) is REJECTED (it can carry script/onload — XSS). The base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`) — a value that declares one mime but carries another is rejected. Absent = that role falls back to the built-in avatar glyph (office never degrades). The server 422s any avatars that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.
-	// - `logo`: Optional studio logo image (T-ea81). A single EMBEDDED image encoded as a base64 `data:` URI that replaces the built-in logo mark shown in the top bar. Same strict image gate as `avatars`: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted; SVG (`image/svg+xml`) is REJECTED (script/onload XSS); the base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`). Absent = the built-in logo mark is used (office never degrades). The server 422s any logo that violates the mime whitelist, the size caps, the base64, or the magic-byte check.
-	// - `navIcons`: Optional per-tab navigation icon images (T-ea81). Keys are the closed set of the seven nav tabs `office` (辦公室) / `replies` (請示) / `tasks` (任務) / `lore` (傳承) / `secrets` (密鑰) / `monitor` (監控) / `guide` (使用說明); each value is an EMBEDDED image encoded as a base64 `data:` URI that replaces that tab's built-in icon. Same strict image gate as `avatars`: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted; SVG (`image/svg+xml`) is REJECTED (script/onload XSS); the base64 must decode, the decoded byte size is capped (<=64 KiB) and the string length capped, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`). Absent = that tab falls back to its built-in icon (office never degrades). The server 422s any navIcons that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.
-	// - `backgrounds`: Optional background images for the cockpit's chrome (T-081b). Keys are a CLOSED set holding exactly one zone today: `canvas` — the OUTERMOST canvas, i.e. the page background behind the centred content column. In `tile` / `sides` mode only the area BESIDE that column shows it, which is nothing on a phone, in a narrow window, or in the wide layout (all of which leave no side gutter); in `cover` mode the image fills the viewport and shows through wherever the theme gives the chrome zone colours translucent values. The zone tokens above it (`--color-topbar-bg` / `--color-nav-bg` / `--color-main-bg`) deliberately take NO image: they sit under text, and text over a busy pattern has no readability guarantee. Each value is an EMBEDDED image encoded as a base64 `data:` URI laid on top of the solid `--color-bg`, which still shows through wherever the image does not cover; HOW it is laid down is `backgroundModes` (default `tile`). Same strict image gate as `avatars`: only a `data:image/<mime>;base64,<...>` URI whose mime is a whitelisted RASTER format (`image/png` / `image/jpeg` / `image/webp`) is accepted; SVG (`image/svg+xml`) is REJECTED (script/onload XSS); the base64 must decode, and the leading magic bytes must match the declared mime (PNG `89 50 4E 47`, JPEG `FF D8 FF`, WEBP `RIFF....WEBP`). The SIZE caps are the one place backgrounds differ from `avatars`: the decoded byte size is capped at <=1 MiB (with the raw data-URI string capped above the base64-inflated form of that), NOT the <=64 KiB that applies to `avatars` / `logo` / `navIcons`. A background is stretched or tiled across the whole viewport, where the glyph-sized 64 KiB cap read as visibly blurry; that cap — and the T-081b ruling that a background must never exceed it — was overturned by the owner on 2026-08-03, and the small-glyph fields keep 64 KiB. Absent = the outer canvas is the plain `--color-bg` colour, exactly as before this field existed. The server 422s any backgrounds that violates the key set, the mime whitelist, the size caps, the base64, or the magic-byte check.
-	// - `backgroundModes`: Optional per-zone DISPLAY MODE for the images in `backgrounds` (T-081b). Same CLOSED zone-key set as `backgrounds` (today: `canvas`); each value is one of a CLOSED set of three: `tile` — repeat the image in both axes over the whole canvas (the ONLY behaviour before this field existed, and the default for any zone this map omits, so an older bundle renders identically); `sides` — do NOT repeat at all: pin ONE copy of the image against the LEFT viewport edge and one against the RIGHT, both at natural size, aligned to the viewport bottom, with `--color-bg` filling whatever the image does not reach; `cover` — ONE copy scaled (`background-size: cover`) to fill the whole viewport, centred. `sides` exists for art that reads as a pair of standing objects (e.g. a tree either side) rather than a texture; the product does NOT mirror the right-hand copy — a theme wanting left/right symmetry bakes it into the image (owner 2026-07-27). `sides` and `cover` are pinned to the VIEWPORT (`background-attachment: fixed`) because the canvas background otherwise scrolls with the document, which would bring a second copy into view down a long page. `cover` is only VISIBLE where the theme also gives the chrome zone colours (`--color-topbar-bg` / `--color-nav-bg` / `--color-main-bg`) translucent values — the colour grammar already admits `#RRGGBBAA` and `rgba()` — and that is also where its risk lives: those zones sit under text, so the image's contrast against that text is the theme's own responsibility (owner accepted this trade-off on 2026-07-27). A mode for a zone that carries no image is a 422 (a mode alone paints nothing, so it is a mistake worth naming rather than ignoring). Absent = every zone tiles, exactly as before this field existed. NOTE both modes are invisible at viewport widths where the content column leaves no gutter (phones, narrow windows) — that is a property of the outer canvas, not of the mode.
 	// (PUT /api/themes/{theme_id})
 	HandlePutThemeApiThemesThemeIdPut(w http.ResponseWriter, r *http.Request, themeId string)
 	// Trigger a software upgrade to the latest GitHub release.
@@ -11675,6 +11679,20 @@ func (siw *ServerInterfaceWrapper) HandleListThemesApiThemesGet(w http.ResponseW
 	handler.ServeHTTP(w, r)
 }
 
+// HandleImportThemeApiThemesImportPost operation middleware
+func (siw *ServerInterfaceWrapper) HandleImportThemeApiThemesImportPost(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleImportThemeApiThemesImportPost(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // HandleDeleteThemeApiThemesThemeIdDelete operation middleware
 func (siw *ServerInterfaceWrapper) HandleDeleteThemeApiThemesThemeIdDelete(w http.ResponseWriter, r *http.Request) {
 
@@ -12218,6 +12236,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tasks/{task_id}/title", wrapper.HandleUpdateTaskTitleApiTasksTaskIdTitlePost)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/theme/fetch", wrapper.HandleFetchThemeApiThemeFetchPost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/themes", wrapper.HandleListThemesApiThemesGet)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/themes/import", wrapper.HandleImportThemeApiThemesImportPost)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/themes/{theme_id}", wrapper.HandleDeleteThemeApiThemesThemeIdDelete)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/themes/{theme_id}", wrapper.HandleGetThemeApiThemesThemeIdGet)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/themes/{theme_id}", wrapper.HandlePutThemeApiThemesThemeIdPut)

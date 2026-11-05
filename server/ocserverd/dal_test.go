@@ -4615,3 +4615,38 @@ func putReplyCardWithChatStepAndTaskInTx(
 ) error {
 	return d.inTx(func(tx *writeTx) error { return putReplyCardWithChatStepAndTaskOn(tx, c, m, atts, st, t) })
 }
+
+func TestGetChatAttachmentDataWithin(t *testing.T) {
+	d := newAPITestDAL(t)
+	if err := d.PutChatAttachment(ChatAttachment{ID: "att-five", Mime: "text/plain", Data: []byte("12345")}); err != nil {
+		t.Fatalf("PutChatAttachment: %v", err)
+	}
+	if err := d.PutChatAttachment(ChatAttachment{ID: "att-empty", Mime: "text/plain", Data: []byte{}}); err != nil {
+		t.Fatalf("PutChatAttachment: %v", err)
+	}
+
+	cases := []struct {
+		name, id  string
+		max       int64
+		wantData  string
+		wantFound bool
+		wantErr   error
+	}{
+		{name: "a blob under the limit answers its bytes", id: "att-five", max: 6, wantData: "12345", wantFound: true},
+		{name: "a blob exactly at the limit answers its bytes", id: "att-five", max: 5, wantData: "12345", wantFound: true},
+		{name: "a blob over the limit answers found, no bytes and the too-large error", id: "att-five", max: 4, wantFound: true, wantErr: ErrChatAttachmentTooLarge},
+		{name: "an empty blob is found with no bytes", id: "att-empty", max: 4, wantFound: true},
+		{name: "an unknown id is not found and is not an error", id: "att-none", max: 4},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			data, found, err := d.GetChatAttachmentDataWithin(tc.id, tc.max)
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("err = %v, want %v", err, tc.wantErr)
+			}
+			if string(data) != tc.wantData || found != tc.wantFound {
+				t.Fatalf("got (%q, %v), want (%q, %v)", data, found, tc.wantData, tc.wantFound)
+			}
+		})
+	}
+}

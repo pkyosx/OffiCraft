@@ -10,7 +10,10 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 )
+
+var themeBundleRequiredFields = []string{"id", "name", "colors"}
 
 // Returns {id, name} only, never bundles (owner ruling 2026-08-18): bundles
 // embed their images (four themes measured 1.59 MB). ListCustomThemes still
@@ -65,9 +68,48 @@ func (s *apiServer) HandleGetThemeApiThemesThemeIdGet(w http.ResponseWriter, r *
 // marshalled from this DTO.
 func (s *apiServer) HandlePutThemeApiThemesThemeIdPut(w http.ResponseWriter, r *http.Request, themeID string) {
 	var body ThemeBundleDTO
-	if !decodeJSONBodyStrict(w, r, &body, "id", "name", "colors") {
+	if !decodeJSONBodyStrict(w, r, &body, themeBundleRequiredFields...) {
 		return
 	}
+	s.saveThemeBundle(w, themeID, body)
+}
+
+func (s *apiServer) HandleImportThemeApiThemesImportPost(w http.ResponseWriter, r *http.Request) {
+	var body ThemeImportDTO
+	if !decodeJSONBodyStrict(w, r, &body, "attachment_id") {
+		return
+	}
+	attID := strings.TrimSpace(body.AttachmentId)
+	if isMemberAvatarAttachmentID(attID) {
+		writeError(w, http.StatusBadRequest,
+			"attachment '"+attID+"' is reserved for a member avatar")
+		return
+	}
+	raw, found, err := s.dal.GetChatAttachmentDataWithin(attID, themeFileMaxBytes)
+	if errors.Is(err, ErrChatAttachmentTooLarge) {
+		writeError(w, http.StatusUnprocessableEntity,
+			fmt.Sprintf("that file is larger than the %d-byte limit for a theme", themeFileMaxBytes))
+		return
+	}
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	if !found {
+		writeError(w, http.StatusBadRequest,
+			"attachment '"+attID+"' not found (upload it first with ocagent upload)")
+		return
+	}
+	var bundle ThemeBundleDTO
+	if _, err := decodeJSONStrict(raw, &bundle, themeBundleRequiredFields...); err != nil {
+		writeError(w, http.StatusUnprocessableEntity,
+			"that file is not a theme bundle: "+err.Error())
+		return
+	}
+	s.saveThemeBundle(w, bundle.Id, bundle)
+}
+
+func (s *apiServer) saveThemeBundle(w http.ResponseWriter, themeID string, body ThemeBundleDTO) {
 	// Do not prune unknown wording codes before validation: validateWording
 	// caps the RAW entry count and prunes after, so pruning first would let
 	// unrecognised entries bypass the cap.
