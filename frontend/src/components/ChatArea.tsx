@@ -746,8 +746,8 @@ export function ChatArea({
       return next;
     });
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  // Native file input the attach button triggers (the iPhone fix — no Cmd+V
-  // needed; tap the paperclip → OS file/photo picker).
+  // Native file input the attach button triggers: tap the paperclip → OS
+  // file/photo picker, no Cmd+V needed.
   const fileInputRef = useRef<HTMLInputElement>(null);
   // IME composition guard. While a CJK (中/日/韓) candidate is being composed the
   // input fires keydown with keyCode 229 and a final Enter that CONFIRMS the
