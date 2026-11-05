@@ -33,6 +33,7 @@ import { api } from "../api";
 import { ApiError } from "../api/errors";
 import { codeForStatus } from "../api/errorCodes";
 import type { ThemeBundle } from "../lib/themeBundle";
+import officeLightTheme from "../../../themes/office-light.theme.json" with { type: "json" };
 import { setToken, clearToken } from "../api/auth";
 
 const SENTINEL = "偽造";
@@ -200,10 +201,15 @@ async function openEditor(
   await settle();
 }
 
+function openTab(utils: ReturnType<typeof render>, name: string) {
+  fireEvent.click(utils.getByRole("tab", { name }));
+}
+
 // Let the provider's mount reconcile (getServerSettings) settle BEFORE we touch
 // the custom-theme set — otherwise its late-resolving GET overwrites an import
-// with the (still-empty) server value.
-async function renderManage() {
+// with the (still-empty) server value. Most cases manage themes, so they start
+// on 主題庫.
+async function renderManage({ tab = s.themeTabLibrary }: { tab?: string } = {}) {
   let utils!: ReturnType<typeof render>;
   await act(async () => {
     utils = render(
@@ -213,7 +219,28 @@ async function renderManage() {
     );
     await new Promise((r) => setTimeout(r, 0));
   });
+  if (tab !== s.themeTabAppearance) openTab(utils, tab);
   return utils;
+}
+
+const themeSelect = (utils: ReturnType<typeof render>) =>
+  utils.getByRole("combobox", { name: s.themePick }) as HTMLSelectElement;
+
+/** Make `id` the selected theme through 外觀's 主題 select, then come back to
+ * 主題庫. */
+async function pickTheme(utils: ReturnType<typeof render>, id: string) {
+  openTab(utils, s.themeTabAppearance);
+  fireEvent.change(themeSelect(utils), { target: { value: id } });
+  await settle();
+  // By id: the picked theme's wording overlay may have re-worded the tab.
+  fireEvent.click(utils.container.querySelector("#ts-tab-library")!);
+}
+
+async function selectedTheme(utils: ReturnType<typeof render>): Promise<string> {
+  openTab(utils, s.themeTabAppearance);
+  const value = themeSelect(utils).value;
+  openTab(utils, s.themeTabLibrary);
+  return value;
 }
 
 beforeEach(() => {
@@ -337,18 +364,17 @@ describe("ThemeSettings · import", () => {
     expect(rowsNamedOffice().length).toBe(2);
 
     // Make the forging pack the ACTIVE theme, so its wording overlay is live.
-    fireEvent.click(rowsNamedOffice()[1].querySelector("button.ts-pick")!);
-    await settle();
+    await pickTheme(utils, "forge");
     // The overlay really IS live — without this the assertion below would pass
     // on a page where no wording was applied at all.
     expect(utils.getByTestId("ts-group-builtin").textContent).toBe(SENTINEL);
 
     // …and yet the built-in row STILL says 辦公室 — the overlay never reached
-    // themeIdentity, so the shipped theme is still findable and still
-    // selectable, which is the whole of the guarantee that remains.
+    // themeIdentity, so the shipped theme is still findable, which is the
+    // whole of the guarantee that remains.
     const builtinList = utils.getByTestId("ts-group-builtin").closest(".ts-list");
     const builtinRows = Array.from(builtinList?.querySelectorAll(".ts-row") ?? []);
-    expect(builtinRows.map((r) => r.querySelector("button.ts-pick")?.textContent)).toEqual([
+    expect(builtinRows.map((r) => r.querySelector(".ts-name")?.textContent)).toEqual([
       zh.themeIdentity.office,
       zh.themeIdentity.officeLight,
     ]);
@@ -1001,13 +1027,8 @@ describe("ThemeSettings · delete", () => {
     await utils.findByText("午夜藍");
 
     // Make it the ACTIVE theme — that is the case with something to get wrong.
-    fireEvent.click(utils.getByText("午夜藍"));
-    await settle();
-    const activePicks = () =>
-      Array.from(utils.container.querySelectorAll(".ts-pick--active")).map(
-        (b) => b.textContent
-      );
-    expect(activePicks()).toEqual(["午夜藍"]);
+    await pickTheme(utils, "midnight");
+    expect(await selectedTheme(utils)).toBe("midnight");
 
     fireEvent.click(await utils.findByLabelText(`${p.themeDelete} 午夜藍`));
     fireEvent.click(utils.getByTestId("theme-delete-confirm-btn"));
@@ -1017,7 +1038,7 @@ describe("ThemeSettings · delete", () => {
     expect(utils.queryByText("午夜藍")).toBeNull();
     expect(await savedIds()).toEqual([]);
     // …and the built-in is what the cockpit is showing, not a dangling id.
-    expect(activePicks()).toEqual([zh.themeIdentity.office]);
+    expect(await selectedTheme(utils)).toBe("office");
     expect(document.documentElement.dataset.theme).toBe("office");
   });
 });
@@ -1128,11 +1149,14 @@ describe("ThemeSettings · fetching a bundle to edit or export", () => {
   const editNameField = (utils: ReturnType<typeof render>) =>
     utils.container.querySelector("#ts-edit-name") as HTMLInputElement;
 
-  /** Make `id` the ACTIVE theme through the row's own picker (the seam
-   * production uses), and wait for its bundle to arrive. */
+  /** Make the theme called `name` the ACTIVE one through 外觀's select (the
+   * seam production uses), and wait for its bundle to arrive. */
   async function activate(utils: ReturnType<typeof render>, name: string) {
-    fireEvent.click(await utils.findByText(name));
+    openTab(utils, s.themeTabAppearance);
+    const option = Array.from(themeSelect(utils).options).find((o) => o.textContent === name)!;
+    fireEvent.change(themeSelect(utils), { target: { value: option.value } });
     await settle();
+    openTab(utils, s.themeTabLibrary);
   }
 
   it("fetches the bundle of a theme that is NOT the active one before editing it", async () => {
@@ -1560,35 +1584,157 @@ describe("ThemeSettings · a refused write is visible", () => {
   });
 });
 
+describe("ThemeSettings · appearance", () => {
+  it("opens on 外觀 and the tabs swap 外觀 and 主題庫", async () => {
+    const utils = await renderManage({ tab: s.themeTabAppearance });
+    const appearance = utils.getByRole("tab", { name: s.themeTabAppearance });
+    const library = utils.getByRole("tab", { name: s.themeTabLibrary });
+    expect(appearance.getAttribute("aria-selected")).toBe("true");
+    expect(utils.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(appearance.id);
+    expect(utils.getByRole("switch", { name: s.themeSchedule })).toBeTruthy();
+    expect(utils.queryByText(p.themeImport)).toBeNull();
+
+    fireEvent.click(library);
+
+    expect(library.getAttribute("aria-selected")).toBe("true");
+    expect(appearance.getAttribute("aria-selected")).toBe("false");
+    expect(utils.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(library.id);
+    expect(utils.getByText(p.themeImport)).toBeTruthy();
+    expect(utils.queryByRole("switch", { name: s.themeSchedule })).toBeNull();
+  });
+
+  it("lists the built-ins first, then the custom themes by their own names, and applies a pick at once", async () => {
+    setToken("owner-token");
+    const spoof = `${zh.themeIdentity.office}(${zh.themeMarkers.builtinGroup})`;
+    await api.putTheme({ id: "aaa", name: spoof, colors: { "--color-bg": "#101018" } });
+    await api.putTheme({ id: "zzz", name: "000 更前面", colors: { "--color-bg": "#181018" } });
+    const utils = await renderManage({ tab: s.themeTabAppearance });
+
+    expect(Array.from(themeSelect(utils).options).map((o) => [o.value, o.textContent])).toEqual([
+      ["office", zh.themeIdentity.office],
+      ["office-light", zh.themeIdentity.officeLight],
+      ["aaa", spoof],
+      ["zzz", "000 更前面"],
+    ]);
+    expect(utils.getByText(s.themePickHint)).toBeTruthy();
+
+    fireEvent.change(themeSelect(utils), { target: { value: "office-light" } });
+    expect(document.documentElement.dataset.theme).toBe("office-light");
+    fireEvent.change(themeSelect(utils), { target: { value: "office" } });
+    expect(document.documentElement.dataset.theme).toBe("office");
+  });
+
+  it("shows a built-in's own colours and a custom theme's canvas image as the thumbnail, fetching each custom theme once", async () => {
+    setToken("owner-token");
+    const png =
+      "data:image/png;base64," +
+      btoa(String.fromCharCode(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01));
+    await api.putTheme({
+      id: "midnight",
+      name: "午夜藍",
+      colors: { "--color-card": "#202030" },
+      backgrounds: { canvas: png },
+    });
+    const utils = await renderManage({ tab: s.themeTabAppearance });
+    const thumb = () => utils.getByTestId("ts-thumb");
+    const card = () => thumb().querySelector<HTMLElement>(".ts-thumb__card")!;
+    const cssColor = (value: string) => {
+      const probe = document.createElement("span");
+      probe.style.backgroundColor = value;
+      return probe.style.backgroundColor;
+    };
+
+    fireEvent.change(themeSelect(utils), { target: { value: "office-light" } });
+    expect(thumb().style.backgroundColor).toBe(cssColor(officeLightTheme.colors["--color-bg"]));
+    expect(card().style.backgroundColor).toBe(cssColor(officeLightTheme.colors["--color-card"]));
+
+    const getTheme = vi.spyOn(api, "getTheme");
+    fireEvent.click(utils.getByRole("switch", { name: s.themeSchedule }));
+    const rowTheme = (n: number) => utils.getByLabelText(`${s.themeScheduleTheme} ${n}`);
+    const rowThumb = (n: number) =>
+      rowTheme(n).closest(".ts-schedule-row")!.querySelector<HTMLElement>(".ts-thumb")!;
+    fireEvent.change(rowTheme(2), { target: { value: "midnight" } });
+    await settle();
+    expect(rowThumb(2).style.backgroundImage).toContain(png);
+    expect(rowThumb(2).querySelector<HTMLElement>(".ts-thumb__card")!.style.backgroundColor).toBe(
+      cssColor("#202030")
+    );
+
+    openTab(utils, s.themeTabLibrary);
+    openTab(utils, s.themeTabAppearance);
+    fireEvent.change(rowTheme(1), { target: { value: "midnight" } });
+    await settle();
+    expect(rowThumb(1).style.backgroundImage).toContain(png);
+    expect(getTheme.mock.calls.map((c) => c[0])).toEqual(["midnight"]);
+  });
+
+  it("draws a blank thumbnail when a custom theme cannot be fetched", async () => {
+    setToken("owner-token");
+    await api.putTheme({ id: "midnight", name: "午夜藍", colors: { "--color-bg": "#101018" } });
+    const utils = await renderManage({ tab: s.themeTabAppearance });
+    vi.spyOn(api, "getTheme").mockRejectedValue(new Error("boom"));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    fireEvent.change(themeSelect(utils), { target: { value: "midnight" } });
+    await settle();
+
+    expect(utils.getByTestId("ts-thumb").classList.contains("ts-thumb--blank")).toBe(true);
+    expect(themeSelect(utils).value).toBe("midnight");
+  });
+
+  it("the 顯示應景主題 switch is on by default and saves each flip to the server", async () => {
+    setToken("owner-token");
+    const utils = await renderManage({ tab: s.themeTabAppearance });
+    const seasonal = utils.getByRole("switch", { name: s.themeSeasonal });
+    expect(seasonal.getAttribute("aria-checked")).toBe("true");
+
+    fireEvent.click(seasonal);
+    expect(seasonal.getAttribute("aria-checked")).toBe("false");
+    await waitFor(async () =>
+      expect((await api.getServerSettings()).displaySeasonalTheme).toBe(false)
+    );
+
+    fireEvent.click(seasonal);
+    expect(seasonal.getAttribute("aria-checked")).toBe("true");
+    await waitFor(async () =>
+      expect((await api.getServerSettings()).displaySeasonalTheme).toBe(true)
+    );
+  });
+});
+
 describe("ThemeSettings · switch by time of day", () => {
   const section = (utils: ReturnType<typeof render>) => within(utils.getByTestId("theme-schedule"));
+  const scheduleSwitch = (utils: ReturnType<typeof render>) =>
+    utils.getByRole("switch", { name: s.themeSchedule });
   const startInputs = (utils: ReturnType<typeof render>) =>
-    section(utils).queryAllByLabelText(new RegExp(`^${s.themeScheduleStart} \\d$`)) as HTMLInputElement[];
-  const listPicks = (utils: ReturnType<typeof render>) =>
-    Array.from(utils.container.querySelectorAll<HTMLButtonElement>("button.ts-pick")).map((b) => [
-      b.textContent,
-      b.disabled,
-      b.classList.contains("ts-pick--active"),
-    ]);
+    utils.queryAllByLabelText(new RegExp(`^${s.themeScheduleStart} \\d$`)) as HTMLInputElement[];
   const rows = (utils: ReturnType<typeof render>) =>
     startInputs(utils).map((input, i) => [
       input.value,
       (section(utils).getByLabelText(`${s.themeScheduleTheme} ${i + 1}`) as HTMLSelectElement).value,
     ]);
+  const timelineLabels = (utils: ReturnType<typeof render>) =>
+    Array.from(utils.getByTestId("ts-timeline").querySelectorAll(".ts-timeline__label")).map(
+      (l) => l.textContent
+    );
 
   async function renderWithDusk() {
     setToken("owner-token");
     await api.putTheme({ id: "dusk", name: "黃昏", colors: { "--color-bg": "#0a0b0c" } });
-    return renderManage();
+    return renderManage({ tab: s.themeTabAppearance });
   }
 
-  it("turning it on offers two rows to edit and saves nothing until the schedule is saved", async () => {
+  it("turning it on swaps the 主題 select for two rows to edit and saves nothing until the schedule is saved", async () => {
     const utils = await renderWithDusk();
+    expect(scheduleSwitch(utils).getAttribute("aria-checked")).toBe("false");
     expect(startInputs(utils)).toEqual([]);
+    expect(themeSelect(utils)).toBeTruthy();
     const patch = vi.spyOn(api, "patchServerSettings");
 
-    fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleOn }));
+    fireEvent.click(scheduleSwitch(utils));
 
+    expect(scheduleSwitch(utils).getAttribute("aria-checked")).toBe("true");
+    expect(utils.queryByRole("combobox", { name: s.themePick })).toBeNull();
     expect(rows(utils)).toEqual([
       ["08:00", "office-light"],
       ["18:00", "office"],
@@ -1601,18 +1747,15 @@ describe("ThemeSettings · switch by time of day", () => {
       ["office-light", zh.themeIdentity.officeLight],
       ["dusk", "黃昏"],
     ]);
-    expect(listPicks(utils)).toEqual([
-      [zh.themeIdentity.office, true, false],
-      [zh.themeIdentity.officeLight, true, false],
-      ["黃昏", true, false],
-    ]);
+    expect(section(utils).getAllByTestId("ts-thumb")).toHaveLength(2);
+    expect(timelineLabels(utils)).toEqual(["08:00", "18:00"]);
     expect(patch).not.toHaveBeenCalled();
     expect((await api.getServerSettings()).displayThemeSchedule).toEqual([]);
   });
 
   it("adds rows up to six and removes rows down to two", async () => {
     const utils = await renderWithDusk();
-    fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleOn }));
+    fireEvent.click(scheduleSwitch(utils));
     const add = section(utils).getByRole("button", { name: s.themeScheduleAdd });
 
     for (let i = 0; i < 4; i++) fireEvent.click(add);
@@ -1634,7 +1777,7 @@ describe("ThemeSettings · switch by time of day", () => {
 
   it("saves the rows through the settings patch and shows the server's copy sorted by start", async () => {
     const utils = await renderWithDusk();
-    fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleOn }));
+    fireEvent.click(scheduleSwitch(utils));
     fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleAdd }));
     fireEvent.change(startInputs(utils)[2], { target: { value: "06:30" } });
     fireEvent.change(section(utils).getByLabelText(`${s.themeScheduleTheme} 3`), {
@@ -1655,12 +1798,13 @@ describe("ThemeSettings · switch by time of day", () => {
       ["08:00", "office-light"],
       ["18:00", "office"],
     ]);
+    expect(timelineLabels(utils)).toEqual(["06:30", "08:00", "18:00"]);
     expect(section(utils).getByText(s.themeScheduleSaved)).toBeTruthy();
   });
 
   it("a repeated or missing start time is refused on screen and nothing is sent", async () => {
     const utils = await renderWithDusk();
-    fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleOn }));
+    fireEvent.click(scheduleSwitch(utils));
     const patch = vi.spyOn(api, "patchServerSettings");
 
     fireEvent.change(startInputs(utils)[1], { target: { value: "08:00" } });
@@ -1678,7 +1822,7 @@ describe("ThemeSettings · switch by time of day", () => {
 
   it("a save the server refuses says so and keeps the rows", async () => {
     const utils = await renderWithDusk();
-    fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleOn }));
+    fireEvent.click(scheduleSwitch(utils));
     vi.spyOn(api, "patchServerSettings").mockRejectedValue(
       new ApiError("http 422", 422, codeForStatus(422), "display_theme_schedule theme must be …")
     );
@@ -1693,33 +1837,41 @@ describe("ThemeSettings · switch by time of day", () => {
     ]);
   });
 
-  it("turning it off clears the saved schedule and hides the rows", async () => {
+  it("turning it off clears the saved schedule and brings back the 主題 select", async () => {
     const utils = await renderWithDusk();
-    fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleOn }));
+    fireEvent.click(scheduleSwitch(utils));
     fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleSave }));
     await settle();
     await settle();
     expect((await api.getServerSettings()).displayThemeSchedule).toHaveLength(2);
 
-    fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleOff }));
+    fireEvent.click(scheduleSwitch(utils));
     await settle();
     await settle();
 
     expect((await api.getServerSettings()).displayThemeSchedule).toEqual([]);
     expect(startInputs(utils)).toEqual([]);
-    expect(
-      section(utils).getByRole("button", { name: s.themeScheduleOff }).getAttribute("aria-pressed")
-    ).toBe("true");
-    expect(listPicks(utils)).toEqual([
-      [zh.themeIdentity.office, false, true],
-      [zh.themeIdentity.officeLight, false, false],
-      ["黃昏", false, false],
+    expect(scheduleSwitch(utils).getAttribute("aria-checked")).toBe("false");
+    expect(themeSelect(utils).value).toBe("office");
+  });
+
+  it("keeps unsaved rows across a visit to 主題庫", async () => {
+    const utils = await renderWithDusk();
+    fireEvent.click(scheduleSwitch(utils));
+    fireEvent.change(startInputs(utils)[0], { target: { value: "07:15" } });
+
+    openTab(utils, s.themeTabLibrary);
+    openTab(utils, s.themeTabAppearance);
+
+    expect(rows(utils)).toEqual([
+      ["07:15", "office-light"],
+      ["18:00", "office"],
     ]);
   });
 
   it("deleting a theme the schedule uses drops the schedule when fewer than two rows would be left", async () => {
     const utils = await renderWithDusk();
-    fireEvent.click(section(utils).getByRole("button", { name: s.themeScheduleOn }));
+    fireEvent.click(scheduleSwitch(utils));
     fireEvent.change(section(utils).getByLabelText(`${s.themeScheduleTheme} 2`), {
       target: { value: "dusk" },
     });
@@ -1731,11 +1883,14 @@ describe("ThemeSettings · switch by time of day", () => {
       ["18:00", "dusk"],
     ]);
 
+    openTab(utils, s.themeTabLibrary);
     fireEvent.click(await utils.findByLabelText(`${p.themeDelete} 黃昏`));
     fireEvent.click(utils.getByTestId("theme-delete-confirm-btn"));
     await settle();
 
     expect((await api.getServerSettings()).displayThemeSchedule).toEqual([]);
+    openTab(utils, s.themeTabAppearance);
     expect(startInputs(utils)).toEqual([]);
+    expect(scheduleSwitch(utils).getAttribute("aria-checked")).toBe("false");
   });
 });

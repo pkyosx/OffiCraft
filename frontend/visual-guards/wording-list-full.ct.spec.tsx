@@ -65,6 +65,7 @@ const ROW = ".ts-wording-row";
 /** Open 設定 › 主題管理, create a theme (that lands in the edit view), and hand
  * back the 用詞 list — the same three clicks an owner makes. */
 async function openWordingList(cmp: Locator) {
+  await cmp.getByRole("tab", { name: "主題庫" }).click();
   await cmp.getByRole("button", { name: "新增" }).click();
   const list = cmp.locator(LIST);
   await expect(list).toBeVisible();

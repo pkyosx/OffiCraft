@@ -17,6 +17,7 @@ for (const width of [390, 1280]) {
   }) => {
     await page.setViewportSize({ width, height: 900 });
     const cmp = await mount(<ThemeSettingsAddStory />);
+    await cmp.getByRole("tab", { name: "主題庫" }).click();
 
     // Before: only the built-in rows, and no 自訂 group at all.
     await expect(cmp.locator(".ts-list > .ts-row")).toHaveCount(BUILTIN_THEME_IDS.length);

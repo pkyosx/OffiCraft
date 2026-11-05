@@ -55,9 +55,18 @@ import {
   UserIcon,
 } from "./icons";
 import { ConfirmModal } from "./ConfirmModal";
+import officeTheme from "../../../themes/office.theme.json" with { type: "json" };
+import officeLightTheme from "../../../themes/office-light.theme.json" with { type: "json" };
+import "./settings.css";
 import "./theme-settings.css";
 
 type View = "list" | "import" | "edit";
+
+type PageTab = "appearance" | "library";
+const PAGE_TABS = [
+  { id: "appearance", labelKey: "themeTabAppearance" },
+  { id: "library", labelKey: "themeTabLibrary" },
+] as const;
 
 const DICTS_BY_LANG = { zh, en } as const;
 
@@ -141,21 +150,20 @@ const NAV_ICON_SLOTS = NAV_ICON_KEYS.map((key) => ({
 }));
 
 /**
- * 主題管理 — the SettingsPage 主題 sub-section (T-16a1 P3b). All theme MANAGEMENT
- * lives here (owner IA: 偏好=選擇, 設定=管理): add / import / export / edit
- * (friendly colours + 用詞 overlay) / delete. The ProfileDropdown keeps only the
- * theme SELECTOR + language.
+ * 主題 — the SettingsPage 主題 sub-section. 外觀 chooses what is shown (one theme,
+ * or a time-of-day schedule, plus the seasonal switch); 主題庫 manages the set:
+ * add / import / export / edit (friendly colours + 用詞 overlay) / delete. The
+ * ProfileDropdown only says which theme is showing (owner 2026-11-05).
  */
 export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
   // [T-83ef] The set arrives as ONE LINE EACH (id + name) and a bundle is
   // fetched per theme. That is the whole shape of this screen now: everything
-  // the LIST draws comes from `themeList`, and only the two actions that need
-  // colours/images (匯出, 編輯) pay for a request.
+  // the LIST draws comes from `themeList`; 匯出, 編輯 and the 外觀 thumbnails
+  // pay for a request, one theme at a time.
   const {
     t,
     msg,
     theme,
-    setTheme,
     language,
     themeList,
     activeThemeBundle,
@@ -165,8 +173,13 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
   } = useI18n();
 
   const [view, setView] = useState<View>("list");
+  const [tab, setTab] = useState<PageTab>("appearance");
   const schedule = useThemeScheduleDraft();
-  const scheduling = schedule.draft !== null;
+  const swatches = useThemeSwatches(
+    view === "list" && tab === "appearance"
+      ? (schedule.draft?.map((r) => r.theme) ?? [theme])
+      : []
+  );
 
   // ── import state ──
   const [importText, setImportText] = useState("");
@@ -360,6 +373,7 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
       return t.profile.themeLimitReached;
     try {
       await saveTheme(bundle);
+      swatches.remember(bundle);
     } catch (e) {
       // The write is the import. A rejected write that reported success would
       // send the owner back to a list without the theme they just imported and
@@ -708,6 +722,7 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
     // ONE theme is written, not the whole set — that is the point of T-83ef.
     try {
       await saveTheme(bundle);
+      swatches.remember(bundle);
     } catch (e) {
       // Stay in the editor on a refusal. Returning to the list would throw away
       // everything typed here while showing a list that still holds the OLD
@@ -1355,149 +1370,166 @@ export function ThemeSettings({ crumbs }: { crumbs: Crumb[] }) {
         {t.settings.themeManage}
       </h1>
 
-      <ThemeScheduleSection {...schedule} />
-
-      <div className="ts-toolbar">
-        <button
-          type="button"
-          className="doc-btn doc-btn--accent"
-          onClick={handleAddNew}
-        >
-          {t.profile.themeAdd}
-        </button>
-        <button type="button" className="doc-btn" onClick={openImport}>
-          {t.profile.themeImport}
-        </button>
+      <div
+        className="ts-wording-tabs ts-page-tabs"
+        role="tablist"
+        aria-label={t.settings.themeManage}
+        onKeyDown={(e) => {
+          if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+          const next = tab === "appearance" ? "library" : "appearance";
+          setTab(next);
+          document.getElementById(`ts-tab-${next}`)?.focus();
+        }}
+      >
+        {PAGE_TABS.map(({ id, labelKey }) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            id={`ts-tab-${id}`}
+            aria-selected={tab === id}
+            aria-controls={`ts-panel-${id}`}
+            tabIndex={tab === id ? 0 : -1}
+            className={`ts-tab${tab === id ? " ts-tab--active" : ""}`}
+            onClick={() => setTab(id)}
+          >
+            {t.settings[labelKey]}
+          </button>
+        ))}
       </div>
-      {listError && <div className="set-error">{listError}</div>}
-      {importSkipped.length > 0 && (
-        <div className="set-warn" data-testid="theme-import-skipped">
-          {msg.themeImportSkipped(
-            importSkipped.length,
-            importSkipped.slice(0, IMPORT_SKIPPED_SAMPLE)
-          )}
-        </div>
-      )}
 
-      {/* 內建 / 自訂 is carried by the GROUP STRUCTURE ALONE, the twin of the
-       * quick picker's ordering (ProfileDropdown.tsx) and fed by the same
-       * themeMarkers wording. The rows carry no per-row chip:
-       * a chip was forgeable on all three of its signals (its TEXT, its COLOUR
-       * and the row's own NAME), and once the heading says it, a chip repeating
-       * it adds nothing a theme could not already imitate. Which group a row
-       * lands in is decided by the code that renders it, not by anything the
-       * pack ships (T-081b review round 4, BLOCKER-A). */}
-      <div className="ts-list" role="group" aria-labelledby="ts-group-builtin">
-        <div className="ts-group-head" id="ts-group-builtin" data-testid="ts-group-builtin">
-          {t.themeMarkers.builtinGroup}
+      {tab === "appearance" ? (
+        <div role="tabpanel" id="ts-panel-appearance" aria-labelledby="ts-tab-appearance">
+          <ThemeAppearance {...schedule} swatchOf={swatches.swatchOf} />
         </div>
-        {/* built-in rows are selectable and downloadable, but not
-         * editable/deletable. 下載 exports that row's own palette whatever is
-         * applied right now (owner: 辦公室主題不用擋下載); the edit/delete icons
-         * stay inert-disabled so built-in and custom rows line up their right
-         * edge at every width (owner: 內建列與自訂列對齊). */}
-        {BUILTIN_THEMES.map((b) => {
-          const name = t.themeIdentity[b.nameKey];
-          return (
-            <div key={b.id} className="ts-row">
-              <button
-                type="button"
-                className={`ts-pick${!scheduling && theme === b.id ? " ts-pick--active" : ""}`}
-                disabled={scheduling}
-                aria-describedby={scheduling ? "ts-schedule-hint" : undefined}
-                onClick={() => setTheme(b.id)}
-              >
-                {name}
-              </button>
-              <button
-                type="button"
-                className="ts-icon-btn"
-                aria-label={`${t.profile.themeExport} ${name}`}
-                title={t.profile.themeExport}
-                onClick={() =>
-                  downloadBundle(exportBuiltinTheme(b.id, `${b.id}-base`, name))
-                }
-              >
-                <DownloadIcon size={15} />
-              </button>
-              <button
-                type="button"
-                className="ts-icon-btn"
-                disabled
-                aria-disabled="true"
-                aria-label={`${t.profile.themeEdit} ${name}`}
-                title={t.profile.themeEdit}
-              >
-                <PencilIcon size={15} />
-              </button>
-              <button
-                type="button"
-                className="ts-icon-btn ts-icon-btn--danger"
-                disabled
-                aria-disabled="true"
-                aria-label={`${t.profile.themeDelete} ${name}`}
-                title={t.profile.themeDelete}
-              >
-                <TrashIcon size={15} />
-              </button>
+      ) : (
+        <div role="tabpanel" id="ts-panel-library" aria-labelledby="ts-tab-library">
+          <div className="ts-toolbar">
+            <button
+              type="button"
+              className="doc-btn doc-btn--accent"
+              onClick={handleAddNew}
+            >
+              {t.profile.themeAdd}
+            </button>
+            <button type="button" className="doc-btn" onClick={openImport}>
+              {t.profile.themeImport}
+            </button>
+          </div>
+          {listError && <div className="set-error">{listError}</div>}
+          {importSkipped.length > 0 && (
+            <div className="set-warn" data-testid="theme-import-skipped">
+              {msg.themeImportSkipped(
+                importSkipped.length,
+                importSkipped.slice(0, IMPORT_SKIPPED_SAMPLE)
+              )}
             </div>
-          );
-        })}
-      </div>
+          )}
 
-      {themeList.length > 0 && (
-        <div className="ts-list" role="group" aria-labelledby="ts-group-custom">
-          <div className="ts-group-head" id="ts-group-custom" data-testid="ts-group-custom">
-            {t.themeMarkers.customGroup}
+          {/* 內建 / 自訂 is carried by the GROUP STRUCTURE ALONE, the twin of the
+           * 外觀 select's built-ins-first ordering (ThemeOptions) and fed by the same
+           * themeMarkers wording. The rows carry no per-row chip:
+           * a chip was forgeable on all three of its signals (its TEXT, its COLOUR
+           * and the row's own NAME), and once the heading says it, a chip repeating
+           * it adds nothing a theme could not already imitate. Which group a row
+           * lands in is decided by the code that renders it, not by anything the
+           * pack ships (T-081b review round 4, BLOCKER-A). */}
+          <div className="ts-list" role="group" aria-labelledby="ts-group-builtin">
+            <div className="ts-group-head" id="ts-group-builtin" data-testid="ts-group-builtin">
+              {t.themeMarkers.builtinGroup}
+            </div>
+            {/* built-in rows are downloadable, but not editable/deletable. 下載 exports that row's own palette whatever is
+             * applied right now (owner: 辦公室主題不用擋下載); the edit/delete icons
+             * stay inert-disabled so built-in and custom rows line up their right
+             * edge at every width (owner: 內建列與自訂列對齊). */}
+            {BUILTIN_THEMES.map((b) => {
+              const name = t.themeIdentity[b.nameKey];
+              return (
+                <div key={b.id} className="ts-row">
+                  <span className="ts-name">{name}</span>
+                  <button
+                    type="button"
+                    className="ts-icon-btn"
+                    aria-label={`${t.profile.themeExport} ${name}`}
+                    title={t.profile.themeExport}
+                    onClick={() =>
+                      downloadBundle(exportBuiltinTheme(b.id, `${b.id}-base`, name))
+                    }
+                  >
+                    <DownloadIcon size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    className="ts-icon-btn"
+                    disabled
+                    aria-disabled="true"
+                    aria-label={`${t.profile.themeEdit} ${name}`}
+                    title={t.profile.themeEdit}
+                  >
+                    <PencilIcon size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    className="ts-icon-btn ts-icon-btn--danger"
+                    disabled
+                    aria-disabled="true"
+                    aria-label={`${t.profile.themeDelete} ${name}`}
+                    title={t.profile.themeDelete}
+                  >
+                    <TrashIcon size={15} />
+                  </button>
+                </div>
+              );
+            })}
           </div>
-          {/* A row is one LINE now (id + name) — everything drawn here was
-           * always just the name, so nothing on screen changed; what left is
-           * the megabytes of embedded images the old set dragged in behind it.
-           * 匯出 and 編輯 fetch the bundle on click instead, and are disabled
-           * while one is in flight — this is a whole theme pack on the wire, so
-           * "nothing happened yet" must be visible rather than guessable. */}
-          {themeList.map((b) => (
-          <div key={b.id} className="ts-row">
-            <button
-              type="button"
-              className={`ts-pick${!scheduling && theme === b.id ? " ts-pick--active" : ""}`}
-              disabled={scheduling}
-              aria-describedby={scheduling ? "ts-schedule-hint" : undefined}
-              onClick={() => setTheme(b.id)}
-            >
-              {b.name}
-            </button>
-            <button
-              type="button"
-              className="ts-icon-btn"
-              disabled={busyId !== null}
-              aria-label={`${t.profile.themeExport} ${b.name}`}
-              title={t.profile.themeExport}
-              onClick={() => handleExportTheme(b.id)}
-            >
-              <DownloadIcon size={15} />
-            </button>
-            <button
-              type="button"
-              className="ts-icon-btn"
-              disabled={busyId !== null}
-              aria-label={`${t.profile.themeEdit} ${b.name}`}
-              title={t.profile.themeEdit}
-              onClick={() => handleEditTheme(b.id)}
-            >
-              <PencilIcon size={15} />
-            </button>
-            <button
-              type="button"
-              className="ts-icon-btn ts-icon-btn--danger"
-              aria-label={`${t.profile.themeDelete} ${b.name}`}
-              title={t.profile.themeDelete}
-              onClick={() => setConfirmDeleteId(b.id)}
-            >
-              <TrashIcon size={15} />
-            </button>
-          </div>
-          ))}
+
+          {themeList.length > 0 && (
+            <div className="ts-list" role="group" aria-labelledby="ts-group-custom">
+              <div className="ts-group-head" id="ts-group-custom" data-testid="ts-group-custom">
+                {t.themeMarkers.customGroup}
+              </div>
+              {/* A row is one LINE now (id + name) — everything drawn here was
+               * always just the name, so nothing on screen changed; what left is
+               * the megabytes of embedded images the old set dragged in behind it.
+               * 匯出 and 編輯 fetch the bundle on click instead, and are disabled
+               * while one is in flight — this is a whole theme pack on the wire, so
+               * "nothing happened yet" must be visible rather than guessable. */}
+              {themeList.map((b) => (
+              <div key={b.id} className="ts-row">
+                <span className="ts-name">{b.name}</span>
+                <button
+                  type="button"
+                  className="ts-icon-btn"
+                  disabled={busyId !== null}
+                  aria-label={`${t.profile.themeExport} ${b.name}`}
+                  title={t.profile.themeExport}
+                  onClick={() => handleExportTheme(b.id)}
+                >
+                  <DownloadIcon size={15} />
+                </button>
+                <button
+                  type="button"
+                  className="ts-icon-btn"
+                  disabled={busyId !== null}
+                  aria-label={`${t.profile.themeEdit} ${b.name}`}
+                  title={t.profile.themeEdit}
+                  onClick={() => handleEditTheme(b.id)}
+                >
+                  <PencilIcon size={15} />
+                </button>
+                <button
+                  type="button"
+                  className="ts-icon-btn ts-icon-btn--danger"
+                  aria-label={`${t.profile.themeDelete} ${b.name}`}
+                  title={t.profile.themeDelete}
+                  onClick={() => setConfirmDeleteId(b.id)}
+                >
+                  <TrashIcon size={15} />
+                </button>
+              </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -1529,8 +1561,8 @@ const DEFAULT_SCHEDULE_DRAFT: ThemeScheduleEntry[] = [
 
 function useThemeScheduleDraft() {
   const { themeSchedule } = useI18n();
-  // null = 固定一套. A draft with rows is 依時間切換 but maybe unsaved; the
-  // server only accepts it once there are 2..6 rows, so switching mode saves nothing.
+  // null = the switch is off. A draft with rows is on but maybe unsaved; the
+  // server only accepts it once there are 2..6 rows, so turning on saves nothing.
   const [draft, setDraft] = useState<ThemeScheduleEntry[] | null>(() =>
     themeSchedule.length ? themeSchedule : null
   );
@@ -1543,11 +1575,192 @@ function useThemeScheduleDraft() {
   return { draft, setDraft };
 }
 
-function ThemeScheduleSection({
+interface ThemeSwatch {
+  bg?: string;
+  card?: string;
+  text?: string;
+  accent?: string;
+  image?: string;
+}
+
+function swatchOfColors(colors: Record<string, string>): ThemeSwatch {
+  return {
+    bg: colors["--color-bg"],
+    card: colors["--color-card"],
+    text: colors["--color-text"],
+    accent: colors["--color-accent"],
+  };
+}
+
+const BUILTIN_SWATCHES: Record<string, ThemeSwatch> = {
+  office: swatchOfColors(officeTheme.colors),
+  "office-light": swatchOfColors(officeLightTheme.colors),
+};
+
+// A custom theme paints over the office base, so whatever it leaves out is office's.
+function swatchOfBundle(bundle: ThemeBundle): ThemeSwatch {
+  const own = swatchOfColors(bundle.colors);
+  const canvas = bundle.backgrounds?.canvas;
+  return {
+    bg: own.bg ?? BUILTIN_SWATCHES.office.bg,
+    card: own.card ?? BUILTIN_SWATCHES.office.card,
+    text: own.text ?? BUILTIN_SWATCHES.office.text,
+    accent: own.accent ?? BUILTIN_SWATCHES.office.accent,
+    image: canvas && isValidBackgroundValue(canvas) ? canvas : undefined,
+  };
+}
+
+/** Thumbnail colours per theme id. Built-ins are known up front; a custom theme
+ * is fetched once per page when one of `wanted` names it, and a failed fetch
+ * stays a blank placeholder rather than being retried. */
+function useThemeSwatches(wanted: string[]) {
+  const { themeList, loadTheme, activeThemeBundle } = useI18n();
+  const [loaded, setLoaded] = useState<Record<string, ThemeSwatch | null>>({});
+  const inFlight = useRef(new Set<string>());
+  const loadRef = useRef(loadTheme);
+  loadRef.current = loadTheme;
+  const activeRef = useRef(activeThemeBundle);
+  activeRef.current = activeThemeBundle;
+
+  const customIds = new Set(themeList.map((b) => b.id));
+  const missing = [...new Set(wanted)].filter(
+    (id) => customIds.has(id) && !(id in loaded) && !inFlight.current.has(id)
+  );
+  const missingKey = missing.join("\n");
+
+  useEffect(() => {
+    for (const id of missing) {
+      const active = activeRef.current;
+      if (active && active.id === id) {
+        setLoaded((m) => ({ ...m, [id]: swatchOfBundle(active) }));
+        continue;
+      }
+      inFlight.current.add(id);
+      loadRef
+        .current(id)
+        .then(
+          (b) => setLoaded((m) => ({ ...m, [id]: swatchOfBundle(b) })),
+          (e) => {
+            console.warn("theme thumbnail: load failed", id, e);
+            setLoaded((m) => ({ ...m, [id]: null }));
+          }
+        )
+        .finally(() => inFlight.current.delete(id));
+    }
+  }, [missingKey]);
+
+  return {
+    swatchOf: (id: string): ThemeSwatch | null =>
+      BUILTIN_SWATCHES[id] ?? loaded[id] ?? null,
+    remember: (bundle: ThemeBundle) =>
+      setLoaded((m) => ({ ...m, [bundle.id]: swatchOfBundle(bundle) })),
+  };
+}
+
+type ThemeSwatches = ReturnType<typeof useThemeSwatches>;
+
+function ThemeThumb({ swatch }: { swatch: ThemeSwatch | null }) {
+  if (!swatch) {
+    return <span className="ts-thumb ts-thumb--blank" aria-hidden="true" data-testid="ts-thumb" />;
+  }
+  return (
+    <span
+      className="ts-thumb"
+      aria-hidden="true"
+      data-testid="ts-thumb"
+      style={{
+        backgroundColor: swatch.bg,
+        backgroundImage: swatch.image ? `url("${swatch.image}")` : undefined,
+      }}
+    >
+      <span className="ts-thumb__card" style={{ backgroundColor: swatch.card }}>
+        <span className="ts-thumb__line" style={{ backgroundColor: swatch.text }} />
+        <span className="ts-thumb__line ts-thumb__line--short" style={{ backgroundColor: swatch.accent }} />
+      </span>
+    </span>
+  );
+}
+
+function ThemeOptions() {
+  const { t, themeList } = useI18n();
+  return (
+    <>
+      {BUILTIN_THEMES.map((b) => (
+        <option key={b.id} value={b.id}>
+          {t.themeIdentity[b.nameKey]}
+        </option>
+      ))}
+      {themeList.map((b) => (
+        <option key={b.id} value={b.id}>
+          {b.name}
+        </option>
+      ))}
+    </>
+  );
+}
+
+const minutesOf = (start: string) => {
+  const m = /^(\d{2}):(\d{2})$/.exec(start);
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+};
+
+function ScheduleTimeline({
+  rows,
+  swatchOf,
+}: {
+  rows: ThemeScheduleEntry[];
+  swatchOf: ThemeSwatches["swatchOf"];
+}) {
+  const marks = rows
+    .map((r) => ({ at: minutesOf(r.start), start: r.start, theme: r.theme }))
+    .filter((m): m is { at: number; start: string; theme: string } => m.at !== null)
+    .sort((a, b) => a.at - b.at);
+  if (!marks.length) return null;
+  const DAY = 24 * 60;
+  const last = marks[marks.length - 1];
+  const segments = [
+    ...(marks[0].at > 0 ? [{ from: 0, to: marks[0].at, theme: last.theme }] : []),
+    ...marks.map((m, i) => ({ from: m.at, to: marks[i + 1]?.at ?? DAY, theme: m.theme })),
+  ].filter((seg) => seg.to > seg.from);
+  return (
+    <div className="ts-timeline" aria-hidden="true" data-testid="ts-timeline">
+      <div className="ts-timeline__bar">
+        {segments.map((seg, i) => (
+          <span
+            key={i}
+            className="ts-timeline__seg"
+            style={{
+              width: `${((seg.to - seg.from) / DAY) * 100}%`,
+              backgroundColor: swatchOf(seg.theme)?.bg,
+            }}
+          />
+        ))}
+      </div>
+      <div className="ts-timeline__labels">
+        {marks.map((m, i) => (
+          <span
+            key={i}
+            className="ts-timeline__label"
+            style={{
+              left: `${(m.at / DAY) * 100}%`,
+              transform: `translateX(${m.at < DAY * 0.05 ? 0 : m.at > DAY * 0.95 ? -100 : -50}%)`,
+            }}
+          >
+            {m.start}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ThemeAppearance({
   draft,
   setDraft,
-}: ReturnType<typeof useThemeScheduleDraft>) {
-  const { t, themeList, themeSchedule, setThemeSchedule } = useI18n();
+  swatchOf,
+}: ReturnType<typeof useThemeScheduleDraft> & { swatchOf: ThemeSwatches["swatchOf"] }) {
+  const { t, theme, setTheme, themeSchedule, setThemeSchedule, seasonalTheme, setSeasonalTheme } =
+    useI18n();
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<"" | "saved" | "start" | "duplicate" | "failed">("");
 
@@ -1570,14 +1783,16 @@ function ThemeScheduleSection({
     }
   };
 
-  // A saved schedule switches off when the server has cleared it (the effect
-  // above); a failed clear leaves the switch on.
-  const turnOff = () => {
-    if (themeSchedule.length) {
+  // A saved schedule switches off when the server has cleared it (the draft
+  // hook's effect); a failed clear leaves the switch on.
+  const toggleSchedule = () => {
+    setStatus("");
+    if (draft === null) {
+      setDraft(DEFAULT_SCHEDULE_DRAFT);
+    } else if (themeSchedule.length) {
       void save([]);
     } else {
       setDraft(null);
-      setStatus("");
     }
   };
 
@@ -1587,80 +1802,64 @@ function ThemeScheduleSection({
   };
 
   return (
-    <div className="ts-schedule" data-testid="theme-schedule">
-      <div className="ts-section-label">{t.settings.themeSchedule}</div>
-      <div className="ts-wording-tabs" role="group" aria-label={t.settings.themeSchedule}>
+    <div className="param-card ts-appearance">
+      <div className="param-row">
+        <div className="param-row__body">
+          <span className="param-row__name">{t.settings.themeSchedule}</span>
+          <div className="param-row__sub">{t.settings.themeScheduleHint}</div>
+        </div>
         <button
           type="button"
-          aria-pressed={draft === null}
-          className={`ts-tab${draft === null ? " ts-tab--active" : ""}`}
+          role="switch"
+          aria-checked={draft !== null}
+          aria-label={t.settings.themeSchedule}
+          className={`set-toggle${draft !== null ? " set-toggle--on" : ""}`}
           disabled={busy}
-          onClick={turnOff}
+          onClick={toggleSchedule}
         >
-          {t.settings.themeScheduleOff}
-        </button>
-        <button
-          type="button"
-          aria-pressed={draft !== null}
-          className={`ts-tab${draft !== null ? " ts-tab--active" : ""}`}
-          disabled={busy}
-          onClick={() => {
-            setStatus("");
-            if (draft === null) setDraft(DEFAULT_SCHEDULE_DRAFT);
-          }}
-        >
-          {t.settings.themeScheduleOn}
+          <span className="set-toggle__knob" />
         </button>
       </div>
-      {draft && (
-        <div className="ts-wording-sub" id="ts-schedule-hint">
-          {t.settings.themeScheduleHint}
-        </div>
-      )}
-      {draft && (
-        <div className="ts-list">
-          {draft.map((row, i) => (
-            <div key={i} className="ts-row ts-schedule-row">
-              <input
-                type="time"
-                className="ts-input ts-schedule-start"
-                aria-label={`${t.settings.themeScheduleStart} ${i + 1}`}
-                value={row.start}
-                onChange={(e) => editRow(i, { start: e.target.value })}
-              />
-              <select
-                className="ts-input"
-                aria-label={`${t.settings.themeScheduleTheme} ${i + 1}`}
-                value={row.theme}
-                onChange={(e) => editRow(i, { theme: e.target.value })}
-              >
-                {BUILTIN_THEMES.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {t.themeIdentity[b.nameKey]}
-                  </option>
-                ))}
-                {themeList.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                className="ts-icon-btn ts-icon-btn--danger"
-                aria-label={`${t.settings.themeScheduleRemove} ${i + 1}`}
-                title={t.settings.themeScheduleRemove}
-                disabled={draft.length <= MIN_SCHEDULE_ENTRIES}
-                onClick={() => {
-                  setStatus("");
-                  setDraft(draft.filter((_, j) => j !== i));
-                }}
-              >
-                <TrashIcon size={15} />
-              </button>
-            </div>
-          ))}
-          <div className="ts-toolbar">
+
+      {draft ? (
+        <div className="param-row param-row--stacked ts-schedule" data-testid="theme-schedule">
+          <ScheduleTimeline rows={draft} swatchOf={swatchOf} />
+          <div className="ts-list">
+            {draft.map((row, i) => (
+              <div key={i} className="ts-row ts-schedule-row">
+                <input
+                  type="time"
+                  className="ts-input ts-schedule-start"
+                  aria-label={`${t.settings.themeScheduleStart} ${i + 1}`}
+                  value={row.start}
+                  onChange={(e) => editRow(i, { start: e.target.value })}
+                />
+                <ThemeThumb swatch={swatchOf(row.theme)} />
+                <select
+                  className="ts-input"
+                  aria-label={`${t.settings.themeScheduleTheme} ${i + 1}`}
+                  value={row.theme}
+                  onChange={(e) => editRow(i, { theme: e.target.value })}
+                >
+                  <ThemeOptions />
+                </select>
+                <button
+                  type="button"
+                  className="ts-icon-btn ts-icon-btn--danger"
+                  aria-label={`${t.settings.themeScheduleRemove} ${i + 1}`}
+                  title={t.settings.themeScheduleRemove}
+                  disabled={draft.length <= MIN_SCHEDULE_ENTRIES}
+                  onClick={() => {
+                    setStatus("");
+                    setDraft(draft.filter((_, j) => j !== i));
+                  }}
+                >
+                  <TrashIcon size={15} />
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="ts-toolbar ts-schedule-actions">
             <button
               type="button"
               className="doc-btn"
@@ -1681,14 +1880,49 @@ function ThemeScheduleSection({
               {t.settings.themeScheduleSave}
             </button>
           </div>
+          {status === "saved" && <div className="ts-link-note">{t.settings.themeScheduleSaved}</div>}
+          {status === "start" && <div className="set-error">{t.settings.themeScheduleErrorStart}</div>}
+          {status === "duplicate" && (
+            <div className="set-error">{t.settings.themeScheduleErrorDuplicate}</div>
+          )}
+          {status === "failed" && <div className="set-error">{t.settings.themeScheduleSaveFailed}</div>}
+        </div>
+      ) : (
+        <div className="param-row">
+          <div className="param-row__body">
+            <span className="param-row__name">{t.settings.themePick}</span>
+            <div className="param-row__sub">{t.settings.themePickHint}</div>
+          </div>
+          <ThemeThumb swatch={swatchOf(theme)} />
+          {/* Built-ins are written out first and each option is the theme's own
+           * name only, so no pack name can pass itself off as a built-in or
+           * move ahead of one (T-081b review round 3, BLOCKER-2). */}
+          <select
+            className="ts-input ts-theme-select"
+            aria-label={t.settings.themePick}
+            value={theme}
+            onChange={(e) => setTheme(e.target.value)}
+          >
+            <ThemeOptions />
+          </select>
         </div>
       )}
-      {status === "saved" && <div className="ts-link-note">{t.settings.themeScheduleSaved}</div>}
-      {status === "start" && <div className="set-error">{t.settings.themeScheduleErrorStart}</div>}
-      {status === "duplicate" && (
-        <div className="set-error">{t.settings.themeScheduleErrorDuplicate}</div>
-      )}
-      {status === "failed" && <div className="set-error">{t.settings.themeScheduleSaveFailed}</div>}
+
+      <div className="param-row">
+        <div className="param-row__body">
+          <span className="param-row__name">{t.settings.themeSeasonal}</span>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={seasonalTheme}
+          aria-label={t.settings.themeSeasonal}
+          className={`set-toggle${seasonalTheme ? " set-toggle--on" : ""}`}
+          onClick={() => setSeasonalTheme(!seasonalTheme)}
+        >
+          <span className="set-toggle__knob" />
+        </button>
+      </div>
     </div>
   );
 }

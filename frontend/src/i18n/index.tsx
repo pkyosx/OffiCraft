@@ -179,6 +179,11 @@ interface I18nContextValue {
    * server's refusal, and takes effect only once saved and its custom themes
    * are in hand. */
   setThemeSchedule: (next: ThemeScheduleEntry[]) => Promise<void>;
+  /** The schedule row's theme on screen now; null without a schedule or while
+   * the seasonal theme is shown. */
+  scheduledTheme: string | null;
+  /** The seasonal theme's name while it is on screen and loaded, else null. */
+  seasonalThemeName: string | null;
   /** The shown theme's per-role avatar images (T-16a1 P5; T-ea81) — the
    * seasonal theme's inside its window, else the active custom theme's — or
    * undefined when the shown theme carries none (the built-in office, or a
@@ -313,6 +318,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     }
     return bundleForTheme;
   }, [seasonalWindow, seasonalBundle, scheduledTheme, theme, scheduleBundles, bundleForTheme]);
+
+  const seasonalThemeName =
+    seasonalWindow && seasonalBundle?.id === seasonalWindow.id ? seasonalBundle.name : null;
 
   const t = useMemo(() => {
     const base = DICTS[locale];
@@ -882,6 +890,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       setSeasonalTheme,
       themeSchedule,
       setThemeSchedule,
+      scheduledTheme,
+      seasonalThemeName,
       activeAvatars,
       activeLogo,
       activeNavIcons,
@@ -906,6 +916,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       setSeasonalTheme,
       themeSchedule,
       setThemeSchedule,
+      scheduledTheme,
+      seasonalThemeName,
       activeAvatars,
       activeLogo,
       activeNavIcons,

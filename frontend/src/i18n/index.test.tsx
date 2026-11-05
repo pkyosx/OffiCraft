@@ -1073,6 +1073,7 @@ describe("I18nProvider theme schedule", () => {
 
     await waitFor(() => expect(ctx.t.nav.office).toBe("黃昏辦公室"));
     expect(ctx.themeSchedule).toEqual(SCHEDULE);
+    expect(ctx.scheduledTheme).toBe("dusk");
     expect(ctx.theme).toBe("office");
     expect(root.dataset.theme).toBe("office");
     expect(root.style.getPropertyValue("--color-bg")).toBe("#0a0b0c");
@@ -1147,7 +1148,7 @@ describe("I18nProvider theme schedule", () => {
     expect(root.style.getPropertyValue("--color-bg")).toBe("#0a0b0c");
   });
 
-  it("inside a seasonal window with the seasonal theme on, shows the seasonal theme over the schedule, and the schedule once it is turned off", async () => {
+  it("inside a seasonal window with the seasonal theme on, shows the seasonal theme over the schedule and names it, and the schedule once it is turned off", async () => {
     const harvest = { id: "harvest", name: "Harvest", colors: { "--color-bg": "#15101f" } };
     seasonalWindows.push({
       id: "harvest",
@@ -1160,11 +1161,15 @@ describe("I18nProvider theme schedule", () => {
     await mount();
     await waitFor(() => expect(ctx.themeSchedule).toEqual(SCHEDULE));
     await waitFor(() => expect(root.style.getPropertyValue("--color-bg")).toBe("#15101f"));
+    expect(ctx.seasonalThemeName).toBe("Harvest");
+    expect(ctx.scheduledTheme).toBeNull();
 
     act(() => ctx.setSeasonalTheme(false));
 
     await waitFor(() => expect(root.style.getPropertyValue("--color-bg")).toBe("#0a0b0c"));
     expect(ctx.theme).toBe("office");
+    expect(ctx.seasonalThemeName).toBeNull();
+    expect(ctx.scheduledTheme).toBe("dusk");
   });
 
   it("with the schedule empty, shows the selected theme", async () => {

@@ -81,6 +81,7 @@ async function renderManage() {
     );
     await new Promise((r) => setTimeout(r, 0));
   });
+  fireEvent.click(utils.getByRole("tab", { name: zh.settings.themeTabLibrary }));
   return utils;
 }
 

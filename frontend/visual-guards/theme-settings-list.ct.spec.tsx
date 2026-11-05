@@ -115,6 +115,7 @@ async function mountSeeded(
 ) {
   await page.setViewportSize({ width, height: 900 });
   const cmp = await mount(<ThemeSettingsListStory builtin={builtin} />);
+  await cmp.getByRole("tab", { name: "主題庫" }).click();
   await cmp.getByTestId("seed").click();
   // The reconcile adds the custom row, which is what mints the 自訂 group.
   await expect(cmp.locator(".ts-group-head")).toHaveCount(2);

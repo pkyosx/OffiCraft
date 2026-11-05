@@ -47,18 +47,18 @@ type View =
 /**
  * Profile menu that drops from the topbar profile pill.
  *  - main view: profile header (inline rename), Preferences row, Log out.
- *  - preferences view: Theme SELECTOR (辦公室 / custom) + Language
- *    (中文 / English) + Layout (窄版 / 寬版) + Show seasonal theme (開 / 關).
+ *  - preferences view: which theme is on screen (read-only, chosen in
+ *    設定 › 主題) + Language (中文 / English) + Layout (窄版 / 寬版).
  *  - main view rows: preferences, notification email, 帳號安全.
  *  - 帳號安全 (security) view: change password, two-step verification,
  *    passkeys; their Back returns here, and this view's Back returns to main.
  *  - password view: current / new / repeat → POST /api/auth/change-password.
  *
  * Scope (owner 2026-07-12): this menu holds APPEARANCE + ACCOUNT IDENTITY only.
- * T-16a1 P3b narrowed 外觀 further: this dropdown now only SELECTS a theme; all
- * theme MANAGEMENT (add / edit colours / 用詞 / import / export / delete)
- * moved to the 設定 page's 主題 sub-section (SettingsPage → ThemeSettings)
- * so selection stays a quick flip here and management lives in one place. The
+ * Choosing a theme, the time-of-day schedule, the seasonal switch and all theme
+ * MANAGEMENT (add / edit colours / 用詞 / import / export / delete) live in the
+ * 設定 page's 主題 sub-section (SettingsPage → ThemeSettings); this dropdown
+ * only says which theme is showing and points there (owner 2026-11-05). The
  * server PARAMETER knobs likewise live in 設定/參數調整 — all of them, which
  * is why this line names none of them.
  *
@@ -75,16 +75,25 @@ export function ProfileDropdown({
   const {
     t,
     theme,
-    setTheme,
     themeList,
     language,
     setLanguage,
     wide,
     setWide,
-    seasonalTheme,
-    setSeasonalTheme,
-    themeSchedule,
+    scheduledTheme,
+    seasonalThemeName,
     resetPreferences, msg } = useI18n();
+
+  const themeName = (id: string) => {
+    const builtin = BUILTIN_THEMES.find((b) => b.id === id);
+    if (builtin) return t.themeIdentity[builtin.nameKey];
+    return themeList.find((b) => b.id === id)?.name ?? id;
+  };
+  const themeStatus = seasonalThemeName
+    ? msg.themeStatusSeasonal(seasonalThemeName)
+    : scheduledTheme
+      ? msg.themeStatusScheduled(themeName(scheduledTheme))
+      : themeName(theme);
 
   const [view, setView] = useState<View>("main");
 
@@ -540,37 +549,11 @@ export function ProfileDropdown({
           </button>
 
           <div className="profile-dd__section">
-            <div className="profile-dd__section-head">
-              <div className="profile-dd__section-label">{t.profile.theme}</div>
-              {/* Manage lives in 設定/主題 now — this hint points there rather
-               * than carrying import/export/edit chips in the quick menu. */}
-              <div className="profile-dd__section-hint">
-                {t.profile.themeManageHint}
-              </div>
+            <div className="profile-dd__section-label">{t.profile.theme}</div>
+            <div className="profile-dd__theme-status" data-testid="profile-dd-theme-status">
+              {themeStatus}
             </div>
-
-            {/* A flat list, built-ins first (owner 2026-07-27: 「下拉式選單不用
-              * 使用分區」/「就算真的沒有顯示內建或自訂也沒關係,只要設定有標示出來
-              * 就好」). 內建 / 自訂 is shown in 設定 › 主題 only — this quick picker
-              * is a plain ordered list.
-              *
-              * What must NOT come back is a TEXT marker on the option itself: a
-              * pack naming itself 「辦公室(內建)」 then puts a second,
-              * byte-identical built-in-looking row here (T-081b review round 3,
-              * BLOCKER-2). Each option's text is the theme's own name and
-              * nothing else; the only thing this picker asserts is ORDER, and
-              * order comes from the rendering below — the built-ins are written
-              * out first, the packs follow — so no field of a bundle can move a
-              * row ahead of the built-ins. */}
-            <select className="profile-dd__input" aria-label={t.profile.theme} value={theme} disabled={themeSchedule.length > 0} aria-describedby={themeSchedule.length > 0 ? "profile-dd-theme-schedule-note" : undefined} onChange={(e) => setTheme(e.target.value)}>
-              {BUILTIN_THEMES.map((b) => (
-                <option key={b.id} value={b.id}>{t.themeIdentity[b.nameKey]}</option>
-              ))}
-              {themeList.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
-            {themeSchedule.length > 0 && (
-              <div className="profile-dd__hint" id="profile-dd-theme-schedule-note">{t.profile.themeScheduleNote}</div>
-            )}
+            <div className="profile-dd__hint">{t.profile.themeManageHint}</div>
           </div>
 
           <div className="profile-dd__section">
@@ -619,30 +602,6 @@ export function ProfileDropdown({
                 onClick={() => setWide(true)}
               >
                 {t.profile.layoutWide}
-              </button>
-            </div>
-          </div>
-
-          <div className="profile-dd__section">
-            <div className="profile-dd__section-label">{t.profile.seasonalTheme}</div>
-            <div className="profile-dd__seg">
-              <button
-                type="button"
-                className={`profile-dd__seg-btn${
-                  seasonalTheme ? " profile-dd__seg-btn--active" : ""
-                }`}
-                onClick={() => setSeasonalTheme(true)}
-              >
-                {t.profile.seasonalThemeOn}
-              </button>
-              <button
-                type="button"
-                className={`profile-dd__seg-btn${
-                  !seasonalTheme ? " profile-dd__seg-btn--active" : ""
-                }`}
-                onClick={() => setSeasonalTheme(false)}
-              >
-                {t.profile.seasonalThemeOff}
               </button>
             </div>
           </div>
