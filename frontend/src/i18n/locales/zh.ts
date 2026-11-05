@@ -2259,8 +2259,6 @@ export const zh = {
     themeTabAppearance: "外觀",
     themeTabLibrary: "主題庫",
     themeSchedule: "依時段切換",
-    themeScheduleHint:
-      "到了設定的時間自動換主題（依這台裝置的時間）。應景主題期間仍顯示應景主題。",
     themeDialogTitle: "主題設定",
     themeDialogClose: "關閉",
     themeRestoreDefault: "恢復預設",
@@ -2268,7 +2266,6 @@ export const zh = {
       "改回預設的外觀：依時段切換（06:00 白天、16:30 黃昏、18:30 晚上的辦公桌主題），並顯示應景主題。自訂主題不會被刪除。",
     themeRestoreFailed: "恢復預設失敗，請再試一次。",
     themePick: "主題",
-    themePickHint: "選了立刻套用到整個畫面",
     themeScheduleStart: "開始時間",
     themeScheduleTheme: "主題",
     themeScheduleAdd: "新增時段",

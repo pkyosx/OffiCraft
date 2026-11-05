@@ -1641,7 +1641,6 @@ describe("ThemeSettings · appearance", () => {
       ["aaa", spoof],
       ["zzz", "000 更前面"],
     ]);
-    expect(utils.getByText(s.themePickHint)).toBeTruthy();
 
     fireEvent.change(themeSelect(utils), { target: { value: "office-light" } });
     expect(document.documentElement.dataset.theme).toBe("office-light");

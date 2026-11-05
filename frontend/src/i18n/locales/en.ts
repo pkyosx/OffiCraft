@@ -2237,8 +2237,6 @@ export const en: Dict = {
     themeTabAppearance: "Appearance",
     themeTabLibrary: "Theme library",
     themeSchedule: "Switch by time of day",
-    themeScheduleHint:
-      "Changes the theme automatically at the times you set (by this device's clock). A seasonal theme still shows during its season.",
     themeDialogTitle: "Theme settings",
     themeDialogClose: "Close",
     themeRestoreDefault: "Restore default",
@@ -2246,7 +2244,6 @@ export const en: Dict = {
       "Go back to the default appearance: switch by time of day (the office desk themes for day at 06:00, dusk at 16:30 and night at 18:30) and show seasonal themes. Your custom themes are kept.",
     themeRestoreFailed: "Couldn't restore the default. Please try again.",
     themePick: "Theme",
-    themePickHint: "Applies to the whole screen as soon as you pick it",
     themeScheduleStart: "Starts at",
     themeScheduleTheme: "Theme",
     themeScheduleAdd: "Add a time slot",

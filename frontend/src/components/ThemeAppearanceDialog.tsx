@@ -278,7 +278,6 @@ function ThemeAppearance({
       <div className="param-row">
         <div className="param-row__body">
           <span className="param-row__name">{t.settings.themeSchedule}</span>
-          <div className="param-row__sub">{t.settings.themeScheduleHint}</div>
         </div>
         <button
           type="button"
@@ -362,7 +361,6 @@ function ThemeAppearance({
         <div className="param-row ts-pick-row">
           <div className="param-row__body">
             <span className="param-row__name">{t.settings.themePick}</span>
-            <div className="param-row__sub">{t.settings.themePickHint}</div>
           </div>
           <ThemeThumb swatch={swatchOf(theme)} />
           {/* Built-ins are written out first and each option is the theme's own
