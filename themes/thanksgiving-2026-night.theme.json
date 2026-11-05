@@ -41,7 +41,7 @@
     "--color-lock-reassigning": "#6dcfc0",
     "--color-logo-grad-from": "#c0482a",
     "--color-logo-grad-to": "#4a2412",
-    "--color-main-bg": "#1d140ecc",
+    "--color-main-bg": "#1d140ed6",
     "--color-nav-bg": "#22170fe6",
     "--color-on-accent": "#1c0e04",
     "--color-on-backdrop": "#ffffff",
