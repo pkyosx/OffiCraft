@@ -23,18 +23,21 @@ import "./confirm-modal.css";
 import "./settings.css";
 import "./theme-settings.css";
 
+const draftOf = (schedule: ThemeScheduleEntry[]) => (schedule.length ? schedule : null);
+
 function useThemeScheduleDraft() {
   const { themeSchedule } = useI18n();
   // null = the switch is off. A draft with rows is on but maybe unsaved; the
   // server only accepts it once there are 2..6 rows, so turning on saves nothing.
-  const [draft, setDraft] = useState<ThemeScheduleEntry[] | null>(() =>
-    themeSchedule.length ? themeSchedule : null
-  );
+  const [draft, setDraft] = useState<ThemeScheduleEntry[] | null>(() => draftOf(themeSchedule));
   const savedKey = JSON.stringify(themeSchedule);
+  const prevSavedKey = useRef(savedKey);
   useEffect(() => {
-    setDraft(themeSchedule.length ? themeSchedule : null);
-    // Keyed on the content: a reconcile re-delivering the same schedule must
-    // not throw away rows being edited.
+    const prev = prevSavedKey.current;
+    prevSavedKey.current = savedKey;
+    // A schedule saved elsewhere replaces the rows only while they are
+    // unedited; the owner's own save adopts its result in `save`.
+    setDraft((d) => (JSON.stringify(d ?? []) === prev ? draftOf(themeSchedule) : d));
   }, [savedKey]);
   return { draft, setDraft };
 }
@@ -245,7 +248,7 @@ function ThemeAppearance({
     setBusy(true);
     setStatus("");
     try {
-      await setThemeSchedule(next);
+      setDraft(draftOf(await setThemeSchedule(next)));
       setStatus(next.length ? "saved" : "");
     } catch (e) {
       console.warn("theme schedule: save failed", e);
@@ -255,8 +258,8 @@ function ThemeAppearance({
     }
   };
 
-  // A saved schedule switches off when the server has cleared it (the draft
-  // hook's effect); a failed clear leaves the switch on.
+  // A saved schedule switches off once the server has cleared it; a failed
+  // clear leaves the switch on.
   const toggleSchedule = () => {
     setStatus("");
     if (draft === null) {
@@ -411,19 +414,20 @@ export function ThemeAppearancePanel({
   titled?: boolean;
 }) {
   const titleId = useId();
-  const { t, theme, restoreDefaultAppearance } = useI18n();
+  const { t, theme, restoreDefaultAppearance, refreshThemeList } = useI18n();
   const [confirmRestore, setConfirmRestore] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [restoreError, setRestoreError] = useState("");
   const own = useThemeScheduleDraft();
   const schedule = hosted ?? own;
   const swatches = useThemeSwatches(schedule.draft?.map((r) => r.theme) ?? [theme]);
+  useEffect(() => refreshThemeList(), [refreshThemeList]);
 
   const restore = async () => {
     setRestoring(true);
     setRestoreError("");
     try {
-      await restoreDefaultAppearance();
+      schedule.setDraft(draftOf(await restoreDefaultAppearance()));
       setConfirmRestore(false);
     } catch (e) {
       console.warn("theme appearance: restore default failed", e);

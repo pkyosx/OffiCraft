@@ -504,13 +504,14 @@ func TestHandleDeleteThemeApiThemesThemeIdDelete(t *testing.T) {
 		apiThemeList(t, h, owner, map[string]any{"id": "dawn", "name": "Dawn"})
 	})
 
-	t.Run("deleting the ACTIVE theme clears display_theme in the same request and says so", func(t *testing.T) {
+	t.Run("deleting the ACTIVE theme clears display_theme in the same request, says so and fans one owner-only settings delta", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		apiPutTheme(t, h, owner, "dusk", `{"id":"dusk","name":"Dusk","colors":{"--color-bg":"#101418"}}`)
 		if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{"display_theme":"dusk"}`); status != 200 {
 			t.Fatalf("select theme: %d %v", status, data)
 		}
 		dashboard := apiTestListen(t, api, "")
+		agent := apiTestListen(t, api, "kip")
 
 		status, data := apiJSON(t, h, "DELETE", "/api/themes/dusk", owner, "")
 		if status != 200 {
@@ -520,7 +521,8 @@ func TestHandleDeleteThemeApiThemesThemeIdDelete(t *testing.T) {
 			"id": "dusk", "deleted": true, "display_theme_reset": true,
 			"display_theme_schedule": apiTestDefaultThemeSchedule(),
 		})
-		dashboard.wantFrames()
+		dashboard.wantFrames(apiTestSettingsFrame(2, "owner"))
+		agent.wantFrames()
 		if got := apiDisplayTheme(t, h, owner); got != "" {
 			t.Fatalf("display_theme should have been cleared, got %q", got)
 		}
@@ -549,13 +551,14 @@ func TestHandleDeleteThemeApiThemesThemeIdDelete(t *testing.T) {
 		}
 	})
 
-	t.Run("deleting a scheduled theme removes its entries in the same request and the receipt carries what is left", func(t *testing.T) {
-		_, h, _, owner := newAPITestServer(t)
+	t.Run("deleting a scheduled theme removes its entries in the same request the receipt carries what is left and one settings delta fans", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
 		apiPutTheme(t, h, owner, "dusk", `{"id":"dusk","name":"Dusk","colors":{"--color-bg":"#101418"}}`)
 		if status, data := apiJSON(t, h, "PATCH", "/api/settings", owner,
 			`{"display_theme_schedule":[{"start":"07:00","theme":"office-light"},{"start":"12:00","theme":"dusk"},{"start":"19:00","theme":"office"},{"start":"22:00","theme":"dusk"}]}`); status != 200 {
 			t.Fatalf("schedule: %d %v", status, data)
 		}
+		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "DELETE", "/api/themes/dusk", owner, "")
 		if status != 200 {
@@ -569,6 +572,7 @@ func TestHandleDeleteThemeApiThemesThemeIdDelete(t *testing.T) {
 			"id": "dusk", "deleted": true, "display_theme_reset": false,
 			"display_theme_schedule": left,
 		})
+		dashboard.wantFrames(apiTestSettingsFrame(2, "owner"))
 		_, view := apiJSON(t, h, "GET", "/api/settings", owner, "")
 		apiWantValue(t, "display_theme_schedule", view["display_theme_schedule"], any(left))
 	})

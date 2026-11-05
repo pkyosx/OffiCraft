@@ -27,6 +27,8 @@ real mode 的 AuthGate：有 token 直接進 App；無 token 先打一次公開 
 
 設定 › 主題沒有分頁，是上下兩張帶標題列的卡（`.doc-card__head` 的外框）：「外觀」（標題列右邊是恢復預設，先確認）與「主題庫」（右邊是匯入、新增；列表不畫縮圖，免得為了縮圖下載主題包）。外觀這張卡就是 `ThemeAppearancePanel`（選主題、時間表、應景主題開關、恢復預設），兩個宿主：設定頁直接展開它（owner：「直接展開好了，不用再另外跳」），沒存的列由 ThemeSettings 持有、進出匯入／編輯畫面仍在，離開頁面才丟；ProfileDropdown 的 preferences（「主題」標籤下）放一整列可點的 `ThemeEntryRow`（畫面上那套的縮圖、名稱、名稱下一行的小標——時間表那一格「依時段」、應景主題蓋過時「應景」——與箭頭），點了開「主題設定」對話框（`ThemeAppearanceDialog`，裡面就是這張卡，標題列只留恢復預設，不重複「外觀」）。preferences 另有語言與版面。主題庫的列不能點選套用（owner 2026-11-05）。對話框 portal 到 body；從 preferences 開時選單同時收起（不然它疊在對話框上），對話框由 ProfileDropdown 在收起狀態下繼續 render，關閉時焦點回到頭像按鈕。settings 經 getServerSettings/patchServerSettings 即時生效，載入失敗就不渲染設定區，不捏預設。settings 只帶「現在選哪一套主題」（display_theme）、是否顯示應景主題（display_seasonal_theme）與依時間切換的時間表（display_theme_schedule），主題本身不在其中——見「主題編輯與清單」。密碼 set/change 不走會把 401 轉成登出的 typed client，而走 credentialPost；成功後換上 server 新 token。
 
+跨分頁、跨裝置：別處存了設定（`settings` delta，也包含重新連線與回到前景時的 resync），i18n provider 用 refreshServerSettings 重讀 settings 與主題清單並套用，跟登入 reconcile 同一條路。本分頁自己的設定或主題寫入還沒落地時，重疊的讀取不採用（可能是寫入前的值），全部寫完再讀一次。新增、刪除主題不推送（owner 裁定），「外觀」那張卡（兩個宿主）每次掛上時重讀主題清單。時間表的列只有在沒被改過時才跟著別處的更新換；改過、還沒存的列留著，自己按存檔則採用 server 存下的結果。
+
 ## i18n
 
 Locale 是 zh/en 封閉聯集；xian 是主題，不是語系。mobile 的 720 斷點由 useIsMobile.ts 與 CSS media query 各自使用，改動時要兩側同改。

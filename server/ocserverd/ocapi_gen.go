@@ -4014,19 +4014,19 @@ type SettingsDTO struct {
 	// DiskUsageIntervalSecs How often, in seconds (600 through 86400), each warden measures how much disk OffiCraft uses on its machine, and the server measures its database, backups and old database copies. One measurement walks the whole OffiCraft directory and takes tens of seconds of disk reads, hence the 10-minute floor. Wardens learn the value from their heartbeat reply.
 	DiskUsageIntervalSecs *int `json:"disk_usage_interval_secs,omitempty"`
 
-	// DisplayLanguage The owner's cockpit language (T-0b41-p2). "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login as the cross-device source of truth.
+	// DisplayLanguage The owner's cockpit language (T-0b41-p2). "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login and on every `settings` event as the cross-device source of truth.
 	DisplayLanguage *string `json:"display_language,omitempty"`
 
 	// DisplaySeasonalTheme Whether the cockpit takes the built-in seasonal theme while its window is open (a holiday theme shipped with the release, e.g. Halloween; its dates ship with it and are not configurable). true (the default) = show it; false = keep display_theme through the window. Outside every window this has no effect. Same dual-layer contract as display_wide.
 	DisplaySeasonalTheme *bool `json:"display_seasonal_theme,omitempty"`
 
-	// DisplayTheme The owner's cockpit visual theme (T-0b41-p2). "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login as the cross-device source of truth.
+	// DisplayTheme The owner's cockpit visual theme (T-0b41-p2). "" = never set — the frontend keeps its localStorage cache / default; reconciled in at login and on every `settings` event as the cross-device source of truth.
 	DisplayTheme *string `json:"display_theme,omitempty"`
 
 	// DisplayThemeSchedule The cockpit's time-of-day theme schedule: each entry names the theme shown from its `start` (viewer-local wall clock, `HH:MM`) until the next entry's start, wrapping past midnight to the last entry. [] (the default) = no schedule, display_theme is shown. Otherwise 2 to 6 entries, sorted by start, starts unique. Precedence on screen: the seasonal theme (inside its window with display_seasonal_theme true) over this schedule over display_theme; display_theme itself is never rewritten by it. Deleting a custom theme removes the entries naming it in the same request, and clears the whole schedule when fewer than 2 would remain (see ThemeDeleteResultDTO.display_theme_schedule).
 	DisplayThemeSchedule *[]ThemeScheduleEntryDTO `json:"display_theme_schedule,omitempty"`
 
-	// DisplayWide Whether the cockpit uses the WIDE layout — the centred ~1040px content column is lifted, the side gutters stay (T-756f). false (the default) = the narrow centred column, the shipped look. Same dual-layer contract as display_theme: the frontend keeps a localStorage cache for the pre-auth paint and reconciles this server value in at login as the cross-device source of truth.
+	// DisplayWide Whether the cockpit uses the WIDE layout — the centred ~1040px content column is lifted, the side gutters stay (T-756f). false (the default) = the narrow centred column, the shipped look. Same dual-layer contract as display_theme: the frontend keeps a localStorage cache for the pre-auth paint and reconciles this server value in at login and on every `settings` event as the cross-device source of truth.
 	DisplayWide *bool `json:"display_wide,omitempty"`
 
 	// DocCapCharsBootSequence The size cap on a 啟動步驟 block of the boot context, in CHARACTERS (Unicode code points). ONE knob for BOTH runtimes (claude and codex), each document measured on its own text — they are two renderings of one short checklist, so a studio that needs more room for one needs it for the other. The floor of the adjustable range is this document's shipped default (the `default` field above), the ceiling is 100000.

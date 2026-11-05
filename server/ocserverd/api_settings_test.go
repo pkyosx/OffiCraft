@@ -607,6 +607,23 @@ func TestHandleGetSettingsApiSettingsGet(t *testing.T) {
 	})
 }
 
+func apiTestSettingsFrame(seq int, trigger string) map[string]any {
+	return map[string]any{
+		"seq":   seq,
+		"topic": "settings",
+		"op":    "patch",
+		"data": map[string]any{
+			"entity":  "settings",
+			"key":     "owner",
+			"epoch":   seq,
+			"deleted": false,
+			"payload": nil,
+		},
+		"ts":      apiAnyNumber,
+		"trigger": trigger,
+	}
+}
+
 func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 	t.Run("a patch of every numeric knob answers 200 with the new values", func(t *testing.T) {
 		_, h, _, owner := newAPITestServer(t)
@@ -713,7 +730,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		apiWantBody(t, data, want)
 	})
 
-	t.Run("a changed task_due_soon_lead_minutes fans one owner-only task delta and an unchanged one fans none", func(t *testing.T) {
+	t.Run("a changed task_due_soon_lead_minutes fans one owner-only task delta and one settings delta, and an unchanged one fans none", func(t *testing.T) {
 		api, h, _, owner := newAPITestServer(t)
 		dashboard := apiTestListen(t, api, "")
 		agent := apiTestListen(t, api, "kip")
@@ -737,12 +754,14 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 			},
 			"ts":      apiAnyNumber,
 			"trigger": "owner",
-		})
+		}, apiTestSettingsFrame(2, "owner"))
 		agent.wantFrames()
 	})
 
-	t.Run("a patch of every text and toggle knob answers 200 with the new values", func(t *testing.T) {
-		_, h, _, owner := newAPITestServer(t)
+	t.Run("a patch of every text and toggle knob answers 200 with the new values and fans one owner-only settings delta", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
+		agent := apiTestListen(t, api, "kip")
 
 		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{
 			"updater_receive_beta":true,
@@ -778,16 +797,20 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		want["suggested_replies_reply_card"] = []any{"yes", "no"}
 		want["suggested_replies_task_message"] = []any{"on it"}
 		apiWantBody(t, data, want)
+		dashboard.wantFrames(apiTestSettingsFrame(1, "owner"))
+		agent.wantFrames()
 	})
 
-	t.Run("an empty patch answers 200 leaving every value alone", func(t *testing.T) {
-		_, h, _, owner := newAPITestServer(t)
+	t.Run("an empty patch answers 200 leaving every value alone and fans no settings delta", func(t *testing.T) {
+		api, h, _, owner := newAPITestServer(t)
+		dashboard := apiTestListen(t, api, "")
 
 		status, data := apiJSON(t, h, "PATCH", "/api/settings", owner, `{}`)
 		if status != 200 {
 			t.Fatalf("want 200, got %d (%v)", status, data)
 		}
 		apiWantBody(t, data, apiTestShippedSettings())
+		dashboard.wantFrames()
 	})
 
 	t.Run("an explicitly empty suggested-reply list or theme schedule answers 200 and clears it", func(t *testing.T) {
@@ -1124,9 +1147,10 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 		}
 	})
 
-	t.Run("a display_theme_schedule breaking a rule answers 422 naming it and writes nothing", func(t *testing.T) {
-		_, h, d, owner := newAPITestServer(t)
+	t.Run("a display_theme_schedule breaking a rule answers 422 naming it, writes nothing and fans no settings delta", func(t *testing.T) {
+		api, h, d, owner := newAPITestServer(t)
 		apiPutTheme(t, h, owner, "dusk", `{"id":"dusk","name":"Dusk","colors":{"--color-bg":"#101418"}}`)
+		dashboard := apiTestListen(t, api, "")
 		const countRefusal = "display_theme_schedule must have 0 entries, or 2 to 6"
 		for _, tc := range []struct {
 			name, schedule, want string
@@ -1154,6 +1178,7 @@ func TestHandleUpdateSettingsApiSettingsPatch(t *testing.T) {
 				windowWantSetting(t, d, "org.name", nil)
 			})
 		}
+		dashboard.wantFrames()
 	})
 
 	t.Run("a display_language outside the vocabulary answers 422", func(t *testing.T) {

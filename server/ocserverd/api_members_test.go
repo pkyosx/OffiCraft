@@ -3390,7 +3390,7 @@ func TestHandleAcceleratedStopMemberApiMembersMemberIdAcceleratedStopPost(t *tes
 				apiWantBody(t, data, map[string]any{"id": "kip"})
 				payload := apiTestMemberPayload("kip", "Kip", "active", "offline")
 				payload["offboard_notice"] = apiAnyString
-				self.wantFrames(apiTestMemberFrame(3, "patch", "kip", payload, "owner"))
+				self.wantFrames(apiTestMemberFrame(4, "patch", "kip", payload, "owner"))
 				m, err := d.GetMember("kip")
 				if err != nil || m == nil {
 					t.Fatalf("GetMember: %v (%v)", m, err)

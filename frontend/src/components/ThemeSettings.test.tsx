@@ -1745,6 +1745,37 @@ describe("ThemeSettings · appearance", () => {
       expect((await api.getServerSettings()).displaySeasonalTheme).toBe(true)
     );
   });
+
+  it("offers a theme another tab added once the theme settings open again", async () => {
+    setToken("owner-token");
+    const utils = await renderManage();
+    await act(async () => {
+      await api.putTheme({ id: "dusk", name: "黃昏", colors: { "--color-bg": "#0a0b0c" } });
+    });
+
+    utils.rerender(
+      <I18nProvider>
+        <div />
+      </I18nProvider>
+    );
+    await act(async () => {
+      utils.rerender(
+        <I18nProvider>
+          <ThemeSettings crumbs={[{ label: zh.settings.title }]} />
+        </I18nProvider>
+      );
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    expect(Array.from(themeSelect(utils).options).map((o) => [o.value, o.textContent])).toEqual([
+      ["office", zh.themeIdentity.office],
+      ["office-light", zh.themeIdentity.officeLight],
+      ["modern-office-desk-day", zh.themeIdentity.deskDay],
+      ["modern-office-desk-dusk", zh.themeIdentity.deskDusk],
+      ["modern-office-desk-night", zh.themeIdentity.deskNight],
+      ["dusk", "黃昏"],
+    ]);
+  });
 });
 
 describe("ThemeSettings · switch by time of day", () => {
@@ -1937,5 +1968,49 @@ describe("ThemeSettings · switch by time of day", () => {
     expect((await api.getServerSettings()).displayThemeSchedule).toEqual([]);
     expect(startInputs(utils)).toEqual([]);
     expect(scheduleSwitch(utils).getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("a schedule another tab saves replaces rows nobody has edited here", async () => {
+    const utils = await renderWithDusk();
+
+    await act(async () => {
+      await api.patchServerSettings({
+        displayThemeSchedule: [
+          { start: "19:00", theme: "office" },
+          { start: "07:00", theme: "dusk" },
+        ],
+      });
+    });
+    await settle();
+    await settle();
+
+    expect(scheduleSwitch(utils).getAttribute("aria-checked")).toBe("true");
+    expect(rows(utils)).toEqual([
+      ["07:00", "dusk"],
+      ["19:00", "office"],
+    ]);
+  });
+
+  it("rows edited here and not yet saved stay when another tab saves a schedule", async () => {
+    const utils = await renderWithDusk();
+    fireEvent.click(scheduleSwitch(utils));
+    fireEvent.change(startInputs(utils)[0], { target: { value: "05:00" } });
+
+    await act(async () => {
+      await api.patchServerSettings({
+        displayThemeSchedule: [
+          { start: "07:00", theme: "dusk" },
+          { start: "19:00", theme: "office" },
+        ],
+      });
+    });
+    await settle();
+    await settle();
+
+    expect(rows(utils)).toEqual([
+      ["05:00", "modern-office-desk-day"],
+      ["16:00", "modern-office-desk-dusk"],
+      ["18:30", "modern-office-desk-night"],
+    ]);
   });
 });

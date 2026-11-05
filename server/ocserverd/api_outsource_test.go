@@ -1382,7 +1382,7 @@ func TestHandleAcceleratedStopMember_Worker(t *testing.T) {
 					"refocus_op": "accelerated_stop", "refocus_deadline": first.StoppingSince + float64(grace),
 				}))
 				contractor.wantFrames(
-					apiTestHandoverDelta(4, "offline", apiAnyString, "owner"),
+					apiTestHandoverDelta(5, "offline", apiAnyString, "owner"),
 				)
 			})
 		}

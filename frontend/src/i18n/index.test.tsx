@@ -175,6 +175,91 @@ describe("I18nProvider dual-layer theme/language", () => {
   });
 });
 
+describe("I18nProvider following another tab's settings", () => {
+  beforeEach(() => {
+    __resetMock();
+    __setMockNoAppearance();
+    localStorage.clear();
+    delete document.documentElement.dataset.theme;
+    localStorage.setItem(TOKEN_KEY, "live-owner-token");
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  async function mountSettled() {
+    render(
+      <I18nProvider>
+        <Probe />
+        <Capture />
+      </I18nProvider>
+    );
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+  }
+
+  it("adopts the theme and language another tab saves, without a reload", async () => {
+    await mountSettled();
+
+    await act(async () => {
+      await mockApi.patchServerSettings({ displayTheme: "office-light", displayLanguage: "en" });
+    });
+
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe("office-light"));
+    expect(screen.getByTestId("probe").dataset.lang).toBe("en");
+    expect(localStorage.getItem("oc.theme")).toBe("office-light");
+  });
+
+  it("adopts the schedule another tab saves", async () => {
+    await mountSettled();
+
+    await act(async () => {
+      await mockApi.patchServerSettings({
+        displayThemeSchedule: [
+          { start: "19:00", theme: "office" },
+          { start: "07:00", theme: "office-light" },
+        ],
+      });
+    });
+
+    await waitFor(() =>
+      expect(ctx.themeSchedule).toEqual([
+        { start: "07:00", theme: "office-light" },
+        { start: "19:00", theme: "office" },
+      ])
+    );
+  });
+
+  it("a settings read answered after this tab's own switch does not undo it", async () => {
+    await mountSettled();
+    const read = api.getServerSettings.bind(api);
+    let release = () => {};
+    vi.spyOn(api, "getServerSettings").mockImplementationOnce(async () => {
+      const before = await read();
+      await new Promise<void>((r) => (release = r));
+      return before;
+    });
+
+    await act(async () => {
+      await mockApi.patchServerSettings({ displayTheme: "office-light" });
+    });
+    await act(async () => {
+      ctx.setTheme("office");
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    await act(async () => {
+      release();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    await waitFor(async () => expect((await mockApi.getServerSettings()).displayTheme).toBe("office"));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(screen.getByTestId("probe").dataset.theme).toBe("office");
+    expect(document.documentElement.dataset.theme).toBe("office");
+  });
+});
+
 describe("I18nProvider layout width (T-756f)", () => {
   const root = document.documentElement;
 

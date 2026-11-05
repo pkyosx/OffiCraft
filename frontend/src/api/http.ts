@@ -443,6 +443,7 @@ export const SSE_RESYNC_TOPICS = [
   "chat",
   "chat_read",
   "chat_group",
+  "settings",
   "reply_card",
   "task",
   "task_manual",
