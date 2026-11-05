@@ -1242,8 +1242,8 @@ describe("RepliesPage", () => {
     expect([...select.options].map((o) => o.textContent)).toEqual([
       "開卡時間（新到舊）",
       "開卡時間（舊到新）",
-      "任務優先序",
-      "任務期限",
+      "任務優先序（高到低）",
+      "任務期限（早到晚）",
     ]);
     const expected: Record<string, string[]> = {
       createdAsc: ["rc-frozen", "rc-high", "rc-mid", "rc-low", "rc-notask"],
@@ -1261,12 +1261,12 @@ describe("RepliesPage", () => {
     expect(first.queryByTestId("replies-sort-active")).toBeNull();
 
     fireEvent.change(select, { target: { value: "priority" } });
-    expect(first.getByTestId("replies-sort-active").textContent).toBe("任務優先序");
+    expect(first.getByTestId("replies-sort-active").textContent).toBe("任務優先序（高到低）");
     first.unmount();
 
     const second = renderPage();
     await waitFor(() => expect(paneIds("waiting-card")).toEqual(expected.priority));
-    expect(second.getByTestId("replies-sort-active").textContent).toBe("任務優先序");
+    expect(second.getByTestId("replies-sort-active").textContent).toBe("任務優先序（高到低）");
     localStorage.removeItem("oc_replies_sort");
   });
 
