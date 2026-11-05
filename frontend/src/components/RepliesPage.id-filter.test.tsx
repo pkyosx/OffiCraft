@@ -170,7 +170,7 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
     expect(queryAllByText("第二張").length).toBeGreaterThan(0);
   });
 
-  it("Enter applies the typed id, and asks the server for it exactly once", async () => {
+  it("Enter applies the typed id, unfolding a folded 請示 to show its card, and asks the server for it exactly once", async () => {
     // Typing costs nothing (spec above); a COMMITTED id costs exactly one read.
     const getSpy = vi.spyOn(api, "getReplyCard");
     const now = Date.now() / 1000;
@@ -181,9 +181,11 @@ describe("請示 ID 篩選（常駐欄位版，T-118）", () => {
       mkCard({ id: "rc-bbb", summary: "第二張", createdTs: now - 26 * 60 })
     );
 
-    const { findAllByTestId } = renderPage();
+    const { findAllByTestId, getByTestId, queryAllByTestId } = renderPage();
     expect(await findAllByTestId("waiting-card")).toHaveLength(2);
     expect(getSpy, "arrival must read no card at all").not.toHaveBeenCalled();
+    fireEvent.click(getByTestId("waiting-toggle"));
+    expect(queryAllByTestId("waiting-card")).toHaveLength(0);
 
     applyId("rc-bbb");
 

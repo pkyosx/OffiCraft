@@ -395,6 +395,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   const [handledOpen, setHandledOpen] = useState(false);
   // 已延後 starts collapsed every visit, like 近期已處理.
   const [snoozedOpen, setSnoozedOpen] = useState(false);
+  const [waitingOpen, setWaitingOpen] = useState(true);
   const [unsnoozeErrors, setUnsnoozeErrors] = useState<Set<string>>(() => new Set());
   const [handledLoadError, setHandledLoadError] = useState(false);
   const [settledRows, setSettledRows] = useState<Map<string, ReplyCardRow>>(
@@ -772,6 +773,7 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
   // while loadHandled is still in flight — and folding them together would make
   // the caret lie for the length of that request.
   const handledExpanded = filtering || handledOpen;
+  const waitingExpanded = filtering || waitingOpen;
   const handledListShown =
     filtering ||
     (handledOpen &&
@@ -1478,7 +1480,17 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
       </FilterPanel>
 
       <section className="replies__section">
-        <div className="replies__section-title">
+        <button
+          type="button"
+          className="replies__section-toggle replies__section-title"
+          aria-expanded={waitingExpanded}
+          onClick={() => setWaitingOpen((v) => !v)}
+          data-testid="waiting-toggle"
+        >
+          <ChevronRightIcon
+            size={13}
+            className={`reply-card__caret${waitingExpanded ? " reply-card__caret--open" : ""}`}
+          />
           <span>
             {t.replies.waitingTitle}
             {!loading && !error && ` · ${waitingSorted.length}`}
@@ -1486,8 +1498,8 @@ export function RepliesPage({ replyCardId }: { replyCardId?: string }) {
           <span className="replies__section-hint" data-testid="replies-sort-active">
             {sortLabels[waitingSort]}
           </span>
-        </div>
-        {!loading && !error && waitingSorted.length === 0 ? (
+        </button>
+        {!waitingExpanded ? null : !loading && !error && waitingSorted.length === 0 ? (
           /* THREE, and the split that survives is 「we have an answer」 vs
            * 「we do not」. An empty page and an empty RESULT stay separate —
            * saying 「目前沒有待處理的請示」 while six cards sit behind a filter

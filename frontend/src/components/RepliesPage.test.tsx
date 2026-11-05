@@ -1196,7 +1196,7 @@ describe("RepliesPage", () => {
     expect(queryByTestId("reply-task-ref")).toBeNull();
   });
 
-  it("顯示方式 › 排序依據 → each order re-sorts 待回覆 only (已延後 stays by return time, 近期已處理 by handled time), the active one is named beside the title, the panel closes once a sort is picked, and the choice survives a remount", async () => {
+  it("顯示方式 › 排序依據 → each order re-sorts 待回覆 only (已延後 stays by return time, 近期已處理 by handled time), the 請示 title folds and unfolds the list, the active sort is named beside it, the panel closes once a sort is picked, and the choice survives a remount", async () => {
     const now = Date.now() / 1000;
     const task = (id: string, priority: string, dueTs: number | null = null) => ({ id, typeKey: "", title: id, priority, dueTs });
     __injectMockReplyCard(mkCard({ id: "rc-notask", createdTs: now - 10 * 60, task: null }));
@@ -1236,6 +1236,14 @@ describe("RepliesPage", () => {
     fireEvent.click(await first.findByTestId("answered-toggle"));
     await waitFor(() => expect(paneIds("answered-card")).toHaveLength(3));
     expect(first.getByTestId("replies-sort-active").textContent).toBe("開卡時間（新到舊）");
+    const waitingToggle = first.getByTestId("waiting-toggle");
+    expect(waitingToggle.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(waitingToggle);
+    expect(waitingToggle.getAttribute("aria-expanded")).toBe("false");
+    expect(paneIds("waiting-card")).toEqual([]);
+    expect(waitingToggle.textContent).toBe("請示 · 5開卡時間（新到舊）");
+    fireEvent.click(waitingToggle);
+    expect(paneIds("waiting-card")).toEqual(["rc-notask", "rc-low", "rc-mid", "rc-high", "rc-frozen"]);
 
     fireEvent.click(first.getByTestId("display-options"));
     const select = first.getByTestId("replies-sort") as HTMLSelectElement;
