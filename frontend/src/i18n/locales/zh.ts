@@ -1129,16 +1129,16 @@ export const zh = {
   //
   // ⚠️ 場所稱呼不在這裡:導覽列的「辦公室」是 nav.office,照舊可被主題包換掉。
   themeIdentity: {
-    office: "辦公室（深色）",
-    officeLight: "辦公室（淺色）",
+    office: "辦公室・深色（無背景）",
+    officeLight: "辦公室・淺色（無背景）",
     officeShort: "深色",
     officeLightShort: "淺色",
-    deskDay: "現代質感辦公室・辦公桌白天",
-    deskDayShort: "白天",
-    deskDusk: "現代質感辦公室・辦公桌黃昏",
-    deskDuskShort: "黃昏",
-    deskNight: "現代質感辦公室・辦公桌晚上",
-    deskNightShort: "晚上",
+    deskDay: "辦公室・晨光",
+    deskDayShort: "晨光",
+    deskDusk: "辦公室・暮色",
+    deskDuskShort: "暮色",
+    deskNight: "辦公室・夜燈",
+    deskNightShort: "夜燈",
     newTheme: "新主題",
   },
   // ── 「內建 / 自訂」標籤 ────────────────────────────────────────────────────

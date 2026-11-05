@@ -1054,16 +1054,16 @@ export const en: Dict = {
   // ⚠️ The place name is NOT here: the nav tab's 「辦公室」 is nav.office and
   // stays overridable — a theme pack may rename the PLACE, never a THEME.
   themeIdentity: {
-    office: "Office (Dark)",
-    officeLight: "Office (Light)",
+    office: "Office · Dark (no background)",
+    officeLight: "Office · Light (no background)",
     officeShort: "Dark",
     officeLightShort: "Light",
-    deskDay: "Modern office desk · Day",
-    deskDayShort: "Day",
-    deskDusk: "Modern office desk · Dusk",
+    deskDay: "Office · Morning light",
+    deskDayShort: "Morning light",
+    deskDusk: "Office · Dusk",
     deskDuskShort: "Dusk",
-    deskNight: "Modern office desk · Night",
-    deskNightShort: "Night",
+    deskNight: "Office · Night lamp",
+    deskNightShort: "Night lamp",
     newTheme: "New theme",
   },
   // ── The 內建 / 自訂 labels ─────────────────────────────────────────────────
