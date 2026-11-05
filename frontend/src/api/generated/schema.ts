@@ -8071,6 +8071,12 @@ export interface components {
              */
             body: string;
             /**
+             * Due Ts
+             * @description Optional. Epoch seconds; must be greater than 0. Omit or ``null`` and a card bound to a task step takes that task's due date (none if the task has none); any other card has no due date. The card counts as due soon by the workspace setting ``task_due_soon_lead_minutes``.
+             * @default null
+             */
+            due_ts: number | null;
+            /**
              * Kind
              * @enum {string}
              */
@@ -8082,6 +8088,12 @@ export interface components {
             linked_task: components["schemas"]["ReplyCardLinkDTO"] | null;
             /** Options */
             options: components["schemas"]["ReplyCardOptionDTO"][];
+            /**
+             * Priority
+             * @description Optional. ``high``, ``mid`` or ``low``. Omit or ``null`` and a card bound to a task step takes that task's priority (a frozen task counts as ``mid``); any other card is ``mid``. Any other value is a 400.
+             * @default null
+             */
+            priority: string | null;
             /**
              * Select Mode
              * @description How many options the owner may circle: ``single`` (the default — at most one, and at most one option may carry ``ai_pick``) or ``multi`` (any number). It is a SEPARATE axis from ``kind``: ``kind`` says what the owner must DO (decide / act), ``select_mode`` says how many choices the answer may carry.
@@ -8148,6 +8160,11 @@ export interface components {
              * @default 0
              */
             created_ts: number;
+            /**
+             * Due Ts
+             * @description Epoch seconds, or ``null`` when the card has no due date. Cards stored before this field existed read ``null``.
+             */
+            due_ts?: number | null;
             /** Expired Ts */
             expired_ts: number | null;
             /** From */
@@ -8158,6 +8175,12 @@ export interface components {
             kind: string;
             /** Options */
             options?: components["schemas"]["ReplyCardOptionDTO"][];
+            /**
+             * Priority
+             * @description ``high``, ``mid`` or ``low``. Cards stored before this field existed read ``mid``.
+             * @default mid
+             */
+            priority: string;
             /**
              * Select Mode
              * @description How many options the owner may circle: ``single`` (the default — at most one, and at most one option may carry ``ai_pick``) or ``multi`` (any number). It is a SEPARATE axis from ``kind``: ``kind`` says what the owner must DO (decide / act), ``select_mode`` says how many choices the answer may carry.
@@ -8203,6 +8226,11 @@ export interface components {
              * @default 0
              */
             created_ts: number;
+            /**
+             * Due Ts
+             * @description Epoch seconds, or ``null`` when the card has no due date. Cards stored before this field existed read ``null``.
+             */
+            due_ts?: number | null;
             /** Expired Ts */
             expired_ts: number | null;
             /** From */
@@ -8211,6 +8239,12 @@ export interface components {
             id: string;
             /** Kind */
             kind: string;
+            /**
+             * Priority
+             * @description ``high``, ``mid`` or ``low``. Cards stored before this field existed read ``mid``.
+             * @default mid
+             */
+            priority: string;
             /** Status */
             status: string;
             /**

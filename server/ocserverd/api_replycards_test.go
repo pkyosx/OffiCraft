@@ -294,7 +294,7 @@ func TestReplyCardDTOOf(t *testing.T) {
 		}
 		want := replyCardDTO{
 			ID: "rc-1", From: "mira", Kind: "decision", Summary: "ask", Body: "body",
-			Options: []ReplyCardOption{{Text: "yes"}}, SelectMode: "single", Status: "waiting", CreatedTS: 12,
+			Options: []ReplyCardOption{{Text: "yes"}}, SelectMode: "single", Status: "waiting", CreatedTS: 12, Priority: "mid",
 			Attachments: []chatAttachmentDTO{}, ChatMessageID: "c-1",
 		}
 		if !reflect.DeepEqual(got, want) {
@@ -319,7 +319,7 @@ func TestReplyCardDTOOf(t *testing.T) {
 		}
 		want := replyCardDTO{
 			ID: "rc-1", From: "mira", Kind: "decision", Summary: "ask", Body: "body",
-			Options: []ReplyCardOption{{Text: "yes"}}, SelectMode: "single", Status: "waiting", CreatedTS: 12,
+			Options: []ReplyCardOption{{Text: "yes"}}, SelectMode: "single", Status: "waiting", CreatedTS: 12, Priority: "mid",
 			Attachments: []chatAttachmentDTO{}, ChatMessageID: "c-1",
 			Task: &taskRefDTO{ID: "T-1", TypeKey: "type-alpha", Title: "reconcile the yard ledger"},
 		}
@@ -346,7 +346,7 @@ func TestWriteReplyCard(t *testing.T) {
 			"options":     []any{map[string]any{"text": "yes", "ai_pick": true}},
 			"select_mode": "multi", "status": "waiting", "created_ts": 12,
 			"attachments": []any{}, "answered_ts": nil, "expired_ts": nil,
-			"chat_message_id": "c-1", "answer": nil, "task": nil, "task_executor": "",
+			"chat_message_id": "c-1", "answer": nil, "task": nil, "task_executor": "", "priority": "mid", "due_ts": nil,
 		})
 	})
 }
@@ -1169,7 +1169,7 @@ func TestReplyCardListItemOf(t *testing.T) {
 	}
 	wantText := string([]rune(answerText)[:replyCardAnswerTextPreview]) + "…"
 	want := replyCardListItemDTO{
-		ID: "rc-1", From: "mira", Kind: replyCardKindDecision,
+		ID: "rc-1", From: "mira", Kind: replyCardKindDecision, Priority: "mid",
 		Summary: "choose a route", Status: replyCardStatusAnswered, CreatedTS: 12,
 		AnsweredTS: &answeredAt,
 		Answer: &replyCardAnswerBriefDTO{
@@ -1248,6 +1248,7 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 				"answer":        nil,
 				"task":          map[string]any{"id": "T-1", "type_key": "", "title": "Ship it"},
 				"task_executor": "kip",
+				"priority":      "mid", "due_ts": nil,
 			},
 		}))
 		status, card := apiJSON(t, h, "GET", "/api/reply-cards/"+cardID, owner, "")
@@ -1271,6 +1272,7 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 			"answer":          nil,
 			"task":            map[string]any{"id": "T-1", "type_key": "", "title": "Ship it"},
 			"task_executor":   "kip",
+			"priority":        "mid", "due_ts": nil,
 		})
 	})
 
@@ -1297,6 +1299,7 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 				"answer":        nil,
 				"task":          nil,
 				"task_executor": "",
+				"priority":      "mid", "due_ts": nil,
 			},
 			map[string]any{
 				"id":            second,
@@ -1310,6 +1313,7 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 				"answer":        nil,
 				"task":          nil,
 				"task_executor": "",
+				"priority":      "mid", "due_ts": nil,
 			},
 		}))
 		dashboard.wantFrames()
@@ -1336,6 +1340,7 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 				"answer":        nil,
 				"task":          nil,
 				"task_executor": "",
+				"priority":      "mid", "due_ts": nil,
 			},
 		}))
 	})
@@ -1367,6 +1372,7 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 					"answer":        nil,
 					"task":          nil,
 					"task_executor": "",
+					"priority":      "mid", "due_ts": nil,
 				},
 				map[string]any{
 					"id":            third,
@@ -1380,6 +1386,7 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 					"answer":        nil,
 					"task":          nil,
 					"task_executor": "",
+					"priority":      "mid", "due_ts": nil,
 				},
 			}))
 	})
@@ -1408,6 +1415,7 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 						"answer":        nil,
 						"task":          nil,
 						"task_executor": "",
+						"priority":      "mid", "due_ts": nil,
 					},
 					map[string]any{
 						"id":            second,
@@ -1421,6 +1429,7 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 						"answer":        nil,
 						"task":          nil,
 						"task_executor": "",
+						"priority":      "mid", "due_ts": nil,
 					},
 				}))
 		}
@@ -1464,6 +1473,7 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 				},
 				"task":          nil,
 				"task_executor": "",
+				"priority":      "mid", "due_ts": nil,
 			},
 			map[string]any{
 				"id":          single,
@@ -1482,6 +1492,7 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 				},
 				"task":          nil,
 				"task_executor": "",
+				"priority":      "mid", "due_ts": nil,
 			},
 		}))
 	})
@@ -1512,6 +1523,7 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 				},
 				"task":          nil,
 				"task_executor": "",
+				"priority":      "mid", "due_ts": nil,
 			},
 		}))
 	})
@@ -1536,6 +1548,7 @@ func TestHandleListReplyCardsApiReplyCardsGet(t *testing.T) {
 				"answer":        nil,
 				"task":          nil,
 				"task_executor": "",
+				"priority":      "mid", "due_ts": nil,
 			},
 		}))
 		apiWantValue(t, "waiting pane", any(apiTestReplyCardPane(t, h, owner, "")), any([]any{}))
@@ -1646,6 +1659,7 @@ func TestHandleGetReplyCardApiReplyCardsCardIdGet(t *testing.T) {
 			"answer":          nil,
 			"task":            nil,
 			"task_executor":   "",
+			"priority":        "mid", "due_ts": nil,
 		})
 		dashboard.wantFrames()
 	})
@@ -1690,6 +1704,7 @@ func TestHandleGetReplyCardApiReplyCardsCardIdGet(t *testing.T) {
 			},
 			"task":          nil,
 			"task_executor": "",
+			"priority":      "mid", "due_ts": nil,
 		})
 	})
 
@@ -2103,9 +2118,9 @@ func TestExpireWaitingCards(t *testing.T) {
 			t.Fatalf("ListReplyCards: %v", err)
 		}
 		want := []ReplyCard{
-			{ID: "rc-target", FromMember: "mira", Kind: "decision", SelectMode: "single", Status: "expired", CreatedTS: 10, ExpiredTS: 42, AnswerAttachments: []any{}, Attachments: []any{}, Options: []ReplyCardOption{}},
-			{ID: "rc-other", FromMember: "mira", Kind: "decision", SelectMode: "single", Status: "waiting", CreatedTS: 11, AnswerAttachments: []any{}, Attachments: []any{}, Options: []ReplyCardOption{}},
-			{ID: "rc-answered", FromMember: "mira", Kind: "decision", SelectMode: "single", Status: "answered", CreatedTS: 12, AnswerAttachments: []any{}, Attachments: []any{}, Options: []ReplyCardOption{}},
+			{ID: "rc-target", FromMember: "mira", Kind: "decision", SelectMode: "single", Status: "expired", CreatedTS: 10, ExpiredTS: 42, AnswerAttachments: []any{}, Attachments: []any{}, Options: []ReplyCardOption{}, Priority: "mid"},
+			{ID: "rc-other", FromMember: "mira", Kind: "decision", SelectMode: "single", Status: "waiting", CreatedTS: 11, AnswerAttachments: []any{}, Attachments: []any{}, Options: []ReplyCardOption{}, Priority: "mid"},
+			{ID: "rc-answered", FromMember: "mira", Kind: "decision", SelectMode: "single", Status: "answered", CreatedTS: 12, AnswerAttachments: []any{}, Attachments: []any{}, Options: []ReplyCardOption{}, Priority: "mid"},
 		}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("reply cards after sweep = %#v, want %#v", got, want)

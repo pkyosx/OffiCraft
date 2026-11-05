@@ -1007,3 +1007,55 @@ def test_expired_delta_reaches_the_initiating_agent(
         full = _get_card(client, asker.token, card["id"])
         assert full["status"] == "expired" and full["expired_ts"]
         assert full["answer"] is None
+
+
+# ── priority and due date ────────────────────────────────────────────────────
+
+
+def _open_ranked(client, asker: AgentIdentity, summary: str, **extra) -> dict:
+    body = {"kind": "decision", "summary": summary, "options": list(DEFAULT_OPTIONS),
+            "linked_task": None, **extra}
+    r = client.post("/api/reply-cards", json=body, headers=_auth(asker.token))
+    assert r.status_code == 200, r.text
+    return _get_card(client, asker.token, r.json()["id"])
+
+
+def test_card_priority_and_due_default_and_round_trip(client, asker):
+    plain = _open_ranked(client, asker, "plain ask")
+    assert (plain["priority"], plain["due_ts"]) == ("mid", None), plain
+    ranked = _open_ranked(client, asker, "ranked ask", priority="high", due_ts=1900000000)
+    assert (ranked["priority"], ranked["due_ts"]) == ("high", 1900000000), ranked
+    for bad in ({"priority": "frozen"}, {"priority": "urgent"}, {"due_ts": 0}, {"due_ts": -5}):
+        r = client.post("/api/reply-cards", json={
+            "kind": "decision", "summary": "bad rank", "options": list(DEFAULT_OPTIONS),
+            "linked_task": None, **bad}, headers=_auth(asker.token))
+        assert r.status_code == 400, (bad, r.status_code, r.text)
+
+
+def test_card_bound_to_a_step_takes_the_tasks_priority_and_due(client, owner_token, asker):
+    task_id, step_ids = _task_with_steps(client, asker, "conf ranked task", 2)
+    assert client.post(f"/api/tasks/{task_id}/priority", json={"priority": "low"},
+                       headers=_auth(owner_token)).status_code == 200
+    assert client.post(f"/api/tasks/{task_id}/due", json={"due_ts": 1800000000},
+                       headers=_auth(owner_token)).status_code == 200
+    inherited = _open_ranked(client, asker, "inherits",
+                             linked_task={"task_id": task_id, "step_id": step_ids[0]})
+    assert (inherited["priority"], inherited["due_ts"]) == ("low", 1800000000), inherited
+    about = _open_ranked(client, asker, "about only", about_task_id=task_id)
+    assert (about["priority"], about["due_ts"]) == ("mid", None), about
+    for card in (inherited, about):
+        _expire(client, owner_token, card["id"])
+
+
+def test_waiting_pane_sorts_by_priority_then_due_then_age(client, owner_token, asker):
+    low = _open_ranked(client, asker, "low ask", priority="low")
+    mid_old = _open_ranked(client, asker, "mid no due")
+    mid_late = _open_ranked(client, asker, "mid due late", due_ts=1900000000)
+    mid_soon = _open_ranked(client, asker, "mid due soon", due_ts=1800000000)
+    high = _open_ranked(client, asker, "high ask", priority="high")
+    mine = [high["id"], mid_soon["id"], mid_late["id"], mid_old["id"], low["id"]]
+    rows = client.get("/api/reply-cards?status=waiting", headers=_auth(owner_token)).json()
+    order = [r["id"] for r in rows if r["id"] in mine]
+    assert order == mine, order
+    row = next(r for r in rows if r["id"] == mid_soon["id"])
+    assert (row["priority"], row["due_ts"]) == ("mid", 1800000000), row

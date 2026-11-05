@@ -920,9 +920,11 @@ type replyCardDTO struct {
 	Body    string            `json:"body"`
 	Options []ReplyCardOption `json:"options"`
 
-	SelectMode string  `json:"select_mode"`
-	Status     string  `json:"status"`
-	CreatedTS  float64 `json:"created_ts"`
+	SelectMode string   `json:"select_mode"`
+	Status     string   `json:"status"`
+	CreatedTS  float64  `json:"created_ts"`
+	Priority   string   `json:"priority"`
+	DueTS      *float64 `json:"due_ts"`
 
 	Attachments   []chatAttachmentDTO `json:"attachments"`
 	AnsweredTS    *float64            `json:"answered_ts"`
@@ -942,6 +944,8 @@ type replyCardListItemDTO struct {
 	Summary      string                   `json:"summary"`
 	Status       string                   `json:"status"`
 	CreatedTS    float64                  `json:"created_ts"`
+	Priority     string                   `json:"priority"`
+	DueTS        *float64                 `json:"due_ts"`
 	AnsweredTS   *float64                 `json:"answered_ts"`
 	ExpiredTS    *float64                 `json:"expired_ts"`
 	Answer       *replyCardAnswerBriefDTO `json:"answer"`
@@ -2292,6 +2296,8 @@ func newReplyCardDTO(c ReplyCard) replyCardDTO {
 		SelectMode:    selectMode,
 		Status:        c.Status,
 		CreatedTS:     c.CreatedTS,
+		Priority:      replyCardPriorityOrMid(c.Priority),
+		DueTS:         dueTSWire(c.DueTS),
 		Attachments:   attachmentDTOsFromRefs(c.Attachments),
 		ChatMessageID: c.ChatMessageID,
 	}

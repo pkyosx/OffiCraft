@@ -2965,11 +2965,17 @@ type ReplyCardCreateDTO struct {
 	AboutTaskId *string                   `json:"about_task_id,omitempty"`
 	Attachments *[]ChatAttachmentInputDTO `json:"attachments,omitempty"`
 	Body        *string                   `json:"body,omitempty"`
-	Kind        ReplyCardCreateDTOKind    `json:"kind"`
+
+	// DueTs Optional. Epoch seconds; must be greater than 0. Omit or ``null`` and a card bound to a task step takes that task's due date (none if the task has none); any other card has no due date. The card counts as due soon by the workspace setting ``task_due_soon_lead_minutes``.
+	DueTs *float64               `json:"due_ts,omitempty"`
+	Kind  ReplyCardCreateDTOKind `json:"kind"`
 
 	// LinkedTask REQUIRED — declare, do not leave it to be inferred. Send ``null`` when the ask is NOT about a task (a plain unbound 請示), or ``{"task_id": ..., "step_id": ...}`` to bind the ask to the step it is about: that step (and its task) enters waiting_owner until the owner answers. BOTH ids are required in the object form; a task_id with no step_id is a 400, because binding a task without a step places no 等我回覆 hold — the task would finish underneath your question and the owner's answer would then be rejected for good. Omitting the field entirely is a 400 that names both legal shapes: silence used to mean 'the server guesses', and a guess that missed sent a hold-less card with no error at all.
 	LinkedTask *ReplyCardLinkDTO    `json:"linked_task"`
 	Options    []ReplyCardOptionDTO `json:"options"`
+
+	// Priority Optional. ``high``, ``mid`` or ``low``. Omit or ``null`` and a card bound to a task step takes that task's priority (a frozen task counts as ``mid``); any other card is ``mid``. Any other value is a 400.
+	Priority *string `json:"priority,omitempty"`
 
 	// SelectMode How many options the owner may circle: ``single`` (the default — at most one, and at most one option may carry ``ai_pick``) or ``multi`` (any number). It is a SEPARATE axis from ``kind``: ``kind`` says what the owner must DO (decide / act), ``select_mode`` says how many choices the answer may carry.
 	SelectMode *ReplyCardCreateDTOSelectMode `json:"select_mode,omitempty"`
@@ -3004,17 +3010,23 @@ type ReplyCardCreateReceiptDTO struct {
 
 // ReplyCardDTO One reply card (等我回覆卡). “from“ is the initiating member (the verified JWT sub at create time). “status“ is the closed set “waiting“ | “answered“ | “expired“ — the only transitions are waiting→answered via an answer (the owner's positive close) and waiting→expired via the expire action (the card's own author, the owner, or an admin agent — T-6020 opened it to the admin floor, T-1b88 widened it to the author) (標為過期 — NOT an answer: the ask went stale and the owner declined it; terminal, no reopen); a revised answer (PUT) keeps “answered“. “chat_message_id“ links the chat message the card rides in (the jump-to-origin anchor); “answered_ts“/“answer“ are null unless answered; “expired_ts“ is null unless expired. Each entry of “options“ carries its own “ai_pick“ flag (position means nothing) and “select_mode“ (“single“|“multi“) says how many of them the owner may circle. “attachments“ are the QUESTION-side attachments the initiator opened the card with (served refs incl. download url; always an array, “[]“ when none).
 type ReplyCardDTO struct {
-	Answer        *ReplyCardAnswerDTO   `json:"answer"`
-	AnsweredTs    *float64              `json:"answered_ts"`
-	Attachments   *[]ChatAttachmentDTO  `json:"attachments,omitempty"`
-	Body          *string               `json:"body,omitempty"`
-	ChatMessageId string                `json:"chat_message_id"`
-	CreatedTs     *float64              `json:"created_ts,omitempty"`
-	ExpiredTs     *float64              `json:"expired_ts"`
-	From          string                `json:"from"`
-	Id            string                `json:"id"`
-	Kind          string                `json:"kind"`
-	Options       *[]ReplyCardOptionDTO `json:"options,omitempty"`
+	Answer        *ReplyCardAnswerDTO  `json:"answer"`
+	AnsweredTs    *float64             `json:"answered_ts"`
+	Attachments   *[]ChatAttachmentDTO `json:"attachments,omitempty"`
+	Body          *string              `json:"body,omitempty"`
+	ChatMessageId string               `json:"chat_message_id"`
+	CreatedTs     *float64             `json:"created_ts,omitempty"`
+
+	// DueTs Epoch seconds, or ``null`` when the card has no due date. Cards stored before this field existed read ``null``.
+	DueTs     *float64              `json:"due_ts,omitempty"`
+	ExpiredTs *float64              `json:"expired_ts"`
+	From      string                `json:"from"`
+	Id        string                `json:"id"`
+	Kind      string                `json:"kind"`
+	Options   *[]ReplyCardOptionDTO `json:"options,omitempty"`
+
+	// Priority ``high``, ``mid`` or ``low``. Cards stored before this field existed read ``mid``.
+	Priority *string `json:"priority,omitempty"`
 
 	// SelectMode How many options the owner may circle: ``single`` (the default — at most one, and at most one option may carry ``ai_pick``) or ``multi`` (any number). It is a SEPARATE axis from ``kind``: ``kind`` says what the owner must DO (decide / act), ``select_mode`` says how many choices the answer may carry.
 	SelectMode ReplyCardDTOSelectMode `json:"select_mode"`
@@ -3040,13 +3052,19 @@ type ReplyCardListItemDTO struct {
 	Answer     *ReplyCardAnswerBriefDTO `json:"answer"`
 	AnsweredTs *float64                 `json:"answered_ts"`
 	CreatedTs  *float64                 `json:"created_ts,omitempty"`
-	ExpiredTs  *float64                 `json:"expired_ts"`
-	From       string                   `json:"from"`
-	Id         string                   `json:"id"`
-	Kind       string                   `json:"kind"`
-	Status     string                   `json:"status"`
-	Summary    *string                  `json:"summary,omitempty"`
-	Task       *TaskRefDTO              `json:"task,omitempty"`
+
+	// DueTs Epoch seconds, or ``null`` when the card has no due date. Cards stored before this field existed read ``null``.
+	DueTs     *float64 `json:"due_ts,omitempty"`
+	ExpiredTs *float64 `json:"expired_ts"`
+	From      string   `json:"from"`
+	Id        string   `json:"id"`
+	Kind      string   `json:"kind"`
+
+	// Priority ``high``, ``mid`` or ``low``. Cards stored before this field existed read ``mid``.
+	Priority *string     `json:"priority,omitempty"`
+	Status   string      `json:"status"`
+	Summary  *string     `json:"summary,omitempty"`
+	Task     *TaskRefDTO `json:"task,omitempty"`
 
 	// TaskExecutor The acting executor of the card's task, read when this response is built (it follows a reassignment), so the reader can tell an answer that concerns its own task from one that concerns somebody else's. Empty when the card names no task, when that task has no executor, or when the task is closed. A member's listener treats a card as its own when ``from`` OR ``task_executor`` is that member.
 	TaskExecutor *string `json:"task_executor,omitempty"`

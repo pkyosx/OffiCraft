@@ -57,10 +57,63 @@ func waitingReplyCards(cards []ReplyCard) []ReplyCard {
 			out = append(out, c)
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		return out[i].CreatedTS < out[j].CreatedTS
-	})
+	sortReplyCardQueue(out)
 	return out
+}
+
+// sortReplyCardQueue orders the owner's waiting queue: priority, then due date
+// (a card with one before a card without), then oldest first.
+func sortReplyCardQueue(cards []ReplyCard) {
+	sort.SliceStable(cards, func(i, j int) bool {
+		a, b := cards[i], cards[j]
+		ra, rb := taskPriorityRank(replyCardPriorityOrMid(a.Priority)), taskPriorityRank(replyCardPriorityOrMid(b.Priority))
+		if ra != rb {
+			return ra < rb
+		}
+		if (a.DueTS > 0) != (b.DueTS > 0) {
+			return a.DueTS > 0
+		}
+		if a.DueTS != b.DueTS {
+			return a.DueTS < b.DueTS
+		}
+		return a.CreatedTS < b.CreatedTS
+	})
+}
+
+func validReplyCardPriority(p string) bool {
+	return p == TaskPriorityHigh || p == TaskPriorityMid || p == TaskPriorityLow
+}
+
+func replyCardPriorityOrMid(p string) string {
+	if validReplyCardPriority(p) {
+		return p
+	}
+	return TaskPriorityMid
+}
+
+const replyCardPriorityMsg = "priority must be one of high, mid, low"
+
+// replyCardPriorityAndDue: what the caller sent wins; a field left out on a card
+// bound to a task step is copied from the task as it stands now.
+func replyCardPriorityAndDue(body ReplyCardCreateDTO, bound *Task) (string, float64, string) {
+	priority, due := TaskPriorityMid, 0.0
+	if bound != nil {
+		priority, due = replyCardPriorityOrMid(bound.Priority), bound.DueTs
+	}
+	if p := trimmedOrEmpty(body.Priority); p != "" {
+		if !validReplyCardPriority(p) {
+			return "", 0, replyCardPriorityMsg
+		}
+		priority = p
+	}
+	if body.DueTs != nil {
+		d, ok := dueTSFromWire(body.DueTs)
+		if !ok {
+			return "", 0, taskDueTSPositiveMsg
+		}
+		due = d
+	}
+	return priority, due, ""
 }
 
 func recentAnsweredReplyCards(cards []ReplyCard, now float64) []ReplyCard {
@@ -195,6 +248,10 @@ func (s *apiServer) openReplyCard(
 	if problem != "" {
 		return nil, problem, nil
 	}
+	priority, due, problem := replyCardPriorityAndDue(body, t)
+	if problem != "" {
+		return nil, problem, nil
+	}
 	var inputs []ChatAttachmentInputDTO
 	if body.Attachments != nil {
 		inputs = *body.Attachments
@@ -241,6 +298,8 @@ func (s *apiServer) openReplyCard(
 		Attachments:   refs,
 		TaskID:        taskID,
 		TaskStepID:    taskStepID,
+		Priority:      priority,
+		DueTS:         due,
 	}
 	if about != nil {
 		card.TaskID = about.ID
@@ -549,6 +608,8 @@ func (s *apiServer) replyCardListItemOf(c ReplyCard) (replyCardListItemDTO, erro
 		Summary:   c.Summary,
 		Status:    c.Status,
 		CreatedTS: c.CreatedTS,
+		Priority:  replyCardPriorityOrMid(c.Priority),
+		DueTS:     dueTSWire(c.DueTS),
 	}
 	if c.Status == replyCardStatusExpired {
 		ts := c.ExpiredTS
