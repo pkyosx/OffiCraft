@@ -151,8 +151,11 @@
   min-width: 0;
 }
 /* Jump-to-origin — a quiet text button (secondary action). */
+/* nowrap: a CJK label's min-content is one character, so a squeezed head
+ * would otherwise fold 標為過期 onto two lines inside its button. */
 .reply-card__jump {
   flex: none;
+  white-space: nowrap;
   padding: 5px 10px;
   border-radius: 8px;
   border: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
@@ -161,6 +164,12 @@
   font-size: 12px;
   cursor: pointer;
   transition: color 0.15s, border-color 0.15s;
+}
+.reply-card__actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 .reply-card__jump:hover {
   color: var(--color-text);
@@ -666,11 +675,18 @@
   .reply-card__who {
     flex: 1 1 auto;
   }
+  /* The buttons take a line of their own under the name and stamp, so none of
+   * them drops alone onto a second line beside the stamp. */
+  .reply-card__actions {
+    order: 3;
+    flex: 1 0 100%;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
 }
 
-/* ---- §3.6 請示 → 任務: the 精簡任務資訊 row on a TASK-derived ask (task title
- * + 查看任務詳情 jump). Adjudicated: never the task number/識別鍵. The type
- * chip was removed in T-ee17 acceptance. ---- */
+/* ---- §3.6 請示 → 任務: the task row on an ask that names a task (title +
+ * jump; on the 請示 page also the task number, priority and due chips). ---- */
 .reply-card__task {
   display: flex;
   align-items: center;
@@ -712,4 +728,167 @@
 }
 .reply-card__task-jump:hover {
   text-decoration: underline;
+}
+
+/* The 請示 page's task row: ruled off from the head and the question. It wraps
+ * on a narrow card — chips first, then the title, the jump held at the end. */
+.reply-card__task--row {
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-top: 10px;
+  padding: 7px 0;
+  border-top: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
+}
+.reply-card__task-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.reply-card__task--row .reply-card__task-title {
+  flex: 1 1 8em;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--color-text);
+}
+.reply-card__task--row .reply-card__task-jump {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+/* ---- 稍後再看 ---- */
+.reply-snooze {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: var(--color-card);
+  color: var(--color-text);
+  font-size: 13px;
+}
+.reply-snooze--pop {
+  position: fixed;
+  z-index: 40;
+  width: 300px;
+  max-width: calc(100vw - 16px);
+  box-sizing: border-box;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--color-shadow) 45%, transparent);
+}
+.reply-snooze__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: flex-end;
+  background: color-mix(in srgb, var(--color-backdrop) 45%, transparent);
+}
+.reply-snooze--sheet {
+  width: 100%;
+  max-height: 80%;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  border-radius: 14px 14px 0 0;
+}
+.reply-snooze__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.reply-snooze__title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+.reply-snooze__presets {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.reply-snooze__preset {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.reply-snooze--sheet .reply-snooze__preset {
+  min-height: 44px;
+}
+.reply-snooze__preset:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-overlay) 6%, transparent);
+}
+.reply-snooze__when {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.reply-snooze__custom {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--color-overlay) 8%, transparent);
+}
+.reply-snooze__custom-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.reply-snooze__amount {
+  width: 4.5em;
+  min-width: 0;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 14%, transparent);
+  background: var(--color-card);
+  color: var(--color-text-strong);
+  font: inherit;
+}
+.reply-snooze__unit {
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--color-overlay) 14%, transparent);
+  background: var(--color-card);
+  color: var(--color-text-strong);
+  font: inherit;
+  color-scheme: inherit;
+}
+.reply-snooze__apply {
+  margin-left: auto;
+  padding: 5px 12px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
+  background: transparent;
+  color: var(--color-accent);
+  font: inherit;
+  cursor: pointer;
+}
+.reply-snooze__apply:disabled {
+  border-color: color-mix(in srgb, var(--color-overlay) 10%, transparent);
+  color: var(--color-text-muted);
+  cursor: default;
+}
+.reply-snooze__preview {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+.reply-snooze__preview--bad,
+.reply-snooze__error {
+  font-size: 12px;
+  color: var(--color-danger);
 }

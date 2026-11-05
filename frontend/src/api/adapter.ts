@@ -393,6 +393,11 @@ export interface ReplyCard {
    * hand-built test fixtures stay valid (same precedent as Member.roleName);
    * the mapper always sets it (null when the wire carries none). */
   task?: TaskRefView | null;
+  /** The owner's 稍後再看: epoch seconds the card stays out of the badge and the
+   * waiting list until. The server sends it only on a waiting card while that
+   * time is ahead; null otherwise. OPTIONAL for hand-built fixtures; the mapper
+   * always sets it. */
+  snoozedUntilTs?: number | null;
 }
 
 /**
@@ -428,6 +433,14 @@ export interface ReplyCardRow {
   expiredTs?: number | null;
   /** The task this ask was armed from; null/absent ⇒ a pure chat ask. */
   task?: TaskRefView | null;
+  /** Same field as `ReplyCard.snoozedUntilTs`. */
+  snoozedUntilTs?: number | null;
+}
+
+/** What `PUT /api/reply-cards/{id}/snooze` answers: the snooze as stored. */
+export interface ReplyCardSnoozeReceipt {
+  id: string;
+  snoozedUntilTs: number | null;
 }
 
 /** What the three reply-card WRITES answer (wire `ReplyCardReceiptDTO`, T-91):
@@ -446,14 +459,20 @@ export interface ReplyCardWriteReceipt {
   expiredTs: number | null;
 }
 
-/** The LIGHT task reference riding a task-armed reply card (wire TaskRefDTO).
- * Deliberately narrow: `id` is ONLY the #tasks jump anchor; the UI shows the
- * TYPE (typeKey; "" ⇒ 自由代辦) — never the task number/識別鍵 (adjudicated:
- * 請示卡不露任務編號). `title` rides along for accessibility labels. */
+/** The LIGHT task reference riding a reply card that names a task (wire
+ * TaskRefDTO). `id` is the #tasks jump anchor and, on the 請示 page's task row,
+ * the task number shown (the number IS the id); the inline chat card still
+ * shows only the title. */
 export interface TaskRefView {
   id: string;
   typeKey: string;
   title: string;
+  /** The task's own priority / due date / due-soon lead, read by the server
+   * when the response was built (a later task change shows on the next read).
+   * OPTIONAL for hand-built fixtures; the mapper always sets them. */
+  priority?: string;
+  dueTs?: number | null;
+  dueSoonLeadMinutes?: number | null;
 }
 
 /** The owner's answer to a reply card: the quick-reply `optionIdxs` and/or
@@ -482,6 +501,9 @@ export interface ReplyCardCounts {
   waiting: number;
   answered: number;
   expired: number;
+  /** When `waiting` next changes by itself (the earliest snooze running out);
+   * null when nothing is snoozed. OPTIONAL for hand-built fixtures. */
+  waitingNextChangeTs?: number | null;
 }
 
 // ── Tasks (M3 任務卡) view models ─────────────────────────────────────────────
@@ -2424,6 +2446,17 @@ export interface Api {
    * fans).
    */
   expireReplyCard(id: string): Promise<ReplyCardWriteReceipt>;
+  /**
+   * The owner's 稍後再看 (`PUT /api/reply-cards/{id}/snooze`): keep a WAITING
+   * card out of the badge until `untilTs` (epoch seconds, later than now and at
+   * most 90 days ahead), or bring it back now with `null`. The card stays
+   * waiting and can still be answered or expired. 422 past/too far, 409 the
+   * card is answered or expired, 404 unknown.
+   */
+  snoozeReplyCard(
+    id: string,
+    untilTs: number | null,
+  ): Promise<ReplyCardSnoozeReceipt>;
   // ── Tasks (M3 任務頁 + 任務卡) ──────────────────────────────────────────────
   /**
    * List tasks as LIGHT list items (the collapsed card's fields +

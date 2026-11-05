@@ -697,3 +697,177 @@ describe("請示卡 開卡人 篩選 (T-118)", () => {
     );
   });
 });
+
+// ── 優先序／期限 ─────────────────────────────────────────────────────────────
+// Same shape as the 開卡人 axis: options and counts come from the loaded panes,
+// an empty set is no constraint, and every axis ANDs with the others and the id.
+describe("請示卡 優先序／期限 篩選", () => {
+  const H = 3600;
+  function tick(axis: string, value: string) {
+    const trigger = document.querySelector(`[data-testid="${axis}"]`) as HTMLElement;
+    if (trigger.getAttribute("aria-expanded") !== "true") fireEvent.click(trigger);
+    fireEvent.click(document.querySelector(`[data-testid="${axis}-opt-${value}"] input`)!);
+  }
+  function shownIds(): string[] {
+    return [...document.querySelectorAll<HTMLElement>("[data-reply-card-id][aria-expanded]")].map(
+      (el) => el.dataset.replyCardId!
+    );
+  }
+  function optionCounts(axis: string): Record<string, string> {
+    const trigger = document.querySelector(`[data-testid="${axis}"]`) as HTMLElement;
+    if (trigger.getAttribute("aria-expanded") !== "true") fireEvent.click(trigger);
+    const out: Record<string, string> = {};
+    for (const el of document.querySelectorAll<HTMLElement>(`[data-testid^="${axis}-count-"]`)) {
+      out[el.dataset.testid!.slice(`${axis}-count-`.length)] = el.textContent ?? "";
+    }
+    fireEvent.click(trigger);
+    return out;
+  }
+  function seed() {
+    const now = Date.now() / 1000;
+    const task = (id: string, priority: string, dueTs: number | null) => ({
+      id,
+      typeKey: "",
+      title: id,
+      priority,
+      dueTs,
+    });
+    __injectMockReplyCard(mkCard({ id: "rc-high-over", createdTs: now - 1 * 60, task: task("T-1", "high", now - H) }));
+    __injectMockReplyCard(mkCard({ id: "rc-mid-soon", createdTs: now - 2 * 60, task: task("T-2", "mid", now + H) }));
+    __injectMockReplyCard(
+      mkCard({ id: "rc-low-later", from: "kyle", createdTs: now - 3 * 60, task: task("T-3", "low", now + 5 * 24 * H) })
+    );
+    __injectMockReplyCard(mkCard({ id: "rc-frozen-undated", createdTs: now - 4 * 60, task: task("T-4", "frozen", null) }));
+    __injectMockReplyCard(mkCard({ id: "rc-notask", from: "kyle", createdTs: now - 5 * 60, task: null }));
+  }
+
+  it("優先序 → each option with its count from the panes; ticking 高 and 沒有任務的卡 keeps exactly those cards", async () => {
+    seed();
+    const { findAllByTestId } = renderPage();
+    await waitFor(async () => expect(await findAllByTestId("waiting-card")).toHaveLength(5));
+
+    expect(optionCounts("filter-priority")).toEqual({ high: "1", mid: "1", low: "1", frozen: "1", notask: "1" });
+    const labels = () => {
+      fireEvent.click(document.querySelector('[data-testid="filter-priority"]')!);
+      const out = [...document.querySelectorAll<HTMLElement>('[data-testid^="filter-priority-opt-"]')].map(
+        (el) => el.textContent
+      );
+      fireEvent.click(document.querySelector('[data-testid="filter-priority"]')!);
+      return out;
+    };
+    expect(labels()).toEqual(["高1", "中1", "低1", "凍結1", "沒有任務的卡1"]);
+
+    tick("filter-priority", "high");
+    tick("filter-priority", "notask");
+    await waitFor(() => expect(shownIds()).toEqual(["rc-high-over", "rc-notask"]));
+  });
+
+  it("期限 → 已逾期, 快到期, 有期限 and 沒有期限 each keep their cards (no task counts as 沒有期限); ticked together they OR", async () => {
+    seed();
+    const { findAllByTestId } = renderPage();
+    await waitFor(async () => expect(await findAllByTestId("waiting-card")).toHaveLength(5));
+    expect(optionCounts("filter-due")).toEqual({ overdue: "1", soon: "1", dated: "3", undated: "2" });
+
+    tick("filter-due", "overdue");
+    await waitFor(() => expect(shownIds()).toEqual(["rc-high-over"]));
+    tick("filter-due", "overdue");
+    tick("filter-due", "soon");
+    await waitFor(() => expect(shownIds()).toEqual(["rc-mid-soon"]));
+    tick("filter-due", "soon");
+    tick("filter-due", "dated");
+    await waitFor(() => expect(shownIds()).toEqual(["rc-high-over", "rc-mid-soon", "rc-low-later"]));
+    tick("filter-due", "dated");
+    tick("filter-due", "undated");
+    await waitFor(() => expect(shownIds()).toEqual(["rc-frozen-undated", "rc-notask"]));
+    tick("filter-due", "overdue");
+    await waitFor(() => expect(shownIds()).toEqual(["rc-high-over", "rc-frozen-undated", "rc-notask"]));
+  });
+
+  it("開卡人 AND 優先序 AND 期限 → only a card passing all three stays, and each axis counts what the OTHER axes let through", async () => {
+    seed();
+    const { findAllByTestId } = renderPage();
+    await waitFor(async () => expect(await findAllByTestId("waiting-card")).toHaveLength(5));
+
+    tick("filter-opener", "kyle");
+    await waitFor(() => expect(shownIds()).toEqual(["rc-low-later", "rc-notask"]));
+    expect(optionCounts("filter-priority")).toEqual({ low: "1", notask: "1" });
+    expect(optionCounts("filter-due")).toEqual({ dated: "1", undated: "1" });
+
+    tick("filter-due", "undated");
+    await waitFor(() => expect(shownIds()).toEqual(["rc-notask"]));
+    expect(optionCounts("filter-priority")).toEqual({ notask: "1" });
+    expect(optionCounts("filter-due")).toEqual({ dated: "1", undated: "1" });
+
+    tick("filter-due", "undated");
+    tick("filter-priority", "low");
+    await waitFor(() => expect(shownIds()).toEqual(["rc-low-later"]));
+    expect(optionCounts("filter-due")).toEqual({ dated: "1" });
+  });
+
+  it("an id whose card fails the 優先序 axis → filtered-empty, not the card", async () => {
+    seed();
+    const { findAllByTestId, findByTestId } = renderPage();
+    await waitFor(async () => expect(await findAllByTestId("waiting-card")).toHaveLength(5));
+    tick("filter-priority", "low");
+    applyId("rc-high-over");
+    expect((await findByTestId("replies-empty")).textContent).toBe("沒有符合篩選條件的請示");
+    expect(shownIds()).toEqual([]);
+
+    tick("filter-priority", "high");
+    await waitFor(() => expect(shownIds()).toEqual(["rc-high-over"]));
+  });
+
+  it("the axes narrow 已延後 and 近期已處理 too", async () => {
+    seed();
+    const now = Date.now() / 1000;
+    __injectMockReplyCard(
+      mkCard({ id: "rc-snoozed-high", createdTs: now - 9 * 60, snoozedUntilTs: now + H, task: { id: "T-5", typeKey: "", title: "", priority: "high" } })
+    );
+    __injectMockReplyCard(
+      mkCard({ id: "rc-snoozed-low", createdTs: now - 9 * 60, snoozedUntilTs: now + 2 * H, task: { id: "T-6", typeKey: "", title: "", priority: "low" } })
+    );
+    __injectMockReplyCard(
+      mkCard({
+        id: "rc-done-high",
+        status: "answered",
+        answeredTs: now - 60,
+        answer: { optionIdxs: [0], text: "", attachments: [] },
+        task: { id: "T-8", typeKey: "", title: "", priority: "high" },
+      })
+    );
+    __injectMockReplyCard(
+      mkCard({
+        id: "rc-done-notask",
+        status: "answered",
+        answeredTs: now - 120,
+        answer: { optionIdxs: [0], text: "", attachments: [] },
+        task: null,
+      })
+    );
+    const { findByTestId, findAllByTestId } = renderPage();
+    await waitFor(async () => expect(await findAllByTestId("waiting-card")).toHaveLength(5));
+    fireEvent.click(await findByTestId("snoozed-toggle"));
+    fireEvent.click(await findByTestId("answered-toggle"));
+    await waitFor(() => expect(shownIds()).toHaveLength(9));
+
+    tick("filter-priority", "high");
+    await waitFor(() => expect(shownIds()).toEqual(["rc-high-over", "rc-snoozed-high", "rc-done-high"]));
+    expect((await findByTestId("snoozed-toggle")).textContent).toContain("已延後 · 1");
+    expect((await findByTestId("answered-toggle")).textContent).toContain("近期已處理 · 1");
+  });
+
+  it("清除篩選 lifts 優先序 and 期限 as well", async () => {
+    seed();
+    const { findAllByTestId, findByTestId } = renderPage();
+    await waitFor(async () => expect(await findAllByTestId("waiting-card")).toHaveLength(5));
+    expect(document.querySelector('[data-testid="replies-filter-clear"]')).toBeNull();
+    tick("filter-priority", "high");
+    tick("filter-due", "overdue");
+    await waitFor(() => expect(shownIds()).toEqual(["rc-high-over"]));
+
+    fireEvent.click(await findByTestId("replies-filter-clear"));
+    await waitFor(() => expect(shownIds()).toHaveLength(5));
+    expect(document.querySelector('[data-testid="filter-priority"]')?.textContent).toContain("所有優先序");
+    expect(document.querySelector('[data-testid="filter-due"]')?.textContent).toContain("所有期限");
+  });
+});

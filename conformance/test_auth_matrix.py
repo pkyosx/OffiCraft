@@ -1133,6 +1133,16 @@ MATRIX: dict[str, Route] = {
         ),
         body={"text": "conf matrix revised answer"},
     ),
+    "PUT /api/reply-cards/{card_id}/snooze": Route(
+        # null: an unsnooze is valid on any waiting card and needs no clock.
+        requires="owner",
+        path=lambda ctx, i: (
+            "/api/reply-cards/"
+            + (_matrix_card(ctx) if i == "owner" else "rc-conf-missing")
+            + "/snooze"
+        ),
+        body={"snoozed_until_ts": None},
+    ),
     "POST /api/reply-cards/{card_id}/expire": Route(
         # T-1b88 (owner 2026-08-07, card rc-3ff94b116970) revised T-6020 for THIS
         # row: retiring an ask nobody answered is no longer governance when it is

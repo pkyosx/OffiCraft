@@ -93,7 +93,7 @@ for (const width of [1280, 390, 360, 320]) {
     await expect(trigger).toBeVisible();
 
     await expect(trigger).toHaveAccessibleName("顯示方式");
-    const labelWidth = (await trigger.locator(".tasks__display-label").boundingBox())!.width;
+    const labelWidth = (await trigger.locator(".display-options__label").boundingBox())!.width;
     if (width <= 390) expect(labelWidth, "phone shows the icon only").toBeLessThanOrEqual(1);
     else expect(labelWidth).toBeGreaterThan(20);
 

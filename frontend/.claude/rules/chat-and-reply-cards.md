@@ -35,6 +35,11 @@ paths:
   - "src/lib/autosize.ts"
   - "src/lib/chatDraftStore.ts"
   - "src/lib/replyExcerpt.ts"
+  - "src/lib/replySnooze*"
+  - "src/lib/replyCardSort*"
+  - "src/lib/replyCardReceipt*"
+  - "visual-guards/reply-desk*"
+  - "visual-guards/stories/ReplyDesk*"
   - "src/lib/hashRoute.ts"
   - "src/lib/hashRoute.test.ts"
   - "src/api/mock.scheduled-messages.test.ts"
@@ -92,6 +97,14 @@ ChatArea、ReplyComposer、TaskCard 訊息框都是 textarea，送出決策只�
 RepliesPage 與 ChatReplyCard 共用 ReplyCardBody、ReplyComposer；兩者訂 reply_card，inline 卡另做單卡 refetch。answer、expire 與 waiting-pane 的 owner 動作**把寫入回應合併進畫面上那張卡**（`lib/replyCardReceipt.ts` 的 `mergeReplyCardWrite`：只取 status／answer／answeredTs／expiredTs，其餘留著讀回來的那份），不再重抓、也不再整張換掉——T-91 之後那三個寫入只回傳它自己決定的東西，題目、選項、附件與 task ref 都不在上面，整張換掉會讓 `card.task.title` 這類欄位在存檔後靜靜變空。合併後按 id 保留，直到 waiting 快照不再列出它，或 handled 快照帶著不舊於新狀態的 handled 戳記。其他卡照常採用，不能丟整份快照。refresh() 仍無條件 refetch。
 
 ChatReplyCard 的 doReanswer 保留單卡 refetch：終態 delta 可能被刻意丟棄，拿掉會留下舊答案。不要把它和 doAnswer 對齊，也不要把「delta 是唯一 reconcile trigger」寫回規則。
+
+## 請示卡頁的排序、任務列與稍後再看
+
+- 待回覆預設依開卡時間新到舊；「顯示方式」的排序依據（`lib/replyCardSort.ts`，localStorage `oc_replies_sort`）只排待回覆，已延後依回來時間、近期已處理依處理時間，都不受它影響。任務優先序的順序取 `lib/taskPriority.ts` 的 `priorityRank`（跟任務頁同一份），沒有任務的卡排在凍結後面。
+- 任務列的優先序／期限是 server 在回應當下讀任務本身的值（`TaskRefDTO`），卡片不存。⇒ `useReplyCards` 除了 `reply_card` 也要在 `task` delta 重抓，否則改任務的優先序或期限，請示頁要等下一張卡變動才跟上。期限顏色走 `TaskDueChip`（`useDueState`，在跨過邊界的那一刻重繪，不是輪詢）。外包的「目前任務」那一行只在跟任務列同一個任務時才隱藏。
+- 優先序／期限篩選跟開卡人軸同一套：選項與張數從 pane 資料算，每一軸的張數只套用**其他**軸；三軸彼此 AND、也跟 id AND，同時作用在待回覆、已延後、近期已處理。
+- 🔴 稍後再看的卡仍是 waiting：`listReplyCards("waiting")` 照列、帶 `snoozedUntilTs`；provider 依自己的時鐘把它分到 `snoozed`，`waiting`（也就是徽章）不含它。到時間 server 什麼都不寫、不發事件，所以 provider 自己在最早的 `snoozedUntilTs` 設 timer 讓卡回來，並在 `count.waiting_next_change_ts` 重抓一次。
+- 🔴 `snooze()` 跟 answer／expire 一樣要「握到快照同意為止」：寫入前就在飛的那支 waiting 讀取會帶著舊的 snooze 回來，直接採用會把剛延後的卡放回待回覆（取消延後則相反）。`heldSnoozeRef` 依 id 握住寫入存下的值，直到快照列出同一個值、卡不在 waiting 了、或握住的時間已過。409 跟回答一樣是「卡已經被處理」，要講清楚並 `refresh()`；其他失敗留在選單裡（取消延後則在卡上）顯示，不清掉畫面。
 
 ## 請示卡頁的 ID 篩選（T-118，owner 2026-09-06 20:07／20:19）
 

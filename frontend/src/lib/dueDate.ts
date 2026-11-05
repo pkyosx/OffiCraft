@@ -76,6 +76,21 @@ export function dueState(dueTs: number, nowTs: number, leadMinutes: number): Due
   return { kind: "later" };
 }
 
+/** Which due band a due date sits in right now: the 任務頁 due lanes and both
+ * pages' 到期 filters. */
+export type DueBucket = "overdue" | "soon" | "later" | "nodue";
+
+export function dueBucketOf(
+  dueTs: number | null | undefined,
+  nowTs: number,
+  leadMinutes: number
+): DueBucket {
+  if (dueTs == null) return "nodue";
+  if (isOverdue(dueTs, nowTs)) return "overdue";
+  if (isDueSoon(dueTs, nowTs, leadMinutes)) return "soon";
+  return "later";
+}
+
 /** The next moment the due state changes on its own (entering the lead
  * window, then passing due); null once overdue. The 逾期 N 天 count rolling
  * over at local midnight is not included — useNowSeconds covers that. */
@@ -123,6 +138,26 @@ export function nextDueRemainingChangeTs(dueTs: number, nowTs: number): number |
   if (gap >= HOUR_S) return dueTs - Math.floor(gap / HOUR_S) * HOUR_S + 1;
   if (gap >= 2 * MINUTE_S) return dueTs - Math.floor(gap / MINUTE_S) * MINUTE_S + 1;
   return dueTs;
+}
+
+/** The earliest moment any of `items` changes due band, so a list re-judges
+ * its due filter, lanes or sort exactly then. */
+export function nextDueChangeAmong(
+  items: readonly { dueTs?: number | null; dueSoonLeadMinutes?: number | null }[],
+  nowTs: number,
+  workspaceLeadMinutes: number
+): number | null {
+  let next: number | null = null;
+  for (const item of items) {
+    if (item.dueTs == null) continue;
+    const at = nextDueChangeTs(
+      item.dueTs,
+      nowTs,
+      effectiveLeadMinutes(item.dueSoonLeadMinutes, workspaceLeadMinutes)
+    );
+    if (at !== null && (next === null || at < next)) next = at;
+  }
+  return next;
 }
 
 /** The next moment a card's due colour or remaining time changes. */

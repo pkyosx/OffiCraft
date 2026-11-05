@@ -136,11 +136,9 @@ async function openCards() {
 }
 
 describe("請示卡的任務資訊 (RepliesPage)", () => {
-  it("task-derived ask: TITLE + 查看任務詳情, never the typeKey nor the task number", async () => {
+  it("task-derived ask → #number chip, TITLE and 查看任務, never the typeKey; the jump lands on #tasks/<id>", async () => {
     __injectMockReplyCard(
       mkCard({
-        // The title deliberately carries a "T-" — it is free prose the owner
-        // wrote, and it must not be what trips the no-task-number assertion.
         task: {
           id: "t-77",
           typeKey: "sync-jira",
@@ -154,18 +152,13 @@ describe("請示卡的任務資訊 (RepliesPage)", () => {
       </I18nProvider>
     );
     await findByTestId("waiting-card");
-    await openCards();
     const ref = await findByTestId("reply-task-ref");
-    // The row names the work by its title, never by the internal type key.
+    expect(ref.querySelector('[data-testid="reply-task-no"]')?.textContent).toBe("#t-77");
+    expect(ref.querySelector(".reply-card__task-title")?.textContent).toBe(
+      "同步 PROJ-1421 到 T-9 的排程"
+    );
+    expect(ref.querySelector('[data-testid="reply-task-jump"]')?.textContent).toBe("查看任務");
     expect(ref.textContent).not.toContain("sync-jira");
-    expect(ref.textContent).toContain("同步 PROJ-1421 到 T-9 的排程");
-    expect(ref.textContent).toContain("查看任務詳情");
-    // Adjudicated: no task number / raw id leaks onto the card. Scanned over
-    // the cells that may NOT carry one — the title cell is excluded because a
-    // title is free prose, not the number.
-    const outsideTitle = taskRefTextOutsideTitle(ref);
-    expect(outsideTitle).not.toContain("t-77");
-    expect(outsideTitle).not.toContain("T-");
 
     fireEvent.click(await findByTestId("reply-task-jump"));
     expect(window.location.hash).toBe("#tasks/t-77");
@@ -208,6 +201,8 @@ describe("請示卡的任務資訊 (ChatReplyCard)", () => {
     const ref = await findByTestId("reply-task-ref");
     expect(ref.textContent).not.toContain("review-pr");
     expect(ref.textContent).toContain("修 PR");
+    // The chat card names the task by its title only.
+    expect(taskRefTextOutsideTitle(ref)).toBe("查看任務詳情");
     fireEvent.click(await findByTestId("reply-task-jump"));
     expect(window.location.hash).toBe("#tasks/t-99");
   });

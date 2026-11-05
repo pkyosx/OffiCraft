@@ -924,29 +924,31 @@ type replyCardDTO struct {
 	Status     string  `json:"status"`
 	CreatedTS  float64 `json:"created_ts"`
 
-	Attachments   []chatAttachmentDTO `json:"attachments"`
-	AnsweredTS    *float64            `json:"answered_ts"`
-	ExpiredTS     *float64            `json:"expired_ts"`
-	ChatMessageID string              `json:"chat_message_id"`
-	Answer        *replyCardAnswerDTO `json:"answer"`
-	Task          *taskRefDTO         `json:"task"`
-	TaskExecutor  string              `json:"task_executor"`
+	Attachments    []chatAttachmentDTO `json:"attachments"`
+	AnsweredTS     *float64            `json:"answered_ts"`
+	ExpiredTS      *float64            `json:"expired_ts"`
+	ChatMessageID  string              `json:"chat_message_id"`
+	Answer         *replyCardAnswerDTO `json:"answer"`
+	Task           *taskRefDTO         `json:"task"`
+	TaskExecutor   string              `json:"task_executor"`
+	SnoozedUntilTS *float64            `json:"snoozed_until_ts"`
 }
 
 // replyCardListItemDTO is a LIGHT row: summary plus, when answered, the
 // decision digest; never the body (owner ruling T-3f31: 卡只需要 title+決策).
 type replyCardListItemDTO struct {
-	ID           string                   `json:"id"`
-	From         string                   `json:"from"`
-	Kind         string                   `json:"kind"`
-	Summary      string                   `json:"summary"`
-	Status       string                   `json:"status"`
-	CreatedTS    float64                  `json:"created_ts"`
-	AnsweredTS   *float64                 `json:"answered_ts"`
-	ExpiredTS    *float64                 `json:"expired_ts"`
-	Answer       *replyCardAnswerBriefDTO `json:"answer"`
-	Task         *taskRefDTO              `json:"task"`
-	TaskExecutor string                   `json:"task_executor"`
+	ID             string                   `json:"id"`
+	From           string                   `json:"from"`
+	Kind           string                   `json:"kind"`
+	Summary        string                   `json:"summary"`
+	Status         string                   `json:"status"`
+	CreatedTS      float64                  `json:"created_ts"`
+	AnsweredTS     *float64                 `json:"answered_ts"`
+	ExpiredTS      *float64                 `json:"expired_ts"`
+	Answer         *replyCardAnswerBriefDTO `json:"answer"`
+	Task           *taskRefDTO              `json:"task"`
+	TaskExecutor   string                   `json:"task_executor"`
+	SnoozedUntilTS *float64                 `json:"snoozed_until_ts"`
 }
 
 // replyCardAnswerBriefDTO: Text is preview-truncated and attachments are a
@@ -963,8 +965,14 @@ type replyCardAnswerBriefDTO struct {
 type replyCardCountDTO struct {
 	Waiting int `json:"waiting"`
 	// Answered / Expired count a 24h window.
-	Answered int `json:"answered"`
-	Expired  int `json:"expired"`
+	Answered            int      `json:"answered"`
+	Expired             int      `json:"expired"`
+	WaitingNextChangeTS *float64 `json:"waiting_next_change_ts"`
+}
+
+type replyCardSnoozeReceiptDTO struct {
+	ID             string   `json:"id"`
+	SnoozedUntilTS *float64 `json:"snoozed_until_ts"`
 }
 
 // chatListDTO: NextCursor is opaque (encodeChatCursor) and omitted when the
@@ -1443,10 +1451,15 @@ type bootstrapDTO struct {
 	Token   *string `json:"token"`
 }
 
+// Priority and the due fields are the task's, read when the card is served;
+// the card stores none of them.
 type taskRefDTO struct {
-	ID      string `json:"id"`
-	TypeKey string `json:"type_key"`
-	Title   string `json:"title"`
+	ID                 string   `json:"id"`
+	TypeKey            string   `json:"type_key"`
+	Title              string   `json:"title"`
+	Priority           string   `json:"priority"`
+	DueTS              *float64 `json:"due_ts"`
+	DueSoonLeadMinutes *int     `json:"due_soon_lead_minutes"`
 }
 
 type taskStepDTO struct {

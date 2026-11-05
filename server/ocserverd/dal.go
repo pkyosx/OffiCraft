@@ -1575,12 +1575,15 @@ type ReplyCard struct {
 	Attachments        []any
 	TaskID             string
 	TaskStepID         string
+	// 0 = not snoozed. A stamp the clock has passed stays stored; readers
+	// compare it with now (replyCardSnoozedUntil).
+	SnoozedUntilTS float64
 }
 
 const replyCardColumns = `id, from_member, kind, summary, body, options,
 	select_mode, status, created_ts, answered_ts, expired_ts, chat_message_id,
 	answer_option_idxs, answer_text, answer_attachments, attachments,
-	task_id, task_step_id, answer_reply_excerpt`
+	task_id, task_step_id, answer_reply_excerpt, snoozed_until_ts`
 
 func scanReplyCard(row interface{ Scan(...any) error }) (ReplyCard, error) {
 	var c ReplyCard
@@ -1591,7 +1594,7 @@ func scanReplyCard(row interface{ Scan(...any) error }) (ReplyCard, error) {
 		&c.SelectMode, &c.Status, &c.CreatedTS, &c.AnsweredTS, &c.ExpiredTS,
 		&c.ChatMessageID,
 		&optionIdxs, &c.AnswerText, &answerAttachments, &attachments,
-		&c.TaskID, &c.TaskStepID, &c.AnswerReplyExcerpt,
+		&c.TaskID, &c.TaskStepID, &c.AnswerReplyExcerpt, &c.SnoozedUntilTS,
 	)
 	if err != nil {
 		return ReplyCard{}, err
@@ -1814,9 +1817,15 @@ func putReplyCardOn(ex sqlExecer, c ReplyCard) error {
 		}
 		optionIdxs = string(blob)
 	}
+	// Every write that answers or expires a card lands here, so this is the one
+	// place a snooze is dropped with the waiting state it belongs to.
+	snoozedUntil := c.SnoozedUntilTS
+	if c.Status != replyCardStatusWaiting {
+		snoozedUntil = 0
+	}
 	_, err = ex.Exec(`
 		INSERT INTO reply_card (`+replyCardColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET
 			from_member = excluded.from_member, kind = excluded.kind,
 			summary = excluded.summary, body = excluded.body,
@@ -1830,12 +1839,14 @@ func putReplyCardOn(ex sqlExecer, c ReplyCard) error {
 			answer_attachments = excluded.answer_attachments,
 			attachments = excluded.attachments,
 			task_id = excluded.task_id, task_step_id = excluded.task_step_id,
-			answer_reply_excerpt = excluded.answer_reply_excerpt`,
+			answer_reply_excerpt = excluded.answer_reply_excerpt,
+			snoozed_until_ts = excluded.snoozed_until_ts`,
 		c.ID, c.FromMember, c.Kind, c.Summary, c.Body, string(optionsBlob),
 		selectMode, c.Status, c.CreatedTS, c.AnsweredTS, c.ExpiredTS,
 		c.ChatMessageID,
 		optionIdxs, c.AnswerText, string(answerAttachmentsBlob),
 		string(attachmentsBlob), c.TaskID, c.TaskStepID, c.AnswerReplyExcerpt,
+		snoozedUntil,
 	)
 	return err
 }

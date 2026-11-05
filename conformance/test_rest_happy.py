@@ -2650,6 +2650,13 @@ HAPPY: dict[str, Happy] = {
             and d["answer"]["option_idxs"] is None,
         ),
     ),
+    "PUT /api/reply-cards/{card_id}/snooze": Happy(
+        path=lambda ctx: f"/api/reply-cards/{_happy_card(ctx)}/snooze",
+        body={"snoozed_until_ts": None},
+        check=lambda _c, r: _expect(
+            r, lambda d: set(d) == {"id", "snoozed_until_ts"} and d["snoozed_until_ts"] is None
+        ),
+    ),
     "POST /api/reply-cards/{card_id}/expire": Happy(
         path=lambda ctx: f"/api/reply-cards/{_happy_card(ctx)}/expire",
         check=lambda _c, r: _expect(

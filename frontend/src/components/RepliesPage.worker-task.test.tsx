@@ -170,6 +170,30 @@ describe("RepliesPage — the asking outsource worker's current task", () => {
     expect(await findByText("另一張票的標題")).toBeTruthy();
   });
 
+  it("a card whose task row names the worker's own task → the worker line is hidden, the task row alone names it", async () => {
+    workerRows = [mkWorker({})];
+    __injectMockReplyCard(
+      mkCard({
+        task: { id: "T-42", typeKey: "", title: "把請示卡列表補上外包正在做的任務" },
+      }),
+    );
+    __injectMockReplyCard(
+      mkCard({ id: "rc-2", task: { id: "T-7", typeKey: "", title: "另一張票的標題" } }),
+    );
+
+    const { findByTestId, queryByTestId } = renderPage();
+
+    expect((await findByTestId("reply-card-rc-2-task-ow-a")).textContent).toBe("T-42");
+    const same = await findCard("rc-1");
+    expect(queryByTestId("reply-card-rc-1-task-ow-a")).toBeNull();
+    expect(queryByTestId("reply-card-task-title-rc-1")).toBeNull();
+    expect(same.querySelector(".reply-card__worker-task")).toBeNull();
+    expect(
+      same.querySelector('[data-testid="reply-task-ref"] [data-testid="reply-task-no"]')
+        ?.textContent,
+    ).toBe("#T-42");
+  });
+
   it("shows it on a card bound to NO task at all (a plain chat ask)", async () => {
     workerRows = [mkWorker({})];
     __injectMockReplyCard(mkCard({ task: null }));
