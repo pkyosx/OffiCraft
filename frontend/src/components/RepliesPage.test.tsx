@@ -1196,7 +1196,7 @@ describe("RepliesPage", () => {
     expect(queryByTestId("reply-task-ref")).toBeNull();
   });
 
-  it("顯示方式 › 排序依據 → each order re-sorts 待回覆 only (已延後 stays by return time, 近期已處理 by handled time), the active one is named beside the title, and the choice survives a remount", async () => {
+  it("顯示方式 › 排序依據 → each order re-sorts 待回覆 only (已延後 stays by return time, 近期已處理 by handled time), the active one is named beside the title, the panel closes once a sort is picked, and the choice survives a remount", async () => {
     const now = Date.now() / 1000;
     const task = (id: string, priority: string, dueTs: number | null = null) => ({ id, typeKey: "", title: id, priority, dueTs });
     __injectMockReplyCard(mkCard({ id: "rc-notask", createdTs: now - 10 * 60, task: null }));
@@ -1251,8 +1251,13 @@ describe("RepliesPage", () => {
       due: ["rc-frozen", "rc-low", "rc-mid", "rc-notask", "rc-high"],
       createdDesc: ["rc-notask", "rc-low", "rc-mid", "rc-high", "rc-frozen"],
     };
+    const chooseSort = (value: string) => {
+      if (!first.queryByTestId("replies-sort")) fireEvent.click(first.getByTestId("display-options"));
+      fireEvent.change(first.getByTestId("replies-sort"), { target: { value } });
+    };
     for (const [value, order] of Object.entries(expected)) {
-      fireEvent.change(select, { target: { value } });
+      chooseSort(value);
+      expect(first.queryByTestId("display-options-panel")).toBeNull();
       expect(paneIds("waiting-card")).toEqual(order);
       expect(paneIds("snoozed-card")).toEqual(["rc-snz-soon", "rc-snz-late"]);
       expect(paneIds("answered-card")).toEqual(["rc-handled", "rc-handled-mid", "rc-handled-early"]);
@@ -1260,7 +1265,7 @@ describe("RepliesPage", () => {
     }
     expect(first.getByTestId("replies-sort-active").textContent).toBe("開卡時間（新到舊）");
 
-    fireEvent.change(select, { target: { value: "priority" } });
+    chooseSort("priority");
     expect(first.getByTestId("replies-sort-active").textContent).toBe("任務優先序（高到低）");
     first.unmount();
 

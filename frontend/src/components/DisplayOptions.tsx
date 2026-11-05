@@ -84,7 +84,11 @@ export function DisplayOptions<V extends string>({
             <select
               className="display-options__select"
               value={value}
-              onChange={(e) => onChange(e.target.value as V)}
+              onChange={(e) => {
+                onChange(e.target.value as V);
+                setOpen(false);
+                triggerRef.current?.focus();
+              }}
               data-testid={selectTestId}
             >
               {options.map((o) => (
