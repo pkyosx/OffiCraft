@@ -227,129 +227,6 @@ function ThemeOptions() {
   );
 }
 
-const toneCache = new Map<string, string | null>();
-
-/** The average colour of a background image, or null until known (and for
- * good where the image cannot be read — jsdom, a broken file). Two themes can
- * share --color-bg and differ only in their picture, so the timeline colours a
- * segment by the picture when there is one. */
-function useImageTone(src: string | undefined): string | null {
-  const [tone, setTone] = useState<string | null>(() => (src ? (toneCache.get(src) ?? null) : null));
-  useEffect(() => {
-    if (!src) {
-      setTone(null);
-      return;
-    }
-    if (toneCache.has(src)) {
-      setTone(toneCache.get(src) ?? null);
-      return;
-    }
-    let alive = true;
-    const img = new Image();
-    img.onload = () => {
-      let value: string | null = null;
-      try {
-        const canvas = document.createElement("canvas");
-        canvas.width = canvas.height = 8;
-        const ctx = canvas.getContext("2d");
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, 8, 8);
-          const px = ctx.getImageData(0, 0, 8, 8).data;
-          const sum = [0, 0, 0];
-          for (let i = 0; i < px.length; i += 4) {
-            sum[0] += px[i];
-            sum[1] += px[i + 1];
-            sum[2] += px[i + 2];
-          }
-          const n = px.length / 4;
-          value = `rgb(${sum.map((c) => Math.round(c / n)).join(", ")})`;
-        }
-      } catch {
-        value = null;
-      }
-      toneCache.set(src, value);
-      if (alive) setTone(value);
-    };
-    img.src = src;
-    return () => {
-      alive = false;
-    };
-  }, [src]);
-  return tone;
-}
-
-const DAY_MINUTES = 24 * 60;
-
-const minutesOf = (start: string) => {
-  const m = /^(\d{2}):(\d{2})$/.exec(start);
-  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
-};
-
-function TimelineSegment({
-  widthPercent,
-  swatch,
-  name,
-  start,
-}: {
-  widthPercent: number;
-  swatch: ThemeSwatch | null;
-  name: string;
-  start: string | null;
-}) {
-  const tone = useImageTone(swatch?.image);
-  return (
-    <span
-      className="ts-timeline__seg"
-      data-testid="ts-timeline-seg"
-      style={{
-        width: `${widthPercent}%`,
-        backgroundColor: tone ?? swatch?.bg,
-        color: swatch?.text,
-      }}
-    >
-      <span className="ts-timeline__text">
-        <span className="ts-timeline__name">{name}</span>
-        {start && <span className="ts-timeline__time">{start}</span>}
-      </span>
-    </span>
-  );
-}
-
-/** Today at a glance, 00:00 → 24:00. Decorative: the rows carry the same
- * information for assistive tech. */
-function ScheduleTimeline({ rows, swatchOf }: { rows: ThemeScheduleEntry[]; swatchOf: SwatchOf }) {
-  const names = useThemeNames();
-  const marks = rows
-    .map((r) => ({ at: minutesOf(r.start), start: r.start, theme: r.theme }))
-    .filter((m): m is { at: number; start: string; theme: string } => m.at !== null)
-    .sort((a, b) => a.at - b.at);
-  if (!marks.length) return null;
-  const last = marks[marks.length - 1];
-  const segments = [
-    // Before the first start it is still the previous evening's last row.
-    ...(marks[0].at > 0 ? [{ from: 0, to: marks[0].at, theme: last.theme, start: null }] : []),
-    ...marks.map((m, i) => ({
-      from: m.at,
-      to: marks[i + 1]?.at ?? DAY_MINUTES,
-      theme: m.theme,
-      start: m.start as string | null,
-    })),
-  ].filter((seg) => seg.to > seg.from);
-  return (
-    <div className="ts-timeline" aria-hidden="true" data-testid="ts-timeline">
-      {segments.map((seg, i) => (
-        <TimelineSegment
-          key={i}
-          widthPercent={((seg.to - seg.from) / DAY_MINUTES) * 100}
-          swatch={swatchOf(seg.theme)}
-          name={names.short(seg.theme)}
-          start={seg.start}
-        />
-      ))}
-    </div>
-  );
-}
-
 function ThemeAppearance({
   draft,
   setDraft,
@@ -419,7 +296,6 @@ function ThemeAppearance({
 
       {draft ? (
         <div className="param-row param-row--stacked ts-schedule" data-testid="theme-schedule">
-          <ScheduleTimeline rows={draft} swatchOf={swatchOf} />
           <div className="ts-list">
             {draft.map((row, i) => (
               <div key={i} className="ts-row ts-schedule-row">

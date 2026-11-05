@@ -1811,10 +1811,6 @@ describe("ThemeSettings · switch by time of day", () => {
       input.value,
       (section(utils).getByLabelText(`${s.themeScheduleTheme} ${i + 1}`) as HTMLSelectElement).value,
     ]);
-  const timelineLabels = (utils: ReturnType<typeof render>) =>
-    Array.from(utils.getByTestId("ts-timeline").querySelectorAll(".ts-timeline__time")).map(
-      (l) => l.textContent
-    );
 
   async function renderWithDusk() {
     setToken("owner-token");
@@ -1850,7 +1846,6 @@ describe("ThemeSettings · switch by time of day", () => {
       ["dusk", "黃昏"],
     ]);
     expect(section(utils).getAllByTestId("ts-thumb")).toHaveLength(3);
-    expect(timelineLabels(utils)).toEqual(["06:00", "16:30", "18:30"]);
     expect(patch).not.toHaveBeenCalled();
     expect((await api.getServerSettings()).displayThemeSchedule).toEqual([]);
   });
@@ -1902,7 +1897,6 @@ describe("ThemeSettings · switch by time of day", () => {
       ["16:30", "modern-office-desk-dusk"],
       ["18:30", "modern-office-desk-night"],
     ]);
-    expect(timelineLabels(utils)).toEqual(["05:30", "06:00", "16:30", "18:30"]);
     expect(section(utils).getByText(s.themeScheduleSaved)).toBeTruthy();
   });
 
@@ -1976,33 +1970,6 @@ describe("ThemeSettings · switch by time of day", () => {
       ["16:30", "modern-office-desk-dusk"],
       ["18:30", "modern-office-desk-night"],
     ]);
-  });
-
-  it("draws each row as a solid segment in its theme's colour, with its short name and start", async () => {
-    setToken("owner-token");
-    await api.putTheme({ id: "midnight", name: "午夜藍", colors: { "--color-bg": "#0a0b0c" } });
-    const utils = await renderAppearanceDialog();
-    fireEvent.click(scheduleSwitch(utils));
-    fireEvent.change(section(utils).getByLabelText(`${s.themeScheduleTheme} 3`), {
-      target: { value: "midnight" },
-    });
-
-    const segments = utils.getAllByTestId("ts-timeline-seg");
-    expect(segments.map((seg) => seg.textContent)).toEqual([
-      "午夜藍",
-      `${zh.themeIdentity.deskDayShort}06:00`,
-      `${zh.themeIdentity.deskDuskShort}16:30`,
-      "午夜藍18:30",
-    ]);
-    expect(segments.map((seg) => seg.style.width)).toEqual([
-      `${(6 / 24) * 100}%`,
-      `${(10.5 / 24) * 100}%`,
-      `${(2 / 24) * 100}%`,
-      `${(5.5 / 24) * 100}%`,
-    ]);
-    await waitFor(() => expect(segments[1].style.backgroundColor).toBe("rgb(235, 229, 218)"));
-    expect(segments[0].style.backgroundColor).toBe("rgb(10, 11, 12)");
-    expect(utils.getByTestId("ts-timeline").getAttribute("aria-hidden")).toBe("true");
   });
 
   it("deleting a theme the schedule uses drops the schedule when fewer than two rows would be left", async () => {
