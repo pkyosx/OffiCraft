@@ -19,9 +19,8 @@
 //      assertions red, and two of them would only have been saying that the
 //      test itself had expired.
 //   2. It called "the last tab is clipped" a defect, while the PRODUCT'S OWN
-//      documentation calls it normal: docs/guide/mobile.md:10 says, verbatim,
-//      that 使用說明 is clipped on narrower phones and that swiping right
-//      reveals the whole tab. The strip really does scroll (`.nav-tabs__seg`,
+//      documentation calls it normal: docs/guide/mobile.md:9 says the tab
+//      strip can be swiped sideways on phones where it does not fit. The strip really does scroll (`.nav-tabs__seg`,
 //      `overflow-x: auto`), so the tab is reachable and tappable.
 //   3. Its green on this repo's dev Mac was a PLATFORM ARTEFACT. A Han glyph
 //      advances exactly 1em in nearly every CJK font; macOS `system-ui` is the
