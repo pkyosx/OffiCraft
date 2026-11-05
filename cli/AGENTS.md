@@ -16,6 +16,7 @@
 
 - `ocwarden install`／`teardown` 的 launchctl、filesystem、probe、download 副作用，production 只經 `realHostSeam()`／`newHostSeam`；測試由 `TestMain` 交換 fake seam。這保護「走過 seam 的入口」，不是對手工 composite literal 或新 process starter 的證明；新增 starter 要讓 AST zero-list query 與 process throat guard 看得到，測試不得直接呼叫 real host function。
 - self-update 用 content-hash swap oracle，先 verify 新 binary 可執行才 swap。warden 必須 exec-in-place（同 PID、argv、env），不可依賴 launchd 的 KeepAlive 把 self-update 後退出的 warden 拉回來；agent 是獨立 process，warden restart 不應讓 agent 掉出 online。
+- macOS 解析站台網域時會留下沒有 close-on-exec 的系統 socket，Go 不會替它標記。ocwarden 每一次 exec（含 self-update）與每一次啟動子程序前都要先呼叫 `markDescriptorsCloseOnExec`；漏掉的地方，子程序會繼承這些 socket，self-update 也會一次多累積一條，累積到子程序開檔數不夠才出錯。
 - repo 已移除 code-signing 機制；不要重新引入 sign／identity knob，也不要把它和 root 規則保留的 TCC 身分錨點混為一談。binary identity 的現行證據是 bytes/hash 與 exec probe。
 - 15 分鐘輪詢是 update backstop；SSE reconnect 與 server `update` command 都可 `updater.Kick()`，buffered-1 去抖。舊 warden 對未知 update verb 要安全 log+skip，不可因不認識新動詞而誤執行。
 - **同一條 poll loop 有兩種醒法，而第三個生產者不是 `Kick`。** `renew` command 走 `updater.RenewNow`：先舉起換發需求、再 `Kick`。接成 `Kick` 會編譯、會跑、什麼都不換 —— 被叫醒的那一輪只會重問一次換發判斷式，而那個判斷式對這台機器的憑證本來就已經回過「還不用換」。這三條接線在 `wireUpdaterSeams`，因為原本它們在 realMain 的長駐分支裡、沒有任何測試進得去。⚠️ **這句的理由換過一次**：原本寫的是「warden 憑證沒有 `exp`，問快到期了嗎一定得到否定」，那在 T-fc53 第一段之前是對的、之後不再是——判斷式改看「發下來多久」（`iat`），沒有 `exp` 也答得出來。結論沒變（`Kick` 仍然換不了憑證），變的是為什麼，而拿去設計解法的是後者。

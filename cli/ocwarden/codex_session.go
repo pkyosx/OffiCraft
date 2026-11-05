@@ -1369,6 +1369,7 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 		return 1
 	}
 	cmd.Stderr = out
+	markDescriptorsCloseOnExec()
 	if err := cmd.Start(); err != nil {
 		fmt.Fprintf(out, "codex-session: start app-server: %v\n", err)
 		return 1
@@ -1524,6 +1525,7 @@ func runCodexSession(argv []string, env func(string) string, out io.Writer) int 
 						return 1
 					}
 					s.ackTo = ackPipe
+					markDescriptorsCloseOnExec()
 					if startErr := listenerCmd.Start(); startErr != nil {
 						fmt.Fprintf(out, "codex-session: start ocagent listen: %v\n", startErr)
 						return 1

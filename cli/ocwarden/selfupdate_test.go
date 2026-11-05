@@ -1248,9 +1248,12 @@ func TestBuildSelfUpdater(t *testing.T) {
 	exePath := stageBinary(t, filepath.Join(home, ".officraft", "warden", "ocwarden"), "warden-bytes-v1")
 	cfg := Config{Base: "https://station.example", Token: jwtWardenOne, ID: "warden-1"}
 
+	leaked := openInheritableDescriptor(t)
 	var execCalls [][]string
+	var leakedCloseOnExecAtExec []bool
 	execImage := func(path string, argv, envv []string) error {
 		execCalls = append(execCalls, append([]string{path}, argv...))
+		leakedCloseOnExecAtExec = append(leakedCloseOnExecAtExec, closeOnExec(t, leaked))
 		return errors.New("exec did not take")
 	}
 	var log []string
@@ -1299,6 +1302,9 @@ func TestBuildSelfUpdater(t *testing.T) {
 	want := append([]string{u.selfPath}, os.Args...)
 	if len(execCalls) != 1 || !reflect.DeepEqual(execCalls[0], want) {
 		t.Errorf("execSelf ran %v, want one exec of %v", execCalls, want)
+	}
+	if !reflect.DeepEqual(leakedCloseOnExecAtExec, []bool{true}) {
+		t.Errorf("descriptor opened without close-on-exec was close-on-exec at exec: %v, want [true] so the new image does not inherit it", leakedCloseOnExecAtExec)
 	}
 
 	u.logf("hello %s", "there")

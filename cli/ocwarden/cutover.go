@@ -179,6 +179,7 @@ func spawnDetachedProcess(bin string, args []string, env []string, logPath strin
 			defer f.Close()
 		}
 	}
+	markDescriptorsCloseOnExec()
 	if err := cmd.Start(); err != nil {
 		return err
 	}
@@ -302,6 +303,7 @@ func realRunExit(name string, args ...string) (int, error) {
 	refuseInTestBinary("realRunExit(" + name + ")")
 	ctx, cancel := context.WithTimeout(context.Background(), selfUpdateProbeBudget)
 	defer cancel()
+	markDescriptorsCloseOnExec()
 	err := exec.CommandContext(ctx, name, args...).Run()
 	if err == nil {
 		return 0, nil
@@ -389,6 +391,7 @@ func runInstallerCombined(name string, args ...string) (string, error) {
 	refuseInTestBinary("runInstallerCombined(" + name + ")")
 	ctx, cancel := context.WithTimeout(context.Background(), cutoverInstallBudget)
 	defer cancel()
+	markDescriptorsCloseOnExec()
 	out, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
 	return string(out), err
 }

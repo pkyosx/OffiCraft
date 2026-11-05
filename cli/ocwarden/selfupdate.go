@@ -605,12 +605,15 @@ func buildSelfUpdater(cfg Config, env rawEnv, logf func(string, ...any), executa
 
 		kick: make(chan struct{}, 1),
 
-		execSelf: func() error { return execImage(selfPath, os.Args, os.Environ()) },
-		exit:     os.Exit,
-		logf:     logf,
-		post:     httpPoster(reportClient, cfg.Base, cfg.Token),
-		agentID:  cfg.ID,
-		now:      time.Now,
+		execSelf: func() error {
+			markDescriptorsCloseOnExec()
+			return execImage(selfPath, os.Args, os.Environ())
+		},
+		exit:    os.Exit,
+		logf:    logf,
+		post:    httpPoster(reportClient, cfg.Base, cfg.Token),
+		agentID: cfg.ID,
+		now:     time.Now,
 	}
 	// newRenewalWiring builds its own HTTP client: the short announce budget
 	// beside the station request client is one character away.
