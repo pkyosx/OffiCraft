@@ -189,7 +189,7 @@ export function ThemeEntryRow({ onOpen, large = false }: { onOpen: () => void; l
     <button
       type="button"
       className={`ts-entry${large ? " ts-entry--large" : ""}`}
-      aria-label={msg.themeEntryLabel(name)}
+      aria-label={msg.themeEntryLabel(name, tag)}
       data-testid="theme-entry"
       onClick={onOpen}
     >

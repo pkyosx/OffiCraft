@@ -828,7 +828,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         // load would paint it before React mounts.
         if (themeRef.current !== id) return;
         setActiveThemeBundle(b);
-        writePaint(b);
+        // A schedule may have come on while it loaded (reconcile); then this
+        // picture would only duplicate a slot's.
+        if (displayShownRef.current) writePaint(b);
       } catch (e) {
         console.warn("display theme: bundle load failed", e);
       } finally {

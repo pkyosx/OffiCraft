@@ -1001,6 +1001,8 @@ var messageKeys = map[string]bool{
 	"profile.themeEdit":                                true,
 	"profile.themeEditTitle":                           true,
 	"profile.themeEntryLabelLead":                      true,
+	"profile.themeEntryLabelTagLead":                   true,
+	"profile.themeEntryLabelTagTail":                   true,
 	"profile.themeEntryLabelTail":                      true,
 	"profile.themeEntryScheduled":                      true,
 	"profile.themeEntrySeasonal":                       true,

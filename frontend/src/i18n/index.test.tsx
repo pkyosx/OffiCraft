@@ -15,16 +15,20 @@ import { api } from "../api";
 import { setToken, TOKEN_KEY } from "../api/auth";
 import type { LoadableSeasonalWindow } from "../lib/seasonalTheme";
 import type { ThemeBundle } from "../lib/themeBundleCore";
+import { paintRecordFor } from "../lib/themePaint";
 
 const seasonalWindows = vi.hoisted(() => [] as LoadableSeasonalWindow[]);
 vi.mock("../lib/seasonalTheme", () => ({ SEASONAL_WINDOWS: seasonalWindows }));
 const builtinLoads = vi.hoisted(() => [] as string[]);
+/** A built-in id whose load waits for `release` — to land it late on purpose. */
+const builtinHold = vi.hoisted(() => ({ id: "", until: Promise.resolve() }));
 vi.mock("../lib/bundledBuiltinThemes", async (importOriginal) => {
   const real = await importOriginal<typeof import("../lib/bundledBuiltinThemes")>();
   return {
     ...real,
-    loadBundledBuiltinTheme: (id: string) => {
+    loadBundledBuiltinTheme: async (id: string) => {
       builtinLoads.push(id);
+      if (id === builtinHold.id) await builtinHold.until;
       return real.loadBundledBuiltinTheme(id);
     },
   };
@@ -1701,6 +1705,44 @@ describe("I18nProvider under the desk default", () => {
     expect(ctx.theme).toBe(DAY);
     expect(builtinLoads).toEqual([NIGHT]);
     expect(localStorage.getItem("oc.themePaint")).toBeNull();
+  });
+
+  it("with a schedule on, drops the display theme's picture a device cached before the schedule, without fetching that theme", async () => {
+    await mockApi.putTheme(MIDNIGHT);
+    await mockApi.patchServerSettings({ displayTheme: "midnight" });
+    localStorage.setItem("oc.theme", "midnight");
+    localStorage.setItem("oc.themePaint", JSON.stringify(paintRecordFor(MIDNIGHT)));
+    const getTheme = vi.spyOn(api, "getTheme");
+    at(new Date(2030, 0, 15, 20, 0));
+    await mount();
+
+    await waitFor(() => expect(ctx.shownThemeBundle?.id).toBe(NIGHT));
+    expect(ctx.theme).toBe("midnight");
+    expect(localStorage.getItem("oc.themePaint")).toBeNull();
+    expect(getTheme).not.toHaveBeenCalled();
+  });
+
+  it("a display bundle that lands after reconcile turned a schedule on does not write the display picture back", async () => {
+    await mockApi.patchServerSettings({ displayTheme: NIGHT });
+    localStorage.setItem("oc.theme", NIGHT);
+    let release!: () => void;
+    builtinHold.id = NIGHT;
+    builtinHold.until = new Promise<void>((r) => {
+      release = r;
+    });
+    at(new Date(2030, 0, 15, 12, 0));
+    await mount();
+    await waitFor(() => expect(ctx.shownThemeBundle?.id).toBe(DAY));
+    expect(builtinLoads).toContain(NIGHT);
+
+    await act(async () => {
+      release();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    await waitFor(() => expect(ctx.activeThemeBundle?.id).toBe(NIGHT));
+    expect(localStorage.getItem("oc.themePaint")).toBeNull();
+    builtinHold.id = "";
   });
 
   it("恢復預設 at night loads only the night slot", async () => {

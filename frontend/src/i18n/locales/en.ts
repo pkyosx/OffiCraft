@@ -1089,6 +1089,8 @@ export const en: Dict = {
     theme: "Theme",
     themeEntryLabelLead: "Theme: ",
     themeEntryLabelTail: ", open theme settings",
+    themeEntryLabelTagLead: " (",
+    themeEntryLabelTagTail: ")",
     themeEntryScheduled: "Scheduled",
     themeEntrySeasonal: "Seasonal",
     themeAdd: "New",

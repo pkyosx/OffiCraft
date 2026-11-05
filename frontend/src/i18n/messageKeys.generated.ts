@@ -1000,6 +1000,8 @@ export const MESSAGE_KEYS: readonly string[] = [
   "profile.themeEdit",
   "profile.themeEditTitle",
   "profile.themeEntryLabelLead",
+  "profile.themeEntryLabelTagLead",
+  "profile.themeEntryLabelTagTail",
   "profile.themeEntryLabelTail",
   "profile.themeEntryScheduled",
   "profile.themeEntrySeasonal",

@@ -136,6 +136,11 @@ describe("ProfileDropdown · preferences scope", () => {
     await waitFor(() =>
       expect(themeStatus(utils)).toBe(`${zh.themeIdentity.officeLight} · ${p.themeEntryScheduled}`)
     );
+    expect(
+      utils.getByRole("button", {
+        name: makeMessages(zh, "zh").themeEntryLabel(zh.themeIdentity.officeLight, p.themeEntryScheduled),
+      })
+    ).toBeTruthy();
   });
 
   describe("inside a seasonal window", () => {

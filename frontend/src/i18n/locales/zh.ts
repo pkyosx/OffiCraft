@@ -1164,6 +1164,8 @@ export const zh = {
     theme: "主題",
     themeEntryLabelLead: "主題：",
     themeEntryLabelTail: "，開啟主題設定",
+    themeEntryLabelTagLead: "（",
+    themeEntryLabelTagTail: "）",
     themeEntryScheduled: "依時段",
     themeEntrySeasonal: "應景",
     themeAdd: "新增",
